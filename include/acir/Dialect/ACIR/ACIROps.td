@@ -99,6 +99,13 @@ def ACIR_VarAddOp : ACIR_VarBinaryOp<"var.add">;
 def ACIR_VarSubOp : ACIR_VarBinaryOp<"var.sub">;
 def ACIR_VarMulOp : ACIR_VarBinaryOp<"var.mul">;
 
+def ACIR_VarPopcountOp : ACIR_Op<"var.popcount", [Pure]> {
+  let arguments = (ins ACIR_VarType:$in);
+  let results = (outs ACIR_VarType:$result);
+  let hasVerifier = 1;
+  let assemblyFormat = "$in attr-dict `:` qualified(type($in)) `->` qualified(type($result))";
+}
+
 def ACIR_VarCmpOp : ACIR_Op<"var.cmp", [
     Pure, AllTypesMatch<["lhs", "rhs"]>
   ]> {

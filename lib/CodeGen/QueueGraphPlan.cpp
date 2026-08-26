@@ -152,6 +152,11 @@ llvm::Error extractExpressions(mlir::Region &region, QueueBlockPlan &plan) {
         return error;
       continue;
     }
+    if (mlir::isa<ac::VarPopcountOp>(operation)) {
+      if (auto error = append(operation, "popcount"))
+        return error;
+      continue;
+    }
     if (auto compare = mlir::dyn_cast<ac::VarCmpOp>(operation)) {
       if (auto error = append(operation, "cmp", {}, compare.getPredicate()))
         return error;

@@ -13,6 +13,25 @@ def pipeline() -> None:
     sink(output_queue)
 """
 
+POPCOUNT_SOURCE = """
+from agentic_circuit import sink, source, struct, system
+
+@struct
+class Item:
+    value: u8
+    count: u4
+
+@system
+def pipeline() -> None:
+    input_queue = source(Item)
+    output_queue = input_queue.apply(
+        lambda item: item.with_fields(count=popcount(item.value)),
+        depth=2,
+        latency=1,
+    )
+    sink(output_queue)
+"""
+
 STRUCT_SOURCE = """
 from agentic_circuit import sink, source, struct, system
 
@@ -451,6 +470,15 @@ def pipeline() -> None:
 
 
 class QueueFrontendV02Test(unittest.TestCase):
+    def test_popcount_lowers_to_width_checked_var_operation(self) -> None:
+        from agentic_circuit._queue_frontend import lower_queue_source
+
+        lowered = lower_queue_source(POPCOUNT_SOURCE, "pipeline")
+        self.assertIn(
+            "ac.var.popcount %v0 : !ac.var<i8> -> !ac.var<i4>",
+            lowered,
+        )
+
     def test_verification_expect_is_non_consuming_and_role_explicit(self) -> None:
         from agentic_circuit._queue_frontend import (
             QueueFrontendError,

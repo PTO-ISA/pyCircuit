@@ -1107,6 +1107,23 @@ LogicalResult VarMulOp::verify() {
   return verifyVarBinary(*this, getLhs(), getRhs(), getResult());
 }
 
+LogicalResult VarPopcountOp::verify() {
+  auto input = cast<VarType>(getIn().getType());
+  auto result = cast<VarType>(getResult().getType());
+  auto inputInt = dyn_cast<IntegerType>(input.getElementType());
+  auto resultInt = dyn_cast<IntegerType>(result.getElementType());
+  if (!inputInt || !resultInt)
+    return emitOpError("input and result payloads must be integer types");
+
+  unsigned required = 0;
+  for (unsigned width = inputInt.getWidth(); width != 0; width >>= 1)
+    ++required;
+  if (resultInt.getWidth() != required)
+    return emitOpError() << "result width must be ceil(log2(input_width + 1)) = "
+                         << required;
+  return success();
+}
+
 LogicalResult VarCmpOp::verify() {
   if (getLhs().getType() != getRhs().getType())
     return emitOpError("operands must have the same Var type");

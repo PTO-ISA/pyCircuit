@@ -165,6 +165,12 @@ llvm::Expected<std::string> emitExpressionBody(const QueueBlockPlan &block,
              << '.' << expression.field << ";\n";
       continue;
     }
+    if (expression.kind == "popcount") {
+      output << padding << "auto " << expression.result
+             << " = __builtin_popcountll(static_cast<unsigned long long>("
+             << first->str() << "));\n";
+      continue;
+    }
     auto second = operand(1);
     if (!second)
       return second.takeError();

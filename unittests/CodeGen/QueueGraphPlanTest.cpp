@@ -418,12 +418,15 @@ TEST(QueueGraphPlanTest, EmitsQueuePredicateAsPycComparison) {
     auto pyc = generateQueueGraphPyc(*plan);
     ASSERT_TRUE(bool(pyc)) << llvm::toString(pyc.takeError());
     EXPECT_NE(pyc->find(testCase.opcode.str()), std::string::npos);
+    EXPECT_NE(pyc->find("pyc.rr_arbiter"), std::string::npos);
     size_t notCount = 0;
     for (size_t offset = 0;
          (offset = pyc->find("pyc.not", offset)) != std::string::npos;
          offset += 7)
       ++notCount;
-    EXPECT_EQ(notCount, testCase.negated ? 3u : 2u);
+    // Round-robin selection is now delegated to the qualified PYC arbiter
+    // primitive rather than expanded into per-cursor pyc.not/pyc.mux logic.
+    EXPECT_EQ(notCount, testCase.negated ? 1u : 0u);
   }
 }
 
