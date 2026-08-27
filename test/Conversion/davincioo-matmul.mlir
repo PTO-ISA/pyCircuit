@@ -15,5 +15,8 @@
 // CHECK-DAG: acsim.module @EngineT
 // CHECK-DAG: acsim.invoke @acir_trace_next_pto
 // CHECK-DAG: acsim.invoke @acir_trace_decode
+// CHECK-DAG: arith.constant 35 : i64
+// CHECK-DAG: arith.constant 38 : i64
+// CHECK-DAG: arith.constant 4096 : i64
 // CHECK-DAG: cf.cond_br
 // CHECK-DAG: cf.br

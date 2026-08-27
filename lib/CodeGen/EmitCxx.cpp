@@ -1185,6 +1185,10 @@ private:
           emitBin(mul.getResult(), mul.getLhs(), mul.getRhs(), "*");
           continue;
         }
+        if (auto div = dyn_cast<arith::DivUIOp>(op)) {
+          emitBin(div.getResult(), div.getLhs(), div.getRhs(), "/");
+          continue;
+        }
         if (auto sub = dyn_cast<arith::SubIOp>(op)) {
           emitBin(sub.getResult(), sub.getLhs(), sub.getRhs(), "-");
           continue;

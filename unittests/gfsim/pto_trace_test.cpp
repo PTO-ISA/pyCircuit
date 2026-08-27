@@ -49,7 +49,7 @@ TEST(PtoTraceProviderTest, IndexedLookupDoesNotAdvanceImplicitState) {
   EXPECT_TRUE(provider.eof("pto", 3));
 }
 
-TEST(PtoTraceProviderTest, BuildsEngineLatencyAndDependencies) {
+TEST(PtoTraceProviderTest, BuildsOpcodeWorkloadAndDependencies) {
   TemporaryTrace trace(kThreeRecordTrace);
   PtoTraceProvider provider;
   provider.load("pto", trace.path());
@@ -57,9 +57,18 @@ TEST(PtoTraceProviderTest, BuildsEngineLatencyAndDependencies) {
   uint64_t load = provider.decode(0);
   uint64_t extract = provider.decode(1);
   uint64_t matmul = provider.decode(2);
-  EXPECT_EQ((load >> PtoScheduleDescriptor::kEngineShift) & 3u, 3u);
-  EXPECT_EQ((extract >> PtoScheduleDescriptor::kEngineShift) & 3u, 1u);
-  EXPECT_EQ((matmul >> PtoScheduleDescriptor::kEngineShift) & 3u, 2u);
+  EXPECT_EQ((load >> PtoScheduleDescriptor::kOpcodeShift) & 7u, 1u);
+  EXPECT_EQ((extract >> PtoScheduleDescriptor::kOpcodeShift) & 7u, 2u);
+  EXPECT_EQ((matmul >> PtoScheduleDescriptor::kOpcodeShift) & 7u, 3u);
+  EXPECT_EQ((load >> PtoScheduleDescriptor::kWorkloadShift) &
+                PtoScheduleDescriptor::kMaxWorkload,
+            64u);
+  EXPECT_EQ((extract >> PtoScheduleDescriptor::kWorkloadShift) &
+                PtoScheduleDescriptor::kMaxWorkload,
+            16u);
+  EXPECT_EQ((matmul >> PtoScheduleDescriptor::kWorkloadShift) &
+                PtoScheduleDescriptor::kMaxWorkload,
+            8u);
   EXPECT_EQ((extract >> PtoScheduleDescriptor::kDependencyValidShift) & 7u,
             1u);
   EXPECT_EQ((extract >> PtoScheduleDescriptor::kDependency0Shift) & 0xffu,
@@ -80,6 +89,14 @@ TEST(PtoTraceProviderTest, RejectsNonContiguousSequence) {
 TEST(PtoTraceProviderTest, RejectsUnknownOpcode) {
   TemporaryTrace trace(
       R"({"sequence_id":0,"opcode":"NOT_AN_OPCODE","input_tiles":[],"scalar_inputs":[],"output_tiles":[]})"
+      "\n");
+  PtoTraceProvider provider;
+  EXPECT_THROW(provider.load("pto", trace.path()), std::runtime_error);
+}
+
+TEST(PtoTraceProviderTest, RejectsWorkloadThatExceedsDescriptor) {
+  TemporaryTrace trace(
+      R"({"sequence_id":0,"opcode":"TLOAD","input_tiles":[],"scalar_inputs":[],"output_tiles":[{"address":"0x0","shape":[67108864],"dtype":"uint8"}]})"
       "\n");
   PtoTraceProvider provider;
   EXPECT_THROW(provider.load("pto", trace.path()), std::runtime_error);

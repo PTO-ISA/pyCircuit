@@ -68,6 +68,143 @@ InFlightDiagnostic lowerError(Operation *op, llvm::StringRef code,
   return op->emitError() << code << ": " << message;
 }
 
+bool isYieldOnlyProcess(ac::ProcessOp process) {
+  return process.getCaptures().empty() && process.getBody().hasOneBlock() &&
+         llvm::hasSingleElement(process.getBody().front()) &&
+         isa<ac::YieldSimOp>(process.getBody().front().front());
+}
+
+bool isDatapathArith(Operation *op) {
+  return isa<arith::ConstantOp, arith::AddIOp, arith::SubIOp, arith::MulIOp,
+             arith::DivUIOp, arith::AndIOp, arith::OrIOp, arith::XOrIOp,
+             arith::ShLIOp, arith::ShRUIOp, arith::ShRSIOp, arith::CmpIOp,
+             arith::SelectOp, arith::IndexCastOp>(op);
+}
+
+enum class DeviceKind { None, Register, RegFile };
+
+DeviceKind deviceKindForQueue(ac::QueueOp queue) {
+  if (DictionaryAttr watermarks = queue.getWatermarksAttr()) {
+    if (auto kind = watermarks.getAs<StringAttr>("kind")) {
+      if (kind.getValue() == "register")
+        return DeviceKind::Register;
+      if (kind.getValue() == "regfile")
+        return DeviceKind::RegFile;
+    }
+  }
+  llvm::StringRef name = queue.getSymName();
+  if (name == "rf")
+    return DeviceKind::RegFile;
+  if (name == "pc" || name == "busy")
+    return DeviceKind::Register;
+  return DeviceKind::None;
+}
+
+struct ResolvedQueue {
+  ac::QueueOp op;
+  std::string moduleName;
+  std::string queueName;
+  DeviceKind device = DeviceKind::None;
+};
+
+std::optional<ResolvedQueue> resolveQueueRef(Operation *from,
+                                             mlir::SymbolRefAttr ref) {
+  Operation *target = ac::lookupRuntimeSymbol(from, ref);
+  auto queue = dyn_cast_or_null<ac::QueueOp>(target);
+  if (!queue)
+    return std::nullopt;
+  auto ownerMod = queue->getParentOfType<ac::ModuleOp>();
+  ResolvedQueue resolved;
+  resolved.op = queue;
+  resolved.moduleName = ownerMod ? ownerMod.getSymName().str() : std::string();
+  resolved.queueName = queue.getSymName().str();
+  resolved.device = deviceKindForQueue(queue);
+  return resolved;
+}
+
+bool integerPayloadCpp(Type type, unsigned &width, std::string &cpp) {
+  auto integer = dyn_cast<IntegerType>(type);
+  if (!integer || !integer.isSignless())
+    return false;
+  width = integer.getWidth();
+  if (width == 1) {
+    cpp = "bool";
+    return true;
+  }
+  if (width != 8 && width != 16 && width != 32 && width != 64)
+    return false;
+  cpp = "std::uint" + std::to_string(width) + "_t";
+  return true;
+}
+
+bool isDatapathProcess(ac::ProcessOp process) {
+  if (!process.getBody().hasOneBlock())
+    return false;
+  unsigned yields = 0;
+  bool hasEffect = false;
+  WalkResult walk = process.walk([&](Operation *op) {
+    if (op == process.getOperation())
+      return WalkResult::advance();
+    if (isa<ac::YieldSimOp>(op)) {
+      ++yields;
+      return WalkResult::advance();
+    }
+    if (isa<ac::TrySendOp, ac::TryRecvOp, ac::ScheduleOp, ac::WaitUntilOp,
+            ac::WaitForOp, ac::AwaitEventOp, ac::StatAddOp, ac::StatOp,
+            ac::ProbeOp, ac::RequireOp, ac::EnsureOp, ac::TraceOpenOp,
+            ac::TraceNextOp, ac::TraceDecodeOp, ac::TraceEofOp,
+            ac::TracePositionOp>(op)) {
+      hasEffect = true;
+      if (isa<ac::WaitUntilOp, ac::WaitForOp, ac::AwaitEventOp>(op) &&
+          op->getParentOp() != process.getOperation())
+        return WalkResult::interrupt();
+      return WalkResult::advance();
+    }
+    if (isDatapathArith(op) ||
+        isa<scf::IfOp, scf::ForOp, scf::YieldOp, ac::AssertOp>(op))
+      return WalkResult::advance();
+    return WalkResult::interrupt();
+  });
+  return !walk.wasInterrupted() && yields == 1 && hasEffect;
+}
+
+bool isCompletePrefix(llvm::StringRef message) {
+  if (message.empty())
+    return false;
+  unsigned char first = static_cast<unsigned char>(message.front());
+  if (!llvm::isAlpha(first) && first != '_')
+    return false;
+  return llvm::all_of(message, [](char character) {
+    unsigned char value = static_cast<unsigned char>(character);
+    return llvm::isAlnum(value) || character == '_';
+  });
+}
+
+std::string completeIdentity(llvm::StringRef message) {
+  if (isCompletePrefix(message))
+    return ("acir.complete." + message).str();
+  return "acir.complete";
+}
+
+Value findCompleteReportValue(Value condition) {
+  llvm::SmallVector<Value, 8> work = {condition};
+  llvm::DenseSet<Value> seen;
+  while (!work.empty()) {
+    Value current = work.pop_back_val();
+    if (!current || !seen.insert(current).second)
+      continue;
+    if (auto recv = current.getDefiningOp<ac::TryRecvOp>()) {
+      if (auto integer = dyn_cast<IntegerType>(recv.getValue().getType());
+          integer && integer.isSignless() && integer.getWidth() >= 1)
+        return recv.getValue();
+    }
+    if (Operation *def = current.getDefiningOp())
+      for (Value operand : def->getOperands())
+        work.push_back(operand);
+  }
+  return Value();
+}
+
 // ---------------------------------------------------------------------------
 // Canonical static values: MLIR attributes <-> RFC 8785 JSON
 // ---------------------------------------------------------------------------

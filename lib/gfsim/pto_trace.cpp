@@ -239,15 +239,14 @@ uint64_t elementCount(const Tile &tile) {
 }
 
 uint64_t byteCount(const Tile &tile) {
-  uint64_t bits = elementCount(tile) * dtypeBits(tile.dtype);
-  return (bits + 7) / 8;
+  uint64_t elements = elementCount(tile);
+  uint64_t bitsPerElement = dtypeBits(tile.dtype);
+  if (elements > std::numeric_limits<uint64_t>::max() / bitsPerElement)
+    traceError("ACTRACE-FIELD-RANGE", "tile byte count");
+  uint64_t bits = elements * bitsPerElement;
+  return bits / 8 + (bits % 8 != 0);
 }
 
-uint64_t ceilDiv(uint64_t numerator, uint64_t denominator) {
-  return numerator / denominator + (numerator % denominator != 0);
-}
-
-enum class Engine : uint64_t { Scalar = 0, Vector = 1, Cube = 2, Tma = 3 };
 enum class Opcode : uint64_t {
   Tassign = 0,
   Tload = 1,
@@ -257,36 +256,40 @@ enum class Opcode : uint64_t {
   Tstore = 5
 };
 
-struct OpcodeInfo {
-  Engine engine;
-  Opcode opcode;
-};
-
-OpcodeInfo opcodeInfo(std::string_view name) {
+Opcode opcode(std::string_view name) {
   if (name == "TASSIGN")
-    return {Engine::Scalar, Opcode::Tassign};
+    return Opcode::Tassign;
   if (name == "TLOAD")
-    return {Engine::Tma, Opcode::Tload};
+    return Opcode::Tload;
   if (name == "TEXTRACT")
-    return {Engine::Vector, Opcode::Textract};
+    return Opcode::Textract;
   if (name == "TMATMUL")
-    return {Engine::Cube, Opcode::Tmatmul};
+    return Opcode::Tmatmul;
   if (name == "TMATMUL_ACC")
-    return {Engine::Cube, Opcode::TmatmulAcc};
+    return Opcode::TmatmulAcc;
   if (name == "TSTORE")
-    return {Engine::Tma, Opcode::Tstore};
+    return Opcode::Tstore;
   traceError("ACTRACE-UNSUPPORTED-OPCODE", std::string(name));
 }
 
-uint64_t latency(Opcode opcode, const std::vector<Tile> &inputs,
-                 const std::vector<Tile> &outputs) {
-  uint64_t cycles = 1;
+uint64_t checkedProduct(uint64_t lhs, uint64_t rhs,
+                        std::string_view description) {
+  if (rhs != 0 && lhs > std::numeric_limits<uint64_t>::max() / rhs)
+    traceError("ACTRACE-FIELD-RANGE", std::string(description));
+  return lhs * rhs;
+}
+
+/// Return trace-semantic work, never architecture cycles. Transfer-like
+/// operations use bytes and cube operations use scalar MAC operations.
+uint64_t workload(Opcode opcode, const std::vector<Tile> &inputs,
+                  const std::vector<Tile> &outputs) {
+  uint64_t work = 0;
   if (opcode == Opcode::Tload && !outputs.empty())
-    cycles = ceilDiv(byteCount(outputs.front()), 512);
+    work = byteCount(outputs.front());
   else if (opcode == Opcode::Tstore && !inputs.empty())
-    cycles = ceilDiv(byteCount(inputs.front()), 512);
+    work = byteCount(inputs.front());
   else if (opcode == Opcode::Textract && !outputs.empty())
-    cycles = ceilDiv(byteCount(outputs.front()), 512) + 4;
+    work = byteCount(outputs.front());
   else if (opcode == Opcode::Tmatmul || opcode == Opcode::TmatmulAcc) {
     size_t aIndex = opcode == Opcode::TmatmulAcc ? 1 : 0;
     size_t bIndex = opcode == Opcode::TmatmulAcc ? 2 : 1;
@@ -294,12 +297,18 @@ uint64_t latency(Opcode opcode, const std::vector<Tile> &inputs,
         inputs[bIndex].shape.size() >= 2) {
       const auto &a = inputs[aIndex].shape;
       const auto &b = inputs[bIndex].shape;
-      uint64_t macs = a[a.size() - 2] * a[a.size() - 1] * b.back();
-      cycles = ceilDiv(macs, 4096);
-    } else
-      cycles = 128;
+      work = checkedProduct(a[a.size() - 2], a[a.size() - 1],
+                            "matmul workload");
+      work = checkedProduct(work, b.back(), "matmul workload");
+    } else {
+      traceError("ACTRACE-MATMUL-SHAPE",
+                 "matmul inputs must provide rank-2 matrix dimensions");
+    }
   }
-  return std::clamp<uint64_t>(cycles, 1, 1023);
+  if (work > PtoScheduleDescriptor::kMaxWorkload)
+    traceError("ACTRACE-WORKLOAD-CAP",
+               "raw workload does not fit the 26-bit descriptor field");
+  return work;
 }
 
 struct StorageKey {
@@ -310,7 +319,7 @@ struct StorageKey {
 
 struct ParsedRecord {
   uint64_t sequence = 0;
-  OpcodeInfo info{};
+  Opcode opcode{};
   std::vector<Tile> inputs;
   std::vector<Tile> outputs;
 };
@@ -320,9 +329,7 @@ uint64_t buildDescriptor(const ParsedRecord &record,
                          uint8_t dependencyValid) {
   using D = PtoScheduleDescriptor;
   uint64_t descriptor = record.sequence << D::kSequenceShift;
-  descriptor |= static_cast<uint64_t>(record.info.engine) << D::kEngineShift;
-  descriptor |= latency(record.info.opcode, record.inputs, record.outputs)
-                << D::kLatencyShift;
+  descriptor |= static_cast<uint64_t>(record.opcode) << D::kOpcodeShift;
   descriptor |= static_cast<uint64_t>(dependencies[0])
                 << D::kDependency0Shift;
   descriptor |= static_cast<uint64_t>(dependencies[1])
@@ -331,7 +338,8 @@ uint64_t buildDescriptor(const ParsedRecord &record,
                 << D::kDependency2Shift;
   descriptor |= static_cast<uint64_t>(dependencyValid)
                 << D::kDependencyValidShift;
-  descriptor |= static_cast<uint64_t>(record.info.opcode) << D::kOpcodeShift;
+  descriptor |= workload(record.opcode, record.inputs, record.outputs)
+                << D::kWorkloadShift;
   return descriptor;
 }
 
@@ -356,7 +364,7 @@ void PtoTraceProvider::load(std::string source, const std::string &path) {
     if (record.sequence != records.size())
       traceError("ACTRACE-SEQUENCE",
                  "sequence_id must be contiguous and start at zero");
-    record.info = opcodeInfo(stringField(line, "opcode"));
+    record.opcode = opcode(stringField(line, "opcode"));
     record.inputs = tileArray(line, "input_tiles");
     record.outputs = tileArray(line, "output_tiles");
     records.push_back(std::move(record));
@@ -374,8 +382,8 @@ void PtoTraceProvider::load(std::string source, const std::string &path) {
     uint8_t dependencyValid = 0;
     size_t dependencyCount = 0;
     std::set<uint8_t> uniqueDependencies;
-    bool managedInputs = record.info.engine != Engine::Scalar &&
-                         record.info.opcode != Opcode::Tload;
+    bool managedInputs =
+        record.opcode != Opcode::Tassign && record.opcode != Opcode::Tload;
     if (managedInputs) {
       for (const Tile &tile : record.inputs) {
         auto found = lastWriter.find({tile.dtype, tile.address});
@@ -390,8 +398,8 @@ void PtoTraceProvider::load(std::string source, const std::string &path) {
         ++dependencyCount;
       }
     }
-    bool managedOutputs = record.info.engine != Engine::Scalar &&
-                          record.info.opcode != Opcode::Tstore;
+    bool managedOutputs =
+        record.opcode != Opcode::Tassign && record.opcode != Opcode::Tstore;
     if (managedOutputs)
       for (const Tile &tile : record.outputs)
         lastWriter[{tile.dtype, tile.address}] =
