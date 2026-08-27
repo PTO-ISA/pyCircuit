@@ -1,0 +1,450 @@
+#include "gfsim/pto_trace.h"
+
+#include <algorithm>
+#include <array>
+#include <cctype>
+#include <fstream>
+#include <limits>
+#include <optional>
+#include <set>
+#include <sstream>
+#include <stdexcept>
+#include <unordered_map>
+#include <utility>
+
+namespace gfsim {
+namespace {
+
+[[noreturn]] void traceError(std::string code, std::string detail) {
+  throw std::runtime_error(std::move(code) + ": " + std::move(detail));
+}
+
+size_t skipSpace(std::string_view text, size_t at) {
+  while (at < text.size() &&
+         std::isspace(static_cast<unsigned char>(text[at])))
+    ++at;
+  return at;
+}
+
+size_t fieldValue(std::string_view text, std::string_view field) {
+  std::string needle = "\"" + std::string(field) + "\"";
+  size_t at = text.find(needle);
+  if (at == std::string_view::npos)
+    traceError("ACTRACE-MISSING-FIELD", std::string(field));
+  at = text.find(':', at + needle.size());
+  if (at == std::string_view::npos)
+    traceError("ACTRACE-MALFORMED", "missing ':' after " + std::string(field));
+  return skipSpace(text, at + 1);
+}
+
+std::string stringField(std::string_view text, std::string_view field) {
+  size_t at = fieldValue(text, field);
+  if (at >= text.size() || text[at] != '"')
+    traceError("ACTRACE-FIELD-TYPE", std::string(field) + " must be a string");
+  std::string result;
+  for (++at; at < text.size(); ++at) {
+    char value = text[at];
+    if (value == '"')
+      return result;
+    if (value == '\\') {
+      if (++at >= text.size())
+        break;
+      value = text[at];
+    }
+    result.push_back(value);
+  }
+  traceError("ACTRACE-MALFORMED", "unterminated string " + std::string(field));
+}
+
+uint64_t uintField(std::string_view text, std::string_view field) {
+  size_t at = fieldValue(text, field);
+  size_t end = at;
+  while (end < text.size() &&
+         std::isdigit(static_cast<unsigned char>(text[end])))
+    ++end;
+  if (end == at)
+    traceError("ACTRACE-FIELD-TYPE",
+               std::string(field) + " must be an unsigned integer");
+  uint64_t result = 0;
+  for (; at < end; ++at) {
+    unsigned digit = static_cast<unsigned>(text[at] - '0');
+    if (result > (std::numeric_limits<uint64_t>::max() - digit) / 10)
+      traceError("ACTRACE-FIELD-RANGE", std::string(field));
+    result = result * 10 + digit;
+  }
+  return result;
+}
+
+std::string_view arrayField(std::string_view text, std::string_view field) {
+  size_t at = fieldValue(text, field);
+  if (at >= text.size() || text[at] != '[')
+    traceError("ACTRACE-FIELD-TYPE", std::string(field) + " must be an array");
+  bool quoted = false;
+  bool escaped = false;
+  unsigned depth = 0;
+  for (size_t end = at; end < text.size(); ++end) {
+    char value = text[end];
+    if (quoted) {
+      if (escaped)
+        escaped = false;
+      else if (value == '\\')
+        escaped = true;
+      else if (value == '"')
+        quoted = false;
+      continue;
+    }
+    if (value == '"') {
+      quoted = true;
+      continue;
+    }
+    if (value == '[')
+      ++depth;
+    else if (value == ']' && --depth == 0)
+      return text.substr(at + 1, end - at - 1);
+  }
+  traceError("ACTRACE-MALFORMED", "unterminated array " + std::string(field));
+}
+
+std::vector<std::string_view> arrayObjects(std::string_view array) {
+  std::vector<std::string_view> result;
+  bool quoted = false;
+  bool escaped = false;
+  unsigned depth = 0;
+  size_t begin = std::string_view::npos;
+  for (size_t at = 0; at < array.size(); ++at) {
+    char value = array[at];
+    if (quoted) {
+      if (escaped)
+        escaped = false;
+      else if (value == '\\')
+        escaped = true;
+      else if (value == '"')
+        quoted = false;
+      continue;
+    }
+    if (value == '"') {
+      quoted = true;
+      continue;
+    }
+    if (value == '{') {
+      if (depth++ == 0)
+        begin = at;
+    } else if (value == '}') {
+      if (depth == 0)
+        traceError("ACTRACE-MALFORMED", "unbalanced object array");
+      if (--depth == 0)
+        result.push_back(array.substr(begin, at - begin + 1));
+    }
+  }
+  if (depth != 0)
+    traceError("ACTRACE-MALFORMED", "unterminated object");
+  return result;
+}
+
+std::vector<uint64_t> shapeField(std::string_view tile) {
+  std::string_view array = arrayField(tile, "shape");
+  std::vector<uint64_t> result;
+  size_t at = 0;
+  while (at < array.size()) {
+    at = skipSpace(array, at);
+    if (at == array.size())
+      break;
+    if (array[at] == ',') {
+      ++at;
+      continue;
+    }
+    size_t end = at;
+    while (end < array.size() &&
+           std::isdigit(static_cast<unsigned char>(array[end])))
+      ++end;
+    if (end == at)
+      traceError("ACTRACE-FIELD-TYPE", "shape extent must be an integer");
+    uint64_t extent = 0;
+    for (; at < end; ++at)
+      extent = extent * 10 + static_cast<unsigned>(array[at] - '0');
+    result.push_back(extent);
+  }
+  return result;
+}
+
+uint64_t parseAddress(std::string_view value) {
+  int base = 10;
+  size_t at = 0;
+  if (value.size() > 2 && value[0] == '0' &&
+      (value[1] == 'x' || value[1] == 'X')) {
+    base = 16;
+    at = 2;
+  }
+  uint64_t result = 0;
+  for (; at < value.size(); ++at) {
+    char ch = value[at];
+    unsigned digit = 0;
+    if (ch >= '0' && ch <= '9')
+      digit = static_cast<unsigned>(ch - '0');
+    else if (base == 16 && ch >= 'a' && ch <= 'f')
+      digit = static_cast<unsigned>(ch - 'a' + 10);
+    else if (base == 16 && ch >= 'A' && ch <= 'F')
+      digit = static_cast<unsigned>(ch - 'A' + 10);
+    else
+      traceError("ACTRACE-FIELD-TYPE", "invalid tile address");
+    if (result > (std::numeric_limits<uint64_t>::max() - digit) /
+                     static_cast<unsigned>(base))
+      traceError("ACTRACE-FIELD-RANGE", "tile address");
+    result = result * static_cast<unsigned>(base) + digit;
+  }
+  return result;
+}
+
+uint64_t dtypeBits(std::string_view dtype) {
+  if (dtype == "float64" || dtype == "int64" || dtype == "uint64")
+    return 64;
+  if (dtype == "float32" || dtype == "int32" || dtype == "uint32")
+    return 32;
+  if (dtype == "float16" || dtype == "bfloat16" || dtype == "int16" ||
+      dtype == "uint16")
+    return 16;
+  if (dtype == "float8" || dtype == "int8" || dtype == "uint8")
+    return 8;
+  if (dtype == "int4" || dtype == "uint4")
+    return 4;
+  traceError("ACTRACE-UNSUPPORTED-DTYPE", std::string(dtype));
+}
+
+struct Tile {
+  uint64_t address = 0;
+  std::string dtype;
+  std::vector<uint64_t> shape;
+};
+
+std::vector<Tile> tileArray(std::string_view line, std::string_view field) {
+  std::vector<Tile> result;
+  for (std::string_view object : arrayObjects(arrayField(line, field))) {
+    Tile tile;
+    tile.address = parseAddress(stringField(object, "address"));
+    tile.dtype = stringField(object, "dtype");
+    tile.shape = shapeField(object);
+    result.push_back(std::move(tile));
+  }
+  return result;
+}
+
+uint64_t elementCount(const Tile &tile) {
+  uint64_t count = 1;
+  for (uint64_t extent : tile.shape) {
+    if (extent != 0 && count > std::numeric_limits<uint64_t>::max() / extent)
+      traceError("ACTRACE-FIELD-RANGE", "tile shape");
+    count *= extent;
+  }
+  return count;
+}
+
+uint64_t byteCount(const Tile &tile) {
+  uint64_t bits = elementCount(tile) * dtypeBits(tile.dtype);
+  return (bits + 7) / 8;
+}
+
+uint64_t ceilDiv(uint64_t numerator, uint64_t denominator) {
+  return numerator / denominator + (numerator % denominator != 0);
+}
+
+enum class Engine : uint64_t { Scalar = 0, Vector = 1, Cube = 2, Tma = 3 };
+enum class Opcode : uint64_t {
+  Tassign = 0,
+  Tload = 1,
+  Textract = 2,
+  Tmatmul = 3,
+  TmatmulAcc = 4,
+  Tstore = 5
+};
+
+struct OpcodeInfo {
+  Engine engine;
+  Opcode opcode;
+};
+
+OpcodeInfo opcodeInfo(std::string_view name) {
+  if (name == "TASSIGN")
+    return {Engine::Scalar, Opcode::Tassign};
+  if (name == "TLOAD")
+    return {Engine::Tma, Opcode::Tload};
+  if (name == "TEXTRACT")
+    return {Engine::Vector, Opcode::Textract};
+  if (name == "TMATMUL")
+    return {Engine::Cube, Opcode::Tmatmul};
+  if (name == "TMATMUL_ACC")
+    return {Engine::Cube, Opcode::TmatmulAcc};
+  if (name == "TSTORE")
+    return {Engine::Tma, Opcode::Tstore};
+  traceError("ACTRACE-UNSUPPORTED-OPCODE", std::string(name));
+}
+
+uint64_t latency(Opcode opcode, const std::vector<Tile> &inputs,
+                 const std::vector<Tile> &outputs) {
+  uint64_t cycles = 1;
+  if (opcode == Opcode::Tload && !outputs.empty())
+    cycles = ceilDiv(byteCount(outputs.front()), 512);
+  else if (opcode == Opcode::Tstore && !inputs.empty())
+    cycles = ceilDiv(byteCount(inputs.front()), 512);
+  else if (opcode == Opcode::Textract && !outputs.empty())
+    cycles = ceilDiv(byteCount(outputs.front()), 512) + 4;
+  else if (opcode == Opcode::Tmatmul || opcode == Opcode::TmatmulAcc) {
+    size_t aIndex = opcode == Opcode::TmatmulAcc ? 1 : 0;
+    size_t bIndex = opcode == Opcode::TmatmulAcc ? 2 : 1;
+    if (inputs.size() > bIndex && inputs[aIndex].shape.size() >= 2 &&
+        inputs[bIndex].shape.size() >= 2) {
+      const auto &a = inputs[aIndex].shape;
+      const auto &b = inputs[bIndex].shape;
+      uint64_t macs = a[a.size() - 2] * a[a.size() - 1] * b.back();
+      cycles = ceilDiv(macs, 4096);
+    } else
+      cycles = 128;
+  }
+  return std::clamp<uint64_t>(cycles, 1, 1023);
+}
+
+struct StorageKey {
+  std::string dtype;
+  uint64_t address = 0;
+  auto operator<=>(const StorageKey &) const = default;
+};
+
+struct ParsedRecord {
+  uint64_t sequence = 0;
+  OpcodeInfo info{};
+  std::vector<Tile> inputs;
+  std::vector<Tile> outputs;
+};
+
+uint64_t buildDescriptor(const ParsedRecord &record,
+                         const std::array<uint8_t, 3> &dependencies,
+                         uint8_t dependencyValid) {
+  using D = PtoScheduleDescriptor;
+  uint64_t descriptor = record.sequence << D::kSequenceShift;
+  descriptor |= static_cast<uint64_t>(record.info.engine) << D::kEngineShift;
+  descriptor |= latency(record.info.opcode, record.inputs, record.outputs)
+                << D::kLatencyShift;
+  descriptor |= static_cast<uint64_t>(dependencies[0])
+                << D::kDependency0Shift;
+  descriptor |= static_cast<uint64_t>(dependencies[1])
+                << D::kDependency1Shift;
+  descriptor |= static_cast<uint64_t>(dependencies[2])
+                << D::kDependency2Shift;
+  descriptor |= static_cast<uint64_t>(dependencyValid)
+                << D::kDependencyValidShift;
+  descriptor |= static_cast<uint64_t>(record.info.opcode) << D::kOpcodeShift;
+  return descriptor;
+}
+
+} // namespace
+
+void PtoTraceProvider::load(std::string source, const std::string &path) {
+  std::ifstream input(path);
+  if (!input)
+    traceError("ACTRACE-OPEN", path);
+
+  std::vector<ParsedRecord> records;
+  std::string line;
+  while (std::getline(input, line)) {
+    if (std::all_of(line.begin(), line.end(), [](unsigned char ch) {
+          return std::isspace(ch);
+        }))
+      continue;
+    if (records.size() == 256)
+      traceError("ACTRACE-CAPACITY", "at most 256 records are supported");
+    ParsedRecord record;
+    record.sequence = uintField(line, "sequence_id");
+    if (record.sequence != records.size())
+      traceError("ACTRACE-SEQUENCE",
+                 "sequence_id must be contiguous and start at zero");
+    record.info = opcodeInfo(stringField(line, "opcode"));
+    record.inputs = tileArray(line, "input_tiles");
+    record.outputs = tileArray(line, "output_tiles");
+    records.push_back(std::move(record));
+  }
+  if (!input.eof())
+    traceError("ACTRACE-READ", path);
+  if (records.empty())
+    traceError("ACTRACE-EMPTY", path);
+
+  Source parsed;
+  parsed.descriptors.reserve(records.size());
+  std::map<StorageKey, uint8_t> lastWriter;
+  for (const ParsedRecord &record : records) {
+    std::array<uint8_t, 3> dependencies{};
+    uint8_t dependencyValid = 0;
+    size_t dependencyCount = 0;
+    std::set<uint8_t> uniqueDependencies;
+    bool managedInputs = record.info.engine != Engine::Scalar &&
+                         record.info.opcode != Opcode::Tload;
+    if (managedInputs) {
+      for (const Tile &tile : record.inputs) {
+        auto found = lastWriter.find({tile.dtype, tile.address});
+        if (found == lastWriter.end() ||
+            !uniqueDependencies.insert(found->second).second)
+          continue;
+        if (dependencyCount == dependencies.size())
+          traceError("ACTRACE-DEPENDENCY-CAP",
+                     "at most three producer dependencies are supported");
+        dependencies[dependencyCount] = found->second;
+        dependencyValid |= static_cast<uint8_t>(1U << dependencyCount);
+        ++dependencyCount;
+      }
+    }
+    bool managedOutputs = record.info.engine != Engine::Scalar &&
+                          record.info.opcode != Opcode::Tstore;
+    if (managedOutputs)
+      for (const Tile &tile : record.outputs)
+        lastWriter[{tile.dtype, tile.address}] =
+            static_cast<uint8_t>(record.sequence);
+    parsed.descriptors.push_back(
+        buildDescriptor(record, dependencies, dependencyValid));
+  }
+
+  activeSource_ = source;
+  sources_[std::move(source)] = std::move(parsed);
+}
+
+const PtoTraceProvider::Source &
+PtoTraceProvider::requireSource(std::string_view source) const {
+  auto found = sources_.find(source);
+  if (found == sources_.end())
+    traceError("ACTRACE-NOT-LOADED", std::string(source));
+  return found->second;
+}
+
+size_t PtoTraceProvider::open(std::string_view source) const {
+  (void)requireSource(source);
+  return 0;
+}
+
+TraceNextResult PtoTraceProvider::next(std::string_view source,
+                                       size_t cursor) const {
+  const Source &loaded = requireSource(source);
+  if (cursor >= loaded.descriptors.size())
+    return {cursor, 0, false};
+  return {cursor + 1, cursor, true};
+}
+
+bool PtoTraceProvider::eof(std::string_view source, size_t cursor) const {
+  return cursor >= requireSource(source).descriptors.size();
+}
+
+size_t PtoTraceProvider::position(std::string_view source,
+                                  size_t cursor) const {
+  return std::min(cursor, requireSource(source).descriptors.size());
+}
+
+uint64_t PtoTraceProvider::decode(uint64_t handle) const {
+  if (activeSource_.empty())
+    traceError("ACTRACE-NOT-LOADED", "no active trace source");
+  const Source &loaded = requireSource(activeSource_);
+  if (handle >= loaded.descriptors.size())
+    traceError("ACTRACE-HANDLE-RANGE", std::to_string(handle));
+  return loaded.descriptors[handle];
+}
+
+size_t PtoTraceProvider::recordCount(std::string_view source) const {
+  return requireSource(source).descriptors.size();
+}
+
+} // namespace gfsim

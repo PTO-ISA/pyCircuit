@@ -1,6 +1,7 @@
 add_acir_library(ACIRCodeGen SOURCES
   Build.cpp
   CompilePlan.cpp
+  EmitCxx.cpp
   Manifest.cpp
   Emitter.cpp
   Generator.cpp
@@ -22,7 +23,9 @@ target_link_libraries(ACIRCodeGen PUBLIC
   ACIRDialect
   ACSimDialect
   MLIRArithDialect
+  MLIRControlFlowDialect
   MLIRIndexDialect
+  MLIRPass
   LLVMSupport
 )
 target_include_directories(ACIRCodeGen PUBLIC

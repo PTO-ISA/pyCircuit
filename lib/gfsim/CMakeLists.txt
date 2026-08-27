@@ -2,6 +2,7 @@ add_library(gfsim STATIC
   harness.cpp
   npu.cpp
   observation.cpp
+  pto_trace.cpp
   showcase.cpp
   system.cpp
   trace.cpp

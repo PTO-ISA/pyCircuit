@@ -8,8 +8,8 @@
 
 // The smallest lowerable model: one root module with a single yield-only
 // workload process. The atomic lowering publishes exactly one acsim.model
-// with the wake type pair, one module, one dispatch row, and one
-// self-activation edge.
+// with the wake type pair, one module, and one dispatch row. Processes
+// reschedule themselves through scheduleWork rather than a self-activation edge.
 
 builtin.module attributes {ac.contract_epoch = "0.3"} {
   ac.system @soc root @Top as "root" tick 0 "cycle"
@@ -44,6 +44,5 @@ builtin.module attributes {ac.contract_epoch = "0.3"} {
 // CHECK-SAME:       reset "acsim_generated::Top::s{{[0-9a-f]+}}::workload::p{{[0-9a-f]+}}::reset"
 // CHECK-SAME:       validate "acsim_generated::Top::s{{[0-9a-f]+}}::workload::p{{[0-9a-f]+}}::validate"
 // CHECK-SAME:       : !acsim.object_id, !acsim.activation_id
-// CHECK-NEXT:     acsim.activate %[[ACT]] to %[[OBJ]] : !acsim.activation_id to !acsim.object_id
 // CHECK-NEXT:   }
 // CHECK-NEXT: }

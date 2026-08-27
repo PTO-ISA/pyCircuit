@@ -560,9 +560,11 @@ TEST(ACIROpsTest, PublicBuildersConstructEveryTaskEightOperation) {
                                              builder.getI32IntegerAttr(7));
   auto i64 = mlir::arith::ConstantOp::create(builder, loc,
                                              builder.getI64IntegerAttr(1));
-  auto send = TrySendOp::create(builder, loc, builder.getI1Type(), i32, "q");
+  auto queue = mlir::SymbolRefAttr::get(&context, "q");
+  auto send =
+      TrySendOp::create(builder, loc, builder.getI1Type(), i32, queue);
   auto recv = TryRecvOp::create(builder, loc, builder.getI32Type(),
-                                builder.getI1Type(), "q");
+                                builder.getI1Type(), queue);
   EXPECT_TRUE(send && recv);
   auto schedule = ScheduleOp::create(builder, loc, i32, i64, "worker");
   auto waitUntil = WaitUntilOp::create(builder, loc, i1);
@@ -743,8 +745,8 @@ TEST(ACIROpsTest, UnresolvedRuntimeReferencesDoNotInventEffects) {
   builder.setInsertionPointToStart(&process.getBody().emplaceBlock());
   auto value = mlir::arith::ConstantOp::create(builder, loc,
                                                builder.getI32IntegerAttr(1));
-  auto send =
-      TrySendOp::create(builder, loc, builder.getI1Type(), value, "missing");
+  auto send = TrySendOp::create(builder, loc, builder.getI1Type(), value,
+                                mlir::SymbolRefAttr::get(&context, "missing"));
   llvm::SmallVector<mlir::MemoryEffects::EffectInstance> effects;
   mlir::cast<mlir::MemoryEffectOpInterface>(*send).getEffects(effects);
   EXPECT_TRUE(effects.empty());

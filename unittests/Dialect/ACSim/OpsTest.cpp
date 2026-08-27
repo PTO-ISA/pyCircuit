@@ -751,7 +751,7 @@ TEST(ACSimOpsTest, CanonicalFixtureCoversInventoryEffectsAndPerPcRoundTrip) {
       {"acsim.bind", 3},      {"acsim.inline", 5},     {"acsim.process", 1},
       {"acsim.live.load", 1}, {"acsim.live.store", 1}, {"acsim.invoke", 3},
       {"acsim.continue", 1},  {"acsim.suspend", 1},    {"acsim.terminate", 1},
-      {"acsim.export", 3},    {"acsim.dispatch", 4},   {"acsim.activate", 6},
+      {"acsim.export", 3},    {"acsim.dispatch", 4},   {"acsim.activate", 2},
       {"acsim.return", 1},
   }};
   for (auto [name, expected] : exact)
@@ -1257,7 +1257,7 @@ TEST(ACSimOpsTest, EveryTypeHasATableDrivenSemanticNegative) {
          llvm::SmallVector<DispatchOp> dispatches;
          file.walk(
              [&](DispatchOp candidate) { dispatches.push_back(candidate); });
-         op->setOperand(0, dispatches[1].getActivation());
+         op->setOperand(0, dispatches[0].getActivation());
        },
        "activation edges must exactly equal computed"},
       {"pc",

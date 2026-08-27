@@ -243,6 +243,10 @@ public:
   bool setActivationPlan(std::span<const uint32_t> offsets,
                          std::span<const ObjectId> targets);
 
+  /// Install the opaque dispatch ABI emitted by the legacy ACIR C++ path.
+  bool setLegacyDispatchTable(LegacyDispatchTable table);
+  bool setLegacyActivationGraph(LegacyActivationGraph graph);
+
   /// Get the next pending event (earliest ready time).
   std::optional<Event> nextEvent() const;
 
@@ -271,6 +275,23 @@ public:
   /// Look up an object by its stable ID.
   SimObject *lookup(ObjectId id) const;
 
+  /// Request cooperative termination from generated process code.
+  void requestTerminate(TerminationClass classification,
+                        std::string diagnosticCode = {});
+
+  /// Publish an optional generated-model statistic.
+  void recordStat(std::string name, uint64_t value);
+
+  // ── PTO trace provider ───────────────────────────────────────────────
+
+  void loadPtoTrace(std::string source, const std::string &path);
+  uint64_t traceOpen(std::string_view source) const;
+  TraceNextResult traceNext(std::string_view source, uint64_t cursor) const;
+  uint64_t traceDecode(uint64_t handle) const;
+  bool traceEof(std::string_view source, uint64_t cursor) const;
+  uint64_t tracePosition(std::string_view source, uint64_t cursor) const;
+  uint64_t traceRecordCount(std::string_view source) const;
+
   void reset() override;
 
   // ── Caps ────────────────────────────────────────────────────────────
@@ -282,6 +303,8 @@ public:
   bool setMaxDomainCycles(const std::map<std::string, uint64_t> &limits);
   bool setRuntimeLimits(const RuntimeLimits &limits);
   bool setTimeDomains(std::span<const TimeDomainRuntime> domains);
+  void setBuildProfile(BuildProfile profile) { profile_ = profile; }
+  BuildProfile buildProfile() const { return profile_; }
 
 private:
   std::unique_ptr<Module> root_;
@@ -292,6 +315,7 @@ private:
   Tick maxTicks_ = UINT64_MAX;
   uint64_t maxEvents_ = UINT64_MAX;
   uint64_t maxTraceRecords_ = UINT64_MAX;
+  BuildProfile profile_ = BuildProfile::Fast;
 
   struct Impl;
   std::unique_ptr<Impl> impl_;

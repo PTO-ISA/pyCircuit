@@ -347,14 +347,21 @@ LogicalResult QueueOp::verify() {
   if (!isNormativePayloadType(getPayload()))
     return emitOpError("queue payload must be a normative ACIR value type");
   if (DictionaryAttr marks = getWatermarksAttr()) {
-    auto low = marks.getAs<IntegerAttr>("low");
-    auto high = marks.getAs<IntegerAttr>("high");
-    if (!hasExactKeys(marks, {"low", "high"}) || !low || !high ||
-        !low.getType().isSignlessInteger(64) ||
-        !high.getType().isSignlessInteger(64) || low.getInt() < 0 ||
-        low.getInt() >= high.getInt() || high.getInt() > entryCapacity)
-      return emitOpError(
-          "watermarks require 0 <= low < high <= entry capacity");
+    if (auto kind = marks.getAs<StringAttr>("kind")) {
+      if (!hasExactKeys(marks, {"kind"}) ||
+          (kind.getValue() != "register" && kind.getValue() != "regfile"))
+        return emitOpError(
+            "device watermarks require exact kind register or regfile");
+    } else {
+      auto low = marks.getAs<IntegerAttr>("low");
+      auto high = marks.getAs<IntegerAttr>("high");
+      if (!hasExactKeys(marks, {"low", "high"}) || !low || !high ||
+          !low.getType().isSignlessInteger(64) ||
+          !high.getType().isSignlessInteger(64) || low.getInt() < 0 ||
+          low.getInt() >= high.getInt() || high.getInt() > entryCapacity)
+        return emitOpError(
+            "watermarks require 0 <= low < high <= entry capacity");
+    }
   }
   auto protocol =
       dyn_cast_or_null<ProtocolOp>(lookupOuter(*this, getProtocolAttr()));

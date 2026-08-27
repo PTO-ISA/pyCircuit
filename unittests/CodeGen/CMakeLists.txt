@@ -14,6 +14,7 @@ endif()
 add_executable(CodeGenTests
   BuildTest.cpp
   CodeGenTest.cpp
+  EmitCxxTest.cpp
   GeneratedModelCompileTest.cpp
   GeneratedModelRuntimeTest.cpp
   GeneratorTest.cpp
@@ -22,13 +23,20 @@ add_executable(CodeGenTests
 )
 target_include_directories(CodeGenTests PRIVATE
   ${PROJECT_SOURCE_DIR}/include
+  ${PROJECT_SOURCE_DIR}/lib
   ${PROJECT_SOURCE_DIR}/lib/CodeGen
 )
 target_link_libraries(CodeGenTests PRIVATE
   ACIRCodeGen
+  ACIRToACSim
+  ACIRTransforms
+  ACIRDialect
+  ACSimDialect
   gfsim
   MLIRIndexDialect
   MLIRParser
+  MLIRPass
+  LLVMSupport
   GTest::gtest_main
 )
 target_compile_definitions(CodeGenTests PRIVATE
@@ -41,5 +49,9 @@ target_compile_definitions(CodeGenTests PRIVATE
   ACIR_TEST_RTTI_FLAG="${ACIR_TEST_RTTI_FLAG}"
   ACIR_TEST_SANITIZER_FLAG="${ACIR_TEST_SANITIZER_FLAG}"
   ACIR_TEST_SOURCE_DIR="${PROJECT_SOURCE_DIR}"
+  ACIR_GFSIM_INCLUDE="${PROJECT_SOURCE_DIR}/include"
+  ACIR_GFSIM_LIBRARY="$<TARGET_FILE:gfsim>"
+  ACIR_EXAMPLES_DIR="${PROJECT_SOURCE_DIR}/examples"
 )
+add_dependencies(CodeGenTests gfsim)
 add_test(NAME CodeGenTests COMMAND CodeGenTests)

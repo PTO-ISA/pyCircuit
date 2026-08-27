@@ -24,6 +24,14 @@ namespace acir::ac {
 /// an arbitrary operation. This is called by the whole-file ACIR verifier.
 mlir::LogicalResult verifyTopologyTypeUses(mlir::Operation *operation);
 
+/// Resolve an ACIR runtime symbol. Flat `@q` looks up in the enclosing
+/// `ac.module`. Nested `@Core::@q` looks up `q` inside module `@Core`.
+mlir::Operation *lookupRuntimeSymbol(mlir::Operation *from,
+                                     mlir::SymbolRefAttr ref);
+
+/// Leaf symbol of a flat or nested runtime reference (`q` in `@Core::@q`).
+llvm::StringRef runtimeSymbolLeaf(mlir::SymbolRefAttr ref);
+
 } // namespace acir::ac
 
 #endif

@@ -34,7 +34,7 @@
 // MODEL-COUNT: canonical ACSim requires exactly one acsim.model
 // FINGERPRINTS: fingerprints must contain exactly frozen_acir, binding_lock, provider, profile, toolchain, and schema_set
 // CLOSED: operation 'ac.system' is not legal in canonical ACSim
-// PROCESS-CLOSED: operation 'scf.yield' is not legal in an acsim.process body
+// PROCESS-CLOSED: operation 'scf.for' is not legal in an acsim.process body
 // ROOT: root reference '@missing' is unresolved
 // DESTRUCTION: destruction order must be the exact reverse of construction order
 // ZERO-MODEL: canonical ACSim requires exactly one acsim.model
@@ -45,7 +45,7 @@
 // INLINE-MODULE-TYPE: module inline result must be exactly !acsim.expr
 // LIVE-LOAD-TYPE: live load must resolve to an exact typed slot of this process
 // LIVE-STORE-TYPE: live store must resolve to an exact typed slot of this process
-// INVOKE-TYPE: invoke results must be exact !acsim.value or !acsim.wake types
+// INVOKE-TYPE: invoke results must be exact !acsim.value, !acsim.wake, or integer types
 // CONTINUE-MISSING: expected attribute value
 // DISPATCH-NEGATIVE: dispatch object ID has no expanded runtime object
 // ACTIVATE-TYPES: invalid kind of type specified
@@ -172,7 +172,10 @@ builtin.module attributes {ac.contract_epoch = "0.3"} {
       acsim.process @p captures() names []
           entry @entry pcs [@entry] live [] fairness 1 specialization "sha256:0000000000000000000000000000000000000000000000000000000000000000" {
         state @entry {
-          "scf.yield"() : () -> ()
+          %c0 = arith.constant 0 : index
+          %c1 = arith.constant 1 : index
+          scf.for %i = %c0 to %c1 step %c1 {
+          }
         }
       }
       acsim.return
@@ -325,7 +328,7 @@ builtin.module {
     acsim.module @M interface {ports = [], resources = [], results = []} static [] specialization "sha256:0000000000000000000000000000000000000000000000000000000000000000" exports [] {
       acsim.process @p captures() names [] entry @entry pcs [@entry, @done] live [] fairness 3 specialization "sha256:0000000000000000000000000000000000000000000000000000000000000000" {
         state @entry {
-          %bad = acsim.invoke @f() : () -> i32
+          %bad = acsim.invoke @f() : () -> f32
           acsim.continue @done
         }
         state @done { acsim.terminate "success" }

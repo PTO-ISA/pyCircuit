@@ -856,14 +856,14 @@ def ACIR_ProcessOp : ACIR_Op<"process", [
 }
 
 def ACIR_TrySendOp : ACIR_RuntimeEffectOp<"try_send"> {
-  let arguments = (ins AnyType:$value, FlatSymbolRefAttr:$queue);
+  let arguments = (ins AnyType:$value, SymbolRefAttr:$queue);
   let results = (outs I1:$accepted);
   let hasVerifier = 1;
   let assemblyFormat = "$queue $value attr-dict `:` type($value)";
 }
 
 def ACIR_TryRecvOp : ACIR_RuntimeEffectOp<"try_recv"> {
-  let arguments = (ins FlatSymbolRefAttr:$queue);
+  let arguments = (ins SymbolRefAttr:$queue);
   let results = (outs AnyType:$value, I1:$received);
   let hasVerifier = 1;
   let assemblyFormat = "$queue attr-dict `:` type($value)";

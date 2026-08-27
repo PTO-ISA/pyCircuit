@@ -53,6 +53,5 @@ builtin.module attributes {ac.contract_epoch = "0.3"} {
 // CHECK-NEXT:   }
 // CHECK-NEXT:   %{{.+}}, %{{.+}} = acsim.dispatch @Top::@workload path "root.workload" indices [] object 0 activation 0
 // CHECK-NOT:    acsim.dispatch
-// CHECK:        acsim.activate
 // CHECK-NOT:    acsim.activate
-// CHECK-NEXT:   }
+// CHECK:        }

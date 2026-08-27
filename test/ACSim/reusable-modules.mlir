@@ -76,12 +76,6 @@ builtin.module attributes {ac.contract_epoch = "0.3"} {
       reset "acsim_generated::Leaf::s8000000000000000000000000000000000000000000000000000000000000000::pulse::pb000000000000000000000000000000000000000000000000000000000000000::reset"
       validate "acsim_generated::Leaf::s8000000000000000000000000000000000000000000000000000000000000000::pulse::pb000000000000000000000000000000000000000000000000000000000000000::validate"
       : !acsim.object_id, !acsim.activation_id
-    acsim.activate %act0 to %obj0 : !acsim.activation_id to !acsim.object_id
-    acsim.activate %act1 to %obj1 : !acsim.activation_id to !acsim.object_id
-    acsim.activate %act2 to %obj2 : !acsim.activation_id to !acsim.object_id
-    acsim.activate %act3 to %obj3 : !acsim.activation_id to !acsim.object_id
-    acsim.activate %act4 to %obj4 : !acsim.activation_id to !acsim.object_id
-    acsim.activate %act5 to %obj5 : !acsim.activation_id to !acsim.object_id
   }
 }
 

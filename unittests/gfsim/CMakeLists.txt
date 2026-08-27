@@ -4,6 +4,7 @@ add_executable(GfsimTests
   QueueBlocksTest.cpp
   ShowcaseTest.cpp
   core_test.cpp
+  pto_trace_test.cpp
 )
 target_include_directories(GfsimTests PRIVATE
   ${PROJECT_SOURCE_DIR}/include

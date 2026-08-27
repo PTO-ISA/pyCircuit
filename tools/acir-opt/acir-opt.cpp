@@ -1,4 +1,5 @@
 #include "BindingOptions.h"
+#include "acir/CodeGen/EmitCxx.h"
 #include "acir/Dialect/ACIR/ACIRDialect.h"
 #include "acir/Dialect/ACIR/GraphRegion.h"
 #include "acir/InitAllDialects.h"
@@ -177,10 +178,37 @@ int runDriver(int argc, char **argv) {
           return mlir::failure();
         if (bindingOptions)
           passManager.addPass(acir::createResolveBindingsPass(*bindingOptions));
+        auto emitOptions = []() {
+          acir::codegen::EmitCxxOptions options;
+          options.outputDir = acir::codegen::emitCxxOutputDir();
+          options.profile = acir::opt::selectedBindingProfile();
+          options.toolchainTarget = acir::opt::selectedBindingTarget();
+          if (options.profile.empty())
+            options.profile = "fast";
+          if (options.toolchainTarget.empty())
+            options.toolchainTarget = "unspecified";
+          return options;
+        };
         if (loweringOptions) {
           // Atomic whole-model lowering publishes canonical ACSim, so the
           // trailing ACIR whole-model gate does not apply to its output.
           passManager.addPass(acir::createACIRToACSimPass(*loweringOptions));
+          if (acir::codegen::emitCxxRequested())
+            passManager.addPass(
+                acir::codegen::createEmitCxxPass(emitOptions()));
+          if (acir::codegen::checkCxxContractRequested())
+            passManager.addPass(acir::codegen::createCheckCxxContractPass());
+          return mlir::success();
+        }
+        // --acsim-check-cxx-contract without --ac-lower-to-acsim is check-only:
+        // it reads DIR from --acsim-output-dir and must not try to emit from
+        // frozen ACIR (or any non-ACSim input).
+        if (acir::codegen::checkCxxContractRequested()) {
+          passManager.addPass(acir::codegen::createCheckCxxContractPass());
+          return mlir::success();
+        }
+        if (acir::codegen::emitCxxRequested()) {
+          passManager.addPass(acir::codegen::createEmitCxxPass(emitOptions()));
           return mlir::success();
         }
         // The final whole-model gate makes a persisted freeze digest effective

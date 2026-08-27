@@ -442,6 +442,8 @@ public:
   static mlir::FailureOr<ProcessStatePlanSet>
   buildYieldOnly(mlir::ModuleOp module);
   static mlir::FailureOr<ProcessStatePlanSet>
+  buildFrozenFixture(mlir::ModuleOp module, bool requireYieldOnly);
+  static mlir::FailureOr<ProcessStatePlanSet>
   buildLoopActionFixture(mlir::ModuleOp module);
   static ProcessStatePlanSet
   cloneWithCorruption(const ProcessStatePlanSet &plans,
@@ -532,10 +534,6 @@ public:
   planProcessLiveness(ControlPlan &control, const ProcessStateLimits &limits);
   static mlir::LogicalResult planProcessCost(ControlPlan &control,
                                              const ProcessStateLimits &limits);
-
-private:
-  static mlir::FailureOr<ProcessStatePlanSet>
-  buildFrozenFixture(mlir::ModuleOp module, bool requireYieldOnly);
 };
 
 llvm::StringRef

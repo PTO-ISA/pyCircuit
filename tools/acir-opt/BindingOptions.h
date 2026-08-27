@@ -7,6 +7,7 @@
 #include "llvm/Support/Error.h"
 
 #include <optional>
+#include <string>
 
 namespace acir::opt {
 
@@ -15,6 +16,9 @@ loadBindingCommandLineOptions();
 
 llvm::Expected<std::optional<ACIRToACSimPassOptions>>
 loadLoweringCommandLineOptions();
+
+std::string selectedBindingProfile();
+std::string selectedBindingTarget();
 
 } // namespace acir::opt
 

@@ -2080,11 +2080,28 @@ verifyRuntimeReferences(ModuleOp module,
     }
     return target;
   };
+  auto lookupQueueRef = [&](Operation *operation,
+                            SymbolRefAttr reference) -> QueueOp {
+    Operation *target = lookupRuntimeSymbol(operation, reference);
+    if (!target) {
+      operation->emitOpError()
+          << "unresolved runtime target '" << reference << "'";
+      result = failure();
+      return {};
+    }
+    auto queue = dyn_cast<QueueOp>(target);
+    if (!queue) {
+      operation->emitOpError() << "runtime target '" << reference
+                               << "' must resolve to ac.queue";
+      result = failure();
+      return {};
+    }
+    return queue;
+  };
   for (ProcessOp process : module.getBody().front().getOps<ProcessOp>()) {
     WalkResult walk = process.getBody().walk([&](Operation *operation) {
       if (auto send = dyn_cast<TrySendOp>(operation)) {
-        auto queue = dyn_cast_or_null<QueueOp>(
-            lookupExpected(send, send.getQueue(), QueueOp::getOperationName()));
+        auto queue = lookupQueueRef(send, send.getQueue());
         if (queue && queue.getPayload() != send.getValue().getType()) {
           send.emitOpError()
               << "value type " << send.getValue().getType()
@@ -2092,8 +2109,7 @@ verifyRuntimeReferences(ModuleOp module,
           result = failure();
         }
       } else if (auto recv = dyn_cast<TryRecvOp>(operation)) {
-        auto queue = dyn_cast_or_null<QueueOp>(
-            lookupExpected(recv, recv.getQueue(), QueueOp::getOperationName()));
+        auto queue = lookupQueueRef(recv, recv.getQueue());
         if (queue && queue.getPayload() != recv.getValue().getType()) {
           recv.emitOpError()
               << "result type " << recv.getValue().getType()
@@ -3547,6 +3563,13 @@ LogicalResult verifyTraceProvenance(ProcessOp process) {
     for (TraceNextOp next : nextOps) {
       unsigned input = getComponent(next.getInputCursor());
       unsigned output = getComponent(next.getCursor());
+      if (isa_and_nonnull<arith::IndexCastOp>(
+              next.getInputCursor().getDefiningOp()) &&
+          states[output].lattice == CursorLattice::Unknown) {
+        states[output] = {CursorLattice::SingleSource, next.getSourceAttr()};
+        changed = true;
+        continue;
+      }
       if (states[input].lattice != CursorLattice::SingleSource)
         continue;
       if (states[output].lattice == CursorLattice::NonCursor) {
@@ -3571,6 +3594,11 @@ LogicalResult verifyTraceProvenance(ProcessOp process) {
   LogicalResult result = success();
   auto verifyConsumer = [&](Operation *operation, Value cursor,
                             StringRef source, bool advances) -> LogicalResult {
+    // A generated timing model may checkpoint an index cursor in an integer
+    // register between ticks.  The source remains explicit on every trace
+    // operation and the runtime bounds-checks the restored cursor.
+    if (isa_and_nonnull<arith::IndexCastOp>(cursor.getDefiningOp()))
+      return success();
     unsigned id = getComponent(cursor);
     if (id >= states.size() ||
         states[id].lattice != CursorLattice::SingleSource)
@@ -3608,7 +3636,8 @@ LogicalResult verifyTraceProvenance(ProcessOp process) {
       continue;
     for (OpOperand &use : value.getUses()) {
       if (forwardingUses.contains(&use) ||
-          isa<TraceNextOp, TraceEofOp, TracePositionOp>(use.getOwner()))
+          isa<TraceNextOp, TraceEofOp, TracePositionOp, arith::IndexCastOp>(
+              use.getOwner()))
         continue;
       return use.getOwner()->emitOpError(
           "trace cursor may only feed trace cursor operations");
@@ -3758,8 +3787,10 @@ LogicalResult TraceNextOp::verify() { return requireProcess(*this); }
 
 LogicalResult TraceDecodeOp::verify() {
   auto next = getEntry().getDefiningOp<TraceNextOp>();
-  if (!next || getEntry() != next.getEntry())
-    return emitOpError("trace.decode input must be an ac.trace.next entry");
+  if ((!next || getEntry() != next.getEntry()) &&
+      !getEntry().getType().isSignlessInteger(64))
+    return emitOpError(
+        "trace.decode input must be an ac.trace.next entry or an i64 handle");
   return requireProcess(*this);
 }
 
@@ -3833,29 +3864,31 @@ LogicalResult InstrumentationOp::verify() {
 
 void TrySendOp::getEffects(
     SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
-  if (!isa_and_nonnull<QueueOp>(resolvedRuntimeTarget(*this, getQueue())))
+  if (!isa_and_nonnull<QueueOp>(lookupRuntimeSymbol(*this, getQueue())))
     return;
-  addEffect(effects, *this, MemoryEffects::Read::get(), getQueue(), "queue",
+  StringRef leaf = runtimeSymbolLeaf(getQueue());
+  addEffect(effects, *this, MemoryEffects::Read::get(), leaf, "queue",
             QueueStateResource::get());
-  addEffect(effects, *this, MemoryEffects::Write::get(), getQueue(), "queue",
+  addEffect(effects, *this, MemoryEffects::Write::get(), leaf, "queue",
             QueueStateResource::get());
-  addEffect(effects, *this, MemoryEffects::Read::get(), getQueue(), "protocol",
+  addEffect(effects, *this, MemoryEffects::Read::get(), leaf, "protocol",
             ProtocolStateResource::get());
-  addEffect(effects, *this, MemoryEffects::Write::get(), getQueue(), "protocol",
+  addEffect(effects, *this, MemoryEffects::Write::get(), leaf, "protocol",
             ProtocolStateResource::get());
 }
 
 void TryRecvOp::getEffects(
     SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
-  if (!isa_and_nonnull<QueueOp>(resolvedRuntimeTarget(*this, getQueue())))
+  if (!isa_and_nonnull<QueueOp>(lookupRuntimeSymbol(*this, getQueue())))
     return;
-  addEffect(effects, *this, MemoryEffects::Read::get(), getQueue(), "queue",
+  StringRef leaf = runtimeSymbolLeaf(getQueue());
+  addEffect(effects, *this, MemoryEffects::Read::get(), leaf, "queue",
             QueueStateResource::get());
-  addEffect(effects, *this, MemoryEffects::Write::get(), getQueue(), "queue",
+  addEffect(effects, *this, MemoryEffects::Write::get(), leaf, "queue",
             QueueStateResource::get());
-  addEffect(effects, *this, MemoryEffects::Read::get(), getQueue(), "protocol",
+  addEffect(effects, *this, MemoryEffects::Read::get(), leaf, "protocol",
             ProtocolStateResource::get());
-  addEffect(effects, *this, MemoryEffects::Write::get(), getQueue(), "protocol",
+  addEffect(effects, *this, MemoryEffects::Write::get(), leaf, "protocol",
             ProtocolStateResource::get());
 }
 
@@ -3987,6 +4020,52 @@ void StatAddOp::getEffects(
             StatisticsResource::get());
   addEffect(effects, *this, MemoryEffects::Write::get(), getStat(),
             "statistics", StatisticsResource::get());
+}
+
+Operation *lookupRuntimeSymbol(Operation *from, SymbolRefAttr ref) {
+  if (!from || !ref)
+    return nullptr;
+  if (!ref.getNestedReferences().empty()) {
+    if (ref.getNestedReferences().size() != 1)
+      return nullptr;
+    auto file = from->getParentOfType<mlir::ModuleOp>();
+    if (!file)
+      return nullptr;
+    ModuleOp targetModule;
+    for (ModuleOp candidate : file.getOps<ModuleOp>()) {
+      if (candidate.getSymName() == ref.getRootReference()) {
+        targetModule = candidate;
+        break;
+      }
+    }
+    if (!targetModule)
+      return nullptr;
+    StringRef leaf = ref.getNestedReferences().front().getValue();
+    for (Operation &candidate : targetModule.getBody().front()) {
+      if (auto name = SymbolTable::getSymbolName(&candidate);
+          name && name.getValue() == leaf)
+        return &candidate;
+    }
+    return nullptr;
+  }
+  if (auto owner = from->getParentOfType<ModuleOp>()) {
+    StringRef name = ref.getRootReference();
+    for (Operation &candidate : owner.getBody().front()) {
+      if (auto symbol = SymbolTable::getSymbolName(&candidate);
+          symbol && symbol.getValue() == name)
+        return &candidate;
+    }
+  }
+  return SymbolTable::lookupNearestSymbolFrom(from, ref);
+}
+
+StringRef runtimeSymbolLeaf(SymbolRefAttr ref) {
+  if (!ref)
+    return {};
+  ArrayRef<FlatSymbolRefAttr> nested = ref.getNestedReferences();
+  if (nested.empty())
+    return ref.getRootReference();
+  return nested.back().getValue();
 }
 
 } // namespace acir::ac

@@ -140,4 +140,8 @@ loadLoweringCommandLineOptions() {
   return std::optional<ACIRToACSimPassOptions>(std::move(options));
 }
 
+std::string selectedBindingProfile() { return BindingProfile; }
+
+std::string selectedBindingTarget() { return BindingTarget; }
+
 } // namespace acir::opt

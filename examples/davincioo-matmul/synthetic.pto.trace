@@ -1,0 +1,12 @@
+{"sequence_id":0,"opcode":"TASSIGN","input_tiles":[],"output_tiles":[]}
+{"sequence_id":1,"opcode":"TLOAD","input_tiles":[],"output_tiles":[{"address":"0x1000","dtype":"float16","shape":[16,16]}]}
+{"sequence_id":2,"opcode":"TLOAD","input_tiles":[],"output_tiles":[{"address":"0x2000","dtype":"float16","shape":[16,16]}]}
+{"sequence_id":3,"opcode":"TEXTRACT","input_tiles":[{"address":"0x1000","dtype":"float16","shape":[16,16]}],"output_tiles":[{"address":"0x3000","dtype":"float16","shape":[16,16]}]}
+{"sequence_id":4,"opcode":"TMATMUL","input_tiles":[{"address":"0x3000","dtype":"float16","shape":[16,16]},{"address":"0x2000","dtype":"float16","shape":[16,16]}],"output_tiles":[{"address":"0x4000","dtype":"float16","shape":[16,16]}]}
+{"sequence_id":5,"opcode":"TMATMUL_ACC","input_tiles":[{"address":"0x4000","dtype":"float16","shape":[16,16]},{"address":"0x3000","dtype":"float16","shape":[16,16]},{"address":"0x2000","dtype":"float16","shape":[16,16]}],"output_tiles":[{"address":"0x5000","dtype":"float16","shape":[16,16]}]}
+{"sequence_id":6,"opcode":"TSTORE","input_tiles":[{"address":"0x5000","dtype":"float16","shape":[16,16]}],"output_tiles":[]}
+{"sequence_id":7,"opcode":"TASSIGN","input_tiles":[],"output_tiles":[]}
+{"sequence_id":8,"opcode":"TLOAD","input_tiles":[],"output_tiles":[{"address":"0x6000","dtype":"float16","shape":[8,16]}]}
+{"sequence_id":9,"opcode":"TEXTRACT","input_tiles":[{"address":"0x6000","dtype":"float16","shape":[8,16]}],"output_tiles":[{"address":"0x7000","dtype":"float16","shape":[8,16]}]}
+{"sequence_id":10,"opcode":"TMATMUL","input_tiles":[{"address":"0x7000","dtype":"float16","shape":[8,16]},{"address":"0x2000","dtype":"float16","shape":[16,16]}],"output_tiles":[{"address":"0x8000","dtype":"float16","shape":[8,16]}]}
+{"sequence_id":11,"opcode":"TSTORE","input_tiles":[{"address":"0x8000","dtype":"float16","shape":[8,16]}],"output_tiles":[]}

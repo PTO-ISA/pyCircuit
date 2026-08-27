@@ -2,6 +2,7 @@
 #define ACIR_INITALLPASSES_H
 
 #include "acir/Transforms/Passes.h"
+#include "acir/CodeGen/EmitCxx.h"
 #include "mlir/Pass/PassRegistry.h"
 #include "mlir/Transforms/Passes.h"
 
@@ -17,6 +18,12 @@ inline void registerAllPasses() {
   });
   mlir::registerPass([]() -> std::unique_ptr<mlir::Pass> {
     return createVerifyACIRFilePass();
+  });
+  mlir::registerPass([]() -> std::unique_ptr<mlir::Pass> {
+    return codegen::createEmitCxxPass({});
+  });
+  mlir::registerPass([]() -> std::unique_ptr<mlir::Pass> {
+    return codegen::createCheckCxxContractPass();
   });
 }
 
