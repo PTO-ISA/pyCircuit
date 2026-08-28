@@ -11,8 +11,12 @@
 
 // SRC-DAG: system->traceNext("pto"
 // SRC-DAG: system->traceDecode
+// SRC-DAG: system->recordTraceEvent
+// SRC-DAG: system->recordTraceCounter
+// SRC-DAG: {{v[0-9]+ = v[0-9]+ / v[0-9]+;}}
 // SRC-DAG: system->traceEof("pto"
 // SRC-DAG: requestTerminate(gfsim::TerminationClass::Completed
 
 // MAIN: "--trace="
+// MAIN: "--timeline="
 // MAIN: model.system.loadPtoTrace("pto", tracePath);

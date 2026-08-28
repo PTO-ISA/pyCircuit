@@ -284,7 +284,11 @@ std::string cppTypeName(ModelOp model, Type type) {
 
 std::string memberAccessFromPath(StringRef path, StringRef rootName) {
   StringRef rest = path;
-  if (rest.starts_with(rootName) && rest.size() > rootName.size() &&
+  if (rest.starts_with("root."))
+    rest = rest.drop_front(5);
+  else if (rest == "root")
+    return {};
+  else if (rest.starts_with(rootName) && rest.size() > rootName.size() &&
       rest[rootName.size()] == '.')
     rest = rest.drop_front(rootName.size() + 1);
   else if (rest == rootName)
@@ -342,21 +346,30 @@ public:
     fs::remove_all(staging, ec);
     fs::create_directories(staging);
     BuildManifest manifest;
-    manifest.contractEpoch = "0.1";
+    manifest.contractEpoch = "0.3";
     manifest.schema = "agentic-circuit-build-manifest";
     auto frozen = model.getFingerprints().getAs<StringAttr>("frozen_acir");
-    manifest.inputFingerprint =
-        frozen ? hexFingerprint(frozen.getValue()).str()
+    manifest.normalizedAcirSha256 =
+        frozen ? withShaPrefix(hexFingerprint(frozen.getValue()))
                : computeFingerprint(model.getSymName().str());
-    manifest.profileFingerprint = options.profile;
-    manifest.toolchainFingerprint = options.toolchainTarget;
+    manifest.buildProfile = options.profile;
+    manifest.compiler = {
+        .name = "acsim-emit-cxx",
+        .buildId = "0.1",
+        .toolchainTarget = options.toolchainTarget,
+    };
     constexpr llvm::StringLiteral kPlaceholder =
         "sha256:0000000000000000000000000000000000000000000000000000000000000000";
-    for (SourceFile &file : files)
+    std::string buildPreimage = manifest.normalizedAcirSha256 +
+                                manifest.buildProfile +
+                                manifest.compiler.toolchainTarget;
+    for (SourceFile &file : files) {
       file.fingerprint = computeFingerprint(file.content);
-    manifest.sources = std::vector<SourceFile>(files.begin(), files.end());
-    manifest.finalize();
-    std::string fingerprint = withShaPrefix(manifest.outputFingerprint);
+      buildPreimage += file.relativePath;
+      buildPreimage += file.fingerprint;
+    }
+    manifest.buildFingerprint = computeFingerprint(buildPreimage);
+    std::string fingerprint = manifest.buildFingerprint;
     for (SourceFile &file : files) {
       if (file.content.find(kPlaceholder) != std::string::npos) {
         auto pos = file.content.find(kPlaceholder);
@@ -364,7 +377,10 @@ public:
         file.fingerprint = computeFingerprint(file.content);
       }
     }
-    manifest.sources = std::vector<SourceFile>(files.begin(), files.end());
+    manifest.sourceFiles.clear();
+    for (const SourceFile &file : files)
+      manifest.sourceFiles.push_back(
+          {.path = file.relativePath, .sha256 = file.fingerprint});
     for (SourceFile &file : files) {
       fs::path path = staging / file.relativePath;
       fs::create_directories(path.parent_path());
@@ -382,7 +398,7 @@ public:
       }
     }
     options.outputDir = staging.string();
-    if (failed(writeManifest(manifest))) {
+    if (failed(writeManifest(manifest, files))) {
       fs::remove_all(staging, ec);
       return failure();
     }
@@ -1473,6 +1489,36 @@ private:
                      bind(args.front()) + ")) : UINT64_C(0))");
       return success();
     }
+    if (cppName == "acir.trace.event") {
+      std::string lane = "Unknown";
+      std::string phase = "instant";
+      StringRef symbol = callee.getValue();
+      StringRef prefix = "acir_trace_event_";
+      if (symbol.starts_with(prefix)) {
+        auto [laneRef, phaseRef] = symbol.drop_front(prefix.size()).rsplit('_');
+        if (!laneRef.empty() && !phaseRef.empty()) {
+          lane = laneRef.str();
+          phase = phaseRef.str();
+        }
+      }
+      os << "      if (system)\n";
+      os << "        system->recordTraceEvent(\"" << lane << "\", \"" << phase
+         << "\", static_cast<std::uint64_t>(" << bind(args.front())
+         << "));\n";
+      return success();
+    }
+    if (cppName == "acir.trace.counter") {
+      std::string lane = "Unknown";
+      StringRef symbol = callee.getValue();
+      StringRef prefix = "acir_trace_counter_";
+      if (symbol.starts_with(prefix))
+        lane = symbol.drop_front(prefix.size()).str();
+      os << "      if (system)\n";
+      os << "        system->recordTraceCounter(\"" << lane
+         << "\", static_cast<std::uint64_t>(" << bind(args.front())
+         << "));\n";
+      return success();
+    }
     if (cppName == "acir.trace.eof") {
       std::string source = traceSource("eof");
       emitResult(results.front(),
@@ -1809,12 +1855,14 @@ private:
     os << "#include <cstdlib>\n";
     os << "#include <cstring>\n";
     os << "#include <exception>\n";
+    os << "#include <fstream>\n";
     os << "#include <iostream>\n";
     os << "#include <string>\n\n";
     os << "int main(int argc, char **argv) {\n";
     os << "  std::uint64_t maxTicks = ~0ull;\n";
     os << "  std::uint64_t maxEvents = ~0ull;\n";
     os << "  std::string tracePath;\n";
+    os << "  std::string timelinePath;\n";
     os << "  for (int index = 1; index < argc; ++index) {\n";
     os << "    if (std::strncmp(argv[index], \"--max-ticks=\", 12) == 0)\n";
     os << "      maxTicks = std::strtoull(argv[index] + 12, nullptr, 10);\n";
@@ -1831,6 +1879,11 @@ private:
     os << "    else if (std::strcmp(argv[index], \"--trace\") == 0 && "
           "index + 1 < argc)\n";
     os << "      tracePath = argv[++index];\n";
+    os << "    else if (std::strncmp(argv[index], \"--timeline=\", 11) == 0)\n";
+    os << "      timelinePath = argv[index] + 11;\n";
+    os << "    else if (std::strcmp(argv[index], \"--timeline\") == 0 && "
+          "index + 1 < argc)\n";
+    os << "      timelinePath = argv[++index];\n";
     os << "  }\n";
     os << "  acsim_generated::GeneratedModel model;\n";
     os << "  model.system.setMaxTicks(maxTicks);\n";
@@ -1876,6 +1929,10 @@ private:
     os << "  std::cout << \"],\"\n";
     os << "            << \"\\\"diagnostic\\\":\\\"\" << result.diagnosticCode "
           "<< \"\\\"}\\n\";\n";
+    os << "  if (!timelinePath.empty()) {\n";
+    os << "    std::ofstream timeline(timelinePath);\n";
+    os << "    timeline << model.system.chromeTraceJson();\n";
+    os << "  }\n";
     os << "  return result.classification == "
           "gfsim::TerminationClass::Failed ? 1 : 0;\n";
     os << "}\n";
@@ -1885,10 +1942,11 @@ private:
     return file;
   }
 
-  LogicalResult writeManifest(const BuildManifest &manifest) {
+  LogicalResult writeManifest(const BuildManifest &manifest,
+                              llvm::ArrayRef<SourceFile> sources) {
     llvm::json::Array sourceFiles;
     llvm::json::Array artifacts;
-    for (const SourceFile &file : manifest.sources) {
+    for (const SourceFile &file : sources) {
       llvm::json::Object entry;
       entry["path"] = file.relativePath;
       entry["sha256"] = withShaPrefix(file.fingerprint);
@@ -1980,11 +2038,11 @@ private:
     llvm::json::Object root;
     root["schema"] = "agentic-circuit-build-manifest";
     root["version"] = "0.1";
-    root["contract_epoch"] = "0.1";
+    root["contract_epoch"] = manifest.contractEpoch;
     root["project"] = std::move(project);
     root["system"] = std::move(system);
     root["source_files"] = std::move(sourceFiles);
-    root["normalized_acir_sha256"] = withShaPrefix(manifest.inputFingerprint);
+    root["normalized_acir_sha256"] = manifest.normalizedAcirSha256;
     root["compiler"] = std::move(compiler);
     root["pass_pipeline"] = llvm::json::Array{"acsim-emit-cxx"};
     root["providers"] = std::move(providers);
@@ -1995,7 +2053,7 @@ private:
     root["build_profile"] = profile;
     root["instrumentation_layers"] = std::move(instrumentation);
     root["specialization_inputs"] = std::move(specializationInputs);
-    root["build_fingerprint"] = withShaPrefix(manifest.outputFingerprint);
+    root["build_fingerprint"] = manifest.buildFingerprint;
 
     std::string serialized;
     llvm::raw_string_ostream json(serialized);

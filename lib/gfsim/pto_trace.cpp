@@ -253,7 +253,21 @@ enum class Opcode : uint64_t {
   Textract = 2,
   Tmatmul = 3,
   TmatmulAcc = 4,
-  Tstore = 5
+  Tstore = 5,
+  Tcvt = 6,
+  Tmuls = 7,
+  Tcolmax = 8,
+  Tmax = 9,
+  Tsub = 10,
+  Texp = 11,
+  Tmul = 12,
+  Tcolexpandsub = 13,
+  Tcolsum = 14,
+  Tadd = 15,
+  Tmov = 16,
+  Tcolexpandmul = 17,
+  Trecip = 18,
+  Texpands = 19
 };
 
 Opcode opcode(std::string_view name) {
@@ -269,6 +283,34 @@ Opcode opcode(std::string_view name) {
     return Opcode::TmatmulAcc;
   if (name == "TSTORE")
     return Opcode::Tstore;
+  if (name == "TCVT")
+    return Opcode::Tcvt;
+  if (name == "TMULS")
+    return Opcode::Tmuls;
+  if (name == "TCOLMAX")
+    return Opcode::Tcolmax;
+  if (name == "TMAX")
+    return Opcode::Tmax;
+  if (name == "TSUB")
+    return Opcode::Tsub;
+  if (name == "TEXP")
+    return Opcode::Texp;
+  if (name == "TMUL")
+    return Opcode::Tmul;
+  if (name == "TCOLEXPANDSUB")
+    return Opcode::Tcolexpandsub;
+  if (name == "TCOLSUM")
+    return Opcode::Tcolsum;
+  if (name == "TADD")
+    return Opcode::Tadd;
+  if (name == "TMOV")
+    return Opcode::Tmov;
+  if (name == "TCOLEXPANDMUL")
+    return Opcode::Tcolexpandmul;
+  if (name == "TRECIP")
+    return Opcode::Trecip;
+  if (name == "TEXPANDS")
+    return Opcode::Texpands;
   traceError("ACTRACE-UNSUPPORTED-OPCODE", std::string(name));
 }
 
@@ -284,12 +326,13 @@ uint64_t checkedProduct(uint64_t lhs, uint64_t rhs,
 uint64_t workload(Opcode opcode, const std::vector<Tile> &inputs,
                   const std::vector<Tile> &outputs) {
   uint64_t work = 0;
-  if (opcode == Opcode::Tload && !outputs.empty())
-    work = byteCount(outputs.front());
-  else if (opcode == Opcode::Tstore && !inputs.empty())
-    work = byteCount(inputs.front());
-  else if (opcode == Opcode::Textract && !outputs.empty())
-    work = byteCount(outputs.front());
+  auto primaryBytes = [&](const std::vector<Tile> &tiles) {
+    return tiles.empty() ? uint64_t{0} : byteCount(tiles.front());
+  };
+  if (opcode == Opcode::Tload)
+    work = primaryBytes(outputs);
+  else if (opcode == Opcode::Tstore)
+    work = primaryBytes(inputs);
   else if (opcode == Opcode::Tmatmul || opcode == Opcode::TmatmulAcc) {
     size_t aIndex = opcode == Opcode::TmatmulAcc ? 1 : 0;
     size_t bIndex = opcode == Opcode::TmatmulAcc ? 2 : 1;
@@ -304,10 +347,15 @@ uint64_t workload(Opcode opcode, const std::vector<Tile> &inputs,
       traceError("ACTRACE-MATMUL-SHAPE",
                  "matmul inputs must provide rank-2 matrix dimensions");
     }
-  }
+  } else if (opcode == Opcode::Tcolmax || opcode == Opcode::Tcolsum)
+    work = primaryBytes(inputs);
+  else if (opcode == Opcode::Tassign)
+    work = 0;
+  else
+    work = outputs.empty() ? primaryBytes(inputs) : primaryBytes(outputs);
   if (work > PtoScheduleDescriptor::kMaxWorkload)
     traceError("ACTRACE-WORKLOAD-CAP",
-               "raw workload does not fit the 26-bit descriptor field");
+               "raw workload does not fit the 24-bit descriptor field");
   return work;
 }
 
@@ -383,7 +431,8 @@ void PtoTraceProvider::load(std::string source, const std::string &path) {
     size_t dependencyCount = 0;
     std::set<uint8_t> uniqueDependencies;
     bool managedInputs =
-        record.opcode != Opcode::Tassign && record.opcode != Opcode::Tload;
+        record.opcode != Opcode::Tassign && record.opcode != Opcode::Tload &&
+        record.opcode != Opcode::Texpands;
     if (managedInputs) {
       for (const Tile &tile : record.inputs) {
         auto found = lastWriter.find({tile.dtype, tile.address});

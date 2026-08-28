@@ -1,3 +1,4 @@
+#include "gfsim/object.h"
 #include "gfsim/pto_trace.h"
 
 #include "gtest/gtest.h"
@@ -57,9 +58,15 @@ TEST(PtoTraceProviderTest, BuildsOpcodeWorkloadAndDependencies) {
   uint64_t load = provider.decode(0);
   uint64_t extract = provider.decode(1);
   uint64_t matmul = provider.decode(2);
-  EXPECT_EQ((load >> PtoScheduleDescriptor::kOpcodeShift) & 7u, 1u);
-  EXPECT_EQ((extract >> PtoScheduleDescriptor::kOpcodeShift) & 7u, 2u);
-  EXPECT_EQ((matmul >> PtoScheduleDescriptor::kOpcodeShift) & 7u, 3u);
+  EXPECT_EQ((load >> PtoScheduleDescriptor::kOpcodeShift) &
+                PtoScheduleDescriptor::kOpcodeMask,
+            1u);
+  EXPECT_EQ((extract >> PtoScheduleDescriptor::kOpcodeShift) &
+                PtoScheduleDescriptor::kOpcodeMask,
+            2u);
+  EXPECT_EQ((matmul >> PtoScheduleDescriptor::kOpcodeShift) &
+                PtoScheduleDescriptor::kOpcodeMask,
+            3u);
   EXPECT_EQ((load >> PtoScheduleDescriptor::kWorkloadShift) &
                 PtoScheduleDescriptor::kMaxWorkload,
             64u);
@@ -96,10 +103,73 @@ TEST(PtoTraceProviderTest, RejectsUnknownOpcode) {
 
 TEST(PtoTraceProviderTest, RejectsWorkloadThatExceedsDescriptor) {
   TemporaryTrace trace(
-      R"({"sequence_id":0,"opcode":"TLOAD","input_tiles":[],"scalar_inputs":[],"output_tiles":[{"address":"0x0","shape":[67108864],"dtype":"uint8"}]})"
+      R"({"sequence_id":0,"opcode":"TLOAD","input_tiles":[],"scalar_inputs":[],"output_tiles":[{"address":"0x0","shape":[16777216],"dtype":"uint8"}]})"
       "\n");
   PtoTraceProvider provider;
   EXPECT_THROW(provider.load("pto", trace.path()), std::runtime_error);
+}
+
+TEST(PtoTraceProviderTest, DecodesFlashAttentionVectorOpcodes) {
+  TemporaryTrace trace(
+      R"({"sequence_id":0,"opcode":"TLOAD","input_tiles":[],"output_tiles":[{"address":"0x0","shape":[4,4],"dtype":"float16"}]})"
+      "\n"
+      R"({"sequence_id":1,"opcode":"TCOLMAX","input_tiles":[{"address":"0x0","shape":[4,4],"dtype":"float16"}],"output_tiles":[{"address":"0x40","shape":[4],"dtype":"float16"}]})"
+      "\n"
+      R"({"sequence_id":2,"opcode":"TEXP","input_tiles":[{"address":"0x40","shape":[4],"dtype":"float16"}],"output_tiles":[{"address":"0x48","shape":[4],"dtype":"float16"}]})"
+      "\n");
+  PtoTraceProvider provider;
+  provider.load("pto", trace.path());
+  uint64_t reduce = provider.decode(1);
+  uint64_t exp = provider.decode(2);
+  EXPECT_EQ((reduce >> PtoScheduleDescriptor::kOpcodeShift) &
+                PtoScheduleDescriptor::kOpcodeMask,
+            8u);
+  EXPECT_EQ((exp >> PtoScheduleDescriptor::kOpcodeShift) &
+                PtoScheduleDescriptor::kOpcodeMask,
+            11u);
+  EXPECT_EQ((reduce >> PtoScheduleDescriptor::kWorkloadShift) &
+                PtoScheduleDescriptor::kMaxWorkload,
+            32u);
+}
+
+TEST(PtoTraceProviderTest, ChromeTraceEmitsDependencyFlows) {
+  TemporaryTrace trace(kThreeRecordTrace);
+  SimSystem system;
+  system.loadPtoTrace("pto", trace.path());
+  system.recordTraceEvent("Tlsu", "begin", 0);
+  system.recordTraceEvent("Tlsu", "end", 0);
+  system.recordTraceEvent("Vector", "begin", 1);
+  system.recordTraceEvent("Vector", "end", 1);
+  system.recordTraceEvent("Cube", "begin", 2);
+  system.recordTraceEvent("Cube", "end", 2);
+  system.recordTraceCounter("ROB", 3);
+  system.recordTraceCounter("IQVector", 2);
+  std::string json = system.chromeTraceJson();
+  EXPECT_NE(json.find("\"deps\":[0]"), std::string::npos) << json;
+  EXPECT_NE(json.find("\"deps\":[1]"), std::string::npos) << json;
+  EXPECT_NE(json.find("\"ph\":\"s\""), std::string::npos) << json;
+  EXPECT_NE(json.find("\"ph\":\"f\""), std::string::npos) << json;
+  EXPECT_NE(json.find("\"from\":0,\"to\":1"), std::string::npos) << json;
+  EXPECT_NE(json.find("\"from\":1,\"to\":2"), std::string::npos) << json;
+  EXPECT_LT(json.find("\"ph\":\"B\""), json.find("\"ph\":\"s\""));
+  EXPECT_LT(json.find("\"ph\":\"s\""), json.find("\"ph\":\"E\""));
+  EXPECT_NE(json.find("\"name\":\"Tlsu\""), std::string::npos) << json;
+  EXPECT_NE(json.find("\"name\":\"Vector\""), std::string::npos) << json;
+  EXPECT_NE(json.find("\"name\":\"Cube\""), std::string::npos) << json;
+  EXPECT_NE(json.find("\"name\":\"ROB occupancy\""), std::string::npos) << json;
+  EXPECT_NE(json.find("\"name\":\"IQ Vector occupancy\""), std::string::npos)
+      << json;
+  EXPECT_NE(json.find("\"ph\":\"C\""), std::string::npos) << json;
+  EXPECT_NE(json.find("\"occupancy\":3"), std::string::npos) << json;
+  EXPECT_NE(json.find("\"occupancy\":2"), std::string::npos) << json;
+  EXPECT_EQ(json.find("capacity"), std::string::npos) << json;
+  EXPECT_EQ(json.find("IQ Scalar"), std::string::npos) << json;
+  EXPECT_EQ(json.find("\"name\":\"IQ Vector\""), std::string::npos) << json;
+  EXPECT_EQ(json.find("\"name\":\"entries\""), std::string::npos) << json;
+  EXPECT_EQ(json.find("\"name\":\"Frontend\""), std::string::npos) << json;
+  EXPECT_EQ(json.find("\"name\":\"Dispatch\""), std::string::npos) << json;
+  EXPECT_EQ(json.find("\"name\":\"Complete\""), std::string::npos) << json;
+  EXPECT_EQ(json.find("\"name\":\"ROB\""), std::string::npos) << json;
 }
 
 } // namespace

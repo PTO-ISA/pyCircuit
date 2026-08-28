@@ -17,21 +17,23 @@ namespace gfsim {
 /// Queues carry only an opaque record handle. The provider records trace facts
 /// only; engine routing and timing are intentionally owned by the ACIR model:
 ///   [7:0]   sequence id
-///   [10:8]  opcode class
-///   [18:11] dependency 0 sequence id
-///   [26:19] dependency 1 sequence id
-///   [34:27] dependency 2 sequence id
-///   [37:35] dependency-valid mask
-///   [63:38] raw workload (bytes or MAC operations)
+///   [12:8]  opcode class
+///   [20:13] dependency 0 sequence id
+///   [28:21] dependency 1 sequence id
+///   [36:29] dependency 2 sequence id
+///   [39:37] dependency-valid mask
+///   [63:40] raw workload (bytes or MAC operations)
 struct PtoScheduleDescriptor {
   static constexpr unsigned kSequenceShift = 0;
   static constexpr unsigned kOpcodeShift = 8;
-  static constexpr unsigned kDependency0Shift = 11;
-  static constexpr unsigned kDependency1Shift = 19;
-  static constexpr unsigned kDependency2Shift = 27;
-  static constexpr unsigned kDependencyValidShift = 35;
-  static constexpr unsigned kWorkloadShift = 38;
-  static constexpr uint64_t kMaxWorkload = (uint64_t{1} << 26) - 1;
+  static constexpr unsigned kOpcodeBits = 5;
+  static constexpr unsigned kDependency0Shift = 13;
+  static constexpr unsigned kDependency1Shift = 21;
+  static constexpr unsigned kDependency2Shift = 29;
+  static constexpr unsigned kDependencyValidShift = 37;
+  static constexpr unsigned kWorkloadShift = 40;
+  static constexpr uint64_t kOpcodeMask = (uint64_t{1} << kOpcodeBits) - 1;
+  static constexpr uint64_t kMaxWorkload = (uint64_t{1} << 24) - 1;
 };
 
 /// Clean-room PTO JSONL reader used by generated timing models.

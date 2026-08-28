@@ -12,7 +12,7 @@
 // CHECK-DAG: acsim.instance @trace target @TraceSource
 // CHECK-DAG: acsim.instance @rob target @ROB
 // CHECK-DAG: acsim.instance @iq_s target @IssueQueueS
-// CHECK-DAG: acsim.instance @eng_t target @EngineT
+// CHECK-DAG: acsim.instance @eng_t target @Tlsu
 
 // CHECK: acsim.module @Dispatch
 // CHECK: acsim.invoke @acir_queue_pop_Core_rename_to_dispatch
@@ -23,5 +23,5 @@
 // CHECK: acsim.invoke @acir_complete_retired
 
 // CHECK-DAG: acsim.dispatch @Core::@tick path "Core.tick"
-// CHECK-DAG: acsim.dispatch @EngineS::@step path "Core.eng_s.step"
+// CHECK-DAG: acsim.dispatch @Scalar::@step path "Core.eng_s.step"
 // CHECK-DAG: acsim.dispatch @TraceSource::@step path "Core.trace.step"

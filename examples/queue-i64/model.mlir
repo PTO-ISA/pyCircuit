@@ -1,6 +1,6 @@
 // i64 fifo datapath: two operands, add, complete with sum=5.
 
-builtin.module attributes {ac.contract_epoch = "0.1"} {
+builtin.module attributes {ac.contract_epoch = "0.3"} {
   ac.protocol @rv {
     ac.role @producer dual @consumer cardinality "exclusive"
     ac.role @consumer dual @producer cardinality "exclusive"

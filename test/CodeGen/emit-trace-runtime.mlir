@@ -7,9 +7,12 @@
 // SRC: system->traceOpen("pto")
 // SRC: system->traceNext("pto"
 // SRC: system->traceDecode
+// SRC: system->recordTraceEvent("Frontend", "fetch"
+// SRC: system->recordTraceCounter("ROB"
 // SRC: system->traceEof("pto"
 // SRC: system->tracePosition("pto"
 
 // MAIN: std::string tracePath;
 // MAIN: "--trace="
+// MAIN: "--timeline="
 // MAIN: model.system.loadPtoTrace("pto", tracePath);

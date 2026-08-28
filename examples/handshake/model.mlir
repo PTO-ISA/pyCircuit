@@ -2,7 +2,7 @@
 // The wait splits the process into pcs [@entry, @s1] so the queue xfer
 // becomes visible before the receive.
 
-builtin.module attributes {ac.contract_epoch = "0.1"} {
+builtin.module attributes {ac.contract_epoch = "0.3"} {
   ac.protocol @rv {
     ac.role @producer dual @consumer cardinality "exclusive"
     ac.role @consumer dual @producer cardinality "exclusive"

@@ -9,6 +9,7 @@ target_link_libraries(ACIRToACSim PUBLIC
   ACIRDialect
   ACSimDialect
   MLIRIndexDialect
+  MLIRSCFDialect
   MLIRPass
   MLIRTransformUtils
 )

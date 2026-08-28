@@ -2256,9 +2256,10 @@ LogicalResult verifyModulesAndTypedGraph(ModelOp model,
                  << "' cannot be used by both acsim.inline and acsim.invoke";
       }
       for (Type type : invoke.getResultTypes())
-        if (!isa<ValueType, WakeType>(type))
+        if (!isa<ValueType, WakeType, IntegerType>(type))
           return invoke.emitOpError(
-              "invoke results must be exact !acsim.value or !acsim.wake types");
+              "invoke results must be exact !acsim.value, !acsim.wake, or "
+              "integer types");
     } else if (auto exportOp = dyn_cast<ExportOp>(operation)) {
       if (exportOp.getValue().getType() != exportOp.getResult().getType())
         return exportOp.emitOpError(
@@ -3032,9 +3033,10 @@ LogicalResult LiveStoreOp::verify() {
 
 LogicalResult InvokeOp::verify() {
   for (Type type : getResultTypes())
-    if (!isa<ValueType, WakeType>(type))
+    if (!isa<ValueType, WakeType, IntegerType>(type))
       return emitOpError(
-          "invoke results must be exact !acsim.value or !acsim.wake types");
+          "invoke results must be exact !acsim.value, !acsim.wake, or integer "
+          "types");
   return success();
 }
 

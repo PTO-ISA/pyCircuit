@@ -2184,7 +2184,7 @@ LogicalResult verifyProcessOperations(ModuleOp module) {
           TypeSwitch<Operation *, LogicalResult>(operation)
               .Case<TrySendOp, TryRecvOp, ScheduleOp, WaitUntilOp, WaitForOp,
                     AwaitEventOp, YieldSimOp, TraceOpenOp, TraceNextOp,
-                    TraceDecodeOp, TraceEofOp, TracePositionOp, RequireOp,
+                    TraceDecodeOp, TraceEofOp, TracePositionOp, TraceEventOp, TraceCounterOp, RequireOp,
                     EnsureOp, AssertOp, ProbeOp, StatAddOp, InstrumentationOp>(
                   [](auto op) { return op.verify(); })
               .Default([](Operation *) { return success(); });
@@ -3137,7 +3137,7 @@ bool isAllowedProcessOperation(Operation *operation) {
   return isa<RecordCreateOp, RecordGetOp, RecordWithOp, PacketSerializeOp,
              PacketDeserializeOp, TrySendOp, TryRecvOp, ScheduleOp, WaitUntilOp,
              WaitForOp, AwaitEventOp, YieldSimOp, TraceOpenOp, TraceNextOp,
-             TraceDecodeOp, TraceEofOp, TracePositionOp, RequireOp, EnsureOp,
+             TraceDecodeOp, TraceEofOp, TracePositionOp, TraceEventOp, TraceCounterOp, RequireOp, EnsureOp,
              AssertOp, ProbeOp, StatAddOp, InstrumentationOp>(operation);
 }
 
@@ -3798,6 +3798,22 @@ LogicalResult TraceEofOp::verify() { return requireProcess(*this); }
 
 LogicalResult TracePositionOp::verify() { return requireProcess(*this); }
 
+LogicalResult TraceEventOp::verify() {
+  if (!getHandle().getType().isSignlessInteger(64))
+    return emitOpError("trace.event handle must be i64");
+  if (getLane().empty() || getPhase().empty())
+    return emitOpError("trace.event lane and phase must be non-empty");
+  return requireProcess(*this);
+}
+
+LogicalResult TraceCounterOp::verify() {
+  if (!getValue().getType().isSignlessInteger(64))
+    return emitOpError("trace.counter value must be i64");
+  if (getLane().empty())
+    return emitOpError("trace.counter lane must be non-empty");
+  return requireProcess(*this);
+}
+
 LogicalResult RequireOp::verify() {
   if (isa_and_nonnull<ModuleOp>((*this)->getParentOp()))
     return success();
@@ -3968,6 +3984,18 @@ void TracePositionOp::getEffects(
     SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
   std::string identity = traceOwnerIdentity(*this, getSource());
   addEffect(effects, *this, MemoryEffects::Read::get(), identity, "trace",
+            TracePositionResource::get());
+}
+
+void TraceEventOp::getEffects(
+    SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
+  addEffect(effects, *this, MemoryEffects::Write::get(), "timeline", "trace",
+            TracePositionResource::get());
+}
+
+void TraceCounterOp::getEffects(
+    SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
+  addEffect(effects, *this, MemoryEffects::Write::get(), "timeline", "trace",
             TracePositionResource::get());
 }
 

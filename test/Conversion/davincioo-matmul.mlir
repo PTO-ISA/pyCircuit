@@ -9,14 +9,17 @@
 // CHECK-DAG: acsim.module @IssueQueueV
 // CHECK-DAG: acsim.module @IssueQueueC
 // CHECK-DAG: acsim.module @IssueQueueT
-// CHECK-DAG: acsim.module @EngineS
-// CHECK-DAG: acsim.module @EngineV
-// CHECK-DAG: acsim.module @EngineC
-// CHECK-DAG: acsim.module @EngineT
+// CHECK-DAG: acsim.module @Scalar
+// CHECK-DAG: acsim.module @Vector
+// CHECK-DAG: acsim.module @Cube
+// CHECK-DAG: acsim.module @Tlsu
 // CHECK-DAG: acsim.invoke @acir_trace_next_pto
 // CHECK-DAG: acsim.invoke @acir_trace_decode
-// CHECK-DAG: arith.constant 35 : i64
-// CHECK-DAG: arith.constant 38 : i64
+// CHECK-DAG: acsim.invoke @acir_trace_event_Cube_begin
+// CHECK-DAG: acsim.invoke @acir_trace_counter_ROB
+// CHECK-DAG: arith.constant 37 : i64
+// CHECK-DAG: arith.constant 40 : i64
 // CHECK-DAG: arith.constant 4096 : i64
+// CHECK-DAG: arith.divui
 // CHECK-DAG: cf.cond_br
 // CHECK-DAG: cf.br

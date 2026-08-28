@@ -21,6 +21,9 @@ builtin.module attributes {ac.contract_epoch = "0.1"} {
       %cursor = arith.index_cast %cursor64 : i64 to index
       %next, %handle, %advanced = ac.trace.next %cursor from source "pto" : i64
       %descriptor = ac.trace.decode %handle : i64 to i64
+      ac.trace.event %handle lane "Frontend" phase "fetch" : i64
+      %zero = arith.constant 0 : i64
+      ac.trace.counter %zero lane "ROB" : i64
       %eof = ac.trace.eof %next from source "pto"
       %position = ac.trace.position %next from source "pto"
       scf.if %advanced {
@@ -42,6 +45,8 @@ builtin.module attributes {ac.contract_epoch = "0.1"} {
 // CHECK-DAG: acsim.type @acir_trace_open_pto cpp "acir.trace.open"
 // CHECK-DAG: acsim.type @acir_trace_next_pto cpp "acir.trace.next"
 // CHECK-DAG: acsim.type @acir_trace_decode cpp "acir.trace.decode"
+// CHECK-DAG: acsim.type @acir_trace_event_Frontend_fetch cpp "acir.trace.event"
+// CHECK-DAG: acsim.type @acir_trace_counter_ROB cpp "acir.trace.counter"
 // CHECK-DAG: acsim.type @acir_trace_eof_pto cpp "acir.trace.eof"
 // CHECK-DAG: acsim.type @acir_trace_position_pto cpp "acir.trace.position"
 // CHECK: acsim.process @step
@@ -49,5 +54,7 @@ builtin.module attributes {ac.contract_epoch = "0.1"} {
 // CHECK: arith.index_cast
 // CHECK: acsim.invoke @acir_trace_next_pto
 // CHECK: acsim.invoke @acir_trace_decode
+// CHECK: acsim.invoke @acir_trace_event_Frontend_fetch
+// CHECK: acsim.invoke @acir_trace_counter_ROB
 // CHECK: acsim.invoke @acir_trace_eof_pto
 // CHECK: acsim.invoke @acir_trace_position_pto

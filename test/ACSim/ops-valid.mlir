@@ -161,8 +161,12 @@ builtin.module attributes {ac.contract_epoch = "0.3"} {
       reset "acsim_generated::Top::s2100000000000000000000000000000000000000000000000000000000000000::tick::p2300000000000000000000000000000000000000000000000000000000000000::reset"
       validate "acsim_generated::Top::s2100000000000000000000000000000000000000000000000000000000000000::tick::p2300000000000000000000000000000000000000000000000000000000000000::validate"
       : !acsim.object_id, !acsim.activation_id
+    acsim.activate %act0 to %obj0 : !acsim.activation_id to !acsim.object_id
+    acsim.activate %act1 to %obj1 : !acsim.activation_id to !acsim.object_id
     acsim.activate %act1 to %obj2 : !acsim.activation_id to !acsim.object_id
     acsim.activate %act1 to %obj3 : !acsim.activation_id to !acsim.object_id
+    acsim.activate %act2 to %obj2 : !acsim.activation_id to !acsim.object_id
+    acsim.activate %act3 to %obj3 : !acsim.activation_id to !acsim.object_id
   }
 }
 
@@ -190,4 +194,4 @@ builtin.module attributes {ac.contract_epoch = "0.3"} {
 // CHECK: acsim.activate %
 // RETAIN-COUNT-3: acsim.bind %
 // RETAIN-COUNT-4: acsim.dispatch @
-// RETAIN-COUNT-2: acsim.activate %
+// RETAIN-COUNT-6: acsim.activate %

@@ -393,9 +393,11 @@ TEST(ACIROpsTest, RegistryContainsExactV02QueueVarOperations) {
       "ac.transform.yield",
       "ac.trace.decode",
       "ac.trace.eof",
+      "ac.trace.event",
       "ac.trace.next",
       "ac.trace.open",
       "ac.trace.position",
+      "ac.trace.counter",
       "ac.try_recv",
       "ac.try_send",
       "ac.type_alias",
@@ -755,12 +757,13 @@ TEST(ACIROpsTest, UnresolvedRuntimeReferencesDoNotInventEffects) {
 TEST(ACIROpsTest, RuntimeAndV03QueueVarRegistryIsExact) {
   mlir::MLIRContext context;
   context.loadDialect<ACIRDialect>();
-  const std::array<llvm::StringLiteral, 20> names = {
+  const std::array<llvm::StringLiteral, 22> names = {
       "ac.process",        "ac.try_send",        "ac.try_recv",
       "ac.schedule",       "ac.wait_until",      "ac.wait_for",
       "ac.await_event",    "ac.yield_sim",       "ac.trace.open",
       "ac.trace.next",     "ac.trace.decode",    "ac.trace.eof",
-      "ac.trace.position", "ac.require",         "ac.ensure",
+      "ac.trace.position", "ac.trace.event",     "ac.trace.counter",
+      "ac.require",        "ac.ensure",
       "ac.assert",         "ac.probe",           "ac.stat",
       "ac.stat.add",       "ac.instrumentation",
   };
@@ -815,7 +818,7 @@ TEST(ACIROpsTest, RuntimeAndV03QueueVarRegistryIsExact) {
   for (llvm::StringLiteral name : v03Names)
     EXPECT_TRUE(mlir::OperationName(name, &context).isRegistered())
         << name.str();
-  EXPECT_EQ(context.getRegisteredOperationsByDialect("ac").size(), 96u);
+  EXPECT_EQ(context.getRegisteredOperationsByDialect("ac").size(), 98u);
 }
 
 TEST(ACIROpsTest, ProcessLinearLivenessDoesNotRescanBlockPerValue) {

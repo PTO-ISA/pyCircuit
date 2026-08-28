@@ -72,6 +72,8 @@ enum class TerminationClass : uint8_t {
   Failed,     // Contract violation, assertion, or runtime error
 };
 
+struct StatSnapshot;
+
 struct TimeDomainRuntime {
   std::string name;
   uint64_t period = 1;
@@ -85,6 +87,20 @@ struct RuntimeLimits {
   std::map<std::string, uint64_t> maxDomainCycles;
 };
 
+/// One swimlane sample emitted by generated architecture models.
+struct TimelineEvent {
+  Epoch epoch;
+  std::string lane;
+  std::string phase;
+  uint64_t handle = 0;
+  uint64_t sequence = 0;
+  uint64_t opcode = 0;
+  uint8_t dependencyValid = 0;
+  uint8_t dependencies[3] = {};
+  /// When true, `handle` is an occupancy count rather than a trace record.
+  bool counter = false;
+};
+
 struct TerminationResult {
   TerminationClass classification = TerminationClass::Incomplete;
   Epoch finalEpoch;
@@ -95,6 +111,14 @@ struct TerminationResult {
   std::map<std::string, uint64_t> domainCycles;
   std::string diagnosticCode;
   std::optional<std::string> message;
+  std::vector<StatSnapshot> stats;
+};
+
+/// Result of an indexed, non-consuming PTO trace lookup.
+struct TraceNextResult {
+  uint64_t cursor = 0;
+  uint64_t handle = 0;
+  bool advanced = false;
 };
 
 // ── Build profiles ────────────────────────────────────────────────────

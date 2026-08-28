@@ -282,6 +282,14 @@ public:
   /// Publish an optional generated-model statistic.
   void recordStat(std::string name, uint64_t value);
 
+  /// Record a Perfetto/Chrome-trace swimlane sample at the current epoch.
+  void recordTraceEvent(std::string lane, std::string phase, uint64_t handle);
+
+  /// Record a Perfetto counter sample (IQ / ROB occupancy) at the current epoch.
+  void recordTraceCounter(std::string lane, uint64_t value);
+
+  std::string chromeTraceJson() const;
+
   // ── PTO trace provider ───────────────────────────────────────────────
 
   void loadPtoTrace(std::string source, const std::string &path);
@@ -305,6 +313,9 @@ public:
   bool setTimeDomains(std::span<const TimeDomainRuntime> domains);
   void setBuildProfile(BuildProfile profile) { profile_ = profile; }
   BuildProfile buildProfile() const { return profile_; }
+  uint64_t workInvocationCount() const;
+  uint64_t activationTraversalCount() const;
+  const std::vector<TimelineEvent> &timeline() const;
 
 private:
   std::unique_ptr<Module> root_;
@@ -321,6 +332,7 @@ private:
   std::unique_ptr<Impl> impl_;
 
   bool fail(std::string code, std::string message);
+  TerminationResult runLegacy();
   std::vector<SimObject *> runtimeObjects() const;
   void refreshRuntimeSummary();
   bool stopAtTraceCap();

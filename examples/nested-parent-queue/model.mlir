@@ -1,5 +1,5 @@
 // Child processes communicate through a FIFO owned by their parent Core.
-builtin.module attributes {ac.contract_epoch = "0.1"} {
+builtin.module attributes {ac.contract_epoch = "0.3"} {
   ac.protocol @rv {
     ac.role @producer dual @consumer cardinality "exclusive"
     ac.role @consumer dual @producer cardinality "exclusive"

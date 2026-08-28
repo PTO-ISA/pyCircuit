@@ -2,7 +2,7 @@
 //
 // The Core owns every inter-stage FIFO. Each pipeline stage is a child module
 // whose process accesses those FIFOs through @Core::@queue references.
-builtin.module attributes {ac.contract_epoch = "0.1"} {
+builtin.module attributes {ac.contract_epoch = "0.3"} {
   ac.protocol @rv {
     ac.role @producer dual @consumer cardinality "exclusive"
     ac.role @consumer dual @producer cardinality "exclusive"
@@ -411,7 +411,7 @@ builtin.module attributes {ac.contract_epoch = "0.1"} {
     ac.return
   }
 
-  ac.module @EngineS() parameters {} graph {
+  ac.module @Scalar() parameters {} graph {
     ac.queue @busy payload i32 entries 1 ordering "fifo" protocol @rv
         ownership "exclusive" id "busy" path "busy" watermarks {kind = "register"}
     ac.queue @remain payload i32 entries 1 ordering "fifo" protocol @rv
@@ -452,7 +452,7 @@ builtin.module attributes {ac.contract_epoch = "0.1"} {
     ac.return
   }
 
-  ac.module @EngineV() parameters {} graph {
+  ac.module @Vector() parameters {} graph {
     ac.queue @busy payload i32 entries 1 ordering "fifo" protocol @rv
         ownership "exclusive" id "busy" path "busy" watermarks {kind = "register"}
     ac.queue @remain payload i32 entries 1 ordering "fifo" protocol @rv
@@ -493,7 +493,7 @@ builtin.module attributes {ac.contract_epoch = "0.1"} {
     ac.return
   }
 
-  ac.module @EngineC() parameters {} graph {
+  ac.module @Cube() parameters {} graph {
     ac.queue @busy payload i32 entries 1 ordering "fifo" protocol @rv
         ownership "exclusive" id "busy" path "busy" watermarks {kind = "register"}
     ac.queue @remain payload i32 entries 1 ordering "fifo" protocol @rv
@@ -534,7 +534,7 @@ builtin.module attributes {ac.contract_epoch = "0.1"} {
     ac.return
   }
 
-  ac.module @EngineT() parameters {} graph {
+  ac.module @Tlsu() parameters {} graph {
     ac.queue @busy payload i32 entries 1 ordering "fifo" protocol @rv
         ownership "exclusive" id "busy" path "busy" watermarks {kind = "register"}
     ac.queue @remain payload i32 entries 1 ordering "fifo" protocol @rv
@@ -624,10 +624,10 @@ builtin.module attributes {ac.contract_epoch = "0.1"} {
     ac.instance @iq_v of @IssueQueueV() static {} id "iq_v" path "iq_v" : () -> ()
     ac.instance @iq_c of @IssueQueueC() static {} id "iq_c" path "iq_c" : () -> ()
     ac.instance @iq_t of @IssueQueueT() static {} id "iq_t" path "iq_t" : () -> ()
-    ac.instance @eng_s of @EngineS() static {} id "eng_s" path "eng_s" : () -> ()
-    ac.instance @eng_v of @EngineV() static {} id "eng_v" path "eng_v" : () -> ()
-    ac.instance @eng_c of @EngineC() static {} id "eng_c" path "eng_c" : () -> ()
-    ac.instance @eng_t of @EngineT() static {} id "eng_t" path "eng_t" : () -> ()
+    ac.instance @eng_s of @Scalar() static {} id "eng_s" path "eng_s" : () -> ()
+    ac.instance @eng_v of @Vector() static {} id "eng_v" path "eng_v" : () -> ()
+    ac.instance @eng_c of @Cube() static {} id "eng_c" path "eng_c" : () -> ()
+    ac.instance @eng_t of @Tlsu() static {} id "eng_t" path "eng_t" : () -> ()
 
     ac.process @tick kind "workload" {
       %unused, %valid = ac.try_recv @clock : i32

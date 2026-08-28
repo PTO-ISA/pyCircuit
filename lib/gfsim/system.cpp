@@ -3,11 +3,16 @@
 #include "gfsim/queue.h"
 
 #include <algorithm>
+#include <array>
 #include <map>
 #include <set>
+#include <sstream>
+#include <stdexcept>
 #include <string>
+#include <string_view>
 #include <tuple>
 #include <utility>
+#include <vector>
 
 namespace gfsim {
 
@@ -20,6 +25,8 @@ struct SimSystem::Impl {
   LegacyDispatchTable legacyDispatch;
   LegacyActivationGraph legacyActivation;
   uint64_t committedEventCount = 0;
+  uint64_t workInvocations = 0;
+  uint64_t activationTraversals = 0;
   bool executingEpoch = false;
   std::optional<ObjectId> activeProposalOwner;
   NoProgressReport noProgress;
@@ -32,6 +39,7 @@ struct SimSystem::Impl {
   std::map<std::string, uint64_t> maxDomainCycles;
   std::map<std::string, uint64_t> domainCycles;
   std::map<std::string, StatSnapshot, std::less<>> generatedStats;
+  std::vector<TimelineEvent> timeline;
   ObservationRecorder observations;
   PtoTraceProvider ptoTrace;
   std::optional<uint64_t> deadlockWindow;
@@ -372,6 +380,306 @@ void SimSystem::recordStat(std::string name, uint64_t value) {
   impl_->generatedStats.insert_or_assign(std::move(name), std::move(snapshot));
 }
 
+void SimSystem::recordTraceEvent(std::string lane, std::string phase,
+                                 uint64_t handle) {
+  TimelineEvent event;
+  event.epoch = epoch_;
+  event.lane = std::move(lane);
+  event.phase = std::move(phase);
+  event.handle = handle;
+  try {
+    uint64_t descriptor = impl_->ptoTrace.decode(handle);
+    using D = PtoScheduleDescriptor;
+    event.sequence = (descriptor >> D::kSequenceShift) & 0xffu;
+    event.opcode = (descriptor >> D::kOpcodeShift) & D::kOpcodeMask;
+    event.dependencyValid =
+        (descriptor >> D::kDependencyValidShift) & 7u;
+    event.dependencies[0] =
+        (descriptor >> D::kDependency0Shift) & 0xffu;
+    event.dependencies[1] =
+        (descriptor >> D::kDependency1Shift) & 0xffu;
+    event.dependencies[2] =
+        (descriptor >> D::kDependency2Shift) & 0xffu;
+  } catch (const std::runtime_error &) {
+  }
+  impl_->timeline.push_back(std::move(event));
+}
+
+void SimSystem::recordTraceCounter(std::string lane, uint64_t value) {
+  TimelineEvent event;
+  event.epoch = epoch_;
+  event.lane = std::move(lane);
+  event.phase = "occupancy";
+  event.handle = value;
+  event.counter = true;
+  impl_->timeline.push_back(std::move(event));
+}
+
+namespace {
+std::string jsonEscape(std::string_view text) {
+  std::string out;
+  out.reserve(text.size());
+  for (unsigned char ch : text) {
+    switch (ch) {
+    case '"':
+      out += "\\\"";
+      break;
+    case '\\':
+      out += "\\\\";
+      break;
+    case '\n':
+      out += "\\n";
+      break;
+    default:
+      out.push_back(static_cast<char>(ch));
+      break;
+    }
+  }
+  return out;
+}
+
+int timelineTid(std::string_view lane) {
+  if (lane == "Vector")
+    return 1;
+  if (lane == "Cube")
+    return 2;
+  if (lane == "Tlsu")
+    return 3;
+  return 13;
+}
+
+int occupancyTid(std::string_view lane) {
+  if (lane == "IQVector")
+    return 4;
+  if (lane == "IQCube")
+    return 5;
+  if (lane == "IQTlsu")
+    return 6;
+  if (lane == "ROB")
+    return 7;
+  return 0;
+}
+
+std::string_view laneDisplay(std::string_view lane) {
+  if (lane == "IQVector")
+    return "IQ Vector";
+  if (lane == "IQCube")
+    return "IQ Cube";
+  if (lane == "IQTlsu")
+    return "IQ Tlsu";
+  return lane;
+}
+
+std::string occupancyTrackName(std::string_view lane) {
+  if (lane == "ROB")
+    return "ROB occupancy";
+  return std::string(laneDisplay(lane)) + " occupancy";
+}
+
+bool keepSliceEvent(const TimelineEvent &event) {
+  if (event.counter)
+    return false;
+  return event.lane == "Vector" || event.lane == "Cube" ||
+         event.lane == "Tlsu";
+}
+
+bool keepOccupancyEvent(const TimelineEvent &event) {
+  return event.counter && occupancyTid(event.lane) != 0;
+}
+
+bool isEngineLane(std::string_view lane) {
+  return lane == "Scalar" || lane == "Vector" || lane == "Cube" ||
+         lane == "Tlsu";
+}
+
+const char *chromePhase(std::string_view phase) {
+  if (phase == "begin")
+    return "B";
+  if (phase == "end")
+    return "E";
+  return "i";
+}
+
+struct FlowAnchor {
+  uint64_t ts = 0;
+  int tid = 0;
+  int rank = 0;
+};
+
+// Perfetto binds ph=s/f to the currently open slice on that track. Rank
+// Engine-begin highest so the arrow attaches while the duration slice is open.
+int flowRank(std::string_view lane, std::string_view phase) {
+  if (phase == "begin" && isEngineLane(lane))
+    return 3;
+  if (phase == "issue")
+    return 2;
+  if (phase == "complete")
+    return 1;
+  return 0;
+}
+
+void considerAnchor(FlowAnchor &anchor, int rank, uint64_t ts, int tid) {
+  if (rank >= anchor.rank) {
+    anchor.rank = rank;
+    anchor.ts = ts;
+    anchor.tid = tid;
+  }
+}
+
+void emitArgs(std::ostringstream &os, const TimelineEvent &event) {
+  os << "\"args\":{\"seq\":" << event.sequence << ",\"opcode\":" << event.opcode
+     << ",\"handle\":" << event.handle;
+  bool first = true;
+  for (unsigned index = 0; index < 3; ++index) {
+    if ((event.dependencyValid & (1u << index)) == 0)
+      continue;
+    if (first) {
+      os << ",\"deps\":[";
+      first = false;
+    } else {
+      os << ',';
+    }
+    os << static_cast<unsigned>(event.dependencies[index]);
+  }
+  if (!first)
+    os << ']';
+  os << "}";
+}
+
+struct JsonEvt {
+  uint64_t ts = 0;
+  int order = 0;
+  size_t index = 0;
+  std::string body;
+};
+
+constexpr int kOrderC = 0;
+constexpr int kOrderB = 1;
+constexpr int kOrderS = 2;
+constexpr int kOrderF = 3;
+constexpr int kOrderI = 4;
+constexpr int kOrderE = 5;
+} // namespace
+
+std::string SimSystem::chromeTraceJson() const {
+  static constexpr std::array<std::pair<int, const char *>, 3> kSliceLanes = {{
+      {1, "Vector"},
+      {2, "Cube"},
+      {3, "Tlsu"},
+  }};
+  static constexpr std::array<std::pair<int, const char *>, 4> kOccupancyLanes =
+      {{{4, "IQ Vector occupancy"},
+        {5, "IQ Cube occupancy"},
+        {6, "IQ Tlsu occupancy"},
+        {7, "ROB occupancy"}}};
+  std::array<FlowAnchor, 256> anchor{};
+  std::array<uint8_t, 256> dependencyValid{};
+  std::array<std::array<uint8_t, 3>, 256> dependencies{};
+  std::vector<JsonEvt> events;
+  events.reserve(impl_->timeline.size() * 2);
+
+  std::ostringstream os;
+  os << "{\"displayTimeUnit\":\"ns\",\"traceEvents\":[";
+  os << "{\"name\":\"process_name\",\"ph\":\"M\",\"pid\":1,\"args\":"
+        "{\"name\":\"DavinciOO\"}}";
+  for (const auto &[tid, name] : kSliceLanes) {
+    os << ",{\"name\":\"thread_name\",\"ph\":\"M\",\"pid\":1,\"tid\":" << tid
+       << ",\"args\":{\"name\":\"" << name << "\"}}";
+  }
+  for (const auto &[tid, name] : kOccupancyLanes) {
+    os << ",{\"name\":\"thread_name\",\"ph\":\"M\",\"pid\":1,\"tid\":" << tid
+       << ",\"args\":{\"name\":\"" << name << "\"}}";
+  }
+  size_t nextIndex = 0;
+  auto push = [&](uint64_t ts, int order, std::string body) {
+    events.push_back(JsonEvt{ts, order, nextIndex++, std::move(body)});
+  };
+
+  for (const TimelineEvent &event : impl_->timeline) {
+    uint64_t ts = event.epoch.time * 1000ull + event.epoch.delta;
+    if (event.counter) {
+      if (!keepOccupancyEvent(event))
+        continue;
+      int tid = occupancyTid(event.lane);
+      std::string track = occupancyTrackName(event.lane);
+      std::ostringstream body;
+      body << "{\"name\":\"" << jsonEscape(track) << "\",\"cat\":\""
+           << jsonEscape(event.lane)
+           << "\",\"ph\":\"C\",\"ts\":" << ts << ",\"pid\":1,\"tid\":" << tid
+           << ",\"args\":{\"occupancy\":" << event.handle << "}}";
+      push(ts, kOrderC, body.str());
+      continue;
+    }
+    if (!keepSliceEvent(event))
+      continue;
+    const char *phase = chromePhase(event.phase);
+    const std::string name =
+        (phase[0] == 'B' || phase[0] == 'E')
+            ? std::string(laneDisplay(event.lane))
+            : event.phase;
+    int tid = timelineTid(event.lane);
+    std::ostringstream body;
+    body << "{\"name\":\"" << jsonEscape(name) << "\",\"cat\":\""
+         << jsonEscape(event.lane) << "\",\"ph\":\"" << phase
+         << "\",\"ts\":" << ts << ",\"pid\":1,\"tid\":" << tid << ",";
+    emitArgs(body, event);
+    body << "}";
+    int order = kOrderI;
+    if (phase[0] == 'B')
+      order = kOrderB;
+    else if (phase[0] == 'E')
+      order = kOrderE;
+    push(ts, order, body.str());
+    if (event.sequence < anchor.size()) {
+      considerAnchor(anchor[event.sequence], flowRank(event.lane, event.phase),
+                     ts, tid);
+      dependencyValid[event.sequence] = event.dependencyValid;
+      dependencies[event.sequence] = {
+          event.dependencies[0], event.dependencies[1], event.dependencies[2]};
+    }
+  }
+
+  uint64_t flowId = 1;
+  for (size_t seq = 0; seq < anchor.size(); ++seq) {
+    if (anchor[seq].rank == 0 || dependencyValid[seq] == 0)
+      continue;
+    for (unsigned index = 0; index < 3; ++index) {
+      if ((dependencyValid[seq] & (1u << index)) == 0)
+        continue;
+      unsigned producer = dependencies[seq][index];
+      if (producer >= anchor.size() || anchor[producer].rank == 0)
+        continue;
+      std::ostringstream start;
+      start << "{\"name\":\"dep\",\"cat\":\"dep\",\"ph\":\"s\",\"id\":"
+            << flowId << ",\"pid\":1,\"tid\":" << anchor[producer].tid
+            << ",\"ts\":" << anchor[producer].ts << ",\"args\":{\"from\":"
+            << producer << ",\"to\":" << seq << "}}";
+      std::ostringstream finish;
+      finish << "{\"name\":\"dep\",\"cat\":\"dep\",\"ph\":\"f\",\"id\":"
+             << flowId << ",\"pid\":1,\"tid\":" << anchor[seq].tid
+             << ",\"ts\":" << anchor[seq].ts
+             << ",\"bp\":\"e\",\"args\":{\"from\":" << producer << ",\"to\":"
+             << seq << "}}";
+      push(anchor[producer].ts, kOrderS, start.str());
+      push(anchor[seq].ts, kOrderF, finish.str());
+      ++flowId;
+    }
+  }
+
+  std::sort(events.begin(), events.end(),
+            [](const JsonEvt &lhs, const JsonEvt &rhs) {
+              if (lhs.ts != rhs.ts)
+                return lhs.ts < rhs.ts;
+              if (lhs.order != rhs.order)
+                return lhs.order < rhs.order;
+              return lhs.index < rhs.index;
+            });
+  for (const JsonEvt &event : events)
+    os << ',' << event.body;
+  os << "]}";
+  return os.str();
+}
+
 void SimSystem::loadPtoTrace(std::string source, const std::string &path) {
   impl_->ptoTrace.load(std::move(source), path);
 }
@@ -400,6 +708,18 @@ uint64_t SimSystem::tracePosition(std::string_view source,
 
 uint64_t SimSystem::traceRecordCount(std::string_view source) const {
   return impl_->ptoTrace.recordCount(source);
+}
+
+uint64_t SimSystem::workInvocationCount() const {
+  return impl_->workInvocations;
+}
+
+uint64_t SimSystem::activationTraversalCount() const {
+  return impl_->activationTraversals;
+}
+
+const std::vector<TimelineEvent> &SimSystem::timeline() const {
+  return impl_->timeline;
 }
 
 bool SimSystem::scheduleWork(ObjectId id, Epoch epoch) {
@@ -534,6 +854,7 @@ bool SimSystem::step() {
 
   impl_->executingEpoch = true;
   for (ObjectId id : currentWork) {
+    ++impl_->workInvocations;
     impl_->activeProposalOwner = id;
     const LegacyDispatchThunk *legacy =
         impl_->legacyDispatch.rows && id < impl_->legacyDispatch.objectCount
@@ -630,9 +951,11 @@ bool SimSystem::step() {
       return fail("tick_overflow", "activation would overflow simulation time");
     Epoch activationEpoch{epoch_.time + 1, 0};
     for (ObjectId source : committedSources)
-      for (ObjectId target : impl_->activation.targetsFor(source))
+      for (ObjectId target : impl_->activation.targetsFor(source)) {
+        ++impl_->activationTraversals;
         if (!scheduleWork(target, activationEpoch))
           return false;
+      }
   }
   if (!committedSources.empty() && impl_->legacyActivation.offsets) {
     if (epoch_.time == std::numeric_limits<Tick>::max())
@@ -642,10 +965,12 @@ bool SimSystem::step() {
       if (source >= impl_->legacyActivation.sourceCount)
         continue;
       for (uint32_t index = impl_->legacyActivation.offsets[source];
-           index < impl_->legacyActivation.offsets[source + 1]; ++index)
+           index < impl_->legacyActivation.offsets[source + 1]; ++index) {
+        ++impl_->activationTraversals;
         if (!scheduleWork(impl_->legacyActivation.targets[index],
                           activationEpoch))
           return false;
+      }
     }
   }
 
@@ -768,7 +1093,117 @@ bool SimSystem::step() {
   return true;
 }
 
+TerminationResult SimSystem::runLegacy() {
+  epoch_ = {0, 0};
+  terminated_ = false;
+  result_ = {};
+  impl_->scheduledWork.clear();
+  impl_->committedEventCount = 0;
+  impl_->workInvocations = 0;
+  impl_->activationTraversals = 0;
+  impl_->generatedStats.clear();
+
+  for (ObjectId id = 0; id < impl_->legacyDispatch.objectCount; ++id)
+    if (impl_->legacyDispatch.rows[id].work)
+      impl_->scheduledWork[epoch_].insert(id);
+
+  while (!terminated_) {
+    if (epoch_.delta >= kMaxDeltasPerTick) {
+      result_.classification = TerminationClass::Failed;
+      result_.diagnosticCode = "max_deltas_exceeded";
+      break;
+    }
+    if (epoch_.time >= maxTicks_) {
+      result_.classification = TerminationClass::Incomplete;
+      result_.terminationCap = maxTicks_;
+      result_.diagnosticCode = "max_ticks_reached";
+      break;
+    }
+    if (impl_->committedEventCount >= maxEvents_) {
+      result_.classification = TerminationClass::Incomplete;
+      result_.terminationCap = maxEvents_;
+      result_.diagnosticCode = "max_events_reached";
+      break;
+    }
+
+    std::set<ObjectId> executed;
+    if (auto current = impl_->scheduledWork.find(epoch_);
+        current != impl_->scheduledWork.end()) {
+      executed = std::move(current->second);
+      impl_->scheduledWork.erase(current);
+    }
+
+    impl_->executingEpoch = true;
+    for (ObjectId id : executed) {
+      ++impl_->workInvocations;
+      LegacyDispatchThunk const &row = impl_->legacyDispatch.rows[id];
+      row.work(row.object, epoch_);
+      if (terminated_)
+        break;
+    }
+    for (ObjectId id : executed) {
+      if (terminated_)
+        break;
+      LegacyDispatchThunk const &row = impl_->legacyDispatch.rows[id];
+      row.xfer(row.object, epoch_);
+      if (profile_ == BuildProfile::Validated && !row.validate(row.object)) {
+        terminated_ = true;
+        result_.classification = TerminationClass::Failed;
+        result_.diagnosticCode = "validate_failed";
+      }
+    }
+    impl_->executingEpoch = false;
+    if (terminated_)
+      break;
+
+    if (impl_->legacyActivation.offsets &&
+        epoch_.time != std::numeric_limits<Tick>::max()) {
+      Epoch activationEpoch{epoch_.time + 1, 0};
+      for (ObjectId source : executed) {
+        if (source >= impl_->legacyActivation.sourceCount)
+          continue;
+        for (uint32_t index = impl_->legacyActivation.offsets[source];
+             index < impl_->legacyActivation.offsets[source + 1]; ++index) {
+          ++impl_->activationTraversals;
+          impl_->scheduledWork[activationEpoch].insert(
+              impl_->legacyActivation.targets[index]);
+        }
+      }
+    }
+
+    impl_->eventQueue.doXfer(epoch_);
+    while (auto event = impl_->eventQueue.nextEvent()) {
+      if (event->readyTime > epoch_)
+        break;
+      impl_->eventQueue.popNext();
+      impl_->scheduledWork[event->readyTime].insert(event->targetId);
+      ++impl_->committedEventCount;
+    }
+
+    std::optional<Epoch> nextEpoch;
+    if (!impl_->scheduledWork.empty())
+      nextEpoch = impl_->scheduledWork.begin()->first;
+    if (auto event = impl_->eventQueue.nextEvent();
+        event && (!nextEpoch || event->readyTime < *nextEpoch))
+      nextEpoch = event->readyTime;
+    if (!nextEpoch) {
+      terminated_ = true;
+      result_.classification = TerminationClass::Completed;
+      break;
+    }
+    epoch_ = *nextEpoch;
+  }
+
+  result_.finalEpoch = epoch_;
+  result_.committedEventCount = impl_->committedEventCount;
+  result_.stats = statistics();
+  return result_;
+}
+
 TerminationResult SimSystem::run() {
+  if (impl_->legacyDispatch.rows)
+    return runLegacy();
+
   epoch_ = {0, 0};
 
   for (SimObject *object : runtimeObjects())
@@ -798,6 +1233,8 @@ void SimSystem::reset() {
   impl_->scheduledWork.clear();
   impl_->eventQueue.reset();
   impl_->committedEventCount = 0;
+  impl_->workInvocations = 0;
+  impl_->activationTraversals = 0;
   impl_->executingEpoch = false;
   impl_->activeProposalOwner.reset();
   impl_->noProgress = {};

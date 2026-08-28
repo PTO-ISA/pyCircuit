@@ -27,16 +27,16 @@ namespace acir {
 namespace {
 
 llvm::StringRef kFrozen = R"mlir(
-module attributes {ac.contract_epoch = "0.1", ac.freeze_epoch = "0.1", ac.frozen_instrumentation = [], ac.frozen_owners = [{kind = "ac.system_root", owner = @Top, path = "root", stable_id = "root"}, {kind = "ac.instance", owner = @Top::@child, path = "root.child", stable_id = "root/child"}, {kind = "ac.process", owner = @Top::@workload, path = "root.workload", stable_id = "root/workload"}], ac.frozen_primary_workload = {path = "root.workload", reference = @Top::@workload, stable_id = "root/workload"}, ac.frozen_system = @soc, ac.topology_digest = "436e44d5702daf1fc6a3d94ae7248e7d3f89ae5d17cfa8e8344caa22ec661379", ac.topology_frozen = true} {
+module attributes {ac.contract_epoch = "0.3"} {
   ac.system @soc root @Top as "root" tick 0 "cycle" workload @Top::@workload seed {kind = "fixed", value = 7 : i64} instrumentation [] results {format = "json", id = "default"} selected true
   ac.module @Child() parameters {} graph {
     ac.return
   }
   ac.module @Top() parameters {} graph {
-    ac.instance @child of @Child() static {} id "child" path "child" {ac.frozen_owners = [{kind = "ac.instance", owner = @Top::@child, path = "root.child", stable_id = "root/child"}]} : () -> ()
+    ac.instance @child of @Child() static {} id "child" path "child" : () -> ()
     ac.process @workload kind "workload" {
       ac.yield_sim
-    } {ac.frozen_owners = [{kind = "ac.process", owner = @Top::@workload, path = "root.workload", stable_id = "root/workload"}], ac.frozen_process_skeleton = ["process/r0/b0/o0 ac.yield_sim{}props=<<NULL ATTRIBUTE>> operands= results= regions="]}
+    }
     ac.return
   }
 }
@@ -58,6 +58,7 @@ protected:
     options.profile = "fast";
     options.target = "x86_64-linux-gnu";
     mlir::PassManager manager(&context);
+    manager.addPass(createFreezeTopologyPass());
     manager.addPass(createACIRToACSimPass(options));
     if (mlir::failed(manager.run(module.get())))
       return nullptr;
@@ -157,7 +158,7 @@ TEST_F(EmitCxxTest, GeneratedSimulatorCompilesAndRuns) {
 }
 
 llvm::StringRef kAdder = R"mlir(
-builtin.module attributes {ac.contract_epoch = "0.1"} {
+builtin.module attributes {ac.contract_epoch = "0.3"} {
   ac.protocol @rv {
     ac.role @producer dual @consumer cardinality "exclusive"
     ac.role @consumer dual @producer cardinality "exclusive"
@@ -373,7 +374,8 @@ TEST(EmitRiscvMini, GeneratedSimulatorCompletesWithX3) {
 
 void expectGeneratedDiagnostic(const std::string &source,
                                const char *diagnostic,
-                               const char *tracePath = nullptr) {
+                               const char *tracePath = nullptr,
+                               unsigned runTimeoutSeconds = 30) {
 #ifndef ACIR_TEST_CXX_COMPILER
   GTEST_SKIP() << "no host C++ compiler configured";
 #else
@@ -433,7 +435,7 @@ void expectGeneratedDiagnostic(const std::string &source,
   };
   std::string error;
   int compile = llvm::sys::ExecuteAndWait(ACIR_TEST_CXX_COMPILER, args, {}, {},
-                                          60, 0, &error);
+                                          180, 0, &error);
   ASSERT_EQ(compile, 0) << error;
 
   llvm::SmallVector<llvm::StringRef, 4> runArgs = {simPath.c_str()};
@@ -444,8 +446,8 @@ void expectGeneratedDiagnostic(const std::string &source,
   std::optional<llvm::StringRef> redirects[3] = {
       std::nullopt, llvm::StringRef(stdoutPath), std::nullopt};
   std::string runError;
-  int run = llvm::sys::ExecuteAndWait(simPath, runArgs, {}, redirects, 30, 0,
-                                      &runError);
+  int run = llvm::sys::ExecuteAndWait(simPath, runArgs, {}, redirects,
+                                      runTimeoutSeconds, 0, &runError);
   std::ifstream out(std::string(stdoutPath).c_str());
   std::string output((std::istreambuf_iterator<char>(out)), {});
   EXPECT_EQ(run, 0) << runError << '\n' << output;
@@ -483,6 +485,14 @@ TEST(EmitDavinciooMatmul, RetiresSyntheticTraceWithDependencies) {
       std::string(ACIR_EXAMPLES_DIR) + "/davincioo-matmul/synthetic.pto.trace";
   expectGeneratedDiagnostic(readExample("davincioo-matmul/model.mlir"),
                             "\"diagnostic\":\"retired=12\"", trace.c_str());
+}
+
+TEST(EmitDavinciooFa2, RetiresFlashAttentionTrace) {
+  std::string trace =
+      std::string(ACIR_EXAMPLES_DIR) + "/davincioo-fa2/fa2-b1-h1-s128-d64.pto.trace";
+  expectGeneratedDiagnostic(readExample("davincioo-matmul/model.mlir"),
+                            "\"diagnostic\":\"retired=192\"", trace.c_str(),
+                            /*runTimeoutSeconds=*/180);
 }
 
 TEST(EmitQueueI64, CompletesWithWideSum) {

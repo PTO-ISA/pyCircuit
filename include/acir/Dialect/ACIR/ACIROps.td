@@ -934,6 +934,19 @@ def ACIR_TracePositionOp : ACIR_RuntimeEffectOp<"trace.position"> {
   let assemblyFormat = "$input_cursor `from` `source` $source attr-dict";
 }
 
+def ACIR_TraceEventOp : ACIR_RuntimeEffectOp<"trace.event", [ACIR_Observation]> {
+  let arguments = (ins AnyType:$handle, StrAttr:$lane, StrAttr:$phase);
+  let hasVerifier = 1;
+  let assemblyFormat =
+      "$handle `lane` $lane `phase` $phase attr-dict `:` type($handle)";
+}
+
+def ACIR_TraceCounterOp : ACIR_RuntimeEffectOp<"trace.counter", [ACIR_Observation]> {
+  let arguments = (ins AnyType:$value, StrAttr:$lane);
+  let hasVerifier = 1;
+  let assemblyFormat = "$value `lane` $lane attr-dict `:` type($value)";
+}
+
 class ACIR_ContractOp<string mnemonic>
     : ACIR_RuntimeEffectOp<mnemonic, [ACIR_Observation]> {
   let arguments = (ins I1:$condition, StrAttr:$message);

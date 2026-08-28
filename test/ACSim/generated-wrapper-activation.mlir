@@ -96,8 +96,11 @@ builtin.module attributes {ac.contract_epoch = "0.3"} {
     %obj2, %act2 = acsim.dispatch @Top::@resource_sink path "Top.resource_sink" indices [] object 2 activation 2
       work "endpoint_work" xfer "endpoint_xfer" reset "endpoint_reset" validate "endpoint_validate"
       : !acsim.object_id, !acsim.activation_id
+    acsim.activate %act0 to %obj0 : !acsim.activation_id to !acsim.object_id
     acsim.activate %act0 to %obj1 : !acsim.activation_id to !acsim.object_id
     acsim.activate %act0 to %obj2 : !acsim.activation_id to !acsim.object_id
+    acsim.activate %act1 to %obj1 : !acsim.activation_id to !acsim.object_id
+    acsim.activate %act2 to %obj2 : !acsim.activation_id to !acsim.object_id
   }
 }
 

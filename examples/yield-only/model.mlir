@@ -8,7 +8,7 @@
 //       --ac-binding-target=x86_64-linux-gnu --acsim-output-dir=out \
 //       model.frozen.mlir -o model.acsim.mlir
 
-builtin.module attributes {ac.contract_epoch = "0.1"} {
+builtin.module attributes {ac.contract_epoch = "0.3"} {
   ac.system @soc root @Top as "root" tick 0 "cycle"
       workload @Top::@tick seed {kind = "fixed", value = 0 : i64}
       instrumentation [] results {id = "default", format = "json"} selected true
