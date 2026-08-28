@@ -41,7 +41,7 @@ bool isAllowedProcessOperation(Operation *operation) {
   return isa<RecordCreateOp, RecordGetOp, RecordWithOp, PacketSerializeOp,
              PacketDeserializeOp, TrySendOp, TryRecvOp, ScheduleOp, WaitUntilOp,
              WaitForOp, AwaitEventOp, YieldSimOp, TraceOpenOp, TraceNextOp,
-             TraceDecodeOp, TraceEofOp, TracePositionOp, TraceEventOp, TraceCounterOp, RequireOp, EnsureOp,
+             TraceDecodeOp, TraceEofOp, TracePositionOp, RequireOp, EnsureOp,
              AssertOp, ProbeOp, StatAddOp, InstrumentationOp>(operation);
 }
 

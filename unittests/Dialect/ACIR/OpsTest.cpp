@@ -393,11 +393,9 @@ TEST(ACIROpsTest, RegistryContainsExactV02QueueVarOperations) {
       "ac.transform.yield",
       "ac.trace.decode",
       "ac.trace.eof",
-      "ac.trace.event",
       "ac.trace.next",
       "ac.trace.open",
       "ac.trace.position",
-      "ac.trace.counter",
       "ac.try_recv",
       "ac.try_send",
       "ac.type_alias",
@@ -562,11 +560,9 @@ TEST(ACIROpsTest, PublicBuildersConstructEveryTaskEightOperation) {
                                              builder.getI32IntegerAttr(7));
   auto i64 = mlir::arith::ConstantOp::create(builder, loc,
                                              builder.getI64IntegerAttr(1));
-  auto queue = mlir::SymbolRefAttr::get(&context, "q");
-  auto send =
-      TrySendOp::create(builder, loc, builder.getI1Type(), i32, queue);
+  auto send = TrySendOp::create(builder, loc, builder.getI1Type(), i32, "q");
   auto recv = TryRecvOp::create(builder, loc, builder.getI32Type(),
-                                builder.getI1Type(), queue);
+                                builder.getI1Type(), "q");
   EXPECT_TRUE(send && recv);
   auto schedule = ScheduleOp::create(builder, loc, i32, i64, "worker");
   auto waitUntil = WaitUntilOp::create(builder, loc, i1);
@@ -747,8 +743,8 @@ TEST(ACIROpsTest, UnresolvedRuntimeReferencesDoNotInventEffects) {
   builder.setInsertionPointToStart(&process.getBody().emplaceBlock());
   auto value = mlir::arith::ConstantOp::create(builder, loc,
                                                builder.getI32IntegerAttr(1));
-  auto send = TrySendOp::create(builder, loc, builder.getI1Type(), value,
-                                mlir::SymbolRefAttr::get(&context, "missing"));
+  auto send =
+      TrySendOp::create(builder, loc, builder.getI1Type(), value, "missing");
   llvm::SmallVector<mlir::MemoryEffects::EffectInstance> effects;
   mlir::cast<mlir::MemoryEffectOpInterface>(*send).getEffects(effects);
   EXPECT_TRUE(effects.empty());
@@ -757,13 +753,12 @@ TEST(ACIROpsTest, UnresolvedRuntimeReferencesDoNotInventEffects) {
 TEST(ACIROpsTest, RuntimeAndV03QueueVarRegistryIsExact) {
   mlir::MLIRContext context;
   context.loadDialect<ACIRDialect>();
-  const std::array<llvm::StringLiteral, 22> names = {
+  const std::array<llvm::StringLiteral, 20> names = {
       "ac.process",        "ac.try_send",        "ac.try_recv",
       "ac.schedule",       "ac.wait_until",      "ac.wait_for",
       "ac.await_event",    "ac.yield_sim",       "ac.trace.open",
       "ac.trace.next",     "ac.trace.decode",    "ac.trace.eof",
-      "ac.trace.position", "ac.trace.event",     "ac.trace.counter",
-      "ac.require",        "ac.ensure",
+      "ac.trace.position", "ac.require",         "ac.ensure",
       "ac.assert",         "ac.probe",           "ac.stat",
       "ac.stat.add",       "ac.instrumentation",
   };
@@ -818,7 +813,7 @@ TEST(ACIROpsTest, RuntimeAndV03QueueVarRegistryIsExact) {
   for (llvm::StringLiteral name : v03Names)
     EXPECT_TRUE(mlir::OperationName(name, &context).isRegistered())
         << name.str();
-  EXPECT_EQ(context.getRegisteredOperationsByDialect("ac").size(), 98u);
+  EXPECT_EQ(context.getRegisteredOperationsByDialect("ac").size(), 96u);
 }
 
 TEST(ACIROpsTest, ProcessLinearLivenessDoesNotRescanBlockPerValue) {

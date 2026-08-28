@@ -1489,36 +1489,6 @@ private:
                      bind(args.front()) + ")) : UINT64_C(0))");
       return success();
     }
-    if (cppName == "acir.trace.event") {
-      std::string lane = "Unknown";
-      std::string phase = "instant";
-      StringRef symbol = callee.getValue();
-      StringRef prefix = "acir_trace_event_";
-      if (symbol.starts_with(prefix)) {
-        auto [laneRef, phaseRef] = symbol.drop_front(prefix.size()).rsplit('_');
-        if (!laneRef.empty() && !phaseRef.empty()) {
-          lane = laneRef.str();
-          phase = phaseRef.str();
-        }
-      }
-      os << "      if (system)\n";
-      os << "        system->recordTraceEvent(\"" << lane << "\", \"" << phase
-         << "\", static_cast<std::uint64_t>(" << bind(args.front())
-         << "));\n";
-      return success();
-    }
-    if (cppName == "acir.trace.counter") {
-      std::string lane = "Unknown";
-      StringRef symbol = callee.getValue();
-      StringRef prefix = "acir_trace_counter_";
-      if (symbol.starts_with(prefix))
-        lane = symbol.drop_front(prefix.size()).str();
-      os << "      if (system)\n";
-      os << "        system->recordTraceCounter(\"" << lane
-         << "\", static_cast<std::uint64_t>(" << bind(args.front())
-         << "));\n";
-      return success();
-    }
     if (cppName == "acir.trace.eof") {
       std::string source = traceSource("eof");
       emitResult(results.front(),
@@ -1855,14 +1825,12 @@ private:
     os << "#include <cstdlib>\n";
     os << "#include <cstring>\n";
     os << "#include <exception>\n";
-    os << "#include <fstream>\n";
     os << "#include <iostream>\n";
     os << "#include <string>\n\n";
     os << "int main(int argc, char **argv) {\n";
     os << "  std::uint64_t maxTicks = ~0ull;\n";
     os << "  std::uint64_t maxEvents = ~0ull;\n";
     os << "  std::string tracePath;\n";
-    os << "  std::string timelinePath;\n";
     os << "  for (int index = 1; index < argc; ++index) {\n";
     os << "    if (std::strncmp(argv[index], \"--max-ticks=\", 12) == 0)\n";
     os << "      maxTicks = std::strtoull(argv[index] + 12, nullptr, 10);\n";
@@ -1879,11 +1847,6 @@ private:
     os << "    else if (std::strcmp(argv[index], \"--trace\") == 0 && "
           "index + 1 < argc)\n";
     os << "      tracePath = argv[++index];\n";
-    os << "    else if (std::strncmp(argv[index], \"--timeline=\", 11) == 0)\n";
-    os << "      timelinePath = argv[index] + 11;\n";
-    os << "    else if (std::strcmp(argv[index], \"--timeline\") == 0 && "
-          "index + 1 < argc)\n";
-    os << "      timelinePath = argv[++index];\n";
     os << "  }\n";
     os << "  acsim_generated::GeneratedModel model;\n";
     os << "  model.system.setMaxTicks(maxTicks);\n";
@@ -1929,10 +1892,6 @@ private:
     os << "  std::cout << \"],\"\n";
     os << "            << \"\\\"diagnostic\\\":\\\"\" << result.diagnosticCode "
           "<< \"\\\"}\\n\";\n";
-    os << "  if (!timelinePath.empty()) {\n";
-    os << "    std::ofstream timeline(timelinePath);\n";
-    os << "    timeline << model.system.chromeTraceJson();\n";
-    os << "  }\n";
     os << "  return result.classification == "
           "gfsim::TerminationClass::Failed ? 1 : 0;\n";
     os << "}\n";

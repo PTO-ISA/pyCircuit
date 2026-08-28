@@ -1,6 +1,5 @@
 // RUN: %split_file %s %t
 // RUN: %not %acir_opt %t/unresolved-send.mlir 2>&1 | %FileCheck %s --check-prefix=UNRESOLVED-SEND
-// RUN: %not %acir_opt %t/unresolved-nested-send.mlir 2>&1 | %FileCheck %s --check-prefix=UNRESOLVED-NESTED-SEND
 // RUN: %not %acir_opt %t/wrong-send-kind.mlir 2>&1 | %FileCheck %s --check-prefix=SEND-KIND
 // RUN: %not %acir_opt %t/unresolved-schedule.mlir 2>&1 | %FileCheck %s --check-prefix=UNRESOLVED-SCHEDULE
 // RUN: %not %acir_opt %t/unresolved-wait.mlir 2>&1 | %FileCheck %s --check-prefix=UNRESOLVED-WAIT
@@ -23,22 +22,6 @@ builtin.module attributes {ac.contract_epoch = "0.3"} {
   }
 }
 // UNRESOLVED-SEND: unresolved runtime target '@missing'
-
-//--- unresolved-nested-send.mlir
-builtin.module attributes {ac.contract_epoch = "0.1"} {
-  ac.module @Child() parameters {} graph {
-    ac.process @p kind "control" {
-      %v = arith.constant 1 : i32
-      %ok = ac.try_send @Core::@missing %v : i32
-      ac.yield_sim
-    }
-    ac.return
-  }
-  ac.module @Core() parameters {} graph {
-    ac.return
-  }
-}
-// UNRESOLVED-NESTED-SEND: unresolved runtime target '@Core::@missing'
 
 //--- wrong-send-kind.mlir
 builtin.module attributes {ac.contract_epoch = "0.3"} {

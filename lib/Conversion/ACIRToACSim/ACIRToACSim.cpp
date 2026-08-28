@@ -164,7 +164,7 @@ bool isDatapathProcess(ac::ProcessOp process) {
             ac::WaitForOp, ac::AwaitEventOp, ac::StatAddOp, ac::StatOp,
             ac::ProbeOp, ac::RequireOp, ac::EnsureOp, ac::TraceOpenOp,
             ac::TraceNextOp, ac::TraceDecodeOp, ac::TraceEofOp,
-            ac::TracePositionOp, ac::TraceEventOp, ac::TraceCounterOp>(op)) {
+            ac::TracePositionOp>(op)) {
       hasEffect = true;
       if (isa<ac::WaitUntilOp, ac::WaitForOp, ac::AwaitEventOp>(op) &&
           op->getParentOp() != process.getOperation())
@@ -1556,18 +1556,6 @@ mlir::LogicalResult ACIRToACSimPass::planProcesses(mlir::ModuleOp input) {
         traceResult =
             typeSymbols.intern(op, "acir.trace.decode", "implementation",
                                "acir.trace.decode");
-      else if (auto event = dyn_cast<ac::TraceEventOp>(op)) {
-        std::string identity =
-            ("acir.trace.event." + event.getLane() + "." + event.getPhase())
-                .str();
-        traceResult = typeSymbols.intern(op, identity, "implementation",
-                                         "acir.trace.event");
-      } else if (auto counter = dyn_cast<ac::TraceCounterOp>(op)) {
-        std::string identity =
-            ("acir.trace.counter." + counter.getLane()).str();
-        traceResult = typeSymbols.intern(op, identity, "implementation",
-                                         "acir.trace.counter");
-      }
       if (failed(traceResult)) {
         extraWalk = failure();
         return WalkResult::interrupt();
@@ -2255,23 +2243,6 @@ void ACIRToACSimPass::emitProcessBody(
             FlatSymbolRefAttr::get(
                 context, typeSymbols.symbolFor("acir.trace.decode")));
         values[decode.getResult()] = invoke.getResult(0);
-        continue;
-      }
-      if (auto event = dyn_cast<ac::TraceEventOp>(op)) {
-        std::string identity =
-            ("acir.trace.event." + event.getLane() + "." + event.getPhase())
-                .str();
-        acsim::InvokeOp::create(
-            builder, loc, TypeRange{}, ValueRange{mapValue(event.getHandle())},
-            FlatSymbolRefAttr::get(context, typeSymbols.symbolFor(identity)));
-        continue;
-      }
-      if (auto counter = dyn_cast<ac::TraceCounterOp>(op)) {
-        std::string identity =
-            ("acir.trace.counter." + counter.getLane()).str();
-        acsim::InvokeOp::create(
-            builder, loc, TypeRange{}, ValueRange{mapValue(counter.getValue())},
-            FlatSymbolRefAttr::get(context, typeSymbols.symbolFor(identity)));
         continue;
       }
       if (auto eof = dyn_cast<ac::TraceEofOp>(op)) {
