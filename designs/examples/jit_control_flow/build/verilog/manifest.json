@@ -1,8 +1,0 @@
-{
-  "cpp_modules": [],
-  "top": "jit_control_flow",
-  "verilog_modules": [
-    "pyc_primitives.v",
-    "jit_control_flow.v"
-  ]
-}

@@ -2,18 +2,18 @@
 
 pyCircuit is a hardware design and compile-flow repository. Changes are expected
 to preserve semantic contracts, keep gate evidence current, and stay aligned
-with the current pyc5 authoring surface.
+with the current pyCircuit 6 CycleAwareSignal authoring contract.
 
 ## Core principles
 
 - Read the decision corpus before changing semantics:
-  - `docs/rfcs/pyc4.0-decisions.md`
+  - `docs/rfcs/pyc6-decisions.md`
 - Follow gate-first development. If semantics change, add or tighten the MLIR
   verifier or pass path before relying on backend behavior.
 - Build and validate from the current worktree. Never copy toolchains or shared
   libraries from another checkout.
 - Keep the repo hard-break only. Do not add compatibility shims for removed
-  pyc4/legacy APIs.
+  APIs or reclassify CycleAwareSignal as a legacy surface.
 
 ## Standard development loop
 

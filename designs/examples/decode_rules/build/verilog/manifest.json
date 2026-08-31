@@ -1,8 +1,0 @@
-{
-  "cpp_modules": [],
-  "top": "decode_rules",
-  "verilog_modules": [
-    "pyc_primitives.v",
-    "decode_rules.v"
-  ]
-}

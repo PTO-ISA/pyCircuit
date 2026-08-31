@@ -29,25 +29,23 @@ type (and, for cycle-aware signals, its cycle tag).
 
 from __future__ import annotations
 
-from collections.abc import Mapping as _ABCMapping
+from collections.abc import Iterator, Mapping
 from dataclasses import dataclass
-from typing import Any, Iterator, Mapping
+from typing import Any
 
 from .hw import Module, Reg, Wire, cat
 
 
 def _is_cas(value: object) -> bool:
     """Duck-typed check for cycle-aware signals (lazy import avoids cycles)."""
-    try:
-        from .v5 import CycleAwareSignal, ForwardSignal, StateSignal
-    except Exception:  # pragma: no cover - v5 always importable in practice
-        return False
-    return isinstance(value, (CycleAwareSignal, ForwardSignal, StateSignal))
+    from .v6 import CycleAwareSignal, ForwardSignal, StateSignal
+
+    return isinstance(value, CycleAwareSignal | ForwardSignal | StateSignal)
 
 
 def _unwrap_base(signal: object) -> object:
     """Unwrap Forward/State wrappers to the underlying cycle-aware signal."""
-    from .v5 import ForwardSignal, StateSignal
+    from .v6 import ForwardSignal, StateSignal
 
     if isinstance(signal, ForwardSignal):
         return signal._state._cas
@@ -62,7 +60,7 @@ def _underlying_wire(signal: object) -> Wire:
         return signal
     if isinstance(signal, Reg):
         return signal.q
-    from .v5 import CycleAwareSignal, ForwardSignal, StateSignal
+    from .v6 import CycleAwareSignal, ForwardSignal, StateSignal
 
     if isinstance(signal, ForwardSignal):
         return signal._state._cas._w
@@ -86,7 +84,7 @@ def _module_of(signal: object) -> Module:
 def _wrap_like(base: object, wire: Wire) -> object:
     """Wrap ``wire`` into the same kind (and cycle) as ``base``."""
     if _is_cas(base):
-        from .v5 import CycleAwareSignal
+        from .v6 import CycleAwareSignal
 
         return CycleAwareSignal(base._domain, wire, base._cycle)  # type: ignore[union-attr]
     return wire
@@ -119,7 +117,7 @@ class BitfieldView:
 
     __slots__ = ("_spec", "_signal")
 
-    def __init__(self, spec: "BitfieldSpec", signal: object) -> None:
+    def __init__(self, spec: BitfieldSpec, signal: object) -> None:
         object.__setattr__(self, "_spec", spec)
         object.__setattr__(self, "_signal", signal)
 
@@ -162,7 +160,9 @@ class BitfieldView:
             yield name, self._read_one(name)
 
     def __repr__(self) -> str:
-        return f"BitfieldView(width={self._spec.width}, fields={list(self._spec.fields)})"
+        return (
+            f"BitfieldView(width={self._spec.width}, fields={list(self._spec.fields)})"
+        )
 
 
 @dataclass(frozen=True)
@@ -192,10 +192,10 @@ class BitfieldSpec:
                 raise ValueError(f"duplicate bitfield field {name!r}")
             try:
                 msb, lsb = int(rng[0]), int(rng[1])
-            except (TypeError, IndexError, ValueError):
+            except (TypeError, IndexError, ValueError) as exc:
                 raise ValueError(
                     f"bitfield field {name!r} range must be a (msb, lsb) pair, got {rng!r}"
-                )
+                ) from exc
             if lsb < 0:
                 raise ValueError(f"bitfield field {name!r} lsb must be >= 0")
             if msb < lsb:
@@ -243,7 +243,7 @@ class BitfieldSpec:
         """Shorthand for :meth:`view`, giving ASL-like ``SPEC(x).fld`` access."""
         return self.view(signal)
 
-    def bind(self, signal: object) -> "BitfieldSignal":
+    def bind(self, signal: object) -> BitfieldSignal:
         """Attach this layout to ``signal`` so fields can be accessed directly.
 
         Unlike :meth:`view` (a read-only projection), the returned
@@ -269,9 +269,7 @@ class BitfieldSpec:
             lo = -(1 << (fw - 1))
             hi = (1 << fw) - 1
             if not (lo <= value <= hi):
-                raise ValueError(
-                    f"constant {value} does not fit in {fw}-bit field"
-                )
+                raise ValueError(f"constant {value} does not fit in {fw}-bit field")
             module = _module_of(base)
             masked = value & ((1 << fw) - 1)
             wire = Wire(module, Module.const(module, masked, width=fw))
@@ -298,9 +296,7 @@ class BitfieldSpec:
             if value.width != fw:
                 raise ValueError(f"field value width {value.width} != field width {fw}")
             return _wrap_like(base, value) if _is_cas(base) else value
-        raise TypeError(
-            f"unsupported field value type: {type(value).__name__}"
-        )
+        raise TypeError(f"unsupported field value type: {type(value).__name__}")
 
     def update(self, signal: object, **fields: object) -> object:
         """Return ``signal`` with the named fields replaced (read-modify-write).
@@ -325,7 +321,7 @@ class BitfieldSpec:
 
         pieces: list[object] = []
         pos = self.width - 1
-        for lsb, msb, name, value in reversed(writes):
+        for lsb, msb, _name, value in reversed(writes):
             if pos > msb:
                 pieces.append(base[msb + 1 : pos + 1])
             pieces.append(self._coerce_field(value, msb - lsb + 1, base))
@@ -342,7 +338,7 @@ class BitfieldSpec:
         }
 
 
-def coerce_bitfield_spec(fields: object, *, width: int | None = None) -> "BitfieldSpec":
+def coerce_bitfield_spec(fields: object, *, width: int | None = None) -> BitfieldSpec:
     """Normalize a ``fields=`` argument to a :class:`BitfieldSpec`.
 
     Accepts either an existing ``BitfieldSpec`` (returned as-is) or a plain
@@ -351,7 +347,7 @@ def coerce_bitfield_spec(fields: object, *, width: int | None = None) -> "Bitfie
     """
     if isinstance(fields, BitfieldSpec):
         return fields
-    if isinstance(fields, _ABCMapping):
+    if isinstance(fields, Mapping):
         if width is None:
             raise TypeError(
                 "fields={...} (a plain mapping) requires width= to build a BitfieldSpec"
@@ -411,7 +407,7 @@ class BitfieldSignal:
         msb, lsb = self._spec._field(name)
         return self._signal[lsb : msb + 1]
 
-    def update(self, **fields: object) -> "BitfieldSignal":
+    def update(self, **fields: object) -> BitfieldSignal:
         """Read-modify-write named fields; result stays bound to this layout."""
         return BitfieldSignal(self._spec, self._spec.update(self._signal, **fields))
 
@@ -442,7 +438,7 @@ class BitfieldSignal:
             "BitfieldSignal is immutable; use x.update(field=...) to build a new value"
         )
 
-    def __ilshift__(self, other: object) -> "BitfieldSignal":
+    def __ilshift__(self, other: object) -> BitfieldSignal:
         # ``x <<= expr`` closes a ForwardSignal feedback loop; stay bound.
         self._signal.__ilshift__(other)  # type: ignore[attr-defined]
         return self

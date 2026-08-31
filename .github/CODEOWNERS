@@ -1,0 +1,9 @@
+# Default ownership stays with the PTO-ISA pyCircuit maintainers.
+* @PTO-ISA/pycircuit-maintainers
+
+# Changes to governance, CI, and releases require maintainer review.
+/.github/ @PTO-ISA/pycircuit-maintainers
+/packaging/ @PTO-ISA/pycircuit-maintainers
+/CONTRIBUTING.md @PTO-ISA/pycircuit-maintainers
+/SECURITY.md @PTO-ISA/pycircuit-maintainers
+/CODE_OF_CONDUCT.md @PTO-ISA/pycircuit-maintainers

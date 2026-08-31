@@ -1,8 +1,0 @@
-{
-  "cpp_modules": [],
-  "top": "rename",
-  "verilog_modules": [
-    "pyc_primitives.v",
-    "rename.v"
-  ]
-}

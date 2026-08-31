@@ -1,8 +1,0 @@
-{
-  "cpp_modules": [],
-  "top": "prefetcher",
-  "verilog_modules": [
-    "pyc_primitives.v",
-    "prefetcher.v"
-  ]
-}

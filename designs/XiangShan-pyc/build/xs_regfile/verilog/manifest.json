@@ -1,8 +1,0 @@
-{
-  "cpp_modules": [],
-  "top": "xs_regfile",
-  "verilog_modules": [
-    "pyc_primitives.v",
-    "xs_regfile.v"
-  ]
-}

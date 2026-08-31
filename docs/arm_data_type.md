@@ -2,22 +2,6 @@
 
 **依据**：Arm《Architecture Specification Language Readers' Guide》（文档号 111069，版本 A.a，2025-10-29）及 ASL1 正式语言定义。ASL1 是 Arm Architecture Reference Manual（DDI 0487，A-profile）中指令伪代码（pseudocode）所使用的规范语言。
 
----
-
-## 目录
-
-1. [语言概貌](#1-语言概貌)
-2. [基本数据类型](#2-基本数据类型)
-3. [字面量（Literals）](#3-字面量literals)
-4. [类型声明与子类型](#4-类型声明与子类型)
-5. [数据操作语法](#5-数据操作语法)
-6. [运算符与基本运算](#6-运算符与基本运算)
-7. [变量与常量声明](#7-变量与常量声明)
-8. [与数据类型相关的标准库函数](#8-与数据类型相关的标准库函数)
-9. [附：与硬件描述语言的对照要点](#9-附与硬件描述语言的对照要点)
-
----
-
 ## 1. 语言概貌
 
 ASL1 的语言性质：
@@ -524,7 +508,7 @@ ASL 是**行为规范语言**（描述指令做什么），PyCircuit 是**硬件
 
 **核心洞察：两者其实共享同一个"双域模型"，只是切分位置不同。**
 
-```
+```text
 ASL（规范，单一时间轴＝指令执行）:
    bits(N) ──UInt/SInt──▶ 无界 integer 运算 ──[:N] 切片──▶ bits(N)
    （机器域）                （数学域，运行时）              （机器域）
@@ -648,7 +632,7 @@ y = x.assert_fits(width=4)     # 提议：仿真期 pyc.assert(x < 16) + trunc(4
 
 PyCircuit 现有 `trunc()` 是静默截断；ASL 的 ATC 语义（断言 + 转换）用一条 `pyc.assert` 即可承载，把"我确信高位为零"的设计意图变成可仿真检查的契约。
 
-**⑥ 文档级约定（零实现成本）**
+#### 文档级约定（零实现成本）
 
 - 签名敏感的比较推荐 `.ult()/.slt()` 显式方法（对应 ASL 强制 `UInt/SInt`）；
 - `reduce_sum` 等易溢出处显式写 `width=`（对应 ASL"截断必须显式"哲学）；
@@ -658,7 +642,7 @@ PyCircuit 现有 `trunc()` 是静默截断；ASL 的 ATC 语义（断言 + 转�
 
 ---
 
-**参考资料**
+## 参考资料
 
 - Arm《Architecture Specification Language Readers' Guide》，文档号 111069，版本 A.a（2025-10-29）
 - ASL1 正式语言定义与参考实现：herdtools7 项目（`asllib/libdir/stdlib.asl`）

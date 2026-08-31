@@ -1,54 +1,42 @@
-# Welcome to pyCircuit (pyc4.0 / pyc0.40)
+# pyCircuit 6 Documentation
 
-pyCircuit is a Python-based hardware construction DSL that compiles to MLIR and
-emits:
+pyCircuit 6 is a Python hardware construction language built around
+CycleAwareSignal. The frontend tracks logical-cycle provenance, lowers
+automatic pipeline balancing to explicit `pyc` MLIR, and emits C++ and Verilog
+from the same verified design.
 
-- **C++ functional simulation** (module instances become SimObjects with `tick()` / `transfer()`)
-- **Verilog** (for RTL integration and Verilator)
+## Start here
 
-pyc4.0 is a hard-break release focused on **ultra-large designs**, scalable DFX,
-and strict IR legality gates.
+- [Install pyCircuit](getting-started/installation.md)
+- [Follow the V6 tutorial](v6_PyCircuit_Tutorial.md)
+- [Read the V6 language specification](v6_PyCircuit_Specification.md)
+- [Understand the software architecture](v6_PyCircuit_Software_Architecture.md)
 
-## Core ideas (pyc4.0)
+## Core contracts
 
-- `@module` is the hierarchy boundary and maps 1:1 to a simulation object.
-- Two-phase simulation: **tick** (compute / resolve) then **transfer** (commit state).
-- Observation points:
-  - **TICK-OBS**: post-tick, pre-transfer
-  - **XFER-OBS**: post-transfer
-- Python control flow is allowed as authoring sugar, but must lower to **static hardware**
-  (no residual dynamic control flow in backend IR).
+- CycleAwareSignal is the canonical scalar signal model.
+- `domain.next()` advances the authoring-time logical cycle.
+- `domain.signal()` plus `<<=` or `.assign()` infers state.
+- Mixed-cycle expressions are balanced with explicit delay registers.
+- MLIR defines semantics; C++ and Verilog must remain equivalent.
+- TICK-OBS and XFER-OBS define backend-stable observation points.
 
-## Minimal example
+## Reference
 
-```python
-from pycircuit import Circuit, module, u
+- [Frontend API](FRONTEND_API.md)
+- [Testbench API](TESTBENCH.md)
+- [Primitive reference](PRIMITIVES.md)
+- [IR specification](IR_SPEC.md)
+- [Diagnostics](DIAGNOSTICS.md)
+- [Sidecar schedule](SIDECAR_SCHEDULE.md)
 
-@module
-def build(m: Circuit) -> None:
-    clk = m.clock("clk")
-    rst = m.reset("rst")
-    en = m.input("enable", width=1)
+## Development and governance
 
-    count = m.out("count_q", clk=clk, rst=rst, width=8, init=u(8, 0))
-    count.set(count.out() + 1, when=en)
-    m.output("count", count)
-```
+- [Development guide](development/index.md)
+- [Testing and gates](development/testing-and-gates.md)
+- [Repository management](development/repository-management.md)
+- [pyCircuit 6 decisions](rfcs/pyc6-decisions.md)
+- [pyCircuit 6 evolution plan](pyc6-plan.md)
 
-## Quick links
-
-- `docs/QUICKSTART.md`
-- `docs/FRONTEND_API.md`
-- `docs/TESTBENCH.md`
-- `docs/IR_SPEC.md`
-- **V5 cycle-aware**: `docs/PyCircuit_V5_Spec.md`
-- **Implementation workflow (10-step)**: `docs/pycircuit_implementation_method.md`
-- `docs/tutorial/index.md` (tutorial hub)
-- `designs/examples/README.md`
-- `docs/rfcs/pyc4.0-decisions.md` and `docs/updatePLAN.md` (contracts + execution plan)
-- **RFC — 3D tier annotation (`tier=` / `jump_tier`)**: `docs/rfcs/tier_annotation.md`
-
-
-## Sidecar testbench schedule
-
-- [Sidecar Testbench Schedule](SIDECAR_SCHEDULE.md)
+Historical gate logs and compatibility identifiers may retain earlier version
+labels. They are evidence and ABI names, not the current product version.

@@ -441,7 +441,7 @@ private:
   }
 
   void writeHeader(bool external_manifest) {
-    static constexpr char kMagic[8] = {'P', 'Y', 'C', '4', 'T', 'R', 'C', '3'};
+    static constexpr char kMagic[8] = {'P', 'Y', 'C', '6', 'T', 'R', 'C', '3'};
     out_.write(kMagic, sizeof(kMagic));
     writeU32LE(3);
 

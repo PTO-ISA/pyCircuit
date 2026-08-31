@@ -1,8 +1,0 @@
-{
-  "cpp_modules": [],
-  "top": "l2_top",
-  "verilog_modules": [
-    "pyc_primitives.v",
-    "l2_top.v"
-  ]
-}

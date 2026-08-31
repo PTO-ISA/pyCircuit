@@ -1,6 +1,7 @@
-# Gate Evidence Framework (pyc4.0)
+# Gate Evidence Framework
 
-This directory standardizes pyc4.0 gate evidence and decision-status tracking.
+This directory standardizes pyCircuit 6 gate evidence and decision-status
+tracking. Historical run directories retain the names they had when generated.
 
 ## Log Root Contract
 
@@ -20,8 +21,8 @@ Each run directory must include:
 
 ## Decision Status Source
 
-- Status file: `docs/gates/decision_status_v40.md`
-- Contract source: `docs/rfcs/pyc4.0-decisions.md`
+- Status file: `docs/gates/decision_status_v6.md`
+- Contract source: `docs/rfcs/pyc6-decisions.md`
 
 `check_decision_status.py` enforces:
 
@@ -35,7 +36,7 @@ Each run directory must include:
 
 For decision-complete closure, run strict mode:
 
-- `python3 flows/tools/check_decision_status.py --status docs/gates/decision_status_v40.md --out .pycircuit_out/gates/<run-id>/decision_status_report.json --require-no-deferred --require-all-verified --require-concrete-evidence --require-existing-evidence`
+- `python3 flows/tools/check_decision_status.py --rfc docs/rfcs/pyc6-decisions.md --status docs/gates/decision_status_v6.md --out .pycircuit_out/gates/<run-id>/decision_status_report.json --require-no-deferred --require-all-verified --require-concrete-evidence --require-existing-evidence`
 
 ## CI mapping (GitHub Actions)
 
@@ -58,4 +59,4 @@ For decision-complete closure, run strict mode:
 - Gate outputs under `.pycircuit_out/` are transient; curated evidence for review
   should be mirrored into `docs/gates/logs/<run-id>/`.
 - For decision-complete closure runs, include semantic lane evidence from
-  `flows/scripts/run_semantic_regressions_v40.sh`.
+  `flows/scripts/run_semantic_regressions_v6.sh`.

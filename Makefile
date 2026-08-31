@@ -31,7 +31,7 @@ configure:
 	  -DMLIR_DIR="$$MLIR_DIR"
 
 tools: configure
-	ninja -C "$(BUILD_DIR)" pycc pyc4_runtime
+	ninja -C "$(BUILD_DIR)" pycc pyc6_runtime
 	ninja -C "$(BUILD_DIR)" pyc-opt 2>/dev/null || true
 
 smoke: tools

@@ -1,6 +1,6 @@
-# XiangShan → PyCircuit V5 Implementation Plan
+# XiangShan → PyCircuit V6 Implementation Plan
 
-**目的：** 以香山（XiangShan）昆明湖微架构规格为蓝本，使用 PyCircuit V5 cycle-aware 语法从零实现全部 RTL 和测试，输出到 `designs/XiangShan-pyc/`。
+**目的：** 以香山（XiangShan）昆明湖微架构规格为蓝本，使用 PyCircuit V6 cycle-aware 语法从零实现全部 RTL 和测试，输出到 `designs/XiangShan-pyc/`。
 
 **方法论：** 遵循 `docs/pycircuit_implementation_method.md` 十步工作流。
 
@@ -12,7 +12,7 @@
 | XiangShan 架构框图 | `designs/XiangShan-doc/docs/figs/` | 模块关系、流水线结构、数据通路图 |
 | XiangShan 参考实现 | `designs/XiangShan/` | 行为参考（用于提取端口宽度、参数默认值、功能细节） |
 
-> **注意：** `designs/XiangShan/` 中的原始实现仅作为**规格参考**使用，用于提取端口定义、参数配置和行为细节。XiangShan-pyc 中的全部 RTL 代码和测试均使用 **PyCircuit V5** 原生语法编写，不保留、不依赖、不引用任何原始框架的代码结构。
+> **注意：** `designs/XiangShan/` 中的原始实现仅作为**规格参考**使用，用于提取端口定义、参数配置和行为细节。XiangShan-pyc 中的全部 RTL 代码和测试均使用 **PyCircuit V6** 原生语法编写，不保留、不依赖、不引用任何原始框架的代码结构。
 
 ---
 
@@ -33,13 +33,13 @@
 
 ### 1.2 外部 IP / 协议组件
 
-| 组件 | 角色 | PyCircuit V5 实现方案 |
+| 组件 | 角色 | PyCircuit V6 实现方案 |
 |------|------|----------------------|
-| TileLink 总线协议 | 核内/L2 互联 | `lib/tilelink.py`：用 PyCircuit V5 原生定义 A/B/C/D/E 通道端口和协议常量 |
-| AXI 总线协议 | SoC 外部接口 | `lib/axi.py`：用 PyCircuit V5 原生定义读写通道端口 |
-| L2 Cache (CoupledL2) | Non-inclusive L2 | 独立 PyCircuit V5 实现单元 |
-| L3 Cache (HuanCun) | Inclusive L3 | 独立 PyCircuit V5 实现单元（可延后） |
-| 向量运算单元 | RVV 执行 | 独立 PyCircuit V5 实现单元 |
+| TileLink 总线协议 | 核内/L2 互联 | `lib/tilelink.py`：用 PyCircuit V6 原生定义 A/B/C/D/E 通道端口和协议常量 |
+| AXI 总线协议 | SoC 外部接口 | `lib/axi.py`：用 PyCircuit V6 原生定义读写通道端口 |
+| L2 Cache (CoupledL2) | Non-inclusive L2 | 独立 PyCircuit V6 实现单元 |
+| L3 Cache (HuanCun) | Inclusive L3 | 独立 PyCircuit V6 实现单元（可延后） |
+| 向量运算单元 | RVV 执行 | 独立 PyCircuit V6 实现单元 |
 | 中断控制器 (AIA) | 中断分发 | 低优先级，独立实现 |
 
 ### 1.3 模块层次
@@ -62,7 +62,7 @@ XSTop (SoC)
 
 ### 原则
 
-1. **纯 PyCircuit V5：** 全部 RTL 使用 `CycleAwareCircuit` / `CycleAwareDomain` 编写，全部测试使用 PyCircuit Testbench 框架。不依赖任何外部 HDL 框架。
+1. **纯 PyCircuit V6：** 全部 RTL 使用 `CycleAwareCircuit` / `CycleAwareDomain` 编写，全部测试使用 PyCircuit Testbench 框架。不依赖任何外部 HDL 框架。
 2. **自底向上：** 先实现叶子模块（无子模块依赖的纯逻辑单元），逐层向上组装。
 3. **子系统隔离：** Frontend / Backend / MemBlock 作为三条独立实现主线，可并行推进。
 4. **参数化推迟：** 先以昆明湖默认配置硬编码，待核心功能正确后再提取参数。
@@ -81,7 +81,7 @@ designs/XiangShan-pyc/
 │   ├── feature_list/                    ← 按子系统分文件
 │   ├── traceability/                    ← 追溯矩阵
 │   └── step1.md … step10.md            ← 可选子步骤文档
-├── lib/                                 ← 公共 PyCircuit V5 工具库
+├── lib/                                 ← 公共 PyCircuit V6 工具库
 │   ├── primitives.py                    ← 常用组合逻辑原语（one-hot mux、PopCount、PriorityEncoder 等）
 │   ├── tilelink.py                      ← TileLink 通道端口定义与协议常量
 │   └── axi.py                           ← AXI 通道端口定义
@@ -147,15 +147,15 @@ designs/XiangShan-pyc/
 
 ## 三、十步工作流映射
 
-### Step 1 — 阅读 PyCircuit V5 编程风格文档与示例
+### Step 1 — 阅读 PyCircuit V6 编程风格文档与示例
 
 | 动作 | 内容 |
 |------|------|
-| 阅读 PyCircuit V5 编程规范 | `docs/PyCircuit_V5_Spec.md` |
+| 阅读 PyCircuit V6 编程规范 | `docs/v6_PyCircuit_Specification.md` |
 | 阅读测试框架 | `docs/TESTBENCH.md` |
 | 阅读 IR / 编译 | `docs/IR_SPEC.md`，`docs/PIPELINE.md`，`docs/PRIMITIVES.md` |
 | 参考实现 | `designs/BypassUnit/`，`designs/IssueQueue/`，`designs/RegisterFile/` |
-| 交付物 | `designs/XiangShan-pyc/README.md`（编程风格：V5 cycle-aware），`ASSUMPTIONS.md` |
+| 交付物 | `designs/XiangShan-pyc/README.md`（编程风格：V6 cycle-aware），`ASSUMPTIONS.md` |
 
 ### Step 2 — 阅读 XiangShan 微架构设计规格
 
@@ -204,12 +204,12 @@ designs/XiangShan-pyc/
 | Load pipeline | 3–4 | TLB / DCache / data 回写 |
 | Store pipeline | 3–4 | TLB / SBuffer / DCache write |
 
-### Step 6 — 完整 cycle-aware PyCircuit V5 实现
+### Step 6 — 完整 cycle-aware PyCircuit V6 实现
 
-按子系统逐模块编写，全部使用 PyCircuit V5 原生语法：
+按子系统逐模块编写，全部使用 PyCircuit V6 原生语法：
 
 ```python
-from pycircuit.v5 import CycleAwareCircuit, CycleAwareDomain, cas, mux
+from pycircuit.v6 import CycleAwareCircuit, CycleAwareDomain, cas, mux
 
 def build_bpu(m: CycleAwareCircuit, domain: CycleAwareDomain):
     cd = domain.clock_domain
@@ -225,11 +225,11 @@ def build_bpu(m: CycleAwareCircuit, domain: CycleAwareDomain):
     ...
 ```
 
-**PyCircuit V5 编程惯用法（替代外部框架构造）：**
+**PyCircuit V6 编程惯用法（替代外部框架构造）：**
 
-| 硬件构造 | PyCircuit V5 表达 |
+| 硬件构造 | PyCircuit V6 表达 |
 |---------|------------------|
-| 带复位寄存器 | `reg = domain.state(width=W, reset_value=V, name="reg")`；`reg.set(next_val)` |
+| 带复位寄存器 | `reg = domain.signal(width=W, reset_value=V, name="reg")`；`reg <<= next_val` 或 `reg.assign(next_val)` |
 | 流水线寄存器 | `pipe_reg = domain.cycle(data, name="pipe_reg")` |
 | 多路选择 | `mux(cond, a, b)` |
 | One-hot 选择 | `lib/primitives.py` 中封装 `mux1h(sels, vals)` |
@@ -249,8 +249,8 @@ def build_bpu(m: CycleAwareCircuit, domain: CycleAwareDomain):
 
 每个子系统的 `traceability/<subsystem>.md`：
 
-- 设计文档章节 → PyCircuit V5 模块 → 特性 ID → 测试 ID
-- 验证每个规格中定义的功能在 PyCircuit V5 实现中都有对应
+- 设计文档章节 → PyCircuit V6 模块 → 特性 ID → 测试 ID
+- 验证每个规格中定义的功能在 PyCircuit V6 实现中都有对应
 
 ### Step 8 — 测试计划（全部使用 PyCircuit Testbench）
 
@@ -282,8 +282,8 @@ def build_bpu(m: CycleAwareCircuit, domain: CycleAwareDomain):
 
 | Inc | 内容 | 交付物 |
 |-----|------|--------|
-| P0-1 | 创建 `lib/primitives.py`：PyCircuit V5 常用组合逻辑原语（`mux1h`、`mux_lookup`、`popcount`、`priority_enc`、`leading_zeros` 等） | `lib/primitives.py` + `lib/tb_primitives.py` |
-| P0-2 | 创建 `lib/tilelink.py`：TileLink-A/B/C/D/E 通道端口定义和协议常量（用 PyCircuit V5 原生端口） | `lib/tilelink.py` |
+| P0-1 | 创建 `lib/primitives.py`：PyCircuit V6 常用组合逻辑原语（`mux1h`、`mux_lookup`、`popcount`、`priority_enc`、`leading_zeros` 等） | `lib/primitives.py` + `lib/tb_primitives.py` |
+| P0-2 | 创建 `lib/tilelink.py`：TileLink-A/B/C/D/E 通道端口定义和协议常量（用 PyCircuit V6 原生端口） | `lib/tilelink.py` |
 | P0-3 | 创建 `lib/axi.py`：AXI4 读写通道端口定义 | `lib/axi.py` |
 | P0-4 | 提取 `top/parameters.py`：昆明湖默认配置（FetchWidth、DecodeWidth、IssueQueueSize 等），纯 Python 常量 | `top/parameters.py` |
 | P0-5 | 项目框架：`README.md`、`ASSUMPTIONS.md`、`requirement_sources.md`、`test_xs_steps.py` 骨架 | 十步文档骨架 |
@@ -353,7 +353,7 @@ def build_bpu(m: CycleAwareCircuit, domain: CycleAwareDomain):
 
 ---
 
-## 五、PyCircuit V5 设计规范
+## 五、PyCircuit V6 设计规范
 
 ### 5.1 文件命名约定
 
@@ -367,7 +367,7 @@ def build_bpu(m: CycleAwareCircuit, domain: CycleAwareDomain):
 
 ### 5.2 模块接口风格
 
-所有模块间连接使用 PyCircuit V5 显式端口：
+所有模块间连接使用 PyCircuit V6 显式端口：
 
 ```python
 def build_ifu(m: CycleAwareCircuit, domain: CycleAwareDomain):
@@ -419,7 +419,7 @@ m.output("req_ready", ready_signal)
 |------|------|------|
 | 微架构细节仅在参考实现中，未文档化 | 部分行为需从参考代码中逆向提取 | 先以文档为准实现核心功能，参考实现用于补充边界情况 |
 | 向量扩展（RVV）复杂度 | 向量运算 + 向量访存拆分/合并逻辑量大 | Phase 2 先实现标量路径（B-06），向量（B-07）延后 |
-| 隐式时钟/复位约定 | 参考实现中模块自带 `clock`/`reset`；PyCircuit V5 要求显式 `domain` | 统一模式：每个 `build_*` 接收 `(m, domain)` 参数 |
+| 隐式时钟/复位约定 | 参考实现中模块自带 `clock`/`reset`；PyCircuit V6 要求显式 `domain` | 统一模式：每个 `build_*` 接收 `(m, domain)` 参数 |
 | 功能等价验证 | 无成熟的 ISS 对接 | 模块级 Perfetto 波形对比 + 指令级 golden 测试向量 |
 | 项目规模（~135 模块） | 全量实现耗时长 | 分阶段：Phase 1–3 并行推进；先关注核心数据通路，外设延后 |
 
@@ -446,7 +446,7 @@ m.output("req_ready", ready_signal)
    - 编写 `lib/primitives.py`（`mux1h`、`popcount`、`priority_enc` 等）和 PyCircuit TB 单元测试。
    - 从 XiangShan-doc 文档和参考实现中提取默认配置到 `top/parameters.py`。
    - 建立 `README.md`、`ASSUMPTIONS.md`。
-3. 选择 Frontend 中最简单的叶子模块（如 IBuffer）作为首个实现目标，完成端到端流程验证（规格理解 → PyCircuit V5 实现 → MLIR → Verilog）。
+3. 选择 Frontend 中最简单的叶子模块（如 IBuffer）作为首个实现目标，完成端到端流程验证（规格理解 → PyCircuit V6 实现 → MLIR → Verilog）。
 
 ---
 

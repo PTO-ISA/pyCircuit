@@ -1,10 +1,11 @@
 # Testbench
 
 `@testbench` lets pyCircuit keep host/device simulation intent in the same frontend flow:
+
 - frontend emits a TB `.pyc` payload (JSON encoded in module attrs)
 - backend (`pycc`) lowers that payload to C++ or SystemVerilog testbench text
 
-Observation points (pyc4.0):
+Observation points (pyCircuit 6):
 
 - `phase="pre"` samples at **TICK-OBS** (after combinational settle, before state commit).
 - `phase="post"` samples at **XFER-OBS** (after state commit).

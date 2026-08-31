@@ -1,8 +1,0 @@
-{
-  "cpp_modules": [],
-  "top": "hier_modules",
-  "verilog_modules": [
-    "pyc_primitives.v",
-    "hier_modules.v"
-  ]
-}

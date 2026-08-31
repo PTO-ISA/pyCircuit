@@ -24,7 +24,7 @@ Describe the desired user-visible behavior or workflow.
 - Expected entrypoints or APIs:
 - Examples or testbenches that should cover it:
 
-## Semantics and compatibility
+## pyc6 semantics and compatibility
 
 - Does this affect an existing decision or contract?
 - Is the change hard-break visible?

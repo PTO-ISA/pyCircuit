@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "pycircuit-hisi"
-version = "0.1.0"
+version = "6.0.0"
 description = "A Python-based hardware description framework that compiles Python to RTL through MLIR"
 readme = "README.md"
 license = { file = "LICENSE" }
@@ -80,7 +80,12 @@ ignore = ["E501"]
 "compiler/frontend/pycircuit/cli.py" = ["A004", "T201"]
 "compiler/frontend/pycircuit/hw.py" = ["A002", "B905", "C401", "C416", "E731", "I001", "UP007", "UP035", "UP037", "UP038"]
 "compiler/frontend/pycircuit/jit.py" = ["A001", "B009", "B905", "I001", "N818", "UP035", "UP037", "UP038"]
-"compiler/frontend/pycircuit/v5.py" = ["A002", "B010", "I001", "N801", "N816", "UP007", "UP037", "UP038"]
+"compiler/frontend/pycircuit/lib/cache.py" = ["N802"]
+"compiler/frontend/pycircuit/v6.py" = ["A002", "B010", "I001", "N801", "N816", "UP007", "UP037", "UP038"]
+"designs/BypassUnit/*.py" = ["A004", "T201"]
+"designs/examples/**/*.py" = ["F401", "F841", "N803", "N806", "N999", "T201"]
+"flows/tools/*.py" = ["T201"]
+"tools/*.py" = ["T201"]
 "designs/examples/digital_filter/digital_filter.py" = ["N803", "N806"]
 "designs/examples/fm16/npu_node.py" = ["N803", "N806"]
 "designs/examples/fm16/sw5809s.py" = ["N803", "N806"]

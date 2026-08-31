@@ -27,8 +27,8 @@ count=0
 cat > "${docs_gate_dir}/commands.txt" <<EOF
 bash flows/scripts/run_examples.sh
 python3 flows/tools/check_api_hygiene.py compiler/frontend/pycircuit designs/examples docs README.md
-python3 flows/tools/check_decision_status.py --status docs/gates/decision_status_v40.md --out .pycircuit_out/gates/${gate_run_id}/decision_status_report.json --require-no-deferred --require-all-verified --require-concrete-evidence --require-existing-evidence
-PYC_GATE_RUN_ID=${gate_run_id} bash flows/scripts/run_semantic_regressions_v40.sh
+python3 flows/tools/check_decision_status.py --status docs/gates/decision_status_v6.md --out .pycircuit_out/gates/${gate_run_id}/decision_status_report.json --require-no-deferred --require-all-verified --require-concrete-evidence --require-existing-evidence
+PYC_GATE_RUN_ID=${gate_run_id} bash flows/scripts/run_semantic_regressions_v6.sh
 EOF
 
 pyc_log "running strict API hygiene gate"
@@ -1188,8 +1188,8 @@ else
 fi
 
 pyc_log "running decision status coverage gate"
-decision_rfc="${PYC_ROOT_DIR}/docs/rfcs/pyc4.0-decisions.md"
-decision_status="${PYC_ROOT_DIR}/docs/gates/decision_status_v40.md"
+decision_rfc="${PYC_ROOT_DIR}/docs/rfcs/pyc6-decisions.md"
+decision_status="${PYC_ROOT_DIR}/docs/gates/decision_status_v6.md"
 decision_report="${gate_out_dir}/decision_status_report.json"
 decision_status_strict="${PYC_DECISION_STATUS_STRICT:-1}"
 decision_status_args=(
@@ -1213,11 +1213,11 @@ if ! python3 "${PYC_ROOT_DIR}/flows/tools/check_decision_status.py" \
 fi
 cp -f "${decision_report}" "${docs_gate_dir}/decision_status_report.json" >/dev/null 2>&1 || true
 
-pyc_log "running v4.0 semantic regression lane"
+pyc_log "running v6 semantic regression lane"
 if [[ "${PYC_SKIP_SEMANTIC_REGRESSIONS:-0}" == "1" ]]; then
-  pyc_log "skipping v4.0 semantic regression lane (PYC_SKIP_SEMANTIC_REGRESSIONS=1)"
+  pyc_log "skipping v6 semantic regression lane (PYC_SKIP_SEMANTIC_REGRESSIONS=1)"
 else
-  if ! PYC_GATE_RUN_ID="${gate_run_id}" bash "${PYC_ROOT_DIR}/flows/scripts/run_semantic_regressions_v40.sh" \
+  if ! PYC_GATE_RUN_ID="${gate_run_id}" bash "${PYC_ROOT_DIR}/flows/scripts/run_semantic_regressions_v6.sh" \
     >"${docs_gate_dir}/semantic_regressions.stdout" 2>"${docs_gate_dir}/semantic_regressions.stderr"; then
     pyc_warn "semantic regression lane failed"
     fail=1

@@ -1,17 +1,30 @@
 # Security policy
 
-pyCircuit is a prototype compiler/toolchain. It is **not** intended for use in security-critical contexts yet.
+pyCircuit is an evolving compiler and simulation toolchain. Do not use it as a
+security boundary or assume untrusted design, MLIR, manifest, trace, or package
+inputs are safe.
 
-## Reporting a vulnerability
+## Report a vulnerability
 
-If you believe you have found a security issue, please open a private report via your normal internal process,
-or (if this repo is mirrored publicly) contact the maintainers to coordinate a fix before public disclosure.
+Report vulnerabilities privately through
+[GitHub Security Advisories](https://github.com/PTO-ISA/pyCircuit/security/advisories/new).
+Include the affected revision, environment, reproduction steps, impact, and any
+suggested mitigation. Do not open a public issue or pull request before the
+maintainers coordinate disclosure.
 
-## Scope
+The maintainers will acknowledge the report through the advisory thread,
+triage its scope, and coordinate remediation and disclosure there. This policy
+does not promise a fixed response or release timeline.
 
-Potential security issues include, but are not limited to:
+## In scope
 
-- Code execution via malicious `.pyc` / MLIR input
-- Unsafe file writes when running `pycircuit` tooling
-- Incorrect memory bounds in the C++ simulator templates
+Examples include:
 
+- code execution or path traversal from crafted compiler inputs;
+- unsafe file writes or package extraction;
+- memory-safety defects in generated or runtime C++ code;
+- release artifact or dependency-integrity failures;
+- disclosure of sensitive data through logs, traces, or diagnostics.
+
+Functional correctness bugs without a security impact should follow
+[`CONTRIBUTING.md`](CONTRIBUTING.md).

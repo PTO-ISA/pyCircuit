@@ -34,6 +34,6 @@ c++ -std=c++17 -O2 -shared -fPIC \
 Run emulator:
 
 ```bash
-cd /Users/zhoubot/pyCircuit
+# Run from the pyCircuit repository root.
 python3 designs/examples/digital_clock/emulate_digital_clock.py
 ```

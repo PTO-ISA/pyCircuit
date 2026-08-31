@@ -119,7 +119,7 @@ def _project_root(entry: Path, *, project_root_override: str | None = None) -> P
 
 
 def _is_cycle_aware_entrypoint(build: Any) -> bool:
-    """True for V5 ``def build(m, domain, ...)`` cycle-aware designs."""
+    """True for V6 ``def build(m, domain, ...)`` cycle-aware designs."""
     try:
         params = list(inspect.signature(build).parameters.values())
     except (TypeError, ValueError):
@@ -212,7 +212,7 @@ def _compile_to_design(
     """Compile either supported build shape through the JIT design path."""
 
     if _is_timed_domain_build(build):
-        from .v5 import compile_cycle_aware
+        from .v6 import compile_cycle_aware
 
         compiled = compile_cycle_aware(build, name=top_name, **jit_params)
         if not isinstance(compiled, Design):
@@ -366,7 +366,7 @@ def _toolchain_roots(pycc: Path | None = None) -> list[Path]:
 
 
 def _runtime_lib_filename() -> str:
-    return "pyc4_runtime.lib" if os.name == "nt" else "libpyc4_runtime.a"
+    return "pyc6_runtime.lib" if os.name == "nt" else "libpyc6_runtime.a"
 
 
 def _detect_toolchain_root(pycc: Path | None = None) -> Path | None:
@@ -403,12 +403,12 @@ def _runtime_manifest_for_toolchain(toolchain_root: Path | None) -> dict[str, ob
     return {
         "mode": "prebuilt",
         "cmake_package": "pycircuit",
-        "cmake_target": "pycircuit::pyc4_runtime",
+        "cmake_target": "pycircuit::pyc6_runtime",
         "toolchain_root_hint": str(toolchain_root.resolve()),
         "cmake_config_dir": str(cmake_config_dir),
         "include_dirs": [str(include_dir)],
         "lib_dirs": [str(lib_dir)],
-        "libs": ["pyc4_runtime"],
+        "libs": ["pyc6_runtime"],
         "library_files": [str(runtime_lib)],
     }
 

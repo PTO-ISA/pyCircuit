@@ -1,8 +1,0 @@
-{
-  "cpp_modules": [],
-  "top": "sbuffer",
-  "verilog_modules": [
-    "pyc_primitives.v",
-    "sbuffer.v"
-  ]
-}

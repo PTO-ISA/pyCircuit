@@ -1,5 +1,5 @@
-# -*- coding: utf-8 -*-
-"""Simplified SW5809s switch — pyCircuit V5 cycle-aware."""
+"""Simplified SW5809s switch — pyCircuit V6 cycle-aware."""
+
 from __future__ import annotations
 
 from pycircuit import (
@@ -14,7 +14,13 @@ from pycircuit import (
 PKT_W = 32
 
 
-def build(m: CycleAwareCircuit, domain: CycleAwareDomain, *, N_PORTS: int = 4, VOQ_DEPTH: int = 4) -> None:
+def build(
+    m: CycleAwareCircuit,
+    domain: CycleAwareDomain,
+    *,
+    N_PORTS: int = 4,
+    VOQ_DEPTH: int = 4,
+) -> None:
     cd = domain.clock_domain
 
     PORT_BITS = max((N_PORTS - 1).bit_length(), 1)
@@ -36,7 +42,10 @@ def build(m: CycleAwareCircuit, domain: CycleAwareDomain, *, N_PORTS: int = 4, V
             dst_match = (pkt_dst == u(PORT_BITS, j)) & in_vals[i]
             voqs[i][j].push(in_pkts[i], when=dst_match)
 
-    rr_states = [domain.signal(width=PORT_BITS, reset_value=0, name=f"rr_{j}") for j in range(N_PORTS)]
+    rr_states = [
+        domain.signal(width=PORT_BITS, reset_value=0, name=f"rr_{j}")
+        for j in range(N_PORTS)
+    ]
 
     out_pkts = []
     out_vals = []
@@ -62,7 +71,7 @@ def build(m: CycleAwareCircuit, domain: CycleAwareDomain, *, N_PORTS: int = 4, V
 
     for j in range(N_PORTS):
         rr_cur = rr_states[j]
-        # Constants after next() need cycle=0 cas to avoid unintended _v5_bal.
+        # Constants after next() need cycle=0 cas to avoid unintended _v6_bal.
         wrap = rr_cur == cas(domain, u(PORT_BITS, N_PORTS - 1), cycle=0)
         next_rr = mux(wrap, cas(domain, u(PORT_BITS, 0), cycle=0), rr_cur + 1)
         rr_states[j].assign(next_rr, when=cas(domain, out_vals[j], cycle=0))
@@ -75,7 +84,8 @@ def build(m: CycleAwareCircuit, domain: CycleAwareDomain, *, N_PORTS: int = 4, V
 build.__pycircuit_name__ = "sw5809s"
 
 if __name__ == "__main__":
-    circuit = compile_cycle_aware(build, name="sw5809s", eager=True,
-                      N_PORTS=4, VOQ_DEPTH=4)
+    circuit = compile_cycle_aware(
+        build, name="sw5809s", eager=True, N_PORTS=4, VOQ_DEPTH=4
+    )
     print(circuit.emit_mlir()[:500])
     print(f"... ({len(circuit.emit_mlir())} chars)")

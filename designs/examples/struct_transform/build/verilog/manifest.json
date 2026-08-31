@@ -1,8 +1,0 @@
-{
-  "cpp_modules": [],
-  "top": "struct_transform",
-  "verilog_modules": [
-    "pyc_primitives.v",
-    "struct_transform.v"
-  ]
-}

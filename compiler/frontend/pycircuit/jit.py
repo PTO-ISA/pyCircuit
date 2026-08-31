@@ -96,7 +96,7 @@ class _InlineReturn(RuntimeError):
 _HAS_AST_MATCH = hasattr(ast, "Match")
 
 # ── Cycle-aware signal interop ─────────────────────────────────────────────
-# V5 cycle-aware wrappers (CycleAwareSignal / StateSignal / ForwardSignal)
+# V6 cycle-aware wrappers (CycleAwareSignal / StateSignal / ForwardSignal)
 # carry their own cycle metadata and emit balancing registers through the
 # same Circuit builder the JIT compiles into.  The JIT treats them as opaque
 # Python values and delegates operators to their native implementations, so
@@ -110,7 +110,7 @@ _CAS_TYPES: tuple[type, ...] | None = None
 def _cas_types() -> tuple[type, ...]:
     global _CAS_TYPES
     if _CAS_TYPES is None:
-        from .v5 import CycleAwareSignal, ForwardSignal, StateSignal
+        from .v6 import CycleAwareSignal, ForwardSignal, StateSignal
 
         _CAS_TYPES = (CycleAwareSignal, StateSignal, ForwardSignal)
     return _CAS_TYPES

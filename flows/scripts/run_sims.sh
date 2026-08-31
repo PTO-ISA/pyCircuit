@@ -185,8 +185,8 @@ p = Path(sys.argv[1]).resolve()
 data = p.read_bytes()
 if len(data) < 16:
     raise SystemExit(f"pyctrace too small: {p} ({len(data)} bytes)")
-if data[:8] != b"PYC4TRC3":
-    raise SystemExit(f"pyctrace bad magic: {p} got={data[:8]!r} exp=b'PYC4TRC3'")
+if data[:8] != b"PYC6TRC3":
+    raise SystemExit(f"pyctrace bad magic: {p} got={data[:8]!r} exp=b'PYC6TRC3'")
 schema_version = int(struct.unpack_from("<I", data, 8)[0])
 if schema_version != 3:
     raise SystemExit(f"pyctrace bad schema_version: {p} got={schema_version} exp=3")
@@ -240,7 +240,7 @@ p = Path(sys.argv[1]).resolve()
 data = p.read_bytes()
 if len(data) < 16:
     raise SystemExit(1)
-if data[:8] != b"PYC4TRC3":
+if data[:8] != b"PYC6TRC3":
     raise SystemExit(1)
 off = 16
 events = []

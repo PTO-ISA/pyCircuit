@@ -23,7 +23,7 @@ Reviewers should prioritize:
 - missing or incorrect gate coverage
 - stale or missing evidence paths
 - contributor documentation drift
-- hard-break violations such as compatibility shims or legacy API revival
+- hard-break violations such as compatibility shims or competing timing models
 
 Style and cleanup are secondary to correctness, legality, and evidence.
 
@@ -51,8 +51,9 @@ Update decision-facing documentation when the PR changes:
 - the required gate lane for validating a contract
 - contributor guidance about how semantic closure is demonstrated
 
-Do not rename the `pyc4.0` evidence files in the course of routine workflow
-updates. The corpus remains authoritative until explicitly migrated.
+Do not rename historical files under `docs/gates/logs/`. The active decision
+corpus and status index are `docs/rfcs/pyc6-decisions.md` and
+`docs/gates/decision_status_v6.md`; older artifact names remain evidence only.
 
 ## Merge hygiene
 

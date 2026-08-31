@@ -68,15 +68,13 @@ markdown_extensions:
 nav:
   - Home: index.md
   - Getting Started:
-      - getting-started/index.md
-      - getting-started/installation.md
-      - getting-started/quickstart.md
-      - getting-started/first-design.md
-  - Tutorial:
-      - tutorial/index.md
-      - tutorial/unified-signal-model.md
-      - tutorial/cycle-aware-computing.md
-      - v6_PyCircuit_Tutorial.md
+      - Overview: getting-started/index.md
+      - Installation: getting-started/installation.md
+      - Quickstart: QUICKSTART.md
+  - pyCircuit 6:
+      - Language Specification: v6_PyCircuit_Specification.md
+      - Tutorial: v6_PyCircuit_Tutorial.md
+      - Software Architecture: v6_PyCircuit_Software_Architecture.md
   - Core Docs:
       - QUICKSTART.md
       - FRONTEND_API.md
@@ -91,16 +89,18 @@ nav:
   - API Reference:
       - api/index.md
   - Development:
-      - development/index.md
-      - development/contributing-workflow.md
-      - development/testing-and-gates.md
-      - development/review-and-merge.md
-  - Upgrade:
-      - updatePLAN.md
-      - rfcs/pyc4.0-decisions.md
+      - Overview: development/index.md
+      - Contributing Workflow: development/contributing-workflow.md
+      - Testing and Gates: development/testing-and-gates.md
+      - Review and Merge: development/review-and-merge.md
+      - Repository Management: development/repository-management.md
+  - Decisions:
+      - pyCircuit 6 Decisions: rfcs/pyc6-decisions.md
+      - Evolution Plan: pyc6-plan.md
+      - Tier Annotation RFC: rfcs/tier_annotation.md
   - Gates:
-      - gates/README.md
-      - gates/decision_status_v40.md
+      - Evidence Contract: gates/README.md
+      - Decision Status: gates/decision_status_v6.md
 
 # Plugins
 plugins:

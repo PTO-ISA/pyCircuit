@@ -375,5 +375,5 @@ def test_production_decoders_do_not_publish_a_complexity_override() -> None:
 def test_examples_gate_resolves_decision_rfc_from_pycircuit_root() -> None:
     root = Path(__file__).resolve().parents[2]
     script = (root / "flows/scripts/run_examples.sh").read_text()
-    assert 'decision_rfc="${PYC_ROOT_DIR}/docs/rfcs/pyc4.0-decisions.md"' in script
+    assert 'decision_rfc="${PYC_ROOT_DIR}/docs/rfcs/pyc6-decisions.md"' in script
     assert '--rfc "${decision_rfc}"' in script

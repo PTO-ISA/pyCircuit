@@ -1,69 +1,80 @@
-# pyCircuit (pyc5 surface) agent instructions
+# pyCircuit 6 agent instructions
 
-This repo follows the current pyc5 frontend surface while retaining the
-`pyc4.0` decision corpus and gate evidence as the active semantic source of
-truth until those documents are renamed.
+This repository follows the pyCircuit 6 frontend contract. CycleAwareSignal is
+the primary authoring model, and the V6 documents are the current product source
+of truth.
 
-## Read first (mandatory)
+## Read first
 
-- `docs/updatePLAN.md`
-- `docs/rfcs/pyc4.0-decisions.md`
+- `docs/v6_PyCircuit_Specification.md`
+- `docs/rfcs/pyc6-decisions.md`
+- `docs/pyc6-plan.md`
 - `docs/development/contributing-workflow.md`
 - `docs/development/testing-and-gates.md`
 - `docs/development/review-and-merge.md`
 
-## Codex skills (mandatory)
+## Codex skills
 
-- Apply `$pyc5` first for hard contracts and evidence expectations.
-- Use `$pyc-build-v50` when running builds or gate lanes.
+- Apply `$pyc6` first for hard contracts and evidence expectations.
+- Use `$pyc-build-v60` when running builds or gate lanes.
 - Use `$linx-pycircuit` when touching Linx integration flows.
 
 ## Task mapping
 
-- Issue fix or feature work: identify affected decision IDs first, then map the
-  change to the required gates in `docs/development/testing-and-gates.md`.
+- Issue fix or feature work: identify affected decision IDs, then map the change
+  to the required gates in `docs/development/testing-and-gates.md`.
 - Code review: prioritize semantic regressions, missing gate coverage,
   incorrect evidence paths, and documentation drift before style issues.
 - PR preparation: include decision IDs, gate commands, evidence paths, doc
   updates, and compatibility or risk notes.
-- Documentation updates: keep governance docs, contributor docs, and README
-  guidance aligned with the real repo workflow.
+- Documentation updates: keep the V6 specification, contributor docs, README,
+  and actual repository workflow aligned.
 
 ## Hard rules
 
-- Gate-first: add or extend MLIR verifiers or passes before changing semantics.
-- No backend-only semantic fixes: semantics live in the dialect plus MLIR
-  passes and verifiers.
-- Worktree-only builds: build and test from the current checkout. Never copy
-  staged toolchains, `.so` files, or generated artifacts from another tree.
-- No temporary test scripts or ad-hoc examples in the repo root. Tests belong
-  in the existing test structure, examples belong under `designs/examples/`,
-  docs belong under `docs/`.
-- Public examples are product surface, not scratch space. New examples must
-  serve user-facing design coverage, compile-flow coverage, or semantic
-  evidence.
-- Semantic or decision-bearing changes must reference the affected decision IDs
-  and attach gate evidence under `docs/gates/logs/<run-id>/`.
-- Keep the repo hard-break only. Do not reintroduce legacy compatibility APIs,
-  flags, or tutorial surfaces that pyc5 removed.
-- Do not add AI co-author lines to commits or PR text.
+- Keep CycleAwareSignal, CycleAwareDomain, and automatic cycle balancing as
+  first-class pyCircuit 6 design contracts (Decision 0148).
+- Add or tighten MLIR verifiers or passes before changing semantics.
+- Do not implement semantic fixes in only one backend. Semantics live in the
+  dialect, passes, and verifiers.
+- Build and test from the current checkout. Never copy staged toolchains,
+  shared libraries, or generated artifacts from another worktree.
+- Do not place temporary tests, scripts, examples, or design notes in the repo
+  root. Use the existing test, example, documentation, or disposable output
+  directories.
+- Treat public examples as product surface. New examples must provide
+  user-facing design coverage, compile-flow coverage, or semantic evidence.
+- Reference affected decision IDs and attach semantic or decision-bearing gate
+  evidence under `docs/gates/logs/<run-id>/`.
+- Keep the repository hard-break only. Do not restore removed compatibility
+  modes or label the current CycleAwareSignal API with a prior product version.
+- Keep active runtime, trace, and semantic-gate names on the pyCircuit 6
+  contract: `libpyc6_runtime`, `PYC6TRC3`, and
+  `run_semantic_regressions_v6.sh`.
+- Do not add AI co-author lines to commits or pull request text.
 
-## When to stop and ask the user
+## Repository authority
 
-- The requested change conflicts with the decision corpus or existing gate
-  evidence.
-- The task would require changing documented semantics without a clear decision
-  update path.
-- The worktree contains unrelated user changes in the same files and the merge
-  strategy is ambiguous.
-- Required external tooling or credentials are missing and block validation or
+- `PTO-ISA/pyCircuit` is the upstream source of truth and release authority.
+- `LinxISA/pyCircuit` is a downstream fork for Linx integration.
+- Product decisions, general fixes, and reusable Linx changes should land
+  upstream first whenever practical.
+- See `docs/development/repository-management.md` for branch, release, and fork
+  synchronization policy.
+
+## When to stop and ask
+
+- The requested change conflicts with an accepted pyc6 decision.
+- The work would change documented semantics without a clear decision update.
+- Unrelated user changes overlap the same files and the merge strategy is
+  ambiguous.
+- Required credentials or external tooling block required validation or
   publishing.
 
 ## Working expectations
 
-- Prefer the smallest reproducer and the narrowest gate lane that proves the
-  change, then widen only as needed.
+- Start with the smallest reproducer and narrowest gate lane that proves the
+  change; widen only as required by risk.
 - Keep generated logs bounded and archive only reviewable evidence.
-- If behavior changes, update the relevant docs in the same change.
-- If a blocker is non-critical and local to the task, document it clearly in
-  the final handoff instead of silently working around it.
+- Update behavior documentation in the same change as the behavior.
+- Report non-critical local validation gaps explicitly instead of hiding them.

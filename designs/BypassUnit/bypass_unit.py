@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from typing import cast
-
 from pycircuit import (
     Circuit,
     Tb,
@@ -12,7 +10,7 @@ from pycircuit import (
     testbench,
 )
 from pycircuit.data import Bits, Data, Vector
-from pycircuit.v5 import mux
+from pycircuit.v6 import mux
 
 PTYPE_C = 0
 PTYPE_P = 1
@@ -55,22 +53,22 @@ def _select_stage_batch(
     lp_bc = lane_ptag.broadcast(dim=0, size=n)
     lt_bc = lane_ptype.broadcast(dim=0, size=n)
 
-    match: Wire[Vector[Vector[Data]]] = sv_bc & lv_bc & (lp_bc == sp_bc) & (lt_bc == st_bc)
+    match: Wire[Vector[Vector[Data]]] = (
+        sv_bc & lv_bc & (lp_bc == sp_bc) & (lt_bc == st_bc)
+    )
     # match: Wire<Wire<i1, M>, N> — N rows, each row is M match bits
 
     has = match.reduce_or(dim=1)  # Wire<i1, N>: per-source hit
 
     # Per-source priority mux over the match row.
-    sel_lane = m.vec([
-        m.priority_mux(match[i], lane_nums, default=zero_lane)
-        for i in range(n)
-    ])
+    sel_lane = m.vec(
+        [m.priority_mux(match[i], lane_nums, default=zero_lane) for i in range(n)]
+    )
     # Broadcast lane_data to match shape, then per-row priority mux.
     ld_bc: Wire[Vector[Vector[Data]]] = lane_data.broadcast(dim=0, size=n)
-    sel_data = m.vec([
-        m.priority_mux(match[i], ld_bc[i], default=zero_data)
-        for i in range(n)
-    ])
+    sel_data = m.vec(
+        [m.priority_mux(match[i], ld_bc[i], default=zero_data) for i in range(n)]
+    )
 
     return has, sel_lane, sel_data
 
@@ -132,35 +130,35 @@ def build(
     for src in ("srcL", "srcR"):
         # Collect all N sources of this type into Vecs.
         src_valid_v = m.input(f"i2_{src}_valid", width=1, shape=[lanes_n])
-        src_ptag_v  = m.input(f"i2_{src}_ptag", width=ptag_w, shape=[lanes_n])
+        src_ptag_v = m.input(f"i2_{src}_ptag", width=ptag_w, shape=[lanes_n])
         src_ptype_v = m.input(f"i2_{src}_ptype", width=ptype_w, shape=[lanes_n])
         src_rfdata_v = m.input(f"i2_{src}_rf_data", width=data_w, shape=[lanes_n])
 
         sel_data: Wire[Data] = src_rfdata_v
-        sel_hit: Wire[Data] = m.vec(
-            [zero_hit for _ in range(lanes_n)]
-        )
-        sel_stage: Wire[Data] = m.vec(
-            [zero_stage for _ in range(lanes_n)]
-        )
-        sel_lane: Wire[Data] = m.vec(
-            [zero_lane for _ in range(lanes_n)]
-        )
+        sel_hit: Wire[Data] = m.vec([zero_hit for _ in range(lanes_n)])
+        sel_stage: Wire[Data] = m.vec([zero_stage for _ in range(lanes_n)])
+        sel_lane: Wire[Data] = m.vec([zero_lane for _ in range(lanes_n)])
 
         # Priority: w3 > w2 > w1.
         for stage, prio in [("w3", 3), ("w2", 2), ("w1", 1)]:
             has, lane_sel, data_sel = _select_stage_batch(
                 m,
-                src_valid_v=src_valid_v, src_ptag_v=src_ptag_v, src_ptype_v=src_ptype_v,
-                lane_valid=w_valid[stage], lane_ptag=w_ptag[stage],
-                lane_ptype=w_ptype[stage], lane_data=w_data[stage],
-                lane_nums=lane_nums, zero_lane=zero_lane, zero_data=zero_data,
+                src_valid_v=src_valid_v,
+                src_ptag_v=src_ptag_v,
+                src_ptype_v=src_ptype_v,
+                lane_valid=w_valid[stage],
+                lane_ptag=w_ptag[stage],
+                lane_ptype=w_ptype[stage],
+                lane_data=w_data[stage],
+                lane_nums=lane_nums,
+                zero_lane=zero_lane,
+                zero_data=zero_data,
                 lanes_n=lanes_n,
-        )
-            sel_data  = mux(has, data_sel, sel_data)
-            sel_hit   = mux(has, one_hit, sel_hit)
+            )
+            sel_data = mux(has, data_sel, sel_data)
+            sel_hit = mux(has, one_hit, sel_hit)
             sel_stage = mux(has, stage_consts[prio], sel_stage)
-            sel_lane  = mux(has, lane_sel, sel_lane)
+            sel_lane = mux(has, lane_sel, sel_lane)
 
         m.output(f"i2_{src}_data", sel_data)
         m.output(f"i2_{src}_hit", sel_hit)

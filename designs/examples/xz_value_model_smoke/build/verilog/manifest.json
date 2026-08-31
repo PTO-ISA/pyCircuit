@@ -1,8 +1,0 @@
-{
-  "cpp_modules": [],
-  "top": "xz_value_model_smoke",
-  "verilog_modules": [
-    "pyc_primitives.v",
-    "xz_value_model_smoke.v"
-  ]
-}

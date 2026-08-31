@@ -1,8 +1,0 @@
-{
-  "cpp_modules": [],
-  "top": "obs_points",
-  "verilog_modules": [
-    "pyc_primitives.v",
-    "obs_points.v"
-  ]
-}

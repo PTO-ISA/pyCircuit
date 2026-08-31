@@ -74,13 +74,14 @@ public:
     cur_cycle_ = cycle;
   }
 
-  // Backward-compatible helper.
   void insn(std::uint64_t rowId, std::uint64_t simId, std::uint64_t threadId) {
     std::ostringstream uid;
     uid << "0x" << std::hex << simId << std::dec;
     insnV5(rowId, uid.str(), threadId, "0x0", "normal");
   }
 
+  // LinxTrace protocol v5 record helper; this version is independent of the
+  // pyCircuit product version.
   void insnV5(std::uint64_t rowId, const std::string &uidHex, std::uint64_t threadId,
               const std::string &parentUidHex, const std::string &kind) {
     if (!isOpen()) {
@@ -170,8 +171,9 @@ public:
     presenceV5(rowId, lane.str(), stage, stall, stallCause);
   }
 
-  void presenceV5(std::uint64_t rowId, const std::string &laneToken, const std::string &stage,
-                  int stall, const std::string &stallCause) {
+  void presenceV5(std::uint64_t rowId, const std::string &laneToken,
+                  const std::string &stage, int stall,
+                  const std::string &stallCause) {
     if (!isOpen()) {
       return;
     }

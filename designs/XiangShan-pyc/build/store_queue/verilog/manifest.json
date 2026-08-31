@@ -1,8 +1,0 @@
-{
-  "cpp_modules": [],
-  "top": "store_queue",
-  "verilog_modules": [
-    "pyc_primitives.v",
-    "store_queue.v"
-  ]
-}

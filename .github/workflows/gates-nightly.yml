@@ -6,8 +6,12 @@ on:
     # 08:00 UTC daily
     - cron: "0 8 * * *"
 
+permissions:
+  contents: read
+
 env:
   LLVM_VERSION: "22"
+  LLVM_INSTALL_SCRIPT_SHA256: "03878e08f47b66cc95bc4b544b0db3c6d9ce8d60e6cf2492ae357984330a9eae"
   VERILATOR_VERSION: "5.048"
   CMAKE_BUILD_TYPE: Release
   PYC_GATE_RUN_ID: nightly-${{ github.run_id }}-${{ github.run_attempt }}
@@ -19,10 +23,10 @@ jobs:
     timeout-minutes: 240
     steps:
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - name: Set up Python
-        uses: actions/setup-python@v7
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
         with:
           python-version: "3.11"
 
@@ -31,7 +35,8 @@ jobs:
           set -euxo pipefail
           sudo apt-get update
           sudo apt-get install -y wget gnupg software-properties-common cmake ninja-build clang iverilog
-          wget https://apt.llvm.org/llvm.sh
+          wget --https-only https://apt.llvm.org/llvm.sh
+          printf '%s  %s\n' "${LLVM_INSTALL_SCRIPT_SHA256}" llvm.sh | sha256sum --check --strict
           chmod +x llvm.sh
           sudo ./llvm.sh ${LLVM_VERSION}
           sudo apt-get install -y llvm-${LLVM_VERSION}-dev mlir-${LLVM_VERSION}-tools libmlir-${LLVM_VERSION}-dev
@@ -104,7 +109,7 @@ jobs:
 
       - name: Upload gate logs
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: gate-logs-g3-${{ env.PYC_GATE_RUN_ID }}
           path: docs/gates/logs/${{ env.PYC_GATE_RUN_ID }}/

@@ -30,9 +30,15 @@ def _cmake_list(values: list[Path]) -> str:
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser(description="Generate CMake project from pyCircuit cpp manifest")
-    ap.add_argument("--manifest", required=True, help="Path to cpp_project_manifest.json")
-    ap.add_argument("--out-dir", required=True, help="Directory to write CMakeLists.txt")
+    ap = argparse.ArgumentParser(
+        description="Generate CMake project from pyCircuit cpp manifest"
+    )
+    ap.add_argument(
+        "--manifest", required=True, help="Path to cpp_project_manifest.json"
+    )
+    ap.add_argument(
+        "--out-dir", required=True, help="Directory to write CMakeLists.txt"
+    )
     args = ap.parse_args()
 
     manifest_path = Path(args.manifest).resolve()
@@ -40,18 +46,46 @@ def main() -> int:
     out_dir.mkdir(parents=True, exist_ok=True)
     data = _load(manifest_path)
 
-    srcs = [Path(s).resolve() for s in data.get("sources", []) if isinstance(s, str) and s]
+    srcs = [
+        Path(s).resolve() for s in data.get("sources", []) if isinstance(s, str) and s
+    ]
     tb_cpp = Path(str(data.get("tb_cpp", ""))).resolve()
-    incs = [Path(s).resolve() for s in data.get("include_dirs", []) if isinstance(s, str) and s]
-    runtime_srcs = [Path(s).resolve() for s in data.get("runtime_sources", []) if isinstance(s, str) and s]
-    runtime_incs = [Path(s).resolve() for s in data.get("runtime_include_dirs", []) if isinstance(s, str) and s]
-    runtime = data.get("runtime", {}) if isinstance(data.get("runtime", {}), dict) else {}
-    runtime_incs.extend([Path(s).resolve() for s in runtime.get("include_dirs", []) if isinstance(s, str) and s])
-    runtime_lib_files = [Path(s).resolve() for s in runtime.get("library_files", []) if isinstance(s, str) and s]
-    runtime_target = str(runtime.get("cmake_target", "pycircuit::pyc4_runtime"))
+    incs = [
+        Path(s).resolve()
+        for s in data.get("include_dirs", [])
+        if isinstance(s, str) and s
+    ]
+    runtime_srcs = [
+        Path(s).resolve()
+        for s in data.get("runtime_sources", [])
+        if isinstance(s, str) and s
+    ]
+    runtime_incs = [
+        Path(s).resolve()
+        for s in data.get("runtime_include_dirs", [])
+        if isinstance(s, str) and s
+    ]
+    runtime = (
+        data.get("runtime", {}) if isinstance(data.get("runtime", {}), dict) else {}
+    )
+    runtime_incs.extend(
+        [
+            Path(s).resolve()
+            for s in runtime.get("include_dirs", [])
+            if isinstance(s, str) and s
+        ]
+    )
+    runtime_lib_files = [
+        Path(s).resolve()
+        for s in runtime.get("library_files", [])
+        if isinstance(s, str) and s
+    ]
+    runtime_target = str(runtime.get("cmake_target", "pycircuit::pyc6_runtime"))
     runtime_pkg = str(runtime.get("cmake_package", "pycircuit"))
     runtime_cfg = str(runtime.get("cmake_config_dir", ""))
-    runtime_cfg_exists = bool(runtime_cfg) and (Path(runtime_cfg) / "pycircuitConfig.cmake").is_file()
+    runtime_cfg_exists = (
+        bool(runtime_cfg) and (Path(runtime_cfg) / "pycircuitConfig.cmake").is_file()
+    )
     runtime_toolchain_root = str(runtime.get("toolchain_root_hint", ""))
     std = str(data.get("cxx_standard", "c++17"))
 
@@ -72,43 +106,47 @@ def main() -> int:
 
     lines.append("set(PYC_TB_SOURCES\n")
     for s in srcs:
-        lines.append(f"  \"{_rel(s, out_dir)}\"\n")
-    lines.append(f"  \"{_rel(tb_cpp, out_dir)}\"\n")
+        lines.append(f'  "{_rel(s, out_dir)}"\n')
+    lines.append(f'  "{_rel(tb_cpp, out_dir)}"\n')
     lines.append(")\n\n")
 
     lines.append("add_executable(pyc_tb ${PYC_TB_SOURCES})\n")
     if incs:
         lines.append("target_include_directories(pyc_tb PRIVATE\n")
         for i in incs:
-            lines.append(f"  \"{_rel(i, out_dir)}\"\n")
+            lines.append(f'  "{_rel(i, out_dir)}"\n')
         lines.append(")\n")
     if runtime_cfg_exists:
         if runtime_toolchain_root:
-            lines.append(f"list(PREPEND CMAKE_PREFIX_PATH \"{_cmake_str(runtime_toolchain_root)}\")\n")
+            lines.append(
+                f'list(PREPEND CMAKE_PREFIX_PATH "{_cmake_str(runtime_toolchain_root)}")\n'
+            )
         lines.append(
-            f"find_package({runtime_pkg} CONFIG REQUIRED PATHS \"{_cmake_str(runtime_cfg)}\" NO_DEFAULT_PATH)\n"
+            f'find_package({runtime_pkg} CONFIG REQUIRED PATHS "{_cmake_str(runtime_cfg)}" NO_DEFAULT_PATH)\n'
         )
         lines.append(f"target_link_libraries(pyc_tb PRIVATE {runtime_target})\n")
     elif runtime_lib_files:
-        lines.append("add_library(pyc4_runtime_prebuilt STATIC IMPORTED GLOBAL)\n")
-        lines.append("set_target_properties(pyc4_runtime_prebuilt PROPERTIES\n")
-        lines.append(f"  IMPORTED_LOCATION \"{_cmake_str(str(runtime_lib_files[0]))}\"\n")
+        lines.append("add_library(pyc6_runtime_prebuilt STATIC IMPORTED GLOBAL)\n")
+        lines.append("set_target_properties(pyc6_runtime_prebuilt PROPERTIES\n")
+        lines.append(f'  IMPORTED_LOCATION "{_cmake_str(str(runtime_lib_files[0]))}"\n')
         if runtime_incs:
-            lines.append(f"  INTERFACE_INCLUDE_DIRECTORIES \"{_cmake_list(runtime_incs)}\"\n")
+            lines.append(
+                f'  INTERFACE_INCLUDE_DIRECTORIES "{_cmake_list(runtime_incs)}"\n'
+            )
         lines.append(")\n")
-        lines.append("target_link_libraries(pyc_tb PRIVATE pyc4_runtime_prebuilt)\n")
+        lines.append("target_link_libraries(pyc_tb PRIVATE pyc6_runtime_prebuilt)\n")
     elif runtime_srcs:
         lines.append("set(PYC_RUNTIME_SOURCES\n")
         for s in runtime_srcs:
-            lines.append(f"  \"{_rel(s, out_dir)}\"\n")
+            lines.append(f'  "{_rel(s, out_dir)}"\n')
         lines.append(")\n")
-        lines.append("add_library(pyc4_runtime STATIC ${PYC_RUNTIME_SOURCES})\n")
+        lines.append("add_library(pyc6_runtime STATIC ${PYC_RUNTIME_SOURCES})\n")
         if runtime_incs:
-            lines.append("target_include_directories(pyc4_runtime PUBLIC\n")
+            lines.append("target_include_directories(pyc6_runtime PUBLIC\n")
             for i in runtime_incs:
-                lines.append(f"  \"{_rel(i, out_dir)}\"\n")
+                lines.append(f'  "{_rel(i, out_dir)}"\n')
             lines.append(")\n")
-        lines.append("target_link_libraries(pyc_tb PRIVATE pyc4_runtime)\n")
+        lines.append("target_link_libraries(pyc_tb PRIVATE pyc6_runtime)\n")
     lines.append("\n")
 
     out = out_dir / "CMakeLists.txt"

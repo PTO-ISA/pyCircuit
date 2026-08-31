@@ -51,6 +51,6 @@ def test_domain_aware_pipeline_emits_explicit_stage_state_without_balance_regs()
     # Temporal coordinates are explicit in source, while real transport cuts
     # are the named state registers. No accidental auto-balance pipeline is
     # needed to close the ready/valid feedback path.
-    assert "_v5_bal_" not in mlir
+    assert "_v6_bal_" not in mlir
     assert mlir.count("pyc.reg") >= len(STAGE_ORDER)
     assert "out_reservation_token" in mlir

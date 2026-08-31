@@ -17,7 +17,7 @@ def build(m: CycleAwareCircuit, domain: CycleAwareDomain, width: int = 8) -> Non
     m.output("count", wire_of(count))
 
     # Spec: compute next at cycle 0, then commit after domain.next().
-    # Assigning `count + 1` after next() inserts an extra _v5_bal register.
+    # Assigning `count + 1` after next() inserts an extra _v6_bal register.
     count_next = mux(enable, count + 1, count)
     domain.next()
     count <<= count_next

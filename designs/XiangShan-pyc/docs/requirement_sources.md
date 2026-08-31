@@ -1,6 +1,6 @@
 # Requirement Sources — XiangShan-pyc
 
-Document index and parameter inventory for the PyCircuit V5 reimplementation.
+Document index and parameter inventory for the PyCircuit V6 reimplementation.
 
 ## Documentation index
 

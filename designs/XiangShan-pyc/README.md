@@ -1,6 +1,6 @@
-# XiangShan-pyc: XiangShan KunMingHu in PyCircuit V5
+# XiangShan-pyc: XiangShan KunMingHu in PyCircuit V6
 
-PyCircuit V5 cycle-aware reimplementation of the XiangShan (香山) KunMingHu
+PyCircuit V6 cycle-aware reimplementation of the XiangShan (香山) KunMingHu
 micro-architecture.  All RTL is written from scratch using `CycleAwareCircuit`
 / `CycleAwareDomain` APIs; the original Chisel implementation under
 `designs/XiangShan/` serves only as a **specification reference** for port
@@ -8,8 +8,8 @@ widths, parameter defaults, and behavioral details.
 
 ## Programming style
 
-- **Authoring mode:** PyCircuit V5 cycle-aware (`cas`, `domain.next()`,
-  `domain.state`, `mux`)
+- **Authoring mode:** PyCircuit V6 cycle-aware (`cas`, `domain.next()`,
+  `domain.signal`, `mux`)
 - **Style reference:** `designs/RegisterFile/regfile.py` (explicit `cas` +
   `domain.next()`)
 - **Build function signature:** `build_<module>(m: CycleAwareCircuit, domain:
@@ -21,7 +21,7 @@ widths, parameter defaults, and behavioral details.
 
 ## Directory layout
 
-```
+```text
 lib/            Common primitives, protocol definitions
 frontend/       BPU, FTQ, IFU, ICache, IBuffer, Decode
 backend/        Rename, Dispatch, Issue, ExeUnits, ROB, RegFile, CtrlBlock
@@ -44,12 +44,12 @@ docs/           Specifications, port lists, feature lists, traceability
 
 Every module follows `docs/pycircuit_implementation_method.md`:
 
-1. Read PyCircuit V5 API docs and examples
+1. Read PyCircuit V6 API docs and examples
 2. Read block-specific requirement documents
 3. Top-level ports, buses, widths, and feature list
 4. Sequential behavior description (pseudocode)
 5. Pipeline mapping (`domain.next()` planning)
-6. Full cycle-aware PyCircuit V5 implementation
+6. Full cycle-aware PyCircuit V6 implementation
 7. Specification traceability check
 8. Itemized test plan
 9. Incremental implementation

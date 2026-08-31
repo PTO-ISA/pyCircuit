@@ -20,13 +20,13 @@ pre-commit run --all-files
 pytest tests/unit -m unit
 pytest tests/system -m system
 python3 flows/tools/check_api_hygiene.py compiler/frontend/pycircuit designs/examples docs README.md
-python3 flows/tools/check_decision_status.py --status docs/gates/decision_status_v40.md --out .pycircuit_out/gates/<run-id>/decision_status_report.json
-python3 flows/tools/check_decision_status.py --status docs/gates/decision_status_v40.md --out .pycircuit_out/gates/<run-id>/decision_status_report.json --require-no-deferred --require-all-verified --require-concrete-evidence --require-existing-evidence
+python3 flows/tools/check_decision_status.py --rfc docs/rfcs/pyc6-decisions.md --status docs/gates/decision_status_v6.md --out .pycircuit_out/gates/<run-id>/decision_status_report.json
+python3 flows/tools/check_decision_status.py --rfc docs/rfcs/pyc6-decisions.md --status docs/gates/decision_status_v6.md --out .pycircuit_out/gates/<run-id>/decision_status_report.json --require-no-deferred --require-all-verified --require-concrete-evidence --require-existing-evidence
 mkdocs build
 bash flows/scripts/run_examples.sh
 bash flows/scripts/run_sims.sh
 bash flows/scripts/run_sims_nightly.sh
-bash flows/scripts/run_semantic_regressions_v40.sh
+bash flows/scripts/run_semantic_regressions_v6.sh
 ```
 
 ## Minimum validation matrix
@@ -37,7 +37,7 @@ bash flows/scripts/run_semantic_regressions_v40.sh
 | README, CLI docs, docs that describe flow behavior | `pre-commit run --files <changed-file> [<changed-file> ...]`; `mkdocs build`; API hygiene |
 | Frontend API, CLI orchestration, manifest generation, packaging, example discovery | `pre-commit run --files <changed-file> [<changed-file> ...]`; `pytest tests/unit -m unit`; API hygiene; `bash flows/scripts/run_examples.sh` |
 | Examples, testbenches, simulation entrypoint behavior | `pytest tests/unit -m unit`; `pytest tests/system -m system`; `bash flows/scripts/run_examples.sh`; `bash flows/scripts/run_sims.sh`; `bash flows/scripts/run_sims_nightly.sh` |
-| MLIR dialect, passes, legality, runtime, codegen, trace semantics | `bash flows/scripts/run_examples.sh`; `bash flows/scripts/run_sims.sh`; `bash flows/scripts/run_sims_nightly.sh`; `bash flows/scripts/run_semantic_regressions_v40.sh`; strict decision-status check |
+| MLIR dialect, passes, legality, runtime, codegen, trace semantics | `bash flows/scripts/run_examples.sh`; `bash flows/scripts/run_sims.sh`; `bash flows/scripts/run_sims_nightly.sh`; `bash flows/scripts/run_semantic_regressions_v6.sh`; strict decision-status check |
 | Linx integration changes under `contrib/linx/` or cross-repo interface behavior | Required pyCircuit lanes plus the `linx-pycircuit` mandatory gates |
 
 ## When strict decision-status validation is required
@@ -78,5 +78,5 @@ Use `docs/gates/README.md` for the directory contract and naming.
 - `run_sims.sh` validates the normal simulation lane.
 - `run_sims_nightly.sh` exercises the broader nightly lane and should be run for
   example, testbench, or simulation-orchestration changes.
-- `run_semantic_regressions_v40.sh` is the semantic closure lane for reset,
+- `run_semantic_regressions_v6.sh` is the semantic closure lane for reset,
   trace, and related hard contracts.

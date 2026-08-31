@@ -121,7 +121,7 @@ case "${cmd}" in
     cmake "${cmake_args[@]}"
 
     pyc_log "build pycc + runtime (${build_dir})"
-    ninja -C "${build_dir}" pycc pyc4_runtime
+    ninja -C "${build_dir}" pycc pyc6_runtime
     ninja -C "${build_dir}" pyc-opt 2>/dev/null || true
     cmake --install "${build_dir}" --prefix "${install_prefix}"
     export PYC_TOOLCHAIN_ROOT="${install_prefix}"

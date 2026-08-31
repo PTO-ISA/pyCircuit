@@ -18,6 +18,8 @@ __pycache__/
 .Python
 /build/
 /build-*/
+designs/**/build/
+designs/**/build_out/
 compiler/mlir/build*/
 develop-eggs/
 dist/

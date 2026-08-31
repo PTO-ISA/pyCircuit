@@ -1,14 +1,19 @@
-# -*- coding: utf-8 -*-
-"""Dodgeball top — pyCircuit v4.0 rewrite of lab_final_top.v.
+"""Dodgeball top — pyCircuit v6 rewrite of lab_final_top.v.
 
 Notes:
 - `clk` corresponds to the original `CLK_in`.
 - A synchronous `rst` port is introduced for deterministic initialization.
 - The internal game logic still uses `RST_BTN` exactly like the reference.
 """
+
 from __future__ import annotations
 
-from pycircuit import Circuit, module, compile_cycle_aware, CycleAwareCircuit, CycleAwareDomain, u
+from pycircuit import (
+    CycleAwareCircuit,
+    CycleAwareDomain,
+    compile_cycle_aware,
+    u,
+)
 
 # VGA timing constants (same as lab_final_VGA)
 HS_STA = 16
@@ -21,7 +26,9 @@ LINE = 800
 SCREEN = 524
 
 
-def build(m: CycleAwareCircuit, domain: CycleAwareDomain, *, MAIN_CLK_BIT: int = 20) -> None:
+def build(
+    m: CycleAwareCircuit, domain: CycleAwareDomain, *, MAIN_CLK_BIT: int = 20
+) -> None:
     if MAIN_CLK_BIT < 0 or MAIN_CLK_BIT > 24:
         raise ValueError("MAIN_CLK_BIT must be in [0, 24]")
     cd = domain.clock_domain
@@ -32,19 +39,19 @@ def build(m: CycleAwareCircuit, domain: CycleAwareDomain, *, MAIN_CLK_BIT: int =
     # Inputs
     # ================================================================
     rst_btn = m.input("RST_BTN", width=1)
-    start   = m.input("START",   width=1)
-    left    = m.input("left",    width=1)
-    right   = m.input("right",   width=1)
+    start = m.input("START", width=1)
+    left = m.input("left", width=1)
+    right = m.input("right", width=1)
 
     # ================================================================
     # Registers
     # ================================================================
-    cnt      = m.out("pix_cnt",   domain=cd, width=16, init=u(16, 0))
-    pix_stb  = m.out("pix_stb",   domain=cd, width=1,  init=u(1, 0))
-    main_clk = m.out("main_clk",  domain=cd, width=25, init=u(25, 0))
+    cnt = m.out("pix_cnt", domain=cd, width=16, init=u(16, 0))
+    pix_stb = m.out("pix_stb", domain=cd, width=1, init=u(1, 0))
+    main_clk = m.out("main_clk", domain=cd, width=25, init=u(25, 0))
 
-    player_x = m.out("player_x",  domain=cd, width=4,  init=u(4, 8))
-    j        = m.out("j",         domain=cd, width=5,  init=u(5, 0))
+    player_x = m.out("player_x", domain=cd, width=4, init=u(4, 8))
+    j = m.out("j", domain=cd, width=5, init=u(5, 0))
 
     ob1_x = m.out("ob1_x", domain=cd, width=4, init=u(4, 1))
     ob2_x = m.out("ob2_x", domain=cd, width=4, init=u(4, 4))
@@ -107,18 +114,21 @@ def build(m: CycleAwareCircuit, domain: CycleAwareDomain, *, MAIN_CLK_BIT: int =
     y = vga_y_raw
 
     # --- Read register Q outputs for combinational logic ---
-    px  = player_x.out()
-    jv  = j.out()
-    o1x = ob1_x.out(); o1y = ob1_y.out()
-    o2x = ob2_x.out(); o2y = ob2_y.out()
-    o3x = ob3_x.out(); o3y = ob3_y.out()
+    px = player_x.out()
+    jv = j.out()
+    o1x = ob1_x.out()
+    o1y = ob1_y.out()
+    o2x = ob2_x.out()
+    o2y = ob2_y.out()
+    o3x = ob3_x.out()
+    o3y = ob3_y.out()
     fsm = fsm_state.out()
 
     # --- Collision detection ---
     collision = (
-        ((o1x == px) & (o1y == u(4, 10))) |
-        ((o2x == px) & (o2y == u(4, 10))) |
-        ((o3x == px) & (o3y == u(4, 10)))
+        ((o1x == px) & (o1y == u(4, 10)))
+        | ((o2x == px) & (o2y == u(4, 10)))
+        | ((o3x == px) & (o3y == u(4, 10)))
     )
 
     # --- Object motion increments (boolean -> 4-bit) ---
@@ -135,18 +145,18 @@ def build(m: CycleAwareCircuit, domain: CycleAwareDomain, *, MAIN_CLK_BIT: int =
     cond_state1 = game_tick & st1
     cond_state2 = game_tick & st2
 
-    cond_start     = cond_state0 & start
-    cond_rst_s1    = cond_state1 & rst_btn
-    cond_rst_s2    = cond_state2 & rst_btn
+    cond_start = cond_state0 & start
+    cond_rst_s1 = cond_state1 & rst_btn
+    cond_rst_s2 = cond_state2 & rst_btn
     cond_collision = cond_state1 & collision
-    cond_j20       = cond_state1 & (jv == u(5, 20))
+    cond_j20 = cond_state1 & (jv == u(5, 20))
 
     # --- Player movement (left/right) ---
-    left_only  = left & ~right
+    left_only = left & ~right
     right_only = right & ~left
-    can_left   = px > u(4, 0)
-    can_right  = px < u(4, 15)
-    move_left  = cond_state1 & left_only & can_left
+    can_left = px > u(4, 0)
+    can_right = px < u(4, 15)
+    move_left = cond_state1 & left_only & can_left
     move_right = cond_state1 & right_only & can_right
 
     # --- VGA draw logic ---
@@ -172,35 +182,20 @@ def build(m: CycleAwareCircuit, domain: CycleAwareDomain, *, MAIN_CLK_BIT: int =
     ob3_y1 = ((o3y + u(4, 1)) | u(10, 0)) * u(10, 40)
 
     sq_player = (
-        (x10 > player_x0) & (y10 > u(10, 400)) &
-        (x10 < player_x1) & (y10 < u(10, 440))
+        (x10 > player_x0) & (y10 > u(10, 400)) & (x10 < player_x1) & (y10 < u(10, 440))
     )
 
-    sq_object1 = (
-        (x10 > ob1_x0) & (y10 > ob1_y0) &
-        (x10 < ob1_x1) & (y10 < ob1_y1)
-    )
-    sq_object2 = (
-        (x10 > ob2_x0) & (y10 > ob2_y0) &
-        (x10 < ob2_x1) & (y10 < ob2_y1)
-    )
-    sq_object3 = (
-        (x10 > ob3_x0) & (y10 > ob3_y0) &
-        (x10 < ob3_x1) & (y10 < ob3_y1)
-    )
+    sq_object1 = (x10 > ob1_x0) & (y10 > ob1_y0) & (x10 < ob1_x1) & (y10 < ob1_y1)
+    sq_object2 = (x10 > ob2_x0) & (y10 > ob2_y0) & (x10 < ob2_x1) & (y10 < ob2_y1)
+    sq_object3 = (x10 > ob3_x0) & (y10 > ob3_y0) & (x10 < ob3_x1) & (y10 < ob3_y1)
 
     over_wire = (
-        (x10 > u(10, 0)) & (y10 > u(10, 0)) &
-        (x10 < u(10, 640)) & (y10 < u(10, 480))
+        (x10 > u(10, 0)) & (y10 > u(10, 0)) & (x10 < u(10, 640)) & (y10 < u(10, 480))
     )
     down = (
-        (x10 > u(10, 0)) & (y10 > u(10, 440)) &
-        (x10 < u(10, 640)) & (y10 < u(10, 480))
+        (x10 > u(10, 0)) & (y10 > u(10, 440)) & (x10 < u(10, 640)) & (y10 < u(10, 480))
     )
-    up = (
-        (x10 > u(10, 0)) & (y10 > u(10, 0)) &
-        (x10 < u(10, 640)) & (y10 < u(10, 40))
-    )
+    up = (x10 > u(10, 0)) & (y10 > u(10, 0)) & (x10 < u(10, 640)) & (y10 < u(10, 40))
 
     fsm_over = fsm == u(3, 2)
     not_over = ~fsm_over
@@ -280,4 +275,6 @@ def build(m: CycleAwareCircuit, domain: CycleAwareDomain, *, MAIN_CLK_BIT: int =
 build.__pycircuit_name__ = "dodgeball_game"
 
 if __name__ == "__main__":
-    print(compile_cycle_aware(build, name="dodgeball_game", MAIN_CLK_BIT=20).emit_mlir())
+    print(
+        compile_cycle_aware(build, name="dodgeball_game", MAIN_CLK_BIT=20).emit_mlir()
+    )

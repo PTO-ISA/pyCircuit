@@ -6,7 +6,6 @@ import json
 import re
 from pathlib import Path
 
-
 VALID_STATUS = {
     "implemented-verified",
     "implemented-unverified",
@@ -61,10 +60,12 @@ def _load_status_rows(status_path: Path) -> dict[str, dict[str, str]]:
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser(description="Validate pyc4.0 decision status coverage and in-scope closure.")
+    ap = argparse.ArgumentParser(
+        description="Validate pyc6 decision status coverage and in-scope closure."
+    )
     ap.add_argument(
         "--rfc",
-        default="docs/rfcs/pyc4.0-decisions.md",
+        default="docs/rfcs/pyc6-decisions.md",
         help="Decision RFC path",
     )
     ap.add_argument(
@@ -112,9 +113,13 @@ def main() -> int:
     extra = [d for d in row_ids if d not in set(decision_ids)]
 
     invalid_status = [d for d, row in rows.items() if row["status"] not in VALID_STATUS]
-    gap_in_scope = sorted([d for d, row in rows.items() if row["status"] == "gap-in-scope"])
+    gap_in_scope = sorted(
+        [d for d, row in rows.items() if row["status"] == "gap-in-scope"]
+    )
     deferred = sorted([d for d, row in rows.items() if row["status"] == "deferred"])
-    non_verified = sorted([d for d, row in rows.items() if row["status"] != "implemented-verified"])
+    non_verified = sorted(
+        [d for d, row in rows.items() if row["status"] != "implemented-verified"]
+    )
 
     placeholder_evidence: list[str] = []
     empty_evidence: list[str] = []
@@ -139,8 +144,12 @@ def main() -> int:
 
     require_no_deferred_failed = bool(ns.require_no_deferred and deferred)
     require_all_verified_failed = bool(ns.require_all_verified and non_verified)
-    concrete_evidence_failed = bool(ns.require_concrete_evidence and (placeholder_evidence or empty_evidence))
-    existing_evidence_failed = bool(ns.require_existing_evidence and missing_evidence_paths)
+    concrete_evidence_failed = bool(
+        ns.require_concrete_evidence and (placeholder_evidence or empty_evidence)
+    )
+    existing_evidence_failed = bool(
+        ns.require_existing_evidence and missing_evidence_paths
+    )
 
     ok = (
         not missing
@@ -167,7 +176,7 @@ def main() -> int:
         "non_verified_decisions": non_verified,
         "placeholder_evidence_decisions": sorted(placeholder_evidence),
         "empty_evidence_decisions": sorted(empty_evidence),
-        "missing_evidence_paths": {k: v for k, v in sorted(missing_evidence_paths.items())},
+        "missing_evidence_paths": dict(sorted(missing_evidence_paths.items())),
         "checks": {
             "require_no_deferred": bool(ns.require_no_deferred),
             "require_all_verified": bool(ns.require_all_verified),
@@ -175,7 +184,8 @@ def main() -> int:
             "require_existing_evidence": bool(ns.require_existing_evidence),
         },
         "status_counts": {
-            k: sum(1 for row in rows.values() if row["status"] == k) for k in sorted(VALID_STATUS)
+            k: sum(1 for row in rows.values() if row["status"] == k)
+            for k in sorted(VALID_STATUS)
         },
         "decisions": [rows[d] for d in sorted(rows.keys()) if d in rows],
     }
@@ -199,7 +209,10 @@ def main() -> int:
         if empty_evidence:
             print("error: empty evidence fields:", " ".join(sorted(empty_evidence)))
         if placeholder_evidence:
-            print("error: placeholder evidence fields:", " ".join(sorted(placeholder_evidence)))
+            print(
+                "error: placeholder evidence fields:",
+                " ".join(sorted(placeholder_evidence)),
+            )
     if existing_evidence_failed:
         bad = []
         for did, paths in sorted(missing_evidence_paths.items()):

@@ -10,7 +10,7 @@ from pycircuit import (
     spec,
     u,
 )
-from pycircuit.v5 import mux
+from pycircuit.v6 import mux
 
 
 @dataclass(frozen=True)

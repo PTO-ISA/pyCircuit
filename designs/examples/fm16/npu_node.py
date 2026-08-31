@@ -1,5 +1,5 @@
-# -*- coding: utf-8 -*-
-"""Simplified NPU node — pyCircuit V5 cycle-aware."""
+"""Simplified NPU node — pyCircuit V6 cycle-aware."""
+
 from __future__ import annotations
 
 from pycircuit import (
@@ -13,7 +13,14 @@ from pycircuit import (
 PKT_W = 32
 
 
-def build(m: CycleAwareCircuit, domain: CycleAwareDomain, *, N_PORTS: int = 4, FIFO_DEPTH: int = 8, NODE_ID: int = 0) -> None:
+def build(
+    m: CycleAwareCircuit,
+    domain: CycleAwareDomain,
+    *,
+    N_PORTS: int = 4,
+    FIFO_DEPTH: int = 8,
+    NODE_ID: int = 0,
+) -> None:
     cd = domain.clock_domain
 
     hbm_pkt = m.input("hbm_pkt", width=PKT_W)
@@ -66,7 +73,8 @@ def build(m: CycleAwareCircuit, domain: CycleAwareDomain, *, N_PORTS: int = 4, F
 build.__pycircuit_name__ = "npu_node"
 
 if __name__ == "__main__":
-    circuit = compile_cycle_aware(build, name="npu_node", eager=True,
-                      N_PORTS=4, FIFO_DEPTH=8, NODE_ID=0)
+    circuit = compile_cycle_aware(
+        build, name="npu_node", eager=True, N_PORTS=4, FIFO_DEPTH=8, NODE_ID=0
+    )
     print(circuit.emit_mlir()[:500])
     print(f"... ({len(circuit.emit_mlir())} chars)")

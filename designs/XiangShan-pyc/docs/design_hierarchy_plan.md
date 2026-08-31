@@ -1,7 +1,7 @@
 # XiangShan-pyc 层次化重构计划（函数调用方式）
 
-**版本：1.0**  
-**日期：2026-04-02**  
+**版本：1.0**
+**日期：2026-04-02**
 **方法：** 子函数调用（Method A）— 所有层次关系通过 `build_*()` 函数调用表达
 
 ---
@@ -117,8 +117,8 @@ build_xs_top                          ← SoC 顶层
 
 #### `build_xs_top` — SoC 顶层
 
-**文件**：`top/xs_top.py`  
-**调用**：`build_xs_tile()` × N, `build_plic()`, `build_clint()`  
+**文件**：`top/xs_top.py`
+**调用**：`build_xs_tile()` × N, `build_plic()`, `build_clint()`
 **周期策略**：各子系统 `push()/pop()` 隔离
 
 ```python
@@ -156,8 +156,8 @@ def build_xs_top(m, domain, *, num_cores=2, prefix="soc", ...):
 
 #### `build_plic` — PLIC 中断控制器
 
-**文件**：`top/peripherals.py`  
-**调用**：无（叶子模块）  
+**文件**：`top/peripherals.py`
+**调用**：无（叶子模块）
 **变更**：仅添加 `prefix` 参数
 
 ```python
@@ -169,8 +169,8 @@ def build_plic(m, domain, *, prefix="plic", num_sources=64, num_targets=4, ...):
 
 #### `build_clint` — CLINT 定时器
 
-**文件**：`top/peripherals.py`  
-**调用**：无（叶子模块）  
+**文件**：`top/peripherals.py`
+**调用**：无（叶子模块）
 **变更**：仅添加 `prefix` 参数
 
 ---
@@ -179,7 +179,7 @@ def build_plic(m, domain, *, prefix="plic", num_sources=64, num_targets=4, ...):
 
 #### `build_xs_tile` — 单核 Tile
 
-**文件**：`top/xs_tile.py`  
+**文件**：`top/xs_tile.py`
 **调用**：`build_xs_core()`, `build_l2_top()`, `build_coupled_l2()`
 
 ```python
@@ -211,7 +211,7 @@ def build_xs_tile(m, domain, *, prefix="tile", hart_id=0, ...):
 
 #### `build_xs_core` — 处理器核心
 
-**文件**：`top/xs_core.py`  
+**文件**：`top/xs_core.py`
 **调用**：`build_frontend()`, `build_backend()`, `build_memblock()`
 
 ```python
@@ -263,7 +263,7 @@ def build_xs_core(m, domain, *, prefix="core",
 
 #### `build_frontend` — 前端顶层
 
-**文件**：`frontend/frontend.py`  
+**文件**：`frontend/frontend.py`
 **调用**：`build_bpu()`, `build_ftq()`, `build_icache()`, `build_ifu()`, `build_ibuffer()`, `build_decode()`
 
 ```python
@@ -327,7 +327,7 @@ def build_frontend(m, domain, *, prefix="fe",
 
 #### `build_bpu` — 分支预测单元
 
-**文件**：`frontend/bpu/bpu.py`  
+**文件**：`frontend/bpu/bpu.py`
 **调用**：`build_ubtb()`, `build_tage()`, `build_sc()`, `build_ittage()`, `build_ras()`
 
 ```python
@@ -378,80 +378,80 @@ def build_bpu(m, domain, *, prefix="bpu", pc_width=39, ...):
 
 #### `build_ubtb` — micro BTB（叶子）
 
-**文件**：`frontend/bpu/ubtb.py`  
-**调用**：无  
+**文件**：`frontend/bpu/ubtb.py`
+**调用**：无
 **变更**：添加 `prefix` 参数，内部逻辑不变
 
 ---
 
 #### `build_tage` — TAGE 预测器（叶子）
 
-**文件**：`frontend/bpu/tage.py`  
-**调用**：无  
+**文件**：`frontend/bpu/tage.py`
+**调用**：无
 **变更**：添加 `prefix` 参数
 
 ---
 
 #### `build_sc` — Statistical Corrector（叶子）
 
-**文件**：`frontend/bpu/sc.py`  
-**调用**：无  
+**文件**：`frontend/bpu/sc.py`
+**调用**：无
 **变更**：添加 `prefix` 参数
 
 ---
 
 #### `build_ittage` — 间接跳转 TAGE（叶子）
 
-**文件**：`frontend/bpu/ittage.py`  
-**调用**：无  
+**文件**：`frontend/bpu/ittage.py`
+**调用**：无
 **变更**：添加 `prefix` 参数
 
 ---
 
 #### `build_ras` — Return Address Stack（叶子）
 
-**文件**：`frontend/bpu/ras.py`  
-**调用**：无  
+**文件**：`frontend/bpu/ras.py`
+**调用**：无
 **变更**：添加 `prefix` 参数
 
 ---
 
 #### `build_ftq` — Fetch Target Queue（叶子）
 
-**文件**：`frontend/ftq/ftq.py`  
-**调用**：无  
+**文件**：`frontend/ftq/ftq.py`
+**调用**：无
 **变更**：添加 `prefix` 参数
 
 ---
 
 #### `build_icache` — 指令缓存（叶子）
 
-**文件**：`frontend/icache/icache.py`  
-**调用**：无  
+**文件**：`frontend/icache/icache.py`
+**调用**：无
 **变更**：添加 `prefix` 参数
 
 ---
 
 #### `build_ifu` — 指令获取单元（叶子）
 
-**文件**：`frontend/ifu/ifu.py`  
-**调用**：无  
+**文件**：`frontend/ifu/ifu.py`
+**调用**：无
 **变更**：添加 `prefix` 参数
 
 ---
 
 #### `build_ibuffer` — 指令缓冲区（叶子）
 
-**文件**：`frontend/ibuffer/ibuffer.py`  
-**调用**：无  
+**文件**：`frontend/ibuffer/ibuffer.py`
+**调用**：无
 **变更**：添加 `prefix` 参数
 
 ---
 
 #### `build_decode` — 译码器（叶子）
 
-**文件**：`frontend/decode/decode.py`  
-**调用**：无  
+**文件**：`frontend/decode/decode.py`
+**调用**：无
 **变更**：添加 `prefix` 参数
 
 ---
@@ -460,7 +460,7 @@ def build_bpu(m, domain, *, prefix="bpu", pc_width=39, ...):
 
 #### `build_backend` — 后端顶层
 
-**文件**：`backend/backend.py`  
+**文件**：`backend/backend.py`
 **调用**：`build_ctrlblock()`, `build_issue_queue()` ×N, `build_regfile()`, `build_alu()`, `build_bru()`, `build_mul()`, `build_div()`, `build_fpu()`
 
 ```python
@@ -542,7 +542,7 @@ def build_backend(m, domain, *, prefix="be",
 
 #### `build_ctrlblock` — 控制块
 
-**文件**：`backend/ctrlblock/ctrlblock.py`  
+**文件**：`backend/ctrlblock/ctrlblock.py`
 **调用**：`build_rename()`, `build_dispatch()`, `build_rob()`
 
 ```python
@@ -579,80 +579,80 @@ def build_ctrlblock(m, domain, *, prefix="ctrl",
 
 #### `build_rename` — 寄存器重命名（叶子）
 
-**文件**：`backend/rename/rename.py`  
-**调用**：无  
+**文件**：`backend/rename/rename.py`
+**调用**：无
 **变更**：添加 `prefix` 参数
 
 ---
 
 #### `build_dispatch` — 分派（叶子）
 
-**文件**：`backend/dispatch/dispatch.py`  
-**调用**：无  
+**文件**：`backend/dispatch/dispatch.py`
+**调用**：无
 **变更**：添加 `prefix` 参数
 
 ---
 
 #### `build_rob` — 重排序缓冲区（叶子）
 
-**文件**：`backend/rob/rob.py`  
-**调用**：无  
+**文件**：`backend/rob/rob.py`
+**调用**：无
 **变更**：添加 `prefix` 参数
 
 ---
 
 #### `build_issue_queue` — 发射队列（叶子，多实例）
 
-**文件**：`backend/issue/issue_queue.py`  
-**调用**：无  
+**文件**：`backend/issue/issue_queue.py`
+**调用**：无
 **变更**：添加 `prefix` 参数。通过不同 prefix（`be_iq_int`, `be_iq_fp`, `be_iq_mem`）区分多个实例
 
 ---
 
 #### `build_regfile` — 寄存器文件（叶子，多实例）
 
-**文件**：`backend/regfile/regfile.py`  
-**调用**：无  
+**文件**：`backend/regfile/regfile.py`
+**调用**：无
 **变更**：添加 `prefix` 参数。通过 `be_irf`（整数）/ `be_frf`（浮点）区分
 
 ---
 
 #### `build_alu` — ALU（叶子）
 
-**文件**：`backend/fu/alu.py`  
-**调用**：无  
+**文件**：`backend/fu/alu.py`
+**调用**：无
 **变更**：添加 `prefix` 参数
 
 ---
 
 #### `build_bru` — 分支执行单元（叶子）
 
-**文件**：`backend/fu/bru.py`  
-**调用**：无  
+**文件**：`backend/fu/bru.py`
+**调用**：无
 **变更**：添加 `prefix` 参数
 
 ---
 
 #### `build_mul` — 乘法器（叶子）
 
-**文件**：`backend/fu/mul.py`  
-**调用**：无  
+**文件**：`backend/fu/mul.py`
+**调用**：无
 **变更**：添加 `prefix` 参数
 
 ---
 
 #### `build_div` — 除法器（叶子）
 
-**文件**：`backend/fu/div.py`  
-**调用**：无  
+**文件**：`backend/fu/div.py`
+**调用**：无
 **变更**：添加 `prefix` 参数
 
 ---
 
 #### `build_fpu` — 浮点单元（叶子）
 
-**文件**：`backend/fu/fpu.py`  
-**调用**：无  
+**文件**：`backend/fu/fpu.py`
+**调用**：无
 **变更**：添加 `prefix` 参数
 
 ---
@@ -661,7 +661,7 @@ def build_ctrlblock(m, domain, *, prefix="ctrl",
 
 #### `build_memblock` — 访存顶层
 
-**文件**：`mem/memblock.py`  
+**文件**：`mem/memblock.py`
 **调用**：`build_load_unit()` ×N, `build_store_unit()` ×N, `build_load_queue()`, `build_store_queue()`, `build_sbuffer()`, `build_prefetcher()`, `build_dcache()`, `build_tlb()`
 
 ```python
@@ -726,64 +726,64 @@ def build_memblock(m, domain, *, prefix="mem",
 
 #### `build_load_unit` — 加载单元（叶子）
 
-**文件**：`mem/pipeline/load_unit.py`  
-**调用**：无  
+**文件**：`mem/pipeline/load_unit.py`
+**调用**：无
 **变更**：添加 `prefix` 参数
 
 ---
 
 #### `build_store_unit` — 存储单元（叶子）
 
-**文件**：`mem/pipeline/store_unit.py`  
-**调用**：无  
+**文件**：`mem/pipeline/store_unit.py`
+**调用**：无
 **变更**：添加 `prefix` 参数
 
 ---
 
 #### `build_load_queue` — 加载队列（叶子）
 
-**文件**：`mem/lsqueue/load_queue.py`  
-**调用**：无  
+**文件**：`mem/lsqueue/load_queue.py`
+**调用**：无
 **变更**：添加 `prefix` 参数
 
 ---
 
 #### `build_store_queue` — 存储队列（叶子）
 
-**文件**：`mem/lsqueue/store_queue.py`  
-**调用**：无  
+**文件**：`mem/lsqueue/store_queue.py`
+**调用**：无
 **变更**：添加 `prefix` 参数
 
 ---
 
 #### `build_sbuffer` — Store Buffer（叶子）
 
-**文件**：`mem/sbuffer/sbuffer.py`  
-**调用**：无  
+**文件**：`mem/sbuffer/sbuffer.py`
+**调用**：无
 **变更**：添加 `prefix` 参数
 
 ---
 
 #### `build_prefetcher` — 预取器（叶子）
 
-**文件**：`mem/prefetch/prefetcher.py`  
-**调用**：无  
+**文件**：`mem/prefetch/prefetcher.py`
+**调用**：无
 **变更**：添加 `prefix` 参数
 
 ---
 
 #### `build_dcache` — 数据缓存（叶子）
 
-**文件**：`cache/dcache/dcache.py`  
-**调用**：无  
+**文件**：`cache/dcache/dcache.py`
+**调用**：无
 **变更**：添加 `prefix` 参数
 
 ---
 
 #### `build_tlb` — TLB（叶子）
 
-**文件**：`cache/mmu/tlb.py`  
-**调用**：无  
+**文件**：`cache/mmu/tlb.py`
+**调用**：无
 **变更**：添加 `prefix` 参数
 
 ---
@@ -792,16 +792,16 @@ def build_memblock(m, domain, *, prefix="mem",
 
 #### `build_l2_top` — L2 顶层壳（叶子）
 
-**文件**：`l2/l2_top.py`  
-**调用**：无  
+**文件**：`l2/l2_top.py`
+**调用**：无
 **变更**：添加 `prefix` 参数
 
 ---
 
 #### `build_coupled_l2` — CoupledL2 实现（叶子）
 
-**文件**：`l2/coupled_l2.py`  
-**调用**：无  
+**文件**：`l2/coupled_l2.py`
+**调用**：无
 **变更**：添加 `prefix` 参数
 
 ---
@@ -810,9 +810,9 @@ def build_memblock(m, domain, *, prefix="mem",
 
 ### Phase 0：添加 prefix 支持（所有叶子模块）
 
-**目标**：为全部 40 个 `build_*` 函数添加 `prefix` 关键字参数，将所有 `m.input()`、`m.output()`、`domain.state()`、`domain.cycle()` 的名称改为 `f"{prefix}_..."` 格式。
+**目标**：为全部 40 个 `build_*` 函数添加 `prefix` 关键字参数，将所有 `m.input()`、`m.output()`、`domain.signal()`、`domain.cycle()` 的名称改为 `f"{prefix}_..."` 格式。
 
-**工作量**：每个文件约 30 分钟，共约 20 小时  
+**工作量**：每个文件约 30 分钟，共约 20 小时
 **验证**：所有 65 个 pytest 测试通过；每个模块可独立 `compile_cycle_aware` 编译
 
 | 批次 | 模块 | 文件数 |

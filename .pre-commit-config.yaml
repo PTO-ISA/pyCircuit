@@ -23,7 +23,7 @@ repos:
     rev: v0.18.1
     hooks:
       - id: markdownlint-cli2
-        exclude: ^(docs/gates/logs/|designs/outerCube/.*\.md$|docs/cycle_balance_improvement.*\.md$)
+        exclude: ^(docs/gates/logs/|designs/outerCube/.*\.md$|designs/XiangShan-pyc/docs/design_hierarchy_plan\.md$|docs/cycle_balance_improvement.*\.md$)
 
   - repo: local
     hooks:
@@ -32,4 +32,4 @@ repos:
         entry: python3 flows/tools/check_api_hygiene.py
         language: system
         files: ^(compiler/frontend/pycircuit/|designs/examples/|docs/|README\.md$|CONTRIBUTING\.md$)
-        exclude: ^docs/gates/logs/
+        exclude: ^(docs/gates/logs/|compiler/frontend/pycircuit/api_contract\.py$)

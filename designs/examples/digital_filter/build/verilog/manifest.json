@@ -1,8 +1,0 @@
-{
-  "cpp_modules": [],
-  "top": "digital_filter",
-  "verilog_modules": [
-    "pyc_primitives.v",
-    "digital_filter.v"
-  ]
-}

@@ -1,8 +1,0 @@
-{
-  "cpp_modules": [],
-  "top": "fpu",
-  "verilog_modules": [
-    "pyc_primitives.v",
-    "fpu.v"
-  ]
-}

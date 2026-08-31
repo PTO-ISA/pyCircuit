@@ -1,13 +1,13 @@
 cmake_minimum_required(VERSION 3.20)
-project(pycircuit VERSION 0.0.0 LANGUAGES C CXX)
+project(pycircuit VERSION 6.0.0 LANGUAGES C CXX)
 
 include(CMakePackageConfigHelpers)
 include(GNUInstallDirs)
 
 option(PYC_BUILD_MLIR_TOOLS "Build MLIR-based pyc tools" ON)
-option(PYC_BUILD_RUNTIME_LIB "Build pyc4 runtime library" ON)
+option(PYC_BUILD_RUNTIME_LIB "Build pyc6 runtime library" ON)
 option(PYC_RUNTIME_ENABLE_ZLIB_TRACE "Enable gzip trace output in runtime (optional)" OFF)
-option(PYC_RUNTIME_BUILD_SHARED "Build shared pyc4 runtime library" OFF)
+option(PYC_RUNTIME_BUILD_SHARED "Build shared pyc6 runtime library" OFF)
 option(PYC_INSTALL_TEMPLATES "Install runtime template libraries" ON)
 option(PYC_INSTALL_PYTHON "Install Python frontend sources (for binary packages)" ON)
 option(PYC_INSTALL_CMAKE_PACKAGE "Install pycircuit CMake package metadata" ON)
@@ -51,9 +51,9 @@ if(PYC_INSTALL_TEMPLATES)
   )
   install(DIRECTORY runtime/verilog DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}")
   if(PYC_BUILD_RUNTIME_LIB)
-    set(PYC_RUNTIME_INSTALL_TARGETS pyc4_runtime)
+    set(PYC_RUNTIME_INSTALL_TARGETS pyc6_runtime)
     if(PYC_RUNTIME_BUILD_SHARED)
-      list(APPEND PYC_RUNTIME_INSTALL_TARGETS pyc4_runtime_shared)
+      list(APPEND PYC_RUNTIME_INSTALL_TARGETS pyc6_runtime_shared)
     endif()
     install(TARGETS ${PYC_RUNTIME_INSTALL_TARGETS}
       EXPORT pycircuitTargets

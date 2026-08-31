@@ -1,7 +1,7 @@
 """Bit-mask pattern parsing for ASL-style ``IN {'1xx0'}`` matching (TODO T2).
 
 Pure, dependency-free helpers so both ``Wire`` (``hw.py``) and
-``CycleAwareSignal`` (``v5.py``) can expose ``matches`` / ``in_`` / ``not_in_``
+``CycleAwareSignal`` (``v6.py``) can expose ``matches`` / ``in_`` / ``not_in_``
 without import cycles. A pattern compiles to a ``(mask, value, width)`` triple;
 ``signal.matches(p)`` then expands to ``(signal & mask) == value``.
 
@@ -60,7 +60,9 @@ def parse_bitmask(pattern: str) -> tuple[int, int, int]:
         elif ch in _DONTCARE:
             bits.append((False, 0))
         else:
-            raise ValueError(f"invalid character {ch!r} in bit-mask pattern {pattern!r}")
+            raise ValueError(
+                f"invalid character {ch!r} in bit-mask pattern {pattern!r}"
+            )
     if in_paren:
         raise ValueError(f"unclosed '(' in bit-mask pattern {pattern!r}")
     width = len(bits)
@@ -101,7 +103,5 @@ def normalize_patterns(patterns: tuple) -> list[str]:
         raise ValueError("in_()/not_in_() requires at least one pattern")
     for p in items:
         if not isinstance(p, str):
-            raise TypeError(
-                f"bit-mask pattern must be a str, got {type(p).__name__}"
-            )
+            raise TypeError(f"bit-mask pattern must be a str, got {type(p).__name__}")
     return items

@@ -1,8 +1,0 @@
-{
-  "cpp_modules": [],
-  "top": "jit_pipeline_vec",
-  "verilog_modules": [
-    "pyc_primitives.v",
-    "jit_pipeline_vec.v"
-  ]
-}

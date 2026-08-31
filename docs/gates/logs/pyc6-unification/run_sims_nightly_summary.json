@@ -1,0 +1,7 @@
+{
+  "run_id": "pyc6-unification",
+  "script": "run_sims_nightly.sh",
+  "status": "pass",
+  "case_timeout_sec": 3600,
+  "retry_on_timeout": 1
+}

@@ -6,11 +6,12 @@ import inspect
 import textwrap
 import weakref
 from dataclasses import dataclass
-from typing import Any
 from pathlib import Path
+from typing import Any
 
-
-_INSTANCE_METHODS = frozenset({"instance", "instance_auto", "instance_handle", "new", "array"})
+_INSTANCE_METHODS = frozenset(
+    {"instance", "instance_auto", "instance_handle", "new", "array"}
+)
 _STATE_METHODS = frozenset(
     {
         "out",
@@ -76,7 +77,12 @@ class StructuralMetrics:
     def repeat_pressure(self) -> int:
         return sum(
             max(cluster.loop_extent_hint, 1)
-            * max(cluster.hardware_calls + (cluster.state_calls * 4) + (cluster.module_calls * 6), 1)
+            * max(
+                cluster.hardware_calls
+                + (cluster.state_calls * 4)
+                + (cluster.module_calls * 6),
+                1,
+            )
             * max(cluster.count, 1)
             for cluster in self.repeated_body_clusters
         )
@@ -91,14 +97,20 @@ class StructuralMetrics:
             "state_call_count": int(self.state_call_count),
             "estimated_inline_cost": int(self.estimated_inline_cost),
             "repeat_pressure": int(self.repeat_pressure()),
-            "repeated_body_clusters": [cluster.to_dict() for cluster in self.repeated_body_clusters],
+            "repeated_body_clusters": [
+                cluster.to_dict() for cluster in self.repeated_body_clusters
+            ],
         }
 
 
 _META_CACHE: weakref.WeakKeyDictionary[Any, FunctionMeta] = weakref.WeakKeyDictionary()
-_SIG_CACHE: weakref.WeakKeyDictionary[Any, inspect.Signature] = weakref.WeakKeyDictionary()
+_SIG_CACHE: weakref.WeakKeyDictionary[Any, inspect.Signature] = (
+    weakref.WeakKeyDictionary()
+)
 _ASSIGNED_NAMES_CACHE: dict[tuple[int, ...], frozenset[str]] = {}
-_STRUCT_METRICS_CACHE: weakref.WeakKeyDictionary[Any, StructuralMetrics] = weakref.WeakKeyDictionary()
+_STRUCT_METRICS_CACHE: weakref.WeakKeyDictionary[Any, StructuralMetrics] = (
+    weakref.WeakKeyDictionary()
+)
 
 
 def _nonempty_source_loc(source: str) -> int:
@@ -106,7 +118,11 @@ def _nonempty_source_loc(source: str) -> int:
 
 
 def _range_extent_hint(node: ast.AST) -> int:
-    if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Name) or node.func.id != "range":
+    if (
+        not isinstance(node, ast.Call)
+        or not isinstance(node.func, ast.Name)
+        or node.func.id != "range"
+    ):
         return 0
     args = node.args
     if not (1 <= len(args) <= 3):
@@ -170,7 +186,9 @@ def _loop_cluster_for(node: ast.For | ast.While) -> RepeatedBodyCluster:
         hardware_calls=hardware_calls,
         module_calls=module_calls,
         state_calls=state_calls,
-        loop_extent_hint=_range_extent_hint(node.iter) if isinstance(node, ast.For) else 0,
+        loop_extent_hint=(
+            _range_extent_hint(node.iter) if isinstance(node, ast.For) else 0
+        ),
     )
 
 
@@ -201,7 +219,7 @@ def get_structural_metrics(fn: Any) -> StructuralMetrics:
                 state_call_count += 1
             continue
 
-        if isinstance(node, (ast.For, ast.While)):
+        if isinstance(node, ast.For | ast.While):
             loop_count += 1
             cluster = _loop_cluster_for(node)
             prev = cluster_accum.get(cluster.fingerprint)
@@ -215,16 +233,26 @@ def get_structural_metrics(fn: Any) -> StructuralMetrics:
                     hardware_calls=max(prev.hardware_calls, cluster.hardware_calls),
                     module_calls=max(prev.module_calls, cluster.module_calls),
                     state_calls=max(prev.state_calls, cluster.state_calls),
-                    loop_extent_hint=max(prev.loop_extent_hint, cluster.loop_extent_hint),
+                    loop_extent_hint=max(
+                        prev.loop_extent_hint, cluster.loop_extent_hint
+                    ),
                 )
 
     repeated_body_clusters = tuple(
-        sorted(cluster_accum.values(), key=lambda c: (-c.count, -c.node_count, c.fingerprint))
+        sorted(
+            cluster_accum.values(),
+            key=lambda c: (-c.count, -c.node_count, c.fingerprint),
+        )
     )
     ast_node_count = sum(1 for _ in ast.walk(meta.fdef))
     repeated_pressure = sum(
         max(cluster.loop_extent_hint, 1)
-        * max(cluster.hardware_calls + (cluster.state_calls * 4) + (cluster.module_calls * 6), 1)
+        * max(
+            cluster.hardware_calls
+            + (cluster.state_calls * 4)
+            + (cluster.module_calls * 6),
+            1,
+        )
         * max(cluster.count, 1)
         for cluster in repeated_body_clusters
     )
@@ -287,7 +315,9 @@ def get_function_meta(fn: Any, *, fn_name: str | None = None) -> FunctionMeta:
     fdef = _find_function_def(tree, name)
 
     if isinstance(synthetic, str) and synthetic.strip():
-        source_file = getattr(fn, "__pycircuit_jit_source_file__", None) or "<pycircuit_v5>"
+        source_file = (
+            getattr(fn, "__pycircuit_jit_source_file__", None) or "<pycircuit_v6>"
+        )
     else:
         source_file = inspect.getsourcefile(fn) or inspect.getfile(fn)
     source_stem = None

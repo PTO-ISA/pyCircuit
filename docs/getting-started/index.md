@@ -1,6 +1,7 @@
 # Getting Started
 
-Welcome to the pyCircuit getting started guide! This section will help you set up your development environment and build your first hardware design.
+Use this section to install pyCircuit 6 and run the supported cycle-aware
+design flow.
 
 ## Prerequisites
 
@@ -9,15 +10,16 @@ Welcome to the pyCircuit getting started guide! This section will help you set u
 - CMake 3.20+
 - Ninja build system
 
-## What's Covered
+## What is covered
 
-1. [Installation](installation.md) - Set up your development environment
-2. [Quickstart](quickstart.md) - Build and run your first design
-3. [First Design](first-design.md) - Write a complete hardware design
+- [Installation](installation.md)
+- [Repository quickstart](../QUICKSTART.md)
+- [V6 tutorial](../v6_PyCircuit_Tutorial.md)
+- [V6 language specification](../v6_PyCircuit_Specification.md)
 
 ## Installation Options
 
-### Option 1: Full Development Setup
+### Full development setup
 
 ```bash
 # Install system dependencies (Ubuntu)
@@ -35,7 +37,7 @@ cd pyCircuit
 bash flows/scripts/pyc build
 ```
 
-### Option 2: Python Frontend Only
+### Python frontend only
 
 ```bash
 # Install Python package
@@ -45,7 +47,7 @@ python3 -m pip install -e .
 PYTHONPATH=compiler/frontend python -m pycircuit.cli emit your_design.py
 ```
 
-### Option 3: Published PyPI Wheel
+### Published package
 
 ```bash
 python3 -m pip install pycircuit-hisi
@@ -56,4 +58,5 @@ project that already exists on PyPI. The import path remains `pycircuit`.
 
 ## Next Steps
 
-Once you have pyCircuit installed, proceed to the [Quickstart](quickstart.md) guide to build and run your first design!
+After installation, follow the [V6 tutorial](../v6_PyCircuit_Tutorial.md) for a
+CycleAwareSignal design and testbench.

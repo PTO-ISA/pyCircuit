@@ -72,7 +72,7 @@ cmake -G Ninja -S . -B .pycircuit_out/toolchain/build \
   -DMLIR_DIR="$MLIR_DIR"
 
 # Build and stage the compiler toolchain
-ninja -C .pycircuit_out/toolchain/build pycc pyc-opt pyc4_runtime
+ninja -C .pycircuit_out/toolchain/build pycc pyc-opt pyc6_runtime
 cmake --install .pycircuit_out/toolchain/build --prefix "$PWD/.pycircuit_out/toolchain/install"
 
 # Verify the build
@@ -116,8 +116,8 @@ entrypoints remain `pycircuit`, `pycc`, and `pyc-opt`.
 # Install the frontend package in development mode
 python3 -m pip install -e .
 
-# Verify installation
-python3 -c "import pycircuit; print(pycircuit.__version__)"
+# Verify installation metadata
+python3 -c "from importlib.metadata import version; print(version('pycircuit-hisi'))"
 ```
 
 Editable install is frontend-only. It does not provide `pycc` on `PATH`; build

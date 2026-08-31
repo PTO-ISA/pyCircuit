@@ -96,7 +96,7 @@ class PycEnum(enum.Enum, metaclass=_PycEnumMeta):
         """
         w = enum_width(type(self))
         code = int(self.value)
-        from .v5 import CycleAwareDomain, cas  # lazy: avoid import cycle
+        from .v6 import CycleAwareDomain, cas  # lazy: avoid import cycle
 
         if isinstance(ctx, CycleAwareDomain):
             return cas(ctx, ctx.create_const(code, width=w))
@@ -109,7 +109,7 @@ class PycEnum(enum.Enum, metaclass=_PycEnumMeta):
         )
 
     @classmethod
-    def bind(cls, signal: Any) -> "EnumSignal":
+    def bind(cls, signal: Any) -> EnumSignal:
         """Tag an existing signal with this enum type (returns an EnumSignal)."""
         return EnumSignal(cls, signal)
 
@@ -158,12 +158,12 @@ def enumeration(name: str, *members: Any) -> type:
 
 def coerce_enum_cls(enum_cls: object) -> type:
     """Validate ``enum=`` and return the enum class."""
-    if isinstance(enum_cls, _PycEnumMeta) and len(getattr(enum_cls, "__members__", {})) > 0:
+    if (
+        isinstance(enum_cls, _PycEnumMeta)
+        and len(getattr(enum_cls, "__members__", {})) > 0
+    ):
         return enum_cls  # type: ignore[return-value]
-    raise TypeError(
-        "enum= must be a non-empty PycEnum subclass, got "
-        f"{enum_cls!r}"
-    )
+    raise TypeError("enum= must be a non-empty PycEnum subclass, got " f"{enum_cls!r}")
 
 
 class EnumSignal:
@@ -244,7 +244,7 @@ class EnumSignal:
             return other._signal
         return other
 
-    def __ilshift__(self, other: object) -> "EnumSignal":
+    def __ilshift__(self, other: object) -> EnumSignal:
         self._signal.__ilshift__(self._coerce_assign(other))  # type: ignore[attr-defined]
         return self
 

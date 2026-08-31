@@ -1,41 +1,47 @@
-# API Reference (pyc4.0)
+# API Reference
 
-The pyc4.0 frontend is centered around `Circuit` authoring (`@module`) and the
-testbench DSL (`@testbench`).
+The pyCircuit 6 product API is centered on CycleAwareSignal and lowers to the
+same `pyc` MLIR used by the structural module API.
 
-## Recommended imports
-
-```python
-from pycircuit import Circuit, Tb, compile, module, function, const, testbench
-from pycircuit import ct, spec, wiring, logic, lib
-```
-
-**V5 (cycle-aware) surface** (same package):
+## Cycle-aware design imports
 
 ```python
 from pycircuit import (
     CycleAwareCircuit,
     CycleAwareDomain,
     CycleAwareSignal,
+    CycleAwareTb,
+    ForwardSignal,
+    Tb,
+    cas,
     compile_cycle_aware,
     mux,
-    cas,
+    submodule_input,
+    testbench,
+    wire_of,
 )
 ```
 
-See `docs/PyCircuit_V5_Spec.md`.
+Use `CycleAwareSignal` for scalar design values. Use `domain.signal()` to infer
+state, `domain.next()` to advance logical time, and `wire_of()` only at explicit
+I/O boundaries.
 
-## Key decorators
+## Structural library imports
 
-- `@module`: hierarchy boundary (materializes instances; maps 1:1 to SimObjects)
-- `@function`: inline helper (inlined into the caller)
-- `@const`: compile-time helper (pure; canonicalizable)
-- `@testbench`: host-side test program lowered via a `.pyc` payload
+```python
+from pycircuit import Circuit, compile, const, function, module
+from pycircuit import ct, hierarchical, lib, logic, spec, wiring
+```
 
-## Core docs
+The structural surface is supported for explicit hierarchy, compile-time
+specialization, reusable library blocks, and static hardware generation. It
+does not define a competing timing model.
 
-- Frontend API: `docs/FRONTEND_API.md`
-- Testbench: `docs/TESTBENCH.md`
-- IR: `docs/IR_SPEC.md`
-- Primitives: `docs/PRIMITIVES.md`
-- Diagnostics: `docs/DIAGNOSTICS.md`
+## Reference documents
+
+- [V6 language specification](../v6_PyCircuit_Specification.md)
+- [Frontend API details](../FRONTEND_API.md)
+- [Testbench API](../TESTBENCH.md)
+- [Primitive reference](../PRIMITIVES.md)
+- [IR specification](../IR_SPEC.md)
+- [Diagnostics](../DIAGNOSTICS.md)

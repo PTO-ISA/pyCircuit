@@ -2,11 +2,16 @@ from __future__ import annotations
 
 import ast
 import re
+from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable
 
-from .diagnostics import Diagnostic, make_diagnostic, snippet_from_file, snippet_from_text
+from .diagnostics import (
+    Diagnostic,
+    make_diagnostic,
+    snippet_from_file,
+    snippet_from_text,
+)
 
 # Frontend/backend contract marker stamped into emitted `.pyc` MLIR modules.
 #
@@ -141,7 +146,7 @@ TEXT_RULES: tuple[TextRule, ...] = (
         hint="use operators/slicing/inference (`==`, `<`, `a if c else b`, slicing) instead",
     ),
     # PYC416 (ban on mux/cond) intentionally omitted:
-    # eager=True / V5 cycle-aware authoring still requires mux(); JIT prefers
+    # eager=True / V6 cycle-aware authoring still requires mux(); JIT prefers
     # `a if c else b`, but both styles coexist so hygiene must not forbid mux(.
     # TextRule(
     #     code="PYC416",
@@ -163,7 +168,9 @@ TEXT_RULES: tuple[TextRule, ...] = (
     ),
     TextRule(
         code="PYC420",
-        pattern=_rx(r"\b(?:meta\.)?declare_(?:inputs|outputs|state_regs|struct_inputs|struct_outputs|struct_state_regs)\s*\("),
+        pattern=_rx(
+            r"\b(?:meta\.)?declare_(?:inputs|outputs|state_regs|struct_inputs|struct_outputs|struct_state_regs)\s*\("
+        ),
         message="removed meta.connect declaration API",
         hint="use `inputs(...)`, `outputs(...)`, `state(...)`",
     ),
@@ -225,7 +232,9 @@ def scan_text(
     return out
 
 
-def scan_file(path: Path, *, stage: str = "api-contract", rules: Iterable[TextRule] = TEXT_RULES) -> list[Diagnostic]:
+def scan_file(
+    path: Path, *, stage: str = "api-contract", rules: Iterable[TextRule] = TEXT_RULES
+) -> list[Diagnostic]:
     try:
         text = path.read_text(encoding="utf-8")
     except UnicodeDecodeError:
@@ -243,7 +252,9 @@ def nearest_project_root(start: Path) -> Path:
     return cur
 
 
-def _resolve_relative_import(from_file: Path, module: str | None, level: int) -> Path | None:
+def _resolve_relative_import(
+    from_file: Path, module: str | None, level: int
+) -> Path | None:
     base = from_file.parent
     steps = max(0, int(level) - 1)
     for _ in range(steps):

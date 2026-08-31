@@ -47,7 +47,7 @@ SKIP_DIRS = {
     "build-top",
 }
 
-# PYC416 removed from TEXT_RULES (mux allowed for eager/V5); keep other relaxes.
+# PYC416 removed from TEXT_RULES (mux allowed for eager/V6); keep other relaxes.
 FRONTEND_RELAX_CODES = {"PYC415", "PYC417", "PYC418", "PYC423"}
 
 
@@ -84,7 +84,9 @@ def scan_file(path: Path, *, rules: tuple[TextRule, ...] = TEXT_RULES) -> list[s
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser(description="Fail if stale/forbidden pyCircuit frontend API tokens are present.")
+    ap = argparse.ArgumentParser(
+        description="Fail if stale/forbidden pyCircuit frontend API tokens are present."
+    )
     ap.add_argument(
         "--scan-root",
         default=None,
@@ -104,13 +106,19 @@ def main() -> int:
 
     violations = 0
     for target in args.targets:
-        tp = (scan_root / target).resolve() if not Path(target).is_absolute() else Path(target)
+        tp = (
+            (scan_root / target).resolve()
+            if not Path(target).is_absolute()
+            else Path(target)
+        )
         for f in iter_target_files(tp):
             rel = f.relative_to(scan_root) if f.is_relative_to(scan_root) else f
             rel_posix = rel.as_posix() if isinstance(rel, Path) else str(rel)
             rules = TEXT_RULES
             if rel_posix.startswith("compiler/frontend/pycircuit/"):
-                rules = tuple(r for r in TEXT_RULES if r.code not in FRONTEND_RELAX_CODES)
+                rules = tuple(
+                    r for r in TEXT_RULES if r.code not in FRONTEND_RELAX_CODES
+                )
             msgs = scan_file(f, rules=rules)
             for m in msgs:
                 print(m)

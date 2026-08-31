@@ -1,38 +1,16 @@
 # PyCircuit V6 语言规范（Specification）
 
-**版本：6.0**
+版本：6.0
 
 **适用代码基线**：`pyCircuit` 主仓库 `main` 分支（含类型化 `Data` 信号体系、`Wire[Vector]` 、Sidecar 测试调度、层次化 MLIR 发射）。
 
 > **包名**：Python 包为 **`pycircuit`**（全小写）。不要使用 `pyCircuit` 作为 import 目标。
 >
-> **与 V5 的关系**：V6 完整继承 V5 的周期感知（Cycle-Aware）信号模型与层次化组合规范，并将以下能力纳入正式语言规范：
-> 1. **类型化数据体系**（`Data` 层级：`Bits` / `Vector` / `Clock` / `Reset`，由 `Wire[DT]` 统一承载；逐 lane 运算、降维归约、广播）
-> 2. **Sidecar 测试调度**（测试激励与检查外置为二进制容器）
-> 3. **双编译路径**（`compile_cycle_aware` eager/JIT 与 `@module` JIT）
-> 4. **存储 / FIFO / CDC 原语**
+> **当前契约**：V6 以周期感知（Cycle-Aware）信号模型与层次化组合为正式语言设计，并统一类型化数据体系、Sidecar 测试调度、双编译路径以及存储 / FIFO / CDC 原语。Decision 0148 取代了早期移除全局周期感知模型的方向。
 
 ---
 
-## 目录
-
-1. [概述与设计哲学](#1-概述与设计哲学)
-2. [信号类型纪律（Non-Negotiable）](#2-信号类型纪律non-negotiable)
-3. [核心类型与数据类型体系](#3-核心类型与数据类型体系)
-4. [Forward Signal 与寄存器推导](#4-forward-signal-与寄存器推导)
-5. [全局函数](#5-全局函数)
-6. [周期管理与自动周期平衡](#6-周期管理与自动周期平衡)
-7. [模块签名与层次化组合](#7-模块签名与层次化组合)
-8. [存储 / FIFO / CDC 原语](#8-存储--fifo--cdc-原语)
-9. [仿真与测试（Tb / CycleAwareTb / Sidecar）](#9-仿真与测试tb--cycleawaretb--sidecar)
-10. [编译入口](#10-编译入口)
-11. [MLIR 映射参考](#11-mlir-映射参考)
-12. [Tier 分层标注（3D 堆叠扩展，Proposed）](#12-tier-分层标注3d-堆叠扩展proposed)
-13. [附录：API 参考表](#13-附录api-参考表)
-
----
-
-## 1. 概述与设计哲学
+## 概述与设计哲学
 
 PyCircuit 是嵌入在 Python 中的硬件描述语言（HDL）。设计者用普通 Python 函数描述电路，前端将其编译为 MLIR（`pyc` 方言），后端 `pycc` 再生成可综合 Verilog 与周期精确的 C++ 仿真模型。
 
@@ -67,7 +45,7 @@ from pycircuit import (
 
 ---
 
-## 2. 信号类型纪律（Non-Negotiable）
+## 信号类型纪律
 
 PyCircuit V6 强制单一信号类型。以下规则**不可违反**：
 
@@ -97,7 +75,7 @@ x = a.wire + b.wire             # 直接在 CAS 上运算
 
 ---
 
-## 3. 核心类型与数据类型体系
+## 核心类型与数据类型体系
 
 PyCircuit 的所有硬件对象都建立在两个相互正交的概念之上：
 
@@ -106,11 +84,11 @@ PyCircuit 的所有硬件对象都建立在两个相互正交的概念之上：
 
 前者决定运算的合法性与 MLIR 类型；后者承载重载运算符与周期感知包装。两者通过泛型参数 `DT`（绑定到 `Data`）关联：标量是 `Wire[Bits]`，向量是 `Wire[Vector[...]]`，它们共享同一套运算符接口。
 
-### 3.1 Data 类型层级
+### Data 类型层级
 
 `pycircuit.data` 定义了一个冻结的（`frozen` dataclass）类型层级，`str(Data)` 直接给出 MLIR 类型字面量：
 
-```
+```text
 Data (ABC)
 ├── Bits(bitwidth: int)          → iN        （标量位向量）
 ├── Vector(length: int, elem: DT) → vector<Nx...xiW>  （可嵌套，多维）
@@ -135,7 +113,7 @@ Data (ABC)
 
 > `Data` 实例可比较、可哈希（以 MLIR 字面量为键），并可用 `Data.from_str("vector<4xi8>")` 从 MLIR 文本反序列化。
 
-### 3.2 Wire[DT] —— 信号句柄
+### Wire[DT] —— 信号句柄
 
 `Wire` 是端口语义的统一句柄，用 `DT`（绑定 `Data`）泛型参数化承载上述类型：
 
@@ -178,7 +156,7 @@ low = data[0:8];  bit5 = data[5]            # 切片 / 索引（向量：取 lan
 
 > `Wire` **禁止**作为 Python `bool` 使用（`if sig:` 报错）——硬件条件必须用 `mux` / `select` 表达。
 
-### 3.3 向量专属方法（降维 / 广播 / 拼接）
+### 向量专属方法（降维 / 广播 / 拼接）
 
 只有 `Wire[Vector[...]]` 才有的方法（作用于 `Vector` 维度结构）：
 
@@ -196,7 +174,7 @@ low = data[0:8];  bit5 = data[5]            # 切片 / 索引（向量：取 lan
 
 `dim` 指定多维向量的归约维度（如 `reduce_or(dim=0)` 把 `vector<4x16xi1>` 归约为 `vector<16xi1>`）；省略 `dim` 表示跨所有维归约成标量。
 
-**典型模式：旁路匹配矩阵**
+#### 典型模式：旁路匹配矩阵
 
 ```python
 # 每个源操作数 tag 与所有写回 tag 广播比较，再按维度归约
@@ -207,7 +185,7 @@ any_hit = hit.reduce_or(dim=1)                            # 每 src 是否命中
 data0   = priority_mux(hit[0], wb_data_vec, default=zero_data)   # src 0 的旁路数据
 ```
 
-### 3.4 CycleAwareCircuit
+### CycleAwareCircuit
 
 顶层电路对象，`Circuit` 的子类。
 
@@ -224,7 +202,7 @@ m = CycleAwareCircuit("my_circuit")
 | `vec(*elems)` / `cat(parts)` | 从已有元素构造 `Wire[Vector]`（可变参数） / 位拼接 |
 | `emit_mlir()` | 生成 MLIR 文本。层次化编译时输出含所有子模块的多模块 `Design` |
 
-### 3.5 CycleAwareDomain
+### CycleAwareDomain
 
 管理一个时钟域的逻辑周期状态。
 
@@ -254,7 +232,7 @@ rtc_clk = m.create_domain("RTC_CLK", frequency_desc="1Hz")
 
 跨时钟域信号**必须**经显式 CDC 原语（`cdc_sync` / `async_fifo`）传递；后端 `pyc-check-clock-domains` 检查违例并报错。
 
-### 3.3 CycleAwareSignal
+### CycleAwareSignal
 
 唯一的标量信号类型。包含底层线网（内部管理）、`cycle`、`domain`。
 
@@ -283,7 +261,7 @@ low = data[0:8];  bit5 = data[5]            # 切片 / 索引
 
 > CAS **禁止**作为 Python `bool` 使用（`if sig:` 报错）——硬件条件必须用 `mux` / `select` 表达。
 
-### 3.4 ForwardSignal
+### ForwardSignal
 
 `domain.signal()` 的返回类型。读侧行为与 CAS 完全一致；额外提供写侧接口：
 
@@ -294,7 +272,7 @@ sig.assign(expr, when=cond)      # 条件赋值（寄存器使能）
 
 ---
 
-## 4. Forward Signal 与寄存器推导
+## Forward Signal 与寄存器推导
 
 **核心思想：先声明后赋值，编译器根据读写周期差推导寄存器。**
 
@@ -324,7 +302,7 @@ counter <<= count_next
 
 ---
 
-## 5. 全局函数
+## 全局函数
 
 ### cas()
 
@@ -368,7 +346,7 @@ pc = submodule_input(inputs, "pc", m, domain, prefix="fe", width=32)
 
 ---
 
-## 6. 周期管理与自动周期平衡
+## 周期管理与自动周期平衡
 
 ### next() / prev()
 
@@ -410,9 +388,9 @@ result = sig_a + sig_b
 
 ---
 
-## 7. 模块签名与层次化组合
+## 模块签名与层次化组合
 
-### 7.1 标准模块签名
+### 标准模块签名
 
 每个 V6 模块是一个普通 Python 函数：
 
@@ -430,14 +408,14 @@ def my_module(
 my_module.__pycircuit_name__ = "my_module"   # 注册 RTL 模块名
 ```
 
-### 7.2 双模运行
+### 双模运行
 
 | 模式 | `inputs` | 输入 | 输出 | 用途 |
 |------|----------|------|------|------|
 | 独立 | `None` | `m.input()` 创建端口 | `m.output()` 发射端口 | 单元测试 / 独立综合 |
 | 组合 | `{...}` | 从父模块 dict 读取 CAS | 仅返回 dict | 集成到父模块 |
 
-### 7.3 子模块调用六步法
+### 子模块调用六步法
 
 1. **声明自身输入**：`_in = submodule_input; a = _in(inputs, "a", m, domain, prefix=prefix, width=W)`
 2. **构造子模块 inputs dict**：key 必须与子模块 `submodule_input()` 的 key **完全一致**，值必须是 CAS
@@ -446,7 +424,7 @@ my_module.__pycircuit_name__ = "my_module"   # 注册 RTL 模块名
 5. **级联**：前一个子模块的输出直接作为下一个子模块的输入
 6. **顶层收集**：`if inputs is None: m.output(f"{prefix}_{k}", wire_of(v))`
 
-### 7.4 命名约定
+### 命名约定
 
 前缀层次级联，避免冲突：
 
@@ -456,7 +434,7 @@ my_module.__pycircuit_name__ = "my_module"   # 注册 RTL 模块名
 | 状态寄存器 | `{prefix}_{name}` | `fe_fetch_pc` |
 | 子模块前缀 | `{parent_prefix}_{child}` | `soc_cpu_fe` |
 
-### 7.5 常见错误
+### 常见错误
 
 | 错误 | 后果 | 纠正 |
 |------|------|------|
@@ -466,7 +444,7 @@ my_module.__pycircuit_name__ = "my_module"   # 注册 RTL 模块名
 | 子模块共用 prefix | 端口 / 寄存器名冲突 | 每个 call 独立 prefix |
 | 独立模式忘记 `m.output()` | 逻辑被 DCE 删光 | `if inputs is None:` 分支发射输出 |
 
-### 7.6 层次化 MLIR 发射
+### 层次化 MLIR 发射
 
 ```python
 # 扁平（默认）：单一 func.func
@@ -480,7 +458,7 @@ circ = compile_cycle_aware(top, eager=True, name="top", hierarchical=True)
 
 ---
 
-## 8. 存储 / FIFO / CDC 原语
+## 存储 / FIFO / CDC 原语
 
 `Circuit`（`CycleAwareCircuit` 继承）提供以下原语，直接映射到 `pyc` 方言 op，并由后端提供匹配的 Verilog 原语模块与 C++ 模型：
 
@@ -498,9 +476,9 @@ circ = compile_cycle_aware(top, eager=True, name="top", hierarchical=True)
 
 ---
 
-## 9. 仿真与测试（Tb / CycleAwareTb / Sidecar）
+## 仿真与测试
 
-### 11.1 Tb（周期编号模型）
+### Tb（周期编号模型）
 
 ```python
 from pycircuit import Tb, testbench
@@ -519,7 +497,7 @@ def tb(t: Tb) -> None:
 - `phase="post"`（默认）：提交后观测（XFER-OBS）
 - 其余 API：`print` / `print_every` / `sva_assert` / `random`
 
-### 11.2 CycleAwareTb（隐式周期推进）
+### CycleAwareTb（隐式周期推进）
 
 将 `at=cycle` 替换为与设计对称的 `tb.next()`：
 
@@ -554,7 +532,7 @@ def tb(t: Tb) -> None:
 | `finish(*, at=None)` / `print(...)` / `timeout(n)` | 结束 / 打印 / 超时 |
 | `clock` / `reset` / `sva_assert` / `random` | 透传 `Tb` |
 
-### 11.3 测试调度：inline vs sidecar
+### 测试调度：inline 与 sidecar
 
 测试事件（drive/expect）有两种下发方式（`pycircuit build --tb-schedule-mode {inline,sidecar}`）：
 
@@ -574,9 +552,9 @@ pycircuit sidecar verify  out/tb.sidecar        # 校验结构
 
 ---
 
-## 10. 编译入口
+## 编译入口
 
-### 12.1 compile_cycle_aware()（V6 主路径）
+### compile_cycle_aware()（V6 主路径）
 
 ```python
 def compile_cycle_aware(
@@ -597,9 +575,9 @@ mlir_text = circ.emit_mlir()
 
 - `eager=True`：直接执行 Python 函数体，即时构图。**推荐路径**。支持任意 Python 控制流（作为元编程展开）。
 - `eager=False`（JIT）：AST 解析 fn，不执行；支持把 Python `if`（i1 条件）编译为 `scf.if` → mux，`for`（静态可迭代）展开。有原型级限制。
-- `hierarchical=True`：见 §7.6。
+- `hierarchical=True`：见“层次化 MLIR 发射”。
 
-### 12.2 @module JIT 路径（V4 风格，仍受支持）
+### @module JIT 路径（结构化库接口）
 
 ```python
 from pycircuit import module, compile, Circuit
@@ -612,7 +590,7 @@ design = compile(build)
 
 `@module` 边界产生 `pyc.instance`；`@function` 内联；`@const` 为编译期纯元编程（禁发 IR）。`pycircuit emit` / `pycircuit build` CLI 走此入口。
 
-### 12.3 CLI
+### CLI
 
 ```bash
 # 生成 MLIR
@@ -631,7 +609,7 @@ pycircuit sidecar verify FILE
 
 ---
 
-## 11. MLIR 映射参考
+## MLIR 映射参考
 
 前端构图产物为 `pyc` 方言 MLIR（`.pyc` 文件）。主要映射：
 
@@ -684,7 +662,7 @@ pycircuit sidecar verify FILE
 
 ---
 
-## 12. Tier 分层标注（3D 堆叠扩展，Proposed）
+## Tier 分层标注（3D 堆叠扩展，Proposed）
 
 > **状态:Proposed**(尚未实现;完整提案与实现草图见 `docs/rfcs/tier_annotation.md`)。本节先行纳入规范,冻结语法形态与语义边界。
 
@@ -692,7 +670,7 @@ pycircuit sidecar verify FILE
 
 **术语纪律:分层维度一律用 tier(裸片层),不用 layer**(后者指金属布线层)。
 
-### 14.1 与 `.cycle` 的语义对照(理解本扩展的钥匙)
+### 与 `.cycle` 的语义对照
 
 | | `.cycle` | `.tier` |
 |---|---|---|
@@ -702,7 +680,7 @@ pycircuit sidecar verify FILE
 
 两套传播机制共存于同一次 elaboration,互不干扰。
 
-### 14.2 语法
+### 语法
 
 ```python
 a  = cas(domain, m.input("a", width=8), tier=0)          # 定义处显式
@@ -715,7 +693,7 @@ tmp = cas(domain, m.input("c", width=8))                  # 未指派:tier=None,
 outs = domain.call(alu, inputs={...}, tier=1)             # 模块级缺省 tier
 ```
 
-### 14.3 语义规则
+### 语义规则
 
 1. **传播:** 运算结果的 tier 由输入继承(全部/多数同层继承之;混层取主导方向),强度记为推断;
 2. **反馈信号:** `domain.signal()` 的 tier 在声明处确定,`<<=` 赋值不改变它;跨层反馈须用 `jump_tier` 显式表达;
@@ -723,13 +701,13 @@ outs = domain.call(alu, inputs={...}, tier=1)             # 模块级缺省 tier
 4. **`jump_tier(expr, to=k)`:** 返回新 CAS,`.tier == k`、`.cycle` 不变、零硬件效应;`to` 须为编译期常量;
 5. **强度三态与 EDA 契约:** free(未指派,分割器全权)/ hint(显式与推断,可改写但必须输出结构化 diff)/ locked(必须服从,不可满足报错)。分割器结果写入以稳定 ID 为键的 sidecar tier 表,不回写源码。
 
-### 14.4 IR 与发射
+### IR 与发射
 
 - MLIR 可选属性:`pyc.tier`(int)、`pyc.tier_strength`(`"hint"|"locked"`)、模块级 `pyc.tier_default`;无标注即无属性,**完全向后兼容**;
 - Verilog 三条冗余通道:`(* pyc_tier = 1 *)` 属性、层次化命名编码、sidecar tier 指派表(主通道);三者不一致构成流程告警;
 - C++ 仿真后端忽略 tier(功能无关),可选地在 DFX 元数据中携带以便按层聚合统计。
 
-## 13. 附录：API 参考表
+## API 参考表
 
 ### CycleAwareCircuit
 

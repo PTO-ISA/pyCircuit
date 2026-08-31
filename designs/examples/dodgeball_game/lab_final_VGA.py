@@ -1,11 +1,16 @@
-# -*- coding: utf-8 -*-
-"""VGA timing generator — pyCircuit v4.0 rewrite of lab_final_VGA.v.
+"""VGA timing generator — pyCircuit v6 rewrite of lab_final_VGA.v.
 
 Implements the same 640x480@60Hz timing logic with 800x524 total counts.
 """
+
 from __future__ import annotations
 
-from pycircuit import Circuit, module, compile_cycle_aware, CycleAwareCircuit, CycleAwareDomain, u
+from pycircuit import (
+    CycleAwareCircuit,
+    CycleAwareDomain,
+    compile_cycle_aware,
+    u,
+)
 
 # VGA timing constants (same as reference Verilog)
 HS_STA = 16

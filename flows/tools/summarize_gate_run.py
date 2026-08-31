@@ -20,7 +20,7 @@ def _repo_root() -> Path:
 KNOWN_SUMMARIES: tuple[tuple[str, str, str], ...] = (
     # (filename, gate name, level)
     ("summary.json", "run_examples", "G1"),
-    ("semantic_regressions_summary.json", "semantic_regressions_v40", "G1"),
+    ("semantic_regressions_summary.json", "semantic_regressions_v6", "G1"),
     ("run_sims_summary.json", "run_sims", "G2"),
     ("run_sims_nightly_summary.json", "run_sims_nightly", "G3"),
 )
@@ -49,7 +49,8 @@ def _status_from_json(path: Path) -> tuple[str, str]:
                     parts.append(f"{name}={info}")
             note = "; ".join(parts)
             if any(
-                isinstance(info, dict) and str(info.get("status", "")).startswith("fail")
+                isinstance(info, dict)
+                and str(info.get("status", "")).startswith("fail")
                 for info in results.values()
             ):
                 status = "fail"
@@ -100,7 +101,7 @@ def collect_rows(
     for stem, gate, level in (
         ("api_hygiene", "check_api_hygiene", "G0/G1"),
         ("decision_status", "check_decision_status", "G1"),
-        ("semantic_regressions", "semantic_regressions_v40", "G1"),
+        ("semantic_regressions", "semantic_regressions_v6", "G1"),
         ("linx_cpu_pyc_cpp", "linx_cpu_pyc_cpp", "G3"),
     ):
         if gate in seen:
@@ -121,7 +122,9 @@ def collect_rows(
     return rows
 
 
-def render_markdown(run_id: str, log_dir: Path, rows: list[tuple[str, str, str, str]]) -> str:
+def render_markdown(
+    run_id: str, log_dir: Path, rows: list[tuple[str, str, str, str]]
+) -> str:
     lines = [
         f"## Gate Matrix (run-id: `{run_id}`)",
         "",

@@ -1145,10 +1145,10 @@ class Circuit(Module):
     def create_domain(
         self, name: str, *, frequency_desc: str = "", reset_active_high: bool = False
     ) -> Any:
-        """V5 cycle-aware domain (next/prev/push/pop); see `pycircuit.v5.CycleAwareDomain`."""
+        """V6 cycle-aware domain (next/prev/push/pop); see `pycircuit.v6.CycleAwareDomain`."""
 
         _ = (frequency_desc, reset_active_high)
-        from .v5 import CycleAwareDomain
+        from .v6 import CycleAwareDomain
 
         return CycleAwareDomain(self, str(name))
 

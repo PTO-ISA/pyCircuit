@@ -1,6 +1,6 @@
 # Calculator Example
 
-16-digit calculator implemented with the pyc4.0 module flow and a C++ simulation wrapper.
+16-digit calculator implemented with the pyc6 module flow and a C++ simulation wrapper.
 
 ## Files
 
@@ -33,6 +33,6 @@ c++ -std=c++17 -O2 -shared -fPIC \
 Run emulator:
 
 ```bash
-cd /Users/zhoubot/pyCircuit
+# Run from the pyCircuit repository root.
 python3 designs/examples/calculator/emulate_calculator.py
 ```

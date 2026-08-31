@@ -1,6 +1,6 @@
 # PyCircuit V6 软件架构（Software Architecture）
 
-**版本：6.0**
+版本：6.0
 
 本文档描述 PyCircuit 工具链的内部架构：Python 前端、MLIR `pyc` 方言与 pass 流水线、Verilog / C++ 双发射器、C++ 仿真运行时、测试调度（inline / sidecar）以及构建系统。目标读者：工具链开发者、需要理解生成产物的设计者。
 
@@ -8,26 +8,9 @@
 
 ---
 
-## 目录
+## 总体数据流
 
-1. [总体数据流](#1-总体数据流)
-2. [仓库布局](#2-仓库布局)
-3. [Python 前端](#3-python-前端)
-4. [pyc MLIR 方言](#4-pyc-mlir-方言)
-5. [pycc 编译器与 Pass 流水线](#5-pycc-编译器与-pass-流水线)
-6. [Verilog 发射器（RTL 综合输出）](#6-verilog-发射器rtl-综合输出)
-7. [C++ 发射器与仿真模型](#7-c-发射器与仿真模型)
-8. [C++ 仿真运行时](#8-c-仿真运行时)
-9. [测试调度：inline 与 sidecar](#9-测试调度inline-与-sidecar)
-10. [pycircuit CLI 构建编排](#10-pycircuit-cli-构建编排)
-11. [构建系统与发布](#11-构建系统与发布)
-12. [质量门禁与可观测性](#12-质量门禁与可观测性)
-
----
-
-## 1. 总体数据流
-
-```
+```text
 ┌────────────────────────  Python 前端  ────────────────────────┐
 │  设计函数 (CycleAwareCircuit)                                 │
 │  测试台   (@testbench + Tb / CycleAwareTb)                    │
@@ -65,16 +48,16 @@
 
 ---
 
-## 2. 仓库布局
+## 仓库布局
 
-```
+```text
 pyCircuit/
 ├── compiler/
 │   ├── frontend/pycircuit/        # Python 前端包（pip 包 pycircuit）
 │   │   ├── dsl.py                 # 底层 MLIR 构图（Module/Signal）
 │   │   ├── hw.py                  # Circuit/Wire[DT]/Reg[DT] 硬件对象模型
 │   │   ├── data.py                # Data 类型层级（Bits/Vector/Clock/Reset）
-│   │   ├── v5.py                  # CycleAware* 周期感知层（V6 主路径）
+│   │   ├── v6.py                  # CycleAware* 周期感知层（V6 主路径）
 │   │   ├── design.py              # @module/@function/@const/@testbench
 │   │   ├── jit.py                 # AST JIT 追踪编译
 │   │   ├── connectors.py          # Connector/Bundle 跨模块连接
@@ -97,21 +80,21 @@ pyCircuit/
 
 ---
 
-## 3. Python 前端
+## Python 前端
 
 前端分三层，自底向上：
 
-### 3.1 dsl.py — MLIR 构图层
+### dsl.py — MLIR 构图层
 
 `Module` / `Signal`：直接拼装 `pyc` 方言 op 的文本发射器。提供全部标量与向量 op 的构造方法（`add`、`mux`、`v_create`、`v_or_reduce`…）以及 `emit_mlir()`。上层所有 API 最终都落到这里。
 
-### 3.2 hw.py — 硬件对象模型
+### hw.py — 硬件对象模型
 
 - **`Circuit`**（继承 `dsl.Module`）：端口（`input`/`output`/`const`，支持 `shape=` 向量端口）、可赋值 wire、寄存器（`out`/`reg_wire`/`backedge_reg`）、原语（`fifo`/`byte_mem`/`sync_mem`/`sync_mem_dp`/`async_fifo`/`cdc_sync`/`rv_queue`）、层次实例化（`instance`/`array`）、命名作用域（`scope`）。
 - **`Wire[DT]`**：统一信号句柄，泛型参数 `DT` 绑定 `Data` 类型层级（`Bits` / `Vector` / `Clock` / `Reset`，定义在 `data.py`）。标量是 `Wire[Bits]`、向量是 `Wire[Vector[...]]`，共享全部运算符（`+ - * & \| ^ ~ == != < >` 等），逐 lane 并行、标量自动广播。向量形态额外提供归约（`reduce_or`/`reduce_and`/`reduce_sum`）、`broadcast`、`priority_mux`、`cat`、`v[i]`。禁止作 Python bool。
 - **`Reg`**：q/next/en 三元组，`set(value, when=...)` 驱动。
 
-### 3.3 v5.py — 周期感知层（V6 设计主路径）
+### v6.py — 周期感知层（V6 设计主路径）
 
 在 `Circuit`/`Wire` 之上实现语言规范定义的模型：
 
@@ -122,18 +105,18 @@ pyCircuit/
   - **扁平模式**：push → 执行子函数（同一张图上内联构图）→ pop；
   - **层次化模式**：把子函数以 `inputs=None` 独立编译为 `func.func` 注册进 `Design`，父模块发射 `pyc.instance`，并用记录的输出 cycle 元数据把 instance 结果重新包装为 CAS 返回。
 
-### 3.4 两条编译入口
+### 两条编译入口
 
 | 入口 | 机制 | 适用 |
 |------|------|------|
 | `compile_cycle_aware(fn, eager=True, ...)` | **直接执行** fn，Python 控制流即元编程 | V6 主路径 |
-| `compile_cycle_aware(fn)`（JIT）/ `compile(fn)` + `@module` | **AST 解析**不执行；`if`(i1)→`scf.if`、静态 `for` 展开、`@module` 边界→`pyc.instance`、`@function` 内联、`@const` 编译期求值 | V4 风格 / CLI `emit`/`build` 路径 |
+| `compile_cycle_aware(fn)`（JIT）/ `compile(fn)` + `@module` | **AST 解析**不执行；`if`(i1)→`scf.if`、静态 `for` 展开、`@module` 边界→`pyc.instance`、`@function` 内联、`@const` 编译期求值 | V6 结构化库 / CLI `emit`/`build` 路径 |
 
 前端在输出的 MLIR 上打契约属性（`pyc.frontend.contract="pycircuit"`、`pyc.kind`、结构度量 attrs），后端第一个 pass 即校验。
 
 ---
 
-## 4. pyc MLIR 方言
+## pyc MLIR 方言
 
 类型：`iN`、`vector<D0x...xiN>`、`!pyc.clock`、`!pyc.reset`。
 
@@ -182,19 +165,19 @@ pyCircuit/
 |----|------|
 | `pyc.v_get` / `pyc.v_create` | 取 lane / 由元素建向量 |
 | `pyc.v_broadcast` / `pyc.v_broadcast_dim` | 标量广播 / 维度广播 |
-| `pyc.v_or_reduce / v_and_reduce / v_add_reduce` | 归约（attrs `dim`、`mode="chain"|"tree"`） |
+| `pyc.v_or_reduce / v_and_reduce / v_add_reduce` | 归约（attrs `dim`、`mode="chain"\|"tree"`） |
 
-**验证**：`pyc.assert`（仿真断言；Verilog 侧包在 `` `ifndef SYNTHESIS`` 中，C++ 侧 abort）。测试台本身**没有** op——走模块属性旁路（§9）。
+**验证**：`pyc.assert`（仿真断言；Verilog 侧包在 `` `ifndef SYNTHESIS`` 中，C++ 侧 abort）。测试台本身**没有** op——走模块属性旁路，见“测试调度”。
 
 ---
 
-## 5. pycc 编译器与 Pass 流水线
+## pycc 编译器与 Pass 流水线
 
 `pycc` 是唯一的后端驱动器：读入 `.pyc` MLIR → 固定流水线 → 按 `--emit` 发射。
 
-### 5.1 精确 pass 顺序（verilog / cpp 共用）
+### 精确 pass 顺序（Verilog / C++ 共用）
 
-```
+```text
  1. pyc-check-frontend-contract      前端契约与必填属性校验
  2. pyc-inline-functions             内联 @function 实例
  3. [--flatten] pyc-flatten-instances 全部实例内联
@@ -223,7 +206,7 @@ pyCircuit/
 
 fuse 条件：`--sim-mode=cpp-only` 且 `--cpp-only-preserve-ops` 时关闭（保留 op 粒度供细粒度调度）。
 
-### 5.2 主要 CLI 标志
+### 主要 CLI 标志
 
 | 标志 | 默认 | 说明 |
 |------|------|------|
@@ -245,22 +228,22 @@ fuse 条件：`--sim-mode=cpp-only` 且 `--cpp-only-preserve-ops` 时关闭（�
 
 环境变量：`PYC_PRIMITIVES_DIR`（原语库路径）、`PYC_TOOLCHAIN_ROOT`。
 
-### 5.3 向量处理策略
+### 向量处理策略
 
 - **默认（保留向量）**：向量 op 一路保留到发射器；`pyc-slp-pack-wires` 还会把前端逐 lane 展开产生的同构标量组（`v_create(and/or/xor/eq/not/mux ...)`）重新打包为向量 op。
 - **`--unroll-vector`**：两遍展开——先展开消费者（`v_get`/reduce/broadcast/向量 reg、wire、assign），再展开生产者（逐元素算术 → per-lane 标量 + `v_create`）。reduce 按 `mode` 生成链式或树形；向量 `pyc.reg` 拆为共享 clk/rst/en 的 per-lane 寄存器。
 
-### 5.4 逻辑深度模型
+### 逻辑深度模型
 
 `pyc-check-logic-depth` 的代价模型：常量 / alias / wire / `v_get` / `v_create` / `v_broadcast` = 0；一般 op = 1；向量归约 `mode="tree"` = ⌈log₂ lanes⌉，链式 = lanes−1；寄存器与存储为路径切点；跨 `pyc.instance` 用 `CombDepGraph` 缓存的深度摘要传播。超限直接编译失败，同时把 `pyc.logic_depth.max/wns/tns` 写回 IR 供统计输出。
 
-### 5.5 pyc-opt
+### pyc-opt
 
 调试工具：标准 `MlirOptMain`，注册全部 pyc pass + 上游 pass，无固定流水线，用于单 pass 复现与 FileCheck 测试。
 
 ---
 
-## 6. Verilog 发射器（RTL 综合输出）
+## Verilog 发射器（RTL 综合输出）
 
 文件：`compiler/mlir/lib/Emit/VerilogEmitter.cpp`。
 
@@ -305,7 +288,7 @@ endmodule
 
 ---
 
-## 7. C++ 发射器与仿真模型
+## C++ 发射器与仿真模型
 
 文件：`compiler/mlir/lib/Emit/CppEmitter.cpp`；生成代码依赖 `runtime/cpp/` 头文件库。
 
@@ -328,11 +311,11 @@ endmodule
 
 ### 规模控制
 
-大模块（davinci 级）单文件会失控，发射器按 `--cpp-split=module` + 行数/字节/AST 节点阈值把 eval/tick/comb 分片为多个 `.cpp`，并输出 `cpp_compile_manifest.json`（源列表、include 路径、`libpyc4_runtime.a`、确定性哈希）供上层并行编译。
+大模块（davinci 级）单文件会失控，发射器按 `--cpp-split=module` + 行数/字节/AST 节点阈值把 eval/tick/comb 分片为多个 `.cpp`，并输出 `cpp_compile_manifest.json`（源列表、include 路径、`libpyc6_runtime.a`、确定性哈希）供上层并行编译。
 
 ---
 
-## 8. C++ 仿真运行时
+## C++ 仿真运行时
 
 头文件库 `runtime/cpp/`（无独立编译单元，除 `pyc_runtime.cpp`）：
 
@@ -345,24 +328,24 @@ endmodule
 | `pyc_trace_bin.hpp` | `PycTraceBinWriter`：comb/tick/commit 三相二进制采样 |
 | `pyc_linxtrace.hpp` / `pyc_konata.hpp` | 处理器流水线可视化 trace |
 | `pyc_probe_registry.hpp` | `ProbeRegistry`：以 xxHash64(规范路径) 为 id 的信号探针表；`findByPath/findByGlob/findByKind`；长实例路径压缩 |
-| `pyc_tb_sidecar.hpp` / `pyc_tb_sidecar_runtime.hpp` | Sidecar 容器加载与 runner 调度结构（§9） |
+| `pyc_tb_sidecar.hpp` / `pyc_tb_sidecar_runtime.hpp` | Sidecar 容器加载与 runner 调度结构，见“测试调度” |
 | `pyc_sim.hpp` / `pyc_sync_mem.hpp` / `pyc_clock.hpp` / `pyc_ops.hpp` | 原语模型与公共设施 |
 
 运行时环境变量：`PYC_SIM_STATS`（打印实例/缓存命中统计）、`PYC_SIM_STATS_PATH`、`PYC_SIM_FAST`。
 
 ---
 
-## 9. 测试调度：inline 与 sidecar
+## 测试调度：inline 与 sidecar
 
 `@testbench` 程序（drive/expect/finish/print 事件序列）有两条下发路径：
 
-### 9.1 inline（默认）
+### inline（默认）
 
 前端把 TB 程序序列化为模块属性 `pyc.tb.payload`（JSON，内含 `cpp_text` 与 `sv_text`）。`pycc` 检测到该属性后**跳过全部硬件 pass**，把文本直通写出——C++ 测试主程序 / SV 测试台由前端生成、后端透传。事件被编入 C++ 源码。
 
 **问题**：数万周期的激励让生成的 C++ 巨大，编译时间失控，且改一个激励值就要全量重编。
 
-### 9.2 sidecar
+### sidecar
 
 `pycircuit build --tb-schedule-mode=sidecar` 时：
 
@@ -385,13 +368,13 @@ endmodule
 
 ---
 
-## 10. pycircuit CLI 构建编排
+## pycircuit CLI 构建编排
 
 `pycircuit`（入口 `pycircuit.cli:main`）三个子命令：
 
 ### `pycircuit emit`
 
-```
+```bash
 pycircuit emit DESIGN.py -o OUT.pyc [--param k=v]... [--module-graph-out ...]
 ```
 
@@ -399,7 +382,7 @@ pycircuit emit DESIGN.py -o OUT.pyc [--param k=v]... [--module-graph-out ...]
 
 ### `pycircuit build`
 
-```
+```bash
 pycircuit build TB.py --out-dir DIR
     [--param k=v]... [--jobs N] [--profile {dev,release}]
     [--target {cpp,verilator,both}] [--logic-depth N]
@@ -409,7 +392,7 @@ pycircuit build TB.py --out-dir DIR
 
 端到端编排：
 
-```
+```text
 前端 emit（可能多个 .pyc）
   → 并行调用 pycc（--emit=cpp，dev profile 映射到 --build-profile=dev-fast）
   → 读 cpp_compile_manifest.json → CMake/Ninja 编译仿真器 → 运行
@@ -419,11 +402,11 @@ pycircuit build TB.py --out-dir DIR
 
 ### `pycircuit sidecar`
 
-`inspect` / `verify`，见 §9.2。
+`inspect` / `verify`，见“sidecar”。
 
 ---
 
-## 11. 构建系统与发布
+## 构建系统与发布
 
 ### 工具链构建（pycc）
 
@@ -433,7 +416,7 @@ bash flows/scripts/pyc build
 
 # 或手动
 make configure      # CMake+Ninja；需 LLVM_DIR/MLIR_DIR 或 LLVM_CONFIG
-make tools          # 构建 pycc + libpyc4_runtime（可选 pyc-opt）
+make tools          # 构建 pycc + libpyc6_runtime（可选 pyc-opt）
 make install        # 装入 .pycircuit_out/toolchain/install
 ```
 
@@ -458,7 +441,7 @@ PYTHONPATH=compiler/frontend pytest tests/test_sidecar_sections.py
 
 ---
 
-## 12. 质量门禁与可观测性
+## 质量门禁与可观测性
 
 ### 编译期门禁（全部为硬错误）
 
@@ -478,7 +461,7 @@ PYTHONPATH=compiler/frontend pytest tests/test_sidecar_sections.py
 - `pyc-collect-compile-stats` 写 `pyc.stats.reg_count/reg_bits/mem_count/mem_bits`；
 - pycc 结束打印并写 JSON（单文件 `<out>.stats.json`；out-dir `compile_stats.json`）：
 
-  ```
+  ```text
   stats: regs=… (… bits), mems=… (… bits), max_depth=…/LIMIT, WNS=…, TNS=…, fuse_comb=on|off
   ```
 

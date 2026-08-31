@@ -1,8 +1,8 @@
 # PyCircuit implementation method (10-step workflow)
 
-This document describes a **repeatable workflow** for implementing a hardware block in the pyCircuit repository using **PyCircuit V5 cycle-aware** style and/or the **pyc4.0 `@module` / `Circuit`** style. It is written for human engineers and for autonomous agents.
-
-**Typo note:** "Pypto V5" in informal requests means **PyCircuit V5** (cycle-aware APIs in `compiler/frontend/pycircuit/v5.py`).
+This document describes a repeatable workflow for implementing a hardware block
+with the pyCircuit 6 CycleAwareSignal API and the structural `@module` / `Circuit`
+library surface. It is written for human engineers and autonomous agents.
 
 ---
 
@@ -12,19 +12,19 @@ All normative and tutorial material for authoring lives under the repository **`
 
 | Topic | Primary documents |
 |--------|-------------------|
-| **V5 编程规范**（API + 教程 + 子模块调用 + 层次化编译 + 仿真） | `docs/PyCircuit_V5_Spec.md` (Version 5.0) |
-| **pyc4.0 `@module` / `Circuit` frontend** | `docs/FRONTEND_API.md`, `docs/tutorial/unified-signal-model.md` |
-| **Occurrence cycles on named wires** (`ClockHandle`, `clk.next()`, `m.assign`) | `docs/tutorial/cycle-aware-computing.md`, `docs/cycle_balance_improvement.md` |
+| **V6 编程规范**（API + 教程 + 子模块调用 + 层次化编译 + 仿真） | `docs/v6_PyCircuit_Specification.md` |
+| **V6 `@module` / `Circuit` structural frontend** | `docs/FRONTEND_API.md` |
+| **Occurrence cycles and automatic balancing** | `docs/v6_PyCircuit_Specification.md`, `docs/cycle_balance_improvement.md` |
 | **Testbenches** (low-level `Tb` API) | `docs/TESTBENCH.md` |
 | **IR / lowering expectations** | `docs/IR_SPEC.md`, `docs/PIPELINE.md` |
 | **Primitives vs generated code** | `docs/PRIMITIVES.md` |
-| **Compiler upgrade rules (agents)** | `docs/updatePLAN.md`, `docs/rfcs/pyc4.0-decisions.md`, root `AGENTS.md` |
+| **Compiler evolution rules** | `docs/pyc6-plan.md`, `docs/rfcs/pyc6-decisions.md`, root `AGENTS.md` |
 | **Diagnostics** | `docs/DIAGNOSTICS.md` |
 | **API index** | `docs/api/index.md`, `docs/index.md` |
 
-### V5 Signal Type Discipline (Non-Negotiable)
+### V6 signal type discipline
 
-These rules apply to all V5 code written using this workflow:
+These rules apply to all pyCircuit 6 code written using this workflow:
 
 | Rule | Detail |
 |------|--------|
@@ -34,9 +34,9 @@ These rules apply to all V5 code written using this workflow:
 | **`wire_of()` at boundaries only** | The sole way to extract raw `Wire` for `m.output()` calls. |
 | **Output dicts store CAS** | Sub-module return dicts hold `CycleAwareSignal` (preserving cycle provenance). |
 
-### V5 Module Signature Convention
+### V6 module signature convention
 
-Every V5 module follows this standard pattern:
+Every V6 cycle-aware module follows this standard pattern:
 
 ```python
 def my_module(
@@ -55,9 +55,10 @@ my_module.__pycircuit_name__ = "my_module"
 - `inputs={...}` → composed: reads parent's signals, returns outputs, no port emission
 - All sub-modules called via `domain.call(fn, inputs={...}, **config, prefix=...)` with push/pop cycle isolation
 
-### V5 Sub-Module Calling Workflow (Summary)
+### V6 submodule calling workflow
 
-The full 6-step workflow is documented in `docs/PyCircuit_V5_Spec.md` §"子模块调用规范（六步法）". The key steps:
+The full workflow is documented in `docs/v6_PyCircuit_Specification.md` under
+"模块签名与层次化组合". The key steps:
 
 1. **Declare inputs** with `submodule_input(inputs, key, m, domain, prefix=prefix, width=W)` — dual-mode: reads from parent dict or creates `m.input()` port
 2. **Build `inputs` dict** in the parent — keys must exactly match child's `submodule_input()` key arguments; values must be `CycleAwareSignal`
@@ -76,10 +77,10 @@ Illustrations of **grammar and structure** are under **`designs/`** and subfolde
 
 | Area | Examples (non-exhaustive) |
 |------|---------------------------|
-| **V5 hierarchical composition** (full-scale, 27 modules, `domain.call()` + `submodule_input()` + `wire_of()`) | **[DavinciOO / `davinci/`](https://github.com/hengliao1972/DavinciOO/tree/main/davinci)** — Davinci OoO processor (`davinci_top.py`, `frontend/fetch/fetch.py`, `backend/scalar_exu/alu.py`, etc.; tests under `davinci/tests/`). *Not shipped in this repo;* optional local symlink `designs/outerCube` → DavinciOO **clone root** is gitignored. |
-| **V5 / cycle-aware style** (single-module) | `designs/BypassUnit/`, `designs/RegisterFile/`, `designs/IssueQueue/`, many `designs/examples/*/` |
+| **V6 hierarchical composition** (full-scale, `domain.call()` + `submodule_input()` + `wire_of()`) | Repository designs and examples using the pyCircuit 6 surface |
+| **V6 cycle-aware style** (single-module) | `designs/BypassUnit/`, `designs/RegisterFile/`, `designs/IssueQueue/`, and `designs/examples/*/` |
 | **`@module` + JIT** | `designs/examples/counter/`, `designs/examples/jit_control_flow/`, `designs/examples/hier_modules/` |
-| **V5 testbench** (`CycleAwareTb`) | DavinciOO: `davinci/tests/unit/test_alu.py`, `davinci/tests/unit/test_free_list.py` (same optional `designs/outerCube` → clone-root symlink) |
+| **V6 testbench** (`CycleAwareTb`) | `tests/unit/test_pyc6_surface.py`, `tests/unit/test_v6_state_signal.py`, and repository examples |
 | **Testbench layout** (low-level `Tb`) | `designs/examples/*/tb_*.py`, `designs/BypassUnit/tb_bypass_unit.py`, `designs/RegisterFile/tb_regfile.py` |
 | **Structured IO** | Designs using `spec` / bundles per `docs/SPEC_STRUCTURES.md` |
 
@@ -89,24 +90,29 @@ Mirror the **directory layout** (design file + `tb_*.py` + optional `README.md`)
 
 ## Step 1 — Read programming style documents and examples
 
-**Goal:** Internalize how pyCircuit expresses hardware: static elaboration, allowed Python control flow, registers, memories, and (for V5) **logical occurrence cycles** vs (for pyc4.0 named wires) **ClockHandle** occurrence indices.
+**Goal:** Internalize how pyCircuit 6 expresses hardware: static elaboration,
+allowed Python control flow, registers, memories, logical occurrence cycles, and
+the structural API's explicit occurrence metadata.
 
 **Actions:**
 
-1. Read **`docs/PyCircuit_V5_Spec.md`** end-to-end if the block will use **`CycleAwareCircuit` / `CycleAwareDomain`**. Pay special attention to:
+1. Read **`docs/v6_PyCircuit_Specification.md`** end-to-end when the block uses
+   **`CycleAwareCircuit` / `CycleAwareDomain`**. Pay special attention to:
    - **Signal Type Discipline**: all signals are `CycleAwareSignal`; `domain.state()` and `.wire` are removed.
    - **Module Signature Convention**: `(m, domain, *, inputs=None, prefix=...) -> dict` pattern.
    - **Sub-Module Calling Convention** (6-step workflow): `domain.call()`, `submodule_input()`, `wire_of()`, key-matching rules, prefix cascade.
    - **Hierarchical MLIR Emission**: `compile_cycle_aware(..., hierarchical=True)`.
    - **Simulation**: `CycleAwareTb` for cycle-aware testbenches.
-3. Read **`docs/FRONTEND_API.md`** and **`docs/TESTBENCH.md`** for `@module`, `Circuit`, and simulation contracts.
-4. Open **2–3 concrete examples** under `designs/` that match your intended style:
-   - **V5 hierarchical**: [DavinciOO `davinci/`](https://github.com/hengliao1972/DavinciOO/tree/main/davinci) (full-scale: `davinci_top.py` → `fetch.py` → `alu.py`, with unit/integration tests).
-   - **V5 single-module**: `designs/BypassUnit/`, `designs/RegisterFile/`.
+2. Read **`docs/FRONTEND_API.md`** and **`docs/TESTBENCH.md`** for `@module`, `Circuit`, and simulation contracts.
+3. Open **2–3 concrete examples** under `designs/` that match your intended style:
+   - **V6 hierarchical**: supported repository designs using `domain.call()`.
+   - **V6 single-module**: `designs/BypassUnit/`, `designs/RegisterFile/`.
    - **`@module`**: `designs/examples/counter/`, `designs/examples/hier_modules/`.
-5. Note **non-negotiables** from `AGENTS.md`: gate-first IR changes; no backend-only semantic fixes.
+4. Note **non-negotiables** from `AGENTS.md`: gate-first IR changes; no backend-only semantic fixes.
 
-**Deliverable:** Short notes (in design `README.md` or `ASSUMPTIONS.md`): which authoring mode (V5 vs `@module` vs mixed), and which example design is the **style reference**.
+**Deliverable:** Short notes in the design documentation: identify whether the
+design uses the V6 cycle-aware API, the structural library API, or both, and
+name the supported example used as the style reference.
 
 ---
 
@@ -210,11 +216,15 @@ For complex blocks, mirror this repository's **10-step** narrative in **block-lo
 **Actions:**
 
 1. **Port list:** For every top-level **input** and **output**, record: name, direction, width (or parameterized width), clock domain, synchronous/asynchronous, active level, protocol phase (valid/ready, etc.).
-   - For V5 modules: ports are declared via `submodule_input()` (inputs) and `m.output(f"{prefix}_{name}", wire_of(sig))` (outputs). Document the `prefix` and `key` for each port.
+   - For V6 cycle-aware modules: ports are declared via `submodule_input()`
+     (inputs) and `m.output(f"{prefix}_{name}", wire_of(sig))` (outputs).
+     Document the `prefix` and `key` for each port.
 2. **Buses:** Group related pins into **logical buses** (e.g. CHI request channel, response channel). Document packing if the RTL bundles vectors.
 3. **Top-level functionality:** One concise paragraph describing the block's role.
 4. **Feature list:** Every **function** or **behavior** described in the spec becomes a **numbered feature** (F-001, F-002, …) with: description, triggering condition, expected observable effect on ports, dependency on other features. For blocks using **converted** specs, follow **From converted Markdown to feature list, step docs, and test plan** §2: include **digest index**, **full heading checklist**, and **Spec trace** paths into `converted/*.md`.
-5. **Sub-module decomposition (V5 hierarchical blocks):** Identify which logical functions become separate sub-module functions, their `inputs` dict keys, and their output dict keys. Document the intended `domain.call()` chain.
+5. **Submodule decomposition:** Identify which logical functions become
+   separate module functions, their `inputs` and output keys, and the intended
+   `domain.call()` chain.
 
 **Deliverable:** `PORT_LIST.md` + `FEATURE_LIST.md` (or sections in `README.md`). These are the **single checklist** for Steps 7–10.
 
@@ -242,14 +252,15 @@ For complex blocks, mirror this repository's **10-step** narrative in **block-lo
 **Actions:**
 
 1. Choose **where each major step** lands in the occurrence timeline: e.g. "Cycle 0: accept & decode; Cycle 1: lookup; Cycle 2: response mux."
-2. In **each subroutine** that becomes a V5 sub-module:
+2. In each subroutine that becomes a V6 cycle-aware submodule:
    - Define the function signature: `def my_sub(m, domain, *, inputs=None, prefix=..., config_params...) -> dict`.
    - Document the **entry cycle** relative to the caller.
    - Parent calls it via **`domain.call(my_sub, inputs={...}, prefix=f"{prefix}_abbrev")`** — this wraps `push()`/`pop()` automatically to isolate the child's `domain.next()` from the parent.
 3. For **parent/child signal relations** (cycle provenance):
    - Input signals in the `inputs` dict retain their original cycle from the parent.
    - Output signals in the returned dict retain the cycle from inside the child function.
-   - V5 automatic cycle balancing handles arithmetic between signals of different cycles.
+   - V6 automatic cycle balancing handles arithmetic between signals from
+     different logical cycles.
 4. Registers: use **`domain.signal(width=W, reset_value=0, name=...)`** + `<<=` for feedback loops.
    - Read cycle (at declaration) vs write cycle (at `<<=`) determines hardware: gap of 1 → DFF, gap of 0 → combinational alias.
    - For conditional updates: `sig.assign(expr, when=cond)`.
@@ -262,11 +273,11 @@ For complex blocks, mirror this repository's **10-step** narrative in **block-lo
 
 ## Step 6 — Full cycle-aware algorithm in detailed pseudocode
 
-**Goal:** One document that an implementer can translate **line-by-line** into V5 module functions.
+**Goal:** One document that an implementer can translate into V6 module functions.
 
 **Actions:**
 
-1. Use the V5 notation consistently:
+1. Use V6 notation consistently:
    - `// Cycle k` comments for cycle boundaries
    - `domain.next()` for cycle advances
    - `sig = domain.signal(width=W, reset_value=0, name="...")` for registers
@@ -311,8 +322,11 @@ For complex blocks, mirror this repository's **10-step** narrative in **block-lo
 1. For **each port** (or grouped bus): at least one directed test that exercises **0→1**, **toggle**, **hold**, or **protocol sequence** as appropriate.
 2. For **each feature** F-xxx: at least one scenario that **fails** if the feature is removed (regression-sensitive).
 3. Classify tests: **reset**, **smoke**, **directed**, **stress**, **corner** (overflow, credit exhaust, simultaneous channels).
-4. Map each test to V5 testbench code:
-   - **Preferred: `CycleAwareTb`** — wraps `Tb` with implicit cycle tracking via `tb.next()`, mirroring `domain.next()` in design code. Use `tb.drive(port, value)` and `tb.expect(port, value)` at the current cycle. See `docs/PyCircuit_V5_Spec.md` §"仿真与测试（CycleAwareTb）".
+4. Map each test to V6 testbench code:
+   - **Preferred: `CycleAwareTb`** — wraps `Tb` with implicit cycle tracking via
+     `tb.next()`, mirroring `domain.next()` in design code. Use
+     `tb.drive(port, value)` and `tb.expect(port, value)` at the current cycle.
+     See the V6 specification's testbench section.
    - **Alternative: raw `Tb`** — explicit `at=cycle` parameter on every drive/expect. See `docs/TESTBENCH.md`.
 
 5. **Coverage rule (Markdown-first blocks):** each **F-xxx** in `FEATURE_LIST.md` (including ranges filled after the **heading checklist**) must have a planned **directed** or **system** test before tape-out, unless waived in `TRACEABILITY.md`; stimulus/expected values may cite **`converted/*.md`** tables.
@@ -334,7 +348,7 @@ For complex blocks, mirror this repository's **10-step** narrative in **block-lo
 
 1. **Increment 0:** Top-level **empty** (or pass-through) design with **all ports declared** via `submodule_input()` and tied to safe defaults; compiles via `compile_cycle_aware()` and emits MLIR; TB applies reset and idle.
 2. For each feature F-xxx in dependency order:
-   - Implement **only** that feature (or minimal supporting glue) as a V5 sub-module function.
+   - Implement only that feature (or minimal supporting glue) as a V6 submodule function.
    - Add or extend **tests** from `TEST_PLAN.md` for that feature (using `CycleAwareTb`).
    - Run **full regression** for all previous tests (must stay green).
    - Verify both **flat** (`compile_cycle_aware(..., eager=True)`) and optionally **hierarchical** (`hierarchical=True`) compilation.
@@ -364,7 +378,8 @@ For complex blocks, mirror this repository's **10-step** narrative in **block-lo
 
 - For any block, block-specific specs live under `designs/<Block>/docs/`. Start Step 2 there after Step 1, **after** any **DOCX/PDF/XLSX → Markdown** conversion for files you will analyze in depth.
 - Existing completed blocks under `designs/` can serve as worked examples of the **From converted Markdown to feature list, step docs, and test plan** pipeline (including **heading checklist**, **`workflow_substeps.md`**, **`cycle_budget.md`**, and **`run_<block>_verification.py`**).
-- The **Davinci project** ([DavinciOO `davinci/`](https://github.com/hengliao1972/DavinciOO/tree/main/davinci)) is the canonical reference for the V5 hierarchical composition workflow, demonstrating all patterns from Steps 1–10 at scale (27 modules, 1.5M+ chars MLIR, unit + integration tests).
+- Supported repository examples and V6 tests are the canonical references for
+  the hierarchical composition workflow.
 - For new blocks, substitute the appropriate `designs/<Block>/docs/` (or project doc root) and reuse the same artifact names where practical.
 
 ## Relationship to repository policy
@@ -373,4 +388,4 @@ For complex blocks, mirror this repository's **10-step** narrative in **block-lo
 
 ---
 
-**Copyright (C) 2024–2026 PyCircuit Contributors**
+Copyright (C) 2024–2026 PyCircuit Contributors.

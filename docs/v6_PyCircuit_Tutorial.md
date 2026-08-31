@@ -1,38 +1,22 @@
 # PyCircuit V6 编程教程（Tutorial）
 
-**版本：6.0**
+版本：6.0
 
 本教程通过一系列由浅入深的完整示例，教你用 PyCircuit V6 设计数字电路：从一个计数器开始，逐步覆盖流水线、层次化组合、向量（SIMD）、测试台编写与完整的构建/仿真流程。
 
 **配套文档**：
+
 - 语言定义 → `docs/v6_PyCircuit_Specification.md`
 - 工具链架构 → `docs/v6_PyCircuit_Software_Architecture.md`
 
 ---
 
-## 目录
-
-0. [环境准备](#第-0-章环境准备)
-1. [第一个设计：计数器](#第-1-章第一个设计计数器)
-2. [心智模型：周期感知信号](#第-2-章心智模型周期感知信号)
-3. [组合逻辑与多路选择](#第-3-章组合逻辑与多路选择)
-4. [流水线：让编译器帮你插寄存器](#第-4-章流水线让编译器帮你插寄存器)
-5. [编写测试台](#第-5-章编写测试台)
-6. [标准模块模板与双模运行](#第-6-章标准模块模板与双模运行)
-7. [层次化组合：搭一个小 CPU](#第-7-章层次化组合搭一个小-cpu)
-8. [数据类型体系（`Data` / `Wire[DT]`）与向量 SIMD](#第-8-章数据类型体系data--wiredt-与向量-simd)
-9. [存储与 FIFO](#第-9-章存储与-fifo)
-10. [从 Python 到 Verilog：完整构建流程](#第-10-章从-python-到-verilog完整构建流程)
-11. [大型项目组织与调试](#第-11-章大型项目组织与调试)
-
----
-
-## 第 0 章：环境准备
+## 环境准备
 
 ### 安装
 
 ```bash
-git clone https://github.com/hengliao1972/pyCircuit.git
+git clone https://github.com/PTO-ISA/pyCircuit.git
 cd pyCircuit
 
 # 安装 Python 前端（editable）
@@ -58,7 +42,7 @@ python3 -m pycircuit.cli build designs/examples/counter/tb_counter.py \
 
 ---
 
-## 第 1 章：第一个设计：计数器
+## 第一个设计：计数器
 
 新建 `counter.py`：
 
@@ -108,11 +92,11 @@ python3 counter.py
 
 ---
 
-## 第 2 章：心智模型：周期感知信号
+## 心智模型：周期感知信号
 
 写 PyCircuit 时，你在脑中维护一条**时间线**：
 
-```
+```text
 cycle 0          cycle 1          cycle 2
   │                │                │
   输入到达      寄存器更新       流水下一级
@@ -143,7 +127,7 @@ r = a + b       # r 在 cycle 2；a 被自动延迟 2 拍（插 2 级 DFF）
 
 ---
 
-## 第 3 章：组合逻辑与多路选择
+## 组合逻辑与多路选择
 
 做一个简单 ALU（纯组合，无状态）：
 
@@ -187,7 +171,7 @@ mini_alu.__pycircuit_name__ = "mini_alu"
 
 ---
 
-## 第 4 章：流水线：让编译器帮你插寄存器
+## 流水线：让编译器插入寄存器
 
 设计一个两级流水乘加器：`out = (a * b) + c`，乘法一拍、加法一拍。
 
@@ -217,16 +201,16 @@ def mac2(m: CycleAwareCircuit, domain: CycleAwareDomain, width: int = 16) -> Non
 
 ---
 
-## 第 5 章：编写测试台
+## 编写测试台
 
-给第 1 章的计数器写测试。新建 `tb_counter.py`：
+给前文的计数器写测试。新建 `tb_counter.py`：
 
 ```python
 from pycircuit import (
     CycleAwareCircuit, CycleAwareDomain, CycleAwareTb, Tb,
     cas, compile_cycle_aware, testbench, wire_of,
 )
-from counter import build   # 第 1 章的设计
+from counter import build   # 前文的计数器设计
 
 @testbench
 def tb(t: Tb) -> None:
@@ -264,7 +248,7 @@ def tb(t: Tb) -> None:
 - `phase="post"`（默认）：时钟沿提交**之后**观测——看到的是更新后的寄存器值。
 - `phase="pre"`：沿计算后、提交前观测——用于检查「即将写入」的值。
 
-运行仿真（详见第 11 章）：
+运行仿真（详见“从 Python 到 Verilog”）：
 
 ```bash
 # 生成并编译 C++ 仿真器
@@ -278,7 +262,7 @@ python3 -m pycircuit.cli build tb_counter.py --out-dir /tmp/tb_counter --target 
 
 ---
 
-## 第 6 章：标准模块模板与双模运行
+## 标准模块模板与双模运行
 
 真实项目中的模块要既能**独立编译测试**，又能**被父模块组合**。标准模板：
 
@@ -341,7 +325,7 @@ if __name__ == "__main__":
 
 ---
 
-## 第 7 章：层次化组合：搭一个小 CPU
+## 层次化组合：搭一个小 CPU
 
 用 `domain.call()` 把模块组合成层次。三层结构：`soc_top` → `cpu_core` → `frontend` + `backend`。
 
@@ -434,11 +418,11 @@ mlir = circ.emit_mlir()
 
 ---
 
-## 第 8 章：数据类型体系（`Data` / `Wire[DT]`）与向量 SIMD
+## 数据类型体系与向量 SIMD
 
 前面所有例子用的都是标量 `Wire`（如 `m.input("x", width=8)`）。本章系统介绍 PyCircuit 的整个**数据类型体系**：`Data` 类型层级有哪几种、`Wire[DT]` 如何用泛型参数 `DT` 统一承载它们，以及其中「向量」这一支如何用于 SIMD 设计。
 
-### 8.1 类型体系总览
+### 类型体系总览
 
 PyCircuit 的硬件对象建立在两个正交概念上：
 
@@ -447,7 +431,7 @@ PyCircuit 的硬件对象建立在两个正交概念上：
 
 `Data` 是一个冻结的类型层级，`str(Data)` 直接给出 MLIR 类型字面量：
 
-```
+```text
 Data (ABC)
 ├── Bits(N)              → iN              标量位向量（算术/逻辑运算的操作数）
 ├── Vector(len, elem)    → vector<Nx...xiW> 向量；elem 可再为 Vector → 多维
@@ -477,7 +461,7 @@ eqv = v == v         # Wire[Vector[Bits[1]]]（逐 lane 比较）
 
 本章剩余部分聚焦于 `Vector` 这一支——它是类型体系里最有表达力、最能替代手写 `for` 循环的部分。
 
-### 8.2 向量端口与逐 lane 运算
+### 向量端口与逐 lane 运算
 
 ```python
 def simd_add(m: CycleAwareCircuit, domain: CycleAwareDomain,
@@ -491,7 +475,7 @@ def simd_add(m: CycleAwareCircuit, domain: CycleAwareDomain,
 
 生成的 MLIR 中这是**一条** `pyc.add : vector<8xi32>`；Verilog 端口是 packed bus（`[lanes*width-1:0]`），C++ 仿真器用嵌套 `pyc::cpp::Vec` 模板并可走 SIMD 加速。
 
-### 8.3 归约与广播：旁路匹配的经典范式
+### 归约与广播：旁路匹配
 
 场景：`n_src` 个源操作数 tag，要和 `n_wb` 个写回端口的 tag 全比较，命中的取数据。
 
@@ -527,7 +511,7 @@ def bypass(m, domain, *, n_src=2, n_wb=4, tag_w=6, data_w=64):
 - `reduce_or(dim=, mode=)` / `reduce_and` / `reduce_sum(dim=, mode=)`：沿指定维度归约。`mode="tree"` 把逻辑深度从 `lanes-1` 降到 `⌈log₂ lanes⌉`——宽归约务必用 tree；
 - `priority_mux(sels, vals, *, mode=, default=None)`：以 `sels`（i1 向量）为选择器在 `vals` 中选 lane，**最小索引优先**；`default` 为所有 selector 都为 0 时的回退值，省略时回退到 `vals` 的最后一个元素。可作为模块级函数 `priority_mux(sels, vals, ...)` 或 CAS 实例方法 `sels.priority_mux(vals, ...)` 使用。
 
-### 8.4 计数类归约
+### 计数类归约
 
 ```python
 pop = valid_vec.reduce_sum(mode="tree")   # popcount：数有多少 lane 有效
@@ -542,13 +526,13 @@ pop  = wide.reduce_sum(mode="tree")
 
 `dim` 参数与其他归约一致：`dim=None`（默认）全维归约成标量；`dim=int` 只归约指定维，返回低一维的 Vector。
 
-### 8.5 何时不用向量
+### 何时不用向量
 
 lane 之间逻辑**不同构**时（比如每个表项有独立的复杂状态机），老实用 Python `for` 循环生成标量逻辑即可——那是元编程的领域，`Wire[Vector]` 是同构 SIMD 的领域。两者可以混用。
 
 ---
 
-## 第 9 章：存储与 FIFO
+## 存储、FIFO 与 CDC
 
 寄存器堆 / RAM / 队列不要用 `domain.signal()` 数组硬堆（会展开成海量 mux），用内建原语：
 
@@ -575,9 +559,9 @@ sync_bit = m.cdc_sync(dst_clk, dst_rst, src_bit, stages=2)
 
 ---
 
-## 第 10 章：从 Python 到 Verilog：完整构建流程
+## 从 Python 到 Verilog
 
-以下命令均在仓库根目录执行，假设已按第 0 章设置好环境：
+以下命令均在仓库根目录执行，假设已按“环境准备”设置好环境：
 
 ```bash
 cd pyCircuit
@@ -585,7 +569,7 @@ export PYTHONPATH=$PWD/compiler/frontend:$PYTHONPATH
 export PYC_TOOLCHAIN_ROOT=$PWD/.pycircuit_out/toolchain/install   # pycc 所在工具链
 ```
 
-### 11.1 一键路径（推荐日常使用）
+### 一键路径
 
 `pycircuit build` 把「前端 emit → pycc → CMake 编译 C++ 仿真器 → Verilator」串成一条流水线。以仓库自带的计数器为例：
 
@@ -609,7 +593,7 @@ python3 -m pycircuit.cli build designs/examples/counter/tb_counter.py \
 
 **产物目录布局**（`--out-dir /tmp/pyc_counter`）：
 
-```
+```text
 /tmp/pyc_counter/
 ├── device/verilog/           ← ★ RTL 输出（综合用）
 │   ├── counter.v             #    每个模块一个 .v
@@ -637,9 +621,9 @@ cd /tmp/pyc_counter && ./verilator_build/Vtb_counter
 
 测试中的 `expect` 失败会报错并以非零码退出；全部通过则正常结束。VCD 波形按 `--trace-config` / 测试台配置生成在运行目录。
 
-### 11.2 分步路径（理解每个环节）
+### 分步路径
 
-#### 第一步：Python → MLIR（生成 `.mlir` / `.pyc` 文件）
+#### Python → MLIR
 
 在设计脚本里放标准 `__main__`：
 
@@ -657,7 +641,7 @@ python3 my_top.py                  # 扁平 MLIR（子模块全部内联）
 python3 my_top.py --hierarchical   # 层次化 MLIR（domain.call 边界保留为 func.func）
 ```
 
-以第 1 章的计数器为例，生成的 MLIR 长这样（节选）：
+以前文的计数器为例，生成的 MLIR 长这样（节选）：
 
 ```mlir
 func.func @counter(%clk: !pyc.clock, %rst: !pyc.reset, %enable: i1) -> i8 {
@@ -670,7 +654,7 @@ func.func @counter(%clk: !pyc.clock, %rst: !pyc.reset, %enable: i1) -> i8 {
 }
 ```
 
-#### 第二步：MLIR → Verilog（RTL，供综合）
+#### MLIR → Verilog
 
 ```bash
 PYCC=$PYC_TOOLCHAIN_ROOT/bin/pycc
@@ -691,7 +675,7 @@ $PYCC my_top.mlir --emit=verilog --target=fpga -o build_out/my_top_fpga.v
 
 编译成功时 stderr 会打印资源统计并写出 `.stats.json`：
 
-```
+```text
 stats: regs=42 (336 bits), mems=0 (0 bits), max_depth=7/256, WNS=249, TNS=0, fuse_comb=on
 ```
 
@@ -701,7 +685,7 @@ stats: regs=42 (336 bits), mems=0 (0 bits), max_depth=7/256, WNS=249, TNS=0, fus
 cd build_out/verilog_hier && yosys -s yosys_synth.ys
 ```
 
-#### 第三步：MLIR → C++ 仿真模型
+#### MLIR → C++ 仿真模型
 
 ```bash
 $PYCC my_top.mlir --emit=cpp --out-dir=build_out/cpp
@@ -709,10 +693,10 @@ $PYCC my_top.mlir --emit=cpp --out-dir=build_out/cpp
 ```
 
 生成的模型是 `pyc::gen::my_top` 结构体，配合 `runtime/cpp/pyc_tb.hpp` 的
-`Testbench<Dut>` 即可手写 C++ 测试；日常更推荐让 `pycircuit build`（11.1）自动生成
+`Testbench<Dut>` 即可手写 C++ 测试；日常更推荐让 `pycircuit build` 自动生成
 测试主程序并完成 CMake 编译。
 
-#### 第四步：Verilog → Verilator 仿真（RTL 级验证）
+#### Verilog → Verilator 仿真
 
 `pycircuit build --target verilator` 自动完成；等价的手动命令：
 
@@ -730,7 +714,7 @@ verilator --binary -Wall -Wno-fatal --timing --trace \
 同一份测试台同时驱动 C++ 模型（`tb/*.cpp`）与 RTL（`tb/*.sv`），
 `--target both` 下两边结果可直接比对——这是工具链自带的等价性验证手段。
 
-### 11.3 编译器会替你把关什么
+### 编译期门禁
 
 `pycc` 流水线内置多道检查，失败即编译错误：
 
@@ -743,23 +727,23 @@ verilator --binary -Wall -Wno-fatal --timing --trace \
 
 编译完成还会输出资源统计：
 
-```
+```text
 stats: regs=1234 (45678 bits), mems=4 (131072 bits), max_depth=87/256, WNS=169, TNS=...
 ```
 
 把 `max_depth` 和 regs/mems 纳入日常观察，是在综合之前控制 QoR 的第一道手段。
 
-### 11.4 波形
+### 波形
 
 C++ 仿真器支持 VCD：测试运行目录下生成 `.vcd`，用 GTKWave / Surfer 打开；大型设计可用 `setVcdWindow` 限制 dump 区间。
 
 ---
 
-## 第 11 章：大型项目组织与调试
+## 大型项目组织与调试
 
-### 12.1 目录布局
+### 目录布局
 
-```
+```text
 designs/my_soc/
 ├── common/parameters.py       # 全局参数（位宽、深度、端口数）
 ├── frontend/
@@ -776,13 +760,13 @@ designs/my_soc/
 
 原则：
 
-- 每个模块函数满足第 6 章模板 → 每个模块可独立编译、独立测试；
+- 每个模块函数满足“标准模块模板与双模运行”的约定 → 每个模块可独立编译、独立测试；
 - 集成自底向上：先单测 `alu`，再单测 `scalar_rs`，最后 `soc_top` 集成测试；
 - 参数集中管理，模块通过 keyword-only 配置参数接收。
 
 （大规模范例：Davinci 乱序处理器核，27 个模块层次化组合，见 [DavinciOO 仓库](https://github.com/hengliao1972/DavinciOO)。）
 
-### 12.2 调试清单
+### 调试清单
 
 | 症状 | 常见原因 | 手段 |
 |------|----------|------|
@@ -804,7 +788,7 @@ designs/my_soc/
 ## 下一步
 
 - 完整语言定义（`Data` 类型体系 / `Wire[DT]` / MLIR 映射的权威语义）：`docs/v6_PyCircuit_Specification.md`
-- 3D 堆叠分层标注（`tier=` / `jump_tier`，Proposed）：`docs/v6_PyCircuit_Specification.md` §12 与 `docs/rfcs/tier_annotation.md`
+- 3D 堆叠分层标注（`tier=` / `jump_tier`，Proposed）：`docs/v6_PyCircuit_Specification.md` 的“Tier 分层标注”与 `docs/rfcs/tier_annotation.md`
 - 工具链内部（pyc 方言、pass 流水线、双发射器、sidecar 运行时）：`docs/v6_PyCircuit_Software_Architecture.md`
 - 仓库内可运行示例：`designs/examples/`（counter、calculator、fifo_loopback…）、`designs/BypassUnit`（向量实战）、`designs/IssueQueue`（向量 + 复杂状态）
 

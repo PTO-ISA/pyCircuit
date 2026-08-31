@@ -22,14 +22,13 @@
 | 位运算 | `&`、`\|`、`^`、`~` | 逐元素 Vector |  |
 | 比较 | `==`、`!=`、`<`、`>`、`<=`、`>=` | 叶宽为 1 的 Vector | |
 | 显式比较 | `.ult()`、`.ugt()`、`.ule()`、`.uge()`、`.slt()` | 叶宽为 1 的 Vector |  |
-| 条件选择 | `a if cond else b`、`mux(cond, a, b)` | 逐元素或广播后的 Vector | 
+| 条件选择 | `a if cond else b`、`mux(cond, a, b)` | 逐元素或广播后的 Vector |  |
 | 优先级选择 | `m.priority_mux(sels, vals, ...)` | `vals[i]` 类型 | `sels` 是一维 `Vector<Nxi1>`；最小索引优先 |
 | 左移 | `a << n`、`.shl(amount=...)` | 逐元素 Vector | 移位量可为常量或 `Wire` |
 | 右移 | `a >> n`、`.lshr()`、`.ashr()` | 逐元素 Vector | 移位量可为常量或 `Wire`；`>>` 按 signed 属性选择右移类型 |
 | 位域 | `.slice(lsb=, width=)` | 逐元素 Vector |  |
 | 类型转换 | `trunc()`、`zext()`、`sext()` | 形状不变的 Vector | 逐元素截断/零扩展/符号扩展 |
 | 归约 | `.reduce_or()`、`.reduce_and()`、`.reduce_sum()`  | 标量或低一维 Vector | `dim=None` 为全维归约；默认 `dim=None`；`mode="chain"/"tree"` 影响组合结构|
-
 
 ## Vec MLIR 扩展函数一览
 
@@ -42,7 +41,6 @@
 | `pyc.v_or_reduce` | `x.reduce_or(dim=..., mode=...)` | 按维或全维按位 OR 归约 |
 | `pyc.v_and_reduce` | `x.reduce_and(dim=..., mode=...)` | 按维或全维按位 AND 归约 |
 | `pyc.v_add_reduce` | `x.reduce_sum(dim=..., mode=...)` | 按维或全维加法归约；保持叶宽，溢出回绕 |
-
 
 ## 创建与访问
 
@@ -166,9 +164,9 @@ selected = m.priority_mux(sels, vals, mode="chain", default=fallback)
 - `default=None` 时，所有 selector 为 0 的回退值是 `vals` 的最后一个元素。
 - `mode` 只能是 `"chain"`（默认）或 `"tree"`；两者逻辑等价，只影响组合结构。
 
-### `CycleAwareSignal.priority_mux`（V5 cycle-aware）
+### `CycleAwareSignal.priority_mux`（pyCircuit 6）
 
-V5 cycle-aware 前端的实例方法 `sels.priority_mux(vals, *, mode, default)` 在内部对齐
+pyCircuit 6 的实例方法 `sels.priority_mux(vals, *, mode, default)` 在内部对齐
 `sels` / `vals` / `default` 三者的 cycle 标签后委托给上面的 `Circuit.priority_mux`。
 **`vals` 与 `default` 接受任何 cycle-aware 信号族**（`CycleAwareSignal` / `StateSignal` /
 `ForwardSignal`）或裸 `Wire`：
@@ -181,7 +179,7 @@ out  = sels.priority_mux(vals, default=zero)             # 直接传 ForwardSign
 
 调用方**无需**手写 `vals.as_cas()` 把 `ForwardSignal` 解包成 `CycleAwareSignal`——实例方法
 内部通过 `CycleAwareSignal.as_cas` 统一 unwrap。非 cycle-aware 的标量（`Reg` / `int` /
-`LiteralValue`）仍按 `docs/v5_drop_to_cas_or_none_plan.md` 的方向抛 `TypeError`。跨域
+`LiteralValue`）按 V6 类型纪律抛 `TypeError`。跨域
 （unwrap 后 `domain is not self.domain`）抛 `ValueError`，与既有 CAS 路径一致。
 
 ## 移位、位域与类型转换
@@ -276,4 +274,3 @@ tree_total = a.reduce_sum(mode="tree")
 - `priority_mux` 的优先级、显式/隐式默认值；
 - 一维/二维以及全维/指定维归约；
 - C++ 模拟与 Verilog/Yosys smoke test。
-

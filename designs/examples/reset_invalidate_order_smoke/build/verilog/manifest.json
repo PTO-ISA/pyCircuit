@@ -1,8 +1,0 @@
-{
-  "cpp_modules": [],
-  "top": "reset_invalidate_order_smoke",
-  "verilog_modules": [
-    "pyc_primitives.v",
-    "reset_invalidate_order_smoke.v"
-  ]
-}

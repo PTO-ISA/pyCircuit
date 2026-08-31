@@ -1,8 +1,0 @@
-{
-  "cpp_modules": [],
-  "top": "cache_params",
-  "verilog_modules": [
-    "pyc_primitives.v",
-    "cache_params.v"
-  ]
-}

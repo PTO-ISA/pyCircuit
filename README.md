@@ -1,4 +1,4 @@
-# pyCircuit (pyc4.0 / pyc0.40)
+# pyCircuit 6
 
 <p align="center">
   <img src="https://img.shields.io/badge/License-MIT-blue.svg" alt="License">
@@ -6,77 +6,100 @@
   <img src="https://img.shields.io/badge/MLIR-22-orange.svg" alt="MLIR">
   <a href="https://github.com/PTO-ISA/pyCircuit/actions"><img src="https://github.com/PTO-ISA/pyCircuit/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <a href="https://github.com/PTO-ISA/pyCircuit/actions/workflows/release.yml"><img src="https://github.com/PTO-ISA/pyCircuit/actions/workflows/release.yml/badge.svg" alt="Release"></a>
-  <a href="https://github.com/PTO-ISA/pyCircuit/releases"><img src="https://img.shields.io/github/v/release/PTO-ISA/pyCircuit?display_name=tag" alt="Latest Release"></a>
-  <img src="https://img.shields.io/badge/PyPI-pycircuit--hisi-blue.svg" alt="PyPI Package">
+  <a href="https://github.com/PTO-ISA/pyCircuit/releases"><img src="https://img.shields.io/github/v/release/PTO-ISA/pyCircuit?display_name=tag" alt="Latest release"></a>
 </p>
 
-pyCircuit is a Python-based hardware construction DSL that compiles Python
-modules to an MLIR hardware dialect and emits:
+pyCircuit is a Python hardware construction language. It lowers cycle-aware
+designs to a verified MLIR dialect, then emits synthesizable Verilog and a C++
+cycle model from the same IR.
 
-The canonical repository and single source of truth is
-[`PTO-ISA/pyCircuit`](https://github.com/PTO-ISA/pyCircuit). The
-`LinxISA/pyCircuit` repository is maintained as its downstream fork for Linx
-integration work.
+[`PTO-ISA/pyCircuit`](https://github.com/PTO-ISA/pyCircuit) is the canonical
+repository, release authority, and only source of truth.
+[`LinxISA/pyCircuit`](https://github.com/LinxISA/pyCircuit) is its downstream
+fork for Linx integration work.
 
-- **C++ functional simulation** (module instances become SimObjects with `tick()` / `transfer()`)
-- **Verilog** (RTL integration + Verilator)
+## Why pyCircuit 6
 
-pyc4.0 is a hard-break release focused on **ultra-large designs**, scalable DFX,
-and strict IR legality gates.
+- **Cycle-aware signals:** `CycleAwareSignal` carries logical-cycle provenance.
+- **Automatic pipeline balancing:** mixed-cycle expressions lower to explicit
+  delay registers.
+- **Inferred state:** `domain.signal()` plus `<<=` or `.assign()` derives the
+  required register structure.
+- **One semantic IR:** C++ and Verilog consume the same verified `pyc` MLIR.
+- **Preserved hierarchy:** module instances remain visible to simulation, DFX,
+  and emitted RTL.
+- **Scalable validation:** legality, cycle, depth, clock-domain, trace, and
+  backend-equivalence gates are part of the repository workflow.
 
-## Key features (pyc4.0)
+## Install
 
-- **Hierarchy-preserving `@module` boundaries** (1:1 with simulation objects)
-- **Two-phase cycle model**: `tick()` then `transfer()`
-- **Gate-first compiler**: static-hardware IR legality, comb-cycle checks, logic-depth propagation
-- **Structured interfaces** via `spec` (Bundle/Struct/Signature) with deterministic flattening
-- **Integrated `@testbench`** flow (device + TB compiled together)
-
-## Quick start
-
-Build the backend tool (`pycc`):
+The canonical pyCircuit 6 source installation is:
 
 ```bash
+git clone https://github.com/PTO-ISA/pyCircuit.git
+cd pyCircuit
+python3 -m pip install -e ".[dev,docs]"
+pre-commit install
 bash flows/scripts/pyc build
 ```
 
-The staged toolchain is installed under `.pycircuit_out/toolchain/install/` by default.
+Release wheels, once published, use the distribution name `pycircuit-hisi`;
+the Python import remains `pycircuit`. The repository does not claim a PyPI
+release until the corresponding PTO-ISA release workflow has completed.
 
-Install a release wheel instead of building locally:
+The staged compiler is installed under
+`.pycircuit_out/toolchain/install/`. Set `PYC_TOOLCHAIN_ROOT` to that directory
+when running end-to-end builds from a source checkout.
 
-```bash
-python3 -m pip install /path/to/pycircuit_hisi-<version>-py3-none-<platform>.whl
-pycc --version
+## First cycle-aware design
+
+```python
+from pycircuit import (
+    CycleAwareCircuit,
+    CycleAwareDomain,
+    cas,
+    compile_cycle_aware,
+    wire_of,
+)
+
+
+def counter(
+    m: CycleAwareCircuit,
+    domain: CycleAwareDomain,
+    width: int = 8,
+) -> None:
+    enable = cas(domain, m.input("enable", width=1), cycle=0)
+    count = domain.signal(width=width, reset_value=0, name="count")
+
+    m.output("count", wire_of(count))
+    domain.next()
+    count.assign(count + 1, when=enable)
+
+
+if __name__ == "__main__":
+    design = compile_cycle_aware(counter, name="counter", eager=True)
+    print(design.emit_mlir())
 ```
 
-The platform wheel bundles the matching `pycc` toolchain under the `pycircuit`
-package, so `pycircuit.cli` and the `pycc` wrapper use the same installed source
-tree and do not require a separate repo-local build. The wheel must match both
-your OS/architecture and Python 3.10+.
+`domain.next()` advances the authoring-time logical cycle. The assignment to
+`count` therefore creates a one-stage state update. When values from different
+logical cycles meet, the compiler inserts the delay chain needed to align them.
 
-Published package install command:
+## Build and test
 
-```bash
-python3 -m pip install pycircuit-hisi
-```
-
-The distribution name is `pycircuit-hisi` to avoid the existing unrelated
-`pycircuit` package on PyPI. The Python import path remains `pycircuit`, and
-the installed compiler command remains `pycc`.
-
-Install the frontend from source for development:
+Build the repository counter example for both backends:
 
 ```bash
-python3 -m pip install -e ".[dev,docs]"
-pre-commit install
-python3 -m pycircuit.cli --help
+export PYC_TOOLCHAIN_ROOT="$PWD/.pycircuit_out/toolchain/install"
+PYTHONPATH=compiler/frontend \
+python3 -m pycircuit.cli build \
+  designs/examples/counter/tb_counter.py \
+  --out-dir /tmp/pyc_counter \
+  --target both \
+  --jobs 8
 ```
 
-Editable source install is frontend-only. It does not install `pycc`; build the
-toolchain with `bash flows/scripts/pyc build` and point `PYC_TOOLCHAIN_ROOT` at
-`.pycircuit_out/toolchain/install`, or use a release wheel.
-
-Run the smoke gates:
+Run the normal contributor lanes:
 
 ```bash
 pre-commit run --files <changed-file> [<changed-file> ...]
@@ -85,96 +108,51 @@ bash flows/scripts/run_examples.sh
 bash flows/scripts/run_sims.sh
 ```
 
-Use `pre-commit run --all-files` only when you are intentionally doing a wider
-repo hygiene sweep. CI runs the pre-commit lane against the PR or push diff so
-legacy backlog outside the change set does not block unrelated work.
-
-System smoke tests that exercise the CLI end-to-end are available via:
+System tests require a built toolchain and Verilator:
 
 ```bash
 pytest tests/system -m system
 ```
 
-They require a built toolchain (`PYC_TOOLCHAIN_ROOT` or `PYCC`) plus
-`verilator`.
-
-### Minimal design snippet (counter)
-
-```python
-from pycircuit import Circuit, module, u
-
-@module
-def build(m: Circuit, width: int = 8) -> None:
-    clk = m.clock("clk")
-    rst = m.reset("rst")
-    en = m.input("enable", width=1)
-
-    count = m.out("count_q", clk=clk, rst=rst, width=width, init=u(width, 0))
-    count.set(count.out() + 1, when=en)
-    m.output("count", count)
-```
-
-Build a multi-module project (device + TB):
-
-```bash
-PYTHONPATH=compiler/frontend \
-PYC_TOOLCHAIN_ROOT=.pycircuit_out/toolchain/install \
-python3 -m pycircuit.cli build \
-  designs/examples/counter/tb_counter.py \
-  --out-dir /tmp/pyc_counter \
-  --target both \
-  --jobs 8
-```
-
-For more end-to-end commands, see `docs/QUICKSTART.md`.
-
-## Repo layout
-
-```text
-pyCircuit
-├── compiler/
-│   ├── frontend/          # Python frontend (pycircuit package)
-│   └── mlir/              # MLIR dialect + passes + tools (pycc, pyc-opt)
-├── runtime/
-│   ├── cpp/               # C++ simulation runtime
-│   └── verilog/           # Verilog primitives
-├── designs/
-│   └── examples/          # Example designs
-└── docs/                  # Documentation
-```
-
 ## Documentation
 
-- `docs/QUICKSTART.md`
-- `docs/FRONTEND_API.md`
-- `docs/TESTBENCH.md`
-- `docs/IR_SPEC.md`
-- `docs/updatePLAN.md` and `docs/rfcs/pyc4.0-decisions.md`
+- [V6 language specification](docs/v6_PyCircuit_Specification.md)
+- [V6 tutorial](docs/v6_PyCircuit_Tutorial.md)
+- [V6 software architecture](docs/v6_PyCircuit_Software_Architecture.md)
+- [Frontend API](docs/FRONTEND_API.md)
+- [Testbench API](docs/TESTBENCH.md)
+- [IR specification](docs/IR_SPEC.md)
+- [pyCircuit 6 decisions](docs/rfcs/pyc6-decisions.md)
+- [pyCircuit 6 evolution plan](docs/pyc6-plan.md)
 
-## Contributing and Governance
+## Repository governance
 
-The current contributor workflow uses the pyc5 frontend surface while retaining
-the `pyc4.0` decision corpus and gate evidence as the active semantic source of
-truth.
+PTO-ISA owns product decisions, releases, package publication, and the default
+branch. Linx integration changes should be developed so they can be reviewed
+upstream; the LinxISA fork follows the upstream default branch.
 
-- Contributor guide: `CONTRIBUTING.md`
-- Development workflow: `docs/development/index.md`
-- Gate matrix: `docs/development/testing-and-gates.md`
-- Merge and review expectations: `docs/development/review-and-merge.md`
-- Semantic evidence corpus: `docs/rfcs/pyc4.0-decisions.md`
-- Evidence archive contract: `docs/gates/README.md`
+- [Contribution workflow](docs/development/contributing-workflow.md)
+- [Testing and gates](docs/development/testing-and-gates.md)
+- [Review and merge](docs/development/review-and-merge.md)
+- [Repository management](docs/development/repository-management.md)
 
-## Examples
+Historical gate logs retain their original directory names. Active runtime,
+trace, and gate contracts use `libpyc6_runtime`, `PYC6TRC3`, and
+`run_semantic_regressions_v6.sh`.
 
-| Example | Description |
-|---------|-------------|
-| [Counter](designs/examples/counter/) | Basic counter with enable |
-| [Calculator](designs/examples/calculator/) | Stateful keypad calculator |
-| [FIFO Loopback](designs/examples/fifo_loopback/) | FIFO queue with loopback |
-| [Digital Clock](designs/examples/digital_clock/) | Time-of-day clock display |
-| [FastFWD](designs/examples/fastfwd/) | Network packet forwarding |
-| [Linx CPU](contrib/linx/designs/examples/linx_cpu_pyc/) | Full 5-stage pipeline CPU |
+## Repository layout
+
+```text
+pyCircuit/
+├── compiler/frontend/pycircuit/  # Python language frontend
+├── compiler/mlir/                # pyc dialect, passes, pycc, and emitters
+├── runtime/                      # C++ simulation and Verilog primitives
+├── designs/examples/             # Supported product examples
+├── flows/                        # Build and validation orchestration
+├── tests/                        # Unit, integration, and system tests
+└── docs/                         # Product and contributor documentation
+```
 
 ## License
 
-pyCircuit is licensed under the MIT License. See `LICENSE`.
+pyCircuit is licensed under the MIT License. See [LICENSE](LICENSE).

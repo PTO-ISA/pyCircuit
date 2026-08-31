@@ -106,7 +106,7 @@ def test_semantic_regressions_script_passes() -> None:
     env["PYC_GATE_RUN_ID"] = run_id
 
     subprocess.run(
-        ["bash", "flows/scripts/run_semantic_regressions_v40.sh"],
+        ["bash", "flows/scripts/run_semantic_regressions_v6.sh"],
         cwd=root,
         env=env,
         check=True,

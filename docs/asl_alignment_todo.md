@@ -1,8 +1,10 @@
 # PyCircuit 对齐 ASL 数据类型 —— 差距分析与 TODO
 
+<!-- markdownlint-disable MD031 MD036 -->
+
 **状态：** 待开工（v0.1）
 **分支：** `asl_align`
-**来源：** 对照 `docs/arm_data_type.md`（ARM ASL1 数据类型 §9 分析）与当前 pyc4.0/0.40 代码库（`compiler/frontend/pycircuit/`）逐项核实。
+**来源：** 对照 `docs/arm_data_type.md`（ARM ASL1 数据类型分析）与当前 pyCircuit 6 代码库（`compiler/frontend/pycircuit/`）逐项核实。
 **用途：** 逐条列出「ASL 有、PyCircuit 信号级 DSL 缺」的功能、当前现状、可复用基座、建议 API 与门禁，供开工。勾选框仅表示"是否已实现"，不代表优先级。
 
 ---
@@ -163,7 +165,7 @@ layout   = instr.spec
   sel = opcode.in_({"000x", "0010", "11xx"}) # 命中集合 → 各 matches 的 or 归约
   ```
 - [x] **T2.1（已完成）**：掩码串解析器 `parse_bitmask(pattern) -> (mask, value, width)` 落地纯模块 `compiler/frontend/pycircuit/bitmask.py`（无依赖，避免循环导入）：`0/1` 为 care，`x`/`X`/`-` 及**括号内任意位**为 don't-care（对应 ASL `'1(0)x0'`/`'1(01)0'`）；空格/`_` 为分隔符忽略；另有 `parse_bitmask_checked(pattern, width=)` 校验宽度。
-- [x] **T2.2（已完成）**：`Wire.matches(pattern)`（`hw.py`）/ `CycleAwareSignal.matches(pattern)`（`v5.py`，保留 cycle）→ `(self & mask) == value`，返回 i1；宽度不一致报错。`ForwardSignal`/`StateSignal`/`BitfieldSignal` 经委托自动可用。
+- [x] **T2.2（已完成）**：`Wire.matches(pattern)`（`hw.py`）/ `CycleAwareSignal.matches(pattern)`（`v6.py`，保留 cycle）→ `(self & mask) == value`，返回 i1；宽度不一致报错。`ForwardSignal`/`StateSignal`/`BitfieldSignal` 经委托自动可用。
 - [x] **T2.3（已完成）**：`.in_(patterns)` → 各 `matches` 的 `|` 归约；`.not_in_(patterns)` 取反（对应 ASL `IN !{...}`）；空集合报错。
 - [x] **T2.4（已完成）**：门禁 `tests/test_bitmask_match.py`（25 项，全通过）：解析正确性（含括号/分隔符/`'1xx0'≡'1(0)x0'≡'1(01)0'`）、`matches`/`in_`/`not_in_` 与手写 `(sig&mask)==value` **字节级等价**、结果为 i1、宽度不符/非法字符/括号错配/空模式报错、CAS 保持 cycle。
 
@@ -206,7 +208,7 @@ m.output("is_add", wire_of(is_add))
   ```
 - [x] **T3.1（已完成）**：`PycEnum` 基类落地 `compiler/frontend/pycircuit/enums.py`，基于 Python `enum.Enum`（**非 `IntEnum`**，成员不隐式转 int）+ 自定义元类 `_PycEnumMeta`。`auto()` 经 `_generate_next_value_` 产出 **0-based** 编码；`E.width`（类级，元类属性）与 `member.width`（成员级）= `max(1, max_code.bit_length())`（即 `ceil(log2(n))`）；`member.const(ctx)` 依 `ctx` 是 `Circuit`/`CycleAwareDomain` 返回定宽 `Wire`/`CAS` 常量；`E.bind(sig)` 把枚举类型贴到任意信号。编码越界（负数/非 int）在取 width/emit 时报错。
 - [x] **T3.1b（已完成，贴近 ASL 语法）**：函数式构造器 `enumeration("Color", "RED GREEN BLUE")` —— 一行、只列名字，直接对应 ASL `type Color of enumeration {RED, GREEN, BLUE}`。名字可用**变长参数 / 列表 / 逗号或空格分隔的字符串**，等价于 `class Color(PycEnum): RED=auto();...`（复用同一元类与 0-based 编码，经 Python `enum` 函数式 API 落地）。空/非标识符/重名/空类型名均报错。需要显式编码或文档字符串时仍用 `class` 形式。
-- [x] **T3.2（已完成）**：`m.input(name, enum=E)`（`hw.py`）与 `domain.signal(name=.., enum=E)`（`v5.py`）声明期即绑定枚举，width 自动取自 `E.width`（显式 `width=` 不一致则报错，且不可与 `fields=`/`shape=` 混用），返回 `EnumSignal`。寄存器可 `st <<= E.MEMBER`（跨枚举/裸值经 `_coerce_assign` 校验后加载编码常量）。
+- [x] **T3.2（已完成）**：`m.input(name, enum=E)`（`hw.py`）与 `domain.signal(name=.., enum=E)`（`v6.py`）声明期即绑定枚举，width 自动取自 `E.width`（显式 `width=` 不一致则报错，且不可与 `fields=`/`shape=` 混用），返回 `EnumSignal`。寄存器可 `st <<= E.MEMBER`（跨枚举/裸值经 `_coerce_assign` 校验后加载编码常量）。
 - [x] **T3.3（已完成）**：`EnumSignal.is_(E.MEMBER)` → `raw == const(code)`（返回 i1，与手写字节级等价）；`is_not` 取反；`==`/`!=` 为 `is_`/`is_not` 的别名。对**裸 int**（`op.is_(0)` / `op == 2`）或**跨枚举**成员（`op.is_(Color.RED)`）在展开期 `raise TypeError`（带枚举类型标签）。`wire_of()`/`m.output()`/`_to_wire()` 经 `__pyc_unwrap__` 自动解包。
 - [x] **T3.4（已完成）**：门禁 `tests/test_pyc_enum.py`（25 项，全通过）：0-based 编码 / width 推导（含单成员、显式编码、越界/非 int 报错）；`member.const` 在 `Circuit`/`domain` 上的宽度与常量值；`is_`/`is_not`/`==` 与手写 `raw==code` **字节级等价**、结果 i1；裸 int / 跨枚举比较报错；`m.input(enum=)` 宽度推导 + 冲突报错 + 与 `fields=`/`shape=` 互斥；`domain.signal(enum=)` 寄存器 `<<= E.MEMBER` 与跨枚举赋值报错；`E.bind` 贴 `Wire`/`CAS`（保持 cycle）。
 
@@ -276,7 +278,7 @@ low    = tagged.raw                      # 取回底层 Wire
   y = x.as_(width=4)             # 仿真期 pyc.assert(高位==0) 之后 trunc(4)；综合时退化为 trunc
   y = x.assert_fits(width=4)     # 等价别名（拼出断言意图）
   ```
-- [x] **T4.1（已完成）**：`Wire.as_(...)`（`hw.py`）与 `CycleAwareSignal.as_`（`v5.py`，保留 cycle）支持**三种受检转换**（互斥，一次一种），对应 ASL `as bits(N)` 与 `as integer{...}`：
+- [x] **T4.1（已完成）**：`Wire.as_(...)`（`hw.py`）与 `CycleAwareSignal.as_`（`v6.py`，保留 cycle）支持**三种受检转换**（互斥，一次一种），对应 ASL `as bits(N)` 与 `as integer{...}`：
   - **取值集合（默认位置参数）** —— 值**直接作为位置参数**：`x.as_(2)` / `x.as_(2, 3)` / `x.as_([2, 3])`，断言 `x ∈ {…}`（各 `==` 的 `or` 归约），原样返回 `x`。这是最省字的写法（无需 `values=`/`[]`），单值即 `x == v`；等价关键字 `values=[...]` 与具名方法 `assert_in(values)` 均保留。
   - `range=(lo, hi)`（关键字）—— **值区间**：断言 `lo <= x <= hi`（无符号），原样返回 `x`；`assert_range(lo, hi)` 为具名方法。平凡边界（`lo==0` / `hi==2^w-1`）不发对应比较，全覆盖时不发断言。
   - `width=w`（关键字）—— **宽度收窄**：断言高位切片 `x[w:] == 0`（截掉的高位全零、装得下）经 `m.assert_` + `trunc(w)`；`assert_fits(width=)` 为别名。
@@ -336,7 +338,7 @@ y = x.assert_fits(width=4)                # 等价别名
                                   # i 为展开期 Python int；lane i 占 bit [i*8, i*8+7]
   ```
   > 注：ASL 的 `x[i *: 8]` 里 `*:` 在 Python 中是 `SyntaxError`（宿主语言限制），故用元组下标 `x[i, 8]` 编码；它与位切片 `x[a:b]`、`BitfieldSignal` 的多字段读 `x["a","b"]` 无歧义（不同下标类型/不同类）。
-- [x] **T5.1**：`Wire.lane(idx, *, width)` → `self.slice(lsb=idx*width, width=width)`（`hw.py`）；`idx`/`width` 强制 `int`；`width<=0`、`idx<0`、`idx*width+width > 信号宽度` 均在展开期抛 `ValueError`。`CycleAwareSignal.lane`（`v5.py`）转发到底层 Wire 并保留 cycle 标签。**纯前端语法糖**，最终仍落到 `pyc.extract`，后端零改动。
+- [x] **T5.1**：`Wire.lane(idx, *, width)` → `self.slice(lsb=idx*width, width=width)`（`hw.py`）；`idx`/`width` 强制 `int`；`width<=0`、`idx<0`、`idx*width+width > 信号宽度` 均在展开期抛 `ValueError`。`CycleAwareSignal.lane`（`v6.py`）转发到底层 Wire 并保留 cycle 标签。**纯前端语法糖**，最终仍落到 `pyc.extract`，后端零改动。
 - [x] **T5.1b**：下标糖 `x[i, w]`——`Wire.__getitem__` / `CycleAwareSignal.__getitem__` 识别二元组 `(index, width)` 并委托 `lane`；非二元组元组抛 `TypeError`。
 - [x] **T5.2**：门禁 `tests/test_lane_slice.py`（28 项，全通过）：多组 `lane(i,width=w)` 与手写半开区间 `bus[i*w:(i+1)*w]` / `slice(lsb=,width=)` 字节级 MLIR 等价、结果宽度、末元素恰好对齐 MSB 不报错、越界/部分溢出/零宽/负宽/负索引报错、CAS 版等价 + 保留 cycle + 越界报错、元组下标 `x[i,w]` 与 `.lane` 等价（Wire+CAS）、元数错误 `TypeError`、元组越界报错。
 
@@ -344,7 +346,7 @@ y = x.assert_fits(width=4)                # 等价别名
 
 ## T6. 文档级约定（零实现成本）—— ★ ✅ 已完成
 
-- [x] **T6.0（前置补齐）**：Wire 显式比较此前只有 `ult/slt/ugt/ule/uge`（有符号只有 `slt`），现补齐 **`sgt/sle/sge`**（`hw.py`，镜像无符号集：`sgt`≡翻转 `slt`、`sle`≡`~sgt`、`sge`≡`~slt`，结果 i1）。`CycleAwareSignal` 同步补齐**全套**显式比较 `ult/ugt/ule/uge/slt/sgt/sle/sge`（`v5.py`，对齐 cycle 后委托底层 Wire、保留 cycle 标签），使"显式签名比较"约定在 cycle-aware 主建模 API 上也可用。**纯前端语法糖**，最终落到 `pyc.slt`/`pyc.ult`，后端零改动。门禁 `tests/test_signed_compare.py`（17 项，全通过）：`sgt/sle/sge` 与手写等价、恒发 `pyc.slt`（不误用 `pyc.ult`）、结果 i1、接受 int 操作数、有/无符号 `gt` MLIR 有别、CAS 全套暴露 + 与 Wire 等价 + 保留 cycle。
+- [x] **T6.0（前置补齐）**：Wire 显式比较此前只有 `ult/slt/ugt/ule/uge`（有符号只有 `slt`），现补齐 **`sgt/sle/sge`**（`hw.py`，镜像无符号集：`sgt`≡翻转 `slt`、`sle`≡`~sgt`、`sge`≡`~slt`，结果 i1）。`CycleAwareSignal` 同步补齐**全套**显式比较 `ult/ugt/ule/uge/slt/sgt/sle/sge`（`v6.py`，对齐 cycle 后委托底层 Wire、保留 cycle 标签），使"显式签名比较"约定在 cycle-aware 主建模 API 上也可用。**纯前端语法糖**，最终落到 `pyc.slt`/`pyc.ult`，后端零改动。门禁 `tests/test_signed_compare.py`（17 项，全通过）：`sgt/sle/sge` 与手写等价、恒发 `pyc.slt`（不误用 `pyc.ult`）、结果 i1、接受 int 操作数、有/无符号 `gt` MLIR 有别、CAS 全套暴露 + 与 Wire 等价 + 保留 cycle。
 - [x] **T6.1**：编程规范——签名不能从上下文一眼看出的比较,一律用显式 `.ult()/.ugt()/.ule()/.uge()` 或 `.slt()/.sgt()/.sle()/.sge()`,不要依赖 `<`/`>`（其签名取决于操作数 `signed` 标志,易误判）。对应 ASL 强制 `UInt/SInt` 包装。
 - [x] **T6.2**：编程规范——`reduce_sum`/累加/移位左扩等易溢出处显式写 `width=`,或用 T4 的 `x.as_(width=w)` 加装得下断言。对应 ASL"截断必须显式"。
 - [x] **T6.3**：编程规范——架构常量集中命名分层（`constant` 派生量 vs `config` 参数量,集中一处定义、按意图分组）。对应 ASL `constant`/`config` 意图分层。
@@ -370,5 +372,5 @@ y = x.assert_fits(width=4)                # 等价别名
 **参考**
 
 - `docs/arm_data_type.md` §9（ASL ↔ PyCircuit 对照与建议）
-- `compiler/frontend/pycircuit/hw.py`（`Wire`/`Vec`/`cat`/`zext`）、`v5.py`（`CycleAwareSignal`/`mux`）、`record.py`、`spec/types.py`（`StructSpec.field_slices`/`DecodeRule`）
-- `docs/rfcs/pyc4.0-decisions.md` Decision 0008（spec 分层类型系统）
+- `compiler/frontend/pycircuit/hw.py`（`Wire`/`Vec`/`cat`/`zext`）、`v6.py`（`CycleAwareSignal`/`mux`）、`record.py`、`spec/types.py`（`StructSpec.field_slices`/`DecodeRule`）
+- `docs/rfcs/pyc6-decisions.md` Decision 0008（spec 分层类型系统）

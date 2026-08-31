@@ -1,13 +1,12 @@
-# -*- coding: utf-8 -*-
-"""4-tap Feed-Forward (FIR) Filter — pyCircuit V5 cycle-aware.
+"""4-tap Feed-Forward (FIR) Filter — pyCircuit V6 cycle-aware.
 
 Implements:
     y[n] = c0·x[n] + c1·x[n-1] + c2·x[n-2] + c3·x[n-3]
 """
+
 from __future__ import annotations
 
 from pycircuit import (
-    u,
     CycleAwareCircuit,
     CycleAwareDomain,
     cas,
@@ -17,7 +16,10 @@ from pycircuit import (
 )
 
 
-def build(m: CycleAwareCircuit, domain: CycleAwareDomain, *,
+def build(
+    m: CycleAwareCircuit,
+    domain: CycleAwareDomain,
+    *,
     TAPS: int = 4,
     DATA_W: int = 16,
     COEFF_W: int = 16,
@@ -66,5 +68,14 @@ def build(m: CycleAwareCircuit, domain: CycleAwareDomain, *,
 build.__pycircuit_name__ = "digital_filter"
 
 if __name__ == "__main__":
-    print(compile_cycle_aware(build, name="digital_filter", eager=True,
-                  TAPS=4, DATA_W=16, COEFF_W=16, COEFFS=(1, 2, 3, 4)).emit_mlir())
+    print(
+        compile_cycle_aware(
+            build,
+            name="digital_filter",
+            eager=True,
+            TAPS=4,
+            DATA_W=16,
+            COEFF_W=16,
+            COEFFS=(1, 2, 3, 4),
+        ).emit_mlir()
+    )

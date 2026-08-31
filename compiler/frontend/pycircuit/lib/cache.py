@@ -29,14 +29,11 @@ def Cache(
     - write_allocate=True
     - replacement="plru"
 
-    This pyc4.0 baseline is intentionally compact and hierarchy-preserving; it keeps
+    This pyc6 implementation is intentionally compact and hierarchy-preserving; it keeps
     state visible to the compiler flow without flattening into primitive wires.
     """
 
     _ = (line_bytes, write_back, write_allocate, replacement)
-    clk_v = cd.clk
-    rst_v = cd.rst
-
     req_valid_w = req_valid
     req_addr_w = req_addr
     req_write_w = req_write
@@ -50,10 +47,20 @@ def Cache(
     plru_bits = max(1, ways_i - 1)
     way_idx_bits = max(1, (ways_i - 1).bit_length())
 
-    tags = [m.out(f"cache_tag_{i}", domain=cd, width=tag_bits, init=0) for i in range(ways_i)]
-    valids = [m.out(f"cache_valid_{i}", domain=cd, width=1, init=0) for i in range(ways_i)]
-    dirty = [m.out(f"cache_dirty_{i}", domain=cd, width=1, init=0) for i in range(ways_i)]
-    data = [m.out(f"cache_data_{i}", domain=cd, width=int(data_width), init=0) for i in range(ways_i)]
+    tags = [
+        m.out(f"cache_tag_{i}", domain=cd, width=tag_bits, init=0)
+        for i in range(ways_i)
+    ]
+    valids = [
+        m.out(f"cache_valid_{i}", domain=cd, width=1, init=0) for i in range(ways_i)
+    ]
+    dirty = [
+        m.out(f"cache_dirty_{i}", domain=cd, width=1, init=0) for i in range(ways_i)
+    ]
+    data = [
+        m.out(f"cache_data_{i}", domain=cd, width=int(data_width), init=0)
+        for i in range(ways_i)
+    ]
     plru = m.out("cache_plru", domain=cd, width=plru_bits, init=0)
 
     req_tag = req_addr_w[set_bits : set_bits + tag_bits]
@@ -71,7 +78,6 @@ def Cache(
     victim_way = plru.out()[0:way_idx_bits]
 
     do_alloc = req_valid_w & (~hit)
-    do_write_hit = req_valid_w & req_write_w & hit
     do_write_alloc = req_valid_w & req_write_w & do_alloc
 
     for i in range(ways_i):

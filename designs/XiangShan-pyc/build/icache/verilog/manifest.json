@@ -1,8 +1,0 @@
-{
-  "cpp_modules": [],
-  "top": "icache",
-  "verilog_modules": [
-    "pyc_primitives.v",
-    "icache.v"
-  ]
-}

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Universal build tool for PyCircuit V5 designs.
+"""Universal build tool for PyCircuit V6 designs.
 
 Usage:
     python tools/build_design.py <module_path> <build_fn> <name> [--kwargs KEY=VAL ...]
@@ -141,7 +141,7 @@ def compile_and_build(
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Build a PyCircuit V5 design")
+    parser = argparse.ArgumentParser(description="Build a PyCircuit V6 design")
     parser.add_argument(
         "module_path", help="Python module path (e.g. designs.examples.counter.counter)"
     )

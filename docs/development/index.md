@@ -1,78 +1,63 @@
 # Development Guide
 
-This page lists the active pyc4.0 development entrypoints and gate commands.
+pyCircuit 6 development is decision-driven and gate-first. CycleAwareSignal and
+automatic cycle balancing are current product contracts, not compatibility
+surfaces.
 
 ## Core references
 
-- `docs/rfcs/pyc4.0-decisions.md`
-- `docs/updatePLAN.md`
-- `docs/gates/README.md`
-- `docs/gates/decision_status_v40.md`
+- [V6 language specification](../v6_PyCircuit_Specification.md)
+- [pyCircuit 6 decisions](../rfcs/pyc6-decisions.md)
+- [pyCircuit 6 evolution plan](../pyc6-plan.md)
+- [Decision status](../gates/decision_status_v6.md)
+- [Evidence contract](../gates/README.md)
+
+## Contributor workflow
+
+- [Contributing workflow](contributing-workflow.md)
+- [Testing and gates](testing-and-gates.md)
+- [Review and merge](review-and-merge.md)
+- [Repository management](repository-management.md)
 
 ## Build and gate commands
 
-- `bash flows/scripts/pyc build`
-- `bash flows/scripts/run_examples.sh` — G1 (includes semantic regressions unless `PYC_SKIP_SEMANTIC_REGRESSIONS=1`)
-- `bash flows/scripts/run_sims.sh` — G2 merge-blocker
-- `bash flows/scripts/run_sims_nightly.sh` — G3 nightly
-- `python3 flows/tools/summarize_gate_run.py --run-id <id>` — render gate matrix
+```bash
+bash flows/scripts/pyc build
+bash flows/scripts/run_examples.sh
+bash flows/scripts/run_sims.sh
+bash flows/scripts/run_sims_nightly.sh
+python3 flows/tools/summarize_gate_run.py --run-id <run-id>
+```
 
-### PR CI gates
+GitHub Actions runs the configured pull request lanes. The nightly workflow
+exercises the broader simulation matrix. Use the same `PYC_GATE_RUN_ID` across
+related local lanes so evidence lands in one reviewable directory.
 
-GitHub Actions (`.github/workflows/ci.yml`) runs G0 + G1 + G2 on every PR.
-G3 runs in `.github/workflows/gates-nightly.yml` (schedule / manual).
-See `docs/gates/README.md` for the level mapping and artifact names.
+## Local environment
 
-Local reproduce (Linux, after toolchain build):
+After building the toolchain:
 
 ```bash
 export PYC_TOOLCHAIN_ROOT="$PWD/.pycircuit_out/toolchain/install"
 export PATH="$PYC_TOOLCHAIN_ROOT/bin:$PATH"
 export PYC_GATE_RUN_ID="local-$(date +%Y%m%d-%H%M%S)"
-unset PYC_SKIP_SEMANTIC_REGRESSIONS
 bash flows/scripts/run_examples.sh
 bash flows/scripts/run_sims.sh
 ```
 
 ## Repository layout
 
-pyCircuit is organized as follows:
-
-```
-pyCircuit
-├── compiler/
-│   ├── frontend/          # Python-based frontend
-│   │   └── pycircuit/    # Core DSL implementation
-│   └── mlir/             # MLIR-based backend
-│       ├── lib/          # Dialect definitions
-│       └── tools/        # Compiler tools
-├── runtime/
-│   ├── cpp/              # C++ simulation runtime
-│   └── verilog/          # Verilog primitives
-├── designs/
-│   └── examples/         # Example designs
-└── docs/                 # Documentation
+```text
+pyCircuit/
+├── compiler/frontend/pycircuit/  # Python frontend
+├── compiler/mlir/                # MLIR dialect, passes, and emitters
+├── runtime/                      # C++ and Verilog runtime support
+├── designs/examples/             # Supported examples
+├── flows/                        # Build and gate orchestration
+├── tests/                        # Test suites
+└── docs/                         # Product and contributor docs
 ```
 
-## Quick Links
-
-- `docs/FRONTEND_API.md`
-- `docs/PyCircuit_V5_Spec.md`
-- `docs/TESTBENCH.md`
-- `docs/IR_SPEC.md`
-- `docs/DIAGNOSTICS.md`
-- `designs/examples/README.md`
-
-## Getting Help
-
-- GitHub Issues: Report bugs and request features
-- GitHub Discussions: Ask questions and share ideas
-- Discord: Join our community chat
-
-## Sidecar testbench schedule tests
-
-The sidecar schedule container is covered by:
-
-```bash
-PYTHONPATH=compiler/frontend:. python -m pytest tests/test_sidecar_sections.py -q
-```
+Use the repository's GitHub issue and pull request surfaces only when enabled by
+the PTO-ISA organization. Do not document unofficial support channels as
+maintained project infrastructure.

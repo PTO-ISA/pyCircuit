@@ -2,7 +2,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from pycircuit import Circuit, Wire, cat, function, unsigned
+from pycircuit import Circuit, Wire, function, unsigned
+from pycircuit.hw import cat
 
 from .isa import (
     OP_ADD,

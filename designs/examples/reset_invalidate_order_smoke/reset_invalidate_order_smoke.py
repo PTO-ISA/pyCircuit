@@ -20,7 +20,7 @@ def build(m: CycleAwareCircuit, domain: CycleAwareDomain, width: int = 8) -> Non
     m.output("y", wire_of(q))
 
     # Spec: compute next at cycle 0, then commit after domain.next().
-    # Assigning `q + 1` after next() inserts an extra _v5_bal register.
+    # Assigning `q + 1` after next() inserts an extra _v6_bal register.
     q_next = mux(en, q + 1, q)
     domain.next()
     q <<= q_next
@@ -42,4 +42,8 @@ def reset_probe(p: ProbeBuilder, dut: ProbeView, width: int = 8) -> None:
 
 
 if __name__ == "__main__":
-    print(compile_cycle_aware(build, name="reset_invalidate_order_smoke", eager=True, width=8).emit_mlir())
+    print(
+        compile_cycle_aware(
+            build, name="reset_invalidate_order_smoke", eager=True, width=8
+        ).emit_mlir()
+    )

@@ -1,8 +1,0 @@
-{
-  "cpp_modules": [],
-  "top": "multiclock_regs",
-  "verilog_modules": [
-    "pyc_primitives.v",
-    "multiclock_regs.v"
-  ]
-}

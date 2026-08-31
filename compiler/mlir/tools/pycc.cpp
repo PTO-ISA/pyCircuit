@@ -996,9 +996,9 @@ static std::optional<std::string> findPrimitivesDir(const char *argv0) {
 
 static const char *runtimeLibBasename() {
 #if defined(_WIN32)
-  return "pyc4_runtime.lib";
+  return "pyc6_runtime.lib";
 #else
-  return "libpyc4_runtime.a";
+  return "libpyc6_runtime.a";
 #endif
 }
 
@@ -1857,7 +1857,7 @@ static LogicalResult writeCppCompileManifest(llvm::StringRef path,
     llvm::json::Object runtime;
     runtime["mode"] = "prebuilt";
     runtime["cmake_package"] = "pycircuit";
-    runtime["cmake_target"] = "pycircuit::pyc4_runtime";
+    runtime["cmake_target"] = "pycircuit::pyc6_runtime";
     runtime["toolchain_root_hint"] = *toolchainRoot;
 
     llvm::SmallString<256> cmakeCfgDir(*toolchainRoot);
@@ -1877,7 +1877,7 @@ static LogicalResult writeCppCompileManifest(llvm::StringRef path,
     runtime["lib_dirs"] = std::move(runtimeLibDirs);
 
     llvm::json::Array runtimeLibs;
-    runtimeLibs.push_back("pyc4_runtime");
+    runtimeLibs.push_back("pyc6_runtime");
     runtime["libs"] = std::move(runtimeLibs);
 
     llvm::json::Array runtimeLibraryFiles;

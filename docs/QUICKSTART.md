@@ -1,50 +1,47 @@
 # Quickstart
 
-## 1) Build the backend tool (`pycc`)
+Run these commands from the repository root.
 
-From the **repository root** (set `REPO` to your clone path):
+## Build the compiler
 
 ```bash
-REPO=/path/to/pyCircuit
-bash "$REPO/flows/scripts/pyc" build
+bash flows/scripts/pyc build
+export PYC_TOOLCHAIN_ROOT="$PWD/.pycircuit_out/toolchain/install"
 ```
 
-## 2) Run compiler smoke (emit + pycc)
+## Verify the frontend
 
 ```bash
-bash "$REPO/flows/scripts/run_examples.sh"
+PYTHONPATH=compiler/frontend python3 -c \
+  "from pycircuit import CycleAwareSignal, compile_cycle_aware; print('pyCircuit 6 frontend ready')"
 ```
 
-## 3) Run simulation smoke (Verilator + `@testbench`)
+## Build the counter project
 
 ```bash
-bash "$REPO/flows/scripts/run_sims.sh"
-```
-
-## 4) Minimal manual flow
-
-Emit one module:
-
-```bash
-export PYTHONPATH="$REPO/compiler/frontend"
-python3 -m pycircuit.cli emit "$REPO/designs/examples/counter/counter.py" -o /tmp/counter.pyc
-```
-
-Compile to C++:
-
-```bash
-export PYC_TOOLCHAIN_ROOT="$REPO/.pycircuit_out/toolchain/install"
-"$PYC_TOOLCHAIN_ROOT/bin/pycc" /tmp/counter.pyc --emit=cpp --out-dir /tmp/counter_cpp
-```
-
-Build a multi-module project with a testbench:
-
-```bash
-export PYTHONPATH="$REPO/compiler/frontend"
-export PYC_TOOLCHAIN_ROOT="$REPO/.pycircuit_out/toolchain/install"
+PYTHONPATH=compiler/frontend \
 python3 -m pycircuit.cli build \
-  "$REPO/designs/examples/counter/tb_counter.py" \
-  --out-dir /tmp/counter_build \
+  designs/examples/counter/tb_counter.py \
+  --out-dir /tmp/pyc_counter \
   --target both \
   --jobs 8
 ```
+
+The build produces frontend manifests, C++ sources and executable artifacts,
+Verilog, and Verilator inputs under `/tmp/pyc_counter`.
+
+## Run smoke gates
+
+```bash
+bash flows/scripts/run_examples.sh
+bash flows/scripts/run_sims.sh
+```
+
+The examples lane checks compilation and semantic contracts. The simulation lane
+checks C++ and Verilator behavior.
+
+## Continue learning
+
+- [V6 tutorial](v6_PyCircuit_Tutorial.md)
+- [V6 language specification](v6_PyCircuit_Specification.md)
+- [Testing and gates](development/testing-and-gates.md)

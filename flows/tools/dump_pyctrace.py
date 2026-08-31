@@ -5,13 +5,11 @@ import argparse
 import json
 import struct
 import sys
-from enum import IntEnum
 from dataclasses import dataclass
+from enum import IntEnum
 from pathlib import Path
 
-
-MAGIC_V2 = b"PYC4TRC2"
-MAGIC_V3 = b"PYC4TRC3"
+MAGIC_V3 = b"PYC6TRC3"
 
 
 class ParseError(RuntimeError):
@@ -171,13 +169,21 @@ def parse_pyctrace(
     path: Path,
     *,
     external_manifest: Path | None = None,
-) -> tuple[int, int, list[ProbeDecl], list[ValueChangeEv], list[WriteEv], list[ResetEv], list[InvalidateEv]]:
+) -> tuple[
+    int,
+    int,
+    list[ProbeDecl],
+    list[ValueChangeEv],
+    list[WriteEv],
+    list[ResetEv],
+    list[InvalidateEv],
+]:
     data = memoryview(path.read_bytes())
     off = 0
 
     magic, off = _bytes(data, off, 8)
-    if magic not in {MAGIC_V2, MAGIC_V3}:
-        raise ParseError(f"bad magic: got={magic!r} exp one of ({MAGIC_V2!r}, {MAGIC_V3!r})")
+    if magic != MAGIC_V3:
+        raise ParseError(f"bad magic: got={magic!r} exp={MAGIC_V3!r}")
 
     schema_version, off = _u32le(data, off)
     flags, off = _u32le(data, off)
@@ -212,7 +218,15 @@ def parse_pyctrace(
             human = _decode_utf8(hbytes)
             ts_len, poff = _u32le(payload, poff)
             ts, poff = _bytes(payload, poff, ts_len)
-            probes.append(ProbeDecl(probe_id=pid, kind=kind, canonical_path=cname, human_name=human, type_sig=ts))
+            probes.append(
+                ProbeDecl(
+                    probe_id=pid,
+                    kind=kind,
+                    canonical_path=cname,
+                    human_name=human,
+                    type_sig=ts,
+                )
+            )
             pid_to_path.setdefault(pid, cname)
             # Width lives in type_sig; we also infer width for Bits from the current minimal encoding.
             if len(ts) >= 6 and ts[0] == 0:
@@ -240,17 +254,14 @@ def parse_pyctrace(
             width_bits, poff = _u32le(payload, poff)
             byte_count = (width_bits + 7) // 8 if width_bits > 0 else 0
             vbytes, poff = _bytes(payload, poff, byte_count)
-            known_mask_width_bits = int(width_bits)
-            known_mask_bytes = b"\xff" * byte_count
-            z_mask_width_bits = int(width_bits)
-            z_mask_bytes = b"\x00" * byte_count
-            if schema_version >= 3:
-                known_mask_width_bits, poff = _u32le(payload, poff)
-                known_n = (known_mask_width_bits + 7) // 8 if known_mask_width_bits > 0 else 0
-                known_mask_bytes, poff = _bytes(payload, poff, known_n)
-                z_mask_width_bits, poff = _u32le(payload, poff)
-                z_n = (z_mask_width_bits + 7) // 8 if z_mask_width_bits > 0 else 0
-                z_mask_bytes, poff = _bytes(payload, poff, z_n)
+            known_mask_width_bits, poff = _u32le(payload, poff)
+            known_n = (
+                (known_mask_width_bits + 7) // 8 if known_mask_width_bits > 0 else 0
+            )
+            known_mask_bytes, poff = _bytes(payload, poff, known_n)
+            z_mask_width_bits, poff = _u32le(payload, poff)
+            z_n = (z_mask_width_bits + 7) // 8 if z_mask_width_bits > 0 else 0
+            z_mask_bytes, poff = _bytes(payload, poff, z_n)
             if cur_cycle is None or cur_phase is None:
                 raise ParseError("ValueChange seen without active CycleBegin")
             evs.append(
@@ -365,9 +376,16 @@ def parse_pyctrace(
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser(description="Dump a pyCircuit v4.0 binary trace (.pyctrace).")
+    ap = argparse.ArgumentParser(
+        description="Dump a pyCircuit v6 binary trace (.pyctrace)."
+    )
     ap.add_argument("path", type=Path)
-    ap.add_argument("--manifest", type=Path, default=None, help="External probe_manifest.json (Decision 0037).")
+    ap.add_argument(
+        "--manifest",
+        type=Path,
+        default=None,
+        help="External probe_manifest.json (Decision 0037).",
+    )
     ap.add_argument("--max-cycles", type=int, default=10)
     ap.add_argument("--max-events", type=int, default=50)
     ap.add_argument("--no-header", action="store_true")
@@ -384,7 +402,9 @@ def main() -> int:
         return 2
 
     try:
-        schema_version, flags, probes, evs, writes, resets, invalidates = parse_pyctrace(p, external_manifest=manifest)
+        schema_version, flags, probes, evs, writes, resets, invalidates = (
+            parse_pyctrace(p, external_manifest=manifest)
+        )
     except ParseError as e:
         print(f"error: {p}: {e}", file=sys.stderr)
         return 2
@@ -406,7 +426,9 @@ def main() -> int:
     for d in probes:
         pid_to_path.setdefault(d.probe_id, d.canonical_path)
         if len(d.type_sig) >= 6 and d.type_sig[0] == 0:
-            pid_to_width.setdefault(d.probe_id, int(struct.unpack_from("<I", d.type_sig, 1)[0]))
+            pid_to_width.setdefault(
+                d.probe_id, int(struct.unpack_from("<I", d.type_sig, 1)[0])
+            )
 
     max_cycles = max(0, int(ns.max_cycles))
     max_events = max(0, int(ns.max_events))
@@ -418,7 +440,12 @@ def main() -> int:
     by_cycle_inval: dict[int, list[InvalidateEv]] = {}
 
     def _touch_cycle(cyc: int) -> bool:
-        if cyc in by_cycle_vc or cyc in by_cycle_wr or cyc in by_cycle_reset or cyc in by_cycle_inval:
+        if (
+            cyc in by_cycle_vc
+            or cyc in by_cycle_wr
+            or cyc in by_cycle_reset
+            or cyc in by_cycle_inval
+        ):
             return True
         if len(seen_cycles) >= max_cycles:
             return False
@@ -453,9 +480,15 @@ def main() -> int:
         print(f"cycle {cyc}: {len(cev)} value-change events, {len(cwr)} write events")
 
         for w in cwr[: min(len(cwr), max_events)]:
-            phase = Phase(w.phase).name.lower() if w.phase in set(int(x) for x in Phase) else str(w.phase)
+            phase = (
+                Phase(w.phase).name.lower()
+                if w.phase in {int(x) for x in Phase}
+                else str(w.phase)
+            )
             path = pid_to_path.get(w.probe_id, f"<unknown:0x{w.probe_id:016x}>")
-            sub = {0: "none", 1: "wire", 2: "reg", 3: "mem", 4: "statevar"}.get(int(w.subkind), str(w.subkind))
+            sub = {0: "none", 1: "wire", 2: "reg", 3: "mem", 4: "statevar"}.get(
+                int(w.subkind), str(w.subkind)
+            )
             addr = "" if w.addr is None else f" addr=0x{int(w.addr):x}"
             if w.data_width_bits <= 64:
                 dv = int.from_bytes(w.data_bytes, "little", signed=False)
@@ -468,17 +501,31 @@ def main() -> int:
                     mv = int.from_bytes(w.mask_bytes, "little", signed=False)
                     mask_str = f" mask=0x{mv:x}"
                 else:
-                    mask_str = f" mask=[bytes={len(w.mask_bytes)}] 0x{w.mask_bytes.hex()}"
+                    mask_str = (
+                        f" mask=[bytes={len(w.mask_bytes)}] 0x{w.mask_bytes.hex()}"
+                    )
             print(f"  - ({phase}) WRITE[{sub}] {path}{addr}{data_str}{mask_str}")
 
         for ev in cev[: min(len(cev), max_events)]:
-            phase = Phase(ev.phase).name.lower() if ev.phase in set(int(x) for x in Phase) else str(ev.phase)
+            phase = (
+                Phase(ev.phase).name.lower()
+                if ev.phase in {int(x) for x in Phase}
+                else str(ev.phase)
+            )
             width = pid_to_width.get(ev.probe_id, int(ev.width_bits))
             path = pid_to_path.get(ev.probe_id, f"<unknown:0x{ev.probe_id:016x}>")
             if width <= 64:
                 v = int.from_bytes(ev.value_bytes, "little", signed=False)
-                k = int.from_bytes(ev.known_mask_bytes, "little", signed=False) if ev.known_mask_bytes else 0
-                z = int.from_bytes(ev.z_mask_bytes, "little", signed=False) if ev.z_mask_bytes else 0
+                k = (
+                    int.from_bytes(ev.known_mask_bytes, "little", signed=False)
+                    if ev.known_mask_bytes
+                    else 0
+                )
+                z = (
+                    int.from_bytes(ev.z_mask_bytes, "little", signed=False)
+                    if ev.z_mask_bytes
+                    else 0
+                )
                 print(f"  - ({phase}) {path} = 0x{v:x} known=0x{k:x} z=0x{z:x}")
             else:
                 v_hx = ev.value_bytes.hex()
@@ -492,17 +539,39 @@ def main() -> int:
             print(f"  ... ({len(cev) - max_events} more)")
 
         for r in crs[: min(len(crs), max_events)]:
-            phase_name = "commit" if r.phase is None else (Phase(r.phase).name.lower() if r.phase in set(int(x) for x in Phase) else str(r.phase))
-            edge_name = {1: "RESET_ASSERT", 2: "RESET_DEASSERT"}.get(int(r.edge), f"RESET_{r.edge}")
+            phase_name = (
+                "commit"
+                if r.phase is None
+                else (
+                    Phase(r.phase).name.lower()
+                    if r.phase in {int(x) for x in Phase}
+                    else str(r.phase)
+                )
+            )
+            edge_name = {1: "RESET_ASSERT", 2: "RESET_DEASSERT"}.get(
+                int(r.edge), f"RESET_{r.edge}"
+            )
             kind_name = {1: "warm", 2: "flush"}.get(int(r.kind), str(r.kind))
             print(f"  - ({phase_name}) {edge_name} domain={r.domain} kind={kind_name}")
 
         for inv in cinv[: min(len(cinv), max_events)]:
-            phase_name = "commit" if inv.phase is None else (Phase(inv.phase).name.lower() if inv.phase in set(int(x) for x in Phase) else str(inv.phase))
-            reason_name = {1: "warm_reset", 2: "flush_reset", 255: "other"}.get(int(inv.reason), str(inv.reason))
+            phase_name = (
+                "commit"
+                if inv.phase is None
+                else (
+                    Phase(inv.phase).name.lower()
+                    if inv.phase in {int(x) for x in Phase}
+                    else str(inv.phase)
+                )
+            )
+            reason_name = {1: "warm_reset", 2: "flush_reset", 255: "other"}.get(
+                int(inv.reason), str(inv.reason)
+            )
             scope = f" scope={inv.scope}" if inv.scope else ""
             reason_text = f" text={inv.reason_text}" if inv.reason_text else ""
-            print(f"  - ({phase_name}) INVALIDATE domain={inv.domain}{scope} reason={reason_name}{reason_text}")
+            print(
+                f"  - ({phase_name}) INVALIDATE domain={inv.domain}{scope} reason={reason_name}{reason_text}"
+            )
 
     if len(seen_cycles) == 0:
         print("no trace events")

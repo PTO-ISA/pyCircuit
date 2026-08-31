@@ -2,21 +2,26 @@ name: Release
 
 on:
   workflow_dispatch:
+    inputs:
+      version:
+        description: Release version, matching pyproject.toml (for example 6.0.0)
+        required: true
+        type: string
   push:
     tags:
       - "v*"
 
 permissions:
-  contents: write
-  packages: write
-  id-token: write
+  contents: read
 
 env:
   LLVM_VERSION: "22"
+  LLVM_INSTALL_SCRIPT_SHA256: "03878e08f47b66cc95bc4b544b0db3c6d9ce8d60e6cf2492ae357984330a9eae"
   VERILATOR_VERSION: "5.048"
 
 jobs:
   build-packages:
+    if: github.repository == 'PTO-ISA/pyCircuit'
     strategy:
       fail-fast: false
       matrix:
@@ -26,7 +31,31 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: "3.11"
+
+      - name: Validate release version
+        id: version
+        shell: bash
+        env:
+          REQUESTED_VERSION: ${{ github.event_name == 'push' && github.ref_name || inputs.version }}
+        run: |
+          set -euo pipefail
+          requested="${REQUESTED_VERSION#v}"
+          project="$(python3 -c 'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["project"]["version"])')"
+          if [[ ! "${requested}" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.a-zA-Z0-9+-]*)?$ ]]; then
+            echo "invalid release version: ${requested}" >&2
+            exit 1
+          fi
+          if [[ "${requested}" != "${project}" ]]; then
+            echo "release version ${requested} does not match pyproject.toml ${project}" >&2
+            exit 1
+          fi
+          echo "version=${requested}" >> "${GITHUB_OUTPUT}"
 
       - name: Install deps (Ubuntu)
         if: runner.os == 'Linux'
@@ -35,7 +64,8 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y wget gnupg software-properties-common cmake ninja-build python3 python3-pip clang tar iverilog
           python3 -m pip install setuptools wheel
-          wget https://apt.llvm.org/llvm.sh
+          wget --https-only https://apt.llvm.org/llvm.sh
+          printf '%s  %s\n' "${LLVM_INSTALL_SCRIPT_SHA256}" llvm.sh | sha256sum --check --strict
           chmod +x llvm.sh
           sudo ./llvm.sh "${LLVM_VERSION}"
           sudo apt-get install -y "llvm-${LLVM_VERSION}-dev" "mlir-${LLVM_VERSION}-tools" "libmlir-${LLVM_VERSION}-dev"
@@ -59,7 +89,7 @@ jobs:
       - name: Build staged toolchain
         run: |
           set -euxo pipefail
-          VERSION="${GITHUB_REF_NAME#v}"
+          VERSION="${{ steps.version.outputs.version }}"
           PKG="pycircuit-${VERSION}-${RUNNER_OS}-${RUNNER_ARCH}"
           if [[ "${RUNNER_OS}" == "Linux" ]]; then
             LLVM_CONFIG="/usr/lib/llvm-${LLVM_VERSION}/bin/llvm-config"
@@ -95,7 +125,8 @@ jobs:
 
           python3 packaging/wheel/create_wheel.py \
             --install-dir "$PWD/.pycircuit_out/toolchain/install" \
-            --out-dir "$PWD/dist"
+            --out-dir "$PWD/dist" \
+            --wheel-version "${VERSION}"
 
           python3 -m venv .venv-wheel
           source .venv-wheel/bin/activate
@@ -107,7 +138,7 @@ jobs:
           bash flows/scripts/run_examples.sh
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: pycircuit-${{ runner.os }}-${{ runner.arch }}
           path: |
@@ -115,24 +146,30 @@ jobs:
             dist/*.whl
 
       - name: Check wheel metadata
+        env:
+          EXPECTED_VERSION: ${{ steps.version.outputs.version }}
         run: |
           set -euxo pipefail
           python3 -m pip install twine
           python3 -m twine check dist/*.whl
+          python3 -c 'import os; from pathlib import Path; from packaging.utils import parse_wheel_filename; expected=os.environ["EXPECTED_VERSION"]; versions={str(parse_wheel_filename(p.name)[1]) for p in Path("dist").glob("*.whl")}; assert versions == {expected}, f"wheel versions {versions} != {expected}"'
 
   github-packages:
     needs: [build-packages]
     runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: github.repository == 'PTO-ISA/pyCircuit' && startsWith(github.ref, 'refs/tags/v')
+    permissions:
+      contents: read
+      packages: write
     steps:
       - name: Download artifacts
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           path: dist
           merge-multiple: true
 
       - name: Set up ORAS
-        uses: oras-project/setup-oras@v1
+        uses: oras-project/setup-oras@22ce207df3b08e061f537244349aac6ae1d214f6 # v1
 
       - name: Login to GHCR
         run: echo "${{ secrets.GITHUB_TOKEN }}" | oras login ghcr.io -u "${{ github.actor }}" --password-stdin
@@ -158,17 +195,19 @@ jobs:
   github-release:
     needs: [build-packages]
     runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: github.repository == 'PTO-ISA/pyCircuit' && startsWith(github.ref, 'refs/tags/v')
+    permissions:
+      contents: write
 
     steps:
       - name: Download artifacts
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           path: dist
           merge-multiple: true
 
       - name: Publish GitHub Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
         with:
           files: |
             dist/*.tar.gz
@@ -177,18 +216,21 @@ jobs:
   pypi-publish:
     needs: [build-packages]
     runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/tags/v') && vars.PYC_PUBLISH_PYPI == '1'
+    if: github.repository == 'PTO-ISA/pyCircuit' && startsWith(github.ref, 'refs/tags/v') && vars.PYC_PUBLISH_PYPI == '1'
+    permissions:
+      contents: read
+      id-token: write
     environment:
       name: pypi
     steps:
       - name: Download wheel artifacts
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           path: dist
           merge-multiple: true
 
       - name: Publish to PyPI
-        uses: pypa/gh-action-pypi-publish@release/v1
+        uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # release/v1
         with:
           packages-dir: dist
           skip-existing: true

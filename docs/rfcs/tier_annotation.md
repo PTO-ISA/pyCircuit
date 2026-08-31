@@ -1,10 +1,12 @@
 # RFC: Tier 分层标注 —— 面向 3D 堆叠(TAO 细粒度逻辑折叠)的源码级层指派
 
+<!-- markdownlint-disable MD032 -->
+
 **Status:** Proposed
-**Scope:** 前端语法(V5/V6 cycle-aware API)、MLIR 属性、Verilog 发射、sidecar 交付物
+**Scope:** pyCircuit 6 cycle-aware API、MLIR 属性、Verilog 发射、sidecar 交付物
 **关联文档:**
 - 需求来源:`agentic_tao_physical_design_flow.md` §2.4(TAO 后端流程文档,位于 agentic_circuit_optimizer 项目)
-- 前置概念:`docs/PyCircuit_V5_Spec.md`(CycleAwareSignal 与周期元数据)、`docs/rfcs/pyc4.0-decisions.md`(稳定层次命名)
+- 前置概念：`docs/v6_PyCircuit_Specification.md`（CycleAwareSignal 与周期元数据）、`docs/rfcs/pyc6-decisions.md`（稳定层次命名）
 
 ---
 
@@ -112,4 +114,4 @@ outs = domain.call(alu, inputs={...}, tier=1)
 - 异质层(逻辑层 + 存储层)下,宏单元(SRAM)的 tier 指派是否需要独立的语法(如 `m.mem(..., tier=...)`)与更强的缺省锁定;
 - 混层输入的推断规则(多数票 vs 键合点代价最小)是否需要做成可配置策略;
 - 层次化编译缓存:同一子模块以不同 `tier` 缺省实例化时,是否进入特化缓存键(倾向:进入,与其他编译期参数一致);
-- sidecar 表的稳定 ID 规范与 `pyc4.0-decisions.md` 中 DFX 路径命名的统一。
+- sidecar 表的稳定 ID 规范与 `pyc6-decisions.md` 中 DFX 路径命名的统一。
