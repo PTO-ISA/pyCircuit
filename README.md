@@ -2,7 +2,8 @@
 
 <p align="center">
   <img src="https://img.shields.io/badge/License-BSD--3--Clause-blue.svg" alt="License">
-  <img src="https://img.shields.io/badge/Python-3.10%2B-green.svg" alt="Python">
+  <img src="https://img.shields.io/badge/pycircuit-Python%203.10%2B-green.svg" alt="pyCircuit Python 3.10 or later">
+  <img src="https://img.shields.io/badge/Agentic-Python%203.11%2B-green.svg" alt="Agentic Circuit Python 3.11 or later">
   <img src="https://img.shields.io/badge/MLIR-22-orange.svg" alt="MLIR">
   <a href="https://github.com/PTO-ISA/pyCircuit/actions"><img src="https://github.com/PTO-ISA/pyCircuit/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <a href="https://github.com/PTO-ISA/pyCircuit/actions/workflows/release.yml"><img src="https://github.com/PTO-ISA/pyCircuit/actions/workflows/release.yml/badge.svg" alt="Release"></a>

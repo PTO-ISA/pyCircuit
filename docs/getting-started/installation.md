@@ -1,14 +1,17 @@
 # Installation Guide
 
 This guide sets up the integrated pyCircuit 6 and Agentic Circuit development
-environment. Read [Choose a Frontend](choose-a-frontend.md) first if you only
-need one authoring surface.
+environment. The integrated setup requires Python 3.11 or later; pyCircuit-only
+frontend use supports Python 3.10. Read
+[Choose a Frontend](choose-a-frontend.md) first if you only need one authoring
+surface.
 
 ## System Requirements
 
 | Component | Minimum Version | Recommended Version |
 |-----------|---------------|---------------------|
-| Python | 3.10 | 3.14 |
+| pyCircuit Python | 3.10 | 3.14 |
+| Agentic Circuit Python | 3.11 | 3.14 |
 | LLVM | 22 | 22.1.8 |
 | CMake | 3.20 | 3.28+ |
 | Ninja | 1.10 | Latest |
@@ -25,7 +28,9 @@ sudo apt-get update
 sudo apt-get install -y cmake ninja-build python3 python3-pip clang wget
 
 # Install LLVM/MLIR 22 (Ubuntu 22.04+)
-wget https://apt.llvm.org/llvm.sh
+LLVM_INSTALL_SCRIPT_SHA256=03878e08f47b66cc95bc4b544b0db3c6d9ce8d60e6cf2492ae357984330a9eae
+wget --https-only https://apt.llvm.org/llvm.sh
+printf '%s  %s\n' "$LLVM_INSTALL_SCRIPT_SHA256" llvm.sh | sha256sum --check --strict
 chmod +x llvm.sh
 sudo ./llvm.sh 22
 sudo apt-get install -y llvm-22-dev mlir-22-tools libmlir-22-dev
@@ -38,8 +43,8 @@ mlir-opt --version
 ### macOS
 
 ```bash
-# Install Homebrew if not already installed
-/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+# Install Homebrew first by following the official instructions at:
+# https://brew.sh/
 
 # Install build tools
 brew install cmake ninja python@3
@@ -103,15 +108,10 @@ The wheel is platform-specific because it embeds `pycc`, the runtime archive,
 and the required LLVM/MLIR shared libraries. Use the wheel that matches your
 OS and architecture. A single wheel now covers Python 3.10+ on that platform.
 
-Published package install command:
-
-```bash
-python3 -m pip install pycircuit-hisi
-```
-
-The distribution name is `pycircuit-hisi` to avoid the existing unrelated
-`pycircuit` package on PyPI. The import path remains `pycircuit`, and the CLI
-entrypoints remain `pycircuit`, `pycc`, and `pyc-opt`.
+The reserved distribution name is `pycircuit-hisi` to avoid the existing
+unrelated `pycircuit` package on PyPI. The import path remains `pycircuit`, and
+the CLI entrypoints remain `pycircuit`, `pycc`, and `pyc-opt`. Do not use a PyPI
+installation command until the corresponding PTO-ISA release is published.
 
 ## Install Python Package
 
@@ -181,7 +181,8 @@ cmake -G Ninja -S . -B .pycircuit_out/toolchain/build ...
 
 ### Python Version Issues
 
-pyCircuit requires Python 3.10+. Check your version:
+pyCircuit requires Python 3.10 or later. Agentic Circuit and the integrated AC
+gates require Python 3.11 or later. Check your version:
 
 ```bash
 python3 --version
