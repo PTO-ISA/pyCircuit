@@ -9,11 +9,12 @@ ownership for pyCircuit.
 | --- | --- | --- |
 | [`PTO-ISA/pyCircuit`](https://github.com/PTO-ISA/pyCircuit) | Canonical upstream | Product decisions, default branch, releases, packages, documentation, CI policy |
 | [`LinxISA/pyCircuit`](https://github.com/LinxISA/pyCircuit) | Downstream fork | Linx integration staging and downstream validation |
-| `PTO-ISA/agentic-circuit` | Private historical archive after closure | Original issues, pull requests and audit history only; no active development or publishing |
+| [`PTO-ISA/agentic-circuit`](https://github.com/PTO-ISA/agentic-circuit) | Public migration source; retirement pending | Original issues, pull requests and audit history only; no new source development or publishing |
 
 The upstream repository is the only source of truth. Do not maintain a second
-independent product history in the LinxISA fork or the retired Agentic Circuit
-repository.
+independent product history in the LinxISA fork or the standalone Agentic
+Circuit repository. After retirement, the latter becomes a private historical
+archive.
 
 ## Change flow
 

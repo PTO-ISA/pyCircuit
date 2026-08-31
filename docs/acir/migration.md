@@ -1,8 +1,9 @@
 # Agentic Circuit Repository Migration
 
-Agentic Circuit is being consolidated from
-`PTO-ISA/agentic-circuit` into `PTO-ISA/pyCircuit`. The goal is one active
-source repository without collapsing the ACIR and PYC semantic layers.
+Agentic Circuit source and development authority are consolidated from
+`PTO-ISA/agentic-circuit` into `PTO-ISA/pyCircuit`. The result is one active
+source repository without collapsing the ACIR and PYC semantic layers. The old
+repository remains public only until the operational retirement gate closes.
 
 ## Recorded baselines
 
@@ -11,13 +12,17 @@ source repository without collapsing the ACIR and PYC semantic layers.
 | pyCircuit import parent | `1f1651f9bff4293deb1613324ab575b3322ab38b` |
 | Agentic Circuit import parent | `756002e2998b11dfe1fed14dc3d63cdad8be694c` |
 | Import tag | `agentic-circuit/import-0.3` |
+| Consolidation merge | `824a8434f72ba4c5da28402002c7c91897f120db` |
+| Migrated PR #23 merge | `a08618d48b595d67ca7d7e0a1b238ea45e4b80df` |
 
 The import is a non-squash merge. Original Agentic Circuit commits remain
 reachable, while the imported working tree is namespaced under
 `components/agentic-circuit/`.
 
 The implementation is reviewed in
-[pyCircuit PR #4](https://github.com/PTO-ISA/pyCircuit/pull/4).
+[pyCircuit PR #4](https://github.com/PTO-ISA/pyCircuit/pull/4). The migrated
+ACIR-to-C++ work from source PR #23 is reviewed in
+[pyCircuit PR #5](https://github.com/PTO-ISA/pyCircuit/pull/5).
 
 ## Compatibility commitments
 
@@ -42,6 +47,12 @@ The collaboration inventory is maintained in
 [`agentic-circuit-collaboration.md`](agentic-circuit-collaboration.md).
 
 ## Cutover rule
+
+Code consolidation is complete. Repository retirement is not complete: the
+current QEMU/PYC comparison still requires a current independent PYC producer
+or reviewed current fixture. Until that gate passes, keep the source repository
+public and unarchived, keep source PR #18 and #23 open as provenance records,
+and do not disable its remaining review surface.
 
 The standalone repository remains active until:
 

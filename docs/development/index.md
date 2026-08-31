@@ -4,6 +4,10 @@ pyCircuit 6 development is decision-driven and gate-first. CycleAwareSignal and
 automatic cycle balancing are current product contracts, not compatibility
 surfaces.
 
+The same repository also owns Agentic Circuit, ACIR/ACSim, and gfsim. Changes
+under `components/agentic-circuit/` follow the AC G0/G1/G2 matrix and must keep
+the separate frontend and IR boundaries defined by Decision 0150.
+
 ## Core references
 
 - [V6 language specification](../v6_PyCircuit_Specification.md)
@@ -26,6 +30,7 @@ bash flows/scripts/pyc build
 bash flows/scripts/run_examples.sh
 bash flows/scripts/run_sims.sh
 bash flows/scripts/run_sims_nightly.sh
+bash flows/scripts/run_agentic_circuit.sh
 python3 flows/tools/summarize_gate_run.py --run-id <run-id>
 ```
 
@@ -51,6 +56,7 @@ bash flows/scripts/run_sims.sh
 pyCircuit/
 ├── compiler/frontend/pycircuit/  # Python frontend
 ├── compiler/mlir/                # MLIR dialect, passes, and emitters
+├── components/agentic-circuit/   # AC frontend, ACIR/ACSim, gfsim, and tools
 ├── runtime/                      # C++ and Verilog runtime support
 ├── designs/examples/             # Supported examples
 ├── flows/                        # Build and gate orchestration

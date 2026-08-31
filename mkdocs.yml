@@ -69,6 +69,7 @@ nav:
   - Home: index.md
   - Getting Started:
       - Overview: getting-started/index.md
+      - Choose a Frontend: getting-started/choose-a-frontend.md
       - Installation: getting-started/installation.md
       - Quickstart: QUICKSTART.md
   - pyCircuit 6:

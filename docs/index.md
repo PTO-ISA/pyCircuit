@@ -5,9 +5,15 @@ CycleAwareSignal. The frontend tracks logical-cycle provenance, lowers
 automatic pipeline balancing to explicit `pyc` MLIR, and emits C++ and Verilog
 from the same verified design.
 
+The repository also hosts the separate `agentic_circuit` architecture-modeling
+frontend, ACIR/ACSim dialects, and gfsim runtime. Synthesizable ACIR models join
+the pyCircuit 6 flow at verified PYC; the Python and MLIR frontend namespaces do
+not collapse into one API.
+
 ## Start here
 
 - [Install pyCircuit](getting-started/installation.md)
+- [Choose between `pycircuit` and `agentic_circuit`](getting-started/choose-a-frontend.md)
 - [Follow the V6 tutorial](v6_PyCircuit_Tutorial.md)
 - [Read the V6 language specification](v6_PyCircuit_Specification.md)
 - [Understand the software architecture](v6_PyCircuit_Software_Architecture.md)
@@ -29,6 +35,8 @@ from the same verified design.
 - [IR specification](IR_SPEC.md)
 - [Diagnostics](DIAGNOSTICS.md)
 - [Sidecar schedule](SIDECAR_SCHEDULE.md)
+- [Agentic Circuit and ACIR](acir/index.md)
+- [Repository migration status](acir/migration.md)
 
 ## Development and governance
 

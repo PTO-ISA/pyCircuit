@@ -1,6 +1,8 @@
 # Installation Guide
 
-This guide covers setting up the pyCircuit development environment.
+This guide sets up the integrated pyCircuit 6 and Agentic Circuit development
+environment. Read [Choose a Frontend](choose-a-frontend.md) first if you only
+need one authoring surface.
 
 ## System Requirements
 
@@ -69,10 +71,11 @@ cmake -G Ninja -S . -B .pycircuit_out/toolchain/build \
   -DCMAKE_BUILD_TYPE=Release \
   -DCMAKE_INSTALL_PREFIX="$PWD/.pycircuit_out/toolchain/install" \
   -DLLVM_DIR="$LLVM_DIR" \
-  -DMLIR_DIR="$MLIR_DIR"
+  -DMLIR_DIR="$MLIR_DIR" \
+  -DPYC_BUILD_AGENTIC_CIRCUIT=ON
 
-# Build and stage the compiler toolchain
-ninja -C .pycircuit_out/toolchain/build pycc pyc-opt pyc6_runtime
+# Build and stage pyCircuit plus the integrated ACIR/ACSim/gfsim tools
+ninja -C .pycircuit_out/toolchain/build all
 cmake --install .pycircuit_out/toolchain/build --prefix "$PWD/.pycircuit_out/toolchain/install"
 
 # Verify the build
@@ -125,6 +128,26 @@ the toolchain with `bash flows/scripts/pyc build` and export
 `PYC_TOOLCHAIN_ROOT="$PWD/.pycircuit_out/toolchain/install"`, or install a
 release wheel instead.
 
+## Install Agentic Circuit
+
+Agentic Circuit remains a second distribution and import namespace in the same
+repository:
+
+```bash
+python3 -m pip install -e "components/agentic-circuit[test]"
+python3 -c "import agentic_circuit; print(agentic_circuit.__name__)"
+agentic-circuit --help
+```
+
+This installation provides the Python frontend and CLI. Build the repository
+toolchain to obtain `acir-opt`, `acir-build`, ACIR/ACSim libraries, and gfsim.
+The canonical `bash flows/scripts/pyc build` command enables the integrated
+Agentic Circuit component by default. Schema-backed CLI commands also require
+the generated Python resource tree under
+`components/agentic-circuit/build/dev-llvm22/python`; the canonical
+`run_agentic_circuit.sh` gate configures it and uses the matching Python
+environment.
+
 ## Verify Your Setup
 
 ```bash
@@ -135,6 +158,13 @@ bash flows/scripts/run_examples.sh
 # Compiling counter... OK
 # Compiling calculator... OK
 # Compiling fifo_loopback... OK
+```
+
+To validate the complete Agentic Circuit integration:
+
+```bash
+PYC_GATE_RUN_ID=local-ac-$(date +%Y%m%d-%H%M%S) \
+bash flows/scripts/run_agentic_circuit.sh
 ```
 
 ## Troubleshooting

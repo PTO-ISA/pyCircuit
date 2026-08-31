@@ -1,7 +1,8 @@
 # Getting Started
 
-Use this section to install pyCircuit 6 and run the supported cycle-aware
-design flow.
+Use this section to choose a frontend, install the integrated repository, and
+run either the pyCircuit 6 hardware flow or the Agentic Circuit architecture
+flow.
 
 ## Prerequisites
 
@@ -13,11 +14,12 @@ design flow.
 ## What is covered
 
 - [Installation](installation.md)
+- [Choose a frontend](choose-a-frontend.md)
 - [Repository quickstart](../QUICKSTART.md)
 - [V6 tutorial](../v6_PyCircuit_Tutorial.md)
 - [V6 language specification](../v6_PyCircuit_Specification.md)
 
-## Installation Options
+## Installation options
 
 ### Full development setup
 
@@ -58,5 +60,9 @@ project that already exists on PyPI. The import path remains `pycircuit`.
 
 ## Next Steps
 
-After installation, follow the [V6 tutorial](../v6_PyCircuit_Tutorial.md) for a
-CycleAwareSignal design and testbench.
+After installation:
+
+- follow the [V6 tutorial](../v6_PyCircuit_Tutorial.md) for Cycle-Aware Signal
+  hardware and testbenches; or
+- read the [ACIR overview](../acir/index.md) for architecture, process, queue,
+  and resource modeling.

@@ -21,6 +21,11 @@ pyCircuit and Agentic Circuit.
 [`LinxISA/pyCircuit`](https://github.com/LinxISA/pyCircuit) is its downstream
 fork for Linx integration work.
 
+The standalone [`PTO-ISA/agentic-circuit`](https://github.com/PTO-ISA/agentic-circuit)
+repository remains public only as a migration and review record. New AC source,
+issues, releases, and packages belong in `PTO-ISA/pyCircuit`; the old repository
+is not archived until the independent QEMU/PYC retirement gate passes.
+
 ## Why pyCircuit 6
 
 - **Cycle-aware signals:** `CycleAwareSignal` carries logical-cycle provenance.
@@ -34,6 +39,22 @@ fork for Linx integration work.
 - **Scalable validation:** legality, cycle, depth, clock-domain, trace, and
   backend-equivalence gates are part of the repository workflow.
 
+## Choose a frontend
+
+| Goal | Distribution | Python import | Primary IR and runtime |
+| --- | --- | --- | --- |
+| Construct cycle-aware hardware | `pycircuit-hisi` | `pycircuit` | PYC → `pycc` → `libpyc6_runtime` / Verilog |
+| Model architecture, processes, resources, and queues | `agentic-circuit` | `agentic_circuit` | ACPy/ACIR → ACSim/gfsim, or ACIR → PYC |
+
+Use `pycircuit` when the design contract is signals, registers, memories,
+pipeline timing, and synthesizable hardware. Use `agentic_circuit` when the
+source model describes architectural processes, queues, resources, scheduling,
+or workloads. The namespaces remain separate even when both frontends converge
+on verified PYC for hardware generation.
+
+See [Choose a frontend](docs/getting-started/choose-a-frontend.md) for the
+supported entrypoints and first commands.
+
 ## Install
 
 The canonical pyCircuit 6 source installation is:
@@ -46,13 +67,18 @@ pre-commit install
 bash flows/scripts/pyc build
 ```
 
-The Agentic Circuit frontend remains a separate distribution and Python
-namespace in the same source repository:
+Install the Agentic Circuit distribution from the same checkout when using
+ACPy, ACIR, ACSim, or gfsim:
 
 ```bash
-python3 -m pip install -e components/agentic-circuit
+python3 -m pip install -e "components/agentic-circuit[test]"
 agentic-circuit --help
 ```
+
+The source CLI's schema-backed commands also need the generated AC Python
+resource tree. The canonical `run_agentic_circuit.sh` gate configures that tree
+and supplies the required `PYTHONPATH`; installation alone is sufficient for
+imports and `--help`, not for compiling a workspace.
 
 Release wheels, once published, use the distribution name `pycircuit-hisi`;
 the Python import remains `pycircuit`. The repository does not claim a PyPI
@@ -137,14 +163,15 @@ bash flows/scripts/run_examples.sh
 bash flows/scripts/run_sims.sh
 ```
 
-Run the Agentic Circuit frontend and contract lane:
+Run the complete Agentic Circuit G0/G1/G2 closure from the integrated checkout:
 
 ```bash
-PYTHONPATH=components/agentic-circuit/src \
-python3 -m unittest discover \
-  -s components/agentic-circuit/tests \
-  -p 'test_*.py'
+PYC_GATE_RUN_ID=local-ac-$(date +%Y%m%d-%H%M%S) \
+bash flows/scripts/run_agentic_circuit.sh
 ```
+
+The script installs the current AC frontend, builds ACIR/ACSim/gfsim, runs the
+MLIR and C++ suites, and validates canonical ACIR-to-PYC-to-C++/Verilog cases.
 
 System tests require a built toolchain and Verilator:
 
@@ -157,6 +184,7 @@ pytest tests/system -m system
 - [V6 language specification](docs/v6_PyCircuit_Specification.md)
 - [V6 tutorial](docs/v6_PyCircuit_Tutorial.md)
 - [V6 software architecture](docs/v6_PyCircuit_Software_Architecture.md)
+- [Choose a frontend](docs/getting-started/choose-a-frontend.md)
 - [Frontend API](docs/FRONTEND_API.md)
 - [Testbench API](docs/TESTBENCH.md)
 - [IR specification](docs/IR_SPEC.md)
@@ -170,8 +198,9 @@ pytest tests/system -m system
 PTO-ISA owns product decisions, both Python distributions, releases, package
 publication, and the default branch. Linx integration changes should be
 developed so they can be reviewed upstream; the LinxISA fork follows the
-upstream default branch. The former standalone Agentic Circuit repository is
-retired only after both AC and PYC closure gates pass.
+upstream default branch. The standalone Agentic Circuit repository remains a
+public migration record until the current QEMU/PYC comparison and operational
+cutover checklist pass; it is not an active development or publishing source.
 
 - [Contribution workflow](docs/development/contributing-workflow.md)
 - [Testing and gates](docs/development/testing-and-gates.md)
