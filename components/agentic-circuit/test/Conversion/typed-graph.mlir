@@ -1,7 +1,7 @@
 // RUN: %acir_opt --verify-each=false --pass-pipeline='builtin.module(ac-freeze-topology)' %s -o %t.frozen
 // RUN: %acir_opt --ac-lower-to-acsim --ac-binding-registry=%S/Inputs/stateful-graph.json --ac-binding-profile=fast --ac-binding-target=arm64-apple-darwin %t.frozen | %FileCheck %s
 
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   ac.protocol @wire {
     ac.role @sender dual @receiver cardinality "exclusive"
     ac.role @receiver dual @sender cardinality "exclusive"

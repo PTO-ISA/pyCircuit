@@ -3,7 +3,7 @@
 // RUN: %acir_opt --emit-bytecode -o %t.bc %s
 // RUN: %acir_opt %t.bc | %FileCheck %s
 
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   %input = ac.source depth 8 latency 1 : !ac.queue<i8>
   %completed = ac.dependency %input capacity 16 resources 4 no_dependency 255 depth 8 latency 1 key {
   ^key(%item: !ac.var<i8>):

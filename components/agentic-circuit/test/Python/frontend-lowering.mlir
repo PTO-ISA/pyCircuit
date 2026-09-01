@@ -3,7 +3,7 @@
 // RUN: %acir_opt_public %t/process.mlir -o /dev/null
 
 //--- hierarchy.mlir
-module attributes {ac.contract_epoch = "0.3"} {
+module attributes {ac.contract_epoch = "0.4"} {
   ac.system @main root @pipeline as "root" tick 0 "cycle"
       seed {kind = "fixed", value = 0 : i64}
       instrumentation [] results {id = "default", format = "json"} selected true
@@ -18,7 +18,7 @@ module attributes {ac.contract_epoch = "0.3"} {
 }
 
 //--- process.mlir
-module attributes {ac.contract_epoch = "0.3"} {
+module attributes {ac.contract_epoch = "0.4"} {
   ac.system @main root @top as "root" tick 0 "cycle"
       workload @top::@workload seed {kind = "fixed", value = 0 : i64}
       instrumentation [] results {id = "default", format = "json"} selected true

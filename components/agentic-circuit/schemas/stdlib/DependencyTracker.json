@@ -1,7 +1,7 @@
 {
   "schema_kind": "agentic-circuit-component",
   "schema_version": "0.1",
-  "contract_epoch": "0.3",
+  "contract_epoch": "0.4",
   "canonical_name": "ac.DependencyTracker",
   "family": "control",
   "provider_namespace": "ac",
@@ -145,5 +145,5 @@
     ],
     "histograms": []
   },
-  "schema_fingerprint": "sha256:3b7d380f363ff2a96db3860b36dfab088b093c0a9c53fcf9a8439bc1cd79d537"
+  "schema_fingerprint": "sha256:96ef7dcde7de65061da5f54e6d12e0019a462ac1d5947d8f604eb624be652938"
 }

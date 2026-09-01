@@ -30,7 +30,7 @@ struct ACIRToACSimPassOptions {
 
 /// Create the atomic `ac-lower-to-acsim` pass.
 ///
-/// The pass converts one frozen, verified ACIR file (contract epoch "0.3",
+/// The pass converts one frozen, verified ACIR file (contract epoch "0.4",
 /// `ac.topology_frozen = true`, exactly one selected ac.system) into one
 /// canonical ACSim model in a single transaction. Every validation failure
 /// is diagnosed with an ACLOWER-* code before any mutation, so a failed

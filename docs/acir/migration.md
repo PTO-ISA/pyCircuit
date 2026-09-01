@@ -11,7 +11,7 @@ repository remains public only until the operational retirement gate closes.
 | --- | --- |
 | pyCircuit import parent | `1f1651f9bff4293deb1613324ab575b3322ab38b` |
 | Agentic Circuit import parent | `756002e2998b11dfe1fed14dc3d63cdad8be694c` |
-| Import tag | `agentic-circuit/import-0.3` |
+| Import tag | `agentic-circuit/import-0.4` |
 | Consolidation merge | `824a8434f72ba4c5da28402002c7c91897f120db` |
 | Migrated PR #23 merge | `a08618d48b595d67ca7d7e0a1b238ea45e4b80df` |
 
@@ -28,7 +28,7 @@ ACIR-to-C++ work from source PR #23 is reviewed in
 
 - Preserve `agentic-circuit` as a distribution and CLI.
 - Preserve `agentic_circuit` as the import namespace.
-- Preserve ACPy epoch `0.3` and canonical ACIR unless a later accepted decision
+- Preserve ACPy epoch `0.4` and canonical ACIR unless a later accepted decision
   records an intentional break.
 - Preserve ACIR and ACSim dialect/tool names.
 - Replace obsolete external pyCircuit and `libpyc4_runtime` assumptions with

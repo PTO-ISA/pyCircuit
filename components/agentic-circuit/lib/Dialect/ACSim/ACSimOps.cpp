@@ -189,7 +189,7 @@ LogicalResult verifyBindingLockShape(BindingOp binding) {
   auto availability = record.getAs<StringAttr>("availability");
   if (!identity || identity.getValue() != binding.getSymName() ||
       binding.getBindingSchema() != "acsim-binding-0.1" || !epoch ||
-      epoch.getValue() != "0.3" || !availability ||
+      epoch.getValue() != "0.4" || !availability ||
       availability.getValue() != "available" ||
       (binding.getEffect() != "pure" && binding.getEffect() != "stateful") ||
       !binding.getCppTypeAttr() || !binding.getSchemaAttr() ||
@@ -2740,8 +2740,8 @@ void ProcessOp::print(OpAsmPrinter &printer) {
 }
 
 LogicalResult ModelOp::verify() {
-  if (getContractEpoch() != "0.3")
-    return emitOpError("contract epoch must be exactly \"0.3\"");
+  if (getContractEpoch() != "0.4")
+    return emitOpError("contract epoch must be exactly \"0.4\"");
   auto parentModule = dyn_cast_or_null<mlir::ModuleOp>((*this)->getParentOp());
   if (!parentModule)
     return emitOpError("acsim.model must be directly inside builtin.module");
@@ -3108,10 +3108,10 @@ LogicalResult verifyCanonicalACSimFile(mlir::ModuleOp module) {
         "canonical acsim.model must be directly inside the file module");
   auto epoch = module->getAttrOfType<StringAttr>("ac.contract_epoch");
   auto discardable = module->getDiscardableAttrs();
-  if (!epoch || epoch.getValue() != "0.3" ||
+  if (!epoch || epoch.getValue() != "0.4" ||
       std::distance(discardable.begin(), discardable.end()) != 1)
     return module.emitError("canonical ACSim file attributes must be exactly "
-                            "ac.contract_epoch = \"0.3\"");
+                            "ac.contract_epoch = \"0.4\"");
   return success();
 }
 

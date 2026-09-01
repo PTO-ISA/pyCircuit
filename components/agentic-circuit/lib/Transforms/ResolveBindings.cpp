@@ -249,10 +249,10 @@ resolveModuleBindings(ModuleOp module,
                       const ResolveBindingsPassOptions &options) {
   auto frozen = module->getAttrOfType<BoolAttr>("ac.topology_frozen");
   auto epoch = module->getAttrOfType<StringAttr>("ac.freeze_epoch");
-  if (!frozen || !frozen.getValue() || !epoch || epoch.getValue() != "0.3")
+  if (!frozen || !frozen.getValue() || !epoch || epoch.getValue() != "0.4")
     return llvm::createStringError(
         llvm::errc::invalid_argument,
-        "ACLOWER-BINDING-MISSING: frozen ACIR topology epoch 0.3 is required");
+        "ACLOWER-BINDING-MISSING: frozen ACIR topology epoch 0.4 is required");
   if (failed(verifyModel(module)))
     return llvm::createStringError(llvm::errc::invalid_argument,
                                    "ACLOWER-FINGERPRINT: frozen ACIR topology "

@@ -118,13 +118,13 @@ def blocks(cfg: ac.const[Config]) -> None:
     incoming = ac.source(Request)
     left, right = ac.fork(incoming, outputs=cfg.outputs, depth=2)
     left_ready, right_ready = ac.barrier(left, right, depth=2)
-    response = ac.table(
+    storage = ac.memory(ac.u16, entries=cfg.entries, init=0, latency=1)
+    response = storage.request(
         left_ready,
-        address=Request.address,
-        write=Request.write,
-        data=Request.data,
-        result=Request.data,
-        entries=cfg.entries,
+        address=lambda request: request.address,
+        write=lambda request: request.write,
+        data=lambda request: request.data,
+        result_field="data",
         depth=4,
     )
     ac.sink(response)
@@ -424,7 +424,7 @@ class JitQueueLoweringTest(unittest.TestCase):
                 },
             )
 
-    def test_simple_structural_and_table_blocks_reuse_existing_acir(self) -> None:
+    def test_simple_structural_and_memory_blocks_reuse_existing_acir(self) -> None:
         from agentic_circuit._queue_codegen import lower_queue_program_to_cpp
         from agentic_circuit._queue_frontend import (
             lower_queue_source,
@@ -443,10 +443,10 @@ class JitQueueLoweringTest(unittest.TestCase):
         self.assertIn("%left, %right = ac.fork %incoming", lowered)
         self.assertIn("%left_ready, %right_ready = ac.barrier %left, %right", lowered)
         self.assertIn(
-            "ac.memory.instance @response__table data i16 entries 32", lowered
+            "ac.memory.instance @storage data i16 entries 32", lowered
         )
         self.assertIn(
-            "%response = ac.memory.request @response__table, %left_ready", lowered
+            "%response = ac.memory.request @storage, %left_ready", lowered
         )
         self.assertIn('result_field "data"', lowered)
         program = parse_queue_program(

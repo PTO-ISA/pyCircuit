@@ -40,109 +40,109 @@
 // MALFORMED-TOPOLOGY: error: expected ','
 
 //--- vector-zero.mlir
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   "builtin.unrealized_conversion_cast"() : () -> !ac.vector<0 x i8>
 }
 
 //--- vector-negative.mlir
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   "builtin.unrealized_conversion_cast"() : () -> !ac.vector<-2 x i8>
 }
 
 //--- vector-overflow.mlir
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   "builtin.unrealized_conversion_cast"() : () -> !ac.vector<9223372036854775808 x i8>
 }
 
 //--- vector-minimum.mlir
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   "builtin.unrealized_conversion_cast"() : () -> !ac.vector<-9223372036854775808 x i8>
 }
 
 //--- vector-underflow.mlir
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   "builtin.unrealized_conversion_cast"() : () -> !ac.vector<-9223372036854775809 x i8>
 }
 
 //--- channel-nested.mlir
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   "builtin.unrealized_conversion_cast"() : () -> !ac.optional<!ac.channel<i8, @ready_valid>>
 }
 
 //--- channel-standalone.mlir
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   "builtin.unrealized_conversion_cast"() : () -> !ac.channel<i8, @ready_valid>
 }
 
 //--- channel-tuple.mlir
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   "builtin.unrealized_conversion_cast"() : () -> tuple<i8, tuple<!ac.channel<i8, @ready_valid>>>
 }
 
 //--- channel-function.mlir
 builtin.module attributes {
-  ac.contract_epoch = "0.3",
+  ac.contract_epoch = "0.4",
   test.signature = (i8) -> !ac.channel<i8, @ready_valid>
 } {
 }
 
 //--- channel-type-attr.mlir
 builtin.module attributes {
-  ac.contract_epoch = "0.3",
+  ac.contract_epoch = "0.4",
   test.type = !ac.channel<i8, @ready_valid>
 } {
 }
 
 //--- channel-composite-attr.mlir
 builtin.module attributes {
-  ac.contract_epoch = "0.3",
+  ac.contract_epoch = "0.4",
   test.types = [tuple<i8, !ac.channel<i8, @ready_valid>>]
 } {
 }
 
 //--- rate-numerator.mlir
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   "builtin.unrealized_conversion_cast"() : () -> !ac.rate<cycles, cycles>
 }
 
 //--- rate-denominator.mlir
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   "builtin.unrealized_conversion_cast"() : () -> !ac.rate<bytes, packets>
 }
 
 //--- duration-data-unit.mlir
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   "builtin.unrealized_conversion_cast"() : () -> !ac.duration<bytes>
 }
 
 //--- unknown-unit.mlir
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   "builtin.unrealized_conversion_cast"() : () -> !ac.duration<femtoseconds>
 }
 
 //--- malformed-named.mlir
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   "builtin.unrealized_conversion_cast"() : () -> !ac.struct<i8>
 }
 
 //--- malformed-aggregate.mlir
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   "builtin.unrealized_conversion_cast"() : () -> !ac.optional<>
 }
 
 //--- malformed-topology.mlir
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   "builtin.unrealized_conversion_cast"() : () -> !ac.flow<i8>
 }
 
 //--- union-non-symbol.mlir
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   "builtin.unrealized_conversion_cast"() : () -> !ac.union<i32>
 }
 // UNION-PARAM: error: invalid kind of attribute specified
 
 //--- address-non-symbol.mlir
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   "builtin.unrealized_conversion_cast"() : () -> !ac.address<i32>
 }
 // ADDRESS-PARAM: error: invalid kind of attribute specified

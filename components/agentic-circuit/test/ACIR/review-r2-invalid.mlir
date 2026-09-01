@@ -30,74 +30,74 @@
 // DESERIALIZE-ELEMENT: error: {{.*}}packet.deserialize operand must be an i8 byte vector
 
 //--- malformed-field.mlir
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   "ac.type_scope"() <{sym_name = "types"}> ({
     "ac.transaction"() <{sym_name = "T", fields = ["oops"]}> : () -> ()
   }) : () -> ()
 }
 
 //--- missing-name.mlir
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   "ac.type_scope"() <{sym_name = "types"}> ({
     "ac.transaction"() <{sym_name = "T", fields = [{type = i8}]}> : () -> ()
   }) : () -> ()
 }
 
 //--- missing-type.mlir
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   "ac.type_scope"() <{sym_name = "types"}> ({
     "ac.transaction"() <{sym_name = "T", fields = [{name = "value"}]}> : () -> ()
   }) : () -> ()
 }
 
 //--- wrong-typed-non-list-bound.mlir
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   "ac.type_scope"() <{sym_name = "types"}> ({
     "ac.transaction"() <{sym_name = "T", fields = [{name = "value", type = i8, max_length = "oops"}]}> : () -> ()
   }) : () -> ()
 }
 
 //--- wrong-typed-list-bound.mlir
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   "ac.type_scope"() <{sym_name = "types"}> ({
     "ac.transaction"() <{sym_name = "T", fields = [{name = "items", type = !ac.list<i8>, max_length = "oops"}]}> : () -> ()
   }) : () -> ()
 }
 
 //--- nested-list-no-bound.mlir
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   "ac.type_scope"() <{sym_name = "types"}> ({
     "ac.transaction"() <{sym_name = "T", fields = [{name = "items", type = !ac.optional<!ac.vector<2 x !ac.list<i8>>>}]}> : () -> ()
   }) : () -> ()
 }
 
 //--- noncanonical-list-bound.mlir
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   "ac.type_scope"() <{sym_name = "types"}> ({
     "ac.transaction"() <{sym_name = "T", fields = [{name = "items", type = !ac.list<i8>, max_length = 4 : i32}]}> : () -> ()
   }) : () -> ()
 }
 
 //--- union-discriminator-type.mlir
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   "ac.type_scope"() <{sym_name = "types"}> ({
     "ac.union"() <{sym_name = "U", fields = [{name = "tag", type = f32}], discriminator = "tag"}> : () -> ()
   }) : () -> ()
 }
 
 //--- create-unresolved.mlir
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   %value = "builtin.unrealized_conversion_cast"() : () -> i8
   %record = "ac.record.create"(%value) <{field_names = ["value"]}> : (i8) -> !ac.transaction<@types::@Missing>
 }
 
 //--- create-non-record.mlir
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   %record = "ac.record.create"() <{field_names = []}> : () -> i8
 }
 
 //--- create-field-order.mlir
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   "ac.type_scope"() <{sym_name = "types"}> ({
     "ac.transaction"() <{sym_name = "T", fields = [{name = "first", type = i8}, {name = "second", type = i8}]}> : () -> ()
   }) : () -> ()
@@ -107,19 +107,19 @@ builtin.module attributes {ac.contract_epoch = "0.3"} {
 }
 
 //--- serialize-flat-attr.mlir
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   %packet = "builtin.unrealized_conversion_cast"() : () -> !ac.packet<@types::@P>
   %bytes = "ac.packet.serialize"(%packet) <{packet = @P}> : (!ac.packet<@types::@P>) -> !ac.vector<8 x i8>
 }
 
 //--- deserialize-flat-attr.mlir
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   %bytes = "builtin.unrealized_conversion_cast"() : () -> !ac.vector<8 x i8>
   %packet = "ac.packet.deserialize"(%bytes) <{packet = @P}> : (!ac.vector<8 x i8>) -> !ac.packet<@types::@P>
 }
 
 //--- deserialize-element.mlir
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   "ac.type_scope"() <{sym_name = "types"}> ({
     "ac.packet"() <{sym_name = "P", fields = []}> : () -> ()
   }) {dlti.dl_spec = #dlti.dl_spec<!ac.packet<@types::@P> = {abi_alignment = 1 : i64, endianness = "little", preferred_alignment = 1 : i64, serialization_width = 8 : i64, size = 8 : i64}>} : () -> ()

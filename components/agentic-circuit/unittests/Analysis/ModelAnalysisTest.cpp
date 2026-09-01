@@ -46,7 +46,7 @@ static_assert(!ExposesOwnerWork<ModelAnalysis>);
 static_assert(!ExposesProcessSkeleton<ProcessOp>);
 
 constexpr llvm::StringLiteral kProcessModel = R"mlir(
-  builtin.module attributes {ac.contract_epoch = "0.3"} {
+  builtin.module attributes {ac.contract_epoch = "0.4"} {
     ac.protocol @p32 {
       ac.role @sender dual @receiver cardinality "exclusive"
       ac.role @receiver dual @sender cardinality "exclusive"
@@ -218,7 +218,7 @@ OwningOpRef<mlir::ModuleOp> makeFlatAddressModel(MLIRContext &context,
   OpBuilder builder(&context);
   Location loc = builder.getUnknownLoc();
   auto model = mlir::ModuleOp::create(loc);
-  model->setAttr("ac.contract_epoch", builder.getStringAttr("0.3"));
+  model->setAttr("ac.contract_epoch", builder.getStringAttr("0.4"));
   builder.setInsertionPointToStart(model.getBody());
   auto top =
       ac::ModuleOp::create(builder, loc, "Top", builder.getFunctionType({}, {}),
@@ -264,7 +264,7 @@ OwningOpRef<mlir::ModuleOp> makeDeepProcessModel(MLIRContext &context,
                                                  uint64_t depth) {
   context.loadDialect<arith::ArithDialect>();
   auto model = parseSourceString<mlir::ModuleOp>(R"mlir(
-    builtin.module attributes {ac.contract_epoch = "0.3"} {
+    builtin.module attributes {ac.contract_epoch = "0.4"} {
       ac.system @soc root @Top as "root" tick 0 "cycle"
           workload @Top::@workload seed {kind = "fixed", value = 0 : i64}
           instrumentation [] results {id = "default", format = "json"}
@@ -295,7 +295,7 @@ OwningOpRef<mlir::ModuleOp> makeNestedScfModel(MLIRContext &context,
                                                uint64_t scfDepth) {
   context.loadDialect<arith::ArithDialect, scf::SCFDialect>();
   auto model = parseSourceString<mlir::ModuleOp>(R"mlir(
-    builtin.module attributes {ac.contract_epoch = "0.3"} {
+    builtin.module attributes {ac.contract_epoch = "0.4"} {
       ac.system @soc root @Top as "root" tick 0 "cycle"
           workload @Top::@workload seed {kind = "fixed", value = 0 : i64}
           instrumentation [] results {id = "default", format = "json"}
@@ -330,7 +330,7 @@ public:
       : model(mlir::ModuleOp::create(UnknownLoc::get(&context))) {
     context.allowUnregisteredDialects();
     OpBuilder builder(&context);
-    (*model)->setAttr("ac.contract_epoch", builder.getStringAttr("0.3"));
+    (*model)->setAttr("ac.contract_epoch", builder.getStringAttr("0.4"));
     Block *block = model->getBody();
     for (uint64_t index = 0; index < depth; ++index) {
       OperationState state(UnknownLoc::get(&context), "test.nested");
@@ -561,7 +561,7 @@ TEST(ModelAnalysisTest, FrozenMutationCannotBeResealedThroughPublicRoutes) {
 
   auto partial = parseSourceString<mlir::ModuleOp>(kProcessModel, &context);
   ASSERT_TRUE(partial);
-  (*partial)->setAttr("ac.freeze_epoch", StringAttr::get(&context, "0.3"));
+  (*partial)->setAttr("ac.freeze_epoch", StringAttr::get(&context, "0.4"));
   EXPECT_NE(
       runFreeze(context, *partial).find("malformed topology freeze marker"),
       std::string::npos);
@@ -624,7 +624,7 @@ TEST(ModelAnalysisTest,
       if (!model)
         return model;
       if (testCase.evidence == Evidence::PartialEpoch)
-        (*model)->setAttr("ac.freeze_epoch", StringAttr::get(&context, "0.3"));
+        (*model)->setAttr("ac.freeze_epoch", StringAttr::get(&context, "0.4"));
       else
         (*model)->setAttr("ac.topology_digest",
                           StringAttr::get(&context, std::string(64, '0')));
@@ -679,7 +679,7 @@ TEST(ModelAnalysisTest, FrozenDigestCommitsNestedGuardParentage) {
   registerAllDialects(registry);
   MLIRContext context(registry);
   OwningOpRef<mlir::ModuleOp> model = parseAndFreeze(context, R"mlir(
-    builtin.module attributes {ac.contract_epoch = "0.3"} {
+    builtin.module attributes {ac.contract_epoch = "0.4"} {
       ac.protocol @p {
         ac.role @a dual @b cardinality "exclusive"
         ac.role @b dual @a cardinality "exclusive"
@@ -728,7 +728,7 @@ TEST(ModelAnalysisTest, AddressSpacesFreezeAsAbsoluteStateOwners) {
   registerAllDialects(registry);
   MLIRContext context(registry);
   OwningOpRef<mlir::ModuleOp> model = parseAndFreeze(context, R"mlir(
-    builtin.module attributes {ac.contract_epoch = "0.3"} {
+    builtin.module attributes {ac.contract_epoch = "0.4"} {
       ac.system @soc root @Top as "root" tick 0 "cycle"
           workload @Top::@workload seed {kind = "fixed", value = 0 : i64}
           instrumentation [] results {id = "default", format = "json"}
@@ -1014,7 +1014,7 @@ TEST(ModelAnalysisTest, ProcessSkeletonIncludesNestedControlParents) {
   registerAllDialects(registry);
   MLIRContext context(registry);
   OwningOpRef<mlir::ModuleOp> model = parseAndFreeze(context, R"mlir(
-    builtin.module attributes {ac.contract_epoch = "0.3"} {
+    builtin.module attributes {ac.contract_epoch = "0.4"} {
       ac.system @soc root @Top as "root" tick 0 "cycle"
           workload @Top::@workload seed {kind = "fixed", value = 0 : i64}
           instrumentation [] results {id = "default", format = "json"}

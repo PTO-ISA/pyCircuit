@@ -12,7 +12,7 @@
       "component_schema": "ac.Leaf",
       "component_schema_fingerprint": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
       "construction": {"arguments": [8], "kind": "constructor"},
-      "contract_epoch": "0.3",
+      "contract_epoch": "0.4",
       "cpp": {
         "concept": "gfsim::PureModel",
         "entry_points": {"pure": "gfsim::leaf", "reset": "", "validate": "", "work": "", "xfer": ""},
@@ -22,7 +22,7 @@
       },
       "cpp_type": "cpp_i32",
       "effect": "pure",
-      "fingerprint": "sha256:c589295d45f11e7bd368e271ce3dd8928f3207e7ee0287012dcaa15034a313d1",
+      "fingerprint": "sha256:c6b77b47fe20236bd16946179bcf8109e3c6f6bab8029cd9bb1abbd29eb7a70e",
       "implementation": "gfsim.Leaf",
       "ownership": {"kind": "none", "placement": "inline"},
       "parameters": [{
@@ -58,7 +58,7 @@
     "binding_schema": "acsim-binding-0.1",
     "component_schema": "ac.Leaf",
     "component_schema_fingerprint": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
-    "contract_epoch": "0.3",
+    "contract_epoch": "0.4",
     "effect": "pure",
     "function_type": "() -> i32",
     "parameters": [{"acir_type": "i64", "name": "width", "ordinal": 0, "value": 8}],

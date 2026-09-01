@@ -1,7 +1,7 @@
 {
   "schema": "agentic-circuit-block-spec",
-  "version": "0.3",
-  "contract_epoch": "0.3",
+  "version": "0.4",
+  "contract_epoch": "0.4",
   "blocks": [
     {
       "name": "barrier",
@@ -704,69 +704,24 @@
     {
       "name": "table",
       "operation": "ac.table",
-      "lowers_to": ["ac.memory.instance", "ac.memory.request"],
+      "lowers_to": "ac.table",
       "category": "storage",
       "lambda_regions": 0,
-      "ports": [
-        {
-          "name": "request",
-          "direction": "in",
-          "arity": {
-            "min": 1,
-            "max": 1
-          },
-          "payload": "input",
-          "ownership": "borrowed_simqueue"
-        },
-        {
-          "name": "response",
-          "direction": "out",
-          "arity": {
-            "min": 1,
-            "max": 1
-          },
-          "payload": "input",
-          "ownership": "borrowed_simqueue"
-        }
-      ],
+      "ports": [],
       "parameters": [
         {
-          "name": "address",
-          "kind": "field",
+          "name": "entry_type",
+          "kind": "type",
           "required": true,
           "default": null,
-          "cpp_mapping": "typed_accessor",
-          "verilog_mapping": "packed_field_slice"
-        },
-        {
-          "name": "write",
-          "kind": "field",
-          "required": true,
-          "default": null,
-          "cpp_mapping": "typed_accessor",
-          "verilog_mapping": "packed_field_slice"
-        },
-        {
-          "name": "data",
-          "kind": "field",
-          "required": true,
-          "default": null,
-          "cpp_mapping": "typed_accessor",
-          "verilog_mapping": "packed_field_slice"
-        },
-        {
-          "name": "result",
-          "kind": "field",
-          "required": true,
-          "default": null,
-          "cpp_mapping": "typed_accessor",
-          "verilog_mapping": "packed_field_slice"
+          "cpp_mapping": "inferred_template_type",
+          "verilog_mapping": "inferred_packed_type"
         },
         {
           "name": "entries",
           "kind": "structural",
           "required": false,
-          "default": 16,
+          "default": null,
           "cpp_mapping": "constructor_constant",
           "verilog_mapping": "parameter"
         },
@@ -777,7 +732,49 @@
           "default": 0,
           "cpp_mapping": "constructor_constant",
           "verilog_mapping": "localparam"
+        }
+      ],
+      "providers": {
+        "cpp": {
+          "available": true,
+          "header": "gfsim/queue_blocks.h",
+          "symbol": "gfsim::SimTable",
+          "optimized": true
         },
+        "verilog": {
+          "available": false,
+          "realization": "unsupported_provisional_table",
+          "optimized": false
+        }
+      },
+      "refinement_observations": [
+        "committed_entry",
+        "pending_write"
+      ]
+    },
+    {
+      "name": "table_read",
+      "operation": "ac.table.read",
+      "lowers_to": "ac.table.read",
+      "category": "storage",
+      "lambda_regions": 2,
+      "ports": [
+        {
+          "name": "request",
+          "direction": "in",
+          "arity": {"min": 0, "max": 1},
+          "payload": "input",
+          "ownership": "borrowed_simqueue"
+        },
+        {
+          "name": "response",
+          "direction": "out",
+          "arity": {"min": 1, "max": 1},
+          "payload": "output",
+          "ownership": "borrowed_simqueue"
+        }
+      ],
+      "parameters": [
         {
           "name": "depth",
           "kind": "instance",
@@ -797,19 +794,62 @@
       ],
       "providers": {
         "cpp": {
+          "available": true,
           "header": "gfsim/queue_blocks.h",
-          "symbol": "gfsim::QueueMemoryArbiter",
+          "symbol": "gfsim::QueueTableRead",
           "optimized": true
         },
         "verilog": {
-          "realization": "pyc_sync_mem_with_aligned_request_state",
-          "optimized": true
+          "available": false,
+          "realization": "unsupported_provisional_table",
+          "optimized": false
         }
       },
       "refinement_observations": [
-        "request_transaction",
-        "response_transaction",
-        "memory_write"
+        "committed_entry",
+        "output_transaction"
+      ]
+    },
+    {
+      "name": "table_write",
+      "operation": "ac.table.write",
+      "lowers_to": "ac.table.write",
+      "category": "storage",
+      "lambda_regions": 3,
+      "ports": [
+        {
+          "name": "update",
+          "direction": "in",
+          "arity": {"min": 1, "max": 1},
+          "payload": "input",
+          "ownership": "borrowed_simqueue"
+        },
+        {
+          "name": "response",
+          "direction": "out",
+          "arity": {"min": 0, "max": 0},
+          "payload": "output",
+          "ownership": "borrowed_simqueue"
+        }
+      ],
+      "parameters": [],
+      "providers": {
+        "cpp": {
+          "available": true,
+          "header": "gfsim/queue_blocks.h",
+          "symbol": "gfsim::QueueTableWrite",
+          "optimized": true
+        },
+        "verilog": {
+          "available": false,
+          "realization": "unsupported_provisional_table",
+          "optimized": false
+        }
+      },
+      "refinement_observations": [
+        "input_transaction",
+        "write_proposal",
+        "committed_entry"
       ]
     }
   ]

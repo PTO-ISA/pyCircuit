@@ -26,10 +26,10 @@ public:
       return;
     }
     auto epoch = module->getAttrOfType<mlir::StringAttr>("ac.contract_epoch");
-    if (!epoch || epoch.getValue() != "0.3") {
+    if (!epoch || epoch.getValue() != "0.4") {
       module.emitError(
           "expected top-level 'ac.contract_epoch' string attribute equal to "
-          "\"0.3\"");
+          "\"0.4\"");
       signalPassFailure();
       return;
     }

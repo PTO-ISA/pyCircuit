@@ -48,7 +48,7 @@
 // RUN: %not %acir_opt %t/different-granularity-overlap.mlir 2>&1 | %FileCheck %s --check-prefix=DIFFERENT-GRANULARITY-OVERLAP
 
 //--- period-zero.mlir
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   "ac.module"() <{sym_name = "M", function_type = () -> (), static_params = {}}> ({
     "ac.time_domain"() <{sym_name = "t", period = 0 : i64, phase = 0 : i64, tick_scale = 1 : i64}> : () -> ()
     "ac.return"() : () -> ()
@@ -57,7 +57,7 @@ builtin.module attributes {ac.contract_epoch = "0.3"} {
 // PERIOD: period must be positive global ticks
 
 //--- phase-negative.mlir
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   "ac.module"() <{sym_name = "M", function_type = () -> (), static_params = {}}> ({
     "ac.time_domain"() <{sym_name = "t", period = 1 : i64, phase = -1 : i64, tick_scale = 1 : i64}> : () -> ()
     "ac.return"() : () -> ()
@@ -66,7 +66,7 @@ builtin.module attributes {ac.contract_epoch = "0.3"} {
 // PHASE: phase must be non-negative global ticks
 
 //--- tick-overflow.mlir
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   "ac.module"() <{sym_name = "M", function_type = () -> (), static_params = {}}> ({
     "ac.time_domain"() <{sym_name = "t", period = 9223372036854775807 : i64, phase = 1 : i64, tick_scale = 4294967297 : i64}> : () -> ()
     "ac.return"() : () -> ()
@@ -75,7 +75,7 @@ builtin.module attributes {ac.contract_epoch = "0.3"} {
 // TICK-OVERFLOW: tick scale exceeds implementation capability
 
 //--- domain-cycle.mlir
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   "ac.module"() <{sym_name = "Bridge", function_type = () -> (), static_params = {}}> ({
     "ac.return"() : () -> ()
   }) : () -> ()
@@ -89,7 +89,7 @@ builtin.module attributes {ac.contract_epoch = "0.3"} {
 // DOMAIN-CYCLE: time-domain parent cycle
 
 //--- missing-bridge.mlir
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   "ac.module"() <{sym_name = "M", function_type = () -> (), static_params = {}}> ({
     "ac.time_domain"() <{sym_name = "a", period = 1 : i64, phase = 0 : i64, tick_scale = 1 : i64}> : () -> ()
     "ac.time_domain"() <{sym_name = "b", period = 2 : i64, phase = 0 : i64, tick_scale = 1 : i64, parent = @a}> : () -> ()
@@ -99,7 +99,7 @@ builtin.module attributes {ac.contract_epoch = "0.3"} {
 // BRIDGE: cross-domain parent relation requires explicit bridge metadata
 
 //--- width.mlir
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   "ac.module"() <{sym_name = "M", function_type = () -> (), static_params = {}}> ({
     "ac.address_space"() <{sym_name = "a", stable_id = "a", path = "a", address_width = 65 : i64, address_unit = "byte"}> : () -> ()
     "ac.return"() : () -> ()
@@ -108,7 +108,7 @@ builtin.module attributes {ac.contract_epoch = "0.3"} {
 // WIDTH: address width must be in [1, 64]
 
 //--- address-cycle.mlir
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   "ac.module"() <{sym_name = "M", function_type = () -> (), static_params = {}}> ({
     "ac.address_space"() <{sym_name = "a", stable_id = "a", path = "a", address_width = 32 : i64, address_unit = "byte", parent = @b, translation = {numerator = 1 : i64, denominator = 1 : i64, offset = 0 : i64}}> : () -> ()
     "ac.address_space"() <{sym_name = "b", stable_id = "b", path = "b", address_width = 32 : i64, address_unit = "byte", parent = @a, translation = {numerator = 1 : i64, denominator = 1 : i64, offset = 0 : i64}}> : () -> ()
@@ -118,7 +118,7 @@ builtin.module attributes {ac.contract_epoch = "0.3"} {
 // ADDRESS-CYCLE: address-space parent cycle
 
 //--- range-overflow.mlir
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   "ac.module"() <{sym_name = "M", function_type = () -> (), static_params = {}}> ({
     "ac.address_space"() <{sym_name = "a", stable_id = "a", path = "a", address_width = 64 : i64, address_unit = "byte"}> : () -> ()
     "ac.address_map"() <{sym_name = "m", source = @a, entries = [{base = -1 : i64, size = 2 : i64, target = @a, offset = 0 : i64, permissions = ["read"], classes = []}], default_behavior = {kind = "unmapped"}}> : () -> ()
@@ -128,7 +128,7 @@ builtin.module attributes {ac.contract_epoch = "0.3"} {
 // RANGE: address interval exceeds source address width
 
 //--- overlap.mlir
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   "ac.module"() <{sym_name = "M", function_type = () -> (), static_params = {}}> ({
     "ac.address_space"() <{sym_name = "a", stable_id = "a", path = "a", address_width = 32 : i64, address_unit = "byte"}> : () -> ()
     "ac.address_map"() <{sym_name = "m", source = @a, entries = [{base = 0 : i64, size = 8 : i64, target = @a, offset = 0 : i64, permissions = ["read"], classes = []}, {base = 4 : i64, size = 8 : i64, target = @a, offset = 0 : i64, permissions = ["read"], classes = []}], default_behavior = {kind = "unmapped"}}> : () -> ()
@@ -138,7 +138,7 @@ builtin.module attributes {ac.contract_epoch = "0.3"} {
 // OVERLAP: overlapping selector intersections require explicit distinct priorities
 
 //--- equal-priority.mlir
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   "ac.module"() <{sym_name = "M", function_type = () -> (), static_params = {}}> ({
     "ac.address_space"() <{sym_name = "a", stable_id = "a", path = "a", address_width = 32 : i64, address_unit = "byte"}> : () -> ()
     "ac.address_map"() <{sym_name = "m", source = @a, entries = [{base = 0 : i64, size = 8 : i64, target = @a, offset = 0 : i64, permissions = ["read"], classes = [], priority = 1 : i64}, {base = 4 : i64, size = 8 : i64, target = @a, offset = 0 : i64, permissions = ["read"], classes = [], priority = 1 : i64}], default_behavior = {kind = "unmapped"}}> : () -> ()
@@ -148,7 +148,7 @@ builtin.module attributes {ac.contract_epoch = "0.3"} {
 // PRIORITY: overlapping selector intersections have equal priority
 
 //--- interleave.mlir
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   "ac.module"() <{sym_name = "M", function_type = () -> (), static_params = {}}> ({
     "ac.address_space"() <{sym_name = "a", stable_id = "a", path = "a", address_width = 32 : i64, address_unit = "byte"}> : () -> ()
     "ac.address_map"() <{sym_name = "m", source = @a, entries = [{base = 0 : i64, size = 256 : i64, target = @a, offset = 0 : i64, permissions = ["read"], classes = [], interleave = {granularity = 64 : i64, banks = 4 : i64, bank = 4 : i64}}], default_behavior = {kind = "unmapped"}}> : () -> ()
@@ -158,7 +158,7 @@ builtin.module attributes {ac.contract_epoch = "0.3"} {
 // INTERLEAVE: interleave bank must be in [0, banks)
 
 //--- default.mlir
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   "ac.module"() <{sym_name = "M", function_type = () -> (), static_params = {}}> ({
     "ac.address_space"() <{sym_name = "a", stable_id = "a", path = "a", address_width = 32 : i64, address_unit = "byte"}> : () -> ()
     "ac.address_map"() <{sym_name = "m", source = @a, entries = [], default_behavior = {kind = "drop"}}> : () -> ()
@@ -168,7 +168,7 @@ builtin.module attributes {ac.contract_epoch = "0.3"} {
 // DEFAULT: default behavior requires exact unmapped or target schema
 
 //--- address-segment.mlir
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   "ac.module"() <{sym_name = "M", function_type = () -> (), static_params = {}}> ({
     "ac.address_space"() <{sym_name = "a.b", stable_id = "a", path = "a", address_width = 32 : i64, address_unit = "byte"}> : () -> ()
     "ac.return"() : () -> ()
@@ -177,7 +177,7 @@ builtin.module attributes {ac.contract_epoch = "0.3"} {
 // ADDRESS-SEGMENT: address-space name, stable id, and path must be stable local segments
 
 //--- address-unit.mlir
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   "ac.module"() <{sym_name = "M", function_type = () -> (), static_params = {}}> ({
     "ac.address_space"() <{sym_name = "a", stable_id = "a", path = "a", address_width = 32 : i64, address_unit = "word"}> : () -> ()
     "ac.return"() : () -> ()
@@ -186,7 +186,7 @@ builtin.module attributes {ac.contract_epoch = "0.3"} {
 // ADDRESS-UNIT: address unit must be exactly 'byte' or 'bit'
 
 //--- address-layout.mlir
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   "ac.module"() <{sym_name = "M", function_type = () -> (), static_params = {}}> ({
     "ac.address_space"() <{sym_name = "a", stable_id = "a", path = "a", address_width = 32 : i64, address_unit = "byte", data_layout = 1 : i64}> : () -> ()
     "ac.return"() : () -> ()
@@ -195,7 +195,7 @@ builtin.module attributes {ac.contract_epoch = "0.3"} {
 // ADDRESS-LAYOUT: data layout hook must implement DataLayoutSpecInterface
 
 //--- address-parent-pair.mlir
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   "ac.module"() <{sym_name = "M", function_type = () -> (), static_params = {}}> ({
     "ac.address_space"() <{sym_name = "a", stable_id = "a", path = "a", address_width = 32 : i64, address_unit = "byte", parent = @b}> : () -> ()
     "ac.return"() : () -> ()
@@ -204,7 +204,7 @@ builtin.module attributes {ac.contract_epoch = "0.3"} {
 // PARENT-PAIR: parent address space and translation must appear together
 
 //--- address-parent.mlir
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   "ac.module"() <{sym_name = "M", function_type = () -> (), static_params = {}}> ({
     "ac.address_space"() <{sym_name = "a", stable_id = "a", path = "a", address_width = 32 : i64, address_unit = "byte", parent = @missing, translation = {numerator = 1 : i64, denominator = 1 : i64, offset = 0 : i64}}> : () -> ()
     "ac.return"() : () -> ()
@@ -213,7 +213,7 @@ builtin.module attributes {ac.contract_epoch = "0.3"} {
 // PARENT: parent address space '@missing' is unresolved
 
 //--- address-translation.mlir
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   "ac.module"() <{sym_name = "M", function_type = () -> (), static_params = {}}> ({
     "ac.address_space"() <{sym_name = "parent", stable_id = "parent", path = "parent", address_width = 32 : i64, address_unit = "byte"}> : () -> ()
     "ac.address_space"() <{sym_name = "child", stable_id = "child", path = "child", address_width = 16 : i64, address_unit = "byte", parent = @parent, translation = {numerator = 0 : i64, denominator = 1 : i64, offset = 0 : i64}}> : () -> ()
@@ -223,7 +223,7 @@ builtin.module attributes {ac.contract_epoch = "0.3"} {
 // TRANSLATION: translation values must be unsigned signless i64 with positive ratio
 
 //--- address-width-translation.mlir
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   "ac.module"() <{sym_name = "M", function_type = () -> (), static_params = {}}> ({
     "ac.address_space"() <{sym_name = "parent", stable_id = "parent", path = "parent", address_width = 8 : i64, address_unit = "byte"}> : () -> ()
     "ac.address_space"() <{sym_name = "child", stable_id = "child", path = "child", address_width = 8 : i64, address_unit = "byte", parent = @parent, translation = {numerator = 2 : i64, denominator = 1 : i64, offset = 0 : i64}}> : () -> ()
@@ -233,7 +233,7 @@ builtin.module attributes {ac.contract_epoch = "0.3"} {
 // TRANSLATED-WIDTH: translated child address range exceeds parent address width
 
 //--- map-name.mlir
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   "ac.module"() <{sym_name = "M", function_type = () -> (), static_params = {}}> ({
     "ac.address_map"() <{sym_name = "bad.name", source = @a, entries = [], default_behavior = {kind = "unmapped"}}> : () -> ()
     "ac.return"() : () -> ()
@@ -242,7 +242,7 @@ builtin.module attributes {ac.contract_epoch = "0.3"} {
 // MAP-NAME: address-map name must be one stable local segment
 
 //--- map-source.mlir
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   "ac.module"() <{sym_name = "M", function_type = () -> (), static_params = {}}> ({
     "ac.address_map"() <{sym_name = "m", source = @missing, entries = [], default_behavior = {kind = "unmapped"}}> : () -> ()
     "ac.return"() : () -> ()
@@ -251,7 +251,7 @@ builtin.module attributes {ac.contract_epoch = "0.3"} {
 // MAP-SOURCE: source address space '@missing' is unresolved
 
 //--- source-width.mlir
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   "ac.module"() <{sym_name = "M", function_type = () -> (), static_params = {}}> ({
     "ac.address_space"() <{sym_name = "a", stable_id = "a", path = "a", address_width = 4 : i64, address_unit = "byte"}> : () -> ()
     "ac.address_map"() <{sym_name = "m", source = @a, entries = [{base = 8 : i64, size = 9 : i64, target = @a, offset = 0 : i64, permissions = ["read"], classes = []}], default_behavior = {kind = "unmapped"}}> : () -> ()
@@ -261,7 +261,7 @@ builtin.module attributes {ac.contract_epoch = "0.3"} {
 // SOURCE-WIDTH: address interval exceeds source address width
 
 //--- target-width.mlir
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   "ac.module"() <{sym_name = "M", function_type = () -> (), static_params = {}}> ({
     "ac.address_space"() <{sym_name = "source", stable_id = "source", path = "source", address_width = 8 : i64, address_unit = "byte"}> : () -> ()
     "ac.address_space"() <{sym_name = "target", stable_id = "target", path = "target", address_width = 4 : i64, address_unit = "byte"}> : () -> ()
@@ -272,7 +272,7 @@ builtin.module attributes {ac.contract_epoch = "0.3"} {
 // TARGET-WIDTH: address target range exceeds target address width
 
 //--- permissions.mlir
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   "ac.module"() <{sym_name = "M", function_type = () -> (), static_params = {}}> ({
     "ac.address_space"() <{sym_name = "a", stable_id = "a", path = "a", address_width = 8 : i64, address_unit = "byte"}> : () -> ()
     "ac.address_map"() <{sym_name = "m", source = @a, entries = [{base = 0 : i64, size = 1 : i64, target = @a, offset = 0 : i64, permissions = ["write", "write"], classes = []}], default_behavior = {kind = "unmapped"}}> : () -> ()
@@ -282,7 +282,7 @@ builtin.module attributes {ac.contract_epoch = "0.3"} {
 // PERMISSIONS: address-map permissions must be unique read/write/execute values
 
 //--- interleave-stripe.mlir
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   "ac.module"() <{sym_name = "M", function_type = () -> (), static_params = {}}> ({
     "ac.address_space"() <{sym_name = "a", stable_id = "a", path = "a", address_width = 16 : i64, address_unit = "byte"}> : () -> ()
     "ac.address_map"() <{sym_name = "m", source = @a, entries = [{base = 0 : i64, size = 255 : i64, target = @a, offset = 0 : i64, permissions = ["read"], classes = [], interleave = {granularity = 2 : i64, banks = -1 : i64, bank = 0 : i64}}], default_behavior = {kind = "unmapped"}}> : () -> ()
@@ -292,7 +292,7 @@ builtin.module attributes {ac.contract_epoch = "0.3"} {
 // INTERLEAVE-STRIPE: interleave geometry exceeds unsigned i64
 
 //--- default-target.mlir
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   "ac.module"() <{sym_name = "M", function_type = () -> (), static_params = {}}> ({
     "ac.address_space"() <{sym_name = "a", stable_id = "a", path = "a", address_width = 8 : i64, address_unit = "byte"}> : () -> ()
     "ac.address_map"() <{sym_name = "m", source = @a, entries = [], default_behavior = {kind = "target", target = @missing}}> : () -> ()
@@ -302,7 +302,7 @@ builtin.module attributes {ac.contract_epoch = "0.3"} {
 // DEFAULT-TARGET: default target behavior is unresolved
 
 //--- time-name.mlir
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   "ac.module"() <{sym_name = "M", function_type = () -> (), static_params = {}}> ({
     "ac.time_domain"() <{sym_name = "bad.name", period = 1 : i64, phase = 0 : i64, tick_scale = 1 : i64}> : () -> ()
     "ac.return"() : () -> ()
@@ -311,7 +311,7 @@ builtin.module attributes {ac.contract_epoch = "0.3"} {
 // TIME-NAME: time-domain name must be one stable local segment
 
 //--- time-parent.mlir
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   "ac.module"() <{sym_name = "Bridge", function_type = () -> (), static_params = {}}> ({ "ac.return"() : () -> () }) : () -> ()
   "ac.module"() <{sym_name = "M", function_type = () -> (), static_params = {}}> ({
     "ac.instance"() <{definition = @Bridge, sym_name = "x", stable_id = "x", path = "x", static_args = {}}> : () -> ()
@@ -322,7 +322,7 @@ builtin.module attributes {ac.contract_epoch = "0.3"} {
 // TIME-PARENT: parent time domain '@missing' is unresolved
 
 //--- bridge-schema.mlir
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   "ac.module"() <{sym_name = "Bridge", function_type = () -> (), static_params = {}}> ({ "ac.return"() : () -> () }) : () -> ()
   "ac.module"() <{sym_name = "M", function_type = () -> (), static_params = {}}> ({
     "ac.instance"() <{definition = @Bridge, sym_name = "x", stable_id = "x", path = "x", static_args = {}}> : () -> ()
@@ -334,7 +334,7 @@ builtin.module attributes {ac.contract_epoch = "0.3"} {
 // BRIDGE-SCHEMA: bridge requires exact {kind = "explicit", owner = local symbol} schema
 
 //--- address-self.mlir
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   "ac.module"() <{sym_name = "M", function_type = () -> (), static_params = {}}> ({
     "ac.address_space"() <{sym_name = "a", stable_id = "a", path = "a", address_width = 32 : i64, address_unit = "byte", parent = @a, translation = {numerator = 1 : i64, denominator = 1 : i64, offset = 0 : i64}}> : () -> ()
     "ac.return"() : () -> ()
@@ -343,7 +343,7 @@ builtin.module attributes {ac.contract_epoch = "0.3"} {
 // ADDRESS-SELF: address-space parent cycle: @a -> @a
 
 //--- map-target.mlir
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   "ac.module"() <{sym_name = "M", function_type = () -> (), static_params = {}}> ({
     "ac.address_space"() <{sym_name = "a", stable_id = "a", path = "a", address_width = 32 : i64, address_unit = "byte"}> : () -> ()
     "ac.address_map"() <{sym_name = "m", source = @a, entries = [{base = 0 : i64, size = 1 : i64, target = @missing, offset = 0 : i64, permissions = ["read"], classes = []}], default_behavior = {kind = "unmapped"}}> : () -> ()
@@ -353,7 +353,7 @@ builtin.module attributes {ac.contract_epoch = "0.3"} {
 // MAP-TARGET: address-map target '@missing' is unresolved
 
 //--- map-key.mlir
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   "ac.module"() <{sym_name = "M", function_type = () -> (), static_params = {}}> ({
     "ac.address_space"() <{sym_name = "a", stable_id = "a", path = "a", address_width = 32 : i64, address_unit = "byte"}> : () -> ()
     "ac.address_map"() <{sym_name = "m", source = @a, entries = [{base = 0 : i64, size = 1 : i64, target = @a, offset = 0 : i64, permissions = ["read"]}], default_behavior = {kind = "unmapped"}}> : () -> ()
@@ -363,7 +363,7 @@ builtin.module attributes {ac.contract_epoch = "0.3"} {
 // MAP-KEY: address-map entry is missing 'classes'
 
 //--- map-unknown-key.mlir
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   "ac.module"() <{sym_name = "M", function_type = () -> (), static_params = {}}> ({
     "ac.address_space"() <{sym_name = "a", stable_id = "a", path = "a", address_width = 32 : i64, address_unit = "byte"}> : () -> ()
     "ac.address_map"() <{sym_name = "m", source = @a, entries = [{base = 0 : i64, size = 1 : i64, target = @a, offset = 0 : i64, permissions = ["read"], classes = [], extra = true}], default_behavior = {kind = "unmapped"}}> : () -> ()
@@ -373,7 +373,7 @@ builtin.module attributes {ac.contract_epoch = "0.3"} {
 // MAP-UNKNOWN-KEY: unknown address-map entry key 'extra'
 
 //--- map-class.mlir
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   "ac.module"() <{sym_name = "M", function_type = () -> (), static_params = {}}> ({
     "ac.address_space"() <{sym_name = "a", stable_id = "a", path = "a", address_width = 32 : i64, address_unit = "byte"}> : () -> ()
     "ac.address_map"() <{sym_name = "m", source = @a, entries = [{base = 0 : i64, size = 1 : i64, target = @a, offset = 0 : i64, permissions = ["read"], classes = [@missing]}], default_behavior = {kind = "unmapped"}}> : () -> ()
@@ -383,7 +383,7 @@ builtin.module attributes {ac.contract_epoch = "0.3"} {
 // MAP-CLASS: address-map transaction class '@missing' is unresolved
 
 //--- target-overflow.mlir
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   "ac.module"() <{sym_name = "M", function_type = () -> (), static_params = {}}> ({
     "ac.address_space"() <{sym_name = "a", stable_id = "a", path = "a", address_width = 64 : i64, address_unit = "byte"}> : () -> ()
     "ac.address_map"() <{sym_name = "m", source = @a, entries = [{base = 0 : i64, size = 2 : i64, target = @a, offset = -1 : i64, permissions = ["read"], classes = []}], default_behavior = {kind = "unmapped"}}> : () -> ()
@@ -393,7 +393,7 @@ builtin.module attributes {ac.contract_epoch = "0.3"} {
 // TARGET-OVERFLOW: address target range exceeds target address width
 
 //--- time-self.mlir
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   "ac.module"() <{sym_name = "Bridge", function_type = () -> (), static_params = {}}> ({
     "ac.return"() : () -> ()
   }) : () -> ()
@@ -406,7 +406,7 @@ builtin.module attributes {ac.contract_epoch = "0.3"} {
 // TIME-SELF: time-domain parent cycle: @t -> @t
 
 //--- noncanonical-rational.mlir
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   "ac.module"() <{sym_name = "M", function_type = () -> (), static_params = {}}> ({
     "ac.address_space"() <{sym_name = "parent", stable_id = "parent", path = "parent", address_width = 16 : i64, address_unit = "byte"}> : () -> ()
     "ac.address_space"() <{sym_name = "child", stable_id = "child", path = "child", address_width = 8 : i64, address_unit = "byte", parent = @parent, translation = {numerator = 2 : i64, denominator = 2 : i64, offset = 0 : i64}}> : () -> ()
@@ -416,7 +416,7 @@ builtin.module attributes {ac.contract_epoch = "0.3"} {
 // RATIONAL: translation rational must be in canonical reduced form
 
 //--- fractional-no-alignment.mlir
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   "ac.module"() <{sym_name = "M", function_type = () -> (), static_params = {}}> ({
     "ac.address_space"() <{sym_name = "parent", stable_id = "parent", path = "parent", address_width = 8 : i64, address_unit = "byte"}> : () -> ()
     "ac.address_space"() <{sym_name = "child", stable_id = "child", path = "child", address_width = 8 : i64, address_unit = "byte", parent = @parent, translation = {numerator = 1 : i64, denominator = 2 : i64, offset = 0 : i64}}> : () -> ()
@@ -426,7 +426,7 @@ builtin.module attributes {ac.contract_epoch = "0.3"} {
 // NO-ALIGNMENT: fractional translation requires exact positive alignment proving divisibility
 
 //--- fractional-bad-alignment.mlir
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   "ac.module"() <{sym_name = "M", function_type = () -> (), static_params = {}}> ({
     "ac.address_space"() <{sym_name = "parent", stable_id = "parent", path = "parent", address_width = 8 : i64, address_unit = "byte"}> : () -> ()
     "ac.address_space"() <{sym_name = "child", stable_id = "child", path = "child", address_width = 8 : i64, address_unit = "byte", parent = @parent, translation = {numerator = 1 : i64, denominator = 2 : i64, offset = 0 : i64, alignment = 1 : i64}}> : () -> ()
@@ -436,7 +436,7 @@ builtin.module attributes {ac.contract_epoch = "0.3"} {
 // BAD-ALIGNMENT: fractional translation requires exact positive alignment proving divisibility
 
 //--- zero-size.mlir
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   "ac.module"() <{sym_name = "M", function_type = () -> (), static_params = {}}> ({
     "ac.address_space"() <{sym_name = "a", stable_id = "a", path = "a", address_width = 64 : i64, address_unit = "byte"}> : () -> ()
     "ac.address_map"() <{sym_name = "m", source = @a, entries = [{base = -1 : i64, size = 0 : i64, target = @a, offset = -1 : i64, permissions = ["read"], classes = []}], default_behavior = {kind = "unmapped"}}> : () -> ()
@@ -446,7 +446,7 @@ builtin.module attributes {ac.contract_epoch = "0.3"} {
 // ZERO-SIZE: address-map entry size must be positive
 
 //--- interleave-alignment.mlir
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   "ac.module"() <{sym_name = "M", function_type = () -> (), static_params = {}}> ({
     "ac.address_space"() <{sym_name = "a", stable_id = "a", path = "a", address_width = 16 : i64, address_unit = "byte"}> : () -> ()
     "ac.address_map"() <{sym_name = "m", source = @a, entries = [{base = 1 : i64, size = 256 : i64, target = @a, offset = 1 : i64, permissions = ["read"], classes = [], interleave = {granularity = 64 : i64, banks = 4 : i64, bank = 0 : i64}}], default_behavior = {kind = "unmapped"}}> : () -> ()
@@ -456,7 +456,7 @@ builtin.module attributes {ac.contract_epoch = "0.3"} {
 // INTERLEAVE-ALIGNMENT: interleave offset must be aligned to granularity
 
 //--- mixed-interleave-overlap.mlir
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   "ac.module"() <{sym_name = "M", function_type = () -> (), static_params = {}}> ({
     "ac.address_space"() <{sym_name = "space", stable_id = "space", path = "space", address_width = 8 : i64, address_unit = "byte"}> : () -> ()
     "ac.address_map"() <{sym_name = "m", source = @space, entries = [
@@ -473,7 +473,7 @@ builtin.module attributes {ac.contract_epoch = "0.3"} {
 // MIXED-INTERLEAVE-OVERLAP: overlapping selector intersections require explicit distinct priorities
 
 //--- different-granularity-overlap.mlir
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   "ac.module"() <{sym_name = "M", function_type = () -> (), static_params = {}}> ({
     "ac.address_space"() <{sym_name = "space", stable_id = "space", path = "space", address_width = 8 : i64, address_unit = "byte"}> : () -> ()
     "ac.address_map"() <{sym_name = "m", source = @space, entries = [
@@ -490,7 +490,7 @@ builtin.module attributes {ac.contract_epoch = "0.3"} {
 // DIFFERENT-GRANULARITY-OVERLAP: overlapping selector intersections require explicit distinct priorities
 
 //--- relation-limit.mlir
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   "ac.module"() <{sym_name = "M", function_type = () -> (), static_params = {}}> ({
     "ac.address_space"() <{sym_name = "space", stable_id = "space", path = "space", address_width = 8 : i64, address_unit = "byte"}> : () -> ()
     "ac.address_map"() <{sym_name = "m", source = @space, entries = [

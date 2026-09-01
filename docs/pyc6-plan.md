@@ -117,6 +117,9 @@ PYC semantic contracts.
   closure lanes from the same checkout.
 - [x] Attach gate evidence and promote Decision 0150 to
   `implemented-verified` for repository and compiler consolidation.
+- [ ] Close Decision 0151 for Agentic Circuit epoch `0.4`: verify the
+  one-dimensional zero-initialized single-writer Table through ACPy, Frozen
+  ACIR, QueueGraph, and typed gfsim C++, with a stable PYC rejection boundary.
 - [ ] After the independent current QEMU/PYC comparison passes, disable the
   old repository's publishing/CI authority and make it
   private with only `zhoubot` as a direct repository collaborator.

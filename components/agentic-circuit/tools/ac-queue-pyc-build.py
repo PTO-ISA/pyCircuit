@@ -234,7 +234,7 @@ def main() -> int:
                 *_artifacts(cpp, "cpp"),
                 *_artifacts(verilog, "verilog"),
             ],
-            "contract_epoch": "0.3",
+            "contract_epoch": "0.4",
             "build_profile": "dev-fast",
             "frozen_acir_sha256": _sha256(frozen_acir_bytes),
             "gates": ["pycc-cpp", "pycc-verilog", "cxx-syntax", "verilator-lint"],
@@ -251,7 +251,7 @@ def main() -> int:
             "pycircuit_commit": metadata["git_sha"],
             "schema": "agentic-circuit-pyc-build-manifest",
             "targets": ["cpp", "verilog"],
-            "version": "0.3",
+            "version": "0.4",
         }
 
         arguments.cpp_output_dir.parent.mkdir(parents=True, exist_ok=True)

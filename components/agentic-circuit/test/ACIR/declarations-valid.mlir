@@ -1,7 +1,7 @@
 // RUN: %acir_opt %s | %FileCheck %s
 // RUN: %acir_opt %s | %acir_opt | %FileCheck %s
 
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   "ac.type_scope"() <{sym_name = "types"}> ({
     "ac.type_alias"() <{sym_name = "Word", target = i32}> : () -> ()
     "ac.struct"() <{sym_name = "Header", fields = [{name = "opcode", type = i8}, {name = "tag", type = i16}]}> : () -> ()

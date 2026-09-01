@@ -274,7 +274,7 @@ def main() -> int:
     report = {
         "schema": "agentic-circuit-davincioo-run",
         "version": "0.1",
-        "contract_epoch": "0.3",
+        "contract_epoch": "0.4",
         "specialization": specialization.fingerprint,
         "trace_content_hash": canonical["metadata"]["content_hash"],
         "record_count": len(records),

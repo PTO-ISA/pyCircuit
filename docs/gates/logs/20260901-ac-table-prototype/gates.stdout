@@ -1,0 +1,27 @@
+Build: configured with GCC 14.4.0, LLVM/MLIR 22.1.8, CMake 3.31.10, and Ninja 1.13; full build completed 178/178; pyc-opt built; install completed.
+
+C++ unit tests: 2311 passed across 11 executables.
+  ACIRBindingTests: 29 passed
+  ACIRModelAnalysisTests: 17 passed
+  ACIROpsTests: 1844 passed
+  ACIRProcessStatePlanTests: 59 passed
+  ACIRToACSimTests: 6 passed
+  ACIRTypesTests: 7 passed
+  ACSimOpsTests: 36 passed
+  ACSimTypesTests: 3 passed
+  CodeGenTests: 86 passed
+  CompilerTests: 6 passed
+  GfsimTests: 218 passed
+
+Python frontend: 116 passed, 1 skipped.
+Contracts: 36 passed.
+Contract inventory: OK (12 schemas, 36 stdlib specs, contract epoch 0.4, LLVM 22.1.8).
+Table backend end-to-end: 2 passed.
+Existing non-Table PYC memory regression: 1 passed.
+Installed package doctor: all checks passed; contract epoch 0.4.
+ACIR Table parse/print/parse: passed.
+IR coverage: OK (ACIR and ACSim manifests match ODS, positive and negative lit coverage complete, ledger current).
+API hygiene: passed.
+git diff --check: passed.
+Pinned clang-format on the substantive Table C++ source set: passed.
+Strict decision status: passed (151 rows, 0 deferred, concrete existing evidence required).

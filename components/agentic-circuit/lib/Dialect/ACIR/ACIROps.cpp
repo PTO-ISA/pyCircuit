@@ -1374,6 +1374,231 @@ LogicalResult MemoryRequestOp::verify() {
   return success();
 }
 
+static bool isTableEntryType(Operation *anchor, Type type) {
+  if (auto integer = dyn_cast<IntegerType>(type))
+    return integer.getWidth() > 0 && integer.getWidth() <= 64;
+  Operation *declaration = recordDecl(anchor, type);
+  if (!declaration)
+    return false;
+  return llvm::all_of(declarationFields(declaration), [](Attribute rawField) {
+    auto field = dyn_cast<DictionaryAttr>(rawField);
+    auto type = field ? field.getAs<TypeAttr>("type") : TypeAttr();
+    auto integer =
+        type ? dyn_cast<IntegerType>(type.getValue()) : IntegerType();
+    return integer && integer.getWidth() > 0 && integer.getWidth() <= 64;
+  });
+}
+
+static TableOp resolveTable(Operation *operation, FlatSymbolRefAttr reference) {
+  return dyn_cast_or_null<TableOp>(
+      SymbolTable::lookupNearestSymbolFrom(operation, reference));
+}
+
+static bool tableVisibleFrom(Operation *operation, TableOp table) {
+  std::string requestScope = queueScopePath(operation);
+  StringRef owner = table.getOwner();
+  StringRef requestPath(requestScope);
+  return owner == "/" || requestPath == owner ||
+         (requestPath.size() > owner.size() && requestPath.starts_with(owner) &&
+          requestPath[owner.size()] == '/');
+}
+
+static LogicalResult verifyTableIndex(Operation *operation, TableOp table,
+                                      Value index) {
+  auto indexType = cast<VarType>(index.getType()).getElementType();
+  auto integer = dyn_cast<IntegerType>(indexType);
+  if (!integer || integer.getWidth() == 0 || integer.getWidth() > 64)
+    return operation->emitOpError(
+        "table index must be an integer Var no wider than 64 bits");
+  if (integer.getWidth() < 64 && static_cast<uint64_t>(table.getEntries()) >
+                                     (uint64_t{1} << integer.getWidth()))
+    return operation->emitOpError("table entries must fit index width");
+  auto constant = index.getDefiningOp<VarConstantOp>();
+  auto value =
+      constant ? dyn_cast<IntegerAttr>(constant.getValueAttr()) : IntegerAttr();
+  if (value &&
+      (value.getValue().isNegative() ||
+       value.getValue().uge(static_cast<uint64_t>(table.getEntries()))))
+    return operation->emitOpError("static table index is out of range");
+  return success();
+}
+
+LogicalResult TableOp::verify() {
+  if (!isTableEntryType(*this, getEntryType()))
+    return emitOpError("entry type must be bool, a <=64-bit integer, or a flat "
+                       "integer struct");
+  if (getEntries() <= 0)
+    return emitOpError("entries must be positive");
+  if (getInit() != 0)
+    return emitOpError("table init must be zero");
+  if (getOwner().empty() || !getOwner().starts_with('/') ||
+      (getOwner().size() > 1 && getOwner().ends_with('/')))
+    return emitOpError("owner must be a canonical absolute scope path");
+  std::string expectedStableId = "table/";
+  if (getOwner() != "/") {
+    expectedStableId.append(getOwner().drop_front());
+    expectedStableId.push_back('/');
+  }
+  expectedStableId.append(getSymName());
+  if (getStableId() != expectedStableId)
+    return emitOpError("stable_id must match canonical owner/symbol identity");
+
+  Operation *root = getOperation();
+  while (root->getParentOp())
+    root = root->getParentOp();
+  bool ownerExists = getOwner() == "/";
+  bool duplicateStableId = false;
+  unsigned endpoints = 0;
+  unsigned writers = 0;
+  root->walk([&](Operation *operation) {
+    if (auto scope = dyn_cast<ScopeOp>(operation)) {
+      std::string path = queueScopePath(scope);
+      if (path != "/")
+        path.push_back('/');
+      path.append(scope.getSymName());
+      ownerExists |= path == getOwner();
+    }
+    if (auto other = dyn_cast<TableOp>(operation))
+      duplicateStableId |=
+          other != *this && other.getStableId() == getStableId();
+    if (auto read = dyn_cast<TableReadOp>(operation)) {
+      if (resolveTable(read, read.getTableAttr()) == *this)
+        ++endpoints;
+    }
+    if (auto write = dyn_cast<TableWriteOp>(operation)) {
+      if (resolveTable(write, write.getTableAttr()) == *this) {
+        ++endpoints;
+        ++writers;
+      }
+    }
+  });
+  if (!ownerExists)
+    return emitOpError("owner does not name a declared scope path");
+  if (duplicateStableId)
+    return emitOpError("stable_id must be unique");
+  if (endpoints == 0)
+    return emitOpError("must have at least one table read/write endpoint");
+  if (writers > 1)
+    return emitOpError("table permits at most one write endpoint");
+  return success();
+}
+
+LogicalResult TableGetOp::verify() {
+  TableOp table = resolveTable(*this, getTableAttr());
+  if (!table)
+    return emitOpError() << "unresolved table " << getTable();
+  if (!tableVisibleFrom(*this, table))
+    return emitOpError("table is outside the access scope ancestry");
+  if (getResult().getType() != VarType::get(getContext(), table.getEntryType()))
+    return emitOpError("result must match table entry Var type");
+  return verifyTableIndex(*this, table, getIndex());
+}
+
+static FailureOr<Type> verifyTablePolicy(Operation *endpoint, Region &region,
+                                         StringRef name, Type argumentType,
+                                         bool allowGet) {
+  if (!region.hasOneBlock()) {
+    endpoint->emitOpError() << name << " must contain exactly one block";
+    return failure();
+  }
+  Block &block = region.front();
+  const unsigned expectedArguments = argumentType ? 1 : 0;
+  if (block.getNumArguments() != expectedArguments ||
+      (argumentType && block.getArgument(0).getType() != argumentType)) {
+    endpoint->emitOpError() << name << " argument must match endpoint input";
+    return failure();
+  }
+  for (Operation &operation : block.without_terminator()) {
+    if (allowGet)
+      if (auto get = dyn_cast<TableGetOp>(operation)) {
+        FlatSymbolRefAttr endpointTable;
+        if (auto read = dyn_cast<TableReadOp>(endpoint))
+          endpointTable = read.getTableAttr();
+        else if (auto write = dyn_cast<TableWriteOp>(endpoint))
+          endpointTable = write.getTableAttr();
+        if (get.getTableAttr() != endpointTable) {
+          endpoint->emitOpError()
+              << name << " may only observe its endpoint table";
+          return failure();
+        }
+        continue;
+      }
+    if (!isMemoryEffectFree(&operation)) {
+      endpoint->emitOpError() << name << " operation '" << operation.getName()
+                              << "' is not permitted";
+      return failure();
+    }
+  }
+  auto yield = dyn_cast<TableYieldOp>(block.getTerminator());
+  if (!yield) {
+    endpoint->emitOpError() << name << " must terminate with ac.table.yield";
+    return failure();
+  }
+  return cast<VarType>(yield.getValue().getType()).getElementType();
+}
+
+LogicalResult TableReadOp::verify() {
+  TableOp table = resolveTable(*this, getTableAttr());
+  if (!table)
+    return emitOpError() << "unresolved table " << getTable();
+  if (!tableVisibleFrom(*this, table))
+    return emitOpError("table is outside the read scope ancestry");
+  if (getDepth() <= 0 || getLatency() <= 0)
+    return emitOpError("depth and latency must be positive");
+  if (cast<QueueType>(getOutput().getType()).getElementType() !=
+      table.getEntryType())
+    return emitOpError("output Queue payload must match table entry type");
+  Type argumentType;
+  if (getInput())
+    argumentType = VarType::get(
+        getContext(), cast<QueueType>(getInput().getType()).getElementType());
+  auto address =
+      verifyTablePolicy(*this, getAddress(), "address", argumentType, false);
+  auto when = verifyTablePolicy(*this, getWhen(), "when", argumentType, true);
+  if (failed(address) || failed(when))
+    return failure();
+  auto index = dyn_cast<IntegerType>(*address);
+  if (!index || index.getWidth() == 0 || index.getWidth() > 64)
+    return emitOpError("address must yield an integer Var");
+  if (failed(verifyTableIndex(
+          *this, table,
+          cast<TableYieldOp>(getAddress().front().getTerminator()).getValue())))
+    return failure();
+  if (!when->isInteger(1))
+    return emitOpError("when must yield !ac.var<i1>");
+  return success();
+}
+
+LogicalResult TableWriteOp::verify() {
+  TableOp table = resolveTable(*this, getTableAttr());
+  if (!table)
+    return emitOpError() << "unresolved table " << getTable();
+  if (!tableVisibleFrom(*this, table))
+    return emitOpError("table is outside the write scope ancestry");
+  Type argumentType = VarType::get(
+      getContext(), cast<QueueType>(getInput().getType()).getElementType());
+  auto address =
+      verifyTablePolicy(*this, getAddress(), "address", argumentType, false);
+  auto enable =
+      verifyTablePolicy(*this, getEnable(), "enable", argumentType, false);
+  auto value =
+      verifyTablePolicy(*this, getValue(), "value", argumentType, true);
+  if (failed(address) || failed(enable) || failed(value))
+    return failure();
+  auto index = dyn_cast<IntegerType>(*address);
+  if (!index || index.getWidth() == 0 || index.getWidth() > 64)
+    return emitOpError("address must yield an integer Var");
+  if (failed(verifyTableIndex(
+          *this, table,
+          cast<TableYieldOp>(getAddress().front().getTerminator()).getValue())))
+    return failure();
+  if (!enable->isInteger(1))
+    return emitOpError("enable must yield !ac.var<i1>");
+  if (*value != table.getEntryType())
+    return emitOpError("value must yield the table entry type");
+  return success();
+}
+
 LogicalResult PacketSerializeOp::verify() {
   auto packetType = dyn_cast<PacketType>(getPacketValue().getType());
   if (!packetType)
@@ -2091,8 +2316,8 @@ verifyRuntimeReferences(ModuleOp module,
     }
     auto queue = dyn_cast<QueueOp>(target);
     if (!queue) {
-      operation->emitOpError() << "runtime target '" << reference
-                               << "' must resolve to ac.queue";
+      operation->emitOpError()
+          << "runtime target '" << reference << "' must resolve to ac.queue";
       result = failure();
       return {};
     }

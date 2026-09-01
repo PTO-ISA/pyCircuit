@@ -1,7 +1,7 @@
 {
   "schema_kind": "agentic-circuit-component",
   "schema_version": "0.1",
-  "contract_epoch": "0.3",
+  "contract_epoch": "0.4",
   "canonical_name": "ac.TraceSource",
   "family": "workload",
   "provider_namespace": "ac",
@@ -101,5 +101,5 @@
     ],
     "histograms": []
   },
-  "schema_fingerprint": "sha256:dd46cf0b83710a1425ea997a91efd413688998efeff38c94ca15050b7fe49a07"
+  "schema_fingerprint": "sha256:7015ce1ba47e419b855a8a9c9a1972cb2ba3b6d30a29bdf87a3c83d4a7543aec"
 }

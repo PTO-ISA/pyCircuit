@@ -1,7 +1,7 @@
 {
   "schema_kind": "agentic-circuit-component",
   "schema_version": "0.1",
-  "contract_epoch": "0.3",
+  "contract_epoch": "0.4",
   "canonical_name": "ac.Arbiter",
   "family": "control",
   "provider_namespace": "ac",
@@ -115,5 +115,5 @@
     "gauges": [],
     "histograms": []
   },
-  "schema_fingerprint": "sha256:700f89d9d9df1facc03b30065b0654ad42fb1171ed52ebbb6320b3100298e8d7"
+  "schema_fingerprint": "sha256:113e06a2c133d30b97e64fd9c3c19acb9b1b1ef2ad291dedf00d284b28bca875"
 }

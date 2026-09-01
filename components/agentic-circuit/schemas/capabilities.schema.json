@@ -8,7 +8,7 @@
   "properties": {
     "schema": {"const": "agentic-circuit-capabilities"},
     "version": {"const": "0.1"},
-    "contract_epoch": {"const": "0.3"},
+    "contract_epoch": {"const": "0.4"},
     "contract_identities": {
       "type": "object",
       "additionalProperties": false,
@@ -19,8 +19,8 @@
         "acsim": {"const": "acsim@0.1"},
         "cli": {"const": "agentic-circuit-cli@0.1"},
         "component_schema": {"const": "agentic-circuit-component@0.1"},
-        "opcode_catalog": {"const": "agentic-circuit-opcode-catalog@0.2"},
-        "block_spec": {"const": "agentic-circuit-block-spec@0.3"},
+        "opcode_catalog": {"const": "agentic-circuit-opcode-catalog@0.4"},
+        "block_spec": {"const": "agentic-circuit-block-spec@0.4"},
         "cxx_source_contract": {"const": "gfsim-cxx20@0.1"},
         "pto_trace": {"const": "pto-trace@0.1"},
         "diagnostic": {"const": "agentic-circuit-diagnostic@0.1"},

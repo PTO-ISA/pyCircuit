@@ -1,0 +1,41 @@
+All commands were run from /home/lc/pyCircuit with the aarch64 local toolchain
+documented in AGENTS.md selected in the environment.
+
+# Configure, build, and install
+/home/lc/opt/agentic-circuit-toolchain/bin/cmake -S /home/lc/pyCircuit -B /home/lc/pyCircuit/.pycircuit_out/local-gcc14-llvm22/build -G Ninja [the explicit local dependency flags from AGENTS.md]
+/home/lc/opt/agentic-circuit-toolchain/bin/cmake --build /home/lc/pyCircuit/.pycircuit_out/local-gcc14-llvm22/build -j2
+/home/lc/opt/agentic-circuit-toolchain/bin/cmake --build /home/lc/pyCircuit/.pycircuit_out/local-gcc14-llvm22/build --target pyc-opt -j2
+/home/lc/opt/agentic-circuit-toolchain/bin/cmake --install /home/lc/pyCircuit/.pycircuit_out/local-gcc14-llvm22/build
+
+# C++ unit executables
+.pycircuit_out/local-gcc14-llvm22/build/components/agentic-circuit/unittests/ACIRBindingTests
+.pycircuit_out/local-gcc14-llvm22/build/components/agentic-circuit/unittests/ACIRModelAnalysisTests
+.pycircuit_out/local-gcc14-llvm22/build/components/agentic-circuit/unittests/ACIROpsTests
+.pycircuit_out/local-gcc14-llvm22/build/components/agentic-circuit/unittests/ACIRProcessStatePlanTests
+.pycircuit_out/local-gcc14-llvm22/build/components/agentic-circuit/unittests/ACIRToACSimTests
+.pycircuit_out/local-gcc14-llvm22/build/components/agentic-circuit/unittests/ACIRTypesTests
+.pycircuit_out/local-gcc14-llvm22/build/components/agentic-circuit/unittests/ACSimOpsTests
+.pycircuit_out/local-gcc14-llvm22/build/components/agentic-circuit/unittests/ACSimTypesTests
+.pycircuit_out/local-gcc14-llvm22/build/components/agentic-circuit/unittests/CodeGenTests
+.pycircuit_out/local-gcc14-llvm22/build/components/agentic-circuit/unittests/CompilerTests
+.pycircuit_out/local-gcc14-llvm22/build/components/agentic-circuit/unittests/GfsimTests
+
+# Python, contract, and end-to-end lanes
+/home/lc/opt/agentic-circuit-toolchain/python-env/bin/python -m unittest discover -s components/agentic-circuit/tests/python_frontend
+/home/lc/opt/agentic-circuit-toolchain/python-env/bin/python -m unittest discover -s components/agentic-circuit/tests/contracts
+/home/lc/opt/agentic-circuit-toolchain/python-env/bin/python components/agentic-circuit/scripts/check-contracts.py
+/home/lc/opt/agentic-circuit-toolchain/python-env/bin/python -m unittest components/agentic-circuit/tests/e2e/test_table_backend.py
+/home/lc/opt/agentic-circuit-toolchain/python-env/bin/python -m unittest components/agentic-circuit/tests/e2e/test_pyc_backend.py
+
+# Focused parser, inventory, and installed-package checks
+.pycircuit_out/local-gcc14-llvm22/build/bin/acir-opt components/agentic-circuit/test/ACIR/table.mlir | .pycircuit_out/local-gcc14-llvm22/build/bin/acir-opt -o /dev/null
+/home/lc/opt/agentic-circuit-toolchain/python-env/bin/python components/agentic-circuit/scripts/check-ir-coverage.py
+/home/lc/opt/agentic-circuit-toolchain/python-env/bin/python flows/tools/check_api_hygiene.py compiler/frontend/pycircuit designs/examples docs README.md
+PYTHONPATH=.pycircuit_out/local-gcc14-llvm22/install/lib/python3.11/site-packages PATH=.pycircuit_out/local-gcc14-llvm22/install/bin:$PATH LD_LIBRARY_PATH=.pycircuit_out/local-gcc14-llvm22/install/lib:.pycircuit_out/local-gcc14-llvm22/install/lib64:$LD_LIBRARY_PATH /home/lc/opt/agentic-circuit-toolchain/python-env/bin/python -m agentic_circuit._cli doctor --json
+
+# Source hygiene and decision status
+git diff --check
+git ls-files '*.cpp' '*.h' ':!references/**' | xargs /home/lc/opt/llvm-22.1.8/bin/clang-format --dry-run --Werror
+/home/lc/opt/llvm-22.1.8/bin/clang-format --dry-run --Werror components/agentic-circuit/include/acir/CodeGen/QueueGraphPlan.h components/agentic-circuit/include/gfsim/queue_blocks.h components/agentic-circuit/lib/CodeGen/QueueBlockContract.cpp components/agentic-circuit/lib/CodeGen/QueueGraphGenerator.cpp components/agentic-circuit/lib/CodeGen/QueueGraphPlan.cpp components/agentic-circuit/lib/CodeGen/QueueGraphPyc.cpp components/agentic-circuit/lib/Dialect/ACIR/ACIROps.cpp components/agentic-circuit/lib/Dialect/ACIR/ACIRResources.cpp components/agentic-circuit/lib/Analysis/ProcessStatePlan.cpp components/agentic-circuit/unittests/Dialect/ACIR/OpsTest.cpp components/agentic-circuit/unittests/gfsim/QueueBlocksTest.cpp components/agentic-circuit/unittests/Bindings/CanonicalBindingTest.cpp components/agentic-circuit/unittests/Conversion/ACIRToACSimTest.cpp
+python3 flows/tools/check_decision_status.py --rfc docs/rfcs/pyc6-decisions.md --status docs/gates/decision_status_v6.md --out docs/gates/logs/20260901-ac-table-prototype/decision_status_report.json
+python3 flows/tools/check_decision_status.py --rfc docs/rfcs/pyc6-decisions.md --status docs/gates/decision_status_v6.md --out docs/gates/logs/20260901-ac-table-prototype/decision_status_report.json --require-no-deferred --require-all-verified --require-concrete-evidence --require-existing-evidence

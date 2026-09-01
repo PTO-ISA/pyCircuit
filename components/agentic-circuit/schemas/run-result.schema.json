@@ -8,7 +8,7 @@
   "properties": {
     "schema": {"const": "agentic-circuit-run-result"},
     "version": {"const": "0.1"},
-    "contract_epoch": {"const": "0.3"},
+    "contract_epoch": {"const": "0.4"},
     "run_manifest": {"$ref": "#/$defs/fileHash"},
     "status": {"enum": ["completed", "incomplete", "failed"]},
     "termination_reason": {"enum": ["trace_drained", "declared_model_termination", "max_ticks", "max_domain_cycles", "max_events", "max_deltas_per_tick", "max_trace_records", "max_validation_work", "deadlock", "invariant_violation", "trace_error", "runtime_error", "interrupted"]},

@@ -30,7 +30,7 @@
 // EVENT-TARGET: unresolved event target role '@missing'
 
 //--- transfer-retain.mlir
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   "ac.protocol"() <{sym_name = "p"}> ({
     "ac.role"() <{sym_name = "a", dual = @b, cardinality = "exclusive"}> : () -> ()
     "ac.role"() <{sym_name = "b", dual = @a, cardinality = "exclusive"}> : () -> ()
@@ -41,7 +41,7 @@ builtin.module attributes {ac.contract_epoch = "0.3"} {
 }
 
 //--- orphan-transfer.mlir
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   "ac.protocol"() <{sym_name = "p"}> ({
     "ac.role"() <{sym_name = "a", dual = @b, cardinality = "exclusive"}> : () -> ()
     "ac.role"() <{sym_name = "b", dual = @a, cardinality = "exclusive"}> : () -> ()
@@ -53,7 +53,7 @@ builtin.module attributes {ac.contract_epoch = "0.3"} {
 }
 
 //--- retry-no-retain.mlir
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   "ac.protocol"() <{sym_name = "p"}> ({
     "ac.role"() <{sym_name = "a", dual = @b, cardinality = "exclusive"}> : () -> ()
     "ac.role"() <{sym_name = "b", dual = @a, cardinality = "exclusive"}> : () -> ()
@@ -68,7 +68,7 @@ builtin.module attributes {ac.contract_epoch = "0.3"} {
 }
 
 //--- drop-branch.mlir
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   "ac.protocol"() <{sym_name = "p"}> ({
     "ac.role"() <{sym_name = "a", dual = @b, cardinality = "exclusive"}> : () -> ()
     "ac.role"() <{sym_name = "b", dual = @a, cardinality = "exclusive"}> : () -> ()
@@ -87,7 +87,7 @@ builtin.module attributes {ac.contract_epoch = "0.3"} {
 }
 
 //--- pending-terminal.mlir
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   "ac.protocol"() <{sym_name = "p"}> ({
     "ac.role"() <{sym_name = "a", dual = @b, cardinality = "exclusive"}> : () -> ()
     "ac.role"() <{sym_name = "b", dual = @a, cardinality = "exclusive"}> : () -> ()
@@ -100,7 +100,7 @@ builtin.module attributes {ac.contract_epoch = "0.3"} {
 }
 
 //--- conflicting-join.mlir
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   "ac.protocol"() <{sym_name = "p"}> ({
     "ac.role"() <{sym_name = "a", dual = @b, cardinality = "exclusive"}> : () -> ()
     "ac.role"() <{sym_name = "b", dual = @a, cardinality = "exclusive"}> : () -> ()
@@ -118,7 +118,7 @@ builtin.module attributes {ac.contract_epoch = "0.3"} {
 }
 
 //--- scf-guard.mlir
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   "ac.protocol"() <{sym_name = "p"}> ({
     "ac.role"() <{sym_name = "a", dual = @b, cardinality = "exclusive"}> : () -> ()
     "ac.role"() <{sym_name = "b", dual = @a, cardinality = "exclusive"}> : () -> ()
@@ -136,7 +136,7 @@ builtin.module attributes {ac.contract_epoch = "0.3"} {
 }
 
 //--- unknown-pure-guard.mlir
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   "ac.protocol"() <{sym_name = "p"}> ({
     "ac.role"() <{sym_name = "a", dual = @b, cardinality = "exclusive"}> : () -> ()
     "ac.role"() <{sym_name = "b", dual = @a, cardinality = "exclusive"}> : () -> ()
@@ -149,7 +149,7 @@ builtin.module attributes {ac.contract_epoch = "0.3"} {
 }
 
 //--- container-guard.mlir
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   "ac.protocol"() <{sym_name = "p"}> ({
     "ac.role"() <{sym_name = "a", dual = @b, cardinality = "exclusive"}> : () -> ()
     "ac.role"() <{sym_name = "b", dual = @a, cardinality = "exclusive"}> : () -> ()
@@ -162,14 +162,14 @@ builtin.module attributes {ac.contract_epoch = "0.3"} {
 }
 
 //--- interface-child.mlir
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   "ac.interface"() <{sym_name = "I"}> ({
     "ac.state"() <{sym_name = "bad", initial = true, terminal = false}> : () -> ()
   }) : () -> ()
 }
 
 //--- protocol-child.mlir
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   "ac.protocol"() <{sym_name = "p"}> ({
     "ac.state"() <{sym_name = "s", initial = true, terminal = true}> : () -> ()
     "ac.port"() <{sym_name = "bad", type = i8, from = @a, to = @b, protocol_from = @a, protocol_to = @b}> : () -> ()
@@ -177,7 +177,7 @@ builtin.module attributes {ac.contract_epoch = "0.3"} {
 }
 
 //--- dual-cardinality.mlir
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   "ac.protocol"() <{sym_name = "p"}> ({
     "ac.role"() <{sym_name = "a", dual = @b, cardinality = "exclusive"}> : () -> ()
     "ac.role"() <{sym_name = "b", dual = @a, cardinality = "shared"}> : () -> ()
@@ -186,7 +186,7 @@ builtin.module attributes {ac.contract_epoch = "0.3"} {
 }
 
 //--- event-same-role.mlir
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   "ac.protocol"() <{sym_name = "p"}> ({
     "ac.role"() <{sym_name = "a", dual = @b, cardinality = "exclusive"}> : () -> ()
     "ac.role"() <{sym_name = "b", dual = @a, cardinality = "exclusive"}> : () -> ()
@@ -196,7 +196,7 @@ builtin.module attributes {ac.contract_epoch = "0.3"} {
 }
 
 //--- event-target.mlir
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   "ac.protocol"() <{sym_name = "p"}> ({
     "ac.role"() <{sym_name = "a", dual = @b, cardinality = "exclusive"}> : () -> ()
     "ac.role"() <{sym_name = "b", dual = @a, cardinality = "exclusive"}> : () -> ()

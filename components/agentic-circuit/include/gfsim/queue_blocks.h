@@ -855,35 +855,246 @@ private:
   bool fired_ = false;
 };
 
-template <typename T, typename Data, size_t Entries, Data Init,
-          typename Address, typename Write, typename WriteData,
-          typename Response>
-  requires(Entries > 0) && std::invocable<const Address &, const T &> &&
-          std::integral<std::invoke_result_t<const Address &, const T &>> &&
-          std::invocable<const Write &, const T &> &&
-          std::convertible_to<std::invoke_result_t<const Write &, const T &>,
-                              bool> &&
-          std::invocable<const WriteData &, const T &> &&
-          std::convertible_to<
-              std::invoke_result_t<const WriteData &, const T &>, Data> &&
-          std::invocable<const Response &, const T &, const Data &> &&
-          std::convertible_to<
-              std::invoke_result_t<const Response &, const T &, const Data &>,
-              T>
-class Table final
-    : public QueueMemory<T, Data, Address, Write, WriteData, Response> {
+/// A one-dimensional committed-state table. Reads observe only committed
+/// state; the sole QueueTableWrite endpoint installs at most one proposal and
+/// commits it during the tick transfer phase.
+template <typename Entry> class SimTable final : public SimObject {
 public:
   static constexpr std::string_view contractName = "ac.table";
   static constexpr ObjectKind componentKind = ObjectKind::Memory;
 
-  Table(std::string name, ObjectId id, SimObject *parent, SimQueue<T> &input,
-        SimQueue<T> &output, Address address = {}, Write write = {},
-        WriteData writeData = {}, Response response = {},
-        ObservationSink *observations = nullptr)
-      : QueueMemory<T, Data, Address, Write, WriteData, Response>(
-            std::move(name), id, parent, input, output, Entries, Init,
-            std::move(address), std::move(write), std::move(writeData),
-            std::move(response), observations) {}
+  SimTable(std::string name, ObjectId id, SimObject *parent, size_t entries,
+           ObservationSink *observations = nullptr)
+      : SimObject(componentKind, std::move(name), id, parent, observations),
+        committed_(entries) {
+    if (entries == 0)
+      throw std::invalid_argument("table entries must be positive");
+  }
+
+  size_t size() const { return committed_.size(); }
+  const Entry &at(size_t index) const { return committed_.at(index); }
+  bool proposeWrite(size_t index, Entry value) {
+    if (index >= committed_.size() || pending_)
+      return false;
+    pending_ = std::pair<size_t, Entry>{index, std::move(value)};
+    return true;
+  }
+  void commitWrite() {
+    if (!pending_)
+      return;
+    committed_[pending_->first] = std::move(pending_->second);
+    pending_.reset();
+  }
+  void cancelWrite() { pending_.reset(); }
+  void reset() override {
+    std::fill(committed_.begin(), committed_.end(), Entry{});
+    pending_.reset();
+    clearRuntimeFailureCode();
+  }
+
+private:
+  std::vector<Entry> committed_;
+  std::optional<std::pair<size_t, Entry>> pending_;
+};
+
+template <typename AddressResult>
+bool tableAddressInRange(AddressResult address, size_t entries) {
+  static_assert(std::integral<AddressResult>);
+  if constexpr (std::signed_integral<AddressResult>)
+    if (address < 0)
+      return false;
+  return static_cast<uint64_t>(address) < entries;
+}
+
+template <typename Input, typename Entry, typename Address, typename When>
+  requires std::invocable<const Address &, const Input &> &&
+           std::integral<
+               std::invoke_result_t<const Address &, const Input &>> &&
+           std::invocable<const When &, const Input &> &&
+           std::convertible_to<
+               std::invoke_result_t<const When &, const Input &>, bool>
+class QueueTableRead final : public SimObject {
+public:
+  static constexpr std::string_view contractName = "ac.table.read";
+  static constexpr ObjectKind componentKind = ObjectKind::Memory;
+
+  QueueTableRead(std::string name, ObjectId id, SimObject *parent,
+                 SimTable<Entry> &table, SimQueue<Input> &input,
+                 SimQueue<Entry> &output, Address address = {}, When when = {},
+                 ObservationSink *observations = nullptr)
+      : SimObject(componentKind, std::move(name), id, parent, observations),
+        table_(table), input_(input), output_(output),
+        address_(std::move(address)), when_(std::move(when)) {}
+
+  void doWork(Epoch) override {
+    if (fired_ || !input_.canProposePop())
+      return;
+    const Input *head = input_.peekProposable();
+    if (!head || !static_cast<bool>(std::invoke(std::as_const(when_), *head)))
+      return;
+    if (!output_.canProposePush())
+      return;
+    const auto address = std::invoke(std::as_const(address_), *head);
+    if (!tableAddressInRange(address, table_.size())) {
+      setRuntimeFailureCode("table_index_out_of_range");
+      return;
+    }
+    if (!output_.proposePush(table_.at(static_cast<size_t>(address))) ||
+        !input_.proposePop())
+      return;
+    fired_ = true;
+  }
+  void doXfer(Epoch) override { fired_ = false; }
+  bool hasPendingCommit() const override { return fired_; }
+  bool isRunnable(Epoch) const override {
+    if (fired_ || !input_.canProposePop())
+      return false;
+    const Input *head = input_.peekProposable();
+    return head &&
+           static_cast<bool>(std::invoke(std::as_const(when_), *head)) &&
+           output_.canProposePush();
+  }
+  void reset() override {
+    fired_ = false;
+    clearRuntimeFailureCode();
+  }
+
+private:
+  SimTable<Entry> &table_;
+  SimQueue<Input> &input_;
+  SimQueue<Entry> &output_;
+  [[no_unique_address]] Address address_;
+  [[no_unique_address]] When when_;
+  bool fired_ = false;
+};
+
+template <typename Entry, typename Address, typename When>
+  requires std::invocable<const Address &> &&
+           std::integral<std::invoke_result_t<const Address &>> &&
+           std::invocable<const When &> &&
+           std::convertible_to<std::invoke_result_t<const When &>, bool>
+class TableReadSource final : public SimObject {
+public:
+  static constexpr std::string_view contractName = "ac.table.read";
+  static constexpr ObjectKind componentKind = ObjectKind::Memory;
+
+  TableReadSource(std::string name, ObjectId id, SimObject *parent,
+                  SimTable<Entry> &table, SimQueue<Entry> &output,
+                  Address address = {}, When when = {},
+                  ObservationSink *observations = nullptr)
+      : SimObject(componentKind, std::move(name), id, parent, observations),
+        table_(table), output_(output), address_(std::move(address)),
+        when_(std::move(when)) {}
+
+  void doWork(Epoch) override {
+    if (fired_ || !static_cast<bool>(std::invoke(std::as_const(when_))) ||
+        !output_.canProposePush())
+      return;
+    const auto address = std::invoke(std::as_const(address_));
+    if (!tableAddressInRange(address, table_.size())) {
+      setRuntimeFailureCode("table_index_out_of_range");
+      return;
+    }
+    fired_ = output_.proposePush(table_.at(static_cast<size_t>(address)));
+  }
+  void doXfer(Epoch) override { fired_ = false; }
+  bool hasPendingCommit() const override { return fired_; }
+  bool isRunnable(Epoch) const override {
+    return !fired_ && static_cast<bool>(std::invoke(std::as_const(when_))) &&
+           output_.canProposePush();
+  }
+  void reset() override {
+    fired_ = false;
+    clearRuntimeFailureCode();
+  }
+
+private:
+  SimTable<Entry> &table_;
+  SimQueue<Entry> &output_;
+  [[no_unique_address]] Address address_;
+  [[no_unique_address]] When when_;
+  bool fired_ = false;
+};
+
+template <typename Input, typename Entry, typename Address, typename Enable,
+          typename Value>
+  requires std::invocable<const Address &, const Input &> &&
+           std::integral<
+               std::invoke_result_t<const Address &, const Input &>> &&
+           std::invocable<const Enable &, const Input &> &&
+           std::convertible_to<
+               std::invoke_result_t<const Enable &, const Input &>, bool> &&
+           std::invocable<const Value &, const Input &> &&
+           std::convertible_to<
+               std::invoke_result_t<const Value &, const Input &>, Entry>
+class QueueTableWrite final : public SimObject {
+public:
+  static constexpr std::string_view contractName = "ac.table.write";
+  static constexpr ObjectKind componentKind = ObjectKind::Memory;
+
+  QueueTableWrite(std::string name, ObjectId id, SimObject *parent,
+                  SimTable<Entry> &table, SimQueue<Input> &input,
+                  Address address = {}, Enable enable = {}, Value value = {},
+                  ObservationSink *observations = nullptr)
+      : SimObject(componentKind, std::move(name), id, parent, observations),
+        table_(table), input_(input), address_(std::move(address)),
+        enable_(std::move(enable)), value_(std::move(value)) {}
+
+  void doWork(Epoch) override {
+    if (fired_ || !input_.canProposePop())
+      return;
+    const Input *head = input_.peekProposable();
+    if (!head)
+      return;
+    proposed_ = false;
+    if (static_cast<bool>(std::invoke(std::as_const(enable_), *head))) {
+      const auto address = std::invoke(std::as_const(address_), *head);
+      if (!tableAddressInRange(address, table_.size())) {
+        setRuntimeFailureCode("table_index_out_of_range");
+        return;
+      }
+      if (!table_.proposeWrite(
+              static_cast<size_t>(address),
+              static_cast<Entry>(std::invoke(std::as_const(value_), *head)))) {
+        setRuntimeFailureCode("table_write_conflict");
+        return;
+      }
+      proposed_ = true;
+    }
+    if (!input_.proposePop()) {
+      if (proposed_)
+        table_.cancelWrite();
+      proposed_ = false;
+      return;
+    }
+    fired_ = true;
+  }
+  void doXfer(Epoch) override {
+    if (proposed_)
+      table_.commitWrite();
+    proposed_ = false;
+    fired_ = false;
+  }
+  bool hasPendingCommit() const override { return fired_; }
+  bool isRunnable(Epoch) const override {
+    return !fired_ && input_.canProposePop();
+  }
+  void reset() override {
+    if (proposed_)
+      table_.cancelWrite();
+    proposed_ = false;
+    fired_ = false;
+    clearRuntimeFailureCode();
+  }
+
+private:
+  SimTable<Entry> &table_;
+  SimQueue<Input> &input_;
+  [[no_unique_address]] Address address_;
+  [[no_unique_address]] Enable enable_;
+  [[no_unique_address]] Value value_;
+  bool proposed_ = false;
+  bool fired_ = false;
 };
 
 /// One physical, single-outstanding memory shared by a statically ordered set

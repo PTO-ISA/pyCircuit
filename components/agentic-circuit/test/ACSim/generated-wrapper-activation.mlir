@@ -1,7 +1,7 @@
 // RUN: %acir_opt_public %s | %FileCheck %s
 
-builtin.module attributes {ac.contract_epoch = "0.3"} {
-  acsim.model @wrapper_activation epoch "0.3" root @Top
+builtin.module attributes {ac.contract_epoch = "0.4"} {
+  acsim.model @wrapper_activation epoch "0.4" root @Top
       construction ["Top.left", "Top.left.child", "Top.port_sink", "Top.resource_sink"]
       destruction ["Top.resource_sink", "Top.port_sink", "Top.left.child", "Top.left"]
       fingerprints {
@@ -34,7 +34,7 @@ builtin.module attributes {ac.contract_epoch = "0.3"} {
       activation_sources = [], availability = "available", binding = "endpoint_binding",
       binding_schema = "acsim-binding-0.1", component_schema = @schema,
       component_schema_fingerprint = "sha256:0f00000000000000000000000000000000000000000000000000000000000000",
-      construction = {arguments = [], kind = "constructor"}, contract_epoch = "0.3",
+      construction = {arguments = [], kind = "constructor"}, contract_epoch = "0.4",
       cpp = {concept = "StatefulComponent", entry_points = {pure = "", reset = "endpoint_reset", validate = "endpoint_validate", work = "endpoint_work", xfer = "endpoint_xfer"}, header = "endpoint.hpp", symbol = "Endpoint", target = "model"},
       cpp_type = @value, effect = "stateful", fingerprint = "sha256:1200000000000000000000000000000000000000000000000000000000000000",
       implementation = @impl, ownership = {kind = "unique", placement = "member_or_array"},

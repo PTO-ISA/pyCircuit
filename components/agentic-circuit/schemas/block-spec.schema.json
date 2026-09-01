@@ -1,14 +1,14 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "urn:pto-isa:agentic-circuit:schema:block-spec:0.3",
-  "title": "Agentic Circuit High-Level BlockSpec 0.3",
+  "$id": "urn:pto-isa:agentic-circuit:schema:block-spec:0.4",
+  "title": "Agentic Circuit High-Level BlockSpec 0.4",
   "type": "object",
   "additionalProperties": false,
   "required": ["schema", "version", "contract_epoch", "blocks"],
   "properties": {
     "schema": {"const": "agentic-circuit-block-spec"},
-    "version": {"const": "0.3"},
-    "contract_epoch": {"const": "0.3"},
+    "version": {"const": "0.4"},
+    "contract_epoch": {"const": "0.4"},
     "blocks": {
       "type": "array",
       "minItems": 1,
@@ -101,9 +101,10 @@
       "additionalProperties": false,
       "required": ["header", "symbol", "optimized"],
       "properties": {
+        "available": {"type": "boolean"},
         "header": {"type": "string", "minLength": 1},
         "symbol": {"type": "string", "minLength": 1},
-        "optimized": {"const": true}
+        "optimized": {"type": "boolean"}
       }
     },
     "verilogProvider": {
@@ -111,8 +112,9 @@
       "additionalProperties": false,
       "required": ["realization", "optimized"],
       "properties": {
+        "available": {"type": "boolean"},
         "realization": {"type": "string", "minLength": 1},
-        "optimized": {"const": true}
+        "optimized": {"type": "boolean"}
       }
     },
     "providers": {
@@ -155,10 +157,10 @@
         "category": {
           "enum": ["compute", "transport", "scheduling", "execution", "storage"]
         },
-        "lambda_regions": {"type": "integer", "minimum": 0, "maximum": 1},
+        "lambda_regions": {"type": "integer", "minimum": 0, "maximum": 3},
         "ports": {
           "type": "array",
-          "minItems": 2,
+          "minItems": 0,
           "items": {"$ref": "#/$defs/portGroup"}
         },
         "parameters": {

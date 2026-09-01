@@ -2,7 +2,7 @@
 
 | 字段 | 内容 |
 | --- | --- |
-| 目标版本 | Explicit Memory contract epoch `0.3` |
+| 目标版本 | Explicit Memory contract epoch `0.4` |
 | 状态 | 已在 `main` 实现；本文是团队阅读入口 |
 | 适用读者 | Python 前端、ACIR、gfsim、PYC/Verilog 和模型验证开发者 |
 | 规范主文档 | [Agentic Circuit Specification Manual](agentic-circuit.md) |
@@ -338,11 +338,41 @@ Python 前端允许用同构 `ac.array` 静态声明 memory banks，并以
 冻结 ACIR 包含一个 `ac.route`、每个 bank 各一个普通 memory instance/request，以及
 一个 response `ac.merge`，不会引入新的 primitive。各 bank 的 outstanding 状态独立，
 因此跨 bank response 可能乱序；需要保序时应在 payload 中保留 tag 并显式接
-`reorder`。epoch 0.3 仅支持一维、data type、entries、init 和 latency 完全相同的 memory
+`reorder`。epoch 0.4 仅支持一维、data type、entries、init 和 latency 完全相同的 memory
 array。
 
 可执行示例：
 [`pyc_memory_pipeline.py`](../../examples/pipelines/pyc_memory_pipeline.py)。
+
+### Stateful Table 原型
+
+epoch `0.4` 新增一维、全零初始化、单 writer 的状态 Table：
+
+```python
+Table16 = ac.table[16, Entry]
+table = Table16(init=0)
+entry = table.view(0)
+snapshots = entry.read(when=entry.valid, depth=1, latency=1)
+
+table.view(lambda update: update.index).patch(
+    updates,
+    enable=lambda update: update.enable,
+    done=True,
+    result=lambda update: update.result,
+)
+```
+
+Entry 只能是 bool、定宽整数或仅包含这些字段的扁平 struct。`read()` 总是返回
+`Queue<Entry>`；Queue-driven read 的 `when=false` 不消费输入，disabled write 消费
+输入但不提出写 proposal。同 tick 读写返回 old committed Entry，写入在 tick commit
+后可见，动态越界报告 `table_index_out_of_range`。
+
+`EntryView` 只存在于 elaboration。`patch` 在 Frozen ACIR 前展开成
+`ac.table.get -> ac.var.with -> ac.table.write`，不存在 `ac.table.patch`。
+当前 Table 只支持 typed gfsim C++；PYC/RTL 返回稳定的
+`unsupported provisional Table` 诊断。旧 `ac.table(...)` 已删除，请求响应存储继续
+使用 `ac.memory`。纵向示例见
+[`table_scoreboard.py`](../../examples/state/table_scoreboard.py)。
 
 ### Credit
 
@@ -652,7 +682,7 @@ QueueGraph、gfsim、PYC、测试和 opcode catalog。
 | loop 被拒绝 | 不是受支持的单 Queue 有界 feedback 形状 | 简化为一次 Queue update，或显式组合 route/merge/feedback |
 | PYC 拒绝 `ac.expect` | verification leaf 不能进入 design | 把 assertion 放入 PYC testbench boundary |
 | 后端结果内部 cycle 不同 | gfsim 与 RTL IR 不同 | 比较声明的 transaction/state/refinement projection |
-| artifact epoch 不匹配 | serialized epoch 是 hard break | 重新生成 exact epoch `0.3` artifact，不使用兼容 shim |
+| artifact epoch 不匹配 | serialized epoch 是 hard break | 重新生成 exact epoch `0.4` artifact，不使用兼容 shim |
 
 ## 修改公共契约的完成条件
 

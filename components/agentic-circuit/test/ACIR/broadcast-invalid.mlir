@@ -10,25 +10,25 @@
 // LATENCY: error: 'ac.broadcast' op output latencies must be positive
 
 //--- one-output.mlir
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   %input = ac.source depth 4 latency 1 : !ac.queue<i64>
   %only = ac.broadcast %input depths [1] latencies [1] : !ac.queue<i64> -> (!ac.queue<i64>)
 }
 
 //--- type.mlir
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   %input = ac.source depth 4 latency 1 : !ac.queue<i64>
   %left, %right = ac.broadcast %input depths [1, 1] latencies [1, 1] : !ac.queue<i64> -> (!ac.queue<i64>, !ac.queue<i32>)
 }
 
 //--- depth.mlir
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   %input = ac.source depth 4 latency 1 : !ac.queue<i64>
   %left, %right = ac.broadcast %input depths [1, 0] latencies [1, 1] : !ac.queue<i64> -> (!ac.queue<i64>, !ac.queue<i64>)
 }
 
 //--- latency.mlir
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   %input = ac.source depth 4 latency 1 : !ac.queue<i64>
   %left, %right = ac.broadcast %input depths [1, 1] latencies [1, 0] : !ac.queue<i64> -> (!ac.queue<i64>, !ac.queue<i64>)
 }

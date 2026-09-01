@@ -6,7 +6,7 @@
 // RUN: diff %t/a.out %t/a.roundtrip
 
 //--- a.mlir
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   ac.module @M() parameters {} graph {
     ac.address_space @source width 8 unit "byte" id "source" path "source"
     ac.address_space @target_a width 8 unit "byte" id "target_a" path "target_a"
@@ -24,7 +24,7 @@ builtin.module attributes {ac.contract_epoch = "0.3"} {
 }
 
 //--- b.mlir
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   ac.module @M() parameters {} graph {
     ac.address_space @source width 8 unit "byte" id "source" path "source"
     ac.address_space @target_a width 8 unit "byte" id "target_a" path "target_a"

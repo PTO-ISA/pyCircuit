@@ -11,7 +11,7 @@
 // RUN: %not %acir_opt --verify-each=false %t/callee-unsupported.mlir 2>&1 | %FileCheck %s --check-prefix=CALLEEBAD
 
 //--- static.mlir
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   ac.module @Top() parameters {} graph {
     ac.process @workload kind "workload" {
       %lb = arith.constant 0 : index
@@ -25,7 +25,7 @@ builtin.module attributes {ac.contract_epoch = "0.3"} {
 }
 
 //--- dynamic-suspending.mlir
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   ac.module @Top(index, index, index) parameters {} graph {
   ^bb0(%lb : index, %ub : index, %step : index):
     ac.process @workload kind "workload" captures(%lb, %ub, %step : index, index, index) {
@@ -42,7 +42,7 @@ builtin.module attributes {ac.contract_epoch = "0.3"} {
 }
 
 //--- dynamic-no-suspend.mlir
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   ac.module @Top(index, index, index) parameters {} graph {
   ^bb0(%lb : index, %ub : index, %step : index):
     ac.process @workload kind "workload" captures(%lb, %ub, %step : index, index, index) {
@@ -56,7 +56,7 @@ builtin.module attributes {ac.contract_epoch = "0.3"} {
 // DYNAMIC: dynamic scf.for requires every reachable backedge to suspend
 
 //--- non-positive-step.mlir
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   ac.module @Top() parameters {} graph {
     ac.process @workload kind "workload" {
       %lb = arith.constant 0 : index
@@ -71,7 +71,7 @@ builtin.module attributes {ac.contract_epoch = "0.3"} {
 // STEP: static scf.for step must be positive
 
 //--- trip-cap.mlir
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   ac.module @Top() parameters {} graph {
     ac.process @workload kind "workload" {
       %lb = arith.constant 0 : index
@@ -86,7 +86,7 @@ builtin.module attributes {ac.contract_epoch = "0.3"} {
 // TRIP: static scf.for trip count exceeds ACIR capability limit 1048576
 
 //--- cyclic-cf.mlir
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   "ac.module"() <{sym_name = "Top", function_type = () -> (), static_params = {}}> ({
     "ac.process"() <{kind = "workload", sym_name = "workload"}> ({
     ^bb0:
@@ -100,7 +100,7 @@ builtin.module attributes {ac.contract_epoch = "0.3"} {
 // CF: ac.process contains unsupported operation cf.br
 
 //--- recursive-call.mlir
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   func.func @recur() {
     func.call @recur() : () -> ()
     return
@@ -116,7 +116,7 @@ builtin.module attributes {ac.contract_epoch = "0.3"} {
 // RECURSION: recursive func.call purity cycle: @recur -> @recur
 
 //--- external-call.mlir
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   func.func private @external()
   ac.module @Top() parameters {} graph {
     ac.process @workload kind "workload" {
@@ -129,7 +129,7 @@ builtin.module attributes {ac.contract_epoch = "0.3"} {
 // EXTERNAL: process func.call callee '@external' has no body and cannot be proven effect-free
 
 //--- callee-dynamic-no-suspend.mlir
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   func.func @loop(%l : index, %u : index, %s : index) {
     scf.for %i = %l to %u step %s { scf.yield }
     return
@@ -147,7 +147,7 @@ builtin.module attributes {ac.contract_epoch = "0.3"} {
 // CALLEEDYNAMIC: dynamic scf.for requires every reachable backedge to suspend
 
 //--- callee-unsupported.mlir
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   func.func @bad() {
   ^entry:
     cf.br ^cycle

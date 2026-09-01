@@ -3,7 +3,7 @@
 // RUN: %acir_opt --emit-bytecode -o %t.bc %s
 // RUN: %acir_opt %t.bc | %FileCheck %s
 
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   ac.type_scope @types {
     ac.struct @Control fields [{name = "route", type = i1}]
   } {dlti.dl_spec = #dlti.dl_spec<!ac.struct<@types::@Control> = {abi_alignment = 1 : i64, endianness = "little", preferred_alignment = 1 : i64, size = 1 : i64}>}

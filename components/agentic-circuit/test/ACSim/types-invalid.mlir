@@ -14,38 +14,38 @@
 // PC: error: invalid kind of attribute specified
 
 //--- negative-array.mlir
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   "builtin.unrealized_conversion_cast"() : () -> !acsim.array<[2, -1], !acsim.owner<@b>>
 }
 
 //--- excessive-array.mlir
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   "builtin.unrealized_conversion_cast"() : () -> !acsim.array<[1048576, 1048576], !acsim.owner<@b>>
 }
 
 //--- rank-zero-array.mlir
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   "builtin.unrealized_conversion_cast"() : () -> !acsim.array<[], !acsim.owner<@b>>
 }
 
 //--- malformed-port.mlir
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   "builtin.unrealized_conversion_cast"() : () -> !acsim.port<@stream, @producer>
 }
 
 //--- malformed-pc.mlir
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   "builtin.unrealized_conversion_cast"() : () -> !acsim.pc<i32>
 }
 
 //--- malformed-ref.mlir
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   "builtin.unrealized_conversion_cast"() : () -> !acsim.ref<i32>
 }
 // REF: error: invalid kind of attribute specified
 
 //--- malformed-resource.mlir
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   "builtin.unrealized_conversion_cast"() : () -> !acsim.resource<@rk>
 }
 // RESOURCE: error: expected ','

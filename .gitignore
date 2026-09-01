@@ -256,3 +256,9 @@ designs/outerCube/
 .claude/settings.local.json
 # gate outputs
 docs/gates
+!docs/gates/
+docs/gates/*
+!docs/gates/logs/
+docs/gates/logs/*
+!docs/gates/logs/20260901-ac-table-prototype/
+!docs/gates/logs/20260901-ac-table-prototype/**

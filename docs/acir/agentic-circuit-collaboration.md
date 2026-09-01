@@ -25,7 +25,7 @@ They are provenance records, not active merge targets for new source changes.
 
 ## Branch and access audit
 
-- Preserve `agentic-circuit/import-0.3` at the source main baseline.
+- Preserve `agentic-circuit/import-0.4` at the source main baseline.
 - Record every source branch as imported, migrated, superseded, or intentionally
   retained before repository closure.
 - Revoke old Actions, environments, deploy keys, webhooks and publishing

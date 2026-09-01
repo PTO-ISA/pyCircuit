@@ -71,7 +71,7 @@ def run(arguments: object, workspace: WorkspaceConfig, sink: OutputSink) -> int:
         {
             "schema": "agentic-circuit-elaborate-result",
             "version": "0.1",
-            "contract_epoch": "0.3",
+            "contract_epoch": "0.4",
             "emit": emit,
             "path": output.as_posix(),
             "sha256": fingerprint,

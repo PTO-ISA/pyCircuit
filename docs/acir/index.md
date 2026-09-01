@@ -9,7 +9,7 @@ pyCircuit 6.
 ## Contract boundaries
 
 - `agentic_circuit` captures architecture, process, resource, and queue models.
-- ACPy schema `agentic-circuit-acpy` version `0.1`, contract epoch `0.3`, is the
+- ACPy schema `agentic-circuit-acpy` version `0.1`, contract epoch `0.4`, is the
   stable frontend interchange contract.
 - ACIR (`ac`) is an upper-level MLIR dialect. It remains separate from the PYC
   hardware dialect.

@@ -16,7 +16,7 @@
 // FOREIGN-EFFECT: error: 'ac.firing' op body operation 'ac.assert' is not a queue effect or pure computation
 
 //--- unlisted.mlir
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   %input = "builtin.unrealized_conversion_cast"() : () -> !ac.queue<i32>
   %output = "builtin.unrealized_conversion_cast"() : () -> !ac.queue<i32>
   ac.firing (%input) {
@@ -27,7 +27,7 @@ builtin.module attributes {ac.contract_epoch = "0.3"} {
 }
 
 //--- duplicate-pop.mlir
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   %input = "builtin.unrealized_conversion_cast"() : () -> !ac.queue<i32>
   ac.firing (%input) {
     %first = ac.queue.pop %input : !ac.queue<i32> -> !ac.var<i32>
@@ -37,7 +37,7 @@ builtin.module attributes {ac.contract_epoch = "0.3"} {
 }
 
 //--- duplicate-push.mlir
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   %output = "builtin.unrealized_conversion_cast"() : () -> !ac.queue<i32>
   ac.firing (%output) {
     %value = "builtin.unrealized_conversion_cast"() : () -> !ac.var<i32>
@@ -48,7 +48,7 @@ builtin.module attributes {ac.contract_epoch = "0.3"} {
 }
 
 //--- effectless.mlir
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   %input = "builtin.unrealized_conversion_cast"() : () -> !ac.queue<i32>
   ac.firing (%input) {
     %value = "builtin.unrealized_conversion_cast"() : () -> !ac.var<i32>
@@ -57,7 +57,7 @@ builtin.module attributes {ac.contract_epoch = "0.3"} {
 }
 
 //--- payload.mlir
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   %output = "builtin.unrealized_conversion_cast"() : () -> !ac.queue<i32>
   ac.firing (%output) {
     %value = "builtin.unrealized_conversion_cast"() : () -> !ac.var<i16>
@@ -67,7 +67,7 @@ builtin.module attributes {ac.contract_epoch = "0.3"} {
 }
 
 //--- foreign-effect.mlir
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   %input = "builtin.unrealized_conversion_cast"() : () -> !ac.queue<i32>
   ac.firing (%input) {
     %item = ac.queue.pop %input : !ac.queue<i32> -> !ac.var<i32>
@@ -78,7 +78,7 @@ builtin.module attributes {ac.contract_epoch = "0.3"} {
 }
 
 //--- peek-payload.mlir
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   %input = "builtin.unrealized_conversion_cast"() : () -> !ac.queue<i32>
   ac.firing (%input) {
     %item = ac.queue.peek %input : !ac.queue<i32> -> !ac.var<i16>

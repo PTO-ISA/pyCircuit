@@ -11,7 +11,7 @@ backend you eventually want to run.
 | Distribution | `pycircuit-hisi` | `agentic-circuit` |
 | Python import | `pycircuit` | `agentic_circuit` |
 | Primary authoring model | Signals, state, hierarchy, and logical cycles | Architecture, processes, queues, resources, and workloads |
-| Source contract | Cycle-Aware Signal or structural modules | ACPy contract epoch `0.3` |
+| Source contract | Cycle-Aware Signal or structural modules | ACPy contract epoch `0.4` |
 | Primary IR | PYC MLIR | ACIR, then ACSim or PYC |
 | Native simulation | pyc6 C++ cycle model | ACSim/gfsim |
 | Hardware generation | PYC → `pycc` → C++ and Verilog | Synthesizable ACIR → PYC → `pycc` → C++ and Verilog |

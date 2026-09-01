@@ -2,8 +2,8 @@
 // RUN: %acir_opt_public --emit-bytecode -o %t.bc %s
 // RUN: %acir_opt_public %t.bc | %FileCheck %s
 
-builtin.module attributes {ac.contract_epoch = "0.3"} {
-  acsim.model @reused epoch "0.3" root @Top
+builtin.module attributes {ac.contract_epoch = "0.4"} {
+  acsim.model @reused epoch "0.4" root @Top
       construction ["Top.left", "Top.left.child", "Top.left.pulse", "Top.right[0]", "Top.right[0].child", "Top.right[0].pulse", "Top.right[1]", "Top.right[1].child", "Top.right[1].pulse"]
       destruction ["Top.right[1].pulse", "Top.right[1].child", "Top.right[1]", "Top.right[0].pulse", "Top.right[0].child", "Top.right[0]", "Top.left.pulse", "Top.left.child", "Top.left"]
       fingerprints {
@@ -23,7 +23,7 @@ builtin.module attributes {ac.contract_epoch = "0.3"} {
       activation_sources = [], availability = "available", binding = "child_binding",
       binding_schema = "acsim-binding-0.1", component_schema = @schema,
       component_schema_fingerprint = "sha256:3000000000000000000000000000000000000000000000000000000000000000",
-      construction = {arguments = [], kind = "constructor"}, contract_epoch = "0.3",
+      construction = {arguments = [], kind = "constructor"}, contract_epoch = "0.4",
       cpp = {concept = "StatefulComponent", entry_points = {pure = "", reset = "child_reset", validate = "child_validate", work = "child_work", xfer = "child_xfer"}, header = "child.hpp", symbol = "Child", target = "model"},
       cpp_type = @value, effect = "stateful", fingerprint = "sha256:5000000000000000000000000000000000000000000000000000000000000000",
       implementation = @impl, ownership = {kind = "unique", placement = "member_or_array"},

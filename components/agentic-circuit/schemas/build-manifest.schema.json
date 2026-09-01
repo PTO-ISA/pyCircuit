@@ -8,7 +8,7 @@
   "properties": {
     "schema": {"const": "agentic-circuit-build-manifest"},
     "version": {"const": "0.1"},
-    "contract_epoch": {"const": "0.3"},
+    "contract_epoch": {"const": "0.4"},
     "project": {"$ref": "#/$defs/identity"},
     "system": {"$ref": "#/$defs/identity"},
     "source_files": {"type": "array", "items": {"$ref": "#/$defs/fileHash"}},

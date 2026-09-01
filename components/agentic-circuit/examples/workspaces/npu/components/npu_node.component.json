@@ -1,7 +1,7 @@
 {
   "schema_kind": "agentic-circuit-component",
   "schema_version": "0.1",
-  "contract_epoch": "0.3",
+  "contract_epoch": "0.4",
   "canonical_name": "workspace.NpuNode",
   "family": "compute",
   "provider_namespace": "workspace.npu.provider",

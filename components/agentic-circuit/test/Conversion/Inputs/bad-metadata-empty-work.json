@@ -16,7 +16,7 @@
           ],
           "kind": "constructor"
         },
-        "contract_epoch": "0.3",
+        "contract_epoch": "0.4",
         "cpp": {
           "concept": "gfsim::StatefulModel",
           "entry_points": {
@@ -69,7 +69,7 @@
       "binding_schema": "acsim-binding-0.1",
       "component_schema": "ac.Leaf",
       "component_schema_fingerprint": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
-      "contract_epoch": "0.3",
+      "contract_epoch": "0.4",
       "effect": "stateful",
       "function_type": "() -> i32",
       "parameters": [

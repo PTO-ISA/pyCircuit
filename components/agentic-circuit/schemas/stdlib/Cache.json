@@ -1,7 +1,7 @@
 {
   "schema_kind": "agentic-circuit-component",
   "schema_version": "0.1",
-  "contract_epoch": "0.3",
+  "contract_epoch": "0.4",
   "canonical_name": "ac.Cache",
   "family": "storage",
   "provider_namespace": "ac",
@@ -149,5 +149,5 @@
     ],
     "histograms": []
   },
-  "schema_fingerprint": "sha256:9f58fa33c9beda1118ba7c226339b37fcfc9d1ec5575c2c75416691ee06d686b"
+  "schema_fingerprint": "sha256:329e0dbfd44bc7b8485a2cda288acd692a2efeb7a727645f4977454758f68729"
 }

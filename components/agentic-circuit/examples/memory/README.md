@@ -44,7 +44,7 @@ Checked-in evidence:
 - [`davincioo-softmax-run.json`](../../tests/goldens/davincioo/davincioo-softmax-run.json)
 - [`davincioo-softmax-swimlane.svg`](../../tests/goldens/davincioo/davincioo-softmax-swimlane.svg)
 
-## Explicit memory (epoch 0.3)
+## Explicit memory (epoch 0.4)
 
 `memory_simple.py` declares one root-owned, 16-entry `u16` memory and connects
 two typed logical endpoints from child scopes. Writer endpoint ordinal 0 has
@@ -208,7 +208,7 @@ seed_tick=5 copy_tick=14 verify_tick=19 dram_value=0x1234 copy_old_sram=0
 
 ## Current boundary
 
-The 0.3 contract intentionally supports one physical port and one outstanding
+The 0.4 contract intentionally supports one physical port and one outstanding
 request per memory instance. It does not provide true multi-port access,
 round-robin fairness, response reordering, byte enables, or non-zero
 initialization. A continuously valid higher-priority endpoint can starve lower

@@ -276,7 +276,7 @@ def lower_to_acir(
         raise ValueError("ACPY-VERIFY-001: lowering requires verified ACPy")
     types = _argument_types(program)
     root = _symbol(program.definition)
-    lines = ['module attributes {ac.contract_epoch = "0.3"} {']
+    lines = ['module attributes {ac.contract_epoch = "0.4"} {']
     workload = next(
         (process.name for process, kind in processes if kind == "workload"), None
     )

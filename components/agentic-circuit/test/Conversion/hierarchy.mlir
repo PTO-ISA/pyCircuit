@@ -12,7 +12,7 @@
 // arguments and specialization fingerprint. Instances of structural modules
 // are ownership-only: only the workload process produces a dispatch row.
 
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   ac.system @soc root @Top as "root" tick 0 "cycle"
       workload @Top::@workload seed {kind = "fixed", value = 7 : i64}
       instrumentation [] results {id = "default", format = "json"} selected true
@@ -34,7 +34,7 @@ builtin.module attributes {ac.contract_epoch = "0.3"} {
   }
 }
 
-// CHECK:      acsim.model @soc epoch "0.3" root @Top
+// CHECK:      acsim.model @soc epoch "0.4" root @Top
 // CHECK-SAME:   construction ["root.mid", "root.mid.left", "root.mid.right", "root.solo", "root.workload"]
 // CHECK-SAME:   destruction ["root.workload", "root.solo", "root.mid.right", "root.mid.left", "root.mid"]
 // CHECK:        acsim.module @Child interface {ports = [], resources = [], results = []} static [] specialization "[[CHILD_FP:sha256:[0-9a-f]+]]" exports [] {

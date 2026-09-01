@@ -3,8 +3,8 @@
 | Field | Value |
 | --- | --- |
 | Specification | Serial Python, Queue/Var ACIR, typed gfsim, and PYC refinement |
-| Target contract epoch | `0.3` |
-| Status | Current implementation contract; serialized epoch `0.3` is active on `main` |
+| Target contract epoch | `0.4` |
+| Status | Current implementation contract; serialized epoch `0.4` is active on `main` |
 | Public namespace | `ac` |
 | Audience | Frontend, compiler, simulator, and RTL contributors |
 | Design background | [NDF block-model decision](decisions/D-BLOCK-MODEL-001.md) |
@@ -36,7 +36,7 @@ The editable diagram source is
 The words **MUST**, **MUST NOT**, **SHOULD**, **SHOULD NOT**, and **MAY** are
 normative requirements for the current contract.
 
-Producers emit exact serialized epoch `0.3`; consumers reject other epochs
+Producers emit exact serialized epoch `0.4`; consumers reject other epochs
 before interpreting the artifact. The toolchain provides no compatibility
 alias or best-effort conversion.
 
@@ -462,6 +462,45 @@ pre-transfer memory value. A
 write commits at Xfer. Therefore a read and write to the same address in one
 request returns old data and makes the new data visible to a later request.
 
+### Stateful Table prototype
+
+Epoch `0.4` separates locally owned state from request/response memory:
+
+```python
+Table16 = ac.table[16, Entry]
+table = Table16(init=0)
+entry = table.view(0)
+snapshots = entry.read(when=entry.valid, depth=1, latency=1)
+
+table.view(lambda update: update.index).patch(
+    updates,
+    enable=lambda update: update.enable,
+    done=True,
+    result=lambda update: update.result,
+)
+responses = table.view(lambda request: request.index).read(
+    requests,
+    when=lambda request: request.enable,
+    depth=1,
+    latency=1,
+)
+```
+
+`Entry` is a boolean, a fixed-width integer, or a flat struct of those scalar
+types. The Table is one-dimensional, has an all-zero initial image, and permits
+one `write` or `patch` endpoint. `read` always returns `Queue<Entry>`.
+Queue-driven read with `when=false` preserves its input; disabled write consumes
+its input without proposing state. Same-tick reads observe old committed data,
+and a write becomes visible at tick commit. Dynamic bounds failures use
+`table_index_out_of_range`.
+
+`EntryView` is elaboration-only. `patch` lowers before Frozen ACIR to
+`ac.table.get`, immutable `ac.var.with` updates, and `ac.table.write`; there is
+no `ac.table.patch` operation. Table is a typed gfsim C++ prototype. PYC/RTL
+lowering is deferred and rejects the graph with `unsupported provisional
+Table`. Request/response storage remains `ac.memory`; legacy `ac.table(...)`
+has been removed.
+
 ### Reorder
 
 `reorder` accepts out-of-order completions and releases them in monotonically
@@ -752,8 +791,8 @@ or another supported static collection with a valid fixed shape.
 ### Implemented common building blocks
 
 The official graph-level catalog contains exactly these operations. Every
-design entry has both a typed gfsim realization and a PYC realization;
-verification entries declare their permitted boundary explicitly.
+non-provisional design entry has both a typed gfsim realization and a PYC
+realization; Table entries explicitly declare their gfsim-only boundary.
 
 | Operation | Role | Queue arity | Static parameters | Core behavior |
 | --- | --- | --- | --- | --- |
@@ -770,6 +809,9 @@ verification entries declare their permitted boundary explicitly.
 | `ac.barrier` | design | two or more to the same count | output depths and latencies | positionally typed atomic synchronization |
 | `ac.credit` | design | one to one | `credits`, `depth`, `latency` | bounded parallel cost countdown and completion |
 | `ac.memory.instance` / `ac.memory.request` | design | shared instance, one-to-one endpoint | instance identity, ordinal, `entries`, `init`, instance `latency`, `result_field`, `depth` | fixed-priority single-outstanding old-data memory |
+| `ac.table` | design | state owner | Entry type, `entries`, `init`, owner, stable identity | committed zero-initialized state image; gfsim-only prototype |
+| `ac.table.read` | design | optional request to one | Table identity, `depth`, `latency` | state- or Queue-driven old-data capture |
+| `ac.table.write` | design | one to none | Table identity | consume update and optionally commit one proposal |
 | `ac.dependency` | design | one to one | `capacity`, `resources`, `no_dependency`, `depth`, `latency` | bounded predecessor tracking, resource reservation, and execution countdown |
 | `ac.reorder` | design | one to one | `capacity`, `start`, `depth`, `latency` | bounded key-ordered retirement |
 | `ac.feedback` | design | one to one | `depth`, `latency`, `max_iterations` | bounded stateful loop |
@@ -903,7 +945,7 @@ lowers to one `ac.route`, one ordinary memory instance and request per bank,
 and one response `ac.merge`. The route key selects exactly one bank. Banks have
 independent outstanding state, so responses from different banks may be
 reordered; callers that require request order retain a tag and use `reorder`.
-Memory arrays are one-dimensional in epoch 0.3 and require identical data type,
+Memory arrays are one-dimensional in epoch 0.4 and require identical data type,
 entry count, and initialization across all banks.
 
 ### Explicit firing example
@@ -1036,6 +1078,15 @@ gfsim `reset()` restores that image so the same model instance can replay
 deterministically. The raw PYC primitive does not clear memory on its reset
 port, so mid-run reset of memory contents is outside the shared refinement
 contract; a PYC replay MUST instantiate a fresh model.
+
+### Table transfer
+
+`SimTable<Entry>` exposes only committed state to read and value policies. A
+Queue-driven read proposes its input pop and output push together. A
+state-driven read may capture once per tick while `when` is true and the output
+has capacity. The sole writer consumes a disabled token without a proposal;
+an enabled token proposes one value and commits it at Xfer. An output Queue
+owns its captured Entry, so later writes cannot change a backpressured output.
 
 ## Typed gfsim C++ lowering
 
@@ -1363,11 +1414,12 @@ The following slices are implemented and tested:
   static loops, and symmetric runtime Queue `if` lowering through
   route/transform/merge;
 - canonical QueueGraph extraction;
-- typed gfsim C++ generation;
+- typed gfsim C++ generation, including the provisional one-dimensional Table;
 - PYC/Verilog lowering for transform, broadcast, fork, route, select, merge,
   atomic barrier, bounded credit, typed synchronous memory, dependency,
   reorder, bounded feedback, elaboration-time scope flattening, packed
   structures, atomic handshakes, and exact Queue latency;
+- stable PYC rejection of provisional Table graphs;
 - PYC C++ versus Verilog cycle equivalence and gfsim/PYC projected transaction
   comparison.
 

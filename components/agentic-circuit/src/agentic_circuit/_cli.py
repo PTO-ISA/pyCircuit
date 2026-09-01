@@ -256,7 +256,7 @@ def _placeholder_result(
     return {
         "schema": "agentic-circuit-command-result",
         "version": "0.1",
-        "contract_epoch": "0.3",
+        "contract_epoch": "0.4",
         "command": arguments.command,
         "project": project,
         "status": "accepted",

@@ -10,7 +10,7 @@
 // YIELD-TYPE: error: 'ac.scope' op yielded queue 0 must match result type
 
 //--- arg-count.mlir
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   %input = ac.source depth 4 latency 1 : !ac.queue<i64>
   %output = ac.scope @s(%input) {
   ^body:
@@ -19,7 +19,7 @@ builtin.module attributes {ac.contract_epoch = "0.3"} {
 }
 
 //--- arg-type.mlir
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   %input = ac.source depth 4 latency 1 : !ac.queue<i64>
   %output = ac.scope @s(%input) {
   ^body(%borrowed: !ac.queue<i32>):
@@ -29,7 +29,7 @@ builtin.module attributes {ac.contract_epoch = "0.3"} {
 }
 
 //--- yield-count.mlir
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   %input = ac.source depth 4 latency 1 : !ac.queue<i64>
   %output = ac.scope @s(%input) {
   ^body(%borrowed: !ac.queue<i64>):
@@ -38,7 +38,7 @@ builtin.module attributes {ac.contract_epoch = "0.3"} {
 }
 
 //--- yield-type.mlir
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   %input = ac.source depth 4 latency 1 : !ac.queue<i64>
   %output = ac.scope @s(%input) {
   ^body(%borrowed: !ac.queue<i64>):

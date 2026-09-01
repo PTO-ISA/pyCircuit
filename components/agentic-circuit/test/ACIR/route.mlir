@@ -1,6 +1,6 @@
 // RUN: %acir_opt %s | %FileCheck %s
 
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   %input = ac.source depth 4 latency 1 : !ac.queue<i64>
   %left, %right = ac.route %input depths [2, 2] latencies [1, 1] {
   ^selector(%item: !ac.var<i64>):

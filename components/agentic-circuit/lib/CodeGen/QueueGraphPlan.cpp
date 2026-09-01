@@ -174,6 +174,12 @@ llvm::Error extractExpressions(mlir::Region &region, QueueBlockPlan &plan) {
         return error;
       continue;
     }
+    if (auto get = mlir::dyn_cast<ac::TableGetOp>(operation)) {
+      if (auto error = append(operation, "table_get"))
+        return error;
+      plan.expressions.back().table = get.getTable().str();
+      continue;
+    }
     llvm::SmallVector<mlir::Value, 2> yielded;
     if (auto yield = mlir::dyn_cast<ac::TransformYieldOp>(operation))
       yielded.append(yield.getValues().begin(), yield.getValues().end());
@@ -188,6 +194,8 @@ llvm::Error extractExpressions(mlir::Region &region, QueueBlockPlan &plan) {
     else if (auto yield = mlir::dyn_cast<ac::CreditYieldOp>(operation))
       yielded.push_back(yield.getCost());
     else if (auto yield = mlir::dyn_cast<ac::MemoryYieldOp>(operation))
+      yielded.push_back(yield.getValue());
+    else if (auto yield = mlir::dyn_cast<ac::TableYieldOp>(operation))
       yielded.push_back(yield.getValue());
     else if (auto yield = mlir::dyn_cast<ac::ExpectYieldOp>(operation))
       yielded.push_back(yield.getCondition());
@@ -213,8 +221,8 @@ public:
 
   llvm::Expected<QueueGraphPlan> run() {
     auto epoch = module->getAttrOfType<mlir::StringAttr>("ac.contract_epoch");
-    if (!epoch || epoch.getValue() != "0.3")
-      return planError("module requires ac.contract_epoch exactly '0.3'");
+    if (!epoch || epoch.getValue() != "0.4")
+      return planError("module requires ac.contract_epoch exactly '0.4'");
     auto system = module->getAttrOfType<mlir::StringAttr>("ac.system");
     if (!system || system.getValue().empty())
       return planError("module requires non-empty ac.system");
@@ -312,6 +320,13 @@ private:
              uint64_t(instance.getEntries()), uint64_t(instance.getInit()),
              uint64_t(instance.getLatency()), instance.getStableId().str(),
              instance.getOwner().str()});
+        continue;
+      }
+      if (auto table = mlir::dyn_cast<ac::TableOp>(operation)) {
+        plan.tables.push_back(
+            {table.getSymName().str(), printType(table.getEntryType()),
+             uint64_t(table.getEntries()), uint64_t(table.getInit()),
+             table.getStableId().str(), table.getOwner().str()});
         continue;
       }
       if (auto source = mlir::dyn_cast<ac::SourceOp>(operation)) {
@@ -601,6 +616,74 @@ private:
         plan.blocks.push_back(std::move(blockPlan));
         continue;
       }
+      if (auto read = mlir::dyn_cast<ac::TableReadOp>(operation)) {
+        std::vector<std::string> inputs;
+        if (read.getInput()) {
+          auto input = queueName(read.getInput(), names);
+          if (!input)
+            return input.takeError();
+          inputs.push_back(std::move(*input));
+        }
+        std::vector<std::string> outputs;
+        if (auto error =
+                addOutputs(read, read->getResults(), {int64_t(read.getDepth())},
+                           {int64_t(read.getLatency())}, scope, outputs))
+          return error;
+        auto name = read->getAttrOfType<mlir::StringAttr>("ac.name");
+        if (!name || name.getValue().empty())
+          return planError("table.read requires frozen ac.name");
+        QueueBlockPlan blockPlan{"table_read",
+                                 name.getValue().str(),
+                                 scopePath(scope),
+                                 inputs,
+                                 outputs,
+                                 {uint64_t(read.getDepth())},
+                                 {uint64_t(read.getLatency())}};
+        blockPlan.table = read.getTable().str();
+        std::vector<std::string> policyYields;
+        for (mlir::Region *policy : {&read.getAddress(), &read.getWhen()}) {
+          if (auto error = extractExpressions(*policy, blockPlan))
+            return error;
+          if (blockPlan.yields.size() != 1)
+            return planError("table read policy must yield one value");
+          policyYields.push_back(blockPlan.yields.front());
+        }
+        blockPlan.yields = std::move(policyYields);
+        plan.tableReads.push_back(
+            {blockPlan.table, blockPlan.name, blockPlan.scope,
+             inputs.empty() ? std::string() : inputs.front(), outputs.front(),
+             uint64_t(read.getDepth()), uint64_t(read.getLatency())});
+        plan.blocks.push_back(std::move(blockPlan));
+        continue;
+      }
+      if (auto write = mlir::dyn_cast<ac::TableWriteOp>(operation)) {
+        auto input = queueName(write.getInput(), names);
+        if (!input)
+          return input.takeError();
+        auto name = write->getAttrOfType<mlir::StringAttr>("ac.name");
+        if (!name || name.getValue().empty())
+          return planError("table.write requires frozen ac.name");
+        QueueBlockPlan blockPlan{"table_write",
+                                 name.getValue().str(),
+                                 scopePath(scope),
+                                 {*input},
+                                 {}};
+        blockPlan.table = write.getTable().str();
+        std::vector<std::string> policyYields;
+        for (mlir::Region *policy :
+             {&write.getAddress(), &write.getEnable(), &write.getValue()}) {
+          if (auto error = extractExpressions(*policy, blockPlan))
+            return error;
+          if (blockPlan.yields.size() != 1)
+            return planError("table write policy must yield one value");
+          policyYields.push_back(blockPlan.yields.front());
+        }
+        blockPlan.yields = std::move(policyYields);
+        plan.tableWrites.push_back(
+            {blockPlan.table, blockPlan.name, blockPlan.scope, *input});
+        plan.blocks.push_back(std::move(blockPlan));
+        continue;
+      }
       if (auto feedback = mlir::dyn_cast<ac::FeedbackOp>(operation)) {
         auto input = queueName(feedback.getInput(), names);
         if (!input)
@@ -729,6 +812,7 @@ llvm::Error verifyQueueGraphPlan(const QueueGraphPlan &plan) {
 
   llvm::StringSet<> queueNames;
   llvm::StringMap<const MemoryInstancePlan *> memoryInstances;
+  llvm::StringMap<const TablePlan *> tables;
   for (const MemoryInstancePlan &instance : plan.memoryInstances) {
     if (instance.name.empty() ||
         !memoryInstances.try_emplace(instance.name, &instance).second)
@@ -756,6 +840,31 @@ llvm::Error verifyQueueGraphPlan(const QueueGraphPlan &plan) {
       if (!entry.getValue().contains(ordinal))
         return planError("memory request endpoint ordinals must be contiguous "
                          "from zero");
+  for (const TablePlan &table : plan.tables) {
+    if (table.name.empty() || !tables.try_emplace(table.name, &table).second)
+      return planError("table identities must be non-empty and unique");
+    if (table.entryType.empty() || table.entries == 0 || table.init != 0 ||
+        table.stableId.empty() || table.ownerPath.empty())
+      return planError("table metadata is incomplete");
+  }
+  llvm::StringMap<unsigned> tableReaders;
+  llvm::StringMap<unsigned> tableWriters;
+  for (const TableReadPlan &read : plan.tableReads) {
+    if (!tables.contains(read.table) || read.name.empty() ||
+        read.output.empty() || read.depth == 0 || read.latency == 0)
+      return planError("table read endpoint metadata is incomplete");
+    ++tableReaders[read.table];
+  }
+  for (const TableWritePlan &write : plan.tableWrites) {
+    if (!tables.contains(write.table) || write.name.empty() ||
+        write.input.empty())
+      return planError("table write endpoint metadata is incomplete");
+    if (++tableWriters[write.table] > 1)
+      return planError("table permits at most one write endpoint");
+  }
+  for (const auto &entry : tables)
+    if (tableReaders[entry.getKey()] + tableWriters[entry.getKey()] == 0)
+      return planError("table '" + entry.getKey() + "' has no endpoints");
   llvm::StringMap<unsigned> producers;
   llvm::StringMap<unsigned> consumers;
   llvm::StringMap<unsigned> indegree;
@@ -774,6 +883,12 @@ llvm::Error verifyQueueGraphPlan(const QueueGraphPlan &plan) {
     if (block.kind == "memory_request" &&
         !memoryInstances.contains(block.memoryInstance))
       return planError("memory request block references unknown instance");
+    if ((block.kind == "table_read" || block.kind == "table_write") &&
+        !tables.contains(block.table))
+      return planError("table endpoint block references unknown table");
+    for (const QueueExpressionPlan &expression : block.expressions)
+      if (expression.kind == "table_get" && !tables.contains(expression.table))
+        return planError("table.get expression references unknown table");
     for (const std::string &input : block.inputs)
       if (!queueNames.contains(input))
         return planError("block input references unknown Queue '" + input +
@@ -874,6 +989,7 @@ llvm::Expected<std::string> QueueGraphPlan::canonicalJson() const {
                              {"operands", std::move(operands)},
                              {"predicate", expression.predicate},
                              {"result", expression.result},
+                             {"table", expression.table},
                              {"type", expression.type}});
     }
     llvm::json::Array yields;
@@ -891,6 +1007,7 @@ llvm::Expected<std::string> QueueGraphPlan::canonicalJson() const {
                            {"max_iterations", block.maxIterations},
                            {"message", block.message},
                            {"memory_instance", block.memoryInstance},
+                           {"table", block.table},
                            {"name", block.name},
                            {"no_dependency", block.noDependency},
                            {"endpoint_ordinal", block.endpointOrdinal},
@@ -925,9 +1042,32 @@ llvm::Expected<std::string> QueueGraphPlan::canonicalJson() const {
                            {"output", request.output},
                            {"result_field", request.resultField},
                            {"scope", request.scope}});
+  llvm::json::Array tableValues;
+  for (const TablePlan &table : tables)
+    tableValues.push_back(llvm::json::Object{{"entries", table.entries},
+                                             {"entry_type", table.entryType},
+                                             {"init", table.init},
+                                             {"name", table.name},
+                                             {"owner_path", table.ownerPath},
+                                             {"stable_id", table.stableId}});
+  llvm::json::Array tableReadValues;
+  for (const TableReadPlan &read : tableReads)
+    tableReadValues.push_back(llvm::json::Object{{"depth", read.depth},
+                                                 {"input", read.input},
+                                                 {"latency", read.latency},
+                                                 {"name", read.name},
+                                                 {"output", read.output},
+                                                 {"scope", read.scope},
+                                                 {"table", read.table}});
+  llvm::json::Array tableWriteValues;
+  for (const TableWritePlan &write : tableWrites)
+    tableWriteValues.push_back(llvm::json::Object{{"input", write.input},
+                                                  {"name", write.name},
+                                                  {"scope", write.scope},
+                                                  {"table", write.table}});
   llvm::json::Object root{
       {"blocks", std::move(blockValues)},
-      {"contract_epoch", "0.3"},
+      {"contract_epoch", "0.4"},
       {"memory_instances", std::move(memoryInstanceValues)},
       {"memory_requests", std::move(memoryRequestValues)},
       {"payloads", std::move(payloadValues)},
@@ -937,8 +1077,11 @@ llvm::Expected<std::string> QueueGraphPlan::canonicalJson() const {
       {"specialization", specializationFingerprint.empty()
                              ? llvm::json::Value(nullptr)
                              : llvm::json::Value(specializationFingerprint)},
+      {"table_reads", std::move(tableReadValues)},
+      {"table_writes", std::move(tableWriteValues)},
+      {"tables", std::move(tableValues)},
       {"system", system},
-      {"version", "0.3"}};
+      {"version", "0.4"}};
   return bindings::canonicalizeJson(llvm::json::Value(std::move(root)));
 }
 

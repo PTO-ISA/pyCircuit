@@ -12,7 +12,7 @@
 // CUSTOM: custom_backpressure requires a non-empty declarative contract
 
 //--- string-kind.mlir
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   "ac.protocol"() <{sym_name = "p"}> ({
     "ac.state"() <{sym_name = "s", initial = true, terminal = true}> : () -> ()
     "ac.guarantee"() <{kind = "backpressure", value = 1 : i64}> : () -> ()
@@ -20,7 +20,7 @@ builtin.module attributes {ac.contract_epoch = "0.3"} {
 }
 
 //--- stable.mlir
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   "ac.protocol"() <{sym_name = "p"}> ({
     "ac.state"() <{sym_name = "s", initial = true, terminal = true}> : () -> ()
     "ac.guarantee"() <{kind = "stable_pending", value = 1 : i64}> : () -> ()
@@ -28,7 +28,7 @@ builtin.module attributes {ac.contract_epoch = "0.3"} {
 }
 
 //--- inflight.mlir
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   "ac.protocol"() <{sym_name = "p"}> ({
     "ac.state"() <{sym_name = "s", initial = true, terminal = true}> : () -> ()
     "ac.guarantee"() <{kind = "max_inflight", value = "many"}> : () -> ()
@@ -36,7 +36,7 @@ builtin.module attributes {ac.contract_epoch = "0.3"} {
 }
 
 //--- correlation.mlir
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   "ac.protocol"() <{sym_name = "p"}> ({
     "ac.state"() <{sym_name = "s", initial = true, terminal = true}> : () -> ()
     "ac.guarantee"() <{kind = "correlation", value = 1 : i64}> : () -> ()
@@ -44,7 +44,7 @@ builtin.module attributes {ac.contract_epoch = "0.3"} {
 }
 
 //--- custom.mlir
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   "ac.protocol"() <{sym_name = "p"}> ({
     "ac.state"() <{sym_name = "s", initial = true, terminal = true}> : () -> ()
     "ac.guarantee"() <{kind = "custom_backpressure", value = true}> : () -> ()

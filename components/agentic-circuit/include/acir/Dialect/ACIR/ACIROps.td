@@ -400,6 +400,67 @@ def ACIR_MemoryYieldOp : ACIR_Op<"memory.yield", [
   let assemblyFormat = "$value attr-dict `:` qualified(type($value))";
 }
 
+def ACIR_TableOp : ACIR_Op<"table", [
+    Symbol, DeclareOpInterfaceMethods<MemoryEffectsOpInterface>
+  ]> {
+  let arguments = (ins SymbolNameAttr:$sym_name, TypeAttr:$entry_type,
+                       I64Attr:$entries, I64Attr:$init, StrAttr:$owner,
+                       StrAttr:$stable_id);
+  let hasVerifier = 1;
+  let assemblyFormat = [{
+    $sym_name `entry` $entry_type `entries` $entries `init` $init
+    `owner` $owner `stable_id` $stable_id attr-dict
+  }];
+}
+
+def ACIR_TableGetOp : ACIR_Op<"table.get", [
+    DeclareOpInterfaceMethods<MemoryEffectsOpInterface>
+  ]> {
+  let arguments = (ins FlatSymbolRefAttr:$table, ACIR_VarType:$index);
+  let results = (outs ACIR_VarType:$result);
+  let hasVerifier = 1;
+  let assemblyFormat = [{
+    $table `[` $index `]` attr-dict `:` qualified(type($index)) `->`
+    qualified(type($result))
+  }];
+}
+
+def ACIR_TableReadOp : ACIR_Op<"table.read", [
+    SingleBlock, DeclareOpInterfaceMethods<MemoryEffectsOpInterface>
+  ]> {
+  let arguments = (ins FlatSymbolRefAttr:$table,
+                       Optional<ACIR_QueueType>:$input,
+                       I64Attr:$depth, I64Attr:$latency);
+  let results = (outs ACIR_QueueType:$output);
+  let regions = (region SizedRegion<1>:$address,
+                        SizedRegion<1>:$when);
+  let hasVerifier = 1;
+  let assemblyFormat = [{
+    $table (`,` $input^ `:` qualified(type($input)))?
+    `depth` $depth `latency` $latency `address` $address `when` $when
+    attr-dict `->` qualified(type($output))
+  }];
+}
+
+def ACIR_TableWriteOp : ACIR_Op<"table.write", [
+    SingleBlock, DeclareOpInterfaceMethods<MemoryEffectsOpInterface>
+  ]> {
+  let arguments = (ins FlatSymbolRefAttr:$table, ACIR_QueueType:$input);
+  let regions = (region SizedRegion<1>:$address,
+                        SizedRegion<1>:$enable,
+                        SizedRegion<1>:$value);
+  let hasVerifier = 1;
+  let assemblyFormat = [{
+    $table `,` $input `address` $address `enable` $enable `value` $value
+    attr-dict `:` qualified(type($input))
+  }];
+}
+
+def ACIR_TableYieldOp : ACIR_Op<"table.yield", [Pure, Terminator]> {
+  let arguments = (ins ACIR_VarType:$value);
+  let assemblyFormat = "$value attr-dict `:` qualified(type($value))";
+}
+
 def ACIR_FeedbackOp : ACIR_Op<"feedback", [SingleBlock]> {
   let arguments = (ins ACIR_QueueType:$input, I64Attr:$depth,
                        I64Attr:$latency, I64Attr:$max_iterations);

@@ -344,6 +344,51 @@ def pipeline() -> None:
     ac.sink(responses)
 """
 
+TABLE_SOURCE = """
+import agentic_circuit as ac
+
+@ac.struct
+class Entry:
+    valid: bool
+    done: bool
+    result: ac.u16
+
+@ac.struct
+class Update:
+    index: ac.u4
+    enable: bool
+    done: bool
+    result: ac.u16
+
+@ac.struct
+class Request:
+    index: ac.u4
+    enable: bool
+
+@ac.system
+def pipeline() -> None:
+    updates = ac.source(Update)
+    requests = ac.source(Request)
+    state = ac.table[16, Entry](init=0)
+    state.view(lambda update: update.index).patch(
+        updates,
+        enable=lambda update: update.enable,
+        valid=True,
+        done=lambda update: update.done,
+        result=lambda update: update.result,
+    )
+    responses = state.view(lambda request: request.index).read(
+        requests,
+        when=lambda request: request.enable,
+        depth=1,
+        latency=1,
+    )
+    entry = state.view(0)
+    snapshots = entry.read(when=entry.valid, depth=1, latency=1)
+    ac.sink(responses)
+    ac.sink(snapshots)
+"""
+
 MEMORY_OWNED_SCOPE_SOURCE = """
 import agentic_circuit as ac
 
@@ -688,6 +733,55 @@ class QueueFrontendTest(unittest.TestCase):
                 "pipeline",
             )
 
+    def test_table_patch_and_two_read_modes_lower_to_frozen_primitives(self) -> None:
+        from agentic_circuit._queue_frontend import lower_queue_source
+
+        lowered = lower_queue_source(TABLE_SOURCE, "pipeline")
+        self.assertIn('ac.contract_epoch = "0.4"', lowered)
+        self.assertIn(
+            "ac.table @state entry !ac.struct<@types::@Entry> entries 16 init 0",
+            lowered,
+        )
+        self.assertEqual(1, lowered.count("ac.table.write"))
+        self.assertEqual(2, lowered.count("ac.table.read"))
+        self.assertIn("ac.table.get @state", lowered)
+        self.assertIn('field "valid"', lowered)
+        self.assertIn('field "done"', lowered)
+        self.assertIn('field "result"', lowered)
+        self.assertNotIn("ac.table.patch", lowered)
+
+    def test_table_hard_break_and_static_contracts_are_diagnosed(self) -> None:
+        from agentic_circuit._queue_frontend import (
+            QueueFrontendError,
+            lower_queue_source,
+        )
+
+        legacy = TABLE_SOURCE.replace(
+            "state = ac.table[16, Entry](init=0)",
+            "state = ac.table(updates, address=Update.index)",
+        )
+        with self.assertRaisesRegex(QueueFrontendError, "use ac.memory"):
+            lower_queue_source(legacy, "pipeline")
+        with self.assertRaisesRegex(
+            QueueFrontendError, "table init must be exactly zero"
+        ):
+            lower_queue_source(
+                TABLE_SOURCE.replace(
+                    "ac.table[16, Entry](init=0)", "ac.table[16, Entry](init=1)"
+                ),
+                "pipeline",
+            )
+        with self.assertRaisesRegex(QueueFrontendError, "one write/patch endpoint"):
+            lower_queue_source(
+                TABLE_SOURCE.replace(
+                    "    responses = state.view",
+                    "    state.view(lambda update: update.index).write("
+                    "updates, value=lambda update: update)\n"
+                    "    responses = state.view",
+                ),
+                "pipeline",
+            )
+
     def test_memory_instance_freezes_multiple_endpoint_priority(self) -> None:
         from agentic_circuit._queue_frontend import lower_queue_source
 
@@ -866,7 +960,7 @@ class QueueFrontendTest(unittest.TestCase):
         from agentic_circuit._queue_frontend import lower_queue_source
 
         self.assertEqual(
-            """module attributes {ac.contract_epoch = "0.3", ac.system = "pipeline"} {
+            """module attributes {ac.contract_epoch = "0.4", ac.system = "pipeline"} {
   %input_queue = ac.source depth 4 latency 1 {ac.name = "input_queue"} : !ac.queue<i64>
   %output_queue = ac.transform %input_queue depths [8] latencies [2] {
   ^transform(%item: !ac.var<i64>):

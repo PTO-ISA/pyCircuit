@@ -7,7 +7,7 @@
 // type carry the exact plan fingerprints, and the dispatch thunks point at
 // the deterministic acsim_generated namespace.
 
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   ac.system @soc root @Top as "root" tick 0 "cycle"
       workload @Top::@workload seed {kind = "fixed", value = 7 : i64}
       instrumentation [] results {id = "default", format = "json"} selected true

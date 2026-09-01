@@ -16,39 +16,39 @@
 // PROPERTY: topology type '!ac.flow<i8, @missing>' cannot be nested inside '!ac.optional<!ac.flow<i8, @missing>>'
 
 //--- optional-flow-result.mlir
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   %x = "builtin.unrealized_conversion_cast"() : () -> !ac.optional<!ac.flow<i8, @missing>>
 }
 
 //--- list-endpoint-result.mlir
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   %x = "builtin.unrealized_conversion_cast"() : () -> !ac.list<!ac.endpoint<@Missing, @role>>
 }
 
 //--- vector-resource-result.mlir
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   %x = "builtin.unrealized_conversion_cast"() : () -> !ac.vector<2 x !ac.resource_ref<@Resource, @role>>
 }
 
 //--- event-token-result.mlir
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   %x = "builtin.unrealized_conversion_cast"() : () -> !ac.event<!ac.resource_token<@Resource>>
 }
 
 //--- nested-channel-result.mlir
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   %x = "builtin.unrealized_conversion_cast"() : () -> !ac.optional<!ac.channel<i8, @missing>>
 }
 
 //--- block-argument.mlir
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   "ac.interface"() <{sym_name = "I"}> ({
   ^bb0(%arg0: !ac.optional<!ac.flow<i8, @missing>>):
   }) : () -> ()
 }
 
 //--- property.mlir
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   "ac.type_scope"() <{sym_name = "types"}> ({
     "ac.type_alias"() <{sym_name = "Bad", target = !ac.optional<!ac.flow<i8, @missing>>}> : () -> ()
   }) : () -> ()

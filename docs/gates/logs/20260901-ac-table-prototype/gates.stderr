@@ -1,0 +1,5 @@
+Expected negative verifier diagnostics were emitted by ACIR/ACSim unit tests; all corresponding tests passed.
+
+The full tracked-source clang-format command exits nonzero on pre-existing formatting violations outside the Table implementation. The only changed file affected by that baseline is ACIRToACSim.cpp, whose task change is the mechanical contract-epoch migration. The substantive Table C++ source set passes the pinned LLVM 22 formatter.
+
+Unavailable host tools: FileCheck, split-file, not, count, Verilator, pytest, mkdocs, and pre-commit. Consequently, check-acir/full lit, Verilog, pytest-wrapper, mkdocs, and pre-commit lanes are not claimed as locally validated. Direct acir-opt Table round-trip, the generated IR coverage ledger check, C++ unit executables, unittest suites, and current-checkout native C++ end-to-end tests provide the local AC G0/G1 evidence.

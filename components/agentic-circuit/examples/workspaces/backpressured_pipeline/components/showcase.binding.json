@@ -17,7 +17,7 @@
           ],
           "kind": "constructor"
         },
-        "contract_epoch": "0.3",
+        "contract_epoch": "0.4",
         "cpp": {
           "concept": "gfsim::Component",
           "entry_points": {
@@ -73,7 +73,7 @@
           ],
           "kind": "constructor"
         },
-        "contract_epoch": "0.3",
+        "contract_epoch": "0.4",
         "cpp": {
           "concept": "gfsim::Component",
           "entry_points": {
@@ -120,7 +120,7 @@
       "binding_schema": "acsim-binding-0.1",
       "component_schema": "workspace.Showcase",
       "component_schema_fingerprint": "sha256:3dd113d76227679688dc514e8bbe401a8225925cf592e362891a8857b6f2a270",
-      "contract_epoch": "0.3",
+      "contract_epoch": "0.4",
       "effect": "stateful",
       "function_type": "() -> ()",
       "parameters": [

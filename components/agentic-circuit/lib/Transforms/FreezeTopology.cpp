@@ -118,7 +118,7 @@ LogicalResult freezeTopology(ModuleOp model) {
   if (failed(ownerManifest))
     return failure();
   Builder builder(model.getContext());
-  model->setAttr("ac.freeze_epoch", builder.getStringAttr("0.3"));
+  model->setAttr("ac.freeze_epoch", builder.getStringAttr("0.4"));
   model->setAttr(
       "ac.frozen_system",
       FlatSymbolRefAttr::get(model.getContext(), selected.getSymName()));

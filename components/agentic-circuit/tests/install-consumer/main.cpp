@@ -14,7 +14,7 @@ int main() {
   context.loadAllAvailableDialects();
 
   auto module = mlir::parseSourceString<mlir::ModuleOp>(R"mlir(
-module attributes {ac.contract_epoch = "0.3", ac.freeze_epoch = "0.3",
+module attributes {ac.contract_epoch = "0.4", ac.freeze_epoch = "0.4",
     ac.frozen_instrumentation = [],
     ac.frozen_owners = [
       {kind = "ac.system_root", owner = @Top, path = "root", stable_id = "root"},

@@ -67,7 +67,7 @@ class RunCommandTest(unittest.TestCase):
                 "(stage/'validation-report.json').write_bytes(validation)\n"
                 "digest=lambda data:'sha256:'+hashlib.sha256(data).hexdigest()\n"
                 "result={'schema':'agentic-circuit-run-result','version':'0.1',"
-                "'contract_epoch':'0.3','run_manifest':{'path':'run-manifest.json',"
+                "'contract_epoch':'0.4','run_manifest':{'path':'run-manifest.json',"
                 "'sha256':digest(manifest)},'status':'completed',"
                 "'termination_reason':'trace_drained','simulated_ticks':0,"
                 "'domain_cycles':{},'event_count':0,'trace_position':{"

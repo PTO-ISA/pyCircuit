@@ -218,8 +218,8 @@ emitTransform(const QueueGraphPlan &plan, const QueueBlockPlan &block,
         if (!type)
           return type.takeError();
         body << "    " << result << " = pyc." << expression.kind << ' '
-             << *first << ", " << *second << " : " << *type << ", "
-             << *type << " -> " << *type << "\n";
+             << *first << ", " << *second << " : " << *type << ", " << *type
+             << " -> " << *type << "\n";
       } else if (expression.kind == "cmp") {
         if (expression.operands.size() != 2)
           return pycError("comparison expression arity mismatch");
@@ -259,8 +259,7 @@ emitTransform(const QueueGraphPlan &plan, const QueueBlockPlan &block,
         }
         std::string compared = newValue();
         body << "    " << compared << " = pyc." << opcode.str() << ' ' << lhs
-             << ", " << rhs << " : " << *type << ", " << *type
-             << " -> i1\n";
+             << ", " << rhs << " : " << *type << ", " << *type << " -> i1\n";
         if (negate) {
           result = newValue();
           body << "    " << result << " = pyc.not " << compared << " : i1\n";
@@ -360,6 +359,8 @@ constexpr llvm::StringLiteral kStructMetrics =
 } // namespace
 
 llvm::Expected<std::string> generateQueueGraphPyc(const QueueGraphPlan &plan) {
+  if (!plan.tables.empty())
+    return pycError("unsupported provisional Table: PYC lowering is deferred");
   if (!plan.scopes.empty()) {
     const QueueBlockContract *scope = findQueueBlockContract("scope");
     if (!scope || !scope->pycAvailable)

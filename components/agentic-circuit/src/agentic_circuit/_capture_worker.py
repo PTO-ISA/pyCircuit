@@ -112,7 +112,7 @@ def _request_json(request: CaptureWorkerRequest, output: Path) -> dict[str, Json
     return {
         "schema": "agentic-circuit-capture-request",
         "version": "0.1",
-        "contract_epoch": "0.3",
+        "contract_epoch": "0.4",
         "workspace": request.workspace.resolve().as_posix(),
         "entry": request.entry.resolve().as_posix(),
         "system": request.system,
@@ -305,7 +305,7 @@ def _worker_main(request_path: Path) -> int:
     response = {
         "schema": "agentic-circuit-capture-result",
         "version": "0.1",
-        "contract_epoch": "0.3",
+        "contract_epoch": "0.4",
         "has_acpy": document is not None,
         "has_acir": acir is not None,
         "diagnostics": [item.to_json() for item in diagnostics],

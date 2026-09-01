@@ -431,7 +431,7 @@ def _validate_target(document: dict[str, JsonValue]) -> None:
     if (
         document["schema"] != "pto-trace"
         or document["version"] != "0.1"
-        or document["contract_epoch"] != "0.3"
+        or document["contract_epoch"] != "0.4"
         or type(document["metadata"]) is not dict
         or type(document["records"]) is not list
     ):
@@ -477,7 +477,7 @@ def convert_davincioo_trace(
     document: dict[str, JsonValue] = {
         "schema": "pto-trace",
         "version": "0.1",
-        "contract_epoch": "0.3",
+        "contract_epoch": "0.4",
         "metadata": {
             "producer": DAVINCIOO_PRODUCER,
             "pto_identity": PTO_IDENTITY,

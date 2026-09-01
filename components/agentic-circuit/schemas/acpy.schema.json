@@ -8,7 +8,7 @@
   "properties": {
     "schema": {"const": "agentic-circuit-acpy"},
     "version": {"const": "0.1"},
-    "contract_epoch": {"const": "0.3"},
+    "contract_epoch": {"const": "0.4"},
     "entry": {"$ref": "#/$defs/entityId"},
     "sources": {"type": "array", "items": {"$ref": "#/$defs/sourceFile"}},
     "entities": {"type": "array", "items": {"$ref": "#/$defs/entity"}}

@@ -43,6 +43,7 @@ class QueueBinding:
     dependency_output: bool = False
     credit_output: bool = False
     memory_output: bool = False
+    table_read_output: bool = False
     barrier_output: bool = False
     select_output: bool = False
     firing_effect: bool = False
@@ -246,6 +247,53 @@ class MemoryBinding:
 
 
 @dataclass(frozen=True, slots=True)
+class TableBinding:
+    name: str
+    entry_type: str
+    entries: int
+    scope: tuple[str, ...]
+    order: int
+
+
+@dataclass(frozen=True, slots=True)
+class EntryViewBinding:
+    name: str
+    table: str
+    argument: str | None
+    address: ast.expr
+    scope: tuple[str, ...]
+    order: int
+
+
+@dataclass(frozen=True, slots=True)
+class TableReadBinding:
+    table: str
+    input_name: str | None
+    output_name: str
+    argument: str | None
+    address: ast.expr
+    when: ast.expr
+    view_alias: str | None
+    depth: int
+    latency: int
+    scope: tuple[str, ...]
+    order: int
+
+
+@dataclass(frozen=True, slots=True)
+class TableWriteBinding:
+    table: str
+    input_name: str
+    argument: str
+    address: ast.expr
+    enable: ast.expr
+    value: ast.expr | None
+    patch_fields: tuple[tuple[str, ast.expr], ...]
+    scope: tuple[str, ...]
+    order: int
+
+
+@dataclass(frozen=True, slots=True)
 class StaticMemoryArrayBinding:
     name: str
     members: tuple[str, ...]
@@ -320,6 +368,9 @@ class QueueProgram:
     memory_instances: tuple[MemoryInstanceBinding, ...]
     memory_requests: tuple[MemoryRequestBinding, ...]
     memories: tuple[MemoryBinding, ...]
+    tables: tuple[TableBinding, ...]
+    table_reads: tuple[TableReadBinding, ...]
+    table_writes: tuple[TableWriteBinding, ...]
     atomics: tuple[AtomicBinding, ...]
     collections: tuple[CollectionBinding, ...]
     observations: tuple[ObservationBinding, ...]
@@ -755,6 +806,11 @@ def parse_queue_program(
     memory_instances: list[MemoryInstanceBinding] = []
     memory_requests: list[MemoryRequestBinding] = []
     memories: list[MemoryBinding] = []
+    tables: list[TableBinding] = []
+    table_reads: list[TableReadBinding] = []
+    table_writes: list[TableWriteBinding] = []
+    table_by_name: dict[str, TableBinding] = {}
+    entry_views: dict[str, EntryViewBinding] = {}
     memory_by_name: dict[str, MemoryInstanceBinding] = {}
     memory_arrays: dict[str, StaticMemoryArrayBinding] = {}
     selected_memories: dict[str, SelectedMemoryBinding] = {}
@@ -770,6 +826,79 @@ def parse_queue_program(
 
     def call_name(call: ast.Call) -> str:
         return _decorator_name(call.func).rsplit(".", 1)[-1]
+
+    def table_declaration(call: ast.Call) -> tuple[int, str] | None:
+        if not isinstance(call.func, ast.Subscript):
+            return None
+        if _decorator_name(call.func.value).rsplit(".", 1)[-1] != "table":
+            return None
+        parameters = call.func.slice
+        if not isinstance(parameters, ast.Tuple) or len(parameters.elts) != 2:
+            raise QueueFrontendError(
+                "ACPY-TABLE-001: table requires ac.table[entries, Entry]"
+            )
+        entries = _static_int(parameters.elts[0])
+        if entries is None or entries <= 0:
+            raise QueueFrontendError(
+                "ACPY-TABLE-001: table entries must be a positive static integer"
+            )
+        entry_type = _payload(parameters.elts[1], payload_map)
+        if call.args or any(
+            keyword.arg is None or keyword.arg != "init" for keyword in call.keywords
+        ):
+            raise QueueFrontendError(
+                "ACPY-TABLE-001: table accepts only keyword init=0"
+            )
+        init_values = [keyword.value for keyword in call.keywords]
+        init = 0 if not init_values else _static_int(init_values[0])
+        if len(init_values) > 1 or init != 0:
+            raise QueueFrontendError(
+                "ACPY-TABLE-001: table init must be exactly zero"
+            )
+        return entries, entry_type
+
+    def parse_view(node: ast.expr, alias: str, scope_path: tuple[str, ...],
+                   current_order: int) -> EntryViewBinding | None:
+        if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Attribute):
+            return None
+        if node.func.attr != "view" or not isinstance(node.func.value, ast.Name):
+            return None
+        table_name = node.func.value.id
+        if table_name not in table_by_name:
+            return None
+        if len(node.args) != 1 or node.keywords:
+            raise QueueFrontendError(
+                "ACPY-TABLE-002: table.view requires one index or selector lambda"
+            )
+        selector = node.args[0]
+        if isinstance(selector, ast.Lambda):
+            argument, address = _lambda(selector)
+        else:
+            argument, address = None, _constantize_expression(
+                selector, "", system_static_values
+            )
+        return EntryViewBinding(
+            alias, table_name, argument, address, scope_path, current_order
+        )
+
+    def resolve_view(node: ast.expr, scope_path: tuple[str, ...],
+                     current_order: int) -> EntryViewBinding | None:
+        if isinstance(node, ast.Name):
+            view = entry_views.get(node.id)
+            if view and view.scope == scope_path:
+                return view
+            return None
+        return parse_view(node, "", scope_path, current_order)
+
+    def lambda_or_constant(
+        node: ast.expr, argument: str, diagnostic: str
+    ) -> ast.expr:
+        if isinstance(node, ast.Lambda):
+            candidate_argument, expression = _lambda(node)
+            if candidate_argument != argument:
+                raise QueueFrontendError(diagnostic)
+            return expression
+        return _constantize_expression(node, argument, system_static_values)
 
     def keyword_value(call: ast.Call, name: str) -> ast.expr:
         matches = [keyword.value for keyword in call.keywords if keyword.arg == name]
@@ -1164,11 +1293,252 @@ def parse_queue_program(
                 name in memory_by_name
                 or name in memory_arrays
                 or name in selected_memories
+                or name in table_by_name
+                or name in entry_views
                 for name in assigned_names
             ):
                 raise QueueFrontendError(
-                    "ACPY-QUEUE-015: memory binding cannot be rebound"
+                    "ACPY-QUEUE-015: state binding cannot be rebound"
                 )
+            if (
+                isinstance(statement, ast.Assign)
+                and len(statement.targets) == 1
+                and isinstance(statement.targets[0], ast.Name)
+                and isinstance(statement.value, ast.Call)
+            ):
+                declaration = table_declaration(statement.value)
+                if declaration is not None:
+                    name = statement.targets[0].id
+                    if name in by_name or name in collections or name in table_by_name:
+                        raise QueueFrontendError(
+                            "ACPY-TABLE-001: table declaration requires a fresh name"
+                        )
+                    entries, entry_type = declaration
+                    binding = TableBinding(
+                        name, entry_type, entries, scope_path, current_order
+                    )
+                    tables.append(binding)
+                    table_by_name[name] = binding
+                    continue
+                view = parse_view(
+                    statement.value,
+                    statement.targets[0].id,
+                    scope_path,
+                    current_order,
+                )
+                if view is not None:
+                    if view.name in by_name or view.name in collections:
+                        raise QueueFrontendError(
+                            "ACPY-TABLE-002: EntryView alias requires a fresh name"
+                        )
+                    entry_views[view.name] = view
+                    continue
+            if (
+                isinstance(statement, ast.Assign)
+                and len(statement.targets) == 1
+                and isinstance(statement.targets[0], ast.Name)
+                and isinstance(statement.value, ast.Call)
+                and isinstance(statement.value.func, ast.Attribute)
+                and statement.value.func.attr == "read"
+            ):
+                call = statement.value
+                view = resolve_view(call.func.value, scope_path, current_order)
+                if view is not None:
+                    name = statement.targets[0].id
+                    if name in by_name or name in collections or name in table_by_name:
+                        raise QueueFrontendError(
+                            "ACPY-TABLE-003: table read output requires a fresh name"
+                        )
+                    if len(call.args) > 1 or any(
+                        keyword.arg is None
+                        or keyword.arg not in {"when", "depth", "latency"}
+                        for keyword in call.keywords
+                    ):
+                        raise QueueFrontendError(
+                            "ACPY-TABLE-003: table read parameters are invalid"
+                        )
+                    input_name: str | None = None
+                    argument = view.argument
+                    if call.args:
+                        if argument is None:
+                            raise QueueFrontendError(
+                                "ACPY-TABLE-003: Queue-driven read requires a "
+                                "selector lambda"
+                            )
+                        input_name = queue_reference(call.args[0], aliases)
+                    elif argument is not None:
+                        raise QueueFrontendError(
+                            "ACPY-TABLE-003: state-driven read requires a bound index"
+                        )
+                    when_values = [
+                        keyword.value
+                        for keyword in call.keywords
+                        if keyword.arg == "when"
+                    ]
+                    if len(when_values) > 1:
+                        raise QueueFrontendError(
+                            "ACPY-TABLE-003: table read has repeated when"
+                        )
+                    when_node = when_values[0] if when_values else ast.Constant(True)
+                    if argument is not None:
+                        when = lambda_or_constant(
+                            when_node,
+                            argument,
+                            "ACPY-TABLE-003: selector and when lambdas require "
+                            "one argument name",
+                        )
+                    else:
+                        if isinstance(when_node, ast.Lambda):
+                            raise QueueFrontendError(
+                                "ACPY-TABLE-003: state-driven when is an "
+                                "EntryView expression"
+                            )
+                        when = _constantize_expression(
+                            when_node, "", system_static_values
+                        )
+                    depth = _positive_int(call, "depth", 1)
+                    latency = _positive_int(call, "latency", 1)
+                    table = table_by_name[view.table]
+                    queue = QueueBinding(
+                        name,
+                        table.entry_type,
+                        depth,
+                        latency,
+                        None,
+                        scope=scope_path,
+                        order=current_order,
+                        table_read_output=True,
+                    )
+                    queues.append(queue)
+                    by_name[name] = queue
+                    table_reads.append(
+                        TableReadBinding(
+                            view.table,
+                            input_name,
+                            name,
+                            argument,
+                            view.address,
+                            when,
+                            view.name or None,
+                            depth,
+                            latency,
+                            scope_path,
+                            current_order,
+                        )
+                    )
+                    continue
+            if (
+                isinstance(statement, ast.Expr)
+                and isinstance(statement.value, ast.Call)
+                and isinstance(statement.value.func, ast.Attribute)
+                and statement.value.func.attr in {"write", "patch"}
+            ):
+                call = statement.value
+                view = resolve_view(call.func.value, scope_path, current_order)
+                if view is not None:
+                    method = call.func.attr
+                    if len(call.args) != 1 or view.argument is None:
+                        raise QueueFrontendError(
+                            "ACPY-TABLE-004: table write/patch requires a "
+                            "Queue-driven view"
+                        )
+                    input_name = queue_reference(call.args[0], aliases)
+                    argument = view.argument
+                    assert argument is not None
+                    enable_values = [
+                        keyword.value
+                        for keyword in call.keywords
+                        if keyword.arg == "enable"
+                    ]
+                    if len(enable_values) > 1:
+                        raise QueueFrontendError(
+                            "ACPY-TABLE-004: repeated write enable"
+                        )
+                    enable = lambda_or_constant(
+                        enable_values[0] if enable_values else ast.Constant(True),
+                        argument,
+                        "ACPY-TABLE-004: selector and enable lambdas require "
+                        "one argument name",
+                    )
+                    value: ast.expr | None = None
+                    patch_fields: tuple[tuple[str, ast.expr], ...] = ()
+                    table = table_by_name[view.table]
+                    if method == "write":
+                        if any(
+                            keyword.arg is None
+                            or keyword.arg not in {"value", "enable"}
+                            for keyword in call.keywords
+                        ):
+                            raise QueueFrontendError(
+                                "ACPY-TABLE-004: write accepts only value and enable"
+                            )
+                        values = [
+                            keyword.value
+                            for keyword in call.keywords
+                            if keyword.arg == "value"
+                        ]
+                        if len(values) != 1:
+                            raise QueueFrontendError(
+                                "ACPY-TABLE-004: write requires one value lambda"
+                            )
+                        value = lambda_or_constant(
+                            values[0],
+                            argument,
+                            "ACPY-TABLE-004: selector and value lambdas require "
+                            "one argument name",
+                        )
+                    else:
+                        payload_name = table.entry_type.removeprefix(
+                            "!ac.struct<@types::@"
+                        ).removesuffix(">")
+                        declaration = payload_map.get(payload_name)
+                        if declaration is None:
+                            raise QueueFrontendError(
+                                "ACPY-TABLE-004: patch requires a struct Table Entry"
+                            )
+                        field_types = dict(declaration.fields)
+                        patches: list[tuple[str, ast.expr]] = []
+                        for keyword in call.keywords:
+                            if keyword.arg == "enable":
+                                continue
+                            if keyword.arg is None or keyword.arg not in field_types:
+                                raise QueueFrontendError(
+                                    "ACPY-TABLE-004: patch field is unknown"
+                                )
+                            patches.append(
+                                (
+                                    keyword.arg,
+                                    lambda_or_constant(
+                                        keyword.value,
+                                        argument,
+                                        "ACPY-TABLE-004: patch lambdas require "
+                                        "one argument name",
+                                    ),
+                                )
+                            )
+                        if not patches:
+                            raise QueueFrontendError(
+                                "ACPY-TABLE-004: patch requires at least one field"
+                            )
+                        patch_fields = tuple(patches)
+                    if any(write.table == view.table for write in table_writes):
+                        raise QueueFrontendError(
+                            "ACPY-TABLE-004: table permits one write/patch endpoint"
+                        )
+                    table_writes.append(
+                        TableWriteBinding(
+                            view.table,
+                            input_name,
+                            argument,
+                            view.address,
+                            enable,
+                            value,
+                            patch_fields,
+                            scope_path,
+                            current_order,
+                        )
+                    )
+                    continue
             if (
                 isinstance(statement, ast.Assign)
                 and len(statement.targets) == 1
@@ -2730,111 +3100,10 @@ def parse_queue_program(
                         )
                     )
                 elif call_name(call) == "table":
-                    if len(call.args) != 1 or any(
-                        keyword.arg is None
-                        or keyword.arg
-                        not in {
-                            "address",
-                            "write",
-                            "data",
-                            "result",
-                            "entries",
-                            "init",
-                            "depth",
-                            "latency",
-                        }
-                        for keyword in call.keywords
-                    ):
-                        raise QueueFrontendError(
-                            "ACPY-QUEUE-024: table parameters are invalid"
-                        )
-                    input_name = queue_reference(call.args[0], aliases)
-                    incoming = by_name[input_name]
-                    argument = "item"
-                    address = field_expression(keyword_value(call, "address"), incoming)
-                    write = field_expression(keyword_value(call, "write"), incoming)
-                    data_node = keyword_value(call, "data")
-                    data = field_expression(data_node, incoming)
-                    result_node = keyword_value(call, "result")
-                    field_expression(result_node, incoming)
-                    assert isinstance(data_node, ast.Attribute)
-                    assert isinstance(result_node, ast.Attribute)
-                    payload = next(
-                        item for item in payloads if item.acir_type == incoming.payload
-                    )
-                    data_type = dict(payload.fields)[data_node.attr]
-                    result_type = dict(payload.fields)[result_node.attr]
-                    if data_type != result_type:
-                        raise QueueFrontendError(
-                            "ACPY-QUEUE-024: table data and result fields must match"
-                        )
-                    entries = _positive_int(call, "entries", 16)
-                    init = _nonnegative_int(call, "init", 0)
-                    if init != 0:
-                        raise QueueFrontendError(
-                            "ACPY-QUEUE-024: table init must be zero"
-                        )
-                    depth = _positive_int(call, "depth", 1)
-                    latency = _positive_int(call, "latency", 1)
-                    instance_name = f"{name}__table"
-                    if instance_name in memory_by_name:
-                        raise QueueFrontendError(
-                            "ACPY-QUEUE-024: table storage identity collides with "
-                            "an existing memory"
-                        )
-                    instance = MemoryInstanceBinding(
-                        instance_name,
-                        data_type,
-                        entries,
-                        init,
-                        latency,
-                        scope_path,
-                        current_order,
-                    )
-                    memory_instances.append(instance)
-                    memory_by_name[instance_name] = instance
-                    memory_requests.append(
-                        MemoryRequestBinding(
-                            instance_name,
-                            input_name,
-                            name,
-                            argument,
-                            address,
-                            write,
-                            data,
-                            result_node.attr,
-                            depth,
-                            scope_path,
-                            current_order,
-                        )
-                    )
-                    binding = QueueBinding(
-                        name,
-                        incoming.payload,
-                        depth,
-                        1,
-                        None,
-                        scope=scope_path,
-                        order=current_order,
-                        memory_output=True,
-                    )
-                    memories.append(
-                        MemoryBinding(
-                            input_name,
-                            name,
-                            argument,
-                            address,
-                            write,
-                            data,
-                            data_type,
-                            entries,
-                            init,
-                            result_node.attr,
-                            depth,
-                            latency,
-                            scope_path,
-                            current_order,
-                        )
+                    raise QueueFrontendError(
+                        "ACPY-TABLE-000: legacy ac.table(value, ...) was removed; "
+                        "use ac.memory for request/response memory or "
+                        "ac.table[entries, Entry](init=0) for state Table"
                     )
                 elif (
                     isinstance(call.func, ast.Attribute)
@@ -3197,6 +3466,14 @@ def parse_queue_program(
             raise QueueFrontendError(
                 "ACPY-QUEUE-015: all endpoints of one memory require one payload struct"
             )
+    for table in tables:
+        endpoint_count = sum(read.table == table.name for read in table_reads) + sum(
+            write.table == table.name for write in table_writes
+        )
+        if endpoint_count == 0:
+            raise QueueFrontendError(
+                f"ACPY-TABLE-005: table {table.name!r} requires a read/write endpoint"
+            )
     if not queues or not sinks:
         raise QueueFrontendError(
             "ACPY-QUEUE-001: a queue system requires source and sink boundaries"
@@ -3218,6 +3495,9 @@ def parse_queue_program(
         tuple(memory_instances),
         tuple(memory_requests),
         tuple(memories),
+        tuple(tables),
+        tuple(table_reads),
+        tuple(table_writes),
         tuple(atomics),
         tuple(collection_bindings),
         tuple(observations),
@@ -3237,6 +3517,7 @@ class _ExpressionEmitter:
         root_name: str = "item",
         prefix: str = "",
         allow_queue_effects: bool = False,
+        table_views: Mapping[str, tuple[str, ast.expr, str]] | None = None,
     ) -> None:
         self.payloads = payloads
         self.argument = argument
@@ -3244,6 +3525,7 @@ class _ExpressionEmitter:
         self.root_name = root_name
         self.prefix = prefix
         self.allow_queue_effects = allow_queue_effects
+        self.table_views = dict(table_views or {})
         self.lines: list[str] = []
         self.index = 0
 
@@ -3255,6 +3537,19 @@ class _ExpressionEmitter:
     def emit(self, node: ast.expr, expected: str | None = None) -> tuple[str, str]:
         if isinstance(node, ast.Name) and node.id == self.argument:
             return self.root_name, self.payload
+        if isinstance(node, ast.Name) and node.id in self.table_views:
+            table, address, entry_type = self.table_views[node.id]
+            index, index_type = self.emit(address)
+            if not index_type.startswith("i"):
+                raise QueueFrontendError(
+                    "ACPY-TABLE-003: table index must lower to an integer"
+                )
+            name = self._new()
+            self.lines.append(
+                f"    %{name} = ac.table.get @{table} [%{index}] : "
+                f"!ac.var<{index_type}> -> !ac.var<{entry_type}>"
+            )
+            return name, entry_type
         if (
             isinstance(node, ast.Call)
             and isinstance(node.func, ast.Attribute)
@@ -3451,7 +3746,7 @@ def lower_queue_program(program: QueueProgram) -> str:
         else f', ac.specialization = "{program.specialization_fingerprint}"'
     )
     lines = [
-        f'module attributes {{ac.contract_epoch = "0.3", '
+        f'module attributes {{ac.contract_epoch = "0.4", '
         f'ac.system = "{program.system}"{specialization}}} {{'
     ]
     payloads = {item.name: item for item in program.payloads}
@@ -3493,6 +3788,16 @@ def lower_queue_program(program: QueueProgram) -> str:
             f'entries {instance.entries} init {instance.init} '
             f'latency {instance.latency} owner "{owner}" '
             f'stable_id "memory/{stable_id}"'
+        )
+    for table in sorted(
+        program.tables, key=lambda value: (value.scope, value.order, value.name)
+    ):
+        owner = "/" + "/".join(table.scope) if table.scope else "/"
+        stable_id = "/".join((*table.scope, table.name)) if table.scope else table.name
+        lines.append(
+            f"  ac.table @{table.name} entry {table.entry_type} "
+            f"entries {table.entries} init 0 owner \"{owner}\" "
+            f"stable_id \"table/{stable_id}\""
         )
     by_name = {item.name: item for item in program.queues}
     memory_ordinals: dict[tuple[str, str], int] = {}
@@ -3577,6 +3882,11 @@ def lower_queue_program(program: QueueProgram) -> str:
             uses[input_name].append(select.scope)
     for request in program.memory_requests:
         uses[request.input_name].append(request.scope)
+    for read in program.table_reads:
+        if read.input_name is not None:
+            uses[read.input_name].append(read.scope)
+    for write in program.table_writes:
+        uses[write.input_name].append(write.scope)
 
     def inside(container: tuple[str, ...], candidate: tuple[str, ...]) -> bool:
         return candidate[: len(container)] == container
@@ -3674,6 +3984,7 @@ def lower_queue_program(program: QueueProgram) -> str:
             and not queue.dependency_output
             and not queue.credit_output
             and not queue.memory_output
+            and not queue.table_read_output
             and not queue.barrier_output
             and not queue.select_output
             and queue.atomic_group is None
@@ -3730,6 +4041,16 @@ def lower_queue_program(program: QueueProgram) -> str:
             (request.order, "memory_request", request)
             for request in program.memory_requests
             if request.scope == path
+        )
+        events.extend(
+            (read.order, "table_read", read)
+            for read in program.table_reads
+            if read.scope == path
+        )
+        events.extend(
+            (write.order, "table_write", write)
+            for write in program.table_writes
+            if write.scope == path
         )
         events.extend(
             (
@@ -4125,6 +4446,159 @@ def lower_queue_program(program: QueueProgram) -> str:
                     f"!ac.queue<{incoming.payload}>"
                 )
                 mapping[memory.output_name] = output
+            elif kind == "table_read":
+                read = item
+                assert isinstance(read, TableReadBinding)
+                table = next(
+                    value for value in program.tables if value.name == read.table
+                )
+                input_payload = (
+                    table.entry_type
+                    if read.input_name is None
+                    else by_name[read.input_name].payload
+                )
+                argument = read.argument or ""
+                table_views = (
+                    {
+                        read.view_alias: (
+                            read.table,
+                            read.address,
+                            table.entry_type,
+                        )
+                    }
+                    if read.view_alias
+                    else {}
+                )
+                address_emitter = _ExpressionEmitter(
+                    payloads, argument, input_payload
+                )
+                address, address_type = address_emitter.emit(read.address)
+                when_emitter = _ExpressionEmitter(
+                    payloads,
+                    argument,
+                    input_payload,
+                    table_views=table_views,
+                )
+                condition, condition_type = when_emitter.emit(read.when, "i1")
+                if not address_type.startswith("i") or condition_type != "i1":
+                    raise QueueFrontendError(
+                        "ACPY-TABLE-003: read address/when type mismatch"
+                    )
+                output = read.output_name if not path else f"{read.output_name}__local"
+                operand = (
+                    ""
+                    if read.input_name is None
+                    else f", %{mapping[read.input_name]} : !ac.queue<{input_payload}> "
+                )
+                lines.append(
+                    f"{indent}%{output} = ac.table.read @{read.table}{operand}"
+                    f" depth {read.depth} latency {read.latency} address {{"
+                )
+                block_argument = (
+                    ""
+                    if read.input_name is None
+                    else f"(%item: !ac.var<{input_payload}>)"
+                )
+                lines.append(f"{indent}^address{block_argument}:")
+                lines.extend(indent + line[2:] for line in address_emitter.lines)
+                lines.append(
+                    f"{indent}  ac.table.yield %{address} : !ac.var<{address_type}>"
+                )
+                lines.append(f"{indent}}} when {{")
+                lines.append(f"{indent}^when{block_argument}:")
+                lines.extend(indent + line[2:] for line in when_emitter.lines)
+                lines.append(
+                    f"{indent}  ac.table.yield %{condition} : !ac.var<i1>"
+                )
+                lines.append(
+                    f'{indent}}} {{ac.endpoint_path = "'
+                    f'{"/" + "/".join((*read.scope, read.output_name))}", '
+                    f'ac.name = "{read.output_name}"}} -> '
+                    f"!ac.queue<{table.entry_type}>"
+                )
+                mapping[read.output_name] = output
+            elif kind == "table_write":
+                write = item
+                assert isinstance(write, TableWriteBinding)
+                table = next(
+                    value for value in program.tables if value.name == write.table
+                )
+                input_payload = by_name[write.input_name].payload
+                address_emitter = _ExpressionEmitter(
+                    payloads, write.argument, input_payload
+                )
+                address, address_type = address_emitter.emit(write.address)
+                enable_emitter = _ExpressionEmitter(
+                    payloads, write.argument, input_payload
+                )
+                enabled, enable_type = enable_emitter.emit(write.enable, "i1")
+                value_emitter = _ExpressionEmitter(
+                    payloads,
+                    write.argument,
+                    input_payload,
+                    table_views={
+                        "__old": (write.table, write.address, table.entry_type)
+                    },
+                )
+                if write.value is not None:
+                    value, value_type = value_emitter.emit(
+                        write.value, table.entry_type
+                    )
+                else:
+                    patch_call = ast.Call(
+                        func=ast.Attribute(
+                            value=ast.Name(id="__old", ctx=ast.Load()),
+                            attr="with_fields",
+                            ctx=ast.Load(),
+                        ),
+                        args=[],
+                        keywords=[
+                            ast.keyword(arg=name, value=expression)
+                            for name, expression in write.patch_fields
+                        ],
+                    )
+                    value, value_type = value_emitter.emit(
+                        patch_call, table.entry_type
+                    )
+                if (
+                    not address_type.startswith("i")
+                    or enable_type != "i1"
+                    or value_type != table.entry_type
+                ):
+                    raise QueueFrontendError(
+                        "ACPY-TABLE-004: write address/enable/value type mismatch"
+                    )
+                lines.append(
+                    f"{indent}ac.table.write @{write.table}, "
+                    f"%{mapping[write.input_name]} address {{"
+                )
+                block_argument = f"(%item: !ac.var<{input_payload}>)"
+                policies = (
+                    ("address", address, address_type, address_emitter.lines),
+                    ("enable", enabled, enable_type, enable_emitter.lines),
+                    ("value", value, value_type, value_emitter.lines),
+                )
+                for index, (
+                    policy_name,
+                    policy_value,
+                    policy_type,
+                    policy_lines,
+                ) in enumerate(policies):
+                    if index:
+                        lines.append(f"{indent}}} {policy_name} {{")
+                    lines.append(f"{indent}^{policy_name}{block_argument}:")
+                    lines.extend(indent + line[2:] for line in policy_lines)
+                    lines.append(
+                        f"{indent}  ac.table.yield %{policy_value} : "
+                        f"!ac.var<{policy_type}>"
+                    )
+                endpoint_name = f"{write.table}__write"
+                lines.append(
+                    f'{indent}}} {{ac.endpoint_path = "'
+                    f'{"/" + "/".join((*write.scope, endpoint_name))}", '
+                    f'ac.name = "{endpoint_name}"}} : '
+                    f"!ac.queue<{input_payload}>"
+                )
             elif kind == "atomic":
                 atomic = item
                 assert isinstance(atomic, AtomicBinding)

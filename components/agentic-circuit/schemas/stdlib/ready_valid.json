@@ -1,7 +1,7 @@
 {
   "schema_kind": "agentic-circuit-component",
   "schema_version": "0.1",
-  "contract_epoch": "0.3",
+  "contract_epoch": "0.4",
   "canonical_name": "ac.ready_valid",
   "family": "protocol",
   "provider_namespace": "ac",
@@ -113,5 +113,5 @@
     "gauges": [],
     "histograms": []
   },
-  "schema_fingerprint": "sha256:de509897e393cdb7cace1789747fcdb93af7180ad7838c1522f2e44c302f11c6"
+  "schema_fingerprint": "sha256:6dcc1ab30a289c7d39b17f550880b7119d3b842b698b074ac4a9365567844771"
 }

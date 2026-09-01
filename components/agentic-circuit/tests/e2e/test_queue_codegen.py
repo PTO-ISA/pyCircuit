@@ -163,7 +163,7 @@ int main() {{
             self.assertIn("gfsim::QueueTransform<Item, Item", content)
             self.assertIn("gfsim::QueueMerge<Item, 2>", content)
             plan_document = json.loads(plan.read_text(encoding="utf-8"))
-            self.assertEqual("0.3", plan_document["contract_epoch"])
+            self.assertEqual("0.4", plan_document["contract_epoch"])
 
             harness = root / "harness.cpp"
             executable = root / "conditional"

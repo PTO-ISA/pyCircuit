@@ -4,7 +4,7 @@
 // RUN: diff %t.first %t.second
 // RUN: %FileCheck %s < %t.first
 
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   ac.protocol @wire {
     ac.role @sender dual @receiver cardinality "exclusive"
     ac.role @receiver dual @sender cardinality "exclusive"
@@ -52,7 +52,7 @@ builtin.module attributes {ac.contract_epoch = "0.3"} {
   }
 }
 
-// CHECK: acsim.model @soc epoch "0.3" root @Top
+// CHECK: acsim.model @soc epoch "0.4" root @Top
 // CHECK: acsim.binding @Consumer
 // CHECK: acsim.binding @Producer
 // CHECK: acsim.module @Cell interface {ports = [], resources = [], results = []}

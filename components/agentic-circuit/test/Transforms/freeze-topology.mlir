@@ -10,7 +10,7 @@
 // RUN: %not %acir_opt --verify-each=false --pass-pipeline='builtin.module(ac-verify-model)' %t/mutated-frozen.mlir 2>&1 | %FileCheck %s --check-prefix=MUTATED
 
 //--- valid.mlir
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   func.func private @leaf(%arg0 : i32) -> i32 {
     %one = arith.constant 1 : i32
     %sum = arith.addi %arg0, %one : i32
@@ -42,8 +42,8 @@ builtin.module attributes {ac.contract_epoch = "0.3"} {
   }
 }
 // FROZEN: module attributes {
-// FROZEN-SAME: ac.contract_epoch = "0.3"
-// FROZEN-SAME: ac.freeze_epoch = "0.3"
+// FROZEN-SAME: ac.contract_epoch = "0.4"
+// FROZEN-SAME: ac.freeze_epoch = "0.4"
 // FROZEN-SAME: ac.frozen_owners = [
 // FROZEN-SAME: ac.topology_digest = "{{[0-9a-f]+}}"
 // FROZEN-SAME: ac.topology_frozen = true
@@ -59,7 +59,7 @@ builtin.module attributes {ac.contract_epoch = "0.3"} {
 // FROZEN-SAME: ac.freeze_proven = true
 
 //--- false-contract.mlir
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   ac.system @soc root @Top as "root" tick 0 "cycle"
       seed {kind = "fixed", value = 0 : i64} instrumentation []
       results {id = "default", format = "json"} selected true
@@ -72,7 +72,7 @@ builtin.module attributes {ac.contract_epoch = "0.3"} {
 // FALSE-CONTRACT: topology-freeze contract failed: must hold
 
 //--- unproven-contract.mlir
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   ac.system @soc root @Top as "root" tick 0 "cycle"
       seed {kind = "fixed", value = 0 : i64} instrumentation []
       results {id = "default", format = "json"} selected true
@@ -85,7 +85,7 @@ builtin.module attributes {ac.contract_epoch = "0.3"} {
 // UNPROVEN-CONTRACT: topology-freeze contract is not statically provable: must be statically proven
 
 //--- unresolved-call.mlir
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   ac.system @soc root @Top as "root" tick 0 "cycle"
       workload @Top::@workload seed {kind = "fixed", value = 0 : i64}
       instrumentation [] results {id = "default", format = "json"} selected true
@@ -100,7 +100,7 @@ builtin.module attributes {ac.contract_epoch = "0.3"} {
 // UNRESOLVED-CALL: 'func.call' op 'missing' does not reference a valid function
 
 //--- recursive-call.mlir
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   func.func private @loop() { func.call @loop() : () -> () return }
   ac.system @soc root @Top as "root" tick 0 "cycle"
       workload @Top::@workload seed {kind = "fixed", value = 0 : i64}
@@ -116,7 +116,7 @@ builtin.module attributes {ac.contract_epoch = "0.3"} {
 // RECURSIVE-CALL: recursive func.call purity cycle: @loop -> @loop
 
 //--- external-call.mlir
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   func.func private @external()
   ac.system @soc root @Top as "root" tick 0 "cycle"
       workload @Top::@workload seed {kind = "fixed", value = 0 : i64}
@@ -133,8 +133,8 @@ builtin.module attributes {ac.contract_epoch = "0.3"} {
 
 //--- mutated-frozen.mlir
 builtin.module attributes {
-  ac.contract_epoch = "0.3",
-  ac.freeze_epoch = "0.3",
+  ac.contract_epoch = "0.4",
+  ac.freeze_epoch = "0.4",
   ac.frozen_owners = [],
   ac.topology_digest = "0000000000000000000000000000000000000000000000000000000000000000",
   ac.topology_frozen = true

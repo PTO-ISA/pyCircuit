@@ -135,7 +135,7 @@ class AcpyDocument:
     entities: tuple[Entity, ...]
     schema: str = "agentic-circuit-acpy"
     version: str = "0.1"
-    contract_epoch: str = "0.3"
+    contract_epoch: str = "0.4"
 
     def to_json(self) -> dict[str, JsonValue]:
         return {
@@ -161,9 +161,9 @@ class AcpyDocument:
         if (self.schema, self.version, self.contract_epoch) != (
             "agentic-circuit-acpy",
             "0.1",
-            "0.3",
+            "0.4",
         ):
-            errors.append(self._diagnostic("ACPy schema identity must be epoch 0.3"))
+            errors.append(self._diagnostic("ACPy schema identity must be epoch 0.4"))
 
         expected_ids = [f"e{index}" for index in range(len(self.entities))]
         actual_ids = [entity.id for entity in self.entities]

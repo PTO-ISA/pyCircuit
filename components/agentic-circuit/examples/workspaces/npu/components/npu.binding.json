@@ -12,7 +12,7 @@
         "component_schema": "workspace.Npu",
         "component_schema_fingerprint": "sha256:d4db2ec8813016dce7fc4e03edddbeb45057bbf9d58081c265a27ecc4a7f6968",
         "construction": {"arguments": [], "kind": "constructor"},
-        "contract_epoch": "0.3",
+        "contract_epoch": "0.4",
         "cpp": {
           "concept": "gfsim::Component",
           "entry_points": {
@@ -51,7 +51,7 @@
         "component_schema": "workspace.Npu",
         "component_schema_fingerprint": "sha256:d4db2ec8813016dce7fc4e03edddbeb45057bbf9d58081c265a27ecc4a7f6968",
         "construction": {"arguments": [], "kind": "constructor"},
-        "contract_epoch": "0.3",
+        "contract_epoch": "0.4",
         "cpp": {
           "concept": "gfsim::Component",
           "entry_points": {
@@ -90,7 +90,7 @@
         "component_schema": "workspace.NpuNode",
         "component_schema_fingerprint": "sha256:3b96b9435f28a5fa08f41dc396618678cede4071171fe56628b11f14071205e3",
         "construction": {"arguments": [], "kind": "constructor"},
-        "contract_epoch": "0.3",
+        "contract_epoch": "0.4",
         "cpp": {
           "concept": "gfsim::Component",
           "entry_points": {
@@ -129,7 +129,7 @@
         "component_schema": "workspace.NpuNode",
         "component_schema_fingerprint": "sha256:3b96b9435f28a5fa08f41dc396618678cede4071171fe56628b11f14071205e3",
         "construction": {"arguments": [], "kind": "constructor"},
-        "contract_epoch": "0.3",
+        "contract_epoch": "0.4",
         "cpp": {
           "concept": "gfsim::Component",
           "entry_points": {
@@ -164,7 +164,7 @@
       "binding_schema": "acsim-binding-0.1",
       "component_schema": "workspace.Npu",
       "component_schema_fingerprint": "sha256:d4db2ec8813016dce7fc4e03edddbeb45057bbf9d58081c265a27ecc4a7f6968",
-      "contract_epoch": "0.3",
+      "contract_epoch": "0.4",
       "effect": "stateful",
       "function_type": "() -> ()",
       "parameters": [],
@@ -181,7 +181,7 @@
       "binding_schema": "acsim-binding-0.1",
       "component_schema": "workspace.NpuNode",
       "component_schema_fingerprint": "sha256:3b96b9435f28a5fa08f41dc396618678cede4071171fe56628b11f14071205e3",
-      "contract_epoch": "0.3",
+      "contract_epoch": "0.4",
       "effect": "stateful",
       "function_type": "() -> ()",
       "parameters": [],

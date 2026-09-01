@@ -385,7 +385,7 @@ int main() {{
             self.assertIn("pyc.eq", pyc)
             self.assertIn("pyc.fifo", pyc)
             manifest = json.loads((output / "manifest.json").read_text())
-            self.assertEqual("0.3", manifest["contract_epoch"])
+            self.assertEqual("0.4", manifest["contract_epoch"])
             verilog = "\n".join(
                 path.read_text(encoding="utf-8")
                 for path in sorted((output / "verilog").glob("*.v"))
@@ -457,7 +457,7 @@ int main() {{
             )
             self.assertEqual(0, completed.returncode, completed.stderr)
             manifest = json.loads((output / "manifest.json").read_text())
-            self.assertEqual("0.3", manifest["contract_epoch"])
+            self.assertEqual("0.4", manifest["contract_epoch"])
             pyc = (output / "model.pyc").read_text(encoding="utf-8")
             self.assertEqual(3, pyc.count("pyc.reg"))
             self.assertIn("%out0_ready", pyc)

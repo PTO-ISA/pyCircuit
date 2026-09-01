@@ -19,7 +19,7 @@ namespace acir::test {
 inline mlir::OwningOpRef<mlir::ModuleOp>
 parseAndFreezeYieldOnly(mlir::MLIRContext &context) {
   constexpr llvm::StringLiteral source = R"mlir(
-    builtin.module attributes {ac.contract_epoch = "0.3"} {
+    builtin.module attributes {ac.contract_epoch = "0.4"} {
       ac.system @soc root @Top as "root" tick 0 "cycle"
           workload @Top::@workload seed {kind = "fixed", value = 0 : i64}
           instrumentation [] results {id = "default", format = "json"}
@@ -43,7 +43,7 @@ parseAndFreezeYieldOnly(mlir::MLIRContext &context) {
 inline mlir::OwningOpRef<mlir::ModuleOp>
 parseAndFreezeLoopActions(mlir::MLIRContext &context) {
   constexpr llvm::StringLiteral source = R"mlir(
-    builtin.module attributes {ac.contract_epoch = "0.3"} {
+    builtin.module attributes {ac.contract_epoch = "0.4"} {
       ac.system @soc root @Top as "root" tick 0 "cycle"
           workload @Top::@workload seed {kind = "fixed", value = 0 : i64}
           instrumentation [] results {id = "default", format = "json"}
@@ -104,7 +104,7 @@ inline mlir::OwningOpRef<mlir::ModuleOp>
 parseAndFreezeYieldPermutation(mlir::MLIRContext &context,
                                bool reverseDeclarations) {
   constexpr llvm::StringLiteral alphaFirst = R"mlir(
-    builtin.module attributes {ac.contract_epoch = "0.3"} {
+    builtin.module attributes {ac.contract_epoch = "0.4"} {
       ac.system @soc root @Top as "root" tick 0 "cycle"
           workload @Top::@workload seed {kind = "fixed", value = 0 : i64}
           instrumentation [] results {id = "default", format = "json"}
@@ -117,7 +117,7 @@ parseAndFreezeYieldPermutation(mlir::MLIRContext &context,
     }
   )mlir";
   constexpr llvm::StringLiteral workloadFirst = R"mlir(
-    builtin.module attributes {ac.contract_epoch = "0.3"} {
+    builtin.module attributes {ac.contract_epoch = "0.4"} {
       ac.system @soc root @Top as "root" tick 0 "cycle"
           workload @Top::@workload seed {kind = "fixed", value = 0 : i64}
           instrumentation [] results {id = "default", format = "json"}
@@ -143,7 +143,7 @@ parseAndFreezeYieldPermutation(mlir::MLIRContext &context,
 inline mlir::OwningOpRef<mlir::ModuleOp>
 parseEmptyModel(mlir::MLIRContext &context) {
   return mlir::parseSourceString<mlir::ModuleOp>(
-      "builtin.module attributes {ac.contract_epoch = \"0.3\"} {}", &context);
+      "builtin.module attributes {ac.contract_epoch = \"0.4\"} {}", &context);
 }
 
 inline std::string takeError(llvm::Error error) {

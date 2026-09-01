@@ -1,0 +1,33 @@
+{
+  "contract_epoch": "0.4",
+  "decision_ids": ["0151"],
+  "result": "pass-with-declared-host-gaps",
+  "scope": "provisional stateful Table through ACPy, Frozen ACIR, QueueGraph, and typed gfsim C++",
+  "counts": {
+    "cpp_unit_tests_passed": 2311,
+    "cpp_test_executables_passed": 11,
+    "python_frontend_passed": 116,
+    "python_frontend_skipped": 1,
+    "contract_tests_passed": 36,
+    "table_e2e_passed": 2,
+    "memory_pyc_regression_passed": 1
+  },
+  "verified_boundaries": [
+    "ACPy Table API and 0.4 golden lowering",
+    "Frozen ACIR parser, printer, verifier, effects, and coverage ledger",
+    "QueueGraph validation and canonical serialization",
+    "typed gfsim C++ state/read/write/patch behavior",
+    "stable unsupported provisional Table PYC diagnostic",
+    "legacy memory-service behavior retained under ac.memory"
+  ],
+  "unavailable_tools": [
+    "FileCheck",
+    "split-file",
+    "not",
+    "count",
+    "Verilator",
+    "pytest",
+    "mkdocs",
+    "pre-commit"
+  ]
+}

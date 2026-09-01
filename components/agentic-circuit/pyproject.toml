@@ -25,5 +25,5 @@ Repository = "https://github.com/PTO-ISA/pyCircuit"
 Issues = "https://github.com/PTO-ISA/pyCircuit/issues"
 
 [tool.agentic-circuit]
-contract-epoch = "0.3"
+contract-epoch = "0.4"
 llvm-release = "22.1.8"

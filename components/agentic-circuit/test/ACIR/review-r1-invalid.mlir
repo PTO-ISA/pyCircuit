@@ -48,95 +48,95 @@
 // DESER-WIDTH: error: {{.*}}serialized byte vector width must equal packet serialization width 8
 
 //--- declaration-placement.mlir
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   "ac.struct"() <{sym_name = "S", fields = []}> : () -> ()
 }
 
 //--- flat-external.mlir
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   %v = "builtin.unrealized_conversion_cast"() : () -> !ac.struct<@S>
   %x = "ac.record.get"(%v) <{field = "x"}> : (!ac.struct<@S>) -> i8
 }
 
 //--- function-field.mlir
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   "ac.type_scope"() <{sym_name = "types"}> ({
     "ac.struct"() <{sym_name = "S", fields = [{name = "bad", type = (i8) -> i8}]}> : () -> ()
   }) : () -> ()
 }
 
 //--- channel-field.mlir
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   "ac.type_scope"() <{sym_name = "types"}> ({
     "ac.struct"() <{sym_name = "S", fields = [{name = "bad", type = !ac.channel<i8, @p>}]}> : () -> ()
   }) : () -> ()
 }
 
 //--- capability-field.mlir
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   "ac.type_scope"() <{sym_name = "types"}> ({
     "ac.transaction"() <{sym_name = "T", fields = [{name = "bad", type = !ac.resource_token<@r>}]}> : () -> ()
   }) : () -> ()
 }
 
 //--- none-field.mlir
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   "ac.type_scope"() <{sym_name = "types"}> ({
     "ac.transaction"() <{sym_name = "T", fields = [{name = "bad", type = none}]}> : () -> ()
   }) : () -> ()
 }
 
 //--- list-bound-missing.mlir
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   "ac.type_scope"() <{sym_name = "types"}> ({
     "ac.struct"() <{sym_name = "S", fields = [{name = "items", type = !ac.list<i8>}]}> : () -> ()
   }) : () -> ()
 }
 
 //--- list-bound-zero.mlir
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   "ac.type_scope"() <{sym_name = "types"}> ({
     "ac.struct"() <{sym_name = "S", fields = [{name = "items", type = !ac.list<i8>, max_length = 0 : i64}]}> : () -> ()
   }) : () -> ()
 }
 
 //--- list-bound-inconsistent.mlir
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   "ac.type_scope"() <{sym_name = "types"}> ({
     "ac.struct"() <{sym_name = "S", fields = [{name = "value", type = i8, max_length = 4 : i64}]}> : () -> ()
   }) : () -> ()
 }
 
 //--- layout-missing.mlir
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   "ac.type_scope"() <{sym_name = "types"}> ({
     "ac.struct"() <{sym_name = "S", fields = []}> : () -> ()
   }) {dlti.dl_spec = #dlti.dl_spec<>} : () -> ()
 }
 
 //--- layout-invalid.mlir
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   "ac.type_scope"() <{sym_name = "types"}> ({
     "ac.struct"() <{sym_name = "S", fields = []}> : () -> ()
   }) {dlti.dl_spec = #dlti.dl_spec<!ac.struct<@types::@S> = {abi_alignment = 0 : i64, endianness = "middle", preferred_alignment = 0 : i64, size = 0 : i64}>} : () -> ()
 }
 
 //--- packet-width-missing.mlir
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   "ac.type_scope"() <{sym_name = "types"}> ({
     "ac.packet"() <{sym_name = "P", fields = []}> : () -> ()
   }) {dlti.dl_spec = #dlti.dl_spec<!ac.packet<@types::@P> = {abi_alignment = 1 : i64, endianness = "little", preferred_alignment = 1 : i64, size = 8 : i64}>} : () -> ()
 }
 
 //--- union-discriminator-missing.mlir
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   "ac.type_scope"() <{sym_name = "types"}> ({
     "ac.union"() <{sym_name = "U", fields = [{name = "tag", type = i8}], discriminator = "missing"}> : () -> ()
   }) : () -> ()
 }
 
 //--- get-field.mlir
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   "ac.type_scope"() <{sym_name = "types"}> ({
     "ac.transaction"() <{sym_name = "T", fields = [{name = "value", type = i32}]}> : () -> ()
   }) : () -> ()
@@ -145,13 +145,13 @@ builtin.module attributes {ac.contract_epoch = "0.3"} {
 }
 
 //--- get-kind.mlir
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   %v = "builtin.unrealized_conversion_cast"() : () -> i32
   %x = "ac.record.get"(%v) <{field = "x"}> : (i32) -> i8
 }
 
 //--- with-field.mlir
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   "ac.type_scope"() <{sym_name = "types"}> ({
     "ac.transaction"() <{sym_name = "T", fields = [{name = "value", type = i32}]}> : () -> ()
   }) : () -> ()
@@ -161,14 +161,14 @@ builtin.module attributes {ac.contract_epoch = "0.3"} {
 }
 
 //--- with-kind.mlir
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   %v = "builtin.unrealized_conversion_cast"() : () -> i32
   %x = "builtin.unrealized_conversion_cast"() : () -> i8
   %r = "ac.record.with"(%v, %x) <{field = "x"}> : (i32, i8) -> i32
 }
 
 //--- with-value.mlir
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   "ac.type_scope"() <{sym_name = "types"}> ({
     "ac.transaction"() <{sym_name = "T", fields = [{name = "value", type = i32}]}> : () -> ()
   }) : () -> ()
@@ -178,19 +178,19 @@ builtin.module attributes {ac.contract_epoch = "0.3"} {
 }
 
 //--- serialize-identity.mlir
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   %v = "builtin.unrealized_conversion_cast"() : () -> !ac.packet<@types::@P>
   %r = "ac.packet.serialize"(%v) <{packet = @types::@Q}> : (!ac.packet<@types::@P>) -> !ac.vector<8 x i8>
 }
 
 //--- serialize-unresolved.mlir
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   %v = "builtin.unrealized_conversion_cast"() : () -> !ac.packet<@types::@Missing>
   %r = "ac.packet.serialize"(%v) <{packet = @types::@Missing}> : (!ac.packet<@types::@Missing>) -> !ac.vector<8 x i8>
 }
 
 //--- serialize-element.mlir
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   "ac.type_scope"() <{sym_name = "types"}> ({
     "ac.packet"() <{sym_name = "P", fields = []}> : () -> ()
   }) {dlti.dl_spec = #dlti.dl_spec<!ac.packet<@types::@P> = {abi_alignment = 1 : i64, endianness = "little", preferred_alignment = 1 : i64, serialization_width = 8 : i64, size = 8 : i64}>} : () -> ()
@@ -199,13 +199,13 @@ builtin.module attributes {ac.contract_epoch = "0.3"} {
 }
 
 //--- deserialize-unresolved.mlir
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   %b = "builtin.unrealized_conversion_cast"() : () -> !ac.vector<8 x i8>
   %r = "ac.packet.deserialize"(%b) <{packet = @types::@Missing}> : (!ac.vector<8 x i8>) -> !ac.packet<@types::@Missing>
 }
 
 //--- deserialize-width.mlir
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   "ac.type_scope"() <{sym_name = "types"}> ({
     "ac.packet"() <{sym_name = "P", fields = []}> : () -> ()
   }) {dlti.dl_spec = #dlti.dl_spec<!ac.packet<@types::@P> = {abi_alignment = 1 : i64, endianness = "little", preferred_alignment = 1 : i64, serialization_width = 8 : i64, size = 8 : i64}>} : () -> ()

@@ -28,6 +28,7 @@ struct QueueExpressionPlan {
   std::string field;
   std::string predicate;
   std::string literal;
+  std::string table;
 };
 
 struct QueuePlan {
@@ -61,6 +62,7 @@ struct QueueBlockPlan {
   uint64_t init = 0;
   std::string resultField;
   std::string memoryInstance;
+  std::string table;
   uint64_t endpointOrdinal = 0;
   std::string message;
 };
@@ -86,6 +88,32 @@ struct MemoryRequestPlan {
   std::string resultField;
 };
 
+struct TablePlan {
+  std::string name;
+  std::string entryType;
+  uint64_t entries = 0;
+  uint64_t init = 0;
+  std::string stableId;
+  std::string ownerPath;
+};
+
+struct TableReadPlan {
+  std::string table;
+  std::string name;
+  std::string scope;
+  std::string input;
+  std::string output;
+  uint64_t depth = 1;
+  uint64_t latency = 1;
+};
+
+struct TableWritePlan {
+  std::string table;
+  std::string name;
+  std::string scope;
+  std::string input;
+};
+
 struct QueueGraphPlan {
   std::string system;
   std::string specializationFingerprint;
@@ -95,6 +123,9 @@ struct QueueGraphPlan {
   std::vector<QueueBlockPlan> blocks;
   std::vector<MemoryInstancePlan> memoryInstances;
   std::vector<MemoryRequestPlan> memoryRequests;
+  std::vector<TablePlan> tables;
+  std::vector<TableReadPlan> tableReads;
+  std::vector<TableWritePlan> tableWrites;
 
   llvm::Expected<std::string> canonicalJson() const;
 };

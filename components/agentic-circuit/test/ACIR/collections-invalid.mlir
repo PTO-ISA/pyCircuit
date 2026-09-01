@@ -14,7 +14,7 @@
 // RUN: %not %acir_opt %t/bad-elementwise.mlir 2>&1 | %FileCheck %s --check-prefix=ELEMENTWISE
 
 //--- negative-shape.mlir
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   "ac.module.extern"() <{sym_name = "Leaf", function_type = () -> (), static_params = {}, implementation = {registry = "cpp", name = "Leaf"}}> : () -> ()
   "ac.module"() <{sym_name = "Top", function_type = () -> (), static_params = {}}> ({
     "ac.array"() <{definition = @Leaf, sym_name = "a", stable_id = "a", path = "a", shape = array<i64: -1>, static_args = []}> : () -> ()
@@ -24,7 +24,7 @@ builtin.module attributes {ac.contract_epoch = "0.3"} {
 // NEGATIVE: array shape dimensions must be non-negative
 
 //--- wrong-cardinality.mlir
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   "ac.module.extern"() <{sym_name = "Leaf", function_type = () -> (), static_params = {}, implementation = {registry = "cpp", name = "Leaf"}}> : () -> ()
   "ac.module"() <{sym_name = "Top", function_type = () -> (), static_params = {}}> ({
     "ac.array"() <{definition = @Leaf, sym_name = "a", stable_id = "a", path = "a", shape = array<i64: 2>, static_args = [{}]}> : () -> ()
@@ -34,7 +34,7 @@ builtin.module attributes {ac.contract_epoch = "0.3"} {
 // CARDINALITY: one concrete static argument set per lexicographically ordered element
 
 //--- heterogeneous-shape.mlir
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   "ac.module.extern"() <{sym_name = "A", function_type = (i32) -> i32, static_params = {}, implementation = {registry = "cpp", name = "A"}}> : () -> ()
   "ac.module.extern"() <{sym_name = "B", function_type = (i64) -> i32, static_params = {}, implementation = {registry = "cpp", name = "B"}}> : () -> ()
   "ac.module"() <{sym_name = "Top", function_type = (i32, i32) -> (i32, i32), static_params = {}}> ({
@@ -46,7 +46,7 @@ builtin.module attributes {ac.contract_epoch = "0.3"} {
 // HETERO: does not implement the exact declared common interface
 
 //--- bad-permutation.mlir
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   "ac.module"() <{sym_name = "Pair", function_type = (i32, i32) -> (i32, i32), static_params = {}}> ({
   ^bb0(%a : i32, %b : i32):
     "ac.return"(%a, %b) : (i32, i32) -> ()
@@ -61,7 +61,7 @@ builtin.module attributes {ac.contract_epoch = "0.3"} {
 // PERMUTE: permutation indices must be an in-bounds bijection
 
 //--- duplicate-owned-path.mlir
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   "ac.system"() <{sym_name = "s", root = @Top, root_name = "root", tick_epoch = 0 : i64, tick_unit = "cycle", seed_policy = {kind = "fixed", value = 0 : i64}, instrumentation = [], result_schema = {id = "default", format = "json"}, selected = true}> : () -> ()
   "ac.module.extern"() <{sym_name = "A", function_type = () -> (), static_params = {}, implementation = {registry = "cpp", name = "A"}}> : () -> ()
   "ac.module"() <{sym_name = "Top", function_type = () -> (), static_params = {}}> ({
@@ -72,7 +72,7 @@ builtin.module attributes {ac.contract_epoch = "0.3"} {
 // DUP-OWNED: collection paths must be stable, unique parent-relative segments
 
 //--- too-large.mlir
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   "ac.module.extern"() <{sym_name = "Leaf", function_type = () -> (), static_params = {}, implementation = {registry = "cpp", name = "Leaf"}}> : () -> ()
   "ac.module"() <{sym_name = "Top", function_type = () -> (), static_params = {}}> ({
     "ac.array"() <{definition = @Leaf, sym_name = "huge", stable_id = "huge", path = "huge", shape = array<i64: 1048577>, static_args = []}> : () -> ()
@@ -82,7 +82,7 @@ builtin.module attributes {ac.contract_epoch = "0.3"} {
 // TOO-LARGE: array cardinality exceeds static elaboration bound 1048576
 
 //--- view-overflow.mlir
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   "ac.module"() <{sym_name = "Top", function_type = () -> (), static_params = {}}> ({
     "ac.view"() <{sym_name = "view", kind = "concat", source_producers = [@missing], source_shapes = [array<i64: 9223372036854775807, 3>], axis = 0 : i64, indices = array<i64>, shape = array<i64: 9223372036854775807, 3>}> : () -> ()
     "ac.return"() : () -> ()
@@ -91,7 +91,7 @@ builtin.module attributes {ac.contract_epoch = "0.3"} {
 // VIEW-OVERFLOW: view cardinality overflows 64 bits
 
 //--- view-provenance.mlir
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   "ac.module"() <{sym_name = "Identity", function_type = (i32) -> i32, static_params = {}}> ({ ^bb0(%x : i32): "ac.return"(%x) : (i32) -> () }) : () -> ()
   "ac.module"() <{sym_name = "Top", function_type = (i32) -> i32, static_params = {}}> ({
   ^bb0(%arg : i32):
@@ -103,7 +103,7 @@ builtin.module attributes {ac.contract_epoch = "0.3"} {
 // PROVENANCE: each source must be the complete result group of its declared structural producer
 
 //--- bad-select.mlir
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   "ac.module"() <{sym_name = "Pair", function_type = (i32, i32) -> (i32, i32), static_params = {}}> ({ ^bb0(%a : i32, %b : i32): "ac.return"(%a, %b) : (i32, i32) -> () }) : () -> ()
   "ac.module"() <{sym_name = "Top", function_type = (i32, i32) -> i32, static_params = {}}> ({
   ^bb0(%a : i32, %b : i32):
@@ -115,7 +115,7 @@ builtin.module attributes {ac.contract_epoch = "0.3"} {
 // SELECT: select coordinate is out of bounds
 
 //--- bad-slice.mlir
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   "ac.module"() <{sym_name = "Pair", function_type = (i32, i32) -> (i32, i32), static_params = {}}> ({ ^bb0(%a : i32, %b : i32): "ac.return"(%a, %b) : (i32, i32) -> () }) : () -> ()
   "ac.module"() <{sym_name = "Top", function_type = (i32, i32) -> (i32, i32), static_params = {}}> ({
   ^bb0(%a : i32, %b : i32):
@@ -127,7 +127,7 @@ builtin.module attributes {ac.contract_epoch = "0.3"} {
 // SLICE: slice bounds are invalid
 
 //--- bad-concat.mlir
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   "ac.module"() <{sym_name = "Pair", function_type = (i32, i32) -> (i32, i32), static_params = {}}> ({ ^bb0(%a : i32, %b : i32): "ac.return"(%a, %b) : (i32, i32) -> () }) : () -> ()
   "ac.module"() <{sym_name = "Top", function_type = (i32, i32) -> (), static_params = {}}> ({
   ^bb0(%a : i32, %b : i32):
@@ -140,7 +140,7 @@ builtin.module attributes {ac.contract_epoch = "0.3"} {
 // CONCAT: concat axis is out of bounds
 
 //--- bad-zip.mlir
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   "ac.module"() <{sym_name = "Pair", function_type = (i32, i32) -> (i32, i32), static_params = {}}> ({ ^bb0(%a : i32, %b : i32): "ac.return"(%a, %b) : (i32, i32) -> () }) : () -> ()
   "ac.module"() <{sym_name = "Top", function_type = (i32, i32) -> (), static_params = {}}> ({
   ^bb0(%a : i32, %b : i32):
@@ -153,7 +153,7 @@ builtin.module attributes {ac.contract_epoch = "0.3"} {
 // ZIP: zip result shape must append source count
 
 //--- bad-elementwise.mlir
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   "ac.module"() <{sym_name = "Pair", function_type = (i32, i32) -> (i32, i32), static_params = {}}> ({ ^bb0(%a : i32, %b : i32): "ac.return"(%a, %b) : (i32, i32) -> () }) : () -> ()
   "ac.module"() <{sym_name = "Top", function_type = (i32, i32) -> (), static_params = {}}> ({
   ^bb0(%a : i32, %b : i32):

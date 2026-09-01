@@ -49,7 +49,7 @@ def run(arguments: object, sink: OutputSink) -> int:
     result = {
         "schema": "agentic-circuit-init-result",
         "version": "0.1",
-        "contract_epoch": "0.3",
+        "contract_epoch": "0.4",
         "directory": destination.as_posix(),
         "files": sorted(files),
         "dry_run": bool(getattr(arguments, "dry_run", False)),

@@ -1,6 +1,6 @@
 // RUN: %acir_opt --canonicalize --cse %s | %FileCheck %s
 
-module attributes {ac.contract_epoch = "0.3"} {
+module attributes {ac.contract_epoch = "0.4"} {
   ac.type_scope @types {
     ac.struct @Item fields [{name = "remaining", type = i64}]
   } {dlti.dl_spec = #dlti.dl_spec<!ac.struct<@types::@Item> = {abi_alignment = 8 : i64, endianness = "little", preferred_alignment = 8 : i64, size = 8 : i64}>}

@@ -8,7 +8,7 @@
 // KEY: error: 'ac.select' op key must yield an integer Var with width at most 64
 
 //--- arity.mlir
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   %control = ac.source depth 1 latency 1 : !ac.queue<i8>
   %data = ac.source depth 1 latency 1 : !ac.queue<i16>
   %bad = ac.select %control, %data depth 1 latency 1 key {
@@ -17,7 +17,7 @@ builtin.module attributes {ac.contract_epoch = "0.3"} {
 }
 
 //--- type.mlir
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   %control = ac.source depth 1 latency 1 : !ac.queue<i8>
   %left = ac.source depth 1 latency 1 : !ac.queue<i16>
   %right = ac.source depth 1 latency 1 : !ac.queue<i32>
@@ -27,7 +27,7 @@ builtin.module attributes {ac.contract_epoch = "0.3"} {
 }
 
 //--- key.mlir
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   %control = ac.source depth 1 latency 1 : !ac.queue<i8>
   %left = ac.source depth 1 latency 1 : !ac.queue<i16>
   %right = ac.source depth 1 latency 1 : !ac.queue<i16>

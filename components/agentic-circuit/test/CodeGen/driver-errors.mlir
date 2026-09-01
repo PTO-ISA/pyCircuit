@@ -7,8 +7,8 @@
 // PUBLISH-INPUT: stage=publish status=failed
 // PUBLISH-INPUT-SAME: cannot read input file
 
-builtin.module attributes {ac.contract_epoch = "0.3"} {
-  acsim.model @minimal epoch "0.3" root @Top construction [] destruction [] fingerprints {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
+  acsim.model @minimal epoch "0.4" root @Top construction [] destruction [] fingerprints {
     frozen_acir = "sha256:0000000000000000000000000000000000000000000000000000000000000000",
     binding_lock = "sha256:0000000000000000000000000000000000000000000000000000000000000000",
     provider = "sha256:0000000000000000000000000000000000000000000000000000000000000000",

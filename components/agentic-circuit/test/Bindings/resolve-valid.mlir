@@ -24,7 +24,7 @@
 // RUN: %acir_opt %s | %FileCheck %s --check-prefix=ORDINARY
 // RUN: %acir_opt --help | %FileCheck %s --check-prefix=HELP
 
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   ac.system @soc root @Top as "root" tick 0 "cycle"
       workload @Top::@workload seed {kind = "fixed", value = 0 : i64}
       instrumentation [] results {id = "default", format = "json"}
@@ -47,7 +47,7 @@ builtin.module attributes {ac.contract_epoch = "0.3"} {
 // LOCK: [{"activation_sources":[]
 // LOCK-SAME: "binding":"Leaf"
 // LOCK-SAME: "binding_schema":"acsim-binding-0.1"
-// LOCK-SAME: "contract_epoch":"0.3"
+// LOCK-SAME: "contract_epoch":"0.4"
 // LOCK-SAME: "fingerprint":"sha256:{{[0-9a-f]+}}"
 // HELP: Exact binding resolution options:
 // HELP-EMPTY:

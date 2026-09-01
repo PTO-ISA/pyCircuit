@@ -14,7 +14,7 @@
 // structural provider for @Leaf; the public driver correctly rejects the
 // unknown extern.
 
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   ac.system @soc root @Top as "root" tick 0 "cycle"
       workload @Top::@workload seed {kind = "fixed", value = 0 : i64}
       instrumentation [] results {id = "default", format = "json"} selected true
@@ -28,7 +28,7 @@ builtin.module attributes {ac.contract_epoch = "0.3"} {
   }
 }
 
-// CHECK:      acsim.model @soc epoch "0.3" root @Top
+// CHECK:      acsim.model @soc epoch "0.4" root @Top
 // CHECK-SAME:   construction ["root.leaf", "root.workload"]
 // CHECK-SAME:   destruction ["root.workload", "root.leaf"]
 // CHECK:        acsim.type @ac_Leaf cpp "ac.Leaf" kind "schema" fingerprint "sha256:1111111111111111111111111111111111111111111111111111111111111111"
@@ -39,7 +39,7 @@ builtin.module attributes {ac.contract_epoch = "0.3"} {
 // CHECK-SAME:     binding = "Leaf"
 // CHECK-SAME:     binding_schema = "acsim-binding-0.1"
 // CHECK-SAME:     component_schema = @ac_Leaf
-// CHECK-SAME:     contract_epoch = "0.3"
+// CHECK-SAME:     contract_epoch = "0.4"
 // CHECK-SAME:     effect = "stateful"
 // CHECK-SAME:     fingerprint = "sha256:42165ea87b2a9a578c95e6c325ee739a34d8b034f45f202187f4ed5bed9b710b"
 // CHECK-SAME:     implementation = @gfsim_Leaf

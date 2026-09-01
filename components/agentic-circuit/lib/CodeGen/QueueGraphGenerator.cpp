@@ -165,6 +165,11 @@ llvm::Expected<std::string> emitExpressionBody(const QueueBlockPlan &block,
              << '.' << expression.field << ";\n";
       continue;
     }
+    if (expression.kind == "table_get") {
+      output << padding << "auto " << expression.result
+             << " = table->at(static_cast<size_t>(" << first->str() << "));\n";
+      continue;
+    }
     if (expression.kind == "popcount") {
       output << padding << "auto " << expression.result
              << " = __builtin_popcountll(static_cast<unsigned long long>("
@@ -213,6 +218,13 @@ const QueuePlan *findQueue(const QueueGraphPlan &plan, llvm::StringRef name) {
       std::find_if(plan.queues.begin(), plan.queues.end(),
                    [&](const QueuePlan &queue) { return queue.name == name; });
   return found == plan.queues.end() ? nullptr : &*found;
+}
+
+const TablePlan *findTable(const QueueGraphPlan &plan, llvm::StringRef name) {
+  auto found =
+      std::find_if(plan.tables.begin(), plan.tables.end(),
+                   [&](const TablePlan &table) { return table.name == name; });
+  return found == plan.tables.end() ? nullptr : &*found;
 }
 
 bool isRuntimeBlock(const QueueBlockPlan &block) {
@@ -266,6 +278,14 @@ llvm::Expected<std::string> generateQueueGraphCpp(const QueueGraphPlan &plan) {
          block.yields.size() != 3 || block.memoryInstance.empty() ||
          block.resultField.empty()))
       return generatorError("memory contract is unsupported");
+    if (block.kind == "table_read" &&
+        (block.inputs.size() > 1 || block.outputs.size() != 1 ||
+         block.yields.size() != 2 || block.table.empty()))
+      return generatorError("table read contract is unsupported");
+    if (block.kind == "table_write" &&
+        (block.inputs.size() != 1 || !block.outputs.empty() ||
+         block.yields.size() != 3 || block.table.empty()))
+      return generatorError("table write contract is unsupported");
   }
   if (auto error = verifyQueueGraphPlan(plan))
     return std::move(error);
@@ -336,6 +356,12 @@ llvm::Expected<std::string> generateQueueGraphCpp(const QueueGraphPlan &plan) {
   llvm::StringMap<uint64_t> memoryIds;
   for (const MemoryInstancePlan &instance : plan.memoryInstances)
     memoryIds[instance.name] = nextId++;
+  llvm::StringMap<uint64_t> tableIds;
+  llvm::StringMap<std::string> tableMembers;
+  for (auto [index, table] : llvm::enumerate(plan.tables)) {
+    tableIds[table.name] = nextId++;
+    tableMembers[table.name] = "table_" + std::to_string(index) + "_";
+  }
 
   std::ostringstream output;
   output << "// Generated from frozen ACIR QueueGraph plan; do not edit.\n";
@@ -365,8 +391,61 @@ llvm::Expected<std::string> generateQueueGraphCpp(const QueueGraphPlan &plan) {
     if (block->kind != "transform" && block->kind != "route" &&
         block->kind != "select" && block->kind != "expect" &&
         block->kind != "dependency" && block->kind != "credit" &&
-        block->kind != "reorder" && block->kind != "feedback")
+        block->kind != "reorder" && block->kind != "feedback" &&
+        block->kind != "table_read" && block->kind != "table_write")
       continue;
+    if (block->kind == "table_read" || block->kind == "table_write") {
+      const TablePlan *table = findTable(plan, block->table);
+      auto entryType = table ? cppType(table->entryType)
+                             : llvm::Expected<std::string>(
+                                   generatorError("table declaration missing"));
+      if (!entryType)
+        return entryType.takeError();
+      std::string inputType;
+      if (!block->inputs.empty()) {
+        const QueuePlan *input = findQueue(plan, block->inputs.front());
+        auto type = input ? cppType(input->payloadType)
+                          : llvm::Expected<std::string>(
+                                generatorError("table input Queue missing"));
+        if (!type)
+          return type.takeError();
+        inputType = std::move(*type);
+      }
+      const std::vector<llvm::StringRef> policyNames =
+          block->kind == "table_read"
+              ? std::vector<llvm::StringRef>{"address", "when"}
+              : std::vector<llvm::StringRef>{"address", "enable", "value"};
+      for (auto [policyIndex, policyName] : llvm::enumerate(policyNames)) {
+        llvm::StringRef resultType = table->entryType;
+        if (block->yields[policyIndex] != "item") {
+          auto expression = std::find_if(
+              block->expressions.begin(), block->expressions.end(),
+              [&](const QueueExpressionPlan &candidate) {
+                return candidate.result == block->yields[policyIndex];
+              });
+          if (expression == block->expressions.end())
+            return generatorError("table policy yield type is missing");
+          resultType = expression->type;
+        } else if (!block->inputs.empty()) {
+          const QueuePlan *input = findQueue(plan, block->inputs.front());
+          resultType = input->payloadType;
+        }
+        auto resultCppType = cppType(resultType);
+        if (!resultCppType)
+          return resultCppType.takeError();
+        output << "struct block_" << index << '_' << policyName.str()
+               << "_policy {\n  gfsim::SimTable<" << *entryType
+               << "> *table{};\n  " << *resultCppType << " operator()(";
+        if (!inputType.empty())
+          output << "const " << inputType << " &item";
+        output << ") const {\n";
+        auto body = emitExpressionBody(*block, block->yields[policyIndex], 4);
+        if (!body)
+          return body.takeError();
+        output << *body << "  }\n};\n\n";
+      }
+      continue;
+    }
     if (block->kind == "dependency") {
       const QueuePlan *input = findQueue(plan, block->inputs.front());
       if (!input)
@@ -589,6 +668,14 @@ llvm::Expected<std::string> generateQueueGraphCpp(const QueueGraphPlan &plan) {
                       ", std::numeric_limits<size_t>::max(), nullptr, ",
                       queue.latency, ", ", queue.rate, ")");
   }
+  for (const TablePlan &table : plan.tables) {
+    auto parent = modulePointer(table.ownerPath);
+    if (!parent)
+      return parent.takeError();
+    appendInitializer(initializers, tableMembers[table.name], "(\"", table.name,
+                      "\", ", tableIds[table.name], ", ", *parent, ", ",
+                      table.entries, ")");
+  }
   for (auto [index, block] : llvm::enumerate(runtimeBlocks)) {
     auto state = feedbackStateIds.find(index);
     if (state == feedbackStateIds.end())
@@ -739,6 +826,35 @@ llvm::Expected<std::string> generateQueueGraphCpp(const QueueGraphPlan &plan) {
                         blockIds[key], ", ", *parent, ", ",
                         queueMembers[block->inputs[0]], ", ",
                         cppStringLiteral(block->message), ")");
+    } else if (block->kind == "table_read") {
+      auto table = tableMembers.find(block->table);
+      if (table == tableMembers.end())
+        return generatorError("table read declaration is missing");
+      if (block->inputs.empty())
+        appendInitializer(initializers, member, "(\"", instanceName, "\", ",
+                          blockIds[key], ", ", *parent, ", ", table->getValue(),
+                          ", ", queueMembers[block->outputs[0]], ", block_",
+                          index, "_address_policy{&", table->getValue(),
+                          "}, block_", index, "_when_policy{&",
+                          table->getValue(), "})");
+      else
+        appendInitializer(initializers, member, "(\"", instanceName, "\", ",
+                          blockIds[key], ", ", *parent, ", ", table->getValue(),
+                          ", ", queueMembers[block->inputs[0]], ", ",
+                          queueMembers[block->outputs[0]], ", block_", index,
+                          "_address_policy{&", table->getValue(), "}, block_",
+                          index, "_when_policy{&", table->getValue(), "})");
+    } else if (block->kind == "table_write") {
+      auto table = tableMembers.find(block->table);
+      if (table == tableMembers.end())
+        return generatorError("table write declaration is missing");
+      appendInitializer(initializers, member, "(\"", instanceName, "\", ",
+                        blockIds[key], ", ", *parent, ", ", table->getValue(),
+                        ", ", queueMembers[block->inputs[0]], ", block_", index,
+                        "_address_policy{&", table->getValue(), "}, block_",
+                        index, "_enable_policy{&", table->getValue(),
+                        "}, block_", index, "_value_policy{&",
+                        table->getValue(), "})");
     } else if (block->kind == "sink" || block->kind == "observe") {
       appendInitializer(initializers, member, "(\"", instanceName, "\", ",
                         blockIds[key], ", ", *parent, ", ",
@@ -790,6 +906,12 @@ llvm::Expected<std::string> generateQueueGraphCpp(const QueueGraphPlan &plan) {
     if (parent.empty())
       parent = "/";
     auto line = attach(parent, scopeMembers[scope]);
+    if (!line)
+      return line.takeError();
+    output << *line << '\n';
+  }
+  for (const TablePlan &table : plan.tables) {
+    auto line = attach(table.ownerPath, tableMembers[table.name]);
     if (!line)
       return line.takeError();
     output << *line << '\n';
@@ -890,8 +1012,10 @@ llvm::Expected<std::string> generateQueueGraphCpp(const QueueGraphPlan &plan) {
     output << "        gfsim::makeDispatchRow(&block_" << index << "_),\n";
   }
   for (size_t index = 0; index < plan.memoryInstances.size(); ++index)
-    output << "        gfsim::makeDispatchRow(&memory_" << index << "_)"
-           << (index + 1 == plan.memoryInstances.size() ? "\n" : ",\n");
+    output << "        gfsim::makeDispatchRow(&memory_" << index << "_),\n";
+  for (const TablePlan &table : plan.tables)
+    output << "        gfsim::makeDispatchRow(&" << tableMembers[table.name]
+           << "),\n";
   output << "    };\n  }\n\nprivate:\n";
   for (const std::string &scope : plan.scopes)
     output << "  gfsim::Module " << scopeMembers[scope] << ";\n";
@@ -900,6 +1024,13 @@ llvm::Expected<std::string> generateQueueGraphCpp(const QueueGraphPlan &plan) {
     if (!type)
       return type.takeError();
     output << "  gfsim::SimQueue<" << *type << "> " << queueMembers[queue.name]
+           << ";\n";
+  }
+  for (const TablePlan &table : plan.tables) {
+    auto type = cppType(table.entryType);
+    if (!type)
+      return type.takeError();
+    output << "  gfsim::SimTable<" << *type << "> " << tableMembers[table.name]
            << ";\n";
   }
   for (auto [index, block] : llvm::enumerate(runtimeBlocks)) {
@@ -1066,6 +1197,45 @@ llvm::Expected<std::string> generateQueueGraphCpp(const QueueGraphPlan &plan) {
         return type.takeError();
       output << "  gfsim::QueueExpect<" << *type << ", block_" << index
              << "_policy> block_" << index << "_;\n";
+    } else if (block->kind == "table_read") {
+      const TablePlan *table = findTable(plan, block->table);
+      auto entryType = table ? cppType(table->entryType)
+                             : llvm::Expected<std::string>(
+                                   generatorError("table declaration missing"));
+      if (!entryType)
+        return entryType.takeError();
+      if (block->inputs.empty()) {
+        output << "  gfsim::TableReadSource<" << *entryType << ", block_"
+               << index << "_address_policy, block_" << index
+               << "_when_policy> block_" << index << "_;\n";
+      } else {
+        const QueuePlan *input = findQueue(plan, block->inputs.front());
+        auto inputType = input ? cppType(input->payloadType)
+                               : llvm::Expected<std::string>(generatorError(
+                                     "table read input missing"));
+        if (!inputType)
+          return inputType.takeError();
+        output << "  gfsim::QueueTableRead<" << *inputType << ", " << *entryType
+               << ", block_" << index << "_address_policy, block_" << index
+               << "_when_policy> block_" << index << "_;\n";
+      }
+    } else if (block->kind == "table_write") {
+      const TablePlan *table = findTable(plan, block->table);
+      const QueuePlan *input = findQueue(plan, block->inputs.front());
+      auto entryType = table ? cppType(table->entryType)
+                             : llvm::Expected<std::string>(
+                                   generatorError("table declaration missing"));
+      auto inputType = input ? cppType(input->payloadType)
+                             : llvm::Expected<std::string>(
+                                   generatorError("table write input missing"));
+      if (!entryType)
+        return entryType.takeError();
+      if (!inputType)
+        return inputType.takeError();
+      output << "  gfsim::QueueTableWrite<" << *inputType << ", " << *entryType
+             << ", block_" << index << "_address_policy, block_" << index
+             << "_enable_policy, block_" << index << "_value_policy> block_"
+             << index << "_;\n";
     } else if (block->kind == "sink" || block->kind == "observe") {
       const QueuePlan *input = findQueue(plan, block->inputs[0]);
       auto type = input ? cppType(input->payloadType)

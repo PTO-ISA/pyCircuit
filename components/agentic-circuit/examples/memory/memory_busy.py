@@ -1,4 +1,4 @@
-"""Single-memory busy/backpressure example for contract epoch 0.3.
+"""Single-memory busy/backpressure example for contract epoch 0.4.
 
 The companion harness injects read A (tag 1) before tick 0 and read B (tag 2)
 before tick 1.  Both access zero-initialized locations through one memory with

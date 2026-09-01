@@ -53,7 +53,7 @@ source.
 ### AC G0: frontend and contracts
 
 - install/import the `agentic-circuit` distribution from the current worktree;
-- validate ACPy epoch `0.3` golden serialization;
+- validate ACPy epoch `0.4` golden serialization;
 - run Python frontend, schema, contract and CLI inventory tests; and
 - verify that `agentic_circuit` remains separate from `pycircuit` exports.
 
@@ -71,6 +71,11 @@ source.
 - generate and validate Verilog for the same canonical cases;
 - compare applicable gfsim, pyc6 C++ and Verilator observations; and
 - prove unsupported ACIR constructs fail at the intended verifier boundary.
+
+Decision 0151's provisional Table is intentionally gfsim-only. Its G2 evidence
+is the stable PYC diagnostic `unsupported provisional Table`; do not report a
+Table PYC, C++, Verilog, or cross-backend lane as supported until a later
+decision adds and verifies that lowering.
 
 AC G2 consumes current pyCircuit 6 contracts. Code merge therefore requires the
 full examples, normal/nightly simulation, V6 semantic, and strict

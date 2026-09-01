@@ -329,7 +329,7 @@ def run(arguments: object, workspace: WorkspaceConfig, sink: OutputSink) -> int:
         {
             "schema": "agentic-circuit-build-result",
             "version": "0.1",
-            "contract_epoch": "0.3",
+            "contract_epoch": "0.4",
             "status": "passed",
             "profile": attempt.profile,
             "directory": publication.directory.as_posix(),

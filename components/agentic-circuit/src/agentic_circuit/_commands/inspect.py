@@ -112,7 +112,7 @@ def _current_build(
             set(manifest) != _BUILD_MANIFEST_KEYS
             or manifest.get("schema") != "agentic-circuit-build-manifest"
             or manifest.get("version") != "0.1"
-            or manifest.get("contract_epoch") != "0.3"
+            or manifest.get("contract_epoch") != "0.4"
             or manifest.get("build_fingerprint") != pointer["build_fingerprint"]
         ):
             _fail("current build manifest identity does not match its pointer")

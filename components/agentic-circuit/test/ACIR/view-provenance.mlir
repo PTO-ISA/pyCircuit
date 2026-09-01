@@ -10,7 +10,7 @@
 // RUN: %not %acir_opt %t/slashed-producer-id.mlir 2>&1 | %FileCheck %s --check-prefix=PRODUCER-ID
 
 //--- zero-chain.mlir
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   "ac.module"() <{sym_name = "Empty", function_type = () -> (), static_params = {}}> ({
     "ac.return"() : () -> ()
   }) : () -> ()
@@ -26,7 +26,7 @@ builtin.module attributes {ac.contract_epoch = "0.3"} {
 // ZERO: ac.view @second
 
 //--- unresolved-source.mlir
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   "ac.module"() <{sym_name = "Top", function_type = () -> (), static_params = {}}> ({
     "ac.view"() <{sym_name = "view", kind = "permutation", source_producers = [@missing], source_shapes = [array<i64: 0>], indices = array<i64>, shape = array<i64: 0>}> : () -> ()
     "ac.return"() : () -> ()
@@ -35,7 +35,7 @@ builtin.module attributes {ac.contract_epoch = "0.3"} {
 // UNRESOLVED: source producer '@missing' is unresolved
 
 //--- repeated-source.mlir
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   "ac.module"() <{sym_name = "Empty", function_type = () -> (), static_params = {}}> ({ "ac.return"() : () -> () }) : () -> ()
   "ac.module"() <{sym_name = "Top", function_type = () -> (), static_params = {}}> ({
     "ac.instance"() <{definition = @Empty, sym_name = "source", stable_id = "source", path = "source", static_args = {}}> : () -> ()
@@ -46,7 +46,7 @@ builtin.module attributes {ac.contract_epoch = "0.3"} {
 // REPEATED: source producers must not repeat
 
 //--- dotted-view-name.mlir
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   "ac.module"() <{sym_name = "Top", function_type = () -> (), static_params = {}}> ({
     "ac.view"() <{sym_name = "bad.name", kind = "permutation", source_producers = [@missing], source_shapes = [array<i64: 0>], indices = array<i64>, shape = array<i64: 0>}> : () -> ()
     "ac.return"() : () -> ()
@@ -54,7 +54,7 @@ builtin.module attributes {ac.contract_epoch = "0.3"} {
 }
 
 //--- empty-view-name.mlir
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   "ac.module"() <{sym_name = "Top", function_type = () -> (), static_params = {}}> ({
     "ac.view"() <{sym_name = "", kind = "permutation", source_producers = [@missing], source_shapes = [array<i64: 0>], indices = array<i64>, shape = array<i64: 0>}> : () -> ()
     "ac.return"() : () -> ()
@@ -62,7 +62,7 @@ builtin.module attributes {ac.contract_epoch = "0.3"} {
 }
 
 //--- slashed-view-name.mlir
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   "ac.module"() <{sym_name = "Top", function_type = () -> (), static_params = {}}> ({
     "ac.view"() <{sym_name = "bad/name", kind = "permutation", source_producers = [@missing], source_shapes = [array<i64: 0>], indices = array<i64>, shape = array<i64: 0>}> : () -> ()
     "ac.return"() : () -> ()
@@ -71,7 +71,7 @@ builtin.module attributes {ac.contract_epoch = "0.3"} {
 // VIEW-NAME: view name must be a stable local segment
 
 //--- dotted-producer-id.mlir
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   "ac.module"() <{sym_name = "Top", function_type = () -> (), static_params = {}}> ({
     "ac.view"() <{sym_name = "view", kind = "permutation", source_producers = [@"bad.name"], source_shapes = [array<i64: 0>], indices = array<i64>, shape = array<i64: 0>}> : () -> ()
     "ac.return"() : () -> ()
@@ -79,7 +79,7 @@ builtin.module attributes {ac.contract_epoch = "0.3"} {
 }
 
 //--- empty-producer-id.mlir
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   "ac.module"() <{sym_name = "Top", function_type = () -> (), static_params = {}}> ({
     "ac.view"() <{sym_name = "view", kind = "permutation", source_producers = [@""], source_shapes = [array<i64: 0>], indices = array<i64>, shape = array<i64: 0>}> : () -> ()
     "ac.return"() : () -> ()
@@ -87,7 +87,7 @@ builtin.module attributes {ac.contract_epoch = "0.3"} {
 }
 
 //--- slashed-producer-id.mlir
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   "ac.module"() <{sym_name = "Top", function_type = () -> (), static_params = {}}> ({
     "ac.view"() <{sym_name = "view", kind = "permutation", source_producers = [@"bad/name"], source_shapes = [array<i64: 0>], indices = array<i64>, shape = array<i64: 0>}> : () -> ()
     "ac.return"() : () -> ()

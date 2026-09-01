@@ -10,7 +10,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[2]
-CONTRACT_EPOCH = "0.3"
+CONTRACT_EPOCH = "0.4"
 LLVM_LOCK = {
     "release": "22.1.8",
     "upstream_commit": "ca7933e47d3a3451d81e72ac174dcb5aa28b59d1",
@@ -129,19 +129,28 @@ class RepositoryContractsTest(unittest.TestCase):
                 "route",
                 "schedule",
                 "table",
+                "table_read",
+                "table_write",
             ],
             [block["name"] for block in blocks],
         )
         for block in blocks:
-            self.assertEqual(f'ac.{block["name"]}', block["operation"])
+            self.assertEqual(
+                f'ac.{block["name"].replace("_", ".")}', block["operation"]
+            )
             self.assertTrue(block["providers"]["cpp"]["optimized"])
-            self.assertTrue(block["providers"]["verilog"]["optimized"])
+            if block["name"].startswith("table"):
+                self.assertTrue(block["providers"]["cpp"]["available"])
+                self.assertFalse(block["providers"]["verilog"]["available"])
+                self.assertFalse(block["providers"]["verilog"]["optimized"])
+            else:
+                self.assertTrue(block["providers"]["verilog"]["optimized"])
             self.assertTrue(block["refinement_observations"])
             self.assertTrue(
                 all(port["ownership"] == "borrowed_simqueue" for port in block["ports"])
             )
         lambda_blocks = [block["name"] for block in blocks if block["lambda_regions"]]
-        self.assertEqual(["compute"], lambda_blocks)
+        self.assertEqual(["compute", "table_read", "table_write"], lambda_blocks)
 
     def test_official_opcode_catalog_is_closed_backend_complete_and_standard(self):
         from jsonschema import Draft202012Validator
@@ -169,6 +178,9 @@ class RepositoryContractsTest(unittest.TestCase):
             "ac.select",
             "ac.sink",
             "ac.source",
+            "ac.table",
+            "ac.table.read",
+            "ac.table.write",
             "ac.transform",
         }
         operations = [entry["operation"] for entry in catalog["entries"]]
@@ -179,8 +191,12 @@ class RepositoryContractsTest(unittest.TestCase):
             operation_kind = entry["operation"].removeprefix("ac.").replace(".", "_")
             self.assertEqual(entry["kind"], operation_kind)
             self.assertTrue(entry["gfsim"]["available"])
-            if entry["role"] == "design":
+            if entry["role"] == "design" and not entry["operation"].startswith(
+                "ac.table"
+            ):
                 self.assertTrue(entry["pyc"]["available"])
+            if entry["operation"].startswith("ac.table"):
+                self.assertFalse(entry["pyc"]["available"])
             self.assertTrue(entry["gfsim"]["realization"])
             self.assertTrue(entry["pyc"]["realization"])
             self.assertTrue(entry["refinement_observations"])
@@ -516,9 +532,9 @@ class RepositoryContractsTest(unittest.TestCase):
             "operation_path": "@Top::@workload/r0/b0/o0",
         }
         descriptor = {
-            "cpp": "acir::generated::impl_wake_next_delta_28670f81a4b5f79039c0859878e49d133debaaa96ce07fd057110aa5fba8f36c",
+            "cpp": "acir::generated::impl_wake_next_delta_043ae4e869cdd2b9059e1696f276b6844179f19aa6a52872ad0ac2d273a4c550",
             "effect": "stateful",
-            "fingerprint": "sha256:28670f81a4b5f79039c0859878e49d133debaaa96ce07fd057110aa5fba8f36c",
+            "fingerprint": "sha256:043ae4e869cdd2b9059e1696f276b6844179f19aa6a52872ad0ac2d273a4c550",
             "inputs": [],
             "kind": "implementation",
             "ordinal": 0,
@@ -526,11 +542,11 @@ class RepositoryContractsTest(unittest.TestCase):
             "results": ["@acir_wake_next_delta"],
             "role": "wake_next_delta",
             "source_paths": [],
-            "symbol": "@acir_impl_wake_next_delta_28670f81a4b5f79039c0859878e49d133debaaa96ce07fd057110aa5fba8f36c",
+            "symbol": "@acir_impl_wake_next_delta_043ae4e869cdd2b9059e1696f276b6844179f19aa6a52872ad0ac2d273a4c550",
         }
         fixture = {
             "callees": [descriptor],
-            "contract_epoch": "0.3",
+            "contract_epoch": "0.4",
             "processes": [{
                 "blocks": [{"actions": [], "cost": 2, "edge": {"kind": "suspend", "transition": 0}, "frames": [], "loads": [], "ordinal": 0, "path": "@Top::@workload/plan/pc/entry/b00000000", "pc": 0}],
                 "captures": [], "definition_key": "@Top::@workload", "entry_pc": 0,

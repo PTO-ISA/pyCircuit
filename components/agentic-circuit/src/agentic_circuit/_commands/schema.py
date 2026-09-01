@@ -65,7 +65,7 @@ def _listing(kind: str, names: list[str]) -> dict[str, JsonValue]:
     return {
         "schema": "agentic-circuit-schema-list",
         "version": "0.1",
-        "contract_epoch": "0.3",
+        "contract_epoch": "0.4",
         "kind": kind,
         "items": sorted(names),
     }
@@ -135,7 +135,7 @@ def run(arguments: object, sink: OutputSink) -> int:
             document = {
                 "schema": "agentic-circuit-interface-definition",
                 "version": "0.1",
-                "contract_epoch": "0.3",
+                "contract_epoch": "0.4",
                 "canonical_name": "ac.Stream",
                 "availability": "available",
             }

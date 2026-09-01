@@ -266,16 +266,28 @@ def barrier(
     return _not_implemented("barrier")
 
 
-def table(
-    value: object,
-    *,
-    address: object,
-    write: object,
-    data: object,
-    result: object,
-    entries: int = 16,
-    init: int = 0,
-    depth: int = 1,
-    latency: int = 1,
-) -> Never:
-    return _not_implemented("table")
+class _TableDeclaration:
+    def __init__(self, entries: object, entry_type: object) -> None:
+        self.entries = entries
+        self.entry_type = entry_type
+
+    def __call__(self, *, init: int = 0) -> Never:
+        return _not_implemented("table")
+
+
+class _TableFactory:
+    def __getitem__(self, parameters: object) -> _TableDeclaration:
+        if not isinstance(parameters, tuple) or len(parameters) != 2:
+            raise TypeError("ac.table requires ac.table[entries, Entry]")
+        return _TableDeclaration(parameters[0], parameters[1])
+
+    def __call__(self, *args: object, **kwargs: object) -> Never:
+        del args, kwargs
+        raise TypeError(
+            "legacy ac.table(value, ...) was removed; use ac.memory for "
+            "request/response memory or ac.table[entries, Entry](init=0) "
+            "for state Table"
+        )
+
+
+table = _TableFactory()

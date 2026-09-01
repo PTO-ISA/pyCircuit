@@ -143,8 +143,8 @@ def load_workspace(manifest: Path) -> WorkspaceConfig:
         _fail("ACPY-CONFIG-002", f"workspace is missing {missing[0]!r}")
 
     epoch = document["contract_epoch"]
-    if epoch != "0.3":
-        _fail("ACPY-CONFIG-005", "contract_epoch must equal 0.3")
+    if epoch != "0.4":
+        _fail("ACPY-CONFIG-005", "contract_epoch must equal 0.4")
     root = manifest.parent.resolve()
 
     project = _closed_table(
@@ -253,7 +253,7 @@ def load_workspace(manifest: Path) -> WorkspaceConfig:
         root=root,
         project_name=project_name,
         project_version=project_version,
-        contract_epoch="0.3",
+        contract_epoch="0.4",
         architecture=architecture,
         default_system=default_system,
         standard_library_providers=provider_names,

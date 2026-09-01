@@ -157,18 +157,19 @@ class PublicApiTest(unittest.TestCase):
             lambda: api.reorder(object(), by=object()),
             lambda: api.fork(object(), outputs=2),
             lambda: api.barrier(object(), object()),
-            lambda: api.table(
-                object(),
-                address=object(),
-                write=object(),
-                data=object(),
-                result=object(),
-            ),
         )
         for operation in operations:
             with self.subTest(operation=operation):
                 with self.assertRaises(NotImplementedError):
                     operation()
+
+    def test_table_factory_is_subscript_only_and_legacy_call_is_removed(self) -> None:
+        import agentic_circuit as api
+
+        with self.assertRaises(NotImplementedError):
+            api.table[16, api.u16](init=0)
+        with self.assertRaisesRegex(TypeError, "use ac.memory"):
+            api.table(object(), address=object())
 
 
 if __name__ == "__main__":

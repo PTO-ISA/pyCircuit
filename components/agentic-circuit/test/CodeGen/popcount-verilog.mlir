@@ -1,6 +1,6 @@
 // RUN: %python %source_root/tools/acir-queue-veriloggen.py %s --pycgen %acir_queue_pycgen | %FileCheck %s --check-prefix=VERILOG
 
-module attributes {ac.contract_epoch = "0.3", ac.system = "popcount"} {
+module attributes {ac.contract_epoch = "0.4", ac.system = "popcount"} {
   ac.type_scope @types {
     ac.struct @Item fields [{name = "value", type = i8}, {name = "count", type = i4}]
   } {dlti.dl_spec = #dlti.dl_spec<!ac.struct<@types::@Item> = {abi_alignment = 1 : i64, endianness = "little", preferred_alignment = 1 : i64, size = 2 : i64}>}

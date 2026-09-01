@@ -134,6 +134,39 @@ struct MemoryResponse {
   }
 };
 
+struct TableAddress {
+  uint8_t operator()(const MemoryRequest &request) const {
+    return request.address;
+  }
+};
+
+struct TableEnable {
+  bool operator()(const MemoryRequest &request) const { return request.write; }
+};
+
+struct TableValue {
+  uint16_t operator()(const MemoryRequest &request) const {
+    return request.data;
+  }
+};
+
+struct TableAlways {
+  bool operator()(const MemoryRequest &) const { return true; }
+};
+
+struct TableNever {
+  bool operator()(const MemoryRequest &) const { return false; }
+};
+
+struct TableZeroAddress {
+  uint8_t operator()() const { return 0; }
+};
+
+struct TableNonzero {
+  SimTable<uint16_t> *table = nullptr;
+  bool operator()() const { return table->at(0) != 0; }
+};
+
 TEST(QueueBlocksTest, HighLevelProvidersFreezeStructuralTemplateParameters) {
   using Schedule4 =
       Schedule<DependencyValue, 16, 4, 255, DependencyKey,
@@ -145,8 +178,7 @@ TEST(QueueBlocksTest, HighLevelProvidersFreezeStructuralTemplateParameters) {
   using ComputeInt = Compute<int, int, 1, Increment>;
   using Pipeline2 = Pipeline<int, 2, 1>;
   using Ordered64 = Reorder<SequencedValue, 64, 0, SequenceKey>;
-  using Table32 = Table<MemoryRequest, uint16_t, 32, 0, MemoryAddress,
-                        MemoryWrite, MemoryWriteData, MemoryResponse>;
+  using Table32 = SimTable<uint16_t>;
 
   static_assert(!std::is_same_v<Schedule4, Schedule2>);
   EXPECT_EQ(Schedule4::contractName, "ac.schedule");
@@ -164,9 +196,7 @@ TEST(QueueBlocksTest, HighLevelProvidersFreezeStructuralTemplateParameters) {
   SimQueue<SequencedValue> orderedInput("ordered_input", 5, nullptr, 2);
   SimQueue<SequencedValue> orderedOutput("ordered_output", 6, nullptr, 2);
   Ordered64 reorder("reorder", 7, nullptr, orderedInput, orderedOutput);
-  SimQueue<MemoryRequest> memoryInput("memory_input", 8, nullptr, 2);
-  SimQueue<MemoryRequest> memoryOutput("memory_output", 9, nullptr, 2);
-  Table32 table("table", 10, nullptr, memoryInput, memoryOutput);
+  Table32 table("table", 10, nullptr, 32);
   SimQueue<int> computeInput("compute_input", 11, nullptr, 2);
   SimQueue<int> computeOutput("compute_output", 12, nullptr, 2);
   ComputeInt compute("compute", 13, nullptr, computeInput, computeOutput);
@@ -180,6 +210,105 @@ TEST(QueueBlocksTest, HighLevelProvidersFreezeStructuralTemplateParameters) {
   EXPECT_EQ(table.at(0), 0u);
   EXPECT_FALSE(compute.hasPendingCommit());
   EXPECT_FALSE(pipeline.hasPendingCommit());
+}
+
+TEST(QueueBlocksTest, StatefulTableReadsOldDataAndCommitsWriteAtTickEnd) {
+  SimTable<uint16_t> table("table", 1, nullptr, 8);
+  SimQueue<MemoryRequest> readInput("read_input", 2, nullptr, 1);
+  SimQueue<uint16_t> readOutput("read_output", 3, nullptr, 1);
+  SimQueue<MemoryRequest> writeInput("write_input", 4, nullptr, 1);
+  QueueTableRead<MemoryRequest, uint16_t, TableAddress, TableAlways> read(
+      "read", 5, nullptr, table, readInput, readOutput);
+  QueueTableWrite<MemoryRequest, uint16_t, TableAddress, TableEnable,
+                  TableValue>
+      write("write", 6, nullptr, table, writeInput);
+
+  ASSERT_TRUE(readInput.proposePush({2, false, 0}));
+  ASSERT_TRUE(writeInput.proposePush({2, true, 42}));
+  readInput.doXfer({0, 0});
+  writeInput.doXfer({0, 0});
+
+  read.doWork({1, 0});
+  write.doWork({1, 0});
+  EXPECT_EQ(table.at(2), 0u);
+  readInput.doXfer({1, 0});
+  readOutput.doXfer({1, 0});
+  writeInput.doXfer({1, 0});
+  read.doXfer({1, 0});
+  write.doXfer({1, 0});
+
+  ASSERT_NE(readOutput.peek(), nullptr);
+  EXPECT_EQ(*readOutput.peek(), 0u);
+  EXPECT_EQ(table.at(2), 42u);
+  table.reset();
+  EXPECT_EQ(table.at(2), 0u);
+}
+
+TEST(QueueBlocksTest, DisabledTableWriteConsumesWithoutChangingState) {
+  SimTable<uint16_t> table("table", 1, nullptr, 4);
+  SimQueue<MemoryRequest> input("input", 2, nullptr, 1);
+  QueueTableWrite<MemoryRequest, uint16_t, TableAddress, TableEnable,
+                  TableValue>
+      write("write", 3, nullptr, table, input);
+  ASSERT_TRUE(input.proposePush({1, false, 99}));
+  input.doXfer({0, 0});
+  write.doWork({1, 0});
+  input.doXfer({1, 0});
+  write.doXfer({1, 0});
+  EXPECT_TRUE(input.isEmpty());
+  EXPECT_EQ(table.at(1), 0u);
+}
+
+TEST(QueueBlocksTest, TableReadPreservesDisabledAndOutOfRangeRequests) {
+  SimTable<uint16_t> table("table", 1, nullptr, 4);
+  SimQueue<MemoryRequest> disabledInput("disabled_input", 2, nullptr, 1);
+  SimQueue<uint16_t> disabledOutput("disabled_output", 3, nullptr, 1);
+  QueueTableRead<MemoryRequest, uint16_t, TableAddress, TableNever> disabled(
+      "disabled", 4, nullptr, table, disabledInput, disabledOutput);
+  ASSERT_TRUE(disabledInput.proposePush({1, false, 0}));
+  disabledInput.doXfer({0, 0});
+  disabled.doWork({1, 0});
+  EXPECT_FALSE(disabledInput.isEmpty());
+  EXPECT_TRUE(disabledOutput.isEmpty());
+
+  SimQueue<MemoryRequest> invalidInput("invalid_input", 5, nullptr, 1);
+  SimQueue<uint16_t> invalidOutput("invalid_output", 6, nullptr, 1);
+  QueueTableRead<MemoryRequest, uint16_t, TableAddress, TableAlways> invalid(
+      "invalid", 7, nullptr, table, invalidInput, invalidOutput);
+  ASSERT_TRUE(invalidInput.proposePush({4, false, 0}));
+  invalidInput.doXfer({0, 0});
+  invalid.doWork({1, 0});
+  EXPECT_EQ(invalid.runtimeFailureCode(), "table_index_out_of_range");
+  EXPECT_FALSE(invalidInput.isEmpty());
+  EXPECT_TRUE(invalidOutput.isEmpty());
+}
+
+TEST(QueueBlocksTest, StateTableReadRepeatsAndBackpressuredValueStaysStable) {
+  SimTable<uint16_t> table("table", 1, nullptr, 1);
+  SimQueue<uint16_t> output("output", 2, nullptr, 1);
+  TableReadSource<uint16_t, TableZeroAddress, TableNonzero> read(
+      "read", 3, nullptr, table, output, {}, TableNonzero{&table});
+  ASSERT_TRUE(table.proposeWrite(0, 7));
+  table.commitWrite();
+  read.doWork({1, 0});
+  output.doXfer({1, 0});
+  read.doXfer({1, 0});
+  ASSERT_NE(output.peek(), nullptr);
+  EXPECT_EQ(*output.peek(), 7u);
+
+  ASSERT_TRUE(table.proposeWrite(0, 9));
+  table.commitWrite();
+  read.doWork({2, 0});
+  ASSERT_NE(output.peek(), nullptr);
+  EXPECT_EQ(*output.peek(), 7u);
+
+  ASSERT_TRUE(output.proposePop());
+  output.doXfer({2, 0});
+  read.doWork({3, 0});
+  output.doXfer({3, 0});
+  read.doXfer({3, 0});
+  ASSERT_NE(output.peek(), nullptr);
+  EXPECT_EQ(*output.peek(), 9u);
 }
 
 struct SharedMemoryAddress {

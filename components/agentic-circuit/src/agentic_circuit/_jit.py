@@ -168,7 +168,7 @@ class JitSpecialization:
             canonical_json_bytes(
                 {
                     "schema": "agentic-circuit-provider-specialization",
-                    "version": "0.3",
+                    "version": "0.4",
                     "frontend_specialization": self.fingerprint,
                     "backend": "gfsim-cpp",
                     "provider_source_sha256": cpp_hash,
@@ -211,7 +211,7 @@ class JitSpecialization:
             os.replace(candidate, artifact)
         manifest_value = {
             "schema": "agentic-circuit-jit-artifact",
-            "version": "0.3",
+            "version": "0.4",
             "backend": "gfsim-cpp",
             "specialization": key,
             "frontend_specialization": self.fingerprint,
@@ -258,7 +258,7 @@ class JitSpecialization:
             canonical_json_bytes(
                 {
                     "schema": "agentic-circuit-provider-specialization",
-                    "version": "0.3",
+                    "version": "0.4",
                     "frontend_specialization": self.fingerprint,
                     "backend": "pyc-cpp-verilog",
                     "acir_sha256": sha256_bytes(acir),
@@ -334,7 +334,7 @@ class JitSpecialization:
                 )
             manifest_value = {
                 "schema": "agentic-circuit-jit-artifact",
-                "version": "0.3",
+                "version": "0.4",
                 "backend": "pyc-cpp-verilog",
                 "specialization": key,
                 "frontend_specialization": self.fingerprint,
@@ -432,7 +432,7 @@ def jit(system: Definition, /, **constants: object) -> JitSpecialization:
             source_hash = sha256_bytes(path.read_bytes())
     preimage = {
         "schema": "agentic-circuit-jit-specialization",
-        "version": "0.3",
+        "version": "0.4",
         "system": system.qualified_name,
         "source_sha256": source_hash,
         "arguments": {name: _json_value(value) for name, value in arguments},

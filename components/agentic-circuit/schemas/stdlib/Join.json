@@ -1,7 +1,7 @@
 {
   "schema_kind": "agentic-circuit-component",
   "schema_version": "0.1",
-  "contract_epoch": "0.3",
+  "contract_epoch": "0.4",
   "canonical_name": "ac.Join",
   "family": "synchronization",
   "provider_namespace": "ac",
@@ -123,5 +123,5 @@
     "gauges": [],
     "histograms": []
   },
-  "schema_fingerprint": "sha256:5ae5c46325a4d1dc628c0da87845f1758991ed63fa7e4c1c9c9ba7650c85873a"
+  "schema_fingerprint": "sha256:d34badc805da14bdd585f8a46502575bfb658e96a9605558972a7a29d3f614a8"
 }

@@ -185,7 +185,7 @@ def _validate_trace(data: bytes) -> None:
         != {"schema", "version", "contract_epoch", "metadata", "records"}
         or document.get("schema") != "pto-trace"
         or document.get("version") != "0.1"
-        or document.get("contract_epoch") != "0.3"
+        or document.get("contract_epoch") != "0.4"
         or type(document.get("metadata")) is not dict
         or type(document.get("records")) is not list
     ):
@@ -228,7 +228,7 @@ def create_run_manifest(build: BuildPublication, options: RunOptions) -> bytes:
     document: dict[str, object] = {
         "schema": "agentic-circuit-run-manifest",
         "version": "0.1",
-        "contract_epoch": "0.3",
+        "contract_epoch": "0.4",
         "build_manifest": {
             "path": "build-manifest.json",
             "sha256": sha256_bytes(build_bytes),
@@ -290,7 +290,7 @@ def _verify_manifest(data: bytes) -> dict[str, object]:
         set(document) != _MANIFEST_KEYS
         or document.get("schema") != "agentic-circuit-run-manifest"
         or document.get("version") != "0.1"
-        or document.get("contract_epoch") != "0.3"
+        or document.get("contract_epoch") != "0.4"
     ):
         _failure(5, "ACRUN-PREFLIGHT-001", "run manifest has an invalid envelope")
     _file_hash(document.get("build_manifest"), "build_manifest")
@@ -372,7 +372,7 @@ def _verify_run_result_impl(
         set(document) != _RESULT_KEYS
         or document.get("schema") != "agentic-circuit-run-result"
         or document.get("version") != "0.1"
-        or document.get("contract_epoch") != "0.3"
+        or document.get("contract_epoch") != "0.4"
     ):
         _failure(6, "ACRUN-RESULT-001", "run result has an invalid envelope")
     path, fingerprint = _file_hash(document.get("run_manifest"), "run_manifest")

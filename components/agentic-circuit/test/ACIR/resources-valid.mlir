@@ -1,7 +1,7 @@
 // RUN: %acir_opt_public %s | %FileCheck %s
 // RUN: %acir_opt_public %s | %acir_opt_public | %FileCheck %s
 
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   ac.protocol @fifo {
     ac.role @sender dual @receiver cardinality "exclusive"
     ac.role @receiver dual @sender cardinality "exclusive"

@@ -1,14 +1,14 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "urn:pto-isa:agentic-circuit:schema:opcode-catalog:0.3",
-  "title": "Agentic Circuit Official Opcode Catalog 0.3",
+  "$id": "urn:pto-isa:agentic-circuit:schema:opcode-catalog:0.4",
+  "title": "Agentic Circuit Official Opcode Catalog 0.4",
   "type": "object",
   "additionalProperties": false,
   "required": ["schema", "version", "contract_epoch", "entries"],
   "properties": {
     "schema": {"const": "agentic-circuit-opcode-catalog"},
-    "version": {"const": "0.3"},
-    "contract_epoch": {"const": "0.3"},
+    "version": {"const": "0.4"},
+    "contract_epoch": {"const": "0.4"},
     "entries": {
       "type": "array",
       "minItems": 1,
@@ -88,13 +88,16 @@
             "all_payloads_equal",
             "consume_input_payload",
             "declared_storage_owner",
+            "declared_typed_state_owner",
             "declared_output_payload",
             "input_output_payload_equal",
             "observe_input_payload",
+            "output_payload_matches_table_entry",
             "positionally_equal_boundary_payloads",
             "positionally_equal_input_output_payloads",
             "region_yields_match_output_payloads",
-            "selected_data_payload_matches_output"
+            "selected_data_payload_matches_output",
+            "value_payload_matches_table_entry"
           ]
         },
         "pyc": {"$ref": "#/$defs/backend"},

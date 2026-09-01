@@ -1,7 +1,7 @@
 {
   "schema_kind": "agentic-circuit-component",
   "schema_version": "0.1",
-  "contract_epoch": "0.3",
+  "contract_epoch": "0.4",
   "canonical_name": "ac.Fork",
   "family": "synchronization",
   "provider_namespace": "ac",
@@ -123,5 +123,5 @@
     "gauges": [],
     "histograms": []
   },
-  "schema_fingerprint": "sha256:7a5ab27f3d82b1eb5a4177b3c2761cb05a371c28f4550ef102187b5cc96ed3f1"
+  "schema_fingerprint": "sha256:c97e19b2f16f5d31479991ef8e0609576343af5b2febaaf79fe1838e3f2373a0"
 }

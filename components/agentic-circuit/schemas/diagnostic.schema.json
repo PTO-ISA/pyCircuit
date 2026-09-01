@@ -8,7 +8,7 @@
   "properties": {
     "schema": {"const": "agentic-circuit-diagnostic"},
     "version": {"const": "0.1"},
-    "contract_epoch": {"const": "0.3"},
+    "contract_epoch": {"const": "0.4"},
     "code": {"pattern": "^AC(PY|ELAB|IR-[A-Z]+|LOWER|BUILD|TRACE|RUN)-[A-Z0-9-]+$", "type": "string"},
     "stage": {"type": "string", "minLength": 1},
     "severity": {"enum": ["note", "warning", "error"]},

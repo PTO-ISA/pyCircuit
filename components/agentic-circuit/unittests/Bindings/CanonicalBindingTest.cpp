@@ -27,7 +27,7 @@ namespace acir::bindings {
 namespace {
 
 constexpr llvm::StringLiteral kRecordFingerprint =
-    "sha256:c589295d45f11e7bd368e271ce3dd8928f3207e7ee0287012dcaa15034a313d1";
+    "sha256:c6b77b47fe20236bd16946179bcf8109e3c6f6bab8029cd9bb1abbd29eb7a70e";
 
 std::string takeError(llvm::Error error) {
   return llvm::toString(std::move(error));
@@ -59,7 +59,7 @@ std::string recordJson(llvm::StringRef fingerprint = kRecordFingerprint,
     "component_schema": "ac.Leaf",
     "component_schema_fingerprint": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
     "construction": {"arguments": [8], "kind": "constructor"},
-    "contract_epoch": "0.3",
+    "contract_epoch": "0.4",
     "cpp": {
       "concept": "gfsim::PureModel",
       "entry_points": {"pure": "gfsim::leaf", "reset": "", "validate": "", "work": "", "xfer": ""},
@@ -127,7 +127,7 @@ std::string requestJson(
     "component_schema": ")json") +
           componentSchema + R"json(",
     "component_schema_fingerprint": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
-    "contract_epoch": "0.3",
+    "contract_epoch": "0.4",
     "effect": "pure",
     "function_type": ")json" +
           functionType + R"json(",
@@ -585,7 +585,7 @@ TEST(BindingRecordTest, ParsesTheClosedTypedMetadataRecord) {
   ASSERT_EQ(1U, candidates.size());
   const BindingRecord &record = candidates.front().record();
   EXPECT_EQ("acsim-binding-0.1", record.bindingSchema());
-  EXPECT_EQ("0.3", record.contractEpoch());
+  EXPECT_EQ("0.4", record.contractEpoch());
   EXPECT_EQ("Leaf", record.binding());
   EXPECT_EQ("pure", record.effect());
   EXPECT_EQ("gfsim::Leaf", record.cpp().symbol);
@@ -952,7 +952,7 @@ TEST(BindingLockTest, EmitsStableCanonicalBytesAndProjectHashVector) {
                                 "arm64-apple-darwin");
   ASSERT_TRUE(static_cast<bool>(result)) << takeError(result.takeError());
   EXPECT_EQ(
-      "sha256:fa2705b165b450090078d685d7cf8859c7393cb78e9b6a0b3b6a62ab81644703",
+      "sha256:0ee9be5714c9d07718ab3ee9971bfc9d1f549350155bd2076b200e1532b3537b",
       result->lockFingerprint());
   EXPECT_EQ('[', result->canonicalLock().front());
   EXPECT_EQ(']', result->canonicalLock().back());
@@ -1029,7 +1029,7 @@ TEST(ResolveBindingsApiTest, ReturnsTypedResultWithoutMutatingFrozenTopology) {
   context.loadAllAvailableDialects();
   acir::ac::getStructuralProviderRegistry(&context).registerExternal("Leaf");
   constexpr llvm::StringLiteral source = R"mlir(
-    builtin.module attributes {ac.contract_epoch = "0.3"} {
+    builtin.module attributes {ac.contract_epoch = "0.4"} {
       ac.system @soc root @Top as "root" tick 0 "cycle"
           workload @Top::@workload seed {kind = "fixed", value = 0 : i64}
           instrumentation [] results {id = "default", format = "json"}

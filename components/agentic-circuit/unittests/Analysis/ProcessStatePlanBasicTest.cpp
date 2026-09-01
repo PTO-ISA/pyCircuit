@@ -719,11 +719,11 @@ CHECK_ID_VALUE(ProcessTransitionId);
 #undef CHECK_ID_VALUE
 
 constexpr llvm::StringLiteral kEmptyBytes =
-    R"json({"callees":[],"contract_epoch":"0.3","processes":[],"schema":"acir-process-state-plan-0.1","value_types":[]})json";
+    R"json({"callees":[],"contract_epoch":"0.4","processes":[],"schema":"acir-process-state-plan-0.1","value_types":[]})json";
 constexpr llvm::StringLiteral kSpecialization =
-    R"json({"contract_epoch":"0.3","effect":"stateful","inputs":[],"kind":"implementation","payload":{"wake_kind":"next_delta","wake_type":"@acir_wake_next_delta"},"results":["@acir_wake_next_delta"],"role":"wake_next_delta","schema":"acir-generated-implementation-0.1","source_paths":[]})json";
+    R"json({"contract_epoch":"0.4","effect":"stateful","inputs":[],"kind":"implementation","payload":{"wake_kind":"next_delta","wake_type":"@acir_wake_next_delta"},"results":["@acir_wake_next_delta"],"role":"wake_next_delta","schema":"acir-generated-implementation-0.1","source_paths":[]})json";
 constexpr llvm::StringLiteral kDescriptor =
-    R"json({"cpp":"acir::generated::impl_wake_next_delta_28670f81a4b5f79039c0859878e49d133debaaa96ce07fd057110aa5fba8f36c","effect":"stateful","fingerprint":"sha256:28670f81a4b5f79039c0859878e49d133debaaa96ce07fd057110aa5fba8f36c","inputs":[],"kind":"implementation","ordinal":0,"payload":{"wake_kind":"next_delta","wake_type":"@acir_wake_next_delta"},"results":["@acir_wake_next_delta"],"role":"wake_next_delta","source_paths":[],"symbol":"@acir_impl_wake_next_delta_28670f81a4b5f79039c0859878e49d133debaaa96ce07fd057110aa5fba8f36c"})json";
+    R"json({"cpp":"acir::generated::impl_wake_next_delta_043ae4e869cdd2b9059e1696f276b6844179f19aa6a52872ad0ac2d273a4c550","effect":"stateful","fingerprint":"sha256:043ae4e869cdd2b9059e1696f276b6844179f19aa6a52872ad0ac2d273a4c550","inputs":[],"kind":"implementation","ordinal":0,"payload":{"wake_kind":"next_delta","wake_type":"@acir_wake_next_delta"},"results":["@acir_wake_next_delta"],"role":"wake_next_delta","source_paths":[],"symbol":"@acir_impl_wake_next_delta_043ae4e869cdd2b9059e1696f276b6844179f19aa6a52872ad0ac2d273a4c550"})json";
 
 TEST(ProcessStatePlanApiTest, EmptyFrozenModelHasLiteralCanonicalBytes) {
   mlir::DialectRegistry registry;

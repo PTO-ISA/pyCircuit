@@ -3450,3 +3450,71 @@ create a second timing model that competes with pyCircuit 6.
   pyCircuit; retain ACIR and its frontend; use BSD-3-Clause; preserve both
   Python namespaces; migrate existing PRs; test AC and PYC before retiring the
   old private repository.
+
+## Decision 0151: Agentic Circuit epoch 0.4 introduces the provisional state Table
+
+**Status:** Accepted
+
+**Context / Goal**
+Architecture models need a small, typed state array that can be observed and
+updated without disguising it as a request/response memory service. The former
+`ac.table(value, address=..., ...)` spelling was a wrapper over
+`ac.memory.instance` and `ac.memory.request`; it did not provide Table state
+semantics.
+
+**Decision (strong constraint)**
+- Agentic Circuit uses contract epoch `0.4`. Producers emit only `0.4`, and
+  active consumers reject `0.3` and every other epoch. No compatibility mode is
+  retained.
+- `ac.table[entries, Entry](init=0)` declares a one-dimensional Table. `Entry`
+  is a boolean, a fixed-width integer, or a flat struct containing only those
+  scalar fields. Only an all-zero initial image is supported.
+- `Table.view(index)` produces an elaboration-only `EntryView`. A view may be a
+  lexical alias but may not be stored in a Queue, Table, struct, or across a
+  cycle.
+- `EntryView.read(...)` and Queue-driven `Table.view(selector).read(...)`
+  always produce `Queue<Entry>`. A false Queue-driven `when` neither consumes
+  the request nor produces output. A continuously true state-driven `when` may
+  capture one Entry each tick when its output has capacity.
+- Queue-driven `write` and `patch` consume a disabled update without proposing
+  state. Each Table has at most one write-or-patch endpoint. `patch` is frontend
+  sugar and must disappear before Frozen ACIR as `ac.table.get`, ordinary
+  immutable field updates, and `ac.table.write`.
+- Reads observe the old committed Entry when a write is proposed in the same
+  tick. The proposal becomes visible at tick commit. An Entry already captured
+  in an output Queue remains stable under backpressure.
+- Static out-of-range indices are verifier errors. Dynamic out-of-range reads
+  and writes report the stable runtime diagnostic
+  `table_index_out_of_range`.
+- Frozen ACIR defines `ac.table`, `ac.table.get`, `ac.table.read`,
+  `ac.table.write`, and `ac.table.yield`. Table identity, owner visibility,
+  endpoint regions, Entry types, endpoint completeness, and the single-writer
+  rule are verifier obligations.
+- The epoch `0.4` prototype is implemented by QueueGraph and typed gfsim C++.
+  PYC lowering must stop at a stable `unsupported provisional Table`
+  diagnostic. This explicit provisional boundary does not authorize partial
+  semantics in a future PYC implementation.
+- The removed request/response behavior remains available as `ac.memory`.
+  Legacy `ac.table(...)` calls diagnose that migration instead of silently
+  changing meaning.
+
+**Deferred work**
+- PYC/RTL lowering and cross-backend equivalence;
+- `ac.firing` integration and atomic commit across Queue, Table, and Reg;
+- state-driven writes, multiple writers, arbitration, and mutual-exclusion
+  proof;
+- multidimensional shapes, non-zero images, match/select, masked patches, and
+  SRAM inference.
+
+**Verification**
+- Parser/printer/verifier coverage includes scalar and flat-struct Entries,
+  static bounds, region types, visibility, endpoint completeness, and duplicate
+  writers.
+- gfsim coverage includes zero reset, disabled-write consumption, old-data
+  reads, next-tick visibility, repeated state reads, and output backpressure.
+- Frontend and generated-C++ coverage proves the
+  `ACPy -> Frozen ACIR -> QueueGraph -> typed gfsim C++` vertical path and the
+  stable PYC rejection boundary.
+
+**Source**
+- Stateful Table prototype direction (2026-09-01).

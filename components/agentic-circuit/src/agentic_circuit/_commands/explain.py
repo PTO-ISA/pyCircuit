@@ -30,7 +30,7 @@ def run(arguments: object, sink: OutputSink) -> int:
     document = {
         "schema": "agentic-circuit-diagnostic-explanation",
         "version": "0.1",
-        "contract_epoch": "0.3",
+        "contract_epoch": "0.4",
         **matches[0],
     }
     sink.result(document, human=f"{code}: {matches[0]['rule']}")

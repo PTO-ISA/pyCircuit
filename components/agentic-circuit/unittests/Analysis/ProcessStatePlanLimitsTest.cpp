@@ -63,7 +63,7 @@ TEST(ProcessStatePlanLimitsTest, SerializationProducesExpectedContractEpoch) {
   ASSERT_TRUE(mlir::succeeded(plans));
   auto result = serializeProcessStatePlan(*plans);
   ASSERT_TRUE(static_cast<bool>(result));
-  EXPECT_NE(result->find("\"contract_epoch\":\"0.3\""), std::string::npos);
+  EXPECT_NE(result->find("\"contract_epoch\":\"0.4\""), std::string::npos);
   EXPECT_NE(result->find("\"schema\":\"acir-process-state-plan-0.1\""),
             std::string::npos);
 }

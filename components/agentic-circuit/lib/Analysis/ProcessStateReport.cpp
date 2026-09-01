@@ -664,7 +664,7 @@ detail::hashProcessOccurrence(const ProcessOccurrenceId &occurrence) {
 llvm::Expected<std::string> detail::canonicalGeneratedCalleeSpecialization(
     const ProcessGeneratedCalleePlan &callee) {
   Object object;
-  object["contract_epoch"] = "0.3";
+  object["contract_epoch"] = "0.4";
   object["effect"] = spelling(callee.effect());
   object["inputs"] = mapArray(callee.inputTypeKeys(),
                               [](llvm::StringRef key) { return Value(key); });
@@ -686,7 +686,7 @@ detail::canonicalValueTypeSpecialization(const ProcessValueTypePlan &type) {
   descriptor.erase("fingerprint");
   descriptor.erase("ordinal");
   descriptor.erase("symbol");
-  descriptor["contract_epoch"] = "0.3";
+  descriptor["contract_epoch"] = "0.4";
   descriptor["schema"] = "acir-generated-value-type-0.1";
   return bindings::canonicalizeJson(Value(std::move(descriptor)));
 }
@@ -699,7 +699,7 @@ serializeProcessStatePlan(const ProcessStatePlanSet &plans,
   Object report;
   report["callees"] =
       mapArray(plans.callees(), [](const auto &x) { return json(x); });
-  report["contract_epoch"] = "0.3";
+  report["contract_epoch"] = "0.4";
   report["processes"] =
       mapArray(plans.processes(), [](const auto &x) { return json(x); });
   report["schema"] = "acir-process-state-plan-0.1";

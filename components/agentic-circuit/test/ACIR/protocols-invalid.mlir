@@ -62,14 +62,14 @@
 // NEGATIVE-PRIORITY: transition priority must be a non-negative i64 value
 
 //--- no-initial.mlir
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   "ac.protocol"() <{sym_name = "p"}> ({
     "ac.state"() <{sym_name = "s", initial = false, terminal = true}> : () -> ()
   }) : () -> ()
 }
 
 //--- multiple-initial.mlir
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   "ac.protocol"() <{sym_name = "p"}> ({
     "ac.state"() <{sym_name = "a", initial = true, terminal = false}> : () -> ()
     "ac.state"() <{sym_name = "b", initial = true, terminal = false}> : () -> ()
@@ -77,7 +77,7 @@ builtin.module attributes {ac.contract_epoch = "0.3"} {
 }
 
 //--- unresolved-state.mlir
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   "ac.protocol"() <{sym_name = "p"}> ({
     "ac.state"() <{sym_name = "s", initial = true, terminal = true}> : () -> ()
     "ac.event"() <{sym_name = "e", from = @a, to = @b, payload = i8, action = "notify"}> : () -> ()
@@ -88,7 +88,7 @@ builtin.module attributes {ac.contract_epoch = "0.3"} {
 }
 
 //--- unresolved-event.mlir
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   "ac.protocol"() <{sym_name = "p"}> ({
     "ac.state"() <{sym_name = "s", initial = true, terminal = true}> : () -> ()
     "ac.transition"() <{source = @s, target = @s, event = @missing}> ({}) : () -> ()
@@ -96,7 +96,7 @@ builtin.module attributes {ac.contract_epoch = "0.3"} {
 }
 
 //--- ambiguous.mlir
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   "ac.protocol"() <{sym_name = "p"}> ({
     "ac.role"() <{sym_name = "a", dual = @b, cardinality = "exclusive"}> : () -> ()
     "ac.role"() <{sym_name = "b", dual = @a, cardinality = "exclusive"}> : () -> ()
@@ -108,7 +108,7 @@ builtin.module attributes {ac.contract_epoch = "0.3"} {
 }
 
 //--- duplicate-priority.mlir
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   "ac.protocol"() <{sym_name = "p"}> ({
     "ac.role"() <{sym_name = "a", dual = @b, cardinality = "exclusive"}> : () -> ()
     "ac.role"() <{sym_name = "b", dual = @a, cardinality = "exclusive"}> : () -> ()
@@ -120,7 +120,7 @@ builtin.module attributes {ac.contract_epoch = "0.3"} {
 }
 
 //--- impure-guard.mlir
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   "ac.protocol"() <{sym_name = "p"}> ({
     "ac.role"() <{sym_name = "a", dual = @b, cardinality = "exclusive"}> : () -> ()
     "ac.role"() <{sym_name = "b", dual = @a, cardinality = "exclusive"}> : () -> ()
@@ -133,7 +133,7 @@ builtin.module attributes {ac.contract_epoch = "0.3"} {
 }
 
 //--- bad-backpressure.mlir
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   "ac.protocol"() <{sym_name = "p"}> ({
     "ac.state"() <{sym_name = "s", initial = true, terminal = true}> : () -> ()
     "ac.guarantee"() <{kind = "backpressure", value = "stall"}> : () -> ()
@@ -141,7 +141,7 @@ builtin.module attributes {ac.contract_epoch = "0.3"} {
 }
 
 //--- bad-ordering.mlir
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   "ac.protocol"() <{sym_name = "p"}> ({
     "ac.state"() <{sym_name = "s", initial = true, terminal = true}> : () -> ()
     "ac.guarantee"() <{kind = "ordering", value = "global"}> : () -> ()
@@ -149,7 +149,7 @@ builtin.module attributes {ac.contract_epoch = "0.3"} {
 }
 
 //--- bad-delivery.mlir
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   "ac.protocol"() <{sym_name = "p"}> ({
     "ac.state"() <{sym_name = "s", initial = true, terminal = true}> : () -> ()
     "ac.guarantee"() <{kind = "delivery", value = "maybe"}> : () -> ()
@@ -157,7 +157,7 @@ builtin.module attributes {ac.contract_epoch = "0.3"} {
 }
 
 //--- bad-completion.mlir
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   "ac.protocol"() <{sym_name = "p"}> ({
     "ac.state"() <{sym_name = "s", initial = true, terminal = true}> : () -> ()
     "ac.guarantee"() <{kind = "completion", value = "eventually"}> : () -> ()
@@ -165,7 +165,7 @@ builtin.module attributes {ac.contract_epoch = "0.3"} {
 }
 
 //--- unknown-guarantee.mlir
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   "ac.protocol"() <{sym_name = "p"}> ({
     "ac.state"() <{sym_name = "s", initial = true, terminal = true}> : () -> ()
     "ac.guarantee"() <{kind = "magic", value = "unknown"}> : () -> ()
@@ -173,7 +173,7 @@ builtin.module attributes {ac.contract_epoch = "0.3"} {
 }
 
 //--- unstable-pending.mlir
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   "ac.protocol"() <{sym_name = "p"}> ({
     "ac.role"() <{sym_name = "a", dual = @b, cardinality = "exclusive"}> : () -> ()
     "ac.role"() <{sym_name = "b", dual = @a, cardinality = "exclusive"}> : () -> ()
@@ -184,7 +184,7 @@ builtin.module attributes {ac.contract_epoch = "0.3"} {
 }
 
 //--- bad-max-inflight.mlir
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   "ac.protocol"() <{sym_name = "p"}> ({
     "ac.state"() <{sym_name = "s", initial = true, terminal = true}> : () -> ()
     "ac.guarantee"() <{kind = "max_inflight", value = 0 : i64}> : () -> ()
@@ -192,7 +192,7 @@ builtin.module attributes {ac.contract_epoch = "0.3"} {
 }
 
 //--- correlation.mlir
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   "ac.protocol"() <{sym_name = "p"}> ({
     "ac.state"() <{sym_name = "s", initial = true, terminal = true}> : () -> ()
     "ac.guarantee"() <{kind = "max_inflight", value = 2 : i64}> : () -> ()
@@ -200,7 +200,7 @@ builtin.module attributes {ac.contract_epoch = "0.3"} {
 }
 
 //--- lost-offer.mlir
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   "ac.protocol"() <{sym_name = "p"}> ({
     "ac.role"() <{sym_name = "a", dual = @b, cardinality = "exclusive"}> : () -> ()
     "ac.role"() <{sym_name = "b", dual = @a, cardinality = "exclusive"}> : () -> ()
@@ -211,7 +211,7 @@ builtin.module attributes {ac.contract_epoch = "0.3"} {
 }
 
 //--- duplicate-state.mlir
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   "ac.protocol"() <{sym_name = "p"}> ({
     "ac.state"() <{sym_name = "s", initial = true, terminal = false}> : () -> ()
     "ac.state"() <{sym_name = "s", initial = false, terminal = true}> : () -> ()
@@ -219,7 +219,7 @@ builtin.module attributes {ac.contract_epoch = "0.3"} {
 }
 
 //--- duplicate-event.mlir
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   "ac.protocol"() <{sym_name = "p"}> ({
     "ac.role"() <{sym_name = "a", dual = @b, cardinality = "exclusive"}> : () -> ()
     "ac.role"() <{sym_name = "b", dual = @a, cardinality = "exclusive"}> : () -> ()
@@ -230,7 +230,7 @@ builtin.module attributes {ac.contract_epoch = "0.3"} {
 }
 
 //--- event-role.mlir
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   "ac.protocol"() <{sym_name = "p"}> ({
     "ac.role"() <{sym_name = "a", dual = @b, cardinality = "exclusive"}> : () -> ()
     "ac.role"() <{sym_name = "b", dual = @a, cardinality = "exclusive"}> : () -> ()
@@ -240,7 +240,7 @@ builtin.module attributes {ac.contract_epoch = "0.3"} {
 }
 
 //--- event-payload.mlir
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   "ac.protocol"() <{sym_name = "p"}> ({
     "ac.role"() <{sym_name = "a", dual = @b, cardinality = "exclusive"}> : () -> ()
     "ac.role"() <{sym_name = "b", dual = @a, cardinality = "exclusive"}> : () -> ()
@@ -250,7 +250,7 @@ builtin.module attributes {ac.contract_epoch = "0.3"} {
 }
 
 //--- event-action.mlir
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   "ac.protocol"() <{sym_name = "p"}> ({
     "ac.role"() <{sym_name = "a", dual = @b, cardinality = "exclusive"}> : () -> ()
     "ac.role"() <{sym_name = "b", dual = @a, cardinality = "exclusive"}> : () -> ()
@@ -260,7 +260,7 @@ builtin.module attributes {ac.contract_epoch = "0.3"} {
 }
 
 //--- duplicate-guarantee.mlir
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   "ac.protocol"() <{sym_name = "p"}> ({
     "ac.state"() <{sym_name = "s", initial = true, terminal = true}> : () -> ()
     "ac.guarantee"() <{kind = "ordering", value = "fifo"}> : () -> ()
@@ -269,7 +269,7 @@ builtin.module attributes {ac.contract_epoch = "0.3"} {
 }
 
 //--- retained-no-resolution.mlir
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   "ac.protocol"() <{sym_name = "p"}> ({
     "ac.role"() <{sym_name = "a", dual = @b, cardinality = "exclusive"}> : () -> ()
     "ac.role"() <{sym_name = "b", dual = @a, cardinality = "exclusive"}> : () -> ()
@@ -282,7 +282,7 @@ builtin.module attributes {ac.contract_epoch = "0.3"} {
 }
 
 //--- bad-correlation.mlir
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   "ac.protocol"() <{sym_name = "p"}> ({
     "ac.state"() <{sym_name = "s", initial = true, terminal = true}> : () -> ()
     "ac.guarantee"() <{kind = "correlation", value = ""}> : () -> ()
@@ -290,7 +290,7 @@ builtin.module attributes {ac.contract_epoch = "0.3"} {
 }
 
 //--- missing-correlation-field.mlir
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   "ac.type_scope"() <{sym_name = "types"}> ({
     "ac.transaction"() <{sym_name = "T", fields = [{name = "tag", type = i8}]}> : () -> ()
   }) : () -> ()
@@ -305,7 +305,7 @@ builtin.module attributes {ac.contract_epoch = "0.3"} {
 }
 
 //--- custom-missing-contract.mlir
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   "ac.protocol"() <{sym_name = "p"}> ({
     "ac.state"() <{sym_name = "s", initial = true, terminal = true}> : () -> ()
     "ac.guarantee"() <{kind = "backpressure", value = "custom"}> : () -> ()
@@ -313,7 +313,7 @@ builtin.module attributes {ac.contract_epoch = "0.3"} {
 }
 
 //--- per-key-no-correlation.mlir
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   "ac.protocol"() <{sym_name = "p"}> ({
     "ac.state"() <{sym_name = "s", initial = true, terminal = true}> : () -> ()
     "ac.guarantee"() <{kind = "ordering", value = "per_key"}> : () -> ()
@@ -321,7 +321,7 @@ builtin.module attributes {ac.contract_epoch = "0.3"} {
 }
 
 //--- terminal-completion.mlir
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   "ac.protocol"() <{sym_name = "p"}> ({
     "ac.state"() <{sym_name = "s", initial = true, terminal = false}> : () -> ()
     "ac.guarantee"() <{kind = "completion", value = "on_terminal_phase"}> : () -> ()
@@ -329,7 +329,7 @@ builtin.module attributes {ac.contract_epoch = "0.3"} {
 }
 
 //--- unresolved-target.mlir
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   "ac.protocol"() <{sym_name = "p"}> ({
     "ac.role"() <{sym_name = "a", dual = @b, cardinality = "exclusive"}> : () -> ()
     "ac.role"() <{sym_name = "b", dual = @a, cardinality = "exclusive"}> : () -> ()
@@ -340,7 +340,7 @@ builtin.module attributes {ac.contract_epoch = "0.3"} {
 }
 
 //--- negative-priority.mlir
-builtin.module attributes {ac.contract_epoch = "0.3"} {
+builtin.module attributes {ac.contract_epoch = "0.4"} {
   "ac.protocol"() <{sym_name = "p"}> ({
     "ac.role"() <{sym_name = "a", dual = @b, cardinality = "exclusive"}> : () -> ()
     "ac.role"() <{sym_name = "b", dual = @a, cardinality = "exclusive"}> : () -> ()

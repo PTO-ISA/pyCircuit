@@ -1,7 +1,7 @@
 {
   "schema_kind": "agentic-circuit-component",
   "schema_version": "0.1",
-  "contract_epoch": "0.3",
+  "contract_epoch": "0.4",
   "canonical_name": "ac.Barrier",
   "family": "synchronization",
   "provider_namespace": "ac",
@@ -123,5 +123,5 @@
     "gauges": [],
     "histograms": []
   },
-  "schema_fingerprint": "sha256:a8b0478453025d638045b7a889416aab17a82d32b352019ce60dd5816e2d5ca6"
+  "schema_fingerprint": "sha256:70d1ccb052c0b2caf239420935b4083131be056924869fc690b9af9387ab99af"
 }

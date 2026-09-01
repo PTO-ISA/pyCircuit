@@ -296,7 +296,7 @@ def component_record(name, family, shape, header):
     record = {
         "schema_kind": "agentic-circuit-component",
         "schema_version": "0.1",
-        "contract_epoch": "0.3",
+        "contract_epoch": "0.4",
         "canonical_name": f"ac.{name}",
         "family": family,
         "provider_namespace": "ac",
@@ -372,7 +372,7 @@ def rendered_files():
     catalog = {
         "catalog": "ac",
         "version": "0.1",
-        "contract_epoch": "0.3",
+        "contract_epoch": "0.4",
         "entries": catalog_entries,
     }
     records[OUTPUT / "catalog.json"] = (

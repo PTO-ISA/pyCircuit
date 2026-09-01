@@ -39,7 +39,7 @@
     "component_schema": {"$ref": "#/$defs/identity"},
     "component_schema_fingerprint": {"$ref": "#/$defs/sha256"},
     "construction": {"$ref": "#/$defs/construction"},
-    "contract_epoch": {"const": "0.3"},
+    "contract_epoch": {"const": "0.4"},
     "cpp": {"$ref": "#/$defs/cpp"},
     "cpp_type": {"$ref": "#/$defs/identity"},
     "effect": {"enum": ["pure", "stateful"]},
