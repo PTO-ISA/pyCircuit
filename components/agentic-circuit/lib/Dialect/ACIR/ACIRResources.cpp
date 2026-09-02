@@ -347,6 +347,12 @@ void TableWriteOp::getEffects(
                          QueueStateResource::get());
 }
 
+void TableMaskedWriteOp::getEffects(
+    SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
+  effects.emplace_back(MemoryEffects::Write::get(),
+                       StorageStateResource::get());
+}
+
 void TableMatchOp::getEffects(
     SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
   effects.emplace_back(MemoryEffects::Read::get(), StorageStateResource::get());

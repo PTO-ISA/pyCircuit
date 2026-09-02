@@ -753,6 +753,33 @@
       ]
     },
     {
+      "name": "table_masked_write",
+      "operation": "ac.table.masked_write",
+      "lowers_to": "ac.table.masked_write",
+      "category": "storage",
+      "lambda_regions": 2,
+      "ports": [],
+      "parameters": [],
+      "providers": {
+        "cpp": {
+          "available": true,
+          "header": "gfsim/queue_blocks.h",
+          "symbol": "gfsim::TableMaskedWriteSource",
+          "optimized": true
+        },
+        "verilog": {
+          "available": false,
+          "realization": "unsupported_provisional_table",
+          "optimized": false
+        }
+      },
+      "refinement_observations": [
+        "candidate_mask",
+        "write_proposals",
+        "committed_entries"
+      ]
+    },
+    {
       "name": "table_read",
       "operation": "ac.table.read",
       "lowers_to": "ac.table.read",

@@ -7,7 +7,7 @@
 acir_contract_epoch: 0.4
 acsim_contract_epoch: 0.4
 
-## acir operations (109)
+## acir operations (110)
 
 | operation | source symbol | positive coverage | negative coverage |
 | --- | --- | --- | --- |
@@ -85,6 +85,7 @@ acsim_contract_epoch: 0.4
 | ac.table.choose.yield | ACIR_TableChooseYieldOp | test/ACIR/table.mlir | test/ACIR/table-invalid.mlir |
 | ac.table.read | ACIR_TableReadOp | test/ACIR/table.mlir | test/ACIR/table-invalid.mlir |
 | ac.table.write | ACIR_TableWriteOp | test/ACIR/table.mlir | test/ACIR/table-invalid.mlir |
+| ac.table.masked_write | ACIR_TableMaskedWriteOp | test/ACIR/table.mlir | test/ACIR/table-invalid.mlir |
 | ac.table.yield | ACIR_TableYieldOp | test/ACIR/table.mlir | test/ACIR/table-invalid.mlir |
 | ac.slot | ACIR_SlotOp | test/ACIR/table.mlir | test/ACIR/table-invalid.mlir |
 | ac.slot.get | ACIR_SlotGetOp | test/ACIR/table.mlir | test/ACIR/table-invalid.mlir |

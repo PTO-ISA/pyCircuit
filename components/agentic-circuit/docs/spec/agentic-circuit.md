@@ -484,6 +484,13 @@ responses = table.view(lambda request: request.index).read(
     depth=1,
     latency=1,
 )
+
+pending = table.match(lambda entry: not entry.valid)
+table.view(pending).patch(
+    enable=request_slot.valid,
+    valid=True,
+    age=lambda entry: entry.age + 1,
+)
 ```
 
 `Entry` is a boolean, a fixed-width integer, or a flat struct of those scalar
@@ -494,12 +501,22 @@ its input without proposing state. Same-tick reads observe old committed data,
 and a write becomes visible at tick commit. Dynamic bounds failures use
 `table_index_out_of_range`.
 
+`Table.view(candidates)` accepts a same-Table `CandidateSet` from `match` for a
+state-driven masked update. Masked `write` assigns one uniform complete value;
+masked `patch` assigns uniform fields or evaluates a pure `lambda entry` from
+each selected old Entry. A false enable does not evaluate the mask or value,
+an empty mask is a no-op, and all selected Entries commit atomically. The
+masked endpoint and scalar endpoint share the one-writer limit.
+
 `EntryView` is elaboration-only. `patch` lowers before Frozen ACIR to
-`ac.table.get`, immutable `ac.var.with` updates, and `ac.table.write`; there is
-no `ac.table.patch` operation. Table is a typed gfsim C++ prototype. PYC/RTL
+`ac.table.get`, immutable `ac.var.with` updates, and `ac.table.write` or
+`ac.table.masked_write`; there is no `ac.table.patch` operation. Table is a
+typed gfsim C++ prototype. PYC/RTL
 lowering is deferred and rejects the graph with `unsupported provisional
 Table`. Request/response storage remains `ac.memory`; legacy `ac.table(...)`
-has been removed.
+has been removed. Executable examples include
+[`table_scoreboard.py`](../../examples/state/table_scoreboard.py) and
+[`table_masked_update.py`](../../examples/state/table_masked_update.py).
 
 ### Reorder
 
@@ -812,6 +829,7 @@ realization; Table entries explicitly declare their gfsim-only boundary.
 | `ac.table` | design | state owner | Entry type, `entries`, `init`, owner, stable identity | committed zero-initialized state image; gfsim-only prototype |
 | `ac.table.read` | design | optional request to one | Table identity, `depth`, `latency` | state- or Queue-driven old-data capture |
 | `ac.table.write` | design | optional update to none | Table identity | Queue-driven consumption or state-driven commit proposal |
+| `ac.table.masked_write` | design | committed mask to none | Table identity | atomic state-driven update of every Entry selected by a same-Table match |
 | `ac.table.match` / `ac.table.choose` | design | committed state to Vars | Table identity, `count=1`, `policy` | 1..64-entry candidate mask and deterministic first/min/max selection |
 | `ac.slot` | design | one to none | owner, stable identity | one committed request with backpressure, retained payload, and explicit release |
 | `ac.dependency` | design | one to one | `capacity`, `resources`, `no_dependency`, `depth`, `latency` | bounded predecessor tracking, resource reservation, and execution countdown |
@@ -1089,6 +1107,9 @@ state-driven read may capture once per tick while `when` is true and the output
 has capacity. The sole writer consumes a disabled token without a proposal;
 an enabled token proposes one value and commits it at Xfer. An output Queue
 owns its captured Entry, so later writes cannot change a backpressured output.
+For a masked endpoint, enable is evaluated first; when enabled, the match mask
+and every selected value are evaluated from the old committed image. The whole
+set is staged before one transfer commits it. A zero mask transfers as a no-op.
 
 ## Typed gfsim C++ lowering
 

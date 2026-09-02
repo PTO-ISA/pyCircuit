@@ -1475,6 +1475,12 @@ LogicalResult TableOp::verify() {
         ++writers;
       }
     }
+    if (auto write = dyn_cast<TableMaskedWriteOp>(operation)) {
+      if (resolveTable(write, write.getTableAttr()) == *this) {
+        ++endpoints;
+        ++writers;
+      }
+    }
     if (auto match = dyn_cast<TableMatchOp>(operation))
       if (resolveTable(match, match.getTableAttr()) == *this)
         ++endpoints;
@@ -1524,6 +1530,8 @@ static FailureOr<Type> verifyTablePolicy(Operation *endpoint, Region &region,
         endpointTable = read.getTableAttr();
       else if (auto write = dyn_cast<TableWriteOp>(endpoint))
         endpointTable = write.getTableAttr();
+      else if (auto write = dyn_cast<TableMaskedWriteOp>(endpoint))
+        endpointTable = write.getTableAttr();
       if (match.getTableAttr() != endpointTable) {
         endpoint->emitOpError() << name << " match belongs to another Table";
         return failure();
@@ -1535,6 +1543,8 @@ static FailureOr<Type> verifyTablePolicy(Operation *endpoint, Region &region,
       if (auto read = dyn_cast<TableReadOp>(endpoint))
         endpointTable = read.getTableAttr();
       else if (auto write = dyn_cast<TableWriteOp>(endpoint))
+        endpointTable = write.getTableAttr();
+      else if (auto write = dyn_cast<TableMaskedWriteOp>(endpoint))
         endpointTable = write.getTableAttr();
       if (choose.getTableAttr() != endpointTable) {
         endpoint->emitOpError()
@@ -1549,6 +1559,8 @@ static FailureOr<Type> verifyTablePolicy(Operation *endpoint, Region &region,
         if (auto read = dyn_cast<TableReadOp>(endpoint))
           endpointTable = read.getTableAttr();
         else if (auto write = dyn_cast<TableWriteOp>(endpoint))
+          endpointTable = write.getTableAttr();
+        else if (auto write = dyn_cast<TableMaskedWriteOp>(endpoint))
           endpointTable = write.getTableAttr();
         if (get.getTableAttr() != endpointTable) {
           endpoint->emitOpError()
@@ -1627,6 +1639,34 @@ LogicalResult TableWriteOp::verify() {
   if (failed(verifyTableIndex(
           *this, table,
           cast<TableYieldOp>(getAddress().front().getTerminator()).getValue())))
+    return failure();
+  if (!enable->isInteger(1))
+    return emitOpError("enable must yield !ac.var<i1>");
+  if (*value != table.getEntryType())
+    return emitOpError("value must yield the table entry type");
+  return success();
+}
+
+LogicalResult TableMaskedWriteOp::verify() {
+  TableOp table = resolveTable(*this, getTableAttr());
+  if (!table)
+    return emitOpError() << "unresolved table " << getTable();
+  if (!tableVisibleFrom(*this, table))
+    return emitOpError("table is outside the write scope ancestry");
+  if (table.getEntries() == 0 || table.getEntries() > 64)
+    return emitOpError("masked write domain must contain 1..64 entries");
+  auto maskType = dyn_cast<IntegerType>(
+      cast<VarType>(getMask().getType()).getElementType());
+  if (!maskType || maskType.getWidth() != table.getEntries())
+    return emitOpError("mask width must equal the Table entry count");
+  auto match = getMask().getDefiningOp<TableMatchOp>();
+  if (!match || resolveTable(match, match.getTableAttr()) != table)
+    return emitOpError("mask must be produced by match on the same Table");
+  auto enable = verifyTablePolicy(*this, getEnable(), "enable", Type(), false);
+  Type entryArgument = VarType::get(getContext(), table.getEntryType());
+  auto value =
+      verifyTablePolicy(*this, getValue(), "value", entryArgument, true);
+  if (failed(enable) || failed(value))
     return failure();
   if (!enable->isInteger(1))
     return emitOpError("enable must yield !ac.var<i1>");

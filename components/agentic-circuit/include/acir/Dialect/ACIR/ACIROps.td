@@ -457,6 +457,19 @@ def ACIR_TableWriteOp : ACIR_Op<"table.write", [
   }];
 }
 
+def ACIR_TableMaskedWriteOp : ACIR_Op<"table.masked_write", [
+    SingleBlock, DeclareOpInterfaceMethods<MemoryEffectsOpInterface>
+  ]> {
+  let arguments = (ins FlatSymbolRefAttr:$table, ACIR_VarType:$mask);
+  let regions = (region SizedRegion<1>:$enable,
+                        SizedRegion<1>:$value);
+  let hasVerifier = 1;
+  let assemblyFormat = [{
+    $table $mask `:` qualified(type($mask))
+    `enable` $enable `value` $value attr-dict
+  }];
+}
+
 def ACIR_TableYieldOp : ACIR_Op<"table.yield", [Pure, Terminator]> {
   let arguments = (ins ACIR_VarType:$value);
   let assemblyFormat = "$value attr-dict `:` qualified(type($value))";

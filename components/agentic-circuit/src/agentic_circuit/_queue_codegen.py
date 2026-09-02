@@ -58,6 +58,29 @@ class _CppExpression:
             return "item"
         if isinstance(node, ast.Name) and node.id in self.state_names:
             return self.state_names[node.id]
+        if isinstance(node, ast.Name) and node.id in self.candidates:
+            candidate = self.candidates[node.id]
+            table = self.table_names.get(candidate.table)
+            entries = self.table_entries.get(candidate.table)
+            if table is None or entries is None:
+                raise QueueFrontendError(
+                    "ACLOWER-OWNERSHIP: CandidateSet Table is unavailable to policy"
+                )
+            predicate = _CppExpression(
+                candidate.argument,
+                self.state_names,
+                candidates=self.candidates,
+                selections=self.selections,
+                table_entries=self.table_entries,
+                table_names=self.table_names,
+            ).emit(candidate.predicate)
+            return (
+                "([&]() { std::uint64_t mask = 0; "
+                f"for (std::size_t index = 0; index < {entries}; ++index) {{ "
+                f"const auto &item = {table}->at(index); "
+                f"if ({predicate}) mask |= (std::uint64_t{{1}} << index); "
+                "} return mask; }())"
+            )
         if isinstance(node, ast.Constant) and type(node.value) in {int, bool}:
             if node.value is True:
                 return "true"
@@ -250,6 +273,7 @@ class _ObjectIds:
     tables: tuple[int, ...]
     table_reads: tuple[int, ...]
     table_writes: tuple[int, ...]
+    masked_table_writes: tuple[int, ...]
     slots: tuple[int, ...]
     sinks: tuple[int, ...]
 
@@ -393,6 +417,10 @@ def _object_ids(program: QueueProgram, fanouts: tuple[_Fanout, ...]) -> _ObjectI
     next_id += len(table_reads)
     table_writes = tuple(range(next_id, next_id + len(program.table_writes)))
     next_id += len(table_writes)
+    masked_table_writes = tuple(
+        range(next_id, next_id + len(program.masked_table_writes))
+    )
+    next_id += len(masked_table_writes)
     slots = tuple(range(next_id, next_id + len(program.slots)))
     next_id += len(slots)
     sinks = tuple(range(next_id, next_id + len(program.sinks)))
@@ -415,6 +443,7 @@ def _object_ids(program: QueueProgram, fanouts: tuple[_Fanout, ...]) -> _ObjectI
         tables,
         table_reads,
         table_writes,
+        masked_table_writes,
         slots,
         sinks,
     )
@@ -863,6 +892,57 @@ def lower_queue_program_to_cpp(program: QueueProgram) -> str:
             lines.append("    return result;")
         lines.extend(("  }", "};", ""))
 
+    for index, write in enumerate(program.masked_table_writes):
+        table = tables_by_name[write.table]
+        entry = _cpp_type(table.entry_type)
+        expression_context = dict(
+            candidates=candidates_by_name,
+            selections=selections_by_name,
+            table_entries=table_entries,
+            table_names={write.table: "table"},
+        )
+        mask = _CppExpression(
+            "", state_names, **expression_context
+        ).emit(ast.Name(id=write.candidates, ctx=ast.Load()))
+        enable = _CppExpression(
+            "", state_names, **expression_context
+        ).emit(write.enable)
+        lines.extend(
+            (
+                f"struct table_masked_write_{index}_mask_policy {{",
+                f"  gfsim::SimTable<{entry}> *table{{}};",
+                *slot_policy_members,
+                "  std::uint64_t operator()() const {",
+                f"    return static_cast<std::uint64_t>({mask});",
+                "  }",
+                "};",
+                "",
+                f"struct table_masked_write_{index}_enable_policy {{",
+                f"  gfsim::SimTable<{entry}> *table{{}};",
+                *slot_policy_members,
+                "  bool operator()() const {",
+                f"    return static_cast<bool>({enable});",
+                "  }",
+                "};",
+                "",
+                f"struct table_masked_write_{index}_value_policy {{",
+                f"  gfsim::SimTable<{entry}> *table{{}};",
+                *slot_policy_members,
+                f"  {entry} operator()(const {entry} &item) const {{",
+            )
+        )
+        expression = _CppExpression(
+            "__old", state_names, **expression_context
+        )
+        if write.value is not None:
+            lines.append(f"    return {expression.emit(write.value)};")
+        else:
+            lines.append("    auto result = item;")
+            for field, value in write.patch_fields:
+                lines.append(f"    result.{field} = {expression.emit(value)};")
+            lines.append("    return result;")
+        lines.extend(("  }", "};", ""))
+
     for index, release in enumerate(program.slot_releases):
         slot = slots_by_name[release.slot]
         payload = _cpp_type(slot.payload)
@@ -1031,6 +1111,20 @@ def lower_queue_program_to_cpp(program: QueueProgram) -> str:
             f"table_write_{index}_enable_policy{address_init}, "
             f"table_write_{index}_value_policy{{{value_arguments}}})"
         )
+    for index, write in enumerate(program.masked_table_writes):
+        table_index = table_indices[write.table]
+        policy_arguments = f"&table_{table_index}_"
+        if slot_policy_arguments:
+            policy_arguments += f", {slot_policy_arguments}"
+        policy_init = "{" + policy_arguments + "}"
+        initializers.append(
+            f'table_masked_write_{index}_block_("table_masked_write_{index}", '
+            f"{ids.masked_table_writes[index]}, {module_ptr(write.scope)}, "
+            f"table_{table_index}_, "
+            f"table_masked_write_{index}_mask_policy{policy_init}, "
+            f"table_masked_write_{index}_enable_policy{policy_init}, "
+            f"table_masked_write_{index}_value_policy{policy_init})"
+        )
     for index, read in enumerate(program.table_reads):
         table_index = table_indices[read.table]
         if read.input_name is None:
@@ -1159,6 +1253,8 @@ def lower_queue_program_to_cpp(program: QueueProgram) -> str:
         lines.append(attach(slot.scope, f"slot_{index}_block_"))
     for index, write in enumerate(program.table_writes):
         lines.append(attach(write.scope, f"table_write_{index}_block_"))
+    for index, write in enumerate(program.masked_table_writes):
+        lines.append(attach(write.scope, f"table_masked_write_{index}_block_"))
     for index, read in enumerate(program.table_reads):
         lines.append(attach(read.scope, f"table_read_{index}_block_"))
     for index, _ in enumerate(fanouts):
@@ -1212,6 +1308,7 @@ def lower_queue_program_to_cpp(program: QueueProgram) -> str:
         + len(ids.tables)
         + len(ids.table_reads)
         + len(ids.table_writes)
+        + len(ids.masked_table_writes)
         + len(ids.slots)
         + len(ids.sinks)
     )
@@ -1261,6 +1358,10 @@ def lower_queue_program_to_cpp(program: QueueProgram) -> str:
         rows.append(f"gfsim::makeDispatchRow(&slot_{index}_block_)")
     for index, _ in enumerate(program.table_writes):
         rows.append(f"gfsim::makeDispatchRow(&table_write_{index}_block_)")
+    for index, _ in enumerate(program.masked_table_writes):
+        rows.append(
+            f"gfsim::makeDispatchRow(&table_masked_write_{index}_block_)"
+        )
     for index, _ in enumerate(program.table_reads):
         rows.append(f"gfsim::makeDispatchRow(&table_read_{index}_block_)")
     for index, _ in enumerate(program.sinks):
@@ -1379,6 +1480,16 @@ def lower_queue_program_to_cpp(program: QueueProgram) -> str:
             f"  {provider}table_write_{index}_address_policy, "
             f"table_write_{index}_enable_policy, table_write_{index}_value_policy> "
             f"table_write_{index}_block_;"
+        )
+    for index, write in enumerate(program.masked_table_writes):
+        table = tables_by_name[write.table]
+        entry = _cpp_type(table.entry_type)
+        lines.append(
+            f"  gfsim::TableMaskedWriteSource<{entry}, "
+            f"table_masked_write_{index}_mask_policy, "
+            f"table_masked_write_{index}_enable_policy, "
+            f"table_masked_write_{index}_value_policy> "
+            f"table_masked_write_{index}_block_;"
         )
     for index, read in enumerate(program.table_reads):
         table = tables_by_name[read.table]

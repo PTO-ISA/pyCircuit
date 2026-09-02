@@ -407,6 +407,8 @@ private:
              slot.getOwner().str()});
         continue;
       }
+      if (mlir::isa<ac::TableMatchOp, ac::TableChooseOp>(operation))
+        continue;
       if (auto source = mlir::dyn_cast<ac::SourceOp>(operation)) {
         std::vector<std::string> outputs;
         if (auto error = addOutputs(
@@ -764,6 +766,43 @@ private:
         plan.blocks.push_back(std::move(blockPlan));
         continue;
       }
+      if (auto write = mlir::dyn_cast<ac::TableMaskedWriteOp>(operation)) {
+        auto name = write->getAttrOfType<mlir::StringAttr>("ac.name");
+        if (!name || name.getValue().empty())
+          return planError("table.masked_write requires frozen ac.name");
+        QueueBlockPlan blockPlan{"table_masked_write",
+                                 name.getValue().str(),
+                                 scopePath(scope),
+                                 {},
+                                 {}};
+        blockPlan.table = write.getTable().str();
+        auto match = write.getMask().getDefiningOp<ac::TableMatchOp>();
+        if (!match)
+          return planError("masked table write requires a match mask");
+        QueueBlockPlan nested;
+        if (auto error = extractExpressions(match.getPredicate(), nested))
+          return error;
+        auto maskType = mlir::cast<ac::VarType>(match.getMask().getType());
+        QueueExpressionPlan maskExpression{
+            "v0", "table_match", printType(maskType.getElementType()), {}};
+        maskExpression.table = match.getTable().str();
+        maskExpression.nestedExpressions = std::move(nested.expressions);
+        maskExpression.nestedYields = std::move(nested.yields);
+        blockPlan.expressions.push_back(std::move(maskExpression));
+        std::vector<std::string> policyYields{"v0"};
+        for (mlir::Region *policy : {&write.getEnable(), &write.getValue()}) {
+          if (auto error = extractExpressions(*policy, blockPlan))
+            return error;
+          if (blockPlan.yields.size() != 1)
+            return planError("masked table write policy must yield one value");
+          policyYields.push_back(blockPlan.yields.front());
+        }
+        blockPlan.yields = std::move(policyYields);
+        plan.tableMaskedWrites.push_back(
+            {blockPlan.table, blockPlan.name, blockPlan.scope});
+        plan.blocks.push_back(std::move(blockPlan));
+        continue;
+      }
       if (auto release = mlir::dyn_cast<ac::SlotReleaseOp>(operation)) {
         auto slot = llvm::find_if(plan.slots, [&](const SlotPlan &candidate) {
           return candidate.name == release.getSlot();
@@ -961,6 +1000,12 @@ llvm::Error verifyQueueGraphPlan(const QueueGraphPlan &plan) {
     if (++tableWriters[write.table] > 1)
       return planError("table permits at most one write endpoint");
   }
+  for (const TableMaskedWritePlan &write : plan.tableMaskedWrites) {
+    if (!tables.contains(write.table) || write.name.empty())
+      return planError("masked table write endpoint metadata is incomplete");
+    if (++tableWriters[write.table] > 1)
+      return planError("table permits at most one write endpoint");
+  }
   for (const auto &entry : tables)
     if (tableReaders[entry.getKey()] + tableWriters[entry.getKey()] == 0)
       return planError("table '" + entry.getKey() + "' has no endpoints");
@@ -988,7 +1033,8 @@ llvm::Error verifyQueueGraphPlan(const QueueGraphPlan &plan) {
     if (block.kind == "memory_request" &&
         !memoryInstances.contains(block.memoryInstance))
       return planError("memory request block references unknown instance");
-    if ((block.kind == "table_read" || block.kind == "table_write") &&
+    if ((block.kind == "table_read" || block.kind == "table_write" ||
+         block.kind == "table_masked_write") &&
         !tables.contains(block.table))
       return planError("table endpoint block references unknown table");
     if (block.kind == "slot" && !slotNames.contains(block.slot))
@@ -1185,6 +1231,10 @@ llvm::Expected<std::string> QueueGraphPlan::canonicalJson() const {
                                                   {"name", write.name},
                                                   {"scope", write.scope},
                                                   {"table", write.table}});
+  llvm::json::Array tableMaskedWriteValues;
+  for (const TableMaskedWritePlan &write : tableMaskedWrites)
+    tableMaskedWriteValues.push_back(llvm::json::Object{
+        {"name", write.name}, {"scope", write.scope}, {"table", write.table}});
   llvm::json::Array slotValues;
   for (const SlotPlan &slot : slots)
     slotValues.push_back(llvm::json::Object{{"input", slot.input},
@@ -1207,6 +1257,7 @@ llvm::Expected<std::string> QueueGraphPlan::canonicalJson() const {
                              ? llvm::json::Value(nullptr)
                              : llvm::json::Value(specializationFingerprint)},
       {"table_reads", std::move(tableReadValues)},
+      {"table_masked_writes", std::move(tableMaskedWriteValues)},
       {"table_writes", std::move(tableWriteValues)},
       {"tables", std::move(tableValues)},
       {"system", system},

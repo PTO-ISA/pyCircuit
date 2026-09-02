@@ -83,6 +83,7 @@ operations:
   - ac.table.choose.yield
   - ac.table.read
   - ac.table.write
+  - ac.table.masked_write
   - ac.table.yield
   - ac.slot
   - ac.slot.get

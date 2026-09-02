@@ -3583,3 +3583,64 @@ global contract epoch or claiming a PYC/RTL realization.
 
 **Source**
 - Agentic Circuit Table prototype extension direction (2026-09-02).
+
+## Decision 0153: epoch 0.4 Table supports uniform masked state updates
+
+**Status:** Accepted
+
+**Context / Goal**
+Issue tables and scoreboards commonly update every committed Entry selected by
+one `match` result. Repeating scalar endpoints cannot express that operation
+under the single-writer contract, and assigning source-order priority would
+make simultaneous updates ambiguous. The prototype therefore needs one
+explicit, atomic masked endpoint while retaining the existing scalar-index
+surface.
+
+**Decision (strong constraint)**
+- `Table.view(candidates)` accepts a `CandidateSet` produced by `match` on the
+  same Table. The masked view is elaboration-only and uses the existing
+  1-through-64-entry match domain. Integer indices continue to produce the
+  existing scalar `EntryView` with unchanged read/write/patch semantics.
+- `MaskedEntryView.write(value=..., enable=...)` is state-driven and writes the
+  same complete Entry value to every selected index. The value is a uniform
+  committed-state expression; a per-Entry write lambda is not supported.
+- `MaskedEntryView.patch(enable=..., field=...)` applies the same set of field
+  assignments to every selected Entry. Each field may be a uniform expression
+  or a pure `lambda entry: ...` evaluated from that selected Entry's old
+  committed value. As with scalar patch, patch remains frontend sugar.
+- A false enable evaluates neither mask nor value and creates no proposal. A
+  true enable takes one old-state snapshot, computes all selected values, and
+  commits them together at the tick edge. An empty mask is a successful no-op.
+  Reads in that tick observe the old image.
+- A masked endpoint is one logical writer. It cannot coexist with another
+  scalar or masked write/patch endpoint on the same public Table. This decision
+  does not add source-order priority, arbitration, or mutual-exclusion proof.
+- Frozen ACIR adds `ac.table.masked_write`. Its mask is `!ac.var<iN>`, where
+  `N` equals the Table entry count, and must be the same-Table result of
+  `ac.table.match`. The enable region has no arguments; the value region takes
+  one old Entry and returns one complete Entry. Verifiers enforce ownership,
+  domain, region shape, result types, and the shared single-writer rule.
+- QueueGraph, the Python direct generator, the native QueueGraph C++ generator,
+  and typed gfsim stage the full selected update set before commit. Runtime
+  validation happens before any Entry is modified, preserving all-or-nothing
+  commit.
+- Contract epoch remains `0.4`. PYC/RTL continues to reject the provisional
+  Table family with `unsupported provisional Table`.
+
+**Deferred work**
+- arbitrary integer or Queue-carried masks, CandidateSet algebra, masked reads,
+  per-Entry complete-value write lambdas, and domains larger than 64;
+- multiple masked writers, scalar/masked arbitration, masked Queue-driven
+  endpoints, multidimensional Tables, and cross-object transactions;
+- PYC/RTL lowering and cross-backend equivalence.
+
+**Verification**
+- Frontend and ACIR tests cover same-Table ownership, mask width, state-only
+  form, uniform writes, per-Entry patches, and duplicate writers.
+- gfsim tests cover disabled and empty masks, old-state per-Entry evaluation,
+  multiple selected Entries, and atomic next-tick visibility.
+- A state example is generated and executed through both C++ paths with equal
+  final Table state while scalar Table regression tests remain green.
+
+**Source**
+- Agentic Circuit masked Table update direction (2026-09-02).

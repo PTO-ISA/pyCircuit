@@ -118,6 +118,12 @@ struct TableWritePlan {
   std::string input;
 };
 
+struct TableMaskedWritePlan {
+  std::string table;
+  std::string name;
+  std::string scope;
+};
+
 struct SlotPlan {
   std::string name;
   std::string payloadType;
@@ -139,6 +145,7 @@ struct QueueGraphPlan {
   std::vector<TablePlan> tables;
   std::vector<TableReadPlan> tableReads;
   std::vector<TableWritePlan> tableWrites;
+  std::vector<TableMaskedWritePlan> tableMaskedWrites;
   std::vector<SlotPlan> slots;
 
   llvm::Expected<std::string> canonicalJson() const;

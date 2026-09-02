@@ -129,15 +129,17 @@ class RepositoryContractsTest(unittest.TestCase):
                 "route",
                 "schedule",
                 "table",
+                "table_masked_write",
                 "table_read",
                 "table_write",
             ],
             [block["name"] for block in blocks],
         )
         for block in blocks:
-            self.assertEqual(
-                f'ac.{block["name"].replace("_", ".")}', block["operation"]
-            )
+            expected_operation = f'ac.{block["name"].replace("_", ".")}'
+            if block["name"] == "table_masked_write":
+                expected_operation = "ac.table.masked_write"
+            self.assertEqual(expected_operation, block["operation"])
             self.assertTrue(block["providers"]["cpp"]["optimized"])
             if block["name"].startswith("table"):
                 self.assertTrue(block["providers"]["cpp"]["available"])
@@ -150,7 +152,10 @@ class RepositoryContractsTest(unittest.TestCase):
                 all(port["ownership"] == "borrowed_simqueue" for port in block["ports"])
             )
         lambda_blocks = [block["name"] for block in blocks if block["lambda_regions"]]
-        self.assertEqual(["compute", "table_read", "table_write"], lambda_blocks)
+        self.assertEqual(
+            ["compute", "table_masked_write", "table_read", "table_write"],
+            lambda_blocks,
+        )
 
     def test_official_opcode_catalog_is_closed_backend_complete_and_standard(self):
         from jsonschema import Draft202012Validator
@@ -182,6 +187,7 @@ class RepositoryContractsTest(unittest.TestCase):
             "ac.table",
             "ac.table.choose",
             "ac.table.match",
+            "ac.table.masked_write",
             "ac.table.read",
             "ac.table.write",
             "ac.transform",

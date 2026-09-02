@@ -16,3 +16,7 @@ the provisional Table as unsupported.
 `table_issue_slot.py` covers the provisional committed-request flow:
 `ac.slot` capture, `table.match`, `table.choose(policy="min")`, a state-driven
 patch, and release without same-cycle refill.
+
+`table_masked_update.py` uses a same-Table `CandidateSet` to patch every
+matching Entry atomically. Each patched value is computed from that Entry's
+old committed value and the complete mask commits at one tick edge.

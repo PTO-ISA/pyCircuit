@@ -50,6 +50,14 @@ builtin.module attributes {ac.contract_epoch = "0.4"} {
   ^key(%entry: !ac.var<i16>):
     ac.table.choose.yield %entry : !ac.var<i16>
   } -> !ac.var<i2>, !ac.var<i1>
+  ac.table.masked_write @candidates %mask : !ac.var<i4> enable {
+  ^enable:
+    %true = ac.var.constant true as !ac.var<i1>
+    ac.table.yield %true : !ac.var<i1>
+  } value {
+  ^value(%entry: !ac.var<i16>):
+    ac.table.yield %entry : !ac.var<i16>
+  } {ac.endpoint_path = "/candidates__masked_write", ac.name = "candidates__masked_write"}
   ac.slot.release @pending when {
     %slot_valid, %slot_value = ac.slot.get @pending : !ac.var<i1>, !ac.var<i8>
     ac.slot.yield %slot_valid : !ac.var<i1>
@@ -59,6 +67,7 @@ builtin.module attributes {ac.contract_epoch = "0.4"} {
 // CHECK: ac.table @values entry i16 entries 16 init 0 owner "/" stable_id "table/values"
 // CHECK: ac.table @flags entry i1 entries 1 init 0 owner "/" stable_id "table/flags"
 // CHECK: ac.table.write @values
+// CHECK: ac.table.masked_write @candidates
 // CHECK: ac.table.get @values
 // CHECK: ac.table.read @values depth 1 latency 1
 // CHECK: ac.table.yield

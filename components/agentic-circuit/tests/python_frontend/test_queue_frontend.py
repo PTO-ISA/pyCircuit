@@ -422,6 +422,27 @@ def pipeline() -> None:
     ac.sink(snapshots)
 """
 
+MASKED_TABLE_WRITE_SOURCE = """
+import agentic_circuit as ac
+
+@ac.struct
+class Entry:
+    valid: bool
+    tag: ac.u8
+    age: ac.u8
+
+@ac.system
+def pipeline() -> None:
+    updates = ac.source(Entry)
+    pending = ac.slot(updates)
+    issue = ac.table[4, Entry](init=0)
+    hits = issue.match(lambda entry: not entry.valid)
+    issue.view(hits).write(enable=pending.valid, value=pending.value)
+    pending.release(when=pending.valid)
+    snapshots = issue.view(0).read()
+    ac.sink(snapshots)
+"""
+
 MEMORY_OWNED_SCOPE_SOURCE = """
 import agentic_circuit as ac
 
@@ -882,6 +903,64 @@ class QueueFrontendTest(unittest.TestCase):
                 ),
                 "pipeline",
             )
+
+    def test_masked_table_write_and_entry_lambda_patch_lower(self) -> None:
+        from agentic_circuit._queue_frontend import (
+            QueueFrontendError,
+            lower_queue_source,
+        )
+
+        lowered = lower_queue_source(MASKED_TABLE_WRITE_SOURCE, "pipeline")
+        self.assertIn("ac.table.match @issue", lowered)
+        self.assertIn("ac.table.masked_write @issue", lowered)
+        self.assertIn("^value(%old: !ac.var<!ac.struct<@types::@Entry>>):", lowered)
+        self.assertNotIn("ac.table.write @issue address", lowered)
+
+        patched = MASKED_TABLE_WRITE_SOURCE.replace(
+            "issue.view(hits).write(enable=pending.valid, value=pending.value)",
+            "issue.view(hits).patch(\n"
+            "        enable=pending.valid, valid=True,\n"
+            "        age=lambda entry: entry.age + 1,\n"
+            "    )",
+        )
+        patch_ir = lower_queue_source(patched, "pipeline")
+        self.assertIn('field "valid"', patch_ir)
+        self.assertIn('field "age"', patch_ir)
+        self.assertIn("ac.var.get %old", patch_ir)
+
+        with self.assertRaisesRegex(QueueFrontendError, "state-driven"):
+            lower_queue_source(
+                MASKED_TABLE_WRITE_SOURCE.replace(
+                    "issue.view(hits).write(", "issue.view(hits).write(updates, "
+                ),
+                "pipeline",
+            )
+        with self.assertRaisesRegex(QueueFrontendError, "uniform expression"):
+            lower_queue_source(
+                MASKED_TABLE_WRITE_SOURCE.replace(
+                    "value=pending.value", "value=lambda entry: entry"
+                ),
+                "pipeline",
+            )
+        with self.assertRaisesRegex(QueueFrontendError, "different Table"):
+            lower_queue_source(
+                MASKED_TABLE_WRITE_SOURCE.replace(
+                    "issue = ac.table[4, Entry](init=0)",
+                    "issue = ac.table[4, Entry](init=0)\n"
+                    "    other = ac.table[4, Entry](init=0)",
+                ).replace("issue.view(hits).write", "other.view(hits).write"),
+                "pipeline",
+            )
+        with self.assertRaisesRegex(QueueFrontendError, "one write/patch endpoint"):
+            lower_queue_source(
+                patched.replace(
+                    "pending.release(when=pending.valid)",
+                    "issue.view(0).write(value=pending.value, enable=False)\n"
+                    "    pending.release(when=pending.valid)",
+                ),
+                "pipeline",
+            )
+
     def test_memory_instance_freezes_multiple_endpoint_priority(self) -> None:
         from agentic_circuit._queue_frontend import lower_queue_source
 

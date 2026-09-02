@@ -123,6 +123,9 @@ PYC semantic contracts.
 - [x] Close Decision 0152 without changing epoch `0.4`: verify state-driven
   Table updates, match/choose, and committed Queue slots through both typed
   gfsim C++ generators while preserving the same PYC rejection boundary.
+- [x] Close Decision 0153 without changing epoch `0.4`: accept a same-Table
+  CandidateSet in `table.view(mask)`, retain scalar-index writes, and verify
+  atomic uniform masked write/patch through both typed gfsim C++ generators.
 - [ ] After the independent current QEMU/PYC comparison passes, disable the
   old repository's publishing/CI authority and make it
   private with only `zhoubot` as a direct repository collaborator.

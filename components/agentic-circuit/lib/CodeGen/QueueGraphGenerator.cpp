@@ -398,6 +398,10 @@ llvm::Expected<std::string> generateQueueGraphCpp(const QueueGraphPlan &plan) {
         (block.inputs.size() > 1 || !block.outputs.empty() ||
          block.yields.size() != 3 || block.table.empty()))
       return generatorError("table write contract is unsupported");
+    if (block.kind == "table_masked_write" &&
+        (!block.inputs.empty() || !block.outputs.empty() ||
+         block.yields.size() != 3 || block.table.empty()))
+      return generatorError("masked table write contract is unsupported");
     if (block.kind == "slot" &&
         (block.inputs.size() != 1 || !block.outputs.empty() ||
          block.yields.size() != 1 || block.slot.empty()))
@@ -509,7 +513,7 @@ llvm::Expected<std::string> generateQueueGraphCpp(const QueueGraphPlan &plan) {
         block->kind != "dependency" && block->kind != "credit" &&
         block->kind != "reorder" && block->kind != "feedback" &&
         block->kind != "table_read" && block->kind != "table_write" &&
-        block->kind != "slot")
+        block->kind != "table_masked_write" && block->kind != "slot")
       continue;
     if (block->kind == "slot") {
       const SlotPlan *slot = findSlot(plan, block->slot);
@@ -542,7 +546,8 @@ llvm::Expected<std::string> generateQueueGraphCpp(const QueueGraphPlan &plan) {
       output << *body << "  }\n};\n\n";
       continue;
     }
-    if (block->kind == "table_read" || block->kind == "table_write") {
+    if (block->kind == "table_read" || block->kind == "table_write" ||
+        block->kind == "table_masked_write") {
       const TablePlan *table = findTable(plan, block->table);
       auto entryType = table ? cppType(table->entryType)
                              : llvm::Expected<std::string>(
@@ -562,6 +567,8 @@ llvm::Expected<std::string> generateQueueGraphCpp(const QueueGraphPlan &plan) {
       const std::vector<llvm::StringRef> policyNames =
           block->kind == "table_read"
               ? std::vector<llvm::StringRef>{"address", "when"}
+          : block->kind == "table_masked_write"
+              ? std::vector<llvm::StringRef>{"mask", "enable", "value"}
               : std::vector<llvm::StringRef>{"address", "enable", "value"};
       for (auto [policyIndex, policyName] : llvm::enumerate(policyNames)) {
         llvm::StringRef resultType = table->entryType;
@@ -594,6 +601,8 @@ llvm::Expected<std::string> generateQueueGraphCpp(const QueueGraphPlan &plan) {
         output << "  " << *resultCppType << " operator()(";
         if (!inputType.empty())
           output << "const " << inputType << " &item";
+        else if (block->kind == "table_masked_write" && policyName == "value")
+          output << "const " << *entryType << " &item";
         output << ") const {\n";
         auto body = emitExpressionBody(*block, block->yields[policyIndex], 4);
         if (!body)
@@ -1031,6 +1040,17 @@ llvm::Expected<std::string> generateQueueGraphCpp(const QueueGraphPlan &plan) {
             "}, block_", index, "_enable_policy{&", table->getValue(),
             slotPolicyPointers, "}, block_", index, "_value_policy{&",
             table->getValue(), slotPolicyPointers, "})");
+    } else if (block->kind == "table_masked_write") {
+      auto table = tableMembers.find(block->table);
+      if (table == tableMembers.end())
+        return generatorError("masked table write declaration is missing");
+      appendInitializer(
+          initializers, member, "(\"", instanceName, "\", ", blockIds[key],
+          ", ", *parent, ", ", table->getValue(), ", block_", index,
+          "_mask_policy{&", table->getValue(), slotPolicyPointers, "}, block_",
+          index, "_enable_policy{&", table->getValue(), slotPolicyPointers,
+          "}, block_", index, "_value_policy{&", table->getValue(),
+          slotPolicyPointers, "})");
     } else if (block->kind == "slot") {
       const SlotPlan *slot = findSlot(plan, block->slot);
       if (!slot)
@@ -1441,6 +1461,17 @@ llvm::Expected<std::string> generateQueueGraphCpp(const QueueGraphPlan &plan) {
                << index << "_enable_policy, block_" << index
                << "_value_policy> block_" << index << "_;\n";
       }
+    } else if (block->kind == "table_masked_write") {
+      const TablePlan *table = findTable(plan, block->table);
+      auto entryType = table ? cppType(table->entryType)
+                             : llvm::Expected<std::string>(
+                                   generatorError("table declaration missing"));
+      if (!entryType)
+        return entryType.takeError();
+      output << "  gfsim::TableMaskedWriteSource<" << *entryType << ", block_"
+             << index << "_mask_policy, block_" << index
+             << "_enable_policy, block_" << index << "_value_policy> block_"
+             << index << "_;\n";
     } else if (block->kind == "slot") {
       const SlotPlan *slot = findSlot(plan, block->slot);
       auto type = slot ? cppType(slot->payloadType)

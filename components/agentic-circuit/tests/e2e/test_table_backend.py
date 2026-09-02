@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-import os
 import json
+import os
 from pathlib import Path
 import shutil
 import subprocess
@@ -11,9 +11,123 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[2]
 SOURCE = ROOT / "examples/state/table_scoreboard.py"
+MASKED_SOURCE = ROOT / "examples/state/table_masked_update.py"
 
 
 class TableBackendTest(unittest.TestCase):
+    def test_masked_update_direct_and_native_generators_compile_and_run(self) -> None:
+        compiler = shutil.which("c++")
+        if compiler is None:
+            self.skipTest("C++ compiler is unavailable")
+
+        from agentic_circuit._queue_codegen import lower_queue_program_to_cpp
+        from agentic_circuit._queue_frontend import (
+            lower_queue_source,
+            parse_queue_program,
+        )
+
+        text = MASKED_SOURCE.read_text(encoding="utf-8")
+        direct = lower_queue_program_to_cpp(
+            parse_queue_program(text, "table_masked_update")
+        )
+        generated = [("direct", direct)]
+        cxxgen = Path(
+            os.environ.get(
+                "ACIR_QUEUE_CXXGEN", ROOT / "build/dev-llvm22/bin/acir-queue-cxxgen"
+            )
+        )
+        pycgen = Path(
+            os.environ.get(
+                "ACIR_QUEUE_PYCGEN", ROOT / "build/dev-llvm22/bin/acir-queue-pycgen"
+            )
+        )
+        if cxxgen.is_file():
+            with tempfile.TemporaryDirectory() as directory:
+                acir_file = Path(directory) / "masked.mlir"
+                acir_file.write_text(
+                    lower_queue_source(text, "table_masked_update"), encoding="utf-8"
+                )
+                native = subprocess.run(
+                    (str(cxxgen), str(acir_file)),
+                    text=True,
+                    capture_output=True,
+                    check=False,
+                )
+                self.assertEqual(0, native.returncode, native.stderr)
+                generated.append(("native", native.stdout))
+                if pycgen.is_file():
+                    rejected = subprocess.run(
+                        (str(pycgen), str(acir_file)),
+                        text=True,
+                        capture_output=True,
+                        check=False,
+                    )
+                    self.assertNotEqual(0, rejected.returncode)
+                    self.assertIn(
+                        "unsupported provisional Table",
+                        rejected.stdout + rejected.stderr,
+                    )
+
+        for variant, model_text in generated:
+            self.assertIn("gfsim::TableMaskedWriteSource<Entry", model_text)
+            with tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                model = root / "table_masked_update.cpp"
+                harness = root / "harness.cpp"
+                executable = root / variant
+                model.write_text(model_text, encoding="utf-8")
+                harness.write_text(
+                    f'''#include "{model.name}"
+#include <cstddef>
+
+int main() {{
+  ac_generated::TableMaskedUpdate model;
+  if (!model.updates().proposePush(ac_generated::Update{{7}}))
+    return 1;
+  auto rows = model.dispatch_rows();
+  for (std::size_t tick = 0; tick < 12; ++tick) {{
+    const gfsim::Epoch epoch{{tick, 0}};
+    for (auto &row : rows)
+      row.work(row.object, epoch);
+    for (auto &row : rows)
+      row.xfer(row.object, epoch, gfsim::XferPhase::Arbitrate);
+    for (auto &row : rows)
+      row.xfer(row.object, epoch, gfsim::XferPhase::Commit);
+  }}
+  for (const auto &entry : model.sink_0_values())
+    if (entry.valid && entry.tag == 7 && entry.age == 1)
+      return 0;
+  return 2;
+}}
+''',
+                    encoding="utf-8",
+                )
+                compiled = subprocess.run(
+                    (
+                        compiler,
+                        "-std=c++20",
+                        "-I",
+                        str(ROOT / "include"),
+                        str(harness),
+                        "-o",
+                        str(executable),
+                    ),
+                    cwd=root,
+                    env=os.environ,
+                    text=True,
+                    capture_output=True,
+                    check=False,
+                )
+                self.assertEqual(0, compiled.returncode, compiled.stderr)
+                executed = subprocess.run(
+                    (str(executable),),
+                    cwd=root,
+                    text=True,
+                    capture_output=True,
+                    check=False,
+                )
+                self.assertEqual(0, executed.returncode, executed.stderr)
+
     def test_python_codegen_checks_queue_driven_entry_expressions(self) -> None:
         from agentic_circuit._queue_codegen import lower_queue_program_to_cpp
         from agentic_circuit._queue_frontend import parse_queue_program

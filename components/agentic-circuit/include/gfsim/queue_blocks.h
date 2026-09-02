@@ -883,13 +883,28 @@ public:
   bool proposeWrite(size_t index, Entry value) {
     if (index >= committed_.size() || pending_)
       return false;
-    pending_ = std::pair<size_t, Entry>{index, std::move(value)};
+    pending_.emplace();
+    pending_->emplace_back(index, std::move(value));
+    return true;
+  }
+  bool proposeMaskedWrite(std::vector<std::pair<size_t, Entry>> values) {
+    if (pending_)
+      return false;
+    std::vector<bool> seen(committed_.size());
+    for (const auto &[index, value] : values) {
+      (void)value;
+      if (index >= committed_.size() || seen[index])
+        return false;
+      seen[index] = true;
+    }
+    pending_ = std::move(values);
     return true;
   }
   void commitWrite() {
     if (!pending_)
       return;
-    committed_[pending_->first] = std::move(pending_->second);
+    for (auto &[index, value] : *pending_)
+      committed_[index] = std::move(value);
     pending_.reset();
   }
   void cancelWrite() { pending_.reset(); }
@@ -902,7 +917,7 @@ public:
 private:
   std::vector<Entry> committed_;
   Entry zeroEntry_{};
-  std::optional<std::pair<size_t, Entry>> pending_;
+  std::optional<std::vector<std::pair<size_t, Entry>>> pending_;
 };
 
 template <typename AddressResult>
@@ -1163,6 +1178,74 @@ public:
 private:
   SimTable<Entry> &table_;
   [[no_unique_address]] Address address_;
+  [[no_unique_address]] Enable enable_;
+  [[no_unique_address]] Value value_;
+  bool proposed_ = false;
+  bool fired_ = false;
+};
+
+template <typename Entry, typename Mask, typename Enable, typename Value>
+  requires std::invocable<const Mask &> &&
+           std::integral<std::invoke_result_t<const Mask &>> &&
+           std::invocable<const Enable &> &&
+           std::convertible_to<std::invoke_result_t<const Enable &>, bool> &&
+           std::invocable<const Value &, const Entry &> &&
+           std::convertible_to<
+               std::invoke_result_t<const Value &, const Entry &>, Entry>
+class TableMaskedWriteSource final : public SimObject {
+public:
+  static constexpr std::string_view contractName = "ac.table.masked_write";
+  static constexpr ObjectKind componentKind = ObjectKind::Memory;
+
+  TableMaskedWriteSource(std::string name, ObjectId id, SimObject *parent,
+                         SimTable<Entry> &table, Mask mask = {},
+                         Enable enable = {}, Value value = {},
+                         ObservationSink *observations = nullptr)
+      : SimObject(componentKind, std::move(name), id, parent, observations),
+        table_(table), mask_(std::move(mask)), enable_(std::move(enable)),
+        value_(std::move(value)) {}
+
+  void doWork(Epoch) override {
+    if (fired_ || !static_cast<bool>(std::invoke(std::as_const(enable_))))
+      return;
+    const auto rawMask = std::invoke(std::as_const(mask_));
+    const uint64_t mask = static_cast<uint64_t>(rawMask);
+    std::vector<std::pair<size_t, Entry>> values;
+    values.reserve(table_.size());
+    for (size_t index = 0; index < table_.size(); ++index) {
+      if ((mask & (uint64_t{1} << index)) == 0)
+        continue;
+      values.emplace_back(index, static_cast<Entry>(std::invoke(
+                                     std::as_const(value_), table_.at(index))));
+    }
+    if (!table_.proposeMaskedWrite(std::move(values))) {
+      setRuntimeFailureCode("table_write_conflict");
+      return;
+    }
+    proposed_ = true;
+    fired_ = true;
+  }
+  void doXfer(Epoch) override {
+    if (proposed_)
+      table_.commitWrite();
+    proposed_ = false;
+    fired_ = false;
+  }
+  bool hasPendingCommit() const override { return fired_; }
+  bool isRunnable(Epoch) const override {
+    return !fired_ && static_cast<bool>(std::invoke(std::as_const(enable_)));
+  }
+  void reset() override {
+    if (proposed_)
+      table_.cancelWrite();
+    proposed_ = false;
+    fired_ = false;
+    clearRuntimeFailureCode();
+  }
+
+private:
+  SimTable<Entry> &table_;
+  [[no_unique_address]] Mask mask_;
   [[no_unique_address]] Enable enable_;
   [[no_unique_address]] Value value_;
   bool proposed_ = false;

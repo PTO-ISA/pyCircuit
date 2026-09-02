@@ -266,6 +266,15 @@ class EntryViewBinding:
 
 
 @dataclass(frozen=True, slots=True)
+class MaskedEntryViewBinding:
+    name: str
+    table: str
+    candidates: str
+    scope: tuple[str, ...]
+    order: int
+
+
+@dataclass(frozen=True, slots=True)
 class TableReadBinding:
     table: str
     input_name: str | None
@@ -286,6 +295,17 @@ class TableWriteBinding:
     input_name: str | None
     argument: str | None
     address: ast.expr
+    enable: ast.expr
+    value: ast.expr | None
+    patch_fields: tuple[tuple[str, ast.expr], ...]
+    scope: tuple[str, ...]
+    order: int
+
+
+@dataclass(frozen=True, slots=True)
+class MaskedTableWriteBinding:
+    table: str
+    candidates: str
     enable: ast.expr
     value: ast.expr | None
     patch_fields: tuple[tuple[str, ast.expr], ...]
@@ -410,6 +430,7 @@ class QueueProgram:
     tables: tuple[TableBinding, ...]
     table_reads: tuple[TableReadBinding, ...]
     table_writes: tuple[TableWriteBinding, ...]
+    masked_table_writes: tuple[MaskedTableWriteBinding, ...]
     slots: tuple[SlotBinding, ...]
     slot_releases: tuple[SlotReleaseBinding, ...]
     candidates: tuple[CandidateSetBinding, ...]
@@ -852,12 +873,13 @@ def parse_queue_program(
     tables: list[TableBinding] = []
     table_reads: list[TableReadBinding] = []
     table_writes: list[TableWriteBinding] = []
+    masked_table_writes: list[MaskedTableWriteBinding] = []
     slots: list[SlotBinding] = []
     slot_releases: list[SlotReleaseBinding] = []
     candidates: list[CandidateSetBinding] = []
     selections: list[SelectionBinding] = []
     table_by_name: dict[str, TableBinding] = {}
-    entry_views: dict[str, EntryViewBinding] = {}
+    entry_views: dict[str, EntryViewBinding | MaskedEntryViewBinding] = {}
     slot_by_name: dict[str, SlotBinding] = {}
     candidate_by_name: dict[str, CandidateSetBinding] = {}
     selection_by_name: dict[str, SelectionBinding] = {}
@@ -907,8 +929,12 @@ def parse_queue_program(
             )
         return entries, entry_type
 
-    def parse_view(node: ast.expr, alias: str, scope_path: tuple[str, ...],
-                   current_order: int) -> EntryViewBinding | None:
+    def parse_view(
+        node: ast.expr,
+        alias: str,
+        scope_path: tuple[str, ...],
+        current_order: int,
+    ) -> EntryViewBinding | MaskedEntryViewBinding | None:
         if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Attribute):
             return None
         if node.func.attr != "view" or not isinstance(node.func.value, ast.Name):
@@ -921,6 +947,15 @@ def parse_queue_program(
                 "ACPY-TABLE-002: table.view requires one index or selector lambda"
             )
         selector = node.args[0]
+        if isinstance(selector, ast.Name) and selector.id in candidate_by_name:
+            candidate = candidate_by_name[selector.id]
+            if candidate.table != table_name:
+                raise QueueFrontendError(
+                    "ACPY-TABLE-008: CandidateSet belongs to a different Table"
+                )
+            return MaskedEntryViewBinding(
+                alias, table_name, candidate.name, scope_path, current_order
+            )
         if (
             isinstance(selector, ast.Attribute)
             and isinstance(selector.value, ast.Name)
@@ -940,8 +975,11 @@ def parse_queue_program(
             alias, table_name, argument, address, scope_path, current_order
         )
 
-    def resolve_view(node: ast.expr, scope_path: tuple[str, ...],
-                     current_order: int) -> EntryViewBinding | None:
+    def resolve_view(
+        node: ast.expr,
+        scope_path: tuple[str, ...],
+        current_order: int,
+    ) -> EntryViewBinding | MaskedEntryViewBinding | None:
         if isinstance(node, ast.Name):
             view = entry_views.get(node.id)
             if view and view.scope == scope_path:
@@ -1549,6 +1587,10 @@ def parse_queue_program(
                 call = statement.value
                 view = resolve_view(call.func.value, scope_path, current_order)
                 if view is not None:
+                    if isinstance(view, MaskedEntryViewBinding):
+                        raise QueueFrontendError(
+                            "ACPY-TABLE-008: masked Table view does not support read"
+                        )
                     name = statement.targets[0].id
                     if name in by_name or name in collections or name in table_by_name:
                         raise QueueFrontendError(
@@ -1642,6 +1684,137 @@ def parse_queue_program(
                 view = resolve_view(call.func.value, scope_path, current_order)
                 if view is not None:
                     method = call.func.attr
+                    if isinstance(view, MaskedEntryViewBinding):
+                        if call.args:
+                            raise QueueFrontendError(
+                                "ACPY-TABLE-008: masked write/patch is state-driven "
+                                "and takes no Queue"
+                            )
+                        enable_values = [
+                            keyword.value
+                            for keyword in call.keywords
+                            if keyword.arg == "enable"
+                        ]
+                        if len(enable_values) > 1:
+                            raise QueueFrontendError(
+                                "ACPY-TABLE-008: repeated masked write enable"
+                            )
+                        enable_node = (
+                            enable_values[0]
+                            if enable_values
+                            else ast.Constant(True)
+                        )
+                        if isinstance(enable_node, ast.Lambda):
+                            raise QueueFrontendError(
+                                "ACPY-TABLE-008: masked enable must be an expression"
+                            )
+                        enable = _constantize_expression(
+                            enable_node, "", system_static_values
+                        )
+                        table = table_by_name[view.table]
+                        value: ast.expr | None = None
+                        patch_fields: tuple[tuple[str, ast.expr], ...] = ()
+                        if method == "write":
+                            if any(
+                                keyword.arg is None
+                                or keyword.arg not in {"value", "enable"}
+                                for keyword in call.keywords
+                            ):
+                                raise QueueFrontendError(
+                                    "ACPY-TABLE-008: masked write accepts only "
+                                    "value and enable"
+                                )
+                            values = [
+                                keyword.value
+                                for keyword in call.keywords
+                                if keyword.arg == "value"
+                            ]
+                            if len(values) != 1:
+                                raise QueueFrontendError(
+                                    "ACPY-TABLE-008: masked write requires one value"
+                                )
+                            if isinstance(values[0], ast.Lambda):
+                                raise QueueFrontendError(
+                                    "ACPY-TABLE-008: masked write value must be a "
+                                    "uniform expression, not a lambda"
+                                )
+                            value = _constantize_expression(
+                                values[0], "", system_static_values
+                            )
+                        else:
+                            payload_name = table.entry_type.removeprefix(
+                                "!ac.struct<@types::@"
+                            ).removesuffix(">")
+                            declaration = payload_map.get(payload_name)
+                            if declaration is None:
+                                raise QueueFrontendError(
+                                    "ACPY-TABLE-008: masked patch requires a struct "
+                                    "Table Entry"
+                                )
+                            field_types = dict(declaration.fields)
+                            patches: list[tuple[str, ast.expr]] = []
+                            for keyword in call.keywords:
+                                if keyword.arg == "enable":
+                                    continue
+                                if (
+                                    keyword.arg is None
+                                    or keyword.arg not in field_types
+                                ):
+                                    raise QueueFrontendError(
+                                        "ACPY-TABLE-008: masked patch field is unknown"
+                                    )
+                                expression = keyword.value
+                                if isinstance(expression, ast.Lambda):
+                                    old_name, expression = _lambda(expression)
+
+                                    class OldEntryName(ast.NodeTransformer):
+                                        def visit_Name(self, node: ast.Name) -> ast.expr:
+                                            if node.id == old_name:
+                                                return ast.copy_location(
+                                                    ast.Name(
+                                                        id="__old",
+                                                        ctx=node.ctx,
+                                                    ),
+                                                    node,
+                                                )
+                                            return node
+
+                                    expression = OldEntryName().visit(
+                                        copy.deepcopy(expression)
+                                    )
+                                else:
+                                    expression = _constantize_expression(
+                                        expression, "", system_static_values
+                                    )
+                                patches.append((keyword.arg, expression))
+                            if not patches:
+                                raise QueueFrontendError(
+                                    "ACPY-TABLE-008: masked patch requires at least "
+                                    "one field"
+                                )
+                            patch_fields = tuple(patches)
+                        if any(
+                            write.table == view.table for write in table_writes
+                        ) or any(
+                            write.table == view.table
+                            for write in masked_table_writes
+                        ):
+                            raise QueueFrontendError(
+                                "ACPY-TABLE-004: table permits one write/patch "
+                                "endpoint"
+                            )
+                        masked_table_writes.append(
+                            MaskedTableWriteBinding(
+                                view.table,
+                                view.candidates,
+                                enable,
+                                value,
+                                patch_fields,
+                                scope_path,
+                                current_order,
+                            )
+                        )
+                        continue
                     queue_driven = view.argument is not None
                     if len(call.args) != (1 if queue_driven else 0):
                         raise QueueFrontendError(
@@ -1759,7 +1932,11 @@ def parse_queue_program(
                                 "ACPY-TABLE-004: patch requires at least one field"
                             )
                         patch_fields = tuple(patches)
-                    if any(write.table == view.table for write in table_writes):
+                    if any(
+                        write.table == view.table for write in table_writes
+                    ) or any(
+                        write.table == view.table for write in masked_table_writes
+                    ):
                         raise QueueFrontendError(
                             "ACPY-TABLE-004: table permits one write/patch endpoint"
                         )
@@ -3707,6 +3884,8 @@ def parse_queue_program(
     for table in tables:
         endpoint_count = sum(read.table == table.name for read in table_reads) + sum(
             write.table == table.name for write in table_writes
+        ) + sum(
+            write.table == table.name for write in masked_table_writes
         ) + sum(candidate.table == table.name for candidate in candidates)
         if endpoint_count == 0:
             raise QueueFrontendError(
@@ -3741,6 +3920,7 @@ def parse_queue_program(
         tuple(tables),
         tuple(table_reads),
         tuple(table_writes),
+        tuple(masked_table_writes),
         tuple(slots),
         tuple(slot_releases),
         tuple(candidates),
@@ -3792,6 +3972,42 @@ class _ExpressionEmitter:
     def emit(self, node: ast.expr, expected: str | None = None) -> tuple[str, str]:
         if isinstance(node, ast.Name) and node.id == self.argument:
             return self.root_name, self.payload
+        if isinstance(node, ast.Name) and node.id in self.candidates:
+            candidate = self.candidates[node.id]
+            domain = self.table_domains.get(candidate.table)
+            if domain is None:
+                raise QueueFrontendError(
+                    "ACPY-TABLE-008: CandidateSet domain is unresolved"
+                )
+            entry_type, mask_width = domain
+            predicate_emitter = _ExpressionEmitter(
+                self.payloads,
+                candidate.argument,
+                entry_type,
+                root_name="entry",
+                prefix=f"{self.prefix}m{self.index}_",
+                slot_views=self.slot_views,
+            )
+            predicate, predicate_type = predicate_emitter.emit(
+                candidate.predicate, "i1"
+            )
+            if predicate_type != "i1":
+                raise QueueFrontendError(
+                    "ACPY-TABLE-006: match predicate must lower to i1"
+                )
+            mask = self._new()
+            self.lines.append(
+                f"    %{mask} = ac.table.match @{candidate.table} predicate {{"
+            )
+            self.lines.append(
+                f"    ^predicate(%entry: !ac.var<{entry_type}>):"
+            )
+            self.lines.extend(predicate_emitter.lines)
+            self.lines.append(
+                f"      ac.table.match.yield %{predicate} : !ac.var<i1>"
+            )
+            self.lines.append(f"    }} -> !ac.var<i{mask_width}>")
+            return mask, f"i{mask_width}"
         if isinstance(node, ast.Name) and node.id in self.table_views:
             table, address, entry_type = self.table_views[node.id]
             index, index_type = self.emit(address)
@@ -4409,6 +4625,11 @@ def lower_queue_program(program: QueueProgram) -> str:
             if write.scope == path
         )
         events.extend(
+            (write.order, "masked_table_write", write)
+            for write in program.masked_table_writes
+            if write.scope == path
+        )
+        events.extend(
             (slot.order, "slot", slot)
             for slot in program.slots
             if slot.scope == path
@@ -4982,6 +5203,100 @@ def lower_queue_program(program: QueueProgram) -> str:
                         f"!ac.var<{policy_type}>"
                     )
                 endpoint_name = f"{write.table}__write"
+                lines.append(
+                    f'{indent}}} {{ac.endpoint_path = "'
+                    f'{"/" + "/".join((*write.scope, endpoint_name))}", '
+                    f'ac.name = "{endpoint_name}"}}'
+                )
+            elif kind == "masked_table_write":
+                write = item
+                assert isinstance(write, MaskedTableWriteBinding)
+                table = next(
+                    value for value in program.tables if value.name == write.table
+                )
+                mask_emitter = _ExpressionEmitter(
+                    payloads,
+                    "",
+                    table.entry_type,
+                    prefix="mask_",
+                    slot_views=slot_views,
+                    candidates=candidate_views,
+                    table_domains=table_domains,
+                )
+                mask, mask_type = mask_emitter.emit(
+                    ast.Name(id=write.candidates, ctx=ast.Load())
+                )
+                enable_emitter = _ExpressionEmitter(
+                    payloads,
+                    "",
+                    table.entry_type,
+                    prefix="enable_",
+                    slot_views=slot_views,
+                    candidates=candidate_views,
+                    selections=selection_views,
+                    table_domains=table_domains,
+                )
+                enabled, enable_type = enable_emitter.emit(write.enable, "i1")
+                value_emitter = _ExpressionEmitter(
+                    payloads,
+                    "__old",
+                    table.entry_type,
+                    root_name="old",
+                    prefix="value_",
+                    slot_views=slot_views,
+                    candidates=candidate_views,
+                    selections=selection_views,
+                    table_domains=table_domains,
+                )
+                if write.value is not None:
+                    value, value_type = value_emitter.emit(
+                        write.value, table.entry_type
+                    )
+                else:
+                    patch_call = ast.Call(
+                        func=ast.Attribute(
+                            value=ast.Name(id="__old", ctx=ast.Load()),
+                            attr="with_fields",
+                            ctx=ast.Load(),
+                        ),
+                        args=[],
+                        keywords=[
+                            ast.keyword(arg=name, value=expression)
+                            for name, expression in write.patch_fields
+                        ],
+                    )
+                    value, value_type = value_emitter.emit(
+                        patch_call, table.entry_type
+                    )
+                if (
+                    mask_type != f"i{table.entries}"
+                    or enable_type != "i1"
+                    or value_type != table.entry_type
+                ):
+                    raise QueueFrontendError(
+                        "ACPY-TABLE-008: masked write mask/enable/value type "
+                        "mismatch"
+                    )
+                lines.extend(indent + line[2:] for line in mask_emitter.lines)
+                lines.append(
+                    f"{indent}ac.table.masked_write @{write.table} %{mask} : "
+                    f"!ac.var<{mask_type}> enable {{"
+                )
+                lines.append(f"{indent}^enable:")
+                lines.extend(indent + line[2:] for line in enable_emitter.lines)
+                lines.append(
+                    f"{indent}  ac.table.yield %{enabled} : !ac.var<i1>"
+                )
+                lines.append(f"{indent}}} value {{")
+                lines.append(
+                    f"{indent}^value(%old: !ac.var<{table.entry_type}>):"
+                )
+                lines.extend(indent + line[2:] for line in value_emitter.lines)
+                lines.append(
+                    f"{indent}  ac.table.yield %{value} : "
+                    f"!ac.var<{value_type}>"
+                )
+                endpoint_name = f"{write.table}__masked_write"
                 lines.append(
                     f'{indent}}} {{ac.endpoint_path = "'
                     f'{"/" + "/".join((*write.scope, endpoint_name))}", '

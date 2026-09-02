@@ -360,6 +360,13 @@ table.view(lambda update: update.index).patch(
     done=True,
     result=lambda update: update.result,
 )
+
+pending = table.match(lambda entry: not entry.valid)
+table.view(pending).patch(
+    enable=request_slot.valid,
+    valid=True,
+    age=lambda entry: entry.age + 1,
+)
 ```
 
 Entry 只能是 bool、定宽整数或仅包含这些字段的扁平 struct。`read()` 总是返回
@@ -367,12 +374,20 @@ Entry 只能是 bool、定宽整数或仅包含这些字段的扁平 struct。`r
 输入但不提出写 proposal。同 tick 读写返回 old committed Entry，写入在 tick commit
 后可见，动态越界报告 `table_index_out_of_range`。
 
+`Table.view(candidates)` 接受同一张 Table 的 `match` 所产生的 `CandidateSet`，用于
+state-driven masked update。masked `write` 给所有命中 Entry 写入同一个完整值；
+masked `patch` 的字段可以是统一表达式，也可以是从各命中 old Entry 求值的纯
+`lambda entry`。`enable=false` 不求值 mask/value，空 mask 是 no-op，所有命中项在
+同一个 tick edge 原子提交。masked 与单 index endpoint 共享单 writer 限制。
+
 `EntryView` 只存在于 elaboration。`patch` 在 Frozen ACIR 前展开成
-`ac.table.get -> ac.var.with -> ac.table.write`，不存在 `ac.table.patch`。
+`ac.table.get -> ac.var.with -> ac.table.write` 或 `ac.table.masked_write`，不存在
+`ac.table.patch`。
 当前 Table 只支持 typed gfsim C++；PYC/RTL 返回稳定的
 `unsupported provisional Table` 诊断。旧 `ac.table(...)` 已删除，请求响应存储继续
 使用 `ac.memory`。纵向示例见
-[`table_scoreboard.py`](../../examples/state/table_scoreboard.py)。
+[`table_scoreboard.py`](../../examples/state/table_scoreboard.py) 与
+[`table_masked_update.py`](../../examples/state/table_masked_update.py)。
 
 ### Credit
 

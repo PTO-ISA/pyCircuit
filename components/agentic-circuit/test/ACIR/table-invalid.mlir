@@ -8,6 +8,7 @@
 // RUN: %not %acir_opt %t/choose-arbitrary-mask.mlir 2>&1 | %FileCheck %s --check-prefix=CHOOSE-MASK
 // RUN: %not %acir_opt %t/choose-other-table.mlir 2>&1 | %FileCheck %s --check-prefix=CHOOSE-TABLE
 // RUN: %not %acir_opt %t/two-releases.mlir 2>&1 | %FileCheck %s --check-prefix=RELEASE
+// RUN: %not %acir_opt %t/masked-owner.mlir 2>&1 | %FileCheck %s --check-prefix=MASKED-OWNER
 
 // INIT: error: 'ac.table' op table init must be zero
 // ENDPOINT: error: 'ac.table' op must have at least one table read/write endpoint
@@ -18,6 +19,7 @@
 // CHOOSE-MASK: error: 'ac.table.choose' op candidate mask must be produced directly by ac.table.match
 // CHOOSE-TABLE: error: 'ac.table.choose' op candidate mask must come from the same Table
 // RELEASE: error: 'ac.slot' op slot requires exactly one release endpoint
+// MASKED-OWNER: error: 'ac.table.masked_write' op mask must be produced by match on the same Table
 
 //--- init.mlir
 builtin.module attributes {ac.contract_epoch = "0.4"} {
@@ -162,4 +164,23 @@ builtin.module attributes {ac.contract_epoch = "0.4"} {
     %valid, %value = ac.slot.get @bad : !ac.var<i1>, !ac.var<i8>
     ac.slot.yield %valid : !ac.var<i1>
   } {ac.endpoint_path = "/release_1", ac.name = "release_1"}
+}
+
+//--- masked-owner.mlir
+builtin.module attributes {ac.contract_epoch = "0.4"} {
+  ac.table @left entry i16 entries 4 init 0 owner "/" stable_id "table/left"
+  ac.table @right entry i16 entries 4 init 0 owner "/" stable_id "table/right"
+  %mask = ac.table.match @left predicate {
+  ^predicate(%entry: !ac.var<i16>):
+    %true = ac.var.constant true as !ac.var<i1>
+    ac.table.match.yield %true : !ac.var<i1>
+  } -> !ac.var<i4>
+  ac.table.masked_write @right %mask : !ac.var<i4> enable {
+  ^enable:
+    %true = ac.var.constant true as !ac.var<i1>
+    ac.table.yield %true : !ac.var<i1>
+  } value {
+  ^value(%entry: !ac.var<i16>):
+    ac.table.yield %entry : !ac.var<i16>
+  } {ac.endpoint_path = "/write", ac.name = "write"}
 }

@@ -205,6 +205,28 @@ struct StateWriteIncrement {
   }
 };
 
+struct MaskedWriteMask {
+  uint64_t *mask = nullptr;
+  unsigned *calls = nullptr;
+  uint64_t operator()() const {
+    ++*calls;
+    return *mask;
+  }
+};
+
+struct MaskedWriteEnable {
+  bool *enabled = nullptr;
+  bool operator()() const { return *enabled; }
+};
+
+struct MaskedWriteIncrement {
+  unsigned *calls = nullptr;
+  uint16_t operator()(const uint16_t &oldValue) const {
+    ++*calls;
+    return static_cast<uint16_t>(oldValue + 10);
+  }
+};
+
 struct SlotReleaseFlag {
   bool *release = nullptr;
   bool operator()() const { return *release; }
@@ -423,6 +445,51 @@ TEST(QueueBlocksTest,
   EXPECT_EQ(table.at(0), 1);
   write.doXfer({2, 0});
   EXPECT_EQ(table.at(0), 2);
+}
+
+TEST(QueueBlocksTest, MaskedTableWriteCommitsSelectedOldStateAtomically) {
+  SimTable<uint16_t> table("table", 1, nullptr, 4);
+  for (size_t index = 0; index < table.size(); ++index) {
+    ASSERT_TRUE(table.proposeWrite(index, static_cast<uint16_t>(index + 1)));
+    table.commitWrite();
+  }
+  bool enabled = false;
+  uint64_t mask = 0b1011;
+  unsigned maskCalls = 0;
+  unsigned valueCalls = 0;
+  TableMaskedWriteSource<uint16_t, MaskedWriteMask, MaskedWriteEnable,
+                         MaskedWriteIncrement>
+      write("write", 2, nullptr, table, {&mask, &maskCalls}, {&enabled},
+            {&valueCalls});
+
+  write.doWork({0, 0});
+  EXPECT_EQ(maskCalls, 0u);
+  EXPECT_EQ(valueCalls, 0u);
+
+  enabled = true;
+  write.doWork({1, 0});
+  EXPECT_EQ(maskCalls, 1u);
+  EXPECT_EQ(valueCalls, 3u);
+  EXPECT_EQ(table.at(0), 1u);
+  EXPECT_EQ(table.at(1), 2u);
+  EXPECT_EQ(table.at(2), 3u);
+  EXPECT_EQ(table.at(3), 4u);
+  write.doXfer({1, 0});
+  EXPECT_EQ(table.at(0), 11u);
+  EXPECT_EQ(table.at(1), 12u);
+  EXPECT_EQ(table.at(2), 3u);
+  EXPECT_EQ(table.at(3), 14u);
+
+  mask = 0;
+  write.doWork({2, 0});
+  EXPECT_EQ(maskCalls, 2u);
+  EXPECT_EQ(valueCalls, 3u);
+  write.doXfer({2, 0});
+  EXPECT_EQ(table.at(0), 11u);
+
+  table.reset();
+  for (size_t index = 0; index < table.size(); ++index)
+    EXPECT_EQ(table.at(index), 0u);
 }
 
 TEST(QueueBlocksTest, SlotCapturesBackpressuresReleasesAndDoesNotRefill) {
