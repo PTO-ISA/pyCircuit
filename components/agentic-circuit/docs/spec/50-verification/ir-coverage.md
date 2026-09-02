@@ -7,7 +7,7 @@
 acir_contract_epoch: 0.4
 acsim_contract_epoch: 0.4
 
-## acir operations (101)
+## acir operations (109)
 
 | operation | source symbol | positive coverage | negative coverage |
 | --- | --- | --- | --- |
@@ -79,9 +79,17 @@ acsim_contract_epoch: 0.4
 | ac.memory.yield | ACIR_MemoryYieldOp | test/ACIR/memory.mlir | test/ACIR/memory-invalid.mlir |
 | ac.table | ACIR_TableOp | test/ACIR/table.mlir | test/ACIR/table-invalid.mlir |
 | ac.table.get | ACIR_TableGetOp | test/ACIR/table.mlir | test/ACIR/table-invalid.mlir |
+| ac.table.match | ACIR_TableMatchOp | test/ACIR/table.mlir | test/ACIR/table-invalid.mlir |
+| ac.table.match.yield | ACIR_TableMatchYieldOp | test/ACIR/table.mlir | test/ACIR/table-invalid.mlir |
+| ac.table.choose | ACIR_TableChooseOp | test/ACIR/table.mlir | test/ACIR/table-invalid.mlir |
+| ac.table.choose.yield | ACIR_TableChooseYieldOp | test/ACIR/table.mlir | test/ACIR/table-invalid.mlir |
 | ac.table.read | ACIR_TableReadOp | test/ACIR/table.mlir | test/ACIR/table-invalid.mlir |
 | ac.table.write | ACIR_TableWriteOp | test/ACIR/table.mlir | test/ACIR/table-invalid.mlir |
 | ac.table.yield | ACIR_TableYieldOp | test/ACIR/table.mlir | test/ACIR/table-invalid.mlir |
+| ac.slot | ACIR_SlotOp | test/ACIR/table.mlir | test/ACIR/table-invalid.mlir |
+| ac.slot.get | ACIR_SlotGetOp | test/ACIR/table.mlir | test/ACIR/table-invalid.mlir |
+| ac.slot.release | ACIR_SlotReleaseOp | test/ACIR/table.mlir | test/ACIR/table-invalid.mlir |
+| ac.slot.yield | ACIR_SlotYieldOp | test/ACIR/table.mlir | test/ACIR/table-invalid.mlir |
 | ac.reorder | ACIR_ReorderOp | test/ACIR/reorder.mlir | test/ACIR/reorder-invalid.mlir |
 | ac.reorder.yield | ACIR_ReorderYieldOp | test/ACIR/reorder.mlir | test/ACIR/reorder-invalid.mlir |
 | ac.feedback | ACIR_FeedbackOp | test/ACIR/control-feedback.mlir<br>test/Transforms/queue-var-cse.mlir | test/ACIR/control-feedback-invalid.mlir |

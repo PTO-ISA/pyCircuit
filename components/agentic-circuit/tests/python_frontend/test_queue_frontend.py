@@ -389,6 +389,39 @@ def pipeline() -> None:
     ac.sink(snapshots)
 """
 
+SLOT_TABLE_SOURCE = """
+import agentic_circuit as ac
+
+@ac.struct
+class Entry:
+    valid: bool
+    tag: ac.u8
+    age: ac.u8
+
+@ac.struct
+class Request:
+    tag: ac.u8
+
+@ac.system
+def pipeline() -> None:
+    requests = ac.source(Request)
+    pending = ac.slot(requests)
+    issue = ac.table[4, Entry](init=0)
+    ready = issue.match(
+        lambda entry: pending.valid and entry.valid
+        and entry.tag == pending.value.tag
+    )
+    grant = issue.choose(
+        ready, count=1, policy="min", key=lambda entry: entry.age
+    )
+    issue.view(grant.index).patch(
+        enable=pending.valid and grant.valid, valid=False
+    )
+    pending.release(when=pending.valid and grant.valid)
+    snapshots = issue.view(0).read()
+    ac.sink(snapshots)
+"""
+
 MEMORY_OWNED_SCOPE_SOURCE = """
 import agentic_circuit as ac
 
@@ -782,6 +815,73 @@ class QueueFrontendTest(unittest.TestCase):
                 "pipeline",
             )
 
+    def test_slot_match_choose_and_state_patch_lower(self) -> None:
+        from agentic_circuit._queue_frontend import (
+            QueueFrontendError,
+            lower_queue_source,
+        )
+
+        lowered = lower_queue_source(SLOT_TABLE_SOURCE, "pipeline")
+        for operation in (
+            "ac.slot @pending",
+            "ac.slot.get @pending",
+            "ac.table.match @issue",
+            "ac.table.choose @issue",
+            "ac.slot.release @pending",
+        ):
+            self.assertIn(operation, lowered)
+        self.assertIn("ac.table.write @issue address", lowered)
+        first = SLOT_TABLE_SOURCE.replace(
+            'ready, count=1, policy="min", key=lambda entry: entry.age',
+            'ready, count=1, policy="first"',
+        )
+        self.assertIn(
+            'count 1 policy "first"', lower_queue_source(first, "pipeline")
+        )
+        self.assertIn(
+            'count 1 policy "max"',
+            lower_queue_source(
+                SLOT_TABLE_SOURCE.replace('policy="min"', 'policy="max"'),
+                "pipeline",
+            ),
+        )
+        boundary = lower_queue_source(
+            SLOT_TABLE_SOURCE.replace("ac.table[4, Entry]", "ac.table[64, Entry]"),
+            "pipeline",
+        )
+        self.assertIn("-> !ac.var<i64>", boundary)
+        with self.assertRaisesRegex(QueueFrontendError, "count=1 only"):
+            lower_queue_source(
+                SLOT_TABLE_SOURCE.replace("count=1", "count=2"), "pipeline"
+            )
+        with self.assertRaisesRegex(QueueFrontendError, "1..64 entries"):
+            lower_queue_source(
+                SLOT_TABLE_SOURCE.replace(
+                    "ac.table[4, Entry]", "ac.table[65, Entry]"
+                ),
+                "pipeline",
+            )
+        with self.assertRaisesRegex(QueueFrontendError, "requires key"):
+            lower_queue_source(
+                SLOT_TABLE_SOURCE.replace(
+                    ', key=lambda entry: entry.age', ""
+                ),
+                "pipeline",
+            )
+        with self.assertRaisesRegex(QueueFrontendError, "does not accept key"):
+            lower_queue_source(
+                SLOT_TABLE_SOURCE.replace('policy="min"', 'policy="first"'),
+                "pipeline",
+            )
+        with self.assertRaisesRegex(QueueFrontendError, "different Table"):
+            lower_queue_source(
+                SLOT_TABLE_SOURCE.replace(
+                    "grant = issue.choose(",
+                    "other = ac.table[4, Entry](init=0)\n"
+                    "    grant = other.choose(",
+                ),
+                "pipeline",
+            )
     def test_memory_instance_freezes_multiple_endpoint_priority(self) -> None:
         from agentic_circuit._queue_frontend import lower_queue_source
 

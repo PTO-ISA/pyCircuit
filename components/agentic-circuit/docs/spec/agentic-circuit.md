@@ -811,7 +811,9 @@ realization; Table entries explicitly declare their gfsim-only boundary.
 | `ac.memory.instance` / `ac.memory.request` | design | shared instance, one-to-one endpoint | instance identity, ordinal, `entries`, `init`, instance `latency`, `result_field`, `depth` | fixed-priority single-outstanding old-data memory |
 | `ac.table` | design | state owner | Entry type, `entries`, `init`, owner, stable identity | committed zero-initialized state image; gfsim-only prototype |
 | `ac.table.read` | design | optional request to one | Table identity, `depth`, `latency` | state- or Queue-driven old-data capture |
-| `ac.table.write` | design | one to none | Table identity | consume update and optionally commit one proposal |
+| `ac.table.write` | design | optional update to none | Table identity | Queue-driven consumption or state-driven commit proposal |
+| `ac.table.match` / `ac.table.choose` | design | committed state to Vars | Table identity, `count=1`, `policy` | 1..64-entry candidate mask and deterministic first/min/max selection |
+| `ac.slot` | design | one to none | owner, stable identity | one committed request with backpressure, retained payload, and explicit release |
 | `ac.dependency` | design | one to one | `capacity`, `resources`, `no_dependency`, `depth`, `latency` | bounded predecessor tracking, resource reservation, and execution countdown |
 | `ac.reorder` | design | one to one | `capacity`, `start`, `depth`, `latency` | bounded key-ordered retirement |
 | `ac.feedback` | design | one to one | `depth`, `latency`, `max_iterations` | bounded stateful loop |

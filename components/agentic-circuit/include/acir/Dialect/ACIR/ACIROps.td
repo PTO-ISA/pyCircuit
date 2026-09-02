@@ -262,7 +262,7 @@ def ACIR_SelectOp : ACIR_Op<"select", [SingleBlock]> {
   let arguments = (ins Variadic<ACIR_QueueType>:$inputs,
                        I64Attr:$depth, I64Attr:$latency);
   let results = (outs ACIR_QueueType:$output);
-  let regions = (region SizedRegion<1>:$key);
+  let regions = (region AnyRegion:$key);
   let hasVerifier = 1;
   let assemblyFormat = [{
     $inputs `depth` $depth `latency` $latency `key` $key attr-dict `:`
@@ -445,18 +445,91 @@ def ACIR_TableReadOp : ACIR_Op<"table.read", [
 def ACIR_TableWriteOp : ACIR_Op<"table.write", [
     SingleBlock, DeclareOpInterfaceMethods<MemoryEffectsOpInterface>
   ]> {
-  let arguments = (ins FlatSymbolRefAttr:$table, ACIR_QueueType:$input);
+  let arguments = (ins FlatSymbolRefAttr:$table,
+                       Optional<ACIR_QueueType>:$input);
   let regions = (region SizedRegion<1>:$address,
                         SizedRegion<1>:$enable,
                         SizedRegion<1>:$value);
   let hasVerifier = 1;
   let assemblyFormat = [{
-    $table `,` $input `address` $address `enable` $enable `value` $value
-    attr-dict `:` qualified(type($input))
+    $table (`,` $input^ `:` qualified(type($input)))?
+    `address` $address `enable` $enable `value` $value attr-dict
   }];
 }
 
 def ACIR_TableYieldOp : ACIR_Op<"table.yield", [Pure, Terminator]> {
+  let arguments = (ins ACIR_VarType:$value);
+  let assemblyFormat = "$value attr-dict `:` qualified(type($value))";
+}
+
+def ACIR_TableMatchOp : ACIR_Op<"table.match", [
+    SingleBlock, DeclareOpInterfaceMethods<MemoryEffectsOpInterface>
+  ]> {
+  let arguments = (ins FlatSymbolRefAttr:$table);
+  let results = (outs ACIR_VarType:$mask);
+  let regions = (region SizedRegion<1>:$predicate);
+  let hasVerifier = 1;
+  let assemblyFormat = "$table `predicate` $predicate attr-dict `->` qualified(type($mask))";
+}
+
+def ACIR_TableMatchYieldOp : ACIR_Op<"table.match.yield", [Pure, Terminator]> {
+  let arguments = (ins ACIR_VarType:$value);
+  let assemblyFormat = "$value attr-dict `:` qualified(type($value))";
+}
+
+def ACIR_TableChooseOp : ACIR_Op<"table.choose", [
+    SingleBlock, DeclareOpInterfaceMethods<MemoryEffectsOpInterface>
+  ]> {
+  let arguments = (ins FlatSymbolRefAttr:$table, ACIR_VarType:$mask,
+                       I64Attr:$count, StrAttr:$policy);
+  let results = (outs ACIR_VarType:$index, ACIR_VarType:$valid);
+  let regions = (region SizedRegion<1>:$key);
+  let hasVerifier = 1;
+  let assemblyFormat = [{
+    $table $mask `:` qualified(type($mask)) `count` $count `policy` $policy
+    `key` $key attr-dict `->`
+    qualified(type($index)) `,` qualified(type($valid))
+  }];
+}
+
+def ACIR_TableChooseYieldOp : ACIR_Op<"table.choose.yield", [Pure, Terminator]> {
+  let arguments = (ins ACIR_VarType:$value);
+  let assemblyFormat = "$value attr-dict `:` qualified(type($value))";
+}
+
+def ACIR_SlotOp : ACIR_Op<"slot", [
+    Symbol, DeclareOpInterfaceMethods<MemoryEffectsOpInterface>
+  ]> {
+  let arguments = (ins SymbolNameAttr:$sym_name, ACIR_QueueType:$input,
+                       StrAttr:$owner, StrAttr:$stable_id);
+  let hasVerifier = 1;
+  let assemblyFormat = [{
+    $sym_name `,` $input `owner` $owner `stable_id` $stable_id attr-dict
+    `:` qualified(type($input))
+  }];
+}
+
+def ACIR_SlotGetOp : ACIR_Op<"slot.get", [
+    DeclareOpInterfaceMethods<MemoryEffectsOpInterface>
+  ]> {
+  let arguments = (ins FlatSymbolRefAttr:$slot);
+  let results = (outs ACIR_VarType:$valid, ACIR_VarType:$value);
+  let hasVerifier = 1;
+  let assemblyFormat = [{
+    $slot attr-dict `:` qualified(type($valid)) `,` qualified(type($value))
+  }];
+}
+
+def ACIR_SlotReleaseOp : ACIR_Op<"slot.release", [
+    SingleBlock, DeclareOpInterfaceMethods<MemoryEffectsOpInterface>
+  ]> {
+  let arguments = (ins FlatSymbolRefAttr:$slot);
+  let regions = (region SizedRegion<1>:$when);
+  let hasVerifier = 1;
+  let assemblyFormat = "$slot `when` $when attr-dict";
+}
+
+def ACIR_SlotYieldOp : ACIR_Op<"slot.yield", [Pure, Terminator]> {
   let arguments = (ins ACIR_VarType:$value);
   let assemblyFormat = "$value attr-dict `:` qualified(type($value))";
 }

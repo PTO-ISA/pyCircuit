@@ -873,6 +873,13 @@ public:
 
   size_t size() const { return committed_.size(); }
   const Entry &at(size_t index) const { return committed_.at(index); }
+  const Entry &checkedAt(size_t index) {
+    if (index >= committed_.size()) {
+      setRuntimeFailureCode("table_index_out_of_range");
+      return zeroEntry_;
+    }
+    return committed_[index];
+  }
   bool proposeWrite(size_t index, Entry value) {
     if (index >= committed_.size() || pending_)
       return false;
@@ -894,6 +901,7 @@ public:
 
 private:
   std::vector<Entry> committed_;
+  Entry zeroEntry_{};
   std::optional<std::pair<size_t, Entry>> pending_;
 };
 
@@ -1094,6 +1102,154 @@ private:
   [[no_unique_address]] Enable enable_;
   [[no_unique_address]] Value value_;
   bool proposed_ = false;
+  bool fired_ = false;
+};
+
+template <typename Entry, typename Address, typename Enable, typename Value>
+  requires std::invocable<const Address &> &&
+           std::integral<std::invoke_result_t<const Address &>> &&
+           std::invocable<const Enable &> &&
+           std::convertible_to<std::invoke_result_t<const Enable &>, bool> &&
+           std::invocable<const Value &> &&
+           std::convertible_to<std::invoke_result_t<const Value &>, Entry>
+class TableWriteSource final : public SimObject {
+public:
+  static constexpr std::string_view contractName = "ac.table.write";
+  static constexpr ObjectKind componentKind = ObjectKind::Memory;
+
+  TableWriteSource(std::string name, ObjectId id, SimObject *parent,
+                   SimTable<Entry> &table, Address address = {},
+                   Enable enable = {}, Value value = {},
+                   ObservationSink *observations = nullptr)
+      : SimObject(componentKind, std::move(name), id, parent, observations),
+        table_(table), address_(std::move(address)), enable_(std::move(enable)),
+        value_(std::move(value)) {}
+
+  void doWork(Epoch) override {
+    if (fired_ || !static_cast<bool>(std::invoke(std::as_const(enable_))))
+      return;
+    const auto address = std::invoke(std::as_const(address_));
+    if (!tableAddressInRange(address, table_.size())) {
+      setRuntimeFailureCode("table_index_out_of_range");
+      return;
+    }
+    if (!table_.proposeWrite(
+            static_cast<size_t>(address),
+            static_cast<Entry>(std::invoke(std::as_const(value_))))) {
+      setRuntimeFailureCode("table_write_conflict");
+      return;
+    }
+    proposed_ = true;
+    fired_ = true;
+  }
+  void doXfer(Epoch) override {
+    if (proposed_)
+      table_.commitWrite();
+    proposed_ = false;
+    fired_ = false;
+  }
+  bool hasPendingCommit() const override { return fired_; }
+  bool isRunnable(Epoch) const override {
+    return !fired_ && static_cast<bool>(std::invoke(std::as_const(enable_)));
+  }
+  void reset() override {
+    if (proposed_)
+      table_.cancelWrite();
+    proposed_ = false;
+    fired_ = false;
+    clearRuntimeFailureCode();
+  }
+
+private:
+  SimTable<Entry> &table_;
+  [[no_unique_address]] Address address_;
+  [[no_unique_address]] Enable enable_;
+  [[no_unique_address]] Value value_;
+  bool proposed_ = false;
+  bool fired_ = false;
+};
+
+/// A committed one-entry Queue capture.  Empty slots capture one input token;
+/// full slots apply only the release decision and deliberately do not refill
+/// until a later tick.  Releasing retains the old payload for observability.
+template <typename T> struct SlotState {
+  bool valid = false;
+  T value{};
+};
+
+template <typename T, typename Release>
+  requires std::invocable<const Release &> &&
+           std::convertible_to<std::invoke_result_t<const Release &>, bool>
+class QueueSlot final : public SimObject {
+public:
+  static constexpr std::string_view contractName = "ac.slot";
+  static constexpr ObjectKind componentKind = ObjectKind::Queue;
+
+  QueueSlot(std::string name, ObjectId id, SimObject *parent,
+            SimQueue<T> &input, SlotState<T> &state, Release release = {},
+            ObservationSink *observations = nullptr)
+      : SimObject(componentKind, std::move(name), id, parent, observations),
+        input_(input), state_(state), release_(std::move(release)) {}
+
+  bool valid() const { return state_.valid; }
+  const T &value() const { return state_.value; }
+
+  void doWork(Epoch) override {
+    if (fired_)
+      return;
+    if (state_.valid) {
+      if (static_cast<bool>(std::invoke(std::as_const(release_)))) {
+        pendingRelease_ = true;
+        fired_ = true;
+      }
+      return;
+    }
+    if (!input_.canProposePop())
+      return;
+    const T *head = input_.peekProposable();
+    if (!head || !input_.proposePop())
+      return;
+    pendingPayload_ = *head;
+    pendingCapture_ = true;
+    fired_ = true;
+  }
+
+  void doXfer(Epoch) override {
+    if (pendingRelease_)
+      state_.valid = false;
+    else if (pendingCapture_) {
+      state_.value = std::move(pendingPayload_);
+      state_.valid = true;
+    }
+    pendingRelease_ = false;
+    pendingCapture_ = false;
+    fired_ = false;
+  }
+  bool hasPendingCommit() const override { return fired_; }
+  bool isRunnable(Epoch) const override {
+    if (fired_)
+      return false;
+    return state_.valid
+               ? static_cast<bool>(std::invoke(std::as_const(release_)))
+               : input_.canProposePop();
+  }
+  void reset() override {
+    state_.valid = false;
+    state_.value = T{};
+    pendingPayload_ = T{};
+    pendingRelease_ = false;
+    pendingCapture_ = false;
+    fired_ = false;
+    clearRuntimeFailureCode();
+  }
+
+private:
+  SimQueue<T> &input_;
+  SlotState<T> &state_;
+  [[no_unique_address]] Release release_;
+  T pendingPayload_{};
+  bool pendingRelease_ = false;
+  bool pendingCapture_ = false;
   bool fired_ = false;
 };
 

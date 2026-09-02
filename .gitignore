@@ -262,3 +262,5 @@ docs/gates/*
 docs/gates/logs/*
 !docs/gates/logs/20260901-ac-table-prototype/
 !docs/gates/logs/20260901-ac-table-prototype/**
+!docs/gates/logs/20260902-ac-table-slot-match/
+!docs/gates/logs/20260902-ac-table-slot-match/**

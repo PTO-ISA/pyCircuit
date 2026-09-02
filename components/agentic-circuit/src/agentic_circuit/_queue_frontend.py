@@ -283,12 +283,51 @@ class TableReadBinding:
 @dataclass(frozen=True, slots=True)
 class TableWriteBinding:
     table: str
-    input_name: str
-    argument: str
+    input_name: str | None
+    argument: str | None
     address: ast.expr
     enable: ast.expr
     value: ast.expr | None
     patch_fields: tuple[tuple[str, ast.expr], ...]
+    scope: tuple[str, ...]
+    order: int
+
+
+@dataclass(frozen=True, slots=True)
+class SlotBinding:
+    name: str
+    input_name: str
+    payload: str
+    scope: tuple[str, ...]
+    order: int
+
+
+@dataclass(frozen=True, slots=True)
+class SlotReleaseBinding:
+    slot: str
+    when: ast.expr
+    scope: tuple[str, ...]
+    order: int
+
+
+@dataclass(frozen=True, slots=True)
+class CandidateSetBinding:
+    name: str
+    table: str
+    argument: str
+    predicate: ast.expr
+    scope: tuple[str, ...]
+    order: int
+
+
+@dataclass(frozen=True, slots=True)
+class SelectionBinding:
+    name: str
+    table: str
+    candidates: str
+    policy: str
+    argument: str | None
+    key: ast.expr | None
     scope: tuple[str, ...]
     order: int
 
@@ -371,6 +410,10 @@ class QueueProgram:
     tables: tuple[TableBinding, ...]
     table_reads: tuple[TableReadBinding, ...]
     table_writes: tuple[TableWriteBinding, ...]
+    slots: tuple[SlotBinding, ...]
+    slot_releases: tuple[SlotReleaseBinding, ...]
+    candidates: tuple[CandidateSetBinding, ...]
+    selections: tuple[SelectionBinding, ...]
     atomics: tuple[AtomicBinding, ...]
     collections: tuple[CollectionBinding, ...]
     observations: tuple[ObservationBinding, ...]
@@ -809,8 +852,15 @@ def parse_queue_program(
     tables: list[TableBinding] = []
     table_reads: list[TableReadBinding] = []
     table_writes: list[TableWriteBinding] = []
+    slots: list[SlotBinding] = []
+    slot_releases: list[SlotReleaseBinding] = []
+    candidates: list[CandidateSetBinding] = []
+    selections: list[SelectionBinding] = []
     table_by_name: dict[str, TableBinding] = {}
     entry_views: dict[str, EntryViewBinding] = {}
+    slot_by_name: dict[str, SlotBinding] = {}
+    candidate_by_name: dict[str, CandidateSetBinding] = {}
+    selection_by_name: dict[str, SelectionBinding] = {}
     memory_by_name: dict[str, MemoryInstanceBinding] = {}
     memory_arrays: dict[str, StaticMemoryArrayBinding] = {}
     selected_memories: dict[str, SelectedMemoryBinding] = {}
@@ -871,6 +921,15 @@ def parse_queue_program(
                 "ACPY-TABLE-002: table.view requires one index or selector lambda"
             )
         selector = node.args[0]
+        if (
+            isinstance(selector, ast.Attribute)
+            and isinstance(selector.value, ast.Name)
+            and selector.value.id in selection_by_name
+            and selection_by_name[selector.value.id].table != table_name
+        ):
+            raise QueueFrontendError(
+                "ACPY-TABLE-007: Selection belongs to a different Table"
+            )
         if isinstance(selector, ast.Lambda):
             argument, address = _lambda(selector)
         else:
@@ -1295,6 +1354,9 @@ def parse_queue_program(
                 or name in selected_memories
                 or name in table_by_name
                 or name in entry_views
+                or name in slot_by_name
+                or name in candidate_by_name
+                or name in selection_by_name
                 for name in assigned_names
             ):
                 raise QueueFrontendError(
@@ -1306,6 +1368,7 @@ def parse_queue_program(
                 and isinstance(statement.targets[0], ast.Name)
                 and isinstance(statement.value, ast.Call)
             ):
+                call = statement.value
                 declaration = table_declaration(statement.value)
                 if declaration is not None:
                     name = statement.targets[0].id
@@ -1320,6 +1383,110 @@ def parse_queue_program(
                     tables.append(binding)
                     table_by_name[name] = binding
                     continue
+                if call_name(call) == "slot":
+                    if len(call.args) != 1 or call.keywords:
+                        raise QueueFrontendError(
+                            "ACPY-SLOT-001: ac.slot requires exactly one Queue"
+                        )
+                    name = statement.targets[0].id
+                    if name in by_name or name in collections or name in slot_by_name:
+                        raise QueueFrontendError(
+                            "ACPY-SLOT-001: slot declaration requires a fresh name"
+                        )
+                    input_name = queue_reference(call.args[0], aliases)
+                    binding = SlotBinding(
+                        name,
+                        input_name,
+                        by_name[input_name].payload,
+                        scope_path,
+                        current_order,
+                    )
+                    slots.append(binding)
+                    slot_by_name[name] = binding
+                    continue
+                if (
+                    isinstance(call.func, ast.Attribute)
+                    and call.func.attr == "match"
+                    and isinstance(call.func.value, ast.Name)
+                    and call.func.value.id in table_by_name
+                ):
+                    name = statement.targets[0].id
+                    table_name = call.func.value.id
+                    table = table_by_name[table_name]
+                    if table.entries > 64:
+                        raise QueueFrontendError(
+                            "ACPY-TABLE-006: table.match domain must contain 1..64 entries"
+                        )
+                    if len(call.args) != 1 or call.keywords:
+                        raise QueueFrontendError(
+                            "ACPY-TABLE-006: table.match requires one predicate lambda"
+                        )
+                    argument, predicate = _lambda(call.args[0])
+                    binding = CandidateSetBinding(
+                        name, table_name, argument, predicate, scope_path, current_order
+                    )
+                    candidates.append(binding)
+                    candidate_by_name[name] = binding
+                    continue
+                if (
+                    isinstance(call.func, ast.Attribute)
+                    and call.func.attr == "choose"
+                    and isinstance(call.func.value, ast.Name)
+                    and call.func.value.id in table_by_name
+                ):
+                    name = statement.targets[0].id
+                    table_name = call.func.value.id
+                    if len(call.args) != 1 or not isinstance(call.args[0], ast.Name):
+                        raise QueueFrontendError(
+                            "ACPY-TABLE-007: table.choose requires one CandidateSet"
+                        )
+                    candidate = candidate_by_name.get(call.args[0].id)
+                    if candidate is None or candidate.table != table_name:
+                        raise QueueFrontendError(
+                            "ACPY-TABLE-007: CandidateSet belongs to a different Table"
+                        )
+                    keywords = {keyword.arg: keyword.value for keyword in call.keywords}
+                    if None in keywords or set(keywords) - {"count", "policy", "key"}:
+                        raise QueueFrontendError(
+                            "ACPY-TABLE-007: table.choose parameters are invalid"
+                        )
+                    count = _static_int(keywords.get("count", ast.Constant(1)))
+                    if count != 1:
+                        raise QueueFrontendError(
+                            "ACPY-TABLE-007: table.choose supports count=1 only"
+                        )
+                    policy_node = keywords.get("policy", ast.Constant("first"))
+                    policy = (
+                        policy_node.value
+                        if isinstance(policy_node, ast.Constant)
+                        and isinstance(policy_node.value, str)
+                        else None
+                    )
+                    if policy not in {"first", "min", "max"}:
+                        raise QueueFrontendError(
+                            "ACPY-TABLE-007: choose policy must be first, min, or max"
+                        )
+                    key_node = keywords.get("key")
+                    key_argument: str | None = None
+                    key: ast.expr | None = None
+                    if policy == "first":
+                        if key_node is not None:
+                            raise QueueFrontendError(
+                                "ACPY-TABLE-007: first policy does not accept key"
+                            )
+                    else:
+                        if key_node is None:
+                            raise QueueFrontendError(
+                                "ACPY-TABLE-007: min/max policy requires key lambda"
+                            )
+                        key_argument, key = _lambda(key_node)
+                    binding = SelectionBinding(
+                        name, table_name, candidate.name, str(policy),
+                        key_argument, key, scope_path, current_order
+                    )
+                    selections.append(binding)
+                    selection_by_name[name] = binding
+                    continue
                 view = parse_view(
                     statement.value,
                     statement.targets[0].id,
@@ -1333,6 +1500,44 @@ def parse_queue_program(
                         )
                     entry_views[view.name] = view
                     continue
+            if (
+                isinstance(statement, ast.Expr)
+                and isinstance(statement.value, ast.Call)
+                and isinstance(statement.value.func, ast.Attribute)
+                and statement.value.func.attr == "release"
+                and isinstance(statement.value.func.value, ast.Name)
+                and statement.value.func.value.id in slot_by_name
+            ):
+                call = statement.value
+                slot_name = call.func.value.id
+                if call.args or any(
+                    keyword.arg is None or keyword.arg != "when"
+                    for keyword in call.keywords
+                ):
+                    raise QueueFrontendError(
+                        "ACPY-SLOT-002: slot.release accepts only when=expression"
+                    )
+                values = [
+                    keyword.value for keyword in call.keywords
+                    if keyword.arg == "when"
+                ]
+                if len(values) != 1 or isinstance(values[0], ast.Lambda):
+                    raise QueueFrontendError(
+                        "ACPY-SLOT-002: slot.release requires one state expression"
+                    )
+                if any(release.slot == slot_name for release in slot_releases):
+                    raise QueueFrontendError(
+                        "ACPY-SLOT-002: slot permits exactly one release endpoint"
+                    )
+                slot_releases.append(
+                    SlotReleaseBinding(
+                        slot_name,
+                        _constantize_expression(values[0], "", system_static_values),
+                        scope_path,
+                        current_order,
+                    )
+                )
+                continue
             if (
                 isinstance(statement, ast.Assign)
                 and len(statement.targets) == 1
@@ -1437,14 +1642,18 @@ def parse_queue_program(
                 view = resolve_view(call.func.value, scope_path, current_order)
                 if view is not None:
                     method = call.func.attr
-                    if len(call.args) != 1 or view.argument is None:
+                    queue_driven = view.argument is not None
+                    if len(call.args) != (1 if queue_driven else 0):
                         raise QueueFrontendError(
-                            "ACPY-TABLE-004: table write/patch requires a "
-                            "Queue-driven view"
+                            "ACPY-TABLE-004: Queue-driven table write/patch requires "
+                            "one Queue; state-driven write/patch takes no Queue"
                         )
-                    input_name = queue_reference(call.args[0], aliases)
+                    input_name = (
+                        queue_reference(call.args[0], aliases)
+                        if queue_driven
+                        else None
+                    )
                     argument = view.argument
-                    assert argument is not None
                     enable_values = [
                         keyword.value
                         for keyword in call.keywords
@@ -1454,12 +1663,26 @@ def parse_queue_program(
                         raise QueueFrontendError(
                             "ACPY-TABLE-004: repeated write enable"
                         )
-                    enable = lambda_or_constant(
-                        enable_values[0] if enable_values else ast.Constant(True),
-                        argument,
-                        "ACPY-TABLE-004: selector and enable lambdas require "
-                        "one argument name",
+                    enable_node = (
+                        enable_values[0] if enable_values else ast.Constant(True)
                     )
+                    if queue_driven:
+                        assert argument is not None
+                        enable = lambda_or_constant(
+                            enable_node,
+                            argument,
+                            "ACPY-TABLE-004: selector and enable lambdas require "
+                            "one argument name",
+                        )
+                    else:
+                        if isinstance(enable_node, ast.Lambda):
+                            raise QueueFrontendError(
+                                "ACPY-TABLE-004: state-driven enable must be an "
+                                "expression, not a lambda"
+                            )
+                        enable = _constantize_expression(
+                            enable_node, "", system_static_values
+                        )
                     value: ast.expr | None = None
                     patch_fields: tuple[tuple[str, ast.expr], ...] = ()
                     table = table_by_name[view.table]
@@ -1481,12 +1704,23 @@ def parse_queue_program(
                             raise QueueFrontendError(
                                 "ACPY-TABLE-004: write requires one value lambda"
                             )
-                        value = lambda_or_constant(
-                            values[0],
-                            argument,
-                            "ACPY-TABLE-004: selector and value lambdas require "
-                            "one argument name",
-                        )
+                        if queue_driven:
+                            assert argument is not None
+                            value = lambda_or_constant(
+                                values[0],
+                                argument,
+                                "ACPY-TABLE-004: selector and value lambdas require "
+                                "one argument name",
+                            )
+                        else:
+                            if isinstance(values[0], ast.Lambda):
+                                raise QueueFrontendError(
+                                    "ACPY-TABLE-004: state-driven value must be an "
+                                    "expression, not a lambda"
+                                )
+                            value = _constantize_expression(
+                                values[0], "", system_static_values
+                            )
                     else:
                         payload_name = table.entry_type.removeprefix(
                             "!ac.struct<@types::@"
@@ -1510,9 +1744,13 @@ def parse_queue_program(
                                     keyword.arg,
                                     lambda_or_constant(
                                         keyword.value,
-                                        argument,
+                                        argument or "",
                                         "ACPY-TABLE-004: patch lambdas require "
                                         "one argument name",
+                                    )
+                                    if queue_driven
+                                    else _constantize_expression(
+                                        keyword.value, "", system_static_values
                                     ),
                                 )
                             )
@@ -3469,10 +3707,15 @@ def parse_queue_program(
     for table in tables:
         endpoint_count = sum(read.table == table.name for read in table_reads) + sum(
             write.table == table.name for write in table_writes
-        )
+        ) + sum(candidate.table == table.name for candidate in candidates)
         if endpoint_count == 0:
             raise QueueFrontendError(
                 f"ACPY-TABLE-005: table {table.name!r} requires a read/write endpoint"
+            )
+    for slot in slots:
+        if not any(release.slot == slot.name for release in slot_releases):
+            raise QueueFrontendError(
+                f"ACPY-SLOT-002: slot {slot.name!r} requires one release endpoint"
             )
     if not queues or not sinks:
         raise QueueFrontendError(
@@ -3498,6 +3741,10 @@ def parse_queue_program(
         tuple(tables),
         tuple(table_reads),
         tuple(table_writes),
+        tuple(slots),
+        tuple(slot_releases),
+        tuple(candidates),
+        tuple(selections),
         tuple(atomics),
         tuple(collection_bindings),
         tuple(observations),
@@ -3518,6 +3765,10 @@ class _ExpressionEmitter:
         prefix: str = "",
         allow_queue_effects: bool = False,
         table_views: Mapping[str, tuple[str, ast.expr, str]] | None = None,
+        slot_views: Mapping[str, tuple[str, str]] | None = None,
+        candidates: Mapping[str, CandidateSetBinding] | None = None,
+        selections: Mapping[str, SelectionBinding] | None = None,
+        table_domains: Mapping[str, tuple[str, int]] | None = None,
     ) -> None:
         self.payloads = payloads
         self.argument = argument
@@ -3526,6 +3777,10 @@ class _ExpressionEmitter:
         self.prefix = prefix
         self.allow_queue_effects = allow_queue_effects
         self.table_views = dict(table_views or {})
+        self.slot_views = dict(slot_views or {})
+        self.candidates = dict(candidates or {})
+        self.selections = dict(selections or {})
+        self.table_domains = dict(table_domains or {})
         self.lines: list[str] = []
         self.index = 0
 
@@ -3550,6 +3805,98 @@ class _ExpressionEmitter:
                 f"!ac.var<{index_type}> -> !ac.var<{entry_type}>"
             )
             return name, entry_type
+        if (
+            isinstance(node, ast.Attribute)
+            and isinstance(node.value, ast.Name)
+            and node.value.id in self.slot_views
+            and node.attr in {"valid", "value"}
+        ):
+            slot, payload = self.slot_views[node.value.id]
+            valid = self._new()
+            value = self._new()
+            self.lines.append(
+                f"    %{valid}, %{value} = ac.slot.get @{slot} : "
+                f"!ac.var<i1>, !ac.var<{payload}>"
+            )
+            return (valid, "i1") if node.attr == "valid" else (value, payload)
+        if (
+            isinstance(node, ast.Attribute)
+            and isinstance(node.value, ast.Name)
+            and node.value.id in self.selections
+            and node.attr in {"index", "valid"}
+        ):
+            selection = self.selections[node.value.id]
+            candidate = self.candidates[selection.candidates]
+            domain = self.table_domains.get(selection.table)
+            if domain is None:
+                raise QueueFrontendError("ACPY-TABLE-007: selection domain is unresolved")
+            entry_type, mask_width = domain
+            predicate_emitter = _ExpressionEmitter(
+                self.payloads,
+                candidate.argument,
+                entry_type,
+                root_name="entry",
+                prefix=f"{self.prefix}m{self.index}_",
+                slot_views=self.slot_views,
+            )
+            predicate, predicate_type = predicate_emitter.emit(
+                candidate.predicate, "i1"
+            )
+            if predicate_type != "i1":
+                raise QueueFrontendError(
+                    "ACPY-TABLE-006: match predicate must lower to i1"
+                )
+            mask = self._new()
+            self.lines.append(
+                f"    %{mask} = ac.table.match @{selection.table} predicate {{"
+            )
+            self.lines.append(f"    ^predicate(%entry: !ac.var<{entry_type}>):")
+            self.lines.extend(predicate_emitter.lines)
+            self.lines.append(
+                f"      ac.table.match.yield %{predicate} : !ac.var<i1>"
+            )
+            self.lines.append(f"    }} -> !ac.var<i{mask_width}>")
+            index = self._new()
+            valid = self._new()
+            index_width = max(1, (mask_width - 1).bit_length())
+            if selection.policy == "first":
+                key_region = "{}"
+                self.lines.append(
+                    f'    %{index}, %{valid} = ac.table.choose @{selection.table} '
+                    f'%{mask} : !ac.var<i{mask_width}> count 1 policy "first" '
+                    f'key {key_region} -> '
+                    f"!ac.var<i{index_width}>, !ac.var<i1>"
+                )
+            else:
+                assert selection.argument is not None and selection.key is not None
+                key_emitter = _ExpressionEmitter(
+                    self.payloads,
+                    selection.argument,
+                    entry_type,
+                    root_name="entry",
+                    prefix=f"{self.prefix}k{self.index}_",
+                )
+                key, key_type = key_emitter.emit(selection.key)
+                if not key_type.startswith("i"):
+                    raise QueueFrontendError(
+                        "ACPY-TABLE-007: choose key must lower to an integer"
+                    )
+                self.lines.append(
+                    f'    %{index}, %{valid} = ac.table.choose @{selection.table} '
+                    f'%{mask} : !ac.var<i{mask_width}> count 1 '
+                    f'policy "{selection.policy}" key {{'
+                )
+                self.lines.append(
+                    f"    ^key(%entry: !ac.var<{entry_type}>):"
+                )
+                self.lines.extend(key_emitter.lines)
+                self.lines.append(
+                    f"      ac.table.choose.yield %{key} : !ac.var<{key_type}>"
+                )
+                self.lines.append(
+                    f"    }} -> !ac.var<i{index_width}>, !ac.var<i1>"
+                )
+            return (index, f"i{index_width}") if node.attr == "index" else (valid, "i1")
         if (
             isinstance(node, ast.Call)
             and isinstance(node.func, ast.Attribute)
@@ -3835,6 +4182,12 @@ def lower_queue_program(program: QueueProgram) -> str:
             tuple(group),
         )
     payload_by_queue = {name: queue.payload for name, queue in by_name.items()}
+    slot_views = {slot.name: (slot.name, slot.payload) for slot in program.slots}
+    candidate_views = {candidate.name: candidate for candidate in program.candidates}
+    selection_views = {selection.name: selection for selection in program.selections}
+    table_domains = {
+        table.name: (table.entry_type, table.entries) for table in program.tables
+    }
     queue_scope = {name: queue.scope for name, queue in by_name.items()}
     effective_input: dict[str, str] = {}
     for source_name, (fanout_scope, group) in fanouts.items():
@@ -3886,7 +4239,10 @@ def lower_queue_program(program: QueueProgram) -> str:
         if read.input_name is not None:
             uses[read.input_name].append(read.scope)
     for write in program.table_writes:
-        uses[write.input_name].append(write.scope)
+        if write.input_name is not None:
+            uses[write.input_name].append(write.scope)
+    for slot in program.slots:
+        uses[slot.input_name].append(slot.scope)
 
     def inside(container: tuple[str, ...], candidate: tuple[str, ...]) -> bool:
         return candidate[: len(container)] == container
@@ -4051,6 +4407,16 @@ def lower_queue_program(program: QueueProgram) -> str:
             (write.order, "table_write", write)
             for write in program.table_writes
             if write.scope == path
+        )
+        events.extend(
+            (slot.order, "slot", slot)
+            for slot in program.slots
+            if slot.scope == path
+        )
+        events.extend(
+            (release.order, "slot_release", release)
+            for release in program.slot_releases
+            if release.scope == path
         )
         events.extend(
             (
@@ -4523,22 +4889,35 @@ def lower_queue_program(program: QueueProgram) -> str:
                 table = next(
                     value for value in program.tables if value.name == write.table
                 )
-                input_payload = by_name[write.input_name].payload
+                input_payload = (
+                    table.entry_type
+                    if write.input_name is None
+                    else by_name[write.input_name].payload
+                )
+                argument = write.argument or ""
                 address_emitter = _ExpressionEmitter(
-                    payloads, write.argument, input_payload
+                    payloads, argument, input_payload, slot_views=slot_views,
+                    candidates=candidate_views, selections=selection_views,
+                    table_domains=table_domains,
                 )
                 address, address_type = address_emitter.emit(write.address)
                 enable_emitter = _ExpressionEmitter(
-                    payloads, write.argument, input_payload
+                    payloads, argument, input_payload, slot_views=slot_views,
+                    candidates=candidate_views, selections=selection_views,
+                    table_domains=table_domains,
                 )
                 enabled, enable_type = enable_emitter.emit(write.enable, "i1")
                 value_emitter = _ExpressionEmitter(
                     payloads,
-                    write.argument,
+                    argument,
                     input_payload,
                     table_views={
                         "__old": (write.table, write.address, table.entry_type)
                     },
+                    slot_views=slot_views,
+                    candidates=candidate_views,
+                    selections=selection_views,
+                    table_domains=table_domains,
                 )
                 if write.value is not None:
                     value, value_type = value_emitter.emit(
@@ -4569,10 +4948,20 @@ def lower_queue_program(program: QueueProgram) -> str:
                         "ACPY-TABLE-004: write address/enable/value type mismatch"
                     )
                 lines.append(
-                    f"{indent}ac.table.write @{write.table}, "
-                    f"%{mapping[write.input_name]} address {{"
+                    f"{indent}ac.table.write @{write.table}"
+                    + (
+                        ""
+                        if write.input_name is None
+                        else f", %{mapping[write.input_name]} : "
+                        f"!ac.queue<{input_payload}>"
+                    )
+                    + " address {"
                 )
-                block_argument = f"(%item: !ac.var<{input_payload}>)"
+                block_argument = (
+                    ""
+                    if write.input_name is None
+                    else f"(%item: !ac.var<{input_payload}>)"
+                )
                 policies = (
                     ("address", address, address_type, address_emitter.lines),
                     ("enable", enabled, enable_type, enable_emitter.lines),
@@ -4596,8 +4985,51 @@ def lower_queue_program(program: QueueProgram) -> str:
                 lines.append(
                     f'{indent}}} {{ac.endpoint_path = "'
                     f'{"/" + "/".join((*write.scope, endpoint_name))}", '
-                    f'ac.name = "{endpoint_name}"}} : '
-                    f"!ac.queue<{input_payload}>"
+                    f'ac.name = "{endpoint_name}"}}'
+                )
+            elif kind == "slot":
+                slot = item
+                assert isinstance(slot, SlotBinding)
+                owner = "/" + "/".join(slot.scope) if slot.scope else "/"
+                stable_id = "slot/" + (
+                    "/".join((*slot.scope, slot.name))
+                    if slot.scope
+                    else slot.name
+                )
+                lines.append(
+                    f'{indent}ac.slot @{slot.name}, %{mapping[slot.input_name]} '
+                    f'owner "{owner}" stable_id "{stable_id}" : '
+                    f'!ac.queue<{slot.payload}>'
+                )
+            elif kind == "slot_release":
+                release = item
+                assert isinstance(release, SlotReleaseBinding)
+                slot = next(value for value in program.slots if value.name == release.slot)
+                emitter = _ExpressionEmitter(
+                    payloads,
+                    "",
+                    slot.payload,
+                    slot_views=slot_views,
+                    candidates=candidate_views,
+                    selections=selection_views,
+                    table_domains=table_domains,
+                )
+                condition, condition_type = emitter.emit(release.when, "i1")
+                if condition_type != "i1":
+                    raise QueueFrontendError(
+                        "ACPY-SLOT-002: slot release condition must lower to i1"
+                    )
+                lines.append(f"{indent}ac.slot.release @{release.slot} when {{")
+                lines.append(f"{indent}^when:")
+                lines.extend(indent + line[2:] for line in emitter.lines)
+                lines.append(
+                    f"{indent}  ac.slot.yield %{condition} : !ac.var<i1>"
+                )
+                endpoint_name = f"{release.slot}__release"
+                lines.append(
+                    f'{indent}}} {{ac.endpoint_path = "'
+                    f'{"/" + "/".join((*release.scope, endpoint_name))}", '
+                    f'ac.name = "{endpoint_name}"}}'
                 )
             elif kind == "atomic":
                 atomic = item

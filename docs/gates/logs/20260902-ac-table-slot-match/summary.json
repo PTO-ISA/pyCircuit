@@ -1,0 +1,31 @@
+{
+  "contract_epoch": "0.4",
+  "decision_ids": ["0152"],
+  "result": "pass-with-declared-host-gaps",
+  "scope": "state-driven Table update, match/choose, and committed Queue slot through ACPy, Frozen ACIR, QueueGraph, direct/native typed gfsim C++",
+  "counts": {
+    "cpp_unit_tests_passed": 2154,
+    "cpp_test_executables_passed": 3,
+    "python_frontend_and_table_e2e_passed": 50,
+    "python_frontend_and_table_e2e_skipped": 1,
+    "contract_and_inventory_passed": 36,
+    "contract_and_inventory_skipped": 1,
+    "generated_runtime_variants_passed": 2
+  },
+  "verified_boundaries": [
+    "ACPy state-driven write/patch, CandidateSet/Selection, and slot API",
+    "Frozen ACIR parser, printer, effects, verifier diagnostics, catalog, and coverage ledger",
+    "strict decision-status closure for all 152 decision rows",
+    "QueueGraph recursive committed-state expression plan and slot controller",
+    "typed gfsim disabled update, old-state commit, slot capture/backpressure/release/payload retention/no-refill",
+    "Python direct and native QueueGraph C++ generation compile and runtime parity",
+    "stable unsupported provisional Table PYC diagnostic",
+    "existing Table scoreboard and Queue select lanes remain green"
+  ],
+  "declared_gaps": [
+    "CTest has no registered ACIROpsTests, GfsimTests, or CodeGenTests cases in this build tree; the three binaries were run directly",
+    "FileCheck, split-file, not, and count are unavailable, so check-acir was not claimed; new split-file cases were parsed manually with acir-opt",
+    "the repository-wide LLVM 22 clang-format command reports pre-existing violations outside the changed Agentic Circuit files; the changed C++ files pass the pinned formatter",
+    "black and ruff are unavailable in the isolated Python environment"
+  ]
+}

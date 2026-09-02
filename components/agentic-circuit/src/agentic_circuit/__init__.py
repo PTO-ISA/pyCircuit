@@ -88,6 +88,7 @@ __all__ = (
     "fork",
     "barrier",
     "table",
+    "slot",
     "u1",
     "u2",
     "u4",
@@ -291,3 +292,7 @@ class _TableFactory:
 
 
 table = _TableFactory()
+
+
+def slot(value: object) -> Never:
+    return _not_implemented("slot")

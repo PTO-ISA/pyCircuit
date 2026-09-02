@@ -17,6 +17,7 @@
 #include "llvm/ADT/StringMap.h"
 #include "llvm/ADT/StringSwitch.h"
 #include "llvm/ADT/TypeSwitch.h"
+#include "llvm/Support/MathExtras.h"
 
 #include <limits>
 
@@ -1377,7 +1378,10 @@ LogicalResult MemoryRequestOp::verify() {
 static bool isTableEntryType(Operation *anchor, Type type) {
   if (auto integer = dyn_cast<IntegerType>(type))
     return integer.getWidth() > 0 && integer.getWidth() <= 64;
-  Operation *declaration = recordDecl(anchor, type);
+  auto structure = dyn_cast<StructType>(type);
+  if (!structure)
+    return false;
+  Operation *declaration = recordDecl(anchor, structure);
   if (!declaration)
     return false;
   return llvm::all_of(declarationFields(declaration), [](Attribute rawField) {
@@ -1471,6 +1475,9 @@ LogicalResult TableOp::verify() {
         ++writers;
       }
     }
+    if (auto match = dyn_cast<TableMatchOp>(operation))
+      if (resolveTable(match, match.getTableAttr()) == *this)
+        ++endpoints;
   });
   if (!ownerExists)
     return emitOpError("owner does not name a declared scope path");
@@ -1509,6 +1516,33 @@ static FailureOr<Type> verifyTablePolicy(Operation *endpoint, Region &region,
     return failure();
   }
   for (Operation &operation : block.without_terminator()) {
+    if (isa<SlotGetOp>(operation))
+      continue;
+    if (auto match = dyn_cast<TableMatchOp>(operation)) {
+      FlatSymbolRefAttr endpointTable;
+      if (auto read = dyn_cast<TableReadOp>(endpoint))
+        endpointTable = read.getTableAttr();
+      else if (auto write = dyn_cast<TableWriteOp>(endpoint))
+        endpointTable = write.getTableAttr();
+      if (match.getTableAttr() != endpointTable) {
+        endpoint->emitOpError() << name << " match belongs to another Table";
+        return failure();
+      }
+      continue;
+    }
+    if (auto choose = dyn_cast<TableChooseOp>(operation)) {
+      FlatSymbolRefAttr endpointTable;
+      if (auto read = dyn_cast<TableReadOp>(endpoint))
+        endpointTable = read.getTableAttr();
+      else if (auto write = dyn_cast<TableWriteOp>(endpoint))
+        endpointTable = write.getTableAttr();
+      if (choose.getTableAttr() != endpointTable) {
+        endpoint->emitOpError()
+            << name << " selection belongs to another Table";
+        return failure();
+      }
+      continue;
+    }
     if (allowGet)
       if (auto get = dyn_cast<TableGetOp>(operation)) {
         FlatSymbolRefAttr endpointTable;
@@ -1575,8 +1609,10 @@ LogicalResult TableWriteOp::verify() {
     return emitOpError() << "unresolved table " << getTable();
   if (!tableVisibleFrom(*this, table))
     return emitOpError("table is outside the write scope ancestry");
-  Type argumentType = VarType::get(
-      getContext(), cast<QueueType>(getInput().getType()).getElementType());
+  Type argumentType;
+  if (getInput())
+    argumentType = VarType::get(
+        getContext(), cast<QueueType>(getInput().getType()).getElementType());
   auto address =
       verifyTablePolicy(*this, getAddress(), "address", argumentType, false);
   auto enable =
@@ -1596,6 +1632,176 @@ LogicalResult TableWriteOp::verify() {
     return emitOpError("enable must yield !ac.var<i1>");
   if (*value != table.getEntryType())
     return emitOpError("value must yield the table entry type");
+  return success();
+}
+
+LogicalResult TableMatchOp::verify() {
+  TableOp table = resolveTable(*this, getTableAttr());
+  if (!table)
+    return emitOpError() << "unresolved table " << getTable();
+  if (!tableVisibleFrom(*this, table))
+    return emitOpError("table is outside the match scope ancestry");
+  if (table.getEntries() <= 0 || table.getEntries() > 64)
+    return emitOpError("match domain must contain 1..64 entries");
+  if (getMask().getType() !=
+      VarType::get(getContext(),
+                   IntegerType::get(getContext(), table.getEntries())))
+    return emitOpError("mask width must equal the Table domain");
+  if (!getPredicate().hasOneBlock())
+    return emitOpError("predicate must contain exactly one block");
+  Block &block = getPredicate().front();
+  Type entry = VarType::get(getContext(), table.getEntryType());
+  if (block.getNumArguments() != 1 || block.getArgument(0).getType() != entry)
+    return emitOpError("predicate argument must match the Table Entry");
+  for (Operation &operation : block.without_terminator())
+    if (!isa<SlotGetOp, TableGetOp>(operation) &&
+        !isMemoryEffectFree(&operation))
+      return emitOpError() << "predicate operation '" << operation.getName()
+                           << "' is not permitted";
+  auto yield = dyn_cast<TableMatchYieldOp>(block.getTerminator());
+  if (!yield ||
+      !cast<VarType>(yield.getValue().getType()).getElementType().isInteger(1))
+    return emitOpError("predicate must yield !ac.var<i1>");
+  return success();
+}
+
+LogicalResult TableChooseOp::verify() {
+  TableOp table = resolveTable(*this, getTableAttr());
+  if (!table)
+    return emitOpError() << "unresolved table " << getTable();
+  if (!tableVisibleFrom(*this, table))
+    return emitOpError("table is outside the choose scope ancestry");
+  if (table.getEntries() <= 0 || table.getEntries() > 64)
+    return emitOpError("choose domain must contain 1..64 entries");
+  auto mask = dyn_cast<IntegerType>(
+      cast<VarType>(getMask().getType()).getElementType());
+  if (!mask || mask.getWidth() != static_cast<unsigned>(table.getEntries()))
+    return emitOpError("candidate mask width must equal the Table domain");
+  if (getCount() != 1)
+    return emitOpError("choose supports count=1 only");
+  if (getPolicy() != "first" && getPolicy() != "min" && getPolicy() != "max")
+    return emitOpError("policy must be first, min, or max");
+  unsigned indexWidth = std::max<unsigned>(
+      1, llvm::Log2_64_Ceil(static_cast<uint64_t>(table.getEntries())));
+  if (getIndex().getType() !=
+      VarType::get(getContext(), IntegerType::get(getContext(), indexWidth)))
+    return emitOpError("index result width must address the Table domain");
+  if (getValid().getType() !=
+      VarType::get(getContext(), IntegerType::get(getContext(), 1)))
+    return emitOpError("valid result must be !ac.var<i1>");
+  if (getPolicy() == "first") {
+    if (!getKey().empty())
+      return emitOpError("first policy does not accept a key region");
+    return success();
+  }
+  if (!getKey().hasOneBlock())
+    return emitOpError("min/max policy requires one key region");
+  Block &block = getKey().front();
+  Type entry = VarType::get(getContext(), table.getEntryType());
+  if (block.getNumArguments() != 1 || block.getArgument(0).getType() != entry)
+    return emitOpError("key argument must match the Table Entry");
+  for (Operation &operation : block.without_terminator())
+    if (!isMemoryEffectFree(&operation))
+      return emitOpError() << "key operation '" << operation.getName()
+                           << "' is not permitted";
+  auto yield = dyn_cast<TableChooseYieldOp>(block.getTerminator());
+  auto key =
+      yield ? dyn_cast<IntegerType>(
+                  cast<VarType>(yield.getValue().getType()).getElementType())
+            : IntegerType();
+  if (!key || key.getWidth() == 0 || key.getWidth() > 64)
+    return emitOpError(
+        "min/max key must yield an unsigned fixed-width integer");
+  return success();
+}
+
+static SlotOp resolveSlot(Operation *operation, FlatSymbolRefAttr reference) {
+  return dyn_cast_or_null<SlotOp>(
+      SymbolTable::lookupNearestSymbolFrom(operation, reference));
+}
+
+static bool slotVisibleFrom(Operation *operation, SlotOp slot) {
+  std::string requestScope = queueScopePath(operation);
+  StringRef owner = slot.getOwner();
+  StringRef requestPath(requestScope);
+  return owner == "/" || requestPath == owner ||
+         (requestPath.size() > owner.size() && requestPath.starts_with(owner) &&
+          requestPath[owner.size()] == '/');
+}
+
+LogicalResult SlotOp::verify() {
+  Type payload = cast<QueueType>(getInput().getType()).getElementType();
+  if (!isTableEntryType(*this, payload))
+    return emitOpError("input Queue payload must be bool, a <=64-bit integer, "
+                       "or a flat integer struct");
+  if (getOwner().empty() || !getOwner().starts_with('/') ||
+      (getOwner().size() > 1 && getOwner().ends_with('/')))
+    return emitOpError("owner must be a canonical absolute scope path");
+  std::string expectedStableId = "slot/";
+  if (getOwner() != "/") {
+    expectedStableId.append(getOwner().drop_front());
+    expectedStableId.push_back('/');
+  }
+  expectedStableId.append(getSymName());
+  if (getStableId() != expectedStableId)
+    return emitOpError("stable_id must match canonical owner/symbol identity");
+  Operation *root = getOperation();
+  while (root->getParentOp())
+    root = root->getParentOp();
+  unsigned releases = 0;
+  root->walk([&](SlotReleaseOp release) {
+    if (resolveSlot(release, release.getSlotAttr()) == *this)
+      ++releases;
+  });
+  if (releases != 1)
+    return emitOpError("slot requires exactly one release endpoint");
+  return success();
+}
+
+LogicalResult SlotGetOp::verify() {
+  SlotOp slot = resolveSlot(*this, getSlotAttr());
+  if (!slot)
+    return emitOpError() << "unresolved slot " << getSlot();
+  if (!slotVisibleFrom(*this, slot))
+    return emitOpError("slot is outside the access scope ancestry");
+  Type payload = cast<QueueType>(slot.getInput().getType()).getElementType();
+  if (getValid().getType() !=
+      VarType::get(getContext(), IntegerType::get(getContext(), 1)))
+    return emitOpError("valid result must be !ac.var<i1>");
+  if (getValue().getType() != VarType::get(getContext(), payload))
+    return emitOpError("value result must match slot Queue payload");
+  return success();
+}
+
+LogicalResult SlotReleaseOp::verify() {
+  SlotOp slot = resolveSlot(*this, getSlotAttr());
+  if (!slot)
+    return emitOpError() << "unresolved slot " << getSlot();
+  if (!slotVisibleFrom(*this, slot))
+    return emitOpError("slot is outside the release scope ancestry");
+  if (!getWhen().hasOneBlock() || getWhen().front().getNumArguments() != 0)
+    return emitOpError("when must contain one zero-argument block");
+  Block &block = getWhen().front();
+  for (Operation &operation : block.without_terminator()) {
+    if (auto get = dyn_cast<SlotGetOp>(operation)) {
+      if (get.getSlotAttr() != getSlotAttr())
+        return emitOpError("when may only observe its endpoint slot");
+      continue;
+    }
+    if (auto get = dyn_cast<TableGetOp>(operation)) {
+      (void)get;
+      continue;
+    }
+    if (isa<TableMatchOp, TableChooseOp>(operation))
+      continue;
+    if (!isMemoryEffectFree(&operation))
+      return emitOpError() << "when operation '" << operation.getName()
+                           << "' is not permitted";
+  }
+  auto yield = dyn_cast<SlotYieldOp>(block.getTerminator());
+  if (!yield ||
+      !cast<VarType>(yield.getValue().getType()).getElementType().isInteger(1))
+    return emitOpError("when must terminate with ac.slot.yield !ac.var<i1>");
   return success();
 }
 

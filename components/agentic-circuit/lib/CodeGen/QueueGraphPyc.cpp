@@ -359,7 +359,7 @@ constexpr llvm::StringLiteral kStructMetrics =
 } // namespace
 
 llvm::Expected<std::string> generateQueueGraphPyc(const QueueGraphPlan &plan) {
-  if (!plan.tables.empty())
+  if (!plan.tables.empty() || !plan.slots.empty())
     return pycError("unsupported provisional Table: PYC lowering is deferred");
   if (!plan.scopes.empty()) {
     const QueueBlockContract *scope = findQueueBlockContract("scope");

@@ -12,3 +12,7 @@ stable.
 
 This example targets the typed gfsim C++ provider. The PYC provider diagnoses
 the provisional Table as unsupported.
+
+`table_issue_slot.py` covers the provisional committed-request flow:
+`ac.slot` capture, `table.match`, `table.choose(policy="min")`, a state-driven
+patch, and release without same-cycle refill.

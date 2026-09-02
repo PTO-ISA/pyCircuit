@@ -1,18 +1,19 @@
 # Agentic Circuit Stateful Table Abstraction Design
 
-> 状态：epoch `0.4` 简单原型已实现；其余内容为后续设计
-> 当前范围：一维、全零初始化、单 writer、typed gfsim C++
-> 规范依据：Decision 0151 与 `docs/spec/agentic-circuit*.md`
+> 状态：epoch `0.4` 原型由 Decisions 0151–0152 定义；其余内容为后续设计
+> 当前范围：一维、全零初始化、单 writer、state-driven update、match/choose、committed slot、typed gfsim C++
+> 规范依据：Decisions 0151–0152 与 `docs/spec/agentic-circuit*.md`
 
 ## 0. epoch 0.4 原型边界
 
-当前实现只承诺 `ac.table[entries, Entry](init=0)`、`EntryView.read()`、
-Queue-driven `read/write/patch`、Frozen ACIR 的 `ac.table/get/read/write/yield`
+当前实现承诺 `ac.table[entries, Entry]` 的 `init=0` 形式、`EntryView.read()`、
+Queue-driven 与 state-driven `write/patch`、`table.match/choose`、`ac.slot(queue)`，
+以及 Frozen ACIR 的 `ac.table/get/read/write/match/choose` 与 `ac.slot/get/release`
 以及 QueueGraph 到 typed gfsim C++ 的纵向链路。`patch` 在 Frozen ACIR 前展开为
 `table.get -> var.with -> table.write`。同 tick 读写返回 old committed Entry，write
 在 tick commit 后可见；动态越界报告 `table_index_out_of_range`。
 
-本文件下文关于 `ac.firing`、跨对象原子性、PYC/RTL、多维、match/select、多个
+本文件下文关于 `ac.firing`、跨对象原子性、PYC/RTL、多维、多选、多个
 writer、非零 image、仲裁及 SRAM inference 的设计均为明确 deferred，不是 epoch
 `0.4` 的可用产品契约。旧 `ac.table(value, address=..., ...)` 已删除；请求响应 memory
 继续使用 `ac.memory`。

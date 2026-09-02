@@ -51,6 +51,7 @@ PUBLIC = {
     "fork",
     "barrier",
     "table",
+    "slot",
     "u1",
     "u2",
     "u4",

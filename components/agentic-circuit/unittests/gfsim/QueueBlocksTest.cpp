@@ -167,6 +167,49 @@ struct TableNonzero {
   bool operator()() const { return table->at(0) != 0; }
 };
 
+struct TableEntryDependentWhen {
+  SimTable<uint16_t> *table = nullptr;
+  bool operator()(const MemoryRequest &request) const {
+    return table->checkedAt(request.address) != 0;
+  }
+};
+
+struct TableStateAddress {
+  uint8_t address = 0;
+  uint8_t operator()() const { return address; }
+};
+
+struct TableStateEntryDependentWhen {
+  SimTable<uint16_t> *table = nullptr;
+  uint8_t address = 0;
+  bool operator()() const { return table->checkedAt(address) != 0; }
+};
+
+struct StateWriteAddress {
+  unsigned *calls = nullptr;
+  uint8_t operator()() const {
+    ++*calls;
+    return 0;
+  }
+};
+
+struct StateWriteEnable {
+  bool *enabled = nullptr;
+  bool operator()() const { return *enabled; }
+};
+
+struct StateWriteIncrement {
+  SimTable<uint16_t> *table = nullptr;
+  uint16_t operator()() const {
+    return static_cast<uint16_t>(table->at(0) + 1);
+  }
+};
+
+struct SlotReleaseFlag {
+  bool *release = nullptr;
+  bool operator()() const { return *release; }
+};
+
 TEST(QueueBlocksTest, HighLevelProvidersFreezeStructuralTemplateParameters) {
   using Schedule4 =
       Schedule<DependencyValue, 16, 4, 255, DependencyKey,
@@ -281,6 +324,51 @@ TEST(QueueBlocksTest, TableReadPreservesDisabledAndOutOfRangeRequests) {
   EXPECT_EQ(invalid.runtimeFailureCode(), "table_index_out_of_range");
   EXPECT_FALSE(invalidInput.isEmpty());
   EXPECT_TRUE(invalidOutput.isEmpty());
+  EXPECT_TRUE(table.runtimeFailureCode().empty());
+}
+
+TEST(QueueBlocksTest, QueueTableEntryDependentWhenReportsDynamicOutOfRange) {
+  SimTable<uint16_t> table("table", 1, nullptr, 4);
+  SimQueue<MemoryRequest> input("input", 2, nullptr, 1);
+  SimQueue<uint16_t> output("output", 3, nullptr, 1);
+  QueueTableRead<MemoryRequest, uint16_t, TableAddress, TableEntryDependentWhen>
+      read("read", 4, nullptr, table, input, output, {}, {&table});
+
+  ASSERT_TRUE(input.proposePush({4, false, 0}));
+  input.doXfer({0, 0});
+  EXPECT_NO_THROW(read.doWork({1, 0}));
+  EXPECT_EQ(table.runtimeFailureCode(), "table_index_out_of_range");
+  EXPECT_TRUE(read.runtimeFailureCode().empty());
+  EXPECT_FALSE(input.isEmpty());
+  EXPECT_TRUE(output.isEmpty());
+}
+
+TEST(QueueBlocksTest, StateTableEntryDependentWhenReportsDynamicOutOfRange) {
+  SimTable<uint16_t> table("table", 1, nullptr, 4);
+  SimQueue<uint16_t> output("output", 2, nullptr, 1);
+  TableReadSource<uint16_t, TableStateAddress, TableStateEntryDependentWhen>
+      read("read", 3, nullptr, table, output, {4}, {&table, 4});
+
+  EXPECT_NO_THROW(read.doWork({1, 0}));
+  EXPECT_EQ(table.runtimeFailureCode(), "table_index_out_of_range");
+  EXPECT_TRUE(read.runtimeFailureCode().empty());
+  EXPECT_TRUE(output.isEmpty());
+}
+
+TEST(QueueBlocksTest, FalseTableWhenDoesNotEvaluateAddressOrReportFailure) {
+  SimTable<uint16_t> table("table", 1, nullptr, 4);
+  SimQueue<MemoryRequest> input("input", 2, nullptr, 1);
+  SimQueue<uint16_t> output("output", 3, nullptr, 1);
+  QueueTableRead<MemoryRequest, uint16_t, TableAddress, TableNever> read(
+      "read", 4, nullptr, table, input, output);
+
+  ASSERT_TRUE(input.proposePush({4, false, 0}));
+  input.doXfer({0, 0});
+  read.doWork({1, 0});
+  EXPECT_TRUE(table.runtimeFailureCode().empty());
+  EXPECT_TRUE(read.runtimeFailureCode().empty());
+  EXPECT_FALSE(input.isEmpty());
+  EXPECT_TRUE(output.isEmpty());
 }
 
 TEST(QueueBlocksTest, StateTableReadRepeatsAndBackpressuredValueStaysStable) {
@@ -309,6 +397,71 @@ TEST(QueueBlocksTest, StateTableReadRepeatsAndBackpressuredValueStaysStable) {
   read.doXfer({3, 0});
   ASSERT_NE(output.peek(), nullptr);
   EXPECT_EQ(*output.peek(), 9u);
+}
+
+TEST(QueueBlocksTest,
+     StateTableWriteSkipsDisabledExpressionsAndCommitsOldState) {
+  SimTable<uint16_t> table("table", 1, nullptr, 1);
+  bool enabled = false;
+  unsigned addressCalls = 0;
+  TableWriteSource<uint16_t, StateWriteAddress, StateWriteEnable,
+                   StateWriteIncrement>
+      write("write", 2, nullptr, table, {&addressCalls}, {&enabled}, {&table});
+
+  write.doWork({0, 0});
+  EXPECT_EQ(addressCalls, 0u);
+  EXPECT_EQ(table.at(0), 0);
+
+  enabled = true;
+  write.doWork({1, 0});
+  EXPECT_EQ(addressCalls, 1u);
+  EXPECT_EQ(table.at(0), 0);
+  write.doXfer({1, 0});
+  EXPECT_EQ(table.at(0), 1);
+
+  write.doWork({2, 0});
+  EXPECT_EQ(table.at(0), 1);
+  write.doXfer({2, 0});
+  EXPECT_EQ(table.at(0), 2);
+}
+
+TEST(QueueBlocksTest, SlotCapturesBackpressuresReleasesAndDoesNotRefill) {
+  SimQueue<uint16_t> input("input", 1, nullptr, 2);
+  SlotState<uint16_t> state;
+  bool release = false;
+  QueueSlot<uint16_t, SlotReleaseFlag> slot("slot", 2, nullptr, input, state,
+                                            {&release});
+
+  ASSERT_TRUE(input.proposePush(7));
+  input.doXfer({0, 0});
+  slot.doWork({1, 0});
+  EXPECT_FALSE(slot.valid());
+  slot.doXfer({1, 0});
+  input.doXfer({1, 0});
+  EXPECT_TRUE(slot.valid());
+  EXPECT_EQ(slot.value(), 7);
+
+  ASSERT_TRUE(input.proposePush(8));
+  input.doXfer({2, 0});
+  slot.doWork({2, 0});
+  slot.doXfer({2, 0});
+  EXPECT_TRUE(slot.valid());
+  EXPECT_FALSE(input.isEmpty());
+
+  release = true;
+  slot.doWork({3, 0});
+  slot.doXfer({3, 0});
+  EXPECT_FALSE(slot.valid());
+  EXPECT_EQ(slot.value(), 7);
+  EXPECT_FALSE(input.isEmpty());
+
+  release = false;
+  slot.doWork({4, 0});
+  slot.doXfer({4, 0});
+  input.doXfer({4, 0});
+  EXPECT_TRUE(slot.valid());
+  EXPECT_EQ(slot.value(), 8);
+  EXPECT_TRUE(input.isEmpty());
 }
 
 struct SharedMemoryAddress {

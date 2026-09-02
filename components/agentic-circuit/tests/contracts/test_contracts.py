@@ -177,8 +177,11 @@ class RepositoryContractsTest(unittest.TestCase):
             "ac.scope",
             "ac.select",
             "ac.sink",
+            "ac.slot",
             "ac.source",
             "ac.table",
+            "ac.table.choose",
+            "ac.table.match",
             "ac.table.read",
             "ac.table.write",
             "ac.transform",
@@ -191,11 +194,12 @@ class RepositoryContractsTest(unittest.TestCase):
             operation_kind = entry["operation"].removeprefix("ac.").replace(".", "_")
             self.assertEqual(entry["kind"], operation_kind)
             self.assertTrue(entry["gfsim"]["available"])
-            if entry["role"] == "design" and not entry["operation"].startswith(
-                "ac.table"
-            ):
+            provisional = entry["operation"].startswith("ac.table") or entry[
+                "operation"
+            ] == "ac.slot"
+            if entry["role"] == "design" and not provisional:
                 self.assertTrue(entry["pyc"]["available"])
-            if entry["operation"].startswith("ac.table"):
+            if provisional:
                 self.assertFalse(entry["pyc"]["available"])
             self.assertTrue(entry["gfsim"]["realization"])
             self.assertTrue(entry["pyc"]["realization"])

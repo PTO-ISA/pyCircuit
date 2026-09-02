@@ -180,6 +180,66 @@ llvm::Error extractExpressions(mlir::Region &region, QueueBlockPlan &plan) {
       plan.expressions.back().table = get.getTable().str();
       continue;
     }
+    if (auto get = mlir::dyn_cast<ac::SlotGetOp>(operation)) {
+      const std::string base = "v" + std::to_string(plan.expressions.size());
+      const std::array<std::pair<mlir::Value, llvm::StringRef>, 2> results = {{
+          {get.getValid(), "slot_get_valid"},
+          {get.getValue(), "slot_get_value"},
+      }};
+      for (auto [resultValue, kind] : results) {
+        auto resultType = mlir::cast<ac::VarType>(resultValue.getType());
+        std::string result =
+            base + (kind == "slot_get_valid" ? "_valid" : "_value");
+        values[resultValue] = result;
+        QueueExpressionPlan expression{
+            result, kind.str(), printType(resultType.getElementType()), {}};
+        expression.slot = get.getSlot().str();
+        plan.expressions.push_back(std::move(expression));
+      }
+      continue;
+    }
+    if (auto match = mlir::dyn_cast<ac::TableMatchOp>(operation)) {
+      QueueBlockPlan nested;
+      if (auto error = extractExpressions(match.getPredicate(), nested))
+        return error;
+      auto resultType = mlir::cast<ac::VarType>(match.getMask().getType());
+      std::string result = "v" + std::to_string(plan.expressions.size());
+      values[match.getMask()] = result;
+      QueueExpressionPlan expression{
+          result, "table_match", printType(resultType.getElementType()), {}};
+      expression.table = match.getTable().str();
+      expression.nestedExpressions = std::move(nested.expressions);
+      expression.nestedYields = std::move(nested.yields);
+      plan.expressions.push_back(std::move(expression));
+      continue;
+    }
+    if (auto choose = mlir::dyn_cast<ac::TableChooseOp>(operation)) {
+      auto operands = operandNames(choose->getOperands());
+      if (!operands)
+        return operands.takeError();
+      QueueBlockPlan nested;
+      if (!choose.getKey().empty())
+        if (auto error = extractExpressions(choose.getKey(), nested))
+          return error;
+      const std::array<std::pair<mlir::Value, llvm::StringRef>, 2> results = {{
+          {choose.getIndex(), "table_choose_index"},
+          {choose.getValid(), "table_choose_valid"},
+      }};
+      for (auto [resultValue, kind] : results) {
+        auto resultType = mlir::cast<ac::VarType>(resultValue.getType());
+        std::string result = "v" + std::to_string(plan.expressions.size());
+        values[resultValue] = result;
+        QueueExpressionPlan expression{result, kind.str(),
+                                       printType(resultType.getElementType()),
+                                       *operands};
+        expression.table = choose.getTable().str();
+        expression.predicate = choose.getPolicy().str();
+        expression.nestedExpressions = nested.expressions;
+        expression.nestedYields = nested.yields;
+        plan.expressions.push_back(std::move(expression));
+      }
+      continue;
+    }
     llvm::SmallVector<mlir::Value, 2> yielded;
     if (auto yield = mlir::dyn_cast<ac::TransformYieldOp>(operation))
       yielded.append(yield.getValues().begin(), yield.getValues().end());
@@ -196,6 +256,12 @@ llvm::Error extractExpressions(mlir::Region &region, QueueBlockPlan &plan) {
     else if (auto yield = mlir::dyn_cast<ac::MemoryYieldOp>(operation))
       yielded.push_back(yield.getValue());
     else if (auto yield = mlir::dyn_cast<ac::TableYieldOp>(operation))
+      yielded.push_back(yield.getValue());
+    else if (auto yield = mlir::dyn_cast<ac::SlotYieldOp>(operation))
+      yielded.push_back(yield.getValue());
+    else if (auto yield = mlir::dyn_cast<ac::TableMatchYieldOp>(operation))
+      yielded.push_back(yield.getValue());
+    else if (auto yield = mlir::dyn_cast<ac::TableChooseYieldOp>(operation))
       yielded.push_back(yield.getValue());
     else if (auto yield = mlir::dyn_cast<ac::ExpectYieldOp>(operation))
       yielded.push_back(yield.getCondition());
@@ -327,6 +393,18 @@ private:
             {table.getSymName().str(), printType(table.getEntryType()),
              uint64_t(table.getEntries()), uint64_t(table.getInit()),
              table.getStableId().str(), table.getOwner().str()});
+        continue;
+      }
+      if (auto slot = mlir::dyn_cast<ac::SlotOp>(operation)) {
+        auto input = queueName(slot.getInput(), names);
+        if (!input)
+          return input.takeError();
+        plan.slots.push_back(
+            {slot.getSymName().str(),
+             printType(mlir::cast<ac::QueueType>(slot.getInput().getType())
+                           .getElementType()),
+             *input, scopePath(scope), slot.getStableId().str(),
+             slot.getOwner().str()});
         continue;
       }
       if (auto source = mlir::dyn_cast<ac::SourceOp>(operation)) {
@@ -657,17 +735,18 @@ private:
         continue;
       }
       if (auto write = mlir::dyn_cast<ac::TableWriteOp>(operation)) {
-        auto input = queueName(write.getInput(), names);
-        if (!input)
-          return input.takeError();
+        std::vector<std::string> inputs;
+        if (write.getInput()) {
+          auto input = queueName(write.getInput(), names);
+          if (!input)
+            return input.takeError();
+          inputs.push_back(std::move(*input));
+        }
         auto name = write->getAttrOfType<mlir::StringAttr>("ac.name");
         if (!name || name.getValue().empty())
           return planError("table.write requires frozen ac.name");
-        QueueBlockPlan blockPlan{"table_write",
-                                 name.getValue().str(),
-                                 scopePath(scope),
-                                 {*input},
-                                 {}};
+        QueueBlockPlan blockPlan{
+            "table_write", name.getValue().str(), scopePath(scope), inputs, {}};
         blockPlan.table = write.getTable().str();
         std::vector<std::string> policyYields;
         for (mlir::Region *policy :
@@ -680,7 +759,28 @@ private:
         }
         blockPlan.yields = std::move(policyYields);
         plan.tableWrites.push_back(
-            {blockPlan.table, blockPlan.name, blockPlan.scope, *input});
+            {blockPlan.table, blockPlan.name, blockPlan.scope,
+             inputs.empty() ? std::string() : inputs.front()});
+        plan.blocks.push_back(std::move(blockPlan));
+        continue;
+      }
+      if (auto release = mlir::dyn_cast<ac::SlotReleaseOp>(operation)) {
+        auto slot = llvm::find_if(plan.slots, [&](const SlotPlan &candidate) {
+          return candidate.name == release.getSlot();
+        });
+        if (slot == plan.slots.end())
+          return planError("slot.release references unknown slot");
+        auto name = release->getAttrOfType<mlir::StringAttr>("ac.name");
+        if (!name || name.getValue().empty())
+          return planError("slot.release requires frozen ac.name");
+        QueueBlockPlan blockPlan{
+            "slot", name.getValue().str(), scopePath(scope), {slot->input}, {}};
+        blockPlan.slot = slot->name;
+        blockPlan.region = printRegion(release.getWhen());
+        if (auto error = extractExpressions(release.getWhen(), blockPlan))
+          return error;
+        if (blockPlan.yields.size() != 1)
+          return planError("slot release policy must yield one value");
         plan.blocks.push_back(std::move(blockPlan));
         continue;
       }
@@ -856,8 +956,7 @@ llvm::Error verifyQueueGraphPlan(const QueueGraphPlan &plan) {
     ++tableReaders[read.table];
   }
   for (const TableWritePlan &write : plan.tableWrites) {
-    if (!tables.contains(write.table) || write.name.empty() ||
-        write.input.empty())
+    if (!tables.contains(write.table) || write.name.empty())
       return planError("table write endpoint metadata is incomplete");
     if (++tableWriters[write.table] > 1)
       return planError("table permits at most one write endpoint");
@@ -865,6 +964,12 @@ llvm::Error verifyQueueGraphPlan(const QueueGraphPlan &plan) {
   for (const auto &entry : tables)
     if (tableReaders[entry.getKey()] + tableWriters[entry.getKey()] == 0)
       return planError("table '" + entry.getKey() + "' has no endpoints");
+  llvm::StringSet<> slotNames;
+  for (const SlotPlan &slot : plan.slots)
+    if (slot.name.empty() || !slotNames.insert(slot.name).second ||
+        slot.payloadType.empty() || slot.input.empty() || slot.scope.empty() ||
+        slot.stableId.empty() || slot.ownerPath.empty())
+      return planError("slot metadata is incomplete or duplicated");
   llvm::StringMap<unsigned> producers;
   llvm::StringMap<unsigned> consumers;
   llvm::StringMap<unsigned> indegree;
@@ -886,6 +991,8 @@ llvm::Error verifyQueueGraphPlan(const QueueGraphPlan &plan) {
     if ((block.kind == "table_read" || block.kind == "table_write") &&
         !tables.contains(block.table))
       return planError("table endpoint block references unknown table");
+    if (block.kind == "slot" && !slotNames.contains(block.slot))
+      return planError("slot block references unknown slot");
     for (const QueueExpressionPlan &expression : block.expressions)
       if (expression.kind == "table_get" && !tables.contains(expression.table))
         return planError("table.get expression references unknown table");
@@ -942,6 +1049,30 @@ llvm::Error verifyQueueGraphPlan(const QueueGraphPlan &plan) {
 }
 
 llvm::Expected<std::string> QueueGraphPlan::canonicalJson() const {
+  auto expressionJson =
+      [&](auto &&self,
+          const QueueExpressionPlan &expression) -> llvm::json::Object {
+    llvm::json::Array operands;
+    for (const std::string &operand : expression.operands)
+      operands.push_back(operand);
+    llvm::json::Array nested;
+    for (const QueueExpressionPlan &item : expression.nestedExpressions)
+      nested.push_back(self(self, item));
+    llvm::json::Array nestedYields;
+    for (const std::string &yield : expression.nestedYields)
+      nestedYields.push_back(yield);
+    return llvm::json::Object{{"field", expression.field},
+                              {"kind", expression.kind},
+                              {"literal", expression.literal},
+                              {"nested_expressions", std::move(nested)},
+                              {"nested_yields", std::move(nestedYields)},
+                              {"operands", std::move(operands)},
+                              {"predicate", expression.predicate},
+                              {"result", expression.result},
+                              {"slot", expression.slot},
+                              {"table", expression.table},
+                              {"type", expression.type}};
+  };
   llvm::json::Array payloadValues;
   for (const QueuePayloadPlan &payload : payloads) {
     llvm::json::Array fields;
@@ -978,20 +1109,8 @@ llvm::Expected<std::string> QueueGraphPlan::canonicalJson() const {
     for (uint64_t latency : block.latencies)
       latencies.push_back(latency);
     llvm::json::Array expressions;
-    for (const QueueExpressionPlan &expression : block.expressions) {
-      llvm::json::Array operands;
-      for (const std::string &operand : expression.operands)
-        operands.push_back(operand);
-      expressions.push_back(
-          llvm::json::Object{{"field", expression.field},
-                             {"kind", expression.kind},
-                             {"literal", expression.literal},
-                             {"operands", std::move(operands)},
-                             {"predicate", expression.predicate},
-                             {"result", expression.result},
-                             {"table", expression.table},
-                             {"type", expression.type}});
-    }
+    for (const QueueExpressionPlan &expression : block.expressions)
+      expressions.push_back(expressionJson(expressionJson, expression));
     llvm::json::Array yields;
     for (const std::string &yield : block.yields)
       yields.push_back(yield);
@@ -1008,6 +1127,7 @@ llvm::Expected<std::string> QueueGraphPlan::canonicalJson() const {
                            {"message", block.message},
                            {"memory_instance", block.memoryInstance},
                            {"table", block.table},
+                           {"slot", block.slot},
                            {"name", block.name},
                            {"no_dependency", block.noDependency},
                            {"endpoint_ordinal", block.endpointOrdinal},
@@ -1065,6 +1185,14 @@ llvm::Expected<std::string> QueueGraphPlan::canonicalJson() const {
                                                   {"name", write.name},
                                                   {"scope", write.scope},
                                                   {"table", write.table}});
+  llvm::json::Array slotValues;
+  for (const SlotPlan &slot : slots)
+    slotValues.push_back(llvm::json::Object{{"input", slot.input},
+                                            {"name", slot.name},
+                                            {"owner_path", slot.ownerPath},
+                                            {"payload_type", slot.payloadType},
+                                            {"scope", slot.scope},
+                                            {"stable_id", slot.stableId}});
   llvm::json::Object root{
       {"blocks", std::move(blockValues)},
       {"contract_epoch", "0.4"},
@@ -1074,6 +1202,7 @@ llvm::Expected<std::string> QueueGraphPlan::canonicalJson() const {
       {"queues", std::move(queueValues)},
       {"schema", "agentic-circuit-queue-graph-plan"},
       {"scopes", std::move(scopeValues)},
+      {"slots", std::move(slotValues)},
       {"specialization", specializationFingerprint.empty()
                              ? llvm::json::Value(nullptr)
                              : llvm::json::Value(specializationFingerprint)},

@@ -341,9 +341,40 @@ void TableWriteOp::getEffects(
     SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
   effects.emplace_back(MemoryEffects::Write::get(),
                        StorageStateResource::get());
+  if (getInput())
+    effects.emplace_back(MemoryEffects::Write::get(),
+                         &getOperation()->getOpOperand(0),
+                         QueueStateResource::get());
+}
+
+void TableMatchOp::getEffects(
+    SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
+  effects.emplace_back(MemoryEffects::Read::get(), StorageStateResource::get());
+}
+
+void TableChooseOp::getEffects(
+    SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
+  effects.emplace_back(MemoryEffects::Read::get(), StorageStateResource::get());
+}
+
+void SlotOp::getEffects(
+    SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
+  effects.emplace_back(MemoryEffects::Write::get(),
+                       StorageStateResource::get());
   effects.emplace_back(MemoryEffects::Write::get(),
                        &getOperation()->getOpOperand(0),
                        QueueStateResource::get());
+}
+
+void SlotGetOp::getEffects(
+    SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
+  effects.emplace_back(MemoryEffects::Read::get(), StorageStateResource::get());
+}
+
+void SlotReleaseOp::getEffects(
+    SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
+  effects.emplace_back(MemoryEffects::Write::get(),
+                       StorageStateResource::get());
 }
 
 void EventQueueOp::getEffects(

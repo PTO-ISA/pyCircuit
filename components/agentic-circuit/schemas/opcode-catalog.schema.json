@@ -70,7 +70,7 @@
         },
         "constants": {"$ref": "#/$defs/nameList"},
         "effect": {
-          "enum": ["atomic", "observation", "stateful", "structural", "verification"]
+          "enum": ["atomic", "combinational", "observation", "stateful", "structural", "verification"]
         },
         "gfsim": {"$ref": "#/$defs/backend"},
         "inputs": {"$ref": "#/$defs/arity"},
@@ -86,6 +86,7 @@
         "payload_relation": {
           "enum": [
             "all_payloads_equal",
+            "captured_payload_matches_input",
             "consume_input_payload",
             "declared_storage_owner",
             "declared_typed_state_owner",
@@ -95,8 +96,10 @@
             "output_payload_matches_table_entry",
             "positionally_equal_boundary_payloads",
             "positionally_equal_input_output_payloads",
+            "predicate_over_committed_entries",
             "region_yields_match_output_payloads",
             "selected_data_payload_matches_output",
+            "selection_over_candidate_mask",
             "value_payload_matches_table_entry"
           ]
         },

@@ -8,7 +8,7 @@
 >
 > **当前契约**：V6 以周期感知（Cycle-Aware）信号模型与层次化组合为正式语言设计，并统一类型化数据体系、Sidecar 测试调度、双编译路径以及存储 / FIFO / CDC 原语。Decision 0148 取代了早期移除全局周期感知模型的方向。
 >
-> **Agentic Circuit 边界**：Decision 0151 将独立的 Agentic Circuit 契约切换到 epoch `0.4`，并加入只由 typed gfsim C++ 支持的一维状态 Table 原型。它不改变 CycleAwareSignal 或 PYC 的语义；PYC/RTL 遇到该 Table 必须在明确的 provisional boundary 拒绝。
+> **Agentic Circuit 边界**：Decisions 0151–0152 将独立的 Agentic Circuit 契约保持在 epoch `0.4`，并加入只由 typed gfsim C++ 支持的一维状态 Table、committed slot、match/choose 与 state-driven update 原型。它们不改变 CycleAwareSignal 或 PYC 的语义；PYC/RTL 遇到这些 provisional state op 必须在明确边界拒绝。
 
 ---
 

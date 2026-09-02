@@ -29,6 +29,9 @@ struct QueueExpressionPlan {
   std::string predicate;
   std::string literal;
   std::string table;
+  std::string slot;
+  std::vector<QueueExpressionPlan> nestedExpressions;
+  std::vector<std::string> nestedYields;
 };
 
 struct QueuePlan {
@@ -63,6 +66,7 @@ struct QueueBlockPlan {
   std::string resultField;
   std::string memoryInstance;
   std::string table;
+  std::string slot;
   uint64_t endpointOrdinal = 0;
   std::string message;
 };
@@ -114,6 +118,15 @@ struct TableWritePlan {
   std::string input;
 };
 
+struct SlotPlan {
+  std::string name;
+  std::string payloadType;
+  std::string input;
+  std::string scope;
+  std::string stableId;
+  std::string ownerPath;
+};
+
 struct QueueGraphPlan {
   std::string system;
   std::string specializationFingerprint;
@@ -126,6 +139,7 @@ struct QueueGraphPlan {
   std::vector<TablePlan> tables;
   std::vector<TableReadPlan> tableReads;
   std::vector<TableWritePlan> tableWrites;
+  std::vector<SlotPlan> slots;
 
   llvm::Expected<std::string> canonicalJson() const;
 };

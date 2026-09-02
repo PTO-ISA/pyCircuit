@@ -36,18 +36,85 @@ def _cpp_type(acir_type: str) -> str:
 
 
 class _CppExpression:
-    def __init__(self, argument: str) -> None:
+    def __init__(
+        self,
+        argument: str,
+        state_names: dict[str, str] | None = None,
+        *,
+        candidates: dict[str, object] | None = None,
+        selections: dict[str, object] | None = None,
+        table_entries: dict[str, int] | None = None,
+        table_names: dict[str, str] | None = None,
+    ) -> None:
         self.argument = argument
+        self.state_names = state_names or {}
+        self.candidates = candidates or {}
+        self.selections = selections or {}
+        self.table_entries = table_entries or {}
+        self.table_names = table_names or {}
 
     def emit(self, node: ast.expr) -> str:
         if isinstance(node, ast.Name) and node.id == self.argument:
             return "item"
+        if isinstance(node, ast.Name) and node.id in self.state_names:
+            return self.state_names[node.id]
         if isinstance(node, ast.Constant) and type(node.value) in {int, bool}:
             if node.value is True:
                 return "true"
             if node.value is False:
                 return "false"
             return str(node.value)
+        if (
+            isinstance(node, ast.Attribute)
+            and isinstance(node.value, ast.Name)
+            and node.value.id in self.selections
+            and node.attr in {"index", "valid"}
+        ):
+            selection = self.selections[node.value.id]
+            candidate = self.candidates[selection.candidates]
+            table = self.table_names.get(selection.table)
+            entries = self.table_entries.get(selection.table)
+            if table is None or entries is None:
+                raise QueueFrontendError(
+                    "ACLOWER-OWNERSHIP: selection Table is unavailable to policy"
+                )
+            predicate = _CppExpression(
+                candidate.argument,
+                self.state_names,
+                candidates=self.candidates,
+                selections=self.selections,
+                table_entries=self.table_entries,
+                table_names=self.table_names,
+            ).emit(candidate.predicate)
+            body = (
+                "([&]() { std::pair<std::uint64_t, bool> selected{0, false}; "
+                f"for (std::size_t index = 0; index < {entries}; ++index) {{ "
+                f"const auto &item = {table}->at(index); "
+                f"if (!({predicate})) continue; "
+            )
+            if selection.policy == "first":
+                body += "selected = {index, true}; break; "
+            else:
+                assert selection.argument is not None and selection.key is not None
+                key = _CppExpression(
+                    selection.argument,
+                    self.state_names,
+                    candidates=self.candidates,
+                    selections=self.selections,
+                    table_entries=self.table_entries,
+                    table_names=self.table_names,
+                ).emit(selection.key)
+                comparison = "<" if selection.policy == "min" else ">"
+                body += (
+                    f"const std::uint64_t key = static_cast<std::uint64_t>({key}); "
+                    f"if (!selected.second || key {comparison} best) {{ "
+                    "selected = {index, true}; best = key; } "
+                )
+                body = body.replace(
+                    "for (std::size_t", "std::uint64_t best{}; for (std::size_t", 1
+                )
+            body += "} return selected; }())"
+            return body + (".first" if node.attr == "index" else ".second")
         if (
             isinstance(node, ast.Call)
             and isinstance(node.func, ast.Attribute)
@@ -136,28 +203,31 @@ def _emit_table_state_expression(
     view_alias: str | None,
     table: str,
     address: str,
+    argument: str = "__state",
 ) -> str:
     if view_alias is not None and isinstance(node, ast.Name) and node.id == view_alias:
-        return f"{table}->at(static_cast<size_t>({address}))"
+        return f"{table}->checkedAt(static_cast<size_t>({address}))"
     if isinstance(node, ast.Attribute):
         return (
-            f"{_emit_table_state_expression(node.value, view_alias, table, address)}"
+            f"{_emit_table_state_expression(node.value, view_alias, table, address, argument)}"
             f".{node.attr}"
         )
     if isinstance(node, ast.BoolOp) and isinstance(node.op, ast.And):
         return "(" + " && ".join(
-            _emit_table_state_expression(value, view_alias, table, address)
+            _emit_table_state_expression(
+                value, view_alias, table, address, argument
+            )
             for value in node.values
         ) + ")"
     if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.Not):
         return (
             "(!"
             + _emit_table_state_expression(
-                node.operand, view_alias, table, address
+                node.operand, view_alias, table, address, argument
             )
             + ")"
         )
-    return _CppExpression("__state").emit(node)
+    return _CppExpression(argument).emit(node)
 
 
 @dataclass(frozen=True, slots=True)
@@ -180,6 +250,7 @@ class _ObjectIds:
     tables: tuple[int, ...]
     table_reads: tuple[int, ...]
     table_writes: tuple[int, ...]
+    slots: tuple[int, ...]
     sinks: tuple[int, ...]
 
 
@@ -322,6 +393,8 @@ def _object_ids(program: QueueProgram, fanouts: tuple[_Fanout, ...]) -> _ObjectI
     next_id += len(table_reads)
     table_writes = tuple(range(next_id, next_id + len(program.table_writes)))
     next_id += len(table_writes)
+    slots = tuple(range(next_id, next_id + len(program.slots)))
+    next_id += len(slots)
     sinks = tuple(range(next_id, next_id + len(program.sinks)))
     return _ObjectIds(
         queues,
@@ -342,6 +415,7 @@ def _object_ids(program: QueueProgram, fanouts: tuple[_Fanout, ...]) -> _ObjectI
         tables,
         table_reads,
         table_writes,
+        slots,
         sinks,
     )
 
@@ -353,6 +427,26 @@ def lower_queue_program_to_cpp(program: QueueProgram) -> str:
     queues_by_name = {queue.name: queue for queue in program.queues}
     tables_by_name = {table.name: table for table in program.tables}
     table_indices = {table.name: index for index, table in enumerate(program.tables)}
+    slots_by_name = {slot.name: slot for slot in program.slots}
+    candidates_by_name = {
+        candidate.name: candidate for candidate in program.candidates
+    }
+    selections_by_name = {
+        selection.name: selection for selection in program.selections
+    }
+    table_entries = {table.name: table.entries for table in program.tables}
+    state_names = {slot.name: f"(*{slot.name})" for slot in program.slots}
+    slot_policy_members = [
+        f"  gfsim::SlotState<{_cpp_type(slot.payload)}> *{slot.name}{{}};"
+        for slot in program.slots
+    ]
+    slot_policy_arguments = ", ".join(
+        f"&slot_state_{index}_" for index, _ in enumerate(program.slots)
+    )
+    release_policy_arguments = [
+        *(f"&slot_state_{index}_" for index, _ in enumerate(program.slots)),
+        *(f"&table_{index}_" for index, _ in enumerate(program.tables)),
+    ]
     array_leaf: dict[str, tuple[str, tuple[int, ...]]] = {
         leaf: (collection.name, path)
         for collection in arrays
@@ -435,7 +529,10 @@ def lower_queue_program_to_cpp(program: QueueProgram) -> str:
         if read.input_name is not None:
             queue_uses[read.input_name].append(read.scope)
     for write in program.table_writes:
-        queue_uses[write.input_name].append(write.scope)
+        if write.input_name is not None:
+            queue_uses[write.input_name].append(write.scope)
+    for slot in program.slots:
+        queue_uses[slot.input_name].append(slot.scope)
     for sink in program.sinks:
         queue_uses[sink.queue].append(sink.scope)
     queue_owner = {
@@ -455,6 +552,7 @@ def lower_queue_program_to_cpp(program: QueueProgram) -> str:
         "#include <cstdint>",
         "#include <limits>",
         "#include <tuple>",
+        "#include <utility>",
         "",
         "namespace ac_generated {",
         "",
@@ -678,7 +776,9 @@ def lower_queue_program_to_cpp(program: QueueProgram) -> str:
         else:
             input_type = _cpp_type(queues_by_name[read.input_name].payload)
             address = _CppExpression(read.argument).emit(read.address)
-            when = _CppExpression(read.argument).emit(read.when)
+            when = _emit_table_state_expression(
+                read.when, read.view_alias, "table", address, read.argument
+            )
             address_signature = (
                 f"std::uint64_t operator()(const {input_type} &item) const"
             )
@@ -704,41 +804,95 @@ def lower_queue_program_to_cpp(program: QueueProgram) -> str:
     for index, write in enumerate(program.table_writes):
         table = tables_by_name[write.table]
         entry = _cpp_type(table.entry_type)
-        input_type = _cpp_type(queues_by_name[write.input_name].payload)
-        address = _CppExpression(write.argument).emit(write.address)
-        enable = _CppExpression(write.argument).emit(write.enable)
+        input_type = (
+            None
+            if write.input_name is None
+            else _cpp_type(queues_by_name[write.input_name].payload)
+        )
+        argument = write.argument or ""
+        expression_context = dict(
+            candidates=candidates_by_name,
+            selections=selections_by_name,
+            table_entries=table_entries,
+            table_names={write.table: "table"},
+        )
+        address = _CppExpression(
+            argument, state_names, **expression_context
+        ).emit(write.address)
+        enable = _CppExpression(
+            argument, state_names, **expression_context
+        ).emit(write.enable)
+        signature = "" if input_type is None else f"const {input_type} &item"
         lines.extend(
             (
                 f"struct table_write_{index}_address_policy {{",
-                f"  std::uint64_t operator()(const {input_type} &item) const {{",
+                f"  gfsim::SimTable<{entry}> *table{{}};",
+                *slot_policy_members,
+                f"  std::uint64_t operator()({signature}) const {{",
                 f"    return static_cast<std::uint64_t>({address});",
                 "  }",
                 "};",
                 "",
                 f"struct table_write_{index}_enable_policy {{",
-                f"  bool operator()(const {input_type} &item) const {{",
+                f"  gfsim::SimTable<{entry}> *table{{}};",
+                *slot_policy_members,
+                f"  bool operator()({signature}) const {{",
                 f"    return static_cast<bool>({enable});",
                 "  }",
                 "};",
                 "",
                 f"struct table_write_{index}_value_policy {{",
                 f"  gfsim::SimTable<{entry}> *table{{}};",
-                f"  {entry} operator()(const {input_type} &item) const {{",
+                *slot_policy_members,
+                f"  {entry} operator()({signature}) const {{",
             )
         )
         if write.value is not None:
             lines.append(
-                f"    return {_CppExpression(write.argument).emit(write.value)};"
+                f"    return {_CppExpression(argument, state_names, **expression_context).emit(write.value)};"
             )
         else:
             lines.append(
-                f"    auto result = table->at(static_cast<size_t>({address}));"
+                f"    auto result = table->checkedAt(static_cast<size_t>({address}));"
             )
-            expression = _CppExpression(write.argument)
+            expression = _CppExpression(
+                argument, state_names, **expression_context
+            )
             for field, value in write.patch_fields:
                 lines.append(f"    result.{field} = {expression.emit(value)};")
             lines.append("    return result;")
         lines.extend(("  }", "};", ""))
+
+    for index, release in enumerate(program.slot_releases):
+        slot = slots_by_name[release.slot]
+        payload = _cpp_type(slot.payload)
+        release_table_names = {
+            table.name: f"table_{table.name}" for table in program.tables
+        }
+        condition = _CppExpression(
+            "",
+            state_names,
+            candidates=candidates_by_name,
+            selections=selections_by_name,
+            table_entries=table_entries,
+            table_names=release_table_names,
+        ).emit(release.when)
+        table_policy_members = [
+            f"  gfsim::SimTable<{_cpp_type(table.entry_type)}> *table_{table.name}{{}};"
+            for table in program.tables
+        ]
+        lines.extend(
+            (
+                f"struct slot_{index}_release_policy {{",
+                *slot_policy_members,
+                *table_policy_members,
+                "  bool operator()() const {",
+                f"    return static_cast<bool>({condition});",
+                "  }",
+                "};",
+                "",
+            )
+        )
 
     class_name = "".join(part.capitalize() for part in program.system.split("_"))
     lines.extend((f"class {class_name} final : public gfsim::Module {{", "public:"))
@@ -844,15 +998,38 @@ def lower_queue_program_to_cpp(program: QueueProgram) -> str:
             f'table_{index}_("{table.name}", {ids.tables[index]}, '
             f"{module_ptr(table.scope)}, {table.entries})"
         )
+    for index, slot in enumerate(program.slots):
+        release_index = next(
+            release_index
+            for release_index, release in enumerate(program.slot_releases)
+            if release.slot == slot.name
+        )
+        initializers.append(
+            f'slot_{index}_block_("{slot.name}", {ids.slots[index]}, '
+            f"{module_ptr(slot.scope)}, {queue_ref(slot.input_name)}, "
+            f"slot_state_{index}_, slot_{release_index}_release_policy{{"
+            f"{', '.join(release_policy_arguments)}}})"
+        )
     for index, write in enumerate(program.table_writes):
         table_index = table_indices[write.table]
+        runtime_arguments = f"table_{table_index}_"
+        if write.input_name is not None:
+            runtime_arguments += f", {queue_ref(write.input_name)}"
+        policy_arguments = slot_policy_arguments
+        address_arguments = f"&table_{table_index}_"
+        if policy_arguments:
+            address_arguments += f", {policy_arguments}"
+        address_init = "{" + address_arguments + "}"
+        value_arguments = f"&table_{table_index}_"
+        if policy_arguments:
+            value_arguments += f", {policy_arguments}"
         initializers.append(
             f'table_write_{index}_block_("table_write_{index}", '
             f"{ids.table_writes[index]}, {module_ptr(write.scope)}, "
-            f"table_{table_index}_, {queue_ref(write.input_name)}, "
-            f"table_write_{index}_address_policy{{}}, "
-            f"table_write_{index}_enable_policy{{}}, "
-            f"table_write_{index}_value_policy{{&table_{table_index}_}})"
+            f"{runtime_arguments}, "
+            f"table_write_{index}_address_policy{address_init}, "
+            f"table_write_{index}_enable_policy{address_init}, "
+            f"table_write_{index}_value_policy{{{value_arguments}}})"
         )
     for index, read in enumerate(program.table_reads):
         table_index = table_indices[read.table]
@@ -978,6 +1155,8 @@ def lower_queue_program_to_cpp(program: QueueProgram) -> str:
         lines.append(attach(instance.scope, f"memory_instance_{index}_block_"))
     for index, table in enumerate(program.tables):
         lines.append(attach(table.scope, f"table_{index}_"))
+    for index, slot in enumerate(program.slots):
+        lines.append(attach(slot.scope, f"slot_{index}_block_"))
     for index, write in enumerate(program.table_writes):
         lines.append(attach(write.scope, f"table_write_{index}_block_"))
     for index, read in enumerate(program.table_reads):
@@ -1033,6 +1212,7 @@ def lower_queue_program_to_cpp(program: QueueProgram) -> str:
         + len(ids.tables)
         + len(ids.table_reads)
         + len(ids.table_writes)
+        + len(ids.slots)
         + len(ids.sinks)
     )
     lines.extend(
@@ -1077,6 +1257,8 @@ def lower_queue_program_to_cpp(program: QueueProgram) -> str:
         rows.append(f"gfsim::makeDispatchRow(&memory_instance_{index}_block_)")
     for index, _ in enumerate(program.tables):
         rows.append(f"gfsim::makeDispatchRow(&table_{index}_)")
+    for index, _ in enumerate(program.slots):
+        rows.append(f"gfsim::makeDispatchRow(&slot_{index}_block_)")
     for index, _ in enumerate(program.table_writes):
         rows.append(f"gfsim::makeDispatchRow(&table_write_{index}_block_)")
     for index, _ in enumerate(program.table_reads):
@@ -1171,12 +1353,30 @@ def lower_queue_program_to_cpp(program: QueueProgram) -> str:
         lines.append(
             f"  gfsim::SimTable<{_cpp_type(table.entry_type)}> table_{index}_;"
         )
+    for index, slot in enumerate(program.slots):
+        payload = _cpp_type(slot.payload)
+        release_index = next(
+            release_index
+            for release_index, release in enumerate(program.slot_releases)
+            if release.slot == slot.name
+        )
+        lines.append(f"  gfsim::SlotState<{payload}> slot_state_{index}_;")
+        lines.append(
+            f"  gfsim::QueueSlot<{payload}, slot_{release_index}_release_policy> "
+            f"slot_{index}_block_;"
+        )
     for index, write in enumerate(program.table_writes):
         table = tables_by_name[write.table]
+        entry = _cpp_type(table.entry_type)
+        if write.input_name is None:
+            provider = f"gfsim::TableWriteSource<{entry}, "
+        else:
+            provider = (
+                f"gfsim::QueueTableWrite<"
+                f"{_cpp_type(queues_by_name[write.input_name].payload)}, {entry}, "
+            )
         lines.append(
-            f"  gfsim::QueueTableWrite<"
-            f"{_cpp_type(queues_by_name[write.input_name].payload)}, "
-            f"{_cpp_type(table.entry_type)}, table_write_{index}_address_policy, "
+            f"  {provider}table_write_{index}_address_policy, "
             f"table_write_{index}_enable_policy, table_write_{index}_value_policy> "
             f"table_write_{index}_block_;"
         )

@@ -3,11 +3,17 @@
 // RUN: %not %acir_opt %t/no-endpoint.mlir 2>&1 | %FileCheck %s --check-prefix=ENDPOINT
 // RUN: %not %acir_opt %t/static-index.mlir 2>&1 | %FileCheck %s --check-prefix=INDEX
 // RUN: %not %acir_opt %t/two-writers.mlir 2>&1 | %FileCheck %s --check-prefix=WRITER
+// RUN: %not %acir_opt %t/match-domain.mlir 2>&1 | %FileCheck %s --check-prefix=MATCH
+// RUN: %not %acir_opt %t/choose-count.mlir 2>&1 | %FileCheck %s --check-prefix=CHOOSE
+// RUN: %not %acir_opt %t/two-releases.mlir 2>&1 | %FileCheck %s --check-prefix=RELEASE
 
 // INIT: error: 'ac.table' op table init must be zero
 // ENDPOINT: error: 'ac.table' op must have at least one table read/write endpoint
 // INDEX: error: 'ac.table.get' op static table index is out of range
 // WRITER: error: 'ac.table' op table permits at most one write endpoint
+// MATCH: error: 'ac.table.match' op match domain must contain 1..64 entries
+// CHOOSE: error: 'ac.table.choose' op choose supports count=1 only
+// RELEASE: error: 'ac.slot' op slot requires exactly one release endpoint
 
 //--- init.mlir
 builtin.module attributes {ac.contract_epoch = "0.4"} {
@@ -41,7 +47,7 @@ builtin.module attributes {ac.contract_epoch = "0.4"} {
   ac.table @bad entry i16 entries 4 init 0 owner "/" stable_id "table/bad"
   %left = ac.source depth 1 latency 1 {ac.name = "left"} : !ac.queue<i8>
   %right = ac.source depth 1 latency 1 {ac.name = "right"} : !ac.queue<i8>
-  ac.table.write @bad, %left address {
+  ac.table.write @bad, %left : !ac.queue<i8> address {
   ^address(%item: !ac.var<i8>):
     ac.table.yield %item : !ac.var<i8>
   } enable {
@@ -52,8 +58,8 @@ builtin.module attributes {ac.contract_epoch = "0.4"} {
   ^value(%item: !ac.var<i8>):
     %zero = ac.var.constant 0 : i16 as !ac.var<i16>
     ac.table.yield %zero : !ac.var<i16>
-  } {ac.endpoint_path = "/left_write", ac.name = "left_write"} : !ac.queue<i8>
-  ac.table.write @bad, %right address {
+  } {ac.endpoint_path = "/left_write", ac.name = "left_write"}
+  ac.table.write @bad, %right : !ac.queue<i8> address {
   ^address(%item: !ac.var<i8>):
     ac.table.yield %item : !ac.var<i8>
   } enable {
@@ -64,5 +70,43 @@ builtin.module attributes {ac.contract_epoch = "0.4"} {
   ^value(%item: !ac.var<i8>):
     %zero = ac.var.constant 0 : i16 as !ac.var<i16>
     ac.table.yield %zero : !ac.var<i16>
-  } {ac.endpoint_path = "/right_write", ac.name = "right_write"} : !ac.queue<i8>
+  } {ac.endpoint_path = "/right_write", ac.name = "right_write"}
+}
+
+//--- match-domain.mlir
+builtin.module attributes {ac.contract_epoch = "0.4"} {
+  ac.table @bad entry i16 entries 65 init 0 owner "/" stable_id "table/bad"
+  %mask = ac.table.match @bad predicate {
+  ^predicate(%entry: !ac.var<i16>):
+    %true = ac.var.constant true as !ac.var<i1>
+    ac.table.match.yield %true : !ac.var<i1>
+  } -> !ac.var<i65>
+}
+
+//--- choose-count.mlir
+builtin.module attributes {ac.contract_epoch = "0.4"} {
+  ac.table @bad entry i16 entries 4 init 0 owner "/" stable_id "table/bad"
+  %mask = ac.table.match @bad predicate {
+  ^predicate(%entry: !ac.var<i16>):
+    %true = ac.var.constant true as !ac.var<i1>
+    ac.table.match.yield %true : !ac.var<i1>
+  } -> !ac.var<i4>
+  %index, %valid = ac.table.choose @bad %mask : !ac.var<i4> count 2 policy "min" key {
+  ^key(%entry: !ac.var<i16>):
+    ac.table.choose.yield %entry : !ac.var<i16>
+  } -> !ac.var<i2>, !ac.var<i1>
+}
+
+//--- two-releases.mlir
+builtin.module attributes {ac.contract_epoch = "0.4"} {
+  %input = ac.source depth 1 latency 1 {ac.name = "input"} : !ac.queue<i8>
+  ac.slot @bad, %input owner "/" stable_id "slot/bad" : !ac.queue<i8>
+  ac.slot.release @bad when {
+    %valid, %value = ac.slot.get @bad : !ac.var<i1>, !ac.var<i8>
+    ac.slot.yield %valid : !ac.var<i1>
+  } {ac.endpoint_path = "/release_0", ac.name = "release_0"}
+  ac.slot.release @bad when {
+    %valid, %value = ac.slot.get @bad : !ac.var<i1>, !ac.var<i8>
+    ac.slot.yield %valid : !ac.var<i1>
+  } {ac.endpoint_path = "/release_1", ac.name = "release_1"}
 }

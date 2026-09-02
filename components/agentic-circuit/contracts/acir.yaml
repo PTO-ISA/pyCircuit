@@ -77,9 +77,17 @@ operations:
   - ac.memory.yield
   - ac.table
   - ac.table.get
+  - ac.table.match
+  - ac.table.match.yield
+  - ac.table.choose
+  - ac.table.choose.yield
   - ac.table.read
   - ac.table.write
   - ac.table.yield
+  - ac.slot
+  - ac.slot.get
+  - ac.slot.release
+  - ac.slot.yield
   - ac.reorder
   - ac.reorder.yield
   - ac.feedback

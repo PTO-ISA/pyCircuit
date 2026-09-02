@@ -346,9 +346,17 @@ TEST(ACIROpsTest, RegistryContainsExactQueueVarOperations) {
       "ac.memory.yield",
       "ac.table",
       "ac.table.get",
+      "ac.table.match",
+      "ac.table.match.yield",
+      "ac.table.choose",
+      "ac.table.choose.yield",
       "ac.table.read",
       "ac.table.write",
       "ac.table.yield",
+      "ac.slot",
+      "ac.slot.get",
+      "ac.slot.release",
+      "ac.slot.yield",
       "ac.reorder",
       "ac.reorder.yield",
       "ac.observe",
@@ -772,7 +780,7 @@ TEST(ACIROpsTest, RuntimeAndQueueVarRegistryIsExact) {
         << name.str();
   EXPECT_FALSE(mlir::OperationName("ac.try_issue", &context).isRegistered());
   EXPECT_FALSE(mlir::OperationName("ac.connect", &context).isRegistered());
-  const std::array<llvm::StringLiteral, 46> queueVarNames = {
+  const std::array<llvm::StringLiteral, 54> queueVarNames = {
       "ac.transform",
       "ac.transform.yield",
       "ac.firing",
@@ -808,9 +816,17 @@ TEST(ACIROpsTest, RuntimeAndQueueVarRegistryIsExact) {
       "ac.memory.yield",
       "ac.table",
       "ac.table.get",
+      "ac.table.match",
+      "ac.table.match.yield",
+      "ac.table.choose",
+      "ac.table.choose.yield",
       "ac.table.read",
       "ac.table.write",
       "ac.table.yield",
+      "ac.slot",
+      "ac.slot.get",
+      "ac.slot.release",
+      "ac.slot.yield",
       "ac.reorder",
       "ac.reorder.yield",
       "ac.feedback",
@@ -823,7 +839,7 @@ TEST(ACIROpsTest, RuntimeAndQueueVarRegistryIsExact) {
   for (llvm::StringLiteral name : queueVarNames)
     EXPECT_TRUE(mlir::OperationName(name, &context).isRegistered())
         << name.str();
-  EXPECT_EQ(context.getRegisteredOperationsByDialect("ac").size(), 101u);
+  EXPECT_EQ(context.getRegisteredOperationsByDialect("ac").size(), 109u);
 }
 
 TEST(ACIROpsTest, ProcessLinearLivenessDoesNotRescanBlockPerValue) {
@@ -1722,6 +1738,54 @@ TEST(ACIROpsTest, TransitionTableRejectsAmbiguousRowsDeterministically) {
   EXPECT_NE(
       diagnostic.find("overlapping transitions require explicit priority"),
       std::string::npos);
+}
+
+TEST(ACIROpsTest, TableEntryTypeRejectsNonStructRecordKindsAndNesting) {
+  mlir::MLIRContext context;
+  context.loadDialect<ACIRDialect, mlir::DLTIDialect>();
+  constexpr std::array<llvm::StringLiteral, 3> sources = {
+      R"mlir(
+        builtin.module attributes {ac.contract_epoch = "0.4"} {
+          "ac.type_scope"() <{sym_name = "types"}> ({
+            "ac.packet"() <{sym_name = "Entry", fields = [{name = "value", type = i8}]}> : () -> ()
+          }) {dlti.dl_spec = #dlti.dl_spec<!ac.packet<@types::@Entry> = {abi_alignment = 1 : i64, endianness = "little", preferred_alignment = 1 : i64, serialization_width = 1 : i64, size = 1 : i64}>} : () -> ()
+          ac.table @bad entry !ac.packet<@types::@Entry> entries 4 init 0 owner "/" stable_id "table/bad"
+        }
+      )mlir",
+      R"mlir(
+        builtin.module attributes {ac.contract_epoch = "0.4"} {
+          "ac.type_scope"() <{sym_name = "types"}> ({
+            "ac.transaction"() <{sym_name = "Entry", fields = [{name = "value", type = i8}]}> : () -> ()
+          }) : () -> ()
+          ac.table @bad entry !ac.transaction<@types::@Entry> entries 4 init 0 owner "/" stable_id "table/bad"
+        }
+      )mlir",
+      R"mlir(
+        builtin.module attributes {ac.contract_epoch = "0.4"} {
+          ac.type_scope @types {
+            ac.struct @Inner fields [{name = "value", type = i8}]
+            ac.struct @Entry fields [{name = "inner", type = !ac.struct<@types::@Inner>}]
+          } {dlti.dl_spec = #dlti.dl_spec<
+            !ac.struct<@types::@Inner> = {abi_alignment = 1 : i64, endianness = "little", preferred_alignment = 1 : i64, size = 1 : i64},
+            !ac.struct<@types::@Entry> = {abi_alignment = 1 : i64, endianness = "little", preferred_alignment = 1 : i64, size = 1 : i64}
+          >}
+          ac.table @bad entry !ac.struct<@types::@Entry> entries 4 init 0 owner "/" stable_id "table/bad"
+        }
+      )mlir"};
+
+  for (llvm::StringRef source : sources) {
+    std::string diagnostic;
+    mlir::ScopedDiagnosticHandler handler(
+        &context, [&](mlir::Diagnostic &value) {
+          llvm::raw_string_ostream(diagnostic) << value;
+          return mlir::success();
+        });
+    EXPECT_FALSE(mlir::parseSourceString<mlir::ModuleOp>(source, &context));
+    EXPECT_NE(diagnostic.find("entry type must be bool, a <=64-bit integer, "
+                              "or a flat integer struct"),
+              std::string::npos)
+        << diagnostic;
+  }
 }
 
 TEST(ACIRResourcesTest, CheckedArithmeticAndIntervalsRejectBoundaries) {
