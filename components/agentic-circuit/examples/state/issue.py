@@ -1,4 +1,10 @@
-"""Issue Table with independent wakeups, issue selection, and allocation."""
+"""Resident-entry Issue Table contract example.
+
+This example does not persist global tag-ready state or re-query readiness for
+an Entry allocated after its completion. It demonstrates Table writers,
+selection, and allocation, not the cross-Queue lost-wakeup solution tracked by
+issue #11.
+"""
 
 import agentic_circuit as ac
 
@@ -77,8 +83,10 @@ def issue() -> None:
         value=allocation.value,
     )
 
-    # Consume a wakeup whenever it is present. Consume an allocation only after
-    # a free slot was selected and the complete replacement was proposed.
+    # This resident-only example consumes a wakeup whenever it is present. A
+    # complete implementation must persist readiness and re-query it when an
+    # Entry arrives later; see issue #11. Consume an allocation only after a
+    # free slot was selected and the complete replacement was proposed.
     wakeup.release(when=wakeup.valid)
     allocation.release(when=free.valid)
     ac.sink(output)

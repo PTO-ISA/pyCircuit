@@ -59,8 +59,7 @@ inline void bitwise_not(std::uint64_t *dst, const std::uint64_t *a,
   unsigned i = 0;
   for (; i + 2 <= nWords; i += 2) {
     uint64x2_t va = vld1q_u64(a + i);
-    vst1q_u64(dst + i,
-              vreinterpretq_u64_u8(vmvnq_u8(vreinterpretq_u8_u64(va))));
+    vst1q_u64(dst + i, vmvnq_u8(vreinterpretq_u8_u64(va)));
   }
   for (; i < nWords; i++)
     dst[i] = ~a[i];

@@ -304,7 +304,7 @@ def ACIR_ReorderOp : ACIR_Op<"reorder", [SingleBlock]> {
   let arguments = (ins ACIR_QueueType:$input, I64Attr:$capacity,
                        I64Attr:$start, I64Attr:$depth, I64Attr:$latency);
   let results = (outs ACIR_QueueType:$output);
-  let regions = (region AnyRegion:$key);
+  let regions = (region SizedRegion<1>:$key);
   let hasVerifier = 1;
   let assemblyFormat = [{
     $input `capacity` $capacity `start` $start `depth` $depth

@@ -11,7 +11,10 @@
 All Table expressions observe the old committed image. Consequently a wakeup
 becomes selectable on the following tick, and a slot cleared by issue becomes
 visible to the empty-slot selector on the following tick. Allocation remains a
-state-driven scalar endpoint and replaces the complete selected Entry.
+state-driven scalar endpoint and replaces the complete selected Entry. The
+example intentionally updates only entries resident when a wakeup is consumed.
+It does not persist global tag-ready state or re-query later allocations, so it
+is not the lost-wakeup solution tracked by issue #11.
 
 The checked multi-writer Frozen ACIR fixture remains
 `table_multi_writer_issue.mlir`. Additional Python inputs used only for E2E
