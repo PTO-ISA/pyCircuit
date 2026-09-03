@@ -129,7 +129,7 @@ cat > "${docs_gate_dir}/agentic_circuit_summary.json" <<EOF
   "script": "run_agentic_circuit.sh",
   "status": "pass",
   "lanes": ["AC G0", "AC G1", "AC G2"],
-  "contract_epoch": "0.3",
+  "contract_epoch": "0.4",
   "pyc_interface": "pyc6",
   "cases": ["arbiter", "atomic-transform", "popcount"]
 }

@@ -4,10 +4,12 @@ import importlib
 import sys
 from pathlib import Path
 
+import pytest
 import tomllib
 
 REPOSITORY = Path(__file__).resolve().parents[2]
 AC_ROOT = REPOSITORY / "components" / "agentic-circuit"
+pytestmark = pytest.mark.unit
 
 
 def test_two_distributions_use_distinct_namespaces_and_bsd_license() -> None:
@@ -37,13 +39,21 @@ def test_two_distributions_use_distinct_namespaces_and_bsd_license() -> None:
     assert pycircuit.module is not agentic_circuit.module
 
 
-def test_acpy_contract_epoch_remains_0_3() -> None:
+def test_acpy_contract_epoch_is_0_4_across_active_surfaces() -> None:
     metadata = tomllib.loads((AC_ROOT / "pyproject.toml").read_text(encoding="utf-8"))
-    assert metadata["tool"]["agentic-circuit"]["contract-epoch"] == "0.3"
+    assert metadata["tool"]["agentic-circuit"]["contract-epoch"] == "0.4"
 
     source = (AC_ROOT / "src" / "agentic_circuit" / "_acpy.py").read_text(
         encoding="utf-8"
     )
     assert 'schema: str = "agentic-circuit-acpy"' in source
     assert 'version: str = "0.1"' in source
-    assert 'contract_epoch: str = "0.3"' in source
+    assert 'contract_epoch: str = "0.4"' in source
+
+    readme = (REPOSITORY / "README.md").read_text(encoding="utf-8")
+    assert "agentic_circuit frontend -> ACPy 0.4 -> ACIR" in readme
+
+    gate_script = (
+        REPOSITORY / "flows" / "scripts" / "run_agentic_circuit.sh"
+    ).read_text(encoding="utf-8")
+    assert '"contract_epoch": "0.4"' in gate_script

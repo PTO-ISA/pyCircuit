@@ -95,7 +95,7 @@ ACIR remains an independent, upper-level MLIR dialect. It is not folded into
 the PYC dialect and does not replace the Cycle-Aware Signal model:
 
 ```text
-agentic_circuit frontend -> ACPy 0.3 -> ACIR
+agentic_circuit frontend -> ACPy 0.4 -> ACIR
                                          |-> ACSim -> gfsim
                                          `-> PYC -> pycc -> pyc6 C++ / Verilog
 
