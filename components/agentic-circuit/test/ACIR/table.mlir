@@ -106,19 +106,23 @@ builtin.module attributes {ac.contract_epoch = "0.4"} {
 // CHECK: ac.table @values entry i16 entries 16 init 0 owner "/" stable_id "table/values"
 // CHECK: ac.table @flags entry i1 entries 1 init 0 owner "/" stable_id "table/flags"
 // CHECK: ac.table.write @values, %{{.*}} : !ac.queue<i8> mode "field" write_fields ["$entry"]
-// CHECK: ac.table.masked_write @candidates %{{.*}} : !ac.var<i4> mode "field" write_fields ["$entry"]
-// CHECK: ac.table.write @multi mode "field" write_fields ["valid"]
-// CHECK: ac.table.write @multi mode "field" write_fields ["ready"]
-// CHECK: ac.table.write @multi mode "replace" write_fields ["valid", "ready"]
 // CHECK: ac.table.get @values
 // CHECK: ac.table.read @values depth 1 latency 1
-// CHECK: ac.table.yield
+// CHECK: ac.table @candidates entry i16 entries 4 init 0 owner "/" stable_id "table/candidates"
+// CHECK: ac.slot @pending
 // CHECK: ac.table.match @candidates
 // CHECK: ac.table.match.yield
 // CHECK: ac.table.choose @candidates
 // CHECK: ac.table.choose.yield
 // CHECK: policy "first" key {
-// CHECK: ac.slot @pending
-// CHECK: ac.slot.get @pending
+// CHECK: ac.table.masked_write @candidates %{{.*}} : !ac.var<i4> mode "field" write_fields ["$entry"]
 // CHECK: ac.slot.release @pending
+// CHECK: ac.slot.get @pending
 // CHECK: ac.slot.yield
+// CHECK: ac.table @multi entry !ac.struct<@types::@Entry> entries 1 init 0 owner "/" stable_id "table/multi"
+// CHECK: ac.table.write @multi mode "field" write_fields ["valid"]
+// CHECK: ac.table.get @multi
+// CHECK: ac.table.write @multi mode "field" write_fields ["ready"]
+// CHECK: ac.table.get @multi
+// CHECK: ac.table.write @multi mode "replace" write_fields ["valid", "ready"]
+// CHECK: ac.table.get @multi

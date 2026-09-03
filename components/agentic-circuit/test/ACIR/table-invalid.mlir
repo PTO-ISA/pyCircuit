@@ -30,7 +30,7 @@
 // CHOOSE-TABLE: error: 'ac.table.choose' op candidate mask must come from the same Table
 // RELEASE: error: 'ac.slot' op slot requires exactly one release endpoint
 // MASKED-OWNER: error: 'ac.table.masked_write' op mask must be produced by match on the same Table
-// FIELDS-MISSING: error: expected 'write_fields'
+// FIELDS-MISSING: error: custom op 'ac.table.write' expected 'write_fields'
 // FIELDS-EMPTY: error: 'ac.table.write' op write_fields must be non-empty
 // FIELDS-DUPLICATE: error: 'ac.table.write' op duplicate write field '$entry'
 // FIELDS-UNKNOWN: error: 'ac.table.write' op unknown write field 'value'

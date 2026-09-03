@@ -9,14 +9,14 @@
 // SAME-LABEL: struct block_0_release_policy {
 // SAME-NOT: table_first
 // SAME: gfsim::SimTable<std::uint16_t> *table_second{};
-// SAME-LABEL: bool operator()() const {
+// SAME-LABEL: bool operator()(gfsim::Epoch epoch) const {
 // SAME: table_second->checkedAt
 // SAME: block_0_release_policy{&slot_0_state_, &table_1_}
 
 // DIFFERENT-LABEL: struct block_0_release_policy {
 // DIFFERENT: gfsim::SimTable<std::uint8_t> *table_first{};
 // DIFFERENT: gfsim::SimTable<std::uint16_t> *table_second{};
-// DIFFERENT-LABEL: bool operator()() const {
+// DIFFERENT-LABEL: bool operator()(gfsim::Epoch epoch) const {
 // DIFFERENT: table_first->checkedAt
 // DIFFERENT: table_second->checkedAt
 // DIFFERENT: block_0_release_policy{&slot_0_state_, &table_0_, &table_1_}
