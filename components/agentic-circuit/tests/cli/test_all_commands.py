@@ -15,14 +15,15 @@ class CommandCoverage:
 
 
 def cli_test_ledger() -> dict[str, CommandCoverage]:
-    parser = "tests.cli.test_cli_parser.CliParserTest"
-    discovery = "tests.cli.test_discovery_commands.DiscoveryCommandTest"
-    frontend = "tests.cli.test_frontend_commands.FrontendCommandTest"
-    compile_command = "tests.cli.test_compile_command.CompileCommandTest"
-    build = "tests.cli.test_build_command.BuildCommandTest"
-    run = "tests.cli.test_run_command.RunCommandTest"
-    inspect = "tests.cli.test_inspect_command.InspectCommandTest"
-    exits = "tests.cli.test_exit_codes.ExitCodeTest"
+    module_prefix = f"{__package__}." if __package__ else ""
+    parser = f"{module_prefix}test_cli_parser.CliParserTest"
+    discovery = f"{module_prefix}test_discovery_commands.DiscoveryCommandTest"
+    frontend = f"{module_prefix}test_frontend_commands.FrontendCommandTest"
+    compile_command = f"{module_prefix}test_compile_command.CompileCommandTest"
+    build = f"{module_prefix}test_build_command.BuildCommandTest"
+    run = f"{module_prefix}test_run_command.RunCommandTest"
+    inspect = f"{module_prefix}test_inspect_command.InspectCommandTest"
+    exits = f"{module_prefix}test_exit_codes.ExitCodeTest"
     return {
         "init": CommandCoverage(
             (f"{parser}.test_json_stdout_contains_one_value_and_no_prose",),
