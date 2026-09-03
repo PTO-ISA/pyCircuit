@@ -1,0 +1,7 @@
+bash flows/scripts/run_agentic_circuit.sh
+python3 -m unittest discover -s components/agentic-circuit/tests/python_frontend -p 'test_*.py'
+python3 -m unittest discover -s components/agentic-circuit/tests/cli -p 'test_*.py'
+cmake --build components/agentic-circuit/build/dev-llvm22 --target check-acir
+ctest --test-dir components/agentic-circuit/build/dev-llvm22 --output-on-failure
+bash flows/scripts/pyc build
+components/agentic-circuit/tools/ac-queue-pyc-build.py <ACIR> ...

@@ -64,8 +64,8 @@ rejection boundary.
   formatted with the pinned LLVM 22 formatter, Python files passed
   `py_compile`, and `git diff --check` passed.
 - A direct API-hygiene scan of the Agentic Circuit documentation reports five
-  pre-existing `PYC415` matches on Agentic Queue collection
-  `lanes.select(...)`/`banks.select(...)` examples. Those are not pyCircuit
-  Wire method calls and were not introduced or changed by Decision 0154.
+  pre-existing `PYC415` matches on legacy Agentic Queue collection selection
+  examples. Those are not pyCircuit Wire method calls and were not introduced
+  or changed by Decision 0154.
 - Whole-repository pyCircuit closure was intentionally not run for this
   Agentic Circuit-only provisional Table change.

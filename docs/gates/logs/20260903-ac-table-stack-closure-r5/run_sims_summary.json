@@ -1,0 +1,7 @@
+{
+  "run_id": "20260903-ac-table-stack-closure-r5",
+  "script": "run_sims.sh",
+  "status": "pass",
+  "case_timeout_sec": 3600,
+  "retry_on_timeout": 1
+}

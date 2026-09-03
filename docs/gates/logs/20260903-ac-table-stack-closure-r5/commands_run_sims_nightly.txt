@@ -1,0 +1,6 @@
+bash flows/scripts/run_sims_nightly.sh
+env:
+  PYC_GATE_RUN_ID=20260903-ac-table-stack-closure-r5
+  PYC_SIM_CASE_TIMEOUT_SEC=3600
+  PYC_SIM_RETRY_ON_TIMEOUT=1
+  PYC_SIM_RESUME_FROM_CASE=
