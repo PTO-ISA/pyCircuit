@@ -10,7 +10,7 @@
         "binding": "workspace_Showcase_binding",
         "binding_schema": "acsim-binding-0.1",
         "component_schema": "workspace.Showcase",
-        "component_schema_fingerprint": "sha256:3dd113d76227679688dc514e8bbe401a8225925cf592e362891a8857b6f2a270",
+        "component_schema_fingerprint": "sha256:9e8e7afc37326215d04cf1b3bfa39199bcfb987f3690764f89999794eec50421",
         "construction": {"arguments": [0], "kind": "constructor"},
         "contract_epoch": "0.4",
         "cpp": {
@@ -28,7 +28,7 @@
         },
         "cpp_type": "workspace_showcase_type",
         "effect": "stateful",
-        "fingerprint": "sha256:32e7a810b0f32c03a2c2121ec89e038cf6e10282d674553b7ed55d379069acc6",
+        "fingerprint": "sha256:897dbfa152173c638dc8b501e5d83f34a5de8401d6dc65233380031b4a39acf7",
         "implementation": "gfsim.ShowcaseTraceSource",
         "ownership": {"kind": "unique", "placement": "member_or_array"},
         "parameters": [{
@@ -56,7 +56,7 @@
         "binding": "workspace_Showcase_binding",
         "binding_schema": "acsim-binding-0.1",
         "component_schema": "workspace.Showcase",
-        "component_schema_fingerprint": "sha256:3dd113d76227679688dc514e8bbe401a8225925cf592e362891a8857b6f2a270",
+        "component_schema_fingerprint": "sha256:9e8e7afc37326215d04cf1b3bfa39199bcfb987f3690764f89999794eec50421",
         "construction": {"arguments": [0], "kind": "constructor"},
         "contract_epoch": "0.4",
         "cpp": {
@@ -74,7 +74,7 @@
         },
         "cpp_type": "workspace_showcase_type",
         "effect": "stateful",
-        "fingerprint": "sha256:32e7a810b0f32c03a2c2121ec89e038cf6e10282d674553b7ed55d379069acc6",
+        "fingerprint": "sha256:897dbfa152173c638dc8b501e5d83f34a5de8401d6dc65233380031b4a39acf7",
         "implementation": "gfsim.ShowcaseTraceSource",
         "ownership": {"kind": "unique", "placement": "member_or_array"},
         "parameters": [{
@@ -98,7 +98,7 @@
     "binding": "workspace_Showcase_binding",
     "binding_schema": "acsim-binding-0.1",
     "component_schema": "workspace.Showcase",
-    "component_schema_fingerprint": "sha256:3dd113d76227679688dc514e8bbe401a8225925cf592e362891a8857b6f2a270",
+    "component_schema_fingerprint": "sha256:9e8e7afc37326215d04cf1b3bfa39199bcfb987f3690764f89999794eec50421",
     "contract_epoch": "0.4",
     "effect": "stateful",
     "function_type": "() -> ()",

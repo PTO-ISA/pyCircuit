@@ -10,7 +10,7 @@
         "binding": "workspace_Showcase_binding",
         "binding_schema": "acsim-binding-0.1",
         "component_schema": "workspace.Showcase",
-        "component_schema_fingerprint": "sha256:3dd113d76227679688dc514e8bbe401a8225925cf592e362891a8857b6f2a270",
+        "component_schema_fingerprint": "sha256:9e8e7afc37326215d04cf1b3bfa39199bcfb987f3690764f89999794eec50421",
         "construction": {
           "arguments": [
             2
@@ -33,7 +33,7 @@
         },
         "cpp_type": "workspace_showcase_type",
         "effect": "stateful",
-        "fingerprint": "sha256:04d4bb6c35f30c3202e0d90d520dcd731882ac806e8725490319c8caae770e44",
+        "fingerprint": "sha256:64f7195eeed370c905deebcf17708293f060a3f756f0a2cc34c77b914645246d",
         "implementation": "gfsim.ShowcaseTraceSource",
         "ownership": {
           "kind": "unique",
@@ -66,7 +66,7 @@
         "binding": "workspace_Showcase_binding",
         "binding_schema": "acsim-binding-0.1",
         "component_schema": "workspace.Showcase",
-        "component_schema_fingerprint": "sha256:3dd113d76227679688dc514e8bbe401a8225925cf592e362891a8857b6f2a270",
+        "component_schema_fingerprint": "sha256:9e8e7afc37326215d04cf1b3bfa39199bcfb987f3690764f89999794eec50421",
         "construction": {
           "arguments": [
             2
@@ -89,7 +89,7 @@
         },
         "cpp_type": "workspace_showcase_type",
         "effect": "stateful",
-        "fingerprint": "sha256:04d4bb6c35f30c3202e0d90d520dcd731882ac806e8725490319c8caae770e44",
+        "fingerprint": "sha256:64f7195eeed370c905deebcf17708293f060a3f756f0a2cc34c77b914645246d",
         "implementation": "gfsim.ShowcaseTraceSource",
         "ownership": {
           "kind": "unique",
@@ -119,7 +119,7 @@
       "binding": "workspace_Showcase_binding",
       "binding_schema": "acsim-binding-0.1",
       "component_schema": "workspace.Showcase",
-      "component_schema_fingerprint": "sha256:3dd113d76227679688dc514e8bbe401a8225925cf592e362891a8857b6f2a270",
+      "component_schema_fingerprint": "sha256:9e8e7afc37326215d04cf1b3bfa39199bcfb987f3690764f89999794eec50421",
       "contract_epoch": "0.4",
       "effect": "stateful",
       "function_type": "() -> ()",
