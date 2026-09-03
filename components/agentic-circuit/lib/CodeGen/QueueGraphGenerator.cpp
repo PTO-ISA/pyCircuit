@@ -142,10 +142,19 @@ std::string commonPath(llvm::StringRef left, llvm::StringRef right) {
 
 llvm::Expected<std::string> emitExpressionBody(const QueueBlockPlan &block,
                                                llvm::StringRef yield,
-                                               unsigned indent) {
+                                               unsigned indent,
+                                               bool qualifyTables = false) {
   std::ostringstream output;
   std::string padding(indent, ' ');
+  llvm::StringSet<> needed;
+  needed.insert(yield);
+  for (const QueueExpressionPlan &expression : llvm::reverse(block.expressions))
+    if (needed.contains(expression.result))
+      for (const std::string &operand : expression.operands)
+        needed.insert(operand);
   for (const QueueExpressionPlan &expression : block.expressions) {
+    if (!needed.contains(expression.result))
+      continue;
     auto operand = [&](size_t index) -> llvm::Expected<llvm::StringRef> {
       if (index >= expression.operands.size())
         return generatorError("expression operand arity mismatch");
@@ -173,15 +182,17 @@ llvm::Expected<std::string> emitExpressionBody(const QueueBlockPlan &block,
       QueueBlockPlan nested;
       nested.expressions = expression.nestedExpressions;
       nested.yields = expression.nestedYields;
-      auto predicate =
-          emitExpressionBody(nested, nested.yields.front(), indent + 8);
+      auto predicate = emitExpressionBody(nested, nested.yields.front(),
+                                          indent + 8, qualifyTables);
       if (!predicate)
         return predicate.takeError();
+      const std::string table =
+          qualifyTables ? "table_" + identifier(expression.table) : "table";
       output << padding << "std::uint64_t " << expression.result << " = 0;\n"
-             << padding
-             << "for (std::size_t index = 0; index < table->size(); "
+             << padding << "for (std::size_t index = 0; index < " << table
+             << "->size(); "
                 "++index) {\n"
-             << padding << "  const auto &item = table->at(index);\n"
+             << padding << "  const auto &item = " << table << "->at(index);\n"
              << padding << "  if ([&]() {\n"
              << *predicate << padding << "  }())\n"
              << padding << "    " << expression.result
@@ -198,9 +209,10 @@ llvm::Expected<std::string> emitExpressionBody(const QueueBlockPlan &block,
       continue;
     }
     if (expression.kind == "table_get") {
-      output << padding << "auto " << expression.result
-             << " = table->checkedAt(static_cast<size_t>(" << first->str()
-             << "));\n";
+      const std::string table =
+          qualifyTables ? "table_" + identifier(expression.table) : "table";
+      output << padding << "auto " << expression.result << " = " << table
+             << "->checkedAt(static_cast<size_t>(" << first->str() << "));\n";
       continue;
     }
     if (expression.kind == "popcount") {
@@ -214,14 +226,16 @@ llvm::Expected<std::string> emitExpressionBody(const QueueBlockPlan &block,
       QueueBlockPlan nested;
       nested.expressions = expression.nestedExpressions;
       nested.yields = expression.nestedYields;
-      output
-          << padding << "std::uint64_t " << expression.result << " = 0;\n"
-          << padding << "bool " << expression.result << "_found = false;\n"
-          << padding << "std::uint64_t " << expression.result << "_best = 0;\n"
-          << padding
-          << "for (std::size_t index = 0; index < table->size(); ++index) {\n"
-          << padding << "  if ((static_cast<std::uint64_t>(" << first->str()
-          << ") & (std::uint64_t{1} << index)) == 0) continue;\n";
+      output << padding << "std::uint64_t " << expression.result << " = 0;\n"
+             << padding << "bool " << expression.result << "_found = false;\n"
+             << padding << "std::uint64_t " << expression.result
+             << "_best = 0;\n"
+             << padding << "for (std::size_t index = 0; index < "
+             << (qualifyTables ? "table_" + identifier(expression.table)
+                               : std::string("table"))
+             << "->size(); ++index) {\n"
+             << padding << "  if ((static_cast<std::uint64_t>(" << first->str()
+             << ") & (std::uint64_t{1} << index)) == 0) continue;\n";
       if (expression.predicate == "first") {
         output << padding << "  " << expression.result << " = index;\n"
                << padding << "  " << expression.result << "_found = true;\n"
@@ -229,12 +243,15 @@ llvm::Expected<std::string> emitExpressionBody(const QueueBlockPlan &block,
       } else {
         if (nested.yields.size() != 1)
           return generatorError("table.choose key yield is missing");
-        auto key =
-            emitExpressionBody(nested, nested.yields.front(), indent + 6);
+        auto key = emitExpressionBody(nested, nested.yields.front(), indent + 6,
+                                      qualifyTables);
         if (!key)
           return key.takeError();
         const char *comparison = expression.predicate == "min" ? "<" : ">";
-        output << padding << "  const auto &item = table->at(index);\n"
+        output << padding << "  const auto &item = "
+               << (qualifyTables ? "table_" + identifier(expression.table)
+                                 : std::string("table"))
+               << "->at(index);\n"
                << padding << "  auto key = [&]() {\n"
                << *key << padding << "  }();\n"
                << padding << "  if (!" << expression.result
@@ -287,6 +304,16 @@ llvm::Expected<std::string> emitExpressionBody(const QueueBlockPlan &block,
   }
   output << padding << "return " << yield.str() << ";\n";
   return output.str();
+}
+
+bool referencesTable(const std::vector<QueueExpressionPlan> &expressions,
+                     llvm::StringRef table) {
+  for (const QueueExpressionPlan &expression : expressions) {
+    if (expression.table == table ||
+        referencesTable(expression.nestedExpressions, table))
+      return true;
+  }
+  return false;
 }
 
 const QueuePlan *findQueue(const QueueGraphPlan &plan, llvm::StringRef name) {
@@ -497,14 +524,17 @@ llvm::Expected<std::string> generateQueueGraphCpp(const QueueGraphPlan &plan) {
         output << "  gfsim::SlotState<" << *type << "> *slot_"
                << identifier(candidate.name) << "{};\n";
       }
-      if (!plan.tables.empty()) {
-        auto type = cppType(plan.tables.front().entryType);
+      for (const TablePlan &table : plan.tables) {
+        if (!referencesTable(block->expressions, table.name))
+          continue;
+        auto type = cppType(table.entryType);
         if (!type)
           return type.takeError();
-        output << "  gfsim::SimTable<" << *type << "> *table{};\n";
+        output << "  gfsim::SimTable<" << *type << "> *table_"
+               << identifier(table.name) << "{};\n";
       }
       output << "  bool operator()() const {\n";
-      auto body = emitExpressionBody(*block, block->yields.front(), 4);
+      auto body = emitExpressionBody(*block, block->yields.front(), 4, true);
       if (!body)
         return body.takeError();
       output << *body << "  }\n};\n\n";
@@ -1005,9 +1035,9 @@ llvm::Expected<std::string> generateQueueGraphCpp(const QueueGraphPlan &plan) {
         return generatorError("slot declaration is missing");
       auto slotIndex = static_cast<size_t>(slot - plan.slots.data());
       std::string policyPointers = slotPolicyPointers;
-      if (!plan.tables.empty())
-        policyPointers.append(", &").append(
-            tableMembers[plan.tables.front().name]);
+      for (const TablePlan &table : plan.tables)
+        if (referencesTable(block->expressions, table.name))
+          policyPointers.append(", &").append(tableMembers[table.name]);
       appendInitializer(
           initializers, member, "(\"", instanceName, "\", ", blockIds[key],
           ", ", *parent, ", ", queueMembers[block->inputs[0]], ", slot_",

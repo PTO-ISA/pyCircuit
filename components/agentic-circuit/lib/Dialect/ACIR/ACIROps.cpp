@@ -1677,6 +1677,12 @@ LogicalResult TableChooseOp::verify() {
       cast<VarType>(getMask().getType()).getElementType());
   if (!mask || mask.getWidth() != static_cast<unsigned>(table.getEntries()))
     return emitOpError("candidate mask width must equal the Table domain");
+  auto match = getMask().getDefiningOp<TableMatchOp>();
+  if (!match)
+    return emitOpError("candidate mask must be produced directly by "
+                       "ac.table.match");
+  if (resolveTable(match, match.getTableAttr()) != table)
+    return emitOpError("candidate mask must come from the same Table");
   if (getCount() != 1)
     return emitOpError("choose supports count=1 only");
   if (getPolicy() != "first" && getPolicy() != "min" && getPolicy() != "max")
