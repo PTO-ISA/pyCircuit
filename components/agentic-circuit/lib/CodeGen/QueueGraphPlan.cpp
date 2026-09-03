@@ -12,6 +12,7 @@
 #include "llvm/ADT/StringMap.h"
 #include "llvm/ADT/StringSet.h"
 #include "llvm/Support/JSON.h"
+#include "llvm/Support/MathExtras.h"
 #include "llvm/Support/raw_ostream.h"
 
 #include <optional>
@@ -31,6 +32,15 @@ std::string printType(mlir::Type type) {
   llvm::raw_string_ostream stream(result);
   stream << type;
   return result;
+}
+
+std::optional<unsigned> integerWidth(llvm::StringRef type) {
+  if (!type.consume_front("i"))
+    return std::nullopt;
+  unsigned width = 0;
+  if (type.empty() || type.getAsInteger(10, width) || width == 0)
+    return std::nullopt;
+  return width;
 }
 
 std::string printAttribute(mlir::Attribute attribute) {
@@ -438,6 +448,7 @@ private:
             printType(resultType.getElementType()),
             {}};
         reference.field = name;
+        reference.table = match.getTable().str();
         sharedExpressions.emplace_back(match.getMask(), std::move(reference));
         continue;
       }
@@ -471,6 +482,7 @@ private:
             printType(indexType.getElementType()),
             {}};
         indexReference.field = name;
+        indexReference.table = choose.getTable().str();
         sharedExpressions.emplace_back(choose.getIndex(),
                                        std::move(indexReference));
         auto validType = mlir::cast<ac::VarType>(choose.getValid().getType());
@@ -481,6 +493,7 @@ private:
             printType(validType.getElementType()),
             {}};
         validReference.field = name;
+        validReference.table = choose.getTable().str();
         sharedExpressions.emplace_back(choose.getValid(),
                                        std::move(validReference));
         continue;
@@ -1074,25 +1087,77 @@ llvm::Error verifyQueueGraphPlan(const QueueGraphPlan &plan) {
   }
   llvm::StringMap<const TableMatchPlan *> tableMatches;
   for (const TableMatchPlan &match : plan.tableMatches) {
-    if (match.name.empty() || !tables.contains(match.table) ||
+    const TablePlan *table = tables.lookup(match.table);
+    auto width = integerWidth(match.resultType);
+    if (match.name.empty() || !table || !width || *width != table->entries ||
         match.resultType.empty() || match.yield.empty() ||
         !tableMatches.try_emplace(match.name, &match).second)
       return planError("table match metadata is incomplete or duplicated");
   }
-  llvm::StringSet<> tableSelections;
+  llvm::StringMap<const TableSelectionPlan *> tableSelections;
   for (const TableSelectionPlan &selection : plan.tableSelections) {
+    const TablePlan *table = tables.lookup(selection.table);
     const TableMatchPlan *match = tableMatches.lookup(selection.match);
-    if (selection.name.empty() || !tables.contains(selection.table) || !match ||
-        match->table != selection.table || selection.indexType.empty() ||
+    auto indexWidth = integerWidth(selection.indexType);
+    const unsigned expectedIndexWidth =
+        table ? std::max<unsigned>(1, llvm::Log2_64_Ceil(table->entries)) : 0;
+    if (selection.name.empty() || !table || !match || !indexWidth ||
+        *indexWidth != expectedIndexWidth || match->table != selection.table ||
+        selection.indexType.empty() ||
         (selection.policy != "first" && selection.policy != "min" &&
          selection.policy != "max") ||
         (selection.policy == "first" &&
          (!selection.keyExpressions.empty() || !selection.keyYield.empty())) ||
         (selection.policy != "first" && selection.keyYield.empty()) ||
-        !tableSelections.insert(selection.name).second)
+        !tableSelections.try_emplace(selection.name, &selection).second)
       return planError("table selection metadata is incomplete, duplicated, or "
                        "inconsistent");
   }
+  auto verifySharedExpression =
+      [&](auto &&self, const QueueExpressionPlan &expression) -> llvm::Error {
+    if (expression.kind == "table_match_ref") {
+      const TableMatchPlan *match = tableMatches.lookup(expression.field);
+      if (!match)
+        return planError("table_match_ref references unknown match target");
+      if (expression.table != match->table)
+        return planError("table_match_ref Table provenance is inconsistent");
+      if (expression.type != match->resultType)
+        return planError("table_match_ref field type is inconsistent");
+    } else if (expression.kind == "table_selection_index_ref" ||
+               expression.kind == "table_selection_valid_ref") {
+      const TableSelectionPlan *selection =
+          tableSelections.lookup(expression.field);
+      if (!selection)
+        return planError(
+            "table_selection_ref references unknown selection target");
+      if (expression.table != selection->table)
+        return planError(
+            "table_selection_ref Table provenance is inconsistent");
+      const llvm::StringRef expected =
+          expression.kind == "table_selection_index_ref"
+              ? llvm::StringRef(selection->indexType)
+              : llvm::StringRef("i1");
+      if (expression.type != expected)
+        return planError("table_selection_ref field type is inconsistent");
+    }
+    for (const QueueExpressionPlan &nested : expression.nestedExpressions)
+      if (auto error = self(self, nested))
+        return error;
+    return llvm::Error::success();
+  };
+  auto verifySharedExpressions = [&](const auto &expressions) -> llvm::Error {
+    for (const QueueExpressionPlan &expression : expressions)
+      if (auto error =
+              verifySharedExpression(verifySharedExpression, expression))
+        return error;
+    return llvm::Error::success();
+  };
+  for (const TableMatchPlan &match : plan.tableMatches)
+    if (auto error = verifySharedExpressions(match.expressions))
+      return error;
+  for (const TableSelectionPlan &selection : plan.tableSelections)
+    if (auto error = verifySharedExpressions(selection.keyExpressions))
+      return error;
   llvm::StringMap<unsigned> tableReaders;
   llvm::StringMap<llvm::StringSet<>> tableWriterFields;
   llvm::StringSet<> tableReplaceWriters;
@@ -1194,6 +1259,8 @@ llvm::Error verifyQueueGraphPlan(const QueueGraphPlan &plan) {
   }
 
   for (const QueueBlockPlan &block : plan.blocks) {
+    if (auto error = verifySharedExpressions(block.expressions))
+      return error;
     if (block.kind == "memory_request" &&
         !memoryInstances.contains(block.memoryInstance))
       return planError("memory request block references unknown instance");

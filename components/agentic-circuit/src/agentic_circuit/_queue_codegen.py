@@ -47,6 +47,7 @@ class _CppExpression:
         selection_refs: dict[str, str] | None = None,
         table_entries: dict[str, int] | None = None,
         table_names: dict[str, str] | None = None,
+        require_shared_refs: bool = False,
     ) -> None:
         self.argument = argument
         self.state_names = state_names or {}
@@ -56,6 +57,7 @@ class _CppExpression:
         self.selection_refs = selection_refs or {}
         self.table_entries = table_entries or {}
         self.table_names = table_names or {}
+        self.require_shared_refs = require_shared_refs
 
     def emit(self, node: ast.expr) -> str:
         if isinstance(node, ast.Name) and node.id == self.argument:
@@ -65,6 +67,10 @@ class _CppExpression:
         if isinstance(node, ast.Name) and node.id in self.candidate_refs:
             return f"{self.candidate_refs[node.id]}->get(epoch)"
         if isinstance(node, ast.Name) and node.id in self.candidates:
+            if self.require_shared_refs:
+                raise QueueFrontendError(
+                    "ACLOWER-OWNERSHIP: CandidateSet shared cache reference is missing"
+                )
             candidate = self.candidates[node.id]
             table = self.table_names.get(candidate.table)
             entries = self.table_entries.get(candidate.table)
@@ -81,6 +87,7 @@ class _CppExpression:
                 selection_refs=self.selection_refs,
                 table_entries=self.table_entries,
                 table_names=self.table_names,
+                require_shared_refs=self.require_shared_refs,
             ).emit(candidate.predicate)
             return (
                 "([&]() { std::uint64_t mask = 0; "
@@ -108,6 +115,10 @@ class _CppExpression:
             and node.value.id in self.selections
             and node.attr in {"index", "valid"}
         ):
+            if self.require_shared_refs:
+                raise QueueFrontendError(
+                    "ACLOWER-OWNERSHIP: Selection shared cache reference is missing"
+                )
             selection = self.selections[node.value.id]
             candidate = self.candidates[selection.candidates]
             table = self.table_names.get(selection.table)
@@ -125,6 +136,7 @@ class _CppExpression:
                 selection_refs=self.selection_refs,
                 table_entries=self.table_entries,
                 table_names=self.table_names,
+                require_shared_refs=self.require_shared_refs,
             ).emit(candidate.predicate)
             body = (
                 "([&]() { std::pair<std::uint64_t, bool> selected{0, false}; "
@@ -145,6 +157,7 @@ class _CppExpression:
                     selection_refs=self.selection_refs,
                     table_entries=self.table_entries,
                     table_names=self.table_names,
+                    require_shared_refs=self.require_shared_refs,
                 ).emit(selection.key)
                 comparison = "<" if selection.policy == "min" else ">"
                 body += (
@@ -564,6 +577,8 @@ def lower_queue_program_to_cpp(program: QueueProgram) -> str:
     release_policy_arguments = [
         *(f"&slot_state_{index}_" for index, _ in enumerate(program.slots)),
         *(f"&table_{index}_" for index, _ in enumerate(program.tables)),
+        *(f"&table_match_{index}_" for index, _ in enumerate(program.candidates)),
+        *(f"&table_selection_{index}_" for index, _ in enumerate(program.selections)),
     ]
     array_leaf: dict[str, tuple[str, tuple[int, ...]]] = {
         leaf: (collection.name, path)
@@ -1155,8 +1170,11 @@ def lower_queue_program_to_cpp(program: QueueProgram) -> str:
             state_names,
             candidates=candidates_by_name,
             selections=selections_by_name,
+            candidate_refs=candidate_refs,
+            selection_refs=selection_refs,
             table_entries=table_entries,
             table_names=release_table_names,
+            require_shared_refs=True,
         ).emit(release.when)
         table_policy_members = [
             f"  gfsim::SimTable<{_cpp_type(table.entry_type)}> *table_{table.name}{{}};"
@@ -1167,7 +1185,8 @@ def lower_queue_program_to_cpp(program: QueueProgram) -> str:
                 f"struct slot_{index}_release_policy {{",
                 *slot_policy_members,
                 *table_policy_members,
-                "  bool operator()() const {",
+                *shared_policy_members,
+                "  bool operator()(gfsim::Epoch epoch) const {",
                 f"    return static_cast<bool>({condition});",
                 "  }",
                 "};",

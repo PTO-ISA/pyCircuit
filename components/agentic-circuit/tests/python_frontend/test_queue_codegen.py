@@ -1,12 +1,13 @@
 from __future__ import annotations
 
+import ast
 import os
-from pathlib import Path
 import shutil
 import subprocess
 import tempfile
 import unittest
-
+from pathlib import Path
+from types import SimpleNamespace
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -113,8 +114,92 @@ def pipeline() -> None:
     ac.sink(exported)
 """
 
+SLOT_TABLE_SOURCE = """
+import agentic_circuit as ac
+
+@ac.struct
+class Entry:
+    valid: bool
+    age: ac.u8
+
+@ac.struct
+class Request:
+    age: ac.u8
+
+@ac.system
+def pipeline() -> None:
+    requests = ac.source(Request)
+    pending = ac.slot(requests)
+    issue = ac.table[4, Entry](init=0)
+    ready = issue.match(lambda entry: entry.valid)
+    grant = issue.choose(
+        ready, count=1, policy="min", key=lambda entry: entry.age
+    )
+    issue.view(grant.index).patch(enable=grant.valid, valid=False)
+    pending.release(when=pending.valid and grant.valid)
+    snapshots = issue.view(grant.index).read(when=grant.valid)
+    ac.sink(snapshots)
+"""
+
 
 class QueueCodegenTest(unittest.TestCase):
+    def test_slot_release_uses_epoch_scoped_shared_table_caches(self) -> None:
+        from agentic_circuit._queue_codegen import lower_queue_source_to_cpp
+
+        generated = lower_queue_source_to_cpp(SLOT_TABLE_SOURCE, "pipeline")
+        self.assertIn("struct slot_0_release_policy", generated)
+        self.assertIn("table_match_0_cache *table_match_0{};", generated)
+        self.assertIn("table_selection_0_cache *table_selection_0{};", generated)
+        self.assertIn("bool operator()(gfsim::Epoch epoch) const", generated)
+        self.assertIn("table_selection_0->get(epoch).valid", generated)
+
+        compiler = shutil.which("c++")
+        if compiler is None:
+            self.skipTest("C++ compiler is unavailable")
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "slot_table.cpp"
+            output.write_text(generated, encoding="utf-8")
+            compiled = subprocess.run(
+                (
+                    compiler,
+                    "-std=c++20",
+                    "-I",
+                    str(ROOT / "include"),
+                    "-fsyntax-only",
+                    str(output),
+                ),
+                cwd=ROOT,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(0, compiled.returncode, compiled.stderr)
+
+    def test_slot_release_expression_fails_closed_without_shared_refs(self) -> None:
+        from agentic_circuit._queue_codegen import _CppExpression
+        from agentic_circuit._queue_frontend import QueueFrontendError
+
+        candidate = SimpleNamespace(table="issue")
+        with self.assertRaisesRegex(QueueFrontendError, "reference is missing"):
+            _CppExpression(
+                "",
+                candidates={"ready": candidate},
+                require_shared_refs=True,
+            ).emit(ast.Name(id="ready", ctx=ast.Load()))
+        with self.assertRaisesRegex(QueueFrontendError, "reference is missing"):
+            _CppExpression(
+                "",
+                candidates={"ready": candidate},
+                selections={"grant": SimpleNamespace(candidates="ready")},
+                require_shared_refs=True,
+            ).emit(
+                ast.Attribute(
+                    value=ast.Name(id="grant", ctx=ast.Load()),
+                    attr="valid",
+                    ctx=ast.Load(),
+                )
+            )
+
     def test_serial_python_generates_typed_queue_wired_cpp(self) -> None:
         from agentic_circuit._queue_codegen import lower_queue_source_to_cpp
 

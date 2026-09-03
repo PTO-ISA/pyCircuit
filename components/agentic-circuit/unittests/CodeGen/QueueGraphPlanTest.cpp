@@ -60,6 +60,42 @@ module attributes {ac.contract_epoch = "0.4", ac.system = "observed"} {
 }
 )mlir";
 
+QueueGraphPlan sharedReferencePlan() {
+  QueueGraphPlan plan;
+  plan.system = "shared_reference";
+  plan.queues = {{"input", "i8", "/", 1, 1}};
+  plan.blocks.push_back({"source", "input", "/", {}, {"input"}, {1}, {1}});
+  QueueBlockPlan slot{"slot", "release", "/", {"input"}, {}};
+  slot.slot = "pending";
+  slot.expressions = {
+      {"m", "table_match_ref", "i4", {}, "match", "", "", "issue"},
+      {"i",
+       "table_selection_index_ref",
+       "i2",
+       {},
+       "selection",
+       "",
+       "",
+       "issue"},
+      {"v",
+       "table_selection_valid_ref",
+       "i1",
+       {},
+       "selection",
+       "",
+       "",
+       "issue"},
+  };
+  plan.blocks.push_back(std::move(slot));
+  plan.tables = {{"issue", "i8", 4, 0, "table-id", "/"}};
+  plan.tableMatches = {{"match", "issue", "/", "i4", {}, "predicate"}};
+  plan.tableSelections = {
+      {"selection", "issue", "/", "match", "first", "i2", {}, ""}};
+  plan.tableReads = {{"issue", "read", "/", "", "unused", 1, 1}};
+  plan.slots = {{"pending", "i8", "input", "/", "slot-id", "/"}};
+  return plan;
+}
+
 TEST(QueueGraphPlanTest, ExtractsFrozenQueueIdentitiesAndTopology) {
   mlir::MLIRContext context;
   context.loadDialect<ac::ACIRDialect, mlir::DLTIDialect>();
@@ -543,6 +579,56 @@ TEST(QueueGraphPlanTest, RejectsImplicitMultipleConsumers) {
   auto plan = buildQueueGraphPlan(*module);
   ASSERT_FALSE(bool(plan));
   EXPECT_NE(llvm::toString(plan.takeError()).find("insert ac.broadcast"),
+            std::string::npos);
+}
+
+TEST(QueueGraphPlanTest, RejectsInvalidSharedTableReferenceTargets) {
+  for (size_t index = 0; index < 3; ++index) {
+    QueueGraphPlan plan = sharedReferencePlan();
+    plan.blocks[1].expressions[index].field = "missing";
+    auto error = verifyQueueGraphPlan(plan);
+    ASSERT_TRUE(bool(error));
+    EXPECT_NE(llvm::toString(std::move(error)).find("unknown"),
+              std::string::npos);
+  }
+}
+
+TEST(QueueGraphPlanTest, RejectsInvalidSharedTableReferenceProvenance) {
+  for (size_t index = 0; index < 3; ++index) {
+    QueueGraphPlan plan = sharedReferencePlan();
+    plan.blocks[1].expressions[index].table = "other";
+    auto error = verifyQueueGraphPlan(plan);
+    ASSERT_TRUE(bool(error));
+    EXPECT_NE(llvm::toString(std::move(error)).find("provenance"),
+              std::string::npos);
+  }
+}
+
+TEST(QueueGraphPlanTest, RejectsInvalidSharedTableReferenceFieldTypes) {
+  for (size_t index = 0; index < 3; ++index) {
+    QueueGraphPlan plan = sharedReferencePlan();
+    plan.blocks[1].expressions[index].type = "i8";
+    auto error = verifyQueueGraphPlan(plan);
+    ASSERT_TRUE(bool(error));
+    EXPECT_NE(llvm::toString(std::move(error)).find("field type"),
+              std::string::npos);
+  }
+}
+
+TEST(QueueGraphPlanTest, RejectsInvalidSharedTableWidths) {
+  QueueGraphPlan plan = sharedReferencePlan();
+  plan.tableMatches[0].resultType = "i3";
+  auto matchError = verifyQueueGraphPlan(plan);
+  ASSERT_TRUE(bool(matchError));
+  EXPECT_NE(llvm::toString(std::move(matchError)).find("table match metadata"),
+            std::string::npos);
+
+  plan = sharedReferencePlan();
+  plan.tableSelections[0].indexType = "i3";
+  auto selectionError = verifyQueueGraphPlan(plan);
+  ASSERT_TRUE(bool(selectionError));
+  EXPECT_NE(llvm::toString(std::move(selectionError))
+                .find("table selection metadata"),
             std::string::npos);
 }
 
