@@ -2,12 +2,11 @@ from __future__ import annotations
 
 import json
 import os
-from pathlib import Path
 import shutil
 import subprocess
 import tempfile
 import unittest
-
+from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 FIXTURE_ROOT = ROOT / "tests/e2e/fixtures/table_examples"
@@ -22,7 +21,9 @@ ALLOCATION_SOURCES = (
 
 
 class TableBackendTest(unittest.TestCase):
-    def test_allocation_examples_preserve_replace_mode_in_both_cpp_paths(self) -> None:
+    def test_allocation_examples_execute_replace_contract_in_both_cpp_paths(
+        self,
+    ) -> None:
         compiler = shutil.which("c++")
         if compiler is None:
             self.skipTest("C++ compiler is unavailable")
@@ -100,30 +101,194 @@ class TableBackendTest(unittest.TestCase):
                         check=False,
                     )
                     self.assertNotEqual(0, rejected.returncode)
-                    self.assertIn(
-                        "unsupported provisional Table", rejected.stderr
-                    )
+                    self.assertIn("unsupported provisional Table", rejected.stderr)
             for variant, model_text in generated:
-                self.assertEqual(
-                    1, model_text.count("gfsim::TableWriteMode::Replace")
-                )
+                self.assertEqual(1, model_text.count("gfsim::TableWriteMode::Replace"))
                 with tempfile.TemporaryDirectory() as directory:
-                    model = Path(directory) / f"{system}_{variant}.cpp"
+                    root = Path(directory)
+                    model = root / f"{system}_{variant}.cpp"
+                    harness = root / "harness.cpp"
+                    executable = root / variant
                     model.write_text(model_text, encoding="utf-8")
+                    if system == "table_allocation_rob":
+                        harness_text = f"""#include "{model.name}"
+#include <cstddef>
+
+using Model = ac_generated::TableAllocationRob;
+using Entry = ac_generated::Entry;
+using Completion = ac_generated::Completion;
+
+static int run_disabled_allocation() {{
+  Model model;
+  auto *rob = dynamic_cast<gfsim::SimTable<Entry> *>(model.findChild("rob"));
+  if (!rob || !rob->initializeEntry(0, Entry{{true, false, 0x1111}}))
+    return 1;
+  auto rows = model.dispatch_rows();
+  for (std::size_t tick = 0; tick < 4; ++tick) {{
+    const gfsim::Epoch epoch{{tick, 0}};
+    for (auto &row : rows)
+      row.work(row.object, epoch);
+    for (auto &row : rows)
+      row.xfer(row.object, epoch, gfsim::XferPhase::Arbitrate);
+    for (auto &row : rows)
+      row.xfer(row.object, epoch, gfsim::XferPhase::Commit);
+  }}
+  const auto &entry = rob->at(0);
+  return !entry.valid && !entry.done && entry.result == 0x1111 ? 0 : 2;
+}}
+
+static int run_different_entry_updates() {{
+  Model model;
+  auto *rob = dynamic_cast<gfsim::SimTable<Entry> *>(model.findChild("rob"));
+  if (!rob || !rob->initializeEntry(1, Entry{{true, false, 0x1111}}))
+    return 3;
+  if (!model.completions().proposePush(Completion{{1, 0x2222}}) ||
+      !model.allocations().proposePush(Entry{{true, false, 0x3333}}))
+    return 4;
+  auto rows = model.dispatch_rows();
+  bool saw_independent_commit = false;
+  for (std::size_t tick = 0; tick < 6; ++tick) {{
+    const gfsim::Epoch epoch{{tick, 0}};
+    for (auto &row : rows)
+      row.work(row.object, epoch);
+    for (auto &row : rows)
+      row.xfer(row.object, epoch, gfsim::XferPhase::Arbitrate);
+    for (auto &row : rows)
+      row.xfer(row.object, epoch, gfsim::XferPhase::Commit);
+    const auto &allocated = rob->at(0);
+    const auto &completed = rob->at(1);
+    if (allocated.valid && !allocated.done && allocated.result == 0x3333 &&
+        completed.valid && completed.done && completed.result == 0x2222)
+      saw_independent_commit = true;
+  }}
+  return saw_independent_commit ? 0 : 5;
+}}
+
+static int run_same_entry_replace_priority() {{
+  Model model;
+  auto *rob = dynamic_cast<gfsim::SimTable<Entry> *>(model.findChild("rob"));
+  if (!rob || !rob->initializeEntry(0, Entry{{true, false, 0x1111}}))
+    return 7;
+  if (!model.completions().proposePush(Completion{{0, 0x2222}}) ||
+      !model.allocations().proposePush(Entry{{true, false, 0x4444}}))
+    return 8;
+  auto rows = model.dispatch_rows();
+  bool saw_replace_win = false;
+  for (std::size_t tick = 0; tick < 6; ++tick) {{
+    const gfsim::Epoch epoch{{tick, 0}};
+    for (auto &row : rows)
+      row.work(row.object, epoch);
+    for (auto &row : rows)
+      row.xfer(row.object, epoch, gfsim::XferPhase::Arbitrate);
+    for (auto &row : rows)
+      row.xfer(row.object, epoch, gfsim::XferPhase::Commit);
+    const auto &entry = rob->at(0);
+    if (entry.valid && !entry.done && entry.result == 0x4444)
+      saw_replace_win = true;
+  }}
+  return saw_replace_win ? 0 : 9;
+}}
+
+int main() {{
+  if (const int status = run_disabled_allocation())
+    return status;
+  if (const int status = run_different_entry_updates())
+    return status;
+  return run_same_entry_replace_priority();
+}}
+"""
+                    else:
+                        harness_text = f"""#include "{model.name}"
+#include <cstddef>
+
+int main() {{
+  ac_generated::Issue model;
+  auto *issue = dynamic_cast<gfsim::SimTable<ac_generated::Entry> *>(
+      model.findChild("issue"));
+  if (!issue)
+    return 1;
+  for (std::size_t index = 0; index < issue->size(); ++index) {{
+    const auto tag = static_cast<std::uint8_t>(index == 0 ? 7 : index + 10);
+    if (!issue->initializeEntry(
+            index, ac_generated::Entry{{true, static_cast<std::uint8_t>(index),
+                                       tag, false, tag, false}}))
+      return 2;
+  }}
+  if (!model.allocations().proposePush(
+          ac_generated::Entry{{true, 99, 20, true, 21, true}}))
+    return 3;
+  auto rows = model.dispatch_rows();
+  auto tick_once = [&](std::size_t tick) {{
+    const gfsim::Epoch epoch{{tick, 0}};
+    for (auto &row : rows)
+      row.work(row.object, epoch);
+    for (auto &row : rows)
+      row.xfer(row.object, epoch, gfsim::XferPhase::Arbitrate);
+    for (auto &row : rows)
+      row.xfer(row.object, epoch, gfsim::XferPhase::Commit);
+  }};
+
+  for (std::size_t tick = 0; tick < 6; ++tick)
+    tick_once(tick);
+  if (model.allocations().totalPops() != 1)
+    return 4;
+  for (std::size_t index = 0; index < issue->size(); ++index)
+    if (!issue->at(index).valid || issue->at(index).age != index)
+      return 5;
+
+  if (!model.wakeups().proposePush(ac_generated::Wakeup{{7, true}}))
+    return 6;
+  for (std::size_t tick = 6; tick < 30; ++tick)
+    tick_once(tick);
+
+  std::size_t original_grants = 0;
+  std::size_t allocation_grants = 0;
+  for (const auto &entry : model.sink_0_values()) {{
+    if (entry.age == 0)
+      ++original_grants;
+    if (entry.age == 99)
+      ++allocation_grants;
+  }}
+  if (original_grants != 1 || allocation_grants != 1)
+    return 7;
+  if (model.allocations().totalPops() != 1)
+    return 8;
+  for (std::size_t index = 0; index < issue->size(); ++index)
+    if (issue->at(index).valid && issue->at(index).age == 99)
+      return 9;
+  return 0;
+}}
+"""
+                    harness.write_text(harness_text, encoding="utf-8")
                     compiled = subprocess.run(
                         (
                             compiler,
                             "-std=c++20",
                             "-I",
                             str(ROOT / "include"),
-                            "-fsyntax-only",
-                            str(model),
+                            str(harness),
+                            "-o",
+                            str(executable),
                         ),
+                        cwd=root,
                         text=True,
                         capture_output=True,
                         check=False,
                     )
                     self.assertEqual(0, compiled.returncode, compiled.stderr)
+                    executed = subprocess.run(
+                        (str(executable),),
+                        cwd=root,
+                        text=True,
+                        capture_output=True,
+                        check=False,
+                    )
+                    self.assertEqual(
+                        0,
+                        executed.returncode,
+                        f"{system} {variant} exited {executed.returncode}: "
+                        f"{executed.stderr}",
+                    )
 
     def test_disjoint_writers_merge_same_entry_in_both_cpp_paths(self) -> None:
         compiler = shutil.which("c++")
