@@ -32,7 +32,7 @@
         },
         "cpp_type": "cpp_i32",
         "effect": "stateful",
-        "fingerprint": "sha256:42165ea87b2a9a578c95e6c325ee739a34d8b034f45f202187f4ed5bed9b710b",
+        "fingerprint": "sha256:cb4c545dd91c68a5e1b7662dba6ed2879aee647988bbdcda269f9baa7a9be31a",
         "implementation": "gfsim.Leaf",
         "ownership": {
           "kind": "unique",

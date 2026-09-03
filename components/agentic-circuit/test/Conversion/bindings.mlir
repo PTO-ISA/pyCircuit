@@ -41,7 +41,7 @@ builtin.module attributes {ac.contract_epoch = "0.4"} {
 // CHECK-SAME:     component_schema = @ac_Leaf
 // CHECK-SAME:     contract_epoch = "0.4"
 // CHECK-SAME:     effect = "stateful"
-// CHECK-SAME:     fingerprint = "sha256:42165ea87b2a9a578c95e6c325ee739a34d8b034f45f202187f4ed5bed9b710b"
+// CHECK-SAME:     fingerprint = "sha256:cb4c545dd91c68a5e1b7662dba6ed2879aee647988bbdcda269f9baa7a9be31a"
 // CHECK-SAME:     implementation = @gfsim_Leaf
 // CHECK-SAME:     ownership = {kind = "unique", placement = "member_or_array"}
 // CHECK-SAME:     parameters = [{acir_type = "i64", cpp_type = "std::int64_t", mapping = "constructor_constant", name = "width", ordinal = 0 : i64, value = 8 : i64}]

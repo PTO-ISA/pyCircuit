@@ -16,7 +16,7 @@
 builtin.module attributes {ac.contract_epoch = "0.4"} {
   acsim.model @extension epoch "0.4" root @Top construction ["Top.counter"] destruction ["Top.counter"] fingerprints {
     frozen_acir = "sha256:80ca3d33c8fd95dd30b8b89a26650dd3f7cba3d7eebfd41269116e72d24a14f1",
-    binding_lock = "sha256:4cac483aa2f0b6335214ad72a7bde195a7bb909d847d64100dc557ec2e1e8bd0",
+    binding_lock = "sha256:0cdc4ef4d3aee60fbf5be577ad89ac148766083d4890d306bd259bcfa14a4332",
     provider = "sha256:bc1fecb4eca98d70675797bedd33b046c9d9776e8d7ba036c60b46dfe62b2a43",
     profile = "sha256:079c9d12005aad817f722d2f0a34ccc3185b5ec0ce06ee243f945e4e1bb7b4c7",
     toolchain = "sha256:9b1db4862fdcda9688af508a4bd6dc716abe7f919a1af4cc09b1e373953a428a",
