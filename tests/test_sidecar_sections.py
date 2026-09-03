@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from pycircuit.schedule_ir import schedule_ir_to_sidecar_bytes
 from pycircuit.sidecar_sections import (
     SectionKind,
     default_section_registry,
@@ -7,7 +8,6 @@ from pycircuit.sidecar_sections import (
     render_sidecar_inspect_text,
     verify_schedule_ir_for_sidecar,
 )
-from pycircuit.schedule_ir import schedule_ir_to_sidecar_bytes
 
 
 def _sidecar_schedule_ir() -> dict:
@@ -169,7 +169,6 @@ def test_sidecar_sidecar_round_trip(tmp_path) -> None:
     rendered = render_sidecar_inspect_text(inspected)
     assert "SIDECAR file" in rendered
     assert "pattern_table" in rendered
-
 
 
 def test_sidecar_verifier_rejects_unknown_port_reference() -> None:

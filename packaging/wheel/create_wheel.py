@@ -95,7 +95,7 @@ def main(argv: list[str] | None = None) -> int:
     with tempfile.TemporaryDirectory(prefix="stage.", dir=build_root) as tmp:
         stage = Path(tmp)
         package_dir = stage / "pycircuit"
-        _copytree(repo_root / "compiler" / "frontend" / "pycircuit", package_dir)
+        _copytree(repo_root / "python" / "pycircuit" / "src" / "pycircuit", package_dir)
         _copytree(install_dir, package_dir / "_toolchain")
         bundled_python = package_dir / "_toolchain" / "share" / "pycircuit" / "python"
         if bundled_python.is_dir():

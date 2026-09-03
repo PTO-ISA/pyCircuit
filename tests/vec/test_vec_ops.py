@@ -5,8 +5,15 @@ from pathlib import Path
 import pytest
 
 from .cases import FULL_BACKEND_CASES, VEC_CASES, VecCase
-from .generate import render_case_source
-from .runner import assert_verilator_ran, check_cpp_manifest_syntax, check_ir, merged_env, run_cmd, run_cpp_binary, run_vec_case
+from .runner import (
+    assert_verilator_ran,
+    check_cpp_manifest_syntax,
+    check_ir,
+    merged_env,
+    run_cmd,
+    run_cpp_binary,
+    run_vec_case,
+)
 
 
 def _run_yosys_smoke(verilog: Path, *, top: str, repo_root: Path) -> None:
@@ -19,7 +26,7 @@ def _run_yosys_smoke(verilog: Path, *, top: str, repo_root: Path) -> None:
     script.write_text(
         "\n".join(
             [
-                f"read_verilog -I{repo_root / 'runtime' / 'verilog'} {verilog}",
+                f"read_verilog -I{repo_root / 'library' / 'verilog'} {verilog}",
                 f"hierarchy -top {top}",
                 "proc",
                 "opt",
@@ -34,7 +41,9 @@ def _run_yosys_smoke(verilog: Path, *, top: str, repo_root: Path) -> None:
 
 @pytest.mark.vec
 @pytest.mark.slow
-@pytest.mark.parametrize("case", FULL_BACKEND_CASES, ids=[case.name for case in FULL_BACKEND_CASES])
+@pytest.mark.parametrize(
+    "case", FULL_BACKEND_CASES, ids=[case.name for case in FULL_BACKEND_CASES]
+)
 def test_vec_operator_case(
     case: VecCase,
     *,
@@ -83,7 +92,7 @@ def test_case_matrix_has_minimum_coverage() -> None:
 def test_true_division_is_rejected(repo_root: Path) -> None:
     import sys
 
-    frontend = repo_root / "compiler" / "frontend"
+    frontend = repo_root / "python" / "pycircuit" / "src"
     if str(frontend) not in sys.path:
         sys.path.insert(0, str(frontend))
 
@@ -108,7 +117,7 @@ def test_true_division_is_rejected(repo_root: Path) -> None:
 def test_vec_accepts_wire_list_only(repo_root: Path) -> None:
     import sys
 
-    frontend = repo_root / "compiler" / "frontend"
+    frontend = repo_root / "python" / "pycircuit" / "src"
     if str(frontend) not in sys.path:
         sys.path.insert(0, str(frontend))
 
@@ -126,7 +135,7 @@ def test_constant_vector_elementwise_and_reductions_emit(repo_root: Path) -> Non
     """Exercise rank-1/rank-2 constant Vec forms accepted by dialect folders."""
     import sys
 
-    frontend = repo_root / "compiler" / "frontend"
+    frontend = repo_root / "python" / "pycircuit" / "src"
     if str(frontend) not in sys.path:
         sys.path.insert(0, str(frontend))
 
@@ -135,7 +144,12 @@ def test_constant_vector_elementwise_and_reductions_emit(repo_root: Path) -> Non
     m = Circuit("constant_vector_folds")
     known = m.const([1, 2, 3, 4], width=4)
     mixed = m.vec(
-        [m.const(1, width=4), m.input("unknown", width=4), m.const(3, width=4), m.const(4, width=4)]
+        [
+            m.const(1, width=4),
+            m.input("unknown", width=4),
+            m.const(3, width=4),
+            m.const(4, width=4),
+        ]
     )
     matrix = m.const([[1, 2], [3, 4]], width=4)
 
@@ -157,7 +171,7 @@ def test_constant_vector_elementwise_and_reductions_emit(repo_root: Path) -> Non
 def test_circuit_priority_mux_lowers_chain_and_tree_forms(repo_root: Path) -> None:
     import sys
 
-    frontend = repo_root / "compiler" / "frontend"
+    frontend = repo_root / "python" / "pycircuit" / "src"
     if str(frontend) not in sys.path:
         sys.path.insert(0, str(frontend))
 
@@ -294,7 +308,7 @@ def test_vector_api_functional_gaps_run_cpp(
 def test_vector_api_rejects_invalid_shapes_and_priority_inputs(repo_root: Path) -> None:
     import sys
 
-    frontend = repo_root / "compiler" / "frontend"
+    frontend = repo_root / "python" / "pycircuit" / "src"
     if str(frontend) not in sys.path:
         sys.path.insert(0, str(frontend))
 
@@ -339,12 +353,24 @@ def test_vector_api_rejects_invalid_shapes_and_priority_inputs(repo_root: Path) 
 @pytest.mark.vec
 def test_unroll_vector_precedes_wire_and_state_cleanup(repo_root: Path) -> None:
     """Keep scalar cleanup after the optional Vector-to-lane expansion."""
-    pipeline = (repo_root / "compiler" / "mlir" / "tools" / "pycc.cpp").read_text(encoding="utf-8")
-    lower_scf = pipeline.index("pm.addNestedPass<func::FuncOp>(pyc::createLowerSCFToPYCStaticPass());")
-    unroll = pipeline.index("pm.addNestedPass<func::FuncOp>(pyc::createVectorUnrollPass());")
-    eliminate_wires = pipeline.index("pm.addNestedPass<func::FuncOp>(pyc::createEliminateWiresPass());")
-    eliminate_state = pipeline.index("pm.addNestedPass<func::FuncOp>(pyc::createEliminateDeadStatePass());")
-    slp_pack = pipeline.index("pm.addNestedPass<func::FuncOp>(pyc::createSLPPackWiresPass());")
+    pipeline = (repo_root / "compiler" / "mlir" / "tools" / "pycc.cpp").read_text(
+        encoding="utf-8"
+    )
+    lower_scf = pipeline.index(
+        "pm.addNestedPass<func::FuncOp>(pyc::createLowerSCFToPYCStaticPass());"
+    )
+    unroll = pipeline.index(
+        "pm.addNestedPass<func::FuncOp>(pyc::createVectorUnrollPass());"
+    )
+    eliminate_wires = pipeline.index(
+        "pm.addNestedPass<func::FuncOp>(pyc::createEliminateWiresPass());"
+    )
+    eliminate_state = pipeline.index(
+        "pm.addNestedPass<func::FuncOp>(pyc::createEliminateDeadStatePass());"
+    )
+    slp_pack = pipeline.index(
+        "pm.addNestedPass<func::FuncOp>(pyc::createSLPPackWiresPass());"
+    )
 
     assert lower_scf < unroll < eliminate_wires < eliminate_state < slp_pack
 
@@ -394,7 +420,11 @@ def test_vector_state_assign_unroll_runs_cpp(
     )
     env = merged_env(pythonpath=pyc_pythonpath, pycc=pycc)
     pyc = out_dir / "vector_state_assign.pyc"
-    run_cmd(["python3", "-m", "pycircuit.cli", "emit", str(src), "-o", str(pyc)], cwd=repo_root, env=env)
+    run_cmd(
+        ["python3", "-m", "pycircuit.cli", "emit", str(src), "-o", str(pyc)],
+        cwd=repo_root,
+        env=env,
+    )
     mlir = pyc.read_text(encoding="utf-8")
     assert "vector<" in mlir
     assert "pyc.assign" in mlir
@@ -491,7 +521,14 @@ def test_assign_dst_must_be_wire_verifier(
 
     env = merged_env(pythonpath=pyc_pythonpath, pycc=pycc)
     proc = subprocess.run(
-        [str(pycc), str(pyc), "--emit=verilog", "-o", str(case_root / "out.v"), "--build-profile=dev-fast"],
+        [
+            str(pycc),
+            str(pyc),
+            "--emit=verilog",
+            "-o",
+            str(case_root / "out.v"),
+            "--build-profile=dev-fast",
+        ],
         cwd=str(repo_root),
         env=env,
         text=True,
@@ -538,17 +575,40 @@ def test_vector_io_emit_and_pycc(
     )
     env = merged_env(pythonpath=pyc_pythonpath, pycc=pycc)
     pyc = out_dir / "vector_io.pyc"
-    run_cmd(["python3", "-m", "pycircuit.cli", "emit", str(src), "-o", str(pyc)], cwd=repo_root, env=env)
+    run_cmd(
+        ["python3", "-m", "pycircuit.cli", "emit", str(src), "-o", str(pyc)],
+        cwd=repo_root,
+        env=env,
+    )
     mlir = pyc.read_text(encoding="utf-8")
     check_ir(VecCase("vector_io", "vector_io", ir_tokens=("vector<", "pyc.add")), mlir)
     cpp_dir = out_dir / "cpp"
     run_cmd(
-        [str(pycc), str(pyc), "--emit=cpp", "--cpp-split=module", "--out-dir", str(cpp_dir), "--build-profile=dev-fast"],
+        [
+            str(pycc),
+            str(pyc),
+            "--emit=cpp",
+            "--cpp-split=module",
+            "--out-dir",
+            str(cpp_dir),
+            "--build-profile=dev-fast",
+        ],
         cwd=repo_root,
         env=env,
     )
     verilog = out_dir / "vector_io.v"
-    run_cmd([str(pycc), str(pyc), "--emit=verilog", "-o", str(verilog), "--build-profile=dev-fast"], cwd=repo_root, env=env)
+    run_cmd(
+        [
+            str(pycc),
+            str(pyc),
+            "--emit=verilog",
+            "-o",
+            str(verilog),
+            "--build-profile=dev-fast",
+        ],
+        cwd=repo_root,
+        env=env,
+    )
     verilog_text = verilog.read_text(encoding="utf-8")
     assert "input [15:0] a" in verilog_text
     assert "output [15:0] out" in verilog_text
@@ -591,9 +651,24 @@ def test_rank2_vector_io_verilog_uses_packed_ports_and_yosys(
     )
     env = merged_env(pythonpath=pyc_pythonpath, pycc=pycc)
     pyc = out_dir / "rank2_vector_io.pyc"
-    run_cmd(["python3", "-m", "pycircuit.cli", "emit", str(src), "-o", str(pyc)], cwd=repo_root, env=env)
+    run_cmd(
+        ["python3", "-m", "pycircuit.cli", "emit", str(src), "-o", str(pyc)],
+        cwd=repo_root,
+        env=env,
+    )
     verilog = out_dir / "rank2_vector_io.v"
-    run_cmd([str(pycc), str(pyc), "--emit=verilog", "-o", str(verilog), "--build-profile=dev-fast"], cwd=repo_root, env=env)
+    run_cmd(
+        [
+            str(pycc),
+            str(pyc),
+            "--emit=verilog",
+            "-o",
+            str(verilog),
+            "--build-profile=dev-fast",
+        ],
+        cwd=repo_root,
+        env=env,
+    )
     verilog_text = verilog.read_text(encoding="utf-8")
     assert "input [11:0] a" in verilog_text
     assert "output [11:0] out" in verilog_text
@@ -727,16 +802,46 @@ def test_eager_vec_broadcast_emit_and_pycc(
     )
     env = merged_env(pythonpath=pyc_pythonpath, pycc=pycc)
     pyc = out_dir / "eager_broadcast.pyc"
-    run_cmd(["python3", "-m", "pycircuit.cli", "emit", str(src), "-o", str(pyc)], cwd=repo_root, env=env)
-    mlir = pyc.read_text(encoding="utf-8")
-    check_ir(VecCase("eager_broadcast", "eager_broadcast", ir_tokens=("vector<", "pyc.v_create", "pyc.v_broadcast_dim")), mlir)
-    cpp_dir = out_dir / "cpp"
     run_cmd(
-        [str(pycc), str(pyc), "--emit=cpp", "--cpp-split=module", "--out-dir", str(cpp_dir), "--build-profile=dev-fast"],
+        ["python3", "-m", "pycircuit.cli", "emit", str(src), "-o", str(pyc)],
         cwd=repo_root,
         env=env,
     )
-    run_cmd([str(pycc), str(pyc), "--emit=verilog", "-o", str(out_dir / "eager_broadcast.v"), "--build-profile=dev-fast"], cwd=repo_root, env=env)
+    mlir = pyc.read_text(encoding="utf-8")
+    check_ir(
+        VecCase(
+            "eager_broadcast",
+            "eager_broadcast",
+            ir_tokens=("vector<", "pyc.v_create", "pyc.v_broadcast_dim"),
+        ),
+        mlir,
+    )
+    cpp_dir = out_dir / "cpp"
+    run_cmd(
+        [
+            str(pycc),
+            str(pyc),
+            "--emit=cpp",
+            "--cpp-split=module",
+            "--out-dir",
+            str(cpp_dir),
+            "--build-profile=dev-fast",
+        ],
+        cwd=repo_root,
+        env=env,
+    )
+    run_cmd(
+        [
+            str(pycc),
+            str(pyc),
+            "--emit=verilog",
+            "-o",
+            str(out_dir / "eager_broadcast.v"),
+            "--build-profile=dev-fast",
+        ],
+        cwd=repo_root,
+        env=env,
+    )
     check_cpp_manifest_syntax(out_dir, repo_root=repo_root)
 
 
@@ -779,20 +884,47 @@ def test_jit_instance_vec_port_emit_and_pycc(
     )
     env = merged_env(pythonpath=pyc_pythonpath, pycc=pycc)
     pyc = out_dir / "jit_instance_vec_port.pyc"
-    run_cmd(["python3", "-m", "pycircuit.cli", "emit", str(src), "-o", str(pyc)], cwd=repo_root, env=env)
+    run_cmd(
+        ["python3", "-m", "pycircuit.cli", "emit", str(src), "-o", str(pyc)],
+        cwd=repo_root,
+        env=env,
+    )
     mlir = pyc.read_text(encoding="utf-8")
     check_ir(
-        VecCase("jit_instance_vec_port", "jit_instance_vec_port", ir_tokens=("pyc.instance", "vector<4xi4>", "pyc.v_create")),
+        VecCase(
+            "jit_instance_vec_port",
+            "jit_instance_vec_port",
+            ir_tokens=("pyc.instance", "vector<4xi4>", "pyc.v_create"),
+        ),
         mlir,
     )
     cpp_dir = out_dir / "cpp"
     run_cmd(
-        [str(pycc), str(pyc), "--emit=cpp", "--cpp-split=module", "--out-dir", str(cpp_dir), "--build-profile=dev-fast"],
+        [
+            str(pycc),
+            str(pyc),
+            "--emit=cpp",
+            "--cpp-split=module",
+            "--out-dir",
+            str(cpp_dir),
+            "--build-profile=dev-fast",
+        ],
         cwd=repo_root,
         env=env,
     )
     verilog = out_dir / "jit_instance_vec_port.v"
-    run_cmd([str(pycc), str(pyc), "--emit=verilog", "-o", str(verilog), "--build-profile=dev-fast"], cwd=repo_root, env=env)
+    run_cmd(
+        [
+            str(pycc),
+            str(pyc),
+            "--emit=verilog",
+            "-o",
+            str(verilog),
+            "--build-profile=dev-fast",
+        ],
+        cwd=repo_root,
+        env=env,
+    )
     verilog_text = verilog.read_text(encoding="utf-8")
     assert "input [15:0] a" in verilog_text
     assert "__flat" in verilog_text
@@ -840,21 +972,53 @@ def test_dim_reduce_emit_and_pycc(
     )
     env = merged_env(pythonpath=pyc_pythonpath, pycc=pycc)
     pyc = out_dir / "dim_reduce.pyc"
-    run_cmd(["python3", "-m", "pycircuit.cli", "emit", str(src), "-o", str(pyc)], cwd=repo_root, env=env)
+    run_cmd(
+        ["python3", "-m", "pycircuit.cli", "emit", str(src), "-o", str(pyc)],
+        cwd=repo_root,
+        env=env,
+    )
     mlir = pyc.read_text(encoding="utf-8")
     check_ir(
-        VecCase("dim_reduce", "dim_reduce", ir_tokens=("vector<", "pyc.v_or_reduce", "pyc.v_and_reduce", "pyc.v_add_reduce")),
+        VecCase(
+            "dim_reduce",
+            "dim_reduce",
+            ir_tokens=(
+                "vector<",
+                "pyc.v_or_reduce",
+                "pyc.v_and_reduce",
+                "pyc.v_add_reduce",
+            ),
+        ),
         mlir,
     )
     assert "pyc.v_add_reduce" in mlir
     assert "-> i1" in mlir
     cpp_dir = out_dir / "cpp"
     run_cmd(
-        [str(pycc), str(pyc), "--emit=cpp", "--cpp-split=module", "--out-dir", str(cpp_dir), "--build-profile=dev-fast"],
+        [
+            str(pycc),
+            str(pyc),
+            "--emit=cpp",
+            "--cpp-split=module",
+            "--out-dir",
+            str(cpp_dir),
+            "--build-profile=dev-fast",
+        ],
         cwd=repo_root,
         env=env,
     )
-    run_cmd([str(pycc), str(pyc), "--emit=verilog", "-o", str(out_dir / "dim_reduce.v"), "--build-profile=dev-fast"], cwd=repo_root, env=env)
+    run_cmd(
+        [
+            str(pycc),
+            str(pyc),
+            "--emit=verilog",
+            "-o",
+            str(out_dir / "dim_reduce.v"),
+            "--build-profile=dev-fast",
+        ],
+        cwd=repo_root,
+        env=env,
+    )
     check_cpp_manifest_syntax(out_dir, repo_root=repo_root)
 
 
@@ -868,7 +1032,7 @@ def test_reduce_mode_attr_and_pycc(
 ) -> None:
     import sys
 
-    frontend = repo_root / "compiler" / "frontend"
+    frontend = repo_root / "python" / "pycircuit" / "src"
     if str(frontend) not in sys.path:
         sys.path.insert(0, str(frontend))
 
@@ -911,7 +1075,11 @@ def test_reduce_mode_attr_and_pycc(
     )
     env = merged_env(pythonpath=pyc_pythonpath, pycc=pycc)
     pyc = out_dir / "reduce_modes.pyc"
-    run_cmd(["python3", "-m", "pycircuit.cli", "emit", str(src), "-o", str(pyc)], cwd=repo_root, env=env)
+    run_cmd(
+        ["python3", "-m", "pycircuit.cli", "emit", str(src), "-o", str(pyc)],
+        cwd=repo_root,
+        env=env,
+    )
     mlir = pyc.read_text(encoding="utf-8")
     assert "pyc.v_or_reduce" in mlir
     assert "pyc.v_add_reduce" in mlir
@@ -919,17 +1087,42 @@ def test_reduce_mode_attr_and_pycc(
     assert mlir.count('mode = "chain"') == 1
 
     direct_verilog = out_dir / "reduce_modes.v"
-    run_cmd([str(pycc), str(pyc), "--emit=verilog", "-o", str(direct_verilog), "--build-profile=dev-fast"], cwd=repo_root, env=env)
+    run_cmd(
+        [
+            str(pycc),
+            str(pyc),
+            "--emit=verilog",
+            "-o",
+            str(direct_verilog),
+            "--build-profile=dev-fast",
+        ],
+        cwd=repo_root,
+        env=env,
+    )
     direct_text = direct_verilog.read_text(encoding="utf-8")
     assert "chain_or" in direct_text
     assert "tree_or" in direct_text
     # The reduction consumes the JIT alias, not the raw packed-port unpack view.
-    assert "(((a__reduce_modes__L8[0] | a__reduce_modes__L8[1]) | a__reduce_modes__L8[2]) | a__reduce_modes__L8[3])" in direct_text
-    assert "((a__reduce_modes__L8[0] | a__reduce_modes__L8[1]) | (a__reduce_modes__L8[2] | a__reduce_modes__L8[3]))" in direct_text
+    assert (
+        "(((a__reduce_modes__L8[0] | a__reduce_modes__L8[1]) | a__reduce_modes__L8[2]) | a__reduce_modes__L8[3])"
+        in direct_text
+    )
+    assert (
+        "((a__reduce_modes__L8[0] | a__reduce_modes__L8[1]) | (a__reduce_modes__L8[2] | a__reduce_modes__L8[3]))"
+        in direct_text
+    )
 
     unrolled_verilog = out_dir / "reduce_modes_unroll.v"
     run_cmd(
-        [str(pycc), str(pyc), "--emit=verilog", "-o", str(unrolled_verilog), "--build-profile=dev-fast", "--unroll-vector"],
+        [
+            str(pycc),
+            str(pyc),
+            "--emit=verilog",
+            "-o",
+            str(unrolled_verilog),
+            "--build-profile=dev-fast",
+            "--unroll-vector",
+        ],
         cwd=repo_root,
         env=env,
     )

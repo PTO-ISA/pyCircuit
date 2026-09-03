@@ -67,8 +67,8 @@ trap 'rm -rf "${WORK_DIR}"' EXIT
 cd "${ROOT_DIR}"
 
 python3 "${ROOT_DIR}/flows/tools/check_api_hygiene.py" \
-  compiler/frontend/pycircuit \
-  designs/examples/fastfwd \
+  python/pycircuit/src/pycircuit \
+  examples/pycircuit/fastfwd \
   docs \
   README.md
 
@@ -99,7 +99,7 @@ if (( ${#PARAMS[@]} )); then
   done
 fi
 
-emit_cmd=(python3 -m pycircuit.cli emit designs/examples/fastfwd/fastfwd.py)
+emit_cmd=(python3 -m pycircuit.cli emit examples/pycircuit/fastfwd/fastfwd.py)
 if (( ${#EMIT_ARGS[@]} )); then
   emit_cmd+=("${EMIT_ARGS[@]}")
 fi
@@ -123,7 +123,7 @@ build_cmd=(python3 "${ROOT_DIR}/flows/tools/build_cpp_manifest.py"
   --tb "${ROOT_DIR}/contrib/fastfwd/tb_fastfwd_pyc.cpp"
   --out "${WORK_DIR}/tb_fastfwd_pyc"
   --profile release
-  --extra-include "${ROOT_DIR}/runtime"
+  --extra-include "${ROOT_DIR}/library"
   --extra-define "FASTFWD_TOTAL_ENG=${FASTFWD_TOTAL_ENG}")
 "${build_cmd[@]}"
 

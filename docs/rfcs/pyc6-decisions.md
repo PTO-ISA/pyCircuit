@@ -3797,3 +3797,52 @@ assigning source-order priority would make the result scheduling-dependent.
 
 **Source**
 - Agentic Circuit scalar Table allocation direction (2026-09-03).
+
+## Decision 0157: repository layout integrates Agentic Circuit by responsibility
+
+**Status:** Accepted
+
+**Context / Goal**
+The temporary Agentic Circuit import boundary duplicated repository structure,
+kept a second runtime primitive tree, and made build, test, packaging, and
+integration paths behave like cross-repository interfaces. Git history already
+preserves the imported layout, so current development does not need source-tree
+compatibility aliases.
+
+**Decision (strong constraint)**
+- The repository uses a responsibility-based layout. The pyCircuit and Agentic
+  Circuit Python distributions live under `python/`; PYC and ACIR/ACSim compiler
+  sources live under `compiler/`; stable PYC C++ and Verilog support lives under
+  `library/`; and gfsim lives under `simulator/`.
+- Agentic Circuit schemas, tools, examples, and tests live under
+  `schemas/agentic-circuit`, `tools/agentic-circuit`,
+  `examples/agentic-circuit`, and the corresponding
+  `tests/*/agentic-circuit` roots. ACIR/ACSim sources live under
+  `compiler/acir`; the `agentic_circuit` Python distribution remains separate
+  under `python/agentic-circuit`.
+- Reference designs and external-system work are classified explicitly:
+  reusable blocks live under `designs/blocks`, supported frontend examples live
+  under `examples`, system integrations live under `integrations`, board assets
+  live under `platforms`, and imported upstream references live under
+  `third_party/references`.
+- The former nested Agentic Circuit and runtime directories are removed from the
+  current tree. No symlink, forwarding package, path fallback, or duplicate
+  Verilog primitive tree preserves those locations. Git history is the only
+  compatibility mechanism.
+- Current scripts, CI, packaging, documentation, and tests use only the new
+  paths. Historical gate logs remain immutable evidence and may retain the
+  paths recorded when they were produced.
+- Semantic boundaries remain unchanged: ACIR does not become PYC, gfsim does
+  not become `libpyc6_runtime`, and the `pycircuit` and `agentic_circuit`
+  namespaces remain distinct.
+
+**Verification**
+- Layout checks reject deprecated current-tree roots and verify every required
+  Agentic Circuit module root.
+- Repository CMake configuration, AC G0/G1/G2 orchestration, schema/IR coverage,
+  example discovery, and documentation build resolve only canonical paths.
+- API hygiene, shell syntax checks, schema catalog generation, and strict
+  decision-status validation cover the hard-break configuration surface.
+
+**Source**
+- pyCircuit repository responsibility-layout hard break (2026-09-03).

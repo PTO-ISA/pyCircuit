@@ -1,0 +1,12 @@
+@LIT_SITE_CFG_IN_HEADER@
+
+config.acir_tools_dir = "@CMAKE_RUNTIME_OUTPUT_DIRECTORY@"
+config.acir_test_exec_root = "@CMAKE_CURRENT_BINARY_DIR@"
+config.llvm_tools_dir = "@LLVM_TOOLS_BINARY_DIR@"
+config.acir_binary_root = "@ACIR_BINARY_DIR@"
+config.acir_cxx = "@CMAKE_CXX_COMPILER@"
+config.acir_llvm_linker_flags = "@ACIR_TEST_LLVM_LINKER_FLAGS@"
+config.acir_python = "@ACIR_TEST_PYTHON@"
+config.acir_source_root = "@ACIR_REPO_ROOT@"
+
+lit_config.load_config(config, "@CMAKE_CURRENT_SOURCE_DIR@/lit.cfg.py")

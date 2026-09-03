@@ -19,7 +19,7 @@ pre-commit run --files <changed-file> [<changed-file> ...]
 pre-commit run --all-files
 pytest tests/unit -m unit
 pytest tests/system -m system
-python3 flows/tools/check_api_hygiene.py compiler/frontend/pycircuit designs/examples docs README.md
+python3 flows/tools/check_api_hygiene.py python/pycircuit/src/pycircuit examples/pycircuit docs README.md
 python3 flows/tools/check_decision_status.py --rfc docs/rfcs/pyc6-decisions.md --status docs/gates/decision_status_v6.md --out .pycircuit_out/gates/<run-id>/decision_status_report.json
 python3 flows/tools/check_decision_status.py --rfc docs/rfcs/pyc6-decisions.md --status docs/gates/decision_status_v6.md --out .pycircuit_out/gates/<run-id>/decision_status_report.json --require-no-deferred --require-all-verified --require-concrete-evidence --require-existing-evidence
 mkdocs build
@@ -38,7 +38,7 @@ bash flows/scripts/run_semantic_regressions_v6.sh
 | Frontend API, CLI orchestration, manifest generation, packaging, example discovery | `pre-commit run --files <changed-file> [<changed-file> ...]`; `pytest tests/unit -m unit`; API hygiene; `bash flows/scripts/run_examples.sh` |
 | Examples, testbenches, simulation entrypoint behavior | `pytest tests/unit -m unit`; `pytest tests/system -m system`; `bash flows/scripts/run_examples.sh`; `bash flows/scripts/run_sims.sh`; `bash flows/scripts/run_sims_nightly.sh` |
 | MLIR dialect, passes, legality, runtime, codegen, trace semantics | `bash flows/scripts/run_examples.sh`; `bash flows/scripts/run_sims.sh`; `bash flows/scripts/run_sims_nightly.sh`; `bash flows/scripts/run_semantic_regressions_v6.sh`; strict decision-status check |
-| Linx integration changes under `contrib/linx/` or cross-repo interface behavior | Required pyCircuit lanes plus the `linx-pycircuit` mandatory gates |
+| Linx integration changes under `integrations/linx/` or cross-repo interface behavior | Required pyCircuit lanes plus the `linx-pycircuit` mandatory gates |
 | Agentic Circuit Python frontend, ACPy, schemas or CLI | AC G0 plus changed-file pre-commit checks |
 | ACIR/ACSim dialect, verifier, transformation or gfsim | AC G0 and AC G1 |
 | ACIR-to-PYC, pyc6 runtime integration or synthesizable AC semantics | AC G0/G1/G2 plus full pyCircuit closure; add Linx interface/trace lanes when the change touches those contracts |

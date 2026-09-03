@@ -10,10 +10,8 @@ supported; the cycle tag is preserved.
 from __future__ import annotations
 
 import pytest
-
 from pycircuit import Circuit, CycleAwareCircuit, cas, wire_of
 from pycircuit.bitmask import parse_bitmask, parse_bitmask_checked
-
 
 # --- pure parser ------------------------------------------------------------
 
@@ -25,8 +23,8 @@ from pycircuit.bitmask import parse_bitmask, parse_bitmask_checked
         ("1010", 0b1111, 0b1010, 4),
         ("xxxx", 0b0000, 0b0000, 4),
         ("----", 0b0000, 0b0000, 4),
-        ("1(0)x0", 0b1001, 0b1000, 4),   # parenthesized bit is don't-care
-        ("1(01)0", 0b1001, 0b1000, 4),   # any bits in parens are don't-care
+        ("1(0)x0", 0b1001, 0b1000, 4),  # parenthesized bit is don't-care
+        ("1(01)0", 0b1001, 0b1000, 4),  # any bits in parens are don't-care
         ("1000 1010"[:4], 0b1111, 0b1000, 4),
         ("1111_0000", 0b11111111, 0b11110000, 8),  # '_' separator ignored
         ("1 0 x 0", 0b1101, 0b1000, 4),  # spaces ignored
@@ -100,7 +98,11 @@ def test_in_is_or_reduction() -> None:
     def manual() -> str:
         m = Circuit("t")
         s = m.input("s", width=4)
-        hit = ((s & 0b1001) == 0b1000) | ((s & 0b1111) == 0b0011) | ((s & 0b1100) == 0b1100)
+        hit = (
+            ((s & 0b1001) == 0b1000)
+            | ((s & 0b1111) == 0b0011)
+            | ((s & 0b1100) == 0b1100)
+        )
         m.output("y", hit)
         return m.emit_mlir()
 

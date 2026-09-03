@@ -5,10 +5,10 @@ import argparse
 import json
 import re
 import subprocess
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Iterable, Mapping
-
+from typing import Any
 
 _TOP_RE = re.compile(r"\bpyc\.top\s*=\s*@([A-Za-z_][A-Za-z0-9_\$]*)\b")
 _FUNC_RE = re.compile(r"\bfunc\.func\s+@([A-Za-z_][A-Za-z0-9_\$]*)\b")
@@ -299,7 +299,9 @@ def _resolve_origins(
     stack.add(cur)
     out: set[tuple[str, int]] = set()
     for src in sorted(drivers.get(cur, set())):
-        out |= _resolve_origins(src, alias_of=alias_of, drivers=drivers, origin=origin, stack=stack)
+        out |= _resolve_origins(
+            src, alias_of=alias_of, drivers=drivers, origin=origin, stack=stack
+        )
     stack.remove(cur)
     return out
 
@@ -341,7 +343,9 @@ def _compute_edges_for_func(
     for dst in func.instances:
         dst_ports = module_ports.get(dst.callee)
         for in_idx, op in enumerate(dst.operands):
-            srcs = _resolve_origins(op, alias_of=func.alias_of, drivers=func.drivers, origin=origin)
+            srcs = _resolve_origins(
+                op, alias_of=func.alias_of, drivers=func.drivers, origin=origin
+            )
             if not srcs:
                 continue
             for src_name, src_out_idx in sorted(srcs):
@@ -356,17 +360,23 @@ def _compute_edges_for_func(
                     else f"out{src_out_idx}"
                 )
                 dst_port = (
-                    dst_ports.arg_names[in_idx] if dst_ports and 0 <= in_idx < len(dst_ports.arg_names) else f"in{in_idx}"
+                    dst_ports.arg_names[in_idx]
+                    if dst_ports and 0 <= in_idx < len(dst_ports.arg_names)
+                    else f"in{in_idx}"
                 )
 
                 key = (src_name, dst.name)
                 ent = edges.setdefault(key, {"count": 0, "maps": set()})
                 ent["count"] += 1
-                ent["maps"].add((str(dst_port), str(src_port), int(in_idx), int(src_out_idx)))
+                ent["maps"].add(
+                    (str(dst_port), str(src_port), int(in_idx), int(src_out_idx))
+                )
     return edges
 
 
-def _parse_all_funcs(pyc_path: Path) -> tuple[str | None, dict[str, FuncParsed], dict[str, ModulePorts]]:
+def _parse_all_funcs(
+    pyc_path: Path,
+) -> tuple[str | None, dict[str, FuncParsed], dict[str, ModulePorts]]:
     top_sym: str | None = None
     module_ports: dict[str, ModulePorts] = {}
     funcs: dict[str, FuncParsed] = {}
@@ -450,28 +460,51 @@ def _parse_all_funcs(pyc_path: Path) -> tuple[str | None, dict[str, FuncParsed],
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser(description="Generate a module-instance connectivity graph from a textual .pyc (MLIR).")
+    ap = argparse.ArgumentParser(
+        description="Generate a module-instance connectivity graph from a textual .pyc (MLIR)."
+    )
     ap.add_argument("--pyc", required=True, help="Path to textual .pyc file (MLIR)")
-    ap.add_argument("--module", default="", help="Target module symbol (default: module attribute pyc.top)")
-    ap.add_argument("--out", required=True, help="Output path (.dot or a Graphviz render like .svg)")
+    ap.add_argument(
+        "--module",
+        default="",
+        help="Target module symbol (default: module attribute pyc.top)",
+    )
+    ap.add_argument(
+        "--out", required=True, help="Output path (.dot or a Graphviz render like .svg)"
+    )
 
-    ap.add_argument("--hierarchical", action="store_true", help="Show selected submodules as nested clusters")
+    ap.add_argument(
+        "--hierarchical",
+        action="store_true",
+        help="Show selected submodules as nested clusters",
+    )
     ap.add_argument(
         "--expand",
         action="append",
         default=[],
         help="Expand by instance name, instance path, or callee symbol. Repeatable. Example: --expand janus_iex or --expand JanusBccIexTop",
     )
-    ap.add_argument("--expand-depth", type=int, default=1, help="Max expansion depth from the target module (hierarchical only)")
+    ap.add_argument(
+        "--expand-depth",
+        type=int,
+        default=1,
+        help="Max expansion depth from the target module (hierarchical only)",
+    )
     ap.add_argument(
         "--auto-expand-max-instances",
         type=int,
         default=16,
         help="Auto-expand callees with <= N instances (hierarchical only; 0 disables)",
     )
-    ap.add_argument("--expand-all", action="store_true", help="Expand all instances up to --expand-depth (can be huge)")
+    ap.add_argument(
+        "--expand-all",
+        action="store_true",
+        help="Expand all instances up to --expand-depth (can be huge)",
+    )
 
-    ap.add_argument("--edge-label-mode", choices=["ports", "count", "none"], default="ports")
+    ap.add_argument(
+        "--edge-label-mode", choices=["ports", "count", "none"], default="ports"
+    )
     ap.add_argument("--edge-label-limit", type=int, default=4)
     ap.add_argument("--max-nodes", type=int, default=500)
     ap.add_argument("--max-edges", type=int, default=2000)
@@ -491,7 +524,9 @@ def main() -> int:
     top_sym, funcs, module_ports = _parse_all_funcs(pyc_path)
     target_sym = str(args.module).strip() or (top_sym or "")
     if not target_sym:
-        raise SystemExit("error: cannot determine target module (missing --module and pyc.top not found)")
+        raise SystemExit(
+            "error: cannot determine target module (missing --module and pyc.top not found)"
+        )
     if target_sym not in funcs:
         raise SystemExit(f"error: target module not found in file: {target_sym}")
 
@@ -499,7 +534,9 @@ def main() -> int:
 
     def get_edges(sym: str) -> dict[tuple[str, str], dict[str, Any]]:
         if sym not in func_edges:
-            func_edges[sym] = _compute_edges_for_func(funcs[sym], module_ports=module_ports)
+            func_edges[sym] = _compute_edges_for_func(
+                funcs[sym], module_ports=module_ports
+            )
         return func_edges[sym]
 
     hierarchical = bool(args.hierarchical)
@@ -511,7 +548,9 @@ def main() -> int:
     expanded: set[tuple[str, ...]] = set()
     edges_global: dict[tuple[tuple[str, ...], tuple[str, ...]], dict[str, Any]] = {}
 
-    def should_expand(prefix: tuple[str, ...], inst: InstanceRec, *, cur_level: int) -> bool:
+    def should_expand(
+        prefix: tuple[str, ...], inst: InstanceRec, *, cur_level: int
+    ) -> bool:
         if not hierarchical:
             return False
         if cur_level >= expand_depth:
@@ -532,7 +571,9 @@ def main() -> int:
             return False
         return 0 < callee_n <= auto_expand_max
 
-    def walk_context(sym: str, prefix: tuple[str, ...], *, level: int, mod_stack: tuple[str, ...]) -> None:
+    def walk_context(
+        sym: str, prefix: tuple[str, ...], *, level: int, mod_stack: tuple[str, ...]
+    ) -> None:
         if sym not in funcs:
             return
         if sym in mod_stack:
@@ -542,10 +583,18 @@ def main() -> int:
         for inst in f.instances:
             p = prefix + (inst.name,)
             do_expand = should_expand(prefix, inst, cur_level=level)
-            nodes[p] = NodeInfo(path=p, name=inst.name, callee=inst.callee, level=level + 1, expanded=do_expand)
+            nodes[p] = NodeInfo(
+                path=p,
+                name=inst.name,
+                callee=inst.callee,
+                level=level + 1,
+                expanded=do_expand,
+            )
             if do_expand:
                 expanded.add(p)
-                walk_context(inst.callee, p, level=level + 1, mod_stack=mod_stack + (sym,))
+                walk_context(
+                    inst.callee, p, level=level + 1, mod_stack=mod_stack + (sym,)
+                )
 
         for (src, dst), ent in get_edges(sym).items():
             sp = prefix + (src,)
@@ -579,7 +628,7 @@ def main() -> int:
 
     # SCCs on the displayed graph.
     adj: dict[str, set[str]] = {n: set() for n in node_ids}
-    for (sp, dp) in edges_global.keys():
+    for sp, dp in edges_global.keys():
         s = "/".join(sp)
         d = "/".join(dp)
         if s in adj and d in adj:
@@ -637,7 +686,9 @@ def main() -> int:
         'labelloc="t" labeljust="c" pad="0.25" rankdir="LR" ranksep="0.55" nodesep="0.2" '
         'splines="polyline" newrank="true"];'
     )
-    w.writeln('node [fillcolor="#F7F7F7" fontname="Helvetica" fontsize="8" shape="record" style="filled"];')
+    w.writeln(
+        'node [fillcolor="#F7F7F7" fontname="Helvetica" fontsize="8" shape="record" style="filled"];'
+    )
     w.writeln('edge [arrowsize="0.6" color="#9E9E9E" fontsize="7"];')
 
     def emit_node(p: tuple[str, ...]) -> None:
@@ -656,7 +707,15 @@ def main() -> int:
         in_cnt = len(in_ports_used.get(key, set()))
         out_cnt = len(out_ports_used.get(key, set()))
         label_mid = _dot_escape(f"{n.name}\\n{n.callee}")
-        label = "{<in> " + f"in({in_cnt})" + "|" + label_mid + "|<out> " + f"out({out_cnt})" + "}"
+        label = (
+            "{<in> "
+            + f"in({in_cnt})"
+            + "|"
+            + label_mid
+            + "|<out> "
+            + f"out({out_cnt})"
+            + "}"
+        )
         w.writeln(f'{nid} [label="{label}" color="{border}" penwidth="{pen}"];')
 
     def cluster_name_for(path: tuple[str, ...]) -> str:
@@ -676,7 +735,9 @@ def main() -> int:
             if p not in nodes:
                 continue
             if p in expanded:
-                begin_cluster(cluster_name_for(p), f"{inst.name}\\n{inst.callee}", font_size="10")
+                begin_cluster(
+                    cluster_name_for(p), f"{inst.name}\\n{inst.callee}", font_size="10"
+                )
                 emit_node(p)
                 if level < expand_depth and inst.callee in funcs:
                     emit_context(inst.callee, p, level=level + 1)
@@ -684,18 +745,24 @@ def main() -> int:
             else:
                 emit_node(p)
 
-    begin_cluster("cluster_" + _sanitize_dot_id(target_sym), f"{target_sym}", font_size="11")
+    begin_cluster(
+        "cluster_" + _sanitize_dot_id(target_sym), f"{target_sym}", font_size="11"
+    )
     emit_context(target_sym, tuple(), level=0)
     w.end()
 
-    for (sp, dp), ent in sorted(edges_global.items(), key=lambda x: ("/".join(x[0][0]), "/".join(x[0][1]))):
+    for (sp, dp), ent in sorted(
+        edges_global.items(), key=lambda x: ("/".join(x[0][0]), "/".join(x[0][1]))
+    ):
         src_key = "/".join(sp)
         dst_key = "/".join(dp)
         if src_key not in dot_id or dst_key not in dot_id:
             continue
         lbl = edge_label(ent)
         if lbl:
-            w.writeln(f'{dot_id[src_key]}:out -> {dot_id[dst_key]}:in [label="{_dot_escape(lbl)}"];')
+            w.writeln(
+                f'{dot_id[src_key]}:out -> {dot_id[dst_key]}:in [label="{_dot_escape(lbl)}"];'
+            )
         else:
             w.writeln(f"{dot_id[src_key]}:out -> {dot_id[dst_key]}:in;")
 
@@ -712,7 +779,9 @@ def main() -> int:
                 check=True,
             )
         except subprocess.CalledProcessError as e:
-            raise SystemExit(f"error: dot render failed (dot -T{out_ext} ...): {e}") from e
+            raise SystemExit(
+                f"error: dot render failed (dot -T{out_ext} ...): {e}"
+            ) from e
 
     nodes_json = []
     for p, n in sorted(nodes.items(), key=lambda x: (x[1].level, "/".join(x[0]))):
@@ -731,11 +800,14 @@ def main() -> int:
         )
 
     edges_json = []
-    for (sp, dp), ent in sorted(edges_global.items(), key=lambda x: ("/".join(x[0][0]), "/".join(x[0][1]))):
+    for (sp, dp), ent in sorted(
+        edges_global.items(), key=lambda x: ("/".join(x[0][0]), "/".join(x[0][1]))
+    ):
         maps = sorted(ent["maps"], key=lambda x: (x[0], x[1], x[2], x[3]))
         maps_json = [
             {"dst_port": dp, "src_port": sp, "dst_idx": di, "src_idx": si}
-            for dp, sp, di, si in maps[:edge_label_limit] if edge_label_limit
+            for dp, sp, di, si in maps[:edge_label_limit]
+            if edge_label_limit
         ]
         edges_json.append(
             {
@@ -765,7 +837,9 @@ def main() -> int:
         },
         "sccs": [{"size": len(c), "nodes": sorted(c)} for c in multi_sccs],
     }
-    json_path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
+    json_path.write_text(
+        json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8"
+    )
 
     print(str(out_svg))
     return 0

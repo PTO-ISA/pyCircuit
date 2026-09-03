@@ -954,7 +954,7 @@ static std::optional<std::string> findPrimitivesDir(const char *argv0) {
 
   auto tryRoot = [&](llvm::StringRef root) -> std::optional<std::string> {
     llvm::SmallString<256> dir(root);
-    llvm::sys::path::append(dir, "runtime", "verilog");
+    llvm::sys::path::append(dir, "library", "verilog");
     if (auto d = tryDir(dir))
       return d;
 
@@ -2445,7 +2445,7 @@ int main(int argc, char **argv) {
       if (includePrims) {
         auto primDir = findPrimitivesDir(argv[0]);
         if (!primDir) {
-          llvm::errs() << "error: cannot locate runtime/verilog for primitives; set PYC_PRIMITIVES_DIR\n";
+          llvm::errs() << "error: cannot locate library/verilog for primitives; set PYC_PRIMITIVES_DIR\n";
           return 1;
         }
         llvm::SmallString<256> primOut(outDir);

@@ -1,0 +1,13 @@
+
+[notice] A new release of pip is available: 26.1.2 -> 26.2.1
+[notice] To update, run: /Users/zhoubot/linx-isa/tools/pyCircuit/.pycircuit_out/agentic-circuit/venv/bin/python -m pip install --upgrade pip
+...................s..........s...........................................................................................
+----------------------------------------------------------------------
+Ran 122 tests in 6.702s
+
+OK (skipped=2)
+....................................................
+----------------------------------------------------------------------
+Ran 52 tests in 36.754s
+
+OK

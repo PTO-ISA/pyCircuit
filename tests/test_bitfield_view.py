@@ -11,7 +11,6 @@ keeps the input's type and (for cycle-aware) its cycle tag.
 from __future__ import annotations
 
 import pytest
-
 from pycircuit import (
     BitfieldSignal,
     BitfieldSpec,
@@ -21,11 +20,11 @@ from pycircuit import (
     cas,
     wire_of,
 )
+
 # Scalar (domain-free) concat: the top-level ``cat`` is the cycle-aware variant
 # (rejects all-scalar operands), so the hand-written scalar references below use
 # the ``hw`` module's ``cat`` directly.
 from pycircuit.hw import cat
-
 
 INSTR = BitfieldSpec(
     width=32,

@@ -63,16 +63,31 @@ def _compile_one(
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser(description="Compile/link split C++ artifacts from cpp_compile_manifest.json")
-    ap.add_argument("--manifest", required=True, help="Path to cpp_compile_manifest.json")
-    ap.add_argument("--tb", action="append", default=[], help="Additional C++ translation unit(s) to compile")
+    ap = argparse.ArgumentParser(
+        description="Compile/link split C++ artifacts from cpp_compile_manifest.json"
+    )
+    ap.add_argument(
+        "--manifest", required=True, help="Path to cpp_compile_manifest.json"
+    )
+    ap.add_argument(
+        "--tb",
+        action="append",
+        default=[],
+        help="Additional C++ translation unit(s) to compile",
+    )
     ap.add_argument("--out", required=True, help="Output executable path")
-    ap.add_argument("--profile", choices=["dev", "release"], default=os.environ.get("PYC_BUILD_PROFILE", "release"))
+    ap.add_argument(
+        "--profile",
+        choices=["dev", "release"],
+        default=os.environ.get("PYC_BUILD_PROFILE", "release"),
+    )
     ap.add_argument("--jobs", type=int, default=max(1, (os.cpu_count() or 1)))
     ap.add_argument("--cxx", default=os.environ.get("CXX", "clang++"))
     ap.add_argument("--extra-include", action="append", default=[])
     ap.add_argument("--extra-define", action="append", default=[])
-    ap.add_argument("--obj-dir", default="", help="Object directory (default: <manifest-dir>/.objs)")
+    ap.add_argument(
+        "--obj-dir", default="", help="Object directory (default: <manifest-dir>/.objs)"
+    )
     args = ap.parse_args()
 
     manifest_path = Path(args.manifest).resolve()
@@ -159,7 +174,9 @@ def main() -> int:
             rel = src.relative_to(repo)
         except ValueError:
             rel = src.name
-        obj_name = str(rel).replace(os.sep, "__").replace("/", "__").replace(":", "_") + ".o"
+        obj_name = (
+            str(rel).replace(os.sep, "__").replace("/", "__").replace(":", "_") + ".o"
+        )
         obj = obj_dir / obj_name
         objects.append(obj)
         if _need_rebuild(obj, [src]):
@@ -169,7 +186,15 @@ def main() -> int:
         failures = 0
         with ThreadPoolExecutor(max_workers=max(1, int(args.jobs))) as pool:
             futs = {
-                pool.submit(_compile_one, args.cxx, cflags, include_flags, define_flags, src, obj): (src, obj)
+                pool.submit(
+                    _compile_one,
+                    args.cxx,
+                    cflags,
+                    include_flags,
+                    define_flags,
+                    src,
+                    obj,
+                ): (src, obj)
                 for src, obj in compile_jobs
             }
             for fut in as_completed(futs):
@@ -178,7 +203,10 @@ def main() -> int:
                     fut.result()
                 except Exception as e:  # noqa: BLE001
                     failures += 1
-                    print(f"[build_cpp_manifest] compile failed: {src}: {e}", file=sys.stderr)
+                    print(
+                        f"[build_cpp_manifest] compile failed: {src}: {e}",
+                        file=sys.stderr,
+                    )
         if failures:
             return 1
 

@@ -23,20 +23,21 @@ pyCircuit 6.
 
 ## Source layout
 
-The imported component is rooted at `components/agentic-circuit/`:
+Agentic Circuit is integrated into the repository by responsibility:
 
 | Path | Responsibility |
 | --- | --- |
-| `src/agentic_circuit/` | Python frontend, ACPy, CLI, workspace and JIT APIs |
-| `include/acir/`, `lib/` | ACIR/ACSim dialects, analysis, transformations and code generation |
-| `include/gfsim/`, `lib/gfsim/` | Architecture simulation runtime |
-| `tools/` | `acir-*` tools and AC-to-PYC orchestration |
-| `contracts/`, `schemas/`, `resources/` | Machine-readable public contracts |
-| `test/`, `tests/`, `unittests/` | MLIR, Python, end-to-end and C++ coverage |
-| `docs/spec/` | Detailed ACIR and frontend specification |
+| `python/agentic-circuit/` | Python frontend, ACPy, CLI, workspace and JIT APIs |
+| `compiler/acir/` | ACIR/ACSim dialects, analysis, transformations and code generation |
+| `simulator/gfsim/` | Architecture simulator library |
+| `schemas/agentic-circuit/` | Machine-readable public contracts and schemas |
+| `tools/agentic-circuit/` | Repository maintenance and contract tools |
+| `tests/*/agentic-circuit/` | MLIR, Python, end-to-end and C++ coverage |
+| `docs/acir/spec/` | Detailed ACIR and frontend specification |
 
-The component directory is an integration boundary, not a second repository.
-Its source is versioned and released only from `PTO-ISA/pyCircuit`.
+These module boundaries preserve ACIR semantics without creating a nested
+standalone workspace. The source is versioned and released only from
+`PTO-ISA/pyCircuit`.
 
 ## Public names
 
@@ -58,6 +59,5 @@ AC changes must run the applicable AC G0/G1/G2 lanes documented in
 must also run the full pyCircuit 6 closure because ACIR-to-PYC consumes current
 PYC, `pycc`, and `libpyc6_runtime` contracts.
 
-Detailed AC specifications remain under
-`components/agentic-circuit/docs/spec/`. The pyCircuit 6 specification remains
+Detailed AC specifications remain under `docs/acir/spec/`. The pyCircuit 6 specification remains
 the authority for PYC and Cycle-Aware Signal semantics.

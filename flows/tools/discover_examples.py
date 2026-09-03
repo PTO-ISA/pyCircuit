@@ -31,10 +31,12 @@ def _parse_sim_tier(cfg_path: Path) -> str:
             continue
         for tgt in node.targets:
             if isinstance(tgt, ast.Name) and tgt.id == "SIM_TIER":
-                if isinstance(node.value, ast.Constant) and isinstance(node.value.value, str):
+                if isinstance(node.value, ast.Constant) and isinstance(
+                    node.value.value, str
+                ):
                     tier = node.value.value
     if tier not in {"normal", "heavy"}:
-        raise RuntimeError(f"{cfg_path}: SIM_TIER must be \"normal\" or \"heavy\"")
+        raise RuntimeError(f'{cfg_path}: SIM_TIER must be "normal" or "heavy"')
     return str(tier)
 
 
@@ -44,7 +46,9 @@ def _parse_pyc_name(design_path: Path) -> str | None:
     for node in tree.body:
         if not isinstance(node, ast.Assign):
             continue
-        if not isinstance(node.value, ast.Constant) or not isinstance(node.value.value, str):
+        if not isinstance(node.value, ast.Constant) or not isinstance(
+            node.value.value, str
+        ):
             continue
         for tgt in node.targets:
             if (
@@ -84,7 +88,9 @@ def _discover(root: Path) -> list[ExampleCase]:
         if design.exists() and not _looks_like_design(design):
             continue
         if any(present) and not all(present):
-            errs.append(f"{d}: malformed example folder (requires {name}.py, tb_{name}.py, {name}_config.py)")
+            errs.append(
+                f"{d}: malformed example folder (requires {name}.py, tb_{name}.py, {name}_config.py)"
+            )
             continue
         if not all(present):
             continue
@@ -96,7 +102,9 @@ def _discover(root: Path) -> list[ExampleCase]:
 
         pyc_name = _parse_pyc_name(design)
         if pyc_name != name:
-            errs.append(f"{design}: build.__pycircuit_name__ must be {name!r}, got {pyc_name!r}")
+            errs.append(
+                f"{design}: build.__pycircuit_name__ must be {name!r}, got {pyc_name!r}"
+            )
             continue
 
         try:
@@ -105,7 +113,9 @@ def _discover(root: Path) -> list[ExampleCase]:
             errs.append(str(e))
             continue
 
-        cases.append(ExampleCase(name=name, design=design, tb=tb, config=cfg, tier=tier))
+        cases.append(
+            ExampleCase(name=name, design=design, tb=tb, config=cfg, tier=tier)
+        )
 
     # Enforce hard-break layout: every design module under examples/ must belong to a discovered case.
     case_designs = {c.design.resolve() for c in cases}
@@ -148,10 +158,12 @@ def _emit_tsv(cases: list[ExampleCase]) -> None:
 
 
 def main(argv: list[str] | None = None) -> int:
-    ap = argparse.ArgumentParser(description="Discover and validate folderized pyCircuit examples.")
+    ap = argparse.ArgumentParser(
+        description="Discover and validate folderized pyCircuit examples."
+    )
     ap.add_argument(
         "--root",
-        default=str(_repo_root() / "designs" / "examples"),
+        default=str(_repo_root() / "examples" / "pycircuit"),
         help="Examples root directory",
     )
     ap.add_argument(

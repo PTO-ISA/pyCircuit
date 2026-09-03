@@ -1,14 +1,21 @@
-# Default ownership stays with the PTO-ISA pyCircuit maintainers.
-* @PTO-ISA/pycircuit-maintainers
+# Default ownership is shared by the pyCircuit maintainers below. One approval
+# is sufficient under the repository branch-protection rule.
+* @zhoubot @xiekunpeng
 
 # Changes to governance, CI, and releases require maintainer review.
-/.github/ @PTO-ISA/pycircuit-maintainers
-/packaging/ @PTO-ISA/pycircuit-maintainers
-/CONTRIBUTING.md @PTO-ISA/pycircuit-maintainers
-/SECURITY.md @PTO-ISA/pycircuit-maintainers
-/CODE_OF_CONDUCT.md @PTO-ISA/pycircuit-maintainers
+/.github/ @zhoubot @xiekunpeng
+/packaging/ @zhoubot @xiekunpeng
+/CONTRIBUTING.md @zhoubot @xiekunpeng
+/SECURITY.md @zhoubot @xiekunpeng
+/CODE_OF_CONDUCT.md @zhoubot @xiekunpeng
 
-# Agentic Circuit remains a separate semantic and package boundary in the
-# shared repository, but follows the same maintainer review authority.
-/components/agentic-circuit/ @PTO-ISA/pycircuit-maintainers
-/docs/acir/ @PTO-ISA/pycircuit-maintainers
+# Agentic Circuit ownership follows its implementation across the integrated
+# repository layout.
+/compiler/acir/ @zhoubot @xiekunpeng
+/python/agentic-circuit/ @zhoubot @xiekunpeng
+/schemas/agentic-circuit/ @zhoubot @xiekunpeng
+/simulator/gfsim/ @zhoubot @xiekunpeng
+/tools/agentic-circuit/ @zhoubot @xiekunpeng
+/tests/*/agentic-circuit/ @zhoubot @xiekunpeng
+/examples/agentic-circuit/ @zhoubot @xiekunpeng
+/docs/acir/ @zhoubot @xiekunpeng

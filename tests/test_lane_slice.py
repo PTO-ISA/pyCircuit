@@ -13,9 +13,7 @@ raise at build time.
 from __future__ import annotations
 
 import pytest
-
 from pycircuit import Circuit, CycleAwareCircuit, cas, wire_of
-
 
 # --- Wire lane == hand-written slice (byte-level MLIR equivalence) ----------
 

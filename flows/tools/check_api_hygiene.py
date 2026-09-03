@@ -11,7 +11,7 @@ def _repo_root() -> Path:
 
 
 ROOT = _repo_root()
-FRONTEND = ROOT / "compiler" / "frontend"
+FRONTEND = ROOT / "python" / "pycircuit" / "src"
 if str(FRONTEND) not in sys.path:
     sys.path.insert(0, str(FRONTEND))
 
@@ -19,8 +19,8 @@ from pycircuit.api_contract import TEXT_RULES, TextRule, scan_text  # noqa: E402
 from pycircuit.diagnostics import render_diagnostic  # noqa: E402
 
 DEFAULT_TARGETS: tuple[str, ...] = (
-    "compiler/frontend/pycircuit",
-    "designs/examples",
+    "python/pycircuit/src/pycircuit",
+    "examples/pycircuit",
     "docs",
     "flows/tools",
     "README.md",
@@ -49,6 +49,7 @@ SKIP_DIRS = {
 
 # PYC416 removed from TEXT_RULES (mux allowed for eager/V6); keep other relaxes.
 FRONTEND_RELAX_CODES = {"PYC415", "PYC417", "PYC418", "PYC423"}
+ACIR_DOC_RELAX_CODES = {"PYC415"}
 
 
 def iter_target_files(path: Path) -> list[Path]:
@@ -115,9 +116,15 @@ def main() -> int:
             rel = f.relative_to(scan_root) if f.is_relative_to(scan_root) else f
             rel_posix = rel.as_posix() if isinstance(rel, Path) else str(rel)
             rules = TEXT_RULES
-            if rel_posix.startswith("compiler/frontend/pycircuit/"):
+            if rel_posix.startswith("python/pycircuit/src/pycircuit/"):
                 rules = tuple(
                     r for r in TEXT_RULES if r.code not in FRONTEND_RELAX_CODES
+                )
+            elif rel_posix.startswith("docs/acir/"):
+                # Agentic Circuit collections intentionally expose `.select`;
+                # PYC415 applies only to the removed pyCircuit Wire API.
+                rules = tuple(
+                    r for r in TEXT_RULES if r.code not in ACIR_DOC_RELAX_CODES
                 )
             msgs = scan_file(f, rules=rules)
             for m in msgs:

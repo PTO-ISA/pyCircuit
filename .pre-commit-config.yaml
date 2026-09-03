@@ -6,27 +6,27 @@ repos:
       - id: check-yaml
         args: [--unsafe]
       - id: end-of-file-fixer
-        exclude: ^components/agentic-circuit/
+        exclude: ^(docs/gates/logs/|third_party/references/|examples/pycircuit/dodgeball_game/reference/)
       - id: trailing-whitespace
-        exclude: ^components/agentic-circuit/
+        exclude: ^(docs/gates/logs/|third_party/references/|examples/pycircuit/dodgeball_game/reference/)
 
   - repo: https://github.com/astral-sh/ruff-pre-commit
     rev: v0.11.8
     hooks:
       - id: ruff
-        exclude: ^(components/agentic-circuit/|designs/XiangShan-pyc/|designs/outerCube/|designs/BypassUnit/|designs/RegisterFile/)
+        exclude: ^(python/agentic-circuit/|compiler/acir/|simulator/gfsim/|schemas/agentic-circuit/|examples/agentic-circuit/|tests/(python|mlir|cpp|integration|goldens)/agentic-circuit/|tools/agentic-circuit/|toolchains/agentic-circuit/|third_party/references/|integrations/xiangshan/|designs/outerCube/|designs/blocks/BypassUnit/|designs/blocks/RegisterFile/)
 
   - repo: https://github.com/psf/black
     rev: 24.10.0
     hooks:
       - id: black
-        exclude: ^components/agentic-circuit/
+        exclude: ^(python/agentic-circuit/|compiler/acir/|simulator/gfsim/|schemas/agentic-circuit/|examples/agentic-circuit/|tests/(python|mlir|cpp|integration|goldens)/agentic-circuit/|tools/agentic-circuit/|toolchains/agentic-circuit/|third_party/references/|integrations/xiangshan/)
 
   - repo: https://github.com/DavidAnson/markdownlint-cli2
     rev: v0.18.1
     hooks:
       - id: markdownlint-cli2
-        exclude: ^(components/agentic-circuit/|docs/gates/logs/|designs/outerCube/.*\.md$|designs/XiangShan-pyc/docs/design_hierarchy_plan\.md$|docs/cycle_balance_improvement.*\.md$)
+        exclude: ^(docs/gates/logs/|third_party/references/|docs/acir/spec/|docs/development/acir/|docs/simulation\.md$|examples/agentic-circuit/|python/agentic-circuit/|tests/(python|mlir|cpp|integration|goldens)/agentic-circuit/|integrations/(janus|linx)/docs/|integrations/xiangshan/(README\.md|docs/)|designs/outerCube/.*\.md$|docs/cycle_balance_improvement.*\.md$)
 
   - repo: local
     hooks:
@@ -34,5 +34,5 @@ repos:
         name: pyCircuit API hygiene gate
         entry: python3 flows/tools/check_api_hygiene.py
         language: system
-        files: ^(compiler/frontend/pycircuit/|designs/examples/|docs/|README\.md$|CONTRIBUTING\.md$)
-        exclude: ^(docs/gates/logs/|compiler/frontend/pycircuit/api_contract\.py$)
+        files: ^(python/pycircuit/src/pycircuit/|examples/pycircuit/|docs/|README\.md$|CONTRIBUTING\.md$)
+        exclude: ^(docs/gates/logs/|python/pycircuit/src/pycircuit/api_contract\.py$)

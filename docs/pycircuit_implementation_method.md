@@ -67,7 +67,7 @@ The full workflow is documented in `docs/v6_PyCircuit_Specification.md` under
 5. **Chain** outputs to next sub-module's inputs
 6. **Collect top-level outputs** in `outs` dict; emit `m.output()` only in standalone mode (`if inputs is None`)
 
-**Package import:** the Python package name is **`pycircuit`** (lowercase). `PYTHONPATH` must include `compiler/frontend` when running CLI or tests outside an installed package.
+**Package import:** the Python package name is **`pycircuit`** (lowercase). `PYTHONPATH` must include `python/pycircuit/src` when running CLI or tests outside an installed package.
 
 ---
 
@@ -78,10 +78,10 @@ Illustrations of **grammar and structure** are under **`designs/`** and subfolde
 | Area | Examples (non-exhaustive) |
 |------|---------------------------|
 | **V6 hierarchical composition** (full-scale, `domain.call()` + `submodule_input()` + `wire_of()`) | Repository designs and examples using the pyCircuit 6 surface |
-| **V6 cycle-aware style** (single-module) | `designs/BypassUnit/`, `designs/RegisterFile/`, `designs/IssueQueue/`, and `designs/examples/*/` |
-| **`@module` + JIT** | `designs/examples/counter/`, `designs/examples/jit_control_flow/`, `designs/examples/hier_modules/` |
+| **V6 cycle-aware style** (single-module) | `designs/blocks/BypassUnit/`, `designs/blocks/RegisterFile/`, `designs/blocks/IssueQueue/`, and `examples/pycircuit/*/` |
+| **`@module` + JIT** | `examples/pycircuit/counter/`, `examples/pycircuit/jit_control_flow/`, `examples/pycircuit/hier_modules/` |
 | **V6 testbench** (`CycleAwareTb`) | `tests/unit/test_pyc6_surface.py`, `tests/unit/test_v6_state_signal.py`, and repository examples |
-| **Testbench layout** (low-level `Tb`) | `designs/examples/*/tb_*.py`, `designs/BypassUnit/tb_bypass_unit.py`, `designs/RegisterFile/tb_regfile.py` |
+| **Testbench layout** (low-level `Tb`) | `examples/pycircuit/*/tb_*.py`, `designs/blocks/BypassUnit/tb_bypass_unit.py`, `designs/blocks/RegisterFile/tb_regfile.py` |
 | **Structured IO** | Designs using `spec` / bundles per `docs/SPEC_STRUCTURES.md` |
 
 Mirror the **directory layout** (design file + `tb_*.py` + optional `README.md`) of the example closest to your block's complexity. For **hierarchical multi-module designs**, use the Davinci project in **[DavinciOO](https://github.com/hengliao1972/DavinciOO)** (`davinci/`) as the canonical reference.
@@ -106,8 +106,8 @@ the structural API's explicit occurrence metadata.
 2. Read **`docs/FRONTEND_API.md`** and **`docs/TESTBENCH.md`** for `@module`, `Circuit`, and simulation contracts.
 3. Open **2–3 concrete examples** under `designs/` that match your intended style:
    - **V6 hierarchical**: supported repository designs using `domain.call()`.
-   - **V6 single-module**: `designs/BypassUnit/`, `designs/RegisterFile/`.
-   - **`@module`**: `designs/examples/counter/`, `designs/examples/hier_modules/`.
+   - **V6 single-module**: `designs/blocks/BypassUnit/`, `designs/blocks/RegisterFile/`.
+   - **`@module`**: `examples/pycircuit/counter/`, `examples/pycircuit/hier_modules/`.
 4. Note **non-negotiables** from `AGENTS.md`: gate-first IR changes; no backend-only semantic fixes.
 
 **Deliverable:** Short notes in the design documentation: identify whether the

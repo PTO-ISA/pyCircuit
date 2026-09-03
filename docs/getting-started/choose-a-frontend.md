@@ -35,9 +35,9 @@ export PYC_TOOLCHAIN_ROOT="$PWD/.pycircuit_out/toolchain/install"
 Compile the repository counter example:
 
 ```bash
-PYTHONPATH=compiler/frontend \
+PYTHONPATH=python/pycircuit/src \
 python3 -m pycircuit.cli build \
-  designs/examples/counter/tb_counter.py \
+  examples/pycircuit/counter/tb_counter.py \
   --out-dir /tmp/pyc_counter \
   --target both
 ```
@@ -54,7 +54,7 @@ simulation path.
 Install the second distribution from the same checkout:
 
 ```bash
-python3 -m pip install -e "components/agentic-circuit[test]"
+python3 -m pip install -e "python/agentic-circuit[test]"
 agentic-circuit --help
 ```
 
@@ -69,10 +69,10 @@ bash flows/scripts/run_agentic_circuit.sh
 Then check a maintained workspace example from the repository root:
 
 ```bash
-AC_ROOT="$PWD/components/agentic-circuit"
+AC_ROOT="$PWD"
 AC_PYTHON="$PWD/.pycircuit_out/agentic-circuit/venv/bin/python"
-cd "$AC_ROOT/examples/workspaces/producer_queue_consumer"
-PYTHONPATH="$AC_ROOT/src:$AC_ROOT/build/dev-llvm22/python" \
+cd "$AC_ROOT/examples/agentic-circuit/workspaces/producer_queue_consumer"
+PYTHONPATH="$AC_ROOT/python/agentic-circuit/src:$AC_ROOT/.pycircuit_out/acir/dev-llvm22/python" \
 "$AC_PYTHON" -m agentic_circuit._cli check architecture.py \
   --project agentic-circuit.toml \
   --json

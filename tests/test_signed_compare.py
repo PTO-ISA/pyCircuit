@@ -12,9 +12,7 @@ Both plain ``Wire`` and ``CycleAwareSignal`` (main modeling API) expose them.
 from __future__ import annotations
 
 import pytest
-
 from pycircuit import Circuit, CycleAwareCircuit, cas, wire_of
-
 
 # --- Wire: sgt/sle/sge == hand-written equivalents (MLIR equivalence) -------
 

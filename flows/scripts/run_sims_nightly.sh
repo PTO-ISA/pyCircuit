@@ -155,7 +155,7 @@ PY
 while IFS=$'\t' read -r name _design tb _cfg _tier; do
   [[ -n "${name}" ]] || continue
   run_case_examples "example_${name}" "${tb}"
-done < <(python3 "${DISCOVER}" --root "${PYC_ROOT_DIR}/designs/examples" --tier all --format tsv)
+done < <(python3 "${DISCOVER}" --root "${PYC_ROOT_DIR}/examples/pycircuit" --tier all --format tsv)
 
 run_case_nonexample() {
   local name="$1"
@@ -181,9 +181,9 @@ run_case_nonexample() {
   fi
 }
 
-run_case_nonexample issq "${PYC_ROOT_DIR}/designs/IssueQueue/tb_issq.py"
-run_case_nonexample regfile "${PYC_ROOT_DIR}/designs/RegisterFile/tb_regfile.py"
-run_case_nonexample bypass_unit "${PYC_ROOT_DIR}/designs/BypassUnit/tb_bypass_unit.py"
+run_case_nonexample issq "${PYC_ROOT_DIR}/designs/blocks/IssueQueue/tb_issq.py"
+run_case_nonexample regfile "${PYC_ROOT_DIR}/designs/blocks/RegisterFile/tb_regfile.py"
+run_case_nonexample bypass_unit "${PYC_ROOT_DIR}/designs/blocks/BypassUnit/tb_bypass_unit.py"
 
 if [[ -n "${resume_from_case}" && "${resume_seen}" -eq 0 ]]; then
   pyc_die "resume case not found: ${resume_from_case}"

@@ -12,17 +12,17 @@ The MLIR dialect (`pyc.*` ops) should lower to this primitive layer.
 
 Represents a combinational value of width `W` bits.
 
-- C++: `pyc::cpp::Wire<W>` (see `runtime/cpp/pyc_bits.hpp`)
+- C++: `pyc::cpp::Wire<W>` (see `library/cpp/pyc_bits.hpp`)
 - Verilog: `wire [W-1:0]` (or just `[W-1:0]` ports)
 
 ### 1.2 `Reg<W>` (module-like)
 
 Represents a clocked storage element with synchronous reset and clock enable.
 
-- Verilog module: `pyc_reg` (`runtime/verilog/pyc_reg.v`)
-- C++ class: `pyc::cpp::pyc_reg<W>` (`runtime/cpp/pyc_primitives.hpp`)
- 
-Note: although the testbenches in `designs/examples/` are written in SystemVerilog for convenience,
+- Verilog module: `pyc_reg` (`library/verilog/pyc_reg.v`)
+- C++ class: `pyc::cpp::pyc_reg<W>` (`library/cpp/pyc_primitives.hpp`)
+
+Note: although the testbenches in `examples/pycircuit/` are written in SystemVerilog for convenience,
 the *design* backend is plain Verilog.
 
 Ports:
@@ -43,7 +43,7 @@ Semantics (posedge `clk`):
 
 Fixed-size container (useful for regfiles, bundles of lanes, etc.).
 
-- C++: `pyc::cpp::Vec<T, N>` (`runtime/cpp/pyc_vec.hpp`)
+- C++: `pyc::cpp::Vec<T, N>` (`library/cpp/pyc_vec.hpp`)
 - Verilog: use unpacked arrays (`T v [0:N-1]`) or packed arrays, depending on style.
 
 ## 2) Primitive operations (combinational)
@@ -78,7 +78,7 @@ stable “template library” layer for hand-written designs or future lowering.
 ### 3.1 `pyc_fifo` (single-clock, strict ready/valid)
 
 - Verilog: `module pyc_fifo #(WIDTH, DEPTH) (...)`
-- C++: `pyc::cpp::pyc_fifo<Width, Depth>` (`runtime/cpp/pyc_primitives.hpp`)
+- C++: `pyc::cpp::pyc_fifo<Width, Depth>` (`library/cpp/pyc_primitives.hpp`)
 
 Ports (explicit, for simple codegen):
 
@@ -102,8 +102,8 @@ primitive. See `pyc_async_fifo` below.
 
 ### 3.2 `pyc_async_fifo` (dual-clock, strict ready/valid)
 
-- Verilog: `module pyc_async_fifo #(WIDTH, DEPTH) (...)` (`runtime/verilog/pyc_async_fifo.v`)
-- C++: `pyc::cpp::pyc_async_fifo<Width, Depth>` (`runtime/cpp/pyc_async_fifo.hpp`)
+- Verilog: `module pyc_async_fifo #(WIDTH, DEPTH) (...)` (`library/verilog/pyc_async_fifo.v`)
+- C++: `pyc::cpp::pyc_async_fifo<Width, Depth>` (`library/cpp/pyc_async_fifo.hpp`)
 
 Ports:
 
@@ -119,10 +119,11 @@ Notes (prototype constraints):
 
 ### 4.1 `pyc_byte_mem` (byte-addressed, prototype)
 
-- Verilog: `module pyc_byte_mem #(ADDR_WIDTH, DATA_WIDTH, DEPTH) (...)` (`runtime/verilog/pyc_byte_mem.v`)
-- C++: `pyc::cpp::pyc_byte_mem<AddrWidth, DataWidth, DepthBytes>` (`runtime/cpp/pyc_byte_mem.hpp`)
+- Verilog: `module pyc_byte_mem #(ADDR_WIDTH, DATA_WIDTH, DEPTH) (...)` (`library/verilog/pyc_byte_mem.v`)
+- C++: `pyc::cpp::pyc_byte_mem<AddrWidth, DataWidth, DepthBytes>` (`library/cpp/pyc_byte_mem.hpp`)
 
 Semantics (prototype):
+
 - Read is combinational: `rdata` reflects `mem[raddr]`.
 - Write is synchronous on posedge: when `wvalid`, update bytes selected by `wstrb`.
 - Simulation initializes memory bytes to 0 by default (deterministic).
@@ -130,8 +131,8 @@ Semantics (prototype):
 
 ### 4.2 `pyc_sync_mem` (1R1W, synchronous read, registered output)
 
-- Verilog: `module pyc_sync_mem #(ADDR_WIDTH, DATA_WIDTH, DEPTH) (...)` (`runtime/verilog/pyc_sync_mem.v`)
-- C++: `pyc::cpp::pyc_sync_mem<AddrWidth, DataWidth, DepthEntries>` (`runtime/cpp/pyc_sync_mem.hpp`)
+- Verilog: `module pyc_sync_mem #(ADDR_WIDTH, DATA_WIDTH, DEPTH) (...)` (`library/verilog/pyc_sync_mem.v`)
+- C++: `pyc::cpp::pyc_sync_mem<AddrWidth, DataWidth, DepthEntries>` (`library/cpp/pyc_sync_mem.hpp`)
 
 Ports:
 
@@ -148,8 +149,8 @@ Semantics (prototype):
 
 ### 4.3 `pyc_sync_mem_dp` (2R1W, synchronous read, registered outputs)
 
-- Verilog: `module pyc_sync_mem_dp #(ADDR_WIDTH, DATA_WIDTH, DEPTH) (...)` (`runtime/verilog/pyc_sync_mem_dp.v`)
-- C++: `pyc::cpp::pyc_sync_mem_dp<AddrWidth, DataWidth, DepthEntries>` (`runtime/cpp/pyc_sync_mem.hpp`)
+- Verilog: `module pyc_sync_mem_dp #(ADDR_WIDTH, DATA_WIDTH, DEPTH) (...)` (`library/verilog/pyc_sync_mem_dp.v`)
+- C++: `pyc::cpp::pyc_sync_mem_dp<AddrWidth, DataWidth, DepthEntries>` (`library/cpp/pyc_sync_mem.hpp`)
 
 Ports:
 
@@ -167,8 +168,8 @@ Semantics (prototype):
 
 ### 5.1 `pyc_cdc_sync` (dst-clocked synchronizer)
 
-- Verilog: `module pyc_cdc_sync #(WIDTH, STAGES) (...)` (`runtime/verilog/pyc_cdc_sync.v`)
-- C++: `pyc::cpp::pyc_cdc_sync<Width, Stages>` (`runtime/cpp/pyc_cdc_sync.hpp`)
+- Verilog: `module pyc_cdc_sync #(WIDTH, STAGES) (...)` (`library/verilog/pyc_cdc_sync.v`)
+- C++: `pyc::cpp::pyc_cdc_sync<Width, Stages>` (`library/cpp/pyc_cdc_sync.hpp`)
 
 Ports:
 
@@ -179,10 +180,10 @@ Ports:
 
 Prototype-only utilities to help with bring-up and debugging:
 
-- Printing: `runtime/cpp/pyc_print.hpp` defines `operator<<` for `Wire`, `Vec`, and primitives.
-- Testbench: `runtime/cpp/pyc_tb.hpp` provides `pyc::cpp::Testbench<Dut>` (multi-clock ready).
-- Tracing: `runtime/cpp/pyc_vcd.hpp` provides a tiny VCD dumper (usable via `Testbench::enableVcd()`).
-- Convenience include: `runtime/cpp/pyc_debug.hpp`.
+- Printing: `library/cpp/pyc_print.hpp` defines `operator<<` for `Wire`, `Vec`, and primitives.
+- Testbench: `library/cpp/pyc_tb.hpp` provides `pyc::cpp::Testbench<Dut>` (multi-clock ready).
+- Tracing: `library/cpp/pyc_vcd.hpp` provides a tiny VCD dumper (usable via `Testbench::enableVcd()`).
+- Convenience include: `library/cpp/pyc_debug.hpp`.
 
 Example testbenches are authored with `@testbench` in Python and lowered by `pycc`
 from the testbench payload embedded in `.pyc`.

@@ -17,9 +17,11 @@ All spec objects are immutable and canonicalizable via `__pyc_template_value__()
 ## Struct builder and transforms
 
 Builder:
+
 - `spec.struct("name").field("a.b", width=...).field("x", width=...).build()`
 
 Transforms (immutable):
+
 - `add_field(path, ...)`
 - `remove_field(path)`
 - `rename_field(path, new_name)`
@@ -36,4 +38,3 @@ Transforms (immutable):
 - `m.io(signature, prefix=...)`
 - `wiring.bind(...)`, `wiring.ports(...)`
 - `wiring.unbind(...)`, `wiring.unflatten(...)`
-

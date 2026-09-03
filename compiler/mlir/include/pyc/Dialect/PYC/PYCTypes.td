@@ -16,4 +16,3 @@ def PYC_ResetType : TypeDef<PYCDialect, "Reset"> {
   let mnemonic = "reset";
   let summary = "Reset signal type";
 }
-

@@ -1,6 +1,7 @@
 # Diagnostics
 
 pyCircuit uses one structured, source-located diagnostic style across:
+
 - API hygiene scan (`flows/tools/check_api_hygiene.py`)
 - CLI pre-JIT contract scan (`pycircuit emit/build`)
 - JIT elaboration errors (Python frontend)
@@ -43,8 +44,8 @@ Emit + compile one module:
 
 ```bash
 REPO=/path/to/pyCircuit
-export PYTHONPATH="$REPO/compiler/frontend"
-python3 -m pycircuit.cli emit "$REPO/designs/examples/counter/counter.py" -o /tmp/counter.pyc
+export PYTHONPATH="$REPO/python/pycircuit/src"
+python3 -m pycircuit.cli emit "$REPO/examples/pycircuit/counter/counter.py" -o /tmp/counter.pyc
 
 export PYC_TOOLCHAIN_ROOT="$REPO/.pycircuit_out/toolchain/install"
 "$PYC_TOOLCHAIN_ROOT/bin/pycc" /tmp/counter.pyc --emit=cpp --out-dir /tmp/counter_cpp

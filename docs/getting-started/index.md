@@ -49,7 +49,7 @@ bash flows/scripts/pyc build
 python3 -m pip install -e .
 
 # Use the frontend to emit MLIR
-PYTHONPATH=compiler/frontend \
+PYTHONPATH=python/pycircuit/src \
 python -m pycircuit.cli emit your_design.py -o your_design.pyc
 ```
 

@@ -152,7 +152,7 @@ set_target_properties(pycc PROPERTIES
 target_include_directories(pycc PRIVATE
   "${PYC_SOURCE_DIR}/include"
   "${PYC_BINARY_DIR}/include"
-  "${PYC_REPO_ROOT}/runtime"
+  "${PYC_REPO_ROOT}/library"
 )
 target_link_libraries(pycc PRIVATE
   pyc_dialect

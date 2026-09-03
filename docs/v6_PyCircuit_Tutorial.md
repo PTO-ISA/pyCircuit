@@ -30,11 +30,11 @@ bash flows/scripts/pyc build
 ### 环境验证
 
 ```bash
-export PYTHONPATH=$PWD/compiler/frontend:$PYTHONPATH
+export PYTHONPATH=$PWD/python/pycircuit/src:$PYTHONPATH
 export PYC_TOOLCHAIN_ROOT=$PWD/.pycircuit_out/toolchain/install
 
 python3 -c "import pycircuit; print('ok')"
-python3 -m pycircuit.cli build designs/examples/counter/tb_counter.py \
+python3 -m pycircuit.cli build examples/pycircuit/counter/tb_counter.py \
     --out-dir /tmp/pyc_counter --target cpp --jobs 8
 ```
 
@@ -565,7 +565,7 @@ sync_bit = m.cdc_sync(dst_clk, dst_rst, src_bit, stages=2)
 
 ```bash
 cd pyCircuit
-export PYTHONPATH=$PWD/compiler/frontend:$PYTHONPATH
+export PYTHONPATH=$PWD/python/pycircuit/src:$PYTHONPATH
 export PYC_TOOLCHAIN_ROOT=$PWD/.pycircuit_out/toolchain/install   # pycc 所在工具链
 ```
 
@@ -575,7 +575,7 @@ export PYC_TOOLCHAIN_ROOT=$PWD/.pycircuit_out/toolchain/install   # pycc 所在�
 
 ```bash
 # 生成 RTL + C++ 仿真器 + Verilator 仿真器，并直接运行 Verilator 仿真
-python3 -m pycircuit.cli build designs/examples/counter/tb_counter.py \
+python3 -m pycircuit.cli build examples/pycircuit/counter/tb_counter.py \
     --out-dir /tmp/pyc_counter \
     --target both --jobs 8 \
     --logic-depth 64 \
@@ -692,7 +692,7 @@ $PYCC my_top.mlir --emit=cpp --out-dir=build_out/cpp
 # 产物: 每模块 .hpp/.cpp 分片 + cpp_compile_manifest.json（源列表/包含路径/运行时库）
 ```
 
-生成的模型是 `pyc::gen::my_top` 结构体，配合 `runtime/cpp/pyc_tb.hpp` 的
+生成的模型是 `pyc::gen::my_top` 结构体，配合 `library/cpp/pyc_tb.hpp` 的
 `Testbench<Dut>` 即可手写 C++ 测试；日常更推荐让 `pycircuit build` 自动生成
 测试主程序并完成 CMake 编译。
 
@@ -790,7 +790,7 @@ designs/my_soc/
 - 完整语言定义（`Data` 类型体系 / `Wire[DT]` / MLIR 映射的权威语义）：`docs/v6_PyCircuit_Specification.md`
 - 3D 堆叠分层标注（`tier=` / `jump_tier`，Proposed）：`docs/v6_PyCircuit_Specification.md` 的“Tier 分层标注”与 `docs/rfcs/tier_annotation.md`
 - 工具链内部（pyc 方言、pass 流水线、双发射器、sidecar 运行时）：`docs/v6_PyCircuit_Software_Architecture.md`
-- 仓库内可运行示例：`designs/examples/`（counter、calculator、fifo_loopback…）、`designs/BypassUnit`（向量实战）、`designs/IssueQueue`（向量 + 复杂状态）
+- 仓库内可运行示例：`examples/pycircuit/`（counter、calculator、fifo_loopback…）、`designs/blocks/BypassUnit`（向量实战）、`designs/blocks/IssueQueue`（向量 + 复杂状态）
 
 ---
 

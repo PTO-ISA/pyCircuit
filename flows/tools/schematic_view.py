@@ -20,37 +20,42 @@ import sys
 from collections import defaultdict
 from dataclasses import dataclass, field
 from pathlib import Path
-import graphviz
 
+import graphviz
 
 # ---------------------------------------------------------------------------
 # 1. Verilog parser  (targeted at pyCircuit-generated Verilog)
 # ---------------------------------------------------------------------------
 
+
 @dataclass
 class Port:
     name: str
-    direction: str          # "input" | "output"
-    width: int              # 1 for scalar
+    direction: str  # "input" | "output"
+    width: int  # 1 for scalar
+
 
 @dataclass
 class WireDecl:
     name: str
     width: int
-    comment: str = ""       # e.g. pyc.name="..."
+    comment: str = ""  # e.g. pyc.name="..."
+
 
 @dataclass
 class Assign:
     dst: str
-    expr: str               # raw RHS string
-    sources: list[str]      # signal names referenced on RHS
+    expr: str  # raw RHS string
+    sources: list[str]  # signal names referenced on RHS
+
 
 @dataclass
 class Instance:
-    module_type: str        # "pyc_reg", "pyc_byte_mem", etc.
+    module_type: str  # "pyc_reg", "pyc_byte_mem", etc.
     inst_name: str
     params: dict[str, str]  # e.g. {"WIDTH": "8"}
     connections: dict[str, str]  # port -> signal
+
 
 @dataclass
 class VerilogModule:
@@ -65,7 +70,7 @@ def _parse_width(spec: str) -> int:
     """Parse '[63:0]' → 64, '' → 1."""
     if not spec:
         return 1
-    m = re.match(r'\[(\d+):(\d+)\]', spec.strip())
+    m = re.match(r"\[(\d+):(\d+)\]", spec.strip())
     if m:
         return int(m.group(1)) - int(m.group(2)) + 1
     return 1
@@ -73,7 +78,7 @@ def _parse_width(spec: str) -> int:
 
 # Regex to extract signal identifiers from a Verilog expression.
 # Matches valid Verilog identifiers but excludes numeric literals.
-_IDENT_RE = re.compile(r'\b([A-Za-z_][A-Za-z0-9_]*)\b')
+_IDENT_RE = re.compile(r"\b([A-Za-z_][A-Za-z0-9_]*)\b")
 _NUM_LIT_RE = re.compile(r"^\d+'[bdho]")  # e.g. 64'd0
 
 
@@ -92,31 +97,33 @@ def parse_verilog(path: str) -> VerilogModule:
     text = Path(path).read_text()
 
     # --- Module header ---
-    mod_m = re.search(r'module\s+(\w+)\s*\(', text)
+    mod_m = re.search(r"module\s+(\w+)\s*\(", text)
     mod_name = mod_m.group(1) if mod_m else "unknown"
 
     # --- Ports ---
     # Find module port block
-    port_block_m = re.search(r'module\s+\w+\s*\((.*?)\);', text, re.DOTALL)
+    port_block_m = re.search(r"module\s+\w+\s*\((.*?)\);", text, re.DOTALL)
     ports: list[Port] = []
     if port_block_m:
         block = port_block_m.group(1)
-        for line in block.split('\n'):
-            line = line.strip().rstrip(',')
-            pm = re.match(r'(input|output)\s*(\[[\d:]+\])?\s*(\w+)', line)
+        for line in block.split("\n"):
+            line = line.strip().rstrip(",")
+            pm = re.match(r"(input|output)\s*(\[[\d:]+\])?\s*(\w+)", line)
             if pm:
                 direction = pm.group(1)
-                width = _parse_width(pm.group(2) or '')
+                width = _parse_width(pm.group(2) or "")
                 name = pm.group(3)
                 ports.append(Port(name=name, direction=direction, width=width))
 
     # --- Wire declarations ---
     wires: dict[str, WireDecl] = {}
-    for wm in re.finditer(r'wire\s+(\[[\d:]+\])?\s*(\w+)\s*;(.*)', text):
-        width_str = wm.group(1) or ''
+    for wm in re.finditer(r"wire\s+(\[[\d:]+\])?\s*(\w+)\s*;(.*)", text):
+        width_str = wm.group(1) or ""
         name = wm.group(2)
         comment = wm.group(3).strip()
-        wires[name] = WireDecl(name=name, width=_parse_width(width_str), comment=comment)
+        wires[name] = WireDecl(
+            name=name, width=_parse_width(width_str), comment=comment
+        )
 
     # Build known signal set (ports + wires)
     known: set[str] = set(wires.keys())
@@ -125,7 +132,7 @@ def parse_verilog(path: str) -> VerilogModule:
 
     # --- Assign statements ---
     assigns: list[Assign] = []
-    for am in re.finditer(r'assign\s+(\w+)\s*=\s*(.+?);', text):
+    for am in re.finditer(r"assign\s+(\w+)\s*=\s*(.+?);", text):
         dst = am.group(1)
         expr = am.group(2).strip()
         srcs = _extract_sources(expr, known)
@@ -136,8 +143,8 @@ def parse_verilog(path: str) -> VerilogModule:
     # Match: module_type #(.P(V), ...) inst_name ( .port(sig), ... );
     # Use nested-paren aware pattern: allow one level of (...) inside #(...)
     inst_re = re.compile(
-        r'(\w+)\s+#\(((?:[^()]*|\([^()]*\))*)\)\s+(\w+)\s*\(((?:[^()]*|\([^()]*\))*)\)\s*;',
-        re.DOTALL
+        r"(\w+)\s+#\(((?:[^()]*|\([^()]*\))*)\)\s+(\w+)\s*\(((?:[^()]*|\([^()]*\))*)\)\s*;",
+        re.DOTALL,
     )
     for im in inst_re.finditer(text):
         mod_type = im.group(1)
@@ -146,19 +153,21 @@ def parse_verilog(path: str) -> VerilogModule:
         conns_str = im.group(4)
 
         params = {}
-        for pp in re.finditer(r'\.(\w+)\(([^)]*)\)', params_str):
+        for pp in re.finditer(r"\.(\w+)\(([^)]*)\)", params_str):
             params[pp.group(1)] = pp.group(2).strip()
 
         conns = {}
-        for cp in re.finditer(r'\.(\w+)\(([^)]*)\)', conns_str):
+        for cp in re.finditer(r"\.(\w+)\(([^)]*)\)", conns_str):
             conns[cp.group(1)] = cp.group(2).strip()
 
-        instances.append(Instance(
-            module_type=mod_type,
-            inst_name=inst_name,
-            params=params,
-            connections=conns,
-        ))
+        instances.append(
+            Instance(
+                module_type=mod_type,
+                inst_name=inst_name,
+                params=params,
+                connections=conns,
+            )
+        )
 
     return VerilogModule(
         name=mod_name,
@@ -173,15 +182,16 @@ def parse_verilog(path: str) -> VerilogModule:
 # 2. Build dependency graph & compute topological levels
 # ---------------------------------------------------------------------------
 
+
 @dataclass
 class Node:
     name: str
-    kind: str               # "input", "output", "const", "comb", "reg", "mem", "passthru"
-    label: str              # Display label
-    op: str = ""            # e.g. "add", "mux", "eq", "and", "or"
+    kind: str  # "input", "output", "const", "comb", "reg", "mem", "passthru"
+    label: str  # Display label
+    op: str = ""  # e.g. "add", "mux", "eq", "and", "or"
     width: int = 1
-    level: int = 0          # topological level (0 = inputs)
-    group: str = ""         # pipeline stage group (IF/ID/EX/MEM/WB)
+    level: int = 0  # topological level (0 = inputs)
+    group: str = ""  # pipeline stage group (IF/ID/EX/MEM/WB)
     sources: list[str] = field(default_factory=list)
     targets: list[str] = field(default_factory=list)
 
@@ -193,13 +203,26 @@ def _classify_signal(name: str, expr: str) -> tuple[str, str]:
         return "const", "const"
     # Operations from comments or name patterns
     for prefix, op in [
-        ("pyc_add_", "add"), ("pyc_sub_", "sub"), ("pyc_mul_", "mul"),
-        ("pyc_mux_", "mux"), ("pyc_eq_", "eq"), ("pyc_ne_", "ne"),
-        ("pyc_lt_", "lt"), ("pyc_gt_", "gt"), ("pyc_le_", "le"), ("pyc_ge_", "ge"),
-        ("pyc_and_", "and"), ("pyc_or_", "or"), ("pyc_xor_", "xor"),
-        ("pyc_not_", "not"), ("pyc_sext_", "sext"), ("pyc_zext_", "zext"),
-        ("pyc_trunc_", "trunc"), ("pyc_extract_", "extract"),
-        ("pyc_shli_", "shl"), ("pyc_shri_", "shr"),
+        ("pyc_add_", "add"),
+        ("pyc_sub_", "sub"),
+        ("pyc_mul_", "mul"),
+        ("pyc_mux_", "mux"),
+        ("pyc_eq_", "eq"),
+        ("pyc_ne_", "ne"),
+        ("pyc_lt_", "lt"),
+        ("pyc_gt_", "gt"),
+        ("pyc_le_", "le"),
+        ("pyc_ge_", "ge"),
+        ("pyc_and_", "and"),
+        ("pyc_or_", "or"),
+        ("pyc_xor_", "xor"),
+        ("pyc_not_", "not"),
+        ("pyc_sext_", "sext"),
+        ("pyc_zext_", "zext"),
+        ("pyc_trunc_", "trunc"),
+        ("pyc_extract_", "extract"),
+        ("pyc_shli_", "shl"),
+        ("pyc_shri_", "shr"),
         ("arith_select_", "mux"),
         ("pyc_comb_", "wire"),
         ("pyc_constant_", "const"),
@@ -238,7 +261,14 @@ def _short_label(name: str, kind: str, op: str, expr: str = "") -> str:
     if op in ("and", "or", "xor", "not"):
         return {"and": "&", "or": "|", "xor": "^", "not": "~"}.get(op, op)
     if op in ("eq", "ne", "lt", "gt", "le", "ge"):
-        return {"eq": "==", "ne": "!=", "lt": "<", "gt": ">", "le": "<=", "ge": ">="}.get(op, op)
+        return {
+            "eq": "==",
+            "ne": "!=",
+            "lt": "<",
+            "gt": ">",
+            "le": "<=",
+            "ge": ">=",
+        }.get(op, op)
     if op == "mux":
         return "MUX"
     if op in ("sext", "zext", "trunc", "extract"):
@@ -252,7 +282,7 @@ def _short_label(name: str, kind: str, op: str, expr: str = "") -> str:
     short = name
     for prefix in ["IF__", "ID__", "EX__", "MEM__", "WB__"]:
         if short.startswith(prefix):
-            short = short[len(prefix):]
+            short = short[len(prefix) :]
             break
     # Truncate long names
     if len(short) > 30:
@@ -272,8 +302,12 @@ def build_graph(
     for p in mod.ports:
         if p.direction == "input":
             nodes[p.name] = Node(
-                name=p.name, kind="input", label=p.name,
-                width=p.width, sources=[], targets=[],
+                name=p.name,
+                kind="input",
+                label=p.name,
+                width=p.width,
+                sources=[],
+                targets=[],
             )
 
     # Output ports — we'll add them later connected to their drivers
@@ -294,7 +328,7 @@ def build_graph(
         for a in mod.assigns:
             # Check if this is a simple identity: dst = src (single ident, no op)
             expr = a.expr.strip()
-            if re.match(r'^[A-Za-z_]\w*$', expr) and expr in all_signals:
+            if re.match(r"^[A-Za-z_]\w*$", expr) and expr in all_signals:
                 passthru[a.dst] = expr
 
         # Resolve chains: a=b, b=c → a→c
@@ -343,9 +377,14 @@ def build_graph(
         label = _short_label(dst, kind, op, a.expr)
 
         nodes[dst] = Node(
-            name=dst, kind=kind, label=label, op=op,
+            name=dst,
+            kind=kind,
+            label=label,
+            op=op,
             width=mod.wires[dst].width if dst in mod.wires else 1,
-            group=group, sources=resolved_srcs, targets=[],
+            group=group,
+            sources=resolved_srcs,
+            targets=[],
         )
 
     # Build nodes for register instances
@@ -370,7 +409,7 @@ def build_graph(
             # Shorten
             for prefix in ["IF__", "ID__", "EX__", "MEM__", "WB__"]:
                 if label.startswith(prefix):
-                    label = label[len(prefix):]
+                    label = label[len(prefix) :]
                     break
             if len(label) > 25:
                 label = label[:22] + "..."
@@ -383,10 +422,14 @@ def build_graph(
 
             node_name = q_sig
             nodes[node_name] = Node(
-                name=node_name, kind="reg", label=f"REG\\n{label}\\nW={width}",
-                op="reg", width=int(width),
+                name=node_name,
+                kind="reg",
+                label=f"REG\\n{label}\\nW={width}",
+                op="reg",
+                width=int(width),
                 group=_infer_group(q_sig) or _infer_group(label),
-                sources=srcs, targets=[],
+                sources=srcs,
+                targets=[],
             )
 
         elif inst.module_type == "pyc_byte_mem":
@@ -399,10 +442,14 @@ def build_graph(
 
             srcs = [s for s in [raddr, waddr, wdata, wvalid] if s]
             nodes[rdata] = Node(
-                name=rdata, kind="mem",
+                name=rdata,
+                kind="mem",
                 label=f"MEM\\n{inst.inst_name}\\nD={depth}",
-                op="mem", width=64, group="MEM",
-                sources=srcs, targets=[],
+                op="mem",
+                width=64,
+                group="MEM",
+                sources=srcs,
+                targets=[],
             )
 
     # Output port nodes
@@ -417,8 +464,12 @@ def build_graph(
                 srcs = [driver] if driver != p.name else []
 
             nodes[f"out_{p.name}"] = Node(
-                name=f"out_{p.name}", kind="output", label=p.name,
-                width=p.width, sources=srcs, targets=[],
+                name=f"out_{p.name}",
+                kind="output",
+                label=p.name,
+                width=p.width,
+                sources=srcs,
+                targets=[],
             )
 
     # --- Compute topological levels ---
@@ -428,8 +479,8 @@ def build_graph(
 
     # Separate forward sources (for level computation) from feedback sources
     # (reg/mem D-input edges, shown as dashed in the schematic).
-    fwd_sources: dict[str, list[str]] = {}   # name -> sources for level computation
-    fb_edges: list[tuple[str, str]] = []     # (src, dst) feedback edges
+    fwd_sources: dict[str, list[str]] = {}  # name -> sources for level computation
+    fb_edges: list[tuple[str, str]] = []  # (src, dst) feedback edges
 
     for n in nodes.values():
         if n.kind in ("reg", "mem"):
@@ -486,71 +537,71 @@ def build_graph(
 
 # Color scheme for node kinds
 _COLORS = {
-    "input":  ("#E3F2FD", "#1565C0"),   # light blue bg, dark blue border
-    "output": ("#FFF3E0", "#E65100"),   # light orange bg, dark orange border
-    "reg":    ("#E8F5E9", "#2E7D32"),   # light green bg, dark green border
-    "mem":    ("#F3E5F5", "#6A1B9A"),   # light purple bg, dark purple border
-    "comb":   ("#FAFAFA", "#616161"),   # light gray bg, dark gray border
-    "const":  ("#ECEFF1", "#90A4AE"),   # blue gray
+    "input": ("#E3F2FD", "#1565C0"),  # light blue bg, dark blue border
+    "output": ("#FFF3E0", "#E65100"),  # light orange bg, dark orange border
+    "reg": ("#E8F5E9", "#2E7D32"),  # light green bg, dark green border
+    "mem": ("#F3E5F5", "#6A1B9A"),  # light purple bg, dark purple border
+    "comb": ("#FAFAFA", "#616161"),  # light gray bg, dark gray border
+    "const": ("#ECEFF1", "#90A4AE"),  # blue gray
 }
 
 # Per-operation color overrides (fill, border)
 _OP_COLORS = {
     # Arithmetic — blue
-    "add":     ("#BBDEFB", "#1565C0"),
-    "sub":     ("#BBDEFB", "#1565C0"),
-    "mul":     ("#BBDEFB", "#0D47A1"),
+    "add": ("#BBDEFB", "#1565C0"),
+    "sub": ("#BBDEFB", "#1565C0"),
+    "mul": ("#BBDEFB", "#0D47A1"),
     # Logic gates — teal
-    "and":     ("#B2DFDB", "#00695C"),
-    "or":      ("#B2DFDB", "#00695C"),
-    "xor":     ("#B2DFDB", "#00695C"),
-    "not":     ("#B2DFDB", "#004D40"),
+    "and": ("#B2DFDB", "#00695C"),
+    "or": ("#B2DFDB", "#00695C"),
+    "xor": ("#B2DFDB", "#00695C"),
+    "not": ("#B2DFDB", "#004D40"),
     # Comparators — pink
-    "eq":      ("#F8BBD0", "#AD1457"),
-    "ne":      ("#F8BBD0", "#AD1457"),
-    "lt":      ("#F8BBD0", "#880E4F"),
-    "gt":      ("#F8BBD0", "#880E4F"),
-    "le":      ("#F8BBD0", "#880E4F"),
-    "ge":      ("#F8BBD0", "#880E4F"),
+    "eq": ("#F8BBD0", "#AD1457"),
+    "ne": ("#F8BBD0", "#AD1457"),
+    "lt": ("#F8BBD0", "#880E4F"),
+    "gt": ("#F8BBD0", "#880E4F"),
+    "le": ("#F8BBD0", "#880E4F"),
+    "ge": ("#F8BBD0", "#880E4F"),
     # MUX / select — yellow
-    "mux":     ("#FFF9C4", "#F57F17"),
+    "mux": ("#FFF9C4", "#F57F17"),
     # Bit manipulation — light purple
-    "sext":    ("#E1BEE7", "#7B1FA2"),
-    "zext":    ("#E1BEE7", "#7B1FA2"),
-    "trunc":   ("#E1BEE7", "#7B1FA2"),
+    "sext": ("#E1BEE7", "#7B1FA2"),
+    "zext": ("#E1BEE7", "#7B1FA2"),
+    "trunc": ("#E1BEE7", "#7B1FA2"),
     "extract": ("#E1BEE7", "#7B1FA2"),
-    "shl":     ("#E1BEE7", "#6A1B9A"),
-    "shr":     ("#E1BEE7", "#6A1B9A"),
+    "shl": ("#E1BEE7", "#6A1B9A"),
+    "shr": ("#E1BEE7", "#6A1B9A"),
     # Wire (passthru that survived collapse) — pale gray
-    "wire":    ("#F5F5F5", "#BDBDBD"),
+    "wire": ("#F5F5F5", "#BDBDBD"),
 }
 
 # Shape map
 _SHAPES = {
-    "input":  "house",
+    "input": "house",
     "output": "invhouse",
-    "reg":    "box3d",
-    "mem":    "cylinder",
-    "comb":   "box",
-    "const":  "plain",
+    "reg": "box3d",
+    "mem": "cylinder",
+    "comb": "box",
+    "const": "plain",
 }
 
 # Per-operation shape overrides
 _OP_SHAPES = {
-    "mux":     "diamond",
-    "and":     "invtrapezium",
-    "or":      "invtrapezium",
-    "xor":     "invtrapezium",
-    "not":     "invtriangle",
-    "eq":      "hexagon",
-    "ne":      "hexagon",
-    "lt":      "hexagon",
-    "gt":      "hexagon",
-    "le":      "hexagon",
-    "ge":      "hexagon",
-    "add":     "oval",
-    "sub":     "oval",
-    "mul":     "oval",
+    "mux": "diamond",
+    "and": "invtrapezium",
+    "or": "invtrapezium",
+    "xor": "invtrapezium",
+    "not": "invtriangle",
+    "eq": "hexagon",
+    "ne": "hexagon",
+    "lt": "hexagon",
+    "gt": "hexagon",
+    "le": "hexagon",
+    "ge": "hexagon",
+    "add": "oval",
+    "sub": "oval",
+    "mul": "oval",
 }
 
 
@@ -563,12 +614,14 @@ def render_schematic(
 ) -> str:
     """Render the graph to a file (pdf/svg/png). Returns the output path."""
     if len(nodes) > max_nodes:
-        print(f"ERROR: {len(nodes)} nodes exceeds max_nodes={max_nodes}. "
-              f"Rendering aborted — graphviz would be very slow.\n"
-              f"Options:\n"
-              f"  --max-nodes {len(nodes) + 100}   Override limit\n"
-              f"  --collapse --no-constants         Reduce node count (default: on)",
-              file=sys.stderr)
+        print(
+            f"ERROR: {len(nodes)} nodes exceeds max_nodes={max_nodes}. "
+            f"Rendering aborted — graphviz would be very slow.\n"
+            f"Options:\n"
+            f"  --max-nodes {len(nodes) + 100}   Override limit\n"
+            f"  --collapse --no-constants         Reduce node count (default: on)",
+            file=sys.stderr,
+        )
         sys.exit(1)
 
     dot = graphviz.Digraph(
@@ -576,10 +629,19 @@ def render_schematic(
         format=fmt,
         engine="dot",
     )
-    dot.attr(rankdir="LR", fontname="Helvetica", fontsize="10",
-             nodesep="0.15", ranksep="0.4", splines="polyline",
-             bgcolor="white", label=title, labelloc="t", labeljust="c",
-             pad="0.3")
+    dot.attr(
+        rankdir="LR",
+        fontname="Helvetica",
+        fontsize="10",
+        nodesep="0.15",
+        ranksep="0.4",
+        splines="polyline",
+        bgcolor="white",
+        label=title,
+        labelloc="t",
+        labeljust="c",
+        pad="0.3",
+    )
     dot.attr("node", fontname="Helvetica", fontsize="8", style="filled")
     dot.attr("edge", fontsize="7", color="#9E9E9E", arrowsize="0.5")
 
@@ -639,8 +701,8 @@ def render_schematic(
                 attrs: dict[str, str] = {"color": edge_color}
                 if is_fb:
                     attrs["style"] = "dashed"
-                    attrs["color"] = "#D32F2F"     # red for feedback
-                    attrs["constraint"] = "false"   # don't affect layout ranking
+                    attrs["color"] = "#D32F2F"  # red for feedback
+                    attrs["constraint"] = "false"  # don't affect layout ranking
                 dot.edge(src, n.name, **attrs)
 
     # Add rank constraints: same level → same rank
@@ -660,6 +722,7 @@ def render_schematic(
 # ---------------------------------------------------------------------------
 # 4. Statistics summary
 # ---------------------------------------------------------------------------
+
 
 def print_stats(mod: VerilogModule, nodes: dict[str, Node]) -> None:
     """Print a summary of the design."""
@@ -691,27 +754,48 @@ def print_stats(mod: VerilogModule, nodes: dict[str, Node]) -> None:
 # 5. Main
 # ---------------------------------------------------------------------------
 
+
 def main():
     parser = argparse.ArgumentParser(
         description="Generate a PDF schematic from pyCircuit-generated Verilog."
     )
     parser.add_argument("verilog", help="Path to the Verilog file")
-    parser.add_argument("-o", "--output", default=None,
-                        help="Output PDF path (default: <module>.pdf)")
-    parser.add_argument("--collapse", action="store_true", default=True,
-                        help="Collapse pass-through assigns (a=b) [default: on]")
-    parser.add_argument("--no-collapse", action="store_true",
-                        help="Disable collapsing pass-through assigns")
-    parser.add_argument("--no-constants", action="store_true", default=True,
-                        help="Hide constant nodes [default: on]")
-    parser.add_argument("--show-constants", action="store_true",
-                        help="Show constant nodes")
-    parser.add_argument("--format", choices=["pdf", "svg", "png"], default="pdf",
-                        help="Output format (default: pdf)")
-    parser.add_argument("--max-nodes", type=int, default=2000,
-                        help="Max nodes before aborting (default: 2000)")
-    parser.add_argument("--stats", action="store_true",
-                        help="Print design statistics")
+    parser.add_argument(
+        "-o", "--output", default=None, help="Output PDF path (default: <module>.pdf)"
+    )
+    parser.add_argument(
+        "--collapse",
+        action="store_true",
+        default=True,
+        help="Collapse pass-through assigns (a=b) [default: on]",
+    )
+    parser.add_argument(
+        "--no-collapse",
+        action="store_true",
+        help="Disable collapsing pass-through assigns",
+    )
+    parser.add_argument(
+        "--no-constants",
+        action="store_true",
+        default=True,
+        help="Hide constant nodes [default: on]",
+    )
+    parser.add_argument(
+        "--show-constants", action="store_true", help="Show constant nodes"
+    )
+    parser.add_argument(
+        "--format",
+        choices=["pdf", "svg", "png"],
+        default="pdf",
+        help="Output format (default: pdf)",
+    )
+    parser.add_argument(
+        "--max-nodes",
+        type=int,
+        default=2000,
+        help="Max nodes before aborting (default: 2000)",
+    )
+    parser.add_argument("--stats", action="store_true", help="Print design statistics")
 
     args = parser.parse_args()
 
@@ -721,7 +805,9 @@ def main():
     print(f"Parsing {args.verilog} ...")
     mod = parse_verilog(args.verilog)
 
-    print(f"Building dependency graph (collapse={collapse}, no_constants={no_constants}) ...")
+    print(
+        f"Building dependency graph (collapse={collapse}, no_constants={no_constants}) ..."
+    )
     nodes = build_graph(mod, collapse_passthru=collapse, no_constants=no_constants)
 
     if args.stats:
@@ -729,7 +815,9 @@ def main():
 
     output = args.output or f"{mod.name}.{args.format}"
     print(f"Rendering {len(nodes)} nodes to {output} ...")
-    render_schematic(nodes, output, title=mod.name, max_nodes=args.max_nodes, fmt=args.format)
+    render_schematic(
+        nodes, output, title=mod.name, max_nodes=args.max_nodes, fmt=args.format
+    )
     print(f"Done: {output}")
 
 

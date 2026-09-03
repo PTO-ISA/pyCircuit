@@ -233,16 +233,13 @@ __marimo__/
 
 # pyCircuit generated outputs (local artifacts only; never checked in)
 .pycircuit_out/
-/examples/
-janus/
 **/generated/
 designs/**/generated/
-designs/examples/generated/**/verilator/
-designs/janus/generated/
+examples/pycircuit/generated/**/verilator/
 
 # XiangShan-pyc build outputs
-designs/XiangShan-pyc/build_out/
-designs/XiangShan-pyc/build_out_small/
+integrations/xiangshan/build_out/
+integrations/xiangshan/build_out_small/
 
 # External XiangShan repos (not part of pyCircuit)
 designs/XiangShan/

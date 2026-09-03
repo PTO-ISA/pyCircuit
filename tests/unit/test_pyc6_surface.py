@@ -25,10 +25,10 @@ def test_runtime_and_trace_identifiers_are_pyc6_only() -> None:
     root = Path(__file__).resolve().parents[2]
     contract_files = (
         root / "CMakeLists.txt",
-        root / "runtime/cpp/CMakeLists.txt",
-        root / "runtime/cpp/pyc_runtime.cpp",
-        root / "runtime/cpp/pyc_trace_bin.hpp",
-        root / "compiler/frontend/pycircuit/cli.py",
+        root / "library/cpp/CMakeLists.txt",
+        root / "library/cpp/pyc_runtime.cpp",
+        root / "library/cpp/pyc_trace_bin.hpp",
+        root / "python/pycircuit/src/pycircuit/cli.py",
         root / "compiler/mlir/tools/pycc.cpp",
         root / "flows/tools/gen_cmake_from_manifest.py",
         root / "flows/tools/dump_pyctrace.py",

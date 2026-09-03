@@ -10,9 +10,9 @@ binary, and, when available, run Verilator.
 ## Run
 
 ```bash
-PYTHONPATH=compiler/frontend pytest tests/vec -m vec
-PYTHONPATH=compiler/frontend pytest tests/vec -m "vec and not slow"
-PYTHONPATH=compiler/frontend pytest tests/vec -m "vec and verilator"
+PYTHONPATH=python/pycircuit/src pytest tests/vec -m vec
+PYTHONPATH=python/pycircuit/src pytest tests/vec -m "vec and not slow"
+PYTHONPATH=python/pycircuit/src pytest tests/vec -m "vec and verilator"
 bash tests/vec/run_vec_ops.sh
 make vec-smoke
 ```

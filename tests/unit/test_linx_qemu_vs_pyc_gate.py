@@ -12,7 +12,7 @@ def test_qemu_vs_pyc_gate_does_not_require_linxcore_for_primary_flow(
     tmp_path: Path,
 ) -> None:
     root = Path(__file__).resolve().parents[2]
-    script = root / "contrib/linx/flows/tools/run_linx_qemu_vs_pyc.sh"
+    script = root / "integrations/linx/flows/tools/run_linx_qemu_vs_pyc.sh"
     linx_root = tmp_path / "linx-isa"
     (linx_root / "tools/bringup").mkdir(parents=True)
     source = tmp_path / "smoke.s"
@@ -43,7 +43,7 @@ def test_qemu_vs_pyc_gate_does_not_require_linxcore_for_primary_flow(
 @pytest.mark.unit
 def test_qemu_vs_pyc_gate_has_no_short_prefix_promotion_fallback() -> None:
     root = Path(__file__).resolve().parents[2]
-    script = root / "contrib/linx/flows/tools/run_linx_qemu_vs_pyc.sh"
+    script = root / "integrations/linx/flows/tools/run_linx_qemu_vs_pyc.sh"
     text = script.read_text(encoding="utf-8")
 
     assert "trying LinxCore fallback" not in text

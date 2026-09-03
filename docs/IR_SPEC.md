@@ -112,7 +112,7 @@ Backends emit it under `ifndef SYNTHESIS` in Verilog, and as a runtime check in
 the C++ model.
 
 ```mlir
-pyc.assert %ok {msg = "in_ready must not be asserted while full"} 
+pyc.assert %ok {msg = "in_ready must not be asserted while full"}
 ```
 
 Attributes:
@@ -186,14 +186,14 @@ into a single region:
 `pycc --emit=verilog` emits Verilog:
 
 - **Combinational ops** are typically emitted as flattened `assign` expressions (netlist style).
-- **Stateful ops** instantiate the corresponding primitives from `runtime/verilog/`:
-  - `pyc.reg` → `pyc_reg` (`runtime/verilog/pyc_reg.v`)
-  - `pyc.fifo` → `pyc_fifo` (`runtime/verilog/pyc_fifo.v`)
-  - `pyc.async_fifo` → `pyc_async_fifo` (`runtime/verilog/pyc_async_fifo.v`)
-  - `pyc.byte_mem` → `pyc_byte_mem` (`runtime/verilog/pyc_byte_mem.v`)
-  - `pyc.sync_mem` → `pyc_sync_mem` (`runtime/verilog/pyc_sync_mem.v`)
-  - `pyc.sync_mem_dp` → `pyc_sync_mem_dp` (`runtime/verilog/pyc_sync_mem_dp.v`)
-  - `pyc.cdc_sync` → `pyc_cdc_sync` (`runtime/verilog/pyc_cdc_sync.v`)
+- **Stateful ops** instantiate the corresponding primitives from `library/verilog/`:
+  - `pyc.reg` → `pyc_reg` (`library/verilog/pyc_reg.v`)
+  - `pyc.fifo` → `pyc_fifo` (`library/verilog/pyc_fifo.v`)
+  - `pyc.async_fifo` → `pyc_async_fifo` (`library/verilog/pyc_async_fifo.v`)
+  - `pyc.byte_mem` → `pyc_byte_mem` (`library/verilog/pyc_byte_mem.v`)
+  - `pyc.sync_mem` → `pyc_sync_mem` (`library/verilog/pyc_sync_mem.v`)
+  - `pyc.sync_mem_dp` → `pyc_sync_mem_dp` (`library/verilog/pyc_sync_mem_dp.v`)
+  - `pyc.cdc_sync` → `pyc_cdc_sync` (`library/verilog/pyc_cdc_sync.v`)
 
 `pycc` also runs `pyc-fuse-comb`, which enables emission of flattened
 Verilog `assign` statements for large purely-combinational regions.

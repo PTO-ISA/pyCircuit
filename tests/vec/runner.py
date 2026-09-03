@@ -9,11 +9,12 @@ from pathlib import Path
 from .cases import VecCase
 from .generate import write_case_source, write_vector_ir_source
 
-
 VECTOR_IR_ONLY_KINDS = {"or_reduce", "and_reduce", "reduce_sum", "reduce_sum_signed"}
 
 
-def run_cmd(cmd: list[str], *, cwd: Path, env: dict[str, str] | None = None) -> subprocess.CompletedProcess[str]:
+def run_cmd(
+    cmd: list[str], *, cwd: Path, env: dict[str, str] | None = None
+) -> subprocess.CompletedProcess[str]:
     proc = subprocess.run(
         cmd,
         cwd=str(cwd),
@@ -101,7 +102,9 @@ def check_ir(case: VecCase, mlir: str) -> None:
 
 
 def run_cpp_binary(out_dir: Path) -> None:
-    manifest = json.loads((out_dir / "project_manifest.json").read_text(encoding="utf-8"))
+    manifest = json.loads(
+        (out_dir / "project_manifest.json").read_text(encoding="utf-8")
+    )
     exe = manifest.get("cpp_executable")
     if not exe:
         raise AssertionError("project_manifest.json missing cpp_executable")
@@ -122,11 +125,12 @@ def check_cpp_manifest_syntax(out_dir: Path, *, repo_root: Path) -> None:
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
         include_dirs: list[Path] = [
             cpp_dir,
-            repo_root / "runtime",
-            repo_root / "runtime" / "cpp",
+            repo_root / "library",
         ]
         include_dirs.extend(Path(p) for p in manifest.get("include_dirs", []))
-        include_dirs.extend(Path(p) for p in manifest.get("runtime", {}).get("include_dirs", []))
+        include_dirs.extend(
+            Path(p) for p in manifest.get("runtime", {}).get("include_dirs", [])
+        )
         seen: list[Path] = []
         for inc in include_dirs:
             if inc not in seen:
@@ -178,7 +182,14 @@ def emit_vector_ir_case(
     )
     verilog = out_dir / f"{case.name}.v"
     run_cmd(
-        [str(pycc), str(pyc), "--emit=verilog", "-o", str(verilog), "--build-profile=dev-fast"],
+        [
+            str(pycc),
+            str(pyc),
+            "--emit=verilog",
+            "-o",
+            str(verilog),
+            "--build-profile=dev-fast",
+        ],
         cwd=repo_root,
         env=env,
     )
@@ -187,7 +198,9 @@ def emit_vector_ir_case(
 
 
 def assert_verilator_ran(out_dir: Path) -> None:
-    manifest = json.loads((out_dir / "project_manifest.json").read_text(encoding="utf-8"))
+    manifest = json.loads(
+        (out_dir / "project_manifest.json").read_text(encoding="utf-8")
+    )
     vbin = manifest.get("verilator_binary")
     if not vbin:
         raise AssertionError("project_manifest.json missing verilator_binary")
@@ -215,7 +228,13 @@ def run_vec_case(
         run_verilator=use_verilator,
     )
     if case.kind in VECTOR_IR_ONLY_KINDS:
-        emit_vector_ir_case(case, repo_root=repo_root, case_root=case_root, pythonpath=pythonpath, pycc=pycc)
+        emit_vector_ir_case(
+            case,
+            repo_root=repo_root,
+            case_root=case_root,
+            pythonpath=pythonpath,
+            pycc=pycc,
+        )
     else:
         check_ir(case, read_design_pyc(out_dir))
     run_cpp_binary(out_dir)

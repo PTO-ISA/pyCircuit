@@ -1,0 +1,52 @@
+{
+  "run_id": "20260903-layout-hard-break",
+  "status": "pass",
+  "decision_ids": ["0157"],
+  "scope": "repository responsibility-layout hard break",
+  "checks": {
+    "legacy_root_and_path_scan": "pass",
+    "pre_commit_all_files": "pass",
+    "root_build_and_install": "pass",
+    "root_acir_lit": "134/134 pass",
+    "root_ctest": "14/14 pass",
+    "agentic_circuit_g0_g1_g2": "pass",
+    "pycircuit_unit": "53/53 pass",
+    "pycircuit_system": "3/3 pass",
+    "examples": "pass",
+    "semantic_regressions_v6": "pass",
+    "normal_sims": "pass",
+    "nightly_sims": "pass",
+    "janus_cpp_and_verilator": "pass",
+    "linx_cpu_cpp": "pass",
+    "linx_interface_contract_v3": "pass",
+    "linx_trace_semver": "pass",
+    "mkdocs_strict": "pass",
+    "decision_status_strict": "pass"
+  },
+  "commands": [
+    "python3 tools/agentic-circuit/check-release-layout.py",
+    "pre-commit run --all-files",
+    "PYC_BUILD_AGENTIC_CIRCUIT=ON PYC_BUILD_AGENTIC_CIRCUIT_TESTS=ON bash flows/scripts/pyc build --llvm-config /opt/homebrew/opt/llvm/bin/llvm-config --build-dir .pycircuit_out/layout-final/build --install-prefix .pycircuit_out/layout-final/install",
+    "cmake --build .pycircuit_out/layout-final/build --target check-acir -j6",
+    "ctest --test-dir .pycircuit_out/layout-final/build --output-on-failure -j6",
+    "PYC_GATE_RUN_ID=20260903-layout-hard-break AC_GATE_TOOLCHAIN_ROOT=.pycircuit_out/layout-final/install bash flows/scripts/run_agentic_circuit.sh",
+    "pytest tests/unit -m unit",
+    "pytest tests/system -m system",
+    "PYC_GATE_RUN_ID=20260903-layout-hard-break bash flows/scripts/run_examples.sh",
+    "PYC_GATE_RUN_ID=20260903-layout-hard-break bash flows/scripts/run_semantic_regressions_v6.sh",
+    "PYC_GATE_RUN_ID=20260903-layout-hard-break bash flows/scripts/run_sims.sh",
+    "PYC_GATE_RUN_ID=20260903-layout-hard-break bash flows/scripts/run_sims_nightly.sh",
+    "PYC_LOGIC_DEPTH=64 bash integrations/janus/tools/run_janus_tmu_pyc_cpp.sh",
+    "PYC_LOGIC_DEPTH=64 bash integrations/janus/tools/run_janus_tmu_pyc_verilator.sh +NOVCD",
+    "bash integrations/linx/flows/tools/run_linx_cpu_pyc_cpp.sh",
+    "python3 /Users/zhoubot/linx-isa/tools/bringup/check_pycircuit_interface_contract.py --root /Users/zhoubot/linx-isa --strict",
+    "python3 /Users/zhoubot/linx-isa/tools/bringup/check_trace_semver_compat.py --root /Users/zhoubot/linx-isa --strict",
+    "mkdocs build --strict",
+    "python3 flows/tools/check_decision_status.py --status docs/gates/decision_status_v6.md --out .pycircuit_out/gates/20260903-layout-hard-break/decision_status_report.json --require-no-deferred --require-all-verified --require-concrete-evidence --require-existing-evidence"
+  ],
+  "notes": [
+    "Historical evidence under docs/gates/logs was not rewritten.",
+    "Git history is the only compatibility mechanism for removed layout paths.",
+    "The independent QEMU/PYC semantic comparison remains blocked because the current simplified Linx producer emits no commit trace; this does not weaken the Decision 0157 layout proof."
+  ]
+}

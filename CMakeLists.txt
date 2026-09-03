@@ -6,7 +6,7 @@ include(GNUInstallDirs)
 
 option(PYC_BUILD_MLIR_TOOLS "Build MLIR-based pyc tools" ON)
 option(PYC_BUILD_RUNTIME_LIB "Build pyc6 runtime library" ON)
-option(PYC_BUILD_AGENTIC_CIRCUIT "Build the integrated Agentic Circuit component" OFF)
+option(PYC_BUILD_AGENTIC_CIRCUIT "Build the integrated Agentic Circuit subsystems" OFF)
 option(PYC_BUILD_AGENTIC_CIRCUIT_TESTS "Build Agentic Circuit tests" OFF)
 option(PYC_RUNTIME_ENABLE_ZLIB_TRACE "Enable gzip trace output in runtime (optional)" OFF)
 option(PYC_RUNTIME_BUILD_SHARED "Build shared pyc6 runtime library" OFF)
@@ -14,6 +14,11 @@ option(PYC_INSTALL_TEMPLATES "Install runtime template libraries" ON)
 option(PYC_INSTALL_PYTHON "Install Python frontend sources (for binary packages)" ON)
 option(PYC_INSTALL_CMAKE_PACKAGE "Install pycircuit CMake package metadata" ON)
 option(PYC_PACKAGE_BUNDLE_RUNTIME_DEPS "Bundle non-system runtime deps for installed pyc tools" ON)
+
+if(PYC_BUILD_AGENTIC_CIRCUIT_TESTS)
+  include(CTest)
+  enable_testing()
+endif()
 
 if(APPLE)
   set(PYC_INSTALL_RPATH "@loader_path/../${CMAKE_INSTALL_LIBDIR}")
@@ -48,7 +53,7 @@ if(PYC_BUILD_MLIR_TOOLS)
 endif()
 
 if(PYC_BUILD_RUNTIME_LIB)
-  add_subdirectory(runtime/cpp)
+  add_subdirectory(library/cpp)
 endif()
 
 if(PYC_BUILD_AGENTIC_CIRCUIT)
@@ -59,17 +64,17 @@ if(PYC_BUILD_AGENTIC_CIRCUIT)
   endif()
   set(ACIR_BUILD_TESTING "${PYC_BUILD_AGENTIC_CIRCUIT_TESTS}" CACHE BOOL
     "Build Agentic Circuit tests" FORCE)
-  add_subdirectory(components/agentic-circuit)
+  add_subdirectory(compiler/acir)
 endif()
 
 if(PYC_INSTALL_TEMPLATES)
   install(
-    DIRECTORY runtime/cpp
+    DIRECTORY library/cpp
     DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}"
     PATTERN "CMakeLists.txt" EXCLUDE
     PATTERN "*.cpp" EXCLUDE
   )
-  install(DIRECTORY runtime/verilog DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}")
+  install(DIRECTORY library/verilog DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}")
   if(PYC_BUILD_RUNTIME_LIB)
     set(PYC_RUNTIME_INSTALL_TARGETS pyc6_runtime)
     if(PYC_RUNTIME_BUILD_SHARED)
@@ -86,7 +91,7 @@ endif()
 
 if(PYC_INSTALL_PYTHON)
   install(
-    DIRECTORY compiler/frontend/pycircuit
+    DIRECTORY python/pycircuit/src/pycircuit
     DESTINATION "${CMAKE_INSTALL_DATADIR}/pycircuit/python"
     PATTERN "__pycache__" EXCLUDE
     PATTERN "*.pyc" EXCLUDE

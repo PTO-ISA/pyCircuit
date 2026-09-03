@@ -9,7 +9,9 @@ import pytest
 
 def pytest_configure(config: pytest.Config) -> None:
     config.addinivalue_line("markers", "vec: Vec operator generated tests")
-    config.addinivalue_line("markers", "verilator: tests that build/run generated Verilog with Verilator")
+    config.addinivalue_line(
+        "markers", "verilator: tests that build/run generated Verilog with Verilator"
+    )
     config.addinivalue_line("markers", "slow: slower backend integration tests")
     # Each xdist worker already builds an independent pycc case. Avoid nested
     # parallel builds exhausting CPU and memory; callers may override this.
@@ -26,7 +28,7 @@ def repo_root() -> Path:
 @pytest.fixture(scope="session")
 def pyc_pythonpath(repo_root: Path) -> str:
     parts = [
-        repo_root / "compiler" / "frontend",
+        repo_root / "python" / "pycircuit" / "src",
         repo_root / "designs",
         repo_root,
     ]
@@ -40,11 +42,16 @@ def pycc(repo_root: Path) -> Path:
         Path(env) if env else None,
         repo_root / ".pycircuit_out" / "toolchain" / "install" / "bin" / "pycc",
         repo_root / "build" / "bin" / "pycc",
-        repo_root / "compiler" / "mlir" / "build2" / "bin" / "pycc",
-        repo_root / "compiler" / "mlir" / "build" / "bin" / "pycc",
+        repo_root / ".pycircuit_out" / "layout-final" / "install" / "bin" / "pycc",
+        repo_root / ".pycircuit_out" / "toolchain" / "install" / "bin" / "pycc",
+        repo_root / ".pycircuit_out" / "layout-root" / "bin" / "pycc",
     ]
     for candidate in candidates:
-        if candidate is not None and candidate.is_file() and os.access(candidate, os.X_OK):
+        if (
+            candidate is not None
+            and candidate.is_file()
+            and os.access(candidate, os.X_OK)
+        ):
             return candidate
     pytest.skip("pycc not found; set PYCC or build pycc")
 

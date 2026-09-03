@@ -21,7 +21,7 @@ def _system_env() -> dict[str, str]:
     root = _repo_root()
     env = os.environ.copy()
     env["PYTHONDONTWRITEBYTECODE"] = "1"
-    env["PYTHONPATH"] = str(root / "compiler" / "frontend")
+    env["PYTHONPATH"] = str(root / "python" / "pycircuit" / "src")
     return env
 
 
@@ -46,7 +46,7 @@ def test_counter_build_smoke_runs_cpp_and_verilator(tmp_path: Path) -> None:
         "-m",
         "pycircuit.cli",
         "build",
-        str(root / "designs" / "examples" / "counter" / "tb_counter.py"),
+        str(root / "examples" / "pycircuit" / "counter" / "tb_counter.py"),
         "--out-dir",
         str(out_dir),
         "--target",
@@ -71,7 +71,11 @@ def test_trace_dsl_build_emits_probe_manifest(tmp_path: Path) -> None:
         "pycircuit.cli",
         "build",
         str(
-            root / "designs" / "examples" / "trace_dsl_smoke" / "tb_trace_dsl_smoke.py"
+            root
+            / "examples"
+            / "pycircuit"
+            / "trace_dsl_smoke"
+            / "tb_trace_dsl_smoke.py"
         ),
         "--out-dir",
         str(out_dir),
@@ -84,8 +88,8 @@ def test_trace_dsl_build_emits_probe_manifest(tmp_path: Path) -> None:
         "--trace-config",
         str(
             root
-            / "designs"
             / "examples"
+            / "pycircuit"
             / "trace_dsl_smoke"
             / "trace_dsl_smoke_trace.json"
         ),

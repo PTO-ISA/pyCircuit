@@ -53,7 +53,7 @@ the validation matrix in `docs/development/testing-and-gates.md`.
 pre-commit run --all-files
 pytest tests/unit -m unit
 python3 flows/tools/check_api_hygiene.py \
-  compiler/frontend/pycircuit designs/examples docs README.md
+  python/pycircuit/src/pycircuit examples/pycircuit docs README.md
 mkdocs build
 ```
 

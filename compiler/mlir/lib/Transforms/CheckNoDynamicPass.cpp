@@ -63,4 +63,3 @@ std::unique_ptr<::mlir::Pass> createCheckNoDynamicPass() { return std::make_uniq
 static PassRegistration<CheckNoDynamicPass> pass;
 
 } // namespace pyc
-

@@ -78,7 +78,7 @@ jobs:
           unset PYCC || true
           mkdir -p "docs/gates/logs/${PYC_GATE_RUN_ID}"
           set +e
-          bash contrib/linx/flows/tools/run_linx_cpu_pyc_cpp.sh \
+          bash integrations/linx/flows/tools/run_linx_cpu_pyc_cpp.sh \
             >"docs/gates/logs/${PYC_GATE_RUN_ID}/linx_cpu_pyc_cpp.stdout" \
             2>"docs/gates/logs/${PYC_GATE_RUN_ID}/linx_cpu_pyc_cpp.stderr"
           rc=$?

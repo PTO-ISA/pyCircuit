@@ -30,7 +30,7 @@ Use `Circuit.array(...)` to elaborate a collection into instances.
 ## Binding policy
 
 Binding is strict exact-match:
+
 - missing keys: error
 - extra keys: error
 - width/signed mismatch: error
-

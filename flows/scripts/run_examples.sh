@@ -8,7 +8,7 @@ source "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/lib.sh"
 pyc_find_pycc
 
 PYTHONPATH_VAL="$(pyc_pythonpath)"
-EX_DIR="${PYC_ROOT_DIR}/designs/examples"
+EX_DIR="${PYC_ROOT_DIR}/examples/pycircuit"
 DISCOVER="${PYC_ROOT_DIR}/flows/tools/discover_examples.py"
 
 if [[ ! -d "${EX_DIR}" ]]; then
@@ -26,15 +26,15 @@ count=0
 
 cat > "${docs_gate_dir}/commands.txt" <<EOF
 bash flows/scripts/run_examples.sh
-python3 flows/tools/check_api_hygiene.py compiler/frontend/pycircuit designs/examples docs README.md
+python3 flows/tools/check_api_hygiene.py python/pycircuit/src/pycircuit examples/pycircuit docs README.md
 python3 flows/tools/check_decision_status.py --status docs/gates/decision_status_v6.md --out .pycircuit_out/gates/${gate_run_id}/decision_status_report.json --require-no-deferred --require-all-verified --require-concrete-evidence --require-existing-evidence
 PYC_GATE_RUN_ID=${gate_run_id} bash flows/scripts/run_semantic_regressions_v6.sh
 EOF
 
 pyc_log "running strict API hygiene gate"
 if ! python3 "${PYC_ROOT_DIR}/flows/tools/check_api_hygiene.py" \
-  compiler/frontend/pycircuit \
-  designs/examples \
+  python/pycircuit/src/pycircuit \
+  examples/pycircuit \
   docs \
   README.md \
   >"${docs_gate_dir}/api_hygiene.stdout" 2>"${docs_gate_dir}/api_hygiene.stderr"; then
@@ -788,7 +788,7 @@ int main() {
 CPP
 
   cxx="${CXX:-c++}"
-  if ! "${cxx}" -std=c++17 -O2 -I "${PYC_ROOT_DIR}/runtime" -I "${cpp_out}" \
+  if ! "${cxx}" -std=c++17 -O2 -I "${PYC_ROOT_DIR}/library" -I "${cpp_out}" \
       "${cpp_out}/leaf.cpp" "${cpp_out}/top.cpp" "${m0_probe_dir}/probe_registry_smoke.cpp" -o "${m0_probe_dir}/probe_registry_smoke" \
       >"${m0_probe_dir}/compile.stdout" 2>"${m0_probe_dir}/compile.stderr"; then
     pyc_warn "positive check failed: ProbeRegistry C++ compile failed"
@@ -947,7 +947,7 @@ from pathlib import Path
 
 root = Path(sys.argv[1]).resolve()
 out = Path(sys.argv[2]).resolve()
-tool = root / "contrib" / "linx" / "flows" / "tools" / "linx_trace_diff.py"
+tool = root / "integrations" / "linx" / "flows" / "tools" / "linx_trace_diff.py"
 schema = "LC-COMMIT-BUNDLE-V1"
 
 ref = out / "ref.jsonl"
@@ -1171,7 +1171,7 @@ int main() {
 CPP
 
 cxx="${CXX:-c++}"
-if ! "${cxx}" -std=c++17 -O2 -I "${PYC_ROOT_DIR}/runtime" "${mem_obs_dir}/mem_observe.cpp" -o "${mem_obs_dir}/mem_observe" \
+if ! "${cxx}" -std=c++17 -O2 -I "${PYC_ROOT_DIR}/library" "${mem_obs_dir}/mem_observe.cpp" -o "${mem_obs_dir}/mem_observe" \
     >"${mem_obs_dir}/compile.stdout" 2>"${mem_obs_dir}/compile.stderr"; then
   pyc_warn "Decision 0006 mem observability C++ compile failed"
   fail=1

@@ -57,9 +57,9 @@ def _detect_pyc_compile(root: Path) -> Path:
 
 def _pythonpath(root: Path) -> str:
     parts = [
-        str(root / "compiler" / "frontend"),
-        str(root / "designs"),
-        str(root / "contrib" / "linx" / "designs"),
+        str(root / "python" / "pycircuit" / "src"),
+        str(root / "integrations" / "linx" / "examples" / "pycircuit"),
+        str(root),
     ]
     old = os.environ.get("PYTHONPATH")
     if old:
@@ -92,8 +92,8 @@ def _run_hygiene(root: Path) -> None:
     cmd = [
         sys.executable,
         str(root / "flows" / "tools" / "check_api_hygiene.py"),
-        "compiler/frontend/pycircuit",
-        "designs/examples",
+        "python/pycircuit/src/pycircuit",
+        "examples/pycircuit",
         "docs",
         "README.md",
     ]
@@ -152,7 +152,7 @@ def _run_linx_case(
             "-m",
             "pycircuit.cli",
             "emit",
-            "contrib/linx/designs/examples/linx_cpu_pyc/linx_cpu_pyc.py",
+            "integrations/linx/examples/pycircuit/linx_cpu_pyc/linx_cpu_pyc.py",
             "--param",
             "mem_bytes=1048576",
             "-o",
@@ -183,13 +183,21 @@ def _run_linx_case(
         "--manifest",
         str(manifest_path),
         "--tb",
-        str(root / "contrib" / "linx" / "designs" / "examples" / "linx_cpu_pyc" / "tb_linx_cpu_pyc.cpp"),
+        str(
+            root
+            / "integrations"
+            / "linx"
+            / "examples"
+            / "pycircuit"
+            / "linx_cpu_pyc"
+            / "tb_linx_cpu_pyc.cpp"
+        ),
         "--out",
         str(tb_path),
         "--profile",
         profile,
         "--extra-include",
-        str(root / "runtime"),
+        str(root / "library"),
     ]
 
     tb_build_s, _ = _run(
@@ -200,7 +208,16 @@ def _run_linx_case(
 
     env_run = os.environ.copy()
     env_run.setdefault("PYC_KONATA", "0")
-    perf_memh = str(root / "contrib" / "linx" / "designs" / "examples" / "linx_cpu" / "programs" / "test_csel_fixed.memh")
+    perf_memh = str(
+        root
+        / "integrations"
+        / "linx"
+        / "examples"
+        / "pycircuit"
+        / "linx_cpu"
+        / "programs"
+        / "test_csel_fixed.memh"
+    )
     sim_s, sim_out = _run(
         [
             str(tb_path),
@@ -251,9 +268,12 @@ def _run_linxcore_case(
 ) -> dict[str, Any]:
     out_dir = root / ".pycircuit_out" / "perf" / "linxcore"
     out_dir.mkdir(parents=True, exist_ok=True)
-    bench_build = root / "contrib" / "linx" / "designs" / "linxcore" / "tools" / "image" / "build_linxisa_benchmarks_memh_compat.sh"
-    gen_update = root / "contrib" / "linx" / "designs" / "linxcore" / "tools" / "generate" / "update_generated_linxcore.sh"
-    run_cpp = root / "contrib" / "linx" / "designs" / "linxcore" / "tools" / "generate" / "run_linxcore_top_cpp.sh"
+    linxcore = root / "integrations" / "linx" / "designs" / "linxcore"
+    bench_build = (
+        linxcore / "tools" / "image" / "build_linxisa_benchmarks_memh_compat.sh"
+    )
+    gen_update = linxcore / "tools" / "generate" / "update_generated_linxcore.sh"
+    run_cpp = linxcore / "tools" / "generate" / "run_linxcore_top_cpp.sh"
 
     def _skipped(reason: str) -> dict[str, Any]:
         return {
@@ -338,13 +358,19 @@ def _run_linxcore_case(
 
 def main() -> int:
     root = _repo_root()
-    ap = argparse.ArgumentParser(description="Run pyCircuit Linx+LinxCore perf smoke and emit JSON metrics.")
+    ap = argparse.ArgumentParser(
+        description="Run pyCircuit Linx+LinxCore perf smoke and emit JSON metrics."
+    )
     ap.add_argument(
         "--output",
         default=str(root / ".pycircuit_out" / "perf" / "perf_smoke.json"),
         help="Output JSON path",
     )
-    ap.add_argument("--profile", choices=["dev", "release"], default=os.environ.get("PYC_BUILD_PROFILE", "release"))
+    ap.add_argument(
+        "--profile",
+        choices=["dev", "release"],
+        default=os.environ.get("PYC_BUILD_PROFILE", "release"),
+    )
     ap.add_argument("--logic-depth", type=int, default=32)
     ap.add_argument("--sim-mode", choices=["default", "cpp-only"], default="cpp-only")
     ap.add_argument("--perf-repeats-linx", type=int, default=16)
@@ -384,7 +410,9 @@ def main() -> int:
 
     out = Path(args.output)
     out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_text(json.dumps(result, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    out.write_text(
+        json.dumps(result, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
     print(json.dumps(result, indent=2, sort_keys=True))
     return 0
 

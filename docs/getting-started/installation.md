@@ -134,7 +134,7 @@ Agentic Circuit remains a second distribution and import namespace in the same
 repository:
 
 ```bash
-python3 -m pip install -e "components/agentic-circuit[test]"
+python3 -m pip install -e "python/agentic-circuit[test]"
 python3 -c "import agentic_circuit; print(agentic_circuit.__name__)"
 agentic-circuit --help
 ```
@@ -142,9 +142,9 @@ agentic-circuit --help
 This installation provides the Python frontend and CLI. Build the repository
 toolchain to obtain `acir-opt`, `acir-build`, ACIR/ACSim libraries, and gfsim.
 The canonical `bash flows/scripts/pyc build` command enables the integrated
-Agentic Circuit component by default. Schema-backed CLI commands also require
+Agentic Circuit modules by default. Schema-backed CLI commands also require
 the generated Python resource tree under
-`components/agentic-circuit/build/dev-llvm22/python`; the canonical
+`.pycircuit_out/acir/dev-llvm22/python`; the canonical
 `run_agentic_circuit.sh` gate configures it and uses the matching Python
 environment.
 

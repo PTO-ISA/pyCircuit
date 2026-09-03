@@ -20,7 +20,7 @@ run_case() {
   local out_dir="${OUT_BASE}/${case_name}"
   rm -rf "${out_dir}" >/dev/null 2>&1 || true
   mkdir -p "${out_dir}"
-  local tb="${PYC_ROOT_DIR}/designs/examples/${case_name}/tb_${case_name}.py"
+  local tb="${PYC_ROOT_DIR}/examples/pycircuit/${case_name}/tb_${case_name}.py"
   [[ -f "${tb}" ]] || pyc_die "missing tb source: ${tb}"
 
   local cmd=(python3 -m pycircuit.cli build
@@ -51,8 +51,8 @@ PY
   (cd "${out_dir}" && "${cpp_bin}")
 }
 
-run_case "xz_value_model_smoke" "${PYC_ROOT_DIR}/designs/examples/xz_value_model_smoke/xz_value_model_smoke_trace.json"
-run_case "reset_invalidate_order_smoke" "${PYC_ROOT_DIR}/designs/examples/reset_invalidate_order_smoke/reset_invalidate_order_smoke_trace.json"
+run_case "xz_value_model_smoke" "${PYC_ROOT_DIR}/examples/pycircuit/xz_value_model_smoke/xz_value_model_smoke_trace.json"
+run_case "reset_invalidate_order_smoke" "${PYC_ROOT_DIR}/examples/pycircuit/reset_invalidate_order_smoke/reset_invalidate_order_smoke_trace.json"
 run_case "net_resolution_depth_smoke" ""
 
 xz_out="${OUT_BASE}/xz_value_model_smoke"

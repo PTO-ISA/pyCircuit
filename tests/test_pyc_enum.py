@@ -11,7 +11,6 @@ time (ASL enums are not interchangeable with integers).
 from __future__ import annotations
 
 import pytest
-
 from pycircuit import (
     Circuit,
     CycleAwareCircuit,
@@ -47,9 +46,9 @@ def test_auto_codes_are_zero_based() -> None:
 
 
 def test_width_ceil_log2() -> None:
-    assert SRType.width == 2          # ceil(log2(4))
-    assert Color.width == 1           # ceil(log2(2))
-    assert SRType.LSL.width == 2      # member-level access
+    assert SRType.width == 2  # ceil(log2(4))
+    assert Color.width == 1  # ceil(log2(2))
+    assert SRType.LSL.width == 2  # member-level access
 
 
 def test_single_member_width_is_one() -> None:
@@ -62,7 +61,7 @@ def test_single_member_width_is_one() -> None:
 def test_explicit_codes_width() -> None:
     class Op(PycEnum):
         A = 0
-        B = 5                         # max code 5 -> 3 bits
+        B = 5  # max code 5 -> 3 bits
 
     assert Op.width == 3
 
@@ -74,7 +73,7 @@ def test_members_are_not_ints() -> None:
 
 def test_enum_width_rejects_empty_and_bad_codes() -> None:
     with pytest.raises(TypeError):
-        enum_width(PycEnum)          # no members
+        enum_width(PycEnum)  # no members
 
     class Neg(PycEnum):
         A = -1
@@ -93,7 +92,7 @@ def test_coerce_enum_cls_rejects_non_enum() -> None:
     with pytest.raises(TypeError, match="PycEnum subclass"):
         coerce_enum_cls(int)
     with pytest.raises(TypeError, match="PycEnum subclass"):
-        coerce_enum_cls(PycEnum)     # empty base
+        coerce_enum_cls(PycEnum)  # empty base
 
 
 # --- enumeration() functional constructor (ASL one-liner) -------------------
@@ -111,10 +110,10 @@ def test_enumeration_matches_asl_syntax() -> None:
 @pytest.mark.parametrize(
     "arg",
     [
-        ("RED GREEN BLUE",),        # single space-separated string
-        ("RED, GREEN, BLUE",),      # single comma-separated string
+        ("RED GREEN BLUE",),  # single space-separated string
+        ("RED, GREEN, BLUE",),  # single comma-separated string
         (["RED", "GREEN", "BLUE"],),  # single list
-        ("RED", "GREEN", "BLUE"),   # varargs
+        ("RED", "GREEN", "BLUE"),  # varargs
     ],
 )
 def test_enumeration_input_forms_equivalent(arg) -> None:
@@ -131,7 +130,7 @@ def test_enumeration_is_class_form_equivalent() -> None:
         m.output("y", op.is_(E.ASR))
         return m.emit_mlir()
 
-    assert via(Functional) == via(SRType)   # SRType is the class-form definition
+    assert via(Functional) == via(SRType)  # SRType is the class-form definition
 
 
 def test_enumeration_usable_as_input_enum() -> None:
@@ -175,7 +174,7 @@ def test_member_const_on_circuit_returns_wire() -> None:
 
 def test_member_const_on_domain_returns_cas() -> None:
     def top(m, domain):
-        c = SRType.ROR.const(domain)     # CycleAwareSignal
+        c = SRType.ROR.const(domain)  # CycleAwareSignal
         assert c.cycle == 0
         m.output("y", wire_of(c))
 
@@ -196,7 +195,7 @@ def test_is_equivalent_to_raw_eq() -> None:
     def manual() -> str:
         m = Circuit("t")
         op = m.input("op", width=2)
-        m.output("y", op == 2)           # ASR.value == 2
+        m.output("y", op == 2)  # ASR.value == 2
         return m.emit_mlir()
 
     assert via_is() == manual()
@@ -280,7 +279,7 @@ def test_input_enum_width_conflict_raises() -> None:
 
 def test_input_enum_matching_width_ok() -> None:
     m = Circuit("t")
-    op = m.input("op", width=2, enum=SRType)   # explicit but consistent
+    op = m.input("op", width=2, enum=SRType)  # explicit but consistent
     assert op.width == 2
 
 
@@ -297,7 +296,7 @@ def test_input_enum_port_emits() -> None:
     op = m.input("op", enum=SRType)
     m.output("is_ror", op.is_(SRType.ROR))
     mlir = m.emit_mlir()
-    assert "pyc.and" not in mlir       # plain eq, no masking
+    assert "pyc.and" not in mlir  # plain eq, no masking
     assert "pyc.eq" in mlir
 
 
@@ -311,7 +310,7 @@ def test_domain_signal_enum_register_assign_member() -> None:
         m.output("is_lsr", wire_of(st.is_(SRType.LSR)))
 
     mlir = compile_cycle_aware(top, name="c", eager=True).emit_mlir()
-    assert "pyc.constant 1 : i2" in mlir     # LSR code loaded into reg
+    assert "pyc.constant 1 : i2" in mlir  # LSR code loaded into reg
     assert "pyc.eq" in mlir
 
 

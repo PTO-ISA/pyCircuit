@@ -6,7 +6,6 @@ import json
 from pathlib import Path
 from typing import Any
 
-
 TIME_KEYS = ["emit_s", "compile_s", "tb_build_s", "sim_s", "end_to_end_s"]
 THROUGHPUT_KEYS = ["cycles_per_sec"]
 
@@ -17,8 +16,12 @@ def _load(path: Path) -> dict[str, Any]:
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser(description="Compare perf-smoke JSON against baseline and fail on regressions.")
-    ap.add_argument("--current", required=True, help="Current perf JSON from run_perf_smoke.py")
+    ap = argparse.ArgumentParser(
+        description="Compare perf-smoke JSON against baseline and fail on regressions."
+    )
+    ap.add_argument(
+        "--current", required=True, help="Current perf JSON from run_perf_smoke.py"
+    )
     ap.add_argument("--baseline", required=True, help="Checked baseline JSON")
     ap.add_argument("--time-regression-pct", type=float, default=30.0)
     ap.add_argument("--throughput-regression-pct", type=float, default=30.0)

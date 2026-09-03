@@ -4,7 +4,7 @@
 
 **状态：** 待开工（v0.1）
 **分支：** `asl_align`
-**来源：** 对照 `docs/arm_data_type.md`（ARM ASL1 数据类型分析）与当前 pyCircuit 6 代码库（`compiler/frontend/pycircuit/`）逐项核实。
+**来源：** 对照 `docs/arm_data_type.md`（ARM ASL1 数据类型分析）与当前 pyCircuit 6 代码库（`python/pycircuit/src/pycircuit/`）逐项核实。
 **用途：** 逐条列出「ASL 有、PyCircuit 信号级 DSL 缺」的功能、当前现状、可复用基座、建议 API 与门禁，供开工。勾选框仅表示"是否已实现"，不代表优先级。
 
 ---
@@ -52,7 +52,7 @@ ASL 是**行为规范语言**（单一时间轴＝指令执行，数学域在运
   f  = INSTR.view(instr)                 # f["opcode"] ≡ instr.slice(31, 26)（CAS 闭区间）
   wr = INSTR.update(instr, rd=new_rd)    # 读-改-写：cat 出未改字段 + new_rd
   ```
-- [x] **T1.1（已完成）**：新增 `BitfieldSpec`（`fields: dict[str, (msb, lsb)]`，闭区间，**允许重叠**；`__post_init__` 校验 width>0、名字非空、`0<=lsb<=msb<width`）。落地 `compiler/frontend/pycircuit/bitfield.py`，另提供 `field_slices()`（名→`(lsb,width)`，与 `spec.StructSpec` 对齐）与 `field_width()`。已从 `pycircuit` 顶层导出 `BitfieldSpec`/`BitfieldView`。
+- [x] **T1.1（已完成）**：新增 `BitfieldSpec`（`fields: dict[str, (msb, lsb)]`，闭区间，**允许重叠**；`__post_init__` 校验 width>0、名字非空、`0<=lsb<=msb<width`）。落地 `python/pycircuit/src/pycircuit/bitfield.py`，另提供 `field_slices()`（名→`(lsb,width)`，与 `spec.StructSpec` 对齐）与 `field_width()`。已从 `pycircuit` 顶层导出 `BitfieldSpec`/`BitfieldView`。
 - [x] **T1.2（已完成）**：`view(signal)` 返回只读 `BitfieldView`，`f["opcode"]`/`f.opcode` → `signal[lsb:msb+1]`；`f["a","b"]` 多字段拼接读（MSB-first，等价 `cat`）；支持 `keys/items/__iter__/__contains__`；写操作抛错（只读）。
 - [x] **T1.3（已完成）**：`update(signal, **kwargs)` 展开为 `cat(未改高位片段, new_field, 未改低位片段)`（MSB-first 平铺）；单次调用写重叠字段报错（歧义）；字段值支持 int（带值域检查）/Wire/Reg/CAS，宽度不符报错。
 - [x] **T1.4（已完成）**：门禁 `tests/test_bitfield_view.py`（26 项，全通过）：字段读/多字段拼接读/单字段与多字段 `update` 与**手写 slice/cat 字节级等价**（对比 `emit_mlir()`）；重叠视图；越界/歧义写、宽度不符、越界常量、未知字段、宽度不匹配、只读均报错；CAS 视图/更新保持类型与 cycle，跨 cycle 字段写报错。
@@ -164,7 +164,7 @@ layout   = instr.spec
   hit = opcode.matches("1xx0")               # x 忽略；'1(0)x0'/'1(01)0' 括号内也忽略
   sel = opcode.in_({"000x", "0010", "11xx"}) # 命中集合 → 各 matches 的 or 归约
   ```
-- [x] **T2.1（已完成）**：掩码串解析器 `parse_bitmask(pattern) -> (mask, value, width)` 落地纯模块 `compiler/frontend/pycircuit/bitmask.py`（无依赖，避免循环导入）：`0/1` 为 care，`x`/`X`/`-` 及**括号内任意位**为 don't-care（对应 ASL `'1(0)x0'`/`'1(01)0'`）；空格/`_` 为分隔符忽略；另有 `parse_bitmask_checked(pattern, width=)` 校验宽度。
+- [x] **T2.1（已完成）**：掩码串解析器 `parse_bitmask(pattern) -> (mask, value, width)` 落地纯模块 `python/pycircuit/src/pycircuit/bitmask.py`（无依赖，避免循环导入）：`0/1` 为 care，`x`/`X`/`-` 及**括号内任意位**为 don't-care（对应 ASL `'1(0)x0'`/`'1(01)0'`）；空格/`_` 为分隔符忽略；另有 `parse_bitmask_checked(pattern, width=)` 校验宽度。
 - [x] **T2.2（已完成）**：`Wire.matches(pattern)`（`hw.py`）/ `CycleAwareSignal.matches(pattern)`（`v6.py`，保留 cycle）→ `(self & mask) == value`，返回 i1；宽度不一致报错。`ForwardSignal`/`StateSignal`/`BitfieldSignal` 经委托自动可用。
 - [x] **T2.3（已完成）**：`.in_(patterns)` → 各 `matches` 的 `|` 归约；`.not_in_(patterns)` 取反（对应 ASL `IN !{...}`）；空集合报错。
 - [x] **T2.4（已完成）**：门禁 `tests/test_bitmask_match.py`（25 项，全通过）：解析正确性（含括号/分隔符/`'1xx0'≡'1(0)x0'≡'1(01)0'`）、`matches`/`in_`/`not_in_` 与手写 `(sig&mask)==value` **字节级等价**、结果为 i1、宽度不符/非法字符/括号错配/空模式报错、CAS 保持 cycle。
@@ -206,7 +206,7 @@ m.output("is_add", wire_of(is_add))
   alu_op = m.input("op", enum=SRType)     # width 自动 = ceil(log2(4)) = 2
   hit = alu_op.is_(SRType.LSL)            # 与裸 int / 其他枚举比较 → 展开期报错
   ```
-- [x] **T3.1（已完成）**：`PycEnum` 基类落地 `compiler/frontend/pycircuit/enums.py`，基于 Python `enum.Enum`（**非 `IntEnum`**，成员不隐式转 int）+ 自定义元类 `_PycEnumMeta`。`auto()` 经 `_generate_next_value_` 产出 **0-based** 编码；`E.width`（类级，元类属性）与 `member.width`（成员级）= `max(1, max_code.bit_length())`（即 `ceil(log2(n))`）；`member.const(ctx)` 依 `ctx` 是 `Circuit`/`CycleAwareDomain` 返回定宽 `Wire`/`CAS` 常量；`E.bind(sig)` 把枚举类型贴到任意信号。编码越界（负数/非 int）在取 width/emit 时报错。
+- [x] **T3.1（已完成）**：`PycEnum` 基类落地 `python/pycircuit/src/pycircuit/enums.py`，基于 Python `enum.Enum`（**非 `IntEnum`**，成员不隐式转 int）+ 自定义元类 `_PycEnumMeta`。`auto()` 经 `_generate_next_value_` 产出 **0-based** 编码；`E.width`（类级，元类属性）与 `member.width`（成员级）= `max(1, max_code.bit_length())`（即 `ceil(log2(n))`）；`member.const(ctx)` 依 `ctx` 是 `Circuit`/`CycleAwareDomain` 返回定宽 `Wire`/`CAS` 常量；`E.bind(sig)` 把枚举类型贴到任意信号。编码越界（负数/非 int）在取 width/emit 时报错。
 - [x] **T3.1b（已完成，贴近 ASL 语法）**：函数式构造器 `enumeration("Color", "RED GREEN BLUE")` —— 一行、只列名字，直接对应 ASL `type Color of enumeration {RED, GREEN, BLUE}`。名字可用**变长参数 / 列表 / 逗号或空格分隔的字符串**，等价于 `class Color(PycEnum): RED=auto();...`（复用同一元类与 0-based 编码，经 Python `enum` 函数式 API 落地）。空/非标识符/重名/空类型名均报错。需要显式编码或文档字符串时仍用 `class` 形式。
 - [x] **T3.2（已完成）**：`m.input(name, enum=E)`（`hw.py`）与 `domain.signal(name=.., enum=E)`（`v6.py`）声明期即绑定枚举，width 自动取自 `E.width`（显式 `width=` 不一致则报错，且不可与 `fields=`/`shape=` 混用），返回 `EnumSignal`。寄存器可 `st <<= E.MEMBER`（跨枚举/裸值经 `_coerce_assign` 校验后加载编码常量）。
 - [x] **T3.3（已完成）**：`EnumSignal.is_(E.MEMBER)` → `raw == const(code)`（返回 i1，与手写字节级等价）；`is_not` 取反；`==`/`!=` 为 `is_`/`is_not` 的别名。对**裸 int**（`op.is_(0)` / `op == 2`）或**跨枚举**成员（`op.is_(Color.RED)`）在展开期 `raise TypeError`（带枚举类型标签）。`wire_of()`/`m.output()`/`_to_wire()` 经 `__pyc_unwrap__` 自动解包。
@@ -372,5 +372,5 @@ y = x.assert_fits(width=4)                # 等价别名
 **参考**
 
 - `docs/arm_data_type.md` §9（ASL ↔ PyCircuit 对照与建议）
-- `compiler/frontend/pycircuit/hw.py`（`Wire`/`Vec`/`cat`/`zext`）、`v6.py`（`CycleAwareSignal`/`mux`）、`record.py`、`spec/types.py`（`StructSpec.field_slices`/`DecodeRule`）
+- `python/pycircuit/src/pycircuit/hw.py`（`Wire`/`Vec`/`cat`/`zext`）、`v6.py`（`CycleAwareSignal`/`mux`）、`record.py`、`spec/types.py`（`StructSpec.field_slices`/`DecodeRule`）
 - `docs/rfcs/pyc6-decisions.md` Decision 0008（spec 分层类型系统）

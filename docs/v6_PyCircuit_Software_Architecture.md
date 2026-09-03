@@ -70,7 +70,7 @@ pyCircuit/
 │       ├── lib/Transforms/        # 全部 pass
 │       ├── lib/Emit/              # VerilogEmitter / CppEmitter
 │       └── tools/                 # pycc / pyc-opt
-├── runtime/cpp/                   # C++ 仿真运行时头文件库
+├── library/cpp/                   # C++ 仿真运行时头文件库
 ├── designs/                       # 示例与设计（examples/BypassUnit/IssueQueue…）
 ├── tests/                         # pytest（vec 算子框架、sidecar 单测等）
 ├── flows/scripts/                 # pyc build、run_examples 等脚本
@@ -290,7 +290,7 @@ endmodule
 
 ## C++ 发射器与仿真模型
 
-文件：`compiler/mlir/lib/Emit/CppEmitter.cpp`；生成代码依赖 `runtime/cpp/` 头文件库。
+文件：`compiler/mlir/lib/Emit/CppEmitter.cpp`；生成代码依赖 `library/cpp/` 头文件库。
 
 ### 生成结构
 
@@ -317,7 +317,7 @@ endmodule
 
 ## C++ 仿真运行时
 
-头文件库 `runtime/cpp/`（无独立编译单元，除 `pyc_runtime.cpp`）：
+头文件库 `library/cpp/`（无独立编译单元，除 `pyc_runtime.cpp`）：
 
 | 头文件 | 内容 |
 |--------|------|
@@ -420,7 +420,7 @@ make tools          # 构建 pycc + libpyc6_runtime（可选 pyc-opt）
 make install        # 装入 .pycircuit_out/toolchain/install
 ```
 
-CMake 目标：TableGen（`PYCOps.td` → `.inc`）→ `pyc_dialect` → `pyc_transforms` → `pycc`（链接双发射器，include `runtime/`）；`pyc-opt` 为可选目标（需 `MLIRRegisterAllPasses`）。C++17，依赖已安装的 LLVM/MLIR。
+CMake 目标：TableGen（`PYCOps.td` → `.inc`）→ `pyc_dialect` → `pyc_transforms` → `pycc`（链接双发射器，include `library/`）；`pyc-opt` 为可选目标（需 `MLIRRegisterAllPasses`）。C++17，依赖已安装的 LLVM/MLIR。
 
 ### Python 包与入口点
 
@@ -433,8 +433,8 @@ CMake 目标：TableGen（`PYCOps.td` → `.inc`）→ `pyc_dialect` → `pyc_tr
 ```bash
 make smoke                                    # 示例 + 仿真冒烟
 make vec-smoke                                # 向量算子回归
-PYTHONPATH=compiler/frontend pytest tests/vec -m vec     # 向量框架
-PYTHONPATH=compiler/frontend pytest tests/test_sidecar_sections.py
+PYTHONPATH=python/pycircuit/src pytest tests/vec -m vec     # 向量框架
+PYTHONPATH=python/pycircuit/src pytest tests/test_sidecar_sections.py
 ```
 
 `tests/vec/` 是生成式测试框架：`cases.py` 定义算子用例（vv/vs/sv 形态 × add/sub/mul/logic/cmp/div/shift/reduce），`generate.py` 产出 DUT+TB，`oracle.py` 提供位精确参考模型，`runner.py` 走完整 `pycircuit build` 并可选 Verilator 对比。

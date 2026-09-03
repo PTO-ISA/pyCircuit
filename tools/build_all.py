@@ -14,8 +14,9 @@ import time
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(REPO / "compiler" / "frontend"))
-sys.path.insert(0, str(REPO / "designs" / "XiangShan-pyc"))
+sys.path.insert(0, str(REPO / "python" / "pycircuit" / "src"))
+sys.path.insert(0, str(REPO / "integrations" / "xiangshan"))
+sys.path.insert(0, str(REPO))
 
 
 def find_pycc() -> Path:
@@ -169,10 +170,10 @@ def all_designs() -> list[dict]:
         designs.append(
             {
                 "name": ename,
-                "module": f"designs.examples.{ename}.{ename}",
+                "module": f"examples.pycircuit.{ename}.{ename}",
                 "fn": fn,
                 "kwargs": kwargs or {},
-                "out_dir": f"designs/examples/{ename}/build",
+                "out_dir": f"examples/pycircuit/{ename}/build",
             }
         )
 
@@ -180,10 +181,10 @@ def all_designs() -> list[dict]:
     designs.append(
         {
             "name": "regfile",
-            "module": "designs.RegisterFile.regfile",
+            "module": "designs.blocks.RegisterFile.regfile",
             "fn": "build",
             "kwargs": {"ptag_count": 32, "const_count": 8, "nr": 4, "nw": 2},
-            "out_dir": "designs/RegisterFile/build",
+            "out_dir": "designs/blocks/RegisterFile/build",
         }
     )
 
@@ -191,7 +192,7 @@ def all_designs() -> list[dict]:
     designs.append(
         {
             "name": "bypass_unit",
-            "module": "designs.BypassUnit.bypass_unit_v6",
+            "module": "designs.blocks.BypassUnit.bypass_unit_v6",
             "fn": "bypass_unit",
             "kwargs": {
                 "lanes": 4,
@@ -199,11 +200,11 @@ def all_designs() -> list[dict]:
                 "ptag_count": 64,
                 "ptype_count": 4,
             },
-            "out_dir": "designs/BypassUnit/build",
+            "out_dir": "designs/blocks/BypassUnit/build",
         }
     )
 
-    # ── XiangShan-pyc (small params for quick builds) ──
+    # ── XiangShan integration (small params for quick builds) ──
     xs_leaf = [
         ("alu", "backend.exu.alu", "alu", {"data_width": 16}),
         ("bru", "backend.exu.bru", "bru", {"data_width": 16, "pc_width": 16}),
@@ -501,7 +502,7 @@ def all_designs() -> list[dict]:
                 "module": xs_mod,
                 "fn": xs_fn,
                 "kwargs": xs_kw,
-                "out_dir": f"designs/XiangShan-pyc/build/{xs_name}",
+                "out_dir": f"integrations/xiangshan/build/{xs_name}",
                 "hierarchical": xs_hier,
             }
         )

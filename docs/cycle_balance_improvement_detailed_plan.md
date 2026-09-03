@@ -38,12 +38,12 @@
 
 ## 风险与回滚
 
-- **风险**：多组 `(clk,rst)` 的模块在存在带属性 `assign` 时会被拒绝。  
-- **缓解**：无带属性 `assign` 时不做 `clk/rst` 一致性扫描。  
+- **风险**：多组 `(clk,rst)` 的模块在存在带属性 `assign` 时会被拒绝。
+- **缓解**：无带属性 `assign` 时不做 `clk/rst` 一致性扫描。
 - **回滚**：从 `pycc` 移除 `createCycleBalancePass` 一行即可。
 
 ## 执行记录
 
-- **IR**：`pyc.assign` 可选 `dst_cycle` / `src_cycle`（`i64`），须成对且 `dst_cycle >= src_cycle`。  
-- **共享**：缓存键含原始 `src` 的 opaque 指针、`clk`/`rst`、`depth`；多 `assign` 同 `(src,d)` 复用同一末级 `q`。  
+- **IR**：`pyc.assign` 可选 `dst_cycle` / `src_cycle`（`i64`），须成对且 `dst_cycle >= src_cycle`。
+- **共享**：缓存键含原始 `src` 的 opaque 指针、`clk`/`rst`、`depth`；多 `assign` 同 `(src,d)` 复用同一末级 `q`。
 - **前端**：`Circuit.assign` / `Module.assign` 支持关键字参数 `dst_cycle`、`src_cycle`（须成对），生成带属性的 `pyc.assign`。

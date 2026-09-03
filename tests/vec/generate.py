@@ -4,7 +4,6 @@ from pathlib import Path
 
 from .cases import VecCase
 
-
 BINARY_EXPR: dict[str, str] = {
     "add": "+",
     "sub": "-",
@@ -31,7 +30,9 @@ def _vec_input(name: str, width: int, lanes: int, *, signed: bool = False) -> st
     return f'{name} = m.vec([m.input(f"{name}{{i}}", width={width}{signed_arg}) for i in range({lanes})])'
 
 
-def _binary_case_expr(case: VecCase, *, width: int, lanes: int, signed: bool) -> tuple[list[str], str, bool] | None:
+def _binary_case_expr(
+    case: VecCase, *, width: int, lanes: int, signed: bool
+) -> tuple[list[str], str, bool] | None:
     try:
         op, direction = case.kind.rsplit("_", 1)
     except ValueError:
@@ -41,13 +42,22 @@ def _binary_case_expr(case: VecCase, *, width: int, lanes: int, signed: bool) ->
 
     expr_op = BINARY_EXPR[op]
     if direction == "vv":
-        lines = [_vec_input("a", width, lanes, signed=signed), _vec_input("b", width, lanes, signed=signed)]
+        lines = [
+            _vec_input("a", width, lanes, signed=signed),
+            _vec_input("b", width, lanes, signed=signed),
+        ]
         expr = f"a {expr_op} b"
     elif direction == "vs":
-        lines = [_vec_input("a", width, lanes, signed=signed), f'scalar = m.input("scalar", width={width})']
+        lines = [
+            _vec_input("a", width, lanes, signed=signed),
+            f'scalar = m.input("scalar", width={width})',
+        ]
         expr = f"a {expr_op} scalar"
     else:
-        lines = [_vec_input("a", width, lanes, signed=signed), f'scalar = m.input("scalar", width={width})']
+        lines = [
+            _vec_input("a", width, lanes, signed=signed),
+            f'scalar = m.input("scalar", width={width})',
+        ]
         expr = f"scalar {expr_op} a"
     return lines, expr, True
 
@@ -66,27 +76,47 @@ def _case_expr(case: VecCase) -> tuple[list[str], str, bool]:
         return [_vec_input("a", w, n, signed=signed)], "~a", True
 
     if case.kind == "select_vv":
-        return [
-            _vec_input("cond", 1, n),
-            _vec_input("a", w, n),
-            _vec_input("b", w, n),
-        ], "(a if cond else b)", True
+        return (
+            [
+                _vec_input("cond", 1, n),
+                _vec_input("a", w, n),
+                _vec_input("b", w, n),
+            ],
+            "(a if cond else b)",
+            True,
+        )
 
     if case.kind == "select_vs":
-        return [
-            _vec_input("cond", 1, n),
-            _vec_input("a", w, n),
-            f'scalar = m.input("scalar", width={w})',
-        ], "(a if cond else scalar)", True
+        return (
+            [
+                _vec_input("cond", 1, n),
+                _vec_input("a", w, n),
+                f'scalar = m.input("scalar", width={w})',
+            ],
+            "(a if cond else scalar)",
+            True,
+        )
 
     if case.kind == "select_sv":
-        return [
-            _vec_input("cond", 1, n),
-            _vec_input("a", w, n),
-            f'scalar = m.input("scalar", width={w})',
-        ], "(scalar if cond else a)", True
+        return (
+            [
+                _vec_input("cond", 1, n),
+                _vec_input("a", w, n),
+                f'scalar = m.input("scalar", width={w})',
+            ],
+            "(scalar if cond else a)",
+            True,
+        )
 
-    if case.kind in {"zext", "sext", "trunc", "slice", "shl_imm", "lshr_imm", "ashr_imm"}:
+    if case.kind in {
+        "zext",
+        "sext",
+        "trunc",
+        "slice",
+        "shl_imm",
+        "lshr_imm",
+        "ashr_imm",
+    }:
         lines = [_vec_input("a", w, n, signed=signed)]
         exprs = {
             "zext": "zext(a, width=6)",
@@ -137,13 +167,15 @@ def render_case_source(case: VecCase) -> str:
         lines.append('        m.output(f"out{i}", out[i])')
     else:
         lines.append('    m.output("out", out)')
-    lines.extend([
-        "",
-        "",
-        "@testbench",
-        "def tb(t: Tb) -> None:",
-        "    t.timeout(1)",
-    ])
+    lines.extend(
+        [
+            "",
+            "",
+            "@testbench",
+            "def tb(t: Tb) -> None:",
+            "    t.timeout(1)",
+        ]
+    )
 
     def drive_scalar(name: str, value: int) -> None:
         lines.append(f'    t.drive("{name}", {int(value)}, at=0)')
@@ -157,9 +189,13 @@ def render_case_source(case: VecCase) -> str:
 
     if isinstance(expected, list):
         for i, lane in enumerate(expected):
-            lines.append(f'    t.expect("out{i}", {int(lane)}, at=0, msg="{case.name}.out{i}")')
+            lines.append(
+                f'    t.expect("out{i}", {int(lane)}, at=0, msg="{case.name}.out{i}")'
+            )
     else:
-        lines.append(f'    t.expect("out", {int(expected)}, at=0, msg="{case.name}.out")')
+        lines.append(
+            f'    t.expect("out", {int(expected)}, at=0, msg="{case.name}.out")'
+        )
     lines.append("    t.finish(at=0)")
     lines.append("")
     return "\n".join(lines)

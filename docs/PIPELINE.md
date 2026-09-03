@@ -8,6 +8,7 @@ pyCircuit uses a two-stage compile pipeline:
 ## Frontend
 
 Frontend responsibilities:
+
 - strict API contract scan (entry file + local imports)
 - JIT elaboration of `@module` / `@function` / `@const`
 - materialize `@module(value_params=...)` as runtime boundary input ports
@@ -16,11 +17,13 @@ Frontend responsibilities:
 - emit a testbench `.pyc` payload from `@testbench`
 
 All emitted modules are stamped with:
+
 - `pyc.frontend.contract = "pycircuit"`
 
 ## Backend (`pycc`)
 
 Backend responsibilities:
+
 - verify required frontend contract attrs (`pyc-check-frontend-contract`)
 - verify value-param metadata arity/alignment (`pyc.value_params` + `pyc.value_param_types`)
 - inline helper functions and run cleanup/verification passes
@@ -31,6 +34,7 @@ Backend responsibilities:
   - testbench text (for `.pyc` files containing `pyc.tb.payload`)
 
 Default backend hierarchy policy:
+
 - `--hierarchy-policy=strict`
 - `--inline-policy=off` for hierarchy-preserving module builds
 - strict mode fails compilation if frontend module symbol set changes after lowering passes

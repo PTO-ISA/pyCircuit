@@ -76,4 +76,3 @@ std::unique_ptr<::mlir::Pass> createCheckFlatTypesPass() { return std::make_uniq
 static PassRegistration<CheckFlatTypesPass> pass;
 
 } // namespace pyc
-

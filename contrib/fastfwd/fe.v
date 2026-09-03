@@ -59,4 +59,3 @@ module FE (
   assign fwded_pkt_data_vld = v0;
   assign fwded_pkt_data = d0;
 endmodule
-

@@ -163,7 +163,7 @@ def _write_authority_fixture(root: Path, *, lock: dict | None = None) -> None:
 
 def _load_checker():
     root = Path(__file__).resolve().parents[2]
-    checker = root / "contrib/linx/flows/tools/check_pto_isa_v058_decode.py"
+    checker = root / "integrations/linx/flows/tools/check_pto_isa_v058_decode.py"
     spec = importlib.util.spec_from_file_location("linx_pto_decode_contract", checker)
     assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)
@@ -291,8 +291,8 @@ def _masked_eq_calls(text: str) -> set[tuple[int, int]]:
 def test_decoder_copies_use_identical_v0581_form_ids_and_patterns() -> None:
     root = Path(__file__).resolve().parents[2]
     example_roots = (
-        root / "contrib/linx/designs/examples/linx_cpu_pyc",
-        root / "contrib/linx/designs/examples/linxcore_inorder",
+        root / "integrations/linx/examples/pycircuit/linx_cpu_pyc",
+        root / "integrations/linx/examples/pycircuit/linxcore_inorder",
     )
     isa_texts = [(path / "isa.py").read_text() for path in example_roots]
     decode_texts = [(path / "decode.py").read_text() for path in example_roots]
@@ -327,16 +327,16 @@ def test_decoder_copies_use_identical_v0581_form_ids_and_patterns() -> None:
 def test_fused_icall_sequence_snapshots_target_and_keeps_independent_return() -> None:
     root = Path(__file__).resolve().parents[2]
     design = (
-        root / "contrib/linx/designs/examples/linx_cpu_pyc/linx_cpu_pyc.py"
+        root / "integrations/linx/examples/pycircuit/linx_cpu_pyc/linx_cpu_pyc.py"
     ).read_text()
     testbench = (
-        root / "contrib/linx/designs/examples/linx_cpu_pyc/tb_linx_cpu_pyc.cpp"
+        root / "integrations/linx/examples/pycircuit/linx_cpu_pyc/tb_linx_cpu_pyc.cpp"
     ).read_text()
     contract = (
-        root / "contrib/linx/designs/examples/linx_cpu_pyc/icall_contract.py"
+        root / "integrations/linx/examples/pycircuit/linx_cpu_pyc/icall_contract.py"
     ).read_text()
     id_stage = (
-        root / "contrib/linx/designs/examples/linx_cpu_pyc/stages/id_stage.py"
+        root / "integrations/linx/examples/pycircuit/linx_cpu_pyc/stages/id_stage.py"
     ).read_text()
     assert "from .decode import decode_window" in contract
     assert contract.count("decode_window(m,") == 2
@@ -363,8 +363,8 @@ def test_ordinary_function_cannot_override_inline_complexity_cap() -> None:
 def test_production_decoders_do_not_publish_a_complexity_override() -> None:
     root = Path(__file__).resolve().parents[2]
     decoders = (
-        root / "contrib/linx/designs/examples/linx_cpu_pyc/decode.py",
-        root / "contrib/linx/designs/examples/linxcore_inorder/decode.py",
+        root / "integrations/linx/examples/pycircuit/linx_cpu_pyc/decode.py",
+        root / "integrations/linx/examples/pycircuit/linxcore_inorder/decode.py",
     )
     for decoder in decoders:
         text = decoder.read_text(encoding="utf-8")

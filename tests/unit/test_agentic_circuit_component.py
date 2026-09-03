@@ -8,7 +8,7 @@ import pytest
 import tomllib
 
 REPOSITORY = Path(__file__).resolve().parents[2]
-AC_ROOT = REPOSITORY / "components" / "agentic-circuit"
+AC_ROOT = REPOSITORY / "python" / "agentic-circuit"
 pytestmark = pytest.mark.unit
 
 
@@ -26,7 +26,7 @@ def test_two_distributions_use_distinct_namespaces_and_bsd_license() -> None:
     assert ac_metadata["license"] == "BSD-3-Clause"
 
     sys.path.insert(0, str(AC_ROOT / "src"))
-    sys.path.insert(0, str(REPOSITORY / "compiler" / "frontend"))
+    sys.path.insert(0, str(REPOSITORY / "python" / "pycircuit" / "src"))
     try:
         pycircuit = importlib.import_module("pycircuit")
         agentic_circuit = importlib.import_module("agentic_circuit")

@@ -72,7 +72,7 @@ Install the Agentic Circuit distribution from the same checkout when using
 ACPy, ACIR, ACSim, or gfsim:
 
 ```bash
-python3 -m pip install -e "components/agentic-circuit[test]"
+python3 -m pip install -e "python/agentic-circuit[test]"
 agentic-circuit --help
 ```
 
@@ -147,9 +147,9 @@ Build the repository counter example for both backends:
 
 ```bash
 export PYC_TOOLCHAIN_ROOT="$PWD/.pycircuit_out/toolchain/install"
-PYTHONPATH=compiler/frontend \
+PYTHONPATH=python/pycircuit/src \
 python3 -m pycircuit.cli build \
-  designs/examples/counter/tb_counter.py \
+  examples/pycircuit/counter/tb_counter.py \
   --out-dir /tmp/pyc_counter \
   --target both \
   --jobs 8
@@ -216,13 +216,15 @@ trace, and gate contracts use `libpyc6_runtime`, `PYC6TRC3`, and
 
 ```text
 pyCircuit/
-├── compiler/frontend/pycircuit/  # Python language frontend
+├── python/pycircuit/src/pycircuit/  # Python language frontend
+├── python/agentic-circuit/       # Agentic Circuit Python distribution
 ├── compiler/mlir/                # pyc dialect, passes, pycc, and emitters
-├── components/agentic-circuit/   # AC frontend, ACIR/ACSim, gfsim, and AC tools
-├── runtime/                      # C++ simulation and Verilog primitives
-├── designs/examples/             # Supported product examples
+├── compiler/acir/                # ACIR/ACSim dialects, passes, and tools
+├── library/                      # pyCircuit C++ and Verilog libraries
+├── simulator/gfsim/             # Agentic Circuit architecture simulator
+├── examples/                     # pyCircuit and Agentic Circuit examples
 ├── flows/                        # Build and validation orchestration
-├── tests/                        # Unit, integration, and system tests
+├── tests/                        # Language- and layer-classified tests
 └── docs/                         # Product and contributor documentation
 ```
 

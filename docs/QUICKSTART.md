@@ -12,16 +12,16 @@ export PYC_TOOLCHAIN_ROOT="$PWD/.pycircuit_out/toolchain/install"
 ## Verify the frontend
 
 ```bash
-PYTHONPATH=compiler/frontend python3 -c \
+PYTHONPATH=python/pycircuit/src python3 -c \
   "from pycircuit import CycleAwareSignal, compile_cycle_aware; print('pyCircuit 6 frontend ready')"
 ```
 
 ## Build the counter project
 
 ```bash
-PYTHONPATH=compiler/frontend \
+PYTHONPATH=python/pycircuit/src \
 python3 -m pycircuit.cli build \
-  designs/examples/counter/tb_counter.py \
+  examples/pycircuit/counter/tb_counter.py \
   --out-dir /tmp/pyc_counter \
   --target both \
   --jobs 8

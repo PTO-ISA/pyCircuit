@@ -1,13 +1,12 @@
 """Static-only contracts for generic vector frontend APIs.
 
-Run with ``MYPYPATH=compiler/frontend python -m mypy tests/typecheck/test_vector_api.py``.
+Run with ``MYPYPATH=python/pycircuit/src python -m mypy tests/typecheck/test_vector_api.py``.
 """
 
 from typing import TYPE_CHECKING
 
 from pycircuit import Circuit, Wire
 from pycircuit.data import Bits, Data, Vector
-
 
 if TYPE_CHECKING:
     m = Circuit("vector_type_contract")

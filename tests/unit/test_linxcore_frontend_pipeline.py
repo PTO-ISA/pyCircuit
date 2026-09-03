@@ -3,7 +3,7 @@ from __future__ import annotations
 import pycircuit
 import pytest
 
-from designs.examples.linxcore_frontend_pipeline.linxcore_frontend_pipeline import (
+from examples.pycircuit.linxcore_frontend_pipeline.linxcore_frontend_pipeline import (
     STAGE_ORDER,
     build,
     reference_split_window,

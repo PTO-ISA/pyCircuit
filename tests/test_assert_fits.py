@@ -11,9 +11,7 @@ supported (the cycle tag is preserved).
 from __future__ import annotations
 
 import pytest
-
 from pycircuit import Circuit, CycleAwareCircuit, cas, compile_cycle_aware, wire_of
-
 
 # --- narrowing: assert(high bits == 0) + trunc ------------------------------
 
@@ -129,7 +127,7 @@ def test_as_range_returns_self_unchanged_width() -> None:
     m = Circuit("t")
     x = m.input("x", width=8)
     y = x.as_(range=(0, 3))
-    assert y is x                       # value/width unchanged; only a contract
+    assert y is x  # value/width unchanged; only a contract
     assert "pyc.assert" in m.emit_mlir()
 
 
@@ -146,7 +144,7 @@ def test_as_range_lower_zero_skips_lo_check() -> None:
 def test_as_range_full_cover_emits_no_assert() -> None:
     m = Circuit("t")
     x = m.input("x", width=4)
-    x.as_(range=(0, 15))                # covers all 4-bit values
+    x.as_(range=(0, 15))  # covers all 4-bit values
     assert "pyc.assert" not in m.emit_mlir()
 
 
@@ -158,7 +156,7 @@ def test_as_range_errors() -> None:
     with pytest.raises(ValueError, match="lower bound must be"):
         x.as_(range=(-1, 3))
     with pytest.raises(ValueError, match="exceeds"):
-        x.as_(range=(0, 99))            # 99 > 15
+        x.as_(range=(0, 99))  # 99 > 15
 
 
 def test_as_values_equivalent_to_manual() -> None:
@@ -204,9 +202,9 @@ def test_as_requires_exactly_one_kind() -> None:
     with pytest.raises(TypeError, match="exactly one"):
         x.as_(width=4, range=(0, 3))
     with pytest.raises(TypeError, match="exactly one"):
-        x.as_(2, width=4)                         # positional value + width
+        x.as_(2, width=4)  # positional value + width
     with pytest.raises(TypeError, match="not both"):
-        x.as_(2, values=[3])                      # positional + values=
+        x.as_(2, values=[3])  # positional + values=
 
 
 def test_as_positional_values_shorthand() -> None:
@@ -267,7 +265,7 @@ def test_cas_as_range_preserves_cycle() -> None:
     d = m.create_domain("clk")
     x = cas(d, m.input("x", width=8))
     y = x.as_(range=(1, 7))
-    assert y is x                       # value unchanged, cycle kept
+    assert y is x  # value unchanged, cycle kept
     assert y.cycle == x.cycle
 
 

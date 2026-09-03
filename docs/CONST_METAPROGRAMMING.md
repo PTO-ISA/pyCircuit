@@ -27,4 +27,3 @@
 - Build immutable `spec.StructSpec` / module-collection specs in `@const`.
 - Derive widths/masks/loop factors in `@const`.
 - Keep hardware emission in `@module` / `@function` only.
-

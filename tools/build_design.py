@@ -6,12 +6,12 @@ Usage:
                                  [--out-dir DIR] [--logic-depth N]
 
 Example:
-    python tools/build_design.py designs.examples.counter.counter build counter \\
-        --kwargs width=8 --out-dir designs/examples/counter/build
+    python tools/build_design.py examples.pycircuit.counter.counter build counter \\
+        --kwargs width=8 --out-dir examples/pycircuit/counter/build
 
-    python tools/build_design.py designs.RegisterFile.regfile build regfile \\
+    python tools/build_design.py designs.blocks.RegisterFile.regfile build regfile \\
         --kwargs ptag_count=32 const_count=8 nr=4 nw=2 \\
-        --out-dir designs/RegisterFile/build
+        --out-dir designs/blocks/RegisterFile/build
 """
 
 from __future__ import annotations
@@ -26,7 +26,8 @@ import time
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(REPO_ROOT / "compiler" / "frontend"))
+sys.path.insert(0, str(REPO_ROOT / "python" / "pycircuit" / "src"))
+sys.path.insert(0, str(REPO_ROOT))
 
 
 def find_pycc() -> Path:
@@ -143,7 +144,8 @@ def compile_and_build(
 def main() -> int:
     parser = argparse.ArgumentParser(description="Build a PyCircuit V6 design")
     parser.add_argument(
-        "module_path", help="Python module path (e.g. designs.examples.counter.counter)"
+        "module_path",
+        help="Python module path (e.g. examples.pycircuit.counter.counter)",
     )
     parser.add_argument("fn_name", help="Build function name")
     parser.add_argument("name", help="Design name")

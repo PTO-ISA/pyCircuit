@@ -16,8 +16,8 @@ repository remains public only until the operational retirement gate closes.
 | Migrated PR #23 merge | `a08618d48b595d67ca7d7e0a1b238ea45e4b80df` |
 
 The import is a non-squash merge. Original Agentic Circuit commits remain
-reachable, while the imported working tree is namespaced under
-`components/agentic-circuit/`.
+reachable. Decision 0157 later replaced the temporary nested workspace with
+the repository's responsibility-based module layout.
 
 The implementation is reviewed in
 [pyCircuit PR #4](https://github.com/PTO-ISA/pyCircuit/pull/4). The migrated

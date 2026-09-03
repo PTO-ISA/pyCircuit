@@ -31,10 +31,7 @@ pyc_toolchain_root() {
     fi
   fi
 
-  local candidates=(
-    "${PYC_ROOT_DIR}/.pycircuit_out/toolchain/install"
-    "${PYC_ROOT_DIR}/dist/pycircuit"
-  )
+  local candidates=("${PYC_ROOT_DIR}/.pycircuit_out/toolchain/install")
   local c=""
   for c in "${candidates[@]}"; do
     if [[ -x "${c}/bin/pycc" || -x "${c}/bin/pycc.exe" ]]; then
@@ -74,21 +71,9 @@ pyc_find_pycc() {
   fi
 
   local candidates=(
-    # Preferred install-tree locations.
+    # Canonical repository-local install tree.
     "${PYC_ROOT_DIR}/.pycircuit_out/toolchain/install/bin/pycc${exe_suffix}"
-    "${PYC_ROOT_DIR}/dist/pycircuit/bin/pycc${exe_suffix}"
-    # Legacy build-tree locations.
-    "${PYC_ROOT_DIR}/compiler/mlir/build2/bin/pycc${exe_suffix}"
-    "${PYC_ROOT_DIR}/build/bin/pycc${exe_suffix}"
-    "${PYC_ROOT_DIR}/compiler/mlir/build/bin/pycc${exe_suffix}"
-    "${PYC_ROOT_DIR}/build-top/bin/pycc${exe_suffix}"
-    # Also allow non-suffixed names in case the environment provides them.
     "${PYC_ROOT_DIR}/.pycircuit_out/toolchain/install/bin/pycc"
-    "${PYC_ROOT_DIR}/dist/pycircuit/bin/pycc"
-    "${PYC_ROOT_DIR}/compiler/mlir/build2/bin/pycc"
-    "${PYC_ROOT_DIR}/build/bin/pycc"
-    "${PYC_ROOT_DIR}/compiler/mlir/build/bin/pycc"
-    "${PYC_ROOT_DIR}/build-top/bin/pycc"
   )
 
   # Pick the newest executable among the common build locations. This avoids
@@ -151,9 +136,9 @@ pyc_pythonpath() {
     return 0
   fi
 
-  # Prefer editable install (`pip install -e .`), but use the in-tree frontend,
-  # designs, and repository modules for repo-local runs.
-  echo "${PYC_ROOT_DIR}/compiler/frontend:${PYC_ROOT_DIR}/designs:${PYC_ROOT_DIR}"
+  # Prefer editable install, but use the canonical in-tree package for
+  # repository-local runs.
+  echo "${PYC_ROOT_DIR}/python/pycircuit/src:${PYC_ROOT_DIR}"
 }
 
 pyc_out_root() {

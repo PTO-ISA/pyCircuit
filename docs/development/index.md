@@ -5,8 +5,9 @@ automatic cycle balancing are current product contracts, not compatibility
 surfaces.
 
 The same repository also owns Agentic Circuit, ACIR/ACSim, and gfsim. Changes
-under `components/agentic-circuit/` follow the AC G0/G1/G2 matrix and must keep
-the separate frontend and IR boundaries defined by Decision 0150.
+under the AC module roots defined by Decision 0157 follow the AC G0/G1/G2
+matrix and keep the separate frontend and IR boundaries defined by Decision
+0150.
 
 ## Core references
 
@@ -54,13 +55,15 @@ bash flows/scripts/run_sims.sh
 
 ```text
 pyCircuit/
-├── compiler/frontend/pycircuit/  # Python frontend
+├── python/pycircuit/src/pycircuit/  # Python frontend
+├── python/agentic-circuit/       # Agentic Circuit Python distribution
 ├── compiler/mlir/                # MLIR dialect, passes, and emitters
-├── components/agentic-circuit/   # AC frontend, ACIR/ACSim, gfsim, and tools
-├── runtime/                      # C++ and Verilog runtime support
-├── designs/examples/             # Supported examples
+├── compiler/acir/                # ACIR/ACSim compiler and tools
+├── library/                      # C++ and Verilog library support
+├── simulator/gfsim/             # Architecture simulator
+├── examples/                     # Supported examples by frontend
 ├── flows/                        # Build and gate orchestration
-├── tests/                        # Test suites
+├── tests/                        # Test suites classified by layer
 └── docs/                         # Product and contributor docs
 ```
 

@@ -36,7 +36,9 @@ def ashr(value: int, width: int, amount: int) -> int:
     return u(s(value, width) >> int(amount), width)
 
 
-def reduce_sum(values: list[int], in_width: int, out_width: int, *, signed: bool = False) -> int:
+def reduce_sum(
+    values: list[int], in_width: int, out_width: int, *, signed: bool = False
+) -> int:
     if signed:
         total = sum(s(v, in_width) for v in values)
     else:
@@ -44,7 +46,9 @@ def reduce_sum(values: list[int], in_width: int, out_width: int, *, signed: bool
     return u(total, out_width)
 
 
-def vector_binop(op: str, a: list[int], b: list[int], width: int, *, signed: bool = False) -> list[int]:
+def vector_binop(
+    op: str, a: list[int], b: list[int], width: int, *, signed: bool = False
+) -> list[int]:
     out: list[int] = []
     for av, bv in zip(a, b):
         au = u(av, width)

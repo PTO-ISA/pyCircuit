@@ -22,6 +22,7 @@ Env:
   PYC_BUILD_DIR             Optional build directory override.
   PYC_INSTALL_PREFIX        Optional install prefix override.
   PYC_BUILD_AGENTIC_CIRCUIT Build/install ACIR, ACSim, gfsim, and AC tools (default: ON).
+  PYC_BUILD_AGENTIC_CIRCUIT_TESTS Build the integrated ACIR test targets (default: OFF).
   PYCC                      Path to pycc (overrides auto-detect).
 EOF
 }
@@ -112,7 +113,7 @@ case "${cmd}" in
       -DLLVM_DIR="${LLVM_DIR}"
       -DMLIR_DIR="${MLIR_DIR}"
       -DPYC_BUILD_AGENTIC_CIRCUIT="${PYC_BUILD_AGENTIC_CIRCUIT:-ON}"
-      -DPYC_BUILD_AGENTIC_CIRCUIT_TESTS=OFF
+      -DPYC_BUILD_AGENTIC_CIRCUIT_TESTS="${PYC_BUILD_AGENTIC_CIRCUIT_TESTS:-OFF}"
     )
     if [[ "${MSYSTEM:-}" == MINGW64* || "${uname_s}" == MINGW* || "${uname_s}" == MSYS* ]]; then
       cmake_args+=(

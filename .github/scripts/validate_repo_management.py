@@ -44,8 +44,29 @@ def main() -> int:
             )
 
     codeowners = read(".github/CODEOWNERS")
+    codeowner_rules = [
+        line.split()
+        for line in codeowners.splitlines()
+        if line.strip() and not line.lstrip().startswith("#")
+    ]
+    expected_codeowners = ["@zhoubot", "@xiekunpeng"]
     require(
-        "* @PTO-ISA/" in codeowners, "CODEOWNERS must assign a PTO-ISA team", errors
+        any(
+            rule[0] == "*" and rule[1:] == expected_codeowners
+            for rule in codeowner_rules
+        ),
+        "CODEOWNERS must assign the default owners @zhoubot and @xiekunpeng",
+        errors,
+    )
+    require(
+        all(rule[1:] == expected_codeowners for rule in codeowner_rules),
+        "every CODEOWNERS rule must assign @zhoubot and @xiekunpeng",
+        errors,
+    )
+    require(
+        "@PTO-ISA/pycircuit-maintainers" not in codeowners,
+        "CODEOWNERS must not retain the legacy maintainer team",
+        errors,
     )
 
     ci = read(".github/workflows/ci.yml")

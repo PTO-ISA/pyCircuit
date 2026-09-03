@@ -48,7 +48,9 @@ def _normalize_arch(system: str, arch: str | None = None) -> str:
 
 
 def _macos_target(arch: str, deployment_target: str | None = None) -> tuple[str, str]:
-    target = (deployment_target or os.environ.get("MACOSX_DEPLOYMENT_TARGET", "")).strip()
+    target = (
+        deployment_target or os.environ.get("MACOSX_DEPLOYMENT_TARGET", "")
+    ).strip()
     if not target:
         target = "11.0" if arch == "arm64" else "10.13"
     parts = (target.split(".") + ["0", "0"])[:2]
@@ -56,7 +58,10 @@ def _macos_target(arch: str, deployment_target: str | None = None) -> tuple[str,
 
 
 def wheel_plat_name(
-    *, system: str | None = None, arch: str | None = None, deployment_target: str | None = None
+    *,
+    system: str | None = None,
+    arch: str | None = None,
+    deployment_target: str | None = None,
 ) -> str:
     normalized_system = _normalize_system(system)
     normalized_arch = _normalize_arch(normalized_system, arch)
