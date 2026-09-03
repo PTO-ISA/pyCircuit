@@ -14,7 +14,8 @@ Environment: the repository-local GCC 14, LLVM 22, CMake, and Python paths from
 - CTest reported `No tests were found`; ran the three C++ binaries directly:
   1845 + 224 + 86 tests passed.
 - Ran `tests/e2e/test_table_backend.py` with explicit current-build paths for
-  opt, plan, native C++ generation, and PYC generation (4 passed).
+  opt, plan, native C++ generation, and PYC generation (5 passed), including
+  the minimal batch-wakeup example.
 - Parsed and compiled the uniform complete-Entry masked write fixture through
   both direct and native C++ generators.
 - Ran `acir-opt` directly on the positive Table IR and the extracted

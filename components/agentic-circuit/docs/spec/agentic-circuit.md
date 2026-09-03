@@ -516,7 +516,9 @@ lowering is deferred and rejects the graph with `unsupported provisional
 Table`. Request/response storage remains `ac.memory`; legacy `ac.table(...)`
 has been removed. Executable examples include
 [`table_scoreboard.py`](../../examples/state/table_scoreboard.py) and
-[`table_masked_update.py`](../../examples/state/table_masked_update.py).
+[`table_masked_update.py`](../../examples/state/table_masked_update.py). The
+minimal Issue Queue wakeup form is
+[`table_batch_wakeup.py`](../../examples/state/table_batch_wakeup.py).
 
 ### Reorder
 

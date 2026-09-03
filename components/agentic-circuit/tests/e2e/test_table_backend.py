@@ -12,9 +12,72 @@ import unittest
 ROOT = Path(__file__).resolve().parents[2]
 SOURCE = ROOT / "examples/state/table_scoreboard.py"
 MASKED_SOURCE = ROOT / "examples/state/table_masked_update.py"
+WAKEUP_SOURCE = ROOT / "examples/state/table_batch_wakeup.py"
 
 
 class TableBackendTest(unittest.TestCase):
+    def test_batch_wakeup_example_generates_both_cpp_paths(self) -> None:
+        compiler = shutil.which("c++")
+        if compiler is None:
+            self.skipTest("C++ compiler is unavailable")
+
+        from agentic_circuit._queue_codegen import lower_queue_program_to_cpp
+        from agentic_circuit._queue_frontend import (
+            lower_queue_source,
+            parse_queue_program,
+        )
+
+        text = WAKEUP_SOURCE.read_text(encoding="utf-8")
+        acir = lower_queue_source(text, "table_batch_wakeup")
+        self.assertIn("ac.table.match @issue", acir)
+        self.assertIn("ac.table.masked_write @issue", acir)
+
+        generated = [
+            (
+                "direct",
+                lower_queue_program_to_cpp(
+                    parse_queue_program(text, "table_batch_wakeup")
+                ),
+            )
+        ]
+        cxxgen = Path(
+            os.environ.get(
+                "ACIR_QUEUE_CXXGEN", ROOT / "build/dev-llvm22/bin/acir-queue-cxxgen"
+            )
+        )
+        if cxxgen.is_file():
+            with tempfile.TemporaryDirectory() as directory:
+                source = Path(directory) / "wakeup.mlir"
+                source.write_text(acir, encoding="utf-8")
+                native = subprocess.run(
+                    (str(cxxgen), str(source)),
+                    text=True,
+                    capture_output=True,
+                    check=False,
+                )
+                self.assertEqual(0, native.returncode, native.stderr)
+                generated.append(("native", native.stdout))
+
+        for variant, model_text in generated:
+            self.assertIn("gfsim::TableMaskedWriteSource<Entry", model_text)
+            with tempfile.TemporaryDirectory() as directory:
+                source = Path(directory) / f"{variant}.cpp"
+                source.write_text(model_text, encoding="utf-8")
+                compiled = subprocess.run(
+                    (
+                        compiler,
+                        "-std=c++20",
+                        "-fsyntax-only",
+                        "-I",
+                        str(ROOT / "include"),
+                        str(source),
+                    ),
+                    text=True,
+                    capture_output=True,
+                    check=False,
+                )
+                self.assertEqual(0, compiled.returncode, compiled.stderr)
+
     def test_masked_update_direct_and_native_generators_compile_and_run(self) -> None:
         compiler = shutil.which("c++")
         if compiler is None:

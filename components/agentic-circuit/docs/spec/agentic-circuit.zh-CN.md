@@ -387,7 +387,9 @@ masked `patch` 的字段可以是统一表达式，也可以是从各命中 old 
 `unsupported provisional Table` 诊断。旧 `ac.table(...)` 已删除，请求响应存储继续
 使用 `ac.memory`。纵向示例见
 [`table_scoreboard.py`](../../examples/state/table_scoreboard.py) 与
-[`table_masked_update.py`](../../examples/state/table_masked_update.py)。
+[`table_masked_update.py`](../../examples/state/table_masked_update.py)；最小的
+Issue Queue 批量唤醒形式见
+[`table_batch_wakeup.py`](../../examples/state/table_batch_wakeup.py)。
 
 ### Credit
 

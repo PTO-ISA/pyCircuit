@@ -16,9 +16,11 @@ atomically.
   IR coverage ledger include `ac.table.masked_write`.
 - C++ units: `ACIROpsTests` 1845, `GfsimTests` 224, and `CodeGenTests` 86 tests
   passed (2155 total).
-- Table end-to-end: 4 tests passed. The masked example compiled and ran through
+- Table end-to-end: 5 tests passed. The masked example compiled and ran through
   both the Python direct generator and native QueueGraph C++ generator; the
   existing scalar Table scoreboard stayed green.
+- The minimal batch-wakeup example lowered to a masked Table write and compiled
+  through both direct and native C++ generators.
 - A uniform complete-Entry masked `write` fixture parsed through `acir-opt` and
   compiled through both direct and native C++ generators.
 - The native PYC generator rejected the masked fixture with the stable

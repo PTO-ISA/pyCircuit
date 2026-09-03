@@ -20,3 +20,8 @@ patch, and release without same-cycle refill.
 `table_masked_update.py` uses a same-Table `CandidateSet` to patch every
 matching Entry atomically. Each patched value is computed from that Entry's
 old committed value and the complete mask commits at one tick edge.
+
+`table_batch_wakeup.py` is the smallest Issue Queue wakeup example. One
+completion tag matches every waiting Entry, and one masked patch marks all
+matches ready. The zero-initialized example therefore models four entries
+waiting for tag zero without introducing an allocation writer.
