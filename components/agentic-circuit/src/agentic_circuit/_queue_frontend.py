@@ -298,6 +298,8 @@ class TableWriteBinding:
     enable: ast.expr
     value: ast.expr | None
     patch_fields: tuple[tuple[str, ast.expr], ...]
+    write_fields: tuple[str, ...]
+    write_mode: str
     scope: tuple[str, ...]
     order: int
 
@@ -309,6 +311,8 @@ class MaskedTableWriteBinding:
     enable: ast.expr
     value: ast.expr | None
     patch_fields: tuple[tuple[str, ast.expr], ...]
+    write_fields: tuple[str, ...]
+    write_mode: str
     scope: tuple[str, ...]
     order: int
 
@@ -898,6 +902,44 @@ def parse_queue_program(
 
     def call_name(call: ast.Call) -> str:
         return _decorator_name(call.func).rsplit(".", 1)[-1]
+
+    def normalized_write_fields(
+        table: TableBinding,
+        value: ast.expr | None,
+        patch_fields: tuple[tuple[str, ast.expr], ...],
+    ) -> tuple[str, ...]:
+        payload_name = table.entry_type.removeprefix(
+            "!ac.struct<@types::@"
+        ).removesuffix(">")
+        declaration = payload_map.get(payload_name)
+        if declaration is None:
+            return ("$entry",)
+        declared = tuple(name for name, _ in declaration.fields)
+        if value is not None:
+            return declared
+        requested = {name for name, _ in patch_fields}
+        return tuple(name for name in declared if name in requested)
+
+    def reject_overlapping_table_writer(
+        table: str, write_fields: tuple[str, ...], write_mode: str
+    ) -> None:
+        requested = set(write_fields)
+        for write in (*table_writes, *masked_table_writes):
+            if write.table != table:
+                continue
+            if write_mode == "replace" or write.write_mode == "replace":
+                if write_mode == write.write_mode == "replace":
+                    raise QueueFrontendError(
+                        "ACPY-TABLE-009: table permits one allocation endpoint"
+                    )
+                continue
+            overlap = requested.intersection(write.write_fields)
+            if overlap:
+                field = min(overlap)
+                raise QueueFrontendError(
+                    "ACPY-TABLE-004: table write field "
+                    f"'{field}' has multiple endpoints"
+                )
 
     def table_declaration(call: ast.Call) -> tuple[int, str] | None:
         if not isinstance(call.func, ast.Subscript):
@@ -1678,13 +1720,17 @@ def parse_queue_program(
                 isinstance(statement, ast.Expr)
                 and isinstance(statement.value, ast.Call)
                 and isinstance(statement.value.func, ast.Attribute)
-                and statement.value.func.attr in {"write", "patch"}
+                and statement.value.func.attr in {"write", "patch", "allocate"}
             ):
                 call = statement.value
                 view = resolve_view(call.func.value, scope_path, current_order)
                 if view is not None:
                     method = call.func.attr
                     if isinstance(view, MaskedEntryViewBinding):
+                        if method == "allocate":
+                            raise QueueFrontendError(
+                                "ACPY-TABLE-009: allocation requires a scalar view"
+                            )
                         if call.args:
                             raise QueueFrontendError(
                                 "ACPY-TABLE-008: masked write/patch is state-driven "
@@ -1792,17 +1838,17 @@ def parse_queue_program(
                                     "ACPY-TABLE-008: masked patch requires at least "
                                     "one field"
                                 )
+                            if len({name for name, _ in patches}) != len(patches):
+                                raise QueueFrontendError(
+                                    "ACPY-TABLE-008: masked patch field is repeated"
+                                )
                             patch_fields = tuple(patches)
-                        if any(
-                            write.table == view.table for write in table_writes
-                        ) or any(
-                            write.table == view.table
-                            for write in masked_table_writes
-                        ):
-                            raise QueueFrontendError(
-                                "ACPY-TABLE-004: table permits one write/patch "
-                                "endpoint"
-                            )
+                        write_fields = normalized_write_fields(
+                            table, value, patch_fields
+                        )
+                        reject_overlapping_table_writer(
+                            view.table, write_fields, "field"
+                        )
                         masked_table_writes.append(
                             MaskedTableWriteBinding(
                                 view.table,
@@ -1810,12 +1856,18 @@ def parse_queue_program(
                                 enable,
                                 value,
                                 patch_fields,
+                                write_fields,
+                                "field",
                                 scope_path,
                                 current_order,
                             )
                         )
                         continue
                     queue_driven = view.argument is not None
+                    if method == "allocate" and queue_driven:
+                        raise QueueFrontendError(
+                            "ACPY-TABLE-009: allocation must be state-driven"
+                        )
                     if len(call.args) != (1 if queue_driven else 0):
                         raise QueueFrontendError(
                             "ACPY-TABLE-004: Queue-driven table write/patch requires "
@@ -1859,14 +1911,15 @@ def parse_queue_program(
                     value: ast.expr | None = None
                     patch_fields: tuple[tuple[str, ast.expr], ...] = ()
                     table = table_by_name[view.table]
-                    if method == "write":
+                    if method in {"write", "allocate"}:
                         if any(
                             keyword.arg is None
                             or keyword.arg not in {"value", "enable"}
                             for keyword in call.keywords
                         ):
                             raise QueueFrontendError(
-                                "ACPY-TABLE-004: write accepts only value and enable"
+                                "ACPY-TABLE-004: write/allocation accepts only "
+                                "value and enable"
                             )
                         values = [
                             keyword.value
@@ -1875,7 +1928,7 @@ def parse_queue_program(
                         ]
                         if len(values) != 1:
                             raise QueueFrontendError(
-                                "ACPY-TABLE-004: write requires one value lambda"
+                                "ACPY-TABLE-004: write/allocation requires one value"
                             )
                         if queue_driven:
                             assert argument is not None
@@ -1931,15 +1984,18 @@ def parse_queue_program(
                             raise QueueFrontendError(
                                 "ACPY-TABLE-004: patch requires at least one field"
                             )
+                        if len({name for name, _ in patches}) != len(patches):
+                            raise QueueFrontendError(
+                                "ACPY-TABLE-004: patch field is repeated"
+                            )
                         patch_fields = tuple(patches)
-                    if any(
-                        write.table == view.table for write in table_writes
-                    ) or any(
-                        write.table == view.table for write in masked_table_writes
-                    ):
-                        raise QueueFrontendError(
-                            "ACPY-TABLE-004: table permits one write/patch endpoint"
-                        )
+                    write_fields = normalized_write_fields(
+                        table, value, patch_fields
+                    )
+                    write_mode = "replace" if method == "allocate" else "field"
+                    reject_overlapping_table_writer(
+                        view.table, write_fields, write_mode
+                    )
                     table_writes.append(
                         TableWriteBinding(
                             view.table,
@@ -1949,6 +2005,8 @@ def parse_queue_program(
                             enable,
                             value,
                             patch_fields,
+                            write_fields,
+                            write_mode,
                             scope_path,
                             current_order,
                         )
@@ -3948,6 +4006,8 @@ class _ExpressionEmitter:
         slot_views: Mapping[str, tuple[str, str]] | None = None,
         candidates: Mapping[str, CandidateSetBinding] | None = None,
         selections: Mapping[str, SelectionBinding] | None = None,
+        candidate_values: Mapping[str, tuple[str, str]] | None = None,
+        selection_values: Mapping[str, tuple[str, str, str, str]] | None = None,
         table_domains: Mapping[str, tuple[str, int]] | None = None,
     ) -> None:
         self.payloads = payloads
@@ -3960,6 +4020,8 @@ class _ExpressionEmitter:
         self.slot_views = dict(slot_views or {})
         self.candidates = dict(candidates or {})
         self.selections = dict(selections or {})
+        self.candidate_values = dict(candidate_values or {})
+        self.selection_values = dict(selection_values or {})
         self.table_domains = dict(table_domains or {})
         self.lines: list[str] = []
         self.index = 0
@@ -3972,6 +4034,8 @@ class _ExpressionEmitter:
     def emit(self, node: ast.expr, expected: str | None = None) -> tuple[str, str]:
         if isinstance(node, ast.Name) and node.id == self.argument:
             return self.root_name, self.payload
+        if isinstance(node, ast.Name) and node.id in self.candidate_values:
+            return self.candidate_values[node.id]
         if isinstance(node, ast.Name) and node.id in self.candidates:
             candidate = self.candidates[node.id]
             domain = self.table_domains.get(candidate.table)
@@ -4021,6 +4085,16 @@ class _ExpressionEmitter:
                 f"!ac.var<{index_type}> -> !ac.var<{entry_type}>"
             )
             return name, entry_type
+        if (
+            isinstance(node, ast.Attribute)
+            and isinstance(node.value, ast.Name)
+            and node.value.id in self.selection_values
+            and node.attr in {"index", "valid"}
+        ):
+            index, index_type, valid, valid_type = self.selection_values[
+                node.value.id
+            ]
+            return (index, index_type) if node.attr == "index" else (valid, valid_type)
         if (
             isinstance(node, ast.Attribute)
             and isinstance(node.value, ast.Name)
@@ -4404,6 +4478,8 @@ def lower_queue_program(program: QueueProgram) -> str:
     table_domains = {
         table.name: (table.entry_type, table.entries) for table in program.tables
     }
+    materialized_candidates: dict[str, tuple[str, str]] = {}
+    materialized_selections: dict[str, tuple[str, str, str, str]] = {}
     queue_scope = {name: queue.scope for name, queue in by_name.items()}
     effective_input: dict[str, str] = {}
     for source_name, (fanout_scope, group) in fanouts.items():
@@ -4620,6 +4696,16 @@ def lower_queue_program(program: QueueProgram) -> str:
             if read.scope == path
         )
         events.extend(
+            (candidate.order, "table_match", candidate)
+            for candidate in program.candidates
+            if candidate.scope == path
+        )
+        events.extend(
+            (selection.order, "table_choose", selection)
+            for selection in program.selections
+            if selection.scope == path
+        )
+        events.extend(
             (write.order, "table_write", write)
             for write in program.table_writes
             if write.scope == path
@@ -4674,6 +4760,90 @@ def lower_queue_program(program: QueueProgram) -> str:
                 assert isinstance(queue, QueueBinding)
                 output = queue.name if not path else f"{queue.name}__local"
                 emit_queue(queue, output, mapping, indent)
+            elif kind == "table_match":
+                candidate = item
+                assert isinstance(candidate, CandidateSetBinding)
+                table = next(
+                    value for value in program.tables if value.name == candidate.table
+                )
+                emitter = _ExpressionEmitter(
+                    payloads,
+                    candidate.argument,
+                    table.entry_type,
+                    root_name="entry",
+                    prefix=f"match_{candidate.order}_",
+                    slot_views=slot_views,
+                )
+                predicate, predicate_type = emitter.emit(candidate.predicate, "i1")
+                if predicate_type != "i1":
+                    raise QueueFrontendError(
+                        "ACPY-TABLE-006: match predicate must lower to i1"
+                    )
+                result = f"table_match_{candidate.order}"
+                lines.append(
+                    f"{indent}%{result} = ac.table.match @{candidate.table} "
+                    "predicate {"
+                )
+                lines.append(
+                    f"{indent}^predicate(%entry: !ac.var<{table.entry_type}>):"
+                )
+                lines.extend(indent + line[2:] for line in emitter.lines)
+                lines.append(
+                    f"{indent}  ac.table.match.yield %{predicate} : !ac.var<i1>"
+                )
+                lines.append(f"{indent}}} -> !ac.var<i{table.entries}>")
+                materialized_candidates[candidate.name] = (
+                    result,
+                    f"i{table.entries}",
+                )
+            elif kind == "table_choose":
+                selection = item
+                assert isinstance(selection, SelectionBinding)
+                table = next(
+                    value for value in program.tables if value.name == selection.table
+                )
+                mask, mask_type = materialized_candidates[selection.candidates]
+                index = f"table_choose_{selection.order}_index"
+                valid = f"table_choose_{selection.order}_valid"
+                index_type = f"i{max(1, (table.entries - 1).bit_length())}"
+                if selection.policy == "first":
+                    key_region = "{}"
+                else:
+                    assert selection.argument is not None and selection.key is not None
+                    emitter = _ExpressionEmitter(
+                        payloads,
+                        selection.argument,
+                        table.entry_type,
+                        root_name="entry",
+                        prefix=f"choose_{selection.order}_",
+                    )
+                    key, key_type = emitter.emit(selection.key)
+                    if not key_type.startswith("i"):
+                        raise QueueFrontendError(
+                            "ACPY-TABLE-007: choose key must lower to an integer"
+                        )
+                    key_lines = ["{"]
+                    key_lines.append(
+                        f"{indent}^key(%entry: !ac.var<{table.entry_type}>):"
+                    )
+                    key_lines.extend(indent + line[2:] for line in emitter.lines)
+                    key_lines.append(
+                        f"{indent}  ac.table.choose.yield %{key} : !ac.var<{key_type}>"
+                    )
+                    key_lines.append(f"{indent}}}")
+                    key_region = "\n".join(key_lines)
+                lines.append(
+                    f"{indent}%{index}, %{valid} = ac.table.choose "
+                    f"@{selection.table} %{mask} : !ac.var<{mask_type}> count 1 "
+                    f'policy "{selection.policy}" key {key_region} -> '
+                    f"!ac.var<{index_type}>, !ac.var<i1>"
+                )
+                materialized_selections[selection.name] = (
+                    index,
+                    index_type,
+                    valid,
+                    "i1",
+                )
             elif kind == "scope":
                 scope = item
                 assert isinstance(scope, ScopeBinding)
@@ -5057,7 +5227,15 @@ def lower_queue_program(program: QueueProgram) -> str:
                     else {}
                 )
                 address_emitter = _ExpressionEmitter(
-                    payloads, argument, input_payload
+                    payloads,
+                    argument,
+                    input_payload,
+                    slot_views=slot_views,
+                    candidates=candidate_views,
+                    selections=selection_views,
+                    candidate_values=materialized_candidates,
+                    selection_values=materialized_selections,
+                    table_domains=table_domains,
                 )
                 address, address_type = address_emitter.emit(read.address)
                 when_emitter = _ExpressionEmitter(
@@ -5065,6 +5243,12 @@ def lower_queue_program(program: QueueProgram) -> str:
                     argument,
                     input_payload,
                     table_views=table_views,
+                    slot_views=slot_views,
+                    candidates=candidate_views,
+                    selections=selection_views,
+                    candidate_values=materialized_candidates,
+                    selection_values=materialized_selections,
+                    table_domains=table_domains,
                 )
                 condition, condition_type = when_emitter.emit(read.when, "i1")
                 if not address_type.startswith("i") or condition_type != "i1":
@@ -5119,12 +5303,16 @@ def lower_queue_program(program: QueueProgram) -> str:
                 address_emitter = _ExpressionEmitter(
                     payloads, argument, input_payload, slot_views=slot_views,
                     candidates=candidate_views, selections=selection_views,
+                    candidate_values=materialized_candidates,
+                    selection_values=materialized_selections,
                     table_domains=table_domains,
                 )
                 address, address_type = address_emitter.emit(write.address)
                 enable_emitter = _ExpressionEmitter(
                     payloads, argument, input_payload, slot_views=slot_views,
                     candidates=candidate_views, selections=selection_views,
+                    candidate_values=materialized_candidates,
+                    selection_values=materialized_selections,
                     table_domains=table_domains,
                 )
                 enabled, enable_type = enable_emitter.emit(write.enable, "i1")
@@ -5138,6 +5326,8 @@ def lower_queue_program(program: QueueProgram) -> str:
                     slot_views=slot_views,
                     candidates=candidate_views,
                     selections=selection_views,
+                    candidate_values=materialized_candidates,
+                    selection_values=materialized_selections,
                     table_domains=table_domains,
                 )
                 if write.value is not None:
@@ -5176,7 +5366,9 @@ def lower_queue_program(program: QueueProgram) -> str:
                         else f", %{mapping[write.input_name]} : "
                         f"!ac.queue<{input_payload}>"
                     )
-                    + " address {"
+                    + f' mode "{write.write_mode}" write_fields ['
+                    + ", ".join(f'\"{field}\"' for field in write.write_fields)
+                    + "] address {"
                 )
                 block_argument = (
                     ""
@@ -5202,7 +5394,20 @@ def lower_queue_program(program: QueueProgram) -> str:
                         f"{indent}  ac.table.yield %{policy_value} : "
                         f"!ac.var<{policy_type}>"
                     )
-                endpoint_name = f"{write.table}__write"
+                endpoint_base = (
+                    f"{write.table}__allocate"
+                    if write.write_mode == "replace"
+                    else f"{write.table}__write"
+                )
+                prior_writes = sum(
+                    candidate.table == write.table
+                    and candidate.write_mode == write.write_mode
+                    and candidate.order < write.order
+                    for candidate in program.table_writes
+                )
+                endpoint_name = endpoint_base + (
+                    "" if prior_writes == 0 else f"_{prior_writes}"
+                )
                 lines.append(
                     f'{indent}}} {{ac.endpoint_path = "'
                     f'{"/" + "/".join((*write.scope, endpoint_name))}", '
@@ -5218,9 +5423,11 @@ def lower_queue_program(program: QueueProgram) -> str:
                     payloads,
                     "",
                     table.entry_type,
-                    prefix="mask_",
+                    prefix=f"mask_{write.order}_",
                     slot_views=slot_views,
                     candidates=candidate_views,
+                    candidate_values=materialized_candidates,
+                    selection_values=materialized_selections,
                     table_domains=table_domains,
                 )
                 mask, mask_type = mask_emitter.emit(
@@ -5234,6 +5441,8 @@ def lower_queue_program(program: QueueProgram) -> str:
                     slot_views=slot_views,
                     candidates=candidate_views,
                     selections=selection_views,
+                    candidate_values=materialized_candidates,
+                    selection_values=materialized_selections,
                     table_domains=table_domains,
                 )
                 enabled, enable_type = enable_emitter.emit(write.enable, "i1")
@@ -5246,6 +5455,8 @@ def lower_queue_program(program: QueueProgram) -> str:
                     slot_views=slot_views,
                     candidates=candidate_views,
                     selections=selection_views,
+                    candidate_values=materialized_candidates,
+                    selection_values=materialized_selections,
                     table_domains=table_domains,
                 )
                 if write.value is not None:
@@ -5280,7 +5491,9 @@ def lower_queue_program(program: QueueProgram) -> str:
                 lines.extend(indent + line[2:] for line in mask_emitter.lines)
                 lines.append(
                     f"{indent}ac.table.masked_write @{write.table} %{mask} : "
-                    f"!ac.var<{mask_type}> enable {{"
+                    f'!ac.var<{mask_type}> mode "field" write_fields ['
+                    + ", ".join(f'\"{field}\"' for field in write.write_fields)
+                    + "] enable {"
                 )
                 lines.append(f"{indent}^enable:")
                 lines.extend(indent + line[2:] for line in enable_emitter.lines)
@@ -5296,7 +5509,13 @@ def lower_queue_program(program: QueueProgram) -> str:
                     f"{indent}  ac.table.yield %{value} : "
                     f"!ac.var<{value_type}>"
                 )
-                endpoint_name = f"{write.table}__masked_write"
+                prior_writes = sum(
+                    candidate.table == write.table and candidate.order < write.order
+                    for candidate in program.masked_table_writes
+                )
+                endpoint_name = f"{write.table}__masked_write" + (
+                    "" if prior_writes == 0 else f"_{prior_writes}"
+                )
                 lines.append(
                     f'{indent}}} {{ac.endpoint_path = "'
                     f'{"/" + "/".join((*write.scope, endpoint_name))}", '
@@ -5327,6 +5546,8 @@ def lower_queue_program(program: QueueProgram) -> str:
                     slot_views=slot_views,
                     candidates=candidate_views,
                     selections=selection_views,
+                    candidate_values=materialized_candidates,
+                    selection_values=materialized_selections,
                     table_domains=table_domains,
                 )
                 condition, condition_type = emitter.emit(release.when, "i1")

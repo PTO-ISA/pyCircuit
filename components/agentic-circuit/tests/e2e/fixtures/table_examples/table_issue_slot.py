@@ -1,4 +1,4 @@
-"""Epoch 0.4 slot -> match -> choose -> state patch prototype."""
+"""E2E fixture for committed Issue-slot Table state."""
 
 import agentic_circuit as ac
 

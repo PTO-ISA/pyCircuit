@@ -13,6 +13,7 @@
 #include <limits>
 #include <map>
 #include <optional>
+#include <span>
 #include <tuple>
 #include <utility>
 #include <vector>
@@ -855,9 +856,120 @@ private:
   bool fired_ = false;
 };
 
+template <typename Entry> struct TableFullEntryMerge {
+  static constexpr std::array<size_t, 1> fields{0};
+  void operator()(Entry &target, const Entry &value) const { target = value; }
+};
+
+enum class TableWriteMode : uint8_t { FieldMerge, Replace };
+
+template <typename Policy, typename... Args>
+concept TablePolicyInvocable = std::invocable<const Policy &, Epoch, Args...> ||
+                               std::invocable<const Policy &, Args...>;
+
+template <typename Policy, typename... Args>
+  requires TablePolicyInvocable<Policy, Args...>
+decltype(auto) invokeTablePolicy(const Policy &policy, Epoch epoch,
+                                 Args &&...args) {
+  if constexpr (std::invocable<const Policy &, Epoch, Args...>)
+    return std::invoke(policy, epoch, std::forward<Args>(args)...);
+  else
+    return std::invoke(policy, std::forward<Args>(args)...);
+}
+
+template <typename Policy, typename... Args>
+using TablePolicyResult =
+    decltype(invokeTablePolicy(std::declval<const Policy &>(),
+                               std::declval<Epoch>(), std::declval<Args>()...));
+
+struct TableSelectionResult {
+  size_t index = 0;
+  bool valid = false;
+};
+
+template <typename Entry> class SimTable;
+
+template <typename Entry, typename Predicate> class TableMatchCache {
+public:
+  TableMatchCache(SimTable<Entry> &table, Predicate predicate = {})
+      : table_(table), predicate_(std::move(predicate)) {}
+
+  uint64_t get(Epoch epoch) const {
+    if (epoch_ && *epoch_ == epoch)
+      return mask_;
+    mask_ = 0;
+    for (size_t index = 0; index < table_.size(); ++index)
+      if (static_cast<bool>(
+              std::invoke(std::as_const(predicate_), table_.at(index))))
+        mask_ |= uint64_t{1} << index;
+    epoch_ = epoch;
+    return mask_;
+  }
+
+  void reset() {
+    epoch_.reset();
+    mask_ = 0;
+  }
+
+private:
+  SimTable<Entry> &table_;
+  [[no_unique_address]] Predicate predicate_;
+  mutable std::optional<Epoch> epoch_;
+  mutable uint64_t mask_ = 0;
+};
+
+enum class TableChoosePolicy : uint8_t { First, Min, Max };
+
+template <typename Entry, typename Mask, typename Key>
+class TableSelectionCache {
+public:
+  TableSelectionCache(SimTable<Entry> &table, Mask mask, Key key = {},
+                      TableChoosePolicy policy = TableChoosePolicy::First)
+      : table_(table), mask_(std::move(mask)), key_(std::move(key)),
+        policy_(policy) {}
+
+  TableSelectionResult get(Epoch epoch) const {
+    if (epoch_ && *epoch_ == epoch)
+      return result_;
+    result_ = {};
+    const uint64_t mask = static_cast<uint64_t>(std::invoke(mask_, epoch));
+    uint64_t best = 0;
+    for (size_t index = 0; index < table_.size(); ++index) {
+      if ((mask & (uint64_t{1} << index)) == 0)
+        continue;
+      if (policy_ == TableChoosePolicy::First) {
+        result_ = {index, true};
+        break;
+      }
+      const uint64_t key = static_cast<uint64_t>(
+          std::invoke(std::as_const(key_), table_.at(index)));
+      if (!result_.valid ||
+          (policy_ == TableChoosePolicy::Min ? key < best : key > best)) {
+        result_ = {index, true};
+        best = key;
+      }
+    }
+    epoch_ = epoch;
+    return result_;
+  }
+
+  void reset() {
+    epoch_.reset();
+    result_ = {};
+  }
+
+private:
+  SimTable<Entry> &table_;
+  [[no_unique_address]] Mask mask_;
+  [[no_unique_address]] Key key_;
+  TableChoosePolicy policy_;
+  mutable std::optional<Epoch> epoch_;
+  mutable TableSelectionResult result_;
+};
+
 /// A one-dimensional committed-state table. Reads observe only committed
-/// state; the sole QueueTableWrite endpoint installs at most one proposal and
-/// commits it during the tick transfer phase.
+/// state. Writer-specific field proposals are merged from the same committed
+/// snapshot and published together during the tick transfer phase.
 template <typename Entry> class SimTable final : public SimObject {
 public:
   static constexpr std::string_view contractName = "ac.table";
@@ -880,15 +992,19 @@ public:
     }
     return committed_[index];
   }
-  bool proposeWrite(size_t index, Entry value) {
-    if (index >= committed_.size() || pending_)
-      return false;
-    pending_.emplace();
-    pending_->emplace_back(index, std::move(value));
-    return true;
+  template <typename Merge>
+  bool proposeWrite(ObjectId writerId, size_t index, Entry value,
+                    std::span<const size_t> fields, Merge merge,
+                    TableWriteMode mode = TableWriteMode::FieldMerge) {
+    return proposeMaskedWrite(writerId, {{index, std::move(value)}}, fields,
+                              std::move(merge), mode);
   }
-  bool proposeMaskedWrite(std::vector<std::pair<size_t, Entry>> values) {
-    if (pending_)
+  template <typename Merge>
+  bool proposeMaskedWrite(ObjectId writerId,
+                          std::vector<std::pair<size_t, Entry>> values,
+                          std::span<const size_t> fields, Merge merge,
+                          TableWriteMode mode = TableWriteMode::FieldMerge) {
+    if (pending_.contains(writerId) || fields.empty())
       return false;
     std::vector<bool> seen(committed_.size());
     for (const auto &[index, value] : values) {
@@ -897,27 +1013,77 @@ public:
         return false;
       seen[index] = true;
     }
-    pending_ = std::move(values);
+    std::vector<size_t> normalizedFields(fields.begin(), fields.end());
+    std::sort(normalizedFields.begin(), normalizedFields.end());
+    if (std::adjacent_find(normalizedFields.begin(), normalizedFields.end()) !=
+        normalizedFields.end())
+      return false;
+    for (const auto &[otherId, proposal] : pending_) {
+      (void)otherId;
+      if (mode == TableWriteMode::Replace &&
+          proposal.mode == TableWriteMode::Replace)
+        return false;
+      if (mode == TableWriteMode::FieldMerge &&
+          proposal.mode == TableWriteMode::FieldMerge)
+        for (size_t field : normalizedFields)
+          if (std::binary_search(proposal.fields.begin(), proposal.fields.end(),
+                                 field))
+            return false;
+    }
+    PendingProposal proposal;
+    proposal.values = std::move(values);
+    proposal.fields = std::move(normalizedFields);
+    proposal.mode = mode;
+    proposal.merge = [merge = std::move(merge)](Entry &target,
+                                                const Entry &value) {
+      std::invoke(merge, target, value);
+    };
+    pending_.emplace(writerId, std::move(proposal));
+    return true;
+  }
+  bool initializeEntry(size_t index, Entry value) {
+    if (!pending_.empty() || index >= committed_.size())
+      return false;
+    committed_[index] = std::move(value);
     return true;
   }
   void commitWrite() {
-    if (!pending_)
+    if (pending_.empty())
       return;
-    for (auto &[index, value] : *pending_)
-      committed_[index] = std::move(value);
-    pending_.reset();
+    std::vector<Entry> next = committed_;
+    for (TableWriteMode mode :
+         {TableWriteMode::FieldMerge, TableWriteMode::Replace})
+      for (const auto &[writerId, proposal] : pending_) {
+        (void)writerId;
+        if (proposal.mode != mode)
+          continue;
+        for (const auto &[index, value] : proposal.values)
+          if (mode == TableWriteMode::Replace)
+            next[index] = value;
+          else
+            proposal.merge(next[index], value);
+      }
+    committed_ = std::move(next);
+    pending_.clear();
   }
-  void cancelWrite() { pending_.reset(); }
+  void cancelWrite(ObjectId writerId) { pending_.erase(writerId); }
+  void cancelWrite() { pending_.clear(); }
   void reset() override {
     std::fill(committed_.begin(), committed_.end(), Entry{});
-    pending_.reset();
+    pending_.clear();
     clearRuntimeFailureCode();
   }
 
 private:
   std::vector<Entry> committed_;
   Entry zeroEntry_{};
-  std::optional<std::vector<std::pair<size_t, Entry>>> pending_;
+  struct PendingProposal {
+    std::vector<std::pair<size_t, Entry>> values;
+    std::vector<size_t> fields;
+    TableWriteMode mode = TableWriteMode::FieldMerge;
+    std::function<void(Entry &, const Entry &)> merge;
+  };
+  std::map<ObjectId, PendingProposal> pending_;
 };
 
 template <typename AddressResult>
@@ -930,12 +1096,10 @@ bool tableAddressInRange(AddressResult address, size_t entries) {
 }
 
 template <typename Input, typename Entry, typename Address, typename When>
-  requires std::invocable<const Address &, const Input &> &&
-           std::integral<
-               std::invoke_result_t<const Address &, const Input &>> &&
-           std::invocable<const When &, const Input &> &&
-           std::convertible_to<
-               std::invoke_result_t<const When &, const Input &>, bool>
+  requires TablePolicyInvocable<Address, const Input &> &&
+           std::integral<TablePolicyResult<Address, const Input &>> &&
+           TablePolicyInvocable<When, const Input &> &&
+           std::convertible_to<TablePolicyResult<When, const Input &>, bool>
 class QueueTableRead final : public SimObject {
 public:
   static constexpr std::string_view contractName = "ac.table.read";
@@ -949,15 +1113,15 @@ public:
         table_(table), input_(input), output_(output),
         address_(std::move(address)), when_(std::move(when)) {}
 
-  void doWork(Epoch) override {
+  void doWork(Epoch epoch) override {
     if (fired_ || !input_.canProposePop())
       return;
     const Input *head = input_.peekProposable();
-    if (!head || !static_cast<bool>(std::invoke(std::as_const(when_), *head)))
+    if (!head || !static_cast<bool>(invokeTablePolicy(when_, epoch, *head)))
       return;
     if (!output_.canProposePush())
       return;
-    const auto address = std::invoke(std::as_const(address_), *head);
+    const auto address = invokeTablePolicy(address_, epoch, *head);
     if (!tableAddressInRange(address, table_.size())) {
       setRuntimeFailureCode("table_index_out_of_range");
       return;
@@ -969,12 +1133,11 @@ public:
   }
   void doXfer(Epoch) override { fired_ = false; }
   bool hasPendingCommit() const override { return fired_; }
-  bool isRunnable(Epoch) const override {
+  bool isRunnable(Epoch epoch) const override {
     if (fired_ || !input_.canProposePop())
       return false;
     const Input *head = input_.peekProposable();
-    return head &&
-           static_cast<bool>(std::invoke(std::as_const(when_), *head)) &&
+    return head && static_cast<bool>(invokeTablePolicy(when_, epoch, *head)) &&
            output_.canProposePush();
   }
   void reset() override {
@@ -992,10 +1155,10 @@ private:
 };
 
 template <typename Entry, typename Address, typename When>
-  requires std::invocable<const Address &> &&
-           std::integral<std::invoke_result_t<const Address &>> &&
-           std::invocable<const When &> &&
-           std::convertible_to<std::invoke_result_t<const When &>, bool>
+  requires TablePolicyInvocable<Address> &&
+           std::integral<TablePolicyResult<Address>> &&
+           TablePolicyInvocable<When> &&
+           std::convertible_to<TablePolicyResult<When>, bool>
 class TableReadSource final : public SimObject {
 public:
   static constexpr std::string_view contractName = "ac.table.read";
@@ -1009,11 +1172,11 @@ public:
         table_(table), output_(output), address_(std::move(address)),
         when_(std::move(when)) {}
 
-  void doWork(Epoch) override {
-    if (fired_ || !static_cast<bool>(std::invoke(std::as_const(when_))) ||
+  void doWork(Epoch epoch) override {
+    if (fired_ || !static_cast<bool>(invokeTablePolicy(when_, epoch)) ||
         !output_.canProposePush())
       return;
-    const auto address = std::invoke(std::as_const(address_));
+    const auto address = invokeTablePolicy(address_, epoch);
     if (!tableAddressInRange(address, table_.size())) {
       setRuntimeFailureCode("table_index_out_of_range");
       return;
@@ -1022,8 +1185,8 @@ public:
   }
   void doXfer(Epoch) override { fired_ = false; }
   bool hasPendingCommit() const override { return fired_; }
-  bool isRunnable(Epoch) const override {
-    return !fired_ && static_cast<bool>(std::invoke(std::as_const(when_))) &&
+  bool isRunnable(Epoch epoch) const override {
+    return !fired_ && static_cast<bool>(invokeTablePolicy(when_, epoch)) &&
            output_.canProposePush();
   }
   void reset() override {
@@ -1040,16 +1203,16 @@ private:
 };
 
 template <typename Input, typename Entry, typename Address, typename Enable,
-          typename Value>
-  requires std::invocable<const Address &, const Input &> &&
-           std::integral<
-               std::invoke_result_t<const Address &, const Input &>> &&
-           std::invocable<const Enable &, const Input &> &&
-           std::convertible_to<
-               std::invoke_result_t<const Enable &, const Input &>, bool> &&
-           std::invocable<const Value &, const Input &> &&
-           std::convertible_to<
-               std::invoke_result_t<const Value &, const Input &>, Entry>
+          typename Value, typename Merge = TableFullEntryMerge<Entry>>
+  requires TablePolicyInvocable<Address, const Input &> &&
+           std::integral<TablePolicyResult<Address, const Input &>> &&
+           TablePolicyInvocable<Enable, const Input &> &&
+           std::convertible_to<TablePolicyResult<Enable, const Input &>,
+                               bool> &&
+           TablePolicyInvocable<Value, const Input &> &&
+           std::convertible_to<TablePolicyResult<Value, const Input &>,
+                               Entry> &&
+           std::invocable<const Merge &, Entry &, const Entry &>
 class QueueTableWrite final : public SimObject {
 public:
   static constexpr std::string_view contractName = "ac.table.write";
@@ -1058,27 +1221,31 @@ public:
   QueueTableWrite(std::string name, ObjectId id, SimObject *parent,
                   SimTable<Entry> &table, SimQueue<Input> &input,
                   Address address = {}, Enable enable = {}, Value value = {},
+                  Merge merge = {},
+                  TableWriteMode mode = TableWriteMode::FieldMerge,
                   ObservationSink *observations = nullptr)
       : SimObject(componentKind, std::move(name), id, parent, observations),
         table_(table), input_(input), address_(std::move(address)),
-        enable_(std::move(enable)), value_(std::move(value)) {}
+        enable_(std::move(enable)), value_(std::move(value)),
+        merge_(std::move(merge)), writerId_(id), mode_(mode) {}
 
-  void doWork(Epoch) override {
+  void doWork(Epoch epoch) override {
     if (fired_ || !input_.canProposePop())
       return;
     const Input *head = input_.peekProposable();
     if (!head)
       return;
     proposed_ = false;
-    if (static_cast<bool>(std::invoke(std::as_const(enable_), *head))) {
-      const auto address = std::invoke(std::as_const(address_), *head);
+    if (static_cast<bool>(invokeTablePolicy(enable_, epoch, *head))) {
+      const auto address = invokeTablePolicy(address_, epoch, *head);
       if (!tableAddressInRange(address, table_.size())) {
         setRuntimeFailureCode("table_index_out_of_range");
         return;
       }
       if (!table_.proposeWrite(
-              static_cast<size_t>(address),
-              static_cast<Entry>(std::invoke(std::as_const(value_), *head)))) {
+              writerId_, static_cast<size_t>(address),
+              static_cast<Entry>(invokeTablePolicy(value_, epoch, *head)),
+              Merge::fields, merge_, mode_)) {
         setRuntimeFailureCode("table_write_conflict");
         return;
       }
@@ -1086,7 +1253,7 @@ public:
     }
     if (!input_.proposePop()) {
       if (proposed_)
-        table_.cancelWrite();
+        table_.cancelWrite(writerId_);
       proposed_ = false;
       return;
     }
@@ -1104,7 +1271,7 @@ public:
   }
   void reset() override {
     if (proposed_)
-      table_.cancelWrite();
+      table_.cancelWrite(writerId_);
     proposed_ = false;
     fired_ = false;
     clearRuntimeFailureCode();
@@ -1116,17 +1283,22 @@ private:
   [[no_unique_address]] Address address_;
   [[no_unique_address]] Enable enable_;
   [[no_unique_address]] Value value_;
+  [[no_unique_address]] Merge merge_;
+  ObjectId writerId_;
+  TableWriteMode mode_;
   bool proposed_ = false;
   bool fired_ = false;
 };
 
-template <typename Entry, typename Address, typename Enable, typename Value>
-  requires std::invocable<const Address &> &&
-           std::integral<std::invoke_result_t<const Address &>> &&
-           std::invocable<const Enable &> &&
-           std::convertible_to<std::invoke_result_t<const Enable &>, bool> &&
-           std::invocable<const Value &> &&
-           std::convertible_to<std::invoke_result_t<const Value &>, Entry>
+template <typename Entry, typename Address, typename Enable, typename Value,
+          typename Merge = TableFullEntryMerge<Entry>>
+  requires TablePolicyInvocable<Address> &&
+           std::integral<TablePolicyResult<Address>> &&
+           TablePolicyInvocable<Enable> &&
+           std::convertible_to<TablePolicyResult<Enable>, bool> &&
+           TablePolicyInvocable<Value> &&
+           std::convertible_to<TablePolicyResult<Value>, Entry> &&
+           std::invocable<const Merge &, Entry &, const Entry &>
 class TableWriteSource final : public SimObject {
 public:
   static constexpr std::string_view contractName = "ac.table.write";
@@ -1134,23 +1306,26 @@ public:
 
   TableWriteSource(std::string name, ObjectId id, SimObject *parent,
                    SimTable<Entry> &table, Address address = {},
-                   Enable enable = {}, Value value = {},
+                   Enable enable = {}, Value value = {}, Merge merge = {},
+                   TableWriteMode mode = TableWriteMode::FieldMerge,
                    ObservationSink *observations = nullptr)
       : SimObject(componentKind, std::move(name), id, parent, observations),
         table_(table), address_(std::move(address)), enable_(std::move(enable)),
-        value_(std::move(value)) {}
+        value_(std::move(value)), merge_(std::move(merge)), writerId_(id),
+        mode_(mode) {}
 
-  void doWork(Epoch) override {
-    if (fired_ || !static_cast<bool>(std::invoke(std::as_const(enable_))))
+  void doWork(Epoch epoch) override {
+    if (fired_ || !static_cast<bool>(invokeTablePolicy(enable_, epoch)))
       return;
-    const auto address = std::invoke(std::as_const(address_));
+    const auto address = invokeTablePolicy(address_, epoch);
     if (!tableAddressInRange(address, table_.size())) {
       setRuntimeFailureCode("table_index_out_of_range");
       return;
     }
     if (!table_.proposeWrite(
-            static_cast<size_t>(address),
-            static_cast<Entry>(std::invoke(std::as_const(value_))))) {
+            writerId_, static_cast<size_t>(address),
+            static_cast<Entry>(invokeTablePolicy(value_, epoch)), Merge::fields,
+            merge_, mode_)) {
       setRuntimeFailureCode("table_write_conflict");
       return;
     }
@@ -1164,12 +1339,12 @@ public:
     fired_ = false;
   }
   bool hasPendingCommit() const override { return fired_; }
-  bool isRunnable(Epoch) const override {
-    return !fired_ && static_cast<bool>(std::invoke(std::as_const(enable_)));
+  bool isRunnable(Epoch epoch) const override {
+    return !fired_ && static_cast<bool>(invokeTablePolicy(enable_, epoch));
   }
   void reset() override {
     if (proposed_)
-      table_.cancelWrite();
+      table_.cancelWrite(writerId_);
     proposed_ = false;
     fired_ = false;
     clearRuntimeFailureCode();
@@ -1180,18 +1355,23 @@ private:
   [[no_unique_address]] Address address_;
   [[no_unique_address]] Enable enable_;
   [[no_unique_address]] Value value_;
+  [[no_unique_address]] Merge merge_;
+  ObjectId writerId_;
+  TableWriteMode mode_;
   bool proposed_ = false;
   bool fired_ = false;
 };
 
-template <typename Entry, typename Mask, typename Enable, typename Value>
-  requires std::invocable<const Mask &> &&
-           std::integral<std::invoke_result_t<const Mask &>> &&
-           std::invocable<const Enable &> &&
-           std::convertible_to<std::invoke_result_t<const Enable &>, bool> &&
-           std::invocable<const Value &, const Entry &> &&
-           std::convertible_to<
-               std::invoke_result_t<const Value &, const Entry &>, Entry>
+template <typename Entry, typename Mask, typename Enable, typename Value,
+          typename Merge = TableFullEntryMerge<Entry>>
+  requires TablePolicyInvocable<Mask> &&
+           std::integral<TablePolicyResult<Mask>> &&
+           TablePolicyInvocable<Enable> &&
+           std::convertible_to<TablePolicyResult<Enable>, bool> &&
+           TablePolicyInvocable<Value, const Entry &> &&
+           std::convertible_to<TablePolicyResult<Value, const Entry &>,
+                               Entry> &&
+           std::invocable<const Merge &, Entry &, const Entry &>
 class TableMaskedWriteSource final : public SimObject {
 public:
   static constexpr std::string_view contractName = "ac.table.masked_write";
@@ -1199,26 +1379,27 @@ public:
 
   TableMaskedWriteSource(std::string name, ObjectId id, SimObject *parent,
                          SimTable<Entry> &table, Mask mask = {},
-                         Enable enable = {}, Value value = {},
+                         Enable enable = {}, Value value = {}, Merge merge = {},
                          ObservationSink *observations = nullptr)
       : SimObject(componentKind, std::move(name), id, parent, observations),
         table_(table), mask_(std::move(mask)), enable_(std::move(enable)),
-        value_(std::move(value)) {}
+        value_(std::move(value)), merge_(std::move(merge)), writerId_(id) {}
 
-  void doWork(Epoch) override {
-    if (fired_ || !static_cast<bool>(std::invoke(std::as_const(enable_))))
+  void doWork(Epoch epoch) override {
+    if (fired_ || !static_cast<bool>(invokeTablePolicy(enable_, epoch)))
       return;
-    const auto rawMask = std::invoke(std::as_const(mask_));
+    const auto rawMask = invokeTablePolicy(mask_, epoch);
     const uint64_t mask = static_cast<uint64_t>(rawMask);
     std::vector<std::pair<size_t, Entry>> values;
     values.reserve(table_.size());
     for (size_t index = 0; index < table_.size(); ++index) {
       if ((mask & (uint64_t{1} << index)) == 0)
         continue;
-      values.emplace_back(index, static_cast<Entry>(std::invoke(
-                                     std::as_const(value_), table_.at(index))));
+      values.emplace_back(index, static_cast<Entry>(invokeTablePolicy(
+                                     value_, epoch, table_.at(index))));
     }
-    if (!table_.proposeMaskedWrite(std::move(values))) {
+    if (!table_.proposeMaskedWrite(writerId_, std::move(values), Merge::fields,
+                                   merge_)) {
       setRuntimeFailureCode("table_write_conflict");
       return;
     }
@@ -1232,12 +1413,12 @@ public:
     fired_ = false;
   }
   bool hasPendingCommit() const override { return fired_; }
-  bool isRunnable(Epoch) const override {
-    return !fired_ && static_cast<bool>(std::invoke(std::as_const(enable_)));
+  bool isRunnable(Epoch epoch) const override {
+    return !fired_ && static_cast<bool>(invokeTablePolicy(enable_, epoch));
   }
   void reset() override {
     if (proposed_)
-      table_.cancelWrite();
+      table_.cancelWrite(writerId_);
     proposed_ = false;
     fired_ = false;
     clearRuntimeFailureCode();
@@ -1248,6 +1429,8 @@ private:
   [[no_unique_address]] Mask mask_;
   [[no_unique_address]] Enable enable_;
   [[no_unique_address]] Value value_;
+  [[no_unique_address]] Merge merge_;
+  ObjectId writerId_;
   bool proposed_ = false;
   bool fired_ = false;
 };
@@ -1261,8 +1444,13 @@ template <typename T> struct SlotState {
 };
 
 template <typename T, typename Release>
-  requires std::invocable<const Release &> &&
-           std::convertible_to<std::invoke_result_t<const Release &>, bool>
+  requires(
+      requires(const Release &release) {
+        { std::invoke(release) } -> std::convertible_to<bool>;
+      } ||
+      requires(const Release &release, Epoch epoch) {
+        { std::invoke(release, epoch) } -> std::convertible_to<bool>;
+      })
 class QueueSlot final : public SimObject {
 public:
   static constexpr std::string_view contractName = "ac.slot";
@@ -1277,11 +1465,11 @@ public:
   bool valid() const { return state_.valid; }
   const T &value() const { return state_.value; }
 
-  void doWork(Epoch) override {
+  void doWork(Epoch epoch) override {
     if (fired_)
       return;
     if (state_.valid) {
-      if (static_cast<bool>(std::invoke(std::as_const(release_)))) {
+      if (releaseEnabled(epoch)) {
         pendingRelease_ = true;
         fired_ = true;
       }
@@ -1309,12 +1497,10 @@ public:
     fired_ = false;
   }
   bool hasPendingCommit() const override { return fired_; }
-  bool isRunnable(Epoch) const override {
+  bool isRunnable(Epoch epoch) const override {
     if (fired_)
       return false;
-    return state_.valid
-               ? static_cast<bool>(std::invoke(std::as_const(release_)))
-               : input_.canProposePop();
+    return state_.valid ? releaseEnabled(epoch) : input_.canProposePop();
   }
   void reset() override {
     state_.valid = false;
@@ -1327,6 +1513,13 @@ public:
   }
 
 private:
+  bool releaseEnabled(Epoch epoch) const {
+    if constexpr (std::invocable<const Release &, Epoch>)
+      return static_cast<bool>(std::invoke(std::as_const(release_), epoch));
+    else
+      return static_cast<bool>(std::invoke(std::as_const(release_)));
+  }
+
   SimQueue<T> &input_;
   SlotState<T> &state_;
   [[no_unique_address]] Release release_;

@@ -264,3 +264,9 @@ docs/gates/logs/*
 !docs/gates/logs/20260901-ac-table-prototype/**
 !docs/gates/logs/20260902-ac-table-slot-match/
 !docs/gates/logs/20260902-ac-table-slot-match/**
+!docs/gates/logs/20260903-ac-table-multi-writer/
+!docs/gates/logs/20260903-ac-table-multi-writer/**
+!docs/gates/logs/20260903-ac-table-shared-selection/
+!docs/gates/logs/20260903-ac-table-shared-selection/**
+!docs/gates/logs/20260903-ac-table-allocation/
+!docs/gates/logs/20260903-ac-table-allocation/**

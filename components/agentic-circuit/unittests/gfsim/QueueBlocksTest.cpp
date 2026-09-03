@@ -227,9 +227,58 @@ struct MaskedWriteIncrement {
   }
 };
 
+struct FieldEntry {
+  bool valid = false;
+  bool ready = false;
+};
+
+struct MergeValid {
+  static constexpr std::array<size_t, 1> fields{0};
+  void operator()(FieldEntry &target, const FieldEntry &value) const {
+    target.valid = value.valid;
+  }
+};
+
+struct MergeReady {
+  static constexpr std::array<size_t, 1> fields{1};
+  void operator()(FieldEntry &target, const FieldEntry &value) const {
+    target.ready = value.ready;
+  }
+};
+
+struct CountingMatch {
+  unsigned *calls = nullptr;
+  bool operator()(const FieldEntry &entry) const {
+    ++*calls;
+    return entry.valid;
+  }
+};
+
+struct CachedMask {
+  TableMatchCache<FieldEntry, CountingMatch> *match = nullptr;
+  unsigned *calls = nullptr;
+  uint64_t operator()(Epoch epoch) const {
+    ++*calls;
+    return match->get(epoch);
+  }
+};
+
+struct CountingReadyKey {
+  unsigned *calls = nullptr;
+  uint64_t operator()(const FieldEntry &entry) const {
+    ++*calls;
+    return entry.ready ? 0 : 1;
+  }
+};
+
 struct SlotReleaseFlag {
   bool *release = nullptr;
   bool operator()() const { return *release; }
+};
+
+struct SlotReleaseAtEpoch {
+  Epoch releaseEpoch{};
+  bool operator()(Epoch epoch) const { return epoch == releaseEpoch; }
 };
 
 TEST(QueueBlocksTest, HighLevelProvidersFreezeStructuralTemplateParameters) {
@@ -398,16 +447,14 @@ TEST(QueueBlocksTest, StateTableReadRepeatsAndBackpressuredValueStaysStable) {
   SimQueue<uint16_t> output("output", 2, nullptr, 1);
   TableReadSource<uint16_t, TableZeroAddress, TableNonzero> read(
       "read", 3, nullptr, table, output, {}, TableNonzero{&table});
-  ASSERT_TRUE(table.proposeWrite(0, 7));
-  table.commitWrite();
+  ASSERT_TRUE(table.initializeEntry(0, 7));
   read.doWork({1, 0});
   output.doXfer({1, 0});
   read.doXfer({1, 0});
   ASSERT_NE(output.peek(), nullptr);
   EXPECT_EQ(*output.peek(), 7u);
 
-  ASSERT_TRUE(table.proposeWrite(0, 9));
-  table.commitWrite();
+  ASSERT_TRUE(table.initializeEntry(0, 9));
   read.doWork({2, 0});
   ASSERT_NE(output.peek(), nullptr);
   EXPECT_EQ(*output.peek(), 7u);
@@ -429,8 +476,13 @@ TEST(QueueBlocksTest,
   TableWriteSource<uint16_t, StateWriteAddress, StateWriteEnable,
                    StateWriteIncrement>
       write("write", 2, nullptr, table, {&addressCalls}, {&enabled}, {&table});
+  TableWriteSource<uint16_t, StateWriteAddress, StateWriteEnable,
+                   StateWriteIncrement>
+      allocation("allocation", 3, nullptr, table, {&addressCalls}, {&enabled},
+                 {&table}, {}, TableWriteMode::Replace);
 
   write.doWork({0, 0});
+  allocation.doWork({0, 0});
   EXPECT_EQ(addressCalls, 0u);
   EXPECT_EQ(table.at(0), 0);
 
@@ -447,11 +499,116 @@ TEST(QueueBlocksTest,
   EXPECT_EQ(table.at(0), 2);
 }
 
+TEST(QueueBlocksTest, TableMergesDisjointWriterFieldsFromOldState) {
+  SimTable<FieldEntry> table("table", 1, nullptr, 2);
+  ASSERT_TRUE(table.initializeEntry(0, FieldEntry{true, false}));
+  ASSERT_TRUE(table.proposeWrite(10, 0, FieldEntry{false, false},
+                                 MergeValid::fields, MergeValid{}));
+  ASSERT_TRUE(table.proposeWrite(11, 0, FieldEntry{false, true},
+                                 MergeReady::fields, MergeReady{}));
+  EXPECT_TRUE(table.at(0).valid);
+  EXPECT_FALSE(table.at(0).ready);
+  table.commitWrite();
+  EXPECT_FALSE(table.at(0).valid);
+  EXPECT_TRUE(table.at(0).ready);
+
+  ASSERT_TRUE(table.proposeWrite(10, 1, FieldEntry{true, false},
+                                 MergeValid::fields, MergeValid{}));
+  ASSERT_TRUE(table.proposeWrite(11, 0, FieldEntry{false, false},
+                                 MergeReady::fields, MergeReady{}));
+  table.commitWrite();
+  EXPECT_TRUE(table.at(1).valid);
+  EXPECT_FALSE(table.at(0).ready);
+}
+
+TEST(QueueBlocksTest, TableReplaceWinsAfterFieldMergesIndependentOfEntry) {
+  SimTable<FieldEntry> table("table", 1, nullptr, 2);
+  ASSERT_TRUE(table.initializeEntry(0, FieldEntry{true, false}));
+  ASSERT_TRUE(table.initializeEntry(1, FieldEntry{false, false}));
+
+  ASSERT_TRUE(table.proposeWrite(30, 0, FieldEntry{true, true},
+                                 MergeReady::fields, MergeReady{}));
+  EXPECT_FALSE(table.initializeEntry(1, FieldEntry{true, true}));
+  ASSERT_TRUE(table.proposeWrite(
+      20, 0, FieldEntry{false, false}, TableFullEntryMerge<FieldEntry>::fields,
+      TableFullEntryMerge<FieldEntry>{}, TableWriteMode::Replace));
+  table.commitWrite();
+  EXPECT_FALSE(table.at(0).valid);
+  EXPECT_FALSE(table.at(0).ready);
+  EXPECT_FALSE(table.at(1).valid);
+  EXPECT_FALSE(table.at(1).ready);
+
+  ASSERT_TRUE(table.proposeWrite(30, 1, FieldEntry{false, true},
+                                 MergeReady::fields, MergeReady{}));
+  ASSERT_TRUE(table.proposeWrite(
+      20, 0, FieldEntry{true, false}, TableFullEntryMerge<FieldEntry>::fields,
+      TableFullEntryMerge<FieldEntry>{}, TableWriteMode::Replace));
+  table.commitWrite();
+  EXPECT_TRUE(table.at(0).valid);
+  EXPECT_FALSE(table.at(0).ready);
+  EXPECT_TRUE(table.at(1).ready);
+
+  ASSERT_TRUE(table.proposeWrite(40, 0, FieldEntry{true, false},
+                                 MergeValid::fields, MergeValid{}));
+  ASSERT_TRUE(table.proposeWrite(
+      41, 0, FieldEntry{true, true}, TableFullEntryMerge<FieldEntry>::fields,
+      TableFullEntryMerge<FieldEntry>{}, TableWriteMode::Replace));
+  EXPECT_FALSE(table.proposeWrite(
+      42, 1, FieldEntry{false, false}, TableFullEntryMerge<FieldEntry>::fields,
+      TableFullEntryMerge<FieldEntry>{}, TableWriteMode::Replace));
+  table.cancelWrite(41);
+  table.commitWrite();
+  EXPECT_TRUE(table.at(0).valid);
+  EXPECT_FALSE(table.at(0).ready);
+}
+
+TEST(QueueBlocksTest, TableMatchAndChooseAreEvaluatedOncePerEpoch) {
+  SimTable<FieldEntry> table("table", 1, nullptr, 3);
+  ASSERT_TRUE(table.initializeEntry(0, FieldEntry{true, false}));
+  ASSERT_TRUE(table.initializeEntry(1, FieldEntry{true, true}));
+  unsigned predicateCalls = 0;
+  unsigned maskCalls = 0;
+  unsigned keyCalls = 0;
+  TableMatchCache<FieldEntry, CountingMatch> match(
+      table, CountingMatch{&predicateCalls});
+  TableSelectionCache<FieldEntry, CachedMask, CountingReadyKey> selection(
+      table, CachedMask{&match, &maskCalls}, CountingReadyKey{&keyCalls},
+      TableChoosePolicy::Min);
+
+  EXPECT_EQ(selection.get({4, 0}).index, 1u);
+  EXPECT_TRUE(selection.get({4, 0}).valid);
+  EXPECT_EQ(match.get({4, 0}), 0b011u);
+  EXPECT_EQ(predicateCalls, 3u);
+  EXPECT_EQ(maskCalls, 1u);
+  EXPECT_EQ(keyCalls, 2u);
+
+  EXPECT_EQ(selection.get({5, 0}).index, 1u);
+  EXPECT_EQ(predicateCalls, 6u);
+  EXPECT_EQ(maskCalls, 2u);
+  EXPECT_EQ(keyCalls, 4u);
+  selection.reset();
+  match.reset();
+  EXPECT_TRUE(selection.get({5, 0}).valid);
+  EXPECT_EQ(predicateCalls, 9u);
+  EXPECT_EQ(maskCalls, 3u);
+}
+
+TEST(QueueBlocksTest, TableCancellationIsWriterLocal) {
+  SimTable<FieldEntry> table("table", 1, nullptr, 1);
+  ASSERT_TRUE(table.proposeWrite(10, 0, FieldEntry{true, false},
+                                 MergeValid::fields, MergeValid{}));
+  ASSERT_TRUE(table.proposeWrite(11, 0, FieldEntry{false, true},
+                                 MergeReady::fields, MergeReady{}));
+  table.cancelWrite(10);
+  table.commitWrite();
+  EXPECT_FALSE(table.at(0).valid);
+  EXPECT_TRUE(table.at(0).ready);
+}
+
 TEST(QueueBlocksTest, MaskedTableWriteCommitsSelectedOldStateAtomically) {
   SimTable<uint16_t> table("table", 1, nullptr, 4);
   for (size_t index = 0; index < table.size(); ++index) {
-    ASSERT_TRUE(table.proposeWrite(index, static_cast<uint16_t>(index + 1)));
-    table.commitWrite();
+    ASSERT_TRUE(table.initializeEntry(index, static_cast<uint16_t>(index + 1)));
   }
   bool enabled = false;
   uint64_t mask = 0b1011;
@@ -529,6 +686,19 @@ TEST(QueueBlocksTest, SlotCapturesBackpressuresReleasesAndDoesNotRefill) {
   EXPECT_TRUE(slot.valid());
   EXPECT_EQ(slot.value(), 8);
   EXPECT_TRUE(input.isEmpty());
+}
+
+TEST(QueueBlocksTest, SlotReleasePolicyMayObserveEpoch) {
+  SimQueue<uint16_t> input("input", 1, nullptr, 1);
+  SlotState<uint16_t> state{true, 7};
+  QueueSlot<uint16_t, SlotReleaseAtEpoch> slot("slot", 2, nullptr, input, state,
+                                               {{3, 1}});
+
+  EXPECT_FALSE(slot.isRunnable({3, 0}));
+  EXPECT_TRUE(slot.isRunnable({3, 1}));
+  slot.doWork({3, 1});
+  slot.doXfer({3, 1});
+  EXPECT_FALSE(slot.valid());
 }
 
 struct SharedMemoryAddress {

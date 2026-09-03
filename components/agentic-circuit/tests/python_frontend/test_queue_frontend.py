@@ -418,7 +418,7 @@ def pipeline() -> None:
         enable=pending.valid and grant.valid, valid=False
     )
     pending.release(when=pending.valid and grant.valid)
-    snapshots = issue.view(0).read()
+    snapshots = issue.view(grant.index).read(when=grant.valid)
     ac.sink(snapshots)
 """
 
@@ -440,6 +440,48 @@ def pipeline() -> None:
     issue.view(hits).write(enable=pending.valid, value=pending.value)
     pending.release(when=pending.valid)
     snapshots = issue.view(0).read()
+    ac.sink(snapshots)
+"""
+
+MULTI_WRITER_TABLE_SOURCE = """
+import agentic_circuit as ac
+
+@ac.struct
+class Entry:
+    valid: bool
+    src0_ready: bool
+    src1_ready: bool
+
+@ac.system
+def pipeline() -> None:
+    issue = ac.table[4, Entry](init=0)
+    hits = issue.match(lambda entry: entry.valid)
+    issue.view(hits).patch(src0_ready=True, src1_ready=True)
+    issue.view(0).patch(valid=False)
+    snapshots = issue.view(0).read()
+    ac.sink(snapshots)
+"""
+
+ALLOCATION_TABLE_SOURCE = """
+import agentic_circuit as ac
+
+@ac.struct
+class Entry:
+    valid: bool
+    ready: bool
+    value: ac.u16
+
+@ac.system
+def pipeline() -> None:
+    updates = ac.source(Entry)
+    pending = ac.slot(updates)
+    state = ac.table[4, Entry](init=0)
+    state.view(0).patch(ready=True)
+    state.view(0).allocate(
+        enable=pending.valid, value=pending.value
+    )
+    pending.release(when=pending.valid)
+    snapshots = state.view(0).read()
     ac.sink(snapshots)
 """
 
@@ -802,6 +844,7 @@ class QueueFrontendTest(unittest.TestCase):
         self.assertIn('field "valid"', lowered)
         self.assertIn('field "done"', lowered)
         self.assertIn('field "result"', lowered)
+        self.assertIn('write_fields ["valid", "done", "result"]', lowered)
         self.assertNotIn("ac.table.patch", lowered)
 
     def test_table_hard_break_and_static_contracts_are_diagnosed(self) -> None:
@@ -825,7 +868,7 @@ class QueueFrontendTest(unittest.TestCase):
                 ),
                 "pipeline",
             )
-        with self.assertRaisesRegex(QueueFrontendError, "one write/patch endpoint"):
+        with self.assertRaisesRegex(QueueFrontendError, "multiple endpoints"):
             lower_queue_source(
                 TABLE_SOURCE.replace(
                     "    responses = state.view",
@@ -851,14 +894,23 @@ class QueueFrontendTest(unittest.TestCase):
             "ac.slot.release @pending",
         ):
             self.assertIn(operation, lowered)
-        self.assertIn("ac.table.write @issue address", lowered)
+        self.assertEqual(1, lowered.count("ac.table.match @issue"))
+        self.assertEqual(1, lowered.count("ac.table.choose @issue"))
+        choose_position = lowered.index("ac.table.choose @issue")
+        write_position = lowered.index("ac.table.write @issue")
+        self.assertLess(choose_position, write_position)
+        self.assertIn("ac.table.yield %table_choose_", lowered)
+        self.assertIn(
+            'ac.table.write @issue mode "field" write_fields ["valid"] address',
+            lowered,
+        )
         first = SLOT_TABLE_SOURCE.replace(
             'ready, count=1, policy="min", key=lambda entry: entry.age',
             'ready, count=1, policy="first"',
         )
-        self.assertIn(
-            'count 1 policy "first"', lower_queue_source(first, "pipeline")
-        )
+        first_lowered = lower_queue_source(first, "pipeline")
+        self.assertIn('count 1 policy "first" key {}', first_lowered)
+        self.assertEqual(1, first_lowered.count("ac.table.choose @issue"))
         self.assertIn(
             'count 1 policy "max"',
             lower_queue_source(
@@ -913,6 +965,7 @@ class QueueFrontendTest(unittest.TestCase):
         lowered = lower_queue_source(MASKED_TABLE_WRITE_SOURCE, "pipeline")
         self.assertIn("ac.table.match @issue", lowered)
         self.assertIn("ac.table.masked_write @issue", lowered)
+        self.assertIn('write_fields ["valid", "tag", "age"]', lowered)
         self.assertIn("^value(%old: !ac.var<!ac.struct<@types::@Entry>>):", lowered)
         self.assertNotIn("ac.table.write @issue address", lowered)
 
@@ -951,7 +1004,7 @@ class QueueFrontendTest(unittest.TestCase):
                 ).replace("issue.view(hits).write", "other.view(hits).write"),
                 "pipeline",
             )
-        with self.assertRaisesRegex(QueueFrontendError, "one write/patch endpoint"):
+        with self.assertRaisesRegex(QueueFrontendError, "multiple endpoints"):
             lower_queue_source(
                 patched.replace(
                     "pending.release(when=pending.valid)",
@@ -960,6 +1013,90 @@ class QueueFrontendTest(unittest.TestCase):
                 ),
                 "pipeline",
             )
+
+    def test_table_allows_disjoint_scalar_and_masked_writers(self) -> None:
+        from agentic_circuit._queue_frontend import (
+            QueueFrontendError,
+            lower_queue_source,
+        )
+
+        lowered = lower_queue_source(MULTI_WRITER_TABLE_SOURCE, "pipeline")
+        self.assertIn(
+            ': !ac.var<i4> mode "field" write_fields '
+            '["src0_ready", "src1_ready"]',
+            lowered,
+        )
+        self.assertIn(
+            'ac.table.write @issue mode "field" write_fields ["valid"] address',
+            lowered,
+        )
+        with self.assertRaisesRegex(QueueFrontendError, "multiple endpoints"):
+            lower_queue_source(
+                MULTI_WRITER_TABLE_SOURCE.replace(
+                    "issue.view(0).patch(valid=False)",
+                    "issue.view(0).patch(src0_ready=False)",
+                ),
+                "pipeline",
+            )
+        with self.assertRaisesRegex(QueueFrontendError, "multiple endpoints"):
+            lower_queue_source(
+                MULTI_WRITER_TABLE_SOURCE.replace(
+                    "issue.view(0).patch(valid=False)",
+                    "issue.view(0).write(value=Entry(False, False, False))",
+                ),
+                "pipeline",
+            )
+
+    def test_scalar_allocation_lowers_as_unique_replace_writer(self) -> None:
+        from agentic_circuit._queue_frontend import (
+            QueueFrontendError,
+            lower_queue_source,
+        )
+
+        lowered = lower_queue_source(ALLOCATION_TABLE_SOURCE, "pipeline")
+        self.assertIn(
+            'ac.table.write @state mode "replace" '
+            'write_fields ["valid", "ready", "value"]',
+            lowered,
+        )
+        self.assertIn('ac.name = "state__allocate"', lowered)
+        self.assertIn(
+            'ac.table.write @state mode "field" write_fields ["ready"]',
+            lowered,
+        )
+        with self.assertRaisesRegex(QueueFrontendError, "one allocation endpoint"):
+            lower_queue_source(
+                ALLOCATION_TABLE_SOURCE.replace(
+                    "    snapshots = state.view(0).read()",
+                    "    state.view(1).allocate(value=pending.value)\n"
+                    "    snapshots = state.view(0).read()",
+                ),
+                "pipeline",
+            )
+        with self.assertRaisesRegex(QueueFrontendError, "requires one value"):
+            lower_queue_source(
+                ALLOCATION_TABLE_SOURCE.replace(
+                    "enable=pending.valid, value=pending.value",
+                    "enable=pending.valid",
+                ),
+                "pipeline",
+            )
+        with self.assertRaisesRegex(QueueFrontendError, "state-driven"):
+            lower_queue_source(
+                ALLOCATION_TABLE_SOURCE.replace(
+                    "state.view(0).allocate(\n        enable=pending.valid, value=pending.value\n    )",
+                    "state.view(lambda item: item.value).allocate(\n"
+                    "        updates, enable=True, value=lambda item: item\n"
+                    "    )",
+                ),
+                "pipeline",
+            )
+        masked = ALLOCATION_TABLE_SOURCE.replace(
+            "    state.view(0).patch(ready=True)\n",
+            "    free = state.match(lambda entry: not entry.valid)\n",
+        ).replace("state.view(0).allocate(", "state.view(free).allocate(")
+        with self.assertRaisesRegex(QueueFrontendError, "scalar view"):
+            lower_queue_source(masked, "pipeline")
 
     def test_memory_instance_freezes_multiple_endpoint_priority(self) -> None:
         from agentic_circuit._queue_frontend import lower_queue_source

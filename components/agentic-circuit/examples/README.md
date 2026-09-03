@@ -7,6 +7,7 @@ source tree does not keep parallel versioned or phase-numbered example sets.
 - [`memory`](memory/README.md): explicit memory, banking, latency, and DMA.
 - [`blocks`](blocks/README.md): parameterized reusable building blocks.
 - [`architecture`](architecture/README.md): complete generated architecture models.
+- [`state`](state/README.md): committed Table state, matching, field-disjoint writers, and scalar allocation.
 - [`workspaces`](workspaces/README.md): CLI build/run/replay workspaces with goldens.
 
 Imported upstream source is not an example. It lives under [`references`](../references/README.md).

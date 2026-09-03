@@ -1,4 +1,4 @@
-"""Contract-epoch 0.4 state Table scoreboard prototype."""
+"""E2E fixture for queue-driven Table writes and old-data reads."""
 
 import agentic_circuit as ac
 

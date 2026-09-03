@@ -1,4 +1,4 @@
-"""Epoch 0.4 match -> atomic masked Table patch prototype."""
+"""E2E fixture for CandidateSet-driven masked Table updates."""
 
 import agentic_circuit as ac
 

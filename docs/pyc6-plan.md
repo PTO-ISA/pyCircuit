@@ -126,6 +126,15 @@ PYC semantic contracts.
 - [x] Close Decision 0153 without changing epoch `0.4`: accept a same-Table
   CandidateSet in `table.view(mask)`, retain scalar-index writes, and verify
   atomic uniform masked write/patch through both typed gfsim C++ generators.
+- [x] Close Decision 0154 without changing epoch `0.4`: permit multiple Table
+  writer endpoints with pairwise-disjoint top-level field sets and merge their
+  old-state proposals atomically through both typed gfsim C++ generators.
+- [x] Close Decision 0155 without changing epoch `0.4`: lower each authored
+  Table match/choose once and reuse its lazy full-Epoch result across all
+  direct and native gfsim endpoint consumers.
+- [x] Close Decision 0156 without changing epoch `0.4`: add one state-driven
+  scalar allocation endpoint whose complete Entry replacement wins over
+  same-Entry field writers in direct and native typed gfsim C++.
 - [ ] After the independent current QEMU/PYC comparison passes, disable the
   old repository's publishing/CI authority and make it
   private with only `zhoubot` as a direct repository collaborator.

@@ -491,11 +491,17 @@ table.view(pending).patch(
     valid=True,
     age=lambda entry: entry.age + 1,
 )
+
+table.view(tail).allocate(
+    enable=allocation.valid,
+    value=allocation.value,
+)
 ```
 
 `Entry` is a boolean, a fixed-width integer, or a flat struct of those scalar
-types. The Table is one-dimensional, has an all-zero initial image, and permits
-one `write` or `patch` endpoint. `read` always returns `Queue<Entry>`.
+types. The Table is one-dimensional and has an all-zero initial image. It may
+have multiple `write` or `patch` endpoints when their statically declared
+top-level field sets are pairwise disjoint. `read` always returns `Queue<Entry>`.
 Queue-driven read with `when=false` preserves its input; disabled write consumes
 its input without proposing state. Same-tick reads observe old committed data,
 and a write becomes visible at tick commit. Dynamic bounds failures use
@@ -505,20 +511,48 @@ and a write becomes visible at tick commit. Dynamic bounds failures use
 state-driven masked update. Masked `write` assigns one uniform complete value;
 masked `patch` assigns uniform fields or evaluates a pure `lambda entry` from
 each selected old Entry. A false enable does not evaluate the mask or value,
-an empty mask is a no-op, and all selected Entries commit atomically. The
-masked endpoint and scalar endpoint share the one-writer limit.
+an empty mask is a no-op, and all selected Entries commit atomically. Scalar
+and masked endpoints may coexist under the same disjoint-field rule. Dynamic
+address, mask, enable, and predicate mutual exclusion is not analyzed; two
+endpoints that declare the same field are rejected.
+
+One state-driven scalar `allocate` endpoint may coexist with those ordinary
+field writers. It installs one complete Entry at the caller-supplied index; it
+does not search for a free slot, check occupancy, or change `valid`
+automatically. Queue-driven and CandidateSet-masked allocation are rejected.
+All policies read the old committed image. Commit merges ordinary field
+proposals first and applies allocation last, so allocation wins when both target
+the same Entry and unrelated Entries remain independent.
+
+Each authored `match` and `choose` is a shared value, not endpoint-local sugar.
+Frozen ACIR emits one dominating `ac.table.match` or `ac.table.choose`, and
+every read/write policy captures that SSA result. The QueueGraph and typed
+gfsim implementations preserve the sharing: evaluation is lazy and cached by
+the complete Epoch, so multiple consumers cause one Table scan per Epoch.
+Advancing the Epoch or resetting the model invalidates that result. A choose
+mask must come from a match on the same Table. `policy="first"` has an empty key
+region; min/max retain one typed key region.
 
 `EntryView` is elaboration-only. `patch` lowers before Frozen ACIR to
 `ac.table.get`, immutable `ac.var.with` updates, and `ac.table.write` or
-`ac.table.masked_write`; there is no `ac.table.patch` operation. Table is a
+`ac.table.masked_write`; there is no `ac.table.patch` operation. Both Frozen
+write operations carry required, normalized, non-empty `write_fields` and a
+required `mode`. Ordinary writes use `mode "field"`; scalar allocation uses
+`mode "replace"`; masked writes accept only `field`.
+Struct full writes list every declared field; scalar Entries use `$entry`.
+Every value region still returns a complete Entry, but commit copies only the
+declared fields. All endpoints evaluate from one old committed image and their
+disjoint proposals are merged once at the tick edge. Table is a
 typed gfsim C++ prototype. PYC/RTL
 lowering is deferred and rejects the graph with `unsupported provisional
 Table`. Request/response storage remains `ac.memory`; legacy `ac.table(...)`
-has been removed. Executable examples include
-[`table_scoreboard.py`](../../examples/state/table_scoreboard.py) and
-[`table_masked_update.py`](../../examples/state/table_masked_update.py). The
-minimal Issue Queue wakeup form is
-[`table_batch_wakeup.py`](../../examples/state/table_batch_wakeup.py).
+has been removed. The single public Python example is
+[`issue.py`](../../examples/state/issue.py). It combines two field-disjoint
+operand wakeups, next-tick minimum-age selection, grant-driven removal, and a
+complete Entry allocation after explicitly matching and choosing an old-state
+empty slot. A full Table retains the allocation request until a slot is
+selectable. Additional focused sources are internal E2E fixtures rather than
+public examples.
 
 ### Reorder
 
@@ -830,8 +864,8 @@ realization; Table entries explicitly declare their gfsim-only boundary.
 | `ac.memory.instance` / `ac.memory.request` | design | shared instance, one-to-one endpoint | instance identity, ordinal, `entries`, `init`, instance `latency`, `result_field`, `depth` | fixed-priority single-outstanding old-data memory |
 | `ac.table` | design | state owner | Entry type, `entries`, `init`, owner, stable identity | committed zero-initialized state image; gfsim-only prototype |
 | `ac.table.read` | design | optional request to one | Table identity, `depth`, `latency` | state- or Queue-driven old-data capture |
-| `ac.table.write` | design | optional update to none | Table identity | Queue-driven consumption or state-driven commit proposal |
-| `ac.table.masked_write` | design | committed mask to none | Table identity | atomic state-driven update of every Entry selected by a same-Table match |
+| `ac.table.write` | design | optional update to none | Table identity, `mode`, `write_fields` | Queue-driven consumption, state-driven field proposal, or scalar replace allocation |
+| `ac.table.masked_write` | design | committed mask to none | Table identity, `mode="field"`, `write_fields` | atomic state-driven field update of every Entry selected by a same-Table match |
 | `ac.table.match` / `ac.table.choose` | design | committed state to Vars | Table identity, `count=1`, `policy` | 1..64-entry candidate mask and deterministic first/min/max selection |
 | `ac.slot` | design | one to none | owner, stable identity | one committed request with backpressure, retained payload, and explicit release |
 | `ac.dependency` | design | one to one | `capacity`, `resources`, `no_dependency`, `depth`, `latency` | bounded predecessor tracking, resource reservation, and execution countdown |
@@ -1106,12 +1140,18 @@ contract; a PYC replay MUST instantiate a fresh model.
 `SimTable<Entry>` exposes only committed state to read and value policies. A
 Queue-driven read proposes its input pop and output push together. A
 state-driven read may capture once per tick while `when` is true and the output
-has capacity. The sole writer consumes a disabled token without a proposal;
-an enabled token proposes one value and commits it at Xfer. An output Queue
+has capacity. A Queue-driven writer consumes a disabled token without a
+proposal; an enabled endpoint proposes one complete value plus its declared
+field set. An output Queue
 owns its captured Entry, so later writes cannot change a backpressured output.
 For a masked endpoint, enable is evaluated first; when enabled, the match mask
 and every selected value are evaluated from the old committed image. The whole
-set is staged before one transfer commits it. A zero mask transfers as a no-op.
+set is staged before transfer. All enabled endpoint proposals are evaluated
+from the same committed image, validated as one batch, merged by disjoint
+fields, and published together. A zero mask transfers as a no-op.
+Shared match and choose caches are evaluated on first demand and reused by all
+endpoint policies in the same Epoch; they only inspect committed state and are
+invalidated by model reset.
 
 ## Typed gfsim C++ lowering
 

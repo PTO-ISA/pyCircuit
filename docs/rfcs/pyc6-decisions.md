@@ -3644,3 +3644,156 @@ surface.
 
 **Source**
 - Agentic Circuit masked Table update direction (2026-09-02).
+
+## Decision 0154: epoch 0.4 Table permits disjoint-field writer endpoints
+
+**Status:** Accepted
+
+**Context / Goal**
+Issue queues need wakeup logic to update operand-ready fields while selection
+clears the valid field of the same Entry in the same tick. A single whole-Entry
+writer cannot express these independent state effects without introducing
+unrelated allocation priority, firing, or cross-object transaction semantics.
+
+**Decision (strong constraint)**
+- A Table may declare multiple scalar or masked writer endpoints exactly when
+  their normalized top-level `write_fields` sets are pairwise disjoint.
+  Overlap is rejected statically even when address, mask, enable, or predicate
+  expressions appear mutually exclusive. Complete Entry writes conflict with
+  every other writer.
+- Frozen `ac.table.write` and `ac.table.masked_write` require a non-empty,
+  duplicate-free `write_fields` string array. Names must resolve to flat struct
+  fields. Boolean and integer Entries use the canonical pseudo-field `$entry`;
+  complete struct writes enumerate every actual field rather than using a
+  wildcard.
+- Every value region continues to return a complete Entry. Commit copies only
+  the fields declared by that endpoint and preserves every other field from
+  old committed state. All endpoints evaluate from one old committed Table
+  image, all proposals are validated before mutation, and all disjoint fields
+  are merged into one next image published at the tick edge. Endpoint execution
+  and transfer order cannot affect the result.
+- QueueGraph plans and canonical JSON preserve `write_fields` and repeat field
+  existence, uniqueness, non-emptiness, and cross-writer overlap checks. Both
+  typed C++ generators emit the corresponding field merge policy.
+- gfsim identifies pending proposals by stable writer object ID. Cancellation
+  removes only that endpoint's proposal and cannot discard another writer's
+  proposal.
+- Contract epoch remains `0.4`. PYC/RTL continues to reject every provisional
+  Table with `unsupported provisional Table`.
+
+**Deferred work**
+- same-field dynamic mutual-exclusion proofs, explicit priority, and allocation
+  arbitration;
+- `ac.firing`, atomic Queue/Table/Reg transactions, nested field paths,
+  multidimensional Tables, and PYC/RTL lowering.
+
+**Verification**
+- Frontend and ACIR tests accept scalar/masked disjoint-field combinations and
+  reject overlapping or complete writers, malformed `write_fields`, and
+  unknown fields.
+- gfsim tests cover same-Entry merging, different Entries, disabled or empty
+  proposals, old-state visibility, next-tick publication, and writer-local
+  cancellation.
+- The Issue Queue fixture compiles and runs through direct and native
+  QueueGraph C++ generation, merging ready-field wakeup with `valid=false` on
+  one Entry while preserving the provisional PYC rejection boundary.
+
+**Source**
+- Agentic Circuit field-level multi-writer Table direction (2026-09-03).
+
+## Decision 0155: epoch 0.4 Table match and choose are shared once per Epoch
+
+**Status:** Accepted
+
+**Context / Goal**
+One Python `CandidateSet` or `Selection` may feed a masked update, a scalar
+update, and a read. Re-expanding its match/choose DAG in every endpoint changes
+the authored sharing into repeated full-Table scans and can make endpoint
+evaluation order observable in simulator cost.
+
+**Decision (strong constraint)**
+- Each authored `table.match(...)` lowers to one dominating top-level
+  `ac.table.match`; each authored `table.choose(...)` lowers to one dominating
+  top-level `ac.table.choose`. Endpoint policy regions capture those SSA
+  results instead of cloning either operation.
+- `choose` masks must be produced by `match` on the same Table. Table endpoint
+  regions may capture only dominating shared match/choose results belonging to
+  their own Table; arbitrary external values remain illegal. The existing
+  inline ACIR form remains accepted for compatibility, but new ACPy output is
+  canonical shared form.
+- QueueGraph preserves each shared match and selection once and represents
+  endpoint uses as references. Both C++ paths realize them as lazy caches keyed
+  by the complete `Epoch`. The first consumer in an Epoch computes the result;
+  all later consumers reuse it. `reset()` invalidates every cache.
+- Match, choose keys, reads, and writes observe the same committed Table image.
+  Sharing does not add `ac.firing`, priority, backpressure atomicity, or any
+  same-field writer exception.
+- `policy="first"` uses an empty key region; min/max require one typed key
+  region. Contract epoch remains `0.4`, and PYC/RTL keeps rejecting the
+  provisional Table family.
+
+**Verification**
+- Frontend and ACIR tests prove one shared SSA definition, dominance, same-Table
+  provenance, and parser/printer coverage for the empty first-policy key.
+- QueueGraph JSON and both C++ generators preserve references without nested
+  match/choose expansion. gfsim call-count tests prove one evaluation per Epoch
+  and recomputation after Epoch advance or reset.
+- The multi-writer Issue Queue example compiles and runs in direct and native
+  gfsim while its grant read and valid-clear patch reuse one selection.
+
+**Source**
+- Agentic Circuit shared Table selection evaluation direction (2026-09-03).
+
+## Decision 0156: epoch 0.4 Table adds one scalar allocation endpoint
+
+**Status:** Accepted
+
+**Context / Goal**
+ROB and Issue Table owners need to install a complete new Entry while independent
+wakeup, completion, or removal endpoints update fields in the same tick. Treating
+allocation as an ordinary complete field writer would reject that useful overlap;
+assigning source-order priority would make the result scheduling-dependent.
+
+**Decision (strong constraint)**
+- `table.view(index).allocate(enable=condition, value=new_entry)` declares at
+  most one allocation endpoint per Table. It is state-driven, scalar-indexed,
+  and requires one complete Entry value. Queue-driven and CandidateSet-masked
+  allocation are illegal. The caller supplies the index; the primitive neither
+  searches for a free Entry nor checks occupancy or changes `valid` implicitly.
+- Frozen ACIR does not add an allocation primitive. `ac.table.write` requires
+  `mode "field"` or `mode "replace"`; allocation lowers to `replace`, while
+  existing write/patch lowers to `field`. `ac.table.masked_write` requires
+  `mode "field"`. Replace declares every struct field in declaration order, or
+  `$entry` for a bool/integer Entry.
+- Field writers remain pairwise field-disjoint. One replace writer may overlap
+  any field writer; a second replace writer is rejected. All expressions observe
+  the old committed image. Commit first applies every field proposal to a next
+  image, then applies the replace proposal, so allocation wins only when it
+  targets the same Entry and endpoint scheduling order is unobservable.
+- QueueGraph plans and canonical JSON preserve `mode` and `write_fields` and
+  repeat their legality checks. Typed gfsim proposals carry stable writer IDs
+  and `FieldMerge`/`Replace` mode; cancellation remains writer-local. Direct and
+  native C++ generators emit the same mode. Test-only initial state uses
+  `initializeEntry()` only when no proposals are pending rather than disguising
+  whole-Entry initialization as a field proposal.
+- Contract epoch remains `0.4`. PYC/RTL continues to reject the provisional
+  Table family with `unsupported provisional Table`.
+
+**Deferred work**
+- multiple allocations, allocation arbitration, automatic free-slot search,
+  dynamic same-field mutual exclusion, and explicit ordinary-writer priority;
+- `ac.firing`, cross-object atomicity, wakeup-to-select bypass, general
+  `ac.reg` head/tail state, multidimensional Tables, and PYC/RTL lowering.
+
+**Verification**
+- Frontend and ACIR tests accept replace alongside wakeup/completion/removal
+  writers and reject duplicate, masked, Queue-driven, incomplete, or illegal
+  modes.
+- gfsim tests cover same-Entry replace priority, different Entries, disabled
+  allocation, old-state evaluation, and writer-local cancellation.
+- Focused Issue Table and ROB examples preserve mode through QueueGraph and
+  compile through direct and native typed gfsim C++; PYC retains the stable
+  provisional rejection boundary.
+
+**Source**
+- Agentic Circuit scalar Table allocation direction (2026-09-03).

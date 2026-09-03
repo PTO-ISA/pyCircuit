@@ -1,27 +1,19 @@
-# Stateful Table scoreboard
+# Stateful Issue Table
 
-`table_scoreboard.py` is the contract-epoch `0.4` vertical Table example. It
-uses one zero-initialized, one-dimensional Table with a single patch writer,
-one Queue-driven reader, and one state-driven reader.
+`issue.py` is the single public Python example in this directory. It combines:
 
-The patch preserves unspecified fields by lowering to `ac.table.get` followed
-by ordinary `ac.var.with` operations before `ac.table.write`. Reads observe the
-old committed Entry when a write is proposed in the same tick; the update is
-visible after tick commit. Queue backpressure keeps an already-produced Entry
-stable.
+- two field-disjoint operand wakeup writers;
+- minimum-age selection and grant-driven read;
+- scalar `valid` clear after issue;
+- explicit empty-slot match/choose followed by complete Entry allocation;
+- allocation backpressure while no old-state empty slot is available.
 
-This example targets the typed gfsim C++ provider. The PYC provider diagnoses
-the provisional Table as unsupported.
+All Table expressions observe the old committed image. Consequently a wakeup
+becomes selectable on the following tick, and a slot cleared by issue becomes
+visible to the empty-slot selector on the following tick. Allocation remains a
+state-driven scalar endpoint and replaces the complete selected Entry.
 
-`table_issue_slot.py` covers the provisional committed-request flow:
-`ac.slot` capture, `table.match`, `table.choose(policy="min")`, a state-driven
-patch, and release without same-cycle refill.
-
-`table_masked_update.py` uses a same-Table `CandidateSet` to patch every
-matching Entry atomically. Each patched value is computed from that Entry's
-old committed value and the complete mask commits at one tick edge.
-
-`table_batch_wakeup.py` is the smallest Issue Queue wakeup example. One
-completion tag matches every waiting Entry, and one masked patch marks all
-matches ready. The zero-initialized example therefore models four entries
-waiting for tag zero without introducing an allocation writer.
+The checked multi-writer Frozen ACIR fixture remains
+`table_multi_writer_issue.mlir`. Additional Python inputs used only for E2E
+regression coverage live under `tests/e2e/fixtures/table_examples/` and are not
+public examples.

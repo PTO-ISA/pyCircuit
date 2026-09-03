@@ -178,6 +178,20 @@ llvm::Expected<std::string> emitExpressionBody(const QueueBlockPlan &block,
              << identifier(expression.slot) << "->value;\n";
       continue;
     }
+    if (expression.kind == "table_match_ref") {
+      output << padding << "auto " << expression.result << " = "
+             << identifier(expression.field) << "->get(epoch);\n";
+      continue;
+    }
+    if (expression.kind == "table_selection_index_ref" ||
+        expression.kind == "table_selection_valid_ref") {
+      output << padding << "auto " << expression.result << " = "
+             << identifier(expression.field) << "->get(epoch)."
+             << (expression.kind == "table_selection_index_ref" ? "index"
+                                                                : "valid")
+             << ";\n";
+      continue;
+    }
     if (expression.kind == "table_match") {
       if (expression.nestedYields.size() != 1)
         return generatorError("table.match predicate yield is missing");
@@ -396,11 +410,13 @@ llvm::Expected<std::string> generateQueueGraphCpp(const QueueGraphPlan &plan) {
       return generatorError("table read contract is unsupported");
     if (block.kind == "table_write" &&
         (block.inputs.size() > 1 || !block.outputs.empty() ||
-         block.yields.size() != 3 || block.table.empty()))
+         block.yields.size() != 3 || block.table.empty() ||
+         (block.writeMode != "field" && block.writeMode != "replace")))
       return generatorError("table write contract is unsupported");
     if (block.kind == "table_masked_write" &&
         (!block.inputs.empty() || !block.outputs.empty() ||
-         block.yields.size() != 3 || block.table.empty()))
+         block.yields.size() != 3 || block.table.empty() ||
+         block.writeMode != "field"))
       return generatorError("masked table write contract is unsupported");
     if (block.kind == "slot" &&
         (block.inputs.size() != 1 || !block.outputs.empty() ||
@@ -507,6 +523,72 @@ llvm::Expected<std::string> generateQueueGraphCpp(const QueueGraphPlan &plan) {
     output << "};\n\n";
   }
 
+  for (const TableMatchPlan &match : plan.tableMatches) {
+    const TablePlan *table = findTable(plan, match.table);
+    auto entryType = table ? cppType(table->entryType)
+                           : llvm::Expected<std::string>(
+                                 generatorError("table.match Table missing"));
+    if (!entryType)
+      return entryType.takeError();
+    QueueBlockPlan predicate;
+    predicate.expressions = match.expressions;
+    predicate.yields = {match.yield};
+    auto body = emitExpressionBody(predicate, match.yield, 4);
+    if (!body)
+      return body.takeError();
+    output << "struct " << identifier(match.name) << "_predicate_policy {\n"
+           << "  gfsim::SimTable<" << *entryType << "> *table{};\n";
+    for (const SlotPlan &slot : plan.slots) {
+      auto type = cppType(slot.payloadType);
+      if (!type)
+        return type.takeError();
+      output << "  gfsim::SlotState<" << *type << "> *slot_"
+             << identifier(slot.name) << "{};\n";
+    }
+    output << "  bool operator()(const " << *entryType << " &item) const {\n"
+           << *body << "  }\n};\n"
+           << "using " << identifier(match.name) << "_cache = "
+           << "gfsim::TableMatchCache<" << *entryType << ", "
+           << identifier(match.name) << "_predicate_policy>;\n\n";
+  }
+  for (const TableSelectionPlan &selection : plan.tableSelections) {
+    const TablePlan *table = findTable(plan, selection.table);
+    auto entryType = table ? cppType(table->entryType)
+                           : llvm::Expected<std::string>(
+                                 generatorError("table.choose Table missing"));
+    if (!entryType)
+      return entryType.takeError();
+    output << "struct " << identifier(selection.name) << "_mask_policy {\n"
+           << "  " << identifier(selection.match) << "_cache *match{};\n"
+           << "  std::uint64_t operator()(gfsim::Epoch epoch) const {\n"
+           << "    return match->get(epoch);\n  }\n};\n";
+    output << "struct " << identifier(selection.name) << "_key_policy {\n"
+           << "  std::uint64_t operator()(const " << *entryType
+           << " &item) const {\n";
+    if (selection.policy == "first") {
+      output << "    return 0;\n";
+    } else {
+      QueueBlockPlan key;
+      key.expressions = selection.keyExpressions;
+      key.yields = {selection.keyYield};
+      auto body = emitExpressionBody(key, selection.keyYield, 4);
+      if (!body)
+        return body.takeError();
+      output << *body;
+    }
+    output << "  }\n};\n"
+           << "using " << identifier(selection.name) << "_cache = "
+           << "gfsim::TableSelectionCache<" << *entryType << ", "
+           << identifier(selection.name) << "_mask_policy, "
+           << identifier(selection.name) << "_key_policy>;\n"
+           << "inline constexpr auto " << identifier(selection.name)
+           << "_choose_policy = gfsim::TableChoosePolicy::"
+           << (selection.policy == "first" ? "First"
+               : selection.policy == "min" ? "Min"
+                                           : "Max")
+           << ";\n\n";
+  }
+
   for (auto [index, block] : llvm::enumerate(runtimeBlocks)) {
     if (block->kind != "transform" && block->kind != "route" &&
         block->kind != "select" && block->kind != "expect" &&
@@ -539,7 +621,13 @@ llvm::Expected<std::string> generateQueueGraphCpp(const QueueGraphPlan &plan) {
         output << "  gfsim::SimTable<" << *type << "> *table_"
                << identifier(table.name) << "{};\n";
       }
-      output << "  bool operator()() const {\n";
+      for (const TableMatchPlan &match : plan.tableMatches)
+        output << "  " << identifier(match.name) << "_cache *"
+               << identifier(match.name) << "{};\n";
+      for (const TableSelectionPlan &selection : plan.tableSelections)
+        output << "  " << identifier(selection.name) << "_cache *"
+               << identifier(selection.name) << "{};\n";
+      output << "  bool operator()(gfsim::Epoch epoch) const {\n";
       auto body = emitExpressionBody(*block, block->yields.front(), 4, true);
       if (!body)
         return body.takeError();
@@ -598,16 +686,57 @@ llvm::Expected<std::string> generateQueueGraphCpp(const QueueGraphPlan &plan) {
           output << "  gfsim::SlotState<" << *type << "> *slot_"
                  << identifier(slot.name) << "{};\n";
         }
-        output << "  " << *resultCppType << " operator()(";
+        for (const TableMatchPlan &match : plan.tableMatches)
+          output << "  " << identifier(match.name) << "_cache *"
+                 << identifier(match.name) << "{};\n";
+        for (const TableSelectionPlan &selection : plan.tableSelections)
+          output << "  " << identifier(selection.name) << "_cache *"
+                 << identifier(selection.name) << "{};\n";
+        output << "  " << *resultCppType << " operator()(gfsim::Epoch epoch";
         if (!inputType.empty())
-          output << "const " << inputType << " &item";
+          output << ", const " << inputType << " &item";
         else if (block->kind == "table_masked_write" && policyName == "value")
-          output << "const " << *entryType << " &item";
+          output << ", const " << *entryType << " &item";
         output << ") const {\n";
         auto body = emitExpressionBody(*block, block->yields[policyIndex], 4);
         if (!body)
           return body.takeError();
         output << *body << "  }\n};\n\n";
+      }
+      if (block->kind == "table_write" || block->kind == "table_masked_write") {
+        output << "struct block_" << index
+               << "_merge_policy {\n  static constexpr std::array<size_t, "
+               << block->writeFields.size() << "> fields{";
+        for (auto [fieldIndex, field] : llvm::enumerate(block->writeFields)) {
+          if (fieldIndex)
+            output << ", ";
+          if (field == "$entry") {
+            output << 0;
+            continue;
+          }
+          auto payload = llvm::find_if(plan.payloads,
+                                       [&](const QueuePayloadPlan &candidate) {
+                                         return candidate.name == *entryType;
+                                       });
+          if (payload == plan.payloads.end())
+            return generatorError("table Entry payload is missing");
+          auto declared = llvm::find_if(
+              payload->fields, [&](const QueuePayloadFieldPlan &candidate) {
+                return candidate.name == field;
+              });
+          if (declared == payload->fields.end())
+            return generatorError("table write field is missing");
+          output << std::distance(payload->fields.begin(), declared);
+        }
+        output << "};\n  void operator()(" << *entryType << " &target, const "
+               << *entryType << " &value) const {\n";
+        for (const std::string &field : block->writeFields) {
+          if (field == "$entry")
+            output << "    target = value;\n";
+          else
+            output << "    target." << field << " = value." << field << ";\n";
+        }
+        output << "  }\n};\n\n";
       }
       continue;
     }
@@ -848,6 +977,34 @@ llvm::Expected<std::string> generateQueueGraphCpp(const QueueGraphPlan &plan) {
         .append(std::to_string(index))
         .append("_state_");
   }
+  std::string sharedPolicyPointers;
+  for (const TableMatchPlan &match : plan.tableMatches)
+    sharedPolicyPointers.append(", &")
+        .append(identifier(match.name))
+        .append("_");
+  for (const TableSelectionPlan &selection : plan.tableSelections)
+    sharedPolicyPointers.append(", &")
+        .append(identifier(selection.name))
+        .append("_");
+  for (const TableMatchPlan &match : plan.tableMatches) {
+    auto table = tableMembers.find(match.table);
+    if (table == tableMembers.end())
+      return generatorError("table.match declaration is missing");
+    appendInitializer(initializers, identifier(match.name), "_(",
+                      table->getValue(), ", ", identifier(match.name),
+                      "_predicate_policy{&", table->getValue(),
+                      slotPolicyPointers, "})");
+  }
+  for (const TableSelectionPlan &selection : plan.tableSelections) {
+    auto table = tableMembers.find(selection.table);
+    if (table == tableMembers.end())
+      return generatorError("table.choose declaration is missing");
+    appendInitializer(initializers, identifier(selection.name), "_(",
+                      table->getValue(), ", ", identifier(selection.name),
+                      "_mask_policy{&", identifier(selection.match), "_}, ",
+                      identifier(selection.name), "_key_policy{}, ",
+                      identifier(selection.name), "_choose_policy)");
+  }
   for (auto [index, block] : llvm::enumerate(runtimeBlocks)) {
     auto state = feedbackStateIds.find(index);
     if (state == feedbackStateIds.end())
@@ -1007,18 +1164,18 @@ llvm::Expected<std::string> generateQueueGraphCpp(const QueueGraphPlan &plan) {
                           blockIds[key], ", ", *parent, ", ", table->getValue(),
                           ", ", queueMembers[block->outputs[0]], ", block_",
                           index, "_address_policy{&", table->getValue(),
-                          slotPolicyPointers, "}, block_", index,
-                          "_when_policy{&", table->getValue(),
-                          slotPolicyPointers, "})");
+                          slotPolicyPointers, sharedPolicyPointers, "}, block_",
+                          index, "_when_policy{&", table->getValue(),
+                          slotPolicyPointers, sharedPolicyPointers, "})");
       else
         appendInitializer(initializers, member, "(\"", instanceName, "\", ",
                           blockIds[key], ", ", *parent, ", ", table->getValue(),
                           ", ", queueMembers[block->inputs[0]], ", ",
                           queueMembers[block->outputs[0]], ", block_", index,
                           "_address_policy{&", table->getValue(),
-                          slotPolicyPointers, "}, block_", index,
-                          "_when_policy{&", table->getValue(),
-                          slotPolicyPointers, "})");
+                          slotPolicyPointers, sharedPolicyPointers, "}, block_",
+                          index, "_when_policy{&", table->getValue(),
+                          slotPolicyPointers, sharedPolicyPointers, "})");
     } else if (block->kind == "table_write") {
       auto table = tableMembers.find(block->table);
       if (table == tableMembers.end())
@@ -1028,29 +1185,37 @@ llvm::Expected<std::string> generateQueueGraphCpp(const QueueGraphPlan &plan) {
             initializers, member, "(\"", instanceName, "\", ", blockIds[key],
             ", ", *parent, ", ", table->getValue(), ", block_", index,
             "_address_policy{&", table->getValue(), slotPolicyPointers,
-            "}, block_", index, "_enable_policy{&", table->getValue(),
-            slotPolicyPointers, "}, block_", index, "_value_policy{&",
-            table->getValue(), slotPolicyPointers, "})");
+            sharedPolicyPointers, "}, block_", index, "_enable_policy{&",
+            table->getValue(), slotPolicyPointers, sharedPolicyPointers,
+            "}, block_", index, "_value_policy{&", table->getValue(),
+            slotPolicyPointers, sharedPolicyPointers, "}, block_", index,
+            "_merge_policy{}, gfsim::TableWriteMode::",
+            block->writeMode == "replace" ? "Replace" : "FieldMerge", ")");
       else
         appendInitializer(
             initializers, member, "(\"", instanceName, "\", ", blockIds[key],
             ", ", *parent, ", ", table->getValue(), ", ",
             queueMembers[block->inputs[0]], ", block_", index,
             "_address_policy{&", table->getValue(), slotPolicyPointers,
-            "}, block_", index, "_enable_policy{&", table->getValue(),
-            slotPolicyPointers, "}, block_", index, "_value_policy{&",
-            table->getValue(), slotPolicyPointers, "})");
+            sharedPolicyPointers, "}, block_", index, "_enable_policy{&",
+            table->getValue(), slotPolicyPointers, sharedPolicyPointers,
+            "}, block_", index, "_value_policy{&", table->getValue(),
+            slotPolicyPointers, sharedPolicyPointers, "}, block_", index,
+            "_merge_policy{}, gfsim::TableWriteMode::",
+            block->writeMode == "replace" ? "Replace" : "FieldMerge", ")");
     } else if (block->kind == "table_masked_write") {
       auto table = tableMembers.find(block->table);
       if (table == tableMembers.end())
         return generatorError("masked table write declaration is missing");
-      appendInitializer(
-          initializers, member, "(\"", instanceName, "\", ", blockIds[key],
-          ", ", *parent, ", ", table->getValue(), ", block_", index,
-          "_mask_policy{&", table->getValue(), slotPolicyPointers, "}, block_",
-          index, "_enable_policy{&", table->getValue(), slotPolicyPointers,
-          "}, block_", index, "_value_policy{&", table->getValue(),
-          slotPolicyPointers, "})");
+      appendInitializer(initializers, member, "(\"", instanceName, "\", ",
+                        blockIds[key], ", ", *parent, ", ", table->getValue(),
+                        ", block_", index, "_mask_policy{&", table->getValue(),
+                        slotPolicyPointers, sharedPolicyPointers, "}, block_",
+                        index, "_enable_policy{&", table->getValue(),
+                        slotPolicyPointers, sharedPolicyPointers, "}, block_",
+                        index, "_value_policy{&", table->getValue(),
+                        slotPolicyPointers, sharedPolicyPointers, "}, block_",
+                        index, "_merge_policy{})");
     } else if (block->kind == "slot") {
       const SlotPlan *slot = findSlot(plan, block->slot);
       if (!slot)
@@ -1060,6 +1225,7 @@ llvm::Expected<std::string> generateQueueGraphCpp(const QueueGraphPlan &plan) {
       for (const TablePlan &table : plan.tables)
         if (referencesTable(block->expressions, table.name))
           policyPointers.append(", &").append(tableMembers[table.name]);
+      policyPointers.append(sharedPolicyPointers);
       appendInitializer(
           initializers, member, "(\"", instanceName, "\", ", blockIds[key],
           ", ", *parent, ", ", queueMembers[block->inputs[0]], ", slot_",
@@ -1155,6 +1321,11 @@ llvm::Expected<std::string> generateQueueGraphCpp(const QueueGraphPlan &plan) {
       return line.takeError();
     output << *line << '\n';
   }
+  output << "  }\n\n  void reset() override {\n    gfsim::Module::reset();\n";
+  for (const TableMatchPlan &match : plan.tableMatches)
+    output << "    " << identifier(match.name) << "_.reset();\n";
+  for (const TableSelectionPlan &selection : plan.tableSelections)
+    output << "    " << identifier(selection.name) << "_.reset();\n";
   output << "  }\n\n";
   for (const QueueBlockPlan &block : plan.blocks)
     if (block.kind == "source") {
@@ -1251,6 +1422,12 @@ llvm::Expected<std::string> generateQueueGraphCpp(const QueueGraphPlan &plan) {
     output << "  gfsim::SimTable<" << *type << "> " << tableMembers[table.name]
            << ";\n";
   }
+  for (const TableMatchPlan &match : plan.tableMatches)
+    output << "  " << identifier(match.name) << "_cache "
+           << identifier(match.name) << "_;\n";
+  for (const TableSelectionPlan &selection : plan.tableSelections)
+    output << "  " << identifier(selection.name) << "_cache "
+           << identifier(selection.name) << "_;\n";
   for (auto [index, block] : llvm::enumerate(runtimeBlocks)) {
     if (!feedbackStateIds.contains(index))
       continue;
@@ -1447,8 +1624,8 @@ llvm::Expected<std::string> generateQueueGraphCpp(const QueueGraphPlan &plan) {
       if (block->inputs.empty()) {
         output << "  gfsim::TableWriteSource<" << *entryType << ", block_"
                << index << "_address_policy, block_" << index
-               << "_enable_policy, block_" << index << "_value_policy> block_"
-               << index << "_;\n";
+               << "_enable_policy, block_" << index << "_value_policy, block_"
+               << index << "_merge_policy> block_" << index << "_;\n";
       } else {
         const QueuePlan *input = findQueue(plan, block->inputs.front());
         auto inputType = input ? cppType(input->payloadType)
@@ -1459,7 +1636,8 @@ llvm::Expected<std::string> generateQueueGraphCpp(const QueueGraphPlan &plan) {
         output << "  gfsim::QueueTableWrite<" << *inputType << ", "
                << *entryType << ", block_" << index << "_address_policy, block_"
                << index << "_enable_policy, block_" << index
-               << "_value_policy> block_" << index << "_;\n";
+               << "_value_policy, block_" << index << "_merge_policy> block_"
+               << index << "_;\n";
       }
     } else if (block->kind == "table_masked_write") {
       const TablePlan *table = findTable(plan, block->table);
@@ -1470,8 +1648,8 @@ llvm::Expected<std::string> generateQueueGraphCpp(const QueueGraphPlan &plan) {
         return entryType.takeError();
       output << "  gfsim::TableMaskedWriteSource<" << *entryType << ", block_"
              << index << "_mask_policy, block_" << index
-             << "_enable_policy, block_" << index << "_value_policy> block_"
-             << index << "_;\n";
+             << "_enable_policy, block_" << index << "_value_policy, block_"
+             << index << "_merge_policy> block_" << index << "_;\n";
     } else if (block->kind == "slot") {
       const SlotPlan *slot = findSlot(plan, block->slot);
       auto type = slot ? cppType(slot->payloadType)

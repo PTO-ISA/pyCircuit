@@ -1,8 +1,8 @@
 # Agentic Circuit Stateful Table Abstraction Design
 
-> 状态：epoch `0.4` 原型由 Decisions 0151–0153 定义；其余内容为后续设计
-> 当前范围：一维、全零初始化、单 writer、state-driven scalar/masked update、match/choose、committed slot、typed gfsim C++
-> 规范依据：Decisions 0151–0153 与 `docs/spec/agentic-circuit*.md`
+> 状态：epoch `0.4` 原型由 Decisions 0151–0156 定义；其余内容为后续设计
+> 当前范围：一维、全零初始化、字段不相交的多 writer、单一 scalar allocation、state-driven scalar/masked update、match/choose、committed slot、typed gfsim C++
+> 规范依据：Decisions 0151–0156 与 `docs/spec/agentic-circuit*.md`
 
 ## 0. epoch 0.4 原型边界
 
@@ -12,10 +12,19 @@ Queue-driven 与 state-driven `write/patch`、`table.match/choose`、`ac.slot(qu
 `ac.table/get/read/write/masked_write/match/choose` 与 `ac.slot/get/release`
 以及 QueueGraph 到 typed gfsim C++ 的纵向链路。`patch` 在 Frozen ACIR 前展开为
 `table.get -> var.with -> table.write/masked_write`。同 tick 读写返回 old committed Entry，write
-在 tick commit 后可见；动态越界报告 `table_index_out_of_range`。
+在 tick commit 后可见；动态越界报告 `table_index_out_of_range`。多个 scalar/masked
+writer 仅在规范化顶层写字段集合两两不相交时合法。每个 endpoint 从同一 old committed
+image 求值，commit 只合并其声明字段并一次发布；同字段 writer 无条件静态拒绝。
+每张 Table 还可有一个 state-driven scalar allocation endpoint；它以
+`ac.table.write mode "replace"` 安装完整 Entry。普通字段 proposal 先合并，replace 后应用，因此同 Entry
+复用时 allocation wins。allocation 不搜索空位、不检查占用，也不隐式修改 `valid`。
+每个作者声明的 match/choose 在 Frozen ACIR 与 QueueGraph 中只保留一个共享定义；各
+endpoint 捕获共享 SSA/ref。typed gfsim 按完整 Epoch 惰性缓存，因此同一 Epoch 无论多少
+read/write consumer 都只扫描一次，Epoch 前进或 reset 后失效。`first` choose 使用空 key
+region，min/max 使用单一 typed key region。
 
-本文件下文关于 `ac.firing`、跨对象原子性、PYC/RTL、多维、多选、多个
-writer、非零 image、仲裁及 SRAM inference 的设计均为明确 deferred，不是 epoch
+本文件下文关于 `ac.firing`、跨对象原子性、PYC/RTL、多维、多选、同字段多
+writer 的动态互斥或优先级、非零 image、仲裁及 SRAM inference 的设计均为明确 deferred，不是 epoch
 `0.4` 的可用产品契约。旧 `ac.table(value, address=..., ...)` 已删除；请求响应 memory
 继续使用 `ac.memory`。
 
@@ -1274,6 +1283,8 @@ ac.table.write_mask
 ```
 
 View、Mask、Patch 以及 Queue-facing Table method wrapper 均在 Frozen ACIR 前消失。
+这里不增加 `ac.table.allocate` Frozen primitive；前端 `.allocate(...)` 降为
+`ac.table.write mode "replace"`。
 `ac.firing` 的 Queue operands/results、region token 参数和 `ac.firing.yield` 显式表达
 输入消费、输出产生、guard 和共享 commit 边界，不需要在 Python 或 Frozen region 中
 逐条书写 `peek/pop/push`。
@@ -1463,7 +1474,11 @@ ac.firing inputs(%completions) {
 
 retirement 没有输入 Queue token。它在 `%can_retire` 为真且 `%retired` 输出可接受时每
 tick 最多 firing 一次。三个 firing 都读取同一个 tick 的 committed snapshot；它们的
-有效 Table/Reg write proposal 在同一个 edge 提交，动态同地址冲突属于非法设计。
+有效 Table/Reg write proposal 在同一个 edge 提交。普通 Table field writer 若静态写字段
+集合相交则属于非法设计；字段不相交时，即使动态命中同一 Entry 也按字段合并。每张 Table
+允许一个完整 replace allocation writer 与它们重叠：commit 先合并 field，再应用 replace，
+所以同槽 remove+allocate 得到新 Entry。第一版不根据地址、mask、enable 或 predicate 证明
+同字段 writer 互斥。
 
 ### 25.3 RTL
 

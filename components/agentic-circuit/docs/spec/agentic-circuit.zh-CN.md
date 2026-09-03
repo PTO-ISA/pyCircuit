@@ -346,7 +346,7 @@ array。
 
 ### Stateful Table 原型
 
-epoch `0.4` 新增一维、全零初始化、单 writer 的状态 Table：
+epoch `0.4` 新增一维、全零初始化的状态 Table：
 
 ```python
 Table16 = ac.table[16, Entry]
@@ -367,6 +367,11 @@ table.view(pending).patch(
     valid=True,
     age=lambda entry: entry.age + 1,
 )
+
+table.view(tail).allocate(
+    enable=allocation.valid,
+    value=allocation.value,
+)
 ```
 
 Entry 只能是 bool、定宽整数或仅包含这些字段的扁平 struct。`read()` 总是返回
@@ -378,18 +383,39 @@ Entry 只能是 bool、定宽整数或仅包含这些字段的扁平 struct。`r
 state-driven masked update。masked `write` 给所有命中 Entry 写入同一个完整值；
 masked `patch` 的字段可以是统一表达式，也可以是从各命中 old Entry 求值的纯
 `lambda entry`。`enable=false` 不求值 mask/value，空 mask 是 no-op，所有命中项在
-同一个 tick edge 原子提交。masked 与单 index endpoint 共享单 writer 限制。
+同一个 tick edge 原子提交。scalar 与 masked endpoint 可以共存，但各 endpoint 静态声明的
+顶层写字段集合必须两两不相交。第一版不分析 address、mask、enable 或 predicate 的动态
+互斥性；只要两个 endpoint 声明同一字段就静态拒绝。
+
+每张 Table 可以额外声明一个 state-driven scalar `allocate` endpoint，与上述普通字段
+writer 共存。它在调用方提供的 index 安装完整 Entry，不搜索空位、不检查占用状态，也不
+隐式修改 `valid`。Queue-driven 和 CandidateSet masked allocation 均拒绝。所有 policy
+读取 old committed image；commit 先合并普通字段 proposal，再应用 allocation，因此同一
+Entry 上 allocation 覆盖普通更新，不同 Entry 仍独立更新。
+
+每次作者写出的 `match` 和 `choose` 都是共享值，不是 endpoint-local 语法糖。
+Frozen ACIR 只生成一个支配所有使用点的 `ac.table.match` 或 `ac.table.choose`，read/write
+policy region 捕获其 SSA result。QueueGraph 与 typed gfsim 保留这种共享关系：结果按完整
+Epoch 惰性求值并缓存，同一 Epoch 的多个 consumer 只触发一次 Table scan；Epoch 前进或
+模型 reset 后重新计算。choose 的 mask 必须来自同 Table 的 match。`policy="first"`
+使用空 key region，min/max 仍要求一个有类型的 key region。
 
 `EntryView` 只存在于 elaboration。`patch` 在 Frozen ACIR 前展开成
 `ac.table.get -> ac.var.with -> ac.table.write` 或 `ac.table.masked_write`，不存在
-`ac.table.patch`。
+`ac.table.patch`。两种 Frozen write op 都必须携带规范化、非空、无重复的
+`write_fields` 与必需的 `mode`：普通 write 使用 `mode "field"`，scalar allocation
+使用 `mode "replace"`，masked write 只允许 `field`。完整 struct write 展开为所有实际
+字段，bool/int Entry 使用 `$entry`。
+value region 仍返回完整 Entry，但 commit 只复制声明字段；所有 writer 从同一 old
+committed image 求值，并在 tick edge 合并后一次发布。
 当前 Table 只支持 typed gfsim C++；PYC/RTL 返回稳定的
 `unsupported provisional Table` 诊断。旧 `ac.table(...)` 已删除，请求响应存储继续
 使用 `ac.memory`。纵向示例见
-[`table_scoreboard.py`](../../examples/state/table_scoreboard.py) 与
-[`table_masked_update.py`](../../examples/state/table_masked_update.py)；最小的
-Issue Queue 批量唤醒形式见
-[`table_batch_wakeup.py`](../../examples/state/table_batch_wakeup.py)。
+唯一公开的 Python Table 示例是
+[`issue.py`](../../examples/state/issue.py)。它组合两个字段不相交的操作数唤醒、下一
+tick 的最小 age 选择、grant 驱动的移除，以及显式 match、choose old-state 空位后的
+完整 Entry allocation。Table 满时 allocation 请求会保留到空位可选。其余聚焦源码仅
+作为内部 E2E fixture，不再作为公开示例。
 
 ### Credit
 

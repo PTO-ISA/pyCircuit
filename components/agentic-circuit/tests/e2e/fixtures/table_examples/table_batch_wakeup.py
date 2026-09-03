@@ -1,4 +1,4 @@
-"""Wake every Table entry waiting for one completion tag."""
+"""E2E fixture for waking matching Issue Table entries."""
 
 import agentic_circuit as ac
 

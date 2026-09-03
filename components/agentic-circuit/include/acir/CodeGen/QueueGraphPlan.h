@@ -67,8 +67,10 @@ struct QueueBlockPlan {
   std::string memoryInstance;
   std::string table;
   std::string slot;
+  std::string writeMode;
   uint64_t endpointOrdinal = 0;
   std::string message;
+  std::vector<std::string> writeFields;
 };
 
 struct MemoryInstancePlan {
@@ -101,6 +103,26 @@ struct TablePlan {
   std::string ownerPath;
 };
 
+struct TableMatchPlan {
+  std::string name;
+  std::string table;
+  std::string scope;
+  std::string resultType;
+  std::vector<QueueExpressionPlan> expressions;
+  std::string yield;
+};
+
+struct TableSelectionPlan {
+  std::string name;
+  std::string table;
+  std::string scope;
+  std::string match;
+  std::string policy;
+  std::string indexType;
+  std::vector<QueueExpressionPlan> keyExpressions;
+  std::string keyYield;
+};
+
 struct TableReadPlan {
   std::string table;
   std::string name;
@@ -116,12 +138,16 @@ struct TableWritePlan {
   std::string name;
   std::string scope;
   std::string input;
+  std::string mode;
+  std::vector<std::string> writeFields;
 };
 
 struct TableMaskedWritePlan {
   std::string table;
   std::string name;
   std::string scope;
+  std::string mode;
+  std::vector<std::string> writeFields;
 };
 
 struct SlotPlan {
@@ -143,6 +169,8 @@ struct QueueGraphPlan {
   std::vector<MemoryInstancePlan> memoryInstances;
   std::vector<MemoryRequestPlan> memoryRequests;
   std::vector<TablePlan> tables;
+  std::vector<TableMatchPlan> tableMatches;
+  std::vector<TableSelectionPlan> tableSelections;
   std::vector<TableReadPlan> tableReads;
   std::vector<TableWritePlan> tableWrites;
   std::vector<TableMaskedWritePlan> tableMaskedWrites;

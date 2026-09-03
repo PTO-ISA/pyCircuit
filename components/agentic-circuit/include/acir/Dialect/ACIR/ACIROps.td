@@ -304,7 +304,7 @@ def ACIR_ReorderOp : ACIR_Op<"reorder", [SingleBlock]> {
   let arguments = (ins ACIR_QueueType:$input, I64Attr:$capacity,
                        I64Attr:$start, I64Attr:$depth, I64Attr:$latency);
   let results = (outs ACIR_QueueType:$output);
-  let regions = (region SizedRegion<1>:$key);
+  let regions = (region AnyRegion:$key);
   let hasVerifier = 1;
   let assemblyFormat = [{
     $input `capacity` $capacity `start` $start `depth` $depth
@@ -446,27 +446,32 @@ def ACIR_TableWriteOp : ACIR_Op<"table.write", [
     SingleBlock, DeclareOpInterfaceMethods<MemoryEffectsOpInterface>
   ]> {
   let arguments = (ins FlatSymbolRefAttr:$table,
-                       Optional<ACIR_QueueType>:$input);
+                       Optional<ACIR_QueueType>:$input,
+                       StrAttr:$mode,
+                       StrArrayAttr:$write_fields);
   let regions = (region SizedRegion<1>:$address,
                         SizedRegion<1>:$enable,
                         SizedRegion<1>:$value);
   let hasVerifier = 1;
   let assemblyFormat = [{
     $table (`,` $input^ `:` qualified(type($input)))?
-    `address` $address `enable` $enable `value` $value attr-dict
+    `mode` $mode `write_fields` $write_fields `address` $address `enable` $enable
+    `value` $value attr-dict
   }];
 }
 
 def ACIR_TableMaskedWriteOp : ACIR_Op<"table.masked_write", [
     SingleBlock, DeclareOpInterfaceMethods<MemoryEffectsOpInterface>
   ]> {
-  let arguments = (ins FlatSymbolRefAttr:$table, ACIR_VarType:$mask);
+  let arguments = (ins FlatSymbolRefAttr:$table, ACIR_VarType:$mask,
+                       StrAttr:$mode,
+                       StrArrayAttr:$write_fields);
   let regions = (region SizedRegion<1>:$enable,
                         SizedRegion<1>:$value);
   let hasVerifier = 1;
   let assemblyFormat = [{
     $table $mask `:` qualified(type($mask))
-    `enable` $enable `value` $value attr-dict
+    `mode` $mode `write_fields` $write_fields `enable` $enable `value` $value attr-dict
   }];
 }
 
@@ -491,12 +496,12 @@ def ACIR_TableMatchYieldOp : ACIR_Op<"table.match.yield", [Pure, Terminator]> {
 }
 
 def ACIR_TableChooseOp : ACIR_Op<"table.choose", [
-    SingleBlock, DeclareOpInterfaceMethods<MemoryEffectsOpInterface>
+    DeclareOpInterfaceMethods<MemoryEffectsOpInterface>
   ]> {
   let arguments = (ins FlatSymbolRefAttr:$table, ACIR_VarType:$mask,
                        I64Attr:$count, StrAttr:$policy);
   let results = (outs ACIR_VarType:$index, ACIR_VarType:$valid);
-  let regions = (region SizedRegion<1>:$key);
+  let regions = (region AnyRegion:$key);
   let hasVerifier = 1;
   let assemblyFormat = [{
     $table $mask `:` qualified(type($mask)) `count` $count `policy` $policy

@@ -20,6 +20,7 @@
 #include "llvm/Support/MathExtras.h"
 
 #include <limits>
+#include <optional>
 
 using namespace mlir;
 
@@ -1393,6 +1394,79 @@ static bool isTableEntryType(Operation *anchor, Type type) {
   });
 }
 
+static LogicalResult verifyTableWriteFields(Operation *endpoint, TableOp table,
+                                            ArrayAttr writeFields) {
+  if (writeFields.empty())
+    return endpoint->emitOpError("write_fields must be non-empty");
+  StringSet<> allowed;
+  llvm::StringMap<unsigned> ordinals;
+  if (auto structure = dyn_cast<StructType>(table.getEntryType())) {
+    Operation *declaration = recordDecl(endpoint, structure);
+    if (!declaration)
+      return endpoint->emitOpError("table Entry struct declaration is missing");
+    for (auto [ordinal, rawField] :
+         llvm::enumerate(declarationFields(declaration))) {
+      StringRef name = fieldName(cast<DictionaryAttr>(rawField));
+      allowed.insert(name);
+      ordinals[name] = ordinal;
+    }
+  } else {
+    allowed.insert("$entry");
+    ordinals["$entry"] = 0;
+  }
+  StringSet<> seen;
+  std::optional<unsigned> previousOrdinal;
+  for (Attribute rawField : writeFields) {
+    auto field = dyn_cast<StringAttr>(rawField);
+    if (!field || field.getValue().empty())
+      return endpoint->emitOpError(
+          "write_fields must contain non-empty field names");
+    if (!seen.insert(field.getValue()).second)
+      return endpoint->emitOpError()
+             << "duplicate write field '" << field.getValue() << "'";
+    if (!allowed.contains(field.getValue()))
+      return endpoint->emitOpError()
+             << "unknown write field '" << field.getValue() << "'";
+    unsigned ordinal = ordinals.lookup(field.getValue());
+    if (previousOrdinal && ordinal <= *previousOrdinal)
+      return endpoint->emitOpError(
+          "write_fields must follow Table Entry declaration order");
+    previousOrdinal = ordinal;
+  }
+  return success();
+}
+
+static bool tableWriteFieldsAreComplete(Operation *endpoint, TableOp table,
+                                        ArrayAttr writeFields) {
+  if (auto structure = dyn_cast<StructType>(table.getEntryType())) {
+    Operation *declaration = recordDecl(endpoint, structure);
+    if (!declaration)
+      return false;
+    ArrayAttr fields = declarationFields(declaration);
+    if (writeFields.size() != fields.size())
+      return false;
+    for (auto [written, declared] : llvm::zip(writeFields, fields))
+      if (cast<StringAttr>(written).getValue() !=
+          fieldName(cast<DictionaryAttr>(declared)))
+        return false;
+    return true;
+  }
+  return writeFields.size() == 1 &&
+         cast<StringAttr>(writeFields[0]).getValue() == "$entry";
+}
+
+static LogicalResult verifyTableWriteMode(Operation *endpoint, TableOp table,
+                                          StringRef mode,
+                                          ArrayAttr writeFields) {
+  if (mode != "field" && mode != "replace")
+    return endpoint->emitOpError("mode must be 'field' or 'replace'");
+  if (mode == "replace" &&
+      !tableWriteFieldsAreComplete(endpoint, table, writeFields))
+    return endpoint->emitOpError(
+        "replace mode must declare every Table Entry field");
+  return success();
+}
+
 static TableOp resolveTable(Operation *operation, FlatSymbolRefAttr reference) {
   return dyn_cast_or_null<TableOp>(
       SymbolTable::lookupNearestSymbolFrom(operation, reference));
@@ -1453,7 +1527,9 @@ LogicalResult TableOp::verify() {
   bool ownerExists = getOwner() == "/";
   bool duplicateStableId = false;
   unsigned endpoints = 0;
-  unsigned writers = 0;
+  llvm::StringMap<Operation *> fieldWriters;
+  std::string overlappingField;
+  unsigned replaceWriters = 0;
   root->walk([&](Operation *operation) {
     if (auto scope = dyn_cast<ScopeOp>(operation)) {
       std::string path = queueScopePath(scope);
@@ -1472,13 +1548,29 @@ LogicalResult TableOp::verify() {
     if (auto write = dyn_cast<TableWriteOp>(operation)) {
       if (resolveTable(write, write.getTableAttr()) == *this) {
         ++endpoints;
-        ++writers;
+        if (write.getMode() == "replace") {
+          ++replaceWriters;
+          return;
+        }
+        StringSet<> localFields;
+        for (Attribute rawField : write.getWriteFields()) {
+          auto field = cast<StringAttr>(rawField).getValue();
+          if (localFields.insert(field).second &&
+              !fieldWriters.try_emplace(field, operation).second)
+            overlappingField = field.str();
+        }
       }
     }
     if (auto write = dyn_cast<TableMaskedWriteOp>(operation)) {
       if (resolveTable(write, write.getTableAttr()) == *this) {
         ++endpoints;
-        ++writers;
+        StringSet<> localFields;
+        for (Attribute rawField : write.getWriteFields()) {
+          auto field = cast<StringAttr>(rawField).getValue();
+          if (localFields.insert(field).second &&
+              !fieldWriters.try_emplace(field, operation).second)
+            overlappingField = field.str();
+        }
       }
     }
     if (auto match = dyn_cast<TableMatchOp>(operation))
@@ -1491,8 +1583,11 @@ LogicalResult TableOp::verify() {
     return emitOpError("stable_id must be unique");
   if (endpoints == 0)
     return emitOpError("must have at least one table read/write endpoint");
-  if (writers > 1)
-    return emitOpError("table permits at most one write endpoint");
+  if (!overlappingField.empty())
+    return emitOpError() << "write field '" << overlappingField
+                         << "' has multiple endpoints";
+  if (replaceWriters > 1)
+    return emitOpError("has multiple replace writer endpoints");
   return success();
 }
 
@@ -1521,6 +1616,38 @@ static FailureOr<Type> verifyTablePolicy(Operation *endpoint, Region &region,
     endpoint->emitOpError() << name << " argument must match endpoint input";
     return failure();
   }
+  FlatSymbolRefAttr endpointTable;
+  if (auto read = dyn_cast<TableReadOp>(endpoint))
+    endpointTable = read.getTableAttr();
+  else if (auto write = dyn_cast<TableWriteOp>(endpoint))
+    endpointTable = write.getTableAttr();
+  else if (auto write = dyn_cast<TableMaskedWriteOp>(endpoint))
+    endpointTable = write.getTableAttr();
+  auto verifyCapture = [&](Value operand) -> LogicalResult {
+    if (auto argument = dyn_cast<BlockArgument>(operand)) {
+      if (argument.getOwner() == &block)
+        return success();
+      return endpoint->emitOpError()
+             << name << " captures an external block argument";
+    }
+    Operation *definition = operand.getDefiningOp();
+    if (!definition || definition->getBlock() == &block)
+      return success();
+    if (auto match = dyn_cast<TableMatchOp>(definition)) {
+      if (match.getTableAttr() == endpointTable)
+        return success();
+    } else if (auto choose = dyn_cast<TableChooseOp>(definition)) {
+      if (choose.getTableAttr() == endpointTable)
+        return success();
+    }
+    return endpoint->emitOpError()
+           << name
+           << " may only capture shared match/choose results for its Table";
+  };
+  for (Operation &operation : block)
+    for (Value operand : operation.getOperands())
+      if (failed(verifyCapture(operand)))
+        return failure();
   for (Operation &operation : block.without_terminator()) {
     if (isa<SlotGetOp>(operation))
       continue;
@@ -1621,6 +1748,10 @@ LogicalResult TableWriteOp::verify() {
     return emitOpError() << "unresolved table " << getTable();
   if (!tableVisibleFrom(*this, table))
     return emitOpError("table is outside the write scope ancestry");
+  if (failed(verifyTableWriteFields(*this, table, getWriteFields())))
+    return failure();
+  if (failed(verifyTableWriteMode(*this, table, getMode(), getWriteFields())))
+    return failure();
   Type argumentType;
   if (getInput())
     argumentType = VarType::get(
@@ -1653,6 +1784,10 @@ LogicalResult TableMaskedWriteOp::verify() {
     return emitOpError() << "unresolved table " << getTable();
   if (!tableVisibleFrom(*this, table))
     return emitOpError("table is outside the write scope ancestry");
+  if (failed(verifyTableWriteFields(*this, table, getWriteFields())))
+    return failure();
+  if (getMode() != "field")
+    return emitOpError("masked write mode must be 'field'");
   if (table.getEntries() == 0 || table.getEntries() > 64)
     return emitOpError("masked write domain must contain 1..64 entries");
   auto maskType = dyn_cast<IntegerType>(
@@ -1736,7 +1871,8 @@ LogicalResult TableChooseOp::verify() {
       VarType::get(getContext(), IntegerType::get(getContext(), 1)))
     return emitOpError("valid result must be !ac.var<i1>");
   if (getPolicy() == "first") {
-    if (!getKey().empty())
+    if (!getKey().empty() &&
+        !(getKey().hasOneBlock() && getKey().front().empty()))
       return emitOpError("first policy does not accept a key region");
     return success();
   }
