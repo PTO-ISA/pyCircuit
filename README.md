@@ -173,7 +173,8 @@ python3 -m pycircuit.cli build \
 ```
 
 Pull requests use two lightweight required checks: pyCircuit Python/repository
-hygiene and Agentic Circuit contract/frontend/CLI tests. Before opening a PR,
+hygiene and Agentic Circuit contract/frontend/CLI-inventory tests. Before
+opening a PR,
 run the matching local commands:
 
 ```bash

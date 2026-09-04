@@ -15,7 +15,7 @@ native or semantic behavior.
 - pyCircuit Python unit tests: 13 passed
 - Agentic repository contracts: 37 passed
 - Agentic Python frontend: 125 passed, 3 skipped
-- Agentic Python-only CLI: 48 passed, 5 skipped
+- Agentic Python-only CLI inventory/workspace: 6 passed
 - focused ACIR-to-PYC rule-retirement G2 test: passed
 - strict decision status: 159 rows, 0 deferred
 - MkDocs strict build: passed

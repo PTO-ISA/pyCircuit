@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 import unittest
 from dataclasses import FrozenInstanceError
 
@@ -23,10 +22,6 @@ module attributes {ac.contract_epoch = "0.5"} {
 """
 
 
-@unittest.skipIf(
-    os.environ.get("AC_PYTHON_ONLY") == "1",
-    "native extension is a release/targeted-test dependency",
-)
 class NativeApiTest(unittest.TestCase):
     def test_private_extension_compiles_verified_acir(self) -> None:
         result = run_native_compiler(

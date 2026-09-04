@@ -98,4 +98,5 @@ jobs:
           python tools/agentic-circuit/check-contracts.py
           python -m unittest discover -s tests/python/agentic-circuit/contracts -p 'test_*.py'
           python -m unittest discover -s tests/python/agentic-circuit/python_frontend -p 'test_*.py'
-          python -m unittest discover -s tests/python/agentic-circuit/cli -p 'test_*.py'
+          python -m unittest discover -s tests/python/agentic-circuit/cli -p 'test_all_commands.py'
+          python -m unittest discover -s tests/python/agentic-circuit/cli -p 'test_workspace.py'

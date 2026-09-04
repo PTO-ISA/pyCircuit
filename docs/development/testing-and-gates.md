@@ -9,7 +9,7 @@ demands it.
 - **Required PR CI** is intentionally lightweight: changed-file pre-commit,
   repository-management checks, documentation, pyCircuit Python unit tests,
   packaging-helper checks, API hygiene, and Python-only Agentic Circuit
-  contract/frontend/CLI tests.
+  contract/frontend/CLI-inventory tests.
 - **Targeted author evidence** covers the narrow native, MLIR, runtime, or
   backend behavior changed by a PR. Run the smallest relevant local command and
   record it in the PR; do not substitute an unrelated broad lane.

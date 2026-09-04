@@ -3907,7 +3907,8 @@ delayed review feedback without changing the release acceptance contract.
 **Decision (strong constraint)**
 - Required pull-request CI is bounded to changed-file hygiene, repository
   management, documentation, pyCircuit Python unit tests, packaging-helper
-  checks, and Python-only Agentic Circuit contract/frontend/CLI tests.
+  checks, and Python-only Agentic Circuit contract/frontend/CLI-inventory
+  tests.
 - Pull requests that change semantics, native code, lowering, runtime, or
   packaging still carry the narrowest relevant local test evidence and
   decision mapping. Passing lightweight CI is not evidence that an untested
