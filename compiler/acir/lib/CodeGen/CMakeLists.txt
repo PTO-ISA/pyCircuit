@@ -19,6 +19,7 @@ target_compile_definitions(ACIRCodeGen PRIVATE
   ACIR_CODEGEN_LLVM_INCLUDE_DIRS="${ACIR_CODEGEN_LLVM_INCLUDE_DIRS}"
 )
 target_link_libraries(ACIRCodeGen PUBLIC
+  ACIRAnalysis
   ACIRBindings
   ACIRDialect
   ACSimDialect

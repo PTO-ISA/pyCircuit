@@ -472,10 +472,10 @@ llvm::Expected<std::string> canonicalQueueBlockCatalogJson() {
         {"role", contract->role},
     });
   }
-  llvm::json::Object root{{"contract_epoch", "0.4"},
+  llvm::json::Object root{{"contract_epoch", "0.5"},
                           {"entries", std::move(entries)},
                           {"schema", "agentic-circuit-opcode-catalog"},
-                          {"version", "0.4"}};
+                          {"version", "0.5"}};
   return bindings::canonicalizeJson(llvm::json::Value(std::move(root)));
 }
 

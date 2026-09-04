@@ -2,7 +2,7 @@
 // RUN: %acir_opt_public %s | %acir_opt_public | %FileCheck %s
 // RUN: %acir_opt_public --pass-pipeline='builtin.module(canonicalize,cse)' %s | %FileCheck %s --check-prefix=EFFECTS
 
-builtin.module attributes {ac.contract_epoch = "0.4"} {
+builtin.module attributes {ac.contract_epoch = "0.5"} {
   ac.protocol @fifo {
     ac.role @sender dual @receiver cardinality "exclusive"
     ac.role @receiver dual @sender cardinality "exclusive"

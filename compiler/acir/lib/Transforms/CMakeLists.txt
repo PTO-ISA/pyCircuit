@@ -6,6 +6,7 @@ add_acir_library(ACIRTransforms SOURCES
   NormalizeACIRFile.cpp
   VerifyACIRFile.cpp
   LowerProcessState.cpp
+  LowerRules.cpp
 )
 add_dependencies(ACIRTransforms ACIRTransformsIncGen)
 target_link_libraries(ACIRTransforms PUBLIC

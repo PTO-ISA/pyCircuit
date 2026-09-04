@@ -295,11 +295,18 @@ ACIR_DEFINE_NAMED_LAYOUT(UnionType, false)
 
 #include "acir/Dialect/ACIR/ACIREnums.cpp.inc"
 
+#define GET_ATTRDEF_CLASSES
+#include "acir/Dialect/ACIR/ACIRAttributes.cpp.inc"
+
 #define GET_TYPEDEF_CLASSES
 #include "acir/Dialect/ACIR/ACIRTypes.cpp.inc"
 
 void acir::ac::ACIRDialect::initialize() {
   addInterfaces<StructuralProviderDialectInterface>();
+  addAttributes<
+#define GET_ATTRDEF_LIST
+#include "acir/Dialect/ACIR/ACIRAttributes.cpp.inc"
+      >();
   addTypes<
 #define GET_TYPEDEF_LIST
 #include "acir/Dialect/ACIR/ACIRTypes.cpp.inc"

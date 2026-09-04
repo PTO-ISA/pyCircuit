@@ -3,8 +3,8 @@
 | Field | Value |
 | --- | --- |
 | Specification | Serial Python, Queue/Var ACIR, typed gfsim, and PYC refinement |
-| Target contract epoch | `0.4` |
-| Status | Current implementation contract; serialized epoch `0.4` is active on `main` |
+| Target contract epoch | `0.5` |
+| Status | Current implementation contract; serialized epoch `0.5` is active on `main` |
 | Public namespace | `ac` |
 | Audience | Frontend, compiler, simulator, and RTL contributors |
 | Design background | [NDF block-model decision](../../rfcs/acir/D-BLOCK-MODEL-001.md) |
@@ -36,7 +36,7 @@ The editable diagram source is
 The words **MUST**, **MUST NOT**, **SHOULD**, **SHOULD NOT**, and **MAY** are
 normative requirements for the current contract.
 
-Producers emit exact serialized epoch `0.4`; consumers reject other epochs
+Producers emit exact serialized epoch `0.5`; consumers reject other epochs
 before interpreting the artifact. The toolchain provides no compatibility
 alias or best-effort conversion.
 
@@ -464,7 +464,7 @@ request returns old data and makes the new data visible to a later request.
 
 ### Stateful Table prototype
 
-Epoch `0.4` separates locally owned state from request/response memory:
+Epoch `0.5` separates locally owned state from request/response memory:
 
 ```python
 Table16 = ac.table[16, Entry]
@@ -611,55 +611,33 @@ rejects it with an explicit instruction to place the check at the testbench
 boundary. `ac.observe` remains observation-role and may enter design lowering
 because it cannot change functional state.
 
-### Atomic group
+### Rule authoring
 
-> **Current implementation note:** `D-RULE-LOWERING-001` supersedes these
-> Python spellings for the target public rule surface. `ac.atomic()` and
-> `.firing()` remain documented here only while the current prototype exists;
-> future rule authoring uses simple `@ac.rule`, and MLIR passes materialize
-> checks, handshake, scheduling, and internal `ac.firing` transactions.
-
-Each ordinary `apply` is an atomic input-pop/output-push firing. Use
-`with ac.atomic():` to group at least two independent direct Queue transforms.
+`@ac.rule` is the only explicit Python scheduling boundary. A rule receives
+immutable payload values and returns output payload values; users do not spell
+Queue effects, checks, ready/valid handshake, scheduling, commit, or rollback.
 
 ```python
-left = ac.source(int)
-right = ac.source(int)
+@ac.rule
+def increment(item):
+    return item.with_fields(value=item.value + 1)
 
-with ac.atomic():
-    left_next = left.apply(lambda item: item + 1)
-    right_next = right.apply(lambda item: item * 2)
+incoming = ac.source(Item)
+outgoing = increment(incoming)
 ```
 
-All input Queues in the group MUST be unique. The grouped transform fires only
-when every input can pop and every output can push; all effects commit or none
-commit.
+The epoch 0.5 phase-one frontend accepts one type-preserving Queue input and
+one total return path. It emits transient `ac.rule` IR with exact input
+provenance and a typed pending handshake obligation. MLIR passes separately
+infer effects, establish an explicit empty-check contract, discharge handshake,
+resolve scheduling, and lower to marker-free `ac.firing`. Dynamic-check
+obligations are rejected in phase one because no executable checked IR exists
+yet. A proof pass may canonicalize this pure one-input/one-output firing to
+`ac.transform` for QueueGraph/gfsim and PYC.
 
-### Explicit Python firing effects
-
-Use `firing` when a low-level algorithm is clearer as explicit `peek`, `pop`,
-and `push` effects while keeping the destination Queue implicit.
-
-```python
-outgoing = incoming.firing(
-    lambda queue: queue.push(
-        queue.pop().with_fields(
-            value=queue.peek().value + 1,
-        )
-    )
-)
-```
-
-One Python firing MUST contain exactly one `pop` and one outer `push`; it MAY
-contain repeated non-consuming `peek` calls. `peek` and `pop` return immutable
-token Vars, and `push` requires the unchanged Queue payload type. Queue effects
-are rejected inside ordinary `apply` lambdas.
-
-The frontend normalizes this one-input/one-output form to the standard atomic
-`ac.transform` building block. The lower-level `ac.firing` and
-`ac.queue.peek/pop/push` operations remain the normative ACIR effect contract
-for future multi-Queue/state-effect normalization; generated hot paths do not
-interpret Python effect objects.
+Python `ac.atomic()` and `Queue.firing()` are removed and produce migration
+diagnostics directing authors to `@ac.rule`. The lower-level words remain
+compiler implementation concepts, not Python APIs.
 
 ### Bounded feedback
 
@@ -879,10 +857,11 @@ realization; Table entries explicitly declare their gfsim-only boundary.
 | `ac.feedback` | design | one to one | `depth`, `latency`, `max_iterations` | bounded stateful loop |
 | `ac.scope` | design | variadic to variadic | symbol name | hierarchy boundary; PYC elaboration flattens it |
 
-`ac.firing`, `ac.queue.peek`, `ac.queue.pop`, and `ac.queue.push` are lower-level
-transactional primitives. They are normative ACIR operations, but they are not
-independent QueueGraph building blocks and therefore do not appear in the
-graph-level opcode catalog.
+`ac.rule` and the three typed marker operations are transient pre-freeze IR.
+Marker-free `ac.firing` is the internal transaction contract. These operations
+are not independent QueueGraph building blocks; a proven pure firing becomes
+`ac.transform` before QueueGraph extraction. The epoch 0.4
+`ac.queue.peek/pop/push` operations are removed.
 
 The closed inventory will grow with other common hardware blocks. New
 application-specific opcodes and private provider identities are not an
@@ -1007,31 +986,39 @@ lowers to one `ac.route`, one ordinary memory instance and request per bank,
 and one response `ac.merge`. The route key selects exactly one bank. Banks have
 independent outstanding state, so responses from different banks may be
 reordered; callers that require request order retain a tag and use `reorder`.
-Memory arrays are one-dimensional in epoch 0.4 and require identical data type,
+Memory arrays are one-dimensional in epoch 0.5 and require identical data type,
 entry count, and initialization across all banks.
 
-### Explicit firing example
+### Internal firing example
 
-Low-level Queue effects are legal only inside `ac.firing`.
+After marker discharge, every scheduling contract remains distinct on the
+internal firing operation.
 
 ```mlir
-ac.firing(%input, %output) {
-  %head = ac.queue.peek %input
-    : !ac.queue<i32> -> !ac.var<i32>
-  %value = ac.queue.pop %input
-    : !ac.queue<i32> -> !ac.var<i32>
-  ac.queue.push %output, %value
-    : !ac.queue<i32>, !ac.var<i32>
-  ac.firing.yield
-} : (!ac.queue<i32>, !ac.queue<i32>)
+%output = ac.firing %input depths [1] latencies [1]
+    stable_id "top/increment" domain "cycle" guard "true" checks []
+    handshake "ready_valid_1x1" schedule "independent"
+    effects ["input.consume", "output.produce"] {
+^body(%value: !ac.var<i32>):
+  ac.firing.yield %value : !ac.var<i32>
+} : (!ac.queue<i32>) -> !ac.queue<i32>
 ```
 
-Firing Queue operands MUST be unique. Every Queue effect MUST reference a
-listed operand. One Queue may be popped at most once and pushed at most once in
-one firing. A firing MUST contain at least one pop or push. `peek` reads the
-same committed head without consuming it.
+The stable identity, exact domain, functional guard, checks, handshake,
+schedule, and effect summary are all mandatory. No typed marker may survive
+into Frozen ACIR. Pure firings may become `ac.transform` only after the
+canonicalization pass proves that this complete contract is preserved.
 
 ### Frozen logical identity
+
+The flat QueueGraph representation carries `ac.model_kind = "queue_graph"`
+and the exact singleton-domain declaration `ac.queue_graph_domain = "cycle"`.
+Those attributes are required in addition to `ac.system`; the representation
+may not contain structured `ac.system` or `ac.module*` declarations. Every
+phase-one rule domain must equal that declaration. QueueGraph planning and all
+QueueGraph generators accept only verified epoch 0.5 frozen input with an empty
+flat owner manifest and a matching topology digest. Raw or forged models are
+rejected rather than frozen implicitly by a backend.
 
 Every Queue-producing operation MUST carry exact frozen logical output names
 before QueueGraph extraction:
@@ -1042,7 +1029,7 @@ before QueueGraph extraction:
 - each Queue records payload type, scope path, depth, and latency.
 
 The canonical QueueGraph JSON uses schema
-`agentic-circuit-queue-graph-plan`, version `0.2`. Its ordering and bytes MUST
+`agentic-circuit-queue-graph-plan`, version `0.5`. Its ordering and bytes MUST
 not depend on host addresses, hash iteration, allocation order, or checkout
 path.
 
@@ -1446,10 +1433,13 @@ include:
 | `ACPY-QUEUE-006` | invalid route declaration |
 | `ACPY-QUEUE-007` | invalid bounded feedback loop |
 | `ACPY-QUEUE-008` | invalid merge |
-| `ACPY-QUEUE-009` | invalid atomic group |
 | `ACPY-QUEUE-010` | forbidden user opcode or backend provider |
 | `ACPY-QUEUE-011` | runtime `if` is not a symmetric Boolean Queue branch |
 | `ACPY-QUEUE-012` | invalid fork |
+
+Rule diagnostics use `ACPY-RULE-001` through `ACPY-RULE-005` for invalid rule
+definitions, unsupported control flow, invalid Queue invocation, result-type
+mismatch, and removed epoch 0.4 `atomic`/`.firing()` spellings respectively.
 
 Native QueueGraph/backend diagnostics use the `ACLOWER-QUEUE-*` family and
 MUST reject an invalid graph before emitting partial backend artifacts.

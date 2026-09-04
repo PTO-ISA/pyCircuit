@@ -8,4 +8,4 @@ module attributes {ac.contract_epoch = "0.2"} {
   }
 }
 
-// CHECK: expected top-level 'ac.contract_epoch' string attribute equal to "0.4"
+// CHECK: expected top-level 'ac.contract_epoch' string attribute equal to "0.5"

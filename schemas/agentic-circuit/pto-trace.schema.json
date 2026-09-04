@@ -8,7 +8,7 @@
   "properties": {
     "schema": {"const": "pto-trace"},
     "version": {"const": "0.1"},
-    "contract_epoch": {"const": "0.4"},
+    "contract_epoch": {"const": "0.5"},
     "metadata": {"$ref": "#/$defs/metadata"},
     "records": {
       "type": "array",

@@ -5,7 +5,7 @@
 // RUN: %not %acir_opt --verify-each=false --pass-pipeline='builtin.module(ac-verify-model)' %t/zero-delay-stateful.mlir 2>&1 | %FileCheck %s --check-prefix=STATEFUL-ZERO
 
 //--- self-loop.mlir
-builtin.module attributes {ac.contract_epoch = "0.4"} {
+builtin.module attributes {ac.contract_epoch = "0.5"} {
   ac.system @soc root @Top as "root" tick 0 "cycle"
       workload @Top::@workload seed {kind = "fixed", value = 0 : i64} instrumentation []
       results {id = "default", format = "json"} selected true
@@ -22,7 +22,7 @@ builtin.module attributes {ac.contract_epoch = "0.4"} {
 // SELF: forbidden zero-delay cycle: root.x -> root.x
 
 //--- multi-node.mlir
-builtin.module attributes {ac.contract_epoch = "0.4"} {
+builtin.module attributes {ac.contract_epoch = "0.5"} {
   ac.system @soc root @Top as "root" tick 0 "cycle"
       workload @Top::@workload seed {kind = "fixed", value = 0 : i64} instrumentation []
       results {id = "default", format = "json"} selected true
@@ -40,7 +40,7 @@ builtin.module attributes {ac.contract_epoch = "0.4"} {
 // MULTI: forbidden zero-delay cycle: root.a -> root.b -> root.a
 
 //--- stateful-edge.mlir
-builtin.module attributes {ac.contract_epoch = "0.4"} {
+builtin.module attributes {ac.contract_epoch = "0.5"} {
   ac.system @soc root @Top as "root" tick 0 "cycle"
       workload @Top::@workload seed {kind = "fixed", value = 0 : i64} instrumentation []
       results {id = "default", format = "json"} selected true
@@ -63,7 +63,7 @@ builtin.module attributes {ac.contract_epoch = "0.4"} {
 // STATEFUL: ac.topology_frozen = true
 
 //--- zero-delay-stateful.mlir
-builtin.module attributes {ac.contract_epoch = "0.4"} {
+builtin.module attributes {ac.contract_epoch = "0.5"} {
   ac.protocol @p {
     ac.role @sender dual @receiver cardinality "exclusive"
     ac.role @receiver dual @sender cardinality "exclusive"

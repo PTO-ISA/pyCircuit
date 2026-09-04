@@ -26,6 +26,7 @@ target_include_directories(CodeGenTests PRIVATE
 )
 target_link_libraries(CodeGenTests PRIVATE
   ACIRCodeGen
+  ACIRTransforms
   gfsim
   MLIRIndexDialect
   MLIRParser

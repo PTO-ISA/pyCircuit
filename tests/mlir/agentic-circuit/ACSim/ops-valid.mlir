@@ -6,8 +6,8 @@
 // RUN: %acir_opt_public %t.bc | %FileCheck %s
 // RUN: %acir_opt_public --pass-pipeline='builtin.module(canonicalize,cse)' %s | %FileCheck %s --check-prefix=RETAIN
 
-builtin.module attributes {ac.contract_epoch = "0.4"} {
-  acsim.model @demo epoch "0.4" root @Top
+builtin.module attributes {ac.contract_epoch = "0.5"} {
+  acsim.model @demo epoch "0.5" root @Top
       construction ["Top.fifo", "Top.lanes[0]", "Top.lanes[1]", "Top.tick"]
       destruction ["Top.tick", "Top.lanes[1]", "Top.lanes[0]", "Top.fifo"]
       fingerprints {
@@ -47,9 +47,9 @@ builtin.module attributes {ac.contract_epoch = "0.4"} {
       activation_sources = [], availability = "available", binding = "pure",
       binding_schema = "acsim-binding-0.1", component_schema = @pure_schema,
       component_schema_fingerprint = "sha256:9000000000000000000000000000000000000000000000000000000000000000",
-      construction = {arguments = [], kind = "constructor"}, contract_epoch = "0.4",
+      construction = {arguments = [], kind = "constructor"}, contract_epoch = "0.5",
       cpp = {concept = "gfsim::PureModel", entry_points = {pure = "gfsim::is_ready", reset = "", validate = "", work = "", xfer = ""}, header = "gfsim/pure.hpp", symbol = "gfsim::Pure", target = "gfsim"},
-      cpp_type = @cpp_bool, effect = "pure", fingerprint = "sha256:1100000000000000000000000000000000000000000000000000000000000000",
+      cpp_type = @cpp_bool, effect = "pure", fingerprint = "sha256:48ef85177d8014a6487978cf38d36dbd1abe5a6e8d391531bc6c2edf72432954",
       implementation = @pure_impl, ownership = {kind = "none", placement = "inline"},
       parameters = [], ports = [], provider = @gfsim,
       provider_implementation_fingerprint = "sha256:8000000000000000000000000000000000000000000000000000000000000000",
@@ -59,7 +59,7 @@ builtin.module attributes {ac.contract_epoch = "0.4"} {
       activation_sources = [{kind = @event_kind, name = "commit"}], availability = "available", binding = "stateful",
       binding_schema = "acsim-binding-0.1", component_schema = @stateful_schema,
       component_schema_fingerprint = "sha256:e000000000000000000000000000000000000000000000000000000000000000",
-      construction = {arguments = [], kind = "constructor"}, contract_epoch = "0.4",
+      construction = {arguments = [], kind = "constructor"}, contract_epoch = "0.5",
       cpp = {concept = "gfsim::StatefulModel", entry_points = {pure = "", reset = "fifo_reset", validate = "fifo_validate", work = "fifo_work", xfer = "fifo_xfer"}, header = "gfsim/fifo.hpp", symbol = "gfsim::Fifo", target = "gfsim"},
       cpp_type = @cpp_bool, effect = "stateful", fingerprint = "sha256:1200000000000000000000000000000000000000000000000000000000000000",
       implementation = @stateful_impl, ownership = {kind = "unique", placement = "member_or_array"},
@@ -170,7 +170,7 @@ builtin.module attributes {ac.contract_epoch = "0.4"} {
   }
 }
 
-// CHECK: acsim.model @demo epoch "0.4"
+// CHECK: acsim.model @demo epoch "0.5"
 // CHECK: acsim.type @cpp_bool
 // CHECK: acsim.binding @pure
 // CHECK: acsim.module @Top

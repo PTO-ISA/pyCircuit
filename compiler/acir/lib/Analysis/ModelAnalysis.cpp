@@ -992,6 +992,35 @@ std::string detail::computeTopologyDigest(ModuleOp model) {
   return llvm::toHex(sha.final(), /*LowerCase=*/true);
 }
 
+LogicalResult verifyFrozenFlatQueueGraph(ModuleOp model) {
+  auto contractEpoch = model->getAttrOfType<StringAttr>("ac.contract_epoch");
+  auto modelKind = model->getAttrOfType<StringAttr>("ac.model_kind");
+  auto system = model->getAttrOfType<StringAttr>("ac.system");
+  auto domain = model->getAttrOfType<StringAttr>("ac.queue_graph_domain");
+  if (!contractEpoch || contractEpoch.getValue() != "0.5" || !modelKind ||
+      modelKind.getValue() != "queue_graph" || !system ||
+      system.getValue().empty() || !domain || domain.getValue() != "cycle")
+    return model.emitError(
+        "frozen flat QueueGraph requires epoch 0.5, model kind queue_graph, "
+        "a non-empty system identity, and exact cycle domain");
+  for (Operation &operation : model.getBody()->getOperations()) {
+    if (isa<ac::SystemOp, ac::ModuleOp, ac::ModuleExternOp,
+            ac::ModuleGeneratedOp>(operation))
+      return operation.emitOpError(
+          "is not legal at the top level of a flat QueueGraph model");
+  }
+  auto frozen = model->getAttrOfType<BoolAttr>("ac.topology_frozen");
+  auto epoch = model->getAttrOfType<StringAttr>("ac.freeze_epoch");
+  auto owners = model->getAttrOfType<ArrayAttr>("ac.frozen_owners");
+  auto digest = model->getAttrOfType<StringAttr>("ac.topology_digest");
+  if (!frozen || !frozen.getValue() || !epoch || epoch.getValue() != "0.5" ||
+      !owners || !owners.empty() || !digest || digest.getValue().size() != 64)
+    return model.emitError("malformed flat QueueGraph freeze evidence");
+  if (digest.getValue() != detail::computeTopologyDigest(model))
+    return model.emitError("frozen flat QueueGraph digest mismatch");
+  return success();
+}
+
 LogicalResult ModelAnalysis::verifyFrozenIntegrity() {
   if (!detail::hasTopologyFreezeEvidence(model))
     return success();
@@ -999,10 +1028,10 @@ LogicalResult ModelAnalysis::verifyFrozenIntegrity() {
   auto epoch = model->getAttrOfType<StringAttr>("ac.freeze_epoch");
   auto digest = model->getAttrOfType<StringAttr>("ac.topology_digest");
   auto owners = model->getAttrOfType<ArrayAttr>("ac.frozen_owners");
-  if (!marker || !marker.getValue() || !epoch || epoch.getValue() != "0.4" ||
+  if (!marker || !marker.getValue() || !epoch || epoch.getValue() != "0.5" ||
       !digest || digest.getValue().size() != 64 || !owners)
     return model.emitError(
-        "malformed topology freeze marker; expected epoch 0.4, owner manifest, "
+        "malformed topology freeze marker; expected epoch 0.5, owner manifest, "
         "and SHA-256 digest");
   LogicalResult skeletonResult = success();
   model.walk([&](ac::ProcessOp process) {
@@ -1044,10 +1073,10 @@ LogicalResult ModelAnalysis::verify() {
     return failure();
 
   auto epoch = model->getAttrOfType<StringAttr>("ac.contract_epoch");
-  if (!epoch || epoch.getValue() != "0.4")
+  if (!epoch || epoch.getValue() != "0.5")
     return model.emitError(
         "expected top-level 'ac.contract_epoch' string attribute equal to "
-        "\"0.4\"");
+        "\"0.5\"");
 
   if (failed(verifyPureProcessCalls()))
     return failure();

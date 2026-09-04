@@ -35,13 +35,13 @@
 // REGISTERED-NEXT: complete:ac-verify-model
 
 //--- shallow.mlir
-builtin.module attributes {ac.contract_epoch = "0.4"} {}
+builtin.module attributes {ac.contract_epoch = "0.5"} {}
 
 //--- expected-depth.txt
 enter:acir-test-materialize-raw-depth
 complete:acir-test-materialize-raw-depth
 enter:normalize-ac-file
 LOC: error: whole-model region nesting exceeds ACIR capability limit 512
-builtin.module attributes {ac.contract_epoch = "0.4"} {}
+builtin.module attributes {ac.contract_epoch = "0.5"} {}
 ^
 fail:normalize-ac-file

@@ -2,7 +2,7 @@
 
 | 字段 | 内容 |
 | --- | --- |
-| 目标版本 | Explicit Memory contract epoch `0.4` |
+| 目标版本 | Explicit Memory contract epoch `0.5` |
 | 状态 | 已在 `main` 实现；本文是团队阅读入口 |
 | 适用读者 | Python 前端、ACIR、gfsim、PYC/Verilog 和模型验证开发者 |
 | 规范主文档 | [Agentic Circuit Specification Manual](agentic-circuit.md) |
@@ -338,7 +338,7 @@ Python 前端允许用同构 `ac.array` 静态声明 memory banks，并以
 冻结 ACIR 包含一个 `ac.route`、每个 bank 各一个普通 memory instance/request，以及
 一个 response `ac.merge`，不会引入新的 primitive。各 bank 的 outstanding 状态独立，
 因此跨 bank response 可能乱序；需要保序时应在 payload 中保留 tag 并显式接
-`reorder`。epoch 0.4 仅支持一维、data type、entries、init 和 latency 完全相同的 memory
+`reorder`。epoch 0.5 仅支持一维、data type、entries、init 和 latency 完全相同的 memory
 array。
 
 可执行示例：
@@ -346,7 +346,7 @@ array。
 
 ### Stateful Table 原型
 
-epoch `0.4` 新增一维、全零初始化的状态 Table：
+epoch `0.5` 新增一维、全零初始化的状态 Table：
 
 ```python
 Table16 = ac.table[16, Entry]
@@ -560,30 +560,31 @@ while current.remaining > 0:
 `pyc_feedback_pipeline.py` 和
 `pyc_loop_control_pipeline.py`。
 
-## 显式 Queue effect
+## Rule 前端
 
-> **当前实现说明：** `D-RULE-LOWERING-001` 已取代这些 Python 拼写作为目标公共
-> rule 前端。`.firing()` 仅在当前 prototype 存续期间记录于此；后续使用简单的
-> `@ac.rule`，由 MLIR pass 生成检查、握手、调度与内部 `ac.firing` transaction。
-
-需要强调 pop 的副作用和 peek 的非消费读取时，使用 `firing`：
+`@ac.rule` 是 Python 中唯一显式的调度边界。rule 接收不可变 payload 并返回输出
+payload；用户不书写 Queue effect、检查、ready/valid、调度、commit 或 rollback。
 
 ```python
-outgoing = incoming.firing(
-    lambda queue: queue.push(
-        queue.pop().with_fields(
-            value=queue.peek().value + 1,
-        )
-    )
-)
+@ac.rule
+def increment(item):
+    return item.with_fields(value=item.value + 1)
+
+incoming = ac.source(Item)
+outgoing = increment(incoming)
 ```
 
-一次 Python firing 必须恰好包含一次 `pop` 和一次最外层 `push`，可以重复 `peek`。
-`peek` 和 `pop` 返回不可变 Var。当前单输入单输出形式会规范化为标准
-`ac.transform`，不会在生成的 hot path 中解释 Python effect 对象。
+epoch 0.5 第一阶段支持单输入、单输出、保持 Queue payload 类型且只有一条完整返回
+路径的 rule。前端生成 transient `ac.rule` 与 typed handshake obligation；MLIR pass
+依次推导 effect、建立显式空检查契约、生成握手、解析调度并降到 marker-free
+`ac.firing`。第一阶段尚无可执行 checked IR，因此动态检查 obligation 会 fail-close
+拒绝。只有在证明完整契约等价之后，pure firing 才能规范化成 `ac.transform`。
+
+Python `ac.atomic()` 与 `Queue.firing()` 已删除；编译器会给出迁移到 `@ac.rule` 的
+明确诊断。`firing` 只保留为编译器内部 IR 概念。
 
 可执行示例：
-`pyc_firing_pipeline.py`。
+`pyc_rule_pipeline.py`。
 
 ## Observation 与 Verification
 
@@ -729,7 +730,7 @@ QueueGraph、gfsim、PYC、测试和 opcode catalog。
 | loop 被拒绝 | 不是受支持的单 Queue 有界 feedback 形状 | 简化为一次 Queue update，或显式组合 route/merge/feedback |
 | PYC 拒绝 `ac.expect` | verification leaf 不能进入 design | 把 assertion 放入 PYC testbench boundary |
 | 后端结果内部 cycle 不同 | gfsim 与 RTL IR 不同 | 比较声明的 transaction/state/refinement projection |
-| artifact epoch 不匹配 | serialized epoch 是 hard break | 重新生成 exact epoch `0.4` artifact，不使用兼容 shim |
+| artifact epoch 不匹配 | serialized epoch 是 hard break | 重新生成 exact epoch `0.5` artifact，不使用兼容 shim |
 
 ## 修改公共契约的完成条件
 

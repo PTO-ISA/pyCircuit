@@ -11,7 +11,7 @@
         "component_schema": "ac.Consumer",
         "component_schema_fingerprint": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
         "construction": {"arguments": [], "kind": "constructor"},
-        "contract_epoch": "0.4",
+        "contract_epoch": "0.5",
         "cpp": {
           "concept": "gfsim::StatefulModel",
           "entry_points": {
@@ -27,7 +27,7 @@
         },
         "cpp_type": "cpp_endpoint",
         "effect": "stateful",
-        "fingerprint": "sha256:364e1e759e287dd21bb4d1bfb11feb32328d78b5d41e006b1826e25937a96e53",
+        "fingerprint": "sha256:581c8c389f8a26645b188a4028a5ec6dd82c375b2a09e962545bd9d2da30ca1b",
         "implementation": "gfsim.Consumer",
         "ownership": {"kind": "unique", "placement": "member_or_array"},
         "parameters": [],
@@ -63,7 +63,7 @@
         "component_schema": "ac.Producer",
         "component_schema_fingerprint": "sha256:3333333333333333333333333333333333333333333333333333333333333333",
         "construction": {"arguments": [], "kind": "constructor"},
-        "contract_epoch": "0.4",
+        "contract_epoch": "0.5",
         "cpp": {
           "concept": "gfsim::StatefulModel",
           "entry_points": {
@@ -79,7 +79,7 @@
         },
         "cpp_type": "cpp_endpoint",
         "effect": "stateful",
-        "fingerprint": "sha256:53e2c7a2ed2a904de13f0b64318e5ad55ff16eae07b9d43dddcdcfa9b591bf18",
+        "fingerprint": "sha256:a966bf7a5a4d857763b44100343094fc9e0b1649ed5cd1e788a515eeb7b30c43",
         "implementation": "gfsim.Producer",
         "ownership": {"kind": "unique", "placement": "member_or_array"},
         "parameters": [],
@@ -112,7 +112,7 @@
       "binding_schema": "acsim-binding-0.1",
       "component_schema": "ac.Consumer",
       "component_schema_fingerprint": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
-      "contract_epoch": "0.4",
+      "contract_epoch": "0.5",
       "effect": "stateful",
       "function_type": "(!ac.endpoint<@Wire, @source>) -> ()",
       "parameters": [],
@@ -141,7 +141,7 @@
       "binding_schema": "acsim-binding-0.1",
       "component_schema": "ac.Producer",
       "component_schema_fingerprint": "sha256:3333333333333333333333333333333333333333333333333333333333333333",
-      "contract_epoch": "0.4",
+      "contract_epoch": "0.5",
       "effect": "stateful",
       "function_type": "() -> !ac.endpoint<@Wire, @source>",
       "parameters": [],

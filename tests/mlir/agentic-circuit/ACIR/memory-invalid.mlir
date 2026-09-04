@@ -16,22 +16,22 @@
 // SHADOWED: error: 'ac.memory.instance' op must have at least one memory.request endpoint
 
 //--- entries.mlir
-builtin.module attributes {ac.contract_epoch = "0.4"} {
+builtin.module attributes {ac.contract_epoch = "0.5"} {
   ac.memory.instance @bad data i16 entries 0 init 0 latency 1 owner "/" stable_id "memory/bad"
 }
 
 //--- latency.mlir
-builtin.module attributes {ac.contract_epoch = "0.4"} {
+builtin.module attributes {ac.contract_epoch = "0.5"} {
   ac.memory.instance @bad data i16 entries 16 init 0 latency 0 owner "/" stable_id "memory/bad"
 }
 
 //--- init.mlir
-builtin.module attributes {ac.contract_epoch = "0.4"} {
+builtin.module attributes {ac.contract_epoch = "0.5"} {
   ac.memory.instance @bad data i16 entries 16 init 1 latency 1 owner "/" stable_id "memory/bad"
 }
 
 //--- write.mlir
-builtin.module attributes {ac.contract_epoch = "0.4"} {
+builtin.module attributes {ac.contract_epoch = "0.5"} {
   ac.type_scope @types {
     ac.struct @Request fields [{name = "address", type = i8}, {name = "write", type = i1}, {name = "data", type = i16}]
   } {dlti.dl_spec = #dlti.dl_spec<!ac.struct<@types::@Request> = {abi_alignment = 2 : i64, endianness = "little", preferred_alignment = 2 : i64, size = 4 : i64}>}
@@ -53,7 +53,7 @@ builtin.module attributes {ac.contract_epoch = "0.4"} {
 }
 
 //--- sibling.mlir
-builtin.module attributes {ac.contract_epoch = "0.4"} {
+builtin.module attributes {ac.contract_epoch = "0.5"} {
   ac.type_scope @types {
     ac.struct @Request fields [{name = "address", type = i8}, {name = "write", type = i1}, {name = "data", type = i16}]
   } {dlti.dl_spec = #dlti.dl_spec<!ac.struct<@types::@Request> = {abi_alignment = 2 : i64, endianness = "little", preferred_alignment = 2 : i64, size = 4 : i64}>}
@@ -80,7 +80,7 @@ builtin.module attributes {ac.contract_epoch = "0.4"} {
 }
 
 //--- prefix.mlir
-builtin.module attributes {ac.contract_epoch = "0.4"} {
+builtin.module attributes {ac.contract_epoch = "0.5"} {
   ac.type_scope @types {
     ac.struct @Request fields [{name = "address", type = i8}, {name = "write", type = i1}, {name = "data", type = i16}]
   } {dlti.dl_spec = #dlti.dl_spec<!ac.struct<@types::@Request> = {abi_alignment = 2 : i64, endianness = "little", preferred_alignment = 2 : i64, size = 4 : i64}>}
@@ -107,7 +107,7 @@ builtin.module attributes {ac.contract_epoch = "0.4"} {
 }
 
 //--- parent.mlir
-builtin.module attributes {ac.contract_epoch = "0.4"} {
+builtin.module attributes {ac.contract_epoch = "0.5"} {
   ac.type_scope @types {
     ac.struct @Request fields [{name = "address", type = i8}, {name = "write", type = i1}, {name = "data", type = i16}]
   } {dlti.dl_spec = #dlti.dl_spec<!ac.struct<@types::@Request> = {abi_alignment = 2 : i64, endianness = "little", preferred_alignment = 2 : i64, size = 4 : i64}>}
@@ -131,9 +131,9 @@ builtin.module attributes {ac.contract_epoch = "0.4"} {
 }
 
 //--- shadowed-instance.mlir
-builtin.module attributes {ac.contract_epoch = "0.4"} {
+builtin.module attributes {ac.contract_epoch = "0.5"} {
   ac.memory.instance @sram data i16 entries 16 init 0 latency 1 owner "/" stable_id "memory/sram"
-  builtin.module @nested attributes {ac.contract_epoch = "0.4"} {
+  builtin.module @nested attributes {ac.contract_epoch = "0.5"} {
     ac.type_scope @types {
       ac.struct @Request fields [{name = "address", type = i8}, {name = "write", type = i1}, {name = "data", type = i16}]
     } {dlti.dl_spec = #dlti.dl_spec<!ac.struct<@types::@Request> = {abi_alignment = 2 : i64, endianness = "little", preferred_alignment = 2 : i64, size = 4 : i64}>}

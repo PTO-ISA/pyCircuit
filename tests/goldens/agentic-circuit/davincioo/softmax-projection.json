@@ -1,7 +1,7 @@
 {
   "schema": "agentic-circuit-davincioo-projection",
-  "version": "0.4",
-  "contract_epoch": "0.4",
+  "version": "0.5",
+  "contract_epoch": "0.5",
   "source": {
     "repository_commit": "a542b9cf705096288c615575be222b974b570a18",
     "trace": "references/davincioo-gfsim/upstream/tests/fixtures/traces/examples_intermediate_softmax.pto.trace",

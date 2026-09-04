@@ -5,5 +5,5 @@
   "pycircuit_commit": "repo-local",
   "repository": "https://github.com/PTO-ISA/pyCircuit",
   "schema": "agentic-circuit-pyc-toolchain-lock",
-  "version": "0.4"
+  "version": "0.5"
 }

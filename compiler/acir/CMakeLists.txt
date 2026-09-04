@@ -194,7 +194,7 @@ if(ACIR_BUILD_TESTING)
 
   set(_ACIR_PYTHON_TEST_ENVIRONMENT
     "AGENTIC_CIRCUIT_TEST_BUILD_DIR=${ACIR_BINARY_DIR}"
-    "PYTHONPATH=${ACIR_BINARY_DIR}/python"
+    "PYTHONPATH=${ACIR_REPO_ROOT}/python/agentic-circuit/src:${ACIR_BINARY_DIR}/python"
   )
   add_test(
     NAME WorkspaceE2ETests
@@ -218,6 +218,19 @@ if(ACIR_BUILD_TESTING)
     WORKING_DIRECTORY "${ACIR_REPO_ROOT}"
     TIMEOUT 60
     LABELS "e2e;davincioo"
+    ENVIRONMENT "${_ACIR_PYTHON_TEST_ENVIRONMENT}"
+  )
+  add_test(
+    NAME RuleRetirementE2ETests
+    COMMAND "${Python3_EXECUTABLE}"
+      "${ACIR_REPO_ROOT}/tests/integration/agentic-circuit/e2e/test_queue_codegen.py"
+      "QueueCodegenTest.test_rule_retirement_demo_runs_through_mlir_passes_and_gfsim"
+      -v
+  )
+  set_tests_properties(RuleRetirementE2ETests PROPERTIES
+    WORKING_DIRECTORY "${ACIR_REPO_ROOT}"
+    TIMEOUT 60
+    LABELS "e2e;rule;gfsim"
     ENVIRONMENT "${_ACIR_PYTHON_TEST_ENVIRONMENT}"
   )
   add_test(

@@ -1,8 +1,10 @@
 // RUN: %split_file %s %t
-// RUN: %acir_queue_cxxgen %t/same-type.mlir > %t.same.cpp
+// RUN: %acir_opt --pass-pipeline='builtin.module(ac-freeze-topology)' %t/same-type.mlir -o %t.same.frozen.mlir
+// RUN: %acir_queue_cxxgen %t.same.frozen.mlir > %t.same.cpp
 // RUN: %FileCheck %s --check-prefix=SAME < %t.same.cpp
 // RUN: %cxx -std=c++20 -I%source_root/simulator/gfsim/include -c %t.same.cpp -o %t.same.o
-// RUN: %acir_queue_cxxgen %t/different-type.mlir > %t.different.cpp
+// RUN: %acir_opt --pass-pipeline='builtin.module(ac-freeze-topology)' %t/different-type.mlir -o %t.different.frozen.mlir
+// RUN: %acir_queue_cxxgen %t.different.frozen.mlir > %t.different.cpp
 // RUN: %FileCheck %s --check-prefix=DIFFERENT < %t.different.cpp
 // RUN: %cxx -std=c++20 -I%source_root/simulator/gfsim/include -c %t.different.cpp -o %t.different.o
 
@@ -22,7 +24,7 @@
 // DIFFERENT: block_0_release_policy{&slot_0_state_, &table_0_, &table_1_}
 
 //--- same-type.mlir
-module attributes {ac.contract_epoch = "0.4", ac.system = "same_type"} {
+module attributes {ac.contract_epoch = "0.5", ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle", ac.system = "same_type"} {
   ac.table @first entry i16 entries 4 init 0 owner "/" stable_id "table/first"
   ac.table @second entry i16 entries 4 init 0 owner "/" stable_id "table/second"
   %input = ac.source depth 1 latency 1 {ac.name = "input"} : !ac.queue<i8>
@@ -53,7 +55,7 @@ module attributes {ac.contract_epoch = "0.4", ac.system = "same_type"} {
 }
 
 //--- different-type.mlir
-module attributes {ac.contract_epoch = "0.4", ac.system = "different_type"} {
+module attributes {ac.contract_epoch = "0.5", ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle", ac.system = "different_type"} {
   ac.table @first entry i8 entries 4 init 0 owner "/" stable_id "table/first"
   ac.table @second entry i16 entries 4 init 0 owner "/" stable_id "table/second"
   %input = ac.source depth 1 latency 1 {ac.name = "input"} : !ac.queue<i8>

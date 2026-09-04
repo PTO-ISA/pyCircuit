@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import ast
 import contextlib
 import importlib.util
 import io
@@ -41,6 +42,7 @@ class CaptureWorkerResult:
     acir: bytes | None
     diagnostics: tuple[Diagnostic, ...]
     project_report: bytes | None
+    frontend_kind: str | None
 
 
 _STAGE_FILES = (
@@ -105,6 +107,7 @@ def _failure(code: str, message: str) -> CaptureWorkerResult:
             ),
         ),
         project_report=None,
+        frontend_kind=None,
     )
 
 
@@ -112,7 +115,7 @@ def _request_json(request: CaptureWorkerRequest, output: Path) -> dict[str, Json
     return {
         "schema": "agentic-circuit-capture-request",
         "version": "0.1",
-        "contract_epoch": "0.4",
+        "contract_epoch": "0.5",
         "workspace": request.workspace.resolve().as_posix(),
         "entry": request.entry.resolve().as_posix(),
         "system": request.system,
@@ -126,12 +129,13 @@ def _request_json(request: CaptureWorkerRequest, output: Path) -> dict[str, Json
 
 
 def run_capture_worker(request: CaptureWorkerRequest) -> CaptureWorkerResult:
+    # Namespace-package path order is the import authority chosen by the
+    # parent process. Preserve it so the isolated worker cannot prefer a stale
+    # build/install copy merely because its path sorts before the source tree.
     package_parents = os.pathsep.join(
-        sorted(
-            {
-                str(Path(location).resolve().parent)
-                for location in sys.modules["agentic_circuit"].__path__
-            }
+        dict.fromkeys(
+            str(Path(location).resolve().parent)
+            for location in sys.modules["agentic_circuit"].__path__
         )
     )
     bootstrap = (
@@ -187,6 +191,7 @@ def run_capture_worker(request: CaptureWorkerRequest) -> CaptureWorkerResult:
                 "has_acpy",
                 "has_acir",
                 "diagnostics",
+                "frontend_kind",
             }:
                 raise ValueError("worker result fields are invalid")
             diagnostics = tuple(_diagnostic(item) for item in response["diagnostics"])
@@ -203,7 +208,10 @@ def run_capture_worker(request: CaptureWorkerRequest) -> CaptureWorkerResult:
             report = (stage.path / "project-report.txt").read_bytes() or None
         except (OSError, UnicodeError, ValueError, KeyError, TypeError) as error:
             return _failure("ACPY-CAPTURE-001", f"capture result is invalid: {error}")
-        return CaptureWorkerResult(acpy, acir, diagnostics, report)
+        frontend_kind = response["frontend_kind"]
+        if frontend_kind not in {"structural", "queue_rule"}:
+            raise ValueError("worker frontend kind is invalid")
+        return CaptureWorkerResult(acpy, acir, diagnostics, report, frontend_kind)
 
 
 def _load_project(entry: Path, workspace: Path) -> dict[str, object]:
@@ -225,7 +233,8 @@ def _worker_diagnostic(error: BaseException, entry: Path) -> Diagnostic:
         code = "ACPY-SYNTAX-001"
     else:
         source = None
-        code = "ACPY-CAPTURE-001"
+        candidate = str(error).partition(":")[0]
+        code = candidate if candidate.startswith("ACPY-") else "ACPY-CAPTURE-001"
     return Diagnostic(
         stage="frontend-capture",
         code=code,
@@ -247,6 +256,25 @@ def _static_value(value: JsonValue) -> StaticValue:
     raise TypeError("capture static argument is not an I-JSON value")
 
 
+def _decorator_leaf(node: ast.expr) -> str:
+    candidate = node.func if isinstance(node, ast.Call) else node
+    if isinstance(candidate, ast.Name):
+        return candidate.id
+    if isinstance(candidate, ast.Attribute):
+        return candidate.attr
+    return ""
+
+
+def _contains_rule(tree: ast.Module) -> bool:
+    return any(
+        isinstance(node, ast.FunctionDef)
+        and any(
+            _decorator_leaf(decorator) == "rule" for decorator in node.decorator_list
+        )
+        for node in tree.body
+    )
+
+
 def _worker_main(request_path: Path) -> int:
     request = json.loads(request_path.read_text())
     workspace = Path(request["workspace"]).resolve()
@@ -256,6 +284,7 @@ def _worker_main(request_path: Path) -> int:
     captured_stderr = io.StringIO()
     document = None
     acir = None
+    frontend_kind = "structural"
     diagnostics: tuple[Diagnostic, ...]
     try:
         with (
@@ -263,33 +292,56 @@ def _worker_main(request_path: Path) -> int:
             contextlib.redirect_stderr(captured_stderr),
         ):
             namespace = _load_project(entry, workspace)
-            schemas = SchemaRegistry.from_catalog(
-                schema_root() / "stdlib" / "catalog.json", schema_root().parents[1]
-            )
             component_roots = tuple(
                 (workspace / value).resolve() for value in request["component_roots"]
             )
             if any(not path.is_relative_to(workspace) for path in component_roots):
                 raise ValueError("component root escapes the workspace")
-            schemas = schemas.with_component_roots(component_roots)
-            result = elaborate_frontend(
-                CaptureRequest(
-                    entry=entry,
-                    workspace=workspace,
-                    system=request["system"],
-                    static_arguments=tuple(
-                        sorted(
-                            (key, _static_value(value))
-                            for key, value in request["static_arguments"].items()
-                        )
+            text = entry.read_text(encoding="utf-8")
+            tree = ast.parse(text, filename=entry.name, type_comments=True)
+            has_rule = _contains_rule(tree)
+            static_arguments = {
+                key: _static_value(value)
+                for key, value in request["static_arguments"].items()
+            }
+            if has_rule:
+                from ._queue_frontend import (
+                    build_queue_acpy,
+                    lower_queue_program,
+                    parse_queue_program,
+                )
+
+                frontend_kind = "queue_rule"
+                program = parse_queue_program(
+                    text,
+                    request["system"],
+                    static_arguments=static_arguments,
+                )
+                document = build_queue_acpy(
+                    text,
+                    request["system"],
+                    entry.relative_to(workspace).as_posix(),
+                )
+                acir = lower_queue_program(program)
+                diagnostics = ()
+            else:
+                schemas = SchemaRegistry.from_catalog(
+                    schema_root() / "stdlib" / "catalog.json",
+                    schema_root().parents[1],
+                ).with_component_roots(component_roots)
+                result = elaborate_frontend(
+                    CaptureRequest(
+                        entry=entry,
+                        workspace=workspace,
+                        system=request["system"],
+                        static_arguments=tuple(sorted(static_arguments.items())),
                     ),
-                ),
-                namespace,
-                schemas,
-            )
-        document = result.document
-        acir = result.acir
-        diagnostics = result.diagnostics
+                    namespace,
+                    schemas,
+                )
+                document = result.document
+                acir = result.acir
+                diagnostics = result.diagnostics
     except BaseException as error:
         diagnostics = (_worker_diagnostic(error, entry),)
     report, _ = OutputSink.bounded_capture(
@@ -305,10 +357,11 @@ def _worker_main(request_path: Path) -> int:
     response = {
         "schema": "agentic-circuit-capture-result",
         "version": "0.1",
-        "contract_epoch": "0.4",
+        "contract_epoch": "0.5",
         "has_acpy": document is not None,
         "has_acir": acir is not None,
         "diagnostics": [item.to_json() for item in diagnostics],
+        "frontend_kind": frontend_kind,
     }
     (output / "result.json").write_bytes(canonical_json_bytes(response))
     return 0

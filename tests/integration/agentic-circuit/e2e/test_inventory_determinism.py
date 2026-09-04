@@ -7,7 +7,7 @@ import subprocess
 import tempfile
 import unittest
 
-from agentic_circuit._queue_frontend import lower_queue_source
+from agentic_circuit._queue_frontend import RULE_LOWERING_PIPELINE, lower_queue_source
 
 
 ROOT = Path(__file__).resolve().parents[4]
@@ -16,7 +16,7 @@ DEFAULT_TOOLCHAIN = PYC_REPOSITORY / ".pycircuit_out/toolchain/install"
 CASES = (
     "pyc_barrier_pipeline",
     "pyc_credit_pipeline",
-    "pyc_firing_pipeline",
+    "pyc_rule_pipeline",
     "pyc_loop_control_pipeline",
     "pyc_memory_pipeline",
     "pyc_recursive_pipeline",
@@ -57,6 +57,7 @@ class InventoryDeterminismTest(unittest.TestCase):
                     optimized = subprocess.run(
                         (
                             str(ROOT / ".pycircuit_out/acir/dev-llvm22/bin/acir-opt"),
+                            f"--pass-pipeline={RULE_LOWERING_PIPELINE}",
                             str(raw),
                         ),
                         text=True,

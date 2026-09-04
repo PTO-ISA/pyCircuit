@@ -11,22 +11,22 @@ from pathlib import Path
 
 from cli import cli_test_pythonpath
 
-
 REPOSITORY = Path(__file__).resolve().parents[4]
 FIXTURE = Path(__file__).parent / "fixtures" / "compile"
+RULE_FIXTURE = Path(__file__).parent / "fixtures" / "rule"
 EXPECTED_COMPILE_TREE = (
     "frozen.ac.mlir",
     "include/generated/dispatch.h",
     "include/generated/model.h",
     "include/generated/modules/top_s289ddf7a6fa5af5e.h",
-    "include/generated/processes/workload_se2ae7fb1cce72c6c.h",
+    "include/generated/processes/workload_s53213a5aadca5072.h",
     "input/model.ac.mlir",
     "input/model.acpy.json",
     "model.acsim.mlir",
     "src/generated/main.cpp",
     "src/generated/model.cpp",
     "src/generated/modules/top_s289ddf7a6fa5af5e.cpp",
-    "src/generated/processes/workload_se2ae7fb1cce72c6c.cpp",
+    "src/generated/processes/workload_s53213a5aadca5072.cpp",
 )
 
 
@@ -60,6 +60,35 @@ def relative_tree(root: Path) -> tuple[str, ...]:
 
 
 class CompileCommandTest(unittest.TestCase):
+    def test_rule_frontend_compiles_to_hashed_marker_free_frozen_acir(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "rule-project"
+            shutil.copytree(RULE_FIXTURE, root)
+            result = run_cli(
+                "compile",
+                "architecture.py",
+                "--emit=acpy,acir,frozen-acir",
+                "--stop-after=topology-freeze",
+                "--output-dir=build/rule",
+                "--json",
+                cwd=root,
+            )
+            self.assertEqual(0, result.returncode, result.stderr)
+            output = root / "build/rule"
+            acpy = json.loads((output / "input/model.acpy.json").read_text())
+            raw = (output / "input/model.ac.mlir").read_text()
+            frozen = (output / "frozen.ac.mlir").read_text()
+        self.assertEqual("queue_rule", json.loads(result.stdout)["frontend"])
+        self.assertIn("rule", {entity["kind"] for entity in acpy["entities"]})
+        self.assertIn("ac.rule ", raw)
+        self.assertIn("ac.marker.obligation", raw)
+        self.assertNotIn("ac.rule ", frozen)
+        self.assertNotIn("ac.firing ", frozen)
+        self.assertNotIn("ac.marker.", frozen)
+        self.assertIn("ac.topology_frozen = true", frozen)
+        self.assertIn("ac.topology_digest = ", frozen)
+        self.assertIn('ac.rule_stable_id = "completed"', frozen)
+
     def test_all_exact_emits_are_published_in_fixed_order(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = workspace(temporary)

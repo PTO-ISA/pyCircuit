@@ -22,7 +22,7 @@
 // RUN: %not %acir_opt %t/dynamic-for-no-suspend.mlir 2>&1 | %FileCheck %s --check-prefix=DYNAMIC-FOR
 
 //--- bad-kind.mlir
-builtin.module attributes {ac.contract_epoch = "0.4"} {
+builtin.module attributes {ac.contract_epoch = "0.5"} {
   ac.module @M() parameters {} graph {
     ac.process @p kind "thread" { ac.yield_sim }
     ac.return
@@ -31,7 +31,7 @@ builtin.module attributes {ac.contract_epoch = "0.4"} {
 // KIND: kind must be 'control', 'workload', or 'monitor'
 
 //--- no-suspend.mlir
-builtin.module attributes {ac.contract_epoch = "0.4"} {
+builtin.module attributes {ac.contract_epoch = "0.5"} {
   ac.module @M() parameters {} graph {
     ac.process @p kind "control" {
       %t = arith.constant true
@@ -49,7 +49,7 @@ builtin.module attributes {ac.contract_epoch = "0.4"} {
 // PROGRESS: every scf.while backedge must suspend or prove bounded progress
 
 //--- linear-live.mlir
-builtin.module attributes {ac.contract_epoch = "0.4"} {
+builtin.module attributes {ac.contract_epoch = "0.5"} {
   ac.module @M(!ac.resource_token<@r>) parameters {} graph {
   ^bb0(%token : !ac.resource_token<@r>):
     ac.process @p kind "control" captures(%token : !ac.resource_token<@r>) {
@@ -65,7 +65,7 @@ builtin.module attributes {ac.contract_epoch = "0.4"} {
 // LIVE: cannot remain live across suspension
 
 //--- topology.mlir
-builtin.module attributes {ac.contract_epoch = "0.4"} {
+builtin.module attributes {ac.contract_epoch = "0.5"} {
   ac.module @M() parameters {} graph {
     ac.process @p kind "control" {
       ac.instance @illegal of @M() static {} id "illegal" path "illegal" : () -> ()
@@ -77,7 +77,7 @@ builtin.module attributes {ac.contract_epoch = "0.4"} {
 // TOPOLOGY: ac.process contains unsupported operation ac.instance
 
 //--- missing-termination.mlir
-builtin.module attributes {ac.contract_epoch = "0.4"} {
+builtin.module attributes {ac.contract_epoch = "0.5"} {
   ac.module @M() parameters {} graph {
     ac.process @p kind "control" { %zero = arith.constant 0 : i64 }
     ac.return
@@ -86,7 +86,7 @@ builtin.module attributes {ac.contract_epoch = "0.4"} {
 // TERMINATION: body must terminate with ac.yield_sim
 
 //--- capture-mismatch.mlir
-builtin.module attributes {ac.contract_epoch = "0.4"} {
+builtin.module attributes {ac.contract_epoch = "0.5"} {
   ac.module @M(i32) parameters {} graph {
   ^bb0(%value : i32):
     ac.process @p kind "control" captures(%value : i32) {
@@ -99,7 +99,7 @@ builtin.module attributes {ac.contract_epoch = "0.4"} {
 // CAPTURE: body arguments must exactly match capture types
 
 //--- result-live.mlir
-builtin.module attributes {ac.contract_epoch = "0.4"} {
+builtin.module attributes {ac.contract_epoch = "0.5"} {
   ac.module @M() parameters {} graph {
     ac.process @p kind "control" {
       %one = arith.constant 1 : i64
@@ -114,7 +114,7 @@ builtin.module attributes {ac.contract_epoch = "0.4"} {
 // RESULT-LIVE: cannot remain live across suspension
 
 //--- duplicate-owner-name.mlir
-builtin.module attributes {ac.contract_epoch = "0.4"} {
+builtin.module attributes {ac.contract_epoch = "0.5"} {
   ac.module @M() parameters {} graph {
     ac.process @state kind "control" { ac.yield_sim }
     ac.stat @state kind "counter"
@@ -124,7 +124,7 @@ builtin.module attributes {ac.contract_epoch = "0.4"} {
 // OWNER-NAME: duplicate local structural name 'state'
 
 //--- unstable-owner-segment.mlir
-builtin.module attributes {ac.contract_epoch = "0.4"} {
+builtin.module attributes {ac.contract_epoch = "0.5"} {
   ac.module @M() parameters {} graph {
     ac.process @"bad.name" kind "control" { ac.yield_sim }
     ac.return
@@ -133,7 +133,7 @@ builtin.module attributes {ac.contract_epoch = "0.4"} {
 // OWNER-SEGMENT: symbol name must be one stable hierarchy owner segment
 
 //--- unreachable-suspension.mlir
-builtin.module attributes {ac.contract_epoch = "0.4"} {
+builtin.module attributes {ac.contract_epoch = "0.5"} {
   ac.module @M() parameters {} graph {
     ac.process @p kind "control" {
       %true = arith.constant true
@@ -154,7 +154,7 @@ builtin.module attributes {ac.contract_epoch = "0.4"} {
 // BACKEDGE: every scf.while backedge must suspend or prove bounded progress
 
 //--- for-iter-arg-live.mlir
-builtin.module attributes {ac.contract_epoch = "0.4"} {
+builtin.module attributes {ac.contract_epoch = "0.5"} {
   ac.module @M(!ac.resource_token<@r>) parameters {} graph {
   ^bb0(%token : !ac.resource_token<@r>):
     ac.process @p kind "control" captures(%token : !ac.resource_token<@r>) {
@@ -176,7 +176,7 @@ builtin.module attributes {ac.contract_epoch = "0.4"} {
 // ITER-LIVE: cannot remain live across suspension
 
 //--- if-path-live.mlir
-builtin.module attributes {ac.contract_epoch = "0.4"} {
+builtin.module attributes {ac.contract_epoch = "0.5"} {
   ac.module @M(!ac.resource_token<@r>, !ac.resource_token<@r>, i1)
       parameters {} graph {
   ^bb0(%token : !ac.resource_token<@r>, %worker_token : !ac.resource_token<@r>,
@@ -202,7 +202,7 @@ builtin.module attributes {ac.contract_epoch = "0.4"} {
 // IF-LIVE: cannot remain live across suspension
 
 //--- while-iter-arg-live.mlir
-builtin.module attributes {ac.contract_epoch = "0.4"} {
+builtin.module attributes {ac.contract_epoch = "0.5"} {
   ac.module @M(!ac.resource_token<@r>, i1) parameters {} graph {
   ^bb0(%token : !ac.resource_token<@r>, %condition : i1):
     ac.process @p kind "control"
@@ -224,7 +224,7 @@ builtin.module attributes {ac.contract_epoch = "0.4"} {
 // WHILE-LIVE: cannot remain live across suspension
 
 //--- malformed-scf.mlir
-builtin.module attributes {ac.contract_epoch = "0.4"} {
+builtin.module attributes {ac.contract_epoch = "0.5"} {
   "ac.module"() <{sym_name = "M", function_type = () -> (), static_params = {}}> ({
     "ac.process"() <{kind = "control", sym_name = "p"}> ({
       %true = "arith.constant"() <{value = true}> : () -> i1
@@ -239,7 +239,7 @@ builtin.module attributes {ac.contract_epoch = "0.4"} {
 // MALFORMED: malformed scf.if region must terminate with scf.yield
 
 //--- malformed-if-arity.mlir
-builtin.module attributes {ac.contract_epoch = "0.4"} {
+builtin.module attributes {ac.contract_epoch = "0.5"} {
   "ac.module"() <{sym_name = "M", function_type = () -> (), static_params = {}}> ({
     "ac.process"() <{kind = "control", sym_name = "p"}> ({
       %true = "arith.constant"() <{value = true}> : () -> i1
@@ -257,7 +257,7 @@ builtin.module attributes {ac.contract_epoch = "0.4"} {
 // MALFORMED-IF-ARITY: malformed scf.if operand/result/block argument/yield arity or type mismatch
 
 //--- malformed-for-arity.mlir
-builtin.module attributes {ac.contract_epoch = "0.4"} {
+builtin.module attributes {ac.contract_epoch = "0.5"} {
   "ac.module"() <{sym_name = "M", function_type = () -> (), static_params = {}}> ({
     "ac.process"() <{kind = "control", sym_name = "p"}> ({
       %lb = "index.constant"() <{value = 0 : index}> : () -> index
@@ -276,7 +276,7 @@ builtin.module attributes {ac.contract_epoch = "0.4"} {
 // MALFORMED-FOR-ARITY: malformed scf.for operand/result/block argument/yield arity or type mismatch
 
 //--- malformed-while-arity.mlir
-builtin.module attributes {ac.contract_epoch = "0.4"} {
+builtin.module attributes {ac.contract_epoch = "0.5"} {
   "ac.module"() <{sym_name = "M", function_type = () -> (), static_params = {}}> ({
     "ac.process"() <{kind = "control", sym_name = "p"}> ({
       %seed = "index.constant"() <{value = 7 : index}> : () -> index
@@ -296,7 +296,7 @@ builtin.module attributes {ac.contract_epoch = "0.4"} {
 // MALFORMED-WHILE-ARITY: malformed scf.while operand/result/block argument/yield arity or type mismatch
 
 //--- dynamic-for-no-suspend.mlir
-builtin.module attributes {ac.contract_epoch = "0.4"} {
+builtin.module attributes {ac.contract_epoch = "0.5"} {
   ac.module @M(index, index, index) parameters {} graph {
   ^bb0(%lb : index, %ub : index, %step : index):
     ac.process @p kind "control"

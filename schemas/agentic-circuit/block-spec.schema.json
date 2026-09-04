@@ -1,14 +1,14 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "urn:pto-isa:agentic-circuit:schema:block-spec:0.4",
-  "title": "Agentic Circuit High-Level BlockSpec 0.4",
+  "$id": "urn:pto-isa:agentic-circuit:schema:block-spec:0.5",
+  "title": "Agentic Circuit High-Level BlockSpec 0.5",
   "type": "object",
   "additionalProperties": false,
   "required": ["schema", "version", "contract_epoch", "blocks"],
   "properties": {
     "schema": {"const": "agentic-circuit-block-spec"},
-    "version": {"const": "0.4"},
-    "contract_epoch": {"const": "0.4"},
+    "version": {"const": "0.5"},
+    "contract_epoch": {"const": "0.5"},
     "blocks": {
       "type": "array",
       "minItems": 1,

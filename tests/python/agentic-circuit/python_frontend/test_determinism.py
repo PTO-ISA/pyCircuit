@@ -26,6 +26,7 @@ EXACT_PUBLIC_API = {
     "protocol",
     "interface",
     "process",
+    "rule",
     "scope",
     "array",
     "instances",
@@ -40,7 +41,6 @@ EXACT_PUBLIC_API = {
     "source",
     "sink",
     "observe",
-    "atomic",
     "u1",
     "u2",
     "u4",
@@ -224,7 +224,16 @@ def frontend_test_ledger() -> dict[str, CoverageRow]:
         "source": CoverageRow((public_import,), (marker_negative,)),
         "sink": CoverageRow((public_import,), (marker_negative,)),
         "observe": CoverageRow((public_import,), (marker_negative,)),
-        "atomic": CoverageRow((public_import,), (marker_negative,)),
+        "rule": CoverageRow(
+            (
+                "python_frontend.test_public_api."
+                "PublicApiTest.test_rule_decorator_captures_without_executing",
+            ),
+            (
+                "python_frontend.test_queue_frontend."
+                "QueueFrontendTest.test_rule_frontend_rejects_unsupported_control_flow",
+            ),
+        ),
         "u1": annotation_row,
         "u2": annotation_row,
         "u4": annotation_row,

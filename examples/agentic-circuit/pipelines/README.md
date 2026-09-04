@@ -73,17 +73,19 @@ frozen ACIR first, then run `acir-queue-pycgen` or the bundled
 toolchain lock, invokes external `pycc` for C++ and Verilog, compiles the C++
 source, runs Verilator lint, and writes a canonical hash manifest.
 
-The pinned toolchain is recorded in `toolchains/pyc.lock.json`. Build that
-exact pyCircuit commit with LLVM 19 before running the PYC gate.
+The repo-local pyCircuit 6 toolchain contract is recorded in
+`toolchains/agentic-circuit/pyc.lock.json`. Build it with the repository's
+pinned LLVM 22 toolchain before running the PYC gate.
 
 `pyc_struct_pipeline.py` verifies deterministic packed struct layout.
 `pyc_route_merge_pipeline.py` verifies static selector demux and priority merge
 logic, including forward valid and backward ready paths.
 `pyc_select_pipeline.py` verifies runtime selection from a statically shaped
 Queue collection without dynamic Queue pointers.
-`pyc_atomic_pipeline.py` verifies multi-source/multi-sink atomic firing.
-`pyc_firing_pipeline.py` verifies explicit Python `peek`/`pop`/`push` effects
-normalize to the standard atomic transform.
+`pyc_rule_pair_pipeline.py` verifies two independent rules without introducing
+an implicit global transaction or priority.
+`pyc_rule_pipeline.py` verifies that the simple `@ac.rule` surface lowers
+through typed obligations and internal firing IR to the standard transform.
 `gfsim_expect_pipeline.py` verifies a verification-role leaf executes in gfsim
 and is rejected from PYC design hierarchy with testbench-boundary guidance.
 `pyc_fork_pipeline.py` verifies decoupled fanout with per-output delivered state.

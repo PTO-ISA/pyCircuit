@@ -1,7 +1,7 @@
 {
   "schema_kind": "agentic-circuit-component",
   "schema_version": "0.1",
-  "contract_epoch": "0.4",
+  "contract_epoch": "0.5",
   "canonical_name": "ac.Dispatcher",
   "family": "control",
   "provider_namespace": "ac",
@@ -115,5 +115,5 @@
     "gauges": [],
     "histograms": []
   },
-  "schema_fingerprint": "sha256:450eccd92bfc19b42f004e82b0ade994f1201f9cee6a9ba02ab41941ea3c2636"
+  "schema_fingerprint": "sha256:338d6758a4bf249c6a74437ea70e1ef04c3b7aa4f3a9d606a6ffd6dd60f529c4"
 }

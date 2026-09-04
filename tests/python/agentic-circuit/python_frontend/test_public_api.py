@@ -16,6 +16,7 @@ PUBLIC = {
     "protocol",
     "interface",
     "process",
+    "rule",
     "scope",
     "array",
     "map",
@@ -35,7 +36,6 @@ PUBLIC = {
     "sink",
     "observe",
     "expect",
-    "atomic",
     "compute",
     "pipeline",
     "config",
@@ -125,6 +125,16 @@ class PublicApiTest(unittest.TestCase):
 
         self.assertEqual((("alpha", 1), ("zeta", 2)), generated.explicit_options)
 
+    def test_rule_decorator_captures_without_executing(self) -> None:
+        api = importlib.import_module("agentic_circuit")
+
+        @api.rule
+        def complete(item):
+            raise AssertionError("decorating a rule must not execute it")
+
+        self.assertEqual("rule", complete.kind)
+        self.assertEqual("complete", complete.__name__)
+
     def test_ast_only_markers_reject_runtime_execution(self) -> None:
         api = importlib.import_module("agentic_circuit")
 
@@ -142,7 +152,6 @@ class PublicApiTest(unittest.TestCase):
             lambda: api.expect(
                 object(), predicate=lambda value: True, message="expected"
             ),
-            lambda: api.atomic(),
             lambda: api.compute(object(), lambda value: value),
             lambda: api.pipeline(object(), stages=2),
             lambda: api.route(object(), by=object(), outputs=2),

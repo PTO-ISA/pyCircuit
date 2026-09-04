@@ -239,6 +239,48 @@ def pipeline() -> None:
     ac.sink(output_queue)
 """
 
+RULE_ROB_SOURCE = """
+import agentic_circuit as ac
+
+@ac.struct
+class Entry:
+    sequence: ac.u4
+    value: ac.u16
+    done: bool
+
+@ac.rule
+def complete(entry):
+    return entry.with_fields(done=True)
+
+@ac.system
+def rob() -> None:
+    issued = ac.source(Entry)
+    completed = complete(issued)
+    retired = ac.reorder(
+        completed,
+        by=Entry.sequence,
+        entries=8,
+    )
+    ac.sink(retired)
+"""
+
+RULE_PAIR_SOURCE = """
+import agentic_circuit as ac
+
+@ac.rule
+def increment(value):
+    return value + 1
+
+@ac.system
+def pair() -> None:
+    left = ac.source(int)
+    right = ac.source(int)
+    left_next = increment(left)
+    right_next = increment(right)
+    ac.sink(left_next)
+    ac.sink(right_next)
+"""
+
 FORK_SOURCE = """
 import agentic_circuit as ac
 
@@ -729,23 +771,14 @@ class QueueFrontendTest(unittest.TestCase):
         self.assertIn("ac.var.mul", lowered)
         self.assertIn("ac.feedback.yield", lowered)
 
-    def test_python_firing_effects_normalize_to_standard_atomic_transform(self) -> None:
+    def test_python_firing_surface_is_removed_at_epoch_0_5(self) -> None:
         from agentic_circuit._queue_frontend import (
             QueueFrontendError,
             lower_queue_source,
         )
 
-        lowered = lower_queue_source(FIRING_SOURCE, "pipeline")
-        self.assertEqual(lowered, lower_queue_source(FIRING_SOURCE, "pipeline"))
-        self.assertIn("%outgoing = ac.transform %incoming", lowered)
-        self.assertIn('ac.var.get %item field "value"', lowered)
-        self.assertIn("ac.transform.yield", lowered)
-        with self.assertRaisesRegex(QueueFrontendError, "exactly one pop and one push"):
-            lower_queue_source(
-                FIRING_SOURCE.replace("queue.pop()", "queue.peek()"), "pipeline"
-            )
-        with self.assertRaisesRegex(QueueFrontendError, "queue effects require firing"):
-            lower_queue_source(FIRING_SOURCE.replace(".firing(", ".apply("), "pipeline")
+        with self.assertRaisesRegex(QueueFrontendError, "Queue.firing.*removed"):
+            lower_queue_source(FIRING_SOURCE, "pipeline")
 
     def test_runtime_queue_collection_index_lowers_to_official_select(self) -> None:
         from agentic_circuit._queue_frontend import lower_queue_source
@@ -837,7 +870,7 @@ class QueueFrontendTest(unittest.TestCase):
         from agentic_circuit._queue_frontend import lower_queue_source
 
         lowered = lower_queue_source(TABLE_SOURCE, "pipeline")
-        self.assertIn('ac.contract_epoch = "0.4"', lowered)
+        self.assertIn('ac.contract_epoch = "0.5"', lowered)
         self.assertIn(
             "ac.table @state entry !ac.struct<@types::@Entry> entries 16 init 0",
             lowered,
@@ -1277,7 +1310,7 @@ class QueueFrontendTest(unittest.TestCase):
         from agentic_circuit._queue_frontend import lower_queue_source
 
         self.assertEqual(
-            """module attributes {ac.contract_epoch = "0.4", ac.system = "pipeline"} {
+            """module attributes {ac.contract_epoch = "0.5", ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle", ac.system = "pipeline"} {
   %input_queue = ac.source depth 4 latency 1 {ac.name = "input_queue"} : !ac.queue<i64>
   %output_queue = ac.transform %input_queue depths [8] latencies [2] {
   ^transform(%item: !ac.var<i64>):
@@ -1427,26 +1460,14 @@ class QueueFrontendTest(unittest.TestCase):
         self.assertIn("ac.sink %input_queue", lowered)
         self.assertNotIn("ac.broadcast", lowered)
 
-    def test_explicit_atomic_groups_multiple_queue_updates(self) -> None:
+    def test_explicit_atomic_surface_is_removed_at_epoch_0_5(self) -> None:
         from agentic_circuit._queue_frontend import (
             QueueFrontendError,
             lower_queue_source,
         )
 
-        lowered = lower_queue_source(ATOMIC_SOURCE, "pipeline")
-        self.assertIn("%left_next, %right_next = ac.transform %left, %right", lowered)
-        self.assertIn(
-            "^transform(%item0: !ac.var<i64>, %item1: !ac.var<i64>):", lowered
-        )
-        self.assertIn("ac.transform.yield", lowered)
-        self.assertIn('ac.output_names = ["left_next", "right_next"]', lowered)
-        with self.assertRaisesRegex(QueueFrontendError, "inputs must be unique"):
-            lower_queue_source(
-                ATOMIC_SOURCE.replace(
-                    "right_next = right.apply", "right_next = left.apply"
-                ),
-                "pipeline",
-            )
+        with self.assertRaisesRegex(QueueFrontendError, "ac.atomic.*removed"):
+            lower_queue_source(ATOMIC_SOURCE, "pipeline")
 
     def test_static_if_and_range_are_fully_expanded(self) -> None:
         from agentic_circuit._queue_frontend import (
@@ -1501,6 +1522,46 @@ def pipeline() -> None:
         self.assertIn('{name = "remaining", type = i16}', lowered)
         self.assertIn('{name = "valid", type = i1}', lowered)
         self.assertIn("size = 12 : i64", lowered)
+
+    def test_rule_frontend_emits_typed_markers_before_mlir_lowering(self) -> None:
+        from agentic_circuit._queue_frontend import lower_queue_source
+
+        lowered = lower_queue_source(RULE_ROB_SOURCE, "rob")
+        self.assertIn('%completed = ac.rule %issued depths [1] latencies [1]', lowered)
+        self.assertIn('name "complete"', lowered)
+        self.assertIn('stable_id "completed" domain "cycle"', lowered)
+        self.assertIn("type exact input_fact committed_input", lowered)
+        self.assertIn(
+            "ac.marker.obligation %v1 state pending resolver handshake",
+            lowered,
+        )
+        self.assertIn("ac.rule.return", lowered)
+        self.assertIn("ac.reorder %completed", lowered)
+        self.assertNotIn("ac.firing", lowered)
+        self.assertNotIn("ac.queue.peek", lowered)
+        self.assertNotIn("ac.queue.pop", lowered)
+        self.assertNotIn("ac.queue.push", lowered)
+
+    def test_rule_frontend_rejects_unsupported_control_flow(self) -> None:
+        from agentic_circuit._queue_frontend import (
+            QueueFrontendError,
+            lower_queue_source,
+        )
+
+        invalid = RULE_ROB_SOURCE.replace(
+            "    return entry.with_fields(done=True)",
+            "    if entry.done:\n        return entry\n    return entry.with_fields(done=True)",
+        )
+        with self.assertRaisesRegex(QueueFrontendError, "one value-returning path"):
+            lower_queue_source(invalid, "rob")
+
+    def test_reused_rule_definition_gets_unique_stable_instance_ids(self) -> None:
+        from agentic_circuit._queue_frontend import lower_queue_source
+
+        lowered = lower_queue_source(RULE_PAIR_SOURCE, "pair")
+        self.assertEqual(2, lowered.count('name "increment" stable_id'))
+        self.assertIn('stable_id "left_next"', lowered)
+        self.assertIn('stable_id "right_next"', lowered)
 
     def test_explicit_fork_lowers_to_decoupled_fanout(self) -> None:
         from agentic_circuit._queue_frontend import lower_queue_source

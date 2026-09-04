@@ -1,6 +1,6 @@
 // RUN: %acir_opt %s | %FileCheck %s
 
-builtin.module attributes {ac.contract_epoch = "0.4"} {
+builtin.module attributes {ac.contract_epoch = "0.5"} {
   "ac.system"() <{sym_name = "collections", root = @Top, root_name = "root", tick_epoch = 0 : i64, tick_unit = "cycle", seed_policy = {kind = "fixed", value = 0 : i64}, instrumentation = [], result_schema = {id = "default", format = "json"}, selected = true}> : () -> ()
   "ac.module"() <{sym_name = "Leaf", function_type = (i32) -> i32, static_params = {}}> ({
   ^bb0(%arg0 : i32):

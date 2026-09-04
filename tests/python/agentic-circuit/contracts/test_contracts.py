@@ -10,7 +10,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[4]
-CONTRACT_EPOCH = "0.4"
+CONTRACT_EPOCH = "0.5"
 LLVM_LOCK = {
     "release": "22.1.8",
     "upstream_commit": "ca7933e47d3a3451d81e72ac174dcb5aa28b59d1",
@@ -434,9 +434,9 @@ class RepositoryContractsTest(unittest.TestCase):
             "operation_path": "@Top::@workload/r0/b0/o0",
         }
         descriptor = {
-            "cpp": "acir::generated::impl_wake_next_delta_043ae4e869cdd2b9059e1696f276b6844179f19aa6a52872ad0ac2d273a4c550",
+            "cpp": "acir::generated::impl_wake_next_delta_a311590813b87bcc30389b814d751def9dfefb49dcd07a9c485b90701a83617e",
             "effect": "stateful",
-            "fingerprint": "sha256:043ae4e869cdd2b9059e1696f276b6844179f19aa6a52872ad0ac2d273a4c550",
+            "fingerprint": "sha256:a311590813b87bcc30389b814d751def9dfefb49dcd07a9c485b90701a83617e",
             "inputs": [],
             "kind": "implementation",
             "ordinal": 0,
@@ -447,11 +447,11 @@ class RepositoryContractsTest(unittest.TestCase):
             "results": ["@acir_wake_next_delta"],
             "role": "wake_next_delta",
             "source_paths": [],
-            "symbol": "@acir_impl_wake_next_delta_043ae4e869cdd2b9059e1696f276b6844179f19aa6a52872ad0ac2d273a4c550",
+            "symbol": "@acir_impl_wake_next_delta_a311590813b87bcc30389b814d751def9dfefb49dcd07a9c485b90701a83617e",
         }
         fixture = {
             "callees": [descriptor],
-            "contract_epoch": "0.4",
+            "contract_epoch": "0.5",
             "processes": [
                 {
                     "blocks": [

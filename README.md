@@ -95,7 +95,7 @@ ACIR remains an independent, upper-level MLIR dialect. It is not folded into
 the PYC dialect and does not replace the Cycle-Aware Signal model:
 
 ```text
-agentic_circuit frontend -> ACPy 0.4 -> ACIR
+agentic_circuit frontend -> ACPy 0.5 -> ACIR
                                          |-> ACSim -> gfsim
                                          `-> PYC -> pycc -> pyc6 C++ / Verilog
 
@@ -106,6 +106,23 @@ The public `agentic_circuit` import and `agentic-circuit` CLI remain distinct
 from `pycircuit`. AC symbols are not re-exported from `pycircuit.__init__`.
 See the [ACIR architecture overview](docs/acir/index.md) and
 [migration record](docs/acir/migration.md).
+
+The epoch 0.5 rule frontend keeps scheduling mechanics out of Python:
+
+```python
+@ac.rule
+def complete(entry):
+    return entry.with_fields(done=True)
+
+completed = complete(issued)
+```
+
+MLIR passes infer effects, establish the phase-one empty-check contract,
+materialize handshake, resolve scheduling, and lower the transient rule to
+marker-free internal firing IR. Dynamic checks remain fail-closed in this first
+slice. See the
+[bounded retirement example](examples/agentic-circuit/state/rob.py) for a
+runnable frontend-to-gfsim slice.
 
 ## First cycle-aware design
 

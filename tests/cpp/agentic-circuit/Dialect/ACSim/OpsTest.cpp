@@ -114,8 +114,8 @@ std::string scalableModel(unsigned extraTypes) {
   std::string source;
   llvm::raw_string_ostream os(source);
   os << R"mlir(
-builtin.module attributes {ac.contract_epoch = "0.4"} {
-  acsim.model @scale epoch "0.4" root @Top construction [] destruction []
+builtin.module attributes {ac.contract_epoch = "0.5"} {
+  acsim.model @scale epoch "0.5" root @Top construction [] destruction []
       fingerprints {
         frozen_acir = "sha256:0000000000000000000000000000000000000000000000000000000000000000",
         binding_lock = "sha256:0000000000000000000000000000000000000000000000000000000000000000",

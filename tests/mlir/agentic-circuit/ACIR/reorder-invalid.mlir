@@ -12,7 +12,7 @@
 // EFFECT: error: 'ac.reorder' op key operation 'ac.assert' must be pure
 
 //--- capacity.mlir
-builtin.module attributes {ac.contract_epoch = "0.4"} {
+builtin.module attributes {ac.contract_epoch = "0.5"} {
   %input = ac.source depth 1 latency 1 : !ac.queue<i64>
   %bad = ac.reorder %input capacity 0 start 0 depth 1 latency 1 {
   ^key(%item: !ac.var<i64>):
@@ -21,7 +21,7 @@ builtin.module attributes {ac.contract_epoch = "0.4"} {
 }
 
 //--- type.mlir
-builtin.module attributes {ac.contract_epoch = "0.4"} {
+builtin.module attributes {ac.contract_epoch = "0.5"} {
   %input = ac.source depth 1 latency 1 : !ac.queue<i64>
   %bad = ac.reorder %input capacity 4 start 0 depth 1 latency 1 {
   ^key(%item: !ac.var<i64>):
@@ -30,7 +30,7 @@ builtin.module attributes {ac.contract_epoch = "0.4"} {
 }
 
 //--- key.mlir
-builtin.module attributes {ac.contract_epoch = "0.4"} {
+builtin.module attributes {ac.contract_epoch = "0.5"} {
   %input = ac.source depth 1 latency 1 : !ac.queue<i64>
   %bad = ac.reorder %input capacity 4 start 0 depth 1 latency 1 {
   ^key(%item: !ac.var<i64>):
@@ -40,7 +40,7 @@ builtin.module attributes {ac.contract_epoch = "0.4"} {
 }
 
 //--- effect.mlir
-builtin.module attributes {ac.contract_epoch = "0.4"} {
+builtin.module attributes {ac.contract_epoch = "0.5"} {
   %input = ac.source depth 1 latency 1 : !ac.queue<i64>
   %bad = ac.reorder %input capacity 4 start 0 depth 1 latency 1 {
   ^key(%item: !ac.var<i64>):
@@ -51,7 +51,7 @@ builtin.module attributes {ac.contract_epoch = "0.4"} {
 }
 
 //--- start-width.mlir
-builtin.module attributes {ac.contract_epoch = "0.4"} {
+builtin.module attributes {ac.contract_epoch = "0.5"} {
   %input = ac.source depth 1 latency 1 : !ac.queue<i8>
   %bad = ac.reorder %input capacity 4 start 256 depth 1 latency 1 {
   ^key(%item: !ac.var<i8>):

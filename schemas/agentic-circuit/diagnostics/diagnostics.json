@@ -1,7 +1,7 @@
 {
   "schema": "agentic-circuit-diagnostic-catalog",
   "version": "0.1",
-  "contract_epoch": "0.4",
+  "contract_epoch": "0.5",
   "entries": [
     {
       "code": "ACBUILD-COMPILE-001",
@@ -38,7 +38,7 @@
     {
       "code": "ACPY-SCHEMA-001",
       "title": "Schema identity is unknown",
-      "rule": "Discovery commands resolve only exact packaged schema names at contract epoch 0.4.",
+      "rule": "Discovery commands resolve only exact packaged schema names at contract epoch 0.5.",
       "causes": ["The requested component, protocol, interface, packet, or diagnostic is not cataloged."],
       "examples": ["schema component Missing requested a name absent from the standard-library catalog."],
       "repairs": ["List the selected schema kind and use one of the returned exact identities."]

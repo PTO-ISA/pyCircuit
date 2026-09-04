@@ -14,7 +14,6 @@ from .._staging import ArtifactStage
 from .._workspace import UserInputError, WorkspaceConfig
 from .check import _has_errors, capture
 
-
 Emit = Literal["acpy", "acir", "frozen-acir", "acsim", "cpp"]
 
 STAGES = (
@@ -312,6 +311,15 @@ def run(arguments: object, workspace: WorkspaceConfig, sink: OutputSink) -> int:
         return 2
     if frontend.acpy is None or frontend.acir is None:
         _fail("ACPY-VERIFY-001", "frontend produced incomplete compile artifacts")
+    if frontend.frontend_kind == "queue_rule" and (
+        STAGES.index(options.final_stage) > STAGES.index("topology-freeze")
+        or any(emit in {"acsim", "cpp"} for emit in options.emits)
+    ):
+        _fail(
+            "ACPY-RULE-006",
+            "Queue/rule CLI compilation currently stops at Frozen ACIR; use "
+            "ac.jit(system).materialize_cpp(...) for gfsim C++",
+        )
 
     native: NativeResult | None = None
     if STAGES.index(options.final_stage) > STAGES.index("acpy-verify"):
@@ -352,10 +360,11 @@ def run(arguments: object, workspace: WorkspaceConfig, sink: OutputSink) -> int:
         {
             "schema": "agentic-circuit-compile-result",
             "version": "0.1",
-            "contract_epoch": "0.4",
+            "contract_epoch": "0.5",
             "project": workspace.project_name,
             "system": getattr(arguments, "system", None) or workspace.default_system,
             "profile": profile,
+            "frontend": frontend.frontend_kind,
             "stage": options.final_stage,
             "status": "passed",
             "output_dir": output.as_posix(),

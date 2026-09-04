@@ -6,6 +6,8 @@ add_public_tablegen_target(ACIRDialectIncGen)
 set(LLVM_TARGET_DEFINITIONS ACIRAttributes.td)
 mlir_tablegen(ACIREnums.h.inc -gen-enum-decls)
 mlir_tablegen(ACIREnums.cpp.inc -gen-enum-defs)
+mlir_tablegen(ACIRAttributes.h.inc -gen-attrdef-decls -attrdefs-dialect=ac)
+mlir_tablegen(ACIRAttributes.cpp.inc -gen-attrdef-defs -attrdefs-dialect=ac)
 add_public_tablegen_target(ACIRAttributesIncGen)
 
 set(LLVM_TARGET_DEFINITIONS ACIRTypes.td)

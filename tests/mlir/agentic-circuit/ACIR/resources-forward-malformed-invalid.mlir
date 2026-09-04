@@ -3,7 +3,7 @@
 // RUN: %not %acir_opt_public %t/protocol-before-queue.mlir 2>&1 | %FileCheck %s --check-prefix=CORRELATION
 
 //--- queue-before-protocol.mlir
-builtin.module attributes {ac.contract_epoch = "0.4"} {
+builtin.module attributes {ac.contract_epoch = "0.5"} {
   ac.module @Top() parameters {} graph {
     ac.queue @ready payload i32 entries 8 ordering "fifo" protocol @p
         ownership "exclusive" id "ready" path "ready"
@@ -27,7 +27,7 @@ builtin.module attributes {ac.contract_epoch = "0.4"} {
 // ORDERING: protocol ordering guarantee must be a string
 
 //--- protocol-before-queue.mlir
-builtin.module attributes {ac.contract_epoch = "0.4"} {
+builtin.module attributes {ac.contract_epoch = "0.5"} {
   ac.protocol @p {
     ac.role @sender dual @receiver cardinality "exclusive"
     ac.role @receiver dual @sender cardinality "exclusive"

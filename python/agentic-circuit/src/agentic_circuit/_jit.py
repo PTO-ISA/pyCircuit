@@ -12,12 +12,100 @@ import shutil
 import subprocess
 import sys
 import tempfile
-from typing import get_origin
+from typing import TYPE_CHECKING, get_origin
 
 from ._canonical_json import canonical_json_bytes, sha256_bytes
 from ._definitions import Definition
 from ._static_eval import FrozenMap, StaticValue, validate_ijson_value
 from ._types import Static
+
+if TYPE_CHECKING:
+    from ._queue_frontend import QueueProgram
+
+
+def _native_queue_tool(name: str, environment: str) -> Path:
+    candidates: list[Path] = []
+    configured = os.environ.get(environment)
+    if configured:
+        candidates.append(Path(configured))
+    repository = Path(__file__).resolve().parents[4]
+    candidates.append(repository / ".pycircuit_out/acir/dev-llvm22/bin" / name)
+    candidates.append(Path(sys.prefix) / "bin" / name)
+    try:
+        from ._native_api import native_extension_path
+
+        for root in native_extension_path().parents:
+            candidates.append(root / "bin" / name)
+    except (ImportError, RuntimeError):
+        pass
+    discovered = shutil.which(name)
+    if discovered:
+        candidates.append(Path(discovered))
+    for candidate in candidates:
+        if candidate.is_file():
+            return candidate.resolve()
+    raise RuntimeError(
+        f"ACPY-JIT-004: native {name} is required for @ac.rule lowering"
+    )
+
+
+def _lower_queue_acir(
+    acir: str, *, optimizer: str | Path | None = None
+) -> str:
+    from ._queue_frontend import RULE_LOWERING_PIPELINE
+
+    selected = Path(optimizer) if optimizer is not None else _native_queue_tool(
+        "acir-opt", "ACIR_OPT"
+    )
+    if not selected.is_file():
+        raise RuntimeError(
+            f"ACPY-JIT-004: native acir-opt is unavailable: {selected}"
+        )
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        raw = root / "rule.raw.ac.mlir"
+        lowered = root / "rule.lowered.ac.mlir"
+        raw.write_text(acir, encoding="utf-8")
+        optimized = subprocess.run(
+            (
+                str(selected),
+                f"--pass-pipeline={RULE_LOWERING_PIPELINE}",
+                str(raw),
+                "-o",
+                str(lowered),
+            ),
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        if optimized.returncode != 0:
+            raise RuntimeError(
+                "ACPY-JIT-004: native rule lowering failed:\n" + optimized.stderr
+            )
+        return lowered.read_text(encoding="utf-8")
+
+
+def _lower_rule_program_to_cpp(program: QueueProgram) -> str:
+    from ._queue_frontend import lower_queue_program
+
+    generator = _native_queue_tool("acir-queue-cxxgen", "ACIR_QUEUE_CXXGEN")
+    frozen_acir = _lower_queue_acir(lower_queue_program(program))
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        lowered = root / "rule.lowered.ac.mlir"
+        lowered.write_text(frozen_acir, encoding="utf-8")
+        emitted = subprocess.run(
+            (str(generator), str(lowered)),
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        if emitted.returncode != 0:
+            raise RuntimeError(
+                "ACPY-JIT-004: native rule C++ generation failed:\n"
+                + emitted.stderr
+            )
+        return emitted.stdout
 
 
 def config(cls: type[object]) -> type[object]:
@@ -140,6 +228,8 @@ class JitSpecialization:
             static_arguments=dict(self.arguments),
             specialization_fingerprint=self.fingerprint,
         )
+        if any(queue.rule_name is not None for queue in program.queues):
+            return _lower_rule_program_to_cpp(program)
         return lower_queue_program_to_cpp(program)
 
     def materialize_cpp(
@@ -168,7 +258,7 @@ class JitSpecialization:
             canonical_json_bytes(
                 {
                     "schema": "agentic-circuit-provider-specialization",
-                    "version": "0.4",
+                    "version": "0.5",
                     "frontend_specialization": self.fingerprint,
                     "backend": "gfsim-cpp",
                     "provider_source_sha256": cpp_hash,
@@ -212,7 +302,7 @@ class JitSpecialization:
             os.replace(candidate, artifact)
         manifest_value = {
             "schema": "agentic-circuit-jit-artifact",
-            "version": "0.4",
+            "version": "0.5",
             "backend": "gfsim-cpp",
             "specialization": key,
             "frontend_specialization": self.fingerprint,
@@ -228,6 +318,7 @@ class JitSpecialization:
         cache_root: str | Path,
         *,
         pycgen_tool: str | Path,
+        acir_opt: str | Path | None = None,
         pycc: str | Path,
         toolchain_metadata: str | Path,
         compiler: str | Path | None = None,
@@ -244,6 +335,9 @@ class JitSpecialization:
         selected_verilator = Path(verilator or shutil.which("verilator") or "")
         paths = {
             "pycgen": Path(pycgen_tool),
+            "acir_opt": Path(acir_opt)
+            if acir_opt is not None
+            else _native_queue_tool("acir-opt", "ACIR_OPT"),
             "pycc": Path(pycc),
             "metadata": Path(toolchain_metadata),
             "cxx": selected_cxx,
@@ -256,12 +350,14 @@ class JitSpecialization:
                 raise RuntimeError(
                     f"ACPY-JIT-005: required {name} path is unavailable: {path}"
                 )
-        acir = self.lower_acir().encode("utf-8")
+        acir = _lower_queue_acir(
+            self.lower_acir(), optimizer=paths["acir_opt"]
+        ).encode("utf-8")
         key = sha256_bytes(
             canonical_json_bytes(
                 {
                     "schema": "agentic-circuit-provider-specialization",
-                    "version": "0.4",
+                    "version": "0.5",
                     "frontend_specialization": self.fingerprint,
                     "backend": "pyc-cpp-verilog",
                     "acir_sha256": sha256_bytes(acir),
@@ -329,7 +425,10 @@ class JitSpecialization:
                 text=True,
                 capture_output=True,
                 check=False,
-                env={**os.environ, "PYTHONPATH": str(repo / "src")},
+                env={
+                    **os.environ,
+                    "PYTHONPATH": str(repository / "python/agentic-circuit/src"),
+                },
             )
             if completed.returncode != 0:
                 raise RuntimeError(
@@ -337,7 +436,7 @@ class JitSpecialization:
                 )
             manifest_value = {
                 "schema": "agentic-circuit-jit-artifact",
-                "version": "0.4",
+                "version": "0.5",
                 "backend": "pyc-cpp-verilog",
                 "specialization": key,
                 "frontend_specialization": self.fingerprint,
@@ -435,7 +534,7 @@ def jit(system: Definition, /, **constants: object) -> JitSpecialization:
             source_hash = sha256_bytes(path.read_bytes())
     preimage = {
         "schema": "agentic-circuit-jit-specialization",
-        "version": "0.4",
+        "version": "0.5",
         "system": system.qualified_name,
         "source_sha256": source_hash,
         "arguments": {name: _json_value(value) for name, value in arguments},

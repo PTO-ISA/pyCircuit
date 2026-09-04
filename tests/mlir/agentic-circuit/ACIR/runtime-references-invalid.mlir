@@ -11,7 +11,7 @@
 // RUN: %not %acir_opt %t/stat-kind.mlir 2>&1 | %FileCheck %s --check-prefix=STAT-KIND
 
 //--- unresolved-send.mlir
-builtin.module attributes {ac.contract_epoch = "0.4"} {
+builtin.module attributes {ac.contract_epoch = "0.5"} {
   ac.module @M() parameters {} graph {
     ac.process @p kind "control" {
       %v = arith.constant 1 : i32
@@ -24,7 +24,7 @@ builtin.module attributes {ac.contract_epoch = "0.4"} {
 // UNRESOLVED-SEND: unresolved runtime target '@missing'
 
 //--- wrong-send-kind.mlir
-builtin.module attributes {ac.contract_epoch = "0.4"} {
+builtin.module attributes {ac.contract_epoch = "0.5"} {
   ac.module @M() parameters {} graph {
     ac.stat @not_a_queue kind "counter"
     ac.process @p kind "control" {
@@ -38,7 +38,7 @@ builtin.module attributes {ac.contract_epoch = "0.4"} {
 // SEND-KIND: runtime target '@not_a_queue' must resolve to ac.queue
 
 //--- unresolved-schedule.mlir
-builtin.module attributes {ac.contract_epoch = "0.4"} {
+builtin.module attributes {ac.contract_epoch = "0.5"} {
   ac.module @M() parameters {} graph {
     ac.process @p kind "control" {
       %v = arith.constant 1 : i32
@@ -52,7 +52,7 @@ builtin.module attributes {ac.contract_epoch = "0.4"} {
 // UNRESOLVED-SCHEDULE: unresolved runtime target '@missing'
 
 //--- unresolved-wait.mlir
-builtin.module attributes {ac.contract_epoch = "0.4"} {
+builtin.module attributes {ac.contract_epoch = "0.5"} {
   ac.module @M() parameters {} graph {
     ac.process @p kind "control" {
       ac.wait_for @missing
@@ -64,7 +64,7 @@ builtin.module attributes {ac.contract_epoch = "0.4"} {
 // UNRESOLVED-WAIT: unresolved runtime target '@missing'
 
 //--- unresolved-event.mlir
-builtin.module attributes {ac.contract_epoch = "0.4"} {
+builtin.module attributes {ac.contract_epoch = "0.5"} {
   ac.module @M() parameters {} graph {
     ac.process @p kind "control" {
       ac.await_event @missing
@@ -76,7 +76,7 @@ builtin.module attributes {ac.contract_epoch = "0.4"} {
 // UNRESOLVED-EVENT: unresolved runtime target '@missing'
 
 //--- unresolved-probe.mlir
-builtin.module attributes {ac.contract_epoch = "0.4"} {
+builtin.module attributes {ac.contract_epoch = "0.5"} {
   ac.module @M() parameters {} graph {
     ac.process @p kind "monitor" {
       %v = ac.probe @missing kind "queue" : i64
@@ -88,7 +88,7 @@ builtin.module attributes {ac.contract_epoch = "0.4"} {
 // UNRESOLVED-PROBE: unresolved runtime target '@missing'
 
 //--- unresolved-stat.mlir
-builtin.module attributes {ac.contract_epoch = "0.4"} {
+builtin.module attributes {ac.contract_epoch = "0.5"} {
   ac.module @M() parameters {} graph {
     ac.process @p kind "monitor" {
       %v = arith.constant 1 : i64
@@ -101,7 +101,7 @@ builtin.module attributes {ac.contract_epoch = "0.4"} {
 // UNRESOLVED-STAT: unresolved runtime target '@missing'
 
 //--- schedule-type.mlir
-builtin.module attributes {ac.contract_epoch = "0.4"} {
+builtin.module attributes {ac.contract_epoch = "0.5"} {
   ac.module @M(i64) parameters {} graph {
   ^bb0(%input : i64):
     ac.process @worker kind "workload" captures(%input : i64) {
@@ -120,7 +120,7 @@ builtin.module attributes {ac.contract_epoch = "0.4"} {
 // SCHEDULE-TYPE: must match the target process's single capture type
 
 //--- probe-kind.mlir
-builtin.module attributes {ac.contract_epoch = "0.4"} {
+builtin.module attributes {ac.contract_epoch = "0.5"} {
   ac.module @M() parameters {} graph {
     ac.stat @state kind "counter"
     ac.process @p kind "monitor" {
@@ -133,7 +133,7 @@ builtin.module attributes {ac.contract_epoch = "0.4"} {
 // PROBE-KIND: runtime target '@state' must resolve to ac.queue
 
 //--- stat-kind.mlir
-builtin.module attributes {ac.contract_epoch = "0.4"} {
+builtin.module attributes {ac.contract_epoch = "0.5"} {
   ac.module @M() parameters {} graph {
     ac.process @target kind "monitor" { ac.yield_sim }
     ac.process @p kind "monitor" {

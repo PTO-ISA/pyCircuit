@@ -42,17 +42,17 @@
 // REPLACES: error: 'ac.table' op has multiple replace writer endpoints
 
 //--- init.mlir
-builtin.module attributes {ac.contract_epoch = "0.4"} {
+builtin.module attributes {ac.contract_epoch = "0.5"} {
   ac.table @bad entry i16 entries 4 init 1 owner "/" stable_id "table/bad"
 }
 
 //--- no-endpoint.mlir
-builtin.module attributes {ac.contract_epoch = "0.4"} {
+builtin.module attributes {ac.contract_epoch = "0.5"} {
   ac.table @bad entry i16 entries 4 init 0 owner "/" stable_id "table/bad"
 }
 
 //--- static-index.mlir
-builtin.module attributes {ac.contract_epoch = "0.4"} {
+builtin.module attributes {ac.contract_epoch = "0.5"} {
   ac.table @bad entry i16 entries 4 init 0 owner "/" stable_id "table/bad"
   %output = ac.table.read @bad depth 1 latency 1 address {
   ^address:
@@ -69,7 +69,7 @@ builtin.module attributes {ac.contract_epoch = "0.4"} {
 }
 
 //--- two-writers.mlir
-builtin.module attributes {ac.contract_epoch = "0.4"} {
+builtin.module attributes {ac.contract_epoch = "0.5"} {
   ac.table @bad entry i16 entries 4 init 0 owner "/" stable_id "table/bad"
   %left = ac.source depth 1 latency 1 {ac.name = "left"} : !ac.queue<i8>
   %right = ac.source depth 1 latency 1 {ac.name = "right"} : !ac.queue<i8>
@@ -100,7 +100,7 @@ builtin.module attributes {ac.contract_epoch = "0.4"} {
 }
 
 //--- match-domain.mlir
-builtin.module attributes {ac.contract_epoch = "0.4"} {
+builtin.module attributes {ac.contract_epoch = "0.5"} {
   ac.table @bad entry i16 entries 65 init 0 owner "/" stable_id "table/bad"
   %mask = ac.table.match @bad predicate {
   ^predicate(%entry: !ac.var<i16>):
@@ -110,7 +110,7 @@ builtin.module attributes {ac.contract_epoch = "0.4"} {
 }
 
 //--- choose-count.mlir
-builtin.module attributes {ac.contract_epoch = "0.4"} {
+builtin.module attributes {ac.contract_epoch = "0.5"} {
   ac.table @bad entry i16 entries 4 init 0 owner "/" stable_id "table/bad"
   %mask = ac.table.match @bad predicate {
   ^predicate(%entry: !ac.var<i16>):
@@ -124,7 +124,7 @@ builtin.module attributes {ac.contract_epoch = "0.4"} {
 }
 
 //--- choose-arbitrary-mask.mlir
-builtin.module attributes {ac.contract_epoch = "0.4"} {
+builtin.module attributes {ac.contract_epoch = "0.5"} {
   ac.table @bad entry i16 entries 4 init 0 owner "/" stable_id "table/bad"
   %mask = ac.var.constant 15 : i4 as !ac.var<i4>
   %index, %valid = ac.table.choose @bad %mask : !ac.var<i4> count 1 policy "min" key {
@@ -142,7 +142,7 @@ builtin.module attributes {ac.contract_epoch = "0.4"} {
 }
 
 //--- choose-other-table.mlir
-builtin.module attributes {ac.contract_epoch = "0.4"} {
+builtin.module attributes {ac.contract_epoch = "0.5"} {
   ac.table @left entry i16 entries 4 init 0 owner "/" stable_id "table/left"
   ac.table @right entry i16 entries 4 init 0 owner "/" stable_id "table/right"
   %mask = ac.table.match @left predicate {
@@ -173,7 +173,7 @@ builtin.module attributes {ac.contract_epoch = "0.4"} {
 }
 
 //--- two-releases.mlir
-builtin.module attributes {ac.contract_epoch = "0.4"} {
+builtin.module attributes {ac.contract_epoch = "0.5"} {
   %input = ac.source depth 1 latency 1 {ac.name = "input"} : !ac.queue<i8>
   ac.slot @bad, %input owner "/" stable_id "slot/bad" : !ac.queue<i8>
   ac.slot.release @bad when {
@@ -187,7 +187,7 @@ builtin.module attributes {ac.contract_epoch = "0.4"} {
 }
 
 //--- masked-owner.mlir
-builtin.module attributes {ac.contract_epoch = "0.4"} {
+builtin.module attributes {ac.contract_epoch = "0.5"} {
   ac.table @left entry i16 entries 4 init 0 owner "/" stable_id "table/left"
   ac.table @right entry i16 entries 4 init 0 owner "/" stable_id "table/right"
   %mask = ac.table.match @left predicate {
@@ -206,7 +206,7 @@ builtin.module attributes {ac.contract_epoch = "0.4"} {
 }
 
 //--- write-fields-missing.mlir
-builtin.module attributes {ac.contract_epoch = "0.4"} {
+builtin.module attributes {ac.contract_epoch = "0.5"} {
   ac.table @bad entry i16 entries 1 init 0 owner "/" stable_id "table/bad"
   ac.table.write @bad mode "field" address {
     %zero = ac.var.constant 0 : i64 as !ac.var<i64>
@@ -221,7 +221,7 @@ builtin.module attributes {ac.contract_epoch = "0.4"} {
 }
 
 //--- write-fields-empty.mlir
-builtin.module attributes {ac.contract_epoch = "0.4"} {
+builtin.module attributes {ac.contract_epoch = "0.5"} {
   ac.table @bad entry i16 entries 1 init 0 owner "/" stable_id "table/bad"
   ac.table.write @bad mode "field" write_fields [] address {
     %zero = ac.var.constant 0 : i64 as !ac.var<i64>
@@ -236,7 +236,7 @@ builtin.module attributes {ac.contract_epoch = "0.4"} {
 }
 
 //--- write-fields-duplicate.mlir
-builtin.module attributes {ac.contract_epoch = "0.4"} {
+builtin.module attributes {ac.contract_epoch = "0.5"} {
   ac.table @bad entry i16 entries 1 init 0 owner "/" stable_id "table/bad"
   ac.table.write @bad mode "field" write_fields ["$entry", "$entry"] address {
     %zero = ac.var.constant 0 : i64 as !ac.var<i64>
@@ -251,7 +251,7 @@ builtin.module attributes {ac.contract_epoch = "0.4"} {
 }
 
 //--- write-fields-unknown.mlir
-builtin.module attributes {ac.contract_epoch = "0.4"} {
+builtin.module attributes {ac.contract_epoch = "0.5"} {
   ac.table @bad entry i16 entries 1 init 0 owner "/" stable_id "table/bad"
   ac.table.write @bad mode "field" write_fields ["value"] address {
     %zero = ac.var.constant 0 : i64 as !ac.var<i64>
@@ -266,7 +266,7 @@ builtin.module attributes {ac.contract_epoch = "0.4"} {
 }
 
 //--- choose-mask-owner.mlir
-builtin.module attributes {ac.contract_epoch = "0.4"} {
+builtin.module attributes {ac.contract_epoch = "0.5"} {
   ac.table @left entry i16 entries 4 init 0 owner "/" stable_id "table/left"
   ac.table @right entry i16 entries 4 init 0 owner "/" stable_id "table/right"
   %left_mask = ac.table.match @left predicate {
@@ -283,7 +283,7 @@ builtin.module attributes {ac.contract_epoch = "0.4"} {
 }
 
 //--- external-capture.mlir
-builtin.module attributes {ac.contract_epoch = "0.4"} {
+builtin.module attributes {ac.contract_epoch = "0.5"} {
   ac.table @state entry i16 entries 4 init 0 owner "/" stable_id "table/state"
   %index = ac.var.constant 0 : i2 as !ac.var<i2>
   %output = ac.table.read @state depth 1 latency 1 address {
@@ -298,7 +298,7 @@ builtin.module attributes {ac.contract_epoch = "0.4"} {
 }
 
 //--- illegal-mode.mlir
-builtin.module attributes {ac.contract_epoch = "0.4"} {
+builtin.module attributes {ac.contract_epoch = "0.5"} {
   ac.table @bad entry i16 entries 1 init 0 owner "/" stable_id "table/bad"
   ac.table.write @bad mode "priority" write_fields ["$entry"] address {
     %zero = ac.var.constant 0 : i64 as !ac.var<i64>
@@ -313,7 +313,7 @@ builtin.module attributes {ac.contract_epoch = "0.4"} {
 }
 
 //--- incomplete-replace.mlir
-builtin.module attributes {ac.contract_epoch = "0.4"} {
+builtin.module attributes {ac.contract_epoch = "0.5"} {
   ac.type_scope @types {
     ac.struct @Entry fields [{name = "valid", type = i1}, {name = "ready", type = i1}]
   } {dlti.dl_spec = #dlti.dl_spec<!ac.struct<@types::@Entry> = {abi_alignment = 1 : i64, endianness = "little", preferred_alignment = 1 : i64, size = 2 : i64}>}
@@ -332,7 +332,7 @@ builtin.module attributes {ac.contract_epoch = "0.4"} {
 }
 
 //--- masked-replace.mlir
-builtin.module attributes {ac.contract_epoch = "0.4"} {
+builtin.module attributes {ac.contract_epoch = "0.5"} {
   ac.table @bad entry i16 entries 1 init 0 owner "/" stable_id "table/bad"
   %mask = ac.table.match @bad predicate {
   ^predicate(%entry: !ac.var<i16>):
@@ -349,7 +349,7 @@ builtin.module attributes {ac.contract_epoch = "0.4"} {
 }
 
 //--- two-replaces.mlir
-builtin.module attributes {ac.contract_epoch = "0.4"} {
+builtin.module attributes {ac.contract_epoch = "0.5"} {
   ac.table @bad entry i16 entries 1 init 0 owner "/" stable_id "table/bad"
   ac.table.write @bad mode "replace" write_fields ["$entry"] address {
     %zero = ac.var.constant 0 : i64 as !ac.var<i64>

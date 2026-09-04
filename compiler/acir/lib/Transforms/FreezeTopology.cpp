@@ -88,7 +88,58 @@ private:
   llvm::StringMap<Operation *> index;
 };
 
+LogicalResult freezeFlatQueueGraph(ModuleOp model) {
+  auto contractEpoch = model->getAttrOfType<StringAttr>("ac.contract_epoch");
+  if (!contractEpoch || contractEpoch.getValue() != "0.5")
+    return model.emitError(
+        "flat QueueGraph freeze requires ac.contract_epoch = \"0.5\"");
+  auto modelKind = model->getAttrOfType<StringAttr>("ac.model_kind");
+  if (!modelKind || modelKind.getValue() != "queue_graph")
+    return model.emitError(
+        "flat QueueGraph freeze requires ac.model_kind = \"queue_graph\"");
+  for (Operation &operation : model.getBody()->getOperations()) {
+    if (isa<ac::SystemOp, ac::ModuleOp, ac::ModuleExternOp,
+            ac::ModuleGeneratedOp>(operation))
+      return operation.emitOpError(
+          "is not legal at the top level of a flat QueueGraph model");
+  }
+  auto system = model->getAttrOfType<StringAttr>("ac.system");
+  if (!system || system.getValue().empty())
+    return model.emitError(
+        "flat QueueGraph freeze requires non-empty ac.system");
+  auto domain = model->getAttrOfType<StringAttr>("ac.queue_graph_domain");
+  if (!domain || domain.getValue() != "cycle")
+    return model.emitError(
+        "flat QueueGraph freeze requires exact ac.queue_graph_domain = "
+        "\"cycle\"");
+  if (failed(verifyRuleClosure(model)))
+    return failure();
+  if (detail::hasTopologyFreezeEvidence(model))
+    return verifyFrozenFlatQueueGraph(model);
+  Builder builder(model.getContext());
+  model->setAttr("ac.freeze_epoch", builder.getStringAttr("0.5"));
+  model->setAttr("ac.frozen_owners", builder.getArrayAttr({}));
+  model->setAttr("ac.topology_frozen", builder.getBoolAttr(true));
+  model->setAttr("ac.topology_digest",
+                 builder.getStringAttr(detail::computeTopologyDigest(model)));
+  return success();
+}
+
 LogicalResult freezeTopology(ModuleOp model) {
+  // Closure precedes every canonicalization/hash mutation so unresolved
+  // obligations cannot be dropped or hidden by a generic transform.
+  if (failed(verifyRuleClosure(model)))
+    return failure();
+  if (auto modelKind = model->getAttrOfType<StringAttr>("ac.model_kind")) {
+    if (modelKind.getValue() != "queue_graph")
+      return model.emitError("unknown ac.model_kind '")
+             << modelKind.getValue() << "'";
+    return freezeFlatQueueGraph(model);
+  }
+  if (model->getAttrOfType<StringAttr>("ac.system") &&
+      model.getOps<ac::SystemOp>().empty())
+    return model.emitError(
+        "flat QueueGraph model requires ac.model_kind = \"queue_graph\"");
   if (failed(detail::preflightModelStructure(model)))
     return failure();
   if (detail::hasTopologyFreezeEvidence(model))
@@ -118,7 +169,7 @@ LogicalResult freezeTopology(ModuleOp model) {
   if (failed(ownerManifest))
     return failure();
   Builder builder(model.getContext());
-  model->setAttr("ac.freeze_epoch", builder.getStringAttr("0.4"));
+  model->setAttr("ac.freeze_epoch", builder.getStringAttr("0.5"));
   model->setAttr(
       "ac.frozen_system",
       FlatSymbolRefAttr::get(model.getContext(), selected.getSymName()));

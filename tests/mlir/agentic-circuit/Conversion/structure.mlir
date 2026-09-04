@@ -11,7 +11,7 @@
 // with the wake type pair, one module, one dispatch row, and one
 // self-activation edge.
 
-builtin.module attributes {ac.contract_epoch = "0.4"} {
+builtin.module attributes {ac.contract_epoch = "0.5"} {
   ac.system @soc root @Top as "root" tick 0 "cycle"
       workload @Top::@workload seed {kind = "fixed", value = 7 : i64}
       instrumentation [] results {id = "default", format = "json"} selected true
@@ -24,17 +24,17 @@ builtin.module attributes {ac.contract_epoch = "0.4"} {
   }
 }
 
-// CHECK:      module attributes {ac.contract_epoch = "0.4"} {
-// CHECK-NEXT:   acsim.model @soc epoch "0.4" root @Top
+// CHECK:      module attributes {ac.contract_epoch = "0.5"} {
+// CHECK-NEXT:   acsim.model @soc epoch "0.5" root @Top
 // CHECK-SAME:     construction ["root.workload"]
 // CHECK-SAME:     destruction ["root.workload"]
 // CHECK-SAME:     fingerprints {binding_lock = "sha256:{{[0-9a-f]+}}", frozen_acir = "sha256:{{[0-9a-f]+}}", profile = "sha256:{{[0-9a-f]+}}", provider = "sha256:{{[0-9a-f]+}}", schema_set = "sha256:{{[0-9a-f]+}}", toolchain = "sha256:{{[0-9a-f]+}}"} {
-// CHECK-NEXT:     acsim.type @acir_impl_wake_next_delta_043ae4e869cdd2b9059e1696f276b6844179f19aa6a52872ad0ac2d273a4c550 cpp "acir::generated::impl_wake_next_delta_043ae4e869cdd2b9059e1696f276b6844179f19aa6a52872ad0ac2d273a4c550" kind "implementation" fingerprint "sha256:043ae4e869cdd2b9059e1696f276b6844179f19aa6a52872ad0ac2d273a4c550"
+// CHECK-NEXT:     acsim.type @acir_impl_wake_next_delta_a311590813b87bcc30389b814d751def9dfefb49dcd07a9c485b90701a83617e cpp "acir::generated::impl_wake_next_delta_a311590813b87bcc30389b814d751def9dfefb49dcd07a9c485b90701a83617e" kind "implementation" fingerprint "sha256:a311590813b87bcc30389b814d751def9dfefb49dcd07a9c485b90701a83617e"
 // CHECK-NEXT:     acsim.type @acir_wake_next_delta cpp "acir::generated::wake_next_delta" kind "wake" fingerprint "sha256:8cf214054e3ad1f49ca7091e040092971fe7dec32ccfd59554fdef160e889c2a"
 // CHECK-NEXT:     acsim.type @core cpp "gfsim::TimeDomainRuntime" kind "time_domain" fingerprint "sha256:{{[0-9a-f]+}}" {period = 2 : i64, phase = 1 : i64, tick_scale = 2 : i64}
 // CHECK-NEXT:     acsim.module @Top interface {ports = [], resources = [], results = []} static [] specialization "sha256:{{[0-9a-f]+}}" exports [] {
 // CHECK-NEXT:       acsim.process @workload captures() names [] entry @entry pcs [@entry] live [] fairness 2 specialization "sha256:{{[0-9a-f]+}}" {
-// CHECK:              %[[WAKE:.+]] = acsim.invoke @acir_impl_wake_next_delta_043ae4e869cdd2b9059e1696f276b6844179f19aa6a52872ad0ac2d273a4c550() : () -> !acsim.wake<@acir_wake_next_delta>
+// CHECK:              %[[WAKE:.+]] = acsim.invoke @acir_impl_wake_next_delta_a311590813b87bcc30389b814d751def9dfefb49dcd07a9c485b90701a83617e() : () -> !acsim.wake<@acir_wake_next_delta>
 // CHECK-NEXT:         acsim.suspend @entry on %[[WAKE]] : !acsim.wake<@acir_wake_next_delta>
 // CHECK:            acsim.return
 // CHECK-NEXT:     }

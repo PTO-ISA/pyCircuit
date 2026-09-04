@@ -18,7 +18,7 @@
 // TERMINAL: on_terminal_phase completion requires a reachable terminal state
 
 //--- flow-mismatch.mlir
-builtin.module attributes {ac.contract_epoch = "0.4"} {
+builtin.module attributes {ac.contract_epoch = "0.5"} {
   "ac.protocol"() <{sym_name = "p"}> ({
     "ac.role"() <{sym_name = "a", dual = @b, cardinality = "exclusive"}> : () -> ()
     "ac.role"() <{sym_name = "b", dual = @a, cardinality = "exclusive"}> : () -> ()
@@ -30,7 +30,7 @@ builtin.module attributes {ac.contract_epoch = "0.4"} {
 }
 
 //--- direction-mismatch.mlir
-builtin.module attributes {ac.contract_epoch = "0.4"} {
+builtin.module attributes {ac.contract_epoch = "0.5"} {
   "ac.protocol"() <{sym_name = "p"}> ({
     "ac.role"() <{sym_name = "a", dual = @b, cardinality = "exclusive"}> : () -> ()
     "ac.role"() <{sym_name = "b", dual = @a, cardinality = "exclusive"}> : () -> ()
@@ -46,7 +46,7 @@ builtin.module attributes {ac.contract_epoch = "0.4"} {
 }
 
 //--- control-only.mlir
-builtin.module attributes {ac.contract_epoch = "0.4"} {
+builtin.module attributes {ac.contract_epoch = "0.5"} {
   "ac.protocol"() <{sym_name = "p"}> ({
     "ac.role"() <{sym_name = "a", dual = @b, cardinality = "exclusive"}> : () -> ()
     "ac.role"() <{sym_name = "b", dual = @a, cardinality = "exclusive"}> : () -> ()
@@ -62,7 +62,7 @@ builtin.module attributes {ac.contract_epoch = "0.4"} {
 }
 
 //--- notify-correlation.mlir
-builtin.module attributes {ac.contract_epoch = "0.4"} {
+builtin.module attributes {ac.contract_epoch = "0.5"} {
   "ac.type_scope"() <{sym_name = "types"}> ({
     "ac.transaction"() <{sym_name = "Req", fields = [{name = "id", type = i8}]}> : () -> ()
     "ac.transaction"() <{sym_name = "Meta", fields = [{name = "tag", type = i8}]}> : () -> ()
@@ -82,7 +82,7 @@ builtin.module attributes {ac.contract_epoch = "0.4"} {
 }
 
 //--- correlation-type.mlir
-builtin.module attributes {ac.contract_epoch = "0.4"} {
+builtin.module attributes {ac.contract_epoch = "0.5"} {
   "ac.type_scope"() <{sym_name = "types"}> ({
     "ac.transaction"() <{sym_name = "Req", fields = [{name = "tag", type = i16}]}> : () -> ()
     "ac.transaction"() <{sym_name = "Resp", fields = [{name = "tag", type = i8}]}> : () -> ()
@@ -100,7 +100,7 @@ builtin.module attributes {ac.contract_epoch = "0.4"} {
 }
 
 //--- unreachable-response.mlir
-builtin.module attributes {ac.contract_epoch = "0.4"} {
+builtin.module attributes {ac.contract_epoch = "0.5"} {
   "ac.protocol"() <{sym_name = "p"}> ({
     "ac.role"() <{sym_name = "a", dual = @b, cardinality = "exclusive"}> : () -> ()
     "ac.role"() <{sym_name = "b", dual = @a, cardinality = "exclusive"}> : () -> ()
@@ -114,7 +114,7 @@ builtin.module attributes {ac.contract_epoch = "0.4"} {
 }
 
 //--- unreachable-accept.mlir
-builtin.module attributes {ac.contract_epoch = "0.4"} {
+builtin.module attributes {ac.contract_epoch = "0.5"} {
   "ac.protocol"() <{sym_name = "p"}> ({
     "ac.role"() <{sym_name = "a", dual = @b, cardinality = "exclusive"}> : () -> ()
     "ac.role"() <{sym_name = "b", dual = @a, cardinality = "exclusive"}> : () -> ()
@@ -126,7 +126,7 @@ builtin.module attributes {ac.contract_epoch = "0.4"} {
 }
 
 //--- unreachable-terminal.mlir
-builtin.module attributes {ac.contract_epoch = "0.4"} {
+builtin.module attributes {ac.contract_epoch = "0.5"} {
   "ac.protocol"() <{sym_name = "p"}> ({
     "ac.state"() <{sym_name = "s", initial = true, terminal = false}> : () -> ()
     "ac.state"() <{sym_name = "dead", initial = false, terminal = true}> : () -> ()

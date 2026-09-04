@@ -1,7 +1,7 @@
 // RUN: %acir_opt %s | %FileCheck %s
 // RUN: %acir_opt %s | %acir_opt | %FileCheck %s
 
-builtin.module attributes {ac.contract_epoch = "0.4"} {
+builtin.module attributes {ac.contract_epoch = "0.5"} {
   %input = ac.source depth 4 latency 1 : !ac.queue<i64>
   %output = ac.scope @frontend(%input) {
   ^body(%borrowed: !ac.queue<i64>):

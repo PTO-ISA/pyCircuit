@@ -9,7 +9,7 @@
 // Array elements of structural modules are ownership-only, so the workload
 // process remains the sole dispatch row.
 
-builtin.module attributes {ac.contract_epoch = "0.4"} {
+builtin.module attributes {ac.contract_epoch = "0.5"} {
   ac.system @soc root @Top as "root" tick 0 "cycle"
       workload @Top::@workload seed {kind = "fixed", value = 7 : i64}
       instrumentation [] results {id = "default", format = "json"} selected true
@@ -28,7 +28,7 @@ builtin.module attributes {ac.contract_epoch = "0.4"} {
   }
 }
 
-// CHECK:      acsim.model @soc epoch "0.4" root @Top
+// CHECK:      acsim.model @soc epoch "0.5" root @Top
 // CHECK-SAME:   construction ["root.cells[0]", "root.cells[1]", "root.grid[0][0]", "root.grid[0][1]", "root.grid[1][0]", "root.grid[1][1]", "root.workload"]
 // CHECK-SAME:   destruction ["root.workload", "root.grid[1][1]", "root.grid[1][0]", "root.grid[0][1]", "root.grid[0][0]", "root.cells[1]", "root.cells[0]"]
 // CHECK:        acsim.module @Cell interface {ports = [], resources = [], results = []} static [] specialization "[[CELL_FP:sha256:[0-9a-f]+]]" exports [] {

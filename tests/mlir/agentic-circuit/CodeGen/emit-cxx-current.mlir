@@ -32,7 +32,7 @@
 // RUN: test -f %t.build-unowned/sentinel
 // RUN: test -f %t.unowned.work/sentinel
 
-module attributes {ac.contract_epoch = "0.4"} {
+module attributes {ac.contract_epoch = "0.5"} {
   ac.system @soc root @Top as "root" tick 0 "cycle"
       workload @Top::@workload seed {kind = "fixed", value = 7 : i64}
       instrumentation [] results {id = "default", format = "json"} selected true
@@ -49,7 +49,7 @@ module attributes {ac.contract_epoch = "0.4"} {
 // SRC: scheduleWork
 // SRC: setLegacyDispatchTable
 // MAN-DAG: "schema":"agentic-circuit-build-manifest"
-// MAN-DAG: "contract_epoch":"0.4"
+// MAN-DAG: "contract_epoch":"0.5"
 // MAN-DAG: "pass_pipeline":["acsim-emit-cxx"]
 // SYMLINK: ACSIM-EMIT: output directory must not be a symlink
 // UNOWNED: ACSIM-EMIT: refusing to replace an unowned output directory

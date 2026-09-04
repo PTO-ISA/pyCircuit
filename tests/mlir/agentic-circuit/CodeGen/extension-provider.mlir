@@ -13,10 +13,10 @@
 // FINGERPRINT: sha256:
 // DYLIB: model:
 
-builtin.module attributes {ac.contract_epoch = "0.4"} {
-  acsim.model @extension epoch "0.4" root @Top construction ["Top.counter"] destruction ["Top.counter"] fingerprints {
+builtin.module attributes {ac.contract_epoch = "0.5"} {
+  acsim.model @extension epoch "0.5" root @Top construction ["Top.counter"] destruction ["Top.counter"] fingerprints {
     frozen_acir = "sha256:80ca3d33c8fd95dd30b8b89a26650dd3f7cba3d7eebfd41269116e72d24a14f1",
-    binding_lock = "sha256:0cdc4ef4d3aee60fbf5be577ad89ac148766083d4890d306bd259bcfa14a4332",
+    binding_lock = "sha256:1a48dc6eb6c868abb714c34361d308f90c87ecdf17bb591b128e2344dfe8053a",
     provider = "sha256:bc1fecb4eca98d70675797bedd33b046c9d9776e8d7ba036c60b46dfe62b2a43",
     profile = "sha256:079c9d12005aad817f722d2f0a34ccc3185b5ec0ce06ee243f945e4e1bb7b4c7",
     toolchain = "sha256:9b1db4862fdcda9688af508a4bd6dc716abe7f919a1af4cc09b1e373953a428a",
@@ -30,9 +30,9 @@ builtin.module attributes {ac.contract_epoch = "0.4"} {
       activation_sources = [], availability = "available", binding = "counter_binding",
       binding_schema = "acsim-binding-0.1", component_schema = @counter_schema,
       component_schema_fingerprint = "sha256:14b0d2f17152c2ad41f8cd7eb861d1069230f8e179bf0158986ba9c6d0f33cb8",
-      construction = {arguments = [], kind = "constructor"}, contract_epoch = "0.4",
+      construction = {arguments = [], kind = "constructor"}, contract_epoch = "0.5",
       cpp = {concept = "gfsim::Component", entry_points = {pure = "", reset = "counter_reset", validate = "counter_validate", work = "counter_work", xfer = "counter_xfer"}, header = "extension_provider.h", symbol = "ac_test::Counter", target = "ac_test"},
-      cpp_type = @counter_value, effect = "stateful", fingerprint = "sha256:1100000000000000000000000000000000000000000000000000000000000000",
+      cpp_type = @counter_value, effect = "stateful", fingerprint = "sha256:48ef85177d8014a6487978cf38d36dbd1abe5a6e8d391531bc6c2edf72432954",
       implementation = @counter_impl, ownership = {kind = "unique", placement = "member_or_array"},
       parameters = [], ports = [], provider = @provider,
       provider_implementation_fingerprint = "sha256:74eaae1048456c1f1426ae8bf65124b2db32ad411b23e26da323a709c36be6ba",

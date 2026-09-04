@@ -26,61 +26,61 @@
 // SET-PAYLOAD: error: set element must be a queue, var, or static collection
 
 //--- queue-of-var.mlir
-builtin.module attributes {ac.contract_epoch = "0.4"} {
+builtin.module attributes {ac.contract_epoch = "0.5"} {
   "builtin.unrealized_conversion_cast"() : () -> !ac.queue<!ac.var<i32>>
 }
 
 //--- var-of-queue.mlir
-builtin.module attributes {ac.contract_epoch = "0.4"} {
+builtin.module attributes {ac.contract_epoch = "0.5"} {
   "builtin.unrealized_conversion_cast"() : () -> !ac.var<!ac.queue<i32>>
 }
 
 //--- queue-of-function.mlir
-builtin.module attributes {ac.contract_epoch = "0.4"} {
+builtin.module attributes {ac.contract_epoch = "0.5"} {
   "builtin.unrealized_conversion_cast"() : () -> !ac.queue<(i32) -> i32>
 }
 
 //--- var-of-function.mlir
-builtin.module attributes {ac.contract_epoch = "0.4"} {
+builtin.module attributes {ac.contract_epoch = "0.5"} {
   "builtin.unrealized_conversion_cast"() : () -> !ac.var<(i32) -> i32>
 }
 
 //--- queue-of-list.mlir
-builtin.module attributes {ac.contract_epoch = "0.4"} {
+builtin.module attributes {ac.contract_epoch = "0.5"} {
   "builtin.unrealized_conversion_cast"() : () -> !ac.queue<!ac.list<i32>>
 }
 
 //--- var-of-list.mlir
-builtin.module attributes {ac.contract_epoch = "0.4"} {
+builtin.module attributes {ac.contract_epoch = "0.5"} {
   "builtin.unrealized_conversion_cast"() : () -> !ac.var<!ac.list<i32>>
 }
 
 //--- array-zero.mlir
-builtin.module attributes {ac.contract_epoch = "0.4"} {
+builtin.module attributes {ac.contract_epoch = "0.5"} {
   "builtin.unrealized_conversion_cast"() : () -> !ac.array<0 x !ac.queue<i32>>
 }
 
 //--- array-payload.mlir
-builtin.module attributes {ac.contract_epoch = "0.4"} {
+builtin.module attributes {ac.contract_epoch = "0.5"} {
   "builtin.unrealized_conversion_cast"() : () -> !ac.array<2 x i32>
 }
 
 //--- map-duplicate.mlir
-builtin.module attributes {ac.contract_epoch = "0.4"} {
+builtin.module attributes {ac.contract_epoch = "0.5"} {
   "builtin.unrealized_conversion_cast"() : () -> !ac.map<["lane", "lane"], !ac.queue<i32>>
 }
 
 //--- map-order.mlir
-builtin.module attributes {ac.contract_epoch = "0.4"} {
+builtin.module attributes {ac.contract_epoch = "0.5"} {
   "builtin.unrealized_conversion_cast"() : () -> !ac.map<["right", "left"], !ac.queue<i32>>
 }
 
 //--- set-zero.mlir
-builtin.module attributes {ac.contract_epoch = "0.4"} {
+builtin.module attributes {ac.contract_epoch = "0.5"} {
   "builtin.unrealized_conversion_cast"() : () -> !ac.set<0 x !ac.var<i1>>
 }
 
 //--- set-payload.mlir
-builtin.module attributes {ac.contract_epoch = "0.4"} {
+builtin.module attributes {ac.contract_epoch = "0.5"} {
   "builtin.unrealized_conversion_cast"() : () -> !ac.set<2 x i32>
 }

@@ -1,19 +1,27 @@
 #include "acir/CodeGen/QueueGraphPlan.h"
 #include "acir/CodeGen/QueueGraphGenerator.h"
 #include "acir/CodeGen/QueueGraphPyc.h"
+#include "acir/Transforms/Passes.h"
 
 #include "acir/Dialect/ACIR/ACIRDialect.h"
 #include "mlir/Dialect/DLTI/DLTI.h"
 #include "mlir/IR/MLIRContext.h"
 #include "mlir/Parser/Parser.h"
+#include "mlir/Pass/PassManager.h"
 #include "llvm/Support/Error.h"
 #include "gtest/gtest.h"
 
 namespace acir::codegen {
 namespace {
 
+bool freezeQueueGraph(mlir::ModuleOp module) {
+  mlir::PassManager manager(module.getContext());
+  manager.addPass(acir::createFreezeTopologyPass());
+  return mlir::succeeded(manager.run(module));
+}
+
 constexpr llvm::StringLiteral kQueueGraph = R"mlir(
-module attributes {ac.contract_epoch = "0.4", ac.system = "pipeline"} {
+module attributes {ac.contract_epoch = "0.5", ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle", ac.system = "pipeline"} {
   %input = ac.source depth 4 latency 1 {ac.name = "input"} : !ac.queue<i64>
   %left, %right = ac.route %input depths [2, 2] latencies [1, 1] {
   ^selector(%item: !ac.var<i64>):
@@ -27,7 +35,7 @@ module attributes {ac.contract_epoch = "0.4", ac.system = "pipeline"} {
 )mlir";
 
 constexpr llvm::StringLiteral kStructuredTransform = R"mlir(
-module attributes {ac.contract_epoch = "0.4", ac.system = "structured"} {
+module attributes {ac.contract_epoch = "0.5", ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle", ac.system = "structured"} {
   ac.type_scope @types {
     ac.struct @Item fields [{name = "value", type = i64}]
   } {dlti.dl_spec = #dlti.dl_spec<!ac.struct<@types::@Item> = {abi_alignment = 8 : i64, endianness = "little", preferred_alignment = 8 : i64, size = 8 : i64}>}
@@ -45,7 +53,7 @@ module attributes {ac.contract_epoch = "0.4", ac.system = "structured"} {
 )mlir";
 
 constexpr llvm::StringLiteral kMultipleConsumers = R"mlir(
-module attributes {ac.contract_epoch = "0.4", ac.system = "bad"} {
+module attributes {ac.contract_epoch = "0.5", ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle", ac.system = "bad"} {
   %input = ac.source depth 2 latency 1 {ac.name = "input"} : !ac.queue<i64>
   ac.sink %input {ac.name = "left"} : !ac.queue<i64>
   ac.sink %input {ac.name = "right"} : !ac.queue<i64>
@@ -53,7 +61,7 @@ module attributes {ac.contract_epoch = "0.4", ac.system = "bad"} {
 )mlir";
 
 constexpr llvm::StringLiteral kObservationUse = R"mlir(
-module attributes {ac.contract_epoch = "0.4", ac.system = "observed"} {
+module attributes {ac.contract_epoch = "0.5", ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle", ac.system = "observed"} {
   %input = ac.source depth 2 latency 1 {ac.name = "input"} : !ac.queue<i64>
   ac.observe %input name "head" : !ac.queue<i64>
   ac.sink %input {ac.name = "sink_0"} : !ac.queue<i64>
@@ -101,6 +109,7 @@ TEST(QueueGraphPlanTest, ExtractsFrozenQueueIdentitiesAndTopology) {
   context.loadDialect<ac::ACIRDialect, mlir::DLTIDialect>();
   auto module = mlir::parseSourceString<mlir::ModuleOp>(kQueueGraph, &context);
   ASSERT_TRUE(module);
+  ASSERT_TRUE(freezeQueueGraph(*module));
   auto plan = buildQueueGraphPlan(*module);
   ASSERT_TRUE(bool(plan)) << llvm::toString(plan.takeError());
   EXPECT_EQ(plan->system, "pipeline");
@@ -117,11 +126,24 @@ TEST(QueueGraphPlanTest, ExtractsFrozenQueueIdentitiesAndTopology) {
   EXPECT_EQ(plan->blocks[2].policy, "round_robin");
 }
 
+TEST(QueueGraphPlanTest, RejectsRawUnfrozenQueueGraph) {
+  mlir::MLIRContext context;
+  context.loadDialect<ac::ACIRDialect, mlir::DLTIDialect>();
+  auto module = mlir::parseSourceString<mlir::ModuleOp>(kQueueGraph, &context);
+  ASSERT_TRUE(module);
+  auto plan = buildQueueGraphPlan(*module);
+  ASSERT_FALSE(bool(plan));
+  EXPECT_NE(llvm::toString(plan.takeError())
+                .find("QueueGraph requires verified epoch 0.5 topology freeze"),
+            std::string::npos);
+}
+
 TEST(QueueGraphPlanTest, CanonicalJsonIsByteIdenticalAndClosed) {
   mlir::MLIRContext context;
   context.loadDialect<ac::ACIRDialect, mlir::DLTIDialect>();
   auto module = mlir::parseSourceString<mlir::ModuleOp>(kQueueGraph, &context);
   ASSERT_TRUE(module);
+  ASSERT_TRUE(freezeQueueGraph(*module));
   auto plan = buildQueueGraphPlan(*module);
   ASSERT_TRUE(bool(plan)) << llvm::toString(plan.takeError());
   auto first = plan->canonicalJson();
@@ -129,10 +151,10 @@ TEST(QueueGraphPlanTest, CanonicalJsonIsByteIdenticalAndClosed) {
   auto second = plan->canonicalJson();
   ASSERT_TRUE(bool(second)) << llvm::toString(second.takeError());
   EXPECT_EQ(*first, *second);
-  EXPECT_NE(first->find("\"contract_epoch\":\"0.4\""), std::string::npos);
+  EXPECT_NE(first->find("\"contract_epoch\":\"0.5\""), std::string::npos);
   EXPECT_NE(first->find("\"schema\":\"agentic-circuit-queue-graph-plan\""),
             std::string::npos);
-  EXPECT_NE(first->find("\"version\":\"0.4\""), std::string::npos);
+  EXPECT_NE(first->find("\"version\":\"0.5\""), std::string::npos);
   EXPECT_NE(first->find("\"name\":\"merged\""), std::string::npos);
 }
 
@@ -148,6 +170,7 @@ TEST(QueueGraphPlanTest, PreservesJitSpecializationIdentity) {
                      ("ac.specialization = \"" + fingerprint + "\", ").str());
   auto module = mlir::parseSourceString<mlir::ModuleOp>(specialized, &context);
   ASSERT_TRUE(module);
+  ASSERT_TRUE(freezeQueueGraph(*module));
   auto plan = buildQueueGraphPlan(*module);
   ASSERT_TRUE(bool(plan)) << llvm::toString(plan.takeError());
   EXPECT_EQ(plan->specializationFingerprint, fingerprint);
@@ -163,6 +186,7 @@ TEST(QueueGraphPlanTest, PreservesJitSpecializationIdentity) {
                       "sha256:bad");
   module = mlir::parseSourceString<mlir::ModuleOp>(specialized, &context);
   ASSERT_TRUE(module);
+  ASSERT_TRUE(freezeQueueGraph(*module));
   plan = buildQueueGraphPlan(*module);
   ASSERT_FALSE(bool(plan));
   EXPECT_NE(llvm::toString(plan.takeError()).find("fingerprint is invalid"),
@@ -180,6 +204,7 @@ TEST(QueueGraphPlanTest, PreservesQueueRateAndRejectsUnspecializedPycLanes) {
                 "ac.output_rates = array<i64: 2>}");
   auto module = mlir::parseSourceString<mlir::ModuleOp>(rated, &context);
   ASSERT_TRUE(module);
+  ASSERT_TRUE(freezeQueueGraph(*module));
   auto plan = buildQueueGraphPlan(*module);
   ASSERT_TRUE(bool(plan)) << llvm::toString(plan.takeError());
   ASSERT_FALSE(plan->queues.empty());
@@ -201,16 +226,16 @@ TEST(QueueGraphPlanTest, RejectsLegacyContractEpochBeforePlanning) {
   mlir::MLIRContext context;
   context.loadDialect<ac::ACIRDialect, mlir::DLTIDialect>();
   std::string legacy = kQueueGraph.str();
-  size_t epoch = legacy.find("ac.contract_epoch = \"0.4\"");
+  size_t epoch = legacy.find("ac.contract_epoch = \"0.5\"");
   ASSERT_NE(epoch, std::string::npos);
-  legacy.replace(epoch, std::string("ac.contract_epoch = \"0.4\"").size(),
-                 "ac.contract_epoch = \"0.3\"");
+  legacy.replace(epoch, std::string("ac.contract_epoch = \"0.5\"").size(),
+                 "ac.contract_epoch = \"0.4\"");
   auto module = mlir::parseSourceString<mlir::ModuleOp>(legacy, &context);
   ASSERT_TRUE(module);
   auto plan = buildQueueGraphPlan(*module);
   ASSERT_FALSE(bool(plan));
   EXPECT_NE(llvm::toString(plan.takeError())
-                .find("module requires ac.contract_epoch exactly '0.4'"),
+                .find("module requires ac.contract_epoch exactly '0.5'"),
             std::string::npos);
 }
 
@@ -220,6 +245,7 @@ TEST(QueueGraphPlanTest, ExtractsPayloadAndImmutableVarDag) {
   auto module =
       mlir::parseSourceString<mlir::ModuleOp>(kStructuredTransform, &context);
   ASSERT_TRUE(module);
+  ASSERT_TRUE(freezeQueueGraph(*module));
   auto plan = buildQueueGraphPlan(*module);
   ASSERT_TRUE(bool(plan)) << llvm::toString(plan.takeError());
   ASSERT_EQ(plan->payloads.size(), 1u);
@@ -242,6 +268,7 @@ TEST(QueueGraphPlanTest, NativeGeneratorConsumesOnlyExtractedPlan) {
   context.loadDialect<ac::ACIRDialect, mlir::DLTIDialect>();
   auto module = mlir::parseSourceString<mlir::ModuleOp>(kQueueGraph, &context);
   ASSERT_TRUE(module);
+  ASSERT_TRUE(freezeQueueGraph(*module));
   auto plan = buildQueueGraphPlan(*module);
   ASSERT_TRUE(bool(plan)) << llvm::toString(plan.takeError());
   auto source = generateQueueGraphCpp(*plan);
@@ -530,6 +557,7 @@ TEST(QueueGraphPlanTest, EmitsQueuePredicateAsPycComparison) {
                    "ac.var.cmp \"" + testCase.predicate.str() + "\"");
     auto module = mlir::parseSourceString<mlir::ModuleOp>(source, &context);
     ASSERT_TRUE(module);
+    ASSERT_TRUE(freezeQueueGraph(*module));
     auto plan = buildQueueGraphPlan(*module);
     ASSERT_TRUE(bool(plan)) << llvm::toString(plan.takeError());
     auto pyc = generateQueueGraphPyc(*plan);
@@ -576,6 +604,7 @@ TEST(QueueGraphPlanTest, RejectsImplicitMultipleConsumers) {
   auto module =
       mlir::parseSourceString<mlir::ModuleOp>(kMultipleConsumers, &context);
   ASSERT_TRUE(module);
+  ASSERT_TRUE(freezeQueueGraph(*module));
   auto plan = buildQueueGraphPlan(*module);
   ASSERT_FALSE(bool(plan));
   EXPECT_NE(llvm::toString(plan.takeError()).find("insert ac.broadcast"),
@@ -662,6 +691,7 @@ TEST(QueueGraphPlanTest, ObservationDoesNotConsumeQueue) {
   auto module =
       mlir::parseSourceString<mlir::ModuleOp>(kObservationUse, &context);
   ASSERT_TRUE(module);
+  ASSERT_TRUE(freezeQueueGraph(*module));
   auto plan = buildQueueGraphPlan(*module);
   ASSERT_TRUE(bool(plan)) << llvm::toString(plan.takeError());
   ASSERT_EQ(plan->blocks.size(), 3u);

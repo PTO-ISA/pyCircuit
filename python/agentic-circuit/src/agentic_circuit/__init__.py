@@ -16,6 +16,7 @@ from ._definitions import (
     packet,
     process,
     protocol,
+    rule,
     struct,
     system,
     transaction,
@@ -53,6 +54,7 @@ __all__ = (
     "protocol",
     "interface",
     "process",
+    "rule",
     "scope",
     "array",
     "map",
@@ -72,7 +74,6 @@ __all__ = (
     "sink",
     "observe",
     "expect",
-    "atomic",
     "compute",
     "pipeline",
     "config",
@@ -159,10 +160,6 @@ def observe(value: object) -> Never:
 
 def expect(value: object, *, predicate: object, message: str) -> Never:
     return _not_implemented("expect")
-
-
-def atomic() -> Never:
-    return _not_implemented("atomic")
 
 
 def compute(

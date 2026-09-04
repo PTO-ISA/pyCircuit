@@ -90,7 +90,7 @@ def _result(publication: RunPublication) -> dict[str, object]:
     return {
         "schema": "agentic-circuit-run-command-result",
         "version": "0.1",
-        "contract_epoch": "0.4",
+        "contract_epoch": "0.5",
         "status": publication.status,
         "termination_reason": publication.termination_reason,
         "directory": publication.directory.as_posix(),

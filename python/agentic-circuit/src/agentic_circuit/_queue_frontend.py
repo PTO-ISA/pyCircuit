@@ -8,7 +8,18 @@ import json
 from collections.abc import Mapping
 from dataclasses import dataclass
 
+from ._acpy import AcpyDocument, EntityAllocator, Property, SourceFile
+from ._canonical_json import sha256_bytes
+from ._diagnostics import SourceSpan
 from ._static_eval import StaticEnvironment, StaticValue, evaluate_static
+
+RULE_LOWERING_PIPELINE = (
+    "builtin.module("
+    "ac-lower-rules,"
+    "canonicalize,cse,"
+    "ac-verify-rule-closure,"
+    "ac-freeze-topology)"
+)
 
 
 class QueueFrontendError(ValueError):
@@ -46,10 +57,11 @@ class QueueBinding:
     table_read_output: bool = False
     barrier_output: bool = False
     select_output: bool = False
-    firing_effect: bool = False
-    atomic_group: int | None = None
     provider: str = "transform"
     rate: int = 1
+    rule_name: str | None = None
+    rule_source_line: int | None = None
+    rule_source_column: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -384,13 +396,6 @@ class SelectedMemoryBinding:
 
 
 @dataclass(frozen=True, slots=True)
-class AtomicBinding:
-    queues: tuple[str, ...]
-    scope: tuple[str, ...]
-    order: int
-
-
-@dataclass(frozen=True, slots=True)
 class StaticQueueCollection:
     kind: str
     members: tuple[tuple[str | int | bool, str | StaticQueueCollection], ...]
@@ -403,6 +408,15 @@ class RecursiveQueueHelper:
     argument: str
     expression: ast.expr
     apply_call: ast.Call
+
+
+@dataclass(frozen=True, slots=True)
+class RuleDefinition:
+    name: str
+    argument: str
+    expression: ast.expr
+    source_line: int
+    source_column: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -439,7 +453,6 @@ class QueueProgram:
     slot_releases: tuple[SlotReleaseBinding, ...]
     candidates: tuple[CandidateSetBinding, ...]
     selections: tuple[SelectionBinding, ...]
-    atomics: tuple[AtomicBinding, ...]
     collections: tuple[CollectionBinding, ...]
     observations: tuple[ObservationBinding, ...]
     expectations: tuple[ExpectBinding, ...]
@@ -603,47 +616,6 @@ def _constantize_expression(
     return ast.fix_missing_locations(result)
 
 
-def _validate_firing_expression(node: ast.expr, argument: str) -> None:
-    if (
-        not isinstance(node, ast.Call)
-        or not isinstance(node.func, ast.Attribute)
-        or node.func.attr != "push"
-        or not isinstance(node.func.value, ast.Name)
-        or node.func.value.id != argument
-        or len(node.args) != 1
-        or node.keywords
-    ):
-        raise QueueFrontendError("ACPY-QUEUE-019: firing must return queue.push(value)")
-    pops = 0
-    pushes = 0
-    for child in ast.walk(node):
-        if not isinstance(child, ast.Call) or not isinstance(child.func, ast.Attribute):
-            continue
-        if (
-            not isinstance(child.func.value, ast.Name)
-            or child.func.value.id != argument
-        ):
-            continue
-        if child.func.attr in {"peek", "pop"}:
-            if child.args or child.keywords:
-                raise QueueFrontendError(
-                    "ACPY-QUEUE-019: firing peek/pop take no arguments"
-                )
-            pops += child.func.attr == "pop"
-        elif child.func.attr == "push":
-            if len(child.args) != 1 or child.keywords:
-                raise QueueFrontendError(
-                    "ACPY-QUEUE-019: firing push requires one value"
-                )
-            pushes += 1
-        else:
-            raise QueueFrontendError("ACPY-QUEUE-019: unsupported queue effect method")
-    if pops != 1 or pushes != 1:
-        raise QueueFrontendError(
-            "ACPY-QUEUE-019: firing requires exactly one pop and one push"
-        )
-
-
 def parse_queue_program(
     text: str,
     system: str,
@@ -663,6 +635,56 @@ def parse_queue_program(
             )
     payloads = _payloads(tree)
     payload_map = {item.name: item for item in payloads}
+    rule_definitions: dict[str, RuleDefinition] = {}
+    for node in tree.body:
+        if not isinstance(node, ast.FunctionDef) or not any(
+            _decorator_name(decorator).rsplit(".", 1)[-1] == "rule"
+            for decorator in node.decorator_list
+        ):
+            continue
+        if node.name in rule_definitions:
+            raise QueueFrontendError(
+                f"ACPY-RULE-001: rule {node.name!r} is defined more than once"
+            )
+        if any(isinstance(decorator, ast.Call) for decorator in node.decorator_list):
+            raise QueueFrontendError(
+                "ACPY-RULE-001: rule decorators do not accept options"
+            )
+        if (
+            len(node.args.args) != 1
+            or node.args.posonlyargs
+            or node.args.kwonlyargs
+            or node.args.vararg is not None
+            or node.args.kwarg is not None
+            or node.args.defaults
+            or node.args.kw_defaults
+        ):
+            raise QueueFrontendError(
+                "ACPY-RULE-001: phase-one rules require exactly one payload parameter"
+            )
+        body = list(node.body)
+        if (
+            body
+            and isinstance(body[0], ast.Expr)
+            and isinstance(body[0].value, ast.Constant)
+            and isinstance(body[0].value.value, str)
+        ):
+            body.pop(0)
+        if (
+            len(body) != 1
+            or not isinstance(body[0], ast.Return)
+            or body[0].value is None
+        ):
+            raise QueueFrontendError(
+                "ACPY-RULE-002: phase-one rules require one value-returning path"
+            )
+        rule_definitions[node.name] = RuleDefinition(
+            node.name,
+            node.args.args[0].arg,
+            copy.deepcopy(body[0].value),
+            node.lineno,
+            node.col_offset + 1,
+        )
     candidates = [
         node
         for node in tree.body
@@ -891,7 +913,6 @@ def parse_queue_program(
     memory_arrays: dict[str, StaticMemoryArrayBinding] = {}
     selected_memories: dict[str, SelectedMemoryBinding] = {}
     consumed_selected_memories: set[str] = set()
-    atomics: list[AtomicBinding] = []
     sinks: list[SinkBinding] = []
     observations: list[ObservationBinding] = []
     expectations: list[ExpectBinding] = []
@@ -1008,8 +1029,9 @@ def parse_queue_program(
         if isinstance(selector, ast.Lambda):
             argument, address = _lambda(selector)
         else:
-            argument, address = None, _constantize_expression(
-                selector, "", system_static_values
+            argument, address = (
+                None,
+                _constantize_expression(selector, "", system_static_values),
             )
         return EntryViewBinding(
             alias, table_name, argument, address, scope_path, current_order
@@ -1239,7 +1261,7 @@ def parse_queue_program(
             ]
             if len(values) != 1:
                 raise QueueFrontendError(
-                    "ACPY-QUEUE-015: memory request requires one " f"{policy} lambda"
+                    f"ACPY-QUEUE-015: memory request requires one {policy} lambda"
                 )
             policies[policy] = values[0]
         arguments_and_values = [_lambda(policies[item]) for item in policies]
@@ -1398,7 +1420,6 @@ def parse_queue_program(
         statements: list[ast.stmt],
         scope_path: tuple[str, ...],
         aliases: dict[str, str | StaticQueueCollection] | None = None,
-        atomic_group: int | None = None,
     ) -> None:
         nonlocal order
         aliases = {} if aliases is None else aliases
@@ -2035,12 +2056,8 @@ def parse_queue_program(
                     selected = (
                         statement.body if statement.test.value else statement.orelse
                     )
-                    visit(selected, scope_path, aliases, atomic_group)
+                    visit(selected, scope_path, aliases)
                     continue
-                if atomic_group is not None:
-                    raise QueueFrontendError(
-                        "ACPY-QUEUE-011: runtime if cannot be nested in atomic"
-                    )
 
                 def parse_arm(
                     body: list[ast.stmt],
@@ -2214,13 +2231,9 @@ def parse_queue_program(
                     if any(existing.path == path for existing in scopes):
                         raise QueueFrontendError("ACPY-QUEUE-004: duplicate scope path")
                     scopes.append(ScopeBinding(call.args[0].value, path, current_order))
-                    visit(statement.body, path, aliases, atomic_group)
+                    visit(statement.body, path, aliases)
                     continue
-            if (
-                isinstance(statement, ast.With)
-                and len(statement.items) == 1
-                and atomic_group is None
-            ):
+            if isinstance(statement, ast.With) and len(statement.items) == 1:
                 item = statement.items[0]
                 call = item.context_expr
                 if (
@@ -2230,61 +2243,10 @@ def parse_queue_program(
                     and not call.args
                     and not call.keywords
                 ):
-                    group = len(atomics)
-                    queue_start = len(queues)
-                    scope_start = len(scopes)
-                    route_start = len(routes)
-                    fork_start = len(forks)
-                    merge_start = len(merges)
-                    reorder_start = len(reorders)
-                    dependency_start = len(dependencies)
-                    credit_start = len(credits)
-                    barrier_start = len(barriers)
-                    select_start = len(selects)
-                    memory_instance_start = len(memory_instances)
-                    memory_request_start = len(memory_requests)
-                    feedback_start = len(feedbacks)
-                    sink_start = len(sinks)
-                    observation_start = len(observations)
-                    expectation_start = len(expectations)
-                    visit(statement.body, scope_path, aliases, group)
-                    created = queues[queue_start:]
-                    if (
-                        len(created) < 2
-                        or any(queue.atomic_group != group for queue in created)
-                        or len(scopes) != scope_start
-                        or len(routes) != route_start
-                        or len(forks) != fork_start
-                        or len(merges) != merge_start
-                        or len(reorders) != reorder_start
-                        or len(dependencies) != dependency_start
-                        or len(credits) != credit_start
-                        or len(barriers) != barrier_start
-                        or len(selects) != select_start
-                        or len(memory_instances) != memory_instance_start
-                        or len(memory_requests) != memory_request_start
-                        or len(feedbacks) != feedback_start
-                        or len(sinks) != sink_start
-                        or len(observations) != observation_start
-                        or len(expectations) != expectation_start
-                    ):
-                        raise QueueFrontendError(
-                            "ACPY-QUEUE-009: atomic requires at least two direct "
-                            "Queue apply statements"
-                        )
-                    inputs = [queue.input_name for queue in created]
-                    if None in inputs or len(set(inputs)) != len(inputs):
-                        raise QueueFrontendError(
-                            "ACPY-QUEUE-009: atomic inputs must be unique Queues"
-                        )
-                    atomics.append(
-                        AtomicBinding(
-                            tuple(queue.name for queue in created),
-                            scope_path,
-                            current_order,
-                        )
+                    raise QueueFrontendError(
+                        "ACPY-RULE-005: ac.atomic() was removed in contract epoch "
+                        "0.5; express the transaction as @ac.rule"
                     )
-                    continue
             if (
                 isinstance(statement, ast.Assign)
                 and len(statement.targets) == 1
@@ -2503,7 +2465,7 @@ def parse_queue_program(
                         StaticIndex().visit(copy.deepcopy(body))
                         for body in statement.body
                     ]
-                    visit(expanded, scope_path, aliases, atomic_group)
+                    visit(expanded, scope_path, aliases)
                 continue
             if (
                 isinstance(statement, ast.For)
@@ -2520,7 +2482,6 @@ def parse_queue_program(
                         statement.body,
                         scope_path,
                         {**aliases, statement.target.id: member},
-                        atomic_group,
                     )
                 continue
             if isinstance(statement, ast.While) and not statement.orelse:
@@ -3290,7 +3251,6 @@ def parse_queue_program(
                             copy.deepcopy(helper.expression),
                             scope_path,
                             current_order,
-                            atomic_group=atomic_group,
                         )
                         queues.append(binding)
                         by_name[output_name] = binding
@@ -3330,7 +3290,6 @@ def parse_queue_program(
                         expression,
                         scope_path,
                         current_order,
-                        atomic_group=atomic_group,
                         provider="compute",
                         rate=rate,
                     )
@@ -3362,7 +3321,6 @@ def parse_queue_program(
                         ast.Name(id="item", ctx=ast.Load()),
                         scope_path,
                         current_order,
-                        atomic_group=atomic_group,
                         provider="pipeline",
                         rate=rate,
                     )
@@ -3558,6 +3516,28 @@ def parse_queue_program(
                             current_order,
                         )
                     )
+                elif call_name(call) in rule_definitions:
+                    if len(call.args) != 1 or call.keywords:
+                        raise QueueFrontendError(
+                            "ACPY-RULE-003: rule invocation requires exactly one Queue"
+                        )
+                    input_name = queue_reference(call.args[0], aliases)
+                    incoming = by_name[input_name]
+                    definition = rule_definitions[call_name(call)]
+                    binding = QueueBinding(
+                        name,
+                        incoming.payload,
+                        1,
+                        1,
+                        incoming.name,
+                        definition.argument,
+                        copy.deepcopy(definition.expression),
+                        scope_path,
+                        current_order,
+                        rule_name=definition.name,
+                        rule_source_line=definition.source_line,
+                        rule_source_column=definition.source_column,
+                    )
                 elif call_name(call) == "table":
                     raise QueueFrontendError(
                         "ACPY-TABLE-000: legacy ac.table(value, ...) was removed; "
@@ -3565,8 +3545,15 @@ def parse_queue_program(
                         "ac.table[entries, Entry](init=0) for state Table"
                     )
                 elif (
+                    isinstance(call.func, ast.Attribute) and call.func.attr == "firing"
+                ):
+                    raise QueueFrontendError(
+                        "ACPY-RULE-005: Queue.firing() was removed in contract "
+                        "epoch 0.5; express the transaction as @ac.rule"
+                    )
+                elif (
                     isinstance(call.func, ast.Attribute)
-                    and call.func.attr in {"apply", "firing"}
+                    and call.func.attr == "apply"
                     and isinstance(call.func.value, ast.Name)
                     and len(call.args) == 1
                 ):
@@ -3577,9 +3564,6 @@ def parse_queue_program(
                             f"ACPY-QUEUE-001: input queue {input_name!r} is unbound"
                         )
                     argument, expression = _lambda(call.args[0])
-                    firing_effect = call.func.attr == "firing"
-                    if firing_effect:
-                        _validate_firing_expression(expression, argument)
                     binding = QueueBinding(
                         name,
                         incoming.payload,
@@ -3590,8 +3574,6 @@ def parse_queue_program(
                         expression,
                         scope_path,
                         current_order,
-                        firing_effect=firing_effect,
-                        atomic_group=atomic_group,
                     )
                 else:
                     raise QueueFrontendError(
@@ -3970,7 +3952,6 @@ def parse_queue_program(
         tuple(slot_releases),
         tuple(candidates),
         tuple(selections),
-        tuple(atomics),
         tuple(collection_bindings),
         tuple(observations),
         tuple(expectations),
@@ -3988,7 +3969,6 @@ class _ExpressionEmitter:
         *,
         root_name: str = "item",
         prefix: str = "",
-        allow_queue_effects: bool = False,
         table_views: Mapping[str, tuple[str, ast.expr, str]] | None = None,
         slot_views: Mapping[str, tuple[str, str]] | None = None,
         candidates: Mapping[str, CandidateSetBinding] | None = None,
@@ -4002,7 +3982,6 @@ class _ExpressionEmitter:
         self.payload = payload
         self.root_name = root_name
         self.prefix = prefix
-        self.allow_queue_effects = allow_queue_effects
         self.table_views = dict(table_views or {})
         self.slot_views = dict(slot_views or {})
         self.candidates = dict(candidates or {})
@@ -4164,35 +4143,15 @@ class _ExpressionEmitter:
                 )
                 self.lines.append(f"    }} -> !ac.var<i{index_width}>, !ac.var<i1>")
             return (index, f"i{index_width}") if node.attr == "index" else (valid, "i1")
-        if (
-            isinstance(node, ast.Call)
-            and isinstance(node.func, ast.Attribute)
-            and isinstance(node.func.value, ast.Name)
-            and node.func.value.id == self.argument
-            and node.func.attr in {"peek", "pop", "push"}
-        ):
-            if not self.allow_queue_effects:
-                raise QueueFrontendError(
-                    "ACPY-QUEUE-019: queue effects require firing()"
-                )
-            if node.func.attr in {"peek", "pop"}:
-                if node.args or node.keywords:
-                    raise QueueFrontendError(
-                        "ACPY-QUEUE-019: firing peek/pop take no arguments"
-                    )
-                return self.root_name, self.payload
-            if len(node.args) != 1 or node.keywords:
-                raise QueueFrontendError(
-                    "ACPY-QUEUE-019: firing push requires one value"
-                )
-            return self.emit(node.args[0], self.payload)
         if isinstance(node, ast.Constant) and type(node.value) in {int, bool}:
             typ = expected or ("i1" if type(node.value) is bool else "i64")
             name = self._new()
             value = (
                 "true"
                 if node.value is True
-                else "false" if node.value is False else str(node.value)
+                else "false"
+                if node.value is False
+                else str(node.value)
             )
             attribute = value if type(node.value) is bool else f"{value} : {typ}"
             self.lines.append(
@@ -4358,7 +4317,9 @@ def lower_queue_program(program: QueueProgram) -> str:
         else f', ac.specialization = "{program.specialization_fingerprint}"'
     )
     lines = [
-        f'module attributes {{ac.contract_epoch = "0.4", '
+        f'module attributes {{ac.contract_epoch = "0.5", '
+        f'ac.model_kind = "queue_graph", '
+        f'ac.queue_graph_domain = "cycle", '
         f'ac.system = "{program.system}"{specialization}}} {{'
     ]
     payloads = {item.name: item for item in program.payloads}
@@ -4559,19 +4520,57 @@ def lower_queue_program(program: QueueProgram) -> str:
             mapping[queue.name] = output_ssa
             return
         assert queue.argument is not None and queue.expression is not None
+        input_name = effective_input.get(queue.name, queue.input_name)
+        input_ssa = mapping[input_name]
+        if queue.rule_name is not None:
+            emitter = _ExpressionEmitter(
+                payloads,
+                queue.argument,
+                queue.payload,
+                root_name="item",
+            )
+            result, result_type = emitter.emit(queue.expression)
+            if result_type != queue.payload:
+                raise QueueFrontendError(
+                    "ACPY-RULE-004: rule result must preserve Queue payload type"
+                )
+            lines.append(
+                f"{indent}%{output_ssa} = ac.rule %{input_ssa} "
+                f"depths [{queue.depth}] latencies [{queue.latency}] "
+                f"name {json.dumps(queue.rule_name)} "
+                f"stable_id {json.dumps('/'.join((*queue.scope, queue.name)))} "
+                f'domain "cycle" type exact input_fact committed_input {{'
+            )
+            lines.append(f"{indent}^rule(%item: !ac.var<{queue.payload}>):")
+            lines.extend(indent + line[2:] for line in emitter.lines)
+            lines.append(
+                f"{indent}  %rule_ready = ac.marker.obligation %{result} "
+                f"state pending resolver handshake origin "
+                f'{json.dumps(queue.rule_name + ":return")} path "true" : '
+                f"!ac.var<{queue.payload}>"
+            )
+            lines.append(
+                f"{indent}  ac.rule.return %rule_ready : !ac.var<{queue.payload}>"
+            )
+            lines.append(
+                f"{indent}}} {queue_attributes(queue.name, (queue.rate,))} : "
+                f"(!ac.queue<{queue.payload}>) -> "
+                f"!ac.queue<{queue.payload}> "
+                f'loc("<queue-model>":{queue.rule_source_line}:'
+                f"{queue.rule_source_column})"
+            )
+            mapping[queue.name] = output_ssa
+            return
         emitter = _ExpressionEmitter(
             payloads,
             queue.argument,
             queue.payload,
-            allow_queue_effects=queue.firing_effect,
         )
         result, result_type = emitter.emit(queue.expression)
         if result_type != queue.payload:
             raise QueueFrontendError(
                 "ACPY-QUEUE-003: lambda result must preserve Queue payload type"
             )
-        input_name = effective_input.get(queue.name, queue.input_name)
-        input_ssa = mapping[input_name]
         lines.append(
             f"{indent}%{output_ssa} = ac.transform %{input_ssa} "
             f"depths [{queue.depth}] latencies [{queue.latency}] {{"
@@ -4614,12 +4613,6 @@ def lower_queue_program(program: QueueProgram) -> str:
             and not queue.table_read_output
             and not queue.barrier_output
             and not queue.select_output
-            and queue.atomic_group is None
-        )
-        events.extend(
-            (atomic.order, "atomic", atomic)
-            for atomic in program.atomics
-            if atomic.scope == path
         )
         events.extend(
             (fork.order, "fork", fork) for fork in program.forks if fork.scope == path
@@ -4704,7 +4697,7 @@ def lower_queue_program(program: QueueProgram) -> str:
         )
         events.extend(
             (
-                min(visible_order(consumer) for consumer in group) - 0.5,
+                min(visible_order(consumer) for consumer in group) - 0.4,
                 "broadcast",
                 source,
             )
@@ -5464,8 +5457,7 @@ def lower_queue_program(program: QueueProgram) -> str:
                     or value_type != table.entry_type
                 ):
                     raise QueueFrontendError(
-                        "ACPY-TABLE-008: masked write mask/enable/value type "
-                        "mismatch"
+                        "ACPY-TABLE-008: masked write mask/enable/value type mismatch"
                     )
                 lines.extend(indent + line[2:] for line in mask_emitter.lines)
                 lines.append(
@@ -5481,7 +5473,7 @@ def lower_queue_program(program: QueueProgram) -> str:
                 lines.append(f"{indent}^value(%old: !ac.var<{table.entry_type}>):")
                 lines.extend(indent + line[2:] for line in value_emitter.lines)
                 lines.append(
-                    f"{indent}  ac.table.yield %{value} : " f"!ac.var<{value_type}>"
+                    f"{indent}  ac.table.yield %{value} : !ac.var<{value_type}>"
                 )
                 prior_writes = sum(
                     candidate.table == write.table and candidate.order < write.order
@@ -5539,73 +5531,6 @@ def lower_queue_program(program: QueueProgram) -> str:
                     f'{"/" + "/".join((*release.scope, endpoint_name))}", '
                     f'ac.name = "{endpoint_name}"}}'
                 )
-            elif kind == "atomic":
-                atomic = item
-                assert isinstance(atomic, AtomicBinding)
-                members = [by_name[name] for name in atomic.queues]
-                inputs = [
-                    effective_input.get(queue.name, queue.input_name)
-                    for queue in members
-                ]
-                if any(input_name is None for input_name in inputs):
-                    raise QueueFrontendError(
-                        "ACPY-QUEUE-009: atomic input resolution failed"
-                    )
-                input_names = [str(input_name) for input_name in inputs]
-                outputs = [
-                    queue.name if not path else f"{queue.name}__local"
-                    for queue in members
-                ]
-                lhs = ", ".join(f"%{name}" for name in outputs)
-                operands = ", ".join(
-                    f"%{mapping[input_name]}" for input_name in input_names
-                )
-                depths = ", ".join(str(queue.depth) for queue in members)
-                latencies = ", ".join(str(queue.latency) for queue in members)
-                input_types = ", ".join(
-                    f"!ac.queue<{payload_by_queue[input_name]}>"
-                    for input_name in input_names
-                )
-                output_types = ", ".join(
-                    f"!ac.queue<{queue.payload}>" for queue in members
-                )
-                lines.append(
-                    f"{indent}{lhs} = ac.transform {operands} depths [{depths}] "
-                    f"latencies [{latencies}] {{"
-                )
-                arguments = ", ".join(
-                    f"%item{index}: !ac.var<{payload_by_queue[input_name]}>"
-                    for index, input_name in enumerate(input_names)
-                )
-                lines.append(f"{indent}^transform({arguments}):")
-                yielded: list[str] = []
-                for index, queue in enumerate(members):
-                    assert queue.argument is not None and queue.expression is not None
-                    emitter = _ExpressionEmitter(
-                        payloads,
-                        queue.argument,
-                        payload_by_queue[input_names[index]],
-                        root_name=f"item{index}",
-                        prefix=f"a{index}_",
-                    )
-                    result, result_type = emitter.emit(queue.expression)
-                    if result_type != queue.payload:
-                        raise QueueFrontendError(
-                            "ACPY-QUEUE-009: atomic lambda result type mismatch"
-                        )
-                    lines.extend(indent + line[2:] for line in emitter.lines)
-                    yielded.append(f"%{result}")
-                lines.append(
-                    f"{indent}  ac.transform.yield {', '.join(yielded)} : "
-                    + ", ".join(f"!ac.var<{queue.payload}>" for queue in members)
-                )
-                names_attr = name_array(tuple(queue.name for queue in members))
-                lines.append(
-                    f"{indent}}} {{ac.output_names = {names_attr}}} : "
-                    f"({input_types}) -> ({output_types})"
-                )
-                for queue, output in zip(members, outputs, strict=True):
-                    mapping[queue.name] = output
             elif kind == "merge":
                 merge = item
                 assert isinstance(merge, MergeBinding)
@@ -5726,3 +5651,64 @@ def lower_queue_source(
             specialization_fingerprint=specialization_fingerprint,
         )
     )
+
+
+def build_queue_acpy(text: str, system: str, source_path: str) -> AcpyDocument:
+    """Build the minimal verified ACPy provenance for a Queue/rule source."""
+
+    tree = ast.parse(text, filename=source_path, type_comments=True)
+    systems = [
+        node
+        for node in tree.body
+        if isinstance(node, ast.FunctionDef)
+        and node.name == system
+        and any(
+            _decorator_name(decorator).rsplit(".", 1)[-1] == "system"
+            for decorator in node.decorator_list
+        )
+    ]
+    if len(systems) != 1:
+        raise QueueFrontendError(
+            f"ACPY-QUEUE-001: system {system!r} is missing or ambiguous"
+        )
+
+    def span(node: ast.AST) -> SourceSpan:
+        return SourceSpan(
+            source_path,
+            node.lineno,
+            node.col_offset + 1,
+            getattr(node, "end_lineno", node.lineno),
+            getattr(node, "end_col_offset", node.col_offset) + 1,
+        )
+
+    allocator = EntityAllocator()
+    system_entity = allocator.allocate(
+        kind="system",
+        scope=system,
+        source=span(systems[0]),
+        properties=(Property("frontend", "queue_rule"),),
+    )
+    for node in tree.body:
+        if not isinstance(node, ast.FunctionDef) or not any(
+            _decorator_name(decorator).rsplit(".", 1)[-1] == "rule"
+            for decorator in node.decorator_list
+        ):
+            continue
+        allocator.allocate(
+            kind="rule",
+            scope=f"{system}.{node.name}",
+            source=span(node),
+            parent=system_entity.id,
+            properties=(Property("name", node.name),),
+        )
+    document = AcpyDocument(
+        entry=system_entity.id,
+        sources=(SourceFile(source_path, sha256_bytes(text.encode("utf-8"))),),
+        entities=allocator.freeze(),
+    )
+    errors = document.verify()
+    if errors:
+        raise QueueFrontendError(
+            "ACPY-VERIFY-001: " + "; ".join(error.message for error in errors)
+        )
+    return document

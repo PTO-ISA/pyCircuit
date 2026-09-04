@@ -1,6 +1,6 @@
 # Stateful Issue Table
 
-`issue.py` is the single public Python example in this directory. It combines:
+`issue.py` is the stateful Table example in this directory. It combines:
 
 - two field-disjoint operand wakeup writers;
 - minimum-age selection and grant-driven read;
@@ -20,3 +20,11 @@ The checked multi-writer Frozen ACIR fixture remains
 `table_multi_writer_issue.mlir`. Additional Python inputs used only for E2E
 regression coverage live under `tests/e2e/fixtures/table_examples/` and are not
 public examples.
+
+`rob.py` is the first epoch 0.5 rule-lowering example. It is intentionally a
+bounded, non-wrapping retirement demo rather than a complete circular ROB: a
+pure `@ac.rule` marks incoming entries done, and `ac.reorder` retires sequence
+numbers in order. The example exercises typed obligations, internal
+`ac.firing`, proof-driven `ac.transform` canonicalization, QueueGraph C++
+generation, and gfsim execution. Allocation/completion Table rules and wrapped
+sequence arithmetic remain follow-up stateful slices.

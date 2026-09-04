@@ -13,8 +13,8 @@
 // COMPILE: stage=compile status=passed
 // LINK: stage=link status=passed
 
-builtin.module attributes {ac.contract_epoch = "0.4"} {
-  acsim.model @minimal epoch "0.4" root @Top construction [] destruction [] fingerprints {
+builtin.module attributes {ac.contract_epoch = "0.5"} {
+  acsim.model @minimal epoch "0.5" root @Top construction [] destruction [] fingerprints {
     frozen_acir = "sha256:0000000000000000000000000000000000000000000000000000000000000000",
     binding_lock = "sha256:0000000000000000000000000000000000000000000000000000000000000000",
     provider = "sha256:0000000000000000000000000000000000000000000000000000000000000000",

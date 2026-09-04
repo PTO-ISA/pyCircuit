@@ -14,27 +14,27 @@
 // FEEDBACK-CONDITION: error: 'ac.feedback' op continue value must be !ac.var<i1>
 
 //--- merge-count.mlir
-builtin.module attributes {ac.contract_epoch = "0.4"} {
+builtin.module attributes {ac.contract_epoch = "0.5"} {
   %input = ac.source depth 1 latency 1 : !ac.queue<i64>
   %bad = ac.merge %input policy "round_robin" depth 1 latency 1 : (!ac.queue<i64>) -> !ac.queue<i64>
 }
 
 //--- merge-type.mlir
-builtin.module attributes {ac.contract_epoch = "0.4"} {
+builtin.module attributes {ac.contract_epoch = "0.5"} {
   %left = ac.source depth 1 latency 1 : !ac.queue<i64>
   %right = ac.source depth 1 latency 1 : !ac.queue<i32>
   %bad = ac.merge %left, %right policy "round_robin" depth 1 latency 1 : (!ac.queue<i64>, !ac.queue<i32>) -> !ac.queue<i64>
 }
 
 //--- merge-policy.mlir
-builtin.module attributes {ac.contract_epoch = "0.4"} {
+builtin.module attributes {ac.contract_epoch = "0.5"} {
   %left = ac.source depth 1 latency 1 : !ac.queue<i64>
   %right = ac.source depth 1 latency 1 : !ac.queue<i64>
   %bad = ac.merge %left, %right policy "random" depth 1 latency 1 : (!ac.queue<i64>, !ac.queue<i64>) -> !ac.queue<i64>
 }
 
 //--- feedback-latency.mlir
-builtin.module attributes {ac.contract_epoch = "0.4"} {
+builtin.module attributes {ac.contract_epoch = "0.5"} {
   %input = ac.source depth 1 latency 1 : !ac.queue<i64>
   %bad = ac.feedback %input depth 1 latency 0 max_iterations 8 {
   ^body(%item: !ac.var<i64>):
@@ -44,7 +44,7 @@ builtin.module attributes {ac.contract_epoch = "0.4"} {
 }
 
 //--- feedback-value.mlir
-builtin.module attributes {ac.contract_epoch = "0.4"} {
+builtin.module attributes {ac.contract_epoch = "0.5"} {
   %input = ac.source depth 1 latency 1 : !ac.queue<i64>
   %bad = ac.feedback %input depth 1 latency 1 max_iterations 8 {
   ^body(%item: !ac.var<i64>):
@@ -55,7 +55,7 @@ builtin.module attributes {ac.contract_epoch = "0.4"} {
 }
 
 //--- feedback-condition.mlir
-builtin.module attributes {ac.contract_epoch = "0.4"} {
+builtin.module attributes {ac.contract_epoch = "0.5"} {
   %input = ac.source depth 1 latency 1 : !ac.queue<i64>
   %bad = ac.feedback %input depth 1 latency 1 max_iterations 8 {
   ^body(%item: !ac.var<i64>):

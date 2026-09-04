@@ -6,12 +6,12 @@
 // Both passes must succeed; the output must contain the frozen module unchanged.
 
 // CHECK: module attributes {
-// CHECK-SAME: ac.contract_epoch = "0.4"
-// CHECK-SAME: ac.freeze_epoch = "0.4"
+// CHECK-SAME: ac.contract_epoch = "0.5"
+// CHECK-SAME: ac.freeze_epoch = "0.5"
 // CHECK-SAME: ac.topology_frozen = true
 // CHECK: ac.process @workload
 
-builtin.module attributes {ac.contract_epoch = "0.4"} {
+builtin.module attributes {ac.contract_epoch = "0.5"} {
   ac.system @soc root @Top as "root" tick 0 "cycle"
       workload @Top::@workload seed {kind = "fixed", value = 0 : i64}
       instrumentation [] results {id = "default", format = "json"}

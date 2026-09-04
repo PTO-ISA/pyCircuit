@@ -488,6 +488,11 @@ def _object_ids(program: QueueProgram, fanouts: tuple[_Fanout, ...]) -> _ObjectI
 
 
 def lower_queue_program_to_cpp(program: QueueProgram) -> str:
+    if any(queue.rule_name is not None for queue in program.queues):
+        raise QueueFrontendError(
+            "ACLOWER-RULE-001: @ac.rule must pass through the native MLIR "
+            "rule-lowering pipeline before gfsim C++ generation"
+        )
     fanouts = _fanouts(program)
     arrays = _owning_arrays(program)
     ids = _object_ids(program, fanouts)

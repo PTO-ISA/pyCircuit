@@ -32,6 +32,73 @@ thread_local detail::ProcessLivenessWork *processLivenessWorkCollector =
 
 } // namespace
 
+LogicalResult verifyLoweredRuleTransformContract(TransformOp transform) {
+  constexpr llvm::StringLiteral kPrefix = "ac.rule_";
+  llvm::StringSet<> allowed = {
+      "ac.rule_definition", "ac.rule_stable_id", "ac.rule_time_domain",
+      "ac.rule_guard",      "ac.rule_checks",    "ac.rule_handshake",
+      "ac.rule_schedule",   "ac.rule_effects",
+  };
+  bool hasRuleProof = false;
+  for (NamedAttribute attribute : transform->getAttrs()) {
+    StringRef name = attribute.getName().getValue();
+    if (!name.starts_with(kPrefix))
+      continue;
+    hasRuleProof = true;
+    if (!allowed.contains(name))
+      return transform.emitOpError() << "has unknown lowered-rule proof '"
+                                     << name << "'";
+  }
+  if (!hasRuleProof)
+    return success();
+
+  auto requireString = [&](StringRef name) -> FailureOr<StringAttr> {
+    auto value = transform->getAttrOfType<StringAttr>(name);
+    if (!value || value.getValue().empty()) {
+      transform.emitOpError() << "requires non-empty lowered-rule proof '"
+                              << name << "'";
+      return failure();
+    }
+    return value;
+  };
+  FailureOr<StringAttr> definition = requireString("ac.rule_definition");
+  FailureOr<StringAttr> stableId = requireString("ac.rule_stable_id");
+  FailureOr<StringAttr> domain = requireString("ac.rule_time_domain");
+  FailureOr<StringAttr> guard = requireString("ac.rule_guard");
+  FailureOr<StringAttr> handshake = requireString("ac.rule_handshake");
+  FailureOr<StringAttr> schedule = requireString("ac.rule_schedule");
+  auto checks = transform->getAttrOfType<ArrayAttr>("ac.rule_checks");
+  auto effects = transform->getAttrOfType<ArrayAttr>("ac.rule_effects");
+  if (failed(definition) || failed(stableId) || failed(domain) ||
+      failed(guard) || failed(handshake) || failed(schedule) || !checks ||
+      !effects)
+    return failure();
+  if (transform.getInputs().size() != 1 || transform.getOutputs().size() != 1 ||
+      transform.getInputs().front().getType() !=
+          transform.getOutputs().front().getType())
+    return transform.emitOpError(
+        "phase-one lowered rule requires one type-preserving Queue path");
+  if ((*domain).getValue() != "cycle" || (*guard).getValue() != "true" ||
+      !checks.empty() || (*handshake).getValue() != "ready_valid_1x1" ||
+      (*schedule).getValue() != "independent")
+    return transform.emitOpError(
+        "has invalid phase-one lowered-rule domain/guard/checks/handshake/"
+        "schedule proof");
+  auto model = transform->getParentOfType<mlir::ModuleOp>();
+  auto graphDomain =
+      model ? model->getAttrOfType<StringAttr>("ac.queue_graph_domain")
+            : StringAttr();
+  if (!graphDomain || graphDomain.getValue() != (*domain).getValue())
+    return transform.emitOpError(
+        "lowered-rule domain must match the exact QueueGraph domain");
+  Builder builder(transform.getContext());
+  if (effects !=
+      builder.getStrArrayAttr({"input.consume", "output.produce"}))
+    return transform.emitOpError(
+        "has invalid phase-one lowered-rule effect proof");
+  return success();
+}
+
 LogicalResult TransformOp::verify() {
   if (getInputs().empty())
     return emitOpError("requires at least one input queue");
@@ -82,6 +149,78 @@ LogicalResult TransformOp::verify() {
       return emitOpError() << "yielded value " << index << " must be "
                            << expected;
   }
+  return verifyLoweredRuleTransformContract(*this);
+}
+
+LogicalResult RuleOp::verify() {
+  // The first vertical slice is intentionally narrow.  Later rule passes may
+  // widen the arity once conflict and CFG joins are implemented.
+  if (getInputs().size() != 1 || getOutputs().size() != 1)
+    return emitOpError(
+        "phase-one rule requires exactly one input and one output");
+  if (getInputs().front().getType() != getOutputs().front().getType())
+    return emitOpError("phase-one rule must preserve its Queue payload type");
+  if (getName().empty() || getStableId().empty())
+    return emitOpError(
+        "requires non-empty definition and stable instance names");
+  if (getTimeDomain() != "cycle")
+    return emitOpError("phase-one rule requires exact time domain 'cycle'");
+  auto model = (*this)->getParentOfType<mlir::ModuleOp>();
+  auto modelKind =
+      model ? model->getAttrOfType<StringAttr>("ac.model_kind") : StringAttr();
+  if (modelKind && modelKind.getValue() == "queue_graph") {
+    auto graphDomain =
+        model->getAttrOfType<StringAttr>("ac.queue_graph_domain");
+    if (!graphDomain || graphDomain.getValue() != getTimeDomain())
+      return emitOpError("rule domain must match the exact QueueGraph domain");
+  }
+  if (getTypeState() != TypeConstraintState::Exact)
+    return emitOpError("phase-one frontend rule requires an exact Queue type");
+  if (getInputFact() != ValueFactKind::CommittedInput)
+    return emitOpError(
+        "phase-one rule input must carry committed-input provenance");
+
+  ArrayRef<int64_t> depths = getOutputDepthsAttr().asArrayRef();
+  ArrayRef<int64_t> latencies = getOutputLatenciesAttr().asArrayRef();
+  if (depths.size() != 1 || depths.front() <= 0)
+    return emitOpError("requires one positive output depth");
+  if (latencies.size() != 1 || latencies.front() <= 0)
+    return emitOpError("requires one positive output latency");
+
+  Block &block = getBody().front();
+  auto queue = cast<QueueType>(getInputs().front().getType());
+  Type expected = VarType::get(getContext(), queue.getElementType());
+  if (block.getNumArguments() != 1 ||
+      block.getArgument(0).getType() != expected)
+    return emitOpError("body argument must match the input Queue payload Var");
+  for (Operation &operation : block.without_terminator())
+    if (!isMemoryEffectFree(&operation) &&
+        !isa<TypeConstraintMarkerOp, ValueFactMarkerOp,
+             PendingObligationMarkerOp>(operation))
+      return emitOpError() << "body operation '" << operation.getName()
+                           << "' must be pure in the phase-one rule subset";
+  auto yield = dyn_cast<RuleReturnOp>(block.getTerminator());
+  if (!yield || yield.getValues().size() != 1 ||
+      yield.getValues().front().getType() != expected)
+    return emitOpError("body must return exactly one matching payload Var");
+  return success();
+}
+
+LogicalResult TypeConstraintMarkerOp::verify() {
+  if (getState() == TypeConstraintState::Exact)
+    return emitOpError("exact facts must not remain marker-wrapped");
+  return success();
+}
+
+LogicalResult ValueFactMarkerOp::verify() {
+  if (getIdentity().empty() || getPathPredicate().empty())
+    return emitOpError("requires non-empty identity and path predicate");
+  return success();
+}
+
+LogicalResult PendingObligationMarkerOp::verify() {
+  if (getOrigin().empty() || getPathPredicate().empty())
+    return emitOpError("requires non-empty origin and path predicate");
   return success();
 }
 
@@ -428,77 +567,68 @@ LogicalResult ScopeOp::verify() {
   return success();
 }
 
-LogicalResult QueuePeekOp::verify() {
-  auto queue = cast<QueueType>(getQueue().getType());
-  Type expected = VarType::get(getContext(), queue.getElementType());
-  if (getValue().getType() != expected)
-    return emitOpError() << "result must be " << expected;
-  return success();
-}
-
-LogicalResult QueuePopOp::verify() {
-  auto queue = cast<QueueType>(getQueue().getType());
-  Type expected = VarType::get(getContext(), queue.getElementType());
-  if (getValue().getType() != expected)
-    return emitOpError() << "result must be " << expected;
-  return success();
-}
-
-LogicalResult QueuePushOp::verify() {
-  auto queue = cast<QueueType>(getQueue().getType());
-  Type expected = VarType::get(getContext(), queue.getElementType());
-  if (getValue().getType() != expected)
-    return emitOpError() << "value must be " << expected;
-  return success();
-}
-
 LogicalResult FiringOp::verify() {
-  llvm::DenseSet<Value> listed;
-  for (Value queue : getQueues())
-    if (!listed.insert(queue).second)
-      return emitOpError("queue operands must be unique");
-
-  llvm::DenseSet<Value> popped;
-  llvm::DenseSet<Value> pushed;
-  size_t stateEffects = 0;
-  for (Operation &operation : getBody().front()) {
-    Value queue;
-    bool isPop = false;
-    bool isPush = false;
-    if (auto peek = dyn_cast<QueuePeekOp>(operation)) {
-      queue = peek.getQueue();
-    } else if (auto pop = dyn_cast<QueuePopOp>(operation)) {
-      queue = pop.getQueue();
-      isPop = true;
-    } else if (auto push = dyn_cast<QueuePushOp>(operation)) {
-      queue = push.getQueue();
-      isPush = true;
-    } else if (isa<FiringYieldOp>(operation)) {
-      continue;
-    } else if (isMemoryEffectFree(&operation)) {
-      continue;
-    } else {
-      return emitOpError() << "body operation '" << operation.getName()
-                           << "' is not a queue effect or pure computation";
-    }
-
-    if (!listed.contains(queue))
-      return emitOpError("queue effect references an unlisted firing operand");
-    if (isPop) {
-      if (!popped.insert(queue).second)
-        return emitOpError("queue may be popped at most once per firing");
-      ++stateEffects;
-    }
-    if (isPush) {
-      if (!pushed.insert(queue).second)
-        return emitOpError("queue may be pushed at most once per firing");
-      ++stateEffects;
-    }
+  if (getInputs().empty() || getOutputs().empty())
+    return emitOpError("requires input and output Queues");
+  if (getOutputDepthsAttr().size() != getOutputs().size() ||
+      getOutputLatenciesAttr().size() != getOutputs().size())
+    return emitOpError("output depth/latency counts must match results");
+  if (llvm::any_of(getOutputDepthsAttr().asArrayRef(),
+                   [](int64_t value) { return value <= 0; }) ||
+      llvm::any_of(getOutputLatenciesAttr().asArrayRef(),
+                   [](int64_t value) { return value <= 0; }))
+    return emitOpError("output depths and latencies must be positive");
+  if (getStableId().empty() || getFunctionalGuard().empty() ||
+      getHandshake().empty() || getSchedule().empty() || getEffects().empty())
+    return emitOpError(
+        "requires explicit identity, guard, handshake, schedule, and effects");
+  if (getTimeDomain() != "cycle")
+    return emitOpError("phase-one firing requires exact time domain 'cycle'");
+  auto model = (*this)->getParentOfType<mlir::ModuleOp>();
+  auto modelKind =
+      model ? model->getAttrOfType<StringAttr>("ac.model_kind") : StringAttr();
+  if (modelKind && modelKind.getValue() == "queue_graph") {
+    auto graphDomain =
+        model->getAttrOfType<StringAttr>("ac.queue_graph_domain");
+    if (!graphDomain || graphDomain.getValue() != getTimeDomain())
+      return emitOpError("firing domain must match the exact QueueGraph domain");
   }
-  if (stateEffects == 0)
-    return emitOpError("requires at least one queue state effect");
-  if (!isa<FiringYieldOp>(getBody().front().getTerminator()))
-    return emitOpError("body must terminate with ac.firing.yield");
+  Builder builder(getContext());
+  if (getInputs().size() != 1 || getOutputs().size() != 1 ||
+      getInputs().front().getType() != getOutputs().front().getType() ||
+      getFunctionalGuard() != "true" || !getChecks().empty() ||
+      getHandshake() != "ready_valid_1x1" ||
+      getSchedule() != "independent" ||
+      getEffects() !=
+          builder.getStrArrayAttr({"input.consume", "output.produce"}))
+    return emitOpError(
+        "has invalid phase-one guard/checks/handshake/schedule/effects "
+        "contract");
+
+  Block &block = getBody().front();
+  if (block.getNumArguments() != getInputs().size())
+    return emitOpError("body argument count must match input Queue count");
+  for (auto [input, argument] :
+       llvm::zip_equal(getInputs(), block.getArguments())) {
+    auto queue = cast<QueueType>(input.getType());
+    Type expected = VarType::get(getContext(), queue.getElementType());
+    if (argument.getType() != expected)
+      return emitOpError("body arguments must match input Queue payloads");
+  }
+  for (Operation &operation : block.without_terminator())
+    if (!isMemoryEffectFree(&operation))
+      return emitOpError() << "body operation '" << operation.getName()
+                           << "' must be pure after marker elimination";
+  auto yield = dyn_cast<FiringYieldOp>(block.getTerminator());
+  if (!yield || yield.getValues().size() != getOutputs().size())
+    return emitOpError("body must yield one payload per output Queue");
+  for (auto [output, value] :
+       llvm::zip_equal(getOutputs(), yield.getValues())) {
+    auto queue = cast<QueueType>(output.getType());
+    Type expected = VarType::get(getContext(), queue.getElementType());
+    if (value.getType() != expected)
+      return emitOpError("yielded values must match output Queue payloads");
+  }
   return success();
 }
 

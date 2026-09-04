@@ -82,8 +82,8 @@ TEST(ProcessStatePlanControlFlowTest,
   context.appendDialectRegistry(registry);
   constexpr llvm::StringLiteral source = R"mlir(
     builtin.module attributes {
-      ac.contract_epoch = "0.4",
-      ac.freeze_epoch = "0.4",
+      ac.contract_epoch = "0.5",
+      ac.freeze_epoch = "0.5",
       ac.topology_frozen = true
     } {
       ac.module @Top() parameters {} graph {

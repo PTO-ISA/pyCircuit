@@ -78,7 +78,7 @@ TEST(ModelPlanTest, ExtractsClosedIdentitiesTypesAndDenseRuntimePlan) {
 
   EXPECT_EQ(plan->modelSymbol, "demo");
   EXPECT_EQ(plan->rootSymbol, "Top");
-  EXPECT_EQ(plan->contractEpoch, "0.4");
+  EXPECT_EQ(plan->contractEpoch, "0.5");
   EXPECT_EQ(plan->frozenAcirFingerprint,
             "sha256:"
             "0000000000000000000000000000000000000000000000000000000000000001");

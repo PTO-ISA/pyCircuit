@@ -26,7 +26,12 @@ python3 -m unittest discover -s tests/python/agentic-circuit/cli -p 'test_*.py'
 cmake --build .pycircuit_out/acir/dev-llvm22 --target check-acir
 ctest --test-dir .pycircuit_out/acir/dev-llvm22 --output-on-failure
 bash flows/scripts/pyc build
+acir-opt --pass-pipeline='builtin.module(ac-freeze-topology)' <raw-queue-graph>
 compiler/acir/tools/ac-queue-pyc-build.py <ACIR> ...
+pytest tests/unit -m unit
+python3 flows/tools/check_api_hygiene.py python/pycircuit/src/pycircuit examples/pycircuit docs README.md
+python3 flows/tools/check_decision_status.py --require-no-deferred --require-all-verified --require-concrete-evidence --require-existing-evidence
+mkdocs build --strict
 EOF
 
 pyc_log "Agentic Circuit closure run-id=${gate_run_id}"
@@ -76,10 +81,12 @@ if [[ "${resume_from}" == "g0" ]]; then
     'import sysconfig; print(sysconfig.get_paths()["purelib"])')"
   (
     cd "${PYC_ROOT_DIR}"
-    PYTHONPATH="${ac_python}/src:${ac_test_python}:${ac_build}/python" \
+    env -u AC_GATE_TOOLCHAIN_ROOT \
+      PYTHONPATH="${ac_python}/src:${ac_test_python}:${ac_build}/python" \
       "${venv}/bin/python" -m unittest discover \
         -s tests/python/agentic-circuit/python_frontend -p 'test_*.py'
-    PYTHONPATH="${ac_python}/src:${ac_test_python}:${ac_build}/python" \
+    env -u AC_GATE_TOOLCHAIN_ROOT \
+      PYTHONPATH="${ac_python}/src:${ac_test_python}:${ac_build}/python" \
       "${venv}/bin/python" -m unittest discover \
         -s tests/python/agentic-circuit/cli -p 'test_*.py'
     PYTHONPATH="${site_packages}" \
@@ -102,9 +109,10 @@ else
   toolchain="${gate_toolchain}/install"
 fi
 pycgen="${toolchain}/bin/acir-queue-pycgen"
+acir_opt="${toolchain}/bin/acir-opt"
 pycc="${toolchain}/bin/pycc"
 metadata="${toolchain}/share/pycircuit/toolchain-metadata.json"
-for required in "${pycgen}" "${pycc}" "${metadata}"; do
+for required in "${pycgen}" "${acir_opt}" "${pycc}" "${metadata}"; do
   [[ -f "${required}" ]] || pyc_die "missing integrated toolchain artifact: ${required}"
 done
 
@@ -118,8 +126,13 @@ for case_name in arbiter atomic-transform popcount; do
   if [[ -e "${case_dir}" ]]; then
     pyc_die "AC G2 output already exists: ${case_dir}"
   fi
-  "${ac_tools}/ac-queue-pyc-build.py" \
+  mkdir -p "${case_dir}"
+  "${acir_opt}" \
+    --pass-pipeline='builtin.module(ac-freeze-topology)' \
     "${ac_tests}/mlir/agentic-circuit/CodeGen/${case_name}.mlir" \
+    -o "${case_dir}/model.frozen.ac.mlir"
+  "${ac_tools}/ac-queue-pyc-build.py" \
+    "${case_dir}/model.frozen.ac.mlir" \
     --pycgen-tool "${pycgen}" \
     --pycc "${pycc}" \
     --toolchain-lock "${ac_lock}" \
@@ -132,15 +145,39 @@ for case_name in arbiter atomic-transform popcount; do
     --manifest "${case_dir}/manifest.json"
 done
 
+PYC_TOOLCHAIN_ROOT="${toolchain}" \
+ACIR_QUEUE_PYCGEN="${pycgen}" \
+PYTHONPATH="${ac_python}/src:${ac_build}/python" \
+  "${venv}/bin/python" \
+  "${PYC_ROOT_DIR}/tests/integration/agentic-circuit/e2e/test_pyc_backend.py" \
+  PycBackendTest.test_rule_retirement_builds_pyc_and_verilog -v
+
+pyc_log "pyCircuit 6 root contracts and documentation"
+(
+  cd "${PYC_ROOT_DIR}"
+  pytest tests/unit -m unit -q
+  python3 flows/tools/check_api_hygiene.py \
+    python/pycircuit/src/pycircuit examples/pycircuit docs README.md
+  python3 flows/tools/check_decision_status.py \
+    --rfc docs/rfcs/pyc6-decisions.md \
+    --status docs/gates/decision_status_v6.md \
+    --out "${docs_gate_dir}/decision_status_report.json" \
+    --require-no-deferred \
+    --require-all-verified \
+    --require-concrete-evidence \
+    --require-existing-evidence
+  mkdocs build --strict
+)
+
 cat > "${docs_gate_dir}/agentic_circuit_summary.json" <<EOF
 {
   "run_id": "${gate_run_id}",
   "script": "run_agentic_circuit.sh",
   "status": "pass",
   "lanes": ["AC G0", "AC G1", "AC G2"],
-  "contract_epoch": "0.4",
+  "contract_epoch": "0.5",
   "pyc_interface": "pyc6",
-  "cases": ["arbiter", "atomic-transform", "popcount"]
+  "cases": ["arbiter", "atomic-transform", "popcount", "rule-retirement"]
 }
 EOF
 

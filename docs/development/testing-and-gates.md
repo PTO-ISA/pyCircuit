@@ -53,7 +53,7 @@ source.
 ### AC G0: frontend and contracts
 
 - install/import the `agentic-circuit` distribution from the current worktree;
-- validate ACPy epoch `0.4` golden serialization;
+- validate ACPy epoch `0.5` golden serialization;
 - run Python frontend, schema, contract and CLI inventory tests; and
 - verify that `agentic_circuit` remains separate from `pycircuit` exports.
 

@@ -792,7 +792,7 @@ int main() {{
             )
             self.assertEqual(0, planned.returncode, planned.stderr)
             document = json.loads(planned.stdout)
-            self.assertEqual("0.4", document["contract_epoch"])
+            self.assertEqual("0.5", document["contract_epoch"])
             self.assertEqual(1, len(document["tables"]))
             self.assertEqual(2, len(document["table_reads"]))
             self.assertEqual(1, len(document["table_writes"]))

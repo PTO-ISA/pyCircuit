@@ -10,7 +10,7 @@
 // CYCLE: ownership state conflict at join state '@start'
 
 //--- forward.mlir
-builtin.module attributes {ac.contract_epoch = "0.4"} {
+builtin.module attributes {ac.contract_epoch = "0.5"} {
   "ac.protocol"() <{sym_name = "p"}> ({
     "ac.state"() <{sym_name = "s0", initial = true, terminal = false}> : () -> ()
     "ac.state"() <{sym_name = "s1", initial = false, terminal = false}> : () -> ()
@@ -24,7 +24,7 @@ builtin.module attributes {ac.contract_epoch = "0.4"} {
 }
 
 //--- reverse.mlir
-builtin.module attributes {ac.contract_epoch = "0.4"} {
+builtin.module attributes {ac.contract_epoch = "0.5"} {
   "ac.protocol"() <{sym_name = "p"}> ({
     "ac.state"() <{sym_name = "s0", initial = true, terminal = false}> : () -> ()
     "ac.state"() <{sym_name = "s1", initial = false, terminal = false}> : () -> ()
@@ -38,7 +38,7 @@ builtin.module attributes {ac.contract_epoch = "0.4"} {
 }
 
 //--- legal-cycle.mlir
-builtin.module attributes {ac.contract_epoch = "0.4"} {
+builtin.module attributes {ac.contract_epoch = "0.5"} {
   "ac.protocol"() <{sym_name = "p"}> ({
     "ac.state"() <{sym_name = "s0", initial = true, terminal = false}> : () -> ()
     "ac.state"() <{sym_name = "s1", initial = false, terminal = false}> : () -> ()
@@ -51,7 +51,7 @@ builtin.module attributes {ac.contract_epoch = "0.4"} {
 }
 
 //--- conflict-forward.mlir
-builtin.module attributes {ac.contract_epoch = "0.4"} {
+builtin.module attributes {ac.contract_epoch = "0.5"} {
   "ac.protocol"() <{sym_name = "p"}> ({
     "ac.role"() <{sym_name = "a", dual = @b, cardinality = "exclusive"}> : () -> ()
     "ac.role"() <{sym_name = "b", dual = @a, cardinality = "exclusive"}> : () -> ()
@@ -70,7 +70,7 @@ builtin.module attributes {ac.contract_epoch = "0.4"} {
 }
 
 //--- illegal-cycle.mlir
-builtin.module attributes {ac.contract_epoch = "0.4"} {
+builtin.module attributes {ac.contract_epoch = "0.5"} {
   "ac.protocol"() <{sym_name = "p"}> ({
     "ac.role"() <{sym_name = "a", dual = @b, cardinality = "exclusive"}> : () -> ()
     "ac.role"() <{sym_name = "b", dual = @a, cardinality = "exclusive"}> : () -> ()
@@ -85,7 +85,7 @@ builtin.module attributes {ac.contract_epoch = "0.4"} {
 }
 
 //--- conflict-reverse.mlir
-builtin.module attributes {ac.contract_epoch = "0.4"} {
+builtin.module attributes {ac.contract_epoch = "0.5"} {
   "ac.protocol"() <{sym_name = "p"}> ({
     "ac.role"() <{sym_name = "a", dual = @b, cardinality = "exclusive"}> : () -> ()
     "ac.role"() <{sym_name = "b", dual = @a, cardinality = "exclusive"}> : () -> ()

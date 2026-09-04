@@ -27,7 +27,7 @@
   "properties": {
     "schema_kind": {"const": "agentic-circuit-component"},
     "schema_version": {"const": "0.1"},
-    "contract_epoch": {"const": "0.4"},
+    "contract_epoch": {"const": "0.5"},
     "canonical_name": {"$ref": "#/$defs/qualifiedName"},
     "family": {"$ref": "#/$defs/name"},
     "provider_namespace": {"$ref": "#/$defs/namespaceName"},

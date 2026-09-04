@@ -1,4 +1,4 @@
-"""Statically expanded banked-memory example for contract epoch 0.4.
+"""Statically expanded banked-memory example for contract epoch 0.5.
 
 The companion harness injects five requests before tick 0:
 

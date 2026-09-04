@@ -1,7 +1,7 @@
 {
   "schema_kind": "agentic-circuit-component",
   "schema_version": "0.1",
-  "contract_epoch": "0.4",
+  "contract_epoch": "0.5",
   "canonical_name": "workspace.NpuNode",
   "family": "compute",
   "provider_namespace": "workspace.npu.provider",
@@ -39,5 +39,5 @@
     "gauges": [],
     "histograms": []
   },
-  "schema_fingerprint": "sha256:764398833713a4cde7a0ab31559cd2065902b568af261a82d25024c47d4e103a"
+  "schema_fingerprint": "sha256:dcbe4b79ece1a4640ad436e94fdb86efb0347b36d86728380b8eaccce54517d4"
 }

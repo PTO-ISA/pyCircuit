@@ -90,9 +90,10 @@ def run(arguments: object, workspace: WorkspaceConfig, sink: OutputSink) -> int:
         {
             "schema": "agentic-circuit-check-result",
             "version": "0.1",
-            "contract_epoch": "0.4",
+            "contract_epoch": "0.5",
             "project": workspace.project_name,
             "system": getattr(arguments, "system", None) or workspace.default_system,
+            "frontend": frontend.frontend_kind,
             "stage": stage,
             "status": "passed",
         },

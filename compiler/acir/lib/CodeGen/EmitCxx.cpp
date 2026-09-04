@@ -439,7 +439,7 @@ public:
       }
     }
     BuildManifest manifest;
-    manifest.contractEpoch = "0.4";
+    manifest.contractEpoch = "0.5";
     manifest.schema = "agentic-circuit-build-manifest";
     auto frozen = model.getFingerprints().getAs<StringAttr>("frozen_acir");
     manifest.normalizedAcirSha256 =

@@ -19,6 +19,7 @@ DefinitionKind: TypeAlias = Literal[
     "protocol",
     "interface",
     "process",
+    "rule",
 ]
 F = TypeVar("F", bound=Callable[..., object])
 
@@ -139,3 +140,9 @@ def interface(function: F | None = None, **options: object):
 
 def process(function: F | None = None, **options: object):
     return _decorate("process", function, **options)
+
+
+def rule(function: F | None = None, **options: object):
+    """Declare one schedulable rule without executing its Python body."""
+
+    return _decorate("rule", function, **options)

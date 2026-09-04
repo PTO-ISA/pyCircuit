@@ -1,0 +1,26 @@
+contract_epoch = "0.5"
+
+[project]
+name = "rule-fixture"
+version = "0.1.0"
+architecture = "architecture.py"
+system = "rob"
+
+[providers]
+standard_library = ["ac"]
+
+[build]
+profile = "fast"
+compiler = "c++"
+standard_library = "libc++"
+component_roots = ["components"]
+protocol_roots = ["protocols"]
+build_root = "build"
+instrumentation_layers = []
+
+[run]
+trace_roots = ["traces"]
+inputs = {}
+
+[diagnostics]
+format = "text"

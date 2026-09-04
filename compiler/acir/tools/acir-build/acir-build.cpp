@@ -129,6 +129,7 @@ int main(int argc, char **argv) {
   {
     PassManager canonicalize(&context);
     canonicalize.addPass(acir::createVerifyACIRFilePass());
+    acir::addRuleLoweringPipeline(canonicalize);
     canonicalize.addPass(acir::createNormalizeACIRFilePass());
     canonicalize.addPass(acir::createFreezeTopologyPass());
     if (failed(canonicalize.run(module.get())))

@@ -140,6 +140,12 @@ PYC semantic contracts.
   through staged ACIR passes; preserve incomplete knowledge with typed markers;
   bump the Agentic Circuit contract epoch to `0.5`; and reject every unresolved
   marker before Frozen ACIR topology freeze, hashing, or serialization.
+  - [x] Land the epoch `0.5` hard break, remove Python `atomic`/`.firing()`, add
+    closed typed marker attributes, and implement the one-input/one-output pure
+    rule pipeline through internal `ac.firing`, proven `ac.transform`,
+    QueueGraph, gfsim, and the PYC build lane.
+  - [ ] Add CFG joins, dynamic checks, multi-Queue/state proposals, explicit
+    conflict arbitration, Table/Reg rules, and circular ROB coverage.
 - [ ] After the independent current QEMU/PYC comparison passes, disable the
   old repository's publishing/CI authority and make it
   private with only `zhoubot` as a direct repository collaborator.

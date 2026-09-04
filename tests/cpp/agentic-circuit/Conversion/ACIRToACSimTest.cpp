@@ -18,7 +18,7 @@ namespace acir {
 namespace {
 
 llvm::StringRef kFrozenTwoRowModule = R"mlir(
-module attributes {ac.contract_epoch = "0.4", ac.freeze_epoch = "0.4", ac.frozen_instrumentation = [], ac.frozen_owners = [{kind = "ac.system_root", owner = @Top, path = "root", stable_id = "root"}, {kind = "ac.instance", owner = @Top::@child, path = "root.child", stable_id = "root/child"}, {kind = "ac.process", owner = @Top::@workload, path = "root.workload", stable_id = "root/workload"}], ac.frozen_primary_workload = {path = "root.workload", reference = @Top::@workload, stable_id = "root/workload"}, ac.frozen_system = @soc, ac.topology_digest = "25e91b3b7250eab37ec78329957fda6232c5226b5599eaedd704727a214a7ea6", ac.topology_frozen = true} {
+module attributes {ac.contract_epoch = "0.5", ac.freeze_epoch = "0.5", ac.frozen_instrumentation = [], ac.frozen_owners = [{kind = "ac.system_root", owner = @Top, path = "root", stable_id = "root"}, {kind = "ac.instance", owner = @Top::@child, path = "root.child", stable_id = "root/child"}, {kind = "ac.process", owner = @Top::@workload, path = "root.workload", stable_id = "root/workload"}], ac.frozen_primary_workload = {path = "root.workload", reference = @Top::@workload, stable_id = "root/workload"}, ac.frozen_system = @soc, ac.topology_digest = "668b408bf78fa5b0f3ae55133125d3551d890bd39c300955c60155c502b41b0c", ac.topology_frozen = true} {
   ac.system @soc root @Top as "root" tick 0 "cycle" workload @Top::@workload seed {kind = "fixed", value = 7 : i64} instrumentation [] results {format = "json", id = "default"} selected true
   ac.module @Child() parameters {} graph {
     ac.return
@@ -34,7 +34,7 @@ module attributes {ac.contract_epoch = "0.4", ac.freeze_epoch = "0.4", ac.frozen
 )mlir";
 
 llvm::StringRef kAdversarialModuleOrder = R"mlir(
-module attributes {ac.contract_epoch = "0.4"} {
+module attributes {ac.contract_epoch = "0.5"} {
   ac.system @soc root @A as "root" tick 0 "cycle" workload @A::@workload seed {kind = "fixed", value = 7 : i64} instrumentation [] results {format = "json", id = "default"} selected true
   ac.module @A() parameters {} graph {
     ac.instance @child of @Z() static {} id "child" path "child" : () -> ()
@@ -46,7 +46,7 @@ module attributes {ac.contract_epoch = "0.4"} {
 )mlir";
 
 llvm::StringRef kCyclicModuleOrder = R"mlir(
-module attributes {ac.contract_epoch = "0.4"} {
+module attributes {ac.contract_epoch = "0.5"} {
   ac.system @soc root @A as "root" tick 0 "cycle" workload @A::@workload seed {kind = "fixed", value = 7 : i64} instrumentation [] results {format = "json", id = "default"} selected true
   ac.module @A() parameters {} graph {
     ac.instance @b of @B() static {} id "b" path "b" : () -> ()
@@ -61,7 +61,7 @@ module attributes {ac.contract_epoch = "0.4"} {
 )mlir";
 
 llvm::StringRef kAdversarialModuleOrderRenamedPlacement = R"mlir(
-module attributes {ac.contract_epoch = "0.4"} {
+module attributes {ac.contract_epoch = "0.5"} {
   ac.system @soc root @A as "root" tick 0 "cycle" workload @A::@workload seed {kind = "fixed", value = 7 : i64} instrumentation [] results {format = "json", id = "default"} selected true
   ac.module @A() parameters {} graph {
     ac.instance @offspring of @Z() static {} id "offspring" path "offspring" : () -> ()
@@ -73,7 +73,7 @@ module attributes {ac.contract_epoch = "0.4"} {
 )mlir";
 
 llvm::StringRef kInvalidGeneratedModuleName = R"mlir(
-module attributes {ac.contract_epoch = "0.4"} {
+module attributes {ac.contract_epoch = "0.5"} {
   ac.system @soc root @"bad-name" as "root" tick 0 "cycle"
       workload @"bad-name"::@workload seed {kind = "fixed", value = 7 : i64}
       instrumentation [] results {format = "json", id = "default"} selected true

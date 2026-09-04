@@ -7,6 +7,10 @@
 
 #include <memory>
 
+namespace mlir {
+class OpPassManager;
+}
+
 namespace acir {
 
 std::unique_ptr<mlir::Pass> createNormalizeACIRFilePass();
@@ -17,11 +21,29 @@ std::unique_ptr<mlir::Pass> createLowerProcessStatePass();
 #define GEN_PASS_DECL_LOWERPROCESSSTATEPASS
 #define GEN_PASS_DECL_CANONICALIZEMODELPASS
 #define GEN_PASS_DECL_FREEZETOPOLOGYPASS
+#define GEN_PASS_DECL_INFERRULETYPESPASS
+#define GEN_PASS_DECL_INFERRULEEFFECTSPASS
+#define GEN_PASS_DECL_MATERIALIZERULECHECKSPASS
+#define GEN_PASS_DECL_MATERIALIZERULEHANDSHAKEPASS
+#define GEN_PASS_DECL_DISCHARGERULEOBLIGATIONSPASS
+#define GEN_PASS_DECL_RESOLVERULESCHEDULEPASS
+#define GEN_PASS_DECL_LOWERRULESTOFIRINGPASS
+#define GEN_PASS_DECL_CANONICALIZEPUREFIRINGSPASS
+#define GEN_PASS_DECL_VERIFYRULECLOSUREPASS
 #include "acir/Transforms/Passes.h.inc"
 
 /// Shared implementation used by ac-canonicalize-model and the atomic freeze
 /// pass. It is idempotent and never depends on host pointer order.
 mlir::LogicalResult canonicalizeModel(mlir::ModuleOp model);
+
+/// Reject every transient rule and typed marker before
+/// freeze/hash/serialization.
+mlir::LogicalResult verifyRuleClosure(mlir::ModuleOp model);
+
+/// Add the canonical staged rule-to-marker-free-IR pipeline. Topology freeze
+/// remains a separate stage so compiler drivers can preserve stage evidence.
+void addRuleLoweringPipeline(mlir::OpPassManager &manager);
+void registerRuleLoweringPipeline();
 
 #define GEN_PASS_REGISTRATION
 #include "acir/Transforms/Passes.h.inc"

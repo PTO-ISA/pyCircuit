@@ -5,7 +5,7 @@
 #include "mlir/IR/Types.h"
 #include "mlir/Interfaces/DataLayoutInterfaces.h"
 
-#include "acir/Dialect/ACIR/ACIREnums.h.inc"
+#include "acir/Dialect/ACIR/ACIRAttributes.h"
 
 #define GET_TYPEDEF_CLASSES
 #include "acir/Dialect/ACIR/ACIRTypes.h.inc"

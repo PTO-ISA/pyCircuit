@@ -10,14 +10,14 @@
         "binding": "workspace_Showcase_binding",
         "binding_schema": "acsim-binding-0.1",
         "component_schema": "workspace.Showcase",
-        "component_schema_fingerprint": "sha256:9e8e7afc37326215d04cf1b3bfa39199bcfb987f3690764f89999794eec50421",
+        "component_schema_fingerprint": "sha256:ab7cc31088bc5e597068819524112b84bf079c171fe5542b5790e41ed398ff60",
         "construction": {
           "arguments": [
             4
           ],
           "kind": "constructor"
         },
-        "contract_epoch": "0.4",
+        "contract_epoch": "0.5",
         "cpp": {
           "concept": "gfsim::Component",
           "entry_points": {
@@ -33,7 +33,7 @@
         },
         "cpp_type": "workspace_showcase_type",
         "effect": "stateful",
-        "fingerprint": "sha256:09ffaa7e73b147c079db1b35c92fc1819f3914a73abb11d2129560bc77c51862",
+        "fingerprint": "sha256:2a626f5a8a34f9c2964e64ec50bc48d91f0fee6820ed2dfaa68da0bc523b13a2",
         "implementation": "gfsim.ShowcaseTraceSource",
         "ownership": {
           "kind": "unique",
@@ -66,14 +66,14 @@
         "binding": "workspace_Showcase_binding",
         "binding_schema": "acsim-binding-0.1",
         "component_schema": "workspace.Showcase",
-        "component_schema_fingerprint": "sha256:9e8e7afc37326215d04cf1b3bfa39199bcfb987f3690764f89999794eec50421",
+        "component_schema_fingerprint": "sha256:ab7cc31088bc5e597068819524112b84bf079c171fe5542b5790e41ed398ff60",
         "construction": {
           "arguments": [
             4
           ],
           "kind": "constructor"
         },
-        "contract_epoch": "0.4",
+        "contract_epoch": "0.5",
         "cpp": {
           "concept": "gfsim::Component",
           "entry_points": {
@@ -89,7 +89,7 @@
         },
         "cpp_type": "workspace_showcase_type",
         "effect": "stateful",
-        "fingerprint": "sha256:09ffaa7e73b147c079db1b35c92fc1819f3914a73abb11d2129560bc77c51862",
+        "fingerprint": "sha256:2a626f5a8a34f9c2964e64ec50bc48d91f0fee6820ed2dfaa68da0bc523b13a2",
         "implementation": "gfsim.ShowcaseTraceSource",
         "ownership": {
           "kind": "unique",
@@ -119,8 +119,8 @@
       "binding": "workspace_Showcase_binding",
       "binding_schema": "acsim-binding-0.1",
       "component_schema": "workspace.Showcase",
-      "component_schema_fingerprint": "sha256:9e8e7afc37326215d04cf1b3bfa39199bcfb987f3690764f89999794eec50421",
-      "contract_epoch": "0.4",
+      "component_schema_fingerprint": "sha256:ab7cc31088bc5e597068819524112b84bf079c171fe5542b5790e41ed398ff60",
+      "contract_epoch": "0.5",
       "effect": "stateful",
       "function_type": "() -> ()",
       "parameters": [

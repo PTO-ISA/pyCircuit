@@ -121,7 +121,7 @@ TEST(ProcessStatePlanPureCallTest,
   mlir::MLIRContext context;
   loadDialects(context);
   constexpr llvm::StringLiteral source = R"mlir(
-    builtin.module attributes {ac.contract_epoch = "0.4"} {
+    builtin.module attributes {ac.contract_epoch = "0.5"} {
       func.func @leaf(%arg : index) -> (index, index) {
         %one = arith.constant 1 : index
         %next = arith.addi %arg, %one : index
@@ -203,7 +203,7 @@ TEST(ProcessStatePlanPureCallTest,
   mlir::MLIRContext context;
   loadDialects(context);
   constexpr llvm::StringLiteral source = R"mlir(
-    builtin.module attributes {ac.contract_epoch = "0.4"} {
+    builtin.module attributes {ac.contract_epoch = "0.5"} {
       func.func @leaf(%arg : index) -> index {
         %one = arith.constant 1 : index
         %next = arith.addi %arg, %one : index
@@ -264,7 +264,7 @@ TEST(ProcessStatePlanIdentityTest,
   mlir::MLIRContext context;
   loadDialects(context);
   constexpr llvm::StringLiteral source = R"mlir(
-    builtin.module attributes {ac.contract_epoch = "0.4"} {
+    builtin.module attributes {ac.contract_epoch = "0.5"} {
       ac.module @Top() parameters {} graph {
         ac.process @workload kind "workload" {
           %lb = arith.constant 0 : index
@@ -317,7 +317,7 @@ TEST(ProcessStatePlanPureCallTest,
   mlir::MLIRContext context;
   loadDialects(context);
   constexpr llvm::StringLiteral source = R"mlir(
-    builtin.module attributes {ac.contract_epoch = "0.4"} {
+    builtin.module attributes {ac.contract_epoch = "0.5"} {
       func.func @leaf() {
         return
       }
@@ -375,7 +375,7 @@ TEST(ProcessStatePlanScalingTest,
   };
   std::string source;
   llvm::raw_string_ostream stream(source);
-  stream << "builtin.module attributes {ac.contract_epoch = \"0.4\"} {\n";
+  stream << "builtin.module attributes {ac.contract_epoch = \"0.5\"} {\n";
   for (unsigned index = 0; index < 1024; ++index) {
     stream << "func.func @" << functionName(index) << "() {\n";
     if (index + 1 < 1024) {
@@ -415,7 +415,7 @@ TEST(ProcessStatePlanPureCallTest,
   mlir::MLIRContext context;
   loadDialects(context);
   constexpr llvm::StringLiteral source = R"mlir(
-    builtin.module attributes {ac.contract_epoch = "0.4"} {
+    builtin.module attributes {ac.contract_epoch = "0.5"} {
       func.func @leaf() {
         return
       }
@@ -460,7 +460,7 @@ TEST(ProcessStatePlanPureCallTest,
   mlir::MLIRContext context;
   loadDialects(context);
   constexpr llvm::StringLiteral source = R"mlir(
-    builtin.module attributes {ac.contract_epoch = "0.4"} {
+    builtin.module attributes {ac.contract_epoch = "0.5"} {
       func.func @bad() {
         %condition = arith.constant true
         return
@@ -502,7 +502,7 @@ TEST(ProcessStatePlanPureCallTest,
   mlir::MLIRContext context;
   loadDialects(context);
   constexpr llvm::StringLiteral source = R"mlir(
-    builtin.module attributes {ac.contract_epoch = "0.4"} {
+    builtin.module attributes {ac.contract_epoch = "0.5"} {
       func.func @nested() {
         %condition = arith.constant true
         scf.if %condition {
@@ -563,7 +563,7 @@ TEST(ProcessStatePlanLowerabilityTest,
   mlir::MLIRContext context;
   loadDialects(context);
   constexpr llvm::StringLiteral source = R"mlir(
-    builtin.module attributes {ac.contract_epoch = "0.4"} {
+    builtin.module attributes {ac.contract_epoch = "0.5"} {
       ac.module @Top(index, index, index, i1) parameters {} graph {
       ^bb0(%l : index, %u : index, %s : index, %condition : i1):
         ac.process @workload kind "workload"
@@ -615,7 +615,7 @@ TEST(ProcessStatePlanLimitsTest,
   mlir::MLIRContext context;
   loadDialects(context);
   constexpr llvm::StringLiteral source = R"mlir(
-    builtin.module attributes {ac.contract_epoch = "0.4"} {
+    builtin.module attributes {ac.contract_epoch = "0.5"} {
       func.func @leaf(%arg : index) -> index { return %arg : index }
       ac.module @Top() parameters {} graph {
         ac.process @workload kind "workload" {
@@ -655,7 +655,7 @@ TEST(ProcessStatePlanLimitsTest,
   mlir::MLIRContext context;
   loadDialects(context);
   constexpr llvm::StringLiteral source = R"mlir(
-    builtin.module attributes {ac.contract_epoch = "0.4"} {
+    builtin.module attributes {ac.contract_epoch = "0.5"} {
       ac.module @Top() parameters {} graph {
         ac.process @workload kind "workload" {
           %true = arith.constant true
@@ -703,7 +703,7 @@ TEST(ProcessStatePlanScalingTest,
   mlir::MLIRContext context;
   loadDialects(context);
   constexpr llvm::StringLiteral source = R"mlir(
-    builtin.module attributes {ac.contract_epoch = "0.4"} {
+    builtin.module attributes {ac.contract_epoch = "0.5"} {
       ac.module @Top() parameters {} graph {
         ac.process @workload kind "workload" {
           %lb = arith.constant 0 : index
@@ -735,7 +735,7 @@ TEST(ProcessStatePlanVerifierTest,
   mlir::MLIRContext context;
   loadDialects(context);
   constexpr llvm::StringLiteral source = R"mlir(
-    builtin.module attributes {ac.contract_epoch = "0.4"} {
+    builtin.module attributes {ac.contract_epoch = "0.5"} {
       ac.module @Top(index, index, index) parameters {} graph {
       ^bb0(%lb : index, %ub : index, %step : index):
         ac.process @workload kind "workload"
@@ -819,7 +819,7 @@ TEST(ProcessStatePlanVerifierTest,
   mlir::MLIRContext context;
   loadDialects(context);
   constexpr llvm::StringLiteral source = R"mlir(
-    builtin.module attributes {ac.contract_epoch = "0.4"} {
+    builtin.module attributes {ac.contract_epoch = "0.5"} {
       ac.module @Top(index, index, index) parameters {} graph {
       ^bb0(%lb : index, %ub : index, %step : index):
         ac.process @workload kind "workload"

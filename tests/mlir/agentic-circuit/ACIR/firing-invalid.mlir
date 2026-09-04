@@ -1,88 +1,72 @@
 // RUN: %split_file %s %t
-// RUN: %not %acir_opt %t/unlisted.mlir 2>&1 | %FileCheck %s --check-prefix=UNLISTED
-// RUN: %not %acir_opt %t/duplicate-pop.mlir 2>&1 | %FileCheck %s --check-prefix=DUPLICATE-POP
-// RUN: %not %acir_opt %t/duplicate-push.mlir 2>&1 | %FileCheck %s --check-prefix=DUPLICATE-PUSH
+// RUN: %not %acir_opt %t/arity.mlir 2>&1 | %FileCheck %s --check-prefix=ARITY
 // RUN: %not %acir_opt %t/effectless.mlir 2>&1 | %FileCheck %s --check-prefix=EFFECTLESS
 // RUN: %not %acir_opt %t/payload.mlir 2>&1 | %FileCheck %s --check-prefix=PAYLOAD
-// RUN: %not %acir_opt %t/peek-payload.mlir 2>&1 | %FileCheck %s --check-prefix=PEEK-PAYLOAD
-// RUN: %not %acir_opt %t/foreign-effect.mlir 2>&1 | %FileCheck %s --check-prefix=FOREIGN-EFFECT
+// RUN: %not %acir_opt %t/domain.mlir 2>&1 | %FileCheck %s --check-prefix=DOMAIN
+// RUN: %not %acir_opt --verify-each=false --pass-pipeline='builtin.module(ac-verify-rule-closure,ac-freeze-topology)' %t/forged-contract.mlir 2>&1 | %FileCheck %s --check-prefix=FORGED
 
-// UNLISTED: error: 'ac.firing' op queue effect references an unlisted firing operand
-// DUPLICATE-POP: error: 'ac.firing' op queue may be popped at most once per firing
-// DUPLICATE-PUSH: error: 'ac.firing' op queue may be pushed at most once per firing
-// EFFECTLESS: error: 'ac.firing' op requires at least one queue state effect
-// PAYLOAD: error: 'ac.queue.push' op value must be '!ac.var<i32>'
-// PEEK-PAYLOAD: error: 'ac.queue.peek' op result must be '!ac.var<i32>'
-// FOREIGN-EFFECT: error: 'ac.firing' op body operation 'ac.assert' is not a queue effect or pure computation
-
-//--- unlisted.mlir
-builtin.module attributes {ac.contract_epoch = "0.4"} {
+//--- arity.mlir
+module attributes {ac.contract_epoch = "0.5"} {
   %input = "builtin.unrealized_conversion_cast"() : () -> !ac.queue<i32>
-  %output = "builtin.unrealized_conversion_cast"() : () -> !ac.queue<i32>
-  ac.firing (%input) {
-    %item = ac.queue.pop %input : !ac.queue<i32> -> !ac.var<i32>
-    ac.queue.push %output, %item : !ac.queue<i32>, !ac.var<i32>
-    ac.firing.yield
-  } : (!ac.queue<i32>)
+  %a, %b = ac.firing %input depths [1] latencies [1]
+      stable_id "bad" domain "cycle" guard "true" checks []
+      handshake "ready_valid_1x1" schedule "independent"
+      effects ["input.consume", "output.produce"] {
+  ^body(%item: !ac.var<i32>):
+    ac.firing.yield %item, %item : !ac.var<i32>, !ac.var<i32>
+  } : (!ac.queue<i32>) -> (!ac.queue<i32>, !ac.queue<i32>)
 }
-
-//--- duplicate-pop.mlir
-builtin.module attributes {ac.contract_epoch = "0.4"} {
-  %input = "builtin.unrealized_conversion_cast"() : () -> !ac.queue<i32>
-  ac.firing (%input) {
-    %first = ac.queue.pop %input : !ac.queue<i32> -> !ac.var<i32>
-    %second = ac.queue.pop %input : !ac.queue<i32> -> !ac.var<i32>
-    ac.firing.yield
-  } : (!ac.queue<i32>)
-}
-
-//--- duplicate-push.mlir
-builtin.module attributes {ac.contract_epoch = "0.4"} {
-  %output = "builtin.unrealized_conversion_cast"() : () -> !ac.queue<i32>
-  ac.firing (%output) {
-    %value = "builtin.unrealized_conversion_cast"() : () -> !ac.var<i32>
-    ac.queue.push %output, %value : !ac.queue<i32>, !ac.var<i32>
-    ac.queue.push %output, %value : !ac.queue<i32>, !ac.var<i32>
-    ac.firing.yield
-  } : (!ac.queue<i32>)
-}
+// ARITY: output depth/latency counts must match results
 
 //--- effectless.mlir
-builtin.module attributes {ac.contract_epoch = "0.4"} {
+module attributes {ac.contract_epoch = "0.5"} {
   %input = "builtin.unrealized_conversion_cast"() : () -> !ac.queue<i32>
-  ac.firing (%input) {
-    %value = "builtin.unrealized_conversion_cast"() : () -> !ac.var<i32>
-    ac.firing.yield
-  } : (!ac.queue<i32>)
+  %output = ac.firing %input depths [1] latencies [1]
+      stable_id "bad" domain "cycle" guard "true" checks []
+      handshake "ready_valid_1x1" schedule "independent" effects [] {
+  ^body(%item: !ac.var<i32>):
+    ac.firing.yield %item : !ac.var<i32>
+  } : (!ac.queue<i32>) -> !ac.queue<i32>
 }
+// EFFECTLESS: requires explicit identity, guard, handshake, schedule, and effects
 
 //--- payload.mlir
-builtin.module attributes {ac.contract_epoch = "0.4"} {
-  %output = "builtin.unrealized_conversion_cast"() : () -> !ac.queue<i32>
-  ac.firing (%output) {
-    %value = "builtin.unrealized_conversion_cast"() : () -> !ac.var<i16>
-    ac.queue.push %output, %value : !ac.queue<i32>, !ac.var<i16>
-    ac.firing.yield
-  } : (!ac.queue<i32>)
-}
-
-//--- foreign-effect.mlir
-builtin.module attributes {ac.contract_epoch = "0.4"} {
+module attributes {ac.contract_epoch = "0.5"} {
   %input = "builtin.unrealized_conversion_cast"() : () -> !ac.queue<i32>
-  ac.firing (%input) {
-    %item = ac.queue.pop %input : !ac.queue<i32> -> !ac.var<i32>
-    %condition = arith.constant true
-    ac.assert %condition, "foreign effect"
-    ac.firing.yield
-  } : (!ac.queue<i32>)
+  %output = ac.firing %input depths [1] latencies [1]
+      stable_id "bad" domain "cycle" guard "true" checks []
+      handshake "ready_valid_1x1" schedule "independent"
+      effects ["input.consume", "output.produce"] {
+  ^body(%item: !ac.var<i32>):
+    %small = ac.var.constant 1 : i16 as !ac.var<i16>
+    ac.firing.yield %small : !ac.var<i16>
+  } : (!ac.queue<i32>) -> !ac.queue<i32>
 }
+// PAYLOAD: yielded values must match output Queue payloads
 
-//--- peek-payload.mlir
-builtin.module attributes {ac.contract_epoch = "0.4"} {
+//--- domain.mlir
+module attributes {ac.contract_epoch = "0.5"} {
   %input = "builtin.unrealized_conversion_cast"() : () -> !ac.queue<i32>
-  ac.firing (%input) {
-    %item = ac.queue.peek %input : !ac.queue<i32> -> !ac.var<i16>
-    %consumed = ac.queue.pop %input : !ac.queue<i32> -> !ac.var<i32>
-    ac.firing.yield
-  } : (!ac.queue<i32>)
+  %output = ac.firing %input depths [1] latencies [1]
+      stable_id "bad" domain "bogus" guard "true" checks []
+      handshake "ready_valid_1x1" schedule "independent"
+      effects ["input.consume", "output.produce"] {
+  ^body(%item: !ac.var<i32>):
+    ac.firing.yield %item : !ac.var<i32>
+  } : (!ac.queue<i32>) -> !ac.queue<i32>
 }
+// DOMAIN: phase-one firing requires exact time domain 'cycle'
+
+//--- forged-contract.mlir
+module attributes {ac.contract_epoch = "0.5", ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle", ac.system = "forged"} {
+  %input = "builtin.unrealized_conversion_cast"() : () -> !ac.queue<i32>
+  %output = ac.firing %input depths [1] latencies [1]
+      stable_id "forged" domain "cycle" guard "not-a-guard"
+      checks ["not-a-check"] handshake "bogus" schedule "implicit-priority"
+      effects ["unknown.effect"] {
+  ^body(%item: !ac.var<i32>):
+    ac.firing.yield %item : !ac.var<i32>
+  } : (!ac.queue<i32>) -> !ac.queue<i32>
+  ac.sink %output : !ac.queue<i32>
+}
+// FORGED: has invalid phase-one guard/checks/handshake/schedule/effects contract

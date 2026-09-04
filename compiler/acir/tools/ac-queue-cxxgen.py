@@ -10,7 +10,11 @@ import subprocess
 import tempfile
 
 from agentic_circuit._queue_codegen import lower_queue_program_to_cpp
-from agentic_circuit._queue_frontend import lower_queue_program, parse_queue_program
+from agentic_circuit._queue_frontend import (
+    RULE_LOWERING_PIPELINE,
+    lower_queue_program,
+    parse_queue_program,
+)
 
 
 def _write_atomic(path: Path, content: str) -> None:
@@ -57,7 +61,10 @@ def main() -> int:
     program = parse_queue_program(
         arguments.source.read_text(encoding="utf-8"), arguments.system
     )
-    generated = lower_queue_program_to_cpp(program)
+    has_rules = any(queue.rule_name is not None for queue in program.queues)
+    if has_rules and arguments.acir_output is None:
+        parser.error("@ac.rule C++ generation requires the native MLIR tool options")
+    generated = "" if has_rules else lower_queue_program_to_cpp(program)
     canonical_acir: str | None = None
     queue_plan: str | None = None
     if arguments.acir_output is not None:
@@ -70,8 +77,7 @@ def main() -> int:
             optimized = subprocess.run(
                 (
                     str(arguments.acir_opt),
-                    "--canonicalize",
-                    "--cse",
+                    f"--pass-pipeline={RULE_LOWERING_PIPELINE}",
                     str(raw),
                 ),
                 text=True,

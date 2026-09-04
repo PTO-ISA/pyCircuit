@@ -17,6 +17,7 @@ CONDITIONAL_SOURCE = (
 REORDER_SOURCE = (
     ROOT / "examples/agentic-circuit" / "pipelines" / "pyc_reorder_pipeline.py"
 )
+RULE_ROB_SOURCE = ROOT / "examples/agentic-circuit" / "state" / "rob.py"
 DAVINCIOO_TRACE = (
     ROOT
     / "references/davincioo-gfsim/upstream/tests/fixtures/traces"
@@ -28,6 +29,142 @@ DAVINCIOO_PROJECTION = (
 
 
 class QueueCodegenTest(unittest.TestCase):
+    def test_rule_retirement_demo_runs_through_mlir_passes_and_gfsim(self) -> None:
+        compiler = shutil.which("c++")
+        if compiler is None:
+            self.skipTest("C++ compiler is unavailable")
+        tools = {
+            "opt": ROOT / ".pycircuit_out/acir/dev-llvm22/bin/acir-opt",
+            "plan": ROOT / ".pycircuit_out/acir/dev-llvm22/bin/acir-queue-plan",
+            "cxxgen": ROOT / ".pycircuit_out/acir/dev-llvm22/bin/acir-queue-cxxgen",
+        }
+        missing = [name for name, path in tools.items() if not path.is_file()]
+        if missing:
+            self.skipTest("native QueueGraph tools are unavailable: " + ", ".join(missing))
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            model = root / "rob.cpp"
+            acir = root / "rob.ac.mlir"
+            plan = root / "rob.queue-plan.json"
+            raw = root / "rob.raw.ac.mlir"
+            from agentic_circuit._queue_frontend import lower_queue_source
+
+            raw.write_text(
+                lower_queue_source(
+                    RULE_ROB_SOURCE.read_text(encoding="utf-8"), "rob"
+                ),
+                encoding="utf-8",
+            )
+            rejected = subprocess.run(
+                (str(tools["plan"]), str(raw)),
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertNotEqual(0, rejected.returncode)
+            self.assertIn("unresolved rule or typed marker", rejected.stderr)
+            generated = subprocess.run(
+                (
+                    str(ROOT / "compiler/acir/tools/ac-queue-cxxgen.py"),
+                    str(RULE_ROB_SOURCE),
+                    "--system",
+                    "rob",
+                    "--acir-output",
+                    str(acir),
+                    "--plan-output",
+                    str(plan),
+                    "--acir-opt",
+                    str(tools["opt"]),
+                    "--queue-plan-tool",
+                    str(tools["plan"]),
+                    "--queue-cxxgen-tool",
+                    str(tools["cxxgen"]),
+                    "--output",
+                    str(model),
+                ),
+                cwd=ROOT,
+                env={
+                    **os.environ,
+                    "PYTHONPATH": str(ROOT / "python/agentic-circuit/src"),
+                },
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(0, generated.returncode, generated.stderr)
+            lowered = acir.read_text(encoding="utf-8")
+            self.assertNotIn("ac.rule ", lowered)
+            self.assertNotIn("ac.firing ", lowered)
+            self.assertNotIn("ac.marker.", lowered)
+            self.assertIn("ac.topology_frozen = true", lowered)
+            self.assertIn("ac.rule_stable_id = \"completed\"", lowered)
+            self.assertIn("ac.rule_time_domain = \"cycle\"", lowered)
+
+            harness = root / "harness.cpp"
+            executable = root / "rob"
+            harness.write_text(
+                f'''#include "{model.name}"
+#include <array>
+#include <cstddef>
+
+int main() {{
+  ac_generated::Rob model;
+  const std::array<ac_generated::Entry, 3> input{{
+      ac_generated::Entry{{2, 20, false}},
+      ac_generated::Entry{{0, 10, false}},
+      ac_generated::Entry{{1, 15, false}},
+  }};
+  auto rows = model.dispatch_rows();
+  for (std::size_t tick = 0; tick < 24; ++tick) {{
+    const gfsim::Epoch epoch{{tick, 0}};
+    if (tick < input.size() && !model.issued().proposePush(input[tick]))
+      return 1;
+    for (auto &row : rows)
+      row.work(row.object, epoch);
+    for (auto &row : rows)
+      row.xfer(row.object, epoch, gfsim::XferPhase::Arbitrate);
+    for (auto &row : rows)
+      row.xfer(row.object, epoch, gfsim::XferPhase::Commit);
+  }}
+  const auto &retired = model.sink_0_values();
+  if (retired.size() != input.size())
+    return 2;
+  const std::array<unsigned, 3> values{{10, 15, 20}};
+  for (std::size_t index = 0; index < retired.size(); ++index)
+    if (retired[index].sequence != index || !retired[index].done ||
+        retired[index].value != values[index])
+      return 3;
+  return 0;
+}}
+''',
+                encoding="utf-8",
+            )
+            linked = subprocess.run(
+                (
+                    compiler,
+                    "-std=c++20",
+                    "-I",
+                    str(ROOT / "simulator/gfsim/include"),
+                    str(harness),
+                    "-o",
+                    str(executable),
+                ),
+                cwd=root,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(0, linked.returncode, linked.stderr)
+            executed = subprocess.run(
+                (str(executable),),
+                cwd=root,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(0, executed.returncode, executed.stderr)
+
     def test_reorder_python_generates_and_runs_typed_cpp(self) -> None:
         compiler = shutil.which("c++")
         if compiler is None:
@@ -175,7 +312,7 @@ int main() {{
             self.assertIn("gfsim::QueueTransform<Item, Item", content)
             self.assertIn("gfsim::QueueMerge<Item, 2>", content)
             plan_document = json.loads(plan.read_text(encoding="utf-8"))
-            self.assertEqual("0.4", plan_document["contract_epoch"])
+            self.assertEqual("0.5", plan_document["contract_epoch"])
 
             harness = root / "harness.cpp"
             executable = root / "conditional"

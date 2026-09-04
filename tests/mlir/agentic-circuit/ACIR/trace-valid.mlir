@@ -2,7 +2,7 @@
 // RUN: %acir_opt_public %s | %acir_opt_public | %FileCheck %s
 // RUN: %acir_opt_public --pass-pipeline='builtin.module(canonicalize,cse)' %s | %FileCheck %s --check-prefix=EFFECTS
 
-builtin.module attributes {ac.contract_epoch = "0.4"} {
+builtin.module attributes {ac.contract_epoch = "0.5"} {
   ac.module @Trace() parameters {} graph {
     ac.stat @decoded kind "counter"
     ac.stat @position kind "gauge"

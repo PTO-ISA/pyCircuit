@@ -1,7 +1,7 @@
 {
   "schema_kind": "agentic-circuit-component",
   "schema_version": "0.1",
-  "contract_epoch": "0.4",
+  "contract_epoch": "0.5",
   "canonical_name": "ac.WidthAdapter",
   "family": "adaptation",
   "provider_namespace": "ac",
@@ -119,5 +119,5 @@
     "gauges": [],
     "histograms": []
   },
-  "schema_fingerprint": "sha256:e0c9c74a18239541c7b9b95ea8f01622da7eb96f4f426b0ea9ee99b3c0bd6ace"
+  "schema_fingerprint": "sha256:a8b2d93b12008734ae7884b9dc819ccf19d564ba7068abe16514b6572ef5b15c"
 }

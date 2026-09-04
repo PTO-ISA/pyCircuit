@@ -1,4 +1,4 @@
-module attributes {ac.contract_epoch = "0.4", ac.system = "table_multi_writer_issue"} {
+module attributes {ac.contract_epoch = "0.5", ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle", ac.system = "table_multi_writer_issue"} {
   ac.type_scope @types {
     ac.struct @Entry fields [{name = "valid", type = i1}, {name = "age", type = i8}, {name = "src0_tag", type = i8}, {name = "src0_ready", type = i1}, {name = "src1_tag", type = i8}, {name = "src1_ready", type = i1}]
     ac.struct @Wakeup fields [{name = "tag", type = i8}, {name = "valid", type = i1}]

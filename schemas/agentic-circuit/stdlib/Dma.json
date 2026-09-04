@@ -1,7 +1,7 @@
 {
   "schema_kind": "agentic-circuit-component",
   "schema_version": "0.1",
-  "contract_epoch": "0.4",
+  "contract_epoch": "0.5",
   "canonical_name": "ac.Dma",
   "family": "transport",
   "provider_namespace": "ac",
@@ -149,5 +149,5 @@
     ],
     "histograms": []
   },
-  "schema_fingerprint": "sha256:005d3cf6686b2bf7e22ab97a88551be6d4e7272a6010fc009b7390ccc1c7d778"
+  "schema_fingerprint": "sha256:165febd572640c809a7c9a1a62cc3f994583cbaab0b006f8699c21126132829f"
 }

@@ -1,5 +1,6 @@
 #include "acir/CodeGen/QueueGraphPlan.h"
 
+#include "acir/Analysis/ModelAnalysis.h"
 #include "acir/Bindings/Binding.h"
 #include "acir/CodeGen/Manifest.h"
 #include "acir/Dialect/ACIR/ACIROps.h"
@@ -309,8 +310,43 @@ public:
 
   llvm::Expected<QueueGraphPlan> run() {
     auto epoch = module->getAttrOfType<mlir::StringAttr>("ac.contract_epoch");
-    if (!epoch || epoch.getValue() != "0.4")
-      return planError("module requires ac.contract_epoch exactly '0.4'");
+    if (!epoch || epoch.getValue() != "0.5")
+      return planError("module requires ac.contract_epoch exactly '0.5'");
+    auto modelKind = module->getAttrOfType<mlir::StringAttr>("ac.model_kind");
+    if (!modelKind || modelKind.getValue() != "queue_graph")
+      return planError(
+          "module requires ac.model_kind exactly 'queue_graph'");
+    for (mlir::Operation &operation : module.getBody()->getOperations()) {
+      if (mlir::isa<ac::SystemOp, ac::ModuleOp, ac::ModuleExternOp,
+                    ac::ModuleGeneratedOp>(operation))
+        return planError(
+            "structured system/module declaration is not legal in QueueGraph");
+    }
+    mlir::Operation *unclosed = nullptr;
+    module.walk([&](mlir::Operation *operation) {
+      if (!unclosed &&
+          mlir::isa<ac::RuleOp, ac::TypeConstraintMarkerOp,
+                    ac::ValueFactMarkerOp, ac::PendingObligationMarkerOp>(
+              operation))
+        unclosed = operation;
+    });
+    if (unclosed)
+      return planError("unresolved rule or typed marker reached QueueGraph");
+    bool hasFiring = false;
+    module.walk([&](ac::FiringOp) { hasFiring = true; });
+    if (hasFiring)
+      return planError(
+          "internal firing requires proved pure-firing canonicalization");
+    mlir::LogicalResult loweredRuleProof = mlir::success();
+    module.walk([&](ac::TransformOp transform) {
+      if (mlir::failed(loweredRuleProof))
+        return;
+      loweredRuleProof = ac::verifyLoweredRuleTransformContract(transform);
+    });
+    if (mlir::failed(loweredRuleProof))
+      return planError("lowered-rule proof verification failed");
+    if (mlir::failed(acir::verifyFrozenFlatQueueGraph(module)))
+      return planError("QueueGraph requires verified epoch 0.5 topology freeze");
     auto system = module->getAttrOfType<mlir::StringAttr>("ac.system");
     if (!system || system.getValue().empty())
       return planError("module requires non-empty ac.system");
@@ -1547,7 +1583,7 @@ llvm::Expected<std::string> QueueGraphPlan::canonicalJson() const {
                                             {"stable_id", slot.stableId}});
   llvm::json::Object root{
       {"blocks", std::move(blockValues)},
-      {"contract_epoch", "0.4"},
+      {"contract_epoch", "0.5"},
       {"memory_instances", std::move(memoryInstanceValues)},
       {"memory_requests", std::move(memoryRequestValues)},
       {"payloads", std::move(payloadValues)},
@@ -1565,7 +1601,7 @@ llvm::Expected<std::string> QueueGraphPlan::canonicalJson() const {
       {"table_writes", std::move(tableWriteValues)},
       {"tables", std::move(tableValues)},
       {"system", system},
-      {"version", "0.4"}};
+      {"version", "0.5"}};
   return bindings::canonicalizeJson(llvm::json::Value(std::move(root)));
 }
 

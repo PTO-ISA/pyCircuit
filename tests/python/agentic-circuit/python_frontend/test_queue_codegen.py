@@ -143,6 +143,18 @@ def pipeline() -> None:
 
 
 class QueueCodegenTest(unittest.TestCase):
+    def test_rule_program_cannot_bypass_native_mlir_lowering(self) -> None:
+        from agentic_circuit._queue_codegen import lower_queue_program_to_cpp
+        from agentic_circuit._queue_frontend import (
+            QueueFrontendError,
+            parse_queue_program,
+        )
+
+        source = ROOT / "examples/agentic-circuit/state/rob.py"
+        program = parse_queue_program(source.read_text(encoding="utf-8"), "rob")
+        with self.assertRaisesRegex(QueueFrontendError, "native MLIR"):
+            lower_queue_program_to_cpp(program)
+
     def test_slot_release_uses_epoch_scoped_shared_table_caches(self) -> None:
         from agentic_circuit._queue_codegen import lower_queue_source_to_cpp
 

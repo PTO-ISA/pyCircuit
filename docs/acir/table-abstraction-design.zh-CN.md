@@ -1,6 +1,7 @@
 # Agentic Circuit Stateful Table Abstraction Design
 
-> 状态：epoch `0.4` 原型由 Decisions 0151–0156 定义；其余内容为后续设计
+> 状态：epoch `0.4` 历史原型由 Decisions 0151–0156 定义；epoch `0.5` 已采用
+> `@ac.rule` 与 staged MLIR lowering，其余 Table/Reg rule 内容为后续设计
 > 当前范围：一维、全零初始化、字段不相交的多 writer、单一 scalar allocation、state-driven scalar/masked update、match/choose、committed slot、typed gfsim C++
 > 规范依据：Decisions 0151–0156 与 `docs/acir/spec/agentic-circuit*.md`
 
@@ -287,7 +288,7 @@ ac.component @rob {
 > **后续公共前端方向：** `D-RULE-LOWERING-001` 已决定由 `@ac.rule` 作为唯一显式
 > 调度边界。Python 用户不再书写 `atomic`、`firing`、显式 Queue effect 或检查；类型、
 > effect、guard、检查、握手和冲突由 MLIR pass 分阶段推导。下文的 implicit anchor、
-> `with ac.atomic()` 和 `.firing()` 描述当前 prototype 与形成该决策时的设计背景，不是
+> `with ac.atomic()` 和 `.firing()` 描述 epoch `0.4` prototype 与形成该决策时的设计背景，不是
 > 目标公共 API。
 >
 > 下列小节的状态为：6.1 implicit anchor、6.2 基本块附着、6.3 显式 `when=` 和

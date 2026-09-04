@@ -158,9 +158,9 @@ private:
     if (!version || *version != "0.1")
       return fail("ACTRACE-SCHEMA", "/version", std::nullopt,
                   "version must equal 0.1");
-    if (!epoch || *epoch != "0.4")
+    if (!epoch || *epoch != "0.5")
       return fail("ACTRACE-SCHEMA", "/contract_epoch", std::nullopt,
-                  "contract_epoch must equal 0.4");
+                  "contract_epoch must equal 0.5");
 
     const Object *metadata = root.getObject("metadata");
     if (!metadata)

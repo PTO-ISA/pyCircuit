@@ -10,7 +10,6 @@ from ._canonical_json import JsonValue, canonical_json_bytes, utf16_sort_key
 from ._diagnostics import Diagnostic, SourceSpan
 from ._static_eval import FrozenMap, StaticValue
 
-
 EntityKind: TypeAlias = Literal[
     "system",
     "module",
@@ -28,6 +27,7 @@ EntityKind: TypeAlias = Literal[
     "capture",
     "escape",
     "process",
+    "rule",
 ]
 _ENTITY_KINDS = {
     "system",
@@ -46,6 +46,7 @@ _ENTITY_KINDS = {
     "capture",
     "escape",
     "process",
+    "rule",
 }
 _DIGEST = re.compile(r"^sha256:[0-9a-f]{64}$")
 _PROPERTY_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
@@ -135,7 +136,7 @@ class AcpyDocument:
     entities: tuple[Entity, ...]
     schema: str = "agentic-circuit-acpy"
     version: str = "0.1"
-    contract_epoch: str = "0.4"
+    contract_epoch: str = "0.5"
 
     def to_json(self) -> dict[str, JsonValue]:
         return {
@@ -161,9 +162,9 @@ class AcpyDocument:
         if (self.schema, self.version, self.contract_epoch) != (
             "agentic-circuit-acpy",
             "0.1",
-            "0.4",
+            "0.5",
         ):
-            errors.append(self._diagnostic("ACPy schema identity must be epoch 0.4"))
+            errors.append(self._diagnostic("ACPy schema identity must be epoch 0.5"))
 
         expected_ids = [f"e{index}" for index in range(len(self.entities))]
         actual_ids = [entity.id for entity in self.entities]

@@ -270,6 +270,12 @@ llvm::LogicalResult runCustomPipeline(DriverState &state,
   return manager.run(state.module.get());
 }
 
+llvm::LogicalResult runRulePipeline(DriverState &state) {
+  mlir::PassManager manager(&state.context);
+  addRuleLoweringPipeline(manager);
+  return manager.run(state.module.get());
+}
+
 llvm::Error runStage(CompilerStage stage, const CompilerRequest &request,
                      DriverState &state, CompilerResult &result,
                      DiagnosticCapture &capture) {
@@ -292,8 +298,12 @@ llvm::Error runStage(CompilerStage stage, const CompilerRequest &request,
           return compilerFailure(stage, "ACIR-PIPELINE-001", error);
         return capture.takeFailure(stage);
       }
+      if (mlir::failed(runPass(state, createVerifyRuleClosurePass())))
+        return capture.takeFailure(stage);
       return llvm::Error::success();
     }
+    if (mlir::failed(runRulePipeline(state)))
+      return capture.takeFailure(stage);
     if (mlir::failed(runPass(state, createNormalizeACIRFilePass())))
       return capture.takeFailure(stage);
     return llvm::Error::success();
@@ -391,6 +401,15 @@ llvm::Error runStage(CompilerStage stage, const CompilerRequest &request,
                                                                    : "fast";
     build.passPipeline = {
         "acir-verify",
+        "ac-infer-rule-types",
+        "ac-infer-rule-effects",
+        "ac-materialize-rule-checks",
+        "ac-materialize-rule-handshake",
+        "ac-discharge-rule-obligations",
+        "ac-resolve-rule-schedule",
+        "ac-lower-rules-to-firing",
+        "ac-canonicalize-pure-firings",
+        "ac-verify-rule-closure",
         request.customPipeline.value_or("acir-normalize"),
         "acir-freeze",
         "acsim-lower",

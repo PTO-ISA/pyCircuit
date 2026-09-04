@@ -173,6 +173,79 @@ def ACIR_TransformYieldOp : ACIR_Op<"transform.yield", [
   let assemblyFormat = "attr-dict ($values^ `:` type($values))?";
 }
 
+// Transient rule IR.  It is legal only before the rule materialization
+// pipeline and must not survive topology freeze.
+def ACIR_RuleOp : ACIR_Op<"rule", [SingleBlock, RecursiveMemoryEffects]> {
+  let arguments = (ins Variadic<ACIR_QueueType>:$inputs,
+                       DenseI64ArrayAttr:$output_depths,
+                       DenseI64ArrayAttr:$output_latencies,
+                       StrAttr:$name, StrAttr:$stable_id,
+                       StrAttr:$time_domain,
+                       ACIR_TypeConstraintStateAttr:$type_state,
+                       ACIR_ValueFactKindAttr:$input_fact);
+  let results = (outs Variadic<ACIR_QueueType>:$outputs);
+  let regions = (region SizedRegion<1>:$body);
+  let hasVerifier = 1;
+  let assemblyFormat = [{
+    $inputs `depths` $output_depths `latencies` $output_latencies
+    `name` $name `stable_id` $stable_id `domain` $time_domain
+    `type` $type_state `input_fact` $input_fact $body attr-dict `:`
+    functional-type($inputs, $outputs)
+  }];
+}
+
+def ACIR_RuleReturnOp : ACIR_Op<"rule.return", [
+    Pure, Terminator, HasParent<"RuleOp">
+  ]> {
+  let arguments = (ins Variadic<ACIR_VarType>:$values);
+  let assemblyFormat = "attr-dict ($values^ `:` type($values))?";
+}
+
+// The three marker classes are deliberately distinct operations.  They are
+// not an attribute bag: each class has its own state lattice and resolver.
+class ACIR_PureRuleMarkerOp<string mnemonic> : ACIR_Op<mnemonic, [
+    AllTypesMatch<["input", "result"]>, HasParent<"RuleOp">
+  ]> {
+  let arguments = (ins ACIR_VarType:$input);
+  let results = (outs ACIR_VarType:$result);
+}
+
+def ACIR_TypeConstraintMarkerOp : ACIR_PureRuleMarkerOp<"marker.type"> {
+  let arguments = (ins ACIR_VarType:$input,
+                       ACIR_TypeConstraintStateAttr:$state,
+                       ACIR_TypeConstraintKindAttr:$constraint);
+  let hasVerifier = 1;
+  let assemblyFormat = [{
+    $input `state` $state `constraint` $constraint attr-dict `:`
+    qualified(type($result))
+  }];
+}
+
+def ACIR_ValueFactMarkerOp : ACIR_PureRuleMarkerOp<"marker.value"> {
+  let arguments = (ins ACIR_VarType:$input, ACIR_ValueFactKindAttr:$fact,
+                       StrAttr:$identity, StrAttr:$path_predicate);
+  let hasVerifier = 1;
+  let assemblyFormat = [{
+    $input `fact` $fact `identity` $identity `path` $path_predicate
+    attr-dict `:` qualified(type($result))
+  }];
+}
+
+def ACIR_PendingObligationMarkerOp : ACIR_Op<"marker.obligation", [
+    AllTypesMatch<["input", "result"]>, HasParent<"RuleOp">
+  ]> {
+  let arguments = (ins ACIR_VarType:$input, ACIR_ObligationStateAttr:$state,
+                       ACIR_ObligationResolverAttr:$resolver,
+                       StrAttr:$origin, StrAttr:$path_predicate);
+  let results = (outs ACIR_VarType:$result);
+  let hasVerifier = 1;
+  let assemblyFormat = [{
+    $input `state` $state `resolver` $resolver `origin` $origin
+    `path` $path_predicate attr-dict `:`
+    qualified(type($result))
+  }];
+}
+
 def ACIR_SourceOp : ACIR_Op<"source", [
     DeclareOpInterfaceMethods<MemoryEffectsOpInterface>
   ]> {
@@ -597,53 +670,29 @@ def ACIR_ScopeYieldOp : ACIR_Op<"scope.yield", [
 def ACIR_FiringOp : ACIR_Op<"firing", [
     SingleBlock, RecursiveMemoryEffects
   ]> {
-  let arguments = (ins Variadic<ACIR_QueueType>:$queues);
+  let arguments = (ins Variadic<ACIR_QueueType>:$inputs,
+                       DenseI64ArrayAttr:$output_depths,
+                       DenseI64ArrayAttr:$output_latencies,
+                       StrAttr:$stable_id, StrAttr:$time_domain,
+                       StrAttr:$functional_guard, ArrayAttr:$checks,
+                       StrAttr:$handshake, StrAttr:$schedule,
+                       StrArrayAttr:$effects);
+  let results = (outs Variadic<ACIR_QueueType>:$outputs);
   let regions = (region SizedRegion<1>:$body);
   let hasVerifier = 1;
   let assemblyFormat = [{
-    `(` $queues `)` $body attr-dict `:` `(` type($queues) `)`
+    $inputs `depths` $output_depths `latencies` $output_latencies
+    `stable_id` $stable_id `domain` $time_domain `guard` $functional_guard
+    `checks` $checks `handshake` $handshake `schedule` $schedule
+    `effects` $effects $body attr-dict `:` functional-type($inputs, $outputs)
   }];
 }
 
 def ACIR_FiringYieldOp : ACIR_Op<"firing.yield", [
     Pure, Terminator, HasParent<"FiringOp">
   ]> {
-  let assemblyFormat = "attr-dict";
-}
-
-class ACIR_QueueEffectOp<string mnemonic>
-    : ACIR_Op<mnemonic, [
-        HasParent<"FiringOp">,
-        DeclareOpInterfaceMethods<MemoryEffectsOpInterface>
-      ]>;
-
-def ACIR_QueuePeekOp : ACIR_QueueEffectOp<"queue.peek"> {
-  let arguments = (ins ACIR_QueueType:$queue);
-  let results = (outs ACIR_VarType:$value);
-  let hasVerifier = 1;
-  let assemblyFormat = [{
-    $queue attr-dict `:` qualified(type($queue)) `->`
-    qualified(type($value))
-  }];
-}
-
-def ACIR_QueuePopOp : ACIR_QueueEffectOp<"queue.pop"> {
-  let arguments = (ins ACIR_QueueType:$queue);
-  let results = (outs ACIR_VarType:$value);
-  let hasVerifier = 1;
-  let assemblyFormat = [{
-    $queue attr-dict `:` qualified(type($queue)) `->`
-    qualified(type($value))
-  }];
-}
-
-def ACIR_QueuePushOp : ACIR_QueueEffectOp<"queue.push"> {
-  let arguments = (ins ACIR_QueueType:$queue, ACIR_VarType:$value);
-  let hasVerifier = 1;
-  let assemblyFormat = [{
-    $queue `,` $value attr-dict `:` qualified(type($queue)) `,`
-    qualified(type($value))
-  }];
+  let arguments = (ins Variadic<ACIR_VarType>:$values);
+  let assemblyFormat = "attr-dict ($values^ `:` type($values))?";
 }
 
 def ACIR_InterfaceOp : ACIR_Op<"interface", [

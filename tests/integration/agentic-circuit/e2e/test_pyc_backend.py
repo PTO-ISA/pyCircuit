@@ -3,12 +3,13 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
+import runpy
 import shutil
 import subprocess
 import tempfile
 import unittest
 
-from agentic_circuit._queue_frontend import lower_queue_source
+from agentic_circuit._queue_frontend import RULE_LOWERING_PIPELINE, lower_queue_source
 
 
 ROOT = Path(__file__).resolve().parents[4]
@@ -22,9 +23,7 @@ STRUCT_EXAMPLE = (
 ROUTE_EXAMPLE = (
     ROOT / "examples/agentic-circuit" / "pipelines" / "pyc_route_merge_pipeline.py"
 )
-ATOMIC_EXAMPLE = (
-    ROOT / "examples/agentic-circuit" / "pipelines" / "pyc_atomic_pipeline.py"
-)
+RULE_ROB_EXAMPLE = ROOT / "examples/agentic-circuit" / "state" / "rob.py"
 REORDER_EXAMPLE = (
     ROOT / "examples/agentic-circuit" / "pipelines" / "pyc_reorder_pipeline.py"
 )
@@ -406,7 +405,7 @@ int main() {{
             self.assertIn("pyc.eq", pyc)
             self.assertIn("pyc.fifo", pyc)
             manifest = json.loads((output / "manifest.json").read_text())
-            self.assertEqual("0.4", manifest["contract_epoch"])
+            self.assertEqual("0.5", manifest["contract_epoch"])
             verilog = "\n".join(
                 path.read_text(encoding="utf-8")
                 for path in sorted((output / "verilog").glob("*.v"))
@@ -478,20 +477,27 @@ int main() {{
             )
             self.assertEqual(0, completed.returncode, completed.stderr)
             manifest = json.loads((output / "manifest.json").read_text())
-            self.assertEqual("0.4", manifest["contract_epoch"])
+            self.assertEqual("0.5", manifest["contract_epoch"])
             pyc = (output / "model.pyc").read_text(encoding="utf-8")
             self.assertEqual(3, pyc.count("pyc.reg"))
             self.assertIn("%out0_ready", pyc)
             self.assertIn("%out1_ready", pyc)
 
-    def test_atomic_multi_queue_firing_builds_pyc_and_verilog(self) -> None:
+    def test_rule_retirement_builds_pyc_and_verilog(self) -> None:
         toolchain = Path(os.environ.get("PYC_TOOLCHAIN_ROOT", DEFAULT_TOOLCHAIN))
         pycc = toolchain / "bin" / "pycc"
         metadata = toolchain / "share" / "pycircuit" / "toolchain-metadata.json"
+        pycgen = Path(
+            os.environ.get(
+                "ACIR_QUEUE_PYCGEN",
+                ROOT / ".pycircuit_out/acir/dev-llvm22/bin/acir-queue-pycgen",
+            )
+        )
         cxx = shutil.which("c++")
         verilator = shutil.which("verilator")
         if (
             not pycc.is_file()
+            or not pycgen.is_file()
             or not metadata.is_file()
             or cxx is None
             or verilator is None
@@ -499,66 +505,107 @@ int main() {{
             self.skipTest(
                 "pinned pyCircuit toolchain, C++, or Verilator is unavailable"
             )
-        source = ATOMIC_EXAMPLE.read_text(encoding="utf-8")
+        specialization = runpy.run_path(str(RULE_ROB_EXAMPLE))["specialization"]
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            raw = root / "atomic.raw.ac.mlir"
-            frozen = root / "atomic.frozen.ac.mlir"
-            output = root / "output"
-            raw.write_text(
-                lower_queue_source(source, "pyc_atomic_pipeline"),
+            artifact = specialization.materialize_pyc(
+                root,
+                pycgen_tool=pycgen,
+                pycc=pycc,
+                toolchain_metadata=metadata,
+                compiler=cxx,
+                verilator=verilator,
+            )
+            self.assertFalse(artifact.cache_hit)
+            pyc = artifact.pyc.read_text(encoding="utf-8")
+            self.assertIn("%in_valid", pyc)
+            self.assertIn("%out_ready", pyc)
+            self.assertIn('result_names = ["out_valid", "out_data", "in_ready"]', pyc)
+
+            harness = artifact.cpp / "rule_rob_harness.cpp"
+            executable = artifact.cpp / "rule_rob_harness"
+            harness.write_text(
+                '''#include "rob.hpp"
+#include <array>
+#include <cstddef>
+#include <cstdint>
+#include <cpp/pyc_tb.hpp>
+
+using pyc::cpp::Testbench;
+
+int main() {
+  pyc::gen::rob dut;
+  Testbench<pyc::gen::rob> tb(dut);
+  tb.addClock(dut.clk, 1, 0, false);
+  dut.in_valid = pyc::cpp::Wire<1>({0});
+  dut.out_ready = pyc::cpp::Wire<1>({1});
+  tb.reset(dut.rst, 2, 1);
+
+  const std::array<std::uint64_t, 3> input{
+      (2ull << 17) | (20ull << 1),
+      (0ull << 17) | (10ull << 1),
+      (1ull << 17) | (15ull << 1),
+  };
+  const std::array<unsigned, 3> expected_values{10, 15, 20};
+  std::size_t offered = 0;
+  std::size_t retired = 0;
+  for (std::uint64_t cycle = 0; cycle < 64 && retired < 3; ++cycle) {
+    if (offered < input.size()) {
+      dut.in_valid = pyc::cpp::Wire<1>({1});
+      dut.in_data = pyc::cpp::Wire<21>({input[offered]});
+    } else {
+      dut.in_valid = pyc::cpp::Wire<1>({0});
+    }
+    dut.out_ready = pyc::cpp::Wire<1>({1});
+    tb.runCycleAutoTrace(cycle, nullptr);
+    if (dut.in_valid.value() && dut.in_ready.value())
+      ++offered;
+    if (dut.out_valid.value() && dut.out_ready.value()) {
+      const std::uint64_t value = dut.out_data.value();
+      const unsigned sequence = static_cast<unsigned>((value >> 17) & 0xf);
+      const unsigned payload = static_cast<unsigned>((value >> 1) & 0xffff);
+      const bool done = (value & 1) != 0;
+      if (sequence != retired || payload != expected_values[retired] || !done)
+        return 2;
+      ++retired;
+    }
+  }
+  return offered == input.size() && retired == input.size() ? 0 : 3;
+}
+''',
                 encoding="utf-8",
             )
-            optimized = subprocess.run(
-                (
-                    str(ROOT / ".pycircuit_out/acir/dev-llvm22/bin/acir-opt"),
-                    "--canonicalize",
-                    "--cse",
-                    str(raw),
-                ),
-                text=True,
-                capture_output=True,
-                check=False,
+            sources = sorted(
+                path
+                for path in artifact.cpp.glob("rob*.cpp")
+                if path != harness
             )
-            self.assertEqual(0, optimized.returncode, optimized.stderr)
-            frozen.write_text(optimized.stdout, encoding="utf-8")
-            completed = subprocess.run(
+            linked = subprocess.run(
                 (
-                    str(ROOT / "compiler/acir/tools/ac-queue-pyc-build.py"),
-                    str(frozen),
-                    "--pycgen-tool",
-                    str(ROOT / ".pycircuit_out/acir/dev-llvm22/bin/acir-queue-pycgen"),
-                    "--pycc",
-                    str(pycc),
-                    "--toolchain-lock",
-                    str(ROOT / "toolchains/agentic-circuit/pyc.lock.json"),
-                    "--toolchain-metadata",
-                    str(metadata),
-                    "--cxx",
                     cxx,
-                    "--verilator",
-                    verilator,
-                    "--pyc-output",
-                    str(output / "model.pyc"),
-                    "--cpp-output-dir",
-                    str(output / "cpp"),
-                    "--verilog-output-dir",
-                    str(output / "verilog"),
-                    "--manifest",
-                    str(output / "manifest.json"),
+                    "-std=c++20",
+                    "-I",
+                    str(artifact.cpp),
+                    "-I",
+                    str(toolchain / "include"),
+                    str(harness),
+                    *(str(path) for path in sources),
+                    str(toolchain / "lib/libpyc6_runtime.a"),
+                    "-o",
+                    str(executable),
                 ),
-                cwd=ROOT,
                 text=True,
                 capture_output=True,
                 check=False,
             )
-            self.assertEqual(0, completed.returncode, completed.stderr)
-            pyc = (output / "model.pyc").read_text(encoding="utf-8")
-            self.assertIn("%in0_valid", pyc)
-            self.assertIn("%in1_valid", pyc)
-            self.assertIn("%out0_ready", pyc)
-            self.assertIn("%out1_ready", pyc)
-            self.assertIn('result_names = ["out0_valid"', pyc)
+            self.assertEqual(0, linked.returncode, linked.stderr)
+            executed = subprocess.run(
+                (str(executable),),
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(0, executed.returncode, executed.stderr)
 
     def test_dependency_is_cycle_equivalent_in_pyc_cpp_and_verilog(self) -> None:
         toolchain = Path(os.environ.get("PYC_TOOLCHAIN_ROOT", DEFAULT_TOOLCHAIN))

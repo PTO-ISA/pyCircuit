@@ -8,7 +8,7 @@
   "properties": {
     "schema": {"const": "agentic-circuit-acpy"},
     "version": {"const": "0.1"},
-    "contract_epoch": {"const": "0.4"},
+    "contract_epoch": {"const": "0.5"},
     "entry": {"$ref": "#/$defs/entityId"},
     "sources": {"type": "array", "items": {"$ref": "#/$defs/sourceFile"}},
     "entities": {"type": "array", "items": {"$ref": "#/$defs/entity"}}
@@ -61,7 +61,7 @@
       "required": ["id", "kind", "source", "parent", "scope", "type", "definition", "uses", "schema_ref", "properties"],
       "properties": {
         "id": {"$ref": "#/$defs/entityId"},
-        "kind": {"enum": ["system", "module", "scope", "arg", "call", "result", "get_result", "bind", "static_if", "static_for", "collection", "get_static", "return", "capture", "escape", "process"]},
+        "kind": {"enum": ["system", "module", "scope", "arg", "call", "result", "get_result", "bind", "static_if", "static_for", "collection", "get_static", "return", "capture", "escape", "process", "rule"]},
         "source": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/sourceSpan"}]},
         "parent": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/entityId"}]},
         "scope": {"type": "string", "minLength": 1},

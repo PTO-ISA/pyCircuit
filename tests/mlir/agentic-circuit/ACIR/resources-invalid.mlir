@@ -33,7 +33,7 @@
 // RUN: %not %acir_opt %t/per-key-no-correlation.mlir 2>&1 | %FileCheck %s --check-prefix=PER-KEY-CORRELATION
 
 //--- queue-zero.mlir
-builtin.module attributes {ac.contract_epoch = "0.4"} {
+builtin.module attributes {ac.contract_epoch = "0.5"} {
   "ac.module"() <{sym_name = "M", function_type = () -> (), static_params = {}}> ({
     "ac.queue"() <{sym_name = "q", stable_id = "q", path = "q", payload = i32, entry_capacity = 0 : i64, ordering = "fifo", protocol = @p, ownership = "exclusive", delay_ticks = 1 : i64}> : () -> ()
     "ac.return"() : () -> ()
@@ -42,7 +42,7 @@ builtin.module attributes {ac.contract_epoch = "0.4"} {
 // QUEUE-ZERO: entry capacity must be positive
 
 //--- queue-watermarks.mlir
-builtin.module attributes {ac.contract_epoch = "0.4"} {
+builtin.module attributes {ac.contract_epoch = "0.5"} {
   "ac.module"() <{sym_name = "M", function_type = () -> (), static_params = {}}> ({
     "ac.queue"() <{sym_name = "q", stable_id = "q", path = "q", payload = i32, entry_capacity = 8 : i64, ordering = "fifo", protocol = @p, ownership = "exclusive", watermarks = {low = 7 : i64, high = 7 : i64}, delay_ticks = 1 : i64}> : () -> ()
     "ac.return"() : () -> ()
@@ -51,7 +51,7 @@ builtin.module attributes {ac.contract_epoch = "0.4"} {
 // WATERMARKS: watermarks require 0 <= low < high <= entry capacity
 
 //--- queue-protocol.mlir
-builtin.module attributes {ac.contract_epoch = "0.4"} {
+builtin.module attributes {ac.contract_epoch = "0.5"} {
   "ac.module"() <{sym_name = "M", function_type = () -> (), static_params = {}}> ({
     "ac.queue"() <{sym_name = "q", stable_id = "q", path = "q", payload = i32, entry_capacity = 8 : i64, ordering = "fifo", protocol = @missing, ownership = "exclusive", delay_ticks = 1 : i64}> : () -> ()
     "ac.return"() : () -> ()
@@ -60,7 +60,7 @@ builtin.module attributes {ac.contract_epoch = "0.4"} {
 // PROTOCOL: endpoint protocol '@missing' is unresolved
 
 //--- event-unstable.mlir
-builtin.module attributes {ac.contract_epoch = "0.4"} {
+builtin.module attributes {ac.contract_epoch = "0.5"} {
   "ac.module"() <{sym_name = "M", function_type = () -> (), static_params = {}}> ({
     "ac.event_queue"() <{sym_name = "e", stable_id = "e", path = "e", payload = !ac.event<i32>, capacity = 4 : i64, ordering = "time_only", time_domain = @clock, delay_ticks = 1 : i64}> : () -> ()
     "ac.return"() : () -> ()
@@ -69,7 +69,7 @@ builtin.module attributes {ac.contract_epoch = "0.4"} {
 // EVENT-ORDER: ordering must be exactly 'time_then_sequence'
 
 //--- event-domain.mlir
-builtin.module attributes {ac.contract_epoch = "0.4"} {
+builtin.module attributes {ac.contract_epoch = "0.5"} {
   "ac.module"() <{sym_name = "M", function_type = () -> (), static_params = {}}> ({
     "ac.event_queue"() <{sym_name = "e", stable_id = "e", path = "e", payload = !ac.event<i32>, capacity = 4 : i64, ordering = "time_then_sequence", time_domain = @clock, delay_ticks = 1 : i64}> : () -> ()
     "ac.return"() : () -> ()
@@ -78,7 +78,7 @@ builtin.module attributes {ac.contract_epoch = "0.4"} {
 // DOMAIN: time domain '@clock' is unresolved
 
 //--- resource-width.mlir
-builtin.module attributes {ac.contract_epoch = "0.4"} {
+builtin.module attributes {ac.contract_epoch = "0.5"} {
   "ac.module"() <{sym_name = "M", function_type = () -> (), static_params = {}}> ({
     "ac.resource"() <{sym_name = "r", stable_id = "r", path = "r", capacity = 2 : i64, issue_width = 3 : i64, initiation_interval = 1 : i64, latency_model = {kind = "fixed", ticks = 1 : i64}, lifecycle = {reservation = "propose_commit", release = "balanced", cancellation = "explicit"}, ownership = "exclusive", transaction_classes = [], delay_ticks = 1 : i64}> : () -> ()
     "ac.return"() : () -> ()
@@ -87,7 +87,7 @@ builtin.module attributes {ac.contract_epoch = "0.4"} {
 // ISSUE: issue width must be in [1, capacity]
 
 //--- resource-ii.mlir
-builtin.module attributes {ac.contract_epoch = "0.4"} {
+builtin.module attributes {ac.contract_epoch = "0.5"} {
   "ac.module"() <{sym_name = "M", function_type = () -> (), static_params = {}}> ({
     "ac.resource"() <{sym_name = "r", stable_id = "r", path = "r", capacity = 2 : i64, issue_width = 1 : i64, initiation_interval = 0 : i64, latency_model = {kind = "fixed", ticks = 1 : i64}, lifecycle = {reservation = "propose_commit", release = "balanced", cancellation = "explicit"}, ownership = "exclusive", transaction_classes = [], delay_ticks = 1 : i64}> : () -> ()
     "ac.return"() : () -> ()
@@ -96,7 +96,7 @@ builtin.module attributes {ac.contract_epoch = "0.4"} {
 // II: initiation interval must be at least one global tick
 
 //--- resource-latency.mlir
-builtin.module attributes {ac.contract_epoch = "0.4"} {
+builtin.module attributes {ac.contract_epoch = "0.5"} {
   "ac.module"() <{sym_name = "M", function_type = () -> (), static_params = {}}> ({
     "ac.resource"() <{sym_name = "r", stable_id = "r", path = "r", capacity = 2 : i64, issue_width = 1 : i64, initiation_interval = 1 : i64, latency_model = {kind = "fixed", ticks = 0 : i64}, lifecycle = {reservation = "propose_commit", release = "balanced", cancellation = "explicit"}, ownership = "exclusive", transaction_classes = [], delay_ticks = 1 : i64}> : () -> ()
     "ac.return"() : () -> ()
@@ -105,7 +105,7 @@ builtin.module attributes {ac.contract_epoch = "0.4"} {
 // LATENCY: fixed latency ticks must be positive
 
 //--- resource-lifecycle.mlir
-builtin.module attributes {ac.contract_epoch = "0.4"} {
+builtin.module attributes {ac.contract_epoch = "0.5"} {
   "ac.module"() <{sym_name = "M", function_type = () -> (), static_params = {}}> ({
     "ac.resource"() <{sym_name = "r", stable_id = "r", path = "r", capacity = 2 : i64, issue_width = 1 : i64, initiation_interval = 1 : i64, latency_model = {kind = "fixed", ticks = 1 : i64}, lifecycle = {reservation = "eager", release = "balanced", cancellation = "explicit"}, ownership = "exclusive", transaction_classes = [], delay_ticks = 1 : i64}> : () -> ()
     "ac.return"() : () -> ()
@@ -114,7 +114,7 @@ builtin.module attributes {ac.contract_epoch = "0.4"} {
 // LIFECYCLE: lifecycle requires exact reservation/release/cancellation schema
 
 //--- resource-arbiter.mlir
-builtin.module attributes {ac.contract_epoch = "0.4"} {
+builtin.module attributes {ac.contract_epoch = "0.5"} {
   "ac.module"() <{sym_name = "M", function_type = () -> (), static_params = {}}> ({
     "ac.resource"() <{sym_name = "r", stable_id = "r", path = "r", capacity = 2 : i64, issue_width = 1 : i64, initiation_interval = 1 : i64, latency_model = {kind = "fixed", ticks = 1 : i64}, lifecycle = {reservation = "propose_commit", release = "balanced", cancellation = "explicit"}, ownership = "shared", transaction_classes = [], delay_ticks = 1 : i64}> : () -> ()
     "ac.return"() : () -> ()
@@ -123,7 +123,7 @@ builtin.module attributes {ac.contract_epoch = "0.4"} {
 // ARBITER: shared or contested resource requires one arbitration owner
 
 //--- resource-class.mlir
-builtin.module attributes {ac.contract_epoch = "0.4"} {
+builtin.module attributes {ac.contract_epoch = "0.5"} {
   "ac.module"() <{sym_name = "M", function_type = () -> (), static_params = {}}> ({
     "ac.resource"() <{sym_name = "r", stable_id = "r", path = "r", capacity = 2 : i64, issue_width = 1 : i64, initiation_interval = 1 : i64, latency_model = {kind = "fixed", ticks = 1 : i64}, lifecycle = {reservation = "propose_commit", release = "balanced", cancellation = "explicit"}, ownership = "exclusive", transaction_classes = [@missing], delay_ticks = 1 : i64}> : () -> ()
     "ac.return"() : () -> ()
@@ -132,7 +132,7 @@ builtin.module attributes {ac.contract_epoch = "0.4"} {
 // CLASS: transaction class '@missing' is unresolved
 
 //--- duplicate-owner.mlir
-builtin.module attributes {ac.contract_epoch = "0.4"} {
+builtin.module attributes {ac.contract_epoch = "0.5"} {
   "ac.module"() <{sym_name = "M", function_type = () -> (), static_params = {}}> ({
     "ac.resource"() <{sym_name = "a", stable_id = "same", path = "a", capacity = 1 : i64, issue_width = 1 : i64, initiation_interval = 1 : i64, latency_model = {kind = "fixed", ticks = 1 : i64}, lifecycle = {reservation = "propose_commit", release = "balanced", cancellation = "explicit"}, ownership = "exclusive", transaction_classes = [], delay_ticks = 1 : i64}> : () -> ()
     "ac.resource"() <{sym_name = "b", stable_id = "same", path = "b", capacity = 1 : i64, issue_width = 1 : i64, initiation_interval = 1 : i64, latency_model = {kind = "fixed", ticks = 1 : i64}, lifecycle = {reservation = "propose_commit", release = "balanced", cancellation = "explicit"}, ownership = "exclusive", transaction_classes = [], delay_ticks = 1 : i64}> : () -> ()
@@ -142,13 +142,13 @@ builtin.module attributes {ac.contract_epoch = "0.4"} {
 // OWNER: duplicate local structural stable id 'same'
 
 //--- orphan.mlir
-builtin.module attributes {ac.contract_epoch = "0.4"} {
+builtin.module attributes {ac.contract_epoch = "0.5"} {
   "ac.queue"() <{sym_name = "q", stable_id = "q", path = "q", payload = i32, entry_capacity = 1 : i64, ordering = "fifo", protocol = @p, ownership = "exclusive", delay_ticks = 1 : i64}> : () -> ()
 }
 // PLACEMENT: must be a direct child of the unique ac.module Graph block
 
 //--- queue-bytes.mlir
-builtin.module attributes {ac.contract_epoch = "0.4"} {
+builtin.module attributes {ac.contract_epoch = "0.5"} {
   "ac.module"() <{sym_name = "M", function_type = () -> (), static_params = {}}> ({
     "ac.queue"() <{sym_name = "q", stable_id = "q", path = "q", payload = i32, entry_capacity = 1 : i64, byte_capacity = -1 : i64, ordering = "fifo", protocol = @p, ownership = "exclusive", delay_ticks = 1 : i64}> : () -> ()
     "ac.return"() : () -> ()
@@ -157,7 +157,7 @@ builtin.module attributes {ac.contract_epoch = "0.4"} {
 // BYTES: byte capacity must be positive when present
 
 //--- queue-order.mlir
-builtin.module attributes {ac.contract_epoch = "0.4"} {
+builtin.module attributes {ac.contract_epoch = "0.5"} {
   "ac.module"() <{sym_name = "M", function_type = () -> (), static_params = {}}> ({
     "ac.queue"() <{sym_name = "q", stable_id = "q", path = "q", payload = i32, entry_capacity = 1 : i64, ordering = "unordered", protocol = @p, ownership = "exclusive", delay_ticks = 1 : i64}> : () -> ()
     "ac.return"() : () -> ()
@@ -166,7 +166,7 @@ builtin.module attributes {ac.contract_epoch = "0.4"} {
 // QUEUE-ORDER: ordering must be 'fifo' or 'per_key'
 
 //--- queue-owner.mlir
-builtin.module attributes {ac.contract_epoch = "0.4"} {
+builtin.module attributes {ac.contract_epoch = "0.5"} {
   "ac.module"() <{sym_name = "M", function_type = () -> (), static_params = {}}> ({
     "ac.queue"() <{sym_name = "q", stable_id = "q", path = "q", payload = i32, entry_capacity = 1 : i64, ordering = "fifo", protocol = @p, ownership = "shared", delay_ticks = 1 : i64}> : () -> ()
     "ac.return"() : () -> ()
@@ -175,7 +175,7 @@ builtin.module attributes {ac.contract_epoch = "0.4"} {
 // QUEUE-OWNER: queue ownership must be exactly 'exclusive'
 
 //--- queue-payload.mlir
-builtin.module attributes {ac.contract_epoch = "0.4"} {
+builtin.module attributes {ac.contract_epoch = "0.5"} {
   "ac.module"() <{sym_name = "M", function_type = () -> (), static_params = {}}> ({
     "ac.queue"() <{sym_name = "q", stable_id = "q", path = "q", payload = !ac.endpoint<@I, @r>, entry_capacity = 1 : i64, ordering = "fifo", protocol = @p, ownership = "exclusive", delay_ticks = 1 : i64}> : () -> ()
     "ac.return"() : () -> ()
@@ -184,7 +184,7 @@ builtin.module attributes {ac.contract_epoch = "0.4"} {
 // QUEUE-PAYLOAD: queue payload must be a normative ACIR value type
 
 //--- owner-segment.mlir
-builtin.module attributes {ac.contract_epoch = "0.4"} {
+builtin.module attributes {ac.contract_epoch = "0.5"} {
   "ac.module"() <{sym_name = "M", function_type = () -> (), static_params = {}}> ({
     "ac.resource"() <{sym_name = "bad.name", stable_id = "r", path = "r", capacity = 1 : i64, issue_width = 1 : i64, initiation_interval = 1 : i64, latency_model = {kind = "fixed", ticks = 1 : i64}, lifecycle = {reservation = "propose_commit", release = "balanced", cancellation = "explicit"}, ownership = "exclusive", transaction_classes = [], delay_ticks = 1 : i64}> : () -> ()
     "ac.return"() : () -> ()
@@ -193,7 +193,7 @@ builtin.module attributes {ac.contract_epoch = "0.4"} {
 // OWNER-SEGMENT: owner name, stable id, and path must be stable local segments
 
 //--- delay.mlir
-builtin.module attributes {ac.contract_epoch = "0.4"} {
+builtin.module attributes {ac.contract_epoch = "0.5"} {
   "ac.module"() <{sym_name = "M", function_type = () -> (), static_params = {}}> ({
     "ac.resource"() <{sym_name = "r", stable_id = "r", path = "r", capacity = 1 : i64, issue_width = 1 : i64, initiation_interval = 1 : i64, latency_model = {kind = "fixed", ticks = 1 : i64}, lifecycle = {reservation = "propose_commit", release = "balanced", cancellation = "explicit"}, ownership = "exclusive", transaction_classes = [], delay_ticks = 0 : i64}> : () -> ()
     "ac.return"() : () -> ()
@@ -202,7 +202,7 @@ builtin.module attributes {ac.contract_epoch = "0.4"} {
 // DELAY: stateful declaration delay_ticks must be exactly one positive tick
 
 //--- event-capacity.mlir
-builtin.module attributes {ac.contract_epoch = "0.4"} {
+builtin.module attributes {ac.contract_epoch = "0.5"} {
   "ac.module"() <{sym_name = "M", function_type = () -> (), static_params = {}}> ({
     "ac.event_queue"() <{sym_name = "e", stable_id = "e", path = "e", payload = !ac.event<i32>, capacity = -1 : i64, ordering = "time_then_sequence", time_domain = @clock, delay_ticks = 1 : i64}> : () -> ()
     "ac.return"() : () -> ()
@@ -211,7 +211,7 @@ builtin.module attributes {ac.contract_epoch = "0.4"} {
 // EVENT-CAPACITY: event queue capacity must be positive
 
 //--- event-payload.mlir
-builtin.module attributes {ac.contract_epoch = "0.4"} {
+builtin.module attributes {ac.contract_epoch = "0.5"} {
   "ac.module"() <{sym_name = "M", function_type = () -> (), static_params = {}}> ({
     "ac.event_queue"() <{sym_name = "e", stable_id = "e", path = "e", payload = i32, capacity = 1 : i64, ordering = "time_then_sequence", time_domain = @clock, delay_ticks = 1 : i64}> : () -> ()
     "ac.return"() : () -> ()
@@ -220,7 +220,7 @@ builtin.module attributes {ac.contract_epoch = "0.4"} {
 // EVENT-PAYLOAD: event queue payload must be an exact !ac.event type
 
 //--- resource-capacity.mlir
-builtin.module attributes {ac.contract_epoch = "0.4"} {
+builtin.module attributes {ac.contract_epoch = "0.5"} {
   "ac.module"() <{sym_name = "M", function_type = () -> (), static_params = {}}> ({
     "ac.resource"() <{sym_name = "r", stable_id = "r", path = "r", capacity = -1 : i64, issue_width = 1 : i64, initiation_interval = 1 : i64, latency_model = {kind = "fixed", ticks = 1 : i64}, lifecycle = {reservation = "propose_commit", release = "balanced", cancellation = "explicit"}, ownership = "exclusive", transaction_classes = [], delay_ticks = 1 : i64}> : () -> ()
     "ac.return"() : () -> ()
@@ -229,7 +229,7 @@ builtin.module attributes {ac.contract_epoch = "0.4"} {
 // RESOURCE-CAPACITY: resource capacity must be positive
 
 //--- resource-kind.mlir
-builtin.module attributes {ac.contract_epoch = "0.4"} {
+builtin.module attributes {ac.contract_epoch = "0.5"} {
   "ac.module"() <{sym_name = "M", function_type = () -> (), static_params = {}}> ({
     "ac.resource"() <{sym_name = "r", stable_id = "r", path = "r", capacity = 1 : i64, issue_width = 1 : i64, initiation_interval = 1 : i64, latency_model = {kind = "dynamic"}, lifecycle = {reservation = "propose_commit", release = "balanced", cancellation = "explicit"}, ownership = "exclusive", transaction_classes = [], delay_ticks = 1 : i64}> : () -> ()
     "ac.return"() : () -> ()
@@ -238,7 +238,7 @@ builtin.module attributes {ac.contract_epoch = "0.4"} {
 // RESOURCE-KIND: latency model kind must be 'fixed' or 'symbol'
 
 //--- resource-symbol-latency.mlir
-builtin.module attributes {ac.contract_epoch = "0.4"} {
+builtin.module attributes {ac.contract_epoch = "0.5"} {
   "ac.module"() <{sym_name = "M", function_type = () -> (), static_params = {}}> ({
     "ac.resource"() <{sym_name = "r", stable_id = "r", path = "r", capacity = 1 : i64, issue_width = 1 : i64, initiation_interval = 1 : i64, latency_model = {kind = "symbol", ref = @missing}, lifecycle = {reservation = "propose_commit", release = "balanced", cancellation = "explicit"}, ownership = "exclusive", transaction_classes = [], delay_ticks = 1 : i64}> : () -> ()
     "ac.return"() : () -> ()
@@ -247,7 +247,7 @@ builtin.module attributes {ac.contract_epoch = "0.4"} {
 // SYMBOL-LATENCY: symbol latency model reference is unresolved
 
 //--- resource-ownership.mlir
-builtin.module attributes {ac.contract_epoch = "0.4"} {
+builtin.module attributes {ac.contract_epoch = "0.5"} {
   "ac.module"() <{sym_name = "M", function_type = () -> (), static_params = {}}> ({
     "ac.resource"() <{sym_name = "r", stable_id = "r", path = "r", capacity = 1 : i64, issue_width = 1 : i64, initiation_interval = 1 : i64, latency_model = {kind = "fixed", ticks = 1 : i64}, lifecycle = {reservation = "propose_commit", release = "balanced", cancellation = "explicit"}, ownership = "public", transaction_classes = [], delay_ticks = 1 : i64}> : () -> ()
     "ac.return"() : () -> ()
@@ -256,7 +256,7 @@ builtin.module attributes {ac.contract_epoch = "0.4"} {
 // RESOURCE-OWNERSHIP: resource ownership must be exclusive, shared, or contested
 
 //--- exclusive-arbiter.mlir
-builtin.module attributes {ac.contract_epoch = "0.4"} {
+builtin.module attributes {ac.contract_epoch = "0.5"} {
   "ac.module"() <{sym_name = "M", function_type = () -> (), static_params = {}}> ({
     "ac.resource"() <{sym_name = "r", stable_id = "r", path = "r", capacity = 1 : i64, issue_width = 1 : i64, initiation_interval = 1 : i64, latency_model = {kind = "fixed", ticks = 1 : i64}, lifecycle = {reservation = "propose_commit", release = "balanced", cancellation = "explicit"}, ownership = "exclusive", arbitration_owner = @x, transaction_classes = [], delay_ticks = 1 : i64}> : () -> ()
     "ac.return"() : () -> ()
@@ -265,7 +265,7 @@ builtin.module attributes {ac.contract_epoch = "0.4"} {
 // EXCLUSIVE-ARBITER: exclusive resource cannot declare an arbitration owner
 
 //--- duplicate-class.mlir
-builtin.module attributes {ac.contract_epoch = "0.4"} {
+builtin.module attributes {ac.contract_epoch = "0.5"} {
   "ac.type_scope"() <{sym_name = "types"}> ({
     "ac.transaction"() <{sym_name = "T", fields = []}> : () -> ()
   }) : () -> ()
@@ -277,7 +277,7 @@ builtin.module attributes {ac.contract_epoch = "0.4"} {
 // DUPLICATE-CLASS: duplicate transaction class
 
 //--- queue-schema.mlir
-builtin.module attributes {ac.contract_epoch = "0.4"} {
+builtin.module attributes {ac.contract_epoch = "0.5"} {
   "ac.protocol"() <{sym_name = "p"}> ({
     "ac.role"() <{sym_name = "a", dual = @b, cardinality = "exclusive"}> : () -> ()
     "ac.role"() <{sym_name = "b", dual = @a, cardinality = "exclusive"}> : () -> ()
@@ -295,7 +295,7 @@ builtin.module attributes {ac.contract_epoch = "0.4"} {
 // QUEUE-SCHEMA: queue payload does not match endpoint protocol schema
 
 //--- resource-latency-schema.mlir
-builtin.module attributes {ac.contract_epoch = "0.4"} {
+builtin.module attributes {ac.contract_epoch = "0.5"} {
   "ac.module"() <{sym_name = "M", function_type = () -> (), static_params = {}}> ({
     "ac.resource"() <{sym_name = "r", stable_id = "r", path = "r", capacity = 1 : i64, issue_width = 1 : i64, initiation_interval = 1 : i64, latency_model = {kind = "fixed", ticks = 1 : i64, extra = true}, lifecycle = {reservation = "propose_commit", release = "balanced", cancellation = "explicit"}, ownership = "exclusive", transaction_classes = [], delay_ticks = 1 : i64}> : () -> ()
     "ac.return"() : () -> ()
@@ -304,7 +304,7 @@ builtin.module attributes {ac.contract_epoch = "0.4"} {
 // LATENCY-SCHEMA: fixed latency model requires exact kind/ticks schema
 
 //--- resource-arbiter-kind.mlir
-builtin.module attributes {ac.contract_epoch = "0.4"} {
+builtin.module attributes {ac.contract_epoch = "0.5"} {
   "ac.module"() <{sym_name = "M", function_type = () -> (), static_params = {}}> ({
     "ac.time_domain"() <{sym_name = "clock", period = 1 : i64, phase = 0 : i64, tick_scale = 1 : i64}> : () -> ()
     "ac.resource"() <{sym_name = "r", stable_id = "r", path = "r", capacity = 1 : i64, issue_width = 1 : i64, initiation_interval = 1 : i64, latency_model = {kind = "fixed", ticks = 1 : i64}, lifecycle = {reservation = "propose_commit", release = "balanced", cancellation = "explicit"}, ownership = "shared", arbitration_owner = @clock, transaction_classes = [], delay_ticks = 1 : i64}> : () -> ()
@@ -314,7 +314,7 @@ builtin.module attributes {ac.contract_epoch = "0.4"} {
 // ARBITER-KIND: arbitration owner '@clock' is unresolved
 
 //--- fifo-weakened.mlir
-builtin.module attributes {ac.contract_epoch = "0.4"} {
+builtin.module attributes {ac.contract_epoch = "0.5"} {
   "ac.protocol"() <{sym_name = "p"}> ({
     "ac.role"() <{sym_name = "a", dual = @b, cardinality = "exclusive"}> : () -> ()
     "ac.role"() <{sym_name = "b", dual = @a, cardinality = "exclusive"}> : () -> ()
@@ -331,7 +331,7 @@ builtin.module attributes {ac.contract_epoch = "0.4"} {
 // FIFO-WEAKENED: queue ordering 'per_key' weakens protocol ordering 'fifo'
 
 //--- per-key-no-correlation.mlir
-builtin.module attributes {ac.contract_epoch = "0.4"} {
+builtin.module attributes {ac.contract_epoch = "0.5"} {
   "ac.protocol"() <{sym_name = "p"}> ({
     "ac.role"() <{sym_name = "a", dual = @b, cardinality = "exclusive"}> : () -> ()
     "ac.role"() <{sym_name = "b", dual = @a, cardinality = "exclusive"}> : () -> ()

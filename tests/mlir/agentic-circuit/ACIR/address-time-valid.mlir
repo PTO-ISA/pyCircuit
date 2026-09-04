@@ -1,7 +1,7 @@
 // RUN: %acir_opt_public %s | %FileCheck %s
 // RUN: %acir_opt_public %s | %acir_opt_public | %FileCheck %s
 
-builtin.module attributes {ac.contract_epoch = "0.4"} {
+builtin.module attributes {ac.contract_epoch = "0.5"} {
   ac.module @Bridge() parameters {} graph { ac.return }
   ac.module @Top() parameters {} graph {
     ac.instance @cdc of @Bridge() static {} id "cdc" path "cdc" : () -> ()

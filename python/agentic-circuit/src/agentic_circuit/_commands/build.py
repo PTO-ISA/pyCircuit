@@ -11,13 +11,12 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Literal, NoReturn
 
-from .._diagnostics import Diagnostic
 from .._canonical_json import canonical_json_bytes
+from .._diagnostics import Diagnostic
 from .._native_api import NativeRequest, native_extension_path, run_native_compiler
 from .._output import OutputSink
 from .._workspace import UserInputError, WorkspaceConfig
 from .check import _has_errors, capture
-
 
 Profile = Literal["fast", "validated", "custom"]
 
@@ -128,15 +127,20 @@ def _runtime_linkage() -> tuple[list[str], list[str], list[str]]:
             library.is_file() for library in installed
         ):
             llvm_libraries = sorted(
-                [
-                    path
-                    for path in (root / "lib").glob("libLLVM.*")
-                    if path.is_file()
-                ],
+                [path for path in (root / "lib").glob("libLLVM.*") if path.is_file()],
                 key=lambda path: path.name,
             )
             if not llvm_libraries:
-                raise RuntimeError("bundled LLVM runtime library is unavailable")
+                # Standalone development installs may intentionally omit a
+                # bundled LLVM dylib.  Leaving linker_flags empty lets the
+                # native bridge inject the exact LLVM link flags recorded at
+                # its own build, while the installed gfsim/ACIR libraries and
+                # headers remain prefix-local.
+                return (
+                    [include.resolve().as_posix()],
+                    [library.resolve().as_posix() for library in installed],
+                    [],
+                )
             llvm_library = llvm_libraries[0].resolve()
             library_root = llvm_library.parent
             return (
@@ -237,6 +241,12 @@ def build_publication(
     frontend = capture(arguments, workspace)
     if _has_errors(frontend.diagnostics):
         return BuildAttempt(None, frontend.diagnostics, 2, options.profile)
+    if frontend.frontend_kind == "queue_rule":
+        _fail(
+            "ACPY-RULE-006",
+            "Queue/rule build uses ac.jit(system).materialize_cpp(...) until "
+            "the QueueGraph executable harness is a first-class CLI artifact",
+        )
     if frontend.acpy is None or frontend.acir is None:
         _fail("ACPY-VERIFY-001", "frontend produced incomplete build artifacts")
     compiler = shutil.which(workspace.compiler)
@@ -363,7 +373,7 @@ def run(arguments: object, workspace: WorkspaceConfig, sink: OutputSink) -> int:
         {
             "schema": "agentic-circuit-build-result",
             "version": "0.1",
-            "contract_epoch": "0.4",
+            "contract_epoch": "0.5",
             "status": "passed",
             "profile": attempt.profile,
             "directory": publication.directory.as_posix(),

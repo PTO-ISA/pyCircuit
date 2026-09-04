@@ -170,15 +170,23 @@ timing semantics.
 
 The implementation hard break increments the Agentic Circuit serialized
 contract epoch from `0.4` to `0.5`. Epoch `0.4` producers continue to describe
-only the current prototype until that implementation lands. The implementation
-change updates ACPy, raw/Frozen ACIR, schemas, tools, examples, and consumers in
-one closure; epoch `0.5` consumers do not accept the old queue-effect
+only the historical prototype. The implementation change updates ACPy,
+raw/Frozen ACIR, schemas, tools, examples, and consumers in one closure; epoch
+`0.5` consumers do not accept the old queue-effect
 `ac.firing`, and epoch `0.4` consumers do not accept the new rule contract.
 
-**Implementation status.** Accepted direction; implementation is pending.
-Until the hard break lands, current examples and tests document the existing
-prototype behavior, but new semantic work must not deepen a dependency on the
-Python `atomic` or `.firing()` spellings.
+**Implementation status.** Epoch `0.5` and the first vertical slice are
+implemented. The Python surface exports `@ac.rule` and rejects `ac.atomic()`
+and `Queue.firing()`. The supported phase-one subset is one type-preserving
+Queue input, one output, one total return path, exact `cycle` domain, and a pure
+payload computation. Typed marker operations and staged passes refine the
+supported exact input evidence, infer effects, establish an explicit empty
+check contract, materialize and discharge handshake, resolve scheduling, lower
+to marker-free internal `ac.firing`, and prove when that firing may canonicalize
+to `ac.transform` for QueueGraph/gfsim and PYC. Dynamic-check obligations are
+rejected until executable checked IR exists. CFG joins, dynamic checks,
+multi-Queue and Table/Reg proposals, explicit arbitration, and a circular ROB
+remain pending and are rejected rather than guessed.
 
 **Verification.** Closure requires frontend tests for the simple `@ac.rule`
 surface and removed spellings; MLIR verifier tests for marker creation,

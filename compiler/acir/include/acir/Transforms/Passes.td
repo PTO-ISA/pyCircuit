@@ -38,4 +38,47 @@ def LowerProcessStatePass : Pass<"ac-lower-process-state", "::mlir::ModuleOp"> {
   }];
 }
 
+def InferRuleTypesPass : Pass<"ac-infer-rule-types", "::mlir::ModuleOp"> {
+  let summary = "Refine transient rule type-constraint markers";
+}
+
+def InferRuleEffectsPass : Pass<"ac-infer-rule-effects", "::mlir::ModuleOp"> {
+  let summary = "Infer rule provenance and effect summaries";
+}
+
+def MaterializeRuleChecksPass
+    : Pass<"ac-materialize-rule-checks", "::mlir::ModuleOp"> {
+  let summary = "Materialize path-qualified rule checks";
+}
+
+def MaterializeRuleHandshakePass
+    : Pass<"ac-materialize-rule-handshake", "::mlir::ModuleOp"> {
+  let summary = "Materialize rule Queue handshake obligations";
+}
+
+def DischargeRuleObligationsPass
+    : Pass<"ac-discharge-rule-obligations", "::mlir::ModuleOp"> {
+  let summary = "Discharge materialized rule obligations with explicit evidence";
+}
+
+def ResolveRuleSchedulePass
+    : Pass<"ac-resolve-rule-schedule", "::mlir::ModuleOp"> {
+  let summary = "Resolve rule selection and scheduling contracts";
+}
+
+def LowerRulesToFiringPass
+    : Pass<"ac-lower-rules-to-firing", "::mlir::ModuleOp"> {
+  let summary = "Lower closed transient rules to internal firing IR";
+}
+
+def CanonicalizePureFiringsPass
+    : Pass<"ac-canonicalize-pure-firings", "::mlir::ModuleOp"> {
+  let summary = "Prove and canonicalize pure firings as Queue transforms";
+}
+
+def VerifyRuleClosurePass
+    : Pass<"ac-verify-rule-closure", "::mlir::ModuleOp"> {
+  let summary = "Reject transient rules and unresolved markers";
+}
+
 #endif // ACIR_TRANSFORMS_PASSES

@@ -8,7 +8,7 @@
 // EFFECT: error: 'ac.credit' op cost operation 'ac.assert' must be pure
 
 //--- credits.mlir
-builtin.module attributes {ac.contract_epoch = "0.4"} {
+builtin.module attributes {ac.contract_epoch = "0.5"} {
   %input = ac.source depth 1 latency 1 : !ac.queue<i8>
   %bad = ac.credit %input credits 0 depth 1 latency 1 cost {
   ^cost(%item: !ac.var<i8>): ac.credit.yield %item : !ac.var<i8>
@@ -16,7 +16,7 @@ builtin.module attributes {ac.contract_epoch = "0.4"} {
 }
 
 //--- cost.mlir
-builtin.module attributes {ac.contract_epoch = "0.4"} {
+builtin.module attributes {ac.contract_epoch = "0.5"} {
   %input = ac.source depth 1 latency 1 : !ac.queue<i8>
   %bad = ac.credit %input credits 1 depth 1 latency 1 cost {
   ^cost(%item: !ac.var<i8>):
@@ -26,7 +26,7 @@ builtin.module attributes {ac.contract_epoch = "0.4"} {
 }
 
 //--- effect.mlir
-builtin.module attributes {ac.contract_epoch = "0.4"} {
+builtin.module attributes {ac.contract_epoch = "0.5"} {
   %input = ac.source depth 1 latency 1 : !ac.queue<i8>
   %bad = ac.credit %input credits 1 depth 1 latency 1 cost {
   ^cost(%item: !ac.var<i8>):

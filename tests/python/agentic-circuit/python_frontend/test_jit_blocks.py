@@ -319,6 +319,20 @@ class ConfigAndJitTest(unittest.TestCase):
 
 
 class JitQueueLoweringTest(unittest.TestCase):
+    def test_rule_specialization_uses_native_mlir_pipeline(self) -> None:
+        path = REPOSITORY / "examples/agentic-circuit/state/rob.py"
+        spec = importlib.util.spec_from_file_location("ac_rule_rob", path)
+        if spec is None or spec.loader is None:
+            raise RuntimeError("cannot load rule retirement example")
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[spec.name] = module
+        self.addCleanup(sys.modules.pop, spec.name, None)
+        spec.loader.exec_module(module)
+
+        cpp = module.specialization.lower_cpp()
+        self.assertIn("gfsim::QueueTransform<Entry, Entry", cpp)
+        self.assertIn("gfsim::QueueReorder<Entry", cpp)
+
     def test_const_config_and_compute_lower_to_frozen_acir(self) -> None:
         from agentic_circuit._queue_frontend import lower_queue_source
         from agentic_circuit._static_eval import FrozenMap

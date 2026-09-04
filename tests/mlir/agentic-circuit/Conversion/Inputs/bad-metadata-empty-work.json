@@ -16,7 +16,7 @@
           ],
           "kind": "constructor"
         },
-        "contract_epoch": "0.4",
+        "contract_epoch": "0.5",
         "cpp": {
           "concept": "gfsim::StatefulModel",
           "entry_points": {
@@ -32,7 +32,7 @@
         },
         "cpp_type": "cpp_i32",
         "effect": "stateful",
-        "fingerprint": "sha256:51059aad29f42c7b0c9ad0c6882985ad0d06f3adb0913ef0f5b723c0bae870b7",
+        "fingerprint": "sha256:cca344868340efc15df2d0cb3c0a7e643ad7487e39c578d3254e943acb74c85f",
         "implementation": "gfsim.Leaf",
         "ownership": {
           "kind": "unique",
@@ -69,7 +69,7 @@
       "binding_schema": "acsim-binding-0.1",
       "component_schema": "ac.Leaf",
       "component_schema_fingerprint": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
-      "contract_epoch": "0.4",
+      "contract_epoch": "0.5",
       "effect": "stateful",
       "function_type": "() -> i32",
       "parameters": [

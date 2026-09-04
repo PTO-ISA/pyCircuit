@@ -183,7 +183,7 @@ bool provenanceMatches(const PrebuiltProvenance &provenance,
          provenance.standardLibrary == toolchain.standardLibrary &&
          provenance.abiMode == toolchain.abiMode &&
          provenance.objectFormat == toolchain.objectFormat &&
-         provenance.contractEpoch == "0.4" && actualFlags == expectedFlags &&
+         provenance.contractEpoch == "0.5" && actualFlags == expectedFlags &&
          provenance.toolchainFingerprint == toolchain.fingerprint &&
          isValidFingerprint(provenance.sourceFingerprint);
 }

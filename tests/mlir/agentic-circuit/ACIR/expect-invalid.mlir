@@ -6,7 +6,7 @@
 // PREDICATE: error: 'ac.expect' op predicate must terminate with an i1 ac.expect.yield
 
 //--- message.mlir
-builtin.module attributes {ac.contract_epoch = "0.4"} {
+builtin.module attributes {ac.contract_epoch = "0.5"} {
   %input = ac.source depth 1 latency 1 : !ac.queue<i8>
   ac.expect %input message "" {
   ^predicate(%item: !ac.var<i8>):
@@ -16,7 +16,7 @@ builtin.module attributes {ac.contract_epoch = "0.4"} {
 }
 
 //--- predicate.mlir
-builtin.module attributes {ac.contract_epoch = "0.4"} {
+builtin.module attributes {ac.contract_epoch = "0.5"} {
   %input = ac.source depth 1 latency 1 : !ac.queue<i8>
   ac.expect %input message "bad" {
   ^predicate(%item: !ac.var<i8>):

@@ -1,7 +1,7 @@
 // RUN: %acir_opt %s | %FileCheck %s
 // RUN: %acir_opt %s | %acir_opt | %FileCheck %s
 
-builtin.module attributes {ac.contract_epoch = "0.4"} {
+builtin.module attributes {ac.contract_epoch = "0.5"} {
   %left = ac.source depth 2 latency 1 : !ac.queue<i64>
   %right = ac.source depth 2 latency 1 : !ac.queue<i64>
   %merged = ac.merge %left, %right policy "round_robin" depth 2 latency 1 : (!ac.queue<i64>, !ac.queue<i64>) -> !ac.queue<i64>

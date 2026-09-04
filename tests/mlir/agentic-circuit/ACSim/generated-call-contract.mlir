@@ -50,8 +50,8 @@
 // INVOKE-SCALAR: acsim.invoke @stateful_binding() : () -> i32
 
 //--- valid.mlir
-builtin.module attributes {ac.contract_epoch = "0.4"} {
-  acsim.model @calls epoch "0.4" root @Top construction ["Top.tick"] destruction ["Top.tick"] fingerprints {
+builtin.module attributes {ac.contract_epoch = "0.5"} {
+  acsim.model @calls epoch "0.5" root @Top construction ["Top.tick"] destruction ["Top.tick"] fingerprints {
     frozen_acir = "sha256:0000000000000000000000000000000000000000000000000000000000000000",
     binding_lock = "sha256:0000000000000000000000000000000000000000000000000000000000000000",
     provider = "sha256:0000000000000000000000000000000000000000000000000000000000000000",
@@ -73,7 +73,7 @@ builtin.module attributes {ac.contract_epoch = "0.4"} {
     acsim.binding @pure_binding record {
       activation_sources = [], availability = "available", binding = "pure_binding", binding_schema = "acsim-binding-0.1",
       component_schema = @pure_schema, component_schema_fingerprint = "sha256:0800000000000000000000000000000000000000000000000000000000000000",
-      construction = {arguments = [], kind = "constructor"}, contract_epoch = "0.4",
+      construction = {arguments = [], kind = "constructor"}, contract_epoch = "0.5",
       cpp = {concept = "gfsim::Pure", entry_points = {pure = "gfsim::pure", reset = "", validate = "", work = "", xfer = ""}, header = "gfsim/pure.hpp", symbol = "gfsim::Pure", target = "gfsim"},
       cpp_type = @cpp_i32, effect = "pure", fingerprint = "sha256:0c00000000000000000000000000000000000000000000000000000000000000",
       implementation = @pure_impl, ownership = {kind = "none", placement = "inline"}, parameters = [], ports = [], provider = @provider,
@@ -82,7 +82,7 @@ builtin.module attributes {ac.contract_epoch = "0.4"} {
     acsim.binding @stateful_binding record {
       activation_sources = [], availability = "available", binding = "stateful_binding", binding_schema = "acsim-binding-0.1",
       component_schema = @stateful_schema, component_schema_fingerprint = "sha256:0a00000000000000000000000000000000000000000000000000000000000000",
-      construction = {arguments = [], kind = "constructor"}, contract_epoch = "0.4",
+      construction = {arguments = [], kind = "constructor"}, contract_epoch = "0.5",
       cpp = {concept = "gfsim::Stateful", entry_points = {pure = "", reset = "stateful_reset", validate = "stateful_validate", work = "stateful_work", xfer = "stateful_xfer"}, header = "gfsim/stateful.hpp", symbol = "gfsim::Stateful", target = "gfsim"},
       cpp_type = @cpp_i32, effect = "stateful", fingerprint = "sha256:0d00000000000000000000000000000000000000000000000000000000000000",
       implementation = @stateful_impl, ownership = {kind = "unique", placement = "member_or_array"}, parameters = [], ports = [], provider = @provider,

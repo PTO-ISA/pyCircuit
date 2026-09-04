@@ -1,4 +1,4 @@
-contract_epoch = "0.4"
+contract_epoch = "0.5"
 
 [project]
 name = "fixture"

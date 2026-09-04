@@ -41,4 +41,85 @@ def ACIR_Unit : I32EnumAttr<"Unit", "ACIR exact measurement unit", [
   let cppNamespace = "::acir::ac";
 }
 
+def ACIR_TypeConstraintState_Unknown
+    : I32EnumAttrCase<"Unknown", 0, "unknown">;
+def ACIR_TypeConstraintState_Constrained
+    : I32EnumAttrCase<"Constrained", 1, "constrained">;
+def ACIR_TypeConstraintState_Exact
+    : I32EnumAttrCase<"Exact", 2, "exact">;
+def ACIR_TypeConstraintState
+    : I32EnumAttr<"TypeConstraintState", "rule type-constraint lattice", [
+        ACIR_TypeConstraintState_Unknown,
+        ACIR_TypeConstraintState_Constrained,
+        ACIR_TypeConstraintState_Exact
+      ]> {
+  let genSpecializedAttr = 0;
+  let cppNamespace = "::acir::ac";
+}
+def ACIR_TypeConstraintStateAttr
+    : EnumAttr<ACIR_Dialect, ACIR_TypeConstraintState,
+               "type_constraint_state">;
+
+def ACIR_TypeConstraintKind_QueuePayload
+    : I32EnumAttrCase<"QueuePayload", 0, "queue_payload">;
+def ACIR_TypeConstraintKind
+    : I32EnumAttr<"TypeConstraintKind", "rule type-constraint kind", [
+        ACIR_TypeConstraintKind_QueuePayload
+      ]> {
+  let genSpecializedAttr = 0;
+  let cppNamespace = "::acir::ac";
+}
+def ACIR_TypeConstraintKindAttr
+    : EnumAttr<ACIR_Dialect, ACIR_TypeConstraintKind,
+               "type_constraint_kind">;
+
+def ACIR_ValueFactKind_CommittedInput
+    : I32EnumAttrCase<"CommittedInput", 0, "committed_input">;
+def ACIR_ValueFactKind
+    : I32EnumAttr<"ValueFactKind", "rule value-fact kind", [
+        ACIR_ValueFactKind_CommittedInput
+      ]> {
+  let genSpecializedAttr = 0;
+  let cppNamespace = "::acir::ac";
+}
+def ACIR_ValueFactKindAttr
+    : EnumAttr<ACIR_Dialect, ACIR_ValueFactKind, "value_fact_kind">;
+
+def ACIR_ObligationState_Pending
+    : I32EnumAttrCase<"Pending", 0, "pending">;
+def ACIR_ObligationState_Materialized
+    : I32EnumAttrCase<"Materialized", 1, "materialized">;
+def ACIR_ObligationState_Discharged
+    : I32EnumAttrCase<"Discharged", 2, "discharged">;
+def ACIR_ObligationState
+    : I32EnumAttr<"ObligationState", "rule obligation lifecycle", [
+        ACIR_ObligationState_Pending,
+        ACIR_ObligationState_Materialized,
+        ACIR_ObligationState_Discharged
+      ]> {
+  let genSpecializedAttr = 0;
+  let cppNamespace = "::acir::ac";
+}
+def ACIR_ObligationStateAttr
+    : EnumAttr<ACIR_Dialect, ACIR_ObligationState, "obligation_state">;
+
+def ACIR_ObligationResolver_Handshake
+    : I32EnumAttrCase<"Handshake", 0, "handshake">;
+def ACIR_ObligationResolver_Checks
+    : I32EnumAttrCase<"Checks", 1, "checks">;
+def ACIR_ObligationResolver_Schedule
+    : I32EnumAttrCase<"Schedule", 2, "schedule">;
+def ACIR_ObligationResolver
+    : I32EnumAttr<"ObligationResolver", "named rule obligation resolver", [
+        ACIR_ObligationResolver_Handshake,
+        ACIR_ObligationResolver_Checks,
+        ACIR_ObligationResolver_Schedule
+      ]> {
+  let genSpecializedAttr = 0;
+  let cppNamespace = "::acir::ac";
+}
+def ACIR_ObligationResolverAttr
+    : EnumAttr<ACIR_Dialect, ACIR_ObligationResolver,
+               "obligation_resolver">;
+
 #endif // ACIR_DIALECT_ACIR_ACIRATTRIBUTES_TD

@@ -39,6 +39,9 @@ private:
 };
 
 mlir::LogicalResult verifyModel(mlir::ModuleOp model);
+/// Verify the sealed evidence and restricted top-level shape of the flat
+/// QueueGraph representation used by the gfsim/PYC generators.
+mlir::LogicalResult verifyFrozenFlatQueueGraph(mlir::ModuleOp model);
 bool isTopologyFrozen(mlir::ModuleOp model);
 
 } // namespace acir

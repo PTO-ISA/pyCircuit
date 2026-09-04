@@ -67,7 +67,7 @@ class WorkspaceTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             manifest = Path(temporary) / "agentic-circuit.toml"
             contents = FIXTURE.read_text().replace(
-                'contract_epoch = "0.4"', 'contract_epoch = "0.1"'
+                'contract_epoch = "0.5"', 'contract_epoch = "0.1"'
             )
             manifest.write_text(contents)
             with self.assertRaises(UserInputError):

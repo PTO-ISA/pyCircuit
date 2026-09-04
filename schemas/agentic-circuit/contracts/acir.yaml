@@ -6,7 +6,7 @@
 # or type must be reflected here in the same commit, and every entry must
 # have observable lit coverage.
 schema: acir-ir-inventory
-contract_epoch: "0.4"
+contract_epoch: "0.5"
 dialect: acir
 operations:
   - ac.system
@@ -55,6 +55,11 @@ operations:
   - ac.packet.deserialize
   - ac.transform
   - ac.transform.yield
+  - ac.rule
+  - ac.rule.return
+  - ac.marker.type
+  - ac.marker.value
+  - ac.marker.obligation
   - ac.source
   - ac.sink
   - ac.observe
@@ -97,9 +102,6 @@ operations:
   - ac.scope.yield
   - ac.firing
   - ac.firing.yield
-  - ac.queue.peek
-  - ac.queue.pop
-  - ac.queue.push
   - ac.try_send
   - ac.try_recv
   - ac.schedule

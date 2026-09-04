@@ -11,7 +11,7 @@ backend you eventually want to run.
 | Distribution | `pycircuit-hisi` | `agentic-circuit` |
 | Python import | `pycircuit` | `agentic_circuit` |
 | Primary authoring model | Signals, state, hierarchy, and logical cycles | Architecture, processes, queues, resources, and workloads |
-| Source contract | Cycle-Aware Signal or structural modules | ACPy contract epoch `0.4` |
+| Source contract | Cycle-Aware Signal or structural modules | ACPy contract epoch `0.5` with `@ac.rule` |
 | Primary IR | PYC MLIR | ACIR, then ACSim or PYC |
 | Native simulation | pyc6 C++ cycle model | ACSim/gfsim |
 | Hardware generation | PYC → `pycc` → C++ and Verilog | Synthesizable ACIR → PYC → `pycc` → C++ and Verilog |
@@ -57,6 +57,35 @@ Install the second distribution from the same checkout:
 python3 -m pip install -e "python/agentic-circuit[test]"
 agentic-circuit --help
 ```
+
+Use `@ac.rule` for schedulable payload behavior. Queue consumption, checks,
+handshake, scheduling, and commit are compiler-owned:
+
+```python
+@ac.rule
+def complete(entry):
+    return entry.with_fields(done=True)
+
+completed = complete(issued)
+```
+
+The current phase-one subset is one type-preserving input and output with one
+total return path. Unsupported control flow or unresolved markers fail before
+Frozen ACIR; the compiler never supplies a silent default.
+
+Compile a Queue/rule architecture through the public CLI to hashed,
+marker-free Frozen ACIR:
+
+```bash
+agentic-circuit compile architecture.py \
+  --emit=acpy,acir,frozen-acir \
+  --stop-after=topology-freeze \
+  --output-dir build/rule
+```
+
+For gfsim C++ specialization, use `ac.jit(system).materialize_cpp(...)`; this
+path invokes the same native rule pipeline and refuses direct Python-to-C++
+rule lowering.
 
 Configure the ACIR toolchain, generated schema resources, and validation
 environment:

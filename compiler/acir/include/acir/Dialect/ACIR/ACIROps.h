@@ -20,6 +20,10 @@
 
 namespace acir::ac {
 
+/// Verify the complete phase-one proof carried by an ac.transform produced
+/// from ac.firing. Plain transforms without any ac.rule_* attributes succeed.
+mlir::LogicalResult verifyLoweredRuleTransformContract(TransformOp transform);
+
 /// Verifies symbol resolution and linear-use rules for ACIR topology types on
 /// an arbitrary operation. This is called by the whole-file ACIR verifier.
 mlir::LogicalResult verifyTopologyTypeUses(mlir::Operation *operation);

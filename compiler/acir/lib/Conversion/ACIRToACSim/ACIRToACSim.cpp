@@ -70,7 +70,7 @@ using namespace mlir;
 namespace acir {
 namespace {
 
-constexpr llvm::StringLiteral kEpoch = "0.4";
+constexpr llvm::StringLiteral kEpoch = "0.5";
 constexpr llvm::StringLiteral kResultRoleIdentity = "acsim.result.role";
 constexpr uint64_t kMaxExpandedRows = 1U << 20;
 
@@ -1655,7 +1655,7 @@ mlir::LogicalResult ACIRToACSimPass::plan(mlir::ModuleOp input) {
   if (!epoch || epoch.getValue() != kEpoch)
     return lowerError(input, "ACLOWER-EPOCH-MISMATCH",
                       "ac-lower-to-acsim requires ac.contract_epoch exactly "
-                      "\"0.4\"");
+                      "\"0.5\"");
   auto frozen = input->getAttrOfType<BoolAttr>("ac.topology_frozen");
   auto freezeEpoch = input->getAttrOfType<StringAttr>("ac.freeze_epoch");
   if (!frozen || !frozen.getValue() || !freezeEpoch ||

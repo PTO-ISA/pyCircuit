@@ -1,7 +1,7 @@
 // RUN: %acir_opt %s | %FileCheck %s
 // RUN: %acir_opt %s | %acir_opt | %FileCheck %s
 
-builtin.module attributes {ac.contract_epoch = "0.4"} {
+builtin.module attributes {ac.contract_epoch = "0.5"} {
   "ac.type_scope"() <{sym_name = "types"}> ({
     "ac.transaction"() <{sym_name = "Message", fields = [{name = "tag", type = i16}]}> : () -> ()
     "ac.transaction"() <{sym_name = "Req", fields = [{name = "id", type = i16}, {name = "data", type = i8}]}> : () -> ()

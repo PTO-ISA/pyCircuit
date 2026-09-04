@@ -1,7 +1,7 @@
 {
   "schema_kind": "agentic-circuit-component",
   "schema_version": "0.1",
-  "contract_epoch": "0.4",
+  "contract_epoch": "0.5",
   "canonical_name": "ac.Crossbar",
   "family": "interconnect",
   "provider_namespace": "ac",
@@ -115,5 +115,5 @@
     "gauges": [],
     "histograms": []
   },
-  "schema_fingerprint": "sha256:874a546f564ae7869d8d68ae7337ccd145b73bc02df16c2c9dedebc6171e0a57"
+  "schema_fingerprint": "sha256:6f37ab5e3d703972c0debf760b114d282d024d4f85a2987d1b93664c63d2f448"
 }

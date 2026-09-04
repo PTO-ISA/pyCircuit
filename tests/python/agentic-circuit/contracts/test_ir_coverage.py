@@ -18,7 +18,7 @@ def load_coverage_checker():
 
 
 ACIR_MANIFEST = """schema: acir-ir-inventory
-contract_epoch: "0.4"
+contract_epoch: "0.5"
 dialect: acir
 operations:
   - ac.system
@@ -27,7 +27,7 @@ types:
 """
 
 ACSIM_MANIFEST = """schema: acir-ir-inventory
-contract_epoch: "0.4"
+contract_epoch: "0.5"
 dialect: acsim
 operations:
   - acsim.model
@@ -169,7 +169,7 @@ class IRCoverageTest(unittest.TestCase):
         temporary_directory, root = initialize_coverage_fixture(
             overrides={
                 "schemas/agentic-circuit/contracts/acsim.yaml": ACSIM_MANIFEST.replace(
-                    '"0.4"', '"0.0"'
+                    '"0.5"', '"0.0"'
                 )
             }
         )

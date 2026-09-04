@@ -1,7 +1,7 @@
 {
   "schema_kind": "agentic-circuit-component",
   "schema_version": "0.1",
-  "contract_epoch": "0.4",
+  "contract_epoch": "0.5",
   "canonical_name": "ac.Switch",
   "family": "interconnect",
   "provider_namespace": "ac",
@@ -115,5 +115,5 @@
     "gauges": [],
     "histograms": []
   },
-  "schema_fingerprint": "sha256:9c42f902effe9992c522429ed9b74399759f9321a1b933ca3e228b6e879d8fae"
+  "schema_fingerprint": "sha256:34e1acdaffa24cd2f3d444b63af545f8e0e37d3a8dd1d33a9f1ff9a6c66ca05c"
 }

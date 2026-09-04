@@ -8,7 +8,7 @@
   "properties": {
     "schema": {"const": "agentic-circuit-run-manifest"},
     "version": {"const": "0.1"},
-    "contract_epoch": {"const": "0.4"},
+    "contract_epoch": {"const": "0.5"},
     "build_manifest": {"$ref": "#/$defs/fileHash"},
     "trace": {"$ref": "#/$defs/trace"},
     "seed": {"$ref": "#/$defs/uint64"},

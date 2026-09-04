@@ -276,7 +276,7 @@ llvm::Expected<std::string> canonicalResult(const RunResultDocument &result) {
   llvm::json::Object document{
       {"schema", "agentic-circuit-run-result"},
       {"version", "0.1"},
-      {"contract_epoch", "0.4"},
+      {"contract_epoch", "0.5"},
       {"run_manifest",
        llvm::json::Object{{"path", result.runManifest.path},
                           {"sha256", result.runManifest.sha256}}},
@@ -463,7 +463,7 @@ llvm::Expected<RunManifest> loadRunManifest(llvm::StringRef bytes,
   if (!object || !hasExactKeys(*object, keys) ||
       object->getString("schema") != "agentic-circuit-run-manifest" ||
       object->getString("version") != "0.1" ||
-      object->getString("contract_epoch") != "0.4")
+      object->getString("contract_epoch") != "0.5")
     return harnessError("run manifest has an invalid closed envelope");
 
   RunManifest manifest;
@@ -581,7 +581,7 @@ preflightRunManifest(const RunManifest &manifest,
                      "specialization_inputs", "build_fingerprint"}) ||
       build->getString("schema") != "agentic-circuit-build-manifest" ||
       build->getString("version") != "0.1" ||
-      build->getString("contract_epoch") != "0.4" ||
+      build->getString("contract_epoch") != "0.5" ||
       build->getString("build_fingerprint") != buildFingerprint)
     return harnessError("build manifest identity does not match the model");
 

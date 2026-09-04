@@ -7,7 +7,7 @@
   "required": ["callees", "contract_epoch", "processes", "schema", "value_types"],
   "properties": {
     "callees": {"type": "array", "items": {"$ref": "#/$defs/callee"}},
-    "contract_epoch": {"const": "0.4"},
+    "contract_epoch": {"const": "0.5"},
     "processes": {"type": "array", "items": {"$ref": "#/$defs/process"}},
     "schema": {"const": "acir-process-state-plan-0.1"},
     "value_types": {"type": "array", "items": {"$ref": "#/$defs/value_type"}}

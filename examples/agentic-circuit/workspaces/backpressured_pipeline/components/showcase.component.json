@@ -1,7 +1,7 @@
 {
   "schema_kind": "agentic-circuit-component",
   "schema_version": "0.1",
-  "contract_epoch": "0.4",
+  "contract_epoch": "0.5",
   "canonical_name": "workspace.Showcase",
   "family": "source",
   "provider_namespace": "workspace.provider",
@@ -46,5 +46,5 @@
     "gauges": [],
     "histograms": []
   },
-  "schema_fingerprint": "sha256:9e8e7afc37326215d04cf1b3bfa39199bcfb987f3690764f89999794eec50421"
+  "schema_fingerprint": "sha256:ab7cc31088bc5e597068819524112b84bf079c171fe5542b5790e41ed398ff60"
 }

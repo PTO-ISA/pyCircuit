@@ -13,6 +13,7 @@ namespace acir {
 inline void registerAllPasses() {
   mlir::registerTransformsPasses();
   registerACIRTransformsPasses();
+  registerRuleLoweringPipeline();
   mlir::registerPass([]() -> std::unique_ptr<mlir::Pass> {
     return createNormalizeACIRFilePass();
   });

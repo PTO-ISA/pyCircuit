@@ -3,7 +3,7 @@
 // RUN: %FileCheck %s < %t
 // RUN: %not grep -E '"operation":"ac\.(decode|dispatch|rename|retire)"' %t
 
-// CHECK: "contract_epoch":"0.4"
+// CHECK: "contract_epoch":"0.5"
 // CHECK-SAME: "operation":"ac{{\.}}barrier"
 // CHECK-SAME: "operation":"ac{{\.}}broadcast"
 // CHECK-SAME: "operation":"ac{{\.}}credit"

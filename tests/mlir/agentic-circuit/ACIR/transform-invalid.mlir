@@ -16,7 +16,7 @@
 // EFFECTFUL-BODY: error: 'ac.transform' op body operation 'ac.assert' must be pure
 
 //--- no-input.mlir
-builtin.module attributes {ac.contract_epoch = "0.4"} {
+builtin.module attributes {ac.contract_epoch = "0.5"} {
   %output = ac.transform depths [4] latencies [1] {
   ^body:
     %value = "builtin.unrealized_conversion_cast"() : () -> !ac.var<i32>
@@ -25,7 +25,7 @@ builtin.module attributes {ac.contract_epoch = "0.4"} {
 }
 
 //--- effectful-body.mlir
-builtin.module attributes {ac.contract_epoch = "0.4"} {
+builtin.module attributes {ac.contract_epoch = "0.5"} {
   %input = "builtin.unrealized_conversion_cast"() : () -> !ac.queue<i32>
   %output = ac.transform %input depths [4] latencies [1] {
   ^body(%item: !ac.var<i32>):
@@ -36,7 +36,7 @@ builtin.module attributes {ac.contract_epoch = "0.4"} {
 }
 
 //--- no-output.mlir
-builtin.module attributes {ac.contract_epoch = "0.4"} {
+builtin.module attributes {ac.contract_epoch = "0.5"} {
   %input = "builtin.unrealized_conversion_cast"() : () -> !ac.queue<i32>
   ac.transform %input depths [] latencies [] {
   ^body(%item: !ac.var<i32>):
@@ -45,7 +45,7 @@ builtin.module attributes {ac.contract_epoch = "0.4"} {
 }
 
 //--- depth-count.mlir
-builtin.module attributes {ac.contract_epoch = "0.4"} {
+builtin.module attributes {ac.contract_epoch = "0.5"} {
   %input = "builtin.unrealized_conversion_cast"() : () -> !ac.queue<i32>
   %output = ac.transform %input depths [] latencies [1] {
   ^body(%item: !ac.var<i32>):
@@ -54,7 +54,7 @@ builtin.module attributes {ac.contract_epoch = "0.4"} {
 }
 
 //--- latency-zero.mlir
-builtin.module attributes {ac.contract_epoch = "0.4"} {
+builtin.module attributes {ac.contract_epoch = "0.5"} {
   %input = "builtin.unrealized_conversion_cast"() : () -> !ac.queue<i32>
   %output = ac.transform %input depths [4] latencies [0] {
   ^body(%item: !ac.var<i32>):
@@ -63,7 +63,7 @@ builtin.module attributes {ac.contract_epoch = "0.4"} {
 }
 
 //--- block-arg.mlir
-builtin.module attributes {ac.contract_epoch = "0.4"} {
+builtin.module attributes {ac.contract_epoch = "0.5"} {
   %input = "builtin.unrealized_conversion_cast"() : () -> !ac.queue<i32>
   %output = ac.transform %input depths [4] latencies [1] {
   ^body(%item: !ac.var<i16>):
@@ -73,7 +73,7 @@ builtin.module attributes {ac.contract_epoch = "0.4"} {
 }
 
 //--- yield-type.mlir
-builtin.module attributes {ac.contract_epoch = "0.4"} {
+builtin.module attributes {ac.contract_epoch = "0.5"} {
   %input = "builtin.unrealized_conversion_cast"() : () -> !ac.queue<i32>
   %output = ac.transform %input depths [4] latencies [1] {
   ^body(%item: !ac.var<i32>):
