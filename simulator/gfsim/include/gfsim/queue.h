@@ -52,12 +52,18 @@ public:
   bool isFull() const { return !canProposePush(); }
   bool isEmpty() const { return committed_.empty(); }
   bool canProposePush(size_t count = 1) const {
+    if (preparedPush_ || preparedPop_)
+      return false;
     return canProposePushWithAdditionalPops(count, 0);
   }
   bool canProposePushAfterPop(size_t count = 1) const {
+    if (preparedPush_ || preparedPop_)
+      return false;
     return canProposePop() && canProposePushWithAdditionalPops(count, 1);
   }
   bool canProposePop() const {
+    if (preparedPop_ || preparedPush_)
+      return false;
     return popProposalCount_ < rate_ && popProposalCount_ < committed_.size();
   }
 
@@ -91,11 +97,67 @@ public:
 
   /// Propose to dequeue the next element in FIFO order.
   std::optional<T> proposePop() {
-    if (popProposalCount_ >= committed_.size())
+    if (!canProposePop())
       return std::nullopt;
     size_t index = popProposalCount_;
     ++popProposalCount_;
     return std::optional<T>(committed_[index]);
+  }
+
+  /// Reserve one push endpoint without changing architectural Queue state.
+  bool preparePush(CommitGroupId group) {
+    if (group == kInvalidCommitGroupId || preparedPush_ || preparedPop_ ||
+        !pushProposals_.empty() || popProposalCount_ != 0 ||
+        !canProposePushWithAdditionalPops(1, 0))
+      return false;
+    preparedPush_ = group;
+    return true;
+  }
+
+  /// Reserve the next FIFO token without proposing its removal.
+  bool preparePop(CommitGroupId group) {
+    if (group == kInvalidCommitGroupId || preparedPop_ || preparedPush_ ||
+        !pushProposals_.empty() || popProposalCount_ != 0 ||
+        committed_.empty() || rate_ == 0)
+      return false;
+    preparedPop_ = PreparedPop{group, committed_.front()};
+    return true;
+  }
+
+  const T *preparedPopValue(CommitGroupId group) const {
+    return preparedPop_ && preparedPop_->group == group ? &preparedPop_->value
+                                                        : nullptr;
+  }
+
+  /// Convert a successful reservation into a proposal. This cannot fail when
+  /// called with the same group before the Xfer barrier.
+  bool publishPush(CommitGroupId group, T element) {
+    if (!preparedPush_ || *preparedPush_ != group)
+      return false;
+    preparedPush_.reset();
+    pushProposals_.push_back(std::move(element));
+    return true;
+  }
+
+  std::optional<T> publishPop(CommitGroupId group) {
+    if (!preparedPop_ || preparedPop_->group != group)
+      return std::nullopt;
+    T value = preparedPop_->value;
+    preparedPop_.reset();
+    ++popProposalCount_;
+    return value;
+  }
+
+  void cancelPrepared(CommitGroupId group) {
+    if (preparedPush_ && *preparedPush_ == group)
+      preparedPush_.reset();
+    if (preparedPop_ && preparedPop_->group == group)
+      preparedPop_.reset();
+  }
+
+  bool hasPrepared(CommitGroupId group) const {
+    return (preparedPush_ && *preparedPush_ == group) ||
+           (preparedPop_ && preparedPop_->group == group);
   }
 
   /// Peek at the front without proposing a pop.
@@ -131,6 +193,11 @@ public:
   // ── Xfer ────────────────────────────────────────────────────────────
 
   void doXfer(Epoch epoch) override {
+    if (preparedPush_ || preparedPop_) {
+      setRuntimeFailureCode("queue_unpublished_commit_group");
+      preparedPush_.reset();
+      preparedPop_.reset();
+    }
     bool changed = hasPendingCommit();
     for (auto iterator = delayed_.begin(); iterator != delayed_.end();) {
       if (iterator->first > epoch.time) {
@@ -167,7 +234,7 @@ public:
 
   bool hasPendingCommit() const override {
     return !pushProposals_.empty() || !delayed_.empty() ||
-           popProposalCount_ != 0;
+           popProposalCount_ != 0 || preparedPush_ || preparedPop_;
   }
 
   RuntimeObjectState runtimeState(Epoch epoch) const override {
@@ -204,6 +271,8 @@ public:
     committed_.clear();
     delayed_.clear();
     pushProposals_.clear();
+    preparedPush_.reset();
+    preparedPop_.reset();
     popProposalCount_ = 0;
     highWatermark_ = 0;
     totalPushes_ = 0;
@@ -226,6 +295,12 @@ private:
   std::vector<T> committed_;
   std::vector<std::pair<uint64_t, T>> delayed_;
   std::vector<T> pushProposals_;
+  struct PreparedPop {
+    CommitGroupId group = kInvalidCommitGroupId;
+    T value;
+  };
+  std::optional<CommitGroupId> preparedPush_;
+  std::optional<PreparedPop> preparedPop_;
   size_t popProposalCount_ = 0;
   size_t highWatermark_ = 0;
   uint64_t totalPushes_ = 0;
