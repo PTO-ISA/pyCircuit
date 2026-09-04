@@ -93,8 +93,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          export AC_PYTHON_ONLY=1
           export PYTHONPATH="$PWD/python/agentic-circuit/src:$PWD/tests/python/agentic-circuit"
           python tools/agentic-circuit/check-contracts.py
           python -m unittest discover -s tests/python/agentic-circuit/contracts -p 'test_*.py'
           python -m unittest discover -s tests/python/agentic-circuit/python_frontend -p 'test_*.py'
-          python -m unittest discover -s tests/python/agentic-circuit/cli -p 'test_[!n]*.py'
+          python -m unittest discover -s tests/python/agentic-circuit/cli -p 'test_*.py'

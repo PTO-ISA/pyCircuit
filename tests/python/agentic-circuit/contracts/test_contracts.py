@@ -319,6 +319,7 @@ class RepositoryContractsTest(unittest.TestCase):
         job = match.group()
         self.assertIn('python -m pip install -e "python/agentic-circuit[test]"', job)
         self.assertIn("python tools/agentic-circuit/check-contracts.py", job)
+        self.assertIn("AC_PYTHON_ONLY=1", job)
         self.assertIn("tests/python/agentic-circuit/contracts", job)
         self.assertIn("tests/python/agentic-circuit/python_frontend", job)
         self.assertIn("tests/python/agentic-circuit/cli", job)

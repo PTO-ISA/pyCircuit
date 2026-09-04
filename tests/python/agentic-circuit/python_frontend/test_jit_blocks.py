@@ -319,6 +319,10 @@ class ConfigAndJitTest(unittest.TestCase):
 
 
 class JitQueueLoweringTest(unittest.TestCase):
+    @unittest.skipIf(
+        os.environ.get("AC_PYTHON_ONLY") == "1",
+        "native MLIR tools are release/targeted-test dependencies",
+    )
     def test_rule_specialization_uses_native_mlir_pipeline(self) -> None:
         path = REPOSITORY / "examples/agentic-circuit/state/rob.py"
         spec = importlib.util.spec_from_file_location("ac_rule_rob", path)
