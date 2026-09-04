@@ -22,10 +22,10 @@ pyCircuit and Agentic Circuit.
 [`LinxISA/pyCircuit`](https://github.com/LinxISA/pyCircuit) is its downstream
 fork for downstream compatibility validation.
 
-The standalone [`PTO-ISA/agentic-circuit`](https://github.com/PTO-ISA/agentic-circuit)
-repository remains public only as a migration and review record. New AC source,
-issues, releases, and packages belong in `PTO-ISA/pyCircuit`; retirement depends
-on the internal AC/PYC closure and operational cutover checklist.
+The former standalone `PTO-ISA/agentic-circuit` repository is a private,
+archived provenance record. Its final tombstone points to pyCircuit merge
+[`cba1d938`](https://github.com/PTO-ISA/pyCircuit/commit/cba1d938ddcfaadf021bbff5a91553869028e124).
+New AC source, issues, releases, and packages belong only in this repository.
 
 ## Why pyCircuit 6
 

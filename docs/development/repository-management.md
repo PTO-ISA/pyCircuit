@@ -9,12 +9,11 @@ ownership for pyCircuit.
 | --- | --- | --- |
 | [`PTO-ISA/pyCircuit`](https://github.com/PTO-ISA/pyCircuit) | Canonical upstream | Product decisions, default branch, releases, packages, documentation, CI policy |
 | [`LinxISA/pyCircuit`](https://github.com/LinxISA/pyCircuit) | Downstream fork | Framework compatibility validation against Linx consumers; no consumer design ownership |
-| [`PTO-ISA/agentic-circuit`](https://github.com/PTO-ISA/agentic-circuit) | Public migration source; retirement pending | Original issues, pull requests and audit history only; no new source development or publishing |
+| `PTO-ISA/agentic-circuit` | Private archived migration source | Original commits, pull requests and audit history only; no source development or publishing |
 
 The upstream repository is the only source of truth. Do not maintain a second
 independent product history in the LinxISA fork or the standalone Agentic
-Circuit repository. After retirement, the latter becomes a private historical
-archive.
+Circuit repository. The latter is a private historical archive.
 
 ## Change flow
 
@@ -107,13 +106,16 @@ by the pyCircuit repository under the module roots defined by Decision 0157.
 Do not land new source changes in the standalone repository after the migration
 freeze.
 
-The standalone repository may be made private and archived only after the AC
-closure and full PYC closure pass on the integrated revision and all open
-collaboration items have a target record. Before visibility changes:
+Retirement completed on 2026-09-05 after pyCircuit PR #30 merged as
+`cba1d938ddcfaadf021bbff5a91553869028e124`. The standalone repository:
 
-1. publish a final tombstone linking to the canonical pyCircuit revision;
-2. disable Actions, releases, packages, secrets, environments and webhooks;
-3. transfer issues and recreate or supersede pull requests with links;
-4. remove direct, team and outside-collaborator access; and
-5. verify `zhoubot` is the only explicitly granted repository user, subject to
-   GitHub organization-owner access.
+1. ends at tombstone commit `9bc50aefbf1ac5a46a5aa94966f8bdc2811ff92a`;
+2. has no open pull requests or issues;
+3. has Actions disabled and no repository webhooks, deploy keys, invitations,
+   direct collaborators, or team grants;
+4. is private and archived; and
+5. points its description and homepage to `PTO-ISA/pyCircuit`.
+
+Access inherited from PTO-ISA organization ownership and the organization-wide
+base repository permission remains governed at organization scope. Do not
+change that global policy merely to specialize this archive.

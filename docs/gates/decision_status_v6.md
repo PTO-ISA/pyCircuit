@@ -5,8 +5,8 @@ This table tracks implementation status for all decisions in
 evidence and historical owner labels recorded when those contracts were
 verified. Decision 0010 is superseded by Decision 0148 and is not an active V6
 semantic contract. Decision 0150 covers repository consolidation and is
-verified by the archived AC and PYC closure evidence; retirement of the old
-repository remains a separate operational gate.
+verified by the archived AC and PYC closure evidence. The old repository was
+made private and archived after the operational cutover completed.
 
 Allowed statuses:
 
@@ -166,7 +166,7 @@ Allowed statuses:
 | 0147 | implemented-verified | docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json | pyc4-core | Keep gates green; refresh evidence on behavior changes |
 | 0148 | implemented-verified | tests/unit/test_pyc6_surface.py, tests/unit/test_v6_forward_signal.py, tests/v6/test_v6_vector.py, docs/gates/logs/pyc6-unification/pyc6_migration_summary.md, docs/gates/logs/pyc6-unification/semantic_regressions_summary.json | pyc6-frontend | Keep CycleAwareSignal and automatic cycle balancing gates green |
 | 0149 | implemented-verified | CMakeLists.txt, library/cpp/CMakeLists.txt, tests/unit/test_pyc6_surface.py, tests/system/test_smoke_system.py, docs/gates/logs/pyc6-unification/pyc6_migration_summary.md, docs/gates/logs/pyc6-unification/summary.json | pyc6-runtime | Keep runtime, trace, packaging, and semantic-gate names on V6 |
-| 0150 | implemented-verified | docs/gates/logs/20260831-agentic-consolidation-r2/agentic_circuit_summary.json, docs/gates/logs/20260831-agentic-consolidation-r2/summary.json, docs/gates/logs/20260831-agentic-consolidation-r2/run_sims_summary.json, docs/gates/logs/20260831-agentic-consolidation-r2/run_sims_nightly_summary.json, docs/gates/logs/20260831-agentic-consolidation-r2/semantic_regressions_summary.json, docs/gates/logs/20260831-agentic-consolidation-r2/migration_closure.md | acir-integration | Keep internal AC/PYC closure green and finish repository-governance cutover |
+| 0150 | implemented-verified | docs/gates/logs/20260905-agentic-retirement/summary.md, docs/gates/logs/20260831-agentic-consolidation-r2/agentic_circuit_summary.json, docs/gates/logs/20260831-agentic-consolidation-r2/summary.json, docs/gates/logs/20260831-agentic-consolidation-r2/run_sims_summary.json, docs/gates/logs/20260831-agentic-consolidation-r2/run_sims_nightly_summary.json, docs/gates/logs/20260831-agentic-consolidation-r2/semantic_regressions_summary.json, docs/gates/logs/20260831-agentic-consolidation-r2/migration_closure.md | acir-integration | Keep consolidated AC/PYC release closure green in PTO-ISA/pyCircuit |
 | 0151 | implemented-verified | docs/gates/logs/20260903-ac-table-stack-closure-r5/closure_summary.md, docs/gates/logs/20260903-ac-table-stack-closure-r5/agentic_circuit_summary.json, docs/gates/logs/20260903-ac-table-stack-closure-r5/decision_status_report.json | acir-table | Keep epoch 0.4 Table G0/G1 evidence green and preserve the explicit PYC rejection boundary |
 | 0152 | implemented-verified | docs/gates/logs/20260903-ac-table-stack-closure-r5/closure_summary.md, docs/gates/logs/20260903-ac-table-stack-closure-r5/agentic_circuit_summary.json, docs/gates/logs/20260903-ac-table-stack-closure-r5/decision_status_report.json | acir-table | Keep focused G0/G1 and native/direct runtime parity green as the provisional surface evolves |
 | 0153 | implemented-verified | docs/gates/logs/20260903-ac-table-stack-closure-r5/closure_summary.md, docs/gates/logs/20260903-ac-table-stack-closure-r5/agentic_circuit_summary.json, docs/gates/logs/20260903-ac-table-stack-closure-r5/decision_status_report.json | acir-table | Keep focused G0/G1, native/direct runtime parity, scalar regression, and provisional PYC rejection green |
