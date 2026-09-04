@@ -194,8 +194,13 @@ and multi-Queue transforms use it, Table reservations classify the actual
 dynamic index/field footprint, and a lower-level `QueueTableTransition` proves
 the four ROB-shaped Table-plus-Queue state relations from issue 28. This is
 runtime readiness evidence, not a relaxation of the frontend boundary:
-stateful and multi-Queue `@ac.rule` still fail closed until the corresponding
-ACIR effects, branch normalization, scheduling, and QueueGraph lowering are
+The first stateful `@ac.rule` slice is now connected by Decision 0163: one
+Table parameter, one Queue input/output, one optional committed Entry read,
+and one complete Entry replace lower through `ac.table.propose`, inferred
+Table-aware handshake/scheduling, marker-free `ac.firing`, QueueGraph, and
+`QueueTableTransition`. Non-power-of-two dynamic indices, field/masked or
+multiple proposals, multi-Queue rules, CFG/branch normalization, Reg effects,
+and arbitration still fail closed until their named passes and verifiers are
 implemented.
 
 **Verification.** Closure requires frontend tests for the simple `@ac.rule`

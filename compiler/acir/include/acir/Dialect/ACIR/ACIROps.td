@@ -517,6 +517,20 @@ def ACIR_TableGetOp : ACIR_Op<"table.get", [
   }];
 }
 
+// A firing-local Table next-state proposal. It is legal only inside transient
+// ac.rule or closed ac.firing and does not commit independently.
+def ACIR_TableProposeOp : ACIR_Op<"table.propose"> {
+  let arguments = (ins FlatSymbolRefAttr:$table, ACIR_VarType:$index,
+                       ACIR_VarType:$value, StrAttr:$mode,
+                       StrArrayAttr:$write_fields);
+  let hasVerifier = 1;
+  let assemblyFormat = [{
+    $table `[` $index `]` `=` $value `mode` $mode
+    `write_fields` $write_fields attr-dict `:` qualified(type($index)) `,`
+    qualified(type($value))
+  }];
+}
+
 def ACIR_TableReadOp : ACIR_Op<"table.read", [
     SingleBlock, DeclareOpInterfaceMethods<MemoryEffectsOpInterface>
   ]> {

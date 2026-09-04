@@ -147,9 +147,13 @@ PYC semantic contracts.
   - [x] Land Decision 0162's gfsim transaction substrate: owner-tagged Queue
     and Table prepare/publish/no-fail commit groups, dynamic index/field
     footprints, and four Table-plus-Queue ROB-shaped transition regressions.
+  - [x] Land Decision 0163's first stateful rule slice: simple Python Table
+    read/complete Entry assignment, firing-local `ac.table.propose`, inferred
+    Table-aware handshake/schedule, marker-free `ac.firing`, QueueGraph, and
+    grouped gfsim execution with provisional PYC rejection.
   - [ ] Add CFG joins, dynamic checks, multi-Queue/state proposals, explicit
-    conflict arbitration, stateful `@ac.rule`/QueueGraph lowering, Reg rules,
-    and a generated circular ROB example.
+    conflict arbitration, field/masked Table and Reg rules, and a generated
+    circular ROB example.
 - [x] Land Decision 0161's first qualified primitive vertical slice:
   vendor-neutral `pyc.priority_encode`, backend-only `pyc.rtl.comb`,
   deterministic digest-verified BSD RTL selection, parameterized pyCircuit and

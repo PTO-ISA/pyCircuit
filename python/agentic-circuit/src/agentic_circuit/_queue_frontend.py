@@ -62,6 +62,12 @@ class QueueBinding:
     rule_name: str | None = None
     rule_source_line: int | None = None
     rule_source_column: int | None = None
+    rule_table: str | None = None
+    rule_table_index: ast.expr | None = None
+    rule_table_value: ast.expr | None = None
+    rule_write_fields: tuple[str, ...] = ()
+    rule_table_read_name: str | None = None
+    rule_table_read_index: ast.expr | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -417,6 +423,11 @@ class RuleDefinition:
     expression: ast.expr
     source_line: int
     source_column: int
+    table_argument: str | None = None
+    table_index: ast.expr | None = None
+    table_value: ast.expr | None = None
+    table_read_name: str | None = None
+    table_read_index: ast.expr | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -649,7 +660,7 @@ def parse_queue_program(
                 "ACPY-RULE-001: rule decorators do not accept options"
             )
         if (
-            len(node.args.args) != 1
+            len(node.args.args) not in {1, 2}
             or node.args.posonlyargs
             or node.args.kwonlyargs
             or node.args.vararg is not None
@@ -658,7 +669,8 @@ def parse_queue_program(
             or node.args.kw_defaults
         ):
             raise QueueFrontendError(
-                "ACPY-RULE-001: phase-one rules require exactly one payload parameter"
+                "ACPY-RULE-001: phase-one rules require one payload parameter "
+                "or one Table plus one payload parameter"
             )
         body = list(node.body)
         if (
@@ -668,20 +680,76 @@ def parse_queue_program(
             and isinstance(body[0].value.value, str)
         ):
             body.pop(0)
+        if len(node.args.args) == 1:
+            if (
+                len(body) != 1
+                or not isinstance(body[0], ast.Return)
+                or body[0].value is None
+            ):
+                raise QueueFrontendError(
+                    "ACPY-RULE-002: phase-one rules require one value-returning path"
+                )
+            rule_definitions[node.name] = RuleDefinition(
+                node.name,
+                node.args.args[0].arg,
+                copy.deepcopy(body[0].value),
+                node.lineno,
+                node.col_offset + 1,
+            )
+            continue
+
+        table_argument = node.args.args[0].arg
+        payload_argument = node.args.args[1].arg
+        read_statement: ast.Assign | None = None
+        if len(body) == 3 and isinstance(body[0], ast.Assign):
+            read_statement = body[0]
+            body = body[1:]
         if (
-            len(body) != 1
-            or not isinstance(body[0], ast.Return)
-            or body[0].value is None
+            len(body) != 2
+            or not isinstance(body[0], ast.Assign)
+            or len(body[0].targets) != 1
+            or not isinstance(body[0].targets[0], ast.Subscript)
+            or not isinstance(body[0].targets[0].value, ast.Name)
+            or body[0].targets[0].value.id != table_argument
+            or not isinstance(body[1], ast.Return)
+            or body[1].value is None
         ):
             raise QueueFrontendError(
-                "ACPY-RULE-002: phase-one rules require one value-returning path"
+                "ACPY-RULE-002: stateful phase-one rules require one Table "
+                "entry assignment followed by one value return"
             )
+        if read_statement is not None and (
+            len(read_statement.targets) != 1
+            or not isinstance(read_statement.targets[0], ast.Name)
+            or read_statement.targets[0].id in {table_argument, payload_argument}
+            or not isinstance(read_statement.value, ast.Subscript)
+            or not isinstance(read_statement.value.value, ast.Name)
+            or read_statement.value.value.id != table_argument
+        ):
+            raise QueueFrontendError(
+                "ACPY-RULE-002: stateful rule observation must bind one "
+                "Entry from the same Table"
+            )
+        assignment = body[0]
+        assert isinstance(assignment.targets[0], ast.Subscript)
+        read_name: str | None = None
+        read_index: ast.expr | None = None
+        if read_statement is not None:
+            assert isinstance(read_statement.targets[0], ast.Name)
+            assert isinstance(read_statement.value, ast.Subscript)
+            read_name = read_statement.targets[0].id
+            read_index = copy.deepcopy(read_statement.value.slice)
         rule_definitions[node.name] = RuleDefinition(
             node.name,
-            node.args.args[0].arg,
-            copy.deepcopy(body[0].value),
+            payload_argument,
+            copy.deepcopy(body[1].value),
             node.lineno,
             node.col_offset + 1,
+            table_argument,
+            copy.deepcopy(assignment.targets[0].slice),
+            copy.deepcopy(assignment.value),
+            read_name,
+            read_index,
         )
     candidates = [
         node
@@ -3515,13 +3583,34 @@ def parse_queue_program(
                         )
                     )
                 elif call_name(call) in rule_definitions:
-                    if len(call.args) != 1 or call.keywords:
-                        raise QueueFrontendError(
-                            "ACPY-RULE-003: rule invocation requires exactly one Queue"
-                        )
-                    input_name = queue_reference(call.args[0], aliases)
-                    incoming = by_name[input_name]
                     definition = rule_definitions[call_name(call)]
+                    table: TableBinding | None = None
+                    if definition.table_argument is None:
+                        if len(call.args) != 1 or call.keywords:
+                            raise QueueFrontendError(
+                                "ACPY-RULE-003: pure rule invocation requires "
+                                "exactly one Queue"
+                            )
+                        input_name = queue_reference(call.args[0], aliases)
+                    else:
+                        if (
+                            len(call.args) != 2
+                            or call.keywords
+                            or not isinstance(call.args[0], ast.Name)
+                            or call.args[0].id not in table_by_name
+                        ):
+                            raise QueueFrontendError(
+                                "ACPY-RULE-003: stateful rule invocation requires "
+                                "one Table followed by one Queue"
+                            )
+                        table = table_by_name[call.args[0].id]
+                        input_name = queue_reference(call.args[1], aliases)
+                    incoming = by_name[input_name]
+                    if table is not None and table.entry_type != incoming.payload:
+                        raise QueueFrontendError(
+                            "ACPY-RULE-004: stateful rule Queue payload must "
+                            "match the Table Entry type"
+                        )
                     binding = QueueBinding(
                         name,
                         incoming.payload,
@@ -3535,6 +3624,20 @@ def parse_queue_program(
                         rule_name=definition.name,
                         rule_source_line=definition.source_line,
                         rule_source_column=definition.source_column,
+                        rule_table=None if table is None else table.name,
+                        rule_table_index=copy.deepcopy(definition.table_index),
+                        rule_table_value=copy.deepcopy(definition.table_value),
+                        rule_write_fields=(
+                            ()
+                            if table is None
+                            else normalized_write_fields(
+                                table, definition.table_value, ()
+                            )
+                        ),
+                        rule_table_read_name=definition.table_read_name,
+                        rule_table_read_index=copy.deepcopy(
+                            definition.table_read_index
+                        ),
                     )
                 elif call_name(call) == "table":
                     raise QueueFrontendError(
@@ -3911,6 +4014,7 @@ def parse_queue_program(
             + sum(write.table == table.name for write in table_writes)
             + sum(write.table == table.name for write in masked_table_writes)
             + sum(candidate.table == table.name for candidate in candidates)
+            + sum(queue.rule_table == table.name for queue in queues)
         )
         if endpoint_count == 0:
             raise QueueFrontendError(
@@ -3990,6 +4094,7 @@ class _ExpressionEmitter:
         self.lines: list[str] = []
         self.index = 0
         self.priority_values: dict[str, tuple[str, str, str, str]] = {}
+        self.table_view_values: dict[str, tuple[str, str]] = {}
 
     def _new(self) -> str:
         name = f"{self.prefix}v{self.index}"
@@ -4034,6 +4139,8 @@ class _ExpressionEmitter:
             self.lines.append(f"    }} -> !ac.var<i{mask_width}>")
             return mask, f"i{mask_width}"
         if isinstance(node, ast.Name) and node.id in self.table_views:
+            if node.id in self.table_view_values:
+                return self.table_view_values[node.id]
             table, address, entry_type = self.table_views[node.id]
             index, index_type = self.emit(address)
             if not index_type.startswith("i"):
@@ -4045,7 +4152,8 @@ class _ExpressionEmitter:
                 f"    %{name} = ac.table.get @{table} [%{index}] : "
                 f"!ac.var<{index_type}> -> !ac.var<{entry_type}>"
             )
-            return name, entry_type
+            self.table_view_values[node.id] = (name, entry_type)
+            return self.table_view_values[node.id]
         if (
             isinstance(node, ast.Attribute)
             and isinstance(node.value, ast.Name)
@@ -4611,12 +4719,57 @@ def lower_queue_program(program: QueueProgram) -> str:
         input_name = effective_input.get(queue.name, queue.input_name)
         input_ssa = mapping[input_name]
         if queue.rule_name is not None:
+            rule_table_views: dict[str, tuple[str, ast.expr, str]] = {}
+            if queue.rule_table_read_name is not None:
+                assert queue.rule_table is not None
+                assert queue.rule_table_read_index is not None
+                entry_type, _ = table_domains[queue.rule_table]
+                rule_table_views[queue.rule_table_read_name] = (
+                    queue.rule_table,
+                    queue.rule_table_read_index,
+                    entry_type,
+                )
             emitter = _ExpressionEmitter(
                 payloads,
                 queue.argument,
                 queue.payload,
                 root_name="item",
+                table_views=rule_table_views,
             )
+            index_result: str | None = None
+            index_type: str | None = None
+            write_result: str | None = None
+            if queue.rule_table is not None:
+                assert queue.rule_table_index is not None
+                assert queue.rule_table_value is not None
+                index_result, index_type = emitter.emit(queue.rule_table_index)
+                if not (index_type.startswith("i") and index_type[1:].isdigit()):
+                    raise QueueFrontendError(
+                        "ACPY-RULE-004: stateful rule Table index must be an "
+                        "exact-width integer"
+                    )
+                _, entries = table_domains[queue.rule_table]
+                if isinstance(queue.rule_table_index, ast.Constant):
+                    index_value = queue.rule_table_index.value
+                    if (
+                        type(index_value) is not int
+                        or index_value < 0
+                        or index_value >= entries
+                    ):
+                        raise QueueFrontendError(
+                            "ACPY-RULE-004: stateful rule Table index is out of range"
+                        )
+                elif entries != 1 << int(index_type[1:]):
+                    raise QueueFrontendError(
+                        "ACPY-RULE-004: dynamic stateful rule index requires "
+                        "a full 2^N Table domain"
+                    )
+                write_result, write_type = emitter.emit(queue.rule_table_value)
+                if write_type != queue.payload:
+                    raise QueueFrontendError(
+                        "ACPY-RULE-004: stateful rule assignment must write "
+                        "one complete Table Entry"
+                    )
             result, result_type = emitter.emit(queue.expression)
             if result_type != queue.payload:
                 raise QueueFrontendError(
@@ -4631,6 +4784,17 @@ def lower_queue_program(program: QueueProgram) -> str:
             )
             lines.append(f"{indent}^rule(%item: !ac.var<{queue.payload}>):")
             lines.extend(indent + line[2:] for line in emitter.lines)
+            if queue.rule_table is not None:
+                assert index_result is not None
+                assert index_type is not None
+                assert write_result is not None
+                fields = json.dumps(list(queue.rule_write_fields))
+                lines.append(
+                    f"{indent}  ac.table.propose @{queue.rule_table} "
+                    f'[%{index_result}] = %{write_result} mode "replace" '
+                    f"write_fields {fields} : !ac.var<{index_type}>, "
+                    f"!ac.var<{queue.payload}>"
+                )
             lines.append(
                 f"{indent}  %rule_ready = ac.marker.obligation %{result} "
                 f"state pending resolver handshake origin "
