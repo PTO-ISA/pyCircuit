@@ -146,6 +146,7 @@ for case_name in arbiter atomic-transform popcount; do
 done
 
 PYC_TOOLCHAIN_ROOT="${toolchain}" \
+ACIR_OPT="${acir_opt}" \
 ACIR_QUEUE_PYCGEN="${pycgen}" \
 PYTHONPATH="${ac_python}/src:${ac_build}/python" \
   "${venv}/bin/python" \
