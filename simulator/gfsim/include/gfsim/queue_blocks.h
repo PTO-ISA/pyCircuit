@@ -115,6 +115,8 @@ class QueueAtomicTransform<Policy, std::tuple<Inputs...>,
                            std::tuple<Outputs...>>
     final : public SimObject {
 public:
+  static_assert(sizeof...(Inputs) > 0 && sizeof...(Outputs) > 0,
+                "atomic transform requires input and output Queues");
   static constexpr std::string_view contractName = "ac.transform.atomic";
   static constexpr ObjectKind componentKind = ObjectKind::Compute;
 
@@ -124,16 +126,37 @@ public:
                        Policy policy = {},
                        ObservationSink *observations = nullptr)
       : SimObject(componentKind, std::move(name), id, parent, observations),
-        inputs_(inputs), outputs_(outputs), policy_(std::move(policy)) {}
+        inputs_(inputs), outputs_(outputs), policy_(std::move(policy)) {
+    if (id == kInvalidObjectId)
+      throw std::invalid_argument(
+          "atomic transform requires a stable object ID");
+    if (std::apply(
+            [](const auto *...queues) { return ((queues == nullptr) || ...); },
+            inputs_) ||
+        std::apply(
+            [](const auto *...queues) { return ((queues == nullptr) || ...); },
+            outputs_))
+      throw std::invalid_argument("atomic transform Queue is null");
+  }
 
   void doWork(Epoch) override {
     if (fired_ || !allInputsReady() || !allOutputsReady())
       return;
-    auto values = inputValues(std::index_sequence_for<Inputs...>{});
-    auto results = std::apply(std::as_const(policy_), values);
-    if (!pushAll(results, std::index_sequence_for<Outputs...>{}) ||
-        !popAll(std::index_sequence_for<Inputs...>{}))
+    const CommitGroupId group = id();
+    if (!prepareOutputs(group, std::index_sequence_for<Outputs...>{}) ||
+        !prepareInputs(group, std::index_sequence_for<Inputs...>{})) {
+      cancelPrepared(group);
       return;
+    }
+    auto values = inputValues(group, std::index_sequence_for<Inputs...>{});
+    auto results = std::apply(std::as_const(policy_), values);
+    if (!publishOutputs(group, results,
+                        std::index_sequence_for<Outputs...>{}) ||
+        !publishInputs(group, std::index_sequence_for<Inputs...>{})) {
+      setRuntimeFailureCode("commit_group_publish_failed");
+      cancelPrepared(group);
+      return;
+    }
     fired_ = true;
   }
   void doXfer(Epoch) override { fired_ = false; }
@@ -162,18 +185,35 @@ private:
         outputs_);
   }
   template <size_t... Indices>
-  std::tuple<Inputs...> inputValues(std::index_sequence<Indices...>) const {
-    return std::tuple<Inputs...>{*std::get<Indices>(inputs_)->peek()...};
+  bool prepareOutputs(CommitGroupId group, std::index_sequence<Indices...>) {
+    return (std::get<Indices>(outputs_)->preparePush(group) && ...);
   }
   template <size_t... Indices>
-  bool pushAll(const std::tuple<Outputs...> &values,
-               std::index_sequence<Indices...>) {
-    return (
-        std::get<Indices>(outputs_)->proposePush(std::get<Indices>(values)) &&
-        ...);
+  bool prepareInputs(CommitGroupId group, std::index_sequence<Indices...>) {
+    return (std::get<Indices>(inputs_)->preparePop(group) && ...);
   }
-  template <size_t... Indices> bool popAll(std::index_sequence<Indices...>) {
-    return (std::get<Indices>(inputs_)->proposePop().has_value() && ...);
+  template <size_t... Indices>
+  std::tuple<Inputs...> inputValues(CommitGroupId group,
+                                    std::index_sequence<Indices...>) const {
+    return std::tuple<Inputs...>{
+        *std::get<Indices>(inputs_)->preparedPopValue(group)...};
+  }
+  template <size_t... Indices>
+  bool publishOutputs(CommitGroupId group, const std::tuple<Outputs...> &values,
+                      std::index_sequence<Indices...>) {
+    return (std::get<Indices>(outputs_)->publishPush(
+                group, std::get<Indices>(values)) &&
+            ...);
+  }
+  template <size_t... Indices>
+  bool publishInputs(CommitGroupId group, std::index_sequence<Indices...>) {
+    return (std::get<Indices>(inputs_)->publishPop(group).has_value() && ...);
+  }
+  void cancelPrepared(CommitGroupId group) {
+    std::apply([&](auto *...queues) { (queues->cancelPrepared(group), ...); },
+               inputs_);
+    std::apply([&](auto *...queues) { (queues->cancelPrepared(group), ...); },
+               outputs_);
   }
 
   std::tuple<SimQueue<Inputs> *...> inputs_;
@@ -187,6 +227,8 @@ template <typename Types> class QueueBarrier;
 template <typename... Values>
 class QueueBarrier<std::tuple<Values...>> final : public SimObject {
 public:
+  static_assert(sizeof...(Values) > 0,
+                "barrier requires at least one Queue pair");
   static constexpr std::string_view contractName = "ac.barrier";
   static constexpr ObjectKind componentKind = ObjectKind::Scheduler;
 
@@ -195,15 +237,34 @@ public:
                std::tuple<SimQueue<Values> *...> outputs,
                ObservationSink *observations = nullptr)
       : SimObject(componentKind, std::move(name), id, parent, observations),
-        inputs_(inputs), outputs_(outputs) {}
+        inputs_(inputs), outputs_(outputs) {
+    if (id == kInvalidObjectId)
+      throw std::invalid_argument("barrier requires a stable object ID");
+    if (std::apply(
+            [](const auto *...queues) { return ((queues == nullptr) || ...); },
+            inputs_) ||
+        std::apply(
+            [](const auto *...queues) { return ((queues == nullptr) || ...); },
+            outputs_))
+      throw std::invalid_argument("barrier Queue is null");
+  }
 
   void doWork(Epoch) override {
     if (fired_ || !allInputsReady() || !allOutputsReady())
       return;
-    auto values = inputValues(std::index_sequence_for<Values...>{});
-    if (!pushAll(values, std::index_sequence_for<Values...>{}) ||
-        !popAll(std::index_sequence_for<Values...>{}))
+    const CommitGroupId group = id();
+    if (!prepareOutputs(group, std::index_sequence_for<Values...>{}) ||
+        !prepareInputs(group, std::index_sequence_for<Values...>{})) {
+      cancelPrepared(group);
       return;
+    }
+    auto values = inputValues(group, std::index_sequence_for<Values...>{});
+    if (!publishOutputs(group, values, std::index_sequence_for<Values...>{}) ||
+        !publishInputs(group, std::index_sequence_for<Values...>{})) {
+      setRuntimeFailureCode("commit_group_publish_failed");
+      cancelPrepared(group);
+      return;
+    }
     fired_ = true;
   }
   void doXfer(Epoch) override { fired_ = false; }
@@ -232,18 +293,35 @@ private:
         outputs_);
   }
   template <size_t... Indices>
-  std::tuple<Values...> inputValues(std::index_sequence<Indices...>) const {
-    return std::tuple<Values...>{*std::get<Indices>(inputs_)->peek()...};
+  bool prepareOutputs(CommitGroupId group, std::index_sequence<Indices...>) {
+    return (std::get<Indices>(outputs_)->preparePush(group) && ...);
   }
   template <size_t... Indices>
-  bool pushAll(const std::tuple<Values...> &values,
-               std::index_sequence<Indices...>) {
-    return (
-        std::get<Indices>(outputs_)->proposePush(std::get<Indices>(values)) &&
-        ...);
+  bool prepareInputs(CommitGroupId group, std::index_sequence<Indices...>) {
+    return (std::get<Indices>(inputs_)->preparePop(group) && ...);
   }
-  template <size_t... Indices> bool popAll(std::index_sequence<Indices...>) {
-    return (std::get<Indices>(inputs_)->proposePop().has_value() && ...);
+  template <size_t... Indices>
+  std::tuple<Values...> inputValues(CommitGroupId group,
+                                    std::index_sequence<Indices...>) const {
+    return std::tuple<Values...>{
+        *std::get<Indices>(inputs_)->preparedPopValue(group)...};
+  }
+  template <size_t... Indices>
+  bool publishOutputs(CommitGroupId group, const std::tuple<Values...> &values,
+                      std::index_sequence<Indices...>) {
+    return (std::get<Indices>(outputs_)->publishPush(
+                group, std::get<Indices>(values)) &&
+            ...);
+  }
+  template <size_t... Indices>
+  bool publishInputs(CommitGroupId group, std::index_sequence<Indices...>) {
+    return (std::get<Indices>(inputs_)->publishPop(group).has_value() && ...);
+  }
+  void cancelPrepared(CommitGroupId group) {
+    std::apply([&](auto *...queues) { (queues->cancelPrepared(group), ...); },
+               inputs_);
+    std::apply([&](auto *...queues) { (queues->cancelPrepared(group), ...); },
+               outputs_);
   }
 
   std::tuple<SimQueue<Values> *...> inputs_;
@@ -1005,36 +1083,14 @@ public:
                           std::vector<std::pair<size_t, Entry>> values,
                           std::span<const size_t> fields, Merge merge,
                           TableWriteMode mode = TableWriteMode::FieldMerge) {
-    if (pending_.contains(writerId) || fields.empty())
+    auto footprint = makeFootprint(values, fields, mode);
+    if (!footprint || writerHasProposal(writerId) ||
+        conflictsWithPendingEndpoint(*footprint) ||
+        conflictsWithPrepared(*footprint))
       return false;
-    std::vector<bool> seen(committed_.size());
-    for (const auto &[index, value] : values) {
-      (void)value;
-      if (index >= committed_.size() || seen[index])
-        return false;
-      seen[index] = true;
-    }
-    std::vector<size_t> normalizedFields(fields.begin(), fields.end());
-    std::sort(normalizedFields.begin(), normalizedFields.end());
-    if (std::adjacent_find(normalizedFields.begin(), normalizedFields.end()) !=
-        normalizedFields.end())
-      return false;
-    for (const auto &[otherId, proposal] : pending_) {
-      (void)otherId;
-      if (mode == TableWriteMode::Replace &&
-          proposal.mode == TableWriteMode::Replace)
-        return false;
-      if (mode == TableWriteMode::FieldMerge &&
-          proposal.mode == TableWriteMode::FieldMerge)
-        for (size_t field : normalizedFields)
-          if (std::binary_search(proposal.fields.begin(), proposal.fields.end(),
-                                 field))
-            return false;
-    }
     PendingProposal proposal;
     proposal.values = std::move(values);
-    proposal.fields = std::move(normalizedFields);
-    proposal.mode = mode;
+    proposal.footprint = std::move(*footprint);
     proposal.merge = [merge = std::move(merge)](Entry &target,
                                                 const Entry &value) {
       std::invoke(merge, target, value);
@@ -1042,8 +1098,58 @@ public:
     pending_.emplace(writerId, std::move(proposal));
     return true;
   }
+
+  bool prepareWrite(CommitGroupId group, ObjectId writerId, size_t index,
+                    std::span<const size_t> fields,
+                    TableWriteMode mode = TableWriteMode::FieldMerge) {
+    return prepareMaskedWrite(group, writerId,
+                              std::span<const size_t>(&index, 1), fields, mode);
+  }
+
+  bool prepareMaskedWrite(CommitGroupId group, ObjectId writerId,
+                          std::span<const size_t> indices,
+                          std::span<const size_t> fields,
+                          TableWriteMode mode = TableWriteMode::FieldMerge) {
+    if (group == kInvalidCommitGroupId || prepared_.contains(group) ||
+        writerHasProposal(writerId))
+      return false;
+    auto footprint = makeFootprint(indices, fields, mode);
+    if (!footprint || conflictsWithPending(*footprint) ||
+        conflictsWithPrepared(*footprint))
+      return false;
+    prepared_.emplace(group, PreparedProposal{writerId, std::move(*footprint)});
+    return true;
+  }
+
+  template <typename Merge>
+  bool publishPreparedWrite(CommitGroupId group,
+                            std::vector<std::pair<size_t, Entry>> values,
+                            Merge merge) {
+    auto prepared = prepared_.find(group);
+    if (prepared == prepared_.end() ||
+        !valuesMatchFootprint(values, prepared->second.footprint))
+      return false;
+    PendingProposal proposal;
+    proposal.values = std::move(values);
+    proposal.footprint = std::move(prepared->second.footprint);
+    proposal.group = group;
+    proposal.merge = [merge = std::move(merge)](Entry &target,
+                                                const Entry &value) {
+      std::invoke(merge, target, value);
+    };
+    const ObjectId writerId = prepared->second.writerId;
+    prepared_.erase(prepared);
+    pending_.emplace(writerId, std::move(proposal));
+    return true;
+  }
+
+  void cancelPreparedWrite(CommitGroupId group) { prepared_.erase(group); }
+  bool hasPreparedWrite(CommitGroupId group) const {
+    return prepared_.contains(group);
+  }
+
   bool initializeEntry(size_t index, Entry value) {
-    if (!pending_.empty() || index >= committed_.size())
+    if (!pending_.empty() || !prepared_.empty() || index >= committed_.size())
       return false;
     committed_[index] = std::move(value);
     return true;
@@ -1056,7 +1162,7 @@ public:
          {TableWriteMode::FieldMerge, TableWriteMode::Replace})
       for (const auto &[writerId, proposal] : pending_) {
         (void)writerId;
-        if (proposal.mode != mode)
+        if (proposal.footprint.mode != mode)
           continue;
         for (const auto &[index, value] : proposal.values)
           if (mode == TableWriteMode::Replace)
@@ -1067,24 +1173,159 @@ public:
     committed_ = std::move(next);
     pending_.clear();
   }
-  void cancelWrite(ObjectId writerId) { pending_.erase(writerId); }
-  void cancelWrite() { pending_.clear(); }
+  void cancelWrite(ObjectId writerId) {
+    auto proposal = pending_.find(writerId);
+    if (proposal != pending_.end() && !proposal->second.group)
+      pending_.erase(proposal);
+  }
+  void doXfer(Epoch) override {
+    if (!prepared_.empty()) {
+      setRuntimeFailureCode("table_unpublished_commit_group");
+      prepared_.clear();
+    }
+    commitWrite();
+  }
+  bool hasPendingCommit() const override {
+    return !pending_.empty() || !prepared_.empty();
+  }
   void reset() override {
     std::fill(committed_.begin(), committed_.end(), Entry{});
     pending_.clear();
+    prepared_.clear();
     clearRuntimeFailureCode();
   }
 
 private:
+  struct WriteFootprint {
+    std::vector<size_t> indices;
+    std::vector<size_t> fields;
+    TableWriteMode mode = TableWriteMode::FieldMerge;
+  };
+
   std::vector<Entry> committed_;
   Entry zeroEntry_{};
   struct PendingProposal {
     std::vector<std::pair<size_t, Entry>> values;
-    std::vector<size_t> fields;
-    TableWriteMode mode = TableWriteMode::FieldMerge;
+    WriteFootprint footprint;
+    std::optional<CommitGroupId> group;
     std::function<void(Entry &, const Entry &)> merge;
   };
+  struct PreparedProposal {
+    ObjectId writerId = kInvalidObjectId;
+    WriteFootprint footprint;
+  };
+
+  template <typename Values>
+  std::optional<WriteFootprint> makeFootprint(const Values &values,
+                                              std::span<const size_t> fields,
+                                              TableWriteMode mode) const {
+    std::vector<size_t> indices;
+    indices.reserve(values.size());
+    for (const auto &value : values) {
+      size_t index;
+      if constexpr (requires { value.first; })
+        index = value.first;
+      else
+        index = value;
+      if (index >= committed_.size())
+        return std::nullopt;
+      indices.push_back(index);
+    }
+    std::sort(indices.begin(), indices.end());
+    if (std::adjacent_find(indices.begin(), indices.end()) != indices.end())
+      return std::nullopt;
+
+    std::vector<size_t> normalizedFields(fields.begin(), fields.end());
+    if (normalizedFields.empty())
+      return std::nullopt;
+    std::sort(normalizedFields.begin(), normalizedFields.end());
+    if (std::adjacent_find(normalizedFields.begin(), normalizedFields.end()) !=
+        normalizedFields.end())
+      return std::nullopt;
+    return WriteFootprint{std::move(indices), std::move(normalizedFields),
+                          mode};
+  }
+
+  static bool intersects(const std::vector<size_t> &left,
+                         const std::vector<size_t> &right) {
+    auto leftIt = left.begin();
+    auto rightIt = right.begin();
+    while (leftIt != left.end() && rightIt != right.end()) {
+      if (*leftIt == *rightIt)
+        return true;
+      if (*leftIt < *rightIt)
+        ++leftIt;
+      else
+        ++rightIt;
+    }
+    return false;
+  }
+
+  static bool footprintsConflict(const WriteFootprint &left,
+                                 const WriteFootprint &right) {
+    if (!intersects(left.indices, right.indices))
+      return false;
+    if (left.mode == TableWriteMode::Replace &&
+        right.mode == TableWriteMode::Replace)
+      return true;
+    if (left.mode == TableWriteMode::FieldMerge &&
+        right.mode == TableWriteMode::FieldMerge)
+      return intersects(left.fields, right.fields);
+    return false;
+  }
+
+  static bool endpointContractsConflict(const WriteFootprint &left,
+                                        const WriteFootprint &right) {
+    if (left.mode == TableWriteMode::Replace &&
+        right.mode == TableWriteMode::Replace)
+      return true;
+    if (left.mode == TableWriteMode::FieldMerge &&
+        right.mode == TableWriteMode::FieldMerge)
+      return intersects(left.fields, right.fields);
+    return false;
+  }
+
+  bool conflictsWithPending(const WriteFootprint &footprint) const {
+    return std::ranges::any_of(pending_, [&](const auto &item) {
+      return footprintsConflict(footprint, item.second.footprint);
+    });
+  }
+
+  bool conflictsWithPendingEndpoint(const WriteFootprint &footprint) const {
+    return std::ranges::any_of(pending_, [&](const auto &item) {
+      return endpointContractsConflict(footprint, item.second.footprint);
+    });
+  }
+
+  bool conflictsWithPrepared(const WriteFootprint &footprint) const {
+    return std::ranges::any_of(prepared_, [&](const auto &item) {
+      return footprintsConflict(footprint, item.second.footprint);
+    });
+  }
+
+  bool writerHasProposal(ObjectId writerId) const {
+    if (writerId == kInvalidObjectId || pending_.contains(writerId))
+      return true;
+    return std::ranges::any_of(prepared_, [&](const auto &item) {
+      return item.second.writerId == writerId;
+    });
+  }
+
+  static bool
+  valuesMatchFootprint(const std::vector<std::pair<size_t, Entry>> &values,
+                       const WriteFootprint &footprint) {
+    std::vector<size_t> indices;
+    indices.reserve(values.size());
+    for (const auto &[index, value] : values) {
+      (void)value;
+      indices.push_back(index);
+    }
+    std::sort(indices.begin(), indices.end());
+    return indices == footprint.indices;
+  }
+
   std::map<ObjectId, PendingProposal> pending_;
+  std::map<CommitGroupId, PreparedProposal> prepared_;
 };
 
 template <typename AddressResult>
@@ -1095,6 +1336,206 @@ bool tableAddressInRange(AddressResult address, size_t entries) {
       return false;
   return static_cast<uint64_t>(address) < entries;
 }
+
+template <typename Entry, typename... Outputs> struct TableTransitionPlan {
+  std::vector<std::pair<size_t, Entry>> writes;
+  std::tuple<std::optional<Outputs>...> outputs;
+};
+
+/// One inferred transaction spanning a Table and zero or more Queue endpoints.
+/// The policy observes only committed state and returns the already-selected
+/// functional branch. Resource readiness never causes a different branch to be
+/// chosen: the selected plan either reserves and publishes in full or stalls.
+template <typename Policy, typename Entry, typename InputTypes,
+          typename OutputTypes, typename Merge = TableFullEntryMerge<Entry>>
+class QueueTableTransition;
+
+template <typename Policy, typename Entry, typename... Inputs,
+          typename... Outputs, typename Merge>
+  requires TablePolicyInvocable<Policy, const SimTable<Entry> &,
+                                const Inputs &...> &&
+           std::same_as<
+               TablePolicyResult<Policy, const SimTable<Entry> &,
+                                 const Inputs &...>,
+               std::optional<TableTransitionPlan<Entry, Outputs...>>> &&
+           std::invocable<const Merge &, Entry &, const Entry &>
+class QueueTableTransition<Policy, Entry, std::tuple<Inputs...>,
+                           std::tuple<Outputs...>, Merge>
+    final : public SimObject {
+public:
+  static constexpr std::string_view contractName = "ac.firing.table";
+  static constexpr ObjectKind componentKind = ObjectKind::Scheduler;
+  using Plan = TableTransitionPlan<Entry, Outputs...>;
+
+  QueueTableTransition(std::string name, ObjectId id, SimObject *parent,
+                       SimTable<Entry> &table,
+                       std::tuple<SimQueue<Inputs> *...> inputs,
+                       std::tuple<SimQueue<Outputs> *...> outputs,
+                       TableWriteMode mode, Policy policy = {},
+                       Merge merge = {},
+                       ObservationSink *observations = nullptr)
+      : SimObject(componentKind, std::move(name), id, parent, observations),
+        table_(table), inputs_(inputs), outputs_(outputs),
+        policy_(std::move(policy)), merge_(std::move(merge)), mode_(mode) {
+    if (id == kInvalidObjectId)
+      throw std::invalid_argument("transition requires a stable object ID");
+    if (std::apply(
+            [](const auto *...queues) { return ((queues == nullptr) || ...); },
+            inputs_) ||
+        std::apply(
+            [](const auto *...queues) { return ((queues == nullptr) || ...); },
+            outputs_))
+      throw std::invalid_argument("transition Queue is null");
+  }
+
+  void doWork(Epoch epoch) override {
+    if (fired_ || !allInputsReady())
+      return;
+    const auto inputValues =
+        peekInputValues(std::index_sequence_for<Inputs...>{});
+    auto plan = std::apply(
+        [&](const auto &...values) {
+          return invokeTablePolicy(std::as_const(policy_), epoch,
+                                   std::as_const(table_), values...);
+        },
+        inputValues);
+    if (!plan ||
+        !selectedOutputsReady(*plan, std::index_sequence_for<Outputs...>{}))
+      return;
+
+    const CommitGroupId group = id();
+    std::vector<size_t> indices;
+    indices.reserve(plan->writes.size());
+    for (const auto &[index, value] : plan->writes) {
+      (void)value;
+      indices.push_back(index);
+    }
+    if (!prepareOutputs(group, *plan, std::index_sequence_for<Outputs...>{}) ||
+        !prepareInputs(group, std::index_sequence_for<Inputs...>{}) ||
+        !table_.prepareMaskedWrite(group, id(), indices, Merge::fields,
+                                   mode_)) {
+      cancelPrepared(group);
+      return;
+    }
+
+    if (!allPrepared(group, *plan, std::index_sequence_for<Inputs...>{},
+                     std::index_sequence_for<Outputs...>{}) ||
+        !publishOutputs(group, *plan, std::index_sequence_for<Outputs...>{}) ||
+        !publishInputs(group, std::index_sequence_for<Inputs...>{}) ||
+        !table_.publishPreparedWrite(group, std::move(plan->writes), merge_)) {
+      setRuntimeFailureCode("commit_group_publish_failed");
+      cancelPrepared(group);
+      return;
+    }
+    proposed_ = true;
+    fired_ = true;
+  }
+
+  void doXfer(Epoch) override {
+    proposed_ = false;
+    fired_ = false;
+  }
+  bool hasPendingCommit() const override { return fired_; }
+  bool isRunnable(Epoch) const override { return !fired_ && allInputsReady(); }
+  void reset() override {
+    cancelPrepared(id());
+    proposed_ = false;
+    fired_ = false;
+    clearRuntimeFailureCode();
+  }
+
+private:
+  bool allInputsReady() const {
+    return std::apply(
+        [](const auto *...queues) {
+          return ((queues != nullptr && queues->canProposePop()) && ...);
+        },
+        inputs_);
+  }
+
+  template <size_t... Indices>
+  std::tuple<Inputs...> peekInputValues(std::index_sequence<Indices...>) const {
+    return std::tuple<Inputs...>{
+        *std::get<Indices>(inputs_)->peekProposable()...};
+  }
+
+  template <size_t... Indices>
+  bool selectedOutputsReady(const Plan &plan,
+                            std::index_sequence<Indices...>) const {
+    return ((!std::get<Indices>(plan.outputs)
+                 ? true
+                 : (std::get<Indices>(outputs_) != nullptr &&
+                    std::get<Indices>(outputs_)->canProposePush())) &&
+            ...);
+  }
+
+  template <size_t... Indices>
+  bool prepareOutputs(CommitGroupId group, const Plan &plan,
+                      std::index_sequence<Indices...>) {
+    return ((!std::get<Indices>(plan.outputs)
+                 ? true
+                 : std::get<Indices>(outputs_)->preparePush(group)) &&
+            ...);
+  }
+
+  template <size_t... Indices>
+  bool prepareInputs(CommitGroupId group, std::index_sequence<Indices...>) {
+    return (std::get<Indices>(inputs_)->preparePop(group) && ...);
+  }
+
+  template <size_t... Indices>
+  bool publishOutputs(CommitGroupId group, const Plan &plan,
+                      std::index_sequence<Indices...>) {
+    return ((!std::get<Indices>(plan.outputs)
+                 ? true
+                 : std::get<Indices>(outputs_)->publishPush(
+                       group, *std::get<Indices>(plan.outputs))) &&
+            ...);
+  }
+
+  template <size_t... Indices>
+  bool publishInputs(CommitGroupId group, std::index_sequence<Indices...>) {
+    return (std::get<Indices>(inputs_)->publishPop(group).has_value() && ...);
+  }
+
+  template <size_t... InputIndices, size_t... OutputIndices>
+  bool allPrepared(CommitGroupId group, const Plan &plan,
+                   std::index_sequence<InputIndices...>,
+                   std::index_sequence<OutputIndices...>) const {
+    return (std::get<InputIndices>(inputs_)->hasPrepared(group) && ...) &&
+           ((!std::get<OutputIndices>(plan.outputs)
+                 ? true
+                 : (std::get<OutputIndices>(outputs_) != nullptr &&
+                    std::get<OutputIndices>(outputs_)->hasPrepared(group))) &&
+            ...) &&
+           table_.hasPreparedWrite(group);
+  }
+
+  void cancelPrepared(CommitGroupId group) {
+    std::apply([&](auto *...queues) { (queues->cancelPrepared(group), ...); },
+               inputs_);
+    std::apply(
+        [&](auto *...queues) {
+          (
+              [&] {
+                if (queues != nullptr)
+                  queues->cancelPrepared(group);
+              }(),
+              ...);
+        },
+        outputs_);
+    table_.cancelPreparedWrite(group);
+  }
+
+  SimTable<Entry> &table_;
+  std::tuple<SimQueue<Inputs> *...> inputs_;
+  std::tuple<SimQueue<Outputs> *...> outputs_;
+  [[no_unique_address]] Policy policy_;
+  [[no_unique_address]] Merge merge_;
+  TableWriteMode mode_;
+  bool proposed_ = false;
+  bool fired_ = false;
+};
 
 template <typename Input, typename Entry, typename Address, typename When>
   requires TablePolicyInvocable<Address, const Input &> &&
@@ -1261,8 +1702,6 @@ public:
     fired_ = true;
   }
   void doXfer(Epoch) override {
-    if (proposed_)
-      table_.commitWrite();
     proposed_ = false;
     fired_ = false;
   }
@@ -1334,8 +1773,6 @@ public:
     fired_ = true;
   }
   void doXfer(Epoch) override {
-    if (proposed_)
-      table_.commitWrite();
     proposed_ = false;
     fired_ = false;
   }
@@ -1408,8 +1845,6 @@ public:
     fired_ = true;
   }
   void doXfer(Epoch) override {
-    if (proposed_)
-      table_.commitWrite();
     proposed_ = false;
     fired_ = false;
   }
@@ -2056,8 +2491,7 @@ private:
 
 template <typename Control, typename T, size_t Inputs, typename Selector>
   requires std::invocable<const Selector &, const Control &> &&
-           IntegralLike<
-               std::invoke_result_t<const Selector &, const Control &>>
+           IntegralLike<std::invoke_result_t<const Selector &, const Control &>>
 class QueueSelect final : public SimObject {
 public:
   static_assert(Inputs >= 2);
