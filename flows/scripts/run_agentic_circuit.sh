@@ -41,12 +41,12 @@ if [[ "${resume_from}" != "g0" && "${resume_from}" != "g2" ]]; then
   pyc_die "AC_GATE_RESUME_FROM must be g0 or g2"
 fi
 
-if [[ "${resume_from}" == "g0" ]]; then
-  if [[ ! -x "${venv}/bin/python" ]]; then
-    python3 -m venv "${venv}"
-  fi
-  "${venv}/bin/python" -m pip install -e "${ac_python}[test]"
+if [[ ! -x "${venv}/bin/python" ]]; then
+  python3 -m venv "${venv}"
+fi
+"${venv}/bin/python" -m pip install -e "${ac_python}[test]"
 
+if [[ "${resume_from}" == "g0" ]]; then
   llvm_config="${LLVM_CONFIG:-}"
   if [[ -z "${llvm_config}" ]]; then
     for candidate in llvm-config-22 llvm-config; do
