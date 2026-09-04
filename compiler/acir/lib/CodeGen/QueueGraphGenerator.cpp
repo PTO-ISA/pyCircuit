@@ -140,6 +140,7 @@ llvm::Expected<std::string> emitExpressionBody(const QueueBlockPlan &block,
                                                bool qualifyTables = false) {
   std::ostringstream output;
   std::string padding(indent, ' ');
+  llvm::StringMap<std::string> priorityEncodings;
   llvm::StringSet<> needed;
   needed.insert(yield);
   for (const QueueExpressionPlan &expression : llvm::reverse(block.expressions))
@@ -280,6 +281,21 @@ llvm::Expected<std::string> emitExpressionBody(const QueueBlockPlan &block,
     if (expression.kind == "not") {
       output << padding << "auto " << expression.result << " = ~"
              << first->str() << ";\n";
+      continue;
+    }
+    if (expression.kind == "priority_index" ||
+        expression.kind == "priority_valid") {
+      std::string key = first->str() + "#" + expression.predicate;
+      auto [entry, inserted] = priorityEncodings.try_emplace(
+          key, "priority_" + identifier(expression.result));
+      if (inserted)
+        output << padding << "auto " << entry->getValue()
+               << " = gfsim::priorityEncode(" << first->str() << ", "
+               << (expression.predicate == "low" ? "true" : "false") << ");\n";
+      output << padding << "auto " << expression.result << " = "
+             << entry->getValue() << "."
+             << (expression.kind == "priority_index" ? "index" : "valid")
+             << ";\n";
       continue;
     }
     auto second = operand(1);
@@ -522,6 +538,7 @@ llvm::Expected<std::string> generateQueueGraphCpp(const QueueGraphPlan &plan) {
   output << "#include \"gfsim/bits.h\"\n"
             "#include \"gfsim/dispatch.h\"\n"
             "#include \"gfsim/object.h\"\n"
+            "#include \"gfsim/priority_encode.h\"\n"
             "#include \"gfsim/queue.h\"\n"
             "#include \"gfsim/queue_blocks.h\"\n\n"
             "#include <array>\n#include <cstdint>\n#include <limits>\n"

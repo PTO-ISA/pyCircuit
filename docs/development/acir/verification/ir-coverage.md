@@ -7,7 +7,7 @@
 acir_contract_epoch: 0.5
 acsim_contract_epoch: 0.5
 
-## acir operations (118)
+## acir operations (119)
 
 | operation | source symbol | positive coverage | negative coverage |
 | --- | --- | --- | --- |
@@ -59,6 +59,7 @@ acsim_contract_epoch: 0.5
 | ac.var.get | ACIR_VarGetOp | tests/mlir/agentic-circuit/ACIR/memory.mlir<br>tests/mlir/agentic-circuit/ACIR/select.mlir<br>tests/mlir/agentic-circuit/ACIR/var-expressions.mlir<br>tests/mlir/agentic-circuit/CodeGen/bit-widths.mlir<br>tests/mlir/agentic-circuit/CodeGen/popcount-verilog.mlir<br>tests/mlir/agentic-circuit/CodeGen/popcount.mlir<br>tests/mlir/agentic-circuit/Transforms/queue-var-cse.mlir | tests/mlir/agentic-circuit/ACIR/memory-invalid.mlir<br>tests/mlir/agentic-circuit/ACIR/var-expressions-invalid.mlir |
 | ac.var.with | ACIR_VarWithOp | tests/mlir/agentic-circuit/ACIR/var-expressions.mlir<br>tests/mlir/agentic-circuit/CodeGen/bit-widths.mlir<br>tests/mlir/agentic-circuit/CodeGen/popcount-verilog.mlir<br>tests/mlir/agentic-circuit/CodeGen/popcount.mlir<br>tests/mlir/agentic-circuit/Transforms/queue-var-cse.mlir | tests/mlir/agentic-circuit/ACIR/var-expressions-invalid.mlir |
 | ac.var.popcount | ACIR_VarPopcountOp | tests/mlir/agentic-circuit/CodeGen/popcount-verilog.mlir<br>tests/mlir/agentic-circuit/CodeGen/popcount.mlir | tests/mlir/agentic-circuit/ACIR/var-expressions-invalid.mlir |
+| ac.var.priority_encode | ACIR_VarPriorityEncodeOp | tests/mlir/agentic-circuit/ACIR/var-expressions.mlir<br>tests/mlir/agentic-circuit/CodeGen/bit-widths.mlir | tests/mlir/agentic-circuit/ACIR/var-expressions-invalid.mlir |
 | ac.packet.serialize | ACIR_PacketSerializeOp | tests/mlir/agentic-circuit/ACIR/records-valid.mlir<br>tests/mlir/agentic-circuit/ACIR/review-r1-valid.mlir | tests/mlir/agentic-circuit/ACIR/records-invalid.mlir<br>tests/mlir/agentic-circuit/ACIR/review-r1-invalid.mlir<br>tests/mlir/agentic-circuit/ACIR/review-r2-invalid.mlir |
 | ac.packet.deserialize | ACIR_PacketDeserializeOp | tests/mlir/agentic-circuit/ACIR/records-valid.mlir<br>tests/mlir/agentic-circuit/ACIR/review-r1-valid.mlir | tests/mlir/agentic-circuit/ACIR/records-invalid.mlir<br>tests/mlir/agentic-circuit/ACIR/review-r1-invalid.mlir<br>tests/mlir/agentic-circuit/ACIR/review-r2-invalid.mlir |
 | ac.transform | ACIR_TransformOp | tests/mlir/agentic-circuit/ACIR/scope.mlir<br>tests/mlir/agentic-circuit/ACIR/transform.mlir<br>tests/mlir/agentic-circuit/ACIR/var-expressions.mlir<br>tests/mlir/agentic-circuit/CodeGen/atomic-transform.mlir<br>tests/mlir/agentic-circuit/CodeGen/bit-widths.mlir<br>tests/mlir/agentic-circuit/CodeGen/popcount-verilog.mlir<br>tests/mlir/agentic-circuit/CodeGen/popcount.mlir<br>tests/mlir/agentic-circuit/Transforms/rule-lowering.mlir | tests/mlir/agentic-circuit/ACIR/transform-invalid.mlir<br>tests/mlir/agentic-circuit/Transforms/rule-lowering-invalid.mlir |

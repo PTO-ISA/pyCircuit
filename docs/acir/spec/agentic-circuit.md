@@ -205,6 +205,13 @@ signedness as a distinct type. The retained `ac.s8/s16/s32/s64` names therefore
 also use signless unsigned relational lowering for now; signed comparison
 semantics require a future type-system decision.
 
+`ac.priority_encode(value, order="low")` is a semantic combinational helper.
+Its `.index` and `.valid` projections share one `ac.var.priority_encode` in
+ACIR. `order="low"` selects the least-significant asserted bit and
+`order="high"` selects the most-significant asserted bit; an all-zero input
+returns `valid=0,index=0`. QueueGraph uses the gfsim reference model and lowers
+the same operation to vendor-neutral `pyc.priority_encode`.
+
 ### Source and sink
 
 `ac.source(T, depth=N, latency=L)` creates a Queue boundary with payload `T`.

@@ -1251,10 +1251,16 @@ static LogicalResult updateManifest(
     manifest["verilog_modules"] = std::move(*verilogMods);
   if (cppMods)
     manifest["cpp_modules"] = std::move(*cppMods);
-  if (rtlImplementations)
-    manifest["rtl_implementations"] = std::move(*rtlImplementations);
-  if (rtlBindings)
-    manifest["rtl_bindings"] = std::move(*rtlBindings);
+  if (rtlImplementations || rtlBindings) {
+    llvm::json::Object selection;
+    selection["schema"] = "pyc-rtl-selection-manifest-v1";
+    selection["implementations"] = rtlImplementations
+                                       ? std::move(*rtlImplementations)
+                                       : llvm::json::Array();
+    selection["bindings"] =
+        rtlBindings ? std::move(*rtlBindings) : llvm::json::Array();
+    manifest["rtl_selection"] = std::move(selection);
+  }
 
   std::string buf;
   llvm::raw_string_ostream ss(buf);

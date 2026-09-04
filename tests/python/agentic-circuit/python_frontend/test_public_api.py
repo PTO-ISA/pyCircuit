@@ -32,6 +32,7 @@ PUBLIC = {
     "Endpoint",
     "source",
     "popcount",
+    "priority_encode",
     "memory",
     "sink",
     "observe",
@@ -72,7 +73,9 @@ class PublicApiTest(unittest.TestCase):
         for name in PUBLIC:
             self.assertIsNotNone(getattr(api, name))
 
-    def test_unsigned_bit_types_cover_every_width_from_one_through_sixty_four(self) -> None:
+    def test_unsigned_bit_types_cover_every_width_from_one_through_sixty_four(
+        self,
+    ) -> None:
         api = importlib.import_module("agentic_circuit")
 
         for width in range(1, 65):
@@ -157,6 +160,7 @@ class PublicApiTest(unittest.TestCase):
             lambda: api.view(object(), "field"),
             lambda: api.source(int),
             lambda: api.popcount(object()),
+            lambda: api.priority_encode(object()),
             lambda: api.sink(object()),
             lambda: api.observe(object()),
             lambda: api.expect(

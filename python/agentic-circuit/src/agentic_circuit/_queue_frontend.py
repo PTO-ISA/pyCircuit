@@ -3989,6 +3989,7 @@ class _ExpressionEmitter:
         self.table_domains = dict(table_domains or {})
         self.lines: list[str] = []
         self.index = 0
+        self.priority_values: dict[str, tuple[str, str, str, str]] = {}
 
     def _new(self) -> str:
         name = f"{self.prefix}v{self.index}"
@@ -4156,6 +4157,66 @@ class _ExpressionEmitter:
                 f"    %{name} = ac.var.constant {attribute} as !ac.var<{typ}>"
             )
             return name, typ
+        if (
+            isinstance(node, ast.Attribute)
+            and node.attr in {"index", "valid"}
+            and isinstance(node.value, ast.Call)
+            and _decorator_name(node.value.func).rsplit(".", 1)[-1] == "priority_encode"
+        ):
+            call = node.value
+            if len(call.args) != 1 or any(
+                keyword.arg != "order" for keyword in call.keywords
+            ):
+                raise QueueFrontendError(
+                    "ACPY-QUEUE-025: priority_encode requires one value and optional order"
+                )
+            order = "low"
+            if call.keywords:
+                raw_order = call.keywords[0].value
+                if (
+                    not isinstance(raw_order, ast.Constant)
+                    or type(raw_order.value) is not str
+                ):
+                    raise QueueFrontendError(
+                        "ACPY-QUEUE-025: priority_encode order must be static"
+                    )
+                order = raw_order.value.strip().lower()
+            if order not in {"low", "high"}:
+                raise QueueFrontendError(
+                    "ACPY-QUEUE-025: priority_encode order must be low or high"
+                )
+            key = ast.dump(call, include_attributes=False)
+            cached = self.priority_values.get(key)
+            if cached is None:
+                value, value_type = self.emit(call.args[0])
+                if not value_type.startswith("i") or not value_type[1:].isdigit():
+                    raise QueueFrontendError(
+                        "ACPY-QUEUE-025: priority_encode requires an integer payload"
+                    )
+                width = int(value_type[1:])
+                if not 1 <= width <= 64:
+                    raise QueueFrontendError(
+                        "ACPY-QUEUE-025: priority_encode width must be in [1, 64]"
+                    )
+                index_type = f"i{max(1, (width - 1).bit_length())}"
+                index = self._new()
+                valid = self._new()
+                self.lines.append(
+                    f"    %{index}, %{valid} = ac.var.priority_encode %{value} "
+                    f'order "{order}" : !ac.var<{value_type}> -> '
+                    f"!ac.var<{index_type}>, !ac.var<i1>"
+                )
+                cached = (index, index_type, valid, "i1")
+                self.priority_values[key] = cached
+            index, index_type, valid, valid_type = cached
+            return (
+                (index, index_type)
+                if node.attr == "index"
+                else (
+                    valid,
+                    valid_type,
+                )
+            )
         if isinstance(node, ast.Attribute):
             record, record_type = self.emit(node.value)
             payload_name = record_type.removeprefix(
@@ -4186,9 +4247,7 @@ class _ExpressionEmitter:
             left, left_type = self.emit(node.left)
             right, right_type = self.emit(node.right, left_type)
             if left_type != right_type:
-                raise QueueFrontendError(
-                    "ACPY-QUEUE-003: binary operands must match"
-                )
+                raise QueueFrontendError("ACPY-QUEUE-003: binary operands must match")
             opcode = {
                 ast.Add: "add",
                 ast.Sub: "sub",
