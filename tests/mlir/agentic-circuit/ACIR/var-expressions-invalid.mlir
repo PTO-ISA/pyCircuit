@@ -13,6 +13,7 @@
 // RUN: %not %acir_opt %t/not-noninteger.mlir 2>&1 | %FileCheck %s --check-prefix=NOT-NONINTEGER
 // RUN: %not %acir_opt %t/shl-noninteger.mlir 2>&1 | %FileCheck %s --check-prefix=SHL-NONINTEGER
 // RUN: %not %acir_opt %t/shr-noninteger.mlir 2>&1 | %FileCheck %s --check-prefix=SHR-NONINTEGER
+// RUN: %not %acir_opt %t/bit-width.mlir 2>&1 | %FileCheck %s --check-prefix=BIT-WIDTH
 // RUN: %not %acir_opt %t/cmp-predicate.mlir 2>&1 | %FileCheck %s --check-prefix=CMP-PREDICATE
 // RUN: %not %acir_opt %t/popcount-width.mlir 2>&1 | %FileCheck %s --check-prefix=POPCOUNT-WIDTH
 // RUN: %not %acir_opt %t/popcount-input.mlir 2>&1 | %FileCheck %s --check-prefix=POPCOUNT-INPUT
@@ -31,6 +32,7 @@
 // NOT-NONINTEGER: error: 'ac.var.not' op bit operation Var element must be an integer
 // SHL-NONINTEGER: error: 'ac.var.shl' op bit operation Var element must be an integer
 // SHR-NONINTEGER: error: 'ac.var.shr' op bit operation Var element must be an integer
+// BIT-WIDTH: error: 'ac.var.and' op bit operation Var element must be a signless integer with width in [1, 64]
 // CMP-PREDICATE: error: 'ac.var.cmp' op predicate must be eq, ne, slt, sle, sgt, sge, ult, ule, ugt, or uge
 // POPCOUNT-WIDTH: error: 'ac.var.popcount' op result width must be ceil(log2(input_width + 1)) = 4
 // POPCOUNT-INPUT: error: 'ac.var.popcount' op input width must be in [1, 64]
@@ -92,6 +94,12 @@ builtin.module attributes {ac.contract_epoch = "0.5"} {
 builtin.module attributes {ac.contract_epoch = "0.5"} {
   %value = "builtin.unrealized_conversion_cast"() : () -> !ac.var<i8>
   %bad = ac.var.popcount %value : !ac.var<i8> -> !ac.var<i3>
+}
+
+//--- bit-width.mlir
+builtin.module attributes {ac.contract_epoch = "0.5"} {
+  %value = "builtin.unrealized_conversion_cast"() : () -> !ac.var<i128>
+  %bad = ac.var.and %value, %value : !ac.var<i128>
 }
 
 //--- popcount-input.mlir

@@ -4263,10 +4263,10 @@ class _ExpressionEmitter:
             predicates = {
                 ast.Eq: "eq",
                 ast.NotEq: "ne",
-                ast.Lt: "slt",
-                ast.LtE: "sle",
-                ast.Gt: "sgt",
-                ast.GtE: "sge",
+                ast.Lt: "ult",
+                ast.LtE: "ule",
+                ast.Gt: "ugt",
+                ast.GtE: "uge",
             }
             predicate = predicates.get(type(node.ops[0]))
             if predicate is None:

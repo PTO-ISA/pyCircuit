@@ -16,7 +16,9 @@ ACIR-to-PYC lowering.
 - `i3` ACIR QueueGraph to gfsim C++ and PYC generation: passed
 - generated PYC through `pyc-opt`, pyc6 C++, and Verilog/`iverilog`: passed
 - gfsim `UInt<1>`, `UInt<3>`, `UInt<7>`, and `UInt<64>`
-  truncation/shift tests: passed
+  truncation, division, signed-view, byte-size, and shift tests: passed
+- post-review native QueueGraph Table/Memory conversions, non-power-of-two
+  shifts, and unsigned comparison parity: passed
 - IR inventory/coverage, release layout, pre-commit, API hygiene: passed
 - strict decision status: 160 rows, 0 deferred
 - MkDocs strict build: passed

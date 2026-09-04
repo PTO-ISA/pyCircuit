@@ -197,11 +197,13 @@ operators `+`, `-`, `*`, `&`, `|`, `^`, `~`, `<<`, and `>>`
 preserve the declared width. Binary bit operands MUST have the same width; a
 right-side integer literal is typed from the left operand. Results wrap modulo
 (2^N), and shifts by an amount greater than or equal to (N) produce zero.
+Equality is width-exact; relational comparisons on `ac.uN` are unsigned.
 
 An `ac.uN` value may be used directly as a queue payload or as an
 `@ac.struct` field. The current ACIR integer type freezes width but not
-signedness as a distinct type; do not rely on unsigned comparison semantics
-until the signedness contract is made explicit.
+signedness as a distinct type. The retained `ac.s8/s16/s32/s64` names therefore
+also use signless unsigned relational lowering for now; signed comparison
+semantics require a future type-system decision.
 
 ### Source and sink
 

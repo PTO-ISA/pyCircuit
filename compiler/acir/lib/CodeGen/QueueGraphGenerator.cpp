@@ -326,8 +326,13 @@ llvm::Expected<std::string> emitExpressionBody(const QueueBlockPlan &block,
     if (operation.empty())
       return generatorError("unsupported Var expression kind '" +
                             expression.kind + "'");
-    output << padding << "auto " << expression.result << " = " << first->str()
-           << ' ' << operation.str() << ' ' << second->str() << ";\n";
+    output << padding << "auto " << expression.result << " = ";
+    if (expression.kind == "cmp" && expression.predicate.starts_with("s"))
+      output << "gfsim::signedValue(" << first->str() << ") " << operation.str()
+             << " gfsim::signedValue(" << second->str() << ")";
+    else
+      output << first->str() << ' ' << operation.str() << ' ' << second->str();
+    output << ";\n";
   }
   output << padding << "return " << yield.str() << ";\n";
   return output.str();
@@ -583,10 +588,12 @@ llvm::Expected<std::string> generateQueueGraphCpp(const QueueGraphPlan &plan) {
       QueueBlockPlan key;
       key.expressions = selection.keyExpressions;
       key.yields = {selection.keyYield};
-      auto body = emitExpressionBody(key, selection.keyYield, 4);
+      output << "    return static_cast<std::uint64_t>([&]() {\n";
+      auto body = emitExpressionBody(key, selection.keyYield, 6);
       if (!body)
         return body.takeError();
       output << *body;
+      output << "    }());\n";
     }
     output << "  }\n};\n"
            << "using " << identifier(selection.name) << "_cache = "
@@ -925,11 +932,16 @@ llvm::Expected<std::string> generateQueueGraphCpp(const QueueGraphPlan &plan) {
              << " &item) const {\n    switch (endpoint) {\n";
       for (const QueueBlockPlan *endpoint : endpoints) {
         output << "    case " << endpoint->endpointOrdinal << ": {\n";
-        auto body =
-            emitExpressionBody(*endpoint, endpoint->yields[policyIndex], 6);
+        if (policyIndex == 0)
+          output << "      return static_cast<std::uint64_t>([&]() {\n";
+        auto body = emitExpressionBody(*endpoint, endpoint->yields[policyIndex],
+                                       policyIndex == 0 ? 8 : 6);
         if (!body)
           return body.takeError();
-        output << *body << "    }\n";
+        output << *body;
+        if (policyIndex == 0)
+          output << "      }());\n";
+        output << "    }\n";
       }
       output << "    default: return {};\n    }\n  }\n};\n\n";
     }

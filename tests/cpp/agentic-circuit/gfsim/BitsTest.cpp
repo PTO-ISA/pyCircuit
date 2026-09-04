@@ -14,6 +14,8 @@ TEST(UIntTest, OperationsTruncateToDeclaredWidth) {
   EXPECT_EQ(0u, (seven + one).value());
   EXPECT_EQ(6u, (seven - one).value());
   EXPECT_EQ(1u, (seven * seven).value());
+  EXPECT_EQ(7u, (seven / one).value());
+  EXPECT_EQ(0u, (seven / UInt<3>{0}).value());
   EXPECT_EQ(1u, (seven & one).value());
   EXPECT_EQ(7u, (seven | one).value());
   EXPECT_EQ(6u, (seven ^ one).value());
@@ -42,6 +44,21 @@ TEST(UIntTest, ShiftsAndComparisonsAreUnsignedAndWidthBounded) {
   EXPECT_EQ(0u, (high << 8).value());
   EXPECT_EQ(0u, (high >> 8).value());
   EXPECT_EQ(0x40u, static_cast<std::uint64_t>(high));
+}
+
+TEST(UIntTest, SignedViewAndArithmeticShiftRespectDeclaredWidth) {
+  UInt<3> negativeOne = 7;
+  UInt<3> negativeFour = 4;
+  UInt<3> positiveThree = 3;
+
+  EXPECT_EQ(-1, negativeOne.signedValue());
+  EXPECT_EQ(-4, negativeFour.signedValue());
+  EXPECT_EQ(3, positiveThree.signedValue());
+  EXPECT_EQ(7u, negativeOne.arithmeticShiftRight(UInt<3>{3}).value());
+  EXPECT_EQ(6u, negativeFour.arithmeticShiftRight(UInt<3>{1}).value());
+  EXPECT_EQ(0u, positiveThree.arithmeticShiftRight(UInt<3>{3}).value());
+  EXPECT_EQ(1u, PacketTraits<UInt<3>>::serializedSize);
+  EXPECT_EQ(2u, PacketTraits<UInt<13>>::serializedSize);
 }
 
 TEST(UIntTest, SixtyFourBitArithmeticAlsoWrapsExactly) {

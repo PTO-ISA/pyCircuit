@@ -1494,7 +1494,7 @@ class QueueFrontendTest(unittest.TestCase):
         lowered = lower_queue_source(FEEDBACK_SOURCE, "pipeline")
         self.assertIn("ac.feedback %current depth 2 latency 1", lowered)
         self.assertIn("max_iterations 1024", lowered)
-        self.assertIn('ac.var.cmp "sgt"', lowered)
+        self.assertIn('ac.var.cmp "ugt"', lowered)
         self.assertIn("ac.feedback.yield", lowered)
         self.assertIn("ac.sink %current__feedback0", lowered)
 

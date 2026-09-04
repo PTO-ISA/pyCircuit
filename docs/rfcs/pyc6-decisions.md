@@ -3955,15 +3955,18 @@ power-of-two widths forced accidental widening and hid truncation behavior.
   left/right shift preserve width. Binary operands must have identical widths;
   a right-side integer literal is typed from its left operand. No implicit
   widening/narrowing is inserted.
+- Equality is width-exact and relational comparison of `ac.uN` values is
+  unsigned in the Python, QueueGraph, gfsim, and PYC paths.
 - Results use circuit semantics: arithmetic and bitwise results are truncated
   modulo (2^N); a shift amount greater than or equal to (N) produces zero.
 - ACIR owns verifier enforcement through typed `ac.var.*` operations. The
   QueueGraph-to-PYC lowering emits the corresponding `pyc.*` operations.
   gfsim uses `gfsim::UInt<N>` for every width so direct and native C++
   generators preserve truncation independently of C++ integer promotions.
-- Existing signed aliases remain unchanged. Signedness-aware comparison is a
-  separate type-system decision; this decision does not claim new comparison
-  semantics.
+- Existing signed alias names remain import-compatible, but ACIR does not yet
+  preserve signedness as a distinct type. Their relational operators therefore
+  use the same signless unsigned lowering for now; signed comparison semantics
+  require a separate type-system decision.
 
 **Verification**
 - Public API tests cover all 64 names and reject out-of-range widths.
