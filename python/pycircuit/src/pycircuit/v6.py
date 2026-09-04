@@ -17,7 +17,7 @@ from typing import Any, Generic, TypeVar, Union, cast, overload
 from collections.abc import Callable, Iterable, Iterator, Mapping
 
 from .data import DT, Bits, Data, Vector
-from .dsl import Signal
+from .dsl import PriorityEncodeResult, Signal
 from .hw import Circuit, ClockDomain, Reg, Wire
 from .literals import LiteralValue, infer_literal_width
 from .tb import Tb as _Tb, TbError
@@ -99,6 +99,14 @@ class CycleAwareCircuit(Circuit):
         return domain.create_signal(
             str(name), width=int(width), shape=shape, signed=signed
         )
+
+
+@dataclass(frozen=True)
+class CycleAwarePriorityEncodeResult:
+    """Cycle-tagged result of :func:`priority_encode`."""
+
+    index: "CycleAwareSignal"
+    valid: "CycleAwareSignal"
 
 
 class CycleAwareDomain:
@@ -1667,6 +1675,17 @@ class CycleAwareSignal(Generic[DT]):
             target_cycle,
         )
 
+    def priority_encode(self, *, order: str = "low") -> CycleAwarePriorityEncodeResult:
+        """Return the selected bit index and validity at this signal's cycle."""
+
+        result: PriorityEncodeResult = self._domain._m.priority_encode(
+            self._w, order=order
+        )
+        return CycleAwarePriorityEncodeResult(
+            index=CycleAwareSignal(self._domain, result.index, self._cycle),
+            valid=CycleAwareSignal(self._domain, result.valid, self._cycle),
+        )
+
     def as_signed(self) -> "CycleAwareSignal":
         return CycleAwareSignal(
             self._domain, Wire(self._domain._m, self._w.sig, signed=True), self._cycle
@@ -1816,7 +1835,7 @@ def mux(
     b: Union[Wire, CycleAwareSignal, StateSignal, ForwardSignal, int],
 ) -> Wire | CycleAwareSignal:
     def _unwrap(
-        v: Union[Wire, CycleAwareSignal, StateSignal, ForwardSignal]
+        v: Union[Wire, CycleAwareSignal, StateSignal, ForwardSignal],
     ) -> Union[Wire, CycleAwareSignal]:
         if isinstance(v, ForwardSignal):
             return v._state._cas
@@ -1855,7 +1874,7 @@ def _mux_cycle_aware(
     m = dom._m
 
     def to_cas(
-        x: Union[Wire, Reg, CycleAwareSignal, int, LiteralValue]
+        x: Union[Wire, Reg, CycleAwareSignal, int, LiteralValue],
     ) -> CycleAwareSignal:
         if isinstance(x, CycleAwareSignal):
             return x
@@ -1926,8 +1945,18 @@ def priority_mux(
     return sels_cas.priority_mux(vals_cas, mode=mode, default=default_cas)
 
 
+def priority_encode(
+    value: CycleAwareSignal | StateSignal | ForwardSignal,
+    *,
+    order: str = "low",
+) -> CycleAwarePriorityEncodeResult:
+    """Encode the first asserted bit without exposing an RTL implementation."""
+
+    return CycleAwareSignal.as_cas(value).priority_encode(order=order)
+
+
 def cat(
-    *elems: Union[Wire, Reg, CycleAwareSignal, StateSignal, ForwardSignal, int]
+    *elems: Union[Wire, Reg, CycleAwareSignal, StateSignal, ForwardSignal, int],
 ) -> CycleAwareSignal:
     """Concatenate values into a packed bus (MSB-first).
 

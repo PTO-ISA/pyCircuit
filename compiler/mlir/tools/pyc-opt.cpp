@@ -36,6 +36,7 @@ static void forceLinkPycPasses() {
   (void)pyc::createInlineFunctionsPass();
   (void)pyc::createCheckFrontendContractPass();
   (void)pyc::createCheckHierarchyDisciplinePass();
+  (void)pyc::createSelectRtlPrimitivesPass();
 }
 
 int main(int argc, char **argv) {

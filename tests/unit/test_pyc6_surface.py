@@ -17,6 +17,31 @@ def test_cycle_aware_frontend_is_the_pyc6_surface() -> None:
     assert not hasattr(pycircuit, "StateSignal")
 
 
+def test_priority_encode_is_vendor_neutral_on_the_public_pyc6_surface() -> None:
+    circuit = pycircuit.CycleAwareCircuit("priority")
+    domain = circuit.create_domain("clk")
+    mask = domain.create_signal("mask", width=13)
+
+    result = pycircuit.priority_encode(pycircuit.cas(domain, mask), order="high")
+
+    assert result.index.width == 4
+    assert result.valid.width == 1
+    assert result.index.cycle == result.valid.cycle == domain.cycle_index
+    mlir = circuit.emit_mlir()
+    assert "pyc.priority_encode" in mlir
+    assert 'order = "high"' in mlir
+    assert "basejump" not in mlir.lower()
+
+
+def test_priority_encode_rejects_noncanonical_order() -> None:
+    circuit = pycircuit.CycleAwareCircuit("bad_priority")
+    domain = circuit.create_domain("clk")
+    mask = pycircuit.cas(domain, domain.create_signal("mask", width=4))
+
+    with pytest.raises(ValueError, match="'low' or 'high'"):
+        pycircuit.priority_encode(mask, order="middle")
+
+
 def test_pyc5_module_is_not_shipped_as_a_compatibility_surface() -> None:
     assert importlib.util.find_spec("pycircuit.v5") is None
 

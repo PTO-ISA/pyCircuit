@@ -1,0 +1,42 @@
+{
+  "schema": "pyc-semantic-primitive-registry-v1",
+  "primitives": [
+    {
+      "semantic_id": "pyc.priority_encode.v1",
+      "operation": "pyc.priority_encode",
+      "effect_class": "comb",
+      "parameters": {
+        "order": {
+          "kind": "enum",
+          "values": ["high", "low"]
+        }
+      },
+      "inputs": [
+        {
+          "name": "mask",
+          "type": "iN",
+          "constraints": ["N >= 1"]
+        }
+      ],
+      "outputs": [
+        {
+          "name": "index",
+          "type": "i(max(1,ceil_log2(N)))"
+        },
+        {
+          "name": "valid",
+          "type": "i1"
+        }
+      ],
+      "latency": 0,
+      "dependency_matrix": {
+        "index": ["mask"],
+        "valid": ["mask"]
+      },
+      "zero_input": {
+        "index": 0,
+        "valid": 0
+      }
+    }
+  ]
+}

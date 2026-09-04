@@ -2362,6 +2362,133 @@ def _save_json(path: Path, data: dict[str, Any]) -> None:
     _write_text_atomic(path, json.dumps(data, sort_keys=True, indent=2) + "\n")
 
 
+def _merge_verilog_primitive_bundles(
+    primitive_files: list[Path], output: Path
+) -> tuple[Path, list[dict[str, Any]], list[dict[str, Any]]]:
+    """Merge per-module pycc primitive closures without duplicate modules."""
+
+    marker = "// --- selected RTL: "
+    lint_on = "/* verilator lint_on DECLFILENAME */"
+    base: str | None = None
+    sections: dict[str, str] = {}
+    implementations: dict[str, dict[str, Any]] = {}
+    bindings: dict[str, dict[str, dict[str, Any]]] = {}
+    source_digests: dict[str, str] = {}
+    source_order: list[str] = []
+
+    for primitive in sorted(primitive_files):
+        lines = primitive.read_text(encoding="utf-8").splitlines()
+        base_lines: list[str] = []
+        current_path: str | None = None
+        current_lines: list[str] = []
+        parsed_sections: dict[str, str] = {}
+        for line in lines:
+            if line.startswith(marker):
+                if current_path is not None:
+                    parsed_sections[current_path] = "\n".join(current_lines).rstrip()
+                current_path = line[len(marker) :].split(" (", 1)[0]
+                current_lines = [line]
+                continue
+            if line.strip() == lint_on:
+                if current_path is not None:
+                    parsed_sections[current_path] = "\n".join(current_lines).rstrip()
+                    current_path = None
+                    current_lines = []
+                continue
+            if current_path is None:
+                base_lines.append(line)
+            else:
+                current_lines.append(line)
+        if current_path is not None:
+            parsed_sections[current_path] = "\n".join(current_lines).rstrip()
+        normalized_base = "\n".join(base_lines).rstrip()
+        if base is None:
+            base = normalized_base
+        elif normalized_base != base:
+            raise SystemExit(
+                "build(verilator): per-module base primitive bundles differ"
+            )
+        for source_path, section in parsed_sections.items():
+            prior = sections.setdefault(source_path, section)
+            if prior != section:
+                raise SystemExit(
+                    f"build(verilator): selected RTL source differs: {source_path}"
+                )
+
+        module_manifest = _load_json(primitive.parent / "manifest.json")
+        raw_implementations = module_manifest.get("rtl_implementations", [])
+        if not isinstance(raw_implementations, list):
+            raise SystemExit("build(verilator): malformed rtl_implementations")
+        for raw in raw_implementations:
+            if not isinstance(raw, dict):
+                raise SystemExit("build(verilator): malformed RTL implementation")
+            implementation_id = str(raw.get("implementation_id", ""))
+            if not implementation_id:
+                raise SystemExit("build(verilator): missing implementation_id")
+            prior = implementations.setdefault(implementation_id, raw)
+            if _canonical_hash(prior) != _canonical_hash(raw):
+                raise SystemExit(
+                    "build(verilator): implementation metadata is inconsistent"
+                )
+            raw_sources = raw.get("sources", [])
+            if not isinstance(raw_sources, list):
+                raise SystemExit("build(verilator): malformed RTL source closure")
+            for source in raw_sources:
+                if not isinstance(source, dict):
+                    raise SystemExit("build(verilator): malformed RTL source")
+                source_path = str(source.get("path", ""))
+                digest = str(source.get("sha256", ""))
+                if not source_path or not digest:
+                    raise SystemExit("build(verilator): incomplete RTL source")
+                previous_digest = source_digests.setdefault(source_path, digest)
+                if previous_digest != digest:
+                    raise SystemExit(
+                        f"build(verilator): source digest conflict: {source_path}"
+                    )
+                if source_path not in source_order:
+                    source_order.append(source_path)
+        raw_bindings = module_manifest.get("rtl_bindings", [])
+        if not isinstance(raw_bindings, list):
+            raise SystemExit("build(verilator): malformed rtl_bindings")
+        for binding in raw_bindings:
+            if not isinstance(binding, dict):
+                raise SystemExit("build(verilator): malformed RTL binding")
+            implementation_id = str(binding.get("implementation_id", ""))
+            parameters = binding.get("parameters")
+            if implementation_id not in implementations or not isinstance(
+                parameters, dict
+            ):
+                raise SystemExit("build(verilator): incomplete RTL binding")
+            bindings.setdefault(implementation_id, {})[
+                _canonical_hash(binding)
+            ] = binding
+
+    if base is None:
+        raise SystemExit("build(verilator): no primitive bundle was generated")
+    missing = [
+        source_path for source_path in source_order if source_path not in sections
+    ]
+    if missing:
+        raise SystemExit(
+            "build(verilator): primitive bundle misses selected sources: "
+            + ", ".join(missing)
+        )
+    merged = base + "\n\n"
+    for source_path in source_order:
+        merged += sections[source_path] + "\n\n"
+    merged += lint_on + "\n"
+    _write_text_atomic(output, merged)
+    merged_implementations = [
+        implementations[key] for key in sorted(implementations)
+    ]
+    merged_bindings = [
+        bindings[implementation_id][binding_key]
+        for implementation_id in sorted(bindings)
+        for binding_key in sorted(bindings[implementation_id])
+    ]
+    return output, merged_implementations, merged_bindings
+
+
 def _base_name_of(fn: Any) -> str:
     override = getattr(fn, "__pycircuit_module_name__", None)
     if isinstance(override, str) and override.strip():
@@ -2373,7 +2500,7 @@ def _base_name_of(fn: Any) -> str:
 
 
 def _module_params_from_manifest(
-    manifest: Mapping[str, Any]
+    manifest: Mapping[str, Any],
 ) -> dict[str, dict[str, Any]]:
     out: dict[str, dict[str, Any]] = {}
     modules = manifest.get("modules", [])
@@ -2884,20 +3011,31 @@ def _cmd_build(args: argparse.Namespace) -> int:
             raise SystemExit(
                 f"build(verilator): missing generated TB SV source: {tb_sv_out}"
             )
-        prim_file: Path | None = None
+        primitive_files: list[Path] = []
         verilog_module_sources: list[str] = []
         for p in sorted(device_v_root.rglob("*.v")):
             if not p.is_file():
                 continue
             if p.name == "pyc_primitives.v":
-                if prim_file is None:
-                    prim_file = p
+                if p.parent != device_v_root:
+                    primitive_files.append(p)
                 continue
             verilog_module_sources.append(str(p))
         if not verilog_module_sources:
             raise SystemExit("build(verilator): no generated Verilog sources found")
+        prim_file: Path | None = None
+        if primitive_files:
+            (
+                prim_file,
+                rtl_implementations,
+                rtl_bindings,
+            ) = _merge_verilog_primitive_bundles(
+                primitive_files, device_v_root / "pyc_primitives.v"
+            )
+            manifest["rtl_implementations"] = rtl_implementations
+            manifest["rtl_bindings"] = rtl_bindings
         verilog_sources = (
-            [str(prim_file)] if prim_file is not None else []
+            [str(prim_file)] if prim_file else []
         ) + verilog_module_sources
         verilog_manifest = {
             "version": 1,
