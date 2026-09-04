@@ -150,13 +150,17 @@ class Bits:
     left: ac.u3
     right: ac.u3
     result: ac.u3
+    priority_index: ac.u2
+    priority_valid: ac.u1
 
 @ac.system
 def pipeline() -> None:
     incoming = ac.source(Bits)
     outgoing = incoming.apply(
         lambda item: item.with_fields(
-            result=((item.left & item.right) ^ (~item.left)) << 1
+            result=((item.left & item.right) ^ (~item.left)) << 1,
+            priority_index=ac.priority_encode(item.left).index,
+            priority_valid=ac.priority_encode(item.left).valid,
         )
     )
     ac.sink(outgoing)
@@ -250,10 +254,13 @@ class QueueCodegenTest(unittest.TestCase):
 
         generated = lower_queue_source_to_cpp(BIT_WIDTH_SOURCE, "pipeline")
         self.assertIn('#include "gfsim/bits.h"', generated)
+        self.assertIn('#include "gfsim/priority_encode.h"', generated)
         self.assertIn("gfsim::UInt<3> left{};", generated)
         self.assertIn("gfsim::UInt<3> right{};", generated)
         self.assertIn("gfsim::UInt<3> result{};", generated)
         self.assertIn("((item.left & item.right) ^ (~item.left))", generated)
+        self.assertIn("gfsim::priorityEncode(item.left, true).index", generated)
+        self.assertIn("gfsim::priorityEncode(item.left, true).valid", generated)
 
         compiler = shutil.which("c++")
         if compiler is None:

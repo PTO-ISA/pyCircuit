@@ -118,6 +118,13 @@ def ACIR_VarPopcountOp : ACIR_Op<"var.popcount", [Pure]> {
   let assemblyFormat = "$in attr-dict `:` qualified(type($in)) `->` qualified(type($result))";
 }
 
+def ACIR_VarPriorityEncodeOp : ACIR_Op<"var.priority_encode", [Pure]> {
+  let arguments = (ins ACIR_VarType:$in, StrAttr:$order);
+  let results = (outs ACIR_VarType:$index, ACIR_VarType:$valid);
+  let hasVerifier = 1;
+  let assemblyFormat = "$in `order` $order attr-dict `:` qualified(type($in)) `->` qualified(type($index)) `,` qualified(type($valid))";
+}
+
 def ACIR_VarCmpOp : ACIR_Op<"var.cmp", [
     Pure, AllTypesMatch<["lhs", "rhs"]>
   ]> {

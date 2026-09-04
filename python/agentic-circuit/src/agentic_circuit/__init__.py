@@ -69,6 +69,7 @@ __all__ = (
     "Endpoint",
     "source",
     "popcount",
+    "priority_encode",
     "memory",
     "sink",
     "observe",
@@ -135,6 +136,11 @@ def source(
 
 def popcount(value: object) -> Never:
     return _not_implemented("popcount")
+
+
+def priority_encode(value: object, *, order: str = "low") -> Never:
+    _ = (value, order)
+    return _not_implemented("priority_encode")
 
 
 def memory(

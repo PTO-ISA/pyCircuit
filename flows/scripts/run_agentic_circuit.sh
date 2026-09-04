@@ -121,7 +121,7 @@ verilator="$(command -v verilator || true)"
 [[ -n "${cxx}" ]] || pyc_die "C++ compiler is required for AC G2"
 [[ -n "${verilator}" ]] || pyc_die "Verilator is required for AC G2"
 
-for case_name in arbiter atomic-transform popcount; do
+for case_name in arbiter atomic-transform bit-widths popcount; do
   case_dir="${gate_out_dir}/${case_name}"
   if [[ -e "${case_dir}" ]]; then
     pyc_die "AC G2 output already exists: ${case_dir}"
@@ -178,7 +178,7 @@ cat > "${docs_gate_dir}/agentic_circuit_summary.json" <<EOF
   "lanes": ["AC G0", "AC G1", "AC G2"],
   "contract_epoch": "0.5",
   "pyc_interface": "pyc6",
-  "cases": ["arbiter", "atomic-transform", "popcount", "rule-retirement"]
+  "cases": ["arbiter", "atomic-transform", "bit-widths", "popcount", "rule-retirement"]
 }
 EOF
 

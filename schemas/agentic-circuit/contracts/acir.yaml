@@ -57,6 +57,7 @@ operations:
   - ac.var.get
   - ac.var.with
   - ac.var.popcount
+  - ac.var.priority_encode
   - ac.packet.serialize
   - ac.packet.deserialize
   - ac.transform

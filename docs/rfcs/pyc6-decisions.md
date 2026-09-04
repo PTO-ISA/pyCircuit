@@ -3980,3 +3980,62 @@ power-of-two widths forced accidental widening and hid truncation behavior.
 **Source**
 - User direction (2026-09-05): expose `u1, u2, u3, ..., u64` as exact circuit
   bit types that compose into classes/structures and support bit operations.
+
+## Decision 0161: semantic primitives select qualified RTL only in the Verilog backend
+
+**Status:** Accepted and implemented
+
+**Context / Goal**
+PR #29 demonstrated that a large external RTL catalog can accelerate hardware
+construction, but vendor module names, crawler output, license mixtures, and
+implementation parameters are not a stable language IR.  Python and canonical
+PYC need one semantic contract while Verilog may instantiate a qualified
+handwritten implementation without lowering it into gates.
+
+**Decision (strong constraint)**
+- The repository separates a vendor-neutral semantic registry under
+  `schemas/primitives` from the replaceable implementation catalog
+  `library/verilog/rtl_catalog.json`.  Only semantic IDs may appear in public
+  Python and canonical PYC.
+- `pyc.priority_encode` is the first admitted semantic primitive.  It returns
+  exact `index` and `valid` results, supports low-first and high-first order,
+  and participates in combinational dependency and logic-depth analysis.
+- C++ simulation retains the semantic operation and executes reference
+  behavior.  The Verilog-only `pyc-select-rtl-primitives` pass selects exactly
+  one highest-priority qualified candidate and rewrites it to internal
+  `pyc.rtl.comb`.  Equal highest priorities are an error, not an implicit
+  implementation-ID tie break.
+- `pyc.rtl.comb` is backend-owned IR.  Source input containing it is rejected.
+  Its verifier requires typed arity, disjoint legal port names, integer
+  parameters, normalized relative sources, lowercase SHA-256 digests, license
+  IDs, and a catalog fingerprint.
+- Catalog entries are selectable only with `qualification.status=validated`.
+  Selection verifies every source digest against the catalog directory.
+  `pycc --out-dir` emits the minimal selected source closure once, rejects
+  unresolved include directives, records versioned implementation definitions
+  separately from parameterized bindings, and preserves the union across
+  multi-module Python builds.
+- Repository-owned admitted RTL uses BSD-3-Clause.  The Solderpad-licensed
+  BaseJump files evaluated from PR #29 are not imported or relicensed.
+- Agentic Circuit exposes the same operation as
+  `ac.priority_encode(value, order=...).index/.valid`.  ACPy emits one shared
+  `ac.var.priority_encode`; QueueGraph lowers it to the semantic PYC operation,
+  while gfsim uses `gfsim::priorityEncode` and a dedicated SimQueue
+  `PriorityEncode` block.
+- Stateful, handshake, memory, and CDC candidates from PR #29 are not admitted
+  by this decision.  They require distinct effect-class IR and the inferred
+  prepare/publish/no-fail commit contract from `D-RULE-LOWERING-001`; public
+  Python does not gain `atomic`, `check`, `reserve`, `push`, or `pop` syntax.
+
+**Verification**
+- Widths 1, 4, 8, and 13; low/high order; zero, one-hot, and multi-hot inputs.
+- PYC verifier, raw selected-IR rejection, source-digest rejection, ambiguous
+  selection rejection, C++ reference execution, selected RTL lint/simulation,
+  manifest/source closure, and multi-module binding union.
+- Agentic Python/ACIR parser and verifier, native/direct QueueGraph C++,
+  QueueGraph-to-PYC, generated C++ compilation, and SimQueue execution.
+
+**Source**
+- User direction (2026-09-05): treat qualified PR #29 blocks as PYC semantic
+  primitives with simple parameterized Python APIs, MLIR/JIT selection,
+  handwritten-Verilog lowering, and Agentic SimQueue models.

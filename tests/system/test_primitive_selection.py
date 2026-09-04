@@ -214,7 +214,9 @@ def test_pyc_cpp_and_selected_rtl_agree(tmp_path: Path) -> None:
     )
 
     manifest = json.loads((verilog / "manifest.json").read_text(encoding="utf-8"))
-    implementations = manifest["rtl_implementations"]
+    selection = manifest["rtl_selection"]
+    assert selection["schema"] == "pyc-rtl-selection-manifest-v1"
+    implementations = selection["implementations"]
     assert len(implementations) == 1
     assert {item["semantic_id"] for item in implementations} == {
         "pyc.priority_encode.v1"
@@ -222,7 +224,7 @@ def test_pyc_cpp_and_selected_rtl_agree(tmp_path: Path) -> None:
     assert {item["sources"][0]["path"] for item in implementations} == {
         "pyc_priority_encode.v"
     }
-    bindings = manifest["rtl_bindings"]
+    bindings = selection["bindings"]
     assert len(bindings) == 2
     assert {item["parameters"]["ORDER_LOW"] for item in bindings} == {0, 1}
     primitives = (verilog / "pyc_primitives.v").read_text(encoding="utf-8")

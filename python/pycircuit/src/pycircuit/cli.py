@@ -2416,7 +2416,13 @@ def _merge_verilog_primitive_bundles(
                 )
 
         module_manifest = _load_json(primitive.parent / "manifest.json")
-        raw_implementations = module_manifest.get("rtl_implementations", [])
+        raw_selection = module_manifest.get("rtl_selection", {})
+        if (
+            not isinstance(raw_selection, dict)
+            or raw_selection.get("schema") != "pyc-rtl-selection-manifest-v1"
+        ):
+            raise SystemExit("build(verilator): malformed RTL selection manifest")
+        raw_implementations = raw_selection.get("implementations", [])
         if not isinstance(raw_implementations, list):
             raise SystemExit("build(verilator): malformed rtl_implementations")
         for raw in raw_implementations:
@@ -2447,7 +2453,7 @@ def _merge_verilog_primitive_bundles(
                     )
                 if source_path not in source_order:
                     source_order.append(source_path)
-        raw_bindings = module_manifest.get("rtl_bindings", [])
+        raw_bindings = raw_selection.get("bindings", [])
         if not isinstance(raw_bindings, list):
             raise SystemExit("build(verilator): malformed rtl_bindings")
         for binding in raw_bindings:
@@ -2459,9 +2465,9 @@ def _merge_verilog_primitive_bundles(
                 parameters, dict
             ):
                 raise SystemExit("build(verilator): incomplete RTL binding")
-            bindings.setdefault(implementation_id, {})[
-                _canonical_hash(binding)
-            ] = binding
+            bindings.setdefault(implementation_id, {})[_canonical_hash(binding)] = (
+                binding
+            )
 
     if base is None:
         raise SystemExit("build(verilator): no primitive bundle was generated")
@@ -2478,9 +2484,7 @@ def _merge_verilog_primitive_bundles(
         merged += sections[source_path] + "\n\n"
     merged += lint_on + "\n"
     _write_text_atomic(output, merged)
-    merged_implementations = [
-        implementations[key] for key in sorted(implementations)
-    ]
+    merged_implementations = [implementations[key] for key in sorted(implementations)]
     merged_bindings = [
         bindings[implementation_id][binding_key]
         for implementation_id in sorted(bindings)
@@ -3032,8 +3036,11 @@ def _cmd_build(args: argparse.Namespace) -> int:
             ) = _merge_verilog_primitive_bundles(
                 primitive_files, device_v_root / "pyc_primitives.v"
             )
-            manifest["rtl_implementations"] = rtl_implementations
-            manifest["rtl_bindings"] = rtl_bindings
+            manifest["rtl_selection"] = {
+                "schema": "pyc-rtl-selection-manifest-v1",
+                "implementations": rtl_implementations,
+                "bindings": rtl_bindings,
+            }
         verilog_sources = (
             [str(prim_file)] if prim_file else []
         ) + verilog_module_sources

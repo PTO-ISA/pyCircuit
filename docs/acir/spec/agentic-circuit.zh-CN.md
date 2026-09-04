@@ -174,6 +174,11 @@ def pipeline() -> None:
 宽度，但尚未把有符号性作为完全独立的类型语义；这些保留的 `sN` 名称目前也
 采用 signless 的无符号关系比较。真正的有符号比较需要后续类型系统 decision。
 
+`ac.priority_encode(value, order="low")` 是语义级组合积木；`.index` 和
+`.valid` 在 ACIR 中共享同一个 `ac.var.priority_encode`。`low` 选择最低置位，
+`high` 选择最高置位，全零输入返回 `valid=0,index=0`。QueueGraph 使用 gfsim
+参考模型，并把同一语义 lowering 为不含厂商名称的 `pyc.priority_encode`。
+
 可执行示例：
 `pyc_struct_pipeline.py`。
 

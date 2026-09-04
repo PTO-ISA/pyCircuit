@@ -25,3 +25,16 @@ vvp .pycircuit_out/primitive-tests/priority_encode.vvp
 - Widths: 1, 4, 8, and 13.
 - Orders: low-first and high-first.
 - Zero, one-hot, and multi-hot cases: passed.
+
+## Integrated evidence
+
+- PYC selector/verifier, digest rejection, raw `pyc.rtl.comb` rejection,
+  ambiguous-priority rejection, C++ reference execution, selected RTL bundle,
+  manifest, Verilator, and Icarus system tests: passed.
+- Agentic public/frontend/direct-codegen tests: 74 passed.
+- ACIR/ACSim lit: 139/139 passed.
+- gfsim `PriorityEncode<13, low/high>` SimQueue execution: passed.
+- ACIR core registry, QueueGraph codegen, and gfsim CTest targets: passed.
+- `ACPy -> ACIR -> Frozen QueueGraph -> gfsim C++` syntax compilation: passed.
+- `ACPy -> ACIR -> Frozen QueueGraph -> PYC` preserves one shared semantic
+  priority operation after QueueGraph code generation.

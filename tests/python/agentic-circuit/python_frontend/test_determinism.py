@@ -39,6 +39,7 @@ EXACT_PUBLIC_API = {
     "Flow",
     "Endpoint",
     "source",
+    "priority_encode",
     "sink",
     "observe",
     *(f"u{width}" for width in range(1, 65)),
@@ -216,6 +217,7 @@ def frontend_test_ledger() -> dict[str, CoverageRow]:
         "Flow": annotation_row,
         "Endpoint": annotation_row,
         "source": CoverageRow((public_import,), (marker_negative,)),
+        "priority_encode": CoverageRow((public_import,), (marker_negative,)),
         "sink": CoverageRow((public_import,), (marker_negative,)),
         "observe": CoverageRow((public_import,), (marker_negative,)),
         "rule": CoverageRow(

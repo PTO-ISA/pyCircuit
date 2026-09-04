@@ -252,6 +252,8 @@ class BitBundle:
     inverted: ac.u3
     shifted_left: ac.u3
     shifted_right: ac.u3
+    priority_index: ac.u2
+    priority_valid: ac.u1
     tag: ac.u5
     payload: ac.u17
     sequence: ac.u63
@@ -267,6 +269,8 @@ def pipeline() -> None:
             inverted=~item.left,
             shifted_left=item.left << 1,
             shifted_right=item.right >> 1,
+            priority_index=ac.priority_encode(item.left, order="low").index,
+            priority_valid=ac.priority_encode(item.left, order="low").valid,
         )
     )
     ac.sink(output_queue)
@@ -1029,7 +1033,7 @@ class QueueFrontendTest(unittest.TestCase):
             lower_queue_source(
                 SLOT_TABLE_SOURCE.replace(
                     "grant = issue.choose(",
-                    "other = ac.table[4, Entry](init=0)\n" "    grant = other.choose(",
+                    "other = ac.table[4, Entry](init=0)\n    grant = other.choose(",
                 ),
                 "pipeline",
             )
@@ -1100,7 +1104,7 @@ class QueueFrontendTest(unittest.TestCase):
 
         lowered = lower_queue_source(MULTI_WRITER_TABLE_SOURCE, "pipeline")
         self.assertIn(
-            ': !ac.var<i4> mode "field" write_fields ' '["src0_ready", "src1_ready"]',
+            ': !ac.var<i4> mode "field" write_fields ["src0_ready", "src1_ready"]',
             lowered,
         )
         self.assertIn(
@@ -1582,6 +1586,8 @@ def pipeline() -> None:
             self.assertIn(f'{{name = "{field}", type = i{width}}}', lowered)
         for operation in ("and", "or", "xor", "not", "shl", "shr"):
             self.assertIn(f"ac.var.{operation}", lowered)
+        self.assertEqual(lowered.count("ac.var.priority_encode"), 1)
+        self.assertIn('order "low"', lowered)
         self.assertIn("ac.var.constant 1 : i3 as !ac.var<i3>", lowered)
         self.assertIn("size = 24 : i64", lowered)
 
@@ -1622,7 +1628,7 @@ def pipeline() -> None:
         from agentic_circuit._queue_frontend import lower_queue_source
 
         lowered = lower_queue_source(RULE_ROB_SOURCE, "rob")
-        self.assertIn('%completed = ac.rule %issued depths [1] latencies [1]', lowered)
+        self.assertIn("%completed = ac.rule %issued depths [1] latencies [1]", lowered)
         self.assertIn('name "complete"', lowered)
         self.assertIn('stable_id "completed" domain "cycle"', lowered)
         self.assertIn("type exact input_fact committed_input", lowered)

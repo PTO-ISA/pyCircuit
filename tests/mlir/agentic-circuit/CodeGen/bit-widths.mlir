@@ -6,8 +6,8 @@
 
 module attributes {ac.contract_epoch = "0.5", ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle", ac.system = "bit_widths"} {
   ac.type_scope @types {
-    ac.struct @Bits fields [{name = "left", type = i3}, {name = "right", type = i3}, {name = "result", type = i3}]
-  } {dlti.dl_spec = #dlti.dl_spec<!ac.struct<@types::@Bits> = {abi_alignment = 1 : i64, endianness = "little", preferred_alignment = 1 : i64, size = 3 : i64}>}
+    ac.struct @Bits fields [{name = "left", type = i3}, {name = "right", type = i3}, {name = "result", type = i3}, {name = "priority_index", type = i2}, {name = "priority_valid", type = i1}]
+  } {dlti.dl_spec = #dlti.dl_spec<!ac.struct<@types::@Bits> = {abi_alignment = 1 : i64, endianness = "little", preferred_alignment = 1 : i64, size = 5 : i64}>}
   %input = ac.source depth 1 latency 1 {ac.name = "input"} : !ac.queue<!ac.struct<@types::@Bits>>
   %output = ac.transform %input depths [1] latencies [1] {
   ^transform(%item: !ac.var<!ac.struct<@types::@Bits>>):
@@ -20,7 +20,10 @@ module attributes {ac.contract_epoch = "0.5", ac.model_kind = "queue_graph", ac.
     %inverted = ac.var.not %xored : !ac.var<i3> -> !ac.var<i3>
     %shifted_left = ac.var.shl %inverted, %one : !ac.var<i3>
     %shifted_right = ac.var.shr %shifted_left, %one : !ac.var<i3>
-    %next = ac.var.with %item, %shifted_right field "result" : !ac.var<!ac.struct<@types::@Bits>>, !ac.var<i3> -> !ac.var<!ac.struct<@types::@Bits>>
+    %priority_index, %priority_valid = ac.var.priority_encode %left order "low" : !ac.var<i3> -> !ac.var<i2>, !ac.var<i1>
+    %with_result = ac.var.with %item, %shifted_right field "result" : !ac.var<!ac.struct<@types::@Bits>>, !ac.var<i3> -> !ac.var<!ac.struct<@types::@Bits>>
+    %with_index = ac.var.with %with_result, %priority_index field "priority_index" : !ac.var<!ac.struct<@types::@Bits>>, !ac.var<i2> -> !ac.var<!ac.struct<@types::@Bits>>
+    %next = ac.var.with %with_index, %priority_valid field "priority_valid" : !ac.var<!ac.struct<@types::@Bits>>, !ac.var<i1> -> !ac.var<!ac.struct<@types::@Bits>>
     ac.transform.yield %next : !ac.var<!ac.struct<@types::@Bits>>
   } {ac.output_names = ["output"]} : (!ac.queue<!ac.struct<@types::@Bits>>) -> !ac.queue<!ac.struct<@types::@Bits>>
   ac.sink %output {ac.name = "sink"} : !ac.queue<!ac.struct<@types::@Bits>>
@@ -30,10 +33,15 @@ module attributes {ac.contract_epoch = "0.5", ac.model_kind = "queue_graph", ac.
 // GFSIM: gfsim::UInt<3> left{};
 // GFSIM: gfsim::UInt<3> right{};
 // GFSIM: gfsim::UInt<3> result{};
+// GFSIM: gfsim::UInt<2> priority_index{};
+// GFSIM: gfsim::UInt<1> priority_valid{};
 // GFSIM: auto v3 = v0 & v1;
 // GFSIM: auto v6 = ~v5;
 // GFSIM: auto v7 = v6 << v2;
 // GFSIM: auto v8 = v7 >> v2;
+// GFSIM: auto priority_v9 = gfsim::priorityEncode(v0, true);
+// GFSIM-NEXT: auto v9 = priority_v9.index;
+// GFSIM-NEXT: auto v10 = priority_v9.valid;
 
 // PYC: = pyc.and
 // PYC: = pyc.or
@@ -41,3 +49,4 @@ module attributes {ac.contract_epoch = "0.5", ac.model_kind = "queue_graph", ac.
 // PYC: = pyc.not
 // PYC: = pyc.shl
 // PYC: = pyc.lshr
+// PYC: = pyc.priority_encode

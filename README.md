@@ -124,6 +124,22 @@ masked = stream.apply(
 Bit arithmetic and `& | ^ ~ << >>` preserve the declared width and reject
 mixed-width operands.
 
+Semantic primitives keep implementation choice out of Python:
+
+```python
+encoded = stream.apply(
+    lambda item: item.with_fields(
+        index=ac.priority_encode(item.mask, order="low").index,
+        valid=ac.priority_encode(item.mask, order="low").valid,
+    )
+)
+```
+
+The same operation is available as `pycircuit.priority_encode(signal)`. PYC
+keeps `pyc.priority_encode` for C++ reference simulation; only the Verilog
+selection pass introduces internal `pyc.rtl.comb` implementation metadata and
+a digest-verified BSD source closure.
+
 The epoch 0.5 rule frontend keeps scheduling mechanics out of Python:
 
 ```python

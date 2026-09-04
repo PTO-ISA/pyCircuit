@@ -14,6 +14,8 @@
 // RUN: %not %acir_opt %t/shl-noninteger.mlir 2>&1 | %FileCheck %s --check-prefix=SHL-NONINTEGER
 // RUN: %not %acir_opt %t/shr-noninteger.mlir 2>&1 | %FileCheck %s --check-prefix=SHR-NONINTEGER
 // RUN: %not %acir_opt %t/bit-width.mlir 2>&1 | %FileCheck %s --check-prefix=BIT-WIDTH
+// RUN: %not %acir_opt %t/priority-index.mlir 2>&1 | %FileCheck %s --check-prefix=PRIORITY-INDEX
+// RUN: %not %acir_opt %t/priority-order.mlir 2>&1 | %FileCheck %s --check-prefix=PRIORITY-ORDER
 // RUN: %not %acir_opt %t/cmp-predicate.mlir 2>&1 | %FileCheck %s --check-prefix=CMP-PREDICATE
 // RUN: %not %acir_opt %t/popcount-width.mlir 2>&1 | %FileCheck %s --check-prefix=POPCOUNT-WIDTH
 // RUN: %not %acir_opt %t/popcount-input.mlir 2>&1 | %FileCheck %s --check-prefix=POPCOUNT-INPUT
@@ -33,6 +35,8 @@
 // SHL-NONINTEGER: error: 'ac.var.shl' op bit operation Var element must be an integer
 // SHR-NONINTEGER: error: 'ac.var.shr' op bit operation Var element must be an integer
 // BIT-WIDTH: error: 'ac.var.and' op bit operation Var element must be a signless integer with width in [1, 64]
+// PRIORITY-INDEX: error: 'ac.var.priority_encode' op index width must be max(1, ceil(log2(input_width))) = 4
+// PRIORITY-ORDER: error: 'ac.var.priority_encode' op order must be low or high
 // CMP-PREDICATE: error: 'ac.var.cmp' op predicate must be eq, ne, slt, sle, sgt, sge, ult, ule, ugt, or uge
 // POPCOUNT-WIDTH: error: 'ac.var.popcount' op result width must be ceil(log2(input_width + 1)) = 4
 // POPCOUNT-INPUT: error: 'ac.var.popcount' op input width must be in [1, 64]
@@ -100,6 +104,18 @@ builtin.module attributes {ac.contract_epoch = "0.5"} {
 builtin.module attributes {ac.contract_epoch = "0.5"} {
   %value = "builtin.unrealized_conversion_cast"() : () -> !ac.var<i128>
   %bad = ac.var.and %value, %value : !ac.var<i128>
+}
+
+//--- priority-index.mlir
+builtin.module attributes {ac.contract_epoch = "0.5"} {
+  %value = "builtin.unrealized_conversion_cast"() : () -> !ac.var<i13>
+  %index, %valid = ac.var.priority_encode %value order "low" : !ac.var<i13> -> !ac.var<i3>, !ac.var<i1>
+}
+
+//--- priority-order.mlir
+builtin.module attributes {ac.contract_epoch = "0.5"} {
+  %value = "builtin.unrealized_conversion_cast"() : () -> !ac.var<i4>
+  %index, %valid = ac.var.priority_encode %value order "middle" : !ac.var<i4> -> !ac.var<i2>, !ac.var<i1>
 }
 
 //--- popcount-input.mlir

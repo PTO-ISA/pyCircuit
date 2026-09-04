@@ -118,6 +118,7 @@ emitTransform(const QueueGraphPlan &plan, const QueueBlockPlan &block,
     return pycError("transform input data/type arity mismatch");
   llvm::StringMap<std::string> values;
   llvm::StringMap<std::string> types;
+  llvm::StringMap<std::pair<std::string, std::string>> priorityValues;
   for (size_t index = 0; index < inputData.size(); ++index) {
     std::string name = index == 0 ? "item" : "item" + std::to_string(index);
     values[name] = inputData[index];
@@ -153,7 +154,38 @@ emitTransform(const QueueGraphPlan &plan, const QueueBlockPlan &block,
       auto first = value(expression.operands[0]);
       if (!first)
         return first.takeError();
-      if (expression.kind == "popcount") {
+      if (expression.kind == "priority_index" ||
+          expression.kind == "priority_valid") {
+        if (expression.operands.size() != 1 ||
+            (expression.predicate != "low" && expression.predicate != "high"))
+          return pycError("priority encoder expression contract is malformed");
+        auto inputType = valueType(expression.operands[0]);
+        if (!inputType)
+          return inputType.takeError();
+        auto sourceType = pycType(plan, *inputType);
+        auto inputWidth = typeWidth(plan, *inputType);
+        if (!sourceType)
+          return sourceType.takeError();
+        if (!inputWidth)
+          return inputWidth.takeError();
+        unsigned indexWidth =
+            std::max(1u, static_cast<unsigned>(std::bit_width(
+                             static_cast<unsigned>(*inputWidth - 1))));
+        std::string key = expression.operands[0] + "#" + expression.predicate;
+        auto found = priorityValues.find(key);
+        if (found == priorityValues.end()) {
+          std::string encodedIndex = newValue();
+          std::string encodedValid = newValue();
+          body << "    " << encodedIndex << ", " << encodedValid
+               << " = pyc.priority_encode " << *first << " {order = \""
+               << expression.predicate << "\"} : " << *sourceType << " -> i"
+               << indexWidth << ", i1\n";
+          found =
+              priorityValues.try_emplace(key, encodedIndex, encodedValid).first;
+        }
+        result = expression.kind == "priority_index" ? found->getValue().first
+                                                     : found->getValue().second;
+      } else if (expression.kind == "popcount") {
         if (expression.operands.size() != 1)
           return pycError("popcount expression arity mismatch");
         auto inputType = valueType(expression.operands[0]);

@@ -1,4 +1,5 @@
 #include "gfsim/bits.h"
+#include "gfsim/priority_encode.h"
 
 #include "gtest/gtest.h"
 
@@ -67,6 +68,34 @@ TEST(UIntTest, SixtyFourBitArithmeticAlsoWrapsExactly) {
 
   EXPECT_EQ(0u, (maximum + one).value());
   EXPECT_EQ(~std::uint64_t{0}, (one - UInt<64>{2}).value());
+}
+
+TEST(PriorityEncodeTest, SimQueueBlockPreservesLowAndHighOrder) {
+  SimQueue<UInt<13>> lowInput("low_input", 1, nullptr, 1);
+  SimQueue<PriorityEncodeResult<13>> lowOutput("low_output", 2, nullptr, 1);
+  PriorityEncode<13, true> low("low", 3, nullptr, lowInput, lowOutput);
+  SimQueue<UInt<13>> highInput("high_input", 4, nullptr, 1);
+  SimQueue<PriorityEncodeResult<13>> highOutput("high_output", 5, nullptr, 1);
+  PriorityEncode<13, false> high("high", 6, nullptr, highInput, highOutput);
+  const UInt<13> mask = (std::uint64_t{1} << 11) | (std::uint64_t{1} << 3);
+
+  ASSERT_TRUE(lowInput.proposePush(mask));
+  ASSERT_TRUE(highInput.proposePush(mask));
+  lowInput.doXfer({0, 0});
+  highInput.doXfer({0, 0});
+  low.doWork({1, 0});
+  high.doWork({1, 0});
+  lowOutput.doXfer({1, 0});
+  highOutput.doXfer({1, 0});
+  lowInput.doXfer({1, 0});
+  highInput.doXfer({1, 0});
+
+  ASSERT_EQ(lowOutput.committedSize(), 1u);
+  ASSERT_EQ(highOutput.committedSize(), 1u);
+  EXPECT_EQ(lowOutput.peek()->index.value(), 3u);
+  EXPECT_TRUE(static_cast<bool>(lowOutput.peek()->valid));
+  EXPECT_EQ(highOutput.peek()->index.value(), 11u);
+  EXPECT_TRUE(static_cast<bool>(highOutput.peek()->valid));
 }
 
 } // namespace
