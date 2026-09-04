@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import unittest
 
-
 SOURCE = """
 from agentic_circuit import sink, source, system
 
@@ -329,6 +328,28 @@ def pair() -> None:
     right_next = increment(right)
     ac.sink(left_next)
     ac.sink(right_next)
+"""
+
+STATEFUL_RULE_SOURCE = """
+import agentic_circuit as ac
+
+@ac.struct
+class Entry:
+    index: ac.u1
+    value: ac.u7
+
+@ac.rule
+def install(rob, entry):
+    old = rob[entry.index]
+    rob[entry.index] = entry
+    return old
+
+@ac.system
+def table_rule() -> None:
+    rob = ac.table[2, Entry](init=0)
+    incoming = ac.source(Entry, depth=2)
+    outgoing = install(rob, incoming)
+    ac.sink(outgoing)
 """
 
 FORK_SOURCE = """
@@ -1663,6 +1684,39 @@ def pipeline() -> None:
         self.assertEqual(2, lowered.count('name "increment" stable_id'))
         self.assertIn('stable_id "left_next"', lowered)
         self.assertIn('stable_id "right_next"', lowered)
+
+    def test_stateful_rule_keeps_table_assignment_below_python_surface(self) -> None:
+        from agentic_circuit._queue_frontend import lower_queue_source
+
+        lowered = lower_queue_source(STATEFUL_RULE_SOURCE, "table_rule")
+        self.assertIn("%outgoing = ac.rule %incoming", lowered)
+        self.assertIn('ac.var.get %item field "index"', lowered)
+        self.assertIn("ac.table.get @rob", lowered)
+        self.assertIn("ac.table.propose @rob", lowered)
+        self.assertIn('mode "replace" write_fields ["index", "value"]', lowered)
+        self.assertIn("ac.marker.obligation", lowered)
+        self.assertNotIn("atomic", lowered)
+        self.assertNotIn("ready_valid", lowered)
+        self.assertNotIn("reserve", lowered)
+
+        reused = STATEFUL_RULE_SOURCE.replace(
+            "rob[entry.index] = entry",
+            "rob[entry.index] = old.with_fields(value=entry.value)",
+        )
+        reused_lowered = lower_queue_source(reused, "table_rule")
+        self.assertEqual(1, reused_lowered.count("ac.table.get @rob"))
+
+    def test_stateful_rule_dynamic_index_requires_full_bit_domain(self) -> None:
+        from agentic_circuit._queue_frontend import (
+            QueueFrontendError,
+            lower_queue_source,
+        )
+
+        invalid = STATEFUL_RULE_SOURCE.replace(
+            "ac.table[2, Entry]", "ac.table[3, Entry]"
+        )
+        with self.assertRaisesRegex(QueueFrontendError, r"full 2\^N Table"):
+            lower_queue_source(invalid, "table_rule")
 
     def test_explicit_fork_lowers_to_decoupled_fanout(self) -> None:
         from agentic_circuit._queue_frontend import lower_queue_source

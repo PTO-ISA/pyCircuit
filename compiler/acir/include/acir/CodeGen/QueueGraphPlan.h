@@ -66,6 +66,8 @@ struct QueueBlockPlan {
   std::string resultField;
   std::string memoryInstance;
   std::string table;
+  std::string tableIndex;
+  std::string tableValue;
   std::string slot;
   std::string writeMode;
   uint64_t endpointOrdinal = 0;

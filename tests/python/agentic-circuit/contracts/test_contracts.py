@@ -8,7 +8,6 @@ import tempfile
 import unittest
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parents[4]
 CONTRACT_EPOCH = "0.5"
 LLVM_LOCK = {
@@ -169,7 +168,7 @@ class RepositoryContractsTest(unittest.TestCase):
             [block["name"] for block in blocks],
         )
         for block in blocks:
-            expected_operation = f'ac.{block["name"].replace("_", ".")}'
+            expected_operation = f"ac.{block['name'].replace('_', '.')}"
             if block["name"] == "table_masked_write":
                 expected_operation = "ac.table.masked_write"
             self.assertEqual(expected_operation, block["operation"])
@@ -207,6 +206,7 @@ class RepositoryContractsTest(unittest.TestCase):
             "ac.dependency",
             "ac.expect",
             "ac.feedback",
+            "ac.firing",
             "ac.fork",
             "ac.merge",
             "ac.memory.instance",
@@ -235,10 +235,9 @@ class RepositoryContractsTest(unittest.TestCase):
             operation_kind = entry["operation"].removeprefix("ac.").replace(".", "_")
             self.assertEqual(entry["kind"], operation_kind)
             self.assertTrue(entry["gfsim"]["available"])
-            provisional = (
-                entry["operation"].startswith("ac.table")
-                or entry["operation"] == "ac.slot"
-            )
+            provisional = entry["operation"].startswith("ac.table") or entry[
+                "operation"
+            ] in {"ac.firing", "ac.slot"}
             if entry["role"] == "design" and not provisional:
                 self.assertTrue(entry["pyc"]["available"])
             if provisional:
@@ -1048,9 +1047,7 @@ class RepositoryContractsTest(unittest.TestCase):
         temporary_directory, root = initialize_markdown_fixture(
             {
                 "README.md": "# Fixture\n\n[section](guide.md#example-heading)\n",
-                "guide.md": (
-                    "# Guide\n\n" "```markdown\n" "# Example Heading\n" "```\n"
-                ),
+                "guide.md": ("# Guide\n\n```markdown\n# Example Heading\n```\n"),
             }
         )
         self.addCleanup(temporary_directory.cleanup)

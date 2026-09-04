@@ -7,6 +7,7 @@
 #include "acir/Dialect/ACIR/ACIRTypes.h"
 
 #include "mlir/IR/Operation.h"
+#include "mlir/IR/Verifier.h"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/SmallVector.h"
@@ -318,8 +319,25 @@ extractExpressions(mlir::Region &region, QueueBlockPlan &plan,
       }
       continue;
     }
+    if (auto proposal = mlir::dyn_cast<ac::TableProposeOp>(operation)) {
+      auto operands = operandNames(proposal->getOperands());
+      if (!operands)
+        return operands.takeError();
+      if (operands->size() != 2 || !plan.table.empty())
+        return planError("table firing must contain one closed proposal");
+      plan.table = proposal.getTable().str();
+      plan.tableIndex = (*operands)[0];
+      plan.tableValue = (*operands)[1];
+      plan.writeMode = proposal.getMode().str();
+      for (mlir::Attribute field : proposal.getWriteFields())
+        plan.writeFields.push_back(
+            mlir::cast<mlir::StringAttr>(field).getValue().str());
+      continue;
+    }
     llvm::SmallVector<mlir::Value, 2> yielded;
     if (auto yield = mlir::dyn_cast<ac::TransformYieldOp>(operation))
+      yielded.append(yield.getValues().begin(), yield.getValues().end());
+    else if (auto yield = mlir::dyn_cast<ac::FiringYieldOp>(operation))
       yielded.append(yield.getValues().begin(), yield.getValues().end());
     else if (auto yield = mlir::dyn_cast<ac::RouteYieldOp>(operation))
       yielded.push_back(yield.getSelector());
@@ -364,13 +382,14 @@ public:
   explicit Extractor(mlir::ModuleOp module) : module(module) {}
 
   llvm::Expected<QueueGraphPlan> run() {
+    if (mlir::failed(mlir::verify(module)))
+      return planError("QueueGraph input failed operation verification");
     auto epoch = module->getAttrOfType<mlir::StringAttr>("ac.contract_epoch");
     if (!epoch || epoch.getValue() != "0.5")
       return planError("module requires ac.contract_epoch exactly '0.5'");
     auto modelKind = module->getAttrOfType<mlir::StringAttr>("ac.model_kind");
     if (!modelKind || modelKind.getValue() != "queue_graph")
-      return planError(
-          "module requires ac.model_kind exactly 'queue_graph'");
+      return planError("module requires ac.model_kind exactly 'queue_graph'");
     for (mlir::Operation &operation : module.getBody()->getOperations()) {
       if (mlir::isa<ac::SystemOp, ac::ModuleOp, ac::ModuleExternOp,
                     ac::ModuleGeneratedOp>(operation))
@@ -387,11 +406,14 @@ public:
     });
     if (unclosed)
       return planError("unresolved rule or typed marker reached QueueGraph");
-    bool hasFiring = false;
-    module.walk([&](ac::FiringOp) { hasFiring = true; });
-    if (hasFiring)
-      return planError(
-          "internal firing requires proved pure-firing canonicalization");
+    bool unsupportedFiring = false;
+    module.walk([&](ac::FiringOp firing) {
+      unsigned proposals = 0;
+      firing.getBody().walk([&](ac::TableProposeOp) { ++proposals; });
+      unsupportedFiring |= proposals != 1;
+    });
+    if (unsupportedFiring)
+      return planError("internal firing requires one supported Table proposal");
     mlir::LogicalResult loweredRuleProof = mlir::success();
     module.walk([&](ac::TransformOp transform) {
       if (mlir::failed(loweredRuleProof))
@@ -401,7 +423,8 @@ public:
     if (mlir::failed(loweredRuleProof))
       return planError("lowered-rule proof verification failed");
     if (mlir::failed(acir::verifyFrozenFlatQueueGraph(module)))
-      return planError("QueueGraph requires verified epoch 0.5 topology freeze");
+      return planError(
+          "QueueGraph requires verified epoch 0.5 topology freeze");
     auto system = module->getAttrOfType<mlir::StringAttr>("ac.system");
     if (!system || system.getValue().empty())
       return planError("module requires non-empty ac.system");
@@ -602,6 +625,28 @@ private:
                                outputs,
                                {uint64_t(source.getDepth())},
                                {uint64_t(source.getLatency())}});
+        continue;
+      }
+      if (auto firing = mlir::dyn_cast<ac::FiringOp>(operation)) {
+        auto inputs = queueNames(firing.getInputs(), names);
+        if (!inputs)
+          return inputs.takeError();
+        std::vector<std::string> outputs;
+        if (auto error = addOutputs(
+                firing, firing.getOutputs(),
+                firing.getOutputDepthsAttr().asArrayRef(),
+                firing.getOutputLatenciesAttr().asArrayRef(), scope, outputs))
+          return error;
+        QueueBlockPlan blockPlan{"firing", outputs.front(), scopePath(scope),
+                                 std::move(*inputs), outputs};
+        for (int64_t value : firing.getOutputDepths())
+          blockPlan.depths.push_back(value);
+        for (int64_t value : firing.getOutputLatencies())
+          blockPlan.latencies.push_back(value);
+        blockPlan.region = printRegion(firing.getBody());
+        if (auto error = extractExpressions(firing.getBody(), blockPlan))
+          return error;
+        plan.blocks.push_back(std::move(blockPlan));
         continue;
       }
       if (auto transform = mlir::dyn_cast<ac::TransformOp>(operation)) {
@@ -1252,6 +1297,7 @@ llvm::Error verifyQueueGraphPlan(const QueueGraphPlan &plan) {
   llvm::StringMap<unsigned> tableReaders;
   llvm::StringMap<llvm::StringSet<>> tableWriterFields;
   llvm::StringSet<> tableReplaceWriters;
+  llvm::StringSet<> tableFiringTables;
   auto verifyWriteFields = [&](llvm::StringRef tableName, llvm::StringRef mode,
                                const std::vector<std::string> &writeFields) {
     const TablePlan *table = tables.lookup(tableName);
@@ -1322,6 +1368,25 @@ llvm::Error verifyQueueGraphPlan(const QueueGraphPlan &plan) {
         !verifyWriteFields(write.table, write.mode, write.writeFields))
       return planError(
           "table write_fields are invalid or overlap another writer");
+  }
+  for (const QueueBlockPlan &block : plan.blocks) {
+    if (block.kind != "firing")
+      continue;
+    if (!tables.contains(block.table) ||
+        !tableFiringTables.insert(block.table).second ||
+        llvm::any_of(plan.tableWrites,
+                     [&](const TableWritePlan &write) {
+                       return write.table == block.table;
+                     }) ||
+        llvm::any_of(plan.tableMaskedWrites,
+                     [&](const TableMaskedWritePlan &write) {
+                       return write.table == block.table;
+                     }) ||
+        block.inputs.size() != 1 || block.outputs.size() != 1 ||
+        block.yields.size() != 1 || block.tableIndex.empty() ||
+        block.tableValue.empty() || block.writeMode != "replace" ||
+        !verifyWriteFields(block.table, block.writeMode, block.writeFields))
+      return planError("table firing metadata is incomplete or conflicting");
   }
   for (const auto &entry : tables)
     if (tableReaders[entry.getKey()] +
@@ -1423,11 +1488,67 @@ llvm::Error verifyQueueGraphPlan(const QueueGraphPlan &plan) {
       return error;
     if (auto error = verifySharedExpressions(block.expressions))
       return error;
+    if (block.kind == "firing") {
+      const TablePlan *table = tables.lookup(block.table);
+      if (!table)
+        return planError("table firing references unknown Table");
+      llvm::StringMap<std::string> identities;
+      for (auto [index, rootType] : llvm::enumerate(roots))
+        identities[index == 0 ? "item" : "item" + std::to_string(index)] =
+            rootType;
+      for (const QueueExpressionPlan &expression : block.expressions)
+        identities[expression.result] = expression.type;
+      if (!identities.contains(block.tableIndex) ||
+          !identities.contains(block.tableValue) ||
+          !identities.contains(block.yields.front()))
+        return planError("table firing value identities are not closed");
+      auto inputType = queueTypes.find(block.inputs.front());
+      auto outputType = queueTypes.find(block.outputs.front());
+      if (inputType == queueTypes.end() || outputType == queueTypes.end() ||
+          inputType->getValue() != table->entryType ||
+          outputType->getValue() != table->entryType ||
+          identities.lookup(block.tableValue) != table->entryType ||
+          identities.lookup(block.yields.front()) != table->entryType)
+        return planError(
+            "table firing Queue/value types must match the Table Entry");
+      auto verifySafeIndex = [&](llvm::StringRef identity) -> bool {
+        auto type = identities.find(identity);
+        auto width = type == identities.end() ? std::optional<unsigned>()
+                                              : integerWidth(type->getValue());
+        if (!width || *width == 0 || *width > 64)
+          return false;
+        auto constant = llvm::find_if(
+            block.expressions, [&](const QueueExpressionPlan &expression) {
+              return expression.result == identity &&
+                     expression.kind == "constant";
+            });
+        if (constant != block.expressions.end()) {
+          llvm::StringRef literal(constant->literal);
+          literal = literal.split(':').first.trim();
+          uint64_t value = 0;
+          if (literal == "true")
+            value = 1;
+          else if (literal != "false" && literal.getAsInteger(10, value))
+            return false;
+          return value < table->entries;
+        }
+        return *width < 64 && table->entries == (uint64_t{1} << *width);
+      };
+      if (!verifySafeIndex(block.tableIndex))
+        return planError("table firing proposal index is not statically safe");
+      for (const QueueExpressionPlan &expression : block.expressions)
+        if (expression.kind == "table_get" &&
+            (expression.table != block.table ||
+             expression.operands.size() != 1 ||
+             !verifySafeIndex(expression.operands.front())))
+          return planError(
+              "table firing observation index is not statically safe");
+    }
     if (block.kind == "memory_request" &&
         !memoryInstances.contains(block.memoryInstance))
       return planError("memory request block references unknown instance");
     if ((block.kind == "table_read" || block.kind == "table_write" ||
-         block.kind == "table_masked_write") &&
+         block.kind == "table_masked_write" || block.kind == "firing") &&
         !tables.contains(block.table))
       return planError("table endpoint block references unknown table");
     if (block.kind == "table_write") {
@@ -1593,6 +1714,8 @@ llvm::Expected<std::string> QueueGraphPlan::canonicalJson() const {
                            {"memory_instance", block.memoryInstance},
                            {"write_mode", block.writeMode},
                            {"table", block.table},
+                           {"table_index", block.tableIndex},
+                           {"table_value", block.tableValue},
                            {"slot", block.slot},
                            {"name", block.name},
                            {"no_dependency", block.noDependency},
