@@ -21,7 +21,12 @@ def test_priority_implementation_catalog_is_bsd_and_digest_closed() -> None:
     assert implementation["semantic_id"] == "pyc.priority_encode.v1"
     assert implementation["effect_class"] == "comb"
     assert implementation["qualification"]["status"] == "validated"
-    assert implementation["license_file"] == "../../LICENSE"
+    assert implementation["license_file"] == "licenses/BSD-3-Clause.txt"
+    license_path = catalog_path.parent / implementation["license_file"]
+    assert license_path.is_file()
+    assert implementation["license_sha256"] == (
+        "sha256:" + hashlib.sha256(license_path.read_bytes()).hexdigest()
+    )
     assert "basejump" not in implementation["implementation_id"].lower()
 
     sources = implementation["sources"]

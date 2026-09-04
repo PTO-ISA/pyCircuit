@@ -1339,6 +1339,7 @@ llvm::Error verifyQueueGraphPlan(const QueueGraphPlan &plan) {
   llvm::StringMap<unsigned> consumers;
   llvm::StringMap<unsigned> indegree;
   llvm::StringMap<std::vector<std::string>> successors;
+  llvm::StringMap<std::string> queueTypes;
   for (const QueuePlan &queue : plan.queues) {
     if (queue.name.empty() || !queueNames.insert(queue.name).second)
       return planError("Queue logical identities must be non-empty and unique");
@@ -1347,9 +1348,79 @@ llvm::Error verifyQueueGraphPlan(const QueueGraphPlan &plan) {
       return planError(
           "Queue plan requires typed positive depth/latency and rate <= depth");
     indegree[queue.name] = 0;
+    queueTypes[queue.name] = queue.payloadType;
+  }
+
+  auto verifyExpressionList =
+      [&](auto &&self, const auto &expressions,
+          llvm::ArrayRef<std::string> rootTypes) -> llvm::Error {
+    llvm::StringMap<std::string> valueTypes;
+    for (auto [index, type] : llvm::enumerate(rootTypes))
+      valueTypes[index == 0 ? "item" : "item" + std::to_string(index)] = type;
+    for (const QueueExpressionPlan &expression : expressions) {
+      if (expression.result.empty() || expression.type.empty() ||
+          valueTypes.contains(expression.result))
+        return planError(
+            "expression identities and result types must be closed");
+      if (expression.kind == "priority_index" ||
+          expression.kind == "priority_valid") {
+        if (expression.operands.size() != 1 ||
+            (expression.predicate != "low" && expression.predicate != "high"))
+          return planError("priority expression contract is malformed");
+        auto operand = valueTypes.find(expression.operands.front());
+        auto inputWidth = operand == valueTypes.end()
+                              ? std::optional<unsigned>()
+                              : integerWidth(operand->getValue());
+        if (!inputWidth || *inputWidth == 0 || *inputWidth > 64)
+          return planError(
+              "priority expression input must be an i1..i64 value");
+        const std::string expected =
+            expression.kind == "priority_valid"
+                ? "i1"
+                : "i" + std::to_string(std::max<unsigned>(
+                            1, llvm::Log2_64_Ceil(*inputWidth)));
+        if (expression.type != expected)
+          return planError("priority expression result type is inconsistent");
+      }
+      valueTypes[expression.result] = expression.type;
+      if (!expression.nestedExpressions.empty()) {
+        const TablePlan *table = tables.lookup(expression.table);
+        llvm::SmallVector<std::string> nestedRoots;
+        if (table)
+          nestedRoots.push_back(table->entryType);
+        if (auto error = self(self, expression.nestedExpressions, nestedRoots))
+          return error;
+      }
+    }
+    return llvm::Error::success();
+  };
+  for (const TableMatchPlan &match : plan.tableMatches) {
+    const TablePlan *table = tables.lookup(match.table);
+    llvm::SmallVector<std::string> roots;
+    if (table)
+      roots.push_back(table->entryType);
+    if (auto error = verifyExpressionList(verifyExpressionList,
+                                          match.expressions, roots))
+      return error;
+  }
+  for (const TableSelectionPlan &selection : plan.tableSelections) {
+    const TablePlan *table = tables.lookup(selection.table);
+    llvm::SmallVector<std::string> roots;
+    if (table)
+      roots.push_back(table->entryType);
+    if (auto error = verifyExpressionList(verifyExpressionList,
+                                          selection.keyExpressions, roots))
+      return error;
   }
 
   for (const QueueBlockPlan &block : plan.blocks) {
+    llvm::SmallVector<std::string> roots;
+    for (const std::string &input : block.inputs)
+      if (auto found = queueTypes.find(input); found != queueTypes.end())
+        roots.push_back(found->getValue());
+    if (auto error = verifyExpressionList(verifyExpressionList,
+                                          block.expressions, roots))
+      return error;
     if (auto error = verifySharedExpressions(block.expressions))
       return error;
     if (block.kind == "memory_request" &&

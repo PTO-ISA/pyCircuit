@@ -91,6 +91,9 @@ loadCatalog(llvm::StringRef path, std::string &catalogSha256,
     auto *inputPorts = ports ? ports->getArray("inputs") : nullptr;
     auto *outputPorts = ports ? ports->getArray("outputs") : nullptr;
     auto *bindings = entry ? entry->getObject("parameter_bindings") : nullptr;
+    auto licenseFile = entry ? entry->getString("license_file") : std::nullopt;
+    auto licenseSha256 =
+        entry ? entry->getString("license_sha256") : std::nullopt;
     if (!semantic || !implementation || effect != "comb" || !module ||
         !minWidth || !maxWidth || !selectionPriority || *minWidth <= 0 ||
         *maxWidth < *minWidth || *maxWidth > 65536 || !sources ||
@@ -101,8 +104,23 @@ loadCatalog(llvm::StringRef path, std::string &catalogSha256,
         outputPorts->size() != 2 ||
         outputPorts->front().getAsString() != "index" ||
         (*outputPorts)[1].getAsString() != "valid" || !bindings ||
-        !bindings->get("WIDTH") || !bindings->get("ORDER_LOW")) {
+        !bindings->get("WIDTH") || !bindings->get("ORDER_LOW") ||
+        !licenseFile || !licenseSha256) {
       error = "RTL primitive catalog has malformed implementation entry";
+      return failure();
+    }
+    bool licenseEscapes = llvm::sys::path::is_absolute(*licenseFile);
+    for (auto part = llvm::sys::path::begin(*licenseFile),
+              end = llvm::sys::path::end(*licenseFile);
+         part != end; ++part)
+      licenseEscapes |= *part == "..";
+    llvm::SmallString<256> licensePath(llvm::sys::path::parent_path(path));
+    llvm::sys::path::append(licensePath, *licenseFile);
+    auto licenseBuffer = llvm::MemoryBuffer::getFile(licensePath);
+    if (licenseFile->empty() || licenseFile->contains('\\') || licenseEscapes ||
+        !licenseBuffer ||
+        fingerprint(licenseBuffer.get()->getBuffer()) != *licenseSha256) {
+      error = "RTL primitive license file is missing or has a digest mismatch";
       return failure();
     }
     RtlCandidate candidate;

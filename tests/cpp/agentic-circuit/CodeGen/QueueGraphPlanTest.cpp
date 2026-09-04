@@ -746,6 +746,49 @@ TEST(QueueGraphPlanTest, RejectsInvalidSharedTableWidths) {
             std::string::npos);
 }
 
+TEST(QueueGraphPlanTest, RejectsMalformedPriorityExpressionPlan) {
+  auto makePlan = [] {
+    QueueGraphPlan plan;
+    plan.system = "priority";
+    plan.queues = {{"input", "i3", "/", 1, 1}, {"output", "i3", "/", 1, 1}};
+    plan.blocks.push_back({"source", "input", "/", {}, {"input"}, {1}, {1}});
+    QueueBlockPlan transform{"transform", "output", "/", {"input"}, {"output"}};
+    transform.expressions = {
+        {"v0", "priority_index", "i2", {"item"}, "", "low", ""},
+        {"v1", "priority_valid", "i1", {"item"}, "", "low", ""},
+    };
+    transform.yields = {"item"};
+    plan.blocks.push_back(std::move(transform));
+    plan.blocks.push_back({"sink", "sink", "/", {"output"}, {}});
+    return plan;
+  };
+
+  QueueGraphPlan plan = makePlan();
+  EXPECT_FALSE(bool(verifyQueueGraphPlan(plan)));
+
+  plan = makePlan();
+  plan.blocks[1].expressions[0].predicate = "middle";
+  auto predicateError = verifyQueueGraphPlan(plan);
+  ASSERT_TRUE(bool(predicateError));
+  EXPECT_NE(
+      llvm::toString(std::move(predicateError)).find("priority expression"),
+      std::string::npos);
+
+  plan = makePlan();
+  plan.blocks[1].expressions[0].operands.push_back("item");
+  auto arityError = verifyQueueGraphPlan(plan);
+  ASSERT_TRUE(bool(arityError));
+  EXPECT_NE(llvm::toString(std::move(arityError)).find("priority expression"),
+            std::string::npos);
+
+  plan = makePlan();
+  plan.blocks[1].expressions[0].type = "i1";
+  auto typeError = verifyQueueGraphPlan(plan);
+  ASSERT_TRUE(bool(typeError));
+  EXPECT_NE(llvm::toString(std::move(typeError)).find("result type"),
+            std::string::npos);
+}
+
 TEST(QueueGraphPlanTest, RejectsUnconsumedQueueAsStaticDeadlockRisk) {
   QueueGraphPlan plan;
   plan.system = "unconsumed";

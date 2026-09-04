@@ -2370,7 +2370,8 @@ def _merge_verilog_primitive_bundles(
     marker = "// --- selected RTL: "
     lint_on = "/* verilator lint_on DECLFILENAME */"
     base: str | None = None
-    sections: dict[str, str] = {}
+    source_contents: dict[str, str] = {}
+    source_licenses: dict[str, str] = {}
     implementations: dict[str, dict[str, Any]] = {}
     bindings: dict[str, dict[str, dict[str, Any]]] = {}
     source_digests: dict[str, str] = {}
@@ -2379,28 +2380,16 @@ def _merge_verilog_primitive_bundles(
     for primitive in sorted(primitive_files):
         lines = primitive.read_text(encoding="utf-8").splitlines()
         base_lines: list[str] = []
-        current_path: str | None = None
-        current_lines: list[str] = []
-        parsed_sections: dict[str, str] = {}
+        in_selected_source = False
         for line in lines:
             if line.startswith(marker):
-                if current_path is not None:
-                    parsed_sections[current_path] = "\n".join(current_lines).rstrip()
-                current_path = line[len(marker) :].split(" (", 1)[0]
-                current_lines = [line]
+                in_selected_source = True
                 continue
             if line.strip() == lint_on:
-                if current_path is not None:
-                    parsed_sections[current_path] = "\n".join(current_lines).rstrip()
-                    current_path = None
-                    current_lines = []
+                in_selected_source = False
                 continue
-            if current_path is None:
+            if not in_selected_source:
                 base_lines.append(line)
-            else:
-                current_lines.append(line)
-        if current_path is not None:
-            parsed_sections[current_path] = "\n".join(current_lines).rstrip()
         normalized_base = "\n".join(base_lines).rstrip()
         if base is None:
             base = normalized_base
@@ -2408,13 +2397,6 @@ def _merge_verilog_primitive_bundles(
             raise SystemExit(
                 "build(verilator): per-module base primitive bundles differ"
             )
-        for source_path, section in parsed_sections.items():
-            prior = sections.setdefault(source_path, section)
-            if prior != section:
-                raise SystemExit(
-                    f"build(verilator): selected RTL source differs: {source_path}"
-                )
-
         module_manifest = _load_json(primitive.parent / "manifest.json")
         raw_selection = module_manifest.get("rtl_selection", {})
         if (
@@ -2443,13 +2425,50 @@ def _merge_verilog_primitive_bundles(
                 if not isinstance(source, dict):
                     raise SystemExit("build(verilator): malformed RTL source")
                 source_path = str(source.get("path", ""))
+                bundle_path = str(source.get("bundle_path", ""))
                 digest = str(source.get("sha256", ""))
-                if not source_path or not digest:
+                license_id = str(source.get("license", ""))
+                bundled = (primitive.parent / bundle_path).resolve()
+                try:
+                    bundled.relative_to(primitive.parent.resolve())
+                except ValueError as error:
+                    raise SystemExit(
+                        f"build(verilator): RTL bundle path escapes: {bundle_path}"
+                    ) from error
+                if (
+                    not source_path
+                    or not bundle_path
+                    or not digest
+                    or not license_id
+                    or not bundled.is_file()
+                ):
                     raise SystemExit("build(verilator): incomplete RTL source")
+                content = bundled.read_bytes()
+                actual_digest = "sha256:" + hashlib.sha256(content).hexdigest()
+                if actual_digest != digest:
+                    raise SystemExit(
+                        f"build(verilator): selected RTL digest mismatch: {source_path}"
+                    )
+                try:
+                    source_text = content.decode("utf-8")
+                except UnicodeDecodeError as error:
+                    raise SystemExit(
+                        f"build(verilator): selected RTL is not UTF-8: {source_path}"
+                    ) from error
                 previous_digest = source_digests.setdefault(source_path, digest)
                 if previous_digest != digest:
                     raise SystemExit(
                         f"build(verilator): source digest conflict: {source_path}"
+                    )
+                previous_content = source_contents.setdefault(source_path, source_text)
+                if previous_content != source_text:
+                    raise SystemExit(
+                        f"build(verilator): selected RTL source differs: {source_path}"
+                    )
+                previous_license = source_licenses.setdefault(source_path, license_id)
+                if previous_license != license_id:
+                    raise SystemExit(
+                        f"build(verilator): selected RTL license differs: {source_path}"
                     )
                 if source_path not in source_order:
                     source_order.append(source_path)
@@ -2471,17 +2490,13 @@ def _merge_verilog_primitive_bundles(
 
     if base is None:
         raise SystemExit("build(verilator): no primitive bundle was generated")
-    missing = [
-        source_path for source_path in source_order if source_path not in sections
-    ]
-    if missing:
-        raise SystemExit(
-            "build(verilator): primitive bundle misses selected sources: "
-            + ", ".join(missing)
-        )
     merged = base + "\n\n"
     for source_path in source_order:
-        merged += sections[source_path] + "\n\n"
+        merged += (
+            f"{marker}{source_path} ({source_licenses[source_path]})\n"
+            + source_contents[source_path].rstrip()
+            + "\n\n"
+        )
     merged += lint_on + "\n"
     _write_text_atomic(output, merged)
     merged_implementations = [implementations[key] for key in sorted(implementations)]
