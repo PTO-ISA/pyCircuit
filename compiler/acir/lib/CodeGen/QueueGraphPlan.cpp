@@ -16,6 +16,7 @@
 #include "llvm/Support/MathExtras.h"
 #include "llvm/Support/raw_ostream.h"
 
+#include <array>
 #include <optional>
 #include <system_error>
 
@@ -205,6 +206,30 @@ extractExpressions(mlir::Region &region, QueueBlockPlan &plan,
     if (mlir::isa<ac::VarNotOp>(operation)) {
       if (auto error = append(operation, "not"))
         return error;
+      continue;
+    }
+    if (auto priority = mlir::dyn_cast<ac::VarPriorityEncodeOp>(operation)) {
+      auto operands = operandNames(priority->getOperands());
+      if (!operands)
+        return operands.takeError();
+      const std::array<std::pair<mlir::Value, llvm::StringRef>, 2> results = {{
+          {priority.getIndex(), "priority_index"},
+          {priority.getValid(), "priority_valid"},
+      }};
+      for (auto [resultValue, kind] : results) {
+        auto resultType = mlir::dyn_cast<ac::VarType>(resultValue.getType());
+        if (!resultType)
+          return planError("priority encoder result must be ac.var");
+        std::string result = "v" + std::to_string(plan.expressions.size());
+        values[resultValue] = result;
+        plan.expressions.push_back({std::move(result),
+                                    kind.str(),
+                                    printType(resultType.getElementType()),
+                                    *operands,
+                                    {},
+                                    priority.getOrder().str(),
+                                    {}});
+      }
       continue;
     }
     if (mlir::isa<ac::VarPopcountOp>(operation)) {

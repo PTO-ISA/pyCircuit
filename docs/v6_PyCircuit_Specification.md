@@ -169,6 +169,7 @@ low = data[0:8];  bit5 = data[5]            # 切片 / 索引（向量：取 lan
 | `v.reduce_sum(*, dim=None, mode="chain")` | 求和归约；**保持叶元素宽度，溢出回绕**（不会自动扩展结果宽度） | `pyc.v_add_reduce` |
 | `v.broadcast(*, size, dim)` | 沿新维度重复 | `pyc.v_broadcast_dim` |
 | `priority_mux(sels, vals, *, mode="chain", default=None)` | 以 `sels`（i1 向量）为选择器在 `vals` 中选 lane；**最小索引优先**；模块级函数或 CAS 实例方法 `sels.priority_mux(vals, ...)`；`default=None` 时所有 selector 为 0 的回退值是 `vals` 的最后一个元素 | 组合展开 |
+| `priority_encode(value, *, order="low")` | 返回 `{index, valid}`；`order="low"` 选择最低置位，`"high"` 选择最高置位；保持当前 cycle；Python/PYC 不暴露实现名称 | `pyc.priority_encode`，Verilog-only pass 可选择已验证 RTL |
 | `m.cat(*lanes)` | 把多个 lane 拼成 packed 标量位向量（MSB-first） | `pyc.concat` |
 | `v[i]` | 取 lane | `pyc.v_get` |
 

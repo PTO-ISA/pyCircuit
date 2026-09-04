@@ -26,6 +26,7 @@ builtin.module attributes {ac.contract_epoch = "0.5"} {
     %inverted = ac.var.not %bits3 : !ac.var<i3> -> !ac.var<i3>
     %shifted_left = ac.var.shl %bits3, %shift3 : !ac.var<i3>
     %shifted_right = ac.var.shr %bits3, %shift3 : !ac.var<i3>
+    %priority_index, %priority_valid = ac.var.priority_encode %bits3 order "high" : !ac.var<i3> -> !ac.var<i2>, !ac.var<i1>
     %updated_value = ac.var.with %item, %product field "value" : !ac.var<!ac.struct<@types::@WorkItem>>, !ac.var<i64> -> !ac.var<!ac.struct<@types::@WorkItem>>
     %updated = ac.var.with %updated_value, %difference field "remaining" : !ac.var<!ac.struct<@types::@WorkItem>>, !ac.var<i16> -> !ac.var<!ac.struct<@types::@WorkItem>>
     ac.transform.yield %updated : !ac.var<!ac.struct<@types::@WorkItem>>
@@ -45,4 +46,5 @@ builtin.module attributes {ac.contract_epoch = "0.5"} {
 // CHECK: ac.var.not
 // CHECK: ac.var.shl
 // CHECK: ac.var.shr
+// CHECK: ac.var.priority_encode
 // CHECK: ac.var.with

@@ -61,7 +61,8 @@ def test_verilog_primitive_merge_keeps_later_module_closure(tmp_path) -> None:
     )
     selected_wide.write_text(selected.read_text(encoding="utf-8"), encoding="utf-8")
     (plain.parent / "manifest.json").write_text(
-        '{"rtl_implementations": []}', encoding="utf-8"
+        '{"rtl_selection": {"schema": "pyc-rtl-selection-manifest-v1", "implementations": [], "bindings": []}}',
+        encoding="utf-8",
     )
     implementation = {
         "implementation_id": "pyc.selected.v1",
@@ -78,14 +79,17 @@ def test_verilog_primitive_merge_keeps_later_module_closure(tmp_path) -> None:
     (selected.parent / "manifest.json").write_text(
         json.dumps(
             {
-                "rtl_implementations": [implementation],
-                "rtl_bindings": [
-                    {
-                        "implementation_id": "pyc.selected.v1",
-                        "semantic_id": "pyc.selected.v1",
-                        "parameters": {"WIDTH": 4},
-                    }
-                ],
+                "rtl_selection": {
+                    "schema": "pyc-rtl-selection-manifest-v1",
+                    "implementations": [implementation],
+                    "bindings": [
+                        {
+                            "implementation_id": "pyc.selected.v1",
+                            "semantic_id": "pyc.selected.v1",
+                            "parameters": {"WIDTH": 4},
+                        }
+                    ],
+                }
             }
         ),
         encoding="utf-8",
@@ -93,14 +97,17 @@ def test_verilog_primitive_merge_keeps_later_module_closure(tmp_path) -> None:
     (selected_wide.parent / "manifest.json").write_text(
         json.dumps(
             {
-                "rtl_implementations": [implementation],
-                "rtl_bindings": [
-                    {
-                        "implementation_id": "pyc.selected.v1",
-                        "semantic_id": "pyc.selected.v1",
-                        "parameters": {"WIDTH": 13},
-                    }
-                ],
+                "rtl_selection": {
+                    "schema": "pyc-rtl-selection-manifest-v1",
+                    "implementations": [implementation],
+                    "bindings": [
+                        {
+                            "implementation_id": "pyc.selected.v1",
+                            "semantic_id": "pyc.selected.v1",
+                            "parameters": {"WIDTH": 13},
+                        }
+                    ],
+                }
             }
         ),
         encoding="utf-8",

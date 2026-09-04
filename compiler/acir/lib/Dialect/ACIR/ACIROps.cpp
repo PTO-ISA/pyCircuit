@@ -1310,6 +1310,31 @@ LogicalResult VarPopcountOp::verify() {
   return success();
 }
 
+LogicalResult VarPriorityEncodeOp::verify() {
+  auto input = cast<VarType>(getIn().getType());
+  auto index = cast<VarType>(getIndex().getType());
+  auto valid = cast<VarType>(getValid().getType());
+  auto inputInteger = dyn_cast<IntegerType>(input.getElementType());
+  auto indexInteger = dyn_cast<IntegerType>(index.getElementType());
+  if (!inputInteger || !inputInteger.isSignless() ||
+      inputInteger.getWidth() == 0 || inputInteger.getWidth() > 64)
+    return emitOpError("input must carry a signless integer width in [1, 64]");
+  if (!indexInteger || !indexInteger.isSignless())
+    return emitOpError("index must carry a signless integer");
+  unsigned required = 1;
+  for (unsigned extent = 2; extent < inputInteger.getWidth(); extent <<= 1)
+    ++required;
+  if (indexInteger.getWidth() != required)
+    return emitOpError()
+           << "index width must be max(1, ceil(log2(input_width))) = "
+           << required;
+  if (valid.getElementType() != IntegerType::get(getContext(), 1))
+    return emitOpError("valid must be !ac.var<i1>");
+  if (getOrder() != "low" && getOrder() != "high")
+    return emitOpError("order must be low or high");
+  return success();
+}
+
 LogicalResult VarCmpOp::verify() {
   if (getLhs().getType() != getRhs().getType())
     return emitOpError("operands must have the same Var type");

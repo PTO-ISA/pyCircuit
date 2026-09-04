@@ -12,6 +12,7 @@ from ._queue_frontend import (
     QueueFrontendError,
     QueueProgram,
     StaticQueueCollection,
+    _decorator_name,
     parse_queue_program,
 )
 
@@ -94,6 +95,38 @@ class _CppExpression:
             if node.value is False:
                 return "false"
             return str(node.value)
+        if (
+            isinstance(node, ast.Attribute)
+            and node.attr in {"index", "valid"}
+            and isinstance(node.value, ast.Call)
+            and _decorator_name(node.value.func).rsplit(".", 1)[-1] == "priority_encode"
+        ):
+            call = node.value
+            if len(call.args) != 1 or any(
+                keyword.arg != "order" for keyword in call.keywords
+            ):
+                raise QueueFrontendError(
+                    "ACLOWER-UNSUPPORTED-CONSTRUCT: malformed priority_encode"
+                )
+            order = "low"
+            if call.keywords:
+                raw_order = call.keywords[0].value
+                if (
+                    not isinstance(raw_order, ast.Constant)
+                    or type(raw_order.value) is not str
+                ):
+                    raise QueueFrontendError(
+                        "ACLOWER-UNSUPPORTED-CONSTRUCT: priority order must be static"
+                    )
+                order = raw_order.value.strip().lower()
+            if order not in {"low", "high"}:
+                raise QueueFrontendError(
+                    "ACLOWER-UNSUPPORTED-CONSTRUCT: priority order must be low or high"
+                )
+            return (
+                f"gfsim::priorityEncode({self.emit(call.args[0])}, "
+                f"{'true' if order == 'low' else 'false'}).{node.attr}"
+            )
         if (
             isinstance(node, ast.Attribute)
             and isinstance(node.value, ast.Name)
@@ -695,6 +728,7 @@ def lower_queue_program_to_cpp(program: QueueProgram) -> str:
         '#include "gfsim/bits.h"',
         '#include "gfsim/dispatch.h"',
         '#include "gfsim/object.h"',
+        '#include "gfsim/priority_encode.h"',
         '#include "gfsim/queue.h"',
         '#include "gfsim/queue_blocks.h"',
         "",
@@ -1013,8 +1047,7 @@ def lower_queue_program_to_cpp(program: QueueProgram) -> str:
                 f"const {input_type} &item) const"
             )
             when_signature = (
-                f"bool operator()(gfsim::Epoch epoch, "
-                f"const {input_type} &item) const"
+                f"bool operator()(gfsim::Epoch epoch, const {input_type} &item) const"
             )
         lines.extend(
             (

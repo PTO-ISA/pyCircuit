@@ -146,6 +146,14 @@ PYC semantic contracts.
     QueueGraph, gfsim, and the PYC build lane.
   - [ ] Add CFG joins, dynamic checks, multi-Queue/state proposals, explicit
     conflict arbitration, Table/Reg rules, and circular ROB coverage.
+- [x] Land Decision 0161's first qualified primitive vertical slice:
+  vendor-neutral `pyc.priority_encode`, backend-only `pyc.rtl.comb`,
+  deterministic digest-verified BSD RTL selection, parameterized pyCircuit and
+  Agentic Python APIs, QueueGraph-to-PYC, and gfsim SimQueue execution.
+- [ ] Normalize the remaining PR #29 catalog into semantic families. Admit
+  combinational families only after per-family C++/RTL/Agentic parity; keep
+  stateful, handshake, memory, and CDC families blocked on the inferred
+  prepare/publish/no-fail commit contract and circular ROB evidence.
 - [ ] After the internal AC G0/G1/G2 and pyCircuit closure passes, disable the
   old repository's publishing/CI authority and make it private with only
   `zhoubot` as a direct repository collaborator.
