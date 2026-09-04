@@ -613,6 +613,12 @@ because it cannot change functional state.
 
 ### Atomic group
 
+> **Current implementation note:** `D-RULE-LOWERING-001` supersedes these
+> Python spellings for the target public rule surface. `ac.atomic()` and
+> `.firing()` remain documented here only while the current prototype exists;
+> future rule authoring uses simple `@ac.rule`, and MLIR passes materialize
+> checks, handshake, scheduling, and internal `ac.firing` transactions.
+
 Each ordinary `apply` is an atomic input-pop/output-push firing. Use
 `with ac.atomic():` to group at least two independent direct Queue transforms.
 

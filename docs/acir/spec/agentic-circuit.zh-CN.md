@@ -562,6 +562,10 @@ while current.remaining > 0:
 
 ## 显式 Queue effect
 
+> **当前实现说明：** `D-RULE-LOWERING-001` 已取代这些 Python 拼写作为目标公共
+> rule 前端。`.firing()` 仅在当前 prototype 存续期间记录于此；后续使用简单的
+> `@ac.rule`，由 MLIR pass 生成检查、握手、调度与内部 `ac.firing` transaction。
+
 需要强调 pop 的副作用和 peek 的非消费读取时，使用 `firing`：
 
 ```python

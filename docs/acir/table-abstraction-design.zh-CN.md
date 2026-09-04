@@ -284,6 +284,18 @@ ac.component @rob {
 
 ## 6. Firing 前端模型
 
+> **后续公共前端方向：** `D-RULE-LOWERING-001` 已决定由 `@ac.rule` 作为唯一显式
+> 调度边界。Python 用户不再书写 `atomic`、`firing`、显式 Queue effect 或检查；类型、
+> effect、guard、检查、握手和冲突由 MLIR pass 分阶段推导。下文的 implicit anchor、
+> `with ac.atomic()` 和 `.firing()` 描述当前 prototype 与形成该决策时的设计背景，不是
+> 目标公共 API。
+>
+> 下列小节的状态为：6.1 implicit anchor、6.2 基本块附着、6.3 显式 `when=` 和
+> 6.4 decorator `when` callback 的 Python 拼写均被 supersede；它们表达的 firing guard
+> 与 local effect predicate 区别继续保留，但改由 `@ac.rule` 的普通控制流和 MLIR path
+> predicate 推导。6.5 单 token/tick 限制与 committed-snapshot 语义继续适用，直至后续
+> decision 明确修改。
+
 Firing 表示组件在一个 tick 中成功完成的一次完整状态转换：
 
 > 一个 firing 中的 Queue 输入消费、Queue 输出产生、Table write 和 Reg write 共享同一个
@@ -309,7 +321,7 @@ Queue endpoint。
 Queue transaction 与 Table/Reg proposal 绑定，或无法由更窄 opcode 表达时，才使用
 `ac.firing`。
 
-### 6.1 简单 Firing Anchor
+### 6.1 简单 Firing Anchor（已被目标前端取代）
 
 能够直接消费或产生 Queue 的 Table 方法是 firing anchor：
 
@@ -363,7 +375,7 @@ scoreboard.view(waiting).patch(ready=True)
 若 Queue-dependent `match` 所在 group 最终既没有状态 effect 也没有 Queue 输出，前端必须
 报错，不能无意义地消费输入 token。
 
-### 6.2 Anchor 与基本块边界
+### 6.2 Anchor 与基本块边界（已被目标前端取代）
 
 一个 anchor 建立当前 Python 基本块中的隐式 firing。紧随其后的无 Queue `write/patch`
 和 `ac.reg` 更新附着到该 firing：
@@ -408,7 +420,7 @@ table.view(j).patch(valid=False)
 前端必须报告 `state effect has no firing anchor`。如果一个 effect 可能归属于多个 anchor，
 也必须报错并要求使用 `@ac.rule`，不能依赖任意语句顺序猜测。
 
-### 6.3 Guard 与 Local Enable
+### 6.3 Guard 与 Local Enable（拼写已取代，语义保留）
 
 第一版不要求 Python 前端编译 symbolic `if`。Firing guard 由 anchor 的 `when=` 显式提供：
 
@@ -439,7 +451,7 @@ firing_fire && should_clear
 local enable 为假只取消该 write，不取消 firing。需要阻止整个事务时必须使用 anchor 的
 `when=`，不能使用 `enable=` 代替。
 
-### 6.4 显式 `@ac.rule`
+### 6.4 显式 `@ac.rule`（decorator guard 草案已取代）
 
 多个 Queue 输入或多个 Queue 输出需要共同提交时，使用 `@ac.rule`：
 

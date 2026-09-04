@@ -30,6 +30,9 @@ decisions, historical evidence, and verification:
   hard-break release-neutral layout decision.
 - [`D-BLOCK-MODEL-001`](../../rfcs/acir/D-BLOCK-MODEL-001.md) records the current
   Queue/Var building-block model.
+- [`D-RULE-LOWERING-001`](../../rfcs/acir/D-RULE-LOWERING-001.md) records the
+  simple Python rule surface, staged MLIR lowering, and typed-marker contract
+  for incomplete inference.
 - [`REF-HISTORY-001`](refs/history.md) pins removed historical specifications
   to an immutable Git revision.
 - [Repository contract verification](verification.md) binds release, layout,

@@ -135,6 +135,11 @@ PYC semantic contracts.
 - [x] Close Decision 0156 without changing epoch `0.4`: add one state-driven
   scalar allocation endpoint whose complete Entry replacement wins over
   same-Entry field writers in direct and native typed gfsim C++.
+- [ ] Implement `D-RULE-LOWERING-001`: make `@ac.rule` the simple Python
+  scheduling boundary; infer types, effects, checks, handshake, and conflicts
+  through staged ACIR passes; preserve incomplete knowledge with typed markers;
+  bump the Agentic Circuit contract epoch to `0.5`; and reject every unresolved
+  marker before Frozen ACIR topology freeze, hashing, or serialization.
 - [ ] After the independent current QEMU/PYC comparison passes, disable the
   old repository's publishing/CI authority and make it
   private with only `zhoubot` as a direct repository collaborator.

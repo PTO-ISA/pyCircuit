@@ -16,6 +16,7 @@ METADATA_RE = re.compile(r"<!--\s*ndf:\s*(.*?)\s*-->")
 CROSS_REFERENCE_RE = re.compile(r"\[\[([A-Z][A-Z0-9-]*)\]\]")
 HEX40_RE = re.compile(r"^[0-9a-f]{40}$")
 REQUIRED_METADATA = ("kind", "level", "layer", "status")
+DEFAULT_ROOTS = (Path("docs/acir/spec"), Path("docs/rfcs/acir"))
 EDGE_KEYS = (
     "refines",
     "depends-on",
@@ -40,10 +41,13 @@ def _targets(value: str) -> list[str]:
     return [item for item in re.split(r"[,;]", value) if item]
 
 
-def _load(root: Path) -> tuple[list[Clause], list[str]]:
+def _load(roots: list[Path]) -> tuple[list[Clause], list[str]]:
     clauses: list[Clause] = []
     errors: list[str] = []
-    for document in sorted(root.rglob("*.md")):
+    documents = sorted(
+        document for root in roots for document in root.rglob("*.md")
+    )
+    for document in documents:
         current: Clause | None = None
         for line_number, line in enumerate(
             document.read_text(encoding="utf-8").splitlines(), start=1
@@ -73,8 +77,8 @@ def _load(root: Path) -> tuple[list[Clause], list[str]]:
     return clauses, errors
 
 
-def validate(root: Path) -> tuple[list[Clause], list[str]]:
-    clauses, errors = _load(root)
+def validate(roots: list[Path]) -> tuple[list[Clause], list[str]]:
+    clauses, errors = _load(roots)
     by_identifier: dict[str, Clause] = {}
     for clause in clauses:
         if clause.identifier in by_identifier:
@@ -143,12 +147,23 @@ def validate(root: Path) -> tuple[list[Clause], list[str]]:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("root", nargs="?", type=Path, default=Path("docs/acir/spec"))
+    parser.add_argument(
+        "roots",
+        nargs="*",
+        type=Path,
+        default=list(DEFAULT_ROOTS),
+    )
     arguments = parser.parse_args()
-    if not (arguments.root / "ndf.yaml").is_file():
-        print(f"{arguments.root}: missing ndf.yaml", file=sys.stderr)
+    profile_root = DEFAULT_ROOTS[0]
+    if not (profile_root / "ndf.yaml").is_file():
+        print(f"{profile_root}: missing ndf.yaml", file=sys.stderr)
         return 1
-    clauses, errors = validate(arguments.root)
+    missing_roots = [root for root in arguments.roots if not root.is_dir()]
+    if missing_roots:
+        for root in missing_roots:
+            print(f"{root}: missing NDF document root", file=sys.stderr)
+        return 1
+    clauses, errors = validate(arguments.roots)
     if errors:
         print("\n".join(errors), file=sys.stderr)
         return 1

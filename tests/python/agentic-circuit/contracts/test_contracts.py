@@ -40,6 +40,15 @@ def load_contract_checker():
     return module
 
 
+def load_ndf_checker():
+    path = ROOT / "tools/agentic-circuit/check-ndf.py"
+    spec = importlib.util.spec_from_file_location("ndf_checker", path)
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
 def initialize_markdown_fixture(files):
     temporary_directory = tempfile.TemporaryDirectory()
     root = Path(temporary_directory.name)
@@ -53,6 +62,69 @@ def initialize_markdown_fixture(files):
 
 
 class RepositoryContractsTest(unittest.TestCase):
+    def test_ndf_checker_loads_and_validates_all_decision_roots(self):
+        checker = load_ndf_checker()
+        roots = [ROOT / path for path in checker.DEFAULT_ROOTS]
+        clauses, errors = checker.validate(roots)
+        self.assertEqual([], errors)
+        identifiers = {clause.identifier for clause in clauses}
+        self.assertTrue(
+            {
+                "D-BLOCK-MODEL-001",
+                "D-RELEASE-LAYOUT-001",
+                "D-RULE-LOWERING-001",
+            }.issubset(identifiers)
+        )
+
+        with tempfile.TemporaryDirectory() as directory:
+            fixture = Path(directory)
+            spec_root = fixture / "spec"
+            rfc_root = fixture / "rfcs"
+            spec_root.mkdir()
+            rfc_root.mkdir()
+            (spec_root / "scope.md").write_text(
+                "## Scope {#ARC-SCOPE-001}\n"
+                "<!-- ndf: kind=arch level=must layer=L1 status=stable "
+                "depends-on=D-FIXTURE-001 -->\n",
+                encoding="utf-8",
+            )
+            (rfc_root / "decision.md").write_text(
+                "## Decision {#D-FIXTURE-001}\n"
+                "<!-- ndf: kind=decision level=must layer=L2 status=stable -->\n",
+                encoding="utf-8",
+            )
+            _, errors = checker.validate([spec_root, rfc_root])
+            self.assertEqual([], errors)
+
+            (rfc_root / "duplicate.md").write_text(
+                "## Duplicate {#ARC-SCOPE-001}\n"
+                "<!-- ndf: kind=decision level=must layer=L2 status=stable -->\n",
+                encoding="utf-8",
+            )
+            _, errors = checker.validate([spec_root, rfc_root])
+            self.assertTrue(any("duplicate clause ARC-SCOPE-001" in e for e in errors))
+
+    def test_ndf_checker_rejects_a_missing_explicit_root(self):
+        with tempfile.TemporaryDirectory() as directory:
+            fixture = Path(directory)
+            profile = fixture / "docs/acir/spec"
+            profile.mkdir(parents=True)
+            (profile / "ndf.yaml").write_text("project: fixture\n", encoding="utf-8")
+            completed = subprocess.run(
+                [
+                    sys.executable,
+                    ROOT / "tools/agentic-circuit/check-ndf.py",
+                    "docs/acir/spec",
+                    "docs/rfcs/acir",
+                ],
+                cwd=fixture,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertNotEqual(0, completed.returncode)
+            self.assertIn("missing NDF document root", completed.stderr)
+
     def test_release_layout_and_ndf_profile_are_closed(self):
         for script in ("check-release-layout.py", "check-ndf.py"):
             with self.subTest(script=script):
