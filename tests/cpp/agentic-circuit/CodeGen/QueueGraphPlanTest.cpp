@@ -8,8 +8,18 @@
 #include "mlir/IR/MLIRContext.h"
 #include "mlir/Parser/Parser.h"
 #include "mlir/Pass/PassManager.h"
+#include "llvm/ADT/SmallString.h"
 #include "llvm/Support/Error.h"
+#include "llvm/Support/FileSystem.h"
+#include "llvm/Support/MemoryBuffer.h"
+#include "llvm/Support/Path.h"
+#include "llvm/Support/Program.h"
+#include "llvm/Support/raw_ostream.h"
 #include "gtest/gtest.h"
+
+#include <array>
+#include <optional>
+#include <system_error>
 
 namespace acir::codegen {
 namespace {
@@ -18,6 +28,44 @@ bool freezeQueueGraph(mlir::ModuleOp module) {
   mlir::PassManager manager(module.getContext());
   manager.addPass(acir::createFreezeTopologyPass());
   return mlir::succeeded(manager.run(module));
+}
+
+void expectCppCompiles(llvm::StringRef source) {
+  llvm::SmallString<256> directory;
+  ASSERT_FALSE(
+      llvm::sys::fs::createUniqueDirectory("acir-queue-graph", directory));
+  struct Cleanup {
+    llvm::SmallString<256> path;
+    ~Cleanup() { llvm::sys::fs::remove_directories(path); }
+  } cleanup{directory};
+
+  llvm::SmallString<256> input(directory);
+  llvm::sys::path::append(input, "model.cpp");
+  std::error_code error;
+  llvm::raw_fd_ostream output(input, error);
+  ASSERT_FALSE(error);
+  output << source;
+  output.close();
+
+  llvm::SmallString<256> log(directory);
+  llvm::sys::path::append(log, "compile.log");
+  const std::array<std::string, 5> ownedArguments = {
+      ACIR_TEST_CXX_COMPILER,
+      "-std=c++20",
+      "-I" ACIR_TEST_SOURCE_DIR "/simulator/gfsim/include",
+      "-fsyntax-only",
+      input.str().str(),
+  };
+  llvm::SmallVector<llvm::StringRef> arguments;
+  for (const std::string &argument : ownedArguments)
+    arguments.push_back(argument);
+  const std::array<std::optional<llvm::StringRef>, 3> redirects = {
+      std::nullopt, log.str(), log.str()};
+  const int status = llvm::sys::ExecuteAndWait(
+      ACIR_TEST_CXX_COMPILER, arguments, std::nullopt, redirects);
+  auto logBuffer = llvm::MemoryBuffer::getFile(log);
+  ASSERT_EQ(status, 0) << (logBuffer ? logBuffer.get()->getBuffer().str()
+                                     : std::string{});
 }
 
 constexpr llvm::StringLiteral kQueueGraph = R"mlir(
@@ -273,11 +321,12 @@ TEST(QueueGraphPlanTest, NativeGeneratorConsumesOnlyExtractedPlan) {
   ASSERT_TRUE(bool(plan)) << llvm::toString(plan.takeError());
   auto source = generateQueueGraphCpp(*plan);
   ASSERT_TRUE(bool(source)) << llvm::toString(source.takeError());
-  EXPECT_NE(source->find("gfsim::QueueRoute<std::int64_t, 2"),
+  EXPECT_NE(source->find("gfsim::QueueRoute<gfsim::UInt<64>, 2"),
             std::string::npos);
-  EXPECT_NE(source->find("gfsim::QueueMerge<std::int64_t, 2>"),
+  EXPECT_NE(source->find("gfsim::QueueMerge<gfsim::UInt<64>, 2>"),
             std::string::npos);
-  EXPECT_NE(source->find("gfsim::QueueSink<std::int64_t>"), std::string::npos);
+  EXPECT_NE(source->find("gfsim::QueueSink<gfsim::UInt<64>>"),
+            std::string::npos);
 }
 
 TEST(QueueGraphPlanTest, EmitsCanonicalScalarQueuePyc) {
@@ -318,12 +367,12 @@ TEST(QueueGraphPlanTest, EmitsAtomicTransformWithIndependentArity) {
 
   auto cpp = generateQueueGraphCpp(plan);
   ASSERT_TRUE(bool(cpp)) << llvm::toString(cpp.takeError());
-  EXPECT_NE(cpp->find("std::tuple<std::int64_t> operator()(const "
-                      "std::int64_t &item, const std::int64_t &item1)"),
+  EXPECT_NE(cpp->find("std::tuple<gfsim::UInt<64>> operator()(const "
+                      "gfsim::UInt<64> &item, const gfsim::UInt<64> &item1)"),
             std::string::npos);
   EXPECT_NE(cpp->find("QueueAtomicTransform<block_0_policy, "
-                      "std::tuple<std::int64_t, std::int64_t>, "
-                      "std::tuple<std::int64_t>>"),
+                      "std::tuple<gfsim::UInt<64>, gfsim::UInt<64>>, "
+                      "std::tuple<gfsim::UInt<64>>>"),
             std::string::npos);
 
   auto pyc = generateQueueGraphPyc(plan);
@@ -353,8 +402,8 @@ TEST(QueueGraphPlanTest, EmitsHeterogeneousBarrierForBothBackends) {
 
   auto cpp = generateQueueGraphCpp(plan);
   ASSERT_TRUE(bool(cpp)) << llvm::toString(cpp.takeError());
-  EXPECT_NE(cpp->find("gfsim::QueueBarrier<std::tuple<std::uint8_t, "
-                      "std::uint16_t>>"),
+  EXPECT_NE(cpp->find("gfsim::QueueBarrier<std::tuple<gfsim::UInt<8>, "
+                      "gfsim::UInt<16>>>"),
             std::string::npos);
 
   auto pyc = generateQueueGraphPyc(plan);
@@ -382,7 +431,7 @@ TEST(QueueGraphPlanTest, EmitsStaticQueueCollectionSelectForBothBackends) {
 
   auto cpp = generateQueueGraphCpp(plan);
   ASSERT_TRUE(bool(cpp)) << llvm::toString(cpp.takeError());
-  EXPECT_NE(cpp->find("gfsim::QueueSelect<std::uint8_t, std::uint16_t, 2"),
+  EXPECT_NE(cpp->find("gfsim::QueueSelect<gfsim::UInt<8>, gfsim::UInt<16>, 2"),
             std::string::npos);
 
   auto pyc = generateQueueGraphPyc(plan);
@@ -406,7 +455,7 @@ TEST(QueueGraphPlanTest, EmitsTypedReorderForBothBackends) {
 
   auto cpp = generateQueueGraphCpp(plan);
   ASSERT_TRUE(bool(cpp)) << llvm::toString(cpp.takeError());
-  EXPECT_NE(cpp->find("gfsim::QueueReorder<std::int64_t, block_0_policy>"),
+  EXPECT_NE(cpp->find("gfsim::QueueReorder<gfsim::UInt<64>, block_0_policy>"),
             std::string::npos);
   EXPECT_NE(cpp->find(", input_, output_, 4, 0)"), std::string::npos);
   EXPECT_NE(cpp->find("size_t reorder_0_active() const"), std::string::npos);
@@ -439,7 +488,7 @@ TEST(QueueGraphPlanTest, EmitsTypedDependencyForBothBackends) {
 
   auto cpp = generateQueueGraphCpp(plan);
   ASSERT_TRUE(bool(cpp)) << llvm::toString(cpp.takeError());
-  EXPECT_NE(cpp->find("gfsim::QueueDependency<std::uint8_t"),
+  EXPECT_NE(cpp->find("gfsim::QueueDependency<gfsim::UInt<8>"),
             std::string::npos);
   EXPECT_NE(cpp->find(", input_, output_, 4, 2, 255)"), std::string::npos);
   EXPECT_NE(cpp->find("size_t dependency_0_active() const"), std::string::npos);
@@ -465,7 +514,7 @@ TEST(QueueGraphPlanTest, EmitsTypedCreditWindowForBothBackends) {
 
   auto cpp = generateQueueGraphCpp(plan);
   ASSERT_TRUE(bool(cpp)) << llvm::toString(cpp.takeError());
-  EXPECT_NE(cpp->find("gfsim::QueueCredit<std::uint8_t, block_0_policy>"),
+  EXPECT_NE(cpp->find("gfsim::QueueCredit<gfsim::UInt<8>, block_0_policy>"),
             std::string::npos);
   EXPECT_NE(cpp->find(", input_, output_, 2)"), std::string::npos);
 
@@ -516,12 +565,14 @@ TEST(QueueGraphPlanTest, EmitsOldDataMemoryForBothBackends) {
 
   auto cpp = generateQueueGraphCpp(plan);
   ASSERT_TRUE(bool(cpp)) << llvm::toString(cpp.takeError());
-  EXPECT_NE(cpp->find("gfsim::QueueMemoryArbiter<MemoryRequest, std::uint16_t"),
-            std::string::npos);
+  EXPECT_NE(
+      cpp->find("gfsim::QueueMemoryArbiter<MemoryRequest, gfsim::UInt<16>"),
+      std::string::npos);
   EXPECT_NE(cpp->find("result.data = old_data"), std::string::npos);
   EXPECT_NE(cpp->find("std::array<gfsim::SimQueue<MemoryRequest> *, "
                       "2>{&input0_, &input1_}"),
             std::string::npos);
+  expectCppCompiles(*cpp);
 
   auto pyc = generateQueueGraphPyc(plan);
   ASSERT_TRUE(bool(pyc)) << llvm::toString(pyc.takeError());
@@ -532,6 +583,40 @@ TEST(QueueGraphPlanTest, EmitsOldDataMemoryForBothBackends) {
   EXPECT_NE(pyc->find("{depth = 15, name = \"sram\"}"), std::string::npos);
   EXPECT_NE(pyc->find("pyc.concat"), std::string::npos);
   EXPECT_NE(pyc->find("memory_address_out_of_range"), std::string::npos);
+}
+
+TEST(QueueGraphPlanTest, NativeTableKeyConvertsExactWidthValue) {
+  QueueGraphPlan plan = sharedReferencePlan();
+  plan.blocks.clear();
+  plan.blocks.push_back({"source", "input", "/", {}, {"input"}, {1}, {1}});
+  plan.queues.push_back({"output", "i13", "/", 1, 1});
+  QueueBlockPlan read{"table_read", "read", "/", {"input"},
+                      {"output"},   {1},    {1}};
+  read.table = "issue";
+  read.expressions = {
+      {"address", "constant", "i2", {}, "", "", "0 : i2"},
+      {"enabled", "constant", "i1", {}, "", "", "true"},
+  };
+  read.yields = {"address", "enabled"};
+  plan.blocks.push_back(std::move(read));
+  plan.blocks.push_back({"sink", "sink_0", "/", {"output"}, {}});
+  plan.slots.clear();
+  plan.tableReads = {{"issue", "read", "/", "input", "output", 1, 1}};
+  plan.tables[0].entryType = "i13";
+  plan.tableMatches = {{"match",
+                        "issue",
+                        "/",
+                        "i4",
+                        {{"v0", "constant", "i1", {}, "", "", "true"}},
+                        "v0"}};
+  plan.tableSelections[0].policy = "min";
+  plan.tableSelections[0].keyYield = "item";
+
+  auto cpp = generateQueueGraphCpp(plan);
+  ASSERT_TRUE(bool(cpp)) << llvm::toString(cpp.takeError());
+  EXPECT_NE(cpp->find("return static_cast<std::uint64_t>([&]()"),
+            std::string::npos);
+  expectCppCompiles(*cpp);
 }
 
 TEST(QueueGraphPlanTest, EmitsQueuePredicateAsPycComparison) {
@@ -715,7 +800,7 @@ TEST(QueueGraphPlanTest, VerificationLeafRunsInGfsimAndRejectsPycDesign) {
 
   auto cpp = generateQueueGraphCpp(plan);
   ASSERT_TRUE(bool(cpp)) << llvm::toString(cpp.takeError());
-  EXPECT_NE(cpp->find("gfsim::QueueExpect<std::uint8_t, block_0_policy>"),
+  EXPECT_NE(cpp->find("gfsim::QueueExpect<gfsim::UInt<8>, block_0_policy>"),
             std::string::npos);
 
   auto pyc = generateQueueGraphPyc(plan);

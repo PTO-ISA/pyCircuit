@@ -1,6 +1,9 @@
 #ifndef GFSIM_BITS_H
 #define GFSIM_BITS_H
 
+#include "gfsim/packet.h"
+
+#include <bit>
 #include <concepts>
 #include <cstdint>
 #include <type_traits>
@@ -40,6 +43,9 @@ public:
   friend constexpr UInt operator*(UInt lhs, UInt rhs) {
     return UInt(lhs.value_ * rhs.value_);
   }
+  friend constexpr UInt operator/(UInt lhs, UInt rhs) {
+    return rhs.value_ == 0 ? UInt{} : UInt(lhs.value_ / rhs.value_);
+  }
   friend constexpr UInt operator&(UInt lhs, UInt rhs) {
     return UInt(lhs.value_ & rhs.value_);
   }
@@ -55,6 +61,27 @@ public:
   }
   friend constexpr UInt operator>>(UInt lhs, UInt rhs) {
     return rhs.value_ >= Width ? UInt{} : UInt(lhs.value_ >> rhs.value_);
+  }
+
+  constexpr std::int64_t signedValue() const {
+    if constexpr (Width == 64)
+      return std::bit_cast<std::int64_t>(value_);
+    if ((value_ & (storage_type{1} << (Width - 1))) == 0)
+      return static_cast<std::int64_t>(value_);
+    const storage_type magnitude = ((~value_) & mask()) + 1;
+    return -static_cast<std::int64_t>(magnitude);
+  }
+
+  constexpr UInt arithmeticShiftRight(UInt rhs) const {
+    if (rhs.value_ == 0)
+      return *this;
+    const bool negative = (value_ & (storage_type{1} << (Width - 1))) != 0;
+    if (rhs.value_ >= Width)
+      return negative ? UInt(mask()) : UInt{};
+    storage_type shifted = value_ >> rhs.value_;
+    if (negative)
+      shifted |= mask() ^ ((storage_type{1} << (Width - rhs.value_)) - 1);
+    return UInt(shifted);
   }
 
   template <std::integral T> friend constexpr UInt operator+(UInt lhs, T rhs) {
@@ -134,6 +161,28 @@ concept IntegralLike = std::integral<T> || IsUInt<std::remove_cv_t<T>>::value;
 template <typename T>
 concept UnsignedIntegralLike =
     std::unsigned_integral<T> || IsUInt<std::remove_cv_t<T>>::value;
+
+template <unsigned Width>
+constexpr std::int64_t signedValue(UInt<Width> value) {
+  return value.signedValue();
+}
+
+template <std::integral T> constexpr std::int64_t signedValue(T value) {
+  return static_cast<std::int64_t>(value);
+}
+
+template <unsigned Width> struct PacketTraits<UInt<Width>> {
+  static constexpr bool isPacket = false;
+  static constexpr std::string_view schema = {};
+  static constexpr size_t serializedSize = (Width + 7) / 8;
+  static constexpr size_t maximumSerializedSize = serializedSize;
+  static constexpr size_t alignment = 1;
+  static constexpr PacketEndianness endianness = PacketEndianness::Little;
+  static constexpr std::array<PacketField, 0> fields{};
+  static constexpr std::optional<std::string_view> routingField = std::nullopt;
+  static constexpr std::optional<std::string_view> correlationField =
+      std::nullopt;
+};
 
 } // namespace gfsim
 
