@@ -67,6 +67,10 @@ static int64_t opCost(Operation *op) {
     return vectorReduceCost(vr);
   if (auto vr = dyn_cast<pyc::VAddReduceOp>(op))
     return vectorReduceCost(vr);
+  if (auto priority = dyn_cast<pyc::PriorityEncodeOp>(op)) {
+    auto type = dyn_cast<IntegerType>(priority.getIn().getType());
+    return type ? std::max<int64_t>(1, ceilLog2(type.getWidth())) : 1;
+  }
   return 1;
 }
 

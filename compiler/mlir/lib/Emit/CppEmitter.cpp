@@ -642,6 +642,34 @@ static LogicalResult emitCombAssign(Operation &op, llvm::raw_ostream &os, NameTa
     os << ");\n";
     return success();
   }
+  if (auto priority = dyn_cast<pyc::PriorityEncodeOp>(op)) {
+    unsigned inputWidth = bitWidth(priority.getIn().getType());
+    unsigned indexWidth = bitWidth(priority.getIndex().getType());
+    if (inputWidth == 0 || indexWidth == 0)
+      return priority.emitError("invalid priority_encode width");
+    const std::string index = nt.get(priority.getIndex());
+    const std::string valid = nt.get(priority.getValid());
+    const std::string input = nt.get(priority.getIn());
+    const std::string position = "_pyc_priority_position_" + index;
+    const std::string bit = "_pyc_priority_bit_" + index;
+    os << "    " << index << " = pyc::cpp::Wire<" << indexWidth << ">(0);\n";
+    os << "    " << valid << " = pyc::cpp::Wire<1>(0);\n";
+    os << "    for (unsigned " << position << " = 0; " << position << " < "
+       << inputWidth << "; ++" << position << ") {\n";
+    os << "      const unsigned " << bit << " = "
+       << (priority.getOrder() == "low"
+               ? position
+               : std::to_string(inputWidth) + "u - 1u - " + position)
+       << ";\n";
+    os << "      if (" << input << ".bit(" << bit << ")) {\n";
+    os << "        " << index << " = pyc::cpp::Wire<" << indexWidth << ">("
+       << bit << ");\n";
+    os << "        " << valid << " = pyc::cpp::Wire<1>(1);\n";
+    os << "        break;\n";
+    os << "      }\n";
+    os << "    }\n";
+    return success();
+  }
   if (auto vg = dyn_cast<pyc::VGetOp>(op)) {
     auto vecTy = dyn_cast<VectorType>(vg.getVec().getType());
     if (!vecTy)
@@ -1785,43 +1813,15 @@ static LogicalResult emitFunc(func::FuncOp f, llvm::raw_ostream &os, const CppEm
          << " << \"\\n\"; std::abort(); }\n";
       continue;
     }
-    if (isa<pyc::ConstantOp,
-            pyc::AddOp,
-            pyc::SubOp,
-            pyc::MulOp,
-            pyc::UdivOp,
-            pyc::UremOp,
-            pyc::SdivOp,
-            pyc::SremOp,
-            pyc::MuxOp,
-            pyc::AndOp,
-            pyc::OrOp,
-            pyc::XorOp,
-            pyc::NotOp,
-            pyc::ConcatOp,
-            pyc::AliasOp,
-            pyc::ResetActiveOp,
-            pyc::EqOp,
-            pyc::UltOp,
-            pyc::SltOp,
-            pyc::TruncOp,
-            pyc::ZextOp,
-            pyc::SextOp,
-            pyc::ExtractOp,
-            pyc::ShliOp,
-            pyc::LshriOp,
-            pyc::AshriOp,
-            pyc::ShlOp,
-            pyc::LshrOp,
-            pyc::AshrOp,
-            pyc::VGetOp,
-            pyc::VCreateOp,
-            pyc::VBroadcastOp,
-            pyc::VBroadcastDimOp,
-            pyc::VOrReduceOp,
-            pyc::VAndReduceOp,
-            pyc::VAddReduceOp,
-            arith::SelectOp>(*op)) {
+    if (isa<pyc::ConstantOp, pyc::AddOp, pyc::SubOp, pyc::MulOp, pyc::UdivOp,
+            pyc::UremOp, pyc::SdivOp, pyc::SremOp, pyc::MuxOp, pyc::AndOp,
+            pyc::OrOp, pyc::XorOp, pyc::NotOp, pyc::ConcatOp,
+            pyc::PriorityEncodeOp, pyc::AliasOp, pyc::ResetActiveOp, pyc::EqOp,
+            pyc::UltOp, pyc::SltOp, pyc::TruncOp, pyc::ZextOp, pyc::SextOp,
+            pyc::ExtractOp, pyc::ShliOp, pyc::LshriOp, pyc::AshriOp, pyc::ShlOp,
+            pyc::LshrOp, pyc::AshrOp, pyc::VGetOp, pyc::VCreateOp,
+            pyc::VBroadcastOp, pyc::VBroadcastDimOp, pyc::VOrReduceOp,
+            pyc::VAndReduceOp, pyc::VAddReduceOp, arith::SelectOp>(*op)) {
       if (failed(emitCombAssign(*op, os, nt)))
         return failure();
       continue;
@@ -2207,43 +2207,15 @@ static LogicalResult emitFunc(func::FuncOp f, llvm::raw_ostream &os, const CppEm
       os << indent << "eval_comb_" << combIndex.lookup(comb.getOperation()) << "();\n";
       return success();
     }
-    if (isa<pyc::ConstantOp,
-            pyc::AddOp,
-            pyc::SubOp,
-            pyc::MulOp,
-            pyc::UdivOp,
-            pyc::UremOp,
-            pyc::SdivOp,
-            pyc::SremOp,
-            pyc::MuxOp,
-            pyc::AndOp,
-            pyc::OrOp,
-            pyc::XorOp,
-            pyc::NotOp,
-            pyc::ConcatOp,
-            pyc::AliasOp,
-            pyc::ResetActiveOp,
-            pyc::EqOp,
-            pyc::UltOp,
-            pyc::SltOp,
-            pyc::TruncOp,
-            pyc::ZextOp,
-            pyc::SextOp,
-            pyc::ExtractOp,
-            pyc::ShliOp,
-            pyc::LshriOp,
-            pyc::AshriOp,
-            pyc::ShlOp,
-            pyc::LshrOp,
-            pyc::AshrOp,
-            pyc::VGetOp,
-            pyc::VCreateOp,
-            pyc::VBroadcastOp,
-            pyc::VBroadcastDimOp,
-            pyc::VOrReduceOp,
-            pyc::VAndReduceOp,
-            pyc::VAddReduceOp,
-            arith::SelectOp>(*op)) {
+    if (isa<pyc::ConstantOp, pyc::AddOp, pyc::SubOp, pyc::MulOp, pyc::UdivOp,
+            pyc::UremOp, pyc::SdivOp, pyc::SremOp, pyc::MuxOp, pyc::AndOp,
+            pyc::OrOp, pyc::XorOp, pyc::NotOp, pyc::ConcatOp,
+            pyc::PriorityEncodeOp, pyc::AliasOp, pyc::ResetActiveOp, pyc::EqOp,
+            pyc::UltOp, pyc::SltOp, pyc::TruncOp, pyc::ZextOp, pyc::SextOp,
+            pyc::ExtractOp, pyc::ShliOp, pyc::LshriOp, pyc::AshriOp, pyc::ShlOp,
+            pyc::LshrOp, pyc::AshrOp, pyc::VGetOp, pyc::VCreateOp,
+            pyc::VBroadcastOp, pyc::VBroadcastDimOp, pyc::VOrReduceOp,
+            pyc::VAndReduceOp, pyc::VAddReduceOp, arith::SelectOp>(*op)) {
       if (failed(emitCombAssign(*op, os, nt)))
         return failure();
       return success();

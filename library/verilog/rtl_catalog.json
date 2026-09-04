@@ -1,0 +1,46 @@
+{
+  "schema": "pyc-rtl-catalog-v1",
+  "implementations": [
+    {
+      "semantic_id": "pyc.priority_encode.v1",
+      "implementation_id": "pyc.bsd.priority_encode.v1",
+      "effect_class": "comb",
+      "module": "pyc_priority_encode",
+      "min_width": 1,
+      "max_width": 64,
+      "selection_priority": 100,
+      "parameter_bindings": {
+        "ORDER_LOW": {
+          "attribute": "order",
+          "values": {
+            "high": 0,
+            "low": 1
+          }
+        },
+        "WIDTH": "input_width"
+      },
+      "ports": {
+        "inputs": ["in_value"],
+        "outputs": ["index", "valid"]
+      },
+      "sources": [
+        {
+          "path": "pyc_priority_encode.v",
+          "sha256": "sha256:54d01766a023f77e8a91eef527fba4e9b997e58c241ca63c11c0ec7e865045fe",
+          "license": "BSD-3-Clause",
+          "modified": false
+        }
+      ],
+      "license_file": "../../LICENSE",
+      "provenance": {
+        "origin": "PTO-ISA/pyCircuit",
+        "design_input": "PTO-ISA/pyCircuit#29",
+        "license": "BSD-3-Clause"
+      },
+      "qualification": {
+        "status": "validated",
+        "report": "docs/gates/logs/20260905-pyc-priority-rtl-r1/summary.md"
+      }
+    }
+  ]
+}

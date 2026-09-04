@@ -97,6 +97,7 @@ add_library(pyc_transforms
   lib/Transforms/LowerSCFToPYCStaticPass.cpp
   lib/Transforms/PrunePortsPass.cpp
   lib/Transforms/SLPPackWiresPass.cpp
+  lib/Transforms/SelectRtlPrimitivesPass.cpp
   lib/Transforms/VectorUnrollPass.cpp
 )
 llvm_update_compile_flags(pyc_transforms)

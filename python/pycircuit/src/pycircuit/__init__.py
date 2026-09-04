@@ -48,6 +48,7 @@ from .testbench import TestbenchProgram
 from .v6 import (
     CycleAwareCircuit,
     CycleAwareDomain,
+    CycleAwarePriorityEncodeResult,
     CycleAwareSignal,
     CycleAwareTb,
     ForwardSignal,
@@ -57,6 +58,7 @@ from .v6 import (
     log,
     mux,
     priority_mux,
+    priority_encode,
     pyc_CircuitLogger,
     pyc_CircuitModule,
     pyc_ClockDomain,
@@ -72,6 +74,7 @@ probe = _probe_decorator
 __all__ = [
     "CycleAwareCircuit",
     "CycleAwareDomain",
+    "CycleAwarePriorityEncodeResult",
     "CycleAwareSignal",
     "CycleAwareTb",
     "ForwardSignal",
@@ -128,6 +131,7 @@ __all__ = [
     "logic",
     "module",
     "priority_mux",
+    "priority_encode",
     "probe",
     "spec",
     "testbench",

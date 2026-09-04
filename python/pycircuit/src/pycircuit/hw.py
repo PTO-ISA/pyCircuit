@@ -33,7 +33,13 @@ from .connectors import (
 )
 from .data import Bits, DT, Clock, Data, Reset, Vector
 from .design import DesignError
-from .dsl import Module, Signal, is_bits_signal, is_vector_signal
+from .dsl import (
+    Module,
+    PriorityEncodeResult,
+    Signal,
+    is_bits_signal,
+    is_vector_signal,
+)
 from .literals import LiteralValue, infer_literal_width
 
 VT = TypeVar("VT", bound=Data)
@@ -1255,7 +1261,9 @@ class Circuit(Module):
         """
         return Wire(self, super().const(value, width=width), signed=signed)
 
-    def output(self, name: str, value: Union[Wire, Reg, Signal, Connector, int, LiteralValue]) -> None:  # type: ignore[override]
+    def output(
+        self, name: str, value: Union[Wire, Reg, Signal, Connector, int, LiteralValue]
+    ) -> None:  # type: ignore[override]
         # Unwrap ASL-alignment wrappers (EnumSignal / BitfieldSignal) and
         # connectors first, then defer to the vector-aware ``as_wire`` path.
         unwrap = getattr(value, "__pyc_unwrap__", None)
@@ -1370,7 +1378,7 @@ class Circuit(Module):
             src = src.read()
 
         def is_signed_src(
-            v: Union[Wire, Reg, Signal, int, LiteralValue, Connector]
+            v: Union[Wire, Reg, Signal, int, LiteralValue, Connector],
         ) -> bool:
             if isinstance(v, Wire):
                 return bool(v.signed)
@@ -2602,6 +2610,18 @@ class Circuit(Module):
         )
         self._record_struct_state_alloc()
         return Wire(self, in_ready), Wire(self, out_valid), Wire(self, out_data)
+
+    def priority_encode(
+        self,
+        value: Union[Wire, Reg, Signal],
+        *,
+        order: str = "low",
+    ) -> PriorityEncodeResult:
+        result = super().priority_encode(Signal.as_sig(value), order=order)
+        return PriorityEncodeResult(
+            index=Wire(self, result.index),
+            valid=Wire(self, result.valid),
+        )
 
     def fifo_domain(
         self,

@@ -10,10 +10,11 @@
 #include "mlir/IR/Value.h"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/DenseSet.h"
-#include "llvm/ADT/SmallString.h"
 #include "llvm/ADT/SmallSet.h"
+#include "llvm/ADT/SmallString.h"
 #include "llvm/ADT/StringMap.h"
 #include "llvm/ADT/StringRef.h"
+#include "llvm/ADT/StringSet.h"
 
 #include <algorithm>
 #include <optional>
@@ -510,6 +511,70 @@ static std::optional<LogicalResult> emitScalarOpAssign(Operation &op, raw_ostrea
     os << "};\n";
     return success();
   }
+  if (auto priority = dyn_cast<pyc::PriorityEncodeOp>(op)) {
+    auto inputType = leafIntType(priority.getIn().getType());
+    auto indexType = leafIntType(priority.getIndex().getType());
+    if (!inputType || !indexType)
+      return {priority.emitError(
+          "verilog emitter requires integer priority_encode types")};
+    const unsigned inputWidth = inputType.getWidth();
+    const unsigned indexWidth = indexType.getWidth();
+    const std::string input = nt.get(priority.getIn());
+    std::string indexExpression = std::to_string(indexWidth) + "'d0";
+    if (priority.getOrder() == "low") {
+      for (unsigned offset = 0; offset < inputWidth; ++offset) {
+        const unsigned bit = inputWidth - 1u - offset;
+        indexExpression = input + "[" + std::to_string(bit) + "] ? " +
+                          std::to_string(indexWidth) + "'d" +
+                          std::to_string(bit) + " : (" + indexExpression + ")";
+      }
+    } else {
+      for (unsigned bit = 0; bit < inputWidth; ++bit) {
+        indexExpression = input + "[" + std::to_string(bit) + "] ? " +
+                          std::to_string(indexWidth) + "'d" +
+                          std::to_string(bit) + " : (" + indexExpression + ")";
+      }
+    }
+    os << "assign " << nt.get(priority.getIndex()) << " = " << indexExpression
+       << ";\n";
+    os << "assign " << nt.get(priority.getValid()) << " = |" << input << ";\n";
+    return success();
+  }
+  if (auto selected = dyn_cast<pyc::RtlCombOp>(op)) {
+    auto module = selected->getAttrOfType<StringAttr>("module");
+    auto parameters = selected->getAttrOfType<DictionaryAttr>("parameters");
+    auto inputPorts = selected->getAttrOfType<ArrayAttr>("input_ports");
+    auto outputPorts = selected->getAttrOfType<ArrayAttr>("output_ports");
+    if (!module || !parameters || !inputPorts || !outputPorts)
+      return {selected.emitError("selected RTL metadata is incomplete")};
+    os << module.getValue() << " #(";
+    for (auto [index, parameter] : llvm::enumerate(parameters)) {
+      if (index)
+        os << ", ";
+      auto value = dyn_cast<IntegerAttr>(parameter.getValue());
+      if (!value)
+        return {selected.emitError("selected RTL parameters must be integer")};
+      os << "." << parameter.getName().strref() << "(" << value.getInt() << ")";
+    }
+    os << ") rtl_" << nt.get(selected.getOutputs().front()) << " (";
+    bool first = true;
+    for (auto [port, value] : llvm::zip(inputPorts, selected.getInputs())) {
+      if (!first)
+        os << ", ";
+      first = false;
+      os << "." << cast<StringAttr>(port).getValue() << "(" << nt.get(value)
+         << ")";
+    }
+    for (auto [port, value] : llvm::zip(outputPorts, selected.getOutputs())) {
+      if (!first)
+        os << ", ";
+      first = false;
+      os << "." << cast<StringAttr>(port).getValue() << "(" << nt.get(value)
+         << ")";
+    }
+    os << ");\n";
+    return success();
+  }
   if (auto vg = dyn_cast<pyc::VGetOp>(op)) {
     auto vt = dyn_cast<VectorType>(vg.getVec().getType());
     if (!vt)
@@ -1003,46 +1068,16 @@ static LogicalResult emitFunc(func::FuncOp f, raw_ostream &os, const VerilogEmit
       if (isa<pyc::WireOp>(op))
         continue;
 
-      if (isa<pyc::ConstantOp,
-              pyc::AliasOp,
-              pyc::ResetActiveOp,
-              pyc::AddOp,
-              pyc::SubOp,
-              pyc::MulOp,
-              pyc::UdivOp,
-              pyc::UremOp,
-              pyc::SdivOp,
-              pyc::SremOp,
-              pyc::MuxOp,
-              pyc::AndOp,
-              pyc::OrOp,
-              pyc::XorOp,
-              pyc::NotOp,
-              pyc::AssertOp,
-              pyc::AssignOp,
-              pyc::CombOp,
-              arith::SelectOp,
-              pyc::EqOp,
-              pyc::UltOp,
-              pyc::SltOp,
-              pyc::TruncOp,
-              pyc::ZextOp,
-              pyc::SextOp,
-              pyc::ExtractOp,
-              pyc::ShliOp,
-              pyc::LshriOp,
-              pyc::AshriOp,
-              pyc::ShlOp,
-              pyc::LshrOp,
-              pyc::AshrOp,
-              pyc::ConcatOp,
-              pyc::VGetOp,
-              pyc::VCreateOp,
-              pyc::VBroadcastOp,
-              pyc::VBroadcastDimOp,
-              pyc::VOrReduceOp,
-              pyc::VAndReduceOp,
-              pyc::VAddReduceOp>(op)) {
+      if (isa<pyc::ConstantOp, pyc::AliasOp, pyc::ResetActiveOp, pyc::AddOp,
+              pyc::SubOp, pyc::MulOp, pyc::UdivOp, pyc::UremOp, pyc::SdivOp,
+              pyc::SremOp, pyc::MuxOp, pyc::AndOp, pyc::OrOp, pyc::XorOp,
+              pyc::NotOp, pyc::AssertOp, pyc::AssignOp, pyc::CombOp,
+              arith::SelectOp, pyc::EqOp, pyc::UltOp, pyc::SltOp, pyc::TruncOp,
+              pyc::ZextOp, pyc::SextOp, pyc::ExtractOp, pyc::ShliOp,
+              pyc::LshriOp, pyc::AshriOp, pyc::ShlOp, pyc::LshrOp, pyc::AshrOp,
+              pyc::ConcatOp, pyc::PriorityEncodeOp, pyc::VGetOp, pyc::VCreateOp,
+              pyc::VBroadcastOp, pyc::VBroadcastDimOp, pyc::VOrReduceOp,
+              pyc::VAndReduceOp, pyc::VAddReduceOp, pyc::RtlCombOp>(op)) {
         combAssignOps.push_back(&op);
         continue;
       }
@@ -1411,6 +1446,20 @@ LogicalResult emitVerilog(ModuleOp module, llvm::raw_ostream &os, const VerilogE
     os << "`include \"pyc_sync_mem_dp.v\"\n";
     os << "`include \"pyc_async_fifo.v\"\n";
     os << "`include \"pyc_cdc_sync.v\"\n\n";
+    llvm::StringSet<> included;
+    module.walk([&](pyc::RtlCombOp selected) {
+      auto sources = selected->getAttrOfType<ArrayAttr>("sources");
+      if (!sources)
+        return;
+      for (Attribute raw : sources) {
+        auto source = dyn_cast<DictionaryAttr>(raw);
+        auto path = source ? source.getAs<StringAttr>("path") : StringAttr();
+        if (path && included.insert(path.getValue()).second)
+          os << "`include \"" << path.getValue() << "\"\n";
+      }
+    });
+    if (!included.empty())
+      os << "\n";
   }
 
   for (auto f : module.getOps<func::FuncOp>()) {

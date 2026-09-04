@@ -48,6 +48,12 @@ class Signal(Generic[DT]):
         raise TypeError(f"cannot convert {type(v).__name__} to Signal")
 
 
+@dataclass(frozen=True)
+class PriorityEncodeResult:
+    index: Any
+    valid: Any
+
+
 def is_bits_signal(signal: Signal[Data]) -> TypeGuard[Signal[Bits]]:
     """Return whether ``signal`` carries a scalar ``Bits`` type."""
     return isinstance(signal.ty, Bits)
@@ -279,7 +285,9 @@ class Module:
             result_ty = (
                 a.ty
                 if a_is_vec
-                else b.ty if b_is_vec else Vector.from_shape(sel.ty.shape(), a.ty)
+                else b.ty
+                if b_is_vec
+                else Vector.from_shape(sel.ty.shape(), a.ty)
             )
         else:
             result_ty = a.ty
@@ -459,6 +467,27 @@ class Module:
         ty_list = ", ".join(str(s.ty) for s in inputs)
         self._emit(f"{tmp} = pyc.concat ({op_list}) : ({ty_list}) -> {out_ty}")
         return Signal(ref=tmp, ty=out_ty)
+
+    def priority_encode(
+        self, value: Signal[Bits], *, order: str = "low"
+    ) -> PriorityEncodeResult:
+        if not isinstance(value.ty, Bits):
+            raise TypeError(f"priority_encode expects scalar Bits, got {value.ty}")
+        normalized = str(order).strip().lower()
+        if normalized not in {"low", "high"}:
+            raise ValueError("priority_encode order must be 'low' or 'high'")
+        index_type = Bits(max(1, (value.width - 1).bit_length()))
+        index_ref = self._get_next_temp_var()
+        valid_ref = self._get_next_temp_var()
+        self._emit(
+            f"{index_ref}, {valid_ref} = pyc.priority_encode {value.ref} "
+            f"{{order = {json.dumps(normalized)}}} : {value.ty} -> "
+            f"{index_type}, i1"
+        )
+        return PriorityEncodeResult(
+            index=Signal(ref=index_ref, ty=index_type),
+            valid=Signal(ref=valid_ref, ty=Bits(1)),
+        )
 
     def v_create(self, elements: list[Signal[DT]]) -> Signal[Vector[DT]]:
         if not elements:
