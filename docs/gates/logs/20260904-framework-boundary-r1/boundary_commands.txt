@@ -1,0 +1,13 @@
+pytest tests/unit -m unit -q
+.pycircuit_out/agentic-circuit/venv/bin/python tools/agentic-circuit/check-release-layout.py
+.pycircuit_out/agentic-circuit/venv/bin/python tools/agentic-circuit/check-contracts.py
+.pycircuit_out/agentic-circuit/venv/bin/python tools/agentic-circuit/check-ir-coverage.py
+LLVM_CONFIG=/opt/homebrew/opt/llvm/bin/llvm-config bash flows/scripts/pyc build
+PYC_GATE_RUN_ID=20260904-framework-boundary-r1 bash flows/scripts/run_agentic_circuit.sh
+PYC_GATE_RUN_ID=20260904-framework-boundary-r1 PYC_DECISION_STATUS_STRICT=1 bash flows/scripts/run_examples.sh
+PYC_GATE_RUN_ID=20260904-framework-boundary-r1 bash flows/scripts/run_sims.sh
+PYC_GATE_RUN_ID=20260904-framework-boundary-r1 bash flows/scripts/run_sims_nightly.sh
+PYC_GATE_RUN_ID=20260904-framework-boundary-r1 bash flows/scripts/run_semantic_regressions_v6.sh
+python3 flows/tools/check_decision_status.py --rfc docs/rfcs/pyc6-decisions.md --status docs/gates/decision_status_v6.md --out .pycircuit_out/gates/20260904-framework-boundary-r1/decision_status_report.json --require-no-deferred --require-all-verified --require-concrete-evidence --require-existing-evidence
+mkdocs build --strict
+git diff HEAD --name-only -z --diff-filter=ACMRTUXB | xargs -0 pre-commit run --files

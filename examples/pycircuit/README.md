@@ -73,8 +73,8 @@ Generated artifacts are local-only and written under:
 
 They are intentionally not checked into git.
 
-## Linx/board-related designs
+## Product boundary
 
-Linx CPU examples live under `integrations/linx/examples/pycircuit`; LinxCore
-integration assets live under `integrations/linx/designs/linxcore`. They are not
-part of the core example smoke gates.
+Examples in this repository demonstrate supported framework features. Complete
+processor, accelerator, SoC, and board designs belong to their consumer
+repositories and use pyCircuit as a pinned package/toolchain dependency.

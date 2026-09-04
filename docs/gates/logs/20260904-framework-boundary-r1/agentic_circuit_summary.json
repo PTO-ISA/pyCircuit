@@ -1,0 +1,9 @@
+{
+  "run_id": "20260904-framework-boundary-r1",
+  "script": "run_agentic_circuit.sh",
+  "status": "pass",
+  "lanes": ["AC G0", "AC G1", "AC G2"],
+  "contract_epoch": "0.5",
+  "pyc_interface": "pyc6",
+  "cases": ["arbiter", "atomic-transform", "popcount", "rule-retirement"]
+}

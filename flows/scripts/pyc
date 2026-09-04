@@ -99,7 +99,7 @@ case "${cmd}" in
     pyc_log "configure (${build_dir})"
 
     # IMPORTANT: Avoid mixing compilers when linking against the pinned LLVM/MLIR build.
-    # On Windows/MSYS2, the LinxISA-pinned LLVM/MLIR is commonly built with MinGW GCC.
+    # On Windows/MSYS2, a pinned LLVM/MLIR may be built with MinGW GCC.
     # If pyCircuit is built with Clang while linking GCC-built static libs, we can hit
     # COFF/COMDAT ODR issues (multiple definitions of inline guard vars, etc.).
     # Force GCC/G++ here for MSYS2 MinGW environments.

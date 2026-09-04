@@ -3152,7 +3152,7 @@ possible.
 
 ## Decision 0142: Cosim integration is a first-class workflow: standardize DUT commit/retire bundle + protocol schema versioning + DFX dump on mismatch
 
-**Status:** Accepted
+**Status:** Superseded by Decision 0158
 
 **Context / Goal**
 LinxCore already uses a QEMU lockstep cosim protocol (M1) based on commit traces
@@ -3260,7 +3260,7 @@ around triggers (especially for cosim mismatches).
 
 ## Decision 0146: Cosim commit bundle compatibility rules: unknown fields are ignored; groups obey validity gating; schema evolution is non-breaking
 
-**Status:** Accepted
+**Status:** Superseded by Decision 0158
 
 **Context / Goal**
 Cosim commit/retire bundles (Decision 0142) will evolve. Tools must remain
@@ -3800,7 +3800,7 @@ assigning source-order priority would make the result scheduling-dependent.
 
 ## Decision 0157: repository layout integrates Agentic Circuit by responsibility
 
-**Status:** Accepted
+**Status:** Superseded in part by Decision 0158
 
 **Context / Goal**
 The temporary Agentic Circuit import boundary duplicated repository structure,
@@ -3846,3 +3846,51 @@ compatibility aliases.
 
 **Source**
 - pyCircuit repository responsibility-layout hard break (2026-09-03).
+
+## Decision 0158: consumer designs and integration tooling are out of tree
+
+**Status:** Accepted and implemented
+
+**Supersedes:** the external-system and board placement rules in Decision 0157,
+Decision 0142, and Decision 0146.
+
+**Context / Goal**
+pyCircuit is a language, compiler, runtime, simulator, and backend framework.
+Keeping complete processors, accelerators, board platforms, ISA decoders,
+product testbenches, and model-comparison scripts in the framework repository
+created path-based exceptions and coupled framework releases to unrelated
+consumer infrastructure.
+
+**Decision (strong constraint)**
+- The repository owns the `pycircuit` and `agentic_circuit` frontends, PYC and
+  ACIR/ACSim dialects and passes, reusable runtime/backend libraries, generic
+  examples, framework tests, and framework build/release tooling.
+- Complete CPU, NPU, SoC, and board designs are owned by their consumer
+  repositories. Linx, Janus, XiangShan, QEMU comparison, ISA decode, FPGA, and
+  product-specific visualization or performance scripts are not pyCircuit
+  source-tree modules or release gates.
+- Consumers depend on a released or commit-pinned pyCircuit Python/CMake
+  package and toolchain. Compatibility tests run in the consumer repository and
+  record the exact pyCircuit revision.
+- Framework code has no consumer-path allowlists, consumer-named runtime
+  headers, or conditional semantics selected by a design filename.
+- Generic trace, probe, testbench, package, CLI, and plugin/extension contracts
+  remain framework APIs. Processor commit bundles and viewer adapters are
+  consumer contracts built on those generic surfaces.
+- Git history preserves removed in-tree designs and tools for migration. No
+  forwarding path, compatibility copy, symlink, or empty placeholder restores
+  the old roots.
+
+**Verification**
+- The release-layout gate rejects tracked or existing `integrations/`,
+  `platforms/`, and the former LinxCore frontend example root.
+- Package/runtime inspection rejects Linx/Konata headers and the Python JIT
+  uses one design-neutral inline-complexity cap.
+- Root CI, examples, performance tooling, and unit tests have no consumer-owned
+  design entrypoint.
+- AC G0/G1/G2 and the full pyCircuit 6 closure pass without any consumer
+  repository checkout.
+
+**Source**
+- User direction (2026-09-04): remove LinxCPU/Janus interfaces from the
+  pyCircuit framework and decouple designs and tools.

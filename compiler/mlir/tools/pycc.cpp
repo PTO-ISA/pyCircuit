@@ -2755,8 +2755,8 @@ int main(int argc, char **argv) {
               return flushShard();
             };
 
-            // tick methods can be enormous for large top-level modules (e.g. JanusBccBackendCompat).
-            // Allow sharding to avoid compiler instability/timeouts on a single huge TU.
+            // Top-level tick methods can be enormous. Allow sharding to avoid
+            // compiler instability or timeouts on a single huge TU.
             if (failed(writeMaybeShardedMethods("tick", "tick", tickMethods, /*allowSharding=*/true)))
               return 1;
 

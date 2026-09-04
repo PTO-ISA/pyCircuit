@@ -17,7 +17,8 @@ of truth.
 
 - Apply `$pyc6` first for hard contracts and evidence expectations.
 - Use `$pyc-build-v60` when running builds or gate lanes.
-- Use `$linx-pycircuit` when touching Linx integration flows.
+- Consumer-specific compatibility work runs in the owning consumer repository,
+  not in this framework tree.
 
 ## Task mapping
 
@@ -51,14 +52,19 @@ of truth.
 - Keep active runtime, trace, and semantic-gate names on the pyCircuit 6
   contract: `libpyc6_runtime`, `PYC6TRC3`, and
   `run_semantic_regressions_v6.sh`.
+- Keep complete CPU/NPU/SoC/board designs, consumer testbenches, ISA decoders,
+  model-comparison scripts, and consumer-specific runtime adapters out of this
+  repository (Decision 0158).
 - Do not add AI co-author lines to commits or pull request text.
 
 ## Repository authority
 
 - `PTO-ISA/pyCircuit` is the upstream source of truth and release authority.
-- `LinxISA/pyCircuit` is a downstream fork for Linx integration.
-- Product decisions, general fixes, and reusable Linx changes should land
-  upstream first whenever practical.
+- `LinxISA/pyCircuit` is a downstream framework-compatibility fork, not the
+  owner of Linx design or integration sources.
+- Product decisions and reusable framework fixes land upstream. Consumer
+  compatibility gates run from the consumer checkout against a pinned
+  revision.
 - See `docs/development/repository-management.md` for branch, release, and fork
   synchronization policy.
 

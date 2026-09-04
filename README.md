@@ -20,12 +20,12 @@ ACIR, then targets either ACSim/gfsim or the pyCircuit 6 hardware flow.
 repository, release authority, and only active source of truth for both
 pyCircuit and Agentic Circuit.
 [`LinxISA/pyCircuit`](https://github.com/LinxISA/pyCircuit) is its downstream
-fork for Linx integration work.
+fork for downstream compatibility validation.
 
 The standalone [`PTO-ISA/agentic-circuit`](https://github.com/PTO-ISA/agentic-circuit)
 repository remains public only as a migration and review record. New AC source,
-issues, releases, and packages belong in `PTO-ISA/pyCircuit`; the old repository
-is not archived until the independent QEMU/PYC retirement gate passes.
+issues, releases, and packages belong in `PTO-ISA/pyCircuit`; retirement depends
+on the internal AC/PYC closure and operational cutover checklist.
 
 ## Why pyCircuit 6
 
@@ -197,6 +197,18 @@ System tests require a built toolchain and Verilator:
 pytest tests/system -m system
 ```
 
+## External designs
+
+pyCircuit provides language frontends, MLIR dialects and passes, runtimes,
+backend libraries, generic examples, and verification contracts. Complete CPU,
+NPU, SoC, board, and product-specific testbench sources are consumer-owned and
+live outside this repository.
+
+Linx, Janus, XiangShan, QEMU comparison, and FPGA flows consume a released or
+pinned pyCircuit toolchain from their own repositories. The framework does not
+carry consumer path allowlists, consumer-specific runtime headers, or in-tree
+integration scripts.
+
 ## Documentation
 
 - [V6 language specification](docs/v6_PyCircuit_Specification.md)
@@ -214,11 +226,12 @@ pytest tests/system -m system
 ## Repository governance
 
 PTO-ISA owns product decisions, both Python distributions, releases, package
-publication, and the default branch. Linx integration changes should be
-developed so they can be reviewed upstream; the LinxISA fork follows the
-upstream default branch. The standalone Agentic Circuit repository remains a
-public migration record until the current QEMU/PYC comparison and operational
-cutover checklist pass; it is not an active development or publishing source.
+publication, and the default branch. Consumer repositories pin a released or
+reviewed pyCircuit revision and own their design-specific integration gates.
+The LinxISA fork follows the upstream default branch and does not define a
+second framework API. The standalone Agentic Circuit repository remains a
+public migration record until its operational cutover checklist passes; it is
+not an active development or publishing source.
 
 - [Contribution workflow](docs/development/contributing-workflow.md)
 - [Testing and gates](docs/development/testing-and-gates.md)

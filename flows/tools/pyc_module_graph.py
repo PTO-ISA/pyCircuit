@@ -482,7 +482,7 @@ def main() -> int:
         "--expand",
         action="append",
         default=[],
-        help="Expand by instance name, instance path, or callee symbol. Repeatable. Example: --expand janus_iex or --expand JanusBccIexTop",
+        help="Expand by instance name, instance path, or callee symbol. Repeatable. Example: --expand execute or --expand CoreTop",
     )
     ap.add_argument(
         "--expand-depth",

@@ -64,9 +64,10 @@ bash flows/scripts/run_examples.sh
 bash flows/scripts/run_sims.sh
 ```
 
-Use `bash flows/scripts/run_sims_nightly.sh` and the Linx integration lanes when
-the validation matrix calls for them. Archive semantic or flow-significant
-evidence under `docs/gates/logs/<run-id>/`.
+Use `bash flows/scripts/run_sims_nightly.sh` when the validation matrix calls
+for it. Consumer-specific compatibility gates run in their owning repositories
+against a pinned pyCircuit revision. Archive semantic or flow-significant
+framework evidence under `docs/gates/logs/<run-id>/`.
 
 ## Pull requests
 

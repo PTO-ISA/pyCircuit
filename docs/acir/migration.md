@@ -48,17 +48,17 @@ The collaboration inventory is maintained in
 
 ## Cutover rule
 
-Code consolidation is complete. Repository retirement is not complete: the
-current QEMU/PYC comparison still requires a current independent PYC producer
-or reviewed current fixture. Until that gate passes, keep the source repository
-public and unarchived, keep source PR #18 and #23 open as provenance records,
-and do not disable its remaining review surface.
+Code consolidation is complete. Repository retirement remains an operational
+governance step. QEMU and processor-design comparison flows are consumer-owned
+and no longer gate the pyCircuit framework or Agentic Circuit repository
+retirement. Until the internal closure and collaboration inventory pass, keep
+the source repository public and unarchived, keep source PR #18 and #23 open as
+provenance records, and do not disable its remaining review surface.
 
 The standalone repository remains active until:
 
 1. the AC frontend, ACIR/ACSim, gfsim, and ACIR-to-PYC closure passes;
-2. the full pyCircuit 6 and required Linx integration closure passes on the
-   same integrated revision;
+2. the full pyCircuit 6 closure passes on the same integrated revision;
 3. evidence is archived under one `docs/gates/logs/<run-id>/` bundle; and
 4. issues, pull requests, branches, packages, secrets and webhooks have a
    recorded disposition.

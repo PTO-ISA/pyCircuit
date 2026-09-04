@@ -5,7 +5,6 @@ import copy
 import inspect
 import operator as _pyop
 from dataclasses import dataclass, fields, is_dataclass
-from pathlib import Path
 from typing import Any, Hashable, Mapping, get_args, get_origin
 
 from .api_contract import removed_call_diagnostic
@@ -34,47 +33,6 @@ from .literals import LiteralValue
 
 
 _DEFAULT_INLINE_COMPLEXITY_CAP = 1400
-_INTERNAL_INLINE_COMPLEXITY_HARD_MAX = 2600
-_PYCIRCUIT_ROOT = Path(__file__).resolve().parents[4]
-_INTERNAL_INLINE_COMPLEXITY_ALLOWLIST = frozenset(
-    {
-        (
-            "decode_window",
-            (
-                _PYCIRCUIT_ROOT
-                / "integrations/linx/examples/pycircuit/linx_cpu_pyc/decode.py"
-            ).resolve(),
-        ),
-        (
-            "decode_window",
-            (
-                _PYCIRCUIT_ROOT
-                / "integrations/linx/examples/pycircuit/linxcore_inorder/decode.py"
-            ).resolve(),
-        ),
-    }
-)
-
-
-def _inline_complexity_cap(fn: Any, *, source_file: str | None = None) -> int:
-    """Return the fixed cap, with a narrow internal exception for Linx decoders."""
-
-    candidate = source_file
-    if candidate is None:
-        try:
-            candidate = inspect.getsourcefile(fn)
-        except (OSError, TypeError):
-            candidate = None
-    if candidate is None:
-        return _DEFAULT_INLINE_COMPLEXITY_CAP
-    try:
-        source_path = Path(candidate).resolve()
-    except (OSError, RuntimeError):
-        return _DEFAULT_INLINE_COMPLEXITY_CAP
-    provenance = (str(getattr(fn, "__name__", "")), source_path)
-    if provenance in _INTERNAL_INLINE_COMPLEXITY_ALLOWLIST:
-        return _INTERNAL_INLINE_COMPLEXITY_HARD_MAX
-    return _DEFAULT_INLINE_COMPLEXITY_CAP
 
 
 class JitError(RuntimeError):
@@ -1567,7 +1525,7 @@ class _Compiler:
                 f"(state_call_count={struct_metrics.state_call_count}); "
                 "move the stateful logic behind a `@module` boundary"
             )
-        inline_complexity_cap = _inline_complexity_cap(fn, source_file=meta.source_file)
+        inline_complexity_cap = _DEFAULT_INLINE_COMPLEXITY_CAP
         if struct_metrics.estimated_inline_cost > inline_complexity_cap:
             raise JitError(
                 f"@function {getattr(fn, '__name__', fn)!r} exceeds inline complexity cap "

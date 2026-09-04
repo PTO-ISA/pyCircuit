@@ -326,7 +326,6 @@ endmodule
 | `pyc_tb.hpp` | `Testbench<Dut>`：时钟管理（`addClock`/`runCycles`/`runCyclesAuto`）、复位、步进语义 `comb → 时钟翻转 → tick → transfer → comb → VCD` |
 | `pyc_vcd.hpp` | `VcdWriter`：差分 VCD dump，支持窗口（`setVcdWindow`） |
 | `pyc_trace_bin.hpp` | `PycTraceBinWriter`：comb/tick/commit 三相二进制采样 |
-| `pyc_linxtrace.hpp` / `pyc_konata.hpp` | 处理器流水线可视化 trace |
 | `pyc_probe_registry.hpp` | `ProbeRegistry`：以 xxHash64(规范路径) 为 id 的信号探针表；`findByPath/findByGlob/findByKind`；长实例路径压缩 |
 | `pyc_tb_sidecar.hpp` / `pyc_tb_sidecar_runtime.hpp` | Sidecar 容器加载与 runner 调度结构，见“测试调度” |
 | `pyc_sim.hpp` / `pyc_sync_mem.hpp` / `pyc_clock.hpp` / `pyc_ops.hpp` | 原语模型与公共设施 |

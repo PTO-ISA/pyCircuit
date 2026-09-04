@@ -35,10 +35,6 @@ LAYOUT_REQUIRED_ROOTS = (
     Path("examples/pycircuit"),
     Path("examples/agentic-circuit"),
     Path("designs/blocks"),
-    Path("integrations/linx"),
-    Path("integrations/xiangshan"),
-    Path("integrations/janus"),
-    Path("platforms/zybo_z7_20"),
     Path("third_party/references/davincioo-gfsim"),
     Path("toolchains/agentic-circuit"),
     Path("tools/agentic-circuit"),
@@ -66,6 +62,9 @@ DEPRECATED_ROOTS = (
     Path("contrib/linx"),
     Path("boards"),
     Path("janus"),
+    Path("integrations"),
+    Path("platforms"),
+    Path("examples/pycircuit/linxcore_frontend_pipeline"),
 )
 DEPRECATED_TEXT_PATTERNS = {
     "components/agentic-circuit": re.compile(

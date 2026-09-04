@@ -65,27 +65,6 @@ jobs:
           unset PYCC || true
           bash flows/scripts/run_sims_nightly.sh
 
-      - name: Run Linx CPU C++ smoke (G3)
-        id: linx_cpp
-        # Still attempt Linx when sims fail so the matrix reports real status, not skip→fail.
-        if: always() && steps.sims_nightly.outcome != 'cancelled'
-        shell: bash
-        run: |
-          set -euxo pipefail
-          export PYC_TOOLCHAIN_ROOT="$PWD/.pycircuit_out/toolchain/install"
-          export PATH="$PYC_TOOLCHAIN_ROOT/bin:$PATH"
-          export PYC_GATE_RUN_ID="${PYC_GATE_RUN_ID}"
-          unset PYCC || true
-          mkdir -p "docs/gates/logs/${PYC_GATE_RUN_ID}"
-          set +e
-          bash integrations/linx/flows/tools/run_linx_cpu_pyc_cpp.sh \
-            >"docs/gates/logs/${PYC_GATE_RUN_ID}/linx_cpu_pyc_cpp.stdout" \
-            2>"docs/gates/logs/${PYC_GATE_RUN_ID}/linx_cpu_pyc_cpp.stderr"
-          rc=$?
-          set -e
-          echo "${rc}" >"docs/gates/logs/${PYC_GATE_RUN_ID}/linx_cpu_pyc_cpp.rc"
-          exit "${rc}"
-
       - name: Write gate summary
         if: always()
         shell: bash
@@ -100,11 +79,9 @@ jobs:
             esac
           }
           sims_status="$(map_outcome "${{ steps.sims_nightly.outcome }}")"
-          linx_status="$(map_outcome "${{ steps.linx_cpp.outcome }}")"
           python3 flows/tools/summarize_gate_run.py \
             --run-id "${PYC_GATE_RUN_ID}" \
             --row "run_sims_nightly:G3:${sims_status}" \
-            --row "linx_cpu_pyc_cpp:G3:${linx_status}" \
             --append-to "${GITHUB_STEP_SUMMARY}"
 
       - name: Upload gate logs

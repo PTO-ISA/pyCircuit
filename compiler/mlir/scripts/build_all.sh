@@ -12,7 +12,7 @@ if [[ -z "${LLVM_PROJECT_DIR:-}" ]]; then
     exit 1
   fi
 fi
-LLVM_BUILD_DIR="${LLVM_BUILD_DIR:-${TMPDIR:-/tmp}/linx-pyc-llvm-build}"
+LLVM_BUILD_DIR="${LLVM_BUILD_DIR:-${TMPDIR:-/tmp}/pyc-llvm-build}"
 
 if [[ ! -d "$LLVM_PROJECT_DIR/llvm" ]]; then
   echo "error: LLVM_PROJECT_DIR does not look like llvm-project: $LLVM_PROJECT_DIR" >&2

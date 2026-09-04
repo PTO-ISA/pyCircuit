@@ -38,11 +38,10 @@ bash flows/scripts/run_semantic_regressions_v6.sh
 | Frontend API, CLI orchestration, manifest generation, packaging, example discovery | `pre-commit run --files <changed-file> [<changed-file> ...]`; `pytest tests/unit -m unit`; API hygiene; `bash flows/scripts/run_examples.sh` |
 | Examples, testbenches, simulation entrypoint behavior | `pytest tests/unit -m unit`; `pytest tests/system -m system`; `bash flows/scripts/run_examples.sh`; `bash flows/scripts/run_sims.sh`; `bash flows/scripts/run_sims_nightly.sh` |
 | MLIR dialect, passes, legality, runtime, codegen, trace semantics | `bash flows/scripts/run_examples.sh`; `bash flows/scripts/run_sims.sh`; `bash flows/scripts/run_sims_nightly.sh`; `bash flows/scripts/run_semantic_regressions_v6.sh`; strict decision-status check |
-| Linx integration changes under `integrations/linx/` or cross-repo interface behavior | Required pyCircuit lanes plus the `linx-pycircuit` mandatory gates |
 | Agentic Circuit Python frontend, ACPy, schemas or CLI | AC G0 plus changed-file pre-commit checks |
 | ACIR/ACSim dialect, verifier, transformation or gfsim | AC G0 and AC G1 |
-| ACIR-to-PYC, pyc6 runtime integration or synthesizable AC semantics | AC G0/G1/G2 plus full pyCircuit closure; add Linx interface/trace lanes when the change touches those contracts |
-| Retiring the standalone Agentic Circuit repository | AC G0/G1/G2, full pyCircuit closure, Linx interface/trace lanes, and a current QEMU/PYC comparison |
+| ACIR-to-PYC, pyc6 runtime integration or synthesizable AC semantics | AC G0/G1/G2 plus full pyCircuit closure |
+| Retiring the standalone Agentic Circuit repository | AC G0/G1/G2, full pyCircuit closure, and repository-governance cutover checks |
 
 ## Agentic Circuit gates
 
@@ -79,9 +78,9 @@ decision adds and verifies that lowering.
 
 AC G2 consumes current pyCircuit 6 contracts. Code merge therefore requires the
 full examples, normal/nightly simulation, V6 semantic, and strict
-decision-status lanes. The Linx integration lanes become merge gates when their
-interfaces or traces change, and remain unconditional operational gates before
-the old Agentic Circuit repository is retired.
+decision-status lanes. Product-specific compatibility and model-comparison
+gates run in the corresponding consumer repositories against a pinned
+pyCircuit revision; they are not pyCircuit release gates.
 
 ## When strict decision-status validation is required
 

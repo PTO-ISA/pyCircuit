@@ -2626,9 +2626,9 @@ static LogicalResult emitFunc(func::FuncOp f, llvm::raw_ostream &os, const CppEm
 
   // tick_compute/tick_commit: two-phase sequential update (hierarchy-aware).
   //
-  // Large designs can produce enormous tick bodies (notably JanusBccBackendCompat), which
-  // makes a single translation unit fragile and slow to compile. Split tick into helper
-  // parts so --cpp-split=module can shard tick across multiple .cpp files.
+  // Large designs can produce enormous tick bodies, which makes a single
+  // translation unit fragile and slow to compile. Split tick into helper parts
+  // so --cpp-split=module can shard tick across multiple .cpp files.
   constexpr unsigned kTickChunk = 256;
 
   auto emitTickComputePart = [&](unsigned begin, unsigned end, unsigned partIdx) {

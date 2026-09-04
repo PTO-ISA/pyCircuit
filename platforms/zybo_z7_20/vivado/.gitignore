@@ -1,6 +1,0 @@
-build/
-build_linx_cpu/
-build_linx_platform_inorder/
-build_linx_platform_ooo/
-*.jou
-*.log

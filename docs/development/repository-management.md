@@ -8,7 +8,7 @@ ownership for pyCircuit.
 | Repository | Role | Authority |
 | --- | --- | --- |
 | [`PTO-ISA/pyCircuit`](https://github.com/PTO-ISA/pyCircuit) | Canonical upstream | Product decisions, default branch, releases, packages, documentation, CI policy |
-| [`LinxISA/pyCircuit`](https://github.com/LinxISA/pyCircuit) | Downstream fork | Linx integration staging and downstream validation |
+| [`LinxISA/pyCircuit`](https://github.com/LinxISA/pyCircuit) | Downstream fork | Framework compatibility validation against Linx consumers; no consumer design ownership |
 | [`PTO-ISA/agentic-circuit`](https://github.com/PTO-ISA/agentic-circuit) | Public migration source; retirement pending | Original issues, pull requests and audit history only; no new source development or publishing |
 
 The upstream repository is the only source of truth. Do not maintain a second
@@ -20,9 +20,11 @@ archive.
 
 1. Open general compiler, runtime, documentation, and API changes against
    PTO-ISA/pyCircuit.
-2. Develop Linx-specific integration in the downstream fork when it depends on
-   Linx repositories or infrastructure.
-3. Extract reusable fixes from Linx integration and submit them upstream.
+2. Develop Linx-, Janus-, XiangShan-, QEMU-, and board-specific designs and
+   tooling in their owning consumer repositories against a pinned pyCircuit
+   revision.
+3. Submit only reusable language, IR, runtime, backend, and generic diagnostic
+   fixes upstream.
 4. Update the downstream default branch from the upstream default branch after
    upstream changes merge.
 5. Keep downstream-only commits focused and rebaseable; do not rewrite upstream
@@ -53,9 +55,11 @@ Only PTO-ISA/pyCircuit may:
 - publish canonical compiler or runtime artifacts; and
 - announce a language, ABI, trace-schema, or toolchain compatibility level.
 
-The LinxISA fork may publish integration evidence and downstream test results,
-but must link to the matching upstream revision and must not reuse canonical
-release tags for divergent commits.
+The LinxISA fork or the Linx superproject may publish downstream compatibility
+evidence, but must link to the matching upstream revision and must not reuse
+canonical release tags for divergent commits. Consumer design sources,
+testbenches, board files, and comparison scripts do not belong in either
+pyCircuit framework tree.
 
 ## Fork synchronization
 
@@ -64,7 +68,8 @@ Before synchronizing the downstream fork:
 1. Verify the target upstream commit and required gate results.
 2. Fetch the upstream default branch.
 3. Fast-forward or rebase downstream-only work onto that commit.
-4. Run the Linx integration gates from the downstream worktree.
+4. Run Linx compatibility gates from the consumer repository, not from the
+   pyCircuit worktree.
 5. Record the upstream commit in the integration report.
 
 Never resolve fork drift by force-pushing an unreviewed divergent history over

@@ -1,0 +1,14 @@
+{
+  "run_id": "20260904-framework-boundary-r1",
+  "status": "pass",
+  "decision": "0158",
+  "root_unit_tests": 13,
+  "python_frontend_tests": 128,
+  "python_frontend_skipped": 2,
+  "cli_tests": 53,
+  "mlir_lit_tests": 138,
+  "ctest_tests": 15,
+  "decision_rows": 158,
+  "consumer_roots_present": false,
+  "consumer_headers_installed": false
+}

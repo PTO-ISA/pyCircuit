@@ -102,7 +102,6 @@ def collect_rows(
         ("api_hygiene", "check_api_hygiene", "G0/G1"),
         ("decision_status", "check_decision_status", "G1"),
         ("semantic_regressions", "semantic_regressions_v6", "G1"),
-        ("linx_cpu_pyc_cpp", "linx_cpu_pyc_cpp", "G3"),
     ):
         if gate in seen:
             continue

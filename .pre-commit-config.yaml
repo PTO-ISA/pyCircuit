@@ -14,19 +14,19 @@ repos:
     rev: v0.11.8
     hooks:
       - id: ruff
-        exclude: ^(python/agentic-circuit/|compiler/acir/|simulator/gfsim/|schemas/agentic-circuit/|examples/agentic-circuit/|tests/(python|mlir|cpp|integration|goldens)/agentic-circuit/|tools/agentic-circuit/|toolchains/agentic-circuit/|third_party/references/|integrations/xiangshan/|designs/outerCube/|designs/blocks/BypassUnit/|designs/blocks/RegisterFile/)
+        exclude: ^(python/agentic-circuit/|compiler/acir/|simulator/gfsim/|schemas/agentic-circuit/|examples/agentic-circuit/|tests/(python|mlir|cpp|integration|goldens)/agentic-circuit/|tools/agentic-circuit/|toolchains/agentic-circuit/|third_party/references/|designs/blocks/BypassUnit/|designs/blocks/RegisterFile/)
 
   - repo: https://github.com/psf/black
     rev: 24.10.0
     hooks:
       - id: black
-        exclude: ^(python/agentic-circuit/|compiler/acir/|simulator/gfsim/|schemas/agentic-circuit/|examples/agentic-circuit/|tests/(python|mlir|cpp|integration|goldens)/agentic-circuit/|tools/agentic-circuit/|toolchains/agentic-circuit/|third_party/references/|integrations/xiangshan/)
+        exclude: ^(python/agentic-circuit/|compiler/acir/|simulator/gfsim/|schemas/agentic-circuit/|examples/agentic-circuit/|tests/(python|mlir|cpp|integration|goldens)/agentic-circuit/|tools/agentic-circuit/|toolchains/agentic-circuit/|third_party/references/)
 
   - repo: https://github.com/DavidAnson/markdownlint-cli2
     rev: v0.18.1
     hooks:
       - id: markdownlint-cli2
-        exclude: ^(docs/gates/logs/|third_party/references/|docs/acir/spec/|docs/development/acir/|docs/simulation\.md$|examples/agentic-circuit/|python/agentic-circuit/|tests/(python|mlir|cpp|integration|goldens)/agentic-circuit/|integrations/(janus|linx)/docs/|integrations/xiangshan/(README\.md|docs/)|designs/outerCube/.*\.md$|docs/cycle_balance_improvement.*\.md$)
+        exclude: ^(docs/gates/logs/|third_party/references/|docs/acir/spec/|docs/development/acir/|docs/simulation\.md$|examples/agentic-circuit/|python/agentic-circuit/|tests/(python|mlir|cpp|integration|goldens)/agentic-circuit/|docs/cycle_balance_improvement.*\.md$)
 
   - repo: local
     hooks:

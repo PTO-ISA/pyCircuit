@@ -90,8 +90,8 @@ V6 tests plus the examples, simulation, and semantic lanes archived under
 - [x] Require protected review and required checks on the upstream default
   branch.
 - [x] Publish releases and packages only from PTO-ISA/pyCircuit.
-- [ ] Keep Linx-specific changes mergeable upstream; rebase the LinxISA fork
-  from upstream after releases or integration milestones.
+- [x] Remove consumer-owned Linx, Janus, XiangShan, QEMU-comparison, and board
+  designs/tools from the framework tree; consumers pin pyCircuit externally.
 - [x] Ensure package metadata, documentation URLs, badges, and source links name
   PTO-ISA/pyCircuit.
 
@@ -146,9 +146,9 @@ PYC semantic contracts.
     QueueGraph, gfsim, and the PYC build lane.
   - [ ] Add CFG joins, dynamic checks, multi-Queue/state proposals, explicit
     conflict arbitration, Table/Reg rules, and circular ROB coverage.
-- [ ] After the independent current QEMU/PYC comparison passes, disable the
-  old repository's publishing/CI authority and make it
-  private with only `zhoubot` as a direct repository collaborator.
+- [ ] After the internal AC G0/G1/G2 and pyCircuit closure passes, disable the
+  old repository's publishing/CI authority and make it private with only
+  `zhoubot` as a direct repository collaborator.
 
 ## Gate mapping
 
@@ -161,7 +161,7 @@ Use the minimum applicable lanes from
 | Cycle-aware frontend or inference | unit tests, API hygiene, examples, semantic regressions |
 | MLIR semantics or legality | examples, normal and nightly simulations, semantic regressions, strict decision status |
 | C++ or Verilog behavior | both simulation lanes and backend-equivalence evidence |
-| Linx integration | pyCircuit lanes plus the Linx interface and model-comparison gates |
+| Consumer compatibility | Run in the owning consumer repository against a pinned pyCircuit revision |
 | ACIR or Agentic Circuit integration | ACIR/ACSim verifier and unit lanes, ACIR-to-gfsim, ACIR-to-PYC-to-C++/Verilog, plus pyCircuit examples, simulations, and semantic regressions |
 
 Use one `PYC_GATE_RUN_ID` for related semantic lanes. Record skipped gates and
@@ -175,7 +175,8 @@ The pyCircuit 6 transition is complete when:
 - Decision 0148 has focused tests and cross-backend evidence;
 - supported examples use the V6 CycleAwareSignal contract;
 - repository metadata and release automation point only to PTO-ISA/pyCircuit;
-- the LinxISA repository is maintained only as a downstream fork; and
+- the LinxISA repository is maintained only as a framework-compatibility fork,
+  while consumer designs and tools remain out of tree; and
 - Decision 0150 has archived AC and PYC closure evidence, and the retired
   Agentic Circuit repository has no publishing or CI authority; and
 - all required gates pass from a clean worktree.

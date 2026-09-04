@@ -24,4 +24,4 @@ echo "[3/3] 构建 pycc..."
 cd "${ROOT_DIR}"
 flows/scripts/pyc build
 
-echo "完成。可运行: flows/scripts/pyc test  或  bash flows/tools/run_linx_cpu_pyc_cpp.sh"
+echo "完成。可运行: flows/scripts/pyc test"

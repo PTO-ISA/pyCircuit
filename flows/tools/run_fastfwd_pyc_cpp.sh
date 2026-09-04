@@ -46,7 +46,6 @@ Env vars:
 Tracing:
   PYC_TRACE=1        write a text log
   PYC_VCD=1          write a VCD
-  PYC_KONATA=1       write a Konata trace log
   PYC_TRACE_DIR=...  output directory (default: .pycircuit_out/examples/fastfwd)
 
 Stats:

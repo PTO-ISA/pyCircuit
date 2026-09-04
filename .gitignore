@@ -80,7 +80,6 @@ dfx_runtime.txt
 *.fsdb
 *.vvp
 *.kanata
-*.konata
 local_settings.py
 db.sqlite3
 db.sqlite3-journal
@@ -236,19 +235,6 @@ __marimo__/
 **/generated/
 designs/**/generated/
 examples/pycircuit/generated/**/verilator/
-
-# XiangShan-pyc build outputs
-integrations/xiangshan/build_out/
-integrations/xiangshan/build_out_small/
-
-# External XiangShan repos (not part of pyCircuit)
-designs/XiangShan/
-designs/XiangShan-doc/
-
-# DavinciOO canonical tree (https://github.com/hengliao1972/DavinciOO); optional local checkout
-designs/DavinciOO/
-# pyCircuit imports use package name outerCube — symlink only, never commit
-designs/outerCube/
 
 .claude/settings.local.json
 # gate outputs
