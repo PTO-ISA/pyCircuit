@@ -1164,6 +1164,18 @@ static LogicalResult emitPrimitivesFile(llvm::StringRef outPath,
                    << source.path << "\n";
       return failure();
     }
+    llvm::SmallString<256> bundledPath(llvm::sys::path::parent_path(outPath));
+    llvm::sys::path::append(bundledPath, "rtl", source.path);
+    llvm::SmallString<256> bundledParent(bundledPath);
+    llvm::sys::path::remove_filename(bundledParent);
+    if (std::error_code error =
+            llvm::sys::fs::create_directories(bundledParent)) {
+      llvm::errs() << "error: cannot create selected RTL directory: "
+                   << bundledParent << ": " << error.message() << "\n";
+      return failure();
+    }
+    if (failed(writeFile(bundledPath, content)))
+      return failure();
     ss << "// --- selected RTL: " << source.path << " (" << source.license
        << ")\n";
     if (failed(appendSelectedVerilog(ss, source.path, content)))
@@ -1205,6 +1217,8 @@ static SelectedRtlManifestData selectedRtlManifest(ModuleOp module) {
         auto source = cast<DictionaryAttr>(raw);
         sources.push_back(llvm::json::Object{
             {"path", source.getAs<StringAttr>("path").getValue()},
+            {"bundle_path",
+             "rtl/" + source.getAs<StringAttr>("path").getValue().str()},
             {"sha256", source.getAs<StringAttr>("sha256").getValue()},
             {"license", source.getAs<StringAttr>("license").getValue()},
         });

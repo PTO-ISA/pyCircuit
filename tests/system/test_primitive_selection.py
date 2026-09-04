@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import shutil
@@ -81,9 +82,30 @@ def test_selector_is_catalog_owned_and_fail_closed(tmp_path: Path) -> None:
     assert rejected.returncode != 0
     assert "backend-owned" in rejected.stderr
 
+    pycc = _tool("pycc")
+    for arguments in (
+        ["--emit=none"],
+        ["--emit=cpp", "-o", str(tmp_path / "forbidden.cpp")],
+    ):
+        rejected = subprocess.run(
+            [pycc, str(selected), *arguments],
+            cwd=root,
+            text=True,
+            capture_output=True,
+            check=False,
+            env=_environment(),
+        )
+        assert rejected.returncode != 0
+        assert "PYC982" in rejected.stderr
+
     isolated = tmp_path / "catalog"
     isolated.mkdir()
     shutil.copy2(root / "library" / "verilog" / "pyc_priority_encode.v", isolated)
+    (isolated / "licenses").mkdir()
+    shutil.copy2(
+        root / "library" / "verilog" / "licenses" / "BSD-3-Clause.txt",
+        isolated / "licenses" / "BSD-3-Clause.txt",
+    )
     tampered_catalog = json.loads(catalog.read_text(encoding="utf-8"))
     tampered_catalog["implementations"][0]["sources"][0]["sha256"] = (
         "sha256:" + "0" * 64
@@ -224,6 +246,12 @@ def test_pyc_cpp_and_selected_rtl_agree(tmp_path: Path) -> None:
     assert {item["sources"][0]["path"] for item in implementations} == {
         "pyc_priority_encode.v"
     }
+    source = implementations[0]["sources"][0]
+    bundled_source = verilog / source["bundle_path"]
+    assert bundled_source.is_file()
+    assert source["sha256"] == (
+        "sha256:" + hashlib.sha256(bundled_source.read_bytes()).hexdigest()
+    )
     bindings = selection["bindings"]
     assert len(bindings) == 2
     assert {item["parameters"]["ORDER_LOW"] for item in bindings} == {0, 1}
@@ -306,3 +334,21 @@ int main() {{
             [vvp, str(image)], cwd=root, text=True, capture_output=True, check=True
         )
         assert "PYC_SELECTED_RTL_PASS" in completed.stdout
+
+
+def test_installed_catalog_keeps_license_evidence() -> None:
+    configured = os.environ.get("PYC_TOOLCHAIN_ROOT")
+    install = (
+        Path(configured)
+        if configured
+        else _root() / ".pycircuit_out" / "toolchain" / "install"
+    )
+    catalog_path = install / "include" / "verilog" / "rtl_catalog.json"
+    if not catalog_path.is_file():
+        pytest.skip("installed pyCircuit toolchain is unavailable")
+    catalog = json.loads(catalog_path.read_text(encoding="utf-8"))
+    for implementation in catalog["implementations"]:
+        license_path = catalog_path.parent / implementation["license_file"]
+        assert license_path.is_file()
+        digest = "sha256:" + hashlib.sha256(license_path.read_bytes()).hexdigest()
+        assert digest == implementation["license_sha256"]
