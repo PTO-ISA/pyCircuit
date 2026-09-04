@@ -2465,9 +2465,9 @@ def _merge_verilog_primitive_bundles(
                 parameters, dict
             ):
                 raise SystemExit("build(verilator): incomplete RTL binding")
-            bindings.setdefault(implementation_id, {})[_canonical_hash(binding)] = (
-                binding
-            )
+            bindings.setdefault(implementation_id, {})[
+                _canonical_hash(binding)
+            ] = binding
 
     if base is None:
         raise SystemExit("build(verilator): no primitive bundle was generated")

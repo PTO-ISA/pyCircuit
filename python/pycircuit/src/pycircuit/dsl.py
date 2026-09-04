@@ -285,9 +285,7 @@ class Module:
             result_ty = (
                 a.ty
                 if a_is_vec
-                else b.ty
-                if b_is_vec
-                else Vector.from_shape(sel.ty.shape(), a.ty)
+                else b.ty if b_is_vec else Vector.from_shape(sel.ty.shape(), a.ty)
             )
         else:
             result_ty = a.ty

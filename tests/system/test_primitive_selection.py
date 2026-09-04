@@ -235,7 +235,7 @@ def test_pyc_cpp_and_selected_rtl_agree(tmp_path: Path) -> None:
     if cxx:
         harness = tmp_path / "cpp_harness.cpp"
         harness.write_text(
-            f'''#include "{cpp.as_posix()}"
+            f"""#include "{cpp.as_posix()}"
 #include <cstdint>
 int main() {{
   pyc::gen::priority_top dut;
@@ -248,7 +248,7 @@ int main() {{
   if (!dut.high_valid.value() || dut.high_index.value() != 11) return 3;
   return 0;
 }}
-''',
+""",
             encoding="utf-8",
         )
         executable = tmp_path / "cpp_harness"
