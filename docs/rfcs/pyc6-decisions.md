@@ -4039,3 +4039,78 @@ handwritten implementation without lowering it into gates.
 - User direction (2026-09-05): treat qualified PR #29 blocks as PYC semantic
   primitives with simple parameterized Python APIs, MLIR/JIT selection,
   handwritten-Verilog lowering, and Agentic SimQueue models.
+
+## Decision 0162: inferred state transitions use prepare, publish, and no-fail commit groups
+
+**Status:** Accepted and implemented for the gfsim runtime substrate
+
+**Context / Goal**
+An inferred rule may consume several Queue tokens, update one Table footprint,
+and produce tokens on a selected subset of output Queues.  Independent
+`proposePush`, `proposePop`, and Table writer calls can leave partial proposals
+when a later resource rejects the same transition.  Rollback after publication
+is not an acceptable circuit execution model.
+
+**Decision (strong constraint)**
+- Public Python continues to describe functional rule intent.  It does not
+  expose `atomic`, `check`, reservation, `push`, `pop`, commit, or rollback
+  mechanics.  MLIR inference, check materialization, handshake construction,
+  scheduling, and lowering own those details.
+- The gfsim resource protocol for one inferred transition is
+  `prepare -> publish -> no-fail Xfer commit`.  Prepare changes no committed
+  state and may be cancelled by the stable transition owner.  Publication is
+  legal only after every selected Queue endpoint and the complete Table write
+  footprint are reserved by that same commit group. Published group proposals
+  are sealed against transition-local reset and writer cancellation, which
+  cannot roll back one resource after the other group members have published.
+- A Queue commit-group reservation is exclusive against ordinary proposals and
+  other commit groups until it is published or cancelled.  Queue transfer
+  order and capacity remain the existing committed-state contract.
+- Commit-group Table preparation uses the actual per-Epoch index set,
+  write-field set, and replace/field-merge mode.  Prepared writes to different
+  entries are disjoint; field-merge writes to the same entry are compatible
+  only for disjoint fields; two prepared replaces conflict only where their
+  index sets overlap.  The existing deterministic rule that replace is applied
+  after field merges remains the defined result for mixed replace/merge
+  overlap.  Independent provisional epoch 0.4 Table endpoints keep Decision
+  0154's stricter static field-set and whole-replace conflict rule; this runtime
+  API does not silently promote them into independently schedulable rules.
+- The internal transition constructor requires an explicit Table write mode;
+  a whole-Entry merge policy cannot accidentally masquerade as a single-field
+  merge footprint. Every Queue/Table resource owns and performs its own Xfer
+  commit. The transition clears only its firing-local state, so committed-source
+  observation and activation do not depend on ObjectId order.
+- A generated `QueueTableTransition` first evaluates one functional branch
+  from the committed snapshot, then checks readiness for exactly that branch,
+  reserves all selected outputs, inputs, and Table locations, and publishes
+  the complete group.  Backpressure on the chosen route stalls the transition;
+  it never selects a different functional branch because another output is
+  ready.
+- Unexpected unpublished reservations at a Queue transfer barrier and any
+  publish-after-prepare contract violation produce stable runtime failures.
+  Ordinary resource unavailability cancels reservations and leaves
+  `S(t+1) = S(t)` without a diagnostic.
+- `QueueAtomicTransform` and `QueueBarrier` use the same internal commit-group
+  protocol so duplicate endpoints cannot create partial Queue proposals.
+- This decision accepts the gfsim runtime substrate and its Table-plus-Queue
+  ROB-style vertical examples.  It does not by itself claim that stateful
+  `@ac.rule` capture, branch normalization, arbitration, Reg effects, or PYC/RTL
+  lowering is complete; those remain verifier-owned follow-on stages of
+  `D-RULE-LOWERING-001`.
+
+**Verification**
+- Queue tests cover successful prepare/publish, cancellation, exclusive
+  reservation, and duplicate input/output endpoints.
+- Table tests cover dynamic index and field footprints, disjoint writers,
+  conflicting writers, writer-local cancellation, and replace-after-merge.
+- Transition tests cover allocate/replace with input and output Queues, masked
+  patch with an input Queue, read-and-remove under output backpressure, selected
+  route backpressure without rerouting, cancellation after a Table conflict,
+  sealed publication under local reset, and ObjectId-order-independent Table
+  activation.
+- The complete gfsim C++ test binary remains green.
+
+**Source**
+- User direction and PTO-ISA/pyCircuit issue 28 (2026-09-05): infer atomic
+  state transitions below the Python surface and prove them with a ROB-shaped
+  gfsim example.

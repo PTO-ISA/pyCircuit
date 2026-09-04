@@ -188,6 +188,16 @@ rejected until executable checked IR exists. CFG joins, dynamic checks,
 multi-Queue and Table/Reg proposals, explicit arbitration, and a circular ROB
 remain pending and are rejected rather than guessed.
 
+The gfsim substrate now has the owner-tagged prepare/publish/no-fail commit
+protocol required by the next stateful slice (Decision 0162). Queue barriers
+and multi-Queue transforms use it, Table reservations classify the actual
+dynamic index/field footprint, and a lower-level `QueueTableTransition` proves
+the four ROB-shaped Table-plus-Queue state relations from issue 28. This is
+runtime readiness evidence, not a relaxation of the frontend boundary:
+stateful and multi-Queue `@ac.rule` still fail closed until the corresponding
+ACIR effects, branch normalization, scheduling, and QueueGraph lowering are
+implemented.
+
 **Verification.** Closure requires frontend tests for the simple `@ac.rule`
 surface and removed spellings; MLIR verifier tests for marker creation,
 propagation, refinement, conflict, and final elimination; pass-boundary tests

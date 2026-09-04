@@ -232,6 +232,122 @@ struct FieldEntry {
   bool ready = false;
 };
 
+struct RobEntry {
+  bool valid = false;
+  bool ready = false;
+  uint8_t kind = 0;
+  uint8_t tag = 0;
+  int value = 0;
+
+  bool operator==(const RobEntry &) const = default;
+};
+
+struct AllocateRequest {
+  uint8_t kind = 0;
+  uint8_t tag = 0;
+  int value = 0;
+};
+
+struct Completion {
+  uint8_t tag = 0;
+};
+
+class WakeCounter final : public SimObject {
+public:
+  WakeCounter(ObjectId id)
+      : SimObject(ObjectKind::Scheduler, "wake_counter", id) {}
+  void doWork(Epoch) override { ++workCount; }
+
+  unsigned workCount = 0;
+};
+
+struct AllocateRobEntry {
+  std::optional<TableTransitionPlan<RobEntry, size_t>>
+  operator()(const SimTable<RobEntry> &table,
+             const AllocateRequest &request) const {
+    for (size_t index = 0; index < table.size(); ++index) {
+      if (table.at(index).valid)
+        continue;
+      RobEntry entry{true, false, request.kind, request.tag, request.value};
+      return TableTransitionPlan<RobEntry, size_t>{
+          {{index, entry}}, {std::optional<size_t>{index}}};
+    }
+    return std::nullopt;
+  }
+};
+
+struct PatchReadyByTag {
+  std::optional<TableTransitionPlan<RobEntry>>
+  operator()(const SimTable<RobEntry> &table,
+             const Completion &completion) const {
+    TableTransitionPlan<RobEntry> plan;
+    for (size_t index = 0; index < table.size(); ++index) {
+      RobEntry entry = table.at(index);
+      if (!entry.valid || entry.tag != completion.tag)
+        continue;
+      entry.ready = true;
+      plan.writes.emplace_back(index, entry);
+    }
+    return plan;
+  }
+};
+
+struct ReplaceRobAtZero {
+  std::optional<TableTransitionPlan<RobEntry>>
+  operator()(const SimTable<RobEntry> &, const AllocateRequest &request) const {
+    return TableTransitionPlan<RobEntry>{
+        {{0, RobEntry{true, false, request.kind, request.tag, request.value}}},
+        {}};
+  }
+};
+
+struct RobZeroAddress {
+  size_t operator()() const { return 0; }
+};
+
+struct AlwaysEnabled {
+  bool operator()() const { return true; }
+};
+
+struct MarkRobReady {
+  RobEntry operator()() const { return RobEntry{false, true, 0, 0, 0}; }
+};
+
+struct RetireReadyEntry {
+  std::optional<TableTransitionPlan<RobEntry, RobEntry>>
+  operator()(const SimTable<RobEntry> &table) const {
+    for (size_t index = 0; index < table.size(); ++index) {
+      RobEntry entry = table.at(index);
+      if (!entry.valid || !entry.ready)
+        continue;
+      RobEntry cleared = entry;
+      cleared.valid = false;
+      return TableTransitionPlan<RobEntry, RobEntry>{
+          {{index, cleared}}, {std::optional<RobEntry>{entry}}};
+    }
+    return std::nullopt;
+  }
+};
+
+struct RouteReadyEntry {
+  std::optional<TableTransitionPlan<RobEntry, RobEntry, RobEntry>>
+  operator()(const SimTable<RobEntry> &table) const {
+    for (size_t index = 0; index < table.size(); ++index) {
+      RobEntry entry = table.at(index);
+      if (!entry.valid || !entry.ready)
+        continue;
+      RobEntry cleared = entry;
+      cleared.valid = false;
+      if (entry.kind == 0)
+        return TableTransitionPlan<RobEntry, RobEntry, RobEntry>{
+            {{index, cleared}}, {std::optional<RobEntry>{entry}, std::nullopt}};
+      return TableTransitionPlan<RobEntry, RobEntry, RobEntry>{
+          {{index, cleared}}, {std::nullopt, std::optional<RobEntry>{entry}}};
+    }
+    return std::nullopt;
+  }
+};
+
 struct MergeValid {
   static constexpr std::array<size_t, 1> fields{0};
   void operator()(FieldEntry &target, const FieldEntry &value) const {
@@ -242,6 +358,20 @@ struct MergeValid {
 struct MergeReady {
   static constexpr std::array<size_t, 1> fields{1};
   void operator()(FieldEntry &target, const FieldEntry &value) const {
+    target.ready = value.ready;
+  }
+};
+
+struct MergeRobValid {
+  static constexpr std::array<size_t, 1> fields{0};
+  void operator()(RobEntry &target, const RobEntry &value) const {
+    target.valid = value.valid;
+  }
+};
+
+struct MergeRobReady {
+  static constexpr std::array<size_t, 1> fields{1};
+  void operator()(RobEntry &target, const RobEntry &value) const {
     target.ready = value.ready;
   }
 };
@@ -350,6 +480,7 @@ TEST(QueueBlocksTest, StatefulTableReadsOldDataAndCommitsWriteAtTickEnd) {
   writeInput.doXfer({1, 0});
   read.doXfer({1, 0});
   write.doXfer({1, 0});
+  table.doXfer({1, 0});
 
   ASSERT_NE(readOutput.peek(), nullptr);
   EXPECT_EQ(*readOutput.peek(), 0u);
@@ -491,11 +622,13 @@ TEST(QueueBlocksTest,
   EXPECT_EQ(addressCalls, 1u);
   EXPECT_EQ(table.at(0), 0);
   write.doXfer({1, 0});
+  table.doXfer({1, 0});
   EXPECT_EQ(table.at(0), 1);
 
   write.doWork({2, 0});
   EXPECT_EQ(table.at(0), 1);
   write.doXfer({2, 0});
+  table.doXfer({2, 0});
   EXPECT_EQ(table.at(0), 2);
 }
 
@@ -560,6 +693,7 @@ TEST(QueueBlocksTest, TableReplaceWinsAfterFieldMergesIndependentOfEntry) {
   table.commitWrite();
   EXPECT_TRUE(table.at(0).valid);
   EXPECT_FALSE(table.at(0).ready);
+  EXPECT_TRUE(table.at(1).ready);
 }
 
 TEST(QueueBlocksTest, TableMatchAndChooseAreEvaluatedOncePerEpoch) {
@@ -605,6 +739,32 @@ TEST(QueueBlocksTest, TableCancellationIsWriterLocal) {
   EXPECT_TRUE(table.at(0).ready);
 }
 
+TEST(QueueBlocksTest, TableReservationsUseDynamicIndexAndFieldFootprints) {
+  SimTable<FieldEntry> table("table", 1, nullptr, 2);
+  constexpr std::array<size_t, 1> index0{0};
+  constexpr std::array<size_t, 1> index1{1};
+
+  ASSERT_TRUE(table.prepareMaskedWrite(100, 10, index0, MergeValid::fields));
+  EXPECT_FALSE(table.prepareMaskedWrite(101, 11, index0, MergeValid::fields));
+  EXPECT_TRUE(table.prepareMaskedWrite(102, 12, index0, MergeReady::fields));
+  EXPECT_TRUE(table.prepareMaskedWrite(103, 13, index1, MergeValid::fields));
+
+  table.cancelPreparedWrite(100);
+  table.cancelPreparedWrite(102);
+  table.cancelPreparedWrite(103);
+  EXPECT_FALSE(table.hasPreparedWrite(100));
+
+  ASSERT_TRUE(table.prepareMaskedWrite(104, 14, index0,
+                                       TableFullEntryMerge<FieldEntry>::fields,
+                                       TableWriteMode::Replace));
+  EXPECT_TRUE(table.prepareMaskedWrite(105, 15, index1,
+                                       TableFullEntryMerge<FieldEntry>::fields,
+                                       TableWriteMode::Replace));
+  EXPECT_FALSE(table.prepareMaskedWrite(106, 16, index0,
+                                        TableFullEntryMerge<FieldEntry>::fields,
+                                        TableWriteMode::Replace));
+}
+
 TEST(QueueBlocksTest, MaskedTableWriteCommitsSelectedOldStateAtomically) {
   SimTable<uint16_t> table("table", 1, nullptr, 4);
   for (size_t index = 0; index < table.size(); ++index) {
@@ -632,6 +792,7 @@ TEST(QueueBlocksTest, MaskedTableWriteCommitsSelectedOldStateAtomically) {
   EXPECT_EQ(table.at(2), 3u);
   EXPECT_EQ(table.at(3), 4u);
   write.doXfer({1, 0});
+  table.doXfer({1, 0});
   EXPECT_EQ(table.at(0), 11u);
   EXPECT_EQ(table.at(1), 12u);
   EXPECT_EQ(table.at(2), 3u);
@@ -642,11 +803,279 @@ TEST(QueueBlocksTest, MaskedTableWriteCommitsSelectedOldStateAtomically) {
   EXPECT_EQ(maskCalls, 2u);
   EXPECT_EQ(valueCalls, 3u);
   write.doXfer({2, 0});
+  table.doXfer({2, 0});
   EXPECT_EQ(table.at(0), 11u);
 
   table.reset();
   for (size_t index = 0; index < table.size(); ++index)
     EXPECT_EQ(table.at(index), 0u);
+}
+
+TEST(QueueBlocksTest, TransitionAllocatesWithInputAndOutputAsOneCommit) {
+  SimTable<RobEntry> table("rob", 1, nullptr, 2);
+  SimQueue<AllocateRequest> input("allocate", 2, nullptr, 1);
+  SimQueue<size_t> output("allocated_index", 3, nullptr, 1);
+  QueueTableTransition<AllocateRobEntry, RobEntry, std::tuple<AllocateRequest>,
+                       std::tuple<size_t>>
+      transition("allocate_transition", 4, nullptr, table, {&input}, {&output},
+                 TableWriteMode::Replace);
+  ASSERT_TRUE(input.proposePush({1, 7, 42}));
+  ASSERT_TRUE(output.proposePush(99));
+  input.doXfer({0, 0});
+  output.doXfer({0, 0});
+
+  transition.doWork({1, 0});
+  EXPECT_FALSE(transition.hasPendingCommit());
+  EXPECT_EQ(input.committedSize(), 1u);
+  EXPECT_FALSE(table.at(0).valid);
+
+  ASSERT_TRUE(output.proposePop());
+  output.doXfer({1, 0});
+  transition.doWork({2, 0});
+  ASSERT_TRUE(transition.hasPendingCommit());
+  EXPECT_FALSE(table.at(0).valid);
+  input.doXfer({2, 0});
+  output.doXfer({2, 0});
+  transition.doXfer({2, 0});
+  table.doXfer({2, 0});
+
+  EXPECT_TRUE(input.isEmpty());
+  EXPECT_TRUE(table.at(0).valid);
+  EXPECT_EQ(table.at(0).kind, 1u);
+  EXPECT_EQ(table.at(0).tag, 7u);
+  EXPECT_EQ(table.at(0).value, 42);
+  ASSERT_NE(output.peek(), nullptr);
+  EXPECT_EQ(*output.peek(), 0u);
+}
+
+TEST(QueueBlocksTest, TransitionCancelsQueueReservationsOnTableConflict) {
+  SimTable<RobEntry> table("rob", 1, nullptr, 1);
+  SimQueue<AllocateRequest> input("allocate", 2, nullptr, 1);
+  SimQueue<size_t> output("allocated_index", 3, nullptr, 1);
+  QueueTableTransition<AllocateRobEntry, RobEntry, std::tuple<AllocateRequest>,
+                       std::tuple<size_t>>
+      transition("allocate_transition", 4, nullptr, table, {&input}, {&output},
+                 TableWriteMode::Replace);
+  ASSERT_TRUE(input.proposePush({1, 7, 42}));
+  input.doXfer({0, 0});
+  ASSERT_TRUE(table.proposeWrite(9, 0, RobEntry{true, false, 0, 1, 10},
+                                 TableFullEntryMerge<RobEntry>::fields,
+                                 TableFullEntryMerge<RobEntry>{},
+                                 TableWriteMode::Replace));
+
+  transition.doWork({1, 0});
+
+  EXPECT_FALSE(transition.hasPendingCommit());
+  EXPECT_FALSE(input.hasPrepared(transition.id()));
+  EXPECT_FALSE(output.hasPrepared(transition.id()));
+  EXPECT_FALSE(output.hasPendingCommit());
+  EXPECT_EQ(input.committedSize(), 1u);
+  EXPECT_FALSE(table.at(0).valid);
+  table.commitWrite();
+  EXPECT_TRUE(table.at(0).valid);
+  EXPECT_EQ(table.at(0).value, 10);
+}
+
+TEST(QueueBlocksTest, PublishedTransitionCannotPartiallyRollbackOnLocalReset) {
+  SimTable<RobEntry> table("rob", 1, nullptr, 1);
+  SimQueue<AllocateRequest> input("allocate", 2, nullptr, 1);
+  SimQueue<size_t> output("allocated_index", 3, nullptr, 1);
+  QueueTableTransition<AllocateRobEntry, RobEntry, std::tuple<AllocateRequest>,
+                       std::tuple<size_t>>
+      transition("allocate_transition", 4, nullptr, table, {&input}, {&output},
+                 TableWriteMode::Replace);
+  ASSERT_TRUE(input.proposePush({1, 7, 42}));
+  input.doXfer({0, 0});
+
+  transition.doWork({1, 0});
+  ASSERT_TRUE(transition.hasPendingCommit());
+  table.cancelWrite(transition.id());
+  transition.reset();
+  EXPECT_FALSE(transition.hasPendingCommit());
+  input.doXfer({1, 0});
+  output.doXfer({1, 0});
+  table.doXfer({1, 0});
+
+  EXPECT_TRUE(input.isEmpty());
+  EXPECT_TRUE(table.at(0).valid);
+  EXPECT_EQ(table.at(0).value, 42);
+  ASSERT_NE(output.peek(), nullptr);
+  EXPECT_EQ(*output.peek(), 0u);
+}
+
+TEST(QueueBlocksTest, TransitionPatchesMaskAndConsumesInputTogether) {
+  SimTable<RobEntry> table("rob", 1, nullptr, 3);
+  ASSERT_TRUE(table.initializeEntry(0, {true, false, 0, 9, 10}));
+  ASSERT_TRUE(table.initializeEntry(1, {true, false, 1, 8, 20}));
+  ASSERT_TRUE(table.initializeEntry(2, {true, false, 0, 9, 30}));
+  SimQueue<Completion> input("completion", 2, nullptr, 1);
+  QueueTableTransition<PatchReadyByTag, RobEntry, std::tuple<Completion>,
+                       std::tuple<>, MergeRobReady>
+      transition("patch_transition", 3, nullptr, table, {&input}, {},
+                 TableWriteMode::FieldMerge);
+  ASSERT_TRUE(input.proposePush({9}));
+  input.doXfer({0, 0});
+
+  transition.doWork({1, 0});
+  ASSERT_TRUE(transition.hasPendingCommit());
+  EXPECT_FALSE(table.at(0).ready);
+  EXPECT_FALSE(table.at(2).ready);
+  input.doXfer({1, 0});
+  table.doXfer({1, 0});
+  transition.doXfer({1, 0});
+
+  EXPECT_TRUE(input.isEmpty());
+  EXPECT_TRUE(table.at(0).ready);
+  EXPECT_FALSE(table.at(1).ready);
+  EXPECT_TRUE(table.at(2).ready);
+}
+
+TEST(QueueBlocksTest, WholeEntryTransitionUsesExplicitReplaceMode) {
+  for (bool transitionFirst : {false, true}) {
+    const ObjectId transitionId = transitionFirst ? 10 : 20;
+    const ObjectId fieldWriterId = transitionFirst ? 20 : 10;
+    SimTable<RobEntry> table("rob", 1, nullptr, 1);
+    ASSERT_TRUE(table.initializeEntry(0, {true, false, 0, 1, 5}));
+    SimQueue<AllocateRequest> input("replacement", 2, nullptr, 1);
+    QueueTableTransition<ReplaceRobAtZero, RobEntry,
+                         std::tuple<AllocateRequest>, std::tuple<>>
+        transition("replace_transition", transitionId, nullptr, table, {&input},
+                   {}, TableWriteMode::Replace);
+    ASSERT_TRUE(input.proposePush({1, 7, 42}));
+    input.doXfer({0, 0});
+    ASSERT_TRUE(table.proposeWrite(
+        fieldWriterId, 0, RobEntry{true, true, 0, 1, 5}, MergeRobReady::fields,
+        MergeRobReady{}, TableWriteMode::FieldMerge));
+
+    transition.doWork({1, 0});
+    ASSERT_TRUE(transition.hasPendingCommit());
+    input.doXfer({1, 0});
+    transition.doXfer({1, 0});
+    table.doXfer({1, 0});
+
+    EXPECT_TRUE(table.at(0).valid);
+    EXPECT_FALSE(table.at(0).ready);
+    EXPECT_EQ(table.at(0).kind, 1u);
+    EXPECT_EQ(table.at(0).tag, 7u);
+    EXPECT_EQ(table.at(0).value, 42);
+  }
+}
+
+TEST(QueueBlocksTest, TransitionKeepsEntryWhenRetireOutputIsBackpressured) {
+  SimTable<RobEntry> table("rob", 1, nullptr, 1);
+  const RobEntry ready{true, true, 0, 3, 77};
+  ASSERT_TRUE(table.initializeEntry(0, ready));
+  SimQueue<RobEntry> output("retired", 2, nullptr, 1);
+  QueueTableTransition<RetireReadyEntry, RobEntry, std::tuple<>,
+                       std::tuple<RobEntry>, MergeRobValid>
+      transition("retire_transition", 3, nullptr, table, {}, {&output},
+                 TableWriteMode::FieldMerge);
+  ASSERT_TRUE(output.proposePush({true, true, 1, 0, 99}));
+  output.doXfer({0, 0});
+
+  transition.doWork({1, 0});
+  EXPECT_FALSE(transition.hasPendingCommit());
+  EXPECT_EQ(table.at(0), ready);
+
+  ASSERT_TRUE(output.proposePop());
+  output.doXfer({1, 0});
+  transition.doWork({2, 0});
+  ASSERT_TRUE(transition.hasPendingCommit());
+  output.doXfer({2, 0});
+  transition.doXfer({2, 0});
+  table.doXfer({2, 0});
+
+  EXPECT_FALSE(table.at(0).valid);
+  ASSERT_NE(output.peek(), nullptr);
+  EXPECT_EQ(*output.peek(), ready);
+}
+
+TEST(QueueBlocksTest, TransitionDoesNotRerouteWhenSelectedBranchIsBlocked) {
+  SimTable<RobEntry> table("rob", 1, nullptr, 1);
+  const RobEntry routeA{true, true, 0, 4, 88};
+  ASSERT_TRUE(table.initializeEntry(0, routeA));
+  SimQueue<RobEntry> outputA("route_a", 2, nullptr, 1);
+  SimQueue<RobEntry> outputB("route_b", 3, nullptr, 1);
+  QueueTableTransition<RouteReadyEntry, RobEntry, std::tuple<>,
+                       std::tuple<RobEntry, RobEntry>, MergeRobValid>
+      transition("route_transition", 4, nullptr, table, {},
+                 {&outputA, &outputB}, TableWriteMode::FieldMerge);
+  ASSERT_TRUE(outputA.proposePush({true, true, 0, 0, 99}));
+  outputA.doXfer({0, 0});
+
+  transition.doWork({1, 0});
+  EXPECT_FALSE(transition.hasPendingCommit());
+  EXPECT_EQ(table.at(0), routeA);
+  EXPECT_TRUE(outputB.isEmpty());
+
+  ASSERT_TRUE(outputA.proposePop());
+  outputA.doXfer({1, 0});
+  transition.doWork({2, 0});
+  ASSERT_TRUE(transition.hasPendingCommit());
+  outputA.doXfer({2, 0});
+  outputB.doXfer({2, 0});
+  table.doXfer({2, 0});
+  transition.doXfer({2, 0});
+
+  EXPECT_FALSE(table.at(0).valid);
+  ASSERT_NE(outputA.peek(), nullptr);
+  EXPECT_EQ(*outputA.peek(), routeA);
+  EXPECT_TRUE(outputB.isEmpty());
+}
+
+TEST(QueueBlocksTest, TransitionLeavesTableCommitOwnershipOrderIndependent) {
+  constexpr std::array<std::array<ObjectId, 3>, 6> permutations{{
+      {0, 1, 2},
+      {0, 2, 1},
+      {1, 0, 2},
+      {1, 2, 0},
+      {2, 0, 1},
+      {2, 1, 0},
+  }};
+  for (const auto &ids : permutations) {
+    const ObjectId transitionId = ids[0];
+    const ObjectId writerId = ids[1];
+    const ObjectId tableId = ids[2];
+    SimSystem system("commit_order");
+    SimTable<RobEntry> table("rob", tableId, nullptr, 1);
+    TableWriteSource<RobEntry, RobZeroAddress, AlwaysEnabled, MarkRobReady,
+                     MergeRobReady>
+        writer("ready_writer", writerId, nullptr, table);
+    SimQueue<AllocateRequest> input("allocate", 3, nullptr, 1);
+    SimQueue<size_t> output("allocated_index", 4, nullptr, 1);
+    WakeCounter wake(5);
+    QueueTableTransition<AllocateRobEntry, RobEntry,
+                         std::tuple<AllocateRequest>, std::tuple<size_t>>
+        transition("allocate_transition", transitionId, nullptr, table,
+                   {&input}, {&output}, TableWriteMode::Replace);
+    ASSERT_TRUE(input.proposePush({1, 7, 42}));
+    input.doXfer({0, 0});
+
+    std::array<DispatchRow, 6> rows;
+    rows[transitionId] = makeDispatchRow(&transition);
+    rows[writerId] = makeDispatchRow(&writer);
+    rows[tableId] = makeDispatchRow(&table);
+    rows[3] = makeDispatchRow(&input);
+    rows[4] = makeDispatchRow(&output);
+    rows[5] = makeDispatchRow(&wake);
+    ASSERT_TRUE(system.setDispatchTable(rows));
+    std::array<uint32_t, 7> offsets{};
+    for (size_t index = tableId + 1; index < offsets.size(); ++index)
+      offsets[index] = 1;
+    constexpr std::array<ObjectId, 1> targets{5};
+    ASSERT_TRUE(system.setActivationPlan(offsets, targets));
+    for (ObjectId id = 0; id < 5; ++id)
+      ASSERT_TRUE(system.scheduleWork(id, {0, 0}));
+
+    ASSERT_TRUE(system.step());
+    EXPECT_TRUE(table.at(0).valid);
+    EXPECT_FALSE(table.at(0).ready);
+    EXPECT_TRUE(input.isEmpty());
+    ASSERT_NE(output.peek(), nullptr);
+    EXPECT_EQ(*output.peek(), 0u);
+    system.step();
+    EXPECT_EQ(wake.workCount, 1u);
+  }
 }
 
 TEST(QueueBlocksTest, SlotCapturesBackpressuresReleasesAndDoesNotRefill) {
@@ -777,6 +1206,63 @@ TEST(QueueBlocksTest, SimQueueRateBoundsOneEpochProposals) {
       std::invalid_argument);
 }
 
+TEST(QueueBlocksTest, SimQueueCommitGroupPreparePublishIsNoFail) {
+  SimQueue<int> queue("grouped", 1, nullptr, 2);
+  constexpr CommitGroupId group = 41;
+
+  ASSERT_TRUE(queue.preparePush(group));
+  EXPECT_TRUE(queue.hasPrepared(group));
+  EXPECT_FALSE(queue.proposePush(99));
+  ASSERT_TRUE(queue.publishPush(group, 7));
+  EXPECT_FALSE(queue.hasPrepared(group));
+  queue.doXfer({0, 0});
+  ASSERT_NE(queue.peek(), nullptr);
+  EXPECT_EQ(*queue.peek(), 7);
+
+  ASSERT_TRUE(queue.preparePop(group));
+  ASSERT_NE(queue.preparedPopValue(group), nullptr);
+  EXPECT_EQ(*queue.preparedPopValue(group), 7);
+  EXPECT_EQ(queue.proposePop(), std::nullopt);
+  EXPECT_FALSE(queue.proposePush(8));
+  EXPECT_EQ(queue.publishPop(group), 7);
+  queue.doXfer({1, 0});
+  EXPECT_TRUE(queue.isEmpty());
+}
+
+TEST(QueueBlocksTest, SimQueueCancelledGroupLeavesCommittedStateUntouched) {
+  SimQueue<int> queue("cancelled", 1, nullptr, 2);
+  ASSERT_TRUE(queue.proposePush(9));
+  queue.doXfer({0, 0});
+
+  ASSERT_TRUE(queue.preparePop(51));
+  queue.cancelPrepared(51);
+  EXPECT_FALSE(queue.hasPrepared(51));
+  queue.doXfer({1, 0});
+  ASSERT_NE(queue.peek(), nullptr);
+  EXPECT_EQ(*queue.peek(), 9);
+
+  ASSERT_TRUE(queue.preparePush(52));
+  queue.cancelPrepared(52);
+  queue.doXfer({2, 0});
+  EXPECT_EQ(queue.committedSize(), 1u);
+  EXPECT_EQ(*queue.peek(), 9);
+}
+
+TEST(QueueBlocksTest, UnpublishedCommitGroupsFailClosedAtXfer) {
+  SimQueue<int> queue("queue", 1, nullptr, 1);
+  ASSERT_TRUE(queue.preparePush(60));
+  queue.doXfer({0, 0});
+  EXPECT_TRUE(queue.isEmpty());
+  EXPECT_EQ(queue.runtimeFailureCode(), "queue_unpublished_commit_group");
+
+  SimTable<FieldEntry> table("table", 2, nullptr, 1);
+  constexpr std::array<size_t, 1> index{0};
+  ASSERT_TRUE(table.prepareMaskedWrite(61, 3, index, MergeValid::fields));
+  table.doXfer({0, 0});
+  EXPECT_FALSE(table.at(0).valid);
+  EXPECT_EQ(table.runtimeFailureCode(), "table_unpublished_commit_group");
+}
+
 TEST(QueueBlocksTest, ComputeConsumesAndProducesItsStaticRate) {
   SimQueue<int> input("input", 1, nullptr, 4,
                       std::numeric_limits<size_t>::max(), nullptr, 1, 2);
@@ -872,6 +1358,86 @@ TEST(QueueBlocksTest, AtomicTransformSupportsIndependentInputOutputArity) {
   EXPECT_TRUE(right.isEmpty());
   ASSERT_NE(output.peek(), nullptr);
   EXPECT_EQ(*output.peek(), 12);
+}
+
+TEST(QueueBlocksTest, AtomicTransformCancelsDuplicateOutputReservation) {
+  SimQueue<int> left("left", 1, nullptr, 1);
+  SimQueue<int> right("right", 2, nullptr, 1);
+  SimQueue<int> output("output", 3, nullptr, 1);
+  QueueAtomicTransform<IncrementAndDouble, std::tuple<int, int>,
+                       std::tuple<int, int>>
+      atomic("atomic", 4, nullptr, {&left, &right}, {&output, &output});
+  ASSERT_TRUE(left.proposePush(4));
+  ASSERT_TRUE(right.proposePush(7));
+  left.doXfer({0, 0});
+  right.doXfer({0, 0});
+
+  atomic.doWork({1, 0});
+
+  EXPECT_FALSE(atomic.hasPendingCommit());
+  EXPECT_FALSE(output.hasPendingCommit());
+  EXPECT_FALSE(left.hasPrepared(atomic.id()));
+  EXPECT_FALSE(right.hasPrepared(atomic.id()));
+  left.doXfer({1, 0});
+  right.doXfer({1, 0});
+  output.doXfer({1, 0});
+  EXPECT_EQ(left.committedSize(), 1u);
+  EXPECT_EQ(right.committedSize(), 1u);
+  EXPECT_TRUE(output.isEmpty());
+}
+
+TEST(QueueBlocksTest, AtomicTransformCancelsDuplicateInputReservation) {
+  SimQueue<int> input("input", 1, nullptr, 1);
+  SimQueue<int> leftOutput("left_output", 2, nullptr, 1);
+  SimQueue<int> rightOutput("right_output", 3, nullptr, 1);
+  QueueAtomicTransform<IncrementAndDouble, std::tuple<int, int>,
+                       std::tuple<int, int>>
+      atomic("atomic", 4, nullptr, {&input, &input},
+             {&leftOutput, &rightOutput});
+  ASSERT_TRUE(input.proposePush(4));
+  input.doXfer({0, 0});
+
+  atomic.doWork({1, 0});
+
+  EXPECT_FALSE(atomic.hasPendingCommit());
+  EXPECT_FALSE(leftOutput.hasPendingCommit());
+  EXPECT_FALSE(rightOutput.hasPendingCommit());
+  EXPECT_FALSE(input.hasPrepared(atomic.id()));
+  input.doXfer({1, 0});
+  leftOutput.doXfer({1, 0});
+  rightOutput.doXfer({1, 0});
+  EXPECT_EQ(input.committedSize(), 1u);
+  EXPECT_TRUE(leftOutput.isEmpty());
+  EXPECT_TRUE(rightOutput.isEmpty());
+}
+
+TEST(QueueBlocksTest, GroupedBlocksRejectNullQueueEndpoints) {
+  SimQueue<int> input("input", 1, nullptr, 1);
+  SimQueue<int> output("output", 2, nullptr, 1);
+  EXPECT_THROW(
+      (QueueAtomicTransform<IncrementAndDouble, std::tuple<int, int>,
+                            std::tuple<int, int>>(
+          "bad_atomic", 3, nullptr, {&input, nullptr}, {&output, &output})),
+      std::invalid_argument);
+  EXPECT_THROW((QueueBarrier<std::tuple<int>>("bad_barrier", 4, nullptr,
+                                              {nullptr}, {&output})),
+               std::invalid_argument);
+
+  SimTable<RobEntry> table("table", 5, nullptr, 1);
+  SimQueue<AllocateRequest> requests("requests", 6, nullptr, 1);
+  SimQueue<size_t> indices("indices", 7, nullptr, 1);
+  EXPECT_THROW(
+      (QueueTableTransition<AllocateRobEntry, RobEntry,
+                            std::tuple<AllocateRequest>, std::tuple<size_t>>(
+          "bad_transition", 8, nullptr, table, {&requests}, {nullptr},
+          TableWriteMode::Replace)),
+      std::invalid_argument);
+  EXPECT_THROW(
+      (QueueTableTransition<AllocateRobEntry, RobEntry,
+                            std::tuple<AllocateRequest>, std::tuple<size_t>>(
+          "bad_transition_input", 9, nullptr, table, {nullptr}, {&indices},
+          TableWriteMode::Replace)),
+      std::invalid_argument);
 }
 
 TEST(QueueBlocksTest, BarrierTransfersHeterogeneousQueuesAtomically) {
