@@ -47,8 +47,8 @@ LogicalResult inferRuleTypes(ModuleOp model) {
       return marker.emitOpError("unsupported type-constraint kind");
     ac::RuleOp rule = marker->getParentOfType<ac::RuleOp>();
     if (!rule || marker.getInput() != rule.getBody().front().getArgument(0))
-      return marker.emitOpError(
-          "phase-one Queue payload inference must refine the unique rule input");
+      return marker.emitOpError("phase-one Queue payload inference must refine "
+                                "the unique rule input");
     // The ACIR Var wrapper already carries the exact element type.  This first
     // inference lane therefore refines unknown/constrained Queue payload facts
     // monotonically to exact before removing the marker.
@@ -74,8 +74,20 @@ LogicalResult inferRuleEffects(ModuleOp model) {
   }
   Builder builder(model.getContext());
   model.walk([&](ac::RuleOp rule) {
+    SmallVector<ac::TableProposeOp> proposals;
+    rule.getBody().walk(
+        [&](ac::TableProposeOp proposal) { proposals.push_back(proposal); });
+    if (proposals.empty()) {
+      rule->setAttr(
+          "ac.rule.effects",
+          builder.getStrArrayAttr({"input.consume", "output.produce"}));
+      return;
+    }
+    std::string tableEffect =
+        "table.replace:" + proposals.front().getTable().str();
     rule->setAttr("ac.rule.effects",
-                  builder.getStrArrayAttr({"input.consume", "output.produce"}));
+                  builder.getStrArrayAttr(
+                      {"input.consume", "output.produce", tableEffect}));
   });
   return success();
 }
@@ -102,8 +114,8 @@ LogicalResult materializeRuleChecks(ModuleOp model) {
         result = failure();
         return;
       }
-      marker.emitOpError(
-          "dynamic checks are not executable in the phase-one pure rule subset");
+      marker.emitOpError("dynamic checks are not executable in the phase-one "
+                         "pure rule subset");
       result = failure();
       return;
     }
@@ -151,8 +163,12 @@ LogicalResult materializeRuleHandshake(ModuleOp model) {
       result = failure();
       return;
     }
+    bool hasTableProposal = false;
+    rule.getBody().walk([&](ac::TableProposeOp) { hasTableProposal = true; });
     rule->setAttr("ac.rule.handshake",
-                  StringAttr::get(model.getContext(), "ready_valid_1x1"));
+                  StringAttr::get(model.getContext(),
+                                  hasTableProposal ? "ready_valid_1x1_table"
+                                                   : "ready_valid_1x1"));
   });
   return result;
 }
@@ -175,7 +191,11 @@ LogicalResult dischargeRuleObligations(ModuleOp model) {
     }
     if (marker.getResolver() == ac::ObligationResolver::Handshake) {
       auto handshake = rule->getAttrOfType<StringAttr>("ac.rule.handshake");
-      if (!handshake || handshake.getValue() != "ready_valid_1x1" ||
+      bool hasTableProposal = false;
+      rule.getBody().walk([&](ac::TableProposeOp) { hasTableProposal = true; });
+      StringRef expected =
+          hasTableProposal ? "ready_valid_1x1_table" : "ready_valid_1x1";
+      if (!handshake || handshake.getValue() != expected ||
           !marker.getResult().hasOneUse() ||
           !isa<ac::RuleReturnOp>(marker.getResult().use_begin()->getOwner())) {
         marker.emitOpError(
@@ -253,9 +273,35 @@ LogicalResult resolveRuleSchedule(ModuleOp model) {
       result = failure();
       return;
     }
+    SmallVector<ac::TableProposeOp> proposals;
+    rule.getBody().walk(
+        [&](ac::TableProposeOp proposal) { proposals.push_back(proposal); });
+    if (!proposals.empty()) {
+      FlatSymbolRefAttr table = proposals.front().getTableAttr();
+      bool conflictingEndpoint = false;
+      model.walk([&](Operation *operation) {
+        if (operation == proposals.front().getOperation())
+          return;
+        if (auto proposal = dyn_cast<ac::TableProposeOp>(operation))
+          conflictingEndpoint |= proposal.getTableAttr() == table;
+        else if (auto write = dyn_cast<ac::TableWriteOp>(operation))
+          conflictingEndpoint |= write.getTableAttr() == table;
+        else if (auto write = dyn_cast<ac::TableMaskedWriteOp>(operation))
+          conflictingEndpoint |= write.getTableAttr() == table;
+      });
+      if (conflictingEndpoint) {
+        rule.emitOpError(
+            "stateful rule phase one requires exclusive Table write ownership");
+        result = failure();
+        return;
+      }
+    }
     rule->setAttr("ac.rule.guard", StringAttr::get(model.getContext(), "true"));
     rule->setAttr("ac.rule.schedule",
-                  StringAttr::get(model.getContext(), "independent"));
+                  StringAttr::get(model.getContext(),
+                                  proposals.empty()
+                                      ? "independent"
+                                      : "independent_table_exclusive"));
   });
   return result;
 }
@@ -318,13 +364,17 @@ LogicalResult canonicalizePureFirings(ModuleOp model) {
   model.walk([&](ac::FiringOp firing) { firings.push_back(firing); });
   Builder attrBuilder(model.getContext());
   for (ac::FiringOp firing : firings) {
+    const ArrayAttr pureEffects =
+        attrBuilder.getStrArrayAttr({"input.consume", "output.produce"});
+    bool hasTableProposal = false;
+    firing.getBody().walk([&](ac::TableProposeOp) { hasTableProposal = true; });
+    if (hasTableProposal)
+      continue;
     if (firing.getInputs().size() != 1 || firing.getOutputs().size() != 1 ||
         firing.getFunctionalGuard() != "true" || !firing.getChecks().empty() ||
         firing.getHandshake() != "ready_valid_1x1" ||
         firing.getSchedule() != "independent" ||
-        firing.getTimeDomain() != "cycle" ||
-        firing.getEffects() !=
-            attrBuilder.getStrArrayAttr({"input.consume", "output.produce"}))
+        firing.getTimeDomain() != "cycle" || firing.getEffects() != pureEffects)
       return firing.emitOpError(
           "is not proven equivalent to the phase-one pure transform subset");
 

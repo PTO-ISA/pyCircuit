@@ -134,15 +134,19 @@ std::string commonPath(llvm::StringRef left, llvm::StringRef right) {
   return result.empty() ? "/" : result;
 }
 
-llvm::Expected<std::string> emitExpressionBody(const QueueBlockPlan &block,
-                                               llvm::StringRef yield,
-                                               unsigned indent,
-                                               bool qualifyTables = false) {
+llvm::Expected<std::string>
+emitExpressionBody(const QueueBlockPlan &block, llvm::StringRef yield,
+                   unsigned indent, bool qualifyTables = false,
+                   bool checkedTableAccess = true,
+                   llvm::ArrayRef<std::string> additionalNeeded = {},
+                   llvm::StringRef returnExpression = {}) {
   std::ostringstream output;
   std::string padding(indent, ' ');
   llvm::StringMap<std::string> priorityEncodings;
   llvm::StringSet<> needed;
   needed.insert(yield);
+  for (const std::string &name : additionalNeeded)
+    needed.insert(name);
   for (const QueueExpressionPlan &expression : llvm::reverse(block.expressions))
     if (needed.contains(expression.result))
       for (const std::string &operand : expression.operands)
@@ -191,8 +195,9 @@ llvm::Expected<std::string> emitExpressionBody(const QueueBlockPlan &block,
       QueueBlockPlan nested;
       nested.expressions = expression.nestedExpressions;
       nested.yields = expression.nestedYields;
-      auto predicate = emitExpressionBody(nested, nested.yields.front(),
-                                          indent + 8, qualifyTables);
+      auto predicate =
+          emitExpressionBody(nested, nested.yields.front(), indent + 8,
+                             qualifyTables, checkedTableAccess);
       if (!predicate)
         return predicate.takeError();
       const std::string table =
@@ -221,7 +226,9 @@ llvm::Expected<std::string> emitExpressionBody(const QueueBlockPlan &block,
       const std::string table =
           qualifyTables ? "table_" + identifier(expression.table) : "table";
       output << padding << "auto " << expression.result << " = " << table
-             << "->checkedAt(static_cast<size_t>(" << first->str() << "));\n";
+             << (checkedTableAccess ? "->checkedAt(static_cast<size_t>("
+                                    : "->at(static_cast<size_t>(")
+             << first->str() << "));\n";
       continue;
     }
     if (expression.kind == "popcount") {
@@ -253,7 +260,7 @@ llvm::Expected<std::string> emitExpressionBody(const QueueBlockPlan &block,
         if (nested.yields.size() != 1)
           return generatorError("table.choose key yield is missing");
         auto key = emitExpressionBody(nested, nested.yields.front(), indent + 6,
-                                      qualifyTables);
+                                      qualifyTables, checkedTableAccess);
         if (!key)
           return key.takeError();
         const char *comparison = expression.predicate == "min" ? "<" : ">";
@@ -350,7 +357,9 @@ llvm::Expected<std::string> emitExpressionBody(const QueueBlockPlan &block,
       output << first->str() << ' ' << operation.str() << ' ' << second->str();
     output << ";\n";
   }
-  output << padding << "return " << yield.str() << ";\n";
+  output << padding << "return "
+         << (returnExpression.empty() ? yield : returnExpression).str()
+         << ";\n";
   return output.str();
 }
 
@@ -450,6 +459,12 @@ llvm::Expected<std::string> generateQueueGraphCpp(const QueueGraphPlan &plan) {
          block.yields.size() != 3 || block.table.empty() ||
          block.writeMode != "field"))
       return generatorError("masked table write contract is unsupported");
+    if (block.kind == "firing" &&
+        (block.inputs.size() != 1 || block.outputs.size() != 1 ||
+         block.yields.size() != 1 || block.table.empty() ||
+         block.tableIndex.empty() || block.tableValue.empty() ||
+         block.writeMode != "replace" || block.writeFields.empty()))
+      return generatorError("table firing contract is unsupported");
     if (block.kind == "slot" &&
         (block.inputs.size() != 1 || !block.outputs.empty() ||
          block.yields.size() != 1 || block.slot.empty()))
@@ -542,7 +557,7 @@ llvm::Expected<std::string> generateQueueGraphCpp(const QueueGraphPlan &plan) {
             "#include \"gfsim/queue.h\"\n"
             "#include \"gfsim/queue_blocks.h\"\n\n"
             "#include <array>\n#include <cstdint>\n#include <limits>\n"
-            "#include <tuple>\n\n"
+            "#include <optional>\n#include <tuple>\n\n"
             "namespace ac_generated {\n\n";
   for (const QueuePayloadPlan &payload : plan.payloads) {
     output << "struct " << payload.name << " {\n";
@@ -631,7 +646,8 @@ llvm::Expected<std::string> generateQueueGraphCpp(const QueueGraphPlan &plan) {
         block->kind != "dependency" && block->kind != "credit" &&
         block->kind != "reorder" && block->kind != "feedback" &&
         block->kind != "table_read" && block->kind != "table_write" &&
-        block->kind != "table_masked_write" && block->kind != "slot")
+        block->kind != "table_masked_write" && block->kind != "firing" &&
+        block->kind != "slot")
       continue;
     if (block->kind == "slot") {
       const SlotPlan *slot = findSlot(plan, block->slot);
@@ -668,6 +684,84 @@ llvm::Expected<std::string> generateQueueGraphCpp(const QueueGraphPlan &plan) {
       if (!body)
         return body.takeError();
       output << *body << "  }\n};\n\n";
+      continue;
+    }
+    if (block->kind == "firing") {
+      const TablePlan *table = findTable(plan, block->table);
+      const QueuePlan *input = findQueue(plan, block->inputs.front());
+      const QueuePlan *result = findQueue(plan, block->outputs.front());
+      auto entryType = table ? cppType(table->entryType)
+                             : llvm::Expected<std::string>(generatorError(
+                                   "table firing Table missing"));
+      auto inputType = input ? cppType(input->payloadType)
+                             : llvm::Expected<std::string>(generatorError(
+                                   "table firing input missing"));
+      auto resultType = result ? cppType(result->payloadType)
+                               : llvm::Expected<std::string>(generatorError(
+                                     "table firing output missing"));
+      if (!entryType)
+        return entryType.takeError();
+      if (!inputType)
+        return inputType.takeError();
+      if (!resultType)
+        return resultType.takeError();
+      const std::array<std::string, 2> additional{block->tableValue,
+                                                  block->yields.front()};
+      const std::string tupleResult = "std::tuple{" + block->tableIndex + ", " +
+                                      block->tableValue + ", " +
+                                      block->yields.front() + "}";
+      auto evaluationBody = emitExpressionBody(
+          *block, block->tableIndex, 6, false, false, additional, tupleResult);
+      if (!evaluationBody)
+        return evaluationBody.takeError();
+      output << "struct block_" << index << "_policy {\n"
+             << "  std::optional<gfsim::TableTransitionPlan<" << *entryType
+             << ", " << *resultType << ">> operator()(gfsim::Epoch epoch, "
+             << "const gfsim::SimTable<" << *entryType << "> &table_ref, const "
+             << *inputType << " &item) const {\n"
+             << "    const auto *table = &table_ref;\n"
+             << "    auto [proposal_index, proposal_value, output_value] = "
+                "[&]() {\n"
+             << *evaluationBody << "    }();\n"
+             << "    return gfsim::TableTransitionPlan<" << *entryType << ", "
+             << *resultType
+             << ">{{{static_cast<size_t>(proposal_index), proposal_value}}, "
+                "{std::optional<"
+             << *resultType << ">{output_value}}};\n"
+             << "  }\n};\n\n";
+      output << "struct block_" << index
+             << "_merge_policy {\n  static constexpr std::array<size_t, "
+             << block->writeFields.size() << "> fields{";
+      for (auto [fieldIndex, field] : llvm::enumerate(block->writeFields)) {
+        if (fieldIndex)
+          output << ", ";
+        if (field == "$entry") {
+          output << 0;
+          continue;
+        }
+        auto payload = llvm::find_if(plan.payloads,
+                                     [&](const QueuePayloadPlan &candidate) {
+                                       return candidate.name == *entryType;
+                                     });
+        if (payload == plan.payloads.end())
+          return generatorError("table firing Entry payload is missing");
+        auto declared = llvm::find_if(
+            payload->fields, [&](const QueuePayloadFieldPlan &candidate) {
+              return candidate.name == field;
+            });
+        if (declared == payload->fields.end())
+          return generatorError("table firing write field is missing");
+        output << std::distance(payload->fields.begin(), declared);
+      }
+      output << "};\n  void operator()(" << *entryType << " &target, const "
+             << *entryType << " &value) const {\n";
+      for (const std::string &field : block->writeFields) {
+        if (field == "$entry")
+          output << "    target = value;\n";
+        else
+          output << "    target." << field << " = value." << field << ";\n";
+      }
+      output << "  }\n};\n\n";
       continue;
     }
     if (block->kind == "table_read" || block->kind == "table_write" ||
@@ -1072,7 +1166,18 @@ llvm::Expected<std::string> generateQueueGraphCpp(const QueueGraphPlan &plan) {
     std::string member = "block_" + std::to_string(index) + "_";
     std::string key = block->name + "#" + std::to_string(index);
     std::string instanceName = block->kind + "_" + block->name;
-    if (block->kind == "transform") {
+    if (block->kind == "firing") {
+      auto table = tableMembers.find(block->table);
+      if (table == tableMembers.end())
+        return generatorError("table firing declaration is missing");
+      appendInitializer(
+          initializers, member, "(\"", instanceName, "\", ", blockIds[key],
+          ", ", *parent, ", ", table->getValue(), ", std::tuple{&",
+          queueMembers[block->inputs.front()], "}, std::tuple{&",
+          queueMembers[block->outputs.front()], "}, gfsim::TableWriteMode::",
+          block->writeMode == "replace" ? "Replace" : "FieldMerge", ", block_",
+          index, "_policy{}, block_", index, "_merge_policy{})");
+    } else if (block->kind == "transform") {
       if (block->inputs.size() == 1 && block->outputs.size() == 1) {
         appendInitializer(initializers, member, "(\"", instanceName, "\", ",
                           blockIds[key], ", ", *parent, ", ",
@@ -1380,6 +1485,14 @@ llvm::Expected<std::string> generateQueueGraphCpp(const QueueGraphPlan &plan) {
              << "() { return " << queueMembers[block.outputs.front()]
              << "; }\n";
     }
+  for (const TablePlan &table : plan.tables) {
+    auto type = cppType(table.entryType);
+    if (!type)
+      return type.takeError();
+    output << "  const gfsim::SimTable<" << *type << "> &table_"
+           << identifier(table.name) << "() const { return "
+           << tableMembers[table.name] << "; }\n";
+  }
   sinkIndex = 0;
   size_t observationIndex = 0;
   for (auto [index, block] : llvm::enumerate(runtimeBlocks))
@@ -1483,7 +1596,30 @@ llvm::Expected<std::string> generateQueueGraphCpp(const QueueGraphPlan &plan) {
   }
   sinkIndex = 0;
   for (auto [index, block] : llvm::enumerate(runtimeBlocks)) {
-    if (block->kind == "transform") {
+    if (block->kind == "firing") {
+      const TablePlan *table = findTable(plan, block->table);
+      const QueuePlan *input = findQueue(plan, block->inputs.front());
+      const QueuePlan *result = findQueue(plan, block->outputs.front());
+      auto entryType = table ? cppType(table->entryType)
+                             : llvm::Expected<std::string>(generatorError(
+                                   "table firing Table missing"));
+      auto inputType = input ? cppType(input->payloadType)
+                             : llvm::Expected<std::string>(generatorError(
+                                   "table firing input missing"));
+      auto resultType = result ? cppType(result->payloadType)
+                               : llvm::Expected<std::string>(generatorError(
+                                     "table firing output missing"));
+      if (!entryType)
+        return entryType.takeError();
+      if (!inputType)
+        return inputType.takeError();
+      if (!resultType)
+        return resultType.takeError();
+      output << "  gfsim::QueueTableTransition<block_" << index << "_policy, "
+             << *entryType << ", std::tuple<" << *inputType << ">, std::tuple<"
+             << *resultType << ">, block_" << index << "_merge_policy> block_"
+             << index << "_;\n";
+    } else if (block->kind == "transform") {
       if (block->inputs.size() == 1 && block->outputs.size() == 1) {
         const QueuePlan *input = findQueue(plan, block->inputs[0]);
         const QueuePlan *result = findQueue(plan, block->outputs[0]);

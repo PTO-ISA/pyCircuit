@@ -192,12 +192,33 @@ LogicalResult RuleOp::verify() {
   if (block.getNumArguments() != 1 ||
       block.getArgument(0).getType() != expected)
     return emitOpError("body argument must match the input Queue payload Var");
+  unsigned proposals = 0;
+  unsigned tableReads = 0;
+  FlatSymbolRefAttr proposalTable;
   for (Operation &operation : block.without_terminator())
-    if (!isMemoryEffectFree(&operation) &&
-        !isa<TypeConstraintMarkerOp, ValueFactMarkerOp,
-             PendingObligationMarkerOp>(operation))
+    if (auto proposal = dyn_cast<TableProposeOp>(operation)) {
+      ++proposals;
+      proposalTable = proposal.getTableAttr();
+    } else if (auto get = dyn_cast<TableGetOp>(operation)) {
+      ++tableReads;
+      if (proposalTable && get.getTableAttr() != proposalTable)
+        return emitOpError("may observe only its proposed Table");
+    } else if (!isMemoryEffectFree(&operation) &&
+               !isa<TypeConstraintMarkerOp, ValueFactMarkerOp,
+                    PendingObligationMarkerOp>(operation))
       return emitOpError() << "body operation '" << operation.getName()
                            << "' must be pure in the phase-one rule subset";
+  if (proposals > 1)
+    return emitOpError("stateful rule phase one permits one Table proposal");
+  if (tableReads > 1)
+    return emitOpError("stateful rule phase one permits one Table observation");
+  if (proposals == 0 && tableReads != 0)
+    return emitOpError("Table observation requires a stateful Table proposal");
+  if (proposals == 1)
+    for (Operation &operation : block.without_terminator())
+      if (auto get = dyn_cast<TableGetOp>(operation))
+        if (get.getTableAttr() != proposalTable)
+          return emitOpError("may observe only its proposed Table");
   auto yield = dyn_cast<RuleReturnOp>(block.getTerminator());
   if (!yield || yield.getValues().size() != 1 ||
       yield.getValues().front().getType() != expected)
@@ -593,13 +614,61 @@ LogicalResult FiringOp::verify() {
       return emitOpError(
           "firing domain must match the exact QueueGraph domain");
   }
+  SmallVector<TableProposeOp> proposals;
+  SmallVector<TableGetOp> tableReads;
+  getBody().walk(
+      [&](TableProposeOp proposal) { proposals.push_back(proposal); });
+  getBody().walk([&](TableGetOp read) { tableReads.push_back(read); });
+  if (proposals.size() > 1)
+    return emitOpError("stateful firing phase one permits one Table proposal");
+  if (tableReads.size() > 1)
+    return emitOpError(
+        "stateful firing phase one permits one Table observation");
+  if (!tableReads.empty() &&
+      (proposals.empty() ||
+       tableReads.front().getTableAttr() != proposals.front().getTableAttr()))
+    return emitOpError("stateful firing may observe only its proposed Table");
+  if (!proposals.empty()) {
+    FlatSymbolRefAttr table = proposals.front().getTableAttr();
+    bool conflictingWriter = false;
+    auto module = (*this)->getParentOfType<ModuleOp>();
+    if (module)
+      module.walk([&](Operation *operation) {
+        if (operation == proposals.front().getOperation())
+          return;
+        if (auto proposal = dyn_cast<TableProposeOp>(operation))
+          conflictingWriter |= proposal.getTableAttr() == table;
+        else if (auto write = dyn_cast<TableWriteOp>(operation))
+          conflictingWriter |= write.getTableAttr() == table;
+        else if (auto write = dyn_cast<TableMaskedWriteOp>(operation))
+          conflictingWriter |= write.getTableAttr() == table;
+      });
+    if (conflictingWriter)
+      return emitOpError(
+          "stateful firing requires exclusive Table write ownership");
+  }
   Builder builder(getContext());
+  ArrayAttr expectedEffects;
+  StringRef expectedHandshake;
+  StringRef expectedSchedule;
+  if (proposals.empty()) {
+    expectedEffects =
+        builder.getStrArrayAttr({"input.consume", "output.produce"});
+    expectedHandshake = "ready_valid_1x1";
+    expectedSchedule = "independent";
+  } else {
+    std::string tableEffect =
+        "table.replace:" + proposals.front().getTable().str();
+    expectedEffects = builder.getStrArrayAttr(
+        {"input.consume", "output.produce", tableEffect});
+    expectedHandshake = "ready_valid_1x1_table";
+    expectedSchedule = "independent_table_exclusive";
+  }
   if (getInputs().size() != 1 || getOutputs().size() != 1 ||
       getInputs().front().getType() != getOutputs().front().getType() ||
       getFunctionalGuard() != "true" || !getChecks().empty() ||
-      getHandshake() != "ready_valid_1x1" || getSchedule() != "independent" ||
-      getEffects() !=
-          builder.getStrArrayAttr({"input.consume", "output.produce"}))
+      getHandshake() != expectedHandshake ||
+      getSchedule() != expectedSchedule || getEffects() != expectedEffects)
     return emitOpError(
         "has invalid phase-one guard/checks/handshake/schedule/effects "
         "contract");
@@ -615,7 +684,8 @@ LogicalResult FiringOp::verify() {
       return emitOpError("body arguments must match input Queue payloads");
   }
   for (Operation &operation : block.without_terminator())
-    if (!isMemoryEffectFree(&operation))
+    if (!isMemoryEffectFree(&operation) &&
+        !isa<TableGetOp, TableProposeOp>(operation))
       return emitOpError() << "body operation '" << operation.getName()
                            << "' must be pure after marker elimination";
   auto yield = dyn_cast<FiringYieldOp>(block.getTerminator());
@@ -1710,6 +1780,22 @@ static LogicalResult verifyTableIndex(Operation *operation, TableOp table,
   return success();
 }
 
+static LogicalResult verifyStaticallySafeRuleTableIndex(Operation *operation,
+                                                        TableOp table,
+                                                        Value index) {
+  if (failed(verifyTableIndex(operation, table, index)))
+    return failure();
+  if (index.getDefiningOp<VarConstantOp>())
+    return success();
+  auto integer =
+      cast<IntegerType>(cast<VarType>(index.getType()).getElementType());
+  if (integer.getWidth() >= 64 || static_cast<uint64_t>(table.getEntries()) !=
+                                      (uint64_t{1} << integer.getWidth()))
+    return operation->emitOpError(
+        "dynamic rule Table index requires a full 2^N Table domain");
+  return success();
+}
+
 LogicalResult TableOp::verify() {
   if (!isTableEntryType(*this, getEntryType()))
     return emitOpError("entry type must be bool, a <=64-bit integer, or a flat "
@@ -1782,6 +1868,22 @@ LogicalResult TableOp::verify() {
         }
       }
     }
+    if (auto proposal = dyn_cast<TableProposeOp>(operation)) {
+      if (resolveTable(proposal, proposal.getTableAttr()) == *this) {
+        ++endpoints;
+        if (proposal.getMode() == "replace") {
+          ++replaceWriters;
+          return;
+        }
+        StringSet<> localFields;
+        for (Attribute rawField : proposal.getWriteFields()) {
+          auto field = cast<StringAttr>(rawField).getValue();
+          if (localFields.insert(field).second &&
+              !fieldWriters.try_emplace(field, operation).second)
+            overlappingField = field.str();
+        }
+      }
+    }
     if (auto match = dyn_cast<TableMatchOp>(operation))
       if (resolveTable(match, match.getTableAttr()) == *this)
         ++endpoints;
@@ -1809,6 +1911,63 @@ LogicalResult TableGetOp::verify() {
   if (getResult().getType() != VarType::get(getContext(), table.getEntryType()))
     return emitOpError("result must match table entry Var type");
   return verifyTableIndex(*this, table, getIndex());
+}
+
+LogicalResult TableProposeOp::verify() {
+  Operation *parent = (*this)->getParentOp();
+  if (!isa_and_nonnull<RuleOp, FiringOp>(parent))
+    return emitOpError("must be nested directly in ac.rule or ac.firing");
+  TableOp table = resolveTable(*this, getTableAttr());
+  if (!table)
+    return emitOpError() << "unresolved table " << getTable();
+  if (!tableVisibleFrom(*this, table))
+    return emitOpError("table is outside the proposal scope ancestry");
+  if (getMode() != "replace")
+    return emitOpError("stateful rule phase one supports replace mode only");
+  if (failed(verifyTableWriteFields(*this, table, getWriteFields())) ||
+      failed(verifyTableWriteMode(*this, table, getMode(), getWriteFields())))
+    return failure();
+  if (getValue().getType() != VarType::get(getContext(), table.getEntryType()))
+    return emitOpError("proposal value must match the Table Entry Var type");
+  if (failed(verifyStaticallySafeRuleTableIndex(*this, table, getIndex())))
+    return failure();
+  auto verifyQueuePayload = [&](ValueRange queues) -> LogicalResult {
+    for (Value queueValue : queues)
+      if (cast<QueueType>(queueValue.getType()).getElementType() !=
+          table.getEntryType())
+        return emitOpError(
+            "owning rule Queue payloads must match the Table Entry type");
+    return success();
+  };
+  if (auto rule = dyn_cast<RuleOp>(parent)) {
+    if (failed(verifyQueuePayload(rule.getInputs())) ||
+        failed(verifyQueuePayload(rule.getOutputs())))
+      return failure();
+  } else {
+    auto firing = cast<FiringOp>(parent);
+    if (failed(verifyQueuePayload(firing.getInputs())) ||
+        failed(verifyQueuePayload(firing.getOutputs())))
+      return failure();
+  }
+  LogicalResult readResult = success();
+  parent->walk([&](TableGetOp read) {
+    if (failed(readResult))
+      return;
+    if (read.getTableAttr() != getTableAttr()) {
+      readResult =
+          read.emitOpError("stateful rule may observe only its proposed Table");
+      return;
+    }
+    readResult =
+        verifyStaticallySafeRuleTableIndex(read, table, read.getIndex());
+  });
+  if (failed(readResult))
+    return failure();
+  unsigned proposals = 0;
+  parent->walk([&](TableProposeOp) { ++proposals; });
+  if (proposals != 1)
+    return emitOpError("stateful rule phase one requires one Table proposal");
+  return success();
 }
 
 static FailureOr<Type> verifyTablePolicy(Operation *endpoint, Region &region,

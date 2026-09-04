@@ -70,8 +70,11 @@ completed = complete(issued)
 ```
 
 The current phase-one subset is one type-preserving input and output with one
-total return path. Unsupported control flow or unresolved markers fail before
-Frozen ACIR; the compiler never supplies a silent default.
+total return path. It may additionally bind one Table, observe one committed
+Entry, and perform one complete Entry replacement; MLIR groups that proposal
+with the Queue transfer for gfsim. Unsupported control flow, broader state
+effects, or unresolved markers fail before Frozen ACIR; the compiler never
+supplies a silent default.
 
 Compile a Queue/rule architecture through the public CLI to hashed,
 marker-free Frozen ACIR:

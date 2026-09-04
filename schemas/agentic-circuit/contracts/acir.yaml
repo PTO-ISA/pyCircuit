@@ -89,6 +89,7 @@ operations:
   - ac.memory.yield
   - ac.table
   - ac.table.get
+  - ac.table.propose
   - ac.table.match
   - ac.table.match.yield
   - ac.table.choose

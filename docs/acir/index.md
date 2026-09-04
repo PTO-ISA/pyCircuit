@@ -11,6 +11,9 @@ pyCircuit 6.
 - `agentic_circuit` captures architecture, process, resource, and queue models.
 - `@ac.rule` is the only explicit Python scheduling boundary; staged ACIR
   passes own checks, handshake, scheduling, internal firing, and marker closure.
+- The first stateful slice accepts one Table observation and complete Entry
+  replacement in the same rule and lowers it to grouped gfsim commit; broader
+  stateful shapes and PYC/RTL Table lowering remain fail closed.
 - ACPy schema `agentic-circuit-acpy` version `0.1`, contract epoch `0.5`, is the
   stable frontend interchange contract.
 - ACIR (`ac`) is an upper-level MLIR dialect. It remains separate from the PYC
