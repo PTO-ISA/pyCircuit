@@ -29,6 +29,12 @@ _TESTS_DIR = str(Path(__file__).resolve().parent)
 if _TESTS_DIR not in sys.path:
     sys.path.insert(0, _TESTS_DIR)
 
+# Runtime tools are a repository-local package under ``tools/runtime``.  Keep
+# the checkout root importable for tests that exercise the crawler directly.
+_REPOSITORY_ROOT = str(Path(__file__).resolve().parents[1])
+if _REPOSITORY_ROOT not in sys.path:
+    sys.path.insert(0, _REPOSITORY_ROOT)
+
 _AGENTIC_TESTS_DIR = str(Path(__file__).resolve().parent / "python" / "agentic-circuit")
 if _AGENTIC_TESTS_DIR not in sys.path:
     sys.path.insert(0, _AGENTIC_TESTS_DIR)

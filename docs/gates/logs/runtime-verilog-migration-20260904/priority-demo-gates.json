@@ -1,0 +1,31 @@
+{
+  "demo": "priority_encode_runtime",
+  "status": "passed",
+  "artifacts": {
+    "python": "E:\\desktop\\GitHubProjects\\pyCircuit-PTO-ISA\\examples\\agentic-circuit\\blocks\\priority_encode_runtime\\priority_encode.py",
+    "acir": "E:\\desktop\\GitHubProjects\\pyCircuit-PTO-ISA\\.pycircuit_out\\examples\\priority_encode_runtime\\priority_encode.ac.mlir",
+    "acir_verified": "E:\\desktop\\GitHubProjects\\pyCircuit-PTO-ISA\\.pycircuit_out\\examples\\priority_encode_runtime\\priority_encode.verified.ac.mlir",
+    "plan": "E:\\desktop\\GitHubProjects\\pyCircuit-PTO-ISA\\.pycircuit_out\\examples\\priority_encode_runtime\\priority_encode.plan.json",
+    "gfsim_cpp": "E:\\desktop\\GitHubProjects\\pyCircuit-PTO-ISA\\.pycircuit_out\\examples\\priority_encode_runtime\\priority_encode.gfsim.cpp",
+    "pyc": "E:\\desktop\\GitHubProjects\\pyCircuit-PTO-ISA\\.pycircuit_out\\examples\\priority_encode_runtime\\priority_encode.pyc.mlir",
+    "verilog": "E:\\desktop\\GitHubProjects\\pyCircuit-PTO-ISA\\.pycircuit_out\\examples\\priority_encode_runtime\\priority_encode.generated.v",
+    "primitive": "E:\\desktop\\GitHubProjects\\pyCircuit-PTO-ISA\\examples\\agentic-circuit\\blocks\\priority_encode_runtime\\primitive.json"
+  },
+  "primitive_id": "encoding-arbitration.basejump-priority.v1",
+  "implementation_id": "github.bespoke-silicon-group.basejump_stl.bsg_priority_encode",
+  "gates": {
+    "verilator": true,
+    "yosys": true
+  },
+  "stages": {
+    "python_frontend": true,
+    "acir_verify": true,
+    "queue_plan": true,
+    "acir_to_gfsim_cpp": true,
+    "acir_to_pyc": true,
+    "pyc_to_verilog": true
+  },
+  "verilator_output": "PRIORITY_ENCODE_PASS\n- /mnt/c/Users/EEE/AppData/Local/Temp/priority_encode_gate_hyvdvy7x/tb.sv:29: Verilog $finish\n- S i m u l a t i o n   R e p o r t: Verilator 5.051 devel\n- Verilator: $finish at 21ps; walltime 0.000 s; speed 631.161 ns/s\n- Verilator: cpu 0.000 s on 1 threads; allocated 4 MB\nw\u0000s\u0000l\u0000:\u0000 \u0000\u00c0hKm0R \u0000l\u0000o\u0000c\u0000a\u0000l\u0000h\u0000o\u0000s\u0000t\u0000 \u0000\u00e3N\u0006tM\u2018n\u007f\f\u00ffFO*g\\\u2022\u00cfP0R \u0000W\u0000S\u0000L\u0000\u00020N\u0000A\u0000T\u0000 \u0000!j\u000f_\u000bN\u201ev \u0000W\u0000S\u0000L\u0000 \u0000\nN/e\u0001c \u0000l\u0000o\u0000c\u0000a\u0000l\u0000h\u0000o\u0000s\u0000t\u0000 \u0000\u00e3N\u0006t\u00020\n\u0000\n\u0000",
+  "yosys_output": "unning muxtree optimizer on module \\priority_encode_demo..\n  Creating internal representation of mux trees.\n  Evaluating internal representation of mux trees.\n  Analyzing evaluation results.\nRemoved 0 multiplexer ports.\n<suppressed ~30 debug messages>\n\n4.18. Executing OPT_REDUCE pass (consolidate $*mux and $reduce_* inputs).\n  Optimizing cells in module \\priority_encode_demo.\nPerformed a total of 0 changes.\n\n4.19. Executing OPT_MERGE pass (detect identical cells).\nFinding identical cells in module `\\priority_encode_demo'.\nComputing hashes of 57 cells of `\\priority_encode_demo'.\nFinding duplicate cells in `\\priority_encode_demo'.\nRemoved a total of 0 cells.\n\n4.20. Executing OPT_DFF pass (perform DFF optimizations).\n\n4.21. Executing OPT_CLEAN pass (remove unused cells and wires).\nFinding unused cells or wires in module \\priority_encode_demo..\n\n4.22. Executing OPT_EXPR pass (perform const folding).\nOptimizing module priority_encode_demo.\n\n4.23. Finished fast OPT passes. (There is nothing left to do.)\n\n5. Executing CHECK pass (checking for obvious problems).\nChecking module priority_encode_demo...\nFound and reported 0 problems.\n\n6. Printing statistics.\n\n=== priority_encode_demo ===\n\n        +----------Local Count, excluding submodules.\n        | \n      119 wires\n      699 wire bits\n       88 public wires\n      590 public wire bits\n        8 ports\n       30 port bits\n        2 memories\n       24 memory bits\n       57 cells\n        2   $add\n        1   $and\n        6   $eq\n        3   $logic_and\n        2   $logic_or\n        2   $lt\n        2   $memrd_v2\n        4   $memwr_v2\n       15   $mux\n        1   $not\n        6   $or\n        2   $pmux\n        4   $reduce_bool\n        3   $reduce_or\n        2   $sdffe\n        2   $sub\n\nEnd of script. Logfile hash: 443d6298f3, time: 0.03s, user: 0.01s, system: 0.01s, MEM: 22.29 MB peak\nYosys 0.68+64 (git sha1 b8959e70b-dirty, Release, Clang /usr/bin/clang++ 21.1.8)\nTime spent: 55% 2x read_slang (0 sec), 10% 6x opt_expr (0 sec), ...\nw\u0000s\u0000l\u0000:\u0000 \u0000\u00c0hKm0R \u0000l\u0000o\u0000c\u0000a\u0000l\u0000h\u0000o\u0000s\u0000t\u0000 \u0000\u00e3N\u0006tM\u2018n\u007f\f\u00ffFO*g\\\u2022\u00cfP0R \u0000W\u0000S\u0000L\u0000\u00020N\u0000A\u0000T\u0000 \u0000!j\u000f_\u000bN\u201ev \u0000W\u0000S\u0000L\u0000 \u0000\nN/e\u0001c \u0000l\u0000o\u0000c\u0000a\u0000l\u0000h\u0000o\u0000s\u0000t\u0000 \u0000\u00e3N\u0006t\u00020\n\u0000\n\u0000",
+  "generated_at_unix": 1788511675.5262141
+}

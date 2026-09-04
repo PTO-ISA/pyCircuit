@@ -1,0 +1,409 @@
+{
+  "schema": "pycircuit-rtl-sources-v0.3",
+  "license_policy": "informational_only",
+  "notes": "Wave 1 bounded scan: existing six plus PULP AXI/iDMA, Ibex, CVA6, LiteX, HDL Modules, OHWR and ZipCPU. License metadata is informational only.",
+  "sources": [
+    {
+      "project": "basejump_stl",
+      "repo": "https://github.com/bespoke-silicon-group/basejump_stl.git",
+      "enabled": true,
+      "priority": "A",
+      "families": [
+        "Integer",
+        "Reduction",
+        "Dataflow",
+        "Memory",
+        "Interconnect"
+      ],
+      "path_hints": [
+        "bsg_misc",
+        "bsg_dataflow",
+        "bsg_mem"
+      ],
+      "exclude_dirs": [
+        ".git",
+        "docs",
+        "test",
+        "tests",
+        "build"
+      ],
+      "extensions": [
+        ".v",
+        ".sv",
+        ".vh",
+        ".svh"
+      ]
+    },
+    {
+      "project": "opentitan",
+      "repo": "https://github.com/lowRISC/opentitan.git",
+      "enabled": true,
+      "priority": "A",
+      "families": [
+        "Dataflow",
+        "Memory",
+        "CPU",
+        "Interconnect"
+      ],
+      "path_hints": [
+        "hw/ip/prim/rtl"
+      ],
+      "exclude_dirs": [
+        ".git",
+        "docs",
+        "test",
+        "tests",
+        "build",
+        "sw"
+      ],
+      "extensions": [
+        ".v",
+        ".sv",
+        ".vh",
+        ".svh"
+      ]
+    },
+    {
+      "project": "pulp_common_cells",
+      "repo": "https://github.com/pulp-platform/common_cells.git",
+      "enabled": true,
+      "priority": "A",
+      "families": [
+        "Integer",
+        "Reduction",
+        "Dataflow",
+        "Memory",
+        "CDC"
+      ],
+      "path_hints": [
+        "src",
+        "include"
+      ],
+      "exclude_dirs": [
+        ".git",
+        "docs",
+        "test",
+        "tests",
+        "lint",
+        "formal",
+        "build"
+      ],
+      "extensions": [
+        ".v",
+        ".sv",
+        ".vh",
+        ".svh"
+      ]
+    },
+    {
+      "project": "vortex",
+      "repo": "https://github.com/vortexgpgpu/vortex.git",
+      "enabled": true,
+      "priority": "A",
+      "families": [
+        "GPU",
+        "Memory",
+        "CPU",
+        "Integer",
+        "Reduction"
+      ],
+      "path_hints": [
+        "hw/rtl"
+      ],
+      "exclude_dirs": [
+        ".git",
+        "docs",
+        "test",
+        "tests",
+        "build",
+        "runtime",
+        "kernel",
+        "third_party",
+        "sim"
+      ],
+      "extensions": [
+        ".v",
+        ".sv",
+        ".vh",
+        ".svh"
+      ]
+    },
+    {
+      "project": "picorv32",
+      "repo": "https://github.com/YosysHQ/picorv32.git",
+      "enabled": true,
+      "priority": "B",
+      "families": [
+        "CPU",
+        "Integer",
+        "Memory"
+      ],
+      "path_hints": [
+        "."
+      ],
+      "exclude_dirs": [
+        ".git",
+        "test",
+        "tests",
+        "scripts",
+        "build"
+      ],
+      "extensions": [
+        ".v",
+        ".sv",
+        ".vh",
+        ".svh"
+      ]
+    },
+    {
+      "project": "serv",
+      "repo": "https://github.com/olofk/serv.git",
+      "enabled": true,
+      "priority": "C",
+      "families": [
+        "CPU",
+        "Integer"
+      ],
+      "path_hints": [
+        "rtl"
+      ],
+      "exclude_dirs": [
+        ".git",
+        "doc",
+        "sw",
+        "tests",
+        "build"
+      ],
+      "extensions": [
+        ".v",
+        ".sv",
+        ".vh",
+        ".svh"
+      ]
+    },
+    {
+      "project": "pulp_axi",
+      "repo": "https://github.com/pulp-platform/axi.git",
+      "enabled": true,
+      "priority": "A",
+      "families": [
+        "DMA",
+        "Interconnect",
+        "Dataflow"
+      ],
+      "path_hints": [
+        "src"
+      ],
+      "exclude_dirs": [
+        ".git",
+        "docs",
+        "test",
+        "tests",
+        "sim",
+        "build"
+      ],
+      "extensions": [
+        ".v",
+        ".sv",
+        ".vh",
+        ".svh"
+      ]
+    },
+    {
+      "project": "pulp_idma",
+      "repo": "https://github.com/pulp-platform/iDMA.git",
+      "enabled": true,
+      "priority": "A",
+      "families": [
+        "DMA",
+        "Interconnect"
+      ],
+      "path_hints": [
+        "src"
+      ],
+      "exclude_dirs": [
+        ".git",
+        "docs",
+        "test",
+        "tests",
+        "sim",
+        "build"
+      ],
+      "extensions": [
+        ".v",
+        ".sv",
+        ".vh",
+        ".svh"
+      ]
+    },
+    {
+      "project": "ibex",
+      "repo": "https://github.com/lowRISC/ibex.git",
+      "enabled": true,
+      "priority": "B",
+      "families": [
+        "CPU",
+        "Integer",
+        "Memory"
+      ],
+      "path_hints": [
+        "rtl"
+      ],
+      "exclude_dirs": [
+        ".git",
+        "doc",
+        "dv",
+        "vendor",
+        "build"
+      ],
+      "extensions": [
+        ".v",
+        ".sv",
+        ".vh",
+        ".svh"
+      ]
+    },
+    {
+      "project": "cva6",
+      "repo": "https://github.com/openhwgroup/cva6.git",
+      "enabled": true,
+      "priority": "B",
+      "families": [
+        "CPU",
+        "Memory",
+        "Interconnect"
+      ],
+      "path_hints": [
+        "src"
+      ],
+      "exclude_dirs": [
+        ".git",
+        "docs",
+        "test",
+        "verif",
+        "vendor",
+        "build"
+      ],
+      "extensions": [
+        ".v",
+        ".sv",
+        ".vh",
+        ".svh"
+      ]
+    },
+    {
+      "project": "litex_soc",
+      "repo": "https://github.com/enjoy-digital/litex.git",
+      "enabled": true,
+      "priority": "B",
+      "families": [
+        "Dataflow",
+        "Memory",
+        "Interconnect"
+      ],
+      "path_hints": [
+        "litex/soc/cores"
+      ],
+      "exclude_dirs": [
+        ".git",
+        "test",
+        "tests",
+        "build"
+      ],
+      "extensions": [
+        ".v",
+        ".sv",
+        ".vh",
+        ".svh"
+      ]
+    },
+    {
+      "project": "hdl_modules",
+      "repo": "https://gitlab.com/alex/hdl-modules.git",
+      "enabled": true,
+      "priority": "B",
+      "families": [
+        "Dataflow",
+        "Memory",
+        "Interconnect",
+        "CDC"
+      ],
+      "path_hints": [
+        "logic",
+        "lsfr"
+      ],
+      "exclude_dirs": [
+        ".git",
+        "doc",
+        "docs",
+        "test",
+        "tests",
+        "sim",
+        "build"
+      ],
+      "extensions": [
+        ".v",
+        ".sv",
+        ".vh",
+        ".svh"
+      ]
+    },
+    {
+      "project": "ohwr_general_cores",
+      "repo": "https://gitlab.com/ohwr/project/general-cores.git",
+      "enabled": true,
+      "priority": "B",
+      "families": [
+        "Dataflow",
+        "Interconnect",
+        "Memory",
+        "CDC"
+      ],
+      "path_hints": [
+        "modules"
+      ],
+      "exclude_dirs": [
+        ".git",
+        "doc",
+        "docs",
+        "test",
+        "tests",
+        "sim",
+        "build"
+      ],
+      "extensions": [
+        ".v",
+        ".sv",
+        ".vh",
+        ".svh"
+      ]
+    },
+    {
+      "project": "zipcpu",
+      "repo": "https://github.com/ZipCPU/zipcpu.git",
+      "enabled": true,
+      "priority": "B",
+      "families": [
+        "CPU",
+        "Integer",
+        "Memory"
+      ],
+      "path_hints": [
+        "rtl"
+      ],
+      "exclude_dirs": [
+        ".git",
+        "docs",
+        "test",
+        "tests",
+        "build"
+      ],
+      "extensions": [
+        ".v",
+        ".sv",
+        ".vh",
+        ".svh"
+      ]
+    }
+  ]
+}

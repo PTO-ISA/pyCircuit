@@ -1,0 +1,177 @@
+{
+  "schema": "acir-runtime-crawler-config-v0.1",
+  "policy": {
+    "allow_skipped_tools": false
+  },
+  "sources": [
+    {
+      "name": "basejump-stl-cache",
+      "provider": "github",
+      "url": "https://github.com/bespoke-silicon-group/basejump_stl.git",
+      "local_path": "${CONFIG_DIR}/../basejump",
+      "commit": "b48037e28544425839dbd617d45b1a82631bc1a9",
+      "subdir": ".",
+      "license": "Solderpad-Hardware-License-0.51",
+      "enabled": true
+    }
+  ],
+  "targets": [
+    {
+      "name": "basejump-and",
+      "source": "basejump-stl-cache",
+      "module": "bsg_and",
+      "interface": {
+        "wrapper_module": "pyc_runtime_basejump_and",
+        "parameters": [
+          {
+            "name": "WIDTH",
+            "source": "width_p",
+            "default": 8
+          }
+        ],
+        "ports": [
+          {
+            "name": "a",
+            "direction": "input",
+            "width": "WIDTH",
+            "source": "a_i"
+          },
+          {
+            "name": "b",
+            "direction": "input",
+            "width": "WIDTH",
+            "source": "b_i"
+          },
+          {
+            "name": "out",
+            "direction": "output",
+            "width": "WIDTH",
+            "source": "o"
+          }
+        ]
+      }
+    },
+    {
+      "name": "basejump-xor",
+      "source": "basejump-stl-cache",
+      "module": "bsg_xor",
+      "interface": {
+        "wrapper_module": "pyc_runtime_basejump_xor",
+        "parameters": [
+          {
+            "name": "WIDTH",
+            "source": "width_p",
+            "default": 8
+          }
+        ],
+        "ports": [
+          {
+            "name": "a",
+            "direction": "input",
+            "width": "WIDTH",
+            "source": "a_i"
+          },
+          {
+            "name": "b",
+            "direction": "input",
+            "width": "WIDTH",
+            "source": "b_i"
+          },
+          {
+            "name": "out",
+            "direction": "output",
+            "width": "WIDTH",
+            "source": "o"
+          }
+        ]
+      }
+    },
+    {
+      "name": "basejump-adder",
+      "source": "basejump-stl-cache",
+      "module": "bsg_adder_ripple_carry",
+      "interface": {
+        "wrapper_module": "pyc_runtime_basejump_adder",
+        "parameters": [
+          {
+            "name": "WIDTH",
+            "source": "width_p",
+            "default": 8
+          }
+        ],
+        "ports": [
+          {
+            "name": "a",
+            "direction": "input",
+            "width": "WIDTH",
+            "source": "a_i"
+          },
+          {
+            "name": "b",
+            "direction": "input",
+            "width": "WIDTH",
+            "source": "b_i"
+          },
+          {
+            "name": "sum",
+            "direction": "output",
+            "width": "WIDTH",
+            "source": "s_o"
+          },
+          {
+            "name": "carry",
+            "direction": "output",
+            "width": "1",
+            "source": "c_o"
+          }
+        ]
+      }
+    },
+    {
+      "name": "basejump-segmented-mux",
+      "source": "basejump-stl-cache",
+      "module": "bsg_mux_segmented",
+      "interface": {
+        "wrapper_module": "pyc_runtime_basejump_segmented_mux",
+        "parameters": [
+          {
+            "name": "SEGMENTS",
+            "source": "segments_p",
+            "default": 8
+          },
+          {
+            "name": "SEGMENT_WIDTH",
+            "source": "segment_width_p",
+            "default": 1
+          }
+        ],
+        "ports": [
+          {
+            "name": "data0",
+            "direction": "input",
+            "width": "SEGMENTS*SEGMENT_WIDTH",
+            "source": "data0_i"
+          },
+          {
+            "name": "data1",
+            "direction": "input",
+            "width": "SEGMENTS*SEGMENT_WIDTH",
+            "source": "data1_i"
+          },
+          {
+            "name": "select",
+            "direction": "input",
+            "width": "SEGMENTS",
+            "source": "sel_i"
+          },
+          {
+            "name": "out",
+            "direction": "output",
+            "width": "SEGMENTS*SEGMENT_WIDTH",
+            "source": "data_o"
+          }
+        ]
+      }
+    }
+  ]
+}

@@ -106,6 +106,18 @@ def ACIR_VarPopcountOp : ACIR_Op<"var.popcount", [Pure]> {
   let assemblyFormat = "$in attr-dict `:` qualified(type($in)) `->` qualified(type($result))";
 }
 
+// A packed priority encoder primitive. The result carries {valid,index},
+// with valid in the most-significant bit, so the operation remains one SSA
+// value and can flow through the existing QueueGraph/PYC pipeline.
+def ACIR_VarPriorityEncodeOp : ACIR_Op<"var.priority_encode", [Pure]> {
+  let arguments = (ins ACIR_VarType:$in, BoolAttr:$lo_to_hi,
+                       StrAttr:$primitive_id, StrAttr:$implementation_id,
+                       StrAttr:$qualification_report);
+  let results = (outs ACIR_VarType:$result);
+  let hasVerifier = 1;
+  let assemblyFormat = "$in attr-dict `:` qualified(type($in)) `->` qualified(type($result))";
+}
+
 def ACIR_VarCmpOp : ACIR_Op<"var.cmp", [
     Pure, AllTypesMatch<["lhs", "rhs"]>
   ]> {

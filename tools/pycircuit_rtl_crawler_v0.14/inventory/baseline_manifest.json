@@ -1,0 +1,235 @@
+{
+  "schema": "pycircuit-rtl-freeze-v0.1",
+  "frozen_at": "2026-08-31T16:51:04.887100+00:00",
+  "source_config": "sources.expanded.v0.4.json",
+  "source_manifest": "source-manifest.json",
+  "targets_config": "targets.v0.4.json",
+  "discovery_input": "E:\\desktop\\GitHubProjects\\pyCircuit\\tools\\pycircuit_rtl_crawler_v0.14\\build\\discovery-v0.4\\all-local-v0.4",
+  "selection_policy": {
+    "require_local_materialization": true,
+    "dedup_key": [
+      "source_project",
+      "module",
+      "file"
+    ],
+    "license_gate": false,
+    "license_recording": true
+  },
+  "source_counts": {
+    "configured": 22,
+    "scan": 19,
+    "dependency_only": 3,
+    "materialized_manifest": 22
+  },
+  "candidate_counts": {
+    "raw_matches": 373,
+    "unique_candidates": 355,
+    "matched_projects": 15,
+    "unmatched_scan_projects": 4
+  },
+  "candidate_distribution": {
+    "basejump_stl": 26,
+    "blackparrot": 9,
+    "cva6": 11,
+    "hdl_modules": 1,
+    "ibex": 1,
+    "nvdla": 6,
+    "ohwr_general_cores": 74,
+    "openpiton": 63,
+    "opentitan": 37,
+    "pulp_axi": 25,
+    "pulp_common_cells": 52,
+    "riscv_boom": 1,
+    "serv": 1,
+    "vortex": 47,
+    "zipcpu": 1
+  },
+  "matched_projects": [
+    "basejump_stl",
+    "blackparrot",
+    "cva6",
+    "hdl_modules",
+    "ibex",
+    "nvdla",
+    "ohwr_general_cores",
+    "openpiton",
+    "opentitan",
+    "pulp_axi",
+    "pulp_common_cells",
+    "riscv_boom",
+    "serv",
+    "vortex",
+    "zipcpu"
+  ],
+  "unmatched_scan_projects": [
+    "gemmini",
+    "litex_soc",
+    "picorv32",
+    "pulp_idma"
+  ],
+  "source_records": {
+    "basejump_stl": {
+      "commit_sha": "b48037e28544425839dbd617d45b1a82631bc1a9",
+      "branch": "master",
+      "path": "build/source-cache-v0.4/repos/basejump_stl",
+      "content_status": "rtl_available",
+      "rtl_file_count": 795
+    },
+    "opentitan": {
+      "commit_sha": "b16f2be75d2f38c62d861208453ed5b81ccf41b0",
+      "branch": "master",
+      "path": "build/source-cache-v0.4/repos/opentitan",
+      "content_status": "rtl_available",
+      "rtl_file_count": 205
+    },
+    "pulp_common_cells": {
+      "commit_sha": "db42769334b4589b4b3fc671b34513bdb98be565",
+      "branch": "master",
+      "path": "build/source-cache-v0.4/repos/pulp_common_cells",
+      "content_status": "rtl_available",
+      "rtl_file_count": 214
+    },
+    "vortex": {
+      "commit_sha": "5d62846c685ae287f9cd3ddd49f4537c40146eae",
+      "branch": "master",
+      "path": "build/source-cache-v0.4/repos/vortex",
+      "content_status": "rtl_available",
+      "rtl_file_count": 386
+    },
+    "picorv32": {
+      "commit_sha": "a473fc8fca393771d83b0ffcf0b14db3393339d8",
+      "branch": "main",
+      "path": "build/source-cache-v0.4/repos/picorv32",
+      "content_status": "rtl_available",
+      "rtl_file_count": 4
+    },
+    "serv": {
+      "commit_sha": "f200eb2ed7b69ac1c6b8eddd47654522aeee5ce8",
+      "branch": "main",
+      "path": "build/source-cache-v0.4/repos/serv",
+      "content_status": "rtl_available",
+      "rtl_file_count": 18
+    },
+    "pulp_axi": {
+      "commit_sha": "4da15979747f326bde2f9869c64e587ce599772c",
+      "branch": "master",
+      "path": "build/source-cache-v0.4/repos/pulp_axi",
+      "content_status": "rtl_available",
+      "rtl_file_count": 93
+    },
+    "pulp_idma": {
+      "commit_sha": "2e0b0fe53b6f8823319e2428e2e9abc2db149b7d",
+      "branch": "master",
+      "path": "build/source-cache-v0.4/repos/pulp_idma",
+      "content_status": "rtl_available",
+      "rtl_file_count": 79
+    },
+    "ibex": {
+      "commit_sha": "8b8ee086aef72e0833b7f0493d9d33f1e4d3c8e2",
+      "branch": "master",
+      "path": "build/source-cache-v0.4/repos/ibex",
+      "content_status": "rtl_available",
+      "rtl_file_count": 652
+    },
+    "cva6": {
+      "commit_sha": "3ac6208ed0210ff66a557dd7dc4e79e34f1f2f4a",
+      "branch": "master",
+      "path": "build/source-cache-v0.4/repos/cva6",
+      "content_status": "rtl_available",
+      "rtl_file_count": 118
+    },
+    "cva6_cvfpu": {
+      "commit_sha": "355c388ed0899643d41194aed22d3bd2c09e84b3",
+      "branch": "develop",
+      "path": "build/source-cache-v0.4/repos/cva6_cvfpu",
+      "content_status": "rtl_available",
+      "rtl_file_count": 39
+    },
+    "riscv_boom": {
+      "commit_sha": "58ef2720eae13be26b3008c02b5a74ce29c61c44",
+      "branch": "master",
+      "path": "build/source-cache-v0.4/repos/riscv_boom",
+      "content_status": "rtl_available",
+      "rtl_file_count": 2
+    },
+    "litex_soc": {
+      "commit_sha": "6c793c27f94a5df3836cd5cc5a69db6160354bc9",
+      "branch": "master",
+      "path": "build/source-cache-v0.4/repos/litex_soc",
+      "content_status": "rtl_available",
+      "rtl_file_count": 8
+    },
+    "hdl_modules": {
+      "commit_sha": "8344604545b2f4f37d72e61d0320d5ff82ee62d1",
+      "branch": "main",
+      "path": "build/source-cache-v0.4/repos/hdl_modules",
+      "content_status": "rtl_available",
+      "rtl_file_count": 5
+    },
+    "ohwr_general_cores": {
+      "commit_sha": "60fe3cb954f25e34a8e8ef61da2f1cee8cbcafd1",
+      "branch": "master",
+      "path": "build/source-cache-v0.4/repos/ohwr_general_cores",
+      "content_status": "rtl_available",
+      "rtl_file_count": 58
+    },
+    "openpiton": {
+      "commit_sha": "1c6bfd2d2ea53ddd7b6f933fa2d439d1a540e207",
+      "branch": "openpiton",
+      "path": "build/source-cache-v0.4/repos/openpiton",
+      "content_status": "rtl_available",
+      "rtl_file_count": 419
+    },
+    "blackparrot": {
+      "commit_sha": "f91010f654a5dfd00f83dbe25dbda482218d540b",
+      "branch": "master",
+      "path": "build/source-cache-v0.4/repos/blackparrot",
+      "content_status": "rtl_available",
+      "rtl_file_count": 190
+    },
+    "gemmini": {
+      "commit_sha": "8c3f9923a44a2fe2c7930587be297d6d4f8c09ca",
+      "branch": "master",
+      "path": "build/source-cache-v0.4/repos/gemmini",
+      "content_status": "no_direct_rtl",
+      "rtl_file_count": 0
+    },
+    "nvdla": {
+      "commit_sha": "8e06b1b9d85aab65b40d43d08eec5ea4681ff715",
+      "branch": "nvdlav1",
+      "path": "build/source-cache-v0.4/repos/nvdla",
+      "content_status": "rtl_available",
+      "rtl_file_count": 267
+    },
+    "zipcpu": {
+      "commit_sha": "42606d2d6ef55df313772232977621b2d72f0159",
+      "branch": "master",
+      "path": "build/source-cache-v0.4/repos/zipcpu",
+      "content_status": "rtl_available",
+      "rtl_file_count": 51
+    },
+    "tech_cells_generic": {
+      "commit_sha": "55cb54513e2d426be5992d311cb9d5dbcad10c78",
+      "branch": "master",
+      "path": "build/source-cache-v0.4/repos/tech_cells_generic",
+      "content_status": "rtl_available",
+      "rtl_file_count": 17
+    },
+    "bsg_hardfloat": {
+      "commit_sha": "aaf5736dffa521603b681fd5853760c671446c85",
+      "branch": "master",
+      "path": "build/source-cache-v0.4/repos/bsg_hardfloat",
+      "content_status": "rtl_available",
+      "rtl_file_count": 45
+    }
+  },
+  "validation_input": "candidates_frozen.csv",
+  "artifacts_sha256": {
+    "sources.expanded.v0.4.json": "603509122c6712ff83127700f40a09b87b3bb4d4807ee2ee6ea8a19e568654a5",
+    "source-manifest.json": "1140c343d086fb0a957034a3cd4aa2a359b44888cbd36da8ac5c922bfcfeee79",
+    "targets.v0.4.json": "53ccf27b79f3605bbb9ff9b0aa924f758f8c768831f0b6c53fefa2c328792b5f",
+    "candidates_frozen.csv": "f70d3accfb0b08f3bf70a014abad8e69d9a482256f616e18b202f7bf03ca5e75",
+    "candidates_frozen.jsonl": "33e46659d2662d2c6da30b16b1ebdc18f06342d77671a503ae4a20700b522e1f"
+  },
+  "status": "frozen_discovery_baseline"
+}

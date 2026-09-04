@@ -1,0 +1,38 @@
+{
+  "schema": "pycircuit-rtl-sources-v0.3",
+  "license_policy": "informational_only",
+  "notes": "Wave 1 bounded scan: existing six plus PULP AXI/iDMA, Ibex, CVA6, LiteX, HDL Modules, OHWR and ZipCPU. License metadata is informational only.",
+  "sources": [
+    {
+      "project": "hdl_modules",
+      "repo": "https://gitlab.com/alex/hdl-modules.git",
+      "enabled": true,
+      "priority": "B",
+      "families": [
+        "Dataflow",
+        "Memory",
+        "Interconnect",
+        "CDC"
+      ],
+      "path_hints": [
+        "logic",
+        "lsfr"
+      ],
+      "exclude_dirs": [
+        ".git",
+        "doc",
+        "docs",
+        "test",
+        "tests",
+        "sim",
+        "build"
+      ],
+      "extensions": [
+        ".v",
+        ".sv",
+        ".vh",
+        ".svh"
+      ]
+    }
+  ]
+}

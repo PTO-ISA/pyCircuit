@@ -1,0 +1,55 @@
+schema_version: "0.6"
+
+# v0.6 separates "candidate discovery" from "benchmark capability".
+# A discovered RTL can exist in candidates_raw.csv but may not yet have a
+# correctness/synthesis adapter. That is UNSUPPORTED, not FAIL.
+
+designs:
+  cc_lzc:
+    project: pulp_common_cells
+    gap_id: INT-10
+    target_id: P0-LZC
+    design_class: leading_zero_count
+    build: true
+    lint: true
+    correctness:
+      enabled: true
+      runner: run_correctness.py
+    stateful:
+      enabled: false
+    synthesis:
+      enabled: true
+      runner: run_synthesis.py
+
+  cc_popcount:
+    project: pulp_common_cells
+    gap_id: INT-11
+    target_id: P1-POPCOUNT
+    design_class: population_count
+    build: true
+    lint: true
+    correctness:
+      enabled: true
+      runner: run_correctness.py
+    stateful:
+      enabled: false
+    synthesis:
+      enabled: true
+      runner: run_synthesis.py
+
+  cc_rr_arb_tree:
+    project: pulp_common_cells
+    gap_id: DF-09
+    target_id: P0-RR-ARBITER
+    design_class: round_robin_arbiter
+    build: true
+    lint: true
+    correctness:
+      enabled: true
+      runner: run_correctness.py
+    stateful:
+      enabled: true
+      runner: run_stateful_correctness.py
+    synthesis:
+      enabled: true
+      runner: run_synthesis.py

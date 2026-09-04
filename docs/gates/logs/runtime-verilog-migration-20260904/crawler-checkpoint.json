@@ -1,0 +1,926 @@
+{
+  "config_sha256": "ba0134a8381794ae4b25647c8be37b46fce5b1acb2f6091eb561a4b100f44a86",
+  "entries": {
+    "in-tree-pyc-runtime|fifo|pyc_fifo|7c28560e510f32f2be5ff5b6abcf283d5ac9a934": {
+      "candidate_id": "2b8f0bc70d79fcc4",
+      "candidate_key": "in-tree-pyc-runtime|fifo|pyc_fifo|7c28560e510f32f2be5ff5b6abcf283d5ac9a934",
+      "dependencies": [],
+      "files": [
+        "E:\\desktop\\GitHubProjects\\pyCircuit-PTO-ISA\\library\\verilog\\pyc_fifo.v"
+      ],
+      "module": "pyc_fifo",
+      "name": "fifo",
+      "parameters": [
+        "WIDTH",
+        "DEPTH"
+      ],
+      "ports": [
+        {
+          "direction": "input",
+          "name": "clk",
+          "width": "1"
+        },
+        {
+          "direction": "input",
+          "name": "rst",
+          "width": "1"
+        },
+        {
+          "direction": "input",
+          "name": "in_valid",
+          "width": "1"
+        },
+        {
+          "direction": "output",
+          "name": "in_ready",
+          "width": "1"
+        },
+        {
+          "direction": "input",
+          "name": "in_data",
+          "width": "[WIDTH-1:0]"
+        },
+        {
+          "direction": "output",
+          "name": "out_valid",
+          "width": "1"
+        },
+        {
+          "direction": "input",
+          "name": "out_ready",
+          "width": "1"
+        },
+        {
+          "direction": "output",
+          "name": "out_data",
+          "width": "[WIDTH-1:0]"
+        }
+      ],
+      "provenance": {
+        "commit": "7c28560e510f32f2be5ff5b6abcf283d5ac9a934",
+        "declared_commit": null,
+        "families": [],
+        "file_limit_status": "complete",
+        "ref": null,
+        "resolved_path": "E:\\desktop\\GitHubProjects\\pyCircuit-PTO-ISA\\library\\verilog",
+        "rtl_file_count": 435,
+        "source_fingerprint": "dfea3102ef652b7b",
+        "source_priority": null
+      },
+      "provider": "local",
+      "source": "in-tree-pyc-runtime",
+      "source_url": "..",
+      "status": "accepted",
+      "target_priority": null,
+      "validation": {
+        "status": "skipped",
+        "synthesis": {
+          "reason": "tool disabled",
+          "status": "skipped"
+        },
+        "verilator": {
+          "reason": "tool disabled",
+          "status": "skipped"
+        },
+        "yosys": {
+          "reason": "tool disabled",
+          "status": "skipped"
+        }
+      },
+      "validation_top": "pyc_runtime_fifo",
+      "wrapper": "E:\\desktop\\GitHubProjects\\pyCircuit-PTO-ISA\\.pycircuit_out\\gates\\runtime-verilog-migration-20260904\\crawler-scan\\verilog\\fifo.v"
+    },
+    "in-tree-pyc-runtime|popcount|pyc_popcount|7c28560e510f32f2be5ff5b6abcf283d5ac9a934": {
+      "candidate_id": "1b5acb72231526fd",
+      "candidate_key": "in-tree-pyc-runtime|popcount|pyc_popcount|7c28560e510f32f2be5ff5b6abcf283d5ac9a934",
+      "dependencies": [],
+      "files": [
+        "E:\\desktop\\GitHubProjects\\pyCircuit-PTO-ISA\\library\\verilog\\pyc_popcount.v"
+      ],
+      "module": "pyc_popcount",
+      "name": "popcount",
+      "parameters": [
+        "IN_WIDTH",
+        "OUT_WIDTH"
+      ],
+      "ports": [
+        {
+          "direction": "input",
+          "name": "in",
+          "width": "[IN_WIDTH-1:0]"
+        },
+        {
+          "direction": "output",
+          "name": "out",
+          "width": "[OUT_WIDTH-1:0]"
+        }
+      ],
+      "provenance": {
+        "commit": "7c28560e510f32f2be5ff5b6abcf283d5ac9a934",
+        "declared_commit": null,
+        "families": [],
+        "file_limit_status": "complete",
+        "ref": null,
+        "resolved_path": "E:\\desktop\\GitHubProjects\\pyCircuit-PTO-ISA\\library\\verilog",
+        "rtl_file_count": 435,
+        "source_fingerprint": "dfea3102ef652b7b",
+        "source_priority": null
+      },
+      "provider": "local",
+      "source": "in-tree-pyc-runtime",
+      "source_url": "..",
+      "status": "accepted",
+      "target_priority": null,
+      "validation": {
+        "status": "skipped",
+        "synthesis": {
+          "reason": "tool disabled",
+          "status": "skipped"
+        },
+        "verilator": {
+          "reason": "tool disabled",
+          "status": "skipped"
+        },
+        "yosys": {
+          "reason": "tool disabled",
+          "status": "skipped"
+        }
+      },
+      "validation_top": "pyc_runtime_popcount",
+      "wrapper": "E:\\desktop\\GitHubProjects\\pyCircuit-PTO-ISA\\.pycircuit_out\\gates\\runtime-verilog-migration-20260904\\crawler-scan\\verilog\\popcount.v"
+    },
+    "in-tree-pyc-runtime|register|pyc_reg|7c28560e510f32f2be5ff5b6abcf283d5ac9a934": {
+      "candidate_id": "0741d84ff323a478",
+      "candidate_key": "in-tree-pyc-runtime|register|pyc_reg|7c28560e510f32f2be5ff5b6abcf283d5ac9a934",
+      "dependencies": [],
+      "files": [
+        "E:\\desktop\\GitHubProjects\\pyCircuit-PTO-ISA\\library\\verilog\\pyc_reg.v"
+      ],
+      "module": "pyc_reg",
+      "name": "register",
+      "parameters": [
+        "WIDTH"
+      ],
+      "ports": [
+        {
+          "direction": "input",
+          "name": "clk",
+          "width": "1"
+        },
+        {
+          "direction": "input",
+          "name": "rst",
+          "width": "1"
+        },
+        {
+          "direction": "input",
+          "name": "en",
+          "width": "1"
+        },
+        {
+          "direction": "input",
+          "name": "d",
+          "width": "[WIDTH-1:0]"
+        },
+        {
+          "direction": "input",
+          "name": "init",
+          "width": "[WIDTH-1:0]"
+        },
+        {
+          "direction": "output",
+          "name": "q",
+          "width": "[WIDTH-1:0]"
+        }
+      ],
+      "provenance": {
+        "commit": "7c28560e510f32f2be5ff5b6abcf283d5ac9a934",
+        "declared_commit": null,
+        "families": [],
+        "file_limit_status": "complete",
+        "ref": null,
+        "resolved_path": "E:\\desktop\\GitHubProjects\\pyCircuit-PTO-ISA\\library\\verilog",
+        "rtl_file_count": 435,
+        "source_fingerprint": "dfea3102ef652b7b",
+        "source_priority": null
+      },
+      "provider": "local",
+      "source": "in-tree-pyc-runtime",
+      "source_url": "..",
+      "status": "accepted",
+      "target_priority": null,
+      "validation": {
+        "status": "skipped",
+        "synthesis": {
+          "reason": "tool disabled",
+          "status": "skipped"
+        },
+        "verilator": {
+          "reason": "tool disabled",
+          "status": "skipped"
+        },
+        "yosys": {
+          "reason": "tool disabled",
+          "status": "skipped"
+        }
+      },
+      "validation_top": "pyc_runtime_reg",
+      "wrapper": "E:\\desktop\\GitHubProjects\\pyCircuit-PTO-ISA\\.pycircuit_out\\gates\\runtime-verilog-migration-20260904\\crawler-scan\\verilog\\register.v"
+    },
+    "in-tree-pyc-runtime|rr-arbiter|pyc_rr_arbiter|7c28560e510f32f2be5ff5b6abcf283d5ac9a934": {
+      "candidate_id": "e1c5c28a00fa2bbd",
+      "candidate_key": "in-tree-pyc-runtime|rr-arbiter|pyc_rr_arbiter|7c28560e510f32f2be5ff5b6abcf283d5ac9a934",
+      "dependencies": [],
+      "files": [
+        "E:\\desktop\\GitHubProjects\\pyCircuit-PTO-ISA\\library\\verilog\\pyc_rr_arbiter.v"
+      ],
+      "module": "pyc_rr_arbiter",
+      "name": "rr-arbiter",
+      "parameters": [
+        "NUM_INPUTS",
+        "POINTER_WIDTH"
+      ],
+      "ports": [
+        {
+          "direction": "input",
+          "name": "req",
+          "width": "[NUM_INPUTS-1:0]"
+        },
+        {
+          "direction": "input",
+          "name": "cursor",
+          "width": "[POINTER_WIDTH-1:0]"
+        },
+        {
+          "direction": "output",
+          "name": "grant",
+          "width": "[NUM_INPUTS-1:0]"
+        }
+      ],
+      "provenance": {
+        "commit": "7c28560e510f32f2be5ff5b6abcf283d5ac9a934",
+        "declared_commit": null,
+        "families": [],
+        "file_limit_status": "complete",
+        "ref": null,
+        "resolved_path": "E:\\desktop\\GitHubProjects\\pyCircuit-PTO-ISA\\library\\verilog",
+        "rtl_file_count": 435,
+        "source_fingerprint": "dfea3102ef652b7b",
+        "source_priority": null
+      },
+      "provider": "local",
+      "source": "in-tree-pyc-runtime",
+      "source_url": "..",
+      "status": "accepted",
+      "target_priority": null,
+      "validation": {
+        "status": "skipped",
+        "synthesis": {
+          "reason": "tool disabled",
+          "status": "skipped"
+        },
+        "verilator": {
+          "reason": "tool disabled",
+          "status": "skipped"
+        },
+        "yosys": {
+          "reason": "tool disabled",
+          "status": "skipped"
+        }
+      },
+      "validation_top": "pyc_runtime_rr_arbiter",
+      "wrapper": "E:\\desktop\\GitHubProjects\\pyCircuit-PTO-ISA\\.pycircuit_out\\gates\\runtime-verilog-migration-20260904\\crawler-scan\\verilog\\rr-arbiter.v"
+    },
+    "vendored-basejump-stl|basejump-adder|bsg_adder_ripple_carry|7c28560e510f32f2be5ff5b6abcf283d5ac9a934": {
+      "candidate_id": "2268f6040fc8b692",
+      "candidate_key": "vendored-basejump-stl|basejump-adder|bsg_adder_ripple_carry|7c28560e510f32f2be5ff5b6abcf283d5ac9a934",
+      "dependencies": [],
+      "files": [
+        "E:\\desktop\\GitHubProjects\\pyCircuit-PTO-ISA\\library\\verilog\\basejump\\bsg_adder_ripple_carry.sv",
+        "E:\\desktop\\GitHubProjects\\pyCircuit-PTO-ISA\\library\\verilog\\basejump\\bsg_defines.sv"
+      ],
+      "module": "bsg_adder_ripple_carry",
+      "name": "basejump-adder",
+      "parameters": [
+        "width_p"
+      ],
+      "ports": [
+        {
+          "direction": "input",
+          "name": "a_i",
+          "width": "[width_p-1:0]"
+        },
+        {
+          "direction": "input",
+          "name": "b_i",
+          "width": "[width_p-1:0]"
+        },
+        {
+          "direction": "output",
+          "name": "s_o",
+          "width": "[width_p-1:0]"
+        },
+        {
+          "direction": "output",
+          "name": "c_o",
+          "width": "1"
+        }
+      ],
+      "provenance": {
+        "commit": "7c28560e510f32f2be5ff5b6abcf283d5ac9a934",
+        "declared_commit": null,
+        "families": [
+          "Arithmetic"
+        ],
+        "file_limit_status": "complete",
+        "license": "Solderpad-Hardware-License-0.51",
+        "ref": null,
+        "resolved_path": "E:\\desktop\\GitHubProjects\\pyCircuit-PTO-ISA\\library\\verilog\\basejump",
+        "rtl_file_count": 41,
+        "source_fingerprint": "672d98fe021d58bf",
+        "source_priority": null
+      },
+      "provider": "local",
+      "source": "vendored-basejump-stl",
+      "source_url": "../basejump",
+      "status": "accepted",
+      "target_priority": null,
+      "validation": {
+        "status": "skipped",
+        "synthesis": {
+          "reason": "tool disabled",
+          "status": "skipped"
+        },
+        "verilator": {
+          "reason": "tool disabled",
+          "status": "skipped"
+        },
+        "yosys": {
+          "reason": "tool disabled",
+          "status": "skipped"
+        }
+      },
+      "validation_top": "pyc_runtime_basejump_adder",
+      "wrapper": "E:\\desktop\\GitHubProjects\\pyCircuit-PTO-ISA\\.pycircuit_out\\gates\\runtime-verilog-migration-20260904\\crawler-scan\\verilog\\basejump-adder.v"
+    },
+    "vendored-basejump-stl|basejump-and|bsg_and|7c28560e510f32f2be5ff5b6abcf283d5ac9a934": {
+      "candidate_id": "e338cf16975940ab",
+      "candidate_key": "vendored-basejump-stl|basejump-and|bsg_and|7c28560e510f32f2be5ff5b6abcf283d5ac9a934",
+      "dependencies": [],
+      "files": [
+        "E:\\desktop\\GitHubProjects\\pyCircuit-PTO-ISA\\library\\verilog\\basejump\\bsg_and.sv",
+        "E:\\desktop\\GitHubProjects\\pyCircuit-PTO-ISA\\library\\verilog\\basejump\\bsg_defines.sv"
+      ],
+      "module": "bsg_and",
+      "name": "basejump-and",
+      "parameters": [
+        "width_p"
+      ],
+      "ports": [
+        {
+          "direction": "input",
+          "name": "a_i",
+          "width": "[width_p-1:0]"
+        },
+        {
+          "direction": "input",
+          "name": "b_i",
+          "width": "[width_p-1:0]"
+        },
+        {
+          "direction": "output",
+          "name": "o",
+          "width": "[width_p-1:0]"
+        }
+      ],
+      "provenance": {
+        "commit": "7c28560e510f32f2be5ff5b6abcf283d5ac9a934",
+        "declared_commit": null,
+        "families": [
+          "Arithmetic"
+        ],
+        "file_limit_status": "complete",
+        "license": "Solderpad-Hardware-License-0.51",
+        "ref": null,
+        "resolved_path": "E:\\desktop\\GitHubProjects\\pyCircuit-PTO-ISA\\library\\verilog\\basejump",
+        "rtl_file_count": 41,
+        "source_fingerprint": "672d98fe021d58bf",
+        "source_priority": null
+      },
+      "provider": "local",
+      "source": "vendored-basejump-stl",
+      "source_url": "../basejump",
+      "status": "accepted",
+      "target_priority": null,
+      "validation": {
+        "status": "skipped",
+        "synthesis": {
+          "reason": "tool disabled",
+          "status": "skipped"
+        },
+        "verilator": {
+          "reason": "tool disabled",
+          "status": "skipped"
+        },
+        "yosys": {
+          "reason": "tool disabled",
+          "status": "skipped"
+        }
+      },
+      "validation_top": "pyc_runtime_basejump_and",
+      "wrapper": "E:\\desktop\\GitHubProjects\\pyCircuit-PTO-ISA\\.pycircuit_out\\gates\\runtime-verilog-migration-20260904\\crawler-scan\\verilog\\basejump-and.v"
+    },
+    "vendored-basejump-stl|basejump-xor|bsg_xor|7c28560e510f32f2be5ff5b6abcf283d5ac9a934": {
+      "candidate_id": "9cd0ea68755cb79c",
+      "candidate_key": "vendored-basejump-stl|basejump-xor|bsg_xor|7c28560e510f32f2be5ff5b6abcf283d5ac9a934",
+      "dependencies": [],
+      "files": [
+        "E:\\desktop\\GitHubProjects\\pyCircuit-PTO-ISA\\library\\verilog\\basejump\\bsg_xor.sv",
+        "E:\\desktop\\GitHubProjects\\pyCircuit-PTO-ISA\\library\\verilog\\basejump\\bsg_defines.sv"
+      ],
+      "module": "bsg_xor",
+      "name": "basejump-xor",
+      "parameters": [
+        "width_p"
+      ],
+      "ports": [
+        {
+          "direction": "input",
+          "name": "a_i",
+          "width": "[width_p-1:0]"
+        },
+        {
+          "direction": "input",
+          "name": "b_i",
+          "width": "[width_p-1:0]"
+        },
+        {
+          "direction": "output",
+          "name": "o",
+          "width": "[width_p-1:0]"
+        }
+      ],
+      "provenance": {
+        "commit": "7c28560e510f32f2be5ff5b6abcf283d5ac9a934",
+        "declared_commit": null,
+        "families": [
+          "Arithmetic"
+        ],
+        "file_limit_status": "complete",
+        "license": "Solderpad-Hardware-License-0.51",
+        "ref": null,
+        "resolved_path": "E:\\desktop\\GitHubProjects\\pyCircuit-PTO-ISA\\library\\verilog\\basejump",
+        "rtl_file_count": 41,
+        "source_fingerprint": "672d98fe021d58bf",
+        "source_priority": null
+      },
+      "provider": "local",
+      "source": "vendored-basejump-stl",
+      "source_url": "../basejump",
+      "status": "accepted",
+      "target_priority": null,
+      "validation": {
+        "status": "skipped",
+        "synthesis": {
+          "reason": "tool disabled",
+          "status": "skipped"
+        },
+        "verilator": {
+          "reason": "tool disabled",
+          "status": "skipped"
+        },
+        "yosys": {
+          "reason": "tool disabled",
+          "status": "skipped"
+        }
+      },
+      "validation_top": "pyc_runtime_basejump_xor",
+      "wrapper": "E:\\desktop\\GitHubProjects\\pyCircuit-PTO-ISA\\.pycircuit_out\\gates\\runtime-verilog-migration-20260904\\crawler-scan\\verilog\\basejump-xor.v"
+    },
+    "vendored-opentitan|opentitan-max-tree|prim_max_tree|7c28560e510f32f2be5ff5b6abcf283d5ac9a934": {
+      "candidate_id": "48a513a1e55a9792",
+      "candidate_key": "vendored-opentitan|opentitan-max-tree|prim_max_tree|7c28560e510f32f2be5ff5b6abcf283d5ac9a934",
+      "dependencies": [],
+      "files": [
+        "E:\\desktop\\GitHubProjects\\pyCircuit-PTO-ISA\\library\\verilog\\opentitan\\prim_max_tree.sv",
+        "E:\\desktop\\GitHubProjects\\pyCircuit-PTO-ISA\\library\\verilog\\opentitan\\prim_assert.sv"
+      ],
+      "module": "prim_max_tree",
+      "name": "opentitan-max-tree",
+      "parameters": [
+        "NumSrc",
+        "Width"
+      ],
+      "ports": [
+        {
+          "direction": "input",
+          "name": "clk_i",
+          "width": "1"
+        },
+        {
+          "direction": "input",
+          "name": "rst_ni",
+          "width": "1"
+        },
+        {
+          "direction": "input",
+          "name": "valid_i",
+          "width": "[NumSrc-1:0]"
+        },
+        {
+          "direction": "output",
+          "name": "max_value_o",
+          "width": "[Width-1:0]"
+        },
+        {
+          "direction": "output",
+          "name": "max_idx_o",
+          "width": "[SrcWidth-1:0]"
+        },
+        {
+          "direction": "output",
+          "name": "max_valid_o",
+          "width": "1"
+        }
+      ],
+      "provenance": {
+        "commit": "7c28560e510f32f2be5ff5b6abcf283d5ac9a934",
+        "declared_commit": null,
+        "families": [
+          "Encoding"
+        ],
+        "file_limit_status": "complete",
+        "license": "Apache-2.0",
+        "ref": null,
+        "resolved_path": "E:\\desktop\\GitHubProjects\\pyCircuit-PTO-ISA\\library\\verilog\\opentitan",
+        "rtl_file_count": 20,
+        "source_fingerprint": "8d952ec97d12805d",
+        "source_priority": null
+      },
+      "provider": "local",
+      "source": "vendored-opentitan",
+      "source_url": "../opentitan",
+      "status": "accepted",
+      "target_priority": null,
+      "validation": {
+        "status": "skipped",
+        "synthesis": {
+          "reason": "tool disabled",
+          "status": "skipped"
+        },
+        "verilator": {
+          "reason": "tool disabled",
+          "status": "skipped"
+        },
+        "yosys": {
+          "reason": "tool disabled",
+          "status": "skipped"
+        }
+      },
+      "validation_top": "pyc_runtime_opentitan_max_tree",
+      "wrapper": "E:\\desktop\\GitHubProjects\\pyCircuit-PTO-ISA\\.pycircuit_out\\gates\\runtime-verilog-migration-20260904\\crawler-scan\\verilog\\opentitan-max-tree.v"
+    },
+    "vendored-opentitan|opentitan-onehot-encode|prim_onehot_enc|7c28560e510f32f2be5ff5b6abcf283d5ac9a934": {
+      "candidate_id": "882aba294e9cb3fe",
+      "candidate_key": "vendored-opentitan|opentitan-onehot-encode|prim_onehot_enc|7c28560e510f32f2be5ff5b6abcf283d5ac9a934",
+      "dependencies": [],
+      "files": [
+        "E:\\desktop\\GitHubProjects\\pyCircuit-PTO-ISA\\library\\verilog\\opentitan\\prim_onehot_enc.sv"
+      ],
+      "module": "prim_onehot_enc",
+      "name": "opentitan-onehot-encode",
+      "parameters": [
+        "OneHotWidth"
+      ],
+      "ports": [
+        {
+          "direction": "input",
+          "name": "in_i",
+          "width": "[InputWidth-1:0]"
+        },
+        {
+          "direction": "input",
+          "name": "en_i",
+          "width": "1"
+        },
+        {
+          "direction": "output",
+          "name": "out_o",
+          "width": "[OneHotWidth-1:0]"
+        }
+      ],
+      "provenance": {
+        "commit": "7c28560e510f32f2be5ff5b6abcf283d5ac9a934",
+        "declared_commit": null,
+        "families": [
+          "Encoding"
+        ],
+        "file_limit_status": "complete",
+        "license": "Apache-2.0",
+        "ref": null,
+        "resolved_path": "E:\\desktop\\GitHubProjects\\pyCircuit-PTO-ISA\\library\\verilog\\opentitan",
+        "rtl_file_count": 20,
+        "source_fingerprint": "8d952ec97d12805d",
+        "source_priority": null
+      },
+      "provider": "local",
+      "source": "vendored-opentitan",
+      "source_url": "../opentitan",
+      "status": "accepted",
+      "target_priority": null,
+      "validation": {
+        "status": "skipped",
+        "synthesis": {
+          "reason": "tool disabled",
+          "status": "skipped"
+        },
+        "verilator": {
+          "reason": "tool disabled",
+          "status": "skipped"
+        },
+        "yosys": {
+          "reason": "tool disabled",
+          "status": "skipped"
+        }
+      },
+      "validation_top": "pyc_runtime_opentitan_onehot_encode",
+      "wrapper": "E:\\desktop\\GitHubProjects\\pyCircuit-PTO-ISA\\.pycircuit_out\\gates\\runtime-verilog-migration-20260904\\crawler-scan\\verilog\\opentitan-onehot-encode.v"
+    },
+    "vendored-opentitan|opentitan-sum-tree|prim_sum_tree|7c28560e510f32f2be5ff5b6abcf283d5ac9a934": {
+      "candidate_id": "bcdfd59bf1db61f5",
+      "candidate_key": "vendored-opentitan|opentitan-sum-tree|prim_sum_tree|7c28560e510f32f2be5ff5b6abcf283d5ac9a934",
+      "dependencies": [],
+      "files": [
+        "E:\\desktop\\GitHubProjects\\pyCircuit-PTO-ISA\\library\\verilog\\opentitan\\prim_sum_tree.sv",
+        "E:\\desktop\\GitHubProjects\\pyCircuit-PTO-ISA\\library\\verilog\\opentitan\\prim_assert.sv"
+      ],
+      "module": "prim_sum_tree",
+      "name": "opentitan-sum-tree",
+      "parameters": [
+        "NumSrc",
+        "Saturate",
+        "InWidth"
+      ],
+      "ports": [
+        {
+          "direction": "input",
+          "name": "clk_i",
+          "width": "1"
+        },
+        {
+          "direction": "input",
+          "name": "rst_ni",
+          "width": "1"
+        },
+        {
+          "direction": "input",
+          "name": "valid_i",
+          "width": "[NumSrc-1:0]"
+        },
+        {
+          "direction": "output",
+          "name": "sum_value_o",
+          "width": "[OutWidth-1:0]"
+        },
+        {
+          "direction": "output",
+          "name": "sum_valid_o",
+          "width": "1"
+        }
+      ],
+      "provenance": {
+        "commit": "7c28560e510f32f2be5ff5b6abcf283d5ac9a934",
+        "declared_commit": null,
+        "families": [
+          "Encoding"
+        ],
+        "file_limit_status": "complete",
+        "license": "Apache-2.0",
+        "ref": null,
+        "resolved_path": "E:\\desktop\\GitHubProjects\\pyCircuit-PTO-ISA\\library\\verilog\\opentitan",
+        "rtl_file_count": 20,
+        "source_fingerprint": "8d952ec97d12805d",
+        "source_priority": null
+      },
+      "provider": "local",
+      "source": "vendored-opentitan",
+      "source_url": "../opentitan",
+      "status": "accepted",
+      "target_priority": null,
+      "validation": {
+        "status": "skipped",
+        "synthesis": {
+          "reason": "tool disabled",
+          "status": "skipped"
+        },
+        "verilator": {
+          "reason": "tool disabled",
+          "status": "skipped"
+        },
+        "yosys": {
+          "reason": "tool disabled",
+          "status": "skipped"
+        }
+      },
+      "validation_top": "pyc_runtime_opentitan_sum_tree",
+      "wrapper": "E:\\desktop\\GitHubProjects\\pyCircuit-PTO-ISA\\.pycircuit_out\\gates\\runtime-verilog-migration-20260904\\crawler-scan\\verilog\\opentitan-sum-tree.v"
+    },
+    "vendored-pulp-common-cells|pulp-binary-to-gray|cc_binary_to_gray|7c28560e510f32f2be5ff5b6abcf283d5ac9a934": {
+      "candidate_id": "3a0a98f59e2cc172",
+      "candidate_key": "vendored-pulp-common-cells|pulp-binary-to-gray|cc_binary_to_gray|7c28560e510f32f2be5ff5b6abcf283d5ac9a934",
+      "dependencies": [],
+      "files": [
+        "E:\\desktop\\GitHubProjects\\pyCircuit-PTO-ISA\\library\\verilog\\pulp\\cc_binary_to_gray.sv"
+      ],
+      "module": "cc_binary_to_gray",
+      "name": "pulp-binary-to-gray",
+      "parameters": [
+        "Width"
+      ],
+      "ports": [
+        {
+          "direction": "input",
+          "name": "a_i",
+          "width": "[Width-1:0]"
+        },
+        {
+          "direction": "output",
+          "name": "z_o",
+          "width": "[Width-1:0]"
+        }
+      ],
+      "provenance": {
+        "commit": "7c28560e510f32f2be5ff5b6abcf283d5ac9a934",
+        "declared_commit": null,
+        "families": [
+          "Encoding"
+        ],
+        "file_limit_status": "complete",
+        "license": "Solderpad-Hardware-License-0.51",
+        "ref": null,
+        "resolved_path": "E:\\desktop\\GitHubProjects\\pyCircuit-PTO-ISA\\library\\verilog\\pulp",
+        "rtl_file_count": 7,
+        "source_fingerprint": "b194fc1a3dba47ae",
+        "source_priority": null
+      },
+      "provider": "local",
+      "source": "vendored-pulp-common-cells",
+      "source_url": "../pulp",
+      "status": "accepted",
+      "target_priority": null,
+      "validation": {
+        "status": "skipped",
+        "synthesis": {
+          "reason": "tool disabled",
+          "status": "skipped"
+        },
+        "verilator": {
+          "reason": "tool disabled",
+          "status": "skipped"
+        },
+        "yosys": {
+          "reason": "tool disabled",
+          "status": "skipped"
+        }
+      },
+      "validation_top": "pyc_runtime_pulp_binary_to_gray",
+      "wrapper": "E:\\desktop\\GitHubProjects\\pyCircuit-PTO-ISA\\.pycircuit_out\\gates\\runtime-verilog-migration-20260904\\crawler-scan\\verilog\\pulp-binary-to-gray.v"
+    },
+    "vendored-pulp-common-cells|pulp-gray-to-binary|cc_gray_to_binary|7c28560e510f32f2be5ff5b6abcf283d5ac9a934": {
+      "candidate_id": "0146e6efd6231992",
+      "candidate_key": "vendored-pulp-common-cells|pulp-gray-to-binary|cc_gray_to_binary|7c28560e510f32f2be5ff5b6abcf283d5ac9a934",
+      "dependencies": [],
+      "files": [
+        "E:\\desktop\\GitHubProjects\\pyCircuit-PTO-ISA\\library\\verilog\\pulp\\cc_gray_to_binary.sv"
+      ],
+      "module": "cc_gray_to_binary",
+      "name": "pulp-gray-to-binary",
+      "parameters": [
+        "Width"
+      ],
+      "ports": [
+        {
+          "direction": "input",
+          "name": "a_i",
+          "width": "[Width-1:0]"
+        },
+        {
+          "direction": "output",
+          "name": "z_o",
+          "width": "[Width-1:0]"
+        }
+      ],
+      "provenance": {
+        "commit": "7c28560e510f32f2be5ff5b6abcf283d5ac9a934",
+        "declared_commit": null,
+        "families": [
+          "Encoding"
+        ],
+        "file_limit_status": "complete",
+        "license": "Solderpad-Hardware-License-0.51",
+        "ref": null,
+        "resolved_path": "E:\\desktop\\GitHubProjects\\pyCircuit-PTO-ISA\\library\\verilog\\pulp",
+        "rtl_file_count": 7,
+        "source_fingerprint": "b194fc1a3dba47ae",
+        "source_priority": null
+      },
+      "provider": "local",
+      "source": "vendored-pulp-common-cells",
+      "source_url": "../pulp",
+      "status": "accepted",
+      "target_priority": null,
+      "validation": {
+        "status": "skipped",
+        "synthesis": {
+          "reason": "tool disabled",
+          "status": "skipped"
+        },
+        "verilator": {
+          "reason": "tool disabled",
+          "status": "skipped"
+        },
+        "yosys": {
+          "reason": "tool disabled",
+          "status": "skipped"
+        }
+      },
+      "validation_top": "pyc_runtime_pulp_gray_to_binary",
+      "wrapper": "E:\\desktop\\GitHubProjects\\pyCircuit-PTO-ISA\\.pycircuit_out\\gates\\runtime-verilog-migration-20260904\\crawler-scan\\verilog\\pulp-gray-to-binary.v"
+    },
+    "vendored-verilog-axi|verilog-axi-priority-encoder|priority_encoder|7c28560e510f32f2be5ff5b6abcf283d5ac9a934": {
+      "candidate_id": "0e43fb80bf516786",
+      "candidate_key": "vendored-verilog-axi|verilog-axi-priority-encoder|priority_encoder|7c28560e510f32f2be5ff5b6abcf283d5ac9a934",
+      "dependencies": [],
+      "files": [
+        "E:\\desktop\\GitHubProjects\\pyCircuit-PTO-ISA\\library\\verilog\\verilog_axi\\priority_encoder.v"
+      ],
+      "module": "priority_encoder",
+      "name": "verilog-axi-priority-encoder",
+      "parameters": [
+        "WIDTH",
+        "LSB_HIGH_PRIORITY"
+      ],
+      "ports": [
+        {
+          "direction": "input",
+          "name": "input_unencoded",
+          "width": "[WIDTH-1:0]"
+        },
+        {
+          "direction": "output",
+          "name": "output_valid",
+          "width": "1"
+        },
+        {
+          "direction": "output",
+          "name": "output_encoded",
+          "width": "[$clog2(WIDTH)-1:0]"
+        },
+        {
+          "direction": "output",
+          "name": "output_unencoded",
+          "width": "[WIDTH-1:0]"
+        }
+      ],
+      "provenance": {
+        "commit": "7c28560e510f32f2be5ff5b6abcf283d5ac9a934",
+        "declared_commit": null,
+        "families": [
+          "Encoding",
+          "Arbitration",
+          "Interconnect"
+        ],
+        "file_limit_status": "complete",
+        "license": "MIT",
+        "ref": null,
+        "resolved_path": "E:\\desktop\\GitHubProjects\\pyCircuit-PTO-ISA\\library\\verilog\\verilog_axi",
+        "rtl_file_count": 1,
+        "source_fingerprint": "4d641ddc03880b0f",
+        "source_priority": null
+      },
+      "provider": "local",
+      "source": "vendored-verilog-axi",
+      "source_url": "../verilog_axi",
+      "status": "accepted",
+      "target_priority": null,
+      "validation": {
+        "status": "skipped",
+        "synthesis": {
+          "reason": "tool disabled",
+          "status": "skipped"
+        },
+        "verilator": {
+          "reason": "tool disabled",
+          "status": "skipped"
+        },
+        "yosys": {
+          "reason": "tool disabled",
+          "status": "skipped"
+        }
+      },
+      "validation_top": "pyc_runtime_verilog_axi_priority_encoder",
+      "wrapper": "E:\\desktop\\GitHubProjects\\pyCircuit-PTO-ISA\\.pycircuit_out\\gates\\runtime-verilog-migration-20260904\\crawler-scan\\verilog\\verilog-axi-priority-encoder.v"
+    }
+  },
+  "schema": "acir-runtime-crawler-checkpoint-v0.2"
+}

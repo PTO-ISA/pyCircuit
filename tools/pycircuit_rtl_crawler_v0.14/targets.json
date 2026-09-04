@@ -1,0 +1,4638 @@
+{
+  "schema": "pycircuit-rtl-targets-v0.3",
+  "source_document": "E:\\desktop\\pycircuit积木要求 (1).html",
+  "generated_from": "search-stage requirements HTML",
+  "target_count": 236,
+  "targets": [
+    {
+      "target_id": "CMP-01",
+      "gap_id": "CMP-01",
+      "family": "可选复合算子 / Engine 搜索目标",
+      "operation": "softmax",
+      "variant": "Max Reduction + subtract + EXP + Sum Reduction + Reciprocal",
+      "level": "L3",
+      "current": "M",
+      "priority": "P1",
+      "domain": "LLM/NPU",
+      "keywords": [
+        "softmax accelerator",
+        "softmax hardware"
+      ],
+      "search_aliases": "softmax accelerator, softmax hardware",
+      "target_kind": "composite",
+      "search_only": true,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "CMP-02",
+      "gap_id": "CMP-02",
+      "family": "可选复合算子 / Engine 搜索目标",
+      "operation": "online_streaming_softmax",
+      "variant": "streaming max/sum + rescale",
+      "level": "L3",
+      "current": "M",
+      "priority": "P1",
+      "domain": "LLM/NPU",
+      "keywords": [
+        "online softmax hardware",
+        "streaming softmax"
+      ],
+      "search_aliases": "online softmax hardware, streaming softmax",
+      "target_kind": "composite",
+      "search_only": true,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "CMP-03",
+      "gap_id": "CMP-03",
+      "family": "可选复合算子 / Engine 搜索目标",
+      "operation": "layernorm",
+      "variant": "reduction + variance + rsqrt + affine",
+      "level": "L3",
+      "current": "M",
+      "priority": "P1",
+      "domain": "LLM/NPU",
+      "keywords": [
+        "layernorm accelerator",
+        "layer normalization hardware"
+      ],
+      "search_aliases": "layernorm accelerator, layer normalization hardware",
+      "target_kind": "composite",
+      "search_only": true,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "CMP-04",
+      "gap_id": "CMP-04",
+      "family": "可选复合算子 / Engine 搜索目标",
+      "operation": "rmsnorm",
+      "variant": "square + reduction + rsqrt + scale",
+      "level": "L3",
+      "current": "M",
+      "priority": "P1",
+      "domain": "LLM/NPU",
+      "keywords": [
+        "rmsnorm accelerator",
+        "rms norm hardware"
+      ],
+      "search_aliases": "rmsnorm accelerator, rms norm hardware",
+      "target_kind": "composite",
+      "search_only": true,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "CMP-05",
+      "gap_id": "CMP-05",
+      "family": "可选复合算子 / Engine 搜索目标",
+      "operation": "swiglu",
+      "variant": "SiLU + elementwise MUL",
+      "level": "L3",
+      "current": "M",
+      "priority": "P1",
+      "domain": "LLM/NPU",
+      "keywords": [
+        "swiglu accelerator",
+        "gated activation hardware"
+      ],
+      "search_aliases": "swiglu accelerator, gated activation hardware",
+      "target_kind": "composite",
+      "search_only": true,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "CMP-06",
+      "gap_id": "CMP-06",
+      "family": "可选复合算子 / Engine 搜索目标",
+      "operation": "rope",
+      "variant": "sin/cos/rotation + vector lanes",
+      "level": "L3",
+      "current": "M",
+      "priority": "P1",
+      "domain": "LLM/NPU",
+      "keywords": [
+        "rope accelerator",
+        "rotary positional embedding hardware"
+      ],
+      "search_aliases": "rope accelerator, rotary positional embedding hardware",
+      "target_kind": "composite",
+      "search_only": true,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "CMP-07",
+      "gap_id": "CMP-07",
+      "family": "可选复合算子 / Engine 搜索目标",
+      "operation": "attention_score_engine",
+      "variant": "Q × Kᵀ",
+      "level": "L3",
+      "current": "M",
+      "priority": "P1",
+      "domain": "LLM/NPU",
+      "keywords": [
+        "attention score accelerator",
+        "qk matmul"
+      ],
+      "search_aliases": "attention score accelerator, qk matmul",
+      "target_kind": "composite",
+      "search_only": true,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "CMP-08",
+      "gap_id": "CMP-08",
+      "family": "可选复合算子 / Engine 搜索目标",
+      "operation": "attention_value_engine",
+      "variant": "P × V",
+      "level": "L3",
+      "current": "M",
+      "priority": "P1",
+      "domain": "LLM/NPU",
+      "keywords": [
+        "attention value accelerator",
+        "pv matmul"
+      ],
+      "search_aliases": "attention value accelerator, pv matmul",
+      "target_kind": "composite",
+      "search_only": true,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "CMP-09",
+      "gap_id": "CMP-09",
+      "family": "可选复合算子 / Engine 搜索目标",
+      "operation": "kv_cache_address_paging_engine",
+      "variant": "tiled/page/block addressing",
+      "level": "L3",
+      "current": "M",
+      "priority": "P1",
+      "domain": "LLM/NPU",
+      "keywords": [
+        "kv cache address generator",
+        "paged attention address"
+      ],
+      "search_aliases": "kv cache address generator, paged attention address",
+      "target_kind": "composite",
+      "search_only": true,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "CPU-01",
+      "gap_id": "CPU-01",
+      "family": "CPU Microarchitecture (CPU-Specific)",
+      "operation": "instruction_fetch_unit",
+      "variant": "PC sequencing + memory request",
+      "level": "L2",
+      "current": "M",
+      "priority": "P0",
+      "domain": "CPU",
+      "keywords": [
+        "instruction fetch",
+        "fetch unit",
+        "frontend fetch"
+      ],
+      "search_aliases": "instruction fetch, fetch unit, frontend fetch",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "CPU-02",
+      "gap_id": "CPU-02",
+      "family": "CPU Microarchitecture (CPU-Specific)",
+      "operation": "decode_control_unit",
+      "variant": "instruction → uop/control",
+      "level": "L2",
+      "current": "M",
+      "priority": "P0",
+      "domain": "CPU",
+      "keywords": [
+        "instruction decoder",
+        "decode unit",
+        "control decoder"
+      ],
+      "search_aliases": "instruction decoder, decode unit, control decoder",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "CPU-03",
+      "gap_id": "CPU-03",
+      "family": "CPU Microarchitecture (CPU-Specific)",
+      "operation": "branch_predictor",
+      "variant": "bimodal/gshare/TAGE style",
+      "level": "L2",
+      "current": "M",
+      "priority": "P1",
+      "domain": "CPU",
+      "keywords": [
+        "branch predictor",
+        "bpu",
+        "direction predictor"
+      ],
+      "search_aliases": "branch predictor, bpu, direction predictor",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "CPU-04",
+      "gap_id": "CPU-04",
+      "family": "CPU Microarchitecture (CPU-Specific)",
+      "operation": "btb",
+      "variant": "branch target buffer",
+      "level": "L2",
+      "current": "M",
+      "priority": "P1",
+      "domain": "CPU",
+      "keywords": [
+        "btb",
+        "branch target buffer"
+      ],
+      "search_aliases": "btb, branch target buffer",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "CPU-05",
+      "gap_id": "CPU-05",
+      "family": "CPU Microarchitecture (CPU-Specific)",
+      "operation": "return_address_stack",
+      "variant": "RAS",
+      "level": "L1/L2",
+      "current": "M",
+      "priority": "P1",
+      "domain": "CPU",
+      "keywords": [
+        "return address stack",
+        "ras predictor"
+      ],
+      "search_aliases": "return address stack, ras predictor",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "CPU-06",
+      "gap_id": "CPU-06",
+      "family": "CPU Microarchitecture (CPU-Specific)",
+      "operation": "branch_resolve_pc_redirect",
+      "variant": "branch execute + redirect",
+      "level": "L2",
+      "current": "M",
+      "priority": "P0",
+      "domain": "CPU",
+      "keywords": [
+        "branch unit",
+        "branch resolution",
+        "pc redirect"
+      ],
+      "search_aliases": "branch unit, branch resolution, pc redirect",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "CPU-07",
+      "gap_id": "CPU-07",
+      "family": "CPU Microarchitecture (CPU-Specific)",
+      "operation": "fetch_instruction_queue",
+      "variant": "instruction buffering",
+      "level": "L1/L2",
+      "current": "M",
+      "priority": "P1",
+      "domain": "CPU",
+      "keywords": [
+        "fetch queue",
+        "instruction queue",
+        "frontend fifo"
+      ],
+      "search_aliases": "fetch queue, instruction queue, frontend fifo",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "CPU-08",
+      "gap_id": "CPU-08",
+      "family": "CPU Microarchitecture (CPU-Specific)",
+      "operation": "scoreboard_hazard_tracker",
+      "variant": "dependency tracking",
+      "level": "L2",
+      "current": "M",
+      "priority": "P0",
+      "domain": "CPU",
+      "keywords": [
+        "scoreboard cpu",
+        "hazard tracker",
+        "dependency tracker"
+      ],
+      "search_aliases": "scoreboard cpu, hazard tracker, dependency tracker",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "CPU-09",
+      "gap_id": "CPU-09",
+      "family": "CPU Microarchitecture (CPU-Specific)",
+      "operation": "issue_queue",
+      "variant": "scheduler queue",
+      "level": "L2",
+      "current": "M",
+      "priority": "P1",
+      "domain": "CPU",
+      "keywords": [
+        "issue queue",
+        "instruction scheduler",
+        "reservation station"
+      ],
+      "search_aliases": "issue queue, instruction scheduler, reservation station",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "CPU-10",
+      "gap_id": "CPU-10",
+      "family": "CPU Microarchitecture (CPU-Specific)",
+      "operation": "wakeup_select_logic",
+      "variant": "OoO scheduling",
+      "level": "L2",
+      "current": "M",
+      "priority": "P1",
+      "domain": "CPU",
+      "keywords": [
+        "wakeup select",
+        "issue select",
+        "scheduler select"
+      ],
+      "search_aliases": "wakeup select, issue select, scheduler select",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "CPU-11",
+      "gap_id": "CPU-11",
+      "family": "CPU Microarchitecture (CPU-Specific)",
+      "operation": "reorder_buffer",
+      "variant": "ROB",
+      "level": "L2",
+      "current": "M",
+      "priority": "P1",
+      "domain": "CPU",
+      "keywords": [
+        "reorder buffer",
+        "rob cpu"
+      ],
+      "search_aliases": "reorder buffer, rob cpu",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "CPU-12",
+      "gap_id": "CPU-12",
+      "family": "CPU Microarchitecture (CPU-Specific)",
+      "operation": "register_rename_table",
+      "variant": "RAT / map table",
+      "level": "L2",
+      "current": "M",
+      "priority": "P1",
+      "domain": "CPU",
+      "keywords": [
+        "register rename",
+        "rat",
+        "rename map table"
+      ],
+      "search_aliases": "register rename, rat, rename map table",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "CPU-13",
+      "gap_id": "CPU-13",
+      "family": "CPU Microarchitecture (CPU-Specific)",
+      "operation": "physical_register_free_list",
+      "variant": "allocate/free physical regs",
+      "level": "L1/L2",
+      "current": "M",
+      "priority": "P1",
+      "domain": "CPU",
+      "keywords": [
+        "free list",
+        "physical register allocator",
+        "rename freelist"
+      ],
+      "search_aliases": "free list, physical register allocator, rename freelist",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "CPU-14",
+      "gap_id": "CPU-14",
+      "family": "CPU Microarchitecture (CPU-Specific)",
+      "operation": "load_store_unit",
+      "variant": "load/store pipeline",
+      "level": "L2",
+      "current": "M",
+      "priority": "P0",
+      "domain": "CPU",
+      "keywords": [
+        "lsu",
+        "load store unit",
+        "memory execution unit"
+      ],
+      "search_aliases": "lsu, load store unit, memory execution unit",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "CPU-15",
+      "gap_id": "CPU-15",
+      "family": "CPU Microarchitecture (CPU-Specific)",
+      "operation": "load_store_queue",
+      "variant": "LSQ",
+      "level": "L2",
+      "current": "M",
+      "priority": "P1",
+      "domain": "CPU",
+      "keywords": [
+        "load store queue",
+        "lsq"
+      ],
+      "search_aliases": "load store queue, lsq",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "CPU-16",
+      "gap_id": "CPU-16",
+      "family": "CPU Microarchitecture (CPU-Specific)",
+      "operation": "store_buffer",
+      "variant": "stores / forwarding",
+      "level": "L1/L2",
+      "current": "M",
+      "priority": "P1",
+      "domain": "CPU",
+      "keywords": [
+        "store buffer",
+        "store queue",
+        "store forwarding"
+      ],
+      "search_aliases": "store buffer, store queue, store forwarding",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "CPU-17",
+      "gap_id": "CPU-17",
+      "family": "CPU Microarchitecture (CPU-Specific)",
+      "operation": "load_replay_memory_dependency_unit",
+      "variant": "violation replay / dependence",
+      "level": "L2",
+      "current": "M",
+      "priority": "P2",
+      "domain": "CPU",
+      "keywords": [
+        "load replay",
+        "memory dependency predictor",
+        "load violation"
+      ],
+      "search_aliases": "load replay, memory dependency predictor, load violation",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "CPU-18",
+      "gap_id": "CPU-18",
+      "family": "CPU Microarchitecture (CPU-Specific)",
+      "operation": "tlb",
+      "variant": "iTLB/dTLB; set associative",
+      "level": "L2",
+      "current": "M",
+      "priority": "P1",
+      "domain": "CPU",
+      "keywords": [
+        "tlb",
+        "translation lookaside buffer"
+      ],
+      "search_aliases": "tlb, translation lookaside buffer",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "CPU-19",
+      "gap_id": "CPU-19",
+      "family": "CPU Microarchitecture (CPU-Specific)",
+      "operation": "page_table_walker",
+      "variant": "multi-level walk",
+      "level": "L2",
+      "current": "M",
+      "priority": "P1",
+      "domain": "CPU",
+      "keywords": [
+        "page table walker",
+        "ptw",
+        "mmu walker"
+      ],
+      "search_aliases": "page table walker, ptw, mmu walker",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "CPU-20",
+      "gap_id": "CPU-20",
+      "family": "CPU Microarchitecture (CPU-Specific)",
+      "operation": "csr_privilege_exception_interrupt",
+      "variant": "trap/return/state",
+      "level": "L2",
+      "current": "M",
+      "priority": "P0",
+      "domain": "CPU",
+      "keywords": [
+        "csr unit",
+        "exception unit",
+        "interrupt controller cpu",
+        "privilege unit"
+      ],
+      "search_aliases": "csr unit, exception unit, interrupt controller cpu, privilege unit",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "CPU-21",
+      "gap_id": "CPU-21",
+      "family": "CPU Microarchitecture (CPU-Specific)",
+      "operation": "commit_retire_controller",
+      "variant": "in-order or ROB retirement",
+      "level": "L2",
+      "current": "M",
+      "priority": "P0",
+      "domain": "CPU",
+      "keywords": [
+        "commit unit",
+        "retire unit",
+        "retirement controller"
+      ],
+      "search_aliases": "commit unit, retire unit, retirement controller",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "CPU-22",
+      "gap_id": "CPU-22",
+      "family": "CPU Microarchitecture (CPU-Specific)",
+      "operation": "hazard_bypass_forwarding_network",
+      "variant": "pipeline forwarding",
+      "level": "L2",
+      "current": "M",
+      "priority": "P0",
+      "domain": "CPU",
+      "keywords": [
+        "bypass network",
+        "forwarding unit",
+        "hazard unit"
+      ],
+      "search_aliases": "bypass network, forwarding unit, hazard unit",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "CPU-23",
+      "gap_id": "CPU-23",
+      "family": "CPU Microarchitecture (CPU-Specific)",
+      "operation": "hardware_prefetcher",
+      "variant": "stream/stride/next-line",
+      "level": "L2",
+      "current": "M",
+      "priority": "P2",
+      "domain": "CPU",
+      "keywords": [
+        "hardware prefetcher",
+        "stride prefetcher"
+      ],
+      "search_aliases": "hardware prefetcher, stride prefetcher",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "CPU-24",
+      "gap_id": "CPU-24",
+      "family": "CPU Microarchitecture (CPU-Specific)",
+      "operation": "vector_simd_issue_control",
+      "variant": "vector instruction dispatch",
+      "level": "L2",
+      "current": "M",
+      "priority": "P2",
+      "domain": "CPU",
+      "keywords": [
+        "vector issue",
+        "simd control",
+        "vector scheduler"
+      ],
+      "search_aliases": "vector issue, simd control, vector scheduler",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "DF-01",
+      "gap_id": "DF-01",
+      "family": "Dataflow / Queue / Arbitration",
+      "operation": "sync_fifo",
+      "variant": "ready/valid; parameterized depth",
+      "level": "L0",
+      "current": "P",
+      "priority": "P0",
+      "domain": "Generic",
+      "keywords": [
+        "sync fifo",
+        "rv fifo",
+        "elastic fifo"
+      ],
+      "search_aliases": "sync fifo, rv fifo, elastic fifo",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "DF-02",
+      "gap_id": "DF-02",
+      "family": "Dataflow / Queue / Arbitration",
+      "operation": "async_fifo",
+      "variant": "Gray-code CDC",
+      "level": "L0",
+      "current": "P",
+      "priority": "P0",
+      "domain": "Generic",
+      "keywords": [
+        "async fifo",
+        "cdc fifo",
+        "gray fifo"
+      ],
+      "search_aliases": "async fifo, cdc fifo, gray fifo",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "DF-03",
+      "gap_id": "DF-03",
+      "family": "Dataflow / Queue / Arbitration",
+      "operation": "cdc_synchronizer",
+      "variant": "single/multi-bit control",
+      "level": "L0",
+      "current": "P",
+      "priority": "P0",
+      "domain": "Generic",
+      "keywords": [
+        "cdc synchronizer",
+        "two flop synchronizer"
+      ],
+      "search_aliases": "cdc synchronizer, two flop synchronizer",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "DF-04",
+      "gap_id": "DF-04",
+      "family": "Dataflow / Queue / Arbitration",
+      "operation": "mux",
+      "variant": "parameterized",
+      "level": "L0",
+      "current": "P",
+      "priority": "P0",
+      "domain": "Generic",
+      "keywords": [
+        "mux",
+        "multiplexer",
+        "generic mux"
+      ],
+      "search_aliases": "mux, multiplexer, generic mux",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "DF-05",
+      "gap_id": "DF-05",
+      "family": "Dataflow / Queue / Arbitration",
+      "operation": "skid_buffer",
+      "variant": "ready/valid",
+      "level": "L0/L1",
+      "current": "M",
+      "priority": "P0",
+      "domain": "Generic",
+      "keywords": [
+        "skid buffer",
+        "rv skid",
+        "elastic buffer"
+      ],
+      "search_aliases": "skid buffer, rv skid, elastic buffer",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "DF-06",
+      "gap_id": "DF-06",
+      "family": "Dataflow / Queue / Arbitration",
+      "operation": "spill_register",
+      "variant": "stream register",
+      "level": "L0/L1",
+      "current": "M",
+      "priority": "P0",
+      "domain": "Generic",
+      "keywords": [
+        "spill register",
+        "stream register slice"
+      ],
+      "search_aliases": "spill register, stream register slice",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "DF-07",
+      "gap_id": "DF-07",
+      "family": "Dataflow / Queue / Arbitration",
+      "operation": "register_slice",
+      "variant": "pipeline cut; ready/valid",
+      "level": "L0/L1",
+      "current": "M",
+      "priority": "P0",
+      "domain": "Generic",
+      "keywords": [
+        "register slice",
+        "pipeline register",
+        "rv slice"
+      ],
+      "search_aliases": "register slice, pipeline register, rv slice",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "DF-08",
+      "gap_id": "DF-08",
+      "family": "Dataflow / Queue / Arbitration",
+      "operation": "elastic_pipeline",
+      "variant": "back-pressure aware",
+      "level": "L1",
+      "current": "M",
+      "priority": "P0",
+      "domain": "Generic",
+      "keywords": [
+        "elastic pipeline",
+        "handshake pipeline"
+      ],
+      "search_aliases": "elastic pipeline, handshake pipeline",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "DF-09",
+      "gap_id": "DF-09",
+      "family": "Dataflow / Queue / Arbitration",
+      "operation": "fixed_priority_arbiter",
+      "variant": "N-way",
+      "level": "L0/L1",
+      "current": "M",
+      "priority": "P0",
+      "domain": "Generic",
+      "keywords": [
+        "fixed priority arbiter",
+        "priority grant"
+      ],
+      "search_aliases": "fixed priority arbiter, priority grant",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "DF-10",
+      "gap_id": "DF-10",
+      "family": "Dataflow / Queue / Arbitration",
+      "operation": "round_robin_arbiter",
+      "variant": "N-way",
+      "level": "L0/L1",
+      "current": "M",
+      "priority": "P0",
+      "domain": "Generic",
+      "keywords": [
+        "round robin arbiter",
+        "rr arbiter"
+      ],
+      "search_aliases": "round robin arbiter, rr arbiter",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "DF-11",
+      "gap_id": "DF-11",
+      "family": "Dataflow / Queue / Arbitration",
+      "operation": "weighted_qos_arbiter",
+      "variant": "weighted RR / class priority",
+      "level": "L1/L2",
+      "current": "M",
+      "priority": "P1",
+      "domain": "NoC/Memory/XPU",
+      "keywords": [
+        "qos arbiter",
+        "weighted round robin",
+        "wrr"
+      ],
+      "search_aliases": "qos arbiter, weighted round robin, wrr",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "DF-12",
+      "gap_id": "DF-12",
+      "family": "Dataflow / Queue / Arbitration",
+      "operation": "stream_mux",
+      "variant": "ready/valid",
+      "level": "L1",
+      "current": "M",
+      "priority": "P0",
+      "domain": "Generic",
+      "keywords": [
+        "stream mux",
+        "axis mux",
+        "rv mux"
+      ],
+      "search_aliases": "stream mux, axis mux, rv mux",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "DF-13",
+      "gap_id": "DF-13",
+      "family": "Dataflow / Queue / Arbitration",
+      "operation": "stream_demux",
+      "variant": "ready/valid",
+      "level": "L1",
+      "current": "M",
+      "priority": "P0",
+      "domain": "Generic",
+      "keywords": [
+        "stream demux",
+        "axis demux",
+        "rv demux"
+      ],
+      "search_aliases": "stream demux, axis demux, rv demux",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "DF-14",
+      "gap_id": "DF-14",
+      "family": "Dataflow / Queue / Arbitration",
+      "operation": "stream_fork",
+      "variant": "ready/valid",
+      "level": "L1",
+      "current": "M",
+      "priority": "P1",
+      "domain": "Generic",
+      "keywords": [
+        "stream fork",
+        "broadcast fork"
+      ],
+      "search_aliases": "stream fork, broadcast fork",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "DF-15",
+      "gap_id": "DF-15",
+      "family": "Dataflow / Queue / Arbitration",
+      "operation": "stream_join",
+      "variant": "ready/valid",
+      "level": "L1",
+      "current": "M",
+      "priority": "P1",
+      "domain": "Generic",
+      "keywords": [
+        "stream join",
+        "rendezvous join"
+      ],
+      "search_aliases": "stream join, rendezvous join",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "DF-16",
+      "gap_id": "DF-16",
+      "family": "Dataflow / Queue / Arbitration",
+      "operation": "stream_crossbar",
+      "variant": "multi-source / multi-sink",
+      "level": "L2",
+      "current": "M",
+      "priority": "P0",
+      "domain": "Generic",
+      "keywords": [
+        "stream crossbar",
+        "rv crossbar"
+      ],
+      "search_aliases": "stream crossbar, rv crossbar",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "DF-17",
+      "gap_id": "DF-17",
+      "family": "Dataflow / Queue / Arbitration",
+      "operation": "generic_width_converter",
+      "variant": "narrow ↔ wide",
+      "level": "L1",
+      "current": "M",
+      "priority": "P0",
+      "domain": "Generic",
+      "keywords": [
+        "width converter",
+        "data width adapter",
+        "stream width converter"
+      ],
+      "search_aliases": "width converter, data width adapter, stream width converter",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "DF-18",
+      "gap_id": "DF-18",
+      "family": "Dataflow / Queue / Arbitration",
+      "operation": "gearbox_repacker",
+      "variant": "stream repacking",
+      "level": "L1",
+      "current": "M",
+      "priority": "P1",
+      "domain": "Stream/SerDes/NPU",
+      "keywords": [
+        "gearbox",
+        "stream repacker",
+        "word packer"
+      ],
+      "search_aliases": "gearbox, stream repacker, word packer",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "DF-19",
+      "gap_id": "DF-19",
+      "family": "Dataflow / Queue / Arbitration",
+      "operation": "credit_based_flow_control",
+      "variant": "credits",
+      "level": "L1/L2",
+      "current": "M",
+      "priority": "P1",
+      "domain": "NoC/GPU",
+      "keywords": [
+        "credit flow control",
+        "credit counter"
+      ],
+      "search_aliases": "credit flow control, credit counter",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "DF-20",
+      "gap_id": "DF-20",
+      "family": "Dataflow / Queue / Arbitration",
+      "operation": "broadcast_multicast",
+      "variant": "stream replication",
+      "level": "L1/L2",
+      "current": "M",
+      "priority": "P1",
+      "domain": "NPU/NoC/GPU",
+      "keywords": [
+        "multicast unit",
+        "broadcast fabric",
+        "fanout"
+      ],
+      "search_aliases": "multicast unit, broadcast fabric, fanout",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "DF-21",
+      "gap_id": "DF-21",
+      "family": "Dataflow / Queue / Arbitration",
+      "operation": "priority_command_queue",
+      "variant": "priority or tagged queue",
+      "level": "L1/L2",
+      "current": "M",
+      "priority": "P1",
+      "domain": "CPU/GPU/XPU",
+      "keywords": [
+        "priority fifo",
+        "tagged queue",
+        "command queue"
+      ],
+      "search_aliases": "priority fifo, tagged queue, command queue",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "FP-01",
+      "gap_id": "FP-01",
+      "family": "Floating-Point Arithmetic & Conversion",
+      "operation": "fp_add_sub",
+      "variant": "FP8 E4M3/E5M2, BF16, FP16, TF32, FP32",
+      "level": "L1",
+      "current": "M",
+      "priority": "P0",
+      "domain": "CPU/GPU/NPU",
+      "keywords": [
+        "floating point adder",
+        "fp addsub",
+        "ieee754 adder"
+      ],
+      "search_aliases": "floating point adder, fp addsub, ieee754 adder",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "FP-02",
+      "gap_id": "FP-02",
+      "family": "Floating-Point Arithmetic & Conversion",
+      "operation": "fp_mul",
+      "variant": "same precision sweep",
+      "level": "L1",
+      "current": "M",
+      "priority": "P0",
+      "domain": "CPU/GPU/NPU",
+      "keywords": [
+        "floating point multiplier",
+        "fp mul"
+      ],
+      "search_aliases": "floating point multiplier, fp mul",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "FP-03",
+      "gap_id": "FP-03",
+      "family": "Floating-Point Arithmetic & Conversion",
+      "operation": "fp_fma",
+      "variant": "FP8/BF16/FP16/TF32/FP32",
+      "level": "L1",
+      "current": "M",
+      "priority": "P0",
+      "domain": "CPU/GPU/NPU",
+      "keywords": [
+        "fused multiply add",
+        "fma",
+        "fmadd"
+      ],
+      "search_aliases": "fused multiply add, fma, fmadd",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "FP-04",
+      "gap_id": "FP-04",
+      "family": "Floating-Point Arithmetic & Conversion",
+      "operation": "fp_div",
+      "variant": "FP16/BF16/FP32 first",
+      "level": "L1",
+      "current": "M",
+      "priority": "P1",
+      "domain": "CPU/GPU",
+      "keywords": [
+        "floating point divider",
+        "fp div"
+      ],
+      "search_aliases": "floating point divider, fp div",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "FP-05",
+      "gap_id": "FP-05",
+      "family": "Floating-Point Arithmetic & Conversion",
+      "operation": "fp_sqrt",
+      "variant": "FP16/BF16/FP32",
+      "level": "L1",
+      "current": "M",
+      "priority": "P1",
+      "domain": "CPU/GPU",
+      "keywords": [
+        "floating point sqrt",
+        "square root unit"
+      ],
+      "search_aliases": "floating point sqrt, square root unit",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "FP-06",
+      "gap_id": "FP-06",
+      "family": "Floating-Point Arithmetic & Conversion",
+      "operation": "fp_compare",
+      "variant": "ordered/unordered; major FP",
+      "level": "L1",
+      "current": "M",
+      "priority": "P0",
+      "domain": "Generic",
+      "keywords": [
+        "fp comparator",
+        "floating compare"
+      ],
+      "search_aliases": "fp comparator, floating compare",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "FP-07",
+      "gap_id": "FP-07",
+      "family": "Floating-Point Arithmetic & Conversion",
+      "operation": "fp_min_max",
+      "variant": "NaN policy variants",
+      "level": "L1",
+      "current": "M",
+      "priority": "P0",
+      "domain": "Generic",
+      "keywords": [
+        "fp minmax",
+        "floating min max"
+      ],
+      "search_aliases": "fp minmax, floating min max",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "FP-08",
+      "gap_id": "FP-08",
+      "family": "Floating-Point Arithmetic & Conversion",
+      "operation": "sign_abs_classify",
+      "variant": "all major FP",
+      "level": "L0/L1",
+      "current": "M",
+      "priority": "P1",
+      "domain": "CPU/GPU",
+      "keywords": [
+        "fp classify",
+        "fclass",
+        "sign inject",
+        "abs"
+      ],
+      "search_aliases": "fp classify, fclass, sign inject, abs",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "FP-09",
+      "gap_id": "FP-09",
+      "family": "Floating-Point Arithmetic & Conversion",
+      "operation": "fp_fp_convert",
+      "variant": "FP4/8 ↔ FP16/BF16/FP32",
+      "level": "L1",
+      "current": "M",
+      "priority": "P0",
+      "domain": "Generic/GPU/NPU",
+      "keywords": [
+        "float converter",
+        "precision converter",
+        "fp cast"
+      ],
+      "search_aliases": "float converter, precision converter, fp cast",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "FP-10",
+      "gap_id": "FP-10",
+      "family": "Floating-Point Arithmetic & Conversion",
+      "operation": "int_fp",
+      "variant": "INT8/16/32/64 → FP",
+      "level": "L1",
+      "current": "M",
+      "priority": "P1",
+      "domain": "CPU/NPU",
+      "keywords": [
+        "int to float",
+        "i2f",
+        "sitofp",
+        "uitofp"
+      ],
+      "search_aliases": "int to float, i2f, sitofp, uitofp",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "FP-11",
+      "gap_id": "FP-11",
+      "family": "Floating-Point Arithmetic & Conversion",
+      "operation": "fp_int",
+      "variant": "FP → INT8/16/32/64",
+      "level": "L1",
+      "current": "M",
+      "priority": "P1",
+      "domain": "CPU/NPU",
+      "keywords": [
+        "float to int",
+        "f2i",
+        "fptosi",
+        "fptoui"
+      ],
+      "search_aliases": "float to int, f2i, fptosi, fptoui",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "FP-12",
+      "gap_id": "FP-12",
+      "family": "Floating-Point Arithmetic & Conversion",
+      "operation": "round_normalize",
+      "variant": "configurable rounding",
+      "level": "L1",
+      "current": "M",
+      "priority": "P0",
+      "domain": "Generic",
+      "keywords": [
+        "fp normalize",
+        "rounding unit",
+        "leading zero normalize"
+      ],
+      "search_aliases": "fp normalize, rounding unit, leading zero normalize",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "FP-13",
+      "gap_id": "FP-13",
+      "family": "Floating-Point Arithmetic & Conversion",
+      "operation": "fp_exception_flag_unit",
+      "variant": "NV/DZ/OF/UF/NX style",
+      "level": "L1",
+      "current": "M",
+      "priority": "P1",
+      "domain": "CPU/GPU",
+      "keywords": [
+        "fp exception flags",
+        "ieee754 status flags"
+      ],
+      "search_aliases": "fp exception flags, ieee754 status flags",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "FP-14",
+      "gap_id": "FP-14",
+      "family": "Floating-Point Arithmetic & Conversion",
+      "operation": "packed_fp_execution_lane",
+      "variant": "FP8/FP16/BF16 packed",
+      "level": "L2",
+      "current": "M",
+      "priority": "P1",
+      "domain": "CPU/GPU/NPU",
+      "keywords": [
+        "packed fp lane",
+        "vector floating lane",
+        "simd fp"
+      ],
+      "search_aliases": "packed fp lane, vector floating lane, simd fp",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "GPU-01",
+      "gap_id": "GPU-01",
+      "family": "GPU SIMT Microarchitecture (GPU-Specific)",
+      "operation": "command_kernel_frontend",
+      "variant": "kernel/work descriptor frontend",
+      "level": "L2",
+      "current": "M",
+      "priority": "P0",
+      "domain": "GPU",
+      "keywords": [
+        "gpu command processor",
+        "kernel dispatcher",
+        "command frontend"
+      ],
+      "search_aliases": "gpu command processor, kernel dispatcher, command frontend",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "GPU-02",
+      "gap_id": "GPU-02",
+      "family": "GPU SIMT Microarchitecture (GPU-Specific)",
+      "operation": "cta_workgroup_scheduler",
+      "variant": "block-to-core/SM allocation",
+      "level": "L2",
+      "current": "M",
+      "priority": "P0",
+      "domain": "GPU",
+      "keywords": [
+        "cta scheduler",
+        "workgroup scheduler",
+        "block scheduler"
+      ],
+      "search_aliases": "cta scheduler, workgroup scheduler, block scheduler",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "GPU-03",
+      "gap_id": "GPU-03",
+      "family": "GPU SIMT Microarchitecture (GPU-Specific)",
+      "operation": "warp_fetch_decode_pc_control",
+      "variant": "per-warp PC + instruction decode",
+      "level": "L2",
+      "current": "M",
+      "priority": "P0",
+      "domain": "GPU",
+      "keywords": [
+        "warp fetch",
+        "simt fetch",
+        "warp decoder",
+        "warp pc"
+      ],
+      "search_aliases": "warp fetch, simt fetch, warp decoder, warp pc",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "GPU-04",
+      "gap_id": "GPU-04",
+      "family": "GPU SIMT Microarchitecture (GPU-Specific)",
+      "operation": "warp_state_table",
+      "variant": "PC/mask/state/pending events",
+      "level": "L2",
+      "current": "M",
+      "priority": "P0",
+      "domain": "GPU",
+      "keywords": [
+        "warp state table",
+        "warp context table"
+      ],
+      "search_aliases": "warp state table, warp context table",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "GPU-05",
+      "gap_id": "GPU-05",
+      "family": "GPU SIMT Microarchitecture (GPU-Specific)",
+      "operation": "warp_scheduler",
+      "variant": "warp issue policy",
+      "level": "L2",
+      "current": "M",
+      "priority": "P0",
+      "domain": "GPU",
+      "keywords": [
+        "warp scheduler",
+        "simt scheduler",
+        "warp issue"
+      ],
+      "search_aliases": "warp scheduler, simt scheduler, warp issue",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "GPU-06",
+      "gap_id": "GPU-06",
+      "family": "GPU SIMT Microarchitecture (GPU-Specific)",
+      "operation": "simt_reconvergence_stack_unit",
+      "variant": "divergence handling",
+      "level": "L2",
+      "current": "M",
+      "priority": "P0",
+      "domain": "GPU",
+      "keywords": [
+        "reconvergence stack",
+        "simt stack",
+        "divergence unit"
+      ],
+      "search_aliases": "reconvergence stack, simt stack, divergence unit",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "GPU-07",
+      "gap_id": "GPU-07",
+      "family": "GPU SIMT Microarchitecture (GPU-Specific)",
+      "operation": "thread_active_mask_control",
+      "variant": "per-lane active mask",
+      "level": "L1/L2",
+      "current": "M",
+      "priority": "P0",
+      "domain": "GPU",
+      "keywords": [
+        "active mask",
+        "thread mask",
+        "simt predicate"
+      ],
+      "search_aliases": "active mask, thread mask, simt predicate",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "GPU-08",
+      "gap_id": "GPU-08",
+      "family": "GPU SIMT Microarchitecture (GPU-Specific)",
+      "operation": "gpu_scoreboard",
+      "variant": "warp dependency tracking",
+      "level": "L2",
+      "current": "M",
+      "priority": "P0",
+      "domain": "GPU",
+      "keywords": [
+        "gpu scoreboard",
+        "warp scoreboard",
+        "dependency tracker"
+      ],
+      "search_aliases": "gpu scoreboard, warp scoreboard, dependency tracker",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "GPU-09",
+      "gap_id": "GPU-09",
+      "family": "GPU SIMT Microarchitecture (GPU-Specific)",
+      "operation": "operand_collector",
+      "variant": "collect RF operands before issue",
+      "level": "L2",
+      "current": "M",
+      "priority": "P0",
+      "domain": "GPU",
+      "keywords": [
+        "operand collector",
+        "gpu operand collector"
+      ],
+      "search_aliases": "operand collector, gpu operand collector",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "GPU-10",
+      "gap_id": "GPU-10",
+      "family": "GPU SIMT Microarchitecture (GPU-Specific)",
+      "operation": "register_bank_arbiter",
+      "variant": "RF bank conflict scheduling",
+      "level": "L2",
+      "current": "M",
+      "priority": "P0",
+      "domain": "GPU",
+      "keywords": [
+        "register bank arbiter",
+        "rf bank scheduler",
+        "bank conflict"
+      ],
+      "search_aliases": "register bank arbiter, rf bank scheduler, bank conflict",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "GPU-11",
+      "gap_id": "GPU-11",
+      "family": "GPU SIMT Microarchitecture (GPU-Specific)",
+      "operation": "register_file_allocator",
+      "variant": "warp-to-register allocation/free",
+      "level": "L2",
+      "current": "M",
+      "priority": "P1",
+      "domain": "GPU",
+      "keywords": [
+        "gpu register allocator hardware",
+        "warp register allocation"
+      ],
+      "search_aliases": "gpu register allocator hardware, warp register allocation",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "GPU-12",
+      "gap_id": "GPU-12",
+      "family": "GPU SIMT Microarchitecture (GPU-Specific)",
+      "operation": "gpu_lsu",
+      "variant": "SIMT load/store",
+      "level": "L2",
+      "current": "M",
+      "priority": "P1",
+      "domain": "GPU",
+      "keywords": [
+        "gpu lsu",
+        "simt load store unit"
+      ],
+      "search_aliases": "gpu lsu, simt load store unit",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "GPU-13",
+      "gap_id": "GPU-13",
+      "family": "GPU SIMT Microarchitecture (GPU-Specific)",
+      "operation": "memory_coalescer",
+      "variant": "lane requests → transactions",
+      "level": "L2",
+      "current": "M",
+      "priority": "P0",
+      "domain": "GPU",
+      "keywords": [
+        "memory coalescer",
+        "gpu coalescing unit"
+      ],
+      "search_aliases": "memory coalescer, gpu coalescing unit",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "GPU-14",
+      "gap_id": "GPU-14",
+      "family": "GPU SIMT Microarchitecture (GPU-Specific)",
+      "operation": "shared_memory_controller",
+      "variant": "bank mapping/conflict/broadcast",
+      "level": "L2",
+      "current": "M",
+      "priority": "P1",
+      "domain": "GPU",
+      "keywords": [
+        "gpu shared memory controller",
+        "shared memory banking"
+      ],
+      "search_aliases": "gpu shared memory controller, shared memory banking",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "GPU-15",
+      "gap_id": "GPU-15",
+      "family": "GPU SIMT Microarchitecture (GPU-Specific)",
+      "operation": "warp_barrier_synchronization",
+      "variant": "CTA/warp barrier",
+      "level": "L2",
+      "current": "M",
+      "priority": "P1",
+      "domain": "GPU",
+      "keywords": [
+        "gpu barrier unit",
+        "warp barrier",
+        "cta barrier"
+      ],
+      "search_aliases": "gpu barrier unit, warp barrier, cta barrier",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "GPU-16",
+      "gap_id": "GPU-16",
+      "family": "GPU SIMT Microarchitecture (GPU-Specific)",
+      "operation": "warp_shuffle_cross_lane_collective",
+      "variant": "lane exchange",
+      "level": "L1/L2",
+      "current": "M",
+      "priority": "P1",
+      "domain": "GPU",
+      "keywords": [
+        "warp shuffle",
+        "shfl unit",
+        "lane exchange"
+      ],
+      "search_aliases": "warp shuffle, shfl unit, lane exchange",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "GPU-17",
+      "gap_id": "GPU-17",
+      "family": "GPU SIMT Microarchitecture (GPU-Specific)",
+      "operation": "vote_ballot_collective",
+      "variant": "warp-wide vote",
+      "level": "L1",
+      "current": "M",
+      "priority": "P1",
+      "domain": "GPU",
+      "keywords": [
+        "warp ballot",
+        "vote unit",
+        "ballot hardware"
+      ],
+      "search_aliases": "warp ballot, vote unit, ballot hardware",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "GPU-18",
+      "gap_id": "GPU-18",
+      "family": "GPU SIMT Microarchitecture (GPU-Specific)",
+      "operation": "sfu_issue_arbitration",
+      "variant": "special function scheduling",
+      "level": "L2",
+      "current": "M",
+      "priority": "P2",
+      "domain": "GPU",
+      "keywords": [
+        "sfu scheduler",
+        "sfu issue arbiter"
+      ],
+      "search_aliases": "sfu scheduler, sfu issue arbiter",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "GPU-19",
+      "gap_id": "GPU-19",
+      "family": "GPU SIMT Microarchitecture (GPU-Specific)",
+      "operation": "tensor_matrix_issue_controller",
+      "variant": "warp-level matrix issue",
+      "level": "L2",
+      "current": "M",
+      "priority": "P1",
+      "domain": "GPU",
+      "keywords": [
+        "tensor core scheduler",
+        "matrix issue unit"
+      ],
+      "search_aliases": "tensor core scheduler, matrix issue unit",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "GPU-20",
+      "gap_id": "GPU-20",
+      "family": "GPU SIMT Microarchitecture (GPU-Specific)",
+      "operation": "gpu_atomic_aggregator",
+      "variant": "lane aggregation before atomic",
+      "level": "L2",
+      "current": "M",
+      "priority": "P1",
+      "domain": "GPU",
+      "keywords": [
+        "atomic coalescer",
+        "gpu atomic aggregator"
+      ],
+      "search_aliases": "atomic coalescer, gpu atomic aggregator",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "GPU-21",
+      "gap_id": "GPU-21",
+      "family": "GPU SIMT Microarchitecture (GPU-Specific)",
+      "operation": "gpu_cache_memory_frontend",
+      "variant": "coalesced req → cache/fabric",
+      "level": "L2",
+      "current": "M",
+      "priority": "P0",
+      "domain": "GPU",
+      "keywords": [
+        "gpu memory frontend",
+        "l1d frontend",
+        "coalescer cache interface"
+      ],
+      "search_aliases": "gpu memory frontend, l1d frontend, coalescer cache interface",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "GPU-22",
+      "gap_id": "GPU-22",
+      "family": "GPU SIMT Microarchitecture (GPU-Specific)",
+      "operation": "warp_completion_event_tracker",
+      "variant": "done/pending/event state",
+      "level": "L1/L2",
+      "current": "M",
+      "priority": "P1",
+      "domain": "GPU",
+      "keywords": [
+        "warp completion",
+        "gpu event tracker"
+      ],
+      "search_aliases": "warp completion, gpu event tracker",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "INT-01",
+      "gap_id": "INT-01",
+      "family": "Integer / Bit / Fixed-Point",
+      "operation": "add_sub",
+      "variant": "INT8/16/32/64; arbitrary W",
+      "level": "L0",
+      "current": "P",
+      "priority": "P0",
+      "domain": "Generic/CPU/GPU/NPU",
+      "keywords": [
+        "adder",
+        "subtractor",
+        "addsub",
+        "integer alu add"
+      ],
+      "search_aliases": "adder, subtractor, addsub, integer alu add",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "INT-02",
+      "gap_id": "INT-02",
+      "family": "Integer / Bit / Fixed-Point",
+      "operation": "add_with_carry_borrow",
+      "variant": "U8/16/32/64",
+      "level": "L0",
+      "current": "M",
+      "priority": "P1",
+      "domain": "CPU/Generic",
+      "keywords": [
+        "adc",
+        "sbc",
+        "carry adder",
+        "carry chain"
+      ],
+      "search_aliases": "adc, sbc, carry adder, carry chain",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "INT-03",
+      "gap_id": "INT-03",
+      "family": "Integer / Bit / Fixed-Point",
+      "operation": "bitwise_logic",
+      "variant": "AND/OR/XOR/NOT; arbitrary W",
+      "level": "L0",
+      "current": "M",
+      "priority": "P0",
+      "domain": "Generic/CPU/GPU",
+      "keywords": [
+        "logic unit",
+        "bitwise alu",
+        "and or xor"
+      ],
+      "search_aliases": "logic unit, bitwise alu, and or xor",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "INT-04",
+      "gap_id": "INT-04",
+      "family": "Integer / Bit / Fixed-Point",
+      "operation": "compare_min_max",
+      "variant": "signed/unsigned",
+      "level": "L0",
+      "current": "M",
+      "priority": "P0",
+      "domain": "Generic",
+      "keywords": [
+        "comparator",
+        "minmax",
+        "signed compare"
+      ],
+      "search_aliases": "comparator, minmax, signed compare",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "INT-05",
+      "gap_id": "INT-05",
+      "family": "Integer / Bit / Fixed-Point",
+      "operation": "shift",
+      "variant": "logical/arithmetic; variable amount",
+      "level": "L0",
+      "current": "M",
+      "priority": "P0",
+      "domain": "Generic",
+      "keywords": [
+        "shifter",
+        "lsl",
+        "lsr",
+        "asr"
+      ],
+      "search_aliases": "shifter, lsl, lsr, asr",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "INT-06",
+      "gap_id": "INT-06",
+      "family": "Integer / Bit / Fixed-Point",
+      "operation": "rotate_funnel_shift",
+      "variant": "ROL/ROR; funnel shift",
+      "level": "L0/L1",
+      "current": "M",
+      "priority": "P1",
+      "domain": "CPU/GPU",
+      "keywords": [
+        "rotate unit",
+        "barrel rotate",
+        "funnel shifter"
+      ],
+      "search_aliases": "rotate unit, barrel rotate, funnel shifter",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "INT-07",
+      "gap_id": "INT-07",
+      "family": "Integer / Bit / Fixed-Point",
+      "operation": "barrel_shifter",
+      "variant": "32/64-bit; parameterized",
+      "level": "L1",
+      "current": "M",
+      "priority": "P0",
+      "domain": "CPU/GPU",
+      "keywords": [
+        "barrel shifter",
+        "logarithmic shifter"
+      ],
+      "search_aliases": "barrel shifter, logarithmic shifter",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "INT-08",
+      "gap_id": "INT-08",
+      "family": "Integer / Bit / Fixed-Point",
+      "operation": "mul",
+      "variant": "INT2/4/8/16/32/64",
+      "level": "L1",
+      "current": "M",
+      "priority": "P0",
+      "domain": "CPU/GPU/NPU",
+      "keywords": [
+        "integer multiplier",
+        "booth multiplier",
+        "wallace tree"
+      ],
+      "search_aliases": "integer multiplier, booth multiplier, wallace tree",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "INT-09",
+      "gap_id": "INT-09",
+      "family": "Integer / Bit / Fixed-Point",
+      "operation": "mac",
+      "variant": "INT4/8/16 → INT32/64",
+      "level": "L1",
+      "current": "M",
+      "priority": "P0",
+      "domain": "DSP/NPU/GPU",
+      "keywords": [
+        "integer mac",
+        "multiply accumulate"
+      ],
+      "search_aliases": "integer mac, multiply accumulate",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "INT-10",
+      "gap_id": "INT-10",
+      "family": "Integer / Bit / Fixed-Point",
+      "operation": "div_rem",
+      "variant": "INT32/64; signed/unsigned",
+      "level": "L1",
+      "current": "M",
+      "priority": "P1",
+      "domain": "CPU/GPU",
+      "keywords": [
+        "divider",
+        "remainder",
+        "restoring divider",
+        "srt divider"
+      ],
+      "search_aliases": "divider, remainder, restoring divider, srt divider",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "INT-11",
+      "gap_id": "INT-11",
+      "family": "Integer / Bit / Fixed-Point",
+      "operation": "clz_ctz_lzc",
+      "variant": "8–64-bit",
+      "level": "L0/L1",
+      "current": "M",
+      "priority": "P0",
+      "domain": "CPU/NPU",
+      "keywords": [
+        "leading zero counter",
+        "trailing zero count"
+      ],
+      "search_aliases": "leading zero counter, trailing zero count",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "INT-12",
+      "gap_id": "INT-12",
+      "family": "Integer / Bit / Fixed-Point",
+      "operation": "popcount",
+      "variant": "8–256-bit",
+      "level": "L0/L1",
+      "current": "M",
+      "priority": "P1",
+      "domain": "CPU/GPU",
+      "keywords": [
+        "population count",
+        "hamming weight"
+      ],
+      "search_aliases": "population count, hamming weight",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "INT-13",
+      "gap_id": "INT-13",
+      "family": "Integer / Bit / Fixed-Point",
+      "operation": "sign_zero_extend_extract",
+      "variant": "byte/half/word; bitfield",
+      "level": "L0",
+      "current": "M",
+      "priority": "P1",
+      "domain": "CPU/GPU",
+      "keywords": [
+        "sign extension",
+        "zero extension",
+        "bit extract",
+        "bitfield"
+      ],
+      "search_aliases": "sign extension, zero extension, bit extract, bitfield",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "INT-14",
+      "gap_id": "INT-14",
+      "family": "Integer / Bit / Fixed-Point",
+      "operation": "saturating_add_sub",
+      "variant": "INT8/16/32",
+      "level": "L0/L1",
+      "current": "M",
+      "priority": "P0",
+      "domain": "DSP/NPU/SIMD",
+      "keywords": [
+        "saturating arithmetic",
+        "sat add",
+        "sat sub"
+      ],
+      "search_aliases": "saturating arithmetic, sat add, sat sub",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "INT-15",
+      "gap_id": "INT-15",
+      "family": "Integer / Bit / Fixed-Point",
+      "operation": "fixed_point_mul",
+      "variant": "Qm.n × Qm.n",
+      "level": "L1",
+      "current": "M",
+      "priority": "P1",
+      "domain": "DSP/NPU",
+      "keywords": [
+        "fixed point multiplier",
+        "q format multiplier"
+      ],
+      "search_aliases": "fixed point multiplier, q format multiplier",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "INT-16",
+      "gap_id": "INT-16",
+      "family": "Integer / Bit / Fixed-Point",
+      "operation": "rounding_shift",
+      "variant": "fixed-point; selectable rounding",
+      "level": "L1",
+      "current": "M",
+      "priority": "P0",
+      "domain": "Quantized NPU",
+      "keywords": [
+        "rounding shift",
+        "rounded right shift"
+      ],
+      "search_aliases": "rounding shift, rounded right shift",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "INT-17",
+      "gap_id": "INT-17",
+      "family": "Integer / Bit / Fixed-Point",
+      "operation": "requantization",
+      "variant": "INT32 → INT8/INT4",
+      "level": "L1",
+      "current": "M",
+      "priority": "P0",
+      "domain": "NPU/LLM",
+      "keywords": [
+        "requantize",
+        "scale round saturate",
+        "quantized multiplier"
+      ],
+      "search_aliases": "requantize, scale round saturate, quantized multiplier",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "INT-18",
+      "gap_id": "INT-18",
+      "family": "Integer / Bit / Fixed-Point",
+      "operation": "priority_encoder_leading_one",
+      "variant": "N-way / vector",
+      "level": "L0/L1",
+      "current": "M",
+      "priority": "P1",
+      "domain": "CPU/GPU/Arbitration",
+      "keywords": [
+        "priority encoder",
+        "leading one detector"
+      ],
+      "search_aliases": "priority encoder, leading one detector",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "MEM-01",
+      "gap_id": "MEM-01",
+      "family": "Memory / RF / Cache / Coherence",
+      "operation": "1rw_sram_ram",
+      "variant": "parameterized",
+      "level": "L0/L1",
+      "current": "P/P+",
+      "priority": "P0",
+      "domain": "Generic",
+      "keywords": [
+        "single port ram",
+        "1rw sram",
+        "sync ram"
+      ],
+      "search_aliases": "single port ram, 1rw sram, sync ram",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "MEM-02",
+      "gap_id": "MEM-02",
+      "family": "Memory / RF / Cache / Coherence",
+      "operation": "1r1w_sram",
+      "variant": "parameterized",
+      "level": "L0/L1",
+      "current": "P/P+",
+      "priority": "P0",
+      "domain": "Generic",
+      "keywords": [
+        "simple dual port ram",
+        "1r1w sram"
+      ],
+      "search_aliases": "simple dual port ram, 1r1w sram",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "MEM-03",
+      "gap_id": "MEM-03",
+      "family": "Memory / RF / Cache / Coherence",
+      "operation": "2r1w_memory",
+      "variant": "parameterized",
+      "level": "L1",
+      "current": "P",
+      "priority": "P0",
+      "domain": "CPU/GPU",
+      "keywords": [
+        "2r1w ram",
+        "multi read ram"
+      ],
+      "search_aliases": "2r1w ram, multi read ram",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "MEM-04",
+      "gap_id": "MEM-04",
+      "family": "Memory / RF / Cache / Coherence",
+      "operation": "true_dual_port_memory",
+      "variant": "2RW",
+      "level": "L1",
+      "current": "M",
+      "priority": "P0",
+      "domain": "Generic",
+      "keywords": [
+        "true dual port ram",
+        "2rw ram"
+      ],
+      "search_aliases": "true dual port ram, 2rw ram",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "MEM-05",
+      "gap_id": "MEM-05",
+      "family": "Memory / RF / Cache / Coherence",
+      "operation": "byte_enable_memory",
+      "variant": "configurable write strobes",
+      "level": "L1",
+      "current": "P",
+      "priority": "P0",
+      "domain": "Generic",
+      "keywords": [
+        "byte enable ram",
+        "write mask memory"
+      ],
+      "search_aliases": "byte enable ram, write mask memory",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "MEM-06",
+      "gap_id": "MEM-06",
+      "family": "Memory / RF / Cache / Coherence",
+      "operation": "multi_port_register_file",
+      "variant": "2R1W / 4R2W / parameterized",
+      "level": "L2",
+      "current": "M",
+      "priority": "P0",
+      "domain": "CPU/GPU",
+      "keywords": [
+        "multiport register file",
+        "multi read write rf"
+      ],
+      "search_aliases": "multiport register file, multi read write rf",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "MEM-07",
+      "gap_id": "MEM-07",
+      "family": "Memory / RF / Cache / Coherence",
+      "operation": "banked_register_file",
+      "variant": "N banks",
+      "level": "L2",
+      "current": "M",
+      "priority": "P0",
+      "domain": "CPU/GPU",
+      "keywords": [
+        "banked register file",
+        "vector rf",
+        "gpu rf"
+      ],
+      "search_aliases": "banked register file, vector rf, gpu rf",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "MEM-08",
+      "gap_id": "MEM-08",
+      "family": "Memory / RF / Cache / Coherence",
+      "operation": "banked_scratchpad",
+      "variant": "N banks",
+      "level": "L2",
+      "current": "M",
+      "priority": "P0",
+      "domain": "GPU/NPU",
+      "keywords": [
+        "scratchpad memory",
+        "shared memory banks",
+        "local memory"
+      ],
+      "search_aliases": "scratchpad memory, shared memory banks, local memory",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "MEM-09",
+      "gap_id": "MEM-09",
+      "family": "Memory / RF / Cache / Coherence",
+      "operation": "sram_macro_wrapper",
+      "variant": "ASIC/FPGA abstraction",
+      "level": "L1/L2",
+      "current": "M",
+      "priority": "P0",
+      "domain": "Generic",
+      "keywords": [
+        "sram wrapper",
+        "memory macro wrapper",
+        "bram wrapper"
+      ],
+      "search_aliases": "sram wrapper, memory macro wrapper, bram wrapper",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "MEM-10",
+      "gap_id": "MEM-10",
+      "family": "Memory / RF / Cache / Coherence",
+      "operation": "ecc_encode_decode_wrapper",
+      "variant": "SECDED / parity",
+      "level": "L1/L2",
+      "current": "M",
+      "priority": "P1",
+      "domain": "CPU/GPU/SoC",
+      "keywords": [
+        "ecc memory",
+        "secded",
+        "ecc encoder decoder"
+      ],
+      "search_aliases": "ecc memory, secded, ecc encoder decoder",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "MEM-11",
+      "gap_id": "MEM-11",
+      "family": "Memory / RF / Cache / Coherence",
+      "operation": "cam_tag_cam",
+      "variant": "parameterized",
+      "level": "L1/L2",
+      "current": "M",
+      "priority": "P1",
+      "domain": "CPU/Network",
+      "keywords": [
+        "cam",
+        "content addressable memory",
+        "tag cam"
+      ],
+      "search_aliases": "cam, content addressable memory, tag cam",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "MEM-12",
+      "gap_id": "MEM-12",
+      "family": "Memory / RF / Cache / Coherence",
+      "operation": "multi_bank_conflict_arbiter",
+      "variant": "N ports/banks",
+      "level": "L2",
+      "current": "M",
+      "priority": "P0",
+      "domain": "GPU/NPU",
+      "keywords": [
+        "bank conflict arbiter",
+        "memory bank scheduler"
+      ],
+      "search_aliases": "bank conflict arbiter, memory bank scheduler",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "MEM-13",
+      "gap_id": "MEM-13",
+      "family": "Memory / RF / Cache / Coherence",
+      "operation": "accumulator_sram_rmw_memory",
+      "variant": "read-modify-write",
+      "level": "L2",
+      "current": "M",
+      "priority": "P1",
+      "domain": "NPU",
+      "keywords": [
+        "accumulator memory",
+        "psum buffer",
+        "rmw ram"
+      ],
+      "search_aliases": "accumulator memory, psum buffer, rmw ram",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "MEM-14",
+      "gap_id": "MEM-14",
+      "family": "Memory / RF / Cache / Coherence",
+      "operation": "cache_tag_data_array_wrapper",
+      "variant": "sets/ways/banks parameterized",
+      "level": "L1/L2",
+      "current": "M",
+      "priority": "P0",
+      "domain": "CPU/GPU",
+      "keywords": [
+        "cache tag array",
+        "cache data array",
+        "cache ram"
+      ],
+      "search_aliases": "cache tag array, cache data array, cache ram",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "MEM-15",
+      "gap_id": "MEM-15",
+      "family": "Memory / RF / Cache / Coherence",
+      "operation": "cache_controller",
+      "variant": "I-cache / D-cache / unified variants",
+      "level": "L2",
+      "current": "M",
+      "priority": "P0",
+      "domain": "CPU/GPU/XPU",
+      "keywords": [
+        "cache controller",
+        "cache refill controller",
+        "l1 cache"
+      ],
+      "search_aliases": "cache controller, cache refill controller, l1 cache",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "MEM-16",
+      "gap_id": "MEM-16",
+      "family": "Memory / RF / Cache / Coherence",
+      "operation": "mshr_miss_tracker",
+      "variant": "N outstanding misses",
+      "level": "L2",
+      "current": "M",
+      "priority": "P0",
+      "domain": "CPU/GPU",
+      "keywords": [
+        "mshr",
+        "miss status handling register",
+        "miss tracker"
+      ],
+      "search_aliases": "mshr, miss status handling register, miss tracker",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "MEM-17",
+      "gap_id": "MEM-17",
+      "family": "Memory / RF / Cache / Coherence",
+      "operation": "writeback_refill_buffer",
+      "variant": "burst / merge capable",
+      "level": "L1/L2",
+      "current": "M",
+      "priority": "P0",
+      "domain": "CPU/GPU",
+      "keywords": [
+        "writeback buffer",
+        "refill buffer",
+        "line fill buffer"
+      ],
+      "search_aliases": "writeback buffer, refill buffer, line fill buffer",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "MEM-18",
+      "gap_id": "MEM-18",
+      "family": "Memory / RF / Cache / Coherence",
+      "operation": "victim_eviction_buffer",
+      "variant": "small line buffer",
+      "level": "L1/L2",
+      "current": "M",
+      "priority": "P1",
+      "domain": "CPU/GPU",
+      "keywords": [
+        "victim buffer",
+        "eviction buffer"
+      ],
+      "search_aliases": "victim buffer, eviction buffer",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "MEM-19",
+      "gap_id": "MEM-19",
+      "family": "Memory / RF / Cache / Coherence",
+      "operation": "replacement_policy_unit",
+      "variant": "LRU/PLRU/random",
+      "level": "L1",
+      "current": "M",
+      "priority": "P1",
+      "domain": "CPU/GPU",
+      "keywords": [
+        "replacement policy",
+        "pseudo lru",
+        "plru"
+      ],
+      "search_aliases": "replacement policy, pseudo lru, plru",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "MEM-20",
+      "gap_id": "MEM-20",
+      "family": "Memory / RF / Cache / Coherence",
+      "operation": "coherence_directory",
+      "variant": "sharer/owner/state",
+      "level": "L2/L3",
+      "current": "M",
+      "priority": "P1",
+      "domain": "CPU/GPU/XPU",
+      "keywords": [
+        "coherence directory",
+        "directory controller",
+        "mesi directory"
+      ],
+      "search_aliases": "coherence directory, directory controller, mesi directory",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "MEM-21",
+      "gap_id": "MEM-21",
+      "family": "Memory / RF / Cache / Coherence",
+      "operation": "coherence_snoop_client",
+      "variant": "probe/invalidate/ack",
+      "level": "L2",
+      "current": "M",
+      "priority": "P1",
+      "domain": "CPU/GPU/XPU",
+      "keywords": [
+        "snoop client",
+        "coherence client",
+        "probe handler"
+      ],
+      "search_aliases": "snoop client, coherence client, probe handler",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "MEM-22",
+      "gap_id": "MEM-22",
+      "family": "Memory / RF / Cache / Coherence",
+      "operation": "snoop_probe_queue",
+      "variant": "ordering/retry",
+      "level": "L1/L2",
+      "current": "M",
+      "priority": "P1",
+      "domain": "CPU/GPU/XPU",
+      "keywords": [
+        "snoop queue",
+        "probe queue",
+        "coherence queue"
+      ],
+      "search_aliases": "snoop queue, probe queue, coherence queue",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "MEM-23",
+      "gap_id": "MEM-23",
+      "family": "Memory / RF / Cache / Coherence",
+      "operation": "byte_lane_align_merge",
+      "variant": "unaligned access; byte enables",
+      "level": "L1",
+      "current": "M",
+      "priority": "P1",
+      "domain": "CPU/GPU/DMA",
+      "keywords": [
+        "load store aligner",
+        "byte merge",
+        "unaligned access unit"
+      ],
+      "search_aliases": "load store aligner, byte merge, unaligned access unit",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "MEM-24",
+      "gap_id": "MEM-24",
+      "family": "Memory / RF / Cache / Coherence",
+      "operation": "memory_controller_adapter",
+      "variant": "SRAM/DDR/HBM request boundary",
+      "level": "L2",
+      "current": "M",
+      "priority": "P0",
+      "domain": "XPU/SoC",
+      "keywords": [
+        "memory controller frontend",
+        "ddr adapter",
+        "hbm interface"
+      ],
+      "search_aliases": "memory controller frontend, ddr adapter, hbm interface",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "MEM-25",
+      "gap_id": "MEM-25",
+      "family": "Memory / RF / Cache / Coherence",
+      "operation": "shared_l2_llc_slice",
+      "variant": "banked shared cache",
+      "level": "L2/L3",
+      "current": "M",
+      "priority": "P1",
+      "domain": "CPU/GPU/XPU",
+      "keywords": [
+        "llc slice",
+        "shared l2 cache",
+        "cache slice"
+      ],
+      "search_aliases": "llc slice, shared l2 cache, cache slice",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "MEM-26",
+      "gap_id": "MEM-26",
+      "family": "Memory / RF / Cache / Coherence",
+      "operation": "atomic_memory_order_unit",
+      "variant": "RMW, LR/SC, AMO, fence",
+      "level": "L2",
+      "current": "M",
+      "priority": "P1",
+      "domain": "CPU/GPU/XPU",
+      "keywords": [
+        "atomic unit",
+        "memory ordering",
+        "amo",
+        "lr sc",
+        "fence"
+      ],
+      "search_aliases": "atomic unit, memory ordering, amo, lr sc, fence",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "MEM-27",
+      "gap_id": "MEM-27",
+      "family": "Memory / RF / Cache / Coherence",
+      "operation": "write_combining_store_merge_buffer",
+      "variant": "merge partial writes",
+      "level": "L1/L2",
+      "current": "M",
+      "priority": "P2",
+      "domain": "CPU/GPU/DMA",
+      "keywords": [
+        "write combining buffer",
+        "store merge buffer"
+      ],
+      "search_aliases": "write combining buffer, store merge buffer",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "MP-01",
+      "gap_id": "MP-01",
+      "family": "Mixed-Precision MAC / Dot / Tensor Arithmetic",
+      "operation": "dot_mac",
+      "variant": "INT4×INT4 → INT32",
+      "level": "L1",
+      "current": "M",
+      "priority": "P0",
+      "domain": "GPU/NPU",
+      "keywords": [
+        "int4 dot product",
+        "low precision mac"
+      ],
+      "search_aliases": "int4 dot product, low precision mac",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "MP-02",
+      "gap_id": "MP-02",
+      "family": "Mixed-Precision MAC / Dot / Tensor Arithmetic",
+      "operation": "dot_mac",
+      "variant": "INT8×INT8 → INT32",
+      "level": "L1",
+      "current": "M",
+      "priority": "P0",
+      "domain": "GPU/NPU",
+      "keywords": [
+        "int8 dot product",
+        "dp4a",
+        "int8 mac"
+      ],
+      "search_aliases": "int8 dot product, dp4a, int8 mac",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "MP-03",
+      "gap_id": "MP-03",
+      "family": "Mixed-Precision MAC / Dot / Tensor Arithmetic",
+      "operation": "dot_mac",
+      "variant": "INT16×INT16 → INT32/64",
+      "level": "L1",
+      "current": "M",
+      "priority": "P1",
+      "domain": "DSP/NPU",
+      "keywords": [
+        "int16 dot",
+        "fixed mac"
+      ],
+      "search_aliases": "int16 dot, fixed mac",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "MP-04",
+      "gap_id": "MP-04",
+      "family": "Mixed-Precision MAC / Dot / Tensor Arithmetic",
+      "operation": "mac",
+      "variant": "FP4 E2M1×E2M1 → FP16",
+      "level": "L1",
+      "current": "M",
+      "priority": "P0",
+      "domain": "NPU/GPU",
+      "keywords": [
+        "fp4 mac",
+        "e2m1 multiplier"
+      ],
+      "search_aliases": "fp4 mac, e2m1 multiplier",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "MP-05",
+      "gap_id": "MP-05",
+      "family": "Mixed-Precision MAC / Dot / Tensor Arithmetic",
+      "operation": "mac",
+      "variant": "FP4 E2M1×E2M1 → FP32",
+      "level": "L1",
+      "current": "M",
+      "priority": "P1",
+      "domain": "NPU/GPU",
+      "keywords": [
+        "fp4 fp32 accumulate"
+      ],
+      "search_aliases": "fp4 fp32 accumulate",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "MP-06",
+      "gap_id": "MP-06",
+      "family": "Mixed-Precision MAC / Dot / Tensor Arithmetic",
+      "operation": "mac",
+      "variant": "FP8 E4M3×E4M3 → FP16",
+      "level": "L1",
+      "current": "M",
+      "priority": "P0",
+      "domain": "GPU/NPU",
+      "keywords": [
+        "fp8 e4m3 mac",
+        "fp16 accumulate"
+      ],
+      "search_aliases": "fp8 e4m3 mac, fp16 accumulate",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "MP-07",
+      "gap_id": "MP-07",
+      "family": "Mixed-Precision MAC / Dot / Tensor Arithmetic",
+      "operation": "mac",
+      "variant": "FP8 E4M3×E4M3 → FP32",
+      "level": "L1",
+      "current": "M",
+      "priority": "P0",
+      "domain": "GPU/NPU",
+      "keywords": [
+        "fp8 e4m3 fp32 accumulate"
+      ],
+      "search_aliases": "fp8 e4m3 fp32 accumulate",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "MP-08",
+      "gap_id": "MP-08",
+      "family": "Mixed-Precision MAC / Dot / Tensor Arithmetic",
+      "operation": "mac",
+      "variant": "FP8 E5M2×E5M2 → FP16/FP32",
+      "level": "L1",
+      "current": "M",
+      "priority": "P0",
+      "domain": "GPU/NPU",
+      "keywords": [
+        "fp8 e5m2 mac"
+      ],
+      "search_aliases": "fp8 e5m2 mac",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "MP-09",
+      "gap_id": "MP-09",
+      "family": "Mixed-Precision MAC / Dot / Tensor Arithmetic",
+      "operation": "mac",
+      "variant": "BF16×BF16 → FP32",
+      "level": "L1",
+      "current": "M",
+      "priority": "P0",
+      "domain": "GPU/NPU",
+      "keywords": [
+        "bf16 mac",
+        "bfloat16 fma"
+      ],
+      "search_aliases": "bf16 mac, bfloat16 fma",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "MP-10",
+      "gap_id": "MP-10",
+      "family": "Mixed-Precision MAC / Dot / Tensor Arithmetic",
+      "operation": "mac",
+      "variant": "FP16×FP16 → FP32",
+      "level": "L1",
+      "current": "M",
+      "priority": "P0",
+      "domain": "GPU/NPU",
+      "keywords": [
+        "fp16 fp32 accumulate",
+        "half precision mac"
+      ],
+      "search_aliases": "fp16 fp32 accumulate, half precision mac",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "MP-11",
+      "gap_id": "MP-11",
+      "family": "Mixed-Precision MAC / Dot / Tensor Arithmetic",
+      "operation": "mac",
+      "variant": "TF32×TF32 → FP32",
+      "level": "L1",
+      "current": "M",
+      "priority": "P0",
+      "domain": "GPU/NPU",
+      "keywords": [
+        "tf32 mac",
+        "tensorfloat32"
+      ],
+      "search_aliases": "tf32 mac, tensorfloat32",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "MP-12",
+      "gap_id": "MP-12",
+      "family": "Mixed-Precision MAC / Dot / Tensor Arithmetic",
+      "operation": "packed_dot2_4_8_16",
+      "variant": "low precision → wider ACC",
+      "level": "L1/L2",
+      "current": "M",
+      "priority": "P0",
+      "domain": "GPU/NPU",
+      "keywords": [
+        "packed dot",
+        "vector dot product",
+        "dot4",
+        "dot8"
+      ],
+      "search_aliases": "packed dot, vector dot product, dot4, dot8",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "MP-13",
+      "gap_id": "MP-13",
+      "family": "Mixed-Precision MAC / Dot / Tensor Arithmetic",
+      "operation": "reconfigurable_mac",
+      "variant": "INT/FP multi-mode",
+      "level": "L2",
+      "current": "M",
+      "priority": "P1",
+      "domain": "GPU/NPU/XPU",
+      "keywords": [
+        "multimode mac",
+        "reconfigurable tensor arithmetic"
+      ],
+      "search_aliases": "multimode mac, reconfigurable tensor arithmetic",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "NET-01",
+      "gap_id": "NET-01",
+      "family": "DMA / Bus / NoC / Fabric",
+      "operation": "1d_dma_engine",
+      "variant": "linear transfer",
+      "level": "L3",
+      "current": "M",
+      "priority": "P0",
+      "domain": "SoC/NPU/GPU",
+      "keywords": [
+        "dma engine",
+        "memcpy engine",
+        "1d dma"
+      ],
+      "search_aliases": "dma engine, memcpy engine, 1d dma",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "NET-02",
+      "gap_id": "NET-02",
+      "family": "DMA / Bus / NoC / Fabric",
+      "operation": "2d_strided_dma_engine",
+      "variant": "stride-aware",
+      "level": "L3",
+      "current": "M",
+      "priority": "P0",
+      "domain": "NPU/GPU",
+      "keywords": [
+        "2d dma",
+        "strided dma",
+        "tensor dma"
+      ],
+      "search_aliases": "2d dma, strided dma, tensor dma",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "NET-03",
+      "gap_id": "NET-03",
+      "family": "DMA / Bus / NoC / Fabric",
+      "operation": "nd_dma_engine",
+      "variant": "multi-dimensional",
+      "level": "L3",
+      "current": "M",
+      "priority": "P1",
+      "domain": "NPU/GPU",
+      "keywords": [
+        "nd dma",
+        "multidimensional dma"
+      ],
+      "search_aliases": "nd dma, multidimensional dma",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "NET-04",
+      "gap_id": "NET-04",
+      "family": "DMA / Bus / NoC / Fabric",
+      "operation": "scatter_gather_dma",
+      "variant": "descriptor list",
+      "level": "L3",
+      "current": "M",
+      "priority": "P1",
+      "domain": "SoC/GPU",
+      "keywords": [
+        "scatter gather dma",
+        "sg dma"
+      ],
+      "search_aliases": "scatter gather dma, sg dma",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "NET-05",
+      "gap_id": "NET-05",
+      "family": "DMA / Bus / NoC / Fabric",
+      "operation": "dma_descriptor_engine",
+      "variant": "queue/descriptor walker",
+      "level": "L2",
+      "current": "M",
+      "priority": "P1",
+      "domain": "DMA/XPU",
+      "keywords": [
+        "dma descriptor",
+        "descriptor engine",
+        "dma command queue"
+      ],
+      "search_aliases": "dma descriptor, descriptor engine, dma command queue",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "NET-06",
+      "gap_id": "NET-06",
+      "family": "DMA / Bus / NoC / Fabric",
+      "operation": "axi_read_master",
+      "variant": "burst read",
+      "level": "L2",
+      "current": "M",
+      "priority": "P0",
+      "domain": "SoC/NPU/GPU",
+      "keywords": [
+        "axi read master",
+        "axi dma read"
+      ],
+      "search_aliases": "axi read master, axi dma read",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "NET-07",
+      "gap_id": "NET-07",
+      "family": "DMA / Bus / NoC / Fabric",
+      "operation": "axi_write_master",
+      "variant": "burst write",
+      "level": "L2",
+      "current": "M",
+      "priority": "P0",
+      "domain": "SoC/NPU/GPU",
+      "keywords": [
+        "axi write master",
+        "axi dma write"
+      ],
+      "search_aliases": "axi write master, axi dma write",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "NET-08",
+      "gap_id": "NET-08",
+      "family": "DMA / Bus / NoC / Fabric",
+      "operation": "burst_split_merge_unit",
+      "variant": "boundary/size/burst handling",
+      "level": "L1/L2",
+      "current": "M",
+      "priority": "P0",
+      "domain": "AXI/Fabric",
+      "keywords": [
+        "axi burst splitter",
+        "burst merger",
+        "burst adapter"
+      ],
+      "search_aliases": "axi burst splitter, burst merger, burst adapter",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "NET-09",
+      "gap_id": "NET-09",
+      "family": "DMA / Bus / NoC / Fabric",
+      "operation": "outstanding_transaction_tracker",
+      "variant": "ID/order/retry tracking",
+      "level": "L2",
+      "current": "M",
+      "priority": "P0",
+      "domain": "AXI/Cache/Bridge/DMA",
+      "keywords": [
+        "outstanding tracker",
+        "transaction tracker",
+        "reorder tracker"
+      ],
+      "search_aliases": "outstanding tracker, transaction tracker, reorder tracker",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "NET-10",
+      "gap_id": "NET-10",
+      "family": "DMA / Bus / NoC / Fabric",
+      "operation": "axi_width_converter",
+      "variant": "narrow ↔ wide AXI",
+      "level": "L2",
+      "current": "M",
+      "priority": "P0",
+      "domain": "AXI",
+      "keywords": [
+        "axi width converter",
+        "axi data width adapter"
+      ],
+      "search_aliases": "axi width converter, axi data width adapter",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "NET-11",
+      "gap_id": "NET-11",
+      "family": "DMA / Bus / NoC / Fabric",
+      "operation": "axi_bus_cdc_bridge",
+      "variant": "clock crossing",
+      "level": "L2",
+      "current": "M/P",
+      "priority": "P1",
+      "domain": "AXI/Fabric",
+      "keywords": [
+        "axi cdc",
+        "bus async bridge",
+        "clock converter"
+      ],
+      "search_aliases": "axi cdc, bus async bridge, clock converter",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "NET-12",
+      "gap_id": "NET-12",
+      "family": "DMA / Bus / NoC / Fabric",
+      "operation": "axi_bus_crossbar",
+      "variant": "multi-master/slave",
+      "level": "L2",
+      "current": "M",
+      "priority": "P0",
+      "domain": "SoC/XPU",
+      "keywords": [
+        "axi crossbar",
+        "bus matrix",
+        "interconnect crossbar"
+      ],
+      "search_aliases": "axi crossbar, bus matrix, interconnect crossbar",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "NET-13",
+      "gap_id": "NET-13",
+      "family": "DMA / Bus / NoC / Fabric",
+      "operation": "address_region_decoder",
+      "variant": "address → target",
+      "level": "L1",
+      "current": "M",
+      "priority": "P0",
+      "domain": "SoC/XPU",
+      "keywords": [
+        "address decoder",
+        "region decoder",
+        "memory map decoder"
+      ],
+      "search_aliases": "address decoder, region decoder, memory map decoder",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "NET-14",
+      "gap_id": "NET-14",
+      "family": "DMA / Bus / NoC / Fabric",
+      "operation": "stream_memory_bridge",
+      "variant": "stream ↔ addressed transactions",
+      "level": "L2",
+      "current": "M",
+      "priority": "P0",
+      "domain": "NPU/GPU/SoC",
+      "keywords": [
+        "stream to memory",
+        "axis to axi",
+        "memory stream bridge"
+      ],
+      "search_aliases": "stream to memory, axis to axi, memory stream bridge",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "NET-15",
+      "gap_id": "NET-15",
+      "family": "DMA / Bus / NoC / Fabric",
+      "operation": "noc_router",
+      "variant": "packet/flit routing",
+      "level": "L2",
+      "current": "M",
+      "priority": "P1",
+      "domain": "XPU/NoC",
+      "keywords": [
+        "noc router",
+        "mesh router",
+        "wormhole router"
+      ],
+      "search_aliases": "noc router, mesh router, wormhole router",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "NET-16",
+      "gap_id": "NET-16",
+      "family": "DMA / Bus / NoC / Fabric",
+      "operation": "network_interface_ni",
+      "variant": "local request ↔ NoC packet",
+      "level": "L2",
+      "current": "M",
+      "priority": "P1",
+      "domain": "XPU/NoC",
+      "keywords": [
+        "noc network interface",
+        "tile ni",
+        "packetizer depacketizer"
+      ],
+      "search_aliases": "noc network interface, tile ni, packetizer depacketizer",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "NET-17",
+      "gap_id": "NET-17",
+      "family": "DMA / Bus / NoC / Fabric",
+      "operation": "virtual_channel_allocator",
+      "variant": "VC allocation",
+      "level": "L2",
+      "current": "M",
+      "priority": "P2",
+      "domain": "NoC",
+      "keywords": [
+        "virtual channel allocator",
+        "vc allocator",
+        "noc vc"
+      ],
+      "search_aliases": "virtual channel allocator, vc allocator, noc vc",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "NET-18",
+      "gap_id": "NET-18",
+      "family": "DMA / Bus / NoC / Fabric",
+      "operation": "switch_allocator_router_arbiter",
+      "variant": "input→output switch allocation",
+      "level": "L2",
+      "current": "M",
+      "priority": "P2",
+      "domain": "NoC",
+      "keywords": [
+        "switch allocator",
+        "noc arbiter",
+        "router allocator"
+      ],
+      "search_aliases": "switch allocator, noc arbiter, router allocator",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "NET-19",
+      "gap_id": "NET-19",
+      "family": "DMA / Bus / NoC / Fabric",
+      "operation": "credit_flow_control",
+      "variant": "flit credits",
+      "level": "L1/L2",
+      "current": "M",
+      "priority": "P1",
+      "domain": "NoC/GPU",
+      "keywords": [
+        "noc credit flow control",
+        "credit counter"
+      ],
+      "search_aliases": "noc credit flow control, credit counter",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "NET-20",
+      "gap_id": "NET-20",
+      "family": "DMA / Bus / NoC / Fabric",
+      "operation": "protocol_bridge",
+      "variant": "AXI ↔ TileLink / CHI / APB",
+      "level": "L2",
+      "current": "M",
+      "priority": "P1",
+      "domain": "SoC/XPU",
+      "keywords": [
+        "axi tilelink bridge",
+        "axi chi bridge",
+        "bus protocol bridge"
+      ],
+      "search_aliases": "axi tilelink bridge, axi chi bridge, bus protocol bridge",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "NET-21",
+      "gap_id": "NET-21",
+      "family": "DMA / Bus / NoC / Fabric",
+      "operation": "coherent_dma_frontend",
+      "variant": "snoop/coherent DMA",
+      "level": "L2/L3",
+      "current": "M",
+      "priority": "P2",
+      "domain": "CPU/GPU/XPU",
+      "keywords": [
+        "coherent dma",
+        "dma snoop",
+        "cache coherent dma"
+      ],
+      "search_aliases": "coherent dma, dma snoop, cache coherent dma",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "NET-22",
+      "gap_id": "NET-22",
+      "family": "DMA / Bus / NoC / Fabric",
+      "operation": "iommu_dma_address_translation",
+      "variant": "IOVA/TLB/page walk frontend",
+      "level": "L2/L3",
+      "current": "M",
+      "priority": "P2",
+      "domain": "XPU/SoC",
+      "keywords": [
+        "iommu",
+        "dma tlb",
+        "io address translation"
+      ],
+      "search_aliases": "iommu, dma tlb, io address translation",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "NET-23",
+      "gap_id": "NET-23",
+      "family": "DMA / Bus / NoC / Fabric",
+      "operation": "memory_request_scheduler_interleaver",
+      "variant": "bank/channel selection",
+      "level": "L2",
+      "current": "M",
+      "priority": "P1",
+      "domain": "HBM/DDR/XPU",
+      "keywords": [
+        "memory scheduler",
+        "request interleaver",
+        "bank scheduler"
+      ],
+      "search_aliases": "memory scheduler, request interleaver, bank scheduler",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "NET-24",
+      "gap_id": "NET-24",
+      "family": "DMA / Bus / NoC / Fabric",
+      "operation": "csr_mmio_bus_adapter",
+      "variant": "AXI-Lite/APB/simple reg bus",
+      "level": "L1/L2",
+      "current": "M",
+      "priority": "P1",
+      "domain": "Host/XPU",
+      "keywords": [
+        "axi lite register interface",
+        "apb bridge",
+        "csr bus adapter"
+      ],
+      "search_aliases": "axi lite register interface, apb bridge, csr bus adapter",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "NPU-01",
+      "gap_id": "NPU-01",
+      "family": "NPU / Tensor-Accelerator Microarchitecture (NPU-Specific)",
+      "operation": "scalar_mac_pe",
+      "variant": "INT/FP",
+      "level": "L1/L2",
+      "current": "M",
+      "priority": "P0",
+      "domain": "NPU",
+      "keywords": [
+        "mac processing element",
+        "scalar pe"
+      ],
+      "search_aliases": "mac processing element, scalar pe",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "NPU-02",
+      "gap_id": "NPU-02",
+      "family": "NPU / Tensor-Accelerator Microarchitecture (NPU-Specific)",
+      "operation": "dot_product_pe",
+      "variant": "dot4/8/16",
+      "level": "L1/L2",
+      "current": "M",
+      "priority": "P0",
+      "domain": "NPU",
+      "keywords": [
+        "dot product pe",
+        "vector pe",
+        "tensor pe"
+      ],
+      "search_aliases": "dot product pe, vector pe, tensor pe",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "NPU-03",
+      "gap_id": "NPU-03",
+      "family": "NPU / Tensor-Accelerator Microarchitecture (NPU-Specific)",
+      "operation": "weight_stationary_pe",
+      "variant": "parameterized",
+      "level": "L2",
+      "current": "M",
+      "priority": "P0",
+      "domain": "NPU",
+      "keywords": [
+        "weight stationary pe",
+        "ws pe"
+      ],
+      "search_aliases": "weight stationary pe, ws pe",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "NPU-04",
+      "gap_id": "NPU-04",
+      "family": "NPU / Tensor-Accelerator Microarchitecture (NPU-Specific)",
+      "operation": "output_stationary_pe",
+      "variant": "parameterized",
+      "level": "L2",
+      "current": "M",
+      "priority": "P0",
+      "domain": "NPU",
+      "keywords": [
+        "output stationary pe",
+        "os pe"
+      ],
+      "search_aliases": "output stationary pe, os pe",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "NPU-05",
+      "gap_id": "NPU-05",
+      "family": "NPU / Tensor-Accelerator Microarchitecture (NPU-Specific)",
+      "operation": "systolic_tile",
+      "variant": "2×2/4×4/...",
+      "level": "L2",
+      "current": "M",
+      "priority": "P0",
+      "domain": "NPU",
+      "keywords": [
+        "systolic tile",
+        "pe tile"
+      ],
+      "search_aliases": "systolic tile, pe tile",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "NPU-06",
+      "gap_id": "NPU-06",
+      "family": "NPU / Tensor-Accelerator Microarchitecture (NPU-Specific)",
+      "operation": "systolic_array",
+      "variant": "8×8/16×16/...",
+      "level": "L2/L3",
+      "current": "M",
+      "priority": "P0",
+      "domain": "NPU",
+      "keywords": [
+        "systolic array",
+        "matrix array",
+        "tensor array"
+      ],
+      "search_aliases": "systolic array, matrix array, tensor array",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "NPU-07",
+      "gap_id": "NPU-07",
+      "family": "NPU / Tensor-Accelerator Microarchitecture (NPU-Specific)",
+      "operation": "mesh_wavefront_pipeline",
+      "variant": "pipeline/skew between PEs",
+      "level": "L2",
+      "current": "M",
+      "priority": "P1",
+      "domain": "NPU",
+      "keywords": [
+        "mesh pipeline",
+        "wavefront pipeline",
+        "systolic pipeline"
+      ],
+      "search_aliases": "mesh pipeline, wavefront pipeline, systolic pipeline",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "NPU-08",
+      "gap_id": "NPU-08",
+      "family": "NPU / Tensor-Accelerator Microarchitecture (NPU-Specific)",
+      "operation": "input_skew_boundary_fifo",
+      "variant": "systolic edge alignment",
+      "level": "L1/L2",
+      "current": "M",
+      "priority": "P1",
+      "domain": "NPU",
+      "keywords": [
+        "input skew buffer",
+        "systolic fifo",
+        "boundary fifo"
+      ],
+      "search_aliases": "input skew buffer, systolic fifo, boundary fifo",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "NPU-09",
+      "gap_id": "NPU-09",
+      "family": "NPU / Tensor-Accelerator Microarchitecture (NPU-Specific)",
+      "operation": "accumulator_partial_sum_unit",
+      "variant": "wide psum accumulation",
+      "level": "L1/L2",
+      "current": "M",
+      "priority": "P0",
+      "domain": "NPU",
+      "keywords": [
+        "psum accumulator",
+        "accumulation unit"
+      ],
+      "search_aliases": "psum accumulator, accumulation unit",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "NPU-10",
+      "gap_id": "NPU-10",
+      "family": "NPU / Tensor-Accelerator Microarchitecture (NPU-Specific)",
+      "operation": "partial_sum_reduction_routing",
+      "variant": "tree/mesh psum movement",
+      "level": "L2",
+      "current": "M",
+      "priority": "P1",
+      "domain": "NPU",
+      "keywords": [
+        "psum network",
+        "accumulation tree",
+        "psum router"
+      ],
+      "search_aliases": "psum network, accumulation tree, psum router",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "NPU-11",
+      "gap_id": "NPU-11",
+      "family": "NPU / Tensor-Accelerator Microarchitecture (NPU-Specific)",
+      "operation": "scratchpad_controller",
+      "variant": "banked local memory",
+      "level": "L2",
+      "current": "M",
+      "priority": "P1",
+      "domain": "NPU",
+      "keywords": [
+        "scratchpad controller",
+        "local memory controller"
+      ],
+      "search_aliases": "scratchpad controller, local memory controller",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "NPU-12",
+      "gap_id": "NPU-12",
+      "family": "NPU / Tensor-Accelerator Microarchitecture (NPU-Specific)",
+      "operation": "double_buffer_ping_pong_manager",
+      "variant": "weight/activation buffers",
+      "level": "L2",
+      "current": "M",
+      "priority": "P0",
+      "domain": "NPU",
+      "keywords": [
+        "double buffer controller",
+        "ping pong buffer manager"
+      ],
+      "search_aliases": "double buffer controller, ping pong buffer manager",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "NPU-13",
+      "gap_id": "NPU-13",
+      "family": "NPU / Tensor-Accelerator Microarchitecture (NPU-Specific)",
+      "operation": "dataflow_controller",
+      "variant": "WS/OS/RS",
+      "level": "L2",
+      "current": "M",
+      "priority": "P1",
+      "domain": "NPU",
+      "keywords": [
+        "dataflow controller",
+        "accelerator controller",
+        "ws os controller"
+      ],
+      "search_aliases": "dataflow controller, accelerator controller, ws os controller",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "NPU-14",
+      "gap_id": "NPU-14",
+      "family": "NPU / Tensor-Accelerator Microarchitecture (NPU-Specific)",
+      "operation": "command_decoder",
+      "variant": "descriptor → accelerator control",
+      "level": "L2",
+      "current": "M",
+      "priority": "P0",
+      "domain": "NPU",
+      "keywords": [
+        "npu command decoder",
+        "accelerator command processor"
+      ],
+      "search_aliases": "npu command decoder, accelerator command processor",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "NPU-15",
+      "gap_id": "NPU-15",
+      "family": "NPU / Tensor-Accelerator Microarchitecture (NPU-Specific)",
+      "operation": "tiler_loop_nest_controller",
+      "variant": "tensor shape/tile/loops",
+      "level": "L2",
+      "current": "M",
+      "priority": "P0",
+      "domain": "NPU",
+      "keywords": [
+        "tiler",
+        "loop nest controller",
+        "tensor tile controller"
+      ],
+      "search_aliases": "tiler, loop nest controller, tensor tile controller",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "NPU-16",
+      "gap_id": "NPU-16",
+      "family": "NPU / Tensor-Accelerator Microarchitecture (NPU-Specific)",
+      "operation": "tensor_address_generator",
+      "variant": "stride/layout/bank address",
+      "level": "L2",
+      "current": "M",
+      "priority": "P0",
+      "domain": "NPU",
+      "keywords": [
+        "tensor address generator",
+        "agu npu",
+        "stride generator"
+      ],
+      "search_aliases": "tensor address generator, agu npu, stride generator",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "NPU-17",
+      "gap_id": "NPU-17",
+      "family": "NPU / Tensor-Accelerator Microarchitecture (NPU-Specific)",
+      "operation": "layout_transpose_engine",
+      "variant": "tile/pad/transpose/pack",
+      "level": "L1/L2",
+      "current": "M",
+      "priority": "P1",
+      "domain": "NPU",
+      "keywords": [
+        "tensor transpose engine",
+        "layout converter",
+        "tensor packer"
+      ],
+      "search_aliases": "tensor transpose engine, layout converter, tensor packer",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "NPU-18",
+      "gap_id": "NPU-18",
+      "family": "NPU / Tensor-Accelerator Microarchitecture (NPU-Specific)",
+      "operation": "operand_distributor_multicast",
+      "variant": "weight/activation fanout",
+      "level": "L2",
+      "current": "M",
+      "priority": "P0",
+      "domain": "NPU",
+      "keywords": [
+        "operand distributor",
+        "multicast network",
+        "weight broadcast"
+      ],
+      "search_aliases": "operand distributor, multicast network, weight broadcast",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "NPU-19",
+      "gap_id": "NPU-19",
+      "family": "NPU / Tensor-Accelerator Microarchitecture (NPU-Specific)",
+      "operation": "sparsity_metadata_decoder",
+      "variant": "weight/activation metadata",
+      "level": "L2",
+      "current": "M",
+      "priority": "P2",
+      "domain": "NPU",
+      "keywords": [
+        "sparsity decoder",
+        "sparse metadata decoder"
+      ],
+      "search_aliases": "sparsity decoder, sparse metadata decoder",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "NPU-20",
+      "gap_id": "NPU-20",
+      "family": "NPU / Tensor-Accelerator Microarchitecture (NPU-Specific)",
+      "operation": "zero_skip_scheduler_pe",
+      "variant": "skip zeros / sparse issue",
+      "level": "L2",
+      "current": "M",
+      "priority": "P2",
+      "domain": "NPU",
+      "keywords": [
+        "zero skipping",
+        "sparse pe",
+        "sparse scheduler"
+      ],
+      "search_aliases": "zero skipping, sparse pe, sparse scheduler",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "NPU-21",
+      "gap_id": "NPU-21",
+      "family": "NPU / Tensor-Accelerator Microarchitecture (NPU-Specific)",
+      "operation": "post_process_controller",
+      "variant": "bias/scale/activation sequencing",
+      "level": "L2",
+      "current": "M",
+      "priority": "P1",
+      "domain": "NPU",
+      "keywords": [
+        "post process unit",
+        "npu postprocessing controller"
+      ],
+      "search_aliases": "post process unit, npu postprocessing controller",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "NPU-22",
+      "gap_id": "NPU-22",
+      "family": "NPU / Tensor-Accelerator Microarchitecture (NPU-Specific)",
+      "operation": "completion_event_controller",
+      "variant": "tile done/dependency",
+      "level": "L1/L2",
+      "current": "M",
+      "priority": "P1",
+      "domain": "NPU/XPU",
+      "keywords": [
+        "accelerator completion",
+        "npu event controller"
+      ],
+      "search_aliases": "accelerator completion, npu event controller",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "RED-01",
+      "gap_id": "RED-01",
+      "family": "Reduction / Selection / Collective",
+      "operation": "sum_reduction_tree",
+      "variant": "4/8/16/32 inputs",
+      "level": "L1",
+      "current": "M",
+      "priority": "P0",
+      "domain": "GPU/NPU/LLM",
+      "keywords": [
+        "adder tree",
+        "sum reduction",
+        "reduction tree"
+      ],
+      "search_aliases": "adder tree, sum reduction, reduction tree",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "RED-02",
+      "gap_id": "RED-02",
+      "family": "Reduction / Selection / Collective",
+      "operation": "max_reduction",
+      "variant": "4–32 inputs",
+      "level": "L1",
+      "current": "M",
+      "priority": "P0",
+      "domain": "GPU/NPU/LLM",
+      "keywords": [
+        "max reduction tree",
+        "reduce max"
+      ],
+      "search_aliases": "max reduction tree, reduce max",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "RED-03",
+      "gap_id": "RED-03",
+      "family": "Reduction / Selection / Collective",
+      "operation": "min_reduction",
+      "variant": "4–32 inputs",
+      "level": "L1",
+      "current": "M",
+      "priority": "P1",
+      "domain": "Generic",
+      "keywords": [
+        "min reduction tree",
+        "reduce min"
+      ],
+      "search_aliases": "min reduction tree, reduce min",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "RED-04",
+      "gap_id": "RED-04",
+      "family": "Reduction / Selection / Collective",
+      "operation": "argmax",
+      "variant": "value + index",
+      "level": "L1/L2",
+      "current": "M",
+      "priority": "P0",
+      "domain": "GPU/NPU/LLM",
+      "keywords": [
+        "argmax tree",
+        "max with index"
+      ],
+      "search_aliases": "argmax tree, max with index",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "RED-05",
+      "gap_id": "RED-05",
+      "family": "Reduction / Selection / Collective",
+      "operation": "argmin",
+      "variant": "value + index",
+      "level": "L1/L2",
+      "current": "M",
+      "priority": "P1",
+      "domain": "Generic",
+      "keywords": [
+        "argmin tree",
+        "min with index"
+      ],
+      "search_aliases": "argmin tree, min with index",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "RED-06",
+      "gap_id": "RED-06",
+      "family": "Reduction / Selection / Collective",
+      "operation": "comparator_tree",
+      "variant": "parameterized",
+      "level": "L1",
+      "current": "M",
+      "priority": "P0",
+      "domain": "Generic",
+      "keywords": [
+        "comparison tree",
+        "tournament tree"
+      ],
+      "search_aliases": "comparison tree, tournament tree",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "RED-07",
+      "gap_id": "RED-07",
+      "family": "Reduction / Selection / Collective",
+      "operation": "popcount_reduction",
+      "variant": "vector / lanes",
+      "level": "L1",
+      "current": "M",
+      "priority": "P1",
+      "domain": "CPU/GPU",
+      "keywords": [
+        "popcount tree",
+        "bit reduction"
+      ],
+      "search_aliases": "popcount tree, bit reduction",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "RED-08",
+      "gap_id": "RED-08",
+      "family": "Reduction / Selection / Collective",
+      "operation": "and_or_xor_reduction",
+      "variant": "vector",
+      "level": "L0/L1",
+      "current": "M",
+      "priority": "P1",
+      "domain": "Generic",
+      "keywords": [
+        "logic reduction tree",
+        "reduce and or xor"
+      ],
+      "search_aliases": "logic reduction tree, reduce and or xor",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "RED-09",
+      "gap_id": "RED-09",
+      "family": "Reduction / Selection / Collective",
+      "operation": "prefix_sum_scan",
+      "variant": "tree / pipelined",
+      "level": "L2",
+      "current": "M",
+      "priority": "P1",
+      "domain": "GPU/NPU",
+      "keywords": [
+        "prefix scan",
+        "parallel prefix",
+        "inclusive scan"
+      ],
+      "search_aliases": "prefix scan, parallel prefix, inclusive scan",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "RED-10",
+      "gap_id": "RED-10",
+      "family": "Reduction / Selection / Collective",
+      "operation": "segmented_reduction",
+      "variant": "segment mask / boundary",
+      "level": "L2",
+      "current": "M",
+      "priority": "P2",
+      "domain": "GPU/NPU",
+      "keywords": [
+        "segmented reduce",
+        "grouped reduction"
+      ],
+      "search_aliases": "segmented reduce, grouped reduction",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "RED-11",
+      "gap_id": "RED-11",
+      "family": "Reduction / Selection / Collective",
+      "operation": "top_k_selection",
+      "variant": "K configurable",
+      "level": "L2/L3",
+      "current": "M",
+      "priority": "P1",
+      "domain": "LLM/NPU/GPU",
+      "keywords": [
+        "topk hardware",
+        "partial sort",
+        "selection network"
+      ],
+      "search_aliases": "topk hardware, partial sort, selection network",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "RED-12",
+      "gap_id": "RED-12",
+      "family": "Reduction / Selection / Collective",
+      "operation": "sorting_selection_network",
+      "variant": "bitonic/odd-even/small-N",
+      "level": "L2",
+      "current": "M",
+      "priority": "P2",
+      "domain": "GPU/LLM/Networking",
+      "keywords": [
+        "bitonic sorter",
+        "sorting network",
+        "selection network"
+      ],
+      "search_aliases": "bitonic sorter, sorting network, selection network",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "SFU-01",
+      "gap_id": "SFU-01",
+      "family": "Nonlinear / SFU",
+      "operation": "exp_exp2",
+      "variant": "FP16/BF16/FP32; LUT/poly/range reduction",
+      "level": "L1/L2",
+      "current": "M",
+      "priority": "P0",
+      "domain": "GPU/NPU/LLM",
+      "keywords": [
+        "exponential unit",
+        "exp2 hardware",
+        "fp exp"
+      ],
+      "search_aliases": "exponential unit, exp2 hardware, fp exp",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "SFU-02",
+      "gap_id": "SFU-02",
+      "family": "Nonlinear / SFU",
+      "operation": "log_log2",
+      "variant": "FP16/BF16/FP32",
+      "level": "L1/L2",
+      "current": "M",
+      "priority": "P1",
+      "domain": "GPU/NPU",
+      "keywords": [
+        "logarithm unit",
+        "log2 hardware"
+      ],
+      "search_aliases": "logarithm unit, log2 hardware",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "SFU-03",
+      "gap_id": "SFU-03",
+      "family": "Nonlinear / SFU",
+      "operation": "reciprocal",
+      "variant": "FP/fixed; LUT/Newton",
+      "level": "L1",
+      "current": "M",
+      "priority": "P0",
+      "domain": "GPU/NPU/LLM",
+      "keywords": [
+        "reciprocal unit",
+        "inverse hardware",
+        "newton reciprocal"
+      ],
+      "search_aliases": "reciprocal unit, inverse hardware, newton reciprocal",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "SFU-04",
+      "gap_id": "SFU-04",
+      "family": "Nonlinear / SFU",
+      "operation": "reciprocal_sqrt",
+      "variant": "FP/fixed; LUT/Newton",
+      "level": "L1",
+      "current": "M",
+      "priority": "P0",
+      "domain": "GPU/NPU/LLM",
+      "keywords": [
+        "rsqrt",
+        "reciprocal square root",
+        "inverse sqrt"
+      ],
+      "search_aliases": "rsqrt, reciprocal square root, inverse sqrt",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "SFU-05",
+      "gap_id": "SFU-05",
+      "family": "Nonlinear / SFU",
+      "operation": "sigmoid",
+      "variant": "FP/fixed; LUT/poly",
+      "level": "L1/L2",
+      "current": "M",
+      "priority": "P1",
+      "domain": "NPU/LLM",
+      "keywords": [
+        "sigmoid accelerator",
+        "logistic function hardware"
+      ],
+      "search_aliases": "sigmoid accelerator, logistic function hardware",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "SFU-06",
+      "gap_id": "SFU-06",
+      "family": "Nonlinear / SFU",
+      "operation": "tanh",
+      "variant": "FP/fixed; LUT/poly",
+      "level": "L1/L2",
+      "current": "M",
+      "priority": "P1",
+      "domain": "NPU/LLM",
+      "keywords": [
+        "tanh hardware",
+        "activation unit"
+      ],
+      "search_aliases": "tanh hardware, activation unit",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "SFU-07",
+      "gap_id": "SFU-07",
+      "family": "Nonlinear / SFU",
+      "operation": "gelu",
+      "variant": "FP16/BF16; approximate",
+      "level": "L1/L2",
+      "current": "M",
+      "priority": "P1",
+      "domain": "LLM/NPU",
+      "keywords": [
+        "gelu hardware",
+        "gelu approximation"
+      ],
+      "search_aliases": "gelu hardware, gelu approximation",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "SFU-08",
+      "gap_id": "SFU-08",
+      "family": "Nonlinear / SFU",
+      "operation": "silu_swish",
+      "variant": "FP16/BF16",
+      "level": "L1/L2",
+      "current": "M",
+      "priority": "P1",
+      "domain": "LLM/NPU",
+      "keywords": [
+        "silu hardware",
+        "swish accelerator"
+      ],
+      "search_aliases": "silu hardware, swish accelerator",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "SFU-09",
+      "gap_id": "SFU-09",
+      "family": "Nonlinear / SFU",
+      "operation": "relu_relu6_clamp",
+      "variant": "INT/FP",
+      "level": "L0/L1",
+      "current": "M",
+      "priority": "P0",
+      "domain": "NPU/GPU",
+      "keywords": [
+        "relu hardware",
+        "clamp unit",
+        "activation clamp"
+      ],
+      "search_aliases": "relu hardware, clamp unit, activation clamp",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "SFU-10",
+      "gap_id": "SFU-10",
+      "family": "Nonlinear / SFU",
+      "operation": "generic_lut_sfu",
+      "variant": "parameterized LUT",
+      "level": "L1",
+      "current": "M",
+      "priority": "P0",
+      "domain": "Generic",
+      "keywords": [
+        "lookup table function unit",
+        "lut approximation"
+      ],
+      "search_aliases": "lookup table function unit, lut approximation",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "SFU-11",
+      "gap_id": "SFU-11",
+      "family": "Nonlinear / SFU",
+      "operation": "cordic",
+      "variant": "trig / hyperbolic; fixed/FP",
+      "level": "L2",
+      "current": "M",
+      "priority": "P2",
+      "domain": "DSP/GPU/LLM",
+      "keywords": [
+        "cordic core",
+        "sin cos hardware",
+        "atan cordic"
+      ],
+      "search_aliases": "cordic core, sin cos hardware, atan cordic",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "SYS-01",
+      "gap_id": "SYS-01",
+      "family": "XPU System Control / Integration (Unique Only)",
+      "operation": "command_descriptor_queue",
+      "variant": "host/tile command buffering",
+      "level": "L2",
+      "current": "M",
+      "priority": "P0",
+      "domain": "CPU/GPU/NPU/XPU",
+      "keywords": [
+        "command queue",
+        "descriptor queue",
+        "hardware work queue"
+      ],
+      "search_aliases": "command queue, descriptor queue, hardware work queue",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "SYS-02",
+      "gap_id": "SYS-02",
+      "family": "XPU System Control / Integration (Unique Only)",
+      "operation": "dispatch_issue_controller",
+      "variant": "command → engine/tile",
+      "level": "L2",
+      "current": "M",
+      "priority": "P0",
+      "domain": "XPU",
+      "keywords": [
+        "dispatcher",
+        "engine dispatch",
+        "work distributor"
+      ],
+      "search_aliases": "dispatcher, engine dispatch, work distributor",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "SYS-03",
+      "gap_id": "SYS-03",
+      "family": "XPU System Control / Integration (Unique Only)",
+      "operation": "tile_engine_scheduler",
+      "variant": "resource/priority/dependency scheduling",
+      "level": "L2",
+      "current": "M",
+      "priority": "P0",
+      "domain": "XPU",
+      "keywords": [
+        "tile scheduler",
+        "engine scheduler",
+        "accelerator scheduler"
+      ],
+      "search_aliases": "tile scheduler, engine scheduler, accelerator scheduler",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "SYS-04",
+      "gap_id": "SYS-04",
+      "family": "XPU System Control / Integration (Unique Only)",
+      "operation": "event_barrier_fence_controller",
+      "variant": "cross-engine completion/sync",
+      "level": "L1/L2",
+      "current": "M",
+      "priority": "P1",
+      "domain": "XPU",
+      "keywords": [
+        "event controller",
+        "hardware barrier",
+        "fence controller"
+      ],
+      "search_aliases": "event controller, hardware barrier, fence controller",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "SYS-05",
+      "gap_id": "SYS-05",
+      "family": "XPU System Control / Integration (Unique Only)",
+      "operation": "doorbell_interrupt_block",
+      "variant": "MMIO notification ↔ event/irq",
+      "level": "L1",
+      "current": "M",
+      "priority": "P1",
+      "domain": "Host/XPU",
+      "keywords": [
+        "doorbell register",
+        "interrupt block",
+        "event interrupt"
+      ],
+      "search_aliases": "doorbell register, interrupt block, event interrupt",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "SYS-06",
+      "gap_id": "SYS-06",
+      "family": "XPU System Control / Integration (Unique Only)",
+      "operation": "configuration_csr_register_bank",
+      "variant": "control/status registers",
+      "level": "L1",
+      "current": "M",
+      "priority": "P1",
+      "domain": "XPU",
+      "keywords": [
+        "csr register bank",
+        "control status registers",
+        "regfile mmio"
+      ],
+      "search_aliases": "csr register bank, control status registers, regfile mmio",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "SYS-07",
+      "gap_id": "SYS-07",
+      "family": "XPU System Control / Integration (Unique Only)",
+      "operation": "clock_reset_isolation_boundary",
+      "variant": "clock/reset/enable/isolation",
+      "level": "L1",
+      "current": "M",
+      "priority": "P1",
+      "domain": "XPU/SoC",
+      "keywords": [
+        "clock reset controller",
+        "reset synchronizer",
+        "isolation cell wrapper"
+      ],
+      "search_aliases": "clock reset controller, reset synchronizer, isolation cell wrapper",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "SYS-08",
+      "gap_id": "SYS-08",
+      "family": "XPU System Control / Integration (Unique Only)",
+      "operation": "tile_shell_wrapper",
+      "variant": "standardized tile boundary",
+      "level": "L4",
+      "current": "M",
+      "priority": "P1",
+      "domain": "CPU/GPU/NPU/XPU",
+      "keywords": [
+        "tile wrapper",
+        "accelerator shell",
+        "engine wrapper"
+      ],
+      "search_aliases": "tile wrapper, accelerator shell, engine wrapper",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "SYS-09",
+      "gap_id": "SYS-09",
+      "family": "XPU System Control / Integration (Unique Only)",
+      "operation": "performance_counter_event_monitor",
+      "variant": "hardware counters/events",
+      "level": "L1/L2",
+      "current": "M",
+      "priority": "P2",
+      "domain": "CPU/GPU/NPU/XPU",
+      "keywords": [
+        "performance counter",
+        "event monitor",
+        "hardware profiler"
+      ],
+      "search_aliases": "performance counter, event monitor, hardware profiler",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "SYS-10",
+      "gap_id": "SYS-10",
+      "family": "XPU System Control / Integration (Unique Only)",
+      "operation": "error_watchdog_timeout_controller",
+      "variant": "timeout/status/fatal/recoverable",
+      "level": "L1/L2",
+      "current": "M",
+      "priority": "P2",
+      "domain": "XPU/SoC",
+      "keywords": [
+        "watchdog",
+        "timeout controller",
+        "error status block"
+      ],
+      "search_aliases": "watchdog, timeout controller, error status block",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "VEC-01",
+      "gap_id": "VEC-01",
+      "family": "Vector / SIMD / Lane Utilities",
+      "operation": "vector_simd_integer_lane",
+      "variant": "packed INT operations",
+      "level": "L2",
+      "current": "M",
+      "priority": "P0",
+      "domain": "CPU/GPU/NPU",
+      "keywords": [
+        "simd alu",
+        "vector integer lane",
+        "packed alu"
+      ],
+      "search_aliases": "simd alu, vector integer lane, packed alu",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "VEC-02",
+      "gap_id": "VEC-02",
+      "family": "Vector / SIMD / Lane Utilities",
+      "operation": "vector_simd_fp_lane",
+      "variant": "packed FP operations",
+      "level": "L2",
+      "current": "M",
+      "priority": "P0",
+      "domain": "CPU/GPU/NPU",
+      "keywords": [
+        "vector fp lane",
+        "simd floating point lane"
+      ],
+      "search_aliases": "vector fp lane, simd floating point lane",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "VEC-03",
+      "gap_id": "VEC-03",
+      "family": "Vector / SIMD / Lane Utilities",
+      "operation": "lane_mask_predication",
+      "variant": "per-lane enable/mask",
+      "level": "L1/L2",
+      "current": "M",
+      "priority": "P0",
+      "domain": "CPU/GPU",
+      "keywords": [
+        "predicate mask",
+        "vector mask",
+        "lane enable"
+      ],
+      "search_aliases": "predicate mask, vector mask, lane enable",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "VEC-04",
+      "gap_id": "VEC-04",
+      "family": "Vector / SIMD / Lane Utilities",
+      "operation": "lane_permute_shuffle",
+      "variant": "cross-lane permutation",
+      "level": "L1/L2",
+      "current": "M",
+      "priority": "P1",
+      "domain": "CPU/GPU",
+      "keywords": [
+        "vector shuffle",
+        "lane permute",
+        "crossbar shuffle"
+      ],
+      "search_aliases": "vector shuffle, lane permute, crossbar shuffle",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "VEC-05",
+      "gap_id": "VEC-05",
+      "family": "Vector / SIMD / Lane Utilities",
+      "operation": "pack_unpack_widen_narrow",
+      "variant": "lane format conversion",
+      "level": "L1",
+      "current": "M",
+      "priority": "P1",
+      "domain": "CPU/GPU/NPU",
+      "keywords": [
+        "vector pack",
+        "unpack",
+        "widen",
+        "narrow"
+      ],
+      "search_aliases": "vector pack, unpack, widen, narrow",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "VEC-06",
+      "gap_id": "VEC-06",
+      "family": "Vector / SIMD / Lane Utilities",
+      "operation": "vector_saturate_clip",
+      "variant": "per-lane saturation",
+      "level": "L1",
+      "current": "M",
+      "priority": "P1",
+      "domain": "DSP/NPU/CPU",
+      "keywords": [
+        "vector saturate",
+        "clip lanes"
+      ],
+      "search_aliases": "vector saturate, clip lanes",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "VEC-07",
+      "gap_id": "VEC-07",
+      "family": "Vector / SIMD / Lane Utilities",
+      "operation": "vector_reduction_wrapper",
+      "variant": "lane → scalar/tree",
+      "level": "L2",
+      "current": "M",
+      "priority": "P1",
+      "domain": "CPU/GPU/NPU",
+      "keywords": [
+        "vector reduce",
+        "simd reduction wrapper"
+      ],
+      "search_aliases": "vector reduce, simd reduction wrapper",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "VEC-08",
+      "gap_id": "VEC-08",
+      "family": "Vector / SIMD / Lane Utilities",
+      "operation": "vector_align_slide",
+      "variant": "element alignment / slide",
+      "level": "L1/L2",
+      "current": "M",
+      "priority": "P1",
+      "domain": "CPU/GPU",
+      "keywords": [
+        "vector slide",
+        "aligner",
+        "lane shift"
+      ],
+      "search_aliases": "vector slide, aligner, lane shift",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    },
+    {
+      "target_id": "VEC-09",
+      "gap_id": "VEC-09",
+      "family": "Vector / SIMD / Lane Utilities",
+      "operation": "gather_scatter_lane_mapper",
+      "variant": "lane address/map generation",
+      "level": "L2",
+      "current": "M",
+      "priority": "P1",
+      "domain": "CPU/GPU",
+      "keywords": [
+        "vector gather scatter",
+        "lane mapper"
+      ],
+      "search_aliases": "vector gather scatter, lane mapper",
+      "target_kind": "primitive",
+      "search_only": false,
+      "source_document": "E:\\desktop\\pycircuit积木要求 (1).html"
+    }
+  ]
+}

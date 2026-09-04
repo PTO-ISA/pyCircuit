@@ -1,0 +1,95 @@
+
+schema_version: "0.4"
+
+profiles:
+  smoke:
+    description: Fast sanity check before broader regression.
+  standard:
+    description: Default directed + randomized correctness regression.
+  full:
+    description: Wider parameter sweep and more vectors.
+
+modules:
+  cc_lzc:
+    adapter: lzc
+    scope:
+      operation: leading_or_trailing_zero_count
+      note: >
+        Checks both LZC leading-zero and trailing-zero modes against an
+        independent self-checking SystemVerilog golden model.
+    profiles:
+      smoke:
+        - {width: 8, mode: leading, random_tests: 64}
+        - {width: 8, mode: trailing, random_tests: 64}
+      standard:
+        - {width: 2, mode: leading, random_tests: 128}
+        - {width: 7, mode: leading, random_tests: 256}
+        - {width: 8, mode: trailing, random_tests: 256}
+        - {width: 13, mode: leading, random_tests: 256}
+        - {width: 32, mode: trailing, random_tests: 512}
+      full:
+        - {width: 2, mode: leading, random_tests: 512}
+        - {width: 2, mode: trailing, random_tests: 512}
+        - {width: 3, mode: leading, random_tests: 512}
+        - {width: 7, mode: trailing, random_tests: 1024}
+        - {width: 8, mode: leading, random_tests: 1024}
+        - {width: 13, mode: trailing, random_tests: 1024}
+        - {width: 31, mode: leading, random_tests: 2048}
+        - {width: 32, mode: trailing, random_tests: 2048}
+        - {width: 64, mode: leading, random_tests: 4096}
+
+  cc_popcount:
+    adapter: popcount
+    scope:
+      operation: population_count
+      note: >
+        Checks Hamming weight against an independent bit-count reference.
+    profiles:
+      smoke:
+        - {width: 8, random_tests: 64}
+      standard:
+        - {width: 1, random_tests: 128}
+        - {width: 7, random_tests: 256}
+        - {width: 8, random_tests: 256}
+        - {width: 31, random_tests: 512}
+        - {width: 64, random_tests: 512}
+      full:
+        - {width: 1, random_tests: 512}
+        - {width: 2, random_tests: 512}
+        - {width: 3, random_tests: 512}
+        - {width: 7, random_tests: 1024}
+        - {width: 8, random_tests: 1024}
+        - {width: 31, random_tests: 2048}
+        - {width: 32, random_tests: 2048}
+        - {width: 63, random_tests: 4096}
+        - {width: 64, random_tests: 4096}
+
+  cc_rr_arb_tree:
+    adapter: rr_arb_extprio
+    scope:
+      operation: round_robin_arbitration
+      mode: external_priority
+      parameters:
+        ExtPrio: 1
+        AxiVldRdy: 0
+        LockIn: 0
+      note: >
+        v0.4 validates the deterministic combinational arbitration/data/grant
+        behavior with external rr_i. Internal state update/fairness sequences
+        are intentionally reserved for v0.4.1.
+    profiles:
+      smoke:
+        - {num_in: 4, data_width: 16, random_tests: 64}
+      standard:
+        - {num_in: 2, data_width: 8, random_tests: 128}
+        - {num_in: 3, data_width: 16, random_tests: 256}
+        - {num_in: 4, data_width: 16, random_tests: 256}
+        - {num_in: 5, data_width: 16, random_tests: 512}
+        - {num_in: 8, data_width: 32, random_tests: 1024}
+      full:
+        - {num_in: 2, data_width: 8, random_tests: 512}
+        - {num_in: 3, data_width: 16, random_tests: 1024}
+        - {num_in: 4, data_width: 16, random_tests: 1024}
+        - {num_in: 5, data_width: 16, random_tests: 2048}
+        - {num_in: 8, data_width: 32, random_tests: 4096}
+        - {num_in: 16, data_width: 32, random_tests: 8192}

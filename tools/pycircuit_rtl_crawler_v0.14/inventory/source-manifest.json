@@ -1,0 +1,605 @@
+{
+  "schema": "pycircuit-rtl-source-manifest-v0.4",
+  "generated_at": "2026-08-31T11:29:01.462938+00:00",
+  "license_policy": "informational_only",
+  "source_config": "sources.expanded.v0.4.json",
+  "sources": [
+    {
+      "project": "basejump_stl",
+      "repo": "https://github.com/bespoke-silicon-group/basejump_stl.git",
+      "path": "build/source-cache-v0.4/repos/basejump_stl",
+      "branch": "master",
+      "commit_sha": "b48037e28544425839dbd617d45b1a82631bc1a9",
+      "clone_status": "reused",
+      "content_status": "rtl_available",
+      "path_hints": [
+        "bsg_misc",
+        "bsg_dataflow",
+        "bsg_mem"
+      ],
+      "include_hints": [
+        "bsg_noc",
+        "bsg_link",
+        "bsg_comm_link",
+        "bsg_fpu",
+        "bsg_cache"
+      ],
+      "vendor_hints": [],
+      "dependency_projects": [],
+      "checkout_mode": "sparse",
+      "error": "",
+      "materialized_at": "2026-08-31T11:28:09.315694+00:00",
+      "file_count": 1347,
+      "rtl_file_count": 795,
+      "license_files": [
+        "LICENSE"
+      ],
+      "license_gate": false,
+      "license_recording": true
+    },
+    {
+      "project": "opentitan",
+      "repo": "https://github.com/lowRISC/opentitan.git",
+      "path": "build/source-cache-v0.4/repos/opentitan",
+      "branch": "master",
+      "commit_sha": "b16f2be75d2f38c62d861208453ed5b81ccf41b0",
+      "clone_status": "reused",
+      "content_status": "rtl_available",
+      "path_hints": [
+        "hw/ip/prim/rtl"
+      ],
+      "include_hints": [
+        "hw/ip/prim_generic/rtl"
+      ],
+      "vendor_hints": [],
+      "dependency_projects": [
+        "ibex"
+      ],
+      "checkout_mode": "sparse",
+      "error": "sparse expansion skipped: error: cannot set sparse-checkout patterns: You have unstaged changes.",
+      "materialized_at": "2026-08-31T11:28:12.045715+00:00",
+      "file_count": 345,
+      "rtl_file_count": 205,
+      "license_files": [
+        "LICENSE"
+      ],
+      "license_gate": false,
+      "license_recording": true
+    },
+    {
+      "project": "pulp_common_cells",
+      "repo": "https://github.com/pulp-platform/common_cells.git",
+      "path": "build/source-cache-v0.4/repos/pulp_common_cells",
+      "branch": "master",
+      "commit_sha": "db42769334b4589b4b3fc671b34513bdb98be565",
+      "clone_status": "reused",
+      "content_status": "rtl_available",
+      "path_hints": [
+        "src",
+        "include"
+      ],
+      "include_hints": [],
+      "vendor_hints": [],
+      "dependency_projects": [
+        "tech_cells_generic"
+      ],
+      "checkout_mode": "sparse",
+      "error": "",
+      "materialized_at": "2026-08-31T11:28:12.874471+00:00",
+      "file_count": 262,
+      "rtl_file_count": 214,
+      "license_files": [
+        "LICENSE"
+      ],
+      "license_gate": false,
+      "license_recording": true
+    },
+    {
+      "project": "vortex",
+      "repo": "https://github.com/vortexgpgpu/vortex.git",
+      "path": "build/source-cache-v0.4/repos/vortex",
+      "branch": "master",
+      "commit_sha": "5d62846c685ae287f9cd3ddd49f4537c40146eae",
+      "clone_status": "reused",
+      "content_status": "rtl_available",
+      "path_hints": [
+        "hw/rtl"
+      ],
+      "include_hints": [
+        "hw",
+        "ci"
+      ],
+      "vendor_hints": [],
+      "dependency_projects": [],
+      "checkout_mode": "sparse",
+      "error": "sparse expansion skipped: error: cannot set sparse-checkout patterns: You have unstaged changes.",
+      "materialized_at": "2026-08-31T11:28:16.322498+00:00",
+      "file_count": 487,
+      "rtl_file_count": 386,
+      "license_files": [
+        "LICENSE"
+      ],
+      "license_gate": false,
+      "license_recording": true
+    },
+    {
+      "project": "picorv32",
+      "repo": "https://github.com/YosysHQ/picorv32.git",
+      "path": "build/source-cache-v0.4/repos/picorv32",
+      "branch": "main",
+      "commit_sha": "a473fc8fca393771d83b0ffcf0b14db3393339d8",
+      "clone_status": "reused",
+      "content_status": "rtl_available",
+      "path_hints": [
+        "."
+      ],
+      "include_hints": [],
+      "vendor_hints": [],
+      "dependency_projects": [],
+      "checkout_mode": "sparse",
+      "error": "",
+      "materialized_at": "2026-08-31T11:28:16.599314+00:00",
+      "file_count": 12,
+      "rtl_file_count": 4,
+      "license_files": [
+        "COPYING"
+      ],
+      "license_gate": false,
+      "license_recording": true
+    },
+    {
+      "project": "serv",
+      "repo": "https://github.com/olofk/serv.git",
+      "path": "build/source-cache-v0.4/repos/serv",
+      "branch": "main",
+      "commit_sha": "f200eb2ed7b69ac1c6b8eddd47654522aeee5ce8",
+      "clone_status": "reused",
+      "content_status": "rtl_available",
+      "path_hints": [
+        "rtl"
+      ],
+      "include_hints": [],
+      "vendor_hints": [],
+      "dependency_projects": [],
+      "checkout_mode": "sparse",
+      "error": "sparse expansion skipped: error: cannot set sparse-checkout patterns: You have unstaged changes.",
+      "materialized_at": "2026-08-31T11:28:17.031780+00:00",
+      "file_count": 28,
+      "rtl_file_count": 18,
+      "license_files": [
+        "LICENSE"
+      ],
+      "license_gate": false,
+      "license_recording": true
+    },
+    {
+      "project": "pulp_axi",
+      "repo": "https://github.com/pulp-platform/axi.git",
+      "path": "build/source-cache-v0.4/repos/pulp_axi",
+      "branch": "master",
+      "commit_sha": "4da15979747f326bde2f9869c64e587ce599772c",
+      "clone_status": "reused",
+      "content_status": "rtl_available",
+      "path_hints": [
+        "src"
+      ],
+      "include_hints": [
+        "include"
+      ],
+      "vendor_hints": [],
+      "dependency_projects": [
+        "pulp_common_cells"
+      ],
+      "checkout_mode": "sparse",
+      "error": "",
+      "materialized_at": "2026-08-31T11:28:17.576778+00:00",
+      "file_count": 152,
+      "rtl_file_count": 93,
+      "license_files": [
+        "LICENSE"
+      ],
+      "license_gate": false,
+      "license_recording": true
+    },
+    {
+      "project": "pulp_idma",
+      "repo": "https://github.com/pulp-platform/iDMA.git",
+      "path": "build/source-cache-v0.4/repos/pulp_idma",
+      "branch": "master",
+      "commit_sha": "2e0b0fe53b6f8823319e2428e2e9abc2db149b7d",
+      "clone_status": "reused",
+      "content_status": "rtl_available",
+      "path_hints": [
+        "src"
+      ],
+      "include_hints": [],
+      "vendor_hints": [],
+      "dependency_projects": [],
+      "checkout_mode": "sparse",
+      "error": "",
+      "materialized_at": "2026-08-31T11:28:18.813775+00:00",
+      "file_count": 315,
+      "rtl_file_count": 79,
+      "license_files": [
+        "LICENSE"
+      ],
+      "license_gate": false,
+      "license_recording": true
+    },
+    {
+      "project": "ibex",
+      "repo": "https://github.com/lowRISC/ibex.git",
+      "path": "build/source-cache-v0.4/repos/ibex",
+      "branch": "master",
+      "commit_sha": "8b8ee086aef72e0833b7f0493d9d33f1e4d3c8e2",
+      "clone_status": "reused",
+      "content_status": "rtl_available",
+      "path_hints": [
+        "rtl"
+      ],
+      "include_hints": [
+        "vendor/lowrisc_ip/dv/sv/dv_utils"
+      ],
+      "vendor_hints": [
+        "vendor/lowrisc_ip/ip/prim",
+        "vendor/lowrisc_ip/ip/prim_generic/rtl"
+      ],
+      "dependency_projects": [],
+      "checkout_mode": "sparse",
+      "error": "",
+      "materialized_at": "2026-08-31T11:28:33.422329+00:00",
+      "file_count": 3693,
+      "rtl_file_count": 652,
+      "license_files": [
+        "LICENSE",
+        "vendor/eembc_coremark/LICENSE.md",
+        "vendor/google_riscv-dv/LICENSE.txt",
+        "vendor/lowrisc_ip/ip/prim/dv/prim_ascon/ascon_model_dpi/vendor/ascon_ascon-c/LICENSE",
+        "vendor/riscv-isa-sim/LICENSE",
+        "vendor/riscv-test-env/LICENSE",
+        "vendor/riscv-tests/LICENSE"
+      ],
+      "license_gate": false,
+      "license_recording": true
+    },
+    {
+      "project": "cva6",
+      "repo": "https://github.com/openhwgroup/cva6.git",
+      "path": "build/source-cache-v0.4/repos/cva6",
+      "branch": "master",
+      "commit_sha": "3ac6208ed0210ff66a557dd7dc4e79e34f1f2f4a",
+      "clone_status": "reused",
+      "content_status": "rtl_available",
+      "path_hints": [
+        "core"
+      ],
+      "include_hints": [
+        "core/pmp/include",
+        "core/include"
+      ],
+      "vendor_hints": [],
+      "dependency_projects": [
+        "pulp_common_cells",
+        "cva6_cvfpu"
+      ],
+      "checkout_mode": "sparse",
+      "error": "sparse expansion skipped: error: cannot set sparse-checkout patterns: You have unstaged changes.",
+      "materialized_at": "2026-08-31T11:28:34.668446+00:00",
+      "file_count": 148,
+      "rtl_file_count": 118,
+      "license_files": [
+        "LICENSE"
+      ],
+      "license_gate": false,
+      "license_recording": true
+    },
+    {
+      "project": "cva6_cvfpu",
+      "repo": "https://github.com/openhwgroup/cvfpu.git",
+      "path": "build/source-cache-v0.4/repos/cva6_cvfpu",
+      "branch": "develop",
+      "commit_sha": "355c388ed0899643d41194aed22d3bd2c09e84b3",
+      "clone_status": "reused",
+      "content_status": "rtl_available",
+      "path_hints": [
+        "src"
+      ],
+      "include_hints": [],
+      "vendor_hints": [],
+      "dependency_projects": [],
+      "checkout_mode": "sparse",
+      "error": "",
+      "materialized_at": "2026-08-31T11:28:35.300978+00:00",
+      "file_count": 73,
+      "rtl_file_count": 39,
+      "license_files": [
+        "vendor/openc910/LICENSE",
+        "vendor/opene906/LICENSE"
+      ],
+      "license_gate": false,
+      "license_recording": true
+    },
+    {
+      "project": "riscv_boom",
+      "repo": "https://github.com/riscv-boom/riscv-boom.git",
+      "path": "build/source-cache-v0.4/repos/riscv_boom",
+      "branch": "master",
+      "commit_sha": "58ef2720eae13be26b3008c02b5a74ce29c61c44",
+      "clone_status": "reused",
+      "content_status": "rtl_available",
+      "path_hints": [
+        "src/main"
+      ],
+      "include_hints": [],
+      "vendor_hints": [],
+      "dependency_projects": [],
+      "checkout_mode": "sparse",
+      "error": "sparse expansion skipped: error: cannot set sparse-checkout patterns: You have unstaged changes.",
+      "materialized_at": "2026-08-31T11:28:36.864890+00:00",
+      "file_count": 129,
+      "rtl_file_count": 2,
+      "license_files": [
+        "LICENSE"
+      ],
+      "license_gate": false,
+      "license_recording": true
+    },
+    {
+      "project": "litex_soc",
+      "repo": "https://github.com/enjoy-digital/litex.git",
+      "path": "build/source-cache-v0.4/repos/litex_soc",
+      "branch": "master",
+      "commit_sha": "6c793c27f94a5df3836cd5cc5a69db6160354bc9",
+      "clone_status": "reused",
+      "content_status": "rtl_available",
+      "path_hints": [
+        "litex/soc/cores"
+      ],
+      "include_hints": [],
+      "vendor_hints": [],
+      "dependency_projects": [],
+      "checkout_mode": "sparse",
+      "error": "sparse expansion skipped: error: cannot set sparse-checkout patterns: You have unstaged changes.",
+      "materialized_at": "2026-08-31T11:28:39.913079+00:00",
+      "file_count": 354,
+      "rtl_file_count": 8,
+      "license_files": [
+        "LICENSE"
+      ],
+      "license_gate": false,
+      "license_recording": true
+    },
+    {
+      "project": "hdl_modules",
+      "repo": "https://gitlab.com/alex/hdl-modules.git",
+      "path": "build/source-cache-v0.4/repos/hdl_modules",
+      "branch": "main",
+      "commit_sha": "8344604545b2f4f37d72e61d0320d5ff82ee62d1",
+      "clone_status": "reused",
+      "content_status": "rtl_available",
+      "path_hints": [
+        "logic",
+        "lsfr"
+      ],
+      "include_hints": [],
+      "vendor_hints": [],
+      "dependency_projects": [],
+      "checkout_mode": "sparse",
+      "error": "",
+      "materialized_at": "2026-08-31T11:28:40.198981+00:00",
+      "file_count": 6,
+      "rtl_file_count": 5,
+      "license_files": [],
+      "license_gate": false,
+      "license_recording": true
+    },
+    {
+      "project": "ohwr_general_cores",
+      "repo": "https://gitlab.com/ohwr/project/general-cores.git",
+      "path": "build/source-cache-v0.4/repos/ohwr_general_cores",
+      "branch": "master",
+      "commit_sha": "60fe3cb954f25e34a8e8ef61da2f1cee8cbcafd1",
+      "clone_status": "reused",
+      "content_status": "rtl_available",
+      "path_hints": [
+        "modules"
+      ],
+      "include_hints": [
+        "modules/wishbone/wb_lm32/platform/generic"
+      ],
+      "vendor_hints": [],
+      "dependency_projects": [],
+      "checkout_mode": "sparse",
+      "error": "",
+      "materialized_at": "2026-08-31T11:28:43.392398+00:00",
+      "file_count": 725,
+      "rtl_file_count": 58,
+      "license_files": [
+        "LICENSES/CC0-1.0.txt",
+        "LICENSES/GPL-2.0.txt"
+      ],
+      "license_gate": false,
+      "license_recording": true
+    },
+    {
+      "project": "openpiton",
+      "repo": "https://github.com/PrincetonUniversity/openpiton.git",
+      "path": "build/source-cache-v0.4/repos/openpiton",
+      "branch": "openpiton",
+      "commit_sha": "1c6bfd2d2ea53ddd7b6f933fa2d439d1a540e207",
+      "clone_status": "reused",
+      "content_status": "rtl_available",
+      "path_hints": [
+        "piton/design"
+      ],
+      "include_hints": [
+        "piton/design/include",
+        "piton/design/chip/tile/common"
+      ],
+      "vendor_hints": [],
+      "dependency_projects": [],
+      "checkout_mode": "sparse",
+      "error": "sparse expansion skipped: error: cannot set sparse-checkout patterns: You have unstaged changes.",
+      "materialized_at": "2026-08-31T11:28:54.521155+00:00",
+      "file_count": 830,
+      "rtl_file_count": 419,
+      "license_files": [
+        "piton/design/chipset/rv64_platform/bootrom/LICENSE"
+      ],
+      "license_gate": false,
+      "license_recording": true
+    },
+    {
+      "project": "blackparrot",
+      "repo": "https://github.com/black-parrot/black-parrot.git",
+      "path": "build/source-cache-v0.4/repos/blackparrot",
+      "branch": "master",
+      "commit_sha": "f91010f654a5dfd00f83dbe25dbda482218d540b",
+      "clone_status": "reused",
+      "content_status": "rtl_available",
+      "path_hints": [
+        "bp_top",
+        "bp_common",
+        "bp_be",
+        "bp_me"
+      ],
+      "include_hints": [],
+      "vendor_hints": [],
+      "dependency_projects": [
+        "basejump_stl",
+        "bsg_hardfloat"
+      ],
+      "checkout_mode": "sparse",
+      "error": "sparse expansion skipped: error: cannot set sparse-checkout patterns: You have unstaged changes.",
+      "materialized_at": "2026-08-31T11:28:56.621539+00:00",
+      "file_count": 246,
+      "rtl_file_count": 190,
+      "license_files": [
+        "LICENSE"
+      ],
+      "license_gate": false,
+      "license_recording": true
+    },
+    {
+      "project": "gemmini",
+      "repo": "https://github.com/ucb-bar/gemmini.git",
+      "path": "build/source-cache-v0.4/repos/gemmini",
+      "branch": "master",
+      "commit_sha": "8c3f9923a44a2fe2c7930587be297d6d4f8c09ca",
+      "clone_status": "reused",
+      "content_status": "no_direct_rtl",
+      "path_hints": [
+        "src/main"
+      ],
+      "include_hints": [],
+      "vendor_hints": [],
+      "dependency_projects": [],
+      "checkout_mode": "sparse",
+      "error": "sparse expansion skipped: error: cannot set sparse-checkout patterns: You have unstaged changes.",
+      "materialized_at": "2026-08-31T11:28:57.392895+00:00",
+      "file_count": 63,
+      "rtl_file_count": 0,
+      "license_files": [
+        "LICENSE"
+      ],
+      "license_gate": false,
+      "license_recording": true
+    },
+    {
+      "project": "nvdla",
+      "repo": "https://github.com/nvdla/hw.git",
+      "path": "build/source-cache-v0.4/repos/nvdla",
+      "branch": "nvdlav1",
+      "commit_sha": "8e06b1b9d85aab65b40d43d08eec5ea4681ff715",
+      "clone_status": "reused",
+      "content_status": "rtl_available",
+      "path_hints": [
+        "vmod/nvdla"
+      ],
+      "include_hints": [],
+      "vendor_hints": [],
+      "dependency_projects": [],
+      "checkout_mode": "sparse",
+      "error": "sparse expansion skipped: error: cannot set sparse-checkout patterns: You have unstaged changes.",
+      "materialized_at": "2026-08-31T11:28:59.476030+00:00",
+      "file_count": 290,
+      "rtl_file_count": 267,
+      "license_files": [
+        "LICENSE"
+      ],
+      "license_gate": false,
+      "license_recording": true
+    },
+    {
+      "project": "zipcpu",
+      "repo": "https://github.com/ZipCPU/zipcpu.git",
+      "path": "build/source-cache-v0.4/repos/zipcpu",
+      "branch": "master",
+      "commit_sha": "42606d2d6ef55df313772232977621b2d72f0159",
+      "clone_status": "reused",
+      "content_status": "rtl_available",
+      "path_hints": [
+        "rtl"
+      ],
+      "include_hints": [],
+      "vendor_hints": [],
+      "dependency_projects": [],
+      "checkout_mode": "sparse",
+      "error": "sparse expansion skipped: error: cannot set sparse-checkout patterns: You have unstaged changes.",
+      "materialized_at": "2026-08-31T11:29:00.092351+00:00",
+      "file_count": 67,
+      "rtl_file_count": 51,
+      "license_files": [],
+      "license_gate": false,
+      "license_recording": true
+    },
+    {
+      "project": "tech_cells_generic",
+      "repo": "https://github.com/pulp-platform/tech_cells_generic.git",
+      "path": "build/source-cache-v0.4/repos/tech_cells_generic",
+      "branch": "master",
+      "commit_sha": "55cb54513e2d426be5992d311cb9d5dbcad10c78",
+      "clone_status": "reused",
+      "content_status": "rtl_available",
+      "path_hints": [
+        "src"
+      ],
+      "include_hints": [],
+      "vendor_hints": [],
+      "dependency_projects": [],
+      "checkout_mode": "sparse",
+      "error": "sparse expansion skipped: error: cannot set sparse-checkout patterns: You have unstaged changes.",
+      "materialized_at": "2026-08-31T11:29:00.609355+00:00",
+      "file_count": 25,
+      "rtl_file_count": 17,
+      "license_files": [
+        "LICENSE"
+      ],
+      "license_gate": false,
+      "license_recording": true
+    },
+    {
+      "project": "bsg_hardfloat",
+      "repo": "https://github.com/bsg-external/HardFloat.git",
+      "path": "build/source-cache-v0.4/repos/bsg_hardfloat",
+      "branch": "master",
+      "commit_sha": "aaf5736dffa521603b681fd5853760c671446c85",
+      "clone_status": "reused",
+      "content_status": "rtl_available",
+      "path_hints": [
+        "source"
+      ],
+      "include_hints": [],
+      "vendor_hints": [],
+      "dependency_projects": [],
+      "checkout_mode": "sparse",
+      "error": "sparse expansion skipped: error: cannot set sparse-checkout patterns: You have unstaged changes.",
+      "materialized_at": "2026-08-31T11:29:01.462854+00:00",
+      "file_count": 125,
+      "rtl_file_count": 45,
+      "license_files": [],
+      "license_gate": false,
+      "license_recording": true
+    }
+  ]
+}

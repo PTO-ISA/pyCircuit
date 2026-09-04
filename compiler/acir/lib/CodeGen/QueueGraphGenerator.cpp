@@ -237,6 +237,38 @@ llvm::Expected<std::string> emitExpressionBody(const QueueBlockPlan &block,
              << first->str() << "));\n";
       continue;
     }
+    if (expression.kind == "priority_encode") {
+      // Keep the C++/gfsim path semantically aligned with the RTL runtime
+      // adapter. The result is packed as {valid,index}; the result type tells
+      // us which bit carries valid, while the scan is bounded to the scalar
+      // payloads accepted by this backend.
+      unsigned resultWidth = 0;
+      if (expression.type.size() > 1 && expression.type[0] == 'i')
+        resultWidth = static_cast<unsigned>(std::stoul(expression.type.substr(1)));
+      if (resultWidth < 2 || resultWidth > 64)
+        return generatorError("priority_encode result type must be i2..i64");
+      const unsigned validBit = resultWidth - 1;
+      output << padding << "auto " << expression.result << " = [&] {\n";
+      output << padding << "  unsigned long long value = static_cast<unsigned long long>("
+             << first->str() << ");\n";
+      output << padding << "  unsigned long long packed = 0;\n";
+      output << padding << "  for (unsigned pos = 0; pos < (1ULL << "
+             << validBit << "); ++pos) {\n";
+      if (expression.literal == "lo_to_hi")
+        output << padding << "    unsigned bit = pos;\n";
+      else
+        output << padding << "    unsigned bit = ((1ULL << " << validBit
+               << ") - 1ULL) - pos;\n";
+      output << padding << "    if (((value >> bit) & 1ULL) != 0) {\n";
+      output << padding << "      packed = (1ULL << " << validBit
+             << ") | static_cast<unsigned long long>(bit);\n";
+      output << padding << "      break;\n";
+      output << padding << "    }\n";
+      output << padding << "  }\n";
+      output << padding << "  return packed;\n";
+      output << padding << "}();\n";
+      continue;
+    }
     if (expression.kind == "table_choose_index" ||
         expression.kind == "table_choose_valid") {
       QueueBlockPlan nested;

@@ -1,0 +1,139 @@
+schema_version: '0.14'
+goal: Expand the validated mining/benchmark/catalog pipeline from completed design
+  classes to representative classes across all 12 pyCircuit Design Families.
+families:
+- id: 1
+  family: Integer / Fixed Arithmetic
+  status: ACTIVE
+  classes:
+  - class_id: INT-11
+    operation: population_count
+    status: IN_PROGRESS
+  - class_id: INT-10
+    operation: leading_zero_count
+    status: NEXT_POOL
+  - class_id: INT-05
+    operation: integer_multiplier
+    status: PLANNED
+  - class_id: INT-04
+    operation: saturating_arithmetic
+    status: PLANNED
+- id: 2
+  family: Floating-Point Arithmetic
+  status: PLANNED
+  classes:
+  - class_id: FP-ADD
+    operation: fp_add
+    status: PLANNED
+  - class_id: FP-MUL
+    operation: fp_mul
+    status: PLANNED
+  - class_id: FP-FMA
+    operation: fp_fma
+    status: PLANNED
+- id: 3
+  family: Mixed-Precision MAC / Dot Product
+  status: PLANNED
+  classes:
+  - class_id: MP-DOT
+    operation: mixed_precision_dot
+    status: PLANNED
+- id: 4
+  family: Reduction / Selection
+  status: ACTIVE
+  classes:
+  - class_id: INT-11
+    operation: population_count
+    status: IN_PROGRESS
+  - class_id: RED-SUM
+    operation: sum_reduction
+    status: PLANNED
+  - class_id: RED-ARGMAX
+    operation: argmax
+    status: PLANNED
+- id: 5
+  family: Nonlinear / SFU
+  status: PLANNED
+  classes:
+  - class_id: SFU-EXP
+    operation: exp
+    status: PLANNED
+  - class_id: SFU-RECIP
+    operation: reciprocal
+    status: PLANNED
+  - class_id: SFU-RSQRT
+    operation: rsqrt
+    status: PLANNED
+- id: 6
+  family: Dataflow / Arbitration
+  status: VALIDATED
+  classes:
+  - class_id: DF-09
+    operation: round_robin_arbiter
+    status: VALIDATED
+  - class_id: DF-XBAR
+    operation: stream_crossbar
+    status: PLANNED
+- id: 7
+  family: Memory / Register File
+  status: VALIDATED
+  classes:
+  - class_id: FIFO-SYNC
+    operation: synchronous_fifo
+    status: VALIDATED
+  - class_id: MEM-RF
+    operation: multiport_register_file
+    status: PLANNED
+- id: 8
+  family: CPU Microarchitecture
+  status: PLANNED
+  classes:
+  - class_id: CPU-ALU
+    operation: integer_alu
+    status: PLANNED
+  - class_id: CPU-BR
+    operation: branch_unit
+    status: PLANNED
+- id: 9
+  family: GPU SIMT/SIMD
+  status: SOURCE_READY
+  classes:
+  - class_id: GPU-WARP
+    operation: warp_scheduler
+    status: PLANNED
+  - class_id: GPU-SIMD
+    operation: simd_lane_block
+    status: PLANNED
+- id: 10
+  family: NPU PE / Systolic / Tensor Compute
+  status: PLANNED
+  classes:
+  - class_id: NPU-PE
+    operation: processing_element
+    status: PLANNED
+  - class_id: NPU-SYSTOLIC
+    operation: systolic_array
+    status: PLANNED
+- id: 11
+  family: LLM Operator
+  status: PLANNED
+  classes:
+  - class_id: LLM-SOFTMAX
+    operation: softmax
+    status: PLANNED
+  - class_id: LLM-RMSNORM
+    operation: rmsnorm
+    status: PLANNED
+  - class_id: LLM-SWIGLU
+    operation: swiglu
+    status: PLANNED
+- id: 12
+  family: DMA / Interconnect
+  status: PLANNED
+  classes:
+  - class_id: DMA-ENGINE
+    operation: dma_engine
+    status: PLANNED
+  - class_id: IC-XBAR
+    operation: interconnect_crossbar
+    status: PLANNED

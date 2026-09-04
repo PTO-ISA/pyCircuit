@@ -1,0 +1,25 @@
+// Copyright 2018 ETH Zurich and University of Bologna.
+//
+// Copyright and related rights are licensed under the Solderpad Hardware
+// License, Version 0.51 (the "License"); you may not use this file except in
+// compliance with the License. You may obtain a copy of the License at
+// http://solderpad.org/licenses/SHL-0.51. Unless required by applicable law
+// or agreed to in writing, software, hardware and materials distributed under
+// this License is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR
+// CONDITIONS OF ANY KIND, either express or implied. See the License for the
+// specific language governing permissions and limitations under the License.
+//
+// Vendored from pulp-platform/common_cells, commit
+// 63b7c50d43e462b59506f69d341ff1e40202866d.
+
+module cc_binary_to_gray #(
+    parameter int unsigned Width = 1
+)(
+    input  logic [Width-1:0] a_i,
+    output logic [Width-1:0] z_o
+);
+    logic [Width:0] a_ext;
+
+    assign a_ext = {1'b0, a_i};
+    assign z_o   = a_i ^ a_ext[Width:1];
+endmodule

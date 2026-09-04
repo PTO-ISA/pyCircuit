@@ -1,0 +1,211 @@
+{
+  "schema": "acir-runtime-crawler-config-v0.1",
+  "policy": {
+    "allow_skipped_tools": false
+  },
+  "sources": [
+    {
+      "name": "pulp-common-cells-cache",
+      "provider": "github",
+      "url": "https://github.com/pulp-platform/common_cells.git",
+      "local_path": "${CONFIG_DIR}/../pulp",
+      "subdir": ".",
+      "include_dirs": [
+        "${CONFIG_DIR}/../pulp/include"
+      ],
+      "enabled": true
+    },
+    {
+      "name": "basejump-stl-cache",
+      "provider": "github",
+      "url": "https://github.com/bespoke-silicon-group/basejump_stl.git",
+      "local_path": "${CONFIG_DIR}/../basejump",
+      "subdir": ".",
+      "enabled": true
+    },
+    {
+      "name": "vortex-cache",
+      "provider": "github",
+      "url": "https://github.com/vortexgpgpu/vortex.git",
+      "local_path": "${CONFIG_DIR}/../vendor-v0.22/vortex",
+      "subdir": "hw/rtl/libs",
+      "include_dirs": [
+        "${CONFIG_DIR}/../vendor-v0.22/vortex/hw/rtl"
+      ],
+      "enabled": true
+    }
+  ],
+  "targets": [
+    {
+      "name": "pulp-lzc",
+      "source": "pulp-common-cells-cache",
+      "module": "cc_lzc",
+      "interface": {
+        "wrapper_module": "pyc_runtime_pulp_lzc",
+        "parameters": [
+          {
+            "name": "IN_WIDTH",
+            "source": "Width",
+            "default": 8
+          },
+          {
+            "name": "MODE",
+            "source": "Mode",
+            "default": 1
+          }
+        ],
+        "ports": [
+          {
+            "name": "in",
+            "direction": "input",
+            "width": "IN_WIDTH",
+            "source": "in_i"
+          },
+          {
+            "name": "count",
+            "direction": "output",
+            "width": "$clog2(IN_WIDTH+1)",
+            "source": "cnt_o"
+          },
+          {
+            "name": "empty",
+            "direction": "output",
+            "width": "1",
+            "source": "empty_o"
+          }
+        ]
+      }
+    },
+    {
+      "name": "basejump-priority-encode",
+      "source": "basejump-stl-cache",
+      "module": "bsg_priority_encode",
+      "interface": {
+        "wrapper_module": "pyc_runtime_basejump_priority_encode",
+        "parameters": [
+          {
+            "name": "IN_WIDTH",
+            "source": "width_p",
+            "default": 8
+          },
+          {
+            "name": "LO_TO_HI",
+            "source": "lo_to_hi_p",
+            "default": 1
+          }
+        ],
+        "ports": [
+          {
+            "name": "in",
+            "direction": "input",
+            "width": "IN_WIDTH",
+            "source": "i"
+          },
+          {
+            "name": "index",
+            "direction": "output",
+            "width": "$clog2(IN_WIDTH)",
+            "source": "addr_o"
+          },
+          {
+            "name": "valid",
+            "direction": "output",
+            "width": "1",
+            "source": "v_o"
+          }
+        ]
+      }
+    },
+    {
+      "name": "vortex-lzc",
+      "source": "vortex-cache",
+      "module": "VX_lzc",
+      "interface": {
+        "wrapper_module": "pyc_runtime_vortex_lzc",
+        "parameters": [
+          {
+            "name": "IN_WIDTH",
+            "source": "N",
+            "default": 8
+          },
+          {
+            "name": "REVERSE",
+            "source": "REVERSE",
+            "default": 0
+          }
+        ],
+        "ports": [
+          {
+            "name": "in",
+            "direction": "input",
+            "width": "IN_WIDTH",
+            "source": "data_in"
+          },
+          {
+            "name": "index",
+            "direction": "output",
+            "width": "$clog2(IN_WIDTH)",
+            "source": "data_out"
+          },
+          {
+            "name": "valid",
+            "direction": "output",
+            "width": "1",
+            "source": "valid_out"
+          }
+        ]
+      }
+    },
+    {
+      "name": "vortex-priority-encoder",
+      "source": "vortex-cache",
+      "module": "VX_priority_encoder",
+      "interface": {
+        "wrapper_module": "pyc_runtime_vortex_priority_encoder",
+        "parameters": [
+          {
+            "name": "IN_WIDTH",
+            "source": "N",
+            "default": 8
+          },
+          {
+            "name": "REVERSE",
+            "source": "REVERSE",
+            "default": 0
+          },
+          {
+            "name": "MODEL",
+            "source": "MODEL",
+            "default": 1
+          }
+        ],
+        "ports": [
+          {
+            "name": "in",
+            "direction": "input",
+            "width": "IN_WIDTH",
+            "source": "data_in"
+          },
+          {
+            "name": "onehot",
+            "direction": "output",
+            "width": "IN_WIDTH",
+            "source": "onehot_out"
+          },
+          {
+            "name": "index",
+            "direction": "output",
+            "width": "$clog2(IN_WIDTH)",
+            "source": "index_out"
+          },
+          {
+            "name": "valid",
+            "direction": "output",
+            "width": "1",
+            "source": "valid_out"
+          }
+        ]
+      }
+    }
+  ]
+}

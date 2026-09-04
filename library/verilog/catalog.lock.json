@@ -1,0 +1,198 @@
+{
+  "schema": "acir-runtime-catalog-lock-v0.1",
+  "catalog": "catalog.json",
+  "sources": {
+    "basejump-stl": {
+      "repository": "https://github.com/bespoke-silicon-group/basejump_stl.git",
+      "commit": "b48037e28544425839dbd617d45b1a82631bc1a9",
+      "license": "Solderpad-Hardware-License-0.51"
+    },
+    "opentitan": {
+      "repository": "https://github.com/lowRISC/opentitan.git",
+      "commit": "782784584433afe5105385041f1282da0a21e023",
+      "license": "Apache-2.0"
+    },
+    "pulp-common-cells": {
+      "repository": "https://github.com/pulp-platform/common_cells.git",
+      "commit": "63b7c50d43e462b59506f69d341ff1e40202866d",
+      "license": "Solderpad-Hardware-License-0.51"
+    },
+    "pulp-common-cells-v0.4": {
+      "repository": "https://github.com/pulp-platform/common_cells.git",
+      "commit": "db42769334b4589b4b3fc671b34513bdb98be565",
+      "license": "Solderpad-Hardware-License-0.51"
+    },
+    "vortex-v0.4": {
+      "repository": "https://github.com/vortexgpgpu/vortex.git",
+      "commit": "d76b7f24e658867ab57e3942d7c648c3e6af072d",
+      "license": "Apache-2.0"
+    },
+    "verilog-axi": {
+      "repository": "https://github.com/alexforencich/verilog-axi.git",
+      "commit": "516bd5dadc3365b7f9e225d2af8fe0b8d804fe53",
+      "license": "MIT"
+    },
+    "basejump-stl-v0.5": {
+      "repository": "https://github.com/bespoke-silicon-group/basejump_stl.git",
+      "commit": "b48037e28544425839dbd617d45b1a82631bc1a9",
+      "license": "Solderpad-Hardware-License-0.51"
+    },
+    "vortex-v0.5": {
+      "repository": "https://github.com/vortexgpgpu/vortex.git",
+      "commit": "5d62846c685ae287f9cd3ddd49f4537c40146eae",
+      "license": "Apache-2.0"
+    },
+    "opentitan-v0.5": {
+      "repository": "https://github.com/lowRISC/opentitan.git",
+      "commit": "b16f2be75d2f38c62d861208453ed5b81ccf41b0",
+      "license": "Apache-2.0"
+    },
+    "vortex-v0.6": {
+      "repository": "https://github.com/vortexgpgpu/vortex.git",
+      "commit": "5d62846c685ae287f9cd3ddd49f4537c40146eae",
+      "license": "Apache-2.0"
+    },
+    "pulp-common-cells-v0.6": {
+      "repository": "https://github.com/pulp-platform/common_cells.git",
+      "commit": "db42769334b4589b4b3fc671b34513bdb98be565",
+      "license": "Solderpad-Hardware-License-0.51"
+    },
+    "pulp-common-cells-v0.8": {
+      "repository": "https://github.com/pulp-platform/common_cells.git",
+      "commit": "63b7c50d43e462b59506f69d341ff1e40202866d",
+      "license": "Solderpad-Hardware-License-0.51"
+    },
+    "opentitan-v0.6": {
+      "repository": "https://github.com/lowRISC/opentitan.git",
+      "commit": "b16f2be75d2f38c62d861208453ed5b81ccf41b0",
+      "license": "Apache-2.0"
+    },
+    "opentitan-v0.7": {
+      "repository": "https://github.com/lowRISC/opentitan.git",
+      "commit": "b16f2be75d2f38c62d861208453ed5b81ccf41b0",
+      "license": "Apache-2.0"
+    },
+    "basejump-stl-v0.9": {
+      "repository": "https://github.com/bespoke-silicon-group/basejump_stl.git",
+      "commit": "b48037e28544425839dbd617d45b1a82631bc1a9",
+      "license": "Solderpad-Hardware-License-0.51"
+    },
+    "basejump-stl-v0.10": {
+      "repository": "https://github.com/bespoke-silicon-group/basejump_stl.git",
+      "commit": "b48037e28544425839dbd617d45b1a82631bc1a9",
+      "license": "Solderpad-Hardware-License-0.51"
+    },
+    "pulp-common-cells-v0.10": {
+      "repository": "https://github.com/pulp-platform/common_cells.git",
+      "commit": "db42769334b4589b4b3fc671b34513bdb98be565",
+      "license": "Solderpad-Hardware-License-0.51"
+    },
+    "basejump-stl-v0.11": {
+      "repository": "https://github.com/bespoke-silicon-group/basejump_stl.git",
+      "commit": "b48037e28544425839dbd617d45b1a82631bc1a9",
+      "license": "Solderpad-Hardware-License-0.51"
+    },
+    "pulp-common-cells-v0.11": {
+      "repository": "https://github.com/pulp-platform/common_cells.git",
+      "commit": "db42769334b4589b4b3fc671b34513bdb98be565",
+      "license": "Solderpad-Hardware-License-0.51"
+    },
+    "basejump-stl-v0.12": {
+      "repository": "https://github.com/bespoke-silicon-group/basejump_stl.git",
+      "commit": "b48037e28544425839dbd617d45b1a82631bc1a9",
+      "license": "Solderpad-Hardware-License-0.51"
+    },
+    "basejump-stl-v0.13": {
+      "repository": "https://github.com/bespoke-silicon-group/basejump_stl.git",
+      "commit": "b48037e28544425839dbd617d45b1a82631bc1a9",
+      "license": "Solderpad-Hardware-License-0.51"
+    },
+    "vortex-v0.13": {
+      "repository": "https://github.com/vortexgpgpu/vortex.git",
+      "commit": "5d62846c685ae287f9cd3ddd49f4537c40146eae",
+      "license": "Apache-2.0"
+    },
+    "opentitan-v0.14": {
+      "repository": "https://github.com/lowRISC/opentitan.git",
+      "commit": "b16f2be75d2f38c62d861208453ed5b81ccf41b0",
+      "license": "Apache-2.0"
+    },
+    "opentitan-v0.15": {
+      "repository": "https://github.com/lowRISC/opentitan.git",
+      "commit": "b16f2be75d2f38c62d861208453ed5b81ccf41b0",
+      "license": "Apache-2.0"
+    },
+    "vortex-v0.16": {
+      "repository": "https://github.com/vortexgpgpu/vortex.git",
+      "commit": "5d62846c685ae287f9cd3ddd49f4537c40146eae",
+      "license": "Apache-2.0"
+    },
+    "pulp-common-cells-v0.16": {
+      "repository": "https://github.com/pulp-platform/common_cells.git",
+      "commit": "db42769334b4589b4b3fc671b34513bdb98be565",
+      "license": "Solderpad-Hardware-License-0.51"
+    },
+    "tech-cells-generic-v0.16": {
+      "repository": "https://github.com/pulp-platform/tech_cells_generic.git",
+      "commit": "55cb54513e2d426be5992d311cb9d5dbcad10c78",
+      "license": "Solderpad-Hardware-License-0.51"
+    },
+    "basejump-stl-v0.16": {
+      "repository": "https://github.com/bespoke-silicon-group/basejump_stl.git",
+      "commit": "b48037e28544425839dbd617d45b1a82631bc1a9",
+      "license": "Solderpad-Hardware-License-0.51"
+    },
+    "pulp-common-cells-v0.17": {
+      "repository": "https://github.com/pulp-platform/common_cells.git",
+      "commit": "db42769334b4589b4b3fc671b34513bdb98be565",
+      "license": "Solderpad-Hardware-License-0.51"
+    },
+    "pulp-common-cells-v0.18": {
+      "repository": "https://github.com/pulp-platform/common_cells.git",
+      "commit": "db42769334b4589b4b3fc671b34513bdb98be565",
+      "license": "Solderpad-Hardware-License-0.51"
+    },
+    "pulp-common-cells-v0.19": {
+      "repository": "https://github.com/pulp-platform/common_cells.git",
+      "commit": "db42769334b4589b4b3fc671b34513bdb98be565",
+      "license": "Solderpad-Hardware-License-0.51"
+    },
+    "tech-cells-generic-v0.19": {
+      "repository": "https://github.com/pulp-platform/tech_cells_generic.git",
+      "commit": "55cb54513e2d426be5992d311cb9d5dbcad10c78",
+      "license": "Solderpad-Hardware-License-0.51"
+    },
+    "pulp-common-cells-v0.20": {
+      "repository": "https://github.com/pulp-platform/common_cells.git",
+      "commit": "db42769334b4589b4b3fc671b34513bdb98be565",
+      "license": "Solderpad-Hardware-License-0.51"
+    },
+    "vortex-v0.22": {
+      "repository": "https://github.com/vortexgpgpu/vortex.git",
+      "commit": "d76b7f24e658867ab57e3942d7c648c3e6af072d",
+      "license": "Apache-2.0"
+    },
+    "pulp-common-cells-v0.24": {
+      "repository": "https://github.com/pulp-platform/common_cells.git",
+      "commit": "63b7c50d43e462b59506f69d341ff1e40202866d",
+      "license": "Solderpad-Hardware-License-0.51"
+    },
+    "basejump-stl-v0.25": {
+      "repository": "https://github.com/bespoke-silicon-group/basejump_stl.git",
+      "commit": "b48037e28544425839dbd617d45b1a82631bc1a9",
+      "license": "Solderpad-Hardware-License-0.51"
+    },
+    "vortex-v0.25": {
+      "repository": "https://github.com/vortexgpgpu/vortex.git",
+      "commit": "d76b7f24e658867ab57e3942d7c648c3e6af072d",
+      "license": "Apache-2.0"
+    },
+    "basejump-stl-v0.28": {
+      "repository": "https://github.com/bespoke-silicon-group/basejump_stl.git",
+      "commit": "b48037e28544425839dbd617d45b1a82631bc1a9",
+      "license": "Solderpad-Hardware-License-0.51"
+    }
+  },
+  "catalog_root": "library/verilog",
+  "migration_source": "PTO-ISA/agentic-circuit catalog.lock.json"
+}

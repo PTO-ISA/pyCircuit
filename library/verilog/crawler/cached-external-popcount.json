@@ -1,0 +1,127 @@
+{
+  "schema": "acir-runtime-crawler-config-v0.1",
+  "policy": {
+    "allow_skipped_tools": false
+  },
+  "sources": [
+    {
+      "name": "pulp-common-cells-cache",
+      "provider": "github",
+      "url": "https://github.com/pulp-platform/common_cells.git",
+      "local_path": "${CONFIG_DIR}/../pulp",
+      "subdir": ".",
+      "license": "Solderpad-Hardware-License-0.51",
+      "enabled": true
+    },
+    {
+      "name": "basejump-stl-cache",
+      "provider": "github",
+      "url": "https://github.com/bespoke-silicon-group/basejump_stl.git",
+      "local_path": "${CONFIG_DIR}/../basejump",
+      "subdir": ".",
+      "license": "Solderpad-Hardware-License-0.51",
+      "enabled": true
+    },
+    {
+      "name": "vortex-cache",
+      "provider": "github",
+      "url": "https://github.com/vortexgpgpu/vortex.git",
+      "local_path": "${CONFIG_DIR}/../vendor-v0.22/vortex",
+      "subdir": "hw/rtl/libs",
+      "include_dirs": [
+        "${CONFIG_DIR}/../vendor-v0.22/vortex/hw/rtl"
+      ],
+      "license": "Apache-2.0",
+      "enabled": true
+    }
+  ],
+  "targets": [
+    {
+      "name": "pulp-popcount",
+      "source": "pulp-common-cells-cache",
+      "module": "cc_popcount",
+      "interface": {
+        "wrapper_module": "pyc_runtime_pulp_popcount",
+        "parameters": [
+          {
+            "name": "IN_WIDTH",
+            "source": "InputWidth",
+            "default": 8
+          }
+        ],
+        "ports": [
+          {
+            "name": "in",
+            "direction": "input",
+            "width": "IN_WIDTH",
+            "source": "data_i"
+          },
+          {
+            "name": "out",
+            "direction": "output",
+            "width": "$clog2(IN_WIDTH+1)",
+            "source": "popcount_o"
+          }
+        ]
+      }
+    },
+    {
+      "name": "basejump-popcount",
+      "source": "basejump-stl-cache",
+      "module": "bsg_popcount",
+      "interface": {
+        "wrapper_module": "pyc_runtime_basejump_popcount",
+        "parameters": [
+          {
+            "name": "IN_WIDTH",
+            "source": "width_p",
+            "default": 8
+          }
+        ],
+        "ports": [
+          {
+            "name": "in",
+            "direction": "input",
+            "width": "IN_WIDTH",
+            "source": "i"
+          },
+          {
+            "name": "out",
+            "direction": "output",
+            "width": "$clog2(IN_WIDTH+1)",
+            "source": "o"
+          }
+        ]
+      }
+    },
+    {
+      "name": "vortex-popcount",
+      "source": "vortex-cache",
+      "module": "VX_popcount",
+      "interface": {
+        "wrapper_module": "pyc_runtime_vortex_popcount",
+        "parameters": [
+          {
+            "name": "IN_WIDTH",
+            "source": "N",
+            "default": 8
+          }
+        ],
+        "ports": [
+          {
+            "name": "in",
+            "direction": "input",
+            "width": "IN_WIDTH",
+            "source": "data_in"
+          },
+          {
+            "name": "out",
+            "direction": "output",
+            "width": "$clog2(IN_WIDTH+1)",
+            "source": "data_out"
+          }
+        ]
+      }
+    }
+  ]
+}

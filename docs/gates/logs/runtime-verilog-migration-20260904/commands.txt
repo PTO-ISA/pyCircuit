@@ -1,0 +1,18 @@
+# Runtime Verilog/crawler integration gate run (2026-09-04)
+python -m compileall -q tools/runtime tools/pycircuit_rtl_crawler_v0.14
+python -m pytest -q tests/python/agentic-circuit/runtime --disable-warnings --maxfail=1
+wsl bash -lc "ninja -C /mnt/e/desktop/GitHubProjects/pyCircuit-PTO-ISA/.pycircuit_out/toolchain/build -j1"
+wsl bash -lc "ctest --test-dir /mnt/e/desktop/GitHubProjects/pyCircuit-PTO-ISA/.pycircuit_out/toolchain/build --output-on-failure -j1"
+python tools/runtime/acir_runtime.py verify-catalog --catalog library/verilog/catalog.json
+python tools/runtime/acir_runtime.py vendor-check --catalog library/verilog/catalog.json --manifest library/verilog/manifests/parameterized-components-v0.30.json --report .pycircuit_out/gates/runtime-verilog-migration-20260904/vendoring.json
+python tools/runtime/acir_runtime.py verify-runtime --catalog library/verilog/catalog.json --report .pycircuit_out/gates/runtime-verilog-migration-20260904/runtime-smoke.json --verilator wsl:verilator --yosys wsl:yosys --timeout 45 --entry basejump-popcount --entry basejump-priority-encode --entry basejump-rr-arbiter --entry pulp-cc-popcount --entry pulp-stream-register --entry vortex-mux
+python tools/runtime/acir_runtime.py functional --catalog library/verilog/catalog.json --entry basejump-priority-encode --report .pycircuit_out/gates/runtime-verilog-migration-20260904/functional-priority.json --verilator wsl:verilator --yosys wsl:yosys --timeout 45
+python examples/agentic-circuit/blocks/priority_encode_runtime/run_demo.py
+python examples/agentic-circuit/blocks/priority_encode_runtime/run_variants.py
+python tools/runtime/acir_runtime.py scan --config library/verilog/crawler/sources.json --output .pycircuit_out/gates/runtime-verilog-migration-20260904/crawler-scan --max-files 1024 --file-overflow truncate --no-tools
+python -m pre_commit run pyc-api-hygiene --all-files
+
+# The full pre-commit bootstrap was attempted with:
+python -m pre_commit run --all-files
+# It was interrupted after the first-time Node hook environment remained silent;
+# the local API-hygiene hook passed and the repository checks above are complete.

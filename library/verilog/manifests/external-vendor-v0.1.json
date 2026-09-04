@@ -1,0 +1,126 @@
+{
+  "schema": "acir-runtime-validation-manifest-v0.1",
+  "generated_by": "acir-runtime scan --package",
+  "toolchain": {
+    "verilator": "Verilator 5.051 devel rev v5.050-176-g7da43d830",
+    "yosys": "Yosys 0.68+64 (git sha1 b8959e70b-dirty)"
+  },
+  "validation": {
+    "mode": "serial structural gate plus targeted functional oracle",
+    "gates": [
+      "dependency_closure",
+      "verilator_lint",
+      "bounded_smoke",
+      "yosys_synthesis"
+    ],
+    "functional_oracles": [
+      "opentitan-sum-tree",
+      "opentitan-max-tree",
+      "verilog-axi-priority-encoder"
+    ],
+    "all_passed": true,
+    "power": "not measured; no VCD/SAIF activity"
+  },
+  "sha256": {
+    "basejump/bsg_adder_ripple_carry.sv": "611c6450b7d3787950952c74caa2b2df22b695a6183f0a247bc8770065d2070c",
+    "basejump/bsg_and.sv": "730b1fb25c8da0a857b00aa6f0230a6da203d05ffecae0ba16485bf6e8ecd83d",
+    "basejump/bsg_defines.sv": "90c33ac35452a81287a76cf7af15df15b95dfd3db2edb6d154901897e358731a",
+    "basejump/bsg_xor.sv": "91ec1788d4153bf906c448181d0c92ae0c499e8727def6be8ddd462b4cef00ba",
+    "licenses/opentitan/LICENSE": "d5acfbe7798edd7c2a55081fe1dc54f4d0a69a035c0d45c11fab7b589c48af56",
+    "licenses/verilog-axi/LICENSE": "678c265b77751d71e12a63b765d461dd6fae76854381cd7108cfc81ed27c0989",
+    "opentitan/prim_assert.sv": "4c0a395ead2d0cd8614b812d44d899e5fcefbcf5c87539b8cc525248e133f8ba",
+    "opentitan/prim_max_tree.sv": "39657f229fad3837ff99af8fb6b707b9f64fb14f7b3491db47dc066dc5dc5400",
+    "opentitan/prim_onehot_enc.sv": "05f15ce4b0869ad4e6e6192c614f688e93a6ab7af8e5b211ec149854c6f2583b",
+    "opentitan/prim_sum_tree.sv": "c0628134e96e1682c2470b4cae6e0fc03c0759bd9662e0cce28de875f52f1e91",
+    "pyc_runtime_basejump_adder.v": "276c4c2e22c744e40007aa84524e2bd4a01fe2ed4b7a3b0f54c8aef2eccd6e2d",
+    "pyc_runtime_basejump_and.v": "3495ebd869d54ec63bba6657b6f74e469e3900bbaa983e71010489e22059b35b",
+    "pyc_runtime_basejump_xor.v": "f8ae9799408559753ea481cb3fa18d348e4a69fd4190fc3263e659bd990b2755",
+    "pyc_runtime_opentitan_max_tree.v": "c8d7d08a91109597ce539ccde31a732ea7ff85a2755e3073a4c409a7319d0baa",
+    "pyc_runtime_opentitan_onehot_encode.v": "1672d553a683a899600d5e23a13079c7be33372ad07b95754a2435d33bcb9feb",
+    "pyc_runtime_opentitan_sum_tree.v": "cdf075222ecdabeb89ac2121ed65cf1e5929bb67b4600861bc1c06d9cdb8257a",
+    "pyc_runtime_verilog_axi_priority_encoder.v": "ac150da6c6bf7a5e2a0d54bded47617c97405b3595ed7355a996672d04359190",
+    "verilog_axi/priority_encoder.v": "d4555f30683a7d748deb4c1b928e76579235cf157f9b16684daf6c1f69320302"
+  },
+  "entries": [
+    {
+      "name": "pulp-binary-to-gray",
+      "top": "pyc_runtime_pulp_binary_to_gray",
+      "source": [
+        "pulp/cc_binary_to_gray.sv"
+      ],
+      "qor_cells": 7
+    },
+    {
+      "name": "pulp-gray-to-binary",
+      "top": "pyc_runtime_pulp_gray_to_binary",
+      "source": [
+        "pulp/cc_gray_to_binary.sv"
+      ],
+      "qor_cells": 10
+    },
+    {
+      "name": "opentitan-onehot-encode",
+      "top": "pyc_runtime_opentitan_onehot_encode",
+      "source": [
+        "opentitan/prim_onehot_enc.sv"
+      ],
+      "qor_cells": 14
+    },
+    {
+      "name": "opentitan-sum-tree",
+      "top": "pyc_runtime_opentitan_sum_tree",
+      "source": [
+        "opentitan/prim_sum_tree.sv",
+        "opentitan/prim_assert.sv"
+      ],
+      "qor_cells": 497,
+      "functional": "pass"
+    },
+    {
+      "name": "opentitan-max-tree",
+      "top": "pyc_runtime_opentitan_max_tree",
+      "source": [
+        "opentitan/prim_max_tree.sv",
+        "opentitan/prim_assert.sv"
+      ],
+      "qor_cells": 372,
+      "functional": "pass"
+    },
+    {
+      "name": "verilog-axi-priority-encoder",
+      "top": "pyc_runtime_verilog_axi_priority_encoder",
+      "source": [
+        "verilog_axi/priority_encoder.v"
+      ],
+      "qor_cells": 26,
+      "functional": "pass"
+    },
+    {
+      "name": "basejump-and",
+      "top": "pyc_runtime_basejump_and",
+      "source": [
+        "basejump/bsg_and.sv",
+        "basejump/bsg_defines.sv"
+      ],
+      "qor_cells": 8
+    },
+    {
+      "name": "basejump-xor",
+      "top": "pyc_runtime_basejump_xor",
+      "source": [
+        "basejump/bsg_xor.sv",
+        "basejump/bsg_defines.sv"
+      ],
+      "qor_cells": 8
+    },
+    {
+      "name": "basejump-adder",
+      "top": "pyc_runtime_basejump_adder",
+      "source": [
+        "basejump/bsg_adder_ripple_carry.sv",
+        "basejump/bsg_defines.sv"
+      ],
+      "qor_cells": 38
+    }
+  ]
+}

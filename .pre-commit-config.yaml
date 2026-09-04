@@ -6,21 +6,24 @@ repos:
       - id: check-yaml
         args: [--unsafe]
       - id: end-of-file-fixer
-        exclude: ^(docs/gates/logs/|third_party/references/|examples/pycircuit/dodgeball_game/reference/)
+        exclude: ^(docs/gates/logs/|third_party/references/|examples/pycircuit/dodgeball_game/reference/|library/verilog/|tools/pycircuit_rtl_crawler_v0\.14/)
       - id: trailing-whitespace
-        exclude: ^(docs/gates/logs/|third_party/references/|examples/pycircuit/dodgeball_game/reference/)
+        exclude: ^(docs/gates/logs/|third_party/references/|examples/pycircuit/dodgeball_game/reference/|library/verilog/|tools/pycircuit_rtl_crawler_v0\.14/)
 
   - repo: https://github.com/astral-sh/ruff-pre-commit
     rev: v0.11.8
     hooks:
       - id: ruff
-        exclude: ^(python/agentic-circuit/|compiler/acir/|simulator/gfsim/|schemas/agentic-circuit/|examples/agentic-circuit/|tests/(python|mlir|cpp|integration|goldens)/agentic-circuit/|tools/agentic-circuit/|toolchains/agentic-circuit/|third_party/references/|integrations/xiangshan/|designs/outerCube/|designs/blocks/BypassUnit/|designs/blocks/RegisterFile/)
+        # Runtime/crawler tools include imported v0.14 scripts whose historical
+        # formatting is covered by compileall and their dedicated test suite.
+        exclude: ^(python/agentic-circuit/|compiler/acir/|simulator/gfsim/|schemas/agentic-circuit/|examples/agentic-circuit/|tests/(python|mlir|cpp|integration|goldens)/agentic-circuit/|tools/(agentic-circuit/|runtime/|pycircuit_rtl_crawler_v0\.14/)|toolchains/agentic-circuit/|third_party/references/|integrations/xiangshan/|designs/outerCube/|designs/blocks/BypassUnit/|designs/blocks/RegisterFile/)
 
   - repo: https://github.com/psf/black
     rev: 24.10.0
     hooks:
       - id: black
-        exclude: ^(python/agentic-circuit/|compiler/acir/|simulator/gfsim/|schemas/agentic-circuit/|examples/agentic-circuit/|tests/(python|mlir|cpp|integration|goldens)/agentic-circuit/|tools/agentic-circuit/|toolchains/agentic-circuit/|third_party/references/|integrations/xiangshan/)
+        # See the ruff exclusion above; these are intentionally vendored tools.
+        exclude: ^(python/agentic-circuit/|compiler/acir/|simulator/gfsim/|schemas/agentic-circuit/|examples/agentic-circuit/|tests/(python|mlir|cpp|integration|goldens)/agentic-circuit/|tools/(agentic-circuit/|runtime/|pycircuit_rtl_crawler_v0\.14/)|toolchains/agentic-circuit/|third_party/references/|integrations/xiangshan/)
 
   - repo: https://github.com/DavidAnson/markdownlint-cli2
     rev: v0.18.1

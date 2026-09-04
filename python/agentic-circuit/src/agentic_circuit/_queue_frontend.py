@@ -468,6 +468,7 @@ def _scalar_type(node: ast.expr) -> str:
         "u1": 1,
         "u2": 2,
         "u4": 4,
+        "u5": 5,
         "u8": 8,
         "u16": 16,
         "u32": 32,
@@ -4311,6 +4312,50 @@ class _ExpressionEmitter:
             name = self._new()
             self.lines.append(
                 f"    %{name} = ac.var.popcount %{value} : !ac.var<{value_type}> -> !ac.var<i{result_width}>"
+            )
+            return name, f"i{result_width}"
+        if (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name)
+            and node.func.id == "priority_encode"
+        ):
+            if len(node.args) != 1:
+                raise QueueFrontendError(
+                    "ACPY-QUEUE-022: priority_encode requires one positional operand"
+                )
+            unknown = [keyword for keyword in node.keywords if keyword.arg != "lo_to_hi"]
+            if len(unknown) > 0 or sum(keyword.arg == "lo_to_hi" for keyword in node.keywords) > 1:
+                raise QueueFrontendError(
+                    "ACPY-QUEUE-022: priority_encode only accepts one lo_to_hi keyword"
+                )
+            lo_to_hi = True
+            if node.keywords:
+                value_node = node.keywords[0].value
+                if not isinstance(value_node, ast.Constant) or type(value_node.value) is not bool:
+                    raise QueueFrontendError(
+                        "ACPY-QUEUE-022: lo_to_hi must be a compile-time bool"
+                    )
+                lo_to_hi = value_node.value
+            value, value_type = self.emit(node.args[0])
+            if not value_type.startswith("i") or not value_type[1:].isdigit():
+                raise QueueFrontendError(
+                    "ACPY-QUEUE-022: priority_encode operand must be an integer payload"
+                )
+            width = int(value_type[1:])
+            if width <= 0:
+                raise QueueFrontendError(
+                    "ACPY-QUEUE-022: priority_encode operand width must be positive"
+                )
+            # The packed result is {valid,index}; bit zero is the index LSB.
+            result_width = max(1, (width - 1).bit_length()) + 1
+            name = self._new()
+            self.lines.append(
+                f'    %{name} = ac.var.priority_encode %{value} '
+                f'{{lo_to_hi = {"true" if lo_to_hi else "false"}, '
+                'primitive_id = "encoding-arbitration.basejump-priority.v1", '
+                'implementation_id = "github.bespoke-silicon-group.basejump_stl.bsg_priority_encode", '
+                'qualification_report = ".pycircuit_out/runtime-functional-validation/basejump-priority.json"} '
+                f": !ac.var<{value_type}> -> !ac.var<i{result_width}>"
             )
             return name, f"i{result_width}"
         if (

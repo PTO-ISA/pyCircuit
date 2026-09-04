@@ -181,6 +181,12 @@ extractExpressions(mlir::Region &region, QueueBlockPlan &plan,
         return error;
       continue;
     }
+    if (auto priority = mlir::dyn_cast<ac::VarPriorityEncodeOp>(operation)) {
+      if (auto error = append(operation, "priority_encode", {}, {},
+                              priority.getLoToHi() ? "lo_to_hi" : "hi_to_lo"))
+        return error;
+      continue;
+    }
     if (auto compare = mlir::dyn_cast<ac::VarCmpOp>(operation)) {
       if (auto error = append(operation, "cmp", {}, compare.getPredicate()))
         return error;

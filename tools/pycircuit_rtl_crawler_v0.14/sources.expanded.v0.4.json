@@ -1,0 +1,969 @@
+{
+  "schema": "pycircuit-rtl-sources-v0.4",
+  "license_policy": "informational_only",
+  "notes": "v0.4 adds include/vendor roots and explicit transitive dependency repositories. Dependency-only entries are materialized but not scanned.",
+  "sources": [
+    {
+      "project": "basejump_stl",
+      "repo": "https://github.com/bespoke-silicon-group/basejump_stl.git",
+      "enabled": true,
+      "priority": "A",
+      "families": [
+        "Integer",
+        "Reduction",
+        "Dataflow",
+        "Memory",
+        "Interconnect"
+      ],
+      "path_hints": [
+        "bsg_misc",
+        "bsg_dataflow",
+        "bsg_mem"
+      ],
+      "include_hints": [
+        "bsg_noc",
+        "bsg_link",
+        "bsg_comm_link",
+        "bsg_fpu",
+        "bsg_cache"
+      ],
+      "exclude_dirs": [
+        ".git",
+        "docs",
+        "test",
+        "tests",
+        "build"
+      ],
+      "extensions": [
+        ".v",
+        ".sv",
+        ".vh",
+        ".svh"
+      ],
+      "yosys_overrides": {
+        "bsg_cam_1r1w_sync_unmanaged": {
+          "timeout_sec": 300,
+          "frontend": "slang",
+          "skip_abc": true
+        },
+        "bsg_cam_1r1w_tag_array": {
+          "timeout_sec": 300,
+          "frontend": "slang",
+          "skip_abc": true
+        },
+        "bsg_cam_1r1w_unmanaged": {
+          "timeout_sec": 300,
+          "frontend": "slang",
+          "skip_abc": true
+        },
+        "bsg_fifo_1r1w_narrowed": {
+          "timeout_sec": 300,
+          "frontend": "slang",
+          "skip_abc": true
+        },
+        "bsg_mux_bitwise": {
+          "timeout_sec": 180,
+          "frontend": "slang",
+          "skip_abc": true
+        },
+        "bsg_mux_segmented": {
+          "timeout_sec": 300,
+          "frontend": "slang",
+          "skip_abc": true
+        },
+        "bsg_mux2_gatestack": {
+          "timeout_sec": 300,
+          "frontend": "slang",
+          "skip_abc": true
+        },
+        "bsg_muxi2_gatestack": {
+          "timeout_sec": 300,
+          "frontend": "slang",
+          "skip_abc": true
+        }
+      }
+    },
+    {
+      "project": "opentitan",
+      "repo": "https://github.com/lowRISC/opentitan.git",
+      "enabled": true,
+      "priority": "A",
+      "families": [
+        "Dataflow",
+        "Memory",
+        "CPU",
+        "Interconnect"
+      ],
+      "path_hints": [
+        "hw/ip/prim/rtl"
+      ],
+      "exclude_dirs": [
+        ".git",
+        "docs",
+        "test",
+        "tests",
+        "build",
+        "sw"
+      ],
+      "extensions": [
+        ".v",
+        ".sv",
+        ".vh",
+        ".svh"
+      ],
+      "include_hints": [
+        "hw/ip/prim_generic/rtl"
+      ],
+      "dependency_projects": [
+        "ibex"
+      ],
+      "module_overrides": {
+        "prim_and2": "ibex:vendor/lowrisc_ip/ip/prim_generic/rtl/prim_and2.sv"
+      },
+      "prune_packages": [
+        "uvm_pkg",
+        "assert_rpt_pkg"
+      ]
+    },
+    {
+      "project": "pulp_common_cells",
+      "repo": "https://github.com/pulp-platform/common_cells.git",
+      "enabled": true,
+      "priority": "A",
+      "families": [
+        "Integer",
+        "Reduction",
+        "Dataflow",
+        "Memory",
+        "CDC"
+      ],
+      "path_hints": [
+        "src",
+        "include"
+      ],
+      "exclude_dirs": [
+        ".git",
+        "docs",
+        "test",
+        "tests",
+        "lint",
+        "formal",
+        "build"
+      ],
+      "extensions": [
+        ".v",
+        ".sv",
+        ".vh",
+        ".svh"
+      ],
+      "include_hints": [
+        "include"
+      ],
+      "dependency_projects": [
+        "tech_cells_generic"
+      ],
+      "module_overrides": {
+        "tc_clk_gating": "tech_cells_generic:src/rtl/tc_clk.sv",
+        "tc_clk_mux2": "tech_cells_generic:src/rtl/tc_clk.sv",
+        "tc_clk_or2": "tech_cells_generic:src/rtl/tc_clk.sv"
+      },
+      "prune_packages": [
+        "assert_rpt_pkg",
+        "uvm_pkg"
+      ],
+      "parameter_overrides": {
+        "cc_cdc_fifo_gray_clearable": {
+          "SyncStages": 3,
+          "LogDepth": 3,
+          "ClearOnAsyncReset": 1
+        },
+        "cc_cdc_fifo_gray_clearable_src": {
+          "SyncStages": 3,
+          "LogDepth": 3
+        },
+        "cc_cdc_fifo_gray_clearable_dst": {
+          "SyncStages": 3,
+          "LogDepth": 3
+        },
+        "cc_cdc_fifo_gray_src_clearable": {
+          "SyncStages": 3,
+          "LogDepth": 3
+        },
+        "cc_cdc_fifo_gray_dst_clearable": {
+          "SyncStages": 3,
+          "LogDepth": 3
+        },
+        "cc_cdc_fifo_gray_src_ptr_clearable": {
+          "SyncStages": 3,
+          "LogDepth": 3
+        },
+        "cc_cdc_fifo_gray_dst_ptr_clearable": {
+          "SyncStages": 3,
+          "LogDepth": 3
+        }
+      },
+      "yosys_overrides": {
+        "*": {
+          "timeout_sec": 180,
+          "frontend": "slang",
+          "skip_abc": true
+        }
+      }
+    },
+    {
+      "project": "vortex",
+      "repo": "https://github.com/vortexgpgpu/vortex.git",
+      "enabled": true,
+      "priority": "A",
+      "families": [
+        "GPU",
+        "Memory",
+        "CPU",
+        "Integer",
+        "Reduction"
+      ],
+      "path_hints": [
+        "hw/rtl"
+      ],
+      "exclude_dirs": [
+        ".git",
+        "docs",
+        "test",
+        "tests",
+        "build",
+        "runtime",
+        "kernel",
+        "third_party",
+        "sim"
+      ],
+      "extensions": [
+        ".v",
+        ".sv",
+        ".vh",
+        ".svh"
+      ],
+      "include_hints": [
+        "hw",
+        "ci"
+      ],
+      "defines": [
+        "VX_CFG_XLEN=32",
+        "VX_CFG_XLEN_32",
+        "DCACHE_NUM_REQS=1",
+        "L2_NUM_REQS=1",
+        "L3_NUM_REQS=1",
+        "VX_CFG_DCACHE_NUM_BANKS=1",
+        "VX_CFG_L2_NUM_BANKS=1",
+        "VX_CFG_L2_MEM_PORTS=1",
+        "VX_CFG_L3_NUM_BANKS=1",
+        "VX_CFG_L3_MEM_PORTS=1"
+      ],
+      "prune_includes": [
+        "dpi_util.vh"
+      ],
+      "prune_modules": [
+        "VX_dp_ram_asic",
+        "ila_lsu"
+      ],
+      "yosys_overrides": {
+        "*": {
+          "timeout_sec": 240,
+          "frontend": "slang",
+          "skip_abc": true,
+          "allow_use_before_declare": true,
+          "max_generate_steps": 20000
+        }
+      }
+    },
+    {
+      "project": "picorv32",
+      "repo": "https://github.com/YosysHQ/picorv32.git",
+      "enabled": true,
+      "priority": "B",
+      "families": [
+        "CPU",
+        "Integer",
+        "Memory"
+      ],
+      "path_hints": [
+        "."
+      ],
+      "exclude_dirs": [
+        ".git",
+        "test",
+        "tests",
+        "scripts",
+        "build"
+      ],
+      "extensions": [
+        ".v",
+        ".sv",
+        ".vh",
+        ".svh"
+      ]
+    },
+    {
+      "project": "serv",
+      "repo": "https://github.com/olofk/serv.git",
+      "enabled": true,
+      "priority": "C",
+      "families": [
+        "CPU",
+        "Integer"
+      ],
+      "path_hints": [
+        "rtl"
+      ],
+      "exclude_dirs": [
+        ".git",
+        "doc",
+        "sw",
+        "tests",
+        "build"
+      ],
+      "extensions": [
+        ".v",
+        ".sv",
+        ".vh",
+        ".svh"
+      ]
+    },
+    {
+      "project": "pulp_axi",
+      "repo": "https://github.com/pulp-platform/axi.git",
+      "enabled": true,
+      "priority": "A",
+      "families": [
+        "DMA",
+        "Interconnect",
+        "Dataflow"
+      ],
+      "path_hints": [
+        "src"
+      ],
+      "exclude_dirs": [
+        ".git",
+        "docs",
+        "test",
+        "tests",
+        "sim",
+        "build"
+      ],
+      "extensions": [
+        ".v",
+        ".sv",
+        ".vh",
+        ".svh"
+      ],
+      "include_hints": [
+        "include"
+      ],
+      "validation_wrappers": {
+        "axi_cdc_dst": {
+          "kind": "axi4_endpoint",
+          "log_depth": 1,
+          "sync_stages": 3
+        },
+        "axi_cdc_src": {
+          "kind": "axi4_endpoint",
+          "log_depth": 1,
+          "sync_stages": 3
+        },
+        "axi_cdc_intf": {
+          "kind": "axi_cdc_intf",
+          "log_depth": 1,
+          "sync_stages": 3
+        },
+        "axi_lite_cdc_intf": {
+          "kind": "axi_cdc_intf",
+          "log_depth": 1,
+          "sync_stages": 3
+        },
+        "axi_cdc_dst_intf": {
+          "kind": "axi_cdc_intf",
+          "log_depth": 1,
+          "sync_stages": 3
+        },
+        "axi_lite_cdc_dst_intf": {
+          "kind": "axi_cdc_intf",
+          "log_depth": 1,
+          "sync_stages": 3
+        },
+        "axi_cdc_src_intf": {
+          "kind": "axi_cdc_intf",
+          "log_depth": 1,
+          "sync_stages": 3
+        },
+        "axi_lite_cdc_src_intf": {
+          "kind": "axi_cdc_intf",
+          "log_depth": 1,
+          "sync_stages": 3
+        }
+      },
+      "dependency_projects": [
+        "pulp_common_cells"
+      ],
+      "prune_packages": [
+        "assert_rpt_pkg",
+        "uvm_pkg"
+      ],
+      "parameter_overrides": {
+        "axi_cdc": {
+          "LogDepth": 1,
+          "SyncStages": 3
+        },
+        "axi_cdc_dst": {
+          "LogDepth": 1,
+          "SyncStages": 3
+        },
+        "axi_cdc_src": {
+          "LogDepth": 1,
+          "SyncStages": 3
+        }
+      }
+    },
+    {
+      "project": "pulp_idma",
+      "repo": "https://github.com/pulp-platform/iDMA.git",
+      "enabled": true,
+      "priority": "A",
+      "families": [
+        "DMA",
+        "Interconnect"
+      ],
+      "path_hints": [
+        "src"
+      ],
+      "exclude_dirs": [
+        ".git",
+        "docs",
+        "test",
+        "tests",
+        "sim",
+        "build"
+      ],
+      "extensions": [
+        ".v",
+        ".sv",
+        ".vh",
+        ".svh"
+      ]
+    },
+    {
+      "project": "ibex",
+      "repo": "https://github.com/lowRISC/ibex.git",
+      "enabled": true,
+      "priority": "B",
+      "families": [
+        "CPU",
+        "Integer",
+        "Memory"
+      ],
+      "path_hints": [
+        "rtl"
+      ],
+      "exclude_dirs": [
+        ".git",
+        "doc",
+        "build",
+        "dv"
+      ],
+      "extensions": [
+        ".v",
+        ".sv",
+        ".vh",
+        ".svh"
+      ],
+      "vendor_hints": [
+        "vendor/lowrisc_ip/ip/prim",
+        "vendor/lowrisc_ip/ip/prim_generic/rtl"
+      ],
+      "include_hints": [
+        "vendor/lowrisc_ip/dv/sv/dv_utils"
+      ],
+      "prune_packages": [
+        "uvm_pkg"
+      ]
+    },
+    {
+      "project": "cva6",
+      "repo": "https://github.com/openhwgroup/cva6.git",
+      "enabled": true,
+      "priority": "B",
+      "families": [
+        "CPU",
+        "Memory",
+        "Interconnect"
+      ],
+      "path_hints": [
+        "core"
+      ],
+      "exclude_dirs": [
+        ".git",
+        "docs",
+        "test",
+        "verif",
+        "vendor",
+        "build"
+      ],
+      "extensions": [
+        ".v",
+        ".sv",
+        ".vh",
+        ".svh"
+      ],
+      "include_hints": [
+        "core/pmp/include",
+        "core/include"
+      ],
+      "sparse_paths": [
+        "common/local/util"
+      ],
+      "forced_files": [
+        "common/local/util/sram.sv",
+        "common/local/util/sram_cache.sv",
+        "common/local/util/tc_sram_wrapper.sv",
+        "common/local/util/tc_sram_wrapper_cache_techno.sv"
+      ],
+      "generated_files": {
+        "cva6_fpga_sram_primitives.sv": "// Candidate-local synthesizable models for the exact CVA6 FPGA SRAM interfaces.\n// These are functional memories, not black boxes; upstream CVA6 RTL is unchanged.\nmodule AsyncDpRam #(\n  parameter int ADDR_WIDTH = 1, parameter int DATA_DEPTH = 2, parameter int DATA_WIDTH = 1\n) (\n  input logic Clk_CI, input logic WrEn_SI,\n  input logic [ADDR_WIDTH-1:0] RdAddr_DI, WrAddr_DI,\n  input logic [DATA_WIDTH-1:0] WrData_DI, output logic [DATA_WIDTH-1:0] RdData_DO\n);\n  logic [DATA_WIDTH-1:0] mem [0:DATA_DEPTH-1];\n  always_ff @(posedge Clk_CI) if (WrEn_SI) mem[WrAddr_DI] <= WrData_DI;\n  always_comb RdData_DO = mem[RdAddr_DI];\nendmodule\n\nmodule SyncDpRam_ind_r_w #(\n  parameter int ADDR_WIDTH = 1, parameter int DATA_DEPTH = 2, parameter int DATA_WIDTH = 1\n) (\n  input logic Clk_CI, input logic WrEn_SI,\n  input logic [ADDR_WIDTH-1:0] RdAddr_DI, WrAddr_DI,\n  input logic [DATA_WIDTH-1:0] WrData_DI, output logic [DATA_WIDTH-1:0] RdData_DO\n);\n  logic [DATA_WIDTH-1:0] mem [0:DATA_DEPTH-1];\n  always_ff @(posedge Clk_CI) begin\n    if (WrEn_SI) mem[WrAddr_DI] <= WrData_DI;\n    RdData_DO <= mem[RdAddr_DI];\n  end\nendmodule\n\nmodule SyncDpRam #(\n  parameter int ADDR_WIDTH = 1, parameter int DATA_DEPTH = 2, parameter int DATA_WIDTH = 1,\n  parameter int OUT_REGS = 0, parameter int SIM_INIT = 0\n) (\n  input logic Clk_CI, input logic Rst_RBI,\n  input logic CSelA_SI, WrEnA_SI, input logic [ADDR_WIDTH-1:0] AddrA_DI,\n  input logic [DATA_WIDTH-1:0] WrDataA_DI, output logic [DATA_WIDTH-1:0] RdDataA_DO,\n  input logic CSelB_SI, WrEnB_SI, input logic [ADDR_WIDTH-1:0] AddrB_DI,\n  input logic [DATA_WIDTH-1:0] WrDataB_DI, output logic [DATA_WIDTH-1:0] RdDataB_DO\n);\n  logic [DATA_WIDTH-1:0] mem [0:DATA_DEPTH-1];\n  always_ff @(posedge Clk_CI or negedge Rst_RBI) begin\n    if (!Rst_RBI) begin RdDataA_DO <= '0; RdDataB_DO <= '0; end\n    else begin\n      if (CSelA_SI) begin\n        if (WrEnA_SI) mem[AddrA_DI] <= WrDataA_DI;\n        RdDataA_DO <= mem[AddrA_DI];\n      end\n      if (CSelB_SI) begin\n        if (WrEnB_SI) mem[AddrB_DI] <= WrDataB_DI;\n        RdDataB_DO <= mem[AddrB_DI];\n      end\n    end\n  end\nendmodule\n"
+      },
+      "validation_wrappers": {
+        "cva6_fifo_v3": {
+          "kind": "cva6_fifo"
+        },
+        "btb": {
+          "kind": "cva6_btb",
+          "config": "core/include/cv64a6_imafdc_sv39_config_pkg.sv",
+          "nr_entries": 32
+        }
+      },
+      "dependency_projects": [
+        "pulp_common_cells",
+        "cva6_cvfpu"
+      ],
+      "module_overrides": {
+        "unread": "pulp_common_cells:src/deprecated/unread.sv"
+      },
+      "package_overrides": {
+        "riscv": "cva6:core/include/riscv_pkg.sv",
+        "cva6_config_pkg": "cva6:core/include/cv64a6_imafdc_sv39_config_pkg.sv"
+      },
+      "fixed_config": "cv64a6_imafdc_sv39 via build_config_pkg::build_config",
+      "verification_dependencies": {
+        "uvm_pkg": "pruned_for_structural_lint",
+        "uvm_macros.svh": "pruned_for_structural_lint"
+      },
+      "prune_includes": [
+        "l15.tmp.h",
+        "uvm_macros.svh"
+      ],
+      "prune_packages": [
+        "uvm_pkg"
+      ],
+      "yosys_overrides": {
+        "*": {
+          "timeout_sec": 240,
+          "frontend": "slang",
+          "skip_abc": true,
+          "allow_use_before_declare": true,
+          "max_generate_steps": 20000
+        }
+      }
+    },
+    {
+      "project": "cva6_cvfpu",
+      "repo": "https://github.com/openhwgroup/cvfpu.git",
+      "enabled": true,
+      "scan": false,
+      "priority": "D",
+      "families": [
+        "FloatingPoint"
+      ],
+      "path_hints": [
+        "src"
+      ],
+      "exclude_dirs": [
+        ".git",
+        "doc",
+        "docs",
+        "test",
+        "tests",
+        "formal",
+        "build"
+      ],
+      "extensions": [
+        ".v",
+        ".sv",
+        ".vh",
+        ".svh"
+      ]
+    },
+    {
+      "project": "riscv_boom",
+      "repo": "https://github.com/riscv-boom/riscv-boom.git",
+      "enabled": true,
+      "priority": "B",
+      "families": [
+        "CPU",
+        "Integer",
+        "Memory"
+      ],
+      "path_hints": [
+        "src/main"
+      ],
+      "exclude_dirs": [
+        ".git",
+        "docs",
+        "test",
+        "tests",
+        "build"
+      ],
+      "extensions": [
+        ".v",
+        ".sv",
+        ".vh",
+        ".svh"
+      ]
+    },
+    {
+      "project": "litex_soc",
+      "repo": "https://github.com/enjoy-digital/litex.git",
+      "enabled": true,
+      "priority": "B",
+      "families": [
+        "Dataflow",
+        "Memory",
+        "Interconnect"
+      ],
+      "path_hints": [
+        "litex/soc/cores"
+      ],
+      "exclude_dirs": [
+        ".git",
+        "test",
+        "tests",
+        "build"
+      ],
+      "extensions": [
+        ".v",
+        ".sv",
+        ".vh",
+        ".svh"
+      ]
+    },
+    {
+      "project": "hdl_modules",
+      "repo": "https://gitlab.com/alex/hdl-modules.git",
+      "enabled": true,
+      "priority": "B",
+      "families": [
+        "Dataflow",
+        "Memory",
+        "Interconnect",
+        "CDC"
+      ],
+      "path_hints": [
+        "logic",
+        "lsfr"
+      ],
+      "exclude_dirs": [
+        ".git",
+        "doc",
+        "docs",
+        "test",
+        "tests",
+        "sim",
+        "build"
+      ],
+      "extensions": [
+        ".v",
+        ".sv",
+        ".vh",
+        ".svh"
+      ]
+    },
+    {
+      "project": "ohwr_general_cores",
+      "repo": "https://gitlab.com/ohwr/project/general-cores.git",
+      "enabled": true,
+      "priority": "B",
+      "families": [
+        "Dataflow",
+        "Interconnect",
+        "Memory",
+        "CDC"
+      ],
+      "path_hints": [
+        "modules"
+      ],
+      "exclude_dirs": [
+        ".git",
+        "doc",
+        "docs",
+        "test",
+        "tests",
+        "sim",
+        "build"
+      ],
+      "extensions": [
+        ".v",
+        ".sv",
+        ".vh",
+        ".svh"
+      ],
+      "include_hints": [
+        "modules/wishbone/wb_lm32/platform/generic"
+      ],
+      "module_overrides": {
+        "jtag_tap": "ohwr_general_cores:modules/wishbone/wb_lm32/platform/generic/jtag_tap.v",
+        "lm32_multiplier": "ohwr_general_cores:modules/wishbone/wb_lm32/platform/generic/lm32_multiplier.v"
+      }
+    },
+    {
+      "project": "openpiton",
+      "repo": "https://github.com/PrincetonUniversity/openpiton.git",
+      "enabled": true,
+      "priority": "B",
+      "families": [
+        "CPU",
+        "Memory",
+        "Interconnect",
+        "Coherence"
+      ],
+      "path_hints": [
+        "piton/design"
+      ],
+      "exclude_dirs": [
+        ".git",
+        "docs",
+        "test",
+        "tests",
+        "verif",
+        "build",
+        "software"
+      ],
+      "extensions": [
+        ".v",
+        ".sv",
+        ".vh",
+        ".svh",
+        ".h"
+      ],
+      "include_hints": [
+        "piton/design/include",
+        "piton/design/chip/tile/common"
+      ],
+      "defines": [
+        "INT_RET=4'b0111"
+      ],
+      "generated_files": {
+        "define.tmp.h": "`ifndef NOC_DATA_WIDTH\n`define NOC_DATA_WIDTH 64\n`endif\n`ifndef PHY_ADDR_WIDTH\n`define PHY_ADDR_WIDTH 40\n`endif\n`ifndef MSG_SRC_CHIPID_WIDTH\n`define MSG_SRC_CHIPID_WIDTH 2\n`endif\n`ifndef MSG_SRC_X_WIDTH\n`define MSG_SRC_X_WIDTH 2\n`endif\n`ifndef MSG_SRC_Y_WIDTH\n`define MSG_SRC_Y_WIDTH 2\n`endif\n`ifndef CS_OP_WIDTH\n`define CS_OP_WIDTH 2\n`endif\n`ifndef OP_ADD\n`define OP_ADD 2'b00\n`define OP_CLR 2'b01\n`define OP_LD 2'b10\n`endif\n",
+        "l2.tmp.h": "`ifndef L2_AMO_ALU_OP_WIDTH\n`define PHY_ADDR_WIDTH 40\n`define L2_AMO_ALU_OP_WIDTH 4\n`define L2_AMO_ALU_NOP 4'd0\n`define L2_AMO_ALU_ADD 4'd1\n`define L2_AMO_ALU_AND 4'd2\n`define L2_AMO_ALU_OR 4'd3\n`define L2_AMO_ALU_XOR 4'd4\n`define L2_AMO_ALU_MAX 4'd5\n`define L2_AMO_ALU_MAXU 4'd6\n`define L2_AMO_ALU_MIN 4'd7\n`define L2_AMO_ALU_MINU 4'd8\n`define L2_DATA_DATA_WIDTH 512\n`define L2_DATA_DATA_WIDTH_LOG2 9\n`define MSG_DATA_SIZE_WIDTH 2\n`define MSG_DATA_SIZE_1B 2'd0\n`define MSG_DATA_SIZE_2B 2'd1\n`define MSG_DATA_SIZE_4B 2'd2\n`define MSG_DATA_SIZE_8B 2'd3\n`endif\n",
+        "lsu.tmp.h": "`ifndef LMQ_WIDTH\n`define PCX_WIDTH 128\n`define PCX_AD_LO 0\n`define PCX_AD_HI 47\n`define PCX_BF_HI 55\n`define PCX_CP_HI 58\n`define PCX_DA_HI 127\n`define PCX_NC 59\n`define PCX_RQ_HI 63\n`define PCX_SZ_HI 61\n`define PCX_TH_HI 60\n`define PCX_VLD 62\n`define PCX_WY_HI 57\n`define LMQ_WIDTH 128\n`define LMQ_AD_LO 0\n`define LMQ_AD_HI 47\n`define LMQ_BIGEND 48\n`define LMQ_FPLD 49\n`define LMQ_NC 50\n`define LMQ_PREF 51\n`define LMQ_RD1_HI 56\n`define LMQ_RD2_VLD 57\n`define LMQ_RQ_HI 61\n`define LMQ_SIGNEXT 62\n`define LMQ_SZ_HI 64\n`define LMQ_VLD 65\n`define LMQ_WY_HI 67\n`define L1D_WAY_MASK 3:0\n`define L1D_WAY_WIDTH 2\n`define L1D_WAY_COUNT 4\n`define L1D_ADDRESS_HI 47\n`define STB_PCX_WIDTH 128\n`define STB_PCX_AD_LO 0\n`define STB_PCX_AD_HI 47\n`define STB_PCX_DA_HI 127\n`define STB_PCX_FLSH 48\n`define STB_PCX_NC 49\n`define STB_PCX_RQ_HI 53\n`define STB_PCX_SZ_HI 51\n`define STB_PCX_TH_HI 50\n`define STB_PCX_VLD 52\n`define STB_PCX_WY_HI 55\n`define STB_DFQ_WIDTH 128\n`define STB_DFQ_AD_LO 0\n`define STB_DFQ_DA_HI 127\n`define STB_DFQ_SZ_HI 3\n`define STB_DFQ_VLD 4\n`define STB_DFQ_WY_HI 7\n`define DFQ_WIDTH 128\n`define DFQ_DA_HI 127\n`define DFQ_LD_TYPE 3\n`define DFQ_ST_CMPLT 4\n`define DFQ_TH_HI 6\n`define DFQ_WY_HI 8\n`define DCFILL_DA_LO 0\n`define DCFILL_DA_HI 127\n`define DCFILL_AD_LO 0\n`define DCFILL_SZ_HI 3\n`define DCFILL_WY_HI 7\n`define TLB_CSM 7:0\n`define TLB_CSM_WIDTH 8\n`define TLB_CSM_LOCAL 0\n`define TLB_CSM_HD_SIZE 4\n`define TLB_CSM_HDID 3\n`define TLB_CSM_LSID 2\n`define STLB_DATA_W 63\n`define STLB_DATA_NFO 62\n`define STLB_DATA_P 61\n`define STLB_DATA_E 60\n`define STLB_DATA_CP 59\n`define STLB_DATA_CV 58\n`define STLB_DATA_IE 57\n`define STLB_DATA_L 56\n`define STLB_DATA_PARITY 55\n`define STLB_DATA_PA_15_13_SEL 0\n`define STLB_DATA_PA_21_16_SEL 1\n`define STLB_DATA_PA_27_22_SEL 2\n`define STLB_DATA_PA_39_28_SEL 3\n`define STLB_TAG_V 0\n`define STLB_TAG_U 1\n`define STLB_TAG_PARITY 2\n`define STLB_TAG_VA_13 3\n`define STLB_TAG_VA_15_13_HI 5\n`define STLB_TAG_VA_15_13_V 6\n`define STLB_TAG_VA_15_14_HI 7\n`define STLB_TAG_VA_16 8\n`define STLB_TAG_VA_18_17_HI 10\n`define STLB_TAG_VA_19 11\n`define STLB_TAG_VA_21_16_HI 16\n`define STLB_TAG_VA_21_16_V 17\n`define STLB_TAG_VA_21_20_HI 18\n`define STLB_TAG_VA_27_22_HI 24\n`define STLB_TAG_VA_27_22_V 25\n`define STLB_TAG_VA_47_22_HI 47\n`define STLB_TAG_VA_47_28_HI 47\n`define TLB_CSM_SDID 0\n`define TLB_CSM_HDID 1\n`define TLB_CSM_LSID 2\n`endif\n",
+        "ifu.tmp.h": "`ifndef IC_IDX_HI\n`define IC_IDX_HI 11\n`define IC_SET_IDX_HI 11\n`define BIST_ID_L1_DCV 0\n`define BIST_ID_L1_DTAG 1\n`define L1D_SET_IDX_WIDTH 8\n`define L1D_TAG_ARRAY_REAL_WIDTH 40\n`define L1D_TAG_PARITY_WIDTH 1\n`define L1D_VAL_ARRAY_HI 3\n`define L1D_WAY_ARRAY_MASK 3:0\n`define L1D_WAY_COUNT 4\n`define L1D_WAY_WIDTH 2\n`define CPX_WIDTH 128\n`define CPX_A00_C0_HI 7\n`define CPX_A01_C0_HI 15\n`define CPX_A10_C0_HI 23\n`define CPX_A11_C0_HI 31\n`define CPX_INV_CID_HI 3\n`define CPX_INV_DCACHE_VAL 4\n`define CPX_INV_ICACHE_VAL 5\n`define CPX_INV_IDX_HI 15\n`define CPX_INV_PA_15_12 19\n`define CPX_INV_PA_HI 47\n`define CPX_INV_WAY 51\n`define CPX_INVPA5 52\n`define CPX_NC 53\n`define CPX_PERR_DINV 54\n`define CPX_PERR_DINV_AD5 55\n`define CPX_RQ_HI 59\n`define CPX_TH_HI 61\n`define CPX_VLD 60\n`define CPX_WY_HI 63\n`define CPX_WYVLD 64\n`define CPX_BINIT_STACK 0\n`define DCFILL_DA_LO 0\n`define DCFILL_DA_HI 127\n`define DCFILL_AD_LO 0\n`define DCFILL_SZ_HI 3\n`define DCFILL_WY_HI 7\n`define DFQ_WIDTH 128\n`define DFQ_DA_HI 127\n`define DFQ_LD_TYPE 3\n`define DFQ_ST_CMPLT 4\n`define DFQ_TH_HI 6\n`define DFQ_WY_HI 8\n`define TLB_CSM 7:0\n`define TLB_CSM_WIDTH 8\n`endif\n"
+      },
+      "forced_files_by_module": {
+        "lsu_qctl1": [
+          "piton/design/chip/tile/sparc/lsu/rtl/lsu_rrobin_picker2.v"
+        ]
+      },
+      "yosys_overrides": {
+        "*": {
+          "timeout_sec": 180,
+          "frontend": "slang",
+          "skip_abc": true
+        }
+      }
+    },
+    {
+      "project": "blackparrot",
+      "repo": "https://github.com/black-parrot/black-parrot.git",
+      "enabled": true,
+      "priority": "B",
+      "families": [
+        "CPU",
+        "Memory",
+        "Interconnect",
+        "Coherence"
+      ],
+      "path_hints": [
+        "bp_top",
+        "bp_common",
+        "bp_be",
+        "bp_me"
+      ],
+      "exclude_dirs": [
+        ".git",
+        "docs",
+        "test",
+        "tests",
+        "verif",
+        "build"
+      ],
+      "extensions": [
+        ".v",
+        ".sv",
+        ".vh",
+        ".svh"
+      ],
+      "dependency_projects": [
+        "basejump_stl",
+        "bsg_hardfloat"
+      ],
+      "include_overrides": {
+        "HardFloat_specialize.vi": "bsg_hardfloat:source/RISCV/HardFloat_specialize.vi"
+      }
+    },
+    {
+      "project": "gemmini",
+      "repo": "https://github.com/ucb-bar/gemmini.git",
+      "enabled": true,
+      "priority": "B",
+      "families": [
+        "NPU",
+        "Memory",
+        "DMA"
+      ],
+      "path_hints": [
+        "src/main"
+      ],
+      "exclude_dirs": [
+        ".git",
+        "docs",
+        "test",
+        "tests",
+        "build",
+        "software"
+      ],
+      "extensions": [
+        ".v",
+        ".sv",
+        ".vh",
+        ".svh"
+      ]
+    },
+    {
+      "project": "nvdla",
+      "repo": "https://github.com/nvdla/hw.git",
+      "enabled": true,
+      "priority": "B",
+      "families": [
+        "NPU",
+        "DMA",
+        "Memory"
+      ],
+      "path_hints": [
+        "vmod/nvdla"
+      ],
+      "exclude_dirs": [
+        ".git",
+        "docs",
+        "test",
+        "tests",
+        "build"
+      ],
+      "extensions": [
+        ".v",
+        ".sv",
+        ".vh",
+        ".svh"
+      ],
+      "defines": [
+        "x_or_0=1'b0",
+        "PRAND_OFF"
+      ],
+      "prune_modules": [
+        "nv_assert_never",
+        "nv_assert_zero_one_hot",
+        "system_verilog_testpoint",
+        "nv_assert_hold_throughout_event_interval",
+        "nv_assert_no_x"
+      ]
+    },
+    {
+      "project": "zipcpu",
+      "repo": "https://github.com/ZipCPU/zipcpu.git",
+      "enabled": true,
+      "priority": "B",
+      "families": [
+        "CPU",
+        "Integer",
+        "Memory"
+      ],
+      "path_hints": [
+        "rtl"
+      ],
+      "exclude_dirs": [
+        ".git",
+        "docs",
+        "test",
+        "tests",
+        "build"
+      ],
+      "extensions": [
+        ".v",
+        ".sv",
+        ".vh",
+        ".svh"
+      ]
+    },
+    {
+      "project": "tech_cells_generic",
+      "repo": "https://github.com/pulp-platform/tech_cells_generic.git",
+      "enabled": true,
+      "scan": false,
+      "priority": "D",
+      "families": [
+        "Technology",
+        "CDC",
+        "Clock",
+        "Memory"
+      ],
+      "path_hints": [
+        "src"
+      ],
+      "exclude_dirs": [
+        ".git",
+        "docs",
+        "test",
+        "tests",
+        "formal",
+        "build"
+      ],
+      "extensions": [
+        ".v",
+        ".sv",
+        ".vh",
+        ".svh"
+      ]
+    },
+    {
+      "project": "bsg_hardfloat",
+      "repo": "https://github.com/bsg-external/HardFloat.git",
+      "enabled": true,
+      "scan": false,
+      "priority": "D",
+      "families": [
+        "FloatingPoint"
+      ],
+      "path_hints": [
+        "source"
+      ],
+      "exclude_dirs": [
+        ".git",
+        "doc",
+        "test",
+        "tests",
+        "build"
+      ],
+      "extensions": [
+        ".v",
+        ".sv",
+        ".vh",
+        ".svh",
+        ".vi"
+      ]
+    }
+  ]
+}
