@@ -31,7 +31,9 @@ Style and cleanup are secondary to correctness, legality, and evidence.
 
 The following are merge blockers when relevant to the change:
 
-- failing required gate lanes for the change class
+- failing `G0: Python Checks` or `G0: Agentic Python Checks`
+- missing focused native, MLIR, runtime, or backend evidence for the changed
+  contract
 - missing decision IDs for semantic or decision-bearing changes
 - missing evidence under `docs/gates/logs/<run-id>/` for semantic or flow
   changes
@@ -41,6 +43,10 @@ The following are merge blockers when relevant to the change:
 For docs-only or template-only changes, the expected blocker set is narrower:
 the docs must build, references must resolve, and the workflow text must match
 the actual repo commands and paths.
+
+Release-class toolchain, AC G0/G1/G2, cross-backend, nightly, and packaging
+lanes are not required PR checks. They run as one release closure and block all
+package publication rather than every review iteration.
 
 ## When to update decision status or gate docs
 

@@ -26,6 +26,12 @@ with the current pyCircuit 6 CycleAwareSignal authoring contract.
    semantics, flow behavior, or merge-significant examples.
 6. Summarize the change, gates, evidence, and residual risk in the PR.
 
+Required PR automation is deliberately lightweight. It covers repository and
+Python contracts; it does not build the LLVM/MLIR toolchain or run the full
+simulation matrix. Native or semantic changes therefore include a focused
+local reproducer in the PR evidence. The release workflow is the sole
+automatic full-closure authority and must pass before publication.
+
 ## Blocking vs non-blocking problems
 
 Stop and ask for direction when:
@@ -66,7 +72,7 @@ output directories such as `.pycircuit_out/`.
 Before opening a PR:
 
 - review the final diff for unrelated churn
-- ensure the required gate set ran
+- ensure the two lightweight required checks and relevant focused test ran
 - collect evidence paths
 - note any compatibility or rollout impact
 - use a focused commit message, preferably `type(scope): description`

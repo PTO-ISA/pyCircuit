@@ -172,16 +172,21 @@ python3 -m pycircuit.cli build \
   --jobs 8
 ```
 
-Run the normal contributor lanes:
+Pull requests use two lightweight required checks: pyCircuit Python/repository
+hygiene and Agentic Circuit contract/frontend/CLI tests. Before opening a PR,
+run the matching local commands:
 
 ```bash
 pre-commit run --files <changed-file> [<changed-file> ...]
 pytest tests/unit -m unit
-bash flows/scripts/run_examples.sh
-bash flows/scripts/run_sims.sh
+python3 tools/agentic-circuit/check-contracts.py
 ```
 
-Run the complete Agentic Circuit G0/G1/G2 closure from the integrated checkout:
+For native, MLIR, lowering, runtime, or backend changes, add the narrowest
+affected local test to the PR evidence. Full AC/PYC closure is intentionally
+reserved for the release workflow and blocks package publication.
+
+To reproduce the complete Agentic Circuit G0/G1/G2 release lane locally:
 
 ```bash
 PYC_GATE_RUN_ID=local-ac-$(date +%Y%m%d-%H%M%S) \

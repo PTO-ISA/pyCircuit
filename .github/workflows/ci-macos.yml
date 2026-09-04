@@ -1,64 +1,23 @@
 name: CI (macOS)
 
-# Separate from Linux CI so labeling a PR with `ci-macos` does not create a new
-# "CI" run that skips required G1/G2 jobs (which would block merge).
+# Optional platform diagnostic. Release builds remain the authoritative macOS
+# package and compile validation.
 on:
   workflow_dispatch:
-  push:
-  pull_request:
-    types: [opened, synchronize, reopened, labeled]
 
 permissions:
   contents: read
-  pull-requests: read
 
 concurrency:
-  group: ci-macos-${{ github.event_name }}-${{ github.event_name == 'pull_request' && github.event.pull_request.number || github.ref }}
+  group: ci-macos-${{ github.ref }}
   cancel-in-progress: true
 
 env:
   LLVM_VERSION: "22"
 
 jobs:
-  # Skip the duplicate push run when the pushed branch has an open PR —
-  # the pull_request synchronize event will cover the same commit.
-  gate:
-    name: Decide
-    runs-on: ubuntu-latest
-    outputs:
-      should_run: ${{ steps.decide.outputs.should_run }}
-    steps:
-      - id: decide
-        env:
-          GH_TOKEN: ${{ github.token }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          if [[ "${{ github.event_name }}" != "push" ]]; then
-            echo "should_run=true" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          branch="${GITHUB_REF#refs/heads/}"
-          count=$(gh pr list --repo "${{ github.repository }}" \
-                    --state open --head "${branch}" --json number --limit 1 \
-                    | jq 'length')
-          if [[ "${count}" -gt 0 ]]; then
-            echo "Skipping push run: PR exists for ${branch} (pull_request event will run)."
-            echo "should_run=false" >> "$GITHUB_OUTPUT"
-          else
-            echo "should_run=true" >> "$GITHUB_OUTPUT"
-          fi
-
   build-macos:
-    name: "G0/G1: Build Toolchain (macOS)"
-    needs: gate
-    # PR default: skip. Run on main/develop push, workflow_dispatch, or label ci-macos.
-    if: >
-      needs.gate.outputs.should_run == 'true' && (
-        github.event_name == 'push' ||
-        github.event_name == 'workflow_dispatch' ||
-        (github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'ci-macos'))
-      )
+    name: "Manual: Build Toolchain (macOS)"
     runs-on: macos-latest
     steps:
       - name: Checkout

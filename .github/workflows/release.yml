@@ -18,9 +18,110 @@ env:
   LLVM_VERSION: "22"
   LLVM_INSTALL_SCRIPT_SHA256: "03878e08f47b66cc95bc4b544b0db3c6d9ce8d60e6cf2492ae357984330a9eae"
   VERILATOR_VERSION: "5.048"
+  PYC_GATE_RUN_ID: release-${{ github.run_id }}-${{ github.run_attempt }}
 
 jobs:
+  full-validation:
+    name: "Release: Full AC/PYC Closure"
+    if: github.repository == 'PTO-ISA/pyCircuit'
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: "3.11"
+
+      - name: Validate release version
+        shell: bash
+        env:
+          REQUESTED_VERSION: ${{ github.event_name == 'push' && github.ref_name || inputs.version }}
+        run: |
+          set -euo pipefail
+          requested="${REQUESTED_VERSION#v}"
+          project="$(python3 -c 'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["project"]["version"])')"
+          if [[ ! "${requested}" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.a-zA-Z0-9+-]*)?$ ]]; then
+            echo "invalid release version: ${requested}" >&2
+            exit 1
+          fi
+          if [[ "${requested}" != "${project}" ]]; then
+            echo "release version ${requested} does not match pyproject.toml ${project}" >&2
+            exit 1
+          fi
+
+      - name: Install Python, LLVM, and simulation dependencies
+        shell: bash
+        run: |
+          set -euxo pipefail
+          python -m pip install -e ".[dev,docs]"
+          python -m pip install -e "python/agentic-circuit[test]"
+          sudo apt-get update
+          sudo apt-get install -y wget gnupg software-properties-common cmake ninja-build clang iverilog libgtest-dev
+          wget --https-only https://apt.llvm.org/llvm.sh
+          printf '%s  %s\n' "${LLVM_INSTALL_SCRIPT_SHA256}" llvm.sh | sha256sum --check --strict
+          chmod +x llvm.sh
+          sudo ./llvm.sh "${LLVM_VERSION}"
+          sudo apt-get install -y "llvm-${LLVM_VERSION}-dev" "mlir-${LLVM_VERSION}-tools" "libmlir-${LLVM_VERSION}-dev"
+          echo "/usr/lib/llvm-${LLVM_VERSION}/bin" >> "$GITHUB_PATH"
+
+      - name: Setup Verilator
+        uses: ./.github/actions/setup-verilator
+        with:
+          version: ${{ env.VERILATOR_VERSION }}
+
+      - name: Build integrated toolchain
+        shell: bash
+        run: |
+          set -euxo pipefail
+          PYC_BUILD_AGENTIC_CIRCUIT_TESTS=ON bash flows/scripts/pyc build \
+            --llvm-config "/usr/lib/llvm-${LLVM_VERSION}/bin/llvm-config" \
+            --build-dir "$PWD/.pycircuit_out/toolchain/build" \
+            --install-prefix "$PWD/.pycircuit_out/toolchain/install"
+          cmake --build "$PWD/.pycircuit_out/toolchain/build" --target check-acir
+          ctest --test-dir "$PWD/.pycircuit_out/toolchain/build" --output-on-failure
+
+      - name: Run full Agentic Circuit closure
+        shell: bash
+        run: |
+          set -euxo pipefail
+          export AC_GATE_TOOLCHAIN_ROOT="$PWD/.pycircuit_out/toolchain/install"
+          bash flows/scripts/run_agentic_circuit.sh
+
+      - name: Run full pyCircuit closure
+        shell: bash
+        run: |
+          set -euxo pipefail
+          export PYC_TOOLCHAIN_ROOT="$PWD/.pycircuit_out/toolchain/install"
+          export PATH="$PYC_TOOLCHAIN_ROOT/bin:$PATH"
+          unset PYC_SKIP_SEMANTIC_REGRESSIONS || true
+          unset PYCC || true
+          bash flows/scripts/run_examples.sh
+          bash flows/scripts/run_sims.sh
+          bash flows/scripts/run_sims_nightly.sh
+          python3 flows/tools/check_decision_status.py \
+            --rfc docs/rfcs/pyc6-decisions.md \
+            --status docs/gates/decision_status_v6.md \
+            --out "docs/gates/logs/${PYC_GATE_RUN_ID}/release_decision_status.json" \
+            --require-no-deferred \
+            --require-all-verified \
+            --require-concrete-evidence \
+            --require-existing-evidence
+          mkdocs build --strict
+
+      - name: Upload release gate logs
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: release-gate-logs-${{ env.PYC_GATE_RUN_ID }}
+          path: docs/gates/logs/${{ env.PYC_GATE_RUN_ID }}/
+          if-no-files-found: warn
+          retention-days: 30
+
   build-packages:
+    needs: [full-validation]
     if: github.repository == 'PTO-ISA/pyCircuit'
     strategy:
       fail-fast: false
@@ -101,15 +202,6 @@ jobs:
             --llvm-config "${LLVM_CONFIG}" \
             --build-dir "$PWD/.pycircuit_out/toolchain/build" \
             --install-prefix "$PWD/.pycircuit_out/toolchain/install"
-
-          if [[ "${RUNNER_OS}" == "Linux" ]]; then
-            export PYC_TOOLCHAIN_ROOT="$PWD/.pycircuit_out/toolchain/install"
-            export PATH="$PYC_TOOLCHAIN_ROOT/bin:$PATH"
-            unset PYCC
-            bash flows/scripts/run_examples.sh
-            bash flows/scripts/run_sims.sh
-            bash flows/scripts/run_sims_nightly.sh
-          fi
 
           cmake -S . -B .pycircuit_out/toolchain/build \
             -DCMAKE_BUILD_TYPE=Release \

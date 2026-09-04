@@ -3894,3 +3894,43 @@ consumer infrastructure.
 **Source**
 - User direction (2026-09-04): remove LinxCPU/Janus interfaces from the
   pyCircuit framework and decouple designs and tools.
+
+## Decision 0159: pull-request gates are lightweight and full closure is a release gate
+
+**Status:** Accepted and implemented
+
+**Context / Goal**
+Building LLVM/MLIR, the complete staged toolchain, both simulation backends,
+all examples, and the full AC G0/G1/G2 matrix on every pull-request update
+delayed review feedback without changing the release acceptance contract.
+
+**Decision (strong constraint)**
+- Required pull-request CI is bounded to changed-file hygiene, repository
+  management, documentation, pyCircuit Python unit tests, packaging-helper
+  checks, and Python-only Agentic Circuit contract/frontend/CLI tests.
+- Pull requests that change semantics, native code, lowering, runtime, or
+  packaging still carry the narrowest relevant local test evidence and
+  decision mapping. Passing lightweight CI is not evidence that an untested
+  native change is correct.
+- The release workflow is the only automatic full-closure authority. Before
+  publishing, it builds the integrated LLVM/MLIR toolchain, runs ACIR/ACSim and
+  gfsim tests, completes AC G0/G1/G2, and runs pyCircuit examples, semantic
+  regressions, normal simulations, nightly simulations, strict decision
+  status, documentation, package builds, and installed-wheel smoke tests.
+- Scheduled nightly and manually requested platform diagnostics may run deep
+  subsets for early fault discovery, but they are not pull-request merge gates
+  and cannot authorize a release.
+- Branch protection requires only the two lightweight job contexts. It must not
+  retain deleted heavy-job contexts that make every pull request wait for a
+  release-class build.
+
+**Verification**
+- The PR workflow contains no LLVM installation, native toolchain build,
+  Verilator setup, cross-backend simulation, or wheel build.
+- The release workflow blocks package jobs on a successful full AC/PYC closure.
+- Repository guidance distinguishes required PR checks, targeted author
+  evidence, scheduled diagnostics, and release closure.
+
+**Source**
+- User direction (2026-09-04): keep PR validation lightweight and reserve full
+  checks for releases.

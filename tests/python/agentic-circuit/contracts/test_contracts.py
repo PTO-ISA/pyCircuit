@@ -309,37 +309,40 @@ class RepositoryContractsTest(unittest.TestCase):
 
         Draft202012Validator(schema).validate(fixture)
 
-    def test_ci_runs_integrated_agentic_contract_and_g2_lanes(self):
+    def test_ci_keeps_agentic_python_checks_lightweight(self):
         workflow = (ROOT / ".github/workflows/ci.yml").read_text()
-        build_match = re.search(
-            r"(?ms)^  build-linux:\n.*?(?=^  [a-z][a-z0-9-]*:\n|\Z)",
-            workflow,
-        )
-        self.assertIsNotNone(build_match, "root CI lacks the integrated build job")
-        build_job = build_match.group()
-        self.assertIn("PYC_BUILD_AGENTIC_CIRCUIT_TESTS=ON", build_job)
-        self.assertIn("--target check-acir", build_job)
-        self.assertIn("ctest --test-dir", build_job)
-
         match = re.search(
-            r"(?ms)^  agentic-circuit:\n.*?(?=^  [a-z][a-z0-9-]*:\n|\Z)",
+            r"(?ms)^  agentic-python-checks:\n.*?(?=^  [a-z][a-z0-9-]*:\n|\Z)",
             workflow,
         )
-        self.assertIsNotNone(match, "root CI lacks the integrated AC gate")
+        self.assertIsNotNone(match, "root CI lacks Agentic Python checks")
         job = match.group()
-        self.assertIn("needs: [gate, build-linux]", job)
         self.assertIn('python -m pip install -e "python/agentic-circuit[test]"', job)
-        self.assertIn("name: pyc-toolchain-linux", job)
-        self.assertIn("path: .pycircuit_out/toolchain/install", job)
         self.assertIn("python tools/agentic-circuit/check-contracts.py", job)
         self.assertIn("tests/python/agentic-circuit/contracts", job)
         self.assertIn("tests/python/agentic-circuit/python_frontend", job)
         self.assertIn("tests/python/agentic-circuit/cli", job)
-        self.assertIn("AC_GATE_RESUME_FROM=g2", job)
-        self.assertIn(
-            'AC_GATE_TOOLCHAIN_ROOT="$PWD/.pycircuit_out/toolchain/install"', job
+        self.assertNotIn("flows/scripts/pyc build", workflow)
+        self.assertNotIn("setup-verilator", workflow)
+        self.assertNotIn("run_sims.sh", workflow)
+
+    def test_release_owns_integrated_agentic_and_pyc_closure(self):
+        workflow = (ROOT / ".github/workflows/release.yml").read_text()
+        match = re.search(
+            r"(?ms)^  full-validation:\n.*?(?=^  [a-z][a-z0-9-]*:\n|\Z)",
+            workflow,
         )
+        self.assertIsNotNone(match, "release lacks full AC/PYC validation")
+        job = match.group()
+        self.assertIn("PYC_BUILD_AGENTIC_CIRCUIT_TESTS=ON", job)
+        self.assertIn("--target check-acir", job)
+        self.assertIn("ctest --test-dir", job)
         self.assertIn("bash flows/scripts/run_agentic_circuit.sh", job)
+        self.assertIn("bash flows/scripts/run_examples.sh", job)
+        self.assertIn("bash flows/scripts/run_sims.sh", job)
+        self.assertIn("bash flows/scripts/run_sims_nightly.sh", job)
+        self.assertIn("--require-all-verified", job)
+        self.assertIn("needs: [full-validation]", workflow)
 
     def test_ci_has_no_standalone_agentic_build_contract(self):
         workflow = (ROOT / ".github/workflows/ci.yml").read_text()

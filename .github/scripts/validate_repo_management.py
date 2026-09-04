@@ -76,13 +76,23 @@ def main() -> int:
         "mkdocs build",
         "check_api_hygiene.py",
         "validate_repo_management.py",
+        "tools/agentic-circuit/check-contracts.py",
+        "tests/python/agentic-circuit/python_frontend",
+        "tests/python/agentic-circuit/cli",
     ):
         require(command in ci, f"CI is missing required gate: {command}", errors)
-    require(
-        "LLVM_INSTALL_SCRIPT_SHA256" in ci and "sha256sum --check --strict" in ci,
-        "CI must verify the downloaded LLVM installer",
-        errors,
-    )
+    for forbidden in (
+        "llvm.sh",
+        "flows/scripts/pyc build",
+        "setup-verilator",
+        "run_examples.sh",
+        "run_sims.sh",
+    ):
+        require(
+            forbidden not in ci,
+            f"lightweight PR CI must not contain release gate: {forbidden}",
+            errors,
+        )
 
     verilator_action = read(".github/actions/setup-verilator/action.yml")
     require(
@@ -92,6 +102,27 @@ def main() -> int:
     )
 
     release = read(".github/workflows/release.yml")
+    for command in (
+        "LLVM_INSTALL_SCRIPT_SHA256",
+        "sha256sum --check --strict",
+        "PYC_BUILD_AGENTIC_CIRCUIT_TESTS=ON",
+        "run_agentic_circuit.sh",
+        "run_examples.sh",
+        "run_sims.sh",
+        "run_sims_nightly.sh",
+        "--require-all-verified",
+        "mkdocs build --strict",
+    ):
+        require(
+            command in release,
+            f"release is missing required full-closure gate: {command}",
+            errors,
+        )
+    require(
+        "needs: [full-validation]" in release,
+        "release package builds must wait for full validation",
+        errors,
+    )
     require(
         '--wheel-version "${VERSION}"' in release,
         "release must pass the tag-derived version to wheel creation",

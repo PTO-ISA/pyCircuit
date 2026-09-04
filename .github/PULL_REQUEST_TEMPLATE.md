@@ -9,8 +9,12 @@
 
 ## Validation
 
-- Commands run:
+- Required PR checks:
+  - [ ] `G0: Python Checks`
+  - [ ] `G0: Agentic Python Checks`
+- Focused command for changed native/semantic behavior:
 - Evidence paths:
+- Release-only full lanes intentionally not run in the PR:
 
 ## Documentation
 

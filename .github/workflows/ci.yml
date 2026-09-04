@@ -1,68 +1,22 @@
 name: CI
 
 on:
-  workflow_dispatch:
-  push:
-    # Run CI on every branch push (including PR head branches; PR push also fires
-    # pull_request synchronize below — concurrency cancels the duplicate).
   pull_request:
-    types: [opened, synchronize, reopened]
+    types: [opened, synchronize, reopened, ready_for_review]
+  push:
+    branches: [main]
 
 permissions:
   contents: read
-  pull-requests: read
 
 concurrency:
-  # On PR events, key on the PR so new pushes cancel stale runs. On push events,
-  # key on the ref so each branch only keeps its latest run.
-  group: ci-${{ github.event_name }}-${{ github.event_name == 'pull_request' && github.event.pull_request.number || github.ref }}
+  group: ci-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
-env:
-  LLVM_VERSION: "22"
-  LLVM_INSTALL_SCRIPT_SHA256: "03878e08f47b66cc95bc4b544b0db3c6d9ce8d60e6cf2492ae357984330a9eae"
-  # Ubuntu apt Verilator is 5.020 and fails G1/G2 timing asserts; pin a prebuilt.
-  VERILATOR_VERSION: "5.048"
-  CMAKE_BUILD_TYPE: Release
-  PYC_GATE_RUN_ID: ${{ github.run_id }}-${{ github.run_attempt }}
-
 jobs:
-  # Skip the duplicate push run when the pushed branch has an open PR —
-  # the pull_request synchronize event will cover the same commit.
-  gate:
-    name: Decide
-    runs-on: ubuntu-latest
-    outputs:
-      should_run: ${{ steps.decide.outputs.should_run }}
-    steps:
-      - id: decide
-        env:
-          GH_TOKEN: ${{ github.token }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          if [[ "${{ github.event_name }}" != "push" ]]; then
-            echo "should_run=true" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          # For push events, check if the head branch has an open PR.
-          # pr ls --head only accepts the short branch name.
-          branch="${GITHUB_REF#refs/heads/}"
-          count=$(gh pr list --repo "${{ github.repository }}" \
-                    --state open --head "${branch}" --json number --limit 1 \
-                    | jq 'length')
-          if [[ "${count}" -gt 0 ]]; then
-            echo "Skipping push run: PR exists for ${branch} (pull_request event will run)."
-            echo "should_run=false" >> "$GITHUB_OUTPUT"
-          else
-            echo "should_run=true" >> "$GITHUB_OUTPUT"
-          fi
-
-  lint:
+  python-checks:
     name: "G0: Python Checks"
     runs-on: ubuntu-latest
-    needs: gate
-    if: needs.gate.outputs.should_run == 'true'
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -80,7 +34,7 @@ jobs:
       - name: Run repository management checks
         run: python .github/scripts/validate_repo_management.py
 
-      - name: Run pre-commit checks
+      - name: Run changed-file pre-commit checks
         shell: bash
         run: |
           set -euo pipefail
@@ -88,9 +42,6 @@ jobs:
             base="${{ github.event.pull_request.base.sha }}"
           else
             base="${{ github.event.before }}"
-            if [[ "${base}" =~ ^0+$ ]]; then
-              base="$(git rev-parse "${GITHUB_SHA}^")"
-            fi
           fi
           mapfile -d '' changed_files < <(
             git diff --name-only --diff-filter=ACMR -z "${base}" "${GITHUB_SHA}"
@@ -99,20 +50,19 @@ jobs:
             pre-commit run --files "${changed_files[@]}"
           fi
 
-      - name: Run unit tests
+      - name: Run pyCircuit Python unit tests
         run: pytest tests/unit -m unit
 
       - name: Build documentation
-        run: mkdocs build
+        run: mkdocs build --strict
 
-      - name: Validate cross-platform wheel tag helper
+      - name: Validate packaging helpers
+        shell: bash
         run: |
+          set -euo pipefail
           python packaging/wheel/get_wheel_plat_name.py --system linux --arch x86_64
           python packaging/wheel/get_wheel_plat_name.py --system macos --arch arm64
           python packaging/wheel/get_wheel_plat_name.py --system macos --arch x86_64
-
-      - name: Byte-compile packaging + CLI modules
-        run: |
           python -m py_compile \
             packaging/wheel/create_wheel.py \
             packaging/wheel/get_wheel_plat_name.py \
@@ -124,160 +74,9 @@ jobs:
       - name: Run API hygiene gate
         run: python flows/tools/check_api_hygiene.py python/pycircuit/src/pycircuit examples/pycircuit docs README.md
 
-  build-linux:
-    name: "G0: Build Toolchain (Linux)"
+  agentic-python-checks:
+    name: "G0: Agentic Python Checks"
     runs-on: ubuntu-latest
-    needs: [gate, lint]
-    if: needs.gate.outputs.should_run == 'true'
-    steps:
-      - name: Checkout
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-
-      - name: Set up Python
-        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
-        with:
-          python-version: "3.11"
-
-      - name: Install wheel build deps
-        run: python -m pip install setuptools wheel
-
-      - name: Install LLVM 22 + build deps
-        run: |
-          set -euxo pipefail
-          sudo apt-get update
-          sudo apt-get install -y wget gnupg software-properties-common cmake ninja-build clang iverilog libgtest-dev
-          wget --https-only https://apt.llvm.org/llvm.sh
-          printf '%s  %s\n' "${LLVM_INSTALL_SCRIPT_SHA256}" llvm.sh | sha256sum --check --strict
-          chmod +x llvm.sh
-          sudo ./llvm.sh ${LLVM_VERSION}
-          sudo apt-get install -y llvm-${LLVM_VERSION}-dev mlir-${LLVM_VERSION}-tools libmlir-${LLVM_VERSION}-dev
-          echo "/usr/lib/llvm-${LLVM_VERSION}/bin" >> "$GITHUB_PATH"
-
-      - name: Build staged toolchain
-        run: |
-          PYC_BUILD_AGENTIC_CIRCUIT_TESTS=ON bash flows/scripts/pyc build \
-            --llvm-config /usr/lib/llvm-${LLVM_VERSION}/bin/llvm-config \
-            --build-dir "$PWD/.pycircuit_out/toolchain/build" \
-            --install-prefix "$PWD/.pycircuit_out/toolchain/install"
-
-      - name: Run integrated ACIR/ACSim/gfsim tests
-        run: |
-          cmake --build "$PWD/.pycircuit_out/toolchain/build" --target check-acir
-          ctest --test-dir "$PWD/.pycircuit_out/toolchain/build" --output-on-failure
-
-      - name: Build platform wheel
-        run: |
-          python packaging/wheel/create_wheel.py \
-            --install-dir "$PWD/.pycircuit_out/toolchain/install" \
-            --out-dir "$PWD/dist"
-
-      - name: Check wheel tag
-        shell: bash
-        run: |
-          set -euxo pipefail
-          wheel="$(basename dist/*.whl)"
-          [[ "${wheel}" == pycircuit_hisi-*-py3-none-*.whl ]]
-
-      - name: Upload toolchain
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
-        with:
-          name: pyc-toolchain-linux
-          path: .pycircuit_out/toolchain/install/
-          retention-days: 1
-
-      - name: Upload wheel
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
-        with:
-          name: pyc-wheel-linux
-          path: dist/*.whl
-          retention-days: 1
-
-  gate-g1-linux:
-    name: "G1: Examples + Semantic Gates (Linux)"
-    runs-on: ubuntu-latest
-    needs: [gate, build-linux]
-    if: needs.gate.outputs.should_run == 'true'
-    timeout-minutes: 90
-    steps:
-      - name: Checkout
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-
-      - name: Set up Python
-        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
-        with:
-          python-version: "3.11"
-
-      - name: Install runtime deps
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y iverilog
-
-      - name: Setup Verilator
-        uses: ./.github/actions/setup-verilator
-        with:
-          version: ${{ env.VERILATOR_VERSION }}
-
-      - name: Download toolchain
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
-        with:
-          name: pyc-toolchain-linux
-          path: .pycircuit_out/toolchain/install
-
-      # Artifact zip round-trip drops execute bits; restore them before invoking pycc.
-      - name: Restore toolchain execute bits
-        shell: bash
-        run: |
-          set -euxo pipefail
-          shopt -s nullglob
-          bins=(.pycircuit_out/toolchain/install/bin/*)
-          if (( ${#bins[@]} == 0 )); then
-            echo "error: toolchain bin/ is empty or missing" >&2
-            exit 1
-          fi
-          chmod +x "${bins[@]}"
-
-      - name: Run G1 gates (examples + semantic regressions)
-        id: g1
-        shell: bash
-        run: |
-          set -euxo pipefail
-          export PYC_TOOLCHAIN_ROOT="$PWD/.pycircuit_out/toolchain/install"
-          export PATH="$PYC_TOOLCHAIN_ROOT/bin:$PATH"
-          export PYC_GATE_RUN_ID="${PYC_GATE_RUN_ID}"
-          # Strict G1: do not skip semantic regressions; decision status uses script default (strict).
-          unset PYC_SKIP_SEMANTIC_REGRESSIONS || true
-          unset PYCC || true
-          bash flows/scripts/run_examples.sh
-
-      - name: Write gate summary
-        if: always()
-        shell: bash
-        run: |
-          set -euxo pipefail
-          status="pass"
-          if [[ "${{ steps.g1.outcome }}" != "success" ]]; then
-            status="fail"
-          fi
-          python3 flows/tools/summarize_gate_run.py \
-            --run-id "${PYC_GATE_RUN_ID}" \
-            --row "run_examples:G1:${status}" \
-            --append-to "${GITHUB_STEP_SUMMARY}"
-
-      - name: Upload gate logs
-        if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
-        with:
-          name: gate-logs-g1-${{ env.PYC_GATE_RUN_ID }}
-          path: docs/gates/logs/${{ env.PYC_GATE_RUN_ID }}/
-          if-no-files-found: warn
-          retention-days: 7
-
-  agentic-circuit:
-    name: "AC G0/G2: Integrated Agentic Circuit"
-    runs-on: ubuntu-latest
-    needs: [gate, build-linux]
-    if: needs.gate.outputs.should_run == 'true'
-    timeout-minutes: 60
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -290,169 +89,12 @@ jobs:
       - name: Install Agentic Circuit test dependencies
         run: python -m pip install -e "python/agentic-circuit[test]"
 
-      - name: Setup Verilator
-        uses: ./.github/actions/setup-verilator
-        with:
-          version: ${{ env.VERILATOR_VERSION }}
-
-      - name: Download integrated toolchain
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
-        with:
-          name: pyc-toolchain-linux
-          path: .pycircuit_out/toolchain/install
-
-      - name: Restore toolchain execute bits
-        shell: bash
-        run: chmod +x .pycircuit_out/toolchain/install/bin/*
-
-      - name: Run AC G0 contracts and frontend tests
+      - name: Run contracts, frontend, and CLI tests
         shell: bash
         run: |
-          set -euxo pipefail
-          export AC_GATE_TOOLCHAIN_ROOT="$PWD/.pycircuit_out/toolchain/install"
-          toolchain_site_packages="$AC_GATE_TOOLCHAIN_ROOT/lib/python$(python -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')/site-packages"
-          test -d "$toolchain_site_packages"
-          export PYTHONPATH="$PWD/python/agentic-circuit/src:$PWD/tests/python/agentic-circuit:$toolchain_site_packages"
+          set -euo pipefail
+          export PYTHONPATH="$PWD/python/agentic-circuit/src:$PWD/tests/python/agentic-circuit"
           python tools/agentic-circuit/check-contracts.py
           python -m unittest discover -s tests/python/agentic-circuit/contracts -p 'test_*.py'
           python -m unittest discover -s tests/python/agentic-circuit/python_frontend -p 'test_*.py'
-          python -m unittest discover -s tests/python/agentic-circuit/cli -p 'test_*.py'
-
-      - name: Run AC G2 against the integrated toolchain
-        shell: bash
-        run: |
-          set -euxo pipefail
-          export AC_GATE_RESUME_FROM=g2
-          export AC_GATE_TOOLCHAIN_ROOT="$PWD/.pycircuit_out/toolchain/install"
-          bash flows/scripts/run_agentic_circuit.sh
-
-      - name: Upload Agentic Circuit gate logs
-        if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
-        with:
-          name: gate-logs-agentic-${{ env.PYC_GATE_RUN_ID }}
-          path: docs/gates/logs/${{ env.PYC_GATE_RUN_ID }}/
-          if-no-files-found: warn
-          retention-days: 7
-
-  gate-g2-linux:
-    name: "G2: Cross-backend Sims (Linux)"
-    runs-on: ubuntu-latest
-    needs: [gate, build-linux]
-    if: needs.gate.outputs.should_run == 'true'
-    timeout-minutes: 120
-    steps:
-      - name: Checkout
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-
-      - name: Set up Python
-        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
-        with:
-          python-version: "3.11"
-
-      - name: Install simulation deps
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y iverilog cmake ninja-build clang
-
-      - name: Setup Verilator
-        uses: ./.github/actions/setup-verilator
-        with:
-          version: ${{ env.VERILATOR_VERSION }}
-
-      - name: Download toolchain
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
-        with:
-          name: pyc-toolchain-linux
-          path: .pycircuit_out/toolchain/install
-
-      # Artifact zip round-trip drops execute bits; restore them before invoking pycc.
-      - name: Restore toolchain execute bits
-        shell: bash
-        run: |
-          set -euxo pipefail
-          shopt -s nullglob
-          bins=(.pycircuit_out/toolchain/install/bin/*)
-          if (( ${#bins[@]} == 0 )); then
-            echo "error: toolchain bin/ is empty or missing" >&2
-            exit 1
-          fi
-          chmod +x "${bins[@]}"
-
-      - name: Run G2 gates (run_sims)
-        id: g2
-        shell: bash
-        run: |
-          set -euxo pipefail
-          export PYC_TOOLCHAIN_ROOT="$PWD/.pycircuit_out/toolchain/install"
-          export PATH="$PYC_TOOLCHAIN_ROOT/bin:$PATH"
-          export PYC_GATE_RUN_ID="${PYC_GATE_RUN_ID}"
-          unset PYCC || true
-          bash flows/scripts/run_sims.sh
-
-      - name: Write gate summary
-        if: always()
-        shell: bash
-        run: |
-          set -euxo pipefail
-          status="pass"
-          if [[ "${{ steps.g2.outcome }}" != "success" ]]; then
-            status="fail"
-          fi
-          python3 flows/tools/summarize_gate_run.py \
-            --run-id "${PYC_GATE_RUN_ID}" \
-            --row "run_sims:G2:${status}" \
-            --append-to "${GITHUB_STEP_SUMMARY}"
-
-      - name: Upload gate logs
-        if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
-        with:
-          name: gate-logs-g2-${{ env.PYC_GATE_RUN_ID }}
-          path: docs/gates/logs/${{ env.PYC_GATE_RUN_ID }}/
-          if-no-files-found: warn
-          retention-days: 7
-
-  wheel-linux:
-    name: "G0: Wheel Smoke (Linux)"
-    runs-on: ubuntu-latest
-    needs: [gate, build-linux]
-    if: needs.gate.outputs.should_run == 'true'
-    steps:
-      - name: Checkout
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-
-      - name: Set up Python
-        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
-        with:
-          python-version: "3.11"
-
-      - name: Install simulation deps
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y iverilog
-
-      - name: Setup Verilator
-        uses: ./.github/actions/setup-verilator
-        with:
-          version: ${{ env.VERILATOR_VERSION }}
-
-      - name: Download wheel
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
-        with:
-          name: pyc-wheel-linux
-          path: dist
-
-      - name: Install wheel and run example smoke
-        shell: bash
-        run: |
-          set -euxo pipefail
-          python -m venv .venv-wheel
-          source .venv-wheel/bin/activate
-          pip install dist/*.whl
-          export PYC_TOOLCHAIN_ROOT="$(python -c 'import pycircuit, pathlib; print((pathlib.Path(pycircuit.__file__).resolve().parent / "_toolchain").as_posix())')"
-          export PYC_USE_INSTALLED_PYTHON_PACKAGE=1
-          # Packaging smoke only; full G1 (with semantic regressions) runs in gate-g1-linux.
-          export PYC_SKIP_SEMANTIC_REGRESSIONS=1
-          unset PYCC
-          bash flows/scripts/run_examples.sh
+          python -m unittest discover -s tests/python/agentic-circuit/cli -p 'test_[!n]*.py'
