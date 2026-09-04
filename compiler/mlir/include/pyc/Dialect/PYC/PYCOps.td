@@ -264,6 +264,30 @@ def PYC_ConcatOp : PYC_Op<"concat", [Pure]> {
   let hasFolder = 1;
 }
 
+def PYC_PriorityEncodeOp : PYC_Op<"priority_encode", [Pure]> {
+  let summary = "Parameterized priority encoder with index and valid results";
+  let arguments = (ins AnyInteger:$in, StrAttr:$order);
+  let results = (outs AnyInteger:$index, I1:$valid);
+  let hasVerifier = 1;
+  let assemblyFormat = "$in attr-dict `:` type($in) `->` type($index) `,` type($valid)";
+}
+
+def PYC_RtlCombOp : PYC_Op<"rtl.comb", [Pure]> {
+  let summary = "Selected qualified combinational RTL implementation";
+  let arguments = (ins Variadic<AnyInteger>:$inputs,
+                       StrAttr:$semantic_id,
+                       StrAttr:$implementation_id,
+                       StrAttr:$module,
+                       DictionaryAttr:$parameters,
+                       StrArrayAttr:$input_ports,
+                       StrArrayAttr:$output_ports,
+                       ArrayAttr:$sources,
+                       StrAttr:$catalog_sha256);
+  let results = (outs Variadic<AnyInteger>:$outputs);
+  let hasVerifier = 1;
+  let assemblyFormat = "$inputs attr-dict `:` `(` type($inputs) `)` `->` `(` type($outputs) `)`";
+}
+
 def PYC_AliasOp : PYC_Op<"alias", [Pure, SameOperandsAndResultType]> {
   let summary = "Alias a value (for naming / debug)";
   let arguments = (ins AnyType:$in);

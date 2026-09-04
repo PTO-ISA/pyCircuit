@@ -5,19 +5,19 @@
 #include "pyc/Transforms/Passes.h"
 
 #include "mlir/Dialect/Arith/IR/Arith.h"
-#include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Func/Extensions/InlinerExtension.h"
+#include "mlir/Dialect/Func/IR/FuncOps.h"
+#include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/IR/AsmState.h"
 #include "mlir/IR/BuiltinAttributes.h"
-#include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/DialectRegistry.h"
 #include "mlir/Parser/Parser.h"
+#include "mlir/Pass/Pass.h"
 #include "mlir/Pass/PassInstrumentation.h"
 #include "mlir/Pass/PassManager.h"
-#include "mlir/Pass/Pass.h"
-#include "mlir/Transforms/Passes.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
+#include "mlir/Transforms/Passes.h"
 #include "llvm/ADT/SmallSet.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/StringMap.h"
@@ -26,13 +26,14 @@
 #include "llvm/ADT/Twine.h"
 #include "llvm/Config/llvm-config.h"
 #include "llvm/Support/CommandLine.h"
-#include "llvm/Support/MD5.h"
-#include "llvm/Support/JSON.h"
 #include "llvm/Support/FileSystem.h"
 #include "llvm/Support/InitLLVM.h"
+#include "llvm/Support/JSON.h"
+#include "llvm/Support/MD5.h"
 #include "llvm/Support/MemoryBuffer.h"
 #include "llvm/Support/Path.h"
 #include "llvm/Support/Program.h"
+#include "llvm/Support/SHA256.h"
 #include "llvm/Support/SourceMgr.h"
 #include "llvm/Support/raw_ostream.h"
 
@@ -1048,7 +1049,76 @@ static std::optional<std::string> findToolchainRoot(const char *argv0) {
   return std::nullopt;
 }
 
-static LogicalResult emitPrimitivesFile(llvm::StringRef outPath, llvm::StringRef primDir, bool targetFpga) {
+struct SelectedRtlSource {
+  std::string path;
+  std::string sha256;
+  std::string license;
+};
+
+static std::string sha256Fingerprint(llvm::StringRef bytes) {
+  llvm::SHA256 hasher;
+  hasher.update(bytes);
+  return "sha256:" + llvm::toHex(hasher.final(), true);
+}
+
+static FailureOr<std::vector<SelectedRtlSource>>
+collectSelectedRtlSources(ModuleOp module) {
+  std::vector<SelectedRtlSource> result;
+  llvm::StringMap<std::string> digests;
+  WalkResult walk = module.walk([&](pyc::RtlCombOp selected) {
+    auto sources = selected->getAttrOfType<ArrayAttr>("sources");
+    if (!sources)
+      return WalkResult::interrupt();
+    for (Attribute raw : sources) {
+      auto source = dyn_cast<DictionaryAttr>(raw);
+      auto path = source ? source.getAs<StringAttr>("path") : StringAttr();
+      auto sha256 = source ? source.getAs<StringAttr>("sha256") : StringAttr();
+      auto license =
+          source ? source.getAs<StringAttr>("license") : StringAttr();
+      if (!path || !sha256 || !license)
+        return WalkResult::interrupt();
+      auto [entry, inserted] =
+          digests.try_emplace(path.getValue(), sha256.getValue());
+      if (!inserted) {
+        if (entry->getValue() != sha256.getValue())
+          return WalkResult::interrupt();
+        continue;
+      }
+      result.push_back({path.getValue().str(), sha256.getValue().str(),
+                        license.getValue().str()});
+    }
+    return WalkResult::advance();
+  });
+  if (walk.wasInterrupted()) {
+    module.emitError(
+        "selected RTL source metadata is malformed or inconsistent");
+    return failure();
+  }
+  return result;
+}
+
+static LogicalResult appendSelectedVerilog(llvm::raw_ostream &os,
+                                           llvm::StringRef sourcePath,
+                                           llvm::StringRef text) {
+  while (!text.empty()) {
+    auto [line, rest] = text.split('\n');
+    if (line.trim().starts_with("`include")) {
+      llvm::errs() << "error: selected RTL source contains an unresolved "
+                      "include directive: "
+                   << sourcePath << "\n";
+      return failure();
+    }
+    os << line << "\n";
+    if (rest.data() == text.data())
+      break;
+    text = rest;
+  }
+  return success();
+}
+
+static LogicalResult emitPrimitivesFile(llvm::StringRef outPath,
+                                        llvm::StringRef primDir,
+                                        bool targetFpga, ModuleOp module) {
   static const char *kFiles[] = {
       "pyc_reg.v",
       "pyc_fifo.v",
@@ -1076,14 +1146,89 @@ static LogicalResult emitPrimitivesFile(llvm::StringRef outPath, llvm::StringRef
     ss << "// --- " << name << "\n";
     ss << fileOrErr->get()->getBuffer() << "\n\n";
   }
+  auto selectedSources = collectSelectedRtlSources(module);
+  if (failed(selectedSources))
+    return failure();
+  for (const SelectedRtlSource &source : *selectedSources) {
+    llvm::SmallString<256> path(primDir);
+    llvm::sys::path::append(path, source.path);
+    auto fileOrErr = llvm::MemoryBuffer::getFile(path);
+    if (!fileOrErr) {
+      llvm::errs() << "error: cannot read selected RTL source: " << path
+                   << "\n";
+      return failure();
+    }
+    llvm::StringRef content = fileOrErr->get()->getBuffer();
+    if (sha256Fingerprint(content) != source.sha256) {
+      llvm::errs() << "error: selected RTL source digest mismatch: "
+                   << source.path << "\n";
+      return failure();
+    }
+    ss << "// --- selected RTL: " << source.path << " (" << source.license
+       << ")\n";
+    if (failed(appendSelectedVerilog(ss, source.path, content)))
+      return failure();
+    ss << "\n";
+  }
   ss << "/* verilator lint_on DECLFILENAME */\n";
   ss.flush();
   return writeFile(outPath, buf);
 }
 
-static LogicalResult updateManifest(llvm::StringRef outDirPath, llvm::StringRef top,
-                                   std::optional<llvm::json::Array> verilogMods,
-                                   std::optional<llvm::json::Array> cppMods) {
+struct SelectedRtlManifestData {
+  llvm::json::Array implementations;
+  llvm::json::Array bindings;
+};
+
+static SelectedRtlManifestData selectedRtlManifest(ModuleOp module) {
+  SelectedRtlManifestData result;
+  llvm::StringSet<> seenImplementations;
+  module.walk([&](pyc::RtlCombOp selected) {
+    auto implementation =
+        selected->getAttrOfType<StringAttr>("implementation_id");
+    if (!implementation)
+      return;
+    llvm::json::Object parameters;
+    for (NamedAttribute parameter :
+         selected->getAttrOfType<DictionaryAttr>("parameters"))
+      parameters[parameter.getName().strref()] =
+          cast<IntegerAttr>(parameter.getValue()).getInt();
+    result.bindings.push_back(llvm::json::Object{
+        {"semantic_id",
+         selected->getAttrOfType<StringAttr>("semantic_id").getValue()},
+        {"implementation_id", implementation.getValue()},
+        {"parameters", std::move(parameters)},
+    });
+    if (seenImplementations.insert(implementation.getValue()).second) {
+      llvm::json::Array sources;
+      for (Attribute raw : selected->getAttrOfType<ArrayAttr>("sources")) {
+        auto source = cast<DictionaryAttr>(raw);
+        sources.push_back(llvm::json::Object{
+            {"path", source.getAs<StringAttr>("path").getValue()},
+            {"sha256", source.getAs<StringAttr>("sha256").getValue()},
+            {"license", source.getAs<StringAttr>("license").getValue()},
+        });
+      }
+      result.implementations.push_back(llvm::json::Object{
+          {"semantic_id",
+           selected->getAttrOfType<StringAttr>("semantic_id").getValue()},
+          {"implementation_id", implementation.getValue()},
+          {"module", selected->getAttrOfType<StringAttr>("module").getValue()},
+          {"catalog_sha256",
+           selected->getAttrOfType<StringAttr>("catalog_sha256").getValue()},
+          {"sources", std::move(sources)},
+      });
+    }
+  });
+  return result;
+}
+
+static LogicalResult updateManifest(
+    llvm::StringRef outDirPath, llvm::StringRef top,
+    std::optional<llvm::json::Array> verilogMods,
+    std::optional<llvm::json::Array> cppMods,
+    std::optional<llvm::json::Array> rtlImplementations = std::nullopt,
+    std::optional<llvm::json::Array> rtlBindings = std::nullopt) {
   llvm::SmallString<256> path(outDirPath);
   llvm::sys::path::append(path, "manifest.json");
 
@@ -1106,6 +1251,10 @@ static LogicalResult updateManifest(llvm::StringRef outDirPath, llvm::StringRef 
     manifest["verilog_modules"] = std::move(*verilogMods);
   if (cppMods)
     manifest["cpp_modules"] = std::move(*cppMods);
+  if (rtlImplementations)
+    manifest["rtl_implementations"] = std::move(*rtlImplementations);
+  if (rtlBindings)
+    manifest["rtl_bindings"] = std::move(*rtlBindings);
 
   std::string buf;
   llvm::raw_string_ostream ss(buf);
@@ -2284,6 +2433,15 @@ int main(int argc, char **argv) {
   pm.addNestedPass<func::FuncOp>(pyc::createCheckFlatTypesPass());
   pm.addNestedPass<func::FuncOp>(pyc::createCheckNoDynamicPass());
   pm.addPass(pyc::createCheckLogicDepthPass(logicDepthLimit));
+  if (emitKind == "verilog") {
+    std::string catalogPath;
+    if (auto primitiveDir = findPrimitivesDir(argv[0])) {
+      llvm::SmallString<256> candidate(*primitiveDir);
+      llvm::sys::path::append(candidate, "rtl_catalog.json");
+      catalogPath = candidate.str().str();
+    }
+    pm.addPass(pyc::createSelectRtlPrimitivesPass(std::move(catalogPath)));
+  }
   pm.addNestedPass<func::FuncOp>(pyc::createCollectCompileStatsPass());
   const auto tPassStart = Clock::now();
   if (failed(pm.run(*module))) {
@@ -2450,7 +2608,7 @@ int main(int argc, char **argv) {
         }
         llvm::SmallString<256> primOut(outDir);
         llvm::sys::path::append(primOut, "pyc_primitives.v");
-        if (failed(emitPrimitivesFile(primOut, *primDir, targetFpga)))
+        if (failed(emitPrimitivesFile(primOut, *primDir, targetFpga, *module)))
           return 1;
         verilogFiles.push_back("pyc_primitives.v");
       }
@@ -2477,7 +2635,11 @@ int main(int argc, char **argv) {
         verilogFiles.push_back(fname);
       }
 
-      if (failed(updateManifest(outDir, top, std::move(verilogFiles), /*cppMods=*/std::nullopt)))
+      SelectedRtlManifestData rtlManifest = selectedRtlManifest(*module);
+      if (failed(updateManifest(outDir, top, std::move(verilogFiles),
+                                /*cppMods=*/std::nullopt,
+                                std::move(rtlManifest.implementations),
+                                std::move(rtlManifest.bindings))))
         return 1;
 
       // Optional Yosys stub (sanity synth).

@@ -11,8 +11,11 @@
 #include "mlir/IR/SymbolTable.h"
 #include "mlir/IR/Types.h"
 #include "mlir/Support/LogicalResult.h"
-#include "llvm/ADT/SmallString.h"
 #include "llvm/ADT/STLExtras.h"
+#include "llvm/ADT/SmallString.h"
+#include "llvm/ADT/StringExtras.h"
+#include "llvm/ADT/StringSet.h"
+#include "llvm/Support/Path.h"
 #include "llvm/Support/raw_ostream.h"
 
 #include <optional>
@@ -983,6 +986,127 @@ LogicalResult ConcatOp::verify() {
   if (sum != static_cast<std::uint64_t>(outTy.getWidth()))
     return emitOpError("result width must equal sum of input widths");
 
+  return success();
+}
+
+LogicalResult PriorityEncodeOp::verify() {
+  auto inputType = dyn_cast<IntegerType>(getIn().getType());
+  auto indexType = dyn_cast<IntegerType>(getIndex().getType());
+  if (!inputType || !indexType)
+    return emitOpError("input and index result must be integer types");
+  const unsigned inputWidth = inputType.getWidth();
+  unsigned indexWidth = 1;
+  for (unsigned extent = 2; extent < inputWidth; extent <<= 1)
+    ++indexWidth;
+  if (indexType.getWidth() != indexWidth)
+    return emitOpError() << "index result width must be max(1, ceil(log2("
+                         << inputWidth << "))) = " << indexWidth;
+  if (getOrder() != "low" && getOrder() != "high")
+    return emitOpError("order must be \"low\" or \"high\"");
+  return success();
+}
+
+static bool isRtlIdentifier(llvm::StringRef value) {
+  if (value.empty() || !(llvm::isAlpha(value.front()) || value.front() == '_'))
+    return false;
+  return llvm::all_of(value.drop_front(), [](char c) {
+    return llvm::isAlnum(c) || c == '_' || c == '$';
+  });
+}
+
+static bool isSha256Fingerprint(llvm::StringRef value) {
+  if (!value.consume_front("sha256:") || value.size() != 64)
+    return false;
+  return llvm::all_of(
+      value, [](char c) { return llvm::isDigit(c) || (c >= 'a' && c <= 'f'); });
+}
+
+LogicalResult RtlCombOp::verify() {
+  if (getInputs().empty() || getOutputs().empty())
+    return emitOpError(
+        "selected combinational RTL requires inputs and outputs");
+  auto semantic = (*this)->getAttrOfType<StringAttr>("semantic_id");
+  auto implementation = (*this)->getAttrOfType<StringAttr>("implementation_id");
+  auto module = (*this)->getAttrOfType<StringAttr>("module");
+  auto parameters = (*this)->getAttrOfType<DictionaryAttr>("parameters");
+  auto inputPorts = (*this)->getAttrOfType<ArrayAttr>("input_ports");
+  auto outputPorts = (*this)->getAttrOfType<ArrayAttr>("output_ports");
+  auto sources = (*this)->getAttrOfType<ArrayAttr>("sources");
+  auto catalog = (*this)->getAttrOfType<StringAttr>("catalog_sha256");
+  if (!semantic || !semantic.getValue().starts_with("pyc.") ||
+      semantic.getValue().size() <= 4)
+    return emitOpError("semantic_id must be a non-empty pyc.* identifier");
+  if (!implementation || implementation.getValue().empty())
+    return emitOpError("implementation_id must be non-empty");
+  if (!module || !isRtlIdentifier(module.getValue()))
+    return emitOpError("module must be a Verilog identifier");
+  if (!catalog || !isSha256Fingerprint(catalog.getValue()))
+    return emitOpError(
+        "catalog_sha256 must be sha256: followed by 64 lowercase hex digits");
+  if (!parameters)
+    return emitOpError("parameters must be present");
+  for (NamedAttribute parameter : parameters) {
+    if (!isRtlIdentifier(parameter.getName().strref()))
+      return emitOpError() << "parameter '" << parameter.getName()
+                           << "' is not a Verilog identifier";
+    auto value = dyn_cast<IntegerAttr>(parameter.getValue());
+    if (!value)
+      return emitOpError() << "parameter '" << parameter.getName()
+                           << "' must be an integer attribute";
+    if (value.getInt() < 0)
+      return emitOpError() << "parameter '" << parameter.getName()
+                           << "' must be non-negative";
+  }
+
+  llvm::StringSet<> allPorts;
+  auto verifyPorts = [&](ArrayAttr ports, size_t arity,
+                         llvm::StringRef kind) -> LogicalResult {
+    if (!ports || ports.size() != arity)
+      return emitOpError() << kind << "_ports arity must match " << kind
+                           << " value arity";
+    llvm::StringSet<> seen;
+    for (Attribute raw : ports) {
+      auto port = dyn_cast<StringAttr>(raw);
+      if (!port || !isRtlIdentifier(port.getValue()))
+        return emitOpError()
+               << kind << "_ports must contain Verilog identifiers";
+      if (!seen.insert(port.getValue()).second)
+        return emitOpError() << kind << "_ports must be unique";
+      if (!allPorts.insert(port.getValue()).second)
+        return emitOpError("input and output port names must be disjoint");
+    }
+    return success();
+  };
+  if (failed(verifyPorts(inputPorts, getInputs().size(), "input")) ||
+      failed(verifyPorts(outputPorts, getOutputs().size(), "output")))
+    return failure();
+
+  if (!sources || sources.empty())
+    return emitOpError("sources must contain a non-empty dependency closure");
+  llvm::StringSet<> sourcePaths;
+  for (Attribute raw : sources) {
+    auto source = dyn_cast<DictionaryAttr>(raw);
+    auto path = source ? source.getAs<StringAttr>("path") : StringAttr();
+    auto digest = source ? source.getAs<StringAttr>("sha256") : StringAttr();
+    auto license = source ? source.getAs<StringAttr>("license") : StringAttr();
+    if (!path || !digest || !license || license.getValue().empty())
+      return emitOpError(
+          "each source requires path, sha256, and license strings");
+    llvm::StringRef value = path.getValue();
+    bool escapes = false;
+    for (auto part = llvm::sys::path::begin(value),
+              end = llvm::sys::path::end(value);
+         part != end; ++part)
+      escapes |= *part == "..";
+    if (value.empty() || llvm::sys::path::is_absolute(value) ||
+        value.contains("\\") || escapes)
+      return emitOpError("source paths must be normalized relative paths");
+    if (!sourcePaths.insert(value).second)
+      return emitOpError("source paths must be unique");
+    if (!isSha256Fingerprint(digest.getValue()))
+      return emitOpError(
+          "source sha256 must use lowercase sha256:<64-hex> format");
+  }
   return success();
 }
 
