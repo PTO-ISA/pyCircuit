@@ -31,7 +31,8 @@
           "modified": false
         }
       ],
-      "license_file": "../../LICENSE",
+      "license_file": "licenses/BSD-3-Clause.txt",
+      "license_sha256": "sha256:321940059773d631ad73832bfa870431aa6cba545b38d4055641ce21275bb22c",
       "provenance": {
         "origin": "PTO-ISA/pyCircuit",
         "design_input": "PTO-ISA/pyCircuit#29",

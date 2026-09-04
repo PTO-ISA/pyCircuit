@@ -148,6 +148,12 @@ public:
       ok = false;
     }
 
+    module.walk([&](pyc::RtlCombOp selected) {
+      selected.emitError("[PYC982] pyc.rtl.comb is backend-owned and forbidden "
+                         "in frontend input");
+      ok = false;
+    });
+
     module.walk([&](func::FuncOp f) {
       auto checkStrAttr = [&](StringRef name, llvm::StringRef code, llvm::StringRef hint) -> StringAttr {
         auto attr = f->getAttrOfType<StringAttr>(name);

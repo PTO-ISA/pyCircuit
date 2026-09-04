@@ -31,6 +31,10 @@ vvp .pycircuit_out/primitive-tests/priority_encode.vvp
 - PYC selector/verifier, digest rejection, raw `pyc.rtl.comb` rejection,
   ambiguous-priority rejection, C++ reference execution, selected RTL bundle,
   manifest, Verilator, and Icarus system tests: passed.
+- `pycc --emit=none|cpp` rejects source-authored backend IR; QueueGraph rejects
+  malformed priority arity/order/type before either backend.
+- Per-module source files and installed BSD license evidence are published and
+  SHA-256 revalidated during project-level multi-module bundling.
 - Agentic public/frontend/direct-codegen tests: 74 passed.
 - ACIR/ACSim lit: 139/139 passed.
 - gfsim `PriorityEncode<13, low/high>` SimQueue execution: passed.
