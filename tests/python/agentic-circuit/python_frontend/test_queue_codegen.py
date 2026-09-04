@@ -142,6 +142,27 @@ def pipeline() -> None:
 """
 
 
+BIT_WIDTH_SOURCE = """
+import agentic_circuit as ac
+
+@ac.struct
+class Bits:
+    left: ac.u3
+    right: ac.u3
+    result: ac.u3
+
+@ac.system
+def pipeline() -> None:
+    incoming = ac.source(Bits)
+    outgoing = incoming.apply(
+        lambda item: item.with_fields(
+            result=((item.left & item.right) ^ (~item.left)) << 1
+        )
+    )
+    ac.sink(outgoing)
+"""
+
+
 class QueueCodegenTest(unittest.TestCase):
     def test_rule_program_cannot_bypass_native_mlir_lowering(self) -> None:
         from agentic_circuit._queue_codegen import lower_queue_program_to_cpp
@@ -223,6 +244,38 @@ class QueueCodegenTest(unittest.TestCase):
         self.assertIn("result.value = (item.value + 1);", generated)
         self.assertIn("gfsim::QueueSink<Item> sink_0_;", generated)
         self.assertEqual(generated, lower_queue_source_to_cpp(SOURCE, "pipeline"))
+
+    def test_bit_width_uses_exact_gfsim_storage(self) -> None:
+        from agentic_circuit._queue_codegen import lower_queue_source_to_cpp
+
+        generated = lower_queue_source_to_cpp(BIT_WIDTH_SOURCE, "pipeline")
+        self.assertIn('#include "gfsim/bits.h"', generated)
+        self.assertIn("gfsim::UInt<3> left{};", generated)
+        self.assertIn("gfsim::UInt<3> right{};", generated)
+        self.assertIn("gfsim::UInt<3> result{};", generated)
+        self.assertIn("((item.left & item.right) ^ (~item.left))", generated)
+
+        compiler = shutil.which("c++")
+        if compiler is None:
+            self.skipTest("C++ compiler is unavailable")
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "bits.cpp"
+            output.write_text(generated, encoding="utf-8")
+            compiled = subprocess.run(
+                (
+                    compiler,
+                    "-std=c++20",
+                    "-I",
+                    str(ROOT / "simulator/gfsim/include"),
+                    "-fsyntax-only",
+                    str(output),
+                ),
+                cwd=ROOT,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(0, compiled.returncode, compiled.stderr)
 
     def test_route_and_merge_generate_standard_typed_blocks(self) -> None:
         from agentic_circuit._queue_codegen import lower_queue_source_to_cpp
@@ -475,7 +528,7 @@ int main() {{
         from agentic_circuit._queue_codegen import lower_queue_source_to_cpp
 
         generated = lower_queue_source_to_cpp(BROADCAST_SOURCE, "pipeline")
-        self.assertIn("gfsim::QueueBroadcast<std::int64_t, 2>", generated)
+        self.assertIn("gfsim::QueueBroadcast<gfsim::UInt<64>, 2>", generated)
         self.assertIn("input_queue__fanout0_", generated)
         self.assertIn("input_queue__fanout1_", generated)
         compiler = shutil.which("c++")
@@ -545,7 +598,7 @@ int main() {{
 
         generated = lower_queue_source_to_cpp(ARRAY_SOURCE, "pipeline")
         self.assertIn(
-            "std::array<std::array<gfsim::SimQueue<std::int64_t>, 2>, 2> grid_;",
+            "std::array<std::array<gfsim::SimQueue<gfsim::UInt<64>>, 2>, 2> grid_;",
             generated,
         )
         self.assertIn('"grid__1__0"', generated)

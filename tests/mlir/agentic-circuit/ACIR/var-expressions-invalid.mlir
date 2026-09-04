@@ -7,6 +7,12 @@
 // RUN: %not %acir_opt %t/with-value.mlir 2>&1 | %FileCheck %s --check-prefix=WITH-VALUE
 // RUN: %not %acir_opt %t/sub-nonnumeric.mlir 2>&1 | %FileCheck %s --check-prefix=SUB-NONNUMERIC
 // RUN: %not %acir_opt %t/mul-nonnumeric.mlir 2>&1 | %FileCheck %s --check-prefix=MUL-NONNUMERIC
+// RUN: %not %acir_opt %t/and-noninteger.mlir 2>&1 | %FileCheck %s --check-prefix=AND-NONINTEGER
+// RUN: %not %acir_opt %t/or-noninteger.mlir 2>&1 | %FileCheck %s --check-prefix=OR-NONINTEGER
+// RUN: %not %acir_opt %t/xor-noninteger.mlir 2>&1 | %FileCheck %s --check-prefix=XOR-NONINTEGER
+// RUN: %not %acir_opt %t/not-noninteger.mlir 2>&1 | %FileCheck %s --check-prefix=NOT-NONINTEGER
+// RUN: %not %acir_opt %t/shl-noninteger.mlir 2>&1 | %FileCheck %s --check-prefix=SHL-NONINTEGER
+// RUN: %not %acir_opt %t/shr-noninteger.mlir 2>&1 | %FileCheck %s --check-prefix=SHR-NONINTEGER
 // RUN: %not %acir_opt %t/cmp-predicate.mlir 2>&1 | %FileCheck %s --check-prefix=CMP-PREDICATE
 // RUN: %not %acir_opt %t/popcount-width.mlir 2>&1 | %FileCheck %s --check-prefix=POPCOUNT-WIDTH
 // RUN: %not %acir_opt %t/popcount-input.mlir 2>&1 | %FileCheck %s --check-prefix=POPCOUNT-INPUT
@@ -19,7 +25,13 @@
 // WITH-VALUE: error: 'ac.var.with' op field 'value' expects '!ac.var<i64>'
 // SUB-NONNUMERIC: error: 'ac.var.sub' op arithmetic Var element must be an integer or float
 // MUL-NONNUMERIC: error: 'ac.var.mul' op arithmetic Var element must be an integer or float
-// CMP-PREDICATE: error: 'ac.var.cmp' op predicate must be eq, ne, slt, sle, sgt, or sge
+// AND-NONINTEGER: error: 'ac.var.and' op bit operation Var element must be an integer
+// OR-NONINTEGER: error: 'ac.var.or' op bit operation Var element must be an integer
+// XOR-NONINTEGER: error: 'ac.var.xor' op bit operation Var element must be an integer
+// NOT-NONINTEGER: error: 'ac.var.not' op bit operation Var element must be an integer
+// SHL-NONINTEGER: error: 'ac.var.shl' op bit operation Var element must be an integer
+// SHR-NONINTEGER: error: 'ac.var.shr' op bit operation Var element must be an integer
+// CMP-PREDICATE: error: 'ac.var.cmp' op predicate must be eq, ne, slt, sle, sgt, sge, ult, ule, ugt, or uge
 // POPCOUNT-WIDTH: error: 'ac.var.popcount' op result width must be ceil(log2(input_width + 1)) = 4
 // POPCOUNT-INPUT: error: 'ac.var.popcount' op input width must be in [1, 64]
 
@@ -38,6 +50,42 @@ builtin.module attributes {ac.contract_epoch = "0.5"} {
 builtin.module attributes {ac.contract_epoch = "0.5"} {
   %value = "builtin.unrealized_conversion_cast"() : () -> !ac.var<!ac.optional<i32>>
   %bad = ac.var.mul %value, %value : !ac.var<!ac.optional<i32>>
+}
+
+//--- and-noninteger.mlir
+builtin.module attributes {ac.contract_epoch = "0.5"} {
+  %value = "builtin.unrealized_conversion_cast"() : () -> !ac.var<!ac.optional<i32>>
+  %bad = ac.var.and %value, %value : !ac.var<!ac.optional<i32>>
+}
+
+//--- or-noninteger.mlir
+builtin.module attributes {ac.contract_epoch = "0.5"} {
+  %value = "builtin.unrealized_conversion_cast"() : () -> !ac.var<!ac.optional<i32>>
+  %bad = ac.var.or %value, %value : !ac.var<!ac.optional<i32>>
+}
+
+//--- xor-noninteger.mlir
+builtin.module attributes {ac.contract_epoch = "0.5"} {
+  %value = "builtin.unrealized_conversion_cast"() : () -> !ac.var<!ac.optional<i32>>
+  %bad = ac.var.xor %value, %value : !ac.var<!ac.optional<i32>>
+}
+
+//--- not-noninteger.mlir
+builtin.module attributes {ac.contract_epoch = "0.5"} {
+  %value = "builtin.unrealized_conversion_cast"() : () -> !ac.var<!ac.optional<i32>>
+  %bad = ac.var.not %value : !ac.var<!ac.optional<i32>> -> !ac.var<!ac.optional<i32>>
+}
+
+//--- shl-noninteger.mlir
+builtin.module attributes {ac.contract_epoch = "0.5"} {
+  %value = "builtin.unrealized_conversion_cast"() : () -> !ac.var<!ac.optional<i32>>
+  %bad = ac.var.shl %value, %value : !ac.var<!ac.optional<i32>>
+}
+
+//--- shr-noninteger.mlir
+builtin.module attributes {ac.contract_epoch = "0.5"} {
+  %value = "builtin.unrealized_conversion_cast"() : () -> !ac.var<!ac.optional<i32>>
+  %bad = ac.var.shr %value, %value : !ac.var<!ac.optional<i32>>
 }
 
 //--- popcount-width.mlir

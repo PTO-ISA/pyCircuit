@@ -15,8 +15,8 @@ module attributes {ac.contract_epoch = "0.5", ac.model_kind = "queue_graph", ac.
   ac.sink %sum {ac.name = "sink_0"} : !ac.queue<i64>
 }
 
-// GFSIM: std::tuple<std::int64_t> operator()(const std::int64_t &item, const std::int64_t &item1)
-// GFSIM: gfsim::QueueAtomicTransform<block_0_policy, std::tuple<std::int64_t, std::int64_t>, std::tuple<std::int64_t>> block_0_;
+// GFSIM: std::tuple<gfsim::UInt<64>> operator()(const gfsim::UInt<64> &item, const gfsim::UInt<64> &item1)
+// GFSIM: gfsim::QueueAtomicTransform<block_0_policy, std::tuple<gfsim::UInt<64>, gfsim::UInt<64>>, std::tuple<gfsim::UInt<64>>> block_0_;
 
 // PYC: = pyc.wire : i1
 // PYC: = pyc.add

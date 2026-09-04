@@ -477,14 +477,12 @@ def _scalar_type(node: ast.expr) -> str:
         return "i64"
     if name == "bool":
         return "i1"
+    if name.startswith("u") and name[1:].isdigit():
+        width = int(name[1:])
+        if 1 <= width <= 64:
+            return f"i{width}"
+        raise QueueFrontendError("ACPY-QUEUE-002: bit width must be in [1, 64]")
     widths = {
-        "u1": 1,
-        "u2": 2,
-        "u4": 4,
-        "u8": 8,
-        "u16": 16,
-        "u32": 32,
-        "u64": 64,
         "s8": 8,
         "s16": 16,
         "s32": 32,
@@ -4173,20 +4171,51 @@ class _ExpressionEmitter:
             )
             return name, field_type
         if isinstance(node, ast.BinOp) and isinstance(
-            node.op, (ast.Add, ast.Sub, ast.Mult)
+            node.op,
+            (
+                ast.Add,
+                ast.Sub,
+                ast.Mult,
+                ast.BitAnd,
+                ast.BitOr,
+                ast.BitXor,
+                ast.LShift,
+                ast.RShift,
+            ),
         ):
             left, left_type = self.emit(node.left)
             right, right_type = self.emit(node.right, left_type)
             if left_type != right_type:
                 raise QueueFrontendError(
-                    "ACPY-QUEUE-003: arithmetic operands must match"
+                    "ACPY-QUEUE-003: binary operands must match"
                 )
-            opcode = {ast.Add: "add", ast.Sub: "sub", ast.Mult: "mul"}[type(node.op)]
+            opcode = {
+                ast.Add: "add",
+                ast.Sub: "sub",
+                ast.Mult: "mul",
+                ast.BitAnd: "and",
+                ast.BitOr: "or",
+                ast.BitXor: "xor",
+                ast.LShift: "shl",
+                ast.RShift: "shr",
+            }[type(node.op)]
             name = self._new()
             self.lines.append(
                 f"    %{name} = ac.var.{opcode} %{left}, %{right} : !ac.var<{left_type}>"
             )
             return name, left_type
+        if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.Invert):
+            value, value_type = self.emit(node.operand)
+            if not value_type.startswith("i") or not value_type[1:].isdigit():
+                raise QueueFrontendError(
+                    "ACPY-QUEUE-003: bitwise not requires an integer payload"
+                )
+            name = self._new()
+            self.lines.append(
+                f"    %{name} = ac.var.not %{value} : !ac.var<{value_type}> "
+                f"-> !ac.var<{value_type}>"
+            )
+            return name, value_type
         if isinstance(node, ast.BoolOp) and isinstance(node.op, ast.And):
             if len(node.values) < 2:
                 raise QueueFrontendError(

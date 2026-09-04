@@ -97,16 +97,8 @@ llvm::Expected<std::string> cppType(llvm::StringRef type) {
   if (type.starts_with('i')) {
     unsigned width = 0;
     if (!type.drop_front().getAsInteger(10, width) && width > 0) {
-      if (width == 1)
-        return std::string("bool");
-      if (width <= 8)
-        return std::string("std::uint8_t");
-      if (width <= 16)
-        return std::string("std::uint16_t");
-      if (width <= 32)
-        return std::string("std::uint32_t");
       if (width <= 64)
-        return std::string("std::int64_t");
+        return "gfsim::UInt<" + std::to_string(width) + ">";
     }
   }
   constexpr llvm::StringLiteral prefix = "!ac.struct<@types::@";
@@ -285,6 +277,11 @@ llvm::Expected<std::string> emitExpressionBody(const QueueBlockPlan &block,
                << "_found;\n";
       continue;
     }
+    if (expression.kind == "not") {
+      output << padding << "auto " << expression.result << " = ~"
+             << first->str() << ";\n";
+      continue;
+    }
     auto second = operand(1);
     if (!second)
       return second.takeError();
@@ -302,6 +299,16 @@ llvm::Expected<std::string> emitExpressionBody(const QueueBlockPlan &block,
       operation = "-";
     else if (expression.kind == "mul")
       operation = "*";
+    else if (expression.kind == "and")
+      operation = "&";
+    else if (expression.kind == "or")
+      operation = "|";
+    else if (expression.kind == "xor")
+      operation = "^";
+    else if (expression.kind == "shl")
+      operation = "<<";
+    else if (expression.kind == "shr")
+      operation = ">>";
     else if (expression.kind == "cmp") {
       operation = llvm::StringSwitch<llvm::StringRef>(expression.predicate)
                       .Case("eq", "==")
@@ -310,6 +317,10 @@ llvm::Expected<std::string> emitExpressionBody(const QueueBlockPlan &block,
                       .Case("sle", "<=")
                       .Case("sgt", ">")
                       .Case("sge", ">=")
+                      .Case("ult", "<")
+                      .Case("ule", "<=")
+                      .Case("ugt", ">")
+                      .Case("uge", ">=")
                       .Default("");
     }
     if (operation.empty())
@@ -503,7 +514,8 @@ llvm::Expected<std::string> generateQueueGraphCpp(const QueueGraphPlan &plan) {
   output << "// Generated from frozen ACIR QueueGraph plan; do not edit.\n";
   if (!plan.specializationFingerprint.empty())
     output << "// Specialization: " << plan.specializationFingerprint << "\n";
-  output << "#include \"gfsim/dispatch.h\"\n"
+  output << "#include \"gfsim/bits.h\"\n"
+            "#include \"gfsim/dispatch.h\"\n"
             "#include \"gfsim/object.h\"\n"
             "#include \"gfsim/queue.h\"\n"
             "#include \"gfsim/queue_blocks.h\"\n\n"

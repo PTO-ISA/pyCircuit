@@ -206,8 +206,18 @@ emitTransform(const QueueGraphPlan &plan, const QueueBlockPlan &block,
                 "qualification_report = "
                 "\"INT-11/smoke/comparison_report.json\"} : "
              << *resultType << "\n";
+      } else if (expression.kind == "not") {
+        if (expression.operands.size() != 1)
+          return pycError("unary transform expression arity mismatch");
+        auto type = pycType(plan, expression.type);
+        if (!type)
+          return type.takeError();
+        result = newValue();
+        body << "    " << result << " = pyc.not " << *first << " : " << *type
+             << "\n";
       } else if (expression.kind == "add" || expression.kind == "sub" ||
-                 expression.kind == "mul") {
+                 expression.kind == "mul" || expression.kind == "and" ||
+                 expression.kind == "or" || expression.kind == "xor") {
         result = newValue();
         if (expression.operands.size() != 2)
           return pycError("binary transform expression arity mismatch");
@@ -220,6 +230,19 @@ emitTransform(const QueueGraphPlan &plan, const QueueBlockPlan &block,
         body << "    " << result << " = pyc." << expression.kind << ' '
              << *first << ", " << *second << " : " << *type << ", " << *type
              << " -> " << *type << "\n";
+      } else if (expression.kind == "shl" || expression.kind == "shr") {
+        result = newValue();
+        if (expression.operands.size() != 2)
+          return pycError("shift transform expression arity mismatch");
+        auto second = value(expression.operands[1]);
+        if (!second)
+          return second.takeError();
+        auto type = pycType(plan, expression.type);
+        if (!type)
+          return type.takeError();
+        body << "    " << result << " = pyc."
+             << (expression.kind == "shl" ? "shl" : "lshr") << ' ' << *first
+             << ", " << *second << " : " << *type << ", " << *type << "\n";
       } else if (expression.kind == "cmp") {
         if (expression.operands.size() != 2)
           return pycError("comparison expression arity mismatch");
@@ -246,14 +269,18 @@ emitTransform(const QueueGraphPlan &plan, const QueueBlockPlan &block,
           opcode = "eq";
           negate = expression.predicate == "ne";
         } else if (expression.predicate == "slt" ||
-                   expression.predicate == "sge") {
-          opcode = "slt";
-          negate = expression.predicate == "sge";
+                   expression.predicate == "sge" ||
+                   expression.predicate == "ult" ||
+                   expression.predicate == "uge") {
+          opcode = expression.predicate.starts_with("u") ? "ult" : "slt";
+          negate = expression.predicate.ends_with("ge");
         } else if (expression.predicate == "sgt" ||
-                   expression.predicate == "sle") {
-          opcode = "slt";
+                   expression.predicate == "sle" ||
+                   expression.predicate == "ugt" ||
+                   expression.predicate == "ule") {
+          opcode = expression.predicate.starts_with("u") ? "ult" : "slt";
           std::swap(lhs, rhs);
-          negate = expression.predicate == "sle";
+          negate = expression.predicate.ends_with("le");
         } else {
           return pycError("unsupported comparison predicate");
         }
