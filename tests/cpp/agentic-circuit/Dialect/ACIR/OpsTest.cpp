@@ -345,6 +345,7 @@ TEST(ACIROpsTest, RegistryContainsExactQueueVarOperations) {
       "ac.table.choose",
       "ac.table.choose.yield",
       "ac.table.read",
+      "ac.table.propose",
       "ac.table.write",
       "ac.table.masked_write",
       "ac.table.yield",
@@ -781,7 +782,7 @@ TEST(ACIROpsTest, RuntimeAndQueueVarRegistryIsExact) {
         << name.str();
   EXPECT_FALSE(mlir::OperationName("ac.try_issue", &context).isRegistered());
   EXPECT_FALSE(mlir::OperationName("ac.connect", &context).isRegistered());
-  const std::array<llvm::StringLiteral, 64> queueVarNames = {
+  const std::array<llvm::StringLiteral, 65> queueVarNames = {
       "ac.transform",
       "ac.transform.yield",
       "ac.rule",
@@ -831,6 +832,7 @@ TEST(ACIROpsTest, RuntimeAndQueueVarRegistryIsExact) {
       "ac.table.choose",
       "ac.table.choose.yield",
       "ac.table.read",
+      "ac.table.propose",
       "ac.table.write",
       "ac.table.masked_write",
       "ac.table.yield",
@@ -850,7 +852,7 @@ TEST(ACIROpsTest, RuntimeAndQueueVarRegistryIsExact) {
   for (llvm::StringLiteral name : queueVarNames)
     EXPECT_TRUE(mlir::OperationName(name, &context).isRegistered())
         << name.str();
-  EXPECT_EQ(context.getRegisteredOperationsByDialect("ac").size(), 119u);
+  EXPECT_EQ(context.getRegisteredOperationsByDialect("ac").size(), 120u);
 }
 
 TEST(ACIROpsTest, ProcessLinearLivenessDoesNotRescanBlockPerValue) {

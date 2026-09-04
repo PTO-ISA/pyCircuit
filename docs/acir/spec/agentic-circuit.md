@@ -653,6 +653,35 @@ Python `ac.atomic()` and `Queue.firing()` are removed and produce migration
 diagnostics directing authors to `@ac.rule`. The lower-level words remain
 compiler implementation concepts, not Python APIs.
 
+The first stateful rule subset adds one Table parameter without exposing the
+transaction machinery:
+
+```python
+@ac.rule
+def install(rob, entry):
+    old = rob[entry.index]
+    rob[entry.index] = entry
+    return old
+
+outgoing = install(rob, incoming)
+```
+
+The Table Entry and input/output Queue payload types MUST match. The body MAY
+bind one committed Table Entry observation, MUST perform exactly one complete
+Entry replacement, and MUST return one payload. A dynamic `ac.uN` index is
+accepted only for a `2^N`-entry Table; a constant index must be in range. This
+statically discharges bounds while executable dynamic checked IR remains
+pending.
+
+The frontend emits firing-local `ac.table.propose`. Separate MLIR passes infer
+`input.consume`, `output.produce`, and the Table replace effect; materialize
+`ready_valid_1x1_table`; require exclusive Table scheduling; discharge every
+marker; and retain the result as stateful `ac.firing`. QueueGraph lowers the
+closed firing to `gfsim::QueueTableTransition`. It is not canonicalized to
+`ac.transform`, and PYC continues to reject the provisional Table boundary.
+Field or masked updates, multiple Queue endpoints, multiple proposals, CFG
+branches, Reg effects, and arbitration are not part of this subset.
+
 ### Bounded feedback
 
 The current runtime-loop form is one Queue rebinding through one `apply`.
@@ -864,6 +893,7 @@ realization; Table entries explicitly declare their gfsim-only boundary.
 | `ac.table.read` | design | optional request to one | Table identity, `depth`, `latency` | state- or Queue-driven old-data capture |
 | `ac.table.write` | design | optional update to none | Table identity, `mode`, `write_fields` | Queue-driven consumption, state-driven field proposal, or scalar replace allocation |
 | `ac.table.masked_write` | design | committed mask to none | Table identity, `mode="field"`, `write_fields` | atomic state-driven field update of every Entry selected by a same-Table match |
+| `ac.table.propose` | internal rule IR | firing-local Var operands | Table identity, index, value, `mode`, `write_fields` | next-state intent committed only with the owning `ac.firing` Queue effects |
 | `ac.table.match` / `ac.table.choose` | design | committed state to Vars | Table identity, `count=1`, `policy` | 1..64-entry candidate mask and deterministic first/min/max selection |
 | `ac.slot` | design | one to none | owner, stable identity | one committed request with backpressure, retained payload, and explicit release |
 | `ac.dependency` | design | one to one | `capacity`, `resources`, `no_dependency`, `depth`, `latency` | bounded predecessor tracking, resource reservation, and execution countdown |

@@ -1,14 +1,14 @@
 from __future__ import annotations
 
-from dataclasses import FrozenInstanceError
 import importlib.util
 import os
-from pathlib import Path
 import subprocess
 import sys
 import tempfile
 import unittest
-
+from dataclasses import FrozenInstanceError
+from pathlib import Path
+from unittest import mock
 
 JIT_SOURCE = """
 import agentic_circuit as ac
@@ -154,6 +154,50 @@ REPOSITORY = Path(__file__).resolve().parents[4]
 
 
 class ConfigAndJitTest(unittest.TestCase):
+    def test_stateful_rule_jit_uses_native_mlir_and_grouped_gfsim(self) -> None:
+        import agentic_circuit as ac
+
+        path = REPOSITORY / "examples/agentic-circuit/state/table_rule.py"
+        optimizer = REPOSITORY / ".pycircuit_out/toolchain/build/bin/acir-opt-internal"
+        generator = REPOSITORY / ".pycircuit_out/toolchain/build/bin/acir-queue-cxxgen"
+        if not optimizer.is_file() or not generator.is_file():
+            self.skipTest("native stateful-rule JIT tools are unavailable")
+        spec = importlib.util.spec_from_file_location("ac_stateful_rule", path)
+        if spec is None or spec.loader is None:
+            raise RuntimeError("cannot load stateful rule example")
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[spec.name] = module
+        self.addCleanup(sys.modules.pop, spec.name, None)
+        spec.loader.exec_module(module)
+
+        with mock.patch.dict(
+            os.environ,
+            {
+                "ACIR_OPT": str(optimizer),
+                "ACIR_QUEUE_CXXGEN": str(generator),
+            },
+        ):
+            cpp = ac.jit(module.table_rule).lower_cpp()
+        self.assertIn("gfsim::QueueTableTransition<", cpp)
+        self.assertIn("table_rob()", cpp)
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "table_rule.cpp"
+            source.write_text(cpp, encoding="utf-8")
+            completed = subprocess.run(
+                (
+                    "c++",
+                    "-std=c++20",
+                    "-I",
+                    str(REPOSITORY / "simulator/gfsim/include"),
+                    "-fsyntax-only",
+                    str(source),
+                ),
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+        self.assertEqual(0, completed.returncode, completed.stderr)
+
     def test_config_is_an_immutable_closed_record(self) -> None:
         import agentic_circuit as ac
 
@@ -488,9 +532,7 @@ class JitQueueLoweringTest(unittest.TestCase):
         cpp = lower_queue_program_to_cpp(program)
         self.assertIn("gfsim::QueueFork", cpp)
         self.assertIn("gfsim::QueueBarrier", cpp)
-        self.assertIn(
-            "gfsim::QueueMemoryArbiter<Request, gfsim::UInt<16>, 1", cpp
-        )
+        self.assertIn("gfsim::QueueMemoryArbiter<Request, gfsim::UInt<16>, 1", cpp)
 
     def test_multirate_queue_metadata_and_cpp_templates_are_frozen(self) -> None:
         from agentic_circuit._queue_codegen import lower_queue_program_to_cpp
@@ -515,9 +557,7 @@ class JitQueueLoweringTest(unittest.TestCase):
                 static_arguments=arguments,
             )
         )
-        self.assertIn(
-            "gfsim::Compute<gfsim::UInt<64>, gfsim::UInt<64>, 4", cpp
-        )
+        self.assertIn("gfsim::Compute<gfsim::UInt<64>, gfsim::UInt<64>, 4", cpp)
         self.assertIn("gfsim::Pipeline<gfsim::UInt<64>, 2, 4>", cpp)
         self.assertGreaterEqual(cpp.count(", nullptr, 1, 4)"), 2)
         self.assertIn(", nullptr, 2, 4)", cpp)

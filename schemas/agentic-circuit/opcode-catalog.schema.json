@@ -93,6 +93,7 @@
             "declared_output_payload",
             "input_output_payload_equal",
             "mask_matches_table_domain_and_value_matches_entry",
+            "one_table_replace_and_queue_effects_share_commit_group",
             "observe_input_payload",
             "output_payload_matches_table_entry",
             "positionally_equal_boundary_payloads",
