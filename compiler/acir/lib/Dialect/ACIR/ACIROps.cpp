@@ -1239,6 +1239,47 @@ LogicalResult VarMulOp::verify() {
   return verifyVarBinary(*this, getLhs(), getRhs(), getResult());
 }
 
+static LogicalResult verifyVarBitBinary(Operation *operation, Value lhs,
+                                        Value rhs, Value result) {
+  if (lhs.getType() != rhs.getType() || lhs.getType() != result.getType())
+    return operation->emitOpError(
+        "operands and result must have one identical Var type");
+  Type element = cast<VarType>(result.getType()).getElementType();
+  if (!isa<IntegerType>(element))
+    return operation->emitOpError(
+        "bit operation Var element must be an integer");
+  return success();
+}
+
+LogicalResult VarAndOp::verify() {
+  return verifyVarBitBinary(*this, getLhs(), getRhs(), getResult());
+}
+
+LogicalResult VarOrOp::verify() {
+  return verifyVarBitBinary(*this, getLhs(), getRhs(), getResult());
+}
+
+LogicalResult VarXorOp::verify() {
+  return verifyVarBitBinary(*this, getLhs(), getRhs(), getResult());
+}
+
+LogicalResult VarShlOp::verify() {
+  return verifyVarBitBinary(*this, getLhs(), getRhs(), getResult());
+}
+
+LogicalResult VarShrOp::verify() {
+  return verifyVarBitBinary(*this, getLhs(), getRhs(), getResult());
+}
+
+LogicalResult VarNotOp::verify() {
+  if (getIn().getType() != getResult().getType())
+    return emitOpError("operand and result must have one identical Var type");
+  Type element = cast<VarType>(getResult().getType()).getElementType();
+  if (!isa<IntegerType>(element))
+    return emitOpError("bit operation Var element must be an integer");
+  return success();
+}
+
 LogicalResult VarPopcountOp::verify() {
   auto input = cast<VarType>(getIn().getType());
   auto result = cast<VarType>(getResult().getType());
@@ -1268,9 +1309,11 @@ LogicalResult VarCmpOp::verify() {
       VarType::get(getContext(), IntegerType::get(getContext(), 1)))
     return emitOpError("result must be !ac.var<i1>");
   if (!llvm::is_contained(
-          ArrayRef<StringRef>{"eq", "ne", "slt", "sle", "sgt", "sge"},
+          ArrayRef<StringRef>{"eq", "ne", "slt", "sle", "sgt", "sge",
+                              "ult", "ule", "ugt", "uge"},
           getPredicate()))
-    return emitOpError("predicate must be eq, ne, slt, sle, sgt, or sge");
+    return emitOpError(
+        "predicate must be eq, ne, slt, sle, sgt, sge, ult, ule, ugt, or uge");
   return success();
 }
 

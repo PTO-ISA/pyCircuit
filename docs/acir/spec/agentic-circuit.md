@@ -189,14 +189,19 @@ The current frontend accepts these scalar field spellings:
 | --- | --- |
 | `bool` | `i1` |
 | `int` | `i64` |
-| `ac.u1`, `ac.u2`, `ac.u4` | `i1`, `i2`, `i4` |
-| `ac.u8`, `ac.u16`, `ac.u32`, `ac.u64` | corresponding integer width |
+| `ac.u1` through `ac.u64` | exact-width unsigned bit value, lowered to `i1` through `i64` |
 | `ac.s8`, `ac.s16`, `ac.s32`, `ac.s64` | corresponding integer width |
 
 Field order is declaration order. Fields MUST be unique and annotated. The
-current ACIR integer type freezes width but not signedness as a distinct type;
-do not rely on unsigned comparison semantics until the signedness contract is
-made explicit.
+operators `+`, `-`, `*`, `&`, `|`, `^`, `~`, `<<`, and `>>`
+preserve the declared width. Binary bit operands MUST have the same width; a
+right-side integer literal is typed from the left operand. Results wrap modulo
+(2^N), and shifts by an amount greater than or equal to (N) produce zero.
+
+An `ac.uN` value may be used directly as a queue payload or as an
+`@ac.struct` field. The current ACIR integer type freezes width but not
+signedness as a distinct type; do not rely on unsigned comparison semantics
+until the signedness contract is made explicit.
 
 ### Source and sink
 

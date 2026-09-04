@@ -326,15 +326,17 @@ unsigned integerBitWidth(Type type) {
 std::string signedCppType(unsigned width) {
   if (width == 1)
     return "bool";
-  return "std::int" + std::to_string(width) + "_t";
+  if (width == 8 || width == 16 || width == 32 || width == 64)
+    return "std::int" + std::to_string(width) + "_t";
+  return "std::int64_t";
 }
 
 std::string cppTypeName(ModelOp model, Type type) {
   if (auto integer = dyn_cast<IntegerType>(type)) {
     unsigned width = integer.getWidth();
-    if (width == 1)
-      return "bool";
-    return "std::uint" + std::to_string(width) + "_t";
+    if (width > 0 && width <= 64)
+      return "gfsim::UInt<" + std::to_string(width) + ">";
+    return "void";
   }
   if (isa<IndexType>(type))
     return "std::size_t";
@@ -741,6 +743,7 @@ private:
     os << "#include <string>\n";
     os << "#include <tuple>\n";
     os << "#include <utility>\n\n";
+    os << "#include \"gfsim/bits.h\"\n";
     os << "#include \"gfsim/core.h\"\n";
     os << "#include \"gfsim/dispatch.h\"\n";
     os << "#include \"gfsim/object.h\"\n";

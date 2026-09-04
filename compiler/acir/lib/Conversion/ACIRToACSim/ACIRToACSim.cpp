@@ -9,7 +9,7 @@
 //                                      binding resolution (no lock round-trip)
 //   ac.process (yield-only or i32 queue datapath)
 //                                    -> acsim.process enum-PC state machine
-//   ac.queue (signless i8/i16/i32/i64 fifo) -> SimQueue + invoke callees
+//   ac.queue (signless integer fifo, widths 1..64) -> SimQueue + invoke callees
 //   watermarks.kind register/regfile (or legacy names pc/busy/rf)
 //                                    -> gfsim::Register / RegFile members
 //   selected ac.system              -> acsim.model with exact fingerprints,
@@ -138,13 +138,9 @@ bool integerPayloadCpp(Type type, unsigned &width, std::string &cpp) {
   if (!integer || !integer.isSignless())
     return false;
   width = integer.getWidth();
-  if (width == 1) {
-    cpp = "bool";
-    return true;
-  }
-  if (width != 8 && width != 16 && width != 32 && width != 64)
+  if (width == 0 || width > 64)
     return false;
-  cpp = "std::uint" + std::to_string(width) + "_t";
+  cpp = "gfsim::UInt<" + std::to_string(width) + ">";
   return true;
 }
 
@@ -1258,7 +1254,7 @@ mlir::LogicalResult ACIRToACSimPass::planModule(ac::ModuleOp module,
       if (!integerPayloadCpp(queue.getPayload(), width, cpp))
         return lowerError(queue, "ACLOWER-UNSUPPORTED-CONSTRUCT",
                           "ac-lower-to-acsim queue datapath requires "
-                          "signless i8/i16/i32/i64 payloads");
+                          "signless integer payloads with widths in [1, 64]");
       if (queue.getOrdering() != "fifo")
         return lowerError(queue, "ACLOWER-UNSUPPORTED-CONSTRUCT",
                           "ac-lower-to-acsim v0.1 queue datapath requires fifo "

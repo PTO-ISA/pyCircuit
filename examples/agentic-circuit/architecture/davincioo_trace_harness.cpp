@@ -98,7 +98,7 @@ void observeQueue(const Queue &queue, std::string_view stage,
                   Tracker *tracker = nullptr, bool completion = false,
                   bool retirement = false) {
   for (const auto &item : queue.committedValues()) {
-    const std::size_t sequence = item.sequence;
+    const std::size_t sequence = static_cast<std::size_t>(item.sequence);
     if (sequence >= observed.size())
       continue;
     observed[sequence] = std::string(stage);
@@ -153,17 +153,19 @@ int main() {
     observeQueue(model.dispatched(), "dispatched", observed);
     observeQueue(model.completed(), "completed", observed, &tracker, true);
     for (const auto &item : model.retired().committedValues()) {
-      if (item.sequence >= observed.size())
+      const std::size_t sequence = static_cast<std::size_t>(item.sequence);
+      if (sequence >= observed.size())
         continue;
-      const bool alreadyRetired = tracker.isRetired(item.sequence);
-      tracker.retirement(item.sequence);
-      observed[item.sequence] = alreadyRetired ? "done" : "retired";
+      const bool alreadyRetired = tracker.isRetired(sequence);
+      tracker.retirement(sequence);
+      observed[sequence] = alreadyRetired ? "done" : "retired";
     }
     for (const auto &item : model.sink_0_values()) {
-      if (item.sequence < observed.size()) {
-        const bool alreadyRetired = tracker.isRetired(item.sequence);
-        tracker.retirement(item.sequence);
-        observed[item.sequence] = alreadyRetired ? "done" : "retired";
+      const std::size_t sequence = static_cast<std::size_t>(item.sequence);
+      if (sequence < observed.size()) {
+        const bool alreadyRetired = tracker.isRetired(sequence);
+        tracker.retirement(sequence);
+        observed[sequence] = alreadyRetired ? "done" : "retired";
       }
     }
 
@@ -190,7 +192,7 @@ int main() {
   printOrder("RETIREMENT", tracker.retirementOrder());
   std::cout << "VALUES";
   for (const auto &item : model.sink_0_values())
-    std::cout << ' ' << item.value;
+    std::cout << ' ' << static_cast<std::uint64_t>(item.value);
   std::cout << '\n';
   for (const Span &span : tracker.spans())
     std::cout << "SPAN " << span.sequence << ' '
