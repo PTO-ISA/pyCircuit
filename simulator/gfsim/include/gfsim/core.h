@@ -41,6 +41,12 @@ inline constexpr CausalDelta kMaxDeltasPerTick = 1024;
 /// Compile-time-assigned stable object ID.
 using ObjectId = uint32_t;
 
+/// Stable owner for one cross-resource prepare/publish transaction.
+using CommitGroupId = uint64_t;
+
+inline constexpr CommitGroupId kInvalidCommitGroupId =
+    std::numeric_limits<CommitGroupId>::max();
+
 inline constexpr ObjectId kInvalidObjectId =
     std::numeric_limits<ObjectId>::max();
 inline constexpr ObjectId kSystemObjectId = kInvalidObjectId - 1;

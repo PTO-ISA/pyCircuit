@@ -144,8 +144,12 @@ PYC semantic contracts.
     closed typed marker attributes, and implement the one-input/one-output pure
     rule pipeline through internal `ac.firing`, proven `ac.transform`,
     QueueGraph, gfsim, and the PYC build lane.
+  - [x] Land Decision 0162's gfsim transaction substrate: owner-tagged Queue
+    and Table prepare/publish/no-fail commit groups, dynamic index/field
+    footprints, and four Table-plus-Queue ROB-shaped transition regressions.
   - [ ] Add CFG joins, dynamic checks, multi-Queue/state proposals, explicit
-    conflict arbitration, Table/Reg rules, and circular ROB coverage.
+    conflict arbitration, stateful `@ac.rule`/QueueGraph lowering, Reg rules,
+    and a generated circular ROB example.
 - [x] Land Decision 0161's first qualified primitive vertical slice:
   vendor-neutral `pyc.priority_encode`, backend-only `pyc.rtl.comb`,
   deterministic digest-verified BSD RTL selection, parameterized pyCircuit and
