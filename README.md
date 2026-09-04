@@ -107,6 +107,23 @@ from `pycircuit`. AC symbols are not re-exported from `pycircuit.__init__`.
 See the [ACIR architecture overview](docs/acir/index.md) and
 [migration record](docs/acir/migration.md).
 
+Exact unsigned circuit fields are available at every width from `ac.u1`
+through `ac.u64`:
+
+```python
+@ac.struct
+class Tag:
+    value: ac.u13
+    mask: ac.u13
+
+masked = stream.apply(
+    lambda item: item.with_fields(value=(item.value & item.mask) ^ 1)
+)
+```
+
+Bit arithmetic and `& | ^ ~ << >>` preserve the declared width and reject
+mixed-width operands.
+
 The epoch 0.5 rule frontend keeps scheduling mechanics out of Python:
 
 ```python

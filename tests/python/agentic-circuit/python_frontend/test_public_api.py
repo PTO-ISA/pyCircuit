@@ -52,13 +52,7 @@ PUBLIC = {
     "barrier",
     "table",
     "slot",
-    "u1",
-    "u2",
-    "u4",
-    "u8",
-    "u16",
-    "u32",
-    "u64",
+    *(f"u{width}" for width in range(1, 65)),
     "s8",
     "s16",
     "s32",
@@ -77,6 +71,22 @@ class PublicApiTest(unittest.TestCase):
         self.assertEqual(PUBLIC, set(api.__all__))
         for name in PUBLIC:
             self.assertIsNotNone(getattr(api, name))
+
+    def test_unsigned_bit_types_cover_every_width_from_one_through_sixty_four(self) -> None:
+        api = importlib.import_module("agentic_circuit")
+
+        for width in range(1, 65):
+            bit_type = getattr(api, f"u{width}")
+            self.assertEqual(width, bit_type.width)
+            self.assertFalse(bit_type.signed)
+
+    def test_scalar_type_rejects_out_of_range_widths(self) -> None:
+        types = importlib.import_module("agentic_circuit._types")
+
+        for width in (0, 65):
+            with self.subTest(width=width):
+                with self.assertRaisesRegex(ValueError, r"\[1, 64\]"):
+                    types.ScalarType(width)
 
     def test_symbolic_values_reject_python_coercion(self) -> None:
         types = importlib.import_module("agentic_circuit._types")

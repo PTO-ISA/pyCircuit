@@ -177,6 +177,36 @@ extractExpressions(mlir::Region &region, QueueBlockPlan &plan,
         return error;
       continue;
     }
+    if (mlir::isa<ac::VarAndOp>(operation)) {
+      if (auto error = append(operation, "and"))
+        return error;
+      continue;
+    }
+    if (mlir::isa<ac::VarOrOp>(operation)) {
+      if (auto error = append(operation, "or"))
+        return error;
+      continue;
+    }
+    if (mlir::isa<ac::VarXorOp>(operation)) {
+      if (auto error = append(operation, "xor"))
+        return error;
+      continue;
+    }
+    if (mlir::isa<ac::VarShlOp>(operation)) {
+      if (auto error = append(operation, "shl"))
+        return error;
+      continue;
+    }
+    if (mlir::isa<ac::VarShrOp>(operation)) {
+      if (auto error = append(operation, "shr"))
+        return error;
+      continue;
+    }
+    if (mlir::isa<ac::VarNotOp>(operation)) {
+      if (auto error = append(operation, "not"))
+        return error;
+      continue;
+    }
     if (mlir::isa<ac::VarPopcountOp>(operation)) {
       if (auto error = append(operation, "popcount"))
         return error;

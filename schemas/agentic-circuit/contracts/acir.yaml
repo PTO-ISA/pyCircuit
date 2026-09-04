@@ -47,6 +47,12 @@ operations:
   - ac.var.add
   - ac.var.sub
   - ac.var.mul
+  - ac.var.and
+  - ac.var.or
+  - ac.var.xor
+  - ac.var.not
+  - ac.var.shl
+  - ac.var.shr
   - ac.var.cmp
   - ac.var.get
   - ac.var.with

@@ -239,6 +239,52 @@ def pipeline() -> None:
     ac.sink(output_queue)
 """
 
+BIT_WIDTH_SOURCE = """
+import agentic_circuit as ac
+
+@ac.struct
+class BitBundle:
+    left: ac.u3
+    right: ac.u3
+    anded: ac.u3
+    ored: ac.u3
+    xored: ac.u3
+    inverted: ac.u3
+    shifted_left: ac.u3
+    shifted_right: ac.u3
+    tag: ac.u5
+    payload: ac.u17
+    sequence: ac.u63
+
+@ac.system
+def pipeline() -> None:
+    input_queue = ac.source(BitBundle)
+    output_queue = input_queue.apply(
+        lambda item: item.with_fields(
+            anded=item.left & item.right,
+            ored=item.left | item.right,
+            xored=item.left ^ item.right,
+            inverted=~item.left,
+            shifted_left=item.left << 1,
+            shifted_right=item.right >> 1,
+        )
+    )
+    ac.sink(output_queue)
+"""
+
+SCALAR_BIT_SOURCE = """
+import agentic_circuit as ac
+
+@ac.system
+def pipeline() -> None:
+    incoming = ac.source(ac.u7)
+    outgoing = incoming.apply(lambda value: (value + 1) ^ 3)
+    flag = ac.source(ac.u1)
+    toggled = flag.apply(lambda value: value + 1)
+    ac.sink(outgoing)
+    ac.sink(toggled)
+"""
+
 RULE_ROB_SOURCE = """
 import agentic_circuit as ac
 
@@ -1448,7 +1494,7 @@ class QueueFrontendTest(unittest.TestCase):
         lowered = lower_queue_source(FEEDBACK_SOURCE, "pipeline")
         self.assertIn("ac.feedback %current depth 2 latency 1", lowered)
         self.assertIn("max_iterations 1024", lowered)
-        self.assertIn('ac.var.cmp "sgt"', lowered)
+        self.assertIn('ac.var.cmp "ugt"', lowered)
         self.assertIn("ac.feedback.yield", lowered)
         self.assertIn("ac.sink %current__feedback0", lowered)
 
@@ -1522,6 +1568,55 @@ def pipeline() -> None:
         self.assertIn('{name = "remaining", type = i16}', lowered)
         self.assertIn('{name = "valid", type = i1}', lowered)
         self.assertIn("size = 12 : i64", lowered)
+
+    def test_u1_through_u64_fields_lower_to_exact_width_bit_operations(self) -> None:
+        from agentic_circuit._queue_frontend import lower_queue_source
+
+        lowered = lower_queue_source(BIT_WIDTH_SOURCE, "pipeline")
+        for field, width in (
+            ("left", 3),
+            ("tag", 5),
+            ("payload", 17),
+            ("sequence", 63),
+        ):
+            self.assertIn(f'{{name = "{field}", type = i{width}}}', lowered)
+        for operation in ("and", "or", "xor", "not", "shl", "shr"):
+            self.assertIn(f"ac.var.{operation}", lowered)
+        self.assertIn("ac.var.constant 1 : i3 as !ac.var<i3>", lowered)
+        self.assertIn("size = 24 : i64", lowered)
+
+    def test_bit_operations_require_identical_widths(self) -> None:
+        from agentic_circuit._queue_frontend import (
+            QueueFrontendError,
+            lower_queue_source,
+        )
+
+        mismatched = BIT_WIDTH_SOURCE.replace("right: ac.u3", "right: ac.u5", 1)
+        with self.assertRaisesRegex(QueueFrontendError, "operands must match"):
+            lower_queue_source(mismatched, "pipeline")
+
+    def test_exact_width_bit_value_can_be_a_scalar_queue_payload(self) -> None:
+        from agentic_circuit._queue_frontend import lower_queue_source
+
+        lowered = lower_queue_source(SCALAR_BIT_SOURCE, "pipeline")
+        self.assertIn("!ac.queue<i7>", lowered)
+        self.assertIn("ac.var.constant 1 : i7 as !ac.var<i7>", lowered)
+        self.assertIn("ac.var.constant 3 : i7 as !ac.var<i7>", lowered)
+        self.assertIn("ac.var.constant 1 : i1 as !ac.var<i1>", lowered)
+        self.assertIn("ac.var.add", lowered)
+        self.assertIn("ac.var.xor", lowered)
+
+    def test_bit_widths_outside_u1_through_u64_are_rejected(self) -> None:
+        from agentic_circuit._queue_frontend import (
+            QueueFrontendError,
+            lower_queue_source,
+        )
+
+        for invalid in ("u0", "u65"):
+            source = BIT_WIDTH_SOURCE.replace("ac.u3", f"ac.{invalid}", 1)
+            with self.subTest(invalid=invalid):
+                with self.assertRaisesRegex(QueueFrontendError, r"\[1, 64\]"):
+                    lower_queue_source(source, "pipeline")
 
     def test_rule_frontend_emits_typed_markers_before_mlir_lowering(self) -> None:
         from agentic_circuit._queue_frontend import lower_queue_source

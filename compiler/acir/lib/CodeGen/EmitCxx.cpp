@@ -323,18 +323,12 @@ unsigned integerBitWidth(Type type) {
   return 32;
 }
 
-std::string signedCppType(unsigned width) {
-  if (width == 1)
-    return "bool";
-  return "std::int" + std::to_string(width) + "_t";
-}
-
 std::string cppTypeName(ModelOp model, Type type) {
   if (auto integer = dyn_cast<IntegerType>(type)) {
     unsigned width = integer.getWidth();
-    if (width == 1)
-      return "bool";
-    return "std::uint" + std::to_string(width) + "_t";
+    if (width > 0 && width <= 64)
+      return "gfsim::UInt<" + std::to_string(width) + ">";
+    return "void";
   }
   if (isa<IndexType>(type))
     return "std::size_t";
@@ -741,6 +735,7 @@ private:
     os << "#include <string>\n";
     os << "#include <tuple>\n";
     os << "#include <utility>\n\n";
+    os << "#include \"gfsim/bits.h\"\n";
     os << "#include \"gfsim/core.h\"\n";
     os << "#include \"gfsim/dispatch.h\"\n";
     os << "#include \"gfsim/object.h\"\n";
@@ -1337,33 +1332,26 @@ private:
           continue;
         }
         if (auto shl = dyn_cast<arith::ShLIOp>(op)) {
-          emitAssign(
-              shl.getResult(),
-              Twine(bind(shl.getLhs())) + " << (" + bind(shl.getRhs()) + " & " +
-                  std::to_string(integerBitWidth(shl.getType()) - 1) + "u)");
+          emitAssign(shl.getResult(),
+                     Twine(bind(shl.getLhs())) + " << " + bind(shl.getRhs()));
           continue;
         }
         if (auto shr = dyn_cast<arith::ShRUIOp>(op)) {
-          emitAssign(
-              shr.getResult(),
-              Twine(bind(shr.getLhs())) + " >> (" + bind(shr.getRhs()) + " & " +
-                  std::to_string(integerBitWidth(shr.getType()) - 1) + "u)");
+          emitAssign(shr.getResult(),
+                     Twine(bind(shr.getLhs())) + " >> " + bind(shr.getRhs()));
           continue;
         }
         if (auto sra = dyn_cast<arith::ShRSIOp>(op)) {
-          unsigned width = integerBitWidth(sra.getType());
-          emitAssign(sra.getResult(),
-                     Twine("static_cast<") + cppTypeName(model, sra.getType()) +
-                         ">(static_cast<" + signedCppType(width) + ">(" +
-                         bind(sra.getLhs()) + ") >> (" + bind(sra.getRhs()) +
-                         " & " + std::to_string(width - 1) + "))");
+          emitAssign(sra.getResult(), Twine(bind(sra.getLhs())) +
+                                          ".arithmeticShiftRight(" +
+                                          bind(sra.getRhs()) + ")");
           continue;
         }
         if (auto cmp = dyn_cast<arith::CmpIOp>(op)) {
           std::string lhs = bind(cmp.getLhs());
           std::string rhs = bind(cmp.getRhs());
-          unsigned width = integerBitWidth(cmp.getLhs().getType());
-          std::string signedTy = signedCppType(width);
+          std::string signedLhs = "gfsim::signedValue(" + lhs + ")";
+          std::string signedRhs = "gfsim::signedValue(" + rhs + ")";
           std::string expr;
           switch (cmp.getPredicate()) {
           case arith::CmpIPredicate::eq:
@@ -1373,20 +1361,16 @@ private:
             expr = lhs + " != " + rhs;
             break;
           case arith::CmpIPredicate::slt:
-            expr = "static_cast<" + signedTy + ">(" + lhs + ") < static_cast<" +
-                   signedTy + ">(" + rhs + ")";
+            expr = signedLhs + " < " + signedRhs;
             break;
           case arith::CmpIPredicate::sle:
-            expr = "static_cast<" + signedTy + ">(" + lhs +
-                   ") <= static_cast<" + signedTy + ">(" + rhs + ")";
+            expr = signedLhs + " <= " + signedRhs;
             break;
           case arith::CmpIPredicate::sgt:
-            expr = "static_cast<" + signedTy + ">(" + lhs + ") > static_cast<" +
-                   signedTy + ">(" + rhs + ")";
+            expr = signedLhs + " > " + signedRhs;
             break;
           case arith::CmpIPredicate::sge:
-            expr = "static_cast<" + signedTy + ">(" + lhs +
-                   ") >= static_cast<" + signedTy + ">(" + rhs + ")";
+            expr = signedLhs + " >= " + signedRhs;
             break;
           case arith::CmpIPredicate::ult:
             expr = lhs + " < " + rhs;

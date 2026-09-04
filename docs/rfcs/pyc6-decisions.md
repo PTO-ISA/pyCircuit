@@ -3935,3 +3935,48 @@ delayed review feedback without changing the release acceptance contract.
 **Source**
 - User direction (2026-09-04): keep PR validation lightweight and reserve full
   checks for releases.
+
+## Decision 0160: Agentic Circuit exposes exact unsigned widths u1 through u64
+
+**Status:** Accepted and implemented
+
+**Context / Goal**
+Architecture models need hardware-sized values such as tags, masks, opcodes,
+indices, and packed control fields. Restricting the Python surface to a few
+power-of-two widths forced accidental widening and hid truncation behavior.
+
+**Decision (strong constraint)**
+- The public frontend defines every fixed unsigned bit type from `ac.u1`
+  through `ac.u64`. Width zero, widths above 64, and runtime-computed widths
+  are rejected.
+- Each `ac.uN` lowers to an exact `iN` ACIR/PYC value and may be used as a
+  scalar Queue payload or an `@ac.struct` field.
+- Addition, subtraction, multiplication, bitwise AND/OR/XOR/NOT, and logical
+  left/right shift preserve width. Binary operands must have identical widths;
+  a right-side integer literal is typed from its left operand. No implicit
+  widening/narrowing is inserted.
+- Equality is width-exact and relational comparison of `ac.uN` values is
+  unsigned in the Python, QueueGraph, gfsim, and PYC paths.
+- Results use circuit semantics: arithmetic and bitwise results are truncated
+  modulo (2^N); a shift amount greater than or equal to (N) produces zero.
+- ACIR owns verifier enforcement through typed `ac.var.*` operations. The
+  QueueGraph-to-PYC lowering emits the corresponding `pyc.*` operations.
+  gfsim uses `gfsim::UInt<N>` for every width so direct and native C++
+  generators preserve truncation independently of C++ integer promotions.
+- Existing signed alias names remain import-compatible, but ACIR does not yet
+  preserve signedness as a distinct type. Their relational operators therefore
+  use the same signless unsigned lowering for now; signed comparison semantics
+  require a separate type-system decision.
+
+**Verification**
+- Public API tests cover all 64 names and reject out-of-range widths.
+- Frontend tests cover non-power-of-two fields, same-width enforcement,
+  constants, structures, and all supported operations.
+- ACIR parser/verifier tests cover the new bit operations and invalid payloads.
+- QueueGraph C++ and PYC code-generation tests cover an `i3` structure and
+  compile the generated gfsim C++.
+- gfsim unit tests prove modulo truncation and width-bounded shift behavior.
+
+**Source**
+- User direction (2026-09-05): expose `u1, u2, u3, ..., u64` as exact circuit
+  bit types that compose into classes/structures and support bit operations.

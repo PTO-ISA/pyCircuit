@@ -98,6 +98,18 @@ class ACIR_VarBinaryOp<string mnemonic> : ACIR_Op<mnemonic, [
 def ACIR_VarAddOp : ACIR_VarBinaryOp<"var.add">;
 def ACIR_VarSubOp : ACIR_VarBinaryOp<"var.sub">;
 def ACIR_VarMulOp : ACIR_VarBinaryOp<"var.mul">;
+def ACIR_VarAndOp : ACIR_VarBinaryOp<"var.and">;
+def ACIR_VarOrOp : ACIR_VarBinaryOp<"var.or">;
+def ACIR_VarXorOp : ACIR_VarBinaryOp<"var.xor">;
+def ACIR_VarShlOp : ACIR_VarBinaryOp<"var.shl">;
+def ACIR_VarShrOp : ACIR_VarBinaryOp<"var.shr">;
+
+def ACIR_VarNotOp : ACIR_Op<"var.not", [Pure]> {
+  let arguments = (ins ACIR_VarType:$in);
+  let results = (outs ACIR_VarType:$result);
+  let hasVerifier = 1;
+  let assemblyFormat = "$in attr-dict `:` qualified(type($in)) `->` qualified(type($result))";
+}
 
 def ACIR_VarPopcountOp : ACIR_Op<"var.popcount", [Pure]> {
   let arguments = (ins ACIR_VarType:$in);

@@ -46,8 +46,8 @@ LogicalResult verifyLoweredRuleTransformContract(TransformOp transform) {
       continue;
     hasRuleProof = true;
     if (!allowed.contains(name))
-      return transform.emitOpError() << "has unknown lowered-rule proof '"
-                                     << name << "'";
+      return transform.emitOpError()
+             << "has unknown lowered-rule proof '" << name << "'";
   }
   if (!hasRuleProof)
     return success();
@@ -55,8 +55,8 @@ LogicalResult verifyLoweredRuleTransformContract(TransformOp transform) {
   auto requireString = [&](StringRef name) -> FailureOr<StringAttr> {
     auto value = transform->getAttrOfType<StringAttr>(name);
     if (!value || value.getValue().empty()) {
-      transform.emitOpError() << "requires non-empty lowered-rule proof '"
-                              << name << "'";
+      transform.emitOpError()
+          << "requires non-empty lowered-rule proof '" << name << "'";
       return failure();
     }
     return value;
@@ -92,8 +92,7 @@ LogicalResult verifyLoweredRuleTransformContract(TransformOp transform) {
     return transform.emitOpError(
         "lowered-rule domain must match the exact QueueGraph domain");
   Builder builder(transform.getContext());
-  if (effects !=
-      builder.getStrArrayAttr({"input.consume", "output.produce"}))
+  if (effects != builder.getStrArrayAttr({"input.consume", "output.produce"}))
     return transform.emitOpError(
         "has invalid phase-one lowered-rule effect proof");
   return success();
@@ -591,14 +590,14 @@ LogicalResult FiringOp::verify() {
     auto graphDomain =
         model->getAttrOfType<StringAttr>("ac.queue_graph_domain");
     if (!graphDomain || graphDomain.getValue() != getTimeDomain())
-      return emitOpError("firing domain must match the exact QueueGraph domain");
+      return emitOpError(
+          "firing domain must match the exact QueueGraph domain");
   }
   Builder builder(getContext());
   if (getInputs().size() != 1 || getOutputs().size() != 1 ||
       getInputs().front().getType() != getOutputs().front().getType() ||
       getFunctionalGuard() != "true" || !getChecks().empty() ||
-      getHandshake() != "ready_valid_1x1" ||
-      getSchedule() != "independent" ||
+      getHandshake() != "ready_valid_1x1" || getSchedule() != "independent" ||
       getEffects() !=
           builder.getStrArrayAttr({"input.consume", "output.produce"}))
     return emitOpError(
@@ -1239,6 +1238,59 @@ LogicalResult VarMulOp::verify() {
   return verifyVarBinary(*this, getLhs(), getRhs(), getResult());
 }
 
+static LogicalResult verifyVarBitBinary(Operation *operation, Value lhs,
+                                        Value rhs, Value result) {
+  if (lhs.getType() != rhs.getType() || lhs.getType() != result.getType())
+    return operation->emitOpError(
+        "operands and result must have one identical Var type");
+  auto element =
+      dyn_cast<IntegerType>(cast<VarType>(result.getType()).getElementType());
+  if (!element)
+    return operation->emitOpError(
+        "bit operation Var element must be an integer");
+  if (!element.isSignless() || element.getWidth() == 0 ||
+      element.getWidth() > 64)
+    return operation->emitOpError(
+        "bit operation Var element must be a signless integer with width in "
+        "[1, 64]");
+  return success();
+}
+
+LogicalResult VarAndOp::verify() {
+  return verifyVarBitBinary(*this, getLhs(), getRhs(), getResult());
+}
+
+LogicalResult VarOrOp::verify() {
+  return verifyVarBitBinary(*this, getLhs(), getRhs(), getResult());
+}
+
+LogicalResult VarXorOp::verify() {
+  return verifyVarBitBinary(*this, getLhs(), getRhs(), getResult());
+}
+
+LogicalResult VarShlOp::verify() {
+  return verifyVarBitBinary(*this, getLhs(), getRhs(), getResult());
+}
+
+LogicalResult VarShrOp::verify() {
+  return verifyVarBitBinary(*this, getLhs(), getRhs(), getResult());
+}
+
+LogicalResult VarNotOp::verify() {
+  if (getIn().getType() != getResult().getType())
+    return emitOpError("operand and result must have one identical Var type");
+  auto element = dyn_cast<IntegerType>(
+      cast<VarType>(getResult().getType()).getElementType());
+  if (!element)
+    return emitOpError("bit operation Var element must be an integer");
+  if (!element.isSignless() || element.getWidth() == 0 ||
+      element.getWidth() > 64)
+    return emitOpError(
+        "bit operation Var element must be a signless integer with width in "
+        "[1, 64]");
+  return success();
+}
+
 LogicalResult VarPopcountOp::verify() {
   auto input = cast<VarType>(getIn().getType());
   auto result = cast<VarType>(getResult().getType());
@@ -1267,10 +1319,12 @@ LogicalResult VarCmpOp::verify() {
   if (getResult().getType() !=
       VarType::get(getContext(), IntegerType::get(getContext(), 1)))
     return emitOpError("result must be !ac.var<i1>");
-  if (!llvm::is_contained(
-          ArrayRef<StringRef>{"eq", "ne", "slt", "sle", "sgt", "sge"},
-          getPredicate()))
-    return emitOpError("predicate must be eq, ne, slt, sle, sgt, or sge");
+  if (!llvm::is_contained(ArrayRef<StringRef>{"eq", "ne", "slt", "sle", "sgt",
+                                              "sge", "ult", "ule", "ugt",
+                                              "uge"},
+                          getPredicate()))
+    return emitOpError(
+        "predicate must be eq, ne, slt, sle, sgt, sge, ult, ule, ugt, or uge");
   return success();
 }
 

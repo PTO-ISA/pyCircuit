@@ -8,6 +8,7 @@ from typing import Never
 
 __path__ = extend_path(__path__, __name__)
 
+from . import _types as _types_module
 from ._definitions import (
     extern_module,
     generated_module,
@@ -33,14 +34,12 @@ from ._types import (
     s16,
     s32,
     s64,
-    u1,
-    u2,
-    u4,
-    u8,
-    u16,
-    u32,
-    u64,
 )
+
+_UNSIGNED_NAMES = tuple(f"u{width}" for width in _types_module.UNSIGNED_WIDTHS)
+for _name in _UNSIGNED_NAMES:
+    globals()[_name] = getattr(_types_module, _name)
+del _name
 
 
 __all__ = (
@@ -90,13 +89,7 @@ __all__ = (
     "barrier",
     "table",
     "slot",
-    "u1",
-    "u2",
-    "u4",
-    "u8",
-    "u16",
-    "u32",
-    "u64",
+    *_UNSIGNED_NAMES,
     "s8",
     "s16",
     "s32",

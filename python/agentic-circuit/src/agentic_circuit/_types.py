@@ -17,14 +17,17 @@ class ScalarType:
     width: int
     signed: bool = False
 
+    def __post_init__(self) -> None:
+        if type(self.width) is not int or not 1 <= self.width <= 64:
+            raise ValueError("ACPY-TYPE-001: bit width must be in [1, 64]")
+        if type(self.signed) is not bool:
+            raise TypeError("ACPY-TYPE-001: signed must be bool")
 
-u1 = ScalarType(1)
-u2 = ScalarType(2)
-u4 = ScalarType(4)
-u8 = ScalarType(8)
-u16 = ScalarType(16)
-u32 = ScalarType(32)
-u64 = ScalarType(64)
+
+UNSIGNED_WIDTHS = tuple(range(1, 65))
+for _width in UNSIGNED_WIDTHS:
+    globals()[f"u{_width}"] = ScalarType(_width)
+del _width
 s8 = ScalarType(8, True)
 s16 = ScalarType(16, True)
 s32 = ScalarType(32, True)

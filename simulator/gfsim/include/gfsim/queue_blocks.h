@@ -1,6 +1,7 @@
 #ifndef GFSIM_QUEUE_BLOCKS_H
 #define GFSIM_QUEUE_BLOCKS_H
 
+#include "gfsim/bits.h"
 #include "gfsim/object.h"
 #include "gfsim/queue.h"
 
@@ -252,7 +253,7 @@ private:
 
 template <typename T, typename Key>
   requires std::invocable<const Key &, const T &> &&
-           std::integral<std::invoke_result_t<const Key &, const T &>>
+           IntegralLike<std::invoke_result_t<const Key &, const T &>>
 class QueueReorder : public SimObject {
 public:
   static constexpr std::string_view contractName = "ac.reorder";
@@ -345,7 +346,7 @@ private:
 
 template <typename T, size_t Entries, uint64_t Start, typename Key>
   requires(Entries > 0) && std::invocable<const Key &, const T &> &&
-          std::integral<std::invoke_result_t<const Key &, const T &>>
+          IntegralLike<std::invoke_result_t<const Key &, const T &>>
 class Reorder final : public QueueReorder<T, Key> {
 public:
   static constexpr std::string_view contractName = "ac.reorder";
@@ -361,13 +362,13 @@ public:
 template <typename T, typename Key, typename Dependency, typename Resource,
           typename Cost>
   requires std::invocable<const Key &, const T &> &&
-           std::integral<std::invoke_result_t<const Key &, const T &>> &&
+           IntegralLike<std::invoke_result_t<const Key &, const T &>> &&
            std::invocable<const Dependency &, const T &> &&
-           std::integral<std::invoke_result_t<const Dependency &, const T &>> &&
+           IntegralLike<std::invoke_result_t<const Dependency &, const T &>> &&
            std::invocable<const Resource &, const T &> &&
-           std::integral<std::invoke_result_t<const Resource &, const T &>> &&
+           IntegralLike<std::invoke_result_t<const Resource &, const T &>> &&
            std::invocable<const Cost &, const T &> &&
-           std::integral<std::invoke_result_t<const Cost &, const T &>>
+           IntegralLike<std::invoke_result_t<const Cost &, const T &>>
 class QueueDependency : public SimObject {
 public:
   static constexpr std::string_view contractName = "ac.dependency";
@@ -555,7 +556,7 @@ private:
         setRuntimeFailureCode("dependency_nonpositive_cost");
         return false;
       }
-    if constexpr (std::unsigned_integral<CostResult>)
+    if constexpr (UnsignedIntegralLike<CostResult>)
       if (rawCost == 0) {
         setRuntimeFailureCode("dependency_nonpositive_cost");
         return false;
@@ -599,13 +600,13 @@ template <typename T, size_t Entries, size_t Resources, uint64_t NoDependency,
           typename Key, typename Dependency, typename Resource, typename Cost>
   requires(Entries > 0) && (Resources > 0) &&
           std::invocable<const Key &, const T &> &&
-          std::integral<std::invoke_result_t<const Key &, const T &>> &&
+          IntegralLike<std::invoke_result_t<const Key &, const T &>> &&
           std::invocable<const Dependency &, const T &> &&
-          std::integral<std::invoke_result_t<const Dependency &, const T &>> &&
+          IntegralLike<std::invoke_result_t<const Dependency &, const T &>> &&
           std::invocable<const Resource &, const T &> &&
-          std::integral<std::invoke_result_t<const Resource &, const T &>> &&
+          IntegralLike<std::invoke_result_t<const Resource &, const T &>> &&
           std::invocable<const Cost &, const T &> &&
-          std::integral<std::invoke_result_t<const Cost &, const T &>>
+          IntegralLike<std::invoke_result_t<const Cost &, const T &>>
 class Schedule final
     : public QueueDependency<T, Key, Dependency, Resource, Cost> {
 public:
@@ -624,7 +625,7 @@ public:
 
 template <typename T, typename Cost>
   requires std::invocable<const Cost &, const T &> &&
-           std::integral<std::invoke_result_t<const Cost &, const T &>>
+           IntegralLike<std::invoke_result_t<const Cost &, const T &>>
 class QueueCredit : public SimObject {
 public:
   static constexpr std::string_view contractName = "ac.credit";
@@ -731,7 +732,7 @@ private:
         setRuntimeFailureCode("credit_nonpositive_cost");
         return;
       }
-    if constexpr (std::unsigned_integral<CostResult>)
+    if constexpr (UnsignedIntegralLike<CostResult>)
       if (rawCost == 0) {
         setRuntimeFailureCode("credit_nonpositive_cost");
         return;
@@ -753,7 +754,7 @@ private:
 
 template <typename T, size_t Lanes, typename Cost>
   requires(Lanes > 0) && std::invocable<const Cost &, const T &> &&
-          std::integral<std::invoke_result_t<const Cost &, const T &>>
+          IntegralLike<std::invoke_result_t<const Cost &, const T &>>
 class Engine final : public QueueCredit<T, Cost> {
 public:
   static constexpr std::string_view contractName = "ac.engine";
@@ -769,7 +770,7 @@ public:
 template <typename T, typename Data, typename Address, typename Write,
           typename WriteData, typename Response>
   requires std::invocable<const Address &, const T &> &&
-           std::integral<std::invoke_result_t<const Address &, const T &>> &&
+           IntegralLike<std::invoke_result_t<const Address &, const T &>> &&
            std::invocable<const Write &, const T &> &&
            std::convertible_to<std::invoke_result_t<const Write &, const T &>,
                                bool> &&
@@ -1088,7 +1089,7 @@ private:
 
 template <typename AddressResult>
 bool tableAddressInRange(AddressResult address, size_t entries) {
-  static_assert(std::integral<AddressResult>);
+  static_assert(IntegralLike<AddressResult>);
   if constexpr (std::signed_integral<AddressResult>)
     if (address < 0)
       return false;
@@ -1097,7 +1098,7 @@ bool tableAddressInRange(AddressResult address, size_t entries) {
 
 template <typename Input, typename Entry, typename Address, typename When>
   requires TablePolicyInvocable<Address, const Input &> &&
-           std::integral<TablePolicyResult<Address, const Input &>> &&
+           IntegralLike<TablePolicyResult<Address, const Input &>> &&
            TablePolicyInvocable<When, const Input &> &&
            std::convertible_to<TablePolicyResult<When, const Input &>, bool>
 class QueueTableRead final : public SimObject {
@@ -1156,7 +1157,7 @@ private:
 
 template <typename Entry, typename Address, typename When>
   requires TablePolicyInvocable<Address> &&
-           std::integral<TablePolicyResult<Address>> &&
+           IntegralLike<TablePolicyResult<Address>> &&
            TablePolicyInvocable<When> &&
            std::convertible_to<TablePolicyResult<When>, bool>
 class TableReadSource final : public SimObject {
@@ -1205,7 +1206,7 @@ private:
 template <typename Input, typename Entry, typename Address, typename Enable,
           typename Value, typename Merge = TableFullEntryMerge<Entry>>
   requires TablePolicyInvocable<Address, const Input &> &&
-           std::integral<TablePolicyResult<Address, const Input &>> &&
+           IntegralLike<TablePolicyResult<Address, const Input &>> &&
            TablePolicyInvocable<Enable, const Input &> &&
            std::convertible_to<TablePolicyResult<Enable, const Input &>,
                                bool> &&
@@ -1293,7 +1294,7 @@ private:
 template <typename Entry, typename Address, typename Enable, typename Value,
           typename Merge = TableFullEntryMerge<Entry>>
   requires TablePolicyInvocable<Address> &&
-           std::integral<TablePolicyResult<Address>> &&
+           IntegralLike<TablePolicyResult<Address>> &&
            TablePolicyInvocable<Enable> &&
            std::convertible_to<TablePolicyResult<Enable>, bool> &&
            TablePolicyInvocable<Value> &&
@@ -1365,7 +1366,7 @@ private:
 template <typename Entry, typename Mask, typename Enable, typename Value,
           typename Merge = TableFullEntryMerge<Entry>>
   requires TablePolicyInvocable<Mask> &&
-           std::integral<TablePolicyResult<Mask>> &&
+           IntegralLike<TablePolicyResult<Mask>> &&
            TablePolicyInvocable<Enable> &&
            std::convertible_to<TablePolicyResult<Enable>, bool> &&
            TablePolicyInvocable<Value, const Entry &> &&
@@ -1536,7 +1537,7 @@ private:
 template <typename T, typename Data, size_t N, typename Address, typename Write,
           typename WriteData, typename Response>
   requires std::invocable<const Address &, size_t, const T &> &&
-           std::integral<
+           IntegralLike<
                std::invoke_result_t<const Address &, size_t, const T &>> &&
            std::invocable<const Write &, size_t, const T &> &&
            std::convertible_to<
@@ -2003,7 +2004,7 @@ private:
 
 template <typename T, size_t Outputs, typename Selector>
   requires std::invocable<const Selector &, const T &> &&
-           std::integral<std::invoke_result_t<const Selector &, const T &>>
+           IntegralLike<std::invoke_result_t<const Selector &, const T &>>
 class QueueRoute final : public SimObject {
 public:
   static_assert(Outputs >= 2);
@@ -2055,7 +2056,7 @@ private:
 
 template <typename Control, typename T, size_t Inputs, typename Selector>
   requires std::invocable<const Selector &, const Control &> &&
-           std::integral<
+           IntegralLike<
                std::invoke_result_t<const Selector &, const Control &>>
 class QueueSelect final : public SimObject {
 public:
