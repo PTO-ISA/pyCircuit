@@ -1,0 +1,13 @@
+project,module,adapter,config,n,closure,build,correctness,synthesis,cells,depth,area,pareto
+pulp_common_cells,cc_rr_arb_tree,pulp_cc_rr,n2,2,PASS,PASS,PASS,PASS,15,3,,False
+pulp_common_cells,cc_rr_arb_tree,pulp_cc_rr,n4,4,PASS,PASS,PASS,PASS,43,6,,False
+pulp_common_cells,cc_rr_arb_tree,pulp_cc_rr,n8,8,PASS,PASS,PASS,PASS,117,12,,False
+pulp_common_cells,cc_rr_arb_tree,pulp_cc_rr,n16,16,PASS,PASS,PASS,PASS,270,17,,False
+basejump_stl,bsg_arb_round_robin,basejump_bsg_rr,n2,2,PASS,PASS,PASS,PASS,7,2,,False
+basejump_stl,bsg_arb_round_robin,basejump_bsg_rr,n4,4,PASS,PASS,PASS,PASS,28,4,,False
+basejump_stl,bsg_arb_round_robin,basejump_bsg_rr,n8,8,PASS,PASS,PASS,PASS,74,8,,False
+basejump_stl,bsg_arb_round_robin,basejump_bsg_rr,n16,16,PASS,PASS,PASS,PASS,197,9,,False
+opentitan,prim_arbiter_tree,opentitan_prim_tree,n2,2,PASS,PASS,PASS,PASS,10,5,,False
+opentitan,prim_arbiter_tree,opentitan_prim_tree,n4,4,PASS,PASS,PASS,PASS,30,7,,False
+opentitan,prim_arbiter_tree,opentitan_prim_tree,n8,8,PASS,PASS,PASS,PASS,80,12,,False
+opentitan,prim_arbiter_tree,opentitan_prim_tree,n16,16,PASS,PASS,PASS,PASS,187,14,,False

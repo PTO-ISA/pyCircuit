@@ -1,0 +1,58 @@
+{
+  "schema": "acir-runtime-search-config-v0.1",
+  "max_results_per_query": 8,
+  "keywords": [
+    "round robin arbiter",
+    "fifo rtl",
+    "popcount verilog",
+    "leading zero count verilog",
+    "stream crossbar verilog",
+    "systolic array verilog",
+    "axi interconnect verilog",
+    "priority encoder verilog",
+    "one hot encoder verilog",
+    "gray code converter systemverilog",
+    "barrel shifter verilog",
+    "uart verilog",
+    "spi verilog",
+    "crc verilog",
+    "aes verilog"
+  ],
+  "sources": [
+    {
+      "name": "opencores-project-index",
+      "provider": "opencores",
+      "url": "https://opencores.org/projects",
+      "enabled": true,
+      "notes": "OpenCores exposes an SVN-backed project index; license and revision must be reviewed before vendoring."
+    },
+    {
+      "name": "github-verilog-search",
+      "provider": "github",
+      "url": "https://api.github.com/search/repositories",
+      "enabled": true,
+      "notes": "Repository metadata only; the exact commit and license are pinned during promotion."
+    },
+    {
+      "name": "gitlab-verilog-search",
+      "provider": "gitlab",
+      "url": "https://gitlab.com/api/v4/projects",
+      "enabled": true,
+      "notes": "Repository metadata only; source closure is validated after an explicit clone."
+    },
+    {
+      "name": "codeberg-verilog-search",
+      "provider": "codeberg",
+      "url": "https://codeberg.org/api/v1/repos/search",
+      "enabled": true,
+      "notes": "Repository metadata only; source closure is validated after an explicit clone."
+    },
+    {
+      "name": "librecores-fossi-index",
+      "provider": "librecores",
+      "url": "https://www.librecores.org/",
+      "enabled": true,
+      "notes": "LibreCores is now an index/community site; follow linked repositories rather than scraping binaries."
+    }
+  ]
+}

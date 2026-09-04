@@ -1,0 +1,201 @@
+sources:
+- project: pulp_common_cells
+  repo: https://github.com/pulp-platform/common_cells.git
+  enabled: true
+  priority: A
+  families:
+  - Integer
+  - Reduction
+  - Dataflow
+  - Memory
+  - CDC
+  path_hints:
+  - src
+  - include
+  exclude_dirs:
+  - .git
+  - docs
+  - test
+  - tests
+  - lint
+  - formal
+  - build
+  extensions:
+  - .v
+  - .sv
+  - .vh
+  - .svh
+- project: basejump_stl
+  repo: https://github.com/bespoke-silicon-group/basejump_stl.git
+  enabled: true
+  priority: A
+  families:
+  - Integer
+  - Dataflow
+  - Memory
+  - Interconnect
+  path_hints:
+  - bsg_misc
+  - bsg_dataflow
+  - bsg_mem
+  exclude_dirs:
+  - .git
+  - docs
+  - test
+  - tests
+  - build
+  extensions:
+  - .v
+  - .sv
+  - .vh
+  - .svh
+- project: pulp_idma
+  repo: https://github.com/pulp-platform/iDMA.git
+  enabled: false
+  priority: A
+  families:
+  - DMA
+  - Interconnect
+  path_hints: []
+  exclude_dirs:
+  - .git
+  - docs
+  - test
+  - tests
+  - build
+  extensions:
+  - .v
+  - .sv
+  - .vh
+  - .svh
+- project: pulp_axi
+  repo: https://github.com/pulp-platform/axi.git
+  enabled: false
+  priority: A
+  families:
+  - DMA
+  - Interconnect
+  - Dataflow
+  path_hints: []
+  exclude_dirs:
+  - .git
+  - docs
+  - test
+  - tests
+  - build
+  extensions:
+  - .v
+  - .sv
+  - .vh
+  - .svh
+- project: opentitan
+  repo: https://github.com/lowRISC/opentitan.git
+  enabled: true
+  priority: A
+  families:
+  - Dataflow
+  - Memory
+  - CPU
+  - Interconnect
+  path_hints:
+  - hw/ip/prim/rtl
+  exclude_dirs:
+  - .git
+  - docs
+  - test
+  - tests
+  - build
+  - sw
+  extensions:
+  - .v
+  - .sv
+  - .vh
+  - .svh
+- project: gemmini
+  repo: https://github.com/ucb-bar/gemmini.git
+  enabled: false
+  priority: B
+  families:
+  - NPU
+  - Memory
+  - DMA
+  path_hints: []
+  exclude_dirs:
+  - .git
+  - docs
+  - test
+  - tests
+  - build
+  - software
+  extensions:
+  - .v
+  - .sv
+  - .vh
+  - .svh
+- project: vortex
+  repo: https://github.com/vortexgpgpu/vortex.git
+  enabled: true
+  priority: A
+  families:
+  - GPU
+  - Memory
+  - CPU
+  - Integer
+  - Reduction
+  path_hints:
+  - hw/rtl
+  exclude_dirs:
+  - .git
+  - docs
+  - test
+  - tests
+  - build
+  - runtime
+  - kernel
+  - third_party
+  - sim
+  extensions:
+  - .v
+  - .sv
+  - .vh
+  - .svh
+- project: nvdla
+  repo: https://github.com/nvdla/hw.git
+  enabled: false
+  priority: B
+  families:
+  - NPU
+  - DMA
+  - Memory
+  path_hints: []
+  exclude_dirs:
+  - .git
+  - docs
+  - test
+  - tests
+  - build
+  extensions:
+  - .v
+  - .sv
+  - .vh
+  - .svh
+- project: zipcpu
+  repo: https://github.com/ZipCPU/zipcpu.git
+  enabled: false
+  priority: B
+  families:
+  - CPU
+  - Integer
+  - Memory
+  path_hints: []
+  exclude_dirs:
+  - .git
+  - docs
+  - test
+  - tests
+  - build
+  extensions:
+  - .v
+  - .sv
+  - .vh
+  - .svh

@@ -196,12 +196,30 @@ def _parse_attr_int(attrs: str, key: str) -> int:
     return int(match.group(1))
 
 
-def _runtime_sources(runtime_dir: Path) -> Iterable[str]:
-    for name in ("pyc_reg.v", "pyc_fifo.v"):
+def _runtime_sources(runtime_dir: Path, *, include_priority: bool = False) -> Iterable[str]:
+    names = ["pyc_reg.v", "pyc_fifo.v", "pyc_popcount.v", "pyc_rr_arbiter.v"]
+    if include_priority:
+        # Inline the small BaseJump dependency closure so the generated file
+        # remains directly consumable without an extra -I search path.
+        names.extend([
+            "basejump/bsg_defines.sv",
+            "basejump/bsg_scan.sv",
+            "basejump/bsg_encode_one_hot.sv",
+            "basejump/bsg_priority_encode_one_hot_out.sv",
+            "basejump/bsg_priority_encode.sv",
+            "pyc_runtime_basejump_priority_encode.v",
+        ])
+    for name in names:
         path = runtime_dir / name
         if not path.is_file():
             raise PYCVerilogError(f"missing in-tree PYC runtime module: {path}")
-        yield f"// --- PYC runtime: {path.name}\n{path.read_text(encoding='utf-8')}"
+        content = path.read_text(encoding="utf-8")
+        if include_priority and path.suffix in {".sv", ".v"} and "basejump/" in name:
+            # Dependencies are concatenated in topological order above; their
+            # relative include directives would otherwise refer to files that
+            # are no longer adjacent to the generated artifact.
+            content = re.sub(r'^\s*`include\s+"[^"]+"\s*$', '', content, flags=re.MULTILINE)
+        yield f"// --- PYC runtime: {name}\n{content}"
 
 
 def emit_verilog(module: Module, runtime_dir: Path) -> str:
@@ -360,6 +378,37 @@ def emit_verilog(module: Module, runtime_dir: Path) -> str:
                 f"    .req({req.net}), .cursor({cursor.net}), .grant({out.net})\n"
                 f"  );"
             )
+            continue
+
+        if rhs.startswith("pyc.priority_encode "):
+            match = re.fullmatch(
+                r"pyc\.priority_encode\s+(.*?)\s*\{(.*?)\}\s*:\s*(\S+)\s*->\s*(\S+)",
+                rhs,
+            )
+            if not match or len(lhs) != 1:
+                raise PYCVerilogError(f"cannot parse priority encoder: {line}")
+            inputs = _ssa_names(match.group(1))
+            if len(inputs) != 1:
+                raise PYCVerilogError(f"priority encoder expects one operand: {line}")
+            src = _value(values, inputs[0])
+            out = add_value(lhs[0], match.group(4))
+            width = _parse_attr_int(match.group(2), "width")
+            lo_to_hi = _parse_attr_int(match.group(2), "lo_to_hi")
+            if width != src.width or width <= 0:
+                raise PYCVerilogError("priority encoder width must match input type")
+            index_width = max(1, (width - 1).bit_length())
+            if out.width != index_width + 1:
+                raise PYCVerilogError("priority encoder result must be {valid,index}")
+            index_net = f"priority_index_{out.net}"
+            valid_net = f"priority_valid_{out.net}"
+            declarations.append(f"  wire [{index_width - 1}:0] {index_net};")
+            declarations.append(f"  wire {valid_net};")
+            instances.append(
+                f"  pyc_runtime_basejump_priority_encode #(.WIDTH({width}), .LO_TO_HI({1 if lo_to_hi else 0})) priority_encode_{out.net} (\n"
+                f"    .in_value({src.net}), .index({index_net}), .valid({valid_net})\n"
+                f"  );"
+            )
+            assigns.append(f"  assign {out.net} = {{{valid_net}, {index_net}}};")
             continue
 
         if rhs.startswith("pyc.popcount "):
@@ -587,7 +636,7 @@ def emit_verilog(module: Module, runtime_dir: Path) -> str:
     text.append("")
     text.extend(instances)
     text.extend(["", "endmodule", ""])
-    text.extend(_runtime_sources(runtime_dir))
+    text.extend(_runtime_sources(runtime_dir, include_priority=any("pyc.priority_encode " in line for line in module.body)))
     text.extend(["", "/* verilator lint_on DECLFILENAME */", ""])
     return "\n".join(text)
 

@@ -1,0 +1,24 @@
+{
+  "schema": "acir-runtime-primitive-declaration-v0.1",
+  "primitive_id": "encoding-arbitration.basejump-priority.v1",
+  "implementation_id": "github.bespoke-silicon-group.basejump_stl.bsg_priority_encode",
+  "wrapper_module": "pyc_runtime_basejump_priority_encode",
+  "source": "library/verilog/pyc_runtime_basejump_priority_encode.v",
+  "parameters": {"WIDTH": 8, "LO_TO_HI": 1},
+  "interface": {
+    "inputs": [{"name": "in_value", "width": "WIDTH"}],
+    "outputs": [
+      {"name": "index", "width": "max(1, clog2(WIDTH))"},
+      {"name": "valid", "width": 1}
+    ]
+  },
+  "packed_result": "{valid,index}",
+  "qualification_report": ".pycircuit_out/runtime-functional-validation/basejump-priority.json",
+  "dependency_closure": [
+    "library/verilog/basejump/bsg_defines.sv",
+    "library/verilog/basejump/bsg_scan.sv",
+    "library/verilog/basejump/bsg_encode_one_hot.sv",
+    "library/verilog/basejump/bsg_priority_encode_one_hot_out.sv",
+    "library/verilog/basejump/bsg_priority_encode.sv"
+  ]
+}

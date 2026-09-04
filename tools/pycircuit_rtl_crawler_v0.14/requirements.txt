@@ -1,0 +1,3 @@
+# crawler v0.1 has no mandatory third-party Python dependencies.
+# Optional only if you want to use .yaml/.yml configs instead of the default JSON:
+# PyYAML>=6.0,<7

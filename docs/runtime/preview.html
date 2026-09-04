@@ -1,0 +1,413 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>pyCircuit RTL Building-Block / XPU Design Matrix v0.2</title>
+<style>
+:root {
+  --bg:#f6f8fb; --card:#fff; --text:#18212f; --muted:#64748b;
+  --line:#dbe3ee; --accent:#2257d6; --accent2:#0f766e; --warn:#b45309;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",Arial,sans-serif;line-height:1.65}
+header{background:linear-gradient(135deg,#0f172a,#1e3a8a);color:#fff;padding:52px 8vw 42px}
+header h1{margin:0 0 12px;font-size:34px;line-height:1.2}
+header p{margin:5px 0;color:#dbeafe;max-width:1100px}
+.layout{display:grid;grid-template-columns:260px minmax(0,1fr);gap:26px;max-width:1500px;margin:0 auto;padding:28px}
+nav{position:sticky;top:18px;align-self:start;background:#fff;border:1px solid var(--line);border-radius:14px;padding:18px;max-height:calc(100vh - 36px);overflow:auto}
+nav h3{margin:0 0 10px;font-size:15px}
+nav a{display:block;text-decoration:none;color:#334155;padding:6px 8px;border-radius:7px;font-size:13px}
+nav a:hover{background:#eef4ff;color:var(--accent)}
+main{min-width:0}
+section{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:24px;margin:0 0 22px;box-shadow:0 2px 8px rgba(15,23,42,.035)}
+h2{margin:0 0 15px;font-size:24px;border-bottom:1px solid var(--line);padding-bottom:10px}
+h3{font-size:18px;margin-top:24px}
+p{margin:10px 0}
+code,pre{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+pre{background:#0f172a;color:#e2e8f0;border-radius:10px;padding:16px;overflow:auto}
+.callout{background:#f8fbff;border-left:4px solid var(--accent);padding:12px 14px;border-radius:7px;margin:12px 0 18px}
+.good{background:#ecfdf5;border-left-color:#059669}
+.warn{background:#fff7ed;border-left-color:#ea580c}
+.table-wrap{overflow:auto;border:1px solid var(--line);border-radius:10px}
+table{border-collapse:collapse;width:100%;min-width:900px;font-size:13px}
+th{background:#f1f5f9;position:sticky;top:0;text-align:left;padding:10px;border-bottom:1px solid var(--line);white-space:nowrap}
+td{padding:9px 10px;border-bottom:1px solid #edf1f6;vertical-align:top}
+tr:last-child td{border-bottom:0}
+.p0{font-weight:700;color:#9a3412}
+.missing{font-weight:700;color:#b91c1c}
+.present{font-weight:700;color:#047857}
+.badge{display:inline-block;padding:2px 8px;border-radius:999px;background:#e8eefc;color:#2647a2;font-size:12px;margin-right:6px}
+.kpi-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}
+.kpi{background:#f8fafc;border:1px solid var(--line);border-radius:10px;padding:15px}
+.kpi b{display:block;font-size:21px}
+ol.cols{columns:2;column-gap:36px}
+.footer{color:var(--muted);font-size:12px;text-align:center;padding:16px 0 32px}
+@media (max-width: 980px){.layout{grid-template-columns:1fr} nav{position:relative;top:auto;max-height:none} .kpi-grid{grid-template-columns:1fr 1fr}}
+@media print{nav{display:none} .layout{display:block;padding:0} body{background:#fff} section{box-shadow:none;break-inside:avoid}}
+</style>
+</head>
+<body>
+<header>
+  <h1>pyCircuit RTL Building-Block / XPU Design Matrix v0.2</h1>
+  <p>目标：建立可以拼装 CPU、GPU、NPU 和统一 XPU tile/cluster 的 RTL 积木库。每个条目都是可独立复用的 Verilog/SystemVerilog module、micro-block 或 composition shell。</p>
+  <p><b>本版范围：</b>只关注 RTL 积木的功能、参数、端口、协议、时序和依赖关系；不把软件栈、ISA、编译器或功能验证作为设计矩阵的组成部分。</p>
+  <p><b>统一描述原则：</b>Operation × Data Format × Microarchitecture × Domain，并增加 Interface Contract / Composition Role / Source。</p>
+</header>
+
+<div class="layout">
+<nav>
+  <h3>目录</h3>
+  <a href="#baseline">0. 当前定位与规则</a>
+  <a href="#family-1">1. Integer / Fixed</a>
+  <a href="#family-2">2. Floating-Point</a>
+  <a href="#family-3">3. Mixed-Precision MAC</a>
+  <a href="#family-4">4. Reduction / Selection</a>
+  <a href="#family-5">5. Nonlinear / SFU</a>
+  <a href="#family-6">6. Dataflow / Arbitration</a>
+  <a href="#family-7">7. Memory / RF</a>
+  <a href="#family-8">8. CPU Microarchitecture</a>
+  <a href="#family-9">9. GPU SIMT/SIMD</a>
+  <a href="#family-10">10. NPU PE/Systolic</a>
+  <a href="#family-11">11. LLM Operators</a>
+  <a href="#family-12">12. DMA / Interconnect</a>
+  <a href="#family-13">13. XPU Integration / Composition</a>
+  <a href="#recipes">14. CPU/GPU/NPU/XPU 拼装</a>
+  <a href="#coverage">15. Gap 全貌</a>
+  <a href="#targets">16. RTL 积木优先级</a>
+  <a href="#schema">17. RTL Matrix 数据结构</a>
+  <a href="#pipeline">18. RTL 发现与组合流水线</a>
+  <a href="#next">19. 下一步</a>
+</nav>
+
+<main>
+<section id="baseline">
+<h2>0. 当前定位与 v0.2 规则</h2>
+<div class="kpi-grid">
+  <div class="kpi"><span>总设计矩阵</span><b>218 条</b><small>164 个基线条目 + 34 个 domain 补充 + 20 个 XPU 组合积木</small></div>
+  <div class="kpi"><span>v0.2 新增</span><b>54 个</b><small>Memory 8、CPU 10、GPU 8、NPU 8、XPU Integration 20</small></div>
+  <div class="kpi"><span>Library 主键</span><b>接口契约</b><small>参数、端口、协议、时序、依赖和 composition role</small></div>
+  <div class="kpi"><span>最终产物</span><b>RTL tile</b><small>CPU tile / GPU tile / NPU tile / XPU cluster 的可组合源码</small></div>
+</div>
+
+<h3>状态定义</h3>
+<div class="table-wrap"><table><thead><tr><th>Status</th><th>含义</th></tr></thead><tbody><tr><td class="present">P</td><td>Present：pyCircuit 已有，但需要重新 benchmark / qualify</td></tr><tr><td class="missing">M</td><td>Missing：当前 runtime 没有</td></tr><tr><td class="present">P+</td><td>已有基础能力，但明显缺少更高级 architecture variant</td></tr><tr><td>—</td><td>不适合简单视为 primitive，应建设为更高层 Design Block</td></tr></tbody></table></div>
+
+<h3>Level 定义</h3>
+<div class="table-wrap"><table><thead><tr><th>Level</th><th>定义</th><th>例子</th></tr></thead><tbody><tr><td>L0 Primitive</td><td>最基本 RTL building block</td><td>adder / mux / reg / FIFO / arbiter</td></tr><tr><td>L1 Compute Block</td><td>可独立复用的运算单元</td><td>FP FMA / dot product / reduction / exp</td></tr><tr><td>L2 Microarchitecture</td><td>由多个 block 组成的局部架构</td><td>PE / warp scheduler / LSU / banked RF</td></tr><tr><td>L3 Operator / Engine</td><td>完整 domain operator / engine</td><td>Softmax / DMA / systolic accelerator</td></tr><tr><td>L4 Composition Shell</td><td>把多个 RTL block 连接成 tile 或 cluster 的壳层</td><td>CPU tile / GPU SM / NPU tile / XPU fabric</td></tr></tbody></table></div>
+
+<div class="callout good"><b>重要原则：</b>Matrix 的一行代表一个可寻找、可复用的 RTL 积木。真正进入数据库时，再拆成精确 Design Point，并必须绑定 canonical ports、clock/reset、protocol、latency/throughput、parameter legality 和 dependency closure。软件接口和功能验证不属于本版准入条件。</div>
+</section>
+
+
+    <section id="family-1">
+      <h2>1. Integer / Fixed Arithmetic</h2>
+      <div class="callout"><b>重点：</b>对量化 NPU，不能只停留在 multiplier。典型 datapath 是
+        INT8×INT8 → INT32 accumulate → scale/bias → round → saturate → INT8，因此 rounding/requantization 应作为独立 Design Class。</div>
+      <div class="table-wrap"><table><thead><tr><th>ID</th><th>Design Class</th><th>Format / Configuration</th><th>Level</th><th>Current</th><th>Priority</th><th>Domain</th></tr></thead><tbody><tr><td>INT-01</td><td>ADD</td><td>INT8/16/32/64, arbitrary W</td><td>L0</td><td class="present">P</td><td class="p0">P0</td><td>Generic/CPU</td></tr><tr><td>INT-02</td><td>SUB</td><td>INT8/16/32/64</td><td>L0</td><td class="missing">M</td><td class="p0">P0</td><td>Generic</td></tr><tr><td>INT-03</td><td>ADD with carry</td><td>U8/16/32/64</td><td>L0</td><td class="missing">M</td><td>P1</td><td>CPU</td></tr><tr><td>INT-04</td><td>Saturating ADD/SUB</td><td>INT8/16/32</td><td>L0</td><td class="missing">M</td><td class="p0">P0</td><td>DSP/NPU</td></tr><tr><td>INT-05</td><td>MUL</td><td>INT2/4/8/16/32</td><td>L1</td><td class="missing">M</td><td class="p0">P0</td><td>CPU/NPU</td></tr><tr><td>INT-06</td><td>MAC</td><td>INT4/8/16 → INT32</td><td>L1</td><td class="missing">M</td><td class="p0">P0</td><td>DSP/NPU</td></tr><tr><td>INT-07</td><td>DIV/REM</td><td>INT32/64</td><td>L1</td><td class="missing">M</td><td>P1</td><td>CPU</td></tr><tr><td>INT-08</td><td>Shift</td><td>logical/arithmetic</td><td>L0</td><td class="missing">M</td><td class="p0">P0</td><td>Generic</td></tr><tr><td>INT-09</td><td>Barrel Shifter</td><td>32/64-bit</td><td>L1</td><td class="missing">M</td><td class="p0">P0</td><td>CPU</td></tr><tr><td>INT-10</td><td>CLZ/CTZ/LZC</td><td>8–64-bit</td><td>L0</td><td class="missing">M</td><td class="p0">P0</td><td>CPU/NPU</td></tr><tr><td>INT-11</td><td>Popcount</td><td>8–256-bit</td><td>L0/L1</td><td class="missing">M</td><td>P1</td><td>CPU/GPU</td></tr><tr><td>INT-12</td><td>Compare / Min / Max</td><td>signed/unsigned</td><td>L0</td><td class="missing">M</td><td class="p0">P0</td><td>Generic</td></tr><tr><td>INT-13</td><td>Fixed-point MUL</td><td>Qm.n × Qm.n</td><td>L1</td><td class="missing">M</td><td>P1</td><td>DSP/NPU</td></tr><tr><td>INT-14</td><td>Rounding Shift</td><td>fixed-point</td><td>L1</td><td class="missing">M</td><td class="p0">P0</td><td>Quantized NPU</td></tr><tr><td>INT-15</td><td>Requantization</td><td>INT32→INT8/4</td><td>L1</td><td class="missing">M</td><td class="p0">P0</td><td>NPU</td></tr></tbody></table></div>
+    </section>
+
+    <section id="family-2">
+      <h2>2. Floating-Point Arithmetic</h2>
+      <div class="callout"><b>Precision Set v0.2：</b>FP4(E2M1)、FP8(E4M3/E5M2)、BF16(E8M7)、FP16(E5M10)、TF32(E8M10 compute)、FP32(E8M23)。<br>
+        不能把所有“FP8”视为同一个设计点。真正入库时必须记录 exponent/mantissa、accumulate format、output format、rounding mode 和 pipeline。</div>
+      <div class="table-wrap"><table><thead><tr><th>ID</th><th>Design Class</th><th>Format / Configuration</th><th>Level</th><th>Current</th><th>Priority</th><th>Domain</th></tr></thead><tbody><tr><td>FP-01</td><td>FP ADD/SUB</td><td>FP4 / FP8 / BF16 / FP16 / TF32 / FP32</td><td>L1</td><td class="missing">M</td><td class="p0">P0</td><td>CPU/GPU/NPU</td></tr><tr><td>FP-02</td><td>FP MUL</td><td>same precision sweep</td><td>L1</td><td class="missing">M</td><td class="p0">P0</td><td>CPU/GPU/NPU</td></tr><tr><td>FP-03</td><td>FP FMA</td><td>same precision sweep</td><td>L1</td><td class="missing">M</td><td class="p0">P0</td><td>CPU/GPU/NPU</td></tr><tr><td>FP-04</td><td>FP DIV</td><td>FP16/BF16/FP32 first</td><td>L1</td><td class="missing">M</td><td>P1</td><td>CPU/GPU</td></tr><tr><td>FP-05</td><td>FP SQRT</td><td>FP16/BF16/FP32</td><td>L1</td><td class="missing">M</td><td>P1</td><td>CPU/GPU</td></tr><tr><td>FP-06</td><td>FP Compare</td><td>all major FP</td><td>L1</td><td class="missing">M</td><td class="p0">P0</td><td>Generic</td></tr><tr><td>FP-07</td><td>FP Min/Max</td><td>all major FP</td><td>L1</td><td class="missing">M</td><td class="p0">P0</td><td>Generic</td></tr><tr><td>FP-08</td><td>Sign/Abs/Classify</td><td>all</td><td>L0/L1</td><td class="missing">M</td><td>P1</td><td>Generic</td></tr><tr><td>FP-09</td><td>FP→FP Convert</td><td>FP4↔FP8↔FP16↔BF16↔FP32</td><td>L1</td><td class="missing">M</td><td class="p0">P0</td><td>Generic</td></tr><tr><td>FP-10</td><td>INT→FP</td><td>INT8/16/32 → FP</td><td>L1</td><td class="missing">M</td><td>P1</td><td>CPU/NPU</td></tr><tr><td>FP-11</td><td>FP→INT</td><td>FP → INT8/16/32</td><td>L1</td><td class="missing">M</td><td>P1</td><td>CPU/NPU</td></tr><tr><td>FP-12</td><td>Round / Normalize</td><td>configurable rounding</td><td>L1</td><td class="missing">M</td><td class="p0">P0</td><td>Generic</td></tr><tr><td>FP-13</td><td>SIMD FP Lane</td><td>packed FP8/FP16/BF16</td><td>L2</td><td class="missing">M</td><td>P1</td><td>GPU/NPU</td></tr></tbody></table></div>
+    </section>
+
+    <section id="family-3">
+      <h2>3. Mixed-Precision MAC / Dot Product</h2>
+      <div class="callout"><b>核心规则：</b>“FP8 MAC”不是合格条目。必须写成 AFormat × BFormat → AccFormat / OutputFormat，并记录 lanes、pipeline、microarchitecture、domain。</div>
+      <div class="table-wrap"><table><thead><tr><th>ID</th><th>Design Class</th><th>Format / Configuration</th><th>Level</th><th>Current</th><th>Priority</th><th>Domain</th></tr></thead><tbody><tr><td>MP-01</td><td>Dot/MAC</td><td>INT4×INT4 → INT32</td><td>L1</td><td class="missing">M</td><td class="p0">P0</td><td>NPU</td></tr><tr><td>MP-02</td><td>Dot/MAC</td><td>INT8×INT8 → INT32</td><td>L1</td><td class="missing">M</td><td class="p0">P0</td><td>NPU</td></tr><tr><td>MP-03</td><td>Dot/MAC</td><td>INT16×INT16 → INT32/64</td><td>L1</td><td class="missing">M</td><td>P1</td><td>DSP/NPU</td></tr><tr><td>MP-04</td><td>MAC</td><td>FP4 E2M1×E2M1 → FP16</td><td>L1</td><td class="missing">M</td><td class="p0">P0</td><td>NPU</td></tr><tr><td>MP-05</td><td>MAC</td><td>FP4 E2M1×E2M1 → FP32</td><td>L1</td><td class="missing">M</td><td>P1</td><td>NPU</td></tr><tr><td>MP-06</td><td>MAC</td><td>FP8 E4M3×E4M3 → FP16</td><td>L1</td><td class="missing">M</td><td class="p0">P0</td><td>GPU/NPU</td></tr><tr><td>MP-07</td><td>MAC</td><td>FP8 E4M3×E4M3 → FP32</td><td>L1</td><td class="missing">M</td><td class="p0">P0</td><td>GPU/NPU</td></tr><tr><td>MP-08</td><td>MAC</td><td>FP8 E5M2×E5M2 → FP16/FP32</td><td>L1</td><td class="missing">M</td><td class="p0">P0</td><td>GPU/NPU</td></tr><tr><td>MP-09</td><td>MAC</td><td>BF16×BF16 → FP32</td><td>L1</td><td class="missing">M</td><td class="p0">P0</td><td>GPU/NPU</td></tr><tr><td>MP-10</td><td>MAC</td><td>FP16×FP16 → FP32</td><td>L1</td><td class="missing">M</td><td class="p0">P0</td><td>GPU/NPU</td></tr><tr><td>MP-11</td><td>MAC</td><td>TF32×TF32 → FP32</td><td>L1</td><td class="missing">M</td><td class="p0">P0</td><td>GPU/NPU</td></tr><tr><td>MP-12</td><td>Dot2/4/8</td><td>packed low precision → wider ACC</td><td>L1</td><td class="missing">M</td><td class="p0">P0</td><td>GPU/NPU</td></tr><tr><td>MP-13</td><td>Reconfigurable MAC</td><td>INT/FP multi-mode</td><td>L2</td><td class="missing">M</td><td>P1</td><td>GPU/NPU</td></tr></tbody></table></div>
+    </section>
+
+    <section id="family-4">
+      <h2>4. Reduction / Selection</h2>
+      <div class="callout"><b>注意：</b>Max 与 ArgMax 是不同 building block。ArgMax 必须同时输出 value + index，对 attention、Top-K、routing 都更有意义。</div>
+      <div class="table-wrap"><table><thead><tr><th>ID</th><th>Design Class</th><th>Format / Configuration</th><th>Level</th><th>Current</th><th>Priority</th><th>Domain</th></tr></thead><tbody><tr><td>RED-01</td><td>Sum Reduction Tree</td><td>4/8/16/32 inputs</td><td>L1</td><td class="missing">M</td><td class="p0">P0</td><td>GPU/NPU/LLM</td></tr><tr><td>RED-02</td><td>Max Reduction</td><td>4–32 inputs</td><td>L1</td><td class="missing">M</td><td class="p0">P0</td><td>GPU/NPU/LLM</td></tr><tr><td>RED-03</td><td>Min Reduction</td><td>4–32 inputs</td><td>L1</td><td class="missing">M</td><td>P1</td><td>Generic</td></tr><tr><td>RED-04</td><td>ArgMax</td><td>value + index</td><td>L1</td><td class="missing">M</td><td class="p0">P0</td><td>GPU/NPU/LLM</td></tr><tr><td>RED-05</td><td>ArgMin</td><td>value + index</td><td>L1</td><td class="missing">M</td><td>P1</td><td>Generic</td></tr><tr><td>RED-06</td><td>Comparator Tree</td><td>parameterized</td><td>L1</td><td class="missing">M</td><td class="p0">P0</td><td>Generic</td></tr><tr><td>RED-07</td><td>Popcount Reduction</td><td>vector</td><td>L1</td><td class="missing">M</td><td>P1</td><td>CPU/GPU</td></tr><tr><td>RED-08</td><td>AND/OR Reduction</td><td>vector</td><td>L0</td><td class="missing">M</td><td>P1</td><td>Generic</td></tr><tr><td>RED-09</td><td>Prefix Sum / Scan</td><td>tree/pipelined</td><td>L2</td><td class="missing">M</td><td>P2</td><td>GPU</td></tr><tr><td>RED-10</td><td>Top-K Selection</td><td>K configurable</td><td>L2</td><td class="missing">M</td><td>P1</td><td>LLM/NPU</td></tr></tbody></table></div>
+    </section>
+
+    <section id="family-5">
+      <h2>5. Nonlinear / SFU</h2>
+      <div class="callout"><b>Family-specific metric：</b>SFU 除 PPA 外，还要记录 max/mean error、ULP error、approximation domain、latency、throughput。</div>
+      <div class="table-wrap"><table><thead><tr><th>ID</th><th>Design Class</th><th>Format / Configuration</th><th>Level</th><th>Current</th><th>Priority</th><th>Domain</th></tr></thead><tbody><tr><td>SFU-01</td><td>EXP / EXP2</td><td>FP16/BF16/FP32; LUT/poly/range reduction</td><td>L1</td><td class="missing">M</td><td class="p0">P0</td><td>GPU/NPU/LLM</td></tr><tr><td>SFU-02</td><td>LOG / LOG2</td><td>FP16/BF16/FP32; LUT/poly</td><td>L1</td><td class="missing">M</td><td>P1</td><td>GPU/NPU</td></tr><tr><td>SFU-03</td><td>Reciprocal</td><td>FP; LUT/Newton</td><td>L1</td><td class="missing">M</td><td class="p0">P0</td><td>GPU/NPU/LLM</td></tr><tr><td>SFU-04</td><td>Reciprocal SQRT</td><td>FP; LUT/Newton</td><td>L1</td><td class="missing">M</td><td class="p0">P0</td><td>GPU/NPU/LLM</td></tr><tr><td>SFU-05</td><td>Sigmoid</td><td>FP/fixed; LUT/poly</td><td>L1</td><td class="missing">M</td><td>P1</td><td>NPU</td></tr><tr><td>SFU-06</td><td>Tanh</td><td>FP/fixed; LUT/poly</td><td>L1</td><td class="missing">M</td><td>P1</td><td>NPU</td></tr><tr><td>SFU-07</td><td>GELU</td><td>FP16/BF16; approximate</td><td>L1/L2</td><td class="missing">M</td><td>P1</td><td>LLM</td></tr><tr><td>SFU-08</td><td>SiLU / Swish</td><td>FP16/BF16; sigmoid × x</td><td>L1/L2</td><td class="missing">M</td><td>P1</td><td>LLM</td></tr><tr><td>SFU-09</td><td>ReLU / ReLU6</td><td>INT/FP; comparator</td><td>L0/L1</td><td class="missing">M</td><td class="p0">P0</td><td>NPU</td></tr><tr><td>SFU-10</td><td>Generic LUT SFU</td><td>parameterized LUT</td><td>L1</td><td class="missing">M</td><td class="p0">P0</td><td>Generic</td></tr><tr><td>SFU-11</td><td>CORDIC</td><td>fixed/FP; iterative/pipeline</td><td>L2</td><td class="missing">M</td><td>P2</td><td>DSP</td></tr></tbody></table></div>
+    </section>
+
+    <section id="family-6">
+      <h2>6. Dataflow / Arbitration</h2>
+      <div class="callout"><b>最适合第一轮自动化 PoC：</b>同一种 dataflow operation，从多个高质量开源库中找候选 → lint → synth → PPA → ranking。</div>
+      <div class="table-wrap"><table><thead><tr><th>ID</th><th>Design Class</th><th>Format / Configuration</th><th>Level</th><th>Current</th><th>Priority</th><th>Domain</th></tr></thead><tbody><tr><td>DF-01</td><td>Sync FIFO</td><td>ready/valid FIFO</td><td>L0</td><td class="present">P</td><td class="p0">P0</td><td>Generic</td></tr><tr><td>DF-02</td><td>Async FIFO</td><td>Gray-code CDC FIFO</td><td>L0</td><td class="present">P</td><td class="p0">P0</td><td>Generic</td></tr><tr><td>DF-03</td><td>CDC Synchronizer</td><td>basic CDC</td><td>L0</td><td class="present">P</td><td class="p0">P0</td><td>Generic</td></tr><tr><td>DF-04</td><td>MUX</td><td>parameterized mux</td><td>L0</td><td class="present">P</td><td class="p0">P0</td><td>Generic</td></tr><tr><td>DF-05</td><td>Skid Buffer</td><td>ready/valid</td><td>L0/L1</td><td class="missing">M</td><td class="p0">P0</td><td>Generic</td></tr><tr><td>DF-06</td><td>Spill Register</td><td>stream register</td><td>L0/L1</td><td class="missing">M</td><td class="p0">P0</td><td>Generic</td></tr><tr><td>DF-07</td><td>Elastic Pipeline</td><td>back-pressure aware</td><td>L1</td><td class="missing">M</td><td class="p0">P0</td><td>Generic</td></tr><tr><td>DF-08</td><td>Fixed Priority Arbiter</td><td>N-way</td><td>L0/L1</td><td class="missing">M</td><td class="p0">P0</td><td>Generic</td></tr><tr><td>DF-09</td><td>Round-Robin Arbiter</td><td>N-way</td><td>L0/L1</td><td class="missing">M</td><td class="p0">P0</td><td>Generic</td></tr><tr><td>DF-10</td><td>Stream MUX</td><td>ready/valid</td><td>L1</td><td class="missing">M</td><td class="p0">P0</td><td>Generic</td></tr><tr><td>DF-11</td><td>Stream DEMUX</td><td>ready/valid</td><td>L1</td><td class="missing">M</td><td class="p0">P0</td><td>Generic</td></tr><tr><td>DF-12</td><td>Stream Fork</td><td>ready/valid</td><td>L1</td><td class="missing">M</td><td>P1</td><td>Generic</td></tr><tr><td>DF-13</td><td>Stream Join</td><td>ready/valid</td><td>L1</td><td class="missing">M</td><td>P1</td><td>Generic</td></tr><tr><td>DF-14</td><td>Stream Crossbar</td><td>multi-master/slave</td><td>L2</td><td class="missing">M</td><td class="p0">P0</td><td>Generic</td></tr><tr><td>DF-15</td><td>Width Converter</td><td>narrow↔wide</td><td>L1</td><td class="missing">M</td><td class="p0">P0</td><td>Generic</td></tr><tr><td>DF-16</td><td>Gearbox</td><td>stream re-packing</td><td>L1</td><td class="missing">M</td><td>P1</td><td>SerDes/Stream</td></tr><tr><td>DF-17</td><td>Credit-based Flow Control</td><td>credits</td><td>L1/L2</td><td class="missing">M</td><td>P1</td><td>NoC/GPU</td></tr><tr><td>DF-18</td><td>Broadcast / Multicast</td><td>stream replication</td><td>L1/L2</td><td class="missing">M</td><td>P1</td><td>NPU/NoC</td></tr></tbody></table></div>
+    </section>
+
+    <section id="family-7">
+      <h2>7. Memory / Register File</h2>
+      <div class="callout"><b>重点：</b>GPU Register File / NPU Scratchpad 的关键不是“memory array”，而是多端口、bank mapping、conflict detection、bank arbitration 与 SRAM wrapper。</div>
+      <div class="table-wrap"><table><thead><tr><th>ID</th><th>Design Class</th><th>Format / Configuration</th><th>Level</th><th>Current</th><th>Priority</th><th>Domain</th></tr></thead><tbody><tr><td>MEM-01</td><td>1RW SRAM model</td><td>parameterized</td><td>L0/L1</td><td class="present">P/P+</td><td class="p0">P0</td><td>Generic</td></tr><tr><td>MEM-02</td><td>1R1W SRAM</td><td>parameterized</td><td>L0/L1</td><td class="present">P/P+</td><td class="p0">P0</td><td>Generic</td></tr><tr><td>MEM-03</td><td>2R1W Memory</td><td>parameterized</td><td>L1</td><td class="present">P</td><td class="p0">P0</td><td>CPU/GPU</td></tr><tr><td>MEM-04</td><td>True Dual-Port</td><td>2RW</td><td>L1</td><td class="missing">M</td><td class="p0">P0</td><td>Generic</td></tr><tr><td>MEM-05</td><td>Byte-enable Memory</td><td>configurable</td><td>L1</td><td class="present">P</td><td class="p0">P0</td><td>Generic</td></tr><tr><td>MEM-06</td><td>Multi-Port RF</td><td>2R1W / 4R2W</td><td>L2</td><td class="missing">M</td><td class="p0">P0</td><td>CPU/GPU</td></tr><tr><td>MEM-07</td><td>Banked Register File</td><td>N banks</td><td>L2</td><td class="missing">M</td><td class="p0">P0</td><td>GPU</td></tr><tr><td>MEM-08</td><td>Banked Scratchpad</td><td>N banks</td><td>L2</td><td class="missing">M</td><td class="p0">P0</td><td>NPU/GPU</td></tr><tr><td>MEM-09</td><td>SRAM Wrapper</td><td>ASIC/FPGA abstraction</td><td>L1/L2</td><td class="missing">M</td><td class="p0">P0</td><td>Generic</td></tr><tr><td>MEM-10</td><td>ECC SRAM Wrapper</td><td>SECDED</td><td>L2</td><td class="missing">M</td><td>P1</td><td>CPU/SoC</td></tr><tr><td>MEM-11</td><td>CAM</td><td>parameterized</td><td>L1/L2</td><td class="missing">M</td><td>P1</td><td>CPU/Network</td></tr><tr><td>MEM-12</td><td>Multi-bank Conflict Arbiter</td><td>N ports/banks</td><td>L2</td><td class="missing">M</td><td class="p0">P0</td><td>GPU/NPU</td></tr><tr><td>MEM-13</td><td>Accumulator SRAM</td><td>read-modify-write</td><td>L2</td><td class="missing">M</td><td>P1</td><td>NPU</td></tr></tbody></table></div>
+      <h3>v0.2 新增：Cache / Coherence / Memory Plumbing</h3>
+      <div class="table-wrap"><table><thead><tr><th>ID</th><th>Design Class</th><th>Format / Configuration</th><th>Level</th><th>Current</th><th>Priority</th><th>Domain</th></tr></thead><tbody>
+      <tr><td>MEM-14</td><td>Cache Tag/Data Array Wrapper</td><td>banked; parameterized ways/sets</td><td>L1/L2</td><td class="missing">M</td><td class="p0">P0</td><td>CPU/GPU</td></tr>
+      <tr><td>MEM-15</td><td>MSHR / Miss Tracker</td><td>N outstanding misses</td><td>L2</td><td class="missing">M</td><td class="p0">P0</td><td>CPU/GPU</td></tr>
+      <tr><td>MEM-16</td><td>Writeback / Refill Buffer</td><td>burst and merge capable</td><td>L1/L2</td><td class="missing">M</td><td class="p0">P0</td><td>CPU/GPU</td></tr>
+      <tr><td>MEM-17</td><td>Replacement Policy Unit</td><td>LRU/PLRU/random</td><td>L1</td><td class="missing">M</td><td>P1</td><td>CPU/GPU</td></tr>
+      <tr><td>MEM-18</td><td>Coherence Directory</td><td>sharer/owner/state tracking</td><td>L2</td><td class="missing">M</td><td class="p0">P0</td><td>XPU/SoC</td></tr>
+      <tr><td>MEM-19</td><td>Snoop / Probe Queue</td><td>request/ack/retry ordering</td><td>L2</td><td class="missing">M</td><td class="p0">P0</td><td>CPU/GPU</td></tr>
+      <tr><td>MEM-20</td><td>Memory Controller Adapter</td><td>SRAM/DDR/HBM request boundary</td><td>L2</td><td class="missing">M</td><td class="p0">P0</td><td>XPU/SoC</td></tr>
+      <tr><td>MEM-21</td><td>Byte-Lane Align / Merge Unit</td><td>unaligned access; byte enable</td><td>L1</td><td class="missing">M</td><td>P1</td><td>CPU/GPU/DMA</td></tr>
+      </tbody></table></div>
+    </section>
+
+    <section id="family-8">
+      <h2>8. CPU Microarchitecture</h2>
+      <div class="callout"><b>策略：</b>不要抓整个 CPU 当 runtime primitive，而是从完整 CPU 中抽取可独立验证和综合的 micro-block：scoreboard、LSU、branch predictor、cache primitive 等。</div>
+      <div class="table-wrap"><table><thead><tr><th>ID</th><th>Design Class</th><th>Format / Configuration</th><th>Level</th><th>Current</th><th>Priority</th><th>Domain</th></tr></thead><tbody><tr><td>CPU-01</td><td>Branch Predictor</td><td>direction predictor</td><td>L2</td><td class="missing">M</td><td>P1</td><td>CPU</td></tr><tr><td>CPU-02</td><td>BTB</td><td>branch target buffer</td><td>L2</td><td class="missing">M</td><td>P1</td><td>CPU</td></tr><tr><td>CPU-03</td><td>Return Address Stack</td><td>RAS</td><td>L1/L2</td><td class="missing">M</td><td>P1</td><td>CPU</td></tr><tr><td>CPU-04</td><td>Fetch Queue</td><td>instruction buffering</td><td>L1/L2</td><td class="missing">M</td><td>P1</td><td>CPU</td></tr><tr><td>CPU-05</td><td>Scoreboard</td><td>hazard tracking</td><td>L2</td><td class="missing">M</td><td class="p0">P0</td><td>CPU</td></tr><tr><td>CPU-06</td><td>Issue Queue</td><td>scheduler</td><td>L2</td><td class="missing">M</td><td>P1</td><td>CPU</td></tr><tr><td>CPU-07</td><td>Reorder Buffer</td><td>ROB</td><td>L2</td><td class="missing">M</td><td>P1</td><td>CPU</td></tr><tr><td>CPU-08</td><td>Register Rename Table</td><td>RAT</td><td>L2</td><td class="missing">M</td><td>P2</td><td>CPU</td></tr><tr><td>CPU-09</td><td>LSU</td><td>load/store unit</td><td>L2</td><td class="missing">M</td><td class="p0">P0</td><td>CPU</td></tr><tr><td>CPU-10</td><td>Load/Store Queue</td><td>LSQ</td><td>L2</td><td class="missing">M</td><td>P1</td><td>CPU</td></tr><tr><td>CPU-11</td><td>TLB</td><td>translation</td><td>L2</td><td class="missing">M</td><td>P1</td><td>CPU</td></tr><tr><td>CPU-12</td><td>Cache Controller</td><td>L1/L2 cache ctrl</td><td>L2</td><td class="missing">M</td><td>P1</td><td>CPU</td></tr><tr><td>CPU-13</td><td>Hardware Prefetcher</td><td>stream/stride etc.</td><td>L2</td><td class="missing">M</td><td>P2</td><td>CPU</td></tr><tr><td>CPU-14</td><td>Hazard / Bypass Network</td><td>forwarding</td><td>L2</td><td class="missing">M</td><td class="p0">P0</td><td>CPU</td></tr></tbody></table></div>
+      <h3>v0.2 新增：形成 CPU tile 闭环的 RTL 积木</h3>
+      <div class="table-wrap"><table><thead><tr><th>ID</th><th>Design Class</th><th>Format / Configuration</th><th>Level</th><th>Current</th><th>Priority</th><th>Domain</th></tr></thead><tbody>
+      <tr><td>CPU-15</td><td>Instruction Fetch Unit</td><td>PC redirect + memory request</td><td>L2</td><td class="missing">M</td><td class="p0">P0</td><td>CPU</td></tr>
+      <tr><td>CPU-16</td><td>Decode / Control Unit</td><td>instruction → micro-op/control</td><td>L2</td><td class="missing">M</td><td class="p0">P0</td><td>CPU</td></tr>
+      <tr><td>CPU-17</td><td>CSR / Exception / Interrupt</td><td>trap, privilege and return</td><td>L2</td><td class="missing">M</td><td class="p0">P0</td><td>CPU</td></tr>
+      <tr><td>CPU-18</td><td>Commit / Retire Controller</td><td>in-order or ROB retirement</td><td>L2</td><td class="missing">M</td><td class="p0">P0</td><td>CPU</td></tr>
+      <tr><td>CPU-19</td><td>Atomic Unit</td><td>LR/SC, AMO, fence</td><td>L1/L2</td><td class="missing">M</td><td class="p0">P0</td><td>CPU</td></tr>
+      <tr><td>CPU-20</td><td>Page Table Walker</td><td>multi-level page walk</td><td>L2</td><td class="missing">M</td><td>P1</td><td>CPU</td></tr>
+      <tr><td>CPU-21</td><td>L1 Instruction Cache Controller</td><td>tag/refill/flush</td><td>L2</td><td class="missing">M</td><td class="p0">P0</td><td>CPU</td></tr>
+      <tr><td>CPU-22</td><td>L1 Data Cache Controller</td><td>load/store/refill/writeback</td><td>L2</td><td class="missing">M</td><td class="p0">P0</td><td>CPU</td></tr>
+      <tr><td>CPU-23</td><td>Coherence / Snoop Client</td><td>probe, invalidate, ack</td><td>L2</td><td class="missing">M</td><td class="p0">P0</td><td>CPU/XPU</td></tr>
+      <tr><td>CPU-24</td><td>SIMD / Vector Lane</td><td>integer/FP lane + mask</td><td>L2</td><td class="missing">M</td><td>P1</td><td>CPU/GPU</td></tr>
+      </tbody></table></div>
+    </section>
+
+    <section id="family-9">
+      <h2>9. GPU SIMT / SIMD</h2>
+      <div class="callout"><b>SIMT 不是一个运算器：</b>它是一套 execution model，包含 warp state、warp scheduler、active mask、reconvergence、scoreboard、vector lanes、memory coalescing 等。</div>
+      <div class="table-wrap"><table><thead><tr><th>ID</th><th>Design Class</th><th>Format / Configuration</th><th>Level</th><th>Current</th><th>Priority</th><th>Domain</th></tr></thead><tbody><tr><td>GPU-01</td><td>Warp Scheduler</td><td>warp issue policy</td><td>L2</td><td class="missing">M</td><td class="p0">P0</td><td>GPU</td></tr><tr><td>GPU-02</td><td>SIMT Reconvergence Stack</td><td>divergence handling</td><td>L2</td><td class="missing">M</td><td class="p0">P0</td><td>GPU</td></tr><tr><td>GPU-03</td><td>Thread Mask / Predicate</td><td>active mask</td><td>L1/L2</td><td class="missing">M</td><td class="p0">P0</td><td>GPU</td></tr><tr><td>GPU-04</td><td>GPU Scoreboard</td><td>dependency tracking</td><td>L2</td><td class="missing">M</td><td class="p0">P0</td><td>GPU</td></tr><tr><td>GPU-05</td><td>Banked Vector Register File</td><td>multi-bank RF</td><td>L2</td><td class="missing">M</td><td class="p0">P0</td><td>GPU</td></tr><tr><td>GPU-06</td><td>Memory Coalescer</td><td>lane requests→transactions</td><td>L2</td><td class="missing">M</td><td class="p0">P0</td><td>GPU</td></tr><tr><td>GPU-07</td><td>Shared Memory Banking</td><td>bank/conflict</td><td>L2</td><td class="missing">M</td><td>P1</td><td>GPU</td></tr><tr><td>GPU-08</td><td>GPU LSU</td><td>SIMT load/store</td><td>L2</td><td class="missing">M</td><td>P1</td><td>GPU</td></tr><tr><td>GPU-09</td><td>Barrier Unit</td><td>CTA/warp barrier</td><td>L2</td><td class="missing">M</td><td>P1</td><td>GPU</td></tr><tr><td>GPU-10</td><td>Warp Shuffle</td><td>lane exchange</td><td>L1/L2</td><td class="missing">M</td><td>P1</td><td>GPU</td></tr><tr><td>GPU-11</td><td>Vote / Ballot</td><td>warp collective</td><td>L1</td><td class="missing">M</td><td>P1</td><td>GPU</td></tr><tr><td>GPU-12</td><td>SFU Issue/Arbitration</td><td>special function scheduling</td><td>L2</td><td class="missing">M</td><td>P2</td><td>GPU</td></tr></tbody></table></div>
+      <h3>v0.2 新增：形成 GPU tile/SM 闭环的 RTL 积木</h3>
+      <div class="table-wrap"><table><thead><tr><th>ID</th><th>Design Class</th><th>Format / Configuration</th><th>Level</th><th>Current</th><th>Priority</th><th>Domain</th></tr></thead><tbody>
+      <tr><td>GPU-13</td><td>Command Processor</td><td>kernel/work descriptor frontend</td><td>L2</td><td class="missing">M</td><td class="p0">P0</td><td>GPU</td></tr>
+      <tr><td>GPU-14</td><td>CTA / Workgroup Scheduler</td><td>block-to-SM allocation</td><td>L2</td><td class="missing">M</td><td class="p0">P0</td><td>GPU</td></tr>
+      <tr><td>GPU-15</td><td>Warp State Table</td><td>PC, mask, state, pending events</td><td>L2</td><td class="missing">M</td><td class="p0">P0</td><td>GPU</td></tr>
+      <tr><td>GPU-16</td><td>Vector ALU / SIMD Lane</td><td>INT/FP lane + predication</td><td>L2</td><td class="missing">M</td><td class="p0">P0</td><td>GPU</td></tr>
+      <tr><td>GPU-17</td><td>Tensor / Matrix Unit</td><td>warp-level matrix MAC</td><td>L2/L3</td><td class="missing">M</td><td>P1</td><td>GPU/NPU</td></tr>
+      <tr><td>GPU-18</td><td>GPU Atomic / Fence Unit</td><td>lane aggregation + memory ordering</td><td>L2</td><td class="missing">M</td><td class="p0">P0</td><td>GPU</td></tr>
+      <tr><td>GPU-19</td><td>Register File Allocator</td><td>warp-to-bank allocation/free</td><td>L2</td><td class="missing">M</td><td>P1</td><td>GPU</td></tr>
+      <tr><td>GPU-20</td><td>GPU Cache / Memory Interface</td><td>coalesced request → cache/NoC</td><td>L2</td><td class="missing">M</td><td class="p0">P0</td><td>GPU/XPU</td></tr>
+      </tbody></table></div>
+    </section>
+
+    <section id="family-10">
+      <h2>10. NPU PE / Systolic / Tensor Compute</h2>
+      <div class="callout"><b>MAC ≠ PE：</b>MAC 是 A×B+C；Systolic PE 还包括 input forwarding、weight/psum register、dataflow state、control 和 pipeline。</div>
+      <div class="table-wrap"><table><thead><tr><th>ID</th><th>Design Class</th><th>Format / Configuration</th><th>Level</th><th>Current</th><th>Priority</th><th>Domain</th></tr></thead><tbody><tr><td>NPU-01</td><td>Scalar MAC PE</td><td>INT/FP</td><td>L1/L2</td><td class="missing">M</td><td class="p0">P0</td><td>NPU</td></tr><tr><td>NPU-02</td><td>Dot-Product PE</td><td>dot4/8/16</td><td>L1/L2</td><td class="missing">M</td><td class="p0">P0</td><td>NPU</td></tr><tr><td>NPU-03</td><td>Weight-Stationary PE</td><td>parameterized</td><td>L2</td><td class="missing">M</td><td class="p0">P0</td><td>NPU</td></tr><tr><td>NPU-04</td><td>Output-Stationary PE</td><td>parameterized</td><td>L2</td><td class="missing">M</td><td class="p0">P0</td><td>NPU</td></tr><tr><td>NPU-05</td><td>Systolic Tile</td><td>2×2/4×4</td><td>L2</td><td class="missing">M</td><td class="p0">P0</td><td>NPU</td></tr><tr><td>NPU-06</td><td>Systolic Array</td><td>8×8/16×16</td><td>L2/L3</td><td class="missing">M</td><td class="p0">P0</td><td>NPU</td></tr><tr><td>NPU-07</td><td>Mesh Pipeline</td><td>configurable</td><td>L2</td><td class="missing">M</td><td>P1</td><td>NPU</td></tr><tr><td>NPU-08</td><td>Matrix Transposer</td><td>configurable DIM</td><td>L1/L2</td><td class="missing">M</td><td>P1</td><td>NPU</td></tr><tr><td>NPU-09</td><td>Accumulator Unit</td><td>wide accumulation</td><td>L1/L2</td><td class="missing">M</td><td class="p0">P0</td><td>NPU</td></tr><tr><td>NPU-10</td><td>Scratchpad Controller</td><td>banked SRAM</td><td>L2</td><td class="missing">M</td><td>P1</td><td>NPU</td></tr><tr><td>NPU-11</td><td>Dataflow Controller</td><td>WS/OS</td><td>L2</td><td class="missing">M</td><td>P1</td><td>NPU</td></tr><tr><td>NPU-12</td><td>Sparsity Decoder</td><td>weight/activation</td><td>L2</td><td class="missing">M</td><td>P2</td><td>NPU</td></tr><tr><td>NPU-13</td><td>Zero Skipping PE</td><td>sparse</td><td>L2</td><td class="missing">M</td><td>P2</td><td>NPU</td></tr><tr><td>NPU-14</td><td>Post-process Unit</td><td>scale/activation</td><td>L2</td><td class="missing">M</td><td>P1</td><td>NPU</td></tr></tbody></table></div>
+      <h3>v0.2 新增：形成 NPU tile 闭环的 RTL 积木</h3>
+      <div class="table-wrap"><table><thead><tr><th>ID</th><th>Design Class</th><th>Format / Configuration</th><th>Level</th><th>Current</th><th>Priority</th><th>Domain</th></tr></thead><tbody>
+      <tr><td>NPU-15</td><td>Command Decoder</td><td>descriptor → dataflow control</td><td>L2</td><td class="missing">M</td><td class="p0">P0</td><td>NPU</td></tr>
+      <tr><td>NPU-16</td><td>Tiler / Address Generator</td><td>tensor shape, stride, loop nest</td><td>L2</td><td class="missing">M</td><td class="p0">P0</td><td>NPU</td></tr>
+      <tr><td>NPU-17</td><td>Local DMA Engine</td><td>1D/2D/3D, stride, completion</td><td>L2/L3</td><td class="missing">M</td><td class="p0">P0</td><td>NPU</td></tr>
+      <tr><td>NPU-18</td><td>Weight / Activation Buffer</td><td>double-buffered banked SRAM</td><td>L2</td><td class="missing">M</td><td class="p0">P0</td><td>NPU</td></tr>
+      <tr><td>NPU-19</td><td>Layout / Transpose Engine</td><td>tile, pad, transpose, pack</td><td>L1/L2</td><td class="missing">M</td><td>P1</td><td>NPU</td></tr>
+      <tr><td>NPU-20</td><td>Multicast / Operand Distributor</td><td>weight/activation fanout</td><td>L2</td><td class="missing">M</td><td class="p0">P0</td><td>NPU/NoC</td></tr>
+      <tr><td>NPU-21</td><td>Quantize / Dequantize Pipeline</td><td>scale, zero-point, round, saturate</td><td>L1/L2</td><td class="missing">M</td><td class="p0">P0</td><td>NPU</td></tr>
+      <tr><td>NPU-22</td><td>Completion / Event Controller</td><td>tile done, dependency, interrupt</td><td>L1/L2</td><td class="missing">M</td><td>P1</td><td>NPU/XPU</td></tr>
+      </tbody></table></div>
+    </section>
+
+    <section id="family-11">
+      <h2>11. LLM Operators</h2>
+      <div class="callout"><b>LLM Operator 是 Library 可组合性的试金石：</b>Softmax 可由 Max Reduction + Subtractor + Exp + Sum Reduction + Reciprocal 组合。底层 Family 做得越标准，上层 operator 越容易复用。</div>
+      <div class="table-wrap"><table><thead><tr><th>ID</th><th>Design Class</th><th>Format / Configuration</th><th>Level</th><th>Current</th><th>Priority</th><th>Domain</th></tr></thead><tbody><tr><td>LLM-01</td><td>Softmax</td><td>max + exp + sum + reciprocal</td><td>L3</td><td class="missing">M</td><td class="p0">P0</td><td>LLM</td></tr><tr><td>LLM-02</td><td>Online Softmax</td><td>streaming max/sum</td><td>L3</td><td class="missing">M</td><td class="p0">P0</td><td>LLM</td></tr><tr><td>LLM-03</td><td>LayerNorm</td><td>mean + variance + rsqrt</td><td>L3</td><td class="missing">M</td><td class="p0">P0</td><td>LLM</td></tr><tr><td>LLM-04</td><td>RMSNorm</td><td>square + reduction + rsqrt</td><td>L3</td><td class="missing">M</td><td class="p0">P0</td><td>LLM</td></tr><tr><td>LLM-05</td><td>GELU</td><td>nonlinear approximation</td><td>L2/L3</td><td class="missing">M</td><td>P1</td><td>LLM</td></tr><tr><td>LLM-06</td><td>SwiGLU</td><td>SiLU + MUL</td><td>L3</td><td class="missing">M</td><td class="p0">P0</td><td>LLM</td></tr><tr><td>LLM-07</td><td>RoPE</td><td>rotate + sin/cos</td><td>L3</td><td class="missing">M</td><td>P1</td><td>LLM</td></tr><tr><td>LLM-08</td><td>Quantize</td><td>FP→INT/FP8/FP4</td><td>L2/L3</td><td class="missing">M</td><td class="p0">P0</td><td>LLM/NPU</td></tr><tr><td>LLM-09</td><td>Dequantize</td><td>low precision→FP</td><td>L2/L3</td><td class="missing">M</td><td class="p0">P0</td><td>LLM/NPU</td></tr><tr><td>LLM-10</td><td>Requantize</td><td>accumulate→low precision</td><td>L2</td><td class="missing">M</td><td class="p0">P0</td><td>LLM/NPU</td></tr><tr><td>LLM-11</td><td>Attention Score Engine</td><td>Q×Kᵀ</td><td>L3</td><td class="missing">M</td><td>P1</td><td>LLM</td></tr><tr><td>LLM-12</td><td>Attention Value Engine</td><td>P×V</td><td>L3</td><td class="missing">M</td><td>P1</td><td>LLM</td></tr><tr><td>LLM-13</td><td>KV Cache Address Engine</td><td>tiled/page addressing</td><td>L2</td><td class="missing">M</td><td>P1</td><td>LLM</td></tr><tr><td>LLM-14</td><td>Top-K</td><td>reduction/selection</td><td>L3</td><td class="missing">M</td><td>P1</td><td>LLM</td></tr><tr><td>LLM-15</td><td>Sampling Primitive</td><td>probability selection</td><td>L3</td><td class="missing">M</td><td>P2</td><td>LLM</td></tr></tbody></table></div>
+    </section>
+
+    <section id="family-12">
+      <h2>12. DMA / Interconnect</h2>
+      <div class="callout"><b>DMA/Interconnect：</b>建议把“data movement”与“protocol plumbing”一起建库，包括 DMA engine、outstanding tracking、burst handling、width conversion、CDC、crossbar、address decode。</div>
+      <div class="table-wrap"><table><thead><tr><th>ID</th><th>Design Class</th><th>Format / Configuration</th><th>Level</th><th>Current</th><th>Priority</th><th>Domain</th></tr></thead><tbody><tr><td>DMA-01</td><td>1D DMA</td><td>linear transfer</td><td>L3</td><td class="missing">M</td><td class="p0">P0</td><td>SoC/NPU</td></tr><tr><td>DMA-02</td><td>2D / Strided DMA</td><td>stride-aware</td><td>L3</td><td class="missing">M</td><td class="p0">P0</td><td>NPU/GPU</td></tr><tr><td>DMA-03</td><td>ND DMA</td><td>multi-dimensional</td><td>L3</td><td class="missing">M</td><td>P1</td><td>NPU/GPU</td></tr><tr><td>DMA-04</td><td>Scatter/Gather DMA</td><td>descriptor lists</td><td>L3</td><td class="missing">M</td><td>P1</td><td>SoC</td></tr><tr><td>DMA-05</td><td>Descriptor Engine</td><td>command queue</td><td>L2</td><td class="missing">M</td><td>P1</td><td>DMA</td></tr><tr><td>DMA-06</td><td>AXI Read Master</td><td>burst read</td><td>L2</td><td class="missing">M</td><td class="p0">P0</td><td>SoC/NPU</td></tr><tr><td>DMA-07</td><td>AXI Write Master</td><td>burst write</td><td>L2</td><td class="missing">M</td><td class="p0">P0</td><td>SoC/NPU</td></tr><tr><td>DMA-08</td><td>Burst Splitter</td><td>burst management</td><td>L1/L2</td><td class="missing">M</td><td class="p0">P0</td><td>AXI</td></tr><tr><td>DMA-09</td><td>Outstanding Transaction Tracker</td><td>ID/order tracking</td><td>L2</td><td class="missing">M</td><td class="p0">P0</td><td>AXI</td></tr><tr><td>DMA-10</td><td>AXI Width Converter</td><td>narrow↔wide</td><td>L2</td><td class="missing">M</td><td class="p0">P0</td><td>AXI</td></tr><tr><td>DMA-11</td><td>AXI CDC</td><td>clock crossing</td><td>L2</td><td class="missing">M/P</td><td>P1</td><td>AXI</td></tr><tr><td>DMA-12</td><td>AXI Crossbar</td><td>multi-port</td><td>L2</td><td class="missing">M</td><td class="p0">P0</td><td>SoC</td></tr><tr><td>DMA-13</td><td>Address Decoder</td><td>region decode</td><td>L1</td><td class="missing">M</td><td class="p0">P0</td><td>SoC</td></tr><tr><td>DMA-14</td><td>Stream ↔ Memory Bridge</td><td>stream/memory adaptation</td><td>L2</td><td class="missing">M</td><td class="p0">P0</td><td>SoC/NPU</td></tr><tr><td>DMA-15</td><td>NoC Router</td><td>packet routing</td><td>L2</td><td class="missing">M</td><td>P2</td><td>NoC</td></tr><tr><td>DMA-16</td><td>Credit Flow Control</td><td>credit based</td><td>L1/L2</td><td class="missing">M</td><td>P1</td><td>NoC</td></tr></tbody></table></div>
+    </section>
+
+
+<section id="family-13">
+<h2>13. XPU Integration / Composition RTL</h2>
+<div class="callout good"><b>v0.2 新增：</b>前 12 个 family 描述“计算和局部微结构积木”，本节补齐把这些积木连接成 CPU/GPU/NPU tile 和 XPU cluster 所需的控制、数据搬运、协议和 fabric 积木。它们仍然是 RTL module，不是软件组件。</div>
+<div class="table-wrap"><table><thead><tr><th>ID</th><th>RTL Building Block</th><th>职责</th><th>Level</th><th>主要端口 / 协议</th><th>Priority</th><th>可连接对象</th></tr></thead><tbody>
+<tr><td>XPU-01</td><td>Command Queue</td><td>保存 tile/engine descriptor，支持入队、出队和 back-pressure</td><td>L2</td><td>push/pop、ready/valid、descriptor</td><td class="p0">P0</td><td>CPU/GPU/NPU tile</td></tr>
+<tr><td>XPU-02</td><td>Dispatch / Issue Controller</td><td>把 command 分发到不同执行单元并收集完成状态</td><td>L2</td><td>command、grant、done、ready/valid</td><td class="p0">P0</td><td>所有 tile</td></tr>
+<tr><td>XPU-03</td><td>Tile Scheduler</td><td>按优先级、资源和依赖选择下一个 tile/warp/PE 请求</td><td>L2</td><td>req/grant、ID、priority、credit</td><td class="p0">P0</td><td>CPU/GPU/NPU</td></tr>
+<tr><td>XPU-04</td><td>Event / Fence / Barrier Unit</td><td>提供跨 engine 的完成、等待和同步原语</td><td>L1/L2</td><td>event、ack、fence、barrier</td><td class="p0">P0</td><td>tile/NoC/DMA</td></tr>
+<tr><td>XPU-05</td><td>Doorbell / Interrupt Block</td><td>把 host 或 tile 的通知转换为硬件事件</td><td>L1</td><td>MMIO、doorbell、irq、event</td><td>P1</td><td>host bridge / tile</td></tr>
+<tr><td>XPU-06</td><td>Stream ↔ Memory Bridge</td><td>在流式数据和地址化 memory transaction 之间转换</td><td>L2</td><td>ready/valid ↔ AXI/TileLink</td><td class="p0">P0</td><td>DMA/LSU/scratchpad</td></tr>
+<tr><td>XPU-07</td><td>Address / Region Decoder</td><td>根据地址选择 tile、bank、cache 或外部 memory target</td><td>L1</td><td>addr、region、hit、target</td><td class="p0">P0</td><td>fabric/memory</td></tr>
+<tr><td>XPU-08</td><td>Width / Format Adapter</td><td>完成数据位宽、lane packing 和基础格式转换</td><td>L1</td><td>stream、width、lane、format</td><td class="p0">P0</td><td>compute/memory</td></tr>
+<tr><td>XPU-09</td><td>QoS / Arbitration Block</td><td>为 CPU/GPU/NPU 请求提供固定、轮询或 QoS 仲裁</td><td>L1</td><td>req/grant、class、credit</td><td class="p0">P0</td><td>crossbar/NoC</td></tr>
+<tr><td>XPU-10</td><td>NoC Router</td><td>按目的地和虚通道转发 flit/packet</td><td>L2</td><td>flit、route、VC、credit</td><td class="p0">P0</td><td>tile cluster</td></tr>
+<tr><td>XPU-11</td><td>Network Interface</td><td>把 tile 本地请求封装为 NoC packet 并处理返回包</td><td>L2</td><td>local stream ↔ packet</td><td class="p0">P0</td><td>tile/NoC</td></tr>
+<tr><td>XPU-12</td><td>AXI ↔ TileLink / CHI Bridge</td><td>连接不同总线协议的 master/slave</td><td>L2</td><td>AXI、TileLink 或 CHI</td><td class="p0">P0</td><td>host/memory/fabric</td></tr>
+<tr><td>XPU-13</td><td>Outstanding Transaction Tracker</td><td>跟踪 transaction ID、响应顺序和重试状态</td><td>L2</td><td>ID、burst、response、reorder</td><td class="p0">P0</td><td>DMA/cache/bridge</td></tr>
+<tr><td>XPU-14</td><td>Cache Snoop / Coherence Filter</td><td>过滤和转发 snoop、invalidate、probe 和 ack</td><td>L2</td><td>snoop、probe、ack、directory</td><td class="p0">P0</td><td>CPU/GPU/cache</td></tr>
+<tr><td>XPU-15</td><td>Shared L2 / LLC Slice</td><td>为多个 tile 提供共享缓存或最后一级缓存切片</td><td>L2</td><td>req/resp、tag、snoop、bank</td><td class="p0">P0</td><td>CPU/GPU/NPU</td></tr>
+<tr><td>XPU-16</td><td>Atomic / Memory-Order Unit</td><td>实现原子读改写、fence 和基本顺序约束</td><td>L1/L2</td><td>load/store、atomic、fence</td><td class="p0">P0</td><td>CPU/GPU/NPU</td></tr>
+<tr><td>XPU-17</td><td>Clock / Reset Boundary</td><td>处理 tile 间 clock/reset/enable/隔离边界</td><td>L1</td><td>clk、reset、enable、isolation</td><td>P1</td><td>所有 tile</td></tr>
+<tr><td>XPU-18</td><td>Tile Shell / Wrapper</td><td>统一 tile 的配置、命令、数据、memory 和事件端口</td><td>L4</td><td>config、command、stream、memory、irq</td><td class="p0">P0</td><td>CPU/GPU/NPU tile</td></tr>
+<tr><td>XPU-19</td><td>Local DMA Descriptor Engine</td><td>执行 1D/2D/3D 搬运、stride 和 scatter/gather descriptor</td><td>L2</td><td>descriptor、AXI、stream、completion</td><td class="p0">P0</td><td>NPU/GPU/scratchpad</td></tr>
+<tr><td>XPU-20</td><td>Shared Memory Controller Interface</td><td>统一 bank、ECC、burst 和请求响应边界</td><td>L2</td><td>req/resp、bank、byte-enable、ECC</td><td class="p0">P0</td><td>LLC/DRAM/SRAM</td></tr>
+</tbody></table></div>
+<div class="callout"><b>组合准则：</b>任何候选 RTL 只有在端口方向、位宽、clock/reset、协议、背压、延迟和依赖关系可以映射到上述契约时，才算“可拼装积木”；单独能综合但接口不可组合的模块只保留为参考实现。</div>
+</section>
+
+<section id="recipes">
+<h2>14. CPU / GPU / NPU / XPU 拼装关系</h2>
+<p>本节给出 RTL 层面的最小拼装配方。它不规定软件或 ISA，只规定哪些硬件积木必须有明确连接关系。</p>
+<h3>CPU tile</h3>
+<pre>Fetch / Decode → Issue + Scoreboard → Integer / FP / SIMD units
+                         ↓
+                 Register File / Rename
+                         ↓
+             LSU → TLB/PTW → L1 Cache → Coherence
+                         ↓
+                    Tile Shell → NoC</pre>
+<h3>GPU tile</h3>
+<pre>Command Queue → Warp Scheduler → SIMT Stack / Active Mask
+                                      ↓
+                  Vector RF → Vector ALU / SFU / Tensor unit
+                                      ↓
+       Coalescer → Shared Memory / Bank Arbiter → DMA / NoC</pre>
+<h3>NPU tile</h3>
+<pre>Command Queue → Tiler / Address Generator → Local DMA
+                                      ↓
+       Weight Buffer / Activation Buffer / Scratchpad
+                                      ↓
+      MAC / Dot Product → PE / Systolic Array → Accumulator
+                                      ↓
+                  Quantize / Requantize → Tile Shell</pre>
+<h3>XPU cluster</h3>
+<pre>Host Bridge → Command Queue → Dispatch / Tile Scheduler
+                                  ├─ CPU Tile ─┐
+                                  ├─ GPU Tile ─┼→ Network Interface → NoC Router
+                                  └─ NPU Tile ─┘                 ↓
+                             Shared L2 / Coherence → Memory Controller</pre>
+<div class="callout good"><b>判断标准：</b>当每个 tile 都能通过 Tile Shell 暴露统一的 command、stream、memory、event 和 clock/reset 端口，并能接入同一个 NoC/共享内存接口时，才可以称为 XPU RTL 组合，而不只是模块集合。</div>
+</section>
+
+<section id="coverage">
+<h2>15. RTL Gap 全貌</h2>
+<div class="table-wrap"><table><thead><tr><th>Family</th><th>当前覆盖度</th><th>Gap 严重度</th><th>第一阶段</th></tr></thead><tbody><tr><td>Integer / Fixed</td><td>很低</td><td>High</td><td class="p0">P0</td></tr><tr><td>Floating Point</td><td>无</td><td>Critical</td><td class="p0">P0</td></tr><tr><td>Mixed Precision</td><td>无</td><td>Critical</td><td class="p0">P0</td></tr><tr><td>Reduction</td><td>无</td><td>Critical</td><td class="p0">P0</td></tr><tr><td>Nonlinear / SFU</td><td>无</td><td>High</td><td>P0/P1</td></tr><tr><td>Dataflow</td><td>有基础</td><td>Medium</td><td class="p0">P0</td></tr><tr><td>Memory / RF</td><td>有基础</td><td>High</td><td class="p0">P0</td></tr><tr><td>CPU µarch</td><td>无</td><td>High</td><td>P1</td></tr><tr><td>GPU SIMT</td><td>无</td><td>High</td><td>P1</td></tr><tr><td>NPU</td><td>无</td><td>Critical</td><td>P0/P1</td></tr><tr><td>LLM Operators</td><td>无</td><td>Critical</td><td>P1</td></tr><tr><td>DMA / Interconnect</td><td>基本无</td><td>Critical</td><td>P0/P1</td></tr><tr><td>XPU Integration / Composition</td><td>新增</td><td>Critical</td><td class="p0">P0</td></tr></tbody></table></div>
+<div class="callout warn"><b>结论：</b>原有 runtime 主要覆盖 L0 primitive 的一小部分；同时，原矩阵对把 compute block 连接成 tile/cluster 的 fabric、coherence、command 和 shell 积木描述不足。v0.2 将这些组合层单独列为 XPU-01～XPU-20。</div>
+</section>
+
+<section id="targets">
+<h2>16. RTL 积木优先级</h2>
+<p>不按“抓到多少 .v/.sv 文件”衡量进度，而按能否覆盖一个可拼装 tile 的关键路径排序。每个目标都可以从多个开源仓库寻找候选实现。</p>
+<h3>P0：先形成可连接的最小 XPU fabric</h3>
+<ol class="cols">
+<li>Command Queue / Dispatch</li><li>Tile Scheduler</li><li>Ready/Valid FIFO / Skid</li><li>RR / QoS Arbiter</li><li>Stream MUX/DEMUX/Fork/Join</li><li>Stream Crossbar</li><li>Address Decoder</li><li>AXI/TileLink Bridge</li><li>Outstanding Tracker</li><li>Stream↔Memory Bridge</li><li>1D/2D DMA</li><li>NoC Router / Network Interface</li><li>Shared L2 / Coherence Filter</li><li>Atomic / Fence Unit</li><li>Tile Shell</li><li>Integer ALU / MUL / MAC</li><li>FP FMA / SIMD Lane</li><li>Dot Product / Systolic PE</li><li>Banked RF / Scratchpad</li><li>Reduction / Prefix Scan</li>
+</ol>
+<h3>P1：扩展 tile 的能力边界</h3>
+<p>补充 TLB/PTW、L1 cache、branch predictor、GPU SIMT stack、shared-memory banking、quantization/sparsity、3D DMA、ECC SRAM、格式转换和更完整的 FP/SFU 单元。</p>
+<h3>Existing Primitive Reuse</h3>
+<p>已有 add / mux / FIFO / async FIFO / CDC / memory 不要求重写，优先作为公共积木接入统一的 port/protocol 契约，再补充外部实现的 architecture variants。</p>
+</section>
+
+<section id="schema">
+<h2>17. RTL Matrix 数据结构</h2>
+<p>本版只保留对 RTL 组合有直接意义的字段，CSV / YAML / SQLite 应共用同一 schema：</p>
+<pre>design_id
+family
+level
+operation
+input_format_a
+input_format_b
+acc_format
+output_format
+width
+lane_count
+microarchitecture
+pipeline_stages
+throughput
+latency
+domain
+priority
+source_project
+source_repo
+source_module
+source_commit
+license
+language
+dependencies
+synthesizable
+parameterized
+standalone
+clock_domains
+reset_kind
+protocol
+port_contract
+ordering
+backpressure
+resource_shape
+composition_role
+rtl_status
+notes</pre>
+<h3>真正的 Design Point 语义</h3>
+<pre>Operation
+× Data Format
+× Microarchitecture
+× Domain
++ Implementation
++ Interface Contract
++ Composition Role
++ Resource Shape
++ Source</pre>
+<h3>Mixed-Precision 额外必须字段</h3>
+<pre>A format
+B format
+Accumulator format
+Output format
+Rounding / Saturation
+Lane count
+Pipeline stages
+Input / output handshake
+Clock / reset contract
+Required local memory
+Required interconnect</pre>
+</section>
+
+<section id="pipeline">
+<h2>18. RTL 发现与组合流水线</h2>
+<pre>GitHub / OpenCores / GitLab / Codeberg / local source
+         ↓
+Clone 到本地缓存
+         ↓
+RTL 文件和 module inventory
+         ↓
+依赖闭包 / include / package
+         ↓
+端口、参数、clock/reset、协议抽取
+         ↓
+Canonical wrapper / interface adapter
+         ↓
+Design Point catalog
+         ↓
+组合角色和连接图
+         ↓
+CPU / GPU / NPU tile shell
+         ↓
+XPU cluster / fabric candidate</pre>
+<div class="callout"><b>本版边界：</b>crawler 的任务是找到和整理 RTL 积木，不要求在本矩阵中定义软件、编译器或完整功能验证流程。结构性综合和 PPA 可以作为候选排序的附加信息，但不改变积木的接口契约。</div>
+</section>
+
+<section id="next">
+<h2>19. 建议下一步：Task 1.2</h2>
+<p>先把 XPU-01～XPU-20 展开成真正的 <b>RTL Design Point Matrix</b>，再批量抓取和归档候选源码。</p>
+<p>例如不能只写：</p>
+<pre>FP8 MAC</pre>
+<p>而要拆成：</p>
+<pre>FP8 E4M3 × E4M3 → FP16 ACC
+FP8 E4M3 × E4M3 → FP32 ACC
+FP8 E5M2 × E5M2 → FP16 ACC
+FP8 E5M2 × E5M2 → FP32 ACC
+FP8 E4M3 × E5M2 → FP32 ACC
+...</pre>
+<p>并给每个 Design Point 进一步明确：</p>
+<p><span class="badge">Microarchitecture variants</span><span class="badge">Parameters</span><span class="badge">Ports / protocol</span><span class="badge">Clock / reset</span><span class="badge">Dependencies</span><span class="badge">Composition role</span></p>
+<p>这样 crawler 才知道应该“找什么 RTL 积木”，以及它能连接到哪个 tile 或 fabric 端口，而不是漫无目的抓 RTL 文件。</p>
+</section>
+
+<div class="footer">pyCircuit Hardware Design Library · RTL Building-Block / XPU Design Matrix v0.2</div>
+</main>
+</div>
+</body>
+</html>

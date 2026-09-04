@@ -1,0 +1,960 @@
+{
+  "schema": "acir-runtime-parameterized-components-v0.2",
+  "release": "runtime-rtl-v0.2",
+  "generated_by": "manual-review + acir-runtime functional",
+  "toolchain": {
+    "verilator": "wsl:/opt/oss-cad/oss-cad-suite/bin/verilator",
+    "yosys": "wsl:/opt/oss-cad/oss-cad-suite/bin/yosys",
+    "jobs": 1,
+    "timeout_seconds": 45
+  },
+  "policy": {
+    "source_closure": "complete",
+    "license_files_required": true,
+    "functional_oracle_required": true,
+    "ppa": "cell-count QoR recorded; power requires Liberty/activity and is not claimed"
+  },
+  "sha256": {
+    "basejump/bsg_adder_ripple_carry.sv": "611c6450b7d3787950952c74caa2b2df22b695a6183f0a247bc8770065d2070c",
+    "basejump/bsg_and.sv": "730b1fb25c8da0a857b00aa6f0230a6da203d05ffecae0ba16485bf6e8ecd83d",
+    "basejump/bsg_arb_round_robin.sv": "1314e4baf2831030b2f217dbadfe5a95843ce3c3111d74baa3440da3e3b20a08",
+    "basejump/bsg_counter_clear_up_saturating.sv": "75140334b2039f5d663806ce59bb624b053c3f0758a5f9b8a81fd38bf0ede9af",
+    "basejump/bsg_counting_leading_zeros.sv": "04e66df21e8651d0234246cace5a27ff85ee14b86bbe9b9af1b5d1755de45166",
+    "basejump/bsg_defines.sv": "90c33ac35452a81287a76cf7af15df15b95dfd3db2edb6d154901897e358731a",
+    "basejump/bsg_encode_one_hot.sv": "104e9721ee049127d747ac58b444f8069dfb0baba99e1bfdc3bb6856c1d7f9d1",
+    "basejump/bsg_mux_segmented.sv": "4990e7c25aceece734b5e24327cedaf3b130b740298fe95316a713d73b74d95c",
+    "basejump/bsg_popcount.sv": "f70b6429831bd3ca61f9296cc042b62ed29bac8baae0dd023728572e018e0d30",
+    "basejump/bsg_priority_encode.sv": "f9d6e31e5b2fe8df9a5d430250ad09e9cc47cecc3faf9b57f00828bf2ed416f3",
+    "basejump/bsg_priority_encode_one_hot_out.sv": "5c61edc768dd97835c85973a072b6a0aa15be929a541ed288b1cd65854591094",
+    "basejump/bsg_scan.sv": "8ef6f9f28ef465af32e3933a7234aafecb9c3fe740921effded5ba6ef73ce3d0",
+    "basejump/bsg_xor.sv": "91ec1788d4153bf906c448181d0c92ae0c499e8727def6be8ddd462b4cef00ba",
+    "licenses/basejump-stl/LICENSE": "2e77070466e0c6d653e29ae4dfbc1a549cf1aa0b320237de0421db176dff87c0",
+    "licenses/opentitan/LICENSE": "d5acfbe7798edd7c2a55081fe1dc54f4d0a69a035c0d45c11fab7b589c48af56",
+    "licenses/pulp-common-cells/LICENSE": "6527a46225891b976fa94f634f6ee0cd22e1c7129d6f11c5c98c997627625fc7",
+    "opentitan/prim_msb_extend.sv": "49cb054fb08b977031fe7b7e78ec9b23836ca918cb4d96c3a2667c3ba07daca2",
+    "opentitan/prim_onehot_enc.sv": "05f15ce4b0869ad4e6e6192c614f688e93a6ab7af8e5b211ec149854c6f2583b",
+    "opentitan/prim_slicer.sv": "82e4b9c37ec9d7bad62d163e480eaf7fca9eb0a5addddd2ccfae3df29389d7a4",
+    "pulp/cc_binary_to_gray.sv": "959de0d450f07c1a9e461ae60ea1103677fd878f849ac442d6253fc265a34bd1",
+    "pulp/cc_gray_to_binary.sv": "b67dfc0327ac1b92ac651a9cec2abc55876f24aa9c584e2099ccb2de742bee97",
+    "pulp/cc_lzc.sv": "62119065b214b01d98f47d8c2f342e16cae537e3eacfc41bfd5f4b709482f51e",
+    "pulp/cc_onehot.sv": "ee8ad2c23b253b76e47f2cc7e6a24bb3bc5e284aa3191776ca091edfa6fff90b",
+    "pulp/cc_pkg.sv": "88f9e29a9256acf63b9fb5e26306617d0865b3da04f2cd893152a199f77dcc4f",
+    "pulp/cc_popcount.sv": "144a713362cfdbc56600b4144612ada00df921dec832e20a68061543f7954f54",
+    "pulp/include/common_cells/assertions.svh": "e9606c554d2562f2d282455a676503dd14655da51774c7069ee59773061b4a31",
+    "pyc_runtime_basejump_adder.v": "276c4c2e22c744e40007aa84524e2bd4a01fe2ed4b7a3b0f54c8aef2eccd6e2d",
+    "pyc_runtime_basejump_and.v": "3495ebd869d54ec63bba6657b6f74e469e3900bbaa983e71010489e22059b35b",
+    "pyc_runtime_basejump_clz.v": "fbfcfabfbaecdc911fe254c3d60afd126668309f496c25ce42c6b9634c92fc7f",
+    "pyc_runtime_basejump_counter.v": "9ffb0bc4112282bb1a9b39bd831a38ba08ee06bb7b5650194e43d26dbefc1ba7",
+    "pyc_runtime_basejump_encode_one_hot.v": "1b95b5546ad396024128ddb8738da161f52339d2da1b09db982e0ef97999f7a4",
+    "pyc_runtime_basejump_popcount.v": "2f43dba03aed02182921983bfc291892a016fd4c17100038ce72ee27aae9030a",
+    "pyc_runtime_basejump_priority_encode.v": "c1d35f3349f86f5a01129d88a7ed5f869d10618b5b1ee4ed13ec738b5e05d15d",
+    "pyc_runtime_basejump_priority_onehot.v": "cb1dff383391a543153ae779c2dd27e1cea610a0f7c9e43ced67b18de879d332",
+    "pyc_runtime_basejump_rr_arbiter.v": "8b86a0e08426271c435ad46a3541229d2e1702551005a9d45feeead3aa09ddb8",
+    "pyc_runtime_basejump_scan_or.v": "4861be9d1407750114d23f81de91cb74388700f0fb3e564e3da4484cd08cb958",
+    "pyc_runtime_basejump_segmented_mux.v": "9e1a6829ee50399b1ac998c1cd33aaa2f32c709f540dace9979beb26eb7c11d2",
+    "pyc_runtime_basejump_xor.v": "f8ae9799408559753ea481cb3fa18d348e4a69fd4190fc3263e659bd990b2755",
+    "pyc_runtime_opentitan_msb_extend.v": "fa4429f65bdea441ceede9bd5a615b0ecb5de381be7904c5989d87b855a5ac5e",
+    "pyc_runtime_opentitan_onehot_encode.v": "1672d553a683a899600d5e23a13079c7be33372ad07b95754a2435d33bcb9feb",
+    "pyc_runtime_opentitan_slicer.v": "6c278dc52e32db7611083af12b4a18667f9daaea5492d918ca8aa3628795b635",
+    "pyc_runtime_pulp_binary_to_gray.v": "88c49c58303af3e661b38ffa69871ab4c6bb5eb435afc2d3a0434c44343c2f6c",
+    "pyc_runtime_pulp_gray_to_binary.v": "2847e5bd1ecd5c7d52a57c2ccddfbaaa90bc4cecb700ae08f27ac6630843f6d5",
+    "pyc_runtime_pulp_lzc.v": "00737d7eda7d8807889a59018707f1252af6fe6704d97431f55553228d2bccf2",
+    "pyc_runtime_pulp_onehot_check.v": "2bcfcdcb5b01b46bfb670368de475db824c2bafb26adc80e8f92a893e8e75365",
+    "pyc_runtime_pulp_popcount.v": "2e2c964175016e56f3ff7bc1517a6161337093fa7f6b1a5c9aa5c3a994039bd1"
+  },
+  "components": [
+    {
+      "name": "pulp-cc-popcount",
+      "module": "pyc_runtime_pulp_popcount",
+      "oracle": "popcount-v1",
+      "upstream": {
+        "repository": "https://github.com/pulp-platform/common_cells.git",
+        "commit": "63b7c50d43e462b59506f69d341ff1e40202866d",
+        "license": "Solderpad-Hardware-License-0.51"
+      },
+      "files": [
+        "pyc_runtime_pulp_popcount.v",
+        "pulp/cc_popcount.sv"
+      ],
+      "license_files": [
+        "licenses/pulp-common-cells/LICENSE"
+      ],
+      "parameter_cases": [
+        {
+          "WIDTH": 1
+        },
+        {
+          "WIDTH": 4
+        },
+        {
+          "WIDTH": 8
+        },
+        {
+          "WIDTH": 13
+        }
+      ],
+      "verification": {
+        "verilator": "PASS",
+        "simulation": "PASS",
+        "yosys": "PASS",
+        "qor_cells": {
+          "WIDTH_1": 1,
+          "WIDTH_4": 10.906,
+          "WIDTH_8": 28.728,
+          "WIDTH_13": 53.981
+        }
+      }
+    },
+    {
+      "name": "basejump-popcount",
+      "module": "pyc_runtime_basejump_popcount",
+      "oracle": "popcount-v1",
+      "upstream": {
+        "repository": "https://github.com/bespoke-silicon-group/basejump_stl.git",
+        "commit": "b48037e28544425839dbd617d45b1a82631bc1a9",
+        "license": "Solderpad-Hardware-License-0.51"
+      },
+      "files": [
+        "pyc_runtime_basejump_popcount.v",
+        "basejump/bsg_popcount.sv",
+        "basejump/bsg_defines.sv"
+      ],
+      "license_files": [
+        "licenses/basejump-stl/LICENSE"
+      ],
+      "parameter_cases": [
+        {
+          "WIDTH": 1
+        },
+        {
+          "WIDTH": 4
+        },
+        {
+          "WIDTH": 8
+        },
+        {
+          "WIDTH": 13
+        }
+      ],
+      "verification": {
+        "verilator": "PASS",
+        "simulation": "PASS",
+        "yosys": "PASS",
+        "qor_cells": {
+          "WIDTH_1": 1,
+          "WIDTH_4": 9.044,
+          "WIDTH_8": 28.728,
+          "WIDTH_13": 53.981
+        }
+      }
+    },
+    {
+      "name": "pulp-lzc",
+      "module": "pyc_runtime_pulp_lzc",
+      "oracle": "lzc-v1",
+      "upstream": {
+        "repository": "https://github.com/pulp-platform/common_cells.git",
+        "commit": "63b7c50d43e462b59506f69d341ff1e40202866d",
+        "license": "Solderpad-Hardware-License-0.51"
+      },
+      "files": [
+        "pyc_runtime_pulp_lzc.v",
+        "pulp/cc_lzc.sv",
+        "pulp/cc_pkg.sv",
+        "pulp/include/common_cells/assertions.svh"
+      ],
+      "license_files": [
+        "licenses/pulp-common-cells/LICENSE"
+      ],
+      "parameter_cases": [
+        {
+          "WIDTH": 1,
+          "MODE": 1
+        },
+        {
+          "WIDTH": 8,
+          "MODE": 1
+        },
+        {
+          "WIDTH": 8,
+          "MODE": 0
+        },
+        {
+          "WIDTH": 13,
+          "MODE": 1
+        }
+      ],
+      "verification": {
+        "verilator": "PASS",
+        "simulation": "PASS",
+        "yosys": "PASS",
+        "qor_cells": {
+          "WIDTH_1": 1,
+          "WIDTH_8_LEADING": 16,
+          "WIDTH_8_TRAILING": 16,
+          "WIDTH_13": 30
+        },
+        "frontend": "slang",
+        "reason": "Yosys Slang frontend parses the vendored cc_pkg package and synthesizes all parameter cases"
+      }
+    },
+    {
+      "name": "basejump-rr-arbiter",
+      "module": "pyc_runtime_basejump_rr_arbiter",
+      "oracle": "rr-arbiter-v1",
+      "upstream": {
+        "repository": "https://github.com/bespoke-silicon-group/basejump_stl.git",
+        "commit": "b48037e28544425839dbd617d45b1a82631bc1a9",
+        "license": "Solderpad-Hardware-License-0.51"
+      },
+      "files": [
+        "pyc_runtime_basejump_rr_arbiter.v",
+        "basejump/bsg_arb_round_robin.sv",
+        "basejump/bsg_scan.sv",
+        "basejump/bsg_defines.sv"
+      ],
+      "license_files": [
+        "licenses/basejump-stl/LICENSE"
+      ],
+      "parameter_cases": [
+        {
+          "NUM_INPUTS": 4
+        },
+        {
+          "NUM_INPUTS": 8
+        }
+      ],
+      "verification": {
+        "verilator": "PASS",
+        "simulation": "PASS",
+        "yosys": "PASS",
+        "qor_cells": {
+          "NUM_INPUTS_4": 25,
+          "NUM_INPUTS_8": 80
+        },
+        "frontend": "slang"
+      }
+    },
+    {
+      "name": "basejump-adder",
+      "module": "pyc_runtime_basejump_adder",
+      "oracle": "adder-v1",
+      "upstream": {
+        "repository": "https://github.com/bespoke-silicon-group/basejump_stl.git",
+        "commit": "b48037e28544425839dbd617d45b1a82631bc1a9",
+        "license": "Solderpad-Hardware-License-0.51"
+      },
+      "files": [
+        "pyc_runtime_basejump_adder.v",
+        "basejump/bsg_adder_ripple_carry.sv",
+        "basejump/bsg_defines.sv"
+      ],
+      "license_files": [
+        "licenses/basejump-stl/LICENSE"
+      ],
+      "parameter_cases": [
+        {
+          "WIDTH": 1
+        },
+        {
+          "WIDTH": 4
+        },
+        {
+          "WIDTH": 8
+        },
+        {
+          "WIDTH": 13
+        }
+      ],
+      "verification": {
+        "verilator": "PASS",
+        "simulation": "PASS",
+        "yosys": "PASS",
+        "qor_cells": {
+          "WIDTH_1": 2,
+          "WIDTH_4": 17,
+          "WIDTH_8": 38,
+          "WIDTH_13": 64
+        }
+      }
+    },
+    {
+      "name": "basejump-and",
+      "module": "pyc_runtime_basejump_and",
+      "oracle": "bitwise-and-v1",
+      "upstream": {
+        "repository": "https://github.com/bespoke-silicon-group/basejump_stl.git",
+        "commit": "b48037e28544425839dbd617d45b1a82631bc1a9",
+        "license": "Solderpad-Hardware-License-0.51"
+      },
+      "files": [
+        "pyc_runtime_basejump_and.v",
+        "basejump/bsg_and.sv",
+        "basejump/bsg_defines.sv"
+      ],
+      "license_files": [
+        "licenses/basejump-stl/LICENSE"
+      ],
+      "parameter_cases": [
+        {
+          "WIDTH": 1
+        },
+        {
+          "WIDTH": 4
+        },
+        {
+          "WIDTH": 8
+        },
+        {
+          "WIDTH": 13
+        }
+      ],
+      "verification": {
+        "verilator": "PASS",
+        "simulation": "PASS",
+        "yosys": "PASS",
+        "qor_cells": {
+          "WIDTH_1": 1,
+          "WIDTH_4": 4,
+          "WIDTH_8": 8,
+          "WIDTH_13": 13
+        }
+      }
+    },
+    {
+      "name": "basejump-xor",
+      "module": "pyc_runtime_basejump_xor",
+      "oracle": "bitwise-xor-v1",
+      "upstream": {
+        "repository": "https://github.com/bespoke-silicon-group/basejump_stl.git",
+        "commit": "b48037e28544425839dbd617d45b1a82631bc1a9",
+        "license": "Solderpad-Hardware-License-0.51"
+      },
+      "files": [
+        "pyc_runtime_basejump_xor.v",
+        "basejump/bsg_xor.sv",
+        "basejump/bsg_defines.sv"
+      ],
+      "license_files": [
+        "licenses/basejump-stl/LICENSE"
+      ],
+      "parameter_cases": [
+        {
+          "WIDTH": 1
+        },
+        {
+          "WIDTH": 4
+        },
+        {
+          "WIDTH": 8
+        },
+        {
+          "WIDTH": 13
+        }
+      ],
+      "verification": {
+        "verilator": "PASS",
+        "simulation": "PASS",
+        "yosys": "PASS",
+        "qor_cells": {
+          "WIDTH_1": 1,
+          "WIDTH_4": 4,
+          "WIDTH_8": 8,
+          "WIDTH_13": 13
+        }
+      }
+    },
+    {
+      "name": "pulp-binary-to-gray",
+      "module": "pyc_runtime_pulp_binary_to_gray",
+      "oracle": "binary-to-gray-v1",
+      "upstream": {
+        "repository": "https://github.com/pulp-platform/common_cells.git",
+        "commit": "63b7c50d43e462b59506f69d341ff1e40202866d",
+        "license": "Solderpad-Hardware-License-0.51"
+      },
+      "files": [
+        "pyc_runtime_pulp_binary_to_gray.v",
+        "pulp/cc_binary_to_gray.sv"
+      ],
+      "license_files": [
+        "licenses/pulp-common-cells/LICENSE"
+      ],
+      "parameter_cases": [
+        {
+          "WIDTH": 1
+        },
+        {
+          "WIDTH": 4
+        },
+        {
+          "WIDTH": 8
+        },
+        {
+          "WIDTH": 13
+        }
+      ],
+      "verification": {
+        "verilator": "PASS",
+        "simulation": "PASS",
+        "yosys": "PASS",
+        "qor_cells": {
+          "WIDTH_1": 0,
+          "WIDTH_4": 3,
+          "WIDTH_8": 7,
+          "WIDTH_13": 12
+        }
+      }
+    },
+    {
+      "name": "pulp-gray-to-binary",
+      "module": "pyc_runtime_pulp_gray_to_binary",
+      "oracle": "gray-to-binary-v1",
+      "upstream": {
+        "repository": "https://github.com/pulp-platform/common_cells.git",
+        "commit": "63b7c50d43e462b59506f69d341ff1e40202866d",
+        "license": "Solderpad-Hardware-License-0.51"
+      },
+      "files": [
+        "pyc_runtime_pulp_gray_to_binary.v",
+        "pulp/cc_gray_to_binary.sv"
+      ],
+      "license_files": [
+        "licenses/pulp-common-cells/LICENSE"
+      ],
+      "parameter_cases": [
+        {
+          "WIDTH": 1
+        },
+        {
+          "WIDTH": 4
+        },
+        {
+          "WIDTH": 8
+        },
+        {
+          "WIDTH": 13
+        }
+      ],
+      "verification": {
+        "verilator": "PASS",
+        "simulation": "PASS",
+        "yosys": "PASS",
+        "qor_cells": {
+          "WIDTH_1": 0,
+          "WIDTH_4": 3,
+          "WIDTH_8": 10,
+          "WIDTH_13": 27
+        }
+      }
+    },
+    {
+      "name": "opentitan-onehot-encode",
+      "module": "pyc_runtime_opentitan_onehot_encode",
+      "oracle": "onehot-v1",
+      "upstream": {
+        "repository": "https://github.com/lowRISC/opentitan.git",
+        "commit": "782784584433afe5105385041f1282da0a21e023",
+        "license": "Apache-2.0"
+      },
+      "files": [
+        "pyc_runtime_opentitan_onehot_encode.v",
+        "opentitan/prim_onehot_enc.sv"
+      ],
+      "license_files": [
+        "licenses/opentitan/LICENSE"
+      ],
+      "parameter_cases": [
+        {
+          "OUT_WIDTH": 1
+        },
+        {
+          "OUT_WIDTH": 4
+        },
+        {
+          "OUT_WIDTH": 8
+        },
+        {
+          "OUT_WIDTH": 13
+        }
+      ],
+      "verification": {
+        "verilator": "PASS",
+        "simulation": "PASS",
+        "yosys": "PASS",
+        "qor_cells": {
+          "WIDTH_1": 0,
+          "WIDTH_4": 4,
+          "WIDTH_8": 8,
+          "WIDTH_13": 13
+        }
+      }
+    },
+    {
+      "name": "basejump-counter",
+      "module": "pyc_runtime_basejump_counter",
+      "oracle": "counter-v1",
+      "upstream": {
+        "repository": "https://github.com/bespoke-silicon-group/basejump_stl.git",
+        "commit": "b48037e28544425839dbd617d45b1a82631bc1a9",
+        "license": "Solderpad-Hardware-License-0.51"
+      },
+      "files": [
+        "pyc_runtime_basejump_counter.v",
+        "basejump/bsg_counter_clear_up_saturating.sv",
+        "basejump/bsg_defines.sv"
+      ],
+      "license_files": [
+        "licenses/basejump-stl/LICENSE"
+      ],
+      "parameter_cases": [
+        {
+          "MAX_VALUE": 3,
+          "INIT_VALUE": 1
+        },
+        {
+          "MAX_VALUE": 15,
+          "INIT_VALUE": 0
+        }
+      ],
+      "verification": {
+        "verilator": "PASS",
+        "simulation": "PASS",
+        "yosys": "PASS",
+        "qor_cells": {
+          "MAX_VALUE_3_INIT_VALUE_1": 9,
+          "MAX_VALUE_15_INIT_VALUE_0": 15
+        }
+      }
+    },
+    {
+      "name": "basejump-priority-encode",
+      "module": "pyc_runtime_basejump_priority_encode",
+      "oracle": "basejump-priority-v1",
+      "upstream": {
+        "repository": "https://github.com/bespoke-silicon-group/basejump_stl.git",
+        "commit": "b48037e28544425839dbd617d45b1a82631bc1a9",
+        "license": "Solderpad-Hardware-License-0.51"
+      },
+      "files": [
+        "pyc_runtime_basejump_priority_encode.v",
+        "basejump/bsg_priority_encode.sv",
+        "basejump/bsg_priority_encode_one_hot_out.sv",
+        "basejump/bsg_encode_one_hot.sv",
+        "basejump/bsg_scan.sv",
+        "basejump/bsg_defines.sv"
+      ],
+      "license_files": [
+        "licenses/basejump-stl/LICENSE"
+      ],
+      "parameter_cases": [
+        {
+          "WIDTH": 1,
+          "LO_TO_HI": 1
+        },
+        {
+          "WIDTH": 4,
+          "LO_TO_HI": 1
+        },
+        {
+          "WIDTH": 8,
+          "LO_TO_HI": 1
+        },
+        {
+          "WIDTH": 8,
+          "LO_TO_HI": 0
+        },
+        {
+          "WIDTH": 13,
+          "LO_TO_HI": 0
+        }
+      ],
+      "verification": {
+        "verilator": "PASS",
+        "simulation": "PASS",
+        "yosys": "PASS",
+        "qor_cells": {
+          "WIDTH_1_LO_TO_HI_1": 0,
+          "WIDTH_4_LO_TO_HI_1": 7,
+          "WIDTH_8_LO_TO_HI_1": 19,
+          "WIDTH_8_LO_TO_HI_0": 15,
+          "WIDTH_13_LO_TO_HI_0": 36
+        },
+        "frontend": "slang"
+      }
+    },
+    {
+      "name": "basejump-clz",
+      "module": "pyc_runtime_basejump_clz",
+      "oracle": "basejump-clz-v1",
+      "upstream": {
+        "repository": "https://github.com/bespoke-silicon-group/basejump_stl.git",
+        "commit": "b48037e28544425839dbd617d45b1a82631bc1a9",
+        "license": "Solderpad-Hardware-License-0.51"
+      },
+      "files": [
+        "pyc_runtime_basejump_clz.v",
+        "basejump/bsg_counting_leading_zeros.sv",
+        "basejump/bsg_priority_encode.sv",
+        "basejump/bsg_priority_encode_one_hot_out.sv",
+        "basejump/bsg_encode_one_hot.sv",
+        "basejump/bsg_scan.sv",
+        "basejump/bsg_defines.sv"
+      ],
+      "license_files": [
+        "licenses/basejump-stl/LICENSE"
+      ],
+      "parameter_cases": [
+        {
+          "WIDTH": 1
+        },
+        {
+          "WIDTH": 4
+        },
+        {
+          "WIDTH": 8
+        },
+        {
+          "WIDTH": 13
+        }
+      ],
+      "verification": {
+        "verilator": "PASS",
+        "simulation": "PASS",
+        "yosys": "PASS",
+        "qor_cells": {
+          "WIDTH_1": 1,
+          "WIDTH_4": 7,
+          "WIDTH_8": 19,
+          "WIDTH_13": 35
+        },
+        "frontend": "slang"
+      }
+    },
+    {
+      "name": "basejump-segmented-mux",
+      "module": "pyc_runtime_basejump_segmented_mux",
+      "oracle": "segmented-mux-v1",
+      "upstream": {
+        "repository": "https://github.com/bespoke-silicon-group/basejump_stl.git",
+        "commit": "b48037e28544425839dbd617d45b1a82631bc1a9",
+        "license": "Solderpad-Hardware-License-0.51"
+      },
+      "files": [
+        "pyc_runtime_basejump_segmented_mux.v",
+        "basejump/bsg_mux_segmented.sv",
+        "basejump/bsg_defines.sv"
+      ],
+      "license_files": [
+        "licenses/basejump-stl/LICENSE"
+      ],
+      "parameter_cases": [
+        {
+          "SEGMENTS": 2,
+          "SEGMENT_WIDTH": 1
+        },
+        {
+          "SEGMENTS": 4,
+          "SEGMENT_WIDTH": 2
+        },
+        {
+          "SEGMENTS": 5,
+          "SEGMENT_WIDTH": 3
+        }
+      ],
+      "verification": {
+        "verilator": "PASS",
+        "simulation": "PASS",
+        "yosys": "PASS",
+        "qor_cells": {
+          "SEGMENTS_2_SEGMENT_WIDTH_1": 2,
+          "SEGMENTS_4_SEGMENT_WIDTH_2": 8,
+          "SEGMENTS_5_SEGMENT_WIDTH_3": 15
+        }
+      }
+    },
+    {
+      "name": "opentitan-msb-extend",
+      "module": "pyc_runtime_opentitan_msb_extend",
+      "oracle": "msb-extend-v1",
+      "upstream": {
+        "repository": "https://github.com/lowRISC/opentitan.git",
+        "commit": "782784584433afe5105385041f1282da0a21e023",
+        "license": "Apache-2.0"
+      },
+      "files": [
+        "pyc_runtime_opentitan_msb_extend.v",
+        "opentitan/prim_msb_extend.sv",
+        "opentitan/prim_assert.sv"
+      ],
+      "license_files": [
+        "licenses/opentitan/LICENSE"
+      ],
+      "parameter_cases": [
+        {
+          "IN_WIDTH": 4,
+          "OUT_WIDTH": 8
+        },
+        {
+          "IN_WIDTH": 8,
+          "OUT_WIDTH": 16
+        },
+        {
+          "IN_WIDTH": 5,
+          "OUT_WIDTH": 13
+        }
+      ],
+      "verification": {
+        "verilator": "PASS",
+        "simulation": "PASS",
+        "yosys": "PASS",
+        "qor_cells": {
+          "IN_WIDTH_4_OUT_WIDTH_8": 0,
+          "IN_WIDTH_8_OUT_WIDTH_16": 0,
+          "IN_WIDTH_5_OUT_WIDTH_13": 0
+        }
+      }
+    },
+    {
+      "name": "opentitan-slicer",
+      "module": "pyc_runtime_opentitan_slicer",
+      "oracle": "slicer-v1",
+      "upstream": {
+        "repository": "https://github.com/lowRISC/opentitan.git",
+        "commit": "782784584433afe5105385041f1282da0a21e023",
+        "license": "Apache-2.0"
+      },
+      "files": [
+        "pyc_runtime_opentitan_slicer.v",
+        "opentitan/prim_slicer.sv",
+        "opentitan/prim_assert.sv"
+      ],
+      "license_files": [
+        "licenses/opentitan/LICENSE"
+      ],
+      "parameter_cases": [
+        {
+          "IN_WIDTH": 16,
+          "OUT_WIDTH": 4,
+          "INDEX_WIDTH": 2
+        },
+        {
+          "IN_WIDTH": 32,
+          "OUT_WIDTH": 8,
+          "INDEX_WIDTH": 2
+        }
+      ],
+      "verification": {
+        "verilator": "PASS",
+        "simulation": "PASS",
+        "yosys": "PASS",
+        "qor_cells": {
+          "IN_WIDTH_16_OUT_WIDTH_4_INDEX_WIDTH_2": 12,
+          "IN_WIDTH_32_OUT_WIDTH_8_INDEX_WIDTH_2": 24
+        }
+      }
+    },
+    {
+      "name": "pulp-onehot-check",
+      "module": "pyc_runtime_pulp_onehot_check",
+      "oracle": "onehot-check-v1",
+      "upstream": {
+        "repository": "https://github.com/pulp-platform/common_cells.git",
+        "commit": "63b7c50d43e462b59506f69d341ff1e40202866d",
+        "license": "Solderpad-Hardware-License-0.51"
+      },
+      "files": [
+        "pyc_runtime_pulp_onehot_check.v",
+        "pulp/cc_onehot.sv"
+      ],
+      "license_files": [
+        "licenses/pulp-common-cells/LICENSE"
+      ],
+      "parameter_cases": [
+        {
+          "WIDTH": 1
+        },
+        {
+          "WIDTH": 4
+        },
+        {
+          "WIDTH": 8
+        },
+        {
+          "WIDTH": 13
+        }
+      ],
+      "verification": {
+        "verilator": "PASS",
+        "simulation": "PASS",
+        "yosys": "PASS",
+        "qor_cells": {
+          "WIDTH_1": 0,
+          "WIDTH_4": 6,
+          "WIDTH_8": 19,
+          "WIDTH_13": 34
+        }
+      }
+    },
+    {
+      "name": "basejump-encode-one-hot",
+      "module": "pyc_runtime_basejump_encode_one_hot",
+      "oracle": "encode-onehot-v1",
+      "upstream": {
+        "repository": "https://github.com/bespoke-silicon-group/basejump_stl.git",
+        "commit": "b48037e28544425839dbd617d45b1a82631bc1a9",
+        "license": "Solderpad-Hardware-License-0.51"
+      },
+      "files": [
+        "pyc_runtime_basejump_encode_one_hot.v",
+        "basejump/bsg_encode_one_hot.sv",
+        "basejump/bsg_defines.sv"
+      ],
+      "license_files": [
+        "licenses/basejump-stl/LICENSE"
+      ],
+      "parameter_cases": [
+        {
+          "WIDTH": 1,
+          "LO_TO_HI": 1
+        },
+        {
+          "WIDTH": 4,
+          "LO_TO_HI": 1
+        },
+        {
+          "WIDTH": 8,
+          "LO_TO_HI": 1
+        },
+        {
+          "WIDTH": 8,
+          "LO_TO_HI": 0
+        },
+        {
+          "WIDTH": 13,
+          "LO_TO_HI": 0
+        }
+      ],
+      "verification": {
+        "verilator": "PASS",
+        "simulation": "PASS",
+        "yosys": "PASS",
+        "qor_cells": {
+          "WIDTH_1_LO_TO_HI_1": 0,
+          "WIDTH_4_LO_TO_HI_1": 4,
+          "WIDTH_8_LO_TO_HI_1": 11,
+          "WIDTH_8_LO_TO_HI_0": 11,
+          "WIDTH_13_LO_TO_HI_0": 29
+        },
+        "frontend": "slang"
+      }
+    },
+    {
+      "name": "basejump-priority-onehot",
+      "module": "pyc_runtime_basejump_priority_onehot",
+      "oracle": "priority-onehot-v1",
+      "upstream": {
+        "repository": "https://github.com/bespoke-silicon-group/basejump_stl.git",
+        "commit": "b48037e28544425839dbd617d45b1a82631bc1a9",
+        "license": "Solderpad-Hardware-License-0.51"
+      },
+      "files": [
+        "pyc_runtime_basejump_priority_onehot.v",
+        "basejump/bsg_priority_encode_one_hot_out.sv",
+        "basejump/bsg_scan.sv",
+        "basejump/bsg_defines.sv"
+      ],
+      "license_files": [
+        "licenses/basejump-stl/LICENSE"
+      ],
+      "parameter_cases": [
+        {
+          "WIDTH": 1,
+          "LO_TO_HI": 1
+        },
+        {
+          "WIDTH": 4,
+          "LO_TO_HI": 1
+        },
+        {
+          "WIDTH": 8,
+          "LO_TO_HI": 1
+        },
+        {
+          "WIDTH": 8,
+          "LO_TO_HI": 0
+        },
+        {
+          "WIDTH": 13,
+          "LO_TO_HI": 0
+        }
+      ],
+      "verification": {
+        "verilator": "PASS",
+        "simulation": "PASS",
+        "yosys": "PASS",
+        "qor_cells": {
+          "WIDTH_1_LO_TO_HI_1": 0,
+          "WIDTH_4_LO_TO_HI_1": 5,
+          "WIDTH_8_LO_TO_HI_1": 14,
+          "WIDTH_8_LO_TO_HI_0": 14,
+          "WIDTH_13_LO_TO_HI_0": 24
+        },
+        "frontend": "slang"
+      }
+    },
+    {
+      "name": "basejump-scan-or",
+      "module": "pyc_runtime_basejump_scan_or",
+      "oracle": "scan-or-v1",
+      "upstream": {
+        "repository": "https://github.com/bespoke-silicon-group/basejump_stl.git",
+        "commit": "b48037e28544425839dbd617d45b1a82631bc1a9",
+        "license": "Solderpad-Hardware-License-0.51"
+      },
+      "files": [
+        "pyc_runtime_basejump_scan_or.v",
+        "basejump/bsg_scan.sv",
+        "basejump/bsg_defines.sv"
+      ],
+      "license_files": [
+        "licenses/basejump-stl/LICENSE"
+      ],
+      "parameter_cases": [
+        {
+          "WIDTH": 1,
+          "LO_TO_HI": 1
+        },
+        {
+          "WIDTH": 4,
+          "LO_TO_HI": 1
+        },
+        {
+          "WIDTH": 8,
+          "LO_TO_HI": 1
+        },
+        {
+          "WIDTH": 8,
+          "LO_TO_HI": 0
+        },
+        {
+          "WIDTH": 13,
+          "LO_TO_HI": 0
+        }
+      ],
+      "verification": {
+        "verilator": "PASS",
+        "simulation": "PASS",
+        "yosys": "PASS",
+        "qor_cells": {
+          "WIDTH_1_LO_TO_HI_1": 0,
+          "WIDTH_4_LO_TO_HI_1": 3,
+          "WIDTH_8_LO_TO_HI_1": 7,
+          "WIDTH_8_LO_TO_HI_0": 7,
+          "WIDTH_13_LO_TO_HI_0": 12
+        },
+        "frontend": "slang"
+      }
+    }
+  ]
+}

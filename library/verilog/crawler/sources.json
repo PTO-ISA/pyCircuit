@@ -1,0 +1,850 @@
+{
+  "schema": "acir-runtime-crawler-config-v0.1",
+  "policy": {
+    "allow_skipped_tools": true
+  },
+  "sources": [
+    {
+      "name": "in-tree-pyc-runtime",
+      "provider": "local",
+      "url": "..",
+      "enabled": true
+    },
+    {
+      "name": "vendored-pulp-common-cells",
+      "provider": "local",
+      "url": "../pulp",
+      "subdir": ".",
+      "license": "Solderpad-Hardware-License-0.51",
+      "families": [
+        "Encoding"
+      ],
+      "enabled": true
+    },
+    {
+      "name": "vendored-opentitan",
+      "provider": "local",
+      "url": "../opentitan",
+      "subdir": ".",
+      "license": "Apache-2.0",
+      "families": [
+        "Encoding"
+      ],
+      "enabled": true
+    },
+    {
+      "name": "vendored-basejump-stl",
+      "provider": "local",
+      "url": "../basejump",
+      "subdir": ".",
+      "license": "Solderpad-Hardware-License-0.51",
+      "families": [
+        "Arithmetic"
+      ],
+      "enabled": true
+    },
+    {
+      "name": "vendored-verilog-axi",
+      "provider": "local",
+      "url": "../verilog_axi",
+      "subdir": ".",
+      "license": "MIT",
+      "families": [
+        "Encoding",
+        "Arbitration",
+        "Interconnect"
+      ],
+      "enabled": true
+    },
+    {
+      "name": "pulp-common-cells",
+      "provider": "github",
+      "url": "https://github.com/pulp-platform/common_cells.git",
+      "ref": "master",
+      "commit": "63b7c50d43e462b59506f69d341ff1e40202866d",
+      "subdir": "src",
+      "families": [
+        "Reduction",
+        "Dataflow",
+        "Memory",
+        "CDC"
+      ],
+      "license": "Solderpad-Hardware-License-0.51",
+      "enabled": false
+    },
+    {
+      "name": "basejump-stl",
+      "provider": "github",
+      "url": "https://github.com/bespoke-silicon-group/basejump_stl.git",
+      "ref": "main",
+      "commit": "b48037e28544425839dbd617d45b1a82631bc1a9",
+      "subdir": "bsg_misc",
+      "families": [
+        "Reduction",
+        "Integer",
+        "Dataflow"
+      ],
+      "license": "Solderpad-Hardware-License-0.51",
+      "enabled": false
+    },
+    {
+      "name": "opentitan-hw-ip",
+      "provider": "github",
+      "url": "https://github.com/lowRISC/opentitan.git",
+      "ref": "master",
+      "commit": "782784584433afe5105385041f1282da0a21e023",
+      "subdir": "hw/ip/prim/rtl",
+      "families": [
+        "Dataflow",
+        "Memory",
+        "Interconnect"
+      ],
+      "license": "Apache-2.0",
+      "enabled": false
+    },
+    {
+      "name": "vortex",
+      "provider": "github",
+      "url": "https://github.com/vortexgpgpu/vortex.git",
+      "ref": "master",
+      "commit": "d76b7f24e658867ab57e3942d7c648c3e6af072d",
+      "subdir": "hw/rtl/libs",
+      "include_dirs": [
+        ".."
+      ],
+      "families": [
+        "GPU",
+        "Integer",
+        "Reduction",
+        "Dataflow"
+      ],
+      "license": "Apache-2.0",
+      "enabled": false
+    },
+    {
+      "name": "verilog-axi",
+      "provider": "github",
+      "url": "https://github.com/alexforencich/verilog-axi.git",
+      "ref": "master",
+      "commit": "516bd5dadc3365b7f9e225d2af8fe0b8d804fe53",
+      "subdir": ".",
+      "families": [
+        "DMA",
+        "Interconnect",
+        "Dataflow"
+      ],
+      "license": "MIT",
+      "enabled": false,
+      "notes": "High-quality AXI4/AXI-Lite RTL; enable only with an explicit top/interface target because the repository contains many integration-level modules."
+    },
+    {
+      "name": "verilog-ethernet",
+      "provider": "github",
+      "url": "https://github.com/alexforencich/verilog-ethernet.git",
+      "ref": "master",
+      "commit": "77320a9471d19c7dd383914bc049e02d9f4f1ffb",
+      "subdir": ".",
+      "families": [
+        "Dataflow",
+        "Communication",
+        "Interconnect"
+      ],
+      "license": "MIT",
+      "enabled": false,
+      "notes": "Reusable Ethernet/streaming blocks; defer promotion until a bounded primitive-level target is selected."
+    },
+    {
+      "name": "secworks-aes",
+      "provider": "github",
+      "url": "https://github.com/secworks/aes.git",
+      "ref": "master",
+      "commit": "80dc4718e1dcbbdb4b0dd1bdb393d8f7b98981dc",
+      "subdir": ".",
+      "families": [
+        "Crypto",
+        "Storage-dataflow"
+      ],
+      "license": "BSD-2-Clause",
+      "enabled": false,
+      "notes": "Candidate cryptographic runtime family; requires a dedicated functional oracle and key/state interface adapter."
+    },
+    {
+      "name": "freecores-round-robin-arbiter",
+      "provider": "github",
+      "url": "https://github.com/freecores/round_robin_arbiter.git",
+      "ref": "master",
+      "commit": "b207eb19fe19c5b520a23fa105730ce70b8fd126",
+      "subdir": ".",
+      "families": [
+        "Interconnect",
+        "Dataflow"
+      ],
+      "license": "UNKNOWN",
+      "enabled": false,
+      "notes": "GitHub mirror of an OpenCores design; license must be resolved before any source is vendored."
+    },
+    {
+      "name": "gitlab-rtl-example",
+      "provider": "gitlab",
+      "url": "https://gitlab.com/example/rtl-primitives.git",
+      "enabled": false
+    },
+    {
+      "name": "codeberg-rtl-example",
+      "provider": "codeberg",
+      "url": "https://codeberg.org/example/rtl-primitives.git",
+      "enabled": false
+    },
+    {
+      "name": "sourcehut-rtl-example",
+      "provider": "sourcehut",
+      "url": "https://git.sr.ht/~example/rtl-primitives",
+      "enabled": false
+    }
+  ],
+  "targets": [
+    {
+      "name": "fifo",
+      "source": "in-tree-pyc-runtime",
+      "module": "pyc_fifo",
+      "interface": {
+        "wrapper_module": "pyc_runtime_fifo",
+        "parameters": [
+          {
+            "name": "WIDTH",
+            "source": "WIDTH",
+            "default": 1
+          },
+          {
+            "name": "DEPTH",
+            "source": "DEPTH",
+            "default": 2
+          }
+        ],
+        "ports": [
+          {
+            "name": "clk",
+            "direction": "input",
+            "width": "1"
+          },
+          {
+            "name": "rst",
+            "direction": "input",
+            "width": "1"
+          },
+          {
+            "name": "in_valid",
+            "direction": "input",
+            "width": "1"
+          },
+          {
+            "name": "in_ready",
+            "direction": "output",
+            "width": "1"
+          },
+          {
+            "name": "in_data",
+            "direction": "input",
+            "width": "WIDTH"
+          },
+          {
+            "name": "out_valid",
+            "direction": "output",
+            "width": "1"
+          },
+          {
+            "name": "out_ready",
+            "direction": "input",
+            "width": "1"
+          },
+          {
+            "name": "out_data",
+            "direction": "output",
+            "width": "WIDTH"
+          }
+        ]
+      }
+    },
+    {
+      "name": "popcount",
+      "source": "in-tree-pyc-runtime",
+      "module": "pyc_popcount",
+      "interface": {
+        "wrapper_module": "pyc_runtime_popcount",
+        "parameters": [
+          {
+            "name": "IN_WIDTH",
+            "source": "IN_WIDTH",
+            "default": 8
+          },
+          {
+            "name": "OUT_WIDTH",
+            "source": "OUT_WIDTH",
+            "default": 4
+          }
+        ],
+        "ports": [
+          {
+            "name": "in",
+            "direction": "input",
+            "width": "IN_WIDTH"
+          },
+          {
+            "name": "out",
+            "direction": "output",
+            "width": "OUT_WIDTH"
+          }
+        ]
+      }
+    },
+    {
+      "name": "rr-arbiter",
+      "source": "in-tree-pyc-runtime",
+      "module": "pyc_rr_arbiter",
+      "interface": {
+        "wrapper_module": "pyc_runtime_rr_arbiter",
+        "parameters": [
+          {
+            "name": "NUM_INPUTS",
+            "source": "NUM_INPUTS",
+            "default": 2
+          },
+          {
+            "name": "POINTER_WIDTH",
+            "source": "POINTER_WIDTH",
+            "default": 1
+          }
+        ],
+        "ports": [
+          {
+            "name": "req",
+            "direction": "input",
+            "width": "NUM_INPUTS"
+          },
+          {
+            "name": "cursor",
+            "direction": "input",
+            "width": "POINTER_WIDTH"
+          },
+          {
+            "name": "grant",
+            "direction": "output",
+            "width": "NUM_INPUTS"
+          }
+        ]
+      }
+    },
+    {
+      "name": "register",
+      "source": "in-tree-pyc-runtime",
+      "module": "pyc_reg",
+      "interface": {
+        "wrapper_module": "pyc_runtime_reg",
+        "parameters": [
+          {
+            "name": "WIDTH",
+            "source": "WIDTH",
+            "default": 1
+          }
+        ],
+        "ports": [
+          {
+            "name": "clk",
+            "direction": "input",
+            "width": "1"
+          },
+          {
+            "name": "rst",
+            "direction": "input",
+            "width": "1"
+          },
+          {
+            "name": "enable",
+            "direction": "input",
+            "width": "1",
+            "source": "en"
+          },
+          {
+            "name": "d",
+            "direction": "input",
+            "width": "WIDTH"
+          },
+          {
+            "name": "init",
+            "direction": "input",
+            "width": "WIDTH"
+          },
+          {
+            "name": "q",
+            "direction": "output",
+            "width": "WIDTH"
+          }
+        ]
+      }
+    },
+    {
+      "name": "pulp-popcount",
+      "source": "pulp-common-cells",
+      "module": "cc_popcount",
+      "interface": {
+        "wrapper_module": "pyc_runtime_pulp_popcount",
+        "parameters": [
+          {
+            "name": "IN_WIDTH",
+            "source": "InputWidth",
+            "default": 8
+          }
+        ],
+        "ports": [
+          {
+            "name": "in",
+            "direction": "input",
+            "width": "IN_WIDTH",
+            "source": "data_i"
+          },
+          {
+            "name": "out",
+            "direction": "output",
+            "width": "$clog2(IN_WIDTH+1)",
+            "source": "popcount_o"
+          }
+        ]
+      }
+    },
+    {
+      "name": "basejump-popcount",
+      "source": "basejump-stl",
+      "module": "bsg_popcount",
+      "interface": {
+        "wrapper_module": "pyc_runtime_basejump_popcount",
+        "parameters": [
+          {
+            "name": "IN_WIDTH",
+            "source": "width_p",
+            "default": 8
+          }
+        ],
+        "ports": [
+          {
+            "name": "in",
+            "direction": "input",
+            "width": "IN_WIDTH",
+            "source": "i"
+          },
+          {
+            "name": "out",
+            "direction": "output",
+            "width": "$clog2(IN_WIDTH+1)",
+            "source": "o"
+          }
+        ]
+      }
+    },
+    {
+      "name": "vortex-popcount",
+      "source": "vortex",
+      "module": "VX_popcount",
+      "interface": {
+        "wrapper_module": "pyc_runtime_vortex_popcount",
+        "parameters": [
+          {
+            "name": "IN_WIDTH",
+            "source": "N",
+            "default": 8
+          }
+        ],
+        "ports": [
+          {
+            "name": "in",
+            "direction": "input",
+            "width": "IN_WIDTH",
+            "source": "data_in"
+          },
+          {
+            "name": "out",
+            "direction": "output",
+            "width": "$clog2(IN_WIDTH+1)",
+            "source": "data_out"
+          }
+        ]
+      }
+    },
+    {
+      "name": "pulp-binary-to-gray",
+      "source": "vendored-pulp-common-cells",
+      "module": "cc_binary_to_gray",
+      "interface": {
+        "wrapper_module": "pyc_runtime_pulp_binary_to_gray",
+        "parameters": [
+          {
+            "name": "WIDTH",
+            "source": "Width",
+            "default": 8
+          }
+        ],
+        "ports": [
+          {
+            "name": "in",
+            "direction": "input",
+            "width": "WIDTH",
+            "source": "a_i"
+          },
+          {
+            "name": "out",
+            "direction": "output",
+            "width": "WIDTH",
+            "source": "z_o"
+          }
+        ]
+      }
+    },
+    {
+      "name": "pulp-gray-to-binary",
+      "source": "vendored-pulp-common-cells",
+      "module": "cc_gray_to_binary",
+      "interface": {
+        "wrapper_module": "pyc_runtime_pulp_gray_to_binary",
+        "parameters": [
+          {
+            "name": "WIDTH",
+            "source": "Width",
+            "default": 8
+          }
+        ],
+        "ports": [
+          {
+            "name": "in",
+            "direction": "input",
+            "width": "WIDTH",
+            "source": "a_i"
+          },
+          {
+            "name": "out",
+            "direction": "output",
+            "width": "WIDTH",
+            "source": "z_o"
+          }
+        ]
+      }
+    },
+    {
+      "name": "opentitan-onehot-encode",
+      "source": "vendored-opentitan",
+      "module": "prim_onehot_enc",
+      "interface": {
+        "wrapper_module": "pyc_runtime_opentitan_onehot_encode",
+        "parameters": [
+          {
+            "name": "OUT_WIDTH",
+            "source": "OneHotWidth",
+            "default": 8
+          }
+        ],
+        "ports": [
+          {
+            "name": "index",
+            "direction": "input",
+            "width": "$clog2(OUT_WIDTH)",
+            "source": "in_i"
+          },
+          {
+            "name": "enable",
+            "direction": "input",
+            "width": "1",
+            "source": "en_i"
+          },
+          {
+            "name": "out",
+            "direction": "output",
+            "width": "OUT_WIDTH",
+            "source": "out_o"
+          }
+        ]
+      }
+    },
+    {
+      "name": "opentitan-sum-tree",
+      "source": "vendored-opentitan",
+      "module": "prim_sum_tree",
+      "interface": {
+        "wrapper_module": "pyc_runtime_opentitan_sum_tree",
+        "parameters": [
+          {
+            "name": "NUM_SRC",
+            "source": "NumSrc",
+            "default": 8
+          },
+          {
+            "name": "SATURATE",
+            "source": "Saturate",
+            "default": 1
+          },
+          {
+            "name": "IN_WIDTH",
+            "source": "InWidth",
+            "default": 8
+          }
+        ],
+        "ports": [
+          {
+            "name": "clk",
+            "direction": "input",
+            "width": "1",
+            "source": "clk_i"
+          },
+          {
+            "name": "rst_n",
+            "direction": "input",
+            "width": "1",
+            "source": "rst_ni"
+          },
+          {
+            "name": "values",
+            "direction": "input",
+            "width": "NUM_SRC*IN_WIDTH",
+            "source": "values_i"
+          },
+          {
+            "name": "valid",
+            "direction": "input",
+            "width": "NUM_SRC",
+            "source": "valid_i"
+          },
+          {
+            "name": "sum",
+            "direction": "output",
+            "width": "(SATURATE != 0) ? IN_WIDTH : IN_WIDTH + $clog2(NUM_SRC)",
+            "source": "sum_value_o"
+          },
+          {
+            "name": "sum_valid",
+            "direction": "output",
+            "width": "1",
+            "source": "sum_valid_o"
+          }
+        ]
+      }
+    },
+    {
+      "name": "opentitan-max-tree",
+      "source": "vendored-opentitan",
+      "module": "prim_max_tree",
+      "interface": {
+        "wrapper_module": "pyc_runtime_opentitan_max_tree",
+        "parameters": [
+          {
+            "name": "NUM_SRC",
+            "source": "NumSrc",
+            "default": 8
+          },
+          {
+            "name": "WIDTH",
+            "source": "Width",
+            "default": 8
+          }
+        ],
+        "ports": [
+          {
+            "name": "clk",
+            "direction": "input",
+            "width": "1",
+            "source": "clk_i"
+          },
+          {
+            "name": "rst_n",
+            "direction": "input",
+            "width": "1",
+            "source": "rst_ni"
+          },
+          {
+            "name": "values",
+            "direction": "input",
+            "width": "NUM_SRC*WIDTH",
+            "source": "values_i"
+          },
+          {
+            "name": "valid",
+            "direction": "input",
+            "width": "NUM_SRC",
+            "source": "valid_i"
+          },
+          {
+            "name": "max_value",
+            "direction": "output",
+            "width": "WIDTH",
+            "source": "max_value_o"
+          },
+          {
+            "name": "max_index",
+            "direction": "output",
+            "width": "(NUM_SRC <= 2) ? 1 : $clog2(NUM_SRC)",
+            "source": "max_idx_o"
+          },
+          {
+            "name": "max_valid",
+            "direction": "output",
+            "width": "1",
+            "source": "max_valid_o"
+          }
+        ]
+      }
+    },
+    {
+      "name": "verilog-axi-priority-encoder",
+      "source": "vendored-verilog-axi",
+      "module": "priority_encoder",
+      "interface": {
+        "wrapper_module": "pyc_runtime_verilog_axi_priority_encoder",
+        "parameters": [
+          {
+            "name": "WIDTH",
+            "source": "WIDTH",
+            "default": 8
+          },
+          {
+            "name": "LSB_HIGH_PRIORITY",
+            "source": "LSB_HIGH_PRIORITY",
+            "default": 0
+          }
+        ],
+        "ports": [
+          {
+            "name": "input_value",
+            "direction": "input",
+            "width": "WIDTH",
+            "source": "input_unencoded"
+          },
+          {
+            "name": "input_valid",
+            "direction": "output",
+            "width": "1",
+            "source": "output_valid"
+          },
+          {
+            "name": "index",
+            "direction": "output",
+            "width": "(WIDTH <= 2) ? 1 : $clog2(WIDTH)",
+            "source": "output_encoded"
+          },
+          {
+            "name": "onehot",
+            "direction": "output",
+            "width": "WIDTH",
+            "source": "output_unencoded"
+          }
+        ]
+      }
+    },
+    {
+      "name": "basejump-and",
+      "source": "vendored-basejump-stl",
+      "module": "bsg_and",
+      "interface": {
+        "wrapper_module": "pyc_runtime_basejump_and",
+        "parameters": [
+          {
+            "name": "WIDTH",
+            "source": "width_p",
+            "default": 8
+          }
+        ],
+        "ports": [
+          {
+            "name": "a",
+            "direction": "input",
+            "width": "WIDTH",
+            "source": "a_i"
+          },
+          {
+            "name": "b",
+            "direction": "input",
+            "width": "WIDTH",
+            "source": "b_i"
+          },
+          {
+            "name": "out",
+            "direction": "output",
+            "width": "WIDTH",
+            "source": "o"
+          }
+        ]
+      }
+    },
+    {
+      "name": "basejump-xor",
+      "source": "vendored-basejump-stl",
+      "module": "bsg_xor",
+      "interface": {
+        "wrapper_module": "pyc_runtime_basejump_xor",
+        "parameters": [
+          {
+            "name": "WIDTH",
+            "source": "width_p",
+            "default": 8
+          }
+        ],
+        "ports": [
+          {
+            "name": "a",
+            "direction": "input",
+            "width": "WIDTH",
+            "source": "a_i"
+          },
+          {
+            "name": "b",
+            "direction": "input",
+            "width": "WIDTH",
+            "source": "b_i"
+          },
+          {
+            "name": "out",
+            "direction": "output",
+            "width": "WIDTH",
+            "source": "o"
+          }
+        ]
+      }
+    },
+    {
+      "name": "basejump-adder",
+      "source": "vendored-basejump-stl",
+      "module": "bsg_adder_ripple_carry",
+      "interface": {
+        "wrapper_module": "pyc_runtime_basejump_adder",
+        "parameters": [
+          {
+            "name": "WIDTH",
+            "source": "width_p",
+            "default": 8
+          }
+        ],
+        "ports": [
+          {
+            "name": "a",
+            "direction": "input",
+            "width": "WIDTH",
+            "source": "a_i"
+          },
+          {
+            "name": "b",
+            "direction": "input",
+            "width": "WIDTH",
+            "source": "b_i"
+          },
+          {
+            "name": "sum",
+            "direction": "output",
+            "width": "WIDTH",
+            "source": "s_o"
+          },
+          {
+            "name": "carry",
+            "direction": "output",
+            "width": "1",
+            "source": "c_o"
+          }
+        ]
+      }
+    }
+  ]
+}

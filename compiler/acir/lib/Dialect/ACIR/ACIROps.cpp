@@ -19,6 +19,7 @@
 #include "llvm/ADT/TypeSwitch.h"
 #include "llvm/Support/MathExtras.h"
 
+#include <algorithm>
 #include <limits>
 #include <optional>
 
@@ -1125,6 +1126,33 @@ LogicalResult VarPopcountOp::verify() {
   if (resultInt.getWidth() != required)
     return emitOpError()
            << "result width must be ceil(log2(input_width + 1)) = " << required;
+  return success();
+}
+
+LogicalResult VarPriorityEncodeOp::verify() {
+  auto input = cast<VarType>(getIn().getType());
+  auto result = cast<VarType>(getResult().getType());
+  auto inputInt = dyn_cast<IntegerType>(input.getElementType());
+  auto resultInt = dyn_cast<IntegerType>(result.getElementType());
+  if (!inputInt || !resultInt)
+    return emitOpError("input and result payloads must be integer types");
+  unsigned inputWidth = inputInt.getWidth();
+  if (inputWidth == 0)
+    return emitOpError("input width must be positive");
+  unsigned indexWidth = 0;
+  unsigned representable = 1;
+  while (representable < inputWidth) {
+    representable <<= 1;
+    ++indexWidth;
+  }
+  indexWidth = std::max(1u, indexWidth);
+  unsigned required = indexWidth + 1; // valid bit plus index
+  if (resultInt.getWidth() != required)
+    return emitOpError() << "result width must be valid+ceil(log2(input_width)) = "
+                         << required;
+  if (getPrimitiveId().empty() || getImplementationId().empty() ||
+      getQualificationReport().empty())
+    return emitOpError("primitive, implementation and qualification metadata are required");
   return success();
 }
 

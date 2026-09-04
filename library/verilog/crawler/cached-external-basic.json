@@ -1,0 +1,231 @@
+{
+  "schema": "acir-runtime-crawler-config-v0.1",
+  "policy": {
+    "allow_skipped_tools": false
+  },
+  "sources": [
+    {
+      "name": "pulp-common-cells-cache",
+      "provider": "github",
+      "url": "https://github.com/pulp-platform/common_cells.git",
+      "local_path": "${CONFIG_DIR}/../pulp",
+      "commit": "63b7c50d43e462b59506f69d341ff1e40202866d",
+      "subdir": ".",
+      "license": "Solderpad-Hardware-License-0.51",
+      "enabled": true
+    },
+    {
+      "name": "opentitan-prim-cache",
+      "provider": "github",
+      "url": "https://github.com/lowRISC/opentitan.git",
+      "local_path": "${CONFIG_DIR}/../vendor-v0.5/opentitan",
+      "commit": "782784584433afe5105385041f1282da0a21e023",
+      "subdir": "hw/ip/prim/rtl",
+      "license": "Apache-2.0",
+      "enabled": true
+    }
+  ],
+  "targets": [
+    {
+      "name": "pulp-binary-to-gray",
+      "source": "pulp-common-cells-cache",
+      "module": "cc_binary_to_gray",
+      "interface": {
+        "wrapper_module": "pyc_runtime_pulp_binary_to_gray",
+        "parameters": [
+          {
+            "name": "WIDTH",
+            "source": "Width",
+            "default": 8
+          }
+        ],
+        "ports": [
+          {
+            "name": "in",
+            "direction": "input",
+            "width": "WIDTH",
+            "source": "a_i"
+          },
+          {
+            "name": "out",
+            "direction": "output",
+            "width": "WIDTH",
+            "source": "z_o"
+          }
+        ]
+      }
+    },
+    {
+      "name": "pulp-gray-to-binary",
+      "source": "pulp-common-cells-cache",
+      "module": "cc_gray_to_binary",
+      "interface": {
+        "wrapper_module": "pyc_runtime_pulp_gray_to_binary",
+        "parameters": [
+          {
+            "name": "WIDTH",
+            "source": "Width",
+            "default": 8
+          }
+        ],
+        "ports": [
+          {
+            "name": "in",
+            "direction": "input",
+            "width": "WIDTH",
+            "source": "a_i"
+          },
+          {
+            "name": "out",
+            "direction": "output",
+            "width": "WIDTH",
+            "source": "z_o"
+          }
+        ]
+      }
+    },
+    {
+      "name": "pulp-onehot-check",
+      "source": "pulp-common-cells-cache",
+      "module": "cc_onehot",
+      "interface": {
+        "wrapper_module": "pyc_runtime_pulp_onehot_check",
+        "parameters": [
+          {
+            "name": "WIDTH",
+            "source": "Width",
+            "default": 8
+          }
+        ],
+        "ports": [
+          {
+            "name": "in",
+            "direction": "input",
+            "width": "WIDTH",
+            "source": "d_i"
+          },
+          {
+            "name": "is_onehot",
+            "direction": "output",
+            "width": "1",
+            "source": "is_onehot_o"
+          }
+        ]
+      }
+    },
+    {
+      "name": "opentitan-onehot-encode",
+      "source": "opentitan-prim-cache",
+      "module": "prim_onehot_enc",
+      "interface": {
+        "wrapper_module": "pyc_runtime_opentitan_onehot_encode",
+        "parameters": [
+          {
+            "name": "OUT_WIDTH",
+            "source": "OneHotWidth",
+            "default": 8
+          }
+        ],
+        "ports": [
+          {
+            "name": "index",
+            "direction": "input",
+            "width": "$clog2(OUT_WIDTH)",
+            "source": "in_i"
+          },
+          {
+            "name": "enable",
+            "direction": "input",
+            "width": "1",
+            "source": "en_i"
+          },
+          {
+            "name": "out",
+            "direction": "output",
+            "width": "OUT_WIDTH",
+            "source": "out_o"
+          }
+        ]
+      }
+    },
+    {
+      "name": "opentitan-msb-extend",
+      "source": "opentitan-prim-cache",
+      "module": "prim_msb_extend",
+      "interface": {
+        "wrapper_module": "pyc_runtime_opentitan_msb_extend",
+        "parameters": [
+          {
+            "name": "IN_WIDTH",
+            "source": "InWidth",
+            "default": 8
+          },
+          {
+            "name": "OUT_WIDTH",
+            "source": "OutWidth",
+            "default": 16
+          }
+        ],
+        "ports": [
+          {
+            "name": "in",
+            "direction": "input",
+            "width": "IN_WIDTH",
+            "source": "in_i"
+          },
+          {
+            "name": "out",
+            "direction": "output",
+            "width": "OUT_WIDTH",
+            "source": "out_o"
+          }
+        ]
+      }
+    },
+    {
+      "name": "opentitan-slicer",
+      "source": "opentitan-prim-cache",
+      "module": "prim_slicer",
+      "interface": {
+        "wrapper_module": "pyc_runtime_opentitan_slicer",
+        "parameters": [
+          {
+            "name": "IN_WIDTH",
+            "source": "InW",
+            "default": 64
+          },
+          {
+            "name": "OUT_WIDTH",
+            "source": "OutW",
+            "default": 8
+          },
+          {
+            "name": "INDEX_WIDTH",
+            "source": "IndexW",
+            "default": 3
+          }
+        ],
+        "ports": [
+          {
+            "name": "index",
+            "direction": "input",
+            "width": "INDEX_WIDTH",
+            "source": "sel_i"
+          },
+          {
+            "name": "in",
+            "direction": "input",
+            "width": "IN_WIDTH",
+            "source": "data_i"
+          },
+          {
+            "name": "out",
+            "direction": "output",
+            "width": "OUT_WIDTH",
+            "source": "data_o"
+          }
+        ]
+      }
+    }
+  ]
+}

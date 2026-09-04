@@ -1,0 +1,270 @@
+schema_version: '0.14'
+design_classes:
+  DF-09:
+    family: Dataflow
+    operation: round_robin_arbiter
+    description: N-request round-robin arbiter with acceptance-controlled state advance.
+    canonical_contract:
+      ports:
+        clk_i: clock
+        rst_ni: active-low reset
+        req_i: N-bit request vector
+        accept_i: sink accepts current selected request
+        valid_o: at least one request is selectable
+        sel_o: one-hot selected requester; independent of accept_i
+      properties:
+      - sel_o is zero when valid_o is zero
+      - sel_o is one-hot and a subset of req_i when valid_o is one
+      - selection is stable during backpressure when requests remain stable
+      - single active requester is always selected
+      - with all requesters active and every selection accepted, each requester wins
+        once per N accepted transfers
+      comparison_rule: QoR is compared only for candidates that pass the same canonical
+        property test under the same N, toolchain and synthesis flow.
+    profiles:
+      smoke:
+      - name: n4
+        n: 4
+        accepted_rounds: 2
+      standard:
+      - name: n2
+        n: 2
+        accepted_rounds: 3
+      - name: n4
+        n: 4
+        accepted_rounds: 3
+      - name: n8
+        n: 8
+        accepted_rounds: 3
+      scaling:
+      - name: n2
+        n: 2
+        accepted_rounds: 2
+      - name: n4
+        n: 4
+        accepted_rounds: 2
+      - name: n8
+        n: 8
+        accepted_rounds: 2
+      - name: n16
+        n: 16
+        accepted_rounds: 2
+    candidates:
+    - project: pulp_common_cells
+      module: cc_rr_arb_tree
+      adapter: pulp_cc_rr
+      source_hint: src/cc_rr_arb_tree.sv
+      reset_native: active_low
+      notes: FairArb=1, LockIn=1, ExtPrio=0; adapter derives canonical sel_o from
+        idx_o.
+    - project: basejump_stl
+      module: bsg_arb_round_robin
+      adapter: basejump_bsg_rr
+      source_hint: bsg_misc/bsg_arb_round_robin.sv
+      reset_native: active_high_sync
+      notes: Adapter maps canonical accept_i to yumi_i and normalizes reset polarity.
+    - project: opentitan
+      module: prim_arbiter_tree
+      adapter: opentitan_prim_tree
+      source_hint: hw/ip/prim/rtl/prim_arbiter_tree.sv
+      reset_native: active_low
+      notes: Adapter maps accept_i to ready_i and derives canonical sel_o from idx_o.
+    timing_contract:
+      clock_port: clk_i
+      false_path_inputs:
+      - rst_ni
+      timed_inputs:
+      - req_i*
+      - accept_i
+      timed_outputs:
+      - valid_o
+      - sel_o*
+      default_period_ns: 100.0
+      semantics: Zero external I/O delay, no parasitics; compare intrinsic canonical
+        pre-layout timing. Reset is excluded.
+  FIFO-SYNC:
+    family: Memory / Dataflow
+    operation: synchronous_fifo
+    benchmark_kind: fifo_sync
+    description: Single-clock FIFO with canonical ready/valid input and output interfaces;
+      fall-through/pass-through behavior disabled for fair comparison.
+    canonical_contract:
+      ports:
+        clk_i: clock
+        rst_ni: active-low reset
+        clr_i: synchronous logical clear
+        in_valid_i: input item valid
+        in_ready_o: FIFO can accept input item
+        in_data_i: input payload
+        out_valid_o: output item valid
+        out_ready_i: consumer ready
+        out_data_o: oldest queued payload
+      properties:
+      - FIFO ordering is preserved
+      - input transfer occurs only when in_valid_i && in_ready_o
+      - output transfer occurs only when out_valid_o && out_ready_i
+      - no underflow or overflow is exposed through the canonical adapter
+      - output data remains stable while valid and backpressured
+      - logical clear makes the FIFO empty
+      - simultaneous push/pop preserves ordering and occupancy
+      comparison_rule: QoR is compared only at the same payload width and logical
+        capacity, with pass-through disabled and the same correctness profile.
+    profiles:
+      smoke:
+      - name: w32_d4
+        data_width: 32
+        capacity: 4
+        random_steps: 80
+      standard:
+      - name: w32_d2
+        data_width: 32
+        capacity: 2
+        random_steps: 120
+      - name: w32_d4
+        data_width: 32
+        capacity: 4
+        random_steps: 160
+      - name: w32_d8
+        data_width: 32
+        capacity: 8
+        random_steps: 220
+      scaling:
+      - name: w32_d2
+        data_width: 32
+        capacity: 2
+        random_steps: 120
+      - name: w32_d4
+        data_width: 32
+        capacity: 4
+        random_steps: 160
+      - name: w32_d8
+        data_width: 32
+        capacity: 8
+        random_steps: 220
+      - name: w32_d16
+        data_width: 32
+        capacity: 16
+        random_steps: 320
+    candidates:
+    - project: pulp_common_cells
+      module: cc_fifo
+      adapter: pulp_cc_fifo
+      source_hint: src/cc_fifo.sv
+      notes: FallThrough=0. cc_pkg is a real dependency. assert_rpt_pkg is only referenced
+        by the UVM-only assertion reporting branch.
+      prune_packages:
+      - assert_rpt_pkg
+    - project: basejump_stl
+      module: bsg_fifo_1r1w_small
+      adapter: basejump_bsg_fifo
+      source_hint: bsg_dataflow/bsg_fifo_1r1w_small.sv
+      notes: harden_p=0, ready_THEN_valid_p=0; yumi is canonical output handshake.
+    - project: opentitan
+      module: prim_fifo_sync
+      adapter: opentitan_prim_fifo
+      source_hint: hw/ip/prim/rtl/prim_fifo_sync.sv
+      notes: Pass=0, Secure=0. prim_count/prim_flop are Secure-only module dependencies.
+        uvm_pkg is UVM-only. Configured Build is the backstop.
+      prune_modules:
+      - prim_count
+      - prim_flop
+      prune_packages:
+      - uvm_pkg
+    timing_contract:
+      clock_port: clk_i
+      false_path_inputs:
+      - rst_ni
+      timed_inputs:
+      - clr_i
+      - in_valid_i
+      - in_data_i*
+      - out_ready_i
+      timed_outputs:
+      - in_ready_o
+      - out_valid_o
+      - out_data_o*
+      default_period_ns: 100.0
+      semantics: Zero external I/O delay, no parasitics. rst_ni is excluded; clr_i
+        is synchronous and remains timed. The reported worst path may be reg-reg,
+        input-reg, reg-output, or combinational I/O under the canonical interface.
+  INT-11:
+    family: Integer / Reduction
+    operation: population_count
+    benchmark_kind: popcount
+    description: Combinational population count / Hamming-weight operator. Compares
+      independent PULP, BaseJump and Vortex implementations.
+    canonical_contract:
+      ports:
+        data_i: WIDTH-bit input vector
+        count_o: ceil(log2(WIDTH+1))-bit number of set bits
+      properties:
+      - count_o equals the number of one bits in data_i
+      - all-zero input returns zero
+      - all-one input returns WIDTH
+      - every one-hot input returns one
+      - result is independent of bit position
+      - no state, clock or reset is part of the canonical operation
+      comparison_rule: QoR is compared only at identical WIDTH using the same correctness
+        vectors, frontend, synthesis flow, Liberty and timing contract.
+    profiles:
+      smoke:
+      - name: w8
+        width: 8
+        random_tests: 64
+      standard:
+      - name: w8
+        width: 8
+        random_tests: 128
+      - name: w16
+        width: 16
+        random_tests: 192
+      - name: w32
+        width: 32
+        random_tests: 256
+      scaling:
+      - name: w8
+        width: 8
+        random_tests: 128
+      - name: w16
+        width: 16
+        random_tests: 192
+      - name: w32
+        width: 32
+        random_tests: 256
+      - name: w64
+        width: 64
+        random_tests: 384
+    candidates:
+    - project: pulp_common_cells
+      module: cc_popcount
+      adapter: pulp_cc_popcount
+      source_hint: src/cc_popcount.sv
+      notes: Flat high-level accumulation description; modern synthesis heuristics
+        are intentionally relied on for implementation.
+    - project: basejump_stl
+      module: bsg_popcount
+      adapter: basejump_bsg_popcount
+      source_hint: bsg_misc/bsg_popcount.sv
+      notes: Recursive divide-and-conquer implementation with explicit special cases
+        for small widths.
+    - project: vortex
+      module: VX_popcount
+      adapter: vortex_vx_popcount
+      source_hint: hw/rtl/libs/VX_popcount.sv
+      defines:
+      - SYNTHESIS
+      notes: MODEL=1. Small N uses specialized LUT-like helpers; larger N uses a generated
+        reduction tree. SYNTHESIS is forced during correctness so the real synthesizable
+        datapath is tested instead of the simulation-only $countones shortcut.
+    timing_contract:
+      clock_port: null
+      virtual_clock: vclk
+      false_path_inputs: []
+      timed_inputs:
+      - data_i*
+      timed_outputs:
+      - count_o*
+      default_period_ns: 100.0
+      semantics: Pure combinational input-to-output timing using a virtual reference
+        clock, zero external I/O delay and no parasitics. Critical delay is a mapped-cell
+        pre-layout proxy, not signoff timing.

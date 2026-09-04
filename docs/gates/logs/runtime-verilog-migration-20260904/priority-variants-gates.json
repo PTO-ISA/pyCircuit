@@ -1,0 +1,94 @@
+{
+  "demo": "priority_encode_runtime_variants",
+  "status": "passed",
+  "configurations": [
+    {
+      "demo": "priority_encode_runtime",
+      "configuration": {
+        "name": "w8_lo_to_hi",
+        "system": "priority_encode_demo_w8_lo",
+        "width": 8,
+        "lo_to_hi": true,
+        "input_value": 40,
+        "expected_encoded": 3
+      },
+      "derived": {
+        "result_width": 4,
+        "payload_width": 12,
+        "packed_input": 640,
+        "expected_packed": 11
+      },
+      "status": "passed",
+      "artifacts": {
+        "python": "E:\\desktop\\GitHubProjects\\pyCircuit-PTO-ISA\\examples\\agentic-circuit\\blocks\\priority_encode_runtime\\priority_encode_variants.py",
+        "acir": "E:\\desktop\\GitHubProjects\\pyCircuit-PTO-ISA\\.pycircuit_out\\examples\\priority_encode_runtime\\variants\\w8_lo_to_hi\\priority_encode.ac.mlir",
+        "acir_verified": "E:\\desktop\\GitHubProjects\\pyCircuit-PTO-ISA\\.pycircuit_out\\examples\\priority_encode_runtime\\variants\\w8_lo_to_hi\\priority_encode.verified.ac.mlir",
+        "plan": "E:\\desktop\\GitHubProjects\\pyCircuit-PTO-ISA\\.pycircuit_out\\examples\\priority_encode_runtime\\variants\\w8_lo_to_hi\\priority_encode.plan.json",
+        "gfsim_cpp": "E:\\desktop\\GitHubProjects\\pyCircuit-PTO-ISA\\.pycircuit_out\\examples\\priority_encode_runtime\\variants\\w8_lo_to_hi\\priority_encode.gfsim.cpp",
+        "pyc": "E:\\desktop\\GitHubProjects\\pyCircuit-PTO-ISA\\.pycircuit_out\\examples\\priority_encode_runtime\\variants\\w8_lo_to_hi\\priority_encode.pyc.mlir",
+        "verilog": "E:\\desktop\\GitHubProjects\\pyCircuit-PTO-ISA\\.pycircuit_out\\examples\\priority_encode_runtime\\variants\\w8_lo_to_hi\\priority_encode.generated.v"
+      },
+      "primitive_id": "encoding-arbitration.basejump-priority.v1",
+      "implementation_id": "github.bespoke-silicon-group.basejump_stl.bsg_priority_encode",
+      "stages": {
+        "python_frontend": true,
+        "acir_verify": true,
+        "queue_plan": true,
+        "acir_to_gfsim_cpp": true,
+        "acir_to_pyc": true,
+        "pyc_to_verilog": true
+      },
+      "gates": {
+        "verilator": true,
+        "yosys": true
+      },
+      "verilator_output": "PRIORITY_ENCODE_W8_LO_TO_HI_PASS\n- /mnt/c/Users/EEE/AppData/Local/Temp/priority_encode_w8_lo_to_hi_1urghttb/tb.sv:30: Verilog $finish\n- S i m u l a t i o n   R e p o r t: Verilator 5.051 devel\n- Verilator: $finish at 21ps; walltime 0.000 s; speed 528.461 ns/s\n- Verilator: cpu 0.000 s on 1 threads; allocated 4 MB\nw\u0000s\u0000l\u0000:\u0000 \u0000\u00c0hKm0R \u0000l\u0000o\u0000c\u0000a\u0000l\u0000h\u0000o\u0000s\u0000t\u0000 \u0000\u00e3N\u0006tM\u2018n\u007f\f\u00ffFO*g\\\u2022\u00cfP0R \u0000W\u0000S\u0000L\u0000\u00020N\u0000A\u0000T\u0000 \u0000!j\u000f_\u000bN\u201ev \u0000W\u0000S\u0000L\u0000 \u0000\nN/e\u0001c \u0000l\u0000o\u0000c\u0000a\u0000l\u0000h\u0000o\u0000s\u0000t\u0000 \u0000\u00e3N\u0006t\u00020\n\u0000\n\u0000",
+      "yosys_output": "mo_w8_lo..\n  Creating internal representation of mux trees.\n  Evaluating internal representation of mux trees.\n  Analyzing evaluation results.\nRemoved 0 multiplexer ports.\n<suppressed ~30 debug messages>\n\n4.18. Executing OPT_REDUCE pass (consolidate $*mux and $reduce_* inputs).\n  Optimizing cells in module \\priority_encode_demo_w8_lo.\nPerformed a total of 0 changes.\n\n4.19. Executing OPT_MERGE pass (detect identical cells).\nFinding identical cells in module `\\priority_encode_demo_w8_lo'.\nComputing hashes of 57 cells of `\\priority_encode_demo_w8_lo'.\nFinding duplicate cells in `\\priority_encode_demo_w8_lo'.\nRemoved a total of 0 cells.\n\n4.20. Executing OPT_DFF pass (perform DFF optimizations).\n\n4.21. Executing OPT_CLEAN pass (remove unused cells and wires).\nFinding unused cells or wires in module \\priority_encode_demo_w8_lo..\n\n4.22. Executing OPT_EXPR pass (perform const folding).\nOptimizing module priority_encode_demo_w8_lo.\n\n4.23. Finished fast OPT passes. (There is nothing left to do.)\n\n5. Executing CHECK pass (checking for obvious problems).\nChecking module priority_encode_demo_w8_lo...\nFound and reported 0 problems.\n\n6. Printing statistics.\n\n=== priority_encode_demo_w8_lo ===\n\n        +----------Local Count, excluding submodules.\n        | \n      119 wires\n      699 wire bits\n       88 public wires\n      590 public wire bits\n        8 ports\n       30 port bits\n        2 memories\n       24 memory bits\n       57 cells\n        2   $add\n        1   $and\n        6   $eq\n        3   $logic_and\n        2   $logic_or\n        2   $lt\n        2   $memrd_v2\n        4   $memwr_v2\n       15   $mux\n        1   $not\n        6   $or\n        2   $pmux\n        4   $reduce_bool\n        3   $reduce_or\n        2   $sdffe\n        2   $sub\n\nEnd of script. Logfile hash: 4026dae22a, time: 0.04s, user: 0.01s, system: 0.01s, MEM: 22.31 MB peak\nYosys 0.68+64 (git sha1 b8959e70b-dirty, Release, Clang /usr/bin/clang++ 21.1.8)\nTime spent: 57% 2x read_slang (0 sec), 10% 6x opt_expr (0 sec), ...\nw\u0000s\u0000l\u0000:\u0000 \u0000\u00c0hKm0R \u0000l\u0000o\u0000c\u0000a\u0000l\u0000h\u0000o\u0000s\u0000t\u0000 \u0000\u00e3N\u0006tM\u2018n\u007f\f\u00ffFO*g\\\u2022\u00cfP0R \u0000W\u0000S\u0000L\u0000\u00020N\u0000A\u0000T\u0000 \u0000!j\u000f_\u000bN\u201ev \u0000W\u0000S\u0000L\u0000 \u0000\nN/e\u0001c \u0000l\u0000o\u0000c\u0000a\u0000l\u0000h\u0000o\u0000s\u0000t\u0000 \u0000\u00e3N\u0006t\u00020\n\u0000\n\u0000",
+      "generated_at_unix": 1788511692.2175865
+    },
+    {
+      "demo": "priority_encode_runtime",
+      "configuration": {
+        "name": "w16_hi_to_lo",
+        "system": "priority_encode_demo_w16_hi",
+        "width": 16,
+        "lo_to_hi": false,
+        "input_value": 40,
+        "expected_encoded": 5
+      },
+      "derived": {
+        "result_width": 5,
+        "payload_width": 21,
+        "packed_input": 1280,
+        "expected_packed": 21
+      },
+      "status": "passed",
+      "artifacts": {
+        "python": "E:\\desktop\\GitHubProjects\\pyCircuit-PTO-ISA\\examples\\agentic-circuit\\blocks\\priority_encode_runtime\\priority_encode_variants.py",
+        "acir": "E:\\desktop\\GitHubProjects\\pyCircuit-PTO-ISA\\.pycircuit_out\\examples\\priority_encode_runtime\\variants\\w16_hi_to_lo\\priority_encode.ac.mlir",
+        "acir_verified": "E:\\desktop\\GitHubProjects\\pyCircuit-PTO-ISA\\.pycircuit_out\\examples\\priority_encode_runtime\\variants\\w16_hi_to_lo\\priority_encode.verified.ac.mlir",
+        "plan": "E:\\desktop\\GitHubProjects\\pyCircuit-PTO-ISA\\.pycircuit_out\\examples\\priority_encode_runtime\\variants\\w16_hi_to_lo\\priority_encode.plan.json",
+        "gfsim_cpp": "E:\\desktop\\GitHubProjects\\pyCircuit-PTO-ISA\\.pycircuit_out\\examples\\priority_encode_runtime\\variants\\w16_hi_to_lo\\priority_encode.gfsim.cpp",
+        "pyc": "E:\\desktop\\GitHubProjects\\pyCircuit-PTO-ISA\\.pycircuit_out\\examples\\priority_encode_runtime\\variants\\w16_hi_to_lo\\priority_encode.pyc.mlir",
+        "verilog": "E:\\desktop\\GitHubProjects\\pyCircuit-PTO-ISA\\.pycircuit_out\\examples\\priority_encode_runtime\\variants\\w16_hi_to_lo\\priority_encode.generated.v"
+      },
+      "primitive_id": "encoding-arbitration.basejump-priority.v1",
+      "implementation_id": "github.bespoke-silicon-group.basejump_stl.bsg_priority_encode",
+      "stages": {
+        "python_frontend": true,
+        "acir_verify": true,
+        "queue_plan": true,
+        "acir_to_gfsim_cpp": true,
+        "acir_to_pyc": true,
+        "pyc_to_verilog": true
+      },
+      "gates": {
+        "verilator": true,
+        "yosys": true
+      },
+      "verilator_output": "PRIORITY_ENCODE_W16_HI_TO_LO_PASS\n- /mnt/c/Users/EEE/AppData/Local/Temp/priority_encode_w16_hi_to_lo_2fsic82e/tb.sv:30: Verilog $finish\n- S i m u l a t i o n   R e p o r t: Verilator 5.051 devel\n- Verilator: $finish at 21ps; walltime 0.000 s; speed 567.338 ns/s\n- Verilator: cpu 0.000 s on 1 threads; allocated 4 MB\nw\u0000s\u0000l\u0000:\u0000 \u0000\u00c0hKm0R \u0000l\u0000o\u0000c\u0000a\u0000l\u0000h\u0000o\u0000s\u0000t\u0000 \u0000\u00e3N\u0006tM\u2018n\u007f\f\u00ffFO*g\\\u2022\u00cfP0R \u0000W\u0000S\u0000L\u0000\u00020N\u0000A\u0000T\u0000 \u0000!j\u000f_\u000bN\u201ev \u0000W\u0000S\u0000L\u0000 \u0000\nN/e\u0001c \u0000l\u0000o\u0000c\u0000a\u0000l\u0000h\u0000o\u0000s\u0000t\u0000 \u0000\u00e3N\u0006t\u00020\n\u0000\n\u0000",
+      "yosys_output": ".\n  Creating internal representation of mux trees.\n  Evaluating internal representation of mux trees.\n  Analyzing evaluation results.\nRemoved 0 multiplexer ports.\n<suppressed ~30 debug messages>\n\n4.18. Executing OPT_REDUCE pass (consolidate $*mux and $reduce_* inputs).\n  Optimizing cells in module \\priority_encode_demo_w16_hi.\nPerformed a total of 0 changes.\n\n4.19. Executing OPT_MERGE pass (detect identical cells).\nFinding identical cells in module `\\priority_encode_demo_w16_hi'.\nComputing hashes of 67 cells of `\\priority_encode_demo_w16_hi'.\nFinding duplicate cells in `\\priority_encode_demo_w16_hi'.\nRemoved a total of 0 cells.\n\n4.20. Executing OPT_DFF pass (perform DFF optimizations).\n\n4.21. Executing OPT_CLEAN pass (remove unused cells and wires).\nFinding unused cells or wires in module \\priority_encode_demo_w16_hi..\n\n4.22. Executing OPT_EXPR pass (perform const folding).\nOptimizing module priority_encode_demo_w16_hi.\n\n4.23. Finished fast OPT passes. (There is nothing left to do.)\n\n5. Executing CHECK pass (checking for obvious problems).\nChecking module priority_encode_demo_w16_hi...\nFound and reported 0 problems.\n\n6. Printing statistics.\n\n=== priority_encode_demo_w16_hi ===\n\n        +----------Local Count, excluding submodules.\n        | \n      131 wires\n     1288 wire bits\n       99 public wires\n     1085 public wire bits\n        8 ports\n       48 port bits\n        2 memories\n       42 memory bits\n       67 cells\n        2   $add\n        1   $and\n        6   $eq\n        3   $logic_and\n        2   $logic_or\n        2   $lt\n        2   $memrd_v2\n        4   $memwr_v2\n       15   $mux\n        1   $not\n       11   $or\n        2   $pmux\n        4   $reduce_bool\n        7   $reduce_or\n        2   $sdffe\n        3   $sub\n\nEnd of script. Logfile hash: 0207883532, time: 0.04s, user: 0.02s, system: 0.01s, MEM: 22.54 MB peak\nYosys 0.68+64 (git sha1 b8959e70b-dirty, Release, Clang /usr/bin/clang++ 21.1.8)\nTime spent: 50% 2x read_slang (0 sec), 11% 3x opt_clean (0 sec), ...\nw\u0000s\u0000l\u0000:\u0000 \u0000\u00c0hKm0R \u0000l\u0000o\u0000c\u0000a\u0000l\u0000h\u0000o\u0000s\u0000t\u0000 \u0000\u00e3N\u0006tM\u2018n\u007f\f\u00ffFO*g\\\u2022\u00cfP0R \u0000W\u0000S\u0000L\u0000\u00020N\u0000A\u0000T\u0000 \u0000!j\u000f_\u000bN\u201ev \u0000W\u0000S\u0000L\u0000 \u0000\nN/e\u0001c \u0000l\u0000o\u0000c\u0000a\u0000l\u0000h\u0000o\u0000s\u0000t\u0000 \u0000\u00e3N\u0006t\u00020\n\u0000\n\u0000",
+      "generated_at_unix": 1788511700.577816
+    }
+  ]
+}

@@ -1,0 +1,37 @@
+{
+  "schema": "pycircuit-rtl-sources-v0.3",
+  "license_policy": "informational_only",
+  "notes": "Search-stage expansion. License metadata is retained when available but does not block discovery or local candidate analysis in this run.",
+  "sources": [
+    {
+      "project": "ohwr_general_cores",
+      "repo": "https://gitlab.com/ohwr/project/general-cores.git",
+      "enabled": true,
+      "priority": "B",
+      "families": [
+        "Dataflow",
+        "Interconnect",
+        "Memory",
+        "CDC"
+      ],
+      "path_hints": [
+        "modules"
+      ],
+      "exclude_dirs": [
+        ".git",
+        "doc",
+        "docs",
+        "test",
+        "tests",
+        "sim",
+        "build"
+      ],
+      "extensions": [
+        ".v",
+        ".sv",
+        ".vh",
+        ".svh"
+      ]
+    }
+  ]
+}

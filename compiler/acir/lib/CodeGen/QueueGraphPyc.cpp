@@ -206,6 +206,26 @@ emitTransform(const QueueGraphPlan &plan, const QueueBlockPlan &block,
                 "qualification_report = "
                 "\"INT-11/smoke/comparison_report.json\"} : "
              << *resultType << "\n";
+      } else if (expression.kind == "priority_encode") {
+        if (expression.operands.size() != 1)
+          return pycError("priority_encode expression arity mismatch");
+        auto inputType = valueType(expression.operands[0]);
+        if (!inputType)
+          return inputType.takeError();
+        auto sourceType = pycType(plan, *inputType);
+        auto resultType = pycType(plan, expression.type);
+        if (!sourceType)
+          return sourceType.takeError();
+        if (!resultType)
+          return resultType.takeError();
+        result = newValue();
+        body << "    " << result << " = pyc.priority_encode " << *first
+             << " {width = " << (*inputType).substr(1) << ", lo_to_hi = "
+             << (expression.literal == "lo_to_hi" ? "1" : "0")
+             << ", primitive_id = \"encoding-arbitration.basejump-priority.v1\", "
+                "implementation_id = \"github.bespoke-silicon-group.basejump_stl.bsg_priority_encode\", "
+                "qualification_report = \".pycircuit_out/runtime-functional-validation/basejump-priority.json\"} : "
+             << *sourceType << " -> " << *resultType << "\n";
       } else if (expression.kind == "add" || expression.kind == "sub" ||
                  expression.kind == "mul") {
         result = newValue();

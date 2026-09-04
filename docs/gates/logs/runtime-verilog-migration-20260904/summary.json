@@ -1,0 +1,71 @@
+{
+  "schema": "pycircuit-runtime-verilog-migration-gate-v0.1",
+  "run_id": "runtime-verilog-migration-20260904",
+  "branch": "feat/runtime-verilog-crawler-integration",
+  "base": "origin/main",
+  "catalog": {
+    "entries": 132,
+    "status": "passed"
+  },
+  "vendoring": {
+    "accepted_entries": 132,
+    "closure_files": 449,
+    "license_files": 25,
+    "failed": 0,
+    "status": "passed"
+  },
+  "runtime_gate": {
+    "representative_entries": 6,
+    "passed": 6,
+    "status": "passed",
+    "tools": ["Verilator 5.051", "Yosys 0.68"]
+  },
+  "functional_gate": {
+    "priority_encode": 1,
+    "passed": 1,
+    "status": "passed"
+  },
+  "python_tests": {
+    "tests": 85,
+    "passed": 85,
+    "status": "passed"
+  },
+  "demos": {
+    "single_configuration": "passed",
+    "two_parameter_configurations": ["w8_lo_to_hi", "w16_hi_to_lo"],
+    "two_parameter_status": "passed",
+    "stages": [
+      "python_frontend",
+      "ACIR verification",
+      "queue plan",
+      "ACIR to gfsim C++",
+      "ACIR to PYC IR",
+      "PYC IR to Verilog",
+      "Verilator",
+      "Yosys"
+    ]
+  },
+  "crawler": {
+    "config": "library/verilog/crawler/sources.json",
+    "max_files": 1024,
+    "file_overflow": "truncate",
+    "accepted": 13,
+    "rejected": 0,
+    "errors": 0,
+    "status": "passed"
+  },
+  "build": {
+    "ninja": "passed",
+    "parallelism": 1,
+    "ctest": "no tests were registered in the toolchain build tree"
+  },
+  "pre_commit": {
+    "api_hygiene": "passed",
+    "full_bootstrap": "not_completed",
+    "reason": "first-time Node hook environment initialization did not complete during the bounded run"
+  },
+  "path_audit": {
+    "catalog_absolute_or_legacy_paths": 0,
+    "status": "passed"
+  }
+}

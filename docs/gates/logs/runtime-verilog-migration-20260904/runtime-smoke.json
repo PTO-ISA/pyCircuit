@@ -1,0 +1,168 @@
+{
+  "schema": "acir-runtime-validation-v0.1",
+  "catalog": "E:\\desktop\\GitHubProjects\\pyCircuit-PTO-ISA\\library\\verilog\\catalog.json",
+  "summary": {
+    "entries": 6,
+    "status": "passed",
+    "counts": {
+      "passed": 6
+    }
+  },
+  "results": [
+    {
+      "name": "basejump-popcount",
+      "status": "passed",
+      "top": "pyc_runtime_basejump_popcount",
+      "files": [
+        "E:\\desktop\\GitHubProjects\\pyCircuit-PTO-ISA\\library\\verilog\\basejump\\bsg_defines.sv",
+        "E:\\desktop\\GitHubProjects\\pyCircuit-PTO-ISA\\library\\verilog\\basejump\\bsg_popcount.sv",
+        "E:\\desktop\\GitHubProjects\\pyCircuit-PTO-ISA\\library\\verilog\\pyc_runtime_basejump_popcount.v"
+      ],
+      "verilator": {
+        "status": "passed",
+        "returncode": 0
+      },
+      "yosys": {
+        "status": "passed",
+        "returncode": 0,
+        "qor": {
+          "wires": 30,
+          "wire_bits": 56,
+          "ports": 2,
+          "port_bits": 12,
+          "cells": 28
+        }
+      }
+    },
+    {
+      "name": "basejump-priority-encode",
+      "status": "passed",
+      "top": "pyc_runtime_basejump_priority_encode",
+      "files": [
+        "E:\\desktop\\GitHubProjects\\pyCircuit-PTO-ISA\\library\\verilog\\basejump\\bsg_defines.sv",
+        "E:\\desktop\\GitHubProjects\\pyCircuit-PTO-ISA\\library\\verilog\\basejump\\bsg_encode_one_hot.sv",
+        "E:\\desktop\\GitHubProjects\\pyCircuit-PTO-ISA\\library\\verilog\\basejump\\bsg_priority_encode.sv",
+        "E:\\desktop\\GitHubProjects\\pyCircuit-PTO-ISA\\library\\verilog\\basejump\\bsg_priority_encode_one_hot_out.sv",
+        "E:\\desktop\\GitHubProjects\\pyCircuit-PTO-ISA\\library\\verilog\\basejump\\bsg_scan.sv",
+        "E:\\desktop\\GitHubProjects\\pyCircuit-PTO-ISA\\library\\verilog\\pyc_runtime_basejump_priority_encode.v"
+      ],
+      "verilator": {
+        "status": "passed",
+        "returncode": 0
+      },
+      "yosys": {
+        "status": "passed",
+        "returncode": 0,
+        "qor": {
+          "wires": 48,
+          "wire_bits": 300,
+          "ports": 3,
+          "port_bits": 12,
+          "cells": 19
+        }
+      }
+    },
+    {
+      "name": "basejump-rr-arbiter",
+      "status": "passed",
+      "top": "pyc_runtime_basejump_rr_arbiter",
+      "files": [
+        "E:\\desktop\\GitHubProjects\\pyCircuit-PTO-ISA\\library\\verilog\\basejump\\bsg_arb_round_robin.sv",
+        "E:\\desktop\\GitHubProjects\\pyCircuit-PTO-ISA\\library\\verilog\\basejump\\bsg_defines.sv",
+        "E:\\desktop\\GitHubProjects\\pyCircuit-PTO-ISA\\library\\verilog\\basejump\\bsg_scan.sv",
+        "E:\\desktop\\GitHubProjects\\pyCircuit-PTO-ISA\\library\\verilog\\pyc_runtime_basejump_rr_arbiter.v"
+      ],
+      "verilator": {
+        "status": "passed",
+        "returncode": 0
+      },
+      "yosys": {
+        "status": "passed",
+        "returncode": 0,
+        "qor": {
+          "wires": 49,
+          "wire_bits": 228,
+          "ports": 6,
+          "port_bits": 12,
+          "cells": 25
+        }
+      }
+    },
+    {
+      "name": "pulp-cc-popcount",
+      "status": "passed",
+      "top": "pyc_runtime_pulp_popcount",
+      "files": [
+        "E:\\desktop\\GitHubProjects\\pyCircuit-PTO-ISA\\library\\verilog\\pulp\\cc_popcount.sv",
+        "E:\\desktop\\GitHubProjects\\pyCircuit-PTO-ISA\\library\\verilog\\pyc_runtime_pulp_popcount.v"
+      ],
+      "verilator": {
+        "status": "passed",
+        "returncode": 0
+      },
+      "yosys": {
+        "status": "passed",
+        "returncode": 0,
+        "qor": {
+          "wires": 26,
+          "wire_bits": 46,
+          "ports": 2,
+          "port_bits": 12,
+          "cells": 26
+        }
+      }
+    },
+    {
+      "name": "pulp-stream-register",
+      "status": "passed",
+      "top": "pyc_runtime_pulp_stream_register",
+      "files": [
+        "E:\\desktop\\GitHubProjects\\pyCircuit-PTO-ISA\\library\\verilog\\pyc_runtime_pulp_stream_register.sv",
+        "E:\\desktop\\GitHubProjects\\pyCircuit-PTO-ISA\\library\\verilog\\vendor-v0.4\\pulp\\include\\common_cells\\deprecated\\registers.svh",
+        "E:\\desktop\\GitHubProjects\\pyCircuit-PTO-ISA\\library\\verilog\\vendor-v0.4\\pulp\\include\\common_cells\\registers.svh",
+        "E:\\desktop\\GitHubProjects\\pyCircuit-PTO-ISA\\library\\verilog\\vendor-v0.4\\pulp\\src\\cc_stream_register.sv"
+      ],
+      "verilator": {
+        "status": "passed",
+        "returncode": 0
+      },
+      "yosys": {
+        "status": "passed",
+        "returncode": 0,
+        "qor": {
+          "wires": 30,
+          "wire_bits": 58,
+          "ports": 9,
+          "port_bits": 23,
+          "cells": 22
+        }
+      }
+    },
+    {
+      "name": "vortex-mux",
+      "status": "passed",
+      "top": "pyc_runtime_vortex_mux",
+      "files": [
+        "E:\\desktop\\GitHubProjects\\pyCircuit-PTO-ISA\\library\\verilog\\pyc_runtime_vortex_mux.sv",
+        "E:\\desktop\\GitHubProjects\\pyCircuit-PTO-ISA\\library\\verilog\\vendor-v0.16\\vortex\\hw\\rtl\\VX_platform.vh",
+        "E:\\desktop\\GitHubProjects\\pyCircuit-PTO-ISA\\library\\verilog\\vendor-v0.16\\vortex\\hw\\rtl\\VX_scope.vh",
+        "E:\\desktop\\GitHubProjects\\pyCircuit-PTO-ISA\\library\\verilog\\vendor-v0.16\\vortex\\hw\\rtl\\libs\\VX_mux.sv"
+      ],
+      "verilator": {
+        "status": "passed",
+        "returncode": 0
+      },
+      "yosys": {
+        "status": "passed",
+        "returncode": 0,
+        "qor": {
+          "wires": 6,
+          "wire_bits": 50,
+          "ports": 3,
+          "port_bits": 25,
+          "cells": 8
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,121 @@
+{
+  "schema": "acir-runtime-accepted-candidates-v0.1",
+  "generated_from": [
+    "library/verilog/catalog.json",
+    "library/verilog/manifests/parameterized-components-v0.30.json"
+  ],
+  "policy": {
+    "structural_gates": [
+      "dependency_closure",
+      "verilator_lint",
+      "bounded_smoke",
+      "yosys_synthesis"
+    ],
+    "semantic_status": "structural_only",
+    "requires_review_before_new_api": true
+  },
+  "entries": [
+    {
+      "name": "pulp-binary-to-gray",
+      "module": "cc_binary_to_gray",
+      "wrapper": "pyc_runtime_pulp_binary_to_gray",
+      "source": "pulp-common-cells",
+      "commit": "63b7c50d43e462b59506f69d341ff1e40202866d",
+      "license": "Solderpad-Hardware-License-0.51"
+    },
+    {
+      "name": "pulp-gray-to-binary",
+      "module": "cc_gray_to_binary",
+      "wrapper": "pyc_runtime_pulp_gray_to_binary",
+      "source": "pulp-common-cells",
+      "commit": "63b7c50d43e462b59506f69d341ff1e40202866d",
+      "license": "Solderpad-Hardware-License-0.51"
+    },
+    {
+      "name": "opentitan-onehot-encode",
+      "module": "prim_onehot_enc",
+      "wrapper": "pyc_runtime_opentitan_onehot_encode",
+      "source": "opentitan",
+      "commit": "782784584433afe5105385041f1282da0a21e023",
+      "license": "Apache-2.0"
+    },
+    {
+      "name": "opentitan-sum-tree",
+      "module": "prim_sum_tree",
+      "wrapper": "pyc_runtime_opentitan_sum_tree",
+      "source": "opentitan",
+      "commit": "782784584433afe5105385041f1282da0a21e023",
+      "license": "Apache-2.0",
+      "semantic_status": "functional_smoke"
+    },
+    {
+      "name": "opentitan-max-tree",
+      "module": "prim_max_tree",
+      "wrapper": "pyc_runtime_opentitan_max_tree",
+      "source": "opentitan",
+      "commit": "782784584433afe5105385041f1282da0a21e023",
+      "license": "Apache-2.0",
+      "semantic_status": "functional_smoke"
+    },
+    {
+      "name": "verilog-axi-priority-encoder",
+      "module": "priority_encoder",
+      "wrapper": "pyc_runtime_verilog_axi_priority_encoder",
+      "source": "verilog-axi",
+      "commit": "516bd5dadc3365b7f9e225d2af8fe0b8d804fe53",
+      "license": "MIT",
+      "semantic_status": "functional_smoke"
+    },
+    {
+      "name": "basejump-and",
+      "module": "bsg_and",
+      "wrapper": "pyc_runtime_basejump_and",
+      "source": "basejump-stl",
+      "commit": "b48037e28544425839dbd617d45b1a82631bc1a9",
+      "license": "Solderpad-Hardware-License-0.51"
+    },
+    {
+      "name": "basejump-xor",
+      "module": "bsg_xor",
+      "wrapper": "pyc_runtime_basejump_xor",
+      "source": "basejump-stl",
+      "commit": "b48037e28544425839dbd617d45b1a82631bc1a9",
+      "license": "Solderpad-Hardware-License-0.51"
+    },
+    {
+      "name": "basejump-adder",
+      "module": "bsg_adder_ripple_carry",
+      "wrapper": "pyc_runtime_basejump_adder",
+      "source": "basejump-stl",
+      "commit": "b48037e28544425839dbd617d45b1a82631bc1a9",
+      "license": "Solderpad-Hardware-License-0.51"
+    },
+    {
+      "name": "basejump-encode-one-hot",
+      "module": "bsg_encode_one_hot",
+      "wrapper": "pyc_runtime_basejump_encode_one_hot",
+      "source": "basejump-stl",
+      "commit": "b48037e28544425839dbd617d45b1a82631bc1a9",
+      "license": "Solderpad-Hardware-License-0.51",
+      "semantic_status": "functional_oracle_v1"
+    },
+    {
+      "name": "basejump-priority-onehot",
+      "module": "bsg_priority_encode_one_hot_out",
+      "wrapper": "pyc_runtime_basejump_priority_onehot",
+      "source": "basejump-stl",
+      "commit": "b48037e28544425839dbd617d45b1a82631bc1a9",
+      "license": "Solderpad-Hardware-License-0.51",
+      "semantic_status": "functional_oracle_v1"
+    },
+    {
+      "name": "basejump-scan-or",
+      "module": "bsg_scan",
+      "wrapper": "pyc_runtime_basejump_scan_or",
+      "source": "basejump-stl",
+      "commit": "b48037e28544425839dbd617d45b1a82631bc1a9",
+      "license": "Solderpad-Hardware-License-0.51",
+      "semantic_status": "functional_oracle_v1"
+    }
+  ]
+}

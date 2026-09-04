@@ -1,0 +1,58 @@
+
+schema_version: "0.5"
+
+profiles:
+  smoke:
+    cc_lzc:
+      - {name: lzc_w8_leading, width: 8, mode: leading}
+    cc_popcount:
+      - {name: pop_w8, width: 8}
+    cc_rr_arb_tree:
+      - {name: rr_n4_w16_ext, num_in: 4, data_width: 16, ext_prio: 1, axi_vld_rdy: 0, lock_in: 0, fair_arb: 1}
+
+  standard:
+    cc_lzc:
+      - {name: lzc_w8_leading, width: 8, mode: leading}
+      - {name: lzc_w16_leading, width: 16, mode: leading}
+      - {name: lzc_w32_leading, width: 32, mode: leading}
+      - {name: lzc_w64_leading, width: 64, mode: leading}
+      - {name: lzc_w32_trailing, width: 32, mode: trailing}
+
+    cc_popcount:
+      - {name: pop_w8, width: 8}
+      - {name: pop_w16, width: 16}
+      - {name: pop_w32, width: 32}
+      - {name: pop_w64, width: 64}
+
+    cc_rr_arb_tree:
+      - {name: rr_n2_w8_ext, num_in: 2, data_width: 8, ext_prio: 1, axi_vld_rdy: 0, lock_in: 0, fair_arb: 1}
+      - {name: rr_n4_w16_ext, num_in: 4, data_width: 16, ext_prio: 1, axi_vld_rdy: 0, lock_in: 0, fair_arb: 1}
+      - {name: rr_n8_w32_ext, num_in: 8, data_width: 32, ext_prio: 1, axi_vld_rdy: 0, lock_in: 0, fair_arb: 1}
+      - {name: rr_n4_w16_int_fair, num_in: 4, data_width: 16, ext_prio: 0, axi_vld_rdy: 0, lock_in: 0, fair_arb: 1}
+      - {name: rr_n4_w16_int_unfair, num_in: 4, data_width: 16, ext_prio: 0, axi_vld_rdy: 0, lock_in: 0, fair_arb: 0}
+      - {name: rr_n4_w16_lockin, num_in: 4, data_width: 16, ext_prio: 0, axi_vld_rdy: 0, lock_in: 1, fair_arb: 1}
+
+  scaling:
+    cc_lzc:
+      - {name: lzc_w2, width: 2, mode: leading}
+      - {name: lzc_w4, width: 4, mode: leading}
+      - {name: lzc_w8, width: 8, mode: leading}
+      - {name: lzc_w16, width: 16, mode: leading}
+      - {name: lzc_w32, width: 32, mode: leading}
+      - {name: lzc_w64, width: 64, mode: leading}
+      - {name: lzc_w128, width: 128, mode: leading}
+
+    cc_popcount:
+      - {name: pop_w2, width: 2}
+      - {name: pop_w4, width: 4}
+      - {name: pop_w8, width: 8}
+      - {name: pop_w16, width: 16}
+      - {name: pop_w32, width: 32}
+      - {name: pop_w64, width: 64}
+      - {name: pop_w128, width: 128}
+
+    cc_rr_arb_tree:
+      - {name: rr_n2_w16, num_in: 2, data_width: 16, ext_prio: 1, axi_vld_rdy: 0, lock_in: 0, fair_arb: 1}
+      - {name: rr_n4_w16, num_in: 4, data_width: 16, ext_prio: 1, axi_vld_rdy: 0, lock_in: 0, fair_arb: 1}
+      - {name: rr_n8_w16, num_in: 8, data_width: 16, ext_prio: 1, axi_vld_rdy: 0, lock_in: 0, fair_arb: 1}
+      - {name: rr_n16_w16, num_in: 16, data_width: 16, ext_prio: 1, axi_vld_rdy: 0, lock_in: 0, fair_arb: 1}

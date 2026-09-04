@@ -1,0 +1,1762 @@
+{
+  "schema": "acir-runtime-vendoring-check-v0.1",
+  "catalog": "E:\\desktop\\GitHubProjects\\pyCircuit-PTO-ISA\\library\\verilog\\catalog.json",
+  "manifest": "E:\\desktop\\GitHubProjects\\pyCircuit-PTO-ISA\\library\\verilog\\manifests\\parameterized-components-v0.30.json",
+  "summary": {
+    "entries": 132,
+    "passed": 132,
+    "failed": 0,
+    "errors": 0,
+    "status": "passed"
+  },
+  "results": [
+    {
+      "name": "basejump-abs",
+      "status": "passed",
+      "files": 4,
+      "source_files": [
+        "vendor-v0.5/basejump/bsg_misc/bsg_abs.sv",
+        "vendor-v0.5/basejump/bsg_misc/bsg_defines.sv"
+      ],
+      "license_files": [
+        "licenses/basejump-stl-v0.5/LICENSE"
+      ]
+    },
+    {
+      "name": "basejump-adder",
+      "status": "passed",
+      "files": 4,
+      "source_files": [
+        "basejump/bsg_adder_ripple_carry.sv",
+        "basejump/bsg_defines.sv"
+      ],
+      "license_files": [
+        "licenses/basejump-stl/LICENSE"
+      ]
+    },
+    {
+      "name": "basejump-adder-cin",
+      "status": "passed",
+      "files": 4,
+      "source_files": [
+        "vendor-v0.5/basejump/bsg_misc/bsg_adder_cin.sv",
+        "vendor-v0.5/basejump/bsg_misc/bsg_defines.sv"
+      ],
+      "license_files": [
+        "licenses/basejump-stl-v0.5/LICENSE"
+      ]
+    },
+    {
+      "name": "basejump-adder-one-hot",
+      "status": "passed",
+      "files": 4,
+      "source_files": [
+        "vendor-v0.5/basejump/bsg_misc/bsg_adder_one_hot.sv",
+        "vendor-v0.5/basejump/bsg_misc/bsg_defines.sv"
+      ],
+      "license_files": [
+        "licenses/basejump-stl-v0.5/LICENSE"
+      ]
+    },
+    {
+      "name": "basejump-adder-ripple-carry",
+      "status": "passed",
+      "files": 4,
+      "source_files": [
+        "vendor-v0.5/basejump/bsg_misc/bsg_adder_ripple_carry.sv",
+        "vendor-v0.5/basejump/bsg_misc/bsg_defines.sv"
+      ],
+      "license_files": [
+        "licenses/basejump-stl-v0.5/LICENSE"
+      ]
+    },
+    {
+      "name": "basejump-and",
+      "status": "passed",
+      "files": 4,
+      "source_files": [
+        "basejump/bsg_and.sv",
+        "basejump/bsg_defines.sv"
+      ],
+      "license_files": [
+        "licenses/basejump-stl/LICENSE"
+      ]
+    },
+    {
+      "name": "basejump-array-concentrate-static",
+      "status": "passed",
+      "files": 4,
+      "source_files": [
+        "vendor-v0.5/basejump/bsg_misc/bsg_array_concentrate_static.sv",
+        "vendor-v0.5/basejump/bsg_misc/bsg_defines.sv"
+      ],
+      "license_files": [
+        "licenses/basejump-stl-v0.5/LICENSE"
+      ]
+    },
+    {
+      "name": "basejump-cam-sync-unmanaged",
+      "status": "passed",
+      "files": 11,
+      "source_files": [
+        "basejump/bsg_cam_1r1w_sync_unmanaged.sv",
+        "basejump/bsg_cam_1r1w_unmanaged.sv",
+        "basejump/bsg_cam_1r1w_tag_array.sv",
+        "basejump/bsg_mem_1r1w_one_hot.sv",
+        "basejump/bsg_mux_one_hot.sv",
+        "basejump/bsg_dff.sv",
+        "basejump/bsg_dff_en.sv",
+        "basejump/bsg_dff_reset_en.sv",
+        "basejump/bsg_defines.sv"
+      ],
+      "license_files": [
+        "licenses/basejump-stl/LICENSE"
+      ]
+    },
+    {
+      "name": "basejump-cam-tag-array",
+      "status": "passed",
+      "files": 6,
+      "source_files": [
+        "basejump/bsg_cam_1r1w_tag_array.sv",
+        "basejump/bsg_dff_en.sv",
+        "basejump/bsg_dff_reset_en.sv",
+        "basejump/bsg_defines.sv"
+      ],
+      "license_files": [
+        "licenses/basejump-stl/LICENSE"
+      ]
+    },
+    {
+      "name": "basejump-cam-unmanaged",
+      "status": "passed",
+      "files": 9,
+      "source_files": [
+        "basejump/bsg_cam_1r1w_unmanaged.sv",
+        "basejump/bsg_cam_1r1w_tag_array.sv",
+        "basejump/bsg_mem_1r1w_one_hot.sv",
+        "basejump/bsg_mux_one_hot.sv",
+        "basejump/bsg_dff_en.sv",
+        "basejump/bsg_dff_reset_en.sv",
+        "basejump/bsg_defines.sv"
+      ],
+      "license_files": [
+        "licenses/basejump-stl/LICENSE"
+      ]
+    },
+    {
+      "name": "basejump-channel-narrow",
+      "status": "passed",
+      "files": 4,
+      "source_files": [
+        "basejump/bsg_channel_narrow.sv",
+        "basejump/bsg_defines.sv"
+      ],
+      "license_files": [
+        "licenses/basejump-stl/LICENSE"
+      ]
+    },
+    {
+      "name": "basejump-clz",
+      "status": "passed",
+      "files": 8,
+      "source_files": [
+        "basejump/bsg_counting_leading_zeros.sv",
+        "basejump/bsg_priority_encode.sv",
+        "basejump/bsg_priority_encode_one_hot_out.sv",
+        "basejump/bsg_encode_one_hot.sv",
+        "basejump/bsg_scan.sv",
+        "basejump/bsg_defines.sv"
+      ],
+      "license_files": [
+        "licenses/basejump-stl/LICENSE"
+      ]
+    },
+    {
+      "name": "basejump-concentrate-static",
+      "status": "passed",
+      "files": 4,
+      "source_files": [
+        "vendor-v0.5/basejump/bsg_misc/bsg_concentrate_static.sv",
+        "vendor-v0.5/basejump/bsg_misc/bsg_defines.sv"
+      ],
+      "license_files": [
+        "licenses/basejump-stl-v0.5/LICENSE"
+      ]
+    },
+    {
+      "name": "basejump-counter",
+      "status": "passed",
+      "files": 4,
+      "source_files": [
+        "basejump/bsg_counter_clear_up_saturating.sv",
+        "basejump/bsg_defines.sv"
+      ],
+      "license_files": [
+        "licenses/basejump-stl/LICENSE"
+      ]
+    },
+    {
+      "name": "basejump-counter-clear-up-saturating",
+      "status": "passed",
+      "files": 4,
+      "source_files": [
+        "vendor-v0.11/basejump/bsg_misc/bsg_counter_clear_up_saturating.sv",
+        "vendor-v0.5/basejump/bsg_misc/bsg_defines.sv"
+      ],
+      "license_files": [
+        "licenses/basejump-stl-v0.5/LICENSE"
+      ]
+    },
+    {
+      "name": "basejump-crossbar",
+      "status": "passed",
+      "files": 5,
+      "source_files": [
+        "vendor-v0.4/basejump/bsg_misc/bsg_crossbar_o_by_i.sv",
+        "vendor-v0.4/basejump/bsg_misc/bsg_mux_one_hot.sv",
+        "vendor-v0.4/basejump/bsg_misc/bsg_defines.sv"
+      ],
+      "license_files": [
+        "licenses/basejump-stl-v0.4/LICENSE"
+      ]
+    },
+    {
+      "name": "basejump-crossbar-control",
+      "status": "passed",
+      "files": 9,
+      "source_files": [
+        "vendor-v0.25/basejump/bsg_mem/bsg_mem_banked_crossbar.sv",
+        "vendor-v0.25/basejump/bsg_misc/bsg_defines.sv",
+        "vendor-v0.25/basejump/bsg_misc/bsg_transpose.sv",
+        "vendor-v0.25/basejump/bsg_misc/bsg_arb_fixed.sv",
+        "vendor-v0.25/basejump/bsg_misc/bsg_priority_encode_one_hot_out.sv",
+        "vendor-v0.25/basejump/bsg_misc/bsg_scan.sv",
+        "vendor-v0.25/basejump/bsg_misc/bsg_round_robin_arb.sv"
+      ],
+      "license_files": [
+        "licenses/basejump-stl-v0.5/LICENSE"
+      ]
+    },
+    {
+      "name": "basejump-encode-one-hot",
+      "status": "passed",
+      "files": 4,
+      "source_files": [
+        "basejump/bsg_encode_one_hot.sv",
+        "basejump/bsg_defines.sv"
+      ],
+      "license_files": [
+        "licenses/basejump-stl/LICENSE"
+      ]
+    },
+    {
+      "name": "basejump-fifo-narrowed",
+      "status": "passed",
+      "files": 21,
+      "source_files": [
+        "basejump/bsg_fifo_1r1w_narrowed.sv",
+        "basejump/bsg_channel_narrow.sv",
+        "basejump/bsg_fifo_1r1w_small.sv",
+        "basejump/bsg_fifo_1r1w_small_hardened.sv",
+        "basejump/bsg_fifo_1r1w_small_unhardened.sv",
+        "basejump/bsg_fifo_tracker.sv",
+        "basejump/bsg_two_fifo.sv",
+        "basejump/bsg_mem_1r1w.sv",
+        "basejump/bsg_mem_1r1w_sync.sv",
+        "basejump/bsg_mem_1r1w_sync_synth.sv",
+        "basejump/bsg_mem_1r1w_synth.sv",
+        "basejump/bsg_circular_ptr.sv",
+        "basejump/bsg_clkgate_optional.sv",
+        "basejump/bsg_dff.sv",
+        "basejump/bsg_dff_en.sv",
+        "basejump/bsg_dff_en_bypass.sv",
+        "basejump/bsg_dff_reset_set_clear.sv",
+        "basejump/bsg_dlatch.sv",
+        "basejump/bsg_defines.sv"
+      ],
+      "license_files": [
+        "licenses/basejump-stl/LICENSE"
+      ]
+    },
+    {
+      "name": "basejump-fifo-small",
+      "status": "passed",
+      "files": 19,
+      "source_files": [
+        "vendor-v0.16/basejump/bsg_fifo_1r1w_small.sv",
+        "vendor-v0.16/basejump/bsg_fifo_1r1w_small_unhardened.sv",
+        "vendor-v0.16/basejump/bsg_fifo_1r1w_small_hardened.sv",
+        "vendor-v0.16/basejump/bsg_fifo_tracker.sv",
+        "vendor-v0.16/basejump/bsg_circular_ptr.sv",
+        "vendor-v0.16/basejump/bsg_two_fifo.sv",
+        "vendor-v0.16/basejump/bsg_mem_1r1w.sv",
+        "vendor-v0.16/basejump/bsg_mem_1r1w_synth.sv",
+        "vendor-v0.16/basejump/bsg_mem_1r1w_sync.sv",
+        "vendor-v0.16/basejump/bsg_mem_1r1w_sync_synth.sv",
+        "vendor-v0.16/basejump/bsg_dff.sv",
+        "vendor-v0.16/basejump/bsg_dff_en.sv",
+        "vendor-v0.16/basejump/bsg_dff_en_bypass.sv",
+        "vendor-v0.16/basejump/bsg_dff_reset_set_clear.sv",
+        "vendor-v0.16/basejump/bsg_clkgate_optional.sv",
+        "vendor-v0.16/basejump/bsg_dlatch.sv",
+        "vendor-v0.16/basejump/bsg_defines.sv"
+      ],
+      "license_files": [
+        "licenses/basejump-stl-v0.16-LICENSE"
+      ]
+    },
+    {
+      "name": "basejump-imul-iterative",
+      "status": "passed",
+      "files": 4,
+      "source_files": [
+        "basejump/bsg_imul_iterative.sv",
+        "basejump/bsg_defines.sv"
+      ],
+      "license_files": [
+        "licenses/basejump-stl/LICENSE"
+      ]
+    },
+    {
+      "name": "basejump-mux",
+      "status": "passed",
+      "files": 4,
+      "source_files": [
+        "vendor-v0.11/basejump/bsg_misc/bsg_mux.sv",
+        "vendor-v0.5/basejump/bsg_misc/bsg_defines.sv"
+      ],
+      "license_files": [
+        "licenses/basejump-stl-v0.5/LICENSE"
+      ]
+    },
+    {
+      "name": "basejump-mux-bitwise",
+      "status": "passed",
+      "files": 5,
+      "source_files": [
+        "basejump/bsg_mux_bitwise.sv",
+        "basejump/bsg_mux_segmented.sv",
+        "basejump/bsg_defines.sv"
+      ],
+      "license_files": [
+        "licenses/basejump-stl/LICENSE"
+      ]
+    },
+    {
+      "name": "basejump-mux-butterfly",
+      "status": "passed",
+      "files": 5,
+      "source_files": [
+        "vendor-v0.5/basejump/bsg_misc/bsg_mux_butterfly.sv",
+        "vendor-v0.5/basejump/bsg_misc/bsg_swap.sv",
+        "vendor-v0.5/basejump/bsg_misc/bsg_defines.sv"
+      ],
+      "license_files": [
+        "licenses/basejump-stl-v0.5/LICENSE"
+      ]
+    },
+    {
+      "name": "basejump-mux-one-hot",
+      "status": "passed",
+      "files": 4,
+      "source_files": [
+        "vendor-v0.5/basejump/bsg_misc/bsg_mux_one_hot.sv",
+        "vendor-v0.5/basejump/bsg_misc/bsg_defines.sv"
+      ],
+      "license_files": [
+        "licenses/basejump-stl-v0.5/LICENSE"
+      ]
+    },
+    {
+      "name": "basejump-mux-segmented",
+      "status": "passed",
+      "files": 4,
+      "source_files": [
+        "basejump/bsg_mux_segmented.sv",
+        "basejump/bsg_defines.sv"
+      ],
+      "license_files": [
+        "licenses/basejump-stl/LICENSE"
+      ]
+    },
+    {
+      "name": "basejump-mux2-gatestack",
+      "status": "passed",
+      "files": 4,
+      "source_files": [
+        "basejump/bsg_mux2_gatestack.sv",
+        "basejump/bsg_defines.sv"
+      ],
+      "license_files": [
+        "licenses/basejump-stl/LICENSE"
+      ]
+    },
+    {
+      "name": "basejump-muxi2-gatestack",
+      "status": "passed",
+      "files": 4,
+      "source_files": [
+        "basejump/bsg_muxi2_gatestack.sv",
+        "basejump/bsg_defines.sv"
+      ],
+      "license_files": [
+        "licenses/basejump-stl/LICENSE"
+      ]
+    },
+    {
+      "name": "basejump-popcount",
+      "status": "passed",
+      "files": 4,
+      "source_files": [
+        "basejump/bsg_popcount.sv",
+        "basejump/bsg_defines.sv"
+      ],
+      "license_files": [
+        "licenses/basejump-stl/LICENSE"
+      ]
+    },
+    {
+      "name": "basejump-priority-encode",
+      "status": "passed",
+      "files": 7,
+      "source_files": [
+        "basejump/bsg_priority_encode.sv",
+        "basejump/bsg_priority_encode_one_hot_out.sv",
+        "basejump/bsg_encode_one_hot.sv",
+        "basejump/bsg_scan.sv",
+        "basejump/bsg_defines.sv"
+      ],
+      "license_files": [
+        "licenses/basejump-stl/LICENSE"
+      ]
+    },
+    {
+      "name": "basejump-priority-onehot",
+      "status": "passed",
+      "files": 5,
+      "source_files": [
+        "basejump/bsg_priority_encode_one_hot_out.sv",
+        "basejump/bsg_scan.sv",
+        "basejump/bsg_defines.sv"
+      ],
+      "license_files": [
+        "licenses/basejump-stl/LICENSE"
+      ]
+    },
+    {
+      "name": "basejump-rr-1-to-n",
+      "status": "passed",
+      "files": 5,
+      "source_files": [
+        "vendor-v0.5/basejump/bsg_dataflow/bsg_round_robin_1_to_n.sv",
+        "vendor-v0.5/basejump/bsg_misc/bsg_circular_ptr.sv",
+        "vendor-v0.5/basejump/bsg_misc/bsg_defines.sv"
+      ],
+      "license_files": [
+        "licenses/basejump-stl-v0.5/LICENSE"
+      ]
+    },
+    {
+      "name": "basejump-rr-2-to-2",
+      "status": "passed",
+      "files": 4,
+      "source_files": [
+        "vendor-v0.5/basejump/bsg_dataflow/bsg_round_robin_2_to_2.sv",
+        "vendor-v0.5/basejump/bsg_misc/bsg_defines.sv"
+      ],
+      "license_files": [
+        "licenses/basejump-stl-v0.5/LICENSE"
+      ]
+    },
+    {
+      "name": "basejump-rr-arbiter",
+      "status": "passed",
+      "files": 5,
+      "source_files": [
+        "basejump/bsg_arb_round_robin.sv",
+        "basejump/bsg_scan.sv",
+        "basejump/bsg_defines.sv"
+      ],
+      "license_files": [
+        "licenses/basejump-stl/LICENSE"
+      ]
+    },
+    {
+      "name": "basejump-rr-composable",
+      "status": "passed",
+      "files": 5,
+      "source_files": [
+        "vendor-v0.5/basejump/bsg_misc/bsg_arb_round_robin.sv",
+        "vendor-v0.5/basejump/bsg_misc/bsg_scan.sv",
+        "vendor-v0.5/basejump/bsg_misc/bsg_defines.sv"
+      ],
+      "license_files": [
+        "licenses/basejump-stl-v0.5/LICENSE"
+      ]
+    },
+    {
+      "name": "basejump-rr-fifo-to-fifo",
+      "status": "passed",
+      "files": 11,
+      "source_files": [
+        "vendor-v0.5/basejump/bsg_dataflow/bsg_round_robin_fifo_to_fifo.sv",
+        "vendor-v0.5/basejump/bsg_dataflow/bsg_make_2D_array.sv",
+        "vendor-v0.5/basejump/bsg_misc/bsg_circular_ptr.sv",
+        "vendor-v0.5/basejump/bsg_misc/bsg_encode_one_hot.sv",
+        "vendor-v0.5/basejump/bsg_misc/bsg_popcount.sv",
+        "vendor-v0.5/basejump/bsg_misc/bsg_rotate_right.sv",
+        "vendor-v0.5/basejump/bsg_misc/bsg_scan.sv",
+        "vendor-v0.5/basejump/bsg_misc/bsg_thermometer_count.sv",
+        "vendor-v0.5/basejump/bsg_misc/bsg_defines.sv"
+      ],
+      "license_files": [
+        "licenses/basejump-stl-v0.5/LICENSE"
+      ]
+    },
+    {
+      "name": "basejump-rr-n-to-1",
+      "status": "passed",
+      "files": 11,
+      "source_files": [
+        "vendor-v0.5/basejump/bsg_dataflow/bsg_round_robin_n_to_1.sv",
+        "vendor-v0.5/basejump/bsg_misc/bsg_arb_round_robin.sv",
+        "vendor-v0.5/basejump/bsg_misc/bsg_circular_ptr.sv",
+        "vendor-v0.5/basejump/bsg_misc/bsg_crossbar_o_by_i.sv",
+        "vendor-v0.5/basejump/bsg_misc/bsg_encode_one_hot.sv",
+        "vendor-v0.5/basejump/bsg_misc/bsg_mux_one_hot.sv",
+        "vendor-v0.5/basejump/bsg_misc/bsg_round_robin_arb.sv",
+        "vendor-v0.5/basejump/bsg_misc/bsg_scan.sv",
+        "vendor-v0.5/basejump/bsg_misc/bsg_defines.sv"
+      ],
+      "license_files": [
+        "licenses/basejump-stl-v0.5/LICENSE"
+      ]
+    },
+    {
+      "name": "basejump-rr-two-level",
+      "status": "passed",
+      "files": 5,
+      "source_files": [
+        "vendor-v0.5/basejump/bsg_misc/bsg_arb_round_robin.sv",
+        "vendor-v0.5/basejump/bsg_misc/bsg_scan.sv",
+        "vendor-v0.5/basejump/bsg_misc/bsg_defines.sv"
+      ],
+      "license_files": [
+        "licenses/basejump-stl-v0.5/LICENSE"
+      ]
+    },
+    {
+      "name": "basejump-scan-or",
+      "status": "passed",
+      "files": 4,
+      "source_files": [
+        "basejump/bsg_scan.sv",
+        "basejump/bsg_defines.sv"
+      ],
+      "license_files": [
+        "licenses/basejump-stl/LICENSE"
+      ]
+    },
+    {
+      "name": "basejump-segmented-mux",
+      "status": "passed",
+      "files": 4,
+      "source_files": [
+        "basejump/bsg_mux_segmented.sv",
+        "basejump/bsg_defines.sv"
+      ],
+      "license_files": [
+        "licenses/basejump-stl/LICENSE"
+      ]
+    },
+    {
+      "name": "basejump-unconcentrate-static",
+      "status": "passed",
+      "files": 4,
+      "source_files": [
+        "vendor-v0.11/basejump/bsg_misc/bsg_unconcentrate_static.sv",
+        "vendor-v0.5/basejump/bsg_misc/bsg_defines.sv"
+      ],
+      "license_files": [
+        "licenses/basejump-stl-v0.5/LICENSE"
+      ]
+    },
+    {
+      "name": "basejump-xor",
+      "status": "passed",
+      "files": 4,
+      "source_files": [
+        "basejump/bsg_xor.sv",
+        "basejump/bsg_defines.sv"
+      ],
+      "license_files": [
+        "licenses/basejump-stl/LICENSE"
+      ]
+    },
+    {
+      "name": "fifo",
+      "status": "passed",
+      "files": 2,
+      "source_files": [
+        "pyc_fifo.v"
+      ],
+      "license_files": []
+    },
+    {
+      "name": "opentitan-max-tree",
+      "status": "passed",
+      "files": 4,
+      "source_files": [
+        "opentitan/prim_max_tree.sv",
+        "opentitan/prim_assert.sv"
+      ],
+      "license_files": [
+        "licenses/opentitan/LICENSE"
+      ]
+    },
+    {
+      "name": "opentitan-msb-extend",
+      "status": "passed",
+      "files": 4,
+      "source_files": [
+        "opentitan/prim_msb_extend.sv",
+        "opentitan/prim_assert.sv"
+      ],
+      "license_files": [
+        "licenses/opentitan/LICENSE"
+      ]
+    },
+    {
+      "name": "opentitan-onehot-encode",
+      "status": "passed",
+      "files": 3,
+      "source_files": [
+        "opentitan/prim_onehot_enc.sv"
+      ],
+      "license_files": [
+        "licenses/opentitan/LICENSE"
+      ]
+    },
+    {
+      "name": "opentitan-onehot-mux",
+      "status": "passed",
+      "files": 5,
+      "source_files": [
+        "opentitan/prim_onehot_mux.sv",
+        "opentitan/prim_and2.sv",
+        "opentitan/prim_assert.sv"
+      ],
+      "license_files": [
+        "licenses/opentitan/LICENSE"
+      ]
+    },
+    {
+      "name": "opentitan-secded-22-16-dec",
+      "status": "passed",
+      "files": 3,
+      "source_files": [
+        "vendor-v0.5/opentitan/hw/ip/prim/rtl/prim_secded_22_16_dec.sv"
+      ],
+      "license_files": [
+        "licenses/opentitan-v0.5/LICENSE"
+      ]
+    },
+    {
+      "name": "opentitan-secded-22-16-enc",
+      "status": "passed",
+      "files": 3,
+      "source_files": [
+        "vendor-v0.5/opentitan/hw/ip/prim/rtl/prim_secded_22_16_enc.sv"
+      ],
+      "license_files": [
+        "licenses/opentitan-v0.5/LICENSE"
+      ]
+    },
+    {
+      "name": "opentitan-secded-28-22-dec",
+      "status": "passed",
+      "files": 3,
+      "source_files": [
+        "vendor-v0.6/opentitan/hw/ip/prim/rtl/prim_secded_28_22_dec.sv"
+      ],
+      "license_files": [
+        "licenses/opentitan-v0.6-LICENSE"
+      ]
+    },
+    {
+      "name": "opentitan-secded-28-22-enc",
+      "status": "passed",
+      "files": 3,
+      "source_files": [
+        "vendor-v0.6/opentitan/hw/ip/prim/rtl/prim_secded_28_22_enc.sv"
+      ],
+      "license_files": [
+        "licenses/opentitan-v0.6-LICENSE"
+      ]
+    },
+    {
+      "name": "opentitan-secded-39-32-dec",
+      "status": "passed",
+      "files": 3,
+      "source_files": [
+        "vendor-v0.6/opentitan/hw/ip/prim/rtl/prim_secded_39_32_dec.sv"
+      ],
+      "license_files": [
+        "licenses/opentitan-v0.6-LICENSE"
+      ]
+    },
+    {
+      "name": "opentitan-secded-39-32-enc",
+      "status": "passed",
+      "files": 3,
+      "source_files": [
+        "vendor-v0.6/opentitan/hw/ip/prim/rtl/prim_secded_39_32_enc.sv"
+      ],
+      "license_files": [
+        "licenses/opentitan-v0.6-LICENSE"
+      ]
+    },
+    {
+      "name": "opentitan-secded-64-57-dec",
+      "status": "passed",
+      "files": 3,
+      "source_files": [
+        "vendor-v0.7/opentitan/hw/ip/prim/rtl/prim_secded_64_57_dec.sv"
+      ],
+      "license_files": [
+        "licenses/opentitan-v0.7-LICENSE"
+      ]
+    },
+    {
+      "name": "opentitan-secded-64-57-enc",
+      "status": "passed",
+      "files": 3,
+      "source_files": [
+        "vendor-v0.7/opentitan/hw/ip/prim/rtl/prim_secded_64_57_enc.sv"
+      ],
+      "license_files": [
+        "licenses/opentitan-v0.7-LICENSE"
+      ]
+    },
+    {
+      "name": "opentitan-secded-72-64-dec",
+      "status": "passed",
+      "files": 3,
+      "source_files": [
+        "vendor-v0.7/opentitan/hw/ip/prim/rtl/prim_secded_72_64_dec.sv"
+      ],
+      "license_files": [
+        "licenses/opentitan-v0.7-LICENSE"
+      ]
+    },
+    {
+      "name": "opentitan-secded-72-64-enc",
+      "status": "passed",
+      "files": 3,
+      "source_files": [
+        "vendor-v0.7/opentitan/hw/ip/prim/rtl/prim_secded_72_64_enc.sv"
+      ],
+      "license_files": [
+        "licenses/opentitan-v0.7-LICENSE"
+      ]
+    },
+    {
+      "name": "opentitan-secded-hamming-22-16-dec",
+      "status": "passed",
+      "files": 3,
+      "source_files": [
+        "opentitan/prim_secded_hamming_22_16_dec.sv"
+      ],
+      "license_files": [
+        "licenses/opentitan/LICENSE"
+      ]
+    },
+    {
+      "name": "opentitan-secded-hamming-22-16-enc",
+      "status": "passed",
+      "files": 3,
+      "source_files": [
+        "opentitan/prim_secded_hamming_22_16_enc.sv"
+      ],
+      "license_files": [
+        "licenses/opentitan/LICENSE"
+      ]
+    },
+    {
+      "name": "opentitan-secded-hamming-39-32-dec",
+      "status": "passed",
+      "files": 3,
+      "source_files": [
+        "opentitan/prim_secded_hamming_39_32_dec.sv"
+      ],
+      "license_files": [
+        "licenses/opentitan/LICENSE"
+      ]
+    },
+    {
+      "name": "opentitan-secded-hamming-39-32-enc",
+      "status": "passed",
+      "files": 3,
+      "source_files": [
+        "opentitan/prim_secded_hamming_39_32_enc.sv"
+      ],
+      "license_files": [
+        "licenses/opentitan/LICENSE"
+      ]
+    },
+    {
+      "name": "opentitan-secded-hamming-72-64-dec",
+      "status": "passed",
+      "files": 3,
+      "source_files": [
+        "opentitan/prim_secded_hamming_72_64_dec.sv"
+      ],
+      "license_files": [
+        "licenses/opentitan/LICENSE"
+      ]
+    },
+    {
+      "name": "opentitan-secded-hamming-72-64-enc",
+      "status": "passed",
+      "files": 3,
+      "source_files": [
+        "opentitan/prim_secded_hamming_72_64_enc.sv"
+      ],
+      "license_files": [
+        "licenses/opentitan/LICENSE"
+      ]
+    },
+    {
+      "name": "opentitan-secded-hamming-76-68-dec",
+      "status": "passed",
+      "files": 3,
+      "source_files": [
+        "vendor-v0.15/opentitan/hw/ip/prim/rtl/prim_secded_hamming_76_68_dec.sv"
+      ],
+      "license_files": [
+        "licenses/opentitan-v0.14-LICENSE"
+      ]
+    },
+    {
+      "name": "opentitan-secded-hamming-76-68-enc",
+      "status": "passed",
+      "files": 3,
+      "source_files": [
+        "vendor-v0.15/opentitan/hw/ip/prim/rtl/prim_secded_hamming_76_68_enc.sv"
+      ],
+      "license_files": [
+        "licenses/opentitan-v0.14-LICENSE"
+      ]
+    },
+    {
+      "name": "opentitan-secded-inv-22-16-dec",
+      "status": "passed",
+      "files": 3,
+      "source_files": [
+        "vendor-v0.14/opentitan/hw/ip/prim/rtl/prim_secded_inv_22_16_dec.sv"
+      ],
+      "license_files": [
+        "licenses/opentitan-v0.14-LICENSE"
+      ]
+    },
+    {
+      "name": "opentitan-secded-inv-22-16-enc",
+      "status": "passed",
+      "files": 3,
+      "source_files": [
+        "vendor-v0.14/opentitan/hw/ip/prim/rtl/prim_secded_inv_22_16_enc.sv"
+      ],
+      "license_files": [
+        "licenses/opentitan-v0.14-LICENSE"
+      ]
+    },
+    {
+      "name": "opentitan-secded-inv-28-22-dec",
+      "status": "passed",
+      "files": 3,
+      "source_files": [
+        "vendor-v0.14/opentitan/hw/ip/prim/rtl/prim_secded_inv_28_22_dec.sv"
+      ],
+      "license_files": [
+        "licenses/opentitan-v0.14-LICENSE"
+      ]
+    },
+    {
+      "name": "opentitan-secded-inv-28-22-enc",
+      "status": "passed",
+      "files": 3,
+      "source_files": [
+        "vendor-v0.14/opentitan/hw/ip/prim/rtl/prim_secded_inv_28_22_enc.sv"
+      ],
+      "license_files": [
+        "licenses/opentitan-v0.14-LICENSE"
+      ]
+    },
+    {
+      "name": "opentitan-secded-inv-39-32-dec",
+      "status": "passed",
+      "files": 3,
+      "source_files": [
+        "vendor-v0.14/opentitan/hw/ip/prim/rtl/prim_secded_inv_39_32_dec.sv"
+      ],
+      "license_files": [
+        "licenses/opentitan-v0.14-LICENSE"
+      ]
+    },
+    {
+      "name": "opentitan-secded-inv-39-32-enc",
+      "status": "passed",
+      "files": 3,
+      "source_files": [
+        "vendor-v0.14/opentitan/hw/ip/prim/rtl/prim_secded_inv_39_32_enc.sv"
+      ],
+      "license_files": [
+        "licenses/opentitan-v0.14-LICENSE"
+      ]
+    },
+    {
+      "name": "opentitan-secded-inv-64-57-dec",
+      "status": "passed",
+      "files": 3,
+      "source_files": [
+        "vendor-v0.14/opentitan/hw/ip/prim/rtl/prim_secded_inv_64_57_dec.sv"
+      ],
+      "license_files": [
+        "licenses/opentitan-v0.14-LICENSE"
+      ]
+    },
+    {
+      "name": "opentitan-secded-inv-64-57-enc",
+      "status": "passed",
+      "files": 3,
+      "source_files": [
+        "vendor-v0.14/opentitan/hw/ip/prim/rtl/prim_secded_inv_64_57_enc.sv"
+      ],
+      "license_files": [
+        "licenses/opentitan-v0.14-LICENSE"
+      ]
+    },
+    {
+      "name": "opentitan-secded-inv-72-64-dec",
+      "status": "passed",
+      "files": 3,
+      "source_files": [
+        "vendor-v0.14/opentitan/hw/ip/prim/rtl/prim_secded_inv_72_64_dec.sv"
+      ],
+      "license_files": [
+        "licenses/opentitan-v0.14-LICENSE"
+      ]
+    },
+    {
+      "name": "opentitan-secded-inv-72-64-enc",
+      "status": "passed",
+      "files": 3,
+      "source_files": [
+        "vendor-v0.14/opentitan/hw/ip/prim/rtl/prim_secded_inv_72_64_enc.sv"
+      ],
+      "license_files": [
+        "licenses/opentitan-v0.14-LICENSE"
+      ]
+    },
+    {
+      "name": "opentitan-secded-inv-hamming-22-16-dec",
+      "status": "passed",
+      "files": 3,
+      "source_files": [
+        "opentitan/prim_secded_inv_hamming_22_16_dec.sv"
+      ],
+      "license_files": [
+        "licenses/opentitan/LICENSE"
+      ]
+    },
+    {
+      "name": "opentitan-secded-inv-hamming-22-16-enc",
+      "status": "passed",
+      "files": 3,
+      "source_files": [
+        "opentitan/prim_secded_inv_hamming_22_16_enc.sv"
+      ],
+      "license_files": [
+        "licenses/opentitan/LICENSE"
+      ]
+    },
+    {
+      "name": "opentitan-secded-inv-hamming-39-32-dec",
+      "status": "passed",
+      "files": 3,
+      "source_files": [
+        "opentitan/prim_secded_inv_hamming_39_32_dec.sv"
+      ],
+      "license_files": [
+        "licenses/opentitan/LICENSE"
+      ]
+    },
+    {
+      "name": "opentitan-secded-inv-hamming-39-32-enc",
+      "status": "passed",
+      "files": 3,
+      "source_files": [
+        "opentitan/prim_secded_inv_hamming_39_32_enc.sv"
+      ],
+      "license_files": [
+        "licenses/opentitan/LICENSE"
+      ]
+    },
+    {
+      "name": "opentitan-secded-inv-hamming-72-64-dec",
+      "status": "passed",
+      "files": 3,
+      "source_files": [
+        "opentitan/prim_secded_inv_hamming_72_64_dec.sv"
+      ],
+      "license_files": [
+        "licenses/opentitan/LICENSE"
+      ]
+    },
+    {
+      "name": "opentitan-secded-inv-hamming-72-64-enc",
+      "status": "passed",
+      "files": 3,
+      "source_files": [
+        "opentitan/prim_secded_inv_hamming_72_64_enc.sv"
+      ],
+      "license_files": [
+        "licenses/opentitan/LICENSE"
+      ]
+    },
+    {
+      "name": "opentitan-secded-inv-hamming-76-68-dec",
+      "status": "passed",
+      "files": 3,
+      "source_files": [
+        "vendor-v0.15/opentitan/hw/ip/prim/rtl/prim_secded_inv_hamming_76_68_dec.sv"
+      ],
+      "license_files": [
+        "licenses/opentitan-v0.14-LICENSE"
+      ]
+    },
+    {
+      "name": "opentitan-secded-inv-hamming-76-68-enc",
+      "status": "passed",
+      "files": 3,
+      "source_files": [
+        "vendor-v0.15/opentitan/hw/ip/prim/rtl/prim_secded_inv_hamming_76_68_enc.sv"
+      ],
+      "license_files": [
+        "licenses/opentitan-v0.14-LICENSE"
+      ]
+    },
+    {
+      "name": "opentitan-slicer",
+      "status": "passed",
+      "files": 4,
+      "source_files": [
+        "opentitan/prim_slicer.sv",
+        "opentitan/prim_assert.sv"
+      ],
+      "license_files": [
+        "licenses/opentitan/LICENSE"
+      ]
+    },
+    {
+      "name": "opentitan-sum-tree",
+      "status": "passed",
+      "files": 4,
+      "source_files": [
+        "opentitan/prim_sum_tree.sv",
+        "opentitan/prim_assert.sv"
+      ],
+      "license_files": [
+        "licenses/opentitan/LICENSE"
+      ]
+    },
+    {
+      "name": "popcount",
+      "status": "passed",
+      "files": 2,
+      "source_files": [
+        "pyc_popcount.v"
+      ],
+      "license_files": []
+    },
+    {
+      "name": "pulp-binary-to-gray",
+      "status": "passed",
+      "files": 3,
+      "source_files": [
+        "pulp/cc_binary_to_gray.sv"
+      ],
+      "license_files": [
+        "licenses/pulp-common-cells/LICENSE"
+      ]
+    },
+    {
+      "name": "pulp-cc-popcount",
+      "status": "passed",
+      "files": 3,
+      "source_files": [
+        "pulp/cc_popcount.sv"
+      ],
+      "license_files": [
+        "licenses/pulp-common-cells/LICENSE"
+      ]
+    },
+    {
+      "name": "pulp-cdc-fifo-2phase",
+      "status": "passed",
+      "files": 9,
+      "source_files": [
+        "vendor-v0.16/pulp_common_cells/src/cc_cdc_fifo_2phase.sv",
+        "vendor-v0.16/pulp_common_cells/src/cc_cdc_2phase.sv",
+        "vendor-v0.16/pulp_common_cells/include/common_cells/registers.svh",
+        "vendor-v0.16/pulp_common_cells/include/common_cells/assertions.svh",
+        "vendor-v0.16/pulp_common_cells/include/common_cells/deprecated/registers.svh",
+        "vendor-v0.16/tech_cells_generic/src/rtl/tc_sync.sv"
+      ],
+      "license_files": [
+        "licenses/pulp-common-cells-v0.16-LICENSE",
+        "licenses/tech-cells-generic-v0.16-LICENSE"
+      ]
+    },
+    {
+      "name": "pulp-cdc-fifo-gray",
+      "status": "passed",
+      "files": 12,
+      "source_files": [
+        "vendor-v0.6/pulp_common_cells/src/cc_cdc_fifo_gray.sv",
+        "vendor-v0.6/pulp_common_cells/src/cc_binary_to_gray.sv",
+        "vendor-v0.6/pulp_common_cells/src/cc_gray_to_binary.sv",
+        "vendor-v0.6/pulp_common_cells/src/cc_spill_register.sv",
+        "vendor-v0.6/pulp_common_cells/src/cc_spill_register_flushable.sv",
+        "vendor-v0.6/pulp_common_cells/include/common_cells/assertions.svh",
+        "vendor-v0.6/pulp_common_cells/include/common_cells/registers.svh",
+        "vendor-v0.6/pulp_common_cells/include/common_cells/deprecated/registers.svh",
+        "vendor-v0.6/tech_cells_generic/src/rtl/tc_sync.sv"
+      ],
+      "license_files": [
+        "licenses/pulp-common-cells-v0.6-LICENSE",
+        "licenses/tech-cells-generic-v0.6-LICENSE"
+      ]
+    },
+    {
+      "name": "pulp-cdc-fifo-gray-clearable",
+      "status": "passed",
+      "files": 15,
+      "source_files": [
+        "vendor-v0.17/pulp_common_cells/src/cc_cdc_fifo_gray_clearable.sv",
+        "vendor-v0.17/pulp_common_cells/src/cc_cdc_reset_ctrlr.sv",
+        "vendor-v0.17/pulp_common_cells/src/cc_cdc_4phase.sv",
+        "vendor-v0.17/pulp_common_cells/src/cc_pkg.sv",
+        "vendor-v0.17/pulp_common_cells/src/cc_binary_to_gray.sv",
+        "vendor-v0.17/pulp_common_cells/src/cc_gray_to_binary.sv",
+        "vendor-v0.17/pulp_common_cells/src/cc_spill_register.sv",
+        "vendor-v0.17/pulp_common_cells/src/cc_spill_register_flushable.sv",
+        "vendor-v0.17/pulp_common_cells/include/common_cells/registers.svh",
+        "vendor-v0.17/pulp_common_cells/include/common_cells/assertions.svh",
+        "vendor-v0.17/pulp_common_cells/include/common_cells/deprecated/registers.svh",
+        "vendor-v0.17/tech_cells_generic/src/rtl/tc_sync.sv"
+      ],
+      "license_files": [
+        "licenses/pulp-common-cells-v0.17-LICENSE",
+        "licenses/tech-cells-generic-v0.16-LICENSE"
+      ]
+    },
+    {
+      "name": "pulp-clk-or-tree",
+      "status": "passed",
+      "files": 5,
+      "source_files": [
+        "vendor-v0.19/pulp_common_cells/src/cc_clk_mux_glitch_free.sv",
+        "vendor-v0.19/tech_cells_generic/src/rtl/tc_clk.sv"
+      ],
+      "license_files": [
+        "licenses/pulp-common-cells-v0.18-LICENSE",
+        "licenses/tech-cells-generic-v0.16-LICENSE"
+      ]
+    },
+    {
+      "name": "pulp-credit-counter",
+      "status": "passed",
+      "files": 6,
+      "source_files": [
+        "vendor-v0.10/pulp_common_cells/src/cc_credit_counter.sv",
+        "vendor-v0.10/pulp_common_cells/include/common_cells/registers.svh",
+        "vendor-v0.10/pulp_common_cells/include/common_cells/deprecated/registers.svh",
+        "vendor-v0.10/pulp_common_cells/include/common_cells/assertions.svh"
+      ],
+      "license_files": [
+        "licenses/pulp-common-cells-v0.10-LICENSE"
+      ]
+    },
+    {
+      "name": "pulp-fall-through-register",
+      "status": "passed",
+      "files": 9,
+      "source_files": [
+        "vendor-v0.20/pulp_common_cells/src/cc_fall_through_register.sv",
+        "vendor-v0.20/pulp_common_cells/src/cc_stream_fifo.sv",
+        "vendor-v0.20/pulp_common_cells/src/cc_fifo.sv",
+        "vendor-v0.20/pulp_common_cells/src/cc_pkg.sv",
+        "vendor-v0.20/pulp_common_cells/include/common_cells/registers.svh",
+        "vendor-v0.20/pulp_common_cells/include/common_cells/assertions.svh",
+        "vendor-v0.20/pulp_common_cells/include/common_cells/deprecated/registers.svh"
+      ],
+      "license_files": [
+        "licenses/pulp-common-cells-v0.20-LICENSE"
+      ]
+    },
+    {
+      "name": "pulp-gray-to-binary",
+      "status": "passed",
+      "files": 3,
+      "source_files": [
+        "pulp/cc_gray_to_binary.sv"
+      ],
+      "license_files": [
+        "licenses/pulp-common-cells/LICENSE"
+      ]
+    },
+    {
+      "name": "pulp-isochronous-spill-register",
+      "status": "passed",
+      "files": 6,
+      "source_files": [
+        "vendor-v0.18/pulp_common_cells/src/cc_isochronous_spill_register.sv",
+        "vendor-v0.18/pulp_common_cells/include/common_cells/registers.svh",
+        "vendor-v0.18/pulp_common_cells/include/common_cells/assertions.svh",
+        "vendor-v0.18/pulp_common_cells/include/common_cells/deprecated/registers.svh"
+      ],
+      "license_files": [
+        "licenses/pulp-common-cells-v0.18-LICENSE"
+      ]
+    },
+    {
+      "name": "pulp-lzc",
+      "status": "passed",
+      "files": 5,
+      "source_files": [
+        "pulp/cc_lzc.sv",
+        "pulp/cc_pkg.sv",
+        "pulp/include/common_cells/assertions.svh"
+      ],
+      "license_files": [
+        "licenses/pulp-common-cells/LICENSE"
+      ]
+    },
+    {
+      "name": "pulp-onehot-check",
+      "status": "passed",
+      "files": 3,
+      "source_files": [
+        "pulp/cc_onehot.sv"
+      ],
+      "license_files": [
+        "licenses/pulp-common-cells/LICENSE"
+      ]
+    },
+    {
+      "name": "pulp-plru-tree",
+      "status": "passed",
+      "files": 6,
+      "source_files": [
+        "vendor-v0.10/pulp_common_cells/src/cc_plru_tree.sv",
+        "vendor-v0.10/pulp_common_cells/include/common_cells/registers.svh",
+        "vendor-v0.10/pulp_common_cells/include/common_cells/deprecated/registers.svh",
+        "vendor-v0.10/pulp_common_cells/include/common_cells/assertions.svh"
+      ],
+      "license_files": [
+        "licenses/pulp-common-cells-v0.10-LICENSE"
+      ]
+    },
+    {
+      "name": "pulp-rr-arb-tree",
+      "status": "passed",
+      "files": 8,
+      "source_files": [
+        "vendor-v0.8/pulp_common_cells/include/common_cells/assertions.svh",
+        "vendor-v0.8/pulp_common_cells/include/common_cells/registers.svh",
+        "vendor-v0.8/pulp_common_cells/include/common_cells/deprecated/registers.svh",
+        "vendor-v0.8/pulp_common_cells/src/cc_pkg.sv",
+        "vendor-v0.8/pulp_common_cells/src/cc_lzc.sv",
+        "vendor-v0.8/pulp_common_cells/src/cc_rr_arb_tree.sv"
+      ],
+      "license_files": [
+        "licenses/pulp-common-cells/LICENSE"
+      ]
+    },
+    {
+      "name": "pulp-spill-register",
+      "status": "passed",
+      "files": 7,
+      "source_files": [
+        "vendor-v0.6/pulp_common_cells/src/cc_spill_register.sv",
+        "vendor-v0.6/pulp_common_cells/src/cc_spill_register_flushable.sv",
+        "vendor-v0.6/pulp_common_cells/include/common_cells/assertions.svh",
+        "vendor-v0.6/pulp_common_cells/include/common_cells/registers.svh",
+        "vendor-v0.6/pulp_common_cells/include/common_cells/deprecated/registers.svh"
+      ],
+      "license_files": [
+        "licenses/pulp-common-cells-v0.6-LICENSE"
+      ]
+    },
+    {
+      "name": "pulp-spill-register-flushable",
+      "status": "passed",
+      "files": 6,
+      "source_files": [
+        "vendor-v0.6/pulp_common_cells/src/cc_spill_register_flushable.sv",
+        "vendor-v0.6/pulp_common_cells/include/common_cells/assertions.svh",
+        "vendor-v0.6/pulp_common_cells/include/common_cells/registers.svh",
+        "vendor-v0.6/pulp_common_cells/include/common_cells/deprecated/registers.svh"
+      ],
+      "license_files": [
+        "licenses/pulp-common-cells-v0.6-LICENSE"
+      ]
+    },
+    {
+      "name": "pulp-stream-arbiter",
+      "status": "passed",
+      "files": 9,
+      "source_files": [
+        "vendor-v0.8/pulp_common_cells/src/cc_stream_arbiter.sv",
+        "vendor-v0.8/pulp_common_cells/include/common_cells/assertions.svh",
+        "vendor-v0.8/pulp_common_cells/include/common_cells/registers.svh",
+        "vendor-v0.8/pulp_common_cells/include/common_cells/deprecated/registers.svh",
+        "vendor-v0.8/pulp_common_cells/src/cc_pkg.sv",
+        "vendor-v0.8/pulp_common_cells/src/cc_lzc.sv",
+        "vendor-v0.8/pulp_common_cells/src/cc_rr_arb_tree.sv"
+      ],
+      "license_files": [
+        "licenses/pulp-common-cells/LICENSE"
+      ]
+    },
+    {
+      "name": "pulp-stream-arbiter-flushable",
+      "status": "passed",
+      "files": 10,
+      "source_files": [
+        "vendor-v0.24/pulp_common_cells/src/deprecated/stream_arbiter_flushable.sv",
+        "vendor-v0.24/pulp_common_cells/src/cc_stream_arbiter.sv",
+        "vendor-v0.24/pulp_common_cells/src/cc_rr_arb_tree.sv",
+        "vendor-v0.24/pulp_common_cells/src/cc_lzc.sv",
+        "vendor-v0.24/pulp_common_cells/src/cc_pkg.sv",
+        "vendor-v0.24/pulp_common_cells/include/common_cells/assertions.svh",
+        "vendor-v0.24/pulp_common_cells/include/common_cells/registers.svh",
+        "vendor-v0.24/pulp_common_cells/include/common_cells/deprecated/registers.svh"
+      ],
+      "license_files": [
+        "licenses/pulp-common-cells-v0.20-LICENSE"
+      ]
+    },
+    {
+      "name": "pulp-stream-demux",
+      "status": "passed",
+      "files": 3,
+      "source_files": [
+        "vendor-v0.4/pulp/src/cc_stream_demux.sv"
+      ],
+      "license_files": [
+        "licenses/pulp-common-cells-v0.4/LICENSE"
+      ]
+    },
+    {
+      "name": "pulp-stream-fork",
+      "status": "passed",
+      "files": 6,
+      "source_files": [
+        "vendor-v0.4/pulp/src/cc_stream_fork.sv",
+        "vendor-v0.4/pulp/include/common_cells/assertions.svh",
+        "vendor-v0.4/pulp/include/common_cells/registers.svh",
+        "vendor-v0.4/pulp/include/common_cells/deprecated/registers.svh"
+      ],
+      "license_files": [
+        "licenses/pulp-common-cells-v0.4/LICENSE"
+      ]
+    },
+    {
+      "name": "pulp-stream-fork-dynamic",
+      "status": "passed",
+      "files": 7,
+      "source_files": [
+        "vendor-v0.6/pulp_common_cells/src/cc_stream_fork_dynamic.sv",
+        "vendor-v0.6/pulp_common_cells/src/cc_stream_fork.sv",
+        "vendor-v0.6/pulp_common_cells/include/common_cells/assertions.svh",
+        "vendor-v0.6/pulp_common_cells/include/common_cells/registers.svh",
+        "vendor-v0.6/pulp_common_cells/include/common_cells/deprecated/registers.svh"
+      ],
+      "license_files": [
+        "licenses/pulp-common-cells-v0.6-LICENSE"
+      ]
+    },
+    {
+      "name": "pulp-stream-join",
+      "status": "passed",
+      "files": 5,
+      "source_files": [
+        "vendor-v0.4/pulp/src/cc_stream_join.sv",
+        "vendor-v0.4/pulp/src/cc_stream_join_dynamic.sv",
+        "vendor-v0.4/pulp/include/common_cells/assertions.svh"
+      ],
+      "license_files": [
+        "licenses/pulp-common-cells-v0.4/LICENSE"
+      ]
+    },
+    {
+      "name": "pulp-stream-join-dynamic",
+      "status": "passed",
+      "files": 4,
+      "source_files": [
+        "vendor-v0.6/pulp_common_cells/src/cc_stream_join_dynamic.sv",
+        "vendor-v0.6/pulp_common_cells/include/common_cells/assertions.svh"
+      ],
+      "license_files": [
+        "licenses/pulp-common-cells-v0.6-LICENSE"
+      ]
+    },
+    {
+      "name": "pulp-stream-mux",
+      "status": "passed",
+      "files": 5,
+      "source_files": [
+        "vendor-v0.4/pulp/src/cc_pkg.sv",
+        "vendor-v0.4/pulp/src/cc_stream_mux.sv",
+        "vendor-v0.4/pulp/include/common_cells/assertions.svh"
+      ],
+      "license_files": [
+        "licenses/pulp-common-cells-v0.4/LICENSE"
+      ]
+    },
+    {
+      "name": "pulp-stream-register",
+      "status": "passed",
+      "files": 5,
+      "source_files": [
+        "vendor-v0.4/pulp/src/cc_stream_register.sv",
+        "vendor-v0.4/pulp/include/common_cells/registers.svh",
+        "vendor-v0.4/pulp/include/common_cells/deprecated/registers.svh"
+      ],
+      "license_files": [
+        "licenses/pulp-common-cells-v0.4/LICENSE"
+      ]
+    },
+    {
+      "name": "pulp-stream-xbar",
+      "status": "passed",
+      "files": 12,
+      "source_files": [
+        "vendor-v0.8/pulp_common_cells/src/cc_stream_xbar.sv",
+        "vendor-v0.8/pulp_common_cells/src/cc_stream_demux.sv",
+        "vendor-v0.8/pulp_common_cells/src/cc_spill_register.sv",
+        "vendor-v0.8/pulp_common_cells/src/cc_spill_register_flushable.sv",
+        "vendor-v0.8/pulp_common_cells/include/common_cells/assertions.svh",
+        "vendor-v0.8/pulp_common_cells/include/common_cells/registers.svh",
+        "vendor-v0.8/pulp_common_cells/include/common_cells/deprecated/registers.svh",
+        "vendor-v0.8/pulp_common_cells/src/cc_pkg.sv",
+        "vendor-v0.8/pulp_common_cells/src/cc_lzc.sv",
+        "vendor-v0.8/pulp_common_cells/src/cc_rr_arb_tree.sv"
+      ],
+      "license_files": [
+        "licenses/pulp-common-cells/LICENSE"
+      ]
+    },
+    {
+      "name": "register",
+      "status": "passed",
+      "files": 2,
+      "source_files": [
+        "pyc_reg.v"
+      ],
+      "license_files": []
+    },
+    {
+      "name": "rr-arbiter",
+      "status": "passed",
+      "files": 2,
+      "source_files": [
+        "pyc_rr_arbiter.v"
+      ],
+      "license_files": []
+    },
+    {
+      "name": "verilog-axi-priority-encoder",
+      "status": "passed",
+      "files": 3,
+      "source_files": [
+        "verilog_axi/priority_encoder.v"
+      ],
+      "license_files": [
+        "licenses/verilog-axi/LICENSE"
+      ]
+    },
+    {
+      "name": "vortex-adder4",
+      "status": "passed",
+      "files": 3,
+      "source_files": [
+        "vendor-v0.5/vortex/hw/rtl/afu/firesim/toy/VX_adder4.v"
+      ],
+      "license_files": [
+        "licenses/vortex-v0.5/LICENSE"
+      ]
+    },
+    {
+      "name": "vortex-bf16-to-fp32",
+      "status": "passed",
+      "files": 3,
+      "source_files": [
+        "vendor-v0.25/vortex/hw/rtl/tcu/dsp/bf16_to_fp32.sv"
+      ],
+      "license_files": [
+        "licenses/vortex-v0.4/LICENSE"
+      ]
+    },
+    {
+      "name": "vortex-demux",
+      "status": "passed",
+      "files": 5,
+      "source_files": [
+        "vendor-v0.16/vortex/hw/rtl/libs/VX_demux.sv",
+        "vendor-v0.16/vortex/hw/rtl/VX_platform.vh",
+        "vendor-v0.16/vortex/hw/rtl/VX_scope.vh"
+      ],
+      "license_files": [
+        "licenses/vortex-v0.16-LICENSE"
+      ]
+    },
+    {
+      "name": "vortex-elastic-buffer",
+      "status": "passed",
+      "files": 16,
+      "source_files": [
+        "vendor-v0.6/vortex/hw/rtl/libs/VX_elastic_buffer.sv",
+        "vendor-v0.6/vortex/hw/rtl/libs/VX_stream_buffer.sv",
+        "vendor-v0.6/vortex/hw/rtl/libs/VX_pipe_buffer.sv",
+        "vendor-v0.6/vortex/hw/rtl/libs/VX_pipe_register.sv",
+        "vendor-v0.6/vortex/hw/rtl/libs/VX_fifo_queue.sv",
+        "vendor-v0.6/vortex/hw/rtl/libs/VX_pending_size.sv",
+        "vendor-v0.6/vortex/hw/rtl/libs/VX_dp_ram.sv",
+        "vendor-v0.6/vortex/hw/rtl/libs/VX_async_ram_patch.sv",
+        "vendor-v0.6/vortex/hw/rtl/libs/VX_placeholder.sv",
+        "vendor-v0.6/vortex/hw/VX_config.vh",
+        "vendor-v0.6/vortex/hw/VX_types.vh",
+        "vendor-v0.6/vortex/hw/rtl/VX_define.vh",
+        "vendor-v0.6/vortex/hw/rtl/VX_platform.vh",
+        "vendor-v0.6/vortex/hw/rtl/VX_scope.vh"
+      ],
+      "license_files": [
+        "licenses/vortex-v0.6-LICENSE"
+      ]
+    },
+    {
+      "name": "vortex-fanout-buffer",
+      "status": "passed",
+      "files": 5,
+      "source_files": [
+        "vendor-v0.22/vortex/hw/rtl/libs/VX_fanout_buffer.sv",
+        "vendor-v0.22/vortex/hw/rtl/VX_platform.vh",
+        "vendor-v0.22/vortex/hw/rtl/VX_scope.vh"
+      ],
+      "license_files": [
+        "licenses/vortex-v0.13-LICENSE"
+      ]
+    },
+    {
+      "name": "vortex-full-adder",
+      "status": "passed",
+      "files": 8,
+      "source_files": [
+        "vendor-v0.5/vortex/hw/rtl/libs/VX_csa_32.sv",
+        "vendor-v0.5/vortex/hw/VX_config.vh",
+        "vendor-v0.5/vortex/hw/VX_types.vh",
+        "vendor-v0.5/vortex/hw/rtl/VX_define.vh",
+        "vendor-v0.5/vortex/hw/rtl/VX_platform.vh",
+        "vendor-v0.5/vortex/hw/rtl/VX_scope.vh"
+      ],
+      "license_files": [
+        "licenses/vortex-v0.5/LICENSE"
+      ]
+    },
+    {
+      "name": "vortex-ks-adder",
+      "status": "passed",
+      "files": 5,
+      "source_files": [
+        "vendor-v0.22/vortex/hw/rtl/libs/VX_ks_adder.sv",
+        "vendor-v0.22/vortex/hw/rtl/VX_platform.vh",
+        "vendor-v0.22/vortex/hw/rtl/VX_scope.vh"
+      ],
+      "license_files": [
+        "licenses/vortex-v0.13-LICENSE"
+      ]
+    },
+    {
+      "name": "vortex-lzc",
+      "status": "passed",
+      "files": 6,
+      "source_files": [
+        "vendor-v0.4/vortex/hw/rtl/libs/VX_find_first.sv",
+        "vendor-v0.4/vortex/hw/rtl/libs/VX_lzc.sv",
+        "vendor-v0.4/vortex/hw/rtl/VX_platform.vh",
+        "vendor-v0.4/vortex/hw/rtl/VX_scope.vh"
+      ],
+      "license_files": [
+        "licenses/vortex-v0.4/LICENSE"
+      ]
+    },
+    {
+      "name": "vortex-multiplier",
+      "status": "passed",
+      "files": 6,
+      "source_files": [
+        "vendor-v0.4/vortex/hw/rtl/libs/VX_multiplier.sv",
+        "vendor-v0.4/vortex/hw/rtl/libs/VX_pipe_register.sv",
+        "vendor-v0.4/vortex/hw/rtl/VX_platform.vh",
+        "vendor-v0.4/vortex/hw/rtl/VX_scope.vh"
+      ],
+      "license_files": [
+        "licenses/vortex-v0.4/LICENSE"
+      ]
+    },
+    {
+      "name": "vortex-mux",
+      "status": "passed",
+      "files": 5,
+      "source_files": [
+        "vendor-v0.16/vortex/hw/rtl/libs/VX_mux.sv",
+        "vendor-v0.16/vortex/hw/rtl/VX_platform.vh",
+        "vendor-v0.16/vortex/hw/rtl/VX_scope.vh"
+      ],
+      "license_files": [
+        "licenses/vortex-v0.16-LICENSE"
+      ]
+    },
+    {
+      "name": "vortex-onehot-mux",
+      "status": "passed",
+      "files": 6,
+      "source_files": [
+        "vendor-v0.16/vortex/hw/rtl/libs/VX_onehot_mux.sv",
+        "vendor-v0.16/vortex/hw/rtl/libs/VX_find_first.sv",
+        "vendor-v0.16/vortex/hw/rtl/VX_platform.vh",
+        "vendor-v0.16/vortex/hw/rtl/VX_scope.vh"
+      ],
+      "license_files": [
+        "licenses/vortex-v0.16-LICENSE"
+      ]
+    },
+    {
+      "name": "vortex-popcount",
+      "status": "passed",
+      "files": 5,
+      "source_files": [
+        "vendor-v0.4/vortex/hw/rtl/libs/VX_popcount.sv",
+        "vendor-v0.4/vortex/hw/rtl/VX_platform.vh",
+        "vendor-v0.4/vortex/hw/rtl/VX_scope.vh"
+      ],
+      "license_files": [
+        "licenses/vortex-v0.4/LICENSE"
+      ]
+    },
+    {
+      "name": "vortex-priority-encoder",
+      "status": "passed",
+      "files": 8,
+      "source_files": [
+        "vendor-v0.13/vortex/hw/rtl/libs/VX_priority_encoder.sv",
+        "vendor-v0.13/vortex/hw/rtl/libs/VX_find_first.sv",
+        "vendor-v0.13/vortex/hw/rtl/libs/VX_lzc.sv",
+        "vendor-v0.13/vortex/hw/rtl/libs/VX_scan.sv",
+        "vendor-v0.13/vortex/hw/rtl/VX_platform.vh",
+        "vendor-v0.13/vortex/hw/rtl/VX_scope.vh"
+      ],
+      "license_files": [
+        "licenses/vortex-v0.13-LICENSE"
+      ]
+    },
+    {
+      "name": "vortex-rr-arbiter",
+      "status": "passed",
+      "files": 7,
+      "source_files": [
+        "vendor-v0.4/vortex/hw/rtl/libs/VX_rr_arbiter.sv",
+        "vendor-v0.4/vortex/hw/rtl/libs/VX_demux.sv",
+        "vendor-v0.4/vortex/hw/rtl/libs/VX_onehot_encoder.sv",
+        "vendor-v0.4/vortex/hw/rtl/VX_platform.vh",
+        "vendor-v0.4/vortex/hw/rtl/VX_scope.vh"
+      ],
+      "license_files": [
+        "licenses/vortex-v0.4/LICENSE"
+      ]
+    },
+    {
+      "name": "vortex-skid-buffer",
+      "status": "passed",
+      "files": 10,
+      "source_files": [
+        "vendor-v0.6/vortex/hw/rtl/libs/VX_skid_buffer.sv",
+        "vendor-v0.6/vortex/hw/rtl/libs/VX_stream_buffer.sv",
+        "vendor-v0.6/vortex/hw/rtl/libs/VX_toggle_buffer.sv",
+        "vendor-v0.6/vortex/hw/VX_config.vh",
+        "vendor-v0.6/vortex/hw/VX_types.vh",
+        "vendor-v0.6/vortex/hw/rtl/VX_define.vh",
+        "vendor-v0.6/vortex/hw/rtl/VX_platform.vh",
+        "vendor-v0.6/vortex/hw/rtl/VX_scope.vh"
+      ],
+      "license_files": [
+        "licenses/vortex-v0.6-LICENSE"
+      ]
+    },
+    {
+      "name": "vortex-stream-fork",
+      "status": "passed",
+      "files": 17,
+      "source_files": [
+        "vendor-v0.22/vortex/hw/VX_config.vh",
+        "vendor-v0.22/vortex/hw/VX_types.vh",
+        "vendor-v0.22/vortex/hw/rtl/VX_scope.vh",
+        "vendor-v0.22/vortex/hw/rtl/VX_platform.vh",
+        "vendor-v0.22/vortex/hw/rtl/VX_define.vh",
+        "vendor-v0.22/vortex/hw/rtl/libs/VX_placeholder.sv",
+        "vendor-v0.22/vortex/hw/rtl/libs/VX_pipe_register.sv",
+        "vendor-v0.22/vortex/hw/rtl/libs/VX_pipe_buffer.sv",
+        "vendor-v0.22/vortex/hw/rtl/libs/VX_stream_buffer.sv",
+        "vendor-v0.22/vortex/hw/rtl/libs/VX_pending_size.sv",
+        "vendor-v0.22/vortex/hw/rtl/libs/VX_fifo_queue.sv",
+        "vendor-v0.22/vortex/hw/rtl/libs/VX_async_ram_patch.sv",
+        "vendor-v0.22/vortex/hw/rtl/libs/VX_dp_ram.sv",
+        "vendor-v0.22/vortex/hw/rtl/libs/VX_elastic_buffer.sv",
+        "vendor-v0.22/vortex/hw/rtl/libs/VX_stream_fork.sv"
+      ],
+      "license_files": [
+        "licenses/vortex-v0.13-LICENSE"
+      ]
+    },
+    {
+      "name": "vortex-stream-join",
+      "status": "passed",
+      "files": 17,
+      "source_files": [
+        "vendor-v0.22/vortex/hw/VX_config.vh",
+        "vendor-v0.22/vortex/hw/VX_types.vh",
+        "vendor-v0.22/vortex/hw/rtl/VX_scope.vh",
+        "vendor-v0.22/vortex/hw/rtl/VX_platform.vh",
+        "vendor-v0.22/vortex/hw/rtl/VX_define.vh",
+        "vendor-v0.22/vortex/hw/rtl/libs/VX_placeholder.sv",
+        "vendor-v0.22/vortex/hw/rtl/libs/VX_pipe_register.sv",
+        "vendor-v0.22/vortex/hw/rtl/libs/VX_pipe_buffer.sv",
+        "vendor-v0.22/vortex/hw/rtl/libs/VX_stream_buffer.sv",
+        "vendor-v0.22/vortex/hw/rtl/libs/VX_pending_size.sv",
+        "vendor-v0.22/vortex/hw/rtl/libs/VX_fifo_queue.sv",
+        "vendor-v0.22/vortex/hw/rtl/libs/VX_async_ram_patch.sv",
+        "vendor-v0.22/vortex/hw/rtl/libs/VX_dp_ram.sv",
+        "vendor-v0.22/vortex/hw/rtl/libs/VX_elastic_buffer.sv",
+        "vendor-v0.22/vortex/hw/rtl/libs/VX_stream_join.sv"
+      ],
+      "license_files": [
+        "licenses/vortex-v0.13-LICENSE"
+      ]
+    }
+  ],
+  "errors": []
+}

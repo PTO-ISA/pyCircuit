@@ -1,0 +1,96 @@
+{
+  "schema": "pycircuit-rtl-sources-v0.3",
+  "license_policy": "informational_only",
+  "notes": "Wave 2 isolated scan of BlackParrot, OpenPiton and ZipCPU; license metadata informational.",
+  "sources": [
+    {
+      "project": "openpiton",
+      "repo": "https://github.com/PrincetonUniversity/openpiton.git",
+      "enabled": true,
+      "priority": "B",
+      "families": [
+        "CPU",
+        "Memory",
+        "Interconnect",
+        "Coherence"
+      ],
+      "path_hints": [
+        "piton/design"
+      ],
+      "exclude_dirs": [
+        ".git",
+        "docs",
+        "test",
+        "tests",
+        "verif",
+        "build",
+        "software"
+      ],
+      "extensions": [
+        ".v",
+        ".sv",
+        ".vh",
+        ".svh"
+      ]
+    },
+    {
+      "project": "blackparrot",
+      "repo": "https://github.com/black-parrot/black-parrot.git",
+      "enabled": true,
+      "priority": "B",
+      "families": [
+        "CPU",
+        "Memory",
+        "Interconnect",
+        "Coherence"
+      ],
+      "path_hints": [
+        "bp_top",
+        "bp_common",
+        "bp_be",
+        "bp_me"
+      ],
+      "exclude_dirs": [
+        ".git",
+        "docs",
+        "test",
+        "tests",
+        "verif",
+        "build"
+      ],
+      "extensions": [
+        ".v",
+        ".sv",
+        ".vh",
+        ".svh"
+      ]
+    },
+    {
+      "project": "zipcpu",
+      "repo": "https://github.com/ZipCPU/zipcpu.git",
+      "enabled": true,
+      "priority": "B",
+      "families": [
+        "CPU",
+        "Integer",
+        "Memory"
+      ],
+      "path_hints": [
+        "rtl"
+      ],
+      "exclude_dirs": [
+        ".git",
+        "docs",
+        "test",
+        "tests",
+        "build"
+      ],
+      "extensions": [
+        ".v",
+        ".sv",
+        ".vh",
+        ".svh"
+      ]
+    }
+  ]
+}

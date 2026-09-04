@@ -1,0 +1,301 @@
+# pyCircuit Runtime Gap Matrix machine-readable discovery targets.
+# Match is intentionally heuristic in crawler v0.1.
+# target_id can be a precision-specific Design Point; gap_id points back to the v0.1 Gap Matrix class.
+
+targets:
+  # ---- Integer / Fixed ----
+  - target_id: P0-INT-MUL
+    gap_id: INT-05
+    family: Integer
+    operation: integer_multiplier
+    priority: P0
+    keywords: ["int_mul", "integer_mul", "multiplier"]
+
+  - target_id: P0-INT-MAC
+    gap_id: INT-06
+    family: Integer
+    operation: integer_mac
+    priority: P0
+    keywords: ["int_mac", "multiply_accumulate", "multiply-accumulate"]
+
+  - target_id: P0-SAT-ADD
+    gap_id: INT-04
+    family: Integer
+    operation: saturating_add
+    priority: P0
+    keywords: ["sat_add", "saturating_add", "saturating"]
+
+  - target_id: P0-REQUANT
+    gap_id: INT-15
+    family: Integer
+    operation: requantization
+    priority: P0
+    keywords: ["requant", "requantize", "requantization"]
+
+  - target_id: P0-BARREL-SHIFTER
+    gap_id: INT-09
+    family: Integer
+    operation: barrel_shifter
+    priority: P0
+    keywords: ["barrel_shifter", "barrel shift"]
+
+  - target_id: P0-LZC
+    gap_id: INT-10
+    family: Integer
+    operation: leading_zero_count
+    priority: P0
+    keywords: ["lzc", "clz", "leading_zero", "leading zero"]
+
+  - target_id: P1-POPCOUNT
+    gap_id: INT-11
+    family: Integer
+    operation: popcount
+    priority: P1
+    keywords: ["popcount", "population_count", "hamming_weight"]
+
+  # ---- Floating Point ----
+  - target_id: P0-FP32-ADD
+    gap_id: FP-01
+    family: FloatingPoint
+    operation: fp_add
+    data_format: FP32
+    priority: P0
+    keywords: ["fp32_add", "fp_add", "floating_add"]
+
+  - target_id: P0-FP32-MUL
+    gap_id: FP-02
+    family: FloatingPoint
+    operation: fp_mul
+    data_format: FP32
+    priority: P0
+    keywords: ["fp32_mul", "fp_mul", "floating_mul"]
+
+  - target_id: P0-FP32-FMA
+    gap_id: FP-03
+    family: FloatingPoint
+    operation: fp_fma
+    data_format: FP32
+    priority: P0
+    keywords: ["fp32_fma", "fp_fma", "fma"]
+
+  - target_id: P0-FP16-FMA
+    gap_id: FP-03
+    family: FloatingPoint
+    operation: fp_fma
+    data_format: FP16
+    priority: P0
+    keywords: ["fp16_fma", "half_fma", "fma"]
+
+  - target_id: P0-BF16-FMA
+    gap_id: FP-03
+    family: FloatingPoint
+    operation: fp_fma
+    data_format: BF16
+    priority: P0
+    keywords: ["bf16_fma", "bfloat16", "fma"]
+
+  - target_id: P0-FP8-E4M3-FMA
+    gap_id: FP-03
+    family: FloatingPoint
+    operation: fp_fma
+    data_format: FP8_E4M3
+    priority: P0
+    keywords: ["e4m3", "fp8", "fma"]
+
+  - target_id: P0-FP8-E5M2-FMA
+    gap_id: FP-03
+    family: FloatingPoint
+    operation: fp_fma
+    data_format: FP8_E5M2
+    priority: P0
+    keywords: ["e5m2", "fp8", "fma"]
+
+  # ---- Mixed Precision ----
+  - target_id: P0-INT8-DOT-INT32
+    gap_id: MP-02
+    family: MixedPrecision
+    operation: dot_product
+    input_format: INT8xINT8
+    acc_format: INT32
+    priority: P0
+    keywords: ["int8_dot", "dot8", "dot_product"]
+
+  - target_id: P0-INT4-DOT-INT32
+    gap_id: MP-01
+    family: MixedPrecision
+    operation: dot_product
+    input_format: INT4xINT4
+    acc_format: INT32
+    priority: P0
+    keywords: ["int4_dot", "dot4", "dot_product"]
+
+  - target_id: P0-FP8-E4M3-MAC-FP32
+    gap_id: MP-07
+    family: MixedPrecision
+    operation: mac
+    input_format: FP8_E4M3xFP8_E4M3
+    acc_format: FP32
+    priority: P0
+    keywords: ["e4m3", "fp8", "mac", "fma"]
+
+  - target_id: P0-BF16-MAC-FP32
+    gap_id: MP-09
+    family: MixedPrecision
+    operation: mac
+    input_format: BF16xBF16
+    acc_format: FP32
+    priority: P0
+    keywords: ["bf16", "bfloat16", "mac", "fma"]
+
+  # ---- Reduction ----
+  - target_id: P0-SUM-TREE
+    gap_id: RED-01
+    family: Reduction
+    operation: sum_reduction_tree
+    priority: P0
+    keywords: ["sum_tree", "reduction_sum", "adder_tree"]
+
+  - target_id: P0-MAX-TREE
+    gap_id: RED-02
+    family: Reduction
+    operation: max_reduction_tree
+    priority: P0
+    keywords: ["max_tree", "reduction_max", "max_reduce"]
+
+  - target_id: P0-ARGMAX
+    gap_id: RED-04
+    family: Reduction
+    operation: argmax
+    priority: P0
+    keywords: ["argmax", "max_index", "max_idx"]
+
+  # ---- SFU ----
+  - target_id: P0-EXP
+    gap_id: SFU-01
+    family: SFU
+    operation: exp
+    priority: P0
+    keywords: ["exp2", "exponential", "exp_unit"]
+
+  - target_id: P0-RECIP
+    gap_id: SFU-03
+    family: SFU
+    operation: reciprocal
+    priority: P0
+    keywords: ["reciprocal", "recip_unit"]
+
+  - target_id: P0-RSQRT
+    gap_id: SFU-04
+    family: SFU
+    operation: reciprocal_sqrt
+    priority: P0
+    keywords: ["rsqrt", "reciprocal_sqrt", "inverse_sqrt"]
+
+  # ---- Dataflow ----
+  - target_id: P0-SKID-BUFFER
+    gap_id: DF-05
+    family: Dataflow
+    operation: skid_buffer
+    priority: P0
+    keywords: ["skid_buffer", "skid", "fall_through_register"]
+
+  - target_id: P0-SPILL-REGISTER
+    gap_id: DF-06
+    family: Dataflow
+    operation: spill_register
+    priority: P0
+    keywords: ["spill_register", "stream_register"]
+
+  - target_id: P0-RR-ARBITER
+    gap_id: DF-09
+    family: Dataflow
+    operation: round_robin_arbiter
+    priority: P0
+    keywords: ["rr_arb", "round_robin", "stream_arbiter"]
+
+  - target_id: P0-STREAM-MUX
+    gap_id: DF-10
+    family: Dataflow
+    operation: stream_mux
+    priority: P0
+    keywords: ["stream_mux", "stream mux"]
+
+  - target_id: P0-STREAM-DEMUX
+    gap_id: DF-11
+    family: Dataflow
+    operation: stream_demux
+    priority: P0
+    keywords: ["stream_demux", "stream demux"]
+
+  - target_id: P1-STREAM-FORK
+    gap_id: DF-12
+    family: Dataflow
+    operation: stream_fork
+    priority: P1
+    keywords: ["stream_fork", "stream fork"]
+
+  - target_id: P1-STREAM-JOIN
+    gap_id: DF-13
+    family: Dataflow
+    operation: stream_join
+    priority: P1
+    keywords: ["stream_join", "stream join"]
+
+  - target_id: P0-STREAM-XBAR
+    gap_id: DF-14
+    family: Dataflow
+    operation: stream_crossbar
+    priority: P0
+    keywords: ["stream_xbar", "stream_crossbar", "crossbar"]
+
+  # ---- Memory ----
+  - target_id: P0-MULTIPORT-RF
+    gap_id: MEM-06
+    family: Memory
+    operation: multi_port_register_file
+    priority: P0
+    keywords: ["multiport_rf", "multi_port_rf", "register_file", "regfile"]
+
+  - target_id: P0-MEM-TO-BANKS
+    gap_id: MEM-12
+    family: Memory
+    operation: multi_bank_conflict_arbiter
+    priority: P0
+    keywords: ["mem_to_banks", "bank_arb", "bank_conflict"]
+
+  # ---- NPU ----
+  - target_id: P0-SYSTOLIC-PE
+    gap_id: NPU-03
+    family: NPU
+    operation: systolic_pe
+    priority: P0
+    keywords: ["systolic_pe", "processing_element", "mac_pe"]
+
+  - target_id: P0-SYSTOLIC-ARRAY
+    gap_id: NPU-06
+    family: NPU
+    operation: systolic_array
+    priority: P0
+    keywords: ["systolic_array", "systolic", "mesh"]
+
+  # ---- DMA / Interconnect ----
+  - target_id: P0-AXI-XBAR
+    gap_id: DMA-12
+    family: DMA_Interconnect
+    operation: axi_crossbar
+    priority: P0
+    keywords: ["axi_xbar", "axi_crossbar"]
+
+  - target_id: P0-AXI-WIDTH-CONVERTER
+    gap_id: DMA-10
+    family: DMA_Interconnect
+    operation: axi_width_converter
+    priority: P0
+    keywords: ["axi_dw", "width_converter", "downsizer", "upsizer"]
+
+  - target_id: P0-DMA-1D
+    gap_id: DMA-01
+    family: DMA_Interconnect
+    operation: dma_1d
+    priority: P0
+    keywords: ["idma", "dma", "1d_dma"]
