@@ -116,6 +116,24 @@ module attributes {ac.contract_epoch = "0.5", ac.model_kind = "queue_graph", ac.
 }
 )mlir";
 
+constexpr llvm::StringLiteral kStatefulFiring = R"mlir(
+module attributes {ac.contract_epoch = "0.5", ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle", ac.system = "stateful"} {
+  ac.table @table entry i8 entries 2 init 0 owner "/" stable_id "table/table"
+  %input = ac.source depth 1 latency 1 {ac.name = "input"} : !ac.queue<i8>
+  %output = ac.firing %input depths [1] latencies [1]
+      stable_id "install" domain "cycle" guard "true" checks []
+      handshake "ready_valid_1x1_table" schedule "independent_table_exclusive"
+      effects ["input.consume", "output.produce", "table.replace:table"] {
+  ^body(%item: !ac.var<i8>):
+    %index = ac.var.constant 1 : i2 as !ac.var<i2>
+    ac.table.propose @table [%index] = %item mode "replace"
+        write_fields ["$entry"] : !ac.var<i2>, !ac.var<i8>
+    ac.firing.yield %item : !ac.var<i8>
+  } {ac.name = "output", ac.rule_definition = "install"} : (!ac.queue<i8>) -> !ac.queue<i8>
+  ac.sink %output {ac.name = "sink"} : !ac.queue<i8>
+}
+)mlir";
+
 QueueGraphPlan sharedReferencePlan() {
   QueueGraphPlan plan;
   plan.system = "shared_reference";
@@ -694,6 +712,81 @@ TEST(QueueGraphPlanTest, RejectsImplicitMultipleConsumers) {
   ASSERT_FALSE(bool(plan));
   EXPECT_NE(llvm::toString(plan.takeError()).find("insert ac.broadcast"),
             std::string::npos);
+}
+
+TEST(QueueGraphPlanTest, RejectsOutOfRangeConstantTableFiringPlan) {
+  mlir::MLIRContext context;
+  context.loadDialect<ac::ACIRDialect, mlir::DLTIDialect>();
+  auto module =
+      mlir::parseSourceString<mlir::ModuleOp>(kStatefulFiring, &context);
+  ASSERT_TRUE(module);
+  ASSERT_TRUE(freezeQueueGraph(*module));
+  auto plan = buildQueueGraphPlan(*module);
+  ASSERT_TRUE(bool(plan)) << llvm::toString(plan.takeError());
+  auto firing = llvm::find_if(plan->blocks, [](const QueueBlockPlan &block) {
+    return block.kind == "firing";
+  });
+  ASSERT_NE(firing, plan->blocks.end());
+  auto constant = llvm::find_if(firing->expressions,
+                                [](const QueueExpressionPlan &expression) {
+                                  return expression.kind == "constant";
+                                });
+  ASSERT_NE(constant, firing->expressions.end());
+  constant->literal = "3 : i2";
+
+  auto error = verifyQueueGraphPlan(*plan);
+  ASSERT_TRUE(bool(error));
+  EXPECT_NE(llvm::toString(std::move(error)).find("statically safe"),
+            std::string::npos);
+}
+
+TEST(QueueGraphPlanTest, RejectsTableFiringPlanTypeAndOwnershipBypasses) {
+  mlir::MLIRContext context;
+  context.loadDialect<ac::ACIRDialect, mlir::DLTIDialect>();
+  auto module =
+      mlir::parseSourceString<mlir::ModuleOp>(kStatefulFiring, &context);
+  ASSERT_TRUE(module);
+  ASSERT_TRUE(freezeQueueGraph(*module));
+  auto plan = buildQueueGraphPlan(*module);
+  ASSERT_TRUE(bool(plan)) << llvm::toString(plan.takeError());
+
+  QueueGraphPlan mismatched = *plan;
+  auto output = llvm::find_if(mismatched.queues, [](const QueuePlan &queue) {
+    return queue.name == "output";
+  });
+  ASSERT_NE(output, mismatched.queues.end());
+  output->payloadType = "i16";
+  auto typeError = verifyQueueGraphPlan(mismatched);
+  ASSERT_TRUE(bool(typeError));
+  EXPECT_NE(llvm::toString(std::move(typeError)).find("must match"),
+            std::string::npos);
+
+  QueueGraphPlan conflicting = *plan;
+  conflicting.tableWrites.push_back(
+      {"table", "extra", "/", "", "field", {"$entry"}});
+  auto ownershipError = verifyQueueGraphPlan(conflicting);
+  ASSERT_TRUE(bool(ownershipError));
+  EXPECT_NE(llvm::toString(std::move(ownershipError)).find("conflicting"),
+            std::string::npos);
+}
+
+TEST(QueueGraphPlanTest, RejectsForgedFrozenFiringBeforePlanExtraction) {
+  mlir::MLIRContext context;
+  context.loadDialect<ac::ACIRDialect, mlir::DLTIDialect>();
+  auto module =
+      mlir::parseSourceString<mlir::ModuleOp>(kStatefulFiring, &context);
+  ASSERT_TRUE(module);
+  ASSERT_TRUE(freezeQueueGraph(*module));
+  ac::FiringOp firing;
+  module->walk([&](ac::FiringOp candidate) { firing = candidate; });
+  ASSERT_TRUE(firing);
+  firing.setHandshakeAttr(mlir::StringAttr::get(&context, "ready_valid_1x1"));
+
+  auto plan = buildQueueGraphPlan(*module);
+  ASSERT_FALSE(bool(plan));
+  EXPECT_NE(
+      llvm::toString(plan.takeError()).find("failed operation verification"),
+      std::string::npos);
 }
 
 TEST(QueueGraphPlanTest, RejectsInvalidSharedTableReferenceTargets) {

@@ -4114,3 +4114,87 @@ is not an acceptable circuit execution model.
 - User direction and PTO-ISA/pyCircuit issue 28 (2026-09-05): infer atomic
   state transitions below the Python surface and prove them with a ROB-shaped
   gfsim example.
+
+## Decision 0163: the first stateful rule slice lowers one Table replace with its Queue transfer
+
+**Status:** Accepted and implemented
+
+**Context / Goal**
+Decision 0162 established the no-partial-commit runtime protocol but did not
+connect the simple Python rule surface to Table state. The first compiler slice
+must prove that the frontend can remain functional and compact while MLIR owns
+effect discovery, resource handshake, scheduling, and grouped lowering.
+
+**Decision (strong constraint)**
+- A phase-one stateful rule has one Table parameter followed by one immutable
+  Queue payload parameter. Its body may bind one committed Table observation,
+  performs exactly one complete Entry assignment, and returns one payload:
+
+  ```python
+  @ac.rule
+  def install(rob, entry):
+      old = rob[entry.index]
+      rob[entry.index] = entry
+      return old
+  ```
+
+  The author does not spell Queue consumption/production, readiness, checks,
+  reservation, commit, rollback, or atomic regions.
+- The call site is `outgoing = install(rob, incoming)`. The input and output
+  Queue payload and the Table Entry type are identical in this slice. The
+  Table assignment is a complete replace; field patch, multiple proposals,
+  multiple Tables, optional outputs, and CFG branches remain rejected.
+- A dynamic `ac.uN` index is accepted only when the Table contains exactly
+  `2^N` entries, which statically discharges bounds. A constant index must be
+  in range. Other dynamic shapes remain pending on executable checked IR and
+  fail before Frozen ACIR.
+- Raw ACIR represents state intent with firing-local `ac.table.propose`. Its
+  verifier requires direct `ac.rule`/`ac.firing` ownership, one resolved and
+  visible Table, complete replace fields, matching Entry type, and a statically
+  safe index. It is not an independent Table endpoint and cannot commit alone.
+- The existing staged rule passes infer the Queue and Table effects, establish
+  an empty dynamic-check contract, materialize
+  `ready_valid_1x1_table`, require `independent_table_exclusive` scheduling,
+  discharge markers, and lower to marker-free `ac.firing`. A stateful firing is
+  never canonicalized to `ac.transform`.
+- Phase-one scheduling requires exclusive write ownership of the Table. Any
+  other rule proposal, scalar Table writer, or masked writer is diagnosed;
+  source order does not become arbitration.
+- QueueGraph preserves the stateful `firing` block, including Table identity,
+  index/value SSA identities, fields, mode, and output expression. Native C++
+  lowers it to `gfsim::QueueTableTransition`, whose Queue and Table effects use
+  Decision 0162 commit groups. Generated models expose committed Table state
+  through a const-only architecture-model inspection accessor; callers cannot
+  create or cancel proposals through that surface.
+- The Frozen QueueGraph boundary re-verifies the complete MLIR module before
+  extraction, then independently checks Queue/Table type equality, constant or
+  full-domain index safety, same-Table observations, and exclusive write
+  ownership. A forged digest or hand-authored firing cannot bypass the dialect
+  verifier by reaching the plan or C++ generator directly.
+- PYC and RTL continue to reject this provisional Table graph with
+  `unsupported provisional Table`. This slice is gfsim execution evidence, not
+  authorization to admit stateful RTL primitives or backend-only semantics.
+
+**Verification**
+- Python tests cover the simple read/assignment/return surface, emitted typed
+  proposal, absent implementation vocabulary, payload/Entry matching, and
+  fail-closed non-power-of-two dynamic indexing.
+- ACIR tests cover proposal parsing/verifiers, staged effects/handshake/schedule,
+  marker-free stateful firing, topology freeze, generated C++ compilation, and
+  stable PYC rejection.
+- The end-to-end example writes one Table location twice and observes zero then
+  the first committed value while the final Table contains the second value.
+  Queue consumption, output production, and Table replace therefore cross the
+  same generated commit-group path.
+
+**Deferred work**
+- multiple input/output Queues, multiple or masked/field proposals, CFG joins,
+  functional guards and mutually exclusive branches, dynamic checked IR,
+  explicit arbitration, Reg effects, and a full circular ROB;
+- PYC/RTL lowering for stateful rules and qualification of stateful PR #29
+  implementation candidates.
+
+**Source**
+- User direction and PTO-ISA/pyCircuit issue 28 (2026-09-05): keep Python
+  state authoring simple and move type/effect/check/handshake complexity into
+  MLIR passes and lowering.

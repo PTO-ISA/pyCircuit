@@ -157,6 +157,25 @@ slice. See the
 [bounded retirement example](examples/agentic-circuit/state/rob.py) for a
 runnable frontend-to-gfsim slice.
 
+The first stateful slice uses ordinary Table observation and assignment:
+
+```python
+@ac.rule
+def install(rob, entry):
+    old = rob[entry.index]
+    rob[entry.index] = entry
+    return old
+
+outgoing = install(rob, incoming)
+```
+
+MLIR turns the assignment into a verified Table proposal and groups its Table
+replace with Queue consumption and production. This initial slice accepts one
+Table, one Queue input/output, and one complete Entry replace; unsupported
+shapes fail closed. The runnable example is
+[table_rule.py](examples/agentic-circuit/state/table_rule.py). PYC/RTL still
+reject provisional Table graphs while gfsim executes the grouped transition.
+
 ## First cycle-aware design
 
 ```python

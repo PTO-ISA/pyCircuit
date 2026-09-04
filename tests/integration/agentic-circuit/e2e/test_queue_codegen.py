@@ -1,13 +1,12 @@
 from __future__ import annotations
 
-import os
 import json
-from pathlib import Path
+import os
 import shutil
 import subprocess
 import tempfile
 import unittest
-
+from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[4]
 SOURCE = ROOT / "examples/agentic-circuit" / "pipelines" / "davincioo_queue_model.py"
@@ -18,6 +17,7 @@ REORDER_SOURCE = (
     ROOT / "examples/agentic-circuit" / "pipelines" / "pyc_reorder_pipeline.py"
 )
 RULE_ROB_SOURCE = ROOT / "examples/agentic-circuit" / "state" / "rob.py"
+STATEFUL_RULE_SOURCE = ROOT / "examples/agentic-circuit" / "state" / "table_rule.py"
 DAVINCIOO_TRACE = (
     ROOT
     / "references/davincioo-gfsim/upstream/tests/fixtures/traces"
@@ -29,6 +29,151 @@ DAVINCIOO_PROJECTION = (
 
 
 class QueueCodegenTest(unittest.TestCase):
+    def test_stateful_table_rule_runs_through_mlir_and_grouped_gfsim(self) -> None:
+        compiler = shutil.which("c++")
+        if compiler is None:
+            self.skipTest("C++ compiler is unavailable")
+        tools = {
+            "opt": Path(
+                os.environ.get(
+                    "ACIR_OPT",
+                    ROOT / ".pycircuit_out/toolchain/build/bin/acir-opt-internal",
+                )
+            ),
+            "plan": Path(
+                os.environ.get(
+                    "ACIR_QUEUE_PLAN",
+                    ROOT / ".pycircuit_out/toolchain/build/bin/acir-queue-plan",
+                )
+            ),
+            "cxxgen": Path(
+                os.environ.get(
+                    "ACIR_QUEUE_CXXGEN",
+                    ROOT / ".pycircuit_out/toolchain/build/bin/acir-queue-cxxgen",
+                )
+            ),
+        }
+        missing = [name for name, path in tools.items() if not path.is_file()]
+        if missing:
+            self.skipTest(
+                "native stateful-rule tools are unavailable: " + ", ".join(missing)
+            )
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            model = root / "table_rule.cpp"
+            acir = root / "table_rule.frozen.mlir"
+            plan = root / "table_rule.plan.json"
+            generated = subprocess.run(
+                (
+                    str(ROOT / "compiler/acir/tools/ac-queue-cxxgen.py"),
+                    str(STATEFUL_RULE_SOURCE),
+                    "--system",
+                    "table_rule",
+                    "--acir-output",
+                    str(acir),
+                    "--plan-output",
+                    str(plan),
+                    "--acir-opt",
+                    str(tools["opt"]),
+                    "--queue-plan-tool",
+                    str(tools["plan"]),
+                    "--queue-cxxgen-tool",
+                    str(tools["cxxgen"]),
+                    "--output",
+                    str(model),
+                ),
+                cwd=ROOT,
+                env={
+                    **os.environ,
+                    "PYTHONPATH": str(ROOT / "python/agentic-circuit/src"),
+                },
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(0, generated.returncode, generated.stderr)
+            lowered = acir.read_text(encoding="utf-8")
+            self.assertNotIn("ac.rule ", lowered)
+            self.assertNotIn("ac.marker.", lowered)
+            self.assertIn("ac.firing ", lowered)
+            self.assertIn("ac.table.propose @rob", lowered)
+            self.assertIn('handshake "ready_valid_1x1_table"', lowered)
+            document = json.loads(plan.read_text(encoding="utf-8"))
+            firing = next(
+                block for block in document["blocks"] if block["kind"] == "firing"
+            )
+            self.assertEqual("rob", firing["table"])
+            self.assertEqual("replace", firing["write_mode"])
+            self.assertEqual(["index", "value"], firing["write_fields"])
+
+            harness = root / "harness.cpp"
+            executable = root / "table_rule"
+            harness.write_text(
+                f'''#include "{model.name}"
+#include <array>
+#include <cstddef>
+
+int main() {{
+  ac_generated::TableRule model;
+  const std::array<ac_generated::Entry, 2> input{{
+      ac_generated::Entry{{gfsim::UInt<1>{{1}}, gfsim::UInt<7>{{42}}}},
+      ac_generated::Entry{{gfsim::UInt<1>{{1}}, gfsim::UInt<7>{{9}}}},
+  }};
+  auto rows = model.dispatch_rows();
+  for (std::size_t tick = 0; tick < 6; ++tick) {{
+    const gfsim::Epoch epoch{{tick, 0}};
+    if (tick < input.size() && !model.incoming().proposePush(input[tick]))
+      return 1;
+    for (auto &row : rows)
+      row.work(row.object, epoch);
+    for (auto &row : rows)
+      row.xfer(row.object, epoch, gfsim::XferPhase::Arbitrate);
+    for (auto &row : rows)
+      row.xfer(row.object, epoch, gfsim::XferPhase::Commit);
+    if (tick == 3 &&
+        (static_cast<unsigned long long>(model.table_rob().at(1).value) != 42 ||
+         model.incoming().committedSize() != 1))
+      return 4;
+  }}
+  const auto &stored = model.table_rob().at(1);
+  if (static_cast<unsigned long long>(stored.value) != 9)
+    return 2;
+  const auto &observed = model.sink_0_values();
+  if (observed.size() != 2 ||
+      static_cast<unsigned long long>(observed[0].value) != 0 ||
+      static_cast<unsigned long long>(observed[1].value) != 42)
+    return 3;
+  return 0;
+}}
+''',
+                encoding="utf-8",
+            )
+            linked = subprocess.run(
+                (
+                    compiler,
+                    "-std=c++20",
+                    "-I",
+                    str(ROOT / "simulator/gfsim/include"),
+                    str(harness),
+                    "-o",
+                    str(executable),
+                ),
+                cwd=root,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(0, linked.returncode, linked.stderr)
+            executed = subprocess.run(
+                (str(executable),),
+                cwd=root,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(0, executed.returncode, executed.stderr)
+
     def test_rule_retirement_demo_runs_through_mlir_passes_and_gfsim(self) -> None:
         compiler = shutil.which("c++")
         if compiler is None:
@@ -40,7 +185,9 @@ class QueueCodegenTest(unittest.TestCase):
         }
         missing = [name for name, path in tools.items() if not path.is_file()]
         if missing:
-            self.skipTest("native QueueGraph tools are unavailable: " + ", ".join(missing))
+            self.skipTest(
+                "native QueueGraph tools are unavailable: " + ", ".join(missing)
+            )
 
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -51,9 +198,7 @@ class QueueCodegenTest(unittest.TestCase):
             from agentic_circuit._queue_frontend import lower_queue_source
 
             raw.write_text(
-                lower_queue_source(
-                    RULE_ROB_SOURCE.read_text(encoding="utf-8"), "rob"
-                ),
+                lower_queue_source(RULE_ROB_SOURCE.read_text(encoding="utf-8"), "rob"),
                 encoding="utf-8",
             )
             rejected = subprocess.run(
@@ -98,8 +243,8 @@ class QueueCodegenTest(unittest.TestCase):
             self.assertNotIn("ac.firing ", lowered)
             self.assertNotIn("ac.marker.", lowered)
             self.assertIn("ac.topology_frozen = true", lowered)
-            self.assertIn("ac.rule_stable_id = \"completed\"", lowered)
-            self.assertIn("ac.rule_time_domain = \"cycle\"", lowered)
+            self.assertIn('ac.rule_stable_id = "completed"', lowered)
+            self.assertIn('ac.rule_time_domain = "cycle"', lowered)
 
             harness = root / "harness.cpp"
             executable = root / "rob"
