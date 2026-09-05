@@ -914,14 +914,15 @@ TEST(QueueGraphPlanTest, RejectsMalformedPopcountExpressionPlan) {
             std::string::npos);
 }
 
-TEST(QueueGraphPlanTest, RejectsMalformedCountLeadingZerosExpressionPlan) {
+TEST(QueueGraphPlanTest, RejectsMalformedCountZerosExpressionPlan) {
   auto makePlan = [] {
     QueueGraphPlan plan;
     plan.system = "count_leading_zeros";
     plan.queues = {{"input", "i13", "/", 1, 1}, {"output", "i13", "/", 1, 1}};
     plan.blocks.push_back({"source", "input", "/", {}, {"input"}, {1}, {1}});
     QueueBlockPlan transform{"transform", "output", "/", {"input"}, {"output"}};
-    transform.expressions = {{"v0", "count_leading_zeros", "i4", {"item"}}};
+    transform.expressions = {{"v0", "count_zeros", "i4", {"item"}}};
+    transform.expressions[0].predicate = "leading";
     transform.yields = {"item"};
     plan.blocks.push_back(std::move(transform));
     plan.blocks.push_back({"sink", "sink", "/", {"output"}, {}});
@@ -935,8 +936,15 @@ TEST(QueueGraphPlanTest, RejectsMalformedCountLeadingZerosExpressionPlan) {
   plan.blocks[1].expressions[0].operands.push_back("item");
   auto arityError = verifyQueueGraphPlan(plan);
   ASSERT_TRUE(bool(arityError));
-  EXPECT_NE(llvm::toString(std::move(arityError))
-                .find("count_leading_zeros expression"),
+  EXPECT_NE(
+      llvm::toString(std::move(arityError)).find("count_zeros expression"),
+      std::string::npos);
+
+  plan = makePlan();
+  plan.blocks[1].expressions[0].predicate = "middle";
+  auto directionError = verifyQueueGraphPlan(plan);
+  ASSERT_TRUE(bool(directionError));
+  EXPECT_NE(llvm::toString(std::move(directionError)).find("direction"),
             std::string::npos);
 
   plan = makePlan();

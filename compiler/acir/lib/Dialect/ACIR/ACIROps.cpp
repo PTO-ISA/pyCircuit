@@ -1380,7 +1380,7 @@ LogicalResult VarPopcountOp::verify() {
   return success();
 }
 
-LogicalResult VarCountLeadingZerosOp::verify() {
+LogicalResult VarCountZerosOp::verify() {
   auto input = cast<VarType>(getIn().getType());
   auto result = cast<VarType>(getResult().getType());
   auto inputInt = dyn_cast<IntegerType>(input.getElementType());
@@ -1396,6 +1396,8 @@ LogicalResult VarCountLeadingZerosOp::verify() {
   if (resultInt.getWidth() != required)
     return emitOpError()
            << "result width must be ceil(log2(input_width + 1)) = " << required;
+  if (getDirection() != "leading" && getDirection() != "trailing")
+    return emitOpError("direction must be leading or trailing");
   return success();
 }
 

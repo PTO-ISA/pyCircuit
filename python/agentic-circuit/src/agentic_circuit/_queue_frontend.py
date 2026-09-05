@@ -4468,30 +4468,29 @@ class _ExpressionEmitter:
                 f"    %{name} = ac.var.popcount %{value} : !ac.var<{value_type}> -> !ac.var<i{result_width}>"
             )
             return name, f"i{result_width}"
-        if (
-            isinstance(node, ast.Call)
-            and _decorator_name(node.func).rsplit(".", 1)[-1] == "count_leading_zeros"
-        ):
+        if isinstance(node, ast.Call) and _decorator_name(node.func).rsplit(".", 1)[
+            -1
+        ] in {"count_leading_zeros", "count_trailing_zeros"}:
+            operation = _decorator_name(node.func).rsplit(".", 1)[-1]
             if len(node.args) != 1 or node.keywords:
                 raise QueueFrontendError(
-                    "ACPY-QUEUE-003: count_leading_zeros requires exactly one "
-                    "positional operand"
+                    f"ACPY-QUEUE-003: {operation} requires exactly one positional operand"
                 )
             value, value_type = self.emit(node.args[0])
             if not value_type.startswith("i") or not value_type[1:].isdigit():
                 raise QueueFrontendError(
-                    "ACPY-QUEUE-003: count_leading_zeros operand must be an "
-                    "integer payload"
+                    f"ACPY-QUEUE-003: {operation} operand must be an integer payload"
                 )
             width = int(value_type[1:])
             if width <= 0:
                 raise QueueFrontendError(
-                    "ACPY-QUEUE-003: count_leading_zeros operand width must be positive"
+                    f"ACPY-QUEUE-003: {operation} operand width must be positive"
                 )
             result_width = width.bit_length()
             name = self._new()
+            direction = "trailing" if operation == "count_trailing_zeros" else "leading"
             self.lines.append(
-                f"    %{name} = ac.var.count_leading_zeros %{value} : "
+                f'    %{name} = ac.var.count_zeros %{value} direction "{direction}" : '
                 f"!ac.var<{value_type}> -> !ac.var<i{result_width}>"
             )
             return name, f"i{result_width}"

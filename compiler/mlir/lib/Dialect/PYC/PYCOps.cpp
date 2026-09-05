@@ -1024,7 +1024,7 @@ LogicalResult PopcountOp::verify() {
   return success();
 }
 
-LogicalResult CountLeadingZerosOp::verify() {
+LogicalResult CountZerosOp::verify() {
   auto inputType = dyn_cast<IntegerType>(getIn().getType());
   auto countType = dyn_cast<IntegerType>(getCount().getType());
   if (!inputType || !countType)
@@ -1039,6 +1039,8 @@ LogicalResult CountLeadingZerosOp::verify() {
     return emitOpError()
            << "count result width must be max(1, ceil(log2(N+1))) = "
            << expectedWidth;
+  if (getDirection() != "leading" && getDirection() != "trailing")
+    return emitOpError("direction must be \"leading\" or \"trailing\"");
   return success();
 }
 
