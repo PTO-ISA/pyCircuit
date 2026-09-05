@@ -497,6 +497,17 @@ class Module:
         )
         return Signal(ref=count_ref, ty=count_type)
 
+    def count_leading_zeros(self, value: Signal[Bits]) -> Signal[Bits]:
+        if not isinstance(value.ty, Bits):
+            raise TypeError(f"count_leading_zeros expects scalar Bits, got {value.ty}")
+        count_type = Bits(max(1, value.width.bit_length()))
+        count_ref = self._get_next_temp_var()
+        self._emit(
+            f"{count_ref} = pyc.count_leading_zeros {value.ref} : "
+            f"{value.ty} -> {count_type}"
+        )
+        return Signal(ref=count_ref, ty=count_type)
+
     def v_create(self, elements: list[Signal[DT]]) -> Signal[Vector[DT]]:
         if not elements:
             raise ValueError("v_create requires at least one element")

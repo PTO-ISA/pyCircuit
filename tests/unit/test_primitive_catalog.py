@@ -17,6 +17,7 @@ def test_implementation_catalog_is_bsd_and_digest_closed() -> None:
     assert catalog["schema"] == "pyc-rtl-catalog-v1"
     implementations = catalog["implementations"]
     assert {item["semantic_id"] for item in implementations} == {
+        "pyc.count_leading_zeros.v1",
         "pyc.popcount.v1",
         "pyc.priority_encode.v1",
     }
@@ -48,9 +49,16 @@ def test_semantic_registry_contains_no_implementation_names() -> None:
 
     assert registry["schema"] == "pyc-semantic-primitive-registry-v1"
     assert {item["semantic_id"] for item in registry["primitives"]} == {
+        "pyc.count_leading_zeros.v1",
         "pyc.popcount.v1",
         "pyc.priority_encode.v1",
     }
     assert "implementation_id" not in encoded
     assert all("module" not in item for item in registry["primitives"])
     assert "basejump" not in encoded
+    leading = next(
+        item
+        for item in registry["primitives"]
+        if item["semantic_id"] == "pyc.count_leading_zeros.v1"
+    )
+    assert leading["zero_input"] == {"count": "N"}

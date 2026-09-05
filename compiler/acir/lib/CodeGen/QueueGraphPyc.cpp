@@ -200,6 +200,21 @@ emitTransform(const QueueGraphPlan &plan, const QueueBlockPlan &block,
         result = newValue();
         body << "    " << result << " = pyc.popcount " << *first << " : "
              << *sourceType << " -> " << *resultType << "\n";
+      } else if (expression.kind == "count_leading_zeros") {
+        if (expression.operands.size() != 1)
+          return pycError("count_leading_zeros expression arity mismatch");
+        auto inputType = valueType(expression.operands[0]);
+        if (!inputType)
+          return inputType.takeError();
+        auto sourceType = pycType(plan, *inputType);
+        auto resultType = pycType(plan, expression.type);
+        if (!sourceType)
+          return sourceType.takeError();
+        if (!resultType)
+          return resultType.takeError();
+        result = newValue();
+        body << "    " << result << " = pyc.count_leading_zeros " << *first
+             << " : " << *sourceType << " -> " << *resultType << "\n";
       } else if (expression.kind == "not") {
         if (expression.operands.size() != 1)
           return pycError("unary transform expression arity mismatch");
