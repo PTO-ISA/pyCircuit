@@ -158,6 +158,9 @@ PYC semantic contracts.
   vendor-neutral `pyc.priority_encode`, backend-only `pyc.rtl.comb`,
   deterministic digest-verified BSD RTL selection, parameterized pyCircuit and
   Agentic Python APIs, QueueGraph-to-PYC, and gfsim SimQueue execution.
+- [x] Land Decision 0164's qualified `pyc.popcount` slice: structural and
+  Cycle-Aware Python APIs, semantic PYC/ACIR lowering, C++ and gfsim reference
+  behavior, BSD-3-Clause selected RTL, and digest-closed manifest evidence.
 - [ ] Normalize the remaining PR #29 catalog into semantic families. Admit
   combinational families only after per-family C++/RTL/Agentic parity; keep
   stateful, handshake, memory, and CDC families blocked on the inferred

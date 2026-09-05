@@ -197,47 +197,9 @@ emitTransform(const QueueGraphPlan &plan, const QueueBlockPlan &block,
           return sourceType.takeError();
         if (!resultType)
           return resultType.takeError();
-        auto inputWidth = typeWidth(plan, *inputType);
-        if (!inputWidth)
-          return inputWidth.takeError();
-        std::vector<std::string> terms;
-        terms.reserve(*inputWidth);
-        for (unsigned bit = 0; bit < *inputWidth; ++bit) {
-          std::string extracted = newValue();
-          body << "    " << extracted << " = pyc.extract " << *first
-               << " {lsb = " << bit << "} : " << *sourceType << " -> i1\n";
-          if (*resultType == "i1") {
-            terms.push_back(std::move(extracted));
-          } else {
-            std::string extended = newValue();
-            body << "    " << extended << " = pyc.zext " << extracted
-                 << " : i1 -> " << *resultType << "\n";
-            terms.push_back(std::move(extended));
-          }
-        }
-        while (terms.size() > 1) {
-          std::vector<std::string> next;
-          next.reserve((terms.size() + 1) / 2);
-          for (size_t index = 0; index < terms.size(); index += 2) {
-            if (index + 1 == terms.size()) {
-              next.push_back(std::move(terms[index]));
-              continue;
-            }
-            std::string added = newValue();
-            body << "    " << added << " = pyc.add " << terms[index] << ", "
-                 << terms[index + 1] << " : " << *resultType << ", "
-                 << *resultType << " -> " << *resultType << "\n";
-            next.push_back(std::move(added));
-          }
-          terms = std::move(next);
-        }
         result = newValue();
-        body << "    " << result << " = pyc.alias " << terms.front()
-             << " {primitive_id = \"dataflow.popcount.v1\", "
-                "implementation_id = \"internal.reference.popcount.v1\", "
-                "qualification_report = "
-                "\"INT-11/smoke/comparison_report.json\"} : "
-             << *resultType << "\n";
+        body << "    " << result << " = pyc.popcount " << *first << " : "
+             << *sourceType << " -> " << *resultType << "\n";
       } else if (expression.kind == "not") {
         if (expression.operands.size() != 1)
           return pycError("unary transform expression arity mismatch");
