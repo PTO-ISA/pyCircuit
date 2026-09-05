@@ -236,9 +236,12 @@ emitExpressionBody(const QueueBlockPlan &block, llvm::StringRef yield,
              << " = gfsim::populationCount(" << first->str() << ");\n";
       continue;
     }
-    if (expression.kind == "count_leading_zeros") {
+    if (expression.kind == "count_zeros") {
       output << padding << "auto " << expression.result
-             << " = gfsim::countLeadingZeros(" << first->str() << ");\n";
+             << (expression.predicate == "trailing"
+                     ? " = gfsim::countTrailingZeros("
+                     : " = gfsim::countLeadingZeros(")
+             << first->str() << ");\n";
       continue;
     }
     if (expression.kind == "table_choose_index" ||
@@ -557,7 +560,7 @@ llvm::Expected<std::string> generateQueueGraphCpp(const QueueGraphPlan &plan) {
   output << "#include \"gfsim/bits.h\"\n"
             "#include \"gfsim/dispatch.h\"\n"
             "#include \"gfsim/object.h\"\n"
-            "#include \"gfsim/count_leading_zeros.h\"\n"
+            "#include \"gfsim/count_zeros.h\"\n"
             "#include \"gfsim/popcount.h\"\n"
             "#include \"gfsim/priority_encode.h\"\n"
             "#include \"gfsim/queue.h\"\n"

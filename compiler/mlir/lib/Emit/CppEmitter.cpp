@@ -686,21 +686,24 @@ static LogicalResult emitCombAssign(Operation &op, llvm::raw_ostream &os, NameTa
        << count << ".value() + 1);\n";
     return success();
   }
-  if (auto leading = dyn_cast<pyc::CountLeadingZerosOp>(op)) {
-    unsigned inputWidth = bitWidth(leading.getIn().getType());
-    unsigned outputWidth = bitWidth(leading.getCount().getType());
+  if (auto countZeros = dyn_cast<pyc::CountZerosOp>(op)) {
+    unsigned inputWidth = bitWidth(countZeros.getIn().getType());
+    unsigned outputWidth = bitWidth(countZeros.getCount().getType());
     if (inputWidth == 0 || outputWidth == 0)
-      return leading.emitError("invalid count_leading_zeros width");
-    const std::string input = nt.get(leading.getIn());
-    const std::string count = nt.get(leading.getCount());
-    const std::string offset = "_pyc_clz_offset_" + count;
-    const std::string bit = "_pyc_clz_bit_" + count;
+      return countZeros.emitError("invalid count_zeros width");
+    const std::string input = nt.get(countZeros.getIn());
+    const std::string count = nt.get(countZeros.getCount());
+    const std::string offset = "_pyc_zero_count_offset_" + count;
+    const std::string bit = "_pyc_zero_count_bit_" + count;
     os << "    " << count << " = pyc::cpp::Wire<" << outputWidth << ">("
        << inputWidth << ");\n";
     os << "    for (unsigned " << offset << " = 0; " << offset << " < "
        << inputWidth << "; ++" << offset << ") {\n";
-    os << "      const unsigned " << bit << " = " << inputWidth << "u - 1u - "
-       << offset << ";\n";
+    os << "      const unsigned " << bit << " = "
+       << (countZeros.getDirection() == "trailing"
+               ? offset
+               : std::to_string(inputWidth) + "u - 1u - " + offset)
+       << ";\n";
     os << "      if (" << input << ".bit(" << bit << ")) {\n";
     os << "        " << count << " = pyc::cpp::Wire<" << outputWidth << ">("
        << offset << ");\n";
@@ -1855,7 +1858,7 @@ static LogicalResult emitFunc(func::FuncOp f, llvm::raw_ostream &os, const CppEm
     if (isa<pyc::ConstantOp, pyc::AddOp, pyc::SubOp, pyc::MulOp, pyc::UdivOp,
             pyc::UremOp, pyc::SdivOp, pyc::SremOp, pyc::MuxOp, pyc::AndOp,
             pyc::OrOp, pyc::XorOp, pyc::NotOp, pyc::ConcatOp,
-            pyc::PriorityEncodeOp, pyc::PopcountOp, pyc::CountLeadingZerosOp,
+            pyc::PriorityEncodeOp, pyc::PopcountOp, pyc::CountZerosOp,
             pyc::AliasOp, pyc::ResetActiveOp, pyc::EqOp, pyc::UltOp, pyc::SltOp,
             pyc::TruncOp, pyc::ZextOp, pyc::SextOp, pyc::ExtractOp, pyc::ShliOp,
             pyc::LshriOp, pyc::AshriOp, pyc::ShlOp, pyc::LshrOp, pyc::AshrOp,
@@ -2250,7 +2253,7 @@ static LogicalResult emitFunc(func::FuncOp f, llvm::raw_ostream &os, const CppEm
     if (isa<pyc::ConstantOp, pyc::AddOp, pyc::SubOp, pyc::MulOp, pyc::UdivOp,
             pyc::UremOp, pyc::SdivOp, pyc::SremOp, pyc::MuxOp, pyc::AndOp,
             pyc::OrOp, pyc::XorOp, pyc::NotOp, pyc::ConcatOp,
-            pyc::PriorityEncodeOp, pyc::PopcountOp, pyc::CountLeadingZerosOp,
+            pyc::PriorityEncodeOp, pyc::PopcountOp, pyc::CountZerosOp,
             pyc::AliasOp, pyc::ResetActiveOp, pyc::EqOp, pyc::UltOp, pyc::SltOp,
             pyc::TruncOp, pyc::ZextOp, pyc::SextOp, pyc::ExtractOp, pyc::ShliOp,
             pyc::LshriOp, pyc::AshriOp, pyc::ShlOp, pyc::LshrOp, pyc::AshrOp,

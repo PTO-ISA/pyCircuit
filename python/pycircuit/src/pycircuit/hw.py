@@ -2629,6 +2629,9 @@ class Circuit(Module):
     def count_leading_zeros(self, value: Union[Wire, Reg, Signal]) -> Wire:
         return Wire(self, super().count_leading_zeros(Signal.as_sig(value)))
 
+    def count_trailing_zeros(self, value: Union[Wire, Reg, Signal]) -> Wire:
+        return Wire(self, super().count_trailing_zeros(Signal.as_sig(value)))
+
     def fifo_domain(
         self,
         domain: ClockDomain,

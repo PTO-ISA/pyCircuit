@@ -32,21 +32,23 @@ def pipeline() -> None:
     sink(output_queue)
 """
 
-COUNT_LEADING_ZEROS_SOURCE = """
+ZERO_COUNT_SOURCE = """
 import agentic_circuit as ac
 from agentic_circuit import sink, source, struct, system
 
 @struct
 class Item:
     value: u13
-    count: u4
+    leading: u4
+    trailing: u4
 
 @system
 def pipeline() -> None:
     input_queue = source(Item)
     output_queue = input_queue.apply(
         lambda item: item.with_fields(
-            count=ac.count_leading_zeros(item.value)
+            leading=ac.count_leading_zeros(item.value),
+            trailing=ac.count_trailing_zeros(item.value),
         ),
         depth=2,
         latency=1,
@@ -818,16 +820,16 @@ class QueueFrontendTest(unittest.TestCase):
             lowered,
         )
 
-    def test_count_leading_zeros_lowers_to_width_checked_var_operation(
-        self,
-    ) -> None:
+    def test_zero_counts_lower_to_one_parameterized_var_operation(self) -> None:
         from agentic_circuit._queue_frontend import lower_queue_source
 
-        lowered = lower_queue_source(COUNT_LEADING_ZEROS_SOURCE, "pipeline")
+        lowered = lower_queue_source(ZERO_COUNT_SOURCE, "pipeline")
         self.assertIn(
-            "ac.var.count_leading_zeros %v0 : !ac.var<i13> -> !ac.var<i4>",
+            'ac.var.count_zeros %v0 direction "leading" : !ac.var<i13> -> !ac.var<i4>',
             lowered,
         )
+        self.assertIn('direction "trailing" : !ac.var<i13> -> !ac.var<i4>', lowered)
+        self.assertEqual(lowered.count("ac.var.count_zeros"), 2)
 
     def test_verification_expect_is_non_consuming_and_role_explicit(self) -> None:
         from agentic_circuit._queue_frontend import (

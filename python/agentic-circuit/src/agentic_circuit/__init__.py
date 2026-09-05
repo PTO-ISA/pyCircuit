@@ -69,6 +69,7 @@ __all__ = (
     "Endpoint",
     "source",
     "count_leading_zeros",
+    "count_trailing_zeros",
     "popcount",
     "priority_encode",
     "memory",
@@ -141,6 +142,10 @@ def popcount(value: object) -> Never:
 
 def count_leading_zeros(value: object) -> Never:
     return _not_implemented("count_leading_zeros")
+
+
+def count_trailing_zeros(value: object) -> Never:
+    return _not_implemented("count_trailing_zeros")
 
 
 def priority_encode(value: object, *, order: str = "low") -> Never:
