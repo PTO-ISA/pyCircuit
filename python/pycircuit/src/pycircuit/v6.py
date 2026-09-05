@@ -1702,6 +1702,15 @@ class CycleAwareSignal(Generic[DT]):
             self._cycle,
         )
 
+    def count_trailing_zeros(self) -> "CycleAwareSignal":
+        """Count zero bits from the LSB while preserving this signal's cycle."""
+
+        return CycleAwareSignal(
+            self._domain,
+            self._domain._m.count_trailing_zeros(self._w),
+            self._cycle,
+        )
+
     def as_signed(self) -> "CycleAwareSignal":
         return CycleAwareSignal(
             self._domain, Wire(self._domain._m, self._w.sig, signed=True), self._cycle
@@ -1985,6 +1994,14 @@ def count_leading_zeros(
     """Count zero bits from the MSB without exposing an RTL implementation."""
 
     return CycleAwareSignal.as_cas(value).count_leading_zeros()
+
+
+def count_trailing_zeros(
+    value: CycleAwareSignal | StateSignal | ForwardSignal,
+) -> CycleAwareSignal:
+    """Count zero bits from the LSB without exposing an RTL implementation."""
+
+    return CycleAwareSignal.as_cas(value).count_trailing_zeros()
 
 
 def cat(

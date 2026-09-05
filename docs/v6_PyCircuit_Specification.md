@@ -171,7 +171,7 @@ low = data[0:8];  bit5 = data[5]            # 切片 / 索引（向量：取 lan
 | `priority_mux(sels, vals, *, mode="chain", default=None)` | 以 `sels`（i1 向量）为选择器在 `vals` 中选 lane；**最小索引优先**；模块级函数或 CAS 实例方法 `sels.priority_mux(vals, ...)`；`default=None` 时所有 selector 为 0 的回退值是 `vals` 的最后一个元素 | 组合展开 |
 | `priority_encode(value, *, order="low")` | 返回 `{index, valid}`；`order="low"` 选择最低置位，`"high"` 选择最高置位；保持当前 cycle；Python/PYC 不暴露实现名称 | `pyc.priority_encode`，Verilog-only pass 可选择已验证 RTL |
 | `popcount(value)` / `value.popcount()` | 统计 `N` 位输入中的置位数量；结果宽度为 `max(1, ceil(log2(N+1)))`，保持当前 cycle；Python/PYC 不暴露实现名称 | `pyc.popcount`，Verilog-only pass 可选择已验证 RTL |
-| `count_leading_zeros(value)` / `value.count_leading_zeros()` | 从最高位开始统计连续零位；全零输入返回 `N`；结果宽度为 `max(1, ceil(log2(N+1)))`，保持当前 cycle | `pyc.count_leading_zeros`，Verilog-only pass 可选择已验证 RTL |
+| `count_leading_zeros(value)` / `count_trailing_zeros(value)` | 分别从最高位或最低位开始统计连续零位；全零输入返回 `N`；结果宽度为 `max(1, ceil(log2(N+1)))`，保持当前 cycle | 统一为 `pyc.count_zeros {direction=...}`，Verilog-only pass 选择共享 RTL |
 | `m.cat(*lanes)` | 把多个 lane 拼成 packed 标量位向量（MSB-first） | `pyc.concat` |
 | `v[i]` | 取 lane | `pyc.v_get` |
 

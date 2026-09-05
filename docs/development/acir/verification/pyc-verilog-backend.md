@@ -21,10 +21,10 @@ Verilog selection pass may introduce `pyc.rtl.comb` and the qualified
 hard-code semantic primitives; unsupported semantic PYC operations fail and
 must be routed through pycc.
 
-`ac.count_leading_zeros(value)` follows the same route through
-`pyc.count_leading_zeros`. Its all-zero result is `N`, and only the Verilog
-selection pass introduces the digest-verified
-`pyc_count_leading_zeros_primitive` module.
+Leading and trailing zero-count helpers follow the same route through one
+`pyc.count_zeros` operation with a static `direction` parameter. Their
+all-zero result is `N`, and only the Verilog selection pass introduces the
+digest-verified `pyc_count_zeros_primitive` module.
 
 Example:
 

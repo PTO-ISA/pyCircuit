@@ -238,8 +238,9 @@ extractExpressions(mlir::Region &region, QueueBlockPlan &plan,
         return error;
       continue;
     }
-    if (mlir::isa<ac::VarCountLeadingZerosOp>(operation)) {
-      if (auto error = append(operation, "count_leading_zeros"))
+    if (auto count = mlir::dyn_cast<ac::VarCountZerosOp>(operation)) {
+      if (auto error =
+              append(operation, "count_zeros", {}, count.getDirection()))
         return error;
       continue;
     }
@@ -1464,22 +1465,23 @@ llvm::Error verifyQueueGraphPlan(const QueueGraphPlan &plan) {
             std::max(1u, static_cast<unsigned>(llvm::Log2_64(*inputWidth) + 1));
         if (expression.type != "i" + std::to_string(resultWidth))
           return planError("popcount expression result type is inconsistent");
-      } else if (expression.kind == "count_leading_zeros") {
+      } else if (expression.kind == "count_zeros") {
         if (expression.operands.size() != 1)
-          return planError(
-              "count_leading_zeros expression contract is malformed");
+          return planError("count_zeros expression contract is malformed");
+        if (expression.predicate != "leading" &&
+            expression.predicate != "trailing")
+          return planError("count_zeros direction is malformed");
         auto operand = valueTypes.find(expression.operands.front());
         auto inputWidth = operand == valueTypes.end()
                               ? std::optional<unsigned>()
                               : integerWidth(operand->getValue());
         if (!inputWidth || *inputWidth == 0 || *inputWidth > 64)
-          return planError(
-              "count_leading_zeros input must be an i1..i64 value");
+          return planError("count_zeros input must be an i1..i64 value");
         const unsigned resultWidth =
             std::max(1u, static_cast<unsigned>(llvm::Log2_64(*inputWidth) + 1));
         if (expression.type != "i" + std::to_string(resultWidth))
           return planError(
-              "count_leading_zeros expression result type is inconsistent");
+              "count_zeros expression result type is inconsistent");
       }
       valueTypes[expression.result] = expression.type;
       if (!expression.nestedExpressions.empty()) {

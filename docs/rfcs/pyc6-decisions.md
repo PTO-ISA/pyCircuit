@@ -4264,7 +4264,7 @@ implementation abbreviations, module names, and vendor-specific valid flags
 must not leak into the language.
 
 **Decision (strong constraint)**
-- `pyc.count_leading_zeros` accepts one `iN` input and returns
+- `pyc.count_zeros` with `direction = "leading"` accepts one `iN` input and returns
   `i(max(1,ceil(log2(N+1))))`. It counts consecutive zero bits starting at the
   most-significant bit. An MSB-one input returns zero and an all-zero input
   returns `N`.
@@ -4272,7 +4272,7 @@ must not leak into the language.
   Cycle-Aware Signal exposes `value.count_leading_zeros()` and
   `pycircuit.count_leading_zeros(value)`, preserving the input cycle. Agentic
   Circuit exposes `ac.count_leading_zeros(value)` and lowers it through
-  `ac.var.count_leading_zeros`.
+  `ac.var.count_zeros` with static leading direction.
 - QueueGraph-to-PYC emits one semantic op. QueueGraph C++ and direct JIT use
   `gfsim::countLeadingZeros`; gfsim also provides a typed
   `CountLeadingZeros<Width>` SimQueue block.
@@ -4283,9 +4283,10 @@ must not leak into the language.
   `pyc.rtl.comb`. The admitted 1-through-64 candidate binds `WIDTH` and
   `COUNT_WIDTH` and participates in the same fail-closed catalog, digest,
   ambiguity, source-closure, and manifest contract as Decisions 0161 and 0164.
-- The admitted `pyc_count_leading_zeros_primitive.v` is repository-owned and
-  BSD-3-Clause. BaseJump/PULP Solderpad sources and Vortex Apache wrappers from
-  PR #29 are design references only and are not imported or relicensed.
+- The admitted repository-owned BSD-3-Clause implementation is generalized by
+  Decision 0166 into `pyc_count_zeros_primitive.v`. BaseJump/PULP Solderpad
+  sources and Vortex Apache wrappers from PR #29 are design references only
+  and are not imported or relicensed.
 
 **Verification**
 - Width-one, non-power-of-two, power-of-two, MSB-one, mixed, and all-zero cases
@@ -4298,3 +4299,49 @@ must not leak into the language.
 - User direction and PTO-ISA/pyCircuit PR #29 (2026-09-05): normalize reusable
   combinational blocks as parameterized semantic IR with selected RTL and an
   Agentic SimQueue realization.
+
+Decision 0166 supersedes the standalone canonical
+`pyc.count_leading_zeros` spelling and implementation identity while
+preserving this decision's public leading-zero semantics.
+
+## Decision 0166: zero count is one static-direction semantic family
+
+**Status:** Accepted and implemented
+
+**Context / Goal**
+PR #29's LZC candidates commonly parameterize leading versus trailing
+direction. Duplicating complete ACIR, PYC, gfsim, catalog, and RTL stacks for
+the two directions would turn an implementation parameter into two unrelated
+compiler concepts.
+
+**Decision (strong constraint)**
+- Python keeps the readable `count_leading_zeros` and `count_trailing_zeros`
+  helpers. They infer width from the operand, accept no implementation knobs,
+  preserve Cycle-Aware timing, and both map all-zero input to `N`.
+- Canonical ACIR uses `ac.var.count_zeros` and canonical PYC uses
+  `pyc.count_zeros`. Each carries exactly one compile-time `direction` enum:
+  `leading` or `trailing`. Runtime-computed direction and noncanonical strings
+  are rejected by verifiers.
+- QueueGraph freezes direction in the expression plan. Direct Agentic JIT and
+  generated C++ use `gfsim::countLeadingZeros` or
+  `gfsim::countTrailingZeros`; both are projections of one
+  `CountZeros<Width, Direction>` SimQueue template.
+- Verilog selection introduces one `pyc.rtl.comb` semantic/implementation
+  family and binds direction to `DIRECTION_LOW`. One repository-owned
+  `pyc_count_zeros_primitive.v` implements both directions with the same
+  padded balanced tree and stop-sentinel depth contract.
+- The semantic result width remains `max(1,ceil(log2(N+1)))`; the qualified
+  width range remains 1 through 64 and wider Verilog selection fails closed.
+
+**Verification**
+- Widths 1, 4, 13, and 64 cover both directions, mixed values, endpoint-one
+  values, and all-zero input in gfsim and Icarus.
+- PYC C++ and selected RTL return identical leading/trailing results from the
+  same input. Selection manifests contain two bindings of one implementation,
+  differing only in `DIRECTION_LOW`.
+- Python, ACIR, QueueGraph, JIT, PYC, source-closure, and Verilator tests prove
+  that direction remains static and implementation-neutral until selection.
+
+**Source**
+- User direction and PTO-ISA/pyCircuit PR #29 (2026-09-05): expose simple
+  parameterized Python while MLIR passes select reusable RTL building blocks.
