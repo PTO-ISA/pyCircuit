@@ -69,6 +69,31 @@ def test_structural_circuit_popcount_emits_the_same_semantic_op() -> None:
     assert "bsg_" not in mlir.lower()
 
 
+def test_count_leading_zeros_is_exact_width_and_cycle_aware() -> None:
+    circuit = pycircuit.CycleAwareCircuit("count_leading_zeros")
+    domain = circuit.create_domain("clk")
+    value = pycircuit.cas(domain, domain.create_signal("value", width=13))
+
+    count = pycircuit.count_leading_zeros(value)
+
+    assert count.width == 4
+    assert count.cycle == domain.cycle_index
+    mlir = circuit.emit_mlir()
+    assert "pyc.count_leading_zeros" in mlir
+    assert "lzc" not in mlir.lower()
+
+
+def test_structural_count_leading_zeros_emits_the_same_semantic_op() -> None:
+    circuit = pycircuit.Circuit("structural_count_leading_zeros")
+    value = circuit.input("value", width=13)
+
+    count = circuit.count_leading_zeros(value)
+    circuit.output("count", count)
+
+    assert count.width == 4
+    assert "pyc.count_leading_zeros" in circuit.emit_mlir()
+
+
 def test_pyc5_module_is_not_shipped_as_a_compatibility_surface() -> None:
     assert importlib.util.find_spec("pycircuit.v5") is None
 

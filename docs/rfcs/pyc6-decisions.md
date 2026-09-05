@@ -4252,3 +4252,49 @@ canonical PYC.
 - User direction and PTO-ISA/pyCircuit PR #29 (2026-09-05): promote reusable
   parameterized blocks into semantic PYC IR, select qualified handwritten RTL
   during lowering, and provide an Agentic SimQueue realization.
+
+## Decision 0165: leading-zero count is a semantic primitive with defined zero input
+
+**Status:** Accepted and implemented
+
+**Context / Goal**
+PR #29 contains several vendor CLZ/LZC implementations with different output
+and all-zero conventions. Python and canonical PYC need one portable contract;
+implementation abbreviations, module names, and vendor-specific valid flags
+must not leak into the language.
+
+**Decision (strong constraint)**
+- `pyc.count_leading_zeros` accepts one `iN` input and returns
+  `i(max(1,ceil(log2(N+1))))`. It counts consecutive zero bits starting at the
+  most-significant bit. An MSB-one input returns zero and an all-zero input
+  returns `N`.
+- Structural pyCircuit exposes `Circuit.count_leading_zeros(value)`.
+  Cycle-Aware Signal exposes `value.count_leading_zeros()` and
+  `pycircuit.count_leading_zeros(value)`, preserving the input cycle. Agentic
+  Circuit exposes `ac.count_leading_zeros(value)` and lowers it through
+  `ac.var.count_leading_zeros`.
+- QueueGraph-to-PYC emits one semantic op. QueueGraph C++ and direct JIT use
+  `gfsim::countLeadingZeros`; gfsim also provides a typed
+  `CountLeadingZeros<Width>` SimQueue block.
+- PYC and ACIR verifiers own exact result-width enforcement. Dependency and
+  logic-depth analysis charge the balanced zero-detect/count tree rather than
+  an expanded Python or backend chain.
+- Verilog selection may rewrite the semantic op to backend-owned
+  `pyc.rtl.comb`. The admitted 1-through-64 candidate binds `WIDTH` and
+  `COUNT_WIDTH` and participates in the same fail-closed catalog, digest,
+  ambiguity, source-closure, and manifest contract as Decisions 0161 and 0164.
+- The admitted `pyc_count_leading_zeros_primitive.v` is repository-owned and
+  BSD-3-Clause. BaseJump/PULP Solderpad sources and Vortex Apache wrappers from
+  PR #29 are design references only and are not imported or relicensed.
+
+**Verification**
+- Width-one, non-power-of-two, power-of-two, MSB-one, mixed, and all-zero cases
+  agree across PYC C++, selected RTL, Agentic direct JIT, and gfsim.
+- Python tests prove exact width, same-cycle behavior, and vendor-neutral IR.
+  ACIR lit proves one semantic PYC op; selection tests prove digest-closed BSD
+  source and width-65 fail-closed behavior.
+
+**Source**
+- User direction and PTO-ISA/pyCircuit PR #29 (2026-09-05): normalize reusable
+  combinational blocks as parameterized semantic IR with selected RTL and an
+  Agentic SimQueue realization.

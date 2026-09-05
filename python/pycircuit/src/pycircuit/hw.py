@@ -2626,6 +2626,9 @@ class Circuit(Module):
     def popcount(self, value: Union[Wire, Reg, Signal]) -> Wire:
         return Wire(self, super().popcount(Signal.as_sig(value)))
 
+    def count_leading_zeros(self, value: Union[Wire, Reg, Signal]) -> Wire:
+        return Wire(self, super().count_leading_zeros(Signal.as_sig(value)))
+
     def fifo_domain(
         self,
         domain: ClockDomain,
