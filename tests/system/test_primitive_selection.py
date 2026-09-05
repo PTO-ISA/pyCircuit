@@ -246,12 +246,12 @@ def test_popcount_candidate_is_a_balanced_tree() -> None:
     assert "tree[(2 * node_index) + 1] + tree[(2 * node_index) + 2]" in source
 
 
-def test_count_leading_zeros_selector_and_semantic_verifier(tmp_path: Path) -> None:
+def test_zero_count_selector_and_semantic_verifier(tmp_path: Path) -> None:
     root = _root()
     pyc_opt = _tool("pyc-opt")
     fixture = root / "tests/mlir/pyc/count-leading-zeros-primitive.mlir"
     catalog = root / "library/verilog/rtl_catalog.json"
-    selected = tmp_path / "count_leading_zeros.selected.mlir"
+    selected = tmp_path / "count_zeros.selected.mlir"
     subprocess.run(
         [
             pyc_opt,
@@ -265,14 +265,21 @@ def test_count_leading_zeros_selector_and_semantic_verifier(tmp_path: Path) -> N
         env=_environment(),
     )
     text = selected.read_text(encoding="utf-8")
-    assert " = pyc.count_leading_zeros " not in text
-    assert 'semantic_id = "pyc.count_leading_zeros.v1"' in text
-    assert 'implementation_id = "pyc.bsd.count_leading_zeros.v1"' in text
-    assert "parameters = {COUNT_WIDTH = 4 : i64, WIDTH = 13 : i64}" in text
+    assert " = pyc.count_zeros " not in text
+    assert text.count('semantic_id = "pyc.count_zeros.v1"') == 2
+    assert text.count('implementation_id = "pyc.bsd.count_zeros.v1"') == 2
+    assert (
+        "parameters = {COUNT_WIDTH = 4 : i64, DIRECTION_LOW = 0 : i64, "
+        "WIDTH = 13 : i64}" in text
+    )
+    assert (
+        "parameters = {COUNT_WIDTH = 4 : i64, DIRECTION_LOW = 1 : i64, "
+        "WIDTH = 13 : i64}" in text
+    )
 
     malformed = """module {
   func.func @bad(%value: i13) -> i3 {
-    %count = pyc.count_leading_zeros %value : i13 -> i3
+    %count = pyc.count_zeros %value {direction = "leading"} : i13 -> i3
     return %count : i3
   }
 }
@@ -287,16 +294,36 @@ def test_count_leading_zeros_selector_and_semantic_verifier(tmp_path: Path) -> N
     assert rejected.returncode != 0
     assert "count result width" in rejected.stderr
 
+    malformed = """module {
+  func.func @bad(%value: i13) -> i4 {
+    %count = pyc.count_zeros %value {direction = "middle"} : i13 -> i4
+    return %count : i4
+  }
+}
+"""
+    rejected = subprocess.run(
+        [pyc_opt, "-o", os.devnull],
+        input=malformed,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert rejected.returncode != 0
+    assert "direction must be" in rejected.stderr
 
-def test_count_leading_zeros_candidate_is_a_balanced_tree() -> None:
-    source = (
-        _root() / "library/verilog/pyc_count_leading_zeros_primitive.v"
-    ).read_text(encoding="utf-8")
+
+def test_zero_count_candidate_is_one_parameterized_balanced_tree() -> None:
+    source = (_root() / "library/verilog/pyc_count_zeros_primitive.v").read_text(
+        encoding="utf-8"
+    )
     assert "always @*" not in source
     assert "PAD_WIDTH = 1 << TREE_LEVELS" in source
     assert "gen_tree_levels" in source
     assert "gen_tree_nodes" in source
     assert "zero_tree[level_index][2 * node_index]" in source
+    assert "parameter integer DIRECTION_LOW = 0" in source
+    assert "gen_leading" in source
+    assert "gen_trailing" in source
     assert "assign count = count_tree[TREE_LEVELS][0];" in source
     assert "assign count = zero_tree" not in source
 
@@ -328,7 +355,7 @@ def test_selector_rejects_width_without_qualified_candidate() -> None:
 
     source = """module {
   func.func @wide(%value: i65) -> i7 {
-    %count = pyc.count_leading_zeros %value : i65 -> i7
+    %count = pyc.count_zeros %value {direction = "leading"} : i65 -> i7
     return %count : i7
   }
 }
@@ -509,13 +536,13 @@ endmodule
         assert executed.returncode == 0, executed.stderr
 
 
-def test_count_leading_zeros_pyc_cpp_and_selected_rtl_agree(
+def test_zero_count_pyc_cpp_and_selected_rtl_agree(
     tmp_path: Path,
 ) -> None:
     root = _root()
     pycc = _tool("pycc")
     fixture = root / "tests/mlir/pyc/count-leading-zeros-primitive.mlir"
-    cpp = tmp_path / "count_leading_zeros.cpp"
+    cpp = tmp_path / "count_zeros.cpp"
     verilog = tmp_path / "verilog"
     common = ["--hierarchy-policy=strict", "--inline-policy=off"]
     subprocess.run(
@@ -534,38 +561,42 @@ def test_count_leading_zeros_pyc_cpp_and_selected_rtl_agree(
     manifest = json.loads((verilog / "manifest.json").read_text(encoding="utf-8"))
     selection = manifest["rtl_selection"]
     implementation = selection["implementations"][0]
-    assert implementation["semantic_id"] == "pyc.count_leading_zeros.v1"
-    assert implementation["sources"][0]["path"] == (
-        "pyc_count_leading_zeros_primitive.v"
+    assert implementation["semantic_id"] == "pyc.count_zeros.v1"
+    assert implementation["sources"][0]["path"] == "pyc_count_zeros_primitive.v"
+    assert {
+        binding["parameters"]["DIRECTION_LOW"] for binding in selection["bindings"]
+    } == {0, 1}
+    assert all(
+        binding["parameters"]["COUNT_WIDTH"] == 4
+        and binding["parameters"]["WIDTH"] == 13
+        for binding in selection["bindings"]
     )
-    assert selection["bindings"][0]["parameters"] == {
-        "COUNT_WIDTH": 4,
-        "WIDTH": 13,
-    }
 
     cxx = shutil.which("c++")
     if cxx:
-        harness = tmp_path / "count_leading_zeros_harness.cpp"
+        harness = tmp_path / "count_zeros_harness.cpp"
         harness.write_text(
             f"""#include "{cpp.as_posix()}"
 #include <cstdint>
+#include <tuple>
 int main() {{
-  pyc::gen::count_leading_zeros_top dut;
-  for (const auto &[value, expected] : {{
-           std::pair<std::uint64_t, std::uint64_t>{{0, 13}},
-           {{0x0123, 4}},
-           {{0x1000, 0}},
+  pyc::gen::count_zeros_top dut;
+  for (const auto &[value, leading, trailing] : {{
+           std::tuple<std::uint64_t, std::uint64_t, std::uint64_t>{{0, 13, 13}},
+           {{0x0120, 4, 5}},
+           {{0x1000, 0, 12}},
        }}) {{
     dut.value = pyc::cpp::Wire<13>(value);
     dut.eval();
-    if (dut.count.value() != expected) return 1;
+    if (dut.leading.value() != leading || dut.trailing.value() != trailing)
+      return 1;
   }}
   return 0;
 }}
 """,
             encoding="utf-8",
         )
-        executable = tmp_path / "count_leading_zeros_cpp"
+        executable = tmp_path / "count_zeros_cpp"
         compiled = subprocess.run(
             [
                 cxx,
@@ -589,33 +620,34 @@ int main() {{
     iverilog = shutil.which("iverilog")
     vvp = shutil.which("vvp")
     if iverilog and vvp:
-        testbench = tmp_path / "count_leading_zeros_tb.sv"
+        testbench = tmp_path / "count_zeros_tb.sv"
         testbench.write_text(
-            """module count_leading_zeros_tb;
+            """module count_zeros_tb;
   reg [12:0] value;
-  wire [3:0] count;
-  count_leading_zeros_top dut(.value(value), .count(count));
+  wire [3:0] leading;
+  wire [3:0] trailing;
+  count_zeros_top dut(.value(value), .leading(leading), .trailing(trailing));
   initial begin
-    value = 13'h0000; #1; if (count !== 13) $fatal(1);
-    value = 13'h0123; #1; if (count !== 4) $fatal(1);
-    value = 13'h1000; #1; if (count !== 0) $fatal(1);
+    value = 13'h0000; #1; if (leading !== 13 || trailing !== 13) $fatal(1);
+    value = 13'h0120; #1; if (leading !== 4 || trailing !== 5) $fatal(1);
+    value = 13'h1000; #1; if (leading !== 0 || trailing !== 12) $fatal(1);
     $finish;
   end
 endmodule
 """,
             encoding="utf-8",
         )
-        executable = tmp_path / "count_leading_zeros_rtl"
+        executable = tmp_path / "count_zeros_rtl"
         compiled = subprocess.run(
             [
                 iverilog,
                 "-g2012",
                 "-s",
-                "count_leading_zeros_tb",
+                "count_zeros_tb",
                 "-o",
                 str(executable),
                 str(verilog / "pyc_primitives.v"),
-                str(verilog / "count_leading_zeros_top.v"),
+                str(verilog / "count_zeros_top.v"),
                 str(testbench),
             ],
             text=True,
@@ -683,7 +715,7 @@ endmodule
     assert executed.returncode == 0, executed.stderr
 
 
-def test_count_leading_zeros_rtl_candidate_handles_edge_widths(
+def test_zero_count_rtl_candidate_handles_both_directions_and_edge_widths(
     tmp_path: Path,
 ) -> None:
     iverilog = shutil.which("iverilog")
@@ -691,38 +723,45 @@ def test_count_leading_zeros_rtl_candidate_handles_edge_widths(
     if not iverilog or not vvp:
         pytest.skip("Icarus Verilog is unavailable")
     root = _root()
-    testbench = tmp_path / "count_leading_zeros_widths_tb.sv"
+    testbench = tmp_path / "count_zeros_widths_tb.sv"
     testbench.write_text(
-        """module count_leading_zeros_widths_tb;
-  reg [0:0] in1; wire [0:0] count1;
-  reg [3:0] in4; wire [2:0] count4;
-  reg [12:0] in13; wire [3:0] count13;
-  reg [63:0] in64; wire [6:0] count64;
-  pyc_count_leading_zeros_primitive #(.WIDTH(1), .COUNT_WIDTH(1)) p1(in1, count1);
-  pyc_count_leading_zeros_primitive #(.WIDTH(4), .COUNT_WIDTH(3)) p4(in4, count4);
-  pyc_count_leading_zeros_primitive #(.WIDTH(13), .COUNT_WIDTH(4)) p13(in13, count13);
-  pyc_count_leading_zeros_primitive #(.WIDTH(64), .COUNT_WIDTH(7)) p64(in64, count64);
+        """module count_zeros_widths_tb;
+  reg [0:0] in1; wire [0:0] lead1, trail1;
+  reg [3:0] in4; wire [2:0] lead4, trail4;
+  reg [12:0] in13; wire [3:0] lead13, trail13;
+  reg [63:0] in64; wire [6:0] lead64, trail64;
+  pyc_count_zeros_primitive #(.WIDTH(1), .COUNT_WIDTH(1), .DIRECTION_LOW(0)) l1(in1, lead1);
+  pyc_count_zeros_primitive #(.WIDTH(1), .COUNT_WIDTH(1), .DIRECTION_LOW(1)) t1(in1, trail1);
+  pyc_count_zeros_primitive #(.WIDTH(4), .COUNT_WIDTH(3), .DIRECTION_LOW(0)) l4(in4, lead4);
+  pyc_count_zeros_primitive #(.WIDTH(4), .COUNT_WIDTH(3), .DIRECTION_LOW(1)) t4(in4, trail4);
+  pyc_count_zeros_primitive #(.WIDTH(13), .COUNT_WIDTH(4), .DIRECTION_LOW(0)) l13(in13, lead13);
+  pyc_count_zeros_primitive #(.WIDTH(13), .COUNT_WIDTH(4), .DIRECTION_LOW(1)) t13(in13, trail13);
+  pyc_count_zeros_primitive #(.WIDTH(64), .COUNT_WIDTH(7), .DIRECTION_LOW(0)) l64(in64, lead64);
+  pyc_count_zeros_primitive #(.WIDTH(64), .COUNT_WIDTH(7), .DIRECTION_LOW(1)) t64(in64, trail64);
   initial begin
     in1 = 1'b0;
     in4 = 4'b0101;
-    in13 = 13'h0123;
+    in13 = 13'h0120;
     in64 = 64'h0000_0000_0000_0001;
     #1;
-    if (count1 !== 1 || count4 !== 1 || count13 !== 4 || count64 !== 63)
+    if (lead1 !== 1 || trail1 !== 1 || lead4 !== 1 || trail4 !== 0 ||
+        lead13 !== 4 || trail13 !== 5 || lead64 !== 63 || trail64 !== 0)
       $fatal(1);
     in1 = 1'b1;
     in4 = 4'b0000;
     in13 = 13'h0000;
     in64 = 64'h8000_0000_0000_0000;
     #1;
-    if (count1 !== 0 || count4 !== 4 || count13 !== 13 || count64 !== 0)
+    if (lead1 !== 0 || trail1 !== 0 || lead4 !== 4 || trail4 !== 4 ||
+        lead13 !== 13 || trail13 !== 13 || lead64 !== 0 || trail64 !== 63)
       $fatal(1);
     in1 = 1'b0;
     in4 = 4'b0000;
     in13 = 13'h0000;
     in64 = 64'h0000_0000_0000_0000;
     #1;
-    if (count1 !== 1 || count4 !== 4 || count13 !== 13 || count64 !== 64)
+    if (lead1 !== 1 || trail1 !== 1 || lead4 !== 4 || trail4 !== 4 ||
+        lead13 !== 13 || trail13 !== 13 || lead64 !== 64 || trail64 !== 64)
       $fatal(1);
     $finish;
   end
@@ -730,16 +769,16 @@ endmodule
 """,
         encoding="utf-8",
     )
-    executable = tmp_path / "count_leading_zeros_widths"
+    executable = tmp_path / "count_zeros_widths"
     compiled = subprocess.run(
         [
             iverilog,
             "-g2012",
             "-s",
-            "count_leading_zeros_widths_tb",
+            "count_zeros_widths_tb",
             "-o",
             str(executable),
-            str(root / "library/verilog/pyc_count_leading_zeros_primitive.v"),
+            str(root / "library/verilog/pyc_count_zeros_primitive.v"),
             str(testbench),
         ],
         text=True,
@@ -759,9 +798,9 @@ endmodule
         ("popcount.mlir", "pyc.popcount", "pyc_popcount_primitive", "popcount"),
         (
             "count-leading-zeros.mlir",
-            "pyc.count_leading_zeros",
-            "pyc_count_leading_zeros_primitive",
-            "count_leading_zeros",
+            "pyc.count_zeros",
+            "pyc_count_zeros_primitive",
+            "count_zeros",
         ),
     ],
 )

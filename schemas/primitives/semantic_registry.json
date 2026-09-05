@@ -65,10 +65,15 @@
       }
     },
     {
-      "semantic_id": "pyc.count_leading_zeros.v1",
-      "operation": "pyc.count_leading_zeros",
+      "semantic_id": "pyc.count_zeros.v1",
+      "operation": "pyc.count_zeros",
       "effect_class": "comb",
-      "parameters": {},
+      "parameters": {
+        "direction": {
+          "kind": "enum",
+          "values": ["leading", "trailing"]
+        }
+      },
       "inputs": [
         {
           "name": "value",
