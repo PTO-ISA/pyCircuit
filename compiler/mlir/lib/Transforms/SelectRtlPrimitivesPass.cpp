@@ -111,13 +111,14 @@ loadCatalog(llvm::StringRef path, std::string &catalogSha256,
                              outputPorts->front().getAsString() == "count" &&
                              bindings->get("WIDTH") &&
                              bindings->get("COUNT_WIDTH");
-      else if (*semantic == "pyc.count_leading_zeros.v1")
+      else if (*semantic == "pyc.count_zeros.v1")
         knownSemanticShape = inputPorts->size() == 1 &&
                              inputPorts->front().getAsString() == "in_value" &&
                              outputPorts->size() == 1 &&
                              outputPorts->front().getAsString() == "count" &&
                              bindings->get("WIDTH") &&
-                             bindings->get("COUNT_WIDTH");
+                             bindings->get("COUNT_WIDTH") &&
+                             bindings->get("DIRECTION_LOW");
     }
     if (!semantic || !implementation || effect != "comb" || !module ||
         !minWidth || !maxWidth || !selectionPriority || *minWidth <= 0 ||
@@ -231,11 +232,11 @@ struct SelectRtlPrimitivesPass
     }
     SmallVector<PriorityEncodeOp> priorityOps;
     SmallVector<PopcountOp> popcountOps;
-    SmallVector<CountLeadingZerosOp> leadingZeroOps;
+    SmallVector<CountZerosOp> zeroCountOps;
     module.walk([&](PriorityEncodeOp op) { priorityOps.push_back(op); });
     module.walk([&](PopcountOp op) { popcountOps.push_back(op); });
-    module.walk([&](CountLeadingZerosOp op) { leadingZeroOps.push_back(op); });
-    if (priorityOps.empty() && popcountOps.empty() && leadingZeroOps.empty())
+    module.walk([&](CountZerosOp op) { zeroCountOps.push_back(op); });
+    if (priorityOps.empty() && popcountOps.empty() && zeroCountOps.empty())
       return;
 
     std::string path = catalog;
@@ -383,12 +384,12 @@ struct SelectRtlPrimitivesPass
       semantic.erase();
     }
 
-    for (CountLeadingZerosOp semantic : leadingZeroOps) {
+    for (CountZerosOp semantic : zeroCountOps) {
       unsigned width = cast<IntegerType>(semantic.getIn().getType()).getWidth();
       unsigned countWidth =
           cast<IntegerType>(semantic.getCount().getType()).getWidth();
       const RtlCandidate *candidate =
-          selectCandidate(semantic, "pyc.count_leading_zeros.v1", width);
+          selectCandidate(semantic, "pyc.count_zeros.v1", width);
       if (!candidate) {
         signalPassFailure();
         return;
@@ -397,6 +398,10 @@ struct SelectRtlPrimitivesPass
       SmallVector<NamedAttribute> parameterValues{
           builder.getNamedAttr("COUNT_WIDTH",
                                builder.getI64IntegerAttr(countWidth)),
+          builder.getNamedAttr(
+              "DIRECTION_LOW",
+              builder.getI64IntegerAttr(
+                  semantic.getDirection() == "trailing" ? 1 : 0)),
           builder.getNamedAttr("WIDTH", builder.getI64IntegerAttr(width)),
       };
       SmallVector<Attribute> sourceValues =
@@ -405,7 +410,7 @@ struct SelectRtlPrimitivesPass
       state.addOperands(semantic.getIn());
       state.addTypes(semantic->getResultTypes());
       state.addAttribute("semantic_id",
-                         builder.getStringAttr("pyc.count_leading_zeros.v1"));
+                         builder.getStringAttr("pyc.count_zeros.v1"));
       state.addAttribute("implementation_id",
                          builder.getStringAttr(candidate->implementationId));
       state.addAttribute("module", builder.getStringAttr(candidate->module));

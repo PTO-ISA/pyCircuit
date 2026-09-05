@@ -157,13 +157,15 @@ Leading-zero count is also semantic and parameterized by its input type:
 
 ```python
 leading = signal.count_leading_zeros()
+trailing = signal.count_trailing_zeros()
 leading = pycircuit.count_leading_zeros(signal)
-leading = ac.count_leading_zeros(value)
+trailing = ac.count_trailing_zeros(value)
 ```
 
-It returns a value in `[0, N]`; an all-zero `N`-bit input returns `N`. PYC
-keeps `pyc.count_leading_zeros`, while the Verilog backend may select the
-digest-verified BSD balanced-tree implementation. See the runnable
+Both return a value in `[0, N]`; an all-zero `N`-bit input returns `N`. PYC
+keeps one `pyc.count_zeros` operation with a static `direction` parameter,
+while the Verilog backend selects one shared digest-verified BSD balanced-tree
+implementation. See the runnable
 [Agentic example](examples/agentic-circuit/blocks/count_leading_zeros.py).
 
 The epoch 0.5 rule frontend keeps scheduling mechanics out of Python:

@@ -118,11 +118,11 @@ def ACIR_VarPopcountOp : ACIR_Op<"var.popcount", [Pure]> {
   let assemblyFormat = "$in attr-dict `:` qualified(type($in)) `->` qualified(type($result))";
 }
 
-def ACIR_VarCountLeadingZerosOp : ACIR_Op<"var.count_leading_zeros", [Pure]> {
-  let arguments = (ins ACIR_VarType:$in);
+def ACIR_VarCountZerosOp : ACIR_Op<"var.count_zeros", [Pure]> {
+  let arguments = (ins ACIR_VarType:$in, StrAttr:$direction);
   let results = (outs ACIR_VarType:$result);
   let hasVerifier = 1;
-  let assemblyFormat = "$in attr-dict `:` qualified(type($in)) `->` qualified(type($result))";
+  let assemblyFormat = "$in `direction` $direction attr-dict `:` qualified(type($in)) `->` qualified(type($result))";
 }
 
 def ACIR_VarPriorityEncodeOp : ACIR_Op<"var.priority_encode", [Pure]> {
