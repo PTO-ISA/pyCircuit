@@ -78,6 +78,42 @@
         "status": "validated",
         "report": "docs/gates/logs/20260905-pyc-popcount-rtl-r1/summary.md"
       }
+    },
+    {
+      "semantic_id": "pyc.count_leading_zeros.v1",
+      "implementation_id": "pyc.bsd.count_leading_zeros.v1",
+      "effect_class": "comb",
+      "module": "pyc_count_leading_zeros_primitive",
+      "min_width": 1,
+      "max_width": 64,
+      "selection_priority": 100,
+      "parameter_bindings": {
+        "COUNT_WIDTH": "output_width",
+        "WIDTH": "input_width"
+      },
+      "ports": {
+        "inputs": ["in_value"],
+        "outputs": ["count"]
+      },
+      "sources": [
+        {
+          "path": "pyc_count_leading_zeros_primitive.v",
+          "sha256": "sha256:60228037ae6a556515266734beba077266f8690b18aae3fd1b70b478d5bfd24c",
+          "license": "BSD-3-Clause",
+          "modified": false
+        }
+      ],
+      "license_file": "licenses/BSD-3-Clause.txt",
+      "license_sha256": "sha256:321940059773d631ad73832bfa870431aa6cba545b38d4055641ce21275bb22c",
+      "provenance": {
+        "origin": "PTO-ISA/pyCircuit",
+        "design_input": "PTO-ISA/pyCircuit#29",
+        "license": "BSD-3-Clause"
+      },
+      "qualification": {
+        "status": "validated",
+        "report": "docs/gates/logs/20260905-pyc-count-leading-zeros-r1/summary.md"
+      }
     }
   ]
 }

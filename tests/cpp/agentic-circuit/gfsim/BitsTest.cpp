@@ -1,4 +1,5 @@
 #include "gfsim/bits.h"
+#include "gfsim/count_leading_zeros.h"
 #include "gfsim/popcount.h"
 #include "gfsim/priority_encode.h"
 
@@ -117,6 +118,28 @@ TEST(PopcountTest, ExactWidthsAndSimQueueBlockAgree) {
   output.doXfer({1, 0});
   ASSERT_NE(output.peek(), nullptr);
   EXPECT_EQ(output.peek()->value(), 5u);
+}
+
+TEST(CountLeadingZerosTest, ExactWidthsAndSimQueueBlockAgree) {
+  static_assert(CountLeadingZerosWidth<1> == 1);
+  static_assert(CountLeadingZerosWidth<13> == 4);
+  static_assert(CountLeadingZerosWidth<64> == 7);
+  EXPECT_EQ(countLeadingZeros(UInt<1>{0}).value(), 1u);
+  EXPECT_EQ(countLeadingZeros(UInt<1>{1}).value(), 0u);
+  EXPECT_EQ(countLeadingZeros(UInt<13>{0}).value(), 13u);
+  EXPECT_EQ(countLeadingZeros(UInt<13>{0x0123}).value(), 4u);
+  EXPECT_EQ(countLeadingZeros(UInt<64>{1}).value(), 63u);
+
+  SimQueue<UInt<13>> input("clz_input", 4, nullptr, 1);
+  SimQueue<UInt<4>> output("clz_output", 5, nullptr, 1);
+  CountLeadingZeros<13> block("count_leading_zeros", 6, nullptr, input, output);
+  ASSERT_TRUE(input.proposePush(UInt<13>{0x0123}));
+  input.doXfer({0, 0});
+  block.doWork({1, 0});
+  input.doXfer({1, 0});
+  output.doXfer({1, 0});
+  ASSERT_NE(output.peek(), nullptr);
+  EXPECT_EQ(output.peek()->value(), 4u);
 }
 
 } // namespace
