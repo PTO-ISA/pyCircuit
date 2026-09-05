@@ -191,18 +191,18 @@ static std::string treeReduceExpr(llvm::SmallVectorImpl<std::string> &terms,
   return terms.empty() ? "" : terms[0];
 }
 
-struct LeadingZeroExpr {
+struct ZeroCountExpr {
   std::string allZero;
   std::string count;
   unsigned width;
 };
 
-static std::string leadingZeroExpr(llvm::StringRef input, unsigned inputWidth,
-                                   unsigned outputWidth) {
-  llvm::SmallVector<LeadingZeroExpr> terms;
+static std::string zeroCountExpr(llvm::StringRef input, unsigned inputWidth,
+                                 unsigned outputWidth, bool directionLow) {
+  llvm::SmallVector<ZeroCountExpr> terms;
   terms.reserve(inputWidth);
   for (unsigned offset = 0; offset < inputWidth; ++offset) {
-    const unsigned bit = inputWidth - 1u - offset;
+    const unsigned bit = directionLow ? offset : inputWidth - 1u - offset;
     const std::string bitExpr = input.str() + "[" + std::to_string(bit) + "]";
     terms.push_back({"(~" + bitExpr + ")",
                      "(" + bitExpr + " ? " + std::to_string(outputWidth) +
@@ -210,14 +210,14 @@ static std::string leadingZeroExpr(llvm::StringRef input, unsigned inputWidth,
                      1});
   }
   while (terms.size() > 1) {
-    llvm::SmallVector<LeadingZeroExpr> next;
+    llvm::SmallVector<ZeroCountExpr> next;
     for (size_t index = 0; index < terms.size(); index += 2) {
       if (index + 1 == terms.size()) {
         next.push_back(std::move(terms[index]));
         continue;
       }
-      LeadingZeroExpr &left = terms[index];
-      LeadingZeroExpr &right = terms[index + 1];
+      ZeroCountExpr &left = terms[index];
+      ZeroCountExpr &right = terms[index + 1];
       next.push_back({"(" + left.allZero + " & " + right.allZero + ")",
                       "(" + left.allZero + " ? (" +
                           std::to_string(outputWidth) + "'d" +
@@ -597,15 +597,16 @@ static std::optional<LogicalResult> emitScalarOpAssign(Operation &op, raw_ostrea
        << treeReduceExpr(terms, "+") << ";\n";
     return success();
   }
-  if (auto leading = dyn_cast<pyc::CountLeadingZerosOp>(op)) {
-    auto inputType = leafIntType(leading.getIn().getType());
-    auto outputType = leafIntType(leading.getCount().getType());
+  if (auto countZeros = dyn_cast<pyc::CountZerosOp>(op)) {
+    auto inputType = leafIntType(countZeros.getIn().getType());
+    auto outputType = leafIntType(countZeros.getCount().getType());
     if (!inputType || !outputType)
-      return {leading.emitError(
-          "verilog emitter requires integer count_leading_zeros types")};
-    os << "assign " << nt.get(leading.getCount()) << " = "
-       << leadingZeroExpr(nt.get(leading.getIn()), inputType.getWidth(),
-                          outputType.getWidth())
+      return {countZeros.emitError(
+          "verilog emitter requires integer count_zeros types")};
+    os << "assign " << nt.get(countZeros.getCount()) << " = "
+       << zeroCountExpr(nt.get(countZeros.getIn()), inputType.getWidth(),
+                        outputType.getWidth(),
+                        countZeros.getDirection() == "trailing")
        << ";\n";
     return success();
   }
@@ -1145,9 +1146,9 @@ static LogicalResult emitFunc(func::FuncOp f, raw_ostream &os, const VerilogEmit
               pyc::ZextOp, pyc::SextOp, pyc::ExtractOp, pyc::ShliOp,
               pyc::LshriOp, pyc::AshriOp, pyc::ShlOp, pyc::LshrOp, pyc::AshrOp,
               pyc::ConcatOp, pyc::PriorityEncodeOp, pyc::PopcountOp,
-              pyc::CountLeadingZerosOp, pyc::VGetOp, pyc::VCreateOp,
-              pyc::VBroadcastOp, pyc::VBroadcastDimOp, pyc::VOrReduceOp,
-              pyc::VAndReduceOp, pyc::VAddReduceOp, pyc::RtlCombOp>(op)) {
+              pyc::CountZerosOp, pyc::VGetOp, pyc::VCreateOp, pyc::VBroadcastOp,
+              pyc::VBroadcastDimOp, pyc::VOrReduceOp, pyc::VAndReduceOp,
+              pyc::VAddReduceOp, pyc::RtlCombOp>(op)) {
         combAssignOps.push_back(&op);
         continue;
       }

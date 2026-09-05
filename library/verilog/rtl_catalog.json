@@ -80,15 +80,22 @@
       }
     },
     {
-      "semantic_id": "pyc.count_leading_zeros.v1",
-      "implementation_id": "pyc.bsd.count_leading_zeros.v1",
+      "semantic_id": "pyc.count_zeros.v1",
+      "implementation_id": "pyc.bsd.count_zeros.v1",
       "effect_class": "comb",
-      "module": "pyc_count_leading_zeros_primitive",
+      "module": "pyc_count_zeros_primitive",
       "min_width": 1,
       "max_width": 64,
       "selection_priority": 100,
       "parameter_bindings": {
         "COUNT_WIDTH": "output_width",
+        "DIRECTION_LOW": {
+          "attribute": "direction",
+          "values": {
+            "leading": 0,
+            "trailing": 1
+          }
+        },
         "WIDTH": "input_width"
       },
       "ports": {
@@ -97,8 +104,8 @@
       },
       "sources": [
         {
-          "path": "pyc_count_leading_zeros_primitive.v",
-          "sha256": "sha256:60228037ae6a556515266734beba077266f8690b18aae3fd1b70b478d5bfd24c",
+          "path": "pyc_count_zeros_primitive.v",
+          "sha256": "sha256:e76e61a22471572be163658f17b76efb1691cb242fdee0771d50384a811cc644",
           "license": "BSD-3-Clause",
           "modified": false
         }
@@ -112,7 +119,7 @@
       },
       "qualification": {
         "status": "validated",
-        "report": "docs/gates/logs/20260905-pyc-count-leading-zeros-r1/summary.md"
+        "report": "docs/gates/logs/20260905-pyc-zero-count-family-r1/summary.md"
       }
     }
   ]
