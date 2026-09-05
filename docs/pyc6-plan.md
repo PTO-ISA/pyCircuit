@@ -161,6 +161,9 @@ PYC semantic contracts.
 - [x] Land Decision 0164's qualified `pyc.popcount` slice: structural and
   Cycle-Aware Python APIs, semantic PYC/ACIR lowering, C++ and gfsim reference
   behavior, BSD-3-Clause selected RTL, and digest-closed manifest evidence.
+- [x] Land Decision 0165's qualified `pyc.count_leading_zeros` slice: define
+  all-zero as `N`, preserve exact result width and cycle, lower Agentic ACIR to
+  semantic PYC/gfsim, and select repository-owned balanced BSD RTL.
 - [ ] Normalize the remaining PR #29 catalog into semantic families. Admit
   combinational families only after per-family C++/RTL/Agentic parity; keep
   stateful, handshake, memory, and CDC families blocked on the inferred

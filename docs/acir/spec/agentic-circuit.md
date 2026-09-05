@@ -218,6 +218,13 @@ the same operation to vendor-neutral `pyc.priority_encode`.
 QueueGraph-to-PYC emits one vendor-neutral `pyc.popcount`. The Verilog-only
 selection pass may choose the qualified BSD implementation.
 
+`ac.count_leading_zeros(value)` returns the number of consecutive zero bits
+starting at the most-significant bit. The result range is `[0,N]`, so an
+all-zero `N`-bit input returns `N`; its result width is
+`max(1, ceil(log2(N+1)))`. ACIR preserves
+`ac.var.count_leading_zeros`, QueueGraph C++ uses the typed gfsim reference,
+and QueueGraph-to-PYC emits one vendor-neutral `pyc.count_leading_zeros`.
+
 ### Source and sink
 
 `ac.source(T, depth=N, latency=L)` creates a Queue boundary with payload `T`.

@@ -19,6 +19,8 @@
 // RUN: %not %acir_opt %t/cmp-predicate.mlir 2>&1 | %FileCheck %s --check-prefix=CMP-PREDICATE
 // RUN: %not %acir_opt %t/popcount-width.mlir 2>&1 | %FileCheck %s --check-prefix=POPCOUNT-WIDTH
 // RUN: %not %acir_opt %t/popcount-input.mlir 2>&1 | %FileCheck %s --check-prefix=POPCOUNT-INPUT
+// RUN: %not %acir_opt %t/count-leading-zeros-width.mlir 2>&1 | %FileCheck %s --check-prefix=CLZ-WIDTH
+// RUN: %not %acir_opt %t/count-leading-zeros-input.mlir 2>&1 | %FileCheck %s --check-prefix=CLZ-INPUT
 
 // CONSTANT: error: 'ac.var.constant' op attribute type must match Var element type
 // BINARY: error: use of value '%right' expects different type than prior uses
@@ -40,6 +42,8 @@
 // CMP-PREDICATE: error: 'ac.var.cmp' op predicate must be eq, ne, slt, sle, sgt, sge, ult, ule, ugt, or uge
 // POPCOUNT-WIDTH: error: 'ac.var.popcount' op result width must be ceil(log2(input_width + 1)) = 4
 // POPCOUNT-INPUT: error: 'ac.var.popcount' op input width must be in [1, 64]
+// CLZ-WIDTH: error: 'ac.var.count_leading_zeros' op result width must be ceil(log2(input_width + 1)) = 4
+// CLZ-INPUT: error: 'ac.var.count_leading_zeros' op input width must be in [1, 64]
 
 //--- constant.mlir
 builtin.module attributes {ac.contract_epoch = "0.5"} {
@@ -122,6 +126,18 @@ builtin.module attributes {ac.contract_epoch = "0.5"} {
 builtin.module attributes {ac.contract_epoch = "0.5"} {
   %value = "builtin.unrealized_conversion_cast"() : () -> !ac.var<i128>
   %bad = ac.var.popcount %value : !ac.var<i128> -> !ac.var<i8>
+}
+
+//--- count-leading-zeros-width.mlir
+builtin.module attributes {ac.contract_epoch = "0.5"} {
+  %value = "builtin.unrealized_conversion_cast"() : () -> !ac.var<i8>
+  %bad = ac.var.count_leading_zeros %value : !ac.var<i8> -> !ac.var<i3>
+}
+
+//--- count-leading-zeros-input.mlir
+builtin.module attributes {ac.contract_epoch = "0.5"} {
+  %value = "builtin.unrealized_conversion_cast"() : () -> !ac.var<i128>
+  %bad = ac.var.count_leading_zeros %value : !ac.var<i128> -> !ac.var<i8>
 }
 
 //--- cmp-predicate.mlir
