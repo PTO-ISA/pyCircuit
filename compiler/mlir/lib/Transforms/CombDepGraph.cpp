@@ -75,6 +75,10 @@ static int64_t opCost(Operation *op) {
     auto type = dyn_cast<IntegerType>(popcount.getIn().getType());
     return type ? std::max<int64_t>(1, ceilLog2(type.getWidth())) : 1;
   }
+  if (auto count = dyn_cast<pyc::CountLeadingZerosOp>(op)) {
+    auto type = dyn_cast<IntegerType>(count.getIn().getType());
+    return type ? std::max<int64_t>(1, 1 + ceilLog2(type.getWidth())) : 1;
+  }
   return 1;
 }
 
