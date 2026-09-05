@@ -1693,6 +1693,15 @@ class CycleAwareSignal(Generic[DT]):
             self._domain, self._domain._m.popcount(self._w), self._cycle
         )
 
+    def count_leading_zeros(self) -> "CycleAwareSignal":
+        """Count zero bits from the MSB while preserving this signal's cycle."""
+
+        return CycleAwareSignal(
+            self._domain,
+            self._domain._m.count_leading_zeros(self._w),
+            self._cycle,
+        )
+
     def as_signed(self) -> "CycleAwareSignal":
         return CycleAwareSignal(
             self._domain, Wire(self._domain._m, self._w.sig, signed=True), self._cycle
@@ -1968,6 +1977,14 @@ def popcount(
     """Count asserted bits without exposing an RTL implementation."""
 
     return CycleAwareSignal.as_cas(value).popcount()
+
+
+def count_leading_zeros(
+    value: CycleAwareSignal | StateSignal | ForwardSignal,
+) -> CycleAwareSignal:
+    """Count zero bits from the MSB without exposing an RTL implementation."""
+
+    return CycleAwareSignal.as_cas(value).count_leading_zeros()
 
 
 def cat(

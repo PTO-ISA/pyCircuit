@@ -21,6 +21,11 @@ Verilog selection pass may introduce `pyc.rtl.comb` and the qualified
 hard-code semantic primitives; unsupported semantic PYC operations fail and
 must be routed through pycc.
 
+`ac.count_leading_zeros(value)` follows the same route through
+`pyc.count_leading_zeros`. Its all-zero result is `N`, and only the Verilog
+selection pass introduces the digest-verified
+`pyc_count_leading_zeros_primitive` module.
+
 Example:
 
 ```bash
@@ -38,6 +43,8 @@ cmake --build build/dev-llvm22 --target acir-queue-pycgen pycc -j1
 ```
 
 `tests/mlir/agentic-circuit/CodeGen/popcount.mlir` proves ACIR-to-semantic-PYC.
+`tests/mlir/agentic-circuit/CodeGen/count-leading-zeros.mlir` proves the same
+boundary for leading-zero count.
 `tests/system/test_primitive_selection.py` then runs the canonical PYC through
 pycc, checks the selection manifest and BSD source digest, and lints the closed
 output with Verilator. `pyc-primitives-smoke.sv` retains bounded FIFO/arbiter

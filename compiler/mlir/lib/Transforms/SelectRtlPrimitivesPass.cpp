@@ -111,6 +111,13 @@ loadCatalog(llvm::StringRef path, std::string &catalogSha256,
                              outputPorts->front().getAsString() == "count" &&
                              bindings->get("WIDTH") &&
                              bindings->get("COUNT_WIDTH");
+      else if (*semantic == "pyc.count_leading_zeros.v1")
+        knownSemanticShape = inputPorts->size() == 1 &&
+                             inputPorts->front().getAsString() == "in_value" &&
+                             outputPorts->size() == 1 &&
+                             outputPorts->front().getAsString() == "count" &&
+                             bindings->get("WIDTH") &&
+                             bindings->get("COUNT_WIDTH");
     }
     if (!semantic || !implementation || effect != "comb" || !module ||
         !minWidth || !maxWidth || !selectionPriority || *minWidth <= 0 ||
@@ -224,9 +231,11 @@ struct SelectRtlPrimitivesPass
     }
     SmallVector<PriorityEncodeOp> priorityOps;
     SmallVector<PopcountOp> popcountOps;
+    SmallVector<CountLeadingZerosOp> leadingZeroOps;
     module.walk([&](PriorityEncodeOp op) { priorityOps.push_back(op); });
     module.walk([&](PopcountOp op) { popcountOps.push_back(op); });
-    if (priorityOps.empty() && popcountOps.empty())
+    module.walk([&](CountLeadingZerosOp op) { leadingZeroOps.push_back(op); });
+    if (priorityOps.empty() && popcountOps.empty() && leadingZeroOps.empty())
       return;
 
     std::string path = catalog;
@@ -359,6 +368,44 @@ struct SelectRtlPrimitivesPass
       state.addTypes(semantic->getResultTypes());
       state.addAttribute("semantic_id",
                          builder.getStringAttr("pyc.popcount.v1"));
+      state.addAttribute("implementation_id",
+                         builder.getStringAttr(candidate->implementationId));
+      state.addAttribute("module", builder.getStringAttr(candidate->module));
+      state.addAttribute("parameters",
+                         builder.getDictionaryAttr(parameterValues));
+      state.addAttribute("input_ports", builder.getStrArrayAttr({"in_value"}));
+      state.addAttribute("output_ports", builder.getStrArrayAttr({"count"}));
+      state.addAttribute("sources", builder.getArrayAttr(sourceValues));
+      state.addAttribute("catalog_sha256",
+                         builder.getStringAttr(catalogSha256));
+      Operation *selected = builder.create(state);
+      semantic.getCount().replaceAllUsesWith(selected->getResult(0));
+      semantic.erase();
+    }
+
+    for (CountLeadingZerosOp semantic : leadingZeroOps) {
+      unsigned width = cast<IntegerType>(semantic.getIn().getType()).getWidth();
+      unsigned countWidth =
+          cast<IntegerType>(semantic.getCount().getType()).getWidth();
+      const RtlCandidate *candidate =
+          selectCandidate(semantic, "pyc.count_leading_zeros.v1", width);
+      if (!candidate) {
+        signalPassFailure();
+        return;
+      }
+      OpBuilder builder(semantic);
+      SmallVector<NamedAttribute> parameterValues{
+          builder.getNamedAttr("COUNT_WIDTH",
+                               builder.getI64IntegerAttr(countWidth)),
+          builder.getNamedAttr("WIDTH", builder.getI64IntegerAttr(width)),
+      };
+      SmallVector<Attribute> sourceValues =
+          sourceAttributes(builder, *candidate);
+      OperationState state(semantic.getLoc(), RtlCombOp::getOperationName());
+      state.addOperands(semantic.getIn());
+      state.addTypes(semantic->getResultTypes());
+      state.addAttribute("semantic_id",
+                         builder.getStringAttr("pyc.count_leading_zeros.v1"));
       state.addAttribute("implementation_id",
                          builder.getStringAttr(candidate->implementationId));
       state.addAttribute("module", builder.getStringAttr(candidate->module));
