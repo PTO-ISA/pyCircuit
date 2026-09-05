@@ -152,6 +152,7 @@ class Bits:
     result: ac.u3
     priority_index: ac.u2
     priority_valid: ac.u1
+    count: ac.u2
 
 @ac.system
 def pipeline() -> None:
@@ -161,6 +162,7 @@ def pipeline() -> None:
             result=((item.left & item.right) ^ (~item.left)) << 1,
             priority_index=ac.priority_encode(item.left).index,
             priority_valid=ac.priority_encode(item.left).valid,
+            count=ac.popcount(item.left),
         )
     )
     ac.sink(outgoing)
@@ -255,12 +257,14 @@ class QueueCodegenTest(unittest.TestCase):
         generated = lower_queue_source_to_cpp(BIT_WIDTH_SOURCE, "pipeline")
         self.assertIn('#include "gfsim/bits.h"', generated)
         self.assertIn('#include "gfsim/priority_encode.h"', generated)
+        self.assertIn('#include "gfsim/popcount.h"', generated)
         self.assertIn("gfsim::UInt<3> left{};", generated)
         self.assertIn("gfsim::UInt<3> right{};", generated)
         self.assertIn("gfsim::UInt<3> result{};", generated)
         self.assertIn("((item.left & item.right) ^ (~item.left))", generated)
         self.assertIn("gfsim::priorityEncode(item.left, true).index", generated)
         self.assertIn("gfsim::priorityEncode(item.left, true).valid", generated)
+        self.assertIn("gfsim::populationCount(item.left)", generated)
 
         compiler = shutil.which("c++")
         if compiler is None:

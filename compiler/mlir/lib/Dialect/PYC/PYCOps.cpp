@@ -1006,6 +1006,24 @@ LogicalResult PriorityEncodeOp::verify() {
   return success();
 }
 
+LogicalResult PopcountOp::verify() {
+  auto inputType = dyn_cast<IntegerType>(getIn().getType());
+  auto countType = dyn_cast<IntegerType>(getCount().getType());
+  if (!inputType || !countType)
+    return emitOpError("input and count result must be integer types");
+  unsigned expectedWidth = 1;
+  uint64_t representable = 1;
+  while (representable < inputType.getWidth()) {
+    ++expectedWidth;
+    representable = (representable << 1) | 1;
+  }
+  if (countType.getWidth() != expectedWidth)
+    return emitOpError()
+           << "count result width must be max(1, ceil(log2(N+1))) = "
+           << expectedWidth;
+  return success();
+}
+
 static bool isRtlIdentifier(llvm::StringRef value) {
   if (value.empty() || !(llvm::isAlpha(value.front()) || value.front() == '_'))
     return false;

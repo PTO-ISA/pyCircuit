@@ -20,9 +20,9 @@ import shutil
 import subprocess
 import sys
 import tempfile
+from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable
 
 
 class PYCVerilogError(ValueError):
@@ -358,26 +358,6 @@ def emit_verilog(module: Module, runtime_dir: Path) -> str:
             instances.append(
                 f"  pyc_rr_arbiter #(.NUM_INPUTS({num_inputs}), .POINTER_WIDTH({cursor.width})) rr_arbiter_{out.net} (\n"
                 f"    .req({req.net}), .cursor({cursor.net}), .grant({out.net})\n"
-                f"  );"
-            )
-            continue
-
-        if rhs.startswith("pyc.popcount "):
-            match = re.fullmatch(
-                r"pyc\.popcount\s+(.*?)\s*\{.*?\}\s*:\s*(\S+)\s*->\s*(\S+)", rhs
-            )
-            if not match or len(lhs) != 1:
-                raise PYCVerilogError(f"cannot parse popcount: {line}")
-            inputs = _ssa_names(match.group(1))
-            if len(inputs) != 1:
-                raise PYCVerilogError(f"popcount expects one operand: {line}")
-            src = _value(values, inputs[0])
-            out = add_value(lhs[0], match.group(3))
-            if out.width < src.width.bit_length():
-                raise PYCVerilogError("popcount result width is too small")
-            instances.append(
-                f"  pyc_popcount #(.IN_WIDTH({src.width}), .OUT_WIDTH({out.width})) popcount_{out.net} (\n"
-                f"    .in({src.net}), .out({out.net})\n"
                 f"  );"
             )
             continue

@@ -16,7 +16,6 @@ module attributes {ac.contract_epoch = "0.5", ac.model_kind = "queue_graph", ac.
   ac.sink %output {ac.name = "sink"} : !ac.queue<!ac.struct<@types::@Item>>
 }
 
-// PYC: pyc.extract {{.*}} : i8 -> i1
-// PYC: pyc.zext {{.*}} : i1 -> i4
-// PYC: pyc.alias
-// PYC-SAME: primitive_id = "dataflow.popcount.v1"
+// PYC: pyc.popcount {{.*}} : i8 -> i4
+// PYC-NOT: implementation_id
+// PYC-NOT: dataflow.popcount

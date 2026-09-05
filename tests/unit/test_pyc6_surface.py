@@ -42,6 +42,33 @@ def test_priority_encode_rejects_noncanonical_order() -> None:
         pycircuit.priority_encode(mask, order="middle")
 
 
+def test_popcount_is_exact_width_and_vendor_neutral_on_pyc6() -> None:
+    circuit = pycircuit.CycleAwareCircuit("popcount")
+    domain = circuit.create_domain("clk")
+    value = pycircuit.cas(domain, domain.create_signal("value", width=13))
+
+    count = pycircuit.popcount(value)
+
+    assert count.width == 4
+    assert count.cycle == domain.cycle_index
+    mlir = circuit.emit_mlir()
+    assert "pyc.popcount" in mlir
+    assert "bsg_" not in mlir.lower()
+
+
+def test_structural_circuit_popcount_emits_the_same_semantic_op() -> None:
+    circuit = pycircuit.Circuit("structural_popcount")
+    value = circuit.input("value", width=13)
+
+    count = circuit.popcount(value)
+    circuit.output("count", count)
+
+    assert count.width == 4
+    mlir = circuit.emit_mlir()
+    assert "pyc.popcount" in mlir
+    assert "bsg_" not in mlir.lower()
+
+
 def test_pyc5_module_is_not_shipped_as_a_compatibility_surface() -> None:
     assert importlib.util.find_spec("pycircuit.v5") is None
 
