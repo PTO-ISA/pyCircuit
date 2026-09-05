@@ -1686,6 +1686,13 @@ class CycleAwareSignal(Generic[DT]):
             valid=CycleAwareSignal(self._domain, result.valid, self._cycle),
         )
 
+    def popcount(self) -> "CycleAwareSignal":
+        """Count asserted bits while preserving this signal's cycle."""
+
+        return CycleAwareSignal(
+            self._domain, self._domain._m.popcount(self._w), self._cycle
+        )
+
     def as_signed(self) -> "CycleAwareSignal":
         return CycleAwareSignal(
             self._domain, Wire(self._domain._m, self._w.sig, signed=True), self._cycle
@@ -1953,6 +1960,14 @@ def priority_encode(
     """Encode the first asserted bit without exposing an RTL implementation."""
 
     return CycleAwareSignal.as_cas(value).priority_encode(order=order)
+
+
+def popcount(
+    value: CycleAwareSignal | StateSignal | ForwardSignal,
+) -> CycleAwareSignal:
+    """Count asserted bits without exposing an RTL implementation."""
+
+    return CycleAwareSignal.as_cas(value).popcount()
 
 
 def cat(

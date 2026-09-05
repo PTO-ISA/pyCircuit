@@ -4198,3 +4198,57 @@ effect discovery, resource handshake, scheduling, and grouped lowering.
 - User direction and PTO-ISA/pyCircuit issue 28 (2026-09-05): keep Python
   state authoring simple and move type/effect/check/handshake complexity into
   MLIR passes and lowering.
+
+## Decision 0164: population count is a semantic primitive with qualified RTL selection
+
+**Status:** Accepted and implemented
+
+**Context / Goal**
+Agentic Circuit already exposed population count, but QueueGraph-to-PYC expanded
+it into per-bit extracts, extensions, and an adder tree carrying ad hoc
+implementation metadata. PR #29 also supplied external population-count RTL.
+The language needs one stable semantic operation while the Verilog backend may
+select a qualified implementation without leaking module names into Python or
+canonical PYC.
+
+**Decision (strong constraint)**
+- `pyc.popcount` accepts one `iN` input and returns
+  `i(max(1,ceil(log2(N+1))))`. The result is the number of asserted input bits;
+  zero maps to zero and an all-ones value maps to `N`.
+- Structural pyCircuit exposes `Circuit.popcount(value)`. Cycle-Aware Signal
+  exposes `value.popcount()` and `pycircuit.popcount(value)`, preserving the
+  aligned input cycle. These APIs are parameterized by the input type and do
+  not accept an implementation name.
+- Agentic Circuit keeps `ac.popcount(value)`. ACIR uses
+  `ac.var.popcount`; QueueGraph-to-PYC now emits one `pyc.popcount` instead of a
+  lowered extract/add tree. QueueGraph C++ uses `gfsim::populationCount`, and
+  gfsim provides a typed `Popcount<Width>` SimQueue block.
+- PYC owns exact input/result verification, combinational dependency, and
+  logarithmic logic-depth cost. C++ and direct Verilog emission provide the
+  semantic reference behavior.
+- The Verilog-only primitive selection pass may rewrite `pyc.popcount` to
+  backend-owned `pyc.rtl.comb`. The selected candidate binds `WIDTH` and
+  `COUNT_WIDTH`, uses ports `in_value` and `count`, and participates in the
+  same qualification, digest, ambiguity, source-closure, and manifest rules as
+  Decision 0161.
+- The admitted implementation is repository-owned
+  `pyc_popcount_primitive.v` under BSD-3-Clause. The Solderpad-licensed
+  BaseJump `bsg_popcount.sv` evaluated in PR #29 is not imported or relicensed.
+- The qualified width range is 1 through 64. Wider PYC values retain semantic
+  C++ behavior but have no admitted RTL candidate and fail selection closed.
+
+**Verification**
+- PYC verifier tests reject an incorrect count width.
+- Widths 1, 4, 13, and 64 are checked in gfsim and Icarus; the 13-bit PYC C++
+  reference and selected RTL both produce 0, 5, and 13 for representative
+  inputs.
+- Python tests prove exact width, same-cycle behavior, and absence of vendor
+  names. ACIR lit proves one semantic PYC op and the existing Agentic Verilog
+  path remains functional.
+- Selection tests cover catalog ownership, parameters, BSD source digest,
+  emitted source closure, and manifest bindings.
+
+**Source**
+- User direction and PTO-ISA/pyCircuit PR #29 (2026-09-05): promote reusable
+  parameterized blocks into semantic PYC IR, select qualified handwritten RTL
+  during lowering, and provide an Agentic SimQueue realization.

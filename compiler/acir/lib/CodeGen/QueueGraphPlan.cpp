@@ -1446,6 +1446,19 @@ llvm::Error verifyQueueGraphPlan(const QueueGraphPlan &plan) {
                             1, llvm::Log2_64_Ceil(*inputWidth)));
         if (expression.type != expected)
           return planError("priority expression result type is inconsistent");
+      } else if (expression.kind == "popcount") {
+        if (expression.operands.size() != 1)
+          return planError("popcount expression contract is malformed");
+        auto operand = valueTypes.find(expression.operands.front());
+        auto inputWidth = operand == valueTypes.end()
+                              ? std::optional<unsigned>()
+                              : integerWidth(operand->getValue());
+        if (!inputWidth || *inputWidth == 0 || *inputWidth > 64)
+          return planError("popcount input must be an i1..i64 value");
+        const unsigned resultWidth =
+            std::max(1u, static_cast<unsigned>(llvm::Log2_64(*inputWidth) + 1));
+        if (expression.type != "i" + std::to_string(resultWidth))
+          return planError("popcount expression result type is inconsistent");
       }
       valueTypes[expression.result] = expression.type;
       if (!expression.nestedExpressions.empty()) {

@@ -1,4 +1,5 @@
 #include "gfsim/bits.h"
+#include "gfsim/popcount.h"
 #include "gfsim/priority_encode.h"
 
 #include "gtest/gtest.h"
@@ -96,6 +97,26 @@ TEST(PriorityEncodeTest, SimQueueBlockPreservesLowAndHighOrder) {
   EXPECT_TRUE(static_cast<bool>(lowOutput.peek()->valid));
   EXPECT_EQ(highOutput.peek()->index.value(), 11u);
   EXPECT_TRUE(static_cast<bool>(highOutput.peek()->valid));
+}
+
+TEST(PopcountTest, ExactWidthsAndSimQueueBlockAgree) {
+  static_assert(PopcountWidth<1> == 1);
+  static_assert(PopcountWidth<13> == 4);
+  static_assert(PopcountWidth<64> == 7);
+  EXPECT_EQ(populationCount(UInt<1>{1}).value(), 1u);
+  EXPECT_EQ(populationCount(UInt<13>{0x1123}).value(), 5u);
+  EXPECT_EQ(populationCount(UInt<64>{~std::uint64_t{0}}).value(), 64u);
+
+  SimQueue<UInt<13>> input("input", 1, nullptr, 1);
+  SimQueue<UInt<4>> output("output", 2, nullptr, 1);
+  Popcount<13> block("popcount", 3, nullptr, input, output);
+  ASSERT_TRUE(input.proposePush(UInt<13>{0x1123}));
+  input.doXfer({0, 0});
+  block.doWork({1, 0});
+  input.doXfer({1, 0});
+  output.doXfer({1, 0});
+  ASSERT_NE(output.peek(), nullptr);
+  EXPECT_EQ(output.peek()->value(), 5u);
 }
 
 } // namespace

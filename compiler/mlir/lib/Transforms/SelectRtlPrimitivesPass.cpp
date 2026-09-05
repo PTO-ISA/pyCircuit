@@ -94,18 +94,30 @@ loadCatalog(llvm::StringRef path, std::string &catalogSha256,
     auto licenseFile = entry ? entry->getString("license_file") : std::nullopt;
     auto licenseSha256 =
         entry ? entry->getString("license_sha256") : std::nullopt;
+    bool knownSemanticShape = false;
+    if (semantic && inputPorts && outputPorts && bindings) {
+      if (*semantic == "pyc.priority_encode.v1")
+        knownSemanticShape = inputPorts->size() == 1 &&
+                             inputPorts->front().getAsString() == "in_value" &&
+                             outputPorts->size() == 2 &&
+                             outputPorts->front().getAsString() == "index" &&
+                             (*outputPorts)[1].getAsString() == "valid" &&
+                             bindings->get("WIDTH") &&
+                             bindings->get("ORDER_LOW");
+      else if (*semantic == "pyc.popcount.v1")
+        knownSemanticShape = inputPorts->size() == 1 &&
+                             inputPorts->front().getAsString() == "in_value" &&
+                             outputPorts->size() == 1 &&
+                             outputPorts->front().getAsString() == "count" &&
+                             bindings->get("WIDTH") &&
+                             bindings->get("COUNT_WIDTH");
+    }
     if (!semantic || !implementation || effect != "comb" || !module ||
         !minWidth || !maxWidth || !selectionPriority || *minWidth <= 0 ||
         *maxWidth < *minWidth || *maxWidth > 65536 || !sources ||
         sources->empty() || qualificationStatus != "validated" ||
-        !qualificationReport || qualificationReport->empty() || !inputPorts ||
-        inputPorts->size() != 1 ||
-        inputPorts->front().getAsString() != "in_value" || !outputPorts ||
-        outputPorts->size() != 2 ||
-        outputPorts->front().getAsString() != "index" ||
-        (*outputPorts)[1].getAsString() != "valid" || !bindings ||
-        !bindings->get("WIDTH") || !bindings->get("ORDER_LOW") ||
-        !licenseFile || !licenseSha256) {
+        !qualificationReport || qualificationReport->empty() ||
+        !knownSemanticShape || !licenseFile || !licenseSha256) {
       error = "RTL primitive catalog has malformed implementation entry";
       return failure();
     }
@@ -210,9 +222,11 @@ struct SelectRtlPrimitivesPass
       signalPassFailure();
       return;
     }
-    SmallVector<PriorityEncodeOp> semanticOps;
-    module.walk([&](PriorityEncodeOp op) { semanticOps.push_back(op); });
-    if (semanticOps.empty())
+    SmallVector<PriorityEncodeOp> priorityOps;
+    SmallVector<PopcountOp> popcountOps;
+    module.walk([&](PriorityEncodeOp op) { priorityOps.push_back(op); });
+    module.walk([&](PopcountOp op) { popcountOps.push_back(op); });
+    if (priorityOps.empty() && popcountOps.empty())
       return;
 
     std::string path = catalog;
@@ -235,18 +249,17 @@ struct SelectRtlPrimitivesPass
       return;
     }
 
-    for (PriorityEncodeOp semantic : semanticOps) {
-      unsigned width = cast<IntegerType>(semantic.getIn().getType()).getWidth();
+    auto selectCandidate = [&](Operation *semantic, llvm::StringRef semanticId,
+                               unsigned width) -> const RtlCandidate * {
       SmallVector<const RtlCandidate *> supported;
       for (const RtlCandidate &entry : *loaded)
-        if (entry.semanticId == "pyc.priority_encode.v1" &&
-            width >= entry.minWidth && width <= entry.maxWidth)
+        if (entry.semanticId == semanticId && width >= entry.minWidth &&
+            width <= entry.maxWidth)
           supported.push_back(&entry);
       if (supported.empty()) {
-        semantic.emitError()
+        semantic->emitError()
             << "no qualified RTL implementation supports width " << width;
-        signalPassFailure();
-        return;
+        return nullptr;
       }
       int64_t bestPriority =
           (*llvm::max_element(supported, [](const RtlCandidate *lhs,
@@ -259,22 +272,17 @@ struct SelectRtlPrimitivesPass
                       return entry->selectionPriority == bestPriority;
                     });
       if (preferred.size() != 1) {
-        semantic.emitError()
+        semantic->emitError()
             << "RTL selection is ambiguous at priority " << bestPriority;
-        signalPassFailure();
-        return;
+        return nullptr;
       }
-      const RtlCandidate *candidate = preferred.front();
+      return preferred.front();
+    };
 
-      OpBuilder builder(semantic);
-      SmallVector<NamedAttribute> parameterValues{
-          builder.getNamedAttr(
-              "ORDER_LOW",
-              builder.getI64IntegerAttr(semantic.getOrder() == "low" ? 1 : 0)),
-          builder.getNamedAttr("WIDTH", builder.getI64IntegerAttr(width)),
-      };
+    auto sourceAttributes = [&](OpBuilder &builder,
+                                const RtlCandidate &candidate) {
       SmallVector<Attribute> sourceValues;
-      for (const RtlSource &source : candidate->sources) {
+      for (const RtlSource &source : candidate.sources)
         sourceValues.push_back(builder.getDictionaryAttr({
             builder.getNamedAttr("license",
                                  builder.getStringAttr(source.license)),
@@ -284,7 +292,27 @@ struct SelectRtlPrimitivesPass
             builder.getNamedAttr("sha256",
                                  builder.getStringAttr(source.sha256)),
         }));
+      return sourceValues;
+    };
+
+    for (PriorityEncodeOp semantic : priorityOps) {
+      unsigned width = cast<IntegerType>(semantic.getIn().getType()).getWidth();
+      const RtlCandidate *candidate =
+          selectCandidate(semantic, "pyc.priority_encode.v1", width);
+      if (!candidate) {
+        signalPassFailure();
+        return;
       }
+
+      OpBuilder builder(semantic);
+      SmallVector<NamedAttribute> parameterValues{
+          builder.getNamedAttr(
+              "ORDER_LOW",
+              builder.getI64IntegerAttr(semantic.getOrder() == "low" ? 1 : 0)),
+          builder.getNamedAttr("WIDTH", builder.getI64IntegerAttr(width)),
+      };
+      SmallVector<Attribute> sourceValues =
+          sourceAttributes(builder, *candidate);
 
       OperationState state(semantic.getLoc(), RtlCombOp::getOperationName());
       state.addOperands(semantic.getIn());
@@ -305,6 +333,44 @@ struct SelectRtlPrimitivesPass
       Operation *selected = builder.create(state);
       semantic.getIndex().replaceAllUsesWith(selected->getResult(0));
       semantic.getValid().replaceAllUsesWith(selected->getResult(1));
+      semantic.erase();
+    }
+
+    for (PopcountOp semantic : popcountOps) {
+      unsigned width = cast<IntegerType>(semantic.getIn().getType()).getWidth();
+      unsigned countWidth =
+          cast<IntegerType>(semantic.getCount().getType()).getWidth();
+      const RtlCandidate *candidate =
+          selectCandidate(semantic, "pyc.popcount.v1", width);
+      if (!candidate) {
+        signalPassFailure();
+        return;
+      }
+      OpBuilder builder(semantic);
+      SmallVector<NamedAttribute> parameterValues{
+          builder.getNamedAttr("COUNT_WIDTH",
+                               builder.getI64IntegerAttr(countWidth)),
+          builder.getNamedAttr("WIDTH", builder.getI64IntegerAttr(width)),
+      };
+      SmallVector<Attribute> sourceValues =
+          sourceAttributes(builder, *candidate);
+      OperationState state(semantic.getLoc(), RtlCombOp::getOperationName());
+      state.addOperands(semantic.getIn());
+      state.addTypes(semantic->getResultTypes());
+      state.addAttribute("semantic_id",
+                         builder.getStringAttr("pyc.popcount.v1"));
+      state.addAttribute("implementation_id",
+                         builder.getStringAttr(candidate->implementationId));
+      state.addAttribute("module", builder.getStringAttr(candidate->module));
+      state.addAttribute("parameters",
+                         builder.getDictionaryAttr(parameterValues));
+      state.addAttribute("input_ports", builder.getStrArrayAttr({"in_value"}));
+      state.addAttribute("output_ports", builder.getStrArrayAttr({"count"}));
+      state.addAttribute("sources", builder.getArrayAttr(sourceValues));
+      state.addAttribute("catalog_sha256",
+                         builder.getStringAttr(catalogSha256));
+      Operation *selected = builder.create(state);
+      semantic.getCount().replaceAllUsesWith(selected->getResult(0));
       semantic.erase();
     }
   }
