@@ -2623,6 +2623,9 @@ class Circuit(Module):
             valid=Wire(self, result.valid),
         )
 
+    def popcount(self, value: Union[Wire, Reg, Signal]) -> Wire:
+        return Wire(self, super().popcount(Signal.as_sig(value)))
+
     def fifo_domain(
         self,
         domain: ClockDomain,

@@ -96,6 +96,15 @@ class _CppExpression:
                 return "false"
             return str(node.value)
         if (
+            isinstance(node, ast.Call)
+            and _decorator_name(node.func).rsplit(".", 1)[-1] == "popcount"
+        ):
+            if len(node.args) != 1 or node.keywords:
+                raise QueueFrontendError(
+                    "ACLOWER-UNSUPPORTED-CONSTRUCT: popcount requires one operand"
+                )
+            return f"gfsim::populationCount({self.emit(node.args[0])})"
+        if (
             isinstance(node, ast.Attribute)
             and node.attr in {"index", "valid"}
             and isinstance(node.value, ast.Call)
@@ -728,6 +737,7 @@ def lower_queue_program_to_cpp(program: QueueProgram) -> str:
         '#include "gfsim/bits.h"',
         '#include "gfsim/dispatch.h"',
         '#include "gfsim/object.h"',
+        '#include "gfsim/popcount.h"',
         '#include "gfsim/priority_encode.h"',
         '#include "gfsim/queue.h"',
         '#include "gfsim/queue_blocks.h"',

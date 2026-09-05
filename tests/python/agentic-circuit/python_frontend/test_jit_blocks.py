@@ -154,6 +154,73 @@ REPOSITORY = Path(__file__).resolve().parents[4]
 
 
 class ConfigAndJitTest(unittest.TestCase):
+    def test_popcount_jit_uses_typed_gfsim_semantics(self) -> None:
+        import agentic_circuit as ac
+
+        path = REPOSITORY / "examples/agentic-circuit/blocks/popcount.py"
+        spec = importlib.util.spec_from_file_location("ac_popcount", path)
+        if spec is None or spec.loader is None:
+            raise RuntimeError("cannot load popcount example")
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[spec.name] = module
+        self.addCleanup(sys.modules.pop, spec.name, None)
+        spec.loader.exec_module(module)
+
+        cpp = ac.jit(module.popcount_pipeline).lower_cpp()
+        self.assertIn('#include "gfsim/popcount.h"', cpp)
+        self.assertIn("gfsim::populationCount(item.value)", cpp)
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "popcount.cpp"
+            source.write_text(cpp, encoding="utf-8")
+            harness = Path(directory) / "popcount_harness.cpp"
+            executable = Path(directory) / "popcount_pipeline"
+            harness.write_text(
+                f'''#include "{source.name}"
+#include <cstddef>
+
+int main() {{
+  ac_generated::PopcountPipeline model;
+  if (!model.incoming().proposePush(ac_generated::Item{{0x1123, 0}}))
+    return 1;
+  auto rows = model.dispatch_rows();
+  for (std::size_t tick = 0; tick < 5; ++tick) {{
+    const gfsim::Epoch epoch{{tick, 0}};
+    for (auto &row : rows)
+      row.work(row.object, epoch);
+    for (auto &row : rows)
+      row.xfer(row.object, epoch, gfsim::XferPhase::Arbitrate);
+    for (auto &row : rows)
+      row.xfer(row.object, epoch, gfsim::XferPhase::Commit);
+  }}
+  const auto &values = model.sink_0_values();
+  return values.size() == 1 && values[0].value == 0x1123 &&
+                 values[0].count == 5
+             ? 0
+             : 2;
+}}
+''',
+                encoding="utf-8",
+            )
+            completed = subprocess.run(
+                (
+                    "c++",
+                    "-std=c++20",
+                    "-I",
+                    str(REPOSITORY / "simulator/gfsim/include"),
+                    str(harness),
+                    "-o",
+                    str(executable),
+                ),
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(0, completed.returncode, completed.stderr)
+            ran = subprocess.run(
+                (str(executable),), text=True, capture_output=True, check=False
+            )
+            self.assertEqual(0, ran.returncode, ran.stderr)
+
     def test_stateful_rule_jit_uses_native_mlir_and_grouped_gfsim(self) -> None:
         import agentic_circuit as ac
 
