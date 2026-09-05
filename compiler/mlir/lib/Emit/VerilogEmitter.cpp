@@ -540,6 +540,24 @@ static std::optional<LogicalResult> emitScalarOpAssign(Operation &op, raw_ostrea
     os << "assign " << nt.get(priority.getValid()) << " = |" << input << ";\n";
     return success();
   }
+  if (auto popcount = dyn_cast<pyc::PopcountOp>(op)) {
+    auto inputType = leafIntType(popcount.getIn().getType());
+    auto outputType = leafIntType(popcount.getCount().getType());
+    if (!inputType || !outputType)
+      return {popcount.emitError(
+          "verilog emitter requires integer popcount types")};
+    const unsigned inputWidth = inputType.getWidth();
+    const unsigned outputWidth = outputType.getWidth();
+    const std::string input = nt.get(popcount.getIn());
+    llvm::SmallVector<std::string> terms;
+    for (unsigned bit = 0; bit < inputWidth; ++bit) {
+      terms.push_back("{{" + std::to_string(outputWidth - 1) + "{1'b0}}, " +
+                      input + '[' + std::to_string(bit) + "]}");
+    }
+    os << "assign " << nt.get(popcount.getCount()) << " = "
+       << treeReduceExpr(terms, "+") << ";\n";
+    return success();
+  }
   if (auto selected = dyn_cast<pyc::RtlCombOp>(op)) {
     auto module = selected->getAttrOfType<StringAttr>("module");
     auto parameters = selected->getAttrOfType<DictionaryAttr>("parameters");
@@ -1075,9 +1093,10 @@ static LogicalResult emitFunc(func::FuncOp f, raw_ostream &os, const VerilogEmit
               arith::SelectOp, pyc::EqOp, pyc::UltOp, pyc::SltOp, pyc::TruncOp,
               pyc::ZextOp, pyc::SextOp, pyc::ExtractOp, pyc::ShliOp,
               pyc::LshriOp, pyc::AshriOp, pyc::ShlOp, pyc::LshrOp, pyc::AshrOp,
-              pyc::ConcatOp, pyc::PriorityEncodeOp, pyc::VGetOp, pyc::VCreateOp,
-              pyc::VBroadcastOp, pyc::VBroadcastDimOp, pyc::VOrReduceOp,
-              pyc::VAndReduceOp, pyc::VAddReduceOp, pyc::RtlCombOp>(op)) {
+              pyc::ConcatOp, pyc::PriorityEncodeOp, pyc::PopcountOp,
+              pyc::VGetOp, pyc::VCreateOp, pyc::VBroadcastOp,
+              pyc::VBroadcastDimOp, pyc::VOrReduceOp, pyc::VAndReduceOp,
+              pyc::VAddReduceOp, pyc::RtlCombOp>(op)) {
         combAssignOps.push_back(&op);
         continue;
       }

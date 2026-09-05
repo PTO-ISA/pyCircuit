@@ -34,8 +34,8 @@ module pyc_primitives_smoke;
     .req(req3), .cursor(cursor3), .grant(grant3));
   pyc_rr_arbiter #(.NUM_INPUTS(4), .POINTER_WIDTH(2)) arb4 (
     .req(req4), .cursor(cursor4), .grant(grant4));
-  pyc_popcount #(.IN_WIDTH(8), .OUT_WIDTH(4)) pop (
-    .in(pop_in), .out(pop_out));
+  pyc_popcount_primitive #(.WIDTH(8), .COUNT_WIDTH(4)) pop (
+    .in_value(pop_in), .count(pop_out));
 
   task automatic expect_grant(input [3:0] expected, input [3:0] actual,
                               input integer case_id);

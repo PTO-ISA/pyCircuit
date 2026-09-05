@@ -212,6 +212,12 @@ ACIR. `order="low"` selects the least-significant asserted bit and
 returns `valid=0,index=0`. QueueGraph uses the gfsim reference model and lowers
 the same operation to vendor-neutral `pyc.priority_encode`.
 
+`ac.popcount(value)` returns the number of asserted bits using exactly
+`max(1, ceil(log2(N+1)))` result bits. ACIR preserves it as
+`ac.var.popcount`; QueueGraph C++ uses the typed gfsim reference and
+QueueGraph-to-PYC emits one vendor-neutral `pyc.popcount`. The Verilog-only
+selection pass may choose the qualified BSD implementation.
+
 ### Source and sink
 
 `ac.source(T, depth=N, latency=L)` creates a Queue boundary with payload `T`.

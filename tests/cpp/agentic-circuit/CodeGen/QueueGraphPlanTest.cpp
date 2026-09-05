@@ -882,6 +882,38 @@ TEST(QueueGraphPlanTest, RejectsMalformedPriorityExpressionPlan) {
             std::string::npos);
 }
 
+TEST(QueueGraphPlanTest, RejectsMalformedPopcountExpressionPlan) {
+  auto makePlan = [] {
+    QueueGraphPlan plan;
+    plan.system = "popcount";
+    plan.queues = {{"input", "i13", "/", 1, 1}, {"output", "i13", "/", 1, 1}};
+    plan.blocks.push_back({"source", "input", "/", {}, {"input"}, {1}, {1}});
+    QueueBlockPlan transform{"transform", "output", "/", {"input"}, {"output"}};
+    transform.expressions = {{"v0", "popcount", "i4", {"item"}}};
+    transform.yields = {"item"};
+    plan.blocks.push_back(std::move(transform));
+    plan.blocks.push_back({"sink", "sink", "/", {"output"}, {}});
+    return plan;
+  };
+
+  QueueGraphPlan plan = makePlan();
+  EXPECT_FALSE(bool(verifyQueueGraphPlan(plan)));
+
+  plan = makePlan();
+  plan.blocks[1].expressions[0].operands.push_back("item");
+  auto arityError = verifyQueueGraphPlan(plan);
+  ASSERT_TRUE(bool(arityError));
+  EXPECT_NE(llvm::toString(std::move(arityError)).find("popcount expression"),
+            std::string::npos);
+
+  plan = makePlan();
+  plan.blocks[1].expressions[0].type = "i3";
+  auto typeError = verifyQueueGraphPlan(plan);
+  ASSERT_TRUE(bool(typeError));
+  EXPECT_NE(llvm::toString(std::move(typeError)).find("result type"),
+            std::string::npos);
+}
+
 TEST(QueueGraphPlanTest, RejectsUnconsumedQueueAsStaticDeadlockRisk) {
   QueueGraphPlan plan;
   plan.system = "unconsumed";

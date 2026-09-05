@@ -124,7 +124,7 @@ class PycVerilogBackendTest(unittest.TestCase):
                     ),
                     str(runtime / "pyc_fifo.v"),
                     str(runtime / "pyc_reg.v"),
-                    str(runtime / "pyc_popcount.v"),
+                    str(runtime / "pyc_popcount_primitive.v"),
                     str(runtime / "pyc_rr_arbiter.v"),
                     "-o",
                     "pyc-primitives-smoke",
