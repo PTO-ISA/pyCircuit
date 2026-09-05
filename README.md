@@ -140,6 +140,19 @@ keeps `pyc.priority_encode` for C++ reference simulation; only the Verilog
 selection pass introduces internal `pyc.rtl.comb` implementation metadata and
 a digest-verified BSD source closure.
 
+Population count follows the same semantic/implementation split:
+
+```python
+count = signal.popcount()          # Cycle-Aware Signal
+count = pycircuit.popcount(signal)
+count = circuit.popcount(wire)     # structural frontend
+```
+
+The result width is `max(1, ceil(log2(N + 1)))`. Agentic
+`ac.popcount(value)` lowers to the same `pyc.popcount`; the Verilog backend may
+select the qualified BSD implementation without exposing its module name. See
+the runnable [Agentic popcount example](examples/agentic-circuit/blocks/popcount.py).
+
 The epoch 0.5 rule frontend keeps scheduling mechanics out of Python:
 
 ```python

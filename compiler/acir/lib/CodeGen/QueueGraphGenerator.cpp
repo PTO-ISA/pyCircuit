@@ -233,8 +233,7 @@ emitExpressionBody(const QueueBlockPlan &block, llvm::StringRef yield,
     }
     if (expression.kind == "popcount") {
       output << padding << "auto " << expression.result
-             << " = __builtin_popcountll(static_cast<unsigned long long>("
-             << first->str() << "));\n";
+             << " = gfsim::populationCount(" << first->str() << ");\n";
       continue;
     }
     if (expression.kind == "table_choose_index" ||
@@ -553,6 +552,7 @@ llvm::Expected<std::string> generateQueueGraphCpp(const QueueGraphPlan &plan) {
   output << "#include \"gfsim/bits.h\"\n"
             "#include \"gfsim/dispatch.h\"\n"
             "#include \"gfsim/object.h\"\n"
+            "#include \"gfsim/popcount.h\"\n"
             "#include \"gfsim/priority_encode.h\"\n"
             "#include \"gfsim/queue.h\"\n"
             "#include \"gfsim/queue_blocks.h\"\n\n"

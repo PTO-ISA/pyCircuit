@@ -37,6 +37,32 @@
         "index": 0,
         "valid": 0
       }
+    },
+    {
+      "semantic_id": "pyc.popcount.v1",
+      "operation": "pyc.popcount",
+      "effect_class": "comb",
+      "parameters": {},
+      "inputs": [
+        {
+          "name": "value",
+          "type": "iN",
+          "constraints": ["N >= 1"]
+        }
+      ],
+      "outputs": [
+        {
+          "name": "count",
+          "type": "i(max(1,ceil_log2(N+1)))"
+        }
+      ],
+      "latency": 0,
+      "dependency_matrix": {
+        "count": ["value"]
+      },
+      "zero_input": {
+        "count": 0
+      }
     }
   ]
 }

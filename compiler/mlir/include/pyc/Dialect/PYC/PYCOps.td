@@ -272,6 +272,14 @@ def PYC_PriorityEncodeOp : PYC_Op<"priority_encode", [Pure]> {
   let assemblyFormat = "$in attr-dict `:` type($in) `->` type($index) `,` type($valid)";
 }
 
+def PYC_PopcountOp : PYC_Op<"popcount", [Pure]> {
+  let summary = "Parameterized population count";
+  let arguments = (ins AnyInteger:$in);
+  let results = (outs AnyInteger:$count);
+  let hasVerifier = 1;
+  let assemblyFormat = "$in attr-dict `:` type($in) `->` type($count)";
+}
+
 def PYC_RtlCombOp : PYC_Op<"rtl.comb", [Pure]> {
   let summary = "Selected qualified combinational RTL implementation";
   let arguments = (ins Variadic<AnyInteger>:$inputs,

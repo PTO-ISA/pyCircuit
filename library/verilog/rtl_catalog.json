@@ -42,6 +42,42 @@
         "status": "validated",
         "report": "docs/gates/logs/20260905-pyc-priority-rtl-r1/summary.md"
       }
+    },
+    {
+      "semantic_id": "pyc.popcount.v1",
+      "implementation_id": "pyc.bsd.popcount.v1",
+      "effect_class": "comb",
+      "module": "pyc_popcount_primitive",
+      "min_width": 1,
+      "max_width": 64,
+      "selection_priority": 100,
+      "parameter_bindings": {
+        "COUNT_WIDTH": "output_width",
+        "WIDTH": "input_width"
+      },
+      "ports": {
+        "inputs": ["in_value"],
+        "outputs": ["count"]
+      },
+      "sources": [
+        {
+          "path": "pyc_popcount_primitive.v",
+          "sha256": "sha256:e5ab6d5c1f5657d4b43f121ee05738f42160c66c7d997059fd2893fdb75ebce4",
+          "license": "BSD-3-Clause",
+          "modified": false
+        }
+      ],
+      "license_file": "licenses/BSD-3-Clause.txt",
+      "license_sha256": "sha256:321940059773d631ad73832bfa870431aa6cba545b38d4055641ce21275bb22c",
+      "provenance": {
+        "origin": "PTO-ISA/pyCircuit",
+        "design_input": "PTO-ISA/pyCircuit#29",
+        "license": "BSD-3-Clause"
+      },
+      "qualification": {
+        "status": "validated",
+        "report": "docs/gates/logs/20260905-pyc-popcount-rtl-r1/summary.md"
+      }
     }
   ]
 }
