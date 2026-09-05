@@ -280,9 +280,9 @@ def PYC_PopcountOp : PYC_Op<"popcount", [Pure]> {
   let assemblyFormat = "$in attr-dict `:` type($in) `->` type($count)";
 }
 
-def PYC_CountLeadingZerosOp : PYC_Op<"count_leading_zeros", [Pure]> {
-  let summary = "Parameterized leading-zero count";
-  let arguments = (ins AnyInteger:$in);
+def PYC_CountZerosOp : PYC_Op<"count_zeros", [Pure]> {
+  let summary = "Parameterized leading- or trailing-zero count";
+  let arguments = (ins AnyInteger:$in, StrAttr:$direction);
   let results = (outs AnyInteger:$count);
   let hasVerifier = 1;
   let assemblyFormat = "$in attr-dict `:` type($in) `->` type($count)";

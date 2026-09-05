@@ -154,7 +154,7 @@ REPOSITORY = Path(__file__).resolve().parents[4]
 
 
 class ConfigAndJitTest(unittest.TestCase):
-    def test_count_leading_zeros_jit_uses_typed_gfsim_semantics(self) -> None:
+    def test_zero_count_family_jit_uses_typed_gfsim_semantics(self) -> None:
         import agentic_circuit as ac
 
         path = REPOSITORY / "examples/agentic-circuit/blocks/count_leading_zeros.py"
@@ -166,9 +166,10 @@ class ConfigAndJitTest(unittest.TestCase):
         self.addCleanup(sys.modules.pop, spec.name, None)
         spec.loader.exec_module(module)
 
-        cpp = ac.jit(module.count_leading_zeros_pipeline).lower_cpp()
-        self.assertIn('#include "gfsim/count_leading_zeros.h"', cpp)
+        cpp = ac.jit(module.count_zeros_pipeline).lower_cpp()
+        self.assertIn('#include "gfsim/count_zeros.h"', cpp)
         self.assertIn("gfsim::countLeadingZeros(item.value)", cpp)
+        self.assertIn("gfsim::countTrailingZeros(item.value)", cpp)
         with tempfile.TemporaryDirectory() as directory:
             source = Path(directory) / "count_leading_zeros.cpp"
             source.write_text(cpp, encoding="utf-8")
@@ -179,8 +180,8 @@ class ConfigAndJitTest(unittest.TestCase):
 #include <cstddef>
 
 int main() {{
-  ac_generated::CountLeadingZerosPipeline model;
-  if (!model.incoming().proposePush(ac_generated::Item{{0x0123, 0}}))
+  ac_generated::CountZerosPipeline model;
+  if (!model.incoming().proposePush(ac_generated::Item{{0x0120, 0, 0}}))
     return 1;
   auto rows = model.dispatch_rows();
   for (std::size_t tick = 0; tick < 5; ++tick) {{
@@ -193,8 +194,8 @@ int main() {{
       row.xfer(row.object, epoch, gfsim::XferPhase::Commit);
   }}
   const auto &values = model.sink_0_values();
-  return values.size() == 1 && values[0].value == 0x0123 &&
-                 values[0].count == 4
+  return values.size() == 1 && values[0].value == 0x0120 &&
+                 values[0].leading == 4 && values[0].trailing == 5
              ? 0
              : 2;
 }}
