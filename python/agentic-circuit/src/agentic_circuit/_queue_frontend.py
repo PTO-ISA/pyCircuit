@@ -4470,6 +4470,33 @@ class _ExpressionEmitter:
             return name, f"i{result_width}"
         if (
             isinstance(node, ast.Call)
+            and _decorator_name(node.func).rsplit(".", 1)[-1] == "count_leading_zeros"
+        ):
+            if len(node.args) != 1 or node.keywords:
+                raise QueueFrontendError(
+                    "ACPY-QUEUE-003: count_leading_zeros requires exactly one "
+                    "positional operand"
+                )
+            value, value_type = self.emit(node.args[0])
+            if not value_type.startswith("i") or not value_type[1:].isdigit():
+                raise QueueFrontendError(
+                    "ACPY-QUEUE-003: count_leading_zeros operand must be an "
+                    "integer payload"
+                )
+            width = int(value_type[1:])
+            if width <= 0:
+                raise QueueFrontendError(
+                    "ACPY-QUEUE-003: count_leading_zeros operand width must be positive"
+                )
+            result_width = width.bit_length()
+            name = self._new()
+            self.lines.append(
+                f"    %{name} = ac.var.count_leading_zeros %{value} : "
+                f"!ac.var<{value_type}> -> !ac.var<i{result_width}>"
+            )
+            return name, f"i{result_width}"
+        if (
+            isinstance(node, ast.Call)
             and isinstance(node.func, ast.Attribute)
             and node.func.attr == "with_fields"
             and not node.args

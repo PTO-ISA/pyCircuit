@@ -1380,6 +1380,25 @@ LogicalResult VarPopcountOp::verify() {
   return success();
 }
 
+LogicalResult VarCountLeadingZerosOp::verify() {
+  auto input = cast<VarType>(getIn().getType());
+  auto result = cast<VarType>(getResult().getType());
+  auto inputInt = dyn_cast<IntegerType>(input.getElementType());
+  auto resultInt = dyn_cast<IntegerType>(result.getElementType());
+  if (!inputInt || !resultInt)
+    return emitOpError("input and result payloads must be integer types");
+  if (inputInt.getWidth() == 0 || inputInt.getWidth() > 64)
+    return emitOpError("input width must be in [1, 64]");
+
+  unsigned required = 0;
+  for (unsigned width = inputInt.getWidth(); width != 0; width >>= 1)
+    ++required;
+  if (resultInt.getWidth() != required)
+    return emitOpError()
+           << "result width must be ceil(log2(input_width + 1)) = " << required;
+  return success();
+}
+
 LogicalResult VarPriorityEncodeOp::verify() {
   auto input = cast<VarType>(getIn().getType());
   auto index = cast<VarType>(getIndex().getType());

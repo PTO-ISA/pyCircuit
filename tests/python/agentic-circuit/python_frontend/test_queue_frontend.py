@@ -32,6 +32,28 @@ def pipeline() -> None:
     sink(output_queue)
 """
 
+COUNT_LEADING_ZEROS_SOURCE = """
+import agentic_circuit as ac
+from agentic_circuit import sink, source, struct, system
+
+@struct
+class Item:
+    value: u13
+    count: u4
+
+@system
+def pipeline() -> None:
+    input_queue = source(Item)
+    output_queue = input_queue.apply(
+        lambda item: item.with_fields(
+            count=ac.count_leading_zeros(item.value)
+        ),
+        depth=2,
+        latency=1,
+    )
+    sink(output_queue)
+"""
+
 STRUCT_SOURCE = """
 from agentic_circuit import sink, source, struct, system
 
@@ -793,6 +815,17 @@ class QueueFrontendTest(unittest.TestCase):
         lowered = lower_queue_source(POPCOUNT_SOURCE, "pipeline")
         self.assertIn(
             "ac.var.popcount %v0 : !ac.var<i8> -> !ac.var<i4>",
+            lowered,
+        )
+
+    def test_count_leading_zeros_lowers_to_width_checked_var_operation(
+        self,
+    ) -> None:
+        from agentic_circuit._queue_frontend import lower_queue_source
+
+        lowered = lower_queue_source(COUNT_LEADING_ZEROS_SOURCE, "pipeline")
+        self.assertIn(
+            "ac.var.count_leading_zeros %v0 : !ac.var<i13> -> !ac.var<i4>",
             lowered,
         )
 
