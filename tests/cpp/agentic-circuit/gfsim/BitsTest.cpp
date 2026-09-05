@@ -1,5 +1,5 @@
 #include "gfsim/bits.h"
-#include "gfsim/count_leading_zeros.h"
+#include "gfsim/count_zeros.h"
 #include "gfsim/popcount.h"
 #include "gfsim/priority_encode.h"
 
@@ -121,14 +121,18 @@ TEST(PopcountTest, ExactWidthsAndSimQueueBlockAgree) {
 }
 
 TEST(CountLeadingZerosTest, ExactWidthsAndSimQueueBlockAgree) {
-  static_assert(CountLeadingZerosWidth<1> == 1);
-  static_assert(CountLeadingZerosWidth<13> == 4);
-  static_assert(CountLeadingZerosWidth<64> == 7);
+  static_assert(CountZerosWidth<1> == 1);
+  static_assert(CountZerosWidth<13> == 4);
+  static_assert(CountZerosWidth<64> == 7);
   EXPECT_EQ(countLeadingZeros(UInt<1>{0}).value(), 1u);
   EXPECT_EQ(countLeadingZeros(UInt<1>{1}).value(), 0u);
   EXPECT_EQ(countLeadingZeros(UInt<13>{0}).value(), 13u);
   EXPECT_EQ(countLeadingZeros(UInt<13>{0x0123}).value(), 4u);
   EXPECT_EQ(countLeadingZeros(UInt<64>{1}).value(), 63u);
+  EXPECT_EQ(countTrailingZeros(UInt<1>{0}).value(), 1u);
+  EXPECT_EQ(countTrailingZeros(UInt<13>{0}).value(), 13u);
+  EXPECT_EQ(countTrailingZeros(UInt<13>{0x0120}).value(), 5u);
+  EXPECT_EQ(countTrailingZeros(UInt<64>{std::uint64_t{1} << 63}).value(), 63u);
 
   SimQueue<UInt<13>> input("clz_input", 4, nullptr, 1);
   SimQueue<UInt<4>> output("clz_output", 5, nullptr, 1);
@@ -140,6 +144,18 @@ TEST(CountLeadingZerosTest, ExactWidthsAndSimQueueBlockAgree) {
   output.doXfer({1, 0});
   ASSERT_NE(output.peek(), nullptr);
   EXPECT_EQ(output.peek()->value(), 4u);
+
+  SimQueue<UInt<13>> trailingInput("ctz_input", 7, nullptr, 1);
+  SimQueue<UInt<4>> trailingOutput("ctz_output", 8, nullptr, 1);
+  CountTrailingZeros<13> trailingBlock("count_trailing_zeros", 9, nullptr,
+                                       trailingInput, trailingOutput);
+  ASSERT_TRUE(trailingInput.proposePush(UInt<13>{0x0120}));
+  trailingInput.doXfer({0, 0});
+  trailingBlock.doWork({1, 0});
+  trailingInput.doXfer({1, 0});
+  trailingOutput.doXfer({1, 0});
+  ASSERT_NE(trailingOutput.peek(), nullptr);
+  EXPECT_EQ(trailingOutput.peek()->value(), 5u);
 }
 
 } // namespace
