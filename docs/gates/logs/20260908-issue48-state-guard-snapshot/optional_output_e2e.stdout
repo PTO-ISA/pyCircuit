@@ -1,0 +1,9 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.14.6, pytest-9.0.2, pluggy-1.6.0
+rootdir: /Users/zhoubot/linx-isa/tools/pyCircuit
+configfile: pyproject.toml
+collected 1 item
+
+tests/integration/agentic-circuit/e2e/test_queue_codegen.py .            [100%]
+
+============================== 1 passed in 1.38s ===============================

@@ -6615,6 +6615,10 @@ the functional rule has already discarded.
 - The frontend emits a constant-true candidate, candidate-qualified generic
   state assignments, and compiler-owned `ac.rule.output %value when %condition`.
   No optional/ready/full/sink marker is added to Python.
+- The trailing condition observes the rule's committed state snapshot at branch
+  entry. Assignments inside the selected branch create state proposals and new
+  local SSA values, but they cannot rewrite that blocking/output-presence
+  predicate to the proposed state value.
 - Rule and Firing verifiers allow output presence to differ from the candidate
   only for exactly one input and a proven constant-true candidate. Missing,
   false-candidate, invalid-type, or forged output presence fails closed.

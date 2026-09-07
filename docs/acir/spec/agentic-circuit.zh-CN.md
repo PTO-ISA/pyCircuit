@@ -914,7 +914,8 @@ write 的 index domain 不相交，或它们的 path predicate 在结构上互�
 predicate-qualified output capacity/effect summary。因此 output Queue 已满时，只有 presence=true
 才阻塞完整 transaction；presence=false 路径仍会消费 input 并提交 state。Rule、Firing 和
 QueueGraph verifier 要求这种不同于 candidate 的 output presence 只有一个 input，且 candidate
-必须是 constant true。
+必须是 constant true。该 condition 在进入分支时读取 committed state snapshot；分支内赋值只
+产生 state proposal 和新的局部 SSA，不能把 output presence 改写成 proposed state value。
 
 一个有多个异构 result 的 rule 用固定的 `tuple[...]` 声明返回类型。每个返回 local 保存
 声明的值或 `None`；`None` 只表示本次 activation 没有该 ordinal，不会生成 payload。
