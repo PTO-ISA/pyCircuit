@@ -226,6 +226,33 @@ def test_cycle_aware_domain_factories_return_current_cycle_signals() -> None:
     assert "pyc.select" in compiled_mlir
 
 
+def test_cycle_aware_constructors_reject_unrepresented_metadata() -> None:
+    assert list(inspect.signature(pycircuit.Circuit.create_domain).parameters) == [
+        "self",
+        "name",
+    ]
+    assert list(
+        inspect.signature(pycircuit.CycleAwareCircuit.create_domain).parameters
+    ) == ["self", "name"]
+    assert list(
+        inspect.signature(pycircuit.CycleAwareDomain.create_const).parameters
+    ) == [
+        "self",
+        "value",
+        "width",
+        "signed",
+    ]
+
+    circuit = pycircuit.CycleAwareCircuit("phantom_parameters")
+    with pytest.raises(TypeError, match="frequency_desc"):
+        circuit.create_domain("clk", frequency_desc="100MHz")  # type: ignore[call-arg]
+    with pytest.raises(TypeError, match="reset_active_high"):
+        circuit.create_domain("clk", reset_active_high=True)  # type: ignore[call-arg]
+    domain = circuit.create_domain("clk")
+    with pytest.raises(TypeError, match="name"):
+        domain.create_const(1, width=1, name="one")  # type: ignore[call-arg]
+
+
 def test_cycle_aware_and_structural_mux_have_stable_return_types() -> None:
     circuit = pycircuit.CycleAwareCircuit("mux_boundaries")
     domain = circuit.create_domain("clk")

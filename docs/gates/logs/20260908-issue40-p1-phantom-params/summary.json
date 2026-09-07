@@ -1,0 +1,17 @@
+{
+  "run_id": "20260908-issue40-p1-phantom-params",
+  "status": "passed",
+  "base_revision": "afb0f7991e21f592b997c7e13e50e8c03d33283d",
+  "decision_ids": ["0148", "0159"],
+  "issue": 40,
+  "results": {
+    "unit": {"passed": 88, "failed": 0},
+    "focused_surface": {"passed": 47, "failed": 0},
+    "api_hygiene": {"passed": true},
+    "pre_commit": {"passed": true},
+    "mkdocs_strict": {"passed": true},
+    "decision_status": {"rows": 224, "deferred": 0, "passed": true}
+  },
+  "behavior": "Public domain and constant constructors reject frequency, reset-polarity, and naming metadata that has no IR representation.",
+  "skill_evolve": "no-update"
+}

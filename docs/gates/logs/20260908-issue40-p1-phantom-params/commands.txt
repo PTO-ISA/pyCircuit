@@ -1,0 +1,6 @@
+PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=python/semantic-core/src:python/pycircuit/src pytest tests/unit -m unit -q
+PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=python/semantic-core/src:python/pycircuit/src pytest tests/unit/test_pyc6_surface.py tests/unit/test_v6_forward_signal.py -q
+PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=python/semantic-core/src:python/pycircuit/src python3 flows/tools/check_api_hygiene.py python/pycircuit/src/pycircuit examples/pycircuit docs README.md
+pre-commit run --files docs/gates/decision_status_v6.md docs/gates/logs/20260908-issue40-p1-phantom-params/commands.txt docs/gates/logs/20260908-issue40-p1-phantom-params/review.md docs/gates/logs/20260908-issue40-p1-phantom-params/summary.json docs/pyc6-plan.md docs/rfcs/pyc6-decisions.md docs/v6_PyCircuit_Specification.md python/pycircuit/src/pycircuit/hw.py python/pycircuit/src/pycircuit/v6.py tests/unit/test_pyc6_surface.py
+mkdocs build --strict --site-dir .pycircuit_out/issue40-p1-phantom-params/site
+python3 flows/tools/check_decision_status.py --rfc docs/rfcs/pyc6-decisions.md --status docs/gates/decision_status_v6.md --out docs/gates/logs/20260908-issue40-p1-phantom-params/decision_status_report.json --require-no-deferred --require-all-verified --require-concrete-evidence --require-existing-evidence
