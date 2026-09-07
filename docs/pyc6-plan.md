@@ -97,6 +97,8 @@ V6 tests plus the examples, simulation, and semantic lanes archived under
   `build_cycle_aware()` with stable return types and hardened MLIR on both paths.
 - [x] Stabilize the CAS/Wire boundary: domain factories and top-level `mux()`
   return CAS; raw Wire selection is explicit under `pycircuit.structural`.
+- [x] Make API hygiene and JIT accept normative CAS method-style operations
+  while rejecting the removed Wire forms from receiver-kind evidence.
 - [ ] Verify cycle provenance across `domain.call()` and `pyc.instance`
   boundaries.
 - [x] Verify automatic delay insertion for mixed-cycle arithmetic, comparison,

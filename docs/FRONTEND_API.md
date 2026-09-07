@@ -32,6 +32,9 @@ cycle-balancing rules.
 `compile_cycle_aware()` always uses the canonical JIT path and returns a
 hardened `Design`. `build_cycle_aware()` is the explicit direct-Python
 elaboration path; it returns `CycleAwareCircuit` and accepts `hierarchical=`.
+CAS method forms such as `.select()`, `.trunc()`, `.zext()`, `.sext()`, and
+`.as_unsigned()` are supported. The API-hygiene and JIT checks use receiver
+provenance to reject those spellings only on raw Wire or unknown receivers.
 
 ## Structural decorators and library API
 

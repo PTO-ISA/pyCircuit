@@ -3356,6 +3356,11 @@ an artificial split between the implementation, examples, and product docs.
   `mux()` requires a cycle-aware anchor and always returns CAS;
   `pycircuit.structural.mux()` is the explicit raw-Wire selection surface and
   always returns `Wire`.
+- Method-style `select`, `trunc`, `zext`, `sext`, and `as_unsigned` remain
+  normative on CAS/Forward/State values. API hygiene classifies Python receiver
+  provenance with AST def-use data and rejects these removed methods for Wire
+  or unknown receivers; JIT uses the evaluated receiver object and must evaluate
+  it exactly once before applying the same boundary.
 - The compiler automatically inserts explicit `pyc.reg` delay chains when
   operands from different logical cycles must be aligned.
 - `domain.signal()` plus `<<=` or `.assign()` is the canonical inferred-state
