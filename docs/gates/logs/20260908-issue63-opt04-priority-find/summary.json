@@ -1,0 +1,24 @@
+{
+  "run_id": "20260908-issue63-opt04-priority-find",
+  "status": "passed",
+  "base_revision": "d1c6f1e1c20fa61b5fa1b651f5cc5383e5d95d84",
+  "decision_ids": ["0155", "0161"],
+  "issue": 63,
+  "checklist": ["OPT-04a", "OPT-04b", "OPT-04c"],
+  "results": {
+    "codegen_tests": {"passed": 133, "failed": 0},
+    "gfsim_tests": {"passed": 271, "failed": 0},
+    "i2_hierarchy_behavior": {"passed": 2, "failed": 0},
+    "primitive_selection": {"passed": 16, "failed": 0},
+    "unit": {"passed": 90, "failed": 0},
+    "agentic_repository_contracts": {"passed": true},
+    "pyc_inventory": {"operations": 41, "types": 2, "passed": true},
+    "ir_coverage": {"passed": true},
+    "pre_commit": {"passed": true},
+    "mkdocs_strict": {"passed": true},
+    "decision_status": {"rows": 225, "deferred": 0, "passed": true}
+  },
+  "metrics": "docs/gates/logs/20260908-issue63-opt04-priority-find/metrics.json",
+  "behavior": "Scalar effect-free first Table selection reuses exact low-first priority encoding; keyed, snapshot and wider-mask cases retain their general scans.",
+  "skill_evolve": "no-update"
+}

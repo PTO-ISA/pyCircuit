@@ -1,0 +1,54 @@
+{
+  "base_revision": "d1c6f1e1c20fa61b5fa1b651f5cc5383e5d95d84",
+  "i2_generated": {
+    "before": {
+      "bytes": 192770,
+      "table_scan_loops": 10,
+      "priority_encode_calls": 0,
+      "sha256": "d4673c8fe0d82d7467972a77cba5e712c0e416b718af2fa7c47045119e8e2dd2"
+    },
+    "after": {
+      "bytes": 191392,
+      "table_scan_loops": 5,
+      "priority_encode_calls": 5,
+      "sha256": "b3d43bd76b6c824357d1f7baa8b7dd0bd2646a2f6c78c49a416eab7a2d721f47"
+    }
+  },
+  "random_masks_ns_per_iteration": {
+    "before_samples": [
+      1.00945,
+      0.994404,
+      1.00832,
+      0.998533,
+      0.998821
+    ],
+    "after_samples": [
+      0.922562,
+      0.915621,
+      0.91515,
+      0.919158,
+      0.916325
+    ],
+    "before_median": 0.998821,
+    "after_median": 0.916325
+  },
+  "sparse_one_hot_ns_per_iteration": {
+    "before_samples": [
+      11.3861,
+      10.0633,
+      9.84012,
+      10.0783,
+      9.73323
+    ],
+    "after_samples": [
+      0.526017,
+      0.409579,
+      0.356067,
+      0.341742,
+      0.248762
+    ],
+    "before_median": 10.0633,
+    "after_median": 0.356067
+  },
+  "note": "Local Apple clang -O3 microbenchmarks are diagnostic measurements, not semantic pass criteria."
+}

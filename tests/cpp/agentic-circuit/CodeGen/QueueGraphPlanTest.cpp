@@ -219,6 +219,52 @@ QueueGraphPlan sharedReferencePlan() {
   return plan;
 }
 
+QueueGraphPlan inlineFirstChoicePlan(unsigned width, unsigned indexWidth) {
+  const std::string maskType = "i" + std::to_string(width);
+  const std::string indexType = "i" + std::to_string(indexWidth);
+  const std::string payloadName = "Choice" + std::to_string(width);
+  const std::string payloadType = "!ac.struct<@types::@" + payloadName + ">";
+
+  QueueGraphPlan plan;
+  plan.system = "first_choice_" + std::to_string(width);
+  plan.payloads = {
+      {payloadName, {{"index", indexType, indexWidth}, {"valid", "i1", 1}}}};
+  plan.tables = {
+      {"entries", "i1", width, 0, "table/entries", "/"}};
+  plan.tableReads = {{"entries", "read", "/", "", "unused", 1, 1}};
+  plan.queues = {{"input", maskType, "/", 1, 1},
+                 {"output", payloadType, "/", 1, 1}};
+  plan.blocks.push_back({"source", "input", "/", {}, {"input"}, {1}, {1}});
+  QueueBlockPlan transform{"firing", "choose", "/", {"input"},
+                           {"output"}, {1},        {1}};
+  QueueExpressionPlan mask{"mask", "table_match", maskType, {}};
+  mask.table = "entries";
+  mask.nestedExpressions = {
+      {"matched", "constant", "i1", {}, "", "", "true"}};
+  mask.nestedYields = {"matched"};
+  transform.expressions.push_back(std::move(mask));
+  QueueExpressionPlan index{"selected_index", "table_choose_index", indexType,
+                            {"mask"}};
+  index.table = "entries";
+  index.predicate = "first";
+  transform.expressions.push_back(index);
+  QueueExpressionPlan valid{"selected_valid", "table_choose_valid", "i1",
+                            {"mask"}};
+  valid.table = "entries";
+  valid.predicate = "first";
+  transform.expressions.push_back(valid);
+  QueueExpressionPlan result{"result", "record_create", payloadType,
+                             {"selected_index", "selected_valid"}};
+  result.width = indexWidth + 1;
+  transform.expressions.push_back(std::move(result));
+  transform.yields = {"result"};
+  transform.guard = "selected_valid";
+  transform.outputPresence = {{0, "result", "selected_valid"}};
+  plan.blocks.push_back(std::move(transform));
+  plan.blocks.push_back({"sink", "sink", "/", {"output"}, {}});
+  return plan;
+}
+
 QueueGraphPlan aggregateMetadataPlan() {
   QueueGraphPlan plan = sharedReferencePlan();
   plan.payloads = {{"Packet",
@@ -772,6 +818,8 @@ TEST(QueueGraphPlanTest,
   auto generated = generateQueueGraphCpp(*plan);
   ASSERT_TRUE(bool(generated)) << llvm::toString(generated.takeError());
   llvm::StringRef source(*generated);
+  EXPECT_NE(source.find("#include \"gfsim/priority_encode.h\""),
+            llvm::StringRef::npos);
   size_t classBegin = source.find("class Increment_");
   ASSERT_NE(classBegin, llvm::StringRef::npos);
   size_t classEnd = source.find(" final", classBegin);
@@ -2177,6 +2225,356 @@ TEST(QueueGraphPlanTest, RejectsInvalidSharedTableWidths) {
   EXPECT_NE(llvm::toString(std::move(selectionError))
                 .find("table selection metadata"),
             std::string::npos);
+}
+
+TEST(QueueGraphPlanTest, FirstTableChooseUsesSharedScalarPriorityEncoder) {
+  struct Case {
+    unsigned width;
+    unsigned indexWidth;
+    uint64_t single;
+    uint64_t multiple;
+    unsigned expectedSingle;
+    unsigned expectedMultiple;
+  };
+  constexpr Case cases[] = {
+      {1, 1, 1, 1, 0, 0},
+      {16, 4, uint64_t{1} << 15, (uint64_t{1} << 9) | (uint64_t{1} << 3),
+       15, 3},
+      {64, 6, uint64_t{1} << 63, (uint64_t{1} << 63) | (uint64_t{1} << 7),
+       63, 7},
+  };
+  for (const Case &testCase : cases) {
+    SCOPED_TRACE(testCase.width);
+    QueueGraphPlan plan =
+        inlineFirstChoicePlan(testCase.width, testCase.indexWidth);
+    auto cpp = generateQueueGraphCpp(plan);
+    ASSERT_TRUE(bool(cpp)) << llvm::toString(cpp.takeError());
+    EXPECT_NE(cpp->find("gfsim::priorityEncode(gfsim::UInt<" +
+                        std::to_string(testCase.width) + ">"),
+              std::string::npos);
+    EXPECT_EQ(cpp->find("for (std::size_t index = 0; index < table"),
+              cpp->rfind("for (std::size_t index = 0; index < table"));
+    size_t encoders = 0;
+    for (size_t offset = 0;
+         (offset = cpp->find("gfsim::priorityEncode(", offset)) !=
+         std::string::npos;
+         offset += 22)
+      ++encoders;
+    EXPECT_EQ(encoders, 1u);
+    expectCppCompiles(*cpp);
+
+    const std::string marker = "auto choice_selected_index = ";
+    const size_t statementBegin = cpp->find(marker);
+    ASSERT_NE(statementBegin, std::string::npos);
+    const size_t statementEnd = cpp->find('\n', statementBegin);
+    ASSERT_NE(statementEnd, std::string::npos);
+    const std::string generatedStatement =
+        cpp->substr(statementBegin, statementEnd - statementBegin + 1);
+    std::string executable = "#include \"gfsim/priority_encode.h\"\n";
+    llvm::raw_string_ostream harness(executable);
+    harness << "\nint main() {\n"
+            << "  auto choose = [](auto mask) {\n    " << generatedStatement
+            << "    return choice_selected_index;\n  };\n"
+            << "  auto zero = choose(gfsim::UInt<"
+            << testCase.width
+            << ">{0});\n"
+            << "  auto single = choose(gfsim::UInt<" << testCase.width << ">{"
+            << testCase.single << "ULL});\n"
+            << "  auto multiple = choose(gfsim::UInt<" << testCase.width
+            << ">{" << testCase.multiple << "ULL});\n"
+            << "  return !zero.valid && zero.index == 0 && single.valid && "
+               "single.index == "
+            << testCase.expectedSingle
+            << " && multiple.valid && multiple.index == "
+            << testCase.expectedMultiple << " ? 0 : 1;\n}\n";
+    harness.flush();
+    expectCppRuns(executable);
+  }
+}
+
+TEST(QueueGraphPlanTest, KeyedTableChooseRetainsSelectionLoop) {
+  auto loopCount = [](llvm::StringRef source) {
+    size_t count = 0;
+    for (size_t offset = 0;
+         (offset = source.find("for (std::size_t index = 0; index < table",
+                               offset)) != llvm::StringRef::npos;
+         offset += 8)
+      ++count;
+    return count;
+  };
+  QueueGraphPlan firstPlan = inlineFirstChoicePlan(16, 4);
+  auto firstCpp = generateQueueGraphCpp(firstPlan);
+  ASSERT_TRUE(bool(firstCpp)) << llvm::toString(firstCpp.takeError());
+  RecordProperty("first16_cpp_bytes", std::to_string(firstCpp->size()));
+
+  for (llvm::StringRef policy : {"min", "max"}) {
+    QueueGraphPlan keyedPlan = inlineFirstChoicePlan(16, 4);
+    for (QueueExpressionPlan &expression : keyedPlan.blocks[1].expressions) {
+      if (expression.kind != "table_choose_index" &&
+          expression.kind != "table_choose_valid")
+        continue;
+      expression.predicate = policy.str();
+      expression.nestedExpressions = {
+          {"selection_key", "constant", "i8", {}, "", "", "0 : i8"}};
+      expression.nestedYields = {"selection_key"};
+    }
+    auto keyedCpp = generateQueueGraphCpp(keyedPlan);
+    ASSERT_TRUE(bool(keyedCpp)) << llvm::toString(keyedCpp.takeError());
+    RecordProperty((policy + "16_cpp_bytes").str(),
+                   std::to_string(keyedCpp->size()));
+    EXPECT_EQ(keyedCpp->find("gfsim::priorityEncode(gfsim::UInt<16>"),
+              std::string::npos);
+    EXPECT_EQ(loopCount(*keyedCpp), 2u);
+    EXPECT_LT(firstCpp->size(), keyedCpp->size());
+  }
+
+  QueueGraphPlan snapshotPlan = inlineFirstChoicePlan(16, 4);
+  for (QueueExpressionPlan &expression : snapshotPlan.blocks[1].expressions) {
+    if (expression.kind != "table_choose_index" &&
+        expression.kind != "table_choose_valid")
+      continue;
+    expression.predicate = "min";
+    expression.nestedExpressions = {
+        {"snapshot_index", "constant", "i4", {}, "", "", "0 : i4"},
+        {"snapshot_value", "table_get", "i1", {"snapshot_index"}, "", "",
+         "", "entries"},
+    };
+    expression.nestedYields = {"snapshot_value"};
+  }
+  QueueExpressionPlan snapshot{"snapshot", "snapshot_set",
+                               "state_reservation", {}};
+  snapshot.field = "selected_index";
+  snapshot.table = "entries";
+  snapshot.predicate = "complete";
+  snapshotPlan.blocks[1].expressions.push_back(std::move(snapshot));
+  auto snapshotCpp = generateQueueGraphCpp(snapshotPlan);
+  ASSERT_TRUE(bool(snapshotCpp)) << llvm::toString(snapshotCpp.takeError());
+  RecordProperty("snapshot16_cpp_bytes", std::to_string(snapshotCpp->size()));
+  EXPECT_EQ(snapshotCpp->find("gfsim::priorityEncode(gfsim::UInt<16>"),
+            std::string::npos);
+  EXPECT_EQ(loopCount(*snapshotCpp), 2u);
+
+  QueueGraphPlan widePlan = inlineFirstChoicePlan(64, 6);
+  widePlan.system = "wide_first_choice";
+  widePlan.tables[0].entries = 65;
+  widePlan.queues[0].payloadType = "i1";
+  widePlan.payloads[0].fields[0] = {"index", "i7", 7};
+  widePlan.blocks[1].expressions.clear();
+  QueueExpressionPlan wideMask{"mask", "table_match",
+                               "!ac.value_array<2 x i64>", {}};
+  wideMask.table = "entries";
+  wideMask.nestedExpressions = {
+      {"matched", "constant", "i1", {}, "", "", "true"}};
+  wideMask.nestedYields = {"matched"};
+  widePlan.blocks[1].expressions.push_back(std::move(wideMask));
+  QueueExpressionPlan wideIndex{"selected_index", "table_choose_index", "i7",
+                                {"mask"}};
+  wideIndex.table = "entries";
+  wideIndex.predicate = "first";
+  widePlan.blocks[1].expressions.push_back(wideIndex);
+  QueueExpressionPlan wideValid{"selected_valid", "table_choose_valid", "i1",
+                                {"mask"}};
+  wideValid.table = "entries";
+  wideValid.predicate = "first";
+  widePlan.blocks[1].expressions.push_back(wideValid);
+  QueueExpressionPlan wideResult{
+      "result", "record_create", widePlan.queues[1].payloadType,
+      {"selected_index", "selected_valid"}};
+  wideResult.width = 8;
+  widePlan.blocks[1].expressions.push_back(std::move(wideResult));
+  auto wideCpp = generateQueueGraphCpp(widePlan);
+  ASSERT_TRUE(bool(wideCpp)) << llvm::toString(wideCpp.takeError());
+  RecordProperty("first65_cpp_bytes", std::to_string(wideCpp->size()));
+  EXPECT_EQ(wideCpp->find("gfsim::priorityEncode"), std::string::npos);
+  EXPECT_EQ(loopCount(*wideCpp), 2u);
+}
+
+TEST(QueueGraphPlanTest, VerifiesInlineTableChooseProvenanceAndPairs) {
+  auto rejected = [](QueueGraphPlan plan, llvm::StringRef diagnostic) {
+    SCOPED_TRACE(diagnostic.str());
+    auto error = verifyQueueGraphPlan(plan);
+    ASSERT_TRUE(bool(error));
+    EXPECT_NE(llvm::toString(std::move(error)).find(diagnostic),
+              std::string::npos);
+  };
+
+  QueueGraphPlan oversized = inlineFirstChoicePlan(4, 2);
+  // An i8 mask could previously select forged bit 7 from a four-entry Table.
+  oversized.blocks[1].expressions[0].type = "i8";
+  rejected(std::move(oversized), "mask width");
+
+  QueueGraphPlan arbitraryMask = inlineFirstChoicePlan(4, 2);
+  arbitraryMask.blocks[1].expressions[0] =
+      {"mask", "or", "i4", {"item", "item"}};
+  rejected(std::move(arbitraryMask), "same Table match");
+
+  QueueGraphPlan wrongTable = inlineFirstChoicePlan(4, 2);
+  wrongTable.tables.push_back(
+      {"other", "i1", 4, 0, "table/other", "/"});
+  wrongTable.tableReads.push_back(
+      {"other", "other_read", "/", "", "other_unused", 1, 1});
+  wrongTable.blocks[1].expressions[1].table = "other";
+  rejected(std::move(wrongTable), "same Table match");
+
+  QueueGraphPlan badIndex = inlineFirstChoicePlan(4, 2);
+  badIndex.blocks[1].expressions[1].type = "i3";
+  rejected(std::move(badIndex), "result type");
+
+  QueueGraphPlan badValid = inlineFirstChoicePlan(4, 2);
+  badValid.blocks[1].expressions[2].type = "i2";
+  rejected(std::move(badValid), "result type");
+
+  QueueGraphPlan badMetadata = inlineFirstChoicePlan(4, 2);
+  badMetadata.blocks[1].expressions[1].field = "forged";
+  rejected(std::move(badMetadata), "metadata is not canonical");
+
+  QueueGraphPlan reversed = inlineFirstChoicePlan(4, 2);
+  std::swap(reversed.blocks[1].expressions[1],
+            reversed.blocks[1].expressions[2]);
+  rejected(std::move(reversed), "index before valid");
+
+  QueueGraphPlan mismatchedPair = inlineFirstChoicePlan(4, 2);
+  for (QueueExpressionPlan &expression : mismatchedPair.blocks[1].expressions) {
+    if (expression.kind != "table_choose_index" &&
+        expression.kind != "table_choose_valid")
+      continue;
+    expression.predicate = "min";
+    expression.nestedExpressions = {
+        {"key", "constant", "i8", {}, "", "", "0 : i8"}};
+    expression.nestedYields = {"key"};
+    if (expression.kind == "table_choose_valid")
+      expression.nestedExpressions[0].width = 1;
+  }
+  rejected(std::move(mismatchedPair), "index before valid");
+
+  auto appendKeyedPair = [](QueueGraphPlan &plan, llvm::StringRef suffix,
+                            llvm::StringRef policy, llvm::StringRef literal) {
+    QueueExpressionPlan index{"index_" + suffix.str(),
+                              "table_choose_index", "i2", {"mask"}};
+    index.table = "entries";
+    index.predicate = policy.str();
+    index.nestedExpressions = {{"key_" + suffix.str(), "constant", "i8", {},
+                                "", "", literal.str() + " : i8"}};
+    index.nestedYields = {"key_" + suffix.str()};
+    QueueExpressionPlan valid{"valid_" + suffix.str(),
+                              "table_choose_valid", "i1", {"mask"}};
+    valid.table = index.table;
+    valid.predicate = index.predicate;
+    valid.nestedExpressions = index.nestedExpressions;
+    valid.nestedYields = index.nestedYields;
+    plan.blocks[1].expressions.push_back(std::move(index));
+    plan.blocks[1].expressions.push_back(std::move(valid));
+  };
+
+  QueueGraphPlan independent = inlineFirstChoicePlan(4, 2);
+  QueueExpressionPlan repeatedIndex = independent.blocks[1].expressions[1];
+  repeatedIndex.result = "repeated_first_index";
+  QueueExpressionPlan repeatedValid = independent.blocks[1].expressions[2];
+  repeatedValid.result = "repeated_first_valid";
+  independent.blocks[1].expressions.push_back(std::move(repeatedIndex));
+  independent.blocks[1].expressions.push_back(std::move(repeatedValid));
+  appendKeyedPair(independent, "min0", "min", "0");
+  appendKeyedPair(independent, "min1", "min", "1");
+  appendKeyedPair(independent, "max0", "max", "0");
+  auto error = verifyQueueGraphPlan(independent);
+  EXPECT_FALSE(bool(error)) << llvm::toString(std::move(error));
+}
+
+TEST(QueueGraphPlanTest, DuplicateKeyedChoicesKeepIndependentSnapshotEffects) {
+  QueueGraphPlan plan = inlineFirstChoicePlan(16, 4);
+  QueueBlockPlan &firing = plan.blocks[1];
+  auto makeKey = [](QueueExpressionPlan &expression) {
+    expression.predicate = "min";
+    expression.nestedExpressions = {
+        {"key_index", "constant", "i4", {}, "", "", "0 : i4"},
+        {"key_value", "table_get", "i1", {"key_index"}, "", "", "",
+         "entries"},
+    };
+    expression.nestedYields = {"key_value"};
+  };
+  makeKey(firing.expressions[1]);
+  makeKey(firing.expressions[2]);
+  QueueExpressionPlan secondIndex = firing.expressions[1];
+  secondIndex.result = "second_index";
+  QueueExpressionPlan secondValid = firing.expressions[2];
+  secondValid.result = "second_valid";
+  firing.expressions.insert(firing.expressions.begin() + 3,
+                            std::move(secondIndex));
+  firing.expressions.insert(firing.expressions.begin() + 4,
+                            std::move(secondValid));
+  QueueExpressionPlan &result = firing.expressions[5];
+  result.operands = {"selected_index", "selected_valid", "second_index",
+                     "second_valid"};
+  result.width = 10;
+  plan.payloads[0].fields.push_back({"second_index", "i4", 4});
+  plan.payloads[0].fields.push_back({"second_valid", "i1", 1});
+  firing.stateReservations = {
+      {"entries", "", "selected_index", "selected_valid", "set", {"$entry"}},
+      {"entries", "", "second_index", "second_valid", "set", {"$entry"}},
+  };
+  firing.table = "entries";
+  firing.tableIndex = "selected_index";
+  firing.tableValue = "selected_valid";
+  firing.writeMode = "replace";
+  firing.writeFields = {"$entry"};
+
+  auto cpp = generateQueueGraphCpp(plan);
+  ASSERT_TRUE(bool(cpp)) << llvm::toString(cpp.takeError());
+  EXPECT_EQ(cpp->find("gfsim::priorityEncode"), std::string::npos);
+  EXPECT_NE(cpp->find("StateReservation snapshot_set_0_0"), std::string::npos);
+  EXPECT_NE(cpp->find("StateReservation snapshot_set_0_1"), std::string::npos);
+  EXPECT_EQ(cpp->find("snapshot_set_0_0 = snapshot_set_0_1"),
+            std::string::npos);
+  expectCppCompiles(*cpp);
+}
+
+TEST(QueueGraphPlanTest, DistinctKeyMetadataGeneratesIndependentScans) {
+  QueueGraphPlan plan = inlineFirstChoicePlan(16, 4);
+  plan.tables[0].entryType = "i8";
+  QueueBlockPlan &firing = plan.blocks[1];
+  auto setKey = [](QueueExpressionPlan &expression, llvm::StringRef mask,
+                   llvm::StringRef value) {
+    expression.predicate = "min";
+    expression.nestedExpressions = {
+        {"key_index", "constant", "i4", {}, "", "", "0 : i4"},
+        {"key_value", "table_get", "i8", {"key_index"}, "", "", "",
+         "entries"},
+        {"key_match", "masked_match", "i1", {"key_value"}},
+    };
+    expression.nestedExpressions.back().mask = mask.str();
+    expression.nestedExpressions.back().value = value.str();
+    expression.nestedYields = {"key_match"};
+  };
+  setKey(firing.expressions[1], "0x01", "0x01");
+  setKey(firing.expressions[2], "0x01", "0x01");
+  QueueExpressionPlan secondIndex = firing.expressions[1];
+  secondIndex.result = "second_index";
+  setKey(secondIndex, "0x02", "0x02");
+  QueueExpressionPlan secondValid = firing.expressions[2];
+  secondValid.result = "second_valid";
+  setKey(secondValid, "0x02", "0x02");
+  firing.expressions.insert(firing.expressions.begin() + 3,
+                            std::move(secondIndex));
+  firing.expressions.insert(firing.expressions.begin() + 4,
+                            std::move(secondValid));
+  QueueExpressionPlan &result = firing.expressions[5];
+  result.operands = {"selected_index", "selected_valid", "second_index",
+                     "second_valid"};
+  result.width = 10;
+  plan.payloads[0].fields.push_back({"second_index", "i4", 4});
+  plan.payloads[0].fields.push_back({"second_valid", "i1", 1});
+
+  auto cpp = generateQueueGraphCpp(plan);
+  ASSERT_TRUE(bool(cpp)) << llvm::toString(cpp.takeError());
+  size_t loops = 0;
+  for (size_t offset = 0;
+       (offset = cpp->find("for (std::size_t index = 0; index < table",
+                           offset)) != std::string::npos;
+       offset += 8)
+    ++loops;
+  EXPECT_EQ(loops, 3u);
+  EXPECT_EQ(cpp->find("gfsim::priorityEncode"), std::string::npos);
+  expectCppCompiles(*cpp);
 }
 
 TEST(QueueGraphPlanTest, RejectsMalformedPriorityExpressionPlan) {

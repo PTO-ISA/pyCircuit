@@ -22,23 +22,19 @@ template <unsigned Width>
 constexpr PriorityEncodeResult<Width> priorityEncode(UInt<Width> input,
                                                      bool orderLow = true) {
   PriorityEncodeResult<Width> result;
-  if (orderLow) {
-    for (unsigned bit = 0; bit < Width; ++bit)
-      if ((input.value() & (std::uint64_t{1} << bit)) != 0) {
-        result.index = bit;
-        result.valid = 1;
-        return result;
-      }
-  } else {
-    for (unsigned offset = 0; offset < Width; ++offset) {
-      unsigned bit = Width - 1 - offset;
-      if ((input.value() & (std::uint64_t{1} << bit)) != 0) {
-        result.index = bit;
-        result.valid = 1;
-        return result;
-      }
-    }
-  }
+  constexpr std::uint64_t widthMask = [] {
+    if constexpr (Width == 64)
+      return ~std::uint64_t{0};
+    return (std::uint64_t{1} << Width) - 1;
+  }();
+  const std::uint64_t value = input.value() & widthMask;
+  if (value == 0)
+    return result;
+  const unsigned bit =
+      orderLow ? static_cast<unsigned>(std::countr_zero(value))
+               : 63u - static_cast<unsigned>(std::countl_zero(value));
+  result.index = bit;
+  result.valid = 1;
   return result;
 }
 

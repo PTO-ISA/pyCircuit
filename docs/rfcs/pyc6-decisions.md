@@ -3770,6 +3770,12 @@ evaluation order observable in simulator cost.
 - `policy="first"` uses an empty key region; min/max require one typed key
   region. Contract epoch remains `0.4`, and PYC/RTL keeps rejecting the
   provisional Table family.
+- Generated gfsim C++ and the once-per-Epoch shared Table selection cache
+  implement an effect-free `first` selection over a scalar 1..64-entry
+  candidate mask with a low-first bit scan. A key region, choose-key snapshot
+  effect, min/max policy, or wider word-array mask retains the general Table
+  scan. This changes generated cost, not selection, snapshot, reservation, or
+  backpressure semantics.
 
 **Verification**
 - Frontend and ACIR tests prove one shared SSA definition, dominance, same-Table
@@ -3777,6 +3783,9 @@ evaluation order observable in simulator cost.
 - QueueGraph JSON and both C++ generators preserve references without nested
   match/choose expansion. gfsim call-count tests prove one evaluation per Epoch
   and recomputation after Epoch advance or reset.
+- Width 1/16/64 first-selection tests cover zero, bit 63 and multi-hit masks;
+  generated-source checks distinguish the priority-encoder fast path from the
+  required min/max and wider-mask scan fallbacks.
 - The multi-writer Issue Queue example compiles and runs in direct and native
   gfsim while its grant read and valid-clear patch reuse one selection.
 
@@ -4070,6 +4079,9 @@ handwritten implementation without lowering it into gates.
   `ac.var.priority_encode`; QueueGraph lowers it to the semantic PYC operation,
   while gfsim uses `gfsim::priorityEncode` and a dedicated SimQueue
   `PriorityEncode` block.
+- The gfsim reference implementation masks to the declared width, returns
+  `index=0, valid=0` for zero, and uses C++20 leading/trailing bit scans for
+  high/low order. It does not iterate through every declared bit.
 - Stateful, handshake, memory, and CDC candidates from PR #29 are not admitted
   by this decision.  They require distinct effect-class IR and the inferred
   prepare/publish/no-fail commit contract from `D-RULE-LOWERING-001`; public

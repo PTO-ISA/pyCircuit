@@ -425,6 +425,18 @@ emitExpressionBody(const QueueGraphPlan &plan, const QueueBlockPlan &block,
   std::string padding(indent, ' ');
   llvm::StringMap<std::string> priorityEncodings;
   llvm::StringMap<std::pair<std::string, std::string>> tableChoices;
+  llvm::StringMap<std::pair<unsigned, unsigned>> tableChoicePairCounts;
+  llvm::StringMap<unsigned> tableChoicePairOrdinals;
+  for (const QueueExpressionPlan &expression : block.expressions) {
+    if (expression.kind != "table_choose_index" &&
+        expression.kind != "table_choose_valid")
+      continue;
+    const std::string contract = inlineTableChoiceContractKey(expression);
+    auto &counts = tableChoicePairCounts[contract];
+    unsigned &ordinal = expression.kind == "table_choose_index" ? counts.first
+                                                                 : counts.second;
+    tableChoicePairOrdinals[expression.result] = ordinal++;
+  }
   llvm::StringSet<> needed;
   needed.insert(yield);
   for (const std::string &name : additionalNeeded)
@@ -629,21 +641,8 @@ emitExpressionBody(const QueueGraphPlan &plan, const QueueBlockPlan &block,
       nested.expressions = expression.nestedExpressions;
       nested.yields = expression.nestedYields;
       std::string choiceKey =
-          expression.table + "#" + first->str() + "#" + expression.predicate;
-      for (const QueueExpressionPlan &keyExpression : nested.expressions) {
-        choiceKey.append("#")
-            .append(keyExpression.kind)
-            .append(":")
-            .append(keyExpression.field)
-            .append(":")
-            .append(keyExpression.literal)
-            .append(":")
-            .append(keyExpression.predicate)
-            .append(":")
-            .append(keyExpression.table);
-        for (const std::string &operandName : keyExpression.operands)
-          choiceKey.append(":").append(operandName);
-      }
+          inlineTableChoiceContractKey(expression) + "#" +
+          std::to_string(tableChoicePairOrdinals.lookup(expression.result));
       if (auto cached = tableChoices.find(choiceKey);
           cached != tableChoices.end()) {
         auto resultType = cppType(expression.type);
@@ -676,6 +675,33 @@ emitExpressionBody(const QueueGraphPlan &plan, const QueueBlockPlan &block,
         if (candidate.kind == "snapshot_set" &&
             candidate.field == expression.result)
           snapshotSets.push_back(&candidate);
+      auto choiceTable = llvm::find_if(
+          plan.tables, [&](const TablePlan &table) {
+            return table.name == expression.table;
+          });
+      auto scalarMaskWidth =
+          choiceTable != plan.tables.end() && choiceTable->entries <= 64
+              ? std::optional<unsigned>(choiceTable->entries)
+              : std::nullopt;
+      if (expression.predicate == "first" && scalarMaskWidth &&
+          nested.expressions.empty() && nested.yields.empty() &&
+          snapshotSets.empty()) {
+        auto resultType = cppType(expression.type);
+        if (!resultType)
+          return resultType.takeError();
+        output << padding << "auto " << choice
+               << " = gfsim::priorityEncode(gfsim::UInt<" << *scalarMaskWidth
+               << ">{static_cast<std::uint64_t>(" << first->str()
+               << ")}, true);\n"
+               << padding << "auto " << expression.result << " = "
+               << *resultType << "{"
+               << (expression.kind == "table_choose_index"
+                       ? choice + ".index"
+                       : choice + ".valid")
+               << "};\n";
+        tableChoices[choiceKey] = {choice + ".index", choice + ".valid"};
+        continue;
+      }
       for (const QueueExpressionPlan *snapshotSet : snapshotSets)
         output << padding << "gfsim::StateReservation " << snapshotSet->result
                << "{};\n";
@@ -1600,6 +1626,7 @@ generateStructuredQueueGraphCpp(const QueueGraphPlan &plan) {
             "#include \"gfsim/bits.h\"\n"
             "#include \"gfsim/dispatch.h\"\n"
             "#include \"gfsim/object.h\"\n"
+            "#include \"gfsim/priority_encode.h\"\n"
             "#include \"gfsim/queue.h\"\n"
             "#include \"gfsim/queue_blocks.h\"\n\n"
             "#include <array>\n#include <cstdint>\n#include <limits>\n"

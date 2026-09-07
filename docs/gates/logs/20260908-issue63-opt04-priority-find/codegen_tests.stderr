@@ -1,0 +1,2 @@
+loc("-":2:1): error: malformed flat QueueGraph freeze evidence
+loc("-":5:13): error: 'ac.firing' op legacy firing summary attribute 'handshake' is not part of canonical ACIR

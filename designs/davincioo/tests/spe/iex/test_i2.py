@@ -90,6 +90,8 @@ def test_i2_lowers_value_contracts_before_frozen_acir() -> None:
             check=False,
         )
         assert emitted.returncode == 0, emitted.stderr
+        assert emitted.stdout.count("gfsim::priorityEncode(") == 5
+        assert emitted.stdout.count("for (std::size_t index = 0; index < table") == 5
         generated.write_text(
             emitted.stdout
             + """

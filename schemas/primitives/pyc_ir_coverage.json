@@ -805,6 +805,7 @@
       "status": "normative",
       "symbol": "PYC_OrOp",
       "tests": [
+        "tests/cpp/agentic-circuit/CodeGen/QueueGraphPlanTest.cpp",
         "tests/integration/agentic-circuit/e2e/test_pyc_backend.py",
         "tests/mlir/agentic-circuit/CodeGen/bit-widths.mlir",
         "tests/python/agentic-circuit/python_frontend/test_queue_frontend.py"
