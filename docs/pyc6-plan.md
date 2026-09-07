@@ -39,6 +39,19 @@ remains distinct.
 
 ## Milestones
 
+### DavinciOO contributor design program
+
+- [x] Record Decision 0222's scoped source-placement change: new DavinciOO
+  modules, design contracts and design-local tests belong in
+  `designs/davincioo/` and expose generic framework/primitive gaps.
+- [x] Separate NDF L0 intent / L1 behavior / L2 microarchitecture from hardware
+  H1/H2/H3, all of which are inside NDF L2.
+- [x] Account for all 240 H3 source candidates and seven H1 / 31 H2 groups
+  with input/output proposals, explicit evidence, ownership and work checklists.
+- [ ] Review and implement bounded H3 owners, then H2/H1 compositions, with
+  generic capability fixes merged before dependent designs. Catalog checks
+  are not implementation or simulation evidence.
+
 ### Documentation and governance convergence
 
 **Goal:** Present one current language and one repository authority.
@@ -224,9 +237,11 @@ PYC semantic contracts.
   contract: infer one presence per result, apply backpressure only to selected
   sinks, and commit all selected outputs, input consumption, state proposals,
   and the mandatory acknowledgement in one transaction without dummy tokens.
-- [ ] Only after #39, #41, #42, #44, and #46 are merged and closed, pin that
-  pyCircuit revision in the owning consumer repository and begin the DavinciOO
-  Core. pyCircuit retains only reusable framework code and gates.
+- [ ] Close #46 and #48 framework prerequisites before their dependent
+  DavinciOO H3 implementations. Decision 0222 places new design-program work
+  under `designs/davincioo/`; independent contracts/modules may proceed when
+  their own capabilities are verified. External integrations pin the resulting
+  upstream revision separately.
 
 - [x] Import the Agentic Circuit `main` history at
   `756002e2998b11dfe1fed14dc3d63cdad8be694c` with provenance intact.
@@ -503,7 +518,7 @@ Use the minimum applicable lanes from
 | Cycle-aware frontend or inference | unit tests, API hygiene, examples, semantic regressions |
 | MLIR semantics or legality | examples, normal and nightly simulations, semantic regressions, strict decision status |
 | C++ or Verilog behavior | both simulation lanes and backend-equivalence evidence |
-| Consumer compatibility | Run in the owning consumer repository against a pinned pyCircuit revision |
+| Consumer compatibility | Run external-consumer gates against a pin; the Decision 0222 design program runs design-local gates in this checkout |
 | ACIR or Agentic Circuit integration | ACIR/ACSim verifier and unit lanes, ACIR-to-gfsim, ACIR-to-PYC-to-C++/Verilog, plus pyCircuit examples, simulations, and semantic regressions |
 
 Use one `PYC_GATE_RUN_ID` for related semantic lanes. Record skipped gates and
@@ -518,7 +533,8 @@ The pyCircuit 6 transition is complete when:
 - supported examples use the V6 CycleAwareSignal contract;
 - repository metadata and release automation point only to PTO-ISA/pyCircuit;
 - the LinxISA repository is maintained only as a framework-compatibility fork,
-  while consumer designs and tools remain out of tree; and
+  while other consumer designs remain out of tree and the DavinciOO design
+  program follows Decision 0222; and
 - Decision 0150 has archived AC and PYC closure evidence, and the retired
   Agentic Circuit repository has no publishing or CI authority; and
 - all required gates pass from a clean worktree.

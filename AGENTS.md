@@ -18,7 +18,8 @@ of truth.
 - Apply `$pyc6` first for hard contracts and evidence expectations.
 - Use `$pyc-build-v60` when running builds or gate lanes.
 - Consumer-specific compatibility work runs in the owning consumer repository,
-  not in this framework tree.
+  not in this framework tree, except the maintainer-authorized DavinciOO
+  design program under `designs/davincioo/` (Decision 0222).
 
 ## Task mapping
 
@@ -54,7 +55,9 @@ of truth.
   `run_semantic_regressions_v6.sh`.
 - Keep complete CPU/NPU/SoC/board designs, consumer testbenches, ISA decoders,
   model-comparison scripts, and consumer-specific runtime adapters out of this
-  repository (Decision 0158).
+  repository (Decision 0158), except DavinciOO modules and their design-local
+  contracts, testbenches and integration harnesses explicitly admitted under
+  `designs/davincioo/` by Decision 0222. Framework semantics remain design-neutral.
 - Do not add AI co-author lines to commits or pull request text.
 
 ## Repository authority
@@ -64,7 +67,9 @@ of truth.
   owner of Linx design or integration sources.
 - Product decisions and reusable framework fixes land upstream. Consumer
   compatibility gates run from the consumer checkout against a pinned
-  revision.
+  revision. DavinciOO design-program gates run from this checkout under
+  `designs/davincioo/`; a separate consumer checkout is only needed for optional
+  source comparison or reference-model validation.
 - See `docs/development/repository-management.md` for branch, release, and fork
   synchronization policy.
 

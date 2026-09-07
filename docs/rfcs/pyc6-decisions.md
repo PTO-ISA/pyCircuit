@@ -3851,6 +3851,10 @@ compatibility aliases.
 
 **Status:** Accepted and implemented
 
+**Scoped update:** Decision 0222 supersedes the placement restriction for the
+maintainer-authorized DavinciOO design program under `designs/davincioo/`.
+The design-neutral compiler contract and other consumer boundaries remain.
+
 **Supersedes:** the external-system and board placement rules in Decision 0157,
 Decision 0142, and Decision 0146.
 
@@ -7350,3 +7354,65 @@ dynamic indices wider than the original 64-entry snapshot mask.
 - PTO-ISA/pyCircuit issue #44.
 - User direction (2026-09-07): keep the frontend Pythonic and typed, infer Queue
   and atomicity in MLIR, and use administrator merge after required checks pass.
+
+## Decision 0222: DavinciOO contributor designs use H1/H2/H3 within NDF L2
+
+**Status:** Implemented for governance and the contributor inventory; design execution remains individually unverified
+
+**Supersedes:** Decision 0158's DavinciOO source-placement restriction only.
+
+**Context / Goal**
+The maintainer requests that pyCircuit contributors implement the DavinciOO
+hardware work items under `designs/`, using concrete modules to expose and
+resolve framework/primitive gaps. The source's overloaded L1/L2/L3 hardware
+terminology also needs separation from NDF architectural refinement.
+
+**Decision (strong constraint)**
+- NDF L0 is architectural intent, L1 is observable behavior, and L2 is
+  microarchitecture details. H1 functional domains, H2 subsystems and H3 leaf
+  candidates are all hardware decomposition within NDF L2. Hardware depth
+  never determines NDF refinement, and no NDF L3 level is inferred from H3.
+- Namespace terminology becomes `DAV-{H1}-{H2}-{H3}-{NNNN}` without renaming
+  concrete identities. Cache names L1D/L2C and frozen source paths retain their
+  separate meanings. Authored NDF migration must review traceability rather
+  than mechanically rewriting clause levels.
+- `designs/davincioo/` owns the new contributor implementation program, shared
+  design contracts, per-module documentation and tests, and design-local
+  integration/reference harnesses. DavinciOO's external architecture/NDF
+  sources remain explicitly versioned references; this change does not bulk
+  modify its dirty checkout or establish automatic source mirroring.
+- All 240 source H3 candidates remain visible, with seven H1 and 31 H2 groups.
+  Leaf, contained state, interface, alias, assembly and unresolved ownership
+  are distinct work dispositions. An inventory row cannot allocate another
+  mutable owner or count as implementation evidence.
+- Cards expose input/output payloads with declared/proposed/unresolved status,
+  owned or containing state, capability requirements, behavior tests, source
+  provenance and open questions. Module-specific L0/L1 traceability and exact
+  L2 interfaces must be accepted before implementation promotion.
+- Use module failures to mature generic primitives and shared compiler/runtime
+  semantics: bounded reproducer, framework issue/PR, verifier/pass/backend
+  evidence, then dependent design PR. No private backend repair or design-path
+  semantic exception is admitted. Canonical PYC stays scalar-only.
+- Source and tests for other consumers retain Decision 0158's boundaries.
+  Retired integration/platform roots remain absent. PR CI may validate the
+  lightweight design inventory; complete design simulations are separate,
+  explicitly promoted gates rather than implicit framework release blockers.
+
+**Verification**
+- `designs/davincioo/tools/check_catalog.py` checks the exact frozen 240-ID set,
+  H1/H2/H3 vs NDF axis separation, 278 candidate/assembly cards, input/output
+  evidence metadata, source hashes/line bounds and local links without an
+  external checkout. This check makes no runtime or RTL claim.
+- The imported source contains 117 explicitly declared port records, reviewed
+  against typed source and interface tables; payload types are shown without
+  public Queue wrappers. Remaining ports retain proposal/unresolved status.
+- Evidence is archived under
+  `docs/gates/logs/20260907-davincioo-hierarchy-checklist/`.
+
+**Source**
+- User direction (2026-09-07): implement the 200+ DavinciOO work items under
+  pyCircuit `designs/`, invite other contributors, and use framework/primitive
+  gaps to mature pyCircuit.
+- User clarification (2026-09-07): hardware L1/L2/L3 becomes H1/H2/H3; NDF
+  L0/L1/L2 means architectural intent/behavior/microarchitecture, and all H
+  levels are contained in NDF L2.

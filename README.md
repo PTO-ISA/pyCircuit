@@ -325,6 +325,7 @@ not an active development or publishing source.
 - [Testing and gates](docs/development/testing-and-gates.md)
 - [Review and merge](docs/development/review-and-merge.md)
 - [Repository management](docs/development/repository-management.md)
+- [DavinciOO contributor designs and H1/H2/H3 checklist](designs/davincioo/README.md)
 
 Historical gate logs retain their original directory names. Active runtime,
 trace, and gate contracts use `libpyc6_runtime`, `PYC6TRC3`, and
