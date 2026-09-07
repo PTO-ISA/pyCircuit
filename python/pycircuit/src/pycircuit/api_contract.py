@@ -146,8 +146,8 @@ TEXT_RULES: tuple[TextRule, ...] = (
         hint="use operators/slicing/inference (`==`, `<`, `a if c else b`, slicing) instead",
     ),
     # PYC416 (ban on mux/cond) intentionally omitted:
-    # eager=True / V6 cycle-aware authoring still requires mux(); JIT prefers
-    # `a if c else b`, but both styles coexist so hygiene must not forbid mux(.
+    # Direct CycleAware elaboration requires mux(); JIT also accepts it, so
+    # hygiene must not forbid mux(.
     # TextRule(
     #     code="PYC416",
     #     pattern=_rx(r"\b(?:mux|cond)\s*\("),

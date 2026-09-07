@@ -3,7 +3,7 @@ from __future__ import annotations
 from pycircuit import (
     CycleAwareCircuit,
     CycleAwareDomain,
-    compile_cycle_aware,
+    build_cycle_aware,
 )
 
 
@@ -25,8 +25,4 @@ build.__pycircuit_name__ = "hier_modules"
 
 
 if __name__ == "__main__":
-    print(
-        compile_cycle_aware(
-            build, name="hier_modules", eager=True, width=8, stages=3
-        ).emit_mlir()
-    )
+    print(build_cycle_aware(build, name="hier_modules", width=8, stages=3).emit_mlir())

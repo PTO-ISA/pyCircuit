@@ -93,6 +93,8 @@ V6 tests plus the examples, simulation, and semantic lanes archived under
   extra, wrong-domain, wrong-width, and unsupported input values.
 - [x] Remove the unused tutorial façade and reject description strings passed
   to cycle-aware bitwise OR.
+- [x] Split canonical JIT `compile_cycle_aware()` from explicit eager
+  `build_cycle_aware()` with stable return types and hardened MLIR on both paths.
 - [ ] Verify cycle provenance across `domain.call()` and `pyc.instance`
   boundaries.
 - [x] Verify automatic delay insertion for mixed-cycle arithmetic, comparison,

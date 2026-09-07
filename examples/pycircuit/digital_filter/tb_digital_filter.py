@@ -3,7 +3,7 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-from pycircuit import CycleAwareTb, Tb, compile_cycle_aware, testbench
+from pycircuit import CycleAwareTb, Tb, build_cycle_aware, testbench
 
 _THIS_DIR = Path(__file__).resolve().parent
 if str(_THIS_DIR) not in sys.path:
@@ -32,7 +32,7 @@ def tb(t: Tb) -> None:
 
 if __name__ == "__main__":
     print(
-        compile_cycle_aware(
-            build, name="tb_digital_filter_top", eager=True, **DEFAULT_PARAMS
+        build_cycle_aware(
+            build, name="tb_digital_filter_top", **DEFAULT_PARAMS
         ).emit_mlir()
     )

@@ -282,7 +282,7 @@ def test_hierarchical_domain_call_rejects_missing_and_extra_inputs() -> None:
         domain.call(child, inputs={"lhs": lhs}, prefix="u_child")
 
     with pytest.raises(KeyError, match="missing composed input 'rhs'"):
-        pycircuit.compile_cycle_aware(missing_top, eager=True, hierarchical=True)
+        pycircuit.build_cycle_aware(missing_top, hierarchical=True)
 
     def extra_top(m, domain):
         lhs = pycircuit.cas(domain, m.input("lhs", width=8), cycle=0)
@@ -294,7 +294,7 @@ def test_hierarchical_domain_call_rejects_missing_and_extra_inputs() -> None:
         )
 
     with pytest.raises(KeyError, match="unexpected composed inputs: extra"):
-        pycircuit.compile_cycle_aware(extra_top, eager=True, hierarchical=True)
+        pycircuit.build_cycle_aware(extra_top, hierarchical=True)
 
 
 def test_hierarchical_domain_call_rejects_domain_and_width_mismatches() -> None:
@@ -314,11 +314,11 @@ def test_hierarchical_domain_call_rejects_domain_and_width_mismatches() -> None:
         domain.call(child, inputs={"value": other_value}, prefix="u_child")
 
     with pytest.raises(ValueError, match="domain mismatch"):
-        pycircuit.compile_cycle_aware(wrong_domain_top, eager=True, hierarchical=True)
+        pycircuit.build_cycle_aware(wrong_domain_top, hierarchical=True)
 
     def wrong_width_top(m, domain):
         value = pycircuit.cas(domain, m.input("value", width=4), cycle=0)
         domain.call(child, inputs={"value": value}, prefix="u_child")
 
     with pytest.raises(TypeError, match="width mismatch: expected 8, got 4"):
-        pycircuit.compile_cycle_aware(wrong_width_top, eager=True, hierarchical=True)
+        pycircuit.build_cycle_aware(wrong_width_top, hierarchical=True)

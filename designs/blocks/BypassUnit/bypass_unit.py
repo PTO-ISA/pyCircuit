@@ -4,7 +4,7 @@ from pycircuit import (
     CycleAwareCircuit,
     CycleAwareDomain,
     Tb,
-    compile_cycle_aware,
+    build_cycle_aware,
     mux,
     testbench,
 )
@@ -227,10 +227,9 @@ def tb(t: Tb) -> None:
 
 if __name__ == "__main__":
     print(
-        compile_cycle_aware(
+        build_cycle_aware(
             build,
             name="bypass_unit",
-            eager=True,
             lanes=8,
             data_width=64,
             ptag_count=256,

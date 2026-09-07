@@ -11,7 +11,7 @@ supported (the cycle tag is preserved).
 from __future__ import annotations
 
 import pytest
-from pycircuit import Circuit, CycleAwareCircuit, cas, compile_cycle_aware, wire_of
+from pycircuit import Circuit, CycleAwareCircuit, build_cycle_aware, cas, wire_of
 
 # --- narrowing: assert(high bits == 0) + trunc ------------------------------
 
@@ -255,7 +255,7 @@ def test_cas_as_usable_in_compile() -> None:
         x = cas(domain, m.input("x", width=8))
         m.output("y", wire_of(x.as_(width=4)))
 
-    mlir = compile_cycle_aware(top, name="c", eager=True).emit_mlir()
+    mlir = build_cycle_aware(top, name="c").emit_mlir()
     assert "pyc.assert" in mlir
     assert "pyc.trunc" in mlir
 
@@ -274,6 +274,6 @@ def test_cas_as_values_in_compile() -> None:
         x = cas(domain, m.input("x", width=8))
         m.output("y", wire_of(x.as_(values=[3, 4, 5])))
 
-    mlir = compile_cycle_aware(top, name="c", eager=True).emit_mlir()
+    mlir = build_cycle_aware(top, name="c").emit_mlir()
     assert "pyc.assert" in mlir
     assert "pyc.cmp" in mlir and 'predicate = "eq"' in mlir

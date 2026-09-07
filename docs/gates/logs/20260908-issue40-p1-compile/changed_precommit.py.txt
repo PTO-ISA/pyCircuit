@@ -1,0 +1,14 @@
+import subprocess
+
+
+files = sorted(
+    set(
+        subprocess.check_output(
+            ["git", "diff", "--name-only"], text=True
+        ).splitlines()
+        + subprocess.check_output(
+            ["git", "diff", "--cached", "--name-only"], text=True
+        ).splitlines()
+    )
+)
+raise SystemExit(subprocess.run(["pre-commit", "run", "--files", *files]).returncode)

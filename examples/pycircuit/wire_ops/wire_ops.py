@@ -4,6 +4,7 @@ from pycircuit import (
     CycleAwareCircuit,
     CycleAwareDomain,
     cas,
+    mux,
     wire_of,
 )
 
@@ -13,7 +14,7 @@ def build(m: CycleAwareCircuit, domain: CycleAwareDomain) -> None:
     b = cas(domain, m.input("b", width=8), cycle=0)
     sel = cas(domain, m.input("sel", width=1), cycle=0)
 
-    result = (a & b) if sel else (a ^ b)
+    result = mux(sel, a & b, a ^ b)
 
     domain.next()
     y = domain.cycle(result, name="y")

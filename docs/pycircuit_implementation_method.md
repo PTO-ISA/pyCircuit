@@ -101,7 +101,7 @@ the structural API's explicit occurrence metadata.
    - **Signal Type Discipline**: all signals are `CycleAwareSignal`; `domain.state()` and `.wire` are removed.
    - **Module Signature Convention**: `(m, domain, *, inputs=None, prefix=...) -> dict` pattern.
    - **Sub-Module Calling Convention** (6-step workflow): `domain.call()`, `submodule_input()`, `wire_of()`, key-matching rules, prefix cascade.
-   - **Hierarchical MLIR Emission**: `compile_cycle_aware(..., hierarchical=True)`.
+   - **Hierarchical MLIR Emission**: `build_cycle_aware(..., hierarchical=True)`.
    - **Simulation**: `CycleAwareTb` for cycle-aware testbenches.
 2. Read **`docs/FRONTEND_API.md`** and **`docs/TESTBENCH.md`** for `@module`, `Circuit`, and simulation contracts.
 3. Open **2–3 concrete examples** under `designs/` that match your intended style:
@@ -351,7 +351,7 @@ For complex blocks, mirror this repository's **10-step** narrative in **block-lo
    - Implement only that feature (or minimal supporting glue) as a V6 submodule function.
    - Add or extend **tests** from `TEST_PLAN.md` for that feature (using `CycleAwareTb`).
    - Run **full regression** for all previous tests (must stay green).
-   - Verify both **flat** (`compile_cycle_aware(..., eager=True)`) and optionally **hierarchical** (`hierarchical=True`) compilation.
+   - Verify both **flat** (`build_cycle_aware(...)`) and optionally **hierarchical** (`hierarchical=True`) elaboration.
 3. Record **increments** in `IMPLEMENTATION_LOG.md`: date, feature ID, files touched, tests added, command line used.
 
 **Deliverable:** Ordered **backlog** of increments + log. Prefer small PR-sized steps.
@@ -367,7 +367,7 @@ For complex blocks, mirror this repository's **10-step** narrative in **block-lo
 1. Define **system scenarios** that stress **multiple features together** (e.g. concurrent requests + credit pressure + error injection).
 2. Re-run **full traceability**: confirm `TRACEABILITY.md` and `TEST_PLAN.md` have **no unchecked rows**.
 3. Optional: long-run **pseudo-random** stimulus if the TB framework supports it; compare to golden or invariants (no deadlock, no X on outputs, etc.).
-4. Verify **hierarchical compilation** produces correct multi-module MLIR: `compile_cycle_aware(..., hierarchical=True)` should emit `func.func` for each sub-module and `pyc.instance` ops in the parent.
+4. Verify **hierarchical compilation** produces correct multi-module MLIR: `build_cycle_aware(..., hierarchical=True)` should emit `func.func` for each sub-module and `pyc.instance` ops in the parent.
 5. Document **sign-off criteria** in block `README.md`.
 
 **Deliverable:** `SYSTEM_TEST.md` or README section listing scenarios, commands, and expected results; update `TRACEABILITY.md` status to **closed**.

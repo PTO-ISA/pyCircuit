@@ -8,7 +8,7 @@ from pycircuit import (
     CycleAwareDomain,
     CycleAwareTb,
     Tb,
-    compile_cycle_aware,
+    build_cycle_aware,
     testbench,
 )
 
@@ -38,7 +38,7 @@ def tb(t: Tb) -> None:
 
 if __name__ == "__main__":
     print(
-        compile_cycle_aware(
-            build, name="tb_fifo_loopback_top", eager=True, **DEFAULT_PARAMS
+        build_cycle_aware(
+            build, name="tb_fifo_loopback_top", **DEFAULT_PARAMS
         ).emit_mlir()
     )

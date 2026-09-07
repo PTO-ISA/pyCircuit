@@ -6,7 +6,7 @@ from pathlib import Path
 from pycircuit import (
     CycleAwareTb,
     Tb,
-    compile_cycle_aware,
+    build_cycle_aware,
     testbench,
 )
 
@@ -149,4 +149,4 @@ def tb(t: Tb) -> None:
 
 
 if __name__ == "__main__":
-    print(compile_cycle_aware(build, name="tb_regfile_top", eager=True).emit_mlir())
+    print(build_cycle_aware(build, name="tb_regfile_top").emit_mlir())

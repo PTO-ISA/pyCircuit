@@ -3,8 +3,8 @@ from __future__ import annotations
 from pycircuit import (
     CycleAwareCircuit,
     CycleAwareDomain,
+    build_cycle_aware,
     cas,
-    compile_cycle_aware,
     mux,
     u,
     wire_of,
@@ -125,7 +125,5 @@ build.__pycircuit_name__ = "digital_clock"
 
 if __name__ == "__main__":
     print(
-        compile_cycle_aware(
-            build, name="digital_clock", clk_freq=50_000_000, eager=True
-        ).emit_mlir()
+        build_cycle_aware(build, name="digital_clock", clk_freq=50_000_000).emit_mlir()
     )

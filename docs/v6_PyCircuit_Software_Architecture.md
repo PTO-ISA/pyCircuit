@@ -14,7 +14,7 @@
 ┌────────────────────────  Python 前端  ────────────────────────┐
 │  设计函数 (CycleAwareCircuit)                                 │
 │  测试台   (@testbench + Tb / CycleAwareTb)                    │
-│        │ compile_cycle_aware(eager/JIT)  或  @module JIT      │
+│        │ compile_cycle_aware / build_cycle_aware / @module    │
 │        ▼                                                      │
 │  MLIR 文本（pyc 方言，.pyc 文件；TB 序列化为 pyc.tb.payload） │
 └───────────────┬───────────────────────────────────────────────┘
@@ -109,14 +109,19 @@ pyCircuit/
   - **扁平模式**：push → 执行子函数（同一张图上内联构图）→ pop；
   - **层次化模式**：把子函数以 `inputs=None` 独立编译为 `func.func` 注册进 `Design`，父模块发射 `pyc.instance`，并用记录的输出 cycle 元数据把 instance 结果重新包装为 CAS 返回。
 
-### 两条编译入口
+### 明确分工的编译入口
 
 | 入口 | 机制 | 适用 |
 |------|------|------|
-| `compile_cycle_aware(fn, eager=True, ...)` | **直接执行** fn，Python 控制流即元编程 | V6 主路径 |
-| `compile_cycle_aware(fn)`（JIT）/ `compile(fn)` + `@module` | **AST 解析**不执行；`if`(i1)→`scf.if`、静态 `for` 展开、`@module` 边界→`pyc.instance`、`@function` 内联、`@const` 编译期求值 | V6 结构化库 / CLI `emit`/`build` 路径 |
+| `compile_cycle_aware(fn)` | **AST/JIT 编译**并稳定返回 hardened `Design` | CycleAware CLI `emit`/`build` 与常规编译 |
+| `build_cycle_aware(fn, hierarchical=...)` | **直接执行** fn 并稳定返回 `CycleAwareCircuit`；Python 控制流只作元编程 | 显式 eager 构图、`domain.call()` 层次保留 |
+| `compile(fn)` + `@module` | **AST/JIT 编译**结构化模块；`@module` 边界→`pyc.instance`、`@function` 内联、`@const` 编译期求值 | V6 结构化库接口 |
 
-前端在输出的 MLIR 上打契约属性（`pyc.frontend.contract="pycircuit"`、`pyc.kind`、结构度量 attrs），后端第一个 pass 即校验。
+两个 CycleAware 入口都在输出的 MLIR 上打完整契约属性
+（`pyc.frontend.contract="pycircuit"`、`pyc.kind`、`pyc.params`、结构度量
+attrs），后端第一个 pass 即校验。入口不再通过 `eager` 布尔值改变机制和返回类型。
+直接 builder 保留 decorator 的 structural intent，但拒绝 runtime value ports；
+参数化 `domain.call()` specialization 使用 canonical 参数摘要生成唯一 symbol。
 
 ---
 

@@ -5,8 +5,8 @@ from __future__ import annotations
 from pycircuit import (
     CycleAwareCircuit,
     CycleAwareDomain,
+    build_cycle_aware,
     cas,
-    compile_cycle_aware,
     mux,
     u,
 )
@@ -84,8 +84,6 @@ def build(
 build.__pycircuit_name__ = "sw5809s"
 
 if __name__ == "__main__":
-    circuit = compile_cycle_aware(
-        build, name="sw5809s", eager=True, N_PORTS=4, VOQ_DEPTH=4
-    )
+    circuit = build_cycle_aware(build, name="sw5809s", N_PORTS=4, VOQ_DEPTH=4)
     print(circuit.emit_mlir()[:500])
     print(f"... ({len(circuit.emit_mlir())} chars)")

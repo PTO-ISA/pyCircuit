@@ -418,9 +418,9 @@ def test_domain_signal_fields_binds_and_feeds_back() -> None:
         m.output("opcode", wire_of(cnt["opcode"]))
         m.output("rd", wire_of(cnt.rd))
 
-    from pycircuit import compile_cycle_aware
+    from pycircuit import build_cycle_aware
 
-    mlir = compile_cycle_aware(counter, name="c", eager=True).emit_mlir()
+    mlir = build_cycle_aware(counter, name="c").emit_mlir()
     # feedback register + two field extracts, no crash
     assert mlir.count("pyc.reg") == 1
     assert "pyc.extract %" in mlir
@@ -454,9 +454,9 @@ def test_domain_signal_inline_dict_fields() -> None:
         m.output("opcode", wire_of(cnt["opcode"]))
         m.output("rd", wire_of(cnt.rd))
 
-    from pycircuit import compile_cycle_aware
+    from pycircuit import build_cycle_aware
 
-    mlir = compile_cycle_aware(counter, name="c", eager=True).emit_mlir()
+    mlir = build_cycle_aware(counter, name="c").emit_mlir()
     assert mlir.count("pyc.reg") == 1
     assert mlir.count("pyc.extract") == 2
 

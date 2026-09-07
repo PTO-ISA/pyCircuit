@@ -3,8 +3,8 @@ from __future__ import annotations
 from pycircuit import (
     CycleAwareCircuit,
     CycleAwareDomain,
+    build_cycle_aware,
     cas,
-    compile_cycle_aware,
     mux,
     u,
     unsigned,
@@ -130,4 +130,4 @@ build.__pycircuit_name__ = "calculator"
 
 
 if __name__ == "__main__":
-    print(compile_cycle_aware(build, name="calculator", eager=True).emit_mlir())
+    print(build_cycle_aware(build, name="calculator").emit_mlir())

@@ -3,8 +3,8 @@ from __future__ import annotations
 from pycircuit import (
     CycleAwareCircuit,
     CycleAwareDomain,
+    build_cycle_aware,
     cas,
-    compile_cycle_aware,
     mux,
     u,
     wire_of,
@@ -32,8 +32,4 @@ build.__pycircuit_name__ = "jit_control_flow"
 
 
 if __name__ == "__main__":
-    print(
-        compile_cycle_aware(
-            build, name="jit_control_flow", eager=True, rounds=4
-        ).emit_mlir()
-    )
+    print(build_cycle_aware(build, name="jit_control_flow", rounds=4).emit_mlir())

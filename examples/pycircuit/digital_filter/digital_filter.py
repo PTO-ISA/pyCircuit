@@ -9,8 +9,8 @@ from __future__ import annotations
 from pycircuit import (
     CycleAwareCircuit,
     CycleAwareDomain,
+    build_cycle_aware,
     cas,
-    compile_cycle_aware,
     sext,
     wire_of,
 )
@@ -73,10 +73,9 @@ build.__pycircuit_name__ = "digital_filter"
 
 if __name__ == "__main__":
     print(
-        compile_cycle_aware(
+        build_cycle_aware(
             build,
             name="digital_filter",
-            eager=True,
             TAPS=4,
             DATA_W=16,
             COEFF_W=16,

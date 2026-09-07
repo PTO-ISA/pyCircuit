@@ -33,8 +33,9 @@ from pycircuit import (
     CycleAwareDomain,     # 周期感知时钟域
     CycleAwareSignal,     # 周期感知信号（唯一信号类型）
     ForwardSignal,        # domain.signal() 的返回类型
+    build_cycle_aware,    # 直接 Python elaboration
     cas,                  # Wire → CycleAwareSignal
-    compile_cycle_aware,  # V6 编译入口
+    compile_cycle_aware,  # canonical JIT → Design
     mux,                  # 多路选择器
     submodule_input,      # 双模输入辅助
     wire_of,              # 边界提取 Wire（仅用于 m.output()）
@@ -380,10 +381,10 @@ my_module.__pycircuit_name__ = "my_module"   # 注册 RTL 模块名
 
 ```python
 # 扁平（默认）：单一 func.func
-circ = compile_cycle_aware(top, eager=True, name="top")
+circ = build_cycle_aware(top, name="top")
 
 # 层次化：每个 domain.call() 边界保留为独立模块
-circ = compile_cycle_aware(top, eager=True, name="top", hierarchical=True)
+circ = build_cycle_aware(top, name="top", hierarchical=True)
 ```
 
 层次化模式下每个子模块编译为独立 `func.func`，父模块发射 `pyc.instance` 引用；输出的 MLIR 为多模块 `Design`（`module attributes {pyc.top = @top}`）。子模块内部的 `domain.call()` 递归处理。
@@ -486,7 +487,7 @@ pycircuit sidecar verify  out/tb.sidecar        # 校验结构
 
 ## 编译入口
 
-### compile_cycle_aware()（V6 主路径）
+### compile_cycle_aware()（canonical JIT）
 
 ```python
 def compile_cycle_aware(
@@ -494,20 +495,37 @@ def compile_cycle_aware(
     *,
     name: str | None = None,       # 模块名
     domain_name: str = "clk",      # 时钟域名
-    eager: bool = False,           # True=直接执行 fn；False=JIT 追踪
-    hierarchical: bool = False,    # True=保留 domain.call() 边界（需 eager=True）
     **jit_params,                  # 转发给 fn 的配置参数
-)
+) -> Design
 ```
 
 ```python
-circ = compile_cycle_aware(my_module, name="my_module", eager=True, width=16)
-mlir_text = circ.emit_mlir()
+design = compile_cycle_aware(my_module, name="my_module", width=16)
+mlir_text = design.emit_mlir()
 ```
 
-- `eager=True`：直接执行 Python 函数体，即时构图。**推荐路径**。支持任意 Python 控制流（作为元编程展开）。
-- `eager=False`（JIT）：AST 解析 fn，不执行；支持把 Python `if`（i1 条件）编译为 `scf.if` → mux，`for`（静态可迭代）展开。有原型级限制。
-- `hierarchical=True`：见“层次化 MLIR 发射”。
+`compile_cycle_aware()` 始终经 AST/JIT 编译并返回 hardened `Design`。函数不再
+用布尔参数切换返回类型；`structural` 与 `value_params` 只由装饰器元数据定义。
+
+### build_cycle_aware()（显式 Python elaboration）
+
+```python
+def build_cycle_aware(
+    fn,
+    *,
+    name: str | None = None,
+    domain_name: str = "clk",
+    hierarchical: bool = False,
+    **build_params,
+) -> CycleAwareCircuit
+```
+
+`build_cycle_aware()` 直接执行 Python 函数体，返回 `CycleAwareCircuit`；其
+`emit_mlir()` 同样包含完整 hardened frontend attributes。Python `if`/`for` 仅
+用于 elaboration-time 元编程；运行时硬件选择使用 `mux()`。`hierarchical=True`
+保留 `domain.call()` 边界，并用 canonical 参数摘要区分同一子模块的不同
+specialization。Builder 保留 decorator 的 `structural=True`，但不支持 runtime
+`value_params`；此类模块必须使用 `compile_cycle_aware()`。
 
 ### @module JIT 路径（结构化库接口）
 
@@ -659,15 +677,12 @@ outs = domain.call(alu, inputs={...}, tier=1)             # 模块级缺省 tier
 | `sig.assign(expr, when=cond)` | 条件赋值（使能） |
 | 其余读侧接口 | 与 CAS 相同 |
 
-### compile_cycle_aware
+### 编译入口
 
-| 参数 | 说明 |
-|------|------|
-| `fn` | `def fn(m, domain, *, inputs=None, ...) -> dict` |
-| `name` / `domain_name` | 模块名 / 时钟域名 |
-| `eager` | `True` 直接执行（推荐） |
-| `hierarchical` | 保留 `domain.call()` 边界（需 eager） |
-| `**jit_params` | 转发给 `fn` |
+| 接口 | 稳定返回类型 | 说明 |
+|------|--------------|------|
+| `compile_cycle_aware(fn, *, name, domain_name, **params)` | `Design` | canonical AST/JIT 编译；CLI 使用此入口 |
+| `build_cycle_aware(fn, *, name, domain_name, hierarchical, **params)` | `CycleAwareCircuit` | 直接 Python elaboration；可保留 `domain.call()` 层次 |
 
 ### CycleAwareTb
 
