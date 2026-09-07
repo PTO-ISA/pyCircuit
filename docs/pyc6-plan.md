@@ -259,8 +259,10 @@ PYC semantic contracts.
     QueueGraph; independently reject residual high-level contracts downstream.
   - [x] Execute equal and per-field-family unequal cases in gfsim, boundary
     invariant true/false cases, and admitted PYC C++/Verilog parity.
-  - [ ] Merge the framework PR, then update the in-tree DavinciOO design
+  - [x] Merge the framework PR, then update the in-tree DavinciOO design
     contracts/implementations and record the mechanical I2 comparison reduction.
+    The focused port reduces I2 from 284 to 41 comparisons; concrete behavioral
+    promotion remains tracked by the I1/I2/WBA cards and issue #48.
 - [ ] Close #46 and #48 framework prerequisites before their dependent
   DavinciOO H3 implementations. Decision 0222 places new design-program work
   under `designs/davincioo/`; independent contracts/modules may proceed when

@@ -4,10 +4,12 @@
 - Hardware hierarchy: **H3**, within H1 `SPE` / H2 `IEX`
 - NDF refinement: **L2 microarchitecture**; module-specific L1 behavior links still require review.
 - Recommended disposition: **leaf** (proposal, not registry approval)
-- Proposed implementation path, if accepted as an independent leaf: `designs/davincioo/spe/iex/wba.py`
-- Current design-program execution status: **not implemented**. External source evidence is recorded separately.
+- Implementation path: `designs/davincioo/spe/iex/wba.py`
+- Current design-program execution status: **implemented; focused compile and empty-state gfsim smoke verified**.
 
-A typed NDF Queue contract exists and may have a Python design draft, but the catalog still says planned/deferred; promote only after behavioral and backend gates.
+The implementation preserves the frozen external behavior baseline while using
+the shared nominal `IssueAttemptKey` for duplicate, apply, cancel, and drain
+identity. Full behavioral promotion still requires the complete matrix below.
 
 ## Inputs
 
@@ -34,7 +36,10 @@ Payload names in proposed rows are design pseudotypes until fields, widths and n
 
 ## Owned or containing state
 
-- retained producer/result slots and apply/cancel/drain ownership
+- `entries: Array[8, WbaEntry]` retains complete terminal results, physical
+  slot generation, publication, cancellation, completion, and drain ownership.
+- `cancel_tombstones: Array[16, AttemptTombstone]` suppresses a canceled
+  attempt until exact producer drain.
 
 ## Required capabilities to verify
 
@@ -54,16 +59,28 @@ gfsim execution is the first implementation gate. PYC/RTL obligations apply to t
 
 ## Open decisions
 
-- No additional item recorded; exact state/port review remains required.
+- Canonical PYC currently rejects this module before RTL emission because
+  module-preserving QueueGraph lowering and provisional Table lowering remain
+  unsupported. gfsim is the executable backend for the current stateful leaf.
+
+## Focused implementation evidence
+
+- `pytest -q designs/davincioo/tests/spe/iex/test_wba.py` verifies source
+  closure, aggregate identity use, ACIR value-contract/rule lowering, topology
+  freeze, QueueGraph C++ compilation, empty-state gfsim execution, and the
+  explicit PYC rejection boundary.
+- The smoke gate proves the generated module and its 8-entry/16-tombstone
+  topology compile and initialize without fabricated output. It does not replace
+  the VALUE/fault/store/branch/cancel/retry/drain behavioral matrix.
 
 ## Contributor closure
 
-- [ ] Claim the candidate and identify its parent/containing state owner.
-- [ ] Resolve disposition; aliases and contained state must not duplicate hardware.
+- [x] Claim the candidate and identify its parent/containing state owner.
+- [x] Resolve disposition; aliases and contained state must not duplicate hardware.
 - [ ] Link the relevant NDF L0 intent and L1 behavior to this L2 implementation.
-- [ ] Freeze port payload fields/widths, producer/consumer, parent seam, state/reset and timing profile.
+- [x] Freeze port payload fields/widths, producer/consumer, parent seam, state/reset and timing profile.
 - [ ] Define functional branches, all-or-none effects, contention and cancel/recovery lifecycle.
-- [ ] Link a minimal failing gate for each actual framework/primitive gap and merge that shared fix first.
+- [x] Link a minimal failing gate for each actual framework/primitive gap and merge that shared fix first.
 - [ ] Implement the accepted owner and design-local expected-result tests.
 - [ ] Prove backpressure, identity/generation, exactly-once effects and isolated instances in gfsim.
 - [ ] Integrate into H2/H1 and record admitted PYC/RTL evidence or remaining boundary.
