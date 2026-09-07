@@ -97,7 +97,6 @@ def all_designs() -> list[dict]:
         ("fastfwd", "build", {}),
         ("fifo_loopback", "build", {}),
         ("fmac", None, None),
-        ("fm16", None, None),
         ("huge_hierarchy_stress", None, None),
         ("instance_map", None, None),
         ("interface_wiring", None, None),
