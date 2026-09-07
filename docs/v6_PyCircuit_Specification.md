@@ -123,7 +123,7 @@ m = CycleAwareCircuit("my_circuit")
 
 | 方法 | 说明 |
 |------|------|
-| `create_domain(name, *, frequency_desc="", reset_active_high=False)` | 创建 `CycleAwareDomain` |
+| `create_domain(name)` | 创建 `CycleAwareDomain` |
 | `input(name, *, width, signed=False)` | 标量输入端口，返回 `Wire[Bits]`（需 `cas()` 包装后参与周期感知运算） |
 | `output(name, value)` | 注册标量输出端口（周期感知信号通过 `wire_of(sig)` 提取） |
 | `const(value, *, width)` | 常量 `Wire`（用 `cas()` 包装后参与 CAS 表达式） |
@@ -147,18 +147,20 @@ domain = m.create_domain("clk")
 | `call(fn, *, inputs=None, **kwargs)` | 调用子模块并自动 push/pop 隔离周期。扁平模式内联；层次化模式发射 `pyc.instance` |
 | `delay_to(w, *, from_cycle, to_cycle, width)` | 显式打拍对齐（自动平衡的底层机制） |
 | `create_signal(name, *, width, signed=False)` | 创建标量输入端口，返回当前 occurrence 的 CAS |
-| `create_const(value, *, width, name="", signed=False)` | 返回当前 occurrence 的常量 CAS |
+| `create_const(value, *, width, signed=False)` | 返回当前 occurrence 的常量 CAS |
 | `create_reset()` | 返回当前 occurrence 的有效高复位 CAS（i1） |
 | `cycle_index` | 属性：当前逻辑周期索引 |
 
 多时钟域：
 
 ```python
-cpu_clk = m.create_domain("CPU_CLK", frequency_desc="100MHz")
-rtc_clk = m.create_domain("RTC_CLK", frequency_desc="1Hz")
+cpu_clk = m.create_domain("CPU_CLK")
+rtc_clk = m.create_domain("RTC_CLK")
 ```
 
 跨时钟域信号**必须**经显式 CDC 原语（`cdc_sync` / `async_fifo`）传递；后端 `pyc-check-clock-domains` 检查违例并报错。
+当前 frontend 不接受未下沉到 IR 的频率描述或复位极性参数；时钟频率与外部
+reset polarity 属于集成约束。
 
 ### CycleAwareSignal
 

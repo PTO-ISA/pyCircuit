@@ -73,10 +73,7 @@ class CycleAwareCircuit(Circuit):
             return self._v6_design.emit_mlir()
         return super().emit_mlir()
 
-    def create_domain(
-        self, name: str, *, frequency_desc: str = "", reset_active_high: bool = False
-    ) -> "CycleAwareDomain":
-        _ = (frequency_desc, reset_active_high)
+    def create_domain(self, name: str) -> "CycleAwareDomain":
         return CycleAwareDomain(self, str(name))
 
     def const_signal(
@@ -159,11 +156,9 @@ class CycleAwareDomain:
         value: int,
         *,
         width: int,
-        name: str = "",
         signed: bool = False,
     ) -> "CycleAwareSignal":
         """Create a scalar constant."""
-        _ = name
         return CycleAwareSignal(
             self,
             self._m.const(value, width=int(width), signed=signed),

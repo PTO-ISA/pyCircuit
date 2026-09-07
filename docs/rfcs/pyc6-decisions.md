@@ -3361,6 +3361,11 @@ an artificial split between the implementation, examples, and product docs.
   provenance with AST def-use data and rejects these removed methods for Wire
   or unknown receivers; JIT uses the evaluated receiver object and must evaluate
   it exactly once before applying the same boundary.
+- Public constructors do not accept metadata they cannot represent:
+  `Circuit.create_domain()` and `CycleAwareCircuit.create_domain()` accept only
+  the domain name, and `CycleAwareDomain.create_const()` has no `name` option.
+  Frequency, external reset polarity, and physical constant naming belong to
+  integration or lowering contracts and are never silently ignored.
 - The compiler automatically inserts explicit `pyc.reg` delay chains when
   operands from different logical cycles must be aligned.
 - `domain.signal()` plus `<<=` or `.assign()` is the canonical inferred-state

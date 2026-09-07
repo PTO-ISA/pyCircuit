@@ -99,6 +99,8 @@ V6 tests plus the examples, simulation, and semantic lanes archived under
   return CAS; raw Wire selection is explicit under `pycircuit.structural`.
 - [x] Make API hygiene and JIT accept normative CAS method-style operations
   while rejecting the removed Wire forms from receiver-kind evidence.
+- [x] Remove phantom domain frequency/reset-polarity and constant-name
+  parameters instead of silently accepting metadata with no IR representation.
 - [ ] Verify cycle provenance across `domain.call()` and `pyc.instance`
   boundaries.
 - [x] Verify automatic delay insertion for mixed-cycle arithmetic, comparison,

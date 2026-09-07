@@ -981,12 +981,9 @@ class Circuit(Module):
     def domain(self, name: str) -> ClockDomain:
         return ClockDomain(clk=self.clock(f"{name}_clk"), rst=self.reset(f"{name}_rst"))
 
-    def create_domain(
-        self, name: str, *, frequency_desc: str = "", reset_active_high: bool = False
-    ) -> Any:
+    def create_domain(self, name: str) -> Any:
         """V6 cycle-aware domain (next/prev/push/pop); see `pycircuit.v6.CycleAwareDomain`."""
 
-        _ = (frequency_desc, reset_active_high)
         from .v6 import CycleAwareDomain
 
         return CycleAwareDomain(self, str(name))
