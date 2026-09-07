@@ -1083,7 +1083,8 @@
       ],
       "python_producer": [
         "python/pycircuit/src/pycircuit/api_contract.py",
-        "python/pycircuit/src/pycircuit/dsl.py"
+        "python/pycircuit/src/pycircuit/dsl.py",
+        "python/pycircuit/src/pycircuit/jit.py"
       ],
       "replacement": null,
       "rtl_selection": null,
@@ -1101,7 +1102,8 @@
         "tests/mlir/pyc/canonical-ops-valid.mlir",
         "tests/mlir/pyc/canonical-select-invalid.mlir",
         "tests/test_pyc_canonical_ops.py",
-        "tests/unit/test_pyc6_surface.py"
+        "tests/unit/test_pyc6_surface.py",
+        "tests/unit/test_v6_forward_signal.py"
       ],
       "verifier": "compiler/mlir/lib/Dialect/PYC/PYCOps.cpp",
       "verilog_emitter": "compiler/mlir/lib/Emit/VerilogEmitter.cpp"
@@ -1123,14 +1125,18 @@
         "python/pycircuit/src/pycircuit/__init__.py",
         "python/pycircuit/src/pycircuit/api_contract.py",
         "python/pycircuit/src/pycircuit/dsl.py",
-        "python/pycircuit/src/pycircuit/hw.py"
+        "python/pycircuit/src/pycircuit/hw.py",
+        "python/pycircuit/src/pycircuit/jit.py"
       ],
       "replacement": null,
       "rtl_selection": null,
       "stage": "canonical-pyc",
       "status": "normative",
       "symbol": "PYC_SextOp",
-      "tests": [],
+      "tests": [
+        "tests/unit/test_api_contract.py",
+        "tests/unit/test_v6_forward_signal.py"
+      ],
       "verifier": "compiler/mlir/lib/Dialect/PYC/PYCOps.cpp",
       "verilog_emitter": "compiler/mlir/lib/Emit/VerilogEmitter.cpp"
     },
@@ -1317,7 +1323,8 @@
         "python/pycircuit/src/pycircuit/__init__.py",
         "python/pycircuit/src/pycircuit/api_contract.py",
         "python/pycircuit/src/pycircuit/dsl.py",
-        "python/pycircuit/src/pycircuit/hw.py"
+        "python/pycircuit/src/pycircuit/hw.py",
+        "python/pycircuit/src/pycircuit/jit.py"
       ],
       "replacement": null,
       "rtl_selection": null,
@@ -1325,7 +1332,9 @@
       "status": "normative",
       "symbol": "PYC_TruncOp",
       "tests": [
-        "tests/test_assert_fits.py"
+        "tests/test_assert_fits.py",
+        "tests/unit/test_api_contract.py",
+        "tests/unit/test_v6_forward_signal.py"
       ],
       "verifier": "compiler/mlir/lib/Dialect/PYC/PYCOps.cpp",
       "verilog_emitter": "compiler/mlir/lib/Emit/VerilogEmitter.cpp"
@@ -1496,14 +1505,17 @@
         "python/pycircuit/src/pycircuit/__init__.py",
         "python/pycircuit/src/pycircuit/api_contract.py",
         "python/pycircuit/src/pycircuit/dsl.py",
-        "python/pycircuit/src/pycircuit/hw.py"
+        "python/pycircuit/src/pycircuit/hw.py",
+        "python/pycircuit/src/pycircuit/jit.py"
       ],
       "replacement": null,
       "rtl_selection": null,
       "stage": "canonical-pyc",
       "status": "normative",
       "symbol": "PYC_ZextOp",
-      "tests": [],
+      "tests": [
+        "tests/unit/test_v6_forward_signal.py"
+      ],
       "verifier": "compiler/mlir/lib/Dialect/PYC/PYCOps.cpp",
       "verilog_emitter": "compiler/mlir/lib/Emit/VerilogEmitter.cpp"
     }

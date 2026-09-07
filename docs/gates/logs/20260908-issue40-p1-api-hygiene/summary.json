@@ -1,0 +1,18 @@
+{
+  "run_id": "20260908-issue40-p1-api-hygiene",
+  "status": "passed",
+  "base_revision": "00f025292e6ede81b4123cfa56df029d87895d4f",
+  "decision_ids": ["0148", "0159"],
+  "issue": 40,
+  "results": {
+    "unit": {"passed": 87, "failed": 0},
+    "focused_receiver_hygiene": {"passed": 19, "failed": 0},
+    "api_hygiene": {"passed": true},
+    "pyc_inventory": {"operations": 41, "types": 2, "passed": true},
+    "pre_commit": {"passed": true},
+    "mkdocs_strict": {"passed": true},
+    "decision_status": {"rows": 224, "deferred": 0, "passed": true}
+  },
+  "behavior": "API hygiene and JIT accept normative CAS method calls while rejecting Wire and unknown receivers using canonical bindings, conservative control-flow joins, and runtime receiver identity.",
+  "skill_evolve": "no-update"
+}

@@ -1,0 +1,7 @@
+PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=python/semantic-core/src:python/pycircuit/src pytest tests/unit -m unit -q
+PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=python/semantic-core/src:python/pycircuit/src pytest tests/unit/test_api_contract.py tests/unit/test_v6_forward_signal.py -q
+PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=python/semantic-core/src:python/pycircuit/src python3 flows/tools/check_api_hygiene.py python/pycircuit/src/pycircuit examples/pycircuit docs README.md
+python3 tools/check-pyc-inventory.py
+pre-commit run --files docs/FRONTEND_API.md docs/development/pyc-ir-inventory.md docs/gates/decision_status_v6.md docs/gates/logs/20260908-issue40-p1-api-hygiene/commands.txt docs/gates/logs/20260908-issue40-p1-api-hygiene/review.md docs/gates/logs/20260908-issue40-p1-api-hygiene/summary.json docs/pyc6-plan.md docs/rfcs/pyc6-decisions.md python/pycircuit/src/pycircuit/api_contract.py python/pycircuit/src/pycircuit/jit.py schemas/primitives/pyc_ir_coverage.json tests/unit/test_api_contract.py tests/unit/test_v6_forward_signal.py
+mkdocs build --strict --site-dir .pycircuit_out/issue40-p1-api-hygiene/site
+python3 flows/tools/check_decision_status.py --rfc docs/rfcs/pyc6-decisions.md --status docs/gates/decision_status_v6.md --out docs/gates/logs/20260908-issue40-p1-api-hygiene/decision_status_report.json --require-no-deferred --require-all-verified --require-concrete-evidence --require-existing-evidence

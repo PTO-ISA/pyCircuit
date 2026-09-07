@@ -1,9 +1,91 @@
 from __future__ import annotations
 
+from functools import partial
+
 import pycircuit
 import pytest
 
 pytestmark = pytest.mark.unit
+
+
+def _jit_cas_method_build(m, domain) -> None:
+    value = pycircuit.cas(domain, m.input("value", width=8), cycle=0)
+    signed = value.sext(width=16)
+    unsigned = signed.as_unsigned()
+    zero_extended = value.zext(width=16)
+    selected = value[0].select(unsigned, zero_extended)
+    result = selected.trunc(width=4)
+    m.output("result", pycircuit.wire_of(result))
+
+
+def _jit_wire_method_build(m, domain) -> None:
+    _ = domain
+    value = m.input("value", width=8)
+    m.output("result", value.trunc(width=4))
+
+
+def _jit_wire_method_alias_build(m, domain) -> None:
+    _ = domain
+    value = m.input("value", width=8)
+    truncate = value.trunc
+    m.output("result", truncate(width=4))
+
+
+def _jit_cas_method_alias_build(m, domain) -> None:
+    value = pycircuit.cas(domain, m.input("value", width=8), cycle=0)
+    truncate = value.trunc
+    m.output("result", pycircuit.wire_of(truncate(width=4)))
+
+
+def _jit_wire_getattr_alias_build(m, domain) -> None:
+    _ = domain
+    value = m.input("value", width=8)
+    truncate = getattr(value, "trunc")  # noqa: B009 - exercise reflective alias
+    m.output("result", truncate(width=4))
+
+
+def _jit_wire_partial_alias_build(m, domain) -> None:
+    _ = domain
+    value = m.input("value", width=8)
+    truncate = partial(value.trunc, width=4)
+    m.output("result", truncate())
+
+
+def _jit_wire_reflective_partial_build(m, domain) -> None:
+    _ = domain
+    value = m.input("value", width=8)
+    truncate = partial(getattr(value, "trunc"), width=4)  # noqa: B009
+    m.output("result", truncate())
+
+
+def test_jit_allows_cas_methods_and_evaluates_receiver_once() -> None:
+    design = pycircuit.compile_cycle_aware(_jit_cas_method_build)
+    mlir = design.emit_mlir()
+
+    assert mlir.count("%value: i8") == 1
+    assert "pyc.trunc" in mlir
+    assert "pyc.sext" in mlir
+    assert "pyc.zext" in mlir
+    assert "pyc.select" in mlir
+
+
+def test_jit_rejects_removed_wire_methods() -> None:
+    with pytest.raises(pycircuit.JitError, match="PYC430"):
+        pycircuit.compile_cycle_aware(_jit_wire_method_build)
+
+    with pytest.raises(pycircuit.JitError, match="PYC430"):
+        pycircuit.compile_cycle_aware(_jit_wire_method_alias_build)
+    with pytest.raises(pycircuit.JitError, match="PYC430"):
+        pycircuit.compile_cycle_aware(_jit_wire_getattr_alias_build)
+    with pytest.raises(pycircuit.JitError, match="PYC430"):
+        pycircuit.compile_cycle_aware(_jit_wire_partial_alias_build)
+    with pytest.raises(pycircuit.JitError, match="PYC430"):
+        pycircuit.compile_cycle_aware(_jit_wire_reflective_partial_build)
+
+    assert (
+        "pyc.trunc"
+        in pycircuit.compile_cycle_aware(_jit_cas_method_alias_build).emit_mlir()
+    )
 
 
 def test_forward_signal_reads_rebase_to_current_occurrence() -> None:
