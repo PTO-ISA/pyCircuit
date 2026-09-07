@@ -7155,6 +7155,7 @@ class _ExpressionEmitter:
                     invariant.argument,
                     invariant.payload,
                     root_name="value",
+                    prefix=f"{self.prefix}invariant{self.index}_",
                     bitfields=self.bitfields,
                 )
                 predicate, predicate_type = predicate_emitter.emit(

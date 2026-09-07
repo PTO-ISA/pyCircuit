@@ -3089,6 +3089,18 @@ def cycle(incoming: Left) -> Left:
         lowered = lower_queue_source(source, "invariant_module")
         self.assertIn("ac.var.or", lowered)
 
+    def test_invariant_region_ssa_is_unique_after_an_outer_expression(self) -> None:
+        from agentic_circuit._queue_frontend import lower_queue_source
+
+        source = INVARIANT_MODULE_SOURCE.replace(
+            "valid=valid_payload(value)",
+            "valid=(value == value) and valid_payload(value)",
+        )
+        lowered = lower_queue_source(source, "invariant_module")
+        self.assertIn("%v0 = ac.var.cmp", lowered)
+        self.assertIn("%invariant1_v0 = ac.var.get", lowered)
+        self.assertIn("ac.var.invariant.yield %invariant1_", lowered)
+
     def test_aggregate_ordering_and_nominal_mismatch_fail_closed(self) -> None:
         from agentic_circuit._queue_frontend import (
             QueueFrontendError,

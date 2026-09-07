@@ -1,0 +1,16 @@
+{
+  "run_id": "20260907-issue48-invariant-ssa",
+  "status": "passed",
+  "base_revision": "cb67c4d533c8a942bd729e0aa0d9446c51dffbce",
+  "decision_ids": ["0224"],
+  "issue": 48,
+  "results": {
+    "focused_frontend": {"passed": 133, "failed": 0},
+    "design_contract_parse": {"passed": true},
+    "pre_commit": {"passed": true}
+  },
+  "behavior": "Each invariant predicate region uses an outer-expression-qualified SSA prefix, so aggregate equality followed by an invariant call parses and lowers in the same rule.",
+  "trigger": "The first in-tree DavinciOO contract probe placed IssueAttemptKey equality before OperandSourceDescriptor.valid_operand_source and exposed duplicate percent-v0 names.",
+  "release_scope": "Focused framework regression discovered by the DavinciOO design program.",
+  "skill_evolve": "no-update"
+}
