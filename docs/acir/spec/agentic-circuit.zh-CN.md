@@ -413,7 +413,8 @@ def-use、调度和 NDF/target 限制选择实际存储与传输结构。`ac.var
 state，`ac.var.read` 产生不可变 committed snapshot，`ac.var.assign` 在一个 rule 内
 提出 next value。storage-selection pass 在 rule closure 前消除这些操作。第一条可执行
 链支持零初始化 scalar integer，并选择单 entry committed 实现；Python 前端不暴露该
-选择。
+选择。持久 scalar state 也可以是 nominal enum，但必须用第一个声明的 member 作为
+zero image；storage selection 会保留 enum nominal type，不允许退化成裸整数。
 
 固定大小的持久 list 使用普通 Python 写法，例如
 `entries: list[Entry] = [0] * 8`。前端生成带 shape 的 `ac.var.decl` 以及

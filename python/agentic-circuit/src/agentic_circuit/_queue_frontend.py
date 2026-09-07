@@ -1209,13 +1209,19 @@ def _nonnegative_int_value(
     return value
 
 
-def _payload(node: ast.expr, payloads: dict[str, Payload]) -> ValueType:
+def _payload(
+    node: ast.expr,
+    payloads: dict[str, Payload],
+    enums: Mapping[str, ValueType] | None = None,
+) -> ValueType:
     try:
         return _scalar_type_descriptor(node)
     except QueueFrontendError:
         pass
     if isinstance(node, ast.Name) and node.id in payloads:
         return payloads[node.id].descriptor
+    if isinstance(node, ast.Name) and enums is not None and node.id in enums:
+        return enums[node.id]
     raise QueueFrontendError(
         "ACPY-QUEUE-002: source payload must be a compile-time supported type"
     )
@@ -1481,6 +1487,7 @@ def parse_queue_program(
                 "ACPY-QUEUE-010: user opcode or backend providers are forbidden"
             )
     enums = _enums(tree)
+    enum_map = {item.name: item.descriptor for item in enums}
     payloads = _payloads(tree, enums)
     payload_map = {item.name: item for item in payloads}
     bitfields = _bitfields(tree)
@@ -3625,14 +3632,27 @@ def parse_queue_program(
                         )
                     init: int | bool = False if isinstance(value_type, BoolType) else 0
                 else:
-                    value_type = _payload(annotation, payload_map)
-                    if not isinstance(statement.value, ast.Constant) or type(
-                        statement.value.value
-                    ) not in {bool, int}:
-                        raise QueueFrontendError(
-                            "ACPY-VAR-001: persistent scalar init must be constant"
-                        )
-                    init = statement.value.value
+                    value_type = _payload(annotation, payload_map, enum_map)
+                    if isinstance(value_type, EnumType):
+                        if (
+                            not isinstance(statement.value, ast.Attribute)
+                            or _decorator_name(statement.value.value).rsplit(".", 1)[-1]
+                            != value_type.name
+                            or statement.value.attr != value_type.enumerants[0]
+                        ):
+                            raise QueueFrontendError(
+                                "ACPY-VAR-001: persistent enum init must be its "
+                                "first declared member"
+                            )
+                        init = 0
+                    else:
+                        if not isinstance(statement.value, ast.Constant) or type(
+                            statement.value.value
+                        ) not in {bool, int}:
+                            raise QueueFrontendError(
+                                "ACPY-VAR-001: persistent scalar init must be constant"
+                            )
+                        init = statement.value.value
                 if isinstance(
                     value_type, (StructType, TupleType, ArrayType, EnumType)
                 ) and (type(init) is not int or init != 0):

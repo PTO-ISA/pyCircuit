@@ -195,9 +195,10 @@ LogicalResult lowerVariableState(ModuleOp model) {
     if (!integer || !integer.getValue().isZero())
       return declaration.emitOpError(
           "first ac.var storage-selection slice requires integer zero init");
-    if (!isa<IntegerType, ac::StructType>(declaration.getValueType()))
+    if (!isa<IntegerType, ac::EnumType, ac::StructType>(
+            declaration.getValueType()))
       return declaration.emitOpError("first ac.var storage-selection slice "
-                                     "requires scalar or flat struct");
+                                     "requires scalar, enum, or flat struct");
     int64_t entries = 1;
     if (auto shape = declaration.getShapeAttr()) {
       if (shape.asArrayRef().size() != 1)

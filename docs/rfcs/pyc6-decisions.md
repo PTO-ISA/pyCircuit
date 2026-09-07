@@ -6791,7 +6791,7 @@ metadata without flattening every field into the Python API.
 
 ## Decision 0214: standard Python enums lower to nominal encoded values
 
-**Status:** Accepted and implemented for nested enum fields and equality
+**Status:** Accepted and implemented for values, equality, and zero-initialized persistent state
 
 **Context / Goal**
 DavinciOO control packets need nominal states and opcode classes that cannot be
@@ -6819,6 +6819,10 @@ and make the frontend less Pythonic.
 - QueueGraph-to-PYC uses the explicit ordinal and exact width for packing and
   comparison. Generated PYC C++ and Verilog therefore share the same nominal-
   frontend encoding without adding a backend-only enum interpretation.
+- A persistent scalar enum is initialized with its first declared member. The
+  frontend emits a verifier-visible zero image, storage selection preserves the
+  nominal enum as the committed Table entry type, and assignments use ordinary
+  enum members. Raw integer initializers and nonzero initial members fail closed.
 - Contract epoch remains `0.5`: the new declaration/value operations are an
   additive capability and existing integer/struct semantics do not change.
   Older compilers reject the unknown operation rather than accepting another
@@ -6833,6 +6837,9 @@ and make the frontend less Pythonic.
 - The enum QueueGraph contains the exact three-member/two-bit encoding.
   Generated gfsim executes WAIT-to-RUN replacement and equality; PYC C++ and
   Verilator produce the same 26-bit packet on the same cycle.
+- Frontend and ACIR storage-selection tests lower a zero-initialized persistent
+  enum through `ac.var.decl`/read/assign to a nominal enum Table and compile the
+  generated gfsim C++.
 
 **Source**
 - PTO-ISA/pyCircuit issue #39.

@@ -347,9 +347,10 @@ Persistent class/module fields lower to the same `ac.var` family. Internal
 `ac.var.decl` names the lexical state, `ac.var.read` produces an immutable
 committed snapshot, and `ac.var.assign` proposes the next value within one
 rule. Storage selection eliminates these operations before rule closure. The
-first executable slice accepts a zero-initialized scalar integer or flat struct
-and selects a single-entry committed implementation; the Python frontend does
-not expose that choice.
+first executable slice accepts a zero-initialized scalar integer, nominal enum,
+or flat struct and selects a single-entry committed implementation. Enum state
+uses its first declared member as the zero image and keeps its nominal type
+through storage selection; the Python frontend does not expose that choice.
 
 A fixed persistent list uses ordinary Python syntax such as
 `entries: list[Entry] = [0] * 8`. The frontend emits a shaped `ac.var.decl`

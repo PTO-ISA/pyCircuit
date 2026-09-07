@@ -509,6 +509,33 @@ def enum_payload_pipeline(incoming: Packet) -> Packet:
     return updated
 """
 
+ENUM_STATE_SOURCE = """
+from enum import Enum
+import agentic_circuit as ac
+
+class Mode(Enum):
+    IDLE = 0
+    RUN = 1
+
+@ac.struct
+class Command:
+    enable: bool
+    observed: Mode
+
+@ac.rule
+def remember(mode, command):
+    observed = mode
+    if command.enable:
+        mode = Mode.RUN
+    return command.with_fields(observed=observed)
+
+@ac.system
+def enum_state(command: Command) -> Command:
+    mode: Mode = Mode.IDLE
+    result = remember(mode, command)
+    return result
+"""
+
 AGGREGATE_PAYLOAD_SOURCE = """
 from __future__ import annotations
 
@@ -2973,6 +3000,28 @@ def cycle(incoming: Left) -> Left:
         )
         with self.assertRaisesRegex(QueueFrontendError, "only equality"):
             lower_queue_source(ordered, "enum_payload_pipeline")
+
+    def test_nominal_enum_can_own_zero_initialized_persistent_state(self) -> None:
+        from agentic_circuit._queue_frontend import lower_queue_source
+
+        lowered = lower_queue_source(ENUM_STATE_SOURCE, "enum_state")
+        self.assertIn(
+            "ac.var.decl @mode type !ac.enum<@types::@Mode> init 0 : i64",
+            lowered,
+        )
+        self.assertIn("ac.var.read @mode", lowered)
+        self.assertIn('ac.var.enum @types::@Mode "RUN"', lowered)
+        self.assertIn("ac.var.assign @mode", lowered)
+
+    def test_persistent_enum_requires_its_zero_ordinal_member(self) -> None:
+        from agentic_circuit._queue_frontend import (
+            QueueFrontendError,
+            lower_queue_source,
+        )
+
+        invalid = ENUM_STATE_SOURCE.replace("Mode.IDLE", "Mode.RUN", 1)
+        with self.assertRaisesRegex(QueueFrontendError, "first declared member"):
+            lower_queue_source(invalid, "enum_state")
 
     def test_tuple_and_value_array_lower_as_structural_aggregate_values(self) -> None:
         from _pycircuit_semantics import ArrayType, TupleType
