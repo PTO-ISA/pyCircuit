@@ -3776,6 +3776,12 @@ evaluation order observable in simulator cost.
   effect, min/max policy, or wider word-array mask retains the general Table
   scan. This changes generated cost, not selection, snapshot, reservation, or
   backpressure semantics.
+- Generated gfsim C++ binds aggregate Table observations and nested aggregate
+  projections to lexical `const` references inside one policy invocation.
+  ACIR remains value-only: immutable updates, write proposals, transition-plan
+  returns, and Queue outputs materialize complete values before the invocation
+  ends. Scalar observations stay by value, and checked access keeps its runtime
+  failure behavior.
 
 **Verification**
 - Frontend and ACIR tests prove one shared SSA definition, dominance, same-Table
@@ -3786,6 +3792,9 @@ evaluation order observable in simulator cost.
 - Width 1/16/64 first-selection tests cover zero, bit 63 and multi-hit masks;
   generated-source checks distinguish the priority-encoder fast path from the
   required min/max and wider-mask scan fallbacks.
+- Nested aggregate Table fixtures compile both `at` and `checkedAt` paths,
+  preserve scalar projection values, and replace the source row before a
+  queued result is consumed to prove output and proposal materialization.
 - The multi-writer Issue Queue example compiles and runs in direct and native
   gfsim while its grant read and valid-clear patch reuse one selection.
 

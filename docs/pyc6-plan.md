@@ -300,6 +300,15 @@ PYC semantic contracts.
     gfsim behavior and the existing PYC/Verilog priority primitive gates green.
   - [x] Record generated-loop/byte changes and separate runtime timing from
     semantic gate results.
+- [x] Complete issue #63 OPT-05 aggregate Table observation borrowing.
+  - [x] Bind aggregate `table_get` results and nested aggregate projections as
+    lexical `const` references; keep scalar observations by value and preserve
+    checked-access diagnostics.
+  - [x] Materialize immutable updates, state proposals, transition returns and
+    Queue outputs before the policy invocation ends.
+  - [x] Compile and execute nested-entry `at`/`checkedAt` fixtures, overwrite a
+    source row before consuming its output, and record WBA generated-source and
+    optimized-machine-code comparisons without claiming unmeasured speedup.
 - [x] Close #46 and #48 framework prerequisites before their dependent
   DavinciOO H3 implementations. Decision 0222 places new design-program work
   under `designs/davincioo/`; independent contracts/modules may proceed when

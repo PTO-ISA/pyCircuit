@@ -1,0 +1,12 @@
+cmake --build .pycircuit_out/acir/dev-llvm22 --target acir-queue-cxxgen CodeGenTests
+.pycircuit_out/acir/dev-llvm22/bin/CodeGenTests
+PYTHONDONTWRITEBYTECODE=1 pytest -q designs/davincioo/tests/spe/iex/test_wba.py
+PYTHONDONTWRITEBYTECODE=1 pytest -q tests/system/test_primitive_selection.py
+PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=python/semantic-core/src:python/pycircuit/src pytest tests/unit -m unit -q
+PYTHONDONTWRITEBYTECODE=1 uv run --no-project --isolated --with-requirements python/agentic-circuit/requirements-dev.lock python tools/agentic-circuit/check-contracts.py
+python3 tools/check-pyc-inventory.py
+python3 tools/agentic-circuit/check-ir-coverage.py
+PYTHONPATH=.:python/agentic-circuit/src:python/semantic-core/src python3 docs/gates/logs/20260908-issue63-opt05-table-borrow/measure_wba_codegen.py
+pre-commit run --files compiler/acir/lib/CodeGen/QueueGraphGenerator.cpp designs/davincioo/tests/spe/iex/test_wba.py docs/acir/spec/agentic-circuit.md docs/acir/spec/agentic-circuit.zh-CN.md docs/gates/decision_status_v6.md docs/pyc6-plan.md docs/rfcs/pyc6-decisions.md tests/cpp/agentic-circuit/CodeGen/QueueGraphPlanTest.cpp docs/gates/logs/20260908-issue63-opt05-table-borrow/measure_wba_codegen.py docs/gates/logs/20260908-issue63-opt05-table-borrow/metrics.json docs/gates/logs/20260908-issue63-opt05-table-borrow/review.md docs/gates/logs/20260908-issue63-opt05-table-borrow/summary.json
+mkdocs build --strict --site-dir .pycircuit_out/issue63-opt05-table-borrow/site
+python3 flows/tools/check_decision_status.py --rfc docs/rfcs/pyc6-decisions.md --status docs/gates/decision_status_v6.md --out docs/gates/logs/20260908-issue63-opt05-table-borrow/decision_status_report.json --require-no-deferred --require-all-verified --require-concrete-evidence --require-existing-evidence
