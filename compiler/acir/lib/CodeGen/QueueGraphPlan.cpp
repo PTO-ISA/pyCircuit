@@ -2936,10 +2936,14 @@ llvm::Error verifyQueueGraphPlan(const QueueGraphPlan &plan) {
 
   auto verifyExpressionList =
       [&](auto &&self, const auto &expressions,
-          llvm::ArrayRef<std::string> rootTypes) -> llvm::Error {
+          llvm::ArrayRef<std::string> rootTypes, llvm::StringRef rootPrefix,
+          const llvm::StringMap<std::string> &inheritedTypes) -> llvm::Error {
     llvm::StringMap<std::string> valueTypes;
+    for (const auto &entry : inheritedTypes)
+      valueTypes[entry.getKey()] = entry.getValue();
     for (auto [index, type] : llvm::enumerate(rootTypes))
-      valueTypes[index == 0 ? "item" : "item" + std::to_string(index)] = type;
+      valueTypes[index == 0 ? rootPrefix.str()
+                            : rootPrefix.str() + std::to_string(index)] = type;
     for (const QueueExpressionPlan &expression : expressions) {
       if (expression.result.empty() || expression.type.empty() ||
           valueTypes.contains(expression.result))
@@ -3076,9 +3080,20 @@ llvm::Error verifyQueueGraphPlan(const QueueGraphPlan &plan) {
           return planError("comparison expression contract is malformed");
         auto left = valueTypes.find(expression.operands[0]);
         auto right = valueTypes.find(expression.operands[1]);
-        if (left == valueTypes.end() || right == valueTypes.end() ||
-            left->getValue() != right->getValue())
-          return planError("comparison operand types must match");
+        if (left == valueTypes.end())
+          return planError(llvm::Twine("comparison '") + expression.result +
+                           "' left operand '" + expression.operands[0] +
+                           "' must reference a typed value");
+        if (right == valueTypes.end())
+          return planError(llvm::Twine("comparison '") + expression.result +
+                           "' right operand '" + expression.operands[1] +
+                           "' must reference a typed value");
+        if (left->getValue() != right->getValue())
+          return planError(
+              llvm::Twine("comparison operand types must match for '") +
+              expression.result + "': " + expression.operands[0] + " is " +
+              left->getValue() + ", " + expression.operands[1] + " is " +
+              right->getValue());
         const bool integer = integerWidth(left->getValue()).has_value();
         std::optional<llvm::StringRef> enumName =
             enumTypeName(left->getValue());
@@ -3222,7 +3237,12 @@ llvm::Error verifyQueueGraphPlan(const QueueGraphPlan &plan) {
         llvm::SmallVector<std::string> nestedRoots;
         if (table)
           nestedRoots.push_back(table->entryType);
-        if (auto error = self(self, expression.nestedExpressions, nestedRoots))
+        llvm::StringMap<std::string> nestedInheritedTypes;
+        for (const std::string &operand : expression.operands)
+          if (auto found = valueTypes.find(operand); found != valueTypes.end())
+            nestedInheritedTypes[operand] = found->getValue();
+        if (auto error = self(self, expression.nestedExpressions, nestedRoots,
+                              "entry", nestedInheritedTypes))
           return error;
       }
     }
@@ -3268,8 +3288,10 @@ llvm::Error verifyQueueGraphPlan(const QueueGraphPlan &plan) {
     llvm::SmallVector<std::string> roots;
     if (table)
       roots.push_back(table->entryType);
+    llvm::StringMap<std::string> noInheritedTypes;
     if (auto error = verifyExpressionList(verifyExpressionList,
-                                          match.expressions, roots))
+                                          match.expressions, roots, "item",
+                                          noInheritedTypes))
       return error;
     if (auto error =
             verifyTableGetConstraints(verifyTableGetConstraints,
@@ -3281,8 +3303,10 @@ llvm::Error verifyQueueGraphPlan(const QueueGraphPlan &plan) {
     llvm::SmallVector<std::string> roots;
     if (table)
       roots.push_back(table->entryType);
-    if (auto error = verifyExpressionList(verifyExpressionList,
-                                          selection.keyExpressions, roots))
+    llvm::StringMap<std::string> noInheritedTypes;
+    if (auto error = verifyExpressionList(
+            verifyExpressionList, selection.keyExpressions, roots, "item",
+            noInheritedTypes))
       return error;
     if (auto error = verifyTableGetConstraints(
             verifyTableGetConstraints, selection.keyExpressions, roots))
@@ -3294,8 +3318,10 @@ llvm::Error verifyQueueGraphPlan(const QueueGraphPlan &plan) {
     for (const std::string &input : block.inputs)
       if (auto found = queueTypes.find(input); found != queueTypes.end())
         roots.push_back(found->getValue());
+    llvm::StringMap<std::string> noInheritedTypes;
     if (auto error = verifyExpressionList(verifyExpressionList,
-                                          block.expressions, roots))
+                                          block.expressions, roots, "item",
+                                          noInheritedTypes))
       return error;
     if (auto error = verifySharedExpressions(block.expressions))
       return error;

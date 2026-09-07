@@ -637,6 +637,34 @@ TEST(QueueGraphPlanTest, RejectsResidualInvariantBeforeCodegen) {
             std::string::npos);
 }
 
+TEST(QueueGraphPlanTest, VerifiesNestedTableMatchCaptureTypes) {
+  QueueGraphPlan plan;
+  plan.system = "captured_match";
+  plan.tables = {{"entries", "i8", 1, 0, "table/entries", "/"}};
+  plan.queues = {{"input", "i8", "/", 1, 1},
+                 {"output", "i1", "/", 1, 1}};
+  plan.blocks.push_back({"source", "input", "/", {}, {"input"}, {1}, {1}});
+  QueueBlockPlan transform{"firing", "output", "/", {"input"},
+                           {"output"}, {1},      {1}};
+  transform.expressions.push_back(
+      {"captured", "constant", "i8", {}, "", "", "7 : i8"});
+  QueueExpressionPlan match{"matched", "table_match", "i1", {"captured"}};
+  match.table = "entries";
+  match.nestedExpressions.push_back(
+      {"same", "cmp", "i1", {"entry", "captured"}, "", "eq"});
+  match.nestedYields = {"same"};
+  transform.expressions.push_back(std::move(match));
+  transform.yields = {"matched"};
+  transform.guard = "matched";
+  transform.stateReservations.push_back(
+      {"entries", "", "", "matched", "all", {"$entry"}});
+  plan.blocks.push_back(std::move(transform));
+  plan.blocks.push_back({"sink", "sink", "/", {"output"}, {}});
+
+  auto error = verifyQueueGraphPlan(plan);
+  ASSERT_FALSE(bool(error)) << llvm::toString(std::move(error));
+}
+
 TEST(QueueGraphPlanTest,
      PreservesExactU64MaskedMatchAndRejectsForgedMetadata) {
   QueueGraphPlan plan;
