@@ -8,9 +8,9 @@ from pycircuit import (
     ct,
     function,
     spec,
+    structural,
     u,
 )
-from pycircuit.v6 import mux
 
 
 @dataclass(frozen=True)
@@ -98,7 +98,7 @@ def _entry_spec(m: Circuit, cfg: IqCfg):
 def _onehot_mux(m: Circuit, sel: list, vals: list, width: int):
     out = m.const(0, width=int(width))
     for s, v in zip(sel, vals, strict=True):
-        out = mux(s, v, out)
+        out = structural.mux(s, v, out)
     return out
 
 
@@ -108,7 +108,7 @@ def _count_ones(m: Circuit, bits: list, width: int):
     one = m.const(1, width=int(width))
     zero = m.const(0, width=int(width))
     for b in bits:
-        out = out + mux(b, one, zero)
+        out = out + structural.mux(b, one, zero)
     return out
 
 
@@ -157,8 +157,8 @@ def _alloc_field(
 @function
 def _slot_select(m: Circuit, keep_bit, new_bit, keep_val, new_val, width: int):
     zero = m.const(0, width=int(width))
-    keep_or_zero = mux(keep_bit, keep_val, zero)
-    return mux(new_bit, new_val, keep_or_zero)
+    keep_or_zero = structural.mux(keep_bit, keep_val, zero)
+    return structural.mux(new_bit, new_val, keep_or_zero)
 
 
 @function

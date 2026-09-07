@@ -95,6 +95,8 @@ V6 tests plus the examples, simulation, and semantic lanes archived under
   to cycle-aware bitwise OR.
 - [x] Split canonical JIT `compile_cycle_aware()` from explicit eager
   `build_cycle_aware()` with stable return types and hardened MLIR on both paths.
+- [x] Stabilize the CAS/Wire boundary: domain factories and top-level `mux()`
+  return CAS; raw Wire selection is explicit under `pycircuit.structural`.
 - [ ] Verify cycle provenance across `domain.call()` and `pyc.instance`
   boundaries.
 - [x] Verify automatic delay insertion for mixed-cycle arithmetic, comparison,

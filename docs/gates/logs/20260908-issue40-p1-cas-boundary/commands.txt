@@ -1,0 +1,12 @@
+PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=python/semantic-core/src:python/pycircuit/src pytest tests/unit -m unit -q
+PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=python/semantic-core/src:python/pycircuit/src pytest tests/test_pyc_enum.py tests/test_signed_compare.py tests/test_bitfield_view.py -q
+PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=python/semantic-core/src:python/pycircuit/src python3 designs/blocks/BypassUnit/bypass_unit.py > .pycircuit_out/issue40-p1-cas-boundary/bypass.mlir
+PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=python/semantic-core/src:python/pycircuit/src python3 designs/blocks/IssueQueue/issq.py > .pycircuit_out/issue40-p1-cas-boundary/issue_queue.mlir
+PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=python/semantic-core/src:python/pycircuit/src python3 examples/pycircuit/fm16/npu_node.py > .pycircuit_out/issue40-p1-cas-boundary/fm16_npu.mlir
+PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=python/semantic-core/src:python/pycircuit/src python3 examples/pycircuit/fm16/sw5809s.py > .pycircuit_out/issue40-p1-cas-boundary/fm16_switch.mlir
+PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=python/semantic-core/src:python/pycircuit/src python3 flows/tools/check_api_hygiene.py python/pycircuit/src/pycircuit examples/pycircuit docs README.md
+python3 tools/check-pyc-inventory.py
+cp docs/gates/logs/20260908-issue40-p1-cas-boundary/changed_precommit.py.txt .pycircuit_out/issue40-p1-cas-boundary/changed_precommit.py
+python3 .pycircuit_out/issue40-p1-cas-boundary/changed_precommit.py
+mkdocs build --strict --site-dir .pycircuit_out/issue40-p1-cas-boundary/site
+python3 flows/tools/check_decision_status.py --rfc docs/rfcs/pyc6-decisions.md --status docs/gates/decision_status_v6.md --out docs/gates/logs/20260908-issue40-p1-cas-boundary/decision_status_report.json --require-no-deferred --require-all-verified --require-concrete-evidence --require-existing-evidence

@@ -52,7 +52,7 @@ CycleAwareSignal timing model.
 
 ```python
 from pycircuit import Circuit, compile, module, function, const, testbench
-from pycircuit import ct, spec, wiring, logic, lib
+from pycircuit import ct, spec, wiring, logic, lib, structural
 ```
 
 ### Circuit authoring API
@@ -82,6 +82,8 @@ Wiring:
 - `wiring.bind(spec_or_sig, connector_bundle_or_struct)`
 - `wiring.ports(m, bind)`
 - `wiring.unbind(...)`, `wiring.unflatten(...)` (debug/inspection helpers)
+- `structural.mux(cond, true_value, false_value)` for raw Wire selection;
+  top-level `mux()` is CycleAware and returns `CycleAwareSignal`
 
 ### `spec`, `logic`, and `lib`
 

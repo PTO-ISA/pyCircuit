@@ -6,7 +6,7 @@ from pycircuit import (
     CycleAwareCircuit,
     CycleAwareDomain,
     build_cycle_aware,
-    mux,
+    structural,
     u,
 )
 
@@ -46,11 +46,11 @@ def build(
             rx_dst_i = rx_pkts[i][24:28]
             rx_port_i = rx_dst_i[0:PORT_BITS]
             fwd_match = (rx_port_i == u(PORT_BITS, j)) & rx_vals[i]
-            merged_data = mux(fwd_match, rx_pkts[i], merged_data)
+            merged_data = structural.mux(fwd_match, rx_pkts[i], merged_data)
             merged_valid = fwd_match | merged_valid
 
         hbm_match_j = hbm_valid & (hbm_port == u(PORT_BITS, j))
-        merged_data = mux(hbm_match_j, hbm_pkt, merged_data)
+        merged_data = structural.mux(hbm_match_j, hbm_pkt, merged_data)
         merged_valid = hbm_match_j | merged_valid
 
         fifos[j].push(merged_data, when=merged_valid)

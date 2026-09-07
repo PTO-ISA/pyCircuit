@@ -3350,6 +3350,12 @@ an artificial split between the implementation, examples, and product docs.
   canonical digest-qualified symbols. Compile mechanism and return type never
   depend on a boolean mode flag, and `structural`, `value_params`, and
   `design_ctx` are not public call options.
+- Raw `Wire` remains explicit at `CycleAwareCircuit.input()`/`const()` and
+  `wire_of()` boundaries. Domain-owned `create_signal()`, `create_const()`, and
+  `create_reset()` return CAS values at the current occurrence. Top-level
+  `mux()` requires a cycle-aware anchor and always returns CAS;
+  `pycircuit.structural.mux()` is the explicit raw-Wire selection surface and
+  always returns `Wire`.
 - The compiler automatically inserts explicit `pyc.reg` delay chains when
   operands from different logical cycles must be aligned.
 - `domain.signal()` plus `<<=` or `.assign()` is the canonical inferred-state

@@ -1,4 +1,4 @@
-from . import ct, hierarchical, lib, logic, spec, wiring
+from . import ct, hierarchical, lib, logic, spec, structural, wiring
 from .bitfield import BitfieldSignal, BitfieldSpec, BitfieldView
 from .connectors import (
     Connector,
@@ -128,6 +128,7 @@ __all__ = [
     "priority_encode",
     "probe",
     "spec",
+    "structural",
     "testbench",
     "wiring",
     "s",

@@ -8,6 +8,7 @@ from pycircuit import (
     build_cycle_aware,
     cas,
     mux,
+    structural,
     u,
 )
 
@@ -61,7 +62,7 @@ def build(
 
         for i in range(N_PORTS):
             has_data = peeks[i].valid
-            sel_pkt = mux(has_data, peeks[i].data, sel_pkt)
+            sel_pkt = structural.mux(has_data, peeks[i].data, sel_pkt)
             sel_val = has_data | sel_val
 
         out_pkts.append(sel_pkt)

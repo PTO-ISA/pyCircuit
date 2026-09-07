@@ -12,7 +12,7 @@ from dataclasses import dataclass
 import hashlib
 import inspect
 import textwrap
-from typing import Any, Generic, TypeVar, Union, cast, overload
+from typing import Any, Generic, TypeVar, Union, overload
 from collections.abc import Callable, Iterable
 
 from .data import DT, Bits
@@ -86,7 +86,7 @@ class CycleAwareCircuit(Circuit):
         domain: "CycleAwareDomain",
         *,
         signed: bool = False,
-    ) -> Wire:
+    ) -> "CycleAwareSignal":
         """Create a scalar constant in a V6 clock domain."""
         return domain.create_const(value, width=int(width), signed=signed)
 
@@ -97,7 +97,7 @@ class CycleAwareCircuit(Circuit):
         domain: "CycleAwareDomain",
         *,
         signed: bool = False,
-    ) -> Wire:
+    ) -> "CycleAwareSignal":
         """Create a scalar input port in a V6 clock domain."""
         return domain.create_signal(str(name), width=int(width), signed=signed)
 
@@ -135,10 +135,10 @@ class CycleAwareDomain:
     def circuit(self) -> Circuit:
         return self._m
 
-    def create_reset(self) -> Wire:
+    def create_reset(self) -> "CycleAwareSignal":
         """Active-high reset as **i1** for mux / boolean logic (via ``pyc.reset_active``)."""
         ra = self._m.reset_active(self._cd.rst)
-        return Wire(self._m, ra)
+        return CycleAwareSignal(self, Wire(self._m, ra), self._occurrence)
 
     def create_signal(
         self,
@@ -146,9 +146,13 @@ class CycleAwareDomain:
         *,
         width: int,
         signed: bool = False,
-    ) -> Wire:
+    ) -> "CycleAwareSignal":
         """Declare a scalar input port."""
-        return self._m.input(str(port_name), width=int(width), signed=signed)
+        return CycleAwareSignal(
+            self,
+            self._m.input(str(port_name), width=int(width), signed=signed),
+            self._occurrence,
+        )
 
     def create_const(
         self,
@@ -157,10 +161,14 @@ class CycleAwareDomain:
         width: int,
         name: str = "",
         signed: bool = False,
-    ) -> Wire:
+    ) -> "CycleAwareSignal":
         """Create a scalar constant."""
         _ = name
-        return self._m.const(value, width=int(width), signed=signed)
+        return CycleAwareSignal(
+            self,
+            self._m.const(value, width=int(width), signed=signed),
+            self._occurrence,
+        )
 
     def next(self) -> None:
         self._occurrence += 1
@@ -1663,10 +1671,6 @@ def _promote_pair(m: Circuit, a: Wire, b: Wire) -> tuple[Wire, Wire]:
 
 
 @overload
-def mux(cond: Wire, a: Union[Wire, int], b: Union[Wire, int]) -> Wire: ...
-
-
-@overload
 def mux(
     cond: Union[CycleAwareSignal, StateSignal, ForwardSignal],
     a: Union[Wire, int, CycleAwareSignal, StateSignal, ForwardSignal],
@@ -1694,7 +1698,7 @@ def mux(
     cond: Union[Wire, CycleAwareSignal, StateSignal, ForwardSignal],
     a: Union[Wire, CycleAwareSignal, StateSignal, ForwardSignal, int],
     b: Union[Wire, CycleAwareSignal, StateSignal, ForwardSignal, int],
-) -> Wire | CycleAwareSignal:
+) -> CycleAwareSignal:
     def _unwrap(
         v: Union[Wire, CycleAwareSignal, StateSignal, ForwardSignal],
     ) -> Union[Wire, CycleAwareSignal]:
@@ -1708,12 +1712,9 @@ def mux(
     if not any(
         isinstance(value, CycleAwareSignal) for value in (raw_cond, raw_a, raw_b)
     ):
-        raw_cond = cast(Wire, raw_cond)
-        if raw_cond.width != 1:
-            raise TypeError(f"mux() condition must be i1, got {raw_cond.ty}")
-        return raw_cond._select_internal(
-            cast(Wire | int, raw_a),
-            cast(Wire | int, raw_b),
+        raise TypeError(
+            "mux() requires at least one cycle-aware operand; "
+            "use pycircuit.structural.mux() for raw Wire selection"
         )
     return _mux_cycle_aware(raw_cond, raw_a, raw_b)
 

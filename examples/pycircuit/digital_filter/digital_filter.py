@@ -41,12 +41,8 @@ def build(
     products = []
     for tap, coefficient in zip(taps, COEFFS, strict=True):
         tap_ext = cas(domain, sext(wire_of(tap), width=ACC_W), cycle=tap.cycle)
-        coefficient_value = cas(
-            domain,
-            domain.create_const(
-                int(coefficient), width=ACC_W, signed=int(coefficient) < 0
-            ),
-            cycle=0,
+        coefficient_value = domain.create_const(
+            int(coefficient), width=ACC_W, signed=int(coefficient) < 0
         )
         products.append(tap_ext * coefficient_value)
     y_comb = products[0]

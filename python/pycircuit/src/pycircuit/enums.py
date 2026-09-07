@@ -96,10 +96,10 @@ class PycEnum(enum.Enum, metaclass=_PycEnumMeta):
         """
         w = enum_width(type(self))
         code = int(self.value)
-        from .v6 import CycleAwareDomain, cas  # lazy: avoid import cycle
+        from .v6 import CycleAwareDomain  # lazy: avoid import cycle
 
         if isinstance(ctx, CycleAwareDomain):
-            return cas(ctx, ctx.create_const(code, width=w))
+            return ctx.create_const(code, width=w)
         const_fn = getattr(ctx, "const", None)
         if callable(const_fn):
             return const_fn(code, width=w)

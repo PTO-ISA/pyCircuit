@@ -146,9 +146,9 @@ domain = m.create_domain("clk")
 | `push()` / `pop()` | 周期计数器压栈 / 出栈（必须配对） |
 | `call(fn, *, inputs=None, **kwargs)` | 调用子模块并自动 push/pop 隔离周期。扁平模式内联；层次化模式发射 `pyc.instance` |
 | `delay_to(w, *, from_cycle, to_cycle, width)` | 显式打拍对齐（自动平衡的底层机制） |
-| `create_signal(name, *, width, signed=False)` | 创建标量输入端口（裸 `Wire`） |
-| `create_const(value, *, width, name="", signed=False)` | 常量 `Wire` |
-| `create_reset()` | 复位信号（有效高视图，i1 `Wire`） |
+| `create_signal(name, *, width, signed=False)` | 创建标量输入端口，返回当前 occurrence 的 CAS |
+| `create_const(value, *, width, name="", signed=False)` | 返回当前 occurrence 的常量 CAS |
+| `create_reset()` | 返回当前 occurrence 的有效高复位 CAS（i1） |
 | `cycle_index` | 属性：当前逻辑周期索引 |
 
 多时钟域：
@@ -248,8 +248,9 @@ x = cas(domain, m.input("x", width=8), cycle=0)
 result = mux(condition, true_value, false_value)
 ```
 
-三个参数为 CAS（或 int 字面量），返回 CAS，自动周期对齐。裸 `Wire`
-操作数也必须是标量，生成一个 `pyc.select`。
+至少一个参数必须是 CAS/Forward/State 以确定 domain；其余参数可为裸
+`Wire` 或 int 字面量。返回值始终是 CAS，并自动周期对齐。纯 Wire 结构选择
+使用 `pycircuit.structural.mux()`，返回值始终是 `Wire`。
 
 ### wire_of()
 
@@ -656,7 +657,7 @@ outs = domain.call(alu, inputs={...}, tier=1)             # 模块级缺省 tier
 | `push()` / `pop()` | 周期栈 |
 | `call(fn, *, inputs=None, **kwargs)` | 子模块调用（自动隔离） |
 | `delay_to(w, *, from_cycle, to_cycle, width)` | 显式打拍 |
-| `create_signal / create_const / create_reset` | 端口 / 常量 / 复位 |
+| `create_signal / create_const / create_reset` | 当前 occurrence 的端口 / 常量 / 复位 CAS |
 | `cycle_index` | 当前逻辑周期 |
 
 ### 全局函数
@@ -664,7 +665,8 @@ outs = domain.call(alu, inputs={...}, tier=1)             # 模块级缺省 tier
 | 函数 | 说明 |
 |------|------|
 | `cas(domain, wire, cycle=N)` | Wire → CAS |
-| `mux(cond, t, f)` | 多路选择（自动对齐） |
+| `mux(cond, t, f)` | CycleAware 多路选择，稳定返回 CAS（自动对齐） |
+| `structural.mux(cond, t, f)` | 纯 Wire 多路选择，稳定返回 Wire |
 | `submodule_input(io, key, m, domain, *, prefix, width, cycle=0)` | 双模输入 |
 | `wire_of(sig)` | 提取 Wire（仅 `m.output()`） |
 | `cat / zext / sext / trunc` | 位操作辅助 |
