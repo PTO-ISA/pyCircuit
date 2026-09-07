@@ -3926,13 +3926,18 @@ consumer infrastructure.
 
 **Verification**
 - The release-layout gate rejects tracked or existing `integrations/`,
-  `platforms/`, and the former LinxCore frontend example root.
+  `platforms/`, the former LinxCore frontend example root, and product-system
+  classes/files under `examples/pycircuit/` without naming a particular
+  consumer.
 - Package/runtime inspection rejects Linx/Konata headers and the Python JIT
   uses one design-neutral inline-complexity cap.
 - Root CI, examples, performance tooling, and unit tests have no consumer-owned
   design entrypoint.
 - AC G0/G1/G2 and the full pyCircuit 6 closure pass without any consumer
   repository checkout.
+- FM16 is owned by `hengliao1972/DavinciOO@26d193dd` under
+  `srcs/core/system/fm16/`; its consumer compatibility test locks exact
+  pyCircuit revision `0f9e0a38`.
 
 **Source**
 - User direction (2026-09-04): remove LinxCPU/Janus interfaces from the

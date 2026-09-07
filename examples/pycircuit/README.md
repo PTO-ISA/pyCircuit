@@ -4,11 +4,18 @@ This directory contains folderized pyCircuit examples.
 
 ## Layout contract
 
-Each example case `X` is a folder:
+Each example case `X` is a folder. Runnable compiler/simulation cases use:
 
-- `X/X.py`: design (`@module build(...)`)
+- `X/X.py`: design (`@module def build(...)` or
+  `def build(m: CycleAwareCircuit, domain: CycleAwareDomain, ...)`)
 - `X/tb_X.py`: testbench (`@testbench def tb(...)`)
 - `X/X_config.py`: default params + TB presets + `SIM_TIER`
+
+Some focused API or visualization examples are not simulation cases and may
+carry only their design and supporting assets. `discover_examples.py` is the
+authority for the folderized gate set; a CycleAware design uses
+`compile_cycle_aware()` for canonical JIT compilation or
+`build_cycle_aware()` for explicit Python elaboration.
 
 ## Smoke checks
 
@@ -78,3 +85,6 @@ They are intentionally not checked into git.
 Examples in this repository demonstrate supported framework features. Complete
 processor, accelerator, SoC, and board designs belong to their consumer
 repositories and use pyCircuit as a pinned package/toolchain dependency.
+Repository layout checks reject product-system orchestration classes under the
+framework example tree. The FM16 full-mesh system is owned by
+[`hengliao1972/DavinciOO`](https://github.com/hengliao1972/DavinciOO/tree/main/srcs/core/system/fm16).

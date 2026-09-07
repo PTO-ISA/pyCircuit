@@ -1,0 +1,9 @@
+PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=python/semantic-core/src:python/pycircuit/src pytest tests/unit -m unit -q
+PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=python/semantic-core/src:python/pycircuit/src pytest tests/unit/test_agentic_circuit_component.py -q
+python3 tools/agentic-circuit/check-release-layout.py
+PYTHONDONTWRITEBYTECODE=1 uv run --no-project --isolated --with-requirements python/agentic-circuit/requirements-dev.lock python tools/agentic-circuit/check-contracts.py
+PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=python/semantic-core/src:python/pycircuit/src python3 flows/tools/check_api_hygiene.py python/pycircuit/src/pycircuit examples/pycircuit docs README.md
+python3 flows/tools/discover_examples.py --format tsv
+pre-commit run --files docs/development/acir/verification/repository-layout.md docs/gates/decision_status_v6.md docs/gates/logs/20260908-issue40-p2-fm16-boundary/commands.txt docs/gates/logs/20260908-issue40-p2-fm16-boundary/review.md docs/gates/logs/20260908-issue40-p2-fm16-boundary/summary.json docs/rfcs/pyc6-decisions.md examples/pycircuit/README.md pyproject.toml tests/unit/test_agentic_circuit_component.py tools/agentic-circuit/check-release-layout.py tools/build_all.py
+mkdocs build --strict --site-dir .pycircuit_out/issue40-p2-fm16-boundary/site
+python3 flows/tools/check_decision_status.py --rfc docs/rfcs/pyc6-decisions.md --status docs/gates/decision_status_v6.md --out docs/gates/logs/20260908-issue40-p2-fm16-boundary/decision_status_report.json --require-no-deferred --require-all-verified --require-concrete-evidence --require-existing-evidence

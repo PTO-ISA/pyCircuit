@@ -108,8 +108,6 @@ ignore = ["E501"]
 "tests/test_pyc_enum.py" = ["B018", "N803", "N806"]
 "tools/*.py" = ["T201"]
 "examples/pycircuit/digital_filter/digital_filter.py" = ["N803", "N806"]
-"examples/pycircuit/fm16/npu_node.py" = ["N803", "N806"]
-"examples/pycircuit/fm16/sw5809s.py" = ["N803", "N806"]
 
 [tool.mypy]
 python_version = "3.10"

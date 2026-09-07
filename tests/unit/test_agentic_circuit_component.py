@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib
+import subprocess
 import sys
 from pathlib import Path
 
@@ -92,3 +93,47 @@ def test_consumer_designs_and_adapters_are_out_of_tree() -> None:
     )
     for token in ("integrations/", "XiangShan", "Konata", "outerCube"):
         assert token not in repository_config
+
+
+def test_repository_layout_rejects_product_system_examples(tmp_path: Path) -> None:
+    example = tmp_path / "examples/pycircuit/cluster_demo/cluster_system.py"
+    example.parent.mkdir(parents=True)
+    example.write_text("class ClusterSystem:\n    pass\n", encoding="utf-8")
+    subprocess.run(["git", "init", "-q", tmp_path], check=True)
+    completed = subprocess.run(
+        [
+            sys.executable,
+            REPOSITORY / "tools/agentic-circuit/check-release-layout.py",
+            "--root",
+            tmp_path,
+        ],
+        capture_output=True,
+        text=True,
+    )
+
+    assert completed.returncode != 0
+    assert (
+        "consumer product-system source is not a framework example" in completed.stderr
+    )
+
+
+def test_repository_layout_allows_generic_leaf_examples(tmp_path: Path) -> None:
+    example = tmp_path / "examples/pycircuit/queue_demo/queue_pipeline.py"
+    example.parent.mkdir(parents=True)
+    example.write_text("class QueueStage:\n    pass\n", encoding="utf-8")
+    subprocess.run(["git", "init", "-q", tmp_path], check=True)
+    completed = subprocess.run(
+        [
+            sys.executable,
+            REPOSITORY / "tools/agentic-circuit/check-release-layout.py",
+            "--root",
+            tmp_path,
+        ],
+        capture_output=True,
+        text=True,
+    )
+
+    assert (
+        "consumer product-system source is not a framework example"
+        not in completed.stderr
+    )

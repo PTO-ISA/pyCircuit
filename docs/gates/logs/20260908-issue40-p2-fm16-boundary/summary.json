@@ -1,0 +1,27 @@
+{
+  "run_id": "20260908-issue40-p2-fm16-boundary",
+  "status": "passed",
+  "base_revision": "0f9e0a38d94f996ed7b6ac4be45778012a6da6c6",
+  "decision_ids": ["0158", "0159"],
+  "issue": 40,
+  "consumer": {
+    "repository": "hengliao1972/DavinciOO",
+    "pull_request": 41,
+    "merge_commit": "26d193ddf6a09ec9ec4674a8f48b83988f7aae8d",
+    "pycircuit_pin": "0f9e0a38d94f996ed7b6ac4be45778012a6da6c6",
+    "compatibility_tests": {"passed": 4, "failed": 0}
+  },
+  "results": {
+    "unit": {"passed": 90, "failed": 0},
+    "layout_focused": {"passed": 5, "failed": 0},
+    "release_layout": {"passed": true},
+    "agentic_repository_contracts": {"passed": true},
+    "api_hygiene": {"passed": true},
+    "example_discovery": {"passed": true},
+    "pre_commit": {"passed": true},
+    "mkdocs_strict": {"passed": true},
+    "decision_status": {"rows": 224, "deferred": 0, "passed": true}
+  },
+  "behavior": "FM16 is owned and exact-pin tested in DavinciOO; pyCircuit carries no copy or placeholder and generically rejects product-system example sources.",
+  "skill_evolve": "no-update"
+}

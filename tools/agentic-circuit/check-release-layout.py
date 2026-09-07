@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import argparse
 import re
 import subprocess
 import sys
@@ -94,6 +95,13 @@ TEXT_SCAN_EXCLUDES = {
     "tests/python/agentic-circuit/contracts/test_contracts.py",
 }
 TEXT_SUFFIXES = {".md", ".py", ".sh", ".toml", ".yaml", ".yml"}
+PRODUCT_SYSTEM_CLASS = re.compile(
+    r"^\s*class\s+[A-Za-z_][A-Za-z0-9_]*(?:System|SoC|Board|Cluster)\s*[:(]",
+    re.MULTILINE,
+)
+PRODUCT_SYSTEM_STEM = re.compile(
+    r"(?:^|_)(?:system|soc|board|cluster)(?:_|$)", re.IGNORECASE
+)
 
 
 def tracked_paths(root: Path) -> list[str]:
@@ -138,8 +146,25 @@ def tracked_text_files(root: Path) -> list[Path]:
     return files
 
 
-def main() -> int:
-    root = Path(__file__).resolve().parents[2]
+def product_system_example_paths(root: Path) -> list[Path]:
+    examples = root / "examples/pycircuit"
+    if not examples.is_dir():
+        return []
+    violations = []
+    for path in sorted(examples.rglob("*.py")):
+        if "__pycache__" in path.parts:
+            continue
+        text = path.read_text(encoding="utf-8")
+        if PRODUCT_SYSTEM_STEM.search(path.stem) or PRODUCT_SYSTEM_CLASS.search(text):
+            violations.append(path.relative_to(root))
+    return violations
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--root", type=Path, default=Path(__file__).resolve().parents[2])
+    args = parser.parse_args(argv)
+    root = args.root.resolve()
     errors = [
         f"forbidden release/phase token in tracked path: {file_path}"
         for file_path in tracked_paths(root)
@@ -160,6 +185,10 @@ def main() -> int:
         f"deprecated repository root still exists: {deprecated}"
         for deprecated in DEPRECATED_ROOTS
         if (root / deprecated).exists()
+    )
+    errors.extend(
+        f"consumer product-system source is not a framework example: {path}"
+        for path in product_system_example_paths(root)
     )
     errors.extend(
         f"required repository root is missing: {required}"
