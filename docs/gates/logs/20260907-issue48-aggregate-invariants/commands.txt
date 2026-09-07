@@ -1,0 +1,12 @@
+cmake --build .pycircuit_out/acir/dev-llvm22 --target check-acir -j 4
+ctest --test-dir .pycircuit_out/acir/dev-llvm22 --output-on-failure -R '^(GfsimTests|CodeGenTests)$'
+PYTHONPATH=python/semantic-core/src:python/agentic-circuit/src pytest -q tests/python/agentic-circuit/python_frontend/test_public_api.py tests/python/agentic-circuit/python_frontend/test_queue_frontend.py tests/python/agentic-circuit/python_frontend/test_jit_source_closure.py
+AC_PYTHON_ONLY=1 PYTHONPATH=python/semantic-core/src:python/agentic-circuit/src:.pycircuit_out/acir/dev-llvm22/python <test-venv>/bin/python -m pytest -q tests/python/agentic-circuit/python_frontend tests/python/agentic-circuit/contracts tests/python/agentic-circuit/cli/test_all_commands.py tests/python/agentic-circuit/cli/test_workspace.py
+PYTHONPATH=python/semantic-core/src:python/agentic-circuit/src pytest -q tests/integration/agentic-circuit/e2e/test_aggregate_equality_invariant.py
+.pycircuit_out/agentic-circuit/venv/bin/python tools/agentic-circuit/check-contracts.py
+python3 tools/agentic-circuit/check-ir-coverage.py
+pytest tests/unit -m unit -q
+pre-commit run --all-files
+python3 flows/tools/check_api_hygiene.py python/pycircuit/src/pycircuit examples/pycircuit docs README.md
+mkdocs build --strict
+python3 flows/tools/check_decision_status.py --rfc docs/rfcs/pyc6-decisions.md --status docs/gates/decision_status_v6.md --out docs/gates/logs/20260907-issue48-aggregate-invariants/decision_status_report.json --require-no-deferred --require-all-verified --require-concrete-evidence --require-existing-evidence

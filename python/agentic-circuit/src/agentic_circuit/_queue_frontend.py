@@ -766,11 +766,21 @@ class CollectionBinding:
 
 
 @dataclass(frozen=True, slots=True)
+class InvariantDefinition:
+    function_name: str
+    qualified_name: str
+    argument: str
+    payload: StructType
+    expression: ast.expr
+
+
+@dataclass(frozen=True, slots=True)
 class QueueProgram:
     system: str
     payloads: tuple[Payload, ...]
     enums: tuple[EnumBinding, ...]
     bitfields: tuple[BitfieldBinding, ...]
+    invariants: tuple[InvariantDefinition, ...]
     queues: tuple[QueueBinding, ...]
     effect_rules: tuple[QueueBinding, ...]
     scopes: tuple[ScopeBinding, ...]
@@ -1211,6 +1221,123 @@ def _payload(node: ast.expr, payloads: dict[str, Payload]) -> ValueType:
     )
 
 
+def _invariant_definitions(
+    tree: ast.Module,
+    payloads: dict[str, Payload],
+    bitfields: Mapping[str, BitfieldLayout],
+) -> tuple[InvariantDefinition, ...]:
+    definitions: list[InvariantDefinition] = []
+    for node in tree.body:
+        if not isinstance(node, ast.FunctionDef) or not any(
+            _decorator_name(decorator).rsplit(".", 1)[-1] == "invariant"
+            for decorator in node.decorator_list
+        ):
+            continue
+        if any(isinstance(decorator, ast.Call) for decorator in node.decorator_list):
+            raise QueueFrontendError(
+                "ACPY-INVARIANT-001: invariant decorators do not accept options"
+            )
+        if (
+            len(node.args.args) != 1
+            or node.args.posonlyargs
+            or node.args.kwonlyargs
+            or node.args.vararg is not None
+            or node.args.kwarg is not None
+            or node.args.defaults
+            or node.args.kw_defaults
+        ):
+            raise QueueFrontendError(
+                f"ACPY-INVARIANT-001: invariant {node.name!r} requires exactly "
+                "one typed payload parameter"
+            )
+        parameter = node.args.args[0]
+        if parameter.annotation is None:
+            raise QueueFrontendError(
+                f"ACPY-INVARIANT-001: invariant {node.name!r} requires an exact "
+                "nominal payload annotation"
+            )
+        payload = _payload(parameter.annotation, payloads)
+        if not isinstance(payload, StructType):
+            raise QueueFrontendError(
+                f"ACPY-INVARIANT-001: invariant {node.name!r} payload must be "
+                "a nominal struct"
+            )
+        if node.returns is None or _decorator_name(node.returns) != "bool":
+            raise QueueFrontendError(
+                f"ACPY-INVARIANT-001: invariant {payload.name}.{node.name} "
+                "must return bool"
+            )
+        body = list(node.body)
+        if (
+            body
+            and isinstance(body[0], ast.Expr)
+            and isinstance(body[0].value, ast.Constant)
+            and isinstance(body[0].value.value, str)
+        ):
+            body.pop(0)
+        if (
+            len(body) != 1
+            or not isinstance(body[0], ast.Return)
+            or body[0].value is None
+        ):
+            raise QueueFrontendError(
+                f"ACPY-INVARIANT-002: invariant {payload.name}.{node.name} "
+                "requires one pure return expression"
+            )
+        if any(
+            isinstance(candidate, (ast.Lambda, ast.NamedExpr, ast.Await, ast.Yield))
+            for candidate in ast.walk(body[0].value)
+        ):
+            raise QueueFrontendError(
+                f"ACPY-INVARIANT-002: invariant {payload.name}.{node.name} uses "
+                "an unsupported expression"
+            )
+        definitions.append(
+            InvariantDefinition(
+                node.name,
+                f"{payload.name}.{node.name}",
+                parameter.arg,
+                payload,
+                copy.deepcopy(body[0].value),
+            )
+        )
+    names = [definition.function_name for definition in definitions]
+    if len(set(names)) != len(names):
+        raise QueueFrontendError(
+            "ACPY-INVARIANT-001: invariant function names must be unique in a closure"
+        )
+    for definition in definitions:
+        if any(
+            isinstance(candidate, ast.Call)
+            and _decorator_name(candidate.func).rsplit(".", 1)[-1] in names
+            for candidate in ast.walk(definition.expression)
+        ):
+            raise QueueFrontendError(
+                f"ACPY-INVARIANT-002: invariant {definition.qualified_name} "
+                "cannot call another invariant"
+            )
+        validator = _ExpressionEmitter(
+            payloads,
+            definition.argument,
+            definition.payload,
+            root_name="value",
+            bitfields=bitfields,
+        )
+        try:
+            _, result_type = validator.emit(definition.expression, BoolType())
+        except QueueFrontendError as error:
+            raise QueueFrontendError(
+                f"ACPY-INVARIANT-002: invariant {definition.qualified_name} "
+                f"for payload {definition.payload.name}: {error}"
+            ) from error
+        if not _is_epoch_05_bool_compatible(result_type):
+            raise QueueFrontendError(
+                f"ACPY-INVARIANT-002: invariant {definition.qualified_name} "
+                f"for payload {definition.payload.name} must produce bool"
+            )
+    return tuple(definitions)
+
+
 def _lambda_value(node: ast.expr) -> tuple[str, ast.expr]:
     if not isinstance(node, ast.Lambda) or len(node.args.args) != 1:
         raise QueueFrontendError("ACPY-QUEUE-003: apply requires a one-argument lambda")
@@ -1358,6 +1485,7 @@ def parse_queue_program(
     payload_map = {item.name: item for item in payloads}
     bitfields = _bitfields(tree)
     bitfield_map = {binding.name: binding.layout for binding in bitfields}
+    invariant_definitions = _invariant_definitions(tree, payload_map, bitfield_map)
     rule_definitions: dict[str, RuleDefinition] = {}
 
     def parse_optional_multi_output_rule(
@@ -6776,6 +6904,7 @@ def parse_queue_program(
         payloads,
         enums,
         bitfields,
+        tuple(invariant_definitions),
         tuple(queues),
         tuple(effect_rules),
         tuple(scopes),
@@ -6839,6 +6968,7 @@ class _ExpressionEmitter:
         state_views: Mapping[str, tuple[str, ValueType, int]] | None = None,
         table_domains: Mapping[str, tuple[ValueType, int]] | None = None,
         bitfields: Mapping[str, BitfieldLayout] | None = None,
+        invariants: Mapping[str, InvariantDefinition] | None = None,
     ) -> None:
         self.payloads = payloads
         self.enum_types: dict[str, EnumType] = {}
@@ -6877,13 +7007,12 @@ class _ExpressionEmitter:
         self.state_views = dict(state_views or {})
         self.table_domains = dict(table_domains or {})
         self.bitfields = dict(bitfields or {})
+        self.invariants = dict(invariants or {})
         self.lines: list[str] = []
         self.index = 0
         self.priority_values: dict[str, tuple[str, ValueType, str, ValueType]] = {}
         self.table_view_values: dict[str, tuple[str, ValueType]] = {}
-        self.state_read_values: dict[
-            tuple[str, str], tuple[str, ValueType]
-        ] = {}
+        self.state_read_values: dict[tuple[str, str], tuple[str, ValueType]] = {}
         self.deferred_values: dict[str, ast.expr] = {}
         self.expression_facts: dict[str, _ExpressionFact] = {}
 
@@ -7005,6 +7134,54 @@ class _ExpressionEmitter:
     def emit(
         self, node: ast.expr, expected: ValueType | None = None
     ) -> tuple[str, ValueType]:
+        if isinstance(node, ast.Call):
+            invariant_name = _decorator_name(node.func).rsplit(".", 1)[-1]
+            invariant = self.invariants.get(invariant_name)
+            if invariant is not None:
+                if len(node.args) != 1 or node.keywords:
+                    raise QueueFrontendError(
+                        f"ACPY-INVARIANT-003: invariant "
+                        f"{invariant.qualified_name} requires exactly one payload"
+                    )
+                operand, operand_type = self.emit(node.args[0], invariant.payload)
+                if not _types_equal_in_epoch_05(operand_type, invariant.payload):
+                    raise QueueFrontendError(
+                        f"ACPY-INVARIANT-003: invariant "
+                        f"{invariant.qualified_name} requires payload "
+                        f"{invariant.payload.name}, got {_render_type(operand_type)}"
+                    )
+                predicate_emitter = _ExpressionEmitter(
+                    self.payloads,
+                    invariant.argument,
+                    invariant.payload,
+                    root_name="value",
+                    bitfields=self.bitfields,
+                )
+                predicate, predicate_type = predicate_emitter.emit(
+                    invariant.expression, BoolType()
+                )
+                if not _is_epoch_05_bool_compatible(predicate_type):
+                    raise QueueFrontendError(
+                        f"ACPY-INVARIANT-002: invariant "
+                        f"{invariant.qualified_name} predicate must produce bool"
+                    )
+                result = self._new()
+                rendered_payload = _render_type(invariant.payload)
+                self.lines.append(
+                    f"    %{result} = ac.var.invariant %{operand} name "
+                    f"{json.dumps(invariant.qualified_name)} {{"
+                )
+                self.lines.append(
+                    f"    ^predicate(%value: !ac.var<{rendered_payload}>):"
+                )
+                self.lines.extend(predicate_emitter.lines)
+                self.lines.append(
+                    f"      ac.var.invariant.yield %{predicate} : !ac.var<i1>"
+                )
+                self.lines.append(
+                    f"    }} : !ac.var<{rendered_payload}> -> !ac.var<i1>"
+                )
+                return self._remember(result, BoolType())
         if isinstance(node, ast.IfExp):
             condition, condition_type = self.emit(node.test, BoolType())
             if not _is_epoch_05_bool_compatible(condition_type):
@@ -7323,6 +7500,7 @@ class _ExpressionEmitter:
                 prefix=f"{self.prefix}m{self.index}_",
                 slot_views=self.slot_views,
                 bitfields=self.bitfields,
+                invariants=self.invariants,
             )
             predicate, predicate_type = predicate_emitter.emit(
                 candidate.predicate, BoolType()
@@ -7433,6 +7611,7 @@ class _ExpressionEmitter:
                 prefix=f"{self.prefix}m{self.index}_",
                 slot_views=self.slot_views,
                 bitfields=self.bitfields,
+                invariants=self.invariants,
             )
             predicate, predicate_type = predicate_emitter.emit(
                 candidate.predicate, BoolType()
@@ -7471,6 +7650,7 @@ class _ExpressionEmitter:
                     root_name="entry",
                     prefix=f"{self.prefix}k{self.index}_",
                     bitfields=self.bitfields,
+                    invariants=self.invariants,
                 )
                 key, key_type = key_emitter.emit(selection.key)
                 if _epoch_05_integer_width(key_type) is None:
@@ -7728,6 +7908,15 @@ class _ExpressionEmitter:
             if isinstance(left_type, EnumType) and predicate not in {"eq", "ne"}:
                 raise QueueFrontendError(
                     "ACPY-TYPE-005: enum values support only equality comparison"
+                )
+            if isinstance(
+                left_type, (StructType, TupleType, ArrayType)
+            ) and predicate not in {
+                "eq",
+                "ne",
+            }:
+                raise QueueFrontendError(
+                    "ACPY-TYPE-007: aggregate values support only equality comparison"
                 )
             name = self._new()
             self.lines.append(
@@ -8040,6 +8229,9 @@ def lower_queue_program(
         }
         content_indent = "      "
     payloads = {item.name: item for item in program.payloads}
+    invariants = {
+        definition.function_name: definition for definition in program.invariants
+    }
     bitfields = {item.name: item.layout for item in program.bitfields}
     if (program.payloads or program.enums or program.bitfields) and module is None:
         lines.append("  ac.type_scope @types {")
@@ -8355,6 +8547,7 @@ def lower_queue_program(
                     for owner in queue.rule_state_owners
                 },
                 bitfields=bitfields,
+                invariants=invariants,
             )
             rule_expressions: list[ast.expr] = []
             if queue.expression is not None:
@@ -8449,6 +8642,7 @@ def lower_queue_program(
                     prefix=f"find{emitter.index}_predicate_",
                     state_views=emitter.state_views,
                     bitfields=bitfields,
+                    invariants=invariants,
                 )
                 predicate, predicate_type = predicate_emitter.emit(
                     find.predicate, BoolType()
@@ -8492,6 +8686,7 @@ def lower_queue_program(
                         prefix=f"find{emitter.index}_key_",
                         state_views=emitter.state_views,
                         bitfields=bitfields,
+                        invariants=invariants,
                     )
                     key, key_type = key_emitter.emit(find.key)
                     if _epoch_05_integer_width(key_type) is None:
@@ -10456,6 +10651,10 @@ def _lower_simple_module_source(
     payload_map = {payload.name: payload for payload in payloads}
     bitfield_bindings = _bitfields(tree)
     bitfield_map = {binding.name: binding.layout for binding in bitfield_bindings}
+    invariants = {
+        definition.function_name: definition
+        for definition in _invariant_definitions(tree, payload_map, bitfield_map)
+    }
     modules = {
         node.name: node
         for node in tree.body
@@ -11220,6 +11419,7 @@ def _lower_simple_module_source(
                 input_type,
                 root_values=root_values,
                 bitfields=bitfield_map,
+                invariants=invariants,
             )
             lines.extend(
                 [
@@ -11298,6 +11498,7 @@ def _lower_simple_module_source(
             argument,
             input_type,
             bitfields=bitfield_map,
+            invariants=invariants,
         )
         value, value_type = emitter.emit(expression, output_type)
         if not _types_equal_in_epoch_05(value_type, output_type):

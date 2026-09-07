@@ -470,6 +470,10 @@ extractExpressions(mlir::Region &region, QueueBlockPlan &plan,
   bool sawStructuredYield = false;
 
   for (mlir::Operation &operation : block) {
+    if (operation.getName().getStringRef() == "ac.var.invariant")
+      return planError(
+          "residual ac.var.invariant must be lowered before QueueGraph "
+          "planning");
     if (auto constant = mlir::dyn_cast<ac::VarConstantOp>(operation)) {
       if (auto error = append(operation, "constant", {}, {},
                               printAttribute(constant.getValueAttr())))
@@ -2941,6 +2945,10 @@ llvm::Error verifyQueueGraphPlan(const QueueGraphPlan &plan) {
           valueTypes.contains(expression.result))
         return planError(
             "expression identities and result types must be closed");
+      if (expression.kind == "invariant")
+        return planError(
+            "residual ac.var.invariant must be lowered before QueueGraph "
+            "planning");
       if (expression.kind == "enum_constant") {
         if (!expression.operands.empty() || expression.field.empty() ||
             expression.literal.empty())
@@ -3063,6 +3071,31 @@ llvm::Error verifyQueueGraphPlan(const QueueGraphPlan &plan) {
         if (!exactElement)
           return planError(
               "aggregate get must select one exact declared element");
+      } else if (expression.kind == "cmp") {
+        if (expression.operands.size() != 2 || expression.type != "i1")
+          return planError("comparison expression contract is malformed");
+        auto left = valueTypes.find(expression.operands[0]);
+        auto right = valueTypes.find(expression.operands[1]);
+        if (left == valueTypes.end() || right == valueTypes.end() ||
+            left->getValue() != right->getValue())
+          return planError("comparison operand types must match");
+        const bool integer = integerWidth(left->getValue()).has_value();
+        std::optional<llvm::StringRef> enumName =
+            enumTypeName(left->getValue());
+        const bool enumeration = enumName && enums.contains(*enumName);
+        const bool equality = expression.predicate == "eq" ||
+                              expression.predicate == "ne";
+        const bool ordered =
+            llvm::StringSwitch<bool>(expression.predicate)
+                .Cases({"slt", "sle", "sgt", "sge", "ult", "ule", "ugt",
+                        "uge"},
+                       true)
+                .Default(false);
+        if ((!integer && !enumeration) || (!equality && !integer) ||
+            (!equality && !ordered))
+          return planError(
+              "residual aggregate comparison must be lowered to scalar leaf "
+              "comparisons before QueueGraph planning");
       } else if (expression.kind == "masked_match") {
         if (expression.operands.size() != 1 || expression.type != "i1")
           return planError("masked_match expression contract is malformed");

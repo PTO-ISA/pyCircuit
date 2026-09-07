@@ -247,6 +247,20 @@ PYC semantic contracts.
     results in one prepare/publish/Probe/no-fail-Commit group.
   - [x] Preserve the explicit Table-to-PYC rejection while proving applicable
     stateless multi-output PYC C++/Verilog parity.
+- [ ] Complete Decision 0224 and issue #48's recursive equality and named
+  payload-invariant contract before simplifying dependent DavinciOO H3 modules.
+  - [x] Admit same-descriptor `==`/`!=` for recursive nominal struct, tuple and
+    fixed value-array values, including packed widths above 64 bits; keep
+    ordered aggregate comparison and nominal mismatch fail closed.
+  - [x] Add one `@ac.invariant` pure predicate surface for a nominal struct and
+    lower each explicit call through verifier-visible ACIR before shared
+    scalar expansion. Do not infer or assume invariants implicitly.
+  - [x] Eliminate aggregate comparison and invariant ops in a shared pass before
+    QueueGraph; independently reject residual high-level contracts downstream.
+  - [x] Execute equal and per-field-family unequal cases in gfsim, boundary
+    invariant true/false cases, and admitted PYC C++/Verilog parity.
+  - [ ] Merge the framework PR, then update the in-tree DavinciOO design
+    contracts/implementations and record the mechanical I2 comparison reduction.
 - [ ] Close #46 and #48 framework prerequisites before their dependent
   DavinciOO H3 implementations. Decision 0222 places new design-program work
   under `designs/davincioo/`; independent contracts/modules may proceed when

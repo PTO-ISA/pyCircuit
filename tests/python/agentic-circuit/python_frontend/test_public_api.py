@@ -15,6 +15,7 @@ PUBLIC = {
     "interface",
     "process",
     "rule",
+    "invariant",
     "scope",
     "array",
     "map",
@@ -209,6 +210,16 @@ class PublicApiTest(unittest.TestCase):
 
         self.assertEqual("rule", complete.kind)
         self.assertEqual("complete", complete.__name__)
+
+    def test_invariant_decorator_captures_without_executing(self) -> None:
+        api = importlib.import_module("agentic_circuit")
+
+        @api.invariant
+        def valid(item: object) -> bool:
+            raise AssertionError("decorating an invariant must not execute it")
+
+        self.assertEqual("invariant", valid.kind)
+        self.assertEqual("valid", valid.__name__)
 
     def test_ast_only_markers_reject_runtime_execution(self) -> None:
         api = importlib.import_module("agentic_circuit")

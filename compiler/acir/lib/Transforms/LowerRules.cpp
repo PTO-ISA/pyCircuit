@@ -944,6 +944,25 @@ struct VerifyRuleClosurePass
 LogicalResult verifyRuleClosure(ModuleOp model) {
   LogicalResult result = success();
   llvm::StringSet<> stableIds;
+  model.walk([&](Operation *operation) {
+    if (isa<ac::VarInvariantOp>(operation)) {
+      result = operation->emitError(
+          "unresolved value invariant before Frozen ACIR");
+      return WalkResult::interrupt();
+    }
+    if (auto comparison = dyn_cast<ac::VarCmpOp>(operation)) {
+      Type payload = cast<ac::VarType>(comparison.getLhs().getType())
+                         .getElementType();
+      if (isa<ac::StructType, TupleType, ac::ValueArrayType>(payload)) {
+        result = operation->emitError(
+            "unresolved aggregate comparison before Frozen ACIR");
+        return WalkResult::interrupt();
+      }
+    }
+    return WalkResult::advance();
+  });
+  if (failed(result))
+    return failure();
   ACDataFlowAnalyzer dataFlow(model.getOperation());
   if (failed(dataFlow.run()))
     return model.emitError("AC dataflow analysis failed during rule closure");
@@ -1060,6 +1079,7 @@ std::unique_ptr<Pass> createVerifyRuleClosurePass() {
 }
 
 void addRuleLoweringPipeline(mlir::OpPassManager &manager) {
+  manager.addPass(createLowerValueContractsPass());
   manager.addPass(createVerifyValueConstraintsPass());
   manager.addPass(createLowerVariableStatePass());
   manager.addPass(createVerifyValueConstraintsPass());

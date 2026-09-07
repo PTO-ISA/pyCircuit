@@ -1,0 +1,15 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.14.6, pytest-9.0.2, pluggy-1.6.0
+rootdir: /Users/zhoubot/linx-isa/tools/pyCircuit
+configfile: pyproject.toml
+collected 154 items
+
+tests/python/agentic-circuit/python_frontend/test_public_api.py ........ [  5%]
+..........                                                               [ 11%]
+tests/python/agentic-circuit/python_frontend/test_queue_frontend.py .... [ 14%]
+........................................................................ [ 61%]
+.......................................................                  [ 96%]
+tests/python/agentic-circuit/python_frontend/test_jit_source_closure.py . [ 97%]
+....                                                                     [100%]
+
+============================= 154 passed in 0.55s ==============================

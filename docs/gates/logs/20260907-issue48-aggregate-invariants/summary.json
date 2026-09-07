@@ -1,0 +1,37 @@
+{
+  "run_id": "20260907-issue48-aggregate-invariants",
+  "status": "passed",
+  "base_revision": "98e618c9cae2d8c5fed8a264b636cc083702577b",
+  "decision_ids": ["0212", "0213", "0214", "0215", "0220", "0224"],
+  "issue": 48,
+  "scope": "framework prerequisite",
+  "results": {
+    "acir_lit": {"passed": 190, "failed": 0},
+    "native_suites": {"passed": 2, "failed": 0},
+    "focused_python_frontend": {"passed": 154, "failed": 0},
+    "python_frontend_contract_cli": {"passed": 283, "skipped": 5, "failed": 0},
+    "aggregate_gfsim_and_pyc_parity": {"passed": 2, "failed": 0},
+    "pycircuit_unit": {"passed": 53, "failed": 0},
+    "repository_contracts": {"passed": true},
+    "ir_coverage": {"passed": true},
+    "pre_commit": {"passed": true},
+    "api_hygiene": {"passed": true},
+    "strict_docs": {"passed": true}
+  },
+  "behavior": {
+    "frontend": "ordinary same-descriptor aggregate == and != plus one-argument pure @ac.invariant with stable Payload.function identity",
+    "acir": "recursive struct, enum, tuple and value-array leaf expansion into a deterministic balanced scalar equality tree before rule analysis",
+    "gfsim": "104-bit recursive payload equality covers equal and nested scalar, enum, tuple, array and flat-bool differences; the boundary publishes valid invariant inputs and consumes three false field families without output",
+    "pyc": "admitted packed fixture remains scalar-only and produces identical C++ and Verilator cycles and equality/invariant results",
+    "failure_boundaries": "frontend, ACIR, Frozen ACIR and QueueGraph reject type, purity, naming, ordered aggregate comparison and residual-contract violations"
+  },
+  "review": {
+    "verdict": "approved for framework merge",
+    "p0": 0,
+    "p1": 0,
+    "p2": 0
+  },
+  "remaining_issue_scope": "Implement the in-tree DavinciOO I1/I2/WBA canonical identity and invariant reuse, record the comparison reduction, and preserve protocol behavior before closing issue #48.",
+  "release_scope": "Targeted PR evidence; the full release closure was not run.",
+  "skill_evolve": "no-update"
+}

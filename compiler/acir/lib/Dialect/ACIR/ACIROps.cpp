@@ -13,6 +13,7 @@
 #include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallSet.h"
+#include "llvm/ADT/SmallPtrSet.h"
 #include "llvm/ADT/StringExtras.h"
 #include "llvm/ADT/StringMap.h"
 #include "llvm/ADT/StringSwitch.h"
@@ -2285,15 +2286,45 @@ LogicalResult VarPriorityEncodeOp::verify() {
   return success();
 }
 
+static bool supportsRecursiveEquality(Operation *operation, Type type,
+                                      llvm::SmallPtrSetImpl<Operation *> &seen) {
+  if (isa<IntegerType, EnumType>(type))
+    return true;
+  if (auto tuple = dyn_cast<TupleType>(type))
+    return llvm::all_of(tuple.getTypes(), [&](Type element) {
+      return supportsRecursiveEquality(operation, element, seen);
+    });
+  if (auto array = dyn_cast<ValueArrayType>(type))
+    return supportsRecursiveEquality(operation, array.getElementType(), seen);
+  if (!isa<StructType>(type))
+    return false;
+  Operation *declaration = recordDecl(operation, type);
+  if (!declaration || !seen.insert(declaration).second)
+    return false;
+  bool supported = llvm::all_of(declarationFields(declaration),
+                                [&](Attribute attribute) {
+    return supportsRecursiveEquality(
+        operation, fieldType(cast<DictionaryAttr>(attribute)), seen);
+  });
+  seen.erase(declaration);
+  return supported;
+}
+
 LogicalResult VarCmpOp::verify() {
   if (getLhs().getType() != getRhs().getType())
     return emitOpError("operands must have the same Var type");
   Type payload = cast<VarType>(getLhs().getType()).getElementType();
-  if (!isa<IntegerType, EnumType>(payload))
-    return emitOpError("operands must carry integer or enum payloads");
+  llvm::SmallPtrSet<Operation *, 8> seen;
+  const bool aggregate = isa<StructType, TupleType, ValueArrayType>(payload);
+  if (!supportsRecursiveEquality(*this, payload, seen))
+    return emitOpError(
+        "operands must carry recursively comparable integer, enum, struct, "
+        "tuple, or value_array payloads");
   if (isa<EnumType>(payload) && getPredicate() != "eq" &&
       getPredicate() != "ne")
     return emitOpError("enum comparison supports only eq or ne");
+  if (aggregate && getPredicate() != "eq" && getPredicate() != "ne")
+    return emitOpError("aggregate comparison supports only eq or ne");
   if (getResult().getType() !=
       VarType::get(getContext(), IntegerType::get(getContext(), 1)))
     return emitOpError("result must be !ac.var<i1>");
@@ -2303,6 +2334,73 @@ LogicalResult VarCmpOp::verify() {
                           getPredicate()))
     return emitOpError(
         "predicate must be eq, ne, slt, sle, sgt, sge, ult, ule, ugt, or uge");
+  return success();
+}
+
+static bool isInvariantIdentifier(StringRef value) {
+  if (value.empty() || (!llvm::isAlpha(value.front()) && value.front() != '_'))
+    return false;
+  return llvm::all_of(value.drop_front(),
+                      [](char character) {
+                        return llvm::isAlnum(character) || character == '_';
+                      });
+}
+
+LogicalResult VarInvariantOp::verify() {
+  auto input = cast<VarType>(getInput().getType());
+  auto fail = [&](Twine message) {
+    return emitOpError() << "invariant '" << getName() << "' for "
+                         << input.getElementType() << ": " << message;
+  };
+  if (getName().empty())
+    return fail("name must be non-empty");
+  if (!isa<StructType>(input.getElementType()) ||
+      !recordDecl(*this, input.getElementType()))
+    return fail("input must carry a resolved nominal ac.struct payload");
+  auto structure = cast<StructType>(input.getElementType());
+  StringRef payloadName =
+      cast<SymbolRefAttr>(structure.getName()).getLeafReference().getValue();
+  auto [namePayload, nameFunction] = getName().split('.');
+  if (namePayload != payloadName || !isInvariantIdentifier(nameFunction))
+    return fail("name must have exact '<Payload>.<function>' form");
+  if (getResult().getType() !=
+      VarType::get(getContext(), IntegerType::get(getContext(), 1)))
+    return fail("result must be !ac.var<i1>");
+  Block &block = getPredicate().front();
+  if (block.getNumArguments() != 1 ||
+      block.getArgument(0).getType() != getInput().getType())
+    return fail("predicate must take exactly one argument matching the input");
+  for (Operation &nested : block) {
+    if (isa<VarInvariantYieldOp>(nested))
+      continue;
+    if (nested.getDialect() != getOperation()->getDialect() ||
+        nested.getNumRegions() != 0)
+      return fail(Twine("unsupported predicate operation '") +
+                  nested.getName().getStringRef() + "'");
+    if (!isMemoryEffectFree(&nested))
+      return fail(Twine("unsupported effectful predicate operation '") +
+                  nested.getName().getStringRef() + "'");
+    for (Value operand : nested.getOperands()) {
+      if (operand == block.getArgument(0))
+        continue;
+      Operation *definition = operand.getDefiningOp();
+      if (!definition || definition->getParentRegion() != &getPredicate())
+        return fail("predicate captures a value outside its input region");
+    }
+  }
+  auto yielded = dyn_cast<VarInvariantYieldOp>(block.getTerminator());
+  if (!yielded)
+    return fail("predicate must terminate with ac.var.invariant.yield");
+  if (yielded.getValue().getType() !=
+      VarType::get(getContext(), IntegerType::get(getContext(), 1)))
+    return fail("predicate must yield !ac.var<i1>");
+  return success();
+}
+
+LogicalResult VarInvariantYieldOp::verify() {
+  if (getValue().getType() !=
+      VarType::get(getContext(), IntegerType::get(getContext(), 1)))
+    return emitOpError("value must be !ac.var<i1>");
   return success();
 }
 
