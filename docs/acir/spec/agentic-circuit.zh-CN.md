@@ -461,6 +461,8 @@ ACIR 中会直接被拒绝。
 `.valid` 在 ACIR 中共享同一个 `ac.var.priority_encode`。`low` 选择最低置位，
 `high` 选择最高置位，全零输入返回 `valid=0,index=0`。QueueGraph 使用 gfsim
 参考模型，并把同一语义 lowering 为不含厂商名称的 `pyc.priority_encode`。
+gfsim reference 会按声明位宽 mask 输入，并使用 low/high C++20 bit scan，不逐 bit
+循环。
 
 可执行示例：
 `pyc_struct_pipeline.py`。
@@ -693,6 +695,9 @@ policy region 捕获其 SSA result。QueueGraph 与 typed gfsim 保留这种共�
 Epoch 惰性求值并缓存，同一 Epoch 的多个 consumer 只触发一次 Table scan；Epoch 前进或
 模型 reset 后重新计算。choose 的 mask 必须来自同 Table 的 match。`policy="first"`
 使用空 key region，min/max 仍要求一个有类型的 key region。
+生成 gfsim C++ 和 shared Table selection cache 中，无 effect 的 `first` 若使用不超过
+64 entries 的 scalar mask，就使用 low-first bit scan。min/max、choose-key snapshot
+effect 和更宽的 word-array mask 保留通用扫描，selection 与 reservation 语义不变。
 
 `EntryView` 只存在于 elaboration。`patch` 在 Frozen ACIR 前展开成
 `ac.table.get -> ac.var.with -> ac.table.write` 或 `ac.table.masked_write`，不存在

@@ -1,0 +1,5 @@
+iterations=10000000 ns=9225625 ns_per=0.922562 checksum=19999999
+iterations=10000000 ns=9156209 ns_per=0.915621 checksum=19999999
+iterations=10000000 ns=9151500 ns_per=0.91515 checksum=19999999
+iterations=10000000 ns=9191583 ns_per=0.919158 checksum=19999999
+iterations=10000000 ns=9163250 ns_per=0.916325 checksum=19999999

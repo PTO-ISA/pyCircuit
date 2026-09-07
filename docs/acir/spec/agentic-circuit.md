@@ -392,6 +392,8 @@ ACIR. `order="low"` selects the least-significant asserted bit and
 `order="high"` selects the most-significant asserted bit; an all-zero input
 returns `valid=0,index=0`. QueueGraph uses the gfsim reference model and lowers
 the same operation to vendor-neutral `pyc.priority_encode`.
+The gfsim reference masks the input to its declared width and uses low/high
+C++20 bit scans rather than a per-bit loop.
 
 `ac.popcount(value)` returns the number of asserted bits using exactly
 `max(1, ceil(log2(N+1)))` result bits. ACIR preserves it as
@@ -740,6 +742,10 @@ the complete Epoch, so multiple consumers cause one Table scan per Epoch.
 Advancing the Epoch or resetting the model invalidates that result. A choose
 mask must come from a match on the same Table. `policy="first"` has an empty key
 region; min/max retain one typed key region.
+For generated gfsim C++ and the shared Table selection cache, an effect-free
+`first` over a scalar mask of at most 64 entries uses a low-first bit scan.
+Min/max, choose-key snapshot effects, and wider word-array masks retain the
+general scan with unchanged selection and reservation semantics.
 
 `EntryView` is elaboration-only. `patch` lowers before Frozen ACIR to
 `ac.table.get`, immutable `ac.var.with` updates, and `ac.table.write` or

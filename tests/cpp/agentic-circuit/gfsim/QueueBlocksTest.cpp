@@ -476,6 +476,56 @@ struct CountingReadyKey {
   }
 };
 
+struct CachedCandidateMask {
+  CandidateSet *candidates = nullptr;
+  unsigned *calls = nullptr;
+  const CandidateSet &operator()(Epoch) const {
+    ++*calls;
+    return *candidates;
+  }
+};
+
+struct CountingCandidateSet {
+  CandidateSet candidates;
+  unsigned *testCalls = nullptr;
+  explicit CountingCandidateSet(size_t entries, unsigned *calls)
+      : candidates(entries), testCalls(calls) {}
+  void clear() { candidates.clear(); }
+  void set(size_t index) { candidates.set(index); }
+  bool test(size_t index) const {
+    ++*testCalls;
+    return candidates.test(index);
+  }
+};
+
+struct CachedCountingMask {
+  CountingCandidateSet *candidates = nullptr;
+  unsigned *calls = nullptr;
+  const CountingCandidateSet &operator()(Epoch) const {
+    ++*calls;
+    return *candidates;
+  }
+};
+
+struct TestPreferredCandidateMask {
+  CandidateSet candidates;
+  unsigned *testCalls = nullptr;
+  explicit TestPreferredCandidateMask(size_t entries, unsigned *calls)
+      : candidates(entries), testCalls(calls) {}
+  bool test(size_t index) const {
+    ++*testCalls;
+    return candidates.test(index);
+  }
+  operator uint64_t() const { return 0; }
+};
+
+struct CachedTestPreferredMask {
+  TestPreferredCandidateMask *candidates = nullptr;
+  const TestPreferredCandidateMask &operator()(Epoch) const {
+    return *candidates;
+  }
+};
+
 struct SlotReleaseFlag {
   bool *release = nullptr;
   bool operator()() const { return *release; }
@@ -800,6 +850,114 @@ TEST(QueueBlocksTest, TableMatchAndChooseAreEvaluatedOncePerEpoch) {
   EXPECT_TRUE(selection.get({5, 0}).valid);
   EXPECT_EQ(predicateCalls, 9u);
   EXPECT_EQ(maskCalls, 3u);
+}
+
+TEST(QueueBlocksTest, FirstSelectionUsesOneWordScanAndEpochCache) {
+  SimTable<FieldEntry> table("table", 1, nullptr, 64);
+  CandidateSet candidates(64);
+  candidates.set(4);
+  candidates.set(63);
+  unsigned maskCalls = 0;
+  unsigned keyCalls = 0;
+  TableSelectionCache<FieldEntry, CachedCandidateMask, CountingReadyKey>
+      selection(table, CachedCandidateMask{&candidates, &maskCalls},
+                CountingReadyKey{&keyCalls}, TableChoosePolicy::First);
+  auto expectSelection = [](TableSelectionResult result, size_t index,
+                            bool valid) {
+    EXPECT_EQ(result.index, index);
+    EXPECT_EQ(result.valid, valid);
+  };
+
+  expectSelection(selection.get({4, 0}), 4, true);
+  expectSelection(selection.get({4, 0}), 4, true);
+  EXPECT_EQ(maskCalls, 1u);
+  EXPECT_EQ(keyCalls, 0u);
+
+  candidates.clear();
+  candidates.set(63);
+  expectSelection(selection.get({4, 0}), 4, true);
+  selection.reset();
+  expectSelection(selection.get({4, 0}), 63, true);
+  EXPECT_EQ(maskCalls, 2u);
+  EXPECT_EQ(keyCalls, 0u);
+
+  candidates.clear();
+  selection.reset();
+  expectSelection(selection.get({4, 0}), 0, false);
+  EXPECT_EQ(maskCalls, 3u);
+  EXPECT_EQ(keyCalls, 0u);
+}
+
+TEST(QueueBlocksTest, LargeFirstAndOrderedPoliciesKeepFallbackScan) {
+  SimTable<FieldEntry> table("table", 1, nullptr, 65);
+  ASSERT_TRUE(table.initializeEntry(1, FieldEntry{true, false}));
+  ASSERT_TRUE(table.initializeEntry(64, FieldEntry{true, true}));
+  unsigned testCalls = 0;
+  unsigned maskCalls = 0;
+  unsigned keyCalls = 0;
+  CountingCandidateSet candidates(65, &testCalls);
+  candidates.set(1);
+  candidates.set(64);
+  CachedCountingMask mask{&candidates, &maskCalls};
+  auto expectSelection = [](TableSelectionResult result, size_t index,
+                            bool valid) {
+    EXPECT_EQ(result.index, index);
+    EXPECT_EQ(result.valid, valid);
+  };
+
+  TableSelectionCache<FieldEntry, CachedCountingMask, CountingReadyKey> first(
+      table, mask, CountingReadyKey{&keyCalls}, TableChoosePolicy::First);
+  expectSelection(first.get({1, 0}), 1, true);
+  EXPECT_EQ(testCalls, 2u);
+  EXPECT_EQ(maskCalls, 1u);
+  EXPECT_EQ(keyCalls, 0u);
+  candidates.clear();
+  candidates.set(64);
+  testCalls = 0;
+  maskCalls = 0;
+  first.reset();
+  expectSelection(first.get({1, 0}), 64, true);
+  EXPECT_EQ(testCalls, 65u);
+  EXPECT_EQ(maskCalls, 1u);
+  EXPECT_EQ(keyCalls, 0u);
+
+  candidates.clear();
+  candidates.set(1);
+  candidates.set(64);
+
+  testCalls = 0;
+  maskCalls = 0;
+  TableSelectionCache<FieldEntry, CachedCountingMask, CountingReadyKey> minimum(
+      table, mask, CountingReadyKey{&keyCalls}, TableChoosePolicy::Min);
+  expectSelection(minimum.get({2, 0}), 64, true);
+  EXPECT_EQ(testCalls, 65u);
+  EXPECT_EQ(maskCalls, 1u);
+  EXPECT_EQ(keyCalls, 2u);
+
+  testCalls = 0;
+  maskCalls = 0;
+  keyCalls = 0;
+  TableSelectionCache<FieldEntry, CachedCountingMask, CountingReadyKey> maximum(
+      table, mask, CountingReadyKey{&keyCalls}, TableChoosePolicy::Max);
+  expectSelection(maximum.get({3, 0}), 1, true);
+  EXPECT_EQ(testCalls, 65u);
+  EXPECT_EQ(maskCalls, 1u);
+  EXPECT_EQ(keyCalls, 2u);
+}
+
+TEST(QueueBlocksTest, FirstSelectionPreservesMaskTestPrecedence) {
+  SimTable<FieldEntry> table("table", 1, nullptr, 4);
+  unsigned testCalls = 0;
+  TestPreferredCandidateMask candidates(4, &testCalls);
+  candidates.candidates.set(2);
+  TableSelectionCache<FieldEntry, CachedTestPreferredMask, CountingReadyKey>
+      selection(table, CachedTestPreferredMask{&candidates}, {},
+                TableChoosePolicy::First);
+
+  const TableSelectionResult result = selection.get({5, 0});
+  EXPECT_EQ(result.index, 2u);
+  EXPECT_TRUE(result.valid);
+  EXPECT_EQ(testCalls, 3u);
 }
 
 TEST(QueueBlocksTest, TableCancellationIsWriterLocal) {

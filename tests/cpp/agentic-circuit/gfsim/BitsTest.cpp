@@ -98,6 +98,45 @@ TEST(UIntTest, UnaryFullWidthConcatDoesNotShiftByStorageWidth) {
   EXPECT_EQ(value, joined);
 }
 
+TEST(PriorityEncodeTest, ConstantAndRuntimeBitScansPreserveExactWidths) {
+  static_assert(PriorityIndexWidth<1> == 1);
+  static_assert(PriorityIndexWidth<16> == 4);
+  static_assert(PriorityIndexWidth<64> == 6);
+
+  constexpr auto oneZeroLow = priorityEncode(UInt<1>{0}, true);
+  constexpr auto oneZeroHigh = priorityEncode(UInt<1>{0}, false);
+  constexpr auto oneSetLow = priorityEncode(UInt<1>{1}, true);
+  constexpr auto oneSetHigh = priorityEncode(UInt<1>{1}, false);
+  static_assert(oneZeroLow.index.value() == 0 && !oneZeroLow.valid);
+  static_assert(oneZeroHigh.index.value() == 0 && !oneZeroHigh.valid);
+  static_assert(oneSetLow.index.value() == 0 && oneSetLow.valid);
+  static_assert(oneSetHigh.index.value() == 0 && oneSetHigh.valid);
+
+  constexpr UInt<16> multi16{(std::uint64_t{1} << 14) |
+                             (std::uint64_t{1} << 7) |
+                             (std::uint64_t{1} << 2)};
+  static_assert(priorityEncode(multi16, true).index.value() == 2);
+  static_assert(priorityEncode(multi16, false).index.value() == 14);
+  constexpr UInt<64> high64{std::uint64_t{1} << 63};
+  static_assert(priorityEncode(high64, true).index.value() == 63);
+  static_assert(priorityEncode(high64, false).index.value() == 63);
+
+  const UInt<16> runtimeZero{0};
+  const UInt<16> runtimeMulti = multi16;
+  const UInt<64> runtimeWide{(std::uint64_t{1} << 63) |
+                             (std::uint64_t{1} << 5)};
+  EXPECT_EQ(priorityEncode(runtimeZero, true),
+            (PriorityEncodeResult<16>{UInt<4>{0}, UInt<1>{0}}));
+  EXPECT_EQ(priorityEncode(runtimeZero, false),
+            (PriorityEncodeResult<16>{UInt<4>{0}, UInt<1>{0}}));
+  EXPECT_EQ(priorityEncode(runtimeMulti, true).index.value(), 2u);
+  EXPECT_EQ(priorityEncode(runtimeMulti, false).index.value(), 14u);
+  EXPECT_EQ(priorityEncode(runtimeWide, true).index.value(), 5u);
+  EXPECT_EQ(priorityEncode(runtimeWide, false).index.value(), 63u);
+  EXPECT_TRUE(static_cast<bool>(priorityEncode(runtimeWide, true).valid));
+  EXPECT_TRUE(static_cast<bool>(priorityEncode(runtimeWide, false).valid));
+}
+
 TEST(PriorityEncodeTest, SimQueueBlockPreservesLowAndHighOrder) {
   SimQueue<UInt<13>> lowInput("low_input", 1, nullptr, 1);
   SimQueue<PriorityEncodeResult<13>> lowOutput("low_output", 2, nullptr, 1);

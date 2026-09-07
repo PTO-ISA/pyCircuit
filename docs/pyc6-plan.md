@@ -291,6 +291,15 @@ PYC semantic contracts.
     operand truth table, and record source LOC plus expanded comparison counts.
   - [x] Keep generated gfsim and admitted packed PYC C++/Verilator value-contract
     gates green.
+- [x] Complete issue #63 OPT-04 scalar `find(first)` selection optimization.
+  - [x] Use the shared low-first priority encoder only for effect-free 1..64-bit
+    scalar candidate masks; retain min/max, snapshot and wider-mask scans.
+  - [x] Replace the priority reference loop with exact-width C++20 bit scans and
+    preserve zero/default index plus low/high direction.
+  - [x] Execute width 1/16/64 zero, bit-63 and multi-hit cases; keep I2 generated
+    gfsim behavior and the existing PYC/Verilog priority primitive gates green.
+  - [x] Record generated-loop/byte changes and separate runtime timing from
+    semantic gate results.
 - [x] Close #46 and #48 framework prerequisites before their dependent
   DavinciOO H3 implementations. Decision 0222 places new design-program work
   under `designs/davincioo/`; independent contracts/modules may proceed when

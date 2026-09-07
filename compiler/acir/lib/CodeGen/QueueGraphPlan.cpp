@@ -2485,6 +2485,52 @@ llvm::Error verifyPayloadGraph(const QueueGraphPlan &plan) {
 
 } // namespace
 
+std::string inlineTableChoiceContractKey(
+    const QueueExpressionPlan &expression) {
+  std::string result;
+  auto append = [&](llvm::StringRef value) {
+    result.append(std::to_string(value.size()))
+        .append(":")
+        .append(value.str());
+  };
+  auto appendExpression = [&](auto &&self,
+                              const QueueExpressionPlan &nested) -> void {
+    append(nested.result);
+    append(nested.kind);
+    append(nested.type);
+    append(std::to_string(nested.operands.size()));
+    for (const std::string &operand : nested.operands)
+      append(operand);
+    append(nested.field);
+    append(nested.predicate);
+    append(nested.literal);
+    append(nested.table);
+    append(nested.slot);
+    append(std::to_string(nested.lsb));
+    append(std::to_string(nested.width));
+    append(nested.mask);
+    append(nested.value);
+    append(std::to_string(nested.nestedYields.size()));
+    for (const std::string &yield : nested.nestedYields)
+      append(yield);
+    append(std::to_string(nested.nestedExpressions.size()));
+    for (const QueueExpressionPlan &child : nested.nestedExpressions)
+      self(self, child);
+  };
+  append(expression.table);
+  append(std::to_string(expression.operands.size()));
+  append(expression.operands.empty() ? llvm::StringRef()
+                                     : expression.operands.front());
+  append(expression.predicate);
+  append(std::to_string(expression.nestedYields.size()));
+  for (const std::string &yield : expression.nestedYields)
+    append(yield);
+  append(std::to_string(expression.nestedExpressions.size()));
+  for (const QueueExpressionPlan &nested : expression.nestedExpressions)
+    appendExpression(appendExpression, nested);
+  return result;
+}
+
 llvm::Expected<QueueGraphPlan> buildQueueGraphPlan(mlir::ModuleOp module) {
   return Extractor(module).run();
 }
@@ -2939,6 +2985,8 @@ llvm::Error verifyQueueGraphPlan(const QueueGraphPlan &plan) {
           llvm::ArrayRef<std::string> rootTypes, llvm::StringRef rootPrefix,
           const llvm::StringMap<std::string> &inheritedTypes) -> llvm::Error {
     llvm::StringMap<std::string> valueTypes;
+    llvm::StringMap<const QueueExpressionPlan *> valueDefinitions;
+    llvm::StringMap<std::pair<unsigned, unsigned>> inlineChoiceKinds;
     for (const auto &entry : inheritedTypes)
       valueTypes[entry.getKey()] = entry.getValue();
     for (auto [index, type] : llvm::enumerate(rootTypes))
@@ -3144,6 +3192,57 @@ llvm::Error verifyQueueGraphPlan(const QueueGraphPlan &plan) {
                             1, llvm::Log2_64_Ceil(*inputWidth)));
         if (expression.type != expected)
           return planError("priority expression result type is inconsistent");
+      } else if (expression.kind == "table_choose_index" ||
+                 expression.kind == "table_choose_valid") {
+        if (expression.operands.size() != 1)
+          return planError("inline table choose requires one candidate mask");
+        if (!expression.field.empty() || !expression.literal.empty() ||
+            !expression.slot.empty() || !expression.mask.empty() ||
+            !expression.value.empty() || expression.lsb != 0 ||
+            expression.width != 0)
+          return planError("inline table choose metadata is not canonical");
+        const TablePlan *table = tables.lookup(expression.table);
+        auto producer = valueDefinitions.find(expression.operands.front());
+        if (!table || producer == valueDefinitions.end() ||
+            (producer->getValue()->kind != "table_match" &&
+             producer->getValue()->kind != "table_match_ref") ||
+            producer->getValue()->table != expression.table)
+          return planError(
+              "inline table choose mask must come from the same Table match");
+        if (!isCandidateMaskType(producer->getValue()->type, table->entries))
+          return planError(
+              "inline table choose mask width must equal Table entries");
+        const unsigned expectedIndexWidth =
+            std::max<unsigned>(1, llvm::Log2_64_Ceil(table->entries));
+        const std::string expectedType =
+            expression.kind == "table_choose_index"
+                ? "i" + std::to_string(expectedIndexWidth)
+                : "i1";
+        if (expression.type != expectedType)
+          return planError("inline table choose result type is inconsistent");
+        if (expression.predicate != "first" && expression.predicate != "min" &&
+            expression.predicate != "max")
+          return planError("inline table choose policy is unsupported");
+        if ((expression.predicate == "first" &&
+             (!expression.nestedExpressions.empty() ||
+              !expression.nestedYields.empty())) ||
+            (expression.predicate != "first" &&
+             expression.nestedYields.size() != 1))
+          return planError("inline table choose key shape is inconsistent");
+
+        auto &kinds =
+            inlineChoiceKinds[inlineTableChoiceContractKey(expression)];
+        if (expression.kind == "table_choose_index") {
+          if (kinds.first != kinds.second)
+            return planError(
+                "inline table choose requires index before valid");
+          ++kinds.first;
+        } else {
+          if (kinds.first != kinds.second + 1)
+            return planError(
+                "inline table choose requires index before valid");
+          ++kinds.second;
+        }
       } else if (expression.kind == "popcount") {
         if (expression.operands.size() != 1)
           return planError("popcount expression contract is malformed");
@@ -3232,6 +3331,7 @@ llvm::Error verifyQueueGraphPlan(const QueueGraphPlan &plan) {
           return planError("bit_insert expression widths are inconsistent");
       }
       valueTypes[expression.result] = expression.type;
+      valueDefinitions[expression.result] = &expression;
       if (!expression.nestedExpressions.empty()) {
         const TablePlan *table = tables.lookup(expression.table);
         llvm::SmallVector<std::string> nestedRoots;
@@ -3246,6 +3346,11 @@ llvm::Error verifyQueueGraphPlan(const QueueGraphPlan &plan) {
           return error;
       }
     }
+    for (const auto &entry : inlineChoiceKinds)
+      if (entry.getValue().first == 0 ||
+          entry.getValue().first != entry.getValue().second)
+        return planError(
+            "inline table choose requires balanced index/valid result pairs");
     return llvm::Error::success();
   };
   auto verifyTableGetConstraints =

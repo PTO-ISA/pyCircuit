@@ -7,6 +7,7 @@
 
 #include <algorithm>
 #include <array>
+#include <bit>
 #include <concepts>
 #include <cstddef>
 #include <cstdint>
@@ -1226,6 +1227,16 @@ public:
   operator uint64_t() const {
     return words_.empty() ? uint64_t{0} : words_.front();
   }
+  std::optional<size_t> firstSet(size_t entries) const {
+    if (entries == 0 || entries > 64 || words_.empty())
+      return std::nullopt;
+    uint64_t word = words_.front();
+    if (entries < 64)
+      word &= (uint64_t{1} << entries) - 1;
+    if (word == 0)
+      return std::nullopt;
+    return static_cast<size_t>(std::countr_zero(word));
+  }
 
 private:
   std::vector<uint64_t> words_;
@@ -1275,6 +1286,30 @@ public:
       return result_;
     result_ = {};
     decltype(auto) mask = std::invoke(mask_, epoch);
+    if (policy_ == TableChoosePolicy::First && table_.size() <= 64) {
+      std::optional<size_t> first;
+      if constexpr (requires { mask.firstSet(table_.size()); }) {
+        first = mask.firstSet(table_.size());
+      } else if constexpr (!requires { mask.test(size_t{}); } &&
+                           requires { static_cast<uint64_t>(mask); }) {
+        uint64_t word = static_cast<uint64_t>(mask);
+        if (table_.size() < 64)
+          word &= (uint64_t{1} << table_.size()) - 1;
+        if (word != 0)
+          first = static_cast<size_t>(std::countr_zero(word));
+      }
+      if (first) {
+        result_ = {*first, true};
+        epoch_ = epoch;
+        return result_;
+      }
+      if constexpr (requires { mask.firstSet(table_.size()); } ||
+                    (!requires { mask.test(size_t{}); } &&
+                     requires { static_cast<uint64_t>(mask); })) {
+        epoch_ = epoch;
+        return result_;
+      }
+    }
     uint64_t best = 0;
     for (size_t index = 0; index < table_.size(); ++index) {
       const bool selected = [&] {
