@@ -7840,10 +7840,11 @@ class _ExpressionEmitter:
                 f"!ac.var<{_render_type(value_type)}>"
             )
             return name, value_type
-        if isinstance(node, ast.BoolOp) and isinstance(node.op, ast.And):
+        if isinstance(node, ast.BoolOp) and isinstance(node.op, (ast.And, ast.Or)):
+            operator = "and" if isinstance(node.op, ast.And) else "or"
             if len(node.values) < 2:
                 raise QueueFrontendError(
-                    "ACPY-QUEUE-003: boolean and requires two operands"
+                    f"ACPY-QUEUE-003: boolean {operator} requires two operands"
                 )
             current, current_type = self.emit(node.values[0], BoolType())
             if not _is_epoch_05_bool_compatible(current_type):
@@ -7856,7 +7857,9 @@ class _ExpressionEmitter:
                     )
                 name = self._new()
                 self.lines.append(
-                    f"    %{name} = ac.var.mul %{current}, %{value} : !ac.var<i1>"
+                    f"    %{name} = ac.var."
+                    f"{'mul' if operator == 'and' else 'or'} "
+                    f"%{current}, %{value} : !ac.var<i1>"
                 )
                 current = name
             return current, BoolType()

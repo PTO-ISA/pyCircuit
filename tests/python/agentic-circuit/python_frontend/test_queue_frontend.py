@@ -3079,6 +3079,16 @@ def cycle(incoming: Left) -> Left:
             lowered,
         )
 
+    def test_invariant_supports_python_boolean_or(self) -> None:
+        from agentic_circuit._queue_frontend import lower_queue_source
+
+        source = INVARIANT_MODULE_SOURCE.replace(
+            "return value.value != 0",
+            "return value.valid or value.value != 0",
+        )
+        lowered = lower_queue_source(source, "invariant_module")
+        self.assertIn("ac.var.or", lowered)
+
     def test_aggregate_ordering_and_nominal_mismatch_fail_closed(self) -> None:
         from agentic_circuit._queue_frontend import (
             QueueFrontendError,

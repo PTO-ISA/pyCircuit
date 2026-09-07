@@ -1,0 +1,15 @@
+{
+  "run_id": "20260907-issue48-bool-or",
+  "status": "passed",
+  "base_revision": "9582e4e40f1fe1a207ffc7adcb87076b6d9772a1",
+  "decision_ids": ["0224"],
+  "issue": 48,
+  "results": {
+    "focused_frontend": {"passed": 132, "failed": 0},
+    "pre_commit": {"passed": true}
+  },
+  "behavior": "Python BoolOp Or in a pure @ac.invariant lowers to typed ac.var.or; operand type checks remain identical to boolean and.",
+  "trigger": "The first in-tree DavinciOO OperandSourceDescriptor invariant required an ordinary disjunction between legal payload shapes.",
+  "release_scope": "Focused framework regression discovered by the DavinciOO design program.",
+  "skill_evolve": "no-update"
+}
