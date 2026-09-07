@@ -231,6 +231,101 @@ QueueGraphPlan aggregateMetadataPlan() {
   return plan;
 }
 
+QueueGraphPlan statelessOptionalMultiOutputPlan() {
+  QueueGraphPlan plan;
+  plan.system = "stateless_optional_multi_output";
+  plan.queues = {{"input", "i8", "/", 1, 1},
+                 {"narrow", "i8", "/", 1, 1},
+                 {"wide", "i16", "/", 1, 1}};
+  plan.blocks.push_back({"source", "input", "/", {}, {"input"}, {1}, {1}});
+  QueueBlockPlan firing{"firing",
+                        "publish",
+                        "/",
+                        {"input"},
+                        {"narrow", "wide"},
+                        {1, 1},
+                        {1, 1}};
+  firing.guard = "enabled";
+  firing.expressions = {
+      {"wide_value", "constant", "i16", {}, "", "", "42 : i16"},
+      {"disabled", "constant", "i1", {}, "", "", "false"},
+      {"enabled", "constant", "i1", {}, "", "", "true"},
+  };
+  firing.yields = {"item", "wide_value"};
+  firing.outputPresence = {{0, "item", "disabled"},
+                           {1, "wide_value", "enabled"}};
+  plan.blocks.push_back(std::move(firing));
+  plan.blocks.push_back({"sink", "narrow_sink", "/", {"narrow"}, {}});
+  plan.blocks.push_back({"sink", "wide_sink", "/", {"wide"}, {}});
+
+  using Kind = QueueActivationNodeKind;
+  const QueueActivationNodePlan input{Kind::Queue, 0};
+  const QueueActivationNodePlan narrow{Kind::Queue, 1};
+  const QueueActivationNodePlan wide{Kind::Queue, 2};
+  const QueueActivationNodePlan worker{Kind::Block, 1};
+  const QueueActivationNodePlan narrowSink{Kind::Block, 2};
+  const QueueActivationNodePlan wideSink{Kind::Block, 3};
+  plan.activationEdges = {{input, worker},
+                          {narrow, worker},
+                          {narrow, narrowSink},
+                          {wide, worker},
+                          {wide, wideSink}};
+  plan.workClosureEdges = {{worker, input},
+                           {worker, narrow},
+                           {worker, wide},
+                           {narrowSink, narrow},
+                           {wideSink, wide}};
+  return plan;
+}
+
+QueueGraphPlan eightOutputCommitGroupPlan() {
+  QueueGraphPlan plan = statelessOptionalMultiOutputPlan();
+  plan.system = "seven_optional_plus_ack";
+  plan.blocks.resize(2);
+  QueueBlockPlan &firing = plan.blocks[1];
+  firing.outputPresence[0].present = "disabled";
+  firing.outputPresence[1].present = "disabled";
+  for (uint64_t ordinal = 2; ordinal < 8; ++ordinal) {
+    const std::string type = "i" + std::to_string(8 + ordinal);
+    const std::string queue = "effect" + std::to_string(ordinal);
+    const std::string value = "effect_value" + std::to_string(ordinal);
+    plan.queues.push_back({queue, type, "/", 1, 1});
+    firing.outputs.push_back(queue);
+    firing.depths.push_back(1);
+    firing.latencies.push_back(1);
+    firing.expressions.push_back(
+        {value, "constant", type, {}, "", "", "0 : " + type});
+    firing.yields.push_back(value);
+    firing.outputPresence.push_back(
+        {ordinal, value, ordinal == 7 ? "enabled" : "disabled"});
+  }
+  const std::vector<std::string> outputs = firing.outputs;
+  for (uint64_t ordinal = 0; ordinal < 8; ++ordinal)
+    plan.blocks.push_back({"sink",
+                           "sink" + std::to_string(ordinal),
+                           "/",
+                           {outputs[ordinal]},
+                           {}});
+
+  using Kind = QueueActivationNodeKind;
+  const QueueActivationNodePlan worker{Kind::Block, 1};
+  plan.activationEdges.clear();
+  plan.workClosureEdges.clear();
+  plan.activationEdges.push_back({{Kind::Queue, 0}, worker});
+  plan.workClosureEdges.push_back({worker, {Kind::Queue, 0}});
+  for (uint64_t ordinal = 0; ordinal < 8; ++ordinal) {
+    const QueueActivationNodePlan queue{Kind::Queue, ordinal + 1};
+    const QueueActivationNodePlan sink{Kind::Block, ordinal + 2};
+    plan.activationEdges.push_back({queue, worker});
+    plan.activationEdges.push_back({queue, sink});
+    plan.workClosureEdges.push_back({worker, queue});
+  }
+  for (uint64_t ordinal = 0; ordinal < 8; ++ordinal)
+    plan.workClosureEdges.push_back(
+        {{Kind::Block, ordinal + 2}, {Kind::Queue, ordinal + 1}});
+  return plan;
+}
+
 QueueGraphPlan aggregateExpressionPlan() {
   QueueGraphPlan plan;
   plan.system = "aggregate_expression";
@@ -1310,6 +1405,78 @@ TEST(QueueGraphPlanTest, EmitsAtomicTransformWithIndependentArity) {
   ASSERT_TRUE(bool(pyc)) << llvm::toString(pyc.takeError());
   EXPECT_NE(pyc->find("pyc.add"), std::string::npos);
   EXPECT_NE(pyc->find("= pyc.wire : i1"), std::string::npos);
+}
+
+TEST(QueueGraphPlanTest,
+     EmitsStatelessHeterogeneousOptionalMultiOutputTransition) {
+  QueueGraphPlan plan = statelessOptionalMultiOutputPlan();
+  auto error = verifyQueueGraphPlan(plan);
+  ASSERT_FALSE(bool(error)) << llvm::toString(std::move(error));
+
+  auto cpp = generateQueueGraphCpp(plan);
+  ASSERT_TRUE(bool(cpp)) << llvm::toString(cpp.takeError());
+  EXPECT_NE(cpp->find("gfsim::StateTransitionPlan<std::tuple<>, "
+                      "std::tuple<gfsim::UInt<8>, gfsim::UInt<16>>>"),
+            std::string::npos);
+  EXPECT_NE(cpp->find(
+                "output_present0 ? std::optional<gfsim::UInt<8>>"),
+            std::string::npos);
+  EXPECT_NE(cpp->find(
+                "output_present1 ? std::optional<gfsim::UInt<16>>"),
+            std::string::npos);
+  expectCppCompiles(*cpp);
+
+  auto pyc = generateQueueGraphPyc(plan);
+  ASSERT_TRUE(bool(pyc)) << llvm::toString(pyc.takeError());
+  EXPECT_NE(pyc->find("%out0_ready: i1"), std::string::npos);
+  EXPECT_NE(pyc->find("%out1_ready: i1"), std::string::npos);
+  EXPECT_NE(pyc->find("pyc.assign"), std::string::npos);
+  EXPECT_GE(std::count(pyc->begin(), pyc->end(), '\n'), 20);
+}
+
+TEST(QueueGraphPlanTest, CompilesSevenOptionalOutputsPlusMandatoryAck) {
+  QueueGraphPlan plan = eightOutputCommitGroupPlan();
+  auto error = verifyQueueGraphPlan(plan);
+  ASSERT_FALSE(bool(error)) << llvm::toString(std::move(error));
+
+  auto cpp = generateQueueGraphCpp(plan);
+  ASSERT_TRUE(bool(cpp)) << llvm::toString(cpp.takeError());
+  for (unsigned ordinal = 0; ordinal < 8; ++ordinal)
+    EXPECT_NE(cpp->find("output_present" + std::to_string(ordinal) +
+                        " ? std::optional<"),
+              std::string::npos);
+  EXPECT_NE(cpp->find("gfsim::UInt<15>"), std::string::npos);
+  expectCppCompiles(*cpp);
+
+  auto pyc = generateQueueGraphPyc(plan);
+  ASSERT_TRUE(bool(pyc)) << llvm::toString(pyc.takeError());
+  size_t constants = 0;
+  for (size_t offset = 0;
+       (offset = pyc->find(" = pyc.constant ", offset)) != std::string::npos;
+       offset += 16)
+    ++constants;
+  EXPECT_EQ(constants, 9u);
+}
+
+TEST(QueueGraphPlanTest, RejectsNoncanonicalOutputPresenceOrdinalOrder) {
+  QueueGraphPlan plan = statelessOptionalMultiOutputPlan();
+  QueueBlockPlan &firing = plan.blocks[1];
+  std::swap(firing.outputPresence[0], firing.outputPresence[1]);
+  auto error = verifyQueueGraphPlan(plan);
+  ASSERT_TRUE(bool(error));
+  EXPECT_NE(llvm::toString(std::move(error)).find(
+                "output presence ordinals must be sorted"),
+            std::string::npos);
+}
+
+TEST(QueueGraphPlanTest, RejectsDuplicateOutputPresenceOrdinal) {
+  QueueGraphPlan plan = statelessOptionalMultiOutputPlan();
+  plan.blocks[1].outputPresence[1].ordinal = 0;
+  auto error = verifyQueueGraphPlan(plan);
+  ASSERT_TRUE(bool(error));
+  EXPECT_NE(llvm::toString(std::move(error)).find(
+                "cover each output exactly once"),
+            std::string::npos);
 }
 
 TEST(QueueGraphPlanTest, EmitsHeterogeneousBarrierForBothBackends) {

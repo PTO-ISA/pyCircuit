@@ -879,6 +879,39 @@ predicate-qualified output capacity/effect summary。因此 output Queue 已满�
 QueueGraph verifier 要求这种不同于 candidate 的 output presence 只有一个 input，且 candidate
 必须是 constant true。
 
+一个有多个异构 result 的 rule 用固定的 `tuple[...]` 声明返回类型。每个返回 local 保存
+声明的值或 `None`；`None` 只表示本次 activation 没有该 ordinal，不会生成 payload。
+
+```python
+@ac.rule
+def publish(request: Request) -> tuple[Wakeup, Fault, ApplyAck]:
+    wakeup = None
+    fault = None
+    ack = ApplyAck(identity=request.identity, accepted=True)
+    if request.publish_value:
+        wakeup = Wakeup(identity=request.identity, tag=request.tag)
+    if request.publish_fault:
+        fault = Fault(identity=request.identity, code=request.fault_code)
+    return wakeup, fault, ack
+```
+
+调用点使用普通的固定 arity 解包。每个返回 local 必须在条件赋值前初始化：optional local
+以 `None` 开始，required local 以 typed value 开始。前端为每个 result 位置推导一个 typed value 和一个
+presence predicate，并保留每个嵌套分支进入时可见的 binding。每个位置至少要有一个与
+annotation 一致的 typed value，每条源码路径在初始化后最终解析到该值或 absence；必选 acknowledgement
+在所有路径都有值。错误 arity/type、未定义位置、在返回 ordinal 之外使用 `None`，以及带多个
+input 的 optional multi-output rule 都会 fail closed。
+
+只有被选择的 output 才参与 capacity check。未选择的满 Queue 不阻塞；任一被选择的 Queue
+已满都会保留 input、所有 selected output 和全部 state proposal。容量恢复后，完整集合通过
+一个 prepare/publish/Probe/no-fail-Commit group 恰好提交一次。Python 不暴露 result
+presence、Queue capacity、reservation 或 commit 对象。
+
+每次 Work attempt 读取同一个 tick-start committed snapshot。atomic prepare 失败时不产生
+effect，下一 tick 会从新的 committed snapshot 重新求值。若协议必须跨 tick 保留 selection，
+应把 phase 或 mask 显式存入持久状态；gfsim 不会跨 Xfer 边界保留带过期 state-derived value
+且尚未 reservation 的 candidate。
+
 `ACDataFlowAnalyzer` 会从 candidate、output presence 和 state-effect presence 反向遍历，
 生成 compiler-owned state snapshot proof。顶层 `ac.table.get` 会成为带精确 static 或已证明
 full-domain dynamic index 的 `ac.state.snapshot`；作为源的 `ac.table.match` 会 reservation

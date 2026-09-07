@@ -1,0 +1,39 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.12.12, pytest-9.1.1, pluggy-1.6.0
+rootdir: /Users/zhoubot/linx-isa/tools/pyCircuit
+configfile: pyproject.toml
+collected 282 items
+
+tests/python/agentic-circuit/python_frontend/test_acpy.py ...            [  1%]
+tests/python/agentic-circuit/python_frontend/test_definitions.py ....... [  3%]
+..                                                                       [  4%]
+tests/python/agentic-circuit/python_frontend/test_determinism.py ..      [  4%]
+tests/python/agentic-circuit/python_frontend/test_jit_blocks.py ......s. [  7%]
+s...s......s..                                                           [ 12%]
+tests/python/agentic-circuit/python_frontend/test_jit_source_closure.py . [ 13%]
+...                                                                      [ 14%]
+tests/python/agentic-circuit/python_frontend/test_lower_acir.py ...s     [ 15%]
+tests/python/agentic-circuit/python_frontend/test_normalization.py ...   [ 16%]
+tests/python/agentic-circuit/python_frontend/test_process.py .....       [ 18%]
+tests/python/agentic-circuit/python_frontend/test_public_api.py ........ [ 21%]
+.........                                                                [ 24%]
+tests/python/agentic-circuit/python_frontend/test_queue_codegen.py ..... [ 26%]
+........                                                                 [ 29%]
+tests/python/agentic-circuit/python_frontend/test_queue_frontend.py .... [ 30%]
+........................................................................ [ 56%]
+...................................................                      [ 74%]
+tests/python/agentic-circuit/python_frontend/test_resources.py ....      [ 75%]
+tests/python/agentic-circuit/python_frontend/test_scopes_collections.py . [ 75%]
+....                                                                     [ 77%]
+tests/python/agentic-circuit/python_frontend/test_source_capture.py .... [ 78%]
+....                                                                     [ 80%]
+tests/python/agentic-circuit/python_frontend/test_static_eval.py ....... [ 82%]
+.                                                                        [ 82%]
+tests/python/agentic-circuit/contracts/test_contracts.py ............... [ 88%]
+...........                                                              [ 92%]
+tests/python/agentic-circuit/contracts/test_ir_coverage.py ...........   [ 96%]
+tests/python/agentic-circuit/contracts/test_queue_type_hygiene.py .....  [ 97%]
+tests/python/agentic-circuit/cli/test_all_commands.py .                  [ 98%]
+tests/python/agentic-circuit/cli/test_workspace.py .....                 [100%]
+
+======================= 277 passed, 5 skipped in 17.70s ========================

@@ -1,0 +1,9 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.12.12, pytest-9.1.1, pluggy-1.6.0
+rootdir: /Users/zhoubot/linx-isa/tools/pyCircuit
+configfile: pyproject.toml
+collected 2 items
+
+tests/integration/agentic-circuit/e2e/test_multi_output_atomic.py ..     [100%]
+
+============================== 2 passed in 5.07s ===============================

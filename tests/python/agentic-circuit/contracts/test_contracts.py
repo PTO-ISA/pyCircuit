@@ -237,7 +237,7 @@ class RepositoryContractsTest(unittest.TestCase):
             self.assertTrue(entry["gfsim"]["available"])
             provisional = entry["operation"].startswith("ac.table") or entry[
                 "operation"
-            ] in {"ac.firing", "ac.slot"}
+            ] == "ac.slot"
             if entry["role"] == "design" and not provisional:
                 self.assertTrue(entry["pyc"]["available"])
             if provisional:
@@ -252,6 +252,14 @@ class RepositoryContractsTest(unittest.TestCase):
                 self.assertGreaterEqual(maximum_inputs, entry["inputs"]["min"])
             if maximum_outputs is not None:
                 self.assertGreaterEqual(maximum_outputs, entry["outputs"]["min"])
+            if entry["operation"] == "ac.firing":
+                self.assertEqual(0, entry["inputs"]["min"])
+                self.assertIsNone(entry["inputs"]["max"])
+                self.assertEqual(0, entry["outputs"]["min"])
+                self.assertIsNone(entry["outputs"]["max"])
+                self.assertEqual(
+                    "stateless_packed_scalar_only", entry["pyc"]["realization"]
+                )
         roles = {entry["operation"]: entry["role"] for entry in catalog["entries"]}
         self.assertEqual("observation", roles["ac.observe"])
         self.assertEqual("verification", roles["ac.expect"])

@@ -7,6 +7,7 @@
 
 #include <algorithm>
 #include <bit>
+#include <memory>
 #include <sstream>
 #include <system_error>
 
@@ -135,7 +136,8 @@ llvm::Expected<std::string>
 emitTransform(const QueueGraphPlan &plan, const QueueBlockPlan &block,
               llvm::ArrayRef<std::string> inputData,
               llvm::ArrayRef<std::string> inputTypes, size_t yieldIndex,
-              unsigned &nextValue, std::ostringstream &body) {
+              unsigned &nextValue, std::ostringstream &body,
+              llvm::StringMap<std::string> *emittedValues = nullptr) {
   if (inputData.size() != inputTypes.size() || inputData.empty())
     return pycError("transform input data/type arity mismatch");
   llvm::StringMap<std::string> values;
@@ -549,7 +551,13 @@ emitTransform(const QueueGraphPlan &plan, const QueueBlockPlan &block,
   }
   if (yieldIndex >= block.yields.size())
     return pycError("transform yield index is outside result arity");
-  return value(block.yields[yieldIndex]);
+  auto yielded = value(block.yields[yieldIndex]);
+  if (!yielded)
+    return yielded.takeError();
+  std::string result = std::move(*yielded);
+  if (emittedValues)
+    *emittedValues = std::move(values);
+  return result;
 }
 
 constexpr llvm::StringLiteral kStructMetrics =
@@ -707,6 +715,7 @@ llvm::Expected<std::string> generateQueueGraphPyc(const QueueGraphPlan &plan) {
   std::vector<const QueueBlockPlan *> sinks;
   std::vector<const QueueBlockPlan *> observations;
   llvm::StringMap<TransformProducer> transformByOutput;
+  llvm::StringMap<TransformProducer> firingByOutput;
   llvm::StringMap<TransformProducer> barrierByOutput;
   llvm::StringMap<const QueueBlockPlan *> broadcastByOutput;
   llvm::StringMap<const QueueBlockPlan *> forkByOutput;
@@ -739,6 +748,15 @@ llvm::Expected<std::string> generateQueueGraphPyc(const QueueGraphPlan &plan) {
         return pycError("transform output arity is unsupported");
       for (auto [index, output] : llvm::enumerate(block.outputs))
         transformByOutput[output] = TransformProducer{&block, index};
+    } else if (block.kind == "firing") {
+      if (!block.stateWrites.empty() || !block.stateReservations.empty() ||
+          block.inputs.empty() || block.outputs.empty() ||
+          block.yields.size() != block.outputs.size() ||
+          block.outputPresence.size() != block.outputs.size() ||
+          block.guard.empty())
+        return pycError("stateful or malformed firing has no PYC lowering");
+      for (auto [index, output] : llvm::enumerate(block.outputs))
+        firingByOutput[output] = TransformProducer{&block, index};
     } else if (block.kind == "route") {
       if (block.inputs.size() != 1 || block.outputs.size() < 2)
         return pycError("route arity is unsupported");
@@ -802,7 +820,7 @@ llvm::Expected<std::string> generateQueueGraphPyc(const QueueGraphPlan &plan) {
       return pycError(
           "PYC QueueGraph supports "
           "source/transform/broadcast/fork/route/select/"
-          "merge/barrier/credit/memory_request/dependency/reorder/feedback/"
+          "firing/merge/barrier/credit/memory_request/dependency/reorder/feedback/"
           "observe/sink");
     }
   }
@@ -860,6 +878,10 @@ llvm::Expected<std::string> generateQueueGraphPyc(const QueueGraphPlan &plan) {
   llvm::StringMap<std::string> routeCondition;
   llvm::StringMap<SelectState> selectStates;
   llvm::StringMap<std::string> atomicTransformValid;
+  llvm::StringMap<std::string> firingPresence;
+  llvm::StringMap<std::string> firingGuard;
+  llvm::StringMap<std::shared_ptr<llvm::StringMap<std::string>>>
+      firingExpressionValues;
   llvm::StringMap<std::vector<std::string>> mergeGrants;
   llvm::StringMap<MergeState> mergeStates;
   llvm::StringMap<ForkState> forkStates;
@@ -1011,6 +1033,7 @@ llvm::Expected<std::string> generateQueueGraphPyc(const QueueGraphPlan &plan) {
       producerData = inputName(source->getValue(), "data");
     } else {
       auto transformProducer = transformByOutput.find(queue.name);
+      auto firingProducer = firingByOutput.find(queue.name);
       auto barrierProducer = barrierByOutput.find(queue.name);
       auto broadcastProducer = broadcastByOutput.find(queue.name);
       auto forkProducer = forkByOutput.find(queue.name);
@@ -1054,6 +1077,58 @@ llvm::Expected<std::string> generateQueueGraphPyc(const QueueGraphPlan &plan) {
         if (!transformed)
           return transformed.takeError();
         producerData = std::move(*transformed);
+      } else if (firingProducer != firingByOutput.end()) {
+        const TransformProducer &producer = firingProducer->getValue();
+        const QueueBlockPlan &firing = *producer.block;
+        std::vector<std::string> inputDataValues;
+        std::vector<std::string> inputTypes;
+        for (const std::string &inputName : firing.inputs) {
+          auto valid = outputValid.find(inputName);
+          auto data = outputData.find(inputName);
+          const QueuePlan *inputQueue = findQueue(plan, inputName);
+          if (valid == outputValid.end() || data == outputData.end() ||
+              !inputQueue)
+            return pycError("firing inputs are not in topological order");
+          inputDataValues.push_back(data->getValue());
+          inputTypes.push_back(inputQueue->payloadType);
+        }
+        producerValid = newValue();
+        body << "    " << producerValid << " = pyc.wire : i1\n";
+        atomicTransformValid[queue.name] = producerValid;
+        auto cached = firingExpressionValues.find(queue.name);
+        if (cached == firingExpressionValues.end()) {
+          auto values =
+              std::make_shared<llvm::StringMap<std::string>>();
+          auto emitted = emitTransform(plan, firing, inputDataValues,
+                                       inputTypes, producer.index, nextValue,
+                                       body, values.get());
+          if (!emitted)
+            return emitted.takeError();
+          for (const std::string &output : firing.outputs)
+            firingExpressionValues[output] = values;
+          cached = firingExpressionValues.find(queue.name);
+        }
+        auto lookup = [&](llvm::StringRef identity)
+            -> llvm::Expected<std::string> {
+          auto found = cached->getValue()->find(identity);
+          if (found == cached->getValue()->end())
+            return pycError("firing expression identity is missing: '" +
+                            identity + "'");
+          return found->getValue();
+        };
+        auto transformed = lookup(firing.yields[producer.index]);
+        auto presence =
+            lookup(firing.outputPresence[producer.index].present);
+        auto guard = lookup(firing.guard);
+        if (!transformed)
+          return transformed.takeError();
+        if (!presence)
+          return presence.takeError();
+        if (!guard)
+          return guard.takeError();
+        producerData = std::move(*transformed);
+        firingPresence[queue.name] = std::move(*presence);
+        firingGuard[queue.name] = std::move(*guard);
       } else if (barrierProducer != barrierByOutput.end()) {
         const TransformProducer &producer = barrierProducer->getValue();
         const QueueBlockPlan &barrier = *producer.block;
@@ -2071,6 +2146,70 @@ llvm::Expected<std::string> generateQueueGraphPyc(const QueueGraphPlan &plan) {
           body << "    pyc.assign " << validWire->getValue() << ", "
                << outputCanFire << " : i1\n";
         }
+      }
+    } else if (block.kind == "firing") {
+      auto guard = firingGuard.find(block.outputs.front());
+      if (guard == firingGuard.end())
+        return pycError("firing guard value is missing");
+      std::vector<std::string> selectedReady;
+      selectedReady.reserve(block.outputs.size());
+      for (const std::string &output : block.outputs) {
+        auto presence = firingPresence.find(output);
+        auto ready = inputReady.find(output);
+        if (presence == firingPresence.end() || ready == inputReady.end())
+          return pycError("firing output handshake is missing");
+        selectedReady.push_back(emitBinary(
+            "or", emitNot(presence->getValue()), ready->getValue(), "i1"));
+      }
+      std::string allSelectedReady =
+          reduceBalanced("and", selectedReady, "i1");
+      for (auto [inputIndex, input] : llvm::enumerate(block.inputs)) {
+        std::string inputCanFire =
+            emitBinary("and", guard->getValue(), allSelectedReady, "i1");
+        for (auto [otherIndex, other] : llvm::enumerate(block.inputs)) {
+          if (otherIndex == inputIndex)
+            continue;
+          auto valid = outputValid.find(other);
+          if (valid == outputValid.end())
+            return pycError("firing input valid is missing");
+          inputCanFire =
+              emitBinary("and", inputCanFire, valid->getValue(), "i1");
+        }
+        body << "    pyc.assign " << readyWires[input] << ", " << inputCanFire
+             << " : i1\n";
+      }
+      std::string allInputsValid = guard->getValue();
+      for (const std::string &input : block.inputs) {
+        auto valid = outputValid.find(input);
+        if (valid == outputValid.end())
+          return pycError("firing input valid is missing");
+        allInputsValid =
+            emitBinary("and", allInputsValid, valid->getValue(), "i1");
+      }
+      for (auto [outputIndex, output] : llvm::enumerate(block.outputs)) {
+        auto validWire = atomicTransformValid.find(output);
+        auto presence = firingPresence.find(output);
+        if (validWire == atomicTransformValid.end() ||
+            presence == firingPresence.end())
+          return pycError("firing output valid is missing");
+        std::string outputCanFire = emitBinary(
+            "and", allInputsValid, presence->getValue(), "i1");
+        for (auto [otherIndex, other] : llvm::enumerate(block.outputs)) {
+          if (otherIndex == outputIndex)
+            continue;
+          auto otherPresence = firingPresence.find(other);
+          auto otherReady = inputReady.find(other);
+          if (otherPresence == firingPresence.end() ||
+              otherReady == inputReady.end())
+            return pycError("firing output handshake is missing");
+          std::string otherSelectedReady = emitBinary(
+              "or", emitNot(otherPresence->getValue()),
+              otherReady->getValue(), "i1");
+          outputCanFire =
+              emitBinary("and", outputCanFire, otherSelectedReady, "i1");
+        }
+        body << "    pyc.assign " << validWire->getValue() << ", "
+             << outputCanFire << " : i1\n";
       }
     } else if (block.kind == "barrier") {
       std::string allReady = inputReady[block.outputs.front()];

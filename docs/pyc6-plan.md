@@ -233,10 +233,20 @@ PYC semantic contracts.
   - [x] Archive review and current-checkout evidence under
     `docs/gates/logs/20260907-issue44-review-closure/` for the upstream
     `Closes #44` merge. GitHub records the final merge and issue state.
-- [ ] Then complete issue #46's heterogeneous optional multi-output rule
+- [x] Complete Decision 0223 and issue #46's heterogeneous optional multi-output rule
   contract: infer one presence per result, apply backpressure only to selected
   sinks, and commit all selected outputs, input consumption, state proposals,
   and the mandatory acknowledgement in one transaction without dummy tokens.
+  - [x] Freeze fixed-arity tuple authoring: each annotated result position
+    carries a typed value or Python `None`; `None` is compile-time absence and
+    never becomes a Queue token or public presence marker.
+  - [x] Verify one SSA value/presence pair per ordinal through nested CFG and
+    preserve it in Rule, Firing, QueueGraph and generated gfsim.
+  - [x] Execute selected-full, unselected-full, mandatory-ack-full, multi-full,
+    release, exactly-once and state/input-retention cases with heterogeneous
+    results in one prepare/publish/Probe/no-fail-Commit group.
+  - [x] Preserve the explicit Table-to-PYC rejection while proving applicable
+    stateless multi-output PYC C++/Verilog parity.
 - [ ] Close #46 and #48 framework prerequisites before their dependent
   DavinciOO H3 implementations. Decision 0222 places new design-program work
   under `designs/davincioo/`; independent contracts/modules may proceed when

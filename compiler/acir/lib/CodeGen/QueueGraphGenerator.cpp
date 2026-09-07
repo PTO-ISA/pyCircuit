@@ -2716,8 +2716,7 @@ llvm::Expected<std::string> generateQueueGraphCpp(const QueueGraphPlan &plan) {
     if (block.kind == "firing") {
       const bool hasState =
           !block.stateWrites.empty() || !block.stateReservations.empty();
-      if (block.outputs.size() > 1 ||
-          block.yields.size() != block.outputs.size() || block.guard.empty() ||
+      if (block.yields.size() != block.outputs.size() || block.guard.empty() ||
           (hasState &&
            (block.table.empty() || block.tableIndex.empty() ||
             block.tableValue.empty() || block.writeMode != "replace" ||

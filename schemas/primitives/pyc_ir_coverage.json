@@ -217,6 +217,7 @@
       "status": "normative",
       "symbol": "PYC_AssignOp",
       "tests": [
+        "tests/cpp/agentic-circuit/CodeGen/QueueGraphPlanTest.cpp",
         "tests/mlir/agentic-circuit/CodeGen/atomic-transform.mlir"
       ],
       "verifier": "compiler/mlir/lib/Dialect/PYC/PYCOps.cpp",
