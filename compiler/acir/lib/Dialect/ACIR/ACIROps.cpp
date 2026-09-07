@@ -1910,9 +1910,9 @@ LogicalResult VarDeclOp::verify() {
   const auto zero = dyn_cast<IntegerAttr>(getInit());
   const bool zeroImage = zero && zero.getValue().isZero();
   if ((!init || init.getType() != getValueType()) &&
-      !(isa<StructType>(getValueType()) && zeroImage))
+      !(isa<StructType, EnumType>(getValueType()) && zeroImage))
     return emitOpError(
-        "init must match value type or be the zero image for a struct");
+        "init must match value type or be the zero image for a struct or enum");
   if (getOwner().empty() || !getOwner().starts_with('/') ||
       (getOwner().size() > 1 && getOwner().ends_with('/')))
     return emitOpError("owner must be a canonical absolute scope path");
@@ -2795,7 +2795,8 @@ static bool isTableEntryType(Operation *anchor, Type type) {
   (void)anchor;
   if (auto integer = dyn_cast<IntegerType>(type))
     return integer.getWidth() > 0 && integer.getWidth() <= 64;
-  return isa<StructType>(type) && isImmutablePayloadType(type);
+  return isa<EnumType>(type) ||
+         (isa<StructType>(type) && isImmutablePayloadType(type));
 }
 
 static FailureOr<uint64_t> tableEntryFieldCount(Operation *endpoint,
@@ -2936,8 +2937,9 @@ static LogicalResult verifyStaticallySafeRuleTableIndex(Operation *operation,
 
 LogicalResult TableOp::verify() {
   if (!isTableEntryType(*this, getEntryType()))
-    return emitOpError("entry type must be a <=64-bit integer or an immutable "
-                       "recursive struct");
+    return emitOpError(
+        "entry type must be a <=64-bit integer, nominal enum, or immutable "
+        "recursive struct");
   if (getEntries() <= 0)
     return emitOpError("entries must be positive");
   if (getInit() != 0)
@@ -3404,7 +3406,7 @@ LogicalResult SlotOp::verify() {
   Type payload = cast<QueueType>(getInput().getType()).getElementType();
   if (!isTableEntryType(*this, payload))
     return emitOpError("input Queue payload must be bool, a <=64-bit integer, "
-                       "or a flat integer struct");
+                       "nominal enum, or a flat integer struct");
   if (getOwner().empty() || !getOwner().starts_with('/') ||
       (getOwner().size() > 1 && getOwner().ends_with('/')))
     return emitOpError("owner must be a canonical absolute scope path");
