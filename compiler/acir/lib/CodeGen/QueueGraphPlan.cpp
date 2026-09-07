@@ -939,6 +939,11 @@ extractExpressions(mlir::Region &region, QueueBlockPlan &plan,
   }
   if (!sawStructuredYield)
     return planError("Queue Var region has no structured yield");
+  llvm::sort(plan.outputPresence,
+             [](const OutputPresencePlan &left,
+                const OutputPresencePlan &right) {
+               return left.ordinal < right.ordinal;
+             });
   return llvm::Error::success();
 }
 
@@ -2778,8 +2783,7 @@ llvm::Error verifyQueueGraphPlan(const QueueGraphPlan &plan) {
     previousFiringPriority = block.priority;
     if (block.stateWrites.empty() && block.outputs.empty())
       return planError("outputless firing must update state");
-    if (block.outputs.size() > 1 ||
-        block.guard.empty() || block.yields.size() != block.outputs.size() ||
+    if (block.guard.empty() || block.yields.size() != block.outputs.size() ||
         block.depths.size() != block.outputs.size() ||
         block.latencies.size() != block.outputs.size() ||
         (block.inputs.empty() && block.outputs.empty()))
@@ -2800,10 +2804,26 @@ llvm::Error verifyQueueGraphPlan(const QueueGraphPlan &plan) {
           llvm::any_of(block.stateWrites,
                        [](const auto &write) { return write.present.empty(); }))
         return planError("state firing SSA presence metadata is incomplete");
-      for (auto [ordinal, output] : llvm::enumerate(block.outputPresence))
-        if (output.ordinal != ordinal ||
-            output.value != block.yields[ordinal] || output.present.empty())
+      llvm::SmallVector<uint8_t, 4> seen(block.outputs.size(), 0);
+      std::optional<uint64_t> previousOrdinal;
+      for (const OutputPresencePlan &output : block.outputPresence) {
+        if (output.ordinal >= block.outputs.size() || seen[output.ordinal])
+          return planError(
+              "state firing output presence ordinals must cover each output "
+              "exactly once");
+        if (previousOrdinal && output.ordinal <= *previousOrdinal)
+          return planError(
+              "state firing output presence ordinals must be sorted");
+        seen[output.ordinal] = true;
+        previousOrdinal = output.ordinal;
+        if (output.value != block.yields[output.ordinal] ||
+            output.present.empty())
           return planError("state firing output presence is not canonical");
+      }
+      if (llvm::is_contained(seen, uint8_t{0}))
+        return planError(
+            "state firing output presence ordinals must cover each output "
+            "exactly once");
     }
     llvm::StringMap<const StateWritePlan *> ownerWrites;
     for (const StateWritePlan &write : block.stateWrites) {

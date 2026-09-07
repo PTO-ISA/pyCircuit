@@ -1876,8 +1876,7 @@ public:
                                    std::as_const(table_), values...);
         },
         inputValues);
-    if (!plan ||
-        !selectedOutputsReady(*plan, std::index_sequence_for<Outputs...>{}))
+    if (!plan)
       return;
 
     candidate_ = std::move(*plan);
@@ -2116,8 +2115,7 @@ public:
         },
         inputValues);
     static_assert(std::same_as<decltype(plan), std::optional<Plan>>);
-    if (!plan ||
-        !selectedOutputsReady(*plan, std::index_sequence_for<Outputs...>{}))
+    if (!plan)
       return;
     candidate_ = std::move(*plan);
   }

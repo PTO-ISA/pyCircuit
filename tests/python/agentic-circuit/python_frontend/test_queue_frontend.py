@@ -1290,6 +1290,142 @@ def table_rule() -> None:
     ac.sink(outgoing)
 """
 
+OPTIONAL_MULTI_OUTPUT_SOURCE = """
+import agentic_circuit as ac
+
+@ac.struct
+class Command:
+    value: ac.u8
+    left: bool
+    right: bool
+    nested: bool
+    cancel_left: bool
+
+@ac.struct
+class LeftEffect:
+    value: ac.u8
+
+@ac.struct
+class RightEffect:
+    value: ac.u7
+
+@ac.struct
+class ApplyAck:
+    value: ac.u8
+
+@ac.rule
+def dispatch(command) -> tuple[LeftEffect, RightEffect, ApplyAck]:
+    left = None
+    right = None
+    ack = ApplyAck(value=command.value)
+    if command.left:
+        left = LeftEffect(value=command.value)
+        if command.nested:
+            right = RightEffect(value=command.value[0:7])
+    elif command.right:
+        right = RightEffect(value=command.value[0:7])
+    if command.cancel_left:
+        left = None
+    return left, right, ack
+
+@ac.system
+def optional_multi_output(command: Command) -> tuple[LeftEffect, RightEffect, ApplyAck]:
+    left, right, ack = dispatch(command)
+    left_next = left.apply(lambda value: value)
+    right_next = right.apply(lambda value: value)
+    ack_next = ack.apply(lambda value: value)
+    return left_next, right_next, ack_next
+"""
+
+W2_EIGHT_OUTPUT_SOURCE = """
+import agentic_circuit as ac
+
+@ac.struct
+class Command:
+    mask: ac.u7
+    value: ac.u8
+
+@ac.struct
+class GprWrite:
+    value: ac.u8
+
+@ac.struct
+class Wakeup:
+    value: ac.u7
+
+@ac.struct
+class RobComplete:
+    value: ac.u6
+
+@ac.struct
+class BrobResolve:
+    value: ac.u5
+
+@ac.struct
+class Fault:
+    value: ac.u4
+
+@ac.struct
+class StoreResolve:
+    value: ac.u3
+
+@ac.struct
+class BranchResolve:
+    value: ac.u2
+
+@ac.struct
+class ApplyAck:
+    value: ac.u8
+
+@ac.rule
+def writeback(command) -> tuple[GprWrite, Wakeup, RobComplete, BrobResolve, Fault, StoreResolve, BranchResolve, ApplyAck]:
+    gpr = None
+    wakeup = None
+    rob = None
+    brob = None
+    fault = None
+    store = None
+    branch = None
+    ack = ApplyAck(value=command.value)
+    if command.mask[0]:
+        gpr = GprWrite(value=command.value)
+    if command.mask[1]:
+        wakeup = Wakeup(value=command.value[0:7])
+    if command.mask[2]:
+        rob = RobComplete(value=command.value[0:6])
+    if command.mask[3]:
+        brob = BrobResolve(value=command.value[0:5])
+    if command.mask[4]:
+        fault = Fault(value=command.value[0:4])
+    if command.mask[5]:
+        store = StoreResolve(value=command.value[0:3])
+    if command.mask[6]:
+        branch = BranchResolve(value=command.value[0:2])
+    return gpr, wakeup, rob, brob, fault, store, branch, ack
+
+@ac.system
+def w2(command: Command) -> tuple[GprWrite, Wakeup, RobComplete, BrobResolve, Fault, StoreResolve, BranchResolve, ApplyAck]:
+    gpr, wakeup, rob, brob, fault, store, branch, ack = writeback(command)
+    return gpr, wakeup, rob, brob, fault, store, branch, ack
+"""
+
+INDEXED_SCALAR_MULTI_OUTPUT_SOURCE = """
+import agentic_circuit as ac
+
+@ac.rule
+def split(command) -> tuple[ac.u1, ac.u8]:
+    selected = None
+    ack = command
+    if command[0]:
+        selected = command[0]
+    return selected, ack
+
+@ac.system
+def indexed_scalar(command: ac.u8) -> tuple[ac.u1, ac.u8]:
+    selected, ack = split(command)
+    return selected, ack
+"""
+
 FORK_SOURCE = """
 import agentic_circuit as ac
 
@@ -3590,6 +3726,228 @@ def cycle(incoming: Left) -> Left:
         self.assertIn("ac.rule.output %item when %", lowered)
         self.assertIn("ac.rule.return %rule_ready", lowered)
         self.assertNotIn("ready_valid", lowered)
+
+    def test_typed_multi_output_infers_one_presence_per_ordinal(self) -> None:
+        from agentic_circuit._queue_frontend import lower_queue_source
+
+        lowered = lower_queue_source(
+            OPTIONAL_MULTI_OUTPUT_SOURCE, "optional_multi_output"
+        )
+        self.assertEqual(1, lowered.count(" = ac.rule %command "))
+        outputs = [
+            line for line in lowered.splitlines() if "ac.rule.output" in line
+        ]
+        self.assertEqual(3, len(outputs))
+        for ordinal, output in enumerate(outputs):
+            self.assertIn(f" ordinal {ordinal} ", output)
+            self.assertIn(" when %", output)
+        self.assertIn("-> (!ac.queue<!ac.struct<@types::@LeftEffect>>", lowered)
+        self.assertIn("!ac.queue<!ac.struct<@types::@RightEffect>>", lowered)
+        self.assertIn("!ac.queue<!ac.struct<@types::@ApplyAck>>)", lowered)
+        self.assertIn("ac.sink %left_next", lowered)
+        self.assertIn("ac.sink %right_next", lowered)
+        self.assertIn("ac.sink %ack_next", lowered)
+        ack_output = outputs[2]
+        ack_presence = ack_output.split(" when %", 1)[1].split(" ", 1)[0]
+        self.assertIn(
+            f"%{ack_presence} = ac.var.constant true as !ac.var<i1>", lowered
+        )
+        self.assertNotIn("ready_valid", lowered)
+        self.assertNotIn("dummy", lowered)
+
+        conditional_expression = OPTIONAL_MULTI_OUTPUT_SOURCE.replace(
+            "    left = None\n"
+            "    right = None\n",
+            "    left = LeftEffect(value=command.value) if command.left else None\n"
+            "    right = None\n",
+        ).replace(
+            "    if command.left:\n"
+            "        left = LeftEffect(value=command.value)\n"
+            "        if command.nested:\n",
+            "    if command.left:\n"
+            "        if command.nested:\n",
+        )
+        conditional_lowered = lower_queue_source(
+            conditional_expression, "optional_multi_output"
+        )
+        self.assertEqual(3, conditional_lowered.count("ac.rule.output"))
+
+        business_fields = OPTIONAL_MULTI_OUTPUT_SOURCE.replace(
+            "    cancel_left: bool\n",
+            "    cancel_left: bool\n"
+            "    ready: bool\n"
+            "    full: bool\n"
+            "    commit_kind: ac.u2\n"
+            "    reservation_id: ac.u4\n"
+            "    dummy_value: ac.u8\n",
+        ).replace(
+            "    if command.left:\n",
+            "    if command.ready and not command.full:\n",
+            1,
+        )
+        business_lowered = lower_queue_source(
+            business_fields, "optional_multi_output"
+        )
+        self.assertEqual(3, business_lowered.count("ac.rule.output"))
+
+    def test_typed_multi_output_fails_closed_on_contract_gaps(self) -> None:
+        from agentic_circuit._queue_frontend import (
+            QueueFrontendError,
+            lower_queue_source,
+        )
+
+        cases = (
+            (
+                OPTIONAL_MULTI_OUTPUT_SOURCE.replace(
+                    "    left = None\n", "", 1
+                ),
+                "undefined",
+            ),
+            (
+                OPTIONAL_MULTI_OUTPUT_SOURCE.replace(
+                    "return left, right, ack", "return left, ack"
+                ),
+                "arity",
+            ),
+            (
+                OPTIONAL_MULTI_OUTPUT_SOURCE.replace(
+                    "left, right, ack = dispatch(command)",
+                    "left, ack = dispatch(command)",
+                ),
+                "unpacking arity",
+            ),
+            (
+                OPTIONAL_MULTI_OUTPUT_SOURCE.replace(
+                    "def dispatch(command)", "def dispatch(command, extra)"
+                ),
+                "exactly one payload parameter",
+            ),
+            (
+                OPTIONAL_MULTI_OUTPUT_SOURCE.replace(
+                    "left = LeftEffect(value=command.value)",
+                    "left = RightEffect(value=command.value[0:7])",
+                    1,
+                ),
+                "ordinal 0",
+            ),
+            (
+                OPTIONAL_MULTI_OUTPUT_SOURCE.replace(
+                    "    ack = ApplyAck(value=command.value)",
+                    "    ready(command.left)\n"
+                    "    ack = ApplyAck(value=command.value)",
+                ),
+                "compiler-owned",
+            ),
+            (
+                OPTIONAL_MULTI_OUTPUT_SOURCE.replace(
+                    "    ack = ApplyAck(value=command.value)",
+                    "    command.push(command.value)\n"
+                    "    ack = ApplyAck(value=command.value)",
+                ),
+                "compiler-owned",
+            ),
+        )
+        for source, message in cases:
+            with self.subTest(message=message):
+                with self.assertRaisesRegex(QueueFrontendError, message):
+                    lower_queue_source(source, "optional_multi_output")
+
+    def test_w2_shape_scales_to_seven_optional_outputs_and_required_ack(self) -> None:
+        from agentic_circuit._queue_frontend import lower_queue_source
+
+        lowered = lower_queue_source(W2_EIGHT_OUTPUT_SOURCE, "w2")
+        self.assertEqual(1, lowered.count(" = ac.rule %command "))
+        outputs = [
+            line for line in lowered.splitlines() if "ac.rule.output" in line
+        ]
+        self.assertEqual(8, len(outputs))
+        self.assertIn(
+            'ac.output_names = ["gpr", "wakeup", "rob", "brob", '
+            '"fault", "store", "branch", "ack"]',
+            lowered,
+        )
+        self.assertEqual(
+            list(range(8)),
+            [int(line.split(" ordinal ", 1)[1].split(" ", 1)[0]) for line in outputs],
+        )
+        for name in (
+            "gpr",
+            "wakeup",
+            "rob",
+            "brob",
+            "fault",
+            "store",
+            "branch",
+            "ack",
+        ):
+            self.assertIn(f"ac.sink %{name}", lowered)
+
+    def test_multi_output_keeps_state_proposals_in_the_atomic_rule(self) -> None:
+        from agentic_circuit._queue_frontend import lower_queue_source
+
+        stateful = OPTIONAL_MULTI_OUTPUT_SOURCE.replace(
+            "def dispatch(command)", "def dispatch(count, entries, command)"
+        ).replace(
+            "    left = None",
+            "    count = count + 1\n"
+            "    entries[command.value[0]] = command.value\n"
+            "    left = None",
+            1,
+        ).replace(
+            "    left, right, ack = dispatch(command)",
+            "    count: ac.u8 = 0\n"
+            "    entries: list[ac.u8] = [0] * 2\n"
+            "    left, right, ack = dispatch(count, entries, command)",
+        )
+        lowered = lower_queue_source(stateful, "optional_multi_output")
+        self.assertEqual(1, lowered.count(" = ac.rule %command "))
+        self.assertEqual(3, lowered.count("ac.rule.output"))
+        self.assertIn("ac.var.assign @count", lowered)
+        self.assertIn("ac.var.assign_element @entries", lowered)
+
+        serial_override = stateful.replace(
+            "    count = count + 1\n",
+            "    count = count + 1\n"
+            "    if command.left:\n"
+            "        count = command.value\n",
+            1,
+        )
+        override_lowered = lower_queue_source(
+            serial_override, "optional_multi_output"
+        )
+        self.assertEqual(1, override_lowered.count("ac.var.assign @count"))
+        self.assertIn("ac.var.select", override_lowered)
+
+    def test_multi_output_call_binding_infers_read_only_scalar_state(self) -> None:
+        from agentic_circuit._queue_frontend import lower_queue_source
+
+        read_only = OPTIONAL_MULTI_OUTPUT_SOURCE.replace(
+            "def dispatch(command)", "def dispatch(seed, command)"
+        ).replace(
+            "ack = ApplyAck(value=command.value)",
+            "ack = ApplyAck(value=command.value + seed)",
+            1,
+        ).replace(
+            "    left, right, ack = dispatch(command)",
+            "    seed: ac.u8 = 0\n"
+            "    left, right, ack = dispatch(seed, command)",
+        )
+        lowered = lower_queue_source(read_only, "optional_multi_output")
+        self.assertEqual(1, lowered.count(" = ac.rule %command "))
+        self.assertIn("ac.var.read @seed", lowered)
+        self.assertNotIn("ac.var.assign @seed", lowered)
+        self.assertEqual(3, lowered.count("ac.rule.output"))
+
+    def test_multi_output_last_parameter_scalar_index_is_payload_data(self) -> None:
+        from agentic_circuit._queue_frontend import lower_queue_source
+
+        lowered = lower_queue_source(
+            INDEXED_SCALAR_MULTI_OUTPUT_SOURCE, "indexed_scalar"
+        )
+        self.assertEqual(1, lowered.count(" = ac.rule %command "))
+        self.assertEqual(2, lowered.count("ac.rule.output"))
+        self.assertIn("ac.var.extract %item from 0 width 1", lowered)
+        self.assertNotIn("ac.var.read @command", lowered)
 
     def test_pure_if_elif_rule_keeps_one_optional_output_firing(self) -> None:
         from agentic_circuit._queue_frontend import lower_queue_source

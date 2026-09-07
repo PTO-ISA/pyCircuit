@@ -407,6 +407,22 @@ struct RouteReadyEntry {
   }
 };
 
+struct PublishSelectedEffects {
+  using Plan = TableTransitionPlan<RobEntry, uint16_t, Completion>;
+
+  std::optional<Plan> operator()(const SimTable<RobEntry> &table,
+                                 const AllocateRequest &request) const {
+    RobEntry updated = table.at(0);
+    updated.value = request.value;
+    return Plan{{{0, updated}},
+                {request.kind & 1
+                     ? std::optional<uint16_t>{
+                           static_cast<uint16_t>(request.value)}
+                     : std::nullopt,
+                 std::optional<Completion>{Completion{request.tag}}}};
+  }
+};
+
 struct MergeValid {
   static constexpr std::array<size_t, 1> fields{0};
   void operator()(FieldEntry &target, const FieldEntry &value) const {
@@ -1283,6 +1299,137 @@ TEST(QueueBlocksTest, TransitionDoesNotRerouteWhenSelectedBranchIsBlocked) {
   ASSERT_NE(outputA.peek(), nullptr);
   EXPECT_EQ(*outputA.peek(), routeA);
   EXPECT_TRUE(outputB.isEmpty());
+}
+
+TEST(QueueBlocksTest,
+     HeterogeneousSelectedOutputsCommitAtomicallyUnderBackpressure) {
+  SimTable<RobEntry> table("rob", 1, nullptr, 1);
+  ASSERT_TRUE(table.initializeEntry(0, {true, false, 0, 1, 10}));
+  SimQueue<AllocateRequest> input("request", 2, nullptr, 1);
+  SimQueue<uint16_t> valueOutput("value", 3, nullptr, 1);
+  SimQueue<Completion> ackOutput("ack", 4, nullptr, 1);
+  QueueTableTransition<PublishSelectedEffects, RobEntry,
+                       std::tuple<AllocateRequest>,
+                       std::tuple<uint16_t, Completion>>
+      transition("publish", 5, nullptr, table, {&input},
+                 {&valueOutput, &ackOutput}, TableWriteMode::Replace);
+
+  // The unselected value sink may be full: the always-selected acknowledgement,
+  // input consume, and state update still commit together.
+  ASSERT_TRUE(valueOutput.proposePush(99));
+  valueOutput.doXfer({0, 0});
+  ASSERT_TRUE(input.proposePush({0, 7, 20}));
+  input.doXfer({0, 0});
+  transition.doWork({1, 0});
+  transition.doArbitrate({1, 0});
+  ASSERT_TRUE(transition.hasPendingCommit());
+  input.doXfer({1, 0});
+  valueOutput.doXfer({1, 0});
+  ackOutput.doXfer({1, 0});
+  table.doXfer({1, 0});
+  transition.doXfer({1, 0});
+  EXPECT_TRUE(input.isEmpty());
+  EXPECT_EQ(table.at(0).value, 20);
+  ASSERT_NE(valueOutput.peek(), nullptr);
+  EXPECT_EQ(*valueOutput.peek(), 99);
+  ASSERT_NE(ackOutput.peek(), nullptr);
+  EXPECT_EQ(ackOutput.peek()->tag, 7);
+
+  // When both outputs are selected, either full sink stalls every effect.
+  ASSERT_TRUE(ackOutput.proposePop());
+  ackOutput.doXfer({2, 0});
+  ASSERT_TRUE(input.proposePush({1, 8, 30}));
+  input.doXfer({2, 0});
+  transition.doWork({3, 0});
+  transition.doArbitrate({3, 0});
+  EXPECT_FALSE(transition.hasPendingCommit());
+  EXPECT_EQ(input.committedSize(), 1u);
+  EXPECT_EQ(table.at(0).value, 20);
+  EXPECT_TRUE(ackOutput.isEmpty());
+
+  ASSERT_TRUE(valueOutput.proposePop());
+  valueOutput.doXfer({3, 0});
+  transition.doWork({4, 0});
+  transition.doArbitrate({4, 0});
+  ASSERT_TRUE(transition.hasPendingCommit());
+  input.doXfer({4, 0});
+  valueOutput.doXfer({4, 0});
+  ackOutput.doXfer({4, 0});
+  table.doXfer({4, 0});
+  transition.doXfer({4, 0});
+  EXPECT_TRUE(input.isEmpty());
+  EXPECT_EQ(table.at(0).value, 30);
+  ASSERT_NE(valueOutput.peek(), nullptr);
+  EXPECT_EQ(*valueOutput.peek(), 30);
+  ASSERT_NE(ackOutput.peek(), nullptr);
+  EXPECT_EQ(ackOutput.peek()->tag, 8);
+
+  // A later work attempt cannot duplicate the already committed transaction.
+  transition.doWork({5, 0});
+  transition.doArbitrate({5, 0});
+  EXPECT_FALSE(transition.hasPendingCommit());
+  EXPECT_EQ(valueOutput.committedSize(), 1u);
+  EXPECT_EQ(ackOutput.committedSize(), 1u);
+
+  // A full mandatory acknowledgement stalls even when the optional value
+  // output is unselected. The unrelated full value sink remains irrelevant
+  // after acknowledgement capacity is released.
+  ASSERT_TRUE(input.proposePush({0, 9, 40}));
+  input.doXfer({5, 0});
+  transition.doWork({6, 0});
+  transition.doArbitrate({6, 0});
+  EXPECT_FALSE(transition.hasPendingCommit());
+  EXPECT_EQ(input.committedSize(), 1u);
+  EXPECT_EQ(table.at(0).value, 30);
+  ASSERT_TRUE(ackOutput.proposePop());
+  ackOutput.doXfer({6, 0});
+  transition.doWork({7, 0});
+  transition.doArbitrate({7, 0});
+  ASSERT_TRUE(transition.hasPendingCommit());
+  input.doXfer({7, 0});
+  valueOutput.doXfer({7, 0});
+  ackOutput.doXfer({7, 0});
+  table.doXfer({7, 0});
+  transition.doXfer({7, 0});
+  EXPECT_TRUE(input.isEmpty());
+  EXPECT_EQ(table.at(0).value, 40);
+  ASSERT_NE(valueOutput.peek(), nullptr);
+  EXPECT_EQ(*valueOutput.peek(), 30);
+  ASSERT_NE(ackOutput.peek(), nullptr);
+  EXPECT_EQ(ackOutput.peek()->tag, 9);
+
+  // When both selected heterogeneous outputs are full, the whole transaction
+  // remains pending and commits once after both capacities are released.
+  ASSERT_TRUE(input.proposePush({1, 10, 50}));
+  input.doXfer({8, 0});
+  transition.doWork({9, 0});
+  transition.doArbitrate({9, 0});
+  EXPECT_FALSE(transition.hasPendingCommit());
+  EXPECT_EQ(input.committedSize(), 1u);
+  EXPECT_EQ(table.at(0).value, 40);
+  ASSERT_TRUE(valueOutput.proposePop());
+  ASSERT_TRUE(ackOutput.proposePop());
+  valueOutput.doXfer({9, 0});
+  ackOutput.doXfer({9, 0});
+  transition.doWork({10, 0});
+  transition.doArbitrate({10, 0});
+  ASSERT_TRUE(transition.hasPendingCommit());
+  input.doXfer({10, 0});
+  valueOutput.doXfer({10, 0});
+  ackOutput.doXfer({10, 0});
+  table.doXfer({10, 0});
+  transition.doXfer({10, 0});
+  EXPECT_TRUE(input.isEmpty());
+  EXPECT_EQ(table.at(0).value, 50);
+  ASSERT_NE(valueOutput.peek(), nullptr);
+  EXPECT_EQ(*valueOutput.peek(), 50);
+  ASSERT_NE(ackOutput.peek(), nullptr);
+  EXPECT_EQ(ackOutput.peek()->tag, 10);
+  transition.doWork({11, 0});
+  transition.doArbitrate({11, 0});
+  EXPECT_FALSE(transition.hasPendingCommit());
+  EXPECT_EQ(valueOutput.committedSize(), 1u);
+  EXPECT_EQ(ackOutput.committedSize(), 1u);
 }
 
 TEST(QueueBlocksTest, TransitionLeavesTableCommitOwnershipOrderIndependent) {

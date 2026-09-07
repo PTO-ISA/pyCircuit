@@ -7416,3 +7416,94 @@ terminology also needs separation from NDF architectural refinement.
 - User clarification (2026-09-07): hardware L1/L2/L3 becomes H1/H2/H3; NDF
   L0/L1/L2 means architectural intent/behavior/microarchitecture, and all H
   levels are contained in NDF L2.
+
+## Decision 0223: fixed-arity rule results infer independently selected atomic outputs
+
+**Status:** Implemented and verified
+
+**Context / Goal**
+Decision 0210 admits one independently optional result. DavinciOO and generic
+transactional components need one rule activation to select any subset of
+heterogeneous outputs while retaining a mandatory acknowledgement and local
+state updates. Replacing absent results with dummy payloads, exposing Queue
+capacity in Python, or splitting the selected set across cycles would change
+functional and backpressure semantics.
+
+**Decision (strong constraint)**
+- A multi-result `@ac.rule` declares one fixed payload type per position with a
+  `tuple[...]` return annotation. Its return expression has that exact arity.
+  Each position supplies its declared typed value or Python `None`. Every
+  returned local is initialized before conditional reassignment: an optional
+  local starts at `None`, while a required local starts at its typed value. It
+  may then change through serial, nested `if/elif/else` control flow. Every path
+  after initialization must resolve the position to one
+  declared value type or absence. An unbound path, changed type, changed arity,
+  or `None` in a required result fails closed.
+- `None` is compile-time absence syntax. It is not an ACIR value, Queue token,
+  dummy payload, optional runtime wrapper, marker, or implicit zero image. The
+  frontend lowers each position to one typed SSA value plus one `i1` presence
+  and emits exactly one ordinal-qualified output record. Call sites use normal
+  fixed-arity tuple unpacking.
+- Candidate selection and result presence are separate. Each Work attempt
+  evaluates the functional candidate once from its tick-start committed state;
+  Queue capacity does not participate in that selection. Each result has an
+  independent presence predicate derived from source-order SSA and captured
+  branch conditions. A required result uses candidate presence. An optional
+  result may be absent while another result of the same activation is present.
+  If atomic preparation fails, that attempt produces no effect; a later tick
+  re-evaluates against its new committed snapshot. Protocols that must retain a
+  decision across ticks store its phase/mask explicitly rather than keeping an
+  unreserved runtime candidate with stale state-derived values.
+- Rule and Firing verifiers require output/result arity and type agreement,
+  exactly one presence record for every ordinal, closed `i1` predicates and a
+  proof that every result presence implies the candidate. Duplicate, missing,
+  out-of-range, type-mismatched or uncovered output records are invalid.
+- Typed checks/effects and transaction resources retain one output-capacity and
+  output-produce fact per ordinal, qualified by that output's presence. Rule
+  lowering preserves the exact ordinal/value/presence triple in marker-free
+  Firing and QueueGraph rather than reconstructing it from result position.
+- QueueGraph independently verifies output Queue type, yielded value,
+  ordinal coverage, presence type and candidate implication. Generated gfsim
+  represents the result set as `tuple<optional<Output>...>`. Only selected
+  outputs check and reserve capacity. An unselected full output never blocks;
+  any selected full output stalls every selected output, all input consumption
+  and all state proposals in that activation.
+- One activation performs one prepare phase for its complete selected resource
+  set, publishes only after all preparation succeeds, passes the common Probe
+  barrier, and performs no-fail Commit. Release after sustained backpressure
+  produces every selected result and state update exactly once. Traversal order
+  and output ordinal do not create partial success or change the functional
+  selected set.
+- A design protocol may explicitly separate retained phases, such as a GPR
+  prewrite request and later acknowledgement before final visible publication.
+  This decision applies atomicity to each declared rule transaction; it neither
+  collapses an acknowledged multi-cycle protocol into one cycle nor permits the
+  compiler to decompose one final selected-output transaction.
+- Public Python exposes no ready/full/pop/push/sink/presence/reservation/commit
+  mechanism. Canonical PYC remains scalar-only. Stateless admitted results must
+  preserve C++/Verilog parity; provisional Table graphs retain their explicit
+  unsupported PYC/RTL boundary until Decision 0151/#22 is superseded.
+
+**Verification**
+- Frontend positive cases cover one required result plus independently selected
+  heterogeneous results, nested source-order branches and ordinary tuple
+  unpacking. Negative cases cover wrong arity/type, partial definition,
+  invalid `None`, and unsupported multi-input discard semantics.
+- ACIR lit covers Rule/Firing ordinal completeness, duplicate/out-of-range
+  ordinal, payload mismatch, predicate typing, candidate implication, typed
+  checks/effects, lowering and QueueGraph JSON.
+- An executable gfsim fixture covers no optional results, every individual
+  result, multiple simultaneous results, selected-output full,
+  unselected-output full, mandatory-ack full, multiple full outputs, release
+  after a sustained stall, input/state retention and exactly-once commit.
+- The applicable stateless packed-scalar fixture produces identical C++ and
+  Verilator observations. Stateful Table PYC generation keeps the stable
+  rejection diagnostic.
+- Reviewable evidence is archived under
+  `docs/gates/logs/20260907-issue46-multi-output/`, and the long-term
+  regression is part of the Agentic release gate.
+
+**Source**
+- PTO-ISA/pyCircuit issue #46.
+- User direction (2026-09-07): continue closing framework issues in dependency
+  order for the DavinciOO contributor design program.

@@ -432,11 +432,9 @@ static bool tableWriteFieldsAreComplete(Operation *endpoint, TableOp table,
                                         ArrayAttr writeFields);
 
 LogicalResult RuleOp::verify() {
-  // Rules retain at most one output until optional-output branches and CFG
-  // joins are materialized. Zero-output rules are consume-only state
-  // transitions; zero-input rules must still produce or update state.
-  if (getOutputs().size() > 1)
-    return emitOpError("rule currently supports at most one output");
+  // Zero-output rules are consume-only state transitions; zero-input rules
+  // must still produce or update state.  Variadic output values are qualified
+  // independently by compiler-owned RuleOutputOp presence records.
   if (getName().empty() || getStableId().empty())
     return emitOpError(
         "requires non-empty definition and stable instance names");
@@ -508,7 +506,8 @@ LogicalResult RuleOp::verify() {
   SmallVector<RuleOutputOp> outputPaths;
   getBody().walk([&](RuleOutputOp output) { outputPaths.push_back(output); });
   const bool hasPathEvidence =
-      !outputPaths.empty() || llvm::any_of(proposals, [](TableProposeOp op) {
+      getOutputs().size() > 1 || !outputPaths.empty() ||
+      llvm::any_of(proposals, [](TableProposeOp op) {
         return static_cast<bool>(op.getWhen());
       });
   if (hasPathEvidence) {
@@ -594,8 +593,9 @@ LogicalResult RuleOutputOp::verify() {
     return emitOpError("value must match the selected rule output payload");
   auto returned =
       dyn_cast<RuleReturnOp>(rule.getBody().front().getTerminator());
-  if (!returned)
-    return emitOpError("requires ac.rule.return");
+  if (!returned || static_cast<size_t>(getOrdinal()) >=
+                       returned.getValues().size())
+    return emitOpError("requires a matching ac.rule.return operand");
   Value returnedValue = returned.getValues()[getOrdinal()];
   if (returnedValue != getValue()) {
     auto obligation = returnedValue.getDefiningOp<PendingObligationMarkerOp>();
@@ -618,7 +618,9 @@ LogicalResult FiringOutputOp::verify() {
     return emitOpError("value must match the selected firing output payload");
   auto yielded =
       dyn_cast<FiringYieldOp>(firing.getBody().front().getTerminator());
-  if (!yielded || yielded.getValues()[getOrdinal()] != getValue())
+  if (!yielded || static_cast<size_t>(getOrdinal()) >=
+                      yielded.getValues().size() ||
+      yielded.getValues()[getOrdinal()] != getValue())
     return emitOpError("value must be the matching ac.firing.yield operand");
   return success();
 }
@@ -1058,8 +1060,6 @@ LogicalResult ScopeOp::verify() {
 }
 
 LogicalResult FiringOp::verify() {
-  if (getOutputs().size() > 1)
-    return emitOpError("currently supports at most one output Queue");
   if (getOutputDepthsAttr().size() != getOutputs().size() ||
       getOutputLatenciesAttr().size() != getOutputs().size())
     return emitOpError("output depth/latency counts must match results");
@@ -1114,7 +1114,8 @@ LogicalResult FiringOp::verify() {
         static_cast<size_t>(output.getOrdinal()) >= getOutputs().size())
       return output.emitOpError("ordinal must name one firing output");
   const bool hasPathEvidence =
-      !outputPaths.empty() || llvm::any_of(proposals, [](TableProposeOp op) {
+      getOutputs().size() > 1 || !outputPaths.empty() ||
+      llvm::any_of(proposals, [](TableProposeOp op) {
         return static_cast<bool>(op.getWhen());
       });
   if (hasPathEvidence) {
@@ -1225,8 +1226,7 @@ LogicalResult FiringOp::verify() {
     }
   }
   const bool validArity =
-      getOutputs().size() <= 1 &&
-      (!getInputs().empty() || !getOutputs().empty() || !proposals.empty());
+      !getInputs().empty() || !getOutputs().empty() || !proposals.empty();
   if (conditions.empty() && requiresInferredSchedule) {
     return emitOpError("requires one typed functional condition");
   }

@@ -911,6 +911,46 @@ true; the absent-output path consumes input and commits state without requiring
 capacity. Rule/Firing/QueueGraph verifiers require one input and a constant-true
 candidate for this differing output presence.
 
+A rule with several heterogeneous results declares one fixed `tuple[...]`
+return type. Each returned local holds its declared value or `None`; `None`
+means that ordinal is absent for this activation and never becomes a payload.
+
+```python
+@ac.rule
+def publish(request: Request) -> tuple[Wakeup, Fault, ApplyAck]:
+    wakeup = None
+    fault = None
+    ack = ApplyAck(identity=request.identity, accepted=True)
+    if request.publish_value:
+        wakeup = Wakeup(identity=request.identity, tag=request.tag)
+    if request.publish_fault:
+        fault = Fault(identity=request.identity, code=request.fault_code)
+    return wakeup, fault, ack
+```
+
+The call site uses ordinary fixed-arity unpacking. Every returned local is
+initialized before conditional reassignment: optional locals start at `None`,
+and required locals start at a typed value. The frontend derives one typed
+value and one presence predicate for each result position, preserving
+the binding visible at every nested branch. Every position must receive at
+least one value of its annotated type; every source path after initialization resolves to that value
+or absence. A required acknowledgement is assigned a value on every path.
+Wrong arity/type, an undefined position, `None` outside a returned ordinal, or
+an optional multi-output rule with several inputs fails closed.
+
+Only selected outputs participate in capacity checks. A full unselected Queue
+does not block; any selected full Queue retains the input, every selected
+output, and all state proposals. Once capacity is available, the complete set
+publishes exactly once through one prepare/publish/Probe/no-fail-Commit group.
+Python does not expose result-presence, Queue-capacity, reservation, or commit
+objects.
+
+Each Work attempt reads one tick-start committed snapshot. A failed atomic
+prepare produces no effect, and the next tick re-evaluates from the next
+committed snapshot. A protocol that must retain a selection across ticks stores
+that phase or mask explicitly; gfsim does not carry an unreserved candidate
+with stale state-derived values across the Xfer boundary.
+
 `ACDataFlowAnalyzer` walks backward from candidate, output-presence, and
 state-effect presence values and materializes compiler-owned state-snapshot
 proof. A top-level `ac.table.get` becomes `ac.state.snapshot` with an exact

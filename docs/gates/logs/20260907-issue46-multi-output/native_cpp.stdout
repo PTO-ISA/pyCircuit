@@ -1,0 +1,13 @@
+Test project /Users/zhoubot/linx-isa/tools/pyCircuit/.pycircuit_out/layout-root
+    Start 10: GfsimTests
+1/4 Test #10: GfsimTests .......................   Passed    0.03 sec
+    Start 12: ACIROpsTests
+2/4 Test #12: ACIROpsTests .....................   Passed    6.40 sec
+    Start 15: ACIRModelAnalysisTests
+3/4 Test #15: ACIRModelAnalysisTests ...........   Passed   19.45 sec
+    Start 19: CodeGenTests
+4/4 Test #19: CodeGenTests .....................   Passed   29.77 sec
+
+100% tests passed, 0 tests failed out of 4
+
+Total Test time (real) =  55.65 sec

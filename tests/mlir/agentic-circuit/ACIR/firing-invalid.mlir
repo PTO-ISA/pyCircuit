@@ -1,7 +1,8 @@
 // RUN: %split_file %s %t
-// RUN: %not %acir_opt %t/arity.mlir 2>&1 | %FileCheck %s --check-prefix=ARITY
+// RUN: %not %acir_opt %t/duplicate-output-presence.mlir 2>&1 | %FileCheck %s --check-prefix=DUPLICATE-OUTPUT
 // RUN: %not %acir_opt %t/effectless.mlir 2>&1 | %FileCheck %s --check-prefix=EFFECTLESS
 // RUN: %not %acir_opt %t/payload.mlir 2>&1 | %FileCheck %s --check-prefix=PAYLOAD
+// RUN: %not %acir_opt %t/yield-arity.mlir 2>&1 | %FileCheck %s --check-prefix=YIELD-ARITY
 // RUN: %not %acir_opt %t/domain.mlir 2>&1 | %FileCheck %s --check-prefix=DOMAIN
 // RUN: %not %acir_opt %t/output-presence.mlir 2>&1 | %FileCheck %s --check-prefix=OUTPUT-PRESENCE
 // RUN: %not %acir_opt %t/optional-output-candidate.mlir 2>&1 | %FileCheck %s --check-prefix=OPTIONAL-OUTPUT
@@ -11,16 +12,20 @@
 // RUN: %not %acir_opt --pass-pipeline='builtin.module(ac-verify-rule-closure)' %t/extra-snapshot.mlir 2>&1 | %FileCheck %s --check-prefix=SNAPSHOT
 // RUN: %not %acir_opt --verify-each=false --pass-pipeline='builtin.module(ac-verify-rule-closure,ac-freeze-topology)' %t/forged-contract.mlir 2>&1 | %FileCheck %s --check-prefix=FORGED
 
-//--- arity.mlir
+//--- duplicate-output-presence.mlir
 module attributes {ac.contract_epoch = "0.5"} {
   %input = "builtin.unrealized_conversion_cast"() : () -> !ac.queue<i32>
-  %a, %b = ac.firing %input depths [1] latencies [1]
+  %a, %b = ac.firing %input depths [1, 1] latencies [1, 1]
       stable_id "bad" domain "cycle" {
   ^body(%item: !ac.var<i32>):
+    %true = ac.var.constant true as !ac.var<i1>
+    ac.firing.condition %true : !ac.var<i1>
+    ac.firing.output %item when %true ordinal 0 : !ac.var<i32>, !ac.var<i1>
+    ac.firing.output %item when %true ordinal 0 : !ac.var<i32>, !ac.var<i1>
     ac.firing.yield %item, %item : !ac.var<i32>, !ac.var<i32>
   } : (!ac.queue<i32>) -> (!ac.queue<i32>, !ac.queue<i32>)
 }
-// ARITY: currently supports at most one output Queue
+// DUPLICATE-OUTPUT: 'ac.firing.output' op output presence must uniquely name one firing result
 
 //--- effectless.mlir
 module attributes {ac.contract_epoch = "0.5"} {
@@ -46,6 +51,17 @@ module attributes {ac.contract_epoch = "0.5"} {
   } : (!ac.queue<i32>) -> !ac.queue<i32>
 }
 // PAYLOAD: yielded values must match output Queue payloads
+
+//--- yield-arity.mlir
+module attributes {ac.contract_epoch = "0.5"} {
+  %input = "builtin.unrealized_conversion_cast"() : () -> !ac.queue<i32>
+  %output = ac.firing %input depths [1] latencies [1]
+      stable_id "bad" domain "cycle" {
+  ^body(%item: !ac.var<i32>):
+    ac.firing.yield
+  } : (!ac.queue<i32>) -> !ac.queue<i32>
+}
+// YIELD-ARITY: body must yield one payload per output Queue
 
 //--- domain.mlir
 module attributes {ac.contract_epoch = "0.5"} {
