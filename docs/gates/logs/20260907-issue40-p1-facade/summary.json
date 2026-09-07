@@ -1,0 +1,18 @@
+{
+  "run_id": "20260907-issue40-p1-facade",
+  "status": "passed",
+  "base_revision": "993d064ee809706c97fcbfca39a7289d3e043def",
+  "decision_ids": ["0148", "0159"],
+  "issue": 40,
+  "results": {
+    "unit": {"passed": 64, "failed": 0},
+    "api_hygiene": {"passed": true},
+    "pyc_inventory": {"operations": 41, "types": 2, "passed": true},
+    "agentic_repository_contracts": {"passed": true},
+    "pre_commit": {"passed": true},
+    "mkdocs_strict": {"passed": true},
+    "decision_status": {"rows": 224, "deferred": 0, "passed": true}
+  },
+  "behavior": "The public pycircuit package has one exact pyc6 export set; discarded tutorial facade names are absent, and cycle-aware bitwise OR rejects description strings.",
+  "skill_evolve": "no-update"
+}

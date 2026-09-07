@@ -19,6 +19,40 @@ def test_cycle_aware_frontend_is_the_pyc6_surface() -> None:
     assert not hasattr(pycircuit, "priority_mux")
 
 
+def test_tutorial_facade_is_not_part_of_the_public_surface() -> None:
+    root = Path(__file__).resolve().parents[2]
+    expected = set(
+        (root / "tests/goldens/pyc6_public_api.txt")
+        .read_text(encoding="utf-8")
+        .splitlines()
+    )
+    removed = {
+        "log",
+        "pyc_CircuitLogger",
+        "pyc_CircuitModule",
+        "pyc_ClockDomain",
+        "pyc_Signal",
+        "signal",
+    }
+
+    assert set(pycircuit.__all__) == expected
+    assert removed.isdisjoint(pycircuit.__all__)
+    for name in removed:
+        assert not hasattr(pycircuit, name)
+
+
+def test_cycle_aware_bitwise_or_rejects_description_strings() -> None:
+    circuit = pycircuit.CycleAwareCircuit("description_string")
+    domain = circuit.create_domain("clk")
+    value = pycircuit.cas(domain, circuit.input("value", width=8), cycle=0)
+    forward = domain.signal(width=8, name="forward")
+
+    with pytest.raises(TypeError, match="unsupported operand"):
+        _ = value | "description"
+    with pytest.raises(TypeError, match="unsupported operand"):
+        _ = forward | "description"
+
+
 def test_pyc6_data_model_is_scalar_only() -> None:
     from pycircuit.data import Data
 

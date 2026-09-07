@@ -91,6 +91,8 @@ V6 tests plus the examples, simulation, and semantic lanes archived under
 - [x] Make `domain.cycle()` return a CAS tagged at source occurrence plus one.
 - [x] Make composed `submodule_input()` and `domain.call()` reject missing,
   extra, wrong-domain, wrong-width, and unsupported input values.
+- [x] Remove the unused tutorial façade and reject description strings passed
+  to cycle-aware bitwise OR.
 - [ ] Verify cycle provenance across `domain.call()` and `pyc.instance`
   boundaries.
 - [x] Verify automatic delay insertion for mixed-cycle arithmetic, comparison,

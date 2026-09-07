@@ -3337,6 +3337,10 @@ an artificial split between the implementation, examples, and product docs.
 - `submodule_input(None, ...)` is the only standalone port-creation mode. A
   composed input map must contain every requested key with the exact domain and
   width, and `domain.call()` rejects unconsumed extra keys.
+- The public package does not export the discarded tutorial façade
+  (`pyc_CircuitModule`, `pyc_CircuitLogger`, `pyc_ClockDomain`, `pyc_Signal`,
+  `signal`, or identity `log`). Bitwise OR on a cycle-aware signal always means
+  hardware OR; description strings are rejected as invalid operands.
 - The compiler automatically inserts explicit `pyc.reg` delay chains when
   operands from different logical cycles must be aligned.
 - `domain.signal()` plus `<<=` or `.assign()` is the canonical inferred-state
