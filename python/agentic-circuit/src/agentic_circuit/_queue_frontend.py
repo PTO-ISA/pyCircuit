@@ -8654,7 +8654,28 @@ def lower_queue_program(
                     state_read,
                     state_read_binding.value_type,
                 )
+            find_local_values = {
+                local.name: copy.deepcopy(local.value)
+                for local in queue.rule_locals
+                if local.guard is None
+            }
+            guarded_find_locals = {
+                local.name for local in queue.rule_locals if local.guard is not None
+            }
             for find in queue.rule_finds:
+                captured_names = {
+                    candidate.id
+                    for expression in (find.predicate, find.key)
+                    if expression is not None
+                    for candidate in ast.walk(expression)
+                    if isinstance(candidate, ast.Name)
+                }
+                guarded_captures = guarded_find_locals & captured_names
+                if guarded_captures:
+                    raise QueueFrontendError(
+                        "ACPY-RULE-009: find cannot capture branch-local values: "
+                        + ", ".join(sorted(guarded_captures))
+                    )
                 index_width = max(1, (find.entries - 1).bit_length())
                 mask_type = _candidate_mask_type(find.entries)
                 predicate_emitter = _ExpressionEmitter(
@@ -8668,6 +8689,7 @@ def lower_queue_program(
                     bitfields=bitfields,
                     invariants=invariants,
                 )
+                predicate_emitter.deferred_values.update(find_local_values)
                 predicate, predicate_type = predicate_emitter.emit(
                     find.predicate, BoolType()
                 )
@@ -8712,6 +8734,7 @@ def lower_queue_program(
                         bitfields=bitfields,
                         invariants=invariants,
                     )
+                    key_emitter.deferred_values.update(find_local_values)
                     key, key_type = key_emitter.emit(find.key)
                     if _epoch_05_integer_width(key_type) is None:
                         raise QueueFrontendError(

@@ -912,6 +912,39 @@ def issue_queue(wakeup: Wakeup) -> Entry:
     return issued
 """
 
+LIST_FIND_LOCAL_AGGREGATE_CAPTURE_SOURCE = """
+import agentic_circuit as ac
+
+@ac.struct
+class Key:
+    flow: ac.u8
+    generation: ac.u8
+
+@ac.struct
+class Entry:
+    key: Key
+    valid: bool
+
+@ac.struct
+class Request:
+    key: Key
+
+@ac.rule
+def remove(entries, request):
+    key = request.key
+    selected = ac.find(
+        entries,
+        where=lambda row: row.valid & (row.key == key),
+    )
+    if selected.valid:
+        entries[selected.index] = selected.value.with_fields(valid=False)
+
+@ac.system
+def remove_entry(request: Request) -> None:
+    entries: list[Entry] = [0] * 4
+    remove(entries, request)
+"""
+
 LIST_FIND_KEY_CAPTURE_SOURCE = """
 import agentic_circuit as ac
 
@@ -3575,6 +3608,16 @@ def cycle(incoming: Left) -> Left:
         self.assertIn("ac.var.assign_element @ready_tags", lowered)
         self.assertIn("ac.var.assign_element @entries", lowered)
         self.assertNotIn("ac.table", lowered)
+
+    def test_find_predicate_captures_a_prior_aggregate_local(self) -> None:
+        from agentic_circuit._queue_frontend import lower_queue_source
+
+        lowered = lower_queue_source(
+            LIST_FIND_LOCAL_AGGREGATE_CAPTURE_SOURCE, "remove_entry"
+        )
+        self.assertIn("ac.var.match @entries predicate", lowered)
+        self.assertIn('ac.var.cmp "eq"', lowered)
+        self.assertIn("!ac.var<!ac.struct<@types::@Key>>", lowered)
 
     def test_find_key_captures_a_read_only_persistent_list(self) -> None:
         from agentic_circuit._queue_frontend import lower_queue_source

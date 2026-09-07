@@ -1,0 +1,15 @@
+{
+  "run_id": "20260907-issue48-find-local",
+  "status": "passed",
+  "base_revision": "924daa28b951e6bc778c83fdeb96a11e0e959dce",
+  "decision_ids": ["0216", "0224"],
+  "issue": 48,
+  "results": {
+    "focused_frontend": {"passed": 136, "failed": 0},
+    "pre_commit": {"passed": true}
+  },
+  "behavior": "An ac.find predicate or key lambda may capture an unconditional immutable rule-local value; its defining expression is inlined into the predicate emitter with the exact recursive descriptor. Guarded local captures fail closed.",
+  "trigger": "DavinciOO I2 uses the required tombstone form ac.find(rows, where=lambda row: row.valid & (row.key == key)) with an IssueAttemptKey local.",
+  "release_scope": "Focused framework regression discovered by the DavinciOO design program.",
+  "skill_evolve": "no-update"
+}
