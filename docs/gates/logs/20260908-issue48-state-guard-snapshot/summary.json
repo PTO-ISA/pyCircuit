@@ -1,0 +1,19 @@
+{
+  "run_id": "20260908-issue48-state-guard-snapshot",
+  "status": "passed",
+  "base_revision": "2f373cd16557227db92c61d6a7483643eb9f7835",
+  "decision_ids": ["0210"],
+  "issue": 48,
+  "results": {
+    "agentic_frontend": {"passed": 137, "failed": 0},
+    "optional_output_e2e": {"passed": 1, "failed": 0},
+    "unit": {"passed": 90, "failed": 0},
+    "agentic_repository_contracts": {"passed": true},
+    "api_hygiene": {"passed": true},
+    "pre_commit": {"passed": true},
+    "mkdocs_strict": {"passed": true},
+    "decision_status": {"rows": 224, "deferred": 0, "passed": true}
+  },
+  "behavior": "Rule blocking, effect, and output-presence guards read committed state even when the selected branch proposes a new value for the same owner.",
+  "skill_evolve": "no-update"
+}

@@ -2414,9 +2414,21 @@ def parse_queue_program(
         }
         state_names.update(state_reference_arguments)
         rewritten_multi_return = rewrite_local_loads(multi_return)
-        rewritten_multi_guard = rewrite_local_loads(multi_guard)
-        rewritten_multi_effect_guard = rewrite_local_loads(multi_effect_guard)
-        rewritten_multi_output_guard = rewrite_local_loads(multi_output_guard)
+        # A blocking/effect/output guard selects whether the transaction may
+        # begin.  State parameters in that predicate therefore denote the
+        # committed snapshot, even when the selected body proposes a new value
+        # for the same owner.  Local (non-state) SSA values are still rewritten
+        # normally.
+        guard_state_names = frozenset(state_names)
+        rewritten_multi_guard = rewrite_local_loads(
+            multi_guard, excluded=guard_state_names
+        )
+        rewritten_multi_effect_guard = rewrite_local_loads(
+            multi_effect_guard, excluded=guard_state_names
+        )
+        rewritten_multi_output_guard = rewrite_local_loads(
+            multi_output_guard, excluded=guard_state_names
+        )
         for local in rule_locals:
             referenced = {
                 candidate.id

@@ -78,6 +78,22 @@ def pipeline(left: ac.u8, right: ac.u8) -> tuple[ac.u8, ac.u8]:
     return left_result, right_result
 """
 
+STATE_GUARD_OLD_VALUE_SOURCE = """
+import agentic_circuit as ac
+
+@ac.rule
+def publish(outstanding):
+    if not outstanding:
+        outstanding = True
+        return outstanding
+
+@ac.system
+def state_guard() -> bool:
+    outstanding: bool = False
+    result = publish(outstanding)
+    return result
+"""
+
 POPCOUNT_SOURCE = """
 import agentic_circuit as ac
 from agentic_circuit import sink, source, struct, system
@@ -3785,6 +3801,33 @@ def cycle(incoming: Left) -> Left:
         self.assertIn(
             f"ac.var.assign @second = %{field_values['right']}", lowered
         )
+
+    def test_blocking_guard_reads_old_state_while_proposal_uses_new_value(self) -> None:
+        from agentic_circuit._queue_frontend import lower_queue_source
+
+        lowered = lower_queue_source(STATE_GUARD_OLD_VALUE_SOURCE, "state_guard")
+        read = next(
+            line.split("%", 1)[1].split(" ", 1)[0]
+            for line in lowered.splitlines()
+            if "ac.var.read @outstanding" in line
+        )
+        comparison = next(
+            line
+            for line in lowered.splitlines()
+            if 'ac.var.cmp "eq"' in line and f"%{read}" in line
+        )
+        condition = next(
+            line for line in lowered.splitlines() if "ac.rule.condition" in line
+        )
+        comparison_result = comparison.split("%", 1)[1].split(" ", 1)[0]
+
+        self.assertIn(f"%{comparison_result}", condition)
+        assignment = next(
+            line
+            for line in lowered.splitlines()
+            if "ac.var.assign @outstanding" in line
+        )
+        self.assertNotIn(f"%{read}", assignment)
 
     def test_branch_guards_capture_the_local_version_at_branch_entry(self) -> None:
         from agentic_circuit._queue_frontend import lower_queue_source

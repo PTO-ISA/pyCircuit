@@ -909,8 +909,10 @@ condition. The frontend emits `ac.rule.output ... when`, and MLIR independently
 derives predicate-qualified output capacity/effect summaries. A full output
 Queue therefore blocks the complete transaction only when output presence is
 true; the absent-output path consumes input and commits state without requiring
-capacity. Rule/Firing/QueueGraph verifiers require one input and a constant-true
-candidate for this differing output presence.
+capacity. The condition reads persistent values from the committed snapshot at
+branch entry; assignments in the branch create proposals but do not replace the
+condition with their proposed values. Rule/Firing/QueueGraph verifiers require
+one input and a constant-true candidate for this differing output presence.
 
 A rule with several heterogeneous results declares one fixed `tuple[...]`
 return type. Each returned local holds its declared value or `None`; `None`
