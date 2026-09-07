@@ -747,6 +747,14 @@ For generated gfsim C++ and the shared Table selection cache, an effect-free
 Min/max, choose-key snapshot effects, and wider word-array masks retain the
 general scan with unchanged selection and reservation semantics.
 
+Generated gfsim C++ may bind aggregate `table_get` results and aggregate field
+projections to `const` references while evaluating one policy invocation.
+These references observe the committed Table snapshot and cannot become ACIR
+values with reference identity. Immutable updates, state proposals, returned
+transition plans, and Queue outputs materialize values before the invocation
+ends. Scalar reads remain values, and checked Table access retains its runtime
+diagnostic.
+
 `EntryView` is elaboration-only. `patch` lowers before Frozen ACIR to
 `ac.table.get`, immutable `ac.var.with` updates, and `ac.table.write` or
 `ac.table.masked_write`; there is no `ac.table.patch` operation. Both Frozen

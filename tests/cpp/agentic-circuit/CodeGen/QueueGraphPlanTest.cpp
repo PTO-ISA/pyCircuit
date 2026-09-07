@@ -265,6 +265,48 @@ QueueGraphPlan inlineFirstChoicePlan(unsigned width, unsigned indexWidth) {
   return plan;
 }
 
+QueueGraphPlan aggregateTableBorrowPlan(QueueGraphPlan plan) {
+  constexpr llvm::StringLiteral nestedType =
+      "!ac.struct<@types::@BorrowNested>";
+  constexpr llvm::StringLiteral entryType =
+      "!ac.struct<@types::@BorrowEntry>";
+  plan.system = "aggregate_borrow";
+  plan.payloads = {
+      {"BorrowNested",
+       {{"key", "i16", 16}, {"lane0", "i64", 64}, {"lane1", "i64", 64}}},
+      {"BorrowEntry",
+       {{"valid", "i1", 1},
+        {"nested", nestedType.str(), 144},
+        {"echo", "i16", 16}}},
+  };
+  plan.tables.front().entryType = entryType.str();
+  for (QueuePlan &queue : plan.queues)
+    queue.payloadType = entryType.str();
+  QueueBlockPlan &firing = *llvm::find_if(
+      plan.blocks,
+      [](const QueueBlockPlan &block) { return block.kind == "firing"; });
+  firing.expressions = {
+      {"index", "constant", "i1", {}, "", "", "1 : i1"},
+      {"stored", "table_get", entryType.str(), {"index"}, "", "", "",
+       "table"},
+      {"nested", "get", nestedType.str(), {"stored"}, "nested"},
+      {"key", "get", "i16", {"nested"}, "key"},
+      {"updated", "with", entryType.str(), {"stored", "key"}, "echo"},
+      {"enabled", "constant", "i1", {}, "", "", "true"},
+  };
+  firing.yields = {"updated"};
+  firing.guard = "enabled";
+  firing.stateWrites = {
+      {"table",
+       "index",
+       "item",
+       "enabled",
+       "replace",
+       {"valid", "nested", "echo"}}};
+  firing.outputPresence = {{0, "updated", "enabled"}};
+  return plan;
+}
+
 QueueGraphPlan aggregateMetadataPlan() {
   QueueGraphPlan plan = sharedReferencePlan();
   plan.payloads = {{"Packet",
@@ -1943,6 +1985,152 @@ TEST(QueueGraphPlanTest, FlatGeneratorPreservesOrderedRepeatedWritesPerOwner) {
   EXPECT_NE(source.find("std::move(owner_writes0), "
                         "std::move(owner_writes1)"),
             llvm::StringRef::npos);
+  expectCppCompiles(*generated);
+}
+
+TEST(QueueGraphPlanTest,
+     BorrowsAggregateTableReadsAndMaterializesOutputsBeforeCommit) {
+  mlir::MLIRContext context;
+  context.loadDialect<ac::ACIRDialect, mlir::DLTIDialect>();
+  auto module =
+      mlir::parseSourceString<mlir::ModuleOp>(kStatefulFiring, &context);
+  ASSERT_TRUE(module);
+  ASSERT_TRUE(freezeQueueGraph(*module));
+  auto extracted = buildQueueGraphPlan(*module);
+  ASSERT_TRUE(bool(extracted)) << llvm::toString(extracted.takeError());
+  QueueGraphPlan plan = aggregateTableBorrowPlan(std::move(*extracted));
+  auto generated = generateQueueGraphCpp(plan);
+  ASSERT_TRUE(bool(generated)) << llvm::toString(generated.takeError());
+  llvm::StringRef source(*generated);
+  ASSERT_NE(source.find(
+                "const auto &stored = table_table->at(static_cast<size_t>("
+                "index))"),
+            llvm::StringRef::npos)
+      << source.str();
+  EXPECT_NE(source.find("const auto &nested = stored.nested"),
+            llvm::StringRef::npos);
+  EXPECT_NE(source.find("auto key = nested.key"), llvm::StringRef::npos);
+  EXPECT_NE(source.find("auto updated = stored"), llvm::StringRef::npos);
+  EXPECT_EQ(source.find("auto stored = table_table->at"),
+            llvm::StringRef::npos);
+
+  std::string executableSource = *generated;
+  executableSource.append(R"cpp(
+int main() {
+  using gfsim::UInt;
+  ac_generated::AggregateBorrow model;
+  const ac_generated::BorrowEntry initial{
+      UInt<1>{1},
+      ac_generated::BorrowNested{UInt<16>{7}, UInt<64>{11}, UInt<64>{12}},
+      UInt<16>{0}};
+  const ac_generated::BorrowEntry replacement{
+      UInt<1>{1},
+      ac_generated::BorrowNested{UInt<16>{99}, UInt<64>{21}, UInt<64>{22}},
+      UInt<16>{0}};
+  auto rows = model.dispatch_rows();
+  gfsim::SimTable<ac_generated::BorrowEntry> *table = nullptr;
+  for (auto &row : rows) {
+    auto *object = static_cast<gfsim::SimObject *>(row.object);
+    if (row.kind == gfsim::ObjectKind::Memory && object->name() == "table")
+      table = dynamic_cast<gfsim::SimTable<ac_generated::BorrowEntry> *>(object);
+  }
+  if (table == nullptr || !table->initializeEntry(1, initial) ||
+      !model.input().proposePush(replacement))
+    return 1;
+  model.input().doXfer({0, 0});
+  auto runTick = [&](unsigned tick) {
+    const gfsim::Epoch epoch{tick, 0};
+    for (auto &row : rows)
+      row.work(row.object, epoch);
+    for (auto &row : rows)
+      row.xfer(row.object, epoch, gfsim::XferPhase::Arbitrate);
+    for (auto &row : rows)
+      row.xfer(row.object, epoch, gfsim::XferPhase::Commit);
+  };
+  runTick(1);
+  runTick(2);
+  const auto &values = model.sink_0_values();
+  if (values.size() != 1)
+    return 2;
+  const auto &output = values.front();
+  const auto &current = table->at(1);
+  return output.nested.key == UInt<16>{7} && output.echo == UInt<16>{7} &&
+                 output.nested.lane0 == UInt<64>{11} &&
+                 current.nested.key == UInt<16>{99}
+             ? 0
+             : 3;
+}
+)cpp");
+  expectCppRuns(executableSource);
+}
+
+TEST(QueueGraphPlanTest, BorrowsCheckedAggregateReadsWithoutDroppingChecks) {
+  constexpr llvm::StringLiteral entryType =
+      "!ac.struct<@types::@CheckedEntry>";
+  mlir::MLIRContext context;
+  context.loadDialect<ac::ACIRDialect, mlir::DLTIDialect>();
+  auto module = mlir::parseSourceFile<mlir::ModuleOp>(
+      ACIR_TEST_SOURCE_DIR
+      "/tests/mlir/agentic-circuit/CodeGen/table-endpoint-value-constraints.mlir",
+      &context);
+  ASSERT_TRUE(module);
+  ASSERT_TRUE(freezeQueueGraph(*module));
+  auto extracted = buildQueueGraphPlan(*module);
+  ASSERT_TRUE(bool(extracted)) << llvm::toString(extracted.takeError());
+  QueueGraphPlan plan = std::move(*extracted);
+  plan.payloads = {{"CheckedEntry",
+                    {{"valid", "i1", 1},
+                     {"key", "i16", 16},
+                     {"lane0", "i64", 64},
+                     {"lane1", "i64", 64}}}};
+  auto flags = llvm::find_if(plan.tables, [](const TablePlan &table) {
+    return table.name == "flags";
+  });
+  ASSERT_NE(flags, plan.tables.end());
+  flags->entryType = entryType.str();
+  auto endpoint = llvm::find_if(plan.tableReads, [](const TableReadPlan &read) {
+    return read.table == "flags";
+  });
+  ASSERT_NE(endpoint, plan.tableReads.end());
+  auto output = llvm::find_if(plan.queues, [&](const QueuePlan &queue) {
+    return queue.name == endpoint->output;
+  });
+  ASSERT_NE(output, plan.queues.end());
+  output->payloadType = entryType.str();
+
+  QueueBlockPlan *readBlock = nullptr;
+  QueueExpressionPlan *read = nullptr;
+  for (QueueBlockPlan &block : plan.blocks)
+    for (QueueExpressionPlan &expression : block.expressions)
+      if (expression.kind == "table_get" && expression.table == "flags") {
+        readBlock = &block;
+        read = &expression;
+      }
+  ASSERT_NE(readBlock, nullptr);
+  ASSERT_NE(read, nullptr);
+  const std::string readResult = read->result;
+  read->type = entryType.str();
+  auto position = llvm::find_if(
+      readBlock->expressions, [&](const QueueExpressionPlan &expression) {
+        return expression.result == readResult;
+      });
+  ASSERT_NE(position, readBlock->expressions.end());
+  readBlock->expressions.insert(
+      std::next(position),
+      {"checked_valid", "get", "i1", {readResult}, "valid"});
+  for (std::string &yield : readBlock->yields)
+    if (yield == readResult)
+      yield = "checked_valid";
+
+  auto generated = generateQueueGraphCpp(plan);
+  ASSERT_TRUE(bool(generated)) << llvm::toString(generated.takeError());
+  const std::string borrowed = "const auto &" + readResult +
+                               " = table->checkedAt(static_cast<size_t>(item))";
+  EXPECT_NE(generated->find(borrowed), std::string::npos);
+  EXPECT_NE(generated->find("auto checked_valid = " + readResult + ".valid"),
+            std::string::npos);
+  EXPECT_EQ(generated->find("auto " + readResult + " = table->checkedAt"),
+            std::string::npos);
   expectCppCompiles(*generated);
 }
 

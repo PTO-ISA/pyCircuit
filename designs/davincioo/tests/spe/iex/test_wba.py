@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import ast
 import os
+import re
 import subprocess
 import tempfile
 from pathlib import Path
@@ -81,6 +82,22 @@ def test_wba_source_closure_reaches_frozen_queuegraph_and_rejects_table_pyc() ->
             check=False,
         )
         assert generated.returncode == 0, generated.stderr
+        aggregate_table_reads = re.findall(
+            r"^\s+const auto &[A-Za-z0-9_]+ = "
+            r"table_[A-Za-z0-9_]+->at\(static_cast<size_t>",
+            generated.stdout,
+            re.MULTILINE,
+        )
+        expected_aggregate_reads = frozen.count("ac.table.get @entries") + frozen.count(
+            "ac.table.get @cancel_tombstones"
+        )
+        assert len(aggregate_table_reads) == expected_aggregate_reads
+        assert not re.search(
+            r"^\s+auto [A-Za-z0-9_]+ = "
+            r"table_(?:entries|cancel_tombstones)->at\(static_cast<size_t>",
+            generated.stdout,
+            re.MULTILINE,
+        )
         model_path = Path(directory) / "model.cpp"
         model_path.write_text(
             generated.stdout
@@ -148,6 +165,18 @@ def test_wba_executes_terminal_apply_cancel_drain_and_backpressure_matrix() -> N
         pytest.skip("current-checkout ACIR/gfsim toolchain is unavailable")
 
     generated = _lower_acir_to_cpp(ac.jit(wba_system, workspace=ROOT).lower_acir())
+    assert re.search(
+        r"^\s+const auto &[A-Za-z0-9_]+ = "
+        r"table_[A-Za-z0-9_]+->at\(static_cast<size_t>",
+        generated,
+        re.MULTILINE,
+    )
+    assert not re.search(
+        r"^\s+auto [A-Za-z0-9_]+ = "
+        r"table_(?:entries|cancel_tombstones)->at\(static_cast<size_t>",
+        generated,
+        re.MULTILINE,
+    )
     with tempfile.TemporaryDirectory(prefix="davincioo-wba-behavior-") as directory:
         source = Path(directory) / "model.cpp"
         executable = Path(directory) / "model"

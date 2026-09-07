@@ -1,0 +1,24 @@
+{
+  "apple_clang_o3_smoke": {
+    "both_executed": true,
+    "disassembled_instruction_count": {
+      "after": 44626,
+      "before_like": 44704
+    },
+    "note": "Diagnostic comparison only; no runtime speedup is claimed.",
+    "text_bytes": {
+      "after": 212992,
+      "before_like": 212992
+    }
+  },
+  "base_revision": "318a9275f98b9e4437b29196f4baeb3aee58cccf",
+  "implementation_diff_sha256": "a4302f9f636ffd963df016d74f547cfc472f2ae0b5a50981adedd111941f13d3",
+  "wba_generated": {
+    "after_bytes": 237663,
+    "aggregate_projection_borrows": 371,
+    "aggregate_table_get_borrows": 9,
+    "before_like_bytes": 235003,
+    "by_value_sites_removed": 380,
+    "note": "before_like mechanically restores the exact pre-change auto bindings in the same generated source; it is not a separate base-worktree build"
+  }
+}

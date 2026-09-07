@@ -699,6 +699,12 @@ Epoch 惰性求值并缓存，同一 Epoch 的多个 consumer 只触发一次 Ta
 64 entries 的 scalar mask，就使用 low-first bit scan。min/max、choose-key snapshot
 effect 和更宽的 word-array mask 保留通用扫描，selection 与 reservation 语义不变。
 
+生成的 gfsim C++ 可以在单次 policy invocation 内，把 aggregate `table_get` 结果和
+aggregate 字段投影绑定为 `const` 引用。这些引用只观察 committed Table snapshot，
+不会成为带引用 identity 的 ACIR value。immutable update、state proposal、返回的
+transition plan 和 Queue output 都会在 invocation 结束前物化为值。scalar read 仍按值
+生成，checked Table access 继续保留运行时诊断。
+
 `EntryView` 只存在于 elaboration。`patch` 在 Frozen ACIR 前展开成
 `ac.table.get -> ac.var.with -> ac.table.write` 或 `ac.table.masked_write`，不存在
 `ac.table.patch`。两种 Frozen write op 都必须携带规范化、非空、无重复的

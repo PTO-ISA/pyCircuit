@@ -260,6 +260,10 @@ const QueueAggregatePlan *findAggregateType(const QueueGraphPlan &plan,
   return found == plan.aggregates.end() ? nullptr : &*found;
 }
 
+bool isAggregateValueType(const QueueGraphPlan &plan, llvm::StringRef type) {
+  return findPayloadType(plan, type) || findAggregateType(plan, type);
+}
+
 llvm::Expected<uint64_t> generatedTypeWidth(const QueueGraphPlan &plan,
                                             llvm::StringRef type) {
   if (type.starts_with('i')) {
@@ -609,14 +613,20 @@ emitExpressionBody(const QueueGraphPlan &plan, const QueueBlockPlan &block,
       continue;
     }
     if (expression.kind == "get") {
-      output << padding << "auto " << expression.result << " = " << first->str()
-             << '.' << identifier(expression.field) << ";\n";
+      output << padding
+             << (isAggregateValueType(plan, expression.type) ? "const auto &"
+                                                             : "auto ")
+             << expression.result << " = " << first->str() << '.'
+             << identifier(expression.field) << ";\n";
       continue;
     }
     if (expression.kind == "table_get") {
       const std::string table =
           qualifyTables ? "table_" + identifier(expression.table) : "table";
-      output << padding << "auto " << expression.result << " = " << table
+      output << padding
+             << (isAggregateValueType(plan, expression.type) ? "const auto &"
+                                                             : "auto ")
+             << expression.result << " = " << table
              << (checkedTableAccess ? "->checkedAt(static_cast<size_t>("
                                     : "->at(static_cast<size_t>(")
              << first->str() << "));\n";

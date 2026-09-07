@@ -1,0 +1,23 @@
+{
+  "run_id": "20260908-issue63-opt05-table-borrow",
+  "status": "passed",
+  "base_revision": "318a9275f98b9e4437b29196f4baeb3aee58cccf",
+  "decision_ids": ["0155"],
+  "issue": 63,
+  "checklist": ["OPT-05a", "OPT-05b", "OPT-05c"],
+  "results": {
+    "codegen_tests": {"passed": 135, "failed": 0},
+    "wba_behavior": {"passed": 3, "failed": 0},
+    "primitive_selection": {"passed": 16, "failed": 0},
+    "unit": {"passed": 90, "failed": 0},
+    "agentic_repository_contracts": {"passed": true},
+    "pyc_inventory": {"operations": 41, "types": 2, "passed": true},
+    "ir_coverage": {"passed": true},
+    "pre_commit": {"passed": true},
+    "mkdocs_strict": {"passed": true},
+    "decision_status": {"rows": 225, "deferred": 0, "passed": true}
+  },
+  "metrics": "docs/gates/logs/20260908-issue63-opt05-table-borrow/metrics.json",
+  "behavior": "Aggregate Table observations borrow committed storage only within one policy invocation; all Queue, transition and proposal boundaries retain value ownership.",
+  "skill_evolve": "no-update"
+}
