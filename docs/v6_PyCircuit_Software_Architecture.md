@@ -102,7 +102,9 @@ pyCircuit/
 
 - `CycleAwareDomain` 维护逻辑周期计数器（`next`/`prev`/`push`/`pop` 栈）；
 - `CycleAwareSignal` 用 `(wire, cycle)` 对表示信号，运算前通过 `delay_to()` 自动补 `pyc.reg` 链对齐操作数（**自动周期平衡**的实现点）；
-- `ForwardSignal` 记录声明周期与赋值周期，差值决定生成几级 `pyc.reg` 反馈；
+- `ForwardSignal` 保留寄存器声明/赋值关系，但每次 Q 端读取统一绑定当前
+  occurrence；`.cycle`、helper、运算符与 `CycleAwareSignal.as_cas()` 不得回退到
+  声明时 tag；
 - `domain.call()`：
   - **扁平模式**：push → 执行子函数（同一张图上内联构图）→ pop；
   - **层次化模式**：把子函数以 `inputs=None` 独立编译为 `func.func` 注册进 `Design`，父模块发射 `pyc.instance`，并用记录的输出 cycle 元数据把 instance 结果重新包装为 CAS 返回。

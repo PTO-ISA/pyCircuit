@@ -55,6 +55,30 @@ class _ModuleCtx:
     outputs: list[Any] = field(default_factory=list)
 
 
+class _TrackedInputs(dict[str, Any]):
+    """Composed input map that records the keys consumed by a child."""
+
+    def __init__(self, values: dict[str, Any]) -> None:
+        super().__init__(values)
+        self.used: set[str] = set()
+        self._parent = values if isinstance(values, _TrackedInputs) else None
+
+    def _mark_used(self, key: str) -> None:
+        self.used.add(key)
+        if self._parent is not None:
+            self._parent._mark_used(key)
+
+    def __getitem__(self, key: str) -> Any:
+        value = super().__getitem__(key)
+        self._mark_used(key)
+        return value
+
+    def get(self, key: str, default: Any = None) -> Any:
+        if key in self:
+            return self[key]
+        return default
+
+
 class CycleAwareCircuit(Circuit):
     """V6 top-level builder; extends Circuit so m.out / m.cat / emit_mlir work unchanged."""
 
@@ -176,12 +200,15 @@ class CycleAwareDomain:
 
     def cycle(
         self,
-        sig: Union[Wire, Reg, "CycleAwareSignal"],
+        sig: Union[Wire, Reg, "CycleAwareSignal", "StateSignal", "ForwardSignal"],
         reset_value: int | None = None,
         name: str = "",
-    ) -> Wire:
-        """Single-stage register (DFF); output is one logical cycle after the input value."""
-        w = _as_wire(self._m, sig)
+    ) -> "CycleAwareSignal":
+        """Register one value and return a CAS at source occurrence plus one."""
+        source = CycleAwareSignal.as_cas(sig, domain=self)
+        if source.domain is not self:
+            raise ValueError("cycle() source must belong to the same domain")
+        w = source._w
         width = w.width
         init = 0 if reset_value is None else reset_value
         reg_name = str(name).strip() or f"_v6_reg_{self._reg_serial}"
@@ -189,7 +216,11 @@ class CycleAwareDomain:
         full = self._m.scoped_name(reg_name)
         r = self._m.out(full, domain=self._cd, width=width, init=init)
         r.set(w)
-        return r.q
+        return CycleAwareSignal(
+            self,
+            Wire(self._m, r.q.sig, signed=w.signed),
+            source.cycle + 1,
+        )
 
     def _state(
         self,
@@ -286,13 +317,22 @@ class CycleAwareDomain:
 
         The returned dict preserves each signal's ``cycle`` attribute.
         """
+        if inputs is not None and not isinstance(inputs, dict):
+            raise TypeError("domain.call: inputs must be a dict or None")
         if self._hierarchical:
             return self._call_hierarchical(fn, inputs=inputs, **kwargs)
+        tracked_inputs = None if inputs is None else _TrackedInputs(inputs)
         self.push()
         try:
-            result = fn(self._m, self, inputs=inputs, **kwargs)
+            result = fn(self._m, self, inputs=tracked_inputs, **kwargs)
         finally:
             self.pop()
+        if tracked_inputs is not None:
+            extra = sorted(set(tracked_inputs) - tracked_inputs.used)
+            if extra:
+                raise KeyError(
+                    "domain.call: unexpected composed inputs: " + ", ".join(extra)
+                )
         return result
 
     def _call_hierarchical(
@@ -329,39 +369,47 @@ class CycleAwareDomain:
 
         canonical_prefix = sub_name
         input_map: dict[str, Any] = {}
-        if inputs:
+        if inputs is not None:
             for k, v in inputs.items():
                 input_map[f"{canonical_prefix}_{k}"] = v
 
         input_sigs: list[Signal] = []
+        used_inputs: set[str] = set()
         for port_name, port_sig in sub_m._args:
             if port_sig.ty == "!pyc.clock":
                 input_sigs.append(self._cd.clk)
             elif port_sig.ty == "!pyc.reset":
                 input_sigs.append(self._cd.rst)
             elif port_name in input_map:
+                used_inputs.add(port_name)
+                display_name = (
+                    port_name[len(canonical_prefix) + 1 :]
+                    if port_name.startswith(canonical_prefix + "_")
+                    else port_name
+                )
                 actual = input_map[port_name]
-                actual_sig = _to_wire(actual).sig
-
-                if (
-                    actual_sig.ty != port_sig.ty
-                    and isinstance(actual_sig.ty, Bits)
-                    and isinstance(port_sig.ty, Bits)
-                ):
-                    actual_w = actual_sig.ty.width
-                    expect_w = port_sig.ty.width
-                    w = Wire(self._m, actual_sig)
-                    if actual_w < expect_w:
-                        w = w.zext(width=expect_w)
-                    else:
-                        w = w.trunc(width=expect_w)
-                    actual_sig = w.sig
+                if isinstance(port_sig.ty, Bits):
+                    actual_sig = _normalize_composed_input(
+                        actual,
+                        domain=self,
+                        width=port_sig.ty.width,
+                        context=f"domain.call input '{display_name}'",
+                    )._w.sig
+                else:
+                    actual_sig = _to_wire(actual).sig
                 if actual_sig.ty != port_sig.ty:
                     raise TypeError(
                         f"input {port_name!r} type mismatch: actual {actual_sig.ty} != expected {port_sig.ty}"
                     )
                 input_sigs.append(actual_sig)
             else:
+                if inputs is not None:
+                    missing = (
+                        port_name[len(canonical_prefix) + 1 :]
+                        if port_name.startswith(canonical_prefix + "_")
+                        else port_name
+                    )
+                    raise KeyError(f"domain.call: missing composed input '{missing}'")
                 if isinstance(port_sig.ty, Bits):
                     width = port_sig.ty.width
                 else:
@@ -373,6 +421,20 @@ class CycleAwareDomain:
                     parent_port_name = f"{prefix}_{port_name}"
                 parent_value = self._m.input(parent_port_name, width=width)
                 input_sigs.append(parent_value.sig)
+
+        extra_inputs = sorted(set(input_map) - used_inputs)
+        if extra_inputs:
+            display = [
+                (
+                    name[len(canonical_prefix) + 1 :]
+                    if name.startswith(canonical_prefix + "_")
+                    else name
+                )
+                for name in extra_inputs
+            ]
+            raise KeyError(
+                "domain.call: unexpected composed inputs: " + ", ".join(display)
+            )
 
         result_types = [sig.ty for _, sig in sub_m._results]
         out_sigs = self._m.instance_op(
@@ -652,7 +714,7 @@ class StateSignal(Generic[DT]):
 
     @property
     def cycle(self) -> int:
-        return self._cas.cycle
+        return self._current_view().cycle
 
     @property
     def domain(self) -> "CycleAwareDomain":
@@ -758,7 +820,7 @@ class StateSignal(Generic[DT]):
         return self._current_view().__getitem__(idx)
 
     def __repr__(self) -> str:
-        return f"StateSignal({self._cas._w}, cycle={self._cas.cycle})"
+        return f"StateSignal({self._cas._w}, cycle={self.cycle})"
 
 
 class ForwardSignal(Generic[DT]):
@@ -817,7 +879,7 @@ class ForwardSignal(Generic[DT]):
 
     @property
     def cycle(self) -> int:
-        return self._state.cycle
+        return self.as_cas().cycle
 
     @property
     def domain(self) -> "CycleAwareDomain":
@@ -844,11 +906,7 @@ class ForwardSignal(Generic[DT]):
     # ── arithmetic / logic operators (forward to inner CAS) ──────────
     def as_cas(self) -> "CycleAwareSignal":
         """Read the register at the domain's current logical cycle."""
-        return CycleAwareSignal(
-            self._state.domain,
-            self._state._cas._w,
-            self._state.domain.cycle_index,
-        )
+        return self._state._current_view()
 
     def __add__(self, other: object) -> "CycleAwareSignal":
         return self.as_cas().__add__(other)
@@ -936,7 +994,7 @@ class ForwardSignal(Generic[DT]):
         return getattr(self.as_cas(), name)
 
     def __repr__(self) -> str:
-        return f"ForwardSignal({self._state._cas._w}, cycle={self._state.cycle})"
+        return f"ForwardSignal({self._state._cas._w}, cycle={self.cycle})"
 
 
 def _to_wire(v: "Wire | Reg | CycleAwareSignal | StateSignal | ForwardSignal") -> Wire:
@@ -973,10 +1031,9 @@ def submodule_input(
 ) -> "CycleAwareSignal":
     """Resolve an input signal in dual-mode: composed or standalone.
 
-    When *io* is provided and contains *key*, the caller's
-    ``CycleAwareSignal`` is returned unchanged (preserving its cycle
-    provenance).  Otherwise a fresh top-level ``m.input()`` is created so the
-    module can still compile independently::
+    When *io* is provided it is composed mode: *key* must exist and its value
+    is normalized to one ``CycleAwareSignal`` while preserving read-side cycle
+    provenance.  ``None`` is standalone mode and creates a top-level input::
 
         pc = submodule_input(inputs, "pc", m, domain, prefix="fe", width=32)
 
@@ -1002,16 +1059,41 @@ def submodule_input(
     -------
     CycleAwareSignal
     """
-    if io is not None and key in io:
-        sig = io[key]
-        if isinstance(sig, (CycleAwareSignal, ForwardSignal, StateSignal)):
-            return sig  # type: ignore[return-value]
-        if isinstance(sig, Wire):
-            return CycleAwareSignal(domain, sig, cycle)
+    if io is None:
+        return CycleAwareSignal(domain, m.input(f"{prefix}_{key}", width=width), cycle)
+    if not isinstance(io, dict):
+        raise TypeError("submodule_input: inputs must be a dict or None")
+    if key not in io:
+        raise KeyError(f"submodule_input: missing composed input '{key}'")
+    return _normalize_composed_input(
+        io[key],
+        domain=domain,
+        width=width,
+        context=f"submodule_input key '{key}'",
+    )
+
+
+def _normalize_composed_input(
+    sig: Any,
+    *,
+    domain: CycleAwareDomain,
+    width: int,
+    context: str,
+) -> "CycleAwareSignal":
+    """Normalize one composed scalar input without changing its width."""
+    if isinstance(sig, (CycleAwareSignal, ForwardSignal, StateSignal)):
+        normalized = CycleAwareSignal.as_cas(sig)
+    elif isinstance(sig, (Wire, Reg)):
+        normalized = CycleAwareSignal.as_cas(sig, domain=domain)
+    else:
+        raise TypeError(f"{context}: unexpected type {type(sig).__name__}")
+    if normalized.domain is not domain:
+        raise ValueError(f"{context}: domain mismatch")
+    if normalized.width != int(width):
         raise TypeError(
-            f"submodule_input: unexpected type for key '{key}': {type(sig).__name__}"
+            f"{context}: width mismatch: expected {int(width)}, got {normalized.width}"
         )
-    return CycleAwareSignal(domain, m.input(f"{prefix}_{key}", width=width), cycle)
+    return normalized
 
 
 def wire_of(
@@ -1078,9 +1160,9 @@ class CycleAwareSignal(Generic[DT]):
         Unified coercion mirroring :meth:`Wire.as_wire`.  Handles every signal
         flavor used in V6 code:
 
-        - :class:`CycleAwareSignal` / :class:`StateSignal` / :class:`ForwardSignal`
-          are returned (unwrapped to a bare CAS) unchanged, preserving their
-          original cycle tag.  *domain* / *cycle* are ignored.
+        - :class:`CycleAwareSignal` keeps its explicit cycle tag.
+        - :class:`StateSignal` / :class:`ForwardSignal` read their register Q at
+          the domain's current logical occurrence.
         - :class:`Reg` is read at ``domain.cycle_index`` (Q output).
         - :class:`Wire` is tagged at ``domain.cycle_index``.
         - ``int`` / :class:`LiteralValue` are materialized as a constant on
@@ -1103,12 +1185,10 @@ class CycleAwareSignal(Generic[DT]):
             If *v* has an unsupported type, or if *domain* is ``None`` when
             needed for promotion.
         """
-        # Already cycle-aware: unwrap StateSignal / ForwardSignal to the inner
-        # CAS and return as-is (cycle provenance preserved).
         if isinstance(v, ForwardSignal):
-            return v._state._cas
+            return v.as_cas()
         if isinstance(v, StateSignal):
-            return v._cas
+            return v._current_view()
         if isinstance(v, CycleAwareSignal):
             return v
 
@@ -1173,9 +1253,9 @@ class CycleAwareSignal(Generic[DT]):
         other: "CycleAwareSignal | StateSignal | ForwardSignal | Wire | Reg | int | LiteralValue",
     ) -> tuple[Wire, Wire, int]:
         if isinstance(other, ForwardSignal):
-            return self._align(other._state._cas)
+            return self._align(CycleAwareSignal.as_cas(other))
         if isinstance(other, StateSignal):
-            return self._align(other._cas)
+            return self._align(CycleAwareSignal.as_cas(other))
         if isinstance(other, CycleAwareSignal):
             if other._domain is not self._domain:
                 raise ValueError("CycleAwareSignal operands must share the same domain")
@@ -1641,10 +1721,8 @@ def mux(
     def _unwrap(
         v: Union[Wire, CycleAwareSignal, StateSignal, ForwardSignal],
     ) -> Union[Wire, CycleAwareSignal]:
-        if isinstance(v, ForwardSignal):
-            return v._state._cas
-        if isinstance(v, StateSignal):
-            return v._cas
+        if isinstance(v, (ForwardSignal, StateSignal)):
+            return CycleAwareSignal.as_cas(v)
         return v
 
     raw_cond = _unwrap(cond)

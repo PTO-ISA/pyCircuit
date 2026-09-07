@@ -4,6 +4,7 @@ from pycircuit import (
     CycleAwareCircuit,
     CycleAwareDomain,
     cas,
+    wire_of,
 )
 
 
@@ -16,7 +17,7 @@ def build(m: CycleAwareCircuit, domain: CycleAwareDomain) -> None:
 
     domain.next()
     y = domain.cycle(result, name="y")
-    m.output("y", y)
+    m.output("y", wire_of(y))
 
 
 build.__pycircuit_name__ = "wire_ops"
