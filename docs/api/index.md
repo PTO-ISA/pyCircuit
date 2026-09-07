@@ -13,6 +13,7 @@ from pycircuit import (
     CycleAwareTb,
     ForwardSignal,
     Tb,
+    build_cycle_aware,
     cas,
     compile_cycle_aware,
     mux,
@@ -24,7 +25,9 @@ from pycircuit import (
 
 Use `CycleAwareSignal` for scalar design values. Use `domain.signal()` to infer
 state, `domain.next()` to advance logical time, and `wire_of()` only at explicit
-I/O boundaries.
+I/O boundaries. `compile_cycle_aware()` always JIT-compiles to a hardened
+`Design`; `build_cycle_aware()` directly executes Python elaboration and returns
+a `CycleAwareCircuit` whose MLIR carries the same frontend contract.
 
 ## Structural library imports
 

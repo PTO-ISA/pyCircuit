@@ -3341,6 +3341,15 @@ an artificial split between the implementation, examples, and product docs.
   (`pyc_CircuitModule`, `pyc_CircuitLogger`, `pyc_ClockDomain`, `pyc_Signal`,
   `signal`, or identity `log`). Bitwise OR on a cycle-aware signal always means
   hardware OR; description strings are rejected as invalid operands.
+- `compile_cycle_aware()` is the canonical AST/JIT entry and always returns a
+  hardened `Design`. `build_cycle_aware()` is the explicit direct-Python
+  elaboration entry and always returns a `CycleAwareCircuit`; its emitted MLIR
+  carries the same required frontend attributes. Only the eager builder accepts
+  `hierarchical=`; it preserves decorator-owned structural intent, rejects
+  runtime `value_params`, and gives parameterized hierarchical specializations
+  canonical digest-qualified symbols. Compile mechanism and return type never
+  depend on a boolean mode flag, and `structural`, `value_params`, and
+  `design_ctx` are not public call options.
 - The compiler automatically inserts explicit `pyc.reg` delay chains when
   operands from different logical cycles must be aligned.
 - `domain.signal()` plus `<<=` or `.assign()` is the canonical inferred-state

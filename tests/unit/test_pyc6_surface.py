@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 import importlib.util
+import inspect
+import re
 import subprocess
 from pathlib import Path
 
 import pycircuit
 import pycircuit.v6 as pyc6
 import pytest
+from pycircuit.design import Design
 
 pytestmark = pytest.mark.unit
 
@@ -15,6 +18,7 @@ def test_cycle_aware_frontend_is_the_pyc6_surface() -> None:
     assert pycircuit.CycleAwareSignal is pyc6.CycleAwareSignal
     assert pycircuit.CycleAwareDomain is pyc6.CycleAwareDomain
     assert pycircuit.compile_cycle_aware is pyc6.compile_cycle_aware
+    assert pycircuit.build_cycle_aware is pyc6.build_cycle_aware
     assert not hasattr(pycircuit, "StateSignal")
     assert not hasattr(pycircuit, "priority_mux")
 
@@ -39,6 +43,139 @@ def test_tutorial_facade_is_not_part_of_the_public_surface() -> None:
     assert removed.isdisjoint(pycircuit.__all__)
     for name in removed:
         assert not hasattr(pycircuit, name)
+
+
+def test_cycle_aware_compile_entrypoints_have_stable_modes_and_types() -> None:
+    compile_sig = inspect.signature(pycircuit.compile_cycle_aware)
+    build_sig = inspect.signature(pycircuit.build_cycle_aware)
+    assert list(compile_sig.parameters) == ["fn", "name", "domain_name", "jit_params"]
+    assert list(build_sig.parameters) == [
+        "fn",
+        "name",
+        "domain_name",
+        "hierarchical",
+        "build_params",
+    ]
+    assert compile_sig.parameters["jit_params"].kind is inspect.Parameter.VAR_KEYWORD
+    assert build_sig.parameters["build_params"].kind is inspect.Parameter.VAR_KEYWORD
+
+    def build(m, domain, offset=1):
+        value = pycircuit.cas(domain, m.input("value", width=8), cycle=0)
+        m.output("result", pycircuit.wire_of(value + offset))
+
+    compiled = pycircuit.compile_cycle_aware(build, name="compiled", offset=3)
+    elaborated = pycircuit.build_cycle_aware(build, name="elaborated", offset=3)
+
+    assert isinstance(compiled, Design)
+    assert isinstance(elaborated, pycircuit.CycleAwareCircuit)
+    for mlir in (compiled.emit_mlir(), elaborated.emit_mlir()):
+        assert 'pyc.frontend.contract = "pycircuit"' in mlir
+        assert 'pyc.kind = "module"' in mlir
+        assert '\\"offset\\":3' in mlir
+        assert "pyc.add" in mlir
+
+
+@pytest.mark.parametrize("blank_name", ["", "   "])
+def test_cycle_aware_compile_entrypoints_normalize_blank_names(
+    blank_name: str,
+) -> None:
+    def named_build(m, domain):
+        m.output("result", domain.create_const(0, width=1))
+
+    compiled = pycircuit.compile_cycle_aware(named_build, name=blank_name)
+    elaborated = pycircuit.build_cycle_aware(named_build, name=blank_name)
+
+    assert compiled.top == "named_build"
+    assert "pyc.top = @named_build" in elaborated.emit_mlir()
+
+
+@pytest.mark.parametrize(
+    "removed",
+    ["design_ctx", "eager", "hierarchical", "structural", "value_params"],
+)
+def test_compile_cycle_aware_rejects_removed_mode_parameters(removed: str) -> None:
+    def build(m, domain):
+        _ = (m, domain)
+
+    with pytest.raises(TypeError, match=f"no longer accepts {removed}"):
+        pycircuit.compile_cycle_aware(build, **{removed: True})
+
+
+@pytest.mark.parametrize(
+    "removed", ["design_ctx", "eager", "structural", "value_params"]
+)
+def test_build_cycle_aware_rejects_removed_mode_parameters(removed: str) -> None:
+    def build(m, domain):
+        _ = (m, domain)
+
+    with pytest.raises(TypeError, match=f"no longer accepts {removed}"):
+        pycircuit.build_cycle_aware(build, **{removed: True})
+
+
+def test_build_cycle_aware_preserves_structural_and_rejects_value_params() -> None:
+    @pycircuit.module(structural=True)
+    def structural(m, domain):
+        m.output("result", domain.create_const(0, width=1))
+
+    structural_mlir = pycircuit.build_cycle_aware(structural).emit_mlir()
+    assert 'pyc.emit.structural = "true"' in structural_mlir
+
+    @pycircuit.module(value_params={"gain": "i8"})
+    def dynamic(m, domain, gain):
+        _ = (m, domain, gain)
+
+    with pytest.raises(TypeError, match="does not support runtime value_params"):
+        pycircuit.build_cycle_aware(dynamic)
+
+
+def test_build_cycle_aware_emits_hardened_hierarchy() -> None:
+    def child(m, domain, *, inputs, prefix="child"):
+        value = pycircuit.submodule_input(
+            inputs, "value", m, domain, prefix=prefix, width=8
+        )
+        result = value + 1
+        m.output("result", pycircuit.wire_of(result))
+        return {"result": result}
+
+    def top(m, domain):
+        value = pycircuit.cas(domain, m.input("value", width=8), cycle=0)
+        result = domain.call(child, inputs={"value": value}, prefix="u_child")
+        m.output("result", pycircuit.wire_of(result["result"]))
+
+    circuit = pycircuit.build_cycle_aware(top, hierarchical=True)
+    mlir = circuit.emit_mlir()
+
+    assert mlir.count("func.func @") == 2
+    assert "pyc.instance " in mlir and "callee = @child" in mlir
+    assert 'pyc.frontend.contract = "pycircuit"' in mlir
+
+
+def test_build_cycle_aware_names_hierarchical_specializations_by_params() -> None:
+    def child(m, domain, *, inputs, prefix="child", increment=1):
+        value = pycircuit.submodule_input(
+            inputs, "value", m, domain, prefix=prefix, width=8
+        )
+        result = value + increment
+        m.output("result", pycircuit.wire_of(result))
+        return {"result": result}
+
+    def top(m, domain):
+        value = pycircuit.cas(domain, m.input("value", width=8), cycle=0)
+        first = domain.call(
+            child, inputs={"value": value}, prefix="u_first", increment=1
+        )
+        second = domain.call(
+            child, inputs={"value": value}, prefix="u_second", increment=2
+        )
+        m.output("first", pycircuit.wire_of(first["result"]))
+        m.output("second", pycircuit.wire_of(second["result"]))
+
+    mlir = pycircuit.build_cycle_aware(top, hierarchical=True).emit_mlir()
+    specializations = set(re.findall(r"func\.func @(child__p[0-9a-f]{8})", mlir))
+
+    assert len(specializations) == 2
+    for specialization in specializations:
+        assert f"callee = @{specialization}" in mlir
 
 
 def test_cycle_aware_bitwise_or_rejects_description_strings() -> None:

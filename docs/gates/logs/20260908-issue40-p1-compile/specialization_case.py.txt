@@ -1,0 +1,30 @@
+from pathlib import Path
+
+from pycircuit import build_cycle_aware, cas, submodule_input, wire_of
+
+
+def child(m, domain, *, inputs, prefix="child", increment=1):
+    value = submodule_input(inputs, "value", m, domain, prefix=prefix, width=8)
+    result = value + increment
+    m.output("result", wire_of(result))
+    return {"result": result}
+
+
+def top(m, domain):
+    value = cas(domain, m.input("value", width=8), cycle=0)
+    first = domain.call(
+        child, inputs={"value": value}, prefix="u_first", increment=1
+    )
+    second = domain.call(
+        child, inputs={"value": value}, prefix="u_second", increment=2
+    )
+    m.output("first", wire_of(first["result"]))
+    m.output("second", wire_of(second["result"]))
+
+
+out = Path(".pycircuit_out/issue40-p1-compile/specializations-evidence.pyc")
+out.write_text(
+    build_cycle_aware(top, name="specializations", hierarchical=True).emit_mlir(),
+    encoding="utf-8",
+)
+print(out)

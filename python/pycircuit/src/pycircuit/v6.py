@@ -9,12 +9,14 @@ from __future__ import annotations
 
 import ast
 from dataclasses import dataclass
+import hashlib
 import inspect
 import textwrap
 from typing import Any, Generic, TypeVar, Union, cast, overload
-from collections.abc import Callable, Iterable, Mapping
+from collections.abc import Callable, Iterable
 
 from .data import DT, Bits
+from .design import Design, canonical_params_json
 from .dsl import PriorityEncodeResult, Signal
 from .hw import Circuit, ClockDomain, Reg, Wire
 from .literals import LiteralValue, infer_literal_width
@@ -323,10 +325,17 @@ class CycleAwareDomain:
         **kwargs: Any,
     ) -> dict[str, Any]:
         """Compile *fn* as a standalone sub-module, then instantiate it."""
-        sub_name = getattr(fn, "__pycircuit_name__", getattr(fn, "__name__", "sub"))
-        prefix = kwargs.get("prefix", sub_name)
+        base_name = getattr(fn, "__pycircuit_name__", getattr(fn, "__name__", "sub"))
+        prefix = kwargs.get("prefix", base_name)
+        specialization_params = {k: v for k, v in kwargs.items() if k != "prefix"}
+        params_json = canonical_params_json(specialization_params)
+        sub_name = (
+            base_name
+            if not specialization_params
+            else f"{base_name}__p{hashlib.sha256(params_json.encode('utf-8')).hexdigest()[:8]}"
+        )
 
-        cache_key = _hierarchical_cache_key(fn, kwargs)
+        cache_key = (id(fn), params_json)
         if cache_key not in self._sub_cache:
             canonical_kwargs = dict(kwargs)
             canonical_kwargs["prefix"] = sub_name
@@ -341,7 +350,12 @@ class CycleAwareDomain:
 
             out_entries = _record_output_structure(outs_dict, circuit=sub_m)
 
-            cm = _make_compiled_module(fn, sub_m, sub_name)
+            cm = _make_compiled_module(
+                fn,
+                sub_m,
+                sub_name,
+                params_json=params_json,
+            )
             self._design.add(cm)
             self._sub_cache[cache_key] = (sub_m, out_entries)
 
@@ -466,23 +480,6 @@ class CycleAwareDomain:
 # ── Hierarchical compilation helpers ──────────────────────────────────────
 
 
-def _hierarchical_cache_key(
-    fn: Callable[..., Any], kwargs: dict[str, Any]
-) -> tuple[Any, ...]:
-    """Build a cache key from function identity + compile-time kwargs.
-
-    ``prefix`` is excluded because it only affects port naming, not the
-    module's structural identity."""
-    import json as _json
-
-    kw_str = _json.dumps(
-        {k: repr(v) for k, v in sorted(kwargs.items()) if k != "prefix"},
-        sort_keys=True,
-        separators=(",", ":"),
-    )
-    return (id(fn), kw_str)
-
-
 def _record_output_structure(
     outs_dict: dict[str, Any] | Any,
     circuit: "CycleAwareCircuit | None" = None,
@@ -557,9 +554,21 @@ def _reconstruct_output_dict(
     return outs
 
 
-def _make_compiled_module(fn: Any, circuit: CycleAwareCircuit, sym_name: str) -> Any:
+def _make_compiled_module(
+    fn: Any,
+    circuit: CycleAwareCircuit,
+    sym_name: str,
+    *,
+    params_json: str = "{}",
+) -> Any:
     """Create a :class:`~pycircuit.design.CompiledModule` from an eagerly-compiled circuit."""
-    from .design import CompiledModule, _kind_of, _inline_of, _base_name
+    from .design import (
+        CompiledModule,
+        _base_name,
+        _emit_structural_of,
+        _inline_of,
+        _kind_of,
+    )
     import json as _json
 
     arg_names = tuple(n for n, _ in circuit._args)
@@ -594,16 +603,18 @@ def _make_compiled_module(fn: Any, circuit: CycleAwareCircuit, sym_name: str) ->
 
     circuit.set_func_attr("pyc.kind", kind)
     circuit.set_func_attr("pyc.inline", inline)
-    circuit.set_func_attr("pyc.params", "{}")
+    circuit.set_func_attr("pyc.params", params_json)
     circuit.set_func_attr("pyc.base", base)
     circuit.set_func_attr("pyc.struct.metrics", struct_metrics)
     circuit.set_func_attr("pyc.struct.collections", struct_collections)
     circuit.set_func_attr_json("pyc.value_params", [])
     circuit.set_func_attr_json("pyc.value_param_types", [])
+    if _emit_structural_of(fn):
+        circuit.set_func_attr("pyc.emit.structural", "true")
 
     return CompiledModule(
         fn=fn,
-        params_json="{}",
+        params_json=params_json,
         sym_name=str(sym_name),
         mod=circuit,
         arg_names=arg_names,
@@ -1858,7 +1869,7 @@ def _strip_domain_for_jit(
         source = textwrap.dedent(inspect.getsource(fn))
     except OSError as e:
         raise TypeError(
-            "compile_cycle_aware(fn): need inspectable source for JIT; use eager=True or define fn in a .py file"
+            "compile_cycle_aware(fn): need inspectable source for JIT; use build_cycle_aware() for direct Python elaboration"
         ) from e
     tree = ast.parse(source)
     name = getattr(fn, "__name__", None)
@@ -1881,7 +1892,7 @@ def _strip_domain_for_jit(
     m_arg = pos[0].arg
     if pos[1].arg != "domain":
         raise TypeError(
-            "compile_cycle_aware(fn): second parameter must be named 'domain' for JIT (or use eager=True)"
+            "compile_cycle_aware(fn): second parameter must be named 'domain' for JIT (or use build_cycle_aware())"
         )
     fdef.args.args.pop(1)
     prelude = ast.Assign(
@@ -1918,53 +1929,22 @@ def compile_cycle_aware(
     *,
     name: str | None = None,
     domain_name: str = "clk",
-    eager: bool = False,
-    hierarchical: bool = False,
-    structural: bool | None = None,
-    value_params: Mapping[str, str] | dict[str, str] | None = None,
-    design_ctx: Any | None = None,
     **jit_params: Any,
-) -> Any:
-    """Compile or execute ``fn(m, domain, **kwargs)``.
+) -> Design:
+    """JIT-compile ``fn(m, domain, **kwargs)`` into one hardened Design.
 
-    By default this lowers through :func:`pycircuit.jit.compile`: a tiny ``@module``-style
-    wrapper instantiates :class:`CycleAwareDomain` from ``domain_name`` and calls ``fn``.
-    Pass ``eager=True`` to run ``fn`` directly in Python and get a
-    :class:`CycleAwareCircuit` (no JIT; no ``if Wire`` / JIT control flow).
-
-    When ``hierarchical=True`` (requires ``eager=True``), each ``domain.call()``
-    boundary is preserved: sub-modules are compiled as separate ``func.func``
-    MLIR ops and instantiated via ``pyc.instance``.  The returned circuit's
-    ``emit_mlir()`` emits a multi-module ``Design``.
+    Direct Python execution is exposed separately as :func:`build_cycle_aware`.
     """
-    if eager:
-        circuit_name = (
-            name
-            if isinstance(name, str) and name.strip()
-            else getattr(fn, "__name__", "design") or "design"
+    removed = sorted(
+        set(jit_params)
+        & {"design_ctx", "eager", "hierarchical", "structural", "value_params"}
+    )
+    if removed:
+        names = ", ".join(removed)
+        raise TypeError(
+            f"compile_cycle_aware() no longer accepts {names}; "
+            "use build_cycle_aware() for direct Python elaboration and hierarchy"
         )
-        m = CycleAwareCircuit(str(circuit_name), design_ctx=design_ctx)
-        dom = m.create_domain(str(domain_name))
-
-        if hierarchical:
-            from .design import Design
-
-            design = Design(top=str(circuit_name))
-            dom._hierarchical = True
-            dom._design = design
-            dom._sub_cache = {}
-
-        out = fn(m, dom, **jit_params)
-        if out is not None:
-            _register_implicit_outputs(m, out)
-
-        if hierarchical:
-            cm = _make_compiled_module(fn, m, str(circuit_name))
-            design.add(cm)
-            m._v6_design = design
-
-        return m
-
     from .jit import compile as jit_compile
 
     if name is None or not str(name).strip():
@@ -1976,17 +1956,9 @@ def compile_cycle_aware(
     else:
         sym = str(name).strip()
 
-    struc = (
-        bool(getattr(fn, "__pycircuit_emit_structural__", False))
-        if structural is None
-        else bool(structural)
-    )
-
-    if value_params is None:
-        vp_raw = getattr(fn, "__pycircuit_value_params__", None)
-        vp: dict[str, str] = dict(vp_raw) if isinstance(vp_raw, dict) else {}
-    else:
-        vp = dict(value_params)
+    struc = bool(getattr(fn, "__pycircuit_emit_structural__", False))
+    vp_raw = getattr(fn, "__pycircuit_value_params__", None)
+    vp: dict[str, str] = dict(vp_raw) if isinstance(vp_raw, dict) else {}
 
     domain_n = str(domain_name)
 
@@ -2002,7 +1974,65 @@ def compile_cycle_aware(
     else:
         setattr(_jit_fn, "__pycircuit_name__", sym)
 
-    return jit_compile(_jit_fn, name=name, **jit_params)
+    return jit_compile(_jit_fn, name=sym, **jit_params)
+
+
+def build_cycle_aware(
+    fn: F,
+    *,
+    name: str | None = None,
+    domain_name: str = "clk",
+    hierarchical: bool = False,
+    **build_params: Any,
+) -> CycleAwareCircuit:
+    """Execute ``fn`` directly and return a hardened eager circuit.
+
+    Python control flow is elaboration-time metaprogramming. Runtime hardware
+    selection must use :func:`mux`. With ``hierarchical=True``, ``domain.call``
+    boundaries become separate functions and ``pyc.instance`` operations.
+    """
+    removed = sorted(
+        set(build_params) & {"design_ctx", "eager", "structural", "value_params"}
+    )
+    if removed:
+        names = ", ".join(removed)
+        raise TypeError(f"build_cycle_aware() no longer accepts {names}")
+    value_params = getattr(fn, "__pycircuit_value_params__", None)
+    if value_params:
+        raise TypeError(
+            "build_cycle_aware() does not support runtime value_params; "
+            "use compile_cycle_aware()"
+        )
+
+    override = getattr(fn, "__pycircuit_name__", None)
+    if isinstance(name, str) and name.strip():
+        circuit_name = name.strip()
+    elif isinstance(override, str) and override.strip():
+        circuit_name = override.strip()
+    else:
+        circuit_name = getattr(fn, "__name__", "design") or "design"
+    m = CycleAwareCircuit(str(circuit_name))
+    dom = m.create_domain(str(domain_name))
+    design = Design(top=str(circuit_name))
+
+    if hierarchical:
+        dom._hierarchical = True
+        dom._design = design
+        dom._sub_cache = {}
+
+    out = fn(m, dom, **build_params)
+    if out is not None:
+        _register_implicit_outputs(m, out)
+
+    cm = _make_compiled_module(
+        fn,
+        m,
+        str(circuit_name),
+        params_json=canonical_params_json(build_params),
+    )
+    design.add(cm)
+    m._v6_design = design
+    return m
 
 
 def _register_implicit_outputs(m: Circuit, out: Any) -> None:

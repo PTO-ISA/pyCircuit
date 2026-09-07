@@ -35,6 +35,7 @@ U
 Wire
 WireConnector
 auto
+build_cycle_aware
 cas
 cat
 compile

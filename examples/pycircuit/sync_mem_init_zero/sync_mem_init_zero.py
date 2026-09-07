@@ -4,7 +4,7 @@ from pycircuit import (
     Circuit,
     CycleAwareCircuit,
     CycleAwareDomain,
-    compile_cycle_aware,
+    build_cycle_aware,
     module,
 )
 
@@ -48,10 +48,9 @@ build.__pycircuit_name__ = "sync_mem_init_zero"
 
 if __name__ == "__main__":
     print(
-        compile_cycle_aware(
+        build_cycle_aware(
             build,
             name="sync_mem_init_zero",
-            eager=True,
             depth=4,
             data_width=32,
             addr_width=2,

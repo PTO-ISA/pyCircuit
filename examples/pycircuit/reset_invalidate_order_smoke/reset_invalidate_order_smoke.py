@@ -5,8 +5,8 @@ from pycircuit import (
     CycleAwareDomain,
     ProbeBuilder,
     ProbeView,
+    build_cycle_aware,
     cas,
-    compile_cycle_aware,
     mux,
     probe,
     wire_of,
@@ -43,7 +43,7 @@ def reset_probe(p: ProbeBuilder, dut: ProbeView, width: int = 8) -> None:
 
 if __name__ == "__main__":
     print(
-        compile_cycle_aware(
-            build, name="reset_invalidate_order_smoke", eager=True, width=8
+        build_cycle_aware(
+            build, name="reset_invalidate_order_smoke", width=8
         ).emit_mlir()
     )

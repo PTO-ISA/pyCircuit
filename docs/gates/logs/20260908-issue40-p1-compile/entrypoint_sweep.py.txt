@@ -1,0 +1,50 @@
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from pathlib import Path
+import os
+import subprocess
+
+
+root = Path.cwd()
+paths = []
+for base in (root / "examples", root / "designs"):
+    for path in base.rglob("*.py"):
+        text = path.read_text(encoding="utf-8")
+        if "build_cycle_aware(" in text and 'if __name__ == "__main__"' in text:
+            paths.append(path)
+
+env = os.environ.copy()
+env["PYTHONDONTWRITEBYTECODE"] = "1"
+env["PYTHONPATH"] = (
+    f"{root / 'python/semantic-core/src'}:{root / 'python/pycircuit/src'}"
+)
+
+
+def run(path: Path) -> tuple[Path, int, str]:
+    try:
+        completed = subprocess.run(
+            ["python3", str(path)],
+            cwd=root,
+            env=env,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
+            text=True,
+            timeout=120,
+        )
+        return path, completed.returncode, completed.stderr[-1200:]
+    except subprocess.TimeoutExpired as exc:
+        return path, 124, f"timeout: {exc}"
+
+
+failures = []
+with ThreadPoolExecutor(max_workers=4) as pool:
+    futures = [pool.submit(run, path) for path in sorted(paths)]
+    for future in as_completed(futures):
+        path, returncode, stderr = future.result()
+        if returncode:
+            failures.append((path, returncode, stderr))
+
+print(f"cases={len(paths)} passed={len(paths) - len(failures)} failed={len(failures)}")
+for path, returncode, stderr in sorted(failures):
+    print(f"FAIL {path.relative_to(root)} rc={returncode}")
+    print(stderr)
+raise SystemExit(1 if failures else 0)

@@ -212,8 +212,8 @@ reject provisional Table graphs while gfsim executes the grouped transition.
 from pycircuit import (
     CycleAwareCircuit,
     CycleAwareDomain,
+    build_cycle_aware,
     cas,
-    compile_cycle_aware,
     wire_of,
 )
 
@@ -232,7 +232,7 @@ def counter(
 
 
 if __name__ == "__main__":
-    design = compile_cycle_aware(counter, name="counter", eager=True)
+    design = build_cycle_aware(counter, name="counter")
     print(design.emit_mlir())
 ```
 

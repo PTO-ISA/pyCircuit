@@ -38,7 +38,7 @@ TAO 物理设计流程把设计**细粒度折叠**到 2–3 层垂直堆叠的�
 ### 3.1 标注形式一览
 
 ```python
-from pycircuit import cas, compile_cycle_aware, jump_tier, wire_of
+from pycircuit import build_cycle_aware, cas, compile_cycle_aware, jump_tier, wire_of
 
 def core(m, domain):
     # ① 信号定义处显式声明
@@ -90,7 +90,7 @@ outs = domain.call(alu, inputs={...}, tier=1)
    - 自动周期平衡插入的对齐 DFF:继承其驱动信号的 tier(平衡寄存器不引入额外跨层)。
 2. **`jump_tier(expr, to=k)`:** 返回一个新的 CAS,`.tier == k`、`.cycle` 不变、底层 Wire 不变(或为保稳定 ID 插入一个 `pyc.alias`);`to` 必须是编译期常量。
 3. **合法性检查(elaboration 期告警,非错误):** tier 取值超出声明层数报错;locked 信号之间的直接组合依赖若形成"每级门都跨层"的病态模式,给出统计告警(键合点预算问题留给分割器定量裁决)。
-4. **JIT/eager 双路径:** tier 与 cut_after 类编译期特化参数正交;两条编译路径都只是把元数据挂到信号上,无控制流影响。`tier=`/`jump_tier` 在 JIT 路径经由 CAS 运算符委托机制透明工作(参见 jit.py 的 cycle-aware interop)。
+4. **compile/build 双入口:** tier 与 cut_after 类编译期特化参数正交;`compile_cycle_aware()` 的 JIT 与 `build_cycle_aware()` 的直接 Python elaboration 都只把元数据挂到信号上,无控制流影响。`tier=`/`jump_tier` 在 JIT 路径经由 CAS 运算符委托机制透明工作(参见 jit.py 的 cycle-aware interop)。
 
 ## 5. IR 与下游交付
 
@@ -103,7 +103,7 @@ outs = domain.call(alu, inputs={...}, tier=1)
 
 ## 6. 实现草图与阶段
 
-- **阶段 1(前端元数据,~1 人月):** `CycleAwareSignal` 增加 `_tier`/`_tier_strength` 槽位与传播;`cas()`/`domain.signal()`/`domain.call()` 增加 `tier=`/`tier_lock=` 参数;新增 `jump_tier()`;eager 路径 MLIR 属性发射。
+- **阶段 1(前端元数据,~1 人月):** `CycleAwareSignal` 增加 `_tier`/`_tier_strength` 槽位与传播;`cas()`/`domain.signal()`/`domain.call()` 增加 `tier=`/`tier_lock=` 参数;新增 `jump_tier()`;`build_cycle_aware()` 路径 MLIR 属性发射。
 - **阶段 2(JIT 与发射,~1 人月):** JIT 路径透传(依托既有 CAS 运算符委托);Verilog 属性/命名通道;sidecar 表导出器。
 - **阶段 3(工具对接):** 分割器读入三态表、输出改写 diff 的格式冻结;与 agentic 循环中间件联调。
 

@@ -18,7 +18,6 @@ from __future__ import annotations
 
 import argparse
 import importlib
-import json
 import os
 import subprocess
 import sys
@@ -47,46 +46,6 @@ def find_pycc() -> Path:
     raise SystemExit("pycc not found. Set PYCC=<path> or build the toolchain first.")
 
 
-def stamp_metadata(circuit, name: str, params_json: str = "{}") -> None:
-    circuit.set_func_attr("pyc.kind", "module")
-    circuit.set_func_attr("pyc.inline", "false")
-    circuit.set_func_attr("pyc.params", params_json)
-    circuit.set_func_attr("pyc.base", name)
-    metrics = json.dumps(
-        {
-            "ast_node_count": 0,
-            "collection_count": 0,
-            "collection_instance_count": 0,
-            "estimated_inline_cost": 0,
-            "hardware_call_count": 0,
-            "instance_count": 0,
-            "loop_count": 0,
-            "module_call_count": 0,
-            "module_family_collection_count": 0,
-            "repeat_pressure": 0,
-            "repeated_body_clusters": [],
-            "source_loc": 0,
-            "state_alloc_count": 0,
-            "state_call_count": 0,
-        },
-        sort_keys=True,
-        separators=(",", ":"),
-    )
-    circuit.set_func_attr("pyc.struct.metrics", metrics)
-    circuit.set_func_attr("pyc.struct.collections", "[]")
-    circuit.set_func_attr_json("pyc.value_params", [])
-    circuit.set_func_attr_json("pyc.value_param_types", [])
-
-
-def wrap_module_attrs(mlir: str, top_name: str) -> str:
-    return mlir.replace(
-        "module {\n",
-        f"module attributes {{pyc.top = @{top_name}, "
-        f'pyc.frontend.contract = "pycircuit"}} {{\n',
-        1,
-    )
-
-
 def compile_and_build(
     module_path: str,
     fn_name: str,
@@ -96,16 +55,19 @@ def compile_and_build(
     logic_depth: int = 256,
     hierarchical: bool = True,
 ) -> bool:
-    from pycircuit import compile_cycle_aware
+    from pycircuit import build_cycle_aware
 
     mod = importlib.import_module(module_path)
     build_fn = getattr(mod, fn_name)
 
-    params_json = json.dumps(kwargs, sort_keys=True, separators=(",", ":"))
     t0 = time.time()
-    circuit = compile_cycle_aware(build_fn, name=design_name, eager=True, **kwargs)
-    stamp_metadata(circuit, design_name, params_json)
-    mlir = wrap_module_attrs(circuit.emit_mlir(), design_name)
+    circuit = build_cycle_aware(
+        build_fn,
+        name=design_name,
+        hierarchical=hierarchical,
+        **kwargs,
+    )
+    mlir = circuit.emit_mlir()
     time.time() - t0
 
     mlir_dir = out_dir / "mlir"

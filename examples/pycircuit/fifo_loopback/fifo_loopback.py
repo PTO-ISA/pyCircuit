@@ -4,7 +4,7 @@ from pycircuit import (
     Circuit,
     CycleAwareCircuit,
     CycleAwareDomain,
-    compile_cycle_aware,
+    build_cycle_aware,
     module,
 )
 
@@ -31,8 +31,4 @@ build.__pycircuit_name__ = "fifo_loopback"
 
 
 if __name__ == "__main__":
-    print(
-        compile_cycle_aware(
-            build, name="fifo_loopback", eager=True, depth=2
-        ).emit_mlir()
-    )
+    print(build_cycle_aware(build, name="fifo_loopback", depth=2).emit_mlir())

@@ -4,7 +4,7 @@ from pycircuit import (
     Circuit,
     CycleAwareCircuit,
     CycleAwareDomain,
-    compile_cycle_aware,
+    build_cycle_aware,
     const,
     ct,
     u,
@@ -71,10 +71,9 @@ build.__pycircuit_name__ = "cache_params"
 
 if __name__ == "__main__":
     print(
-        compile_cycle_aware(
+        build_cycle_aware(
             build,
             name="cache_params",
-            eager=True,
             ways=4,
             sets=64,
             line_bytes=64,

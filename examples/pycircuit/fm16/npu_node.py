@@ -5,7 +5,7 @@ from __future__ import annotations
 from pycircuit import (
     CycleAwareCircuit,
     CycleAwareDomain,
-    compile_cycle_aware,
+    build_cycle_aware,
     mux,
     u,
 )
@@ -73,8 +73,8 @@ def build(
 build.__pycircuit_name__ = "npu_node"
 
 if __name__ == "__main__":
-    circuit = compile_cycle_aware(
-        build, name="npu_node", eager=True, N_PORTS=4, FIFO_DEPTH=8, NODE_ID=0
+    circuit = build_cycle_aware(
+        build, name="npu_node", N_PORTS=4, FIFO_DEPTH=8, NODE_ID=0
     )
     print(circuit.emit_mlir()[:500])
     print(f"... ({len(circuit.emit_mlir())} chars)")
