@@ -262,7 +262,7 @@ PYC semantic contracts.
     results in one prepare/publish/Probe/no-fail-Commit group.
   - [x] Preserve the explicit Table-to-PYC rejection while proving applicable
     stateless multi-output PYC C++/Verilog parity.
-- [ ] Complete Decision 0224 and issue #48's recursive equality and named
+- [x] Complete Decision 0224 and issue #48's recursive equality and named
   payload-invariant contract before simplifying dependent DavinciOO H3 modules.
   - [x] Admit same-descriptor `==`/`!=` for recursive nominal struct, tuple and
     fixed value-array values, including packed widths above 64 bits; keep
@@ -276,9 +276,11 @@ PYC semantic contracts.
     invariant true/false cases, and admitted PYC C++/Verilog parity.
   - [x] Merge the framework PR, then update the in-tree DavinciOO design
     contracts/implementations and record the mechanical I2 comparison reduction.
-    The focused port reduces I2 from 284 to 41 comparisons; concrete behavioral
-    promotion remains tracked by the I1/I2/WBA cards and issue #48.
-- [ ] Close #46 and #48 framework prerequisites before their dependent
+    The focused port reduces I2 from 284 to 41 comparisons. Generated gfsim
+    behavior matrices now cover I1 grant/retry/cancel, I2 operand/dependency/
+    execute/release/cancel, and WBA terminal/apply/retry/cancel/drain, including
+    backpressure, reset, identity, capacity, and isolated-instance cases.
+- [x] Close #46 and #48 framework prerequisites before their dependent
   DavinciOO H3 implementations. Decision 0222 places new design-program work
   under `designs/davincioo/`; independent contracts/modules may proceed when
   their own capabilities are verified. External integrations pin the resulting

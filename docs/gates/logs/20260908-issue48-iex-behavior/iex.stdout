@@ -1,0 +1,11 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.14.6, pytest-9.0.2, pluggy-1.6.0
+rootdir: /Users/zhoubot/linx-isa/tools/pyCircuit
+configfile: pyproject.toml
+collected 9 items
+
+designs/davincioo/tests/spe/iex/test_i1.py ....                          [ 44%]
+designs/davincioo/tests/spe/iex/test_i2.py ..                            [ 66%]
+designs/davincioo/tests/spe/iex/test_wba.py ...                          [100%]
+
+============================== 9 passed in 17.94s ==============================

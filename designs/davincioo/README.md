@@ -8,9 +8,9 @@ that all 240 candidates are implemented.
 
 | Pilot | Current evidence | Remaining promotion gate |
 | --- | --- | --- |
-| I1 | canonical identity/invariant, Frozen ACIR, generated gfsim compile and empty-state execution | concrete read grant/retry/cancel/backpressure matrix |
-| I2 | 284 to 41 comparisons, Frozen ACIR, QueueGraph, generated gfsim compile and empty-state execution | operand/dependency/execute/release/cancel matrix |
-| WBA | aggregate attempt identity, Frozen ACIR, QueueGraph, empty-state gfsim execution, explicit PYC rejection | terminal/apply/retry/cancel/drain matrix |
+| I1 | generated gfsim grant/retry/cancel/backpressure/reset/isolation matrix | H2/H1 integration; stateful PYC/RTL after #22 |
+| I2 | generated gfsim operand/dependency/execute/release/cancel/backpressure/reset/isolation matrix | H2/H1 integration; stateful PYC/RTL after #22 |
+| WBA | generated gfsim terminal/apply/retry/cancel/drain/backpressure/reset/isolation matrix | H2/H1 integration; stateful PYC/RTL after #22 |
 
 ## Start here
 
@@ -96,10 +96,10 @@ create copied source modules.
 7. Integrate H3 -> H2 -> H1 -> whole core. Add PYC/RTL parity where admitted;
    retain the explicit provisional-Table rejection until its lowering closes.
 
-Immediate dependencies are #46 for optional heterogeneous results and #48 for
-recursive equality/invariants. Banked state, multi-selection, alias proofs and
-stateful PYC/RTL map to the capability roadmap in #50. A module with already
-verified prerequisites can proceed independently of unrelated work.
+The first IEX pilots use the merged #46 optional-output and #48 recursive
+equality/invariant capabilities. Banked state, multi-selection, alias proofs
+and stateful PYC/RTL map to the remaining capability roadmap in #50. A module
+with verified prerequisites can proceed independently of unrelated work.
 
 Recommended integration order is shared identities and reference-behavior
 litmus tests; transport and context pilots; SPE fetch/rename/issue/commit;
