@@ -7,6 +7,7 @@ contracts and task cards, not 240 implemented modules.
 
 ## Start here
 
+- [Contributor tracking issue #51](https://github.com/PTO-ISA/pyCircuit/issues/51)
 - [Architecture and NDF/H hierarchy](ARCHITECTURE.md)
 - [240 H3 contributor work items](MODULE_CHECKLIST.md)
 - [7 H1 and 31 H2 assembly work items](ASSEMBLY_CHECKLIST.md)

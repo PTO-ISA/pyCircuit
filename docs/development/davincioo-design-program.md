@@ -47,6 +47,7 @@ modules may proceed when their own prerequisites are verified.
 
 Detailed cards are in the
 [design directory](https://github.com/PTO-ISA/pyCircuit/tree/main/designs/davincioo).
+Claim work in [issue #51](https://github.com/PTO-ISA/pyCircuit/issues/51).
 
 ## Validation and completion
 
