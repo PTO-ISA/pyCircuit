@@ -4,6 +4,8 @@
 #include "acir/Dialect/ACIR/ACIROps.h"
 
 #include "mlir/IR/SymbolTable.h"
+#include "llvm/ADT/DenseMap.h"
+#include "llvm/ADT/StringMap.h"
 
 using namespace mlir;
 
@@ -123,6 +125,36 @@ LogicalResult verifyValueConstraints(ModuleOp model) {
     return succeeded(result) ? WalkResult::advance()
                              : WalkResult::interrupt();
   });
+  if (failed(result))
+    return result;
+
+  llvm::DenseMap<
+      Operation *,
+      llvm::StringMap<llvm::SmallVector<ac::TableProposeOp, 4>>>
+      proposalsByScope;
+  model.walk([&](ac::TableProposeOp proposal) {
+    proposalsByScope[proposal->getParentOp()][proposal.getTable()].push_back(
+        proposal);
+  });
+  for (auto &scope : proposalsByScope)
+    for (auto &owner : scope.second) {
+      auto &proposals = owner.getValue();
+      for (size_t right = 1; right < proposals.size(); ++right)
+        for (size_t left = 0; left < right; ++left) {
+          ac::TableProposeOp lhs = proposals[left];
+          ac::TableProposeOp rhs = proposals[right];
+          const bool exclusive =
+              lhs.getWhen() && rhs.getWhen() &&
+              analysis.provesMutuallyExclusive(lhs.getWhen(), rhs.getWhen());
+          if (exclusive ||
+              analysis.provesDisjoint(lhs.getIndex(), rhs.getIndex()))
+            continue;
+          return rhs.emitOpError()
+                 << "same-owner proposals may select one index concurrently; "
+                    "ACDataFlowAnalyzer could not prove disjoint indices or "
+                    "mutually exclusive presence";
+        }
+    }
   return result;
 }
 

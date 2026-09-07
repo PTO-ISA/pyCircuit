@@ -171,7 +171,7 @@ PYC semantic contracts.
     `enforce_admins=true`, and confirm #41 closed.
 - [x] Delegate issue #41's vector section to issue #42; do not modify PYC
   vector operations, lowering, emitters, runtime, or tests in the #41 change.
-- [ ] Complete Decision 0220 and upstream issue #42's vector hard break:
+- [x] Complete Decision 0220 and upstream issue #42's vector hard break:
   - [x] Remove first-class PYC vector values, `pyc.v_*`, vector-accepting scalar
     ops, vector passes, backend dispatch, and runtime helpers.
   - [x] Remove the Python `Wire[Vector]`, `shape=`, vector broadcast/reduce,
@@ -183,14 +183,43 @@ PYC semantic contracts.
     scalar signals and add fail-closed residual-vector checks.
   - [x] Synchronize the exact PYC inventory, product documentation, and
     C++/Verilog equivalence evidence.
-  - [ ] Run #42 closure, admin-merge its independent PR, restore
+  - [x] Run #42 closure, admin-merge its independent PR, restore
     `enforce_admins=true`, and confirm #42 closed.
-- [ ] Then complete issue #44: allow `ac.jit(system)` to bind structural
+- [x] Implement and verify issue #44: allow `ac.jit(system)` to bind structural
   `ac.const` parameters while leaving ordinary typed parameters as inferred
   runtime Queue inputs. Close the framework-owned multi-input/multi-output ROB-
   through WBA-shaped ACIR→gfsim compatibility gates before producing a
   consumer pin, including consume-and-classify, nested identity, conflict,
   tombstone, and independent backpressure behavior.
+  - [x] Keep ordinary typed system parameters unbound at JIT and outside the
+    specialization fingerprint; reject attempts to bind runtime payloads.
+  - [x] Capture deterministic workspace-local source closure including nominal
+    Python Enum contracts, with mutation and dynamic-import rejection.
+  - [x] Lower keyword-only module constants, heterogeneous rule payloads,
+    record construction, read-only firings, nested branch proposals, and
+    128-entry sparse state snapshots through QueueGraph/gfsim.
+  - [x] Fold imported immutable contract bitmasks, keep serial local rebinding
+    as exact-width SSA, and support 128-entry `ac.find` through word-array
+    candidate sets without widening public payload integers.
+  - [x] Preserve simultaneously selected same-owner entry writes as one ordered
+    runtime batch; have `ACDataFlowAnalyzer` and QueueGraph reject index aliasing
+    unless indices are disjoint or path predicates are mutually exclusive.
+  - [x] Execute the framework typed-state fixture at dynamic index 127 and
+    compile the current `DAV-OQ-PYC-0002` GPR consumer through gfsim C++.
+  - [x] Compile the current DavinciOO MPQ and REN typed systems through frozen
+    QueueGraph and gfsim C++ while retaining REN's nine-write `scalar_map`
+    publication batch.
+  - [x] Complete the #44-compatible ALU/GPR/ROB/CMT/ISQ/MPQ/REN/S1 consumer
+    matrix and the provisional-Table PYC fail-closed boundary. I1/I2/WBA/CMAP
+    require heterogeneous optional multi-output presence and belong to #46.
+  - [x] Close takeover review findings in source-order SSA, predicate identity,
+    live-IR footprints, raw variable-effect verification, source capture,
+    runtime batch construction, and public IR coverage.
+  - [x] Execute atomic four-write/backpressure and stateless record C++/Verilog
+    parity regressions; include both in the release's Agentic gate.
+  - [x] Archive review and current-checkout evidence under
+    `docs/gates/logs/20260907-issue44-review-closure/` for the upstream
+    `Closes #44` merge. GitHub records the final merge and issue state.
 - [ ] Then complete issue #46's heterogeneous optional multi-output rule
   contract: infer one presence per result, apply backpressure only to selected
   sinks, and commit all selected outputs, input consumption, state proposals,

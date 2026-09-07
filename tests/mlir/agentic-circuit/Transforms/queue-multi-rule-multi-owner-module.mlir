@@ -46,6 +46,8 @@ builtin.module attributes {
         ac.table.propose @total[%index] = %next_total when %enabled : !ac.var<i1> mode "replace"
             write_fields ["$entry"] : !ac.var<i1>, !ac.var<i8>
         ac.firing.output %reported when %enabled ordinal 0 : !ac.var<i8>, !ac.var<i1>
+        ac.state.snapshot @total[%index : !ac.var<i1>] for %enabled : !ac.var<i1> kind static read_fields ["$entry"]
+        ac.state.snapshot @cursor[%index : !ac.var<i1>] for %enabled : !ac.var<i1> kind static read_fields ["$entry"]
         ac.firing.yield %reported : !ac.var<i8>
       } {
         ac.activation_sources = [{kind = #ac<activation_resource_kind input_queue>, ordinal = 0 : i64}, {kind = #ac<activation_resource_kind output_queue>, ordinal = 0 : i64}, {kind = #ac<activation_resource_kind state>, resource = @cursor}, {kind = #ac<activation_resource_kind state>, resource = @total}],
@@ -85,6 +87,8 @@ builtin.module attributes {
         ac.table.propose @total[%index] = %next_total when %enabled : !ac.var<i1> mode "replace"
             write_fields ["$entry"] : !ac.var<i1>, !ac.var<i8>
         ac.firing.output %reported when %enabled ordinal 0 : !ac.var<i8>, !ac.var<i1>
+        ac.state.snapshot @total[%index : !ac.var<i1>] for %enabled : !ac.var<i1> kind static read_fields ["$entry"]
+        ac.state.snapshot @cursor[%index : !ac.var<i1>] for %enabled : !ac.var<i1> kind static read_fields ["$entry"]
         ac.firing.yield %reported : !ac.var<i8>
       } {
         ac.activation_sources = [{kind = #ac<activation_resource_kind input_queue>, ordinal = 0 : i64}, {kind = #ac<activation_resource_kind output_queue>, ordinal = 0 : i64}, {kind = #ac<activation_resource_kind state>, resource = @cursor}, {kind = #ac<activation_resource_kind state>, resource = @total}],

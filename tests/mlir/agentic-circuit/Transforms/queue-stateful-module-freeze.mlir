@@ -39,6 +39,7 @@ builtin.module attributes {
         ac.table.propose @sum[%index] = %value when %enabled : !ac.var<i1> mode "replace"
             write_fields ["$entry"] : !ac.var<i1>, !ac.var<i8>
         ac.firing.output %value when %enabled ordinal 0 : !ac.var<i8>, !ac.var<i1>
+        ac.state.snapshot @sum[%index : !ac.var<i1>] for %enabled : !ac.var<i1> kind static read_fields ["$entry"]
         ac.firing.yield %value : !ac.var<i8>
       } {
         ac.activation_sources = [{kind = #ac<activation_resource_kind input_queue>, ordinal = 0 : i64}, {kind = #ac<activation_resource_kind output_queue>, ordinal = 0 : i64}, {kind = #ac<activation_resource_kind state>, resource = @sum}],

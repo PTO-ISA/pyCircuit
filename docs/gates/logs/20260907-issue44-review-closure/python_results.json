@@ -1,0 +1,12 @@
+[
+  {
+    "command": "/tmp/davincioo-agentic-py312.resume/bin/python tools/agentic-circuit/check-contracts.py",
+    "exit_code": 0,
+    "duration_seconds": 2.761
+  },
+  {
+    "command": "/tmp/davincioo-agentic-py312.resume/bin/python -m pytest -q tests/python/agentic-circuit/python_frontend tests/python/agentic-circuit/contracts tests/python/agentic-circuit/cli/test_all_commands.py tests/python/agentic-circuit/cli/test_workspace.py",
+    "exit_code": 0,
+    "duration_seconds": 18.96
+  }
+]

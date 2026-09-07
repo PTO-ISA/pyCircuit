@@ -1,0 +1,8 @@
+cd /Users/zhoubot/linx-isa/tools/pyCircuit
+export PYTHONPATH=/Users/zhoubot/linx-isa/tools/pyCircuit/python/semantic-core/src:/Users/zhoubot/linx-isa/tools/pyCircuit/python/agentic-circuit/src:/Users/zhoubot/linx-isa/tools/pyCircuit/tests/python/agentic-circuit
+export ACIR_OPT=/Users/zhoubot/linx-isa/tools/pyCircuit/.pycircuit_out/layout-root/bin/acir-opt
+export ACIR_QUEUE_CXXGEN=/Users/zhoubot/linx-isa/tools/pyCircuit/.pycircuit_out/layout-root/bin/acir-queue-cxxgen
+export ACIR_QUEUE_PYCGEN=/Users/zhoubot/linx-isa/tools/pyCircuit/.pycircuit_out/layout-root/bin/acir-queue-pycgen
+export AC_PYTHON_ONLY=1
+/tmp/davincioo-agentic-py312.resume/bin/python tools/agentic-circuit/check-contracts.py
+/tmp/davincioo-agentic-py312.resume/bin/python -m pytest -q tests/python/agentic-circuit/python_frontend tests/python/agentic-circuit/contracts tests/python/agentic-circuit/cli/test_all_commands.py tests/python/agentic-circuit/cli/test_workspace.py

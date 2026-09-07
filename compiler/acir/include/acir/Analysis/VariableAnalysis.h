@@ -38,6 +38,7 @@ struct ValueConstraint {
                               const ValueConstraint &right);
 
   bool provesWithin(uint64_t requestedLower, uint64_t requestedUpper) const;
+  bool provesDisjoint(const ValueConstraint &other) const;
   bool operator==(const ValueConstraint &) const = default;
   void print(llvm::raw_ostream &os) const;
 };
@@ -56,6 +57,7 @@ struct VariableProperties {
 struct StateAccessFootprint {
   std::string resource;
   std::string access;
+  mlir::Value index;
   std::string indexKind;
   std::vector<std::string> fields;
   mlir::Value present;
@@ -79,6 +81,8 @@ public:
   VariableProperties lookup(mlir::Value value) const;
   ValueConstraint lookupConstraint(mlir::Value value) const;
   bool provesWithin(mlir::Value value, uint64_t lower, uint64_t upper) const;
+  bool provesDisjoint(mlir::Value left, mlir::Value right) const;
+  bool provesMutuallyExclusive(mlir::Value left, mlir::Value right) const;
   VariableProperties lookupOwnedState(mlir::Operation *operation) const;
   llvm::SmallVector<StateAccessFootprint>
   stateFootprints(mlir::Operation *scope) const;

@@ -56,6 +56,7 @@ operations:
   - ac.var.matches
   - ac.var.cmp
   - ac.var.get
+  - ac.var.record
   - ac.var.with
   - ac.var.popcount
   - ac.var.count_zeros

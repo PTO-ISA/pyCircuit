@@ -7,13 +7,14 @@ import copy
 import json
 import re
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from _pycircuit_semantics import (
     ArrayType,
     BitfieldLayout,
     BitsType,
     BoolType,
+    ClosedInterval,
     Constant,
     Constraint,
     EnumType,
@@ -29,9 +30,10 @@ from _pycircuit_semantics import (
 )
 
 from ._acpy import AcpyDocument, EntityAllocator, Property, SourceFile
-from ._canonical_json import sha256_bytes
+from ._canonical_json import canonical_json_bytes, sha256_bytes
 from ._diagnostics import SourceSpan
 from ._static_eval import (
+    FrozenMap,
     MAX_STATIC_EXPANSION,
     StaticEnvironment,
     StaticValue,
@@ -51,6 +53,36 @@ def _render_type(value_type: ValueType) -> str:
     """Render one semantic value type only at the ACIR text boundary."""
 
     return value_type.mlir()
+
+
+def _static_json_value(value: StaticValue) -> object:
+    if isinstance(value, FrozenMap):
+        return {name: _static_json_value(item) for name, item in value.entries}
+    if isinstance(value, tuple):
+        return [_static_json_value(item) for item in value]
+    return value
+
+
+def _render_static_mlir_value(value: StaticValue) -> str:
+    if type(value) is bool:
+        return "true" if value else "false"
+    if type(value) is int:
+        return f"{value} : i64"
+    if type(value) is str:
+        return json.dumps(value)
+    raise QueueFrontendError(
+        "ACPY-MODULE-007: module ac.const arguments must lower to bool, int, "
+        "or str attributes"
+    )
+
+
+def _render_static_mlir_dictionary(
+    values: tuple[tuple[str, StaticValue], ...],
+) -> str:
+    return "{" + ", ".join(
+        f"{name} = {_render_static_mlir_value(value)}"
+        for name, value in sorted(values)
+    ) + "}"
 
 
 def _static_constraint(
@@ -114,6 +146,51 @@ def _epoch_05_integer_width(value_type: ValueType) -> int | None:
     return None
 
 
+def _candidate_mask_type(entries: int) -> ValueType:
+    """Represent compiler-owned candidate sets without widening public bits."""
+
+    if entries <= 64:
+        return BitsType(entries)
+    return ArrayType((entries + 63) // 64, BitsType(64))
+
+
+def _module_static_values(tree: ast.Module) -> dict[str, StaticValue]:
+    """Collect immutable module constants admitted by the source closure."""
+
+    values: dict[str, StaticValue] = {}
+    for statement in tree.body:
+        name: str | None = None
+        expression: ast.expr | None = None
+        if (
+            isinstance(statement, ast.Assign)
+            and len(statement.targets) == 1
+            and isinstance(statement.targets[0], ast.Name)
+        ):
+            name = statement.targets[0].id
+            expression = statement.value
+        elif (
+            isinstance(statement, ast.AnnAssign)
+            and isinstance(statement.target, ast.Name)
+            and statement.value is not None
+        ):
+            name = statement.target.id
+            expression = statement.value
+        if name is None or expression is None or not name.isupper():
+            continue
+        try:
+            value = evaluate_static(expression, StaticEnvironment(values))
+        except ValueError:
+            continue
+        if type(value) not in {bool, int}:
+            continue
+        if name in values and values[name] != value:
+            raise QueueFrontendError(
+                f"ACPY-QUEUE-027: module constant {name!r} is ambiguous"
+            )
+        values[name] = value
+    return values
+
+
 class QueueFrontendError(ValueError):
     """A stable rejection from the queue frontend."""
 
@@ -174,6 +251,9 @@ class RuleStateReadDefinition:
 class RuleLocalDefinition:
     name: str
     value: ast.expr
+    guard: ast.expr | None = None
+    guard_negated: bool = False
+    prior_name: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -212,6 +292,9 @@ class RuleStateReadBinding:
 class RuleLocalBinding:
     name: str
     value: ast.expr
+    guard: ast.expr | None = None
+    guard_negated: bool = False
+    prior_name: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -717,6 +800,7 @@ class _ModuleRenderSpec:
     name: str
     inputs: tuple[tuple[str, ValueType], ...]
     outputs: tuple[tuple[str, ValueType], ...]
+    static_arguments: tuple[tuple[str, StaticValue], ...] = ()
 
 
 def _decorator_name(node: ast.expr) -> str:
@@ -897,7 +981,13 @@ def _payloads(
                 raise QueueFrontendError(
                     "ACPY-QUEUE-002: struct body requires annotated fields"
                 )
-            field_type = annotation_type(statement.annotation)
+            try:
+                field_type = annotation_type(statement.annotation)
+            except QueueFrontendError as error:
+                raise QueueFrontendError(
+                    f"{error}; field {name}.{statement.target.id} has annotation "
+                    f"{ast.unparse(statement.annotation)!r}"
+                ) from error
             if isinstance(field_type, (TupleType, ArrayType)) and (
                 field_type.bit_width() > 64
             ):
@@ -1159,6 +1249,8 @@ def _extract_conditional_effect_guard(
     body: list[ast.stmt],
     parameter_names: tuple[str, ...],
     has_value_return: bool,
+    *,
+    capture_conditions: bool = False,
 ) -> tuple[list[ast.stmt], ast.expr | None]:
     early_returns = [
         (index, statement)
@@ -1175,13 +1267,15 @@ def _extract_conditional_effect_guard(
             "ACPY-RULE-010: conditional-effect early return is currently outputless"
         )
     indices = [index for index, _ in early_returns]
-    if indices != list(range(indices[0], indices[-1] + 1)):
-        raise QueueFrontendError(
-            "ACPY-RULE-010: early returns must form one contiguous serial guard chain"
-        )
-    for statement in body[: indices[0]]:
-        if not isinstance(statement, ast.Assign) or len(statement.targets) != 1:
+    early_return_indices = set(indices)
+    for index, statement in enumerate(body[: indices[-1] + 1]):
+        if index in early_return_indices:
             continue
+        if not isinstance(statement, ast.Assign) or len(statement.targets) != 1:
+            raise QueueFrontendError(
+                "ACPY-RULE-010: only pure local bindings may appear between "
+                "early-return guards"
+            )
         target = statement.targets[0]
         if isinstance(target, ast.Subscript) or (
             isinstance(target, ast.Name) and target.id in parameter_names
@@ -1189,18 +1283,46 @@ def _extract_conditional_effect_guard(
             raise QueueFrontendError(
                 "ACPY-RULE-010: early-return guards must precede state effects"
             )
-    conditions = [
-        ast.UnaryOp(op=ast.Not(), operand=copy.deepcopy(statement.test))
-        for _, statement in early_returns
-        if isinstance(statement, ast.If)
-    ]
+    def continuing_condition(statement: ast.If) -> ast.expr:
+        if isinstance(statement.test, ast.UnaryOp) and isinstance(
+            statement.test.op, ast.Not
+        ):
+            return copy.deepcopy(statement.test.operand)
+        return ast.UnaryOp(op=ast.Not(), operand=copy.deepcopy(statement.test))
+
+    conditions: list[ast.expr] = []
+    used_names = {
+        node.id
+        for statement in body
+        for node in ast.walk(statement)
+        if isinstance(node, ast.Name)
+    } | set(parameter_names)
+    for ordinal, (index, statement) in enumerate(early_returns):
+        assert isinstance(statement, ast.If)
+        condition = continuing_condition(statement)
+        if not capture_conditions:
+            conditions.append(condition)
+            continue
+        name = f"__ac_effect_guard_{ordinal}"
+        while name in used_names:
+            name += "_"
+        used_names.add(name)
+        body[index] = ast.copy_location(
+            ast.Assign(
+                targets=[ast.Name(id=name, ctx=ast.Store())],
+                value=condition,
+            ),
+            statement,
+        )
+        conditions.append(ast.Name(id=name, ctx=ast.Load()))
     guard = (
         conditions[0]
         if len(conditions) == 1
         else ast.BoolOp(op=ast.And(), values=conditions)
     )
-    for index in reversed(indices):
-        body.pop(index)
+    if not capture_conditions:
+        for index in reversed(indices):
+            body.pop(index)
     return body, ast.fix_missing_locations(guard)
 
 
@@ -1213,6 +1335,7 @@ def parse_queue_program(
     entry_kind: str = "system",
 ) -> QueueProgram:
     tree = ast.parse(text, filename="<queue-model>", type_comments=True)
+    module_static_values = _module_static_values(tree)
     for node in tree.body:
         decorators = getattr(node, "decorator_list", ())
         if any(
@@ -1291,7 +1414,10 @@ def parse_queue_program(
             ):
                 multi_return = copy.deepcopy(returned)
         multi_body, multi_effect_guard = _extract_conditional_effect_guard(
-            multi_body, parameter_names, multi_return is not None
+            multi_body,
+            parameter_names,
+            multi_return is not None,
+            capture_conditions=True,
         )
         if (
             multi_body
@@ -1311,6 +1437,7 @@ def parse_queue_program(
             multi_body
             and isinstance(multi_body[-1], ast.If)
             and not multi_body[-1].orelse
+            and multi_return is None
         ):
             if multi_effect_guard is not None:
                 raise QueueFrontendError(
@@ -1334,49 +1461,238 @@ def parse_queue_program(
             multi_guard = copy.deepcopy(guarded.test)
             multi_body.extend(guarded_body)
         guarded_statements: list[tuple[ast.stmt, ast.expr | None, bool]] = []
+        absent_output_paths: list[ast.expr] = []
         has_branch_effects = False
+        branch_condition_index = 0
+        branch_condition_names = {
+            node.id
+            for statement in multi_body
+            for node in ast.walk(statement)
+            if isinstance(node, ast.Name)
+        } | set(parameter_names)
+
+        def branch_guard(
+            path: tuple[tuple[ast.expr, bool], ...],
+        ) -> tuple[ast.expr | None, bool]:
+            if not path:
+                return None, False
+            if len(path) == 1:
+                condition, negated = path[0]
+                return copy.deepcopy(condition), negated
+            terms = [
+                ast.UnaryOp(op=ast.Not(), operand=copy.deepcopy(condition))
+                if negated
+                else copy.deepcopy(condition)
+                for condition, negated in path
+            ]
+            return ast.fix_missing_locations(ast.BoolOp(op=ast.And(), values=terms)), False
+
+        def flatten_branch(
+            statement: ast.stmt,
+            path: tuple[tuple[ast.expr, bool], ...] = (),
+        ) -> None:
+            nonlocal branch_condition_index, has_branch_effects
+            if isinstance(statement, ast.Return):
+                if not _is_none_return(statement) or not path:
+                    raise QueueFrontendError(
+                        "ACPY-RULE-012: branch returns may only omit one output"
+                    )
+                guard, negated = branch_guard(path)
+                assert guard is not None
+                absent_output_paths.append(
+                    ast.UnaryOp(op=ast.Not(), operand=guard)
+                    if negated
+                    else guard
+                )
+                return
+            if isinstance(statement, ast.For):
+                if (
+                    not isinstance(statement.target, ast.Name)
+                    or statement.orelse
+                    or statement.type_comment is not None
+                ):
+                    raise QueueFrontendError(
+                        "ACPY-RULE-013: rule for loops require one static name "
+                        "target and no else"
+                    )
+                try:
+                    values = evaluate_static(
+                        statement.iter, StaticEnvironment(module_static_values)
+                    )
+                except ValueError as error:
+                    raise QueueFrontendError(
+                        "ACPY-RULE-013: rule for loop must use a static iterable"
+                    ) from error
+                if not isinstance(values, tuple):
+                    raise QueueFrontendError(
+                        "ACPY-RULE-013: rule for loop must use a static iterable"
+                    )
+                loop_name = statement.target.id
+
+                class SubstituteLoopIndex(ast.NodeTransformer):
+                    def __init__(self, value: StaticValue) -> None:
+                        self.value = value
+
+                    def visit_Name(self, node: ast.Name) -> ast.expr:
+                        if node.id == loop_name and isinstance(node.ctx, ast.Load):
+                            return ast.copy_location(
+                                ast.Constant(value=self.value), node
+                            )
+                        return node
+
+                for value in values:
+                    if type(value) not in {bool, int}:
+                        raise QueueFrontendError(
+                            "ACPY-RULE-013: rule for loop values must be bool or int"
+                        )
+                    substituter = SubstituteLoopIndex(value)
+                    for candidate in statement.body:
+                        expanded = substituter.visit(copy.deepcopy(candidate))
+                        assert isinstance(expanded, ast.stmt)
+                        flatten_branch(ast.fix_missing_locations(expanded), path)
+                return
+            if isinstance(statement, ast.If):
+                if multi_effect_guard is not None:
+                    raise QueueFrontendError(
+                        "ACPY-RULE-011: branch-local effects cannot combine with "
+                        "early-return guards"
+                    )
+                if not statement.body:
+                    raise QueueFrontendError(
+                        "ACPY-RULE-011: branch-local effects require a non-empty body"
+                    )
+                has_branch_effects = True
+                condition_name = f"__ac_branch_condition_{branch_condition_index}"
+                branch_condition_index += 1
+                while condition_name in branch_condition_names:
+                    condition_name += "_"
+                branch_condition_names.add(condition_name)
+                guard, negated = branch_guard(path)
+                guarded_statements.append(
+                    (
+                        ast.copy_location(
+                            ast.Assign(
+                                targets=[
+                                    ast.Name(id=condition_name, ctx=ast.Store())
+                                ],
+                                value=copy.deepcopy(statement.test),
+                            ),
+                            statement,
+                        ),
+                        guard,
+                        negated,
+                    )
+                )
+                condition = ast.Name(id=condition_name, ctx=ast.Load())
+                for candidate in statement.body:
+                    flatten_branch(candidate, (*path, (condition, False)))
+                for candidate in statement.orelse:
+                    flatten_branch(candidate, (*path, (condition, True)))
+                return
+            guard, negated = branch_guard(path)
+            guarded_statements.append((statement, guard, negated))
+
         for statement in multi_body:
-            if not isinstance(statement, ast.If) or not statement.orelse:
-                guarded_statements.append((statement, None, False))
-                continue
-            if has_branch_effects:
-                raise QueueFrontendError(
-                    "ACPY-RULE-011: branch-local effects permit one if/else"
-                )
-            if multi_guard is not None or multi_effect_guard is not None:
-                raise QueueFrontendError(
-                    "ACPY-RULE-011: branch-local effects cannot combine with "
-                    "blocking or early-return guards"
-                )
-            if multi_return is not None:
-                raise QueueFrontendError(
-                    "ACPY-RULE-011: branch-local effects are currently outputless"
-                )
-            if (
-                not statement.body
-                or not statement.orelse
-                or any(
-                    not isinstance(candidate, ast.Assign)
-                    for candidate in (*statement.body, *statement.orelse)
-                )
-            ):
-                raise QueueFrontendError(
-                    "ACPY-RULE-011: each if/else branch requires state assignments"
-                )
-            has_branch_effects = True
-            for candidate in statement.body:
-                guarded_statements.append(
-                    (candidate, copy.deepcopy(statement.test), False)
-                )
-            for candidate in statement.orelse:
-                guarded_statements.append(
-                    (candidate, copy.deepcopy(statement.test), True)
-                )
+            flatten_branch(statement)
+        if (
+            multi_return is not None
+            and multi_output_guard is None
+            and absent_output_paths
+        ):
+            present_terms = [
+                ast.UnaryOp(op=ast.Not(), operand=copy.deepcopy(path))
+                for path in absent_output_paths
+            ]
+            multi_output_guard = ast.fix_missing_locations(
+                present_terms[0]
+                if len(present_terms) == 1
+                else ast.BoolOp(op=ast.And(), values=present_terms)
+            )
         state_reads: list[RuleStateReadDefinition] = []
         state_writes: list[RuleStateWriteDefinition] = []
         rule_locals: list[RuleLocalDefinition] = []
         rule_finds: list[RuleFindDefinition] = []
         local_names: set[str] = set()
+        local_versions: dict[str, str] = {}
+        partial_local_versions: set[str] = set()
+        partial_local_guards: dict[str, tuple[ast.expr, bool]] = {}
+        next_local_version = 0
+
+        class RewriteLocalLoads(ast.NodeTransformer):
+            def __init__(self, excluded: frozenset[str] = frozenset()) -> None:
+                self.excluded = excluded
+
+            def visit_Name(self, candidate: ast.Name) -> ast.expr:
+                if (
+                    isinstance(candidate.ctx, ast.Load)
+                    and candidate.id not in self.excluded
+                    and candidate.id in local_versions
+                ):
+                    return ast.copy_location(
+                        ast.Name(id=local_versions[candidate.id], ctx=ast.Load()),
+                        candidate,
+                    )
+                return candidate
+
+        def rewrite_local_loads(
+            expression: ast.expr | None, *, excluded: frozenset[str] = frozenset()
+        ) -> ast.expr | None:
+            if expression is None:
+                return None
+            rewritten = RewriteLocalLoads(excluded).visit(copy.deepcopy(expression))
+            assert isinstance(rewritten, ast.expr)
+            return ast.fix_missing_locations(rewritten)
+
+        def allocate_local_version(name: str) -> tuple[str, str | None]:
+            nonlocal next_local_version
+            prior = local_versions.get(name)
+            while True:
+                version = f"__ac_rule_local_{next_local_version}_{name}"
+                next_local_version += 1
+                if version not in parameter_names:
+                    break
+            local_versions[name] = version
+            return version, prior
+
+        def guards_are_complementary(
+            left: tuple[ast.expr, bool], right: tuple[ast.expr, bool]
+        ) -> bool:
+            return left[1] != right[1] and ast.dump(
+                left[0], include_attributes=False
+            ) == ast.dump(right[0], include_attributes=False)
+
+        def guard_literals(guard: ast.expr, negated: bool) -> frozenset[str]:
+            effective: ast.expr = (
+                ast.UnaryOp(op=ast.Not(), operand=copy.deepcopy(guard))
+                if negated
+                else guard
+            )
+            terms = (
+                effective.values
+                if isinstance(effective, ast.BoolOp)
+                and isinstance(effective.op, ast.And)
+                else (effective,)
+            )
+            return frozenset(
+                ast.dump(term, include_attributes=False) for term in terms
+            )
+
+        def guard_covers_partial_values(
+            guard: ast.expr | None,
+            negated: bool,
+            referenced: set[str],
+        ) -> bool:
+            partial = partial_local_versions & referenced
+            if not partial:
+                return True
+            if guard is None:
+                return False
+            consumer = guard_literals(guard, negated)
+            return all(
+                guard_literals(*partial_local_guards[name]) <= consumer
+                for name in partial
+            )
+
         valid_multi_state = bool(guarded_statements)
         for statement, branch_guard, branch_negated in guarded_statements:
             if not isinstance(statement, ast.Assign) or len(statement.targets) != 1:
@@ -1420,25 +1736,51 @@ def parse_queue_program(
                     raise QueueFrontendError(
                         "ACPY-RULE-009: find result requires a fresh local name"
                     )
-                local_names.add(target.id)
+                logical_name = target.id
+                local_names.add(logical_name)
+                version, _ = allocate_local_version(logical_name)
+                rewritten_predicate = rewrite_local_loads(
+                    predicate, excluded=frozenset({predicate_argument})
+                )
+                assert rewritten_predicate is not None
+                rewritten_key = rewrite_local_loads(
+                    key,
+                    excluded=frozenset(
+                        () if key_argument is None else (key_argument,)
+                    ),
+                )
                 rule_finds.append(
                     RuleFindDefinition(
-                        target.id,
+                        version,
                         call.args[0].id,
                         predicate_argument,
-                        copy.deepcopy(predicate),
+                        rewritten_predicate,
                         key_argument,
-                        copy.deepcopy(key),
+                        rewritten_key,
                     )
                 )
                 continue
             if isinstance(target, ast.Name) and target.id in parameter_names:
+                rewritten_value = rewrite_local_loads(statement.value)
+                rewritten_guard = rewrite_local_loads(branch_guard)
+                assert rewritten_value is not None
+                prior_version = local_versions.get(target.id, target.id)
+                version, _ = allocate_local_version(target.id)
+                rule_locals.append(
+                    RuleLocalDefinition(
+                        version,
+                        rewritten_value,
+                        rewritten_guard,
+                        branch_negated,
+                        prior_version,
+                    )
+                )
                 state_writes.append(
                     RuleStateWriteDefinition(
                         target.id,
                         None,
-                        copy.deepcopy(statement.value),
-                        copy.deepcopy(branch_guard),
+                        ast.Name(id=version, ctx=ast.Load()),
+                        rewritten_guard,
                         branch_negated,
                     )
                 )
@@ -1447,26 +1789,69 @@ def parse_queue_program(
                 and isinstance(target.value, ast.Name)
                 and target.value.id in parameter_names
             ):
+                rewritten_index = rewrite_local_loads(target.slice)
+                rewritten_value = rewrite_local_loads(statement.value)
+                rewritten_guard = rewrite_local_loads(branch_guard)
+                assert rewritten_index is not None
+                assert rewritten_value is not None
                 state_writes.append(
                     RuleStateWriteDefinition(
                         target.value.id,
-                        copy.deepcopy(target.slice),
-                        copy.deepcopy(statement.value),
-                        copy.deepcopy(branch_guard),
+                        rewritten_index,
+                        rewritten_value,
+                        rewritten_guard,
                         branch_negated,
                     )
                 )
             elif isinstance(target, ast.Name):
+                if target.id in parameter_names:
+                    raise QueueFrontendError(
+                        "ACPY-RULE-011: branch locals cannot replace rule parameters"
+                    )
+                logical_name = target.id
+                is_rebind = logical_name in local_names
+                prior_version = local_versions.get(logical_name)
+                rewritten_value = rewrite_local_loads(statement.value)
+                rewritten_guard = rewrite_local_loads(branch_guard)
+                assert rewritten_value is not None
+                version, allocated_prior = allocate_local_version(logical_name)
+                assert allocated_prior == prior_version
+                local_names.add(logical_name)
                 if branch_guard is not None:
-                    raise QueueFrontendError(
-                        "ACPY-RULE-011: branch bodies may only assign persistent state"
+                    if prior_version is None:
+                        partial_local_versions.add(version)
+                        assert rewritten_guard is not None
+                        partial_local_guards[version] = (
+                            rewritten_guard,
+                            branch_negated,
+                        )
+                    elif prior_version in partial_local_versions:
+                        prior_guard = partial_local_guards.get(prior_version)
+                        current_guard = (
+                            rewritten_guard,
+                            branch_negated,
+                        )
+                        if prior_guard is None or not guards_are_complementary(
+                            prior_guard, current_guard
+                        ):
+                            partial_local_versions.add(version)
+                            partial_local_guards[version] = (
+                                prior_guard
+                                if prior_guard is not None
+                                and guard_literals(*prior_guard)
+                                <= guard_literals(*current_guard)
+                                else current_guard
+                            )
+                if (
+                    not is_rebind
+                    and branch_guard is None
+                    and isinstance(statement.value, ast.Subscript)
+                    and not any(
+                        isinstance(candidate, ast.Name)
+                        and candidate.id in local_names
+                        for candidate in ast.walk(statement.value.slice)
                     )
-                if target.id in local_names:
-                    raise QueueFrontendError(
-                        "ACPY-RULE-009: rule local names must be unique"
-                    )
-                local_names.add(target.id)
-                if isinstance(statement.value, ast.Subscript):
+                ):
                     source = statement.value
                     if (
                         not isinstance(source.value, ast.Name)
@@ -1476,14 +1861,20 @@ def parse_queue_program(
                         break
                     state_reads.append(
                         RuleStateReadDefinition(
-                            target.id,
+                            version,
                             source.value.id,
-                            copy.deepcopy(source.slice),
+                            rewrite_local_loads(source.slice),
                         )
                     )
                 else:
                     rule_locals.append(
-                        RuleLocalDefinition(target.id, copy.deepcopy(statement.value))
+                        RuleLocalDefinition(
+                            version,
+                            rewritten_value,
+                            rewritten_guard,
+                            branch_negated,
+                            prior_version,
+                        )
                     )
             else:
                 valid_multi_state = False
@@ -1493,43 +1884,67 @@ def parse_queue_program(
             *(read.argument for read in state_reads),
             *(find.argument for find in rule_finds),
         }
-        if has_branch_effects:
-            writes_by_owner: dict[str, list[RuleStateWriteDefinition]] = {}
-            for write in state_writes:
-                writes_by_owner.setdefault(write.argument, []).append(write)
-            for owner_writes in writes_by_owner.values():
-                if len(owner_writes) == 1:
-                    continue
-                if (
-                    len(owner_writes) != 2
-                    or (owner_writes[0].index is None)
-                    != (owner_writes[1].index is None)
-                    or any(write.guard is None for write in owner_writes)
-                    or {write.guard_negated for write in owner_writes} != {False, True}
-                    or ast.dump(owner_writes[0].guard, include_attributes=False)
-                    != ast.dump(owner_writes[1].guard, include_attributes=False)
-                ):
-                    raise QueueFrontendError(
-                        "ACPY-RULE-011: same-owner branches require one matching "
-                        "scalar/list assignment per complementary arm"
-                    )
-        if has_branch_effects:
-            written_owners = {write.argument for write in state_writes}
-            for write in state_writes:
-                expressions = [write.value]
-                if write.index is not None:
-                    expressions.append(write.index)
-                referenced = {
-                    candidate.id
-                    for expression in expressions
-                    for candidate in ast.walk(expression)
-                    if isinstance(candidate, ast.Name)
-                }
-                if (written_owners - {write.argument}) & referenced:
-                    raise QueueFrontendError(
-                        "ACPY-RULE-011: branch-local values cannot depend on "
-                        "another branch-written owner"
-                    )
+        state_reference_arguments = {
+            candidate.value.id
+            for local in rule_locals
+            for candidate in ast.walk(local.value)
+            if isinstance(candidate, ast.Subscript)
+            and isinstance(candidate.value, ast.Name)
+            and candidate.value.id in parameter_names
+        }
+        state_names.update(state_reference_arguments)
+        rewritten_multi_return = rewrite_local_loads(multi_return)
+        rewritten_multi_guard = rewrite_local_loads(multi_guard)
+        rewritten_multi_effect_guard = rewrite_local_loads(multi_effect_guard)
+        rewritten_multi_output_guard = rewrite_local_loads(multi_output_guard)
+        for local in rule_locals:
+            referenced = {
+                candidate.id
+                for candidate in ast.walk(local.value)
+                if isinstance(candidate, ast.Name)
+            }
+            if not guard_covers_partial_values(
+                local.guard, local.guard_negated, referenced
+            ):
+                raise QueueFrontendError(
+                    "ACPY-RULE-011: branch-local value escapes its defining path"
+                )
+        for write in state_writes:
+            expressions = [write.value]
+            if write.index is not None:
+                expressions.append(write.index)
+            referenced = {
+                candidate.id
+                for expression in expressions
+                for candidate in ast.walk(expression)
+                if isinstance(candidate, ast.Name)
+            }
+            if not guard_covers_partial_values(
+                write.guard, write.guard_negated, referenced
+            ):
+                raise QueueFrontendError(
+                    "ACPY-RULE-011: branch-local value escapes its defining path"
+                )
+        if rewritten_multi_return is not None:
+            returned_names = {
+                candidate.id
+                for candidate in ast.walk(rewritten_multi_return)
+                if isinstance(candidate, ast.Name)
+            }
+            if (
+                partial_local_versions & returned_names
+                and rewritten_multi_output_guard is None
+            ):
+                raise QueueFrontendError(
+                    "ACPY-RULE-011: branch-local value escapes its defining path"
+                )
+        if rewritten_multi_guard is not None and any(
+            write.guard is not None for write in state_writes
+        ):
+            raise QueueFrontendError(
+                "ACPY-RULE-011: nested conditional state effects inside a "
+                "blocking guard require explicit CFG implication proof"
+            )
         for find in rule_finds:
             for expression in (find.predicate, find.key):
                 if expression is None:
@@ -1547,12 +1962,25 @@ def parse_queue_program(
             ordered_state = parameter_names[: last_state + 1]
         if (
             valid_multi_state
-            and state_writes
+            and (
+                state_writes
+                or state_reads
+                or rule_finds
+                or (
+                    multi_return is not None
+                    and multi_output_guard is not None
+                    and rule_locals
+                )
+            )
             and (
                 len(ordered_state) >= 2
                 or bool(rule_finds)
+                or bool(state_reference_arguments)
                 or has_branch_effects
-                or multi_output_guard is not None
+                or rewritten_multi_guard is not None
+                or rewritten_multi_output_guard is not None
+                or (bool(state_reads) and not state_writes)
+                or (bool(state_writes) and multi_return is None)
             )
         ):
             if parameter_names[: len(ordered_state)] != ordered_state:
@@ -1561,17 +1989,18 @@ def parse_queue_program(
                     "payload parameters"
                 )
             payload_parameters = parameter_names[len(ordered_state) :]
-            if has_branch_effects and len(payload_parameters) != 1:
-                raise QueueFrontendError(
-                    "ACPY-RULE-011: branch-local effects require exactly one "
-                    "payload parameter"
-                )
-            if multi_output_guard is not None and len(payload_parameters) != 1:
+            if (
+                rewritten_multi_output_guard is not None
+                and len(payload_parameters) != 1
+            ):
                 raise QueueFrontendError(
                     "ACPY-RULE-012: optional output requires exactly one "
                     "payload parameter"
                 )
-            if multi_effect_guard is not None and len(payload_parameters) != 1:
+            if (
+                rewritten_multi_effect_guard is not None
+                and len(payload_parameters) != 1
+            ):
                 raise QueueFrontendError(
                     "ACPY-RULE-010: conditional-effect early return requires "
                     "exactly one payload parameter"
@@ -1579,12 +2008,12 @@ def parse_queue_program(
             rule_definitions[node.name] = RuleDefinition(
                 node.name,
                 payload_parameters,
-                multi_return,
+                rewritten_multi_return,
                 node.lineno,
                 node.col_offset + 1,
-                guard=multi_guard,
-                effect_guard=multi_effect_guard,
-                output_guard=multi_output_guard,
+                guard=rewritten_multi_guard,
+                effect_guard=rewritten_multi_effect_guard,
+                output_guard=rewritten_multi_output_guard,
                 state_arguments=ordered_state,
                 state_writes=tuple(state_writes),
                 state_reads=tuple(state_reads),
@@ -1665,7 +2094,7 @@ def parse_queue_program(
             raise QueueFrontendError(
                 "ACPY-RULE-002: pure rules require one value-returning path; "
                 "stateful rules require one indexed state assignment and an "
-                "optional value return"
+                f"optional value return; rule {node.name!r} is unsupported"
             )
         if read_statement is not None and (
             len(read_statement.targets) != 1
@@ -1809,7 +2238,10 @@ def parse_queue_program(
         raise QueueFrontendError(
             f"ACPY-QUEUE-001: unknown static argument {extras[0]!r}"
         )
-    system_static_values: Mapping[str, StaticValue] = supplied
+    system_static_values: Mapping[str, StaticValue] = {
+        **module_static_values,
+        **supplied,
+    }
 
     def system_result_payloads(
         annotation: ast.expr | None,
@@ -1836,6 +2268,33 @@ def parse_queue_program(
         return (_payload(annotation, payload_map),)
 
     result_payloads = system_result_payloads(function.returns)
+    typed_result_payloads: dict[str, ValueType] = {}
+    if entry_kind == "module" and result_payloads:
+        returned = next(
+            (
+                statement.value
+                for statement in reversed(function.body)
+                if isinstance(statement, ast.Return) and statement.value is not None
+            ),
+            None,
+        )
+        returned_values = (
+            tuple(returned.elts)
+            if isinstance(returned, (ast.Tuple, ast.List))
+            else (returned,)
+            if returned is not None
+            else ()
+        )
+        if len(returned_values) == len(result_payloads) and all(
+            isinstance(value, ast.Name) for value in returned_values
+        ):
+            typed_result_payloads = {
+                value.id: payload
+                for value, payload in zip(
+                    returned_values, result_payloads, strict=True
+                )
+                if isinstance(value, ast.Name)
+            }
 
     def _static_int(
         node: ast.expr,
@@ -1876,6 +2335,83 @@ def parse_queue_program(
         return argument, _constantize_expression(
             expression, argument, system_static_values
         )
+
+    def specialize_rule_call(
+        definition: RuleDefinition, call: ast.Call, prefix: int
+    ) -> tuple[RuleDefinition, ast.Call]:
+        if call.keywords or len(call.args) != prefix + len(definition.arguments):
+            return definition, call
+        static_values: dict[str, StaticValue] = {}
+        runtime_arguments: list[str] = []
+        runtime_values: list[ast.expr] = []
+        for argument, value in zip(
+            definition.arguments, call.args[prefix:], strict=True
+        ):
+            try:
+                static_value = evaluate_static(
+                    value, StaticEnvironment(system_static_values)
+                )
+            except ValueError:
+                runtime_arguments.append(argument)
+                runtime_values.append(value)
+            else:
+                static_values[argument] = static_value
+        if not static_values and not module_static_values:
+            return definition, call
+
+        constant_values = {**module_static_values, **static_values}
+        for argument in runtime_arguments:
+            constant_values.pop(argument, None)
+
+        def constantize(value: ast.expr | None) -> ast.expr | None:
+            if value is None:
+                return None
+            return _constantize_expression(value, "", constant_values)
+
+        specialized = replace(
+            definition,
+            arguments=tuple(runtime_arguments),
+            expression=constantize(definition.expression),
+            table_index=constantize(definition.table_index),
+            table_value=constantize(definition.table_value),
+            table_read_index=constantize(definition.table_read_index),
+            var_value=constantize(definition.var_value),
+            guard=constantize(definition.guard),
+            effect_guard=constantize(definition.effect_guard),
+            output_guard=constantize(definition.output_guard),
+            state_writes=tuple(
+                replace(
+                    write,
+                    index=constantize(write.index),
+                    value=constantize(write.value),
+                    guard=constantize(write.guard),
+                )
+                for write in definition.state_writes
+            ),
+            state_reads=tuple(
+                replace(read, index=constantize(read.index))
+                for read in definition.state_reads
+            ),
+            locals=tuple(
+                replace(
+                    local,
+                    value=constantize(local.value),
+                    guard=constantize(local.guard),
+                )
+                for local in definition.locals
+            ),
+            finds=tuple(
+                replace(
+                    find,
+                    predicate=constantize(find.predicate),
+                    key=constantize(find.key),
+                )
+                for find in definition.finds
+            ),
+        )
+        specialized_call = copy.deepcopy(call)
+        specialized_call.args = [*call.args[:prefix], *runtime_values]
+        return specialized, specialized_call
 
     recursive_helpers: dict[str, RecursiveQueueHelper] = {}
     for helper in tree.body:
@@ -2509,6 +3045,12 @@ def parse_queue_program(
         nonlocal order
         aliases = {} if aliases is None else aliases
         for statement in statements:
+            if (
+                isinstance(statement, ast.Expr)
+                and isinstance(statement.value, ast.Constant)
+                and isinstance(statement.value.value, str)
+            ):
+                continue
             current_order = order
             order += 1
             if (
@@ -2631,11 +3173,28 @@ def parse_queue_program(
                 declaration = table_declaration(statement.value)
                 if declaration is not None:
                     name = statement.targets[0].id
-                    if name in by_name or name in collections or name in table_by_name:
+                    if (
+                        name in by_name
+                        or name in collections
+                        or name in table_by_name
+                        or name in variable_by_name
+                    ):
                         raise QueueFrontendError(
                             "ACPY-TABLE-001: table declaration requires a fresh name"
                         )
                     entries, entry_type = declaration
+                    if entry_kind == "module":
+                        variable = VarStateBinding(
+                            name,
+                            entry_type,
+                            0,
+                            scope_path,
+                            current_order,
+                            entries,
+                        )
+                        variables.append(variable)
+                        variable_by_name[name] = variable
+                        continue
                     binding = TableBinding(
                         name, entry_type, entries, scope_path, current_order
                     )
@@ -4703,15 +5262,53 @@ def parse_queue_program(
                             "ACPY-RULE-006: outputless rule call must be a "
                             "standalone statement"
                         )
+                    static_prefix = (
+                        len(definition.state_arguments)
+                        if definition.state_arguments
+                        else 1
+                        if definition.var_argument is not None
+                        or definition.table_argument is not None
+                        else 0
+                    )
+                    definition, call = specialize_rule_call(
+                        definition, call, static_prefix
+                    )
+                    while (
+                        definition.state_arguments
+                        and definition.arguments
+                        and len(call.args) > len(definition.state_arguments)
+                        and isinstance(
+                            call.args[len(definition.state_arguments)], ast.Name
+                        )
+                        and call.args[len(definition.state_arguments)].id
+                        in variable_by_name
+                    ):
+                        definition = replace(
+                            definition,
+                            state_arguments=(
+                                *definition.state_arguments,
+                                definition.arguments[0],
+                            ),
+                            arguments=definition.arguments[1:],
+                        )
                     table: TableBinding | None = None
                     variable: VarStateBinding | None = None
                     multi_state_writes: tuple[RuleStateWriteBinding, ...] = ()
                     multi_state_reads: tuple[RuleStateReadBinding, ...] = ()
-                    multi_state_locals: tuple[RuleLocalBinding, ...] = ()
+                    multi_state_locals: tuple[RuleLocalBinding, ...] = tuple(
+                        RuleLocalBinding(
+                            local.name,
+                            copy.deepcopy(local.value),
+                            copy.deepcopy(local.guard),
+                            local.guard_negated,
+                            local.prior_name,
+                        )
+                        for local in definition.locals
+                    )
                     multi_state_finds: tuple[RuleFindBinding, ...] = ()
                     multi_state_owners: tuple[RuleStateOwnerBinding, ...] = ()
                     multi_state_result_type: ValueType | None = None
-                    if definition.state_writes:
+                    if definition.state_arguments:
                         state_count = len(definition.state_arguments)
                         if (
                             len(call.args) != state_count + len(definition.arguments)
@@ -4749,10 +5346,10 @@ def parse_queue_program(
                         )
                         for find in definition.finds:
                             owner = owners[find.argument]
-                            if owner.entries == 1 or owner.entries > 64:
+                            if owner.entries == 1:
                                 raise QueueFrontendError(
                                     "ACPY-RULE-009: find requires a persistent "
-                                    "list with 2..64 entries"
+                                    "list with at least 2 entries"
                                 )
                         writes: list[RuleStateWriteBinding] = []
                         for write in definition.state_writes:
@@ -4795,16 +5392,22 @@ def parse_queue_program(
                             )
                         multi_state_reads = tuple(reads)
                         multi_state_locals = tuple(
-                            RuleLocalBinding(local.name, copy.deepcopy(local.value))
+                            RuleLocalBinding(
+                                local.name,
+                                copy.deepcopy(local.value),
+                                copy.deepcopy(local.guard),
+                                local.guard_negated,
+                                local.prior_name,
+                            )
                             for local in definition.locals
                         )
                         finds: list[RuleFindBinding] = []
                         for find in definition.finds:
                             owner = owners[find.argument]
-                            if owner.entries == 1 or owner.entries > 64:
+                            if owner.entries == 1:
                                 raise QueueFrontendError(
                                     "ACPY-RULE-009: find requires a persistent "
-                                    "list with 2..64 entries"
+                                    "list with at least 2 entries"
                                 )
                             finds.append(
                                 RuleFindBinding(
@@ -4909,43 +5512,24 @@ def parse_queue_program(
                             )
                     incoming_queues = tuple(by_name[item] for item in input_names)
                     incoming = incoming_queues[0] if incoming_queues else None
-                    if (
-                        table is not None
-                        and incoming is not None
-                        and not _types_equal_in_epoch_05(
-                            table.entry_type, incoming.payload
-                        )
-                    ):
-                        raise QueueFrontendError(
-                            "ACPY-RULE-004: stateful rule Queue payload must "
-                            "match the Table Entry type"
-                        )
-                    if (
-                        variable is not None
-                        and incoming is not None
-                        and not _types_equal_in_epoch_05(
-                            variable.value_type, incoming.payload
-                        )
-                    ):
-                        raise QueueFrontendError(
-                            "ACPY-RULE-004: stateful rule Queue payload must "
-                            "match the persistent value type"
-                        )
                     indexed_variable = variable is not None and variable.entries != 1
                     binding = QueueBinding(
                         name,
-                        (
-                            variable.value_type
-                            if variable is not None
-                            else (
-                                table.entry_type
-                                if table is not None
+                        typed_result_payloads.get(
+                            name,
+                            (
+                                variable.value_type
+                                if variable is not None
                                 else (
-                                    incoming.payload
-                                    if incoming is not None
-                                    else multi_state_result_type
+                                    table.entry_type
+                                    if table is not None
+                                    else (
+                                        incoming.payload
+                                        if incoming is not None
+                                        else multi_state_result_type
+                                    )
                                 )
-                            )
+                            ),
                         ),
                         1,
                         1,
@@ -5354,7 +5938,18 @@ def parse_queue_program(
                     raise QueueFrontendError(
                         "ACPY-RULE-006: value-returning rule call must be assigned"
                     )
-                if definition.state_writes:
+                static_prefix = (
+                    len(definition.state_arguments)
+                    if definition.state_arguments
+                    else 1
+                    if definition.var_argument is not None
+                    or definition.table_argument is not None
+                    else 0
+                )
+                definition, call = specialize_rule_call(
+                    definition, call, static_prefix
+                )
+                if definition.state_arguments:
                     state_count = len(definition.state_arguments)
                     if (
                         len(call.args) != state_count + len(definition.arguments)
@@ -5383,10 +5978,10 @@ def parse_queue_program(
                         owners[argument] = variable_by_name[value.id]
                     for find in definition.finds:
                         owner = owners[find.argument]
-                        if owner.entries == 1 or owner.entries > 64:
+                        if owner.entries == 1:
                             raise QueueFrontendError(
                                 "ACPY-RULE-009: find requires a persistent "
-                                "list with 2..64 entries"
+                                "list with at least 2 entries"
                             )
                     writes: list[RuleStateWriteBinding] = []
                     for write in definition.state_writes:
@@ -5424,10 +6019,10 @@ def parse_queue_program(
                     finds: list[RuleFindBinding] = []
                     for find in definition.finds:
                         owner = owners[find.argument]
-                        if owner.entries == 1 or owner.entries > 64:
+                        if owner.entries == 1:
                             raise QueueFrontendError(
                                 "ACPY-RULE-009: find requires a persistent "
-                                "list with 2..64 entries"
+                                "list with at least 2 entries"
                             )
                         finds.append(
                             RuleFindBinding(
@@ -5477,7 +6072,13 @@ def parse_queue_program(
                             rule_state_writes=tuple(writes),
                             rule_state_reads=tuple(reads),
                             rule_locals=tuple(
-                                RuleLocalBinding(local.name, copy.deepcopy(local.value))
+                                RuleLocalBinding(
+                                    local.name,
+                                    copy.deepcopy(local.value),
+                                    copy.deepcopy(local.guard),
+                                    local.guard_negated,
+                                    local.prior_name,
+                                )
                                 for local in definition.locals
                             ),
                             rule_finds=tuple(finds),
@@ -5535,13 +6136,6 @@ def parse_queue_program(
                 value_type = (
                     table.entry_type if table is not None else variable.value_type
                 )
-                if table is not None and not _types_equal_in_epoch_05(
-                    incoming.payload, value_type
-                ):
-                    raise QueueFrontendError(
-                        "ACPY-RULE-004: stateful rule primary Queue payload must "
-                        "match the persistent value type"
-                    )
                 effect_rules.append(
                     QueueBinding(
                         f"{definition.name}__effect_{current_order}",
@@ -5826,6 +6420,10 @@ class _ExpressionEmitter:
         self.index = 0
         self.priority_values: dict[str, tuple[str, ValueType, str, ValueType]] = {}
         self.table_view_values: dict[str, tuple[str, ValueType]] = {}
+        self.state_read_values: dict[
+            tuple[str, str], tuple[str, ValueType]
+        ] = {}
+        self.deferred_values: dict[str, ast.expr] = {}
         self.expression_facts: dict[str, _ExpressionFact] = {}
 
     def _new(self) -> str:
@@ -5867,6 +6465,33 @@ class _ExpressionEmitter:
             return
         if type(fact.value) is not int or not prove_within(fact, 0, entries - 1):
             raise QueueFrontendError(diagnostic)
+
+    def _coerce_bool_to_expected_bits(
+        self, value: str, value_type: ValueType, expected: ValueType | None
+    ) -> tuple[str, ValueType]:
+        if not (
+            _is_epoch_05_bool_compatible(value_type)
+            and isinstance(expected, BitsType)
+            and expected.width > 1
+        ):
+            return value, value_type
+        zero = self._new()
+        one = self._new()
+        result = self._new()
+        rendered = _render_type(expected)
+        self.lines.append(
+            f"    %{zero} = ac.var.constant 0 : {rendered} "
+            f"as !ac.var<{rendered}>"
+        )
+        self.lines.append(
+            f"    %{one} = ac.var.constant 1 : {rendered} "
+            f"as !ac.var<{rendered}>"
+        )
+        self.lines.append(
+            f"    %{result} = ac.var.select %{value}, %{one}, %{zero} : "
+            f"!ac.var<i1>, !ac.var<{rendered}> -> !ac.var<{rendered}>"
+        )
+        return self._remember(result, expected, ClosedInterval(0, 1))
 
     def _bitfield_view(
         self, node: ast.expr
@@ -5919,6 +6544,27 @@ class _ExpressionEmitter:
     def emit(
         self, node: ast.expr, expected: ValueType | None = None
     ) -> tuple[str, ValueType]:
+        if isinstance(node, ast.IfExp):
+            condition, condition_type = self.emit(node.test, BoolType())
+            if not _is_epoch_05_bool_compatible(condition_type):
+                raise QueueFrontendError(
+                    "ACPY-QUEUE-003: conditional expression requires bool"
+                )
+            true_value, true_type = self.emit(node.body, expected)
+            false_value, false_type = self.emit(node.orelse, expected or true_type)
+            if not _types_equal_in_epoch_05(true_type, false_type):
+                raise QueueFrontendError(
+                    "ACPY-QUEUE-003: conditional expression branches must "
+                    "have one exact type"
+                )
+            name = self._new()
+            self.lines.append(
+                f"    %{name} = ac.var.select %{condition}, %{true_value}, "
+                f"%{false_value} : !ac.var<i1>, "
+                f"!ac.var<{_render_type(true_type)}> -> "
+                f"!ac.var<{_render_type(true_type)}>"
+            )
+            return name, true_type
         if (
             isinstance(node, ast.Attribute)
             and isinstance(node.value, ast.Name)
@@ -6094,6 +6740,12 @@ class _ExpressionEmitter:
             and node.value.id in self.state_views
         ):
             variable, value_type, entries = self.state_views[node.value.id]
+            cache_key = (
+                variable,
+                ast.dump(node.slice, include_attributes=False),
+            )
+            if cached := self.state_read_values.get(cache_key):
+                return cached
             index, index_type = self.emit(node.slice)
             index_width = _epoch_05_integer_width(index_type)
             if index_width is None:
@@ -6112,7 +6764,8 @@ class _ExpressionEmitter:
                 f"!ac.var<{_render_type(index_type)}> -> "
                 f"!ac.var<{_render_type(value_type)}>"
             )
-            return name, value_type
+            self.state_read_values[cache_key] = (name, value_type)
+            return self.state_read_values[cache_key]
         if isinstance(node, ast.Subscript):
             value, value_type = self.emit(node.value)
             if isinstance(value_type, (TupleType, ArrayType)):
@@ -6185,6 +6838,8 @@ class _ExpressionEmitter:
                 f"!ac.var<{_render_type(result_type)}>"
             )
             return name, result_type
+        if isinstance(node, ast.Name) and node.id in self.deferred_values:
+            return self.emit(self.deferred_values[node.id], expected)
         if isinstance(node, ast.Name) and node.id in self.root_values:
             return self.root_values[node.id]
         if isinstance(node, ast.Name) and node.id == self.argument:
@@ -6490,8 +7145,14 @@ class _ExpressionEmitter:
                 ast.RShift,
             ),
         ):
-            left, left_type = self.emit(node.left)
+            left, left_type = self.emit(node.left, expected)
+            left, left_type = self._coerce_bool_to_expected_bits(
+                left, left_type, expected
+            )
             right, right_type = self.emit(node.right, left_type)
+            right, right_type = self._coerce_bool_to_expected_bits(
+                right, right_type, left_type
+            )
             if not _types_equal_in_epoch_05(left_type, right_type):
                 raise QueueFrontendError("ACPY-QUEUE-003: binary operands must match")
             if isinstance(left_type, EnumType):
@@ -6576,11 +7237,21 @@ class _ExpressionEmitter:
             isinstance(node, ast.Compare)
             and len(node.ops) == len(node.comparators) == 1
         ):
-            left, left_type = self.emit(node.left)
-            right, right_type = self.emit(node.comparators[0], left_type)
+            comparator = node.comparators[0]
+            if (
+                isinstance(node.left, ast.Name)
+                and node.left.id in self.deferred_values
+            ):
+                right, right_type = self.emit(comparator)
+                left, left_type = self.emit(node.left, right_type)
+            else:
+                left, left_type = self.emit(node.left)
+                right, right_type = self.emit(comparator, left_type)
             if not _types_equal_in_epoch_05(left_type, right_type):
                 raise QueueFrontendError(
-                    "ACPY-QUEUE-003: comparison operands must match"
+                    "ACPY-QUEUE-003: comparison operands must match for "
+                    f"{ast.unparse(node)!r} "
+                    f"({_render_type(left_type)} vs {_render_type(right_type)})"
                 )
             predicates = {
                 ast.Eq: "eq",
@@ -6763,6 +7434,50 @@ class _ExpressionEmitter:
             return name, BitsType(result_width)
         if (
             isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name)
+            and node.func.id in self.payloads
+        ):
+            if node.args or any(keyword.arg is None for keyword in node.keywords):
+                raise QueueFrontendError(
+                    "ACPY-TYPE-006: record construction requires named fields"
+                )
+            record_type = self.payloads[node.func.id].descriptor
+            values = {
+                keyword.arg: keyword.value
+                for keyword in node.keywords
+                if keyword.arg is not None
+            }
+            expected_names = tuple(field.name for field in record_type.fields)
+            if len(values) != len(node.keywords) or set(values) != set(expected_names):
+                raise QueueFrontendError(
+                    "ACPY-TYPE-006: record construction must initialize every "
+                    f"declared field exactly once for {node.func.id!r}; "
+                    f"expected {expected_names!r}, got {tuple(values)!r}"
+                )
+            operands: list[str] = []
+            operand_types: list[ValueType] = []
+            for field in record_type.fields:
+                value, value_type = self.emit(values[field.name], field.type)
+                if not _types_equal_in_epoch_05(value_type, field.type):
+                    raise QueueFrontendError(
+                        f"ACPY-TYPE-006: record field {field.name!r} type mismatch"
+                    )
+                operands.append(value)
+                operand_types.append(value_type)
+            name = self._new()
+            self.lines.append(
+                f"    %{name} = ac.var.record "
+                + ", ".join(f"%{value}" for value in operands)
+                + " : "
+                + ", ".join(
+                    f"!ac.var<{_render_type(value_type)}>"
+                    for value_type in operand_types
+                )
+                + f" -> !ac.var<{_render_type(record_type)}>"
+            )
+            return name, record_type
+        if (
+            isinstance(node, ast.Call)
             and isinstance(node.func, ast.Attribute)
             and node.func.attr == "with_fields"
             and not node.args
@@ -6798,7 +7513,10 @@ class _ExpressionEmitter:
                 )
                 current = name
             return current, record_type
-        raise QueueFrontendError("ACPY-QUEUE-003: unsupported lambda expression")
+        raise QueueFrontendError(
+            "ACPY-QUEUE-003: unsupported lambda or rule expression "
+            f"{ast.unparse(node)!r}"
+        )
 
 
 def lower_queue_program(
@@ -6851,7 +7569,8 @@ def lower_queue_program(
         )
         lines = [
             f"  ac.module @{module.name}({argument_types}){result_signature} "
-            "parameters {} graph {",
+            f"parameters {_render_static_mlir_dictionary(module.static_arguments)} "
+            "graph {",
             f"    {scope_lhs}ac.scope @body({scope_operands}) {{",
             f"    ^bb0({scope_arguments}):" if scope_arguments else "    ^bb0:",
         ]
@@ -7165,6 +7884,9 @@ def lower_queue_program(
             if queue.rule_output_guard is not None:
                 rule_expressions.append(queue.rule_output_guard)
             rule_expressions.extend(local.value for local in queue.rule_locals)
+            rule_expressions.extend(
+                local.guard for local in queue.rule_locals if local.guard is not None
+            )
             for find in queue.rule_finds:
                 rule_expressions.append(find.predicate)
                 if find.key is not None:
@@ -7184,6 +7906,11 @@ def lower_queue_program(
                 for node in ast.walk(expression)
                 if isinstance(node, ast.Name)
             }
+            referenced_names.update(
+                local.prior_name
+                for local in queue.rule_locals
+                if local.prior_name is not None
+            )
             for state_owner in queue.rule_state_owners:
                 if (
                     state_owner.entries != 1
@@ -7228,6 +7955,7 @@ def lower_queue_program(
                 )
             for find in queue.rule_finds:
                 index_width = max(1, (find.entries - 1).bit_length())
+                mask_type = _candidate_mask_type(find.entries)
                 predicate_emitter = _ExpressionEmitter(
                     payloads,
                     find.predicate_argument,
@@ -7256,14 +7984,17 @@ def lower_queue_program(
                 emitter.lines.append(
                     f"      ac.var.match.yield %{predicate} : !ac.var<i1>"
                 )
-                emitter.lines.append(f"    }} -> !ac.var<i{find.entries}>")
+                emitter.lines.append(
+                    f"    }} -> !ac.var<{_render_type(mask_type)}>"
+                )
                 selected_index = emitter._new()
                 selected_valid = emitter._new()
                 if find.key is None:
                     emitter.lines.append(
                         f"    %{selected_index}, %{selected_valid} = "
                         f"ac.var.choose @{find.variable} %{mask} : "
-                        f'!ac.var<i{find.entries}> count 1 policy "first" '
+                        f"!ac.var<{_render_type(mask_type)}> count 1 "
+                        f'policy "first" '
                         f"key {{}} -> !ac.var<i{index_width}>, !ac.var<i1>"
                     )
                 else:
@@ -7286,7 +8017,8 @@ def lower_queue_program(
                     emitter.lines.append(
                         f"    %{selected_index}, %{selected_valid} = "
                         f"ac.var.choose @{find.variable} %{mask} : "
-                        f'!ac.var<i{find.entries}> count 1 policy "min" key {{'
+                        f"!ac.var<{_render_type(mask_type)}> count 1 "
+                        f'policy "min" key {{'
                     )
                     emitter.lines.append(
                         f"    ^key(%entry: !ac.var<{_render_type(find.value_type)}>):"
@@ -7309,7 +8041,84 @@ def lower_queue_program(
                     None,
                 )
             for local in queue.rule_locals:
+                previous_deferred = (
+                    None
+                    if local.prior_name is None
+                    else emitter.deferred_values.get(local.prior_name)
+                )
+                if local.guard is not None and previous_deferred is not None:
+                    guard_expression: ast.expr = copy.deepcopy(local.guard)
+                    if local.guard_negated:
+                        guard_expression = ast.UnaryOp(
+                            op=ast.Not(), operand=guard_expression
+                        )
+                    emitter.deferred_values[local.name] = ast.fix_missing_locations(
+                        ast.IfExp(
+                            test=guard_expression,
+                            body=copy.deepcopy(local.value),
+                            orelse=copy.deepcopy(previous_deferred),
+                        )
+                    )
+                    continue
+                local_static: StaticValue | None = None
+                if local.guard is None:
+                    try:
+                        local_static = evaluate_static(
+                            local.value,
+                            StaticEnvironment(
+                                {
+                                    name: value.value
+                                    for name, value in emitter.deferred_values.items()
+                                    if isinstance(value, ast.Constant)
+                                }
+                            ),
+                        )
+                    except ValueError:
+                        pass
+                if type(local_static) in {bool, int}:
+                    emitter.root_values.pop(local.name, None)
+                    emitter.deferred_values[local.name] = ast.Constant(
+                        value=local_static
+                    )
+                    continue
                 local_value, local_type = emitter.emit(local.value)
+                previous = (
+                    None
+                    if local.prior_name is None
+                    else emitter.root_values.get(local.prior_name)
+                )
+                if previous is not None:
+                    _, previous_type = previous
+                    if not _types_equal_in_epoch_05(local_type, previous_type):
+                        raise QueueFrontendError(
+                            "ACPY-RULE-011: local reassignments must preserve "
+                            "one exact type"
+                        )
+                emitter.deferred_values.pop(local.name, None)
+                if local.guard is not None:
+                    guard_expression: ast.expr = local.guard
+                    if local.guard_negated:
+                        guard_expression = ast.UnaryOp(
+                            op=ast.Not(), operand=copy.deepcopy(local.guard)
+                        )
+                    guard, guard_type = emitter.emit(
+                        guard_expression, BoolType()
+                    )
+                    if not _is_epoch_05_bool_compatible(guard_type):
+                        raise QueueFrontendError(
+                            "ACPY-RULE-011: branch-local assignment guard "
+                            "must lower to bool"
+                        )
+                    if previous is not None:
+                        previous_value, previous_type = previous
+                        selected = emitter._new()
+                        emitter.lines.append(
+                            f"    %{selected} = ac.var.select %{guard}, "
+                            f"%{local_value}, %{previous_value} : !ac.var<i1>, "
+                            f"!ac.var<{_render_type(local_type)}> -> "
+                            f"!ac.var<{_render_type(local_type)}>"
+                        )
+                        local_value = selected
                 emitter.root_values[local.name] = (local_value, local_type)
             if queue.rule_var is not None:
                 assert queue.rule_var_argument is not None
@@ -7499,7 +8308,12 @@ def lower_queue_program(
             ) -> tuple[str | None, ValueType | None]:
                 if state_write.index is None:
                     return None, None
-                index, index_type = emitter.emit(state_write.index)
+                expected_index_type = BitsType(
+                    max(1, (state_write.entries - 1).bit_length())
+                )
+                index, index_type = emitter.emit(
+                    state_write.index, expected_index_type
+                )
                 index_width = _epoch_05_integer_width(index_type)
                 if index_width is None:
                     raise QueueFrontendError(
@@ -7514,13 +8328,46 @@ def lower_queue_program(
                 )
                 return index, index_type
 
-            writes_by_variable: dict[str, list[RuleStateWriteBinding]] = {}
+            writes_by_owner: dict[str, list[RuleStateWriteBinding]] = {}
             for state_write in queue.rule_state_writes:
-                writes_by_variable.setdefault(state_write.variable, []).append(
+                writes_by_owner.setdefault(state_write.variable, []).append(
                     state_write
                 )
+            writes_by_variable: dict[
+                tuple[str, str], list[RuleStateWriteBinding]
+            ] = {}
+            for variable, owner_writes in writes_by_owner.items():
+                complementary_pair = (
+                    len(owner_writes) == 2
+                    and all(write.guard is not None for write in owner_writes)
+                    and {write.guard_negated for write in owner_writes}
+                    == {False, True}
+                    and ast.dump(owner_writes[0].guard, include_attributes=False)
+                    == ast.dump(owner_writes[1].guard, include_attributes=False)
+                )
+                if complementary_pair:
+                    writes_by_variable[(variable, "<complementary>")] = owner_writes
+                    continue
+                for state_write in owner_writes:
+                    index_identity = (
+                        "<scalar>"
+                        if state_write.index is None
+                        else ast.dump(
+                            state_write.index, include_attributes=False
+                        )
+                    )
+                    writes_by_variable.setdefault(
+                        (variable, index_identity), []
+                    ).append(state_write)
             for owner_writes in writes_by_variable.values():
-                if len(owner_writes) == 2:
+                complementary_pair = (
+                    len(owner_writes) == 2
+                    and all(write.guard is not None for write in owner_writes)
+                    and {write.guard_negated for write in owner_writes} == {False, True}
+                    and ast.dump(owner_writes[0].guard, include_attributes=False)
+                    == ast.dump(owner_writes[1].guard, include_attributes=False)
+                )
+                if complementary_pair:
                     true_write = next(
                         write for write in owner_writes if not write.guard_negated
                     )
@@ -7568,6 +8415,83 @@ def lower_queue_program(
                     emitter.root_values[true_write.argument] = (
                         selected_value,
                         true_write.value_type,
+                    )
+                    continue
+                if len(owner_writes) > 1:
+                    if any(write.guard is None for write in owner_writes):
+                        raise QueueFrontendError(
+                            "ACPY-RULE-011: repeated same-owner proposals require "
+                            "path predicates"
+                        )
+                    rendered = [
+                        (
+                            write,
+                            emit_state_guard(write),
+                            *emit_state_index(write),
+                            emit_state_value(write),
+                        )
+                        for write in owner_writes
+                    ]
+                    guards = [guard for _, guard, _, _, _ in rendered]
+                    assert all(guard is not None for guard in guards)
+                    combined_guard = guards[0]
+                    assert combined_guard is not None
+                    for guard in guards[1:]:
+                        assert guard is not None
+                        joined = emitter._new()
+                        emitter.lines.append(
+                            f"    %{joined} = ac.var.or %{combined_guard}, "
+                            f"%{guard} : !ac.var<i1>"
+                        )
+                        combined_guard = joined
+                    selected_write, _, selected_index, selected_index_type, selected_value = rendered[0]
+                    for (
+                        candidate,
+                        guard,
+                        candidate_index,
+                        candidate_index_type,
+                        candidate_value,
+                    ) in rendered[1:]:
+                        assert guard is not None
+                        if not _types_equal_in_epoch_05(
+                            selected_index_type, candidate_index_type
+                        ):
+                            raise QueueFrontendError(
+                                "ACPY-RULE-011: same-owner branch indices must "
+                                "have one exact type"
+                            )
+                        joined_value = emitter._new()
+                        emitter.lines.append(
+                            f"    %{joined_value} = ac.var.select %{guard}, "
+                            f"%{candidate_value}, %{selected_value} : "
+                            f"!ac.var<i1>, "
+                            f"!ac.var<{_render_type(candidate.value_type)}> -> "
+                            f"!ac.var<{_render_type(candidate.value_type)}>"
+                        )
+                        selected_value = joined_value
+                        if candidate_index is not None:
+                            if selected_index is None or candidate_index_type is None:
+                                raise QueueFrontendError(
+                                    "ACPY-RULE-011: same-owner branch index shape "
+                                    "must match"
+                                )
+                            joined_index = emitter._new()
+                            emitter.lines.append(
+                                f"    %{joined_index} = ac.var.select %{guard}, "
+                                f"%{candidate_index}, %{selected_index} : "
+                                f"!ac.var<i1>, "
+                                f"!ac.var<{_render_type(candidate_index_type)}> -> "
+                                f"!ac.var<{_render_type(candidate_index_type)}>"
+                            )
+                            selected_index = joined_index
+                    multi_state_results.append(
+                        (
+                            selected_write,
+                            selected_index,
+                            selected_index_type,
+                            selected_value,
+                            combined_guard,
+                        )
                     )
                     continue
                 state_write = owner_writes[0]
@@ -7695,10 +8619,14 @@ def lower_queue_program(
                     f'{json.dumps(queue.rule_name + ":return")} path "true" : '
                     f"!ac.var<{_render_type(queue.payload)}>"
                 )
-                if output_guard_result is not None:
+                if output_guard_result is not None or any(
+                    write.guard is not None for write in queue.rule_state_writes
+                ):
+                    presence = output_guard_result or condition_result
+                    assert presence is not None
                     lines.append(
                         f"{indent}  ac.rule.output %{result} when "
-                        f"%{output_guard_result} ordinal 0 : "
+                        f"%{presence} ordinal 0 : "
                         f"!ac.var<{_render_type(queue.payload)}>, !ac.var<i1>"
                     )
                 lines.append(
@@ -8939,9 +9867,15 @@ def lower_queue_program(
 
 
 def _lower_simple_module_source(
-    text: str, system: str, *, host_results: bool = False
+    text: str,
+    system: str,
+    *,
+    static_arguments: Mapping[str, StaticValue] | None = None,
+    specialization_fingerprint: str | None = None,
+    host_results: bool = False,
 ) -> str | None:
     tree = ast.parse(text, filename="<queue-model>", type_comments=True)
+    module_static_values = _module_static_values(tree)
     enum_bindings = _enums(tree)
     payloads = _payloads(tree, enum_bindings)
     payload_map = {payload.name: payload for payload in payloads}
@@ -8979,6 +9913,18 @@ def _lower_simple_module_source(
         for node in ast.walk(systems[0])
     ):
         return None
+
+    if specialization_fingerprint is not None:
+        prefix = "sha256:"
+        digest = specialization_fingerprint.removeprefix(prefix)
+        if (
+            not specialization_fingerprint.startswith(prefix)
+            or len(digest) != 64
+            or any(character not in "0123456789abcdef" for character in digest)
+        ):
+            raise QueueFrontendError(
+                "ACPY-QUEUE-022: specialization fingerprint is invalid"
+            )
 
     def result_payloads(annotation: ast.expr | None) -> tuple[ValueType, ...]:
         if annotation is None:
@@ -9019,7 +9965,8 @@ def _lower_simple_module_source(
     class RuleModuleDefinition:
         inputs: tuple[tuple[str, ValueType], ...]
         outputs: tuple[tuple[str, ValueType], ...]
-        program: QueueProgram
+        static_parameters: tuple[str, ...]
+        static_defaults: tuple[tuple[str, ast.expr], ...]
 
     module_types: dict[str, ModuleDefinition] = {}
     rule_modules: dict[str, RuleModuleDefinition] = {}
@@ -9043,18 +9990,27 @@ def _lower_simple_module_source(
             if (
                 not function.args.args
                 or function.args.posonlyargs
-                or function.args.kwonlyargs
                 or function.args.vararg is not None
                 or function.args.kwarg is not None
                 or function.args.defaults
-                or function.args.kw_defaults
                 or any(
                     isinstance(decorator, ast.Call)
                     for decorator in function.decorator_list
                 )
             ):
                 raise QueueFrontendError(
-                    "ACPY-MODULE-005: rule modules require typed positional inputs"
+                    "ACPY-MODULE-005: rule modules require positional typed "
+                    "runtime inputs and optional keyword-only ac.const parameters"
+                )
+            if any(
+                not isinstance(parameter.annotation, ast.Subscript)
+                or _decorator_name(parameter.annotation.value).rsplit(".", 1)[-1]
+                != "const"
+                for parameter in function.args.kwonlyargs
+            ):
+                raise QueueFrontendError(
+                    "ACPY-MODULE-005: keyword-only rule module parameters must "
+                    "use ac.const"
                 )
             inputs = tuple(
                 (parameter.arg, _payload(parameter.annotation, payload_map))
@@ -9093,7 +10049,16 @@ def _lower_simple_module_source(
             rule_modules[name] = RuleModuleDefinition(
                 inputs,
                 outputs,
-                parse_queue_program(text, name, entry_kind="module"),
+                tuple(parameter.arg for parameter in function.args.kwonlyargs),
+                tuple(
+                    (parameter.arg, default)
+                    for parameter, default in zip(
+                        function.args.kwonlyargs,
+                        function.args.kw_defaults,
+                        strict=True,
+                    )
+                    if default is not None
+                ),
             )
             continue
         if (
@@ -9230,34 +10195,244 @@ def _lower_simple_module_source(
         )
 
     function = systems[0]
-    if (
-        function.args.posonlyargs
-        or function.args.kwonlyargs
-        or function.args.vararg is not None
-        or function.args.kwarg is not None
-        or function.args.defaults
-        or function.args.kw_defaults
-    ):
+    if function.args.vararg is not None or function.args.kwarg is not None:
         raise QueueFrontendError(
-            "ACPY-MODULE-001: first module system requires positional typed inputs"
+            "ACPY-MODULE-001: module systems cannot use variadic parameters"
         )
+    parameters = [
+        *function.args.posonlyargs,
+        *function.args.args,
+        *function.args.kwonlyargs,
+    ]
+    positional = [*function.args.posonlyargs, *function.args.args]
+    positional_with_defaults = (
+        positional[-len(function.args.defaults) :] if function.args.defaults else []
+    )
+    positional_defaults = {
+        parameter.arg: default
+        for parameter, default in zip(
+            positional_with_defaults,
+            function.args.defaults,
+            strict=True,
+        )
+    }
+    keyword_defaults = {
+        parameter.arg: default
+        for parameter, default in zip(
+            function.args.kwonlyargs,
+            function.args.kw_defaults,
+            strict=True,
+        )
+        if default is not None
+    }
+    supplied = dict(static_arguments or {})
+    static_parameter_names: set[str] = set()
     external: list[tuple[str, ValueType]] = []
-    for parameter in function.args.args:
+    for parameter in parameters:
         if (
             isinstance(parameter.annotation, ast.Subscript)
             and _decorator_name(parameter.annotation.value).rsplit(".", 1)[-1]
             == "const"
         ):
+            static_parameter_names.add(parameter.arg)
+            if parameter.arg in supplied:
+                continue
+            default = positional_defaults.get(parameter.arg) or keyword_defaults.get(
+                parameter.arg
+            )
+            if default is None:
+                raise QueueFrontendError(
+                    "ACPY-QUEUE-022: system requires static argument "
+                    f"{parameter.arg!r}"
+                )
+            try:
+                supplied[parameter.arg] = evaluate_static(
+                    default, StaticEnvironment(supplied)
+                )
+            except ValueError as error:
+                raise QueueFrontendError(
+                    f"ACPY-QUEUE-022: default for {parameter.arg!r} is not static"
+                ) from error
+            continue
+        if parameter.arg in supplied:
             raise QueueFrontendError(
-                "ACPY-MODULE-001: static module parameters are not implemented"
+                "ACPY-QUEUE-022: supplied static arguments must use ac.const"
+            )
+        if parameter.arg in positional_defaults or parameter.arg in keyword_defaults:
+            raise QueueFrontendError(
+                "ACPY-QUEUE-022: external system values cannot have defaults"
             )
         external.append((parameter.arg, _payload(parameter.annotation, payload_map)))
+    extras = sorted(set(supplied) - static_parameter_names)
+    if extras:
+        raise QueueFrontendError(
+            f"ACPY-MODULE-001: unknown static argument {extras[0]!r}"
+        )
+    system_static_values: Mapping[str, StaticValue] = {
+        **module_static_values,
+        **supplied,
+    }
+    if specialization_fingerprint is None and system_static_values:
+        specialization_fingerprint = sha256_bytes(
+            canonical_json_bytes(
+                {
+                    "schema": "agentic-circuit-structured-specialization",
+                    "version": "0.5",
+                    "system": system,
+                    "source": text,
+                    "arguments": {
+                        name: _static_json_value(value)
+                        for name, value in sorted(system_static_values.items())
+                    },
+                }
+            )
+        )
     expected_results = result_payloads(function.returns)
     values = dict(external)
     uses = {name: 0 for name, _ in external}
-    instances: list[tuple[tuple[str, ...], str, tuple[str, ...], tuple[str, ...]]] = []
+    instances: list[
+        tuple[
+            tuple[str, ...],
+            str,
+            tuple[str, ...],
+            tuple[ValueType, ...],
+            tuple[tuple[str, StaticValue], ...],
+        ]
+    ] = []
+    rule_module_specializations: dict[
+        str,
+        tuple[
+            RuleModuleDefinition,
+            QueueProgram,
+            tuple[tuple[str, StaticValue], ...],
+        ],
+    ] = {}
     returned_names: tuple[str, ...] | None = None
-    for statement in function.body:
+
+    def specialize_system_statements(
+        statements: list[ast.stmt],
+    ) -> list[ast.stmt]:
+        specialized: list[ast.stmt] = []
+        for statement in statements:
+            if not isinstance(statement, ast.If):
+                specialized.append(statement)
+                continue
+            try:
+                condition = evaluate_static(
+                    statement.test, StaticEnvironment(system_static_values)
+                )
+            except ValueError as error:
+                raise QueueFrontendError(
+                    "ACPY-MODULE-007: system control flow must depend only on "
+                    "ac.const values"
+                ) from error
+            if type(condition) is not bool:
+                raise QueueFrontendError(
+                    "ACPY-MODULE-007: static system condition must be bool"
+                )
+            selected = statement.body if condition else statement.orelse
+            specialized.extend(specialize_system_statements(selected))
+        return specialized
+
+    def specialize_rule_module(
+        module_name: str, call: ast.Call
+    ) -> tuple[str, tuple[tuple[str, StaticValue], ...]]:
+        definition = rule_modules[module_name]
+        supplied_keywords: dict[str, ast.expr] = {}
+        for keyword in call.keywords:
+            if keyword.arg is None or keyword.arg in supplied_keywords:
+                raise QueueFrontendError(
+                    "ACPY-MODULE-007: module static arguments require unique names"
+                )
+            supplied_keywords[keyword.arg] = keyword.value
+        unknown = sorted(set(supplied_keywords) - set(definition.static_parameters))
+        if unknown:
+            raise QueueFrontendError(
+                f"ACPY-MODULE-007: unknown module static argument {unknown[0]!r}"
+            )
+        defaults = dict(definition.static_defaults)
+        static_values: list[tuple[str, StaticValue]] = []
+        for name in definition.static_parameters:
+            expression = supplied_keywords.get(name, defaults.get(name))
+            if expression is None:
+                raise QueueFrontendError(
+                    f"ACPY-MODULE-007: module requires static argument {name!r}"
+                )
+            try:
+                value = evaluate_static(
+                    expression, StaticEnvironment(system_static_values)
+                )
+            except ValueError as error:
+                raise QueueFrontendError(
+                    f"ACPY-MODULE-007: module static argument {name!r} is not closed"
+                ) from error
+            _render_static_mlir_value(value)
+            static_values.append((name, value))
+        frozen = tuple(static_values)
+        if not frozen:
+            if module_name not in rule_module_specializations:
+                rule_module_specializations[module_name] = (
+                    definition,
+                    parse_queue_program(text, module_name, entry_kind="module"),
+                    frozen,
+                )
+            return module_name, frozen
+        specialization_fingerprint = sha256_bytes(
+            canonical_json_bytes(
+                {
+                    name: _static_json_value(value) for name, value in frozen
+                }
+            )
+        )
+        digest = specialization_fingerprint.removeprefix("sha256:")[:12]
+        symbol = f"{module_name}__p{digest}"
+        if symbol not in rule_module_specializations:
+            rule_module_specializations[symbol] = (
+                definition,
+                parse_queue_program(
+                    text,
+                    module_name,
+                    static_arguments=dict(frozen),
+                    entry_kind="module",
+                ),
+                frozen,
+            )
+        return symbol, frozen
+
+    specialized_statements = specialize_system_statements(function.body)
+    normalized_statements: list[ast.stmt] = []
+    for statement in specialized_statements:
+        if (
+            isinstance(statement, ast.Return)
+            and isinstance(statement.value, ast.Call)
+            and isinstance(statement.value.func, ast.Name)
+            and statement.value.func.id in modules
+        ):
+            _, outputs = module_signature(statement.value.func.id)
+            names = tuple(f"__return_{index}" for index in range(len(outputs)))
+            target: ast.expr = (
+                ast.Name(id=names[0], ctx=ast.Store())
+                if len(names) == 1
+                else ast.Tuple(
+                    elts=[ast.Name(id=name, ctx=ast.Store()) for name in names],
+                    ctx=ast.Store(),
+                )
+            )
+            returned: ast.expr = (
+                ast.Name(id=names[0], ctx=ast.Load())
+                if len(names) == 1
+                else ast.Tuple(
+                    elts=[ast.Name(id=name, ctx=ast.Load()) for name in names],
+                    ctx=ast.Load(),
+                )
+            )
+            normalized_statements.extend(
+                [ast.Assign(targets=[target], value=statement.value), ast.Return(returned)]
+            )
+            continue
+        normalized_statements.append(statement)
+
+    for statement in normalized_statements:
         if (
             isinstance(statement, ast.Expr)
             and isinstance(statement.value, ast.Constant)
@@ -9271,7 +10446,6 @@ def _lower_simple_module_source(
             and isinstance(statement.value, ast.Call)
             and isinstance(statement.value.func, ast.Name)
             and statement.value.func.id in modules
-            and not statement.value.keywords
             and all(isinstance(argument, ast.Name) for argument in statement.value.args)
         ):
             target = statement.targets[0]
@@ -9322,7 +10496,26 @@ def _lower_simple_module_source(
             for result, output_type in zip(results, output_types, strict=True):
                 values[result] = output_type
                 uses[result] = 0
-            instances.append((results, module_name, sources, output_types))
+            static_arguments: tuple[tuple[str, StaticValue], ...] = ()
+            instance_module_name = module_name
+            if module_name in rule_modules:
+                instance_module_name, static_arguments = specialize_rule_module(
+                    module_name, statement.value
+                )
+            elif statement.value.keywords:
+                raise QueueFrontendError(
+                    "ACPY-MODULE-007: pure module static parameters are not "
+                    "implemented"
+                )
+            instances.append(
+                (
+                    results,
+                    instance_module_name,
+                    sources,
+                    output_types,
+                    static_arguments,
+                )
+            )
             continue
         if isinstance(statement, ast.Return) and statement.value is not None:
             returned = (
@@ -9564,14 +10757,19 @@ def _lower_simple_module_source(
                 "  }",
             ]
         )
-    for name, definition in rule_modules.items():
+    for name, (
+        definition,
+        program,
+        static_arguments,
+    ) in rule_module_specializations.items():
         lines.extend(
             lower_queue_program(
-                definition.program,
+                program,
                 module=_ModuleRenderSpec(
                     name,
                     definition.inputs,
                     definition.outputs,
+                    static_arguments,
                 ),
             )
             .rstrip()
@@ -9583,10 +10781,17 @@ def _lower_simple_module_source(
     root_result_signature = (
         root_result_types if len(expected_results) == 1 else f"({root_result_types})"
     )
+    top_static_parameters = (
+        "{}"
+        if specialization_fingerprint is None
+        else "{jit_specialization = "
+        + json.dumps(specialization_fingerprint)
+        + "}"
+    )
     lines.append(
         "  ac.module @Top()"
         + (f" -> {root_result_signature}" if host_results else "")
-        + " parameters {} graph {"
+        + f" parameters {top_static_parameters} graph {{"
     )
     source_values = [f"%source_{index}" for index in range(len(external))]
     top_values: dict[str, str] = {}
@@ -9617,7 +10822,7 @@ def _lower_simple_module_source(
         )
         for index, (name, _) in enumerate(external):
             top_values[name] = f"%inputs#{index}" if len(external) > 1 else "%inputs"
-    for results, module_name, sources, output_types in instances:
+    for results, module_name, sources, output_types, static_arguments in instances:
         input_types = tuple(values[source] for source in sources)
         lhs = ", ".join(f"%{result}" for result in results)
         operands = ", ".join(top_values[source] for source in sources)
@@ -9633,7 +10838,9 @@ def _lower_simple_module_source(
         instance_name = "__".join(results)
         lines.append(
             f"    {lhs} = ac.instance @{instance_name} of @{module_name}"
-            f'({operands}) static {{}} id "{instance_name}" path "{instance_name}" '
+            f"({operands}) static "
+            f"{_render_static_mlir_dictionary(static_arguments)} "
+            f'id "{instance_name}" path "{instance_name}" '
             f": ({input_signature}) -> {result_type}"
         )
         for result in results:
@@ -9682,7 +10889,13 @@ def lower_queue_source(
     *,
     host_results: bool = False,
 ) -> str:
-    if lowered := _lower_simple_module_source(text, system, host_results=host_results):
+    if lowered := _lower_simple_module_source(
+        text,
+        system,
+        static_arguments=static_arguments,
+        specialization_fingerprint=specialization_fingerprint,
+        host_results=host_results,
+    ):
         return lowered
     if host_results:
         raise QueueFrontendError(

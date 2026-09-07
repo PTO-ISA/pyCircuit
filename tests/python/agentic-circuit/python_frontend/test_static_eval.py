@@ -4,7 +4,6 @@ import ast
 import unittest
 from pathlib import Path
 
-
 WORKSPACE = Path(__file__).resolve().parent / "fixtures" / "static"
 
 
@@ -22,23 +21,69 @@ class StaticEvaluationTest(unittest.TestCase):
             evaluate_static(expression, StaticEnvironment({"lanes": 4})),
         )
 
+    def test_integer_bitmask_expression_is_deterministic(self) -> None:
+        from agentic_circuit._static_eval import StaticEnvironment, evaluate_static
+
+        expression = parse_expr("(rob | dispatch) ^ (local & 0x7f)")
+        self.assertEqual(
+            0x4C,
+            evaluate_static(
+                expression,
+                StaticEnvironment({"rob": 0x04, "dispatch": 0x08, "local": 0x40}),
+            ),
+        )
+
     def test_unapproved_call_is_rejected(self) -> None:
-        from agentic_circuit._static_eval import StaticEnvironment, StaticEvalError
-        from agentic_circuit._static_eval import evaluate_static
+        from agentic_circuit._static_eval import (
+            StaticEnvironment,
+            StaticEvalError,
+            evaluate_static,
+        )
 
         with self.assertRaisesRegex(StaticEvalError, "unapproved call"):
             evaluate_static(parse_expr("open('input.txt')"), StaticEnvironment({}))
 
+    def test_static_shifts_are_bounded_before_evaluation(self) -> None:
+        from agentic_circuit._static_eval import (
+            StaticEnvironment,
+            StaticEvalError,
+            evaluate_static,
+        )
+
+        for expression in ("1 << -1", "1 >> -1", "1 << 1000000000"):
+            with (
+                self.subTest(expression=expression),
+                self.assertRaises(StaticEvalError),
+            ):
+                evaluate_static(parse_expr(expression), StaticEnvironment({}))
+        for expression, expected in (
+            ("1 << 52", 1 << 52),
+            ("0 << 1000000000", 0),
+            ("1 >> 1000000000", 0),
+            ("-1 >> 1000000000", -1),
+        ):
+            with self.subTest(expression=expression):
+                self.assertEqual(
+                    expected,
+                    evaluate_static(parse_expr(expression), StaticEnvironment({})),
+                )
+
     def test_non_finite_float_is_rejected(self) -> None:
-        from agentic_circuit._static_eval import StaticEnvironment, StaticEvalError
-        from agentic_circuit._static_eval import evaluate_static
+        from agentic_circuit._static_eval import (
+            StaticEnvironment,
+            StaticEvalError,
+            evaluate_static,
+        )
 
         with self.assertRaisesRegex(StaticEvalError, "finite"):
             evaluate_static(parse_expr("1e309"), StaticEnvironment({}))
 
     def test_comprehension_target_does_not_escape(self) -> None:
-        from agentic_circuit._static_eval import StaticEnvironment, StaticEvalError
-        from agentic_circuit._static_eval import evaluate_static
+        from agentic_circuit._static_eval import (
+            StaticEnvironment,
+            StaticEvalError,
+            evaluate_static,
+        )
 
         expression = parse_expr("(tuple(i for i in range(2)), i)")
         with self.assertRaisesRegex(StaticEvalError, "unknown static name 'i'"):

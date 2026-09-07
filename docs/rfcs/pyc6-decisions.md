@@ -4730,7 +4730,7 @@ the model and its performance.
 
 ## Decision 0176: one firing may atomically update heterogeneous state owners
 
-**Status:** Accepted and implemented for whole-value scalar/list updates
+**Status:** Accepted and implemented for owner-local whole-value write batches
 
 **Context / Goal**
 A circular ROB allocation updates an indexed entry, tail, occupancy, and tag
@@ -4746,10 +4746,18 @@ footprints and encourages whole-structure copies.
   `ACDataFlowAnalyzer` records every ordered owner/index/field footprint, and
   effect inference retains one state effect per distinct owner.
 - QueueGraph stores an ordered `state_writes` list. Each write contains the
-  selected owner, index/value SSA identities, mode, and field footprint. The
-  first slice permits one whole-value proposal per owner.
-- `gfsim::StateTransitionPlan` carries one allocation-free optional write per
-  heterogeneous owner and selected optional outputs. `QueueStateTransition`
+  selected owner, index/value SSA identities, mode, and field footprint.
+  Multiple writes to one owner remain distinct when their indices may all be
+  selected; mutually exclusive alternatives for the same lexical target may
+  join before storage selection.
+- `ACDataFlowAnalyzer` rejects a same-owner write pair unless its index domains
+  are disjoint or its SSA path predicates are structurally mutually exclusive.
+  QueueGraph independently recomputes the same safety condition. This prevents
+  an ambiguous duplicate index from becoming a permanently retried runtime
+  candidate.
+- `gfsim::StateTransitionPlan` carries one ordered write batch per
+  heterogeneous owner and selected optional outputs. The first write stays
+  inline; additional writes use overflow storage. `QueueStateTransition`
   computes one candidate during Work,
   then prepares and publishes all state owners and Queues in stable Arbitrate
   order using one commit-group identity.
@@ -4762,10 +4770,11 @@ footprints and encourages whole-structure copies.
 
 **Verification**
 - Runtime tests prove cursor, indexed entry, input consumption, and output
-  production remain unchanged under backpressure and commit together once all
-  resources are ready.
-- MLIR lit proves two heterogeneous owners survive rule lowering as structured
-  state writes and generate compiling C++20 `QueueStateTransition` code.
+  production plus multiple entries of one owner remain unchanged under
+  backpressure and commit together once all resources are ready.
+- MLIR lit proves four ordered writes to one owner survive rule lowering and
+  generate compiling C++20 owner-local batch code; native analysis tests cover
+  disjoint index domains and structurally equivalent complementary paths.
 - `multi_state_allocate.py` proves a scalar tail and persistent Python list are
   updated together through the complete frontend-to-gfsim path.
 
@@ -7255,3 +7264,89 @@ types whose layout is proven before a small reusable scalar backend.
 - User direction (2026-09-07): retain array/vector-of-type aggregate modeling,
   but keep the Python frontend simple and make canonical PYC/backend execution
   scalar, reusable, and efficient.
+
+## Decision 0221: typed systems keep runtime values outside JIT specialization
+
+**Status:** Accepted and implemented
+
+**Context / Goal**
+Parameterized Agentic systems need structural specialization without forcing
+runtime payloads into `ac.jit`. DavinciOO leaf modules also require imported
+nominal contracts, heterogeneous rule payloads, read-only state queries, and
+dynamic indices wider than the original 64-entry snapshot mask.
+
+**Decision (strong constraint)**
+- Ordinary typed `@ac.system` parameters and returns are payload values. The
+  compiler infers their Queue boundaries; Python does not annotate them with a
+  Queue/Input/Output wrapper and does not express ready, full, pop, push, sink,
+  reservation, or commit mechanics.
+- `ac.jit(system, workspace=..., **constants)` binds only parameters annotated
+  with `ac.const`. Supplying a runtime parameter is an error. Runtime values do
+  not participate in the specialization fingerprint.
+- An explicit workspace captures the deterministic transitive local import
+  closure. Closure identity uses normalized relative paths plus content hashes;
+  source mutation after specialization fails closed. Python `Enum` declarations
+  are admitted as nominal type definitions, while dynamic imports, reflection,
+  private Agentic APIs, and unrelated external modules remain rejected.
+  The current bundler admits explicit `from module import Symbol` dependencies;
+  local module-qualified imports, renamed imports, and conflicting definitions
+  across files fail closed rather than losing Python name binding semantics.
+- Imported module-level immutable integer/bitmask constants participate in the
+  same source closure and are folded into exact-width rule SSA at their use
+  site. Python's conventional uppercase names remain ordinary shared contract
+  constants; no backend marker or copied magic literal is required.
+  Static bitwise operations require integer operands; negative shifts and
+  left-shift results outside the portable I-JSON range fail before allocation.
+- Keyword-only `ac.const` module parameters are evaluated before rule lowering
+  and flow into rule expressions as immutable constants. Equal definition plus
+  constant bindings share one generated specialization class; instances retain
+  independent Queue and state storage.
+- Stateful rules may consume payload types different from their owned state and
+  may return a different typed result. Record constructors lower to
+  `ac.var.record`; read-only state rules remain firings rather than being
+  canonicalized to pure transforms.
+- `ACDataFlowAnalyzer` derives state snapshots from output dataflow as well as
+  guards and proposals. Dynamic indexed snapshots use sparse reservations, so
+  an `ac.u7` index covers all 128 entries without widening the frontend or
+  conservatively reserving the whole Table.
+  The runtime's bounded sparse representation has eight slots. Unions that
+  exceed that capacity conservatively reserve the whole owner; this is a
+  concurrency limitation, not a change to the selected transaction's values.
+- `ac.find` over more than 64 entries uses a compiler-owned fixed array of
+  64-bit candidate words; public payload integers remain `ac.u1..ac.u64`.
+  Match and choose observe one committed snapshot and preserve deterministic
+  first/min/max selection and selected index/value provenance.
+- Serial local rebinding is an immutable SSA environment. Nested
+  `if/elif/else` proposals are flattened into disjoint path predicates;
+  alternatives for one lexical index join, while simultaneously selected
+  distinct indices become one owner-local write batch. The output, selected
+  state proposals, input consumption, and output backpressure remain one
+  compiler-owned transaction.
+
+**Verification**
+- A framework-owned three-file fixture uses imported Enum/struct contracts,
+  two runtime payload inputs, two heterogeneous outputs, one keyword-only const,
+  a 128-entry recursive-struct state owner, one read-only firing, and one
+  conditional write firing. It freezes, plans, generates, compiles, and executes
+  through gfsim at index 127.
+- DavinciOO `DAV-OQ-PYC-0002` GPR must pass the same JIT, ACIR, QueueGraph, and
+  gfsim C++ stages without an `ac.Queue[T]` compatibility wrapper.
+- DavinciOO REN, MPQ, and S1 typed systems must preserve `ac.find`, shared
+  contract constants, multi-owner state, and repeated same-owner writes through
+  frozen QueueGraph and compiling gfsim C++. Provisional Table lowering to PYC
+  remains an explicit `unsupported provisional Table` diagnostic until a later
+  decision admits synthesizable storage.
+- Takeover review adds source-order SSA and nested branch-condition
+  regressions, independent negative predicate-region proofs, bounded shared-DAG
+  analysis, and live-IR footprint verification. A four-write runtime fixture
+  proves backpressure retention, snapshot values, exactly-once commit and
+  independent instances. A stateless `ac.var.record` fixture produces matching
+  C++/Verilog observations through packed scalar PYC.
+- Fresh evidence, including the eight-system consumer compile matrix and its
+  distinction from protocol simulation, is recorded in
+  `docs/gates/logs/20260907-issue44-review-closure/`.
+
+**Source**
+- PTO-ISA/pyCircuit issue #44.
+- User direction (2026-09-07): keep the frontend Pythonic and typed, infer Queue
+  and atomicity in MLIR, and use administrator merge after required checks pass.

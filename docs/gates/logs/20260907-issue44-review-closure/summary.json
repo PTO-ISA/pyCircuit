@@ -1,0 +1,164 @@
+{
+  "run_id": "20260907-issue44-review-closure",
+  "status": "passed",
+  "base_revision": "d018f940c639b8c5bfdaefa2870a9ba34e71aab9",
+  "decision_ids": [
+    "0176",
+    "0197",
+    "0206",
+    "0208",
+    "0209",
+    "0210",
+    "0221"
+  ],
+  "lanes": {
+    "python": [
+      {
+        "command": "/tmp/davincioo-agentic-py312.resume/bin/python tools/agentic-circuit/check-contracts.py",
+        "exit_code": 0,
+        "duration_seconds": 2.761
+      },
+      {
+        "command": "/tmp/davincioo-agentic-py312.resume/bin/python -m pytest -q tests/python/agentic-circuit/python_frontend tests/python/agentic-circuit/contracts tests/python/agentic-circuit/cli/test_all_commands.py tests/python/agentic-circuit/cli/test_workspace.py",
+        "exit_code": 0,
+        "duration_seconds": 18.96
+      }
+    ],
+    "native": [
+      {
+        "command": "cmake --build /Users/zhoubot/linx-isa/tools/pyCircuit/.pycircuit_out/layout-root -j 8",
+        "exit_code": 0,
+        "duration_seconds": 1.053
+      },
+      {
+        "command": "cmake --build /Users/zhoubot/linx-isa/tools/pyCircuit/.pycircuit_out/layout-root --target check-acir -j 8",
+        "exit_code": 0,
+        "duration_seconds": 24.467
+      },
+      {
+        "command": "ctest --test-dir /Users/zhoubot/linx-isa/tools/pyCircuit/.pycircuit_out/layout-root --output-on-failure -j 4 -R '^(GfsimTests|ACIROpsTests|ACIRModelAnalysisTests|CodeGenTests)$'",
+        "exit_code": 0,
+        "duration_seconds": 29.819
+      }
+    ],
+    "transactions": [
+      {
+        "command": "/tmp/davincioo-agentic-py312.resume/bin/python -m pytest -q tests/integration/agentic-circuit/e2e/test_typed_system_transactions.py tests/integration/agentic-circuit/e2e/test_typed_record_pyc.py",
+        "exit_code": 0,
+        "duration_seconds": 6.797
+      },
+      {
+        "command": "/tmp/davincioo-agentic-py312.resume/bin/python -m pytest -q tests/python/agentic-circuit/python_frontend/test_jit_blocks.py -k 'typed_runtime_jit_lowers_native_cpp or workspace_typed_state_jit_lowers_and_runs_native_cpp'",
+        "exit_code": 0,
+        "duration_seconds": 1.791
+      }
+    ],
+    "repository": [
+      {
+        "command": "python3 .github/scripts/validate_repo_management.py",
+        "exit_code": 0,
+        "duration_seconds": 0.036
+      },
+      {
+        "command": "pytest tests/unit -m unit -q",
+        "exit_code": 0,
+        "duration_seconds": 2.801
+      },
+      {
+        "command": "python3 flows/tools/check_api_hygiene.py python/pycircuit/src/pycircuit examples/pycircuit docs README.md",
+        "exit_code": 0,
+        "duration_seconds": 0.532
+      },
+      {
+        "command": "mkdocs build --strict",
+        "exit_code": 0,
+        "duration_seconds": 1.831
+      }
+    ],
+    "hooks": [
+      {
+        "command": "pre-commit run --files compiler/acir/include/acir/Analysis/VariableAnalysis.h compiler/acir/include/acir/Dialect/ACIR/ACIROps.td compiler/acir/lib/Analysis/ModelAnalysis.cpp compiler/acir/lib/Analysis/VariableAnalysis.cpp compiler/acir/lib/CodeGen/QueueGraphGenerator.cpp compiler/acir/lib/CodeGen/QueueGraphPlan.cpp compiler/acir/lib/CodeGen/QueueGraphPyc.cpp compiler/acir/lib/Dialect/ACIR/ACIROps.cpp compiler/acir/lib/Transforms/CMakeLists.txt compiler/acir/lib/Transforms/FreezeTopology.cpp compiler/acir/lib/Transforms/LowerRules.cpp compiler/acir/lib/Transforms/VerifyValueConstraints.cpp docs/acir/spec/agentic-circuit.md docs/acir/spec/agentic-circuit.zh-CN.md docs/development/acir/verification/ir-coverage.md docs/gates/README.md docs/gates/decision_status_v6.md docs/pyc6-plan.md docs/rfcs/pyc6-decisions.md examples/agentic-circuit/pipelines/inferred_jit_boundary_pipeline.py flows/scripts/run_agentic_circuit.sh python/agentic-circuit/src/agentic_circuit/_jit.py python/agentic-circuit/src/agentic_circuit/_queue_frontend.py python/agentic-circuit/src/agentic_circuit/_source_closure.py python/agentic-circuit/src/agentic_circuit/_static_eval.py schemas/agentic-circuit/contracts/acir.yaml schemas/primitives/pyc_ir_coverage.json simulator/gfsim/include/gfsim/queue_blocks.h tests/cpp/agentic-circuit/Analysis/ModelAnalysisTest.cpp tests/cpp/agentic-circuit/CodeGen/QueueGraphPlanTest.cpp tests/cpp/agentic-circuit/Dialect/ACIR/OpsTest.cpp tests/cpp/agentic-circuit/gfsim/QueueBlocksTest.cpp tests/integration/agentic-circuit/e2e/fixtures/typed_system/contracts.py tests/integration/agentic-circuit/e2e/fixtures/typed_system/leaf.py tests/integration/agentic-circuit/e2e/fixtures/typed_system/top.py tests/integration/agentic-circuit/e2e/fixtures/typed_transactions/atomic_shift.py tests/integration/agentic-circuit/e2e/fixtures/typed_transactions/record_transform.py tests/integration/agentic-circuit/e2e/test_typed_record_pyc.py tests/integration/agentic-circuit/e2e/test_typed_system_transactions.py tests/mlir/agentic-circuit/ACIR/aggregate-values-invalid.mlir tests/mlir/agentic-circuit/ACIR/aggregate-values.mlir tests/mlir/agentic-circuit/ACIR/firing-footprint-invalid.mlir tests/mlir/agentic-circuit/ACIR/firing-invalid.mlir tests/mlir/agentic-circuit/ACIR/state-snapshot-set-invalid.mlir tests/mlir/agentic-circuit/ACIR/table-invalid.mlir tests/mlir/agentic-circuit/ACIR/var-outputless-rule.mlir tests/mlir/agentic-circuit/ACIR/var-state-invalid.mlir tests/mlir/agentic-circuit/Transforms/queue-multi-owner-module-freeze.mlir tests/mlir/agentic-circuit/Transforms/queue-multi-rule-module-freeze.mlir tests/mlir/agentic-circuit/Transforms/queue-multi-rule-multi-owner-module.mlir tests/mlir/agentic-circuit/Transforms/queue-stateful-module-freeze.mlir tests/mlir/agentic-circuit/Transforms/rule-branch-local-lowering.mlir tests/mlir/agentic-circuit/Transforms/rule-consume-only-lowering.mlir tests/mlir/agentic-circuit/Transforms/rule-owner-write-batch.mlir tests/mlir/agentic-circuit/Transforms/rule-pure-optional-lowering.mlir tests/mlir/agentic-circuit/Transforms/rule-snapshot-set-lowering.mlir tests/mlir/agentic-circuit/Transforms/rule-table-lowering.mlir tests/mlir/agentic-circuit/Transforms/variable-array-state-lowering.mlir tests/python/agentic-circuit/python_frontend/test_jit_blocks.py tests/python/agentic-circuit/python_frontend/test_jit_source_closure.py tests/python/agentic-circuit/python_frontend/test_queue_frontend.py tests/python/agentic-circuit/python_frontend/test_static_eval.py",
+        "exit_code": 0,
+        "duration_seconds": 0.929
+      }
+    ]
+  },
+  "counts": {
+    "acir_lit_passed": 185,
+    "cpp_suites_passed": 4,
+    "python_passed": 271,
+    "python_skipped": 5,
+    "generic_transaction_and_pyc_tests_passed": 2,
+    "typed_jit_native_tests_passed": 2,
+    "installed_toolchain_tests_passed": 2,
+    "consumer_cpp_syntax_passed": 8
+  },
+  "consumer_revision": "b81ecfc2b634d41886b01fd8724905eeb5bb6551",
+  "consumer_dirty": true,
+  "consumer_scope": "Compilation only; exact closure hashes are in consumer.stdout. Consumer protocol simulation is not claimed.",
+  "source_sha256": {
+    "compiler/acir/include/acir/Analysis/VariableAnalysis.h": "e729e6aff1d7501d42ec8df7bc8db249cd983963a801f8cd05fd6642571552ce",
+    "compiler/acir/include/acir/Dialect/ACIR/ACIROps.td": "2ab7bbc5a11a882204098b17a54bf56fe93a3ea3b342877e1b85540d744ec805",
+    "compiler/acir/lib/Analysis/ModelAnalysis.cpp": "3632eca8b942db9233fbe2da1faeabbd413ed21fd94107036fc3cf2bb1f54620",
+    "compiler/acir/lib/Analysis/VariableAnalysis.cpp": "d530426ff6b1eec2e9a9ea68dd338f82e00c581f0a1a15c8530166e7427a95dd",
+    "compiler/acir/lib/CodeGen/QueueGraphGenerator.cpp": "b0a0f0b9e3bbe0161571f9988a5e28ec5983b10dbe302d20a814e7b6da5479d3",
+    "compiler/acir/lib/CodeGen/QueueGraphPlan.cpp": "4e3d92245ab04cc0ffdd5666ca59f51295890aaa4e96047cea9194ddecceb5f4",
+    "compiler/acir/lib/CodeGen/QueueGraphPyc.cpp": "fd1abde2ffb6aee0db8be9ed62d7ad2bd64d5360b77083d7d121dc4c297747dd",
+    "compiler/acir/lib/Dialect/ACIR/ACIROps.cpp": "654ccf9f4f9ef4d2d2a06f73305e8732053a72978b3a3e616fca9f080bb21268",
+    "compiler/acir/lib/Transforms/CMakeLists.txt": "e26a463205b9ae95a8cb9fcfd54b8de11d83d67bcf07bf4aea81b5746e5497bf",
+    "compiler/acir/lib/Transforms/FreezeTopology.cpp": "3350ff860c7bcb1fda02e5b5ebfee50a55ac89d2c3f545a680b158fd4c0bc47e",
+    "compiler/acir/lib/Transforms/LowerRules.cpp": "6adc2468473d41167ddece5b62da0640029a6e176e41ee2c3476c34cf21cbeec",
+    "compiler/acir/lib/Transforms/VerifyValueConstraints.cpp": "c807747c5ff5e840c133e2b8f7f5dc3285a8b4622294865c2f3cfa0c0d36bf80",
+    "examples/agentic-circuit/pipelines/inferred_jit_boundary_pipeline.py": "acdfacfd0c36d8b0a4a479fab33b4865e7e29829006df7bf9a5591e55ab9bfc0",
+    "flows/scripts/run_agentic_circuit.sh": "8c1d21ed0777334f94f6fcf7eec0e4c8f192bfaa9edba917b2d1a60b4cd5f23e",
+    "python/agentic-circuit/src/agentic_circuit/_jit.py": "ff86f75790dfb73d760cc655e45059210c1305459d801a4a4effaa9e6855116d",
+    "python/agentic-circuit/src/agentic_circuit/_queue_frontend.py": "a412387e010a520e8aeaa24dc104be705b33c519a120055620d804687acf5197",
+    "python/agentic-circuit/src/agentic_circuit/_source_closure.py": "a5e0c77ed3f23bab830e6e7375e218f507c267f70e200af756dcbe3bb6478491",
+    "python/agentic-circuit/src/agentic_circuit/_static_eval.py": "729015a0f083868916bf278fb14f9a788eab6551b4ae2944b0fa8ee6e3947227",
+    "schemas/agentic-circuit/contracts/acir.yaml": "125e589af2d6ed7852f015d791c9ab58db79f13f16b5edb6fdf8c8f0713de424",
+    "schemas/primitives/pyc_ir_coverage.json": "d9fd8890466ad9d5f4e65812be5c30265a780f4111d847540ae8c72b194dac1c",
+    "simulator/gfsim/include/gfsim/queue_blocks.h": "db4e832a3fc81c7fb9f6403c572fedea995b9b7bef87980cdeb64f09202ecb30",
+    "tests/cpp/agentic-circuit/Analysis/ModelAnalysisTest.cpp": "760259932f76fb4743b8675a514923e16ef27ced81d0e56de7c7eb0b93b5e53b",
+    "tests/cpp/agentic-circuit/CodeGen/QueueGraphPlanTest.cpp": "cceb54171cf6c676830caccd8553f3b4a30e6e82e0b2bdcbdcd634d89985f23a",
+    "tests/cpp/agentic-circuit/Dialect/ACIR/OpsTest.cpp": "1f0a783209c0f4896d5bf27357ad0e0d89b05415f682534d6da4ae606cbc5c8b",
+    "tests/cpp/agentic-circuit/gfsim/QueueBlocksTest.cpp": "aceb083dc8d54b03f7af58cc580206c9abfcc0ec64d5a5450b94d7d758503414",
+    "tests/integration/agentic-circuit/e2e/fixtures/typed_system/contracts.py": "c431386c1be4b6f0e5d13dc458f59c82122aa0001e511d59120a135c0b47b87f",
+    "tests/integration/agentic-circuit/e2e/fixtures/typed_system/leaf.py": "b514a5655fc56de2f5e214fb8215d14a21ec9afbbccab9a2b5fabc8678c2cf3e",
+    "tests/integration/agentic-circuit/e2e/fixtures/typed_system/top.py": "3bca16301938459f4ea87a3459b9cf274037804ce957fa162e1e764a3992be74",
+    "tests/integration/agentic-circuit/e2e/fixtures/typed_transactions/atomic_shift.py": "2ecb5cf92bf293bfb0bce02a951927cb0817f459cd6e1d022f6fc280644047d4",
+    "tests/integration/agentic-circuit/e2e/fixtures/typed_transactions/record_transform.py": "8b47dff9f3ec1ffe6126417a2bd9cbaf3776c4b8c6570828079f05d5884e26c1",
+    "tests/integration/agentic-circuit/e2e/test_typed_record_pyc.py": "4ffa3780f18e9f1def17f314740f05bb0ee99d6c57e7515e76a4e8097c525775",
+    "tests/integration/agentic-circuit/e2e/test_typed_system_transactions.py": "3430ec0e7a1a1baf210cd5b7017e7b3f5c382dff4760848562c72afbcffd80d6",
+    "tests/mlir/agentic-circuit/ACIR/aggregate-values-invalid.mlir": "54bc207f0869c1e91d059cd64a84ced861be1f7dee6c3f40f4612af8fc49871b",
+    "tests/mlir/agentic-circuit/ACIR/aggregate-values.mlir": "03b84fb0b5b5a9a44ae37ebfdccc0ffe3064048e371e6f00895d59ac7cba6c3d",
+    "tests/mlir/agentic-circuit/ACIR/firing-footprint-invalid.mlir": "b28ab68ec145cb41f93b3feb4f211795b121a4d4734d0d2bb6048072534bc8fc",
+    "tests/mlir/agentic-circuit/ACIR/firing-invalid.mlir": "d66b647f795869a11dc14d447f640fabee1846a9da4c7dcc8e758d2f38ca6eca",
+    "tests/mlir/agentic-circuit/ACIR/state-snapshot-set-invalid.mlir": "ce0388babd49dd0625fd80b09b4cdee058e8761d6a764a845449e5a101dcca42",
+    "tests/mlir/agentic-circuit/ACIR/table-invalid.mlir": "476931aef847903824240075ffa17c4ca1f63ea300c3d5a4288dd66f2dcd9bc8",
+    "tests/mlir/agentic-circuit/ACIR/var-outputless-rule.mlir": "208028be8a4f6eaaa772dfa97457e166da640c1881b74289d1d6ff5eca3b49ca",
+    "tests/mlir/agentic-circuit/ACIR/var-state-invalid.mlir": "9dd03615095f61f4facfe1fd59480887934973c57afa64f75be0eb6872eb8860",
+    "tests/mlir/agentic-circuit/Transforms/queue-multi-owner-module-freeze.mlir": "6bdd3bea569f324d192b04c05ae2eb62f6f76f681d0bb330688aa6f33367cbd0",
+    "tests/mlir/agentic-circuit/Transforms/queue-multi-rule-module-freeze.mlir": "6212606e2a07c38b49a98bcca558b590dbcfb346e5891544ea9459355a7f21d0",
+    "tests/mlir/agentic-circuit/Transforms/queue-multi-rule-multi-owner-module.mlir": "12f8f0dd3a8136c1b3ed1083904aa64c244785d7a1aaf02ac961b3cb6857e022",
+    "tests/mlir/agentic-circuit/Transforms/queue-stateful-module-freeze.mlir": "99076c2164495e9ceba56efc729e0bdee117610da8d253a8dbd14e73177b01d0",
+    "tests/mlir/agentic-circuit/Transforms/rule-branch-local-lowering.mlir": "71717450ed8d40b144217b99f1a5e53c90c9b8f8eb8a13e6814a6c68be1276d6",
+    "tests/mlir/agentic-circuit/Transforms/rule-consume-only-lowering.mlir": "6b010e4249653dbd655abee4eed92122aa05b44fd0f280e3714df01cc5ba01f5",
+    "tests/mlir/agentic-circuit/Transforms/rule-owner-write-batch.mlir": "38427fdfc0ab386a79494be83e227f2b73cb0b49d0c4c26301445a6738df3e44",
+    "tests/mlir/agentic-circuit/Transforms/rule-pure-optional-lowering.mlir": "c5f240130c7d3fdbb3ab9ae2b061ab46d2f545ba193a6899e1c1ad804a0593c2",
+    "tests/mlir/agentic-circuit/Transforms/rule-snapshot-set-lowering.mlir": "3e830c0d1dc152053c2e2e8bc3faee7387fd0f803d4eac140397e5e1d5341988",
+    "tests/mlir/agentic-circuit/Transforms/rule-table-lowering.mlir": "77b851dcb647964bd7b4c9a1e1122d554f636c63c5843c17592a0bcb3492a6d3",
+    "tests/mlir/agentic-circuit/Transforms/variable-array-state-lowering.mlir": "1da0cec9af542841bf269f477d690d41e70e9ad56ea10e9fee8e0c2c48cc61fd",
+    "tests/python/agentic-circuit/python_frontend/test_jit_blocks.py": "eb91e36a7e5f7754cf6d64ce4a344d8f2dbc2d85432f0c03ee77176632b1677c",
+    "tests/python/agentic-circuit/python_frontend/test_jit_source_closure.py": "6e9c2e6e30fbd7338c42bd97d5470e2c57c88c16112d08780913ced2b6dd21d2",
+    "tests/python/agentic-circuit/python_frontend/test_queue_frontend.py": "61302719b1b7d9b51594b269729307dbd4d6a0f57ee0b3a7e24f322b55921690",
+    "tests/python/agentic-circuit/python_frontend/test_static_eval.py": "708b94fa048548b134889121d9734ecc2fed4ff446beca582ccfa7655aed5369"
+  },
+  "limits": [
+    "Provisional Table lowering to PYC/RTL remains rejected.",
+    "Sparse reservation unions exceeding eight slots conservatively reserve the whole owner.",
+    "Local qualified/renamed imports and cross-file definition collisions are rejected before flattening.",
+    "#46 and #48 remain separate open work; this is not release closure."
+  ],
+  "review": "review.md",
+  "skill_evolve": "no-update"
+}

@@ -5,6 +5,7 @@
 #include "mlir/IR/Builders.h"
 #include "mlir/Pass/PassManager.h"
 #include "mlir/Pass/PassRegistry.h"
+#include "mlir/Transforms/Passes.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/StringSet.h"
@@ -62,19 +63,6 @@ ac::RuleGuardKind guardKind(Value value) {
 
 bool presenceImpliesCandidate(Value present, Value candidate) {
   return present == candidate || constantBool(candidate) == true;
-}
-
-bool isBooleanComplement(Value candidate, Value base) {
-  auto compare = candidate.getDefiningOp<ac::VarCmpOp>();
-  if (!compare || compare.getPredicate() != "eq")
-    return false;
-  return (compare.getLhs() == base &&
-          constantBool(compare.getRhs()) == false) ||
-         (compare.getRhs() == base && constantBool(compare.getLhs()) == false);
-}
-
-bool areBooleanComplements(Value left, Value right) {
-  return isBooleanComplement(left, right) || isBooleanComplement(right, left);
 }
 
 ac::RuleGuardKind inferredGuardKind(Operation *scope) {
@@ -590,7 +578,6 @@ LogicalResult resolveRuleSchedule(ModuleOp model) {
         constant ? dyn_cast<IntegerAttr>(constant.getValue()) : IntegerAttr();
     const bool always = constantValue && !constantValue.getValue().isZero();
     Value presence = conditions.front().getCondition();
-    SmallVector<Value> divergentPresences;
     for (ac::TableProposeOp proposal : proposals) {
       if (proposal.getWhen()) {
         if (!presenceImpliesCandidate(proposal.getWhen(), presence)) {
@@ -603,18 +590,6 @@ LogicalResult resolveRuleSchedule(ModuleOp model) {
             result = proposal.emitOpError(
                 "conditional-effect presence requires one input");
             return;
-          }
-          if (!llvm::is_contained(divergentPresences, proposal.getWhen())) {
-            if (divergentPresences.size() >= 2 ||
-                (!divergentPresences.empty() &&
-                 !areBooleanComplements(divergentPresences.front(),
-                                        proposal.getWhen()))) {
-              result = proposal.emitOpError(
-                  "conditional-effect presences must share one predicate or "
-                  "one complementary pair");
-              return;
-            }
-            divergentPresences.push_back(proposal.getWhen());
           }
         }
       } else {
@@ -831,9 +806,13 @@ LogicalResult canonicalizePureFirings(ModuleOp model) {
   SmallVector<ac::FiringOp> firings;
   model.walk([&](ac::FiringOp firing) { firings.push_back(firing); });
   for (ac::FiringOp firing : firings) {
-    bool hasTableProposal = false;
-    firing.getBody().walk([&](ac::TableProposeOp) { hasTableProposal = true; });
-    if (hasTableProposal)
+    bool hasStateAccess = false;
+    firing.getBody().walk([&](Operation *operation) {
+      hasStateAccess |=
+          isa<ac::TableGetOp, ac::TableProposeOp, ac::StateSnapshotOp,
+              ac::StateSnapshotSetOp>(operation);
+    });
+    if (hasStateAccess)
       continue;
     if (firing.getInputs().empty() || firing.getOutputs().size() != 1 ||
         firing.getTimeDomain() != "cycle")
@@ -852,8 +831,7 @@ LogicalResult canonicalizePureFirings(ModuleOp model) {
         [&](ac::FiringOutputOp output) { outputs.push_back(output); });
     if (outputs.size() != 1 || outputs.front().getOrdinal() != 0 ||
         outputs.front().getWhen() != conditions.front().getCondition())
-      return firing.emitOpError(
-          "pure firing requires one output on its proven condition");
+      continue;
     outputs.front().erase();
     conditions.front().erase();
 
@@ -1087,6 +1065,10 @@ void addRuleLoweringPipeline(mlir::OpPassManager &manager) {
   manager.addPass(createLowerVariableStatePass());
   manager.addPass(createVerifyValueConstraintsPass());
   manager.addPass(std::make_unique<InferRuleTypesPass>());
+  // Rule summaries are derived evidence.  Eliminate dead state reads before
+  // effect inference so footprints and typed summaries describe the live IR
+  // that later canonicalization preserves.
+  manager.addPass(createCanonicalizerPass());
   manager.addPass(std::make_unique<InferRuleEffectsPass>());
   manager.addPass(std::make_unique<InferRuleActivationPass>());
   manager.addPass(std::make_unique<MaterializeRuleChecksPass>());

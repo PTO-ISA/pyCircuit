@@ -24,7 +24,7 @@
 // ENDPOINT: error: 'ac.table' op must have at least one table read/write endpoint
 // INDEX: error: 'ac.table.read' op static table index is out of range
 // WRITER: error: 'ac.table' op write field '$entry' has multiple endpoints
-// MATCH: error: 'ac.table.match' op match domain must contain 1..64 entries
+// MATCH: error: 'ac.table.match' op mask must exactly cover the Table domain in 64-bit words
 // CHOOSE: error: 'ac.table.choose' op choose supports count=1 only
 // CHOOSE-MASK: error: 'ac.table.choose' op candidate mask must be produced directly by ac.table.match
 // CHOOSE-TABLE: error: 'ac.table.choose' op candidate mask must come from the same Table

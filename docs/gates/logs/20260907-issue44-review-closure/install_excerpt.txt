@@ -1,0 +1,9 @@
+Excerpt of successful cmake install; full local log: .pycircuit_out/issue44-review-install.log
+-- Installing: /Users/zhoubot/linx-isa/tools/pyCircuit/.pycircuit_out/issue44-review-install/bin/pycc
+-- Installing: /Users/zhoubot/linx-isa/tools/pyCircuit/.pycircuit_out/issue44-review-install/bin/acir-opt
+-- Installing: /Users/zhoubot/linx-isa/tools/pyCircuit/.pycircuit_out/issue44-review-install/bin/acir-queue-cxxgen
+-- Installing: /Users/zhoubot/linx-isa/tools/pyCircuit/.pycircuit_out/issue44-review-install/bin/acir-queue-plan
+-- Installing: /Users/zhoubot/linx-isa/tools/pyCircuit/.pycircuit_out/issue44-review-install/bin/acir-queue-pycgen
+-- Installing: /Users/zhoubot/linx-isa/tools/pyCircuit/.pycircuit_out/issue44-review-install/bin/acir-queue-veriloggen.py
+-- Installing: /Users/zhoubot/linx-isa/tools/pyCircuit/.pycircuit_out/issue44-review-install/include/cpp/pyc_runtime.hpp
+-- Installing: /Users/zhoubot/linx-isa/tools/pyCircuit/.pycircuit_out/issue44-review-install/lib/libpyc6_runtime.a

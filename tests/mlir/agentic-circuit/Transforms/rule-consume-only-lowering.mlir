@@ -49,6 +49,6 @@ module attributes {ac.contract_epoch = "0.5", ac.model_kind = "queue_graph", ac.
 
 // GFSIM: std::optional<gfsim::StateTransitionPlan<std::tuple<Entry, gfsim::UInt<7>>, std::tuple<>>>
 // GFSIM: proposal_present
-// GFSIM: std::optional<std::pair<size_t, gfsim::UInt<7>>>{}
-// GFSIM: gfsim::StateReservation::forFields({{.*}}, std::uint64_t{2}, 2)
-// GFSIM: gfsim::StateReservation({{.*}})
+// GFSIM: gfsim::OwnerWriteBatch<gfsim::UInt<7>> owner_writes1;
+// GFSIM: gfsim::StateReservation::forFieldsAt({{.*}}, std::uint64_t{2}, 2)
+// GFSIM: gfsim::StateReservation::forEntry({{.*}})

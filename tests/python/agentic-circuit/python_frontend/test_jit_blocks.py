@@ -370,21 +370,346 @@ int main() {{
         )
         self.assertIn("core", repr(left))
 
-    def test_jit_rejects_non_const_or_open_arguments(self) -> None:
+    def test_jit_leaves_typed_runtime_parameters_unbound(self) -> None:
         import agentic_circuit as ac
 
         @ac.system
-        def runtime(value: int) -> None:
+        def runtime(value: int, cfg: ac.const[int] = 7) -> None:
             pass
 
         @ac.system
         def templated(value: ac.const[int]) -> None:
             pass
 
-        with self.assertRaisesRegex(TypeError, "ACPY-JIT-001"):
+        specialization = ac.jit(runtime)
+        self.assertEqual((("cfg", 7),), specialization.canonical_arguments)
+        with self.assertRaisesRegex(
+            TypeError, "runtime system parameter 'value' cannot be specialized"
+        ):
             ac.jit(runtime, value=4)
         with self.assertRaisesRegex(TypeError, "ACPY-JIT-002"):
             ac.jit(templated, value={"mutable"})
+
+    def test_typed_runtime_jit_selects_static_structure(self) -> None:
+        import agentic_circuit as ac
+
+        path = (
+            REPOSITORY
+            / "examples/agentic-circuit"
+            / "pipelines"
+            / "inferred_jit_boundary_pipeline.py"
+        )
+        spec = importlib.util.spec_from_file_location("ac_typed_runtime_jit", path)
+        if spec is None or spec.loader is None:
+            raise RuntimeError("cannot load typed runtime JIT example")
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[spec.name] = module
+        self.addCleanup(sys.modules.pop, spec.name, None)
+        spec.loader.exec_module(module)
+
+        increment = module.specialization
+        decrement = ac.jit(
+            module.inferred_jit_boundary_pipeline,
+            cfg=module.BoundaryConfig(increment=False),
+        )
+
+        self.assertNotEqual(increment.fingerprint, decrement.fingerprint)
+        self.assertEqual(
+            (("cfg", (("increment", True),)),), increment.canonical_arguments
+        )
+        increment_acir = increment.lower_acir()
+        decrement_acir = decrement.lower_acir()
+        self.assertIn('ac.name = "value"', increment_acir)
+        self.assertNotIn('ac.name = "cfg"', increment_acir)
+        self.assertIn("of @add_one", increment_acir)
+        self.assertNotIn("of @subtract_one(%inputs)", increment_acir)
+        self.assertIn("of @subtract_one", decrement_acir)
+        self.assertIn(increment.fingerprint, increment_acir)
+        self.assertIn(decrement.fingerprint, decrement_acir)
+
+    @unittest.skipIf(
+        os.environ.get("AC_PYTHON_ONLY") == "1",
+        "native MLIR tools are release/targeted-test dependencies",
+    )
+    def test_typed_runtime_jit_lowers_native_cpp(self) -> None:
+        import agentic_circuit as ac
+
+        path = (
+            REPOSITORY
+            / "examples/agentic-circuit"
+            / "pipelines"
+            / "inferred_jit_boundary_pipeline.py"
+        )
+        optimizer = Path(
+            os.environ.get(
+                "ACIR_OPT",
+                REPOSITORY / ".pycircuit_out/layout-root/bin/acir-opt",
+            )
+        )
+        generator = Path(
+            os.environ.get(
+                "ACIR_QUEUE_CXXGEN",
+                REPOSITORY / ".pycircuit_out/layout-root/bin/acir-queue-cxxgen",
+            )
+        )
+        if not optimizer.is_file() or not generator.is_file():
+            self.skipTest("native typed-JIT tools are unavailable")
+        spec = importlib.util.spec_from_file_location(
+            "ac_typed_runtime_jit_native", path
+        )
+        if spec is None or spec.loader is None:
+            raise RuntimeError("cannot load typed runtime JIT example")
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[spec.name] = module
+        self.addCleanup(sys.modules.pop, spec.name, None)
+        spec.loader.exec_module(module)
+
+        with mock.patch.dict(
+            os.environ,
+            {
+                "ACIR_OPT": str(optimizer),
+                "ACIR_QUEUE_CXXGEN": str(generator),
+            },
+        ):
+            cpp = ac.jit(
+                module.inferred_jit_boundary_pipeline,
+                cfg=module.BoundaryConfig(increment=True),
+            ).lower_cpp()
+        self.assertIn("gfsim::SimQueue", cpp)
+
+    def test_workspace_jit_lowers_typed_state_leaf_with_runtime_boundaries(
+        self,
+    ) -> None:
+        import agentic_circuit as ac
+
+        fixture = (
+            REPOSITORY
+            / "tests/integration/agentic-circuit/e2e/fixtures/typed_system"
+        )
+        top = fixture / "top.py"
+        sys.path.insert(0, str(fixture))
+        self.addCleanup(sys.path.remove, str(fixture))
+        for name in ("contracts", "leaf"):
+            sys.modules.pop(name, None)
+            self.addCleanup(sys.modules.pop, name, None)
+        spec = importlib.util.spec_from_file_location("ac_typed_state_top", top)
+        if spec is None or spec.loader is None:
+            raise RuntimeError("cannot load typed state JIT fixture")
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[spec.name] = module
+        self.addCleanup(sys.modules.pop, spec.name, None)
+        spec.loader.exec_module(module)
+
+        generation_9 = ac.jit(
+            module.typed_system, workspace=fixture, owner_generation=9
+        )
+        generation_10 = ac.jit(
+            module.typed_system, workspace=fixture, owner_generation=10
+        )
+        self.assertNotEqual(generation_9.fingerprint, generation_10.fingerprint)
+        self.assertEqual(3, len(generation_9.sources))
+        with self.assertRaisesRegex(
+            TypeError, "runtime system parameter 'read_request'"
+        ):
+            ac.jit(
+                module.typed_system,
+                workspace=fixture,
+                owner_generation=9,
+                read_request=0,
+            )
+
+        raw = generation_9.lower_acir()
+        self.assertIn("shape [128]", raw)
+        self.assertIn("ac.var.record", raw)
+        self.assertIn('ac.name = "read_request"', raw)
+        self.assertIn('ac.name = "write_request"', raw)
+        self.assertIn("parameters {owner_generation = 9 : i64}", raw)
+
+    @unittest.skipIf(
+        os.environ.get("AC_PYTHON_ONLY") == "1",
+        "native MLIR tools are release/targeted-test dependencies",
+    )
+    def test_workspace_typed_state_jit_lowers_and_runs_native_cpp(self) -> None:
+        import agentic_circuit as ac
+
+        fixture = (
+            REPOSITORY
+            / "tests/integration/agentic-circuit/e2e/fixtures/typed_system"
+        )
+        top = fixture / "top.py"
+        optimizer = Path(
+            os.environ.get(
+                "ACIR_OPT",
+                REPOSITORY / ".pycircuit_out/layout-root/bin/acir-opt",
+            )
+        )
+        generator = Path(
+            os.environ.get(
+                "ACIR_QUEUE_CXXGEN",
+                REPOSITORY / ".pycircuit_out/layout-root/bin/acir-queue-cxxgen",
+            )
+        )
+        runtime = Path(
+            os.environ.get(
+                "GFSIM_LIBRARY",
+                REPOSITORY
+                / ".pycircuit_out/layout-root/compiler/acir/gfsim/libgfsim.a",
+            )
+        )
+        if not optimizer.is_file() or not generator.is_file() or not runtime.is_file():
+            self.skipTest("native typed-JIT tools or gfsim runtime are unavailable")
+        sys.path.insert(0, str(fixture))
+        self.addCleanup(sys.path.remove, str(fixture))
+        for name in ("contracts", "leaf"):
+            sys.modules.pop(name, None)
+            self.addCleanup(sys.modules.pop, name, None)
+        spec = importlib.util.spec_from_file_location("ac_typed_state_native", top)
+        if spec is None or spec.loader is None:
+            raise RuntimeError("cannot load typed state JIT fixture")
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[spec.name] = module
+        self.addCleanup(sys.modules.pop, spec.name, None)
+        spec.loader.exec_module(module)
+
+        with mock.patch.dict(
+            os.environ,
+            {
+                "ACIR_OPT": str(optimizer),
+                "ACIR_QUEUE_CXXGEN": str(generator),
+            },
+        ):
+            cpp = ac.jit(
+                module.typed_system, workspace=fixture, owner_generation=9
+            ).lower_cpp()
+        self.assertIn("gfsim::SimTable<Entry>", cpp)
+        self.assertIn("gfsim::StateReservation::forFieldsAt", cpp)
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "typed_state.cpp"
+            source.write_text(cpp, encoding="utf-8")
+            harness = Path(directory) / "harness.cpp"
+            executable = Path(directory) / "typed_state"
+            harness.write_text(
+                f'''#include "{source.name}"
+
+int main() {{
+  ac_generated::TypedSystem model;
+  gfsim::SimSystem system("typed_state");
+  auto rows = model.dispatch_rows();
+  constexpr auto offsets = ac_generated::TypedSystem::activation_offsets();
+  constexpr auto targets = ac_generated::TypedSystem::activation_targets();
+  constexpr auto closure_offsets =
+      ac_generated::TypedSystem::work_closure_offsets();
+  constexpr auto closure_targets =
+      ac_generated::TypedSystem::work_closure_targets();
+  if (!system.setDispatchTable(rows) ||
+      !system.setActivationPlan(offsets, targets) ||
+      !system.setWorkClosurePlan(closure_offsets, closure_targets) ||
+      !ac_generated::TypedSystem::schedule_initial_work(system) ||
+      !model.offer_write_request(
+          system,
+          ac_generated::WriteRequest{{
+              gfsim::UInt<7>{{127}}, gfsim::UInt<16>{{9}},
+              gfsim::UInt<32>{{0x1234}}, ac_generated::AccessKind::WRITE,
+              gfsim::UInt<1>{{1}}}}))
+    return 1;
+  if (system.run().classification != gfsim::TerminationClass::Completed)
+    return 2;
+  if (model.sink_1_values().size() != 1 ||
+      model.sink_1_values()[0].accepted != gfsim::UInt<1>{{1}})
+    return 3;
+  gfsim::SimSystem read_system("typed_state_read");
+  if (!read_system.setDispatchTable(rows) ||
+      !read_system.setActivationPlan(offsets, targets) ||
+      !read_system.setWorkClosurePlan(closure_offsets, closure_targets) ||
+      !ac_generated::TypedSystem::schedule_initial_work(read_system))
+    return 4;
+  if (!model.offer_read_request(
+          read_system,
+          ac_generated::ReadRequest{{gfsim::UInt<7>{{127}},
+                                     gfsim::UInt<16>{{9}}}}))
+    return 5;
+  if (read_system.run().classification != gfsim::TerminationClass::Completed)
+    return 6;
+  if (model.sink_0_values().size() != 1 ||
+      model.sink_0_values()[0].found != gfsim::UInt<1>{{1}} ||
+      model.sink_0_values()[0].value != gfsim::UInt<32>{{0x1234}})
+    return 7;
+  return 0;
+}}
+''',
+                encoding="utf-8",
+            )
+            completed = subprocess.run(
+                (
+                    "c++",
+                    "-std=c++20",
+                    "-I",
+                    str(REPOSITORY / "simulator/gfsim/include"),
+                    str(harness),
+                    str(runtime),
+                    "-o",
+                    str(executable),
+                ),
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(0, completed.returncode, completed.stderr)
+            ran = subprocess.run(
+                (str(executable),), text=True, capture_output=True, check=False
+            )
+        self.assertEqual(0, ran.returncode, ran.stderr)
+
+    def test_workspace_jit_rejects_external_code_and_detects_source_changes(
+        self,
+    ) -> None:
+        import agentic_circuit as ac
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            invalid = root / "invalid.py"
+            invalid.write_text(
+                "import os\n"
+                "import agentic_circuit as ac\n"
+                "@ac.system\n"
+                "def invalid(value: int) -> int:\n"
+                "    return value\n",
+                encoding="utf-8",
+            )
+            spec = importlib.util.spec_from_file_location("ac_invalid_closure", invalid)
+            if spec is None or spec.loader is None:
+                raise RuntimeError("cannot load invalid closure fixture")
+            module = importlib.util.module_from_spec(spec)
+            sys.modules[spec.name] = module
+            self.addCleanup(sys.modules.pop, spec.name, None)
+            spec.loader.exec_module(module)
+            with self.assertRaisesRegex(ValueError, "ACPY-JIT-006"):
+                ac.jit(module.invalid, workspace=root)
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "stable.py"
+            source.write_text(
+                "import agentic_circuit as ac\n"
+                "@ac.system\n"
+                "def stable(value: int) -> int:\n"
+                "    return value\n",
+                encoding="utf-8",
+            )
+            spec = importlib.util.spec_from_file_location("ac_stable_closure", source)
+            if spec is None or spec.loader is None:
+                raise RuntimeError("cannot load stable closure fixture")
+            module = importlib.util.module_from_spec(spec)
+            sys.modules[spec.name] = module
+            self.addCleanup(sys.modules.pop, spec.name, None)
+            spec.loader.exec_module(module)
+            specialization = ac.jit(module.stable, workspace=root)
+            source.write_text(
+                source.read_text(encoding="utf-8") + "# changed\n",
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(RuntimeError, "source closure changed"):
+                specialization.lower_acir()
 
     def test_checked_in_specialization_materializes_acir_and_cpp(self) -> None:
         path = (

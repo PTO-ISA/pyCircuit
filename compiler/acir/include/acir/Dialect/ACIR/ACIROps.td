@@ -100,6 +100,15 @@ def ACIR_VarArrayOp : ACIR_Op<"var.array", [Pure]> {
   }];
 }
 
+def ACIR_VarRecordOp : ACIR_Op<"var.record", [Pure]> {
+  let arguments = (ins Variadic<ACIR_VarType>:$values);
+  let results = (outs ACIR_VarType:$result);
+  let hasVerifier = 1;
+  let assemblyFormat = [{
+    $values attr-dict `:` type($values) `->` qualified(type($result))
+  }];
+}
+
 def ACIR_VarElementOp : ACIR_Op<"var.element", [Pure]> {
   let arguments = (ins ACIR_VarType:$aggregate, I64Attr:$index);
   let results = (outs ACIR_VarType:$result);

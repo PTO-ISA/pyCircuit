@@ -42,15 +42,19 @@ For decision-complete closure, run strict mode:
 
 | Level | When | Workflow / job | Commands |
 |-------|------|----------------|----------|
-| G0 | Every PR / push | `ci.yml` → `lint`, `build-linux`, `wheel-linux` | hygiene + toolchain build + wheel smoke |
-| G1 | Every PR / push | `ci.yml` → `gate-g1-linux` | `run_examples.sh` (semantic regressions **on**) |
-| G2 | Every PR / push (merge blocker) | `ci.yml` → `gate-g2-linux` | `run_sims.sh` |
-| G3 | Nightly + `workflow_dispatch` | `gates-nightly.yml` | `run_sims_nightly.sh` + Linx CPU C++ smoke |
+| Required G0 | Every PR / main push | `ci.yml` → `G0: Python Checks`, `G0: Agentic Python Checks` | Python contracts, repository checks, changed-file hooks, documentation |
+| Targeted author evidence | Native or semantic changes | Local current-checkout commands | Narrow ACIR lit, C++, gfsim or PYC parity case for the changed contract |
+| Release closure | Before package publication | Release workflow | Integrated toolchain, AC G0/G1/G2, examples, semantic regressions, simulations and packages |
+| G3 diagnostic | Nightly + `workflow_dispatch` | `gates-nightly.yml` | `run_sims_nightly.sh` |
 
-- CI sets `PYC_GATE_RUN_ID=${{ github.run_id }}-${{ github.run_attempt }}` (nightly prefix: `nightly-...`).
-- Gate logs are uploaded as Actions artifacts: `gate-logs-g1-*` / `gate-logs-g2-*` (7 days), `gate-logs-g3-*` (14 days).
-- Job Summary matrix is produced by `flows/tools/summarize_gate_run.py`.
-- macOS toolchain job is **not** required on ordinary PRs; it lives in `.github/workflows/ci-macos.yml` and runs on `main`/`develop` push, `workflow_dispatch`, or PR label `ci-macos` (separate from Linux `CI` so labeling does not skip required G1/G2).
+- Nightly sets `PYC_GATE_RUN_ID=nightly-${{ github.run_id }}-${{ github.run_attempt }}`
+  and uploads `gate-logs-g3-*` artifacts for 14 days.
+- The nightly Job Summary uses `flows/tools/summarize_gate_run.py`.
+- `.github/workflows/ci-macos.yml` runs on `workflow_dispatch` as an optional
+  platform diagnostic. It is not an ordinary PR merge gate.
+- See [Testing And Gates](../development/testing-and-gates.md) for the
+  authoritative change-to-evidence matrix. Consumer compatibility tests run in
+  their owning repositories against a pinned framework revision.
 
 ## Notes
 

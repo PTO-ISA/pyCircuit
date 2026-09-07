@@ -8,10 +8,13 @@
 #include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/APInt.h"
 #include "llvm/ADT/STLExtras.h"
+#include "llvm/ADT/StringExtras.h"
 #include "llvm/ADT/StringSwitch.h"
 #include "llvm/Support/MathExtras.h"
+#include "llvm/Support/raw_ostream.h"
 
 #include <algorithm>
+#include <cstdint>
 #include <functional>
 #include <limits>
 #include <optional>
@@ -85,6 +88,113 @@ std::optional<SmallVector<uint64_t, 8>> exactValues(
     return values;
   }
   return std::nullopt;
+}
+
+std::optional<std::pair<uint64_t, uint64_t>>
+constraintBounds(const ValueConstraint &constraint) {
+  if (constraint.kind == ValueConstraintKind::Constant)
+    return std::pair{constraint.values.front(), constraint.values.front()};
+  if (constraint.kind == ValueConstraintKind::FiniteSet &&
+      !constraint.values.empty()) {
+    auto [lower, upper] = std::minmax_element(constraint.values.begin(),
+                                              constraint.values.end());
+    return std::pair{*lower, *upper};
+  }
+  if (constraint.kind == ValueConstraintKind::ClosedInterval)
+    return std::pair{constraint.lower, constraint.upper};
+  return std::nullopt;
+}
+
+class StructuralValueInterner {
+public:
+  uint64_t identify(Value value) {
+    if (auto found = memo.find(value); found != memo.end())
+      return found->second;
+    const uint64_t opaque = nextIdentity++;
+    memo[value] = opaque;
+    if (isa<BlockArgument>(value))
+      return opaque;
+    Operation *operation = value.getDefiningOp();
+    if (!operation || operation->getNumRegions() != 0 ||
+        !isMemoryEffectFree(operation))
+      return opaque;
+
+    SmallVector<uint64_t> operands;
+    for (Value operand : operation->getOperands())
+      operands.push_back(identify(operand));
+    const bool commutative =
+        isa<ac::VarMulOp, ac::VarAndOp, ac::VarOrOp, ac::VarXorOp>(operation) ||
+        (isa<ac::VarCmpOp>(operation) &&
+         (cast<ac::VarCmpOp>(operation).getPredicate() == "eq" ||
+          cast<ac::VarCmpOp>(operation).getPredicate() == "ne"));
+    if (commutative)
+      llvm::sort(operands);
+
+    std::string key;
+    llvm::raw_string_ostream stream(key);
+    stream << operation->getName() << operation->getAttrDictionary() << ':'
+           << value.getType() << '#'
+           << cast<OpResult>(value).getResultNumber() << '(';
+    llvm::interleaveComma(operands, stream);
+    stream << ')';
+    auto position = interned.try_emplace(key, opaque).first;
+    const uint64_t identity = position->getValue();
+    memo[value] = identity;
+    return identity;
+  }
+
+private:
+  DenseMap<Value, uint64_t> memo;
+  llvm::StringMap<uint64_t> interned;
+  uint64_t nextIdentity = 1;
+};
+
+// Region bodies and operations without a no-effects contract stay opaque SSA
+// identities. Structural equality is sound only for explicitly pure,
+// regionless expressions; compact operand identities also keep shared DAGs
+// linear instead of recursively duplicating their printed subexpressions.
+
+struct BooleanLiteral {
+  uint64_t atom = 0;
+  bool negated = false;
+};
+
+bool constantFalse(Value value) {
+  auto constant = value.getDefiningOp<ac::VarConstantOp>();
+  auto integer = constant ? dyn_cast<IntegerAttr>(constant.getValue())
+                          : IntegerAttr();
+  return integer && integer.getValue().isZero();
+}
+
+void collectConjuncts(Value value, bool negated,
+                      StructuralValueInterner &interner,
+                      DenseSet<std::pair<Value, uint8_t>> &visited,
+                      SmallVectorImpl<BooleanLiteral> &literals) {
+  if (!visited.insert({value, static_cast<uint8_t>(negated)}).second)
+    return;
+  Operation *operation = value.getDefiningOp();
+  if (!negated && operation &&
+      isa<ac::VarMulOp, ac::VarAndOp>(operation) &&
+      integerWidth(value.getType()) == 1) {
+    literals.push_back({interner.identify(value), false});
+    collectConjuncts(operation->getOperand(0), false, interner, visited,
+                     literals);
+    collectConjuncts(operation->getOperand(1), false, interner, visited,
+                     literals);
+    return;
+  }
+  if (auto compare = dyn_cast_or_null<ac::VarCmpOp>(operation);
+      compare && compare.getPredicate() == "eq") {
+    if (constantFalse(compare.getLhs())) {
+      collectConjuncts(compare.getRhs(), !negated, interner, visited, literals);
+      return;
+    }
+    if (constantFalse(compare.getRhs())) {
+      collectConjuncts(compare.getLhs(), !negated, interner, visited, literals);
+      return;
+    }
+  }
+  literals.push_back({interner.identify(value), negated});
 }
 
 template <typename Fn>
@@ -318,12 +428,23 @@ ValueConstraint inferConstraint(
   if (auto choose = dyn_cast<ac::VarChooseOp>(operation)) {
     if (resultIndex == 1)
       return ValueConstraint::closedInterval(0, 1);
+    if (auto variable = SymbolTable::lookupNearestSymbolFrom<ac::VarDeclOp>(
+            choose, choose.getVariableAttr()))
+      if (auto shape = variable.getShapeAttr();
+          shape && shape.asArrayRef().size() == 1 &&
+          shape.asArrayRef().front() > 0)
+        return ValueConstraint::closedInterval(
+            0, static_cast<uint64_t>(shape.asArrayRef().front() - 1));
     if (auto maskWidth = integerWidth(choose.getMask().getType()))
       return ValueConstraint::closedInterval(0, *maskWidth - 1);
   }
   if (auto choose = dyn_cast<ac::TableChooseOp>(operation)) {
     if (resultIndex == 1)
       return ValueConstraint::closedInterval(0, 1);
+    if (auto table = SymbolTable::lookupNearestSymbolFrom<ac::TableOp>(
+            choose, choose.getTableAttr());
+        table && table.getEntries() > 0)
+      return ValueConstraint::closedInterval(0, table.getEntries() - 1);
     if (auto maskWidth = integerWidth(choose.getMask().getType()))
       return ValueConstraint::closedInterval(0, *maskWidth - 1);
   }
@@ -512,6 +633,20 @@ bool ValueConstraint::provesWithin(uint64_t requestedLower,
   return lower >= requestedLower && upper <= requestedUpper;
 }
 
+bool ValueConstraint::provesDisjoint(const ValueConstraint &other) const {
+  auto leftValues = exactValues(*this);
+  auto rightValues = exactValues(other);
+  if (leftValues && rightValues)
+    return llvm::none_of(*leftValues, [&](uint64_t value) {
+      return llvm::is_contained(*rightValues, value);
+    });
+  auto leftBounds = constraintBounds(*this);
+  auto rightBounds = constraintBounds(other);
+  return leftBounds && rightBounds &&
+         (leftBounds->second < rightBounds->first ||
+          rightBounds->second < leftBounds->first);
+}
+
 void ValueConstraint::print(llvm::raw_ostream &os) const {
   switch (kind) {
   case ValueConstraintKind::Unknown:
@@ -590,6 +725,29 @@ bool ACDataFlowAnalyzer::provesWithin(Value value, uint64_t lower,
   return lookupConstraint(value).provesWithin(lower, upper);
 }
 
+bool ACDataFlowAnalyzer::provesDisjoint(Value left, Value right) const {
+  return lookupConstraint(left).provesDisjoint(lookupConstraint(right));
+}
+
+bool ACDataFlowAnalyzer::provesMutuallyExclusive(Value left,
+                                                 Value right) const {
+  if (lookupConstraint(left) == ValueConstraint::constant(0) ||
+      lookupConstraint(right) == ValueConstraint::constant(0))
+    return true;
+  StructuralValueInterner interner;
+  SmallVector<BooleanLiteral> leftLiterals;
+  SmallVector<BooleanLiteral> rightLiterals;
+  DenseSet<std::pair<Value, uint8_t>> leftVisited;
+  DenseSet<std::pair<Value, uint8_t>> rightVisited;
+  collectConjuncts(left, false, interner, leftVisited, leftLiterals);
+  collectConjuncts(right, false, interner, rightVisited, rightLiterals);
+  return llvm::any_of(leftLiterals, [&](const BooleanLiteral &lhs) {
+    return llvm::any_of(rightLiterals, [&](const BooleanLiteral &rhs) {
+      return lhs.atom == rhs.atom && lhs.negated != rhs.negated;
+    });
+  });
+}
+
 VariableProperties
 ACDataFlowAnalyzer::lookupOwnedState(Operation *operation) const {
   if (auto variable = dyn_cast<ac::VarDeclOp>(operation))
@@ -637,6 +795,7 @@ ACDataFlowAnalyzer::stateFootprints(Operation *scope) const {
       footprints.push_back(std::move(footprint));
       return;
     }
+    footprint.index = index;
     VariableProperties indexProperties = lookup(index);
     if ((indexProperties.lifetime != VariableLifetime::Static &&
          indexProperties.lifetime != VariableLifetime::Temporary) ||
@@ -659,11 +818,14 @@ ACDataFlowAnalyzer::stateSnapshots(Operation *scope) const {
     else if (auto condition = dyn_cast<ac::FiringConditionOp>(operation))
       candidate = condition.getCondition();
   });
-  llvm::SmallVector<Value> predicates;
-  llvm::DenseSet<Value> seenPredicates;
+  llvm::SmallVector<std::pair<Value, Value>> roots;
+  llvm::DenseSet<std::pair<Value, Value>> seenRoots;
+  auto addRoot = [&](Value value, Value predicate) {
+    if (value && predicate && seenRoots.insert({value, predicate}).second)
+      roots.push_back({value, predicate});
+  };
   if (candidate) {
-    predicates.push_back(candidate);
-    seenPredicates.insert(candidate);
+    addRoot(candidate, candidate);
   }
   scope->walk([&](Operation *operation) {
     Value predicate;
@@ -673,8 +835,13 @@ ACDataFlowAnalyzer::stateSnapshots(Operation *scope) const {
       predicate = output.getWhen();
     else if (auto output = dyn_cast<ac::FiringOutputOp>(operation))
       predicate = output.getWhen();
-    if (predicate && seenPredicates.insert(predicate).second)
-      predicates.push_back(predicate);
+    addRoot(predicate, predicate);
+    if (auto returned = dyn_cast<ac::RuleReturnOp>(operation))
+      for (Value value : returned.getValues())
+        addRoot(value, candidate);
+    else if (auto yielded = dyn_cast<ac::FiringYieldOp>(operation))
+      for (Value value : yielded.getValues())
+        addRoot(value, candidate);
   });
 
   llvm::SmallVector<StateSnapshotFootprint> snapshots;
@@ -687,6 +854,17 @@ ACDataFlowAnalyzer::stateSnapshots(Operation *scope) const {
   auto addSnapshot = [&](StringRef resource, Value index, Value source,
                          StringRef indexKind, Value predicate,
                          llvm::SmallVector<std::string> fields) {
+    auto existing = llvm::find_if(snapshots, [&](const auto &candidate) {
+      return candidate.resource == resource && candidate.index == index &&
+             candidate.source == source && candidate.indexKind == indexKind &&
+             candidate.predicate == predicate;
+    });
+    if (existing != snapshots.end()) {
+      for (const std::string &field : fields)
+        if (!llvm::is_contained(existing->fields, field))
+          existing->fields.push_back(field);
+      return;
+    }
     if (indexKind == "all" && !fields.empty()) {
       llvm::erase_if(snapshots, [&](const StateSnapshotFootprint &candidate) {
         return candidate.resource == resource &&
@@ -703,17 +881,6 @@ ACDataFlowAnalyzer::stateSnapshots(Operation *scope) const {
                })) {
       return;
     }
-    auto existing = llvm::find_if(snapshots, [&](const auto &candidate) {
-      return candidate.resource == resource && candidate.index == index &&
-             candidate.source == source && candidate.indexKind == indexKind &&
-             candidate.predicate == predicate;
-    });
-    if (existing != snapshots.end()) {
-      for (const std::string &field : fields)
-        if (!llvm::is_contained(existing->fields, field))
-          existing->fields.push_back(field);
-      return;
-    }
     snapshots.push_back(
         {resource.str(), index, source, indexKind.str(), predicate,
          std::vector<std::string>(fields.begin(), fields.end())});
@@ -727,7 +894,7 @@ ACDataFlowAnalyzer::stateSnapshots(Operation *scope) const {
     return index.getDefiningOp<ac::VarConstantOp>() ? "static" : "dynamic";
   };
 
-  for (Value predicate : predicates) {
+  for (auto [root, predicate] : roots) {
     std::function<void(Value, Value, llvm::SmallVector<std::string>)> collect =
         [&](Value value, Value setSource,
             llvm::SmallVector<std::string> requestedFields) {
@@ -799,7 +966,7 @@ ACDataFlowAnalyzer::stateSnapshots(Operation *scope) const {
               for (Value operand : block.getTerminator()->getOperands())
                 collect(operand, setSource, {});
         };
-    collect(predicate, {}, {});
+    collect(root, {}, {});
   }
   return snapshots;
 }

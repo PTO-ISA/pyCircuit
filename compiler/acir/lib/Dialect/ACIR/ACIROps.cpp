@@ -72,20 +72,6 @@ static bool presenceImpliesCandidate(Value present, Value candidate) {
   return present == candidate || constantVarBool(candidate) == true;
 }
 
-static bool isBooleanComplement(Value candidate, Value base) {
-  auto compare = candidate.getDefiningOp<VarCmpOp>();
-  if (!compare || compare.getPredicate() != "eq")
-    return false;
-  return (compare.getLhs() == base &&
-          constantVarBool(compare.getRhs()) == false) ||
-         (compare.getRhs() == base &&
-          constantVarBool(compare.getLhs()) == false);
-}
-
-static bool areBooleanComplements(Value left, Value right) {
-  return isBooleanComplement(left, right) || isBooleanComplement(right, left);
-}
-
 static LogicalResult verifyActivationEvidence(Operation *operation,
                                               ValueRange inputs,
                                               ValueRange outputs, Region &body,
@@ -494,6 +480,7 @@ LogicalResult RuleOp::verify() {
   }
   SmallVector<TableProposeOp> proposals;
   SmallVector<TableGetOp> tableReads;
+  bool hasVariableWrite = false;
   unsigned conditions = 0;
   Value conditionValue;
   for (Operation &operation : block.without_terminator())
@@ -501,6 +488,8 @@ LogicalResult RuleOp::verify() {
       proposals.push_back(proposal);
     } else if (auto get = dyn_cast<TableGetOp>(operation)) {
       tableReads.push_back(get);
+    } else if (isa<VarAssignOp, VarAssignElementOp>(operation)) {
+      hasVariableWrite = true;
     } else if (auto condition = dyn_cast<RuleConditionOp>(operation)) {
       ++conditions;
       conditionValue = condition.getCondition();
@@ -539,7 +528,6 @@ LogicalResult RuleOp::verify() {
         return output.emitOpError(
             "optional output presence requires one input and a true candidate");
     }
-    SmallVector<Value> divergentPresences;
     for (TableProposeOp proposal : proposals) {
       if (!proposal.getWhen() ||
           !presenceImpliesCandidate(proposal.getWhen(), conditionValue))
@@ -549,34 +537,20 @@ LogicalResult RuleOp::verify() {
         if (getInputs().size() != 1)
           return proposal.emitOpError(
               "conditional-effect presence requires one input");
-        if (!llvm::is_contained(divergentPresences, proposal.getWhen())) {
-          if (divergentPresences.size() >= 2 ||
-              (!divergentPresences.empty() &&
-               !areBooleanComplements(divergentPresences.front(),
-                                      proposal.getWhen())))
-            return proposal.emitOpError(
-                "conditional-effect presences must share one predicate or "
-                "one complementary pair");
-          divergentPresences.push_back(proposal.getWhen());
-        }
       }
     }
   }
-  llvm::StringSet<> proposalOwners;
-  for (TableProposeOp proposal : proposals)
-    if (!proposalOwners.insert(proposal.getTable()).second)
-      return proposal.emitOpError(
-          "first multi-state rule slice permits one proposal per owner");
-  if (proposals.empty() && !tableReads.empty())
-    return emitOpError("Table observation requires a stateful Table proposal");
   for (TableGetOp read : tableReads)
     if (TableOp table = resolveTable(read, read.getTableAttr());
         !table || failed(verifyStaticallySafeRuleTableIndex(read, table,
                                                             read.getIndex()))) {
       return failure();
     }
-  if (getInputs().empty() && getOutputs().empty() && proposals.empty())
+  if (getInputs().empty() && getOutputs().empty() && proposals.empty() &&
+      !hasVariableWrite)
     return emitOpError("rule without Queue endpoints must update state");
+  if (getOutputs().empty() && proposals.empty() && !hasVariableWrite)
+    return emitOpError("outputless rule must update state");
   auto yield = dyn_cast<RuleReturnOp>(block.getTerminator());
   if (!yield || yield.getValues().size() != getOutputs().size())
     return emitOpError("body return count must match output Queue count");
@@ -659,17 +633,8 @@ LogicalResult StateSnapshotOp::verify() {
     return emitOpError() << "unresolved table " << getTable();
   if (!tableVisibleFrom(*this, table))
     return emitOpError("table is outside the snapshot scope ancestry");
-  if (table.getEntries() > 64)
-    return emitOpError("state snapshot supports at most 64 entries");
   if (failed(verifyTableFields(*this, table, getReadFields(), "read")))
     return failure();
-  if (!tableWriteFieldsAreComplete(*this, table, getReadFields())) {
-    FailureOr<uint64_t> fieldCount = tableEntryFieldCount(*this, table);
-    if (failed(fieldCount) ||
-        static_cast<uint64_t>(table.getEntries()) * *fieldCount > 64)
-      return emitOpError(
-          "field-qualified snapshot exceeds the 64-bit entry/field relation");
-  }
   if (getIndexKind() == RuleIndexKind::All) {
     if (getIndex())
       return emitOpError("all-entry snapshot must not carry an index");
@@ -696,17 +661,12 @@ LogicalResult StateSnapshotSetOp::verify() {
     return emitOpError() << "unresolved table " << getTable();
   if (!tableVisibleFrom(*this, table))
     return emitOpError("table is outside the snapshot-set scope ancestry");
-  if (table.getEntries() > 64)
-    return emitOpError("snapshot-set target supports at most 64 entries");
   if (failed(verifyTableFields(*this, table, getReadFields(), "read")))
     return failure();
   if (!tableWriteFieldsAreComplete(*this, table, getReadFields())) {
     FailureOr<uint64_t> fieldCount = tableEntryFieldCount(*this, table);
-    if (failed(fieldCount) ||
-        static_cast<uint64_t>(table.getEntries()) * *fieldCount > 64)
-      return emitOpError(
-          "field-qualified snapshot-set exceeds the 64-bit entry/field "
-          "relation");
+    if (failed(fieldCount) || *fieldCount > 64)
+      return emitOpError("field-qualified snapshot-set has too many fields");
   }
   Region *sourceRegion = nullptr;
   if (auto match = getSource().getDefiningOp<TableMatchOp>()) {
@@ -1143,6 +1103,8 @@ LogicalResult FiringOp::verify() {
     }
   if (getInputs().empty() && getOutputs().empty() && proposals.empty())
     return emitOpError("firing without Queue endpoints must update state");
+  if (getOutputs().empty() && proposals.empty())
+    return emitOpError("outputless firing must update state");
   if (conditions.size() > 1)
     return emitOpError("permits at most one functional condition");
   SmallVector<FiringOutputOp> outputPaths;
@@ -1172,7 +1134,6 @@ LogicalResult FiringOp::verify() {
         return output.emitOpError(
             "optional output presence requires one input and a true candidate");
     }
-    SmallVector<Value> divergentPresences;
     for (TableProposeOp proposal : proposals) {
       if (!proposal.getWhen() ||
           !presenceImpliesCandidate(proposal.getWhen(), condition))
@@ -1182,24 +1143,9 @@ LogicalResult FiringOp::verify() {
         if (getInputs().size() != 1)
           return proposal.emitOpError(
               "conditional-effect presence requires one input");
-        if (!llvm::is_contained(divergentPresences, proposal.getWhen())) {
-          if (divergentPresences.size() >= 2 ||
-              (!divergentPresences.empty() &&
-               !areBooleanComplements(divergentPresences.front(),
-                                      proposal.getWhen())))
-            return proposal.emitOpError(
-                "conditional-effect presences must share one predicate or "
-                "one complementary pair");
-          divergentPresences.push_back(proposal.getWhen());
-        }
       }
     }
   }
-  llvm::StringSet<> proposalOwners;
-  for (TableProposeOp proposal : proposals)
-    if (!proposalOwners.insert(proposal.getTable()).second)
-      return proposal.emitOpError(
-          "first multi-state firing slice permits one proposal per owner");
   auto priority = (*this)->getAttrOfType<IntegerAttr>("ac.rule_priority");
   auto footprints = (*this)->getAttrOfType<ArrayAttr>("ac.rule_footprints");
   const bool requiresInferredSchedule =
@@ -1217,8 +1163,10 @@ LogicalResult FiringOp::verify() {
         stateOperations.push_back(operation);
     });
     if (footprints.size() != stateOperations.size())
-      return emitOpError(
-          "inferred footprint count must match state operations");
+      return emitOpError()
+             << "inferred footprint count must match state operations "
+             << "(footprints=" << footprints.size()
+             << ", operations=" << stateOperations.size() << ")";
     for (auto [rawFootprint, operation] :
          llvm::zip_equal(footprints, stateOperations)) {
       auto footprint = dyn_cast<DictionaryAttr>(rawFootprint);
@@ -1896,6 +1844,22 @@ LogicalResult VarArrayOp::verify() {
   return success();
 }
 
+LogicalResult VarRecordOp::verify() {
+  auto result = cast<VarType>(getResult().getType());
+  Operation *declaration = recordDecl(*this, result.getElementType());
+  if (!declaration)
+    return emitOpError("result must be a record-like Var type");
+  ArrayAttr fields = declarationFields(declaration);
+  if (!fields || fields.empty() || fields.size() != getValues().size())
+    return emitOpError("record fields must match the non-empty operand list");
+  for (auto [value, index] : llvm::zip_equal(
+           getValues(), llvm::seq<unsigned>(0, fields.size())))
+    if (value.getType() !=
+        VarType::get(getContext(), fieldType(declaration, index)))
+      return emitOpError("record operand types must match declaration order");
+  return success();
+}
+
 LogicalResult VarElementOp::verify() {
   Type aggregate = cast<VarType>(getAggregate().getType()).getElementType();
   Type expected;
@@ -1992,8 +1956,8 @@ static LogicalResult verifyVarElementAccess(Operation *operation,
   const int64_t entries = shape.asArrayRef().front();
   if (auto constant = index.getDefiningOp<VarConstantOp>()) {
     auto value = dyn_cast<IntegerAttr>(constant.getValue());
-    if (!value || value.getValue().isNegative() ||
-        value.getValue().uge(static_cast<uint64_t>(entries)))
+    if (!value ||
+        value.getValue().getZExtValue() >= static_cast<uint64_t>(entries))
       return operation->emitOpError("constant element index is out of range");
     Type expected =
         VarType::get(operation->getContext(), variable.getValueType());
@@ -2057,17 +2021,31 @@ resolveVarCollection(Operation *operation, FlatSymbolRefAttr variableRef) {
   return std::make_pair(variable, shape.asArrayRef().front());
 }
 
+static bool isCandidateMaskType(Type type, int64_t entries) {
+  auto variable = dyn_cast<VarType>(type);
+  if (!variable || entries <= 0)
+    return false;
+  Type element = variable.getElementType();
+  if (entries <= 64) {
+    auto integer = dyn_cast<IntegerType>(element);
+    return integer && integer.getWidth() == static_cast<unsigned>(entries);
+  }
+  auto words = dyn_cast<ValueArrayType>(element);
+  auto word = words ? dyn_cast<IntegerType>(words.getElementType())
+                    : IntegerType();
+  return words && word && word.getWidth() == 64 &&
+         words.getLength() == (entries + 63) / 64;
+}
+
 LogicalResult VarMatchOp::verify() {
   auto collection = resolveVarCollection(*this, getVariableAttr());
   if (failed(collection))
     return failure();
   VarDeclOp variable = collection->first;
   const int64_t entries = collection->second;
-  if (entries <= 0 || entries > 64)
-    return emitOpError("match domain must contain 1..64 elements");
-  if (getMask().getType() !=
-      VarType::get(getContext(), IntegerType::get(getContext(), entries)))
-    return emitOpError("mask width must equal the ac.var domain");
+  if (!isCandidateMaskType(getMask().getType(), entries))
+    return emitOpError(
+        "mask must exactly cover the ac.var domain in 64-bit words");
   if (!getPredicate().hasOneBlock())
     return emitOpError("predicate must contain exactly one block");
   Block &block = getPredicate().front();
@@ -2092,12 +2070,9 @@ LogicalResult VarChooseOp::verify() {
     return failure();
   VarDeclOp variable = collection->first;
   const int64_t entries = collection->second;
-  if (entries <= 0 || entries > 64)
-    return emitOpError("choose domain must contain 1..64 elements");
-  auto mask = dyn_cast<IntegerType>(
-      cast<VarType>(getMask().getType()).getElementType());
-  if (!mask || mask.getWidth() != static_cast<unsigned>(entries))
-    return emitOpError("candidate mask width must equal the ac.var domain");
+  if (!isCandidateMaskType(getMask().getType(), entries))
+    return emitOpError(
+        "candidate mask must exactly cover the ac.var domain in 64-bit words");
   auto match = getMask().getDefiningOp<VarMatchOp>();
   if (!match)
     return emitOpError(
@@ -2719,21 +2694,10 @@ LogicalResult MemoryRequestOp::verify() {
 }
 
 static bool isTableEntryType(Operation *anchor, Type type) {
+  (void)anchor;
   if (auto integer = dyn_cast<IntegerType>(type))
     return integer.getWidth() > 0 && integer.getWidth() <= 64;
-  auto structure = dyn_cast<StructType>(type);
-  if (!structure)
-    return false;
-  Operation *declaration = recordDecl(anchor, structure);
-  if (!declaration)
-    return false;
-  return llvm::all_of(declarationFields(declaration), [](Attribute rawField) {
-    auto field = dyn_cast<DictionaryAttr>(rawField);
-    auto type = field ? field.getAs<TypeAttr>("type") : TypeAttr();
-    auto integer =
-        type ? dyn_cast<IntegerType>(type.getValue()) : IntegerType();
-    return integer && integer.getWidth() > 0 && integer.getWidth() <= 64;
-  });
+  return isa<StructType>(type) && isImmutablePayloadType(type);
 }
 
 static FailureOr<uint64_t> tableEntryFieldCount(Operation *endpoint,
@@ -2785,7 +2749,7 @@ static LogicalResult verifyTableFields(Operation *endpoint, TableOp table,
       return endpoint->emitOpError()
              << "unknown " << kind << " field '" << field.getValue() << "'";
     unsigned ordinal = ordinals.lookup(field.getValue());
-    if (previousOrdinal && ordinal <= *previousOrdinal)
+    if (kind != "read" && previousOrdinal && ordinal <= *previousOrdinal)
       return endpoint->emitOpError()
              << listName << " must follow Table Entry declaration order";
     previousOrdinal = ordinal;
@@ -2860,9 +2824,8 @@ static LogicalResult verifyTableIndex(Operation *operation, TableOp table,
   auto constant = index.getDefiningOp<VarConstantOp>();
   auto value =
       constant ? dyn_cast<IntegerAttr>(constant.getValueAttr()) : IntegerAttr();
-  if (value &&
-      (value.getValue().isNegative() ||
-       value.getValue().uge(static_cast<uint64_t>(table.getEntries()))))
+  if (value && value.getValue().getZExtValue() >=
+                   static_cast<uint64_t>(table.getEntries()))
     return operation->emitOpError("static table index is out of range");
   return success();
 }
@@ -2875,8 +2838,8 @@ static LogicalResult verifyStaticallySafeRuleTableIndex(Operation *operation,
 
 LogicalResult TableOp::verify() {
   if (!isTableEntryType(*this, getEntryType()))
-    return emitOpError("entry type must be bool, a <=64-bit integer, or a flat "
-                       "integer struct");
+    return emitOpError("entry type must be a <=64-bit integer or an immutable "
+                       "recursive struct");
   if (getEntries() <= 0)
     return emitOpError("entries must be positive");
   if (getInit() != 0)
@@ -3243,12 +3206,9 @@ LogicalResult TableMatchOp::verify() {
     return emitOpError() << "unresolved table " << getTable();
   if (!tableVisibleFrom(*this, table))
     return emitOpError("table is outside the match scope ancestry");
-  if (table.getEntries() <= 0 || table.getEntries() > 64)
-    return emitOpError("match domain must contain 1..64 entries");
-  if (getMask().getType() !=
-      VarType::get(getContext(),
-                   IntegerType::get(getContext(), table.getEntries())))
-    return emitOpError("mask width must equal the Table domain");
+  if (!isCandidateMaskType(getMask().getType(), table.getEntries()))
+    return emitOpError(
+        "mask must exactly cover the Table domain in 64-bit words");
   if (!getPredicate().hasOneBlock())
     return emitOpError("predicate must contain exactly one block");
   Block &block = getPredicate().front();
@@ -3273,12 +3233,9 @@ LogicalResult TableChooseOp::verify() {
     return emitOpError() << "unresolved table " << getTable();
   if (!tableVisibleFrom(*this, table))
     return emitOpError("table is outside the choose scope ancestry");
-  if (table.getEntries() <= 0 || table.getEntries() > 64)
-    return emitOpError("choose domain must contain 1..64 entries");
-  auto mask = dyn_cast<IntegerType>(
-      cast<VarType>(getMask().getType()).getElementType());
-  if (!mask || mask.getWidth() != static_cast<unsigned>(table.getEntries()))
-    return emitOpError("candidate mask width must equal the Table domain");
+  if (!isCandidateMaskType(getMask().getType(), table.getEntries()))
+    return emitOpError(
+        "candidate mask must exactly cover the Table domain in 64-bit words");
   auto match = getMask().getDefiningOp<TableMatchOp>();
   if (!match)
     return emitOpError("candidate mask must be produced directly by "

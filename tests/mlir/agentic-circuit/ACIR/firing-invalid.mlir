@@ -7,7 +7,6 @@
 // RUN: %not %acir_opt %t/optional-output-candidate.mlir 2>&1 | %FileCheck %s --check-prefix=OPTIONAL-OUTPUT
 // RUN: %not %acir_opt %t/presence-does-not-imply.mlir 2>&1 | %FileCheck %s --check-prefix=IMPLIES
 // RUN: %not %acir_opt %t/zero-input-divergence.mlir 2>&1 | %FileCheck %s --check-prefix=DIVERGENCE
-// RUN: %not %acir_opt %t/multiple-effect-predicates.mlir 2>&1 | %FileCheck %s --check-prefix=DIVERGENCE
 // RUN: %not %acir_opt --pass-pipeline='builtin.module(ac-verify-rule-closure)' %t/missing-snapshot.mlir 2>&1 | %FileCheck %s --check-prefix=SNAPSHOT
 // RUN: %not %acir_opt --pass-pipeline='builtin.module(ac-verify-rule-closure)' %t/extra-snapshot.mlir 2>&1 | %FileCheck %s --check-prefix=SNAPSHOT
 // RUN: %not %acir_opt --verify-each=false --pass-pipeline='builtin.module(ac-verify-rule-closure,ac-freeze-topology)' %t/forged-contract.mlir 2>&1 | %FileCheck %s --check-prefix=FORGED
@@ -122,26 +121,6 @@ module attributes {ac.contract_epoch = "0.5"} {
   } : () -> ()
 }
 // DIVERGENCE: conditional-effect presence
-
-//--- multiple-effect-predicates.mlir
-module attributes {ac.contract_epoch = "0.5"} {
-  ac.table @left entry i8 entries 1 init 0 owner "/" stable_id "table/left"
-  ac.table @right entry i8 entries 1 init 0 owner "/" stable_id "table/right"
-  %input = "builtin.unrealized_conversion_cast"() : () -> !ac.queue<i8>
-  ac.firing %input depths [] latencies [] stable_id "bad" domain "cycle" {
-  ^body(%item: !ac.var<i8>):
-    %index = ac.var.constant false as !ac.var<i1>
-    %candidate = ac.var.constant true as !ac.var<i1>
-    %left_present = ac.var.constant false as !ac.var<i1>
-    %right_present = ac.var.constant false as !ac.var<i1>
-    ac.firing.condition %candidate : !ac.var<i1>
-    ac.table.propose @left[%index] = %item when %left_present : !ac.var<i1>
-        mode "replace" write_fields ["$entry"] : !ac.var<i1>, !ac.var<i8>
-    ac.table.propose @right[%index] = %item when %right_present : !ac.var<i1>
-        mode "replace" write_fields ["$entry"] : !ac.var<i1>, !ac.var<i8>
-    ac.firing.yield
-  } : (!ac.queue<i8>) -> ()
-}
 
 //--- forged-contract.mlir
 module attributes {ac.contract_epoch = "0.5", ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle", ac.system = "forged"} {

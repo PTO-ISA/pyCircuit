@@ -324,10 +324,15 @@ struct AllocateWithCursor {
     const auto *cursor = std::get<0>(tables);
     const auto *entries = std::get<1>(tables);
     const size_t index = cursor->at(0) % entries->size();
+    const size_t following = (index + 1) % entries->size();
     const uint8_t next = static_cast<uint8_t>((index + 1) % entries->size());
     RobEntry entry{true, false, request.kind, request.tag, request.value};
-    return Plan{{std::optional<std::pair<size_t, uint8_t>>{{0, next}},
-                 std::optional<std::pair<size_t, RobEntry>>{{index, entry}}},
+    RobEntry followingEntry{true, false, request.kind,
+                            static_cast<uint8_t>(request.tag + 1),
+                            static_cast<uint16_t>(request.value + 1)};
+    return Plan{{std::vector<std::pair<size_t, uint8_t>>{{0, next}},
+                 std::vector<std::pair<size_t, RobEntry>>{
+                     {index, entry}, {following, followingEntry}}},
                 {std::optional<size_t>{index}}};
   }
 };
@@ -340,12 +345,15 @@ struct ConditionalAllocateWithCursor {
       std::tuple<const SimTable<uint8_t> *, const SimTable<RobEntry> *> tables,
       const AllocateRequest &request) const {
     if (request.tag == 0)
-      return Plan{{std::nullopt, std::nullopt}, {}, {uint64_t{1}, uint64_t{1}}};
+      return Plan{{std::vector<std::pair<size_t, uint8_t>>{},
+                   std::vector<std::pair<size_t, RobEntry>>{}},
+                  {},
+                  {uint64_t{1}, uint64_t{1}}};
     const size_t index =
         std::get<0>(tables)->at(0) % std::get<1>(tables)->size();
     return Plan{
-        {std::optional<std::pair<size_t, uint8_t>>{{0, 1}},
-         std::optional<std::pair<size_t, RobEntry>>{
+        {std::vector<std::pair<size_t, uint8_t>>{{0, 1}},
+         std::vector<std::pair<size_t, RobEntry>>{
              {index, {true, false, request.kind, request.tag, request.value}}}},
         {},
         {uint64_t{1}, uint64_t{1} << index}};
@@ -899,6 +907,45 @@ TEST(QueueBlocksTest, FieldSnapshotsConflictOnlyWithOverlappingWrites) {
   table.cancelPreparedWrite(108);
 }
 
+TEST(QueueBlocksTest, SparseStateReservationsCoverIndicesBeyondSixtyThree) {
+  SimTable<FieldEntry> table("table", 1, nullptr, 128);
+  constexpr std::array<size_t, 1> index96{96};
+  constexpr std::array<size_t, 1> index126{126};
+  constexpr std::array<size_t, 1> index127{127};
+  constexpr std::span<const size_t> noIndices;
+  constexpr StateReservation snapshot =
+      StateReservation::forFieldsAt(127, uint64_t{1} << 1, 2) |
+      StateReservation::forEntry(96);
+
+  EXPECT_TRUE(snapshot.readsWholeEntry(96));
+  EXPECT_TRUE(snapshot.readsField(127, 1));
+  EXPECT_FALSE(snapshot.readsField(127, 0));
+  EXPECT_TRUE(snapshot.within(128));
+  EXPECT_FALSE(StateReservation::forEntry(128).within(128));
+  EXPECT_FALSE(
+      StateReservation::forFieldsAt(128, uint64_t{1}, 2).within(128));
+  ASSERT_TRUE(table.prepareTransaction(100, 10, snapshot, noIndices,
+                                       MergeReady::fields));
+  EXPECT_FALSE(table.prepareTransaction(
+      105, 15, StateReservation::forEntry(128), noIndices,
+      MergeReady::fields));
+  EXPECT_TRUE(table.prepareTransaction(101, 11, 0, index126,
+                                       MergeReady::fields,
+                                       TableWriteMode::FieldMerge));
+  EXPECT_TRUE(table.prepareTransaction(102, 12, 0, index127,
+                                       MergeValid::fields,
+                                       TableWriteMode::FieldMerge));
+  EXPECT_FALSE(table.prepareTransaction(103, 13, 0, index127,
+                                        MergeReady::fields,
+                                        TableWriteMode::FieldMerge));
+  EXPECT_FALSE(table.prepareTransaction(
+      104, 14, 0, index96, TableFullEntryMerge<FieldEntry>::fields,
+      TableWriteMode::Replace));
+  table.cancelPreparedWrite(100);
+  table.cancelPreparedWrite(101);
+  table.cancelPreparedWrite(102);
+}
+
 TEST(QueueBlocksTest, MaskedTableWriteCommitsSelectedOldStateAtomically) {
   SimTable<uint16_t> table("table", 1, nullptr, 4);
   for (size_t index = 0; index < table.size(); ++index) {
@@ -1386,7 +1433,8 @@ TEST(QueueBlocksTest,
   EXPECT_EQ(table.at(0).value, 22);
 }
 
-TEST(QueueBlocksTest, MultiStateTransitionCommitsCursorEntryAndQueuesTogether) {
+TEST(QueueBlocksTest,
+     MultiStateTransitionCommitsOwnerLocalWriteBatchAndQueuesTogether) {
   SimTable<uint8_t> cursor("tail", 1, nullptr, 1);
   SimTable<RobEntry> entries("entries", 2, nullptr, 2);
   SimQueue<AllocateRequest> input("allocate", 3, nullptr, 1);
@@ -1409,6 +1457,7 @@ TEST(QueueBlocksTest, MultiStateTransitionCommitsCursorEntryAndQueuesTogether) {
   EXPECT_FALSE(transition.hasPendingCommit());
   EXPECT_EQ(cursor.at(0), 0);
   EXPECT_FALSE(entries.at(0).valid);
+  EXPECT_FALSE(entries.at(1).valid);
   EXPECT_EQ(input.committedSize(), 1u);
 
   ASSERT_TRUE(output.proposePop());
@@ -1419,6 +1468,7 @@ TEST(QueueBlocksTest, MultiStateTransitionCommitsCursorEntryAndQueuesTogether) {
   ASSERT_TRUE(transition.hasPendingCommit());
   EXPECT_EQ(cursor.at(0), 0);
   EXPECT_FALSE(entries.at(0).valid);
+  EXPECT_FALSE(entries.at(1).valid);
   input.doXfer({2, 0});
   output.doXfer({2, 0});
   transition.doXfer({2, 0});
@@ -1429,6 +1479,9 @@ TEST(QueueBlocksTest, MultiStateTransitionCommitsCursorEntryAndQueuesTogether) {
   EXPECT_EQ(cursor.at(0), 1);
   EXPECT_TRUE(entries.at(0).valid);
   EXPECT_EQ(entries.at(0).value, 42);
+  EXPECT_TRUE(entries.at(1).valid);
+  EXPECT_EQ(entries.at(1).tag, 8);
+  EXPECT_EQ(entries.at(1).value, 43);
   ASSERT_NE(output.peek(), nullptr);
   EXPECT_EQ(*output.peek(), 0u);
 }
@@ -1448,7 +1501,7 @@ TEST(QueueBlocksTest, MultiStateTransitionCancelsEarlierOwnerOnLaterConflict) {
                  {TableWriteMode::Replace, TableWriteMode::Replace});
   ASSERT_TRUE(input.proposePush({1, 7, 42}));
   input.doXfer({0, 0});
-  ASSERT_TRUE(entries.proposeWrite(9, 0, RobEntry{true, false, 0, 0, 99},
+  ASSERT_TRUE(entries.proposeWrite(9, 1, RobEntry{true, false, 0, 0, 99},
                                    EntryMerge::fields, EntryMerge{},
                                    TableWriteMode::Replace));
 
@@ -1463,8 +1516,10 @@ TEST(QueueBlocksTest, MultiStateTransitionCancelsEarlierOwnerOnLaterConflict) {
   EXPECT_EQ(input.committedSize(), 1u);
   EXPECT_EQ(cursor.at(0), 0);
   EXPECT_FALSE(entries.at(0).valid);
+  EXPECT_FALSE(entries.at(1).valid);
   entries.commitWrite();
-  EXPECT_EQ(entries.at(0).value, 99);
+  EXPECT_FALSE(entries.at(0).valid);
+  EXPECT_EQ(entries.at(1).value, 99);
 }
 
 TEST(QueueBlocksTest,

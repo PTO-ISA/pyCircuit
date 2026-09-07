@@ -919,6 +919,51 @@ int main() {
 }
 
 TEST(QueueGraphPlanTest,
+     StructuredGeneratorPreservesOrderedRepeatedWritesPerOwner) {
+  mlir::MLIRContext context;
+  context.loadDialect<ac::ACIRDialect, mlir::DLTIDialect>();
+  auto module = mlir::parseSourceFile<mlir::ModuleOp>(
+      ACIR_TEST_SOURCE_DIR "/tests/mlir/agentic-circuit/Transforms/"
+                           "queue-multi-owner-module-freeze.mlir",
+      &context);
+  ASSERT_TRUE(module);
+  ASSERT_TRUE(freezeQueueGraph(*module));
+  auto plan = buildQueueGraphPlan(*module);
+  ASSERT_TRUE(bool(plan)) << llvm::toString(plan.takeError());
+  ASSERT_EQ(plan->moduleSpecializations.size(), 1u);
+  QueueGraphPlan &specialization = *plan->moduleSpecializations.front();
+  QueueBlockPlan &firing = specialization.blocks.front();
+  ASSERT_EQ(firing.stateWrites.size(), 2u);
+  StateWritePlan repeated = firing.stateWrites.front();
+  repeated.index = "second_index";
+  firing.expressions.push_back(
+      {"second_index", "constant", "i1", {}, "", "", "1 : i1"});
+  specialization.tables.front().entries = 2;
+  firing.stateWrites.push_back(std::move(repeated));
+
+  auto generated = generateQueueGraphCpp(*plan);
+  ASSERT_TRUE(bool(generated)) << llvm::toString(generated.takeError());
+  llvm::StringRef source(*generated);
+  const size_t first = source.find(
+      "owner_writes0.emplace_back(static_cast<size_t>(proposal_index0), "
+      "proposal_value0)");
+  const size_t second = source.find(
+      "owner_writes0.emplace_back(static_cast<size_t>(proposal_index2), "
+      "proposal_value2)");
+  ASSERT_NE(first, llvm::StringRef::npos);
+  ASSERT_NE(second, llvm::StringRef::npos);
+  EXPECT_LT(first, second);
+  EXPECT_NE(source.find(
+                "owner_writes1.emplace_back(static_cast<size_t>("
+                "proposal_index1), proposal_value1)"),
+            llvm::StringRef::npos);
+  EXPECT_NE(source.find("std::move(owner_writes0), "
+                        "std::move(owner_writes1)"),
+            llvm::StringRef::npos);
+  expectCppCompiles(*generated);
+}
+
+TEST(QueueGraphPlanTest,
      ReusesCombinedMultiRuleMultiOwnerModuleWithAtomicArbitration) {
   mlir::MLIRContext context;
   context.loadDialect<ac::ACIRDialect, mlir::DLTIDialect>();
@@ -1583,6 +1628,86 @@ TEST(QueueGraphPlanTest, RejectsImplicitMultipleConsumers) {
   ASSERT_FALSE(bool(plan));
   EXPECT_NE(llvm::toString(plan.takeError()).find("insert ac.broadcast"),
             std::string::npos);
+}
+
+TEST(QueueGraphPlanTest, FlatGeneratorPreservesOrderedRepeatedWritesPerOwner) {
+  mlir::MLIRContext context;
+  context.loadDialect<ac::ACIRDialect, mlir::DLTIDialect>();
+  auto module =
+      mlir::parseSourceString<mlir::ModuleOp>(kStatefulFiring, &context);
+  ASSERT_TRUE(module);
+  ASSERT_TRUE(freezeQueueGraph(*module));
+  auto plan = buildQueueGraphPlan(*module);
+  ASSERT_TRUE(bool(plan)) << llvm::toString(plan.takeError());
+  QueueBlockPlan &firing = *llvm::find_if(
+      plan->blocks,
+      [](const QueueBlockPlan &block) { return block.kind == "firing"; });
+  ASSERT_EQ(firing.stateWrites.size(), 1u);
+  StateWritePlan secondOwner = firing.stateWrites.front();
+  secondOwner.table = "shadow";
+  StateWritePlan repeated = firing.stateWrites.front();
+  repeated.index = "other_index";
+  firing.expressions.push_back(
+      {"other_index", "constant", "i2", {}, "", "", "0 : i2"});
+  firing.stateWrites.push_back(std::move(secondOwner));
+  firing.stateWrites.push_back(std::move(repeated));
+  plan->tables.push_back({"shadow", "i8", 2, 0, "table/shadow", "/"});
+
+  auto generated = generateQueueGraphCpp(*plan);
+  ASSERT_TRUE(bool(generated)) << llvm::toString(generated.takeError());
+  llvm::StringRef source(*generated);
+  const size_t first = source.find(
+      "owner_writes0.emplace_back(static_cast<size_t>(proposal_index0), "
+      "proposal_value0)");
+  const size_t second = source.find(
+      "owner_writes0.emplace_back(static_cast<size_t>(proposal_index2), "
+      "proposal_value2)");
+  ASSERT_NE(first, llvm::StringRef::npos);
+  ASSERT_NE(second, llvm::StringRef::npos);
+  EXPECT_LT(first, second);
+  EXPECT_NE(source.find(
+                "owner_writes1.emplace_back(static_cast<size_t>("
+                "proposal_index1), proposal_value1)"),
+            llvm::StringRef::npos);
+  EXPECT_NE(source.find("std::move(owner_writes0), "
+                        "std::move(owner_writes1)"),
+            llvm::StringRef::npos);
+  expectCppCompiles(*generated);
+}
+
+TEST(QueueGraphPlanTest, OwnerWriteExclusionProofUsesBoundedSharedDagKeys) {
+  mlir::MLIRContext context;
+  context.loadDialect<ac::ACIRDialect, mlir::DLTIDialect>();
+  auto module =
+      mlir::parseSourceString<mlir::ModuleOp>(kStatefulFiring, &context);
+  ASSERT_TRUE(module);
+  ASSERT_TRUE(freezeQueueGraph(*module));
+  auto plan = buildQueueGraphPlan(*module);
+  ASSERT_TRUE(bool(plan)) << llvm::toString(plan.takeError());
+  QueueBlockPlan &firing = *llvm::find_if(
+      plan->blocks,
+      [](const QueueBlockPlan &block) { return block.kind == "firing"; });
+
+  firing.expressions.push_back(
+      {"same", "cmp", "i1", {"item", "item"}, "", "eq"});
+  std::string previous = "same";
+  for (unsigned index = 0; index < 64; ++index) {
+    const std::string next = "shared" + std::to_string(index);
+    firing.expressions.push_back(
+        {next, "and", "i1", {previous, previous}});
+    previous = next;
+  }
+  firing.expressions.push_back(
+      {"false_value", "constant", "i1", {}, "", "", "false"});
+  firing.expressions.push_back(
+      {"opposite", "cmp", "i1", {previous, "false_value"}, "", "eq"});
+  firing.stateWrites.front().present = previous;
+  StateWritePlan exclusive = firing.stateWrites.front();
+  exclusive.present = "opposite";
+  firing.stateWrites.push_back(std::move(exclusive));
+
+  auto error = verifyQueueGraphPlan(*plan);
+  EXPECT_FALSE(bool(error)) << llvm::toString(std::move(error));
 }
 
 TEST(QueueGraphPlanTest, RejectsOutOfRangeConstantTableFiringPlan) {

@@ -16,6 +16,7 @@ target_link_libraries(ACIRTransforms PUBLIC
   ACIRBindings
   ACIRDialect
   MLIRPass
+  MLIRTransforms
 )
 target_include_directories(ACIRTransforms PUBLIC
   "$<BUILD_INTERFACE:${ACIR_SOURCE_DIR}/include>"

@@ -1,0 +1,8 @@
+cd /Users/zhoubot/linx-isa/tools/pyCircuit
+export PYTHONPATH=/Users/zhoubot/linx-isa/tools/pyCircuit/python/semantic-core/src:/Users/zhoubot/linx-isa/tools/pyCircuit/python/agentic-circuit/src:/Users/zhoubot/linx-isa/tools/pyCircuit/tests/python/agentic-circuit
+export ACIR_OPT=/Users/zhoubot/linx-isa/tools/pyCircuit/.pycircuit_out/layout-root/bin/acir-opt
+export ACIR_QUEUE_CXXGEN=/Users/zhoubot/linx-isa/tools/pyCircuit/.pycircuit_out/layout-root/bin/acir-queue-cxxgen
+export ACIR_QUEUE_PYCGEN=/Users/zhoubot/linx-isa/tools/pyCircuit/.pycircuit_out/layout-root/bin/acir-queue-pycgen
+unset AC_PYTHON_ONLY
+/tmp/davincioo-agentic-py312.resume/bin/python -m pytest -q tests/integration/agentic-circuit/e2e/test_typed_system_transactions.py tests/integration/agentic-circuit/e2e/test_typed_record_pyc.py
+/tmp/davincioo-agentic-py312.resume/bin/python -m pytest -q tests/python/agentic-circuit/python_frontend/test_jit_blocks.py -k 'typed_runtime_jit_lowers_native_cpp or workspace_typed_state_jit_lowers_and_runs_native_cpp'

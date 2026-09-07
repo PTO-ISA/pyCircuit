@@ -11,6 +11,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <functional>
+#include <initializer_list>
 #include <limits>
 #include <map>
 #include <optional>
@@ -943,12 +944,62 @@ template <typename Entry> struct TableFullEntryMerge {
 enum class TableWriteMode : uint8_t { FieldMerge, Replace };
 
 struct StateReservation {
+  static constexpr size_t sparseCapacity = 8;
   uint64_t wholeEntries = 0;
   uint64_t fieldRelation = 0;
   uint8_t fieldCount = 0;
+  bool allWholeEntries = false;
+  bool allFieldEntries = false;
+  uint64_t allFieldMask = 0;
+  std::array<size_t, sparseCapacity> sparseWholeEntries{};
+  uint8_t sparseWholeCount = 0;
+  std::array<size_t, sparseCapacity> sparseFieldEntries{};
+  std::array<uint64_t, sparseCapacity> sparseFieldMasks{};
+  uint8_t sparseFieldCount = 0;
 
   constexpr StateReservation() = default;
   constexpr StateReservation(uint64_t entries) : wholeEntries(entries) {}
+
+  static constexpr StateReservation forEntry(size_t entry) {
+    StateReservation result;
+    if (entry < 64)
+      result.wholeEntries = uint64_t{1} << entry;
+    else {
+      result.sparseWholeEntries[0] = entry;
+      result.sparseWholeCount = 1;
+    }
+    return result;
+  }
+
+  static constexpr StateReservation all() {
+    StateReservation result;
+    result.allWholeEntries = true;
+    return result;
+  }
+
+  static constexpr StateReservation forFieldsAt(size_t entry,
+                                                uint64_t fieldMask,
+                                                uint8_t fieldsPerEntry) {
+    StateReservation result;
+    if (fieldsPerEntry == 0 || fieldsPerEntry > 64)
+      return result;
+    result.fieldCount = fieldsPerEntry;
+    result.sparseFieldEntries[0] = entry;
+    result.sparseFieldMasks[0] = fieldMask;
+    result.sparseFieldCount = 1;
+    return result;
+  }
+
+  static constexpr StateReservation forAllFields(uint64_t fieldMask,
+                                                 uint8_t fieldsPerEntry) {
+    StateReservation result;
+    if (fieldsPerEntry == 0 || fieldsPerEntry > 64)
+      return result;
+    result.fieldCount = fieldsPerEntry;
+    result.allFieldEntries = true;
+    result.allFieldMask = fieldMask;
+    return result;
+  }
 
   static constexpr StateReservation
   forFields(uint64_t entries, uint64_t fieldMask, uint8_t fieldsPerEntry) {
@@ -989,20 +1040,144 @@ struct StateReservation {
   constexpr uint64_t entryMask() const {
     return wholeEntries | fieldEntryMask();
   }
-  constexpr bool empty() const { return entryMask() == 0; }
+  constexpr bool empty() const {
+    return !allWholeEntries && !allFieldEntries && entryMask() == 0 &&
+           sparseWholeCount == 0 && sparseFieldCount == 0;
+  }
+
+  constexpr bool within(size_t entries) const {
+    if (entries == 0 || fieldCount > 64 ||
+        sparseWholeCount > sparseCapacity || sparseFieldCount > sparseCapacity)
+      return false;
+    if (entries < 64 && (wholeEntries >> entries) != 0)
+      return false;
+    const uint64_t validFieldMask =
+        fieldCount == 64
+            ? ~uint64_t{0}
+            : fieldCount == 0 ? 0 : (uint64_t{1} << fieldCount) - 1;
+    if ((allFieldEntries &&
+         (fieldCount == 0 || (allFieldMask & ~validFieldMask) != 0)) ||
+        (!allFieldEntries && allFieldMask != 0) ||
+        (fieldCount == 0 && fieldRelation != 0))
+      return false;
+    if (fieldCount != 0)
+      for (size_t bit = 0; bit < 64; ++bit)
+        if ((fieldRelation & (uint64_t{1} << bit)) != 0 &&
+            bit / fieldCount >= entries)
+          return false;
+    for (size_t index = 0; index < sparseWholeCount; ++index)
+      if (sparseWholeEntries[index] >= entries)
+        return false;
+    for (size_t index = 0; index < sparseFieldCount; ++index)
+      if (sparseFieldEntries[index] >= entries || fieldCount == 0 ||
+          (sparseFieldMasks[index] & ~validFieldMask) != 0)
+        return false;
+    return true;
+  }
+
+  constexpr bool readsWholeEntry(size_t entry) const {
+    if (allWholeEntries ||
+        (entry < 64 && (wholeEntries & (uint64_t{1} << entry)) != 0))
+      return true;
+    for (size_t index = 0; index < sparseWholeCount; ++index)
+      if (sparseWholeEntries[index] == entry)
+        return true;
+    return false;
+  }
+
+  constexpr bool readsField(size_t entry, size_t field) const {
+    if (fieldCount == 0 || field >= fieldCount)
+      return false;
+    if (allFieldEntries && (allFieldMask & (uint64_t{1} << field)) != 0)
+      return true;
+    const size_t bit = entry * fieldCount + field;
+    if (bit < 64 && (fieldRelation & (uint64_t{1} << bit)) != 0)
+      return true;
+    for (size_t index = 0; index < sparseFieldCount; ++index)
+      if (sparseFieldEntries[index] == entry &&
+          (sparseFieldMasks[index] & (uint64_t{1} << field)) != 0)
+        return true;
+    return false;
+  }
+
+  constexpr bool touchesEntry(size_t entry) const {
+    if (readsWholeEntry(entry) || allFieldEntries)
+      return true;
+    if (entry < 64 && (fieldEntryMask() & (uint64_t{1} << entry)) != 0)
+      return true;
+    for (size_t index = 0; index < sparseFieldCount; ++index)
+      if (sparseFieldEntries[index] == entry && sparseFieldMasks[index] != 0)
+        return true;
+    return false;
+  }
 
   friend constexpr StateReservation operator|(StateReservation left,
                                               StateReservation right) {
     left.wholeEntries |= right.wholeEntries;
+    left.allWholeEntries |= right.allWholeEntries;
+    for (size_t index = 0; index < right.sparseWholeCount; ++index) {
+      const size_t entry = right.sparseWholeEntries[index];
+      bool found = false;
+      for (size_t existing = 0; existing < left.sparseWholeCount; ++existing)
+        found |= left.sparseWholeEntries[existing] == entry;
+      if (!found) {
+        if (left.sparseWholeCount == sparseCapacity)
+          left.allWholeEntries = true;
+        else
+          left.sparseWholeEntries[left.sparseWholeCount++] = entry;
+      }
+    }
     if (left.fieldCount == 0) {
       left.fieldCount = right.fieldCount;
       left.fieldRelation = right.fieldRelation;
+      left.allFieldEntries = right.allFieldEntries;
+      left.allFieldMask = right.allFieldMask;
+      left.sparseFieldEntries = right.sparseFieldEntries;
+      left.sparseFieldMasks = right.sparseFieldMasks;
+      left.sparseFieldCount = right.sparseFieldCount;
     } else if (right.fieldCount == 0 || left.fieldCount == right.fieldCount) {
       left.fieldRelation |= right.fieldRelation;
+      left.allFieldEntries |= right.allFieldEntries;
+      left.allFieldMask |= right.allFieldMask;
+      for (size_t index = 0; index < right.sparseFieldCount; ++index) {
+        const size_t entry = right.sparseFieldEntries[index];
+        size_t destination = left.sparseFieldCount;
+        for (size_t existing = 0; existing < left.sparseFieldCount; ++existing)
+          if (left.sparseFieldEntries[existing] == entry)
+            destination = existing;
+        if (destination == left.sparseFieldCount) {
+          if (left.sparseFieldCount == sparseCapacity) {
+            left.allWholeEntries = true;
+            continue;
+          }
+          left.sparseFieldEntries[left.sparseFieldCount++] = entry;
+        }
+        left.sparseFieldMasks[destination] |= right.sparseFieldMasks[index];
+      }
     } else {
       left.wholeEntries |= left.fieldEntryMask() | right.fieldEntryMask();
+      for (size_t index = 0; index < left.sparseFieldCount; ++index) {
+        if (left.sparseWholeCount == sparseCapacity) {
+          left.allWholeEntries = true;
+          break;
+        }
+        left.sparseWholeEntries[left.sparseWholeCount++] =
+            left.sparseFieldEntries[index];
+      }
+      for (size_t index = 0; index < right.sparseFieldCount; ++index) {
+        if (left.sparseWholeCount == sparseCapacity) {
+          left.allWholeEntries = true;
+          break;
+        }
+        left.sparseWholeEntries[left.sparseWholeCount++] =
+            right.sparseFieldEntries[index];
+      }
+      left.allWholeEntries |= left.allFieldEntries || right.allFieldEntries;
       left.fieldRelation = 0;
       left.fieldCount = 0;
+      left.allFieldEntries = false;
+      left.allFieldMask = 0;
+      left.sparseFieldCount = 0;
     }
     return left;
   }
@@ -1034,33 +1209,55 @@ struct TableSelectionResult {
 
 template <typename Entry> class SimTable;
 
+class CandidateSet {
+public:
+  explicit CandidateSet(size_t entries = 0)
+      : words_((entries + 63) / 64, uint64_t{0}) {}
+
+  void clear() { std::ranges::fill(words_, uint64_t{0}); }
+  void set(size_t index) {
+    if (index / 64 < words_.size())
+      words_[index / 64] |= uint64_t{1} << (index % 64);
+  }
+  bool test(size_t index) const {
+    return index / 64 < words_.size() &&
+           (words_[index / 64] & (uint64_t{1} << (index % 64))) != 0;
+  }
+  operator uint64_t() const {
+    return words_.empty() ? uint64_t{0} : words_.front();
+  }
+
+private:
+  std::vector<uint64_t> words_;
+};
+
 template <typename Entry, typename Predicate> class TableMatchCache {
 public:
   TableMatchCache(SimTable<Entry> &table, Predicate predicate = {})
-      : table_(table), predicate_(std::move(predicate)) {}
+      : table_(table), predicate_(std::move(predicate)), mask_(table.size()) {}
 
-  uint64_t get(Epoch epoch) const {
+  const CandidateSet &get(Epoch epoch) const {
     if (epoch_ && *epoch_ == epoch)
       return mask_;
-    mask_ = 0;
+    mask_.clear();
     for (size_t index = 0; index < table_.size(); ++index)
       if (static_cast<bool>(
               std::invoke(std::as_const(predicate_), table_.at(index))))
-        mask_ |= uint64_t{1} << index;
+        mask_.set(index);
     epoch_ = epoch;
     return mask_;
   }
 
   void reset() {
     epoch_.reset();
-    mask_ = 0;
+    mask_.clear();
   }
 
 private:
   SimTable<Entry> &table_;
   [[no_unique_address]] Predicate predicate_;
   mutable std::optional<Epoch> epoch_;
-  mutable uint64_t mask_ = 0;
+  mutable CandidateSet mask_;
 };
 
 enum class TableChoosePolicy : uint8_t { First, Min, Max };
@@ -1077,10 +1274,16 @@ public:
     if (epoch_ && *epoch_ == epoch)
       return result_;
     result_ = {};
-    const uint64_t mask = static_cast<uint64_t>(std::invoke(mask_, epoch));
+    decltype(auto) mask = std::invoke(mask_, epoch);
     uint64_t best = 0;
     for (size_t index = 0; index < table_.size(); ++index) {
-      if ((mask & (uint64_t{1} << index)) == 0)
+      const bool selected = [&] {
+        if constexpr (requires { mask.test(index); })
+          return mask.test(index);
+        else
+          return (static_cast<uint64_t>(mask) & (uint64_t{1} << index)) != 0;
+      }();
+      if (!selected)
         continue;
       if (policy_ == TableChoosePolicy::First) {
         result_ = {index, true};
@@ -1187,12 +1390,7 @@ public:
     if (group == kInvalidCommitGroupId || prepared_.contains(group) ||
         writerHasProposal(writerId))
       return false;
-    const uint64_t validSnapshotMask =
-        size() == 64 ? ~uint64_t{0} : ((uint64_t{1} << size()) - 1);
-    if ((snapshot.entryMask() & ~validSnapshotMask) != 0 ||
-        (snapshot.fieldRelation != 0 &&
-         (snapshot.fieldCount == 0 ||
-          size() * static_cast<size_t>(snapshot.fieldCount) > 64)))
+    if (!snapshot.within(size()))
       return false;
     std::optional<WriteFootprint> write;
     if (!writeIndices.empty()) {
@@ -1474,18 +1672,19 @@ private:
 
   static bool snapshotReadsField(const StateReservation &snapshot, size_t entry,
                                  size_t field) {
-    if (snapshot.fieldCount == 0 || field >= snapshot.fieldCount)
-      return false;
-    const size_t bit = entry * snapshot.fieldCount + field;
-    return bit < 64 && (snapshot.fieldRelation & (uint64_t{1} << bit)) != 0;
+    return snapshot.readsField(entry, field);
   }
 
   static bool snapshotConflicts(const StateReservation &snapshot,
                                 const WriteFootprint &footprint) {
-    if (maskIntersects(snapshot.wholeEntries, footprint.indices))
+    if (std::ranges::any_of(footprint.indices, [&](size_t entry) {
+          return snapshot.readsWholeEntry(entry);
+        }))
       return true;
     if (footprint.mode == TableWriteMode::Replace)
-      return maskIntersects(snapshot.fieldEntryMask(), footprint.indices);
+      return std::ranges::any_of(footprint.indices, [&](size_t entry) {
+        return snapshot.touchesEntry(entry);
+      });
     return std::ranges::any_of(footprint.indices, [&](size_t entry) {
       return std::ranges::any_of(footprint.fields, [&](size_t field) {
         return snapshotReadsField(snapshot, entry, field);
@@ -1550,8 +1749,10 @@ bool tableAddressInRange(AddressResult address, size_t entries) {
   return static_cast<uint64_t>(address) < entries;
 }
 
+template <typename Entry> class OwnerWriteBatch;
+
 template <typename Entry, typename... Outputs> struct TableTransitionPlan {
-  std::vector<std::pair<size_t, Entry>> writes;
+  OwnerWriteBatch<Entry> writes;
   std::tuple<std::optional<Outputs>...> outputs;
   StateReservation reservations;
 };
@@ -1560,9 +1761,60 @@ template <typename TableTypes, typename OutputTypes> struct StateTransitionPlan;
 
 template <typename> using TypedStateReservation = StateReservation;
 
+template <typename Entry> class OwnerWriteBatch {
+public:
+  using Value = std::pair<size_t, Entry>;
+
+  OwnerWriteBatch() = default;
+  OwnerWriteBatch(std::initializer_list<Value> values) {
+    for (const Value &value : values)
+      emplace_back(value);
+  }
+  OwnerWriteBatch(std::vector<Value> values) {
+    if (values.empty())
+      return;
+    first_ = std::move(values.front());
+    for (size_t index = 1; index < values.size(); ++index)
+      overflow_.push_back(std::move(values[index]));
+  }
+
+  template <typename... Args> void emplace_back(Args &&...args) {
+    if (!first_) {
+      first_.emplace(std::forward<Args>(args)...);
+      return;
+    }
+    overflow_.emplace_back(std::forward<Args>(args)...);
+  }
+  bool empty() const { return !first_; }
+  size_t size() const { return first_ ? 1 + overflow_.size() : 0; }
+  Value &front() { return *first_; }
+  const Value &front() const { return *first_; }
+
+  template <typename Function> void forEach(Function &&function) const {
+    if (first_)
+      std::invoke(function, *first_);
+    for (const Value &value : overflow_)
+      std::invoke(function, value);
+  }
+
+  std::vector<Value> intoVector() && {
+    std::vector<Value> values;
+    values.reserve(size());
+    if (first_)
+      values.push_back(std::move(*first_));
+    for (Value &value : overflow_)
+      values.push_back(std::move(value));
+    return values;
+  }
+
+private:
+  std::optional<Value> first_;
+  std::vector<Value> overflow_;
+};
+
 template <typename... Entries, typename... Outputs>
 struct StateTransitionPlan<std::tuple<Entries...>, std::tuple<Outputs...>> {
-  std::tuple<std::optional<std::pair<size_t, Entries>>...> writes;
+  std::tuple<OwnerWriteBatch<Entries>...> writes;
   std::tuple<std::optional<Outputs>...> outputs;
   std::tuple<TypedStateReservation<Entries>...> reservations;
 };
@@ -1638,11 +1890,17 @@ public:
     candidate_.reset();
 
     const CommitGroupId group = id();
-    std::vector<size_t> writeIndices;
-    writeIndices.reserve(plan.writes.size());
-    for (const auto &[index, value] : plan.writes) {
-      (void)value;
-      writeIndices.push_back(index);
+    std::array<size_t, 1> singleWrite{};
+    std::vector<size_t> multipleWrites;
+    std::span<const size_t> writeIndices;
+    if (plan.writes.size() == 1) {
+      singleWrite[0] = plan.writes.front().first;
+      writeIndices = singleWrite;
+    } else if (plan.writes.size() > 1) {
+      multipleWrites.reserve(plan.writes.size());
+      plan.writes.forEach(
+          [&](const auto &write) { multipleWrites.push_back(write.first); });
+      writeIndices = multipleWrites;
     }
     const bool hasTableReservation =
         !plan.reservations.empty() || !writeIndices.empty();
@@ -1762,7 +2020,13 @@ private:
         table_.cancelPreparedWrite(group);
       return true;
     }
-    return table_.publishPreparedWrite(group, std::move(plan.writes), merge_);
+    if (plan.writes.size() == 1)
+      return table_.publishPreparedSingleWrite(
+          group, std::optional<typename OwnerWriteBatch<Entry>::Value>{
+                     std::move(plan.writes.front())},
+          merge_);
+    return table_.publishPreparedWrite(
+        group, std::move(plan.writes).intoVector(), merge_);
   }
 
   void cancelPrepared(CommitGroupId group) {
@@ -1948,19 +2212,21 @@ private:
 
   template <size_t Index>
   bool prepareTable(CommitGroupId group, const Plan &plan) {
-    const auto &write = std::get<Index>(plan.writes);
+    const auto &writes = std::get<Index>(plan.writes);
     const StateReservation &reservation = std::get<Index>(plan.reservations);
-    std::array<size_t, 1> writeIndices{};
-    const std::span<const size_t> selectedWrites =
-        write ? std::span<const size_t>(writeIndices.data(), size_t{1})
-              : std::span<const size_t>{};
-    if (write)
-      writeIndices[0] = write->first;
     using Merge = std::tuple_element_t<Index, std::tuple<Merges...>>;
-    return (reservation.empty() && !write) ||
-           std::get<Index>(tables_)->prepareTransaction(
-               group, id(), reservation, selectedWrites, Merge::fields,
-               modes_[Index]);
+    if (writes.empty() && reservation.empty())
+      return true;
+    if (writes.size() == 1) {
+      std::array<size_t, 1> index{writes.front().first};
+      return std::get<Index>(tables_)->prepareTransaction(
+          group, id(), reservation, index, Merge::fields, modes_[Index]);
+    }
+    std::vector<size_t> indices;
+    indices.reserve(writes.size());
+    writes.forEach([&](const auto &write) { indices.push_back(write.first); });
+    return std::get<Index>(tables_)->prepareTransaction(
+        group, id(), reservation, indices, Merge::fields, modes_[Index]);
   }
 
   template <size_t... Indices>
@@ -1985,14 +2251,19 @@ private:
   }
 
   template <size_t Index> bool publishTable(CommitGroupId group, Plan &plan) {
-    if (!std::get<Index>(plan.writes)) {
+    auto &writes = std::get<Index>(plan.writes);
+    if (writes.empty()) {
       if (!std::get<Index>(plan.reservations).empty())
         std::get<Index>(tables_)->cancelPreparedWrite(group);
       return true;
     }
-    return std::get<Index>(tables_)->publishPreparedSingleWrite(
-        group, std::move(std::get<Index>(plan.writes)),
-        std::get<Index>(merges_));
+    if (writes.size() == 1)
+      return std::get<Index>(tables_)->publishPreparedSingleWrite(
+          group, std::optional<typename std::remove_reference_t<
+                     decltype(writes)>::Value>{std::move(writes.front())},
+          std::get<Index>(merges_));
+    return std::get<Index>(tables_)->publishPreparedWrite(
+        group, std::move(writes).intoVector(), std::get<Index>(merges_));
   }
 
   template <size_t... Indices>
@@ -2008,7 +2279,7 @@ private:
                    std::index_sequence<InputIndices...>,
                    std::index_sequence<OutputIndices...>) const {
     return (((std::get<TableIndices>(plan.reservations).empty() &&
-              !std::get<TableIndices>(plan.writes)) ||
+              std::get<TableIndices>(plan.writes).empty()) ||
              std::get<TableIndices>(tables_)->hasPreparedWrite(group)) &&
             ...) &&
            (std::get<InputIndices>(inputs_)->hasPrepared(group) && ...) &&

@@ -1,0 +1,2 @@
+cd /Users/zhoubot/.codex/worktrees/davincioo-pycircuit-plan
+PYTHONPATH=/Users/zhoubot/linx-isa/tools/pyCircuit/python/semantic-core/src:/Users/zhoubot/linx-isa/tools/pyCircuit/python/agentic-circuit/src:. ACIR_OPT=/Users/zhoubot/linx-isa/tools/pyCircuit/.pycircuit_out/layout-root/bin/acir-opt ACIR_QUEUE_CXXGEN=/Users/zhoubot/linx-isa/tools/pyCircuit/.pycircuit_out/layout-root/bin/acir-queue-cxxgen /tmp/davincioo-agentic-py312.resume/bin/python .pycircuit_out/review/issue44_consumer_gate.py

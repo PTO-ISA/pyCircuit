@@ -28,6 +28,8 @@ ctest --test-dir .pycircuit_out/acir/dev-llvm22 --output-on-failure
 bash flows/scripts/pyc build
 acir-opt --pass-pipeline='builtin.module(ac-freeze-topology)' <raw-queue-graph>
 compiler/acir/tools/ac-queue-pyc-build.py <ACIR> ...
+python3 tests/integration/agentic-circuit/e2e/test_typed_system_transactions.py -v
+python3 tests/integration/agentic-circuit/e2e/test_typed_record_pyc.py -v
 pytest tests/unit -m unit
 python3 flows/tools/check_api_hygiene.py python/pycircuit/src/pycircuit examples/pycircuit docs README.md
 python3 flows/tools/check_decision_status.py --require-no-deferred --require-all-verified --require-concrete-evidence --require-existing-evidence
@@ -118,11 +120,19 @@ else
 fi
 pycgen="${toolchain}/bin/acir-queue-pycgen"
 acir_opt="${toolchain}/bin/acir-opt"
+acir_plan="${toolchain}/bin/acir-queue-plan"
+acir_cxxgen="${toolchain}/bin/acir-queue-cxxgen"
 pycc="${toolchain}/bin/pycc"
 metadata="${toolchain}/share/pycircuit/toolchain-metadata.json"
-for required in "${pycgen}" "${acir_opt}" "${pycc}" "${metadata}"; do
+runtime="${toolchain}/lib/libpyc6_runtime.a"
+runtime_include="${toolchain}/include"
+for required in \
+  "${pycgen}" "${acir_opt}" "${acir_plan}" "${acir_cxxgen}" \
+  "${pycc}" "${metadata}" "${runtime}"; do
   [[ -f "${required}" ]] || pyc_die "missing integrated toolchain artifact: ${required}"
 done
+[[ -d "${runtime_include}" ]] || \
+  pyc_die "missing integrated toolchain include directory: ${runtime_include}"
 
 cxx="$(command -v c++ || true)"
 verilator="$(command -v verilator || true)"
@@ -168,6 +178,26 @@ PYTHONPATH="${PYC_ROOT_DIR}/python/semantic-core/src:${ac_python}/src:${ac_build
   PycBackendTest.test_recursive_aggregate_payload_is_cycle_equivalent_in_pyc_cpp_and_verilog \
   -v
 
+PYC_TOOLCHAIN_ROOT="${toolchain}" \
+ACIR_OPT="${acir_opt}" \
+ACIR_QUEUE_PLAN="${acir_plan}" \
+ACIR_QUEUE_CXXGEN="${acir_cxxgen}" \
+PYTHONPATH="${PYC_ROOT_DIR}/python/semantic-core/src:${ac_python}/src:${ac_build}/python" \
+  "${venv}/bin/python" \
+  "${PYC_ROOT_DIR}/tests/integration/agentic-circuit/e2e/test_typed_system_transactions.py" \
+  -v
+
+PYC_TOOLCHAIN_ROOT="${toolchain}" \
+ACIR_OPT="${acir_opt}" \
+ACIR_QUEUE_PYCGEN="${pycgen}" \
+PYCC="${pycc}" \
+PYC_RUNTIME_LIB="${runtime}" \
+PYC_RUNTIME_INCLUDE="${runtime_include}" \
+PYTHONPATH="${PYC_ROOT_DIR}/python/semantic-core/src:${ac_python}/src:${ac_build}/python" \
+  "${venv}/bin/python" \
+  "${PYC_ROOT_DIR}/tests/integration/agentic-circuit/e2e/test_typed_record_pyc.py" \
+  -v
+
 pyc_log "pyCircuit 6 root contracts and documentation"
 (
   cd "${PYC_ROOT_DIR}"
@@ -194,7 +224,7 @@ cat > "${docs_gate_dir}/agentic_circuit_summary.json" <<EOF
   "resume_from": "${resume_from}",
   "contract_epoch": "0.5",
   "pyc_interface": "pyc6",
-  "cases": ["arbiter", "atomic-transform", "bit-widths", "masked-match", "popcount", "rule-retirement", "bitfield", "masked-decode", "nested-payload", "enum-payload", "aggregate-payload", "recursive-aggregate-payload"]
+  "cases": ["arbiter", "atomic-transform", "bit-widths", "masked-match", "popcount", "rule-retirement", "bitfield", "masked-decode", "nested-payload", "enum-payload", "aggregate-payload", "recursive-aggregate-payload", "typed-system-transactions", "typed-record-pyc"]
 }
 EOF
 

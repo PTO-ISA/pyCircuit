@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
+import ast
 import dataclasses
 import enum
 import inspect
 import os
 from dataclasses import dataclass
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 import shutil
 import subprocess
 import sys
@@ -16,6 +17,7 @@ from typing import TYPE_CHECKING, get_origin
 
 from ._canonical_json import canonical_json_bytes, sha256_bytes
 from ._definitions import Definition
+from ._source_closure import SourceClosure, SourceClosureEntry, capture_source_closure
 from ._static_eval import FrozenMap, StaticValue, validate_ijson_value
 from ._types import Static
 
@@ -85,11 +87,9 @@ def _lower_queue_acir(
         return lowered.read_text(encoding="utf-8")
 
 
-def _lower_rule_program_to_cpp(program: QueueProgram) -> str:
-    from ._queue_frontend import lower_queue_program
-
+def _lower_acir_to_cpp(acir: str) -> str:
     generator = _native_queue_tool("acir-queue-cxxgen", "ACIR_QUEUE_CXXGEN")
-    frozen_acir = _lower_queue_acir(lower_queue_program(program))
+    frozen_acir = _lower_queue_acir(acir)
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory)
         lowered = root / "rule.lowered.ac.mlir"
@@ -106,6 +106,12 @@ def _lower_rule_program_to_cpp(program: QueueProgram) -> str:
                 + emitted.stderr
             )
         return emitted.stdout
+
+
+def _lower_rule_program_to_cpp(program: QueueProgram) -> str:
+    from ._queue_frontend import lower_queue_program
+
+    return _lower_acir_to_cpp(lower_queue_program(program))
 
 
 def config(cls: type[object]) -> type[object]:
@@ -183,6 +189,10 @@ def _display(value: StaticValue):
 class JitSpecialization:
     definition: Definition
     arguments: tuple[tuple[str, StaticValue], ...]
+    workspace: str | None
+    root_system_identity: str
+    sources: tuple[SourceClosureEntry, ...]
+    source_closure_sha256: str | None
     fingerprint: str
 
     @property
@@ -192,11 +202,57 @@ class JitSpecialization:
     def __repr__(self) -> str:
         return (
             "JitSpecialization("
-            f"system={self.definition.qualified_name!r}, "
+            f"system={self.root_system_identity!r}, "
             f"fingerprint={self.fingerprint!r})"
         )
 
+    @property
+    def source_manifest(self) -> tuple[tuple[str, str], ...]:
+        return tuple((source.path, source.sha256) for source in self.sources)
+
+    def _validated_closure(self) -> SourceClosure | None:
+        if self.workspace is None:
+            return None
+        if self.definition.source_file is None:
+            raise RuntimeError("ACPY-JIT-003: system has no readable source file")
+        try:
+            current = capture_source_closure(
+                Path(self.definition.source_file), Path(self.workspace)
+            )
+        except (OSError, ValueError) as error:
+            raise RuntimeError(
+                f"ACPY-JIT-003: source closure is unavailable: {error}"
+            ) from error
+        if (
+            current.sha256 != self.source_closure_sha256
+            or tuple((item.path, item.sha256) for item in current.entries)
+            != self.source_manifest
+        ):
+            raise RuntimeError(
+                "ACPY-JIT-003: source closure changed after specialization"
+            )
+        return current
+
     def _source(self) -> str:
+        closure = self._validated_closure()
+        if closure is not None:
+            statements: list[ast.stmt] = []
+            for entry in closure.entries:
+                source = Path(entry.source_file)
+                raw = source.read_bytes()
+                if sha256_bytes(raw) != entry.sha256:
+                    raise RuntimeError(
+                        "ACPY-JIT-003: source changed during lowering"
+                    )
+                tree = ast.parse(
+                    raw.decode("utf-8"), filename=entry.path, type_comments=True
+                )
+                statements.extend(
+                    statement
+                    for statement in tree.body
+                    if not isinstance(statement, (ast.Import, ast.ImportFrom))
+                )
+            return ast.unparse(ast.fix_missing_locations(ast.Module(statements, [])))
         if self.definition.source_file is None:
             raise RuntimeError("ACPY-JIT-003: system has no readable source file")
         path = Path(self.definition.source_file)
@@ -222,6 +278,9 @@ class JitSpecialization:
         from ._queue_codegen import lower_queue_program_to_cpp
         from ._queue_frontend import parse_queue_program
 
+        acir = self.lower_acir()
+        if "  ac.system @" in acir:
+            return _lower_acir_to_cpp(acir)
         program = parse_queue_program(
             self._source(),
             self.definition.__name__,
@@ -502,45 +561,99 @@ def _write_atomic(path: Path, content: bytes) -> None:
             os.unlink(temporary)
 
 
-def jit(system: Definition, /, **constants: object) -> JitSpecialization:
-    """Create one deterministic, const-only system specialization.
+def jit(
+    system: Definition,
+    /,
+    *,
+    workspace: str | Path | None = None,
+    **constants: object,
+) -> JitSpecialization:
+    """Create one deterministic system specialization.
 
     This captures metadata only.  It deliberately does not execute the system
-    body or compile a backend artifact; downstream Queue elaboration consumes
-    the frozen arguments.
+    body or compile a backend artifact. Only ``ac.const`` parameters are bound
+    here; ordinary typed parameters remain runtime values whose Queue
+    boundaries are inferred by downstream lowering.
     """
 
     if not isinstance(system, Definition) or system.kind != "system":
         raise TypeError("ACPY-JIT-001: jit requires an @ac.system definition")
     signature = inspect.signature(system.function)
-    for parameter in signature.parameters.values():
-        if not _is_const_annotation(parameter.annotation):
-            raise TypeError(
-                f"ACPY-JIT-001: system parameter {parameter.name!r} must use ac.const"
-            )
-    try:
-        bound = signature.bind(**constants)
-    except TypeError as error:
-        raise TypeError(f"ACPY-JIT-001: {error}") from error
-    bound.apply_defaults()
-    arguments = tuple(
-        (name, _closed(bound.arguments[name])) for name in signature.parameters
+    if "workspace" in signature.parameters:
+        raise TypeError(
+            "ACPY-JIT-001: system parameter 'workspace' is reserved by jit"
+        )
+    parameters = tuple(signature.parameters.values())
+    static_parameters = tuple(
+        parameter
+        for parameter in parameters
+        if _is_const_annotation(parameter.annotation)
     )
+    static_names = {parameter.name for parameter in static_parameters}
+    runtime_names = {
+        parameter.name for parameter in parameters if parameter.name not in static_names
+    }
+    supplied_names = set(constants)
+    supplied_runtime = sorted(supplied_names & runtime_names)
+    if supplied_runtime:
+        raise TypeError(
+            "ACPY-JIT-001: runtime system parameter "
+            f"{supplied_runtime[0]!r} cannot be specialized"
+        )
+    unknown = sorted(supplied_names - static_names)
+    if unknown:
+        raise TypeError(f"ACPY-JIT-001: unexpected const argument {unknown[0]!r}")
+
+    arguments: list[tuple[str, StaticValue]] = []
+    for parameter in static_parameters:
+        if parameter.name in constants:
+            value = constants[parameter.name]
+        elif parameter.default is not inspect.Parameter.empty:
+            value = parameter.default
+        else:
+            raise TypeError(
+                "ACPY-JIT-001: missing required const argument "
+                f"{parameter.name!r}"
+            )
+        arguments.append((parameter.name, _closed(value)))
+    frozen_arguments = tuple(arguments)
     source_hash: str | None = None
+    source_closure_sha256: str | None = None
+    sources: tuple[SourceClosureEntry, ...] = ()
+    workspace_value: str | None = None
+    root_system_identity = system.qualified_name
     source_file = system.source_file
     if source_file is not None:
         path = Path(source_file)
         if path.is_file():
             source_hash = sha256_bytes(path.read_bytes())
+            if workspace is not None:
+                workspace_path = Path(workspace).expanduser().resolve(strict=True)
+                closure = capture_source_closure(path, workspace_path)
+                root = path.resolve(strict=True).relative_to(workspace_path)
+                root_module = PurePosixPath(root.as_posix()).with_suffix("").as_posix()
+                root_system_identity = f"{root_module}::{system.__name__}"
+                workspace_value = str(workspace_path)
+                sources = closure.entries
+                source_closure_sha256 = closure.sha256
+                source_hash = None
     preimage = {
         "schema": "agentic-circuit-jit-specialization",
         "version": "0.5",
-        "system": system.qualified_name,
+        "system": root_system_identity,
         "source_sha256": source_hash,
-        "arguments": {name: _json_value(value) for name, value in arguments},
+        "source_closure_sha256": source_closure_sha256,
+        "source_manifest": [
+            {"path": source.path, "sha256": source.sha256} for source in sources
+        ],
+        "arguments": {name: _json_value(value) for name, value in frozen_arguments},
     }
     return JitSpecialization(
         system,
-        arguments,
+        frozen_arguments,
+        workspace_value,
+        root_system_identity,
+        sources,
+        source_closure_sha256,
         sha256_bytes(canonical_json_bytes(preimage)),
     )

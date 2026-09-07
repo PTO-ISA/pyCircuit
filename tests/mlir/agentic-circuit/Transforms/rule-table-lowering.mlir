@@ -42,7 +42,7 @@ module attributes {ac.contract_epoch = "0.5", ac.model_kind = "queue_graph", ac.
 
 // GFSIM: struct block_0_policy
 // GFSIM: std::optional<gfsim::TableTransitionPlan<Entry, Entry>>
-// GFSIM: auto [proposal_index, proposal_value, proposal_present, output_value0, output_present0, condition]
+// GFSIM: auto [proposal_index0, proposal_value0, proposal_present0, output_value0, output_present0, reservation_index0, condition]
 // GFSIM-COUNT-1: table_rob->at
 // GFSIM: gfsim::TableWriteMode::Replace
 // GFSIM: gfsim::QueueTableTransition<block_0_policy, Entry

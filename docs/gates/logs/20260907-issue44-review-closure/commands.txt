@@ -1,0 +1,51 @@
+cd /Users/zhoubot/.codex/worktrees/davincioo-pycircuit-plan
+PYTHONPATH=/Users/zhoubot/linx-isa/tools/pyCircuit/python/semantic-core/src:/Users/zhoubot/linx-isa/tools/pyCircuit/python/agentic-circuit/src:. ACIR_OPT=/Users/zhoubot/linx-isa/tools/pyCircuit/.pycircuit_out/layout-root/bin/acir-opt ACIR_QUEUE_CXXGEN=/Users/zhoubot/linx-isa/tools/pyCircuit/.pycircuit_out/layout-root/bin/acir-queue-cxxgen /tmp/davincioo-agentic-py312.resume/bin/python .pycircuit_out/review/issue44_consumer_gate.py
+
+pre-commit run --files compiler/acir/include/acir/Analysis/VariableAnalysis.h compiler/acir/include/acir/Dialect/ACIR/ACIROps.td compiler/acir/lib/Analysis/ModelAnalysis.cpp compiler/acir/lib/Analysis/VariableAnalysis.cpp compiler/acir/lib/CodeGen/QueueGraphGenerator.cpp compiler/acir/lib/CodeGen/QueueGraphPlan.cpp compiler/acir/lib/CodeGen/QueueGraphPyc.cpp compiler/acir/lib/Dialect/ACIR/ACIROps.cpp compiler/acir/lib/Transforms/CMakeLists.txt compiler/acir/lib/Transforms/FreezeTopology.cpp compiler/acir/lib/Transforms/LowerRules.cpp compiler/acir/lib/Transforms/VerifyValueConstraints.cpp docs/acir/spec/agentic-circuit.md docs/acir/spec/agentic-circuit.zh-CN.md docs/development/acir/verification/ir-coverage.md docs/gates/README.md docs/gates/decision_status_v6.md docs/pyc6-plan.md docs/rfcs/pyc6-decisions.md examples/agentic-circuit/pipelines/inferred_jit_boundary_pipeline.py flows/scripts/run_agentic_circuit.sh python/agentic-circuit/src/agentic_circuit/_jit.py python/agentic-circuit/src/agentic_circuit/_queue_frontend.py python/agentic-circuit/src/agentic_circuit/_source_closure.py python/agentic-circuit/src/agentic_circuit/_static_eval.py schemas/agentic-circuit/contracts/acir.yaml schemas/primitives/pyc_ir_coverage.json simulator/gfsim/include/gfsim/queue_blocks.h tests/cpp/agentic-circuit/Analysis/ModelAnalysisTest.cpp tests/cpp/agentic-circuit/CodeGen/QueueGraphPlanTest.cpp tests/cpp/agentic-circuit/Dialect/ACIR/OpsTest.cpp tests/cpp/agentic-circuit/gfsim/QueueBlocksTest.cpp tests/integration/agentic-circuit/e2e/fixtures/typed_system/contracts.py tests/integration/agentic-circuit/e2e/fixtures/typed_system/leaf.py tests/integration/agentic-circuit/e2e/fixtures/typed_system/top.py tests/integration/agentic-circuit/e2e/fixtures/typed_transactions/atomic_shift.py tests/integration/agentic-circuit/e2e/fixtures/typed_transactions/record_transform.py tests/integration/agentic-circuit/e2e/test_typed_record_pyc.py tests/integration/agentic-circuit/e2e/test_typed_system_transactions.py tests/mlir/agentic-circuit/ACIR/aggregate-values-invalid.mlir tests/mlir/agentic-circuit/ACIR/aggregate-values.mlir tests/mlir/agentic-circuit/ACIR/firing-footprint-invalid.mlir tests/mlir/agentic-circuit/ACIR/firing-invalid.mlir tests/mlir/agentic-circuit/ACIR/state-snapshot-set-invalid.mlir tests/mlir/agentic-circuit/ACIR/table-invalid.mlir tests/mlir/agentic-circuit/ACIR/var-outputless-rule.mlir tests/mlir/agentic-circuit/ACIR/var-state-invalid.mlir tests/mlir/agentic-circuit/Transforms/queue-multi-owner-module-freeze.mlir tests/mlir/agentic-circuit/Transforms/queue-multi-rule-module-freeze.mlir tests/mlir/agentic-circuit/Transforms/queue-multi-rule-multi-owner-module.mlir tests/mlir/agentic-circuit/Transforms/queue-stateful-module-freeze.mlir tests/mlir/agentic-circuit/Transforms/rule-branch-local-lowering.mlir tests/mlir/agentic-circuit/Transforms/rule-consume-only-lowering.mlir tests/mlir/agentic-circuit/Transforms/rule-owner-write-batch.mlir tests/mlir/agentic-circuit/Transforms/rule-pure-optional-lowering.mlir tests/mlir/agentic-circuit/Transforms/rule-snapshot-set-lowering.mlir tests/mlir/agentic-circuit/Transforms/rule-table-lowering.mlir tests/mlir/agentic-circuit/Transforms/variable-array-state-lowering.mlir tests/python/agentic-circuit/python_frontend/test_jit_blocks.py tests/python/agentic-circuit/python_frontend/test_jit_source_closure.py tests/python/agentic-circuit/python_frontend/test_queue_frontend.py tests/python/agentic-circuit/python_frontend/test_static_eval.py
+
+cd /Users/zhoubot/linx-isa/tools/pyCircuit
+export PYTHONPATH=/Users/zhoubot/linx-isa/tools/pyCircuit/python/semantic-core/src:/Users/zhoubot/linx-isa/tools/pyCircuit/python/agentic-circuit/src:/Users/zhoubot/linx-isa/tools/pyCircuit/tests/python/agentic-circuit
+export ACIR_OPT=/Users/zhoubot/linx-isa/tools/pyCircuit/.pycircuit_out/layout-root/bin/acir-opt
+export ACIR_QUEUE_CXXGEN=/Users/zhoubot/linx-isa/tools/pyCircuit/.pycircuit_out/layout-root/bin/acir-queue-cxxgen
+export ACIR_QUEUE_PYCGEN=/Users/zhoubot/linx-isa/tools/pyCircuit/.pycircuit_out/layout-root/bin/acir-queue-pycgen
+unset AC_PYTHON_ONLY
+cmake --build /Users/zhoubot/linx-isa/tools/pyCircuit/.pycircuit_out/layout-root -j 8
+cmake --build /Users/zhoubot/linx-isa/tools/pyCircuit/.pycircuit_out/layout-root --target check-acir -j 8
+ctest --test-dir /Users/zhoubot/linx-isa/tools/pyCircuit/.pycircuit_out/layout-root --output-on-failure -j 4 -R '^(GfsimTests|ACIROpsTests|ACIRModelAnalysisTests|CodeGenTests)$'
+
+cd /Users/zhoubot/linx-isa/tools/pyCircuit
+export PYTHONPATH=/Users/zhoubot/linx-isa/tools/pyCircuit/python/semantic-core/src:/Users/zhoubot/linx-isa/tools/pyCircuit/python/agentic-circuit/src:/Users/zhoubot/linx-isa/tools/pyCircuit/tests/python/agentic-circuit
+export ACIR_OPT=/Users/zhoubot/linx-isa/tools/pyCircuit/.pycircuit_out/layout-root/bin/acir-opt
+export ACIR_QUEUE_CXXGEN=/Users/zhoubot/linx-isa/tools/pyCircuit/.pycircuit_out/layout-root/bin/acir-queue-cxxgen
+export ACIR_QUEUE_PYCGEN=/Users/zhoubot/linx-isa/tools/pyCircuit/.pycircuit_out/layout-root/bin/acir-queue-pycgen
+export AC_PYTHON_ONLY=1
+/tmp/davincioo-agentic-py312.resume/bin/python tools/agentic-circuit/check-contracts.py
+/tmp/davincioo-agentic-py312.resume/bin/python -m pytest -q tests/python/agentic-circuit/python_frontend tests/python/agentic-circuit/contracts tests/python/agentic-circuit/cli/test_all_commands.py tests/python/agentic-circuit/cli/test_workspace.py
+
+cd /Users/zhoubot/linx-isa/tools/pyCircuit
+export PYTHONPATH=/Users/zhoubot/linx-isa/tools/pyCircuit/python/semantic-core/src:/Users/zhoubot/linx-isa/tools/pyCircuit/python/agentic-circuit/src:/Users/zhoubot/linx-isa/tools/pyCircuit/tests/python/agentic-circuit
+export ACIR_OPT=/Users/zhoubot/linx-isa/tools/pyCircuit/.pycircuit_out/layout-root/bin/acir-opt
+export ACIR_QUEUE_CXXGEN=/Users/zhoubot/linx-isa/tools/pyCircuit/.pycircuit_out/layout-root/bin/acir-queue-cxxgen
+export ACIR_QUEUE_PYCGEN=/Users/zhoubot/linx-isa/tools/pyCircuit/.pycircuit_out/layout-root/bin/acir-queue-pycgen
+unset AC_PYTHON_ONLY
+python3 .github/scripts/validate_repo_management.py
+pytest tests/unit -m unit -q
+python3 flows/tools/check_api_hygiene.py python/pycircuit/src/pycircuit examples/pycircuit docs README.md
+mkdocs build --strict
+
+cd /Users/zhoubot/linx-isa/tools/pyCircuit
+export PYTHONPATH=/Users/zhoubot/linx-isa/tools/pyCircuit/python/semantic-core/src:/Users/zhoubot/linx-isa/tools/pyCircuit/python/agentic-circuit/src:/Users/zhoubot/linx-isa/tools/pyCircuit/tests/python/agentic-circuit
+export ACIR_OPT=/Users/zhoubot/linx-isa/tools/pyCircuit/.pycircuit_out/layout-root/bin/acir-opt
+export ACIR_QUEUE_CXXGEN=/Users/zhoubot/linx-isa/tools/pyCircuit/.pycircuit_out/layout-root/bin/acir-queue-cxxgen
+export ACIR_QUEUE_PYCGEN=/Users/zhoubot/linx-isa/tools/pyCircuit/.pycircuit_out/layout-root/bin/acir-queue-pycgen
+unset AC_PYTHON_ONLY
+/tmp/davincioo-agentic-py312.resume/bin/python -m pytest -q tests/integration/agentic-circuit/e2e/test_typed_system_transactions.py tests/integration/agentic-circuit/e2e/test_typed_record_pyc.py
+/tmp/davincioo-agentic-py312.resume/bin/python -m pytest -q tests/python/agentic-circuit/python_frontend/test_jit_blocks.py -k 'typed_runtime_jit_lowers_native_cpp or workspace_typed_state_jit_lowers_and_runs_native_cpp'
+
+cd /Users/zhoubot/linx-isa/tools/pyCircuit
+cmake --build .pycircuit_out/layout-root --target pyc-opt -j 8
+cmake --install .pycircuit_out/layout-root --prefix .pycircuit_out/issue44-review-install
+PYC_TOOLCHAIN_ROOT="$PWD/.pycircuit_out/issue44-review-install" ACIR_OPT="$PWD/.pycircuit_out/issue44-review-install/bin/acir-opt" ACIR_QUEUE_PLAN="$PWD/.pycircuit_out/issue44-review-install/bin/acir-queue-plan" ACIR_QUEUE_CXXGEN="$PWD/.pycircuit_out/issue44-review-install/bin/acir-queue-cxxgen" ACIR_QUEUE_PYCGEN="$PWD/.pycircuit_out/issue44-review-install/bin/acir-queue-pycgen" PYCC="$PWD/.pycircuit_out/issue44-review-install/bin/pycc" PYC_RUNTIME_LIB="$PWD/.pycircuit_out/issue44-review-install/lib/libpyc6_runtime.a" PYC_RUNTIME_INCLUDE="$PWD/.pycircuit_out/issue44-review-install/include" PYTHONPATH=python/semantic-core/src:python/agentic-circuit/src /tmp/davincioo-agentic-py312.resume/bin/python -m pytest -q tests/integration/agentic-circuit/e2e/test_typed_system_transactions.py tests/integration/agentic-circuit/e2e/test_typed_record_pyc.py
+bash -n flows/scripts/run_agentic_circuit.sh
+python3 flows/tools/check_decision_status.py --rfc docs/rfcs/pyc6-decisions.md --status docs/gates/decision_status_v6.md --out docs/gates/logs/20260907-issue44-review-closure/decision_status_report.json --require-no-deferred --require-all-verified --require-concrete-evidence --require-existing-evidence
+mkdocs build --strict

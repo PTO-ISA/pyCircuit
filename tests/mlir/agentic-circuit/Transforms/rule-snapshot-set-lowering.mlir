@@ -52,11 +52,11 @@ module attributes {ac.contract_epoch = "0.5", ac.model_kind = "queue_graph", ac.
 
 // PLAN: "state_reservations":[{"fields":["tag","valid"],"index":"","index_kind":"all","predicate":"v{{[0-9]+}}","source":"","table":"entries"},{"fields":["$entry"],"index":"","index_kind":"set","predicate":"v{{[0-9]+}}","source":"v{{[0-9]+}}","table":"ready"},{"fields":["$entry"],"index":"","index_kind":"set","predicate":"v{{[0-9]+}}","source":"v{{[0-9]+}}","table":"priority"}]
 
-// GFSIM: std::uint64_t snapshot_set_1_0 = 0;
-// GFSIM-COUNT-1: snapshot_set_1_0 |=
-// GFSIM: std::uint64_t snapshot_set_2_0 = 0;
-// GFSIM-COUNT-1: snapshot_set_2_0 |=
+// GFSIM: gfsim::StateReservation snapshot_set_1_0{};
+// GFSIM-COUNT-1: snapshot_set_1_0 = snapshot_set_1_0 | gfsim::StateReservation::forEntry
+// GFSIM: gfsim::StateReservation snapshot_set_2_0{};
+// GFSIM-COUNT-1: snapshot_set_2_0 = snapshot_set_2_0 | gfsim::StateReservation::forEntry
 // GFSIM-NOT: snapshot_entry
-// GFSIM: gfsim::StateReservation(((std::uint64_t{1} << 4) - 1))
-// GFSIM-SAME: gfsim::StateReservation(snapshot_set_1_0)
-// GFSIM-SAME: gfsim::StateReservation(snapshot_set_2_0)
+// GFSIM: gfsim::StateReservation::all()
+// GFSIM-SAME: snapshot_set_1_0
+// GFSIM-SAME: snapshot_set_2_0
