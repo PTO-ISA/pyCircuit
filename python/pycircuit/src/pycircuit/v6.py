@@ -8,13 +8,11 @@ compile_cycle_aware() instead of @module + compile().
 from __future__ import annotations
 
 import ast
-from contextlib import contextmanager
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 import inspect
 import textwrap
-import threading
 from typing import Any, Generic, TypeVar, Union, cast, overload
-from collections.abc import Callable, Iterable, Iterator, Mapping
+from collections.abc import Callable, Iterable, Mapping
 
 from .data import DT, Bits
 from .dsl import PriorityEncodeResult, Signal
@@ -35,24 +33,6 @@ CycleAwareLike = Union[
     int,
     LiteralValue,
 ]
-
-_tls = threading.local()
-
-
-def _current_domain() -> "CycleAwareDomain | None":
-    return getattr(_tls, "domain", None)
-
-
-def _set_current_domain(d: "CycleAwareDomain | None") -> None:
-    _tls.domain = d
-
-
-@dataclass
-class _ModuleCtx:
-    owner: "pyc_CircuitModule"
-    inputs: list[Any]
-    description: str
-    outputs: list[Any] = field(default_factory=list)
 
 
 class _TrackedInputs(dict[str, Any]):
@@ -774,13 +754,9 @@ class StateSignal(Generic[DT]):
         return self._current_view().__rand__(other)
 
     def __or__(self, other: object) -> "CycleAwareSignal":
-        if isinstance(other, str):
-            return self._current_view()
         return self._current_view().__or__(other)
 
     def __ror__(self, other: object) -> "CycleAwareSignal":
-        if isinstance(other, str):
-            return self._current_view()
         return self._current_view().__ror__(other)
 
     def __xor__(self, other: object) -> "CycleAwareSignal":
@@ -945,13 +921,9 @@ class ForwardSignal(Generic[DT]):
         return self.as_cas().__rand__(other)
 
     def __or__(self, other: object) -> "CycleAwareSignal":
-        if isinstance(other, str):
-            return self.as_cas()
         return self.as_cas().__or__(other)
 
     def __ror__(self, other: object) -> "CycleAwareSignal":
-        if isinstance(other, str):
-            return self.as_cas()
         return self.as_cas().__ror__(other)
 
     def __xor__(self, other: object) -> "CycleAwareSignal":
@@ -1346,16 +1318,10 @@ class CycleAwareSignal(Generic[DT]):
         return self.__and__(other)
 
     def __or__(self, other: object) -> "CycleAwareSignal":  # type: ignore[override]
-        if isinstance(other, str):
-            _ = other
-            return self
         a, b, c = self._align(other)  # type: ignore[arg-type]
         return CycleAwareSignal(self._domain, a | b, c)
 
     def __ror__(self, other: object) -> "CycleAwareSignal":  # type: ignore[override]
-        if isinstance(other, str):
-            _ = other
-            return self
         a, b, c = self._align(other)  # type: ignore[arg-type]
         return CycleAwareSignal(self._domain, b | a, c)
 
@@ -2063,137 +2029,6 @@ def _register_implicit_outputs_single(m: Circuit, port: str, x: Any) -> None:
         m.output(port, x)
     elif isinstance(x, Reg):
         m.output(port, x.q)
-
-
-class pyc_CircuitModule:
-    """Tutorial-style module base (hierarchy + with self.module(...))."""
-
-    def __init__(self, name: str, clock_domain: CycleAwareDomain) -> None:
-        self.name = str(name)
-        self.clock_domain = clock_domain
-        self._m = clock_domain.circuit
-
-    @property
-    def circuit(self) -> CycleAwareCircuit:
-        return self._m
-
-    @contextmanager
-    def module(
-        self,
-        *,
-        inputs: list[Any] | None = None,
-        description: str = "",
-    ) -> Iterator[_ModuleCtx]:
-        _ = description
-        ctx = _ModuleCtx(self, list(inputs or []), description)
-        prev = _current_domain()
-        _set_current_domain(self.clock_domain)
-        try:
-            with self._m.scope(self.name):
-                yield ctx
-        finally:
-            _set_current_domain(prev)
-        for out in ctx.outputs:
-            _ = out
-
-
-# Tutorial aliases
-pyc_ClockDomain = CycleAwareDomain
-pyc_Signal = CycleAwareSignal
-
-
-class pyc_CircuitLogger:
-    """Minimal hierarchical text logger for cycle-aware designs."""
-
-    def __init__(self, filename: str, is_flatten: bool = False) -> None:
-        self.filename = str(filename)
-        self.is_flatten = bool(is_flatten)
-        self._lines: list[str] = []
-
-    def reset(self) -> None:
-        self._lines.clear()
-
-    def write_to_file(self) -> None:
-        with open(self.filename, "w", encoding="utf-8") as f:
-            f.write("\n".join(self._lines))
-
-
-def log(value: Any) -> Any:
-    return value
-
-
-class _SignalSlice:
-    def __init__(self, high: int, low: int) -> None:
-        self.high = int(high)
-        self.low = int(low)
-        self.width = self.high - self.low + 1
-
-    def __call__(self, *, value: Any = 0, name: str = "") -> CycleAwareSignal:
-        dom = _current_domain()
-        if dom is None:
-            raise RuntimeError(
-                "signal[...](...) requires an active pyc_CircuitModule.module() context"
-            )
-        w = _materialize_signal_value(dom, value, self.width, str(name))
-        return CycleAwareSignal(dom, w, dom.cycle_index)
-
-
-class _SignalMeta(type):
-    def __getitem__(cls, item: Any) -> _SignalSlice:
-        if isinstance(item, slice):
-            if item.step not in (None, 1):
-                raise ValueError("signal slice step must be 1")
-            hi, lo = item.start, item.stop
-            if hi is None or lo is None:
-                raise ValueError("signal[h:l] requires both high and low")
-            return _SignalSlice(int(hi), int(lo))
-        if isinstance(item, str):
-            part = item.split(":", 1)
-            if len(part) != 2:
-                raise ValueError('signal["h:l"] expects one ":"')
-            return _SignalSlice(int(part[0].strip()), int(part[1].strip()))
-        raise TypeError("signal[...] expects slice like [7:0] or string '7:0'")
-
-    def __call__(cls, *, value: Any = 0, name: str = "") -> CycleAwareSignal:
-        if cls is signal:
-            return _signal_plain(value=value, name=name)
-        return type.__call__(cls)
-
-
-class signal(metaclass=_SignalMeta):
-    """Tutorial: ``signal[7:0](value=0) | \"desc\"`` and ``signal(value=...)``."""
-
-
-def _signal_plain(*, value: Any = 0, name: str = "") -> CycleAwareSignal:
-    dom = _current_domain()
-    if dom is None:
-        raise RuntimeError(
-            "signal(value=...) requires an active pyc_CircuitModule.module() context"
-        )
-    w = _materialize_signal_value(dom, value, None, str(name))
-    return CycleAwareSignal(dom, w, dom.cycle_index)
-
-
-def _materialize_signal_value(
-    dom: CycleAwareDomain, value: Any, width: int | None, name: str
-) -> Wire:
-    m = dom._m
-    if isinstance(value, int):
-        w = (
-            infer_literal_width(int(value), signed=(int(value) < 0))
-            if width is None
-            else int(width)
-        )
-        return m.const(int(value), width=w)
-    if isinstance(value, str):
-        base = str(value).strip()
-        if base.isidentifier():
-            guess = 8 if width is None else int(width)
-            return m.input(base, width=guess)
-        return m.named_wire(dom._m.scoped_name(name or "sig"), width=int(width or 8))
-    if isinstance(value, Wire):
-        return value
-    raise TypeError(f"unsupported signal value: {type(value).__name__}")
 
 
 # ---------------------------------------------------------------------------
