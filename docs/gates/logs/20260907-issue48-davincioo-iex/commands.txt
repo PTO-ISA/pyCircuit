@@ -1,0 +1,7 @@
+python3 designs/davincioo/tools/check_catalog.py
+PYTHONPATH=python/semantic-core/src:python/agentic-circuit/src pytest designs/davincioo/tests -q
+ACIR_OPT=/nonexistent/acir-opt ACIR_QUEUE_PLAN=/nonexistent/acir-queue-plan ACIR_QUEUE_CXXGEN=/nonexistent/acir-queue-cxxgen ACIR_QUEUE_PYCGEN=/nonexistent/acir-queue-pycgen PYTHONPATH=python/semantic-core/src:python/agentic-circuit/src pytest designs/davincioo/tests -q
+python3 -m py_compile designs/davincioo/contracts/spe.py designs/davincioo/spe/iex/i1.py designs/davincioo/spe/iex/i2.py designs/davincioo/spe/iex/wba.py
+ruff check --select E9,F63,F7,F82 designs/davincioo
+pre-commit run --all-files
+mkdocs build --strict

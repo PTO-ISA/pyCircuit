@@ -2,8 +2,15 @@
 
 Build DavinciOO modules here to exercise and improve pyCircuit. Decision 0222
 authorizes this design program under `designs/`; compiler and primitive fixes
-remain reusable framework changes. This directory initially contains planning
-contracts and task cards, not 240 implemented modules.
+remain reusable framework changes. This directory contains planning contracts
+and task cards plus the first implemented SPE.IEX pilots. It does not claim
+that all 240 candidates are implemented.
+
+| Pilot | Current evidence | Remaining promotion gate |
+| --- | --- | --- |
+| I1 | canonical identity/invariant, Frozen ACIR, generated gfsim compile and empty-state execution | concrete read grant/retry/cancel/backpressure matrix |
+| I2 | 284 to 41 comparisons, Frozen ACIR, QueueGraph, generated gfsim compile and empty-state execution | operand/dependency/execute/release/cancel matrix |
+| WBA | aggregate attempt identity, Frozen ACIR, QueueGraph, empty-state gfsim execution, explicit PYC rejection | terminal/apply/retry/cancel/drain matrix |
 
 ## Start here
 

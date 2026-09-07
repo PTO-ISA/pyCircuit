@@ -1,0 +1,32 @@
+{
+  "run_id": "20260907-issue48-davincioo-iex",
+  "status": "passed-focused-smoke",
+  "base_revision": "9de7f5fdea701e2726209c6ecddd7ab4be36a8e6",
+  "issue": 48,
+  "framework_revision": "9de7f5fdea701e2726209c6ecddd7ab4be36a8e6",
+  "source_baseline": "hengliao1972/DavinciOO@b81ecfc2b634d41886b01fd8724905eeb5bb6551",
+  "framework_maturation": {
+    "aggregate_invariants": "9582e4e40f1fe1a207ffc7adcb87076b6d9772a1",
+    "boolean_or": "cb67c4d533c8a942bd729e0aa0d9446c51dffbce",
+    "invariant_ssa": "4c6500ff3335cce870e56d4b1a5af38a7c783fe9",
+    "persistent_enum": "924daa28b951e6bc778c83fdeb96a11e0e959dce",
+    "find_local_capture": "a4cdb0df4f6fedd6b71e61929dd7c4df02c59acc",
+    "nested_capture_plan": "9de7f5fdea701e2726209c6ecddd7ab4be36a8e6"
+  },
+  "results": {
+    "design_tests": {"passed": 10, "failed": 0},
+    "python_only_ci": {"passed": 5, "skipped_native": 5, "failed": 0},
+    "catalog": {"h1": 7, "h2": 31, "h3": 240, "cards": 278},
+    "gfsim_empty_state": {"i1": "passed", "i2": "passed", "wba": "passed"},
+    "pyc_boundary": "stateful provisional Table/module lowering rejected explicitly",
+    "pre_commit": {"passed": true},
+    "strict_docs": {"passed": true}
+  },
+  "comparison_metric": {
+    "i1": {"before": 130, "after": 9},
+    "i2": {"before": 284, "after": 41, "required_maximum": 80},
+    "wba": {"before": 262, "after": 90}
+  },
+  "remaining_issue_scope": "Concrete token behavior under backpressure, retry, cancel races, tombstone capacity, apply/drain, reset, and isolated instances remains required before issue #48 closes.",
+  "skill_evolve": "no-update"
+}
