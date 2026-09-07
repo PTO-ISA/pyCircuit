@@ -1,0 +1,22 @@
+{
+  "run_id": "20260908-issue40-p1-cas-boundary",
+  "status": "passed",
+  "base_revision": "8cf9f3f1157446f8571172243bc8ff1a6b549b34",
+  "decision_ids": ["0148", "0159"],
+  "issue": 40,
+  "results": {
+    "unit": {"passed": 81, "failed": 0},
+    "focused_compatibility": {"passed": 94, "failed": 0},
+    "bypass_direct_build": {"passed": true},
+    "issue_queue_jit_build": {"passed": true},
+    "fm16_npu_direct_build": {"passed": true},
+    "fm16_switch_direct_build": {"passed": true},
+    "api_hygiene": {"passed": true},
+    "pyc_inventory": {"operations": 41, "types": 2, "passed": true},
+    "pre_commit": {"passed": true},
+    "mkdocs_strict": {"passed": true},
+    "decision_status": {"rows": 224, "deferred": 0, "passed": true}
+  },
+  "behavior": "Domain-owned factories and top-level mux have stable CycleAwareSignal returns. Raw Wire selection is explicit as pycircuit.structural.mux and has a stable Wire return.",
+  "skill_evolve": "no-update"
+}

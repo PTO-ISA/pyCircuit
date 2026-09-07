@@ -14,6 +14,13 @@ from pycircuit.design import Design
 pytestmark = pytest.mark.unit
 
 
+def _domain_factory_build(m, domain):
+    value = domain.create_signal("value", width=8)
+    constant = domain.create_const(3, width=8)
+    reset = domain.create_reset()
+    m.output("result", pycircuit.wire_of(pycircuit.mux(reset, value, constant)))
+
+
 def test_cycle_aware_frontend_is_the_pyc6_surface() -> None:
     assert pycircuit.CycleAwareSignal is pyc6.CycleAwareSignal
     assert pycircuit.CycleAwareDomain is pyc6.CycleAwareDomain
@@ -80,7 +87,7 @@ def test_cycle_aware_compile_entrypoints_normalize_blank_names(
     blank_name: str,
 ) -> None:
     def named_build(m, domain):
-        m.output("result", domain.create_const(0, width=1))
+        m.output("result", pycircuit.wire_of(domain.create_const(0, width=1)))
 
     compiled = pycircuit.compile_cycle_aware(named_build, name=blank_name)
     elaborated = pycircuit.build_cycle_aware(named_build, name=blank_name)
@@ -115,7 +122,7 @@ def test_build_cycle_aware_rejects_removed_mode_parameters(removed: str) -> None
 def test_build_cycle_aware_preserves_structural_and_rejects_value_params() -> None:
     @pycircuit.module(structural=True)
     def structural(m, domain):
-        m.output("result", domain.create_const(0, width=1))
+        m.output("result", pycircuit.wire_of(domain.create_const(0, width=1)))
 
     structural_mlir = pycircuit.build_cycle_aware(structural).emit_mlir()
     assert 'pyc.emit.structural = "true"' in structural_mlir
@@ -197,12 +204,50 @@ def test_pyc6_data_model_is_scalar_only() -> None:
         Data.from_str("vector<2xi8>")
 
 
+def test_cycle_aware_domain_factories_return_current_cycle_signals() -> None:
+    circuit = pycircuit.CycleAwareCircuit("domain_factories")
+    domain = circuit.create_domain("clk")
+    domain.next()
+
+    value = domain.create_signal("value", width=8)
+    constant = domain.create_const(3, width=8)
+    reset = domain.create_reset()
+    via_circuit = circuit.input_signal("other", 8, domain)
+    const_via_circuit = circuit.const_signal(4, 8, domain)
+
+    for signal in (value, constant, reset, via_circuit, const_via_circuit):
+        assert type(signal) is pycircuit.CycleAwareSignal
+        assert signal.cycle == 1
+
+    compiled = pycircuit.compile_cycle_aware(_domain_factory_build)
+    compiled_mlir = compiled.emit_mlir()
+    assert 'pyc.frontend.contract = "pycircuit"' in compiled_mlir
+    assert "pyc.reset_active" in compiled_mlir
+    assert "pyc.select" in compiled_mlir
+
+
+def test_cycle_aware_and_structural_mux_have_stable_return_types() -> None:
+    circuit = pycircuit.CycleAwareCircuit("mux_boundaries")
+    domain = circuit.create_domain("clk")
+    cond = circuit.input("cond", width=1)
+    lhs = circuit.input("lhs", width=8)
+    rhs = circuit.input("rhs", width=8)
+
+    selected_wire = pycircuit.structural.mux(cond, lhs, rhs)
+    with pytest.raises(TypeError, match="pycircuit.structural.mux"):
+        pycircuit.mux(cond, lhs, rhs)
+    selected_cas = pycircuit.mux(pycircuit.cas(domain, cond), lhs, rhs)
+
+    assert type(selected_wire) is pycircuit.Wire
+    assert type(selected_cas) is pycircuit.CycleAwareSignal
+
+
 def test_priority_encode_is_vendor_neutral_on_the_public_pyc6_surface() -> None:
     circuit = pycircuit.CycleAwareCircuit("priority")
     domain = circuit.create_domain("clk")
     mask = domain.create_signal("mask", width=13)
 
-    result = pycircuit.priority_encode(pycircuit.cas(domain, mask), order="high")
+    result = pycircuit.priority_encode(mask, order="high")
 
     assert result.index.width == 4
     assert result.valid.width == 1
@@ -216,7 +261,7 @@ def test_priority_encode_is_vendor_neutral_on_the_public_pyc6_surface() -> None:
 def test_priority_encode_rejects_noncanonical_order() -> None:
     circuit = pycircuit.CycleAwareCircuit("bad_priority")
     domain = circuit.create_domain("clk")
-    mask = pycircuit.cas(domain, domain.create_signal("mask", width=4))
+    mask = domain.create_signal("mask", width=4)
 
     with pytest.raises(ValueError, match="'low' or 'high'"):
         pycircuit.priority_encode(mask, order="middle")
@@ -225,7 +270,7 @@ def test_priority_encode_rejects_noncanonical_order() -> None:
 def test_popcount_is_exact_width_and_vendor_neutral_on_pyc6() -> None:
     circuit = pycircuit.CycleAwareCircuit("popcount")
     domain = circuit.create_domain("clk")
-    value = pycircuit.cas(domain, domain.create_signal("value", width=13))
+    value = domain.create_signal("value", width=13)
 
     count = pycircuit.popcount(value)
 
@@ -252,7 +297,7 @@ def test_structural_circuit_popcount_emits_the_same_semantic_op() -> None:
 def test_count_leading_zeros_is_exact_width_and_cycle_aware() -> None:
     circuit = pycircuit.CycleAwareCircuit("count_leading_zeros")
     domain = circuit.create_domain("clk")
-    value = pycircuit.cas(domain, domain.create_signal("value", width=13))
+    value = domain.create_signal("value", width=13)
 
     count = pycircuit.count_leading_zeros(value)
 
@@ -280,7 +325,7 @@ def test_structural_count_leading_zeros_emits_the_same_semantic_op() -> None:
 def test_count_trailing_zeros_uses_the_same_parameterized_semantic_family() -> None:
     circuit = pycircuit.CycleAwareCircuit("count_trailing_zeros")
     domain = circuit.create_domain("clk")
-    value = pycircuit.cas(domain, domain.create_signal("value", width=13))
+    value = domain.create_signal("value", width=13)
 
     count = pycircuit.count_trailing_zeros(value)
 

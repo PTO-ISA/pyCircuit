@@ -57,6 +57,7 @@ probe
 s
 sext
 spec
+structural
 submodule_input
 sva
 testbench

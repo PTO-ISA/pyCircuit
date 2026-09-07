@@ -102,6 +102,9 @@ pyCircuit/
 
 - `CycleAwareDomain` 维护逻辑周期计数器（`next`/`prev`/`push`/`pop` 栈）；
 - `CycleAwareSignal` 用 `(wire, cycle)` 对表示信号，运算前通过 `delay_to()` 自动补 `pyc.reg` 链对齐操作数（**自动周期平衡**的实现点）；
+- domain-owned factories and top-level `mux()` stay on the CAS surface;
+  `CycleAwareCircuit.input()`/`const()` are explicit raw boundaries, and
+  `pycircuit.structural.mux()` owns raw Wire selection;
 - `ForwardSignal` 保留寄存器声明/赋值关系，但每次 Q 端读取统一绑定当前
   occurrence；`.cycle`、helper、运算符与 `CycleAwareSignal.as_cas()` 不得回退到
   声明时 tag；

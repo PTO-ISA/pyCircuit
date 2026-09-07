@@ -33,12 +33,13 @@ a `CycleAwareCircuit` whose MLIR carries the same frontend contract.
 
 ```python
 from pycircuit import Circuit, compile, const, function, module
-from pycircuit import ct, hierarchical, lib, logic, spec, wiring
+from pycircuit import ct, hierarchical, lib, logic, spec, structural, wiring
 ```
 
 The structural surface is supported for explicit hierarchy, compile-time
 specialization, reusable library blocks, and static hardware generation. It
-does not define a competing timing model.
+does not define a competing timing model. Use `structural.mux()` for raw Wire
+selection; top-level `mux()` is CycleAware and always returns a CAS.
 
 ## Reference documents
 

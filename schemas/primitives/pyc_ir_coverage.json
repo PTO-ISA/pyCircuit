@@ -980,7 +980,9 @@
       "stage": "canonical-pyc",
       "status": "normative",
       "symbol": "PYC_ResetActiveOp",
-      "tests": [],
+      "tests": [
+        "tests/unit/test_pyc6_surface.py"
+      ],
       "verifier": null,
       "verilog_emitter": "compiler/mlir/lib/Emit/VerilogEmitter.cpp"
     },
@@ -1098,7 +1100,8 @@
         "tests/mlir/agentic-circuit/CodeGen/value-select.mlir",
         "tests/mlir/pyc/canonical-ops-valid.mlir",
         "tests/mlir/pyc/canonical-select-invalid.mlir",
-        "tests/test_pyc_canonical_ops.py"
+        "tests/test_pyc_canonical_ops.py",
+        "tests/unit/test_pyc6_surface.py"
       ],
       "verifier": "compiler/mlir/lib/Dialect/PYC/PYCOps.cpp",
       "verilog_emitter": "compiler/mlir/lib/Emit/VerilogEmitter.cpp"
