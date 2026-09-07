@@ -52,6 +52,11 @@ def LowerVariableStatePass
   let summary = "Select committed storage for persistent ac.var declarations";
 }
 
+def LowerValueContractsPass
+    : Pass<"ac-lower-value-contracts", "::mlir::ModuleOp"> {
+  let summary = "Lower recursive equality and reusable value invariants";
+}
+
 def InferRuleTypesPass : Pass<"ac-infer-rule-types", "::mlir::ModuleOp"> {
   let summary = "Refine transient rule type-constraint markers";
 }

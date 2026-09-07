@@ -534,6 +534,66 @@ def aggregate_payload_pipeline(incoming: AggregatePacket) -> AggregatePacket:
     return updated
 """
 
+RECURSIVE_EQUALITY_INVARIANT_SOURCE = """
+import agentic_circuit as ac
+from enum import Enum
+
+class Mode(Enum):
+    IDLE = 0
+    RUN = 1
+
+@ac.struct
+class Inner:
+    tag: ac.u8
+    mode: Mode
+
+@ac.struct
+class Payload:
+    inner: Inner
+    pair: tuple[ac.u8, ac.u8]
+    lanes: ac.array[8, ac.u8]
+    valid: bool
+
+@ac.invariant
+def valid_payload(value: Payload) -> bool:
+    return (value.inner.mode == Mode.RUN) and (value.pair[0] == value.inner.tag) and (value.lanes[0] < 8)
+
+@ac.rule
+def compare(left, right):
+    return left.with_fields(valid=(left == right) and (left.pair == right.pair) and (left.lanes != right.lanes))
+
+@ac.rule
+def validate(value):
+    return value.with_fields(valid=valid_payload(value))
+
+@ac.system
+def recursive_contract(left: Payload, right: Payload, checked: Payload) -> tuple[Payload, Payload]:
+    compared = compare(left, right)
+    valid = validate(checked)
+    return compared, valid
+"""
+
+INVARIANT_MODULE_SOURCE = """
+import agentic_circuit as ac
+
+@ac.struct
+class Payload:
+    value: ac.u8
+    valid: bool
+
+@ac.invariant
+def valid_payload(value: Payload) -> bool:
+    return value.value != 0
+
+@ac.module
+def validate(value: Payload) -> Payload:
+    return value.with_fields(valid=valid_payload(value))
+
+@ac.system
+def invariant_module(value: Payload) -> Payload:
+    return validate(value)
+"""
+
 BOOL_U1_SOURCE = """
 from __future__ import annotations
 
@@ -2988,6 +3048,117 @@ def cycle(incoming: Left) -> Left:
         self.assertIn("type = !ac.value_array<4 x i4>", lowered)
         self.assertIn("ac.var.element %v", lowered)
         self.assertIn(" at 2 : !ac.var<!ac.value_array<4 x i4>>", lowered)
+
+    def test_recursive_aggregate_equality_and_invariant_emit_verified_ir(self) -> None:
+        from agentic_circuit._queue_frontend import lower_queue_source
+
+        lowered = lower_queue_source(
+            RECURSIVE_EQUALITY_INVARIANT_SOURCE, "recursive_contract"
+        )
+        self.assertIn(
+            'ac.var.cmp "eq" %item0, %item1 : !ac.var<!ac.struct<@types::@Payload>>',
+            lowered,
+        )
+        self.assertIn('ac.var.cmp "eq"', lowered)
+        self.assertIn("!ac.var<tuple<i8, i8>>", lowered)
+        self.assertIn('ac.var.cmp "ne"', lowered)
+        self.assertIn("!ac.var<!ac.value_array<8 x i8>>", lowered)
+        self.assertIn(
+            'ac.var.invariant %item name "Payload.valid_payload" {',
+            lowered,
+        )
+        self.assertIn("ac.var.invariant.yield %", lowered)
+        self.assertIn("size = 13 : i64", lowered)
+
+    def test_invariant_is_available_in_pure_module_expressions(self) -> None:
+        from agentic_circuit._queue_frontend import lower_queue_source
+
+        lowered = lower_queue_source(INVARIANT_MODULE_SOURCE, "invariant_module")
+        self.assertIn(
+            'ac.var.invariant %item name "Payload.valid_payload" {',
+            lowered,
+        )
+
+    def test_aggregate_ordering_and_nominal_mismatch_fail_closed(self) -> None:
+        from agentic_circuit._queue_frontend import (
+            QueueFrontendError,
+            lower_queue_source,
+        )
+
+        ordered = RECURSIVE_EQUALITY_INVARIANT_SOURCE.replace(
+            "left == right", "left < right", 1
+        )
+        with self.assertRaisesRegex(QueueFrontendError, "aggregate.*equality"):
+            lower_queue_source(ordered, "recursive_contract")
+
+        mismatched = (
+            RECURSIVE_EQUALITY_INVARIANT_SOURCE.replace(
+                "@ac.invariant\n",
+                "@ac.struct\n"
+                "class Other:\n"
+                "    inner: Inner\n"
+                "    pair: tuple[ac.u8, ac.u8]\n"
+                "    lanes: ac.array[8, ac.u8]\n"
+                "    valid: bool\n\n"
+                "@ac.invariant\n",
+            )
+            .replace(
+                "def compare(left, right):",
+                "def compare(left, right):",
+            )
+            .replace(
+                "right: Payload, checked: Payload",
+                "right: Other, checked: Payload",
+            )
+        )
+        with self.assertRaisesRegex(
+            QueueFrontendError, "comparison operands must match"
+        ):
+            lower_queue_source(mismatched, "recursive_contract")
+
+    def test_invariant_declaration_and_use_fail_closed(self) -> None:
+        from agentic_circuit._queue_frontend import (
+            QueueFrontendError,
+            lower_queue_source,
+        )
+
+        cases = (
+            (
+                INVARIANT_MODULE_SOURCE.replace(
+                    "def valid_payload(value: Payload)",
+                    "def valid_payload(value: Payload, other: Payload)",
+                ),
+                "exactly one typed payload",
+            ),
+            (
+                INVARIANT_MODULE_SOURCE.replace(
+                    "value: Payload) -> bool", "value: ac.u8) -> bool"
+                ),
+                "nominal struct",
+            ),
+            (
+                INVARIANT_MODULE_SOURCE.replace(
+                    "value: Payload) -> bool", "value: Payload) -> ac.u1"
+                ),
+                "bool",
+            ),
+            (
+                INVARIANT_MODULE_SOURCE.replace(
+                    "return value.value != 0", "return len(value.value) != 0"
+                ),
+                "invariant Payload.valid_payload.*unsupported",
+            ),
+            (
+                INVARIANT_MODULE_SOURCE.replace(
+                    "valid_payload(value)", "valid_payload(value, value)"
+                ),
+                "invariant Payload.valid_payload requires exactly one payload",
+            ),
+        )
+        for source, diagnostic in cases:
+            with self.subTest(diagnostic=diagnostic):
+                with self.assertRaisesRegex(QueueFrontendError, diagnostic):
+                    lower_queue_source(source, "invariant_module")
 
     def test_bit_operations_require_identical_widths(self) -> None:
         from agentic_circuit._queue_frontend import (

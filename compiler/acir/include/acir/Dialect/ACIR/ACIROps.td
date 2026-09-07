@@ -191,6 +191,27 @@ def ACIR_VarCmpOp : ACIR_Op<"var.cmp", [
   }];
 }
 
+def ACIR_VarInvariantOp : ACIR_Op<"var.invariant", [
+    SingleBlock, RecursiveMemoryEffects
+  ]> {
+  let arguments = (ins ACIR_VarType:$input, StrAttr:$name);
+  let results = (outs ACIR_VarType:$result);
+  let regions = (region SizedRegion<1>:$predicate);
+  let hasVerifier = 1;
+  let assemblyFormat = [{
+    $input `name` $name $predicate attr-dict `:` qualified(type($input)) `->`
+    qualified(type($result))
+  }];
+}
+
+def ACIR_VarInvariantYieldOp : ACIR_Op<"var.invariant.yield", [
+    Pure, Terminator, HasParent<"VarInvariantOp">
+  ]> {
+  let arguments = (ins ACIR_VarType:$value);
+  let hasVerifier = 1;
+  let assemblyFormat = "$value attr-dict `:` qualified(type($value))";
+}
+
 def ACIR_VarSelectOp : ACIR_Op<"var.select", [
     Pure, AllTypesMatch<["true_value", "false_value", "result"]>
   ]> {

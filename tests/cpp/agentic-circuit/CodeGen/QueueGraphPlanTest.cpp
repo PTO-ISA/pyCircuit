@@ -609,6 +609,34 @@ TEST(QueueGraphPlanTest, RejectsAggregateGetCrossElementSliceForgery) {
             std::string::npos);
 }
 
+TEST(QueueGraphPlanTest, RejectsResidualAggregateComparisonBeforeCodegen) {
+  QueueGraphPlan plan = aggregateExpressionPlan();
+  QueueBlockPlan &transform = plan.blocks[1];
+  transform.expressions.push_back(
+      {"same", "cmp", "i1", {"item", "item"}, "", "eq"});
+  transform.yields = {"same"};
+  plan.queues[1].payloadType = "i1";
+  auto error = verifyQueueGraphPlan(plan);
+  ASSERT_TRUE(bool(error));
+  EXPECT_NE(llvm::toString(std::move(error))
+                .find("residual aggregate comparison must be lowered"),
+            std::string::npos);
+}
+
+TEST(QueueGraphPlanTest, RejectsResidualInvariantBeforeCodegen) {
+  QueueGraphPlan plan = aggregateExpressionPlan();
+  QueueBlockPlan &transform = plan.blocks[1];
+  transform.expressions.push_back(
+      {"valid", "invariant", "i1", {"item"}});
+  transform.yields = {"valid"};
+  plan.queues[1].payloadType = "i1";
+  auto error = verifyQueueGraphPlan(plan);
+  ASSERT_TRUE(bool(error));
+  EXPECT_NE(llvm::toString(std::move(error))
+                .find("residual ac.var.invariant must be lowered"),
+            std::string::npos);
+}
+
 TEST(QueueGraphPlanTest,
      PreservesExactU64MaskedMatchAndRejectsForgedMetadata) {
   QueueGraphPlan plan;

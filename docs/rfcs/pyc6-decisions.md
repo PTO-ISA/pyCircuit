@@ -7507,3 +7507,96 @@ functional and backpressure semantics.
 - PTO-ISA/pyCircuit issue #46.
 - User direction (2026-09-07): continue closing framework issues in dependency
   order for the DavinciOO contributor design program.
+
+## Decision 0224: recursive value equality and explicit named invariants lower before QueueGraph
+
+**Status:** Accepted; implemented and verified
+
+**Context / Goal**
+Large typed modules currently expand nominal identity and payload-shape checks
+field by field. The recursive descriptor already defines exact identity and
+layout, but `ac.var.cmp` admits only scalar integers and enums. This forces
+consumer code to duplicate the type graph and makes one invariant drift across
+several rule boundaries. Issue #48 requires concise Python authoring without
+moving type semantics into a backend or assuming runtime validity.
+
+**Decision (strong constraint)**
+- Ordinary Python `==` and `!=` accept two values with the exact same immutable
+  recursive descriptor: nominal `StructType`, structural tuple, fixed
+  value-array, enum, bool or fixed-width bits. Struct and enum identity is
+  nominal; equal packed width or equal field spelling does not permit a cast or
+  comparison between distinct declarations. Tuple arity and element types and
+  value-array length/element type are exact.
+- Equality returns logical bool. `<`, `<=`, `>`, `>=` on an aggregate remain
+  illegal. Recursive descriptor cycles, mismatched nominal types and malformed
+  results fail in the frontend and independently in ACIR. Total packed width is
+  not limited to 64 bits because comparison lowers recursively before backend
+  integer constraints.
+- `ac.var.cmp` is the verifier-visible equality operation for both scalar and
+  aggregate values. Aggregate operands allow only `eq` or `ne`. A shared
+  `ac-lower-value-contracts` pass recursively emits descriptor-order
+  `ac.var.get`/`ac.var.element`, scalar or enum equality leaves, and a
+  deterministic balanced boolean conjunction. `ne` negates the complete
+  equality result. The high-level aggregate comparison must be gone before
+  QueueGraph extraction.
+- One nominal struct invariant is declared as a pure typed function:
+
+  ```python
+  @ac.invariant
+  def valid_operand(value: Operand) -> bool:
+      return ...
+  ```
+
+  Calls use ordinary Python, for example `valid_operand(request.operand)`. The
+  decorator accepts exactly one nominal struct argument and a bool result. Its
+  stable diagnostic name is `<Payload>.<function>`, such as
+  `Operand.valid_operand`.
+- The frontend materializes each explicit call as `ac.var.invariant`, carrying
+  the exact input type, invariant name and a single pure predicate region that
+  yields `!ac.var<i1>`. The region may use admitted nested field/element access,
+  aggregate/scalar equality, enum equality, bit operations, boolean operations
+  and bounded scalar comparisons. State access, Queue/module calls, mutation,
+  reflection, `None`, effects and a non-bool yield are invalid.
+- `ac.var.invariant` computes a predicate; it is not an assertion, implicit
+  precondition, refined runtime type or proof that every value is valid. A rule
+  explicitly uses the result in its functional guard or classification. The
+  compiler may only reuse constructor/update preservation after a future
+  verifier-visible proof; this decision adds no implicit assumption.
+- The shared value-contract pass clones the verified predicate region at the
+  call, substitutes the exact input, recursively lowers aggregate equality and
+  removes the invariant op. Rule/dataflow analysis sees the resulting ordinary
+  SSA predicate. QueueGraph, gfsim and PYC independently reject a residual
+  invariant or aggregate comparison rather than assigning backend semantics.
+- Canonical PYC stays scalar-only. The scalarized equality/invariant tree uses
+  existing extract, scalar compare, boolean and/select operations. Stateless
+  admitted fixtures require matching C++/Verilog observations. A Table-backed
+  invariant retains the existing stateful PYC rejection boundary.
+- Cross-type semantic identity uses an explicit shared nominal value or an
+  explicit verified projection. The compiler does not infer that differently
+  named fields mean the same thing. Temporal protocol checks—active state,
+  outstanding requests, cancel/release ordering, tombstone capacity and
+  selected-output backpressure—remain explicit rule logic.
+
+**Required verification**
+- Frontend and ACIR positive tests cover flat and nested nominal structs, enum
+  leaves, tuples, fixed arrays, `eq`, `ne` and an aggregate wider than 64 bits.
+  Negative tests cover nominal mismatch, ordered aggregate compare, wrong
+  result/yield, malformed/impure invariant and recursive descriptors.
+- A typed boundary fixture invokes one named operand invariant without copying
+  its field expression. Valid input proceeds through its intended transaction;
+  invalid input takes the explicit reject/guard path at the same atomic boundary.
+- QueueGraph/gfsim execute equal and unequal cases, including a difference in
+  every nested field family. Residual high-level value-contract operations are
+  rejected by plan verification.
+- A stateless packed-scalar fixture produces identical PYC C++ and Verilator
+  results. English/Chinese specifications, public/IR inventories, plan/status
+  and reviewable evidence remain synchronized.
+- After the framework PR merges, the in-tree DavinciOO I1/I2/WBA work uses a
+  shared canonical identity and named operand invariants. Its mechanical
+  comparison metric and protocol regressions provide the remaining issue #48
+  design evidence.
+
+**Source**
+- PTO-ISA/pyCircuit issue #48.
+- User direction (2026-09-07): continue framework closure in dependency order,
+  using the in-tree DavinciOO H3 designs to mature shared semantics.

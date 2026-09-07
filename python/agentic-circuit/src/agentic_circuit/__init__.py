@@ -5,13 +5,13 @@ from __future__ import annotations
 from pkgutil import extend_path
 from typing import Never
 
-
 __path__ = extend_path(__path__, __name__)
 
 from . import _types as _types_module
 from ._definitions import (
     extern_module,
     interface,
+    invariant,
     module,
     packet,
     process,
@@ -55,6 +55,7 @@ __all__ = (
     "interface",
     "process",
     "rule",
+    "invariant",
     "scope",
     "array",
     "map",

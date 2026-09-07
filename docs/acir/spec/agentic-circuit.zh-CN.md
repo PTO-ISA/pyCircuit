@@ -285,6 +285,42 @@ member 必须按声明顺序从零连续编码。nested struct 字段可以直�
 QueueGraph 保存 member list 与 encoding width；gfsim 生成一次紧凑 C++ enum，
 PYC/Verilog 使用同一精确位宽 ordinal。
 
+### 递归相等性与命名 payload invariant
+
+普通 Python `==` 和 `!=` 可以比较递归 descriptor 完全一致的两个值，包括 nominal
+struct、nested struct、enum、structural tuple、固定 value array、bool 和精确位宽 bits。
+nominal identity 是类型的一部分：两个独立声明的 struct 或 enum 即使 layout 相同也不能
+互相比较。aggregate 的 `<`、`<=`、`>` 和 `>=` 非法。aggregate 总位宽不受 64 bit
+限制。
+
+可复用 payload predicate 使用 `@ac.invariant` 定义一次，并像普通 typed Python
+函数一样调用：
+
+```python
+@ac.invariant
+def valid_operand(value: Operand) -> bool:
+    return (
+        (value.is_constant and value.arch_index == 0)
+        or ((not value.is_constant) and value.phys_valid)
+    )
+
+accepted = valid_operand(request.operand)
+same_key = pending.key == request.key
+```
+
+invariant 必须只接收一个 nominal struct value，必须返回 `bool`，函数体必须只有一个
+pure return expression。predicate 可以使用已开放的字段/元素读取、相等比较、enum
+相等、bit 运算、boolean 运算和有界 scalar 比较；禁止读取 state、修改 value、调用
+Queue/module、使用反射或捕获外部 runtime value。稳定诊断名为
+`<Payload>.<function>`。
+
+每次调用生成一个带 typed predicate region 的 `ac.var.invariant`。这个 op 只计算一个
+boolean value；它不是 assertion、隐式输入前提或 refined runtime type。rule 必须明确
+把结果用于 guard 或分类。`ac-lower-value-contracts` 会内联 predicate，再按 descriptor
+顺序把 aggregate `ac.var.cmp` 递归展开为 `ac.var.get`/`ac.var.element`、scalar/enum
+相等 leaf 和平衡 boolean AND tree；`ne` 对完整 equality result 取反。Frozen ACIR 与
+QueueGraph 中禁止残留 aggregate comparison 或 invariant op。
+
 ### 静态 bits 与命名 bitfield view
 
 `ac.bits[N]` 与 `ac.uN` 表示同一种精确位宽无符号值；`N` 必须由确定性的静态

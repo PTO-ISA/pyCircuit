@@ -88,6 +88,34 @@ class JitSourceClosureTest(unittest.TestCase):
             tuple(item.path for item in closure.entries),
         )
 
+    def test_explicit_symbol_import_captures_payload_invariant_definition(self) -> None:
+        from agentic_circuit._source_closure import capture_source_closure
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "contracts.py").write_text(
+                "import agentic_circuit as ac\n\n"
+                "@ac.struct\n"
+                "class Payload:\n"
+                "    value: ac.u8\n\n"
+                "@ac.invariant\n"
+                "def valid_payload(value: Payload) -> bool:\n"
+                "    return value.value != 0\n",
+                encoding="utf-8",
+            )
+            entry = root / "top.py"
+            entry.write_text(
+                "from contracts import Payload, valid_payload\n",
+                encoding="utf-8",
+            )
+
+            closure = capture_source_closure(entry, root)
+
+        self.assertEqual(
+            ("contracts.py", "top.py"),
+            tuple(item.path for item in closure.entries),
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
