@@ -1,0 +1,81 @@
+{
+  "base_revision": "0e014154285ab3b74c1297a71204e17753f6f337",
+  "decisions": [
+    "0176",
+    "0177",
+    "0189",
+    "0194",
+    "0196",
+    "0201",
+    "0202",
+    "0205",
+    "0206",
+    "0221"
+  ],
+  "rob_acceptance": "passed",
+  "release_closure": false,
+  "gates": {
+    "rob_and_host": {
+      "passed": 4,
+      "seconds": 25.799
+    },
+    "generic_guard": {
+      "subcases": 5,
+      "baseline_failures": 5,
+      "after": "passed",
+      "seconds": 0.137
+    },
+    "lit": {
+      "passed": 6,
+      "seconds": 3.79
+    },
+    "gfsim_queue_blocks": {
+      "passed": 73,
+      "seconds": 0.003
+    },
+    "typed_transactions": {
+      "passed": 1,
+      "seconds": 3.005
+    },
+    "queue_codegen": {
+      "passed": 30,
+      "baseline_failures": 2,
+      "skipped": 1,
+      "seconds": 105.842
+    },
+    "frontend": {
+      "passed": 225,
+      "skipped": 4,
+      "seconds": 28.365
+    },
+    "contracts": {
+      "passed": 42,
+      "seconds": 23.254
+    },
+    "cli": {
+      "passed": 53,
+      "seconds": 118.367
+    },
+    "format": {
+      "clang_format": "passed",
+      "git_diff_check": "passed",
+      "pre_commit": "unavailable"
+    },
+    "strict_decisions": {
+      "status": "failed",
+      "missing_historical_evidence_decisions": 35
+    },
+    "api_hygiene": {
+      "status": "passed",
+      "seconds": 1.765
+    }
+  },
+  "rob_counters": {
+    "scan_work": 1769,
+    "incremental_work": 182,
+    "activation": 215,
+    "closure": 511
+  },
+  "native_artifacts": ".pycircuit_out/rob-regression/final/",
+  "scope": "Agentic Circuit/gfsim; no Verilator or DavinciOO implementation"
+}

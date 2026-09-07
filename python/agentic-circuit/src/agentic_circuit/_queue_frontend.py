@@ -1458,7 +1458,27 @@ def parse_queue_program(
                     or (isinstance(returned, ast.Constant) and returned.value is None)
                 ):
                     multi_return = copy.deepcopy(returned)
-            multi_guard = copy.deepcopy(guarded.test)
+            # Capture at the source `if`, before its body rebinds scalar state
+            # or locals. Rewriting the test after flattening would test the
+            # proposed state instead of the value observed at branch entry.
+            condition_names = {
+                candidate.id
+                for candidate in ast.walk(node)
+                if isinstance(candidate, ast.Name)
+            } | set(parameter_names)
+            condition_name = "__ac_blocking_condition"
+            while condition_name in condition_names:
+                condition_name += "_"
+            multi_body.append(
+                ast.copy_location(
+                    ast.Assign(
+                        targets=[ast.Name(id=condition_name, ctx=ast.Store())],
+                        value=copy.deepcopy(guarded.test),
+                    ),
+                    guarded,
+                )
+            )
+            multi_guard = ast.Name(id=condition_name, ctx=ast.Load())
             multi_body.extend(guarded_body)
         guarded_statements: list[tuple[ast.stmt, ast.expr | None, bool]] = []
         absent_output_paths: list[ast.expr] = []

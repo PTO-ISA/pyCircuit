@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import unittest
 
 SOURCE = """
@@ -3386,6 +3387,60 @@ def cycle(incoming: Left) -> Left:
         )
         self.assertIn(f"when %{field_values['first_gate']}", first_assign)
         self.assertIn(f"when %{field_values['second_gate']}", second_assign)
+
+    def test_blocking_guard_captures_state_and_local_versions_before_its_body(self) -> None:
+        from agentic_circuit._queue_frontend import lower_queue_source
+
+        for prefix, guard, body in (
+            ("", "count != 4", "count = count + 1"),
+            ("", "count != 0", "count = count - 1"),
+            (
+                "    gate = count != 4\n",
+                "gate",
+                "gate = False\n        count = count + 1",
+            ),
+            # The captured value is at the if, not necessarily rule entry.
+            (
+                "    observed = count + 1\n",
+                "observed != 4",
+                "observed = 0\n        count = count + 1",
+            ),
+            # Compiler-owned captures must not shadow an ordinary user local.
+            (
+                "    __ac_blocking_condition = count\n",
+                "count != 4",
+                "count = __ac_blocking_condition + 1",
+            ),
+        ):
+            with self.subTest(prefix=prefix, guard=guard):
+                source = f"""
+import agentic_circuit as ac
+@ac.rule
+def update(count, mirror, request):
+{prefix}    if {guard}:
+        {body}
+        mirror = count
+        return request
+@ac.system
+def guarded_update(request: ac.u3) -> ac.u3:
+    count: ac.u3 = 0
+    mirror: ac.u3 = 0
+    result = update(count, mirror, request)
+    return result
+"""
+                lowered = lower_queue_source(source, "guarded_update")
+                condition = re.search(r"ac.rule.condition (%\w+)", lowered)
+                self.assertIsNotNone(condition)
+                comparison = re.search(
+                    rf'{condition[1]} = ac.var.cmp "ne" (%\w+),', lowered
+                )
+                self.assertIsNotNone(comparison)
+                expected = re.search(r"(%\w+) = ac.var.read @count", lowered)[1]
+                if prefix == "    observed = count + 1\n":
+                    expected = re.search(r"(%\w+) = ac.var.add", lowered)[1]
+                self.assertEqual(expected, comparison[1])
+                proposed = re.search(r"ac.var.assign @count = (%\w+)", lowered)[1]
+                self.assertNotEqual(proposed, comparison[1])
 
     def test_nested_branch_path_captures_each_condition_before_rebinding(self) -> None:
         from agentic_circuit._queue_frontend import lower_queue_source

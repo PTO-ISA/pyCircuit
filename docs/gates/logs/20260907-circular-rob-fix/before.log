@@ -1,0 +1,33 @@
+test_circular_rob_wraps_rejects_stale_completion_and_recovers (test_queue_codegen.QueueCodegenTest.test_circular_rob_wraps_rejects_stale_completion_and_recovers) ... FAIL
+test_host_result_boundary_preserves_real_rob_backpressure (test_queue_codegen.QueueCodegenTest.test_host_result_boundary_preserves_real_rob_backpressure) ... ok
+test_reusable_circular_rob_preserves_rules_and_instance_state (test_queue_codegen.QueueCodegenTest.test_reusable_circular_rob_preserves_rules_and_instance_state) ... FAIL
+test_reusable_rob_scan_and_activation_match_every_tick (test_queue_codegen.QueueCodegenTest.test_reusable_rob_scan_and_activation_match_every_tick) ... FAIL
+
+======================================================================
+FAIL: test_circular_rob_wraps_rejects_stale_completion_and_recovers (test_queue_codegen.QueueCodegenTest.test_circular_rob_wraps_rejects_stale_completion_and_recovers)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/lc/pyCircuit/tests/integration/agentic-circuit/e2e/test_queue_codegen.py", line 2438, in test_circular_rob_wraps_rejects_stale_completion_and_recovers
+    self.assertEqual(0, executed.returncode, executed.stderr)
+AssertionError: 0 != 3 : 
+
+======================================================================
+FAIL: test_reusable_circular_rob_preserves_rules_and_instance_state (test_queue_codegen.QueueCodegenTest.test_reusable_circular_rob_preserves_rules_and_instance_state)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/lc/pyCircuit/tests/integration/agentic-circuit/e2e/test_queue_codegen.py", line 2712, in test_reusable_circular_rob_preserves_rules_and_instance_state
+    self.assertEqual(0, executed.returncode, executed.stderr)
+AssertionError: 0 != 4 : 
+
+======================================================================
+FAIL: test_reusable_rob_scan_and_activation_match_every_tick (test_queue_codegen.QueueCodegenTest.test_reusable_rob_scan_and_activation_match_every_tick)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/lc/pyCircuit/tests/integration/agentic-circuit/e2e/test_queue_codegen.py", line 3183, in test_reusable_rob_scan_and_activation_match_every_tick
+    self.assertEqual(0, executed.returncode, executed.stderr)
+AssertionError: 0 != 6 : 
+
+----------------------------------------------------------------------
+Ran 4 tests in 26.996s
+
+FAILED (failures=3)

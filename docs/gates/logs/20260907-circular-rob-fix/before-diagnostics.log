@@ -1,0 +1,114 @@
+test_circular_rob_wraps_rejects_stale_completion_and_recovers (queue_test.QueueCodegenTest.test_circular_rob_wraps_rejects_stale_completion_and_recovers) ... /home/lc/pyCircuit/.pycircuit_out/rob-regression/tmpghaa99c8
+FAIL
+test_reusable_circular_rob_preserves_rules_and_instance_state (queue_test.QueueCodegenTest.test_reusable_circular_rob_preserves_rules_and_instance_state) ... /home/lc/pyCircuit/.pycircuit_out/rob-regression/tmphn2et44t
+FAIL
+test_reusable_rob_scan_and_activation_match_every_tick (queue_test.QueueCodegenTest.test_reusable_rob_scan_and_activation_match_every_tick) ... /home/lc/pyCircuit/.pycircuit_out/rob-regression/tmp9fkrz27m
+FAIL
+
+======================================================================
+FAIL: test_circular_rob_wraps_rejects_stale_completion_and_recovers (queue_test.QueueCodegenTest.test_circular_rob_wraps_rejects_stale_completion_and_recovers)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/lc/pyCircuit/tests/integration/agentic-circuit/e2e/test_queue_codegen.py", line 2444, in test_circular_rob_wraps_rejects_stale_completion_and_recovers
+    self.assertEqual(0, executed.returncode, executed.stderr)
+AssertionError: 0 != 3 : ROB check=3
+tick=13
+/circular_rob/flush_request queue=[]
+/circular_rob/allocate_request queue=[{index=0,generation=0,epoch=0,value=40,done=0}]
+/circular_rob/completion queue=[]
+/circular_rob/allocated queue=[]
+/circular_rob/retired queue=[]
+/circular_rob/head=0
+/circular_rob/tail=3
+/circular_rob/count=3
+/circular_rob/epoch=0
+/circular_rob/entries entries=[{index=0,generation=1,epoch=0,value=10,done=0}{index=1,generation=1,epoch=0,value=20,done=0}{index=2,generation=1,epoch=0,value=30,done=0}{index=0,generation=0,epoch=0,value=0,done=0}]
+
+
+======================================================================
+FAIL: test_reusable_circular_rob_preserves_rules_and_instance_state (queue_test.QueueCodegenTest.test_reusable_circular_rob_preserves_rules_and_instance_state)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/lc/pyCircuit/tests/integration/agentic-circuit/e2e/test_queue_codegen.py", line 2724, in test_reusable_circular_rob_preserves_rules_and_instance_state
+    self.assertEqual(0, executed.returncode, executed.stderr)
+AssertionError: 0 != 4 : ROB check=4
+tick=24
+/reusable_circular_rob/left_flush queue=[]
+/reusable_circular_rob/left_allocate queue=[]
+/reusable_circular_rob/left_completion queue=[]
+/reusable_circular_rob/right_flush queue=[]
+/reusable_circular_rob/right_allocate queue=[]
+/reusable_circular_rob/right_completion queue=[]
+/reusable_circular_rob/left_allocated__left_retired_0 queue=[]
+/reusable_circular_rob/left_allocated__left_retired_1 queue=[]
+/reusable_circular_rob/right_allocated__right_retired_0 queue=[]
+/reusable_circular_rob/right_allocated__right_retired_1 queue=[]
+/reusable_circular_rob/left_allocated__left_retired/body/head=0
+/reusable_circular_rob/left_allocated__left_retired/body/tail=1
+/reusable_circular_rob/left_allocated__left_retired/body/count=1
+/reusable_circular_rob/left_allocated__left_retired/body/epoch=0
+/reusable_circular_rob/left_allocated__left_retired/body/entries entries=[{index=0,generation=1,epoch=0,value=100,done=1}{index=0,generation=0,epoch=0,value=0,done=0}{index=0,generation=0,epoch=0,value=0,done=0}{index=0,generation=0,epoch=0,value=0,done=0}]
+/reusable_circular_rob/right_allocated__right_retired/body/head=0
+/reusable_circular_rob/right_allocated__right_retired/body/tail=1
+/reusable_circular_rob/right_allocated__right_retired/body/count=1
+/reusable_circular_rob/right_allocated__right_retired/body/epoch=0
+/reusable_circular_rob/right_allocated__right_retired/body/entries entries=[{index=0,generation=1,epoch=0,value=200,done=1}{index=0,generation=0,epoch=0,value=0,done=0}{index=0,generation=0,epoch=0,value=0,done=0}{index=0,generation=0,epoch=0,value=0,done=0}]
+
+
+======================================================================
+FAIL: test_reusable_rob_scan_and_activation_match_every_tick (queue_test.QueueCodegenTest.test_reusable_rob_scan_and_activation_match_every_tick)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/lc/pyCircuit/tests/integration/agentic-circuit/e2e/test_queue_codegen.py", line 3219, in test_reusable_rob_scan_and_activation_match_every_tick
+    self.assertEqual(0, executed.returncode, executed.stderr)
+AssertionError: 0 != 6 : result wait timed out after 32 advances
+ROB equivalence check=6 scan
+tick=35
+/reusable_circular_rob/left_flush queue=[]
+/reusable_circular_rob/left_allocate queue=[]
+/reusable_circular_rob/left_completion queue=[]
+/reusable_circular_rob/right_flush queue=[]
+/reusable_circular_rob/right_allocate queue=[]
+/reusable_circular_rob/right_completion queue=[]
+/reusable_circular_rob/left_allocated__left_retired_0 queue=[{index=0,generation=1,epoch=0,value=10,done=0}]
+/reusable_circular_rob/left_allocated__left_retired_1 queue=[]
+/reusable_circular_rob/right_allocated__right_retired_0 queue=[]
+/reusable_circular_rob/right_allocated__right_retired_1 queue=[]
+/reusable_circular_rob/left_allocated__left_retired/body/head=0
+/reusable_circular_rob/left_allocated__left_retired/body/tail=1
+/reusable_circular_rob/left_allocated__left_retired/body/count=1
+/reusable_circular_rob/left_allocated__left_retired/body/epoch=0
+/reusable_circular_rob/left_allocated__left_retired/body/entries entries=[{index=0,generation=1,epoch=0,value=10,done=0}{index=0,generation=0,epoch=0,value=0,done=0}{index=0,generation=0,epoch=0,value=0,done=0}{index=0,generation=0,epoch=0,value=0,done=0}]
+/reusable_circular_rob/right_allocated__right_retired/body/head=0
+/reusable_circular_rob/right_allocated__right_retired/body/tail=1
+/reusable_circular_rob/right_allocated__right_retired/body/count=1
+/reusable_circular_rob/right_allocated__right_retired/body/epoch=0
+/reusable_circular_rob/right_allocated__right_retired/body/entries entries=[{index=0,generation=1,epoch=0,value=100,done=1}{index=0,generation=0,epoch=0,value=0,done=0}{index=0,generation=0,epoch=0,value=0,done=0}{index=0,generation=0,epoch=0,value=0,done=0}]
+incremental
+tick=35
+/reusable_circular_rob/left_flush queue=[]
+/reusable_circular_rob/left_allocate queue=[]
+/reusable_circular_rob/left_completion queue=[]
+/reusable_circular_rob/right_flush queue=[]
+/reusable_circular_rob/right_allocate queue=[]
+/reusable_circular_rob/right_completion queue=[]
+/reusable_circular_rob/left_allocated__left_retired_0 queue=[{index=0,generation=1,epoch=0,value=10,done=0}]
+/reusable_circular_rob/left_allocated__left_retired_1 queue=[]
+/reusable_circular_rob/right_allocated__right_retired_0 queue=[]
+/reusable_circular_rob/right_allocated__right_retired_1 queue=[]
+/reusable_circular_rob/left_allocated__left_retired/body/head=0
+/reusable_circular_rob/left_allocated__left_retired/body/tail=1
+/reusable_circular_rob/left_allocated__left_retired/body/count=1
+/reusable_circular_rob/left_allocated__left_retired/body/epoch=0
+/reusable_circular_rob/left_allocated__left_retired/body/entries entries=[{index=0,generation=1,epoch=0,value=10,done=0}{index=0,generation=0,epoch=0,value=0,done=0}{index=0,generation=0,epoch=0,value=0,done=0}{index=0,generation=0,epoch=0,value=0,done=0}]
+/reusable_circular_rob/right_allocated__right_retired/body/head=0
+/reusable_circular_rob/right_allocated__right_retired/body/tail=1
+/reusable_circular_rob/right_allocated__right_retired/body/count=1
+/reusable_circular_rob/right_allocated__right_retired/body/epoch=0
+/reusable_circular_rob/right_allocated__right_retired/body/entries entries=[{index=0,generation=1,epoch=0,value=100,done=1}{index=0,generation=0,epoch=0,value=0,done=0}{index=0,generation=0,epoch=0,value=0,done=0}{index=0,generation=0,epoch=0,value=0,done=0}]
+
+
+----------------------------------------------------------------------
+Ran 3 tests in 19.681s
+
+FAILED (failures=3)

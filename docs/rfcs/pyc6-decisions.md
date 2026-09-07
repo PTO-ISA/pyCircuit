@@ -7326,6 +7326,10 @@ dynamic indices wider than the original 64-entry snapshot mask.
   distinct indices become one owner-local write batch. The output, selected
   state proposals, input consumption, and output backpressure remain one
   compiler-owned transaction.
+  A blocking trailing `if` captures its condition at the source branch entry,
+  before its body rebinds locals or scalar state. Later expressions in that
+  body still observe the preceding assignments; the candidate must not be
+  recomputed from their proposed values.
 
 **Verification**
 - A framework-owned three-file fixture uses imported Enum/struct contracts,
@@ -7349,6 +7353,12 @@ dynamic indices wider than the original 64-entry snapshot mask.
 - Fresh evidence, including the eight-system consumer compile matrix and its
   distinction from protocol simulation, is recorded in
   `docs/gates/logs/20260907-issue44-review-closure/`.
+- The blocking-condition regression fixes the circular ROB's fourth allocation
+  and single-entry retirement without changing transaction or activation
+  semantics. Generic source/MLIR/gfsim coverage and the three ROB gates are in
+  `docs/gates/logs/20260907-circular-rob-fix/`; the ROB equivalence counters remain
+  1769/182 Work calls, 215 activation and 511 closure traversals. That run also
+  records two independently reproduced pre-existing non-ROB Queue test failures.
 
 **Source**
 - PTO-ISA/pyCircuit issue #44.

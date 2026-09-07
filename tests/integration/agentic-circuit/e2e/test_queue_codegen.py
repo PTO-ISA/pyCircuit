@@ -6,6 +6,7 @@ import shutil
 import subprocess
 import tempfile
 import unittest
+from contextlib import contextmanager
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[4]
@@ -105,6 +106,19 @@ DAVINCIOO_TRACE = (
 DAVINCIOO_PROJECTION = (
     ROOT / "tests/goldens/agentic-circuit/davincioo/softmax-projection.json"
 )
+
+
+@contextmanager
+def rob_artifacts(name: str):
+    """Set PYC_ROB_ARTIFACT_DIR to retain ACIR, QueueGraph and C++ diagnostics."""
+    retained = os.environ.get("PYC_ROB_ARTIFACT_DIR")
+    if retained:
+        output = Path(retained).resolve()
+        output.mkdir(parents=True, exist_ok=True)
+        yield tempfile.mkdtemp(prefix=f"{name}-", dir=output)
+    else:
+        with tempfile.TemporaryDirectory() as directory:
+            yield directory
 
 
 class QueueCodegenTest(unittest.TestCase):
@@ -2182,7 +2196,7 @@ int main() {{
         if any(not path.is_file() for path in tools.values()):
             self.skipTest("native circular ROB tools are unavailable")
 
-        with tempfile.TemporaryDirectory() as directory:
+        with rob_artifacts("single") as directory:
             root = Path(directory)
             model = root / "circular_rob.cpp"
             acir = root / "circular_rob.frozen.mlir"
@@ -2245,11 +2259,17 @@ int main() {{
 
 #include <array>
 #include <cstdint>
+#include "{ROOT / "tests/integration/agentic-circuit/e2e/rob_diagnostics.h"}"
 
 int main() {{
   ac_generated::CircularRob model;
   auto rows = model.dispatch_rows();
   std::uint64_t tick = 0;
+  auto fail = [&](int code) {{
+    std::cerr << "ROB check=" << code << '\\n';
+    dumpRob<ac_generated::RobEvent>(rows, tick);
+    return code;
+  }};
   auto event = [](unsigned index, unsigned generation, unsigned epoch,
                   unsigned value, bool done = false) {{
     return ac_generated::RobEvent{{gfsim::UInt<2>{{index}},
@@ -2287,14 +2307,14 @@ int main() {{
   // Allocation output backpressure is inferred: with the first tag undrained,
   // the second request cannot advance tail/count or update its entry.
   if (!offer(model.allocate_request(), event(0, 0, 0, 10)))
-    return 1;
+    return fail(1);
   cycle(false, true);
   if (!offer(model.allocate_request(), event(0, 0, 0, 20)))
-    return 1;
+    return fail(1);
   cycle(false, true);
   if (model.allocate_request().committedSize() != 1 ||
       scalar(model.table_count()) != 1 || scalar(model.table_tail()) != 1)
-    return 2;
+    return fail(2);
   cycle(true, true);
   cycle(true, true);
   cycle();
@@ -2303,46 +2323,46 @@ int main() {{
   // records the full/empty distinction.
   for (unsigned value : {{30u, 40u}}) {{
     if (!offer(model.allocate_request(), event(0, 0, 0, value)))
-      return 1;
+      return fail(1);
     cycle();
     cycle();
   }}
   if (scalar(model.table_count()) != 4 || scalar(model.table_tail()) != 0)
-    return 3;
+    return fail(3);
 
   // A fifth allocation remains at the input boundary while the ROB is full.
   if (!offer(model.allocate_request(), event(0, 0, 0, 50)))
-    return 4;
+    return fail(4);
   cycle();
   if (model.allocate_request().committedSize() != 1 ||
       scalar(model.table_count()) != 4)
-    return 5;
+    return fail(5);
 
   // Complete out of order. Head zero retires first and fills the deliberately
   // undrained retirement output; only then may the waiting fifth allocation
   // reuse slot zero with generation two.
   if (!offer(model.completion(), event(2, 1, 0, 0)))
-    return 5;
+    return fail(5);
   cycle();
   if (!offer(model.completion(), event(0, 1, 0, 0)))
-    return 6;
+    return fail(6);
   cycle();
   cycle(true, false);
   if (scalar(model.table_head()) != 1 || scalar(model.table_count()) != 3)
-    return 7;
+    return fail(7);
   cycle(true, false);
   if (model.allocate_request().committedSize() != 0 ||
       scalar(model.table_tail()) != 1 || scalar(model.table_count()) != 4 ||
       static_cast<unsigned long long>(
           model.table_entries().at(0).generation) != 2)
-    return 8;
+    return fail(8);
 
   // The stale generation is consumed but cannot mark the reused slot done.
   if (!offer(model.completion(), event(0, 1, 0, 0)))
-    return 9;
+    return fail(9);
   cycle(true, false);
   if (static_cast<bool>(model.table_entries().at(0).done))
-    return 10;
+    return fail(10);
 
   const std::array<ac_generated::RobEvent, 3> completions{{{{
       event(3, 1, 0, 0),
@@ -2351,7 +2371,7 @@ int main() {{
   }}}};
   for (const auto &completion : completions) {{
     if (!offer(model.completion(), completion))
-      return 11;
+      return fail(11);
     cycle(true, false);
   }}
   const auto held_head = scalar(model.table_head());
@@ -2359,54 +2379,54 @@ int main() {{
   cycle(true, false);
   if (scalar(model.table_head()) != held_head ||
       scalar(model.table_count()) != held_count)
-    return 12;
+    return fail(12);
   for (unsigned iteration = 0; iteration < 20; ++iteration)
     cycle();
   if (scalar(model.table_count()) != 0 || scalar(model.table_head()) != 1)
-    return 13;
+    return fail(13);
   const auto &retired_before_flush = model.sink_1_values();
   if (retired_before_flush.size() != 5)
-    return 14;
+    return fail(14);
   constexpr unsigned expected[5] = {{10, 20, 30, 40, 50}};
   for (unsigned index = 0; index < 5; ++index)
     if (static_cast<unsigned long long>(retired_before_flush[index].value) !=
         expected[index])
-      return 15;
+      return fail(15);
 
   // Flush discards one uncompleted entry by moving head to tail, clearing
   // occupancy, and advancing recovery epoch. Its old completion is harmless.
   if (!offer(model.allocate_request(), event(0, 0, 0, 60)))
-    return 16;
+    return fail(16);
   cycle();
   cycle();
   const unsigned old_index = 1;
   const unsigned old_generation = 2;
   if (!offer(model.flush_request(), event(0, 0, 0, 0)))
-    return 17;
+    return fail(17);
   cycle();
   if (scalar(model.table_count()) != 0 || scalar(model.table_head()) != 2 ||
       scalar(model.table_tail()) != 2 || scalar(model.table_epoch()) != 1)
-    return 18;
+    return fail(18);
   if (!offer(model.completion(),
              event(old_index, old_generation, 0, 0)))
-    return 19;
+    return fail(19);
   cycle();
   if (static_cast<bool>(model.table_entries().at(old_index).done))
-    return 20;
+    return fail(20);
 
   if (!offer(model.allocate_request(), event(0, 0, 0, 70)))
-    return 21;
+    return fail(21);
   cycle();
   cycle();
   if (!offer(model.completion(), event(2, 2, 1, 0)))
-    return 22;
+    return fail(22);
   cycle();
   for (unsigned iteration = 0; iteration < 8; ++iteration)
     cycle();
   const auto &retired = model.sink_1_values();
   if (retired.size() != 6 ||
       static_cast<unsigned long long>(retired.back().value) != 70)
-    return 23;
+    return fail(23);
   return 0;
 }}
 ''',
@@ -2435,6 +2455,8 @@ int main() {{
                 capture_output=True,
                 check=False,
             )
+            (root / "simulation.stdout").write_text(executed.stdout, encoding="utf-8")
+            (root / "simulation.stderr").write_text(executed.stderr, encoding="utf-8")
             self.assertEqual(0, executed.returncode, executed.stderr)
 
     def test_reusable_circular_rob_preserves_rules_and_instance_state(self) -> None:
@@ -2449,7 +2471,7 @@ int main() {{
         if any(not path.is_file() for path in tools.values()):
             self.skipTest("native reusable ROB tools are unavailable")
 
-        with tempfile.TemporaryDirectory() as directory:
+        with rob_artifacts("dual") as directory:
             root = Path(directory)
             model = root / "reusable_circular_rob.cpp"
             acir = root / "reusable_circular_rob.frozen.mlir"
@@ -2561,11 +2583,17 @@ int main() {{
                 f'''#include "{model.name}"
 
 #include <cstdint>
+#include "{ROOT / "tests/integration/agentic-circuit/e2e/rob_diagnostics.h"}"
 
 int main() {{
   ac_generated::ReusableCircularRob model;
   auto rows = model.dispatch_rows();
   std::uint64_t tick = 0;
+  auto fail = [&](int code) {{
+    std::cerr << "ROB check=" << code << '\\n';
+    dumpRob<ac_generated::RobEvent>(rows, tick);
+    return code;
+  }};
   auto event = [](unsigned index, unsigned generation, unsigned epoch,
                   unsigned value, bool done = false) {{
     return ac_generated::RobEvent{{gfsim::UInt<2>{{index}},
@@ -2594,7 +2622,7 @@ int main() {{
 
   if (!offer(model.left_allocate(), event(0, 0, 0, 100)) ||
       !offer(model.right_allocate(), event(0, 0, 0, 200)))
-    return 1;
+    return fail(1);
   for (unsigned index = 0; index < 8; ++index)
     cycle();
   const auto &left_allocated = model.sink_0_values();
@@ -2604,7 +2632,7 @@ int main() {{
       static_cast<unsigned long long>(right_allocated[0].index) != 0 ||
       static_cast<unsigned long long>(left_allocated[0].value) != 100 ||
       static_cast<unsigned long long>(right_allocated[0].value) != 200)
-    return 2;
+    return fail(2);
 
   if (!offer(model.left_completion(),
              event(static_cast<unsigned long long>(left_allocated[0].index),
@@ -2614,7 +2642,7 @@ int main() {{
              event(static_cast<unsigned long long>(right_allocated[0].index),
                    static_cast<unsigned long long>(right_allocated[0].generation),
                    static_cast<unsigned long long>(right_allocated[0].epoch), 0)))
-    return 3;
+    return fail(3);
   for (unsigned index = 0; index < 12; ++index)
     cycle();
   const auto &left_retired = model.sink_1_values();
@@ -2622,21 +2650,27 @@ int main() {{
   if (left_retired.size() != 1 || right_retired.size() != 1 ||
       static_cast<unsigned long long>(left_retired[0].value) != 100 ||
       static_cast<unsigned long long>(right_retired[0].value) != 200)
-    return 4;
+    return fail(4);
 
   if (!offer(model.left_allocate(), event(0, 0, 0, 300)))
-    return 5;
+    return fail(5);
   for (unsigned index = 0; index < 8; ++index)
     cycle();
   if (left_allocated.size() != 2 || right_allocated.size() != 1 ||
       static_cast<unsigned long long>(left_allocated[1].index) != 1 ||
       static_cast<unsigned long long>(left_allocated[1].value) != 300)
-    return 6;
+    return fail(6);
 
   ac_generated::ReusableCircularRob incremental;
   static_assert(ac_generated::ReusableCircularRob::activation_complete());
   gfsim::SimSystem activation_system("rob_activation");
   auto activation_rows = incremental.dispatch_rows();
+  auto failActivation = [&](int code) {{
+    std::cerr << "ROB activation check=" << code << '\\n';
+    dumpRob<ac_generated::RobEvent>(
+        activation_rows, activation_system.currentEpoch().time);
+    return code;
+  }};
   constexpr auto activation_offsets =
       ac_generated::ReusableCircularRob::activation_offsets();
   constexpr auto activation_targets =
@@ -2649,10 +2683,10 @@ int main() {{
       !activation_system.setActivationPlan(activation_offsets,
                                            activation_targets) ||
       !activation_system.setWorkClosurePlan(closure_offsets, closure_targets))
-    return 7;
+    return failActivation(7);
   if (!ac_generated::ReusableCircularRob::schedule_initial_work(
           activation_system))
-    return 8;
+    return failActivation(8);
   if (!incremental.offer_left_allocate(activation_system,
                                        event(0, 0, 0, 100)) ||
       !incremental.offer_left_completion(activation_system,
@@ -2661,10 +2695,10 @@ int main() {{
                                         event(0, 0, 0, 200)) ||
       !incremental.offer_right_completion(activation_system,
                                           event(0, 1, 0, 0)))
-    return 9;
+    return failActivation(9);
   const auto activation_result = activation_system.run();
   if (activation_result.classification != gfsim::TerminationClass::Completed)
-    return 11;
+    return failActivation(11);
   const auto &active_left_allocated = incremental.sink_0_values();
   const auto &active_left_retired = incremental.sink_1_values();
   const auto &active_right_allocated = incremental.sink_2_values();
@@ -2675,11 +2709,11 @@ int main() {{
       active_left_retired[0] != left_retired[0] ||
       active_right_allocated[0] != right_allocated[0] ||
       active_right_retired[0] != right_retired[0])
-    return 12;
+    return failActivation(12);
   if (activation_system.activationTraversalCount() == 0 ||
       activation_system.workClosureTraversalCount() == 0 ||
       activation_system.workInvocationCount() >= activation_rows.size() * 2)
-    return 13;
+    return failActivation(13);
   return 0;
 }}
 ''',
@@ -2709,6 +2743,8 @@ int main() {{
                 capture_output=True,
                 check=False,
             )
+            (root / "simulation.stdout").write_text(executed.stdout, encoding="utf-8")
+            (root / "simulation.stderr").write_text(executed.stderr, encoding="utf-8")
             self.assertEqual(0, executed.returncode, executed.stderr)
 
     def test_reusable_rob_scan_and_activation_match_every_tick(self) -> None:
@@ -2723,7 +2759,7 @@ int main() {{
         if any(not path.is_file() for path in tools.values()):
             self.skipTest("native reusable ROB tools are unavailable")
 
-        with tempfile.TemporaryDirectory() as directory:
+        with rob_artifacts("equivalence") as directory:
             root = Path(directory)
             model = root / "reusable_rob_equivalence.cpp"
             acir = root / "reusable_rob_equivalence.frozen.mlir"
@@ -2766,6 +2802,8 @@ int main() {{
             executable = root / "reusable_rob_equivalence"
             harness.write_text(
                 """#include "__MODEL__"
+
+#include "__DIAGNOSTICS__"
 
 #include <algorithm>
 #include <array>
@@ -2879,9 +2917,16 @@ int main() {
   EquivalenceClock incrementalClock(incrementalSystem, false, 256);
   auto scanRows = rowsWithClock(scanModel, scanClock);
   auto incrementalRows = rowsWithClock(incrementalModel, incrementalClock);
+  auto fail = [&](int code) {
+    std::cerr << "ROB equivalence check=" << code << " scan\\n";
+    dumpRob<Event>(scanRows, scanSystem.currentEpoch().time);
+    std::cerr << "incremental\\n";
+    dumpRob<Event>(incrementalRows, incrementalSystem.currentEpoch().time);
+    return code;
+  };
   if (!scanSystem.setDispatchTable(scanRows) ||
       !incrementalSystem.setDispatchTable(incrementalRows))
-    return 1;
+    return fail(1);
 
   constexpr auto baseActivationOffsets = Model::activation_offsets();
   constexpr auto activationTargets = Model::activation_targets();
@@ -2893,13 +2938,13 @@ int main() {
                                             activationTargets) ||
       !incrementalSystem.setWorkClosurePlan(closureOffsets, closureTargets) ||
       !Model::schedule_initial_work(incrementalSystem))
-    return 2;
+    return fail(2);
   for (gfsim::ObjectId id = 0; id < kModelObjects; ++id)
     if (!scanSystem.scheduleWork(id, {0, 0}))
-      return 3;
+      return fail(3);
   if (!scanSystem.scheduleWork(kClockId, {0, 0}) ||
       !incrementalSystem.scheduleWork(kClockId, {0, 0}))
-    return 4;
+    return fail(4);
 
   auto event = [](unsigned index, unsigned generation, unsigned epoch,
                   unsigned value, bool done = false) {
@@ -2909,14 +2954,25 @@ int main() {
   };
   bool equivalent = true;
   auto advance = [&]() {
-    if (scanSystem.currentEpoch() != incrementalSystem.currentEpoch())
+    if (scanSystem.currentEpoch() != incrementalSystem.currentEpoch()) {
+      std::cerr << "epoch mismatch\\n";
       return false;
-    if (!scanSystem.step() || !incrementalSystem.step())
+    }
+    const bool scanAdvanced = scanSystem.step();
+    const bool incrementalAdvanced = incrementalSystem.step();
+    if (!scanAdvanced || !incrementalAdvanced) {
+      std::cerr << "step failed: scan=" << scanAdvanced
+                << " incremental=" << incrementalAdvanced << '\\n';
       return false;
-    equivalent = equivalent && snapshot(scanRows) == snapshot(incrementalRows);
-    equivalent = equivalent &&
-                 scanSystem.commitTimeline() ==
-                     incrementalSystem.commitTimeline();
+    }
+    if (snapshot(scanRows) != snapshot(incrementalRows)) {
+      std::cerr << "committed state mismatch\\n";
+      equivalent = false;
+    }
+    if (scanSystem.commitTimeline() != incrementalSystem.commitTimeline()) {
+      std::cerr << "commit timeline mismatch\\n";
+      equivalent = false;
+    }
     return equivalent;
   };
   auto advanceUntil = [&](auto predicate) {
@@ -2926,6 +2982,7 @@ int main() {
       if (!advance())
         return false;
     }
+    std::cerr << "result wait timed out after 32 advances\\n";
     return false;
   };
   auto offerLeftAllocate = [&](Event value) {
@@ -2992,7 +3049,7 @@ int main() {
         return !scanModel.result_0().isEmpty() &&
                !scanModel.result_2().isEmpty();
       }))
-    return 5;
+    return fail(5);
   const Event left10 = scanModel.result_0().committedValues().front();
   const Event right100 = scanModel.result_2().committedValues().front();
   if (!take(2) || !advance() ||
@@ -3001,27 +3058,27 @@ int main() {
           static_cast<unsigned long long>(right100.generation),
           static_cast<unsigned long long>(right100.epoch), 0)) ||
       !advanceUntil([&] { return !scanModel.result_3().isEmpty(); }))
-    return 6;
+    return fail(6);
   auto retiredRight = take(3);
   if (!retiredRight ||
       static_cast<unsigned long long>(retiredRight->value) != 100 ||
       !advance())
-    return 7;
+    return fail(7);
 
   // Hold the first allocation result full. The second request may reach the
   // input Queue, but count/tail/entries must not partially advance.
   if (!offerLeftAllocate(event(0, 0, 0, 20)) || !advance() || !advance())
-    return 8;
+    return fail(8);
   auto state = leftState();
   if (queueEmpty(1) || state[1] != 1 || state[2] != 1)
-    return 9;
+    return fail(9);
   if (!take(0) || !advance() ||
       !advanceUntil([&] { return !scanModel.result_0().isEmpty(); }))
-    return 10;
+    return fail(10);
   const Event left20 = scanModel.result_0().committedValues().front();
   if (static_cast<unsigned long long>(left20.index) != 1 || !take(0) ||
       !advance())
-    return 11;
+    return fail(11);
 
   std::array<Event, 2> later{};
   for (auto [index, value] :
@@ -3029,21 +3086,21 @@ int main() {
     (void)index;
     if (!offerLeftAllocate(event(0, 0, 0, value)) ||
         !advanceUntil([&] { return !scanModel.result_0().isEmpty(); }))
-      return 12;
+      return fail(12);
     later[value == 30 ? 0 : 1] =
         scanModel.result_0().committedValues().front();
     if (!take(0) || !advance())
-      return 13;
+      return fail(13);
   }
   state = leftState();
   if (state[1] != 0 || state[2] != 4)
-    return 14;
+    return fail(14);
 
   if (!offerLeftAllocate(event(0, 0, 0, 50)) || !advance() || !advance())
-    return 15;
+    return fail(15);
   state = leftState();
   if (queueEmpty(1) || state[2] != 4)
-    return 16;
+    return fail(16);
 
   auto complete = [&](const Event &tag) {
     return offerLeftCompletion(event(
@@ -3055,96 +3112,96 @@ int main() {
   };
   if (!complete(later[0]) || !complete(left10) ||
       !advanceUntil([&] { return !scanModel.result_1().isEmpty(); }))
-    return 17;
+    return fail(17);
   state = leftState();
   if (state[0] != 1 || state[2] != 3 ||
       !advanceUntil([&] { return !scanModel.result_0().isEmpty(); }))
-    return 18;
+    return fail(18);
   const Event left50 = scanModel.result_0().committedValues().front();
   if (static_cast<unsigned long long>(left50.index) != 0 ||
       static_cast<unsigned long long>(left50.generation) != 2 || !take(0) ||
       !advance())
-    return 19;
+    return fail(19);
 
   // A stale completion still commits its input transaction. Its state
   // reservation serializes against an overlapping writer, but the unselected
   // effects must produce no epoch/entry Table commit.
   const size_t staleCommitStart = scanSystem.commitTimeline().size();
   if (!complete(left10))
-    return 20;
+    return fail(20);
   const auto &staleTimeline = scanSystem.commitTimeline();
   if (std::any_of(staleTimeline.begin() + staleCommitStart,
                   staleTimeline.end(), [](const gfsim::CommitEvent &event) {
                     return event.objectId == 17 || event.objectId == 18;
                   }))
-    return 39;
+    return fail(39);
   const auto staleState = snapshot(scanRows);
   if (static_cast<bool>(staleState.entries[0].done))
-    return 21;
+    return fail(21);
   if (!complete(later[1]) || !complete(left20) || !complete(left50))
-    return 22;
+    return fail(22);
   state = leftState();
   for (unsigned iteration = 0; iteration < 3; ++iteration)
     if (!advance())
-      return 23;
+      return fail(23);
   if (leftState() != state)
-    return 24;
+    return fail(24);
 
   std::vector<unsigned long long> retiredValues;
   for (unsigned expected : {10u, 20u, 30u, 40u, 50u}) {
     if (!advanceUntil([&] { return !scanModel.result_1().isEmpty(); }))
-      return 25;
+      return fail(25);
     auto value = take(1);
     if (!value || static_cast<unsigned long long>(value->value) != expected)
-      return 26;
+      return fail(26);
     retiredValues.push_back(static_cast<unsigned long long>(value->value));
     if (!advance())
-      return 27;
+      return fail(27);
   }
   state = leftState();
   if (state[0] != 1 || state[2] != 0)
-    return 28;
+    return fail(28);
 
   if (!offerLeftAllocate(event(0, 0, 0, 60)) ||
       !advanceUntil([&] { return !scanModel.result_0().isEmpty(); }))
-    return 29;
+    return fail(29);
   const Event left60 = scanModel.result_0().committedValues().front();
   if (!take(0) || !advance() ||
       !offerLeftFlush(event(0, 0, 0, 0)) ||
       !advance() ||
       !advanceUntil([&] { return queueEmpty(0); }))
-    return 30;
+    return fail(30);
   state = leftState();
   if (state[0] != 2 || state[1] != 2 || state[2] != 0 || state[3] != 1)
-    return 31;
+    return fail(31);
   if (!complete(left60))
-    return 32;
+    return fail(32);
   if (static_cast<bool>(snapshot(scanRows).entries[1].done))
-    return 33;
+    return fail(33);
 
   if (!offerLeftAllocate(event(0, 0, 0, 70)) ||
       !advanceUntil([&] { return !scanModel.result_0().isEmpty(); }))
-    return 34;
+    return fail(34);
   const Event left70 = scanModel.result_0().committedValues().front();
   if (static_cast<unsigned long long>(left70.index) != 2 ||
       static_cast<unsigned long long>(left70.epoch) != 1 || !take(0) ||
       !advance() || !complete(left70) ||
       !advanceUntil([&] { return !scanModel.result_1().isEmpty(); }))
-    return 35;
+    return fail(35);
   auto retired70 = take(1);
   if (!retired70 || static_cast<unsigned long long>(retired70->value) != 70 ||
       !advance())
-    return 36;
+    return fail(36);
 
   state = leftState();
   if (!equivalent || state[2] != 0 || state[4] != 1 || state[5] != 1 ||
       state[6] != 0 || state[7] != 0 || retiredValues.size() != 5)
-    return 37;
+    return fail(37);
   if (incrementalSystem.activationTraversalCount() == 0 ||
       incrementalSystem.workClosureTraversalCount() == 0 ||
       incrementalSystem.workInvocationCount() * 3 >=
           scanSystem.workInvocationCount())
-    return 38;
+    return fail(38);
   std::cout << "scan_work=" << scanSystem.workInvocationCount()
             << " incremental_work=" << incrementalSystem.workInvocationCount()
             << " activation="
@@ -3153,7 +3210,10 @@ int main() {
             << incrementalSystem.workClosureTraversalCount() << std::endl;
   return 0;
 }
-""".replace("__MODEL__", model.name),
+""".replace("__MODEL__", model.name).replace(
+                    "__DIAGNOSTICS__",
+                    str(ROOT / "tests/integration/agentic-circuit/e2e/rob_diagnostics.h"),
+                ),
                 encoding="utf-8",
             )
             linked = subprocess.run(
@@ -3180,6 +3240,8 @@ int main() {
                 capture_output=True,
                 check=False,
             )
+            (root / "simulation.stdout").write_text(executed.stdout, encoding="utf-8")
+            (root / "simulation.stderr").write_text(executed.stderr, encoding="utf-8")
             self.assertEqual(0, executed.returncode, executed.stderr)
             self.assertEqual(
                 "scan_work=1769 incremental_work=182 activation=215 closure=511\n",

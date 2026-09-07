@@ -1,0 +1,84 @@
+--- .pycircuit_out/rob-regression/raw-before/reusable_circular_rob.mlir
++++ .pycircuit_out/rob-regression/raw-after/reusable_circular_rob.mlir
+@@ -32,26 +32,26 @@
+         %v1 = ac.var.read @count : !ac.var<i3>
+         %v2 = ac.var.read @epoch : !ac.var<i16>
+         %v3 = ac.var.read_element @entries[%v0] : !ac.var<i2> -> !ac.var<!ac.struct<@types::@RobEvent>>
+-        %v4 = ac.var.with %item, %v0 field "index" : !ac.var<!ac.struct<@types::@RobEvent>>, !ac.var<i2> -> !ac.var<!ac.struct<@types::@RobEvent>>
+-        %v5 = ac.var.get %v3 field "generation" : !ac.var<!ac.struct<@types::@RobEvent>> -> !ac.var<i16>
+-        %v6 = ac.var.constant 1 : i16 as !ac.var<i16>
+-        %v7 = ac.var.add %v5, %v6 : !ac.var<i16>
+-        %v8 = ac.var.with %v4, %v7 field "generation" : !ac.var<!ac.struct<@types::@RobEvent>>, !ac.var<i16> -> !ac.var<!ac.struct<@types::@RobEvent>>
+-        %v9 = ac.var.with %v8, %v2 field "epoch" : !ac.var<!ac.struct<@types::@RobEvent>>, !ac.var<i16> -> !ac.var<!ac.struct<@types::@RobEvent>>
+-        %v10 = ac.var.constant false as !ac.var<i1>
+-        %v11 = ac.var.with %v9, %v10 field "done" : !ac.var<!ac.struct<@types::@RobEvent>>, !ac.var<i1> -> !ac.var<!ac.struct<@types::@RobEvent>>
+-        %v12 = ac.var.constant 1 : i2 as !ac.var<i2>
+-        %v13 = ac.var.add %v0, %v12 : !ac.var<i2>
+-        %v14 = ac.var.constant 1 : i3 as !ac.var<i3>
+-        %v15 = ac.var.add %v1, %v14 : !ac.var<i3>
+-        %v16 = ac.var.constant 4 : i3 as !ac.var<i3>
+-        %v17 = ac.var.cmp "ne" %v15, %v16 : !ac.var<i3> -> !ac.var<i1>
+-        ac.rule.condition %v17 : !ac.var<i1>
+-        ac.var.assign_element @entries[%v0] = %v11 : !ac.var<i2>, !ac.var<!ac.struct<@types::@RobEvent>>
+-        ac.var.assign @tail = %v13 : !ac.var<i2>
+-        ac.var.assign @count = %v15 : !ac.var<i3>
++        %v4 = ac.var.constant 4 : i3 as !ac.var<i3>
++        %v5 = ac.var.cmp "ne" %v1, %v4 : !ac.var<i3> -> !ac.var<i1>
++        %v6 = ac.var.with %item, %v0 field "index" : !ac.var<!ac.struct<@types::@RobEvent>>, !ac.var<i2> -> !ac.var<!ac.struct<@types::@RobEvent>>
++        %v7 = ac.var.get %v3 field "generation" : !ac.var<!ac.struct<@types::@RobEvent>> -> !ac.var<i16>
++        %v8 = ac.var.constant 1 : i16 as !ac.var<i16>
++        %v9 = ac.var.add %v7, %v8 : !ac.var<i16>
++        %v10 = ac.var.with %v6, %v9 field "generation" : !ac.var<!ac.struct<@types::@RobEvent>>, !ac.var<i16> -> !ac.var<!ac.struct<@types::@RobEvent>>
++        %v11 = ac.var.with %v10, %v2 field "epoch" : !ac.var<!ac.struct<@types::@RobEvent>>, !ac.var<i16> -> !ac.var<!ac.struct<@types::@RobEvent>>
++        %v12 = ac.var.constant false as !ac.var<i1>
++        %v13 = ac.var.with %v11, %v12 field "done" : !ac.var<!ac.struct<@types::@RobEvent>>, !ac.var<i1> -> !ac.var<!ac.struct<@types::@RobEvent>>
++        %v14 = ac.var.constant 1 : i2 as !ac.var<i2>
++        %v15 = ac.var.add %v0, %v14 : !ac.var<i2>
++        %v16 = ac.var.constant 1 : i3 as !ac.var<i3>
++        %v17 = ac.var.add %v1, %v16 : !ac.var<i3>
++        ac.rule.condition %v5 : !ac.var<i1>
++        ac.var.assign_element @entries[%v0] = %v13 : !ac.var<i2>, !ac.var<!ac.struct<@types::@RobEvent>>
++        ac.var.assign @tail = %v15 : !ac.var<i2>
++        ac.var.assign @count = %v17 : !ac.var<i3>
+         ac.var.assign @epoch = %v2 : !ac.var<i16>
+-        %rule_ready = ac.marker.obligation %v11 state pending resolver handshake origin "allocate:return" path "true" : !ac.var<!ac.struct<@types::@RobEvent>>
++        %rule_ready = ac.marker.obligation %v13 state pending resolver handshake origin "allocate:return" path "true" : !ac.var<!ac.struct<@types::@RobEvent>>
+         ac.rule.return %rule_ready : !ac.var<!ac.struct<@types::@RobEvent>>
+       } {ac.name = "allocated"} : (!ac.queue<!ac.struct<@types::@RobEvent>>) -> !ac.queue<!ac.struct<@types::@RobEvent>> loc("<queue-model>":24:1)
+       ac.rule %borrowed_2 depths [] latencies [] name "complete" stable_id "complete__effect_10" domain "cycle" type exact {
+@@ -86,22 +86,22 @@
+         %v0 = ac.var.read @head : !ac.var<i2>
+         %v1 = ac.var.read @count : !ac.var<i3>
+         %v2 = ac.var.read_element @entries[%v0] : !ac.var<i2> -> !ac.var<!ac.struct<@types::@RobEvent>>
+-        %v3 = ac.var.constant 1 : i2 as !ac.var<i2>
+-        %v4 = ac.var.add %v0, %v3 : !ac.var<i2>
+-        %v5 = ac.var.constant 1 : i3 as !ac.var<i3>
+-        %v6 = ac.var.sub %v1, %v5 : !ac.var<i3>
+-        %v7 = ac.var.constant 0 : i3 as !ac.var<i3>
+-        %v8 = ac.var.cmp "ne" %v6, %v7 : !ac.var<i3> -> !ac.var<i1>
+-        %v9 = ac.var.get %v2 field "done" : !ac.var<!ac.struct<@types::@RobEvent>> -> !ac.var<i1>
+-        %v10 = ac.var.constant true as !ac.var<i1>
+-        %v11 = ac.var.cmp "eq" %v9, %v10 : !ac.var<i1> -> !ac.var<i1>
+-        %v12 = ac.var.and %v8, %v11 : !ac.var<i1>
++        %v3 = ac.var.constant 0 : i3 as !ac.var<i3>
++        %v4 = ac.var.cmp "ne" %v1, %v3 : !ac.var<i3> -> !ac.var<i1>
++        %v5 = ac.var.get %v2 field "done" : !ac.var<!ac.struct<@types::@RobEvent>> -> !ac.var<i1>
++        %v6 = ac.var.constant true as !ac.var<i1>
++        %v7 = ac.var.cmp "eq" %v5, %v6 : !ac.var<i1> -> !ac.var<i1>
++        %v8 = ac.var.and %v4, %v7 : !ac.var<i1>
++        %v9 = ac.var.constant 1 : i2 as !ac.var<i2>
++        %v10 = ac.var.add %v0, %v9 : !ac.var<i2>
++        %v11 = ac.var.constant 1 : i3 as !ac.var<i3>
++        %v12 = ac.var.sub %v1, %v11 : !ac.var<i3>
+         %v13 = ac.var.constant false as !ac.var<i1>
+         %v14 = ac.var.with %v2, %v13 field "done" : !ac.var<!ac.struct<@types::@RobEvent>>, !ac.var<i1> -> !ac.var<!ac.struct<@types::@RobEvent>>
+-        ac.rule.condition %v12 : !ac.var<i1>
++        ac.rule.condition %v8 : !ac.var<i1>
+         ac.var.assign_element @entries[%v0] = %v14 : !ac.var<i2>, !ac.var<!ac.struct<@types::@RobEvent>>
+-        ac.var.assign @head = %v4 : !ac.var<i2>
+-        ac.var.assign @count = %v6 : !ac.var<i3>
++        ac.var.assign @head = %v10 : !ac.var<i2>
++        ac.var.assign @count = %v12 : !ac.var<i3>
+         %rule_ready = ac.marker.obligation %v2 state pending resolver handshake origin "retire:return" path "true" : !ac.var<!ac.struct<@types::@RobEvent>>
+         ac.rule.return %rule_ready : !ac.var<!ac.struct<@types::@RobEvent>>
+       } {ac.name = "retired"} : () -> !ac.queue<!ac.struct<@types::@RobEvent>> loc("<queue-model>":51:1)
