@@ -10,7 +10,6 @@ from dataclasses import dataclass, field
 from types import MappingProxyType
 from typing import TypeAlias
 
-
 StaticScalar: TypeAlias = None | bool | int | float | str
 
 _MAX_SAFE_INTEGER = (1 << 53) - 1
@@ -83,6 +82,11 @@ class _StaticEvaluator(ast.NodeVisitor):
         ast.Mult: operator.mul,
         ast.FloorDiv: operator.floordiv,
         ast.Mod: operator.mod,
+        ast.BitAnd: operator.and_,
+        ast.BitOr: operator.or_,
+        ast.BitXor: operator.xor,
+        ast.LShift: operator.lshift,
+        ast.RShift: operator.rshift,
     }
     _unary = {ast.UAdd: operator.pos, ast.USub: operator.neg, ast.Not: operator.not_}
     _comparison = {
@@ -150,6 +154,18 @@ class _StaticEvaluator(ast.NodeVisitor):
             )
         left = self.visit(node.left)
         right = self.visit(node.right)
+        if isinstance(
+            node.op, (ast.BitAnd, ast.BitOr, ast.BitXor, ast.LShift, ast.RShift)
+        ):
+            if type(left) is not int or type(right) is not int:
+                raise StaticEvalError("static bitwise operands must be integers")
+            if isinstance(node.op, (ast.LShift, ast.RShift)) and right < 0:
+                raise StaticEvalError("static shift count must be non-negative")
+            if isinstance(node.op, ast.LShift) and left != 0:
+                if abs(left).bit_length() + right > _MAX_SAFE_INTEGER.bit_length():
+                    raise StaticEvalError(
+                        "integer is outside the portable I-JSON range"
+                    )
         if type(left) not in (int, float, str, tuple) or type(right) not in (
             int,
             float,
@@ -159,7 +175,7 @@ class _StaticEvaluator(ast.NodeVisitor):
             raise StaticEvalError("static arithmetic operands are incompatible")
         try:
             result = function(left, right)
-        except (ArithmeticError, TypeError) as error:
+        except (ArithmeticError, TypeError, ValueError) as error:
             raise StaticEvalError("static arithmetic failed") from error
         validate_ijson_value(result)
         return result

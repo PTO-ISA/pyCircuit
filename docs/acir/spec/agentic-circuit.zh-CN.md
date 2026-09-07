@@ -152,6 +152,31 @@ class WorkItem:
     valid: bool
 
 
+# 推荐边界：普通 nominal payload 参数/返回，Queue 由编译器推导。
+@ac.module
+def keep(value: WorkItem) -> WorkItem:
+    return value
+
+
+@ac.module
+def increment(value: WorkItem) -> WorkItem:
+    return value.with_fields(value=value.value + 1)
+
+
+@ac.system
+def typed_pipeline(
+    value: WorkItem, *, increment_value: ac.const[bool]
+) -> WorkItem:
+    if increment_value:
+        result = increment(value)
+    else:
+        result = keep(value)
+    return result
+
+
+specialization = ac.jit(typed_pipeline, increment_value=True)
+
+
 @ac.system
 def pipeline() -> None:
     incoming = ac.source(WorkItem)
@@ -163,6 +188,18 @@ def pipeline() -> None:
     )
     ac.sink(updated)
 ```
+
+`ac.jit` 只绑定 `ac.const`；普通 typed runtime 参数保持未绑定，不进入
+specialization fingerprint。Python 不增加 Queue/Input/Output wrapper，也不表达
+ready/full/pop/push。可选 `workspace=` 会确定性捕获本地传递 import closure；
+本地依赖使用明确的 `from module import Symbol`。在支持保留模块命名空间的打包之前，
+本地模块限定访问、重命名导入及跨文件定义重名都会在 lowering 前被拒绝。
+动态 import、反射或 specialization 后源码变化也会 fail closed。closure 中导入的全大写
+immutable integer/bitmask constant 会在具体使用点按精确位宽折叠，共享 contract 不需要复制
+magic literal。
+
+静态位掩码表达式遵守可移植 I-JSON 整数范围；负移位量及结果超出该范围的左移
+会在执行移位前被拒绝。运行时 `ac.uN` 移位仍遵守电路的精确位宽语义。
 
 无符号电路位型完整定义为 `ac.u1` 到 `ac.u64`。每个名称代表一个精确位宽，
 可直接作为 Queue payload 或 `@ac.struct` 字段。`+`、`-`、`*`、`&`、
@@ -353,7 +390,9 @@ entry 的 committed storage。只有当 `ACDataFlowAnalyzer` 证明动态 index 
 选择第一个匹配 index，提供固定宽度整数 key 时选择最小 key，并以 index 稳定打破平局。
 Raw ACIR 使用 `ac.var.match` 与 `ac.var.choose`，storage selection 再把它们改写为已有的
 committed Table query，不改变 Python variable 模型。selection 的 index/value 只有在对应
-`.valid` 条件下才能影响 state。
+`.valid` 条件下才能影响 state。超过 64 个 entry 的 domain 使用编译器内部固定长度的
+64-bit candidate word 数组，不扩展公共 `ac.u1..ac.u64` payload。match 与 choose 共享同一份
+committed scan，稳定选择及 selected-value provenance 不需要第二次遍历。
 
 predicate 可以读取另一个 persistent list。该 owner 是 activation source；只有 rule 实际
 写它时才是 transaction resource。生成 policy 通过 const reference 捕获只读 committed
@@ -822,17 +861,15 @@ predicate 的扁平求值不会把 write 移过 return。当前限制要求全�
 共用合成后的 predicate，且不能同时使用 blocking guard、多个 Queue payload 或 selected
 output。
 
-outputless、单输入 rule 还可以使用一个普通 `if/else`，两个 branch 分别赋值不同的
-persistent owner。前端保留 branch test 与其 Boolean complement，形成两个 SSA presence。
-Rule、Firing 和 QueueGraph verifier 会分别要求它们属于同一个 predicate 或一个结构上已证明
-互补的 pair。生成的 gfsim 只计算一个 Work candidate，并只 prepare 被选择的 owner；input 与
-该 state 仍在同一个 atomic group 中 publish。若两个 arm 都赋值同一个 scalar owner，编译器
-生成一个 `ac.var.select` value join，再生成一个 unconditional state proposal；QueueGraph/gfsim
-使用 ternary，PYC 使用 `pyc.select`，因此该 owner 仍只有一个 write slot 和一次 commit。若两个
-arm 都赋值同一个 persistent list，编译器会分别用 typed
-`ac.var.select` join value 与 index，再生成一个 unconditional `ac.var.assign_element`。每个
-源码 index 仍必须满足已有的精确位宽/full-domain 安全证明。一个 branch value 依赖另一个
-branch 写入的 owner，仍需等待通用 state join。
+outputless、单输入 rule 还可以使用普通的嵌套 `if/elif/else`。前端把路径扁平为 SSA
+presence。生成的 gfsim 只计算一个 Work candidate，并只 prepare 被选择的 effect；input 与
+所有 selected state owner 仍在同一个 atomic group 中 publish。若互补 arm 赋值同一个
+scalar 或同一个 indexed lexical target，编译器用 typed `ac.var.select` join value，并在需要
+时 join index。若一条 selected path 同时写同一个 persistent list 的多个不同 entry，这些
+proposal 保留为有序 owner-local batch。`ACDataFlowAnalyzer` 与 QueueGraph 要求每对同 owner
+write 的 index domain 不相交，或它们的 path predicate 在结构上互斥。每个源码 index 仍必须
+满足已有的精确位宽/full-domain 安全证明。一个 branch value 依赖另一个 branch 写入的 owner，
+仍需等待通用 state join。
 
 一个 stateful output 可以是 optional。Python 末尾的
 `if condition: return value` 再跟一个 `return`，表示 input 和之前的 state effect 总是被选择，
@@ -1137,15 +1174,17 @@ semantic-change bit。该 commit timeline 用于等价验证和调试；fast pro
 而不只是一项 summary category。`ac.rule.output` 与 `ac.firing.output` 将返回值及 ordinal
 绑定到一个 `!ac.var<i1>` presence；每个 firing-local `ac.table.propose` 也在 storage
 selection 后携带自己的 presence。Rule/Firing verifier 要求恰好一个 candidate condition、
-完整 output ordinal、返回值 identity，并证明每个 effect presence 蕴含 candidate。只有当
-candidate 为 constant true、恰好一个 input 且所有不同 effect 共用一个 predicate 时，
-conditional-effect presence 才能不同于 candidate。QueueGraph 分别保存 candidate 与 effect
-presence。gfsim 用 `nullopt` 表示 stall/保留输入，用 engaged plan 加 absent write 表示消费
+完整 output ordinal、返回值 identity，并证明每个 effect presence 蕴含 candidate。当
+candidate 为 constant true 且恰好一个 input 时，conditional state-effect presence 可以不同。
+同一 owner 有多个 write 时，`ACDataFlowAnalyzer` 必须逐对证明 index domain 不相交或 SSA
+path predicate 在结构上互斥；QueueGraph 在 codegen 前独立重算该证明。可同时选择的 write
+形成一个有序 owner-local batch。QueueGraph 分别保存 candidate 与 effect presence。gfsim 用
+`nullopt` 表示 stall/保留输入，用 engaged plan 加 absent write 表示消费
 输入但不提交 state；它会短暂 reserve analyzer-derived snapshot index 以对重叠 lexical
 writer 验证 committed decision，然后取消未选择的 reservation 而不发布 Table proposal。
 snapshot reader 彼此兼容；snapshot/write 在 index 重叠时冲突，不相交 index 可独立执行。
 Python 不暴露这些 proof 或 reservation operation。candidate/output predicate 与
-match/choose index set 的通用推导、CFG join 及 multiple selected output 仍不属于当前子集。
+match/choose index set 的通用推导及 multiple selected output 仍不属于当前子集。
 
 ## 常见问题
 

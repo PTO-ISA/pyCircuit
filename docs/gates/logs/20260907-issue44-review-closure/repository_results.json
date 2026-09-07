@@ -1,0 +1,22 @@
+[
+  {
+    "command": "python3 .github/scripts/validate_repo_management.py",
+    "exit_code": 0,
+    "duration_seconds": 0.036
+  },
+  {
+    "command": "pytest tests/unit -m unit -q",
+    "exit_code": 0,
+    "duration_seconds": 2.801
+  },
+  {
+    "command": "python3 flows/tools/check_api_hygiene.py python/pycircuit/src/pycircuit examples/pycircuit docs README.md",
+    "exit_code": 0,
+    "duration_seconds": 0.532
+  },
+  {
+    "command": "mkdocs build --strict",
+    "exit_code": 0,
+    "duration_seconds": 1.831
+  }
+]

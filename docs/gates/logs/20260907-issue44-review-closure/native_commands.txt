@@ -1,0 +1,9 @@
+cd /Users/zhoubot/linx-isa/tools/pyCircuit
+export PYTHONPATH=/Users/zhoubot/linx-isa/tools/pyCircuit/python/semantic-core/src:/Users/zhoubot/linx-isa/tools/pyCircuit/python/agentic-circuit/src:/Users/zhoubot/linx-isa/tools/pyCircuit/tests/python/agentic-circuit
+export ACIR_OPT=/Users/zhoubot/linx-isa/tools/pyCircuit/.pycircuit_out/layout-root/bin/acir-opt
+export ACIR_QUEUE_CXXGEN=/Users/zhoubot/linx-isa/tools/pyCircuit/.pycircuit_out/layout-root/bin/acir-queue-cxxgen
+export ACIR_QUEUE_PYCGEN=/Users/zhoubot/linx-isa/tools/pyCircuit/.pycircuit_out/layout-root/bin/acir-queue-pycgen
+unset AC_PYTHON_ONLY
+cmake --build /Users/zhoubot/linx-isa/tools/pyCircuit/.pycircuit_out/layout-root -j 8
+cmake --build /Users/zhoubot/linx-isa/tools/pyCircuit/.pycircuit_out/layout-root --target check-acir -j 8
+ctest --test-dir /Users/zhoubot/linx-isa/tools/pyCircuit/.pycircuit_out/layout-root --output-on-failure -j 4 -R '^(GfsimTests|ACIROpsTests|ACIRModelAnalysisTests|CodeGenTests)$'

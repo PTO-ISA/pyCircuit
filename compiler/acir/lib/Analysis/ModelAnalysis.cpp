@@ -1138,8 +1138,7 @@ LogicalResult verifyFrozenStructuredQueueGraph(ModuleOp model) {
       if (!rootSpecialization ||
           rootSpecialization.getValue() !=
               detail::computeQueueGraphSpecializationFingerprint(
-                  definition,
-                  Builder(model.getContext()).getDictionaryAttr({})))
+                  definition, definition.getStaticParams()))
         return definition.emitOpError(
             "QueueGraph root specialization fingerprint is missing or stale");
     } else if (rootSpecialization) {

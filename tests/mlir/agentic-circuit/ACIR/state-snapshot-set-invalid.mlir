@@ -2,7 +2,7 @@
 // RUN: %not %acir_opt %t/choose-valid-source.mlir 2>&1 | %FileCheck %s --check-prefix=CHOOSE-VALID
 // RUN: %not %acir_opt %t/choose-missing-read.mlir 2>&1 | %FileCheck %s --check-prefix=MISSING-READ
 // RUN: %not %acir_opt %t/shared-choose-read.mlir 2>&1 | %FileCheck %s --check-prefix=SHARED-READ
-// RUN: %not %acir_opt %t/field-relation-capacity.mlir 2>&1 | %FileCheck %s --check-prefix=FIELD-CAPACITY
+// RUN: %acir_opt %t/field-relation-capacity.mlir | %FileCheck %s --check-prefix=FIELD-WIDE
 
 //--- choose-valid-source.mlir
 module attributes {ac.contract_epoch = "0.5"} {
@@ -109,4 +109,4 @@ module attributes {ac.contract_epoch = "0.5"} {
   } : (!ac.queue<i6>) -> ()
 }
 
-// FIELD-CAPACITY: field-qualified snapshot exceeds the 64-bit entry/field relation
+// FIELD-WIDE: ac.state.snapshot @wide

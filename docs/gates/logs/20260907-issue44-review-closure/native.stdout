@@ -1,0 +1,49 @@
+[1/16] Linking CXX executable bin/acir-opcode-catalog
+[2/16] Linking CXX executable bin/acir-cxxgen
+[3/16] Linking CXX executable bin/acir-queue-plan
+ld: warning: ignoring duplicate libraries: 'compiler/acir/lib/Dialect/ACIR/libACIRDialect.a'
+[4/16] Linking CXX executable bin/acir-queue-pycgen
+ld: warning: ignoring duplicate libraries: 'compiler/acir/lib/Dialect/ACIR/libACIRDialect.a'
+[5/16] Linking CXX executable bin/acir-queue-cxxgen
+ld: warning: ignoring duplicate libraries: 'compiler/acir/lib/Dialect/ACIR/libACIRDialect.a'
+[6/16] Linking CXX shared module compiler/acir/python/agentic_circuit/_native.so
+[7/16] Linking CXX executable bin/acir-opt-internal
+ld: warning: ignoring duplicate libraries: '/opt/homebrew/Cellar/llvm/22.1.8/lib/libMLIRFuncDialect.a', '/opt/homebrew/Cellar/llvm/22.1.8/lib/libMLIRSCFDialect.a', '/opt/homebrew/Cellar/llvm/22.1.8/lib/libMLIRTransforms.a', 'compiler/acir/lib/Analysis/libACIRAnalysis.a', 'compiler/acir/lib/Dialect/ACIR/libACIRDialect.a', 'compiler/acir/lib/Transforms/libACIRTransforms.a'
+[8/16] Linking CXX executable bin/acir-build
+ld: warning: ignoring duplicate libraries: '/opt/homebrew/Cellar/llvm/22.1.8/lib/libLLVMSupport.a', '/opt/homebrew/Cellar/llvm/22.1.8/lib/libMLIRFuncDialect.a', '/opt/homebrew/Cellar/llvm/22.1.8/lib/libMLIRPass.a', '/opt/homebrew/Cellar/llvm/22.1.8/lib/libMLIRSCFDialect.a', 'compiler/acir/lib/Analysis/libACIRAnalysis.a', 'compiler/acir/lib/Dialect/ACIR/libACIRDialect.a', 'compiler/acir/lib/Transforms/libACIRTransforms.a'
+[9/16] Linking CXX executable bin/acir-opt
+ld: warning: ignoring duplicate libraries: '/opt/homebrew/Cellar/llvm/22.1.8/lib/libMLIRFuncDialect.a', '/opt/homebrew/Cellar/llvm/22.1.8/lib/libMLIRSCFDialect.a', '/opt/homebrew/Cellar/llvm/22.1.8/lib/libMLIRTransforms.a', 'compiler/acir/lib/Analysis/libACIRAnalysis.a', 'compiler/acir/lib/Dialect/ACIR/libACIRDialect.a', 'compiler/acir/lib/Transforms/libACIRTransforms.a'
+[10/16] Linking CXX executable bin/ACSimOpsTests
+ld: warning: ignoring duplicate libraries: '/opt/homebrew/Cellar/llvm/22.1.8/lib/libMLIRArithDialect.a', '/opt/homebrew/Cellar/llvm/22.1.8/lib/libMLIRAsmParser.a', '/opt/homebrew/Cellar/llvm/22.1.8/lib/libMLIRControlFlowDialect.a', '/opt/homebrew/Cellar/llvm/22.1.8/lib/libMLIRIR.a', '/opt/homebrew/Cellar/llvm/22.1.8/lib/libMLIRSideEffectInterfaces.a'
+[11/16] Linking CXX executable bin/ACIRTypesTests
+ld: warning: ignoring duplicate libraries: '/opt/homebrew/Cellar/llvm/22.1.8/lib/libMLIRIR.a'
+[12/16] Linking CXX executable bin/ACIROpsTests
+ld: warning: ignoring duplicate libraries: '/opt/homebrew/Cellar/llvm/22.1.8/lib/libMLIRAsmParser.a', '/opt/homebrew/Cellar/llvm/22.1.8/lib/libMLIRDataLayoutInterfaces.a', '/opt/homebrew/Cellar/llvm/22.1.8/lib/libMLIRFuncDialect.a', '/opt/homebrew/Cellar/llvm/22.1.8/lib/libMLIRIR.a', '/opt/homebrew/Cellar/llvm/22.1.8/lib/libMLIRSCFDialect.a', '/opt/homebrew/Cellar/llvm/22.1.8/lib/libMLIRSideEffectInterfaces.a', 'compiler/acir/lib/Dialect/ACIR/libACIRDialect.a'
+[13/16] Linking CXX executable bin/ACIRProcessStatePlanTests
+ld: warning: ignoring duplicate libraries: '/opt/homebrew/Cellar/llvm/22.1.8/lib/libMLIRAsmParser.a', '/opt/homebrew/Cellar/llvm/22.1.8/lib/libMLIRIR.a', '/opt/homebrew/Cellar/llvm/22.1.8/lib/libMLIRPass.a', 'compiler/acir/lib/Analysis/libACIRAnalysis.a', 'compiler/acir/lib/Dialect/ACIR/libACIRDialect.a'
+[14/16] Linking CXX executable bin/ACIRBindingTests
+ld: warning: ignoring duplicate libraries: '/opt/homebrew/Cellar/llvm/22.1.8/lib/libLLVMSupport.a', '/opt/homebrew/Cellar/llvm/22.1.8/lib/libMLIRFuncDialect.a', '/opt/homebrew/Cellar/llvm/22.1.8/lib/libMLIRSCFDialect.a', 'compiler/acir/lib/Bindings/libACIRBindings.a', 'compiler/acir/lib/Dialect/ACIR/libACIRDialect.a'
+[15/16] Linking CXX executable bin/ACIRToACSimTests
+ld: warning: ignoring duplicate libraries: '/opt/homebrew/Cellar/llvm/22.1.8/lib/libLLVMSupport.a', '/opt/homebrew/Cellar/llvm/22.1.8/lib/libMLIRPass.a', 'compiler/acir/lib/Dialect/ACIR/libACIRDialect.a'
+[16/16] Linking CXX executable bin/CompilerTests
+[0/1] Running Agentic Circuit lit tests
+-- Testing: 185 tests, 10 workers --
+Testing:  0.. 10.. 20.. 30.. 40.. 50.. 60.. 70.. 80.. 90.. 
+
+Testing Time: 24.39s
+
+Total Discovered Tests: 185
+  Passed: 185 (100.00%)
+Test project /Users/zhoubot/linx-isa/tools/pyCircuit/.pycircuit_out/layout-root
+    Start 15: ACIRModelAnalysisTests
+    Start 12: ACIROpsTests
+    Start 19: CodeGenTests
+    Start 10: GfsimTests
+1/4 Test #10: GfsimTests .......................   Passed    0.05 sec
+2/4 Test #12: ACIROpsTests .....................   Passed    7.52 sec
+3/4 Test #15: ACIRModelAnalysisTests ...........   Passed   20.15 sec
+4/4 Test #19: CodeGenTests .....................   Passed   29.79 sec
+
+100% tests passed, 0 tests failed out of 4
+
+Total Test time (real) =  29.80 sec

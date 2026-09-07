@@ -106,7 +106,7 @@ module attributes {ac.contract_epoch = "0.5"} {
     ac.var.match.yield %true : !ac.var<i1>
   } -> !ac.var<i65>
 }
-// MATCH-DOMAIN: 'ac.var.match' op match domain must contain 1..64 elements
+// MATCH-DOMAIN: 'ac.var.match' op mask must exactly cover the ac.var domain in 64-bit words
 
 //--- match-result.mlir
 module attributes {ac.contract_epoch = "0.5"} {
@@ -117,7 +117,7 @@ module attributes {ac.contract_epoch = "0.5"} {
     ac.var.match.yield %true : !ac.var<i1>
   } -> !ac.var<i3>
 }
-// MATCH-RESULT: 'ac.var.match' op mask width must equal the ac.var domain
+// MATCH-RESULT: 'ac.var.match' op mask must exactly cover the ac.var domain in 64-bit words
 
 //--- match-predicate.mlir
 module attributes {ac.contract_epoch = "0.5"} {

@@ -285,6 +285,7 @@ TEST(ACIROpsTest, RegistryContainsExactQueueVarOperations) {
       "ac.var.add",
       "ac.var.and",
       "ac.var.array",
+      "ac.var.record",
       "ac.var.assign",
       "ac.var.assign_element",
       "ac.var.choose",
@@ -709,7 +710,7 @@ TEST(ACIROpsTest, RuntimeAndQueueVarRegistryIsExact) {
         << name.str();
   EXPECT_FALSE(mlir::OperationName("ac.try_issue", &context).isRegistered());
   EXPECT_FALSE(mlir::OperationName("ac.connect", &context).isRegistered());
-  const std::array<llvm::StringLiteral, 91> queueVarNames = {
+  const std::array<llvm::StringLiteral, 92> queueVarNames = {
       "ac.transform",
       "ac.transform.yield",
       "ac.rule",
@@ -731,6 +732,7 @@ TEST(ACIROpsTest, RuntimeAndQueueVarRegistryIsExact) {
       "ac.var.add",
       "ac.var.and",
       "ac.var.array",
+      "ac.var.record",
       "ac.var.assign",
       "ac.var.assign_element",
       "ac.var.choose",
@@ -805,7 +807,7 @@ TEST(ACIROpsTest, RuntimeAndQueueVarRegistryIsExact) {
   for (llvm::StringLiteral name : queueVarNames)
     EXPECT_TRUE(mlir::OperationName(name, &context).isRegistered())
         << name.str();
-  EXPECT_EQ(context.getRegisteredOperationsByDialect("ac").size(), 139u);
+  EXPECT_EQ(context.getRegisteredOperationsByDialect("ac").size(), 140u);
 }
 
 TEST(ACIROpsTest, ProcessLinearLivenessDoesNotRescanBlockPerValue) {
@@ -1706,10 +1708,10 @@ TEST(ACIROpsTest, TransitionTableRejectsAmbiguousRowsDeterministically) {
       std::string::npos);
 }
 
-TEST(ACIROpsTest, TableEntryTypeRejectsNonStructRecordKindsAndNesting) {
+TEST(ACIROpsTest, TableEntryTypeRejectsNonStructRecordKinds) {
   mlir::MLIRContext context;
   context.loadDialect<ACIRDialect, mlir::DLTIDialect>();
-  constexpr std::array<llvm::StringLiteral, 3> sources = {
+  constexpr std::array<llvm::StringLiteral, 2> sources = {
       R"mlir(
         builtin.module attributes {ac.contract_epoch = "0.5"} {
           "ac.type_scope"() <{sym_name = "types"}> ({
@@ -1725,18 +1727,6 @@ TEST(ACIROpsTest, TableEntryTypeRejectsNonStructRecordKindsAndNesting) {
           }) : () -> ()
           ac.table @bad entry !ac.transaction<@types::@Entry> entries 4 init 0 owner "/" stable_id "table/bad"
         }
-      )mlir",
-      R"mlir(
-        builtin.module attributes {ac.contract_epoch = "0.5"} {
-          ac.type_scope @types {
-            ac.struct @Inner fields [{name = "value", type = i8}]
-            ac.struct @Entry fields [{name = "inner", type = !ac.struct<@types::@Inner>}]
-          } {dlti.dl_spec = #dlti.dl_spec<
-            !ac.struct<@types::@Inner> = {abi_alignment = 1 : i64, endianness = "little", preferred_alignment = 1 : i64, size = 1 : i64},
-            !ac.struct<@types::@Entry> = {abi_alignment = 1 : i64, endianness = "little", preferred_alignment = 1 : i64, size = 1 : i64}
-          >}
-          ac.table @bad entry !ac.struct<@types::@Entry> entries 4 init 0 owner "/" stable_id "table/bad"
-        }
       )mlir"};
 
   for (llvm::StringRef source : sources) {
@@ -1747,8 +1737,8 @@ TEST(ACIROpsTest, TableEntryTypeRejectsNonStructRecordKindsAndNesting) {
           return mlir::success();
         });
     EXPECT_FALSE(mlir::parseSourceString<mlir::ModuleOp>(source, &context));
-    EXPECT_NE(diagnostic.find("entry type must be bool, a <=64-bit integer, "
-                              "or a flat integer struct"),
+    EXPECT_NE(diagnostic.find("entry type must be a <=64-bit integer or an "
+                              "immutable recursive struct"),
               std::string::npos)
         << diagnostic;
   }

@@ -186,7 +186,7 @@ LogicalResult freezeStructuredQueueGraph(ModuleOp model) {
   root->setAttr(
       "ac.specialization",
       builder.getStringAttr(detail::computeQueueGraphSpecializationFingerprint(
-          root, builder.getDictionaryAttr({}))));
+          root, root.getStaticParams())));
 
   FailureOr<ArrayAttr> ownerManifest = detail::buildFrozenOwnerManifest(model);
   if (failed(ownerManifest))

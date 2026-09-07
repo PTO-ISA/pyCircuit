@@ -287,7 +287,8 @@ emitTransform(const QueueGraphPlan &plan, const QueueBlockPlan &block,
              << *resultType << "\n";
       } else if (expression.kind == "bit_concat" ||
                  expression.kind == "tuple_create" ||
-                 expression.kind == "array_create") {
+                 expression.kind == "array_create" ||
+                 expression.kind == "record_create") {
         if (expression.operands.empty())
           return pycError("concat/aggregate create requires at least one operand");
         result = newValue();

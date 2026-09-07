@@ -1155,6 +1155,147 @@ TEST(ValueConstraintTest, JoinIsIdempotentAndAbsorbingAcrossRepresentations) {
   EXPECT_EQ(widened, ValueConstraint::join(widened, interval));
 }
 
+TEST(ACDataFlowAnalyzerTest, ProvesDisjointIndicesAndStructuralPathExclusion) {
+  DialectRegistry registry;
+  registerAllDialects(registry);
+  MLIRContext context(registry);
+  OwningOpRef<mlir::ModuleOp> model =
+      parseSourceString<mlir::ModuleOp>(R"mlir(
+    builtin.module attributes {ac.contract_epoch = "0.5"} {
+      ac.var.decl @entries type i8 init 0 : i8 owner "/" stable_id "var/entries" shape [100]
+      %mask = ac.var.match @entries predicate {
+      ^match(%entry: !ac.var<i8>):
+        %present = ac.var.constant true as !ac.var<i1>
+        ac.var.match.yield %present : !ac.var<i1>
+      } -> !ac.var<!ac.value_array<2 x i64>>
+      %chosen, %chosen_valid = ac.var.choose @entries %mask : !ac.var<!ac.value_array<2 x i64>> count 1 policy "first" key {} -> !ac.var<i7>, !ac.var<i1>
+      %input = "builtin.unrealized_conversion_cast"() : () -> !ac.queue<i2>
+      %output = ac.transform %input depths [1] latencies [1] {
+      ^body(%item: !ac.var<i2>):
+        %zero = ac.var.constant 0 : i2 as !ac.var<i2>
+        %one = ac.var.constant 1 : i2 as !ac.var<i2>
+        %left = ac.var.cmp "eq" %item, %zero : !ac.var<i2> -> !ac.var<i1>
+        %same = ac.var.cmp "eq" %item, %zero : !ac.var<i2> -> !ac.var<i1>
+        %false = ac.var.constant false as !ac.var<i1>
+        %not_same = ac.var.cmp "eq" %same, %false : !ac.var<i1> -> !ac.var<i1>
+        %enabled = ac.var.constant true as !ac.var<i1>
+        %right_path = ac.var.mul %not_same, %enabled : !ac.var<i1>
+        ac.transform.yield %item : !ac.var<i2>
+      } : (!ac.queue<i2>) -> !ac.queue<i2>
+      ac.sink %output : !ac.queue<i2>
+    }
+  )mlir",
+                                        &context);
+  ASSERT_TRUE(model);
+
+  ACDataFlowAnalyzer analysis(model->getOperation());
+  ASSERT_TRUE(succeeded(analysis.run()));
+  SmallVector<ac::VarConstantOp> integerConstants;
+  SmallVector<ac::VarCmpOp> comparisons;
+  ac::VarMulOp rightPath;
+  ac::VarChooseOp choose;
+  model->walk([&](ac::VarConstantOp operation) {
+    if (cast<ac::VarType>(operation.getResult().getType())
+            .getElementType()
+            .isInteger(2))
+      integerConstants.push_back(operation);
+  });
+  model->walk([&](ac::VarCmpOp operation) { comparisons.push_back(operation); });
+  model->walk([&](ac::VarMulOp operation) { rightPath = operation; });
+  model->walk([&](ac::VarChooseOp operation) { choose = operation; });
+  ASSERT_EQ(2u, integerConstants.size());
+  ASSERT_GE(comparisons.size(), 2u);
+  ASSERT_TRUE(rightPath);
+  ASSERT_TRUE(choose);
+  EXPECT_TRUE(analysis.provesDisjoint(integerConstants[0].getResult(),
+                                      integerConstants[1].getResult()));
+  EXPECT_TRUE(analysis.provesMutuallyExclusive(comparisons[0].getResult(),
+                                               rightPath.getResult()));
+  EXPECT_TRUE(analysis.provesWithin(choose.getIndex(), 0, 99));
+  EXPECT_FALSE(analysis.provesWithin(choose.getIndex(), 0, 98));
+}
+
+TEST(ACDataFlowAnalyzerTest,
+     DoesNotEquateRegionBearingPredicatesWithDifferentBodies) {
+  DialectRegistry registry;
+  registerAllDialects(registry);
+  MLIRContext context(registry);
+  OwningOpRef<mlir::ModuleOp> model =
+      parseSourceString<mlir::ModuleOp>(R"mlir(
+    builtin.module attributes {ac.contract_epoch = "0.5"} {
+      ac.var.decl @entries type i1 init 0 : i1 owner "/" stable_id "var/entries" shape [1]
+      %left_mask = ac.var.match @entries predicate {
+      ^match(%entry: !ac.var<i1>):
+        ac.var.match.yield %entry : !ac.var<i1>
+      } -> !ac.var<i1>
+      %left_index, %left_valid = ac.var.choose @entries %left_mask : !ac.var<i1> count 1 policy "first" key {} -> !ac.var<i1>, !ac.var<i1>
+      %right_mask = ac.var.match @entries predicate {
+      ^match(%entry: !ac.var<i1>):
+        %false = ac.var.constant false as !ac.var<i1>
+        %not_entry = ac.var.cmp "eq" %entry, %false : !ac.var<i1> -> !ac.var<i1>
+        ac.var.match.yield %not_entry : !ac.var<i1>
+      } -> !ac.var<i1>
+      %right_index, %right_valid = ac.var.choose @entries %right_mask : !ac.var<i1> count 1 policy "first" key {} -> !ac.var<i1>, !ac.var<i1>
+      %false = ac.var.constant false as !ac.var<i1>
+      %not_right_valid = ac.var.cmp "eq" %right_valid, %false : !ac.var<i1> -> !ac.var<i1>
+    }
+  )mlir",
+                                        &context);
+  ASSERT_TRUE(model);
+
+  ACDataFlowAnalyzer analysis(model->getOperation());
+  ASSERT_TRUE(succeeded(analysis.run()));
+  SmallVector<ac::VarChooseOp> choices;
+  ac::VarCmpOp notRightValid;
+  model->walk([&](ac::VarChooseOp operation) { choices.push_back(operation); });
+  model->walk([&](ac::VarCmpOp operation) {
+    if (operation->getParentOfType<ac::VarMatchOp>() == nullptr)
+      notRightValid = operation;
+  });
+  ASSERT_EQ(2u, choices.size());
+  ASSERT_TRUE(notRightValid);
+  EXPECT_FALSE(analysis.provesMutuallyExclusive(choices[0].getValid(),
+                                                notRightValid.getResult()));
+}
+
+TEST(ACDataFlowAnalyzerTest, StructuralPathProofUsesBoundedKeysForSharedDags) {
+  DialectRegistry registry;
+  registerAllDialects(registry);
+  MLIRContext context(registry);
+  std::string source = R"mlir(
+    builtin.module attributes {ac.contract_epoch = "0.5"} {
+      %input = "builtin.unrealized_conversion_cast"() : () -> !ac.queue<i1>
+      %output = ac.transform %input depths [1] latencies [1] {
+      ^body(%item: !ac.var<i1>):
+  )mlir";
+  std::string previous = "%item";
+  for (unsigned index = 0; index < 64; ++index) {
+    const std::string next = "%shared" + std::to_string(index);
+    source += "        " + next + " = ac.var.and " + previous + ", " +
+              previous + " : !ac.var<i1>\n";
+    previous = next;
+  }
+  source += "        %false = ac.var.constant false as !ac.var<i1>\n"
+            "        %opposite = ac.var.cmp \"eq\" " +
+            previous +
+            ", %false : !ac.var<i1> -> !ac.var<i1>\n"
+            "        ac.transform.yield %item : !ac.var<i1>\n"
+            "      } : (!ac.queue<i1>) -> !ac.queue<i1>\n"
+            "      ac.sink %output : !ac.queue<i1>\n"
+            "    }\n";
+  OwningOpRef<mlir::ModuleOp> model =
+      parseSourceString<mlir::ModuleOp>(source, &context);
+  ASSERT_TRUE(model);
+
+  ACDataFlowAnalyzer analysis(model->getOperation());
+  ASSERT_TRUE(succeeded(analysis.run()));
+  ac::VarCmpOp opposite;
+  model->walk([&](ac::VarCmpOp operation) { opposite = operation; });
+  ASSERT_TRUE(opposite);
+  EXPECT_TRUE(analysis.provesMutuallyExclusive(opposite.getLhs(),
+                                               opposite.getResult()));
+}
+
 TEST(ACDataFlowAnalyzerTest, InfersBoundedUnsignedValueConstraints) {
   DialectRegistry registry;
   registerAllDialects(registry);
@@ -1300,10 +1441,12 @@ TEST(ACDataFlowAnalyzerTest, InfersOrderedStateAccessFootprints) {
   EXPECT_EQ("entries", footprints[0].resource);
   EXPECT_EQ("read", footprints[0].access);
   EXPECT_EQ("dynamic", footprints[0].indexKind);
+  EXPECT_TRUE(footprints[0].index);
   EXPECT_TRUE(footprints[0].fields.empty());
   EXPECT_EQ("entries", footprints[1].resource);
   EXPECT_EQ("replace", footprints[1].access);
   EXPECT_EQ("dynamic", footprints[1].indexKind);
+  EXPECT_TRUE(footprints[1].index);
   EXPECT_EQ((std::vector<std::string>{"index", "value"}), footprints[1].fields);
 }
 

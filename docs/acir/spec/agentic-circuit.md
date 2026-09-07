@@ -153,22 +153,55 @@ agentic-circuit schema opcode ac.transform
 
 ### System declaration
 
-A Queue/Var system uses `@ac.system` and takes no parameters. Inputs and outputs
-are inferred from the body.
+A Queue/Var system uses `@ac.system`. Ordinary typed parameters and returns are
+runtime payload values whose Queue boundaries are inferred by the compiler.
+They are not Queue/Input/Output objects in Python. A body-only source/sink form
+remains available for standalone pipelines.
 
 ```python
 import agentic_circuit as ac
 
 
+@ac.module
+def keep(value: WorkItem) -> WorkItem:
+    return value
+
+
+@ac.module
+def increment(value: WorkItem) -> WorkItem:
+    return value.with_fields(value=value.value + 1)
+
+
 @ac.system
-def pipeline() -> None:
-    value = ac.source(int)
-    ac.sink(value)
+def pipeline(value: WorkItem, *, increment_value: ac.const[bool]) -> WorkItem:
+    if increment_value:
+        result = increment(value)
+    else:
+        result = keep(value)
+    return result
+
+
+specialization = ac.jit(pipeline, increment_value=True)
 ```
 
 The source file is compiled through AST capture. The queue primitives inside
 the system body are syntax markers; ordinary Python execution of the body is
-not the compilation path.
+not the compilation path. `ac.jit` binds only `ac.const` parameters. Runtime
+payload arguments remain unbound and do not enter specialization identity. An
+optional `workspace=` captures and hashes the transitive local source closure;
+local dependencies use explicit `from module import Symbol` imports. Local
+module-qualified imports, renamed imports, and conflicting definitions across
+files are rejected before lowering until namespace-preserving bundling is
+supported. Dynamic imports or source mutation after specialization also fail
+closed. Imported
+uppercase immutable integer and bitmask constants are folded from that closure
+at their exact-width use sites, so shared contracts do not require copied magic
+literals.
+
+Static bitmask expressions obey the portable I-JSON integer range. Negative
+shift counts and left shifts whose result exceeds that range are rejected
+before evaluating the shift; runtime `ac.uN` shifts retain their exact-width
+circuit semantics.
 
 ### Payload structures
 
@@ -332,7 +365,11 @@ index, while providing a fixed-width integer key selects the minimum key with
 stable index tie-breaking. Raw ACIR uses `ac.var.match` and `ac.var.choose`.
 Storage selection rewrites them to the existing committed Table query without
 changing the Python variable model. The selected index/value may affect state
-only under the corresponding `.valid` condition.
+only under the corresponding `.valid` condition. Domains above 64 entries use
+a compiler-owned fixed array of 64-bit candidate words; this does not widen the
+public `ac.u1..ac.u64` payload family. Match and choose share the same committed
+scan, so deterministic selection and selected-value provenance do not require
+a second traversal.
 
 A predicate may read another persistent list. Such an owner is an activation
 source but not a transaction resource unless the rule writes it. Generated
@@ -850,21 +887,19 @@ a write across a return. All conditional state effects in this restricted form
 share the resulting predicate; it cannot be combined with a blocking guard,
 multiple Queue payloads, or a selected output yet.
 
-An outputless one-input rule may also use one ordinary `if/else` whose branches
-assign distinct persistent owners. The frontend preserves the branch test and
-its Boolean complement as separate SSA presence values. Rule, Firing, and
-QueueGraph verification independently require exactly one shared predicate or
-one structurally proven complementary pair. Generated gfsim evaluates one Work
-candidate and prepares only the selected owner; the input and selected state
-still publish through one atomic group. If both arms assign the same scalar
-owner, the compiler emits one `ac.var.select` value join followed by one
-unconditional state proposal. QueueGraph/gfsim use a ternary expression and PYC
-uses `pyc.select`; the owner therefore retains one write slot and one commit.
-If both arms assign the same persistent list, the compiler joins both value and
-index with typed `ac.var.select` operations, then emits one unconditional
-`ac.var.assign_element`. Each authored index must retain the existing exact
-width/full-domain safety proof. A branch value that depends on another
-branch-written owner remains rejected until general state joins are available.
+An outputless one-input rule may also use ordinary nested `if/elif/else` paths.
+The frontend preserves flattened path predicates as SSA presence values.
+Generated gfsim evaluates one Work candidate and prepares only the selected
+effects; the input and every selected state owner still publish through one
+atomic group. If complementary arms assign the same scalar or the same indexed
+lexical target, the compiler joins the value and, when needed, the index with
+typed `ac.var.select`. If one selected path writes several distinct entries of
+the same persistent list, those proposals remain an ordered owner-local batch.
+`ACDataFlowAnalyzer` and QueueGraph require every same-owner pair to have
+disjoint index domains or structurally mutually exclusive predicates. Each
+authored index retains the existing exact-width/full-domain safety proof. A
+branch value that depends on another branch-written owner remains rejected
+until general state joins are available.
 
 One stateful output may be optional. A trailing Python
 `if condition: return value` followed by `return` means the input and preceding
@@ -1679,19 +1714,22 @@ one `!ac.var<i1>` presence value, and each firing-local `ac.table.propose`
 carries its presence value through storage selection. Rule and Firing
 verification independently require exactly one candidate condition, complete
 output ordinal coverage, returned-value identity, and each effect presence to
-imply the candidate. The narrow conditional-effect form allows presence to
-differ only when the candidate is constant true, there is exactly one input,
-and all differing effects share one predicate. QueueGraph retains candidate and
-effect presence separately. Generated gfsim distinguishes `nullopt` (stall and
-retain input) from an engaged plan with absent writes (consume input without a
-state commit). It reserves analyzer-derived snapshot indices long enough to
+imply the candidate. Conditional state-effect presence may differ when the
+candidate is constant true and there is exactly one input. For repeated writes
+to one owner, `ACDataFlowAnalyzer` proves pairwise disjoint index domains or
+structurally mutually exclusive path predicates; QueueGraph recomputes the
+proof before code generation. Simultaneously selected writes become one ordered
+owner-local batch. QueueGraph retains candidate and effect presence separately.
+Generated gfsim distinguishes `nullopt` (stall and retain input) from an engaged
+plan with absent writes (consume input without a state commit). It reserves
+analyzer-derived snapshot indices long enough to
 validate the committed decision against overlapping lexical writers, then
 cancels unselected reservations without publishing a Table proposal. Snapshot
 readers remain mutually compatible; snapshot/write overlap conflicts, while
 disjoint indices proceed independently. Python exposes
 none of these proof or reservation operations. General predicate read-set
-inference for candidate/output and match/choose index sets, CFG joins, and
-multiple selected outputs remain outside this subset.
+inference for candidate/output and match/choose index sets and multiple selected
+outputs remain outside this subset.
 
 ### Credit transfer
 

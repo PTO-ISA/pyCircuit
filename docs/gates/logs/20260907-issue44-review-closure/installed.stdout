@@ -1,0 +1,11 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.12.12, pytest-9.1.1, pluggy-1.6.0
+rootdir: /Users/zhoubot/linx-isa/tools/pyCircuit
+configfile: pyproject.toml
+collected 2 items
+
+tests/integration/agentic-circuit/e2e/test_typed_system_transactions.py . [ 50%]
+                                                                         [ 50%]
+tests/integration/agentic-circuit/e2e/test_typed_record_pyc.py .         [100%]
+
+============================== 2 passed in 13.40s ==============================

@@ -399,7 +399,8 @@
       ],
       "cpp_emitter": "compiler/mlir/lib/Emit/CppEmitter.cpp",
       "e2e": [
-        "tests/integration/agentic-circuit/e2e/test_pyc_backend.py"
+        "tests/integration/agentic-circuit/e2e/test_pyc_backend.py",
+        "tests/integration/agentic-circuit/e2e/test_typed_record_pyc.py"
       ],
       "examples": [],
       "folder": "compiler/mlir/lib/Dialect/PYC/PYCOps.cpp",
@@ -425,6 +426,7 @@
         "tests/cpp/agentic-circuit/CodeGen/QueueGraphPlanTest.cpp",
         "tests/cpp/agentic-circuit/Dialect/ACIR/OpsTest.cpp",
         "tests/integration/agentic-circuit/e2e/test_pyc_backend.py",
+        "tests/integration/agentic-circuit/e2e/test_typed_record_pyc.py",
         "tests/mlir/agentic-circuit/ACIR/collections-invalid.mlir",
         "tests/mlir/agentic-circuit/ACIR/collections-valid.mlir",
         "tests/mlir/agentic-circuit/ACIR/view-provenance.mlir",
@@ -534,7 +536,8 @@
       ],
       "cpp_emitter": "compiler/mlir/lib/Emit/CppEmitter.cpp",
       "e2e": [
-        "tests/integration/agentic-circuit/e2e/test_pyc_backend.py"
+        "tests/integration/agentic-circuit/e2e/test_pyc_backend.py",
+        "tests/integration/agentic-circuit/e2e/test_typed_record_pyc.py"
       ],
       "examples": [],
       "folder": "compiler/mlir/lib/Dialect/PYC/PYCOps.cpp",
@@ -554,6 +557,7 @@
       "symbol": "PYC_ExtractOp",
       "tests": [
         "tests/integration/agentic-circuit/e2e/test_pyc_backend.py",
+        "tests/integration/agentic-circuit/e2e/test_typed_record_pyc.py",
         "tests/mlir/agentic-circuit/CodeGen/bit-operations.mlir",
         "tests/test_assert_fits.py",
         "tests/test_bitfield_view.py"

@@ -1,0 +1,17 @@
+[
+  {
+    "command": "cmake --build /Users/zhoubot/linx-isa/tools/pyCircuit/.pycircuit_out/layout-root -j 8",
+    "exit_code": 0,
+    "duration_seconds": 1.053
+  },
+  {
+    "command": "cmake --build /Users/zhoubot/linx-isa/tools/pyCircuit/.pycircuit_out/layout-root --target check-acir -j 8",
+    "exit_code": 0,
+    "duration_seconds": 24.467
+  },
+  {
+    "command": "ctest --test-dir /Users/zhoubot/linx-isa/tools/pyCircuit/.pycircuit_out/layout-root --output-on-failure -j 4 -R '^(GfsimTests|ACIROpsTests|ACIRModelAnalysisTests|CodeGenTests)$'",
+    "exit_code": 0,
+    "duration_seconds": 29.819
+  }
+]

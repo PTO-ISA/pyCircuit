@@ -966,6 +966,186 @@ def branch_state(command: Command) -> None:
     route(left, right, command)
 """
 
+SERIAL_LOCAL_REBIND_SOURCE = """
+import agentic_circuit as ac
+
+OWNER_LEFT = 0b00000100
+OWNER_RIGHT = 0b01000000
+REQUIRED_OWNER_MASK = OWNER_LEFT | OWNER_RIGHT
+
+@ac.struct
+class Command:
+    select_right: bool
+    left: ac.u8
+    right: ac.u8
+
+@ac.rule
+def update(total, command):
+    selected = command.left
+    if command.select_right:
+        selected = command.right
+    selected = selected + REQUIRED_OWNER_MASK
+    total = selected
+    return command.with_fields(left=selected)
+
+@ac.system
+def serial_local_rebind(command: Command) -> Command:
+    total: ac.u8 = 0
+    result = update(total, command)
+    return result
+"""
+
+SERIAL_SOURCE_ORDER_SOURCE = """
+import agentic_circuit as ac
+
+@ac.struct
+class Command:
+    left: ac.u8
+    right: ac.u8
+
+@ac.rule
+def update(first, second, command):
+    selected = command.left
+    first = selected
+    selected = command.right
+    second = selected
+    return command
+
+@ac.system
+def serial_source_order(command: Command) -> Command:
+    first: ac.u8 = 0
+    second: ac.u8 = 0
+    result = update(first, second, command)
+    return result
+"""
+
+SERIAL_GUARD_REBIND_SOURCE = """
+import agentic_circuit as ac
+
+@ac.struct
+class Command:
+    first_gate: bool
+    second_gate: bool
+    left: ac.u8
+    right: ac.u8
+
+@ac.rule
+def update(first, second, command):
+    gate = command.first_gate
+    if gate:
+        first = command.left
+    gate = command.second_gate
+    if gate:
+        second = command.right
+    return command
+
+@ac.system
+def serial_guard_rebind(command: Command) -> Command:
+    first: ac.u8 = 0
+    second: ac.u8 = 0
+    result = update(first, second, command)
+    return result
+"""
+
+NESTED_BRANCH_GUARD_REBIND_SOURCE = """
+import agentic_circuit as ac
+
+@ac.struct
+class Command:
+    outer: bool
+    inner: bool
+    value: ac.u8
+
+@ac.rule
+def update(first, second, command):
+    gate = command.outer
+    if not gate:
+        gate = command.inner
+        if gate:
+            first = command.value
+    return command
+
+@ac.system
+def nested_branch_guard_rebind(command: Command) -> Command:
+    first: ac.u8 = 0
+    second: ac.u8 = 0
+    result = update(first, second, command)
+    return result
+"""
+
+NESTED_OPTIONAL_GUARD_REBIND_SOURCE = """
+import agentic_circuit as ac
+
+@ac.struct
+class Command:
+    outer: bool
+    inner: bool
+    value: ac.u8
+
+@ac.rule
+def choose(command):
+    gate = command.outer
+    if not gate:
+        gate = command.inner
+        if gate:
+            return
+    return command
+
+@ac.system
+def nested_optional_guard_rebind(command: Command) -> Command:
+    result = choose(command)
+    return result
+"""
+
+SERIAL_STATE_REBIND_SOURCE = """
+import agentic_circuit as ac
+
+@ac.struct
+class Command:
+    value: ac.u8
+
+@ac.rule
+def update(first, second, command):
+    first = command.value
+    selected = first
+    second = selected
+    return command
+
+@ac.system
+def serial_state_rebind(command: Command) -> Command:
+    first: ac.u8 = 0
+    second: ac.u8 = 0
+    result = update(first, second, command)
+    return result
+"""
+
+SERIAL_EARLY_GUARD_REBIND_SOURCE = """
+import agentic_circuit as ac
+
+@ac.struct
+class Command:
+    first_gate: bool
+    second_gate: bool
+    value: ac.u8
+
+@ac.rule
+def update(first, second, command):
+    gate = command.first_gate
+    if not gate:
+        return
+    gate = command.second_gate
+    if not gate:
+        return
+    first = command.value
+    second = command.value
+
+@ac.system
+def serial_early_guard_rebind(command: Command) -> None:
+    first: ac.u8 = 0
+    second: ac.u8 = 0
+    update(first, second, command)
+"""
+
 INDEXED_BRANCH_JOIN_SOURCE = """
 import agentic_circuit as ac
 
@@ -987,6 +1167,56 @@ def update(entries, command):
 def indexed_branch_join(command: Command) -> None:
     entries: list[ac.u8] = [0] * 4
     update(entries, command)
+"""
+
+MULTI_WRITE_BRANCH_SOURCE = """
+import agentic_circuit as ac
+
+@ac.struct
+class Command:
+    push: bool
+    value: ac.u8
+
+@ac.rule
+def shift(entries, command):
+    if command.push:
+        entries[3] = entries[2]
+        entries[2] = entries[1]
+        entries[1] = entries[0]
+        entries[0] = command.value
+    return command
+
+@ac.system
+def multi_write_branch(command: Command) -> Command:
+    entries: list[ac.u8] = [0] * 4
+    result = shift(entries, command)
+    return result
+"""
+
+PURE_BRANCH_OPTIONAL_SOURCE = """
+import agentic_circuit as ac
+
+@ac.struct
+class Command:
+    operation: ac.u2
+    lhs: ac.u8
+    rhs: ac.u8
+    result: ac.u8
+
+@ac.rule
+def execute(command):
+    if command.operation == 0:
+        result = command.lhs + command.rhs
+    elif command.operation == 1:
+        result = command.lhs - command.rhs
+    else:
+        return
+    return command.with_fields(result=result)
+
+@ac.system
+def pure_branch_optional(command: Command) -> Command:
+    result = execute(command)
+    return result
 """
 
 OPTIONAL_OUTPUT_SOURCE = """
@@ -2933,6 +3163,18 @@ def cycle(incoming: Left) -> Left:
         self.assertIn("ac.var.assign_element @entries", lowered)
         self.assertNotIn("ac.table", lowered)
 
+        wide = LIST_FIND_RULE_SOURCE.replace("index: ac.u2", "index: ac.u7").replace(
+            "[0] * 4", "[0] * 128"
+        )
+        wide_lowered = lower_queue_source(wide, "issue_queue")
+        self.assertIn("shape [128]", wide_lowered)
+        self.assertIn(
+            "-> !ac.var<!ac.value_array<2 x i64>>", wide_lowered
+        )
+        self.assertIn(
+            "!ac.var<!ac.value_array<2 x i64>> count 1", wide_lowered
+        )
+
     def test_persistent_list_find_rejects_non_list_state(self) -> None:
         from agentic_circuit._queue_frontend import (
             QueueFrontendError,
@@ -3010,18 +3252,16 @@ def cycle(incoming: Left) -> Left:
             lowered,
         )
 
-    def test_early_return_chain_must_remain_contiguous(self) -> None:
-        from agentic_circuit._queue_frontend import (
-            QueueFrontendError,
-            lower_queue_source,
-        )
+    def test_early_return_chain_allows_pure_local_bindings(self) -> None:
+        from agentic_circuit._queue_frontend import lower_queue_source
 
         invalid = READ_ONLY_SCALAR_CONDITIONAL_SOURCE.replace(
             "    if old.epoch != epoch:\n",
             "    checkpoint = old.epoch\n    if old.epoch != epoch:\n",
         )
-        with self.assertRaisesRegex(QueueFrontendError, "contiguous serial guard"):
-            lower_queue_source(invalid, "completion_port")
+        lowered = lower_queue_source(invalid, "completion_port")
+        self.assertIn("ac.var.assign_element @entries", lowered)
+        self.assertIn(" when %", lowered)
 
     def test_early_return_chain_must_precede_state_effects(self) -> None:
         from agentic_circuit._queue_frontend import (
@@ -3091,6 +3331,223 @@ def cycle(incoming: Left) -> Left:
         self.assertEqual(1, lowered.count("ac.var.assign @right"))
         self.assertNotIn("ac.var.assign @left", lowered)
 
+    def test_serial_local_rebinding_preserves_source_order_as_ssa(self) -> None:
+        from agentic_circuit._queue_frontend import lower_queue_source
+
+        lowered = lower_queue_source(
+            SERIAL_LOCAL_REBIND_SOURCE, "serial_local_rebind"
+        )
+        select_offset = lowered.index("ac.var.select")
+        increment_offset = lowered.index("ac.var.add", select_offset)
+        assign_offset = lowered.index("ac.var.assign @total", increment_offset)
+        self.assertLess(select_offset, increment_offset)
+        self.assertLess(increment_offset, assign_offset)
+        self.assertEqual(1, lowered.count("ac.var.select"))
+        self.assertIn("ac.var.constant 68 : i8 as !ac.var<i8>", lowered)
+
+    def test_state_proposals_capture_the_local_version_at_source_position(self) -> None:
+        from agentic_circuit._queue_frontend import lower_queue_source
+
+        lowered = lower_queue_source(
+            SERIAL_SOURCE_ORDER_SOURCE, "serial_source_order"
+        )
+        field_values = {
+            line.split('field "', 1)[1].split('"', 1)[0]: line.split("%", 1)[1].split(
+                " ", 1
+            )[0]
+            for line in lowered.splitlines()
+            if "ac.var.get %item field" in line
+        }
+        self.assertIn(
+            f"ac.var.assign @first = %{field_values['left']}", lowered
+        )
+        self.assertIn(
+            f"ac.var.assign @second = %{field_values['right']}", lowered
+        )
+
+    def test_branch_guards_capture_the_local_version_at_branch_entry(self) -> None:
+        from agentic_circuit._queue_frontend import lower_queue_source
+
+        lowered = lower_queue_source(
+            SERIAL_GUARD_REBIND_SOURCE, "serial_guard_rebind"
+        )
+        field_values = {
+            line.split('field "', 1)[1].split('"', 1)[0]: line.split("%", 1)[1].split(
+                " ", 1
+            )[0]
+            for line in lowered.splitlines()
+            if "ac.var.get %item field" in line
+        }
+        first_assign = next(
+            line for line in lowered.splitlines() if "ac.var.assign @first" in line
+        )
+        second_assign = next(
+            line for line in lowered.splitlines() if "ac.var.assign @second" in line
+        )
+        self.assertIn(f"when %{field_values['first_gate']}", first_assign)
+        self.assertIn(f"when %{field_values['second_gate']}", second_assign)
+
+    def test_nested_branch_path_captures_each_condition_before_rebinding(self) -> None:
+        from agentic_circuit._queue_frontend import lower_queue_source
+
+        lowered = lower_queue_source(
+            NESTED_BRANCH_GUARD_REBIND_SOURCE, "nested_branch_guard_rebind"
+        )
+        field_values = {
+            line.split('field "', 1)[1].split('"', 1)[0]: line.split("%", 1)[1].split(
+                " ", 1
+            )[0]
+            for line in lowered.splitlines()
+            if "ac.var.get %item field" in line
+        }
+        merged_gate = next(
+            line.split("%", 1)[1].split(" ", 1)[0]
+            for line in lowered.splitlines()
+            if "ac.var.select" in line
+            and f"%{field_values['inner']}" in line
+            and f"%{field_values['outer']}" in line
+        )
+        proposal = next(
+            line for line in lowered.splitlines() if "ac.var.assign @first" in line
+        )
+        proposal_guard = proposal.split(" when %", 1)[1].split(" ", 1)[0]
+        guard_definition = next(
+            line
+            for line in lowered.splitlines()
+            if line.lstrip().startswith(f"%{proposal_guard} =")
+        )
+
+        self.assertIn("ac.var.mul", guard_definition)
+        self.assertIn(f"%{merged_gate}", guard_definition)
+        self.assertNotIn(
+            f"ac.var.mul %{merged_gate}, %{merged_gate}", guard_definition
+        )
+
+    def test_nested_optional_absence_captures_pre_rebind_branch_path(self) -> None:
+        from agentic_circuit._queue_frontend import lower_queue_source
+
+        lowered = lower_queue_source(
+            NESTED_OPTIONAL_GUARD_REBIND_SOURCE,
+            "nested_optional_guard_rebind",
+        )
+        merged_gate = next(
+            line.split("%", 1)[1].split(" ", 1)[0]
+            for line in lowered.splitlines()
+            if "ac.var.select" in line
+        )
+        absence = next(
+            line.split("%", 1)[1].split(" ", 1)[0]
+            for line in lowered.splitlines()
+            if "ac.var.mul" in line and f"%{merged_gate}" in line
+        )
+        output = next(
+            line for line in lowered.splitlines() if "ac.rule.output" in line
+        )
+        presence = output.split(" when %", 1)[1].split(" ", 1)[0]
+        presence_definition = next(
+            line
+            for line in lowered.splitlines()
+            if line.lstrip().startswith(f"%{presence} =")
+        )
+
+        self.assertIn(f"%{absence}", presence_definition)
+        self.assertIn('ac.var.cmp "eq"', presence_definition)
+
+    def test_scalar_state_rebind_is_visible_to_later_source_expressions(self) -> None:
+        from agentic_circuit._queue_frontend import lower_queue_source
+
+        lowered = lower_queue_source(
+            SERIAL_STATE_REBIND_SOURCE, "serial_state_rebind"
+        )
+        value = next(
+            line.split("%", 1)[1].split(" ", 1)[0]
+            for line in lowered.splitlines()
+            if 'field "value"' in line
+        )
+
+        self.assertIn(f"ac.var.assign @first = %{value}", lowered)
+        self.assertIn(f"ac.var.assign @second = %{value}", lowered)
+
+    def test_early_return_guards_capture_each_source_local_version(self) -> None:
+        from agentic_circuit._queue_frontend import lower_queue_source
+
+        lowered = lower_queue_source(
+            SERIAL_EARLY_GUARD_REBIND_SOURCE, "serial_early_guard_rebind"
+        )
+        field_values = {
+            line.split('field "', 1)[1].split('"', 1)[0]: line.split("%", 1)[1].split(
+                " ", 1
+            )[0]
+            for line in lowered.splitlines()
+            if "ac.var.get %item field" in line
+        }
+
+        self.assertIn(
+            f"ac.var.mul %{field_values['first_gate']}, "
+            f"%{field_values['second_gate']}",
+            lowered,
+        )
+
+    def test_serial_local_rebinding_requires_one_exact_type(self) -> None:
+        from agentic_circuit._queue_frontend import (
+            QueueFrontendError,
+            lower_queue_source,
+        )
+
+        invalid = SERIAL_LOCAL_REBIND_SOURCE.replace(
+            "    selected = selected + REQUIRED_OWNER_MASK",
+            "    selected = command.select_right",
+        )
+        with self.assertRaisesRegex(
+            QueueFrontendError, "local reassignments must preserve one exact type"
+        ):
+            lower_queue_source(invalid, "serial_local_rebind")
+
+    def test_branch_local_without_prior_value_cannot_escape_its_path(self) -> None:
+        from agentic_circuit._queue_frontend import (
+            QueueFrontendError,
+            lower_queue_source,
+        )
+
+        invalid = SERIAL_LOCAL_REBIND_SOURCE.replace(
+            "    selected = command.left\n"
+            "    if command.select_right:\n"
+            "        selected = command.right",
+            "    if command.select_right:\n"
+            "        selected = command.right",
+        )
+        with self.assertRaisesRegex(
+            QueueFrontendError, "branch-local value escapes its defining path"
+        ):
+            lower_queue_source(invalid, "serial_local_rebind")
+
+    def test_complete_if_else_can_define_one_local_ssa_join(self) -> None:
+        from agentic_circuit._queue_frontend import lower_queue_source
+
+        source = SERIAL_SOURCE_ORDER_SOURCE.replace(
+            "    selected = command.left\n"
+            "    first = selected\n"
+            "    selected = command.right\n"
+            "    second = selected",
+            "    if command.left == command.right:\n"
+            "        selected = command.left\n"
+            "    else:\n"
+            "        selected = command.right\n"
+            "    first = selected\n"
+            "    second = selected",
+        )
+        lowered = lower_queue_source(source, "serial_source_order")
+
+        self.assertEqual(1, lowered.count("ac.var.select"))
+        assignments = [
+            line for line in lowered.splitlines() if "ac.var.assign @" in line
+        ]
+        self.assertEqual(2, len(assignments))
+        self.assertEqual(
+            assignments[0].split(" = ", 1)[1].split(" ", 1)[0],
+            assignments[1].split(" = ", 1)[1].split(" ", 1)[0],
+        )
+
     def test_if_else_indexed_owner_joins_index_and_value(self) -> None:
         from agentic_circuit._queue_frontend import lower_queue_source
 
@@ -3098,6 +3555,31 @@ def cycle(incoming: Left) -> Left:
         self.assertEqual(2, lowered.count("ac.var.select"))
         self.assertEqual(1, lowered.count("ac.var.assign_element @entries"))
         self.assertNotIn(" when %", lowered)
+
+    def test_one_branch_preserves_multiple_writes_to_one_owner(self) -> None:
+        from agentic_circuit._queue_frontend import lower_queue_source
+
+        lowered = lower_queue_source(
+            MULTI_WRITE_BRANCH_SOURCE, "multi_write_branch"
+        )
+        self.assertEqual(4, lowered.count("ac.var.assign_element @entries"))
+        proposals = [
+            line for line in lowered.splitlines() if "ac.var.assign_element" in line
+        ]
+        self.assertTrue(all(" when %" in line for line in proposals))
+
+        looped = MULTI_WRITE_BRANCH_SOURCE.replace(
+            "        entries[3] = entries[2]\n"
+            "        entries[2] = entries[1]\n"
+            "        entries[1] = entries[0]\n"
+            "        entries[0] = command.value",
+            "        for index in range(4):\n"
+            "            entries[index] = command.value",
+        )
+        looped_lowered = lower_queue_source(looped, "multi_write_branch")
+        self.assertEqual(
+            4, looped_lowered.count("ac.var.assign_element @entries")
+        )
 
     def test_optional_output_has_independent_ssa_presence(self) -> None:
         from agentic_circuit._queue_frontend import lower_queue_source
@@ -3108,6 +3590,17 @@ def cycle(incoming: Left) -> Left:
         self.assertIn("ac.rule.output %item when %", lowered)
         self.assertIn("ac.rule.return %rule_ready", lowered)
         self.assertNotIn("ready_valid", lowered)
+
+    def test_pure_if_elif_rule_keeps_one_optional_output_firing(self) -> None:
+        from agentic_circuit._queue_frontend import lower_queue_source
+
+        lowered = lower_queue_source(
+            PURE_BRANCH_OPTIONAL_SOURCE, "pure_branch_optional"
+        )
+        self.assertGreaterEqual(lowered.count("ac.var.select"), 1)
+        self.assertIn("ac.rule.output", lowered)
+        self.assertNotIn("ac.var.decl", lowered)
+        self.assertNotIn("ac.table", lowered)
 
     def test_multi_state_rule_requires_persistent_arguments_first(self) -> None:
         from agentic_circuit._queue_frontend import (

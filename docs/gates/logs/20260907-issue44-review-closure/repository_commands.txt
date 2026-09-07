@@ -1,0 +1,10 @@
+cd /Users/zhoubot/linx-isa/tools/pyCircuit
+export PYTHONPATH=/Users/zhoubot/linx-isa/tools/pyCircuit/python/semantic-core/src:/Users/zhoubot/linx-isa/tools/pyCircuit/python/agentic-circuit/src:/Users/zhoubot/linx-isa/tools/pyCircuit/tests/python/agentic-circuit
+export ACIR_OPT=/Users/zhoubot/linx-isa/tools/pyCircuit/.pycircuit_out/layout-root/bin/acir-opt
+export ACIR_QUEUE_CXXGEN=/Users/zhoubot/linx-isa/tools/pyCircuit/.pycircuit_out/layout-root/bin/acir-queue-cxxgen
+export ACIR_QUEUE_PYCGEN=/Users/zhoubot/linx-isa/tools/pyCircuit/.pycircuit_out/layout-root/bin/acir-queue-pycgen
+unset AC_PYTHON_ONLY
+python3 .github/scripts/validate_repo_management.py
+pytest tests/unit -m unit -q
+python3 flows/tools/check_api_hygiene.py python/pycircuit/src/pycircuit examples/pycircuit docs README.md
+mkdocs build --strict

@@ -14,6 +14,7 @@
 #include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/StringMap.h"
+#include "llvm/ADT/StringExtras.h"
 #include "llvm/ADT/StringSet.h"
 #include "llvm/Support/Format.h"
 #include "llvm/Support/JSON.h"
@@ -21,6 +22,7 @@
 #include "llvm/Support/raw_ostream.h"
 
 #include <array>
+#include <functional>
 #include <limits>
 #include <optional>
 #include <set>
@@ -149,6 +151,32 @@ std::optional<unsigned> integerWidth(llvm::StringRef type) {
   if (type.empty() || type.getAsInteger(10, width) || width == 0)
     return std::nullopt;
   return width;
+}
+
+std::optional<uint64_t> candidateMaskWords(llvm::StringRef type) {
+  if (auto width = integerWidth(type); width && *width <= 64)
+    return 1;
+  constexpr llvm::StringLiteral prefix = "!ac.value_array<";
+  constexpr llvm::StringLiteral suffix = " x i64>";
+  if (!type.starts_with(prefix) || !type.ends_with(suffix))
+    return std::nullopt;
+  uint64_t words = 0;
+  llvm::StringRef count =
+      type.drop_front(prefix.size()).drop_back(suffix.size());
+  if (count.getAsInteger(10, words) || words == 0)
+    return std::nullopt;
+  return words;
+}
+
+bool isCandidateMaskType(llvm::StringRef type, uint64_t entries) {
+  if (entries == 0)
+    return false;
+  if (entries <= 64) {
+    auto width = integerWidth(type);
+    return width && *width == entries;
+  }
+  auto words = candidateMaskWords(type);
+  return words && *words == (entries + 63) / 64;
 }
 
 std::string exactWidthHex(uint64_t value, unsigned width) {
@@ -379,12 +407,17 @@ llvm::Expected<std::vector<std::string>> outputNames(mlir::Operation *op,
 }
 
 using SharedExpression = std::pair<mlir::Value, QueueExpressionPlan>;
+using SharedValue = std::pair<mlir::Value, std::string>;
 
 llvm::Error
 extractExpressions(mlir::Region &region, QueueBlockPlan &plan,
-                   llvm::ArrayRef<SharedExpression> sharedExpressions = {}) {
+                   llvm::ArrayRef<SharedExpression> sharedExpressions = {},
+                   llvm::ArrayRef<SharedValue> sharedValues = {},
+                   llvm::StringRef prefix = "v") {
   mlir::Block &block = region.front();
   llvm::DenseMap<mlir::Value, std::string> values;
+  for (const auto &[value, identity] : sharedValues)
+    values[value] = identity;
   for (const auto &[value, expression] : sharedExpressions) {
     values[value] = expression.result;
     if (llvm::none_of(plan.expressions, [&](const QueueExpressionPlan &item) {
@@ -393,14 +426,23 @@ extractExpressions(mlir::Region &region, QueueBlockPlan &plan,
       plan.expressions.push_back(expression);
   }
   for (auto [index, argument] : llvm::enumerate(block.getArguments()))
-    values[argument] = index == 0 ? "item" : "item" + std::to_string(index);
+    values[argument] =
+        index == 0 ? (prefix == "v" ? "item" : "entry")
+                   : (prefix == "v" ? "item" : "entry") +
+                         std::to_string(index);
   auto operandNames = [&](mlir::ValueRange operands)
       -> llvm::Expected<std::vector<std::string>> {
     std::vector<std::string> result;
     for (mlir::Value operand : operands) {
       auto found = values.find(operand);
       if (found == values.end())
-        return planError("Var expression operand has no local identity");
+        return planError(
+            "Var expression operand from '" +
+            (operand.getDefiningOp()
+                 ? operand.getDefiningOp()->getName().getStringRef().str()
+                 : std::string("block argument")) +
+            "' with type '" + printType(operand.getType()) +
+            "' has no local identity");
       result.push_back(found->second);
     }
     return result;
@@ -417,7 +459,7 @@ extractExpressions(mlir::Region &region, QueueBlockPlan &plan,
     auto operands = operandNames(operation.getOperands());
     if (!operands)
       return operands.takeError();
-    std::string result = "v" + std::to_string(plan.expressions.size());
+    std::string result = prefix.str() + std::to_string(plan.expressions.size());
     values[operation.getResult(0)] = result;
     plan.expressions.push_back(
         {std::move(result), kind.str(), printType(resultType.getElementType()),
@@ -474,6 +516,19 @@ extractExpressions(mlir::Region &region, QueueBlockPlan &plan,
       auto width = mlirValueBitWidth(
           array,
           mlir::cast<ac::VarType>(array.getResult().getType()).getElementType(),
+          active);
+      if (!width)
+        return width.takeError();
+      plan.expressions.back().width = *width;
+      continue;
+    }
+    if (auto record = mlir::dyn_cast<ac::VarRecordOp>(operation)) {
+      if (auto error = append(operation, "record_create"))
+        return error;
+      llvm::SmallVector<mlir::Type> active;
+      auto width = mlirValueBitWidth(
+          record,
+          mlir::cast<ac::VarType>(record.getResult().getType()).getElementType(),
           active);
       if (!width)
         return width.takeError();
@@ -584,7 +639,8 @@ extractExpressions(mlir::Region &region, QueueBlockPlan &plan,
         auto resultType = mlir::dyn_cast<ac::VarType>(resultValue.getType());
         if (!resultType)
           return planError("priority encoder result must be ac.var");
-        std::string result = "v" + std::to_string(plan.expressions.size());
+        std::string result =
+            prefix.str() + std::to_string(plan.expressions.size());
         values[resultValue] = result;
         plan.expressions.push_back({std::move(result),
                                     kind.str(),
@@ -652,7 +708,8 @@ extractExpressions(mlir::Region &region, QueueBlockPlan &plan,
       continue;
     }
     if (auto get = mlir::dyn_cast<ac::SlotGetOp>(operation)) {
-      const std::string base = "v" + std::to_string(plan.expressions.size());
+      const std::string base =
+          prefix.str() + std::to_string(plan.expressions.size());
       const std::array<std::pair<mlir::Value, llvm::StringRef>, 2> results = {{
           {get.getValid(), "slot_get_valid"},
           {get.getValue(), "slot_get_value"},
@@ -671,14 +728,34 @@ extractExpressions(mlir::Region &region, QueueBlockPlan &plan,
     }
     if (auto match = mlir::dyn_cast<ac::TableMatchOp>(operation)) {
       QueueBlockPlan nested;
-      if (auto error = extractExpressions(match.getPredicate(), nested))
+      llvm::SmallVector<SharedValue> captures;
+      for (const auto &entry : values)
+        captures.emplace_back(entry.first, entry.second);
+      const std::string nestedPrefix =
+          prefix.str() + "m" + std::to_string(plan.expressions.size()) + "_";
+      if (auto error = extractExpressions(match.getPredicate(), nested, {},
+                                          captures, nestedPrefix))
         return error;
       auto resultType = mlir::cast<ac::VarType>(match.getMask().getType());
-      std::string result = "v" + std::to_string(plan.expressions.size());
+      std::string result =
+          prefix.str() + std::to_string(plan.expressions.size());
       values[match.getMask()] = result;
       QueueExpressionPlan expression{
           result, "table_match", printType(resultType.getElementType()), {}};
       expression.table = match.getTable().str();
+      for (const auto &[value, identity] : captures) {
+        (void)value;
+        const bool used =
+            llvm::is_contained(nested.yields, identity) ||
+            llvm::any_of(
+                nested.expressions,
+                [&](const QueueExpressionPlan &nestedExpression) {
+                  return llvm::is_contained(nestedExpression.operands,
+                                            identity);
+                });
+        if (used && !llvm::is_contained(expression.operands, identity))
+          expression.operands.push_back(identity);
+      }
       expression.nestedExpressions = std::move(nested.expressions);
       expression.nestedYields = std::move(nested.yields);
       plan.expressions.push_back(std::move(expression));
@@ -689,20 +766,41 @@ extractExpressions(mlir::Region &region, QueueBlockPlan &plan,
       if (!operands)
         return operands.takeError();
       QueueBlockPlan nested;
-      if (!choose.getKey().empty())
-        if (auto error = extractExpressions(choose.getKey(), nested))
+      llvm::SmallVector<SharedValue> captures;
+      if (!choose.getKey().empty()) {
+        for (const auto &entry : values)
+          captures.emplace_back(entry.first, entry.second);
+        const std::string nestedPrefix =
+            prefix.str() + "k" + std::to_string(plan.expressions.size()) + "_";
+        if (auto error = extractExpressions(choose.getKey(), nested, {},
+                                            captures, nestedPrefix))
           return error;
+      }
       const std::array<std::pair<mlir::Value, llvm::StringRef>, 2> results = {{
           {choose.getIndex(), "table_choose_index"},
           {choose.getValid(), "table_choose_valid"},
       }};
       for (auto [resultValue, kind] : results) {
         auto resultType = mlir::cast<ac::VarType>(resultValue.getType());
-        std::string result = "v" + std::to_string(plan.expressions.size());
+        std::string result =
+            prefix.str() + std::to_string(plan.expressions.size());
         values[resultValue] = result;
         QueueExpressionPlan expression{result, kind.str(),
                                        printType(resultType.getElementType()),
                                        *operands};
+        for (const auto &[value, identity] : captures) {
+          (void)value;
+          const bool used =
+              llvm::is_contained(nested.yields, identity) ||
+              llvm::any_of(
+                  nested.expressions,
+                  [&](const QueueExpressionPlan &nestedExpression) {
+                    return llvm::is_contained(nestedExpression.operands,
+                                              identity);
+                  });
+          if (used && !llvm::is_contained(expression.operands, identity))
+            expression.operands.push_back(identity);
+        }
         expression.table = choose.getTable().str();
         expression.predicate = choose.getPolicy().str();
         expression.nestedExpressions = nested.expressions;
@@ -1135,14 +1233,6 @@ public:
     });
     if (unclosed)
       return planError("unresolved rule or typed marker reached QueueGraph");
-    bool unsupportedFiring = false;
-    module.walk([&](ac::FiringOp firing) {
-      unsigned proposals = 0;
-      firing.getBody().walk([&](ac::TableProposeOp) { ++proposals; });
-      unsupportedFiring |= proposals == 0;
-    });
-    if (unsupportedFiring)
-      return planError("internal firing requires state proposals");
     mlir::LogicalResult loweredRuleProof = mlir::success();
     module.walk([&](ac::TransformOp transform) {
       if (mlir::failed(loweredRuleProof))
@@ -2511,8 +2601,8 @@ llvm::Error verifyQueueGraphPlan(const QueueGraphPlan &plan) {
   llvm::StringMap<const TableMatchPlan *> tableMatches;
   for (const TableMatchPlan &match : plan.tableMatches) {
     const TablePlan *table = tables.lookup(match.table);
-    auto width = integerWidth(match.resultType);
-    if (match.name.empty() || !table || !width || *width != table->entries ||
+    if (match.name.empty() || !table ||
+        !isCandidateMaskType(match.resultType, table->entries) ||
         match.resultType.empty() || match.yield.empty() ||
         !tableMatches.try_emplace(match.name, &match).second)
       return planError("table match metadata is incomplete or duplicated");
@@ -2588,7 +2678,8 @@ llvm::Error verifyQueueGraphPlan(const QueueGraphPlan &plan) {
   std::optional<uint64_t> previousFiringPriority;
   auto verifyWriteFields = [&](llvm::StringRef tableName, llvm::StringRef mode,
                                const std::vector<std::string> &writeFields,
-                               bool reserveOwnership = true) {
+                               bool reserveOwnership = true,
+                               bool requireDeclarationOrder = true) {
     const TablePlan *table = tables.lookup(tableName);
     if (!table || writeFields.empty())
       return false;
@@ -2623,7 +2714,8 @@ llvm::Error verifyQueueGraphPlan(const QueueGraphPlan &plan) {
           !local.insert(field).second)
         return false;
       unsigned ordinal = ordinals.lookup(field);
-      if (previousOrdinal && ordinal <= *previousOrdinal)
+      if (requireDeclarationOrder && previousOrdinal &&
+          ordinal <= *previousOrdinal)
         return false;
       previousOrdinal = ordinal;
     }
@@ -2684,12 +2776,21 @@ llvm::Error verifyQueueGraphPlan(const QueueGraphPlan &plan) {
     if (previousFiringPriority && block.priority <= *previousFiringPriority)
       return planError("firing priorities must follow stable lexical order");
     previousFiringPriority = block.priority;
-    if (block.stateWrites.empty() || block.outputs.size() > 1 ||
+    if (block.stateWrites.empty() && block.outputs.empty())
+      return planError("outputless firing must update state");
+    if (block.outputs.size() > 1 ||
         block.guard.empty() || block.yields.size() != block.outputs.size() ||
         block.depths.size() != block.outputs.size() ||
         block.latencies.size() != block.outputs.size() ||
         (block.inputs.empty() && block.outputs.empty()))
-      return planError("table firing metadata is incomplete or conflicting");
+      return planError(
+          "table firing metadata is incomplete or conflicting for '" +
+          block.name + "' (writes=" + std::to_string(block.stateWrites.size()) +
+          ", reservations=" +
+          std::to_string(block.stateReservations.size()) + ", inputs=" +
+          std::to_string(block.inputs.size()) + ", outputs=" +
+          std::to_string(block.outputs.size()) + ", yields=" +
+          std::to_string(block.yields.size()) + ")");
     const bool hasPresence =
         !block.outputPresence.empty() ||
         llvm::any_of(block.stateWrites,
@@ -2719,10 +2820,11 @@ llvm::Error verifyQueueGraphPlan(const QueueGraphPlan &plan) {
           !verifyWriteFields(write.table, write.mode, write.fields, false))
         return planError("state firing write metadata is invalid");
       auto [position, inserted] = ownerWrites.try_emplace(write.table, &write);
-      (void)position;
-      if (!inserted)
+      if (!inserted &&
+          (position->getValue()->mode != write.mode ||
+           position->getValue()->fields != write.fields))
         return planError(
-            "first multi-state firing slice permits one proposal per owner");
+            "one owner-local write batch requires one mode and field schema");
       if (inserted)
         ++tableFirings[write.table];
     }
@@ -2872,6 +2974,34 @@ llvm::Error verifyQueueGraphPlan(const QueueGraphPlan &plan) {
             *resultWidth != expression.width)
           return planError(
               "aggregate create expression widths are inconsistent");
+      } else if (expression.kind == "record_create") {
+        std::optional<llvm::StringRef> name = payloadTypeName(expression.type);
+        auto payload = name ? llvm::find_if(
+                                  plan.payloads,
+                                  [&](const QueuePayloadPlan &candidate) {
+                                    return candidate.name == *name;
+                                  })
+                            : plan.payloads.end();
+        if (!name || payload == plan.payloads.end() ||
+            expression.operands.empty() ||
+            payload->fields.size() != expression.operands.size())
+          return planError("record create expression is malformed");
+        uint64_t total = 0;
+        for (auto [operandName, field] : llvm::zip_equal(
+                 expression.operands, payload->fields)) {
+          auto operand = valueTypes.find(operandName);
+          if (operand == valueTypes.end() ||
+              operand->getValue() != field.type)
+            return planError("record create operand type is inconsistent");
+          auto width = valueWidth(field.type);
+          if (!width)
+            return planError("record field type has no width");
+          total += *width;
+        }
+        auto resultWidth = valueWidth(expression.type);
+        if (!resultWidth || total != expression.width ||
+            *resultWidth != expression.width)
+          return planError("record create expression widths are inconsistent");
       } else if (expression.kind == "aggregate_get") {
         if (expression.operands.size() != 1 || expression.width == 0)
           return planError("aggregate get expression is malformed");
@@ -3175,50 +3305,12 @@ llvm::Error verifyQueueGraphPlan(const QueueGraphPlan &plan) {
                    expression.kind == "constant" &&
                    expression.literal == "true";
           });
-      auto isBooleanComplement = [&](llvm::StringRef candidate,
-                                     llvm::StringRef base) {
-        auto compare = llvm::find_if(
-            block.expressions, [&](const QueueExpressionPlan &expression) {
-              return expression.result == candidate &&
-                     expression.kind == "cmp" && expression.predicate == "eq";
-            });
-        if (compare == block.expressions.end() || compare->operands.size() != 2)
-          return false;
-        auto isFalse = [&](llvm::StringRef identity) {
-          return llvm::any_of(block.expressions,
-                              [&](const QueueExpressionPlan &expression) {
-                                return expression.result == identity &&
-                                       expression.kind == "constant" &&
-                                       expression.literal == "false";
-                              });
-        };
-        return (compare->operands[0] == base &&
-                isFalse(compare->operands[1])) ||
-               (compare->operands[1] == base && isFalse(compare->operands[0]));
-      };
-      auto areBooleanComplements = [&](llvm::StringRef left,
-                                       llvm::StringRef right) {
-        return isBooleanComplement(left, right) ||
-               isBooleanComplement(right, left);
-      };
-      llvm::SmallVector<std::string> divergentPresences;
       auto verifyEffectPresence = [&](llvm::StringRef present) {
         if (identities.lookup(present) != "i1")
           return false;
         if (present == block.guard)
           return true;
-        if (!candidateAlways || block.inputs.size() != 1)
-          return false;
-        if (llvm::any_of(divergentPresences, [&](const std::string &value) {
-              return value == present;
-            }))
-          return true;
-        if (divergentPresences.size() >= 2 ||
-            (!divergentPresences.empty() &&
-             !areBooleanComplements(divergentPresences.front(), present)))
-          return false;
-        divergentPresences.push_back(present.str());
-        return true;
+        return candidateAlways && block.inputs.size() == 1;
       };
       for (const StateWritePlan &write : block.stateWrites) {
         const TablePlan *table = tables.lookup(write.table);
@@ -3230,6 +3322,161 @@ llvm::Error verifyQueueGraphPlan(const QueueGraphPlan &plan) {
           return planError(
               "state firing proposal presence must imply its candidate");
       }
+      llvm::StringMap<llvm::SmallVector<const StateWritePlan *, 4>>
+          writesByOwner;
+      for (const StateWritePlan &write : block.stateWrites)
+        writesByOwner[write.table].push_back(&write);
+
+      llvm::StringMap<uint64_t> canonicalMemo;
+      llvm::StringMap<uint64_t> canonicalExpressions;
+      uint64_t nextCanonicalIdentity = 1;
+      auto structurallyPure = [](const QueueExpressionPlan &expression) {
+        if (!expression.nestedExpressions.empty() ||
+            !expression.nestedYields.empty())
+          return false;
+        return llvm::StringSwitch<bool>(expression.kind)
+            .Cases({"constant", "enum_constant", "get", "value_select"}, true)
+            .Cases({"add", "sub", "mul", "and", "or", "xor", "not"}, true)
+            .Cases({"shl", "shr", "extract", "insert", "concat"}, true)
+            .Cases({"popcount", "count_zeros", "cmp", "masked_match"}, true)
+            .Default(false);
+      };
+      std::function<uint64_t(llvm::StringRef)> canonicalExpression =
+          [&](llvm::StringRef identity) -> uint64_t {
+        if (auto found = canonicalMemo.find(identity);
+            found != canonicalMemo.end())
+          return found->getValue();
+        const uint64_t opaque = nextCanonicalIdentity++;
+        canonicalMemo[identity] = opaque;
+        auto expression = llvm::find_if(
+            block.expressions, [&](const QueueExpressionPlan &candidate) {
+              return candidate.result == identity;
+            });
+        if (expression == block.expressions.end() ||
+            !structurallyPure(*expression))
+          return opaque;
+        std::vector<uint64_t> operands;
+        for (const std::string &operand : expression->operands)
+          operands.push_back(canonicalExpression(operand));
+        if (expression->kind == "mul" || expression->kind == "and" ||
+            expression->kind == "or" || expression->kind == "xor" ||
+            (expression->kind == "cmp" &&
+             (expression->predicate == "eq" ||
+              expression->predicate == "ne")))
+          llvm::sort(operands);
+        std::string key;
+        llvm::raw_string_ostream stream(key);
+        auto writeString = [&](llvm::StringRef value) {
+          stream << value.size() << ':' << value;
+        };
+        for (llvm::StringRef value :
+             {llvm::StringRef(expression->kind), llvm::StringRef(expression->type),
+              llvm::StringRef(expression->field),
+              llvm::StringRef(expression->literal),
+              llvm::StringRef(expression->predicate),
+              llvm::StringRef(expression->table),
+              llvm::StringRef(expression->slot),
+              llvm::StringRef(expression->mask),
+              llvm::StringRef(expression->value)})
+          writeString(value);
+        stream << expression->lsb << ':' << expression->width << ':';
+        for (uint64_t operand : operands)
+          stream << operand << ',';
+        const uint64_t result =
+            canonicalExpressions.try_emplace(key, opaque).first->getValue();
+        canonicalMemo[identity] = result;
+        return result;
+      };
+      struct Literal {
+        uint64_t atom = 0;
+        bool negated = false;
+      };
+      auto isFalse = [&](llvm::StringRef identity) {
+        auto expression = llvm::find_if(
+            block.expressions, [&](const QueueExpressionPlan &candidate) {
+              return candidate.result == identity;
+            });
+        return expression != block.expressions.end() &&
+               expression->kind == "constant" &&
+               expression->literal == "false";
+      };
+      std::function<void(llvm::StringRef, bool,
+                         llvm::DenseSet<std::pair<uint64_t, uint8_t>> &,
+                         llvm::SmallVectorImpl<Literal> &)>
+          collectConjuncts =
+              [&](llvm::StringRef identity, bool negated,
+                  llvm::DenseSet<std::pair<uint64_t, uint8_t>> &visited,
+                  llvm::SmallVectorImpl<Literal> &literals) {
+            const uint64_t atom = canonicalExpression(identity);
+            if (!visited.insert({atom, static_cast<uint8_t>(negated)}).second)
+              return;
+            auto expression = llvm::find_if(
+                block.expressions, [&](const QueueExpressionPlan &candidate) {
+                  return candidate.result == identity;
+                });
+            if (expression != block.expressions.end() && !negated &&
+                expression->type == "i1" &&
+                (expression->kind == "mul" || expression->kind == "and") &&
+                expression->operands.size() == 2) {
+              literals.push_back({atom, false});
+              collectConjuncts(expression->operands[0], false, visited,
+                               literals);
+              collectConjuncts(expression->operands[1], false, visited,
+                               literals);
+              return;
+            }
+            if (expression != block.expressions.end() &&
+                expression->kind == "cmp" &&
+                expression->predicate == "eq" &&
+                expression->operands.size() == 2) {
+              if (isFalse(expression->operands[0])) {
+                collectConjuncts(expression->operands[1], !negated, visited,
+                                 literals);
+                return;
+              }
+              if (isFalse(expression->operands[1])) {
+                collectConjuncts(expression->operands[0], !negated, visited,
+                                 literals);
+                return;
+              }
+            }
+            literals.push_back({atom, negated});
+          };
+      auto mutuallyExclusive = [&](llvm::StringRef left,
+                                   llvm::StringRef right) {
+        llvm::SmallVector<Literal> leftLiterals;
+        llvm::SmallVector<Literal> rightLiterals;
+        llvm::DenseSet<std::pair<uint64_t, uint8_t>> leftVisited;
+        llvm::DenseSet<std::pair<uint64_t, uint8_t>> rightVisited;
+        collectConjuncts(left, false, leftVisited, leftLiterals);
+        collectConjuncts(right, false, rightVisited, rightLiterals);
+        return llvm::any_of(leftLiterals, [&](const Literal &lhs) {
+          return llvm::any_of(rightLiterals, [&](const Literal &rhs) {
+            return lhs.atom == rhs.atom && lhs.negated != rhs.negated;
+          });
+        });
+      };
+      for (auto &owner : writesByOwner) {
+        auto &writes = owner.getValue();
+        for (size_t right = 1; right < writes.size(); ++right)
+          for (size_t left = 0; left < right; ++left) {
+            auto leftConstraint = constraints.find(writes[left]->index);
+            auto rightConstraint = constraints.find(writes[right]->index);
+            const bool disjoint =
+                leftConstraint != constraints.end() &&
+                rightConstraint != constraints.end() &&
+                leftConstraint->getValue().provesDisjoint(
+                    rightConstraint->getValue());
+            const bool exclusive =
+                !writes[left]->present.empty() &&
+                !writes[right]->present.empty() &&
+                mutuallyExclusive(writes[left]->present,
+                                  writes[right]->present);
+            if (!disjoint && !exclusive)
+              return planError(
+                  "same-owner firing writes may select one index concurrently");
+          }
+      }
       for (const OutputPresencePlan &output : block.outputPresence)
         if (!verifyEffectPresence(output.present))
           return planError(
@@ -3238,16 +3485,11 @@ llvm::Error verifyQueueGraphPlan(const QueueGraphPlan &plan) {
         const TablePlan *table = tables.lookup(reservation.table);
         if (!table || identities.lookup(reservation.predicate) != "i1")
           return planError("state snapshot reservation is malformed");
-        if (table->entries > 64)
-          return planError(
-              "state snapshot reservation supports at most 64 entries");
         if (!verifyWriteFields(reservation.table, "field", reservation.fields,
-                               false))
+                               false, false))
           return planError("state snapshot reservation fields are invalid");
         std::optional<size_t> fieldCount = tableFieldCount(*table);
-        if (!fieldCount || *fieldCount == 0 || *fieldCount > 64 ||
-            (reservation.fields.size() != *fieldCount &&
-             table->entries * *fieldCount > 64))
+        if (!fieldCount || *fieldCount == 0 || *fieldCount > 64)
           return planError(
               "field-qualified state reservation exceeds relation capacity");
         if (reservation.indexKind == "set") {
@@ -3299,7 +3541,7 @@ llvm::Error verifyQueueGraphPlan(const QueueGraphPlan &plan) {
         !memoryInstances.contains(block.memoryInstance))
       return planError("memory request block references unknown instance");
     if ((block.kind == "table_read" || block.kind == "table_write" ||
-         block.kind == "table_masked_write" || block.kind == "firing") &&
+         block.kind == "table_masked_write") &&
         !tables.contains(block.table))
       return planError("table endpoint block references unknown table");
     if (block.kind == "table_read" || block.kind == "table_write") {
@@ -3437,7 +3679,8 @@ llvm::Expected<std::string> QueueGraphPlan::canonicalJson() const {
       result["lsb"] = expression.lsb;
     if (expression.kind == "bit_extract" ||
         expression.kind == "aggregate_get" ||
-        expression.kind == "tuple_create" || expression.kind == "array_create")
+        expression.kind == "tuple_create" || expression.kind == "array_create" ||
+        expression.kind == "record_create")
       result["width"] = expression.width;
     if (expression.kind == "masked_match") {
       result["mask"] = expression.mask;
