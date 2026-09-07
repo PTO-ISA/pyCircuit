@@ -36,6 +36,9 @@ jobs:
       - name: Run repository management checks
         run: python .github/scripts/validate_repo_management.py
 
+      - name: Validate DavinciOO contributor inventory
+        run: python designs/davincioo/tools/check_catalog.py
+
       - name: Run changed-file pre-commit checks
         shell: bash
         run: |

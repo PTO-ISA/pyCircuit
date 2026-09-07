@@ -23,7 +23,8 @@ Circuit repository. The latter is a private historical archive.
    tooling in their owning consumer repositories against a pinned pyCircuit
    revision.
 3. Submit only reusable language, IR, runtime, backend, and generic diagnostic
-   fixes upstream.
+   fixes to framework source roots. Decision 0222 additionally admits the
+   DavinciOO contributor design program under `designs/davincioo/`.
 4. Update the downstream default branch from the upstream default branch after
    upstream changes merge.
 5. Keep downstream-only commits focused and rebaseable; do not rewrite upstream
@@ -57,8 +58,10 @@ Only PTO-ISA/pyCircuit may:
 The LinxISA fork or the Linx superproject may publish downstream compatibility
 evidence, but must link to the matching upstream revision and must not reuse
 canonical release tags for divergent commits. Consumer design sources,
-testbenches, board files, and comparison scripts do not belong in either
-pyCircuit framework tree.
+testbenches, board files, and comparison scripts normally remain out of tree.
+Decision 0222 makes a scoped exception for DavinciOO design-program modules
+and their supporting contracts and tests under `designs/davincioo/`; it does
+not restore the retired integration/platform roots.
 
 ## Fork synchronization
 

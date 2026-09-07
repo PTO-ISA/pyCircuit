@@ -113,6 +113,12 @@ closure. Product-specific compatibility and model-comparison gates run in the
 corresponding consumer repositories against a pinned pyCircuit revision; they
 are not pyCircuit release gates.
 
+Decision 0222 admits the DavinciOO contributor design program under
+`designs/davincioo/`. Its inventory checker and design-local tests run from
+this checkout. Framework regressions discovered through those designs remain
+generic and follow the matrix above; design inventory checks do not establish
+gfsim or RTL support and the full design is not an implicit release gate.
+
 ## When strict decision-status validation is required
 
 Run the strict form of `check_decision_status.py` as targeted author evidence

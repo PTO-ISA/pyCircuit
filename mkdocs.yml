@@ -99,6 +99,7 @@ nav:
       - Testing and Gates: development/testing-and-gates.md
       - Review and Merge: development/review-and-merge.md
       - Repository Management: development/repository-management.md
+      - DavinciOO Design Program: development/davincioo-design-program.md
   - Decisions:
       - pyCircuit 6 Decisions: rfcs/pyc6-decisions.md
       - Evolution Plan: pyc6-plan.md

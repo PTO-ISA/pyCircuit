@@ -23,6 +23,7 @@ matrix and keep the separate frontend and IR boundaries defined by Decision
 - [Testing and gates](testing-and-gates.md)
 - [Review and merge](review-and-merge.md)
 - [Repository management](repository-management.md)
+- [DavinciOO contributor design program](davincioo-design-program.md)
 
 ## Build and gate commands
 
@@ -63,6 +64,7 @@ pyCircuit/
 ├── library/                      # C++ and Verilog library support
 ├── simulator/gfsim/             # Architecture simulator
 ├── examples/                     # Supported examples by frontend
+├── designs/davincioo/             # Contributor design program (Decision 0222)
 ├── flows/                        # Build and gate orchestration
 ├── tests/                        # Test suites classified by layer
 └── docs/                         # Product and contributor docs
