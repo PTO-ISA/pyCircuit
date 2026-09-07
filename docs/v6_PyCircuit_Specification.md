@@ -140,7 +140,7 @@ domain = m.create_domain("clk")
 | 方法 | 说明 |
 |------|------|
 | `signal(*, width, reset_value=0, name="")` | **前向声明标量寄存器**——创建状态的唯一方式；返回 `ForwardSignal` |
-| `cycle(sig, reset_value=None, name="")` | 对信号插入单级 DFF，返回延后一拍的 CAS |
+| `cycle(sig, reset_value=None, name="")` | 对信号插入单级 DFF，返回 source occurrence + 1 的 CAS；不按调用时 cursor 重标记已有 CAS |
 | `next()` / `prev()` | 推进 / 回退当前逻辑周期 |
 | `push()` / `pop()` | 周期计数器压栈 / 出栈（必须配对） |
 | `call(fn, *, inputs=None, **kwargs)` | 调用子模块并自动 push/pop 隔离周期。扁平模式内联；层次化模式发射 `pyc.instance` |
@@ -190,7 +190,9 @@ low = data[0:8];  bit5 = data[5]            # 切片 / 索引
 
 ### ForwardSignal
 
-`domain.signal()` 的返回类型。读侧行为与 CAS 完全一致；额外提供写侧接口：
+`domain.signal()` 的返回类型。每次读都以当前 `domain.cycle_index` 构造唯一
+CAS view；`.cycle`、`.as_cas()`、运算符、method helper 和 module-level helper
+共享这一条 coercion 路径。写侧额外提供：
 
 ```python
 sig <<= expr                     # 无条件赋值（连接 D 端）
@@ -267,10 +269,12 @@ pc = submodule_input(inputs, "pc", m, domain, prefix="fe", width=32)
 | `inputs` 状态 | 行为 |
 |---------------|------|
 | `None`（独立模式） | 创建 `m.input(f"{prefix}_{key}", width=W)` 并 `cas()` 包装 |
-| dict 含 `key` | 直接返回 `inputs[key]`（父模块 CAS，cycle 保留） |
-| dict 不含 `key` | 回退创建端口（通常是 key 拼写错误的征兆——务必传全） |
+| dict 含 `key` | 规范化成 CAS；显式 CAS 保留 cycle，Forward/State 读取当前 occurrence |
+| dict 不含 `key` | 立即抛出 `KeyError`，禁止创建隐式顶层端口 |
 
 参数：`io, key, m, domain, *, prefix, width, cycle=0`。
+composed 输入必须属于同一个 domain 且位宽完全一致；`domain.call()` 还会拒绝
+未被子模块消费的额外 key。
 
 ---
 

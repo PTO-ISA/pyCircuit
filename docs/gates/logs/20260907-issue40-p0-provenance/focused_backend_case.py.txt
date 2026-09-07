@@ -1,0 +1,52 @@
+from __future__ import annotations
+
+from pycircuit import (
+    CycleAwareCircuit,
+    CycleAwareDomain,
+    CycleAwareTb,
+    Tb,
+    cas,
+    testbench,
+    wire_of,
+)
+
+
+def build(m: CycleAwareCircuit, domain: CycleAwareDomain) -> None:
+    a = cas(domain, m.input("a", width=8), cycle=0)
+    domain.next()
+    domain.next()
+    domain.next()
+
+    first = domain.cycle(a, name="first")
+    second = domain.cycle(first, name="second")
+    b = cas(domain, m.input("b", width=8), cycle=3)
+    mixed = second + b
+
+    m.output("first", wire_of(first))
+    m.output("second", wire_of(second))
+    m.output("mixed", wire_of(mixed))
+
+
+build.__pycircuit_name__ = "issue40_p0"
+
+
+@testbench
+def tb(t: Tb) -> None:
+    timed = CycleAwareTb(t)
+    timed.clock("clk")
+    timed.reset("rst", cycles_asserted=2, cycles_deasserted=1)
+    timed.timeout(16)
+    timed.drive("a", 5)
+    timed.drive("b", 7)
+    timed.expect("first", 5)
+    timed.expect("second", 0)
+    timed.expect("mixed", 7)
+    timed.next()
+    timed.expect("first", 5)
+    timed.expect("second", 5)
+    timed.expect("mixed", 7)
+    timed.next()
+    timed.expect("first", 5)
+    timed.expect("second", 5)
+    timed.expect("mixed", 12)
+    timed.finish(at=8)

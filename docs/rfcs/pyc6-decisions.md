@@ -3327,6 +3327,16 @@ an artificial split between the implementation, examples, and product docs.
   cycle provenance across function and module composition.
 - Cycle-aware provenance may cross module boundaries through hardened compile
   metadata. It is not restricted to a module-local sub-DSL.
+- `ForwardSignal` and internal `StateSignal` represent a register Q read at the
+  domain's current logical occurrence. Their `.cycle`, coercion, operators,
+  method helpers and module-level helpers use one current-view path. An
+  explicitly saved `CycleAwareSignal` keeps its immutable cycle tag.
+- `CycleAwareDomain.cycle(value)` inserts exactly one register and returns a
+  `CycleAwareSignal` tagged at the resolved source occurrence plus one. Moving
+  the domain cursor before or after the call does not relabel an existing CAS.
+- `submodule_input(None, ...)` is the only standalone port-creation mode. A
+  composed input map must contain every requested key with the exact domain and
+  width, and `domain.call()` rejects unconsumed extra keys.
 - The compiler automatically inserts explicit `pyc.reg` delay chains when
   operands from different logical cycles must be aligned.
 - `domain.signal()` plus `<<=` or `.assign()` is the canonical inferred-state

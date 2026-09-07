@@ -197,7 +197,9 @@ def mac2(m: CycleAwareCircuit, domain: CycleAwareDomain, width: int = 16) -> Non
 
 注意 `prod + c` 这一行：`c` 是 cycle 0 的输入，`prod` 是 cycle 1 的寄存器输出。编译器自动为 `c` 插入一级 DFF，两者在 cycle 1 相加，结果在 cycle 2 写入 `acc`。**你从头到尾没有写过任何「对齐寄存器」**——这正是周期感知模型的价值：改流水级数时，只动 `domain.next()` 的位置，所有旁路信号自动重新对齐。
 
-补一个实用技巧：`domain.prev()` 可以回到上一列补写逻辑；`domain.cycle(sig)` 显式给某个信号打一拍。
+补一个实用技巧：`domain.prev()` 可以回到上一列补写逻辑；`domain.cycle(sig)`
+显式给某个信号打一拍，并返回标记为 `sig.cycle + 1` 的 CAS。之后移动 domain
+cursor 不会改变这个 provenance。
 
 ---
 
@@ -320,7 +322,7 @@ if __name__ == "__main__":
 三个高频错误提前打预防针：
 
 1. **dict 值必须是 CAS**，不要 `outs["x"] = wire_of(x)`；
-2. **key 必须与子模块完全一致**——拼错不会报错，而是静默多出一个端口；
+2. **key 必须与子模块完全一致**——缺失或额外 key 会立即抛出 `KeyError`；
 3. **每个子模块实例给独立 prefix**，否则寄存器名冲突。
 
 ---

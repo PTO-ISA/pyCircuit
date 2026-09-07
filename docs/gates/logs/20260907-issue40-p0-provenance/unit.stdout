@@ -1,0 +1,15 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.14.6, pytest-9.0.2, pluggy-1.6.0
+rootdir: /Users/zhoubot/linx-isa/tools/pyCircuit
+configfile: pyproject.toml
+collected 62 items
+
+tests/unit/test_agentic_circuit_component.py ...                         [  4%]
+tests/unit/test_cli_entrypoints.py ....                                  [ 11%]
+tests/unit/test_primitive_catalog.py ..                                  [ 14%]
+tests/unit/test_pyc6_surface.py ............                             [ 33%]
+tests/unit/test_pyc_ir_inventory.py ...                                  [ 38%]
+tests/unit/test_semantic_core.py .........................               [ 79%]
+tests/unit/test_v6_forward_signal.py .............                       [100%]
+
+============================== 62 passed in 2.98s ==============================
