@@ -18,10 +18,19 @@ module attributes {ac.contract_epoch = "0.5"} {
   %different = ac.var.cmp "ne" %lhs, %rhs : !ac.var<!ac.struct<@types::@Outer>> -> !ac.var<i1>
   %valid = ac.var.invariant %lhs name "Outer.valid" {
   ^bb0(%value: !ac.var<!ac.struct<@types::@Outer>>):
+    %inner_value = ac.var.get %value field "inner" : !ac.var<!ac.struct<@types::@Outer>> -> !ac.var<!ac.struct<@types::@Inner>>
+    %inner_ok = ac.var.invariant %inner_value name "Inner.valid" {
+    ^bb1(%inner: !ac.var<!ac.struct<@types::@Inner>>):
+      %wide = ac.var.get %inner field "wide" : !ac.var<!ac.struct<@types::@Inner>> -> !ac.var<i64>
+      %wide_zero = ac.var.constant 0 : i64 as !ac.var<i64>
+      %wide_ok = ac.var.cmp "ne" %wide, %wide_zero : !ac.var<i64> -> !ac.var<i1>
+      ac.var.invariant.yield %wide_ok : !ac.var<i1>
+    } : !ac.var<!ac.struct<@types::@Inner>> -> !ac.var<i1>
     %tail = ac.var.get %value field "tail" : !ac.var<!ac.struct<@types::@Outer>> -> !ac.var<i8>
     %zero = ac.var.constant 0 : i8 as !ac.var<i8>
     %ok = ac.var.cmp "eq" %tail, %zero : !ac.var<i8> -> !ac.var<i1>
-    ac.var.invariant.yield %ok : !ac.var<i1>
+    %both = ac.var.and %inner_ok, %ok : !ac.var<i1>
+    ac.var.invariant.yield %both : !ac.var<i1>
   } : !ac.var<!ac.struct<@types::@Outer>> -> !ac.var<i1>
 }
 

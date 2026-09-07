@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import ast
 import os
+import shutil
 import subprocess
 import tempfile
 from pathlib import Path
@@ -25,6 +26,7 @@ def test_shared_identity_and_operand_invariant_lower_before_frozen_acir() -> Non
     raw = specialization.lower_acir()
     assert "ac.var.invariant" in raw
     assert 'name "OperandSourceDescriptor.valid_operand_source"' in raw
+    assert 'name "LoadProducerToken.valid_producer_identity"' in raw
     assert 'ac.var.cmp "eq"' in raw
     with tempfile.TemporaryDirectory(prefix="davincioo-contract-") as directory:
         source = Path(directory) / "raw.mlir"
@@ -42,6 +44,166 @@ def test_shared_identity_and_operand_invariant_lower_before_frozen_acir() -> Non
     assert lowered.returncode == 0, lowered.stderr
     assert "ac.var.invariant" not in lowered.stdout
     assert "unresolved aggregate comparison" not in lowered.stderr
+
+
+def test_operand_invariant_composes_one_shared_producer_contract() -> None:
+    source = (ROOT / "designs/davincioo/contracts/spe.py").read_text(encoding="utf-8")
+    tree = ast.parse(source)
+    functions = {
+        node.name: node for node in tree.body if isinstance(node, ast.FunctionDef)
+    }
+    producer = functions["valid_producer_identity"]
+    operand = functions["valid_operand_source"]
+
+    producer_comparisons = [
+        node for node in ast.walk(producer) if isinstance(node, ast.Compare)
+    ]
+    calls = [
+        node
+        for node in ast.walk(operand)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id == "valid_producer_identity"
+    ]
+
+    assert len(producer_comparisons) == 3
+    assert len(calls) == 1
+    assert "value.load_producer.epoch.flow ==" not in ast.unparse(operand)
+
+
+def test_operand_invariant_truth_table_executes_through_generated_gfsim() -> None:
+    from agentic_circuit._jit import _lower_acir_to_cpp
+
+    optimizer = Path(os.environ.get("ACIR_OPT", DEFAULT_ACIR))
+    cxx = shutil.which("c++")
+    if cxx is None or not optimizer.is_file():
+        pytest.skip("current-checkout ACIR/gfsim toolchain is unavailable")
+
+    generated = _lower_acir_to_cpp(ac.jit(contract_probe, workspace=ROOT).lower_acir())
+    with tempfile.TemporaryDirectory(prefix="davincioo-contract-truth-") as directory:
+        source = Path(directory) / "model.cpp"
+        executable = Path(directory) / "model"
+        source.write_text(
+            generated
+            + r"""
+using namespace ac_generated;
+
+LoadProducerToken producer() {
+  LoadProducerToken value{};
+  value.destination_tag = 5;
+  value.destination_generation = 6;
+  value.valid = 1;
+  return value;
+}
+
+OperandSourceDescriptor constantZero() {
+  OperandSourceDescriptor value{};
+  value.constant_zero = 1;
+  return value;
+}
+
+OperandSourceDescriptor live(bool speculative = false) {
+  OperandSourceDescriptor value{};
+  value.architectural_index = 1;
+  value.tag = 5;
+  value.generation = 6;
+  value.valid = 1;
+  value.speculative = speculative;
+  if (speculative) {
+    value.load_stage_mask = 1;
+    value.load_producer = producer();
+  }
+  return value;
+}
+
+int main() {
+  ContractProbe model;
+  auto rows = model.dispatch_rows();
+  unsigned tick = 0;
+  auto cycle = [&]() {
+    const gfsim::Epoch epoch{++tick, 0};
+    for (auto &row : rows) row.work(row.object, epoch);
+    for (auto phase : {gfsim::XferPhase::Arbitrate, gfsim::XferPhase::Probe,
+                       gfsim::XferPhase::Commit})
+      for (auto &row : rows) row.xfer(row.object, epoch, phase);
+  };
+  std::vector<std::pair<OperandSourceDescriptor, bool>> cases;
+  cases.push_back({constantZero(), true});
+  cases.push_back({OperandSourceDescriptor{}, true});
+  cases.push_back({live(), true});
+  cases.push_back({live(true), true});
+
+  auto bad = constantZero(); bad.architectural_index = 1;
+  cases.push_back({bad, false});
+  bad = constantZero(); bad.tag = 1;
+  cases.push_back({bad, false});
+  bad = constantZero(); bad.generation = 1;
+  cases.push_back({bad, false});
+  bad = constantZero(); bad.valid = 1;
+  cases.push_back({bad, false});
+  bad = live(); bad.architectural_index = 0;
+  cases.push_back({bad, false});
+  bad = live(); bad.architectural_index = 24;
+  cases.push_back({bad, false});
+  bad = OperandSourceDescriptor{}; bad.tag = 1;
+  cases.push_back({bad, false});
+  bad = live(); bad.load_producer.valid = 1;
+  cases.push_back({bad, false});
+  bad = live(); bad.load_stage_mask = 1;
+  cases.push_back({bad, false});
+  bad = live(true); bad.load_producer.valid = 0;
+  cases.push_back({bad, false});
+  bad = live(true); bad.load_producer.destination_tag = 4;
+  cases.push_back({bad, false});
+  bad = live(true); bad.load_producer.destination_generation = 5;
+  cases.push_back({bad, false});
+  bad = live(true); bad.load_stage_mask = 0;
+  cases.push_back({bad, false});
+  bad = live(true); bad.load_producer.inst.flow.core_id = 1;
+  cases.push_back({bad, false});
+  bad = live(true); bad.load_producer.block.flow.pe_id = 1;
+  cases.push_back({bad, false});
+  bad = live(true); bad.load_producer.rob.flow.launch_generation = 1;
+  cases.push_back({bad, false});
+
+  for (const auto &[operand, expected] : cases) {
+    ContractRequest request{};
+    request.operand = operand;
+    if (!model.request().proposePush(request)) return 1;
+    model.request().doXfer({tick, 0});
+    cycle(); cycle(); cycle();
+    const auto &result = model.sink_0_values().back();
+    if (!static_cast<bool>(result.same_attempt) ||
+        static_cast<bool>(result.valid_operand) != expected)
+      return 2;
+  }
+  return model.sink_0_values().size() == cases.size() ? 0 : 3;
+}
+""",
+            encoding="utf-8",
+        )
+        compiled = subprocess.run(
+            (
+                cxx,
+                "-std=c++20",
+                "-I",
+                str(ROOT / "simulator/gfsim/include"),
+                str(source),
+                "-o",
+                str(executable),
+            ),
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        assert compiled.returncode == 0, compiled.stderr
+        executed = subprocess.run(
+            (str(executable),), text=True, capture_output=True, check=False
+        )
+        assert executed.returncode == 0, (
+            f"exit={executed.returncode}\nstdout:\n{executed.stdout}\n"
+            f"stderr:\n{executed.stderr}"
+        )
 
 
 def test_issue_entry_has_one_canonical_execution_class_owner() -> None:

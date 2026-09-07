@@ -280,6 +280,17 @@ PYC semantic contracts.
     behavior matrices now cover I1 grant/retry/cancel, I2 operand/dependency/
     execute/release/cancel, and WBA terminal/apply/retry/cancel/drain, including
     backpressure, reset, identity, capacity, and isolated-instance cases.
+- [x] Complete Decision 0225 and issue #63 OPT-01 invariant composition.
+  - [x] Build the full invariant call graph before body validation; accept only
+    exact-typed calls in one deterministic closure and reject self/indirect
+    recursion, unknown calls, effects, and implicit captures.
+  - [x] Keep composed calls as verifier-visible nested `ac.var.invariant`, then
+    lower leaf callees before callers with no residual value-contract op before
+    QueueGraph.
+  - [x] Split DavinciOO producer identity into one shared invariant, preserve the
+    operand truth table, and record source LOC plus expanded comparison counts.
+  - [x] Keep generated gfsim and admitted packed PYC C++/Verilator value-contract
+    gates green.
 - [x] Close #46 and #48 framework prerequisites before their dependent
   DavinciOO H3 implementations. Decision 0222 places new design-program work
   under `designs/davincioo/`; independent contracts/modules may proceed when

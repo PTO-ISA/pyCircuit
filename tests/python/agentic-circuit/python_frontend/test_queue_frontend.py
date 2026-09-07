@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import unittest
 
 SOURCE = """
@@ -614,6 +615,80 @@ def recursive_contract(left: Payload, right: Payload, checked: Payload) -> tuple
     compared = compare(left, right)
     valid = validate(checked)
     return compared, valid
+"""
+
+COMPOSED_INVARIANT_SOURCE = """
+import agentic_circuit as ac
+
+@ac.struct
+class Inner:
+    tag: ac.u8
+    valid: bool
+
+@ac.struct
+class Payload:
+    inner: Inner
+    valid: bool
+
+@ac.invariant
+def valid_payload(value: Payload) -> bool:
+    return valid_inner(value.inner) and value.valid
+
+@ac.invariant
+def valid_inner(value: Inner) -> bool:
+    return value.valid and value.tag != 0
+
+@ac.module
+def validate(value: Payload) -> Payload:
+    return value.with_fields(valid=valid_payload(value))
+
+@ac.system
+def composed_invariant(value: Payload) -> Payload:
+    return validate(value)
+"""
+
+DIAMOND_INVARIANT_SOURCE = """
+import agentic_circuit as ac
+
+@ac.struct
+class Leaf:
+    tag: ac.u8
+    valid: bool
+
+@ac.struct
+class Branch:
+    leaf: Leaf
+    valid: bool
+
+@ac.struct
+class Root:
+    left: Branch
+    right: Branch
+    valid: bool
+
+@ac.invariant
+def valid_root(value: Root) -> bool:
+    return valid_left(value.left) and valid_right(value.right) and value.valid
+
+@ac.invariant
+def valid_left(value: Branch) -> bool:
+    return valid_leaf(value.leaf) and value.valid
+
+@ac.invariant
+def valid_right(value: Branch) -> bool:
+    return valid_leaf(value.leaf) and value.valid
+
+@ac.invariant
+def valid_leaf(value: Leaf) -> bool:
+    return value.valid and value.tag != 0
+
+@ac.module
+def validate(value: Root) -> Root:
+    return value.with_fields(valid=valid_root(value))
+
+@ac.system
+def diamond_invariant(value: Root) -> Root:
+    return validate(value)
 """
 
 INVARIANT_MODULE_SOURCE = """
@@ -3186,6 +3261,234 @@ def cycle(incoming: Left) -> Left:
         )
         lowered = lower_queue_source(source, "invariant_module")
         self.assertIn("ac.var.or", lowered)
+
+    def test_invariant_allows_explicit_agentic_intrinsics(self) -> None:
+        from agentic_circuit._queue_frontend import lower_queue_source
+
+        source = INVARIANT_MODULE_SOURCE.replace(
+            "return value.value != 0",
+            'return ac.matches(value.value, "xxxxxxx1") or '
+            "ac.popcount(ac.concat(value.value, value.value)) != 0",
+        )
+        lowered = lower_queue_source(source, "invariant_module")
+        self.assertIn("ac.var.matches", lowered)
+        self.assertIn("ac.var.concat", lowered)
+        self.assertIn("ac.var.popcount", lowered)
+
+        bare_source = INVARIANT_MODULE_SOURCE.replace(
+            "import agentic_circuit as ac",
+            "import agentic_circuit as ac\nfrom agentic_circuit import matches",
+        ).replace(
+            "return value.value != 0",
+            'return matches(value.value, "xxxxxxx1")',
+        )
+        bare_lowered = lower_queue_source(bare_source, "invariant_module")
+        self.assertIn("ac.var.matches", bare_lowered)
+
+    def test_invariant_rejects_intrinsic_suffixes_on_payload_receivers(self) -> None:
+        from agentic_circuit._queue_frontend import (
+            QueueFrontendError,
+            lower_queue_source,
+        )
+
+        replacements = (
+            ('value.matches(value.value, "xxxxxxx1")', "value.matches"),
+            ("value.concat(value.value, value.value) != 0", "value.concat"),
+            ("value.popcount(value.value) != 0", "value.popcount"),
+        )
+        for expression, target in replacements:
+            with self.subTest(target=target):
+                source = INVARIANT_MODULE_SOURCE.replace(
+                    "return value.value != 0", f"return {expression}"
+                )
+                with self.assertRaisesRegex(
+                    QueueFrontendError,
+                    rf"unsupported call target '{re.escape(target)}'",
+                ):
+                    lower_queue_source(source, "invariant_module")
+
+        bare_intrinsic_shadow = INVARIANT_MODULE_SOURCE.replace(
+            "import agentic_circuit as ac",
+            "import agentic_circuit as ac\nfrom agentic_circuit import matches",
+        ).replace(
+            "def valid_payload(value: Payload) -> bool:\n"
+            "    return value.value != 0",
+            "def valid_payload(matches: Payload) -> bool:\n"
+            '    return matches(matches.value, "xxxxxxx1")',
+        )
+        with self.assertRaisesRegex(
+            QueueFrontendError, "unsupported call target 'matches'"
+        ):
+            lower_queue_source(bare_intrinsic_shadow, "invariant_module")
+
+        renamed_intrinsic_collision = INVARIANT_MODULE_SOURCE.replace(
+            "import agentic_circuit as ac",
+            "import agentic_circuit as ac\n"
+            "from agentic_circuit import matches as popcount",
+        ).replace(
+            "return value.value != 0", "return popcount(value.value) != 0"
+        )
+        with self.assertRaisesRegex(
+            QueueFrontendError, "unsupported call target 'popcount'"
+        ):
+            lower_queue_source(renamed_intrinsic_collision, "invariant_module")
+
+        module_alias_shadow = INVARIANT_MODULE_SOURCE.replace(
+            "def valid_payload(value: Payload) -> bool:\n"
+            "    return value.value != 0",
+            "def valid_payload(ac: Payload) -> bool:\n"
+            '    return ac.matches(ac.value, "xxxxxxx1")',
+        )
+        with self.assertRaisesRegex(
+            QueueFrontendError, r"unsupported call target 'ac\.matches'"
+        ):
+            lower_queue_source(module_alias_shadow, "invariant_module")
+
+        bitfield_shadow = """
+import agentic_circuit as ac
+
+WORD = ac.BitfieldSpec(width=8, fields={"opcode": (7, 4)})
+
+@ac.struct
+class Payload:
+    word: ac.u8
+    valid: bool
+
+@ac.invariant
+def valid_payload(WORD: Payload) -> bool:
+    return WORD.view(WORD.word).opcode != 0
+
+@ac.module
+def validate(value: Payload) -> Payload:
+    return value.with_fields(valid=valid_payload(value))
+
+@ac.system
+def invariant_module(value: Payload) -> Payload:
+    return validate(value)
+"""
+        with self.assertRaisesRegex(
+            QueueFrontendError, r"unsupported call target 'WORD\.view'"
+        ):
+            lower_queue_source(bitfield_shadow, "invariant_module")
+
+    def test_invariant_composition_is_typed_hygienic_and_verifier_visible(
+        self,
+    ) -> None:
+        from agentic_circuit._queue_frontend import lower_queue_source
+
+        lowered = lower_queue_source(COMPOSED_INVARIANT_SOURCE, "composed_invariant")
+        outer = lowered.index('ac.var.invariant %item name "Payload.valid_payload" {')
+        inner = lowered.index(
+            'ac.var.invariant %invariant0_v0 name "Inner.valid_inner" {'
+        )
+        outer_yield = lowered.rindex("ac.var.invariant.yield %invariant0_")
+
+        self.assertLess(outer, inner)
+        self.assertLess(inner, outer_yield)
+        self.assertIn(
+            "^predicate(%invariant0_value: !ac.var<!ac.struct<@types::@Payload>>):",
+            lowered,
+        )
+        self.assertIn(
+            "^predicate(%invariant0_invariant1_value: "
+            "!ac.var<!ac.struct<@types::@Inner>>):",
+            lowered,
+        )
+        self.assertEqual(2, lowered.count("ac.var.invariant.yield"))
+
+    def test_deep_diamond_invariant_expansion_has_unique_ssa(self) -> None:
+        from agentic_circuit._queue_frontend import lower_queue_source
+
+        lowered = lower_queue_source(DIAMOND_INVARIANT_SOURCE, "diamond_invariant")
+        self.assertEqual(5, lowered.count(" = ac.var.invariant "))
+        self.assertEqual(1, lowered.count('name "Root.valid_root"'))
+        self.assertEqual(1, lowered.count('name "Branch.valid_left"'))
+        self.assertEqual(1, lowered.count('name "Branch.valid_right"'))
+        self.assertEqual(2, lowered.count('name "Leaf.valid_leaf"'))
+
+        predicate_arguments = re.findall(r"\^predicate\(%([A-Za-z0-9_]+):", lowered)
+        assigned_values = re.findall(r"%([A-Za-z0-9_]+)\s*=", lowered)
+        self.assertEqual(5, len(predicate_arguments))
+        self.assertEqual(len(predicate_arguments), len(set(predicate_arguments)))
+        self.assertEqual(len(assigned_values), len(set(assigned_values)))
+        self.assertTrue(
+            all(argument.endswith("_value") for argument in predicate_arguments)
+        )
+        self.assertTrue(any(name.count("invariant") >= 3 for name in assigned_values))
+
+    def test_invariant_composition_rejects_type_mismatch_and_recursion(self) -> None:
+        from agentic_circuit._queue_frontend import (
+            QueueFrontendError,
+            lower_queue_source,
+        )
+
+        mismatch = COMPOSED_INVARIANT_SOURCE.replace(
+            "valid_inner(value.inner)", "valid_inner(value)"
+        )
+        with self.assertRaisesRegex(
+            QueueFrontendError,
+            r"Payload\.valid_payload.*Inner, got !ac\.struct<@types::@Payload>",
+        ):
+            lower_queue_source(mismatch, "composed_invariant")
+
+        receiver_collision = COMPOSED_INVARIANT_SOURCE.replace(
+            "valid_inner(value.inner)", "value.valid_inner(value.inner)"
+        )
+        with self.assertRaisesRegex(
+            QueueFrontendError,
+            r"Payload\.valid_payload.*unsupported.*value\.valid_inner",
+        ):
+            lower_queue_source(receiver_collision, "composed_invariant")
+
+        invariant_parameter_shadow = COMPOSED_INVARIANT_SOURCE.replace(
+            "def valid_payload(value: Payload) -> bool:\n"
+            "    return valid_inner(value.inner) and value.valid",
+            "def valid_payload(valid_inner: Payload) -> bool:\n"
+            "    return valid_inner(valid_inner.inner) and valid_inner.valid",
+        )
+        with self.assertRaisesRegex(
+            QueueFrontendError,
+            "Payload.valid_payload.*unsupported call target 'valid_inner'",
+        ):
+            lower_queue_source(invariant_parameter_shadow, "composed_invariant")
+
+        module_parameter_shadow = INVARIANT_MODULE_SOURCE.replace(
+            "def validate(value: Payload) -> Payload:\n"
+            "    return value.with_fields(valid=valid_payload(value))",
+            "def validate(valid_payload: Payload) -> Payload:\n"
+            "    return valid_payload.with_fields(valid=valid_payload(valid_payload))",
+        )
+        with self.assertRaisesRegex(
+            QueueFrontendError,
+            r"unsupported.*valid_payload\(valid_payload\)",
+        ):
+            lower_queue_source(module_parameter_shadow, "invariant_module")
+
+        self_recursive = INVARIANT_MODULE_SOURCE.replace(
+            "return value.value != 0", "return valid_payload(value)"
+        )
+        with self.assertRaisesRegex(
+            QueueFrontendError,
+            "recursive invariant call graph: "
+            "Payload.valid_payload -> Payload.valid_payload",
+        ):
+            lower_queue_source(self_recursive, "invariant_module")
+
+        mutual = COMPOSED_INVARIANT_SOURCE.replace(
+            "return valid_inner(value.inner) and value.valid",
+            "return other_payload_check(value)",
+        ).replace(
+            "@ac.invariant\ndef valid_inner(value: Inner) -> bool:\n"
+            "    return value.valid and value.tag != 0",
+            "@ac.invariant\ndef other_payload_check(value: Payload) -> bool:\n"
+            "    return valid_payload(value)",
+        )
+        with self.assertRaisesRegex(
+            QueueFrontendError,
+            "recursive invariant call graph: Payload.valid_payload -> "
+            "Payload.other_payload_check -> Payload.valid_payload",
+        ):
+            lower_queue_source(mutual, "composed_invariant")
 
     def test_invariant_region_ssa_is_unique_after_an_outer_expression(self) -> None:
         from agentic_circuit._queue_frontend import lower_queue_source

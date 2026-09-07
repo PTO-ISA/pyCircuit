@@ -52,6 +52,8 @@ class AggregateEqualityInvariantTest(unittest.TestCase):
         )
         raw_text = specialization.lower_acir()
         self.assertIn("ac.var.invariant", raw_text)
+        self.assertIn('name "Inner.valid_inner"', raw_text)
+        self.assertIn('name "Payload.valid_payload"', raw_text)
         self.assertIn("!ac.var<!ac.struct<@types::@Payload>>", raw_text)
 
         with tempfile.TemporaryDirectory(prefix="aggregate-contract-") as directory:
@@ -212,13 +214,16 @@ int main() {
         specialization = ac.jit(
             module.aggregate_equality_packed, workspace=FIXTURE_ROOT
         )
+        raw_text = specialization.lower_acir()
+        self.assertIn('name "PackedPayload.valid_packed_shape"', raw_text)
+        self.assertIn('name "PackedPayload.valid_packed"', raw_text)
 
         with tempfile.TemporaryDirectory(prefix="aggregate-contract-pyc-") as directory:
             root = Path(directory)
             raw = root / "raw.mlir"
             frozen = root / "frozen.mlir"
             output = root / "output"
-            raw.write_text(specialization.lower_acir(), encoding="utf-8")
+            raw.write_text(raw_text, encoding="utf-8")
             lowered = subprocess.run(
                 (
                     str(opt),

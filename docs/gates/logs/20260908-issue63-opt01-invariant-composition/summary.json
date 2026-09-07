@@ -1,0 +1,35 @@
+{
+  "run_id": "20260908-issue63-opt01-invariant-composition",
+  "status": "passed",
+  "base_revision": "b40cb6f432aa6e3636fa45a608ae0ceb4ca585c7",
+  "decision_ids": ["0225"],
+  "issue": 63,
+  "checklist": ["OPT-01a", "OPT-01b", "OPT-01c"],
+  "results": {
+    "acir_lit": {"passed": 191, "failed": 0},
+    "agentic_frontend": {"passed": 250, "skipped": 2, "failed": 0},
+    "davincioo_contract_and_iex": {"passed": 13, "failed": 0},
+    "value_contract_gfsim_pyc_parity": {"passed": 2, "failed": 0},
+    "unit": {"passed": 90, "failed": 0},
+    "agentic_repository_contracts": {"passed": true},
+    "required_agentic_ci": {"contracts_passed": 42, "frontend_passed": 247, "frontend_skipped": 5, "cli_passed": 6, "failed": 0},
+    "api_hygiene": {"passed": true},
+    "pyc_inventory": {"operations": 41, "types": 2, "passed": true},
+    "ir_coverage": {"passed": true},
+    "pre_commit": {"passed": true},
+    "mkdocs_strict": {"passed": true},
+    "decision_status": {"rows": 225, "deferred": 0, "passed": true}
+  },
+  "metrics": {
+    "shared_contract_source_loc_before": 43,
+    "shared_contract_source_loc_after": 47,
+    "shared_contract_ast_comparisons_before": 15,
+    "shared_contract_ast_comparisons_after": 15,
+    "contract_probe_raw_comparisons": 21,
+    "contract_probe_frozen_scalar_comparisons": 60,
+    "contract_probe_raw_invariants": 2,
+    "contract_probe_frozen_invariants": 0
+  },
+  "behavior": "Exact-typed acyclic invariant calls remain verifier-visible, lower leaf-first with hygienic SSA, and preserve the DavinciOO operand-source truth table across generated gfsim and admitted PYC parity.",
+  "skill_evolve": "no-update"
+}

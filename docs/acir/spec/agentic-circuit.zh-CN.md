@@ -298,10 +298,18 @@ nominal identity 是类型的一部分：两个独立声明的 struct 或 enum �
 
 ```python
 @ac.invariant
+def valid_producer(value: Producer) -> bool:
+    return value.epoch.flow == value.inst.flow
+
+@ac.invariant
 def valid_operand(value: Operand) -> bool:
     return (
         (value.is_constant and value.arch_index == 0)
-        or ((not value.is_constant) and value.phys_valid)
+        or (
+            (not value.is_constant)
+            and value.phys_valid
+            and valid_producer(value.producer)
+        )
     )
 
 accepted = valid_operand(request.operand)
@@ -311,14 +319,21 @@ same_key = pending.key == request.key
 invariant 必须只接收一个 nominal struct value，必须返回 `bool`，函数体必须只有一个
 pure return expression。predicate 可以使用已开放的字段/元素读取、相等比较、enum
 相等、bit 运算、boolean 运算和有界 scalar 比较；禁止读取 state、修改 value、调用
-Queue/module、使用反射或捕获外部 runtime value。稳定诊断名为
+Queue/module、使用反射或捕获外部 runtime value。它可以调用同一 source closure 内的
+另一个 invariant，但参数必须精确匹配 callee 的 nominal type，且 invariant call graph
+必须有限、无环。调用目标必须是静态解析且未被 lexical parameter/local 遮蔽的裸
+invariant 名；同名 lexical binding 优先。attribute/receiver 调用属于 dynamic dispatch，
+不会被重解释为 invariant。任意普通函数调用仍然非法。稳定诊断名为
 `<Payload>.<function>`。
+framework intrinsic 必须使用 canonical、未重命名的 bare import，或使用 `ac.matches`
+这类显式 Agentic Circuit module alias；重命名的 bare intrinsic import 非法。
 
 每次调用生成一个带 typed predicate region 的 `ac.var.invariant`。这个 op 只计算一个
-boolean value；它不是 assertion、隐式输入前提或 refined runtime type。rule 必须明确
-把结果用于 guard 或分类。`ac-lower-value-contracts` 会内联 predicate，再按 descriptor
-顺序把 aggregate `ac.var.cmp` 递归展开为 `ac.var.get`/`ac.var.element`、scalar/enum
-相等 leaf 和平衡 boolean AND tree；`ne` 对完整 equality result 取反。Frozen ACIR 与
+boolean value；组合调用保持为具有 hygienic SSA、无隐式 capture 的 nested invariant
+region。它不是 assertion、隐式输入前提或 refined runtime type。rule 必须明确把结果用于
+guard 或分类。`ac-lower-value-contracts` 先内联 leaf callee，再内联 caller，并按 descriptor
+顺序把 aggregate `ac.var.cmp` 递归展开为 `ac.var.get`/`ac.var.element`、scalar/enum 相等
+leaf 和平衡 boolean AND tree；`ne` 对完整 equality result 取反。Frozen ACIR 与
 QueueGraph 中禁止残留 aggregate comparison 或 invariant op。
 
 ### 静态 bits 与命名 bitfield view

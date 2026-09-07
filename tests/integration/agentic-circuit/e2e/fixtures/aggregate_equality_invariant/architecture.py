@@ -30,9 +30,14 @@ class ComparisonRequest:
 
 
 @ac.invariant
+def valid_inner(value: Inner) -> bool:
+    return value.mode == Mode.RUN
+
+
+@ac.invariant
 def valid_payload(value: Payload) -> bool:
     return (
-        (value.inner.mode == Mode.RUN)
+        valid_inner(value.inner)
         and (value.pair[0] == value.inner.tag)
         and (value.lanes[0] < 8)
     )

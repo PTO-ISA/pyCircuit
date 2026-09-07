@@ -25,12 +25,13 @@ class PackedRequest:
 
 
 @ac.invariant
+def valid_packed_shape(value: PackedPayload) -> bool:
+    return (value.mode == Mode.RUN) and (value.pair[0] == value.tag[0:2])
+
+
+@ac.invariant
 def valid_packed(value: PackedPayload) -> bool:
-    return (
-        (value.mode == Mode.RUN)
-        and (value.pair[0] == value.tag[0:2])
-        and (value.lanes[0] < 3)
-    )
+    return valid_packed_shape(value) and (value.lanes[0] < 3)
 
 
 @ac.rule

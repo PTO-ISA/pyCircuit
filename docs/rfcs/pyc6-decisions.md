@@ -7655,3 +7655,68 @@ moving type semantics into a backend or assuming runtime validity.
 - PTO-ISA/pyCircuit issue #48.
 - User direction (2026-09-07): continue framework closure in dependency order,
   using the in-tree DavinciOO H3 designs to mature shared semantics.
+
+## Decision 0225: named invariants compose through a finite typed call graph
+
+**Status:** Accepted; implemented and verified
+
+**Context / Goal**
+Decision 0224 made one named invariant reusable at rule/module boundaries, but
+forbade one invariant from calling another. Real operand contracts therefore
+still repeat producer identity, zero-register, speculation, and shape clauses
+inside one long return expression. Issue #63 OPT-01 requires ordinary function
+composition while keeping the entire predicate visible to ACIR verification and
+shared lowering.
+
+**Decision (strong constraint)**
+- An `@ac.invariant` predicate may call another named invariant captured in the
+  same deterministic source closure. The callee still accepts exactly one
+  nominal struct argument and returns logical bool; the call operand must have
+  the exact nominal payload type declared by the callee. The call target is the
+  bare, statically resolved, unshadowed invariant name; lexical parameters or
+  locals with the same spelling take precedence. Attribute/receiver calls and
+  other dynamic dispatch are not reinterpreted as invariant calls.
+- Framework intrinsics inside an invariant use either their canonical,
+  unaliased bare import name or an explicit Agentic Circuit module alias such
+  as `ac.matches`. A renamed bare intrinsic import is rejected rather than
+  dispatched from its new spelling.
+- The frontend collects the full invariant set before validating bodies, builds
+  the invariant-only call graph, and rejects self-recursion or any indirect
+  cycle with a diagnostic that identifies the call chain. Unknown calls,
+  dynamic dispatch, reflection, state/Queue/module access, mutation, I/O, and
+  every other effect remain invalid.
+- Each source call remains verifier-visible as a nested `ac.var.invariant` with
+  its own exact name, input type, one-argument predicate region, and bool yield.
+  Nested predicate SSA names are hygienic and cannot capture values outside the
+  caller predicate except through the explicit typed call operand.
+- ACIR permits only a nested `ac.var.invariant` as a composed predicate region.
+  Every nested operation independently satisfies the existing nominal-name,
+  type, yield, capture, and memory-effect rules. Repeating an ancestor invariant
+  name is recursive composition and fails verification even for hand-authored
+  IR.
+- `ac-lower-value-contracts` expands leaf invariant regions before their
+  callers, substitutes the explicit operand, and repeats until no invariant
+  remains. A graph with no expandable leaf fails closed. QueueGraph, gfsim, and
+  PYC retain no new operation or backend interpretation.
+- Composition is source reuse, not an automatic performance claim. Evidence
+  records shared-contract source LOC and scalar comparison counts after
+  expansion. C++ and RTL use the same lowered combinational predicate; any CSE
+  remains an ordinary downstream optimization.
+
+**Required verification**
+- Frontend positives cover two-level, deeper, and repeated/diamond calls with
+  unique SSA. Negatives cover wrong arity/type, self-recursion, indirect cycles,
+  unknown/effectful calls, and imported source-closure composition.
+- Native ACIR tests accept typed nested invariants, reject recursive names and
+  illegal captures/effects, and prove deterministic callee-first elimination.
+- DavinciOO defines `valid_producer_identity(LoadProducerToken)` once and calls
+  it from `valid_operand_source(OperandSourceDescriptor)`. Constant-zero,
+  speculative, non-speculative, destination, mask, and per-Flow mismatch cases
+  preserve the prior truth table through generated gfsim.
+- Existing QueueGraph/gfsim and admitted packed PYC C++/Verilator value-contract
+  gates remain green with no residual `ac.var.invariant`.
+
+**Source**
+- PTO-ISA/pyCircuit issue #63 OPT-01.
+- The in-tree DavinciOO I1/I2 operand contract at
+  `designs/davincioo/contracts/spe.py`.
