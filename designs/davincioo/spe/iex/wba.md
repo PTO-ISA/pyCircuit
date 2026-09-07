@@ -5,32 +5,34 @@
 - NDF refinement: **L2 microarchitecture**; module-specific L1 behavior links still require review.
 - Recommended disposition: **leaf** (proposal, not registry approval)
 - Implementation path: `designs/davincioo/spe/iex/wba.py`
-- Current design-program execution status: **implemented; focused compile and empty-state gfsim smoke verified**.
+- Current design-program execution status: **implemented and gfsim behavior
+  verified; H2/H1 integration and stateful PYC/RTL remain pending**.
 
 The implementation preserves the frozen external behavior baseline while using
 the shared nominal `IssueAttemptKey` for duplicate, apply, cancel, and drain
-identity. Full behavioral promotion still requires the complete matrix below.
+identity. The generated gfsim matrix below provides the current behavioral
+promotion evidence.
 
 ## Inputs
 
 | Name | Payload/type | Meaning | Evidence status |
 | --- | --- | --- | --- |
-| alu_result | TerminalResult | retained ALU producer lane | declared |
-| bru_result | TerminalResult | retained BRU producer lane | declared |
-| lsu_result | TerminalResult | retained LSU producer lane | declared |
-| other_result | TerminalResult | retained DIV/FSU/SYS/CMD lane | declared |
-| apply_ack | WritebackApplyAck | exact apply success or retry | declared |
-| cancel | IssueCancel | local unpublished cancellation | declared |
-| drain_request | WbaDrainRequest | producer quiescence proof | declared |
+| alu_result | TerminalResult | retained ALU producer lane | gfsim-verified |
+| bru_result | TerminalResult | retained BRU producer lane | gfsim-verified |
+| lsu_result | TerminalResult | retained LSU producer lane | gfsim-verified |
+| other_result | TerminalResult | retained DIV/FSU/SYS/CMD lane | gfsim-verified |
+| apply_ack | WritebackApplyAck | exact apply success or retry | gfsim-verified |
+| cancel | IssueCancel | local unpublished cancellation | gfsim-verified |
+| drain_request | WbaDrainRequest | producer quiescence proof | gfsim-verified |
 
 ## Outputs
 
 | Name | Payload/type | Meaning | Evidence status |
 | --- | --- | --- | --- |
-| commit | WritebackCommit | frozen result and effect mask | declared |
-| ack_result | WritebackAckResult | apply response classification | declared |
-| cancel_ack | WritebackCancelAck | cancel ownership classification | declared |
-| drain_ack | WbaDrainAck | WBA release proof | declared |
+| commit | WritebackCommit | frozen result and effect mask | gfsim-verified |
+| ack_result | WritebackAckResult | apply response classification | gfsim-verified |
+| cancel_ack | WritebackCancelAck | cancel ownership classification | gfsim-verified |
+| drain_ack | WbaDrainAck | WBA release proof | gfsim-verified |
 
 Payload names in proposed rows are design pseudotypes until fields, widths and nominal identity are frozen. Queue transport is inferred by the compiler, not a requested public Queue wrapper. Clock/reset/time domain are execution context and must not be invented as ordinary payload ports.
 
@@ -53,7 +55,8 @@ These are requirements, not proof that the current framework is missing each one
 
 - All declared/proposed Queue outputs remain stable under backpressure and preserve full identity/generation.
 - Stale, duplicate, wrong-flow, and post-recovery responses cause no mutation.
-- gfsim and generated C++/Verilog agree at accepted Queue transfers.
+- Generated gfsim C++ executes accepted Queue transfers; the current stateful
+  design keeps its explicit PYC/RTL rejection until #22 lands.
 
 gfsim execution is the first implementation gate. PYC/RTL obligations apply to the admitted lowering and remain explicit future work where provisional storage is rejected. Compile-only evidence does not establish behavior.
 
@@ -67,11 +70,13 @@ gfsim execution is the first implementation gate. PYC/RTL obligations apply to t
 
 - `pytest -q designs/davincioo/tests/spe/iex/test_wba.py` verifies source
   closure, aggregate identity use, ACIR value-contract/rule lowering, topology
-  freeze, QueueGraph C++ compilation, empty-state gfsim execution, and the
-  explicit PYC rejection boundary.
-- The smoke gate proves the generated module and its 8-entry/16-tombstone
-  topology compile and initialize without fabricated output. It does not replace
-  the VALUE/fault/store/branch/cancel/retry/drain behavioral matrix.
+  freeze, QueueGraph C++ compilation, and the explicit PYC rejection boundary.
+  The generated gfsim matrix executes VALUE/no-destination/fault/store/branch
+  admission across all four producer lanes, producer contention, oldest
+  selection, independent commit/apply/cancel/drain output backpressure, apply
+  retry and success, unpublished/apply-owned/completed cancel classification,
+  tombstone suppression/reclaim, reset, invalid input retention, and isolated
+  instances across the 8-entry/16-tombstone state.
 
 ## Contributor closure
 
@@ -79,10 +84,10 @@ gfsim execution is the first implementation gate. PYC/RTL obligations apply to t
 - [x] Resolve disposition; aliases and contained state must not duplicate hardware.
 - [ ] Link the relevant NDF L0 intent and L1 behavior to this L2 implementation.
 - [x] Freeze port payload fields/widths, producer/consumer, parent seam, state/reset and timing profile.
-- [ ] Define functional branches, all-or-none effects, contention and cancel/recovery lifecycle.
+- [x] Define functional branches, all-or-none effects, contention and cancel/recovery lifecycle.
 - [x] Link a minimal failing gate for each actual framework/primitive gap and merge that shared fix first.
-- [ ] Implement the accepted owner and design-local expected-result tests.
-- [ ] Prove backpressure, identity/generation, exactly-once effects and isolated instances in gfsim.
+- [x] Implement the accepted owner and design-local expected-result tests.
+- [x] Prove backpressure, identity/generation, exactly-once effects and isolated instances in gfsim.
 - [ ] Integrate into H2/H1 and record admitted PYC/RTL evidence or remaining boundary.
 
 ## Source evidence

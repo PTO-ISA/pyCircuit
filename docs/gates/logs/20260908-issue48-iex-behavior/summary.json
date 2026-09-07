@@ -1,0 +1,41 @@
+{
+  "run_id": "20260908-issue48-iex-behavior",
+  "status": "passed",
+  "base_revision": "187c9b81951516c81af689294afd54dec4d08839",
+  "decision_ids": ["0222", "0224"],
+  "issue": 48,
+  "prerequisites": [
+    {
+      "role": "recursive equality and invariant framework",
+      "pull_request": 54,
+      "merge_commit": "9582e4e40f1fe1a207ffc7adcb87076b6d9772a1"
+    },
+    {
+      "role": "I1/I2/WBA in-tree design port",
+      "pull_request": 60,
+      "merge_commit": "bde2f353ae3dd4f365891466fcc8dcae14df044b"
+    },
+    {
+      "role": "committed-state guard repair exposed by behavior tests",
+      "pull_request": 70,
+      "merge_commit": "187c9b81951516c81af689294afd54dec4d08839"
+    }
+  ],
+  "results": {
+    "iex_design_tests": {"passed": 9, "failed": 0},
+    "unit": {"passed": 90, "failed": 0},
+    "agentic_repository_contracts": {"passed": true},
+    "davincioo_catalog": {"passed": true, "h1": 7, "h2": 31, "h3_candidates": 240, "cards": 278},
+    "api_hygiene": {"passed": true},
+    "pre_commit": {"passed": true},
+    "mkdocs_strict": {"passed": true},
+    "decision_status": {"rows": 224, "deferred": 0, "passed": true}
+  },
+  "behavior": {
+    "i1": "grant, retry, cancel, same-cycle decision order, independent backpressure on every output, reset, and instance isolation",
+    "i2": "dual speculative resolution, hit/miss/replay, ABA rejection, retry/accept/release, cancellation, independent backpressure on every output, existing-tombstone arbitration, tombstone capacity/reset, Flow and instance isolation",
+    "wba": "four producer lanes, VALUE/no-destination/fault/store/branch, contention/oldest selection, independent output backpressure, apply retry/success, cancel classification/tombstone, drain, reset, invalid retention, and isolation"
+  },
+  "remaining_boundary": "H2/H1 integration and stateful PYC/RTL remain separate roadmap work under the module cards and issue #22.",
+  "skill_evolve": "no-update"
+}

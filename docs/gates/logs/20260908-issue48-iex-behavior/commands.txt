@@ -1,0 +1,8 @@
+PYTHONDONTWRITEBYTECODE=1 pytest -q designs/davincioo/tests/spe/iex/test_i1.py designs/davincioo/tests/spe/iex/test_i2.py designs/davincioo/tests/spe/iex/test_wba.py
+PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=python/semantic-core/src:python/pycircuit/src pytest tests/unit -m unit -q
+PYTHONDONTWRITEBYTECODE=1 uv run --no-project --isolated --with-requirements python/agentic-circuit/requirements-dev.lock python tools/agentic-circuit/check-contracts.py
+python3 designs/davincioo/tools/check_catalog.py
+PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=python/semantic-core/src:python/pycircuit/src python3 flows/tools/check_api_hygiene.py python/pycircuit/src/pycircuit examples/pycircuit docs README.md
+pre-commit run --files designs/davincioo/README.md designs/davincioo/spe/iex/i1.md designs/davincioo/spe/iex/i2.md designs/davincioo/spe/iex/wba.md designs/davincioo/tests/spe/iex/test_i1.py designs/davincioo/tests/spe/iex/test_i2.py designs/davincioo/tests/spe/iex/test_wba.py docs/pyc6-plan.md docs/gates/decision_status_v6.md docs/gates/logs/20260908-issue48-iex-behavior/commands.txt docs/gates/logs/20260908-issue48-iex-behavior/review.md docs/gates/logs/20260908-issue48-iex-behavior/summary.json
+mkdocs build --strict --site-dir .pycircuit_out/issue48-iex-behavior/site
+python3 flows/tools/check_decision_status.py --rfc docs/rfcs/pyc6-decisions.md --status docs/gates/decision_status_v6.md --out docs/gates/logs/20260908-issue48-iex-behavior/decision_status_report.json --require-no-deferred --require-all-verified --require-concrete-evidence --require-existing-evidence
