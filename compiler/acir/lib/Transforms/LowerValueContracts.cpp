@@ -166,7 +166,11 @@ LogicalResult inlineInvariant(ac::VarInvariantOp invariant) {
   mapping.map(block.getArgument(0), invariant.getInput());
   for (Operation &nested : block.without_terminator())
     builder.clone(nested, mapping);
-  invariant.getResult().replaceAllUsesWith(mapping.lookup(yielded.getValue()));
+  Value result = mapping.lookupOrNull(yielded.getValue());
+  if (!result)
+    return invariant.emitOpError(
+        "predicate yield value is outside the invariant region");
+  invariant.getResult().replaceAllUsesWith(result);
   invariant.erase();
   return success();
 }
@@ -196,13 +200,31 @@ LogicalResult lowerValueContracts(ModuleOp model) {
     if (failed(lowerAggregateCmp(comparison)))
       return failure();
 
-  SmallVector<ac::VarInvariantOp> invariants;
-  model.walk([&](ac::VarInvariantOp invariant) {
-    invariants.push_back(invariant);
-  });
-  for (ac::VarInvariantOp invariant : llvm::reverse(invariants))
-    if (failed(inlineInvariant(invariant)))
-      return failure();
+  while (true) {
+    SmallVector<ac::VarInvariantOp> invariants;
+    model.walk([&](ac::VarInvariantOp invariant) {
+      invariants.push_back(invariant);
+    });
+    if (invariants.empty())
+      break;
+
+    SmallVector<ac::VarInvariantOp> leaves;
+    for (ac::VarInvariantOp invariant : invariants) {
+      bool hasCallee = false;
+      invariant.getPredicate().walk([&](ac::VarInvariantOp) {
+        hasCallee = true;
+        return WalkResult::interrupt();
+      });
+      if (!hasCallee)
+        leaves.push_back(invariant);
+    }
+    if (leaves.empty())
+      return model.emitError(
+          "invariant call graph has no leaf; recursive composition is illegal");
+    for (ac::VarInvariantOp leaf : leaves)
+      if (failed(inlineInvariant(leaf)))
+        return failure();
+  }
   return success();
 }
 

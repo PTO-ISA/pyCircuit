@@ -7,7 +7,11 @@
 // RUN: %not %acir_opt %t/invariant-yield.mlir 2>&1 | %FileCheck %s --check-prefix=YIELD
 // RUN: %not %acir_opt %t/invariant-effect.mlir 2>&1 | %FileCheck %s --check-prefix=EFFECT
 // RUN: %not %acir_opt %t/invariant-name.mlir 2>&1 | %FileCheck %s --check-prefix=NAME
-// RUN: %not %acir_opt %t/invariant-nested.mlir 2>&1 | %FileCheck %s --check-prefix=NESTED
+// RUN: %not %acir_opt %t/invariant-recursive.mlir 2>&1 | %FileCheck %s --check-prefix=INVARIANT-RECURSIVE
+// RUN: %not %acir_opt %t/invariant-indirect-recursive.mlir 2>&1 | %FileCheck %s --check-prefix=INVARIANT-INDIRECT
+// RUN: %not %acir_opt %t/invariant-nested-capture.mlir 2>&1 | %FileCheck %s --check-prefix=NESTED-CAPTURE
+// RUN: %not %acir_opt %t/invariant-yield-capture.mlir 2>&1 | %FileCheck %s --check-prefix=YIELD-CAPTURE
+// RUN: %not %acir_opt %t/invariant-nested-yield-capture.mlir 2>&1 | %FileCheck %s --check-prefix=NESTED-YIELD-CAPTURE
 // RUN: %not %acir_opt %t/recursive-descriptor.mlir 2>&1 | %FileCheck %s --check-prefix=RECURSIVE
 
 //--- nominal-mismatch.mlir
@@ -114,7 +118,47 @@ module attributes {ac.contract_epoch = "0.5"} {
 }
 // NAME: invariant 'Other.bad' for {{.*}}: name must have exact '<Payload>.<function>' form
 
-//--- invariant-nested.mlir
+//--- invariant-recursive.mlir
+module attributes {ac.contract_epoch = "0.5"} {
+  ac.type_scope @types {
+    ac.struct @S fields [{name = "value", type = i8}]
+  } {dlti.dl_spec = #dlti.dl_spec<!ac.struct<@types::@S> = {abi_alignment = 1 : i64, endianness = "little", preferred_alignment = 1 : i64, size = 1 : i64}>}
+  %input = "builtin.unrealized_conversion_cast"() : () -> !ac.var<!ac.struct<@types::@S>>
+  %bad = ac.var.invariant %input name "S.same" {
+  ^bb0(%value: !ac.var<!ac.struct<@types::@S>>):
+    %inner = ac.var.invariant %value name "S.same" {
+    ^bb1(%inner_value: !ac.var<!ac.struct<@types::@S>>):
+      %true = ac.var.constant true as !ac.var<i1>
+      ac.var.invariant.yield %true : !ac.var<i1>
+    } : !ac.var<!ac.struct<@types::@S>> -> !ac.var<i1>
+    ac.var.invariant.yield %inner : !ac.var<i1>
+  } : !ac.var<!ac.struct<@types::@S>> -> !ac.var<i1>
+}
+// INVARIANT-RECURSIVE: invariant 'S.same' for {{.*}}: recursive invariant call repeats an ancestor name
+
+//--- invariant-indirect-recursive.mlir
+module attributes {ac.contract_epoch = "0.5"} {
+  ac.type_scope @types {
+    ac.struct @S fields [{name = "value", type = i8}]
+  } {dlti.dl_spec = #dlti.dl_spec<!ac.struct<@types::@S> = {abi_alignment = 1 : i64, endianness = "little", preferred_alignment = 1 : i64, size = 1 : i64}>}
+  %input = "builtin.unrealized_conversion_cast"() : () -> !ac.var<!ac.struct<@types::@S>>
+  %bad = ac.var.invariant %input name "S.first" {
+  ^bb0(%value: !ac.var<!ac.struct<@types::@S>>):
+    %second = ac.var.invariant %value name "S.second" {
+    ^bb1(%second_value: !ac.var<!ac.struct<@types::@S>>):
+      %first = ac.var.invariant %second_value name "S.first" {
+      ^bb2(%first_value: !ac.var<!ac.struct<@types::@S>>):
+        %true = ac.var.constant true as !ac.var<i1>
+        ac.var.invariant.yield %true : !ac.var<i1>
+      } : !ac.var<!ac.struct<@types::@S>> -> !ac.var<i1>
+      ac.var.invariant.yield %first : !ac.var<i1>
+    } : !ac.var<!ac.struct<@types::@S>> -> !ac.var<i1>
+    ac.var.invariant.yield %second : !ac.var<i1>
+  } : !ac.var<!ac.struct<@types::@S>> -> !ac.var<i1>
+}
+// INVARIANT-INDIRECT: invariant 'S.first' for {{.*}}: recursive invariant call repeats an ancestor name
+
+//--- invariant-nested-capture.mlir
 module attributes {ac.contract_epoch = "0.5"} {
   ac.type_scope @types {
     ac.struct @S fields [{name = "value", type = i8}]
@@ -124,13 +168,47 @@ module attributes {ac.contract_epoch = "0.5"} {
   ^bb0(%value: !ac.var<!ac.struct<@types::@S>>):
     %inner = ac.var.invariant %value name "S.inner" {
     ^bb1(%inner_value: !ac.var<!ac.struct<@types::@S>>):
-      %true = ac.var.constant true as !ac.var<i1>
-      ac.var.invariant.yield %true : !ac.var<i1>
+      %captured = ac.var.get %input field "value" : !ac.var<!ac.struct<@types::@S>> -> !ac.var<i8>
+      %zero = ac.var.constant 0 : i8 as !ac.var<i8>
+      %ok = ac.var.cmp "eq" %captured, %zero : !ac.var<i8> -> !ac.var<i1>
+      ac.var.invariant.yield %ok : !ac.var<i1>
     } : !ac.var<!ac.struct<@types::@S>> -> !ac.var<i1>
     ac.var.invariant.yield %inner : !ac.var<i1>
   } : !ac.var<!ac.struct<@types::@S>> -> !ac.var<i1>
 }
-// NESTED: invariant 'S.outer' for {{.*}}: unsupported predicate operation 'ac.var.invariant'
+// NESTED-CAPTURE: invariant 'S.inner' for {{.*}}: predicate captures a value outside its input region
+
+//--- invariant-yield-capture.mlir
+module attributes {ac.contract_epoch = "0.5"} {
+  ac.type_scope @types {
+    ac.struct @S fields [{name = "value", type = i8}]
+  } {dlti.dl_spec = #dlti.dl_spec<!ac.struct<@types::@S> = {abi_alignment = 1 : i64, endianness = "little", preferred_alignment = 1 : i64, size = 1 : i64}>}
+  %input = "builtin.unrealized_conversion_cast"() : () -> !ac.var<!ac.struct<@types::@S>>
+  %external = "builtin.unrealized_conversion_cast"() : () -> !ac.var<i1>
+  %bad = ac.var.invariant %input name "S.external_yield" {
+  ^bb0(%value: !ac.var<!ac.struct<@types::@S>>):
+    ac.var.invariant.yield %external : !ac.var<i1>
+  } : !ac.var<!ac.struct<@types::@S>> -> !ac.var<i1>
+}
+// YIELD-CAPTURE: invariant 'S.external_yield' for {{.*}}: predicate yield captures a value outside its input region
+
+//--- invariant-nested-yield-capture.mlir
+module attributes {ac.contract_epoch = "0.5"} {
+  ac.type_scope @types {
+    ac.struct @S fields [{name = "value", type = i8}]
+  } {dlti.dl_spec = #dlti.dl_spec<!ac.struct<@types::@S> = {abi_alignment = 1 : i64, endianness = "little", preferred_alignment = 1 : i64, size = 1 : i64}>}
+  %input = "builtin.unrealized_conversion_cast"() : () -> !ac.var<!ac.struct<@types::@S>>
+  %bad = ac.var.invariant %input name "S.outer" {
+  ^bb0(%value: !ac.var<!ac.struct<@types::@S>>):
+    %outer_bool = ac.var.constant true as !ac.var<i1>
+    %inner = ac.var.invariant %value name "S.inner" {
+    ^bb1(%inner_value: !ac.var<!ac.struct<@types::@S>>):
+      ac.var.invariant.yield %outer_bool : !ac.var<i1>
+    } : !ac.var<!ac.struct<@types::@S>> -> !ac.var<i1>
+    ac.var.invariant.yield %inner : !ac.var<i1>
+  } : !ac.var<!ac.struct<@types::@S>> -> !ac.var<i1>
+}
+// NESTED-YIELD-CAPTURE: invariant 'S.inner' for {{.*}}: predicate yield captures a value outside its input region
 
 //--- recursive-descriptor.mlir
 module attributes {ac.contract_epoch = "0.5"} {

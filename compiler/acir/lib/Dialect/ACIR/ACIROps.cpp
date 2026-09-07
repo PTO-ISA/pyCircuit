@@ -2363,6 +2363,10 @@ LogicalResult VarInvariantOp::verify() {
   auto [namePayload, nameFunction] = getName().split('.');
   if (namePayload != payloadName || !isInvariantIdentifier(nameFunction))
     return fail("name must have exact '<Payload>.<function>' form");
+  for (auto ancestor = (*this)->getParentOfType<VarInvariantOp>(); ancestor;
+       ancestor = ancestor->getParentOfType<VarInvariantOp>())
+    if (ancestor.getName() == getName())
+      return fail("recursive invariant call repeats an ancestor name");
   if (getResult().getType() !=
       VarType::get(getContext(), IntegerType::get(getContext(), 1)))
     return fail("result must be !ac.var<i1>");
@@ -2373,11 +2377,12 @@ LogicalResult VarInvariantOp::verify() {
   for (Operation &nested : block) {
     if (isa<VarInvariantYieldOp>(nested))
       continue;
+    const bool nestedInvariant = isa<VarInvariantOp>(nested);
     if (nested.getDialect() != getOperation()->getDialect() ||
-        nested.getNumRegions() != 0)
+        (nested.getNumRegions() != 0 && !nestedInvariant))
       return fail(Twine("unsupported predicate operation '") +
                   nested.getName().getStringRef() + "'");
-    if (!isMemoryEffectFree(&nested))
+    if (!nestedInvariant && !isMemoryEffectFree(&nested))
       return fail(Twine("unsupported effectful predicate operation '") +
                   nested.getName().getStringRef() + "'");
     for (Value operand : nested.getOperands()) {
@@ -2394,6 +2399,15 @@ LogicalResult VarInvariantOp::verify() {
   if (yielded.getValue().getType() !=
       VarType::get(getContext(), IntegerType::get(getContext(), 1)))
     return fail("predicate must yield !ac.var<i1>");
+  Value yieldedValue = yielded.getValue();
+  if (auto argument = dyn_cast<BlockArgument>(yieldedValue)) {
+    if (argument.getOwner() != &block)
+      return fail("predicate yield captures a value outside its input region");
+  } else {
+    Operation *definition = yieldedValue.getDefiningOp();
+    if (!definition || definition->getParentRegion() != &getPredicate())
+      return fail("predicate yield captures a value outside its input region");
+  }
   return success();
 }
 

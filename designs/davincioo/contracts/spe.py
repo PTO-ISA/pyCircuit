@@ -354,6 +354,15 @@ class OperandSourceDescriptor:
 
 
 @ac.invariant
+def valid_producer_identity(value: LoadProducerToken) -> bool:
+    return (
+        value.epoch.flow == value.inst.flow
+        and value.epoch.flow == value.block.flow
+        and value.epoch.flow == value.rob.flow
+    )
+
+
+@ac.invariant
 def valid_operand_source(value: OperandSourceDescriptor) -> bool:
     return (
         (
@@ -387,9 +396,7 @@ def valid_operand_source(value: OperandSourceDescriptor) -> bool:
             and value.load_producer.destination_tag == value.tag
             and value.load_producer.destination_generation == value.generation
             and value.load_stage_mask != 0
-            and value.load_producer.epoch.flow == value.load_producer.inst.flow
-            and value.load_producer.epoch.flow == value.load_producer.block.flow
-            and value.load_producer.epoch.flow == value.load_producer.rob.flow
+            and valid_producer_identity(value.load_producer)
         )
         or (
             not value.speculative

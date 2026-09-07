@@ -6,7 +6,7 @@ import ast
 import copy
 import json
 import re
-from collections.abc import Mapping
+from collections.abc import Collection, Mapping
 from dataclasses import dataclass, replace
 
 from _pycircuit_semantics import (
@@ -774,6 +774,16 @@ class InvariantDefinition:
     expression: ast.expr
 
 
+def _resolve_invariant_call(
+    call: ast.Call,
+    invariants: Mapping[str, InvariantDefinition],
+    shadowed: Collection[str] = (),
+) -> InvariantDefinition | None:
+    if not isinstance(call.func, ast.Name) or call.func.id in shadowed:
+        return None
+    return invariants.get(call.func.id)
+
+
 @dataclass(frozen=True, slots=True)
 class QueueProgram:
     system: str
@@ -1232,6 +1242,22 @@ def _invariant_definitions(
     payloads: dict[str, Payload],
     bitfields: Mapping[str, BitfieldLayout],
 ) -> tuple[InvariantDefinition, ...]:
+    agentic_module_aliases = {
+        alias.asname or alias.name
+        for statement in tree.body
+        if isinstance(statement, ast.Import)
+        for alias in statement.names
+        if alias.name == "agentic_circuit"
+    }
+    agentic_bare_imports = {
+        alias.name
+        for statement in tree.body
+        if isinstance(statement, ast.ImportFrom)
+        and statement.level == 0
+        and statement.module == "agentic_circuit"
+        for alias in statement.names
+        if alias.asname is None
+    }
     definitions: list[InvariantDefinition] = []
     for node in tree.body:
         if not isinstance(node, ast.FunctionDef) or not any(
@@ -1312,22 +1338,90 @@ def _invariant_definitions(
         raise QueueFrontendError(
             "ACPY-INVARIANT-001: invariant function names must be unique in a closure"
         )
+
+    by_name = {definition.function_name: definition for definition in definitions}
+    call_graph: dict[str, tuple[str, ...]] = {}
     for definition in definitions:
-        if any(
-            isinstance(candidate, ast.Call)
-            and _decorator_name(candidate.func).rsplit(".", 1)[-1] in names
-            for candidate in ast.walk(definition.expression)
-        ):
-            raise QueueFrontendError(
-                f"ACPY-INVARIANT-002: invariant {definition.qualified_name} "
-                "cannot call another invariant"
+        shadowed = {definition.argument}
+        for candidate in ast.walk(definition.expression):
+            if not isinstance(candidate, ast.Call):
+                continue
+            if isinstance(candidate.func, ast.Name):
+                name = candidate.func.id
+                if name not in shadowed and (
+                    _resolve_invariant_call(candidate, by_name, shadowed) is not None
+                    or name in payloads
+                    or name in bitfields
+                    or name in agentic_bare_imports
+                ):
+                    continue
+                raise QueueFrontendError(
+                    f"ACPY-INVARIANT-002: invariant {definition.qualified_name} "
+                    "uses unsupported call target "
+                    f"{ast.unparse(candidate.func)!r}"
+                )
+            bitfield_view = (
+                isinstance(candidate.func, ast.Attribute)
+                and candidate.func.attr == "view"
+                and isinstance(candidate.func.value, ast.Name)
+                and candidate.func.value.id not in shadowed
+                and candidate.func.value.id in bitfields
             )
+            agentic_intrinsic = (
+                isinstance(candidate.func, ast.Attribute)
+                and isinstance(candidate.func.value, ast.Name)
+                and candidate.func.value.id not in shadowed
+                and candidate.func.value.id in agentic_module_aliases
+            )
+            if not bitfield_view and not agentic_intrinsic:
+                raise QueueFrontendError(
+                    f"ACPY-INVARIANT-002: invariant {definition.qualified_name} "
+                    "uses unsupported call target "
+                    f"{ast.unparse(candidate.func)!r}"
+                )
+        call_graph[definition.function_name] = tuple(
+            dict.fromkeys(
+                resolved.function_name
+                for candidate in ast.walk(definition.expression)
+                if isinstance(candidate, ast.Call)
+                and (
+                    resolved := _resolve_invariant_call(
+                        candidate, by_name, shadowed
+                    )
+                )
+                is not None
+            )
+        )
+
+    visited: set[str] = set()
+    active: list[str] = []
+
+    def visit(function_name: str) -> None:
+        if function_name in active:
+            cycle = active[active.index(function_name) :] + [function_name]
+            rendered = " -> ".join(by_name[name].qualified_name for name in cycle)
+            raise QueueFrontendError(
+                "ACPY-INVARIANT-002: recursive invariant call graph: " + rendered
+            )
+        if function_name in visited:
+            return
+        active.append(function_name)
+        for callee in call_graph[function_name]:
+            visit(callee)
+        active.pop()
+        visited.add(function_name)
+
+    for definition in definitions:
+        visit(definition.function_name)
+
+    for definition in definitions:
         validator = _ExpressionEmitter(
             payloads,
             definition.argument,
             definition.payload,
             root_name="value",
             bitfields=bitfields,
+            invariants=by_name,
         )
         try:
             _, result_type = validator.emit(definition.expression, BoolType())
@@ -7167,8 +7261,23 @@ class _ExpressionEmitter:
         self, node: ast.expr, expected: ValueType | None = None
     ) -> tuple[str, ValueType]:
         if isinstance(node, ast.Call):
-            invariant_name = _decorator_name(node.func).rsplit(".", 1)[-1]
-            invariant = self.invariants.get(invariant_name)
+            lexical_bindings = {
+                self.argument,
+                *self.root_values,
+                *self.deferred_values,
+                *self.table_views,
+                *self.slot_views,
+                *self.candidates,
+                *self.selections,
+                *self.candidate_values,
+                *self.selection_values,
+                *self.find_values,
+                *self.state_views,
+                *self.table_domains,
+            }
+            invariant = _resolve_invariant_call(
+                node, self.invariants, lexical_bindings
+            )
             if invariant is not None:
                 if len(node.args) != 1 or node.keywords:
                     raise QueueFrontendError(
@@ -7182,13 +7291,16 @@ class _ExpressionEmitter:
                         f"{invariant.qualified_name} requires payload "
                         f"{invariant.payload.name}, got {_render_type(operand_type)}"
                     )
+                predicate_prefix = f"{self.prefix}invariant{self.index}_"
+                predicate_argument = f"{predicate_prefix}value"
                 predicate_emitter = _ExpressionEmitter(
                     self.payloads,
                     invariant.argument,
                     invariant.payload,
-                    root_name="value",
-                    prefix=f"{self.prefix}invariant{self.index}_",
+                    root_name=predicate_argument,
+                    prefix=predicate_prefix,
                     bitfields=self.bitfields,
+                    invariants=self.invariants,
                 )
                 predicate, predicate_type = predicate_emitter.emit(
                     invariant.expression, BoolType()
@@ -7205,7 +7317,8 @@ class _ExpressionEmitter:
                     f"{json.dumps(invariant.qualified_name)} {{"
                 )
                 self.lines.append(
-                    f"    ^predicate(%value: !ac.var<{rendered_payload}>):"
+                    f"    ^predicate(%{predicate_argument}: "
+                    f"!ac.var<{rendered_payload}>):"
                 )
                 self.lines.extend(predicate_emitter.lines)
                 self.lines.append(

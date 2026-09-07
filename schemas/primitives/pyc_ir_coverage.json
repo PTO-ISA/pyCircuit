@@ -855,6 +855,7 @@
         "tests/mlir/agentic-circuit/CodeGen/popcount.mlir",
         "tests/mlir/pyc/popcount-primitive.mlir",
         "tests/python/agentic-circuit/python_frontend/test_public_api.py",
+        "tests/python/agentic-circuit/python_frontend/test_queue_frontend.py",
         "tests/system/test_primitive_selection.py",
         "tests/unit/test_pyc6_surface.py",
         "tests/unit/test_pyc_ir_inventory.py"

@@ -1304,10 +1304,18 @@ as an ordinary typed Python function:
 
 ```python
 @ac.invariant
+def valid_producer(value: Producer) -> bool:
+    return value.epoch.flow == value.inst.flow
+
+@ac.invariant
 def valid_operand(value: Operand) -> bool:
     return (
         (value.is_constant and value.arch_index == 0)
-        or ((not value.is_constant) and value.phys_valid)
+        or (
+            (not value.is_constant)
+            and value.phys_valid
+            and valid_producer(value.producer)
+        )
     )
 
 accepted = valid_operand(request.operand)
@@ -1317,15 +1325,25 @@ same_key = pending.key == request.key
 An invariant MUST take exactly one nominal struct value, MUST return `bool`,
 and MUST contain one pure return expression. It may use admitted field and
 element access, equality, enum equality, bit operations, boolean operations,
-and bounded scalar comparisons. It cannot read state, mutate a value, call a
-Queue or module, use reflection, or capture an external runtime value. Its
-stable diagnostic name is `<Payload>.<function>`.
+and bounded scalar comparisons. It may call another invariant in the same
+source closure when the argument has that callee's exact nominal type. The
+target MUST be a bare, statically resolved invariant name that is not shadowed
+by a lexical parameter or local; an attribute or receiver call is dynamic
+dispatch and remains invalid. The invariant call graph MUST be finite and
+acyclic. It cannot call arbitrary functions, read state,
+mutate a value, call a Queue or module, use reflection, or capture an external
+runtime value. Its stable diagnostic name is `<Payload>.<function>`.
+Framework intrinsics use their canonical unaliased bare import name or an
+explicit Agentic Circuit module alias such as `ac.matches`; renamed bare
+intrinsic imports are invalid.
 
 Each call emits `ac.var.invariant` with one typed predicate region. The
-operation computes a boolean value; it is not an assertion, an implicit input
-assumption, or a refined runtime type. The rule must use the result explicitly
-as a guard or classification. `ac-lower-value-contracts` inlines the predicate
-and recursively lowers aggregate `ac.var.cmp` into descriptor-order
+operation computes a boolean value; a composed call is a nested invariant
+region with hygienic SSA and no implicit capture. It is not an assertion, an
+implicit input assumption, or a refined runtime type. The rule must use the
+result explicitly as a guard or classification. `ac-lower-value-contracts`
+inlines leaf callees before callers and recursively lowers aggregate
+`ac.var.cmp` into descriptor-order
 `ac.var.get`/`ac.var.element`, scalar or enum equality leaves, and a balanced
 boolean AND tree. `ne` negates the complete equality result. No aggregate
 comparison or invariant operation may remain in Frozen ACIR or QueueGraph.
