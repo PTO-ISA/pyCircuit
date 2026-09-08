@@ -1,0 +1,104 @@
+{
+  "designs": {
+    "gpe_ipf": {
+      "expanded_queue_operations": {
+        "merge": 2,
+        "route": 1,
+        "transform": 4,
+        "transform_specializations": 4
+      },
+      "generated_bytes": {
+        "gfsim_cpp": 8018,
+        "pyc": 19529,
+        "pyc_cpp": 177382,
+        "verilog": 45015
+      },
+      "generated_files": {
+        "pyc_cpp": 7,
+        "verilog": 2
+      },
+      "latencies": [
+        1,
+        2,
+        3,
+        4
+      ],
+      "manifest_sha256": "cbad4240f670c546bde839e9ae4732c4db758eb3f9805906e980889e938330c7",
+      "source": {
+        "ac_array_calls": 1,
+        "apply_calls": 1,
+        "external_revision_loc": 81,
+        "static_template_loc": 63
+      }
+    },
+    "mem_noc": {
+      "expanded_queue_operations": {
+        "merge": 2,
+        "route": 1,
+        "transform": 4,
+        "transform_specializations": 4
+      },
+      "generated_bytes": {
+        "gfsim_cpp": 8501,
+        "pyc": 19674,
+        "pyc_cpp": 185269,
+        "verilog": 45441
+      },
+      "generated_files": {
+        "pyc_cpp": 7,
+        "verilog": 2
+      },
+      "latencies": [
+        1,
+        2,
+        3,
+        5
+      ],
+      "manifest_sha256": "f26ebe05370253b580cb555862a22b8b5058a13d3ede23b6c95ba610a75d53ce",
+      "source": {
+        "ac_array_calls": 1,
+        "apply_calls": 1,
+        "external_revision_loc": 106,
+        "static_template_loc": 79
+      }
+    },
+    "tmu_bgf": {
+      "expanded_queue_operations": {
+        "merge": 2,
+        "route": 1,
+        "transform": 4,
+        "transform_specializations": 4
+      },
+      "generated_bytes": {
+        "gfsim_cpp": 8117,
+        "pyc": 20097,
+        "pyc_cpp": 208682,
+        "verilog": 46711
+      },
+      "generated_files": {
+        "pyc_cpp": 7,
+        "verilog": 2
+      },
+      "latencies": [
+        1,
+        2,
+        4,
+        7
+      ],
+      "manifest_sha256": "29f4a0bdb04b1556422e303d83af6072b1be5f813140e0805a568c0548eb2aae",
+      "source": {
+        "ac_array_calls": 1,
+        "apply_calls": 1,
+        "external_revision_loc": 90,
+        "static_template_loc": 69
+      }
+    }
+  },
+  "external_source_revision": "b81ecfc2b634d41886b01fd8724905eeb5bb6551",
+  "framework_revision": "912b8c43ea12609670a6fc9d35d8fe0b14f4eb80",
+  "source_loc": {
+    "external_total": 277,
+    "removed": 66,
+    "static_template_total": 211
+  }
+}

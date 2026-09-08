@@ -1,0 +1,12 @@
+PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=.:python/agentic-circuit/src:python/semantic-core/src python3 docs/gates/logs/20260908-issue63-opt06-davincioo-xbars/measure_xbar_codegen.py
+PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=.pycircuit_out/contracts-venv/lib/python3.14/site-packages:python/agentic-circuit/src:python/semantic-core/src pytest -q designs/davincioo/tests/fabric/test_xbar_static_generation.py
+AC_PYTHON_ONLY=1 PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=python/semantic-core/src:python/agentic-circuit/src pytest -q designs/davincioo/tests/fabric/test_xbar_static_generation.py
+PYTHONDONTWRITEBYTECODE=1 python3 designs/davincioo/tools/check_catalog.py
+PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=python/agentic-circuit/src:python/semantic-core/src:python/pycircuit/src .pycircuit_out/contracts-venv/bin/python tools/agentic-circuit/check-contracts.py
+python3 tools/check-pyc-inventory.py
+python3 tools/agentic-circuit/check-ir-coverage.py
+PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=python/semantic-core/src:python/pycircuit/src pytest tests/unit -m unit -q
+PYTHONDONTWRITEBYTECODE=1 pytest -q tests/system/test_primitive_selection.py
+pre-commit run --files designs/davincioo/tmu/bgf/xbar.py designs/davincioo/gpe/ipf/xbar.py designs/davincioo/mem/noc/xbar.py designs/davincioo/tmu/bgf/xbar.md designs/davincioo/gpe/ipf/xbar.md designs/davincioo/mem/noc/xbar.md designs/davincioo/tests/fabric/test_xbar_static_generation.py designs/davincioo/catalog.json designs/davincioo/MODULE_CHECKLIST.md designs/davincioo/tools/check_catalog.py docs/pyc6-plan.md docs/gates/logs/20260908-issue63-opt06-davincioo-xbars/commands.txt docs/gates/logs/20260908-issue63-opt06-davincioo-xbars/measure_xbar_codegen.py docs/gates/logs/20260908-issue63-opt06-davincioo-xbars/metrics.json docs/gates/logs/20260908-issue63-opt06-davincioo-xbars/review.md docs/gates/logs/20260908-issue63-opt06-davincioo-xbars/summary.json
+mkdocs build --strict --site-dir .pycircuit_out/issue63-opt06-davincioo-xbars/site
+python3 flows/tools/check_decision_status.py --rfc docs/rfcs/pyc6-decisions.md --status docs/gates/decision_status_v6.md --out docs/gates/logs/20260908-issue63-opt06-davincioo-xbars/decision_status_report.json --require-no-deferred --require-all-verified --require-concrete-evidence --require-existing-evidence

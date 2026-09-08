@@ -1,0 +1,8 @@
+check for merge conflicts................................................Passed
+check yaml...........................................(no files to check)Skipped
+fix end of files.....................................(no files to check)Skipped
+trim trailing whitespace.............................(no files to check)Skipped
+ruff.................................................(no files to check)Skipped
+black................................................(no files to check)Skipped
+markdownlint-cli2....................................(no files to check)Skipped
+pyCircuit API hygiene gate...........................(no files to check)Skipped

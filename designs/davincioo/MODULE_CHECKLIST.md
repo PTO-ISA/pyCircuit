@@ -185,7 +185,7 @@ All 240 source candidates are accounted for. Hardware H1/H2/H3 is inside NDF L2;
 - [ ] [DAV-TMU-BGF-MAP-0001 — Mapping](tmu/bgf/map.md) · leaf; IN: cell_map_req: CellMapReq (proposed); OUT: cell_map_resp: CellMapResp (proposed)
 - [ ] [DAV-TMU-BGF-RQ-0001 — Read Queue](tmu/bgf/rq.md) · state_schema; IN: read_enqueue: CellReadReq (proposed); OUT: read_head: CellReadReq (proposed)
 - [ ] [DAV-TMU-BGF-WQ-0001 — Write Queue](tmu/bgf/wq.md) · state_schema; IN: write_enqueue: CellWriteReq (proposed); OUT: write_head: CellWriteReq (proposed)
-- [ ] [DAV-TMU-BGF-XBAR-0001 — Crossbar](tmu/bgf/xbar.md) · leaf; IN: ingress_0: BGFPacket (declared); ingress_1: BGFPacket (declared); ingress_2: BGFPacket (declared); ingress_3: BGFPacket (declared); OUT: delivered: BGFPacket (declared)
+- [x] [DAV-TMU-BGF-XBAR-0001 — Crossbar](tmu/bgf/xbar.md) · leaf; IN: ingress_0: BGFPacket (declared); ingress_1: BGFPacket (declared); ingress_2: BGFPacket (declared); ingress_3: BGFPacket (declared); OUT: delivered: BGFPacket (declared)
 
 ### H2 TRF
 
@@ -315,7 +315,7 @@ All 240 source candidates are accounted for. Hardware H1/H2/H3 is inside NDF L2;
 - [ ] [DAV-MEM-NOC-BUF-0001 — Buffer](mem/noc/buf.md) · state_schema; IN: buffer_enqueue: NoCFlit|NoCPacket (unresolved); OUT: buffer_head: NoCFlit|NoCPacket (unresolved)
 - [ ] [DAV-MEM-NOC-RTR-0001 — Router](mem/noc/rtr.md) · review; IN: router_ingress[]: NoCFlit|NoCPacket (unresolved); credit_or_accept[]: NoCFlowControl (unresolved); OUT: router_egress[]: NoCFlit|NoCPacket (unresolved); transport_status: NoCTransportStatus (unresolved)
 - [ ] [DAV-MEM-NOC-VC-0001 — Virtual Channel](mem/noc/vc.md) · review; IN: vc_alloc_req: VcAllocReq (unresolved); credit_return: VcCredit (unresolved); vc_release_req: VcReleaseReq (unresolved); OUT: vc_alloc_ack: VcAllocAck (unresolved); vc_release_ack: VcReleaseAck (unresolved)
-- [ ] [DAV-MEM-NOC-XBAR-0001 — Crossbar](mem/noc/xbar.md) · leaf; IN: ingress_0: NoCPacket (declared); ingress_1: NoCPacket (declared); ingress_2: NoCPacket (declared); ingress_3: NoCPacket (declared); OUT: delivered: NoCPacket (declared)
+- [x] [DAV-MEM-NOC-XBAR-0001 — Crossbar](mem/noc/xbar.md) · leaf; IN: ingress_0: NoCPacket (declared); ingress_1: NoCPacket (declared); ingress_2: NoCPacket (declared); ingress_3: NoCPacket (declared); OUT: delivered: NoCPacket (declared)
 
 ## H1 GPE
 
@@ -349,4 +349,4 @@ All 240 source candidates are accounted for. Hardware H1/H2/H3 is inside NDF L2;
 - [ ] [DAV-GPE-IPF-REQ-0001 — Request](gpe/ipf/req.md) · interface; IN: packet_in: GPEPacket (proposed); OUT: packet_out: GPEPacket (proposed)
 - [ ] [DAV-GPE-IPF-RSP-0001 — Response](gpe/ipf/rsp.md) · interface; IN: packet_in: GPEPacket (proposed); OUT: packet_out: GPEPacket (proposed)
 - [ ] [DAV-GPE-IPF-RTR-0001 — Router](gpe/ipf/rtr.md) · leaf; IN: packet_in: GPEPacket (proposed); OUT: packet_out: GPEPacket (proposed)
-- [ ] [DAV-GPE-IPF-XBAR-0001 — Crossbar](gpe/ipf/xbar.md) · leaf; IN: ingress_0: GPEPacket (declared); ingress_1: GPEPacket (declared); ingress_2: GPEPacket (declared); ingress_3: GPEPacket (declared); OUT: delivered: GPEPacket (declared)
+- [x] [DAV-GPE-IPF-XBAR-0001 — Crossbar](gpe/ipf/xbar.md) · leaf; IN: ingress_0: GPEPacket (declared); ingress_1: GPEPacket (declared); ingress_2: GPEPacket (declared); ingress_3: GPEPacket (declared); OUT: delivered: GPEPacket (declared)

@@ -1,0 +1,9 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.14.6, pytest-9.0.2, pluggy-1.6.0
+rootdir: /Users/zhoubot/linx-isa/tools/pyCircuit
+configfile: pyproject.toml
+collected 9 items
+
+designs/davincioo/tests/fabric/test_xbar_static_generation.py .........  [100%]
+
+============================== 9 passed in 25.21s ==============================

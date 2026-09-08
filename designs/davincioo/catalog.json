@@ -13529,7 +13529,7 @@
       "source_candidate_disposition": "leaf",
       "card": "tmu/bgf/xbar.md",
       "proposed_source": "designs/davincioo/tmu/bgf/xbar.py",
-      "execution_status": "not-implemented-in-design-program",
+      "execution_status": "implemented-and-verified-in-design-program",
       "module_specific_ndf_links_status": "review-required"
     },
     {
@@ -20492,7 +20492,7 @@
       "source_candidate_disposition": "leaf",
       "card": "mem/noc/xbar.md",
       "proposed_source": "designs/davincioo/mem/noc/xbar.py",
-      "execution_status": "not-implemented-in-design-program",
+      "execution_status": "implemented-and-verified-in-design-program",
       "module_specific_ndf_links_status": "review-required"
     },
     {
@@ -22304,7 +22304,7 @@
       "source_candidate_disposition": "leaf",
       "card": "gpe/ipf/xbar.md",
       "proposed_source": "designs/davincioo/gpe/ipf/xbar.py",
-      "execution_status": "not-implemented-in-design-program",
+      "execution_status": "implemented-and-verified-in-design-program",
       "module_specific_ndf_links_status": "review-required"
     }
   ]
