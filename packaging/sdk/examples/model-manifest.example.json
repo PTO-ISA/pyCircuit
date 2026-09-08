@@ -1,0 +1,45 @@
+{
+  "cmake_sources": {
+    "path": "model-sources.cmake",
+    "sha256": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "contract_epoch": "0.5",
+  "depfile_path": "model.d",
+  "entry": "model.top:main",
+  "exports": {
+    "abi_version": "1",
+    "api_struct_size": 96,
+    "buffer_struct_size": 16,
+    "header": "include/gfsim/model_api.h",
+    "query_symbol": "agentic_model_query_v1",
+    "step_result_struct_size": 32
+  },
+  "generated_files": [
+    {
+      "path": "include/generated/model.h",
+      "sha256": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "src/generated/model.cpp",
+      "sha256": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "src/generated/module_top.cpp",
+      "sha256": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  ],
+  "plan": {
+    "path": "model-plan.json",
+    "sha256": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "required_runtime": "AgenticCircuit::Gfsim",
+  "runtime_abi": "1",
+  "schema": "agentic-circuit-model-manifest",
+  "sdk": {
+    "platform_manifest_sha256": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "product_version": "6.0.0",
+    "source_revision": "e4485192727e27ac4d1de62bfdb6438fd878cdff"
+  },
+  "specialization": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "version": "1"
+}

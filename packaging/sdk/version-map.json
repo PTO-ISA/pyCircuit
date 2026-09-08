@@ -1,0 +1,49 @@
+{
+  "schema": "pycircuit-sdk-version-map",
+  "version": "1",
+  "candidate_tag": "v6.0.0",
+  "product_version": "6.0.0",
+  "source_revision_policy": "annotated_tag_peeled_commit",
+  "compatibility": "exact_identity_tuple",
+  "distributions": {
+    "pycircuit-hisi": "6.0.0",
+    "pycircuit-semantic-core": "6.0.0",
+    "agentic-circuit": "0.1.0"
+  },
+  "contracts": {
+    "acpy_epoch": "0.5",
+    "acir_contract": "0.5",
+    "sdk_manifest": "1",
+    "model_plan": "1",
+    "model_manifest": "1",
+    "generator_abi": "1",
+    "runtime_abi": "1",
+    "consumer_lock": "1",
+    "release_index": "1"
+  },
+  "platforms": [
+    {
+      "id": "linux-x86_64",
+      "runner": "ubuntu-24.04",
+      "architecture": "x86_64",
+      "host_triple": "x86_64-linux-gnu",
+      "minimum_os": "Ubuntu 24.04",
+      "minimum_libc": "glibc 2.39",
+      "python": "3.11",
+      "cxx_standard": "20",
+      "cxx_abi": "libstdc++ CXX11 ABI"
+    },
+    {
+      "id": "macos-arm64",
+      "runner": "macos-15",
+      "architecture": "arm64",
+      "host_triple": "arm64-apple-darwin",
+      "minimum_os": "macOS 15",
+      "minimum_libc": null,
+      "python": "3.11",
+      "cxx_standard": "20",
+      "cxx_abi": "Apple libc++"
+    }
+  ],
+  "contract_epoch": "0.5"
+}

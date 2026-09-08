@@ -1,0 +1,63 @@
+{
+  "capabilities": [
+    "queuegraph-v2",
+    "multi-tu-v1",
+    "runtime-abi-v1"
+  ],
+  "cmake_sources": {
+    "path": "model-sources.cmake",
+    "sha256": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "config": {
+    "path": "model.toml",
+    "sha256": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "contract_epoch": "0.5",
+  "depfile_path": "model.d",
+  "entry": "model.top:main",
+  "frozen_acir": {
+    "path": "frozen.ac.mlir",
+    "sha256": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "inputs": [
+    {
+      "path": "model/top.py",
+      "role": "entry",
+      "sha256": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "model/contracts.py",
+      "role": "contract",
+      "sha256": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "model.toml",
+      "role": "config",
+      "sha256": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  ],
+  "outputs": [
+    "include/generated/model.h",
+    "src/generated/model.cpp",
+    "src/generated/module_top.cpp"
+  ],
+  "queuegraph": {
+    "path": "queuegraph.json",
+    "sha256": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "required_runtime": "AgenticCircuit::Gfsim",
+  "schema": "agentic-circuit-model-plan",
+  "sdk": {
+    "generator_abi": "1",
+    "model_plan_abi": "1",
+    "platform_manifest_sha256": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "product_version": "6.0.0",
+    "runtime_abi": "1",
+    "source_revision": "e4485192727e27ac4d1de62bfdb6438fd878cdff"
+  },
+  "specialization": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "static_config": {
+    "entries": 8
+  },
+  "version": "1"
+}

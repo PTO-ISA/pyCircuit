@@ -98,8 +98,8 @@ def check_governance(errors):
 
 def check_epochs(errors):
     schemas = sorted((ROOT / "schemas/agentic-circuit").glob("*.schema.json"))
-    if len(schemas) != 15:
-        errors.append(f"expected 15 JSON schemas, found {len(schemas)}")
+    if len(schemas) != 21:
+        errors.append(f"expected 21 JSON schemas, found {len(schemas)}")
     for path in schemas:
         document = json.loads(path.read_text())
         actual = document.get("properties", {}).get("contract_epoch", {}).get("const")
@@ -451,7 +451,7 @@ def main():
         return 1
     print(
         "repository contracts: OK "
-        "(15 public schemas, 36 stdlib components, epoch 0.5, LLVM 22.1.8)"
+        "(21 public schemas, 36 stdlib components, epoch 0.5, LLVM 22.1.8)"
     )
     return 0
 

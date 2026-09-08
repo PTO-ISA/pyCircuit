@@ -1,0 +1,434 @@
+{
+  "$id": "https://pto-isa.org/schemas/agentic-circuit/consumer-lock-v1.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "abi": {
+      "additionalProperties": false,
+      "properties": {
+        "acir_contract": {
+          "const": "0.5"
+        },
+        "acpy_epoch": {
+          "const": "0.5"
+        },
+        "consumer_lock": {
+          "const": "1"
+        },
+        "generator_abi": {
+          "const": "1"
+        },
+        "model_manifest": {
+          "const": "1"
+        },
+        "model_plan": {
+          "const": "1"
+        },
+        "release_index": {
+          "const": "1"
+        },
+        "runtime_abi": {
+          "const": "1"
+        },
+        "sdk_manifest": {
+          "const": "1"
+        }
+      },
+      "required": [
+        "acpy_epoch",
+        "acir_contract",
+        "sdk_manifest",
+        "release_index",
+        "model_plan",
+        "model_manifest",
+        "generator_abi",
+        "runtime_abi",
+        "consumer_lock"
+      ],
+      "type": "object"
+    },
+    "capabilities": {
+      "const": [
+        "cycle-aware-signal",
+        "pyc-cpp",
+        "pyc-verilog",
+        "agentic-model-plan",
+        "agentic-model-emit-cpp",
+        "gfsim-runtime-v1"
+      ]
+    },
+    "contract_epoch": {
+      "const": "0.5"
+    },
+    "platform": {
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "archive": {
+              "allOf": [
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "name": {
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "sha256": {
+                      "pattern": "^sha256:[0-9a-f]{64}$",
+                      "type": "string"
+                    },
+                    "size": {
+                      "minimum": 1,
+                      "type": "integer"
+                    },
+                    "url": {
+                      "oneOf": [
+                        {
+                          "format": "uri",
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "name",
+                    "sha256",
+                    "size",
+                    "url"
+                  ],
+                  "type": "object"
+                },
+                {
+                  "properties": {
+                    "name": {
+                      "pattern": "^pycircuit-sdk-[0-9]+\\.[0-9]+\\.[0-9]+-linux\\-x86_64\\.tar\\.gz$",
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              ]
+            },
+            "id": {
+              "const": "linux-x86_64"
+            },
+            "manifest": {
+              "allOf": [
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "name": {
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "sha256": {
+                      "pattern": "^sha256:[0-9a-f]{64}$",
+                      "type": "string"
+                    },
+                    "size": {
+                      "minimum": 1,
+                      "type": "integer"
+                    },
+                    "url": {
+                      "oneOf": [
+                        {
+                          "format": "uri",
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "name",
+                    "sha256",
+                    "size",
+                    "url"
+                  ],
+                  "type": "object"
+                },
+                {
+                  "properties": {
+                    "name": {
+                      "pattern": "^pycircuit-sdk-[0-9]+\\.[0-9]+\\.[0-9]+-linux\\-x86_64\\.manifest\\.json$",
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              ]
+            }
+          },
+          "required": [
+            "id",
+            "archive",
+            "manifest"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "archive": {
+              "allOf": [
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "name": {
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "sha256": {
+                      "pattern": "^sha256:[0-9a-f]{64}$",
+                      "type": "string"
+                    },
+                    "size": {
+                      "minimum": 1,
+                      "type": "integer"
+                    },
+                    "url": {
+                      "oneOf": [
+                        {
+                          "format": "uri",
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "name",
+                    "sha256",
+                    "size",
+                    "url"
+                  ],
+                  "type": "object"
+                },
+                {
+                  "properties": {
+                    "name": {
+                      "pattern": "^pycircuit-sdk-[0-9]+\\.[0-9]+\\.[0-9]+-macos\\-arm64\\.tar\\.gz$",
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              ]
+            },
+            "id": {
+              "const": "macos-arm64"
+            },
+            "manifest": {
+              "allOf": [
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "name": {
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "sha256": {
+                      "pattern": "^sha256:[0-9a-f]{64}$",
+                      "type": "string"
+                    },
+                    "size": {
+                      "minimum": 1,
+                      "type": "integer"
+                    },
+                    "url": {
+                      "oneOf": [
+                        {
+                          "format": "uri",
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "name",
+                    "sha256",
+                    "size",
+                    "url"
+                  ],
+                  "type": "object"
+                },
+                {
+                  "properties": {
+                    "name": {
+                      "pattern": "^pycircuit-sdk-[0-9]+\\.[0-9]+\\.[0-9]+-macos\\-arm64\\.manifest\\.json$",
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              ]
+            }
+          },
+          "required": [
+            "id",
+            "archive",
+            "manifest"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "release": {
+      "pattern": "^v[0-9]+\\.[0-9]+\\.[0-9]+$",
+      "type": "string"
+    },
+    "release_index": {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "pattern": "^pycircuit-sdk-[0-9]+\\.[0-9]+\\.[0-9]+-release\\-index\\.json$",
+          "type": "string"
+        },
+        "sha256": {
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "url": {
+          "format": "uri",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "url",
+        "sha256"
+      ],
+      "type": "object"
+    },
+    "schema": {
+      "const": "pycircuit-sdk-lock"
+    },
+    "source_revision": {
+      "pattern": "^[0-9a-f]{40}$",
+      "type": "string"
+    },
+    "version": {
+      "const": "1"
+    },
+    "wheels": {
+      "additionalProperties": false,
+      "properties": {
+        "agentic-circuit": {
+          "additionalProperties": false,
+          "properties": {
+            "name": {
+              "pattern": "^agentic_circuit.*\\.whl$",
+              "type": "string"
+            },
+            "sha256": {
+              "pattern": "^sha256:[0-9a-f]{64}$",
+              "type": "string"
+            },
+            "url": {
+              "format": "uri",
+              "type": "string"
+            },
+            "version": {
+              "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+(?:[.a-zA-Z0-9+-]*)?$",
+              "type": "string"
+            }
+          },
+          "required": [
+            "version",
+            "name",
+            "url",
+            "sha256"
+          ],
+          "type": "object"
+        },
+        "pycircuit-hisi": {
+          "additionalProperties": false,
+          "properties": {
+            "name": {
+              "pattern": "^pycircuit_hisi.*\\.whl$",
+              "type": "string"
+            },
+            "sha256": {
+              "pattern": "^sha256:[0-9a-f]{64}$",
+              "type": "string"
+            },
+            "url": {
+              "format": "uri",
+              "type": "string"
+            },
+            "version": {
+              "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+(?:[.a-zA-Z0-9+-]*)?$",
+              "type": "string"
+            }
+          },
+          "required": [
+            "version",
+            "name",
+            "url",
+            "sha256"
+          ],
+          "type": "object"
+        },
+        "pycircuit-semantic-core": {
+          "additionalProperties": false,
+          "properties": {
+            "name": {
+              "pattern": "^pycircuit_semantic_core.*\\.whl$",
+              "type": "string"
+            },
+            "sha256": {
+              "pattern": "^sha256:[0-9a-f]{64}$",
+              "type": "string"
+            },
+            "url": {
+              "format": "uri",
+              "type": "string"
+            },
+            "version": {
+              "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+(?:[.a-zA-Z0-9+-]*)?$",
+              "type": "string"
+            }
+          },
+          "required": [
+            "version",
+            "name",
+            "url",
+            "sha256"
+          ],
+          "type": "object"
+        }
+      },
+      "required": [
+        "pycircuit-hisi",
+        "pycircuit-semantic-core",
+        "agentic-circuit"
+      ],
+      "type": "object"
+    }
+  },
+  "required": [
+    "schema",
+    "version",
+    "contract_epoch",
+    "release",
+    "source_revision",
+    "release_index",
+    "platform",
+    "wheels",
+    "abi",
+    "capabilities"
+  ],
+  "title": "pyCircuit SDK consumer lock v1",
+  "type": "object"
+}

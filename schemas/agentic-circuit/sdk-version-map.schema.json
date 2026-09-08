@@ -1,0 +1,106 @@
+{
+  "$id": "https://pto-isa.org/schemas/agentic-circuit/sdk-version-map-v1.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "candidate_tag": {
+      "pattern": "^v[0-9]+\\.[0-9]+\\.[0-9]+$",
+      "type": "string"
+    },
+    "compatibility": {
+      "const": "exact_identity_tuple"
+    },
+    "contract_epoch": {
+      "const": "0.5"
+    },
+    "contracts": {
+      "const": {
+        "acir_contract": "0.5",
+        "acpy_epoch": "0.5",
+        "consumer_lock": "1",
+        "generator_abi": "1",
+        "model_manifest": "1",
+        "model_plan": "1",
+        "release_index": "1",
+        "runtime_abi": "1",
+        "sdk_manifest": "1"
+      }
+    },
+    "distributions": {
+      "additionalProperties": false,
+      "properties": {
+        "agentic-circuit": {
+          "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+(?:[.a-zA-Z0-9+-]*)?$",
+          "type": "string"
+        },
+        "pycircuit-hisi": {
+          "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+(?:[.a-zA-Z0-9+-]*)?$",
+          "type": "string"
+        },
+        "pycircuit-semantic-core": {
+          "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+(?:[.a-zA-Z0-9+-]*)?$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "pycircuit-hisi",
+        "pycircuit-semantic-core",
+        "agentic-circuit"
+      ],
+      "type": "object"
+    },
+    "platforms": {
+      "const": [
+        {
+          "architecture": "x86_64",
+          "cxx_abi": "libstdc++ CXX11 ABI",
+          "cxx_standard": "20",
+          "host_triple": "x86_64-linux-gnu",
+          "id": "linux-x86_64",
+          "minimum_libc": "glibc 2.39",
+          "minimum_os": "Ubuntu 24.04",
+          "python": "3.11",
+          "runner": "ubuntu-24.04"
+        },
+        {
+          "architecture": "arm64",
+          "cxx_abi": "Apple libc++",
+          "cxx_standard": "20",
+          "host_triple": "arm64-apple-darwin",
+          "id": "macos-arm64",
+          "minimum_libc": null,
+          "minimum_os": "macOS 15",
+          "python": "3.11",
+          "runner": "macos-15"
+        }
+      ]
+    },
+    "product_version": {
+      "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+(?:[.a-zA-Z0-9+-]*)?$",
+      "type": "string"
+    },
+    "schema": {
+      "const": "pycircuit-sdk-version-map"
+    },
+    "source_revision_policy": {
+      "const": "annotated_tag_peeled_commit"
+    },
+    "version": {
+      "const": "1"
+    }
+  },
+  "required": [
+    "schema",
+    "version",
+    "candidate_tag",
+    "product_version",
+    "source_revision_policy",
+    "compatibility",
+    "distributions",
+    "contracts",
+    "platforms",
+    "contract_epoch"
+  ],
+  "title": "pyCircuit SDK version map v1",
+  "type": "object"
+}

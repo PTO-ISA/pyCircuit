@@ -391,7 +391,7 @@ class RepositoryContractsTest(unittest.TestCase):
             r'^contract-epoch\s*=\s*"([^"]+)"\s*$', pyproject, re.MULTILINE
         )
 
-        self.assertEqual(15, len(schema_epochs))
+        self.assertEqual(21, len(schema_epochs))
         self.assertEqual({CONTRACT_EPOCH}, set(schema_epochs.values()), schema_epochs)
         self.assertIsNotNone(declared_epoch, "pyproject.toml lacks contract-epoch")
         self.assertEqual(CONTRACT_EPOCH, declared_epoch.group(1))
@@ -413,7 +413,7 @@ class RepositoryContractsTest(unittest.TestCase):
             )
             Draft202012Validator.check_schema(document)
             checked.append(path.name)
-        self.assertEqual(15, len(checked), checked)
+        self.assertEqual(21, len(checked), checked)
 
     def test_trace_source_decoder_uses_the_runtime_decoder_concept(self):
         record = json.loads(

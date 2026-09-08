@@ -21,6 +21,7 @@ matrix and keep the separate frontend and IR boundaries defined by Decision
 
 - [Contributing workflow](contributing-workflow.md)
 - [Testing and gates](testing-and-gates.md)
+- [Stable SDK release contract](sdk-release-contract.md)
 - [Review and merge](review-and-merge.md)
 - [Repository management](repository-management.md)
 - [DavinciOO contributor design program](davincioo-design-program.md)
