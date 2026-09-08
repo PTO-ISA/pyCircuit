@@ -5203,6 +5203,10 @@ erase the module's storage boundary.
 - Each parent instance constructs its own internal `SimQueue` objects. Their
   dense IDs precede local block and child-object IDs inside the parent's
   recursively assigned interval.
+- Structural `ac.instance`, `ac.array`, and `ac.instances` operations declare
+  owned runtime objects and are never pure or dead solely because they return
+  no SSA value. Canonicalization and CSE must preserve zero-result stateful,
+  trace-owning, and observation-owning instances.
 - Local blocks and child instance bindings refer to the same parent-local Queue
   object. Child results that are returned directly bind the parent's external
   output Queue and need no duplicate internal storage.
@@ -5221,6 +5225,9 @@ erase the module's storage boundary.
   parent class and one class per specialization.
 - Inputs `5` and `10` independently traverse both stages and produce `7` and
   `12`.
+- A zero-result external trace provider survives `canonicalize,cse`, appears in
+  the frozen owner graph, accepts the validated trace, and reproduces all six
+  public workspace goldens.
 
 **Source**
 - User direction (2026-09-05 through 2026-09-06): preserve modules and reuse

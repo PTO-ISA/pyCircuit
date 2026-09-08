@@ -1,0 +1,8 @@
+cmake --build .pycircuit_out/acir/dev-llvm22 -j 8
+cmake --build .pycircuit_out/acir/dev-llvm22 --target check-acir -j 8
+ctest --test-dir .pycircuit_out/acir/dev-llvm22 --output-on-failure -j 8
+pytest -q tests/unit -m unit
+python3 tools/agentic-circuit/check-ir-coverage.py
+AC_PYTHON_ONLY=1 PYTHONPATH=python/semantic-core/src:python/agentic-circuit/src:tests/python/agentic-circuit .pycircuit_out/contracts-venv/bin/python -m unittest discover -s tests/python/agentic-circuit/contracts -p 'test_*.py'
+pre-commit run --all-files
+python3 flows/tools/check_decision_status.py --rfc docs/rfcs/pyc6-decisions.md --status docs/gates/decision_status_v6.md --out docs/gates/logs/20260909-release-preflight-structural-instances/decision_status_report.json --require-no-deferred --require-all-verified --require-concrete-evidence --require-existing-evidence

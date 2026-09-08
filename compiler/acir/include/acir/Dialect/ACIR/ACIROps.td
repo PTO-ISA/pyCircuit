@@ -1148,7 +1148,7 @@ def ACIR_ModuleExternOp : ACIR_ModuleDeclarationOp<"module.extern"> {
 }
 
 
-def ACIR_InstanceOp : ACIR_Op<"instance", [Pure]> {
+def ACIR_InstanceOp : ACIR_Op<"instance"> {
   let arguments = (ins Variadic<AnyType>:$inputs,
                        FlatSymbolRefAttr:$definition, SymbolNameAttr:$sym_name,
                        StrAttr:$stable_id, StrAttr:$path,
@@ -1161,7 +1161,7 @@ def ACIR_InstanceOp : ACIR_Op<"instance", [Pure]> {
   }];
 }
 
-def ACIR_ArrayOp : ACIR_Op<"array", [Pure]> {
+def ACIR_ArrayOp : ACIR_Op<"array"> {
   let arguments = (ins Variadic<AnyType>:$inputs,
                        FlatSymbolRefAttr:$definition, SymbolNameAttr:$sym_name,
                        StrAttr:$stable_id, StrAttr:$path,
@@ -1175,7 +1175,7 @@ def ACIR_ArrayOp : ACIR_Op<"array", [Pure]> {
   }];
 }
 
-def ACIR_InstancesOp : ACIR_Op<"instances", [Pure]> {
+def ACIR_InstancesOp : ACIR_Op<"instances"> {
   let arguments = (ins Variadic<AnyType>:$inputs,
                        SymbolNameAttr:$sym_name, StrAttr:$stable_id,
                        StrAttr:$path, ArrayAttr:$definitions,

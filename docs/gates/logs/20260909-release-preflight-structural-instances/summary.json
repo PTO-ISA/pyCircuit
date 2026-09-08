@@ -1,0 +1,52 @@
+{
+  "run_id": "20260909-release-preflight-structural-instances",
+  "status": "passed",
+  "base_revision": "7f5bf5ac2fc2aca83f306619357c3eb36ef77203",
+  "decision_ids": [
+    "0134",
+    "0184"
+  ],
+  "results": {
+    "native_build": {
+      "passed": true
+    },
+    "acir_lit": {
+      "passed": 192,
+      "failed": 0
+    },
+    "native_ctest": {
+      "passed": 20,
+      "failed": 0
+    },
+    "acir_ops": {
+      "passed": 1844,
+      "failed": 0
+    },
+    "workspace_e2e": {
+      "tests": 3,
+      "scenarios": 6,
+      "passed": true
+    },
+    "unit": {
+      "passed": 90,
+      "failed": 0
+    },
+    "pre_commit": {
+      "passed": true
+    },
+    "decision_status": {
+      "passed": true
+    },
+    "ir_coverage": {
+      "passed": true
+    },
+    "agentic_contracts": {
+      "passed": 42,
+      "failed": 0
+    }
+  },
+  "structural_contract": "ac.instance, ac.array, and ac.instances are retained ownership declarations even with zero SSA results; canonicalize, CSE, and the real ac-lower-rules pipeline cannot erase their runtime objects.",
+  "analysis_contract": "Removing the Pure trait does not turn module boundaries into combinational cut points; zero-delay analysis classifies structural instances from the recursively resolved callee statefulness.",
+  "release_impact": "All six public workspace goldens load their validated PTO traces again, and the complete local ACIR lit/native ctest matrix passes.",
+  "skill_evolve": "no-update"
+}

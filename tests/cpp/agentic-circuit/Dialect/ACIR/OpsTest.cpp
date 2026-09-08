@@ -300,6 +300,8 @@ TEST(ACIROpsTest, RegistryContainsExactQueueVarOperations) {
       "ac.var.extract",
       "ac.var.get",
       "ac.var.insert",
+      "ac.var.invariant",
+      "ac.var.invariant.yield",
       "ac.var.match",
       "ac.var.match.yield",
       "ac.var.mul",
@@ -710,7 +712,7 @@ TEST(ACIROpsTest, RuntimeAndQueueVarRegistryIsExact) {
         << name.str();
   EXPECT_FALSE(mlir::OperationName("ac.try_issue", &context).isRegistered());
   EXPECT_FALSE(mlir::OperationName("ac.connect", &context).isRegistered());
-  const std::array<llvm::StringLiteral, 92> queueVarNames = {
+  const std::array<llvm::StringLiteral, 94> queueVarNames = {
       "ac.transform",
       "ac.transform.yield",
       "ac.rule",
@@ -743,6 +745,8 @@ TEST(ACIROpsTest, RuntimeAndQueueVarRegistryIsExact) {
       "ac.var.enum",
       "ac.var.extract",
       "ac.var.insert",
+      "ac.var.invariant",
+      "ac.var.invariant.yield",
       "ac.var.match",
       "ac.var.match.yield",
       "ac.var.read",
@@ -807,7 +811,7 @@ TEST(ACIROpsTest, RuntimeAndQueueVarRegistryIsExact) {
   for (llvm::StringLiteral name : queueVarNames)
     EXPECT_TRUE(mlir::OperationName(name, &context).isRegistered())
         << name.str();
-  EXPECT_EQ(context.getRegisteredOperationsByDialect("ac").size(), 140u);
+  EXPECT_EQ(context.getRegisteredOperationsByDialect("ac").size(), 142u);
 }
 
 TEST(ACIROpsTest, ProcessLinearLivenessDoesNotRescanBlockPerValue) {
@@ -1737,8 +1741,8 @@ TEST(ACIROpsTest, TableEntryTypeRejectsNonStructRecordKinds) {
           return mlir::success();
         });
     EXPECT_FALSE(mlir::parseSourceString<mlir::ModuleOp>(source, &context));
-    EXPECT_NE(diagnostic.find("entry type must be a <=64-bit integer or an "
-                              "immutable recursive struct"),
+    EXPECT_NE(diagnostic.find("entry type must be a <=64-bit integer, nominal "
+                              "enum, or immutable recursive struct"),
               std::string::npos)
         << diagnostic;
   }

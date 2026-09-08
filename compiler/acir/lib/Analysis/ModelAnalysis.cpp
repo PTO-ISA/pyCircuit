@@ -760,9 +760,12 @@ LogicalResult ModelAnalysis::verifyZeroDelayDependencies() {
     for (Operation &operation : module.getBody().front()) {
       if (operation.getNumResults() == 0)
         continue;
+      const bool structuralInstance =
+          isa<ac::InstanceOp, ac::ArrayOp, ac::InstancesOp>(operation);
       bool stateful =
           isDirectStateOwner(&operation) ||
-          (!isMemoryEffectFree(&operation) && !isa<func::CallOp>(operation));
+          (!structuralInstance && !isMemoryEffectFree(&operation) &&
+           !isa<func::CallOp>(operation));
       auto targetStateful = [&](FlatSymbolRefAttr reference) {
         if (auto target = dyn_cast_or_null<ac::ModuleOp>(
                 lookupDefinition(model, reference)))
