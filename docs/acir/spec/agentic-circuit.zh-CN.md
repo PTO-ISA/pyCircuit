@@ -1274,6 +1274,17 @@ module；`ac.instance`、interface binding、specialization identity 和每实�
 direct interface-to-rule graph，任意内部 Queue graph 与 module 内 repeated-input fanout
 仍是后续工作。
 
+完整 specialization fingerprint 继续作为 canonical IR、manifest、provider 和 cache
+identity。日常生成 C++ 名称只暴露可读语义身份：ACSim thunk 使用
+`acsim_generated::module_<Module>::process_<Process>::<entry>`，结构化 source bundle
+使用 `Module_<Module>` 与 `Process_<Module>_<Process>`，QueueGraph specialization
+使用 `Module_<Definition>`；process helper 和标量存储类型使用封闭的 role/type 名称。
+只有同一作用域的可读名称实际冲突时，才附加 fingerprint 前 16 个十六进制字符作为
+局部消歧；消歧后仍冲突则拒绝。完整 fingerprint 不得成为常规 namespace、class、文件
+或函数拼写。
+build manifest 以 `Module::Process` 记录每个可读 process 身份及其完整
+specialization fingerprint 的对应关系。
+
 host-integrated simulation 可使用编译选项 `--host-results`，把 typed system return 保留为
 Top module Queue result，而不是插入自动 sink。生成的 `result_N()` 暴露 committed
 occupancy，`try_take_result_N(system)` 把一次 dequeue 加入 external-Xfer frontier。standalone

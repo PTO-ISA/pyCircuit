@@ -335,6 +335,10 @@ PYC semantic contracts.
   one static four-egress template each; preserve their exact packet schemas,
   topology, latency tuples, FIFO/arbitration, backpressure, reset, and instance
   semantics through gfsim and admitted PYC C++/Verilog build gates.
+- [x] Close issue #7 generated-symbol readability across ACSim lowering,
+  verification and direct emission, structured ModelPlan source bundles,
+  QueueGraph specialization classes, and generated process helpers while
+  retaining complete fingerprints in canonical metadata and cache identity.
 - [x] Close #46 and #48 framework prerequisites before their dependent
   DavinciOO H3 implementations. Decision 0222 places new design-program work
   under `designs/davincioo/`; independent contracts/modules may proceed when

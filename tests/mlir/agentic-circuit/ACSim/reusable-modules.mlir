@@ -53,28 +53,28 @@ builtin.module attributes {ac.contract_epoch = "0.5"} {
       work "child_work" xfer "child_xfer" reset "child_reset" validate "child_validate"
       : !acsim.object_id, !acsim.activation_id
     %obj1, %act1 = acsim.dispatch @Leaf::@pulse path "Top.left.pulse" indices [] object 1 activation 1
-      work "acsim_generated::Leaf::s8000000000000000000000000000000000000000000000000000000000000000::pulse::pb000000000000000000000000000000000000000000000000000000000000000::work"
-      xfer "acsim_generated::Leaf::s8000000000000000000000000000000000000000000000000000000000000000::pulse::pb000000000000000000000000000000000000000000000000000000000000000::xfer"
-      reset "acsim_generated::Leaf::s8000000000000000000000000000000000000000000000000000000000000000::pulse::pb000000000000000000000000000000000000000000000000000000000000000::reset"
-      validate "acsim_generated::Leaf::s8000000000000000000000000000000000000000000000000000000000000000::pulse::pb000000000000000000000000000000000000000000000000000000000000000::validate"
+      work "acsim_generated::module_Leaf::process_pulse::work"
+      xfer "acsim_generated::module_Leaf::process_pulse::xfer"
+      reset "acsim_generated::module_Leaf::process_pulse::reset"
+      validate "acsim_generated::module_Leaf::process_pulse::validate"
       : !acsim.object_id, !acsim.activation_id
     %obj2, %act2 = acsim.dispatch @Leaf::@child path "Top.right[0].child" indices [] object 2 activation 2
       work "child_work" xfer "child_xfer" reset "child_reset" validate "child_validate"
       : !acsim.object_id, !acsim.activation_id
     %obj3, %act3 = acsim.dispatch @Leaf::@pulse path "Top.right[0].pulse" indices [] object 3 activation 3
-      work "acsim_generated::Leaf::s8000000000000000000000000000000000000000000000000000000000000000::pulse::pb000000000000000000000000000000000000000000000000000000000000000::work"
-      xfer "acsim_generated::Leaf::s8000000000000000000000000000000000000000000000000000000000000000::pulse::pb000000000000000000000000000000000000000000000000000000000000000::xfer"
-      reset "acsim_generated::Leaf::s8000000000000000000000000000000000000000000000000000000000000000::pulse::pb000000000000000000000000000000000000000000000000000000000000000::reset"
-      validate "acsim_generated::Leaf::s8000000000000000000000000000000000000000000000000000000000000000::pulse::pb000000000000000000000000000000000000000000000000000000000000000::validate"
+      work "acsim_generated::module_Leaf::process_pulse::work"
+      xfer "acsim_generated::module_Leaf::process_pulse::xfer"
+      reset "acsim_generated::module_Leaf::process_pulse::reset"
+      validate "acsim_generated::module_Leaf::process_pulse::validate"
       : !acsim.object_id, !acsim.activation_id
     %obj4, %act4 = acsim.dispatch @Leaf::@child path "Top.right[1].child" indices [] object 4 activation 4
       work "child_work" xfer "child_xfer" reset "child_reset" validate "child_validate"
       : !acsim.object_id, !acsim.activation_id
     %obj5, %act5 = acsim.dispatch @Leaf::@pulse path "Top.right[1].pulse" indices [] object 5 activation 5
-      work "acsim_generated::Leaf::s8000000000000000000000000000000000000000000000000000000000000000::pulse::pb000000000000000000000000000000000000000000000000000000000000000::work"
-      xfer "acsim_generated::Leaf::s8000000000000000000000000000000000000000000000000000000000000000::pulse::pb000000000000000000000000000000000000000000000000000000000000000::xfer"
-      reset "acsim_generated::Leaf::s8000000000000000000000000000000000000000000000000000000000000000::pulse::pb000000000000000000000000000000000000000000000000000000000000000::reset"
-      validate "acsim_generated::Leaf::s8000000000000000000000000000000000000000000000000000000000000000::pulse::pb000000000000000000000000000000000000000000000000000000000000000::validate"
+      work "acsim_generated::module_Leaf::process_pulse::work"
+      xfer "acsim_generated::module_Leaf::process_pulse::xfer"
+      reset "acsim_generated::module_Leaf::process_pulse::reset"
+      validate "acsim_generated::module_Leaf::process_pulse::validate"
       : !acsim.object_id, !acsim.activation_id
     acsim.activate %act0 to %obj0 : !acsim.activation_id to !acsim.object_id
     acsim.activate %act1 to %obj1 : !acsim.activation_id to !acsim.object_id

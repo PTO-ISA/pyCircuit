@@ -1,0 +1,33 @@
+{
+  "base_revision": "b69cbd7d0a67aa3d9352e0b012b41d482006d5c6",
+  "direct_acsim": {
+    "before_like_bytes": 8002,
+    "before_like_max_line": 786,
+    "manifest_full_sha256_values": 13,
+    "old_full_digest_namespace_segments": 0,
+    "process_manifest_record": {
+      "canonical_name": "Top::workload",
+      "schema_fingerprint": "sha256:4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "specialization_fingerprint": "sha256:891bc53da0a4621ece3b4a767436d1c0a9105c94fcb42729b0cb34e74da01e16"
+    },
+    "process_schema_matches_model_schema_set": true,
+    "readable_bytes": 6096,
+    "readable_max_line": 310,
+    "readable_process_namespace": "acsim_generated::module_Top::process_workload",
+    "readable_thunk_references": {
+      "reset": 2,
+      "validate": 2,
+      "work": 2,
+      "xfer": 2
+    }
+  },
+  "queuegraph_i2": {
+    "before_like_bytes": 193135,
+    "bytes_removed": 9744,
+    "full_specialization_fingerprint_retained": "sha256:6b20195daf97f71baf12986669d793821ab25641b5062b2d87c96f4ded0732d5",
+    "note": "before_like mechanically restores the base-revision full-digest class spelling in the same generated source",
+    "readable_bytes": 183391,
+    "readable_class": "Module_I2",
+    "routine_full_digest_class_names": 0
+  }
+}

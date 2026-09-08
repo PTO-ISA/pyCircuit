@@ -27,6 +27,27 @@
 using namespace mlir;
 
 namespace acir::acsim {
+
+std::string generatedOwnerNamespace(StringRef moduleSymbol) {
+  return ("acsim_generated::module_" + moduleSymbol).str();
+}
+
+std::string generatedProcessNamespace(StringRef moduleSymbol,
+                                      StringRef processSymbol) {
+  std::string result = generatedOwnerNamespace(moduleSymbol);
+  result.append("::process_");
+  result.append(processSymbol.data(), processSymbol.size());
+  return result;
+}
+
+std::string generatedProcessThunk(StringRef moduleSymbol,
+                                  StringRef processSymbol, StringRef kind) {
+  std::string result = generatedProcessNamespace(moduleSymbol, processSymbol);
+  result.append("::");
+  result.append(kind.data(), kind.size());
+  return result;
+}
+
 namespace {
 thread_local detail::ModelVerificationWork *modelVerificationWorkCollector =
     nullptr;
@@ -2361,21 +2382,6 @@ LogicalResult verifyModulesAndTypedGraph(ModelOp model,
   return success();
 }
 
-std::string generatedProcessThunk(ProcessOp process, StringRef kind) {
-  ModuleOp module = process->getParentOfType<ModuleOp>();
-  std::string result = "acsim_generated::";
-  result.append(module.getSymName());
-  result.append("::s");
-  result.append(module.getSpecializationFingerprint().drop_front(7));
-  result.append("::");
-  result.append(process.getSymName());
-  result.append("::p");
-  result.append(process.getSpecializationFingerprint().drop_front(7));
-  result.append("::");
-  result.append(kind);
-  return result;
-}
-
 LogicalResult verifyDispatchAndActivation(ModelOp model,
                                           const ModelIndex &index,
                                           HierarchyExpansion &expansion) {
@@ -2419,10 +2425,19 @@ LogicalResult verifyDispatchAndActivation(ModelOp model,
             "dispatch thunks must exactly match the placement binding lock");
     } else {
       auto process = cast<ProcessOp>(row.realization);
-      if (dispatch.getWork() != generatedProcessThunk(process, "work") ||
-          dispatch.getXfer() != generatedProcessThunk(process, "xfer") ||
-          dispatch.getReset() != generatedProcessThunk(process, "reset") ||
-          dispatch.getValidate() != generatedProcessThunk(process, "validate"))
+      auto module = process->getParentOfType<ModuleOp>();
+      if (dispatch.getWork() != generatedProcessThunk(
+                                    module.getSymName(), process.getSymName(),
+                                    "work") ||
+          dispatch.getXfer() != generatedProcessThunk(
+                                    module.getSymName(), process.getSymName(),
+                                    "xfer") ||
+          dispatch.getReset() != generatedProcessThunk(
+                                     module.getSymName(), process.getSymName(),
+                                     "reset") ||
+          dispatch.getValidate() != generatedProcessThunk(
+                                        module.getSymName(), process.getSymName(),
+                                        "validate"))
         return dispatch.emitOpError(
             "dispatch thunks must exactly match the generated process "
             "realization");

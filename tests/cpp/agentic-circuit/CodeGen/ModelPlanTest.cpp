@@ -203,7 +203,7 @@ TEST(ModelPlanTest, ExtractsHierarchyBindingsExpressionsAndProcesses) {
   ASSERT_EQ(plan->modules.size(), 1u);
   const ModulePlan &module = plan->modules.front();
   EXPECT_EQ(module.symbol, "Top");
-  EXPECT_FALSE(module.className.empty());
+  EXPECT_EQ(module.className, "Module_Top");
   ASSERT_EQ(module.placements.size(), 2u);
   EXPECT_EQ(module.placements[0].symbol, "fifo");
   EXPECT_EQ(module.placements[0].kind, PlacementKind::ExternalStateful);
@@ -219,6 +219,7 @@ TEST(ModelPlanTest, ExtractsHierarchyBindingsExpressionsAndProcesses) {
   ASSERT_EQ(module.processes.size(), 1u);
   const ProcessPlan &process = module.processes.front();
   EXPECT_EQ(process.symbol, "tick");
+  EXPECT_EQ(process.className, "Process_Top_tick");
   EXPECT_EQ(process.entryPc, "entry");
   EXPECT_EQ(process.fairnessWork, 8u);
   ASSERT_EQ(process.liveSlots.size(), 1u);
@@ -237,6 +238,19 @@ TEST(ModelPlanTest, ExtractsHierarchyBindingsExpressionsAndProcesses) {
   EXPECT_TRUE(
       std::holds_alternative<TerminatePlan>(process.states[2].terminator));
   EXPECT_FALSE(hasError(validateModelPlan(*plan)));
+}
+
+TEST(ModelPlanTest, RejectsForgedReadableClassNameCollision) {
+  mlir::MLIRContext context;
+  loadACSimDialects(context);
+  auto file =
+      mlir::parseSourceFile<mlir::ModuleOp>(ACSIM_VALID_TEST_FILE, &context);
+  ASSERT_TRUE(file);
+  auto plan = buildModelPlan(*file);
+  ASSERT_TRUE(static_cast<bool>(plan)) << llvm::toString(plan.takeError());
+  plan->modules.front().processes.front().className =
+      plan->modules.front().className;
+  EXPECT_TRUE(hasError(validateModelPlan(*plan)));
 }
 
 TEST(ModelPlanTest, PreservesEveryBlockAndBranchOperandInProcessStates) {

@@ -1480,10 +1480,33 @@ generateStructuredQueueGraphCpp(const QueueGraphPlan &plan) {
           "first structured QueueGraph root supports source, broadcast, "
           "sink, and observe blocks");
 
-  auto specializationClassName = [](const QueueGraphPlan &specialization) {
-    llvm::StringRef fingerprint(specialization.specializationFingerprint);
-    fingerprint.consume_front("sha256:");
-    return className(specialization.definition) + "_" + fingerprint.str();
+  llvm::StringMap<std::vector<const QueueGraphPlan *>> readableClasses;
+  for (const QueueGraphPlan *specialization : emissionOrder)
+    readableClasses["Module_" + className(specialization->definition)]
+        .push_back(specialization);
+  llvm::StringMap<std::string> specializationClassNames;
+  llvm::StringSet<> resolvedClassNames;
+  for (const auto &entry : readableClasses) {
+    for (const QueueGraphPlan *specialization : entry.getValue()) {
+      std::string resolved = entry.getKey().str();
+      if (entry.getValue().size() > 1) {
+        llvm::StringRef fingerprint(
+            specialization->specializationFingerprint);
+        fingerprint.consume_front("sha256:");
+        resolved += "_s" + fingerprint.take_front(16).str();
+      }
+      if (!resolvedClassNames.insert(resolved).second)
+        return generatorError(
+            "readable specialization class names collide after local "
+            "fingerprint disambiguation");
+      specializationClassNames[specialization->specializationFingerprint] =
+          std::move(resolved);
+    }
+  }
+  auto specializationClassName =
+      [&](const QueueGraphPlan &specialization) -> std::string {
+    return specializationClassNames.lookup(
+        specialization.specializationFingerprint);
   };
   llvm::StringMap<uint64_t> specializationObjectCounts;
   for (const QueueGraphPlan *specialization : emissionOrder) {

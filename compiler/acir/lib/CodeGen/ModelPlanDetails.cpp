@@ -5,6 +5,8 @@
 #include "mlir/Dialect/Index/IR/IndexOps.h"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/DenseSet.h"
+#include "llvm/ADT/StringMap.h"
+#include "llvm/ADT/StringSet.h"
 #include "llvm/ADT/StringSwitch.h"
 #include "llvm/Support/raw_ostream.h"
 
@@ -111,10 +113,9 @@ staticValues(mlir::ArrayAttr values) {
   return result;
 }
 
-std::string generatedClassName(llvm::StringRef symbol,
-                               llvm::StringRef fingerprint) {
+std::string localSpecializationSuffix(llvm::StringRef fingerprint) {
   fingerprint.consume_front("sha256:");
-  return (symbol + "_s" + fingerprint.take_front(16)).str();
+  return ("_s" + fingerprint.take_front(16)).str();
 }
 
 llvm::Expected<BindingPlan> extractBinding(acsim::BindingOp binding) {
@@ -238,8 +239,6 @@ extractProcess(acsim::ProcessOp process,
                uint32_t &nextModuleValue) {
   ProcessPlan result;
   result.symbol = process.getSymName().str();
-  result.className =
-      generatedClassName(result.symbol, process.getSpecializationFingerprint());
   result.specializationFingerprint =
       process.getSpecializationFingerprint().str();
   result.entryPc = process.getEntryPc().str();
@@ -407,8 +406,7 @@ extractModule(acsim::ModuleOp module,
               const llvm::DenseSet<llvm::StringRef> &moduleSymbols) {
   ModulePlan result;
   result.symbol = module.getSymName().str();
-  result.className =
-      generatedClassName(result.symbol, module.getSpecializationFingerprint());
+  result.className = "Module_" + result.symbol;
   result.specializationFingerprint =
       module.getSpecializationFingerprint().str();
   llvm::DenseMap<mlir::Value, std::string> values;
@@ -490,6 +488,8 @@ extractModule(acsim::ModuleOp module,
       auto extracted = extractProcess(process, values, nextValue);
       if (!extracted)
         return extracted.takeError();
+      extracted->className =
+          "Process_" + result.symbol + "_" + extracted->symbol;
       result.processes.push_back(std::move(*extracted));
     } else if (auto exportOp = mlir::dyn_cast<acsim::ExportOp>(operation)) {
       result.exports.push_back(
@@ -535,11 +535,41 @@ llvm::Error populateModelDetails(acsim::ModelOp model, ModelPlan &plan) {
             [](const ModulePlan &left, const ModulePlan &right) {
               return left.symbol < right.symbol;
             });
+
+  struct GeneratedClassIdentity {
+    std::string *className;
+    const std::string *fingerprint;
+  };
+  std::vector<GeneratedClassIdentity> identities;
+  llvm::StringMap<unsigned> readableCounts;
+  for (ModulePlan &module : plan.modules) {
+    identities.push_back({&module.className,
+                          &module.specializationFingerprint});
+    ++readableCounts[module.className];
+    for (ProcessPlan &process : module.processes) {
+      identities.push_back({&process.className,
+                            &process.specializationFingerprint});
+      ++readableCounts[process.className];
+    }
+  }
+  for (GeneratedClassIdentity identity : identities)
+    if (readableCounts.lookup(*identity.className) > 1)
+      identity.className->append(
+          localSpecializationSuffix(*identity.fingerprint));
+
+  llvm::StringSet<> resolvedNames;
+  for (const GeneratedClassIdentity &identity : identities)
+    if (!resolvedNames.insert(*identity.className).second)
+      return detailError(
+          "ACLOWER-OWNERSHIP",
+          "readable generated C++ class names collide after local "
+          "specialization disambiguation");
   return llvm::Error::success();
 }
 
 llvm::Error validateModelDetails(const ModelPlan &plan) {
   llvm::StringRef prior;
+  llvm::StringSet<> generatedClassNames;
   for (const BindingPlan &binding : plan.bindings) {
     if (binding.symbol.empty() || (!prior.empty() && prior >= binding.symbol) ||
         binding.header.empty() || binding.cppSymbol.empty() ||
@@ -553,14 +583,16 @@ llvm::Error validateModelDetails(const ModelPlan &plan) {
   for (const ModulePlan &module : plan.modules) {
     if (module.symbol.empty() || module.className.empty() ||
         (!prior.empty() && prior >= module.symbol) ||
-        !isValidFingerprint(module.specializationFingerprint))
+        !isValidFingerprint(module.specializationFingerprint) ||
+        !generatedClassNames.insert(module.className).second)
       return detailError("ACLOWER-OWNERSHIP",
                          "module plan is incomplete or non-canonical");
     prior = module.symbol;
     for (const ProcessPlan &process : module.processes) {
       if (process.symbol.empty() || process.className.empty() ||
           process.fairnessWork == 0 || process.states.empty() ||
-          !isValidFingerprint(process.specializationFingerprint))
+          !isValidFingerprint(process.specializationFingerprint) ||
+          !generatedClassNames.insert(process.className).second)
         return detailError("ACLOWER-PROCESS-STATE",
                            "process plan is incomplete");
       std::set<std::string> pcs;

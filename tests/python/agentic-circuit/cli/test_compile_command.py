@@ -18,15 +18,15 @@ EXPECTED_COMPILE_TREE = (
     "frozen.ac.mlir",
     "include/generated/dispatch.h",
     "include/generated/model.h",
-    "include/generated/modules/top_s289ddf7a6fa5af5e.h",
-    "include/generated/processes/workload_s53213a5aadca5072.h",
+    "include/generated/modules/Module_top.h",
+    "include/generated/processes/Process_top_workload.h",
     "input/model.ac.mlir",
     "input/model.acpy.json",
     "model.acsim.mlir",
     "src/generated/main.cpp",
     "src/generated/model.cpp",
-    "src/generated/modules/top_s289ddf7a6fa5af5e.cpp",
-    "src/generated/processes/workload_s53213a5aadca5072.cpp",
+    "src/generated/modules/Module_top.cpp",
+    "src/generated/processes/Process_top_workload.cpp",
 )
 
 

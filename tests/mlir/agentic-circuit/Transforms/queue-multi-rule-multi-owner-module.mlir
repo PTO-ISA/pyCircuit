@@ -156,7 +156,7 @@ builtin.module attributes {
 // PLAN-SAME: "table":"cursor"
 // PLAN-SAME: "table":"total"
 
-// CXX-COUNT-1: class [[IMPLEMENTATION:DualState_[0-9a-f]+]] final : public gfsim::Module
+// CXX-COUNT-1: class [[IMPLEMENTATION:Module_DualState]] final : public gfsim::Module
 // CXX: gfsim::QueueStateTransition<[[IMPLEMENTATION]]_block_0_policy
 // CXX: gfsim::QueueStateTransition<[[IMPLEMENTATION]]_block_1_policy
 // CXX: class CombinedReuse final : public gfsim::Module

@@ -73,8 +73,8 @@ builtin.module attributes {
 // PLAN-SAME: "kind":"transform"
 // PLAN-SAME: "definition":"Increment"
 
-// CXX-COUNT-1: class [[LEAF:Increment_[0-9a-f]+]] final : public gfsim::Module
-// CXX-COUNT-1: class [[WRAPPER:Wrapper_[0-9a-f]+]] final : public gfsim::Module
+// CXX-COUNT-1: class [[LEAF:Module_Increment]] final : public gfsim::Module
+// CXX-COUNT-1: class [[WRAPPER:Module_Wrapper]] final : public gfsim::Module
 // CXX: [[LEAF]] child_0_;
 // CXX: class NestedReuse final : public gfsim::Module
 // CXX-COUNT-2: [[WRAPPER]] instance_

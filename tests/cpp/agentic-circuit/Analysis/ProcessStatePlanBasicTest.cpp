@@ -675,7 +675,7 @@ constexpr llvm::StringLiteral kEmptyBytes =
 constexpr llvm::StringLiteral kSpecialization =
     R"json({"contract_epoch":"0.5","effect":"stateful","inputs":[],"kind":"implementation","payload":{"wake_kind":"next_delta","wake_type":"@acir_wake_next_delta"},"results":["@acir_wake_next_delta"],"role":"wake_next_delta","schema":"acir-generated-implementation-0.1","source_paths":[]})json";
 constexpr llvm::StringLiteral kDescriptor =
-    R"json({"cpp":"acir::generated::impl_wake_next_delta_a311590813b87bcc30389b814d751def9dfefb49dcd07a9c485b90701a83617e","effect":"stateful","fingerprint":"sha256:a311590813b87bcc30389b814d751def9dfefb49dcd07a9c485b90701a83617e","inputs":[],"kind":"implementation","ordinal":0,"payload":{"wake_kind":"next_delta","wake_type":"@acir_wake_next_delta"},"results":["@acir_wake_next_delta"],"role":"wake_next_delta","source_paths":[],"symbol":"@acir_impl_wake_next_delta_a311590813b87bcc30389b814d751def9dfefb49dcd07a9c485b90701a83617e"})json";
+    R"json({"cpp":"acir::generated::impl_wake_next_delta","effect":"stateful","fingerprint":"sha256:a311590813b87bcc30389b814d751def9dfefb49dcd07a9c485b90701a83617e","inputs":[],"kind":"implementation","ordinal":0,"payload":{"wake_kind":"next_delta","wake_type":"@acir_wake_next_delta"},"results":["@acir_wake_next_delta"],"role":"wake_next_delta","source_paths":[],"symbol":"@acir_impl_wake_next_delta"})json";
 
 TEST(ProcessStatePlanApiTest, EmptyFrozenModelHasLiteralCanonicalBytes) {
   mlir::DialectRegistry registry;
@@ -733,6 +733,10 @@ TEST(ProcessStatePlanBasicTest, YieldOnlyBaselineIsExactAndImmutable) {
             ProcessWakeKind::NextDelta);
   EXPECT_EQ(callee.payload().wakeNextDelta().wakeType(),
             "@acir_wake_next_delta");
+  EXPECT_EQ(callee.symbol(), "@acir_impl_wake_next_delta");
+  EXPECT_EQ(callee.cpp(), "acir::generated::impl_wake_next_delta");
+  EXPECT_EQ(callee.fingerprint(),
+            "sha256:a311590813b87bcc30389b814d751def9dfefb49dcd07a9c485b90701a83617e");
   EXPECT_EQ(detail::generatedCalleeSpecializationBytes(callee),
             kSpecialization);
   EXPECT_EQ(detail::generatedCalleeDescriptorBytes(callee), kDescriptor);
@@ -803,6 +807,7 @@ TEST(ProcessStatePlanBasicTest, EveryFrozenSemanticCorruptionIsRejected) {
       ProcessStatePlanCorruptionForTest::CostMismatch,
       ProcessStatePlanCorruptionForTest::DefinitionKeyMismatch,
       ProcessStatePlanCorruptionForTest::CalleeSpecializationMismatch,
+      ProcessStatePlanCorruptionForTest::ReadableCalleeNameMismatch,
       ProcessStatePlanCorruptionForTest::ValueTypeSpecializationMismatch,
       ProcessStatePlanCorruptionForTest::EffectMismatch,
       ProcessStatePlanCorruptionForTest::IdKindMismatch,
@@ -820,6 +825,7 @@ TEST(ProcessStatePlanBasicTest, EveryFrozenSemanticCorruptionIsRejected) {
       "process-state plan invariant violated: cost mismatch",
       "process-state plan invariant violated: definition key mismatch",
       "process-state plan invariant violated: callee specialization mismatch",
+      "process-state plan invariant violated: callee symbol",
       // NOLINTNEXTLINE(bugprone-suspicious-missing-comma) intentional split
       "process-state plan invariant violated: value-type specialization "
       "mismatch",

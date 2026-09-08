@@ -156,10 +156,10 @@ builtin.module attributes {ac.contract_epoch = "0.5"} {
       work "fifo_work" xfer "fifo_xfer" reset "fifo_reset" validate "fifo_validate"
       : !acsim.object_id, !acsim.activation_id
     %obj3, %act3 = acsim.dispatch @Top::@tick path "Top.tick" indices [] object 3 activation 3
-      work "acsim_generated::Top::s2100000000000000000000000000000000000000000000000000000000000000::tick::p2300000000000000000000000000000000000000000000000000000000000000::work"
-      xfer "acsim_generated::Top::s2100000000000000000000000000000000000000000000000000000000000000::tick::p2300000000000000000000000000000000000000000000000000000000000000::xfer"
-      reset "acsim_generated::Top::s2100000000000000000000000000000000000000000000000000000000000000::tick::p2300000000000000000000000000000000000000000000000000000000000000::reset"
-      validate "acsim_generated::Top::s2100000000000000000000000000000000000000000000000000000000000000::tick::p2300000000000000000000000000000000000000000000000000000000000000::validate"
+      work "acsim_generated::module_Top::process_tick::work"
+      xfer "acsim_generated::module_Top::process_tick::xfer"
+      reset "acsim_generated::module_Top::process_tick::reset"
+      validate "acsim_generated::module_Top::process_tick::validate"
       : !acsim.object_id, !acsim.activation_id
     acsim.activate %act0 to %obj0 : !acsim.activation_id to !acsim.object_id
     acsim.activate %act1 to %obj1 : !acsim.activation_id to !acsim.object_id

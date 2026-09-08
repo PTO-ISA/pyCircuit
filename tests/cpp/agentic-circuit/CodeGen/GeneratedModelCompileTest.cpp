@@ -35,10 +35,10 @@ ModelPlan makeMinimalRunnablePlan() {
   plan.schemaSetFingerprint = kFingerprint.str();
   plan.timeDomains.push_back({"core", 2, 0, 1});
   ModulePlan module{.symbol = "Top",
-                    .className = "Top_s0000000000000000",
+                    .className = "Module_Top",
                     .specializationFingerprint = kFingerprint.str()};
   ProcessPlan process{.symbol = "scalar",
-                      .className = "scalar_s0000000000000000",
+                      .className = "Process_Top_scalar",
                       .specializationFingerprint = kFingerprint.str(),
                       .entryPc = "entry",
                       .fairnessWork = 4};

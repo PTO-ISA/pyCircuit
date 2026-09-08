@@ -904,7 +904,7 @@ TEST(QueueGraphPlanTest,
   llvm::StringRef source(*generated);
   EXPECT_NE(source.find("#include \"gfsim/priority_encode.h\""),
             llvm::StringRef::npos);
-  size_t classBegin = source.find("class Increment_");
+  size_t classBegin = source.find("class Module_Increment final");
   ASSERT_NE(classBegin, llvm::StringRef::npos);
   size_t classEnd = source.find(" final", classBegin);
   ASSERT_NE(classEnd, llvm::StringRef::npos);
@@ -953,6 +953,48 @@ int main() {
 }
 
 TEST(QueueGraphPlanTest,
+     ReadableSpecializationClassesUseLocalSuffixOnlyForCollisions) {
+  mlir::MLIRContext context;
+  context.loadDialect<ac::ACIRDialect, mlir::DLTIDialect>();
+  auto module = mlir::parseSourceFile<mlir::ModuleOp>(
+      ACIR_TEST_SOURCE_DIR
+      "/tests/mlir/agentic-circuit/Transforms/queue-module-freeze.mlir",
+      &context);
+  ASSERT_TRUE(module);
+  ASSERT_TRUE(freezeQueueGraph(*module));
+  auto plan = buildQueueGraphPlan(*module);
+  ASSERT_TRUE(bool(plan)) << llvm::toString(plan.takeError());
+  ASSERT_EQ(plan->moduleSpecializations.size(), 1u);
+
+  QueueGraphPlan colliding = *plan;
+  auto second =
+      std::make_shared<QueueGraphPlan>(*colliding.moduleSpecializations.front());
+  second->specializationFingerprint =
+      "sha256:1111111111111111111111111111111111111111111111111111111111111111";
+  colliding.moduleSpecializations.push_back(second);
+  auto generated = generateQueueGraphCpp(colliding);
+  ASSERT_TRUE(bool(generated)) << llvm::toString(generated.takeError());
+  llvm::StringRef firstFingerprint =
+      colliding.moduleSpecializations.front()->specializationFingerprint;
+  ASSERT_TRUE(firstFingerprint.consume_front("sha256:"));
+  EXPECT_NE(generated->find("class Module_Increment_s" +
+                            firstFingerprint.take_front(16).str()),
+            std::string::npos);
+  EXPECT_NE(generated->find("class Module_Increment_s1111111111111111"),
+            std::string::npos);
+
+  second->specializationFingerprint =
+      colliding.moduleSpecializations.front()->specializationFingerprint;
+  second->specializationFingerprint.back() =
+      second->specializationFingerprint.back() == '0' ? '1' : '0';
+  auto ambiguous = generateQueueGraphCpp(colliding);
+  ASSERT_FALSE(bool(ambiguous));
+  EXPECT_NE(llvm::toString(ambiguous.takeError())
+                .find("collide after local fingerprint disambiguation"),
+            std::string::npos);
+}
+
+TEST(QueueGraphPlanTest,
      ReusesStatefulModuleImplementationWithIndependentPersistentState) {
   mlir::MLIRContext context;
   context.loadDialect<ac::ACIRDialect, mlir::DLTIDialect>();
@@ -979,7 +1021,7 @@ TEST(QueueGraphPlanTest,
   auto generated = generateQueueGraphCpp(*plan);
   ASSERT_TRUE(bool(generated)) << llvm::toString(generated.takeError());
   llvm::StringRef source(*generated);
-  size_t classBegin = source.find("class Accumulator_");
+  size_t classBegin = source.find("class Module_Accumulator final");
   ASSERT_NE(classBegin, llvm::StringRef::npos);
   size_t classEnd = source.find(" final", classBegin);
   ASSERT_NE(classEnd, llvm::StringRef::npos);
@@ -1078,7 +1120,7 @@ TEST(QueueGraphPlanTest,
   auto generated = generateQueueGraphCpp(*plan);
   ASSERT_TRUE(bool(generated)) << llvm::toString(generated.takeError());
   llvm::StringRef source(*generated);
-  size_t classBegin = source.find("class DualAccumulator_");
+  size_t classBegin = source.find("class Module_DualAccumulator");
   ASSERT_NE(classBegin, llvm::StringRef::npos);
   size_t classEnd = source.find(" final", classBegin);
   ASSERT_NE(classEnd, llvm::StringRef::npos);
@@ -1150,7 +1192,7 @@ TEST(QueueGraphPlanTest,
   auto generated = generateQueueGraphCpp(*plan);
   ASSERT_TRUE(bool(generated)) << llvm::toString(generated.takeError());
   llvm::StringRef source(*generated);
-  size_t classBegin = source.find("class StatePair_");
+  size_t classBegin = source.find("class Module_StatePair");
   ASSERT_NE(classBegin, llvm::StringRef::npos);
   size_t classEnd = source.find(" final", classBegin);
   ASSERT_NE(classEnd, llvm::StringRef::npos);
@@ -1271,7 +1313,7 @@ TEST(QueueGraphPlanTest,
   auto generated = generateQueueGraphCpp(*plan);
   ASSERT_TRUE(bool(generated)) << llvm::toString(generated.takeError());
   llvm::StringRef source(*generated);
-  size_t classBegin = source.find("class DualState_");
+  size_t classBegin = source.find("class Module_DualState");
   ASSERT_NE(classBegin, llvm::StringRef::npos);
   size_t classEnd = source.find(" final", classBegin);
   ASSERT_NE(classEnd, llvm::StringRef::npos);
@@ -1341,8 +1383,8 @@ TEST(QueueGraphPlanTest,
   auto generated = generateQueueGraphCpp(*plan);
   ASSERT_TRUE(bool(generated)) << llvm::toString(generated.takeError());
   llvm::StringRef source(*generated);
-  EXPECT_EQ(source.count("class Increment_"), 1u);
-  EXPECT_EQ(source.count("class Wrapper_"), 1u);
+  EXPECT_EQ(source.count("class Module_Increment"), 1u);
+  EXPECT_EQ(source.count("class Module_Wrapper"), 1u);
   EXPECT_EQ(source.count(" child_0_;"), 1u);
 
   std::string executableSource = *generated;
@@ -1400,8 +1442,8 @@ TEST(QueueGraphPlanTest,
   auto generated = generateQueueGraphCpp(*plan);
   ASSERT_TRUE(bool(generated)) << llvm::toString(generated.takeError());
   llvm::StringRef source(*generated);
-  EXPECT_EQ(source.count("class Increment_"), 1u);
-  EXPECT_EQ(source.count("class PrepareAndIncrement_"), 1u);
+  EXPECT_EQ(source.count("class Module_Increment"), 1u);
+  EXPECT_EQ(source.count("class Module_PrepareAndIncrement"), 1u);
   EXPECT_EQ(source.count("gfsim::SimQueue<gfsim::UInt<8>> queue_0_;"), 1u);
   EXPECT_NE(source.find("activation_complete() { return true; }"),
             llvm::StringRef::npos);

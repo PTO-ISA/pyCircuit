@@ -29,10 +29,10 @@ module attributes {ac.contract_epoch = "0.5"} {
       acsim.return
     }
     %object, %activation = acsim.dispatch @Top::@workload path "root.workload" indices [] object 0 activation 0
-      work "acsim_generated::Top::s6e2009a7f73501ebb11af899ad6a1f8e80e16424e8ad0ff5b6ab08c5fb19bc2a::workload::pc278be558d87192021d412c469fb2aa37ce1c17c083bc136163ae1dca4ab5588::work"
-      xfer "acsim_generated::Top::s6e2009a7f73501ebb11af899ad6a1f8e80e16424e8ad0ff5b6ab08c5fb19bc2a::workload::pc278be558d87192021d412c469fb2aa37ce1c17c083bc136163ae1dca4ab5588::xfer"
-      reset "acsim_generated::Top::s6e2009a7f73501ebb11af899ad6a1f8e80e16424e8ad0ff5b6ab08c5fb19bc2a::workload::pc278be558d87192021d412c469fb2aa37ce1c17c083bc136163ae1dca4ab5588::reset"
-      validate "acsim_generated::Top::s6e2009a7f73501ebb11af899ad6a1f8e80e16424e8ad0ff5b6ab08c5fb19bc2a::workload::pc278be558d87192021d412c469fb2aa37ce1c17c083bc136163ae1dca4ab5588::validate"
+      work "acsim_generated::module_Top::process_workload::work"
+      xfer "acsim_generated::module_Top::process_workload::xfer"
+      reset "acsim_generated::module_Top::process_workload::reset"
+      validate "acsim_generated::module_Top::process_workload::validate"
       : !acsim.object_id, !acsim.activation_id
     acsim.activate %activation to %object : !acsim.activation_id to !acsim.object_id
   }

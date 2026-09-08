@@ -3,9 +3,9 @@
 
 // Process lowering at the v0.1 stage boundary: a yield-only process body
 // lowers to a single-state acsim.process whose entry state suspends on the
-// generated next-delta wake. The generated implementation symbol and wake
-// type carry the exact plan fingerprints, and the dispatch thunks point at
-// the deterministic acsim_generated namespace.
+// generated next-delta wake. The generated implementation and wake type retain
+// exact fingerprint attributes while their C++ names and dispatch thunks use
+// readable semantic identities.
 
 builtin.module attributes {ac.contract_epoch = "0.5"} {
   ac.system @soc root @Top as "root" tick 0 "cycle"
@@ -19,13 +19,13 @@ builtin.module attributes {ac.contract_epoch = "0.5"} {
   }
 }
 
-// CHECK:      acsim.type @acir_impl_wake_next_delta_[[IMPL_FP:[0-9a-f]+]] cpp "acir::generated::impl_wake_next_delta_[[IMPL_FP]]" kind "implementation" fingerprint "sha256:[[IMPL_FP]]"
+// CHECK:      acsim.type @acir_impl_wake_next_delta cpp "acir::generated::impl_wake_next_delta" kind "implementation" fingerprint "sha256:[[IMPL_FP:[0-9a-f]+]]"
 // CHECK-NEXT: acsim.type @acir_wake_next_delta cpp "acir::generated::wake_next_delta" kind "wake" fingerprint "sha256:{{[0-9a-f]+}}"
 // CHECK:      acsim.process @workload captures() names [] entry @entry pcs [@entry] live [] fairness 2 specialization "sha256:[[PROC_FP:[0-9a-f]+]]" {
-// CHECK:        %[[WAKE:.+]] = acsim.invoke @acir_impl_wake_next_delta_[[IMPL_FP]]() : () -> !acsim.wake<@acir_wake_next_delta>
+// CHECK:        %[[WAKE:.+]] = acsim.invoke @acir_impl_wake_next_delta() : () -> !acsim.wake<@acir_wake_next_delta>
 // CHECK-NEXT:   acsim.suspend @entry on %[[WAKE]] : !acsim.wake<@acir_wake_next_delta>
 // CHECK:      acsim.dispatch @Top::@workload path "root.workload" indices [] object 0 activation 0
-// CHECK-SAME:   work "acsim_generated::Top::s{{[0-9a-f]+}}::workload::p[[PROC_FP]]::work"
-// CHECK-SAME:   xfer "acsim_generated::Top::s{{[0-9a-f]+}}::workload::p[[PROC_FP]]::xfer"
-// CHECK-SAME:   reset "acsim_generated::Top::s{{[0-9a-f]+}}::workload::p[[PROC_FP]]::reset"
-// CHECK-SAME:   validate "acsim_generated::Top::s{{[0-9a-f]+}}::workload::p[[PROC_FP]]::validate"
+// CHECK-SAME:   work "acsim_generated::module_Top::process_workload::work"
+// CHECK-SAME:   xfer "acsim_generated::module_Top::process_workload::xfer"
+// CHECK-SAME:   reset "acsim_generated::module_Top::process_workload::reset"
+// CHECK-SAME:   validate "acsim_generated::module_Top::process_workload::validate"

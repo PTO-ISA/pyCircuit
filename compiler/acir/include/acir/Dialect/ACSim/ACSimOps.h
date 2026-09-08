@@ -11,8 +11,10 @@
 #include "mlir/IR/OpDefinition.h"
 #include "mlir/IR/SymbolTable.h"
 #include "mlir/Interfaces/SideEffectInterfaces.h"
+#include "llvm/ADT/StringRef.h"
 
 #include <cstdint>
+#include <string>
 
 #define GET_OP_CLASSES
 #include "acir/Dialect/ACSim/ACSimOps.h.inc"
@@ -25,6 +27,16 @@ inline constexpr uint64_t kMaxModelRegionDepth = 512;
 inline constexpr uint64_t kMaxExpandedObjects = 1ULL << 20;
 inline constexpr uint64_t kMaxAttributeElements = 1ULL << 20;
 inline constexpr uint64_t kMaxAttributeStringBytes = 1ULL << 24;
+
+/// Readable generated C++ identities. Canonical specialization fingerprints
+/// remain on ACSim operations and in manifests; they are not part of routine
+/// namespace or thunk spelling.
+std::string generatedOwnerNamespace(llvm::StringRef moduleSymbol);
+std::string generatedProcessNamespace(llvm::StringRef moduleSymbol,
+                                      llvm::StringRef processSymbol);
+std::string generatedProcessThunk(llvm::StringRef moduleSymbol,
+                                  llvm::StringRef processSymbol,
+                                  llvm::StringRef kind);
 
 /// Whole-file gate used by the canonical optimizer entrypoint. Files without
 /// ACSim operations are ignored; files containing ACSim require exactly one

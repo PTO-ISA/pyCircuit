@@ -246,9 +246,7 @@ Operation *lookupSymbol(ModelOp model, SymbolRefAttr symbol) {
 }
 
 std::string ownerNamespace(acsim::ModuleOp module) {
-  return ("acsim_generated::" + module.getSymName() + "::s" +
-          hexFingerprint(module.getSpecializationFingerprint()))
-      .str();
+  return acsim::generatedOwnerNamespace(module.getSymName());
 }
 
 std::string ownerTypeName(acsim::ModuleOp module) {
@@ -256,9 +254,8 @@ std::string ownerTypeName(acsim::ModuleOp module) {
 }
 
 std::string processNamespace(acsim::ModuleOp module, ProcessOp process) {
-  return (ownerNamespace(module) + "::" + process.getSymName() + "::p" +
-          hexFingerprint(process.getSpecializationFingerprint()))
-      .str();
+  return acsim::generatedProcessNamespace(module.getSymName(),
+                                          process.getSymName());
 }
 
 std::string processTypeName(acsim::ModuleOp module, ProcessOp process) {
@@ -2007,14 +2004,25 @@ private:
     }
 
     llvm::json::Array specializations;
+    StringRef schemaSetFingerprint =
+        model.getFingerprints().getAs<StringAttr>("schema_set").getValue();
     for (acsim::ModuleOp module : modules) {
       llvm::json::Object spec;
       spec["canonical_name"] = module.getSymName().str();
-      spec["schema_fingerprint"] =
-          withShaPrefix(hexFingerprint(module.getSpecializationFingerprint()));
+      spec["schema_fingerprint"] = schemaSetFingerprint.str();
       spec["specialization_fingerprint"] =
           module.getSpecializationFingerprint().str();
       specializations.push_back(llvm::json::Value(std::move(spec)));
+      for (ProcessOp process : module.getOps<ProcessOp>()) {
+        llvm::json::Object processSpec;
+        processSpec["canonical_name"] =
+            (module.getSymName() + "::" + process.getSymName()).str();
+        processSpec["schema_fingerprint"] = schemaSetFingerprint.str();
+        processSpec["specialization_fingerprint"] =
+            process.getSpecializationFingerprint().str();
+        specializations.push_back(
+            llvm::json::Value(std::move(processSpec)));
+      }
     }
 
     llvm::json::Object compiler;

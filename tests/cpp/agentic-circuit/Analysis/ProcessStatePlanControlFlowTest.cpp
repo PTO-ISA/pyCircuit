@@ -106,15 +106,25 @@ TEST(ProcessStatePlanControlFlowTest,
   EXPECT_GT(process.blocks().size(), 1u);
   EXPECT_EQ(process.liveSlots().size(), 1u);
   EXPECT_EQ(process.transitions().front().stores().size(), 1u);
+  ASSERT_EQ(plans->valueTypes().size(), 1u);
+  EXPECT_EQ(plans->valueTypes().front().symbol(), "@acir_value_i32");
+  EXPECT_EQ(plans->valueTypes().front().cpp(), "acir::generated::value_i32");
+  EXPECT_TRUE(plans->valueTypes().front().fingerprint().starts_with("sha256:"));
   ASSERT_TRUE(process.liveSlots().front().wrapCallee());
   ASSERT_TRUE(process.liveSlots().front().unwrapCallee());
-  EXPECT_EQ(plans->callees()[process.liveSlots().front().wrapCallee()->value()]
-                .role(),
-            ProcessHelperRole::ScalarWrap);
-  EXPECT_EQ(
-      plans->callees()[process.liveSlots().front().unwrapCallee()->value()]
-          .role(),
-      ProcessHelperRole::ScalarUnwrap);
+  const auto &wrap =
+      plans->callees()[process.liveSlots().front().wrapCallee()->value()];
+  const auto &unwrap =
+      plans->callees()[process.liveSlots().front().unwrapCallee()->value()];
+  EXPECT_EQ(wrap.role(), ProcessHelperRole::ScalarWrap);
+  EXPECT_EQ(unwrap.role(), ProcessHelperRole::ScalarUnwrap);
+  EXPECT_EQ(wrap.symbol(), "@acir_impl_scalar_wrap_i32");
+  EXPECT_EQ(wrap.cpp(), "acir::generated::impl_scalar_wrap_i32");
+  EXPECT_EQ(unwrap.symbol(), "@acir_impl_scalar_unwrap_i32");
+  EXPECT_EQ(unwrap.cpp(), "acir::generated::impl_scalar_unwrap_i32");
+  ASSERT_EQ(wrap.resultTypeKeys().size(), 1u);
+  EXPECT_TRUE(wrap.resultTypeKeys().front().starts_with("storage:value:"));
+  EXPECT_EQ(wrap.resultTypeKeys().front().size(), 78u);
 
   size_t wrapActions = 0;
   size_t unwrapActions = 0;

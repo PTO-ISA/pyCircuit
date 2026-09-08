@@ -1,0 +1,16 @@
+cmake --build .pycircuit_out/acir/dev-llvm22 --target check-acir -j4
+.pycircuit_out/acir/dev-llvm22/bin/ACIRToACSimTests
+.pycircuit_out/acir/dev-llvm22/bin/ACSimOpsTests
+.pycircuit_out/acir/dev-llvm22/bin/ACIRProcessStatePlanTests
+.pycircuit_out/acir/dev-llvm22/bin/CodeGenTests
+PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=.pycircuit_out/contracts-venv/lib/python3.14/site-packages:python/agentic-circuit/src:python/semantic-core/src pytest -q tests/integration/agentic-circuit/e2e/test_queue_codegen.py
+PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=.pycircuit_out/contracts-venv/lib/python3.14/site-packages:python/agentic-circuit/src:python/semantic-core/src pytest -q tests/python/agentic-circuit/cli/test_compile_command.py tests/python/agentic-circuit/contracts/test_contracts.py
+PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=python/semantic-core/src:python/pycircuit/src pytest tests/unit -m unit -q
+PYTHONDONTWRITEBYTECODE=1 pytest -q tests/system/test_primitive_selection.py
+PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=python/agentic-circuit/src:python/semantic-core/src:python/pycircuit/src .pycircuit_out/contracts-venv/bin/python tools/agentic-circuit/check-contracts.py
+python3 tools/check-pyc-inventory.py
+python3 tools/agentic-circuit/check-ir-coverage.py
+PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=.:python/agentic-circuit/src:python/semantic-core/src python3 docs/gates/logs/20260908-issue7-readable-symbols/measure_readable_symbols.py
+(git diff --name-only; find docs/gates/logs/20260908-issue7-readable-symbols -type f) | sort -u | xargs pre-commit run --files
+mkdocs build --strict --site-dir .pycircuit_out/issue7-readable-symbols/site
+python3 flows/tools/check_decision_status.py --rfc docs/rfcs/pyc6-decisions.md --status docs/gates/decision_status_v6.md --out docs/gates/logs/20260908-issue7-readable-symbols/decision_status_report.json --require-no-deferred --require-all-verified --require-concrete-evidence --require-existing-evidence

@@ -140,7 +140,7 @@ builtin.module attributes {
 // PLAN-SAME: "interface_inputs":[{"name":"input_0","payload_type":"i8"},{"name":"input_1","payload_type":"i8"}]
 // PLAN-SAME: "interface_outputs":[{"name":"output_a","payload_type":"i8"},{"name":"output_b","payload_type":"i8"}]
 
-// CXX-COUNT-1: class [[IMPLEMENTATION:DualAccumulator_[0-9a-f]+]] final : public gfsim::Module
+// CXX-COUNT-1: class [[IMPLEMENTATION:Module_DualAccumulator]] final : public gfsim::Module
 // CXX: gfsim::QueueTableTransition<[[IMPLEMENTATION]]_block_0_policy
 // CXX: gfsim::QueueTableTransition<[[IMPLEMENTATION]]_block_1_policy
 // CXX: class MultiRuleReuse final : public gfsim::Module

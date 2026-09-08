@@ -109,7 +109,7 @@ builtin.module attributes {
 // PLAN-SAME: "name":"total"
 
 // CXX: gfsim::StateTransitionPlan<std::tuple<gfsim::UInt<8>, gfsim::UInt<8>>
-// CXX-COUNT-1: class [[IMPLEMENTATION:StatePair_[0-9a-f]+]] final : public gfsim::Module
+// CXX-COUNT-1: class [[IMPLEMENTATION:Module_StatePair]] final : public gfsim::Module
 // CXX: gfsim::SimTable<gfsim::UInt<8>> table_0_;
 // CXX: gfsim::SimTable<gfsim::UInt<8>> table_1_;
 // CXX: gfsim::QueueStateTransition<[[IMPLEMENTATION]]_block_0_policy

@@ -446,7 +446,7 @@ class RepositoryContractsTest(unittest.TestCase):
             "operation_path": "@Top::@workload/r0/b0/o0",
         }
         descriptor = {
-            "cpp": "acir::generated::impl_wake_next_delta_a311590813b87bcc30389b814d751def9dfefb49dcd07a9c485b90701a83617e",
+            "cpp": "acir::generated::impl_wake_next_delta",
             "effect": "stateful",
             "fingerprint": "sha256:a311590813b87bcc30389b814d751def9dfefb49dcd07a9c485b90701a83617e",
             "inputs": [],
@@ -459,7 +459,7 @@ class RepositoryContractsTest(unittest.TestCase):
             "results": ["@acir_wake_next_delta"],
             "role": "wake_next_delta",
             "source_paths": [],
-            "symbol": "@acir_impl_wake_next_delta_a311590813b87bcc30389b814d751def9dfefb49dcd07a9c485b90701a83617e",
+            "symbol": "@acir_impl_wake_next_delta",
         }
         fixture = {
             "callees": [descriptor],
