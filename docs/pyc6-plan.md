@@ -327,6 +327,10 @@ PYC semantic contracts.
   - [x] Compare explicit/captured I2 state, Queue, rule and generated C++ shape;
     run backpressure, cancel/sink-decision, retry, release and instance-isolation
     gates with unchanged conflict and output behavior.
+- [x] Complete issue #63 OPT-06 framework prerequisite for static fabric
+  generation: allow `ac.array` to elaborate supported Queue-producing calls and
+  allow static collection elements as `apply`/`merge` receivers, with no
+  runtime Queue collection or new primitive.
 - [x] Close #46 and #48 framework prerequisites before their dependent
   DavinciOO H3 implementations. Decision 0222 places new design-program work
   under `designs/davincioo/`; independent contracts/modules may proceed when

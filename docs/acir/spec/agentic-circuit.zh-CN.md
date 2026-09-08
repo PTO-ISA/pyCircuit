@@ -806,6 +806,13 @@ retirement、Queue occupancy 和 453-cycle 投影。
 
 `if True/False`、`range(constant)`、静态集合遍历和结构递减的有限递归在编译期展开。
 
+`ac.array(extent, lambda index: queue_operation)` 也可以生成任意已经能作为普通赋值
+使用的 Queue-producing operation。前端逐个替换静态 index，为每个 element 生成新名字，
+并保留静态 collection，供后续以静态索引作为 `apply` 或 `merge` receiver。每个 element
+必须解析为一个 Queue，并具有一致的 payload/shape。运行时 extent、运行时 collection
+index、非 Queue 结果和无法解析的 operator 参数都会 fail-close；ACIR 中不保留 Queue
+pointer array 或循环。
+
 ```python
 def add_stages(queue, count):
     if count == 0:
