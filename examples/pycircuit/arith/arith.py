@@ -4,7 +4,7 @@ from pycircuit import (
     Circuit,
     CycleAwareCircuit,
     CycleAwareDomain,
-    compile_cycle_aware,
+    build_cycle_aware,
     const,
     ct,
     module,
@@ -57,8 +57,4 @@ build.__pycircuit_name__ = "arith"
 
 
 if __name__ == "__main__":
-    print(
-        compile_cycle_aware(
-            build, name="arith", eager=True, lanes=8, lane_width=16
-        ).emit_mlir()
-    )
+    print(build_cycle_aware(build, name="arith", lanes=8, lane_width=16).emit_mlir())

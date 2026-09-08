@@ -4,6 +4,7 @@ from pycircuit import (
     CycleAwareCircuit,
     CycleAwareDomain,
     cas,
+    mux,
     wire_of,
 )
 
@@ -14,12 +15,12 @@ def build(m: CycleAwareCircuit, domain: CycleAwareDomain, stages: int = 3) -> No
     sel = cas(domain, m.input("sel", width=1), cycle=0)
 
     tag = a == b
-    data = (a + b) if sel else (a ^ b)
+    data = mux(sel, a + b, a ^ b)
 
     for i in range(stages):
         domain.next()
-        tag = cas(domain, domain.cycle(tag, name=f"tag_s{i}"), cycle=0)
-        data = cas(domain, domain.cycle(data, name=f"data_s{i}"), cycle=0)
+        tag = domain.cycle(tag, name=f"tag_s{i}")
+        data = domain.cycle(data, name=f"data_s{i}")
 
     m.output("tag", wire_of(tag))
     m.output("data", wire_of(data))

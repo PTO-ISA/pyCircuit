@@ -1,6 +1,6 @@
 # Queue and Table flow recording
 
-Decision 0223 adds opt-in dataflow observation to Agentic Circuit/gfsim. It does
+Decision 0227 adds opt-in dataflow observation to Agentic Circuit/gfsim. It does
 not change rule semantics, the Queue/Table commit barrier, activation, or the
 CycleAwareSignal authoring contract. PYC/Verilator recording is outside this lane.
 
@@ -39,8 +39,8 @@ unobserved execution; reset during recording fails before Queue/Table mutation.
 pyCircuit owns only recording, the format contract, and producer tests. A viewer
 is a separately packaged consumer; HTML/CSS/JavaScript, layout, browser tests,
 and presentation dependencies do not belong in the framework distribution.
-The local experimental viewer lives at `third_party/circuit-flow-viewer` and is
-not part of the framework commit or release. Its CLI is:
+The viewer is tracked at `third_party/circuit-flow-viewer` as an independent
+package and is not bundled in framework releases. Its CLI is:
 
 ```text
 circuit-flow-viewer render execution.pyctrace --output replay.html

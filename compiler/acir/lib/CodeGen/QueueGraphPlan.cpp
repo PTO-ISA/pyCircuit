@@ -470,6 +470,10 @@ extractExpressions(mlir::Region &region, QueueBlockPlan &plan,
   bool sawStructuredYield = false;
 
   for (mlir::Operation &operation : block) {
+    if (operation.getName().getStringRef() == "ac.var.invariant")
+      return planError(
+          "residual ac.var.invariant must be lowered before QueueGraph "
+          "planning");
     if (auto constant = mlir::dyn_cast<ac::VarConstantOp>(operation)) {
       if (auto error = append(operation, "constant", {}, {},
                               printAttribute(constant.getValueAttr())))
@@ -939,6 +943,11 @@ extractExpressions(mlir::Region &region, QueueBlockPlan &plan,
   }
   if (!sawStructuredYield)
     return planError("Queue Var region has no structured yield");
+  llvm::sort(plan.outputPresence,
+             [](const OutputPresencePlan &left,
+                const OutputPresencePlan &right) {
+               return left.ordinal < right.ordinal;
+             });
   return llvm::Error::success();
 }
 
@@ -2476,6 +2485,69 @@ llvm::Error verifyPayloadGraph(const QueueGraphPlan &plan) {
 
 } // namespace
 
+std::string inlineTableChoiceContractKey(
+    const QueueExpressionPlan &expression) {
+  std::string result;
+  auto append = [&](llvm::StringRef value) {
+    result.append(std::to_string(value.size()))
+        .append(":")
+        .append(value.str());
+  };
+  auto appendExpression = [&](auto &&self,
+                              const QueueExpressionPlan &nested) -> void {
+    append(nested.result);
+    append(nested.kind);
+    append(nested.type);
+    append(std::to_string(nested.operands.size()));
+    for (const std::string &operand : nested.operands)
+      append(operand);
+    append(nested.field);
+    append(nested.predicate);
+    append(nested.literal);
+    append(nested.table);
+    append(nested.slot);
+    append(std::to_string(nested.lsb));
+    append(std::to_string(nested.width));
+    append(nested.mask);
+    append(nested.value);
+    append(std::to_string(nested.nestedYields.size()));
+    for (const std::string &yield : nested.nestedYields)
+      append(yield);
+    append(std::to_string(nested.nestedExpressions.size()));
+    for (const QueueExpressionPlan &child : nested.nestedExpressions)
+      self(self, child);
+  };
+  append(expression.table);
+  append(std::to_string(expression.operands.size()));
+  append(expression.operands.empty() ? llvm::StringRef()
+                                     : expression.operands.front());
+  append(expression.predicate);
+  append(std::to_string(expression.nestedYields.size()));
+  for (const std::string &yield : expression.nestedYields)
+    append(yield);
+  append(std::to_string(expression.nestedExpressions.size()));
+  for (const QueueExpressionPlan &nested : expression.nestedExpressions)
+    appendExpression(appendExpression, nested);
+  return result;
+}
+
+bool isEffectFreeTableMatchExpression(
+    const QueueExpressionPlan &expression) {
+  if (!expression.nestedExpressions.empty() || !expression.nestedYields.empty())
+    return false;
+  return llvm::StringSwitch<bool>(expression.kind)
+      .Cases({"constant", "enum_constant", "get", "masked_match"}, true)
+      .Cases({"not", "popcount", "count_zeros", "cmp"}, true)
+      .Cases({"value_select", "bit_extract", "aggregate_get", "bit_concat"},
+             true)
+      .Cases({"tuple_create", "array_create", "record_create", "bit_insert"},
+             true)
+      .Cases({"with", "add", "sub", "mul"}, true)
+      .Cases({"and", "or", "xor", "shl", "shr"}, true)
+      .Cases({"priority_index", "priority_valid"}, true)
+      .Default(false);
+}
+
 llvm::Expected<QueueGraphPlan> buildQueueGraphPlan(mlir::ModuleOp module) {
   return Extractor(module).run();
 }
@@ -2778,8 +2850,7 @@ llvm::Error verifyQueueGraphPlan(const QueueGraphPlan &plan) {
     previousFiringPriority = block.priority;
     if (block.stateWrites.empty() && block.outputs.empty())
       return planError("outputless firing must update state");
-    if (block.outputs.size() > 1 ||
-        block.guard.empty() || block.yields.size() != block.outputs.size() ||
+    if (block.guard.empty() || block.yields.size() != block.outputs.size() ||
         block.depths.size() != block.outputs.size() ||
         block.latencies.size() != block.outputs.size() ||
         (block.inputs.empty() && block.outputs.empty()))
@@ -2800,10 +2871,26 @@ llvm::Error verifyQueueGraphPlan(const QueueGraphPlan &plan) {
           llvm::any_of(block.stateWrites,
                        [](const auto &write) { return write.present.empty(); }))
         return planError("state firing SSA presence metadata is incomplete");
-      for (auto [ordinal, output] : llvm::enumerate(block.outputPresence))
-        if (output.ordinal != ordinal ||
-            output.value != block.yields[ordinal] || output.present.empty())
+      llvm::SmallVector<uint8_t, 4> seen(block.outputs.size(), 0);
+      std::optional<uint64_t> previousOrdinal;
+      for (const OutputPresencePlan &output : block.outputPresence) {
+        if (output.ordinal >= block.outputs.size() || seen[output.ordinal])
+          return planError(
+              "state firing output presence ordinals must cover each output "
+              "exactly once");
+        if (previousOrdinal && output.ordinal <= *previousOrdinal)
+          return planError(
+              "state firing output presence ordinals must be sorted");
+        seen[output.ordinal] = true;
+        previousOrdinal = output.ordinal;
+        if (output.value != block.yields[output.ordinal] ||
+            output.present.empty())
           return planError("state firing output presence is not canonical");
+      }
+      if (llvm::is_contained(seen, uint8_t{0}))
+        return planError(
+            "state firing output presence ordinals must cover each output "
+            "exactly once");
     }
     llvm::StringMap<const StateWritePlan *> ownerWrites;
     for (const StateWritePlan &write : block.stateWrites) {
@@ -2912,15 +2999,25 @@ llvm::Error verifyQueueGraphPlan(const QueueGraphPlan &plan) {
 
   auto verifyExpressionList =
       [&](auto &&self, const auto &expressions,
-          llvm::ArrayRef<std::string> rootTypes) -> llvm::Error {
+          llvm::ArrayRef<std::string> rootTypes, llvm::StringRef rootPrefix,
+          const llvm::StringMap<std::string> &inheritedTypes) -> llvm::Error {
     llvm::StringMap<std::string> valueTypes;
+    llvm::StringMap<const QueueExpressionPlan *> valueDefinitions;
+    llvm::StringMap<std::pair<unsigned, unsigned>> inlineChoiceKinds;
+    for (const auto &entry : inheritedTypes)
+      valueTypes[entry.getKey()] = entry.getValue();
     for (auto [index, type] : llvm::enumerate(rootTypes))
-      valueTypes[index == 0 ? "item" : "item" + std::to_string(index)] = type;
+      valueTypes[index == 0 ? rootPrefix.str()
+                            : rootPrefix.str() + std::to_string(index)] = type;
     for (const QueueExpressionPlan &expression : expressions) {
       if (expression.result.empty() || expression.type.empty() ||
           valueTypes.contains(expression.result))
         return planError(
             "expression identities and result types must be closed");
+      if (expression.kind == "invariant")
+        return planError(
+            "residual ac.var.invariant must be lowered before QueueGraph "
+            "planning");
       if (expression.kind == "enum_constant") {
         if (!expression.operands.empty() || expression.field.empty() ||
             expression.literal.empty())
@@ -3043,6 +3140,42 @@ llvm::Error verifyQueueGraphPlan(const QueueGraphPlan &plan) {
         if (!exactElement)
           return planError(
               "aggregate get must select one exact declared element");
+      } else if (expression.kind == "cmp") {
+        if (expression.operands.size() != 2 || expression.type != "i1")
+          return planError("comparison expression contract is malformed");
+        auto left = valueTypes.find(expression.operands[0]);
+        auto right = valueTypes.find(expression.operands[1]);
+        if (left == valueTypes.end())
+          return planError(llvm::Twine("comparison '") + expression.result +
+                           "' left operand '" + expression.operands[0] +
+                           "' must reference a typed value");
+        if (right == valueTypes.end())
+          return planError(llvm::Twine("comparison '") + expression.result +
+                           "' right operand '" + expression.operands[1] +
+                           "' must reference a typed value");
+        if (left->getValue() != right->getValue())
+          return planError(
+              llvm::Twine("comparison operand types must match for '") +
+              expression.result + "': " + expression.operands[0] + " is " +
+              left->getValue() + ", " + expression.operands[1] + " is " +
+              right->getValue());
+        const bool integer = integerWidth(left->getValue()).has_value();
+        std::optional<llvm::StringRef> enumName =
+            enumTypeName(left->getValue());
+        const bool enumeration = enumName && enums.contains(*enumName);
+        const bool equality = expression.predicate == "eq" ||
+                              expression.predicate == "ne";
+        const bool ordered =
+            llvm::StringSwitch<bool>(expression.predicate)
+                .Cases({"slt", "sle", "sgt", "sge", "ult", "ule", "ugt",
+                        "uge"},
+                       true)
+                .Default(false);
+        if ((!integer && !enumeration) || (!equality && !integer) ||
+            (!equality && !ordered))
+          return planError(
+              "residual aggregate comparison must be lowered to scalar leaf "
+              "comparisons before QueueGraph planning");
       } else if (expression.kind == "masked_match") {
         if (expression.operands.size() != 1 || expression.type != "i1")
           return planError("masked_match expression contract is malformed");
@@ -3076,6 +3209,57 @@ llvm::Error verifyQueueGraphPlan(const QueueGraphPlan &plan) {
                             1, llvm::Log2_64_Ceil(*inputWidth)));
         if (expression.type != expected)
           return planError("priority expression result type is inconsistent");
+      } else if (expression.kind == "table_choose_index" ||
+                 expression.kind == "table_choose_valid") {
+        if (expression.operands.size() != 1)
+          return planError("inline table choose requires one candidate mask");
+        if (!expression.field.empty() || !expression.literal.empty() ||
+            !expression.slot.empty() || !expression.mask.empty() ||
+            !expression.value.empty() || expression.lsb != 0 ||
+            expression.width != 0)
+          return planError("inline table choose metadata is not canonical");
+        const TablePlan *table = tables.lookup(expression.table);
+        auto producer = valueDefinitions.find(expression.operands.front());
+        if (!table || producer == valueDefinitions.end() ||
+            (producer->getValue()->kind != "table_match" &&
+             producer->getValue()->kind != "table_match_ref") ||
+            producer->getValue()->table != expression.table)
+          return planError(
+              "inline table choose mask must come from the same Table match");
+        if (!isCandidateMaskType(producer->getValue()->type, table->entries))
+          return planError(
+              "inline table choose mask width must equal Table entries");
+        const unsigned expectedIndexWidth =
+            std::max<unsigned>(1, llvm::Log2_64_Ceil(table->entries));
+        const std::string expectedType =
+            expression.kind == "table_choose_index"
+                ? "i" + std::to_string(expectedIndexWidth)
+                : "i1";
+        if (expression.type != expectedType)
+          return planError("inline table choose result type is inconsistent");
+        if (expression.predicate != "first" && expression.predicate != "min" &&
+            expression.predicate != "max")
+          return planError("inline table choose policy is unsupported");
+        if ((expression.predicate == "first" &&
+             (!expression.nestedExpressions.empty() ||
+              !expression.nestedYields.empty())) ||
+            (expression.predicate != "first" &&
+             expression.nestedYields.size() != 1))
+          return planError("inline table choose key shape is inconsistent");
+
+        auto &kinds =
+            inlineChoiceKinds[inlineTableChoiceContractKey(expression)];
+        if (expression.kind == "table_choose_index") {
+          if (kinds.first != kinds.second)
+            return planError(
+                "inline table choose requires index before valid");
+          ++kinds.first;
+        } else {
+          if (kinds.first != kinds.second + 1)
+            return planError(
+                "inline table choose requires index before valid");
+          ++kinds.second;
+        }
       } else if (expression.kind == "popcount") {
         if (expression.operands.size() != 1)
           return planError("popcount expression contract is malformed");
@@ -3164,15 +3348,26 @@ llvm::Error verifyQueueGraphPlan(const QueueGraphPlan &plan) {
           return planError("bit_insert expression widths are inconsistent");
       }
       valueTypes[expression.result] = expression.type;
+      valueDefinitions[expression.result] = &expression;
       if (!expression.nestedExpressions.empty()) {
         const TablePlan *table = tables.lookup(expression.table);
         llvm::SmallVector<std::string> nestedRoots;
         if (table)
           nestedRoots.push_back(table->entryType);
-        if (auto error = self(self, expression.nestedExpressions, nestedRoots))
+        llvm::StringMap<std::string> nestedInheritedTypes;
+        for (const std::string &operand : expression.operands)
+          if (auto found = valueTypes.find(operand); found != valueTypes.end())
+            nestedInheritedTypes[operand] = found->getValue();
+        if (auto error = self(self, expression.nestedExpressions, nestedRoots,
+                              "entry", nestedInheritedTypes))
           return error;
       }
     }
+    for (const auto &entry : inlineChoiceKinds)
+      if (entry.getValue().first == 0 ||
+          entry.getValue().first != entry.getValue().second)
+        return planError(
+            "inline table choose requires balanced index/valid result pairs");
     return llvm::Error::success();
   };
   auto verifyTableGetConstraints =
@@ -3215,8 +3410,10 @@ llvm::Error verifyQueueGraphPlan(const QueueGraphPlan &plan) {
     llvm::SmallVector<std::string> roots;
     if (table)
       roots.push_back(table->entryType);
+    llvm::StringMap<std::string> noInheritedTypes;
     if (auto error = verifyExpressionList(verifyExpressionList,
-                                          match.expressions, roots))
+                                          match.expressions, roots, "item",
+                                          noInheritedTypes))
       return error;
     if (auto error =
             verifyTableGetConstraints(verifyTableGetConstraints,
@@ -3228,8 +3425,10 @@ llvm::Error verifyQueueGraphPlan(const QueueGraphPlan &plan) {
     llvm::SmallVector<std::string> roots;
     if (table)
       roots.push_back(table->entryType);
-    if (auto error = verifyExpressionList(verifyExpressionList,
-                                          selection.keyExpressions, roots))
+    llvm::StringMap<std::string> noInheritedTypes;
+    if (auto error = verifyExpressionList(
+            verifyExpressionList, selection.keyExpressions, roots, "item",
+            noInheritedTypes))
       return error;
     if (auto error = verifyTableGetConstraints(
             verifyTableGetConstraints, selection.keyExpressions, roots))
@@ -3241,8 +3440,10 @@ llvm::Error verifyQueueGraphPlan(const QueueGraphPlan &plan) {
     for (const std::string &input : block.inputs)
       if (auto found = queueTypes.find(input); found != queueTypes.end())
         roots.push_back(found->getValue());
+    llvm::StringMap<std::string> noInheritedTypes;
     if (auto error = verifyExpressionList(verifyExpressionList,
-                                          block.expressions, roots))
+                                          block.expressions, roots, "item",
+                                          noInheritedTypes))
       return error;
     if (auto error = verifySharedExpressions(block.expressions))
       return error;

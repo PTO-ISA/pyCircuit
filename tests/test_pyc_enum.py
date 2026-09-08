@@ -18,8 +18,8 @@ from pycircuit import (
     PycEnum,
     Wire,
     auto,
+    build_cycle_aware,
     cas,
-    compile_cycle_aware,
     enumeration,
     wire_of,
 )
@@ -178,7 +178,7 @@ def test_member_const_on_domain_returns_cas() -> None:
         assert c.cycle == 0
         m.output("y", wire_of(c))
 
-    mlir = compile_cycle_aware(top, name="c", eager=True).emit_mlir()
+    mlir = build_cycle_aware(top, name="c").emit_mlir()
     assert "pyc.constant 3 : i2" in mlir
 
 
@@ -307,7 +307,7 @@ def test_domain_signal_enum_register_assign_member() -> None:
         st <<= SRType.LSR
         m.output("is_lsr", wire_of(st.is_(SRType.LSR)))
 
-    mlir = compile_cycle_aware(top, name="c", eager=True).emit_mlir()
+    mlir = build_cycle_aware(top, name="c").emit_mlir()
     assert "pyc.constant 1 : i2" in mlir  # LSR code loaded into reg
     assert "pyc.cmp" in mlir and 'predicate = "eq"' in mlir
 
@@ -318,7 +318,7 @@ def test_domain_signal_enum_cross_enum_assign_raises() -> None:
         st <<= Color.RED
 
     with pytest.raises(TypeError, match="cannot assign"):
-        compile_cycle_aware(top, name="c", eager=True).emit_mlir()
+        build_cycle_aware(top, name="c").emit_mlir()
 
 
 def test_domain_signal_enum_conflicts_with_fields() -> None:
@@ -326,7 +326,7 @@ def test_domain_signal_enum_conflicts_with_fields() -> None:
         domain.signal(name="st", enum=SRType, fields={"a": (1, 0)})
 
     with pytest.raises(TypeError, match="cannot be combined"):
-        compile_cycle_aware(top, name="c", eager=True).emit_mlir()
+        build_cycle_aware(top, name="c").emit_mlir()
 
 
 # --- E.bind on an arbitrary signal ------------------------------------------

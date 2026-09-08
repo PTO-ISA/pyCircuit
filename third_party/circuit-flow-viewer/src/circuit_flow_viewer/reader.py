@@ -3,11 +3,10 @@
 from __future__ import annotations
 
 import struct
+from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
-from typing import BinaryIO, Iterator
-
-
+from typing import BinaryIO
 
 MAGIC = b"PYC6TRC3"
 REPLAY_CHUNK = 0xAC01
@@ -130,7 +129,10 @@ def read_replay(path: Path) -> Replay:
                 elif kind == "manifest":
                     if manifest or initial:
                         raise ReplayError("duplicate manifest")
-                    if record.get("format") != "agentic-circuit-replay" or integer(record.get("version")) != 1:
+                    if (
+                        record.get("format") != "agentic-circuit-replay"
+                        or integer(record.get("version")) != 1
+                    ):
                         raise ReplayError("unsupported replay format")
                     objects = record.get("objects")
                     if not isinstance(objects, list):
@@ -143,28 +145,46 @@ def read_replay(path: Path) -> Replay:
                     if not manifest or initial:
                         raise ReplayError("initial snapshot ordering")
                     initial = record["state"]
-                    if set(initial) != {str(integer(obj["id"])) for obj in manifest["objects"]}:
+                    if set(initial) != {
+                        str(integer(obj["id"])) for obj in manifest["objects"]
+                    }:
                         raise ReplayError("initial state does not cover inventory")
                     state = dict(initial)
                 elif kind == "barrier_begin":
-                    if not manifest or active is not None or integer(record["batch"]) != len(commits):
+                    if (
+                        not manifest
+                        or active is not None
+                        or integer(record["batch"]) != len(commits)
+                    ):
                         raise ReplayError("invalid barrier begin")
                     active = (integer(record["time"]), integer(record["delta"]))
                 elif kind == "event":
                     events.append(record)
                 elif kind == "commit":
-                    if active != (integer(record["time"]), integer(record["delta"])) or integer(record["batch"]) != len(commits):
+                    if active != (
+                        integer(record["time"]),
+                        integer(record["delta"]),
+                    ) or integer(record["batch"]) != len(commits):
                         raise ReplayError("commit does not close active barrier")
                     changes = record["changes"]
                     for object_id, change in changes.items():
-                        if object_id not in state or state[object_id] != change["before"]:
-                            raise ReplayError("commit before-value differs from reconstructed state")
-                    state.update({key: value["after"] for key, value in changes.items()})
+                        if (
+                            object_id not in state
+                            or state[object_id] != change["before"]
+                        ):
+                            raise ReplayError(
+                                "commit before-value differs from reconstructed state"
+                            )
+                    state.update(
+                        {key: value["after"] for key, value in changes.items()}
+                    )
                     commits.append(record)
                     active = None
                 elif kind == "end":
                     if active is not None or record["state"] != state:
-                        raise ReplayError("final snapshot differs from reconstructed state")
+                        raise ReplayError(
+                            "final snapshot differs from reconstructed state"
+                        )
                     complete = True
                 else:
                     raise ReplayError(f"unknown replay event {kind!r}")
@@ -175,5 +195,6 @@ def read_replay(path: Path) -> Replay:
         raise ReplayError(diagnostic or "missing replay inventory/initial snapshot")
     if not complete and not diagnostic:
         diagnostic = "missing end marker; showing only complete commit barriers"
-    return Replay(manifest, initial, commits, events, sources, state, complete, diagnostic)
-
+    return Replay(
+        manifest, initial, commits, events, sources, state, complete, diagnostic
+    )

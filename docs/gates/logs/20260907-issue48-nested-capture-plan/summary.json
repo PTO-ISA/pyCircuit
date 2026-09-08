@@ -1,0 +1,16 @@
+{
+  "run_id": "20260907-issue48-nested-capture-plan",
+  "status": "passed",
+  "base_revision": "a4cdb0df4f6fedd6b71e61929dd7c4df02c59acc",
+  "decision_ids": ["0216", "0224"],
+  "issue": 48,
+  "results": {
+    "focused_codegen": {"passed": 1, "failed": 0},
+    "davincioo_i2_queuegraph": {"passed": true},
+    "pre_commit": {"passed": true}
+  },
+  "behavior": "QueueGraph plan verification carries the exact types of captured outer expressions into nested Table match/choose expression regions and distinguishes the nested entry root from the parent item root.",
+  "trigger": "DavinciOO I2 lowered row.key == key inside ac.var.match correctly, but plan verification omitted the captured IssueAttemptKey leaf types.",
+  "release_scope": "Focused framework regression discovered by the DavinciOO design program.",
+  "skill_evolve": "no-update"
+}

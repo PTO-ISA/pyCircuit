@@ -39,6 +39,13 @@ jobs:
       - name: Validate DavinciOO contributor inventory
         run: python designs/davincioo/tools/check_catalog.py
 
+      - name: Run Python-only DavinciOO design checks
+        shell: bash
+        run: |
+          export AC_PYTHON_ONLY=1
+          export PYTHONPATH="$PWD/python/semantic-core/src:$PWD/python/agentic-circuit/src"
+          pytest designs/davincioo/tests -q
+
       - name: Run changed-file pre-commit checks
         shell: bash
         run: |

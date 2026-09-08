@@ -1,0 +1,1 @@
+{"base_revision": "d1c6f1e1c20fa61b5fa1b651f5cc5383e5d95d84", "bytes": 191392, "implementation_diff_sha256": "6d0efd1b3c0162992e7389a0769c6cb5ca5b1b6feae76b65cd0cdbd7cffaa748", "priority_encode_calls": 5, "sha256": "b3d43bd76b6c824357d1f7baa8b7dd0bd2646a2f6c78c49a416eab7a2d721f47", "table_scan_loops": 5}

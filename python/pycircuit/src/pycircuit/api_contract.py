@@ -141,13 +141,12 @@ TEXT_RULES: tuple[TextRule, ...] = (
     ),
     TextRule(
         code="PYC415",
-        pattern=_rx(r"\.(?:eq|lt|select|trunc|zext|sext)\s*\("),
-        message="removed method-style wire API",
-        hint="use operators/slicing/inference (`==`, `<`, `a if c else b`, slicing) instead",
+        pattern=_rx(r"(?!x)x"),
+        message="removed method-style Wire API",
     ),
     # PYC416 (ban on mux/cond) intentionally omitted:
-    # eager=True / V6 cycle-aware authoring still requires mux(); JIT prefers
-    # `a if c else b`, but both styles coexist so hygiene must not forbid mux(.
+    # Direct CycleAware elaboration requires mux(); JIT also accepts it, so
+    # hygiene must not forbid mux(.
     # TextRule(
     #     code="PYC416",
     #     pattern=_rx(r"\b(?:mux|cond)\s*\("),
@@ -162,9 +161,8 @@ TEXT_RULES: tuple[TextRule, ...] = (
     ),
     TextRule(
         code="PYC418",
-        pattern=_rx(r"\.as_unsigned\s*\("),
-        message="removed cast helper `.as_unsigned(...)`",
-        hint="use signed intent + assignment coercion",
+        pattern=_rx(r"(?!x)x"),
+        message="removed Wire cast helper",
     ),
     TextRule(
         code="PYC420",
@@ -201,6 +199,447 @@ TEXT_RULES: tuple[TextRule, ...] = (
 )
 
 
+_REMOVED_WIRE_METHODS = {
+    "eq": "PYC415",
+    "lt": "PYC415",
+    "select": "PYC415",
+    "trunc": "PYC415",
+    "zext": "PYC415",
+    "sext": "PYC415",
+    "as_unsigned": "PYC418",
+}
+
+
+_PYC_IMPORT_MODULES = {"pycircuit", "pycircuit.hw", "pycircuit.v6"}
+
+
+def _symbol_kind(symbol: str | None) -> str:
+    leaf = str(symbol or "").rsplit(".", 1)[-1]
+    if leaf in {"CycleAwareSignal", "ForwardSignal", "StateSignal"}:
+        return "CAS"
+    if leaf == "CycleAwareDomain":
+        return "DOMAIN"
+    if leaf in {"Circuit", "CycleAwareCircuit"}:
+        return "CIRCUIT"
+    if leaf in {"Reg", "Wire"}:
+        return "WIRE"
+    return "UNKNOWN"
+
+
+class _TypedWireMethodVisitor(ast.NodeVisitor):
+    def __init__(self, *, path: Path, text: str, stage: str) -> None:
+        self.path = path
+        self.lines = text.splitlines()
+        self.stage = stage
+        self.scopes: list[dict[str, str]] = [{}]
+        self.canonical_scopes: list[dict[str, str | None]] = [{}]
+        self.diagnostics: list[Diagnostic] = []
+
+    def _canonical(self, node: ast.expr) -> str | None:
+        if isinstance(node, ast.Name):
+            for scope in reversed(self.canonical_scopes):
+                if node.id in scope:
+                    return scope[node.id]
+            return None
+        if isinstance(node, ast.Attribute):
+            base = self._canonical(node.value)
+            if base is not None and base.startswith("pycircuit"):
+                return f"{base}.{node.attr}"
+        return None
+
+    def visit_Import(self, node: ast.Import) -> None:  # noqa: N802
+        for alias in node.names:
+            binding = alias.asname or alias.name.split(".", 1)[0]
+            canonical = alias.name if alias.asname else alias.name.split(".", 1)[0]
+            self.canonical_scopes[-1][binding] = (
+                canonical
+                if alias.name in _PYC_IMPORT_MODULES
+                or alias.name == "pycircuit.structural"
+                else None
+            )
+
+    def visit_ImportFrom(self, node: ast.ImportFrom) -> None:  # noqa: N802
+        for alias in node.names:
+            if alias.name == "*":
+                continue
+            binding = alias.asname or alias.name
+            if node.module in _PYC_IMPORT_MODULES:
+                self.canonical_scopes[-1][binding] = f"pycircuit.{alias.name}"
+            else:
+                self.canonical_scopes[-1][binding] = None
+
+    def _annotation_kind(self, annotation: ast.expr | None) -> str:
+        if annotation is None:
+            return "UNKNOWN"
+        if isinstance(annotation, ast.Subscript):
+            outer = self._annotation_kind(annotation.value)
+            return (
+                outer if outer != "UNKNOWN" else self._annotation_kind(annotation.slice)
+            )
+        if isinstance(annotation, ast.BinOp) and isinstance(annotation.op, ast.BitOr):
+            kinds = {
+                self._annotation_kind(annotation.left),
+                self._annotation_kind(annotation.right),
+            }
+            kinds.discard("UNKNOWN")
+            return kinds.pop() if len(kinds) == 1 else "UNKNOWN"
+        if isinstance(annotation, ast.Constant) and isinstance(annotation.value, str):
+            value = annotation.value.replace(" ", "").split("[", 1)[0]
+            if value.startswith("pycircuit."):
+                return _symbol_kind(value)
+            for scope in reversed(self.canonical_scopes):
+                if value in scope:
+                    return _symbol_kind(scope[value])
+            return "UNKNOWN"
+        return _symbol_kind(self._canonical(annotation))
+
+    def visit_FunctionDef(self, node: ast.FunctionDef) -> None:  # noqa: N802
+        self.canonical_scopes[-1][node.name] = None
+        names = {
+            arg.arg: self._annotation_kind(arg.annotation)
+            for arg in (*node.args.posonlyargs, *node.args.args, *node.args.kwonlyargs)
+        }
+        self.scopes.append(names)
+        self.canonical_scopes.append(dict.fromkeys(names))
+        for statement in node.body:
+            self.visit(statement)
+        self.scopes.pop()
+        self.canonical_scopes.pop()
+
+    def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef) -> None:  # noqa: N802
+        self.canonical_scopes[-1][node.name] = None
+        names = {
+            arg.arg: self._annotation_kind(arg.annotation)
+            for arg in (*node.args.posonlyargs, *node.args.args, *node.args.kwonlyargs)
+        }
+        self.scopes.append(names)
+        self.canonical_scopes.append(dict.fromkeys(names))
+        for statement in node.body:
+            self.visit(statement)
+        self.scopes.pop()
+        self.canonical_scopes.pop()
+
+    def visit_ClassDef(self, node: ast.ClassDef) -> None:  # noqa: N802
+        self.canonical_scopes[-1][node.name] = None
+        self.scopes.append({})
+        self.canonical_scopes.append({})
+        for statement in node.body:
+            self.visit(statement)
+        self.scopes.pop()
+        self.canonical_scopes.pop()
+
+    def visit_AnnAssign(self, node: ast.AnnAssign) -> None:  # noqa: N802
+        if isinstance(node.target, ast.Name):
+            kind = self._annotation_kind(node.annotation)
+            self.scopes[-1][node.target.id] = (
+                kind if kind != "UNKNOWN" else self._infer(node.value)
+            )
+            self.canonical_scopes[-1][node.target.id] = None
+        self.generic_visit(node)
+
+    def visit_Assign(self, node: ast.Assign) -> None:  # noqa: N802
+        kind = self._infer(node.value)
+        for target in node.targets:
+            if isinstance(target, ast.Name):
+                self.scopes[-1][target.id] = kind
+                self.canonical_scopes[-1][target.id] = None
+        self.generic_visit(node)
+
+    def _lookup(self, name: str) -> str:
+        for scope in reversed(self.scopes):
+            if name in scope:
+                return scope[name]
+        return "UNKNOWN"
+
+    def _bind_target(self, target: ast.expr, kind: str = "UNKNOWN") -> None:
+        if isinstance(target, ast.Name):
+            self.scopes[-1][target.id] = kind
+            self.canonical_scopes[-1][target.id] = None
+        elif isinstance(target, ast.Tuple | ast.List):
+            for element in target.elts:
+                self._bind_target(element, kind)
+
+    def _infer(self, node: ast.expr | None) -> str:
+        if node is None:
+            return "UNKNOWN"
+        if isinstance(node, ast.Name):
+            return self._lookup(node.id)
+        if isinstance(node, ast.Subscript | ast.UnaryOp):
+            return self._infer(
+                node.value if isinstance(node, ast.Subscript) else node.operand
+            )
+        if isinstance(node, ast.BinOp):
+            kinds = {self._infer(node.left), self._infer(node.right)}
+            return "CAS" if "CAS" in kinds else "WIRE" if "WIRE" in kinds else "UNKNOWN"
+        if isinstance(node, ast.Compare):
+            return self._infer(node.left)
+        if isinstance(node, ast.IfExp):
+            left = self._infer(node.body)
+            right = self._infer(node.orelse)
+            return left if left == right else "UNKNOWN"
+        if isinstance(node, ast.Attribute):
+            if node.attr == "q":
+                return "WIRE"
+            if node.attr in _REMOVED_WIRE_METHODS:
+                return "UNKNOWN"
+            return self._infer(node.value)
+        if not isinstance(node, ast.Call):
+            return "UNKNOWN"
+        canonical = self._canonical(node.func)
+        leaf = str(canonical or "").rsplit(".", 1)[-1]
+        if leaf in {"cas", "mux", "CycleAwareSignal"}:
+            return "CAS"
+        if leaf in {"wire_of", "Wire", "Reg"}:
+            return "WIRE"
+        if isinstance(node.func, ast.Attribute):
+            receiver = self._infer(node.func.value)
+            if (
+                node.func.attr == "as_cas"
+                and _symbol_kind(self._canonical(node.func.value)) == "CAS"
+            ):
+                return "CAS"
+            if (
+                node.func.attr
+                in {"create_const", "create_reset", "create_signal", "signal"}
+                and receiver == "DOMAIN"
+            ):
+                return "CAS"
+            if node.func.attr in {"input", "const"} and receiver == "CIRCUIT":
+                return "WIRE"
+            if self._canonical(node.func) == "pycircuit.structural.mux":
+                return "WIRE"
+            if receiver in {"CAS", "WIRE"}:
+                return receiver
+        return "UNKNOWN"
+
+    @staticmethod
+    def _join(left: dict[str, str], right: dict[str, str]) -> dict[str, str]:
+        return {
+            name: left.get(name) if left.get(name) == right.get(name) else "UNKNOWN"
+            for name in set(left) | set(right)
+        }
+
+    @staticmethod
+    def _join_canonical(
+        left: dict[str, str | None], right: dict[str, str | None]
+    ) -> dict[str, str | None]:
+        return {
+            name: left.get(name) if left.get(name) == right.get(name) else None
+            for name in set(left) | set(right)
+        }
+
+    def _visit_branch(
+        self,
+        statements: list[ast.stmt],
+        entry: dict[str, str],
+        canonical_entry: dict[str, str | None],
+    ) -> tuple[dict[str, str], dict[str, str | None]]:
+        self.scopes[-1] = dict(entry)
+        self.canonical_scopes[-1] = dict(canonical_entry)
+        for statement in statements:
+            self.visit(statement)
+        return dict(self.scopes[-1]), dict(self.canonical_scopes[-1])
+
+    def visit_If(self, node: ast.If) -> None:  # noqa: N802
+        self.visit(node.test)
+        entry = dict(self.scopes[-1])
+        canonical_entry = dict(self.canonical_scopes[-1])
+        body, body_canonical = self._visit_branch(node.body, entry, canonical_entry)
+        other, other_canonical = self._visit_branch(node.orelse, entry, canonical_entry)
+        self.scopes[-1] = self._join(body, other)
+        self.canonical_scopes[-1] = self._join_canonical(
+            body_canonical, other_canonical
+        )
+
+    def _visit_loop(
+        self,
+        body: list[ast.stmt],
+        orelse: list[ast.stmt],
+        target: ast.expr | None = None,
+    ) -> None:
+        entry = dict(self.scopes[-1])
+        canonical_entry = dict(self.canonical_scopes[-1])
+        self.scopes[-1] = dict(entry)
+        self.canonical_scopes[-1] = dict(canonical_entry)
+        if target is not None:
+            self._bind_target(target)
+        body_env, body_canonical = self._visit_branch(
+            body, dict(self.scopes[-1]), dict(self.canonical_scopes[-1])
+        )
+        joined = self._join(entry, body_env)
+        joined_canonical = self._join_canonical(canonical_entry, body_canonical)
+        else_env, else_canonical = self._visit_branch(orelse, joined, joined_canonical)
+        self.scopes[-1] = self._join(joined, else_env)
+        self.canonical_scopes[-1] = self._join_canonical(
+            joined_canonical, else_canonical
+        )
+
+    def visit_Try(self, node: ast.Try) -> None:  # noqa: N802
+        entry = dict(self.scopes[-1])
+        canonical_entry = dict(self.canonical_scopes[-1])
+        body, body_canonical = self._visit_branch(node.body, entry, canonical_entry)
+        normal, normal_canonical = self._visit_branch(node.orelse, body, body_canonical)
+        states = [(normal, normal_canonical)]
+        for handler in node.handlers:
+            self.scopes[-1] = dict(entry)
+            self.canonical_scopes[-1] = dict(canonical_entry)
+            if handler.name:
+                self._bind_target(ast.Name(id=handler.name))
+            states.append(
+                self._visit_branch(
+                    handler.body,
+                    dict(self.scopes[-1]),
+                    dict(self.canonical_scopes[-1]),
+                )
+            )
+        joined, joined_canonical = states[0]
+        for state, canonical_state in states[1:]:
+            joined = self._join(joined, state)
+            joined_canonical = self._join_canonical(joined_canonical, canonical_state)
+        self.scopes[-1], self.canonical_scopes[-1] = self._visit_branch(
+            node.finalbody, joined, joined_canonical
+        )
+
+    def visit_Match(self, node: ast.Match) -> None:  # noqa: N802
+        self.visit(node.subject)
+        entry = dict(self.scopes[-1])
+        canonical_entry = dict(self.canonical_scopes[-1])
+        states = [(entry, canonical_entry)]
+        for case in node.cases:
+            self.scopes[-1] = dict(entry)
+            self.canonical_scopes[-1] = dict(canonical_entry)
+            for pattern_node in ast.walk(case.pattern):
+                name = getattr(pattern_node, "name", None)
+                if isinstance(name, str):
+                    self._bind_target(ast.Name(id=name))
+                rest = getattr(pattern_node, "rest", None)
+                if isinstance(rest, str):
+                    self._bind_target(ast.Name(id=rest))
+            if case.guard is not None:
+                self.visit(case.guard)
+            states.append(
+                self._visit_branch(
+                    case.body,
+                    dict(self.scopes[-1]),
+                    dict(self.canonical_scopes[-1]),
+                )
+            )
+        joined, joined_canonical = states[0]
+        for state, canonical_state in states[1:]:
+            joined = self._join(joined, state)
+            joined_canonical = self._join_canonical(joined_canonical, canonical_state)
+        self.scopes[-1] = joined
+        self.canonical_scopes[-1] = joined_canonical
+
+    def visit_For(self, node: ast.For) -> None:  # noqa: N802
+        self.visit(node.iter)
+        self._visit_loop(node.body, node.orelse, node.target)
+
+    def visit_AsyncFor(self, node: ast.AsyncFor) -> None:  # noqa: N802
+        self.visit(node.iter)
+        self._visit_loop(node.body, node.orelse, node.target)
+
+    def visit_While(self, node: ast.While) -> None:  # noqa: N802
+        self.visit(node.test)
+        self._visit_loop(node.body, node.orelse)
+
+    def _diagnose_method(self, func: ast.Attribute) -> None:
+        self._diagnose_receiver(func.value, func.attr, func)
+
+    def _diagnose_getattr(self, value: ast.expr | None) -> None:
+        if (
+            isinstance(value, ast.Call)
+            and isinstance(value.func, ast.Name)
+            and value.func.id == "getattr"
+            and len(value.args) >= 2
+            and isinstance(value.args[1], ast.Constant)
+            and isinstance(value.args[1].value, str)
+            and value.args[1].value in _REMOVED_WIRE_METHODS
+        ):
+            self._diagnose_receiver(value.args[0], value.args[1].value, value)
+
+    def _diagnose_receiver(
+        self, receiver: ast.expr, attr: str, location: ast.expr
+    ) -> None:
+        receiver_kind = self._infer(receiver)
+        if receiver_kind == "CAS":
+            return
+        code = _REMOVED_WIRE_METHODS[attr]
+        self.diagnostics.append(
+            make_diagnostic(
+                code=code,
+                stage=self.stage,
+                path=str(self.path),
+                line=location.lineno,
+                col=location.col_offset + 1,
+                message=f"removed Wire method `.{attr}()` on {receiver_kind.lower()} receiver",
+                hint=removed_call_hint(attr),
+                snippet=self.lines[location.lineno - 1],
+            )
+        )
+
+    def visit_Call(self, node: ast.Call) -> None:  # noqa: N802
+        self._diagnose_getattr(node)
+        self.generic_visit(node)
+
+    def visit_With(self, node: ast.With) -> None:  # noqa: N802
+        for item in node.items:
+            self.visit(item.context_expr)
+            if item.optional_vars is not None:
+                self._bind_target(item.optional_vars)
+        for statement in node.body:
+            self.visit(statement)
+
+    def visit_AsyncWith(self, node: ast.AsyncWith) -> None:  # noqa: N802
+        self.visit_With(node)
+
+    def _visit_comprehension(
+        self, generators: list[ast.comprehension], values: list[ast.expr]
+    ) -> None:
+        self.scopes.append({})
+        self.canonical_scopes.append({})
+        for generator in generators:
+            self.visit(generator.iter)
+            self._bind_target(generator.target)
+            for condition in generator.ifs:
+                self.visit(condition)
+        for value in values:
+            self.visit(value)
+        self.scopes.pop()
+        self.canonical_scopes.pop()
+
+    def visit_ListComp(self, node: ast.ListComp) -> None:  # noqa: N802
+        self._visit_comprehension(node.generators, [node.elt])
+
+    def visit_SetComp(self, node: ast.SetComp) -> None:  # noqa: N802
+        self._visit_comprehension(node.generators, [node.elt])
+
+    def visit_GeneratorExp(self, node: ast.GeneratorExp) -> None:  # noqa: N802
+        self._visit_comprehension(node.generators, [node.elt])
+
+    def visit_DictComp(self, node: ast.DictComp) -> None:  # noqa: N802
+        self._visit_comprehension(node.generators, [node.key, node.value])
+
+    def visit_Attribute(self, node: ast.Attribute) -> None:  # noqa: N802
+        if node.attr in _REMOVED_WIRE_METHODS:
+            self._diagnose_method(node)
+        self.generic_visit(node)
+
+
+def _scan_typed_wire_methods(
+    *, path: Path, text: str, stage: str, enabled_codes: set[str]
+) -> list[Diagnostic]:
+    if not enabled_codes & {"PYC415", "PYC418"} or path.suffix != ".py":
+        return []
+    try:
+        tree = ast.parse(text, filename=str(path))
+    except SyntaxError:
+        return []
+    visitor = _TypedWireMethodVisitor(path=path, text=text, stage=stage)
+    visitor.visit(tree)
+    return [d for d in visitor.diagnostics if d.code in enabled_codes]
+
+
 @dataclass(frozen=True)
 class ScanViolation:
     diagnostic: Diagnostic
@@ -229,6 +668,14 @@ def scan_text(
                         snippet=line.rstrip("\n"),
                     )
                 )
+    out.extend(
+        _scan_typed_wire_methods(
+            path=path,
+            text=text,
+            stage=stage,
+            enabled_codes={rule.code for rule in rules},
+        )
+    )
     return out
 
 

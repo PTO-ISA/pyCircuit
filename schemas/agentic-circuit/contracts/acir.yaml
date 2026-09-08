@@ -55,6 +55,8 @@ operations:
   - ac.var.shr
   - ac.var.matches
   - ac.var.cmp
+  - ac.var.invariant
+  - ac.var.invariant.yield
   - ac.var.get
   - ac.var.record
   - ac.var.with

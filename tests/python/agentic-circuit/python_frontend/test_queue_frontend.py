@@ -79,6 +79,22 @@ def pipeline(left: ac.u8, right: ac.u8) -> tuple[ac.u8, ac.u8]:
     return left_result, right_result
 """
 
+STATE_GUARD_OLD_VALUE_SOURCE = """
+import agentic_circuit as ac
+
+@ac.rule
+def publish(outstanding):
+    if not outstanding:
+        outstanding = True
+        return outstanding
+
+@ac.system
+def state_guard() -> bool:
+    outstanding: bool = False
+    result = publish(outstanding)
+    return result
+"""
+
 POPCOUNT_SOURCE = """
 import agentic_circuit as ac
 from agentic_circuit import sink, source, struct, system
@@ -510,6 +526,33 @@ def enum_payload_pipeline(incoming: Packet) -> Packet:
     return updated
 """
 
+ENUM_STATE_SOURCE = """
+from enum import Enum
+import agentic_circuit as ac
+
+class Mode(Enum):
+    IDLE = 0
+    RUN = 1
+
+@ac.struct
+class Command:
+    enable: bool
+    observed: Mode
+
+@ac.rule
+def remember(mode, command):
+    observed = mode
+    if command.enable:
+        mode = Mode.RUN
+    return command.with_fields(observed=observed)
+
+@ac.system
+def enum_state(command: Command) -> Command:
+    mode: Mode = Mode.IDLE
+    result = remember(mode, command)
+    return result
+"""
+
 AGGREGATE_PAYLOAD_SOURCE = """
 from __future__ import annotations
 
@@ -533,6 +576,140 @@ def rotate(item):
 def aggregate_payload_pipeline(incoming: AggregatePacket) -> AggregatePacket:
     updated = rotate(incoming)
     return updated
+"""
+
+RECURSIVE_EQUALITY_INVARIANT_SOURCE = """
+import agentic_circuit as ac
+from enum import Enum
+
+class Mode(Enum):
+    IDLE = 0
+    RUN = 1
+
+@ac.struct
+class Inner:
+    tag: ac.u8
+    mode: Mode
+
+@ac.struct
+class Payload:
+    inner: Inner
+    pair: tuple[ac.u8, ac.u8]
+    lanes: ac.array[8, ac.u8]
+    valid: bool
+
+@ac.invariant
+def valid_payload(value: Payload) -> bool:
+    return (value.inner.mode == Mode.RUN) and (value.pair[0] == value.inner.tag) and (value.lanes[0] < 8)
+
+@ac.rule
+def compare(left, right):
+    return left.with_fields(valid=(left == right) and (left.pair == right.pair) and (left.lanes != right.lanes))
+
+@ac.rule
+def validate(value):
+    return value.with_fields(valid=valid_payload(value))
+
+@ac.system
+def recursive_contract(left: Payload, right: Payload, checked: Payload) -> tuple[Payload, Payload]:
+    compared = compare(left, right)
+    valid = validate(checked)
+    return compared, valid
+"""
+
+COMPOSED_INVARIANT_SOURCE = """
+import agentic_circuit as ac
+
+@ac.struct
+class Inner:
+    tag: ac.u8
+    valid: bool
+
+@ac.struct
+class Payload:
+    inner: Inner
+    valid: bool
+
+@ac.invariant
+def valid_payload(value: Payload) -> bool:
+    return valid_inner(value.inner) and value.valid
+
+@ac.invariant
+def valid_inner(value: Inner) -> bool:
+    return value.valid and value.tag != 0
+
+@ac.module
+def validate(value: Payload) -> Payload:
+    return value.with_fields(valid=valid_payload(value))
+
+@ac.system
+def composed_invariant(value: Payload) -> Payload:
+    return validate(value)
+"""
+
+DIAMOND_INVARIANT_SOURCE = """
+import agentic_circuit as ac
+
+@ac.struct
+class Leaf:
+    tag: ac.u8
+    valid: bool
+
+@ac.struct
+class Branch:
+    leaf: Leaf
+    valid: bool
+
+@ac.struct
+class Root:
+    left: Branch
+    right: Branch
+    valid: bool
+
+@ac.invariant
+def valid_root(value: Root) -> bool:
+    return valid_left(value.left) and valid_right(value.right) and value.valid
+
+@ac.invariant
+def valid_left(value: Branch) -> bool:
+    return valid_leaf(value.leaf) and value.valid
+
+@ac.invariant
+def valid_right(value: Branch) -> bool:
+    return valid_leaf(value.leaf) and value.valid
+
+@ac.invariant
+def valid_leaf(value: Leaf) -> bool:
+    return value.valid and value.tag != 0
+
+@ac.module
+def validate(value: Root) -> Root:
+    return value.with_fields(valid=valid_root(value))
+
+@ac.system
+def diamond_invariant(value: Root) -> Root:
+    return validate(value)
+"""
+
+INVARIANT_MODULE_SOURCE = """
+import agentic_circuit as ac
+
+@ac.struct
+class Payload:
+    value: ac.u8
+    valid: bool
+
+@ac.invariant
+def valid_payload(value: Payload) -> bool:
+    return value.value != 0
+
+@ac.module
+def validate(value: Payload) -> Payload:
+    return value.with_fields(valid=valid_payload(value))
+
+@ac.system
+def invariant_module(value: Payload) -> Payload:
+    return validate(value)
 """
 
 BOOL_U1_SOURCE = """
@@ -824,6 +1001,39 @@ def issue_queue(wakeup: Wakeup) -> Entry:
     wake(ready_tags, wakeup)
     issued = issue(entries, ready_tags)
     return issued
+"""
+
+LIST_FIND_LOCAL_AGGREGATE_CAPTURE_SOURCE = """
+import agentic_circuit as ac
+
+@ac.struct
+class Key:
+    flow: ac.u8
+    generation: ac.u8
+
+@ac.struct
+class Entry:
+    key: Key
+    valid: bool
+
+@ac.struct
+class Request:
+    key: Key
+
+@ac.rule
+def remove(entries, request):
+    key = request.key
+    selected = ac.find(
+        entries,
+        where=lambda row: row.valid & (row.key == key),
+    )
+    if selected.valid:
+        entries[selected.index] = selected.value.with_fields(valid=False)
+
+@ac.system
+def remove_entry(request: Request) -> None:
+    entries: list[Entry] = [0] * 4
+    remove(entries, request)
 """
 
 LIST_FIND_KEY_CAPTURE_SOURCE = """
@@ -1289,6 +1499,142 @@ def table_rule() -> None:
     deltas = ac.source(Delta, depth=2)
     outgoing = install(rob, incoming, deltas)
     ac.sink(outgoing)
+"""
+
+OPTIONAL_MULTI_OUTPUT_SOURCE = """
+import agentic_circuit as ac
+
+@ac.struct
+class Command:
+    value: ac.u8
+    left: bool
+    right: bool
+    nested: bool
+    cancel_left: bool
+
+@ac.struct
+class LeftEffect:
+    value: ac.u8
+
+@ac.struct
+class RightEffect:
+    value: ac.u7
+
+@ac.struct
+class ApplyAck:
+    value: ac.u8
+
+@ac.rule
+def dispatch(command) -> tuple[LeftEffect, RightEffect, ApplyAck]:
+    left = None
+    right = None
+    ack = ApplyAck(value=command.value)
+    if command.left:
+        left = LeftEffect(value=command.value)
+        if command.nested:
+            right = RightEffect(value=command.value[0:7])
+    elif command.right:
+        right = RightEffect(value=command.value[0:7])
+    if command.cancel_left:
+        left = None
+    return left, right, ack
+
+@ac.system
+def optional_multi_output(command: Command) -> tuple[LeftEffect, RightEffect, ApplyAck]:
+    left, right, ack = dispatch(command)
+    left_next = left.apply(lambda value: value)
+    right_next = right.apply(lambda value: value)
+    ack_next = ack.apply(lambda value: value)
+    return left_next, right_next, ack_next
+"""
+
+W2_EIGHT_OUTPUT_SOURCE = """
+import agentic_circuit as ac
+
+@ac.struct
+class Command:
+    mask: ac.u7
+    value: ac.u8
+
+@ac.struct
+class GprWrite:
+    value: ac.u8
+
+@ac.struct
+class Wakeup:
+    value: ac.u7
+
+@ac.struct
+class RobComplete:
+    value: ac.u6
+
+@ac.struct
+class BrobResolve:
+    value: ac.u5
+
+@ac.struct
+class Fault:
+    value: ac.u4
+
+@ac.struct
+class StoreResolve:
+    value: ac.u3
+
+@ac.struct
+class BranchResolve:
+    value: ac.u2
+
+@ac.struct
+class ApplyAck:
+    value: ac.u8
+
+@ac.rule
+def writeback(command) -> tuple[GprWrite, Wakeup, RobComplete, BrobResolve, Fault, StoreResolve, BranchResolve, ApplyAck]:
+    gpr = None
+    wakeup = None
+    rob = None
+    brob = None
+    fault = None
+    store = None
+    branch = None
+    ack = ApplyAck(value=command.value)
+    if command.mask[0]:
+        gpr = GprWrite(value=command.value)
+    if command.mask[1]:
+        wakeup = Wakeup(value=command.value[0:7])
+    if command.mask[2]:
+        rob = RobComplete(value=command.value[0:6])
+    if command.mask[3]:
+        brob = BrobResolve(value=command.value[0:5])
+    if command.mask[4]:
+        fault = Fault(value=command.value[0:4])
+    if command.mask[5]:
+        store = StoreResolve(value=command.value[0:3])
+    if command.mask[6]:
+        branch = BranchResolve(value=command.value[0:2])
+    return gpr, wakeup, rob, brob, fault, store, branch, ack
+
+@ac.system
+def w2(command: Command) -> tuple[GprWrite, Wakeup, RobComplete, BrobResolve, Fault, StoreResolve, BranchResolve, ApplyAck]:
+    gpr, wakeup, rob, brob, fault, store, branch, ack = writeback(command)
+    return gpr, wakeup, rob, brob, fault, store, branch, ack
+"""
+
+INDEXED_SCALAR_MULTI_OUTPUT_SOURCE = """
+import agentic_circuit as ac
+
+@ac.rule
+def split(command) -> tuple[ac.u1, ac.u8]:
+    selected = None
+    ack = command
+    if command[0]:
+        selected = command[0]
+    return selected, ack
+
+@ac.system
+def indexed_scalar(command: ac.u8) -> tuple[ac.u1, ac.u8]:
+    selected, ack = split(command)
+    return selected, ack
 """
 
 FORK_SOURCE = """
@@ -2779,6 +3125,28 @@ def cycle(incoming: Left) -> Left:
         with self.assertRaisesRegex(QueueFrontendError, "only equality"):
             lower_queue_source(ordered, "enum_payload_pipeline")
 
+    def test_nominal_enum_can_own_zero_initialized_persistent_state(self) -> None:
+        from agentic_circuit._queue_frontend import lower_queue_source
+
+        lowered = lower_queue_source(ENUM_STATE_SOURCE, "enum_state")
+        self.assertIn(
+            "ac.var.decl @mode type !ac.enum<@types::@Mode> init 0 : i64",
+            lowered,
+        )
+        self.assertIn("ac.var.read @mode", lowered)
+        self.assertIn('ac.var.enum @types::@Mode "RUN"', lowered)
+        self.assertIn("ac.var.assign @mode", lowered)
+
+    def test_persistent_enum_requires_its_zero_ordinal_member(self) -> None:
+        from agentic_circuit._queue_frontend import (
+            QueueFrontendError,
+            lower_queue_source,
+        )
+
+        invalid = ENUM_STATE_SOURCE.replace("Mode.IDLE", "Mode.RUN", 1)
+        with self.assertRaisesRegex(QueueFrontendError, "first declared member"):
+            lower_queue_source(invalid, "enum_state")
+
     def test_tuple_and_value_array_lower_as_structural_aggregate_values(self) -> None:
         from _pycircuit_semantics import ArrayType, TupleType
         from agentic_circuit._queue_frontend import (
@@ -2853,6 +3221,367 @@ def cycle(incoming: Left) -> Left:
         self.assertIn("type = !ac.value_array<4 x i4>", lowered)
         self.assertIn("ac.var.element %v", lowered)
         self.assertIn(" at 2 : !ac.var<!ac.value_array<4 x i4>>", lowered)
+
+    def test_recursive_aggregate_equality_and_invariant_emit_verified_ir(self) -> None:
+        from agentic_circuit._queue_frontend import lower_queue_source
+
+        lowered = lower_queue_source(
+            RECURSIVE_EQUALITY_INVARIANT_SOURCE, "recursive_contract"
+        )
+        self.assertIn(
+            'ac.var.cmp "eq" %item0, %item1 : !ac.var<!ac.struct<@types::@Payload>>',
+            lowered,
+        )
+        self.assertIn('ac.var.cmp "eq"', lowered)
+        self.assertIn("!ac.var<tuple<i8, i8>>", lowered)
+        self.assertIn('ac.var.cmp "ne"', lowered)
+        self.assertIn("!ac.var<!ac.value_array<8 x i8>>", lowered)
+        self.assertIn(
+            'ac.var.invariant %item name "Payload.valid_payload" {',
+            lowered,
+        )
+        self.assertIn("ac.var.invariant.yield %", lowered)
+        self.assertIn("size = 13 : i64", lowered)
+
+    def test_invariant_is_available_in_pure_module_expressions(self) -> None:
+        from agentic_circuit._queue_frontend import lower_queue_source
+
+        lowered = lower_queue_source(INVARIANT_MODULE_SOURCE, "invariant_module")
+        self.assertIn(
+            'ac.var.invariant %item name "Payload.valid_payload" {',
+            lowered,
+        )
+
+    def test_invariant_supports_python_boolean_or(self) -> None:
+        from agentic_circuit._queue_frontend import lower_queue_source
+
+        source = INVARIANT_MODULE_SOURCE.replace(
+            "return value.value != 0",
+            "return value.valid or value.value != 0",
+        )
+        lowered = lower_queue_source(source, "invariant_module")
+        self.assertIn("ac.var.or", lowered)
+
+    def test_invariant_allows_explicit_agentic_intrinsics(self) -> None:
+        from agentic_circuit._queue_frontend import lower_queue_source
+
+        source = INVARIANT_MODULE_SOURCE.replace(
+            "return value.value != 0",
+            'return ac.matches(value.value, "xxxxxxx1") or '
+            "ac.popcount(ac.concat(value.value, value.value)) != 0",
+        )
+        lowered = lower_queue_source(source, "invariant_module")
+        self.assertIn("ac.var.matches", lowered)
+        self.assertIn("ac.var.concat", lowered)
+        self.assertIn("ac.var.popcount", lowered)
+
+        bare_source = INVARIANT_MODULE_SOURCE.replace(
+            "import agentic_circuit as ac",
+            "import agentic_circuit as ac\nfrom agentic_circuit import matches",
+        ).replace(
+            "return value.value != 0",
+            'return matches(value.value, "xxxxxxx1")',
+        )
+        bare_lowered = lower_queue_source(bare_source, "invariant_module")
+        self.assertIn("ac.var.matches", bare_lowered)
+
+    def test_invariant_rejects_intrinsic_suffixes_on_payload_receivers(self) -> None:
+        from agentic_circuit._queue_frontend import (
+            QueueFrontendError,
+            lower_queue_source,
+        )
+
+        replacements = (
+            ('value.matches(value.value, "xxxxxxx1")', "value.matches"),
+            ("value.concat(value.value, value.value) != 0", "value.concat"),
+            ("value.popcount(value.value) != 0", "value.popcount"),
+        )
+        for expression, target in replacements:
+            with self.subTest(target=target):
+                source = INVARIANT_MODULE_SOURCE.replace(
+                    "return value.value != 0", f"return {expression}"
+                )
+                with self.assertRaisesRegex(
+                    QueueFrontendError,
+                    rf"unsupported call target '{re.escape(target)}'",
+                ):
+                    lower_queue_source(source, "invariant_module")
+
+        bare_intrinsic_shadow = INVARIANT_MODULE_SOURCE.replace(
+            "import agentic_circuit as ac",
+            "import agentic_circuit as ac\nfrom agentic_circuit import matches",
+        ).replace(
+            "def valid_payload(value: Payload) -> bool:\n"
+            "    return value.value != 0",
+            "def valid_payload(matches: Payload) -> bool:\n"
+            '    return matches(matches.value, "xxxxxxx1")',
+        )
+        with self.assertRaisesRegex(
+            QueueFrontendError, "unsupported call target 'matches'"
+        ):
+            lower_queue_source(bare_intrinsic_shadow, "invariant_module")
+
+        renamed_intrinsic_collision = INVARIANT_MODULE_SOURCE.replace(
+            "import agentic_circuit as ac",
+            "import agentic_circuit as ac\n"
+            "from agentic_circuit import matches as popcount",
+        ).replace(
+            "return value.value != 0", "return popcount(value.value) != 0"
+        )
+        with self.assertRaisesRegex(
+            QueueFrontendError, "unsupported call target 'popcount'"
+        ):
+            lower_queue_source(renamed_intrinsic_collision, "invariant_module")
+
+        module_alias_shadow = INVARIANT_MODULE_SOURCE.replace(
+            "def valid_payload(value: Payload) -> bool:\n"
+            "    return value.value != 0",
+            "def valid_payload(ac: Payload) -> bool:\n"
+            '    return ac.matches(ac.value, "xxxxxxx1")',
+        )
+        with self.assertRaisesRegex(
+            QueueFrontendError, r"unsupported call target 'ac\.matches'"
+        ):
+            lower_queue_source(module_alias_shadow, "invariant_module")
+
+        bitfield_shadow = """
+import agentic_circuit as ac
+
+WORD = ac.BitfieldSpec(width=8, fields={"opcode": (7, 4)})
+
+@ac.struct
+class Payload:
+    word: ac.u8
+    valid: bool
+
+@ac.invariant
+def valid_payload(WORD: Payload) -> bool:
+    return WORD.view(WORD.word).opcode != 0
+
+@ac.module
+def validate(value: Payload) -> Payload:
+    return value.with_fields(valid=valid_payload(value))
+
+@ac.system
+def invariant_module(value: Payload) -> Payload:
+    return validate(value)
+"""
+        with self.assertRaisesRegex(
+            QueueFrontendError, r"unsupported call target 'WORD\.view'"
+        ):
+            lower_queue_source(bitfield_shadow, "invariant_module")
+
+    def test_invariant_composition_is_typed_hygienic_and_verifier_visible(
+        self,
+    ) -> None:
+        from agentic_circuit._queue_frontend import lower_queue_source
+
+        lowered = lower_queue_source(COMPOSED_INVARIANT_SOURCE, "composed_invariant")
+        outer = lowered.index('ac.var.invariant %item name "Payload.valid_payload" {')
+        inner = lowered.index(
+            'ac.var.invariant %invariant0_v0 name "Inner.valid_inner" {'
+        )
+        outer_yield = lowered.rindex("ac.var.invariant.yield %invariant0_")
+
+        self.assertLess(outer, inner)
+        self.assertLess(inner, outer_yield)
+        self.assertIn(
+            "^predicate(%invariant0_value: !ac.var<!ac.struct<@types::@Payload>>):",
+            lowered,
+        )
+        self.assertIn(
+            "^predicate(%invariant0_invariant1_value: "
+            "!ac.var<!ac.struct<@types::@Inner>>):",
+            lowered,
+        )
+        self.assertEqual(2, lowered.count("ac.var.invariant.yield"))
+
+    def test_deep_diamond_invariant_expansion_has_unique_ssa(self) -> None:
+        from agentic_circuit._queue_frontend import lower_queue_source
+
+        lowered = lower_queue_source(DIAMOND_INVARIANT_SOURCE, "diamond_invariant")
+        self.assertEqual(5, lowered.count(" = ac.var.invariant "))
+        self.assertEqual(1, lowered.count('name "Root.valid_root"'))
+        self.assertEqual(1, lowered.count('name "Branch.valid_left"'))
+        self.assertEqual(1, lowered.count('name "Branch.valid_right"'))
+        self.assertEqual(2, lowered.count('name "Leaf.valid_leaf"'))
+
+        predicate_arguments = re.findall(r"\^predicate\(%([A-Za-z0-9_]+):", lowered)
+        assigned_values = re.findall(r"%([A-Za-z0-9_]+)\s*=", lowered)
+        self.assertEqual(5, len(predicate_arguments))
+        self.assertEqual(len(predicate_arguments), len(set(predicate_arguments)))
+        self.assertEqual(len(assigned_values), len(set(assigned_values)))
+        self.assertTrue(
+            all(argument.endswith("_value") for argument in predicate_arguments)
+        )
+        self.assertTrue(any(name.count("invariant") >= 3 for name in assigned_values))
+
+    def test_invariant_composition_rejects_type_mismatch_and_recursion(self) -> None:
+        from agentic_circuit._queue_frontend import (
+            QueueFrontendError,
+            lower_queue_source,
+        )
+
+        mismatch = COMPOSED_INVARIANT_SOURCE.replace(
+            "valid_inner(value.inner)", "valid_inner(value)"
+        )
+        with self.assertRaisesRegex(
+            QueueFrontendError,
+            r"Payload\.valid_payload.*Inner, got !ac\.struct<@types::@Payload>",
+        ):
+            lower_queue_source(mismatch, "composed_invariant")
+
+        receiver_collision = COMPOSED_INVARIANT_SOURCE.replace(
+            "valid_inner(value.inner)", "value.valid_inner(value.inner)"
+        )
+        with self.assertRaisesRegex(
+            QueueFrontendError,
+            r"Payload\.valid_payload.*unsupported.*value\.valid_inner",
+        ):
+            lower_queue_source(receiver_collision, "composed_invariant")
+
+        invariant_parameter_shadow = COMPOSED_INVARIANT_SOURCE.replace(
+            "def valid_payload(value: Payload) -> bool:\n"
+            "    return valid_inner(value.inner) and value.valid",
+            "def valid_payload(valid_inner: Payload) -> bool:\n"
+            "    return valid_inner(valid_inner.inner) and valid_inner.valid",
+        )
+        with self.assertRaisesRegex(
+            QueueFrontendError,
+            "Payload.valid_payload.*unsupported call target 'valid_inner'",
+        ):
+            lower_queue_source(invariant_parameter_shadow, "composed_invariant")
+
+        module_parameter_shadow = INVARIANT_MODULE_SOURCE.replace(
+            "def validate(value: Payload) -> Payload:\n"
+            "    return value.with_fields(valid=valid_payload(value))",
+            "def validate(valid_payload: Payload) -> Payload:\n"
+            "    return valid_payload.with_fields(valid=valid_payload(valid_payload))",
+        )
+        with self.assertRaisesRegex(
+            QueueFrontendError,
+            r"unsupported.*valid_payload\(valid_payload\)",
+        ):
+            lower_queue_source(module_parameter_shadow, "invariant_module")
+
+        self_recursive = INVARIANT_MODULE_SOURCE.replace(
+            "return value.value != 0", "return valid_payload(value)"
+        )
+        with self.assertRaisesRegex(
+            QueueFrontendError,
+            "recursive invariant call graph: "
+            "Payload.valid_payload -> Payload.valid_payload",
+        ):
+            lower_queue_source(self_recursive, "invariant_module")
+
+        mutual = COMPOSED_INVARIANT_SOURCE.replace(
+            "return valid_inner(value.inner) and value.valid",
+            "return other_payload_check(value)",
+        ).replace(
+            "@ac.invariant\ndef valid_inner(value: Inner) -> bool:\n"
+            "    return value.valid and value.tag != 0",
+            "@ac.invariant\ndef other_payload_check(value: Payload) -> bool:\n"
+            "    return valid_payload(value)",
+        )
+        with self.assertRaisesRegex(
+            QueueFrontendError,
+            "recursive invariant call graph: Payload.valid_payload -> "
+            "Payload.other_payload_check -> Payload.valid_payload",
+        ):
+            lower_queue_source(mutual, "composed_invariant")
+
+    def test_invariant_region_ssa_is_unique_after_an_outer_expression(self) -> None:
+        from agentic_circuit._queue_frontend import lower_queue_source
+
+        source = INVARIANT_MODULE_SOURCE.replace(
+            "valid=valid_payload(value)",
+            "valid=(value == value) and valid_payload(value)",
+        )
+        lowered = lower_queue_source(source, "invariant_module")
+        self.assertIn("%v0 = ac.var.cmp", lowered)
+        self.assertIn("%invariant1_v0 = ac.var.get", lowered)
+        self.assertIn("ac.var.invariant.yield %invariant1_", lowered)
+
+    def test_aggregate_ordering_and_nominal_mismatch_fail_closed(self) -> None:
+        from agentic_circuit._queue_frontend import (
+            QueueFrontendError,
+            lower_queue_source,
+        )
+
+        ordered = RECURSIVE_EQUALITY_INVARIANT_SOURCE.replace(
+            "left == right", "left < right", 1
+        )
+        with self.assertRaisesRegex(QueueFrontendError, "aggregate.*equality"):
+            lower_queue_source(ordered, "recursive_contract")
+
+        mismatched = (
+            RECURSIVE_EQUALITY_INVARIANT_SOURCE.replace(
+                "@ac.invariant\n",
+                "@ac.struct\n"
+                "class Other:\n"
+                "    inner: Inner\n"
+                "    pair: tuple[ac.u8, ac.u8]\n"
+                "    lanes: ac.array[8, ac.u8]\n"
+                "    valid: bool\n\n"
+                "@ac.invariant\n",
+            )
+            .replace(
+                "def compare(left, right):",
+                "def compare(left, right):",
+            )
+            .replace(
+                "right: Payload, checked: Payload",
+                "right: Other, checked: Payload",
+            )
+        )
+        with self.assertRaisesRegex(
+            QueueFrontendError, "comparison operands must match"
+        ):
+            lower_queue_source(mismatched, "recursive_contract")
+
+    def test_invariant_declaration_and_use_fail_closed(self) -> None:
+        from agentic_circuit._queue_frontend import (
+            QueueFrontendError,
+            lower_queue_source,
+        )
+
+        cases = (
+            (
+                INVARIANT_MODULE_SOURCE.replace(
+                    "def valid_payload(value: Payload)",
+                    "def valid_payload(value: Payload, other: Payload)",
+                ),
+                "exactly one typed payload",
+            ),
+            (
+                INVARIANT_MODULE_SOURCE.replace(
+                    "value: Payload) -> bool", "value: ac.u8) -> bool"
+                ),
+                "nominal struct",
+            ),
+            (
+                INVARIANT_MODULE_SOURCE.replace(
+                    "value: Payload) -> bool", "value: Payload) -> ac.u1"
+                ),
+                "bool",
+            ),
+            (
+                INVARIANT_MODULE_SOURCE.replace(
+                    "return value.value != 0", "return len(value.value) != 0"
+                ),
+                "invariant Payload.valid_payload.*unsupported",
+            ),
+            (
+                INVARIANT_MODULE_SOURCE.replace(
+                    "valid_payload(value)", "valid_payload(value, value)"
+                ),
+                "invariant Payload.valid_payload requires exactly one payload",
+            ),
+        )
+        for source, diagnostic in cases:
+            with self.subTest(diagnostic=diagnostic):
+                with self.assertRaisesRegex(QueueFrontendError, diagnostic):
+                    lower_queue_source(source, "invariant_module")
 
     def test_bit_operations_require_identical_widths(self) -> None:
         from agentic_circuit._queue_frontend import (
@@ -3199,6 +3928,16 @@ def cycle(incoming: Left) -> Left:
         self.assertIn("ac.var.assign_element @entries", lowered)
         self.assertNotIn("ac.table", lowered)
 
+    def test_find_predicate_captures_a_prior_aggregate_local(self) -> None:
+        from agentic_circuit._queue_frontend import lower_queue_source
+
+        lowered = lower_queue_source(
+            LIST_FIND_LOCAL_AGGREGATE_CAPTURE_SOURCE, "remove_entry"
+        )
+        self.assertIn("ac.var.match @entries predicate", lowered)
+        self.assertIn('ac.var.cmp "eq"', lowered)
+        self.assertIn("!ac.var<!ac.struct<@types::@Key>>", lowered)
+
     def test_find_key_captures_a_read_only_persistent_list(self) -> None:
         from agentic_circuit._queue_frontend import lower_queue_source
 
@@ -3365,6 +4104,33 @@ def cycle(incoming: Left) -> Left:
         self.assertIn(
             f"ac.var.assign @second = %{field_values['right']}", lowered
         )
+
+    def test_blocking_guard_reads_old_state_while_proposal_uses_new_value(self) -> None:
+        from agentic_circuit._queue_frontend import lower_queue_source
+
+        lowered = lower_queue_source(STATE_GUARD_OLD_VALUE_SOURCE, "state_guard")
+        read = next(
+            line.split("%", 1)[1].split(" ", 1)[0]
+            for line in lowered.splitlines()
+            if "ac.var.read @outstanding" in line
+        )
+        comparison = next(
+            line
+            for line in lowered.splitlines()
+            if 'ac.var.cmp "eq"' in line and f"%{read}" in line
+        )
+        condition = next(
+            line for line in lowered.splitlines() if "ac.rule.condition" in line
+        )
+        comparison_result = comparison.split("%", 1)[1].split(" ", 1)[0]
+
+        self.assertIn(f"%{comparison_result}", condition)
+        assignment = next(
+            line
+            for line in lowered.splitlines()
+            if "ac.var.assign @outstanding" in line
+        )
+        self.assertNotIn(f"%{read}", assignment)
 
     def test_branch_guards_capture_the_local_version_at_branch_entry(self) -> None:
         from agentic_circuit._queue_frontend import lower_queue_source
@@ -3646,6 +4412,228 @@ def guarded_update(request: ac.u3) -> ac.u3:
         self.assertIn("ac.rule.return %rule_ready", lowered)
         self.assertNotIn("ready_valid", lowered)
 
+    def test_typed_multi_output_infers_one_presence_per_ordinal(self) -> None:
+        from agentic_circuit._queue_frontend import lower_queue_source
+
+        lowered = lower_queue_source(
+            OPTIONAL_MULTI_OUTPUT_SOURCE, "optional_multi_output"
+        )
+        self.assertEqual(1, lowered.count(" = ac.rule %command "))
+        outputs = [
+            line for line in lowered.splitlines() if "ac.rule.output" in line
+        ]
+        self.assertEqual(3, len(outputs))
+        for ordinal, output in enumerate(outputs):
+            self.assertIn(f" ordinal {ordinal} ", output)
+            self.assertIn(" when %", output)
+        self.assertIn("-> (!ac.queue<!ac.struct<@types::@LeftEffect>>", lowered)
+        self.assertIn("!ac.queue<!ac.struct<@types::@RightEffect>>", lowered)
+        self.assertIn("!ac.queue<!ac.struct<@types::@ApplyAck>>)", lowered)
+        self.assertIn("ac.sink %left_next", lowered)
+        self.assertIn("ac.sink %right_next", lowered)
+        self.assertIn("ac.sink %ack_next", lowered)
+        ack_output = outputs[2]
+        ack_presence = ack_output.split(" when %", 1)[1].split(" ", 1)[0]
+        self.assertIn(
+            f"%{ack_presence} = ac.var.constant true as !ac.var<i1>", lowered
+        )
+        self.assertNotIn("ready_valid", lowered)
+        self.assertNotIn("dummy", lowered)
+
+        conditional_expression = OPTIONAL_MULTI_OUTPUT_SOURCE.replace(
+            "    left = None\n"
+            "    right = None\n",
+            "    left = LeftEffect(value=command.value) if command.left else None\n"
+            "    right = None\n",
+        ).replace(
+            "    if command.left:\n"
+            "        left = LeftEffect(value=command.value)\n"
+            "        if command.nested:\n",
+            "    if command.left:\n"
+            "        if command.nested:\n",
+        )
+        conditional_lowered = lower_queue_source(
+            conditional_expression, "optional_multi_output"
+        )
+        self.assertEqual(3, conditional_lowered.count("ac.rule.output"))
+
+        business_fields = OPTIONAL_MULTI_OUTPUT_SOURCE.replace(
+            "    cancel_left: bool\n",
+            "    cancel_left: bool\n"
+            "    ready: bool\n"
+            "    full: bool\n"
+            "    commit_kind: ac.u2\n"
+            "    reservation_id: ac.u4\n"
+            "    dummy_value: ac.u8\n",
+        ).replace(
+            "    if command.left:\n",
+            "    if command.ready and not command.full:\n",
+            1,
+        )
+        business_lowered = lower_queue_source(
+            business_fields, "optional_multi_output"
+        )
+        self.assertEqual(3, business_lowered.count("ac.rule.output"))
+
+    def test_typed_multi_output_fails_closed_on_contract_gaps(self) -> None:
+        from agentic_circuit._queue_frontend import (
+            QueueFrontendError,
+            lower_queue_source,
+        )
+
+        cases = (
+            (
+                OPTIONAL_MULTI_OUTPUT_SOURCE.replace(
+                    "    left = None\n", "", 1
+                ),
+                "undefined",
+            ),
+            (
+                OPTIONAL_MULTI_OUTPUT_SOURCE.replace(
+                    "return left, right, ack", "return left, ack"
+                ),
+                "arity",
+            ),
+            (
+                OPTIONAL_MULTI_OUTPUT_SOURCE.replace(
+                    "left, right, ack = dispatch(command)",
+                    "left, ack = dispatch(command)",
+                ),
+                "unpacking arity",
+            ),
+            (
+                OPTIONAL_MULTI_OUTPUT_SOURCE.replace(
+                    "def dispatch(command)", "def dispatch(command, extra)"
+                ),
+                "exactly one payload parameter",
+            ),
+            (
+                OPTIONAL_MULTI_OUTPUT_SOURCE.replace(
+                    "left = LeftEffect(value=command.value)",
+                    "left = RightEffect(value=command.value[0:7])",
+                    1,
+                ),
+                "ordinal 0",
+            ),
+            (
+                OPTIONAL_MULTI_OUTPUT_SOURCE.replace(
+                    "    ack = ApplyAck(value=command.value)",
+                    "    ready(command.left)\n"
+                    "    ack = ApplyAck(value=command.value)",
+                ),
+                "compiler-owned",
+            ),
+            (
+                OPTIONAL_MULTI_OUTPUT_SOURCE.replace(
+                    "    ack = ApplyAck(value=command.value)",
+                    "    command.push(command.value)\n"
+                    "    ack = ApplyAck(value=command.value)",
+                ),
+                "compiler-owned",
+            ),
+        )
+        for source, message in cases:
+            with self.subTest(message=message):
+                with self.assertRaisesRegex(QueueFrontendError, message):
+                    lower_queue_source(source, "optional_multi_output")
+
+    def test_w2_shape_scales_to_seven_optional_outputs_and_required_ack(self) -> None:
+        from agentic_circuit._queue_frontend import lower_queue_source
+
+        lowered = lower_queue_source(W2_EIGHT_OUTPUT_SOURCE, "w2")
+        self.assertEqual(1, lowered.count(" = ac.rule %command "))
+        outputs = [
+            line for line in lowered.splitlines() if "ac.rule.output" in line
+        ]
+        self.assertEqual(8, len(outputs))
+        self.assertIn(
+            'ac.output_names = ["gpr", "wakeup", "rob", "brob", '
+            '"fault", "store", "branch", "ack"]',
+            lowered,
+        )
+        self.assertEqual(
+            list(range(8)),
+            [int(line.split(" ordinal ", 1)[1].split(" ", 1)[0]) for line in outputs],
+        )
+        for name in (
+            "gpr",
+            "wakeup",
+            "rob",
+            "brob",
+            "fault",
+            "store",
+            "branch",
+            "ack",
+        ):
+            self.assertIn(f"ac.sink %{name}", lowered)
+
+    def test_multi_output_keeps_state_proposals_in_the_atomic_rule(self) -> None:
+        from agentic_circuit._queue_frontend import lower_queue_source
+
+        stateful = OPTIONAL_MULTI_OUTPUT_SOURCE.replace(
+            "def dispatch(command)", "def dispatch(count, entries, command)"
+        ).replace(
+            "    left = None",
+            "    count = count + 1\n"
+            "    entries[command.value[0]] = command.value\n"
+            "    left = None",
+            1,
+        ).replace(
+            "    left, right, ack = dispatch(command)",
+            "    count: ac.u8 = 0\n"
+            "    entries: list[ac.u8] = [0] * 2\n"
+            "    left, right, ack = dispatch(count, entries, command)",
+        )
+        lowered = lower_queue_source(stateful, "optional_multi_output")
+        self.assertEqual(1, lowered.count(" = ac.rule %command "))
+        self.assertEqual(3, lowered.count("ac.rule.output"))
+        self.assertIn("ac.var.assign @count", lowered)
+        self.assertIn("ac.var.assign_element @entries", lowered)
+
+        serial_override = stateful.replace(
+            "    count = count + 1\n",
+            "    count = count + 1\n"
+            "    if command.left:\n"
+            "        count = command.value\n",
+            1,
+        )
+        override_lowered = lower_queue_source(
+            serial_override, "optional_multi_output"
+        )
+        self.assertEqual(1, override_lowered.count("ac.var.assign @count"))
+        self.assertIn("ac.var.select", override_lowered)
+
+    def test_multi_output_call_binding_infers_read_only_scalar_state(self) -> None:
+        from agentic_circuit._queue_frontend import lower_queue_source
+
+        read_only = OPTIONAL_MULTI_OUTPUT_SOURCE.replace(
+            "def dispatch(command)", "def dispatch(seed, command)"
+        ).replace(
+            "ack = ApplyAck(value=command.value)",
+            "ack = ApplyAck(value=command.value + seed)",
+            1,
+        ).replace(
+            "    left, right, ack = dispatch(command)",
+            "    seed: ac.u8 = 0\n"
+            "    left, right, ack = dispatch(seed, command)",
+        )
+        lowered = lower_queue_source(read_only, "optional_multi_output")
+        self.assertEqual(1, lowered.count(" = ac.rule %command "))
+        self.assertIn("ac.var.read @seed", lowered)
+        self.assertNotIn("ac.var.assign @seed", lowered)
+        self.assertEqual(3, lowered.count("ac.rule.output"))
+
+    def test_multi_output_last_parameter_scalar_index_is_payload_data(self) -> None:
+        from agentic_circuit._queue_frontend import lower_queue_source
+
+        lowered = lower_queue_source(
+            INDEXED_SCALAR_MULTI_OUTPUT_SOURCE, "indexed_scalar"
+        )
+        self.assertEqual(1, lowered.count(" = ac.rule %command "))
+        self.assertEqual(2, lowered.count("ac.rule.output"))
+        self.assertIn("ac.var.extract %item from 0 width 1", lowered)
+        self.assertNotIn("ac.var.read @command", lowered)
+
     def test_pure_if_elif_rule_keeps_one_optional_output_firing(self) -> None:
         from agentic_circuit._queue_frontend import lower_queue_source
 
@@ -3669,6 +4657,140 @@ def guarded_update(request: ac.u3) -> ac.u3:
         )
         with self.assertRaisesRegex(QueueFrontendError, "must precede"):
             lower_queue_source(invalid, "multi_state_allocate")
+
+    def test_nested_rule_captures_module_state_as_explicit_owners(self) -> None:
+        from agentic_circuit._queue_frontend import (
+            QueueFrontendError,
+            lower_queue_source,
+        )
+
+        nested = """
+import agentic_circuit as ac
+
+@ac.struct
+class Entry:
+    index: ac.u2
+    value: ac.u8
+
+@ac.system
+def nested_allocate(incoming: Entry) -> Entry:
+    tail: ac.u2 = 0
+    entries: list[Entry] = [0] * 4
+
+    @ac.rule
+    def allocate(incoming):
+        nonlocal tail, entries
+        entries[tail] = incoming
+        tail = tail + 1
+        return incoming
+
+    allocated = allocate(incoming)
+    return allocated
+"""
+        lowered = lower_queue_source(nested, "nested_allocate")
+        self.assertEqual(lowered, lower_queue_source(nested, "nested_allocate"))
+        explicit = lower_queue_source(MULTI_STATE_RULE_SOURCE, "multi_state_allocate")
+        for operation in (
+            "ac.var.decl @tail",
+            "ac.var.assign @tail",
+            "ac.var.decl @entries",
+            "ac.var.assign_element @entries",
+            "ac.rule.output",
+        ):
+            self.assertEqual(explicit.count(operation), lowered.count(operation))
+        self.assertEqual(explicit.count("ac.rule "), lowered.count("ac.rule "))
+
+        with self.assertRaisesRegex(QueueFrontendError, "unknown capture 'incoming'"):
+            lower_queue_source(
+                nested.replace(
+                    "nonlocal tail, entries", "nonlocal tail, entries, incoming"
+                ),
+                "nested_allocate",
+            )
+        with self.assertRaisesRegex(QueueFrontendError, "requires nonlocal.*tail"):
+            lower_queue_source(
+                nested.replace("nonlocal tail, entries", "nonlocal entries"),
+                "nested_allocate",
+            )
+        with self.assertRaisesRegex(QueueFrontendError, "cannot call or recurse"):
+            lower_queue_source(
+                nested.replace(
+                    "entries[tail] = incoming",
+                    "allocate(incoming)\n        entries[tail] = incoming",
+                ),
+                "nested_allocate",
+            )
+        with self.assertRaisesRegex(QueueFrontendError, "typed module state.*tail"):
+            lower_queue_source(
+                nested.replace("tail: ac.u2 = 0", "tail = 0"),
+                "nested_allocate",
+            )
+        collision = nested.replace(
+            "@ac.system\ndef nested_allocate",
+            "@ac.rule\n"
+            "def __ac_nested_nested_allocate_allocate(tail, entries, incoming):\n"
+            "    entries[tail] = incoming\n"
+            "    return incoming\n\n"
+            "@ac.system\n"
+            "def nested_allocate",
+        )
+        with self.assertRaisesRegex(QueueFrontendError, "identity collides"):
+            lower_queue_source(collision, "nested_allocate")
+        late = nested.replace("    tail: ac.u2 = 0\n", "").replace(
+            "    allocated = allocate(incoming)",
+            "    tail: ac.u2 = 0\n    allocated = allocate(incoming)",
+        )
+        with self.assertRaisesRegex(QueueFrontendError, "late capture 'tail'"):
+            lower_queue_source(late, "nested_allocate")
+        nested_scope = nested.replace(
+            "        nonlocal tail, entries",
+            "        if True:\n            nonlocal tail, entries",
+        )
+        with self.assertRaisesRegex(QueueFrontendError, "direct body statements"):
+            lower_queue_source(nested_scope, "nested_allocate")
+        shadowed = nested.replace(
+            "def allocate(incoming):", "def allocate(tail, incoming):"
+        )
+        with self.assertRaisesRegex(QueueFrontendError, "cannot shadow parameter 'tail'"):
+            lower_queue_source(shadowed, "nested_allocate")
+        aliased = nested.replace(
+            "    allocated = allocate(incoming)",
+            "    alias = allocate\n    allocated = alias(incoming)",
+        )
+        with self.assertRaisesRegex(QueueFrontendError, "cannot escape"):
+            lower_queue_source(aliased, "nested_allocate")
+
+    def test_nested_rule_capture_keeps_module_instances_isolated(self) -> None:
+        from agentic_circuit._queue_frontend import lower_queue_source
+
+        source = """
+import agentic_circuit as ac
+
+@ac.module
+def accumulator(incoming: ac.u8) -> ac.u8:
+    total: ac.u8 = 0
+
+    @ac.rule
+    def add(value):
+        nonlocal total
+        total = total + value
+        return total
+
+    result = add(incoming)
+    return result
+
+@ac.system
+def two_accumulators(left: ac.u8, right: ac.u8) -> tuple[ac.u8, ac.u8]:
+    left_result = accumulator(left)
+    right_result = accumulator(right)
+    return left_result, right_result
+"""
+        lowered = lower_queue_source(source, "two_accumulators")
+        self.assertEqual(1, lowered.count("ac.module @accumulator"))
+        self.assertEqual(2, lowered.count("ac.instance"))
+        self.assertEqual(1, lowered.count("ac.var.decl @total"))
+        self.assertIn('of @accumulator(%inputs#0) static {} id "left_result"', lowered)
+        self.assertIn('of @accumulator(%inputs#1) static {} id "right_result"', lowered)
 
     def test_multi_input_rule_requires_one_queue_per_parameter(self) -> None:
         from agentic_circuit._queue_frontend import (

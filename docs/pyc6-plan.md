@@ -41,7 +41,7 @@ remains distinct.
 
 ### Queue/Table dataflow observation
 
-- [x] Define Decision 0223's recording/presentation boundary and versioned format.
+- [x] Define Decision 0227's recording/presentation boundary and versioned format.
 - [x] Separate lightweight state notifications from the recording adapter; register
   Queue/Table state and topology at model assembly, with external payload codecs.
 - [x] Verify opt-in gfsim Queue/Table operations, token identities, atomic state
@@ -96,6 +96,21 @@ V6 tests plus the examples, simulation, and semantic lanes archived under
 `docs/gates/logs/pyc6-unification/`. The items below expand coverage beyond the
 6.0 migration baseline and remain follow-up hardening work.
 
+- [x] Unify `ForwardSignal`/`StateSignal` current-occurrence coercion across
+  properties, operators, mux/cat, and method/module-level semantic helpers.
+- [x] Make `domain.cycle()` return a CAS tagged at source occurrence plus one.
+- [x] Make composed `submodule_input()` and `domain.call()` reject missing,
+  extra, wrong-domain, wrong-width, and unsupported input values.
+- [x] Remove the unused tutorial façade and reject description strings passed
+  to cycle-aware bitwise OR.
+- [x] Split canonical JIT `compile_cycle_aware()` from explicit eager
+  `build_cycle_aware()` with stable return types and hardened MLIR on both paths.
+- [x] Stabilize the CAS/Wire boundary: domain factories and top-level `mux()`
+  return CAS; raw Wire selection is explicit under `pycircuit.structural`.
+- [x] Make API hygiene and JIT accept normative CAS method-style operations
+  while rejecting the removed Wire forms from receiver-kind evidence.
+- [x] Remove phantom domain frequency/reset-polarity and constant-name
+  parameters instead of silently accepting metadata with no IR representation.
 - [ ] Verify cycle provenance across `domain.call()` and `pyc.instance`
   boundaries.
 - [x] Verify automatic delay insertion for mixed-cycle arithmetic, comparison,
@@ -243,11 +258,86 @@ PYC semantic contracts.
   - [x] Archive review and current-checkout evidence under
     `docs/gates/logs/20260907-issue44-review-closure/` for the upstream
     `Closes #44` merge. GitHub records the final merge and issue state.
-- [ ] Then complete issue #46's heterogeneous optional multi-output rule
+- [x] Complete Decision 0223 and issue #46's heterogeneous optional multi-output rule
   contract: infer one presence per result, apply backpressure only to selected
   sinks, and commit all selected outputs, input consumption, state proposals,
   and the mandatory acknowledgement in one transaction without dummy tokens.
-- [ ] Close #46 and #48 framework prerequisites before their dependent
+  - [x] Freeze fixed-arity tuple authoring: each annotated result position
+    carries a typed value or Python `None`; `None` is compile-time absence and
+    never becomes a Queue token or public presence marker.
+  - [x] Verify one SSA value/presence pair per ordinal through nested CFG and
+    preserve it in Rule, Firing, QueueGraph and generated gfsim.
+  - [x] Execute selected-full, unselected-full, mandatory-ack-full, multi-full,
+    release, exactly-once and state/input-retention cases with heterogeneous
+    results in one prepare/publish/Probe/no-fail-Commit group.
+  - [x] Preserve the explicit Table-to-PYC rejection while proving applicable
+    stateless multi-output PYC C++/Verilog parity.
+- [x] Complete Decision 0224 and issue #48's recursive equality and named
+  payload-invariant contract before simplifying dependent DavinciOO H3 modules.
+  - [x] Admit same-descriptor `==`/`!=` for recursive nominal struct, tuple and
+    fixed value-array values, including packed widths above 64 bits; keep
+    ordered aggregate comparison and nominal mismatch fail closed.
+  - [x] Add one `@ac.invariant` pure predicate surface for a nominal struct and
+    lower each explicit call through verifier-visible ACIR before shared
+    scalar expansion. Do not infer or assume invariants implicitly.
+  - [x] Eliminate aggregate comparison and invariant ops in a shared pass before
+    QueueGraph; independently reject residual high-level contracts downstream.
+  - [x] Execute equal and per-field-family unequal cases in gfsim, boundary
+    invariant true/false cases, and admitted PYC C++/Verilog parity.
+  - [x] Merge the framework PR, then update the in-tree DavinciOO design
+    contracts/implementations and record the mechanical I2 comparison reduction.
+    The focused port reduces I2 from 284 to 41 comparisons. Generated gfsim
+    behavior matrices now cover I1 grant/retry/cancel, I2 operand/dependency/
+    execute/release/cancel, and WBA terminal/apply/retry/cancel/drain, including
+    backpressure, reset, identity, capacity, and isolated-instance cases.
+- [x] Complete Decision 0225 and issue #63 OPT-01 invariant composition.
+  - [x] Build the full invariant call graph before body validation; accept only
+    exact-typed calls in one deterministic closure and reject self/indirect
+    recursion, unknown calls, effects, and implicit captures.
+  - [x] Keep composed calls as verifier-visible nested `ac.var.invariant`, then
+    lower leaf callees before callers with no residual value-contract op before
+    QueueGraph.
+  - [x] Split DavinciOO producer identity into one shared invariant, preserve the
+    operand truth table, and record source LOC plus expanded comparison counts.
+  - [x] Keep generated gfsim and admitted packed PYC C++/Verilator value-contract
+    gates green.
+- [x] Complete issue #63 OPT-04 scalar `find(first)` selection optimization.
+  - [x] Use the shared low-first priority encoder only for effect-free 1..64-bit
+    scalar candidate masks; retain min/max, snapshot and wider-mask scans.
+  - [x] Replace the priority reference loop with exact-width C++20 bit scans and
+    preserve zero/default index plus low/high direction.
+  - [x] Execute width 1/16/64 zero, bit-63 and multi-hit cases; keep I2 generated
+    gfsim behavior and the existing PYC/Verilog priority primitive gates green.
+  - [x] Record generated-loop/byte changes and separate runtime timing from
+    semantic gate results.
+- [x] Complete issue #63 OPT-05 aggregate Table observation borrowing.
+  - [x] Bind aggregate `table_get` results and nested aggregate projections as
+    lexical `const` references; keep scalar observations by value and preserve
+    checked-access diagnostics.
+  - [x] Materialize immutable updates, state proposals, transition returns and
+    Queue outputs before the policy invocation ends.
+  - [x] Compile and execute nested-entry `at`/`checkedAt` fixtures, overwrite a
+    source row before consuming its output, and record WBA generated-source and
+    optimized-machine-code comparisons without claiming unmeasured speedup.
+- [x] Complete issue #63 OPT-03 same-snapshot Table match fusion.
+  - [x] Cover completed/uncompleted rows with one key, duplicate pending rows,
+    no-match and generation-sensitive WBA behavior while retaining two masks.
+  - [x] Fuse only same-Table, same-capture, effect-free inline predicates whose
+    captures dominate the group; retain independent paths for snapshot effects
+    and different captures.
+  - [x] Share exact typed predicate DAG values with hygienic generated SSA,
+    compile flat/hierarchy C++, run WBA behavior, and record loop/source/runtime
+    measurements without claiming Table PYC/RTL support.
+- [x] Complete issue #63 OPT-02 nested rule module-state capture.
+  - [x] Canonicalize direct nested-rule `nonlocal` captures of typed scalar,
+    record and fixed-list module state into exact existing owner bindings;
+    reject missing declarations, aliases, collisions and nested-rule calls.
+  - [x] Convert all seven I2 rules so only real Queue payloads remain explicit;
+    preserve inactive/bare-return, committed/proposed SSA and transaction shape.
+  - [x] Compare explicit/captured I2 state, Queue, rule and generated C++ shape;
+    run backpressure, cancel/sink-decision, retry, release and instance-isolation
+    gates with unchanged conflict and output behavior.
+- [x] Close #46 and #48 framework prerequisites before their dependent
   DavinciOO H3 implementations. Decision 0222 places new design-program work
   under `designs/davincioo/`; independent contracts/modules may proceed when
   their own capabilities are verified. External integrations pin the resulting

@@ -1,0 +1,10 @@
+[       OK ] QueueGraphPlanTest.VerificationLeafRunsInGfsimAndRejectsPycDesign (0 ms)
+[ RUN      ] QueueGraphPlanTest.RejectsMalformedPycFeedbackContract
+[       OK ] QueueGraphPlanTest.RejectsMalformedPycFeedbackContract (0 ms)
+[ RUN      ] QueueGraphPlanTest.BackendsRejectUncatalogedApplicationBlock
+[       OK ] QueueGraphPlanTest.BackendsRejectUncatalogedApplicationBlock (0 ms)
+[----------] 74 tests from QueueGraphPlanTest (72710 ms total)
+
+[----------] Global test environment tear-down
+[==========] 136 tests from 9 test suites ran. (182713 ms total)
+[  PASSED  ] 136 tests.

@@ -1,0 +1,18 @@
+PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=python/semantic-core/src:python/pycircuit/src pytest tests/unit -m unit -q
+PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=python/semantic-core/src:python/pycircuit/src pytest tests/test_assert_fits.py tests/test_bitfield_view.py tests/test_bitmask_match.py tests/test_lane_slice.py tests/test_pyc_enum.py tests/test_signed_compare.py -q
+PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=python/semantic-core/src:python/pycircuit/src python3 flows/tools/check_api_hygiene.py python/pycircuit/src/pycircuit examples/pycircuit docs README.md
+python3 tools/check-pyc-inventory.py
+PYTHONDONTWRITEBYTECODE=1 uv run --no-project --isolated --with-requirements python/agentic-circuit/requirements-dev.lock python tools/agentic-circuit/check-contracts.py
+cp docs/gates/logs/20260908-issue40-p1-compile/changed_precommit.py.txt .pycircuit_out/issue40-p1-compile/changed_precommit.py
+python3 .pycircuit_out/issue40-p1-compile/changed_precommit.py
+mkdocs build --strict --site-dir .pycircuit_out/issue40-p1-compile/site
+cp docs/gates/logs/20260908-issue40-p1-compile/entrypoint_sweep.py.txt .pycircuit_out/issue40-p1-compile/entrypoint_sweep.py
+PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=$PWD/python/semantic-core/src:$PWD/python/pycircuit/src python3 .pycircuit_out/issue40-p1-compile/entrypoint_sweep.py
+PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=python/semantic-core/src:python/pycircuit/src PYCC=$PWD/.pycircuit_out/toolchain/install/bin/pycc python3 -m pycircuit.cli build examples/pycircuit/wire_ops/tb_wire_ops.py --out-dir .pycircuit_out/issue40-p1-compile/wire-ops-evidence --target both --jobs 4 --run-verilator
+.pycircuit_out/issue40-p1-compile/wire-ops-evidence/cpp_build/build/pyc_tb
+PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=python/semantic-core/src:python/pycircuit/src PYCC=$PWD/.pycircuit_out/toolchain/install/bin/pycc python3 tools/build_design.py examples.pycircuit.counter.counter build issue40_compile_counter --kwargs width=8 --out-dir .pycircuit_out/issue40-p1-compile/build-design-evidence
+.pycircuit_out/toolchain/install/bin/pycc .pycircuit_out/issue40-p1-compile/build-design-evidence/mlir/issue40_compile_counter.pyc --emit=none --hierarchy-policy=strict
+cp docs/gates/logs/20260908-issue40-p1-compile/specialization_case.py.txt .pycircuit_out/issue40-p1-compile/specialization_case.py
+PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=python/semantic-core/src:python/pycircuit/src python3 .pycircuit_out/issue40-p1-compile/specialization_case.py
+.pycircuit_out/toolchain/install/bin/pycc .pycircuit_out/issue40-p1-compile/specializations-evidence.pyc --emit=none --hierarchy-policy=strict --hierarchical
+python3 flows/tools/check_decision_status.py --rfc docs/rfcs/pyc6-decisions.md --status docs/gates/decision_status_v6.md --out docs/gates/logs/20260908-issue40-p1-compile/decision_status_report.json --require-no-deferred --require-all-verified --require-concrete-evidence --require-existing-evidence

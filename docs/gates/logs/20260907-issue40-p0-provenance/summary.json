@@ -1,0 +1,21 @@
+{
+  "run_id": "20260907-issue40-p0-provenance",
+  "status": "passed",
+  "base_revision": "bde2f353ae3dd4f365891466fcc8dcae14df044b",
+  "decision_ids": ["0148", "0159"],
+  "issue": 40,
+  "results": {
+    "unit": {"passed": 62, "failed": 0},
+    "compatibility": {"passed": 171, "failed": 0},
+    "primitive_selection": {"passed": 16, "failed": 0},
+    "api_hygiene": {"passed": true},
+    "agentic_repository_contracts": {"passed": true},
+    "pre_commit": {"passed": true},
+    "mkdocs_strict": {"passed": true},
+    "focused_cpp": {"passed": true},
+    "focused_verilator": {"passed": true}
+  },
+  "behavior": "ForwardSignal and StateSignal reads use one current-occurrence coercion path; domain.cycle returns a CAS at source occurrence plus one; composed inputs reject missing, extra, wrong-domain, wrong-width, and unsupported values.",
+  "p1_follow_up": "The direct eager CycleAwareCircuit emitter still lacks the hardened frontend attributes required by pycc; compile entrypoint convergence remains in issue #40 P1.",
+  "skill_evolve": "no-update"
+}

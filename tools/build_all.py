@@ -6,7 +6,6 @@ Each design outputs to <design_dir>/build/ (mlir/ + verilog/).
 from __future__ import annotations
 
 import importlib
-import json
 import os
 import subprocess
 import sys
@@ -28,48 +27,8 @@ def find_pycc() -> Path:
     raise SystemExit("pycc not found")
 
 
-def stamp_metadata(circuit, name: str, params_json: str = "{}") -> None:
-    circuit.set_func_attr("pyc.kind", "module")
-    circuit.set_func_attr("pyc.inline", "false")
-    circuit.set_func_attr("pyc.params", params_json)
-    circuit.set_func_attr("pyc.base", name)
-    metrics = json.dumps(
-        {
-            "ast_node_count": 0,
-            "collection_count": 0,
-            "collection_instance_count": 0,
-            "estimated_inline_cost": 0,
-            "hardware_call_count": 0,
-            "instance_count": 0,
-            "loop_count": 0,
-            "module_call_count": 0,
-            "module_family_collection_count": 0,
-            "repeat_pressure": 0,
-            "repeated_body_clusters": [],
-            "source_loc": 0,
-            "state_alloc_count": 0,
-            "state_call_count": 0,
-        },
-        sort_keys=True,
-        separators=(",", ":"),
-    )
-    circuit.set_func_attr("pyc.struct.metrics", metrics)
-    circuit.set_func_attr("pyc.struct.collections", "[]")
-    circuit.set_func_attr_json("pyc.value_params", [])
-    circuit.set_func_attr_json("pyc.value_param_types", [])
-
-
-def wrap_module_attrs(mlir: str, top_name: str) -> str:
-    return mlir.replace(
-        "module {\n",
-        f"module attributes {{pyc.top = @{top_name}, "
-        f'pyc.frontend.contract = "pycircuit"}} {{\n',
-        1,
-    )
-
-
 def build_one(spec: dict, pycc: Path, logic_depth: int = 256) -> tuple[str, bool, str]:
-    from pycircuit import compile_cycle_aware
+    from pycircuit import build_cycle_aware
 
     name = spec["name"]
     mod_path = spec["module"]
@@ -82,12 +41,8 @@ def build_one(spec: dict, pycc: Path, logic_depth: int = 256) -> tuple[str, bool
         mod = importlib.import_module(mod_path)
         fn = getattr(mod, fn_name)
 
-        params_json = json.dumps(kwargs, sort_keys=True, separators=(",", ":"))
-        circuit = compile_cycle_aware(
-            fn, name=name, eager=True, hierarchical=hier, **kwargs
-        )
-        stamp_metadata(circuit, name, params_json)
-        mlir = wrap_module_attrs(circuit.emit_mlir(), name)
+        circuit = build_cycle_aware(fn, name=name, hierarchical=hier, **kwargs)
+        mlir = circuit.emit_mlir()
 
         mlir_dir = out_dir / "mlir"
         mlir_dir.mkdir(parents=True, exist_ok=True)
@@ -142,7 +97,6 @@ def all_designs() -> list[dict]:
         ("fastfwd", "build", {}),
         ("fifo_loopback", "build", {}),
         ("fmac", None, None),
-        ("fm16", None, None),
         ("huge_hierarchy_stress", None, None),
         ("instance_map", None, None),
         ("interface_wiring", None, None),

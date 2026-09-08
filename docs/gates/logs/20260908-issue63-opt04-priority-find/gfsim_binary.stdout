@@ -1,0 +1,626 @@
+Running main() from /private/tmp/googletest-20250910-5249-qce8ci/googletest-1.17.0/googletest/src/gtest_main.cc
+[==========] Running 271 tests from 26 test suites.
+[----------] Global test environment set-up.
+[----------] 7 tests from UIntTest
+[ RUN      ] UIntTest.OperationsTruncateToDeclaredWidth
+[       OK ] UIntTest.OperationsTruncateToDeclaredWidth (0 ms)
+[ RUN      ] UIntTest.OneBitArithmeticUsesModuloTwo
+[       OK ] UIntTest.OneBitArithmeticUsesModuloTwo (0 ms)
+[ RUN      ] UIntTest.ShiftsAndComparisonsAreUnsignedAndWidthBounded
+[       OK ] UIntTest.ShiftsAndComparisonsAreUnsignedAndWidthBounded (0 ms)
+[ RUN      ] UIntTest.SignedViewAndArithmeticShiftRespectDeclaredWidth
+[       OK ] UIntTest.SignedViewAndArithmeticShiftRespectDeclaredWidth (0 ms)
+[ RUN      ] UIntTest.SixtyFourBitArithmeticAlsoWrapsExactly
+[       OK ] UIntTest.SixtyFourBitArithmeticAlsoWrapsExactly (0 ms)
+[ RUN      ] UIntTest.ExtractConcatAndInsertPreserveStaticWidths
+[       OK ] UIntTest.ExtractConcatAndInsertPreserveStaticWidths (0 ms)
+[ RUN      ] UIntTest.UnaryFullWidthConcatDoesNotShiftByStorageWidth
+[       OK ] UIntTest.UnaryFullWidthConcatDoesNotShiftByStorageWidth (0 ms)
+[----------] 7 tests from UIntTest (0 ms total)
+
+[----------] 2 tests from PriorityEncodeTest
+[ RUN      ] PriorityEncodeTest.ConstantAndRuntimeBitScansPreserveExactWidths
+[       OK ] PriorityEncodeTest.ConstantAndRuntimeBitScansPreserveExactWidths (0 ms)
+[ RUN      ] PriorityEncodeTest.SimQueueBlockPreservesLowAndHighOrder
+[       OK ] PriorityEncodeTest.SimQueueBlockPreservesLowAndHighOrder (0 ms)
+[----------] 2 tests from PriorityEncodeTest (0 ms total)
+
+[----------] 1 test from PopcountTest
+[ RUN      ] PopcountTest.ExactWidthsAndSimQueueBlockAgree
+[       OK ] PopcountTest.ExactWidthsAndSimQueueBlockAgree (0 ms)
+[----------] 1 test from PopcountTest (0 ms total)
+
+[----------] 1 test from CountLeadingZerosTest
+[ RUN      ] CountLeadingZerosTest.ExactWidthsAndSimQueueBlockAgree
+[       OK ] CountLeadingZerosTest.ExactWidthsAndSimQueueBlockAgree (0 ms)
+[----------] 1 test from CountLeadingZerosTest (0 ms total)
+
+[----------] 6 tests from NpuDecoderTest
+[ RUN      ] NpuDecoderTest.ClassifiesRepresentativePinnedDavinciOOOpcodes
+[       OK ] NpuDecoderTest.ClassifiesRepresentativePinnedDavinciOOOpcodes (0 ms)
+[ RUN      ] NpuDecoderTest.PreservesOrderedOperandsTilesScalarsAndDependencies
+[       OK ] NpuDecoderTest.PreservesOrderedOperandsTilesScalarsAndDependencies (0 ms)
+[ RUN      ] NpuDecoderTest.ProducesDecodeAndDispatchProposalsWithRootIdentity
+[       OK ] NpuDecoderTest.ProducesDecodeAndDispatchProposalsWithRootIdentity (0 ms)
+[ RUN      ] NpuDecoderTest.RejectsUnsupportedAndMalformedImportedRecords
+[       OK ] NpuDecoderTest.RejectsUnsupportedAndMalformedImportedRecords (0 ms)
+[ RUN      ] NpuDecoderTest.RepeatedDecodeIsByteIndependentAndValueIdentical
+[       OK ] NpuDecoderTest.RepeatedDecodeIsByteIndependentAndValueIdentical (0 ms)
+[ RUN      ] NpuDecoderTest.UnsupportedOpcodeNeverCommitsATraceOffer
+[       OK ] NpuDecoderTest.UnsupportedOpcodeNeverCommitsATraceOffer (0 ms)
+[----------] 6 tests from NpuDecoderTest (0 ms total)
+
+[----------] 6 tests from NpuDependencyTrackerTest
+[ RUN      ] NpuDependencyTrackerTest.RawDependencyWakesOnlyAtCompletionXfer
+[       OK ] NpuDependencyTrackerTest.RawDependencyWakesOnlyAtCompletionXfer (0 ms)
+[ RUN      ] NpuDependencyTrackerTest.FourFiniteEngineQueuesIssueIndependently
+[       OK ] NpuDependencyTrackerTest.FourFiniteEngineQueuesIssueIndependently (0 ms)
+[ RUN      ] NpuDependencyTrackerTest.OldestReadySelectionIgnoresInsertionOrder
+[       OK ] NpuDependencyTrackerTest.OldestReadySelectionIgnoresInsertionOrder (0 ms)
+[ RUN      ] NpuDependencyTrackerTest.RenameUsesLatestProducerAndIsBlockLocal
+[       OK ] NpuDependencyTrackerTest.RenameUsesLatestProducerAndIsBlockLocal (0 ms)
+[ RUN      ] NpuDependencyTrackerTest.FiniteCapacityRejectsWithoutMutatingOffer
+[       OK ] NpuDependencyTrackerTest.FiniteCapacityRejectsWithoutMutatingOffer (0 ms)
+[ RUN      ] NpuDependencyTrackerTest.WorkPermutationPreservesQueuesStatisticsAndObservations
+[       OK ] NpuDependencyTrackerTest.WorkPermutationPreservesQueuesStatisticsAndObservations (0 ms)
+[----------] 6 tests from NpuDependencyTrackerTest (0 ms total)
+
+[----------] 8 tests from NpuExecutionPipelineTest
+[ RUN      ] NpuExecutionPipelineTest.FrozenLatenciesCompleteFourEnginesPrecisely
+[       OK ] NpuExecutionPipelineTest.FrozenLatenciesCompleteFourEnginesPrecisely (0 ms)
+[ RUN      ] NpuExecutionPipelineTest.UnitPressureRejectsWithoutMutatingIssue
+[       OK ] NpuExecutionPipelineTest.UnitPressureRejectsWithoutMutatingIssue (0 ms)
+[ RUN      ] NpuExecutionPipelineTest.TmaUsesExactAddressAndCorrelation
+[       OK ] NpuExecutionPipelineTest.TmaUsesExactAddressAndCorrelation (0 ms)
+[ RUN      ] NpuExecutionPipelineTest.StoreUsesScratchpadValueAndGlobalAddress
+[       OK ] NpuExecutionPipelineTest.StoreUsesScratchpadValueAndGlobalAddress (0 ms)
+[ RUN      ] NpuExecutionPipelineTest.MemoryOrderingIgnoresExecuteProposalOrder
+[       OK ] NpuExecutionPipelineTest.MemoryOrderingIgnoresExecuteProposalOrder (0 ms)
+[ RUN      ] NpuExecutionPipelineTest.CompletionIsDrivenByScheduledRuntimeEvent
+[       OK ] NpuExecutionPipelineTest.CompletionIsDrivenByScheduledRuntimeEvent (0 ms)
+[ RUN      ] NpuExecutionPipelineTest.OutOfOrderCompletionStillRetiresInBlockSequenceOrder
+[       OK ] NpuExecutionPipelineTest.OutOfOrderCompletionStillRetiresInBlockSequenceOrder (0 ms)
+[ RUN      ] NpuExecutionPipelineTest.CompletionNeedsTraceExhaustionAndQuiescence
+[       OK ] NpuExecutionPipelineTest.CompletionNeedsTraceExhaustionAndQuiescence (0 ms)
+[----------] 8 tests from NpuExecutionPipelineTest (0 ms total)
+
+[----------] 4 tests from NpuTraceSourceTest
+[ RUN      ] NpuTraceSourceTest.ExecutesFourEnginesWithDependenciesAndCommitsArchitecturalState
+[       OK ] NpuTraceSourceTest.ExecutesFourEnginesWithDependenciesAndCommitsArchitecturalState (0 ms)
+[ RUN      ] NpuTraceSourceTest.RejectsUnsupportedOpcodeWithoutCommit
+[       OK ] NpuTraceSourceTest.RejectsUnsupportedOpcodeWithoutCommit (0 ms)
+[ RUN      ] NpuTraceSourceTest.RunsAsTheSingleSystemTraceOwner
+[       OK ] NpuTraceSourceTest.RunsAsTheSingleSystemTraceOwner (0 ms)
+[ RUN      ] NpuTraceSourceTest.DecodesTheCheckedInDavinciOOFixture
+[       OK ] NpuTraceSourceTest.DecodesTheCheckedInDavinciOOFixture (0 ms)
+[----------] 4 tests from NpuTraceSourceTest (1 ms total)
+
+[----------] 77 tests from QueueBlocksTest
+[ RUN      ] QueueBlocksTest.HighLevelProvidersFreezeStructuralTemplateParameters
+[       OK ] QueueBlocksTest.HighLevelProvidersFreezeStructuralTemplateParameters (0 ms)
+[ RUN      ] QueueBlocksTest.StatefulTableReadsOldDataAndCommitsWriteAtTickEnd
+[       OK ] QueueBlocksTest.StatefulTableReadsOldDataAndCommitsWriteAtTickEnd (0 ms)
+[ RUN      ] QueueBlocksTest.DisabledTableWriteConsumesWithoutChangingState
+[       OK ] QueueBlocksTest.DisabledTableWriteConsumesWithoutChangingState (0 ms)
+[ RUN      ] QueueBlocksTest.TableReadPreservesDisabledAndOutOfRangeRequests
+[       OK ] QueueBlocksTest.TableReadPreservesDisabledAndOutOfRangeRequests (0 ms)
+[ RUN      ] QueueBlocksTest.QueueTableEntryDependentWhenReportsDynamicOutOfRange
+[       OK ] QueueBlocksTest.QueueTableEntryDependentWhenReportsDynamicOutOfRange (0 ms)
+[ RUN      ] QueueBlocksTest.StateTableEntryDependentWhenReportsDynamicOutOfRange
+[       OK ] QueueBlocksTest.StateTableEntryDependentWhenReportsDynamicOutOfRange (0 ms)
+[ RUN      ] QueueBlocksTest.FalseTableWhenDoesNotEvaluateAddressOrReportFailure
+[       OK ] QueueBlocksTest.FalseTableWhenDoesNotEvaluateAddressOrReportFailure (0 ms)
+[ RUN      ] QueueBlocksTest.StateTableReadRepeatsAndBackpressuredValueStaysStable
+[       OK ] QueueBlocksTest.StateTableReadRepeatsAndBackpressuredValueStaysStable (0 ms)
+[ RUN      ] QueueBlocksTest.StateTableWriteSkipsDisabledExpressionsAndCommitsOldState
+[       OK ] QueueBlocksTest.StateTableWriteSkipsDisabledExpressionsAndCommitsOldState (0 ms)
+[ RUN      ] QueueBlocksTest.TableMergesDisjointWriterFieldsFromOldState
+[       OK ] QueueBlocksTest.TableMergesDisjointWriterFieldsFromOldState (0 ms)
+[ RUN      ] QueueBlocksTest.TableReplaceWinsAfterFieldMergesIndependentOfEntry
+[       OK ] QueueBlocksTest.TableReplaceWinsAfterFieldMergesIndependentOfEntry (0 ms)
+[ RUN      ] QueueBlocksTest.TableMatchAndChooseAreEvaluatedOncePerEpoch
+[       OK ] QueueBlocksTest.TableMatchAndChooseAreEvaluatedOncePerEpoch (0 ms)
+[ RUN      ] QueueBlocksTest.FirstSelectionUsesOneWordScanAndEpochCache
+[       OK ] QueueBlocksTest.FirstSelectionUsesOneWordScanAndEpochCache (0 ms)
+[ RUN      ] QueueBlocksTest.LargeFirstAndOrderedPoliciesKeepFallbackScan
+[       OK ] QueueBlocksTest.LargeFirstAndOrderedPoliciesKeepFallbackScan (0 ms)
+[ RUN      ] QueueBlocksTest.FirstSelectionPreservesMaskTestPrecedence
+[       OK ] QueueBlocksTest.FirstSelectionPreservesMaskTestPrecedence (0 ms)
+[ RUN      ] QueueBlocksTest.TableCancellationIsWriterLocal
+[       OK ] QueueBlocksTest.TableCancellationIsWriterLocal (0 ms)
+[ RUN      ] QueueBlocksTest.TableReservationsUseDynamicIndexAndFieldFootprints
+[       OK ] QueueBlocksTest.TableReservationsUseDynamicIndexAndFieldFootprints (0 ms)
+[ RUN      ] QueueBlocksTest.SnapshotReservationsAllowReadersAndConflictWithWriters
+[       OK ] QueueBlocksTest.SnapshotReservationsAllowReadersAndConflictWithWriters (0 ms)
+[ RUN      ] QueueBlocksTest.FieldSnapshotsConflictOnlyWithOverlappingWrites
+[       OK ] QueueBlocksTest.FieldSnapshotsConflictOnlyWithOverlappingWrites (0 ms)
+[ RUN      ] QueueBlocksTest.SparseStateReservationsCoverIndicesBeyondSixtyThree
+[       OK ] QueueBlocksTest.SparseStateReservationsCoverIndicesBeyondSixtyThree (0 ms)
+[ RUN      ] QueueBlocksTest.MaskedTableWriteCommitsSelectedOldStateAtomically
+[       OK ] QueueBlocksTest.MaskedTableWriteCommitsSelectedOldStateAtomically (0 ms)
+[ RUN      ] QueueBlocksTest.TransitionAllocatesWithInputAndOutputAsOneCommit
+[       OK ] QueueBlocksTest.TransitionAllocatesWithInputAndOutputAsOneCommit (0 ms)
+[ RUN      ] QueueBlocksTest.TransitionCancelsQueueReservationsOnTableConflict
+[       OK ] QueueBlocksTest.TransitionCancelsQueueReservationsOnTableConflict (0 ms)
+[ RUN      ] QueueBlocksTest.PublishedTransitionCannotPartiallyRollbackOnLocalReset
+[       OK ] QueueBlocksTest.PublishedTransitionCannotPartiallyRollbackOnLocalReset (0 ms)
+[ RUN      ] QueueBlocksTest.TransitionPatchesMaskAndConsumesInputTogether
+[       OK ] QueueBlocksTest.TransitionPatchesMaskAndConsumesInputTogether (0 ms)
+[ RUN      ] QueueBlocksTest.AbsentTableEffectConsumesInputWithoutTableCommit
+[       OK ] QueueBlocksTest.AbsentTableEffectConsumesInputWithoutTableCommit (0 ms)
+[ RUN      ] QueueBlocksTest.AbsentMultiOwnerEffectsSkipEveryTableCommit
+[       OK ] QueueBlocksTest.AbsentMultiOwnerEffectsSkipEveryTableCommit (0 ms)
+[ RUN      ] QueueBlocksTest.WholeEntryTransitionUsesExplicitReplaceMode
+[       OK ] QueueBlocksTest.WholeEntryTransitionUsesExplicitReplaceMode (0 ms)
+[ RUN      ] QueueBlocksTest.TransitionKeepsEntryWhenRetireOutputIsBackpressured
+[       OK ] QueueBlocksTest.TransitionKeepsEntryWhenRetireOutputIsBackpressured (0 ms)
+[ RUN      ] QueueBlocksTest.TransitionDoesNotRerouteWhenSelectedBranchIsBlocked
+[       OK ] QueueBlocksTest.TransitionDoesNotRerouteWhenSelectedBranchIsBlocked (0 ms)
+[ RUN      ] QueueBlocksTest.HeterogeneousSelectedOutputsCommitAtomicallyUnderBackpressure
+[       OK ] QueueBlocksTest.HeterogeneousSelectedOutputsCommitAtomicallyUnderBackpressure (0 ms)
+[ RUN      ] QueueBlocksTest.TransitionLeavesTableCommitOwnershipOrderIndependent
+[       OK ] QueueBlocksTest.TransitionLeavesTableCommitOwnershipOrderIndependent (0 ms)
+[ RUN      ] QueueBlocksTest.EqualTableReplacementCommitsWithoutActivationWake
+[       OK ] QueueBlocksTest.EqualTableReplacementCommitsWithoutActivationWake (0 ms)
+[ RUN      ] QueueBlocksTest.CompetingTransitionsPublishOnlyDuringExplicitStableArbitration
+[       OK ] QueueBlocksTest.CompetingTransitionsPublishOnlyDuringExplicitStableArbitration (0 ms)
+[ RUN      ] QueueBlocksTest.MultiStateTransitionCommitsOwnerLocalWriteBatchAndQueuesTogether
+[       OK ] QueueBlocksTest.MultiStateTransitionCommitsOwnerLocalWriteBatchAndQueuesTogether (0 ms)
+[ RUN      ] QueueBlocksTest.MultiStateTransitionCancelsEarlierOwnerOnLaterConflict
+[       OK ] QueueBlocksTest.MultiStateTransitionCancelsEarlierOwnerOnLaterConflict (0 ms)
+[ RUN      ] QueueBlocksTest.CompetingMultiStateTransitionsUseStableArbitrationAndRecompute
+[       OK ] QueueBlocksTest.CompetingMultiStateTransitionsUseStableArbitrationAndRecompute (0 ms)
+[ RUN      ] QueueBlocksTest.SlotCapturesBackpressuresReleasesAndDoesNotRefill
+[       OK ] QueueBlocksTest.SlotCapturesBackpressuresReleasesAndDoesNotRefill (0 ms)
+[ RUN      ] QueueBlocksTest.SlotReleasePolicyMayObserveEpoch
+[       OK ] QueueBlocksTest.SlotReleasePolicyMayObserveEpoch (0 ms)
+[ RUN      ] QueueBlocksTest.TransformCommitsOnlyAcrossTheQueueBarrier
+[       OK ] QueueBlocksTest.TransformCommitsOnlyAcrossTheQueueBarrier (0 ms)
+[ RUN      ] QueueBlocksTest.SimQueueRateBoundsOneEpochProposals
+[       OK ] QueueBlocksTest.SimQueueRateBoundsOneEpochProposals (0 ms)
+[ RUN      ] QueueBlocksTest.SimQueueCommitGroupPreparePublishIsNoFail
+[       OK ] QueueBlocksTest.SimQueueCommitGroupPreparePublishIsNoFail (0 ms)
+[ RUN      ] QueueBlocksTest.SimQueueCancelledGroupLeavesCommittedStateUntouched
+[       OK ] QueueBlocksTest.SimQueueCancelledGroupLeavesCommittedStateUntouched (0 ms)
+[ RUN      ] QueueBlocksTest.UnpublishedCommitGroupsFailClosedAtXfer
+[       OK ] QueueBlocksTest.UnpublishedCommitGroupsFailClosedAtXfer (0 ms)
+[ RUN      ] QueueBlocksTest.ComputeConsumesAndProducesItsStaticRate
+[       OK ] QueueBlocksTest.ComputeConsumesAndProducesItsStaticRate (0 ms)
+[ RUN      ] QueueBlocksTest.TransformDoesNotConsumeWhenOutputIsBackpressured
+[       OK ] QueueBlocksTest.TransformDoesNotConsumeWhenOutputIsBackpressured (0 ms)
+[ RUN      ] QueueBlocksTest.AtomicTransformCommitsAllQueuesTogether
+[       OK ] QueueBlocksTest.AtomicTransformCommitsAllQueuesTogether (0 ms)
+[ RUN      ] QueueBlocksTest.AtomicTransformSupportsIndependentInputOutputArity
+[       OK ] QueueBlocksTest.AtomicTransformSupportsIndependentInputOutputArity (0 ms)
+[ RUN      ] QueueBlocksTest.AtomicTransformCancelsDuplicateOutputReservation
+[       OK ] QueueBlocksTest.AtomicTransformCancelsDuplicateOutputReservation (0 ms)
+[ RUN      ] QueueBlocksTest.AtomicTransformCancelsDuplicateInputReservation
+[       OK ] QueueBlocksTest.AtomicTransformCancelsDuplicateInputReservation (0 ms)
+[ RUN      ] QueueBlocksTest.GroupedBlocksRejectNullQueueEndpoints
+[       OK ] QueueBlocksTest.GroupedBlocksRejectNullQueueEndpoints (0 ms)
+[ RUN      ] QueueBlocksTest.BarrierTransfersHeterogeneousQueuesAtomically
+[       OK ] QueueBlocksTest.BarrierTransfersHeterogeneousQueuesAtomically (0 ms)
+[ RUN      ] QueueBlocksTest.ReorderRetiresOutOfOrderArrivalsBySequenceKey
+[       OK ] QueueBlocksTest.ReorderRetiresOutOfOrderArrivalsBySequenceKey (0 ms)
+[ RUN      ] QueueBlocksTest.ReorderRejectsDuplicateSequenceKey
+[       OK ] QueueBlocksTest.ReorderRejectsDuplicateSequenceKey (0 ms)
+[ RUN      ] QueueBlocksTest.ReorderRejectsNegativeSequenceKey
+[       OK ] QueueBlocksTest.ReorderRejectsNegativeSequenceKey (0 ms)
+[ RUN      ] QueueBlocksTest.DependencyCompletesReadyTokensOutOfOrder
+[       OK ] QueueBlocksTest.DependencyCompletesReadyTokensOutOfOrder (0 ms)
+[ RUN      ] QueueBlocksTest.DependencyRejectsZeroExecutionCost
+[       OK ] QueueBlocksTest.DependencyRejectsZeroExecutionCost (0 ms)
+[ RUN      ] QueueBlocksTest.DependencyRejectsOutOfRangeResource
+[       OK ] QueueBlocksTest.DependencyRejectsOutOfRangeResource (0 ms)
+[ RUN      ] QueueBlocksTest.CreditWindowCompletesParallelTokensAndReturnsSlots
+[       OK ] QueueBlocksTest.CreditWindowCompletesParallelTokensAndReturnsSlots (0 ms)
+[ RUN      ] QueueBlocksTest.CreditRejectsZeroCostWithoutConsumingInput
+[       OK ] QueueBlocksTest.CreditRejectsZeroCostWithoutConsumingInput (0 ms)
+[ RUN      ] QueueBlocksTest.MemoryReturnsOldDataAndCommitsWriteAtXfer
+[       OK ] QueueBlocksTest.MemoryReturnsOldDataAndCommitsWriteAtXfer (0 ms)
+[ RUN      ] QueueBlocksTest.MemoryRejectsOutOfRangeAddress
+[       OK ] QueueBlocksTest.MemoryRejectsOutOfRangeAddress (0 ms)
+[ RUN      ] QueueBlocksTest.SharedMemoryUsesPriorityAndBlocksUntilResponseAccepted
+[       OK ] QueueBlocksTest.SharedMemoryUsesPriorityAndBlocksUntilResponseAccepted (0 ms)
+[ RUN      ] QueueBlocksTest.SharedMemoryLatencyDelaysResponseAndBackpressuresRequests
+[       OK ] QueueBlocksTest.SharedMemoryLatencyDelaysResponseAndBackpressuresRequests (0 ms)
+[ RUN      ] QueueBlocksTest.SharedMemoryRejectsZeroLatency
+[       OK ] QueueBlocksTest.SharedMemoryRejectsZeroLatency (0 ms)
+[ RUN      ] QueueBlocksTest.QueueLatencyDelaysVisibilityButReservesCapacity
+[       OK ] QueueBlocksTest.QueueLatencyDelaysVisibilityButReservesCapacity (0 ms)
+[ RUN      ] QueueBlocksTest.SinkConsumesAtWorkAndPublishesAtXfer
+[       OK ] QueueBlocksTest.SinkConsumesAtWorkAndPublishesAtXfer (0 ms)
+[ RUN      ] QueueBlocksTest.ObserveCommitsWithoutConsumingOrBackpressure
+[       OK ] QueueBlocksTest.ObserveCommitsWithoutConsumingOrBackpressure (0 ms)
+[ RUN      ] QueueBlocksTest.ExpectChecksHeadWithoutConsumingIt
+[       OK ] QueueBlocksTest.ExpectChecksHeadWithoutConsumingIt (0 ms)
+[ RUN      ] QueueBlocksTest.ExpectReportsPredicateFailure
+[       OK ] QueueBlocksTest.ExpectReportsPredicateFailure (0 ms)
+[ RUN      ] QueueBlocksTest.BroadcastWaitsForEveryOutput
+[       OK ] QueueBlocksTest.BroadcastWaitsForEveryOutput (0 ms)
+[ RUN      ] QueueBlocksTest.ForkDeliversOutputsIndependentlyBeforeInputPop
+[       OK ] QueueBlocksTest.ForkDeliversOutputsIndependentlyBeforeInputPop (0 ms)
+[ RUN      ] QueueBlocksTest.RouteSelectsExactlyOneOutput
+[       OK ] QueueBlocksTest.RouteSelectsExactlyOneOutput (0 ms)
+[ RUN      ] QueueBlocksTest.SelectConsumesControlAndChosenInputOnly
+[       OK ] QueueBlocksTest.SelectConsumesControlAndChosenInputOnly (0 ms)
+[ RUN      ] QueueBlocksTest.SelectRejectsOutOfRangeSelector
+[       OK ] QueueBlocksTest.SelectRejectsOutOfRangeSelector (0 ms)
+[ RUN      ] QueueBlocksTest.MergeRoundRobinIgnoresWorkInsertionOrder
+[       OK ] QueueBlocksTest.MergeRoundRobinIgnoresWorkInsertionOrder (0 ms)
+[ RUN      ] QueueBlocksTest.FeedbackUsesParentOwnedStateQueue
+[       OK ] QueueBlocksTest.FeedbackUsesParentOwnedStateQueue (0 ms)
+[----------] 77 tests from QueueBlocksTest (0 ms total)
+
+[----------] 7 tests from ShowcaseTest
+[ RUN      ] ShowcaseTest.ProducerQueueConsumerUsesDenseDispatchAndCommittedFlow
+[       OK ] ShowcaseTest.ProducerQueueConsumerUsesDenseDispatchAndCommittedFlow (0 ms)
+[ RUN      ] ShowcaseTest.BackpressuredPipelineRetainsOfferUntilExactTransfer
+[       OK ] ShowcaseTest.BackpressuredPipelineRetainsOfferUntilExactTransfer (0 ms)
+[ RUN      ] ShowcaseTest.RequestResponseMemoryPreservesCorrelationAndState
+[       OK ] ShowcaseTest.RequestResponseMemoryPreservesCorrelationAndState (0 ms)
+[ RUN      ] ShowcaseTest.NestedArraysExposeDenseIndependentLaneHierarchy
+[       OK ] ShowcaseTest.NestedArraysExposeDenseIndependentLaneHierarchy (0 ms)
+[ RUN      ] ShowcaseTest.TimeDomainBridgeUsesExactIntegerDomainAdvancement
+[       OK ] ShowcaseTest.TimeDomainBridgeUsesExactIntegerDomainAdvancement (0 ms)
+[ RUN      ] ShowcaseTest.SuspendedProcessWakesResumesAndPreservesLiveState
+[       OK ] ShowcaseTest.SuspendedProcessWakesResumesAndPreservesLiveState (0 ms)
+[ RUN      ] ShowcaseTest.LegalWorkOrdersHaveByteIdenticalCommittedResults
+[       OK ] ShowcaseTest.LegalWorkOrdersHaveByteIdenticalCommittedResults (1 ms)
+[----------] 7 tests from ShowcaseTest (2 ms total)
+
+[----------] 12 tests from RuntimeHarnessTest
+[ RUN      ] RuntimeHarnessTest.ExactManifestConfiguresLimitsAndProducesClosedResult
+[       OK ] RuntimeHarnessTest.ExactManifestConfiguresLimitsAndProducesClosedResult (1 ms)
+[ RUN      ] RuntimeHarnessTest.MovesTypedTraceIntoModelExactlyOnceBeforeConfigure
+[       OK ] RuntimeHarnessTest.MovesTypedTraceIntoModelExactlyOnceBeforeConfigure (0 ms)
+[ RUN      ] RuntimeHarnessTest.TraceOwnerRejectionStopsBeforeConfigureAndRun
+[       OK ] RuntimeHarnessTest.TraceOwnerRejectionStopsBeforeConfigureAndRun (0 ms)
+[ RUN      ] RuntimeHarnessTest.RawDavinciJsonlNeverReachesModelCode
+[       OK ] RuntimeHarnessTest.RawDavinciJsonlNeverReachesModelCode (0 ms)
+[ RUN      ] RuntimeHarnessTest.JsonlEventLogContainsCommittedStableKeys
+[       OK ] RuntimeHarnessTest.JsonlEventLogContainsCommittedStableKeys (1 ms)
+[ RUN      ] RuntimeHarnessTest.RejectsNoncanonicalObservationsBeforePublication
+[       OK ] RuntimeHarnessTest.RejectsNoncanonicalObservationsBeforePublication (0 ms)
+[ RUN      ] RuntimeHarnessTest.BuildFingerprintMismatchFailsBeforeModelWork
+[       OK ] RuntimeHarnessTest.BuildFingerprintMismatchFailsBeforeModelWork (0 ms)
+[ RUN      ] RuntimeHarnessTest.UnknownDomainLimitFailsBeforeModelWork
+[       OK ] RuntimeHarnessTest.UnknownDomainLimitFailsBeforeModelWork (0 ms)
+[ RUN      ] RuntimeHarnessTest.UnmetExpectationPublishesFailedValidation
+[       OK ] RuntimeHarnessTest.UnmetExpectationPublishesFailedValidation (0 ms)
+[ RUN      ] RuntimeHarnessTest.DomainCycleCapStopsBeforeWorkBeyondTheBound
+[       OK ] RuntimeHarnessTest.DomainCycleCapStopsBeforeWorkBeyondTheBound (0 ms)
+[ RUN      ] RuntimeHarnessTest.DeadlockWindowProducesExactFailedEpoch
+[       OK ] RuntimeHarnessTest.DeadlockWindowProducesExactFailedEpoch (0 ms)
+[ RUN      ] RuntimeHarnessTest.DeadlockWindowStopsPollingWithoutDeclaredProgress
+[       OK ] RuntimeHarnessTest.DeadlockWindowStopsPollingWithoutDeclaredProgress (0 ms)
+[----------] 12 tests from RuntimeHarnessTest (5 ms total)
+
+[----------] 9 tests from GfsimCoreTest
+[ RUN      ] GfsimCoreTest.EpochComparison
+[       OK ] GfsimCoreTest.EpochComparison (0 ms)
+[ RUN      ] GfsimCoreTest.EpochSameTime
+[       OK ] GfsimCoreTest.EpochSameTime (0 ms)
+[ RUN      ] GfsimCoreTest.EpochNextDeltaCorrect
+[       OK ] GfsimCoreTest.EpochNextDeltaCorrect (0 ms)
+[ RUN      ] GfsimCoreTest.EventOrdering
+[       OK ] GfsimCoreTest.EventOrdering (0 ms)
+[ RUN      ] GfsimCoreTest.EventSameTimeOrderedByDelta
+[       OK ] GfsimCoreTest.EventSameTimeOrderedByDelta (0 ms)
+[ RUN      ] GfsimCoreTest.EventSameTimeOrderedByKindThenPayload
+[       OK ] GfsimCoreTest.EventSameTimeOrderedByKindThenPayload (0 ms)
+[ RUN      ] GfsimCoreTest.EventTieBreaksByStableTargetId
+[       OK ] GfsimCoreTest.EventTieBreaksByStableTargetId (0 ms)
+[ RUN      ] GfsimCoreTest.TerminationResultDefaults
+[       OK ] GfsimCoreTest.TerminationResultDefaults (0 ms)
+[ RUN      ] GfsimCoreTest.MaxDeltasPerTickIsFinite
+[       OK ] GfsimCoreTest.MaxDeltasPerTickIsFinite (0 ms)
+[----------] 9 tests from GfsimCoreTest (0 ms total)
+
+[----------] 14 tests from GfsimObjectTest
+[ RUN      ] GfsimObjectTest.AttachedByValueChildSharesWalkPathAndResetBehavior
+[       OK ] GfsimObjectTest.AttachedByValueChildSharesWalkPathAndResetBehavior (0 ms)
+[ RUN      ] GfsimObjectTest.DuplicateAndCrossParentAttachmentAreRejected
+[       OK ] GfsimObjectTest.DuplicateAndCrossParentAttachmentAreRejected (0 ms)
+[ RUN      ] GfsimObjectTest.ReparentingAttachedModuleRefreshesNestedPaths
+[       OK ] GfsimObjectTest.ReparentingAttachedModuleRefreshesNestedPaths (0 ms)
+[ RUN      ] GfsimObjectTest.OwnedAndAttachedChildrenShareInsertionOrder
+[       OK ] GfsimObjectTest.OwnedAndAttachedChildrenShareInsertionOrder (0 ms)
+[ RUN      ] GfsimObjectTest.ModuleAddsChildWithPath
+[       OK ] GfsimObjectTest.ModuleAddsChildWithPath (0 ms)
+[ RUN      ] GfsimObjectTest.ModuleWalkVisitsAll
+[       OK ] GfsimObjectTest.ModuleWalkVisitsAll (0 ms)
+[ RUN      ] GfsimObjectTest.NestedModuleWalkVisitsAllLevels
+[       OK ] GfsimObjectTest.NestedModuleWalkVisitsAllLevels (0 ms)
+[ RUN      ] GfsimObjectTest.WalkUsesModuleCapabilityRatherThanKindTag
+[       OK ] GfsimObjectTest.WalkUsesModuleCapabilityRatherThanKindTag (0 ms)
+[ RUN      ] GfsimObjectTest.GeneratedModuleWrappersNeedPathsButNoRuntimeObjectIds
+[       OK ] GfsimObjectTest.GeneratedModuleWrappersNeedPathsButNoRuntimeObjectIds (0 ms)
+[ RUN      ] GfsimObjectTest.FindChildByName
+[       OK ] GfsimObjectTest.FindChildByName (0 ms)
+[ RUN      ] GfsimObjectTest.ResetPropagatesToChildren
+[       OK ] GfsimObjectTest.ResetPropagatesToChildren (0 ms)
+[ RUN      ] GfsimObjectTest.EmptyModuleWalkOnlySelf
+[       OK ] GfsimObjectTest.EmptyModuleWalkOnlySelf (0 ms)
+[ RUN      ] GfsimObjectTest.ChildPathReflectsHierarchy
+[       OK ] GfsimObjectTest.ChildPathReflectsHierarchy (0 ms)
+[ RUN      ] GfsimObjectTest.ReparentingRefreshesAllNestedCanonicalPaths
+[       OK ] GfsimObjectTest.ReparentingRefreshesAllNestedCanonicalPaths (0 ms)
+[----------] 14 tests from GfsimObjectTest (0 ms total)
+
+[----------] 9 tests from GfsimQueueTest
+[ RUN      ] GfsimQueueTest.PushPopRoundTrip
+[       OK ] GfsimQueueTest.PushPopRoundTrip (0 ms)
+[ RUN      ] GfsimQueueTest.CapacityEnforcement
+[       OK ] GfsimQueueTest.CapacityEnforcement (0 ms)
+[ RUN      ] GfsimQueueTest.PopAfterPushRoundTrip
+[       OK ] GfsimQueueTest.PopAfterPushRoundTrip (0 ms)
+[ RUN      ] GfsimQueueTest.WatermarkTracksPeak
+[       OK ] GfsimQueueTest.WatermarkTracksPeak (0 ms)
+[ RUN      ] GfsimQueueTest.MultiplePopsDrainQueue
+[       OK ] GfsimQueueTest.MultiplePopsDrainQueue (0 ms)
+[ RUN      ] GfsimQueueTest.PeekReturnsFrontWithoutConsuming
+[       OK ] GfsimQueueTest.PeekReturnsFrontWithoutConsuming (0 ms)
+[ RUN      ] GfsimQueueTest.PopFromEmptyReturnsNullopt
+[       OK ] GfsimQueueTest.PopFromEmptyReturnsNullopt (0 ms)
+[ RUN      ] GfsimQueueTest.PeekFromEmptyReturnsNull
+[       OK ] GfsimQueueTest.PeekFromEmptyReturnsNull (0 ms)
+[ RUN      ] GfsimQueueTest.PendingCommitTracksAcceptedProposals
+[       OK ] GfsimQueueTest.PendingCommitTracksAcceptedProposals (0 ms)
+[----------] 9 tests from GfsimQueueTest (0 ms total)
+
+[----------] 7 tests from GfsimEventQueueTest
+[ RUN      ] GfsimEventQueueTest.EventsOrderedByEpoch
+[       OK ] GfsimEventQueueTest.EventsOrderedByEpoch (0 ms)
+[ RUN      ] GfsimEventQueueTest.SameTickOrderedByDelta
+[       OK ] GfsimEventQueueTest.SameTickOrderedByDelta (0 ms)
+[ RUN      ] GfsimEventQueueTest.HasEventAtChecksExactEpoch
+[       OK ] GfsimEventQueueTest.HasEventAtChecksExactEpoch (0 ms)
+[ RUN      ] GfsimEventQueueTest.CapacityEnforcement
+[       OK ] GfsimEventQueueTest.CapacityEnforcement (0 ms)
+[ RUN      ] GfsimEventQueueTest.PopNextFromEmptyReturnsNullopt
+[       OK ] GfsimEventQueueTest.PopNextFromEmptyReturnsNullopt (0 ms)
+[ RUN      ] GfsimEventQueueTest.NextEventDoesNotConsume
+[       OK ] GfsimEventQueueTest.NextEventDoesNotConsume (0 ms)
+[ RUN      ] GfsimEventQueueTest.ResetClearsAllEvents
+[       OK ] GfsimEventQueueTest.ResetClearsAllEvents (0 ms)
+[----------] 7 tests from GfsimEventQueueTest (0 ms total)
+
+[----------] 14 tests from GfsimResourceTest
+[ RUN      ] GfsimResourceTest.ReserveWithinCapacity
+[       OK ] GfsimResourceTest.ReserveWithinCapacity (0 ms)
+[ RUN      ] GfsimResourceTest.ReserveExceedsCapacityFails
+[       OK ] GfsimResourceTest.ReserveExceedsCapacityFails (0 ms)
+[ RUN      ] GfsimResourceTest.ReleaseAfterReserve
+[       OK ] GfsimResourceTest.ReleaseAfterReserve (0 ms)
+[ RUN      ] GfsimResourceTest.HighWatermarkPersistsAfterRelease
+[       OK ] GfsimResourceTest.HighWatermarkPersistsAfterRelease (0 ms)
+[ RUN      ] GfsimResourceTest.MultipleReservationsUseStableOwnerOrder
+[       OK ] GfsimResourceTest.MultipleReservationsUseStableOwnerOrder (0 ms)
+[ RUN      ] GfsimResourceTest.TotalStatisticsAccumulate
+[       OK ] GfsimResourceTest.TotalStatisticsAccumulate (0 ms)
+[ RUN      ] GfsimResourceTest.ResetClearsAllState
+[       OK ] GfsimResourceTest.ResetClearsAllState (0 ms)
+[ RUN      ] GfsimResourceTest.PendingCommitBeginsAfterArbitration
+[       OK ] GfsimResourceTest.PendingCommitBeginsAfterArbitration (0 ms)
+[ RUN      ] GfsimResourceTest.ContentionUsesStableKeysNotProposalOrder
+[       OK ] GfsimResourceTest.ContentionUsesStableKeysNotProposalOrder (0 ms)
+[ RUN      ] GfsimResourceTest.ArbitrationKeepsRejectedStatePrivateUntilXfer
+[       OK ] GfsimResourceTest.ArbitrationKeepsRejectedStatePrivateUntilXfer (0 ms)
+[ RUN      ] GfsimResourceTest.ExplicitPriorityPrecedesStableTieBreakKeys
+[       OK ] GfsimResourceTest.ExplicitPriorityPrecedesStableTieBreakKeys (0 ms)
+[ RUN      ] GfsimResourceTest.ReservationIdentityAndOwnerAreUnique
+[       OK ] GfsimResourceTest.ReservationIdentityAndOwnerAreUnique (0 ms)
+[ RUN      ] GfsimResourceTest.ReleaseAndCancellationAreOwnerScoped
+[       OK ] GfsimResourceTest.ReleaseAndCancellationAreOwnerScoped (0 ms)
+[ RUN      ] GfsimResourceTest.ReadyReservationsUseExactEpochAndStableOrder
+[       OK ] GfsimResourceTest.ReadyReservationsUseExactEpochAndStableOrder (0 ms)
+[----------] 14 tests from GfsimResourceTest (0 ms total)
+
+[----------] 17 tests from GfsimComponentsTest
+[ RUN      ] GfsimComponentsTest.ComputeTransformsInput
+[       OK ] GfsimComponentsTest.ComputeTransformsInput (0 ms)
+[ RUN      ] GfsimComponentsTest.SinkAccumulatesValues
+[       OK ] GfsimComponentsTest.SinkAccumulatesValues (0 ms)
+[ RUN      ] GfsimComponentsTest.MemoryReadWrite
+[       OK ] GfsimComponentsTest.MemoryReadWrite (0 ms)
+[ RUN      ] GfsimComponentsTest.MemoryRejectsOutOfBoundsWrite
+[       OK ] GfsimComponentsTest.MemoryRejectsOutOfBoundsWrite (0 ms)
+[ RUN      ] GfsimComponentsTest.MemoryReadOutOfBoundsReturnsZero
+[       OK ] GfsimComponentsTest.MemoryReadOutOfBoundsReturnsZero (0 ms)
+[ RUN      ] GfsimComponentsTest.LinkForwardsValue
+[       OK ] GfsimComponentsTest.LinkForwardsValue (0 ms)
+[ RUN      ] GfsimComponentsTest.LinkResetClearsValue
+[       OK ] GfsimComponentsTest.LinkResetClearsValue (0 ms)
+[ RUN      ] GfsimComponentsTest.ComputeResetClearsOutput
+[       OK ] GfsimComponentsTest.ComputeResetClearsOutput (0 ms)
+[ RUN      ] GfsimComponentsTest.SinkResetClearsAll
+[       OK ] GfsimComponentsTest.SinkResetClearsAll (0 ms)
+[ RUN      ] GfsimComponentsTest.BaselineTemplatesExposeCanonicalObjectKinds
+[       OK ] GfsimComponentsTest.BaselineTemplatesExposeCanonicalObjectKinds (0 ms)
+[ RUN      ] GfsimComponentsTest.QueueCommitsThroughBarrierAndTracksStatistics
+[       OK ] GfsimComponentsTest.QueueCommitsThroughBarrierAndTracksStatistics (0 ms)
+[ RUN      ] GfsimComponentsTest.QueueEnforcesStaticPacketByteCapacity
+[       OK ] GfsimComponentsTest.QueueEnforcesStaticPacketByteCapacity (0 ms)
+[ RUN      ] GfsimComponentsTest.LinkTreatsZeroAsACommittedValue
+[       OK ] GfsimComponentsTest.LinkTreatsZeroAsACommittedValue (0 ms)
+[ RUN      ] GfsimComponentsTest.SchedulerOrderIsIndependentOfProposalInsertion
+[       OK ] GfsimComponentsTest.SchedulerOrderIsIndependentOfProposalInsertion (0 ms)
+[ RUN      ] GfsimComponentsTest.SchedulerAppliesFiniteCapacityAfterArbitration
+[       OK ] GfsimComponentsTest.SchedulerAppliesFiniteCapacityAfterArbitration (0 ms)
+[ RUN      ] GfsimComponentsTest.SchedulerPreservesFifoAcrossCommittedEpochs
+[       OK ] GfsimComponentsTest.SchedulerPreservesFifoAcrossCommittedEpochs (0 ms)
+[ RUN      ] GfsimComponentsTest.SchedulerRejectsDuplicateIdentityAndResets
+[       OK ] GfsimComponentsTest.SchedulerRejectsDuplicateIdentityAndResets (0 ms)
+[----------] 17 tests from GfsimComponentsTest (0 ms total)
+
+[----------] 3 tests from GfsimPacketTest
+[ RUN      ] GfsimPacketTest.FixedPacketRoundTripsWithStableReflection
+[       OK ] GfsimPacketTest.FixedPacketRoundTripsWithStableReflection (0 ms)
+[ RUN      ] GfsimPacketTest.DeserializationRejectsWrongSerializedSize
+[       OK ] GfsimPacketTest.DeserializationRejectsWrongSerializedSize (0 ms)
+[ RUN      ] GfsimPacketTest.QueueUsesSerializedPacketSizeInsteadOfNativeLayout
+[       OK ] GfsimPacketTest.QueueUsesSerializedPacketSizeInsteadOfNativeLayout (0 ms)
+[----------] 3 tests from GfsimPacketTest (0 ms total)
+
+[----------] 3 tests from GfsimProtocolTest
+[ RUN      ] GfsimProtocolTest.ReadyValidRetainsOfferAndTransfersExactlyOnce
+[       OK ] GfsimProtocolTest.ReadyValidRetainsOfferAndTransfersExactlyOnce (0 ms)
+[ RUN      ] GfsimProtocolTest.RequestResponseEnforcesBoundsAndCorrelation
+[       OK ] GfsimProtocolTest.RequestResponseEnforcesBoundsAndCorrelation (0 ms)
+[ RUN      ] GfsimProtocolTest.ProtocolStatePreservesCreditAndPhaseInvariants
+[       OK ] GfsimProtocolTest.ProtocolStatePreservesCreditAndPhaseInvariants (0 ms)
+[----------] 3 tests from GfsimProtocolTest (0 ms total)
+
+[----------] 9 tests from GfsimTraceTest
+[ RUN      ] GfsimTraceTest.ParsesClosedTypedPtoTraceDocument
+[       OK ] GfsimTraceTest.ParsesClosedTypedPtoTraceDocument (0 ms)
+[ RUN      ] GfsimTraceTest.ParsesCanonicalDavinciOOAdapterFixture
+[       OK ] GfsimTraceTest.ParsesCanonicalDavinciOOAdapterFixture (0 ms)
+[ RUN      ] GfsimTraceTest.StreamingAndBufferedParsingProduceIdenticalDocument
+[       OK ] GfsimTraceTest.StreamingAndBufferedParsingProduceIdenticalDocument (0 ms)
+[ RUN      ] GfsimTraceTest.RejectsForwardDependencyWithStableDiagnostic
+[       OK ] GfsimTraceTest.RejectsForwardDependencyWithStableDiagnostic (0 ms)
+[ RUN      ] GfsimTraceTest.RejectsUnknownFieldsAndRepresentationCaps
+[       OK ] GfsimTraceTest.RejectsUnknownFieldsAndRepresentationCaps (0 ms)
+[ RUN      ] GfsimTraceTest.ValidatesDuplicateKeysRecordCountAndContentHash
+[       OK ] GfsimTraceTest.ValidatesDuplicateKeysRecordCountAndContentHash (0 ms)
+[ RUN      ] GfsimTraceTest.CursorAdvancesOnlyOnAcceptedXferAndHonorsDependencies
+[       OK ] GfsimTraceTest.CursorAdvancesOnlyOnAcceptedXferAndHonorsDependencies (0 ms)
+[ RUN      ] GfsimTraceTest.UnloadedSourceAcceptsOneTypedDocumentBeforeExecution
+[       OK ] GfsimTraceTest.UnloadedSourceAcceptsOneTypedDocumentBeforeExecution (0 ms)
+[ RUN      ] GfsimTraceTest.IssueTimeSchedulesAnExactWakeInsteadOfPolling
+[       OK ] GfsimTraceTest.IssueTimeSchedulesAnExactWakeInsteadOfPolling (0 ms)
+[----------] 9 tests from GfsimTraceTest (0 ms total)
+
+[----------] 3 tests from GfsimStatisticsTest
+[ RUN      ] GfsimStatisticsTest.CounterGaugeAndHistogramCommitDeterministically
+[       OK ] GfsimStatisticsTest.CounterGaugeAndHistogramCommitDeterministically (0 ms)
+[ RUN      ] GfsimStatisticsTest.SystemSnapshotsAreStableByPathAndName
+[       OK ] GfsimStatisticsTest.SystemSnapshotsAreStableByPathAndName (0 ms)
+[ RUN      ] GfsimStatisticsTest.QueueSnapshotsUseFrozenNamesAndKinds
+[       OK ] GfsimStatisticsTest.QueueSnapshotsUseFrozenNamesAndKinds (0 ms)
+[----------] 3 tests from GfsimStatisticsTest (0 ms total)
+
+[----------] 5 tests from GfsimObservationTest
+[ RUN      ] GfsimObservationTest.ProposalsBecomeVisibleOnlyAtCommit
+[       OK ] GfsimObservationTest.ProposalsBecomeVisibleOnlyAtCommit (0 ms)
+[ RUN      ] GfsimObservationTest.StableKeyDoesNotDependOnProposalOrCommitOrder
+[       OK ] GfsimObservationTest.StableKeyDoesNotDependOnProposalOrCommitOrder (0 ms)
+[ RUN      ] GfsimObservationTest.RejectionConsumesNoOwnerLocalIndex
+[       OK ] GfsimObservationTest.RejectionConsumesNoOwnerLocalIndex (0 ms)
+[ RUN      ] GfsimObservationTest.ValidatesNamesArgumentsFlowsAndMonotonicTime
+[       OK ] GfsimObservationTest.ValidatesNamesArgumentsFlowsAndMonotonicTime (0 ms)
+[ RUN      ] GfsimObservationTest.SystemAdmitsOnlyObjectsThatCommitAtXfer
+[       OK ] GfsimObservationTest.SystemAdmitsOnlyObjectsThatCommitAtXfer (0 ms)
+[----------] 5 tests from GfsimObservationTest (0 ms total)
+
+[----------] 4 tests from GfsimComponentObservationTest
+[ RUN      ] GfsimComponentObservationTest.QueueSchedulerAndResourcePublishAcceptedOutcomesAndOccupancy
+[       OK ] GfsimComponentObservationTest.QueueSchedulerAndResourcePublishAcceptedOutcomesAndOccupancy (0 ms)
+[ RUN      ] GfsimComponentObservationTest.ComputeLinkMemoryAndSinkPublishOnlyCommittedActivity
+[       OK ] GfsimComponentObservationTest.ComputeLinkMemoryAndSinkPublishOnlyCommittedActivity (0 ms)
+[ RUN      ] GfsimComponentObservationTest.ProtocolBackpressureRequestsResponsesAndTraceCursorAreCommitted
+[       OK ] GfsimComponentObservationTest.ProtocolBackpressureRequestsResponsesAndTraceCursorAreCommitted (0 ms)
+[ RUN      ] GfsimComponentObservationTest.DisabledAndEnabledObservationProduceEqualFunctionalResults
+[       OK ] GfsimComponentObservationTest.DisabledAndEnabledObservationProduceEqualFunctionalResults (0 ms)
+[----------] 4 tests from GfsimComponentObservationTest (0 ms total)
+
+[----------] 32 tests from GfsimSystemTest
+[ RUN      ] GfsimSystemTest.NonEmptyQueueWithoutWakeFailsWithNoProgressReport
+[       OK ] GfsimSystemTest.NonEmptyQueueWithoutWakeFailsWithNoProgressReport (0 ms)
+[ RUN      ] GfsimSystemTest.TraceLimitIsIncompleteAndReportsExactPosition
+[       OK ] GfsimSystemTest.TraceLimitIsIncompleteAndReportsExactPosition (0 ms)
+[ RUN      ] GfsimSystemTest.ExhaustedTraceCompletesWithCommittedCursorIdentity
+[       OK ] GfsimSystemTest.ExhaustedTraceCompletesWithCommittedCursorIdentity (0 ms)
+[ RUN      ] GfsimSystemTest.MultipleTraceCursorOwnersFailDeterministically
+[       OK ] GfsimSystemTest.MultipleTraceCursorOwnersFailDeterministically (0 ms)
+[ RUN      ] GfsimSystemTest.NoProgressReportIncludesReservationsProtocolsAndCorrelations
+[       OK ] GfsimSystemTest.NoProgressReportIncludesReservationsProtocolsAndCorrelations (0 ms)
+[ RUN      ] GfsimSystemTest.StaticDispatchUsesDenseStableOrderAndBarrierPhases
+[       OK ] GfsimSystemTest.StaticDispatchUsesDenseStableOrderAndBarrierPhases (0 ms)
+[ RUN      ] GfsimSystemTest.StaticDispatchRejectsNonDenseRows
+[       OK ] GfsimSystemTest.StaticDispatchRejectsNonDenseRows (0 ms)
+[ RUN      ] GfsimSystemTest.StaticDispatchRejectsMismatchedObjectKind
+[       OK ] GfsimSystemTest.StaticDispatchRejectsMismatchedObjectKind (0 ms)
+[ RUN      ] GfsimSystemTest.RegistryAndDispatchCannotShadowOneStableObjectId
+[       OK ] GfsimSystemTest.RegistryAndDispatchCannotShadowOneStableObjectId (0 ms)
+[ RUN      ] GfsimSystemTest.StaticDispatchResetUsesDenseThunkOrder
+[       OK ] GfsimSystemTest.StaticDispatchResetUsesDenseThunkOrder (0 ms)
+[ RUN      ] GfsimSystemTest.ActivationAdjacencyWakesOnlyDeclaredTargetsNextTick
+[       OK ] GfsimSystemTest.ActivationAdjacencyWakesOnlyDeclaredTargetsNextTick (0 ms)
+[ RUN      ] GfsimSystemTest.ActivationPlanRejectsNonCanonicalTargets
+[       OK ] GfsimSystemTest.ActivationPlanRejectsNonCanonicalTargets (0 ms)
+[ RUN      ] GfsimSystemTest.WorkClosureXfersResourcesWithoutInvokingTheirWork
+[       OK ] GfsimSystemTest.WorkClosureXfersResourcesWithoutInvokingTheirWork (0 ms)
+[ RUN      ] GfsimSystemTest.ExternalQueueXferCommitsWithoutQueueWork
+[       OK ] GfsimSystemTest.ExternalQueueXferCommitsWithoutQueueWork (0 ms)
+[ RUN      ] GfsimSystemTest.WorkPhaseReadsOneImmutableCommittedSnapshot
+[       OK ] GfsimSystemTest.WorkPhaseReadsOneImmutableCommittedSnapshot (0 ms)
+[ RUN      ] GfsimSystemTest.SameTimeFutureDeltaEventRemainsPending
+[       OK ] GfsimSystemTest.SameTimeFutureDeltaEventRemainsPending (0 ms)
+[ RUN      ] GfsimSystemTest.SchedulingBeforeCommittedEpochFails
+[       OK ] GfsimSystemTest.SchedulingBeforeCommittedEpochFails (0 ms)
+[ RUN      ] GfsimSystemTest.DeltaCycleLimitFailsAtExactBoundary
+[       OK ] GfsimSystemTest.DeltaCycleLimitFailsAtExactBoundary (1 ms)
+[ RUN      ] GfsimSystemTest.StatefulObjectCannotCommitTwiceInOneTick
+[       OK ] GfsimSystemTest.StatefulObjectCannotCommitTwiceInOneTick (0 ms)
+[ RUN      ] GfsimSystemTest.EventQueueCannotCommitTwiceInOneTick
+[       OK ] GfsimSystemTest.EventQueueCannotCommitTwiceInOneTick (0 ms)
+[ RUN      ] GfsimSystemTest.SchedulingOutOfRangeDeltaFailsImmediately
+[       OK ] GfsimSystemTest.SchedulingOutOfRangeDeltaFailsImmediately (0 ms)
+[ RUN      ] GfsimSystemTest.SchedulingUnknownEventTargetFailsImmediately
+[       OK ] GfsimSystemTest.SchedulingUnknownEventTargetFailsImmediately (0 ms)
+[ RUN      ] GfsimSystemTest.EmptySystemCompletesImmediately
+[       OK ] GfsimSystemTest.EmptySystemCompletesImmediately (0 ms)
+[ RUN      ] GfsimSystemTest.MaxTicksCapTriggersIncomplete
+[       OK ] GfsimSystemTest.MaxTicksCapTriggersIncomplete (0 ms)
+[ RUN      ] GfsimSystemTest.MaxTicksCapDoesNotJumpToAFutureEvent
+[       OK ] GfsimSystemTest.MaxTicksCapDoesNotJumpToAFutureEvent (0 ms)
+[ RUN      ] GfsimSystemTest.MaxEventsCapTriggersIncomplete
+[       OK ] GfsimSystemTest.MaxEventsCapTriggersIncomplete (0 ms)
+[ RUN      ] GfsimSystemTest.MaxEventsCapCannotBeExceededWithinOneEpoch
+[       OK ] GfsimSystemTest.MaxEventsCapCannotBeExceededWithinOneEpoch (0 ms)
+[ RUN      ] GfsimSystemTest.ObjectRegistryLookup
+[       OK ] GfsimSystemTest.ObjectRegistryLookup (0 ms)
+[ RUN      ] GfsimSystemTest.DeterministicEmptyRuns
+[       OK ] GfsimSystemTest.DeterministicEmptyRuns (0 ms)
+[ RUN      ] GfsimSystemTest.ScheduleEventAndCommitThenQuery
+[       OK ] GfsimSystemTest.ScheduleEventAndCommitThenQuery (0 ms)
+[ RUN      ] GfsimSystemTest.SystemCanBeReset
+[       OK ] GfsimSystemTest.SystemCanBeReset (0 ms)
+[ RUN      ] GfsimSystemTest.ResetIncludesRegisteredObjectsOutsideTheRootTree
+[       OK ] GfsimSystemTest.ResetIncludesRegisteredObjectsOutsideTheRootTree (0 ms)
+[----------] 32 tests from GfsimSystemTest (2 ms total)
+
+[----------] 7 tests from GfsimProcessTest
+[ RUN      ] GfsimProcessTest.SuspensionCommitsContinuationAndRequiresExactWake
+[       OK ] GfsimProcessTest.SuspensionCommitsContinuationAndRequiresExactWake (0 ms)
+[ RUN      ] GfsimProcessTest.FairnessCapProducesDeterministicFailure
+[       OK ] GfsimProcessTest.FairnessCapProducesDeterministicFailure (0 ms)
+[ RUN      ] GfsimProcessTest.TraceEndTerminatesOnlyVoluntaryYieldSuspension
+[       OK ] GfsimProcessTest.TraceEndTerminatesOnlyVoluntaryYieldSuspension (0 ms)
+[ RUN      ] GfsimProcessTest.ResetRestoresEntryState
+[       OK ] GfsimProcessTest.ResetRestoresEntryState (0 ms)
+[ RUN      ] GfsimProcessTest.InvalidContinuationFailsAtCommitBarrier
+[       OK ] GfsimProcessTest.InvalidContinuationFailsAtCommitBarrier (0 ms)
+[ RUN      ] GfsimProcessTest.ProcessFailureTerminatesTheSystem
+[       OK ] GfsimProcessTest.ProcessFailureTerminatesTheSystem (0 ms)
+[ RUN      ] GfsimProcessTest.SuspendedProcessProducesExactNoProgressSubscription
+[       OK ] GfsimProcessTest.SuspendedProcessProducesExactNoProgressSubscription (0 ms)
+[----------] 7 tests from GfsimProcessTest (0 ms total)
+
+[----------] 4 tests from GfsimIntegrationTest
+[ RUN      ] GfsimIntegrationTest.ComputeToSinkPipeline
+[       OK ] GfsimIntegrationTest.ComputeToSinkPipeline (0 ms)
+[ RUN      ] GfsimIntegrationTest.QueueProducerConsumer
+[       OK ] GfsimIntegrationTest.QueueProducerConsumer (0 ms)
+[ RUN      ] GfsimIntegrationTest.ResourceProducerConsumer
+[       OK ] GfsimIntegrationTest.ResourceProducerConsumer (0 ms)
+[ RUN      ] GfsimIntegrationTest.MemoryToComputeToSinkChain
+[       OK ] GfsimIntegrationTest.MemoryToComputeToSinkChain (0 ms)
+[----------] 4 tests from GfsimIntegrationTest (0 ms total)
+
+[----------] Global test environment tear-down
+[==========] 271 tests from 26 test suites ran. (17 ms total)
+[  PASSED  ] 271 tests.

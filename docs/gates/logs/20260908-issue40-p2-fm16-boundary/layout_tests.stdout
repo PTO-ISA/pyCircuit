@@ -1,0 +1,9 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.14.6, pytest-9.0.2, pluggy-1.6.0
+rootdir: /Users/zhoubot/linx-isa/tools/pyCircuit
+configfile: pyproject.toml
+collected 5 items
+
+tests/unit/test_agentic_circuit_component.py .....                       [100%]
+
+============================== 5 passed in 0.22s ===============================

@@ -1,0 +1,24 @@
+{
+  "run_id": "20260908-issue40-p1-compile",
+  "status": "passed",
+  "base_revision": "105618849365f919e73d755d8243deaf011443c2",
+  "decision_ids": ["0148", "0159"],
+  "issue": 40,
+  "results": {
+    "unit": {"passed": 79, "failed": 0},
+    "compatibility": {"passed": 171, "failed": 0},
+    "migrated_entrypoints": {"passed": 34, "failed": 0},
+    "wire_ops_cpp": {"passed": true},
+    "wire_ops_verilator": {"passed": true},
+    "eager_pycc_strict": {"passed": true},
+    "hierarchical_specializations_pycc_strict": {"passed": true},
+    "api_hygiene": {"passed": true},
+    "pyc_inventory": {"operations": 41, "types": 2, "passed": true},
+    "agentic_repository_contracts": {"passed": true},
+    "pre_commit": {"passed": true},
+    "mkdocs_strict": {"passed": true},
+    "decision_status": {"rows": 224, "deferred": 0, "passed": true}
+  },
+  "behavior": "compile_cycle_aware is a stable JIT-to-Design API; build_cycle_aware is a stable direct-Python-to-CycleAwareCircuit API whose emitted MLIR is hardened. Hierarchical eager specializations use canonical parameter-qualified symbols.",
+  "skill_evolve": "no-update"
+}

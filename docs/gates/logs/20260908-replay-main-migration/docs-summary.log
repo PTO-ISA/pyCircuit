@@ -1,0 +1,10 @@
+  - gates/logs/20260908-issue63-opt05-table-borrow/review.md
+  - gates/logs/20260908-queue-table-flow/commands.md
+  - gates/logs/20260908-queue-table-flow/summary.md
+  - gates/logs/llvm22-upgrade-20260828/llvm22_upgrade_summary.md
+  - gates/logs/pyc6-unification/pyc6_migration_summary.md
+  - legal/AC-RELICENSE-BSD-3-CLAUSE.md
+  - rfcs/acir/D-BLOCK-MODEL-001.md
+  - rfcs/acir/D-RELEASE-LAYOUT-001.md
+  - rfcs/acir/D-RULE-LOWERING-001.md
+INFO    -  Documentation built in 5.77 seconds

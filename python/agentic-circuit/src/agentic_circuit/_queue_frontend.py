@@ -6,7 +6,7 @@ import ast
 import copy
 import json
 import re
-from collections.abc import Mapping
+from collections.abc import Collection, Mapping
 from dataclasses import dataclass, replace
 
 from _pycircuit_semantics import (
@@ -368,6 +368,10 @@ class QueueBinding:
     rule_locals: tuple[RuleLocalBinding, ...] = ()
     rule_finds: tuple[RuleFindBinding, ...] = ()
     rule_state_owners: tuple[RuleStateOwnerBinding, ...] = ()
+    rule_output_names: tuple[str, ...] = ()
+    rule_output_payloads: tuple[ValueType, ...] = ()
+    rule_output_expressions: tuple[ast.expr, ...] = ()
+    rule_output_guards: tuple[ast.expr, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -748,6 +752,9 @@ class RuleDefinition:
     state_reads: tuple[RuleStateReadDefinition, ...] = ()
     locals: tuple[RuleLocalDefinition, ...] = ()
     finds: tuple[RuleFindDefinition, ...] = ()
+    output_types: tuple[ValueType, ...] = ()
+    output_expressions: tuple[ast.expr, ...] = ()
+    output_guards: tuple[ast.expr, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -759,11 +766,31 @@ class CollectionBinding:
 
 
 @dataclass(frozen=True, slots=True)
+class InvariantDefinition:
+    function_name: str
+    qualified_name: str
+    argument: str
+    payload: StructType
+    expression: ast.expr
+
+
+def _resolve_invariant_call(
+    call: ast.Call,
+    invariants: Mapping[str, InvariantDefinition],
+    shadowed: Collection[str] = (),
+) -> InvariantDefinition | None:
+    if not isinstance(call.func, ast.Name) or call.func.id in shadowed:
+        return None
+    return invariants.get(call.func.id)
+
+
+@dataclass(frozen=True, slots=True)
 class QueueProgram:
     system: str
     payloads: tuple[Payload, ...]
     enums: tuple[EnumBinding, ...]
     bitfields: tuple[BitfieldBinding, ...]
+    invariants: tuple[InvariantDefinition, ...]
     queues: tuple[QueueBinding, ...]
     effect_rules: tuple[QueueBinding, ...]
     scopes: tuple[ScopeBinding, ...]
@@ -1192,16 +1219,223 @@ def _nonnegative_int_value(
     return value
 
 
-def _payload(node: ast.expr, payloads: dict[str, Payload]) -> ValueType:
+def _payload(
+    node: ast.expr,
+    payloads: dict[str, Payload],
+    enums: Mapping[str, ValueType] | None = None,
+) -> ValueType:
     try:
         return _scalar_type_descriptor(node)
     except QueueFrontendError:
         pass
     if isinstance(node, ast.Name) and node.id in payloads:
         return payloads[node.id].descriptor
+    if isinstance(node, ast.Name) and enums is not None and node.id in enums:
+        return enums[node.id]
     raise QueueFrontendError(
         "ACPY-QUEUE-002: source payload must be a compile-time supported type"
     )
+
+
+def _invariant_definitions(
+    tree: ast.Module,
+    payloads: dict[str, Payload],
+    bitfields: Mapping[str, BitfieldLayout],
+) -> tuple[InvariantDefinition, ...]:
+    agentic_module_aliases = {
+        alias.asname or alias.name
+        for statement in tree.body
+        if isinstance(statement, ast.Import)
+        for alias in statement.names
+        if alias.name == "agentic_circuit"
+    }
+    agentic_bare_imports = {
+        alias.name
+        for statement in tree.body
+        if isinstance(statement, ast.ImportFrom)
+        and statement.level == 0
+        and statement.module == "agentic_circuit"
+        for alias in statement.names
+        if alias.asname is None
+    }
+    definitions: list[InvariantDefinition] = []
+    for node in tree.body:
+        if not isinstance(node, ast.FunctionDef) or not any(
+            _decorator_name(decorator).rsplit(".", 1)[-1] == "invariant"
+            for decorator in node.decorator_list
+        ):
+            continue
+        if any(isinstance(decorator, ast.Call) for decorator in node.decorator_list):
+            raise QueueFrontendError(
+                "ACPY-INVARIANT-001: invariant decorators do not accept options"
+            )
+        if (
+            len(node.args.args) != 1
+            or node.args.posonlyargs
+            or node.args.kwonlyargs
+            or node.args.vararg is not None
+            or node.args.kwarg is not None
+            or node.args.defaults
+            or node.args.kw_defaults
+        ):
+            raise QueueFrontendError(
+                f"ACPY-INVARIANT-001: invariant {node.name!r} requires exactly "
+                "one typed payload parameter"
+            )
+        parameter = node.args.args[0]
+        if parameter.annotation is None:
+            raise QueueFrontendError(
+                f"ACPY-INVARIANT-001: invariant {node.name!r} requires an exact "
+                "nominal payload annotation"
+            )
+        payload = _payload(parameter.annotation, payloads)
+        if not isinstance(payload, StructType):
+            raise QueueFrontendError(
+                f"ACPY-INVARIANT-001: invariant {node.name!r} payload must be "
+                "a nominal struct"
+            )
+        if node.returns is None or _decorator_name(node.returns) != "bool":
+            raise QueueFrontendError(
+                f"ACPY-INVARIANT-001: invariant {payload.name}.{node.name} "
+                "must return bool"
+            )
+        body = list(node.body)
+        if (
+            body
+            and isinstance(body[0], ast.Expr)
+            and isinstance(body[0].value, ast.Constant)
+            and isinstance(body[0].value.value, str)
+        ):
+            body.pop(0)
+        if (
+            len(body) != 1
+            or not isinstance(body[0], ast.Return)
+            or body[0].value is None
+        ):
+            raise QueueFrontendError(
+                f"ACPY-INVARIANT-002: invariant {payload.name}.{node.name} "
+                "requires one pure return expression"
+            )
+        if any(
+            isinstance(candidate, (ast.Lambda, ast.NamedExpr, ast.Await, ast.Yield))
+            for candidate in ast.walk(body[0].value)
+        ):
+            raise QueueFrontendError(
+                f"ACPY-INVARIANT-002: invariant {payload.name}.{node.name} uses "
+                "an unsupported expression"
+            )
+        definitions.append(
+            InvariantDefinition(
+                node.name,
+                f"{payload.name}.{node.name}",
+                parameter.arg,
+                payload,
+                copy.deepcopy(body[0].value),
+            )
+        )
+    names = [definition.function_name for definition in definitions]
+    if len(set(names)) != len(names):
+        raise QueueFrontendError(
+            "ACPY-INVARIANT-001: invariant function names must be unique in a closure"
+        )
+
+    by_name = {definition.function_name: definition for definition in definitions}
+    call_graph: dict[str, tuple[str, ...]] = {}
+    for definition in definitions:
+        shadowed = {definition.argument}
+        for candidate in ast.walk(definition.expression):
+            if not isinstance(candidate, ast.Call):
+                continue
+            if isinstance(candidate.func, ast.Name):
+                name = candidate.func.id
+                if name not in shadowed and (
+                    _resolve_invariant_call(candidate, by_name, shadowed) is not None
+                    or name in payloads
+                    or name in bitfields
+                    or name in agentic_bare_imports
+                ):
+                    continue
+                raise QueueFrontendError(
+                    f"ACPY-INVARIANT-002: invariant {definition.qualified_name} "
+                    "uses unsupported call target "
+                    f"{ast.unparse(candidate.func)!r}"
+                )
+            bitfield_view = (
+                isinstance(candidate.func, ast.Attribute)
+                and candidate.func.attr == "view"
+                and isinstance(candidate.func.value, ast.Name)
+                and candidate.func.value.id not in shadowed
+                and candidate.func.value.id in bitfields
+            )
+            agentic_intrinsic = (
+                isinstance(candidate.func, ast.Attribute)
+                and isinstance(candidate.func.value, ast.Name)
+                and candidate.func.value.id not in shadowed
+                and candidate.func.value.id in agentic_module_aliases
+            )
+            if not bitfield_view and not agentic_intrinsic:
+                raise QueueFrontendError(
+                    f"ACPY-INVARIANT-002: invariant {definition.qualified_name} "
+                    "uses unsupported call target "
+                    f"{ast.unparse(candidate.func)!r}"
+                )
+        call_graph[definition.function_name] = tuple(
+            dict.fromkeys(
+                resolved.function_name
+                for candidate in ast.walk(definition.expression)
+                if isinstance(candidate, ast.Call)
+                and (
+                    resolved := _resolve_invariant_call(
+                        candidate, by_name, shadowed
+                    )
+                )
+                is not None
+            )
+        )
+
+    visited: set[str] = set()
+    active: list[str] = []
+
+    def visit(function_name: str) -> None:
+        if function_name in active:
+            cycle = active[active.index(function_name) :] + [function_name]
+            rendered = " -> ".join(by_name[name].qualified_name for name in cycle)
+            raise QueueFrontendError(
+                "ACPY-INVARIANT-002: recursive invariant call graph: " + rendered
+            )
+        if function_name in visited:
+            return
+        active.append(function_name)
+        for callee in call_graph[function_name]:
+            visit(callee)
+        active.pop()
+        visited.add(function_name)
+
+    for definition in definitions:
+        visit(definition.function_name)
+
+    for definition in definitions:
+        validator = _ExpressionEmitter(
+            payloads,
+            definition.argument,
+            definition.payload,
+            root_name="value",
+            bitfields=bitfields,
+            invariants=by_name,
+        )
+        try:
+            _, result_type = validator.emit(definition.expression, BoolType())
+        except QueueFrontendError as error:
+            raise QueueFrontendError(
+                f"ACPY-INVARIANT-002: invariant {definition.qualified_name} "
+                f"for payload {definition.payload.name}: {error}"
+            ) from error
+        if not _is_epoch_05_bool_compatible(result_type):
+            raise QueueFrontendError(
+                f"ACPY-INVARIANT-002: invariant {definition.qualified_name} "
+                f"for payload {definition.payload.name} must produce bool"
+            )
+    return tuple(definitions)
 
 
 def _lambda_value(node: ast.expr) -> tuple[str, ast.expr]:
@@ -1326,6 +1560,225 @@ def _extract_conditional_effect_guard(
     return body, ast.fix_missing_locations(guard)
 
 
+def _desugar_nested_rule_captures(
+    tree: ast.Module, system: str, entry_kind: str
+) -> ast.Module:
+    candidates = [
+        node
+        for node in tree.body
+        if isinstance(node, ast.FunctionDef)
+        and node.name == system
+        and any(
+            _decorator_name(decorator).rsplit(".", 1)[-1] == entry_kind
+            for decorator in node.decorator_list
+        )
+    ]
+    if len(candidates) != 1:
+        return tree
+    function = candidates[0]
+    state_order = tuple(
+        statement.target.id
+        for statement in function.body
+        if isinstance(statement, ast.AnnAssign)
+        and isinstance(statement.target, ast.Name)
+    )
+    state_names = set(state_order)
+    state_lines = {
+        statement.target.id: statement.lineno
+        for statement in function.body
+        if isinstance(statement, ast.AnnAssign)
+        and isinstance(statement.target, ast.Name)
+    }
+    nested_rules = {
+        statement.name: statement
+        for statement in function.body
+        if isinstance(statement, ast.FunctionDef)
+        and any(
+            _decorator_name(decorator).rsplit(".", 1)[-1] == "rule"
+            for decorator in statement.decorator_list
+        )
+    }
+    if not nested_rules:
+        return tree
+    if len(nested_rules) != sum(
+        isinstance(statement, ast.FunctionDef)
+        and any(
+            _decorator_name(decorator).rsplit(".", 1)[-1] == "rule"
+            for decorator in statement.decorator_list
+        )
+        for statement in function.body
+    ):
+        raise QueueFrontendError(
+            "ACPY-RULE-015: nested rule names must be unique within one module"
+        )
+
+    transformed: list[ast.FunctionDef] = []
+    captures_by_rule: dict[str, tuple[str, ...]] = {}
+    qualified_names = {
+        name: f"__ac_nested_{system}_{name}" for name in nested_rules
+    }
+    existing_names = {
+        node.name
+        for node in tree.body
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
+    }
+    collisions = sorted(set(qualified_names.values()) & existing_names)
+    if collisions:
+        raise QueueFrontendError(
+            "ACPY-RULE-015: generated nested rule identity collides with "
+            f"existing definition {collisions[0]!r}"
+        )
+    for name, nested in nested_rules.items():
+        nonlocals = [
+            statement for statement in nested.body if isinstance(statement, ast.Nonlocal)
+        ]
+        nested_nonlocals = [
+            statement
+            for statement in ast.walk(nested)
+            if isinstance(statement, ast.Nonlocal) and statement not in nonlocals
+        ]
+        if nested_nonlocals:
+            raise QueueFrontendError(
+                "ACPY-RULE-015: nested rule nonlocal declarations must be direct "
+                "body statements"
+            )
+        requested = {
+            captured for statement in nonlocals for captured in statement.names
+        }
+        unknown = sorted(requested - state_names)
+        if unknown:
+            raise QueueFrontendError(
+                "ACPY-RULE-015: nested rule capture must name typed module "
+                f"state; unknown capture {unknown[0]!r}"
+            )
+        late = sorted(
+            captured
+            for captured in requested
+            if state_lines[captured] >= nested.lineno
+        )
+        if late:
+            raise QueueFrontendError(
+                "ACPY-RULE-015: captured module state must be declared before "
+                f"the nested rule; late capture {late[0]!r}"
+            )
+        parameter_names = {argument.arg for argument in nested.args.args}
+        overlap = sorted(requested & parameter_names)
+        if overlap:
+            raise QueueFrontendError(
+                "ACPY-RULE-015: nested rule state capture cannot shadow parameter "
+                f"{overlap[0]!r}"
+            )
+        captures = tuple(state for state in state_order if state in requested)
+        referenced_state = {
+            candidate.id
+            for candidate in ast.walk(nested)
+            if isinstance(candidate, ast.Name) and candidate.id in state_names
+        }
+        missing = sorted(referenced_state - requested)
+        if missing:
+            raise QueueFrontendError(
+                "ACPY-RULE-015: nested rule module-state reference requires "
+                f"nonlocal declaration for {missing[0]!r}"
+            )
+        for candidate in ast.walk(nested):
+            if (
+                isinstance(candidate, ast.Call)
+                and isinstance(candidate.func, ast.Name)
+                and candidate.func.id in nested_rules
+            ):
+                raise QueueFrontendError(
+                    "ACPY-RULE-015: nested rules cannot call or recurse through "
+                    "another nested rule"
+                )
+        lowered = copy.deepcopy(nested)
+        lowered.name = qualified_names[name]
+        lowered.body = [
+            statement
+            for statement in lowered.body
+            if not isinstance(statement, ast.Nonlocal)
+        ]
+        lowered.args.args = [
+            *(ast.arg(arg=capture, annotation=None) for capture in captures),
+            *lowered.args.args,
+        ]
+        transformed.append(lowered)
+        captures_by_rule[name] = captures
+
+    class ValidateNestedRuleUses(ast.NodeVisitor):
+        def __init__(self) -> None:
+            self.direct_calls: set[str] = set()
+
+        def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
+            return None
+
+        def visit_Call(self, node: ast.Call) -> None:
+            if isinstance(node.func, ast.Name) and node.func.id in nested_rules:
+                self.direct_calls.add(node.func.id)
+                for argument in node.args:
+                    self.visit(argument)
+                for keyword in node.keywords:
+                    self.visit(keyword.value)
+                return
+            self.generic_visit(node)
+
+        def visit_Name(self, node: ast.Name) -> None:
+            if node.id in nested_rules:
+                raise QueueFrontendError(
+                    "ACPY-RULE-015: nested rule identity cannot escape its "
+                    f"direct call; invalid reference {node.id!r}"
+                )
+
+    uses = ValidateNestedRuleUses()
+    for statement in function.body:
+        if not (
+            isinstance(statement, ast.FunctionDef) and statement.name in nested_rules
+        ):
+            uses.visit(statement)
+    unused = sorted(set(nested_rules) - uses.direct_calls)
+    if unused:
+        raise QueueFrontendError(
+            "ACPY-RULE-015: nested rule must have one or more direct module "
+            f"calls; unused rule {unused[0]!r}"
+        )
+
+    class RewriteCalls(ast.NodeTransformer):
+        def visit_FunctionDef(self, node: ast.FunctionDef) -> ast.AST:
+            return node
+
+        def visit_Call(self, node: ast.Call) -> ast.AST:
+            rewritten = self.generic_visit(node)
+            assert isinstance(rewritten, ast.Call)
+            if not isinstance(rewritten.func, ast.Name):
+                return rewritten
+            captures = captures_by_rule.get(rewritten.func.id)
+            if captures is None:
+                return rewritten
+            rewritten.func.id = qualified_names[rewritten.func.id]
+            rewritten.args = [
+                *(ast.Name(id=capture, ctx=ast.Load()) for capture in captures),
+                *rewritten.args,
+            ]
+            return rewritten
+
+    rewritten_function = copy.deepcopy(function)
+    rewritten_function.body = [
+        statement
+        for statement in rewritten_function.body
+        if not (
+            isinstance(statement, ast.FunctionDef) and statement.name in nested_rules
+        )
+    ]
+    rewriter = RewriteCalls()
+    rewritten_function.body = [
+        rewriter.visit(statement) for statement in rewritten_function.body
+    ]
+    tree.body = [
+        rewritten_function if node is function else node for node in tree.body
+    ]
+    tree.body.extend(transformed)
+    return ast.fix_missing_locations(tree)
+
+
 def parse_queue_program(
     text: str,
     system: str,
@@ -1335,6 +1788,7 @@ def parse_queue_program(
     entry_kind: str = "system",
 ) -> QueueProgram:
     tree = ast.parse(text, filename="<queue-model>", type_comments=True)
+    tree = _desugar_nested_rule_captures(tree, system, entry_kind)
     module_static_values = _module_static_values(tree)
     for node in tree.body:
         decorators = getattr(node, "decorator_list", ())
@@ -1347,11 +1801,387 @@ def parse_queue_program(
                 "ACPY-QUEUE-010: user opcode or backend providers are forbidden"
             )
     enums = _enums(tree)
+    enum_map = {item.name: item.descriptor for item in enums}
     payloads = _payloads(tree, enums)
     payload_map = {item.name: item for item in payloads}
     bitfields = _bitfields(tree)
     bitfield_map = {binding.name: binding.layout for binding in bitfields}
+    invariant_definitions = _invariant_definitions(tree, payload_map, bitfield_map)
     rule_definitions: dict[str, RuleDefinition] = {}
+
+    def parse_optional_multi_output_rule(
+        node: ast.FunctionDef,
+    ) -> RuleDefinition | None:
+        annotation = node.returns
+        if not (
+            isinstance(annotation, ast.Subscript)
+            and _decorator_name(annotation.value).rsplit(".", 1)[-1]
+            in {"tuple", "Tuple"}
+        ):
+            return None
+        annotation_elements = (
+            tuple(annotation.slice.elts)
+            if isinstance(annotation.slice, ast.Tuple)
+            else (annotation.slice,)
+        )
+        if len(annotation_elements) < 2:
+            return None
+        forbidden_runtime_mechanics = {
+            "ready",
+            "full",
+            "pop",
+            "push",
+            "presence",
+            "dummy",
+            "reserve",
+            "reservation",
+            "commit",
+        }
+        for candidate in ast.walk(node):
+            if not isinstance(candidate, ast.Call):
+                continue
+            spelling = (
+                candidate.func.attr
+                if isinstance(candidate.func, ast.Attribute)
+                else candidate.func.id
+                if isinstance(candidate.func, ast.Name)
+                else None
+            )
+            if spelling in forbidden_runtime_mechanics:
+                raise QueueFrontendError(
+                    "ACPY-RULE-014: ready/full/pop/push/presence/dummy/"
+                    "reservation/commit mechanics are compiler-owned"
+                )
+        parameter_names = tuple(argument.arg for argument in node.args.args)
+        if not parameter_names:
+            raise QueueFrontendError(
+                "ACPY-RULE-014: optional multi-output rules require a payload parameter"
+            )
+        body = list(node.body)
+        if (
+            body
+            and isinstance(body[0], ast.Expr)
+            and isinstance(body[0].value, ast.Constant)
+            and isinstance(body[0].value.value, str)
+        ):
+            body.pop(0)
+        if not body or not isinstance(body[-1], ast.Return):
+            raise QueueFrontendError(
+                "ACPY-RULE-014: multi-output rule requires one final fixed tuple return"
+            )
+        returned = body.pop().value
+        if not isinstance(returned, (ast.Tuple, ast.List)):
+            raise QueueFrontendError(
+                "ACPY-RULE-014: multi-output rule must return a fixed tuple"
+            )
+        if len(returned.elts) != len(annotation_elements):
+            raise QueueFrontendError(
+                "ACPY-RULE-014: multi-output return arity must match its annotation"
+            )
+        if not all(isinstance(element, ast.Name) for element in returned.elts):
+            raise QueueFrontendError(
+                "ACPY-RULE-014: multi-output return ordinals require local names"
+            )
+        output_names = tuple(
+            element.id for element in returned.elts if isinstance(element, ast.Name)
+        )
+        if len(set(output_names)) != len(output_names):
+            raise QueueFrontendError(
+                "ACPY-RULE-014: multi-output return ordinals require unique locals"
+            )
+        output_types = tuple(
+            _payload(element, payload_map) for element in annotation_elements
+        )
+        state_references: set[str] = set()
+        eligible_state_parameters = frozenset(parameter_names[:-1])
+        for statement in body:
+            for candidate in ast.walk(statement):
+                if isinstance(candidate, ast.Assign):
+                    for target in candidate.targets:
+                        if (
+                            isinstance(target, ast.Name)
+                            and target.id in eligible_state_parameters
+                        ):
+                            state_references.add(target.id)
+                        elif (
+                            isinstance(target, ast.Subscript)
+                            and isinstance(target.value, ast.Name)
+                            and target.value.id in eligible_state_parameters
+                        ):
+                            state_references.add(target.value.id)
+                if (
+                    isinstance(candidate, ast.Subscript)
+                    and isinstance(candidate.value, ast.Name)
+                    and candidate.value.id in eligible_state_parameters
+                ):
+                    state_references.add(candidate.value.id)
+        state_count = (
+            max(parameter_names.index(name) for name in state_references) + 1
+            if state_references
+            else 0
+        )
+        state_parameters = parameter_names[:state_count]
+        payload_parameters = parameter_names[state_count:]
+        if not payload_parameters:
+            raise QueueFrontendError(
+                "ACPY-RULE-014: optional multi-output rules require a payload "
+                "parameter after persistent state"
+            )
+        parameter = payload_parameters[-1]
+        versions: dict[str, str] = {}
+        locals_: list[RuleLocalDefinition] = []
+        state_writes: list[RuleStateWriteDefinition] = []
+        scalar_state_presence: dict[str, ast.expr] = {}
+        unconditionally_initialized: set[str] = set()
+        typed: set[str] = set()
+        presences: dict[str, ast.expr] = {
+            name: ast.Constant(value=False) for name in output_names
+        }
+        next_version = 0
+        next_condition = 0
+
+        class RewriteLoads(ast.NodeTransformer):
+            def visit_Name(self, candidate: ast.Name) -> ast.expr:
+                if isinstance(candidate.ctx, ast.Load) and candidate.id in versions:
+                    return ast.copy_location(
+                        ast.Name(id=versions[candidate.id], ctx=ast.Load()), candidate
+                    )
+                return candidate
+
+        def rewrite(expression: ast.expr) -> ast.expr:
+            rewritten = RewriteLoads().visit(copy.deepcopy(expression))
+            assert isinstance(rewritten, ast.expr)
+            return ast.fix_missing_locations(rewritten)
+
+        def allocate(name: str) -> tuple[str, str | None]:
+            nonlocal next_version
+            prior = versions.get(name)
+            version = f"__ac_rule_local_{next_version}_{name}"
+            next_version += 1
+            versions[name] = version
+            return version, prior
+
+        def conjunction(
+            parent: ast.expr | None, condition: ast.expr, negated: bool
+        ) -> ast.expr:
+            term: ast.expr = (
+                ast.UnaryOp(op=ast.Not(), operand=copy.deepcopy(condition))
+                if negated
+                else copy.deepcopy(condition)
+            )
+            if parent is None:
+                return ast.fix_missing_locations(term)
+            return ast.fix_missing_locations(
+                ast.BoolOp(op=ast.And(), values=[copy.deepcopy(parent), term])
+            )
+
+        def assign(statement: ast.Assign, guard: ast.expr | None) -> None:
+            if len(statement.targets) != 1:
+                raise QueueFrontendError(
+                    "ACPY-RULE-014: multi-output rule assignments require one target"
+                )
+            target = statement.targets[0]
+            if (
+                isinstance(target, ast.Subscript)
+                and isinstance(target.value, ast.Name)
+                and target.value.id in state_parameters
+            ):
+                if isinstance(statement.value, ast.Constant) and statement.value.value is None:
+                    raise QueueFrontendError(
+                        "ACPY-RULE-014: persistent state cannot be assigned None"
+                    )
+                state_writes.append(
+                    RuleStateWriteDefinition(
+                        target.value.id,
+                        rewrite(target.slice),
+                        rewrite(statement.value),
+                        copy.deepcopy(guard),
+                        False,
+                    )
+                )
+                return
+            if not isinstance(target, ast.Name):
+                raise QueueFrontendError(
+                    "ACPY-RULE-014: multi-output rule assignments require one local "
+                    "or indexed persistent target"
+                )
+            name = target.id
+            if name == parameter:
+                raise QueueFrontendError(
+                    "ACPY-RULE-014: multi-output rules cannot assign their input"
+                )
+            is_none = (
+                isinstance(statement.value, ast.Constant)
+                and statement.value.value is None
+            )
+            if name in state_parameters:
+                if is_none:
+                    raise QueueFrontendError(
+                        "ACPY-RULE-014: persistent state cannot be assigned None"
+                    )
+                value = rewrite(statement.value)
+                version, prior = allocate(name)
+                locals_.append(
+                    RuleLocalDefinition(
+                        version,
+                        value,
+                        copy.deepcopy(guard),
+                        False,
+                        prior or name,
+                    )
+                )
+                previous_presence = scalar_state_presence.get(
+                    name, ast.Constant(value=False)
+                )
+                scalar_state_presence[name] = ast.fix_missing_locations(
+                    ast.Constant(value=True)
+                    if guard is None
+                    else ast.IfExp(
+                        test=copy.deepcopy(guard),
+                        body=ast.Constant(value=True),
+                        orelse=copy.deepcopy(previous_presence),
+                    )
+                )
+                return
+            optional_expression: tuple[ast.expr, ast.expr, bool] | None = None
+            if isinstance(statement.value, ast.IfExp):
+                body_none = (
+                    isinstance(statement.value.body, ast.Constant)
+                    and statement.value.body.value is None
+                )
+                else_none = (
+                    isinstance(statement.value.orelse, ast.Constant)
+                    and statement.value.orelse.value is None
+                )
+                if body_none != else_none:
+                    optional_expression = (
+                        statement.value.orelse if body_none else statement.value.body,
+                        rewrite(statement.value.test),
+                        body_none,
+                    )
+            if name not in output_names and is_none:
+                raise QueueFrontendError(
+                    "ACPY-RULE-014: None is only valid as output absence"
+                )
+            if name in output_names:
+                if guard is None:
+                    unconditionally_initialized.add(name)
+                previous_presence = presences[name]
+                assigned_presence: ast.expr = ast.Constant(value=not is_none)
+                if optional_expression is not None:
+                    _, condition, negated = optional_expression
+                    assigned_presence = (
+                        ast.UnaryOp(op=ast.Not(), operand=copy.deepcopy(condition))
+                        if negated
+                        else copy.deepcopy(condition)
+                    )
+                presences[name] = assigned_presence if guard is None else ast.IfExp(
+                    test=copy.deepcopy(guard),
+                    body=assigned_presence,
+                    orelse=copy.deepcopy(previous_presence),
+                )
+                presences[name] = ast.fix_missing_locations(presences[name])
+                if is_none:
+                    return
+                typed.add(name)
+            elif name in output_names:
+                raise AssertionError("unreachable")
+            if is_none:
+                raise AssertionError("unreachable")
+            value_guard = guard
+            value_expression = statement.value
+            if optional_expression is not None:
+                value_expression, condition, negated = optional_expression
+                value_guard = conjunction(guard, condition, negated)
+            value = rewrite(value_expression)
+            referenced_optional = set(output_names) & {
+                candidate.id
+                for candidate in ast.walk(value)
+                if isinstance(candidate, ast.Name)
+            }
+            if referenced_optional:
+                raise QueueFrontendError(
+                    "ACPY-RULE-014: optional output value cannot escape its ordinal"
+                )
+            version, prior = allocate(name)
+            locals_.append(
+                RuleLocalDefinition(
+                    version,
+                    value,
+                    copy.deepcopy(value_guard),
+                    False,
+                    prior,
+                )
+            )
+
+        def walk(statements: list[ast.stmt], guard: ast.expr | None = None) -> None:
+            nonlocal next_condition
+            for statement in statements:
+                if isinstance(statement, ast.Assign):
+                    assign(statement, guard)
+                    continue
+                if isinstance(statement, ast.If):
+                    condition_name = f"__ac_multi_output_condition_{next_condition}"
+                    next_condition += 1
+                    condition_assign = ast.Assign(
+                        targets=[ast.Name(id=condition_name, ctx=ast.Store())],
+                        value=rewrite(statement.test),
+                    )
+                    assign(ast.fix_missing_locations(condition_assign), guard)
+                    condition = ast.Name(
+                        id=versions[condition_name], ctx=ast.Load()
+                    )
+                    walk(statement.body, conjunction(guard, condition, False))
+                    walk(statement.orelse, conjunction(guard, condition, True))
+                    continue
+                raise QueueFrontendError(
+                    "ACPY-RULE-014: multi-output rule supports only serial local "
+                    "assignments and if/elif/else"
+                )
+
+        walk(body)
+        missing = [
+            name for name in output_names if name not in unconditionally_initialized
+        ]
+        if missing:
+            raise QueueFrontendError(
+                f"ACPY-RULE-014: output ordinal local {missing[0]!r} is undefined"
+            )
+        missing_value = [name for name in output_names if name not in typed]
+        if missing_value:
+            raise QueueFrontendError(
+                f"ACPY-RULE-014: output ordinal local {missing_value[0]!r} has no typed value"
+            )
+        for name, presence in scalar_state_presence.items():
+            always_present = (
+                isinstance(presence, ast.Constant) and presence.value is True
+            )
+            state_writes.append(
+                RuleStateWriteDefinition(
+                    name,
+                    None,
+                    ast.Name(id=versions[name], ctx=ast.Load()),
+                    None if always_present else presence,
+                    False,
+                )
+            )
+        expressions = tuple(
+            ast.Name(id=versions[name], ctx=ast.Load()) for name in output_names
+        )
+        return RuleDefinition(
+            node.name,
+            payload_parameters,
+            expressions[0],
+            node.lineno,
+            node.col_offset + 1,
+            locals=tuple(locals_),
+            state_arguments=state_parameters,
+            state_writes=tuple(state_writes),
+            output_types=output_types,
+            output_expressions=expressions,
+            output_guards=tuple(presences[name] for name in output_names),
+        )
+
     for node in tree.body:
         if not isinstance(node, ast.FunctionDef) or not any(
             _decorator_name(decorator).rsplit(".", 1)[-1] == "rule"
@@ -1378,6 +2208,10 @@ def parse_queue_program(
             raise QueueFrontendError(
                 "ACPY-RULE-001: rules require one or more positional parameters"
             )
+        multi_output = parse_optional_multi_output_rule(node)
+        if multi_output is not None:
+            rule_definitions[node.name] = multi_output
+            continue
         body = list(node.body)
         if (
             body
@@ -1914,9 +2748,21 @@ def parse_queue_program(
         }
         state_names.update(state_reference_arguments)
         rewritten_multi_return = rewrite_local_loads(multi_return)
-        rewritten_multi_guard = rewrite_local_loads(multi_guard)
-        rewritten_multi_effect_guard = rewrite_local_loads(multi_effect_guard)
-        rewritten_multi_output_guard = rewrite_local_loads(multi_output_guard)
+        # A blocking/effect/output guard selects whether the transaction may
+        # begin.  State parameters in that predicate therefore denote the
+        # committed snapshot, even when the selected body proposes a new value
+        # for the same owner.  Local (non-state) SSA values are still rewritten
+        # normally.
+        guard_state_names = frozenset(state_names)
+        rewritten_multi_guard = rewrite_local_loads(
+            multi_guard, excluded=guard_state_names
+        )
+        rewritten_multi_effect_guard = rewrite_local_loads(
+            multi_effect_guard, excluded=guard_state_names
+        )
+        rewritten_multi_output_guard = rewrite_local_loads(
+            multi_output_guard, excluded=guard_state_names
+        )
         for local in rule_locals:
             referenced = {
                 candidate.id
@@ -3132,14 +3978,27 @@ def parse_queue_program(
                         )
                     init: int | bool = False if isinstance(value_type, BoolType) else 0
                 else:
-                    value_type = _payload(annotation, payload_map)
-                    if not isinstance(statement.value, ast.Constant) or type(
-                        statement.value.value
-                    ) not in {bool, int}:
-                        raise QueueFrontendError(
-                            "ACPY-VAR-001: persistent scalar init must be constant"
-                        )
-                    init = statement.value.value
+                    value_type = _payload(annotation, payload_map, enum_map)
+                    if isinstance(value_type, EnumType):
+                        if (
+                            not isinstance(statement.value, ast.Attribute)
+                            or _decorator_name(statement.value.value).rsplit(".", 1)[-1]
+                            != value_type.name
+                            or statement.value.attr != value_type.enumerants[0]
+                        ):
+                            raise QueueFrontendError(
+                                "ACPY-VAR-001: persistent enum init must be its "
+                                "first declared member"
+                            )
+                        init = 0
+                    else:
+                        if not isinstance(statement.value, ast.Constant) or type(
+                            statement.value.value
+                        ) not in {bool, int}:
+                            raise QueueFrontendError(
+                                "ACPY-VAR-001: persistent scalar init must be constant"
+                            )
+                        init = statement.value.value
                 if isinstance(
                     value_type, (StructType, TupleType, ArrayType, EnumType)
                 ) and (type(init) is not int or init != 0):
@@ -4966,10 +5825,46 @@ def parse_queue_program(
             if (
                 isinstance(statement, ast.Assign)
                 and len(statement.targets) == 1
-                and isinstance(statement.targets[0], ast.Name)
+                and isinstance(statement.targets[0], (ast.Name, ast.Tuple, ast.List))
                 and isinstance(statement.value, ast.Call)
+                and (
+                    isinstance(statement.targets[0], ast.Name)
+                    or (
+                        call_name(statement.value) in rule_definitions
+                        and bool(
+                            rule_definitions[call_name(statement.value)].output_types
+                        )
+                    )
+                )
             ):
-                name, call = statement.targets[0].id, statement.value
+                target = statement.targets[0]
+                call = statement.value
+                target_names = (
+                    (target.id,)
+                    if isinstance(target, ast.Name)
+                    else tuple(
+                        item.id for item in target.elts if isinstance(item, ast.Name)
+                    )
+                )
+                if (
+                    not target_names
+                    or (
+                        not isinstance(target, ast.Name)
+                        and len(target_names) != len(target.elts)
+                    )
+                ):
+                    raise QueueFrontendError(
+                        "ACPY-RULE-014: multi-output rule call requires fixed local unpacking"
+                    )
+                name = target_names[0]
+                if len(target_names) > 1 and (
+                    call_name(call) not in rule_definitions
+                    or not rule_definitions[call_name(call)].output_types
+                ):
+                    raise QueueFrontendError(
+                        "ACPY-RULE-014: tuple unpacking is reserved for typed "
+                        "multi-output rules"
+                    )
                 if (
                     isinstance(call.func, ast.Name)
                     and call.func.id in recursive_helpers
@@ -5015,7 +5910,7 @@ def parse_queue_program(
                         by_name[output_name] = binding
                         previous = binding
                     continue
-                if name in by_name or name in collections:
+                if any(item in by_name or item in collections for item in target_names):
                     raise QueueFrontendError(
                         "ACPY-QUEUE-001: queue assignment requires one fresh name"
                     )
@@ -5277,6 +6172,16 @@ def parse_queue_program(
                     )
                 elif call_name(call) in rule_definitions:
                     definition = rule_definitions[call_name(call)]
+                    if definition.output_types:
+                        if len(target_names) != len(definition.output_types):
+                            raise QueueFrontendError(
+                                "ACPY-RULE-014: multi-output call unpacking arity "
+                                "must match its annotation"
+                            )
+                    elif len(target_names) != 1:
+                        raise QueueFrontendError(
+                            "ACPY-RULE-014: single-output rule cannot use tuple unpacking"
+                        )
                     if definition.expression is None:
                         raise QueueFrontendError(
                             "ACPY-RULE-006: outputless rule call must be a "
@@ -5294,7 +6199,7 @@ def parse_queue_program(
                         definition, call, static_prefix
                     )
                     while (
-                        definition.state_arguments
+                        (definition.state_arguments or definition.output_types)
                         and definition.arguments
                         and len(call.args) > len(definition.state_arguments)
                         and isinstance(
@@ -5310,6 +6215,11 @@ def parse_queue_program(
                                 definition.arguments[0],
                             ),
                             arguments=definition.arguments[1:],
+                        )
+                    if definition.output_types and len(definition.arguments) != 1:
+                        raise QueueFrontendError(
+                            "ACPY-RULE-014: optional multi-output rules require "
+                            "exactly one payload parameter after persistent state"
                         )
                     table: TableBinding | None = None
                     variable: VarStateBinding | None = None
@@ -5535,21 +6445,25 @@ def parse_queue_program(
                     indexed_variable = variable is not None and variable.entries != 1
                     binding = QueueBinding(
                         name,
-                        typed_result_payloads.get(
-                            name,
-                            (
-                                variable.value_type
-                                if variable is not None
-                                else (
-                                    table.entry_type
-                                    if table is not None
+                        (
+                            definition.output_types[0]
+                            if definition.output_types
+                            else typed_result_payloads.get(
+                                name,
+                                (
+                                    variable.value_type
+                                    if variable is not None
                                     else (
-                                        incoming.payload
-                                        if incoming is not None
-                                        else multi_state_result_type
+                                        table.entry_type
+                                        if table is not None
+                                        else (
+                                            incoming.payload
+                                            if incoming is not None
+                                            else multi_state_result_type
+                                        )
                                     )
-                                )
-                            ),
+                                ),
+                            )
                         ),
                         1,
                         1,
@@ -5626,6 +6540,17 @@ def parse_queue_program(
                         rule_locals=multi_state_locals,
                         rule_finds=multi_state_finds,
                         rule_state_owners=multi_state_owners,
+                        rule_output_names=(
+                            target_names if definition.output_types else ()
+                        ),
+                        rule_output_payloads=definition.output_types,
+                        rule_output_expressions=tuple(
+                            copy.deepcopy(item)
+                            for item in definition.output_expressions
+                        ),
+                        rule_output_guards=tuple(
+                            copy.deepcopy(item) for item in definition.output_guards
+                        ),
                     )
                 elif call_name(call) == "table":
                     raise QueueFrontendError(
@@ -5669,7 +6594,17 @@ def parse_queue_program(
                         "ACPY-QUEUE-001: unsupported queue-producing call"
                     )
                 queues.append(binding)
-                by_name[name] = binding
+                if binding.rule_output_payloads:
+                    for output_name, output_payload in zip(
+                        target_names, binding.rule_output_payloads, strict=True
+                    ):
+                        by_name[output_name] = replace(
+                            binding,
+                            name=output_name,
+                            payload=output_payload,
+                        )
+                else:
+                    by_name[name] = binding
                 continue
             if (
                 isinstance(statement, ast.Assign)
@@ -6335,6 +7270,7 @@ def parse_queue_program(
         payloads,
         enums,
         bitfields,
+        tuple(invariant_definitions),
         tuple(queues),
         tuple(effect_rules),
         tuple(scopes),
@@ -6398,6 +7334,7 @@ class _ExpressionEmitter:
         state_views: Mapping[str, tuple[str, ValueType, int]] | None = None,
         table_domains: Mapping[str, tuple[ValueType, int]] | None = None,
         bitfields: Mapping[str, BitfieldLayout] | None = None,
+        invariants: Mapping[str, InvariantDefinition] | None = None,
     ) -> None:
         self.payloads = payloads
         self.enum_types: dict[str, EnumType] = {}
@@ -6436,13 +7373,12 @@ class _ExpressionEmitter:
         self.state_views = dict(state_views or {})
         self.table_domains = dict(table_domains or {})
         self.bitfields = dict(bitfields or {})
+        self.invariants = dict(invariants or {})
         self.lines: list[str] = []
         self.index = 0
         self.priority_values: dict[str, tuple[str, ValueType, str, ValueType]] = {}
         self.table_view_values: dict[str, tuple[str, ValueType]] = {}
-        self.state_read_values: dict[
-            tuple[str, str], tuple[str, ValueType]
-        ] = {}
+        self.state_read_values: dict[tuple[str, str], tuple[str, ValueType]] = {}
         self.deferred_values: dict[str, ast.expr] = {}
         self.expression_facts: dict[str, _ExpressionFact] = {}
 
@@ -6564,6 +7500,74 @@ class _ExpressionEmitter:
     def emit(
         self, node: ast.expr, expected: ValueType | None = None
     ) -> tuple[str, ValueType]:
+        if isinstance(node, ast.Call):
+            lexical_bindings = {
+                self.argument,
+                *self.root_values,
+                *self.deferred_values,
+                *self.table_views,
+                *self.slot_views,
+                *self.candidates,
+                *self.selections,
+                *self.candidate_values,
+                *self.selection_values,
+                *self.find_values,
+                *self.state_views,
+                *self.table_domains,
+            }
+            invariant = _resolve_invariant_call(
+                node, self.invariants, lexical_bindings
+            )
+            if invariant is not None:
+                if len(node.args) != 1 or node.keywords:
+                    raise QueueFrontendError(
+                        f"ACPY-INVARIANT-003: invariant "
+                        f"{invariant.qualified_name} requires exactly one payload"
+                    )
+                operand, operand_type = self.emit(node.args[0], invariant.payload)
+                if not _types_equal_in_epoch_05(operand_type, invariant.payload):
+                    raise QueueFrontendError(
+                        f"ACPY-INVARIANT-003: invariant "
+                        f"{invariant.qualified_name} requires payload "
+                        f"{invariant.payload.name}, got {_render_type(operand_type)}"
+                    )
+                predicate_prefix = f"{self.prefix}invariant{self.index}_"
+                predicate_argument = f"{predicate_prefix}value"
+                predicate_emitter = _ExpressionEmitter(
+                    self.payloads,
+                    invariant.argument,
+                    invariant.payload,
+                    root_name=predicate_argument,
+                    prefix=predicate_prefix,
+                    bitfields=self.bitfields,
+                    invariants=self.invariants,
+                )
+                predicate, predicate_type = predicate_emitter.emit(
+                    invariant.expression, BoolType()
+                )
+                if not _is_epoch_05_bool_compatible(predicate_type):
+                    raise QueueFrontendError(
+                        f"ACPY-INVARIANT-002: invariant "
+                        f"{invariant.qualified_name} predicate must produce bool"
+                    )
+                result = self._new()
+                rendered_payload = _render_type(invariant.payload)
+                self.lines.append(
+                    f"    %{result} = ac.var.invariant %{operand} name "
+                    f"{json.dumps(invariant.qualified_name)} {{"
+                )
+                self.lines.append(
+                    f"    ^predicate(%{predicate_argument}: "
+                    f"!ac.var<{rendered_payload}>):"
+                )
+                self.lines.extend(predicate_emitter.lines)
+                self.lines.append(
+                    f"      ac.var.invariant.yield %{predicate} : !ac.var<i1>"
+                )
+                self.lines.append(
+                    f"    }} : !ac.var<{rendered_payload}> -> !ac.var<i1>"
+                )
+                return self._remember(result, BoolType())
         if isinstance(node, ast.IfExp):
             condition, condition_type = self.emit(node.test, BoolType())
             if not _is_epoch_05_bool_compatible(condition_type):
@@ -6882,6 +7886,7 @@ class _ExpressionEmitter:
                 prefix=f"{self.prefix}m{self.index}_",
                 slot_views=self.slot_views,
                 bitfields=self.bitfields,
+                invariants=self.invariants,
             )
             predicate, predicate_type = predicate_emitter.emit(
                 candidate.predicate, BoolType()
@@ -6992,6 +7997,7 @@ class _ExpressionEmitter:
                 prefix=f"{self.prefix}m{self.index}_",
                 slot_views=self.slot_views,
                 bitfields=self.bitfields,
+                invariants=self.invariants,
             )
             predicate, predicate_type = predicate_emitter.emit(
                 candidate.predicate, BoolType()
@@ -7030,6 +8036,7 @@ class _ExpressionEmitter:
                     root_name="entry",
                     prefix=f"{self.prefix}k{self.index}_",
                     bitfields=self.bitfields,
+                    invariants=self.invariants,
                 )
                 key, key_type = key_emitter.emit(selection.key)
                 if _epoch_05_integer_width(key_type) is None:
@@ -7219,10 +8226,11 @@ class _ExpressionEmitter:
                 f"!ac.var<{_render_type(value_type)}>"
             )
             return name, value_type
-        if isinstance(node, ast.BoolOp) and isinstance(node.op, ast.And):
+        if isinstance(node, ast.BoolOp) and isinstance(node.op, (ast.And, ast.Or)):
+            operator = "and" if isinstance(node.op, ast.And) else "or"
             if len(node.values) < 2:
                 raise QueueFrontendError(
-                    "ACPY-QUEUE-003: boolean and requires two operands"
+                    f"ACPY-QUEUE-003: boolean {operator} requires two operands"
                 )
             current, current_type = self.emit(node.values[0], BoolType())
             if not _is_epoch_05_bool_compatible(current_type):
@@ -7235,7 +8243,9 @@ class _ExpressionEmitter:
                     )
                 name = self._new()
                 self.lines.append(
-                    f"    %{name} = ac.var.mul %{current}, %{value} : !ac.var<i1>"
+                    f"    %{name} = ac.var."
+                    f"{'mul' if operator == 'and' else 'or'} "
+                    f"%{current}, %{value} : !ac.var<i1>"
                 )
                 current = name
             return current, BoolType()
@@ -7287,6 +8297,15 @@ class _ExpressionEmitter:
             if isinstance(left_type, EnumType) and predicate not in {"eq", "ne"}:
                 raise QueueFrontendError(
                     "ACPY-TYPE-005: enum values support only equality comparison"
+                )
+            if isinstance(
+                left_type, (StructType, TupleType, ArrayType)
+            ) and predicate not in {
+                "eq",
+                "ne",
+            }:
+                raise QueueFrontendError(
+                    "ACPY-TYPE-007: aggregate values support only equality comparison"
                 )
             name = self._new()
             self.lines.append(
@@ -7599,6 +8618,9 @@ def lower_queue_program(
         }
         content_indent = "      "
     payloads = {item.name: item for item in program.payloads}
+    invariants = {
+        definition.function_name: definition for definition in program.invariants
+    }
     bitfields = {item.name: item.layout for item in program.bitfields}
     if (program.payloads or program.enums or program.bitfields) and module is None:
         lines.append("  ac.type_scope @types {")
@@ -7684,6 +8706,17 @@ def lower_queue_program(
             f'stable_id "table/{stable_id}"'
         )
     by_name = {item.name: item for item in program.queues}
+    for item in program.queues:
+        for output_name, output_payload in zip(
+            item.rule_output_names,
+            item.rule_output_payloads,
+            strict=True,
+        ):
+            by_name[output_name] = replace(
+                item,
+                name=output_name,
+                payload=output_payload,
+            )
     memory_ordinals: dict[tuple[str, str], int] = {}
     requests_by_instance: dict[str, list[MemoryRequestBinding]] = {}
     for request in program.memory_requests:
@@ -7819,8 +8852,18 @@ def lower_queue_program(
         ]
         return inputs, outputs
 
-    def queue_attributes(name: str, rates: tuple[int, ...]) -> str:
+    def queue_attributes(
+        name: str,
+        rates: tuple[int, ...],
+        output_names: tuple[str, ...] = (),
+    ) -> str:
         attributes = [f'ac.name = "{name}"']
+        if output_names:
+            attributes.append(
+                "ac.output_names = ["
+                + ", ".join(json.dumps(output) for output in output_names)
+                + "]"
+            )
         if any(rate != 1 for rate in rates):
             attributes.append(
                 "ac.output_rates = array<i64: "
@@ -7893,6 +8936,7 @@ def lower_queue_program(
                     for owner in queue.rule_state_owners
                 },
                 bitfields=bitfields,
+                invariants=invariants,
             )
             rule_expressions: list[ast.expr] = []
             if queue.expression is not None:
@@ -7903,6 +8947,8 @@ def lower_queue_program(
                 rule_expressions.append(queue.rule_effect_guard)
             if queue.rule_output_guard is not None:
                 rule_expressions.append(queue.rule_output_guard)
+            rule_expressions.extend(queue.rule_output_expressions)
+            rule_expressions.extend(queue.rule_output_guards)
             rule_expressions.extend(local.value for local in queue.rule_locals)
             rule_expressions.extend(
                 local.guard for local in queue.rule_locals if local.guard is not None
@@ -7973,7 +9019,28 @@ def lower_queue_program(
                     state_read,
                     state_read_binding.value_type,
                 )
+            find_local_values = {
+                local.name: copy.deepcopy(local.value)
+                for local in queue.rule_locals
+                if local.guard is None
+            }
+            guarded_find_locals = {
+                local.name for local in queue.rule_locals if local.guard is not None
+            }
             for find in queue.rule_finds:
+                captured_names = {
+                    candidate.id
+                    for expression in (find.predicate, find.key)
+                    if expression is not None
+                    for candidate in ast.walk(expression)
+                    if isinstance(candidate, ast.Name)
+                }
+                guarded_captures = guarded_find_locals & captured_names
+                if guarded_captures:
+                    raise QueueFrontendError(
+                        "ACPY-RULE-009: find cannot capture branch-local values: "
+                        + ", ".join(sorted(guarded_captures))
+                    )
                 index_width = max(1, (find.entries - 1).bit_length())
                 mask_type = _candidate_mask_type(find.entries)
                 predicate_emitter = _ExpressionEmitter(
@@ -7985,7 +9052,9 @@ def lower_queue_program(
                     prefix=f"find{emitter.index}_predicate_",
                     state_views=emitter.state_views,
                     bitfields=bitfields,
+                    invariants=invariants,
                 )
+                predicate_emitter.deferred_values.update(find_local_values)
                 predicate, predicate_type = predicate_emitter.emit(
                     find.predicate, BoolType()
                 )
@@ -8028,7 +9097,9 @@ def lower_queue_program(
                         prefix=f"find{emitter.index}_key_",
                         state_views=emitter.state_views,
                         bitfields=bitfields,
+                        invariants=invariants,
                     )
+                    key_emitter.deferred_values.update(find_local_values)
                     key, key_type = key_emitter.emit(find.key)
                     if _epoch_05_integer_width(key_type) is None:
                         raise QueueFrontendError(
@@ -8198,6 +9269,14 @@ def lower_queue_program(
                     raise QueueFrontendError(
                         "ACPY-RULE-012: optional output condition must lower to bool"
                     )
+            multi_output_guard_results: list[str] = []
+            for output_guard in queue.rule_output_guards:
+                presence, presence_type = emitter.emit(output_guard, BoolType())
+                if not _is_epoch_05_bool_compatible(presence_type):
+                    raise QueueFrontendError(
+                        "ACPY-RULE-014: output presence must lower to bool"
+                    )
+                multi_output_guard_results.append(presence)
             condition_result = guard_result
             if effect_guard_result is not None:
                 condition_result = emitter._new()
@@ -8206,7 +9285,7 @@ def lower_queue_program(
                 )
             elif output_guard_result is not None or any(
                 write.guard is not None for write in queue.rule_state_writes
-            ):
+            ) or multi_output_guard_results:
                 condition_result = emitter._new()
                 emitter.lines.append(
                     f"    %{condition_result} = ac.var.constant true as !ac.var<i1>"
@@ -8533,21 +9612,57 @@ def lower_queue_program(
                         state_write.value_type,
                     )
             result: str | None = None
+            multi_output_results: list[str] = []
             if queue.rule_has_output:
-                assert queue.expression is not None
-                result, result_type = emitter.emit(queue.expression)
-                if not _types_equal_in_epoch_05(result_type, queue.payload):
-                    raise QueueFrontendError(
-                        "ACPY-RULE-004: rule result must preserve Queue payload type"
-                    )
+                if queue.rule_output_expressions:
+                    for ordinal, (expression, payload) in enumerate(
+                        zip(
+                            queue.rule_output_expressions,
+                            queue.rule_output_payloads,
+                            strict=True,
+                        )
+                    ):
+                        output_value, output_type = emitter.emit(expression, payload)
+                        if not _types_equal_in_epoch_05(output_type, payload):
+                            raise QueueFrontendError(
+                                "ACPY-RULE-014: rule output ordinal "
+                                f"{ordinal} does not match its annotated type"
+                            )
+                        multi_output_results.append(output_value)
+                    result = multi_output_results[0]
+                else:
+                    assert queue.expression is not None
+                    result, result_type = emitter.emit(queue.expression)
+                    if not _types_equal_in_epoch_05(result_type, queue.payload):
+                        raise QueueFrontendError(
+                            "ACPY-RULE-004: rule result must preserve Queue payload type"
+                        )
                 assert output_ssa is not None
+            output_ssas = (
+                tuple(
+                    name if not queue.scope else f"{name}__local"
+                    for name in queue.rule_output_names
+                )
+                if queue.rule_output_names
+                else (() if output_ssa is None else (output_ssa,))
+            )
             lines.append(
-                (f"{indent}%{output_ssa} = " if output_ssa is not None else indent)
+                (
+                    f"{indent}"
+                    + ", ".join(f"%{name}" for name in output_ssas)
+                    + " = "
+                    if output_ssas
+                    else indent
+                )
                 + "ac.rule "
                 + ", ".join(f"%{value}" for value in input_ssas)
                 + " "
                 + (
-                    f"depths [{queue.depth}] latencies [{queue.latency}] "
+                    "depths ["
+                    + ", ".join(str(queue.depth) for _ in output_ssas)
+                    + "] latencies ["
+                    + ", ".join(str(queue.latency) for _ in output_ssas)
+                    + "] "
                     if queue.rule_has_output
                     else "depths [] latencies [] "
                 )
@@ -8571,6 +9686,7 @@ def lower_queue_program(
                 else (
                     f" when %{condition_result} : !ac.var<i1>"
                     if output_guard_result is not None
+                    or multi_output_guard_results
                     else ""
                 )
             )
@@ -8633,14 +9749,49 @@ def lower_queue_program(
                 )
             if queue.rule_has_output:
                 assert result is not None
-                lines.append(
-                    f"{indent}  %rule_ready = ac.marker.obligation %{result} "
-                    f"state pending resolver handshake origin "
-                    f'{json.dumps(queue.rule_name + ":return")} path "true" : '
-                    f"!ac.var<{_render_type(queue.payload)}>"
-                )
-                if output_guard_result is not None or any(
+                if multi_output_results:
+                    ready_values: list[str] = []
+                    for ordinal, (output_value, payload, presence) in enumerate(
+                        zip(
+                            multi_output_results,
+                            queue.rule_output_payloads,
+                            multi_output_guard_results,
+                            strict=True,
+                        )
+                    ):
+                        ready = f"rule_ready{ordinal}"
+                        ready_values.append(ready)
+                        lines.append(
+                            f"{indent}  %{ready} = ac.marker.obligation "
+                            f"%{output_value} state pending resolver handshake "
+                            f"origin {json.dumps(queue.rule_name + ':return[' + str(ordinal) + ']')} "
+                            f'path "true" : !ac.var<{_render_type(payload)}> '
+                        )
+                        lines.append(
+                            f"{indent}  ac.rule.output %{output_value} when "
+                            f"%{presence} ordinal {ordinal} : "
+                            f"!ac.var<{_render_type(payload)}>, !ac.var<i1>"
+                        )
+                    lines.append(
+                        f"{indent}  ac.rule.return "
+                        + ", ".join(f"%{ready}" for ready in ready_values)
+                        + " : "
+                        + ", ".join(
+                            f"!ac.var<{_render_type(payload)}>"
+                            for payload in queue.rule_output_payloads
+                        )
+                    )
+                else:
+                    lines.append(
+                        f"{indent}  %rule_ready = ac.marker.obligation %{result} "
+                        f"state pending resolver handshake origin "
+                        f'{json.dumps(queue.rule_name + ":return")} path "true" : '
+                        f"!ac.var<{_render_type(queue.payload)}>"
+                    )
+                if not multi_output_results and (
+                    output_guard_result is not None or any(
                     write.guard is not None for write in queue.rule_state_writes
+                    )
                 ):
                     presence = output_guard_result or condition_result
                     assert presence is not None
@@ -8649,29 +9800,40 @@ def lower_queue_program(
                         f"%{presence} ordinal 0 : "
                         f"!ac.var<{_render_type(queue.payload)}>, !ac.var<i1>"
                     )
-                lines.append(
-                    f"{indent}  ac.rule.return %rule_ready : "
-                    f"!ac.var<{_render_type(queue.payload)}>"
-                )
+                if not multi_output_results:
+                    lines.append(
+                        f"{indent}  ac.rule.return %rule_ready : "
+                        f"!ac.var<{_render_type(queue.payload)}>"
+                    )
             else:
                 lines.append(f"{indent}  ac.rule.return")
             lines.append(
-                f"{indent}}} {queue_attributes(queue.name, (queue.rate,))} : "
+                f"{indent}}} {queue_attributes(queue.name, (queue.rate,), queue.rule_output_names)} : "
                 f"("
                 + ", ".join(
                     f"!ac.queue<{_render_type(payload)}>" for payload in rule_payloads
                 )
                 + ") -> "
                 + (
-                    f"!ac.queue<{_render_type(queue.payload)}> "
+                    (
+                        "(" + ", ".join(
+                            f"!ac.queue<{_render_type(payload)}>"
+                            for payload in queue.rule_output_payloads
+                        ) + ") "
+                        if queue.rule_output_payloads
+                        else f"!ac.queue<{_render_type(queue.payload)}> "
+                    )
                     if queue.rule_has_output
                     else "() "
                 )
                 + f'loc("<queue-model>":{queue.rule_source_line}:'
                 f"{queue.rule_source_column})"
             )
-            if output_ssa is not None:
-                mapping[queue.name] = output_ssa
+            if output_ssas:
+                for name, ssa in zip(
+                    queue.rule_output_names or (queue.name,), output_ssas, strict=True
+                ):
+                    mapping[name] = ssa
             return
         assert output_ssa is not None
         assert queue.input_name is not None
@@ -9895,12 +11057,27 @@ def _lower_simple_module_source(
     host_results: bool = False,
 ) -> str | None:
     tree = ast.parse(text, filename="<queue-model>", type_comments=True)
+    module_names = [
+        node.name
+        for node in tree.body
+        if isinstance(node, ast.FunctionDef)
+        and any(
+            _decorator_name(decorator).rsplit(".", 1)[-1] == "module"
+            for decorator in node.decorator_list
+        )
+    ]
+    for module_name in module_names:
+        tree = _desugar_nested_rule_captures(tree, module_name, "module")
     module_static_values = _module_static_values(tree)
     enum_bindings = _enums(tree)
     payloads = _payloads(tree, enum_bindings)
     payload_map = {payload.name: payload for payload in payloads}
     bitfield_bindings = _bitfields(tree)
     bitfield_map = {binding.name: binding.layout for binding in bitfield_bindings}
+    invariants = {
+        definition.function_name: definition
+        for definition in _invariant_definitions(tree, payload_map, bitfield_map)
+    }
     modules = {
         node.name: node
         for node in tree.body
@@ -10665,6 +11842,7 @@ def _lower_simple_module_source(
                 input_type,
                 root_values=root_values,
                 bitfields=bitfield_map,
+                invariants=invariants,
             )
             lines.extend(
                 [
@@ -10743,6 +11921,7 @@ def _lower_simple_module_source(
             argument,
             input_type,
             bitfields=bitfield_map,
+            invariants=invariants,
         )
         value, value_type = emitter.emit(expression, output_type)
         if not _types_equal_in_epoch_05(value_type, output_type):

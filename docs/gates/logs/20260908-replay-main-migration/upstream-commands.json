@@ -1,0 +1,33 @@
+{
+  "nested-final": [
+    "env",
+    "PYTHONPATH=tests/integration/agentic-circuit/e2e:/home/lc/pyCircuit/python/semantic-core/src:/home/lc/pyCircuit/python/pycircuit/src:/home/lc/pyCircuit/python/agentic-circuit/src:/home/lc/pyCircuit/tests/python/agentic-circuit:/home/lc/pyCircuit/.pycircuit_out/local-clang22/build/compiler/acir/python",
+    "python",
+    "-m",
+    "unittest",
+    "test_queue_codegen.QueueCodegenTest.test_nested_payload_runs_with_dependency_ordered_cpp_types",
+    "-v"
+  ],
+  "multi-output": [
+    "python",
+    "-m",
+    "unittest",
+    "discover",
+    "-s",
+    "tests/integration/agentic-circuit/e2e",
+    "-p",
+    "test_multi_output_atomic.py",
+    "-v"
+  ],
+  "aggregate": [
+    "python",
+    "-m",
+    "unittest",
+    "discover",
+    "-s",
+    "tests/integration/agentic-circuit/e2e",
+    "-p",
+    "test_aggregate_equality_invariant.py",
+    "-v"
+  ]
+}

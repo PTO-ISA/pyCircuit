@@ -1,0 +1,14 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.14.6, pytest-9.0.2, pluggy-1.6.0
+rootdir: /Users/zhoubot/linx-isa/tools/pyCircuit
+configfile: pyproject.toml
+collected 171 items
+
+tests/test_assert_fits.py ........................                       [ 14%]
+tests/test_bitfield_view.py ...........................................  [ 39%]
+tests/test_bitmask_match.py .........................                    [ 53%]
+tests/test_lane_slice.py ............................                    [ 70%]
+tests/test_pyc_enum.py ..................................                [ 90%]
+tests/test_signed_compare.py .................                           [100%]
+
+============================= 171 passed in 0.12s ==============================

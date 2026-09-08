@@ -9,8 +9,8 @@ from __future__ import annotations
 from pycircuit import (
     CycleAwareCircuit,
     CycleAwareDomain,
+    build_cycle_aware,
     cas,
-    compile_cycle_aware,
     sext,
     wire_of,
 )
@@ -41,12 +41,8 @@ def build(
     products = []
     for tap, coefficient in zip(taps, COEFFS, strict=True):
         tap_ext = cas(domain, sext(wire_of(tap), width=ACC_W), cycle=tap.cycle)
-        coefficient_value = cas(
-            domain,
-            domain.create_const(
-                int(coefficient), width=ACC_W, signed=int(coefficient) < 0
-            ),
-            cycle=0,
+        coefficient_value = domain.create_const(
+            int(coefficient), width=ACC_W, signed=int(coefficient) < 0
         )
         products.append(tap_ext * coefficient_value)
     y_comb = products[0]
@@ -73,10 +69,9 @@ build.__pycircuit_name__ = "digital_filter"
 
 if __name__ == "__main__":
     print(
-        compile_cycle_aware(
+        build_cycle_aware(
             build,
             name="digital_filter",
-            eager=True,
             TAPS=4,
             DATA_W=16,
             COEFF_W=16,

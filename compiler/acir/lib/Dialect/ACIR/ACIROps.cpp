@@ -13,6 +13,7 @@
 #include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallSet.h"
+#include "llvm/ADT/SmallPtrSet.h"
 #include "llvm/ADT/StringExtras.h"
 #include "llvm/ADT/StringMap.h"
 #include "llvm/ADT/StringSwitch.h"
@@ -432,11 +433,9 @@ static bool tableWriteFieldsAreComplete(Operation *endpoint, TableOp table,
                                         ArrayAttr writeFields);
 
 LogicalResult RuleOp::verify() {
-  // Rules retain at most one output until optional-output branches and CFG
-  // joins are materialized. Zero-output rules are consume-only state
-  // transitions; zero-input rules must still produce or update state.
-  if (getOutputs().size() > 1)
-    return emitOpError("rule currently supports at most one output");
+  // Zero-output rules are consume-only state transitions; zero-input rules
+  // must still produce or update state.  Variadic output values are qualified
+  // independently by compiler-owned RuleOutputOp presence records.
   if (getName().empty() || getStableId().empty())
     return emitOpError(
         "requires non-empty definition and stable instance names");
@@ -508,7 +507,8 @@ LogicalResult RuleOp::verify() {
   SmallVector<RuleOutputOp> outputPaths;
   getBody().walk([&](RuleOutputOp output) { outputPaths.push_back(output); });
   const bool hasPathEvidence =
-      !outputPaths.empty() || llvm::any_of(proposals, [](TableProposeOp op) {
+      getOutputs().size() > 1 || !outputPaths.empty() ||
+      llvm::any_of(proposals, [](TableProposeOp op) {
         return static_cast<bool>(op.getWhen());
       });
   if (hasPathEvidence) {
@@ -594,8 +594,9 @@ LogicalResult RuleOutputOp::verify() {
     return emitOpError("value must match the selected rule output payload");
   auto returned =
       dyn_cast<RuleReturnOp>(rule.getBody().front().getTerminator());
-  if (!returned)
-    return emitOpError("requires ac.rule.return");
+  if (!returned || static_cast<size_t>(getOrdinal()) >=
+                       returned.getValues().size())
+    return emitOpError("requires a matching ac.rule.return operand");
   Value returnedValue = returned.getValues()[getOrdinal()];
   if (returnedValue != getValue()) {
     auto obligation = returnedValue.getDefiningOp<PendingObligationMarkerOp>();
@@ -618,7 +619,9 @@ LogicalResult FiringOutputOp::verify() {
     return emitOpError("value must match the selected firing output payload");
   auto yielded =
       dyn_cast<FiringYieldOp>(firing.getBody().front().getTerminator());
-  if (!yielded || yielded.getValues()[getOrdinal()] != getValue())
+  if (!yielded || static_cast<size_t>(getOrdinal()) >=
+                      yielded.getValues().size() ||
+      yielded.getValues()[getOrdinal()] != getValue())
     return emitOpError("value must be the matching ac.firing.yield operand");
   return success();
 }
@@ -1058,8 +1061,6 @@ LogicalResult ScopeOp::verify() {
 }
 
 LogicalResult FiringOp::verify() {
-  if (getOutputs().size() > 1)
-    return emitOpError("currently supports at most one output Queue");
   if (getOutputDepthsAttr().size() != getOutputs().size() ||
       getOutputLatenciesAttr().size() != getOutputs().size())
     return emitOpError("output depth/latency counts must match results");
@@ -1114,7 +1115,8 @@ LogicalResult FiringOp::verify() {
         static_cast<size_t>(output.getOrdinal()) >= getOutputs().size())
       return output.emitOpError("ordinal must name one firing output");
   const bool hasPathEvidence =
-      !outputPaths.empty() || llvm::any_of(proposals, [](TableProposeOp op) {
+      getOutputs().size() > 1 || !outputPaths.empty() ||
+      llvm::any_of(proposals, [](TableProposeOp op) {
         return static_cast<bool>(op.getWhen());
       });
   if (hasPathEvidence) {
@@ -1225,8 +1227,7 @@ LogicalResult FiringOp::verify() {
     }
   }
   const bool validArity =
-      getOutputs().size() <= 1 &&
-      (!getInputs().empty() || !getOutputs().empty() || !proposals.empty());
+      !getInputs().empty() || !getOutputs().empty() || !proposals.empty();
   if (conditions.empty() && requiresInferredSchedule) {
     return emitOpError("requires one typed functional condition");
   }
@@ -1909,9 +1910,9 @@ LogicalResult VarDeclOp::verify() {
   const auto zero = dyn_cast<IntegerAttr>(getInit());
   const bool zeroImage = zero && zero.getValue().isZero();
   if ((!init || init.getType() != getValueType()) &&
-      !(isa<StructType>(getValueType()) && zeroImage))
+      !(isa<StructType, EnumType>(getValueType()) && zeroImage))
     return emitOpError(
-        "init must match value type or be the zero image for a struct");
+        "init must match value type or be the zero image for a struct or enum");
   if (getOwner().empty() || !getOwner().starts_with('/') ||
       (getOwner().size() > 1 && getOwner().ends_with('/')))
     return emitOpError("owner must be a canonical absolute scope path");
@@ -2285,15 +2286,45 @@ LogicalResult VarPriorityEncodeOp::verify() {
   return success();
 }
 
+static bool supportsRecursiveEquality(Operation *operation, Type type,
+                                      llvm::SmallPtrSetImpl<Operation *> &seen) {
+  if (isa<IntegerType, EnumType>(type))
+    return true;
+  if (auto tuple = dyn_cast<TupleType>(type))
+    return llvm::all_of(tuple.getTypes(), [&](Type element) {
+      return supportsRecursiveEquality(operation, element, seen);
+    });
+  if (auto array = dyn_cast<ValueArrayType>(type))
+    return supportsRecursiveEquality(operation, array.getElementType(), seen);
+  if (!isa<StructType>(type))
+    return false;
+  Operation *declaration = recordDecl(operation, type);
+  if (!declaration || !seen.insert(declaration).second)
+    return false;
+  bool supported = llvm::all_of(declarationFields(declaration),
+                                [&](Attribute attribute) {
+    return supportsRecursiveEquality(
+        operation, fieldType(cast<DictionaryAttr>(attribute)), seen);
+  });
+  seen.erase(declaration);
+  return supported;
+}
+
 LogicalResult VarCmpOp::verify() {
   if (getLhs().getType() != getRhs().getType())
     return emitOpError("operands must have the same Var type");
   Type payload = cast<VarType>(getLhs().getType()).getElementType();
-  if (!isa<IntegerType, EnumType>(payload))
-    return emitOpError("operands must carry integer or enum payloads");
+  llvm::SmallPtrSet<Operation *, 8> seen;
+  const bool aggregate = isa<StructType, TupleType, ValueArrayType>(payload);
+  if (!supportsRecursiveEquality(*this, payload, seen))
+    return emitOpError(
+        "operands must carry recursively comparable integer, enum, struct, "
+        "tuple, or value_array payloads");
   if (isa<EnumType>(payload) && getPredicate() != "eq" &&
       getPredicate() != "ne")
     return emitOpError("enum comparison supports only eq or ne");
+  if (aggregate && getPredicate() != "eq" && getPredicate() != "ne")
+    return emitOpError("aggregate comparison supports only eq or ne");
   if (getResult().getType() !=
       VarType::get(getContext(), IntegerType::get(getContext(), 1)))
     return emitOpError("result must be !ac.var<i1>");
@@ -2303,6 +2334,87 @@ LogicalResult VarCmpOp::verify() {
                           getPredicate()))
     return emitOpError(
         "predicate must be eq, ne, slt, sle, sgt, sge, ult, ule, ugt, or uge");
+  return success();
+}
+
+static bool isInvariantIdentifier(StringRef value) {
+  if (value.empty() || (!llvm::isAlpha(value.front()) && value.front() != '_'))
+    return false;
+  return llvm::all_of(value.drop_front(),
+                      [](char character) {
+                        return llvm::isAlnum(character) || character == '_';
+                      });
+}
+
+LogicalResult VarInvariantOp::verify() {
+  auto input = cast<VarType>(getInput().getType());
+  auto fail = [&](Twine message) {
+    return emitOpError() << "invariant '" << getName() << "' for "
+                         << input.getElementType() << ": " << message;
+  };
+  if (getName().empty())
+    return fail("name must be non-empty");
+  if (!isa<StructType>(input.getElementType()) ||
+      !recordDecl(*this, input.getElementType()))
+    return fail("input must carry a resolved nominal ac.struct payload");
+  auto structure = cast<StructType>(input.getElementType());
+  StringRef payloadName =
+      cast<SymbolRefAttr>(structure.getName()).getLeafReference().getValue();
+  auto [namePayload, nameFunction] = getName().split('.');
+  if (namePayload != payloadName || !isInvariantIdentifier(nameFunction))
+    return fail("name must have exact '<Payload>.<function>' form");
+  for (auto ancestor = (*this)->getParentOfType<VarInvariantOp>(); ancestor;
+       ancestor = ancestor->getParentOfType<VarInvariantOp>())
+    if (ancestor.getName() == getName())
+      return fail("recursive invariant call repeats an ancestor name");
+  if (getResult().getType() !=
+      VarType::get(getContext(), IntegerType::get(getContext(), 1)))
+    return fail("result must be !ac.var<i1>");
+  Block &block = getPredicate().front();
+  if (block.getNumArguments() != 1 ||
+      block.getArgument(0).getType() != getInput().getType())
+    return fail("predicate must take exactly one argument matching the input");
+  for (Operation &nested : block) {
+    if (isa<VarInvariantYieldOp>(nested))
+      continue;
+    const bool nestedInvariant = isa<VarInvariantOp>(nested);
+    if (nested.getDialect() != getOperation()->getDialect() ||
+        (nested.getNumRegions() != 0 && !nestedInvariant))
+      return fail(Twine("unsupported predicate operation '") +
+                  nested.getName().getStringRef() + "'");
+    if (!nestedInvariant && !isMemoryEffectFree(&nested))
+      return fail(Twine("unsupported effectful predicate operation '") +
+                  nested.getName().getStringRef() + "'");
+    for (Value operand : nested.getOperands()) {
+      if (operand == block.getArgument(0))
+        continue;
+      Operation *definition = operand.getDefiningOp();
+      if (!definition || definition->getParentRegion() != &getPredicate())
+        return fail("predicate captures a value outside its input region");
+    }
+  }
+  auto yielded = dyn_cast<VarInvariantYieldOp>(block.getTerminator());
+  if (!yielded)
+    return fail("predicate must terminate with ac.var.invariant.yield");
+  if (yielded.getValue().getType() !=
+      VarType::get(getContext(), IntegerType::get(getContext(), 1)))
+    return fail("predicate must yield !ac.var<i1>");
+  Value yieldedValue = yielded.getValue();
+  if (auto argument = dyn_cast<BlockArgument>(yieldedValue)) {
+    if (argument.getOwner() != &block)
+      return fail("predicate yield captures a value outside its input region");
+  } else {
+    Operation *definition = yieldedValue.getDefiningOp();
+    if (!definition || definition->getParentRegion() != &getPredicate())
+      return fail("predicate yield captures a value outside its input region");
+  }
+  return success();
+}
+
+LogicalResult VarInvariantYieldOp::verify() {
+  if (getValue().getType() !=
+      VarType::get(getContext(), IntegerType::get(getContext(), 1)))
+    return emitOpError("value must be !ac.var<i1>");
   return success();
 }
 
@@ -2697,7 +2809,8 @@ static bool isTableEntryType(Operation *anchor, Type type) {
   (void)anchor;
   if (auto integer = dyn_cast<IntegerType>(type))
     return integer.getWidth() > 0 && integer.getWidth() <= 64;
-  return isa<StructType>(type) && isImmutablePayloadType(type);
+  return isa<EnumType>(type) ||
+         (isa<StructType>(type) && isImmutablePayloadType(type));
 }
 
 static FailureOr<uint64_t> tableEntryFieldCount(Operation *endpoint,
@@ -2838,8 +2951,9 @@ static LogicalResult verifyStaticallySafeRuleTableIndex(Operation *operation,
 
 LogicalResult TableOp::verify() {
   if (!isTableEntryType(*this, getEntryType()))
-    return emitOpError("entry type must be a <=64-bit integer or an immutable "
-                       "recursive struct");
+    return emitOpError(
+        "entry type must be a <=64-bit integer, nominal enum, or immutable "
+        "recursive struct");
   if (getEntries() <= 0)
     return emitOpError("entries must be positive");
   if (getInit() != 0)
@@ -3306,7 +3420,7 @@ LogicalResult SlotOp::verify() {
   Type payload = cast<QueueType>(getInput().getType()).getElementType();
   if (!isTableEntryType(*this, payload))
     return emitOpError("input Queue payload must be bool, a <=64-bit integer, "
-                       "or a flat integer struct");
+                       "nominal enum, or a flat integer struct");
   if (getOwner().empty() || !getOwner().starts_with('/') ||
       (getOwner().size() > 1 && getOwner().ends_with('/')))
     return emitOpError("owner must be a canonical absolute scope path");

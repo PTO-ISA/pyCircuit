@@ -285,6 +285,57 @@ member 必须按声明顺序从零连续编码。nested struct 字段可以直�
 QueueGraph 保存 member list 与 encoding width；gfsim 生成一次紧凑 C++ enum，
 PYC/Verilog 使用同一精确位宽 ordinal。
 
+### 递归相等性与命名 payload invariant
+
+普通 Python `==` 和 `!=` 可以比较递归 descriptor 完全一致的两个值，包括 nominal
+struct、nested struct、enum、structural tuple、固定 value array、bool 和精确位宽 bits。
+nominal identity 是类型的一部分：两个独立声明的 struct 或 enum 即使 layout 相同也不能
+互相比较。aggregate 的 `<`、`<=`、`>` 和 `>=` 非法。aggregate 总位宽不受 64 bit
+限制。
+
+可复用 payload predicate 使用 `@ac.invariant` 定义一次，并像普通 typed Python
+函数一样调用：
+
+```python
+@ac.invariant
+def valid_producer(value: Producer) -> bool:
+    return value.epoch.flow == value.inst.flow
+
+@ac.invariant
+def valid_operand(value: Operand) -> bool:
+    return (
+        (value.is_constant and value.arch_index == 0)
+        or (
+            (not value.is_constant)
+            and value.phys_valid
+            and valid_producer(value.producer)
+        )
+    )
+
+accepted = valid_operand(request.operand)
+same_key = pending.key == request.key
+```
+
+invariant 必须只接收一个 nominal struct value，必须返回 `bool`，函数体必须只有一个
+pure return expression。predicate 可以使用已开放的字段/元素读取、相等比较、enum
+相等、bit 运算、boolean 运算和有界 scalar 比较；禁止读取 state、修改 value、调用
+Queue/module、使用反射或捕获外部 runtime value。它可以调用同一 source closure 内的
+另一个 invariant，但参数必须精确匹配 callee 的 nominal type，且 invariant call graph
+必须有限、无环。调用目标必须是静态解析且未被 lexical parameter/local 遮蔽的裸
+invariant 名；同名 lexical binding 优先。attribute/receiver 调用属于 dynamic dispatch，
+不会被重解释为 invariant。任意普通函数调用仍然非法。稳定诊断名为
+`<Payload>.<function>`。
+framework intrinsic 必须使用 canonical、未重命名的 bare import，或使用 `ac.matches`
+这类显式 Agentic Circuit module alias；重命名的 bare intrinsic import 非法。
+
+每次调用生成一个带 typed predicate region 的 `ac.var.invariant`。这个 op 只计算一个
+boolean value；组合调用保持为具有 hygienic SSA、无隐式 capture 的 nested invariant
+region。它不是 assertion、隐式输入前提或 refined runtime type。rule 必须明确把结果用于
+guard 或分类。`ac-lower-value-contracts` 先内联 leaf callee，再内联 caller，并按 descriptor
+顺序把 aggregate `ac.var.cmp` 递归展开为 `ac.var.get`/`ac.var.element`、scalar/enum 相等
+leaf 和平衡 boolean AND tree；`ne` 对完整 equality result 取反。Frozen ACIR 与
+QueueGraph 中禁止残留 aggregate comparison 或 invariant op。
+
 ### 静态 bits 与命名 bitfield view
 
 `ac.bits[N]` 与 `ac.uN` 表示同一种精确位宽无符号值；`N` 必须由确定性的静态
@@ -377,7 +428,8 @@ def-use、调度和 NDF/target 限制选择实际存储与传输结构。`ac.var
 state，`ac.var.read` 产生不可变 committed snapshot，`ac.var.assign` 在一个 rule 内
 提出 next value。storage-selection pass 在 rule closure 前消除这些操作。第一条可执行
 链支持零初始化 scalar integer，并选择单 entry committed 实现；Python 前端不暴露该
-选择。
+选择。持久 scalar state 也可以是 nominal enum，但必须用第一个声明的 member 作为
+zero image；storage selection 会保留 enum nominal type，不允许退化成裸整数。
 
 固定大小的持久 list 使用普通 Python 写法，例如
 `entries: list[Entry] = [0] * 8`。前端生成带 shape 的 `ac.var.decl` 以及
@@ -409,6 +461,8 @@ ACIR 中会直接被拒绝。
 `.valid` 在 ACIR 中共享同一个 `ac.var.priority_encode`。`low` 选择最低置位，
 `high` 选择最高置位，全零输入返回 `valid=0,index=0`。QueueGraph 使用 gfsim
 参考模型，并把同一语义 lowering 为不含厂商名称的 `pyc.priority_encode`。
+gfsim reference 会按声明位宽 mask 输入，并使用 low/high C++20 bit scan，不逐 bit
+循环。
 
 可执行示例：
 `pyc_struct_pipeline.py`。
@@ -641,6 +695,22 @@ policy region 捕获其 SSA result。QueueGraph 与 typed gfsim 保留这种共�
 Epoch 惰性求值并缓存，同一 Epoch 的多个 consumer 只触发一次 Table scan；Epoch 前进或
 模型 reset 后重新计算。choose 的 mask 必须来自同 Table 的 match。`policy="first"`
 使用空 key region，min/max 仍要求一个有类型的 key region。
+生成 gfsim C++ 和 shared Table selection cache 中，无 effect 的 `first` 若使用不超过
+64 entries 的 scalar mask，就使用 low-first bit scan。min/max、choose-key snapshot
+effect 和更宽的 word-array mask 保留通用扫描，selection 与 reservation 语义不变。
+
+生成的 gfsim C++ 可以在单次 policy invocation 内，把 aggregate `table_get` 结果和
+aggregate 字段投影绑定为 `const` 引用。这些引用只观察 committed Table snapshot，
+不会成为带引用 identity 的 ACIR value。immutable update、state proposal、返回的
+transition plan 和 Queue output 都会在 invocation 结束前物化为值。scalar read 仍按值
+生成，checked Table access 继续保留运行时诊断。
+
+在一次 policy invocation 内，只有多个必需的 `table_match` 指向同一 Table、捕获完全
+相同的 operands、predicate 只含无 effect 的 value expression，并且没有
+snapshot-set reservation 时，生成的 gfsim C++ 才能把它们融合成一次 Table scan。
+融合循环用精确的 typed expression DAG key 共享公共 predicate value；每个 match 仍
+保留独立 candidate mask 和后续 selection。不同 capture/Table、首个 match 前不可用的
+capture、嵌套 Table/Slot observation 或 snapshot effect 都保留独立扫描。
 
 `EntryView` 只存在于 elaboration。`patch` 在 Frozen ACIR 前展开成
 `ac.table.get -> ac.var.with -> ac.table.write` 或 `ac.table.masked_write`，不存在
@@ -822,6 +892,30 @@ def pipeline(incoming: Item) -> Item:
 `ac.source` 和 `ac.sink`；多个输出使用有序 `tuple[...]` 注解与 tuple 返回。显式
 Python `source(...)`/`sink(...)` 仅作为过渡兼容路径保留。
 
+直接定义在 `@ac.module` 内的 rule 可以省略重复的 module-private state 参数，并用
+Python `nonlocal` 声明每个捕获的 owner：
+
+```python
+@ac.module
+def accumulator(incoming: ac.u8) -> ac.u8:
+    total: ac.u8 = 0
+
+    @ac.rule
+    def add(value):
+        nonlocal total
+        total = total + value
+        return total
+
+    return add(incoming)
+```
+
+前端会在 type、owner、footprint、conflict 和 lowering 分析前，把这种写法规范化成已有的
+显式 state 参数 rule 合同。只能捕获 module 直接声明的 typed state，并按声明顺序规范化；
+state 必须定义在 nested rule 之前。遗漏 `nonlocal`、untyped local、module input、alias、
+attribute、生成名冲突、嵌套作用域声明以及 nested rule 互调都会 fail-close。每个 module
+instance 继续独立拥有原 state；capture 不产生 module-object reference，也不改变 committed
+read、proposal、仲裁、output presence 或 backpressure 语义。
+
 epoch 0.5 的 pure rule 支持一个或多个 Queue 输入、一个输出和一条完整返回路径。
 每个参数都是对应 Queue 的 committed head payload。前端只生成 variadic transient
 `ac.rule` 与 typed output-handshake obligation；MLIR pass 推导全部输入消费和输出生产
@@ -877,7 +971,41 @@ write 的 index domain 不相交，或它们的 path predicate 在结构上互�
 predicate-qualified output capacity/effect summary。因此 output Queue 已满时，只有 presence=true
 才阻塞完整 transaction；presence=false 路径仍会消费 input 并提交 state。Rule、Firing 和
 QueueGraph verifier 要求这种不同于 candidate 的 output presence 只有一个 input，且 candidate
-必须是 constant true。
+必须是 constant true。该 condition 在进入分支时读取 committed state snapshot；分支内赋值只
+产生 state proposal 和新的局部 SSA，不能把 output presence 改写成 proposed state value。
+
+一个有多个异构 result 的 rule 用固定的 `tuple[...]` 声明返回类型。每个返回 local 保存
+声明的值或 `None`；`None` 只表示本次 activation 没有该 ordinal，不会生成 payload。
+
+```python
+@ac.rule
+def publish(request: Request) -> tuple[Wakeup, Fault, ApplyAck]:
+    wakeup = None
+    fault = None
+    ack = ApplyAck(identity=request.identity, accepted=True)
+    if request.publish_value:
+        wakeup = Wakeup(identity=request.identity, tag=request.tag)
+    if request.publish_fault:
+        fault = Fault(identity=request.identity, code=request.fault_code)
+    return wakeup, fault, ack
+```
+
+调用点使用普通的固定 arity 解包。每个返回 local 必须在条件赋值前初始化：optional local
+以 `None` 开始，required local 以 typed value 开始。前端为每个 result 位置推导一个 typed value 和一个
+presence predicate，并保留每个嵌套分支进入时可见的 binding。每个位置至少要有一个与
+annotation 一致的 typed value，每条源码路径在初始化后最终解析到该值或 absence；必选 acknowledgement
+在所有路径都有值。错误 arity/type、未定义位置、在返回 ordinal 之外使用 `None`，以及带多个
+input 的 optional multi-output rule 都会 fail closed。
+
+只有被选择的 output 才参与 capacity check。未选择的满 Queue 不阻塞；任一被选择的 Queue
+已满都会保留 input、所有 selected output 和全部 state proposal。容量恢复后，完整集合通过
+一个 prepare/publish/Probe/no-fail-Commit group 恰好提交一次。Python 不暴露 result
+presence、Queue capacity、reservation 或 commit 对象。
+
+每次 Work attempt 读取同一个 tick-start committed snapshot。atomic prepare 失败时不产生
+effect，下一 tick 会从新的 committed snapshot 重新求值。若协议必须跨 tick 保留 selection，
+应把 phase 或 mask 显式存入持久状态；gfsim 不会跨 Xfer 边界保留带过期 state-derived value
+且尚未 reservation 的 candidate。
 
 `ACDataFlowAnalyzer` 会从 candidate、output presence 和 state-effect presence 反向遍历，
 生成 compiler-owned state snapshot proof。顶层 `ac.table.get` 会成为带精确 static 或已证明

@@ -286,3 +286,5 @@ docs/gates/logs/*
 !docs/gates/logs/20260908-queue-table-flow/**
 !docs/gates/logs/20260908-flow-observer-refactor/
 !docs/gates/logs/20260908-flow-observer-refactor/**
+!docs/gates/logs/20260908-replay-main-migration/
+!docs/gates/logs/20260908-replay-main-migration/**

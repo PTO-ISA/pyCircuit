@@ -7,7 +7,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Literal, TypeAlias, TypeVar, overload
 
-
 DefinitionKind: TypeAlias = Literal[
     "system",
     "module",
@@ -19,6 +18,7 @@ DefinitionKind: TypeAlias = Literal[
     "interface",
     "process",
     "rule",
+    "invariant",
 ]
 F = TypeVar("F", bound=Callable[..., object])
 
@@ -141,3 +141,9 @@ def rule(function: F | None = None, **options: object):
     """Declare one schedulable rule without executing its Python body."""
 
     return _decorate("rule", function, **options)
+
+
+def invariant(function: F | None = None, **options: object):
+    """Declare one pure typed payload invariant."""
+
+    return _decorate("invariant", function, **options)

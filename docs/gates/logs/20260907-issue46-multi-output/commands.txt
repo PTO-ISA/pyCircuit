@@ -1,0 +1,15 @@
+cmake --build .pycircuit_out/layout-root -j 8
+.pycircuit_out/layout-root/bin/acir-opcode-catalog > schemas/agentic-circuit/opcodes.json
+python3 tools/check-pyc-inventory.py --write-ledger
+python3 tools/agentic-circuit/check-ir-coverage.py --write-ledger
+cmake --build .pycircuit_out/layout-root --target check-acir -j 8
+ctest --test-dir .pycircuit_out/layout-root --output-on-failure -R '^(GfsimTests|ACIROpsTests|ACIRModelAnalysisTests|CodeGenTests)$'
+PYTHONPATH=python/semantic-core/src:python/agentic-circuit/src AC_PYTHON_ONLY=1 /tmp/davincioo-agentic-py312.resume/bin/python -m pytest -q tests/python/agentic-circuit/python_frontend tests/python/agentic-circuit/contracts tests/python/agentic-circuit/cli/test_all_commands.py tests/python/agentic-circuit/cli/test_workspace.py
+PYC_TOOLCHAIN_ROOT=$PWD/.pycircuit_out/toolchain/install ACIR_OPT=$PWD/.pycircuit_out/layout-root/bin/acir-opt ACIR_QUEUE_PLAN=$PWD/.pycircuit_out/layout-root/bin/acir-queue-plan ACIR_QUEUE_CXXGEN=$PWD/.pycircuit_out/layout-root/bin/acir-queue-cxxgen ACIR_QUEUE_PYCGEN=$PWD/.pycircuit_out/layout-root/bin/acir-queue-pycgen PYCC=$PWD/.pycircuit_out/layout-root/bin/pycc PYC_RUNTIME_LIB=$PWD/.pycircuit_out/layout-root/lib/libpyc6_runtime.a PYC_RUNTIME_INCLUDE=$PWD/.pycircuit_out/toolchain/install/include PYTHONPATH=python/semantic-core/src:python/agentic-circuit/src /tmp/davincioo-agentic-py312.resume/bin/python -m pytest -q tests/integration/agentic-circuit/e2e/test_multi_output_atomic.py
+pytest tests/unit -m unit -q
+python3 .github/scripts/validate_repo_management.py
+python3 flows/tools/check_api_hygiene.py python/pycircuit/src/pycircuit examples/pycircuit docs README.md
+/tmp/davincioo-agentic-py312.resume/bin/python tools/agentic-circuit/check-contracts.py
+pre-commit run --all-files
+mkdocs build --strict
+python3 flows/tools/check_decision_status.py --rfc docs/rfcs/pyc6-decisions.md --status docs/gates/decision_status_v6.md --out docs/gates/logs/20260907-issue46-multi-output/decision_status_report.json --require-no-deferred --require-all-verified --require-concrete-evidence --require-existing-evidence

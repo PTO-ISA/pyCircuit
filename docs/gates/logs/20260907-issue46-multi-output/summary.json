@@ -1,0 +1,31 @@
+{
+  "run_id": "20260907-issue46-multi-output",
+  "status": "passed",
+  "base_revision": "0e014154285ab3b74c1297a71204e17753f6f337",
+  "decision_ids": ["0210", "0221", "0223"],
+  "issue": 46,
+  "results": {
+    "acir_lit": {"passed": 187, "failed": 0},
+    "native_suites": {"passed": 4, "failed": 0},
+    "python_frontend_contract_cli": {"passed": 277, "skipped": 5, "failed": 0},
+    "multi_output_gfsim_and_pyc_parity": {"passed": 2, "failed": 0},
+    "pycircuit_unit": {"passed": 53, "failed": 0},
+    "pre_commit": {"passed": true},
+    "strict_docs": {"passed": true}
+  },
+  "behavior": {
+    "frontend": "fixed typed tuple results; explicit None initialization for optional ordinals; source-order nested CFG; scalar/indexed/read-only state; eight-result scale",
+    "acir": "unique complete ordinal/value/presence proof with per-output typed checks, effects, resources and marker-free Firing lowering",
+    "gfsim": "no optional, left, right, both, selected full, unselected full, mandatory ack full, all selected full, release, two-owner retention and exactly-once commit",
+    "pyc": "stateless packed-scalar firing; selected ready/valid atomicity; C++ and Verilator cycle/output parity; one expression-DAG emission per firing",
+    "unsupported": "stateful Table firing remains the explicit provisional-Table PYC/RTL rejection"
+  },
+  "review": {
+    "verdict": "approved",
+    "p0": 0,
+    "p1": 0,
+    "p2": 0
+  },
+  "release_scope": "Targeted PR evidence; the full release closure was not run.",
+  "skill_evolve": "no-update"
+}

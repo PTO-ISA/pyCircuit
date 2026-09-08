@@ -30,6 +30,9 @@ acir-opt --pass-pipeline='builtin.module(ac-freeze-topology)' <raw-queue-graph>
 compiler/acir/tools/ac-queue-pyc-build.py <ACIR> ...
 python3 tests/integration/agentic-circuit/e2e/test_typed_system_transactions.py -v
 python3 tests/integration/agentic-circuit/e2e/test_typed_record_pyc.py -v
+python3 tests/integration/agentic-circuit/e2e/test_aggregate_equality_invariant.py -v
+pytest designs/davincioo/tests -q
+acir-opt --verify-each=false --pass-pipeline='builtin.module(ac-lower-rules,canonicalize,cse,ac-verify-rule-closure,ac-freeze-topology)' tests/mlir/agentic-circuit/Transforms/rule-multi-output-lowering.mlir
 pytest tests/unit -m unit
 python3 flows/tools/check_api_hygiene.py python/pycircuit/src/pycircuit examples/pycircuit docs README.md
 python3 flows/tools/check_decision_status.py --require-no-deferred --require-all-verified --require-concrete-evidence --require-existing-evidence
@@ -126,18 +129,18 @@ pycc="${toolchain}/bin/pycc"
 metadata="${toolchain}/share/pycircuit/toolchain-metadata.json"
 runtime="${toolchain}/lib/libpyc6_runtime.a"
 runtime_include="${toolchain}/include"
+cxx="$(command -v c++ || true)"
+verilator="$(command -v verilator || true)"
 for required in \
   "${pycgen}" "${acir_opt}" "${acir_plan}" "${acir_cxxgen}" \
   "${pycc}" "${metadata}" "${runtime}"; do
   [[ -f "${required}" ]] || pyc_die "missing integrated toolchain artifact: ${required}"
 done
-[[ -d "${runtime_include}" ]] || \
-  pyc_die "missing integrated toolchain include directory: ${runtime_include}"
-
-cxx="$(command -v c++ || true)"
-verilator="$(command -v verilator || true)"
 [[ -n "${cxx}" ]] || pyc_die "C++ compiler is required for AC G2"
 [[ -n "${verilator}" ]] || pyc_die "Verilator is required for AC G2"
+
+[[ -d "${runtime_include}" ]] || \
+  pyc_die "missing integrated toolchain include directory: ${runtime_include}"
 
 for case_name in arbiter atomic-transform bit-widths masked-match popcount; do
   case_dir="${gate_out_dir}/${case_name}"
@@ -198,6 +201,40 @@ PYTHONPATH="${PYC_ROOT_DIR}/python/semantic-core/src:${ac_python}/src:${ac_build
   "${PYC_ROOT_DIR}/tests/integration/agentic-circuit/e2e/test_typed_record_pyc.py" \
   -v
 
+PYC_TOOLCHAIN_ROOT="${toolchain}" \
+ACIR_OPT="${acir_opt}" \
+ACIR_QUEUE_PLAN="${acir_plan}" \
+ACIR_QUEUE_CXXGEN="${acir_cxxgen}" \
+ACIR_QUEUE_PYCGEN="${pycgen}" \
+PYCC="${pycc}" \
+PYC_RUNTIME_LIB="${runtime}" \
+PYC_RUNTIME_INCLUDE="${runtime_include}" \
+PYTHONPATH="${PYC_ROOT_DIR}/python/semantic-core/src:${ac_python}/src:${ac_build}/python" \
+  "${venv}/bin/python" \
+  "${PYC_ROOT_DIR}/tests/integration/agentic-circuit/e2e/test_multi_output_atomic.py" \
+  -v
+
+PYC_TOOLCHAIN_ROOT="${toolchain}" \
+ACIR_TOOLCHAIN_ROOT="${toolchain}" \
+ACIR_OPT="${acir_opt}" \
+ACIR_QUEUE_PLAN="${acir_plan}" \
+ACIR_QUEUE_CXXGEN="${acir_cxxgen}" \
+ACIR_QUEUE_PYCGEN="${pycgen}" \
+PYCC="${pycc}" \
+PYTHONPATH="${PYC_ROOT_DIR}/python/semantic-core/src:${ac_python}/src:${ac_build}/python" \
+  "${venv}/bin/python" \
+  "${PYC_ROOT_DIR}/tests/integration/agentic-circuit/e2e/test_aggregate_equality_invariant.py" \
+  -v
+
+PYC_TOOLCHAIN_ROOT="${toolchain}" \
+ACIR_OPT="${acir_opt}" \
+ACIR_QUEUE_PLAN="${acir_plan}" \
+ACIR_QUEUE_CXXGEN="${acir_cxxgen}" \
+ACIR_QUEUE_PYCGEN="${pycgen}" \
+PYTHONPATH="${PYC_ROOT_DIR}/python/semantic-core/src:${ac_python}/src:${ac_build}/python" \
+  "${venv}/bin/python" -m pytest \
+  "${PYC_ROOT_DIR}/designs/davincioo/tests" -q
+
 pyc_log "pyCircuit 6 root contracts and documentation"
 (
   cd "${PYC_ROOT_DIR}"
@@ -224,7 +261,7 @@ cat > "${docs_gate_dir}/agentic_circuit_summary.json" <<EOF
   "resume_from": "${resume_from}",
   "contract_epoch": "0.5",
   "pyc_interface": "pyc6",
-  "cases": ["arbiter", "atomic-transform", "bit-widths", "masked-match", "popcount", "rule-retirement", "bitfield", "masked-decode", "nested-payload", "enum-payload", "aggregate-payload", "recursive-aggregate-payload", "typed-system-transactions", "typed-record-pyc"]
+  "cases": ["arbiter", "atomic-transform", "bit-widths", "masked-match", "popcount", "multi-output-atomic", "rule-retirement", "bitfield", "masked-decode", "nested-payload", "enum-payload", "aggregate-payload", "recursive-aggregate-payload", "typed-system-transactions", "typed-record-pyc", "multi-output-state-gfsim", "multi-output-pyc-parity", "aggregate-equality-invariant-gfsim", "aggregate-equality-invariant-pyc-parity", "davincioo-iex-contract-smoke"]
 }
 EOF
 

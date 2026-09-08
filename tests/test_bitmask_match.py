@@ -168,8 +168,8 @@ def test_cas_in_and_not_in_usable_as_output() -> None:
         m.output("hit", wire_of(opcode.in_(["1xx0", "0011"])))
         m.output("miss", wire_of(opcode.not_in_(["1xx0"])))
 
-    from pycircuit import compile_cycle_aware
+    from pycircuit import build_cycle_aware
 
-    mlir = compile_cycle_aware(top, name="c", eager=True).emit_mlir()
+    mlir = build_cycle_aware(top, name="c").emit_mlir()
     assert "pyc.and" in mlir  # (sig & mask)
     assert "pyc.cmp" in mlir and 'predicate = "eq"' in mlir

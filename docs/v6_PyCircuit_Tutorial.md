@@ -49,7 +49,7 @@ python3 -m pycircuit.cli build examples/pycircuit/counter/tb_counter.py \
 ```python
 from pycircuit import (
     CycleAwareCircuit, CycleAwareDomain,
-    cas, compile_cycle_aware, wire_of,
+    build_cycle_aware, cas, wire_of,
 )
 
 def build(m: CycleAwareCircuit, domain: CycleAwareDomain, width: int = 8) -> None:
@@ -71,7 +71,7 @@ def build(m: CycleAwareCircuit, domain: CycleAwareDomain, width: int = 8) -> Non
 build.__pycircuit_name__ = "counter"
 
 if __name__ == "__main__":
-    print(compile_cycle_aware(build, name="counter", eager=True, width=8).emit_mlir())
+    print(build_cycle_aware(build, name="counter", width=8).emit_mlir())
 ```
 
 运行：
@@ -123,7 +123,7 @@ r = a + b       # r 在 cycle 2；a 被自动延迟 2 拍（插 2 级 DFF）
 | N=0 | M=2 | 两级流水反馈 |
 | — | M < N | 编译错误（不能向过去赋值） |
 
-**一个必须内化的规则**：CAS 不能当 Python 布尔用。`if sig:` 是错的——硬件里没有「运行时 if」，条件逻辑用 `mux(cond, a, b)` 表达。Python 的 `if`/`for` 只用来做**元编程**（生成电路结构），在 `eager=True` 模式下它们在编译期展开。
+**一个必须内化的规则**：CAS 不能当 Python 布尔用。`if sig:` 是错的——硬件里没有「运行时 if」，条件逻辑用 `mux(cond, a, b)` 表达。Python 的 `if`/`for` 只用来做**元编程**（生成电路结构），由 `build_cycle_aware()` 在构图时展开。
 
 ---
 
@@ -134,7 +134,7 @@ r = a + b       # r 在 cycle 2；a 被自动延迟 2 拍（插 2 级 DFF）
 ```python
 from pycircuit import (
     CycleAwareCircuit, CycleAwareDomain,
-    cas, compile_cycle_aware, mux, wire_of,
+    build_cycle_aware, cas, mux, wire_of,
 )
 
 def mini_alu(m: CycleAwareCircuit, domain: CycleAwareDomain, width: int = 32) -> None:
@@ -197,7 +197,9 @@ def mac2(m: CycleAwareCircuit, domain: CycleAwareDomain, width: int = 16) -> Non
 
 注意 `prod + c` 这一行：`c` 是 cycle 0 的输入，`prod` 是 cycle 1 的寄存器输出。编译器自动为 `c` 插入一级 DFF，两者在 cycle 1 相加，结果在 cycle 2 写入 `acc`。**你从头到尾没有写过任何「对齐寄存器」**——这正是周期感知模型的价值：改流水级数时，只动 `domain.next()` 的位置，所有旁路信号自动重新对齐。
 
-补一个实用技巧：`domain.prev()` 可以回到上一列补写逻辑；`domain.cycle(sig)` 显式给某个信号打一拍。
+补一个实用技巧：`domain.prev()` 可以回到上一列补写逻辑；`domain.cycle(sig)`
+显式给某个信号打一拍，并返回标记为 `sig.cycle + 1` 的 CAS。之后移动 domain
+cursor 不会改变这个 provenance。
 
 ---
 
@@ -208,7 +210,7 @@ def mac2(m: CycleAwareCircuit, domain: CycleAwareDomain, width: int = 16) -> Non
 ```python
 from pycircuit import (
     CycleAwareCircuit, CycleAwareDomain, CycleAwareTb, Tb,
-    cas, compile_cycle_aware, testbench, wire_of,
+    build_cycle_aware, cas, testbench, wire_of,
 )
 from counter import build   # 前文的计数器设计
 
@@ -269,7 +271,7 @@ python3 -m pycircuit.cli build tb_counter.py --out-dir /tmp/tb_counter --target 
 ```python
 from pycircuit import (
     CycleAwareCircuit, CycleAwareDomain,
-    cas, compile_cycle_aware, mux, submodule_input, wire_of,
+    build_cycle_aware, cas, mux, submodule_input, wire_of,
 )
 
 def accumulator(
@@ -308,7 +310,7 @@ accumulator.__pycircuit_name__ = "accumulator"
 
 # ── Step 6: 独立编译入口 ──
 if __name__ == "__main__":
-    circ = compile_cycle_aware(accumulator, name="accumulator", eager=True, width=16)
+    circ = build_cycle_aware(accumulator, name="accumulator", width=16)
     print(circ.emit_mlir())
 ```
 
@@ -320,7 +322,7 @@ if __name__ == "__main__":
 三个高频错误提前打预防针：
 
 1. **dict 值必须是 CAS**，不要 `outs["x"] = wire_of(x)`；
-2. **key 必须与子模块完全一致**——拼错不会报错，而是静默多出一个端口；
+2. **key 必须与子模块完全一致**——缺失或额外 key 会立即抛出 `KeyError`；
 3. **每个子模块实例给独立 prefix**，否则寄存器名冲突。
 
 ---
@@ -407,8 +409,7 @@ cpu_core.__pycircuit_name__ = "cpu_core"
 **层次化编译**——保留模块边界到 MLIR 和 Verilog：
 
 ```python
-circ = compile_cycle_aware(cpu_core, name="cpu_core", eager=True,
-                           hierarchical=True)
+circ = build_cycle_aware(cpu_core, name="cpu_core", hierarchical=True)
 mlir = circ.emit_mlir()
 # → 多个 func.func（frontend / backend / cpu_core），
 #   cpu_core 内部用 pyc.instance 引用子模块
@@ -547,7 +548,7 @@ cd /tmp/pyc_counter && ./verilator_build/Vtb_counter
 if __name__ == "__main__":
     import sys
     hier = "--hierarchical" in sys.argv
-    circ = compile_cycle_aware(my_top, eager=True, name="my_top", hierarchical=hier)
+    circ = build_cycle_aware(my_top, name="my_top", hierarchical=hier)
     with open("my_top.mlir", "w") as f:
         f.write(circ.emit_mlir())
 ```

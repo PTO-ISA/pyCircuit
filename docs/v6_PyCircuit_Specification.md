@@ -33,8 +33,9 @@ from pycircuit import (
     CycleAwareDomain,     # 周期感知时钟域
     CycleAwareSignal,     # 周期感知信号（唯一信号类型）
     ForwardSignal,        # domain.signal() 的返回类型
+    build_cycle_aware,    # 直接 Python elaboration
     cas,                  # Wire → CycleAwareSignal
-    compile_cycle_aware,  # V6 编译入口
+    compile_cycle_aware,  # canonical JIT → Design
     mux,                  # 多路选择器
     submodule_input,      # 双模输入辅助
     wire_of,              # 边界提取 Wire（仅用于 m.output()）
@@ -122,7 +123,7 @@ m = CycleAwareCircuit("my_circuit")
 
 | 方法 | 说明 |
 |------|------|
-| `create_domain(name, *, frequency_desc="", reset_active_high=False)` | 创建 `CycleAwareDomain` |
+| `create_domain(name)` | 创建 `CycleAwareDomain` |
 | `input(name, *, width, signed=False)` | 标量输入端口，返回 `Wire[Bits]`（需 `cas()` 包装后参与周期感知运算） |
 | `output(name, value)` | 注册标量输出端口（周期感知信号通过 `wire_of(sig)` 提取） |
 | `const(value, *, width)` | 常量 `Wire`（用 `cas()` 包装后参与 CAS 表达式） |
@@ -140,24 +141,26 @@ domain = m.create_domain("clk")
 | 方法 | 说明 |
 |------|------|
 | `signal(*, width, reset_value=0, name="")` | **前向声明标量寄存器**——创建状态的唯一方式；返回 `ForwardSignal` |
-| `cycle(sig, reset_value=None, name="")` | 对信号插入单级 DFF，返回延后一拍的 CAS |
+| `cycle(sig, reset_value=None, name="")` | 对信号插入单级 DFF，返回 source occurrence + 1 的 CAS；不按调用时 cursor 重标记已有 CAS |
 | `next()` / `prev()` | 推进 / 回退当前逻辑周期 |
 | `push()` / `pop()` | 周期计数器压栈 / 出栈（必须配对） |
 | `call(fn, *, inputs=None, **kwargs)` | 调用子模块并自动 push/pop 隔离周期。扁平模式内联；层次化模式发射 `pyc.instance` |
 | `delay_to(w, *, from_cycle, to_cycle, width)` | 显式打拍对齐（自动平衡的底层机制） |
-| `create_signal(name, *, width, signed=False)` | 创建标量输入端口（裸 `Wire`） |
-| `create_const(value, *, width, name="", signed=False)` | 常量 `Wire` |
-| `create_reset()` | 复位信号（有效高视图，i1 `Wire`） |
+| `create_signal(name, *, width, signed=False)` | 创建标量输入端口，返回当前 occurrence 的 CAS |
+| `create_const(value, *, width, signed=False)` | 返回当前 occurrence 的常量 CAS |
+| `create_reset()` | 返回当前 occurrence 的有效高复位 CAS（i1） |
 | `cycle_index` | 属性：当前逻辑周期索引 |
 
 多时钟域：
 
 ```python
-cpu_clk = m.create_domain("CPU_CLK", frequency_desc="100MHz")
-rtc_clk = m.create_domain("RTC_CLK", frequency_desc="1Hz")
+cpu_clk = m.create_domain("CPU_CLK")
+rtc_clk = m.create_domain("RTC_CLK")
 ```
 
 跨时钟域信号**必须**经显式 CDC 原语（`cdc_sync` / `async_fifo`）传递；后端 `pyc-check-clock-domains` 检查违例并报错。
+当前 frontend 不接受未下沉到 IR 的频率描述或复位极性参数；时钟频率与外部
+reset polarity 属于集成约束。
 
 ### CycleAwareSignal
 
@@ -190,7 +193,9 @@ low = data[0:8];  bit5 = data[5]            # 切片 / 索引
 
 ### ForwardSignal
 
-`domain.signal()` 的返回类型。读侧行为与 CAS 完全一致；额外提供写侧接口：
+`domain.signal()` 的返回类型。每次读都以当前 `domain.cycle_index` 构造唯一
+CAS view；`.cycle`、`.as_cas()`、运算符、method helper 和 module-level helper
+共享这一条 coercion 路径。写侧额外提供：
 
 ```python
 sig <<= expr                     # 无条件赋值（连接 D 端）
@@ -245,8 +250,9 @@ x = cas(domain, m.input("x", width=8), cycle=0)
 result = mux(condition, true_value, false_value)
 ```
 
-三个参数为 CAS（或 int 字面量），返回 CAS，自动周期对齐。裸 `Wire`
-操作数也必须是标量，生成一个 `pyc.select`。
+至少一个参数必须是 CAS/Forward/State 以确定 domain；其余参数可为裸
+`Wire` 或 int 字面量。返回值始终是 CAS，并自动周期对齐。纯 Wire 结构选择
+使用 `pycircuit.structural.mux()`，返回值始终是 `Wire`。
 
 ### wire_of()
 
@@ -267,10 +273,12 @@ pc = submodule_input(inputs, "pc", m, domain, prefix="fe", width=32)
 | `inputs` 状态 | 行为 |
 |---------------|------|
 | `None`（独立模式） | 创建 `m.input(f"{prefix}_{key}", width=W)` 并 `cas()` 包装 |
-| dict 含 `key` | 直接返回 `inputs[key]`（父模块 CAS，cycle 保留） |
-| dict 不含 `key` | 回退创建端口（通常是 key 拼写错误的征兆——务必传全） |
+| dict 含 `key` | 规范化成 CAS；显式 CAS 保留 cycle，Forward/State 读取当前 occurrence |
+| dict 不含 `key` | 立即抛出 `KeyError`，禁止创建隐式顶层端口 |
 
 参数：`io, key, m, domain, *, prefix, width, cycle=0`。
+composed 输入必须属于同一个 domain 且位宽完全一致；`domain.call()` 还会拒绝
+未被子模块消费的额外 key。
 
 ---
 
@@ -376,10 +384,10 @@ my_module.__pycircuit_name__ = "my_module"   # 注册 RTL 模块名
 
 ```python
 # 扁平（默认）：单一 func.func
-circ = compile_cycle_aware(top, eager=True, name="top")
+circ = build_cycle_aware(top, name="top")
 
 # 层次化：每个 domain.call() 边界保留为独立模块
-circ = compile_cycle_aware(top, eager=True, name="top", hierarchical=True)
+circ = build_cycle_aware(top, name="top", hierarchical=True)
 ```
 
 层次化模式下每个子模块编译为独立 `func.func`，父模块发射 `pyc.instance` 引用；输出的 MLIR 为多模块 `Design`（`module attributes {pyc.top = @top}`）。子模块内部的 `domain.call()` 递归处理。
@@ -482,7 +490,7 @@ pycircuit sidecar verify  out/tb.sidecar        # 校验结构
 
 ## 编译入口
 
-### compile_cycle_aware()（V6 主路径）
+### compile_cycle_aware()（canonical JIT）
 
 ```python
 def compile_cycle_aware(
@@ -490,20 +498,37 @@ def compile_cycle_aware(
     *,
     name: str | None = None,       # 模块名
     domain_name: str = "clk",      # 时钟域名
-    eager: bool = False,           # True=直接执行 fn；False=JIT 追踪
-    hierarchical: bool = False,    # True=保留 domain.call() 边界（需 eager=True）
     **jit_params,                  # 转发给 fn 的配置参数
-)
+) -> Design
 ```
 
 ```python
-circ = compile_cycle_aware(my_module, name="my_module", eager=True, width=16)
-mlir_text = circ.emit_mlir()
+design = compile_cycle_aware(my_module, name="my_module", width=16)
+mlir_text = design.emit_mlir()
 ```
 
-- `eager=True`：直接执行 Python 函数体，即时构图。**推荐路径**。支持任意 Python 控制流（作为元编程展开）。
-- `eager=False`（JIT）：AST 解析 fn，不执行；支持把 Python `if`（i1 条件）编译为 `scf.if` → mux，`for`（静态可迭代）展开。有原型级限制。
-- `hierarchical=True`：见“层次化 MLIR 发射”。
+`compile_cycle_aware()` 始终经 AST/JIT 编译并返回 hardened `Design`。函数不再
+用布尔参数切换返回类型；`structural` 与 `value_params` 只由装饰器元数据定义。
+
+### build_cycle_aware()（显式 Python elaboration）
+
+```python
+def build_cycle_aware(
+    fn,
+    *,
+    name: str | None = None,
+    domain_name: str = "clk",
+    hierarchical: bool = False,
+    **build_params,
+) -> CycleAwareCircuit
+```
+
+`build_cycle_aware()` 直接执行 Python 函数体，返回 `CycleAwareCircuit`；其
+`emit_mlir()` 同样包含完整 hardened frontend attributes。Python `if`/`for` 仅
+用于 elaboration-time 元编程；运行时硬件选择使用 `mux()`。`hierarchical=True`
+保留 `domain.call()` 边界，并用 canonical 参数摘要区分同一子模块的不同
+specialization。Builder 保留 decorator 的 `structural=True`，但不支持 runtime
+`value_params`；此类模块必须使用 `compile_cycle_aware()`。
 
 ### @module JIT 路径（结构化库接口）
 
@@ -634,7 +659,7 @@ outs = domain.call(alu, inputs={...}, tier=1)             # 模块级缺省 tier
 | `push()` / `pop()` | 周期栈 |
 | `call(fn, *, inputs=None, **kwargs)` | 子模块调用（自动隔离） |
 | `delay_to(w, *, from_cycle, to_cycle, width)` | 显式打拍 |
-| `create_signal / create_const / create_reset` | 端口 / 常量 / 复位 |
+| `create_signal / create_const / create_reset` | 当前 occurrence 的端口 / 常量 / 复位 CAS |
 | `cycle_index` | 当前逻辑周期 |
 
 ### 全局函数
@@ -642,7 +667,8 @@ outs = domain.call(alu, inputs={...}, tier=1)             # 模块级缺省 tier
 | 函数 | 说明 |
 |------|------|
 | `cas(domain, wire, cycle=N)` | Wire → CAS |
-| `mux(cond, t, f)` | 多路选择（自动对齐） |
+| `mux(cond, t, f)` | CycleAware 多路选择，稳定返回 CAS（自动对齐） |
+| `structural.mux(cond, t, f)` | 纯 Wire 多路选择，稳定返回 Wire |
 | `submodule_input(io, key, m, domain, *, prefix, width, cycle=0)` | 双模输入 |
 | `wire_of(sig)` | 提取 Wire（仅 `m.output()`） |
 | `cat / zext / sext / trunc` | 位操作辅助 |
@@ -655,15 +681,12 @@ outs = domain.call(alu, inputs={...}, tier=1)             # 模块级缺省 tier
 | `sig.assign(expr, when=cond)` | 条件赋值（使能） |
 | 其余读侧接口 | 与 CAS 相同 |
 
-### compile_cycle_aware
+### 编译入口
 
-| 参数 | 说明 |
-|------|------|
-| `fn` | `def fn(m, domain, *, inputs=None, ...) -> dict` |
-| `name` / `domain_name` | 模块名 / 时钟域名 |
-| `eager` | `True` 直接执行（推荐） |
-| `hierarchical` | 保留 `domain.call()` 边界（需 eager） |
-| `**jit_params` | 转发给 `fn` |
+| 接口 | 稳定返回类型 | 说明 |
+|------|--------------|------|
+| `compile_cycle_aware(fn, *, name, domain_name, **params)` | `Design` | canonical AST/JIT 编译；CLI 使用此入口 |
+| `build_cycle_aware(fn, *, name, domain_name, hierarchical, **params)` | `CycleAwareCircuit` | 直接 Python elaboration；可保留 `domain.call()` 层次 |
 
 ### CycleAwareTb
 
@@ -679,7 +702,7 @@ outs = domain.call(alu, inputs={...}, tier=1)             # 模块级缺省 tier
 
 ## Agentic Queue/Table 数据流观察
 
-Decision 0223 为 gfsim 提供可选的 Queue/Table 提交记录，包含对象拓扑、
+Decision 0227 为 gfsim 提供可选的 Queue/Table 提交记录，包含对象拓扑、
 flat entry 描述、Queue 元素标识、表行访问和原子提交前后值。
 记录使用 `PYC6TRC3` 容器，默认关闭，不改变 CAS、规则执行或 activation 语义。
 组件只提供同步状态观察通知，记录适配器统一管理 token、快照和编码；

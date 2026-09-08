@@ -3327,6 +3327,45 @@ an artificial split between the implementation, examples, and product docs.
   cycle provenance across function and module composition.
 - Cycle-aware provenance may cross module boundaries through hardened compile
   metadata. It is not restricted to a module-local sub-DSL.
+- `ForwardSignal` and internal `StateSignal` represent a register Q read at the
+  domain's current logical occurrence. Their `.cycle`, coercion, operators,
+  method helpers and module-level helpers use one current-view path. An
+  explicitly saved `CycleAwareSignal` keeps its immutable cycle tag.
+- `CycleAwareDomain.cycle(value)` inserts exactly one register and returns a
+  `CycleAwareSignal` tagged at the resolved source occurrence plus one. Moving
+  the domain cursor before or after the call does not relabel an existing CAS.
+- `submodule_input(None, ...)` is the only standalone port-creation mode. A
+  composed input map must contain every requested key with the exact domain and
+  width, and `domain.call()` rejects unconsumed extra keys.
+- The public package does not export the discarded tutorial façade
+  (`pyc_CircuitModule`, `pyc_CircuitLogger`, `pyc_ClockDomain`, `pyc_Signal`,
+  `signal`, or identity `log`). Bitwise OR on a cycle-aware signal always means
+  hardware OR; description strings are rejected as invalid operands.
+- `compile_cycle_aware()` is the canonical AST/JIT entry and always returns a
+  hardened `Design`. `build_cycle_aware()` is the explicit direct-Python
+  elaboration entry and always returns a `CycleAwareCircuit`; its emitted MLIR
+  carries the same required frontend attributes. Only the eager builder accepts
+  `hierarchical=`; it preserves decorator-owned structural intent, rejects
+  runtime `value_params`, and gives parameterized hierarchical specializations
+  canonical digest-qualified symbols. Compile mechanism and return type never
+  depend on a boolean mode flag, and `structural`, `value_params`, and
+  `design_ctx` are not public call options.
+- Raw `Wire` remains explicit at `CycleAwareCircuit.input()`/`const()` and
+  `wire_of()` boundaries. Domain-owned `create_signal()`, `create_const()`, and
+  `create_reset()` return CAS values at the current occurrence. Top-level
+  `mux()` requires a cycle-aware anchor and always returns CAS;
+  `pycircuit.structural.mux()` is the explicit raw-Wire selection surface and
+  always returns `Wire`.
+- Method-style `select`, `trunc`, `zext`, `sext`, and `as_unsigned` remain
+  normative on CAS/Forward/State values. API hygiene classifies Python receiver
+  provenance with AST def-use data and rejects these removed methods for Wire
+  or unknown receivers; JIT uses the evaluated receiver object and must evaluate
+  it exactly once before applying the same boundary.
+- Public constructors do not accept metadata they cannot represent:
+  `Circuit.create_domain()` and `CycleAwareCircuit.create_domain()` accept only
+  the domain name, and `CycleAwareDomain.create_const()` has no `name` option.
+  Frequency, external reset polarity, and physical constant naming belong to
+  integration or lowering contracts and are never silently ignored.
 - The compiler automatically inserts explicit `pyc.reg` delay chains when
   operands from different logical cycles must be aligned.
 - `domain.signal()` plus `<<=` or `.assign()` is the canonical inferred-state
@@ -3731,6 +3770,24 @@ evaluation order observable in simulator cost.
 - `policy="first"` uses an empty key region; min/max require one typed key
   region. Contract epoch remains `0.4`, and PYC/RTL keeps rejecting the
   provisional Table family.
+- Generated gfsim C++ and the once-per-Epoch shared Table selection cache
+  implement an effect-free `first` selection over a scalar 1..64-entry
+  candidate mask with a low-first bit scan. A key region, choose-key snapshot
+  effect, min/max policy, or wider word-array mask retains the general Table
+  scan. This changes generated cost, not selection, snapshot, reservation, or
+  backpressure semantics.
+- Generated gfsim C++ binds aggregate Table observations and nested aggregate
+  projections to lexical `const` references inside one policy invocation.
+  ACIR remains value-only: immutable updates, write proposals, transition-plan
+  returns, and Queue outputs materialize complete values before the invocation
+  ends. Scalar observations stay by value, and checked access keeps its runtime
+  failure behavior.
+- Required inline Table matches in one policy invocation may share one scan
+  only when Table identity and captured operands are exact, every predicate
+  expression is effect-free, every capture dominates the group, and no match
+  owns a snapshot-set reservation. Exact typed DAG keys share common predicate
+  values while each original candidate mask and selection remains independent.
+  All unproven groups keep their original scans.
 
 **Verification**
 - Frontend and ACIR tests prove one shared SSA definition, dominance, same-Table
@@ -3738,6 +3795,16 @@ evaluation order observable in simulator cost.
 - QueueGraph JSON and both C++ generators preserve references without nested
   match/choose expansion. gfsim call-count tests prove one evaluation per Epoch
   and recomputation after Epoch advance or reset.
+- Width 1/16/64 first-selection tests cover zero, bit 63 and multi-hit masks;
+  generated-source checks distinguish the priority-encoder fast path from the
+  required min/max and wider-mask scan fallbacks.
+- Nested aggregate Table fixtures compile both `at` and `checkedAt` paths,
+  preserve scalar projection values, and replace the source row before a
+  queued result is consumed to prove output and proposal materialization.
+- A dual-match fixture proves one scan, two masks, hygienic local SSA and one
+  common comparison; different captures and snapshot-bearing predicates prove
+  fail-closed fallback. WBA covers simultaneous completed/uncompleted rows,
+  duplicate pending rows, no-match and generation-sensitive cases.
 - The multi-writer Issue Queue example compiles and runs in direct and native
   gfsim while its grant read and valid-clear patch reuse one selection.
 
@@ -3887,13 +3954,18 @@ consumer infrastructure.
 
 **Verification**
 - The release-layout gate rejects tracked or existing `integrations/`,
-  `platforms/`, and the former LinxCore frontend example root.
+  `platforms/`, the former LinxCore frontend example root, and product-system
+  classes/files under `examples/pycircuit/` without naming a particular
+  consumer.
 - Package/runtime inspection rejects Linx/Konata headers and the Python JIT
   uses one design-neutral inline-complexity cap.
 - Root CI, examples, performance tooling, and unit tests have no consumer-owned
   design entrypoint.
 - AC G0/G1/G2 and the full pyCircuit 6 closure pass without any consumer
   repository checkout.
+- FM16 is owned by `hengliao1972/DavinciOO@26d193dd` under
+  `srcs/core/system/fm16/`; its consumer compatibility test locks exact
+  pyCircuit revision `0f9e0a38`.
 
 **Source**
 - User direction (2026-09-04): remove LinxCPU/Janus interfaces from the
@@ -4026,6 +4098,9 @@ handwritten implementation without lowering it into gates.
   `ac.var.priority_encode`; QueueGraph lowers it to the semantic PYC operation,
   while gfsim uses `gfsim::priorityEncode` and a dedicated SimQueue
   `PriorityEncode` block.
+- The gfsim reference implementation masks to the declared width, returns
+  `index=0, valid=0` for zero, and uses C++20 leading/trailing bit scans for
+  high/low order. It does not iterate through every declared bit.
 - Stateful, handshake, memory, and CDC candidates from PR #29 are not admitted
   by this decision.  They require distinct effect-class IR and the inferred
   prepare/publish/no-fail commit contract from `D-RULE-LOWERING-001`; public
@@ -6571,6 +6646,10 @@ the functional rule has already discarded.
 - The frontend emits a constant-true candidate, candidate-qualified generic
   state assignments, and compiler-owned `ac.rule.output %value when %condition`.
   No optional/ready/full/sink marker is added to Python.
+- The trailing condition observes the rule's committed state snapshot at branch
+  entry. Assignments inside the selected branch create state proposals and new
+  local SSA values, but they cannot rewrite that blocking/output-presence
+  predicate to the proposed state value.
 - Rule and Firing verifiers allow output presence to differ from the candidate
   only for exactly one input and a proven constant-true candidate. Missing,
   false-candidate, invalid-type, or forged output presence fails closed.
@@ -6791,7 +6870,7 @@ metadata without flattening every field into the Python API.
 
 ## Decision 0214: standard Python enums lower to nominal encoded values
 
-**Status:** Accepted and implemented for nested enum fields and equality
+**Status:** Accepted and implemented for values, equality, and zero-initialized persistent state
 
 **Context / Goal**
 DavinciOO control packets need nominal states and opcode classes that cannot be
@@ -6819,6 +6898,10 @@ and make the frontend less Pythonic.
 - QueueGraph-to-PYC uses the explicit ordinal and exact width for packing and
   comparison. Generated PYC C++ and Verilog therefore share the same nominal-
   frontend encoding without adding a backend-only enum interpretation.
+- A persistent scalar enum is initialized with its first declared member. The
+  frontend emits a verifier-visible zero image, storage selection preserves the
+  nominal enum as the committed Table entry type, and assignments use ordinary
+  enum members. Raw integer initializers and nonzero initial members fail closed.
 - Contract epoch remains `0.5`: the new declaration/value operations are an
   additive capability and existing integer/struct semantics do not change.
   Older compilers reject the unknown operation rather than accepting another
@@ -6833,6 +6916,9 @@ and make the frontend less Pythonic.
 - The enum QueueGraph contains the exact three-member/two-bit encoding.
   Generated gfsim executes WAIT-to-RUN replacement and equality; PYC C++ and
   Verilator produce the same 26-bit packet on the same cycle.
+- Frontend and ACIR storage-selection tests lower a zero-initialized persistent
+  enum through `ac.var.decl`/read/assign to a nominal enum Table and compile the
+  generated gfsim C++.
 
 **Source**
 - PTO-ISA/pyCircuit issue #39.
@@ -7427,7 +7513,311 @@ terminology also needs separation from NDF architectural refinement.
   L0/L1/L2 means architectural intent/behavior/microarchitecture, and all H
   levels are contained in NDF L2.
 
-## Decision 0223: gfsim records Queue/Table dataflow for independent viewers
+## Decision 0223: fixed-arity rule results infer independently selected atomic outputs
+
+**Status:** Implemented and verified
+
+**Context / Goal**
+Decision 0210 admits one independently optional result. DavinciOO and generic
+transactional components need one rule activation to select any subset of
+heterogeneous outputs while retaining a mandatory acknowledgement and local
+state updates. Replacing absent results with dummy payloads, exposing Queue
+capacity in Python, or splitting the selected set across cycles would change
+functional and backpressure semantics.
+
+**Decision (strong constraint)**
+- A multi-result `@ac.rule` declares one fixed payload type per position with a
+  `tuple[...]` return annotation. Its return expression has that exact arity.
+  Each position supplies its declared typed value or Python `None`. Every
+  returned local is initialized before conditional reassignment: an optional
+  local starts at `None`, while a required local starts at its typed value. It
+  may then change through serial, nested `if/elif/else` control flow. Every path
+  after initialization must resolve the position to one
+  declared value type or absence. An unbound path, changed type, changed arity,
+  or `None` in a required result fails closed.
+- `None` is compile-time absence syntax. It is not an ACIR value, Queue token,
+  dummy payload, optional runtime wrapper, marker, or implicit zero image. The
+  frontend lowers each position to one typed SSA value plus one `i1` presence
+  and emits exactly one ordinal-qualified output record. Call sites use normal
+  fixed-arity tuple unpacking.
+- Candidate selection and result presence are separate. Each Work attempt
+  evaluates the functional candidate once from its tick-start committed state;
+  Queue capacity does not participate in that selection. Each result has an
+  independent presence predicate derived from source-order SSA and captured
+  branch conditions. A required result uses candidate presence. An optional
+  result may be absent while another result of the same activation is present.
+  If atomic preparation fails, that attempt produces no effect; a later tick
+  re-evaluates against its new committed snapshot. Protocols that must retain a
+  decision across ticks store its phase/mask explicitly rather than keeping an
+  unreserved runtime candidate with stale state-derived values.
+- Rule and Firing verifiers require output/result arity and type agreement,
+  exactly one presence record for every ordinal, closed `i1` predicates and a
+  proof that every result presence implies the candidate. Duplicate, missing,
+  out-of-range, type-mismatched or uncovered output records are invalid.
+- Typed checks/effects and transaction resources retain one output-capacity and
+  output-produce fact per ordinal, qualified by that output's presence. Rule
+  lowering preserves the exact ordinal/value/presence triple in marker-free
+  Firing and QueueGraph rather than reconstructing it from result position.
+- QueueGraph independently verifies output Queue type, yielded value,
+  ordinal coverage, presence type and candidate implication. Generated gfsim
+  represents the result set as `tuple<optional<Output>...>`. Only selected
+  outputs check and reserve capacity. An unselected full output never blocks;
+  any selected full output stalls every selected output, all input consumption
+  and all state proposals in that activation.
+- One activation performs one prepare phase for its complete selected resource
+  set, publishes only after all preparation succeeds, passes the common Probe
+  barrier, and performs no-fail Commit. Release after sustained backpressure
+  produces every selected result and state update exactly once. Traversal order
+  and output ordinal do not create partial success or change the functional
+  selected set.
+- A design protocol may explicitly separate retained phases, such as a GPR
+  prewrite request and later acknowledgement before final visible publication.
+  This decision applies atomicity to each declared rule transaction; it neither
+  collapses an acknowledged multi-cycle protocol into one cycle nor permits the
+  compiler to decompose one final selected-output transaction.
+- Public Python exposes no ready/full/pop/push/sink/presence/reservation/commit
+  mechanism. Canonical PYC remains scalar-only. Stateless admitted results must
+  preserve C++/Verilog parity; provisional Table graphs retain their explicit
+  unsupported PYC/RTL boundary until Decision 0151/#22 is superseded.
+
+**Verification**
+- Frontend positive cases cover one required result plus independently selected
+  heterogeneous results, nested source-order branches and ordinary tuple
+  unpacking. Negative cases cover wrong arity/type, partial definition,
+  invalid `None`, and unsupported multi-input discard semantics.
+- ACIR lit covers Rule/Firing ordinal completeness, duplicate/out-of-range
+  ordinal, payload mismatch, predicate typing, candidate implication, typed
+  checks/effects, lowering and QueueGraph JSON.
+- An executable gfsim fixture covers no optional results, every individual
+  result, multiple simultaneous results, selected-output full,
+  unselected-output full, mandatory-ack full, multiple full outputs, release
+  after a sustained stall, input/state retention and exactly-once commit.
+- The applicable stateless packed-scalar fixture produces identical C++ and
+  Verilator observations. Stateful Table PYC generation keeps the stable
+  rejection diagnostic.
+- Reviewable evidence is archived under
+  `docs/gates/logs/20260907-issue46-multi-output/`, and the long-term
+  regression is part of the Agentic release gate.
+
+**Source**
+- PTO-ISA/pyCircuit issue #46.
+- User direction (2026-09-07): continue closing framework issues in dependency
+  order for the DavinciOO contributor design program.
+
+## Decision 0224: recursive value equality and explicit named invariants lower before QueueGraph
+
+**Status:** Accepted; implemented and verified
+
+**Context / Goal**
+Large typed modules currently expand nominal identity and payload-shape checks
+field by field. The recursive descriptor already defines exact identity and
+layout, but `ac.var.cmp` admits only scalar integers and enums. This forces
+consumer code to duplicate the type graph and makes one invariant drift across
+several rule boundaries. Issue #48 requires concise Python authoring without
+moving type semantics into a backend or assuming runtime validity.
+
+**Decision (strong constraint)**
+- Ordinary Python `==` and `!=` accept two values with the exact same immutable
+  recursive descriptor: nominal `StructType`, structural tuple, fixed
+  value-array, enum, bool or fixed-width bits. Struct and enum identity is
+  nominal; equal packed width or equal field spelling does not permit a cast or
+  comparison between distinct declarations. Tuple arity and element types and
+  value-array length/element type are exact.
+- Equality returns logical bool. `<`, `<=`, `>`, `>=` on an aggregate remain
+  illegal. Recursive descriptor cycles, mismatched nominal types and malformed
+  results fail in the frontend and independently in ACIR. Total packed width is
+  not limited to 64 bits because comparison lowers recursively before backend
+  integer constraints.
+- `ac.var.cmp` is the verifier-visible equality operation for both scalar and
+  aggregate values. Aggregate operands allow only `eq` or `ne`. A shared
+  `ac-lower-value-contracts` pass recursively emits descriptor-order
+  `ac.var.get`/`ac.var.element`, scalar or enum equality leaves, and a
+  deterministic balanced boolean conjunction. `ne` negates the complete
+  equality result. The high-level aggregate comparison must be gone before
+  QueueGraph extraction.
+- One nominal struct invariant is declared as a pure typed function:
+
+  ```python
+  @ac.invariant
+  def valid_operand(value: Operand) -> bool:
+      return ...
+  ```
+
+  Calls use ordinary Python, for example `valid_operand(request.operand)`. The
+  decorator accepts exactly one nominal struct argument and a bool result. Its
+  stable diagnostic name is `<Payload>.<function>`, such as
+  `Operand.valid_operand`.
+- The frontend materializes each explicit call as `ac.var.invariant`, carrying
+  the exact input type, invariant name and a single pure predicate region that
+  yields `!ac.var<i1>`. The region may use admitted nested field/element access,
+  aggregate/scalar equality, enum equality, bit operations, boolean operations
+  and bounded scalar comparisons. State access, Queue/module calls, mutation,
+  reflection, `None`, effects and a non-bool yield are invalid.
+- `ac.var.invariant` computes a predicate; it is not an assertion, implicit
+  precondition, refined runtime type or proof that every value is valid. A rule
+  explicitly uses the result in its functional guard or classification. The
+  compiler may only reuse constructor/update preservation after a future
+  verifier-visible proof; this decision adds no implicit assumption.
+- The shared value-contract pass clones the verified predicate region at the
+  call, substitutes the exact input, recursively lowers aggregate equality and
+  removes the invariant op. Rule/dataflow analysis sees the resulting ordinary
+  SSA predicate. QueueGraph, gfsim and PYC independently reject a residual
+  invariant or aggregate comparison rather than assigning backend semantics.
+- Canonical PYC stays scalar-only. The scalarized equality/invariant tree uses
+  existing extract, scalar compare, boolean and/select operations. Stateless
+  admitted fixtures require matching C++/Verilog observations. A Table-backed
+  invariant retains the existing stateful PYC rejection boundary.
+- Cross-type semantic identity uses an explicit shared nominal value or an
+  explicit verified projection. The compiler does not infer that differently
+  named fields mean the same thing. Temporal protocol checks—active state,
+  outstanding requests, cancel/release ordering, tombstone capacity and
+  selected-output backpressure—remain explicit rule logic.
+
+**Required verification**
+- Frontend and ACIR positive tests cover flat and nested nominal structs, enum
+  leaves, tuples, fixed arrays, `eq`, `ne` and an aggregate wider than 64 bits.
+  Negative tests cover nominal mismatch, ordered aggregate compare, wrong
+  result/yield, malformed/impure invariant and recursive descriptors.
+- A typed boundary fixture invokes one named operand invariant without copying
+  its field expression. Valid input proceeds through its intended transaction;
+  invalid input takes the explicit reject/guard path at the same atomic boundary.
+- QueueGraph/gfsim execute equal and unequal cases, including a difference in
+  every nested field family. Residual high-level value-contract operations are
+  rejected by plan verification.
+- A stateless packed-scalar fixture produces identical PYC C++ and Verilator
+  results. English/Chinese specifications, public/IR inventories, plan/status
+  and reviewable evidence remain synchronized.
+- After the framework PR merges, the in-tree DavinciOO I1/I2/WBA work uses a
+  shared canonical identity and named operand invariants. Its mechanical
+  comparison metric and protocol regressions provide the remaining issue #48
+  design evidence.
+
+**Source**
+- PTO-ISA/pyCircuit issue #48.
+- User direction (2026-09-07): continue framework closure in dependency order,
+  using the in-tree DavinciOO H3 designs to mature shared semantics.
+
+## Decision 0225: named invariants compose through a finite typed call graph
+
+**Status:** Accepted; implemented and verified
+
+**Context / Goal**
+Decision 0224 made one named invariant reusable at rule/module boundaries, but
+forbade one invariant from calling another. Real operand contracts therefore
+still repeat producer identity, zero-register, speculation, and shape clauses
+inside one long return expression. Issue #63 OPT-01 requires ordinary function
+composition while keeping the entire predicate visible to ACIR verification and
+shared lowering.
+
+**Decision (strong constraint)**
+- An `@ac.invariant` predicate may call another named invariant captured in the
+  same deterministic source closure. The callee still accepts exactly one
+  nominal struct argument and returns logical bool; the call operand must have
+  the exact nominal payload type declared by the callee. The call target is the
+  bare, statically resolved, unshadowed invariant name; lexical parameters or
+  locals with the same spelling take precedence. Attribute/receiver calls and
+  other dynamic dispatch are not reinterpreted as invariant calls.
+- Framework intrinsics inside an invariant use either their canonical,
+  unaliased bare import name or an explicit Agentic Circuit module alias such
+  as `ac.matches`. A renamed bare intrinsic import is rejected rather than
+  dispatched from its new spelling.
+- The frontend collects the full invariant set before validating bodies, builds
+  the invariant-only call graph, and rejects self-recursion or any indirect
+  cycle with a diagnostic that identifies the call chain. Unknown calls,
+  dynamic dispatch, reflection, state/Queue/module access, mutation, I/O, and
+  every other effect remain invalid.
+- Each source call remains verifier-visible as a nested `ac.var.invariant` with
+  its own exact name, input type, one-argument predicate region, and bool yield.
+  Nested predicate SSA names are hygienic and cannot capture values outside the
+  caller predicate except through the explicit typed call operand.
+- ACIR permits only a nested `ac.var.invariant` as a composed predicate region.
+  Every nested operation independently satisfies the existing nominal-name,
+  type, yield, capture, and memory-effect rules. Repeating an ancestor invariant
+  name is recursive composition and fails verification even for hand-authored
+  IR.
+- `ac-lower-value-contracts` expands leaf invariant regions before their
+  callers, substitutes the explicit operand, and repeats until no invariant
+  remains. A graph with no expandable leaf fails closed. QueueGraph, gfsim, and
+  PYC retain no new operation or backend interpretation.
+- Composition is source reuse, not an automatic performance claim. Evidence
+  records shared-contract source LOC and scalar comparison counts after
+  expansion. C++ and RTL use the same lowered combinational predicate; any CSE
+  remains an ordinary downstream optimization.
+
+**Required verification**
+- Frontend positives cover two-level, deeper, and repeated/diamond calls with
+  unique SSA. Negatives cover wrong arity/type, self-recursion, indirect cycles,
+  unknown/effectful calls, and imported source-closure composition.
+- Native ACIR tests accept typed nested invariants, reject recursive names and
+  illegal captures/effects, and prove deterministic callee-first elimination.
+- DavinciOO defines `valid_producer_identity(LoadProducerToken)` once and calls
+  it from `valid_operand_source(OperandSourceDescriptor)`. Constant-zero,
+  speculative, non-speculative, destination, mask, and per-Flow mismatch cases
+  preserve the prior truth table through generated gfsim.
+- Existing QueueGraph/gfsim and admitted packed PYC C++/Verilator value-contract
+  gates remain green with no residual `ac.var.invariant`.
+
+**Source**
+- PTO-ISA/pyCircuit issue #63 OPT-01.
+- The in-tree DavinciOO I1/I2 operand contract at
+  `designs/davincioo/contracts/spe.py`.
+
+## Decision 0226: nested rules capture typed module state through canonical owner arguments
+
+**Status:** Accepted; implemented and verified
+
+**Context / Goal**
+Stateful modules currently pass every private state object through every rule
+call. DavinciOO I2 repeats up to eleven scalar, record, enum and fixed-list
+owners at seven call sites even though the rule and state share one lexical
+module. Issue #63 OPT-02 requires ordinary nested authoring without weakening
+the existing explicit ownership, conflict, snapshot, or transaction model.
+
+**Decision (strong constraint)**
+- An `@ac.rule` may be defined directly in an `@ac.module`. It captures only
+  direct typed module-state declarations named by direct-body Python
+  `nonlocal` statements. Module inputs, static/global mutable values, untyped
+  assignments, attributes, aliases, late declarations and deeper lexical
+  scopes are not captureable.
+- Capture order is the module state declaration order. Before ordinary rule
+  parsing, the frontend gives each nested rule a deterministic module-qualified
+  identity, prepends the captured owners as explicit rule parameters, and
+  prepends the same state values at each direct call. A collision with any
+  flattened source definition fails closed.
+- Every module-state reference in a nested rule requires `nonlocal`, including
+  read-only references. A capture cannot shadow a rule parameter. Nested rules
+  cannot call or recurse through another nested rule and cannot escape through
+  an alias or dynamic call.
+- The canonicalized rule uses the existing `RuleStateOwnerBinding`, exact
+  scalar/list index and field footprints, committed-state reads, SSA updates,
+  proposal presence, conflict analysis, arbitration and lowering. No new ACIR
+  operation, module-object reference, runtime primitive, or backend-only state
+  interpretation is introduced.
+- Module specialization is shared as before, while each instance owns its own
+  state objects. Rule order, Queue inputs/outputs, transaction resources and
+  generated behavior are identical to the explicit-parameter form apart from
+  stable source/specialization identity.
+
+**Required verification**
+- Frontend positives cover scalar plus fixed-list capture, read/write owners,
+  no-payload state-driven rules, canonical ordering, deterministic lowering and
+  two instances of one specialization. Negatives cover missing `nonlocal`,
+  untyped/unknown/late state, parameter shadowing, nested-scope declarations,
+  recursive/inter-rule calls and generated identity collisions.
+- Explicit and captured I2 retain seven rules, thirteen state owners, four
+  inputs, seven outputs, exact state read/write/proposal counts, five Table
+  scans and five priority encoders. Normalizing the specialization fingerprint
+  yields byte-identical generated gfsim C++.
+- I2 behavior covers inactive input, operand acceptance, load hit/miss/replay,
+  sink retry/accept, release, external/generated cancellation, tombstone
+  reclaim and selected-output backpressure. PYC/RTL keeps the existing
+  provisional stateful-Table rejection boundary.
+
+**Source**
+- PTO-ISA/pyCircuit issue #63 OPT-02.
+- In-tree DavinciOO I2 at `designs/davincioo/spe/iex/i2.py`.
+
+## Decision 0227: gfsim records Queue/Table dataflow for independent viewers
 
 **Status:** Accepted; Queue/Table recording and local viewer verified in the scoped G1 lane
 
@@ -7462,6 +7852,8 @@ understandable component view. Presentation should evolve outside the framework.
   aggregate replay, and does not extend PYC/RTL backend support.
 
 **Verification**
+- `docs/gates/logs/20260908-replay-main-migration/summary.md` records migration
+  to main, exact ROB record parity and independent viewer browser validation.
 - `docs/gates/logs/20260908-flow-observer-refactor/summary.md` records the
   observer/adapter separation and comparison against the initial implementation.
 - `docs/gates/logs/20260908-queue-table-flow/summary.md` records scoped producer

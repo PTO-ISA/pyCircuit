@@ -1,0 +1,10 @@
+[       OK ] GfsimIntegrationTest.QueueProducerConsumer (0 ms)
+[ RUN      ] GfsimIntegrationTest.ResourceProducerConsumer
+[       OK ] GfsimIntegrationTest.ResourceProducerConsumer (0 ms)
+[ RUN      ] GfsimIntegrationTest.MemoryToComputeToSinkChain
+[       OK ] GfsimIntegrationTest.MemoryToComputeToSinkChain (0 ms)
+[----------] 4 tests from GfsimIntegrationTest (0 ms total)
+
+[----------] Global test environment tear-down
+[==========] 281 tests from 28 test suites ran. (71 ms total)
+[  PASSED  ] 281 tests.

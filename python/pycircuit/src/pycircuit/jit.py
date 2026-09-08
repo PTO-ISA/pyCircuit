@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import ast
 import copy
+import functools
 import inspect
 import operator as _pyop
 from dataclasses import dataclass, fields, is_dataclass
@@ -102,10 +103,22 @@ _PY_CMPOPS: dict[type, Any] = {
 }
 
 
-def _check_removed_api_call(node: ast.Call, *, compiler: "_Compiler") -> None:
+def _check_removed_api_call(
+    node: ast.Call, *, compiler: "_Compiler", receiver: Any | None = None
+) -> None:
     if not isinstance(node.func, ast.Attribute):
         return
     attr = str(node.func.attr)
+    if attr in {
+        "as_unsigned",
+        "eq",
+        "lt",
+        "select",
+        "sext",
+        "trunc",
+        "zext",
+    } and _is_cas(receiver):
+        return
     line = compiler._abs_lineno(node)
     col = getattr(node, "col_offset", None)
     col_out = (int(col) + 1) if isinstance(col, int) else None
@@ -119,6 +132,16 @@ def _check_removed_api_call(node: ast.Call, *, compiler: "_Compiler") -> None:
     )
     if diag is not None:
         raise JitError.from_diagnostic(diag)
+
+
+def _removed_bound_method(value: Any) -> tuple[str, Any] | None:
+    while isinstance(value, functools.partial):
+        value = value.func
+    name = getattr(value, "__name__", None)
+    receiver = getattr(value, "__self__", None)
+    if name in {"as_unsigned", "eq", "lt", "select", "sext", "trunc", "zext"}:
+        return str(name), receiver
+    return None
 
 
 def _call_kind(fn: Any) -> str | None:
@@ -1450,6 +1473,25 @@ class _Compiler:
             return self.eval_call(node)
         if isinstance(node, ast.Attribute):
             base = self.eval_expr(node.value)
+            if node.attr in {
+                "as_unsigned",
+                "eq",
+                "lt",
+                "select",
+                "sext",
+                "trunc",
+                "zext",
+            } and not _is_cas(base):
+                diag = removed_call_diagnostic(
+                    attr=node.attr,
+                    path=self.source_file,
+                    line=self._abs_lineno(node),
+                    col=int(node.col_offset) + 1,
+                    source_text=self.source_text,
+                    stage="jit",
+                )
+                if diag is not None:
+                    raise JitError.from_diagnostic(diag)
             try:
                 return getattr(base, node.attr)
             except AttributeError as e:
@@ -1460,13 +1502,32 @@ class _Compiler:
         )
 
     def eval_call(self, node: ast.Call) -> Any:
-        _check_removed_api_call(node, compiler=self)
         if isinstance(node.func, ast.Name) and node.func.id == "range":
             raise JitError("range() is only supported in for-loops")
 
-        fn = _resolve_call_target(
-            node, eval_expr=self.eval_expr, env=self.env, globals_=self.globals
-        )
+        if isinstance(node.func, ast.Attribute):
+            receiver = self.eval_expr(node.func.value)
+            _check_removed_api_call(node, compiler=self, receiver=receiver)
+            try:
+                fn = getattr(receiver, node.func.attr)
+            except AttributeError as e:
+                raise JitError(str(e)) from e
+        else:
+            fn = _resolve_call_target(
+                node, eval_expr=self.eval_expr, env=self.env, globals_=self.globals
+            )
+        removed_bound = _removed_bound_method(fn)
+        if removed_bound is not None and not _is_cas(removed_bound[1]):
+            diag = removed_call_diagnostic(
+                attr=removed_bound[0],
+                path=self.source_file,
+                line=self._abs_lineno(node),
+                col=int(node.col_offset) + 1,
+                source_text=self.source_text,
+                stage="jit",
+            )
+            if diag is not None:
+                raise JitError.from_diagnostic(diag)
         args, kwargs = _eval_call_args(node, eval_expr=self.eval_expr)
         kind = _call_kind(fn)
         has_hw = any(self._is_hw_value(a) for a in args) or any(
@@ -1508,7 +1569,20 @@ class _Compiler:
                 return self._eval_inline_call(fn, args=args, kwargs=kwargs)
             if kind == "template":
                 return self._eval_template_call(fn, args=args, kwargs=kwargs)
-            return fn(*args, **kwargs)
+            result = fn(*args, **kwargs)
+            removed_result = _removed_bound_method(result)
+            if removed_result is not None and not _is_cas(removed_result[1]):
+                diag = removed_call_diagnostic(
+                    attr=removed_result[0],
+                    path=self.source_file,
+                    line=self._abs_lineno(node),
+                    col=int(node.col_offset) + 1,
+                    source_text=self.source_text,
+                    stage="jit",
+                )
+                if diag is not None:
+                    raise JitError.from_diagnostic(diag)
+            return result
         except TypeError as e:
             raise JitError(f"call failed: {e}") from e
 

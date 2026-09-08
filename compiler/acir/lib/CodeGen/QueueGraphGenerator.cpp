@@ -297,6 +297,10 @@ const QueueAggregatePlan *findAggregateType(const QueueGraphPlan &plan,
   return found == plan.aggregates.end() ? nullptr : &*found;
 }
 
+bool isAggregateValueType(const QueueGraphPlan &plan, llvm::StringRef type) {
+  return findPayloadType(plan, type) || findAggregateType(plan, type);
+}
+
 llvm::Expected<uint64_t> generatedTypeWidth(const QueueGraphPlan &plan,
                                             llvm::StringRef type) {
   if (type.starts_with('i')) {
@@ -452,6 +456,30 @@ std::string commonPath(llvm::StringRef left, llvm::StringRef right) {
   return result.empty() ? "/" : result;
 }
 
+std::string matchExpressionValueKey(const QueueExpressionPlan &expression) {
+  std::string result;
+  auto append = [&](llvm::StringRef value) {
+    result.append(std::to_string(value.size()))
+        .append(":")
+        .append(value.str());
+  };
+  append(expression.kind);
+  append(expression.type);
+  append(std::to_string(expression.operands.size()));
+  for (const std::string &operand : expression.operands)
+    append(operand);
+  append(expression.field);
+  append(expression.predicate);
+  append(expression.literal);
+  append(expression.table);
+  append(expression.slot);
+  append(std::to_string(expression.lsb));
+  append(std::to_string(expression.width));
+  append(expression.mask);
+  append(expression.value);
+  return result;
+}
+
 llvm::Expected<std::string>
 emitExpressionBody(const QueueGraphPlan &plan, const QueueBlockPlan &block,
                    llvm::StringRef yield, unsigned indent,
@@ -462,6 +490,18 @@ emitExpressionBody(const QueueGraphPlan &plan, const QueueBlockPlan &block,
   std::string padding(indent, ' ');
   llvm::StringMap<std::string> priorityEncodings;
   llvm::StringMap<std::pair<std::string, std::string>> tableChoices;
+  llvm::StringMap<std::pair<unsigned, unsigned>> tableChoicePairCounts;
+  llvm::StringMap<unsigned> tableChoicePairOrdinals;
+  for (const QueueExpressionPlan &expression : block.expressions) {
+    if (expression.kind != "table_choose_index" &&
+        expression.kind != "table_choose_valid")
+      continue;
+    const std::string contract = inlineTableChoiceContractKey(expression);
+    auto &counts = tableChoicePairCounts[contract];
+    unsigned &ordinal = expression.kind == "table_choose_index" ? counts.first
+                                                                 : counts.second;
+    tableChoicePairOrdinals[expression.result] = ordinal++;
+  }
   llvm::StringSet<> needed;
   needed.insert(yield);
   for (const std::string &name : additionalNeeded)
@@ -473,7 +513,12 @@ emitExpressionBody(const QueueGraphPlan &plan, const QueueBlockPlan &block,
       if (expression.kind == "snapshot_set")
         needed.insert(expression.field);
     }
-  for (const QueueExpressionPlan &expression : block.expressions) {
+  llvm::StringMap<size_t> expressionPositions;
+  for (auto [index, expression] : llvm::enumerate(block.expressions))
+    expressionPositions[expression.result] = index;
+  llvm::StringSet<> emittedTableMatches;
+  for (auto [expressionIndex, expression] :
+       llvm::enumerate(block.expressions)) {
     if (!needed.contains(expression.result))
       continue;
     auto operand = [&](size_t index) -> llvm::Expected<llvm::StringRef> {
@@ -535,8 +580,145 @@ emitExpressionBody(const QueueGraphPlan &plan, const QueueBlockPlan &block,
       continue;
     }
     if (expression.kind == "table_match") {
+      if (emittedTableMatches.contains(expression.result))
+        continue;
       if (expression.nestedYields.size() != 1)
         return generatorError("table.match predicate yield is missing");
+      auto hasSnapshotSet = [&](llvm::StringRef result) {
+        return llvm::any_of(block.expressions,
+                            [&](const QueueExpressionPlan &candidate) {
+                              return candidate.kind == "snapshot_set" &&
+                                     candidate.field == result;
+                            });
+      };
+      auto canFuse = [&](const QueueExpressionPlan &candidate) {
+        if (candidate.kind != "table_match" ||
+            candidate.table != expression.table ||
+            candidate.type != expression.type ||
+            candidate.operands != expression.operands ||
+            candidate.nestedYields.size() != 1 ||
+            !needed.contains(candidate.result) ||
+            hasSnapshotSet(candidate.result) ||
+            !llvm::all_of(candidate.nestedExpressions,
+                          isEffectFreeTableMatchExpression))
+          return false;
+        return llvm::all_of(candidate.operands, [&](const std::string &operand) {
+          auto position = expressionPositions.find(operand);
+          return position == expressionPositions.end() ||
+                 position->getValue() < expressionIndex;
+        });
+      };
+      std::vector<const QueueExpressionPlan *> fusedMatches;
+      if (!hasSnapshotSet(expression.result) &&
+          llvm::all_of(expression.nestedExpressions,
+                       isEffectFreeTableMatchExpression)) {
+        for (size_t index = expressionIndex; index < block.expressions.size();
+             ++index) {
+          const QueueExpressionPlan &candidate = block.expressions[index];
+          if (canFuse(candidate))
+            fusedMatches.push_back(&candidate);
+        }
+      }
+      if (fusedMatches.size() > 1) {
+        QueueBlockPlan combined;
+        llvm::StringMap<std::string> commonValues;
+        llvm::StringSet<> occupiedNames;
+        for (const QueueExpressionPlan *match : fusedMatches) {
+          for (const std::string &operand : match->operands)
+            occupiedNames.insert(operand);
+          for (const QueueExpressionPlan &nested : match->nestedExpressions)
+            occupiedNames.insert(nested.result);
+        }
+        unsigned nextFusedValue = 0;
+        auto freshFusedValue = [&] {
+          std::string name;
+          do {
+            name = "fused_value_" + std::to_string(nextFusedValue++);
+          } while (occupiedNames.contains(name));
+          occupiedNames.insert(name);
+          return name;
+        };
+        std::vector<std::string> predicates;
+        predicates.reserve(fusedMatches.size());
+        for (const QueueExpressionPlan *match : fusedMatches) {
+          llvm::StringMap<std::string> renamed;
+          for (const QueueExpressionPlan &nested : match->nestedExpressions) {
+            QueueExpressionPlan canonical = nested;
+            for (std::string &operandName : canonical.operands)
+              if (auto found = renamed.find(operandName);
+                  found != renamed.end())
+                operandName = found->getValue();
+            const std::string key = matchExpressionValueKey(canonical);
+            auto found = commonValues.find(key);
+            if (found != commonValues.end()) {
+              renamed[nested.result] = found->getValue();
+              continue;
+            }
+            canonical.result = freshFusedValue();
+            renamed[nested.result] = canonical.result;
+            commonValues[key] = canonical.result;
+            combined.expressions.push_back(std::move(canonical));
+          }
+          auto predicate = renamed.find(match->nestedYields.front());
+          predicates.push_back(predicate == renamed.end()
+                                   ? match->nestedYields.front()
+                                   : predicate->getValue());
+        }
+        combined.yields = predicates;
+        std::string tuple = "std::tuple{";
+        for (auto [index, predicate] : llvm::enumerate(predicates)) {
+          if (index)
+            tuple.append(", ");
+          tuple.append(predicate);
+        }
+        tuple.push_back('}');
+        auto predicateBody = emitExpressionBody(
+            plan, combined, predicates.front(), indent + 6, qualifyTables,
+            checkedTableAccess, predicates, tuple);
+        if (!predicateBody)
+          return predicateBody.takeError();
+        const std::string table = qualifyTables
+                                      ? "table_" + identifier(expression.table)
+                                      : std::string("table");
+        for (const QueueExpressionPlan *match : fusedMatches) {
+          auto maskWords = candidateMaskWords(match->type);
+          if (!maskWords)
+            return generatorError(
+                "table.match candidate mask type is unsupported");
+          if (*maskWords == 1)
+            output << padding << "std::uint64_t " << match->result << " = 0;\n";
+          else
+            output << padding << "std::array<std::uint64_t, " << *maskWords
+                   << "> " << match->result << "{};\n";
+        }
+        output << padding << "for (std::size_t index = 0; index < " << table
+               << "->size(); ++index) {\n"
+               << padding << "  const auto &entry = " << table
+               << "->at(index);\n"
+               << padding << "  auto [";
+        for (auto [index, match] : llvm::enumerate(fusedMatches)) {
+          if (index)
+            output << ", ";
+          output << "fused_match_" << identifier(match->result);
+        }
+        output << "] = [&]() {\n"
+               << *predicateBody << padding << "  }();\n";
+        for (const QueueExpressionPlan *match : fusedMatches) {
+          auto maskWords = candidateMaskWords(match->type);
+          output << padding << "  if (fused_match_"
+                 << identifier(match->result) << ")\n"
+                 << padding << "    ";
+          if (*maskWords == 1)
+            output << match->result
+                   << " |= (std::uint64_t{1} << index);\n";
+          else
+            output << match->result
+                   << "[index / 64] |= (std::uint64_t{1} << (index % 64));\n";
+          emittedTableMatches.insert(match->result);
+        }
+        output << padding << "}\n";
+        continue;
+      }
       QueueBlockPlan nested;
       nested.expressions = expression.nestedExpressions;
       nested.yields = expression.nestedYields;
@@ -634,14 +816,20 @@ emitExpressionBody(const QueueGraphPlan &plan, const QueueBlockPlan &block,
       continue;
     }
     if (expression.kind == "get") {
-      output << padding << "auto " << expression.result << " = " << first->str()
-             << '.' << identifier(expression.field) << ";\n";
+      output << padding
+             << (isAggregateValueType(plan, expression.type) ? "const auto &"
+                                                             : "auto ")
+             << expression.result << " = " << first->str() << '.'
+             << identifier(expression.field) << ";\n";
       continue;
     }
     if (expression.kind == "table_get") {
       const std::string table =
           qualifyTables ? "table_" + identifier(expression.table) : "table";
-      output << padding << "auto " << expression.result << " = " << table
+      output << padding
+             << (isAggregateValueType(plan, expression.type) ? "const auto &"
+                                                             : "auto ")
+             << expression.result << " = " << table
              << (checkedTableAccess ? "->checkedAt(static_cast<size_t>("
                                     : "->at(static_cast<size_t>(")
              << first->str() << "));\n";
@@ -666,21 +854,8 @@ emitExpressionBody(const QueueGraphPlan &plan, const QueueBlockPlan &block,
       nested.expressions = expression.nestedExpressions;
       nested.yields = expression.nestedYields;
       std::string choiceKey =
-          expression.table + "#" + first->str() + "#" + expression.predicate;
-      for (const QueueExpressionPlan &keyExpression : nested.expressions) {
-        choiceKey.append("#")
-            .append(keyExpression.kind)
-            .append(":")
-            .append(keyExpression.field)
-            .append(":")
-            .append(keyExpression.literal)
-            .append(":")
-            .append(keyExpression.predicate)
-            .append(":")
-            .append(keyExpression.table);
-        for (const std::string &operandName : keyExpression.operands)
-          choiceKey.append(":").append(operandName);
-      }
+          inlineTableChoiceContractKey(expression) + "#" +
+          std::to_string(tableChoicePairOrdinals.lookup(expression.result));
       if (auto cached = tableChoices.find(choiceKey);
           cached != tableChoices.end()) {
         auto resultType = cppType(expression.type);
@@ -713,6 +888,33 @@ emitExpressionBody(const QueueGraphPlan &plan, const QueueBlockPlan &block,
         if (candidate.kind == "snapshot_set" &&
             candidate.field == expression.result)
           snapshotSets.push_back(&candidate);
+      auto choiceTable = llvm::find_if(
+          plan.tables, [&](const TablePlan &table) {
+            return table.name == expression.table;
+          });
+      auto scalarMaskWidth =
+          choiceTable != plan.tables.end() && choiceTable->entries <= 64
+              ? std::optional<unsigned>(choiceTable->entries)
+              : std::nullopt;
+      if (expression.predicate == "first" && scalarMaskWidth &&
+          nested.expressions.empty() && nested.yields.empty() &&
+          snapshotSets.empty()) {
+        auto resultType = cppType(expression.type);
+        if (!resultType)
+          return resultType.takeError();
+        output << padding << "auto " << choice
+               << " = gfsim::priorityEncode(gfsim::UInt<" << *scalarMaskWidth
+               << ">{static_cast<std::uint64_t>(" << first->str()
+               << ")}, true);\n"
+               << padding << "auto " << expression.result << " = "
+               << *resultType << "{"
+               << (expression.kind == "table_choose_index"
+                       ? choice + ".index"
+                       : choice + ".valid")
+               << "};\n";
+        tableChoices[choiceKey] = {choice + ".index", choice + ".valid"};
+        continue;
+      }
       for (const QueueExpressionPlan *snapshotSet : snapshotSets)
         output << padding << "gfsim::StateReservation " << snapshotSet->result
                << "{};\n";
@@ -1719,6 +1921,7 @@ generateStructuredQueueGraphCpp(const QueueGraphPlan &plan) {
             "#include \"gfsim/bits.h\"\n"
             "#include \"gfsim/dispatch.h\"\n"
             "#include \"gfsim/object.h\"\n"
+            "#include \"gfsim/priority_encode.h\"\n"
             "#include \"gfsim/queue.h\"\n"
             "#include \"gfsim/queue_blocks.h\"\n"
             "#include \"gfsim/replay_value.h\"\n\n"
@@ -2877,8 +3080,7 @@ llvm::Expected<std::string> generateQueueGraphCpp(const QueueGraphPlan &plan) {
     if (block.kind == "firing") {
       const bool hasState =
           !block.stateWrites.empty() || !block.stateReservations.empty();
-      if (block.outputs.size() > 1 ||
-          block.yields.size() != block.outputs.size() || block.guard.empty() ||
+      if (block.yields.size() != block.outputs.size() || block.guard.empty() ||
           (hasState &&
            (block.table.empty() || block.tableIndex.empty() ||
             block.tableValue.empty() || block.writeMode != "replace" ||

@@ -1,0 +1,23 @@
+{
+  "run_id": "20260908-issue63-opt03-match-fusion",
+  "status": "passed",
+  "base_revision": "6c9bf7eabab70a30bed7e4081bde5a4ae5f7433c",
+  "decision_ids": ["0155"],
+  "issue": 63,
+  "checklist": ["OPT-03a", "OPT-03b", "OPT-03c"],
+  "results": {
+    "codegen_tests": {"passed": 136, "failed": 0},
+    "wba_behavior": {"passed": 3, "failed": 0},
+    "primitive_selection": {"passed": 16, "failed": 0},
+    "unit": {"passed": 90, "failed": 0},
+    "agentic_repository_contracts": {"passed": true},
+    "pyc_inventory": {"operations": 41, "types": 2, "passed": true},
+    "ir_coverage": {"passed": true},
+    "pre_commit": {"passed": true},
+    "mkdocs_strict": {"passed": true},
+    "decision_status": {"rows": 225, "deferred": 0, "passed": true}
+  },
+  "metrics": "docs/gates/logs/20260908-issue63-opt03-match-fusion/metrics.json",
+  "behavior": "Pure same-Table same-capture inline matches share one committed-snapshot scan and exact predicate DAG values while retaining independent masks, selections, and effect fallbacks.",
+  "skill_evolve": "no-update"
+}

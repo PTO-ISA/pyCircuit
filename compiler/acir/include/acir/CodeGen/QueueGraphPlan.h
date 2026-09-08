@@ -54,6 +54,11 @@ struct QueueExpressionPlan {
   std::string value;
 };
 
+std::string inlineTableChoiceContractKey(
+    const QueueExpressionPlan &expression);
+bool isEffectFreeTableMatchExpression(
+    const QueueExpressionPlan &expression);
+
 struct StateWritePlan {
   std::string table;
   std::string index;

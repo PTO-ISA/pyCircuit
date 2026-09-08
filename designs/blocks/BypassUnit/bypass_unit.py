@@ -4,8 +4,8 @@ from pycircuit import (
     CycleAwareCircuit,
     CycleAwareDomain,
     Tb,
-    compile_cycle_aware,
-    mux,
+    build_cycle_aware,
+    structural,
     testbench,
 )
 
@@ -45,8 +45,8 @@ def _select_stage(
             & (lane_ptype[j] == src_ptype)
         )
         take = match & _not1(m, has)
-        sel_lane = mux(take, m.const(j, width=int(lane_w)), sel_lane)
-        sel_data = mux(take, lane_data[j], sel_data)
+        sel_lane = structural.mux(take, m.const(j, width=int(lane_w)), sel_lane)
+        sel_data = structural.mux(take, lane_data[j], sel_data)
         has = has | match
 
     return has, sel_lane, sel_data
@@ -115,20 +115,20 @@ def _resolve_src(
         data_w=data_w,
     )
 
-    out_data = mux(has_w3, data_w3, src_rf_data)
-    out_hit = mux(has_w3, m.const(1, width=1), m.const(0, width=1))
-    out_stage = mux(has_w3, m.const(3, width=2), m.const(0, width=2))
-    out_lane = mux(has_w3, lane_w3, m.const(0, width=int(lane_w)))
+    out_data = structural.mux(has_w3, data_w3, src_rf_data)
+    out_hit = structural.mux(has_w3, m.const(1, width=1), m.const(0, width=1))
+    out_stage = structural.mux(has_w3, m.const(3, width=2), m.const(0, width=2))
+    out_lane = structural.mux(has_w3, lane_w3, m.const(0, width=int(lane_w)))
 
-    out_data = mux(has_w2, data_w2, out_data)
-    out_hit = mux(has_w2, m.const(1, width=1), out_hit)
-    out_stage = mux(has_w2, m.const(2, width=2), out_stage)
-    out_lane = mux(has_w2, lane_w2, out_lane)
+    out_data = structural.mux(has_w2, data_w2, out_data)
+    out_hit = structural.mux(has_w2, m.const(1, width=1), out_hit)
+    out_stage = structural.mux(has_w2, m.const(2, width=2), out_stage)
+    out_lane = structural.mux(has_w2, lane_w2, out_lane)
 
-    out_data = mux(has_w1, data_w1, out_data)
-    out_hit = mux(has_w1, m.const(1, width=1), out_hit)
-    out_stage = mux(has_w1, m.const(1, width=2), out_stage)
-    out_lane = mux(has_w1, lane_w1, out_lane)
+    out_data = structural.mux(has_w1, data_w1, out_data)
+    out_hit = structural.mux(has_w1, m.const(1, width=1), out_hit)
+    out_stage = structural.mux(has_w1, m.const(1, width=2), out_stage)
+    out_lane = structural.mux(has_w1, lane_w1, out_lane)
 
     return out_data, out_hit, out_stage, out_lane
 
@@ -227,10 +227,9 @@ def tb(t: Tb) -> None:
 
 if __name__ == "__main__":
     print(
-        compile_cycle_aware(
+        build_cycle_aware(
             build,
             name="bypass_unit",
-            eager=True,
             lanes=8,
             data_width=64,
             ptag_count=256,

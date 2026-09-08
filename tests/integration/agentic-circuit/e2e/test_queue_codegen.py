@@ -618,7 +618,8 @@ int main() {{
             self.assertLess(
                 source.index("struct Header"), source.index("struct Packet")
             )
-            self.assertIn("auto v0 = item.header", source)
+            # Aggregate observations borrow immutable fields (upstream OPT-05).
+            self.assertIn("const auto &v0 = item.header", source)
             self.assertIn("v4.mode = v3", source)
 
             harness = root / "harness.cpp"

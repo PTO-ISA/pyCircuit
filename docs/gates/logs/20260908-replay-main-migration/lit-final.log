@@ -1,0 +1,15 @@
+-- Testing: 8 of 193 tests, 8 workers --
+PASS: AgenticCircuit :: Transforms/value-contracts-residual-invalid.mlir (1 of 8)
+PASS: AgenticCircuit :: Transforms/rule-multi-output-lowering.mlir (2 of 8)
+PASS: AgenticCircuit :: Transforms/value-contracts-lowering.mlir (3 of 8)
+PASS: AgenticCircuit :: ACIR/value-contracts-invalid.mlir (4 of 8)
+PASS: AgenticCircuit :: CodeGen/queue-flow-metadata.mlir (5 of 8)
+PASS: AgenticCircuit :: CodeGen/atomic-transform.mlir (6 of 8)
+PASS: AgenticCircuit :: Transforms/rule-owner-write-batch.mlir (7 of 8)
+PASS: AgenticCircuit :: Transforms/queue-multi-rule-multi-owner-module.mlir (8 of 8)
+
+Testing Time: 2.81s
+
+Total Discovered Tests: 193
+  Excluded: 185 (95.85%)
+  Passed  :   8 (4.15%)

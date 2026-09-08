@@ -1,0 +1,24 @@
+cmake --build .pycircuit_out/acir/dev-llvm22 --target acir-queue-cxxgen CodeGenTests GfsimTests
+.pycircuit_out/acir/dev-llvm22/bin/CodeGenTests
+.pycircuit_out/acir/dev-llvm22/bin/GfsimTests
+ctest --test-dir .pycircuit_out/acir/dev-llvm22 -R '^GfsimTests$' --output-on-failure
+PYTHONDONTWRITEBYTECODE=1 pytest -q designs/davincioo/tests/spe/iex/test_i2.py
+PYTHONDONTWRITEBYTECODE=1 pytest -q tests/system/test_primitive_selection.py
+PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=python/semantic-core/src:python/pycircuit/src pytest tests/unit -m unit -q
+PYTHONDONTWRITEBYTECODE=1 uv run --no-project --isolated --with-requirements python/agentic-circuit/requirements-dev.lock python tools/agentic-circuit/check-contracts.py
+python3 tools/check-pyc-inventory.py
+python3 tools/agentic-circuit/check-ir-coverage.py
+mkdir -p .pycircuit_out/issue63-opt04-priority-find/base-include/gfsim
+git show d1c6f1e1c20fa61b5fa1b651f5cc5383e5d95d84:simulator/gfsim/include/gfsim/priority_encode.h > .pycircuit_out/issue63-opt04-priority-find/base-include/gfsim/priority_encode.h
+c++ -O3 -std=c++20 -I .pycircuit_out/issue63-opt04-priority-find/base-include -I simulator/gfsim/include docs/gates/logs/20260908-issue63-opt04-priority-find/sparse_mask_benchmark.cpp -o .pycircuit_out/issue63-opt04-priority-find/sparse-before
+c++ -O3 -std=c++20 -I simulator/gfsim/include docs/gates/logs/20260908-issue63-opt04-priority-find/sparse_mask_benchmark.cpp -o .pycircuit_out/issue63-opt04-priority-find/sparse-after
+c++ -O3 -std=c++20 -I .pycircuit_out/issue63-opt04-priority-find/base-include -I simulator/gfsim/include docs/gates/logs/20260908-issue63-opt04-priority-find/random_mask_benchmark.cpp -o .pycircuit_out/issue63-opt04-priority-find/random-before
+c++ -O3 -std=c++20 -I simulator/gfsim/include docs/gates/logs/20260908-issue63-opt04-priority-find/random_mask_benchmark.cpp -o .pycircuit_out/issue63-opt04-priority-find/random-after
+for run in 1 2 3 4 5; do .pycircuit_out/issue63-opt04-priority-find/sparse-before; done
+for run in 1 2 3 4 5; do .pycircuit_out/issue63-opt04-priority-find/sparse-after; done
+for run in 1 2 3 4 5; do .pycircuit_out/issue63-opt04-priority-find/random-before; done
+for run in 1 2 3 4 5; do .pycircuit_out/issue63-opt04-priority-find/random-after; done
+PYTHONPATH=.:python/agentic-circuit/src:python/semantic-core/src python3 docs/gates/logs/20260908-issue63-opt04-priority-find/measure_i2_codegen.py
+pre-commit run --files compiler/acir/include/acir/CodeGen/QueueGraphPlan.h compiler/acir/lib/CodeGen/QueueGraphGenerator.cpp compiler/acir/lib/CodeGen/QueueGraphPlan.cpp designs/davincioo/tests/spe/iex/test_i2.py docs/acir/spec/agentic-circuit.md docs/acir/spec/agentic-circuit.zh-CN.md docs/gates/decision_status_v6.md docs/pyc6-plan.md docs/rfcs/pyc6-decisions.md schemas/primitives/pyc_ir_coverage.json simulator/gfsim/include/gfsim/priority_encode.h simulator/gfsim/include/gfsim/queue_blocks.h tests/cpp/agentic-circuit/CodeGen/QueueGraphPlanTest.cpp tests/cpp/agentic-circuit/gfsim/BitsTest.cpp tests/cpp/agentic-circuit/gfsim/QueueBlocksTest.cpp docs/gates/logs/20260908-issue63-opt04-priority-find/measure_i2_codegen.py docs/gates/logs/20260908-issue63-opt04-priority-find/i2_after_metrics.json docs/gates/logs/20260908-issue63-opt04-priority-find/metrics.json docs/gates/logs/20260908-issue63-opt04-priority-find/review.md docs/gates/logs/20260908-issue63-opt04-priority-find/summary.json
+mkdocs build --strict --site-dir .pycircuit_out/issue63-opt04-priority-find/site
+python3 flows/tools/check_decision_status.py --rfc docs/rfcs/pyc6-decisions.md --status docs/gates/decision_status_v6.md --out docs/gates/logs/20260908-issue63-opt04-priority-find/decision_status_report.json --require-no-deferred --require-all-verified --require-concrete-evidence --require-existing-evidence

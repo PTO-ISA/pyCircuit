@@ -522,12 +522,6 @@ LogicalResult resolveRuleSchedule(ModuleOp model) {
       result = failure();
       return;
     }
-    if (rule.getOutputs().size() > 1) {
-      rule.emitOpError(
-          "scheduling currently supports at most one output Queue");
-      result = failure();
-      return;
-    }
     for (Value input : rule.getInputs()) {
       size_t consumingUses = 0;
       for (OpOperand &use : input.getUses())
@@ -791,8 +785,9 @@ LogicalResult lowerRulesToFiring(ModuleOp model) {
     state.addAttribute("ac.arbitration_membership",
                        rule->getAttr("ac.rule.arbitration_membership"));
     state.addAttribute("ac.rule_definition", rule.getNameAttr());
-    if (Attribute name = rule->getAttr("ac.name"))
-      state.addAttribute("ac.name", name);
+    for (StringRef name : {"ac.name", "ac.output_names"})
+      if (Attribute attribute = rule->getAttr(name))
+        state.addAttribute(name, attribute);
     state.addRegion();
     auto firing = cast<ac::FiringOp>(builder.create(state));
     firing.getBody().takeBody(rule.getBody());
@@ -814,10 +809,14 @@ LogicalResult canonicalizePureFirings(ModuleOp model) {
     });
     if (hasStateAccess)
       continue;
-    if (firing.getInputs().empty() || firing.getOutputs().size() != 1 ||
-        firing.getTimeDomain() != "cycle")
+    if (firing.getInputs().empty() || firing.getTimeDomain() != "cycle")
       return firing.emitOpError(
           "is not proven equivalent to the phase-one pure transform subset");
+    // A variadic firing is already the canonical atomic representation.  Only
+    // the historical one-output, always-present subset canonicalizes to the
+    // simpler ac.transform operation.
+    if (firing.getOutputs().size() != 1)
+      continue;
 
     SmallVector<ac::FiringConditionOp> conditions;
     firing.getBody().walk([&](ac::FiringConditionOp condition) {
@@ -945,6 +944,25 @@ struct VerifyRuleClosurePass
 LogicalResult verifyRuleClosure(ModuleOp model) {
   LogicalResult result = success();
   llvm::StringSet<> stableIds;
+  model.walk([&](Operation *operation) {
+    if (isa<ac::VarInvariantOp>(operation)) {
+      result = operation->emitError(
+          "unresolved value invariant before Frozen ACIR");
+      return WalkResult::interrupt();
+    }
+    if (auto comparison = dyn_cast<ac::VarCmpOp>(operation)) {
+      Type payload = cast<ac::VarType>(comparison.getLhs().getType())
+                         .getElementType();
+      if (isa<ac::StructType, TupleType, ac::ValueArrayType>(payload)) {
+        result = operation->emitError(
+            "unresolved aggregate comparison before Frozen ACIR");
+        return WalkResult::interrupt();
+      }
+    }
+    return WalkResult::advance();
+  });
+  if (failed(result))
+    return failure();
   ACDataFlowAnalyzer dataFlow(model.getOperation());
   if (failed(dataFlow.run()))
     return model.emitError("AC dataflow analysis failed during rule closure");
@@ -1061,6 +1079,7 @@ std::unique_ptr<Pass> createVerifyRuleClosurePass() {
 }
 
 void addRuleLoweringPipeline(mlir::OpPassManager &manager) {
+  manager.addPass(createLowerValueContractsPass());
   manager.addPass(createVerifyValueConstraintsPass());
   manager.addPass(createLowerVariableStatePass());
   manager.addPass(createVerifyValueConstraintsPass());

@@ -1,0 +1,8 @@
+[0/1] Running Agentic Circuit lit tests
+-- Testing: 187 tests, 10 workers --
+Testing:  0.. 10.. 20.. 30.. 40.. 50.. 60.. 70.. 80.. 90.. 
+
+Testing Time: 24.94s
+
+Total Discovered Tests: 187
+  Passed: 187 (100.00%)

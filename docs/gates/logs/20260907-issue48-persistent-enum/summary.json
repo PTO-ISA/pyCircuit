@@ -1,0 +1,18 @@
+{
+  "run_id": "20260907-issue48-persistent-enum",
+  "status": "passed",
+  "base_revision": "4c6500ff3335cce870e56d4b1a5af38a7c783fe9",
+  "decision_ids": ["0214", "0224"],
+  "issue": 48,
+  "results": {
+    "focused_frontend": {"passed": 135, "failed": 0},
+    "focused_acir_lit": {"passed": 1, "failed": 0},
+    "acir_lit": {"passed": 191, "failed": 0},
+    "generated_gfsim_compile": {"passed": true},
+    "pre_commit": {"passed": true}
+  },
+  "behavior": "A nominal enum may own persistent ac.var state when initialized with its zero-ordinal member; storage selection preserves the enum type in a committed Table.",
+  "trigger": "DavinciOO I2 owns lhs/rhs OperandSourceKind state and must not erase the nominal enum into raw bits.",
+  "release_scope": "Focused framework regression discovered by the DavinciOO design program.",
+  "skill_evolve": "no-update"
+}

@@ -347,9 +347,10 @@ Persistent class/module fields lower to the same `ac.var` family. Internal
 `ac.var.decl` names the lexical state, `ac.var.read` produces an immutable
 committed snapshot, and `ac.var.assign` proposes the next value within one
 rule. Storage selection eliminates these operations before rule closure. The
-first executable slice accepts a zero-initialized scalar integer or flat struct
-and selects a single-entry committed implementation; the Python frontend does
-not expose that choice.
+first executable slice accepts a zero-initialized scalar integer, nominal enum,
+or flat struct and selects a single-entry committed implementation. Enum state
+uses its first declared member as the zero image and keeps its nominal type
+through storage selection; the Python frontend does not expose that choice.
 
 A fixed persistent list uses ordinary Python syntax such as
 `entries: list[Entry] = [0] * 8`. The frontend emits a shaped `ac.var.decl`
@@ -391,6 +392,8 @@ ACIR. `order="low"` selects the least-significant asserted bit and
 `order="high"` selects the most-significant asserted bit; an all-zero input
 returns `valid=0,index=0`. QueueGraph uses the gfsim reference model and lowers
 the same operation to vendor-neutral `pyc.priority_encode`.
+The gfsim reference masks the input to its declared width and uses low/high
+C++20 bit scans rather than a per-bit loop.
 
 `ac.popcount(value)` returns the number of asserted bits using exactly
 `max(1, ceil(log2(N+1)))` result bits. ACIR preserves it as
@@ -739,6 +742,27 @@ the complete Epoch, so multiple consumers cause one Table scan per Epoch.
 Advancing the Epoch or resetting the model invalidates that result. A choose
 mask must come from a match on the same Table. `policy="first"` has an empty key
 region; min/max retain one typed key region.
+For generated gfsim C++ and the shared Table selection cache, an effect-free
+`first` over a scalar mask of at most 64 entries uses a low-first bit scan.
+Min/max, choose-key snapshot effects, and wider word-array masks retain the
+general scan with unchanged selection and reservation semantics.
+
+Generated gfsim C++ may bind aggregate `table_get` results and aggregate field
+projections to `const` references while evaluating one policy invocation.
+These references observe the committed Table snapshot and cannot become ACIR
+values with reference identity. Immutable updates, state proposals, returned
+transition plans, and Queue outputs materialize values before the invocation
+ends. Scalar reads remain values, and checked Table access retains its runtime
+diagnostic.
+
+Within one policy invocation, generated gfsim C++ may fuse multiple required
+`table_match` expressions into one Table scan only when they name the same
+Table, carry the same captured operands, contain only effect-free value
+expressions, and have no snapshot-set reservation. Exact typed expression DAG
+keys share common predicate values inside the fused loop. Every match retains
+its own candidate mask and downstream selection. Different captures, Table
+identity, unavailable captures, nested Table/Slot observations, and snapshot
+effects retain independent scans.
 
 `EntryView` is elaboration-only. `patch` lowers before Frozen ACIR to
 `ac.table.get`, immutable `ac.var.with` updates, and `ac.table.write` or
@@ -840,6 +864,33 @@ boundary surface. The compiler inserts internal `ac.source` and `ac.sink`
 nodes; multiple outputs use an ordered `tuple[...]` annotation and tuple
 return. Explicit Python `source(...)` and `sink(...)` remain transitional.
 
+A rule defined directly inside an `@ac.module` may omit repeated module-private
+state parameters and declare each captured owner with Python `nonlocal`:
+
+```python
+@ac.module
+def accumulator(incoming: ac.u8) -> ac.u8:
+    total: ac.u8 = 0
+
+    @ac.rule
+    def add(value):
+        nonlocal total
+        total = total + value
+        return total
+
+    return add(incoming)
+```
+
+The frontend canonicalizes this form to the existing explicit state-parameter
+rule contract before type, owner, footprint, conflict, or lowering analysis.
+Only direct, typed module state declarations may be captured; their canonical
+order is their declaration order. State must be declared before the nested
+rule. Missing `nonlocal`, untyped locals, module inputs, aliases, attributes,
+generated-name collisions, nested-scope declarations, and calls between nested
+rules fail closed. Each module instance owns its existing independent state;
+capture does not introduce a module-object reference or change committed-read,
+proposal, arbitration, output-presence, or backpressure semantics.
+
 The epoch 0.5 pure-rule frontend accepts one or more Queue inputs and one total
 return path. Every argument is the immutable committed head payload of its
 corresponding Queue. It emits transient variadic `ac.rule` IR and one typed
@@ -908,8 +959,50 @@ condition. The frontend emits `ac.rule.output ... when`, and MLIR independently
 derives predicate-qualified output capacity/effect summaries. A full output
 Queue therefore blocks the complete transaction only when output presence is
 true; the absent-output path consumes input and commits state without requiring
-capacity. Rule/Firing/QueueGraph verifiers require one input and a constant-true
-candidate for this differing output presence.
+capacity. The condition reads persistent values from the committed snapshot at
+branch entry; assignments in the branch create proposals but do not replace the
+condition with their proposed values. Rule/Firing/QueueGraph verifiers require
+one input and a constant-true candidate for this differing output presence.
+
+A rule with several heterogeneous results declares one fixed `tuple[...]`
+return type. Each returned local holds its declared value or `None`; `None`
+means that ordinal is absent for this activation and never becomes a payload.
+
+```python
+@ac.rule
+def publish(request: Request) -> tuple[Wakeup, Fault, ApplyAck]:
+    wakeup = None
+    fault = None
+    ack = ApplyAck(identity=request.identity, accepted=True)
+    if request.publish_value:
+        wakeup = Wakeup(identity=request.identity, tag=request.tag)
+    if request.publish_fault:
+        fault = Fault(identity=request.identity, code=request.fault_code)
+    return wakeup, fault, ack
+```
+
+The call site uses ordinary fixed-arity unpacking. Every returned local is
+initialized before conditional reassignment: optional locals start at `None`,
+and required locals start at a typed value. The frontend derives one typed
+value and one presence predicate for each result position, preserving
+the binding visible at every nested branch. Every position must receive at
+least one value of its annotated type; every source path after initialization resolves to that value
+or absence. A required acknowledgement is assigned a value on every path.
+Wrong arity/type, an undefined position, `None` outside a returned ordinal, or
+an optional multi-output rule with several inputs fails closed.
+
+Only selected outputs participate in capacity checks. A full unselected Queue
+does not block; any selected full Queue retains the input, every selected
+output, and all state proposals. Once capacity is available, the complete set
+publishes exactly once through one prepare/publish/Probe/no-fail-Commit group.
+Python does not expose result-presence, Queue-capacity, reservation, or commit
+objects.
+
+Each Work attempt reads one tick-start committed snapshot. A failed atomic
+prepare produces no effect, and the next tick re-evaluates from the next
+committed snapshot. A protocol that must retain a selection across ticks stores
+that phase or mask explicitly; gfsim does not carry an unreserved candidate
+with stale state-derived values across the Xfer boundary.
 
 `ACDataFlowAnalyzer` walks backward from candidate, output-presence, and
 state-effect presence values and materializes compiler-owned state-snapshot
@@ -1246,6 +1339,64 @@ field may use `Mode`; `Mode.RUN` lowers to a verified `ac.var.enum` value.
 Enums support equality and inequality only in the current slice. QueueGraph
 retains the member list and encoding width, gfsim emits one compact C++ enum,
 and PYC/Verilog use the same exact-width ordinal.
+
+### Recursive equality and named payload invariants
+
+Ordinary Python `==` and `!=` compare two values whose recursive descriptors
+are exactly equal. This includes nominal structs, nested structs, enums,
+structural tuples, fixed value arrays, bool, and exact-width bits. Nominal
+identity is part of the type: two separately declared structs or enums cannot
+be compared even when their layouts match. Aggregate `<`, `<=`, `>`, and `>=`
+are invalid. The total aggregate width is not limited to 64 bits.
+
+A reusable payload predicate is declared once with `@ac.invariant` and called
+as an ordinary typed Python function:
+
+```python
+@ac.invariant
+def valid_producer(value: Producer) -> bool:
+    return value.epoch.flow == value.inst.flow
+
+@ac.invariant
+def valid_operand(value: Operand) -> bool:
+    return (
+        (value.is_constant and value.arch_index == 0)
+        or (
+            (not value.is_constant)
+            and value.phys_valid
+            and valid_producer(value.producer)
+        )
+    )
+
+accepted = valid_operand(request.operand)
+same_key = pending.key == request.key
+```
+
+An invariant MUST take exactly one nominal struct value, MUST return `bool`,
+and MUST contain one pure return expression. It may use admitted field and
+element access, equality, enum equality, bit operations, boolean operations,
+and bounded scalar comparisons. It may call another invariant in the same
+source closure when the argument has that callee's exact nominal type. The
+target MUST be a bare, statically resolved invariant name that is not shadowed
+by a lexical parameter or local; an attribute or receiver call is dynamic
+dispatch and remains invalid. The invariant call graph MUST be finite and
+acyclic. It cannot call arbitrary functions, read state,
+mutate a value, call a Queue or module, use reflection, or capture an external
+runtime value. Its stable diagnostic name is `<Payload>.<function>`.
+Framework intrinsics use their canonical unaliased bare import name or an
+explicit Agentic Circuit module alias such as `ac.matches`; renamed bare
+intrinsic imports are invalid.
+
+Each call emits `ac.var.invariant` with one typed predicate region. The
+operation computes a boolean value; a composed call is a nested invariant
+region with hygienic SSA and no implicit capture. It is not an assertion, an
+implicit input assumption, or a refined runtime type. The rule must use the
+result explicitly as a guard or classification. `ac-lower-value-contracts`
+inlines leaf callees before callers and recursively lowers aggregate
+`ac.var.cmp` into descriptor-order
+`ac.var.get`/`ac.var.element`, scalar or enum equality leaves, and a balanced
+boolean AND tree. `ne` negates the complete equality result. No aggregate
+comparison or invariant operation may remain in Frozen ACIR or QueueGraph.
 
 Invalid examples:
 

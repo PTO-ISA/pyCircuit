@@ -102,4 +102,3 @@ all benchmark binaries were built locally using the same fixed compiler.
   Git staging.
 
 New review page: `.pycircuit_out/replay/refactor/viewer/replay.html`.
-
