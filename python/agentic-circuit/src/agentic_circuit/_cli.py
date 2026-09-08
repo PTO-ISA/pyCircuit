@@ -3,24 +3,24 @@
 from __future__ import annotations
 
 import argparse
+from collections.abc import Callable, Sequence
 from enum import IntEnum
 from pathlib import Path
-from typing import Callable, Sequence
 
-from ._commands import init as init_command
-from ._commands import inspect as inspect_command
-from ._commands import doctor as doctor_command
-from ._commands import check as check_command
 from ._commands import build as build_command
+from ._commands import check as check_command
 from ._commands import compile as compile_command
+from ._commands import doctor as doctor_command
 from ._commands import elaborate as elaborate_command
 from ._commands import explain as explain_command
+from ._commands import init as init_command
+from ._commands import inspect as inspect_command
+from ._commands import model as model_command
 from ._commands import run as run_command
 from ._commands import schema as schema_command
 from ._diagnostics import Diagnostic
 from ._output import OutputSink
 from ._workspace import UserInputError, discover_workspace, load_workspace
-
 
 EXACT_COMMANDS = (
     "init",
@@ -33,6 +33,7 @@ EXACT_COMMANDS = (
     "inspect",
     "explain",
     "doctor",
+    "model",
 )
 
 
@@ -235,6 +236,18 @@ def build_parser() -> argparse.ArgumentParser:
 
     doctor = commands.add_parser("doctor", allow_abbrev=False)
     _add_output_options(doctor)
+
+    model = commands.add_parser("model", allow_abbrev=False)
+    model_commands = model.add_subparsers(dest="model_command", required=True)
+    model_plan = model_commands.add_parser("plan", allow_abbrev=False)
+    model_plan.add_argument("--sdk-root", type=Path, required=True, action=_OnceValue)
+    model_plan.add_argument(
+        "--source-root", type=Path, required=True, action=_OnceValue
+    )
+    model_plan.add_argument("--entry", required=True, action=_OnceValue)
+    model_plan.add_argument("--config", type=Path, required=True, action=_OnceValue)
+    model_plan.add_argument("--out-dir", type=Path, required=True, action=_OnceValue)
+    _add_output_options(model_plan)
     return parser
 
 
@@ -275,6 +288,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             return explain_command.run(arguments, sink)
         if arguments.command == "doctor":
             return doctor_command.run(arguments, sink)
+        if arguments.command == "model":
+            return model_command.run(arguments, sink)
         if arguments.command == "run" and arguments.replay_manifest is not None:
             return run_command.run(arguments, None, sink)
         workspace = (

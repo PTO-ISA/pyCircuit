@@ -1,0 +1,22 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.14.6, pytest-9.0.2, pluggy-1.6.0
+rootdir: /Users/zhoubot/linx-isa/tools/pyCircuit
+configfile: pyproject.toml
+collected 60 items
+
+tests/python/agentic-circuit/cli/test_all_commands.py .                  [  1%]
+tests/python/agentic-circuit/cli/test_build_command.py ....              [  8%]
+tests/python/agentic-circuit/cli/test_cli_parser.py .......              [ 20%]
+tests/python/agentic-circuit/cli/test_compile_command.py .......         [ 31%]
+tests/python/agentic-circuit/cli/test_determinism.py ..                  [ 35%]
+tests/python/agentic-circuit/cli/test_discovery_commands.py ....         [ 41%]
+tests/python/agentic-circuit/cli/test_exit_codes.py ...                  [ 46%]
+tests/python/agentic-circuit/cli/test_frontend_commands.py ....          [ 53%]
+tests/python/agentic-circuit/cli/test_inspect_command.py ....            [ 60%]
+tests/python/agentic-circuit/cli/test_installation.py ....               [ 66%]
+tests/python/agentic-circuit/cli/test_model_plan_command.py ss..         [ 73%]
+tests/python/agentic-circuit/cli/test_native_api.py .....                [ 81%]
+tests/python/agentic-circuit/cli/test_run_command.py ......              [ 91%]
+tests/python/agentic-circuit/cli/test_workspace.py .....                 [100%]
+
+======================== 58 passed, 2 skipped in 43.43s ========================

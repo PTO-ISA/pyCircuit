@@ -8239,6 +8239,11 @@ second semantic lowering path.
   and publishes canonical Frozen ACIR, QueueGraph, source hashes, SDK/ABI
   identity, deterministic output list, hashed CMake source fragment, and the
   depfile's logical path.
+- The version-1 model config contains exactly `version = "1"` and a `[static]`
+  table whose portable I-JSON values bind the selected system's
+  `ac.const[...]` parameters. Relative config paths resolve below the explicit
+  source root. The version-1 plan predicts one public model header and two
+  translation units: the model ABI wrapper and QueueGraph implementation.
 - Emit verifies the plan and every recorded hash, consumes the verified
   QueueGraph identity without importing Python again, and emits a sorted
   multi-translation-unit bundle plus a model manifest. It does not add a

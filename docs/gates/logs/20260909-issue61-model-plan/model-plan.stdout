@@ -1,0 +1,9 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.11.14, pytest-9.0.2, pluggy-1.6.0
+rootdir: /Users/zhoubot/linx-isa/tools/pyCircuit
+configfile: pyproject.toml
+collected 4 items
+
+tests/python/agentic-circuit/cli/test_model_plan_command.py ...s         [100%]
+
+========================= 3 passed, 1 skipped in 7.26s =========================

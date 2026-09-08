@@ -39,7 +39,7 @@
   "outputs": [
     "include/generated/model.h",
     "src/generated/model.cpp",
-    "src/generated/module_top.cpp"
+    "src/generated/queuegraph.cpp"
   ],
   "queuegraph": {
     "path": "queuegraph.json",

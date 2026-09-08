@@ -4,10 +4,12 @@ from __future__ import annotations
 
 import os
 import shutil
+import sys
 import tempfile
+from collections.abc import Iterable
+from ctypes import CDLL, c_char_p, c_int, c_uint, get_errno
 from pathlib import Path, PurePosixPath
 from types import TracebackType
-from typing import Iterable
 
 
 def _relative_path(value: str) -> PurePosixPath:
@@ -32,7 +34,7 @@ class ArtifactStage:
         self.path: Path | None = None
         self.committed = False
 
-    def __enter__(self) -> "ArtifactStage":
+    def __enter__(self) -> ArtifactStage:
         self.destination.parent.mkdir(parents=True, exist_ok=True)
         self.path = Path(
             tempfile.mkdtemp(prefix=".agentic-stage-", dir=self.destination.parent)
@@ -127,4 +129,41 @@ class ArtifactStage:
             raise
         if backup_root.exists():
             shutil.rmtree(backup_root)
+        self.committed = True
+
+    def commit_directory(self) -> None:
+        """Publish the closed stage with one atomic directory-name operation."""
+
+        self._verify()
+        assert self.path is not None
+        if not self.destination.exists():
+            try:
+                os.replace(self.path, self.destination)
+                self.committed = True
+                return
+            except OSError:
+                if not self.destination.is_dir() or self.destination.is_symlink():
+                    raise
+        if not self.destination.is_dir() or self.destination.is_symlink():
+            raise ValueError("directory publication destination is not a directory")
+
+        libc = CDLL(None, use_errno=True)
+        source = os.fsencode(self.path)
+        destination = os.fsencode(self.destination)
+        rename_exchange = 2
+        if sys.platform == "darwin":
+            rename = libc.renamex_np
+            rename.argtypes = (c_char_p, c_char_p, c_uint)
+            rename.restype = c_int
+            result = rename(source, destination, rename_exchange)
+        elif sys.platform.startswith("linux"):
+            rename = libc.renameat2
+            rename.argtypes = (c_int, c_char_p, c_int, c_char_p, c_uint)
+            rename.restype = c_int
+            result = rename(-100, source, -100, destination, rename_exchange)
+        else:
+            raise OSError("atomic directory exchange is unsupported on this platform")
+        if result != 0:
+            error = get_errno()
+            raise OSError(error, os.strerror(error), self.destination)
         self.committed = True
