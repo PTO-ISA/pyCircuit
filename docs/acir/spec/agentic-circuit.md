@@ -1667,6 +1667,19 @@ representation instead uses one selected `ac.system`, materialized
 Backends must key generated implementation classes by specialization and bind
 instances to independently owned ports and state. They must not flatten a
 repeated module merely because its placements have different hierarchy paths.
+Full specialization fingerprints remain canonical IR, manifest, provider, and
+cache identity. Routine generated C++ names expose readable semantic identity
+instead: ACSim thunks use
+`acsim_generated::module_<Module>::process_<Process>::<entry>`, structured
+source bundles use `Module_<Module>` and `Process_<Module>_<Process>`, and
+QueueGraph specializations use `Module_<Definition>`. Generated process helper
+and scalar-storage names use their closed role and type. A fingerprint fragment
+may be appended only inside an actual readable-name collision group; the first
+16 hexadecimal digits are the local disambiguator, and a remaining collision
+fails closed. The complete fingerprint never becomes the routine namespace,
+class, file, or function spelling.
+Build manifests associate each readable `Module::Process` identity with its
+complete process specialization fingerprint.
 For a stateful specialization, the implementation class owns the Table and
 transition member layout, while each constructed instance owns a distinct
 runtime Table object and dense object IDs. Reusing a specialization therefore

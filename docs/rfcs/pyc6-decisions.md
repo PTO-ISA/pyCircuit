@@ -7857,3 +7857,66 @@ business primitive.
 - DavinciOO candidates `DAV-TMU-BGF-XBAR-0001`, `DAV-GPE-IPF-XBAR-0001`, and
   `DAV-MEM-NOC-XBAR-0001` at external source revision
   `b81ecfc2b634d41886b01fd8724905eeb5bb6551`.
+
+## Decision 0228: generated C++ names expose readable semantic identity
+
+**Status:** Accepted; implemented and verified
+
+**Context / Goal**
+Generated ACSim C++ placed complete 64-hex module and process SHA-256 values in
+every namespace and dispatch thunk. Structured source bundles placed a 16-hex
+fragment in every module/process class and file, while QueueGraph and generated
+process helpers retained other full-digest symbol paths. The fingerprints are
+required identities, but embedding them in routine symbols makes sources,
+debuggers, link errors, and diffs needlessly opaque. Issue #7 requires one
+readable naming contract without weakening reproducibility or integrity.
+
+**Decision (strong constraint)**
+- Complete SHA-256 specialization fingerprints remain canonical on ACIR/ACSim
+  operations, ModelPlan/QueueGraph plans, manifests, provider records, artifact
+  validation, and cache keys. This decision changes presentation names only.
+- ACSim process entry points use the shared spelling
+  `acsim_generated::module_<Module>::process_<Process>::<entry>`, where entry is
+  exactly `work`, `xfer`, `reset`, or `validate`. ACIR-to-ACSim lowering, the
+  canonical ACSim verifier, and direct C++ emission call one shared helper; the
+  former full-digest spelling is not a compatibility alias.
+- Category prefixes keep valid source identifiers such as `class`, `Model`, or
+  `GeneratedModel` away from C++ keywords and generator-owned root names.
+  ACSim module/process symbols remain exact canonical identifiers.
+- Structured ModelPlan source bundles use `Module_<Module>` and
+  `Process_<Module>_<Process>` class/file identities. Structured QueueGraph
+  specializations use `Module_<Definition>`. Generated process implementation
+  and scalar-storage symbols use their closed helper role and exact scalar type.
+- ModelPlan and QueueGraph class names are assigned after the complete local
+  set is known. A readable base is emitted without a digest when unique. An
+  actual collision group receives a local `_s<16-hex>` specialization suffix.
+  Duplicate names after this suffix fail closed; source-bundle validation also
+  rejects forged class-name collisions. Generated process helper role/type
+  names must be unique and fail closed on a collision. Internal
+  type/specialization keys continue using full hashes.
+- Naming changes do not alter dispatch order, object/activation IDs, process
+  state, Queue topology, generated behavior, or specialization reuse.
+- Both direct and structured build manifests record `Module::Process` alongside
+  the process's complete specialization fingerprint, so every readable process
+  symbol remains traceable to canonical identity after hashes leave its name.
+
+**Required verification**
+- Conversion tests check exact readable work/xfer/reset/validate strings while
+  retaining full module/process specialization attributes. ACSim fixtures and
+  verification reject any mismatched thunk.
+- Direct and structured C++ emitters compile and run generated models with
+  readable namespace, class, function, and file names. Repeated generation is
+  byte-identical, manifests retain complete fingerprints, and forged readable
+  collisions fail closed.
+- QueueGraph module-reuse tests emit one readable class per unique
+  specialization and preserve independent state/ports. Process-state tests
+  retain full fingerprints and internal storage keys while exposing readable
+  helper/value symbols.
+- Specifications, plan/status, inventory/IR coverage, and reviewable gate
+  evidence remain synchronized.
+
+**Source**
+- PTO-ISA/pyCircuit issue #7.
+- User direction (2026-09-06): remove fingerprints from routine generated C++
+  namespaces, classes, functions, and dispatch names while retaining canonical
+  integrity metadata.

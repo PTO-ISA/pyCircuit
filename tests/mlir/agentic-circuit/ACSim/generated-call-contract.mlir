@@ -103,10 +103,10 @@ builtin.module attributes {ac.contract_epoch = "0.5"} {
       acsim.return
     }
     %object, %activation = acsim.dispatch @Top::@tick path "Top.tick" indices [] object 0 activation 0
-      work "acsim_generated::Top::s0e00000000000000000000000000000000000000000000000000000000000000::tick::p0f00000000000000000000000000000000000000000000000000000000000000::work"
-      xfer "acsim_generated::Top::s0e00000000000000000000000000000000000000000000000000000000000000::tick::p0f00000000000000000000000000000000000000000000000000000000000000::xfer"
-      reset "acsim_generated::Top::s0e00000000000000000000000000000000000000000000000000000000000000::tick::p0f00000000000000000000000000000000000000000000000000000000000000::reset"
-      validate "acsim_generated::Top::s0e00000000000000000000000000000000000000000000000000000000000000::tick::p0f00000000000000000000000000000000000000000000000000000000000000::validate"
+      work "acsim_generated::module_Top::process_tick::work"
+      xfer "acsim_generated::module_Top::process_tick::xfer"
+      reset "acsim_generated::module_Top::process_tick::reset"
+      validate "acsim_generated::module_Top::process_tick::validate"
       : !acsim.object_id, !acsim.activation_id
     acsim.activate %activation to %object
       : !acsim.activation_id to !acsim.object_id

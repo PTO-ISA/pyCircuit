@@ -1,6 +1,6 @@
 // RUN: rm -rf %t.out
 // RUN: %acir_cxxgen %s --stop-after=link --output-root=%t.out --project-name=project --project-identity=project.example --system-name=system --system-identity=system.example --profile=fast --compiler=%cxx --standard-library=libc++ --abi-mode=default --object-format=mach-o --contract-flag=-std=c++20 --include-root=%source_root/simulator/gfsim/include --include-root=%S/Inputs/extension --link-input=%binary_root/gfsim/libgfsim.a --link-input=%binary_root/lib/Bindings/libACIRBindings.a %llvm_linker_flags | %FileCheck %s --check-prefix=LINK
-// RUN: grep -F "for (auto &element1 : element0)" %t.out/src/generated/modules/Top_s2000000000000000.cpp
+// RUN: grep -F "for (auto &element1 : element0)" %t.out/src/generated/modules/Module_Top.cpp
 // RUN: %t.out/bin/model --build-fingerprint | %FileCheck %s --check-prefix=FINGERPRINT
 // LINK: stage=link status=passed
 // FINGERPRINT: sha256:

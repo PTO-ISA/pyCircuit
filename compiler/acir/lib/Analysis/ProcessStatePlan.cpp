@@ -15,6 +15,7 @@
 #include <cassert>
 #include <limits>
 #include <set>
+#include <system_error>
 #include <tuple>
 
 namespace acir {
@@ -62,6 +63,18 @@ llvm::StringRef helperRoleSpelling(ProcessHelperRole role) {
                                                   "scalar_wrap",
                                                   "scalar_unwrap"};
   return names[static_cast<unsigned>(role)];
+}
+
+std::string readableScalarType(mlir::Type type) {
+  if (type.isIndex())
+    return "index";
+  auto integer = mlir::dyn_cast_or_null<mlir::IntegerType>(type);
+  if (!integer)
+    return {};
+  llvm::StringRef prefix = integer.isUnsigned()   ? "ui"
+                           : integer.isSigned() ? "si"
+                                                : "i";
+  return (prefix + llvm::Twine(integer.getWidth())).str();
 }
 
 llvm::StringRef wakeTypeKey(ProcessWakeKind kind) {
@@ -296,12 +309,10 @@ detail::PlanSetBuilder::buildProduction(mlir::ModuleOp module,
     callee->specializationBytes = std::move(*canonical);
     callee->fingerprint =
         bindings::sha256Fingerprint(callee->specializationBytes);
-    llvm::StringRef digest = llvm::StringRef(callee->fingerprint).drop_front(7);
     callee->symbol =
-        ("@acir_impl_" + helperRoleSpelling(callee->role) + "_" + digest).str();
-    callee->cpp = ("acir::generated::impl_" + helperRoleSpelling(callee->role) +
-                   "_" + digest)
-                      .str();
+        ("@acir_impl_" + helperRoleSpelling(callee->role)).str();
+    callee->cpp =
+        ("acir::generated::impl_" + helperRoleSpelling(callee->role)).str();
     callees.push_back(std::move(callee));
   }
   auto typeSpelling = [](mlir::Type type) {
@@ -340,9 +351,11 @@ detail::PlanSetBuilder::buildProduction(mlir::ModuleOp module,
     value->specializationBytes = std::move(*canonical);
     value->fingerprint =
         bindings::sha256Fingerprint(value->specializationBytes);
-    llvm::StringRef digest = llvm::StringRef(value->fingerprint).drop_front(7);
-    value->symbol = ("@acir_value_" + digest).str();
-    value->cpp = ("acir::generated::value_" + digest).str();
+    std::string readableType = readableScalarType(type);
+    if (readableType.empty())
+      return mlir::failure();
+    value->symbol = "@acir_value_" + readableType;
+    value->cpp = "acir::generated::value_" + readableType;
     valueTypes.push_back(std::move(value));
   }
   llvm::sort(valueTypes, [](const auto &lhs, const auto &rhs) {
@@ -392,12 +405,17 @@ detail::PlanSetBuilder::buildProduction(mlir::ModuleOp module,
     callee->specializationBytes = std::move(*canonical);
     callee->fingerprint =
         bindings::sha256Fingerprint(callee->specializationBytes);
-    llvm::StringRef digest = llvm::StringRef(callee->fingerprint).drop_front(7);
-    callee->symbol =
-        ("@acir_impl_" + helperRoleSpelling(role) + "_" + digest).str();
-    callee->cpp =
-        ("acir::generated::impl_" + helperRoleSpelling(role) + "_" + digest)
-            .str();
+    std::string readableType = readableScalarType(type->acirType);
+    if (readableType.empty())
+      return llvm::createStringError(
+          std::make_error_code(std::errc::invalid_argument),
+          "process helper requires a readable scalar type");
+    callee->symbol = ("@acir_impl_" + helperRoleSpelling(role) + "_" +
+                      readableType)
+                         .str();
+    callee->cpp = ("acir::generated::impl_" + helperRoleSpelling(role) + "_" +
+                   readableType)
+                      .str();
     callees.push_back(std::move(callee));
     return llvm::Error::success();
   };
@@ -615,10 +633,8 @@ detail::PlanSetBuilder::buildFrozenFixture(mlir::ModuleOp module,
 
   auto calleeImpl = std::make_shared<ProcessGeneratedCalleePlan::Impl>();
   calleeImpl->id = ProcessCalleeId(0);
-  calleeImpl->symbol =
-      "@acir_impl_wake_next_delta_" + kWakeNextDeltaDigest.str();
-  calleeImpl->cpp =
-      "acir::generated::impl_wake_next_delta_" + kWakeNextDeltaDigest.str();
+  calleeImpl->symbol = "@acir_impl_wake_next_delta";
+  calleeImpl->cpp = "acir::generated::impl_wake_next_delta";
   calleeImpl->fingerprint = "sha256:" + kWakeNextDeltaDigest.str();
   calleeImpl->effect = ProcessEffectKind::Stateful;
   calleeImpl->resultTypeKeyStorage = {"@acir_wake_next_delta"};
@@ -912,6 +928,9 @@ ProcessStatePlanSet detail::PlanSetBuilder::cloneWithCorruption(
   case ProcessStatePlanCorruptionForTest::CalleeSpecializationMismatch:
     cloneCallee()->specializationBytes.push_back(' ');
     break;
+  case ProcessStatePlanCorruptionForTest::ReadableCalleeNameMismatch:
+    cloneCallee()->symbol += "_forged";
+    break;
   case ProcessStatePlanCorruptionForTest::ValueTypeSpecializationMismatch: {
     ProcessStatePlanSet seeded = cloneWithUnpairedLiveSlotCallee(plans);
     impl = std::make_shared<ProcessStatePlanSet::Impl>(*seeded.impl_);
@@ -1021,12 +1040,10 @@ ProcessStatePlanSet detail::PlanSetBuilder::cloneWithUnpairedLiveSlotCallee(
       bindings::canonicalizeJson(llvm::json::Value(std::move(specialization)));
   assert(canonical && "literal value-type specialization must canonicalize");
   std::string fingerprint = bindings::sha256Fingerprint(*canonical);
-  llvm::StringRef digest = llvm::StringRef(fingerprint).drop_front(7);
-
   auto typeImpl = std::make_shared<ProcessValueTypePlan::Impl>();
   typeImpl->id = ProcessValueTypeId(0);
-  typeImpl->symbol = ("@acir_value_" + digest).str();
-  typeImpl->cpp = ("acir::generated::value_" + digest).str();
+  typeImpl->symbol = "@acir_value_i32";
+  typeImpl->cpp = "acir::generated::value_i32";
   typeImpl->kind = ProcessValueTypeKind::Value;
   typeImpl->fingerprint = fingerprint;
   typeImpl->acirType = i32;
@@ -3548,6 +3565,8 @@ mlir::LogicalResult verifyProcessStatePlan(const ProcessStatePlanSet &plans,
     return reject(
         plans, "process-state plan capability maxPlannedOperations exceeded");
   llvm::StringRef previousSpecialization;
+  llvm::StringSet<> generatedSymbols;
+  llvm::StringSet<> generatedCppNames;
   for (auto [index, callee] : llvm::enumerate(plans.callees())) {
     if (callee.id().value() < index)
       return reject(plans,
@@ -3615,13 +3634,21 @@ mlir::LogicalResult verifyProcessStatePlan(const ProcessStatePlanSet &plans,
                     "process-state plan invariant violated: callee canonicalization");
     }
     std::string fingerprint = bindings::sha256Fingerprint(*canonical);
-    llvm::StringRef digest = llvm::StringRef(fingerprint).drop_front(7);
-    std::string expectedSymbol =
-        ("@acir_impl_" + helperRoleSpelling(callee.role()) + "_" + digest)
-            .str();
-    std::string expectedCpp = ("acir::generated::impl_" +
-                               helperRoleSpelling(callee.role()) + "_" + digest)
-                                  .str();
+    std::string expectedStem = helperRoleSpelling(callee.role()).str();
+    if (callee.role() == ProcessHelperRole::ScalarWrap ||
+        callee.role() == ProcessHelperRole::ScalarUnwrap) {
+      llvm::StringRef scalar =
+          callee.role() == ProcessHelperRole::ScalarWrap
+              ? callee.payload().scalarWrap().scalar()
+              : callee.payload().scalarUnwrap().scalar();
+      if (!scalar.consume_front("mlir:"))
+        return reject(plans,
+                      "process-state plan invariant violated: scalar helper "
+                      "type identity");
+      expectedStem += "_" + scalar.str();
+    }
+    std::string expectedSymbol = "@acir_impl_" + expectedStem;
+    std::string expectedCpp = "acir::generated::impl_" + expectedStem;
     if (*canonical != detail::generatedCalleeSpecializationBytes(callee))
       return reject(plans, "process-state plan invariant violated: callee "
                            "specialization mismatch");
@@ -3631,6 +3658,11 @@ mlir::LogicalResult verifyProcessStatePlan(const ProcessStatePlanSet &plans,
     if (callee.symbol() != expectedSymbol || callee.cpp() != expectedCpp)
       return reject(plans,
                     "process-state plan invariant violated: callee symbol");
+    if (!generatedSymbols.insert(callee.symbol()).second ||
+        !generatedCppNames.insert(callee.cpp()).second)
+      return reject(plans,
+                    "process-state plan invariant violated: readable callee "
+                    "identity collision");
   }
   previousSpecialization = {};
   llvm::StringSet<> generatedTypeKeys;
@@ -3638,6 +3670,10 @@ mlir::LogicalResult verifyProcessStatePlan(const ProcessStatePlanSet &plans,
     if (type.id().value() != index)
       return reject(plans,
                     "process-state plan invariant violated: non-dense ordinal");
+    if (type.kind() != type.payload().kind() || !type.acirType())
+      return reject(plans,
+                    "process-state plan invariant violated: value-type kind "
+                    "or ACIR type mismatch");
     llvm::StringRef specialization =
         detail::PlanSetBuilder::specializationBytes(type);
     if (!previousSpecialization.empty() &&
@@ -3659,15 +3695,29 @@ mlir::LogicalResult verifyProcessStatePlan(const ProcessStatePlanSet &plans,
     llvm::StringRef digest = llvm::StringRef(fingerprint).drop_front(7);
     llvm::StringRef stem =
         type.kind() == ProcessValueTypeKind::Value ? "value" : "packet";
-    std::string expectedSymbol = ("@acir_" + stem + "_" + digest).str();
-    std::string expectedCpp = ("acir::generated::" + stem + "_" + digest).str();
-    if (type.kind() != type.payload().kind() || !type.acirType() ||
-        *canonical != specialization || fingerprint != type.fingerprint() ||
+    std::string readableType =
+        type.kind() == ProcessValueTypeKind::Value
+            ? readableScalarType(type.acirType())
+            : ("bits" + llvm::Twine(type.payload().packet().widthBits())).str();
+    if (readableType.empty())
+      return reject(plans,
+                    "process-state plan invariant violated: readable value "
+                    "type identity");
+    std::string expectedSymbol =
+        ("@acir_" + stem + "_" + readableType).str();
+    std::string expectedCpp =
+        ("acir::generated::" + stem + "_" + readableType).str();
+    if (*canonical != specialization || fingerprint != type.fingerprint() ||
         type.symbol() != expectedSymbol || type.cpp() != expectedCpp)
       return reject(
           plans,
           "process-state plan invariant violated: value-type specialization "
           "mismatch");
+    if (!generatedSymbols.insert(type.symbol()).second ||
+        !generatedCppNames.insert(type.cpp()).second)
+      return reject(plans,
+                    "process-state plan invariant violated: readable value "
+                    "identity collision");
     generatedTypeKeys.insert(("storage:" + stem + ":" + digest).str());
     uint64_t width = type.kind() == ProcessValueTypeKind::Value
                          ? type.payload().value().widthBits()

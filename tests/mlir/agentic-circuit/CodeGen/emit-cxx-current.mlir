@@ -44,13 +44,20 @@ module attributes {ac.contract_epoch = "0.5"} {
   }
 }
 
+// HDR: namespace module_Top {
+// HDR-NEXT: namespace process_workload {
+// HDR-NOT: namespace s{{[0-9a-f]+}}
 // HDR: struct Process {
 // HDR: kBuildFingerprint[] = "sha256:
+// SRC: void acsim_generated::module_Top::process_workload::Process::work
+// SRC-NOT: ::s{{[0-9a-f]+}}::
+// SRC-NOT: ::p{{[0-9a-f]+}}::
 // SRC: scheduleWork
 // SRC: setLegacyDispatchTable
 // MAN-DAG: "schema":"agentic-circuit-build-manifest"
 // MAN-DAG: "contract_epoch":"0.5"
 // MAN-DAG: "pass_pipeline":["acsim-emit-cxx"]
+// MAN-DAG: "canonical_name":"Top::workload","schema_fingerprint":"sha256:{{[0-9a-f]+}}","specialization_fingerprint":"sha256:{{[0-9a-f]+}}"
 // SYMLINK: ACSIM-EMIT: output directory must not be a symlink
 // UNOWNED: ACSIM-EMIT: refusing to replace an unowned output directory
 // BUILD-UNOWNED: acir-build: unsafe or unowned output directory

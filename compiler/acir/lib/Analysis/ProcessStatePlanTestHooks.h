@@ -14,6 +14,7 @@ enum class ProcessStatePlanCorruptionForTest {
   CostMismatch,
   DefinitionKeyMismatch,
   CalleeSpecializationMismatch,
+  ReadableCalleeNameMismatch,
   ValueTypeSpecializationMismatch,
   EffectMismatch,
   IdKindMismatch,

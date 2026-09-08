@@ -108,7 +108,7 @@ builtin.module attributes {
 // PLAN-SAME: "name":"sum"
 // PLAN: "work_closure_edges":[
 
-// CXX-COUNT-1: class [[IMPLEMENTATION:Accumulator_[0-9a-f]+]] final : public gfsim::Module
+// CXX-COUNT-1: class [[IMPLEMENTATION:Module_Accumulator]] final : public gfsim::Module
 // CXX: gfsim::SimTable<gfsim::UInt<8>> table_0_;
 // CXX: gfsim::QueueTableTransition<
 // CXX: class StatefulReuse final : public gfsim::Module

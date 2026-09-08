@@ -1,0 +1,35 @@
+{
+  "run_id": "20260908-issue7-readable-symbols",
+  "status": "passed",
+  "base_revision": "b69cbd7d0a67aa3d9352e0b012b41d482006d5c6",
+  "decision_ids": ["0228"],
+  "issue": 7,
+  "results": {
+    "acir_lit": {"passed": 191, "failed": 0},
+    "acir_to_acsim": {"passed": 7, "failed": 0},
+    "acsim_ops": {"passed": 36, "failed": 0},
+    "process_state": {"passed": 59, "failed": 0},
+    "codegen": {"passed": 138, "failed": 0},
+    "queue_codegen_integration": {"passed": 32, "skipped": 1, "failed": 0},
+    "python_cli_and_contracts": {"passed": 33, "failed": 0},
+    "unit": {"passed": 90, "failed": 0},
+    "primitive_selection": {"passed": 16, "failed": 0},
+    "agentic_repository_contracts": {"passed": true},
+    "pyc_inventory": {"operations": 41, "types": 2, "passed": true},
+    "ir_coverage": {"passed": true},
+    "pre_commit": {"passed": true},
+    "mkdocs_strict": {"passed": true},
+    "decision_status": {"rows": 228, "deferred": 0, "passed": true}
+  },
+  "metrics": {
+    "direct_acsim_before_like_max_line": 786,
+    "direct_acsim_readable_max_line": 310,
+    "direct_acsim_bytes": {"before_like": 8002, "readable": 6096},
+    "queuegraph_i2_bytes": {"before_like": 193135, "readable": 183391, "removed": 9744},
+    "routine_full_digest_namespace_segments": 0,
+    "routine_full_digest_queuegraph_class_names": 0,
+    "manifest_full_sha256_values": 13,
+    "process_manifest_schema_consistent": true
+  },
+  "skill_evolve": "no-update"
+}

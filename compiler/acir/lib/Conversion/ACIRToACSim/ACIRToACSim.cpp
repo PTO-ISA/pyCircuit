@@ -3053,14 +3053,12 @@ ACIRToACSimPass::emit(mlir::ModuleOp input) {
     std::string reset = placement.reset;
     std::string validate = placement.validate;
     if (placement.kind == PlacementPlan::Kind::Process) {
-      std::string base =
-          ("acsim_generated::" + module.name + "::s" +
-           module.specialization.substr(7) + "::" + placement.name + "::p" +
-           placement.specialization.substr(7) + "::");
-      work = base + "work";
-      xfer = base + "xfer";
-      reset = base + "reset";
-      validate = base + "validate";
+      work = acsim::generatedProcessThunk(module.name, placement.name, "work");
+      xfer = acsim::generatedProcessThunk(module.name, placement.name, "xfer");
+      reset =
+          acsim::generatedProcessThunk(module.name, placement.name, "reset");
+      validate =
+          acsim::generatedProcessThunk(module.name, placement.name, "validate");
     }
     dispatches.push_back(acsim::DispatchOp::create(
         builder, input.getLoc(), acsim::ObjectIdType::get(context),

@@ -98,10 +98,12 @@ public:
       return;
 
     const std::string zero = kFingerprint.str();
+    const std::string processFingerprint = "sha256:" + std::string(64, '1');
     std::string source =
         "builtin.module attributes {ac.contract_epoch = \"0.5\"} {\n"
-        "  acsim.model @minimal epoch \"0.5\" root @Top construction [] "
-        "destruction [] fingerprints {frozen_acir = \"" +
+        "  acsim.model @minimal epoch \"0.5\" root @Top construction "
+        "[\"Top.tick\"] destruction [\"Top.tick\"] fingerprints "
+        "{frozen_acir = \"" +
         computeFingerprint(frozenBytes) + "\", binding_lock = \"" +
         computeFingerprint(lockBytes) + "\", provider = \"" + *emptySet +
         "\", profile = \"" + *profile + "\", toolchain = \"" + *target +
@@ -109,7 +111,24 @@ public:
         "\"} {\n"
         "    acsim.module @Top interface {ports = [], resources = [], results "
         "= []} static [] specialization \"" +
-        zero + "\" exports [] { acsim.return }\n  }\n}\n";
+        zero +
+        "\" exports [] {\n"
+        "      acsim.process @tick captures() names [] entry @entry pcs "
+        "[@entry] live [] fairness 1 specialization \"" +
+        processFingerprint +
+        "\" { state @entry { acsim.terminate \"success\" } }\n"
+        "      acsim.return\n"
+        "    }\n"
+        "    %object, %activation = acsim.dispatch @Top::@tick path "
+        "\"Top.tick\" indices [] object 0 activation 0 "
+        "work \"acsim_generated::module_Top::process_tick::work\" "
+        "xfer \"acsim_generated::module_Top::process_tick::xfer\" "
+        "reset \"acsim_generated::module_Top::process_tick::reset\" "
+        "validate \"acsim_generated::module_Top::process_tick::validate\" "
+        ": !acsim.object_id, !acsim.activation_id\n"
+        "    acsim.activate %activation to %object : !acsim.activation_id to "
+        "!acsim.object_id\n"
+        "  }\n}\n";
     module_ = mlir::parseSourceString<mlir::ModuleOp>(source, &context_);
     EXPECT_TRUE(static_cast<bool>(module_));
     if (!module_)
@@ -325,8 +344,17 @@ TEST(BuildTest, ExactSecondBuildIsCacheHitAndUnequalInputMisses) {
   EXPECT_EQ(first->buildFingerprint, second->buildFingerprint);
   const std::string manifest =
       readFile(first->buildDirectory + "/build-manifest.json");
+  auto schemaSet = jsonFingerprint(llvm::json::Value(llvm::json::Array{}));
+  ASSERT_TRUE(static_cast<bool>(schemaSet));
   EXPECT_NE(manifest.find("architecture.py"), std::string::npos);
   EXPECT_NE(manifest.find("input/model.acpy.json"), std::string::npos);
+  EXPECT_NE(manifest.find("\"canonical_name\":\"Top::tick\","
+                          "\"schema_fingerprint\":\"" +
+                          *schemaSet +
+                          "\",\"specialization_fingerprint\":\"sha256:"
+                          "111111111111111111111111111111111111111111111111"
+                          "1111111111111111\""),
+            std::string::npos);
 
   fixture.request().frontend.pythonVersion = "CPython 3.13";
   auto third = buildGeneratedModel(fixture.request());

@@ -84,6 +84,18 @@ module attributes {ac.contract_epoch = "0.5"} {
 }
 )mlir";
 
+llvm::StringRef kCppKeywordNames = R"mlir(
+module attributes {ac.contract_epoch = "0.5"} {
+  ac.system @soc root @class as "root" tick 0 "cycle"
+      workload @class::@for seed {kind = "fixed", value = 7 : i64}
+      instrumentation [] results {format = "json", id = "default"} selected true
+  ac.module @class() parameters {} graph {
+    ac.process @for kind "workload" { ac.yield_sim }
+    ac.return
+  }
+}
+)mlir";
+
 class ACIRToACSimTest : public ::testing::Test {
 protected:
   ACIRToACSimTest() {
@@ -119,8 +131,25 @@ TEST_F(ACIRToACSimTest, DefaultBoundLowersTwoRowModel) {
   EXPECT_EQ(
       mlir::cast<mlir::StringAttr>(model.getConstructionOrder()[1]).getValue(),
       "root.workload");
-  for (acsim::DispatchOp dispatch : model.getOps<acsim::DispatchOp>())
+  for (acsim::DispatchOp dispatch : model.getOps<acsim::DispatchOp>()) {
     EXPECT_TRUE(dispatch.getPath().starts_with("root."));
+    if (dispatch.getPath() != "root.workload")
+      continue;
+    EXPECT_EQ(dispatch.getWork(),
+              "acsim_generated::module_Top::process_workload::work");
+    EXPECT_EQ(dispatch.getXfer(),
+              "acsim_generated::module_Top::process_workload::xfer");
+    EXPECT_EQ(dispatch.getReset(),
+              "acsim_generated::module_Top::process_workload::reset");
+    EXPECT_EQ(dispatch.getValidate(),
+              "acsim_generated::module_Top::process_workload::validate");
+  }
+  auto top = *llvm::find_if(model.getOps<acsim::ModuleOp>(), [](auto module) {
+    return module.getSymName() == "Top";
+  });
+  EXPECT_EQ(top.getSpecializationFingerprint().size(), 71u);
+  auto workload = *top.getOps<acsim::ProcessOp>().begin();
+  EXPECT_EQ(workload.getSpecializationFingerprint().size(), 71u);
 }
 
 TEST_F(ACIRToACSimTest, CapabilityBoundOverflowIsAtomicDispatchFailure) {
@@ -176,6 +205,27 @@ TEST_F(ACIRToACSimTest, CanonicalVerificationFailureDoesNotPublishACSim) {
   EXPECT_FALSE(module->getBody()->getOps<ac::SystemOp>().empty());
   EXPECT_TRUE(module->getBody()->getOps<acsim::ModelOp>().empty());
   EXPECT_TRUE(module->getOperation()->hasAttr("ac.topology_frozen"));
+}
+
+TEST_F(ACIRToACSimTest, CategoryPrefixesShieldCppKeywordSymbols) {
+  auto module =
+      mlir::parseSourceString<mlir::ModuleOp>(kCppKeywordNames, &context);
+  ASSERT_TRUE(module);
+  mlir::PassManager freezer(&context);
+  freezer.addPass(createFreezeTopologyPass());
+  ASSERT_TRUE(mlir::succeeded(freezer.run(module.get())));
+  ACIRToACSimPassOptions options;
+  options.profile = "fast";
+  options.target = "arm64-apple-darwin";
+  mlir::PassManager lowerer(&context);
+  lowerer.addPass(createACIRToACSimPass(options));
+  ASSERT_TRUE(mlir::succeeded(lowerer.run(module.get())));
+  auto model = mlir::cast<acsim::ModelOp>(module->getBody()->front());
+  auto dispatch = *model.getOps<acsim::DispatchOp>().begin();
+  EXPECT_EQ(dispatch.getWork(),
+            "acsim_generated::module_class::process_for::work");
+  EXPECT_EQ(dispatch.getValidate(),
+            "acsim_generated::module_class::process_for::validate");
 }
 
 TEST_F(ACIRToACSimTest, ModuleReferencesDoNotDependOnSymbolOrder) {

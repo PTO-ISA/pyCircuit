@@ -83,8 +83,8 @@ builtin.module attributes {
 // PLAN-SAME: "module_specializations":[{
 // PLAN-SAME: "definition":"Increment"
 
-// CXX-COUNT-1: class [[LEAF:Increment_[0-9a-f]+]] final : public gfsim::Module
-// CXX-COUNT-1: class [[PARENT:PrepareAndIncrement_[0-9a-f]+]] final : public gfsim::Module
+// CXX-COUNT-1: class [[LEAF:Module_Increment]] final : public gfsim::Module
+// CXX-COUNT-1: class [[PARENT:Module_PrepareAndIncrement]] final : public gfsim::Module
 // CXX: gfsim::SimQueue<gfsim::UInt<8>> queue_0_;
 // CXX: gfsim::QueueTransform<gfsim::UInt<8>, gfsim::UInt<8>, [[PARENT]]_local_policy
 // CXX: [[LEAF]] child_0_;

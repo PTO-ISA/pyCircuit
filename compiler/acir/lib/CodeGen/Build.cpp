@@ -238,11 +238,19 @@ llvm::Expected<BuildManifest> makeManifest(const BuildRequest &request,
     manifest.providers.push_back(
         {nameSpace, model.schemaSetFingerprint, implementation});
   std::map<std::string, ComponentSpecialization> specializations;
-  for (const ModulePlan &module : model.modules)
+  for (const ModulePlan &module : model.modules) {
     specializations.emplace(
         module.symbol,
         ComponentSpecialization{module.symbol, model.schemaSetFingerprint,
                                 module.specializationFingerprint});
+    for (const ProcessPlan &process : module.processes) {
+      std::string canonicalName = module.symbol + "::" + process.symbol;
+      specializations.emplace(
+          canonicalName,
+          ComponentSpecialization{canonicalName, model.schemaSetFingerprint,
+                                  process.specializationFingerprint});
+    }
+  }
   for (const BindingPlan &binding : model.bindings) {
     auto schema = typeIdentities.find(binding.componentSchema);
     if (schema == typeIdentities.end())

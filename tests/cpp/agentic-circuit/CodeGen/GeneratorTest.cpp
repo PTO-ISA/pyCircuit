@@ -79,22 +79,22 @@ TEST(GeneratorTest, EmitsExactOrderedFileSetAndTypedOwnership) {
   const std::vector<std::string> expected = {
       "include/generated/dispatch.h",
       "include/generated/model.h",
-      "include/generated/modules/Top_s2100000000000000.h",
-      "include/generated/processes/tick_s2300000000000000.h",
+      "include/generated/modules/Module_Top.h",
+      "include/generated/processes/Process_Top_tick.h",
       "src/generated/main.cpp",
       "src/generated/model.cpp",
-      "src/generated/modules/Top_s2100000000000000.cpp",
-      "src/generated/processes/tick_s2300000000000000.cpp"};
+      "src/generated/modules/Module_Top.cpp",
+      "src/generated/processes/Process_Top_tick.cpp"};
   EXPECT_EQ(paths, expected);
 
   const GeneratedFile *header =
-      findFile(*bundle, "include/generated/modules/Top_s2100000000000000.h");
+      findFile(*bundle, "include/generated/modules/Module_Top.h");
   const GeneratedFile *source =
-      findFile(*bundle, "src/generated/modules/Top_s2100000000000000.cpp");
+      findFile(*bundle, "src/generated/modules/Module_Top.cpp");
   ASSERT_NE(header, nullptr);
   ASSERT_NE(source, nullptr);
   EXPECT_NE(header->content.find(
-                "class Top_s2100000000000000 final : public gfsim::Module"),
+                "class Module_Top final : public gfsim::Module"),
             std::string::npos);
   EXPECT_NE(header->content.find("gfsim::Fifo fifo_;"), std::string::npos);
   EXPECT_NE(header->content.find("std::array<gfsim::Fifo, 2> lanes_;"),
@@ -136,9 +136,9 @@ TEST(GeneratorTest, EmitsReusableNestedModulesWithContextDenseIds) {
     return;
   }
   const GeneratedFile *top =
-      findFile(*bundle, "src/generated/modules/Top_sa000000000000000.cpp");
+      findFile(*bundle, "src/generated/modules/Module_Top.cpp");
   const GeneratedFile *leaf =
-      findFile(*bundle, "src/generated/modules/Leaf_s8000000000000000.cpp");
+      findFile(*bundle, "src/generated/modules/Module_Leaf.cpp");
   const GeneratedFile *dispatch =
       findFile(*bundle, "include/generated/dispatch.h");
   ASSERT_NE(top, nullptr);
@@ -170,7 +170,7 @@ TEST(GeneratorTest, RecursivelyAttachesMultidimensionalArrays) {
   auto bundle = generateModelSources(*plan);
   ASSERT_TRUE(static_cast<bool>(bundle));
   const GeneratedFile *source =
-      findFile(*bundle, "src/generated/modules/Top_s2000000000000000.cpp");
+      findFile(*bundle, "src/generated/modules/Module_Top.cpp");
   ASSERT_NE(source, nullptr);
   EXPECT_NE(source->content.find("for (auto &element0 : counters_)"),
             std::string::npos);
@@ -272,9 +272,9 @@ TEST(GeneratorTest, EmitsClosedEnumPcProcessWithoutRawFrames) {
   }
 
   const GeneratedFile *header =
-      findFile(*bundle, "include/generated/processes/tick_s2300000000000000.h");
+      findFile(*bundle, "include/generated/processes/Process_Top_tick.h");
   const GeneratedFile *source =
-      findFile(*bundle, "src/generated/processes/tick_s2300000000000000.cpp");
+      findFile(*bundle, "src/generated/processes/Process_Top_tick.cpp");
   ASSERT_NE(header, nullptr);
   ASSERT_NE(source, nullptr);
   EXPECT_NE(header->content.find("enum class Pc : uint8_t"), std::string::npos);
@@ -483,7 +483,7 @@ TEST(GeneratorTest, EmitsTypedScalarOperationsWithoutRuntimeHelpers) {
   auto bundle = generateModelSources(*plan);
   ASSERT_TRUE(static_cast<bool>(bundle));
   const GeneratedFile *source =
-      findFile(*bundle, "src/generated/processes/tick_s2300000000000000.cpp");
+      findFile(*bundle, "src/generated/processes/Process_Top_tick.cpp");
   ASSERT_NE(source, nullptr);
   EXPECT_NE(source->content.find("std::int32_t constant_value = 7;"),
             std::string::npos);
@@ -511,7 +511,7 @@ TEST(GeneratorTest, ResolvesStaticTypeTemplateArgumentsThroughTypePlan) {
   auto bundle = generateModelSources(*plan);
   ASSERT_TRUE(static_cast<bool>(bundle));
   const GeneratedFile *header =
-      findFile(*bundle, "include/generated/modules/Top_s2100000000000000.h");
+      findFile(*bundle, "include/generated/modules/Module_Top.h");
   ASSERT_NE(header, nullptr);
   EXPECT_NE(header->content.find("gfsim::FifoTemplate<bool> fifo_"),
             std::string::npos);

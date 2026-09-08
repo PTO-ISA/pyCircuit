@@ -1,0 +1,171 @@
+Running main() from /private/tmp/googletest-20250910-5249-qce8ci/googletest-1.17.0/googletest/src/gtest_main.cc
+[==========] Running 59 tests from 15 test suites.
+[----------] Global test environment set-up.
+[----------] 1 test from ProcessStatePlanApiTest
+[ RUN      ] ProcessStatePlanApiTest.EmptyFrozenModelHasLiteralCanonicalBytes
+[       OK ] ProcessStatePlanApiTest.EmptyFrozenModelHasLiteralCanonicalBytes (1 ms)
+[----------] 1 test from ProcessStatePlanApiTest (1 ms total)
+
+[----------] 9 tests from ProcessStatePlanBasicTest
+[ RUN      ] ProcessStatePlanBasicTest.YieldOnlyBaselineIsExactAndImmutable
+[       OK ] ProcessStatePlanBasicTest.YieldOnlyBaselineIsExactAndImmutable (20 ms)
+[ RUN      ] ProcessStatePlanBasicTest.FrozenDeclarationPermutationsAreByteIdentical
+[       OK ] ProcessStatePlanBasicTest.FrozenDeclarationPermutationsAreByteIdentical (35 ms)
+[ RUN      ] ProcessStatePlanBasicTest.EveryFrozenSemanticCorruptionIsRejected
+[       OK ] ProcessStatePlanBasicTest.EveryFrozenSemanticCorruptionIsRejected (9 ms)
+[ RUN      ] ProcessStatePlanBasicTest.MalformedPrivateShapesReturnDiagnosticsWithoutDereferencingInvalidArms
+[       OK ] ProcessStatePlanBasicTest.MalformedPrivateShapesReturnDiagnosticsWithoutDereferencingInvalidArms (3 ms)
+[ RUN      ] ProcessStatePlanBasicTest.FrozenLoopActionFixtureBuildsWithoutMutatingItsInputModule
+[       OK ] ProcessStatePlanBasicTest.FrozenLoopActionFixtureBuildsWithoutMutatingItsInputModule (10 ms)
+[ RUN      ] ProcessStatePlanBasicTest.IsolatedLoopActionCorruptionsRejectWithoutMutatingFrozenInput
+[       OK ] ProcessStatePlanBasicTest.IsolatedLoopActionCorruptionsRejectWithoutMutatingFrozenInput (52 ms)
+[ RUN      ] ProcessStatePlanBasicTest.PrivateFixtureConstructionRejectsUnexpectedProcessStructure
+[       OK ] ProcessStatePlanBasicTest.PrivateFixtureConstructionRejectsUnexpectedProcessStructure (2 ms)
+[ RUN      ] ProcessStatePlanBasicTest.CompletePrivateFixtureExercisesEveryPublicGetterAndUnionArm
+[       OK ] ProcessStatePlanBasicTest.CompletePrivateFixtureExercisesEveryPublicGetterAndUnionArm (0 ms)
+[ RUN      ] ProcessStatePlanBasicTest.LongProcessGraphUsesBoundedIterativeFairnessVerification
+[       OK ] ProcessStatePlanBasicTest.LongProcessGraphUsesBoundedIterativeFairnessVerification (319 ms)
+[----------] 9 tests from ProcessStatePlanBasicTest (455 ms total)
+
+[----------] 5 tests from ProcessStatePlanControlFlowTest
+[ RUN      ] ProcessStatePlanControlFlowTest.YieldOnlyProducesEntryPcOneBlockOneWakeOneTransition
+[       OK ] ProcessStatePlanControlFlowTest.YieldOnlyProducesEntryPcOneBlockOneWakeOneTransition (5 ms)
+[ RUN      ] ProcessStatePlanControlFlowTest.EntryBlockHasSuspendEdge
+[       OK ] ProcessStatePlanControlFlowTest.EntryBlockHasSuspendEdge (3 ms)
+[ RUN      ] ProcessStatePlanControlFlowTest.WakeHasCorrectKindAndTypeKey
+[       OK ] ProcessStatePlanControlFlowTest.WakeHasCorrectKindAndTypeKey (11 ms)
+[ RUN      ] ProcessStatePlanControlFlowTest.PublicFactoryExpandsBoundedForDeterministically
+[       OK ] ProcessStatePlanControlFlowTest.PublicFactoryExpandsBoundedForDeterministically (8 ms)
+[ RUN      ] ProcessStatePlanControlFlowTest.PublicFactoryPlansIfSuspensionAndScalarLiveness
+[       OK ] ProcessStatePlanControlFlowTest.PublicFactoryPlansIfSuspensionAndScalarLiveness (7 ms)
+[----------] 5 tests from ProcessStatePlanControlFlowTest (37 ms total)
+
+[----------] 4 tests from ProcessStatePlanWakeTest
+[ RUN      ] ProcessStatePlanWakeTest.YieldOnlyWakeIsNextDelta
+[       OK ] ProcessStatePlanWakeTest.YieldOnlyWakeIsNextDelta (3 ms)
+[ RUN      ] ProcessStatePlanWakeTest.YieldOnlyWakeHasCorrectTypeKey
+[       OK ] ProcessStatePlanWakeTest.YieldOnlyWakeHasCorrectTypeKey (2 ms)
+[ RUN      ] ProcessStatePlanWakeTest.TransitionLinksWakeCorrectly
+[       OK ] ProcessStatePlanWakeTest.TransitionLinksWakeCorrectly (2 ms)
+[ RUN      ] ProcessStatePlanWakeTest.TransitionSourceIsEntryPc
+[       OK ] ProcessStatePlanWakeTest.TransitionSourceIsEntryPc (2 ms)
+[----------] 4 tests from ProcessStatePlanWakeTest (10 ms total)
+
+[----------] 7 tests from ProcessStatePlanEmissionTest
+[ RUN      ] ProcessStatePlanEmissionTest.YieldOnlyBlockCostIsTwo
+[       OK ] ProcessStatePlanEmissionTest.YieldOnlyBlockCostIsTwo (2 ms)
+[ RUN      ] ProcessStatePlanEmissionTest.YieldOnlyNoLiveSlots
+[       OK ] ProcessStatePlanEmissionTest.YieldOnlyNoLiveSlots (1 ms)
+[ RUN      ] ProcessStatePlanEmissionTest.YieldOnlyFairnessEqualsBlockCost
+[       OK ] ProcessStatePlanEmissionTest.YieldOnlyFairnessEqualsBlockCost (1 ms)
+[ RUN      ] ProcessStatePlanEmissionTest.YieldOnlyEdgeIsSuspend
+[       OK ] ProcessStatePlanEmissionTest.YieldOnlyEdgeIsSuspend (4 ms)
+[ RUN      ] ProcessStatePlanEmissionTest.NoCapturesInYieldOnly
+[       OK ] ProcessStatePlanEmissionTest.NoCapturesInYieldOnly (3 ms)
+[ RUN      ] ProcessStatePlanEmissionTest.NoValueTypesInYieldOnly
+[       OK ] ProcessStatePlanEmissionTest.NoValueTypesInYieldOnly (4 ms)
+[ RUN      ] ProcessStatePlanEmissionTest.OneCalleeInYieldOnly
+[       OK ] ProcessStatePlanEmissionTest.OneCalleeInYieldOnly (2 ms)
+[----------] 7 tests from ProcessStatePlanEmissionTest (21 ms total)
+
+[----------] 1 test from ProcessStatePlanCostConsumer
+[ RUN      ] ProcessStatePlanCostConsumer.PublicPlanHasRequiredAccessors
+[       OK ] ProcessStatePlanCostConsumer.PublicPlanHasRequiredAccessors (0 ms)
+[----------] 1 test from ProcessStatePlanCostConsumer (0 ms total)
+
+[----------] 7 tests from ProcessStatePlanLimitsTest
+[ RUN      ] ProcessStatePlanLimitsTest.DefaultLimitsAreWithinContract
+[       OK ] ProcessStatePlanLimitsTest.DefaultLimitsAreWithinContract (0 ms)
+[ RUN      ] ProcessStatePlanLimitsTest.YieldOnlyPlanWithinAllLimits
+[       OK ] ProcessStatePlanLimitsTest.YieldOnlyPlanWithinAllLimits (7 ms)
+[ RUN      ] ProcessStatePlanLimitsTest.VerificationPassesOnValidPlan
+[       OK ] ProcessStatePlanLimitsTest.VerificationPassesOnValidPlan (3 ms)
+[ RUN      ] ProcessStatePlanLimitsTest.SerializationProducesExpectedContractEpoch
+[       OK ] ProcessStatePlanLimitsTest.SerializationProducesExpectedContractEpoch (3 ms)
+[ RUN      ] ProcessStatePlanLimitsTest.SerializationExceedsByteCapFails
+[       OK ] ProcessStatePlanLimitsTest.SerializationExceedsByteCapFails (3 ms)
+[ RUN      ] ProcessStatePlanLimitsTest.CallExpansionAcceptsLiteralNodeAndEdgeBudgetsAndRejectsOneLess
+[       OK ] ProcessStatePlanLimitsTest.CallExpansionAcceptsLiteralNodeAndEdgeBudgetsAndRejectsOneLess (7 ms)
+[ RUN      ] ProcessStatePlanLimitsTest.DynamicExpansionCountsLiteralTaskActionOperandAndForwardingBudgets
+[       OK ] ProcessStatePlanLimitsTest.DynamicExpansionCountsLiteralTaskActionOperandAndForwardingBudgets (2 ms)
+[----------] 7 tests from ProcessStatePlanLimitsTest (28 ms total)
+
+[----------] 5 tests from ProcessStatePlanAtomicityTest
+[ RUN      ] ProcessStatePlanAtomicityTest.SerializationIsDeterministic
+[       OK ] ProcessStatePlanAtomicityTest.SerializationIsDeterministic (4 ms)
+[ RUN      ] ProcessStatePlanAtomicityTest.CloneWithMissingWakeCalleeFailsVerification
+error: process-state plan invariant violated: invalid wake callee
+[       OK ] ProcessStatePlanAtomicityTest.CloneWithMissingWakeCalleeFailsVerification (3 ms)
+[ RUN      ] ProcessStatePlanAtomicityTest.CloneWithDanglingSuspendFailsVerification
+error: process-state plan invariant violated: dangling reference
+[       OK ] ProcessStatePlanAtomicityTest.CloneWithDanglingSuspendFailsVerification (2 ms)
+[ RUN      ] ProcessStatePlanAtomicityTest.PublicFactoryCanonicalizesDeclarationPermutation
+[       OK ] ProcessStatePlanAtomicityTest.PublicFactoryCanonicalizesDeclarationPermutation (10 ms)
+[ RUN      ] ProcessStatePlanAtomicityTest.PublicFactoryFailurePreservesFrozenModuleBytes
+[       OK ] ProcessStatePlanAtomicityTest.PublicFactoryFailurePreservesFrozenModuleBytes (5 ms)
+[----------] 5 tests from ProcessStatePlanAtomicityTest (26 ms total)
+
+[----------] 3 tests from ProcessStatePlanNormalizeFactoryTest
+[ RUN      ] ProcessStatePlanNormalizeFactoryTest.Depth512ReachesAndSucceedsThroughIsolatedNormalizePass
+[       OK ] ProcessStatePlanNormalizeFactoryTest.Depth512ReachesAndSucceedsThroughIsolatedNormalizePass (21 ms)
+[ RUN      ] ProcessStatePlanNormalizeFactoryTest.Depth513FailsRawStructuralPreflightBeforeNormalizeRecursion
+[       OK ] ProcessStatePlanNormalizeFactoryTest.Depth513FailsRawStructuralPreflightBeforeNormalizeRecursion (23 ms)
+[ RUN      ] ProcessStatePlanNormalizeFactoryTest.VeryDeepMalformedFailsRawStructuralPreflightWithoutRecursion
+[       OK ] ProcessStatePlanNormalizeFactoryTest.VeryDeepMalformedFailsRawStructuralPreflightWithoutRecursion (5256 ms)
+[----------] 3 tests from ProcessStatePlanNormalizeFactoryTest (5301 ms total)
+
+[----------] 6 tests from ProcessStatePlanPureCallTest
+[ RUN      ] ProcessStatePlanPureCallTest.ExpandsNestedMultiResultCallsWithCallSiteQualifiedIdentity
+[       OK ] ProcessStatePlanPureCallTest.ExpandsNestedMultiResultCallsWithCallSiteQualifiedIdentity (2 ms)
+[ RUN      ] ProcessStatePlanPureCallTest.ExpandsEveryStaticLoopIterationAndNestedCallSiteVector
+[       OK ] ProcessStatePlanPureCallTest.ExpandsEveryStaticLoopIterationAndNestedCallSiteVector (2 ms)
+[ RUN      ] ProcessStatePlanPureCallTest.SharedGraphAuthorityEnforcesExactFunctionEdgeAndDepthBounds
+[       OK ] ProcessStatePlanPureCallTest.SharedGraphAuthorityEnforcesExactFunctionEdgeAndDepthBounds (1 ms)
+[ RUN      ] ProcessStatePlanPureCallTest.SharedGraphAuthorityRejectsDuplicateFunctionSymbols
+[       OK ] ProcessStatePlanPureCallTest.SharedGraphAuthorityRejectsDuplicateFunctionSymbols (0 ms)
+[ RUN      ] ProcessStatePlanPureCallTest.SharedGraphAuthorityRejectsEffectfulReachableCallee
+[       OK ] ProcessStatePlanPureCallTest.SharedGraphAuthorityRejectsEffectfulReachableCallee (1 ms)
+[ RUN      ] ProcessStatePlanPureCallTest.HostileNestedStructuredCalleeAggregatesLocalEffectsIteratively
+[       OK ] ProcessStatePlanPureCallTest.HostileNestedStructuredCalleeAggregatesLocalEffectsIteratively (4405 ms)
+[----------] 6 tests from ProcessStatePlanPureCallTest (4414 ms total)
+
+[----------] 1 test from ProcessStatePlanIdentityTest
+[ RUN      ] ProcessStatePlanIdentityTest.LoopInvariantDefinitionKeepsOuterOccurrenceAcrossIterations
+[       OK ] ProcessStatePlanIdentityTest.LoopInvariantDefinitionKeepsOuterOccurrenceAcrossIterations (1 ms)
+[----------] 1 test from ProcessStatePlanIdentityTest (1 ms total)
+
+[----------] 2 tests from ProcessStatePlanScalingTest
+[ RUN      ] ProcessStatePlanScalingTest.AdmittedSizeCallGraphLookupIsIndexedAndContainsNoDuplicates
+[       OK ] ProcessStatePlanScalingTest.AdmittedSizeCallGraphLookupIsIndexedAndContainsNoDuplicates (36 ms)
+[ RUN      ] ProcessStatePlanScalingTest.RepeatedIterationBindingsUseBoundedContextLookupWork
+[       OK ] ProcessStatePlanScalingTest.RepeatedIterationBindingsUseBoundedContextLookupWork (16 ms)
+[----------] 2 tests from ProcessStatePlanScalingTest (52 ms total)
+
+[----------] 1 test from ProcessStatePlanLowerabilityTest
+[ RUN      ] ProcessStatePlanLowerabilityTest.HostileNestedSuspensionShapeHitsDepthLimitBeforeSummaryAnalysis
+[       OK ] ProcessStatePlanLowerabilityTest.HostileNestedSuspensionShapeHitsDepthLimitBeforeSummaryAnalysis (5490 ms)
+[----------] 1 test from ProcessStatePlanLowerabilityTest (5490 ms total)
+
+[----------] 2 tests from ProcessStatePlanVerifierTest
+[ RUN      ] ProcessStatePlanVerifierTest.DynamicSuspendingLoopExpandsExactLoopPhaseActions
+[       OK ] ProcessStatePlanVerifierTest.DynamicSuspendingLoopExpandsExactLoopPhaseActions (1 ms)
+[ RUN      ] ProcessStatePlanVerifierTest.DynamicTwoCarryLoopForwardsInitializationBackedgeAndExitExactly
+[       OK ] ProcessStatePlanVerifierTest.DynamicTwoCarryLoopForwardsInitializationBackedgeAndExitExactly (1 ms)
+[----------] 2 tests from ProcessStatePlanVerifierTest (3 ms total)
+
+[----------] 5 tests from ProcessStateTask13ConsumerTest
+[ RUN      ] ProcessStateTask13ConsumerTest.PublicFactoryPlansFrozenNonYieldProcess
+[       OK ] ProcessStateTask13ConsumerTest.PublicFactoryPlansFrozenNonYieldProcess (1 ms)
+[ RUN      ] ProcessStateTask13ConsumerTest.AllPublicIdsAreComplete
+[       OK ] ProcessStateTask13ConsumerTest.AllPublicIdsAreComplete (0 ms)
+[ RUN      ] ProcessStateTask13ConsumerTest.AllClosedEnumsAreAccessible
+[       OK ] ProcessStateTask13ConsumerTest.AllClosedEnumsAreAccessible (0 ms)
+[ RUN      ] ProcessStateTask13ConsumerTest.ProcessStateLimitsDefaultsMatchContract
+[       OK ] ProcessStateTask13ConsumerTest.ProcessStateLimitsDefaultsMatchContract (0 ms)
+[ RUN      ] ProcessStateTask13ConsumerTest.PublicApiHasNoForbiddenAccessors
+[       OK ] ProcessStateTask13ConsumerTest.PublicApiHasNoForbiddenAccessors (0 ms)
+[----------] 5 tests from ProcessStateTask13ConsumerTest (1 ms total)
+
+[----------] Global test environment tear-down
+[==========] 59 tests from 15 test suites ran. (15848 ms total)
+[  PASSED  ] 59 tests.

@@ -91,6 +91,6 @@ builtin.module attributes {
 // PLAN-SAME: "interface_inputs":[{"name":"input_0","payload_type":"i8"}]
 // PLAN-SAME: "interface_outputs":[{"name":"module_output","payload_type":"i8"}]
 
-// CXX-COUNT-1: class [[IMPLEMENTATION:Increment_[0-9a-f]+]] final : public gfsim::Module
+// CXX-COUNT-1: class [[IMPLEMENTATION:Module_Increment]] final : public gfsim::Module
 // CXX: class ReusedPipeline final : public gfsim::Module
 // CXX-COUNT-2: [[IMPLEMENTATION]] instance_

@@ -581,7 +581,7 @@ int main() {{
             self.assertLess(
                 source.index("struct Header"), source.index("struct Packet")
             )
-            self.assertIn("auto v0 = item.header", source)
+            self.assertIn("const auto &v0 = item.header", source)
             self.assertIn("v4.mode = v3", source)
 
             harness = root / "harness.cpp"
@@ -1194,7 +1194,7 @@ int main() {{
             self.assertEqual(1, len(firing["state_writes"]))
             self.assertEqual(firing["guard"], firing["state_writes"][0]["present"])
             self.assertEqual(
-                1,
+                3,
                 sum(
                     expression["kind"] == "value_select"
                     for expression in firing["expressions"]
@@ -2544,7 +2544,7 @@ int main() {{
             self.assertGreater(len(specialization["activation_edges"]), 0)
             self.assertGreater(len(specialization["initial_activation"]), 0)
             generated_source = model.read_text(encoding="utf-8")
-            self.assertEqual(1, generated_source.count("class Rob_"))
+            self.assertEqual(1, generated_source.count("class Module_Rob final"))
             self.assertIn("gfsim::QueueStateTransition<", generated_source)
             self.assertIn("activation_offsets()", generated_source)
             self.assertIn("activation_complete() { return true; }", generated_source)
@@ -3292,10 +3292,15 @@ int main() {
             )
             self.assertTrue(ready_snapshot["source"])
             generated_source = model.read_text(encoding="utf-8")
-            self.assertEqual(1, generated_source.count("class Isq_"))
+            self.assertEqual(1, generated_source.count("class Module_Isq final"))
             self.assertIn("snapshot_set_", generated_source)
             self.assertEqual(0, generated_source.count("snapshot_entry"))
-            self.assertEqual(2, generated_source.count("snapshot_set_1_0 |= "))
+            self.assertEqual(
+                2,
+                generated_source.count(
+                    "snapshot_set_1_0 = snapshot_set_1_0 | "
+                ),
+            )
             self.assertIn("activation_complete() { return true; }", generated_source)
 
             harness = root / "harness.cpp"
@@ -5298,7 +5303,10 @@ int main() {{
             generated_source = model.read_text(encoding="utf-8")
             implementation_prefix = definition[:1].upper() + definition[1:]
             self.assertEqual(
-                1, generated_source.count(f"class {implementation_prefix}_")
+                1,
+                generated_source.count(
+                    f"class Module_{implementation_prefix} final"
+                ),
             )
             if len(table_names) > 1:
                 self.assertIn("gfsim::QueueStateTransition<", generated_source)
