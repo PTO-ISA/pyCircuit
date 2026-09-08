@@ -5,10 +5,10 @@ import argparse
 import json
 import re
 import sys
-import tomllib
 from pathlib import Path
 from typing import Any
 
+import tomllib
 
 ROOT = Path(__file__).resolve().parents[2]
 SCHEMA_BY_IDENTITY = {
@@ -84,9 +84,13 @@ def validate_exact(document: dict[str, Any], version_map: dict[str, Any]) -> Non
     candidate_tag = version_map["candidate_tag"]
 
     if "product_version" in document:
-        require_equal(document["product_version"], product, f"{identity}.product_version")
+        require_equal(
+            document["product_version"], product, f"{identity}.product_version"
+        )
     if "candidate_tag" in document:
-        require_equal(document["candidate_tag"], candidate_tag, f"{identity}.candidate_tag")
+        require_equal(
+            document["candidate_tag"], candidate_tag, f"{identity}.candidate_tag"
+        )
     if "release" in document:
         require_equal(document["release"], candidate_tag, f"{identity}.release")
     if "distributions" in document:
@@ -109,7 +113,9 @@ def validate_exact(document: dict[str, Any], version_map: dict[str, Any]) -> Non
 
     sdk = document.get("sdk")
     if isinstance(sdk, dict):
-        require_equal(sdk["product_version"], product, f"{identity}.sdk.product_version")
+        require_equal(
+            sdk["product_version"], product, f"{identity}.sdk.product_version"
+        )
         sdk_contract_fields = {
             "model_plan_abi": "model_plan",
             "generator_abi": "generator_abi",
@@ -144,20 +150,30 @@ def validate_exact(document: dict[str, Any], version_map: dict[str, Any]) -> Non
             fail(f"{identity}.files: embedded manifest cannot hash itself")
     elif identity == "agentic-circuit-model-plan":
         require_unique_paths(document["inputs"], f"{identity}.inputs")
-    elif identity == "agentic-circuit-model-manifest":
-        require_unique_paths(
-            document["generated_files"], f"{identity}.generated_files"
+        require_equal(
+            document["outputs"],
+            [
+                "include/generated/model.h",
+                "src/generated/model.cpp",
+                "src/generated/queuegraph.cpp",
+            ],
+            f"{identity}.outputs",
         )
+        require_equal(
+            document["cmake_sources"]["path"],
+            "model-sources.cmake",
+            f"{identity}.cmake_sources.path",
+        )
+        require_equal(document["depfile_path"], "model.d", f"{identity}.depfile_path")
+    elif identity == "agentic-circuit-model-manifest":
+        require_unique_paths(document["generated_files"], f"{identity}.generated_files")
 
     release_base = (
-        "https://github.com/PTO-ISA/pyCircuit/releases/download/"
-        f"{candidate_tag}/"
+        f"https://github.com/PTO-ISA/pyCircuit/releases/download/{candidate_tag}/"
     )
 
     def require_release_url(artifact: dict[str, Any], field: str) -> None:
-        require_equal(
-            artifact["url"], release_base + artifact["name"], f"{field}.url"
-        )
+        require_equal(artifact["url"], release_base + artifact["name"], f"{field}.url")
 
     if identity == "pycircuit-sdk-release-index":
         for platform_id, platform in document["platforms"].items():
@@ -171,7 +187,9 @@ def validate_exact(document: dict[str, Any], version_map: dict[str, Any]) -> Non
                 f"pycircuit-sdk-{product}-{platform_id}.manifest.json",
                 f"{identity}.{platform_id}.manifest.name",
             )
-            require_release_url(platform["archive"], f"{identity}.{platform_id}.archive")
+            require_release_url(
+                platform["archive"], f"{identity}.{platform_id}.archive"
+            )
             require_release_url(
                 platform["manifest"], f"{identity}.{platform_id}.manifest"
             )
@@ -202,9 +220,7 @@ def validate_exact(document: dict[str, Any], version_map: dict[str, Any]) -> Non
             f"{identity}.manifest.name",
         )
         require_release_url(document["platform"]["archive"], f"{identity}.archive")
-        require_release_url(
-            document["platform"]["manifest"], f"{identity}.manifest"
-        )
+        require_release_url(document["platform"]["manifest"], f"{identity}.manifest")
         for distribution, wheel in document["wheels"].items():
             require_release_url(wheel, f"{identity}.wheels.{distribution}")
 
@@ -256,9 +272,7 @@ def validate_version_map(version_map: dict[str, Any]) -> None:
     require_equal(version_map["platforms"], expected_platforms, "platforms")
 
 
-def validate_plan_manifest(
-    plan: dict[str, Any], manifest: dict[str, Any]
-) -> None:
+def validate_plan_manifest(plan: dict[str, Any], manifest: dict[str, Any]) -> None:
     require_equal(
         [item["path"] for item in manifest["generated_files"]],
         plan["outputs"],
@@ -376,22 +390,18 @@ def adversarial_checks(version_map: dict[str, Any]) -> None:
     null_url["platforms"]["linux-x86_64"]["archive"]["url"] = None
     negatives.append(("null final URL", null_url))
     wrong_asset_name = copy.deepcopy(release_index)
-    wrong_asset_name["platforms"]["linux-x86_64"]["archive"][
-        "name"
-    ] = "pycircuit-sdk-9.9.9-linux-x86_64.tar.gz"
-    wrong_asset_name["platforms"]["linux-x86_64"]["archive"][
-        "url"
-    ] = (
+    wrong_asset_name["platforms"]["linux-x86_64"]["archive"]["name"] = (
+        "pycircuit-sdk-9.9.9-linux-x86_64.tar.gz"
+    )
+    wrong_asset_name["platforms"]["linux-x86_64"]["archive"]["url"] = (
         "https://github.com/PTO-ISA/pyCircuit/releases/download/v6.0.0/"
         "pycircuit-sdk-9.9.9-linux-x86_64.tar.gz"
     )
     negatives.append(("wrong product version in asset name", wrong_asset_name))
     wrong_url_tag = copy.deepcopy(release_index)
-    wrong_url_tag["platforms"]["linux-x86_64"]["archive"][
-        "url"
-    ] = wrong_url_tag["platforms"]["linux-x86_64"]["archive"]["url"].replace(
-        "/v6.0.0/", "/v9.9.9/"
-    )
+    wrong_url_tag["platforms"]["linux-x86_64"]["archive"]["url"] = wrong_url_tag[
+        "platforms"
+    ]["linux-x86_64"]["archive"]["url"].replace("/v6.0.0/", "/v9.9.9/")
     negatives.append(("wrong release tag in URL", wrong_url_tag))
 
     for name, document in negatives:

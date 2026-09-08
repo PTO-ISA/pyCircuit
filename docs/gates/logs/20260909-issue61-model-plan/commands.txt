@@ -1,0 +1,28 @@
+cmake -S compiler/acir -B .pycircuit_out/acir/p2-python311 -G Ninja -DCMAKE_BUILD_TYPE=Debug -DACIR_ENABLE_ASSERTIONS=ON -DMLIR_DIR=/opt/homebrew/opt/llvm/lib/cmake/mlir -DLLVM_DIR=/opt/homebrew/opt/llvm/lib/cmake/llvm -DPython3_EXECUTABLE=/Users/zhoubot/.local/bin/python3.11 -DACIR_LIT_EXECUTABLE=.pycircuit_out/ac-venv/bin/lit
+cmake --build .pycircuit_out/acir/p2-python311 --target agentic_circuit_native -j 8
+cmake --install .pycircuit_out/acir/dev-llvm22 --prefix .pycircuit_out/gates/20260909-issue61-model-plan/python311-sdk-base
+python3 - <<'PY'
+from pathlib import Path
+import shutil
+root = Path('.pycircuit_out/gates/20260909-issue61-model-plan/python311-sdk-base')
+shutil.copytree(root / 'lib/python3.14/site-packages', root / 'lib/python3.11/site-packages', dirs_exist_ok=True)
+shutil.copyfile(Path('.pycircuit_out/acir/p2-python311/python/agentic_circuit/_native.so'), root / 'lib/python3.11/site-packages/agentic_circuit/_native.so')
+PY
+AC_GATE_TOOLCHAIN_ROOT=.pycircuit_out/gates/20260909-issue61-model-plan/python311-sdk-base PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=<pytest-site>:python/semantic-core/src:python/agentic-circuit/src:.pycircuit_out/acir/p2-python311/python /Users/zhoubot/.local/bin/python3.11 -m pytest -q tests/python/agentic-circuit/cli/test_model_plan_command.py
+AC_GATE_TOOLCHAIN_ROOT=.pycircuit_out/gates/20260909-issue61-model-plan/python311-sdk-base PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=python/semantic-core/src:python/agentic-circuit/src:.pycircuit_out/acir/p2-python311/python /Users/zhoubot/.local/bin/python3.11 - .pycircuit_out/gates/20260909-issue61-model-plan/runtime-schema-v1/sdk .pycircuit_out/gates/20260909-issue61-model-plan/runtime-schema-v1/source <<'PY'
+from pathlib import Path
+import runpy
+import sys
+helpers = runpy.run_path('tests/python/agentic-circuit/cli/test_model_plan_command.py')
+helpers['install_sdk'](Path(sys.argv[1]))
+helpers['write_source'](Path(sys.argv[2]))
+PY
+env -u PYTHONPATH /Users/zhoubot/.local/bin/python3.11 .pycircuit_out/gates/20260909-issue61-model-plan/runtime-schema-v1/sdk/bin/agentic-circuit model plan --sdk-root .pycircuit_out/gates/20260909-issue61-model-plan/runtime-schema-v1/sdk --source-root .pycircuit_out/gates/20260909-issue61-model-plan/runtime-schema-v1/source --entry model.top:rob --config model.toml --out-dir .pycircuit_out/gates/20260909-issue61-model-plan/runtime-schema-v1/plan --json
+.pycircuit_out/contracts-venv/bin/python tools/agentic-circuit/check-sdk-contract.py --document .pycircuit_out/gates/20260909-issue61-model-plan/runtime-schema-v1/plan/model-plan.json
+PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=python/semantic-core/src:python/agentic-circuit/src:.pycircuit_out/acir/dev-llvm22/python:.pycircuit_out/contracts-venv/lib/python3.14/site-packages pytest -q tests/python/agentic-circuit/cli
+.pycircuit_out/contracts-venv/bin/python tools/agentic-circuit/check-contracts.py
+.pycircuit_out/contracts-venv/bin/python tools/agentic-circuit/check-sdk-contract.py
+PYTHONDONTWRITEBYTECODE=1 pytest -q tests/unit -m unit
+mkdocs build --strict
+pre-commit run --all-files
+python3 flows/tools/check_decision_status.py --rfc docs/rfcs/pyc6-decisions.md --status docs/gates/decision_status_v6.md --out docs/gates/logs/20260909-issue61-model-plan/decision_status_report.json --require-concrete-evidence --require-existing-evidence

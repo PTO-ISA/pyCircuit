@@ -8,9 +8,10 @@ from typing import Literal
 
 from ._canonical_json import JsonValue
 
-
 Severity = Literal["error", "warning", "note"]
-_CODE = re.compile(r"^AC(PY|ELAB|IR-[A-Z]+|LOWER|BUILD|TRACE|RUN)-[A-Z0-9-]+$")
+_CODE = re.compile(
+    r"^AC(PY|ELAB|IR-[A-Z]+|LOWER|BUILD|TRACE|RUN|SDK-[A-Z]+)-[A-Z0-9-]+$"
+)
 
 
 @dataclass(frozen=True, order=True, slots=True)

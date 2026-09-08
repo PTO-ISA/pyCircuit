@@ -1,0 +1,8 @@
+-- Using LLVM 22.1.8 from /opt/homebrew/opt/llvm/lib/cmake/llvm
+-- Using MLIR 22.1.8 from /opt/homebrew/opt/llvm/lib/cmake/mlir
+-- Found Python3: /Users/zhoubot/.local/bin/python3.11 (found suitable version "3.11.14", minimum required is "3.11") found components: Interpreter
+-- Found Python3: /Users/zhoubot/.local/bin/python3.11 (found suitable version "3.11.14", minimum required is "3.11") found components: Interpreter Development.Module
+-- Standalone Agentic Circuit build: ACIR-to-PYC toolchain target is disabled
+-- Configuring done (0.2s)
+-- Generating done (0.1s)
+-- Build files have been written to: /Users/zhoubot/linx-isa/tools/pyCircuit/.pycircuit_out/acir/p2-python311

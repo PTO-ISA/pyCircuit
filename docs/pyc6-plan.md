@@ -127,9 +127,13 @@ V6 tests plus the examples, simulation, and semantic lanes archived under
   candidate-byte release order in Decisions 0232 through 0234.
 - [x] Implement a relocatable Runtime-only AgenticCircuit CMake component that
   does not require LLVM/MLIR development packages.
-- [ ] Implement installed `agentic-circuit model plan` and `model emit-cpp`
-  with deterministic multi-TU output, depfiles, atomic publication, and the
-  versioned opaque runtime ABI.
+- [x] Implement installed `agentic-circuit model plan` with SDK-bound tool and
+  schema discovery, transitive source/config hashes, canonical Frozen ACIR and
+  QueueGraph artifacts, deterministic multi-TU output prediction, depfiles,
+  and atomic publication.
+- [ ] Implement installed `agentic-circuit model emit-cpp` with hash and stale
+  plan validation, deterministic multi-TU generation, output locking and
+  cleanup, and the versioned opaque runtime ABI.
 - [ ] Build the complete SDK/wheel set with manifest, checksums, dependency
   closure, license inventory, and exact distribution-version mapping.
 - [ ] Validate the exact candidate bytes after relocation on Linux x86_64 and

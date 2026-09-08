@@ -23,6 +23,7 @@ def cli_test_ledger() -> dict[str, CommandCoverage]:
     build = f"{module_prefix}test_build_command.BuildCommandTest"
     run = f"{module_prefix}test_run_command.RunCommandTest"
     inspect = f"{module_prefix}test_inspect_command.InspectCommandTest"
+    model = f"{module_prefix}test_model_plan_command.ModelPlanCommandTest"
     exits = f"{module_prefix}test_exit_codes.ExitCodeTest"
     return {
         "init": CommandCoverage(
@@ -92,6 +93,12 @@ def cli_test_ledger() -> dict[str, CommandCoverage]:
             (f"{exits}.test_source_checkout_doctor_reports_missing_native_tools",),
             (f"{discovery}.test_explain_and_doctor_are_read_only",),
             (f"{discovery}.test_explain_and_doctor_are_read_only",),
+        ),
+        "model": CommandCoverage(
+            (f"{model}.test_installed_plan_is_schema_valid_and_root_independent",),
+            (f"{model}.test_plan_failures_publish_nothing_and_preserve_stale_output",),
+            (f"{model}.test_installed_plan_is_schema_valid_and_root_independent",),
+            (f"{model}.test_installed_plan_is_schema_valid_and_root_independent",),
         ),
     }
 

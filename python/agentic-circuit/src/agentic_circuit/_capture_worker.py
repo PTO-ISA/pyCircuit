@@ -39,6 +39,8 @@ class CaptureWorkerRequest:
     component_roots: tuple[Path, ...]
     private_output: Path
     timeout: float = 30.0
+    jit_source_closure: bool = False
+    module_name: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -129,6 +131,8 @@ def _request_json(request: CaptureWorkerRequest, output: Path) -> dict[str, Json
             path.resolve().relative_to(request.workspace.resolve()).as_posix()
             for path in request.component_roots
         ],
+        "jit_source_closure": request.jit_source_closure,
+        "module_name": request.module_name,
         "output": output.resolve().as_posix(),
     }
 
@@ -221,9 +225,17 @@ def run_capture_worker(request: CaptureWorkerRequest) -> CaptureWorkerResult:
         return CaptureWorkerResult(acpy, acir, diagnostics, report, frontend_kind)
 
 
-def _load_project(entry: Path, workspace: Path) -> dict[str, object]:
+def _load_project(
+    entry: Path, workspace: Path, module_name: str | None = None
+) -> dict[str, object]:
     sys.path.insert(1, os.fspath(workspace))
-    spec = importlib.util.spec_from_file_location("_agentic_architecture", entry)
+    selected_name = module_name or "_agentic_architecture"
+    search_locations = (
+        [os.fspath(entry.parent)] if entry.name == "__init__.py" else None
+    )
+    spec = importlib.util.spec_from_file_location(
+        selected_name, entry, submodule_search_locations=search_locations
+    )
     if spec is None or spec.loader is None:
         raise ImportError(f"cannot load architecture entry {entry}")
     module = importlib.util.module_from_spec(spec)
@@ -298,7 +310,7 @@ def _worker_main(request_path: Path) -> int:
             contextlib.redirect_stdout(captured_stdout),
             contextlib.redirect_stderr(captured_stderr),
         ):
-            namespace = _load_project(entry, workspace)
+            namespace = _load_project(entry, workspace, request["module_name"])
             component_roots = tuple(
                 (workspace / value).resolve() for value in request["component_roots"]
             )
@@ -311,7 +323,17 @@ def _worker_main(request_path: Path) -> int:
                 key: _static_value(value)
                 for key, value in request["static_arguments"].items()
             }
-            if has_rule:
+            if request["jit_source_closure"]:
+                from ._jit import jit
+
+                frontend_kind = "queue_rule"
+                definition = namespace.get(request["system"])
+                specialization = jit(
+                    definition, workspace=workspace, **static_arguments
+                )
+                acir = specialization.lower_acir()
+                diagnostics = ()
+            elif has_rule:
                 from ._queue_frontend import (
                     build_queue_acpy,
                     lower_queue_program,

@@ -235,9 +235,10 @@ class RepositoryContractsTest(unittest.TestCase):
             operation_kind = entry["operation"].removeprefix("ac.").replace(".", "_")
             self.assertEqual(entry["kind"], operation_kind)
             self.assertTrue(entry["gfsim"]["available"])
-            provisional = entry["operation"].startswith("ac.table") or entry[
-                "operation"
-            ] == "ac.slot"
+            provisional = (
+                entry["operation"].startswith("ac.table")
+                or entry["operation"] == "ac.slot"
+            )
             if entry["role"] == "design" and not provisional:
                 self.assertTrue(entry["pyc"]["available"])
             if provisional:
@@ -289,7 +290,7 @@ class RepositoryContractsTest(unittest.TestCase):
             )
             self.assertRegex(
                 entry["code"],
-                r"^AC(PY|ELAB|IR-[A-Z]+|LOWER|BUILD|TRACE|RUN)-[A-Z0-9-]+$",
+                r"^AC(PY|ELAB|IR-[A-Z]+|LOWER|BUILD|TRACE|RUN|SDK-[A-Z]+)-[A-Z0-9-]+$",
             )
             for key in ("causes", "examples", "repairs"):
                 self.assertTrue(entry[key])

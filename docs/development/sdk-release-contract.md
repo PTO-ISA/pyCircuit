@@ -180,6 +180,26 @@ SDK environment variable. CMake always passes its resolved package prefix.
 lowers through the current frontend and shared MLIR verifier/pass pipeline, and
 writes:
 
+```toml
+version = "1"
+
+[static]
+entries = 8
+```
+
+The config is a closed document with exactly `version = "1"` and one `[static]`
+table. Its keys bind the `ac.const[...]` parameters of the system named after
+the colon in `--entry`; values must be portable I-JSON values. A relative
+`--config` path is resolved under `--source-root`, and the resolved file must
+remain inside that root.
+
+The entry uses exact `importable.module:system` syntax. The module resolves to
+one Python file or package under `--source-root`; the system is specialized
+through the existing QueueGraph JIT frontend. Local imports are captured before
+execution and classified as entry, contract, or import inputs.
+
+The command writes:
+
 ```text
 model-plan.json
 frozen.ac.mlir
@@ -195,6 +215,18 @@ The plan records each input and config hash, the Frozen ACIR and QueueGraph
 identities and hashes, the exact SDK/source/ABI tuple, the selected entry and
 specialization, required capabilities, the complete deterministic output file
 list, the hashed CMake source fragment, and the depfile's logical path.
+
+Version 1 predicts exactly these P3 generated files:
+
+```text
+include/generated/model.h
+src/generated/model.cpp
+src/generated/queuegraph.cpp
+```
+
+The plan's `model-sources.cmake` lists those relative paths and the fixed query
+symbol and Runtime target. `model.d` names the local absolute source and config
+dependencies; its bytes do not participate in the canonical plan identity.
 
 `model plan` fails before publication when an import escapes the source root, a
 source or config is invalid, the SDK tuple is inconsistent, a required tool is

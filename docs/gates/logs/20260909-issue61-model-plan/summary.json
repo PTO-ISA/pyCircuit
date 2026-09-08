@@ -1,0 +1,40 @@
+{
+  "run_id": "20260909-issue61-model-plan",
+  "status": "passed",
+  "base_revision": "eca28e27c82eaf1a38cef21f2e6fe1d3990473d5",
+  "issue": 61,
+  "decision_ids": ["0233"],
+  "results": {
+    "installed_model_plan_python311": "3 passed, 1 non-3.11 negative skipped",
+    "cli_python314_regression": "58 passed, 2 Python-3.11-only tests skipped",
+    "unit": 90,
+    "repository_contracts": "passed",
+    "sdk_contract": "passed",
+    "actual_runtime_plan_schema": "passed",
+    "mkdocs_strict": "passed",
+    "pre_commit": "passed",
+    "decision_status": "rows=234 deferred=3",
+    "atomic_directory_exchange": true,
+    "relative_import": true,
+    "source_and_config_toctou_checks": true,
+    "sdk_identity_negatives": [
+      "wrong-version",
+      "wrong-sdk-root",
+      "malformed-capabilities",
+      "wrong-platform",
+      "wrong-abi",
+      "tampered-launcher",
+      "tampered-native-extension-before-load",
+      "tampered-schema",
+      "missing-tool",
+      "tampered-tool"
+    ],
+    "bounded_capture_timeout": true,
+    "hash_seed_independence": true
+  },
+  "boundaries": {
+    "model_plan": "implemented",
+    "model_emit_cpp": "deferred-to-p3",
+    "model_runtime_abi": "deferred-to-p3"
+  }
+}
