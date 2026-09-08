@@ -1,0 +1,115 @@
+{
+  "abi": {
+    "acir_contract": "0.5",
+    "acpy_epoch": "0.5",
+    "consumer_lock": "1",
+    "generator_abi": "1",
+    "model_manifest": "1",
+    "model_plan": "1",
+    "release_index": "1",
+    "runtime_abi": "1",
+    "sdk_manifest": "1"
+  },
+  "capabilities": [
+    "cycle-aware-signal",
+    "pyc-cpp",
+    "pyc-verilog",
+    "agentic-model-plan",
+    "agentic-model-emit-cpp",
+    "gfsim-runtime-v1"
+  ],
+  "contract_epoch": "0.5",
+  "distributions": {
+    "agentic-circuit": "0.1.0",
+    "pycircuit-hisi": "6.0.0",
+    "pycircuit-semantic-core": "6.0.0"
+  },
+  "files": [
+    {
+      "kind": "tool",
+      "path": "bin/agentic-circuit",
+      "sha256": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "size": 1
+    },
+    {
+      "kind": "tool",
+      "path": "bin/acir-opt",
+      "sha256": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "size": 1
+    },
+    {
+      "kind": "tool",
+      "path": "bin/acir-queue-plan",
+      "sha256": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "size": 1
+    },
+    {
+      "kind": "tool",
+      "path": "bin/acir-queue-cxxgen",
+      "sha256": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "size": 1
+    },
+    {
+      "kind": "header",
+      "path": "include/gfsim/model_api.h",
+      "sha256": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "size": 1
+    },
+    {
+      "kind": "library",
+      "path": "lib/libgfsim.a",
+      "sha256": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "size": 1
+    },
+    {
+      "kind": "cmake",
+      "path": "lib/cmake/AgenticCircuit/AgenticCircuitConfig.cmake",
+      "sha256": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "size": 1
+    },
+    {
+      "kind": "wheel",
+      "path": "python/wheelhouse/agentic_circuit-0.1.0-py3-none-any.whl",
+      "sha256": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "size": 1
+    },
+    {
+      "kind": "schema",
+      "path": "share/pycircuit/schemas/model-plan.schema.json",
+      "sha256": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "size": 1
+    },
+    {
+      "kind": "license",
+      "path": "share/pycircuit/licenses/LICENSE",
+      "sha256": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "size": 1
+    }
+  ],
+  "platform": {
+    "architecture": "x86_64",
+    "cxx_abi": "libstdc++ CXX11 ABI",
+    "cxx_compiler": "clang++ 22.1.8",
+    "cxx_standard": "20",
+    "host_triple": "x86_64-linux-gnu",
+    "id": "linux-x86_64",
+    "minimum_libc": "glibc 2.39",
+    "minimum_os": "Ubuntu 24.04",
+    "os": "linux",
+    "python": "3.11",
+    "runner": "ubuntu-24.04"
+  },
+  "product_version": "6.0.0",
+  "runtime_dependencies": [
+    {
+      "kind": "system",
+      "name": "glibc",
+      "sha256": null,
+      "version": "2.39"
+    }
+  ],
+  "schema": "pycircuit-sdk-platform-manifest",
+  "self_path": "share/pycircuit/sdk-manifest.json",
+  "source_revision": "e4485192727e27ac4d1de62bfdb6438fd878cdff",
+  "version": "1"
+}

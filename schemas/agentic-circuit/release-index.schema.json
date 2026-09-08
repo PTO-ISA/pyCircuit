@@ -1,0 +1,497 @@
+{
+  "$id": "https://pto-isa.org/schemas/agentic-circuit/release-index-v1.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "abi": {
+      "additionalProperties": false,
+      "properties": {
+        "acir_contract": {
+          "const": "0.5"
+        },
+        "acpy_epoch": {
+          "const": "0.5"
+        },
+        "consumer_lock": {
+          "const": "1"
+        },
+        "generator_abi": {
+          "const": "1"
+        },
+        "model_manifest": {
+          "const": "1"
+        },
+        "model_plan": {
+          "const": "1"
+        },
+        "release_index": {
+          "const": "1"
+        },
+        "runtime_abi": {
+          "const": "1"
+        },
+        "sdk_manifest": {
+          "const": "1"
+        }
+      },
+      "required": [
+        "acpy_epoch",
+        "acir_contract",
+        "sdk_manifest",
+        "release_index",
+        "model_plan",
+        "model_manifest",
+        "generator_abi",
+        "runtime_abi",
+        "consumer_lock"
+      ],
+      "type": "object"
+    },
+    "candidate_tag": {
+      "pattern": "^v[0-9]+\\.[0-9]+\\.[0-9]+$",
+      "type": "string"
+    },
+    "capabilities": {
+      "const": [
+        "cycle-aware-signal",
+        "pyc-cpp",
+        "pyc-verilog",
+        "agentic-model-plan",
+        "agentic-model-emit-cpp",
+        "gfsim-runtime-v1"
+      ]
+    },
+    "checksums": {
+      "additionalProperties": false,
+      "properties": {
+        "covers_release_index": {
+          "const": true
+        },
+        "excludes_self": {
+          "const": true
+        },
+        "name": {
+          "const": "SHA256SUMS"
+        }
+      },
+      "required": [
+        "name",
+        "excludes_self",
+        "covers_release_index"
+      ],
+      "type": "object"
+    },
+    "contract_epoch": {
+      "const": "0.5"
+    },
+    "distributions": {
+      "additionalProperties": false,
+      "properties": {
+        "agentic-circuit": {
+          "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+(?:[.a-zA-Z0-9+-]*)?$",
+          "type": "string"
+        },
+        "pycircuit-hisi": {
+          "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+(?:[.a-zA-Z0-9+-]*)?$",
+          "type": "string"
+        },
+        "pycircuit-semantic-core": {
+          "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+(?:[.a-zA-Z0-9+-]*)?$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "pycircuit-hisi",
+        "pycircuit-semantic-core",
+        "agentic-circuit"
+      ],
+      "type": "object"
+    },
+    "licenses": {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "sha256": {
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "size": {
+          "minimum": 1,
+          "type": "integer"
+        },
+        "url": {
+          "format": "uri",
+          "pattern": "^https://github\\.com/PTO-ISA/pyCircuit/releases/download/v[0-9]+\\.[0-9]+\\.[0-9]+/[A-Za-z0-9._+-]+$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "sha256",
+        "size",
+        "url"
+      ],
+      "type": "object"
+    },
+    "platforms": {
+      "additionalProperties": false,
+      "properties": {
+        "linux-x86_64": {
+          "additionalProperties": false,
+          "properties": {
+            "archive": {
+              "allOf": [
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "name": {
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "sha256": {
+                      "pattern": "^sha256:[0-9a-f]{64}$",
+                      "type": "string"
+                    },
+                    "size": {
+                      "minimum": 1,
+                      "type": "integer"
+                    },
+                    "url": {
+                      "format": "uri",
+                      "pattern": "^https://github\\.com/PTO-ISA/pyCircuit/releases/download/v[0-9]+\\.[0-9]+\\.[0-9]+/[A-Za-z0-9._+-]+$",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "name",
+                    "sha256",
+                    "size",
+                    "url"
+                  ],
+                  "type": "object"
+                },
+                {
+                  "properties": {
+                    "name": {
+                      "pattern": "^pycircuit-sdk-[0-9]+\\.[0-9]+\\.[0-9]+-linux\\-x86_64\\.tar\\.gz$",
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              ]
+            },
+            "manifest": {
+              "allOf": [
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "name": {
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "sha256": {
+                      "pattern": "^sha256:[0-9a-f]{64}$",
+                      "type": "string"
+                    },
+                    "size": {
+                      "minimum": 1,
+                      "type": "integer"
+                    },
+                    "url": {
+                      "format": "uri",
+                      "pattern": "^https://github\\.com/PTO-ISA/pyCircuit/releases/download/v[0-9]+\\.[0-9]+\\.[0-9]+/[A-Za-z0-9._+-]+$",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "name",
+                    "sha256",
+                    "size",
+                    "url"
+                  ],
+                  "type": "object"
+                },
+                {
+                  "properties": {
+                    "name": {
+                      "pattern": "^pycircuit-sdk-[0-9]+\\.[0-9]+\\.[0-9]+-linux\\-x86_64\\.manifest\\.json$",
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              ]
+            }
+          },
+          "required": [
+            "archive",
+            "manifest"
+          ],
+          "type": "object"
+        },
+        "macos-arm64": {
+          "additionalProperties": false,
+          "properties": {
+            "archive": {
+              "allOf": [
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "name": {
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "sha256": {
+                      "pattern": "^sha256:[0-9a-f]{64}$",
+                      "type": "string"
+                    },
+                    "size": {
+                      "minimum": 1,
+                      "type": "integer"
+                    },
+                    "url": {
+                      "format": "uri",
+                      "pattern": "^https://github\\.com/PTO-ISA/pyCircuit/releases/download/v[0-9]+\\.[0-9]+\\.[0-9]+/[A-Za-z0-9._+-]+$",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "name",
+                    "sha256",
+                    "size",
+                    "url"
+                  ],
+                  "type": "object"
+                },
+                {
+                  "properties": {
+                    "name": {
+                      "pattern": "^pycircuit-sdk-[0-9]+\\.[0-9]+\\.[0-9]+-macos\\-arm64\\.tar\\.gz$",
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              ]
+            },
+            "manifest": {
+              "allOf": [
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "name": {
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "sha256": {
+                      "pattern": "^sha256:[0-9a-f]{64}$",
+                      "type": "string"
+                    },
+                    "size": {
+                      "minimum": 1,
+                      "type": "integer"
+                    },
+                    "url": {
+                      "format": "uri",
+                      "pattern": "^https://github\\.com/PTO-ISA/pyCircuit/releases/download/v[0-9]+\\.[0-9]+\\.[0-9]+/[A-Za-z0-9._+-]+$",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "name",
+                    "sha256",
+                    "size",
+                    "url"
+                  ],
+                  "type": "object"
+                },
+                {
+                  "properties": {
+                    "name": {
+                      "pattern": "^pycircuit-sdk-[0-9]+\\.[0-9]+\\.[0-9]+-macos\\-arm64\\.manifest\\.json$",
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              ]
+            }
+          },
+          "required": [
+            "archive",
+            "manifest"
+          ],
+          "type": "object"
+        }
+      },
+      "required": [
+        "linux-x86_64",
+        "macos-arm64"
+      ],
+      "type": "object"
+    },
+    "product_version": {
+      "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+(?:[.a-zA-Z0-9+-]*)?$",
+      "type": "string"
+    },
+    "release_notes": {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "sha256": {
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "size": {
+          "minimum": 1,
+          "type": "integer"
+        },
+        "url": {
+          "format": "uri",
+          "pattern": "^https://github\\.com/PTO-ISA/pyCircuit/releases/download/v[0-9]+\\.[0-9]+\\.[0-9]+/[A-Za-z0-9._+-]+$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "sha256",
+        "size",
+        "url"
+      ],
+      "type": "object"
+    },
+    "schema": {
+      "const": "pycircuit-sdk-release-index"
+    },
+    "source_revision": {
+      "pattern": "^[0-9a-f]{40}$",
+      "type": "string"
+    },
+    "version": {
+      "const": "1"
+    },
+    "wheels": {
+      "additionalProperties": false,
+      "properties": {
+        "agentic-circuit": {
+          "additionalProperties": false,
+          "properties": {
+            "name": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "sha256": {
+              "pattern": "^sha256:[0-9a-f]{64}$",
+              "type": "string"
+            },
+            "size": {
+              "minimum": 1,
+              "type": "integer"
+            },
+            "url": {
+              "format": "uri",
+              "pattern": "^https://github\\.com/PTO-ISA/pyCircuit/releases/download/v[0-9]+\\.[0-9]+\\.[0-9]+/[A-Za-z0-9._+-]+$",
+              "type": "string"
+            }
+          },
+          "required": [
+            "name",
+            "sha256",
+            "size",
+            "url"
+          ],
+          "type": "object"
+        },
+        "pycircuit-hisi": {
+          "additionalProperties": false,
+          "properties": {
+            "name": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "sha256": {
+              "pattern": "^sha256:[0-9a-f]{64}$",
+              "type": "string"
+            },
+            "size": {
+              "minimum": 1,
+              "type": "integer"
+            },
+            "url": {
+              "format": "uri",
+              "pattern": "^https://github\\.com/PTO-ISA/pyCircuit/releases/download/v[0-9]+\\.[0-9]+\\.[0-9]+/[A-Za-z0-9._+-]+$",
+              "type": "string"
+            }
+          },
+          "required": [
+            "name",
+            "sha256",
+            "size",
+            "url"
+          ],
+          "type": "object"
+        },
+        "pycircuit-semantic-core": {
+          "additionalProperties": false,
+          "properties": {
+            "name": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "sha256": {
+              "pattern": "^sha256:[0-9a-f]{64}$",
+              "type": "string"
+            },
+            "size": {
+              "minimum": 1,
+              "type": "integer"
+            },
+            "url": {
+              "format": "uri",
+              "pattern": "^https://github\\.com/PTO-ISA/pyCircuit/releases/download/v[0-9]+\\.[0-9]+\\.[0-9]+/[A-Za-z0-9._+-]+$",
+              "type": "string"
+            }
+          },
+          "required": [
+            "name",
+            "sha256",
+            "size",
+            "url"
+          ],
+          "type": "object"
+        }
+      },
+      "required": [
+        "pycircuit-hisi",
+        "pycircuit-semantic-core",
+        "agentic-circuit"
+      ],
+      "type": "object"
+    }
+  },
+  "required": [
+    "schema",
+    "version",
+    "contract_epoch",
+    "product_version",
+    "candidate_tag",
+    "source_revision",
+    "distributions",
+    "abi",
+    "capabilities",
+    "platforms",
+    "wheels",
+    "licenses",
+    "release_notes",
+    "checksums"
+  ],
+  "title": "pyCircuit SDK release index v1",
+  "type": "object"
+}

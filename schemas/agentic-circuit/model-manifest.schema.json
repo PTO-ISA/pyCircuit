@@ -1,0 +1,168 @@
+{
+  "$id": "https://pto-isa.org/schemas/agentic-circuit/model-manifest-v1.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "cmake_sources": {
+      "additionalProperties": false,
+      "properties": {
+        "path": {
+          "minLength": 1,
+          "pattern": "^(?!/)(?![A-Za-z]:)(?!.*\\\\)(?!.*(?:^|/)\\.\\.?(/|$))(?!.*//)[A-Za-z0-9._+@/-]+$",
+          "type": "string"
+        },
+        "sha256": {
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "path",
+        "sha256"
+      ],
+      "type": "object"
+    },
+    "contract_epoch": {
+      "const": "0.5"
+    },
+    "depfile_path": {
+      "minLength": 1,
+      "pattern": "^(?!/)(?![A-Za-z]:)(?!.*\\\\)(?!.*(?:^|/)\\.\\.?(/|$))(?!.*//)[A-Za-z0-9._+@/-]+$",
+      "type": "string"
+    },
+    "entry": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "exports": {
+      "additionalProperties": false,
+      "properties": {
+        "abi_version": {
+          "const": "1"
+        },
+        "api_struct_size": {
+          "const": 96
+        },
+        "buffer_struct_size": {
+          "const": 16
+        },
+        "header": {
+          "const": "include/gfsim/model_api.h"
+        },
+        "query_symbol": {
+          "const": "agentic_model_query_v1"
+        },
+        "step_result_struct_size": {
+          "const": 32
+        }
+      },
+      "required": [
+        "header",
+        "query_symbol",
+        "abi_version",
+        "api_struct_size",
+        "buffer_struct_size",
+        "step_result_struct_size"
+      ],
+      "type": "object"
+    },
+    "generated_files": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "path": {
+            "minLength": 1,
+            "pattern": "^(?!/)(?![A-Za-z]:)(?!.*\\\\)(?!.*(?:^|/)\\.\\.?(/|$))(?!.*//)[A-Za-z0-9._+@/-]+$",
+            "type": "string"
+          },
+          "sha256": {
+            "pattern": "^sha256:[0-9a-f]{64}$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "path",
+          "sha256"
+        ],
+        "type": "object"
+      },
+      "minItems": 3,
+      "type": "array"
+    },
+    "plan": {
+      "additionalProperties": false,
+      "properties": {
+        "path": {
+          "minLength": 1,
+          "pattern": "^(?!/)(?![A-Za-z]:)(?!.*\\\\)(?!.*(?:^|/)\\.\\.?(/|$))(?!.*//)[A-Za-z0-9._+@/-]+$",
+          "type": "string"
+        },
+        "sha256": {
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "path",
+        "sha256"
+      ],
+      "type": "object"
+    },
+    "required_runtime": {
+      "const": "AgenticCircuit::Gfsim"
+    },
+    "runtime_abi": {
+      "const": "1"
+    },
+    "schema": {
+      "const": "agentic-circuit-model-manifest"
+    },
+    "sdk": {
+      "additionalProperties": false,
+      "properties": {
+        "platform_manifest_sha256": {
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "product_version": {
+          "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+(?:[.a-zA-Z0-9+-]*)?$",
+          "type": "string"
+        },
+        "source_revision": {
+          "pattern": "^[0-9a-f]{40}$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "product_version",
+        "source_revision",
+        "platform_manifest_sha256"
+      ],
+      "type": "object"
+    },
+    "specialization": {
+      "pattern": "^sha256:[0-9a-f]{64}$",
+      "type": "string"
+    },
+    "version": {
+      "const": "1"
+    }
+  },
+  "required": [
+    "schema",
+    "version",
+    "contract_epoch",
+    "plan",
+    "sdk",
+    "entry",
+    "specialization",
+    "generated_files",
+    "cmake_sources",
+    "depfile_path",
+    "required_runtime",
+    "runtime_abi",
+    "exports"
+  ],
+  "title": "Agentic Circuit generated model manifest v1",
+  "type": "object"
+}

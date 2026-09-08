@@ -1,0 +1,10 @@
+.pycircuit_out/contracts-venv/bin/python tools/agentic-circuit/check-contracts.py
+.pycircuit_out/contracts-venv/bin/python tools/agentic-circuit/check-sdk-contract.py
+cc -std=c11 -Isimulator/gfsim/include tests/python/agentic-circuit/contracts/model_api_smoke.c -o .pycircuit_out/gates/20260909-issue61-sdk-contract/model-api-c
+c++ -std=c++20 -Isimulator/gfsim/include tests/python/agentic-circuit/contracts/model_api_smoke.cpp -o .pycircuit_out/gates/20260909-issue61-sdk-contract/model-api-cxx
+AC_PYTHON_ONLY=1 PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=python/semantic-core/src:python/agentic-circuit/src:tests/python/agentic-circuit .pycircuit_out/contracts-venv/bin/python -m unittest discover -s tests/python/agentic-circuit/contracts -p 'test_*.py'
+pytest -q tests/unit -m unit
+python3 flows/tools/check_api_hygiene.py python/pycircuit/src/pycircuit examples/pycircuit docs README.md
+mkdocs build --strict
+pre-commit run --all-files
+python3 flows/tools/check_decision_status.py --rfc docs/rfcs/pyc6-decisions.md --status docs/gates/decision_status_v6.md --out docs/gates/logs/20260909-issue61-sdk-contract/decision_status_report.json --require-concrete-evidence --require-existing-evidence

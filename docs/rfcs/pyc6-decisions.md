@@ -8160,3 +8160,165 @@ not form a bounded reusable schedule-v2 provider.
 - PTO-ISA/pyCircuit issue #19 and the lost-wakeup case linked from issue #11.
 - Composes Decisions 0193, 0197, 0198, and 0203 without exposing ready/valid,
   pop/push, rename tables, or commit mechanics in ordinary Python.
+
+## Decision 0232: stable SDK releases use one exact identity tuple and two CMake components
+
+**Status:** Accepted; implementation tracked by issue #61
+
+**Context / Goal**
+SuperScalarModel needs a relocatable binary SDK that can generate and link a
+gfsim model without a pyCircuit checkout or LLVM/MLIR development packages.
+The current AgenticCircuit package is a compiler-development export: its config
+always finds LLVM/MLIR, while release artifacts omit an explicit SDK identity,
+agentic-circuit wheel, checksums, and platform contract.
+
+**Decision (strong constraint)**
+- The first candidate is product/SDK `6.0.0` and tag `v6.0.0`.
+  `pycircuit-hisi` and `pycircuit-semantic-core` use `6.0.0`;
+  `agentic-circuit` uses `0.1.0`; ACPy/ACIR remain epoch `0.5`.
+- SDK platform manifest, release index, model plan, model manifest,
+  generator/runtime ABI, and consumer lock use version `1`. Compatibility
+  requires the exact complete identity tuple and final peeled tag commit. No
+  cross-release C++ or model ABI is promised.
+- The first supported artifacts are `linux-x86_64` built on Ubuntu 24.04 for
+  glibc 2.39/libstdc++ CXX11 ABI and `macos-arm64` built on macOS 15 for Apple
+  libc++. Both use Python 3.11 and a declared C++20 compiler identity. Other
+  systems are unsupported until separately verified.
+- `find_package(AgenticCircuit COMPONENTS Runtime)` exposes the generated model
+  ABI and `AgenticCircuit::Gfsim` without finding LLVM/MLIR development
+  packages. `CompilerDev` exposes dialect/pass/compiler targets and requires
+  LLVM/MLIR 22.1.8 exactly. Unknown components fail.
+- A platform SDK archive contains installed tools, Runtime headers/libraries,
+  CMake exports, the wheelhouse, schemas, licenses, and one embedded platform
+  manifest. That manifest hashes installed files except itself and never hashes
+  the enclosing archive. A separate release index hashes and names both
+  archives, both attached platform manifests, the exact wheel map, licenses,
+  and release notes. `SHA256SUMS` covers the index but excludes itself.
+  Native non-system dependencies are relocatable inside the archive; each
+  platform manifest classifies documented system dependencies.
+- `packaging/sdk/version-map.json` is the canonical candidate version/platform
+  map. The final manifest supplies the release source revision and artifact
+  URLs/hashes after all issue #61 implementation merges.
+
+**Required verification**
+- Runtime-only configure, compile, link, and execution pass with LLVM/MLIR
+  package locations hidden. CompilerDev still rejects missing or mismatched
+  LLVM/MLIR.
+- Linux x86_64 and macOS arm64 archives pass dependency, producer-path, C++ ABI,
+  Python 3.11, and move-to-new-prefix checks.
+- A clean environment installs the exact three-wheel combination recorded by
+  the SDK manifest. Wrong version/platform/ABI tuples fail before generation.
+
+**Source**
+- PTO-ISA/pyCircuit issue #61 R01-R04 and R09-R17.
+- LinxISA/SuperScalarModel issue #578.
+
+## Decision 0233: installed model plan and emit-cpp use verified schemas and an opaque runtime ABI
+
+**Status:** Accepted; implementation tracked by issue #61
+
+**Context / Goal**
+The QueueGraph/JIT path already expresses the DavinciOO authoring semantics, and
+the ACSim path already demonstrates deterministic multi-TU source bundles.
+Neither exposes a stable installed plan/emit contract. A consumer must not call
+repo scripts, infer output files, bind a generated class layout, or open a
+second semantic lowering path.
+
+**Decision (strong constraint)**
+- The installed CLI owns `agentic-circuit model plan` and
+  `agentic-circuit model emit-cpp` with the arguments and outputs fixed in
+  `docs/development/sdk-release-contract.md`. Both require one explicit
+  `--sdk-root`; no checkout, build-tree, PATH, PYTHONPATH, or environment
+  fallback may select a different SDK.
+- Plan captures a bounded external source/import/contract/config closure,
+  lowers through the shared frontend, dialect verifiers and QueueGraph planner,
+  and publishes canonical Frozen ACIR, QueueGraph, source hashes, SDK/ABI
+  identity, deterministic output list, hashed CMake source fragment, and the
+  depfile's logical path.
+- Emit verifies the plan and every recorded hash, consumes the verified
+  QueueGraph identity without importing Python again, and emits a sorted
+  multi-translation-unit bundle plus a model manifest. It does not add a
+  DavinciOO or product-name branch.
+- Plan and manifest conform to the version-1 JSON schemas under
+  `schemas/agentic-circuit/`. Logical identities are root-independent relative
+  paths; only the local depfile may contain absolute consumer paths. Canonical
+  JSON records the depfile path and never its root-dependent content hash.
+- Generation holds one exclusive output-root lock, stages a declared closed file
+  set, validates it, and publishes atomically. Failure preserves the previous
+  bundle. Successful topology change deletes only obsolete files owned by the
+  preceding model manifest.
+- `model-sources.cmake` is a command-free fragment that sets only sorted
+  relative generated source/header lists, query symbol
+  `agentic_model_query_v1`, and runtime target `AgenticCircuit::Gfsim`.
+  Consumers own path prefixing and target construction.
+- Generated C++ exposes only
+  `extern "C" const AgenticModelApiV1 *agentic_model_query_v1()`. The installed
+  `gfsim/model_api.h` fixes the 64-bit layouts, sizes, status values, opaque
+  handle, buffer/step types, identity strings, function signatures, lifetime,
+  single-thread ownership, and non-reentrancy rules. The table owns
+  create/destroy, canonical JSON configuration/trace loading, reset,
+  step/status, canonical JSON statistics/observations, and last-error access.
+  STL, LLVM/MLIR, generated class layout, ELF loading, ISA decoding, and product
+  state do not cross this ABI.
+- SDK, source, plan, generator, and runtime ABI mismatches fail before output
+  mutation. Unsupported Table/PYC or other backend boundaries remain explicit.
+
+**Required verification**
+- Cross-root and hash-seed runs produce byte-identical plans, manifests, CMake
+  fragments, and source bundles. Only local depfile content may differ; no
+  canonical document includes its content hash.
+- External multi-file fixtures cover nominal imports, const specialization,
+  multiple independent instances, admitted Table state, optional heterogeneous
+  outputs, backpressure, reset, step, statistics, and observations.
+- Negative tests cover escaped imports, stale source/config/plan, wrong SDK/ABI,
+  missing tool, parallel same-root generation, failed publication rollback, and
+  obsolete-TU cleanup.
+
+**Source**
+- PTO-ISA/pyCircuit issue #61 R02 and R05-R08.
+
+## Decision 0234: release publication consumes only accepted candidate bytes
+
+**Status:** Accepted; implementation tracked by issue #61
+
+**Context / Goal**
+Source-tree gates and package construction do not prove that the exact uploaded
+archive is complete or relocatable. Temporary Actions artifacts also do not
+establish a stable consumer pin. Release authority must validate, publish, and
+redownload one immutable candidate byte set.
+
+**Decision (strong constraint)**
+- Full integrated AC/PYC closure runs before candidate construction and retains
+  Decision 0159's native, G0/G1/G2, examples, normal/nightly, semantic, strict
+  decision-status, API, unit, and documentation gates.
+- Candidate construction produces both platform SDK archives, their uniquely
+  named attached manifests, the three-wheel set, licenses, release notes, one
+  release index, and `SHA256SUMS`. Platform manifests hash installed files
+  except themselves; the release index names exact external bytes, sizes,
+  identities, capabilities, and hashes; `SHA256SUMS` covers the index and all
+  other attached files except itself.
+- Installed-candidate jobs download or transfer those exact artifacts, verify
+  their hashes, move each SDK to an unrelated prefix, hide producer source/build
+  and LLVM/MLIR development paths, and run the generic external model consumer.
+  Incremental, topology-change, concurrency, mismatch, dependency, and
+  unsupported-boundary gates are mandatory on both platforms.
+- GitHub Release, GHCR, and optional PyPI jobs all depend on one successful
+  candidate-acceptance job and upload the same bytes. No publish path rebuilds
+  an artifact after acceptance.
+- After publication, a separate job redownloads every asset from the stable
+  release, verifies `SHA256SUMS`, installs the wheels and relocated SDK, and
+  reruns the smoke consumer. Failure blocks the SuperScalarModel handoff.
+- The final handoff records stable asset URLs/hashes, source revision, version
+  map, ABI tuple, capabilities, and known unsupported boundaries in the
+  version-1 consumer lock. A branch SHA or temporary artifact cannot substitute.
+
+**Required verification**
+- Workflow dependency tests prove all publish jobs require candidate acceptance
+  and post-publish verification consumes release URLs.
+- Each platform validates the exact archive and wheels later published, with no
+  producer absolute path or undeclared dynamic dependency.
+- The final non-draft, non-prerelease release is redownloaded successfully and
+  its consumer lock is posted to SuperScalarModel issue #578.
+
+**Source**
+- PTO-ISA/pyCircuit issue #61 R13-R23.

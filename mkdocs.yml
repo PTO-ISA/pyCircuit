@@ -97,6 +97,7 @@ nav:
       - Overview: development/index.md
       - Contributing Workflow: development/contributing-workflow.md
       - Testing and Gates: development/testing-and-gates.md
+      - Stable SDK Release Contract: development/sdk-release-contract.md
       - Review and Merge: development/review-and-merge.md
       - Repository Management: development/repository-management.md
       - DavinciOO Design Program: development/davincioo-design-program.md

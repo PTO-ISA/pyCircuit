@@ -1,0 +1,215 @@
+{
+  "$id": "https://pto-isa.org/schemas/agentic-circuit/model-plan-v1.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "capabilities": {
+      "const": [
+        "queuegraph-v2",
+        "multi-tu-v1",
+        "runtime-abi-v1"
+      ]
+    },
+    "cmake_sources": {
+      "additionalProperties": false,
+      "properties": {
+        "path": {
+          "minLength": 1,
+          "pattern": "^(?!/)(?![A-Za-z]:)(?!.*\\\\)(?!.*(?:^|/)\\.\\.?(/|$))(?!.*//)[A-Za-z0-9._+@/-]+$",
+          "type": "string"
+        },
+        "sha256": {
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "path",
+        "sha256"
+      ],
+      "type": "object"
+    },
+    "config": {
+      "additionalProperties": false,
+      "properties": {
+        "path": {
+          "minLength": 1,
+          "pattern": "^(?!/)(?![A-Za-z]:)(?!.*\\\\)(?!.*(?:^|/)\\.\\.?(/|$))(?!.*//)[A-Za-z0-9._+@/-]+$",
+          "type": "string"
+        },
+        "sha256": {
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "path",
+        "sha256"
+      ],
+      "type": "object"
+    },
+    "contract_epoch": {
+      "const": "0.5"
+    },
+    "depfile_path": {
+      "minLength": 1,
+      "pattern": "^(?!/)(?![A-Za-z]:)(?!.*\\\\)(?!.*(?:^|/)\\.\\.?(/|$))(?!.*//)[A-Za-z0-9._+@/-]+$",
+      "type": "string"
+    },
+    "entry": {
+      "pattern": "^[A-Za-z_][A-Za-z0-9_.]*:[A-Za-z_][A-Za-z0-9_]*$",
+      "type": "string"
+    },
+    "frozen_acir": {
+      "additionalProperties": false,
+      "properties": {
+        "path": {
+          "minLength": 1,
+          "pattern": "^(?!/)(?![A-Za-z]:)(?!.*\\\\)(?!.*(?:^|/)\\.\\.?(/|$))(?!.*//)[A-Za-z0-9._+@/-]+$",
+          "type": "string"
+        },
+        "sha256": {
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "path",
+        "sha256"
+      ],
+      "type": "object"
+    },
+    "inputs": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "path": {
+            "minLength": 1,
+            "pattern": "^(?!/)(?![A-Za-z]:)(?!.*\\\\)(?!.*(?:^|/)\\.\\.?(/|$))(?!.*//)[A-Za-z0-9._+@/-]+$",
+            "type": "string"
+          },
+          "role": {
+            "enum": [
+              "entry",
+              "import",
+              "contract",
+              "config"
+            ]
+          },
+          "sha256": {
+            "pattern": "^sha256:[0-9a-f]{64}$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "path",
+          "sha256",
+          "role"
+        ],
+        "type": "object"
+      },
+      "minItems": 1,
+      "type": "array"
+    },
+    "outputs": {
+      "items": {
+        "minLength": 1,
+        "pattern": "^(?!/)(?![A-Za-z]:)(?!.*\\\\)(?!.*(?:^|/)\\.\\.?(/|$))(?!.*//)[A-Za-z0-9._+@/-]+$",
+        "type": "string"
+      },
+      "minItems": 3,
+      "type": "array",
+      "uniqueItems": true
+    },
+    "queuegraph": {
+      "additionalProperties": false,
+      "properties": {
+        "path": {
+          "minLength": 1,
+          "pattern": "^(?!/)(?![A-Za-z]:)(?!.*\\\\)(?!.*(?:^|/)\\.\\.?(/|$))(?!.*//)[A-Za-z0-9._+@/-]+$",
+          "type": "string"
+        },
+        "sha256": {
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "path",
+        "sha256"
+      ],
+      "type": "object"
+    },
+    "required_runtime": {
+      "const": "AgenticCircuit::Gfsim"
+    },
+    "schema": {
+      "const": "agentic-circuit-model-plan"
+    },
+    "sdk": {
+      "additionalProperties": false,
+      "properties": {
+        "generator_abi": {
+          "const": "1"
+        },
+        "model_plan_abi": {
+          "const": "1"
+        },
+        "platform_manifest_sha256": {
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "product_version": {
+          "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+(?:[.a-zA-Z0-9+-]*)?$",
+          "type": "string"
+        },
+        "runtime_abi": {
+          "const": "1"
+        },
+        "source_revision": {
+          "pattern": "^[0-9a-f]{40}$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "product_version",
+        "source_revision",
+        "platform_manifest_sha256",
+        "model_plan_abi",
+        "generator_abi",
+        "runtime_abi"
+      ],
+      "type": "object"
+    },
+    "specialization": {
+      "pattern": "^sha256:[0-9a-f]{64}$",
+      "type": "string"
+    },
+    "static_config": {
+      "type": "object"
+    },
+    "version": {
+      "const": "1"
+    }
+  },
+  "required": [
+    "schema",
+    "version",
+    "contract_epoch",
+    "sdk",
+    "entry",
+    "specialization",
+    "config",
+    "static_config",
+    "inputs",
+    "frozen_acir",
+    "queuegraph",
+    "outputs",
+    "cmake_sources",
+    "depfile_path",
+    "required_runtime",
+    "capabilities"
+  ],
+  "title": "Agentic Circuit model plan v1",
+  "type": "object"
+}

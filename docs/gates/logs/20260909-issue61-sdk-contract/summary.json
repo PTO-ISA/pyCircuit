@@ -1,0 +1,83 @@
+{
+  "run_id": "20260909-issue61-sdk-contract",
+  "status": "passed",
+  "base_revision": "e4485192727e27ac4d1de62bfdb6438fd878cdff",
+  "issue": 61,
+  "decision_ids": [
+    "0232",
+    "0233",
+    "0234"
+  ],
+  "decision_state": "deferred until P1-P7 implementation and stable release handoff",
+  "results": {
+    "public_schemas": {
+      "passed": 21,
+      "failed": 0
+    },
+    "contract_tests": {
+      "passed": 46,
+      "failed": 0
+    },
+    "unit": {
+      "passed": 90,
+      "failed": 0
+    },
+    "api_hygiene": {
+      "passed": true
+    },
+    "mkdocs_strict": {
+      "passed": true
+    },
+    "pre_commit": {
+      "passed": true
+    },
+    "decision_status_nonrelease": {
+      "rows": 234,
+      "deferred": 3,
+      "gap_in_scope": 0,
+      "passed": true
+    },
+    "sdk_contract": {
+      "schemas": 6,
+      "documents": 6,
+      "adversarial_negatives": 21,
+      "passed": true
+    },
+    "model_api_header": {
+      "c11": true,
+      "cxx20": true,
+      "abi_struct_size": 96,
+      "buffer_struct_size": 16,
+      "step_result_struct_size": 32
+    }
+  },
+  "candidate": {
+    "product_version": "6.0.0",
+    "tag": "v6.0.0",
+    "source_revision": null,
+    "source_revision_policy": "annotated_tag_peeled_commit_after_all_issue-61 implementation merges"
+  },
+  "contracts": [
+    "packaging/sdk/version-map.json",
+    "schemas/agentic-circuit/sdk-version-map.schema.json",
+    "schemas/agentic-circuit/sdk-manifest.schema.json",
+    "schemas/agentic-circuit/release-index.schema.json",
+    "schemas/agentic-circuit/model-plan.schema.json",
+    "schemas/agentic-circuit/model-manifest.schema.json",
+    "schemas/agentic-circuit/consumer-lock.schema.json",
+    "simulator/gfsim/include/gfsim/model_api.h",
+    "docs/development/sdk-release-contract.md"
+  ],
+  "release_probe": {
+    "run": "https://github.com/PTO-ISA/pyCircuit/actions/runs/34267443233",
+    "attempts": 2,
+    "status": "failed_before_package_or_publish",
+    "blocker": "Linux Agentic check-acir consistently fails CodeGen/emit-cxx-current.mlir; diagnose and close before P6"
+  },
+  "skill_evolve": "no-update",
+  "review": {
+    "verdict": "APPROVE",
+    "unresolved": 0,
+    "architectural_status": "CLEAR"
+  }
+}
