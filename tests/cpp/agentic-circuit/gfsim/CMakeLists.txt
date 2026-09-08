@@ -3,6 +3,7 @@ add_executable(GfsimTests
   BitsTest.cpp
   NpuTest.cpp
   QueueBlocksTest.cpp
+  ReplayTest.cpp
   ShowcaseTest.cpp
   core_test.cpp
 )

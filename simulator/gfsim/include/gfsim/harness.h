@@ -45,6 +45,7 @@ struct RunManifest {
   RuntimeLimits limits;
   std::string statsFormat;
   std::string eventLog;
+  bool recordReplay = false;
   TerminationExpectation expectation;
 
   // Cold-path resolution identity, not part of the public JSON document.
@@ -117,7 +118,19 @@ llvm::Expected<RunResultDocument> runGeneratedModel(Model &model,
                                    "ACRUN-PREFLIGHT-001: generated model "
                                    "rejected the validated trace document");
   model.configure(manifest.limits);
+  if (manifest.recordReplay) {
+    if constexpr (requires { model.startReplay(std::string{}); })
+      model.startReplay(resultStage.str() + ".pyctrace");
+    else
+      return llvm::createStringError(
+          llvm::errc::invalid_argument,
+          "ACREPLAY-001: model lacks replay support");
+  }
   RunResultDocument result = makeRunResult(manifest, model.run());
+  if (manifest.recordReplay) {
+    if constexpr (requires { model.finishReplay(std::string{}); })
+      model.finishReplay(result.terminationReason);
+  }
   std::vector<StatSnapshot> statistics = model.statistics();
   std::span<const CommittedEvent> events = model.observations();
   if (llvm::Error error =

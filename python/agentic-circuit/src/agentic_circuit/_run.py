@@ -85,6 +85,7 @@ class RunOptions:
     stats_format: Literal["json"]
     event_log: Literal["disabled", "jsonl"]
     termination_kind: TerminationKind
+    record_replay: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -250,6 +251,8 @@ def create_run_manifest(build: BuildPublication, options: RunOptions) -> bytes:
             "reason": None,
         },
     }
+    if options.record_replay:
+        document["record_replay"] = True
     return _canonical_bytes(document)
 
 
@@ -286,7 +289,8 @@ def _build_executable(
 def _verify_manifest(data: bytes) -> dict[str, object]:
     document = _json_document(data, "run manifest")
     if (
-        set(document) != _MANIFEST_KEYS
+        set(document) - {"record_replay"} != _MANIFEST_KEYS
+        or ("record_replay" in document and type(document["record_replay"]) is not bool)
         or document.get("schema") != "agentic-circuit-run-manifest"
         or document.get("version") != "0.1"
         or document.get("contract_epoch") != "0.5"
@@ -515,6 +519,9 @@ def _execute_bundle(
     runtime_files = ["run-result.json", "stats.json", "validation-report.json"]
     if manifest["event_log"] == "jsonl":
         runtime_files.append("events.jsonl")
+    recording = bool(manifest.get("record_replay", False))
+    if recording:
+        runtime_files.append("execution.pyctrace")
     input_paths = {build_path, executable_path, trace_path, "run-manifest.json"}
     if len(input_paths) != 4 or input_paths & set(runtime_files):
         _failure(5, "ACRUN-PREFLIGHT-001", "run bundle input paths collide")

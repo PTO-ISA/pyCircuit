@@ -187,6 +187,37 @@ payloadEmissionOrder(const QueueGraphPlan &plan) {
   return result;
 }
 
+void emitReplayFields(std::ostream &output, const QueuePayloadPlan &payload) {
+  output << "  gfsim::ReplayValue replayValue() const {\n"
+            "    return gfsim::ReplayValue::Object{";
+  bool flat = true;
+  for (auto [index, field] : llvm::enumerate(payload.fields)) {
+    if (index)
+      output << ", ";
+    output << "{\"" << field.name << "\", ";
+    if (enumTypeName(field.type))
+      output << "gfsim::ReplayValue::Integer{static_cast<uint64_t>("
+             << identifier(field.name) << "), " << field.width << "}";
+    else
+      output << "gfsim::replayValue(" << identifier(field.name) << ")";
+    output << "}";
+    if (structTypeName(field.type) ||
+        field.type.find("!ac.value_array") != std::string::npos ||
+        field.type.find("!ac.tuple") != std::string::npos)
+      flat = false;
+  }
+  output << "};\n  }\n";
+  output << "  static constexpr bool replayFlat = " << (flat ? "true" : "false")
+         << ";\n";
+  output << "  static gfsim::ReplayValue::Array replayFields() { return {";
+  for (auto [index, field] : llvm::enumerate(payload.fields)) {
+    if (index)
+      output << ", ";
+    output << "\"" << field.name << "\"";
+  }
+  output << "}; }\n";
+}
+
 llvm::StringRef enumStorage(uint64_t width) {
   if (width <= 8)
     return "std::uint8_t";
@@ -1625,7 +1656,9 @@ generateStructuredQueueGraphCpp(const QueueGraphPlan &plan) {
       output << "  " << *type << ' ' << identifier(field.name) << "{};\n";
     }
     output << "  bool operator==(const " << payload->name
-           << " &) const = default;\n};\n\n";
+           << " &) const = default;\n";
+    emitReplayFields(output, *payload);
+    output << "};\n\n";
   }
 
   auto emitStatefulSpecialization =
@@ -2840,6 +2873,7 @@ llvm::Expected<std::string> generateQueueGraphCpp(const QueueGraphPlan &plan) {
     }
     output << "  bool operator==(const " << payload->name
            << " &) const = default;\n";
+    emitReplayFields(output, *payload);
     output << "};\n\n";
   }
 
@@ -2880,7 +2914,8 @@ llvm::Expected<std::string> generateQueueGraphCpp(const QueueGraphPlan &plan) {
       return entryType.takeError();
     output << "struct " << identifier(selection.name) << "_mask_policy {\n"
            << "  " << identifier(selection.match) << "_cache *match{};\n"
-           << "  const gfsim::CandidateSet &operator()(gfsim::Epoch epoch) const {\n"
+           << "  const gfsim::CandidateSet &operator()(gfsim::Epoch epoch) "
+              "const {\n"
            << "    return match->get(epoch);\n  }\n};\n";
     output << "struct " << identifier(selection.name) << "_key_policy {\n"
            << "  std::uint64_t operator()(const " << *entryType

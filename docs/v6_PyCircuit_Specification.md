@@ -676,3 +676,12 @@ outs = domain.call(alu, inputs={...}, tier=1)             # 模块级缺省 tier
 ---
 
 **Copyright © 2024-2026 Liao Heng / PyCircuit Contributors. All rights reserved.**
+
+## Agentic Queue/Table 数据流观察
+
+Decision 0223 为 gfsim 提供可选的 Queue/Table 提交记录，包含对象拓扑、
+flat entry 描述、Queue 元素标识、表行访问和原子提交前后值。
+记录使用 `PYC6TRC3` 容器，默认关闭，不改变 CAS、规则执行或 activation 语义。
+HTML 动画由独立工具消费记录生成，不进入框架发行包。
+第一版不声明完整私有状态、嵌套 entry、reset 或 PYC/RTL 回放支持。
+具体格式见 [Queue/Table flow recording](development/acir/queue-table-flow.md)。

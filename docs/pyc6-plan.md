@@ -39,6 +39,14 @@ remains distinct.
 
 ## Milestones
 
+### Queue/Table dataflow observation
+
+- [x] Define Decision 0223's recording/presentation boundary and versioned format.
+- [x] Verify opt-in gfsim Queue/Table operations, token identities, atomic state
+  reconstruction and ROB equivalence with recording enabled.
+- [ ] Publish an independent viewer after local review; the prototype is not a
+  framework release artifact.
+
 ### DavinciOO contributor design program
 
 - [x] Record Decision 0222's scoped source-placement change: new DavinciOO

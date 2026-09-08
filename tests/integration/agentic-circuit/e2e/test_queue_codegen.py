@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import shutil
+import shlex
 import subprocess
 import tempfile
 import unittest
@@ -106,6 +107,28 @@ DAVINCIOO_TRACE = (
 DAVINCIOO_PROJECTION = (
     ROOT / "tests/goldens/agentic-circuit/davincioo/softmax-projection.json"
 )
+
+
+def gfsim_link_args() -> tuple[str, ...]:
+    """Match gfsim's public CMake link dependencies for standalone harnesses."""
+    build = ROOT / ".pycircuit_out/local-clang22/build"
+    flags = subprocess.check_output(
+        ["llvm-config", "--ldflags", "--libs", "support"],
+        text=True,
+    )
+    cache = {}
+    for line in (build / "CMakeCache.txt").read_text().splitlines():
+        if "=" in line and not line.startswith(("//", "#")):
+            key, value = line.split("=", 1)
+            cache[key.split(":", 1)[0]] = value
+    return (
+        str(build / "compiler/acir/gfsim/libgfsim.a"),
+        str(build / "compiler/acir/lib/Bindings/libACIRBindings.a"),
+        *shlex.split(flags),
+        "-lrt", "-ldl", "-lm",
+        cache["ZLIB_LIBRARY_RELEASE"],
+        cache["zstd_LIBRARY"],
+    )
 
 
 @contextmanager
@@ -2259,11 +2282,20 @@ int main() {{
 
 #include <array>
 #include <cstdint>
+#include <cstdlib>
+#include "gfsim/replay_session.h"
 #include "{ROOT / "tests/integration/agentic-circuit/e2e/rob_diagnostics.h"}"
 
 int main() {{
   ac_generated::CircularRob model;
   auto rows = model.dispatch_rows();
+  std::unique_ptr<gfsim::ReplaySession> replay;
+  if (std::getenv("PYC_RECORD_REPLAY")) {{
+    replay = std::make_unique<gfsim::ReplaySession>("execution.pyctrace", rows);
+    replay->source("{model}");
+    replay->source("{harness}");
+    replay->start();
+  }}
   std::uint64_t tick = 0;
   auto fail = [&](int code) {{
     std::cerr << "ROB check=" << code << '\\n';
@@ -2281,11 +2313,14 @@ int main() {{
   auto offer = [&](auto &queue, const ac_generated::RobEvent &value) {{
     if (!queue.proposePush(value))
       return false;
+    if (replay) replay->begin({{tick, 0}});
     queue.doXfer({{tick++, 0}});
+    if (replay) replay->end();
     return true;
   }};
   auto cycle = [&](bool drain_allocate = true, bool drain_retire = true) {{
     const gfsim::Epoch epoch{{tick++, 0}};
+    if (replay) replay->begin(epoch);
     for (auto &row : rows) {{
       const bool run = row.kind != gfsim::ObjectKind::Sink ||
                        (row.id == model.sink_0_id() && drain_allocate) ||
@@ -2299,6 +2334,7 @@ int main() {{
       row.xfer(row.object, epoch, gfsim::XferPhase::Probe);
     for (auto &row : rows)
       row.xfer(row.object, epoch, gfsim::XferPhase::Commit);
+    if (replay) replay->end();
   }};
   auto scalar = [](const auto &table) {{
     return static_cast<unsigned long long>(table.at(0));
@@ -2427,6 +2463,7 @@ int main() {{
   if (retired.size() != 6 ||
       static_cast<unsigned long long>(retired.back().value) != 70)
     return fail(23);
+  if (replay) replay->finish();
   return 0;
 }}
 ''',
@@ -2583,11 +2620,20 @@ int main() {{
                 f'''#include "{model.name}"
 
 #include <cstdint>
+#include <cstdlib>
+#include "gfsim/replay_session.h"
 #include "{ROOT / "tests/integration/agentic-circuit/e2e/rob_diagnostics.h"}"
 
 int main() {{
   ac_generated::ReusableCircularRob model;
   auto rows = model.dispatch_rows();
+  std::unique_ptr<gfsim::ReplaySession> replay;
+  if (std::getenv("PYC_RECORD_REPLAY")) {{
+    replay = std::make_unique<gfsim::ReplaySession>("execution.pyctrace", rows);
+    replay->source("{model}");
+    replay->source("{harness}");
+    replay->start();
+  }}
   std::uint64_t tick = 0;
   auto fail = [&](int code) {{
     std::cerr << "ROB check=" << code << '\\n';
@@ -2605,11 +2651,14 @@ int main() {{
   auto offer = [&](auto &queue, const ac_generated::RobEvent &value) {{
     if (!queue.proposePush(value))
       return false;
+    if (replay) replay->begin({{tick, 0}});
     queue.doXfer({{tick++, 0}});
+    if (replay) replay->end();
     return true;
   }};
   auto cycle = [&]() {{
     const gfsim::Epoch epoch{{tick++, 0}};
+    if (replay) replay->begin(epoch);
     for (auto &row : rows)
       row.work(row.object, epoch);
     for (auto &row : rows)
@@ -2618,6 +2667,7 @@ int main() {{
       row.xfer(row.object, epoch, gfsim::XferPhase::Probe);
     for (auto &row : rows)
       row.xfer(row.object, epoch, gfsim::XferPhase::Commit);
+    if (replay) replay->end();
   }};
 
   if (!offer(model.left_allocate(), event(0, 0, 0, 100)) ||
@@ -2714,6 +2764,7 @@ int main() {{
       activation_system.workClosureTraversalCount() == 0 ||
       activation_system.workInvocationCount() >= activation_rows.size() * 2)
     return failActivation(13);
+  if (replay) replay->finish();
   return 0;
 }}
 ''',
@@ -2726,7 +2777,7 @@ int main() {{
                     "-I",
                     str(ROOT / "simulator/gfsim/include"),
                     str(harness),
-                    str(ROOT / ".pycircuit_out/acir/dev-llvm22/gfsim/libgfsim.a"),
+                    *gfsim_link_args(),
                     "-o",
                     str(executable),
                 ),
@@ -2802,6 +2853,8 @@ int main() {{
             executable = root / "reusable_rob_equivalence"
             harness.write_text(
                 """#include "__MODEL__"
+#include "gfsim/replay_session.h"
+#include <cstdlib>
 
 #include "__DIAGNOSTICS__"
 
@@ -2952,6 +3005,15 @@ int main() {
                  gfsim::UInt<16>{epoch}, gfsim::UInt<16>{value},
                  gfsim::UInt<1>{done}};
   };
+  std::unique_ptr<gfsim::ReplaySession> scanReplay, incrementalReplay;
+  if (std::getenv("PYC_RECORD_REPLAY")) {
+    scanReplay = std::make_unique<gfsim::ReplaySession>("scan.pyctrace", std::span(scanRows).first(kModelObjects));
+    incrementalReplay = std::make_unique<gfsim::ReplaySession>("activation.pyctrace", std::span(incrementalRows).first(kModelObjects));
+    scanReplay->start();
+    incrementalReplay->start();
+    scanSystem.setReplayRecorder(&scanReplay->recorder());
+    incrementalSystem.setReplayRecorder(&incrementalReplay->recorder());
+  }
   bool equivalent = true;
   auto advance = [&]() {
     if (scanSystem.currentEpoch() != incrementalSystem.currentEpoch()) {
@@ -3208,6 +3270,12 @@ int main() {
             << incrementalSystem.activationTraversalCount()
             << " closure="
             << incrementalSystem.workClosureTraversalCount() << std::endl;
+  if (scanReplay) {
+    scanReplay->finish();
+    incrementalReplay->finish();
+    scanSystem.setReplayRecorder(nullptr);
+    incrementalSystem.setReplayRecorder(nullptr);
+  }
   return 0;
 }
 """.replace("__MODEL__", model.name).replace(
@@ -3223,7 +3291,7 @@ int main() {
                     "-I",
                     str(ROOT / "simulator/gfsim/include"),
                     str(harness),
-                    str(ROOT / ".pycircuit_out/acir/dev-llvm22/gfsim/libgfsim.a"),
+                    *gfsim_link_args(),
                     "-o",
                     str(executable),
                 ),
@@ -3780,7 +3848,7 @@ int main() {
                     "-I",
                     str(ROOT / "simulator/gfsim/include"),
                     str(harness),
-                    str(ROOT / ".pycircuit_out/acir/dev-llvm22/gfsim/libgfsim.a"),
+                    *gfsim_link_args(),
                     "-o",
                     str(executable),
                 ),
@@ -3935,7 +4003,7 @@ int main() {{
                     "-I",
                     str(ROOT / "simulator/gfsim/include"),
                     str(harness),
-                    str(ROOT / ".pycircuit_out/acir/dev-llvm22/gfsim/libgfsim.a"),
+                    *gfsim_link_args(),
                     "-o",
                     str(executable),
                 ),
@@ -5250,7 +5318,7 @@ int main() {{
                     "-I",
                     str(ROOT / "simulator/gfsim/include"),
                     str(harness),
-                    str(ROOT / ".pycircuit_out/acir/dev-llvm22/gfsim/libgfsim.a"),
+                    *gfsim_link_args(),
                     "-o",
                     str(executable),
                 ),

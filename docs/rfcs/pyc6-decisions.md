@@ -7426,3 +7426,41 @@ terminology also needs separation from NDF architectural refinement.
 - User clarification (2026-09-07): hardware L1/L2/L3 becomes H1/H2/H3; NDF
   L0/L1/L2 means architectural intent/behavior/microarchitecture, and all H
   levels are contained in NDF L2.
+
+## Decision 0223: gfsim records Queue/Table dataflow for independent viewers
+
+**Status:** Accepted; Queue/Table recording and local viewer verified in the scoped G1 lane
+
+**Context / Goal**
+Developers need to see Queue entries being consumed and produced, and Table rows
+being read or updated. Low-level scheduler logs alone do not provide an
+understandable component view. Presentation should evolve outside the framework.
+
+**Decision (strong constraint)**
+- pyCircuit owns an opt-in, versioned Queue/Table flow recording contract in the
+  `PYC6TRC3` container. It does not package HTML, JavaScript or browser dependencies.
+- Record static topology and flat entry descriptors, complete initial/final
+  Queue/Table projections, atomic commit changes, and successful data operations.
+- Queue occurrence identities live in recorder metadata, never in user payloads.
+  Operation association uses actual runtime execution; values alone cannot prove
+  data lineage. Do not re-evaluate a policy for observation.
+- A multi-owner firing remains atomic under Decisions 0176 and 0194. Failed
+  reservations produce no successful flow animation; retries retain their normal
+  behavior. Recording must preserve scan/activation results and counters under
+  Decisions 0177, 0189 and 0196.
+- Independent viewers may animate reads, consumption, writes and production, but
+  must apply architectural state together at complete commit boundaries. Visual
+  phases do not introduce simulated time or field-level dependency claims.
+- Version 1 targets scalar/flat entries and one-dimensional Tables. It does not
+  claim complete component private-state, expression, scheduler, reset or nested
+  aggregate replay, and does not extend PYC/RTL backend support.
+
+**Verification**
+- `docs/gates/logs/20260908-queue-table-flow/summary.md` records scoped producer
+  checks and remaining gate gaps; browser evidence belongs to the independent
+  tool package and is not framework semantic evidence.
+- `docs/development/acir/queue-table-flow.md` defines the producer/consumer format.
+
+**Source**
+- User review (2026-09-08): prioritize Queue cells, flat Table rows, and dataflow
+  animation; separate recording from independently packaged HTML generation.

@@ -80,6 +80,7 @@ def _options(arguments: object, workspace: WorkspaceConfig) -> RunOptions:
         ),
         stats_format=getattr(arguments, "stats_format", None) or "json",
         event_log=getattr(arguments, "event_log", None) or "disabled",
+        record_replay=bool(getattr(arguments, "record_replay", False)),
         termination_kind=(
             "complete" if getattr(arguments, "expect_termination", False) else "any"
         ),
@@ -109,6 +110,7 @@ def _reject_replay_overrides(arguments: object) -> None:
         ("--max-domain-cycles", getattr(arguments, "max_domain_cycles", [])),
         ("--stats-format", getattr(arguments, "stats_format", None)),
         ("--event-log", getattr(arguments, "event_log", None)),
+        ("--record-replay", getattr(arguments, "record_replay", False)),
         ("--expect-termination", getattr(arguments, "expect_termination", False)),
         ("--jobs", getattr(arguments, "jobs", None)),
         ("--project", getattr(arguments, "project", None)),

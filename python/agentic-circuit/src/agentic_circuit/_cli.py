@@ -207,6 +207,7 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("--stats-format", choices=("json",), action=_OnceValue)
     run.add_argument("--event-log", choices=("jsonl",), action=_OnceValue)
     run.add_argument("--replay-manifest", type=Path, action=_OnceValue)
+    run.add_argument("--record-replay", action=_OnceTrue)
     _add_workspace_options(run, output=True, jobs=True, seed=True, seed_type=_uint64)
     _add_output_options(run)
 

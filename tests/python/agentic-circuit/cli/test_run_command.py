@@ -50,6 +50,21 @@ def validate_schema(name: str, document: dict[str, object]) -> None:
 
 
 class RunCommandTest(unittest.TestCase):
+    def test_recorded_run_publishes_trace_without_viewer(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = workspace(temporary)
+            baseline = run_cli("run", "--output-dir", "runs/baseline", cwd=root)
+            result = run_cli("run", "--record-replay", "--output-dir", "runs/recorded", cwd=root)
+            # This existing fixture intentionally terminates with a runtime failure.
+            self.assertEqual(6, baseline.returncode, baseline.stderr)
+            self.assertEqual(baseline.returncode, result.returncode, result.stderr)
+            output = root / "runs/recorded"
+            self.assertEqual(load_json(root / "runs/baseline/run-result.json")["termination_reason"],
+                             load_json(output / "run-result.json")["termination_reason"])
+            self.assertTrue(load_json(output / "run-manifest.json")["record_replay"])
+            self.assertTrue((output / "execution.pyctrace").read_bytes().startswith(b"PYC6TRC3"))
+            self.assertFalse((output / "replay.html").exists())
+
     def test_completed_run_publishes_exact_documents(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

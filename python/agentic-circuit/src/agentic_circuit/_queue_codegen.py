@@ -2058,6 +2058,15 @@ def _emit_payload(payload: Payload) -> list[str]:
     lines = [f"struct {payload.name} {{"]
     for name, typ in payload.field_descriptors:
         lines.append(f"  {_cpp_type(typ)} {name}{{}};")
+    lines.append("  gfsim::ReplayValue replayValue() const {")
+    fields = ", ".join(
+        f'{{"{name}", gfsim::replayValue({name})}}'
+        for name, _ in payload.field_descriptors
+    )
+    lines.extend((f"    return gfsim::ReplayValue::Object{{{fields}}};", "  }"))
+    names = ", ".join(f'"{name}"' for name, _ in payload.field_descriptors)
+    lines.append(f"  static gfsim::ReplayValue::Array replayFields() {{ return {{{names}}}; }}")
+
     lines.extend(("};", ""))
     return lines
 

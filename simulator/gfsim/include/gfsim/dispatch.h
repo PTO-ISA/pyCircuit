@@ -53,12 +53,33 @@ template <DispatchObject T> DispatchRow makeDispatchRow(T *object) {
       .object = static_cast<SimObject *>(object),
       .work =
           [](void *storage, Epoch epoch) {
-            static_cast<T *>(static_cast<SimObject *>(storage))
-                ->T::doWork(epoch);
+            auto *typed = static_cast<T *>(static_cast<SimObject *>(storage));
+            if (typed->replayRecorder())
+              typed->replayRecorder()->context(typed->id(), "Work");
+            struct Clear {
+              T *object;
+              ~Clear() {
+                if (object->replayRecorder())
+                  object->replayRecorder()->clearContext();
+              }
+            } clear{typed};
+            typed->T::doWork(epoch);
           },
       .xfer =
           [](void *storage, Epoch epoch, XferPhase phase) {
             T *typed = static_cast<T *>(static_cast<SimObject *>(storage));
+            if (typed->replayRecorder())
+              typed->replayRecorder()->context(
+                  typed->id(), phase == XferPhase::Arbitrate ? "Arbitrate"
+                               : phase == XferPhase::Probe   ? "Probe"
+                                                             : "Commit");
+            struct Clear {
+              T *object;
+              ~Clear() {
+                if (object->replayRecorder())
+                  object->replayRecorder()->clearContext();
+              }
+            } clear{typed};
             if (phase == XferPhase::Arbitrate) {
               typed->T::doArbitrate(epoch);
               return false;

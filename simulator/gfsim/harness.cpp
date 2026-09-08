@@ -447,6 +447,13 @@ llvm::Expected<RunManifest> loadRunManifest(llvm::StringRef bytes,
   if (!parsed)
     return parsed.takeError();
   const llvm::json::Object *object = parsed->getAsObject();
+  bool recordReplay = false;
+  if (object && object->get("record_replay")) {
+    auto enabled = object->getBoolean("record_replay");
+    if (!enabled)
+      return harnessError("record_replay must be boolean");
+    recordReplay = *enabled;
+  }
   constexpr std::array<llvm::StringRef, 13> keys{"schema",
                                                  "version",
                                                  "contract_epoch",
@@ -460,7 +467,9 @@ llvm::Expected<RunManifest> loadRunManifest(llvm::StringRef bytes,
                                                  "stats_format",
                                                  "event_log",
                                                  "termination_expectation"};
-  if (!object || !hasExactKeys(*object, keys) ||
+  llvm::json::Object envelope = object ? *object : llvm::json::Object{};
+  envelope.erase("record_replay");
+  if (!object || !hasExactKeys(envelope, keys) ||
       object->getString("schema") != "agentic-circuit-run-manifest" ||
       object->getString("version") != "0.1" ||
       object->getString("contract_epoch") != "0.5")
@@ -543,6 +552,7 @@ llvm::Expected<RunManifest> loadRunManifest(llvm::StringRef bytes,
   manifest.limits.maxTicks = *maxTicks;
   manifest.statsFormat = std::move(*stats);
   manifest.eventLog = std::move(*eventLog);
+  manifest.recordReplay = recordReplay;
   manifest.expectation = {kind->str(), std::move(reason)};
   manifest.rootDirectory =
       std::filesystem::weakly_canonical(rootDirectory.str()).string();
@@ -691,6 +701,19 @@ llvm::Error publishRunResult(const RunManifest &manifest,
         llvm::sys::fs::remove_directories(path);
     }
   } cleanup{resultStage};
+
+  if (manifest.recordReplay) {
+    const std::string replayPath = resultStage.str() + ".pyctrace";
+    auto replayBytes = readFile(replayPath);
+    if (!replayBytes)
+      return replayBytes.takeError();
+    if (auto error =
+            writeExclusive(resultStage, "execution.pyctrace", *replayBytes))
+      return error;
+    result.outputs.push_back({"execution.pyctrace",
+                              acir::bindings::sha256Fingerprint(*replayBytes)});
+    llvm::sys::fs::remove(replayPath);
+  }
 
   if (llvm::Error error = writeExclusive(resultStage, "stats.json", *stats))
     return error;

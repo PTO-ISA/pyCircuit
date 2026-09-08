@@ -1,0 +1,9 @@
+{
+  "barriers": 61,
+  "scan_events": 203,
+  "activation_events": 203,
+  "equal_initial": true,
+  "equal_every_commit": true,
+  "maximum_simultaneous_operations": 2,
+  "counter_expectations": "1769/182/215/511 unchanged"
+}

@@ -22,6 +22,7 @@
     },
     "stats_format": {"const": "json"},
     "event_log": {"enum": ["disabled", "jsonl"]},
+    "record_replay": {"type": "boolean", "default": false},
     "termination_expectation": {
       "type": "object",
       "additionalProperties": false,

@@ -109,6 +109,10 @@ from `pycircuit`. AC symbols are not re-exported from `pycircuit.__init__`.
 See the [ACIR architecture overview](docs/acir/index.md) and
 [migration record](docs/acir/migration.md).
 
+Agentic gfsim runs can export Queue/Table dataflow with `run --record-replay`.
+See the [recording contract](docs/development/acir/queue-table-flow.md); HTML
+visualization is provided by an independent tool, not the framework package.
+
 Exact unsigned circuit fields are available at every width from `ac.u1`
 through `ac.u64`:
 
