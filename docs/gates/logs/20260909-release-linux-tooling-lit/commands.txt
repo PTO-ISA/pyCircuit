@@ -1,0 +1,2 @@
+cmake --build .pycircuit_out/acir/dev-llvm22 --target check-acir -j 8
+pre-commit run --files tests/mlir/agentic-circuit/CodeGen/determinism.mlir tests/mlir/agentic-circuit/CodeGen/driver-stages.mlir tests/mlir/agentic-circuit/CodeGen/extension-provider.mlir tests/mlir/agentic-circuit/CodeGen/full-structured-model.mlir tests/mlir/agentic-circuit/CodeGen/multidimensional-array.mlir tests/mlir/agentic-circuit/CodeGen/nested-modules.mlir
