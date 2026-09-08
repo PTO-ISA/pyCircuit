@@ -1,0 +1,10 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.14.6, pytest-9.0.2, pluggy-1.6.0
+rootdir: /Users/zhoubot/linx-isa/tools/pyCircuit
+configfile: pyproject.toml
+collected 36 items / 33 deselected / 3 selected
+
+tests/integration/agentic-circuit/e2e/test_pto_payload_abi.py ..         [ 66%]
+tests/integration/agentic-circuit/e2e/test_queue_codegen.py .            [100%]
+
+====================== 3 passed, 33 deselected in 11.75s =======================

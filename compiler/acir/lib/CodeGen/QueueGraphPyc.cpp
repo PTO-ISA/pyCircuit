@@ -59,17 +59,21 @@ llvm::Expected<unsigned> typeWidth(const QueueGraphPlan &plan,
       return width;
   }
   if (const QueueEnumPlan *enumeration = findEnum(plan, type))
-    return static_cast<unsigned>(enumeration->width);
-  if (const QueueAggregatePlan *aggregate = findAggregate(plan, type))
+    if (enumeration->width <= kMaximumPackedValueWidth)
+      return static_cast<unsigned>(enumeration->width);
+  if (const QueueAggregatePlan *aggregate = findAggregate(plan, type)) {
+    if (aggregate->width > kMaximumPackedValueWidth)
+      return pycError("aggregate width exceeds the backend template domain");
     return static_cast<unsigned>(aggregate->width);
+  }
   const QueuePayloadPlan *payload = findPayload(plan, type);
   if (!payload)
     return pycError("unsupported PYC payload type '" + type + "'");
   unsigned total = 0;
   for (const QueuePayloadFieldPlan &field : payload->fields) {
-    if (field.width == 0)
-      return pycError("packed payload field width must be positive");
-    total += field.width;
+    if (field.width == 0 || field.width > kMaximumPackedValueWidth - total)
+      return pycError("packed payload width exceeds the backend template domain");
+    total += static_cast<unsigned>(field.width);
   }
   if (total == 0)
     return pycError("packed payload width must be positive");

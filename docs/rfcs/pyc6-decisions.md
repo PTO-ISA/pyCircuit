@@ -6938,8 +6938,9 @@ not acceptable authoring requirements or simulation costs.
 
 **Decision (strong constraint)**
 - A struct field may use `tuple[T0, ...]` or `ac.array[N, T]`, where every
-  element is recursively immutable, `N` is a positive static integer, and the
-  complete packed value is at most 64 bits in the current gfsim slice.
+  element is recursively immutable and `N` is a positive static integer.
+  Scalar leaves remain at most 64 bits; complete immutable aggregates may be
+  wider and use exact multiword gfsim storage.
   Persistent Python `list[T]` remains lexical `ac.var` state and is never
   inferred as a fixed value array.
 - Ordinary tuple or list literals construct tuple/value-array values. Literal
@@ -6953,8 +6954,8 @@ not acceptable authoring requirements or simulation costs.
 - QueueGraph records one canonical aggregate entry containing structural type
   identity, kind, ordered element identities, logical length, and recursive
   packed width. Payload fields carry their proven width. Verification rejects
-  missing, duplicate, recursive, wider-than-64-bit, or width-inconsistent
-  metadata before either backend consumes it.
+  missing, duplicate, recursive, zero-width, wider-than-65,536-bit, or
+  width-inconsistent metadata before either backend consumes it.
 - gfsim stores each admitted aggregate field as one `UInt<N>`. Construction is
   MSB-first bit concatenation and indexing is a constant bit extraction.
   Type-aware conversion recursively packs/unpacks standard enum and nominal
@@ -6963,9 +6964,10 @@ not acceptable authoring requirements or simulation costs.
   the same vendor-neutral `pyc.concat` and `pyc.extract` operations, preserving
   identical layout in C++ and Verilog.
 - Width derivation uses checked addition and multiplication in both the MLIR
-  extractor and independent QueueGraph verifier. Arithmetic overflow, an
-  aggregate wider than 64 bits, swapped tuple operand types, wrong arity, or a
-  slice crossing an element boundary fails before code generation.
+  extractor and independent QueueGraph verifier. Arithmetic overflow, a packed
+  value wider than the shared 65,536-bit backend storage bound, swapped tuple
+  operand types, wrong arity, or a slice crossing an element boundary fails
+  before code generation.
 - Qualified enum/struct references used while computing recursive aggregate
   widths resolve through the enclosing `ac.type_scope`; declaration-order-
   independent nested structs and nominal enums therefore remain valid.
@@ -6996,6 +6998,7 @@ not acceptable authoring requirements or simulation costs.
 - User objective (2026-09-06): keep aggregate authoring Pythonic, infer and
   verify layout in MLIR, and preserve packed reusable backend implementations
   before complete DavinciOO Core bringup.
+- Extended by Decision 0230 for exact multiword immutable aggregate storage.
 
 ## Decision 0216: QueueProgram retains recursive descriptors until ACIR rendering
 
@@ -7989,3 +7992,74 @@ binary simulator-event format and does not satisfy this workload comparison.
 - PTO-ISA/pyCircuit issue #17.
 - Pinned DavinciOO reference revision
   `a542b9cf705096288c615575be222b974b570a18`.
+
+## Decision 0230: one bounded PTO execution payload owns the packed cross-backend ABI
+
+**Status:** Accepted; implemented and verified
+
+**Context / Goal**
+Issue #18 requires an executable PTO payload rather than another open JSON
+attribute bag. Decisions 0211 through 0217 provide exact leaves, nominal enums,
+recursive structs, fixed arrays, and verified widths; Decision 0220 establishes
+scalar packed PYC. They did not instantiate one PTO-specific schema or allow a
+realistic multi-Tile payload to cross the former 64-bit gfsim aggregate bound.
+
+**Decision (strong constraint)**
+- Schema `agentic-circuit-pto-payload-abi` version 0.1 at contract epoch 0.5
+  defines one 1258-bit `PTOExecutionPayload`. It contains numeric opcode ID,
+  engine enum, 16-bit sequence/block identity, four input-Tile slots, four
+  scalar-input slots, and two output-Tile slots. Tile slots contain presence,
+  u64 address, dtype/layout enums, and rank plus five u16 dimensions. Scalar
+  slots contain presence, dtype, and u64 raw bits.
+- Counts select one contiguous present prefix. A present Tile has rank 1 through
+  5, used dimensions are positive, and unused dimensions are zero. Every slot
+  outside its count is the all-zero image. Current opcode values 0 through 7
+  bind the pinned DavinciOO trace subset; other u16 values are reserved until a
+  new profile and fingerprint explicitly admit them.
+- Declaration/source order is the packed order from most-significant to
+  least-significant bits. Serialization uses 158 little-endian bytes, LSB0 bit
+  numbering, and six zero most-significant padding bits. The checked descriptor
+  publishes all 79 scalar leaves with exact path, width, LSB offset, ownership,
+  catalogs, bounds, and a SHA-256 layout fingerprint.
+- Every serialized leaf is classified architectural or execution-semantic;
+  engine and sequence/block routing identity use the latter. Provider
+  residency, rename/ROB/ISQ tags, generation, timestamps, reservations, and
+  similar local runtime state stay in separate provider-owned objects and are
+  forbidden from the payload descriptor, bytes, and fingerprint.
+- Scalar `ac.bits` and bitfield leaves remain limited to 64 bits. Immutable
+  tuple, fixed-array, nested-struct fields and complete payloads may exceed 64
+  bits up to a shared 65,536-bit generated-value bound. `gfsim::UInt<N>` uses
+  exact little-endian multiword storage for such values and supports equality,
+  bitwise operations, word/bit access, and
+  cross-word extract/concat/insert. Arithmetic, ordering, shifts, signed view,
+  and scalar `value()` remain available only for `N <= 64`; no low-word fallback
+  is legal.
+- Frozen ACIR retains the nominal recursive descriptor. QueueGraph verifies
+  checked finite widths and generates the wide gfsim value; QueueGraph-to-PYC
+  produces one `i1258` packed scalar. Generated PYC C++ and Verilog must consume
+  and produce the same word/slice mapping. No PYC vector type or packet
+  serialize/deserialize operation is reintroduced.
+
+**Required verification**
+- Schema/codec tests validate the exact descriptor and fingerprint, scalar and
+  two-input-Tile trace projections, all 79 offsets, canonical round trips, and
+  a frozen byte golden. Negatives cover unknown/provider fields, reserved enum
+  and opcode values, counts, presence prefixes, shape, unused-slot zeroing,
+  byte length, padding, duplicate JSON members, and mutated layouts.
+- gfsim tests cover a 130-bit value across three words, cross-word extraction,
+  concatenation and insertion, full-width bitwise operations, signed integral
+  construction, packet size, and compile-time absence of wide arithmetic.
+- A 144-bit generic nested-array model runs through frontend, Frozen ACIR,
+  QueueGraph plan, generated gfsim C++, compilation, and execution. The public
+  PTO payload separately generates 616/276-bit aggregate fields, publishes the
+  same 79 leaf offsets and enum ordinals as its ABI descriptor, executes in
+  gfsim, and reconstructs the expected 20-word result.
+- The same public PTO source lowers to `i1258`; generated PYC C++ and Verilator
+  update the published 16-bit `block_id` slice and emit identical 20-word
+  output. Repository contracts, frontend, native codegen/gfsim, documentation,
+  and strict decision-status gates remain green.
+
+**Source**
+- PTO-ISA/pyCircuit issue #18.
+- Extends Decision 0215's former bounded gfsim aggregate slice and composes
+  Decisions 0211 through 0217, 0220, and 0229.

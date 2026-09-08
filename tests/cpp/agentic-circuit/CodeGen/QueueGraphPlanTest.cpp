@@ -626,6 +626,28 @@ TEST(QueueGraphPlanTest, RejectsRecursiveNestedPayloadDefinitions) {
             std::string::npos);
 }
 
+TEST(QueueGraphPlanTest, BackendsRejectRecursivePayloadsWithoutRecursing) {
+  QueueGraphPlan plan;
+  plan.system = "recursive";
+  plan.payloads = {
+      QueuePayloadPlan{"Left", {{"right", "!ac.struct<@types::@Right>", 1}}},
+      QueuePayloadPlan{"Right", {{"left", "!ac.struct<@types::@Left>", 1}}},
+  };
+  plan.queues = {{"input", "!ac.struct<@types::@Left>", "/", 1, 1}};
+  plan.blocks = {{"source", "input", "/", {}, {"input"}, {1}, {1}},
+                 {"sink", "sink", "/", {"input"}, {}}};
+
+  auto cpp = generateQueueGraphCpp(plan);
+  ASSERT_FALSE(bool(cpp));
+  EXPECT_NE(llvm::toString(cpp.takeError()).find("contain a cycle"),
+            std::string::npos);
+
+  auto pyc = generateQueueGraphPyc(plan);
+  ASSERT_FALSE(bool(pyc));
+  EXPECT_NE(llvm::toString(pyc.takeError()).find("contain a cycle"),
+            std::string::npos);
+}
+
 TEST(QueueGraphPlanTest, RejectsMalformedNominalEnumMetadata) {
   mlir::MLIRContext context;
   context.loadDialect<ac::ACIRDialect, mlir::DLTIDialect>();
@@ -677,13 +699,87 @@ TEST(QueueGraphPlanTest, RejectsMalformedValueArrayMetadata) {
             std::string::npos);
 }
 
-TEST(QueueGraphPlanTest, RejectsAggregateMetadataWiderThanSixtyFourBits) {
+TEST(QueueGraphPlanTest, AcceptsAggregateMetadataWiderThanSixtyFourBits) {
+  QueueGraphPlan plan = aggregateExpressionPlan();
+  plan.aggregates[0] =
+      {"tuple<i64, i64>", "tuple", {"i64", "i64"}, 2, 128};
+  for (QueuePlan &queue : plan.queues)
+    queue.payloadType = "tuple<i64, i64>";
+  QueueBlockPlan &transform = plan.blocks[1];
+  transform.expressions[0].type = "i64";
+  transform.expressions[0].lsb = 64;
+  transform.expressions[0].width = 64;
+  transform.expressions[1].type = "i64";
+  transform.expressions[1].width = 64;
+  transform.expressions[2].type = "tuple<i64, i64>";
+  transform.expressions[2].width = 128;
+
+  auto error = verifyQueueGraphPlan(plan);
+  EXPECT_FALSE(bool(error)) << llvm::toString(std::move(error));
+}
+
+TEST(QueueGraphPlanTest, RejectsAggregateMetadataOutsideBackendStorageWidth) {
   QueueGraphPlan plan = aggregateMetadataPlan();
-  plan.aggregates[0].width = 65;
+  plan.aggregates[0].width = kMaximumPackedValueWidth + 1;
 
   auto error = verifyQueueGraphPlan(plan);
   ASSERT_TRUE(bool(error));
   EXPECT_NE(llvm::toString(std::move(error)).find("aggregate type metadata"),
+            std::string::npos);
+}
+
+TEST(QueueGraphPlanTest, AcceptsExactMaximumBackendStorageWidth) {
+  QueueGraphPlan plan;
+  plan.system = "maximum_width";
+  plan.payloads = {{"Packet",
+                    {{"bits", "!ac.value_array<65536 x i1>",
+                      kMaximumPackedValueWidth}}}};
+  plan.aggregates = {{"!ac.value_array<65536 x i1>",
+                      "array",
+                      {"i1"},
+                      kMaximumPackedValueWidth,
+                      kMaximumPackedValueWidth}};
+  plan.queues = {
+      {"input", "!ac.struct<@types::@Packet>", "/", 1, 1}};
+  plan.blocks = {{"source", "input", "/", {}, {"input"}, {1}, {1}},
+                 {"sink", "sink", "/", {"input"}, {}}};
+
+  auto verification = verifyQueueGraphPlan(plan);
+  EXPECT_FALSE(bool(verification)) << llvm::toString(std::move(verification));
+}
+
+TEST(QueueGraphPlanTest, RejectsRecursivePayloadWidthOutsideBackendDomain) {
+  constexpr uint64_t maximum = kMaximumPackedValueWidth;
+  QueueGraphPlan plan;
+  plan.system = "overflow";
+  plan.payloads = {
+      {"Packet", {{"huge", "!ac.value_array<65536 x i1>", maximum},
+                   {"extra", "i1", 1}}}};
+  plan.aggregates = {{"!ac.value_array<65536 x i1>",
+                      "array",
+                      {"i1"},
+                      maximum,
+                      maximum}};
+  plan.queues = {{"input", "!ac.struct<@types::@Packet>", "/", 1, 1}};
+  plan.blocks = {{"source", "input", "/", {}, {"input"}, {1}, {1}},
+                 {"sink", "sink", "/", {"input"}, {}}};
+
+  auto verification = verifyQueueGraphPlan(plan);
+  ASSERT_TRUE(bool(verification));
+  EXPECT_NE(llvm::toString(std::move(verification))
+                .find("payload width exceeds the backend template domain"),
+            std::string::npos);
+
+  auto cpp = generateQueueGraphCpp(plan);
+  ASSERT_FALSE(bool(cpp));
+  EXPECT_NE(llvm::toString(cpp.takeError())
+                .find("payload width exceeds the backend template domain"),
+            std::string::npos);
+
+  auto pyc = generateQueueGraphPyc(plan);
+  ASSERT_FALSE(bool(pyc));
+  EXPECT_NE(llvm::toString(pyc.takeError())
+                .find("payload width exceeds the backend template domain"),
             std::string::npos);
 }
 

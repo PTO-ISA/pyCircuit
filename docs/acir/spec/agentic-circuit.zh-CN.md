@@ -290,8 +290,8 @@ PYC/Verilog 使用同一精确位宽 ordinal。
 普通 Python `==` 和 `!=` 可以比较递归 descriptor 完全一致的两个值，包括 nominal
 struct、nested struct、enum、structural tuple、固定 value array、bool 和精确位宽 bits。
 nominal identity 是类型的一部分：两个独立声明的 struct 或 enum 即使 layout 相同也不能
-互相比较。aggregate 的 `<`、`<=`、`>` 和 `>=` 非法。aggregate 总位宽不受 64 bit
-限制。
+互相比较。aggregate 的 `<`、`<=`、`>` 和 `>=` 非法。aggregate 总位宽可以超过 64 bit，
+但不能超过 shared 65,536-bit generated-value bound。
 
 可复用 payload predicate 使用 `@ac.invariant` 定义一次，并像普通 typed Python
 函数一样调用：
@@ -817,6 +817,27 @@ source bytes 执行，frozen ACIR specialization 消费 canonical records。live
 先匹配 pinned record/opcode count、completion/retirement order 和 complete-run timestamp；
 reference executable 尚未导出的架构值由同 revision 的 checked projection 提供。只有双方
 共同声明的 timestamp 才比较，模型边界不同导致的内部 stage cycle 不要求相等。
+
+### Canonical PTO execution-payload ABI
+
+`agentic-circuit-pto-payload-abi@0.1` 把 canonical PTO workload record 投影为有界、不可变的
+execution payload。`PTOExecutionPayload` 固定 numeric opcode ID、engine kind、16-bit
+sequence/block identity、4 个 input Tile slot、4 个 scalar input slot 和 2 个 output Tile
+slot。Tile operand 固定 presence、64-bit address、dtype、layout 和最多 5 维 shape；scalar
+operand 固定 presence、dtype 和 64-bit raw bits。count 选择连续的 present prefix，未使用
+slot 必须是全零 canonical image。
+
+ABI 有 1258 个有效 bit，序列化为 158 byte。struct field 和 array element 按 declaration
+order 从 MSB 到 LSB 排列；byte order 是 little-endian，bit numbering 是 LSB0，最高 6 个
+padding bit 必须为零。checked descriptor 发布 79 个 leaf path 的 width/LSB offset，并对
+完整 layout 与 catalog 计算 fingerprint。strict codec 拒绝 reserved opcode/enum、越界
+count、非法 rank/dimension、非零 unused slot、错误长度和非零 padding。
+
+serialized leaf 明确标记为 `architectural` 或 `execution`；engine 和 sequence/block routing
+identity 属于后者。dispatch residency、rename/ROB/ISQ tag、generation、provider timestamp
+等 provider-local runtime state 不进入 descriptor、fingerprint 或 bytes。Frozen ACIR 使用
+同一 nominal enum/struct/fixed array；wide gfsim storage 与 packed scalar PYC 在 generated
+C++/Verilog 中保持同一 field mapping。
 
 ## 串行控制流
 

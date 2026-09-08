@@ -112,8 +112,162 @@ DAVINCIOO_REFERENCE = Path(
     )
 )
 
+WIDE_NESTED_AGGREGATE_SOURCE = """
+from __future__ import annotations
+
+import agentic_circuit as ac
+
+@ac.struct
+class Inner:
+    lanes: ac.array[2, ac.u64]
+
+@ac.struct
+class Packet:
+    inner: Inner
+    tags: ac.array[2, ac.u8]
+
+@ac.rule
+def rotate(item):
+    return item.with_fields(
+        inner=item.inner.with_fields(
+            lanes=(item.inner.lanes[1], item.inner.lanes[0]),
+        ),
+        tags=(item.tags[1], item.tags[0]),
+    )
+
+@ac.system
+def wide_nested_aggregate(incoming: Packet) -> Packet:
+    updated = rotate(incoming)
+    return updated
+"""
+
 
 class QueueCodegenTest(unittest.TestCase):
+    def test_wide_nested_fixed_array_payload_generates_and_runs(self) -> None:
+        compiler = shutil.which("c++")
+        if compiler is None:
+            self.skipTest("C++ compiler is unavailable")
+        tools = {
+            "opt": ROOT / ".pycircuit_out/acir/dev-llvm22/bin/acir-opt",
+            "plan": ROOT / ".pycircuit_out/acir/dev-llvm22/bin/acir-queue-plan",
+            "cxxgen": ROOT / ".pycircuit_out/acir/dev-llvm22/bin/acir-queue-cxxgen",
+        }
+        if any(not path.is_file() for path in tools.values()):
+            self.skipTest("native wide-aggregate tools are unavailable")
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            design = root / "wide_nested_aggregate.py"
+            model = root / "wide_nested_aggregate.cpp"
+            acir = root / "wide_nested_aggregate.frozen.mlir"
+            plan = root / "wide_nested_aggregate.plan.json"
+            design.write_text(WIDE_NESTED_AGGREGATE_SOURCE, encoding="utf-8")
+            generated = subprocess.run(
+                (
+                    str(ROOT / "compiler/acir/tools/ac-queue-cxxgen.py"),
+                    str(design),
+                    "--system",
+                    "wide_nested_aggregate",
+                    "--acir-output",
+                    str(acir),
+                    "--plan-output",
+                    str(plan),
+                    "--acir-opt",
+                    str(tools["opt"]),
+                    "--queue-plan-tool",
+                    str(tools["plan"]),
+                    "--queue-cxxgen-tool",
+                    str(tools["cxxgen"]),
+                    "--output",
+                    str(model),
+                ),
+                cwd=ROOT,
+                env={
+                    **os.environ,
+                    "PYTHONPATH": os.pathsep.join(
+                        (
+                            str(ROOT / "python/semantic-core/src"),
+                            str(ROOT / "python/agentic-circuit/src"),
+                        )
+                    ),
+                },
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(0, generated.returncode, generated.stderr)
+            plan_value = json.loads(plan.read_text(encoding="utf-8"))
+            aggregates = {entry["type"]: entry for entry in plan_value["aggregates"]}
+            self.assertEqual(128, aggregates["!ac.value_array<2 x i64>"]["width"])
+            source = model.read_text(encoding="utf-8")
+            self.assertIn("gfsim::UInt<128> lanes", source)
+
+            harness = root / "harness.cpp"
+            executable = root / "wide_nested_aggregate"
+            harness.write_text(
+                f'''#include "{model.name}"
+
+int main() {{
+  constexpr std::uint64_t first = 0x1111222233334444ULL;
+  constexpr std::uint64_t second = 0xaaaabbbbccccddddULL;
+  ac_generated::Packet input{{
+      ac_generated::Inner{{gfsim::UInt<128>{{
+          gfsim::UInt<128>::word_array_type{{second, first}}}}}},
+      gfsim::UInt<16>{{0x1234}}}};
+  ac_generated::WideNestedAggregate model;
+  if (!model.incoming().proposePush(input))
+    return 1;
+  model.incoming().doXfer({{0, 0}});
+  auto rows = model.dispatch_rows();
+  for (unsigned tick = 1; tick < 6; ++tick) {{
+    const gfsim::Epoch epoch{{tick, 0}};
+    for (auto &row : rows)
+      row.work(row.object, epoch);
+    for (auto &row : rows)
+      row.xfer(row.object, epoch, gfsim::XferPhase::Arbitrate);
+    for (auto &row : rows)
+      row.xfer(row.object, epoch, gfsim::XferPhase::Probe);
+    for (auto &row : rows)
+      row.xfer(row.object, epoch, gfsim::XferPhase::Commit);
+  }}
+  const auto &values = model.sink_0_values();
+  if (values.size() != 1)
+    return 2;
+  const auto &value = values.front();
+  return value.inner.lanes.word(0) == first &&
+                 value.inner.lanes.word(1) == second &&
+                 value.tags.value() == 0x3412
+             ? 0
+             : 3;
+}}
+''',
+                encoding="utf-8",
+            )
+            linked = subprocess.run(
+                (
+                    compiler,
+                    "-std=c++20",
+                    "-I",
+                    str(ROOT / "simulator/gfsim/include"),
+                    str(harness),
+                    "-o",
+                    str(executable),
+                ),
+                cwd=root,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(0, linked.returncode, linked.stderr)
+            executed = subprocess.run(
+                (str(executable),),
+                cwd=root,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(0, executed.returncode, executed.stderr)
+
     def test_recursive_nominal_aggregate_payload_runs_packed_in_gfsim(
         self,
     ) -> None:

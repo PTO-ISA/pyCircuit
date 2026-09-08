@@ -1,0 +1,12 @@
+cmake --build .pycircuit_out/acir/dev-llvm22 --target GfsimTests CodeGenTests acir-queue-plan acir-queue-cxxgen acir-queue-pycgen acir-opt acir-opt-internal -j 8
+.pycircuit_out/acir/dev-llvm22/bin/GfsimTests
+.pycircuit_out/acir/dev-llvm22/bin/CodeGenTests
+PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=.pycircuit_out/contracts-venv/lib/python3.14/site-packages:python/agentic-circuit/src:python/semantic-core/src pytest -q tests/python/agentic-circuit/tools/test_pto_payload_abi.py tests/python/agentic-circuit/contracts/test_contracts.py
+PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=.pycircuit_out/contracts-venv/lib/python3.14/site-packages:python/agentic-circuit/src:python/semantic-core/src pytest -q tests/python/agentic-circuit/python_frontend/test_queue_frontend.py
+PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=.pycircuit_out/contracts-venv/lib/python3.14/site-packages:python/agentic-circuit/src:python/semantic-core/src pytest -q tests/integration/agentic-circuit/e2e/test_pto_payload_abi.py tests/integration/agentic-circuit/e2e/test_queue_codegen.py -k 'pto_payload or wide_nested_fixed_array_payload_generates_and_runs'
+pytest -q tests/unit -m unit
+.pycircuit_out/contracts-venv/bin/python tools/agentic-circuit/check-contracts.py
+python3 flows/tools/check_api_hygiene.py python/pycircuit/src/pycircuit examples/pycircuit docs README.md
+mkdocs build --strict
+pre-commit run --all-files
+python3 flows/tools/check_decision_status.py --rfc docs/rfcs/pyc6-decisions.md --status docs/gates/decision_status_v6.md --out docs/gates/logs/20260908-issue18-pto-payload-abi/decision_status_report.json --require-no-deferred --require-all-verified --require-concrete-evidence --require-existing-evidence

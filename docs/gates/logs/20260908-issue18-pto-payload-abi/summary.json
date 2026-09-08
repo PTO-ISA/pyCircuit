@@ -1,0 +1,26 @@
+{
+  "run_id": "20260908-issue18-pto-payload-abi",
+  "status": "passed",
+  "base_revision": "9b7ea4c24b54ba77f061212073ca3a243976834c",
+  "decision_ids": ["0215", "0230"],
+  "issue": 18,
+  "results": {
+    "native_build": {"passed": true},
+    "gfsim": {"passed": 272, "failed": 0},
+    "codegen": {"passed": 142, "failed": 0},
+    "abi_and_contracts": {"passed": 47, "failed": 0},
+    "frontend": {"passed": 145, "failed": 0},
+    "wide_cross_backend": {"passed": 3, "failed": 0},
+    "unit": {"passed": 90, "failed": 0},
+    "repository_contracts": {"schemas": 15, "passed": true},
+    "api_hygiene": {"passed": true},
+    "mkdocs_strict": {"passed": true},
+    "pre_commit": {"passed": true},
+    "decision_status": {"passed": true}
+  },
+  "behavior": "A versioned 1258-bit PTO execution payload freezes 79 scalar leaf mappings, bounded opcode/engine/identity/Tile/scalar fields, provider-local exclusion, and deterministic little-endian serialization.",
+  "backend_evidence": "The same public nested payload generates the published 79-leaf layout, executes exact 20-word multiword gfsim C++, lowers to scalar i1258 PYC, and produces cycle-identical PYC C++/Verilator results.",
+  "wide_value_policy": "Generated values are bounded at 65,536 bits. Wide gfsim UInt supports exact storage, equality, bitwise, extract, concat and insert; arithmetic, ordering, shifts, signed view and scalar value remain limited to 64 bits.",
+  "release_scope": "Focused framework and cross-backend evidence; complete release lanes remain release-workflow authority.",
+  "skill_evolve": "no-update"
+}

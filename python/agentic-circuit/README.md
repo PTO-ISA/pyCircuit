@@ -49,6 +49,8 @@ Canonical machine-readable schemas:
 - [Official opcode catalog schema](../../schemas/agentic-circuit/opcode-catalog.schema.json)
 - [Official Queue building-block catalog](../../schemas/agentic-circuit/opcodes.json)
 - [PTO trace](../../schemas/agentic-circuit/pto-trace.schema.json)
+- [PTO execution payload ABI](../../schemas/agentic-circuit/pto-payload-abi.json)
+- [PTO execution payload ABI schema](../../schemas/agentic-circuit/pto-payload-abi.schema.json)
 - [PTO trace result](../../schemas/agentic-circuit/pto-trace-result.schema.json)
 - [PTO trace oracle report](../../schemas/agentic-circuit/pto-trace-oracle-report.schema.json)
 - [Build manifest](../../schemas/agentic-circuit/build-manifest.schema.json)

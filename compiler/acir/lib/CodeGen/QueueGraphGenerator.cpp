@@ -221,7 +221,7 @@ cppPayloadFieldType(const QueueGraphPlan &plan,
         return candidate.type == field.type;
       });
   if (aggregate != plan.aggregates.end()) {
-    if (field.width == 0 || field.width > 64 || field.width != aggregate->width)
+    if (field.width == 0 || field.width != aggregate->width)
       return generatorError("aggregate payload field width is unsupported");
     return "gfsim::UInt<" + std::to_string(field.width) + ">";
   }
@@ -271,10 +271,16 @@ llvm::Expected<uint64_t> generatedTypeWidth(const QueueGraphPlan &plan,
     if (!type.drop_front().getAsInteger(10, width) && width > 0 && width <= 64)
       return width;
   }
-  if (const QueueEnumPlan *enumeration = findEnumType(plan, type))
+  if (const QueueEnumPlan *enumeration = findEnumType(plan, type)) {
+    if (enumeration->width > kMaximumPackedValueWidth)
+      return generatorError("enum width exceeds the backend template domain");
     return enumeration->width;
-  if (const QueueAggregatePlan *aggregate = findAggregateType(plan, type))
+  }
+  if (const QueueAggregatePlan *aggregate = findAggregateType(plan, type)) {
+    if (aggregate->width > kMaximumPackedValueWidth)
+      return generatorError("aggregate width exceeds the backend template domain");
     return aggregate->width;
+  }
   if (const QueuePayloadPlan *payload = findPayloadType(plan, type)) {
     uint64_t width = 0;
     for (const QueuePayloadFieldPlan &field : payload->fields) {
@@ -283,9 +289,11 @@ llvm::Expected<uint64_t> generatedTypeWidth(const QueueGraphPlan &plan,
         return fieldWidth.takeError();
       if (field.width != 0 && field.width != *fieldWidth)
         return generatorError("payload field width disagrees with its type");
+      if (*fieldWidth > kMaximumPackedValueWidth - width)
+        return generatorError("payload width exceeds the backend template domain");
       width += *fieldWidth;
     }
-    if (width > 0 && width <= 64)
+    if (width > 0)
       return width;
   }
   return generatorError("no packed width for ACIR type '" + type + "'");

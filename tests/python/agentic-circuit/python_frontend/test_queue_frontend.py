@@ -3339,7 +3339,7 @@ def cycle(incoming: Left) -> Left:
             "ac.array[4, ac.bits[4]]",
             "ac.array[2305843009213693953, ac.bits[8]]",
         )
-        with self.assertRaisesRegex(QueueFrontendError, r"width must be in \[1, 64\]"):
+        with self.assertRaisesRegex(QueueFrontendError, "backend template domain"):
             lower_queue_source(overflowing, "aggregate_payload_pipeline")
 
     def test_constraint_proven_shapes_render_concrete_acir_attributes(self) -> None:

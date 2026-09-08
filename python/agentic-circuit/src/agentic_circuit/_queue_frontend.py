@@ -47,6 +47,7 @@ RULE_LOWERING_PIPELINE = (
     "ac-verify-rule-closure,"
     "ac-freeze-topology)"
 )
+MAX_PACKED_VALUE_WIDTH = 1 << 16
 
 
 def _render_type(value_type: ValueType) -> str:
@@ -1015,11 +1016,10 @@ def _payloads(
                     f"{error}; field {name}.{statement.target.id} has annotation "
                     f"{ast.unparse(statement.annotation)!r}"
                 ) from error
-            if isinstance(field_type, (TupleType, ArrayType)) and (
-                field_type.bit_width() > 64
-            ):
+            if field_type.bit_width() > MAX_PACKED_VALUE_WIDTH:
                 raise QueueFrontendError(
-                    "ACPY-TYPE-006: aggregate field width must be in [1, 64]"
+                    "ACPY-TYPE-006: aggregate field width exceeds the backend "
+                    "template domain"
                 )
             fields.append(ValueField(statement.target.id, field_type))
         if not fields or len({field.name for field in fields}) != len(fields):
@@ -1027,6 +1027,10 @@ def _payloads(
                 "ACPY-QUEUE-002: struct requires unique compile-time fields"
             )
         descriptor = StructType(node.name, tuple(fields))
+        if descriptor.bit_width() > MAX_PACKED_VALUE_WIDTH:
+            raise QueueFrontendError(
+                "ACPY-TYPE-006: payload width exceeds the backend template domain"
+            )
         active.pop()
         resolved[name] = descriptor
         return descriptor
@@ -7733,6 +7737,10 @@ class _ExpressionEmitter:
                 element_types = aggregate.elements
                 operation = "tuple"
             elif isinstance(aggregate, ArrayType):
+                if len(node.elts) != aggregate.length:
+                    raise QueueFrontendError(
+                        "ACPY-TYPE-006: aggregate literal arity must match its type"
+                    )
                 element_types = (aggregate.element,) * aggregate.length
                 operation = "array"
             else:

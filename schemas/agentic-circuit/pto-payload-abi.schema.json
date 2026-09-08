@@ -1,0 +1,80 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:pto-isa:agentic-circuit:schema:pto-payload-abi:0.1",
+  "title": "PTO Execution Payload ABI 0.1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "version", "contract_epoch", "layout_fingerprint", "packed_bits", "packed_bytes", "aggregate_order", "byte_order", "bit_order", "padding", "bounds", "catalogs", "fields", "provider_local_state"],
+  "properties": {
+    "schema": {"const": "agentic-circuit-pto-payload-abi"},
+    "version": {"const": "0.1"},
+    "contract_epoch": {"const": "0.5"},
+    "layout_fingerprint": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+    "packed_bits": {"const": 1258},
+    "packed_bytes": {"const": 158},
+    "aggregate_order": {"const": "declaration-msb-first"},
+    "byte_order": {"const": "little"},
+    "bit_order": {"const": "lsb0"},
+    "padding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["side", "zero_bits"],
+      "properties": {"side": {"const": "msb"}, "zero_bits": {"const": 6}}
+    },
+    "bounds": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["shape_rank", "input_tiles", "scalar_inputs", "output_tiles"],
+      "properties": {
+        "shape_rank": {"const": 5},
+        "input_tiles": {"const": 4},
+        "scalar_inputs": {"const": 4},
+        "output_tiles": {"const": 2}
+      }
+    },
+    "catalogs": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["engine_kind", "dtype", "tile_layout", "opcode_id"],
+      "properties": {
+        "engine_kind": {"$ref": "#/$defs/catalog"},
+        "dtype": {"$ref": "#/$defs/catalog"},
+        "tile_layout": {"$ref": "#/$defs/catalog"},
+        "opcode_id": {"$ref": "#/$defs/catalog"}
+      }
+    },
+    "fields": {
+      "type": "array",
+      "minItems": 79,
+      "maxItems": 79,
+      "items": {"$ref": "#/$defs/field"}
+    },
+    "provider_local_state": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["serialized", "fields"],
+      "properties": {
+        "serialized": {"const": false},
+        "fields": {"type": "array", "maxItems": 0}
+      }
+    }
+  },
+  "$defs": {
+    "catalog": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": {"type": "integer", "minimum": 0, "maximum": 65535}
+    },
+    "field": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "width", "lsb", "ownership"],
+      "properties": {
+        "path": {"type": "string", "minLength": 1},
+        "width": {"type": "integer", "minimum": 1, "maximum": 64},
+        "lsb": {"type": "integer", "minimum": 0, "maximum": 1257},
+        "ownership": {"enum": ["architectural", "execution"]}
+      }
+    }
+  }
+}

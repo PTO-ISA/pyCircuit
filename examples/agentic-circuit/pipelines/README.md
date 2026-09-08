@@ -28,6 +28,11 @@ without exposing Queue operations or hardware container classes in Python.
 nominal struct values inside those aggregates. The same compiler-owned layout
 recursively packs and restores the nominal values in gfsim, PYC C++, and
 Verilog.
+`pto_payload_abi.py` instantiates the versioned 1258-bit PTO execution payload
+from nested nominal structs, standard enums, and bounded fixed arrays. The
+checked ABI descriptor publishes every leaf offset; generated gfsim uses exact
+multiword aggregate storage, while PYC C++ and Verilog share one packed scalar
+port and update the same published `block_id` slice.
 `masked_decode_pipeline.py` uses the pure `ac.matches(value, "1xx0")`
 intrinsic for an MSB-first four-bit decode. Python supplies only the compact
 lowercase `0`/`1`/`x` pattern; ACIR verifies its canonical mask/value operation
