@@ -961,6 +961,63 @@ class JitQueueLoweringTest(unittest.TestCase):
                 },
             )
 
+    def test_schedule_requires_bounded_all_ones_dependency_sentinel(self) -> None:
+        from agentic_circuit._queue_frontend import (
+            QueueFrontendError,
+            lower_queue_source,
+        )
+        from agentic_circuit._static_eval import FrozenMap
+
+        with self.assertRaisesRegex(
+            QueueFrontendError, "requires one 'no_dependency' parameter"
+        ):
+            lower_queue_source(
+                HIGH_LEVEL_SOURCE.replace("        no_dependency=255,\n", ""),
+                "core",
+                static_arguments={
+                    "cfg": FrozenMap((("engines", 4), ("entries", 16))),
+                },
+            )
+
+        with self.assertRaisesRegex(
+            QueueFrontendError, "all-ones no_dependency sentinel"
+        ):
+            lower_queue_source(
+                HIGH_LEVEL_SOURCE.replace("no_dependency=255", "no_dependency=127"),
+                "core",
+                static_arguments={
+                    "cfg": FrozenMap((("engines", 4), ("entries", 16))),
+                },
+            )
+
+        boolean_key = (
+            HIGH_LEVEL_SOURCE.replace("sequence: ac.u8", "sequence: bool")
+            .replace("waits_for: ac.u8", "waits_for: bool")
+            .replace("no_dependency=255", "no_dependency=1")
+        )
+        with self.assertRaisesRegex(QueueFrontendError, "exact matching unsigned"):
+            lower_queue_source(
+                boolean_key,
+                "core",
+                static_arguments={
+                    "cfg": FrozenMap((("engines", 4), ("entries", 16))),
+                },
+            )
+
+        boolean_u1_mismatch = (
+            HIGH_LEVEL_SOURCE.replace("sequence: ac.u8", "sequence: bool")
+            .replace("waits_for: ac.u8", "waits_for: ac.u1")
+            .replace("no_dependency=255", "no_dependency=1")
+        )
+        with self.assertRaisesRegex(QueueFrontendError, "exact matching unsigned"):
+            lower_queue_source(
+                boolean_u1_mismatch,
+                "core",
+                static_arguments={
+                    "cfg": FrozenMap((("engines", 4), ("entries", 16))),
+                },
+            )
+
     def test_simple_structural_and_memory_blocks_reuse_existing_acir(self) -> None:
         from agentic_circuit._queue_codegen import lower_queue_program_to_cpp
         from agentic_circuit._queue_frontend import (

@@ -4,6 +4,7 @@
 
 #include <cstdint>
 #include <limits>
+#include <string>
 #include <type_traits>
 
 namespace gfsim {
@@ -2371,6 +2372,103 @@ TEST(QueueBlocksTest, DependencyCompletesReadyTokensOutOfOrder) {
   EXPECT_EQ(sink.received()[1].sequence, 0u);
   EXPECT_EQ(sink.received()[2].sequence, 1u);
   EXPECT_EQ(sink.received()[3].sequence, 3u);
+}
+
+TEST(QueueBlocksTest, ScheduleRetainsCompletionAfterProducerOutput) {
+  using Schedule4 =
+      Schedule<DependencyValue, 4, 2, 255, DependencyKey,
+               DependencyPredecessor, DependencyResource, DependencyCost>;
+  SimQueue<DependencyValue> input("input", 1, nullptr, 4);
+  SimQueue<DependencyValue> output("output", 2, nullptr, 4);
+  Schedule4 schedule("schedule", 3, nullptr, input, output);
+  QueueSink<DependencyValue> sink("sink", 4, nullptr, output);
+  ASSERT_TRUE(input.proposePush({0, 255, 0, 1}));
+  ASSERT_TRUE(input.proposePush({1, 255, 1, 8}));
+  ASSERT_TRUE(input.proposePush({2, 0, 1, 1}));
+  input.doXfer({0, 0});
+
+  for (uint64_t tick = 1; tick < 20; ++tick) {
+    const Epoch epoch{tick, 0};
+    schedule.doWork(epoch);
+    sink.doWork(epoch);
+    input.doXfer(epoch);
+    output.doXfer(epoch);
+    schedule.doXfer(epoch);
+    sink.doXfer(epoch);
+  }
+
+  ASSERT_EQ(sink.received().size(), 3u);
+  EXPECT_EQ(sink.received()[0].sequence, 0u);
+  EXPECT_EQ(sink.received()[1].sequence, 1u);
+  EXPECT_EQ(sink.received()[2].sequence, 2u);
+  EXPECT_TRUE(schedule.runtimeFailureCode().empty());
+}
+
+TEST(QueueBlocksTest, ScheduleRejectsKeyReuseAndClearsHistoryOnReset) {
+  using Schedule4 =
+      Schedule<DependencyValue, 4, 2, 255, DependencyKey,
+               DependencyPredecessor, DependencyResource, DependencyCost>;
+  SimQueue<DependencyValue> input("input", 1, nullptr, 4);
+  SimQueue<DependencyValue> output("output", 2, nullptr, 4);
+  Schedule4 schedule("schedule", 3, nullptr, input, output);
+  auto run = [&](uint64_t tick) {
+    const Epoch epoch{tick, 0};
+    schedule.doWork(epoch);
+    input.doXfer(epoch);
+    output.doXfer(epoch);
+    schedule.doXfer(epoch);
+  };
+
+  ASSERT_TRUE(input.proposePush({7, 255, 0, 1}));
+  input.doXfer({0, 0});
+  for (uint64_t tick = 1; tick <= 4; ++tick)
+    run(tick);
+  ASSERT_EQ(output.committedSize(), 1u);
+  EXPECT_EQ(output.committedValues().front().sequence, 7u);
+  EXPECT_EQ(schedule.active(), 0u);
+  ASSERT_TRUE(output.proposePop());
+  output.doXfer({5, 0});
+
+  ASSERT_TRUE(input.proposePush({7, 255, 0, 1}));
+  input.doXfer({6, 0});
+  schedule.doWork({7, 0});
+  EXPECT_EQ(schedule.runtimeFailureCode(), "dependency_duplicate_key");
+  EXPECT_FALSE(schedule.hasPendingCommit());
+  EXPECT_EQ(input.committedSize(), 1u);
+  EXPECT_TRUE(output.isEmpty());
+
+  schedule.reset();
+  input.reset();
+  output.reset();
+  ASSERT_TRUE(input.proposePush({8, 7, 0, 1}));
+  input.doXfer({8, 0});
+  run(9);
+  run(10);
+  EXPECT_EQ(schedule.active(), 1u);
+  EXPECT_TRUE(output.isEmpty());
+
+  ASSERT_TRUE(input.proposePush({7, 255, 1, 1}));
+  input.doXfer({11, 0});
+  for (uint64_t tick = 12; tick <= 18; ++tick)
+    run(tick);
+  ASSERT_EQ(output.committedSize(), 2u);
+  EXPECT_EQ(output.committedValues()[0].sequence, 7u);
+  EXPECT_EQ(output.committedValues()[1].sequence, 8u);
+
+  auto rejectsOutsideDomain = [](uint64_t key) {
+    SimQueue<DependencyValue> localInput("input", 11, nullptr, 1);
+    SimQueue<DependencyValue> localOutput("output", 12, nullptr, 1);
+    Schedule4 localSchedule("schedule", 13, nullptr, localInput, localOutput);
+    EXPECT_TRUE(localInput.proposePush({key, 255, 0, 1}));
+    localInput.doXfer({0, 0});
+    localSchedule.doWork({1, 0});
+    EXPECT_FALSE(localSchedule.hasPendingCommit());
+    EXPECT_EQ(localInput.committedSize(), 1u);
+    EXPECT_TRUE(localOutput.isEmpty());
+    return std::string(localSchedule.runtimeFailureCode());
+  };
+  EXPECT_EQ(rejectsOutsideDomain(255), "dependency_duplicate_key");
+  EXPECT_EQ(rejectsOutsideDomain(256), "dependency_duplicate_key");
 }
 
 TEST(QueueBlocksTest, DependencyRejectsZeroExecutionCost) {

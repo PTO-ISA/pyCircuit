@@ -1,0 +1,79 @@
+{
+  "run_id": "20260909-issue19-schedule-v2",
+  "status": "passed",
+  "base_revision": "7e39c2685df5f4593c5564193699c78a34264c0f",
+  "decision_ids": [
+    "0193",
+    "0197",
+    "0198",
+    "0203",
+    "0231"
+  ],
+  "issue": 19,
+  "results": {
+    "native_build": {
+      "passed": true
+    },
+    "gfsim": {
+      "passed": 285,
+      "failed": 0
+    },
+    "codegen": {
+      "passed": 143,
+      "failed": 0
+    },
+    "frontend": {
+      "passed": 22,
+      "skipped": 1,
+      "failed": 0
+    },
+    "schedule_and_isq_integration": {
+      "passed": 2,
+      "failed": 0
+    },
+    "unit": {
+      "passed": 90,
+      "failed": 0
+    },
+    "repository_contracts": {
+      "schemas": 15,
+      "passed": true
+    },
+    "pyc_inventory": {
+      "passed": true
+    },
+    "ir_coverage": {
+      "passed": true
+    },
+    "api_hygiene": {
+      "passed": true
+    },
+    "mkdocs_strict": {
+      "passed": true
+    },
+    "pre_commit": {
+      "passed": true
+    },
+    "decision_status": {
+      "passed": true
+    },
+    "agentic_g0": {
+      "contracts_schemas": 15,
+      "contract_tests": 42,
+      "frontend_tests": 256,
+      "frontend_skipped": 5,
+      "cli_tests": 6,
+      "failed": 0
+    },
+    "acir_verifier_lit": {
+      "passed": 191,
+      "failed": 0
+    }
+  },
+  "schedule_contract": "High-level ac.schedule requires an explicit all-ones sentinel; DependencyOp verifies the typed v2 provider, exact <=16-bit key/waits-for types, and sentinel in Frozen ACIR; QueueGraph preserves and defensively rechecks the provider, accepts direct-root policy yields, retains bounded completion readiness after producer output, rejects key reuse before reset, and clears completion history on reset.",
+  "pto_specialization": "ac.schedule.v2 uses a prevalidated finite physical-tag/generation scoreboard, ordered shadow rename, multiple exact-generation dependencies, four bounded issue queues, parent-owned Queue endpoints, fail-closed invalid-engine dispatch, and atomic Work/Arbitrate/Xfer.",
+  "boundedness": "A 64-iteration allocate/overwrite/issue/complete/recycle test returns outstanding producer and live flow counts to zero while reusing the lowest tags with increasing generations.",
+  "pyc_boundary": "Multi-port schedule-v2 PYC/Verilog lowering fails explicitly and remains assigned to issue #21.",
+  "release_scope": "Focused gfsim schedule semantics and Queue ABI; complete release lanes remain release-workflow authority.",
+  "skill_evolve": "no-update"
+}

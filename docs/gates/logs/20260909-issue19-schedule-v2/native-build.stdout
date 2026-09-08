@@ -1,0 +1,14 @@
+[1/10] Building CXX object tools/acir-queue-cxxgen/CMakeFiles/acir-queue-cxxgen.dir/acir-queue-cxxgen.cpp.o
+[2/10] Building CXX object tools/acir-queue-plan/CMakeFiles/acir-queue-plan.dir/acir-queue-plan.cpp.o
+[3/10] Building CXX object tools/acir-queue-pycgen/CMakeFiles/acir-queue-pycgen.dir/acir-queue-pycgen.cpp.o
+[4/10] Linking CXX executable bin/acir-queue-plan
+ld: warning: ignoring duplicate libraries: 'lib/Dialect/ACIR/libACIRDialect.a'
+[5/10] Linking CXX executable bin/acir-queue-cxxgen
+ld: warning: ignoring duplicate libraries: 'lib/Dialect/ACIR/libACIRDialect.a'
+[6/10] Linking CXX executable bin/acir-queue-pycgen
+ld: warning: ignoring duplicate libraries: 'lib/Dialect/ACIR/libACIRDialect.a'
+[7/10] Building CXX object tools/acir-opt/CMakeFiles/acir-opt.dir/acir-opt.cpp.o
+[8/10] Linking CXX executable bin/acir-opt
+ld: warning: ignoring duplicate libraries: '/opt/homebrew/Cellar/llvm/22.1.8/lib/libMLIRFuncDialect.a', '/opt/homebrew/Cellar/llvm/22.1.8/lib/libMLIRSCFDialect.a', '/opt/homebrew/Cellar/llvm/22.1.8/lib/libMLIRTransforms.a', 'lib/Analysis/libACIRAnalysis.a', 'lib/Dialect/ACIR/libACIRDialect.a', 'lib/Transforms/libACIRTransforms.a'
+[9/10] Building CXX object tests/cpp/CodeGen/CMakeFiles/CodeGenTests.dir/QueueGraphPlanTest.cpp.o
+[10/10] Linking CXX executable bin/CodeGenTests

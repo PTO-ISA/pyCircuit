@@ -142,6 +142,7 @@ struct QueueBlockPlan {
   bool hasActivationEvidence = false;
   bool initiallyActive = false;
   uint64_t lexicalOrder = 0;
+  std::string provider;
 };
 
 struct MemoryInstancePlan {

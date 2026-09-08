@@ -1944,6 +1944,9 @@ private:
         blockPlan.capacity = dependency.getCapacity();
         blockPlan.noDependency = dependency.getNoDependency();
         blockPlan.resources = dependency.getResources();
+        if (auto provider = dependency->getAttrOfType<mlir::StringAttr>(
+                "ac.schedule_provider"))
+          blockPlan.provider = provider.getValue().str();
         blockPlan.region = printRegion(dependency.getKey());
         std::vector<std::string> policyYields;
         for (mlir::Region *policy :
@@ -3466,6 +3469,35 @@ llvm::Error verifyQueueGraphPlan(const QueueGraphPlan &plan) {
       constraints[expression.result] =
           inferPlanConstraint(expression, constraints, identities, tables);
     }
+    if (!block.provider.empty()) {
+      if (block.kind != "dependency" || block.provider != "v2" ||
+          block.inputs.size() != 1 || block.outputs.size() != 1 ||
+          block.capacity == 0 || block.resources == 0 ||
+          block.yields.size() != 4)
+        return planError("schedule provider metadata is unsupported");
+      auto key = identities.find(block.yields[0]);
+      auto predecessor = identities.find(block.yields[1]);
+      auto resource = identities.find(block.yields[2]);
+      auto cost = identities.find(block.yields[3]);
+      std::optional<unsigned> keyWidth =
+          key == identities.end() ? std::nullopt
+                                  : integerWidth(key->getValue());
+      std::optional<unsigned> resourceWidth =
+          resource == identities.end() ? std::nullopt
+                                       : integerWidth(resource->getValue());
+      std::optional<unsigned> costWidth =
+          cost == identities.end() ? std::nullopt
+                                   : integerWidth(cost->getValue());
+      if (!keyWidth || *keyWidth == 0 || *keyWidth > 16 ||
+          predecessor == identities.end() ||
+          predecessor->getValue() != key->getValue() || !resourceWidth ||
+          *resourceWidth == 0 || *resourceWidth > 64 || !costWidth ||
+          *costWidth == 0 || *costWidth > 64 ||
+          block.noDependency != (uint64_t{1} << *keyWidth) - 1)
+        return planError(
+            "schedule v2 requires exact integer policy types, matching key "
+            "and predecessor, and an all-ones sentinel with key width <= 16");
+    }
     auto verifySafeIndex = [&](llvm::StringRef identity,
                                const TablePlan &table) -> bool {
       auto type = identities.find(identity);
@@ -4025,6 +4057,7 @@ llvm::Expected<std::string> QueueGraphPlan::canonicalJson() const {
         {"output_presence", std::move(outputPresence)},
         {"policy", block.policy},
         {"priority", block.priority},
+        {"provider", block.provider},
         {"guard", block.guard},
         {"has_activation_evidence", block.hasActivationEvidence},
         {"initially_active", block.initiallyActive},

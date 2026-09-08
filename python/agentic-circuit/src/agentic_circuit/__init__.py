@@ -246,9 +246,9 @@ def schedule(
     waits_for: object,
     resource: object,
     cost: object,
+    no_dependency: int,
     entries: int = 16,
     resources: int = 1,
-    no_dependency: int = 0,
     depth: int = 1,
     latency: int = 1,
 ) -> Never:

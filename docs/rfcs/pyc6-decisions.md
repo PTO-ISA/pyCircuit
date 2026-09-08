@@ -8063,3 +8063,93 @@ realistic multi-Tile payload to cross the former 64-bit gfsim aggregate bound.
 - PTO-ISA/pyCircuit issue #18.
 - Extends Decision 0215's former bounded gfsim aggregate slice and composes
   Decisions 0211 through 0217, 0220, and 0229.
+
+## Decision 0231: schedule v2 uses bounded persistent readiness and generation-qualified rename
+
+**Status:** Accepted; implemented and verified for gfsim, with PYC lane lowering assigned to #21
+
+**Context / Goal**
+Issue #19 requires one scheduling contract that cannot lose readiness when
+dispatch, completion, and issue travel independently under backpressure. The
+old high-level `Schedule` erased a completed producer after output and then
+searched only resident entries, stranding a dependent whose resource remained
+busy. The PTO tracker separately mapped logical Tiles to sequence IDs, read only
+the committed map during same-epoch dispatch, and retained completed sequences
+and dependency flow IDs for the lifetime of the run. These implementations did
+not form a bounded reusable schedule-v2 provider.
+
+**Decision (strong constraint)**
+- High-level `ac.schedule(...)` records `ac.schedule_provider = "v2"` in Frozen
+  ACIR. `DependencyOp` verifies the provider identity, exact key/waits-for type,
+  key width, and sentinel before codegen. QueueGraph preserves and defensively
+  rechecks `provider = "v2"`, then selects
+  `gfsim::Schedule<Payload, Entries, Resources, NoDependency, ...>` instead of
+  silently degrading to resident-only `QueueDependency`.
+- Schedule-v2 key/waits-for values use the same unsigned type of at most 16
+  bits. `no_dependency` is required explicitly and is that type's all-ones
+  value. A fixed bitmap covering every non-sentinel key retains completion after
+  the producer leaves the resident/output window. Keys cannot be reused before
+  reset because this scalar provider has no generation field. Plain `depend`
+  keeps its narrower resident-only semantics.
+- The PTO specialization `ac.schedule.v2` uses a finite physical-tag array,
+  configurable with a default of 256 entries. Each allocation selects the
+  lowest free tag and increments its generation. The block-local logical Tile
+  map points to `{tag,generation}`; an output rename records both the new tag and
+  the replaced tag that #20's ROB will recycle.
+- Dispatch proposals are sorted by sequence and stable object ID. Each proposal
+  reads one shadow rename image before its own outputs update that image. A
+  producer, overwrite, and consumer accepted in one Arbitrate therefore bind to
+  the newest preceding generation independent of proposal insertion order.
+- A consumer retains every input dependency as tag, generation, producer
+  sequence, Tile identity, and bounded live flow ID. It becomes ready only when
+  every exact tag generation is ready. Completion is accepted only for one
+  outstanding producer and its exact output-tag vector. Duplicate or stale
+  completion/recycle cannot change readiness, free tags, outstanding state, or
+  wakeup counts.
+- Recycle requires an allocated, ready, non-current tag generation with no
+  queued consumer. Accepted recycle clears readiness and returns the slot;
+  reuse increments generation. Generation exhaustion retires that slot rather
+  than wrapping into an ambiguous stale identity. Completed sequence history is
+  removed, and flow IDs live only while their dependent is queued.
+- `NpuScheduleV2` borrows parent-owned dispatch, completion, optional recycle,
+  and four per-engine issued `SimQueue` endpoints. It may consume at most one of
+  each input and issue at most one per engine per epoch. Queue prepare/publish,
+  tracker Arbitrate, and Xfer form one no-partial-commit transaction. Dispatch
+  capacity/tag stalls and issued-output backpressure retain the affected token
+  or entry; invalid dispatch/update tokens, including an out-of-range engine
+  class, are dropped once with a stable rejection observation so they cannot
+  poison the Queue head or bypass bounded per-engine accounting.
+- Stable observations/statistics cover ordered rename allocation/recycle,
+  tag/generation dependency flows, scoreboard readiness, per-engine
+  occupancy/peak, free/allocated/retired tags, rename entries, live flows,
+  outstanding producers, dispatch/tag/output stalls, issues, wakeups, recycles,
+  and rejected updates. Internal containers and proposal order are not
+  observable semantics.
+- PYC/Verilog generation for the multi-port PTO specialization fails with the
+  explicit #21 lane-lowering diagnostic. Issue #19 closes the gfsim scheduling
+  semantics and Queue ABI; #21 owns scalar multi-lane PYC/RTL equivalence.
+
+**Required verification**
+- Generic Schedule reproduces producer completion/output while an independent
+  resource blocks its dependent, then issues that dependent after the resource
+  frees. Frontend rejects a non-all-ones sentinel, Frozen ACIR/QueueGraph keep
+  the v2 provider, generated gfsim executes the scenario, and PYC fails at the
+  documented #21 boundary.
+- PTO tests cover same-epoch producer/consumer and overwrite/consumer rename,
+  insertion-order permutation, two independent source dependencies, partial
+  wakeup, completion before consumer arrival, four finite engine queues,
+  oldest-ready selection, tag-pool exhaustion without partial rename, and
+  issued-output backpressure without early clear.
+- Exact-generation tests reject stale/duplicate completion and recycle. A
+  64-iteration allocate/overwrite/issue/complete/recycle loop reuses the lowest
+  tags with increasing generations while outstanding producers and live flow
+  IDs return to zero and every state container stays bounded.
+- The Queue-backed provider proves parent ownership, exactly-once dispatch and
+  issue, invalid-update drop with rejection counters, retained work under
+  output backpressure, and stable observations. Full gfsim, CodeGen, frontend,
+  reusable-ISQ, contracts, unit, documentation, and decision-status gates pass.
+
+**Source**
+- PTO-ISA/pyCircuit issue #19 and the lost-wakeup case linked from issue #11.
+- Composes Decisions 0193, 0197, 0198, and 0203 without exposing ready/valid,
+  pop/push, rename tables, or commit mechanics in ordinary Python.

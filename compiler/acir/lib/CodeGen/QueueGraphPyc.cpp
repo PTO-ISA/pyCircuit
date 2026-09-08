@@ -1479,6 +1479,9 @@ llvm::Expected<std::string> generateQueueGraphPyc(const QueueGraphPlan &plan) {
         memoryResponseData[memory.outputs.front()] = producerData;
       } else if (dependencyProducer != dependencyByOutput.end()) {
         const QueueBlockPlan &dependency = *dependencyProducer->getValue();
+        if (dependency.provider == "v2")
+          return pycError(
+              "schedule v2 PYC provider requires issue #21 lane lowering");
         auto inputValidValue = outputValid.find(dependency.inputs.front());
         auto inputDataValue = outputData.find(dependency.inputs.front());
         const QueuePlan *inputQueue =

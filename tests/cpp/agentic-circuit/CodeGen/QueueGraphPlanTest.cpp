@@ -1925,6 +1925,92 @@ TEST(QueueGraphPlanTest, EmitsTypedDependencyForBothBackends) {
   EXPECT_NE(pyc->find("pyc.sub"), std::string::npos);
 }
 
+TEST(QueueGraphPlanTest, ScheduleV2UsesPersistentGfsimAndRejectsPycUntilLanes) {
+  QueueGraphPlan plan;
+  plan.system = "schedule_v2";
+  plan.queues = {{"input", "i8", "/", 4, 1},
+                 {"output", "i8", "/", 4, 1}};
+  plan.blocks.push_back({"source", "input", "/", {}, {"input"}, {4}, {1}});
+  QueueBlockPlan schedule{"dependency", "output", "/", {"input"},
+                          {"output"},   {4},      {1}};
+  schedule.expressions = {
+      {"key", "constant", "i8", {}, "", "", "1 : i8"},
+      {"predecessor", "constant", "i8", {}, "", "", "255 : i8"},
+      {"resource", "constant", "i2", {}, "", "", "0 : i2"},
+      {"cost", "constant", "i8", {}, "", "", "1 : i8"},
+  };
+  schedule.yields = {"key", "predecessor", "resource", "cost"};
+  schedule.capacity = 4;
+  schedule.resources = 2;
+  schedule.noDependency = 255;
+  schedule.provider = "v2";
+  plan.blocks.push_back(std::move(schedule));
+  plan.blocks.push_back({"sink", "sink_0", "/", {"output"}, {}});
+
+  auto cpp = generateQueueGraphCpp(plan);
+  ASSERT_TRUE(bool(cpp)) << llvm::toString(cpp.takeError());
+  EXPECT_NE(cpp->find("gfsim::Schedule<gfsim::UInt<8>, 4, 2, 255"),
+            std::string::npos);
+  EXPECT_NE(cpp->find(", input_, output_)"), std::string::npos);
+
+  auto pyc = generateQueueGraphPyc(plan);
+  ASSERT_FALSE(bool(pyc));
+  EXPECT_NE(llvm::toString(pyc.takeError())
+                .find("schedule v2 PYC provider requires issue #21"),
+            std::string::npos);
+
+  plan.blocks[1].noDependency = 127;
+  auto invalid = verifyQueueGraphPlan(plan);
+  ASSERT_TRUE(bool(invalid));
+  EXPECT_NE(llvm::toString(std::move(invalid)).find("all-ones sentinel"),
+            std::string::npos);
+
+  plan.blocks[1].noDependency = 255;
+  plan.blocks[1].expressions[1].type = "i16";
+  auto mismatched = verifyQueueGraphPlan(plan);
+  ASSERT_TRUE(bool(mismatched));
+  EXPECT_NE(llvm::toString(std::move(mismatched))
+                .find("matching key and predecessor"),
+            std::string::npos);
+
+  plan.blocks[1].expressions = {
+      {"predecessor", "constant", "i8", {}, "", "", "255 : i8"},
+      {"resource", "constant", "i2", {}, "", "", "0 : i2"},
+      {"cost", "constant", "i8", {}, "", "", "1 : i8"},
+  };
+  plan.blocks[1].yields = {"item", "predecessor", "resource", "cost"};
+  auto directRoot = verifyQueueGraphPlan(plan);
+  EXPECT_FALSE(bool(directRoot)) << llvm::toString(std::move(directRoot));
+  auto directRootCpp = generateQueueGraphCpp(plan);
+  ASSERT_TRUE(bool(directRootCpp))
+      << llvm::toString(directRootCpp.takeError());
+  EXPECT_NE(directRootCpp->find(
+                "gfsim::Schedule<gfsim::UInt<8>, 4, 2, 255"),
+            std::string::npos);
+
+  const QueueBlockPlan validProvider = plan.blocks[1];
+  auto expectMalformedProvider = [&](QueueBlockPlan malformed) {
+    plan.blocks[1] = std::move(malformed);
+    auto error = verifyQueueGraphPlan(plan);
+    ASSERT_TRUE(bool(error));
+    EXPECT_NE(llvm::toString(std::move(error))
+                  .find("schedule provider metadata is unsupported"),
+              std::string::npos);
+  };
+  QueueBlockPlan malformed = validProvider;
+  malformed.inputs.clear();
+  expectMalformedProvider(malformed);
+  malformed = validProvider;
+  malformed.outputs.clear();
+  expectMalformedProvider(malformed);
+  malformed = validProvider;
+  malformed.capacity = 0;
+  expectMalformedProvider(malformed);
+  malformed = validProvider;
+  malformed.resources = 0;
+  expectMalformedProvider(malformed);
+}
+
 TEST(QueueGraphPlanTest, EmitsTypedCreditWindowForBothBackends) {
   QueueGraphPlan plan;
   plan.system = "credited";

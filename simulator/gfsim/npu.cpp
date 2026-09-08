@@ -9,6 +9,7 @@
 #include <limits>
 #include <optional>
 #include <ranges>
+#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <tuple>
@@ -332,6 +333,23 @@ bool issueEntryLess(const NpuIssueEntry &left, const NpuIssueEntry &right) {
          std::tie(right.instruction.sequenceId, right.stableObjectId);
 }
 
+bool isValidEngineClass(NpuEngineClass engine) {
+  switch (engine) {
+  case NpuEngineClass::Scalar:
+  case NpuEngineClass::Vector:
+  case NpuEngineClass::Cube:
+  case NpuEngineClass::Tma:
+    return true;
+  }
+  return false;
+}
+
+size_t validatedPhysicalTagCapacity(size_t capacity) {
+  if (capacity == 0 || capacity > std::numeric_limits<uint32_t>::max())
+    throw std::invalid_argument("NPU physical-tag capacity is invalid");
+  return capacity;
+}
+
 } // namespace
 
 std::string_view toString(NpuEngineClass engine) {
@@ -468,9 +486,18 @@ NpuDependencyTracker::NpuDependencyTracker(std::string name, ObjectId id,
                                            SimObject *parent,
                                            NpuIssueQueueCapacities capacities,
                                            ObservationSink *observations)
+    : NpuDependencyTracker(std::move(name), id, parent, capacities, 256,
+                           observations) {}
+
+NpuDependencyTracker::NpuDependencyTracker(std::string name, ObjectId id,
+                                           SimObject *parent,
+                                           NpuIssueQueueCapacities capacities,
+                                           size_t physicalTagCapacity,
+                                           ObservationSink *observations)
     : SimObject(ObjectKind::Scheduler, std::move(name), id, parent,
                 observations),
-      capacities_(capacities) {}
+      capacities_(capacities),
+      tags_(validatedPhysicalTagCapacity(physicalTagCapacity)) {}
 
 size_t NpuDependencyTracker::engineIndex(NpuEngineClass engine) {
   switch (engine) {
@@ -483,7 +510,7 @@ size_t NpuDependencyTracker::engineIndex(NpuEngineClass engine) {
   case NpuEngineClass::Tma:
     return 3;
   }
-  return 0;
+  throw std::invalid_argument("NPU engine class is invalid");
 }
 
 size_t NpuDependencyTracker::capacity(NpuEngineClass engine) const {
@@ -501,8 +528,7 @@ size_t NpuDependencyTracker::capacity(NpuEngineClass engine) const {
 }
 
 bool NpuDependencyTracker::knownSequence(uint64_t sequenceId) const {
-  if (completedSequences_.contains(sequenceId) ||
-      outstandingSequences_.contains(sequenceId))
+  if (outstanding_.contains(sequenceId))
     return true;
   if (std::ranges::any_of(dispatchProposals_,
                           [&](const auto &proposal) {
@@ -524,16 +550,46 @@ bool NpuDependencyTracker::knownSequence(uint64_t sequenceId) const {
 bool NpuDependencyTracker::ready(const NpuIssueEntry &entry) const {
   return std::ranges::all_of(
       entry.derivedDependencies, [&](const NpuDependency &dependency) {
-        return completedSequences_.contains(dependency.producerSequenceId);
+        return tagReady({dependency.tag, dependency.generation});
       });
+}
+
+void NpuDependencyTracker::cancelIssueProposals() {
+  for (auto &proposal : issueProposals_)
+    proposal.reset();
+}
+
+void NpuDependencyTracker::cancelAllProposals() {
+  dispatchProposals_.clear();
+  acceptedDispatches_.clear();
+  proposedRejectedDispatches_.clear();
+  proposedTagStalls_.clear();
+  proposedWindowStalls_.clear();
+  cancelIssueProposals();
+  completionProposals_.clear();
+  recycleProposals_.clear();
+  acceptedRecycles_.clear();
+}
+
+NpuDispatchValidation
+NpuDependencyTracker::validateDispatch(const NpuInstruction &instruction,
+                                       ObjectId stableObjectId) const {
+  if (!isValidEngineClass(instruction.engine))
+    return NpuDispatchValidation::InvalidEngineClass;
+  if (stableObjectId == kInvalidObjectId)
+    return NpuDispatchValidation::InvalidStableObjectId;
+  if (knownSequence(instruction.sequenceId))
+    return NpuDispatchValidation::DuplicateSequence;
+  if (lastDispatchedSequence_ &&
+      instruction.sequenceId <= *lastDispatchedSequence_)
+    return NpuDispatchValidation::StaleSequence;
+  return NpuDispatchValidation::Acceptable;
 }
 
 bool NpuDependencyTracker::proposeDispatch(const NpuInstruction &instruction,
                                            ObjectId stableObjectId) {
-  if (stableObjectId == kInvalidObjectId ||
-      (lastDispatchedSequence_ &&
-       instruction.sequenceId <= *lastDispatchedSequence_) ||
-      knownSequence(instruction.sequenceId))
+  if (validateDispatch(instruction, stableObjectId) !=
+      NpuDispatchValidation::Acceptable)
     return false;
   dispatchProposals_.push_back({instruction, stableObjectId});
   return true;
@@ -543,11 +599,7 @@ bool NpuDependencyTracker::proposeIssue(NpuEngineClass engine) {
   const size_t index = engineIndex(engine);
   if (issueProposals_[index])
     return false;
-  const auto &queue = queues_[index];
-  const NpuIssueEntry *candidate = nullptr;
-  for (const NpuIssueEntry &entry : queue)
-    if (ready(entry) && (!candidate || issueEntryLess(entry, *candidate)))
-      candidate = &entry;
+  const NpuIssueEntry *candidate = oldestReadyIssue(engine);
   if (!candidate)
     return false;
   issueProposals_[index] = *candidate;
@@ -555,11 +607,42 @@ bool NpuDependencyTracker::proposeIssue(NpuEngineClass engine) {
 }
 
 bool NpuDependencyTracker::proposeComplete(uint64_t sequenceId) {
-  if (!outstandingSequences_.contains(sequenceId) ||
-      std::ranges::find(completionProposals_, sequenceId) !=
-          completionProposals_.end())
+  auto outstanding = outstanding_.find(sequenceId);
+  if (outstanding == outstanding_.end())
     return false;
-  completionProposals_.push_back(sequenceId);
+  return proposeComplete({sequenceId, outstanding->second.outputTags});
+}
+
+bool NpuDependencyTracker::proposeComplete(NpuCompletion completion) {
+  auto outstanding = outstanding_.find(completion.sequenceId);
+  if (outstanding == outstanding_.end() ||
+      outstanding->second.outputTags != completion.outputTags ||
+      std::ranges::any_of(completionProposals_,
+                          [&](const NpuCompletion &other) {
+                            return other.sequenceId == completion.sequenceId;
+                          }))
+    return false;
+  completionProposals_.push_back(std::move(completion));
+  return true;
+}
+
+bool NpuDependencyTracker::proposeRecycle(NpuPhysicalTag tag) {
+  if (!tagReady(tag) ||
+      std::ranges::find(recycleProposals_, tag) != recycleProposals_.end())
+    return false;
+  if (std::ranges::any_of(producers_, [&](const auto &producer) {
+        return producer.second == tag;
+      }))
+    return false;
+  for (const auto &queue : queues_)
+    for (const NpuIssueEntry &entry : queue)
+      if (std::ranges::any_of(entry.derivedDependencies,
+                              [&](const NpuDependency &dependency) {
+                                return dependency.tag == tag.tag &&
+                                       dependency.generation == tag.generation;
+                              }))
+        return false;
+  recycleProposals_.push_back(tag);
   return true;
 }
 
@@ -573,34 +656,53 @@ void NpuDependencyTracker::doArbitrate(Epoch) {
 
   std::array<size_t, 4> remaining{};
   for (size_t index = 0; index < queues_.size(); ++index) {
-    const size_t released = issueProposals_[index] ? 1 : 0;
-    const size_t occupied = queues_[index].size() - released;
     NpuEngineClass engine = static_cast<NpuEngineClass>(index);
+    const size_t occupied = issueWindowOccupancy(engine);
     remaining[index] =
         capacity(engine) > occupied ? capacity(engine) - occupied : 0;
   }
 
   std::set<uint64_t> shadowFlowIds = usedFlowIds_;
+  // Arbitrate is a single ordered rename/dispatch transaction: later
+  // proposals must observe producer updates accepted earlier in this pass.
+  auto shadowProducers = producers_;
+  auto shadowTags = tags_;
   bool dispatchBlocked = false;
+  bool blockedByTags = false;
+  std::optional<NpuEngineClass> blockedByWindow;
   for (const DispatchProposal &proposal : dispatchProposals_) {
     const size_t index = engineIndex(proposal.instruction.engine);
-    if (dispatchBlocked || remaining[index] == 0) {
+    if (dispatchBlocked) {
       proposedRejectedDispatches_.push_back(proposal.instruction.sequenceId);
+      if (blockedByTags)
+        proposedTagStalls_.insert(proposal.instruction.sequenceId);
+      if (blockedByWindow)
+        proposedWindowStalls_[proposal.instruction.sequenceId] =
+            *blockedByWindow;
+      continue;
+    }
+    if (remaining[index] == 0) {
+      proposedRejectedDispatches_.push_back(proposal.instruction.sequenceId);
+      proposedWindowStalls_[proposal.instruction.sequenceId] =
+          proposal.instruction.engine;
       dispatchBlocked = true;
+      blockedByWindow = proposal.instruction.engine;
       continue;
     }
 
     NpuIssueEntry entry{.instruction = proposal.instruction,
                         .stableObjectId = proposal.stableObjectId};
+    std::set<uint64_t> candidateFlowIds = shadowFlowIds;
     for (const std::string &tile : entry.instruction.inputTiles) {
-      auto producer = producers_.find({entry.instruction.blockId, tile});
-      if (producer == producers_.end())
+      auto producer = shadowProducers.find({entry.instruction.blockId, tile});
+      if (producer == shadowProducers.end())
         continue;
       uint64_t flow =
-          dependencyFlowId(entry.instruction.blockId, producer->second,
+          dependencyFlowId(entry.instruction.blockId,
+                           shadowTags[producer->second.tag].producerSequenceId,
                            entry.instruction.sequenceId, tile);
-      for (size_t attempts = 0; shadowFlowIds.contains(flow); ++attempts) {
-        if (attempts >= shadowFlowIds.size()) {
+      for (size_t attempts = 0; candidateFlowIds.contains(flow); ++attempts) {
+        if (attempts >= candidateFlowIds.size()) {
           setRuntimeFailureCode("npu_dependency_flow_id_exhausted");
           break;
         }
@@ -608,19 +710,96 @@ void NpuDependencyTracker::doArbitrate(Epoch) {
       }
       if (!runtimeFailureCode().empty())
         break;
-      shadowFlowIds.insert(flow);
+      candidateFlowIds.insert(flow);
       entry.derivedDependencies.push_back(
-          {.producerSequenceId = producer->second,
+          {.producerSequenceId =
+               shadowTags[producer->second.tag].producerSequenceId,
            .tileIdentity = tile,
-           .flowId = flow});
+           .flowId = flow,
+           .tag = producer->second.tag,
+           .generation = producer->second.generation});
     }
     if (!runtimeFailureCode().empty()) {
       proposedRejectedDispatches_.push_back(proposal.instruction.sequenceId);
       dispatchBlocked = true;
       continue;
     }
+    auto candidateTags = shadowTags;
+    auto candidateProducers = shadowProducers;
+    bool tagsAvailable = true;
+    for (const std::string &tile : entry.instruction.outputTiles) {
+      auto free = std::ranges::find_if(candidateTags, [](const TagState &tag) {
+        return !tag.allocated &&
+               tag.generation != std::numeric_limits<uint64_t>::max();
+      });
+      if (free == candidateTags.end()) {
+        tagsAvailable = false;
+        break;
+      }
+      const uint32_t tag =
+          static_cast<uint32_t>(std::distance(candidateTags.begin(), free));
+      ++free->generation;
+      free->producerSequenceId = entry.instruction.sequenceId;
+      free->allocated = true;
+      free->ready = false;
+      NpuOutputRename rename{.tileIdentity = tile,
+                             .output = {tag, free->generation}};
+      auto previous =
+          candidateProducers.find({entry.instruction.blockId, tile});
+      if (previous != candidateProducers.end())
+        rename.replaced = previous->second;
+      candidateProducers[{entry.instruction.blockId, tile}] = rename.output;
+      entry.outputRenames.push_back(std::move(rename));
+    }
+    if (!tagsAvailable) {
+      proposedRejectedDispatches_.push_back(proposal.instruction.sequenceId);
+      proposedTagStalls_.insert(proposal.instruction.sequenceId);
+      dispatchBlocked = true;
+      blockedByTags = true;
+      continue;
+    }
     --remaining[index];
+    shadowFlowIds = std::move(candidateFlowIds);
+    shadowTags = std::move(candidateTags);
+    shadowProducers = std::move(candidateProducers);
     acceptedDispatches_.push_back(std::move(entry));
+  }
+
+  if (hasPendingCommit()) {
+    uint64_t occupancy = 0;
+    for (const auto &queue : queues_)
+      occupancy += queue.size();
+    occupancy += acceptedDispatches_.size();
+    emitObservation(
+        {.category = "schedule",
+         .name = "state",
+         .phase = TraceEventPhase::Counter,
+         .arguments = {{"free_physical_tags",
+                        static_cast<uint64_t>(std::ranges::count_if(
+                            shadowTags,
+                            [](const TagState &tag) {
+                              return !tag.allocated &&
+                                     tag.generation !=
+                                         std::numeric_limits<uint64_t>::max();
+                            }))},
+                       {"issue_queue_occupancy", occupancy},
+                       {"rename_entries",
+                        static_cast<uint64_t>(shadowProducers.size())}}});
+    for (size_t index = 0; index < queues_.size(); ++index) {
+      const NpuEngineClass engine = static_cast<NpuEngineClass>(index);
+      const size_t accepted = static_cast<size_t>(std::ranges::count_if(
+          acceptedDispatches_, [&](const NpuIssueEntry &entry) {
+            return entry.instruction.engine == engine;
+          }));
+      emitObservation(
+          {.category = "schedule",
+           .name = "issue_window",
+           .phase = TraceEventPhase::Counter,
+           .arguments = {{"engine", std::string(toString(engine))},
+                         {"occupancy",
+                          static_cast<uint64_t>(issueWindowOccupancy(engine) +
+                                                accepted)}}});
+    }
   }
 
   for (const NpuIssueEntry &entry : acceptedDispatches_) {
@@ -641,14 +820,44 @@ void NpuDependencyTracker::doArbitrate(Epoch) {
            .rootSequenceId = entry.instruction.sequenceId,
            .flowId = dependency.flowId,
            .arguments = {
+               {"generation", dependency.generation},
+               {"physical_tag", static_cast<uint64_t>(dependency.tag)},
                {"producer_sequence_id", dependency.producerSequenceId},
                {"tile_identity", dependency.tileIdentity}}});
+    for (const NpuOutputRename &rename : entry.outputRenames) {
+      std::vector<ObservationArgument> arguments = {
+          {"generation", rename.output.generation},
+          {"physical_tag", static_cast<uint64_t>(rename.output.tag)},
+      };
+      if (rename.replaced) {
+        arguments.push_back(
+            {"replaced_generation", rename.replaced->generation});
+        arguments.push_back(
+            {"replaced_tag", static_cast<uint64_t>(rename.replaced->tag)});
+      }
+      arguments.push_back({"tile_identity", rename.tileIdentity});
+      emitObservation({.category = "rename",
+                       .name = "allocate",
+                       .phase = TraceEventPhase::Instant,
+                       .rootSequenceId = entry.instruction.sequenceId,
+                       .arguments = std::move(arguments)});
+    }
   }
   for (uint64_t sequenceId : proposedRejectedDispatches_)
-    emitObservation({.category = "stall",
-                     .name = "issue_queue_capacity",
-                     .phase = TraceEventPhase::Instant,
-                     .rootSequenceId = sequenceId});
+    emitObservation(
+        {.category = "stall",
+         .name = proposedTagStalls_.contains(sequenceId)
+                     ? "physical_tag_pool"
+                     : "issue_window_capacity",
+         .phase = TraceEventPhase::Instant,
+         .rootSequenceId = sequenceId,
+         .arguments =
+             proposedWindowStalls_.contains(sequenceId)
+                 ? std::vector<ObservationArgument>{{"engine",
+                                                     std::string(toString(
+                                                         proposedWindowStalls_
+                                                             .at(sequenceId)))}}
+                 : std::vector<ObservationArgument>{}});
 
   std::vector<const NpuIssueEntry *> issues;
   for (const auto &proposal : issueProposals_)
@@ -676,24 +885,53 @@ void NpuDependencyTracker::doArbitrate(Epoch) {
            .rootSequenceId = entry->instruction.sequenceId,
            .flowId = dependency.flowId,
            .arguments = {
+               {"generation", dependency.generation},
+               {"physical_tag", static_cast<uint64_t>(dependency.tag)},
                {"producer_sequence_id", dependency.producerSequenceId},
                {"tile_identity", dependency.tileIdentity}}});
   }
 
-  std::sort(completionProposals_.begin(), completionProposals_.end());
-  for (uint64_t producer : completionProposals_)
+  std::sort(completionProposals_.begin(), completionProposals_.end(),
+            [](const NpuCompletion &left, const NpuCompletion &right) {
+              return left.sequenceId < right.sequenceId;
+            });
+  for (const NpuCompletion &completion : completionProposals_)
+    for (NpuPhysicalTag tag : completion.outputTags)
+      emitObservation(
+          {.category = "scoreboard",
+           .name = "ready",
+           .phase = TraceEventPhase::Instant,
+           .rootSequenceId = completion.sequenceId,
+           .arguments = {{"generation", tag.generation},
+                         {"physical_tag", static_cast<uint64_t>(tag.tag)}}});
+  for (const NpuCompletion &completion : completionProposals_)
     for (const auto &queue : queues_)
       for (const NpuIssueEntry &entry : queue)
         if (std::ranges::any_of(entry.derivedDependencies,
                                 [&](const NpuDependency &dependency) {
-                                  return dependency.producerSequenceId ==
-                                         producer;
+                                  return std::ranges::find(
+                                             completion.outputTags,
+                                             NpuPhysicalTag{
+                                                 dependency.tag,
+                                                 dependency.generation}) !=
+                                         completion.outputTags.end();
                                 }))
-          emitObservation({.category = "dependency",
-                           .name = "ready",
-                           .phase = TraceEventPhase::Instant,
-                           .rootSequenceId = entry.instruction.sequenceId,
-                           .arguments = {{"producer_sequence_id", producer}}});
+          emitObservation(
+              {.category = "dependency",
+               .name = "ready",
+               .phase = TraceEventPhase::Instant,
+               .rootSequenceId = entry.instruction.sequenceId,
+               .arguments = {{"producer_sequence_id", completion.sequenceId}}});
+
+  std::sort(recycleProposals_.begin(), recycleProposals_.end());
+  acceptedRecycles_ = recycleProposals_;
+  for (NpuPhysicalTag tag : acceptedRecycles_)
+    emitObservation(
+        {.category = "rename",
+         .name = "recycle",
+         .phase = TraceEventPhase::Instant,
+         .arguments = {{"generation", tag.generation},
+                       {"physical_tag", static_cast<uint64_t>(tag.tag)}}});
 }
 
 void NpuDependencyTracker::doXfer(Epoch epoch) {
@@ -704,9 +942,15 @@ void NpuDependencyTracker::doXfer(Epoch epoch) {
 
   for (NpuIssueEntry &entry : acceptedDispatches_) {
     entry.instruction.timestamps.dispatched = epoch.time;
-    for (const std::string &tile : entry.instruction.outputTiles)
-      producers_[{entry.instruction.blockId, tile}] =
-          entry.instruction.sequenceId;
+    for (const NpuOutputRename &rename : entry.outputRenames) {
+      TagState &state = tags_[rename.output.tag];
+      state.generation = rename.output.generation;
+      state.producerSequenceId = entry.instruction.sequenceId;
+      state.allocated = true;
+      state.ready = false;
+      producers_[{entry.instruction.blockId, rename.tileIdentity}] =
+          rename.output;
+    }
     for (const NpuDependency &dependency : entry.derivedDependencies)
       usedFlowIds_.insert(dependency.flowId);
     acceptedDispatchSequences_.insert(entry.instruction.sequenceId);
@@ -715,6 +959,11 @@ void NpuDependencyTracker::doXfer(Epoch epoch) {
     ++totalDispatches_;
   }
   totalDispatchStalls_ += proposedRejectedDispatches_.size();
+  totalTagPoolStalls_ += proposedTagStalls_.size();
+  for (const auto &[sequenceId, engine] : proposedWindowStalls_) {
+    (void)sequenceId;
+    ++totalWindowStalls_[engineIndex(engine)];
+  }
 
   for (size_t index = 0; index < issueProposals_.size(); ++index) {
     if (!issueProposals_[index])
@@ -731,36 +980,66 @@ void NpuDependencyTracker::doXfer(Epoch epoch) {
       continue;
     }
     position->instruction.timestamps.issued = epoch.time;
-    outstandingSequences_.insert(position->instruction.sequenceId);
+    std::vector<NpuPhysicalTag> outputTags;
+    outputTags.reserve(position->outputRenames.size());
+    for (const NpuOutputRename &rename : position->outputRenames)
+      outputTags.push_back(rename.output);
+    outstanding_[position->instruction.sequenceId] = {
+        position->instruction.engine, std::move(outputTags)};
+    for (const NpuDependency &dependency : position->derivedDependencies)
+      usedFlowIds_.erase(dependency.flowId);
     issued_.push_back(std::move(*position));
     queue.erase(position);
     ++totalIssues_;
   }
   std::sort(issued_.begin(), issued_.end(), issueEntryLess);
 
-  for (uint64_t sequenceId : completionProposals_) {
+  for (const NpuCompletion &completion : completionProposals_) {
     for (const auto &queue : queues_)
       for (const NpuIssueEntry &entry : queue)
         totalDependencyWakeups_ += static_cast<uint64_t>(std::ranges::count_if(
             entry.derivedDependencies, [&](const NpuDependency &dependency) {
-              return dependency.producerSequenceId == sequenceId;
+              return std::ranges::find(completion.outputTags,
+                                       NpuPhysicalTag{dependency.tag,
+                                                      dependency.generation}) !=
+                     completion.outputTags.end();
             }));
-    completedSequences_.insert(sequenceId);
-    outstandingSequences_.erase(sequenceId);
+    for (NpuPhysicalTag tag : completion.outputTags) {
+      TagState &state = tags_[tag.tag];
+      if (state.allocated && state.generation == tag.generation)
+        state.ready = true;
+    }
+    outstanding_.erase(completion.sequenceId);
+  }
+
+  for (NpuPhysicalTag tag : acceptedRecycles_) {
+    TagState &state = tags_[tag.tag];
+    if (!state.allocated || state.generation != tag.generation || !state.ready)
+      continue;
+    state.allocated = false;
+    state.ready = false;
+    ++totalTagRecycles_;
   }
 
   for (size_t index = 0; index < queues_.size(); ++index) {
     std::sort(queues_[index].begin(), queues_[index].end(), issueEntryLess);
     highWatermarks_[index] =
         std::max(highWatermarks_[index], queues_[index].size());
+    const NpuEngineClass engine = static_cast<NpuEngineClass>(index);
+    windowHighWatermarks_[index] =
+        std::max(windowHighWatermarks_[index], issueWindowOccupancy(engine));
   }
 
   dispatchProposals_.clear();
   acceptedDispatches_.clear();
   proposedRejectedDispatches_.clear();
+  proposedTagStalls_.clear();
+  proposedWindowStalls_.clear();
   for (auto &proposal : issueProposals_)
     proposal.reset();
   completionProposals_.clear();
+  recycleProposals_.clear();
+  acceptedRecycles_.clear();
   if (changed)
     lastUpdate_ = epoch;
 }
@@ -771,19 +1050,22 @@ bool NpuDependencyTracker::hasPendingCommit() const {
          std::ranges::any_of(
              issueProposals_,
              [](const auto &entry) { return entry.has_value(); }) ||
-         !completionProposals_.empty();
+         !completionProposals_.empty() || !recycleProposals_.empty() ||
+         !acceptedRecycles_.empty();
 }
 
 bool NpuDependencyTracker::isRunnable(Epoch) const {
-  return !dispatchProposals_.empty() || !completionProposals_.empty();
+  return !dispatchProposals_.empty() || !completionProposals_.empty() ||
+         !recycleProposals_.empty();
 }
 
 RuntimeObjectState NpuDependencyTracker::runtimeState(Epoch epoch) const {
   RuntimeObjectState state = SimObject::runtimeState(epoch);
   for (const auto &queue : queues_)
     state.queueOccupancy += queue.size();
-  state.pendingOffers = dispatchProposals_.size() + completionProposals_.size();
-  state.activeReservations = outstandingSequences_.size();
+  state.pendingOffers = dispatchProposals_.size() +
+                        completionProposals_.size() + recycleProposals_.size();
+  state.activeReservations = outstanding_.size();
   state.quiescent = state.queueOccupancy == 0 && state.pendingOffers == 0 &&
                     state.activeReservations == 0 && !hasPendingCommit();
   if (!state.quiescent)
@@ -806,21 +1088,53 @@ void NpuDependencyTracker::collectStatistics(
   };
   constexpr std::array names = {"scalar", "vector", "cube", "tma"};
   for (size_t index = 0; index < queues_.size(); ++index) {
+    const NpuEngineClass engine = static_cast<NpuEngineClass>(index);
     append("issue_queue_occupancy_" + std::string(names[index]),
            StatisticKind::Gauge, queues_[index].size());
     append("issue_queue_peak_" + std::string(names[index]),
            StatisticKind::Gauge, highWatermarks_[index]);
+    append("issue_window_occupancy_" + std::string(names[index]),
+           StatisticKind::Gauge, issueWindowOccupancy(engine));
+    append("issue_window_peak_" + std::string(names[index]),
+           StatisticKind::Gauge, windowHighWatermarks_[index]);
+    append("issue_window_stalls_" + std::string(names[index]),
+           StatisticKind::Counter, totalWindowStalls_[index]);
   }
   append("dispatch_stalls", StatisticKind::Counter, totalDispatchStalls_);
   append("dispatched_instructions", StatisticKind::Counter, totalDispatches_);
   append("issued_instructions", StatisticKind::Counter, totalIssues_);
   append("dependency_wakeups", StatisticKind::Counter, totalDependencyWakeups_);
+  append("physical_tags_free", StatisticKind::Gauge, freeTagCount());
+  append("physical_tags_allocated", StatisticKind::Gauge,
+         std::ranges::count_if(tags_, &TagState::allocated));
+  append("physical_tags_retired", StatisticKind::Gauge,
+         std::ranges::count_if(tags_, [](const TagState &tag) {
+           return !tag.allocated &&
+                  tag.generation == std::numeric_limits<uint64_t>::max();
+         }));
+  append("physical_tag_pool_stalls", StatisticKind::Counter,
+         totalTagPoolStalls_);
+  append("physical_tag_recycles", StatisticKind::Counter, totalTagRecycles_);
+  append("rename_entries", StatisticKind::Gauge, producers_.size());
+  append("outstanding_producers", StatisticKind::Gauge, outstanding_.size());
+  append("live_dependency_flows", StatisticKind::Gauge, usedFlowIds_.size());
 }
 
 const NpuIssueEntry *
 NpuDependencyTracker::proposedIssue(NpuEngineClass engine) const {
   const auto &proposal = issueProposals_[engineIndex(engine)];
   return proposal ? &*proposal : nullptr;
+}
+
+const NpuIssueEntry *
+NpuDependencyTracker::oldestReadyIssue(NpuEngineClass engine) const {
+  if (issueWindowOccupancy(engine) > capacity(engine))
+    return nullptr;
+  const NpuIssueEntry *candidate = nullptr;
+  for (const NpuIssueEntry &entry : queues_[engineIndex(engine)])
+    if (ready(entry) && (!candidate || issueEntryLess(entry, *candidate)))
+      candidate = &entry;
+  return candidate;
 }
 
 std::vector<NpuIssueEntry>
@@ -853,30 +1167,343 @@ size_t NpuDependencyTracker::queueSize(NpuEngineClass engine) const {
   return queues_[engineIndex(engine)].size();
 }
 
+size_t NpuDependencyTracker::issueWindowOccupancy(NpuEngineClass engine) const {
+  return queues_[engineIndex(engine)].size() +
+         static_cast<size_t>(
+             std::ranges::count_if(outstanding_, [&](const auto &entry) {
+               return entry.second.engine == engine;
+             }));
+}
+
+bool NpuDependencyTracker::hasReadyIssue(NpuEngineClass engine) const {
+  return oldestReadyIssue(engine) != nullptr;
+}
+
+size_t NpuDependencyTracker::freeTagCount() const {
+  return std::ranges::count_if(tags_, [](const TagState &tag) {
+    return !tag.allocated &&
+           tag.generation != std::numeric_limits<uint64_t>::max();
+  });
+}
+
+bool NpuDependencyTracker::tagReady(NpuPhysicalTag tag) const {
+  return tag.tag < tags_.size() && tags_[tag.tag].allocated &&
+         tags_[tag.tag].generation == tag.generation && tags_[tag.tag].ready;
+}
+
+std::optional<NpuPhysicalTag>
+NpuDependencyTracker::producerTag(uint64_t blockId,
+                                  std::string_view tile) const {
+  auto producer = producers_.find({blockId, std::string(tile)});
+  return producer == producers_.end()
+             ? std::nullopt
+             : std::optional<NpuPhysicalTag>(producer->second);
+}
+
+bool NpuDependencyTracker::dispatchWillCommit(uint64_t sequenceId) const {
+  return std::ranges::any_of(acceptedDispatches_, [&](const auto &entry) {
+    return entry.instruction.sequenceId == sequenceId;
+  });
+}
+
 void NpuDependencyTracker::reset() {
   for (auto &queue : queues_)
     queue.clear();
   dispatchProposals_.clear();
   acceptedDispatches_.clear();
   proposedRejectedDispatches_.clear();
+  proposedTagStalls_.clear();
+  proposedWindowStalls_.clear();
   rejectedDispatches_.clear();
   acceptedDispatchSequences_.clear();
   for (auto &proposal : issueProposals_)
     proposal.reset();
   issued_.clear();
   completionProposals_.clear();
-  outstandingSequences_.clear();
-  completedSequences_.clear();
+  recycleProposals_.clear();
+  acceptedRecycles_.clear();
+  outstanding_.clear();
   producers_.clear();
+  for (TagState &tag : tags_)
+    tag = {};
   usedFlowIds_.clear();
   lastDispatchedSequence_.reset();
   highWatermarks_.fill(0);
+  windowHighWatermarks_.fill(0);
+  totalWindowStalls_.fill(0);
   totalDispatches_ = 0;
   totalDispatchStalls_ = 0;
   totalIssues_ = 0;
   totalDependencyWakeups_ = 0;
+  totalTagPoolStalls_ = 0;
+  totalTagRecycles_ = 0;
   lastUpdate_ = {};
   clearRuntimeFailureCode();
+}
+
+NpuScheduleV2::NpuScheduleV2(std::string name, ObjectId id, SimObject *parent,
+                             NpuIssueQueueCapacities capacities,
+                             size_t physicalTagCapacity,
+                             SimQueue<NpuDispatch> &dispatch,
+                             SimQueue<NpuCompletion> &completion,
+                             std::array<SimQueue<NpuIssueEntry> *, 4> issued,
+                             SimQueue<NpuPhysicalTag> *recycle,
+                             ObservationSink *observations)
+    : SimObject(componentKind, std::move(name), id, parent, observations),
+      tracker_("schedule_v2_state", id, parent, capacities, physicalTagCapacity,
+               observations),
+      dispatch_(dispatch), completion_(completion), issued_(issued),
+      recycle_(recycle) {
+  if (id == kInvalidObjectId ||
+      std::ranges::any_of(issued_,
+                          [](const auto *queue) { return queue == nullptr; }) ||
+      !endpointsOwnedByParent())
+    throw std::invalid_argument(
+        "schedule-v2 requires parent-owned non-null Queue endpoints");
+}
+
+bool NpuScheduleV2::endpointsOwnedByParent() const {
+  const Module *module = parent() == nullptr ? nullptr : parent()->asModule();
+  if (module == nullptr || dispatch_.parent() != parent() ||
+      completion_.parent() != parent() ||
+      (recycle_ != nullptr && recycle_->parent() != parent()))
+    return false;
+  for (size_t left = 0; left < issued_.size(); ++left)
+    for (size_t right = left + 1; right < issued_.size(); ++right)
+      if (issued_[left] == issued_[right])
+        return false;
+  const std::vector<SimObject *> children = module->children();
+  auto attached = [&](const SimObject *object) {
+    return std::ranges::find(children, object) != children.end();
+  };
+  return attached(&dispatch_) && attached(&completion_) &&
+         (recycle_ == nullptr || attached(recycle_)) &&
+         std::ranges::all_of(issued_, [&](const auto *queue) {
+           return queue->parent() == parent() && attached(queue);
+         });
+}
+
+void NpuScheduleV2::doWork(Epoch) {
+  if (fired_ || candidate_)
+    return;
+  candidate_ = dispatch_.peek() != nullptr || completion_.peek() != nullptr ||
+               (recycle_ != nullptr && recycle_->peek() != nullptr);
+  for (size_t index = 0; index < issued_.size(); ++index)
+    candidate_ |= tracker_.hasReadyIssue(static_cast<NpuEngineClass>(index));
+}
+
+void NpuScheduleV2::doArbitrate(Epoch epoch) {
+  if (fired_ || !candidate_)
+    return;
+  candidate_ = false;
+  const CommitGroupId group = id();
+
+  bool dispatchPrepared = dispatch_.preparePop(group);
+  const NpuDispatch *dispatch = dispatch_.preparedPopValue(group);
+  const NpuDispatchValidation dispatchValidation =
+      dispatch == nullptr ? NpuDispatchValidation::Acceptable
+                          : tracker_.validateDispatch(dispatch->instruction,
+                                                      dispatch->stableObjectId);
+  dispatchRejected_ = dispatch != nullptr &&
+                      dispatchValidation != NpuDispatchValidation::Acceptable;
+  if (dispatchRejected_) {
+    const char *reason = "stale_sequence";
+    if (dispatchValidation == NpuDispatchValidation::InvalidEngineClass)
+      reason = "invalid_engine_class";
+    else if (dispatchValidation == NpuDispatchValidation::InvalidStableObjectId)
+      reason = "invalid_stable_object_id";
+    else if (dispatchValidation == NpuDispatchValidation::DuplicateSequence)
+      reason = "duplicate_sequence";
+    emitObservation({.category = "stall",
+                     .name = "dispatch_rejected",
+                     .phase = TraceEventPhase::Instant,
+                     .rootSequenceId = dispatch->instruction.sequenceId,
+                     .arguments = {{"reason", std::string(reason)}}});
+  }
+  bool dispatchProposed =
+      dispatch != nullptr && !dispatchRejected_ &&
+      tracker_.proposeDispatch(dispatch->instruction, dispatch->stableObjectId);
+
+  bool completionPrepared = completion_.preparePop(group);
+  const NpuCompletion *completion = completion_.preparedPopValue(group);
+  const bool completionAccepted =
+      completion != nullptr && tracker_.proposeComplete(*completion);
+  completionRejected_ = completion != nullptr && !completionAccepted;
+  if (completionRejected_)
+    emitObservation({.category = "stall",
+                     .name = "completion_rejected",
+                     .phase = TraceEventPhase::Instant,
+                     .rootSequenceId = completion->sequenceId});
+
+  bool recyclePrepared = recycle_ != nullptr && recycle_->preparePop(group);
+  const NpuPhysicalTag *recycle =
+      recyclePrepared ? recycle_->preparedPopValue(group) : nullptr;
+  const bool recycleAccepted =
+      recycle != nullptr && tracker_.proposeRecycle(*recycle);
+  recycleRejected_ = recycle != nullptr && !recycleAccepted;
+  if (recycleRejected_)
+    emitObservation(
+        {.category = "stall",
+         .name = "recycle_rejected",
+         .phase = TraceEventPhase::Instant,
+         .arguments = {{"generation", recycle->generation},
+                       {"physical_tag", static_cast<uint64_t>(recycle->tag)}}});
+
+  std::array<bool, 4> outputPrepared{};
+  for (size_t index = 0; index < issued_.size(); ++index) {
+    const NpuEngineClass engine = static_cast<NpuEngineClass>(index);
+    const NpuIssueEntry *ready = tracker_.oldestReadyIssue(engine);
+    if (ready == nullptr)
+      continue;
+    outputPrepared[index] = issued_[index]->preparePush(group);
+    if (!outputPrepared[index]) {
+      emitObservation(
+          {.category = "stall",
+           .name = "output_backpressure",
+           .phase = TraceEventPhase::Instant,
+           .rootSequenceId = ready->instruction.sequenceId,
+           .arguments = {{"engine", std::string(toString(engine))}}});
+      continue;
+    }
+    if (!tracker_.proposeIssue(engine)) {
+      issued_[index]->cancelPrepared(group);
+      outputPrepared[index] = false;
+    }
+  }
+
+  tracker_.doArbitrate(epoch);
+  if (!tracker_.runtimeFailureCode().empty() || !runtimeFailureCode().empty()) {
+    if (runtimeFailureCode().empty())
+      setRuntimeFailureCode(tracker_.runtimeFailureCode());
+    tracker_.cancelAllProposals();
+    cancelPrepared();
+    completionRejected_ = false;
+    recycleRejected_ = false;
+    dispatchRejected_ = false;
+    return;
+  }
+
+  bool published = false;
+  if (dispatchPrepared && dispatchRejected_) {
+    published |= dispatch_.publishPop(group).has_value();
+  } else if (dispatchPrepared && dispatchProposed && dispatch != nullptr &&
+             tracker_.dispatchWillCommit(dispatch->instruction.sequenceId)) {
+    published |= dispatch_.publishPop(group).has_value();
+  } else if (dispatchPrepared) {
+    dispatch_.cancelPrepared(group);
+  }
+  if (completionPrepared)
+    published |= completion_.publishPop(group).has_value();
+  if (recyclePrepared)
+    published |= recycle_->publishPop(group).has_value();
+  for (size_t index = 0; index < issued_.size(); ++index) {
+    if (!outputPrepared[index])
+      continue;
+    const NpuIssueEntry *issue =
+        tracker_.proposedIssue(static_cast<NpuEngineClass>(index));
+    if (issue == nullptr || !issued_[index]->publishPush(group, *issue)) {
+      setRuntimeFailureCode("schedule_v2_publish_failed");
+      tracker_.cancelIssueProposals();
+      cancelPrepared();
+      return;
+    }
+    published = true;
+  }
+  fired_ = published || tracker_.hasPendingCommit() || completionRejected_ ||
+           recycleRejected_ || dispatchRejected_;
+}
+
+void NpuScheduleV2::doXfer(Epoch epoch) {
+  if (tracker_.hasPendingCommit())
+    tracker_.doXfer(epoch);
+  if (completionRejected_ || recycleRejected_ || dispatchRejected_)
+    lastRejectUpdate_ = epoch;
+  totalCompletionRejects_ += completionRejected_ ? 1 : 0;
+  totalRecycleRejects_ += recycleRejected_ ? 1 : 0;
+  totalDispatchRejects_ += dispatchRejected_ ? 1 : 0;
+  candidate_ = false;
+  fired_ = false;
+  completionRejected_ = false;
+  recycleRejected_ = false;
+  dispatchRejected_ = false;
+}
+
+bool NpuScheduleV2::hasPendingCommit() const {
+  return fired_ || tracker_.hasPendingCommit();
+}
+
+bool NpuScheduleV2::isRunnable(Epoch) const {
+  if (fired_ || candidate_)
+    return false;
+  if (dispatch_.peek() != nullptr || completion_.peek() != nullptr ||
+      (recycle_ != nullptr && recycle_->peek() != nullptr))
+    return true;
+  for (size_t index = 0; index < issued_.size(); ++index)
+    if (tracker_.hasReadyIssue(static_cast<NpuEngineClass>(index)))
+      return true;
+  return false;
+}
+
+RuntimeObjectState NpuScheduleV2::runtimeState(Epoch epoch) const {
+  RuntimeObjectState state = tracker_.runtimeState(epoch);
+  state.runnable = isRunnable(epoch);
+  state.pendingCommit = hasPendingCommit();
+  state.quiescent = !state.runnable && !state.pendingCommit &&
+                    state.queueOccupancy == 0 && state.activeReservations == 0;
+  if (!state.quiescent && state.reason.empty())
+    state.reason = "schedule_v2_queue_work";
+  return state;
+}
+
+void NpuScheduleV2::collectStatistics(std::vector<StatSnapshot> &out) const {
+  const size_t begin = out.size();
+  tracker_.collectStatistics(out);
+  for (size_t index = begin; index < out.size(); ++index)
+    out[index].objectPath = std::string(path());
+  out.push_back({.name = "completion_update_rejects",
+                 .objectPath = std::string(path()),
+                 .kind = StatisticKind::Counter,
+                 .value = totalCompletionRejects_,
+                 .lastUpdate = lastRejectUpdate_});
+  out.push_back({.name = "dispatch_input_rejects",
+                 .objectPath = std::string(path()),
+                 .kind = StatisticKind::Counter,
+                 .value = totalDispatchRejects_,
+                 .lastUpdate = lastRejectUpdate_});
+  out.push_back({.name = "recycle_update_rejects",
+                 .objectPath = std::string(path()),
+                 .kind = StatisticKind::Counter,
+                 .value = totalRecycleRejects_,
+                 .lastUpdate = lastRejectUpdate_});
+}
+
+void NpuScheduleV2::cancelPrepared() {
+  const CommitGroupId group = id();
+  dispatch_.cancelPrepared(group);
+  completion_.cancelPrepared(group);
+  if (recycle_ != nullptr)
+    recycle_->cancelPrepared(group);
+  for (auto *queue : issued_)
+    queue->cancelPrepared(group);
+}
+
+void NpuScheduleV2::reset() {
+  cancelPrepared();
+  tracker_.reset();
+  candidate_ = false;
+  fired_ = false;
+  completionRejected_ = false;
+  recycleRejected_ = false;
+  dispatchRejected_ = false;
+  totalCompletionRejects_ = 0;
+  totalRecycleRejects_ = 0;
+  totalDispatchRejects_ = 0;
+  lastRejectUpdate_ = {};
+  clearRuntimeFailureCode();
+}
+
+bool NpuScheduleV2::validate() const {
+  return id() != kInvalidObjectId && endpointsOwnedByParent();
 }
 
 struct NpuExecutionPipeline::Impl {
