@@ -318,6 +318,15 @@ PYC semantic contracts.
   - [x] Share exact typed predicate DAG values with hygienic generated SSA,
     compile flat/hierarchy C++, run WBA behavior, and record loop/source/runtime
     measurements without claiming Table PYC/RTL support.
+- [x] Complete issue #63 OPT-02 nested rule module-state capture.
+  - [x] Canonicalize direct nested-rule `nonlocal` captures of typed scalar,
+    record and fixed-list module state into exact existing owner bindings;
+    reject missing declarations, aliases, collisions and nested-rule calls.
+  - [x] Convert all seven I2 rules so only real Queue payloads remain explicit;
+    preserve inactive/bare-return, committed/proposed SSA and transaction shape.
+  - [x] Compare explicit/captured I2 state, Queue, rule and generated C++ shape;
+    run backpressure, cancel/sink-decision, retry, release and instance-isolation
+    gates with unchanged conflict and output behavior.
 - [x] Close #46 and #48 framework prerequisites before their dependent
   DavinciOO H3 implementations. Decision 0222 places new design-program work
   under `designs/davincioo/`; independent contracts/modules may proceed when

@@ -1560,6 +1560,225 @@ def _extract_conditional_effect_guard(
     return body, ast.fix_missing_locations(guard)
 
 
+def _desugar_nested_rule_captures(
+    tree: ast.Module, system: str, entry_kind: str
+) -> ast.Module:
+    candidates = [
+        node
+        for node in tree.body
+        if isinstance(node, ast.FunctionDef)
+        and node.name == system
+        and any(
+            _decorator_name(decorator).rsplit(".", 1)[-1] == entry_kind
+            for decorator in node.decorator_list
+        )
+    ]
+    if len(candidates) != 1:
+        return tree
+    function = candidates[0]
+    state_order = tuple(
+        statement.target.id
+        for statement in function.body
+        if isinstance(statement, ast.AnnAssign)
+        and isinstance(statement.target, ast.Name)
+    )
+    state_names = set(state_order)
+    state_lines = {
+        statement.target.id: statement.lineno
+        for statement in function.body
+        if isinstance(statement, ast.AnnAssign)
+        and isinstance(statement.target, ast.Name)
+    }
+    nested_rules = {
+        statement.name: statement
+        for statement in function.body
+        if isinstance(statement, ast.FunctionDef)
+        and any(
+            _decorator_name(decorator).rsplit(".", 1)[-1] == "rule"
+            for decorator in statement.decorator_list
+        )
+    }
+    if not nested_rules:
+        return tree
+    if len(nested_rules) != sum(
+        isinstance(statement, ast.FunctionDef)
+        and any(
+            _decorator_name(decorator).rsplit(".", 1)[-1] == "rule"
+            for decorator in statement.decorator_list
+        )
+        for statement in function.body
+    ):
+        raise QueueFrontendError(
+            "ACPY-RULE-015: nested rule names must be unique within one module"
+        )
+
+    transformed: list[ast.FunctionDef] = []
+    captures_by_rule: dict[str, tuple[str, ...]] = {}
+    qualified_names = {
+        name: f"__ac_nested_{system}_{name}" for name in nested_rules
+    }
+    existing_names = {
+        node.name
+        for node in tree.body
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
+    }
+    collisions = sorted(set(qualified_names.values()) & existing_names)
+    if collisions:
+        raise QueueFrontendError(
+            "ACPY-RULE-015: generated nested rule identity collides with "
+            f"existing definition {collisions[0]!r}"
+        )
+    for name, nested in nested_rules.items():
+        nonlocals = [
+            statement for statement in nested.body if isinstance(statement, ast.Nonlocal)
+        ]
+        nested_nonlocals = [
+            statement
+            for statement in ast.walk(nested)
+            if isinstance(statement, ast.Nonlocal) and statement not in nonlocals
+        ]
+        if nested_nonlocals:
+            raise QueueFrontendError(
+                "ACPY-RULE-015: nested rule nonlocal declarations must be direct "
+                "body statements"
+            )
+        requested = {
+            captured for statement in nonlocals for captured in statement.names
+        }
+        unknown = sorted(requested - state_names)
+        if unknown:
+            raise QueueFrontendError(
+                "ACPY-RULE-015: nested rule capture must name typed module "
+                f"state; unknown capture {unknown[0]!r}"
+            )
+        late = sorted(
+            captured
+            for captured in requested
+            if state_lines[captured] >= nested.lineno
+        )
+        if late:
+            raise QueueFrontendError(
+                "ACPY-RULE-015: captured module state must be declared before "
+                f"the nested rule; late capture {late[0]!r}"
+            )
+        parameter_names = {argument.arg for argument in nested.args.args}
+        overlap = sorted(requested & parameter_names)
+        if overlap:
+            raise QueueFrontendError(
+                "ACPY-RULE-015: nested rule state capture cannot shadow parameter "
+                f"{overlap[0]!r}"
+            )
+        captures = tuple(state for state in state_order if state in requested)
+        referenced_state = {
+            candidate.id
+            for candidate in ast.walk(nested)
+            if isinstance(candidate, ast.Name) and candidate.id in state_names
+        }
+        missing = sorted(referenced_state - requested)
+        if missing:
+            raise QueueFrontendError(
+                "ACPY-RULE-015: nested rule module-state reference requires "
+                f"nonlocal declaration for {missing[0]!r}"
+            )
+        for candidate in ast.walk(nested):
+            if (
+                isinstance(candidate, ast.Call)
+                and isinstance(candidate.func, ast.Name)
+                and candidate.func.id in nested_rules
+            ):
+                raise QueueFrontendError(
+                    "ACPY-RULE-015: nested rules cannot call or recurse through "
+                    "another nested rule"
+                )
+        lowered = copy.deepcopy(nested)
+        lowered.name = qualified_names[name]
+        lowered.body = [
+            statement
+            for statement in lowered.body
+            if not isinstance(statement, ast.Nonlocal)
+        ]
+        lowered.args.args = [
+            *(ast.arg(arg=capture, annotation=None) for capture in captures),
+            *lowered.args.args,
+        ]
+        transformed.append(lowered)
+        captures_by_rule[name] = captures
+
+    class ValidateNestedRuleUses(ast.NodeVisitor):
+        def __init__(self) -> None:
+            self.direct_calls: set[str] = set()
+
+        def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
+            return None
+
+        def visit_Call(self, node: ast.Call) -> None:
+            if isinstance(node.func, ast.Name) and node.func.id in nested_rules:
+                self.direct_calls.add(node.func.id)
+                for argument in node.args:
+                    self.visit(argument)
+                for keyword in node.keywords:
+                    self.visit(keyword.value)
+                return
+            self.generic_visit(node)
+
+        def visit_Name(self, node: ast.Name) -> None:
+            if node.id in nested_rules:
+                raise QueueFrontendError(
+                    "ACPY-RULE-015: nested rule identity cannot escape its "
+                    f"direct call; invalid reference {node.id!r}"
+                )
+
+    uses = ValidateNestedRuleUses()
+    for statement in function.body:
+        if not (
+            isinstance(statement, ast.FunctionDef) and statement.name in nested_rules
+        ):
+            uses.visit(statement)
+    unused = sorted(set(nested_rules) - uses.direct_calls)
+    if unused:
+        raise QueueFrontendError(
+            "ACPY-RULE-015: nested rule must have one or more direct module "
+            f"calls; unused rule {unused[0]!r}"
+        )
+
+    class RewriteCalls(ast.NodeTransformer):
+        def visit_FunctionDef(self, node: ast.FunctionDef) -> ast.AST:
+            return node
+
+        def visit_Call(self, node: ast.Call) -> ast.AST:
+            rewritten = self.generic_visit(node)
+            assert isinstance(rewritten, ast.Call)
+            if not isinstance(rewritten.func, ast.Name):
+                return rewritten
+            captures = captures_by_rule.get(rewritten.func.id)
+            if captures is None:
+                return rewritten
+            rewritten.func.id = qualified_names[rewritten.func.id]
+            rewritten.args = [
+                *(ast.Name(id=capture, ctx=ast.Load()) for capture in captures),
+                *rewritten.args,
+            ]
+            return rewritten
+
+    rewritten_function = copy.deepcopy(function)
+    rewritten_function.body = [
+        statement
+        for statement in rewritten_function.body
+        if not (
+            isinstance(statement, ast.FunctionDef) and statement.name in nested_rules
+        )
+    ]
+    rewriter = RewriteCalls()
+    rewritten_function.body = [
+        rewriter.visit(statement) for statement in rewritten_function.body
+    ]
+    tree.body = [
+        rewritten_function if node is function else node for node in tree.body
+    ]
+    tree.body.extend(transformed)
+    return ast.fix_missing_locations(tree)
+
+
 def parse_queue_program(
     text: str,
     system: str,
@@ -1569,6 +1788,7 @@ def parse_queue_program(
     entry_kind: str = "system",
 ) -> QueueProgram:
     tree = ast.parse(text, filename="<queue-model>", type_comments=True)
+    tree = _desugar_nested_rule_captures(tree, system, entry_kind)
     module_static_values = _module_static_values(tree)
     for node in tree.body:
         decorators = getattr(node, "decorator_list", ())
@@ -10817,6 +11037,17 @@ def _lower_simple_module_source(
     host_results: bool = False,
 ) -> str | None:
     tree = ast.parse(text, filename="<queue-model>", type_comments=True)
+    module_names = [
+        node.name
+        for node in tree.body
+        if isinstance(node, ast.FunctionDef)
+        and any(
+            _decorator_name(decorator).rsplit(".", 1)[-1] == "module"
+            for decorator in node.decorator_list
+        )
+    ]
+    for module_name in module_names:
+        tree = _desugar_nested_rule_captures(tree, module_name, "module")
     module_static_values = _module_static_values(tree)
     enum_bindings = _enums(tree)
     payloads = _payloads(tree, enum_bindings)

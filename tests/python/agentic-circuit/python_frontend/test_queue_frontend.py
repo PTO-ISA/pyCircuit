@@ -4604,6 +4604,140 @@ def invariant_module(value: Payload) -> Payload:
         with self.assertRaisesRegex(QueueFrontendError, "must precede"):
             lower_queue_source(invalid, "multi_state_allocate")
 
+    def test_nested_rule_captures_module_state_as_explicit_owners(self) -> None:
+        from agentic_circuit._queue_frontend import (
+            QueueFrontendError,
+            lower_queue_source,
+        )
+
+        nested = """
+import agentic_circuit as ac
+
+@ac.struct
+class Entry:
+    index: ac.u2
+    value: ac.u8
+
+@ac.system
+def nested_allocate(incoming: Entry) -> Entry:
+    tail: ac.u2 = 0
+    entries: list[Entry] = [0] * 4
+
+    @ac.rule
+    def allocate(incoming):
+        nonlocal tail, entries
+        entries[tail] = incoming
+        tail = tail + 1
+        return incoming
+
+    allocated = allocate(incoming)
+    return allocated
+"""
+        lowered = lower_queue_source(nested, "nested_allocate")
+        self.assertEqual(lowered, lower_queue_source(nested, "nested_allocate"))
+        explicit = lower_queue_source(MULTI_STATE_RULE_SOURCE, "multi_state_allocate")
+        for operation in (
+            "ac.var.decl @tail",
+            "ac.var.assign @tail",
+            "ac.var.decl @entries",
+            "ac.var.assign_element @entries",
+            "ac.rule.output",
+        ):
+            self.assertEqual(explicit.count(operation), lowered.count(operation))
+        self.assertEqual(explicit.count("ac.rule "), lowered.count("ac.rule "))
+
+        with self.assertRaisesRegex(QueueFrontendError, "unknown capture 'incoming'"):
+            lower_queue_source(
+                nested.replace(
+                    "nonlocal tail, entries", "nonlocal tail, entries, incoming"
+                ),
+                "nested_allocate",
+            )
+        with self.assertRaisesRegex(QueueFrontendError, "requires nonlocal.*tail"):
+            lower_queue_source(
+                nested.replace("nonlocal tail, entries", "nonlocal entries"),
+                "nested_allocate",
+            )
+        with self.assertRaisesRegex(QueueFrontendError, "cannot call or recurse"):
+            lower_queue_source(
+                nested.replace(
+                    "entries[tail] = incoming",
+                    "allocate(incoming)\n        entries[tail] = incoming",
+                ),
+                "nested_allocate",
+            )
+        with self.assertRaisesRegex(QueueFrontendError, "typed module state.*tail"):
+            lower_queue_source(
+                nested.replace("tail: ac.u2 = 0", "tail = 0"),
+                "nested_allocate",
+            )
+        collision = nested.replace(
+            "@ac.system\ndef nested_allocate",
+            "@ac.rule\n"
+            "def __ac_nested_nested_allocate_allocate(tail, entries, incoming):\n"
+            "    entries[tail] = incoming\n"
+            "    return incoming\n\n"
+            "@ac.system\n"
+            "def nested_allocate",
+        )
+        with self.assertRaisesRegex(QueueFrontendError, "identity collides"):
+            lower_queue_source(collision, "nested_allocate")
+        late = nested.replace("    tail: ac.u2 = 0\n", "").replace(
+            "    allocated = allocate(incoming)",
+            "    tail: ac.u2 = 0\n    allocated = allocate(incoming)",
+        )
+        with self.assertRaisesRegex(QueueFrontendError, "late capture 'tail'"):
+            lower_queue_source(late, "nested_allocate")
+        nested_scope = nested.replace(
+            "        nonlocal tail, entries",
+            "        if True:\n            nonlocal tail, entries",
+        )
+        with self.assertRaisesRegex(QueueFrontendError, "direct body statements"):
+            lower_queue_source(nested_scope, "nested_allocate")
+        shadowed = nested.replace(
+            "def allocate(incoming):", "def allocate(tail, incoming):"
+        )
+        with self.assertRaisesRegex(QueueFrontendError, "cannot shadow parameter 'tail'"):
+            lower_queue_source(shadowed, "nested_allocate")
+        aliased = nested.replace(
+            "    allocated = allocate(incoming)",
+            "    alias = allocate\n    allocated = alias(incoming)",
+        )
+        with self.assertRaisesRegex(QueueFrontendError, "cannot escape"):
+            lower_queue_source(aliased, "nested_allocate")
+
+    def test_nested_rule_capture_keeps_module_instances_isolated(self) -> None:
+        from agentic_circuit._queue_frontend import lower_queue_source
+
+        source = """
+import agentic_circuit as ac
+
+@ac.module
+def accumulator(incoming: ac.u8) -> ac.u8:
+    total: ac.u8 = 0
+
+    @ac.rule
+    def add(value):
+        nonlocal total
+        total = total + value
+        return total
+
+    result = add(incoming)
+    return result
+
+@ac.system
+def two_accumulators(left: ac.u8, right: ac.u8) -> tuple[ac.u8, ac.u8]:
+    left_result = accumulator(left)
+    right_result = accumulator(right)
+    return left_result, right_result
+"""
+        lowered = lower_queue_source(source, "two_accumulators")
+        self.assertEqual(1, lowered.count("ac.module @accumulator"))
+        self.assertEqual(2, lowered.count("ac.instance"))
+        self.assertEqual(1, lowered.count("ac.var.decl @total"))
+        self.assertIn('of @accumulator(%inputs#0) static {} id "left_result"', lowered)
+        self.assertIn('of @accumulator(%inputs#1) static {} id "right_result"', lowered)
+
     def test_multi_input_rule_requires_one_queue_per_parameter(self) -> None:
         from agentic_circuit._queue_frontend import (
             QueueFrontendError,

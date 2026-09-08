@@ -7751,3 +7751,58 @@ shared lowering.
 - PTO-ISA/pyCircuit issue #63 OPT-01.
 - The in-tree DavinciOO I1/I2 operand contract at
   `designs/davincioo/contracts/spe.py`.
+
+## Decision 0226: nested rules capture typed module state through canonical owner arguments
+
+**Status:** Accepted; implemented and verified
+
+**Context / Goal**
+Stateful modules currently pass every private state object through every rule
+call. DavinciOO I2 repeats up to eleven scalar, record, enum and fixed-list
+owners at seven call sites even though the rule and state share one lexical
+module. Issue #63 OPT-02 requires ordinary nested authoring without weakening
+the existing explicit ownership, conflict, snapshot, or transaction model.
+
+**Decision (strong constraint)**
+- An `@ac.rule` may be defined directly in an `@ac.module`. It captures only
+  direct typed module-state declarations named by direct-body Python
+  `nonlocal` statements. Module inputs, static/global mutable values, untyped
+  assignments, attributes, aliases, late declarations and deeper lexical
+  scopes are not captureable.
+- Capture order is the module state declaration order. Before ordinary rule
+  parsing, the frontend gives each nested rule a deterministic module-qualified
+  identity, prepends the captured owners as explicit rule parameters, and
+  prepends the same state values at each direct call. A collision with any
+  flattened source definition fails closed.
+- Every module-state reference in a nested rule requires `nonlocal`, including
+  read-only references. A capture cannot shadow a rule parameter. Nested rules
+  cannot call or recurse through another nested rule and cannot escape through
+  an alias or dynamic call.
+- The canonicalized rule uses the existing `RuleStateOwnerBinding`, exact
+  scalar/list index and field footprints, committed-state reads, SSA updates,
+  proposal presence, conflict analysis, arbitration and lowering. No new ACIR
+  operation, module-object reference, runtime primitive, or backend-only state
+  interpretation is introduced.
+- Module specialization is shared as before, while each instance owns its own
+  state objects. Rule order, Queue inputs/outputs, transaction resources and
+  generated behavior are identical to the explicit-parameter form apart from
+  stable source/specialization identity.
+
+**Required verification**
+- Frontend positives cover scalar plus fixed-list capture, read/write owners,
+  no-payload state-driven rules, canonical ordering, deterministic lowering and
+  two instances of one specialization. Negatives cover missing `nonlocal`,
+  untyped/unknown/late state, parameter shadowing, nested-scope declarations,
+  recursive/inter-rule calls and generated identity collisions.
+- Explicit and captured I2 retain seven rules, thirteen state owners, four
+  inputs, seven outputs, exact state read/write/proposal counts, five Table
+  scans and five priority encoders. Normalizing the specialization fingerprint
+  yields byte-identical generated gfsim C++.
+- I2 behavior covers inactive input, operand acceptance, load hit/miss/replay,
+  sink retry/accept, release, external/generated cancellation, tombstone
+  reclaim and selected-output backpressure. PYC/RTL keeps the existing
+  provisional stateful-Table rejection boundary.
+
+**Source**
+- PTO-ISA/pyCircuit issue #63 OPT-02.
+- In-tree DavinciOO I2 at `designs/davincioo/spe/iex/i2.py`.
