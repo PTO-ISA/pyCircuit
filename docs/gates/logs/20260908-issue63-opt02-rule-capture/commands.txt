@@ -1,0 +1,12 @@
+PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=.pycircuit_out/contracts-venv/lib/python3.14/site-packages:python/agentic-circuit/src:python/semantic-core/src pytest -q tests/python/agentic-circuit/python_frontend
+PYTHONDONTWRITEBYTECODE=1 pytest -q designs/davincioo/tests/spe/iex/test_i2.py
+PYTHONDONTWRITEBYTECODE=1 pytest -q tests/system/test_primitive_selection.py
+PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=python/semantic-core/src:python/pycircuit/src pytest tests/unit -m unit -q
+PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=python/agentic-circuit/src:python/semantic-core/src:python/pycircuit/src .pycircuit_out/contracts-venv/bin/python tools/agentic-circuit/check-contracts.py
+python3 tools/check-pyc-inventory.py
+python3 tools/agentic-circuit/check-ir-coverage.py
+git worktree add --detach .pycircuit_out/issue63-opt02-base ed9e4226eafcf1e5b46245fe1a6f7c373049d14d
+PYTHONPATH=.:python/agentic-circuit/src:python/semantic-core/src python3 docs/gates/logs/20260908-issue63-opt02-rule-capture/measure_i2_equivalence.py
+pre-commit run --files python/agentic-circuit/src/agentic_circuit/_queue_frontend.py tests/python/agentic-circuit/python_frontend/test_queue_frontend.py designs/davincioo/spe/iex/i2.py designs/davincioo/tests/spe/iex/test_i2.py docs/acir/spec/agentic-circuit.md docs/acir/spec/agentic-circuit.zh-CN.md docs/rfcs/pyc6-decisions.md docs/gates/decision_status_v6.md docs/pyc6-plan.md docs/gates/logs/20260908-issue63-opt02-rule-capture/measure_i2_equivalence.py docs/gates/logs/20260908-issue63-opt02-rule-capture/metrics.json docs/gates/logs/20260908-issue63-opt02-rule-capture/review.md docs/gates/logs/20260908-issue63-opt02-rule-capture/summary.json
+mkdocs build --strict --site-dir .pycircuit_out/issue63-opt02-rule-capture/site
+python3 flows/tools/check_decision_status.py --rfc docs/rfcs/pyc6-decisions.md --status docs/gates/decision_status_v6.md --out docs/gates/logs/20260908-issue63-opt02-rule-capture/decision_status_report.json --require-no-deferred --require-all-verified --require-concrete-evidence --require-existing-evidence

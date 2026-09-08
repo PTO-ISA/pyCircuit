@@ -864,6 +864,33 @@ boundary surface. The compiler inserts internal `ac.source` and `ac.sink`
 nodes; multiple outputs use an ordered `tuple[...]` annotation and tuple
 return. Explicit Python `source(...)` and `sink(...)` remain transitional.
 
+A rule defined directly inside an `@ac.module` may omit repeated module-private
+state parameters and declare each captured owner with Python `nonlocal`:
+
+```python
+@ac.module
+def accumulator(incoming: ac.u8) -> ac.u8:
+    total: ac.u8 = 0
+
+    @ac.rule
+    def add(value):
+        nonlocal total
+        total = total + value
+        return total
+
+    return add(incoming)
+```
+
+The frontend canonicalizes this form to the existing explicit state-parameter
+rule contract before type, owner, footprint, conflict, or lowering analysis.
+Only direct, typed module state declarations may be captured; their canonical
+order is their declaration order. State must be declared before the nested
+rule. Missing `nonlocal`, untyped locals, module inputs, aliases, attributes,
+generated-name collisions, nested-scope declarations, and calls between nested
+rules fail closed. Each module instance owns its existing independent state;
+capture does not introduce a module-object reference or change committed-read,
+proposal, arbitration, output-presence, or backpressure semantics.
+
 The epoch 0.5 pure-rule frontend accepts one or more Queue inputs and one total
 return path. Every argument is the immutable committed head payload of its
 corresponding Queue. It emits transient variadic `ac.rule` IR and one typed

@@ -24,6 +24,34 @@ def test_i2_uses_shared_value_contracts_and_stays_below_comparison_budget() -> N
     tree = ast.parse(I2_SOURCE.read_text(encoding="utf-8"))
     comparisons = [node for node in ast.walk(tree) if isinstance(node, ast.Compare)]
     assert len(comparisons) <= 80
+    module = next(
+        node
+        for node in tree.body
+        if isinstance(node, ast.FunctionDef) and node.name == "i2"
+    )
+    nested_rules = [
+        node
+        for node in module.body
+        if isinstance(node, ast.FunctionDef)
+        and any(
+            isinstance(decorator, ast.Attribute) and decorator.attr == "rule"
+            for decorator in node.decorator_list
+        )
+    ]
+    assert len(nested_rules) == 7
+    assert not any(
+        isinstance(node, ast.FunctionDef)
+        and any(
+            isinstance(decorator, ast.Attribute) and decorator.attr == "rule"
+            for decorator in node.decorator_list
+        )
+        for node in tree.body
+    )
+    assert sum(len(rule.args.args) for rule in nested_rules) == 4
+    assert all(
+        any(isinstance(item, ast.Nonlocal) for item in rule.body)
+        for rule in nested_rules
+    )
 
     source = I2_SOURCE.read_text(encoding="utf-8")
     assert "row.key == key" in source
