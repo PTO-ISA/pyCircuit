@@ -331,6 +331,10 @@ PYC semantic contracts.
   generation: allow `ac.array` to elaborate supported Queue-producing calls and
   allow static collection elements as `apply`/`merge` receivers, with no
   runtime Queue collection or new primitive.
+- [x] Implement the dependent TMU BGF, GPE IPF, and MEM NOC H3 XBAR pilots from
+  one static four-egress template each; preserve their exact packet schemas,
+  topology, latency tuples, FIFO/arbitration, backpressure, reset, and instance
+  semantics through gfsim and admitted PYC C++/Verilog build gates.
 - [x] Close #46 and #48 framework prerequisites before their dependent
   DavinciOO H3 implementations. Decision 0222 places new design-program work
   under `designs/davincioo/`; independent contracts/modules may proceed when
