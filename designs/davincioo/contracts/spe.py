@@ -263,7 +263,11 @@ class RobEvent:
     handoff_required_mask: ac.bits[2]
     mpq_history_record_count: ac.bits[4]
     result: ac.bits[64]
-    fault_code: ac.bits[8]
+    result_valid: bool
+    status: TerminalStatus
+    fault_code: ac.bits[32]
+    fault_arg0: ac.bits[64]
+    fault_bi: bool
     valid: bool
     done: bool
     handoff_pending: bool

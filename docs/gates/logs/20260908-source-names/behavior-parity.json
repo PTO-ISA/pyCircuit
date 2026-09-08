@@ -1,0 +1,27 @@
+[
+  {
+    "scenario": "capacity",
+    "pre_change_projection_equal": true,
+    "sha256": "04816918dc51c9d946aa73a606584373cbb8b2d2cf18dd4d62ee8a67606ea3f9"
+  },
+  {
+    "scenario": "backpressure",
+    "pre_change_projection_equal": true,
+    "sha256": "370bd17ea493b8d452b7ff2d29f6d21991c048ffdb82380c0b42bcecb04147e4"
+  },
+  {
+    "scenario": "invalid",
+    "pre_change_projection_equal": true,
+    "sha256": "80fd794c297103dd31bbf676f80651b85ca9b3adf54a3fa6d449218e96f7e792"
+  },
+  {
+    "scenario": "recovery",
+    "pre_change_projection_equal": true,
+    "sha256": "72791800590d20fefb89b441a34fdf262d3bb36fc7985fa3a974b5ddcffe721b"
+  },
+  {
+    "scenario": "conflicts",
+    "pre_change_projection_equal": true,
+    "sha256": "ae42f845d1972ad9db940ec06657b029e1f22a2f38a23c215c02fca47c3dd983"
+  }
+]

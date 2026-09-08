@@ -40,6 +40,42 @@ public:
   std::string_view name() const { return name_; }
   std::string_view path() const { return path_; }
   SimObject *parent() const { return parent_; }
+
+  // Descriptive source labels are set before observation begins. They never
+  // participate in scheduling, lookup, canonical paths, or object identity.
+  void setDisplayName(std::string name, std::string segment = {}) {
+    displayName_ = std::move(name);
+    displaySegment_ = segment.empty() ? displayName_ : std::move(segment);
+  }
+  void setSourceParameters(std::string parameters) {
+    sourceParameters_ = std::move(parameters);
+  }
+  std::string_view sourceParameters() const {
+    if (!sourceParameters_.empty())
+      return sourceParameters_;
+    return parent_ ? parent_->sourceParameters() : std::string_view{};
+  }
+  void setDisplayTransparent() { displayTransparent_ = true; }
+  std::string_view displayName() const {
+    return displayName_.empty() ? std::string_view(name_)
+                                : std::string_view(displayName_);
+  }
+  std::string displayParentPath() const {
+    return parent_ ? parent_->displayPath() : std::string{};
+  }
+  std::string displayPath() const {
+    auto prefix = displayParentPath();
+    if (displayTransparent_)
+      return prefix;
+    const auto segment = displaySegment_.empty()
+                             ? displayName()
+                             : std::string_view(displaySegment_);
+    if (!prefix.empty())
+      prefix += "/";
+    prefix += segment;
+    return prefix;
+  }
+
   std::string_view runtimeFailureCode() const { return runtimeFailureCode_; }
 
   /// Set the canonical hierarchy path (called during construction).
@@ -130,6 +166,10 @@ protected:
   std::string name_;
   ObjectId id_ = kInvalidObjectId;
   std::string path_;
+  std::string sourceParameters_;
+  std::string displayName_;
+  std::string displaySegment_;
+  bool displayTransparent_ = false;
   SimObject *parent_ = nullptr;
   ObservationSink *observationSink_ = nullptr;
   std::string_view runtimeFailureCode_;

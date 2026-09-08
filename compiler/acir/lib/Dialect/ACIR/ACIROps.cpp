@@ -367,7 +367,19 @@ LogicalResult verifyLoweredRuleTransformContract(TransformOp transform) {
                                   transform.getBody(), true);
 }
 
+// Source labels are descriptive metadata, never execution identities.
+static LogicalResult verifySourceName(Operation *op) {
+  if (Attribute value = op->getAttr("ac.source_name")) {
+    auto name = dyn_cast<StringAttr>(value);
+    if (!name || name.getValue().empty())
+      return op->emitOpError("ac.source_name must be a non-empty string");
+  }
+  return success();
+}
+
 LogicalResult TransformOp::verify() {
+  if (failed(verifySourceName(*this)))
+    return failure();
   if (getInputs().empty())
     return emitOpError("requires at least one input queue");
   if (getOutputs().empty())
@@ -433,6 +445,8 @@ static bool tableWriteFieldsAreComplete(Operation *endpoint, TableOp table,
                                         ArrayAttr writeFields);
 
 LogicalResult RuleOp::verify() {
+  if (failed(verifySourceName(*this)))
+    return failure();
   // Zero-output rules are consume-only state transitions; zero-input rules
   // must still produce or update state.  Variadic output values are qualified
   // independently by compiler-owned RuleOutputOp presence records.
@@ -1061,6 +1075,8 @@ LogicalResult ScopeOp::verify() {
 }
 
 LogicalResult FiringOp::verify() {
+  if (failed(verifySourceName(*this)))
+    return failure();
   if (getOutputDepthsAttr().size() != getOutputs().size() ||
       getOutputLatenciesAttr().size() != getOutputs().size())
     return emitOpError("output depth/latency counts must match results");
@@ -4566,6 +4582,8 @@ LogicalResult ModuleExternOp::verify() {
 }
 
 LogicalResult InstanceOp::verify() {
+  if (failed(verifySourceName(*this)))
+    return failure();
   if (failed(verifyStructuralPlacement(*this)))
     return failure();
   Operation *definition = lookupGraphSymbol(*this, getDefinitionAttr());

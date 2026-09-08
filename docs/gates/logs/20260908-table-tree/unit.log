@@ -1,0 +1,9 @@
+test_invalid_header_and_integer_encoding (test_viewer.ViewerTest.test_invalid_header_and_integer_encoding) ... ok
+test_real_atomic_transaction_fixture (test_viewer.ViewerTest.test_real_atomic_transaction_fixture) ... ok
+test_standalone_output_is_deterministic_and_embedded (test_viewer.ViewerTest.test_standalone_output_is_deterministic_and_embedded) ... ok
+test_truncated_final_record_shows_complete_barriers_only (test_viewer.ViewerTest.test_truncated_final_record_shows_complete_barriers_only) ... ok
+
+----------------------------------------------------------------------
+Ran 4 tests in 0.021s
+
+OK

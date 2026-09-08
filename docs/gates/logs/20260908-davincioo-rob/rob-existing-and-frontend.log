@@ -1,0 +1,12 @@
+============================= test session starts ==============================
+platform linux -- Python 3.11.16, pytest-9.1.1, pluggy-1.6.0
+rootdir: /home/lc/pyCircuit
+configfile: pyproject.toml
+plugins: xdist-3.8.0, cov-7.1.0
+collected 36 items / 29 deselected / 7 selected
+
+tests/python/agentic-circuit/python_frontend/test_rule_literal_context.py . [ 14%]
+..                                                                       [ 42%]
+tests/integration/agentic-circuit/e2e/test_queue_codegen.py ....         [100%]
+
+====================== 7 passed, 29 deselected in 31.35s =======================

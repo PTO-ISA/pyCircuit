@@ -3,7 +3,7 @@
 Build DavinciOO modules here to exercise and improve pyCircuit. Decision 0222
 authorizes this design program under `designs/`; compiler and primitive fixes
 remain reusable framework changes. This directory contains planning contracts
-and task cards plus the first implemented SPE.IEX pilots. It does not claim
+and task cards plus the first implemented SPE.IEX and SPE.OOO pilots. It does not claim
 that all 240 candidates are implemented.
 
 | Pilot | Current evidence | Remaining promotion gate |
@@ -11,6 +11,7 @@ that all 240 candidates are implemented.
 | I1 | generated gfsim grant/retry/cancel/backpressure/reset/isolation matrix | H2/H1 integration; stateful PYC/RTL after #22 |
 | I2 | generated gfsim operand/dependency/execute/release/cancel/backpressure/reset/isolation matrix | H2/H1 integration; stateful PYC/RTL after #22 |
 | WBA | generated gfsim terminal/apply/retry/cancel/drain/backpressure/reset/isolation matrix | H2/H1 integration; stateful PYC/RTL after #22 |
+| ROB | generated gfsim capacity/completion/durable-handoff/recovery/isolation matrix and offline replay | NDF traceability review; CMT/W2 and H2/H1 integration; stateful PYC/RTL |
 
 ## Start here
 

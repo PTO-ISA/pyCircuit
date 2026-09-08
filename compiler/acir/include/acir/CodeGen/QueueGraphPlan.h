@@ -140,6 +140,7 @@ struct QueueBlockPlan {
   bool hasActivationEvidence = false;
   bool initiallyActive = false;
   uint64_t lexicalOrder = 0;
+  std::string displayName;
 };
 
 struct MemoryInstancePlan {
@@ -241,6 +242,8 @@ struct QueueModuleInstancePlan {
   std::vector<std::string> inputs;
   std::vector<std::string> outputs;
   uint64_t lexicalOrder = 0;
+  std::string displayName;
+  std::string sourceParameters;
 };
 
 enum class QueueActivationNodeKind {

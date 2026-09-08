@@ -1397,6 +1397,39 @@ void emitObservationRegistration(
       output << ", auto &output_" << index;
   }
   output << ") {\n";
+  if (!withPorts)
+    output << "    setDisplayName(" << cppStringLiteral(plan.system) << ");\n";
+  // Internal state scopes are implementation details of generated rule modules.
+  if (withPorts && !blocks.empty()) {
+    output << "    scope_.setDisplayTransparent();\n";
+  }
+  llvm::StringMap<unsigned> ruleCounts, ruleIndices;
+  for (const auto &[block, member] : blocks)
+    if (!block->displayName.empty())
+      ++ruleCounts[block->displayName];
+  for (const auto &[block, member] : blocks) {
+    if (block->displayName.empty())
+      continue;
+    std::string segment = block->displayName;
+    if (ruleCounts[block->displayName] > 1)
+      segment += "[" + std::to_string(ruleIndices[block->displayName]++) + "]";
+    output << "    " << member << ".setDisplayName("
+           << cppStringLiteral(block->displayName) << ", "
+           << cppStringLiteral(segment) << ");\n";
+  }
+  llvm::StringMap<unsigned> instanceIndices;
+  for (auto [index, instance] : llvm::enumerate(plan.moduleInstances)) {
+    if (instance.displayName.empty())
+      continue;
+    const auto ordinal =
+        instanceIndices[instance.scope + "/" + instance.displayName]++;
+    output << "    " << childPrefix.str() << index << "_.setDisplayName("
+           << cppStringLiteral(instance.displayName + "[" +
+                               std::to_string(ordinal) + "]")
+           << ");\n";
+    output << "    " << childPrefix.str() << index << "_.setSourceParameters("
+           << cppStringLiteral(instance.sourceParameters) << ");\n";
+  }
   for (const auto &queue : ownedQueues)
     output << "    registry.add(" << queue << ");\n";
   for (const auto &table : plan.tables)
@@ -2718,7 +2751,11 @@ generateStructuredQueueGraphCpp(const QueueGraphPlan &plan) {
              << "  template <typename Registry> void "
                 "registerObservations(Registry &registry, auto &input_0, auto "
                 "&output_0) {\n"
-             << "    registry.connect(block_, {&input_0}, {&output_0});\n  "
+             << "    scope_.setDisplayTransparent();\n";
+      if (!block.displayName.empty())
+        output << "    block_.setDisplayName("
+               << cppStringLiteral(block.displayName) << ");\n";
+      output << "    registry.connect(block_, {&input_0}, {&output_0});\n  "
                 "}\nprivate:\n"
              << "  gfsim::Module scope_;\n"
              << "  gfsim::QueueTransform<" << *inputType << ", " << *outputType

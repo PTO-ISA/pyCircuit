@@ -1,0 +1,38 @@
+{
+  "single-capacity": {
+    "trace": ".pycircuit_out/davincioo-rob/20260908-single/capacity/execution.pyctrace",
+    "trace_sha256": "d1052e5866b8d5c96e69df408fecf6a3c1a95de66e23f653b094dd8c5546affa",
+    "html": ".pycircuit_out/davincioo-rob/20260908-table-tree/single-capacity/replay.html",
+    "html_sha256": "5c9590b8fa2ed4f35884c656a56ab8bd7b7d8e6ed5c08c49fa03d9b2985e18de"
+  },
+  "single-backpressure": {
+    "trace": ".pycircuit_out/davincioo-rob/20260908-single/backpressure/execution.pyctrace",
+    "trace_sha256": "0c8004aecec9b0d553393b20c0d3010818de9018eaf9838b44d0ef86dfb02d67",
+    "html": ".pycircuit_out/davincioo-rob/20260908-table-tree/single-backpressure/replay.html",
+    "html_sha256": "8ec75cb5fa80d3a173c1f1b3c59441a2415c7e7b7213fa35f4eb0d831696c3a1"
+  },
+  "single-invalid": {
+    "trace": ".pycircuit_out/davincioo-rob/20260908-single/invalid/execution.pyctrace",
+    "trace_sha256": "6ab065dbe0c558dc4d82b3bc53a59f2368b4f87ef65d4aa7b4bfa408510425ee",
+    "html": ".pycircuit_out/davincioo-rob/20260908-table-tree/single-invalid/replay.html",
+    "html_sha256": "d837908da5a0a2cc8ab9f3bef997b6f190586acb14edd91c896521b594de7ff8"
+  },
+  "single-recovery": {
+    "trace": ".pycircuit_out/davincioo-rob/20260908-single/recovery/execution.pyctrace",
+    "trace_sha256": "e1e9b9a84a458eb67162c9b07b0888e904a52570857b25c1a94877bb40bec236",
+    "html": ".pycircuit_out/davincioo-rob/20260908-table-tree/single-recovery/replay.html",
+    "html_sha256": "c659c8a0c93749665c55c5f91f565edfdcb95db97c38b95bb51323ecb24d1135"
+  },
+  "dual-recovery": {
+    "trace": ".pycircuit_out/davincioo-rob/20260908-source-names/recovery/execution.pyctrace",
+    "trace_sha256": "e6a7607a8037ab7ac419dab6a9a0614b209568eadf57e2b5295b0a4f5aa37e8f",
+    "html": ".pycircuit_out/davincioo-rob/20260908-table-tree/dual-recovery/replay.html",
+    "html_sha256": "8adf043d51655de759ada7866c0dfa8fa66fe269ec8f9b10c54369bfb6869d73"
+  },
+  "legacy": {
+    "trace": ".pycircuit_out/replay/main-migration/latest-verified/single-ss2nqoym/execution.pyctrace",
+    "trace_sha256": "fe76c0fa10a66535633b7e9665590ada93ba5690a5f78d06e390eb14e7c7ef12",
+    "html": ".pycircuit_out/davincioo-rob/20260908-table-tree/legacy/replay.html",
+    "html_sha256": "d93736b31dfe724c515fb79edde65e9fbd43d13f360472070045bdace4b036fa"
+  }
+}

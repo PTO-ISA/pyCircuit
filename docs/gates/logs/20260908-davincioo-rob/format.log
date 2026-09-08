@@ -1,0 +1,14 @@
+check for merge conflicts................................................Passed
+check yaml...........................................(no files to check)Skipped
+fix end of files.........................................................Passed
+trim trailing whitespace.................................................Passed
+ruff.....................................................................Passed
+black...................................................................Skipped
+markdownlint-cli2........................................................Passed
+pyCircuit API hygiene gate...............................................Passed
+All done! ✨ 🍰 ✨
+1 file would be left unchanged.
+All done! ✨ 🍰 ✨
+1 file would be left unchanged.
+All done! ✨ 🍰 ✨
+1 file would be left unchanged.

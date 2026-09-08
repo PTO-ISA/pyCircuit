@@ -1,0 +1,112 @@
+[
+  {
+    "path": ".pycircuit_out/davincioo-rob/20260908-single/capacity/execution.pyctrace",
+    "bytes": 3731548,
+    "sha256": "d1052e5866b8d5c96e69df408fecf6a3c1a95de66e23f653b094dd8c5546affa"
+  },
+  {
+    "path": ".pycircuit_out/davincioo-rob/20260908-single/capacity/activation.pyctrace",
+    "bytes": 3731548,
+    "sha256": "d1052e5866b8d5c96e69df408fecf6a3c1a95de66e23f653b094dd8c5546affa"
+  },
+  {
+    "path": ".pycircuit_out/davincioo-rob/20260908-single/capacity/projection.bin",
+    "bytes": 3083913,
+    "sha256": "c6cd583e4ae43042c6f65427cb7cb57161498dd6ec09b5989d8d15d4c16e8886"
+  },
+  {
+    "path": ".pycircuit_out/davincioo-rob/20260908-single/capacity/replay.html",
+    "bytes": 6486089,
+    "sha256": "64be62521adac8a0726335316dc64df9d0a97ae373d7b060d7ad7a2db3c98867"
+  },
+  {
+    "path": ".pycircuit_out/davincioo-rob/20260908-single/backpressure/execution.pyctrace",
+    "bytes": 499287,
+    "sha256": "0c8004aecec9b0d553393b20c0d3010818de9018eaf9838b44d0ef86dfb02d67"
+  },
+  {
+    "path": ".pycircuit_out/davincioo-rob/20260908-single/backpressure/activation.pyctrace",
+    "bytes": 499287,
+    "sha256": "0c8004aecec9b0d553393b20c0d3010818de9018eaf9838b44d0ef86dfb02d67"
+  },
+  {
+    "path": ".pycircuit_out/davincioo-rob/20260908-single/backpressure/projection.bin",
+    "bytes": 490385,
+    "sha256": "6fb2f7e8dfd2074ce2f8774501361c99e1d415e98a9189868a1691a560bea575"
+  },
+  {
+    "path": ".pycircuit_out/davincioo-rob/20260908-single/backpressure/replay.html",
+    "bytes": 835437,
+    "sha256": "80dab67b665f24723c2796024031950962a28f9f9933ba4946f65ff2a37b7c3e"
+  },
+  {
+    "path": ".pycircuit_out/davincioo-rob/20260908-single/invalid/execution.pyctrace",
+    "bytes": 497499,
+    "sha256": "6ab065dbe0c558dc4d82b3bc53a59f2368b4f87ef65d4aa7b4bfa408510425ee"
+  },
+  {
+    "path": ".pycircuit_out/davincioo-rob/20260908-single/invalid/activation.pyctrace",
+    "bytes": 497499,
+    "sha256": "6ab065dbe0c558dc4d82b3bc53a59f2368b4f87ef65d4aa7b4bfa408510425ee"
+  },
+  {
+    "path": ".pycircuit_out/davincioo-rob/20260908-single/invalid/projection.bin",
+    "bytes": 1572975,
+    "sha256": "8c4dff582ed581c8d3eef504d921fa92beeab5e7b9c0497c9243a88761ef8acb"
+  },
+  {
+    "path": ".pycircuit_out/davincioo-rob/20260908-single/invalid/replay.html",
+    "bytes": 808095,
+    "sha256": "7ccc4f8a99d2a852b340eed22690aeb924c6ce84621c6a793bf591bbc2761ae3"
+  },
+  {
+    "path": ".pycircuit_out/davincioo-rob/20260908-single/recovery/execution.pyctrace",
+    "bytes": 758313,
+    "sha256": "e1e9b9a84a458eb67162c9b07b0888e904a52570857b25c1a94877bb40bec236"
+  },
+  {
+    "path": ".pycircuit_out/davincioo-rob/20260908-single/recovery/activation.pyctrace",
+    "bytes": 758313,
+    "sha256": "e1e9b9a84a458eb67162c9b07b0888e904a52570857b25c1a94877bb40bec236"
+  },
+  {
+    "path": ".pycircuit_out/davincioo-rob/20260908-single/recovery/projection.bin",
+    "bytes": 881145,
+    "sha256": "3e08bfa0b3f2f7c5eedf81a20cbfbd7ff63d45872a93b985d89db8a6e11a5141"
+  },
+  {
+    "path": ".pycircuit_out/davincioo-rob/20260908-single/recovery/replay.html",
+    "bytes": 1275649,
+    "sha256": "54635b7bcf116bcc920a15f588e41dbfd67583161a1d0fd78e374c071f8f5f4d"
+  },
+  {
+    "path": ".pycircuit_out/davincioo-rob/20260908-single/model.cpp",
+    "bytes": 181861,
+    "sha256": "05183183194d721a5e19a4e4d283f9f410680fa46f8aaaa4cc5e92e248dd6861"
+  },
+  {
+    "path": ".pycircuit_out/davincioo-rob/20260908-single/driver.cpp",
+    "bytes": 20431,
+    "sha256": "f78cc1a6bec9d87c333796c290df80d7b3c2b6ddbf7783b59506392d3d0234fe"
+  },
+  {
+    "path": ".pycircuit_out/davincioo-rob/20260908-single/raw.mlir",
+    "bytes": 85804,
+    "sha256": "fd53271e13583a1587a1b6cc63d66186c91762b575ed24cb2c6347e1473739ec"
+  },
+  {
+    "path": ".pycircuit_out/davincioo-rob/20260908-single/frozen.mlir",
+    "bytes": 134220,
+    "sha256": "fc206bdaca90d7b7774073be8fda8490e1cda7ce4c094ed040d455a21a0485b9"
+  },
+  {
+    "path": ".pycircuit_out/davincioo-rob/20260908-single/index.html",
+    "bytes": 1195,
+    "sha256": "ff69d0dcc7749995301a42efee53e041559ec5a6413f0e3c7ed9e022731f6782"
+  },
+  {
+    "path": ".pycircuit_out/davincioo-rob/20260908-single/compile-command.txt",
+    "bytes": 590,
+    "sha256": "186213c89a5950ec4b40057af775464cb7eff0798d26530414b78a5285a92976"
+  }
+]

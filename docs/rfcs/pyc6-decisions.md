@@ -7898,11 +7898,23 @@ understandable component view. Presentation should evolve outside the framework.
 - Independent viewers may animate reads, consumption, writes and production, but
   must apply architectural state together at complete commit boundaries. Visual
   phases do not introduce simulated time or field-level dependency claims.
-- Version 1 targets scalar/flat entries and one-dimensional Tables. It does not
-  claim complete component private-state, expression, scheduler, reset or nested
-  aggregate replay, and does not extend PYC/RTL backend support.
+- Version 1 targets scalar entries, recursive nominal records with enum fields,
+  and one-dimensional Tables. The ROB follow-up verifies existing recursive
+  codecs without changing the wire format. It does not claim complete component
+  private-state, expression, scheduler or reset replay, and does not extend
+  PYC/RTL backend support.
+
+- Source labels may travel as optional verified `ac.source_name` metadata
+  through rule materialization and module-instance plans. Replay topology keeps
+  display names/paths separate from internal identity, numbers same-named module
+  calls within their parent, and preserves original function names for rule
+  operations. This is observation metadata, not a scheduling change. Integrity
+  hashes continue to cover all frozen attributes.
 
 **Verification**
+- `docs/gates/logs/20260908-source-names/summary.md` records source-name
+  propagation, verifier checks, native replay and regenerated ROB browser gates.
+
 - `docs/gates/logs/20260908-replay-main-migration/summary.md` records migration
   to main, exact ROB record parity and independent viewer browser validation.
 - `docs/gates/logs/20260908-flow-observer-refactor/summary.md` records the
@@ -7911,6 +7923,9 @@ understandable component view. Presentation should evolve outside the framework.
   checks and remaining gate gaps; browser evidence belongs to the independent
   tool package and is not framework semantic evidence.
 - `docs/development/acir/queue-table-flow.md` defines the producer/consumer format.
+- `docs/gates/logs/20260908-davincioo-rob/summary.md` records recursive nominal
+  payload expected results, scan/activation and recording parity, and independent
+  nested-field viewer navigation/atomicity checks.
 
 **Source**
 - User review (2026-09-08): prioritize Queue cells, flat Table rows, and dataflow

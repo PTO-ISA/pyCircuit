@@ -2574,7 +2574,7 @@ int main() {{
             completion = next(
                 block
                 for block in specialization["blocks"]
-                if block["name"].startswith("complete")
+                if block["name"].removeprefix("rob/").startswith("complete")
             )
             self.assertEqual(
                 {"entries", "epoch"},

@@ -1,0 +1,26 @@
+Running main() from /tmp/agentic-circuit-googletest/googletest/src/gtest_main.cc
+Note: Google Test filter = ReplayTest.*
+[==========] Running 8 tests from 1 test suite.
+[----------] Global test environment set-up.
+[----------] 8 tests from ReplayTest
+[ RUN      ] ReplayTest.SourceLabelsPreserveCanonicalIdentityAndNestedPaths
+[       OK ] ReplayTest.SourceLabelsPreserveCanonicalIdentityAndNestedPaths (1 ms)
+[ RUN      ] ReplayTest.FullMultiOwnerJournalPreservesBackpressureAndRetry
+[       OK ] ReplayTest.FullMultiOwnerJournalPreservesBackpressureAndRetry (2 ms)
+[ RUN      ] ReplayTest.EqualTokensAndDelayedReadinessHaveDistinctIdentity
+[       OK ] ReplayTest.EqualTokensAndDelayedReadinessHaveDistinctIdentity (1 ms)
+[ RUN      ] ReplayTest.SessionDetachesAndCanBeReattached
+[       OK ] ReplayTest.SessionDetachesAndCanBeReattached (0 ms)
+[ RUN      ] ReplayTest.RejectsMissingSerializerInsteadOfClaimingCompleteCoverage
+[       OK ] ReplayTest.RejectsMissingSerializerInsteadOfClaimingCompleteCoverage (0 ms)
+[ RUN      ] ReplayTest.RejectsPartialBarrierAndUntrackedMutation
+[       OK ] ReplayTest.RejectsPartialBarrierAndUntrackedMutation (0 ms)
+[ RUN      ] ReplayTest.FailedAttachmentDoesNotDetachAnotherSession
+[       OK ] ReplayTest.FailedAttachmentDoesNotDetachAnotherSession (0 ms)
+[ RUN      ] ReplayTest.FinishedSessionAllowsContinuedExecutionAndSystemReset
+[       OK ] ReplayTest.FinishedSessionAllowsContinuedExecutionAndSystemReset (0 ms)
+[----------] 8 tests from ReplayTest (8 ms total)
+
+[----------] Global test environment tear-down
+[==========] 8 tests from 1 test suite ran. (9 ms total)
+[  PASSED  ] 8 tests.

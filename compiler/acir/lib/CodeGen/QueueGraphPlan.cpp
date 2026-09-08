@@ -1733,6 +1733,9 @@ private:
           blockPlan.depths.push_back(value);
         for (int64_t value : firing.getOutputLatencies())
           blockPlan.latencies.push_back(value);
+        if (auto source =
+                firing->getAttrOfType<mlir::StringAttr>("ac.source_name"))
+          blockPlan.displayName = source.getValue().str();
         blockPlan.region = printRegion(firing.getBody());
         auto priority =
             firing->getAttrOfType<mlir::IntegerAttr>("ac.rule_priority");
@@ -1764,6 +1767,9 @@ private:
           blockPlan.depths.push_back(value);
         for (int64_t value : transform.getOutputLatencies())
           blockPlan.latencies.push_back(value);
+        if (auto source =
+                transform->getAttrOfType<mlir::StringAttr>("ac.source_name"))
+          blockPlan.displayName = source.getValue().str();
         blockPlan.region = printRegion(transform.getBody());
         if (auto error = extractExpressions(transform.getBody(), blockPlan))
           return error;
@@ -2230,6 +2236,11 @@ private:
             {instance.getSymName().str(), instance.getDefinition().str(),
              fingerprint.getValue().str(), scopePath(scope), std::move(*inputs),
              std::move(outputs), nextLexicalOrder++});
+        if (auto source =
+                instance->getAttrOfType<mlir::StringAttr>("ac.source_name"))
+          plan.moduleInstances.back().displayName = source.getValue().str();
+        plan.moduleInstances.back().sourceParameters =
+            printAttribute(instance.getStaticArgs());
         continue;
       }
       if (auto nested = mlir::dyn_cast<ac::ScopeOp>(operation)) {
@@ -4005,6 +4016,7 @@ llvm::Expected<std::string> QueueGraphPlan::canonicalJson() const {
         {"expressions", std::move(expressions)},
         {"inputs", std::move(inputs)},
         {"kind", block.kind},
+        {"display_name", block.displayName},
         {"latencies", std::move(latencies)},
         {"lexical_order", block.lexicalOrder},
         {"max_iterations", block.maxIterations},
@@ -4154,6 +4166,8 @@ llvm::Expected<std::string> QueueGraphPlan::canonicalJson() const {
       outputs.push_back(output);
     moduleInstanceValues.push_back(llvm::json::Object{
         {"definition", instance.definition},
+        {"display_name", instance.displayName},
+        {"source_parameters", instance.sourceParameters},
         {"inputs", std::move(inputs)},
         {"lexical_order", instance.lexicalOrder},
         {"name", instance.name},

@@ -342,6 +342,7 @@ class QueueBinding:
     provider: str = "transform"
     rate: int = 1
     rule_name: str | None = None
+    rule_display_name: str | None = None
     rule_source_line: int | None = None
     rule_source_column: int | None = None
     rule_table: str | None = None
@@ -1691,6 +1692,7 @@ def _desugar_nested_rule_captures(
                     "another nested rule"
                 )
         lowered = copy.deepcopy(nested)
+        lowered._ac_source_name = name
         lowered.name = qualified_names[name]
         lowered.body = [
             statement
@@ -1789,6 +1791,11 @@ def parse_queue_program(
 ) -> QueueProgram:
     tree = ast.parse(text, filename="<queue-model>", type_comments=True)
     tree = _desugar_nested_rule_captures(tree, system, entry_kind)
+    rule_source_names = {
+        node.name: getattr(node, "_ac_source_name", node.name)
+        for node in tree.body
+        if isinstance(node, ast.FunctionDef)
+    }
     module_static_values = _module_static_values(tree)
     for node in tree.body:
         decorators = getattr(node, "decorator_list", ())
@@ -2863,14 +2870,6 @@ def parse_queue_program(
                     "ACPY-RULE-012: optional output requires exactly one "
                     "payload parameter"
                 )
-            if (
-                rewritten_multi_effect_guard is not None
-                and len(payload_parameters) != 1
-            ):
-                raise QueueFrontendError(
-                    "ACPY-RULE-010: conditional-effect early return requires "
-                    "exactly one payload parameter"
-                )
             rule_definitions[node.name] = RuleDefinition(
                 node.name,
                 payload_parameters,
@@ -3222,6 +3221,11 @@ def parse_queue_program(
                 runtime_values.append(value)
             else:
                 static_values[argument] = static_value
+        if definition.effect_guard is not None and len(runtime_arguments) != 1:
+            raise QueueFrontendError(
+                "ACPY-RULE-010: conditional-effect early return requires "
+                "exactly one payload parameter"
+            )
         if not static_values and not module_static_values:
             return definition, call
 
@@ -7402,6 +7406,13 @@ def parse_queue_program(
             "ACPY-QUEUE-001: a queue system requires an external value and a "
             "consuming rule or result boundary"
         )
+    queues = [
+        replace(q, rule_display_name=rule_source_names.get(q.rule_name)) for q in queues
+    ]
+    effect_rules = [
+        replace(q, rule_display_name=rule_source_names.get(q.rule_name))
+        for q in effect_rules
+    ]
     return QueueProgram(
         system,
         payloads,
@@ -8993,8 +9004,11 @@ def lower_queue_program(
         name: str,
         rates: tuple[int, ...],
         output_names: tuple[str, ...] = (),
+        display_name: str | None = None,
     ) -> str:
         attributes = [f'ac.name = "{name}"']
+        if display_name is not None:
+            attributes.append(f"ac.source_name = {json.dumps(display_name)}")
         if output_names:
             attributes.append(
                 "ac.output_names = ["
@@ -9309,11 +9323,13 @@ def lower_queue_program(
                         value=local_static
                     )
                     continue
-                local_value, local_type = emitter.emit(local.value)
                 previous = (
                     None
                     if local.prior_name is None
                     else emitter.root_values.get(local.prior_name)
+                )
+                local_value, local_type = emitter.emit(
+                    local.value, None if previous is None else previous[1]
                 )
                 if previous is not None:
                     _, previous_type = previous
@@ -9476,7 +9492,9 @@ def lower_queue_program(
                         entries,
                         "ACPY-RULE-004: persistent list index is out of range",
                     )
-                var_write_result, var_write_type = emitter.emit(queue.rule_var_value)
+                var_write_result, var_write_type = emitter.emit(
+                    queue.rule_var_value, queue.payload
+                )
                 if not _types_equal_in_epoch_05(var_write_type, queue.payload):
                     raise QueueFrontendError(
                         "ACPY-RULE-004: persistent variable assignment must "
@@ -9783,6 +9801,8 @@ def lower_queue_program(
                 if queue.rule_output_names
                 else (() if output_ssa is None else (output_ssa,))
             )
+            rule_scope = () if module is None else (module.name,)
+            rule_identity = "/".join((*rule_scope, *queue.scope, queue.name))
             lines.append(
                 (
                     f"{indent}"
@@ -9804,7 +9824,7 @@ def lower_queue_program(
                     else "depths [] latencies [] "
                 )
                 + f"name {json.dumps(queue.rule_name)} "
-                f"stable_id {json.dumps('/'.join((*queue.scope, queue.name)))} "
+                f"stable_id {json.dumps(rule_identity)} "
                 f'domain "cycle" type exact {{'
             )
             block_arguments = ", ".join(
@@ -9945,7 +9965,7 @@ def lower_queue_program(
             else:
                 lines.append(f"{indent}  ac.rule.return")
             lines.append(
-                f"{indent}}} {queue_attributes(queue.name, (queue.rate,), queue.rule_output_names)} : "
+                f"{indent}}} {queue_attributes(queue.name, (queue.rate,), queue.rule_output_names, queue.rule_display_name)} : "
                 f"("
                 + ", ".join(
                     f"!ac.queue<{_render_type(payload)}>" for payload in rule_payloads
@@ -11624,6 +11644,7 @@ def _lower_simple_module_source(
     expected_results = result_payloads(function.returns)
     values = dict(external)
     uses = {name: 0 for name, _ in external}
+    instance_source_names: dict[tuple[str, ...], str] = {}
     instances: list[
         tuple[
             tuple[str, ...],
@@ -11841,6 +11862,7 @@ def _lower_simple_module_source(
                     "ACPY-MODULE-007: pure module static parameters are not "
                     "implemented"
                 )
+            instance_source_names[results] = module_name
             instances.append(
                 (
                     results,
@@ -11957,6 +11979,7 @@ def _lower_simple_module_source(
                     f"!ac.queue<{_render_type(output_type)}> parameters {{}} graph {{",
                     f"    %output = ac.instance @result of @{child}(%input) "
                     'static {} id "result" path "result" '
+                    f'{{ac.source_name = {json.dumps(child)}}} '
                     f": (!ac.queue<{_render_type(input_type)}>) -> "
                     f"!ac.queue<{_render_type(output_type)}>",
                     f"    ac.return %output : !ac.queue<{_render_type(output_type)}>",
@@ -12177,6 +12200,7 @@ def _lower_simple_module_source(
             f"({operands}) static "
             f"{_render_static_mlir_dictionary(static_arguments)} "
             f'id "{instance_name}" path "{instance_name}" '
+            f'{{ac.source_name = {json.dumps(instance_source_names[results])}}} '
             f": ({input_signature}) -> {result_type}"
         )
         for result in results:

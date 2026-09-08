@@ -118,6 +118,14 @@ public:
   }
   void start(ReplayValue::Object metadata = {}) {
     requireRegistration();
+    for (const auto &[id, object] : objects_) {
+      auto &descriptor = descriptors_.at(id);
+      descriptor["display_name"] = std::string(object->displayName());
+      descriptor["display_path"] = object->displayPath();
+      descriptor["display_parent_path"] = object->displayParentPath();
+      descriptor["module_parameters"] = std::string(object->sourceParameters());
+      update(id);
+    }
     started_ = true;
     try {
       for (const auto &[id, r] : resources_)

@@ -1,0 +1,3 @@
+Command: pyc6/scripts/run.sh env LD_LIBRARY_PATH=.pycircuit_out/replay/browser-deps/usr/lib64 PLAYWRIGHT_BROWSERS_PATH=.pycircuit_out/replay/browser-cache node third_party/circuit-flow-viewer/tests/browser_nested.mjs .pycircuit_out/replay/browser/node_modules/playwright .pycircuit_out/davincioo-rob/20260908-rob/recovery/replay.html .pycircuit_out/davincioo-rob/20260908-rob/browser
+Sandbox launch failed on Chromium sandbox_host_linux shutdown syscall; approved escalated run passed.
+{"nested":"23","field":"inst.original_pc","exact":{"bits":"1152921504606846977","width":64,"signed":false},"offline":true,"errors":[]}

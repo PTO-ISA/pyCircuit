@@ -16,7 +16,7 @@ of truth.
 ## Codex skills
 
 - Apply `$pyc6` first for hard contracts and evidence expectations.
-- Use `$pyc-build-v60` when running builds or gate lanes.
+- Use `$pyc6` and its fixed local environment when running builds or gate lanes.
 - Consumer-specific compatibility work runs in the owning consumer repository,
   not in this framework tree, except the maintainer-authorized DavinciOO
   design program under `designs/davincioo/` (Decision 0222).

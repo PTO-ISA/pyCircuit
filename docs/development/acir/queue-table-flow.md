@@ -12,6 +12,15 @@ publication and its output hashes. The immutable run manifest stores
 run has no trace artifact. Recording does not turn a failed simulation into a
 successful run: the run result remains authoritative for termination.
 
+For source-checkout CLI validation, rebuild and install the native toolchain
+from the same checkout when tests select an installed prefix through
+`AC_GATE_TOOLCHAIN_ROOT`. Building only the `gfsim` target updates the build
+tree, while CLI subprocesses can still load the prefix's older Python extension
+and link its older runtime libraries. After a native recording change, run
+`cmake --build <build-dir> --target install` before the CLI recording test.
+An older runtime can reject `record_replay` with an invalid closed-envelope
+diagnostic even though the current Python frontend accepts the option.
+
 For manually driven generated QueueGraph models, register the model before
 starting a recording:
 
@@ -45,6 +54,34 @@ package and is not bundled in framework releases. Its CLI is:
 ```text
 circuit-flow-viewer render execution.pyctrace --output replay.html
 ```
+
+## Source names and display paths
+
+Frontend `@ac.rule` declarations supply operation display names independently
+of result variables. The optional `ac.source_name` string survives nested-rule
+lifting, static specialization and rule lowering into QueueGraph plans.
+Rule, firing, transform and instance verifiers reject empty or non-string
+source labels. Existing stable IDs, object IDs and canonical paths retain their
+identity roles; frozen integrity fingerprints still cover the new attributes.
+
+Generated observation registration installs display metadata before
+`ReplaySession.start()`. The trace topology adds `display_name`, `display_path`
+and `display_parent_path`. The session snapshots these labels at start; changing
+labels during recording is unsupported. No event fields or PYC6TRC3 framing
+change. Objects without source metadata use their existing names.
+
+Module display segments use the original function name and a zero-based index
+among same-named calls in the same parent, including different static parameter
+specializations. The root uses the selected system function name. Compiler-only
+state scopes are transparent. Repeated rule calls keep the same title and gain
+indexed path segments. For example, `pair/accumulator[0]/advance[1]` identifies
+one call for display; source reordering may change this path.
+
+Queue/Table names remain unchanged. The viewer groups cards by display parent
+and uses source names for operation headings, without decoding internal symbol
+strings. Clicking a heading exposes the original name/path and nearest module's
+`module_parameters`, retained as exact textual MLIR static attributes for
+inspection. Explicit instance aliases are not part of this interface.
 
 ## Runtime and adapter responsibilities
 
@@ -103,8 +140,13 @@ members to the type. Unsupported payloads remain usable when recording is off.
 The manifest enumerates object IDs, names, paths, connections, and Queue/Table
 entry descriptors. `visual` identifies a Queue or Table. `fields` preserves the
 entry declaration order; typed sample `entry` supplies scalar widths and types.
-`flat: false` identifies generated nested records or packed aggregates that this
-first viewer cannot render. Other objects provide topology with empty state snapshots. The earlier local
+`flat: false` identifies generated nested records or packed aggregates. Recursive
+nominal records are encoded by their generated codecs; the independent viewer
+groups their fields under collapsible headers and preserves exact widths in
+selection details. Its row and field filters only affect presentation; the full
+state continues to advance atomically. The independent viewer documents its
+controls in `third_party/circuit-flow-viewer/README.md` in the source checkout. Other
+objects provide topology with empty state snapshots. The earlier local
 prototype's extra private-state fields are no longer produced; existing trace
 files remain readable by independent viewers.
 
@@ -169,7 +211,8 @@ barrier pairing, before-images and the final projection. An interrupted or
 corrupt tail is reported explicitly and never applies a partial commit. No
 sampling, compression, or silent truncation is performed; u32 chunk framing and
 serializer errors fail explicitly. Recording must finish before model reset;
-reset replay and nested-entry visualization are outside version 1.
+reset replay remains outside version 1. Nested-record visualization is verified
+by the independent viewer without changing the version-1 wire format.
 
 ## Validation
 
@@ -178,3 +221,10 @@ recorder, equal-valued tokens, delayed readiness, atomic multi-owner writes,
 backpressure/retry, code-generated field ordering, and ROB scan/activation
 committed-state equivalence. Viewer evidence separately covers reconstruction,
 partial files, offline HTML generation, browser navigation and animation.
+
+
+The DavinciOO ROB follow-up verifies recursive FlowKey/epoch/instruction/ROB
+records and enum-valued fields, including 32-bit fault codes and integers above
+2^53. Five expected-result scenarios compare every scan/activation boundary and
+normal/recorded projections. See
+[the ROB evidence](../../gates/logs/20260908-davincioo-rob/summary.md).

@@ -1,0 +1,132 @@
+[
+  {
+    "path": ".pycircuit_out/davincioo-rob/20260908-source-names/index.html",
+    "bytes": 875,
+    "sha256": "ed1bffd969daec7a8f20bde2aaf05793591d715547b76f8d19dd28420ece2144"
+  },
+  {
+    "path": ".pycircuit_out/davincioo-rob/20260908-source-names/model.cpp",
+    "bytes": 240897,
+    "sha256": "4411e3af0f00dec576bbd4e996eed603af09e7e22885c6e0421a537199bda0e5"
+  },
+  {
+    "path": ".pycircuit_out/davincioo-rob/20260908-source-names/driver.cpp",
+    "bytes": 19751,
+    "sha256": "3a73effcbdf596d3517bebcb2d87e797bb4754dd2b068a3919df51022908a428"
+  },
+  {
+    "path": ".pycircuit_out/davincioo-rob/20260908-source-names/compile-command.txt",
+    "bytes": 579,
+    "sha256": "07cf6dbeba113910c3187b9eb4c160a8e2bdac9dc45d92a99dc77257b71bfb69"
+  },
+  {
+    "path": ".pycircuit_out/davincioo-rob/20260908-source-names/capacity/execution.pyctrace",
+    "bytes": 3795211,
+    "sha256": "01841e6493d3722223e57446e8240c01136b291d9b62f22b1f8d88b4d461c053"
+  },
+  {
+    "path": ".pycircuit_out/davincioo-rob/20260908-source-names/capacity/activation.pyctrace",
+    "bytes": 3795211,
+    "sha256": "01841e6493d3722223e57446e8240c01136b291d9b62f22b1f8d88b4d461c053"
+  },
+  {
+    "path": ".pycircuit_out/davincioo-rob/20260908-source-names/capacity/replay.html",
+    "bytes": 6551335,
+    "sha256": "7f2980688978f20af421b219eda283ef6105458c82bdb3c09bff9abb13779feb"
+  },
+  {
+    "path": ".pycircuit_out/davincioo-rob/20260908-source-names/capacity/projection.bin",
+    "bytes": 5893225,
+    "sha256": "04816918dc51c9d946aa73a606584373cbb8b2d2cf18dd4d62ee8a67606ea3f9"
+  },
+  {
+    "path": ".pycircuit_out/davincioo-rob/20260908-source-names/backpressure/execution.pyctrace",
+    "bytes": 562950,
+    "sha256": "cfc4a74dcc96de5505dd27ea5d5502a62491a499a2db3709b2d0008b4e6e577f"
+  },
+  {
+    "path": ".pycircuit_out/davincioo-rob/20260908-source-names/backpressure/activation.pyctrace",
+    "bytes": 562950,
+    "sha256": "cfc4a74dcc96de5505dd27ea5d5502a62491a499a2db3709b2d0008b4e6e577f"
+  },
+  {
+    "path": ".pycircuit_out/davincioo-rob/20260908-source-names/backpressure/replay.html",
+    "bytes": 900282,
+    "sha256": "deb8582a3d6ed35fcbb94b5c484928e949413a5acf2d9ffecc7d9a1472ebb0d8"
+  },
+  {
+    "path": ".pycircuit_out/davincioo-rob/20260908-source-names/backpressure/projection.bin",
+    "bytes": 948425,
+    "sha256": "370bd17ea493b8d452b7ff2d29f6d21991c048ffdb82380c0b42bcecb04147e4"
+  },
+  {
+    "path": ".pycircuit_out/davincioo-rob/20260908-source-names/invalid/execution.pyctrace",
+    "bytes": 561162,
+    "sha256": "fef23a06c372d491f8442f46910351bed05e0f78d9255052654c8fe84dc52cb0"
+  },
+  {
+    "path": ".pycircuit_out/davincioo-rob/20260908-source-names/invalid/activation.pyctrace",
+    "bytes": 561162,
+    "sha256": "fef23a06c372d491f8442f46910351bed05e0f78d9255052654c8fe84dc52cb0"
+  },
+  {
+    "path": ".pycircuit_out/davincioo-rob/20260908-source-names/invalid/replay.html",
+    "bytes": 873042,
+    "sha256": "c89de1759a7923d4fff8e635a2e4f0a8946f8cd7d2c87b5b371a73541aef2ab3"
+  },
+  {
+    "path": ".pycircuit_out/davincioo-rob/20260908-source-names/invalid/projection.bin",
+    "bytes": 3115043,
+    "sha256": "80fd794c297103dd31bbf676f80651b85ca9b3adf54a3fa6d449218e96f7e792"
+  },
+  {
+    "path": ".pycircuit_out/davincioo-rob/20260908-source-names/recovery/execution.pyctrace",
+    "bytes": 821976,
+    "sha256": "e6a7607a8037ab7ac419dab6a9a0614b209568eadf57e2b5295b0a4f5aa37e8f"
+  },
+  {
+    "path": ".pycircuit_out/davincioo-rob/20260908-source-names/recovery/activation.pyctrace",
+    "bytes": 821976,
+    "sha256": "e6a7607a8037ab7ac419dab6a9a0614b209568eadf57e2b5295b0a4f5aa37e8f"
+  },
+  {
+    "path": ".pycircuit_out/davincioo-rob/20260908-source-names/recovery/replay.html",
+    "bytes": 1340548,
+    "sha256": "6632ddf821d731ce37930c35dae42476ebc5b239ea3b8ab0fb147d7d72c9e121"
+  },
+  {
+    "path": ".pycircuit_out/davincioo-rob/20260908-source-names/recovery/projection.bin",
+    "bytes": 1705617,
+    "sha256": "72791800590d20fefb89b441a34fdf262d3bb36fc7985fa3a974b5ddcffe721b"
+  },
+  {
+    "path": ".pycircuit_out/davincioo-rob/20260908-source-names/conflicts/execution.pyctrace",
+    "bytes": 986680,
+    "sha256": "18e3749f77d4478e10c22797f4337634b0cc3f76e8d9d437ad276c60ebfb187d"
+  },
+  {
+    "path": ".pycircuit_out/davincioo-rob/20260908-source-names/conflicts/activation.pyctrace",
+    "bytes": 986680,
+    "sha256": "18e3749f77d4478e10c22797f4337634b0cc3f76e8d9d437ad276c60ebfb187d"
+  },
+  {
+    "path": ".pycircuit_out/davincioo-rob/20260908-source-names/conflicts/replay.html",
+    "bytes": 1628740,
+    "sha256": "bdac5f20b98f2d03b4c81b0a807c6a90f0ccb9b9be4d470f6d83e87265328f6c"
+  },
+  {
+    "path": ".pycircuit_out/davincioo-rob/20260908-source-names/conflicts/projection.bin",
+    "bytes": 1501110,
+    "sha256": "ae42f845d1972ad9db940ec06657b029e1f22a2f38a23c215c02fca47c3dd983"
+  },
+  {
+    "path": ".pycircuit_out/davincioo-rob/20260908-source-names/browser/nested-fields.png",
+    "bytes": 124701,
+    "sha256": "d37438ed495f6fc21289cd25583a4a7017a48757e838275a32115cc206825985"
+  },
+  {
+    "path": ".pycircuit_out/davincioo-rob/20260908-source-names/browser/source-names.png",
+    "bytes": 233176,
+    "sha256": "c8fd999ed4c545d6f22d54ef3631f6df0c648b5c18b13f2e3fc96f16f22314db"
+  }
+]

@@ -1,0 +1,7 @@
+check_recorded_fields from designs/davincioo/tests/spe/ooo/test_rob.py was run on all final scenario traces:
+capacity exact fields passed
+backpressure exact fields passed
+invalid exact fields passed
+recovery exact fields passed
+conflicts exact fields passed
+Checks cover complete independent-reader reconstruction, nested epoch/ROB widths, MICROCOMMIT and FAULT enum values/widths, 0xdeadbeef fault_code:32, 0xffffeeeeaaaabbbb fault_arg0:64, and exact result/PC values above 2^53 for every committed output occurrence.

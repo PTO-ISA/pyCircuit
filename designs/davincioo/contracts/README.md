@@ -55,3 +55,15 @@ I1 owns its retained read-attempt slot. I2 owns operand/dependency join state,
 execute transfer, release and generated-cancel state. WBA owns retained terminal
 results and cancellation tombstones. These values are NDF L2 microarchitecture
 inside hardware H1 SPE / H2 IEX; they do not add architectural state.
+
+## ROB handoff payload
+
+ROB owns per-flow entries and their completion/ordered-handoff lifecycle in H2
+OOO. `RobCompletion` carries the writeback result into ROB; `RobEvent` carries
+allocation and microcommit messages. Both preserve `result: u64`,
+`result_valid: bool`, `status: TerminalStatus`, `fault_code: u32`,
+`fault_arg0: u64`, `fault_bi: bool` and `fault_valid: bool`. The earlier imported
+eight-bit RobEvent fault code is removed rather than silently truncating W2's
+exception payload. `RobHandoff` is CMT's durable release authority. See the
+[ROB module contract](../spe/ooo/rob.md) for identity, cancellation and finite-tag
+requirements; these messages do not implement the CMT/W2 owners themselves.

@@ -26,6 +26,57 @@ struct DoubleWrite {
   }
 };
 
+TEST(ReplayTest, SourceLabelsPreserveCanonicalIdentityAndNestedPaths) {
+  Module root("internal_root", kInvalidObjectId);
+  Module wrapper("output_tuple", kInvalidObjectId);
+  Module leaf("specialized_leaf", kInvalidObjectId);
+  Module scope("compiler_scope", kInvalidObjectId);
+  SimQueue<unsigned> first("firing_result", 0, nullptr, 1);
+  SimQueue<unsigned> second("firing_effect_7", 1, nullptr, 1);
+  SimQueue<unsigned> native("native_queue", 2, nullptr, 1);
+  root.setPath("internal_root");
+  ASSERT_TRUE(root.attachChild(wrapper));
+  ASSERT_TRUE(wrapper.attachChild(leaf));
+  ASSERT_TRUE(leaf.attachChild(scope));
+  ASSERT_TRUE(scope.attachChild(first));
+  ASSERT_TRUE(scope.attachChild(second));
+  ASSERT_TRUE(scope.attachChild(native));
+  const std::string canonical(first.path());
+  root.setDisplayName("system");
+  wrapper.setDisplayName("wrapper[0]");
+  leaf.setDisplayName("leaf[0]");
+  scope.setDisplayTransparent();
+  first.setDisplayName("advance", "advance[0]");
+  second.setDisplayName("advance", "advance[1]");
+  EXPECT_EQ(first.id(), 0u);
+  EXPECT_EQ(first.path(), canonical);
+  EXPECT_EQ(first.name(), "firing_result");
+  EXPECT_EQ(first.displayName(), "advance");
+  EXPECT_EQ(first.displayPath(), "system/wrapper[0]/leaf[0]/advance[0]");
+  EXPECT_EQ(second.displayPath(), "system/wrapper[0]/leaf[0]/advance[1]");
+  EXPECT_EQ(native.displayName(), "native_queue");
+  EXPECT_EQ(native.displayPath(), "system/wrapper[0]/leaf[0]/native_queue");
+  const auto path =
+      std::filesystem::temp_directory_path() / "pyc-source-labels.pyctrace";
+  const std::array rows{makeDispatchRow(&first), makeDispatchRow(&second),
+                        makeDispatchRow(&native)};
+  ReplaySession session(path.string(), rows);
+  session.add(first);
+  session.add(second);
+  session.add(native);
+  session.start();
+  session.finish();
+  std::ifstream stream(path, std::ios::binary);
+  const std::string bytes{std::istreambuf_iterator<char>(stream), {}};
+  EXPECT_NE(bytes.find("system/wrapper[0]/leaf[0]/advance[0]"),
+            std::string::npos);
+  EXPECT_NE(bytes.find("firing_result"), std::string::npos);
+  EXPECT_NE(bytes.find("display_parent_path"), std::string::npos);
+  first.reset();
+  EXPECT_EQ(first.displayPath(), "system/wrapper[0]/leaf[0]/advance[0]");
+  std::filesystem::remove(path);
+}
+
 TEST(ReplayTest, FullMultiOwnerJournalPreservesBackpressureAndRetry) {
   const auto path = std::filesystem::temp_directory_path() /
                     "pyc-replay-transaction.pyctrace";

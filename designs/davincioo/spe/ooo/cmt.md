@@ -51,6 +51,19 @@ gfsim execution is the first implementation gate. PYC/RTL obligations apply to t
 
 - No additional item recorded; exact state/port review remains required.
 
+## ROB seam confirmed 2026-09-08
+
+The [ROB contract](rob.md#reviewed-implementation-contract-2026-09-08) publishes
+at most one unacknowledged microcommit per flow. Successful publication to the
+`committed` Queue is irreversible, even before CMT consumes it; recovery must
+preserve that transaction. CMT must retain its complete identity and payload,
+collect distinct durable MPQ histories and required owner acknowledgements,
+and return a valid durable `RobHandoff` with matching required counts/mask and
+all required acknowledgements. ROB releases exactly once on that confirmation.
+CMT must not acknowledge a transaction it has not accepted and durably retained.
+This freezes the seam for the ROB testbench; CMT implementation and its own
+NDF traceability review remain outstanding.
+
 ## Contributor closure
 
 - [ ] Claim the candidate and identify its parent/containing state owner.

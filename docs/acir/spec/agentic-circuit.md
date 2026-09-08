@@ -1664,6 +1664,13 @@ representation instead uses one selected `ac.system`, materialized
 - the selected system and elaborated instance-owner manifest in the global
   topology seal.
 
+Rule stable IDs include their materialized module specialization name so two
+different static argument sets cannot collide during global schedule resolution.
+Closed arguments passed to rules are eliminated before enforcing the supported
+runtime-input arity; they do not introduce Queue inputs. Conditional integer
+literals assigned to persistent state inherit the declared target width, while
+already-typed runtime operands must still match exactly.
+
 Backends must key generated implementation classes by specialization and bind
 instances to independently owned ports and state. They must not flatten a
 repeated module merely because its placements have different hierarchy paths.
@@ -2320,3 +2327,13 @@ affected layers:
 Do not document a backend-specific behavior as shared ACIR semantics. Do not
 add a compatibility alias for removed public source surfaces. Git history,
 release tags, and [`REF-HISTORY-001`](refs/history.md) preserve prior contracts.
+
+### Source labels for generated observation
+
+Decision 0228 permits optional non-empty string `ac.source_name` metadata on
+rule, firing, transform and module-instance operations. It records the original
+frontend declaration name through lowering. It is descriptive: scheduling,
+resource ownership and event associations continue to use their existing
+identities. Source labels remain covered by frozen topology integrity checks.
+See [recording display names](../../development/acir/queue-table-flow.md#source-names-and-display-paths)
+for numbering and trace descriptor fields.

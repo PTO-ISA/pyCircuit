@@ -4163,7 +4163,7 @@ def invariant_module(value: Payload) -> Payload:
         self.assertIn("ac.rule.condition", lowered)
         self.assertIn("ac.var.read_element @entries", lowered)
         self.assertIn("ac.var.assign_element @entries", lowered)
-        self.assertNotIn("ac.source", lowered)
+        self.assertNotRegex(lowered, r"\bac\.source\b")
 
     def test_guarded_rule_requires_boolean_condition(self) -> None:
         from agentic_circuit._queue_frontend import (

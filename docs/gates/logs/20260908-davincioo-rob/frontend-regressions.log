@@ -1,0 +1,10 @@
+test_conditional_effect_counts_runtime_arguments_after_specialization (test_rule_literal_context.RuleLiteralContextTest.test_conditional_effect_counts_runtime_arguments_after_specialization) ... ok
+test_conditional_effect_still_rejects_two_runtime_inputs (test_rule_literal_context.RuleLiteralContextTest.test_conditional_effect_still_rejects_two_runtime_inputs) ... ok
+test_conditional_literals_use_the_state_assignment_type (test_rule_literal_context.RuleLiteralContextTest.test_conditional_literals_use_the_state_assignment_type) ... ok
+test_context_does_not_truncate_typed_runtime_values (test_rule_literal_context.RuleLiteralContextTest.test_context_does_not_truncate_typed_runtime_values) ... ok
+test_rule_ids_are_unique_across_static_module_specializations (test_rule_literal_context.RuleLiteralContextTest.test_rule_ids_are_unique_across_static_module_specializations) ... ok
+
+----------------------------------------------------------------------
+Ran 5 tests in 0.021s
+
+OK
