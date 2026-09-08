@@ -419,6 +419,30 @@ std::string commonPath(llvm::StringRef left, llvm::StringRef right) {
   return result.empty() ? "/" : result;
 }
 
+std::string matchExpressionValueKey(const QueueExpressionPlan &expression) {
+  std::string result;
+  auto append = [&](llvm::StringRef value) {
+    result.append(std::to_string(value.size()))
+        .append(":")
+        .append(value.str());
+  };
+  append(expression.kind);
+  append(expression.type);
+  append(std::to_string(expression.operands.size()));
+  for (const std::string &operand : expression.operands)
+    append(operand);
+  append(expression.field);
+  append(expression.predicate);
+  append(expression.literal);
+  append(expression.table);
+  append(expression.slot);
+  append(std::to_string(expression.lsb));
+  append(std::to_string(expression.width));
+  append(expression.mask);
+  append(expression.value);
+  return result;
+}
+
 llvm::Expected<std::string>
 emitExpressionBody(const QueueGraphPlan &plan, const QueueBlockPlan &block,
                    llvm::StringRef yield, unsigned indent,
@@ -452,7 +476,12 @@ emitExpressionBody(const QueueGraphPlan &plan, const QueueBlockPlan &block,
       if (expression.kind == "snapshot_set")
         needed.insert(expression.field);
     }
-  for (const QueueExpressionPlan &expression : block.expressions) {
+  llvm::StringMap<size_t> expressionPositions;
+  for (auto [index, expression] : llvm::enumerate(block.expressions))
+    expressionPositions[expression.result] = index;
+  llvm::StringSet<> emittedTableMatches;
+  for (auto [expressionIndex, expression] :
+       llvm::enumerate(block.expressions)) {
     if (!needed.contains(expression.result))
       continue;
     auto operand = [&](size_t index) -> llvm::Expected<llvm::StringRef> {
@@ -514,8 +543,145 @@ emitExpressionBody(const QueueGraphPlan &plan, const QueueBlockPlan &block,
       continue;
     }
     if (expression.kind == "table_match") {
+      if (emittedTableMatches.contains(expression.result))
+        continue;
       if (expression.nestedYields.size() != 1)
         return generatorError("table.match predicate yield is missing");
+      auto hasSnapshotSet = [&](llvm::StringRef result) {
+        return llvm::any_of(block.expressions,
+                            [&](const QueueExpressionPlan &candidate) {
+                              return candidate.kind == "snapshot_set" &&
+                                     candidate.field == result;
+                            });
+      };
+      auto canFuse = [&](const QueueExpressionPlan &candidate) {
+        if (candidate.kind != "table_match" ||
+            candidate.table != expression.table ||
+            candidate.type != expression.type ||
+            candidate.operands != expression.operands ||
+            candidate.nestedYields.size() != 1 ||
+            !needed.contains(candidate.result) ||
+            hasSnapshotSet(candidate.result) ||
+            !llvm::all_of(candidate.nestedExpressions,
+                          isEffectFreeTableMatchExpression))
+          return false;
+        return llvm::all_of(candidate.operands, [&](const std::string &operand) {
+          auto position = expressionPositions.find(operand);
+          return position == expressionPositions.end() ||
+                 position->getValue() < expressionIndex;
+        });
+      };
+      std::vector<const QueueExpressionPlan *> fusedMatches;
+      if (!hasSnapshotSet(expression.result) &&
+          llvm::all_of(expression.nestedExpressions,
+                       isEffectFreeTableMatchExpression)) {
+        for (size_t index = expressionIndex; index < block.expressions.size();
+             ++index) {
+          const QueueExpressionPlan &candidate = block.expressions[index];
+          if (canFuse(candidate))
+            fusedMatches.push_back(&candidate);
+        }
+      }
+      if (fusedMatches.size() > 1) {
+        QueueBlockPlan combined;
+        llvm::StringMap<std::string> commonValues;
+        llvm::StringSet<> occupiedNames;
+        for (const QueueExpressionPlan *match : fusedMatches) {
+          for (const std::string &operand : match->operands)
+            occupiedNames.insert(operand);
+          for (const QueueExpressionPlan &nested : match->nestedExpressions)
+            occupiedNames.insert(nested.result);
+        }
+        unsigned nextFusedValue = 0;
+        auto freshFusedValue = [&] {
+          std::string name;
+          do {
+            name = "fused_value_" + std::to_string(nextFusedValue++);
+          } while (occupiedNames.contains(name));
+          occupiedNames.insert(name);
+          return name;
+        };
+        std::vector<std::string> predicates;
+        predicates.reserve(fusedMatches.size());
+        for (const QueueExpressionPlan *match : fusedMatches) {
+          llvm::StringMap<std::string> renamed;
+          for (const QueueExpressionPlan &nested : match->nestedExpressions) {
+            QueueExpressionPlan canonical = nested;
+            for (std::string &operandName : canonical.operands)
+              if (auto found = renamed.find(operandName);
+                  found != renamed.end())
+                operandName = found->getValue();
+            const std::string key = matchExpressionValueKey(canonical);
+            auto found = commonValues.find(key);
+            if (found != commonValues.end()) {
+              renamed[nested.result] = found->getValue();
+              continue;
+            }
+            canonical.result = freshFusedValue();
+            renamed[nested.result] = canonical.result;
+            commonValues[key] = canonical.result;
+            combined.expressions.push_back(std::move(canonical));
+          }
+          auto predicate = renamed.find(match->nestedYields.front());
+          predicates.push_back(predicate == renamed.end()
+                                   ? match->nestedYields.front()
+                                   : predicate->getValue());
+        }
+        combined.yields = predicates;
+        std::string tuple = "std::tuple{";
+        for (auto [index, predicate] : llvm::enumerate(predicates)) {
+          if (index)
+            tuple.append(", ");
+          tuple.append(predicate);
+        }
+        tuple.push_back('}');
+        auto predicateBody = emitExpressionBody(
+            plan, combined, predicates.front(), indent + 6, qualifyTables,
+            checkedTableAccess, predicates, tuple);
+        if (!predicateBody)
+          return predicateBody.takeError();
+        const std::string table = qualifyTables
+                                      ? "table_" + identifier(expression.table)
+                                      : std::string("table");
+        for (const QueueExpressionPlan *match : fusedMatches) {
+          auto maskWords = candidateMaskWords(match->type);
+          if (!maskWords)
+            return generatorError(
+                "table.match candidate mask type is unsupported");
+          if (*maskWords == 1)
+            output << padding << "std::uint64_t " << match->result << " = 0;\n";
+          else
+            output << padding << "std::array<std::uint64_t, " << *maskWords
+                   << "> " << match->result << "{};\n";
+        }
+        output << padding << "for (std::size_t index = 0; index < " << table
+               << "->size(); ++index) {\n"
+               << padding << "  const auto &entry = " << table
+               << "->at(index);\n"
+               << padding << "  auto [";
+        for (auto [index, match] : llvm::enumerate(fusedMatches)) {
+          if (index)
+            output << ", ";
+          output << "fused_match_" << identifier(match->result);
+        }
+        output << "] = [&]() {\n"
+               << *predicateBody << padding << "  }();\n";
+        for (const QueueExpressionPlan *match : fusedMatches) {
+          auto maskWords = candidateMaskWords(match->type);
+          output << padding << "  if (fused_match_"
+                 << identifier(match->result) << ")\n"
+                 << padding << "    ";
+          if (*maskWords == 1)
+            output << match->result
+                   << " |= (std::uint64_t{1} << index);\n";
+          else
+            output << match->result
+                   << "[index / 64] |= (std::uint64_t{1} << (index % 64));\n";
+          emittedTableMatches.insert(match->result);
+        }
+        output << padding << "}\n";
+        continue;
+      }
       QueueBlockPlan nested;
       nested.expressions = expression.nestedExpressions;
       nested.yields = expression.nestedYields;

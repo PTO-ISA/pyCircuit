@@ -265,6 +265,48 @@ QueueGraphPlan inlineFirstChoicePlan(unsigned width, unsigned indexWidth) {
   return plan;
 }
 
+QueueGraphPlan dualInlineMatchPlan() {
+  QueueGraphPlan plan = inlineFirstChoicePlan(4, 2);
+  plan.system = "dual_inline_match";
+  plan.queues[0].payloadType = "i1";
+  QueueBlockPlan &firing = plan.blocks[1];
+  QueueExpressionPlan &firstMask = firing.expressions[0];
+  firstMask.operands = {"item"};
+  firstMask.nestedExpressions = {
+      {"same", "cmp", "i1", {"entry", "item"}, "", "eq"},
+      {"condition", "constant", "i1", {}, "", "", "true"},
+      {"matched", "and", "i1", {"same", "condition"}},
+  };
+  firstMask.nestedYields = {"matched"};
+
+  QueueExpressionPlan secondMask{"second_mask", "table_match", "i4", {"item"}};
+  secondMask.table = "entries";
+  secondMask.nestedExpressions = {
+      {"same", "cmp", "i1", {"entry", "item"}, "", "eq"},
+      {"condition", "constant", "i1", {}, "", "", "false"},
+      {"matched", "and", "i1", {"same", "condition"}},
+  };
+  secondMask.nestedYields = {"matched"};
+  QueueExpressionPlan secondIndex{"second_index", "table_choose_index", "i2",
+                                  {"second_mask"}};
+  secondIndex.table = "entries";
+  secondIndex.predicate = "first";
+  QueueExpressionPlan secondValid{"second_valid", "table_choose_valid", "i1",
+                                  {"second_mask"}};
+  secondValid.table = "entries";
+  secondValid.predicate = "first";
+  firing.expressions.insert(firing.expressions.end() - 1,
+                            {std::move(secondMask), std::move(secondIndex),
+                             std::move(secondValid)});
+  QueueExpressionPlan &result = firing.expressions.back();
+  result.operands.push_back("second_index");
+  result.operands.push_back("second_valid");
+  result.width = 6;
+  plan.payloads[0].fields.push_back({"second_index", "i2", 2});
+  plan.payloads[0].fields.push_back({"second_valid", "i1", 1});
+  return plan;
+}
+
 QueueGraphPlan aggregateTableBorrowPlan(QueueGraphPlan plan) {
   constexpr llvm::StringLiteral nestedType =
       "!ac.struct<@types::@BorrowNested>";
@@ -2478,6 +2520,204 @@ TEST(QueueGraphPlanTest, FirstTableChooseUsesSharedScalarPriorityEncoder) {
     harness.flush();
     expectCppRuns(executable);
   }
+}
+
+TEST(QueueGraphPlanTest, FusesPureSameSnapshotMatchesAndSharesPredicateDag) {
+  EXPECT_TRUE(isEffectFreeTableMatchExpression(
+      {"value", "get", "i1", {"entry"}, "valid"}));
+  EXPECT_FALSE(isEffectFreeTableMatchExpression(
+      {"value", "table_get", "i1", {"index"}, "", "", "", "entries"}));
+  EXPECT_FALSE(isEffectFreeTableMatchExpression(
+      {"value", "slot_get_value", "i1", {}}));
+  QueueExpressionPlan nested{"value", "get", "i1", {"entry"}, "valid"};
+  nested.nestedExpressions = {
+      {"inner", "constant", "i1", {}, "", "", "true"}};
+  EXPECT_FALSE(isEffectFreeTableMatchExpression(nested));
+  auto loopCount = [](llvm::StringRef source) {
+    size_t count = 0;
+    for (size_t offset = 0;
+         (offset = source.find("for (std::size_t index = 0; index < table",
+                               offset)) != llvm::StringRef::npos;
+         offset += 8)
+      ++count;
+    return count;
+  };
+  QueueGraphPlan fused = dualInlineMatchPlan();
+  auto fusedCpp = generateQueueGraphCpp(fused);
+  ASSERT_TRUE(bool(fusedCpp)) << llvm::toString(fusedCpp.takeError());
+  EXPECT_EQ(loopCount(*fusedCpp), 1u);
+  EXPECT_EQ(llvm::StringRef(*fusedCpp).count("fused_match_"), 4u);
+  const size_t fusedBegin = fusedCpp->find("auto [fused_match_");
+  ASSERT_NE(fusedBegin, std::string::npos);
+  const size_t fusedEnd = fusedCpp->find("}();", fusedBegin);
+  ASSERT_NE(fusedEnd, std::string::npos);
+  const llvm::StringRef predicates(fusedCpp->data() + fusedBegin,
+                                   fusedEnd - fusedBegin);
+  EXPECT_EQ(predicates.count("entry == item"), 1u);
+  expectCppCompiles(*fusedCpp);
+
+  QueueGraphPlan differentCapture = dualInlineMatchPlan();
+  QueueBlockPlan &firing = differentCapture.blocks[1];
+  firing.expressions.insert(
+      firing.expressions.begin(),
+      {"other", "constant", "i1", {}, "", "", "false"});
+  auto secondMask = llvm::find_if(
+      firing.expressions, [](const QueueExpressionPlan &expression) {
+        return expression.result == "second_mask";
+      });
+  ASSERT_NE(secondMask, firing.expressions.end());
+  secondMask->operands = {"other"};
+  for (QueueExpressionPlan &nested : secondMask->nestedExpressions)
+    for (std::string &operand : nested.operands)
+      if (operand == "item")
+        operand = "other";
+  auto fallbackCpp = generateQueueGraphCpp(differentCapture);
+  ASSERT_TRUE(bool(fallbackCpp)) << llvm::toString(fallbackCpp.takeError());
+  EXPECT_EQ(loopCount(*fallbackCpp), 2u);
+  EXPECT_EQ(fallbackCpp->find("fused_match_"), std::string::npos);
+  expectCppCompiles(*fallbackCpp);
+
+  QueueGraphPlan snapshot = dualInlineMatchPlan();
+  QueueBlockPlan &snapshotFiring = snapshot.blocks[1];
+  QueueExpressionPlan &snapshotMask = snapshotFiring.expressions[0];
+  snapshotMask.nestedExpressions.insert(
+      snapshotMask.nestedExpressions.begin(),
+      {{"snapshot_index", "constant", "i2", {}, "", "", "0 : i2"},
+       {"snapshot_value", "table_get", "i1", {"snapshot_index"}, "", "",
+        "", "entries"}});
+  QueueExpressionPlan snapshotSet{"snapshot", "snapshot_set",
+                                  "state_reservation", {}};
+  snapshotSet.field = "mask";
+  snapshotSet.table = "entries";
+  snapshotSet.predicate = "complete";
+  snapshotFiring.expressions.insert(snapshotFiring.expressions.end() - 1,
+                                    std::move(snapshotSet));
+  auto snapshotCpp = generateQueueGraphCpp(snapshot);
+  ASSERT_TRUE(bool(snapshotCpp)) << llvm::toString(snapshotCpp.takeError());
+  EXPECT_EQ(loopCount(*snapshotCpp), 2u);
+  EXPECT_EQ(snapshotCpp->find("fused_match_"), std::string::npos);
+  EXPECT_NE(snapshotCpp->find("StateReservation snapshot"), std::string::npos);
+  expectCppCompiles(*snapshotCpp);
+
+  QueueGraphPlan rootYield = dualInlineMatchPlan();
+  for (QueueExpressionPlan &candidate : rootYield.blocks[1].expressions)
+    if (candidate.kind == "table_match") {
+      candidate.nestedExpressions.clear();
+      candidate.nestedYields = {"entry"};
+    }
+  auto rootYieldCpp = generateQueueGraphCpp(rootYield);
+  ASSERT_TRUE(bool(rootYieldCpp))
+      << llvm::toString(rootYieldCpp.takeError());
+  EXPECT_EQ(loopCount(*rootYieldCpp), 1u);
+  EXPECT_EQ(llvm::StringRef(*rootYieldCpp).count("fused_match_"), 4u);
+  expectCppCompiles(*rootYieldCpp);
+
+  QueueGraphPlan dominatedCapture = dualInlineMatchPlan();
+  QueueBlockPlan &dominatedFiring = dominatedCapture.blocks[1];
+  dominatedFiring.expressions.insert(
+      dominatedFiring.expressions.begin(),
+      {"capture", "constant", "i1", {}, "", "", "false"});
+  for (QueueExpressionPlan &candidate : dominatedFiring.expressions)
+    if (candidate.kind == "table_match") {
+      candidate.operands = {"capture"};
+      for (QueueExpressionPlan &nested : candidate.nestedExpressions)
+        for (std::string &operand : nested.operands)
+          if (operand == "item")
+            operand = "capture";
+    }
+  auto dominatedCpp = generateQueueGraphCpp(dominatedCapture);
+  ASSERT_TRUE(bool(dominatedCpp)) << llvm::toString(dominatedCpp.takeError());
+  EXPECT_EQ(loopCount(*dominatedCpp), 1u);
+  expectCppCompiles(*dominatedCpp);
+
+  QueueGraphPlan lateCapture = dualInlineMatchPlan();
+  QueueBlockPlan &lateFiring = lateCapture.blocks[1];
+  auto lateSecond = llvm::find_if(
+      lateFiring.expressions, [](const QueueExpressionPlan &candidate) {
+        return candidate.result == "second_mask";
+      });
+  ASSERT_NE(lateSecond, lateFiring.expressions.end());
+  lateFiring.expressions.insert(
+      lateSecond, {"late", "constant", "i1", {}, "", "", "false"});
+  for (QueueExpressionPlan &candidate : lateFiring.expressions)
+    if (candidate.kind == "table_match") {
+      candidate.operands = {"late"};
+      for (QueueExpressionPlan &nested : candidate.nestedExpressions)
+        for (std::string &operand : nested.operands)
+          if (operand == "item")
+            operand = "late";
+    }
+  auto lateError = verifyQueueGraphPlan(lateCapture);
+  ASSERT_TRUE(bool(lateError));
+  llvm::consumeError(std::move(lateError));
+
+  QueueGraphPlan differentTable = dualInlineMatchPlan();
+  differentTable.tables.push_back(
+      {"other", "i1", 4, 0, "table/other", "/"});
+  differentTable.tableReads.push_back(
+      {"other", "other_read", "/", "", "other_unused", 1, 1});
+  for (QueueExpressionPlan &candidate : differentTable.blocks[1].expressions)
+    if (candidate.result == "second_mask" ||
+        candidate.result == "second_index" ||
+        candidate.result == "second_valid")
+      candidate.table = "other";
+  auto differentTableCpp = generateQueueGraphCpp(differentTable);
+  ASSERT_TRUE(bool(differentTableCpp))
+      << llvm::toString(differentTableCpp.takeError());
+  EXPECT_EQ(loopCount(*differentTableCpp), 2u);
+  EXPECT_EQ(differentTableCpp->find("fused_match_"), std::string::npos);
+  expectCppCompiles(*differentTableCpp);
+
+  QueueGraphPlan wide = dualInlineMatchPlan();
+  wide.system = "wide_dual_inline_match";
+  wide.tables[0].entries = 65;
+  for (QueueExpressionPlan &candidate : wide.blocks[1].expressions) {
+    if (candidate.kind == "table_match")
+      candidate.type = "!ac.value_array<2 x i64>";
+    if (candidate.kind == "table_choose_index")
+      candidate.type = "i7";
+  }
+  wide.payloads[0].fields[0] = {"index", "i7", 7};
+  wide.payloads[0].fields[2] = {"second_index", "i7", 7};
+  wide.blocks[1].expressions.back().width = 16;
+  auto wideCpp = generateQueueGraphCpp(wide);
+  ASSERT_TRUE(bool(wideCpp)) << llvm::toString(wideCpp.takeError());
+  EXPECT_EQ(loopCount(*wideCpp), 3u);
+  EXPECT_EQ(llvm::StringRef(*wideCpp).count("[index / 64] |= "), 2u);
+  std::string wideExecutable = *wideCpp;
+  wideExecutable.append(R"cpp(
+int main() {
+  using gfsim::UInt;
+  ac_generated::WideDualInlineMatch model;
+  auto rows = model.dispatch_rows();
+  gfsim::SimTable<UInt<1>> *table = nullptr;
+  for (auto &row : rows) {
+    auto *object = static_cast<gfsim::SimObject *>(row.object);
+    if (row.kind == gfsim::ObjectKind::Memory && object->name() == "entries")
+      table = dynamic_cast<gfsim::SimTable<UInt<1>> *>(object);
+  }
+  if (table == nullptr || !table->initializeEntry(64, UInt<1>{1}) ||
+      !model.input().proposePush(UInt<1>{1}))
+    return 1;
+  model.input().doXfer({0, 0});
+  for (unsigned tick = 1; tick != 3; ++tick) {
+    const gfsim::Epoch epoch{tick, 0};
+    for (auto &row : rows) row.work(row.object, epoch);
+    for (auto &row : rows)
+      row.xfer(row.object, epoch, gfsim::XferPhase::Arbitrate);
+    for (auto &row : rows)
+      row.xfer(row.object, epoch, gfsim::XferPhase::Commit);
+  }
+  const auto &values = model.sink_0_values();
+  return values.size() == 1 && values[0].valid == UInt<1>{1} &&
+                 values[0].index == UInt<7>{64} &&
+                 values[0].second_valid == UInt<1>{0} &&
+                 values[0].second_index == UInt<7>{0}
+             ? 0
+             : 2;
+}
+)cpp");
+  expectCppRuns(wideExecutable);
 }
 
 TEST(QueueGraphPlanTest, KeyedTableChooseRetainsSelectionLoop) {

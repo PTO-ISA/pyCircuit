@@ -309,6 +309,15 @@ PYC semantic contracts.
   - [x] Compile and execute nested-entry `at`/`checkedAt` fixtures, overwrite a
     source row before consuming its output, and record WBA generated-source and
     optimized-machine-code comparisons without claiming unmeasured speedup.
+- [x] Complete issue #63 OPT-03 same-snapshot Table match fusion.
+  - [x] Cover completed/uncompleted rows with one key, duplicate pending rows,
+    no-match and generation-sensitive WBA behavior while retaining two masks.
+  - [x] Fuse only same-Table, same-capture, effect-free inline predicates whose
+    captures dominate the group; retain independent paths for snapshot effects
+    and different captures.
+  - [x] Share exact typed predicate DAG values with hygienic generated SSA,
+    compile flat/hierarchy C++, run WBA behavior, and record loop/source/runtime
+    measurements without claiming Table PYC/RTL support.
 - [x] Close #46 and #48 framework prerequisites before their dependent
   DavinciOO H3 implementations. Decision 0222 places new design-program work
   under `designs/davincioo/`; independent contracts/modules may proceed when

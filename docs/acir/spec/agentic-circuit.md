@@ -755,6 +755,15 @@ transition plans, and Queue outputs materialize values before the invocation
 ends. Scalar reads remain values, and checked Table access retains its runtime
 diagnostic.
 
+Within one policy invocation, generated gfsim C++ may fuse multiple required
+`table_match` expressions into one Table scan only when they name the same
+Table, carry the same captured operands, contain only effect-free value
+expressions, and have no snapshot-set reservation. Exact typed expression DAG
+keys share common predicate values inside the fused loop. Every match retains
+its own candidate mask and downstream selection. Different captures, Table
+identity, unavailable captures, nested Table/Slot observations, and snapshot
+effects retain independent scans.
+
 `EntryView` is elaboration-only. `patch` lowers before Frozen ACIR to
 `ac.table.get`, immutable `ac.var.with` updates, and `ac.table.write` or
 `ac.table.masked_write`; there is no `ac.table.patch` operation. Both Frozen
