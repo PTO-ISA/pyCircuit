@@ -42,6 +42,8 @@ remains distinct.
 ### Queue/Table dataflow observation
 
 - [x] Define Decision 0223's recording/presentation boundary and versioned format.
+- [x] Separate lightweight state notifications from the recording adapter; register
+  Queue/Table state and topology at model assembly, with external payload codecs.
 - [x] Verify opt-in gfsim Queue/Table operations, token identities, atomic state
   reconstruction and ROB equivalence with recording enabled.
 - [ ] Publish an independent viewer after local review; the prototype is not a

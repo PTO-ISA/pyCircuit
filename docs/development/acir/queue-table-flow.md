@@ -12,13 +12,29 @@ publication and its output hashes. The immutable run manifest stores
 run has no trace artifact. Recording does not turn a failed simulation into a
 successful run: the run result remains authoritative for termination.
 
-For manually driven generated QueueGraph models, construct
-`gfsim::ReplaySession(path, rows)`, call `start()`, and wrap each complete global
-Work/Arbitrate/Probe/Commit barrier in `begin(epoch)` / `end()`. Direct host
-Queue transfers need the same boundary. Call `finish()` after the last complete
-barrier. Objects must outlive the session. Proposals may precede `begin`, but
-committed state must change only inside the wrapped barrier. A caller attaching
-a session to `SimSystem::setReplayRecorder` must detach it before destruction.
+For manually driven generated QueueGraph models, register the model before
+starting a recording:
+
+```cpp
+auto rows = model.dispatch_rows();
+gfsim::ReplaySession session(path, rows);
+model.registerObservations(session);
+session.start();
+// Direct driver: wrap each complete global Work/Arbitrate/Probe/Commit barrier.
+session.begin(epoch);
+// ... execute the original driver ...
+session.end();
+session.finish();
+```
+
+Direct host Queue transfers need the same boundary. Proposals may precede
+`begin`, but committed state must change only inside the wrapped barrier.
+For a model driven by `SimSystem`, call `session.attach(system)` after `start`;
+the system then supplies boundaries. `finish` and destruction detach the
+observer, including the system attachment. Objects and the system must outlive
+the session. Do not move observed objects or replace their observer while the
+session is active. Recording must finish before resetting or resuming an
+unobserved execution; reset during recording fails before Queue/Table mutation.
 
 pyCircuit owns only recording, the format contract, and producer tests. A viewer
 is a separately packaged consumer; HTML/CSS/JavaScript, layout, browser tests,
@@ -30,14 +46,67 @@ not part of the framework commit or release. Its CLI is:
 circuit-flow-viewer render execution.pyctrace --output replay.html
 ```
 
+## Runtime and adapter responsibilities
+
+The optional `StateObserver` interface in `state_observation.h` has no file I/O,
+codec, or replay-value dependency. `SimObject` holds one nullable observer
+pointer. Dispatch supplies the executing owner/phase with scope cleanup, and
+`SimSystem` supplies commit boundaries. The existing `ObservationRecorder`
+proposal/event contract is separate and unchanged.
+
+Queue notifies accepted/published push/pop proposal positions, consumed entries,
+actual delayed arrivals, enqueues and transfer completion. Table notifies reads
+and paired before/after writes around the actual replace/merge. Notifications
+are synchronous read-only views: their data pointers and field spans must not
+escape the callback. Observers must not mutate components, re-run policies,
+perform nested dispatch or supply arbitration/backpressure decisions. Recording
+errors propagate explicitly; an interrupted barrier never becomes a complete
+record. The disabled path does not allocate recording metadata or encode values.
+
+`ReplaySession` owns codecs, token/owner vectors, snapshots, registration and the
+file writer. It follows Queue notifications rather than predicting Queue
+capacity, readiness or commits. Its sorted resource registration preserves token
+initialization order. Table snapshots use a read-only committed view so snapshot
+collection does not manufacture read events.
+
+Generated models expose a template `registerObservations(registry)` method.
+It registers typed Queue/Table resources and connections at the model assembly
+layer, including nested instances, control inputs and feedback queues; primitive
+classes carry no topology methods. Reusable module registration receives its
+port references from its parent without adding stored copies of those ports.
+Handwritten model assembly uses the same interface:
+
+```cpp
+session.add(input);     // SimQueue<T>, not a type-erased SimObject reference
+session.add(output);
+session.add(state);     // SimTable<Entry>
+session.connect(worker, {&input}, {&output}, {&state});
+```
+
+Dispatch rows enumerate identities, not typed state coverage. All Queue/Table
+resources intended for observation must be registered with their concrete type
+before `start`. A successful registration validates the sample entry codec;
+unknown observed data resources fail explicitly when accessed. Other components
+have topology and empty snapshots; internal buffers, memory storage, cursors and
+sink history are not exported. New components using registered Queue/Table
+state need only assembly registration, not recording code in their policies.
+Private C++ state is allowed but is outside this observation contract.
+
+`ValueCodec<T>` is the external payload extension point in `replay_value.h`.
+Generated specializations define `encode(const T&)`, `fields()` and `flat`
+outside payload structs. Scalar codecs preserve exact integers, declared widths,
+and float bits. A handwritten payload can be adapted externally without adding
+members to the type. Unsupported payloads remain usable when recording is off.
+
 ## Observation contract
 
 The manifest enumerates object IDs, names, paths, connections, and Queue/Table
 entry descriptors. `visual` identifies a Queue or Table. `fields` preserves the
 entry declaration order; typed sample `entry` supplies scalar widths and types.
 `flat: false` identifies generated nested records or packed aggregates that this
-first viewer cannot render. Other objects provide topology, without a claim to
-complete private-state coverage.
+first viewer cannot render. Other objects provide topology with empty state snapshots. The earlier local
+prototype's extra private-state fields are no longer produced; existing trace
+files remain readable by independent viewers.
 
 An initial snapshot contains committed Queue contents, delayed contents with
 ready times, token IDs, and all Table rows. A commit record contains changed

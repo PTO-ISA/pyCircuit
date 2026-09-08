@@ -7448,6 +7448,12 @@ understandable component view. Presentation should evolve outside the framework.
   reservations produce no successful flow animation; retries retain their normal
   behavior. Recording must preserve scan/activation results and counters under
   Decisions 0177, 0189 and 0196.
+- Runtime observation uses lightweight synchronous notifications without file
+  format or value-encoding dependencies in primitive implementations. A session
+  adapter owns occurrence identities, proposal ownership, snapshots and codecs;
+  model assembly registers typed state and topology. Payload codecs live outside
+  user payload definitions. Default coverage is registered Queue/Table state;
+  ordinary components do not export private buffers, storage or sink history.
 - Independent viewers may animate reads, consumption, writes and production, but
   must apply architectural state together at complete commit boundaries. Visual
   phases do not introduce simulated time or field-level dependency claims.
@@ -7456,6 +7462,8 @@ understandable component view. Presentation should evolve outside the framework.
   aggregate replay, and does not extend PYC/RTL backend support.
 
 **Verification**
+- `docs/gates/logs/20260908-flow-observer-refactor/summary.md` records the
+  observer/adapter separation and comparison against the initial implementation.
 - `docs/gates/logs/20260908-queue-table-flow/summary.md` records scoped producer
   checks and remaining gate gaps; browser evidence belongs to the independent
   tool package and is not framework semantic evidence.

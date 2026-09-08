@@ -37,12 +37,6 @@ public:
       : SimObject(componentKind, std::move(name), id, parent, observations),
         input_(input), output_(output), policy_(std::move(policy)) {}
 
-  ReplayValue::Object replayDescriptor() const override {
-    return {{"input", gfsim::replayValue(input_)},
-            {"output", gfsim::replayValue(output_)}};
-  }
-  ReplayValue replayState() const override { return ReplayValue::Object{}; }
-
   void doWork(Epoch) override {
     while (fired_ < Rate && input_.canProposePop() &&
            output_.canProposePush()) {
@@ -145,12 +139,6 @@ public:
             outputs_))
       throw std::invalid_argument("atomic transform Queue is null");
   }
-
-  ReplayValue::Object replayDescriptor() const override {
-    return {{"inputs", gfsim::replayValue(inputs_)},
-            {"outputs", gfsim::replayValue(outputs_)}};
-  }
-  ReplayValue replayState() const override { return ReplayValue::Object{}; }
 
   void doWork(Epoch) override {
     if (fired_ || !allInputsReady() || !allOutputsReady())
@@ -262,12 +250,6 @@ public:
       throw std::invalid_argument("barrier Queue is null");
   }
 
-  ReplayValue::Object replayDescriptor() const override {
-    return {{"inputs", gfsim::replayValue(inputs_)},
-            {"outputs", gfsim::replayValue(outputs_)}};
-  }
-  ReplayValue replayState() const override { return ReplayValue::Object{}; }
-
   void doWork(Epoch) override {
     if (fired_ || !allInputsReady() || !allOutputsReady())
       return;
@@ -363,17 +345,6 @@ public:
       : SimObject(componentKind, std::move(name), id, parent, observations),
         input_(input), output_(output), capacity_(capacity), start_(start),
         nextKey_(start), key_(std::move(key)) {}
-
-  ReplayValue::Object replayDescriptor() const override {
-    return {{"input", gfsim::replayValue(input_)},
-            {"output", gfsim::replayValue(output_)},
-            {"capacity", gfsim::replayValue(capacity_)},
-            {"start", gfsim::replayValue(start_)}};
-  }
-  ReplayValue replayState() const override {
-    return ReplayValue::Object{{"entries", gfsim::replayValue(entries_)},
-                               {"nextKey", gfsim::replayValue(nextKey_)}};
-  }
 
   void doWork(Epoch) override {
     if (!pendingInput_ && entries_.size() < capacity_ &&
@@ -493,17 +464,6 @@ public:
         key_(std::move(key)), dependency_(std::move(dependency)),
         resource_(std::move(resource)), cost_(std::move(cost)) {}
 
-  ReplayValue::Object replayDescriptor() const override {
-    return {{"input", gfsim::replayValue(input_)},
-            {"output", gfsim::replayValue(output_)},
-            {"capacity", gfsim::replayValue(capacity_)},
-            {"resources", gfsim::replayValue(resources_)},
-            {"noDependency", gfsim::replayValue(noDependency_)}};
-  }
-  ReplayValue replayState() const override {
-    return ReplayValue::Object{{"entries", gfsim::replayValue(entries_)}};
-  }
-
   void doWork(Epoch epoch) override {
     if (proposed_)
       return;
@@ -617,15 +577,6 @@ private:
     T value{};
     State state = State::Waiting;
     Epoch ready{};
-    ReplayValue replayValue() const {
-      return ReplayValue::Object{{"key", gfsim::replayValue(key)},
-                                 {"dependency", gfsim::replayValue(dependency)},
-                                 {"resource", gfsim::replayValue(resource)},
-                                 {"cost", gfsim::replayValue(cost)},
-                                 {"value", gfsim::replayValue(value)},
-                                 {"state", gfsim::replayValue(state)},
-                                 {"ready", gfsim::replayValue(ready)}};
-    }
   };
   struct PendingInput {
     uint64_t key = 0;
@@ -766,14 +717,6 @@ public:
         input_(input), output_(output), slots_(credits),
         cost_(std::move(cost)) {}
 
-  ReplayValue::Object replayDescriptor() const override {
-    return {{"input", gfsim::replayValue(input_)},
-            {"output", gfsim::replayValue(output_)}};
-  }
-  ReplayValue replayState() const override {
-    return ReplayValue::Object{{"slots", gfsim::replayValue(slots_)}};
-  }
-
   void doWork(Epoch) override {
     if (proposed_)
       return;
@@ -853,10 +796,6 @@ private:
   struct Entry {
     T value;
     uint64_t remaining = 0;
-    ReplayValue replayValue() const {
-      return ReplayValue::Object{{"value", gfsim::replayValue(value)},
-                                 {"remaining", gfsim::replayValue(remaining)}};
-    }
   };
   struct PendingInput {
     size_t slot = 0;
@@ -935,14 +874,6 @@ public:
         input_(input), output_(output), init_(init), storage_(entries, init),
         address_(std::move(address)), write_(std::move(write)),
         writeData_(std::move(writeData)), response_(std::move(response)) {}
-
-  ReplayValue::Object replayDescriptor() const override {
-    return {{"input", gfsim::replayValue(input_)},
-            {"output", gfsim::replayValue(output_)}};
-  }
-  ReplayValue replayState() const override {
-    return ReplayValue::Object{{"storage", gfsim::replayValue(storage_)}};
-  }
 
   void doWork(Epoch) override {
     if (fired_ || !input_.canProposePop() || !output_.canProposePush())
@@ -1401,21 +1332,11 @@ public:
   }
 
   size_t size() const { return committed_.size(); }
-  ReplayValue::Object replayDescriptor() const override {
-    return {{"visual", "table"},
-            {"rows", replayValue(committed_.size())},
-            {"entry", replayValue(Entry{})},
-            {"fields", replayFields<Entry>()},
-            {"flat", replayFlat<Entry>()}};
-  }
-  ReplayValue replayState() const override {
-    return ReplayValue::Object{{"entries", replayValue(committed_)}};
-  }
+  const auto &committedValues() const { return committed_; }
   const Entry &at(size_t index) const {
     const auto &value = committed_.at(index);
-    if (replay_)
-      replayEvent("state_read", {{"index", replayValue(index)},
-                                 {"value", replayValue(value)}});
+    if (stateObserver_)
+      stateObserver_->notify({StateAction::TableRead, id(), index, &value});
     return value;
   }
   const Entry &checkedAt(size_t index) {
@@ -1592,21 +1513,20 @@ public:
         if (proposal.footprint.mode != mode)
           continue;
         auto commitValue = [&](size_t index, const Entry &value) {
-          ReplayValue before;
-          if (replay_)
-            before = replayValue(committed_[index]);
+          if (stateObserver_)
+            stateObserver_->notify({StateAction::BeforeWrite, id(), index,
+                                    &committed_[index], 0, writerId,
+                                    proposal.footprint.fields,
+                                    static_cast<uint8_t>(mode)});
           if (mode == TableWriteMode::Replace)
             committed_[index] = value;
           else
             proposal.merge(committed_[index], value);
-          if (replay_)
-            replayEvent("state_write",
-                        {{"owner", replayValue(writerId)},
-                         {"index", replayValue(index)},
-                         {"before", std::move(before)},
-                         {"after", replayValue(committed_[index])},
-                         {"fields", replayValue(proposal.footprint.fields)},
-                         {"mode", replayValue(mode)}});
+          if (stateObserver_)
+            stateObserver_->notify({StateAction::AfterWrite, id(), index,
+                                    &committed_[index], 0, writerId,
+                                    proposal.footprint.fields,
+                                    static_cast<uint8_t>(mode)});
         };
         if (proposal.singleValue)
           commitValue(proposal.singleValue->first,
@@ -1639,8 +1559,8 @@ public:
   }
   bool lastCommitChanged() const override { return lastCommitChanged_; }
   void reset() override {
-    if (replay_ && replay_->recording())
-      throw std::runtime_error("replay: finish recording before reset");
+    if (stateObserver_)
+      stateObserver_->beforeReset();
     std::fill(committed_.begin(), committed_.end(), Entry{});
     pending_.clear();
     prepared_.clear();
@@ -1963,13 +1883,6 @@ public:
       throw std::invalid_argument("transition Queue is null");
   }
 
-  ReplayValue::Object replayDescriptor() const override {
-    return {{"table", gfsim::replayValue(table_)},
-            {"inputs", gfsim::replayValue(inputs_)},
-            {"outputs", gfsim::replayValue(outputs_)}};
-  }
-  ReplayValue replayState() const override { return ReplayValue::Object{}; }
-
   void doWork(Epoch epoch) override {
     if (fired_ || candidate_ || !allInputsReady())
       return;
@@ -2207,13 +2120,6 @@ public:
       throw std::invalid_argument("state transition endpoint is null");
   }
 
-  ReplayValue::Object replayDescriptor() const override {
-    return {{"tables", gfsim::replayValue(tables_)},
-            {"inputs", gfsim::replayValue(inputs_)},
-            {"outputs", gfsim::replayValue(outputs_)}};
-  }
-  ReplayValue replayState() const override { return ReplayValue::Object{}; }
-
   void doWork(Epoch epoch) override {
     if (fired_ || candidate_ || !allInputsReady())
       return;
@@ -2439,13 +2345,6 @@ public:
         table_(table), input_(input), output_(output),
         address_(std::move(address)), when_(std::move(when)) {}
 
-  ReplayValue::Object replayDescriptor() const override {
-    return {{"table", gfsim::replayValue(table_)},
-            {"input", gfsim::replayValue(input_)},
-            {"output", gfsim::replayValue(output_)}};
-  }
-  ReplayValue replayState() const override { return ReplayValue::Object{}; }
-
   void doWork(Epoch epoch) override {
     if (fired_ || !input_.canProposePop())
       return;
@@ -2505,12 +2404,6 @@ public:
         table_(table), output_(output), address_(std::move(address)),
         when_(std::move(when)) {}
 
-  ReplayValue::Object replayDescriptor() const override {
-    return {{"table", gfsim::replayValue(table_)},
-            {"output", gfsim::replayValue(output_)}};
-  }
-  ReplayValue replayState() const override { return ReplayValue::Object{}; }
-
   void doWork(Epoch epoch) override {
     if (fired_ || !static_cast<bool>(invokeTablePolicy(when_, epoch)) ||
         !output_.canProposePush())
@@ -2567,12 +2460,6 @@ public:
         table_(table), input_(input), address_(std::move(address)),
         enable_(std::move(enable)), value_(std::move(value)),
         merge_(std::move(merge)), writerId_(id), mode_(mode) {}
-
-  ReplayValue::Object replayDescriptor() const override {
-    return {{"table", gfsim::replayValue(table_)},
-            {"input", gfsim::replayValue(input_)}};
-  }
-  ReplayValue replayState() const override { return ReplayValue::Object{}; }
 
   void doWork(Epoch epoch) override {
     if (fired_ || !input_.canProposePop())
@@ -2657,11 +2544,6 @@ public:
         value_(std::move(value)), merge_(std::move(merge)), writerId_(id),
         mode_(mode) {}
 
-  ReplayValue::Object replayDescriptor() const override {
-    return {{"table", gfsim::replayValue(table_)}};
-  }
-  ReplayValue replayState() const override { return ReplayValue::Object{}; }
-
   void doWork(Epoch epoch) override {
     if (fired_ || !static_cast<bool>(invokeTablePolicy(enable_, epoch)))
       return;
@@ -2730,11 +2612,6 @@ public:
       : SimObject(componentKind, std::move(name), id, parent, observations),
         table_(table), mask_(std::move(mask)), enable_(std::move(enable)),
         value_(std::move(value)), merge_(std::move(merge)), writerId_(id) {}
-
-  ReplayValue::Object replayDescriptor() const override {
-    return {{"table", gfsim::replayValue(table_)}};
-  }
-  ReplayValue replayState() const override { return ReplayValue::Object{}; }
 
   void doWork(Epoch epoch) override {
     if (fired_ || !static_cast<bool>(invokeTablePolicy(enable_, epoch)))
@@ -2813,15 +2690,6 @@ public:
 
   bool valid() const { return state_.valid; }
   const T &value() const { return state_.value; }
-
-  ReplayValue::Object replayDescriptor() const override {
-    return {{"input", gfsim::replayValue(input_)}};
-  }
-  ReplayValue replayState() const override {
-    return ReplayValue::Object{
-        {"state__valid", gfsim::replayValue(state_.valid)},
-        {"state__value", gfsim::replayValue(state_.value)}};
-  }
 
   void doWork(Epoch epoch) override {
     if (fired_)
@@ -2926,22 +2794,6 @@ public:
         writeData_(std::move(writeData)), response_(std::move(response)) {
     if (latency_ == 0)
       throw std::invalid_argument("memory latency must be positive");
-  }
-
-  ReplayValue::Object replayDescriptor() const override {
-    return {{"inputs", gfsim::replayValue(inputs_)},
-            {"outputs", gfsim::replayValue(outputs_)},
-            {"latency", gfsim::replayValue(latency_)}};
-  }
-  ReplayValue replayState() const override {
-    return ReplayValue::Object{
-        {"storage", gfsim::replayValue(storage_)},
-        {"pendingResponse", gfsim::replayValue(pendingResponse_)},
-        {"responseReady", gfsim::replayValue(responseReady_)},
-        {"pendingWrite", gfsim::replayValue(pendingWrite_)},
-        {"completedEpoch", gfsim::replayValue(completedEpoch_)},
-        {"selected", gfsim::replayValue(selected_)},
-        {"busy", gfsim::replayValue(busy_)}};
   }
 
   void doWork(Epoch epoch) override {
@@ -3096,13 +2948,6 @@ public:
       : SimObject(componentKind, std::move(name), id, parent, observations),
         input_(input) {}
 
-  ReplayValue::Object replayDescriptor() const override {
-    return {{"input", gfsim::replayValue(input_)}};
-  }
-  ReplayValue replayState() const override {
-    return ReplayValue::Object{{"received", gfsim::replayValue(received_)}};
-  }
-
   void doWork(Epoch) override {
     if (pending_ || !input_.canProposePop())
       return;
@@ -3141,16 +2986,6 @@ public:
                SimQueue<T> &input, ObservationSink *observations = nullptr)
       : SimObject(componentKind, std::move(name), id, parent, observations),
         input_(input) {}
-
-  ReplayValue::Object replayDescriptor() const override {
-    return {{"input", gfsim::replayValue(input_)}};
-  }
-  ReplayValue replayState() const override {
-    return ReplayValue::Object{
-        {"last", gfsim::replayValue(last_)},
-        {"observed", gfsim::replayValue(observed_)},
-        {"lastPopCount", gfsim::replayValue(lastPopCount_)}};
-  }
 
   void doWork(Epoch) override {
     const T *head = input_.peek();
@@ -3208,15 +3043,6 @@ public:
       : SimObject(componentKind, std::move(name), id, parent, observations),
         input_(input), message_(std::move(message)),
         predicate_(std::move(predicate)) {}
-
-  ReplayValue::Object replayDescriptor() const override {
-    return {{"input", gfsim::replayValue(input_)}};
-  }
-  ReplayValue replayState() const override {
-    return ReplayValue::Object{
-        {"last", gfsim::replayValue(last_)},
-        {"lastPopCount", gfsim::replayValue(lastPopCount_)}};
-  }
 
   void doWork(Epoch) override {
     const T *head = input_.peek();
@@ -3276,12 +3102,6 @@ public:
       : SimObject(componentKind, std::move(name), id, parent, observations),
         input_(input), outputs_(outputs) {}
 
-  ReplayValue::Object replayDescriptor() const override {
-    return {{"input", gfsim::replayValue(input_)},
-            {"outputs", gfsim::replayValue(outputs_)}};
-  }
-  ReplayValue replayState() const override { return ReplayValue::Object{}; }
-
   void doWork(Epoch) override {
     if (fired_ || !input_.canProposePop() ||
         std::any_of(outputs_.begin(), outputs_.end(), [](const auto *output) {
@@ -3329,15 +3149,6 @@ public:
             ObservationSink *observations = nullptr)
       : SimObject(componentKind, std::move(name), id, parent, observations),
         input_(input), outputs_(outputs) {}
-
-  ReplayValue::Object replayDescriptor() const override {
-    return {{"input", gfsim::replayValue(input_)},
-            {"outputs", gfsim::replayValue(outputs_)}};
-  }
-  ReplayValue replayState() const override {
-    return ReplayValue::Object{{"pending", gfsim::replayValue(pending_)},
-                               {"delivered", gfsim::replayValue(delivered_)}};
-  }
 
   void doWork(Epoch) override {
     if (proposal_)
@@ -3431,12 +3242,6 @@ public:
       : SimObject(componentKind, std::move(name), id, parent, observations),
         input_(input), outputs_(outputs), selector_(std::move(selector)) {}
 
-  ReplayValue::Object replayDescriptor() const override {
-    return {{"input", gfsim::replayValue(input_)},
-            {"outputs", gfsim::replayValue(outputs_)}};
-  }
-  ReplayValue replayState() const override { return ReplayValue::Object{}; }
-
   void doWork(Epoch) override {
     if (fired_ || !input_.canProposePop())
       return;
@@ -3490,13 +3295,6 @@ public:
       : SimObject(componentKind, std::move(name), id, parent, observations),
         control_(control), inputs_(inputs), output_(output),
         selector_(std::move(selector)) {}
-
-  ReplayValue::Object replayDescriptor() const override {
-    return {{"control", gfsim::replayValue(control_)},
-            {"inputs", gfsim::replayValue(inputs_)},
-            {"output", gfsim::replayValue(output_)}};
-  }
-  ReplayValue replayState() const override { return ReplayValue::Object{}; }
 
   void doWork(Epoch) override {
     if (fired_ || !control_.canProposePop() || !output_.canProposePush())
@@ -3557,14 +3355,6 @@ public:
       : SimObject(componentKind, std::move(name), id, parent, observations),
         inputs_(inputs), output_(output), policy_(policy) {}
 
-  ReplayValue::Object replayDescriptor() const override {
-    return {{"inputs", gfsim::replayValue(inputs_)},
-            {"output", gfsim::replayValue(output_)}};
-  }
-  ReplayValue replayState() const override {
-    return ReplayValue::Object{{"cursor", gfsim::replayValue(cursor_)}};
-  }
-
   void doWork(Epoch) override {
     if (selected_ || !output_.canProposePush())
       return;
@@ -3606,10 +3396,6 @@ private:
 template <typename T> struct FeedbackToken {
   T value;
   size_t iteration = 0;
-  ReplayValue replayValue() const {
-    return ReplayValue::Object{{"value", gfsim::replayValue(value)},
-                               {"iteration", gfsim::replayValue(iteration)}};
-  }
 };
 
 template <typename T, typename Update, typename Condition>
@@ -3631,14 +3417,6 @@ public:
         input_(input), feedback_(feedback), output_(output),
         maxIterations_(maxIterations), update_(std::move(update)),
         condition_(std::move(condition)) {}
-
-  ReplayValue::Object replayDescriptor() const override {
-    return {{"input", gfsim::replayValue(input_)},
-            {"feedback", gfsim::replayValue(feedback_)},
-            {"output", gfsim::replayValue(output_)},
-            {"maxIterations", gfsim::replayValue(maxIterations_)}};
-  }
-  ReplayValue replayState() const override { return ReplayValue::Object{}; }
 
   void doWork(Epoch) override {
     if (fired_)

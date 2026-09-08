@@ -676,7 +676,7 @@ llvm::Expected<GeneratedFile> modelHeader(const ModelPlan &plan,
   output
       << "#pragma once\n\n#include \"generated/modules/" << root->className
       << ".h\"\n#include \"gfsim/dispatch.h\"\n#include \"gfsim/harness.h\"\n"
-         "#include \"gfsim/object.h\"\n\n"
+         "#include \"gfsim/object.h\"\n#include \"gfsim/replay_session.h\"\n\n"
          "#include <array>\n#include <string_view>\n#include <vector>\n\n"
          "namespace acsim_generated {\n\ninline constexpr std::string_view "
          "kBuildFingerprint = \""
@@ -696,10 +696,13 @@ llvm::Expected<GeneratedFile> modelHeader(const ModelPlan &plan,
          "&limits);\n  bool loadTrace(gfsim::PtoTraceDocument document);\n  "
          "gfsim::TerminationResult run();\n"
          "  void startReplay(const std::string &path) { "
-         "system_.startReplay(path, "
-         "{{\"build_fingerprint\", std::string(kBuildFingerprint)}}); }\n"
+         "if (replay_) throw std::runtime_error(\"replay: already active\"); "
+         "replay_ = std::make_unique<gfsim::ReplaySession>(path, dispatch_); "
+         "replay_->start("
+         "{{\"build_fingerprint\", std::string(kBuildFingerprint)}}); "
+         "replay_->attach(system_); }\n"
          "  void finishReplay(const std::string &status) { "
-         "system_.finishReplay(status); }\n"
+         "if (replay_) { replay_->finish(status); replay_.reset(); } }\n"
          "  std::string_view "
          "buildFingerprint() const { return kBuildFingerprint; }\n  "
          "std::span<const gfsim::TimeDomainRuntime> timeDomains() const { "
@@ -717,7 +720,8 @@ llvm::Expected<GeneratedFile> modelHeader(const ModelPlan &plan,
       << "gfsim::SimSystem system_;\n  gfsim::ObjectId nextObjectId_ = 0;\n  "
       << root->className << " top_;\n"
       << "  std::array<gfsim::DispatchRow, " << plan.runtimeObjects.size()
-      << "> dispatch_;\n};\n\n} // namespace acsim_generated\n";
+      << "> dispatch_;\n  std::unique_ptr<gfsim::ReplaySession> "
+         "replay_;\n};\n\n} // namespace acsim_generated\n";
   return makeFile("include/generated/model.h", output.str());
 }
 

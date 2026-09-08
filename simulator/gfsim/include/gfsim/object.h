@@ -4,7 +4,7 @@
 #include "gfsim/core.h"
 #include "gfsim/dispatch.h"
 #include "gfsim/observation.h"
-#include "gfsim/replay.h"
+#include "gfsim/state_observation.h"
 
 #include <algorithm>
 #include <cassert>
@@ -93,34 +93,8 @@ public:
   /// Append deterministic snapshots owned by this object.
   virtual void collectStatistics(std::vector<StatSnapshot> &) const {}
 
-  virtual ReplayValue replayState() const {
-    // Queue/Table recording does not claim private-state coverage for other
-    // objects.
-    return ReplayValue::Object{};
-  }
-  virtual ReplayValue::Object replayDescriptor() const { return {}; }
-  virtual void replayAttached() {}
-  void detachReplay() { replay_ = nullptr; }
-  void attachReplay(ReplayRecorder &recorder) {
-    if (replay_)
-      throw std::runtime_error("replay: object already attached");
-    auto descriptor = replayDescriptor();
-    descriptor["name"] = name_;
-    descriptor["path"] = path_;
-    descriptor["parent_path"] =
-        parent_ ? std::string(parent_->path()) : std::string{};
-    descriptor["object_kind"] = replayValue(static_cast<uint8_t>(kind_));
-    recorder.add(id(),
-                 {std::move(descriptor), [this] { return replayState(); }});
-    replay_ = &recorder;
-    replayAttached();
-  }
-  ReplayRecorder *replayRecorder() const { return replay_; }
-  void replayEvent(std::string_view action,
-                   ReplayValue::Object detail = {}) const {
-    if (replay_)
-      replay_->event(id(), action, std::move(detail));
-  }
+  StateObserver *stateObserver() const { return stateObserver_; }
+  void setStateObserver(StateObserver *observer) { stateObserver_ = observer; }
 
   /// Bind generated objects to their owning runtime after construction.
   virtual void bindSystem(SimSystem *) {}
@@ -159,7 +133,7 @@ protected:
   SimObject *parent_ = nullptr;
   ObservationSink *observationSink_ = nullptr;
   std::string_view runtimeFailureCode_;
-  ReplayRecorder *replay_ = nullptr;
+  StateObserver *stateObserver_ = nullptr;
 };
 
 // ── Module ────────────────────────────────────────────────────────────
@@ -301,10 +275,7 @@ public:
   /// Advance one (time, delta) step. Returns false if no more work.
   bool step();
 
-  void startReplay(const std::string &path, ReplayValue::Object metadata = {});
-  void finishReplay(const std::string &status);
-  // For a manually registered ReplaySession sharing this system's barriers.
-  void setReplayRecorder(ReplayRecorder *recorder);
+  void setStateObserver(StateObserver *observer);
 
   // ── Termination ─────────────────────────────────────────────────────
 

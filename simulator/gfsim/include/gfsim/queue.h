@@ -42,35 +42,9 @@ public:
   size_t latency() const { return latency_; }
   size_t rate() const { return rate_; }
 
-  void replayAttached() override {
-    replayCommittedIds_.clear();
-    replayDelayedIds_.clear();
-    replayPushOwners_.assign(pushProposals_.size(), kInvalidObjectId);
-    replayPopOwners_.assign(popProposalCount_, kInvalidObjectId);
-    for (size_t i = 0; i < committed_.size(); ++i)
-      replayCommittedIds_.push_back(replay_->nextToken());
-    for (size_t i = 0; i < delayed_.size(); ++i)
-      replayDelayedIds_.push_back(replay_->nextToken());
-  }
-  ReplayValue::Object replayDescriptor() const override {
-    return {{"visual", "queue"},
-            {"capacity", replayValue(entryCapacity_)},
-            {"entry", replayValue(T{})},
-            {"fields", replayFields<T>()},
-            {"flat", replayFlat<T>()}};
-  }
-  ReplayValue replayState() const override {
-    return ReplayValue::Object{
-        {"values", replayValue(committed_)},
-        {"delayed", replayValue(delayed_)},
-        {"tokens", replayValue(replayCommittedIds_)},
-        {"delayed_tokens", replayValue(replayDelayedIds_)},
-        {"depth", replayValue(entryCapacity_)},
-        {"latency", replayValue(latency_)},
-        {"rate", replayValue(rate_)},
-        {"push_count", replayValue(totalPushes_)},
-        {"pop_count", replayValue(totalPops_)}};
-  }
+  const auto &delayedValues() const { return delayed_; }
+  size_t pendingPushCount() const { return pushProposals_.size(); }
+  size_t pendingPopCount() const { return popProposalCount_; }
 
   size_t committedSize() const { return committed_.size(); }
   const std::vector<T> &committedValues() const { return committed_; }
@@ -82,9 +56,9 @@ public:
   bool isFull() const { return !canProposePush(); }
   bool isEmpty() const { return committed_.empty(); }
   bool canProposePush(size_t count = 1) const {
-    const bool ready = !preparedPush_ && !preparedPop_ &&
-                       canProposePushWithAdditionalPops(count, 0);
-    return ready;
+    if (preparedPush_ || preparedPop_)
+      return false;
+    return canProposePushWithAdditionalPops(count, 0);
   }
   bool canProposePushAfterPop(size_t count = 1) const {
     if (preparedPush_ || preparedPop_)
@@ -92,15 +66,13 @@ public:
     return canProposePop() && canProposePushWithAdditionalPops(count, 1);
   }
   bool canProposePop() const {
-    const bool ready = !preparedPop_ && !preparedPush_ &&
-                       popProposalCount_ < rate_ &&
-                       popProposalCount_ < committed_.size();
-    return ready;
+    if (preparedPop_ || preparedPush_)
+      return false;
+    return popProposalCount_ < rate_ && popProposalCount_ < committed_.size();
   }
 
   const T *peekProposable() const {
-    const T *value = canProposePop() ? &committed_[popProposalCount_] : nullptr;
-    return value;
+    return canProposePop() ? &committed_[popProposalCount_] : nullptr;
   }
 
 private:
@@ -123,8 +95,9 @@ public:
   bool proposePush(T element) {
     if (!canProposePush())
       return false;
-    if (replay_)
-      replayPushOwners_.push_back(replay_->owner());
+    if (stateObserver_)
+      stateObserver_->notify(
+          {StateAction::OfferPush, id(), pushProposals_.size()});
     pushProposals_.push_back(std::move(element));
     return true;
   }
@@ -134,8 +107,8 @@ public:
     if (!canProposePop())
       return std::nullopt;
     size_t index = popProposalCount_;
-    if (replay_)
-      replayPopOwners_.push_back(replay_->owner());
+    if (stateObserver_)
+      stateObserver_->notify({StateAction::OfferPop, id(), popProposalCount_});
     ++popProposalCount_;
     return std::optional<T>(committed_[index]);
   }
@@ -171,8 +144,9 @@ public:
     if (!preparedPush_ || *preparedPush_ != group)
       return false;
     preparedPush_.reset();
-    if (replay_)
-      replayPushOwners_.push_back(replay_->owner());
+    if (stateObserver_)
+      stateObserver_->notify(
+          {StateAction::OfferPush, id(), pushProposals_.size()});
     pushProposals_.push_back(std::move(element));
     return true;
   }
@@ -182,8 +156,8 @@ public:
       return std::nullopt;
     T value = preparedPop_->value;
     preparedPop_.reset();
-    if (replay_)
-      replayPopOwners_.push_back(replay_->owner());
+    if (stateObserver_)
+      stateObserver_->notify({StateAction::OfferPop, id(), popProposalCount_});
     ++popProposalCount_;
     return value;
   }
@@ -239,56 +213,29 @@ public:
       preparedPop_.reset();
     }
     bool changed = hasPendingCommit();
-    if (replay_) {
-      // Metadata follows exactly the same FIFO/latency ordering as doXfer.
+    if (stateObserver_)
       for (size_t i = 0; i < popProposalCount_; ++i)
-        replayEvent("dequeue",
-                    {{"owner", replayValue(replayPopOwners_.at(i))},
-                     {"token", replayValue(replayCommittedIds_.at(i))},
-                     {"value", replayValue(committed_.at(i))}});
-      for (size_t i = 0; i < delayed_.size();) {
-        if (delayed_[i].first > epoch.time) {
-          ++i;
-          continue;
-        }
-        replayEvent("ready", {{"owner", replayValue(kInvalidObjectId)},
-                              {"token", replayValue(replayDelayedIds_.at(i))},
-                              {"value", replayValue(delayed_[i].second)}});
-        replayCommittedIds_.push_back(replayDelayedIds_[i]);
-        // The payload loop below erases delayed_; use a separate cursor here.
-        ++i;
-      }
-      std::vector<uint64_t> waiting;
-      for (size_t i = 0; i < delayed_.size(); ++i)
-        if (delayed_[i].first > epoch.time)
-          waiting.push_back(replayDelayedIds_.at(i));
-      replayDelayedIds_ = std::move(waiting);
-      for (size_t i = 0; i < pushProposals_.size(); ++i) {
-        const auto token = replay_->nextToken();
-        replayEvent("enqueue",
-                    {{"owner", replayValue(replayPushOwners_.at(i))},
-                     {"token", replayValue(token)},
-                     {"value", replayValue(pushProposals_[i])},
-                     {"ready_time", replayValue(epoch.time + latency_ - 1)}});
-        (latency_ == 1 ? replayCommittedIds_ : replayDelayedIds_)
-            .push_back(token);
-      }
-      replayCommittedIds_.erase(replayCommittedIds_.begin(),
-                                replayCommittedIds_.begin() +
-                                    popProposalCount_);
-      replayPushOwners_.clear();
-      replayPopOwners_.clear();
-    }
+        stateObserver_->notify({StateAction::Dequeue, id(), i, &committed_[i]});
     for (auto iterator = delayed_.begin(); iterator != delayed_.end();) {
       if (iterator->first > epoch.time) {
         ++iterator;
         continue;
       }
+      if (stateObserver_)
+        stateObserver_->notify(
+            {StateAction::Ready, id(),
+             static_cast<size_t>(iterator - delayed_.begin()),
+             &iterator->second});
       committed_.push_back(std::move(iterator->second));
       iterator = delayed_.erase(iterator);
       ++totalPushes_;
     }
     for (auto &elem : pushProposals_) {
+      if (stateObserver_)
+        stateObserver_->notify(
+            {StateAction::Enqueue, id(),
+             static_cast<size_t>(&elem - pushProposals_.data()), &elem,
+             epoch.time + latency_ - 1});
       if (latency_ == 1) {
         committed_.push_back(std::move(elem));
         ++totalPushes_;
@@ -304,6 +251,8 @@ public:
       ++totalPops_;
     }
     popProposalCount_ = 0;
+    if (stateObserver_)
+      stateObserver_->notify({StateAction::QueueCommitEnd, id()});
 
     // Update statistics
     if (committedSize() > highWatermark_)
@@ -348,12 +297,8 @@ public:
   uint64_t totalPops() const { return totalPops_; }
 
   void reset() override {
-    if (replay_ && replay_->recording())
-      throw std::runtime_error("replay: reset during recording is unsupported");
-    replayCommittedIds_.clear();
-    replayDelayedIds_.clear();
-    replayPushOwners_.clear();
-    replayPopOwners_.clear();
+    if (stateObserver_)
+      stateObserver_->beforeReset();
     committed_.clear();
     delayed_.clear();
     pushProposals_.clear();
@@ -368,9 +313,6 @@ public:
   }
 
 private:
-  std::vector<uint64_t> replayCommittedIds_, replayDelayedIds_;
-  std::vector<ObjectId> replayPushOwners_, replayPopOwners_;
-
   bool exceedsByteCapacity(size_t elementCount) const {
     if constexpr (PacketTraits<T>::serializedSize == 0)
       return false;

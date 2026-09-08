@@ -48,48 +48,15 @@ struct SimSystem::Impl {
   PtoTraceProvider ptoTrace;
   std::optional<uint64_t> deadlockWindow;
   Tick lastProgressTick = 0;
-  std::unique_ptr<ReplayRecorder> ownedReplay;
-  ReplayRecorder *replay = nullptr;
 };
 
-void SimSystem::setReplayRecorder(ReplayRecorder *recorder) {
+void SimSystem::setStateObserver(StateObserver *observer) {
   if (impl_->executingEpoch)
-    throw std::runtime_error("replay: cannot attach during execution");
-  impl_->replay = recorder;
+    throw std::runtime_error("observation: cannot attach during execution");
+  SimObject::setStateObserver(observer);
 }
 
-void SimSystem::startReplay(const std::string &path,
-                            ReplayValue::Object metadata) {
-  if (impl_->replay || impl_->legacyDispatch.rows)
-    throw std::runtime_error(
-        "replay: already attached or unsupported legacy dispatch");
-  auto recorder = std::make_unique<ReplayRecorder>(path);
-  std::vector<SimObject *> attached;
-  try {
-    for (auto *object : runtimeObjects()) {
-      object->attachReplay(*recorder);
-      attached.push_back(object);
-    }
-    recorder->start(std::move(metadata));
-  } catch (...) {
-    for (auto *object : attached)
-      object->detachReplay();
-    throw;
-  }
-  impl_->replay = recorder.get();
-  impl_->ownedReplay = std::move(recorder);
-}
-
-void SimSystem::finishReplay(const std::string &status) {
-  if (impl_->replay && !impl_->replay->active())
-    impl_->replay->finish(status);
-}
-
-SimSystem::~SimSystem() {
-  if (impl_->ownedReplay)
-    for (auto *object : runtimeObjects())
-      object->detachReplay();
-}
+SimSystem::~SimSystem() = default;
 
 SimSystem::SimSystem(std::string name)
     : SimObject(ObjectKind::System, std::move(name), kSystemObjectId),
@@ -937,8 +904,8 @@ bool SimSystem::step() {
       }
 
   impl_->executingEpoch = true;
-  if (impl_->replay)
-    impl_->replay->begin(epoch_);
+  if (stateObserver_)
+    stateObserver_->begin(epoch_);
   for (ObjectId id : currentWork) {
     ++impl_->workInvocations;
     impl_->activeProposalOwner = id;
@@ -1104,8 +1071,8 @@ bool SimSystem::step() {
   impl_->executingEpoch = false;
   impl_->activeProposalOwner.reset();
 
-  if (impl_->replay)
-    impl_->replay->end();
+  if (stateObserver_)
+    stateObserver_->end();
 
   std::optional<Epoch> nextEpoch;
   bool nextEpochIsEvent = false;
@@ -1347,8 +1314,8 @@ TerminationResult SimSystem::run() {
 }
 
 void SimSystem::reset() {
-  if (impl_->replay && impl_->replay->recording())
-    throw std::runtime_error("replay: finish recording before reset");
+  if (stateObserver_)
+    stateObserver_->beforeReset();
   epoch_ = {0, 0};
   terminated_ = false;
   result_ = TerminationResult{};

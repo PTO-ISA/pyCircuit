@@ -856,6 +856,7 @@ def lower_queue_program_to_cpp(program: QueueProgram) -> str:
         '#include "gfsim/priority_encode.h"',
         '#include "gfsim/queue.h"',
         '#include "gfsim/queue_blocks.h"',
+        '#include "gfsim/replay_value.h"',
         "",
         "#include <array>",
         "#include <cstdint>",
@@ -1757,6 +1758,54 @@ def lower_queue_program_to_cpp(program: QueueProgram) -> str:
             f"  const std::vector<{payload}> &sink_{index}_values() const {{ "
             f"return sink_{index}_.received(); }}"
         )
+    lines.append("  template <typename Registry> void registerObservations(Registry &registry) {")
+
+    def observe_connect(member, inputs=(), outputs=(), tables=(), control=(), feedback=()):
+        groups = ["{" + ", ".join("&" + name for name in group) + "}"
+                  for group in (inputs, outputs, tables, control, feedback)]
+        lines.append(f"    registry.connect({member}, {', '.join(groups)});")
+
+    for queue in program.queues:
+        lines.append(f"    registry.add({queue_ref(queue.name)});")
+    for fanout in fanouts:
+        for output in fanout.outputs:
+            lines.append(f"    registry.add({output}_);")
+    for index, _ in enumerate(program.tables):
+        lines.append(f"    registry.add(table_{index}_);")
+    for index, feedback in enumerate(program.feedbacks):
+        lines.append(f"    registry.add(feedback_{index}_state_);")
+        observe_connect(f"feedback_{index}_block_", [queue_ref(feedback.input_name)],
+                        [queue_ref(feedback.output_name)], feedback=[f"feedback_{index}_state_"])
+    for index, fanout in enumerate(fanouts):
+        observe_connect(f"broadcast_{index}_block_", [queue_ref(fanout.source)], [queue_ref(x) for x in fanout.outputs])
+    for queue in program.queues:
+        if queue.input_name is not None:
+            observe_connect(f"{queue.name}_block_", [queue_ref(effective_input.get(queue.name, queue.input_name))], [queue_ref(queue.name)])
+    for attr, prefix in (("routes", "route"), ("forks", "fork"), ("barriers", "barrier"),
+                         ("merges", "merge"), ("reorders", "reorder"),
+                         ("dependencies", "dependency"), ("credits", "credit"), ("memories", "memory")):
+        for index, item in enumerate(getattr(program, attr)):
+            inputs = item.inputs if hasattr(item, "inputs") else (item.input_name,)
+            outputs = item.outputs if hasattr(item, "outputs") else (item.output if hasattr(item, "output") else item.output_name,)
+            observe_connect(f"{prefix}_{index}_block_", [queue_ref(x) for x in inputs], [queue_ref(x) for x in outputs])
+    for attr, prefix in (("table_reads", "table_read"), ("table_writes", "table_write"),
+                         ("masked_table_writes", "table_masked_write")):
+        for index, item in enumerate(getattr(program, attr)):
+            inputs = [queue_ref(item.input_name)] if getattr(item, "input_name", None) else []
+            outputs = [queue_ref(item.output_name)] if hasattr(item, "output_name") else []
+            table_index = next(i for i, t in enumerate(program.tables) if t.name == item.table)
+            observe_connect(f"{prefix}_{index}_block_", inputs, outputs, [f"table_{table_index}_"])
+    for index, instance in enumerate(program.memory_instances):
+        endpoints = requests_by_instance[instance.name]
+        observe_connect(f"memory_instance_{index}_block_",
+                        [queue_ref(e.input_name) for e in endpoints],
+                        [queue_ref(e.output_name) for e in endpoints])
+    for index, slot in enumerate(program.slots):
+        observe_connect(f"slot_{index}_block_", [queue_ref(slot.input_name)])
+    for index, sink in enumerate(program.sinks):
+        observe_connect(f"sink_{index}_", [queue_ref(sink.queue)])
+    lines.append("  }")
+
     object_count = (
         len(program.queues)
         + len(ids.fanout_queues)
@@ -2058,16 +2107,19 @@ def _emit_payload(payload: Payload) -> list[str]:
     lines = [f"struct {payload.name} {{"]
     for name, typ in payload.field_descriptors:
         lines.append(f"  {_cpp_type(typ)} {name}{{}};")
-    lines.append("  gfsim::ReplayValue replayValue() const {")
+    lines.extend(("};", "} // namespace ac_generated", "namespace gfsim {"))
+    lines.append(f"template <> struct ValueCodec<ac_generated::{payload.name}> {{")
+    lines.append(f"  static ReplayValue encode(const ac_generated::{payload.name} &value) {{")
     fields = ", ".join(
-        f'{{"{name}", gfsim::replayValue({name})}}'
+        f'{{"{name}", gfsim::replayValue(value.{name})}}'
         for name, _ in payload.field_descriptors
     )
-    lines.extend((f"    return gfsim::ReplayValue::Object{{{fields}}};", "  }"))
+    lines.extend((f"    return ReplayValue::Object{{{fields}}};", "  }"))
     names = ", ".join(f'"{name}"' for name, _ in payload.field_descriptors)
-    lines.append(f"  static gfsim::ReplayValue::Array replayFields() {{ return {{{names}}}; }}")
-
-    lines.extend(("};", ""))
+    lines.append(f"  static ReplayValue::Array fields() {{ return {{{names}}}; }}")
+    flat = all(isinstance(typ, (BitsType, BoolType)) for _, typ in payload.field_descriptors)
+    lines.append(f"  static constexpr bool flat = {str(flat).lower()};")
+    lines.extend(("};", "} // namespace gfsim", "namespace ac_generated {", ""))
     return lines
 
 

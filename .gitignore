@@ -284,3 +284,5 @@ docs/gates/logs/*
 !docs/gates/logs/20260907-circular-rob-fix/**
 !docs/gates/logs/20260908-queue-table-flow/
 !docs/gates/logs/20260908-queue-table-flow/**
+!docs/gates/logs/20260908-flow-observer-refactor/
+!docs/gates/logs/20260908-flow-observer-refactor/**

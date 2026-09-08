@@ -187,8 +187,12 @@ payloadEmissionOrder(const QueueGraphPlan &plan) {
   return result;
 }
 
-void emitReplayFields(std::ostream &output, const QueuePayloadPlan &payload) {
-  output << "  gfsim::ReplayValue replayValue() const {\n"
+void emitPayloadCodec(std::ostream &output, const QueuePayloadPlan &payload) {
+  output << "} // namespace ac_generated\nnamespace gfsim {\n"
+         << "template <> struct ValueCodec<ac_generated::" << payload.name
+         << "> {\n"
+         << "  static ReplayValue encode(const ac_generated::" << payload.name
+         << " &value) {\n"
             "    return gfsim::ReplayValue::Object{";
   bool flat = true;
   for (auto [index, field] : llvm::enumerate(payload.fields)) {
@@ -197,9 +201,11 @@ void emitReplayFields(std::ostream &output, const QueuePayloadPlan &payload) {
     output << "{\"" << field.name << "\", ";
     if (enumTypeName(field.type))
       output << "gfsim::ReplayValue::Integer{static_cast<uint64_t>("
-             << identifier(field.name) << "), " << field.width << "}";
+             << "value." << identifier(field.name) << "), " << field.width
+             << "}";
     else
-      output << "gfsim::replayValue(" << identifier(field.name) << ")";
+      output << "gfsim::replayValue(" << "value." << identifier(field.name)
+             << ")";
     output << "}";
     if (structTypeName(field.type) ||
         field.type.find("!ac.value_array") != std::string::npos ||
@@ -207,15 +213,15 @@ void emitReplayFields(std::ostream &output, const QueuePayloadPlan &payload) {
       flat = false;
   }
   output << "};\n  }\n";
-  output << "  static constexpr bool replayFlat = " << (flat ? "true" : "false")
+  output << "  static constexpr bool flat = " << (flat ? "true" : "false")
          << ";\n";
-  output << "  static gfsim::ReplayValue::Array replayFields() { return {";
+  output << "  static gfsim::ReplayValue::Array fields() { return {";
   for (auto [index, field] : llvm::enumerate(payload.fields)) {
     if (index)
       output << ", ";
     output << "\"" << field.name << "\"";
   }
-  output << "}; }\n";
+  output << "}; }\n};\n} // namespace gfsim\nnamespace ac_generated {\n";
 }
 
 llvm::StringRef enumStorage(uint64_t width) {
@@ -1171,6 +1177,88 @@ llvm::Error emitStructuredMergePolicy(std::ostringstream &output,
   return llvm::Error::success();
 }
 
+// Model-owned registration keeps primitive implementations free of topology
+// and recording codecs. Port references are passed again, not stored twice.
+void emitObservationRegistration(
+    std::ostream &output, const QueueGraphPlan &plan,
+    const llvm::StringMap<std::string> &queues,
+    const llvm::StringMap<std::string> &tables,
+    llvm::ArrayRef<std::pair<const QueueBlockPlan *, std::string>> blocks,
+    llvm::ArrayRef<std::string> ownedQueues, bool withPorts,
+    llvm::StringRef childPrefix) {
+  output << "  template <typename Registry> void registerObservations(Registry "
+            "&registry";
+  if (withPorts) {
+    for (auto [index, unused] : llvm::enumerate(plan.interfaceInputs))
+      output << ", auto &input_" << index;
+    for (auto [index, unused] : llvm::enumerate(plan.interfaceOutputs))
+      output << ", auto &output_" << index;
+  }
+  output << ") {\n";
+  for (const auto &queue : ownedQueues)
+    output << "    registry.add(" << queue << ");\n";
+  for (const auto &table : plan.tables)
+    output << "    registry.add(" << tables.lookup(table.name) << ");\n";
+  auto refs = [&](llvm::ArrayRef<std::string> names, const auto &members) {
+    output << '{';
+    for (auto [index, name] : llvm::enumerate(names)) {
+      if (index)
+        output << ", ";
+      output << '&' << members.lookup(name);
+    }
+    output << '}';
+  };
+  for (const auto &[block, member] : blocks) {
+    std::vector<std::string> referencedTables;
+    for (const auto &table : plan.tables)
+      if (block->table == table.name || findStateWrite(*block, table.name) ||
+          referencesTable(block->expressions, table.name))
+        referencedTables.push_back(table.name);
+    output << "    registry.connect(" << member << ", ";
+    refs(block->kind == "select" ? llvm::ArrayRef(block->inputs).drop_front()
+                                 : llvm::ArrayRef(block->inputs),
+         queues);
+    output << ", ";
+    refs(block->outputs, queues);
+    output << ", ";
+    refs(referencedTables, tables);
+    output << ", ";
+    refs(block->kind == "select" ? llvm::ArrayRef(block->inputs).take_front()
+                                 : llvm::ArrayRef<std::string>{},
+         queues);
+    output << ", {";
+    if (block->kind == "feedback")
+      output << '&' << member << "state_";
+    output << "});\n";
+    if (block->kind == "feedback")
+      output << "    registry.add(" << member << "state_);\n";
+  }
+  for (auto [index, memory] : llvm::enumerate(plan.memoryInstances)) {
+    std::vector<std::string> inputs, outputs;
+    for (const auto &block : plan.blocks)
+      if (block.memoryInstance == memory.name) {
+        inputs.insert(inputs.end(), block.inputs.begin(), block.inputs.end());
+        outputs.insert(outputs.end(), block.outputs.begin(),
+                       block.outputs.end());
+      }
+    output << "    registry.connect(memory_" << index << "_, ";
+    refs(inputs, queues);
+    output << ", ";
+    refs(outputs, queues);
+    output << ");\n";
+  }
+  for (auto [index, instance] : llvm::enumerate(plan.moduleInstances)) {
+    output << "    " << childPrefix.str() << index
+           << "_.registerObservations(registry";
+    for (const auto &input : instance.inputs)
+      output << ", " << queues.lookup(input);
+    for (const auto &result : instance.outputs)
+      output << ", " << queues.lookup(result);
+    output << ");\n";
+  }
+  output << "  }\n\n";
+}
+
 llvm::Expected<std::string>
 generateStructuredQueueGraphCpp(const QueueGraphPlan &plan) {
   if (auto error = verifyQueueGraphPlan(plan))
@@ -1632,7 +1720,8 @@ generateStructuredQueueGraphCpp(const QueueGraphPlan &plan) {
             "#include \"gfsim/dispatch.h\"\n"
             "#include \"gfsim/object.h\"\n"
             "#include \"gfsim/queue.h\"\n"
-            "#include \"gfsim/queue_blocks.h\"\n\n"
+            "#include \"gfsim/queue_blocks.h\"\n"
+            "#include \"gfsim/replay_value.h\"\n\n"
             "#include <array>\n#include <cstdint>\n#include <limits>\n"
             "#include <optional>\n#include <string>\n#include <tuple>\n"
             "#include <utility>\n#include <vector>\n\n"
@@ -1657,8 +1746,8 @@ generateStructuredQueueGraphCpp(const QueueGraphPlan &plan) {
     }
     output << "  bool operator==(const " << payload->name
            << " &) const = default;\n";
-    emitReplayFields(output, *payload);
-    output << "};\n\n";
+    output << "};\n";
+    emitPayloadCodec(output, *payload);
   }
 
   auto emitStatefulSpecialization =
@@ -2082,7 +2171,19 @@ generateStructuredQueueGraphCpp(const QueueGraphPlan &plan) {
     for (size_t index = 0; index < specialization.tables.size(); ++index)
       output << "    case " << specialization.blocks.size() + index
              << ": return gfsim::makeDispatchRow(&table_" << index << "_);\n";
-    output << "    default: return {};\n    }\n  }\n\nprivate:\n"
+    output << "    default: return {};\n    }\n  }\n";
+    llvm::StringMap<std::string> observationTables;
+    std::vector<std::pair<const QueueBlockPlan *, std::string>>
+        observationBlocks;
+    for (auto [i, table] : llvm::enumerate(specialization.tables))
+      observationTables[table.name] = "table_" + std::to_string(i) + "_";
+    for (auto [i, block] : llvm::enumerate(specialization.blocks))
+      observationBlocks.emplace_back(&block,
+                                     "block_" + std::to_string(i) + "_");
+    emitObservationRegistration(output, specialization, portParameters,
+                                observationTables, observationBlocks, {}, true,
+                                "child_");
+    output << "private:\n"
            << "  gfsim::Module scope_;\n";
     for (auto [index, type] : llvm::enumerate(tableTypes))
       output << "  gfsim::SimTable<" << type << "> table_" << index << "_;\n";
@@ -2190,7 +2291,10 @@ generateStructuredQueueGraphCpp(const QueueGraphPlan &plan) {
              << objectOffset << ");\n";
       objectOffset += childCount;
     }
-    output << "    return {};\n  }\n\nprivate:\n";
+    output << "    return {};\n  }\n";
+    emitObservationRegistration(output, specialization, portParameters, {}, {},
+                                {}, true, "child_");
+    output << "private:\n";
     for (auto [instanceIndex, instance] :
          llvm::enumerate(specialization.moduleInstances)) {
       const QueueGraphPlan *child =
@@ -2330,7 +2434,14 @@ generateStructuredQueueGraphCpp(const QueueGraphPlan &plan) {
              << childOffset << ");\n";
       childOffset += childCount;
     }
-    output << "    return {};\n  }\n\nprivate:\n  gfsim::Module scope_;\n";
+    output << "    return {};\n  }\n";
+    std::vector<std::string> observationQueues;
+    for (size_t i = 0; i < internalQueues.size(); ++i)
+      observationQueues.push_back("queue_" + std::to_string(i) + "_");
+    emitObservationRegistration(output, specialization, queueExpressions, {},
+                                {{&block, "block_"}}, observationQueues, true,
+                                "child_");
+    output << "private:\n  gfsim::Module scope_;\n";
     for (auto [index, queue] : llvm::enumerate(internalQueues))
       output << "  gfsim::SimQueue<" << queueTypes.lookup(queue->name)
              << "> queue_" << index << "_;\n";
@@ -2400,7 +2511,12 @@ generateStructuredQueueGraphCpp(const QueueGraphPlan &plan) {
                 "}\n\n"
              << "  gfsim::DispatchRow dispatch_row(size_t index) {\n"
              << "    return index == 0 ? gfsim::makeDispatchRow(&block_) : "
-                "gfsim::DispatchRow{};\n  }\n\nprivate:\n"
+                "gfsim::DispatchRow{};\n  }\n"
+             << "  template <typename Registry> void "
+                "registerObservations(Registry &registry, auto &input_0, auto "
+                "&output_0) {\n"
+             << "    registry.connect(block_, {&input_0}, {&output_0});\n  "
+                "}\nprivate:\n"
              << "  gfsim::Module scope_;\n"
              << "  gfsim::QueueTransform<" << *inputType << ", " << *outputType
              << ", " << implementation << "_policy, " << outputQueue->rate
@@ -2575,6 +2691,18 @@ generateStructuredQueueGraphCpp(const QueueGraphPlan &plan) {
              << "_.received(); }\n";
       ++sinkIndex;
     }
+  {
+    std::vector<std::pair<const QueueBlockPlan *, std::string>>
+        observationBlocks;
+    std::vector<std::string> observationQueues;
+    for (auto [i, block] : llvm::enumerate(runtimeBlocks))
+      observationBlocks.emplace_back(block, "block_" + std::to_string(i) + "_");
+    for (const auto &queue : plan.queues)
+      observationQueues.push_back(queueMembers[queue.name]);
+    emitObservationRegistration(output, plan, queueMembers, {},
+                                observationBlocks, observationQueues, false,
+                                "instance_");
+  }
   output << "\n  std::array<gfsim::DispatchRow, " << nextId
          << "> dispatch_rows() {\n    return {\n";
   for (const QueuePlan &queue : plan.queues)
@@ -2849,7 +2977,8 @@ llvm::Expected<std::string> generateQueueGraphCpp(const QueueGraphPlan &plan) {
             "#include \"gfsim/popcount.h\"\n"
             "#include \"gfsim/priority_encode.h\"\n"
             "#include \"gfsim/queue.h\"\n"
-            "#include \"gfsim/queue_blocks.h\"\n\n"
+            "#include \"gfsim/queue_blocks.h\"\n"
+            "#include \"gfsim/replay_value.h\"\n\n"
             "#include <array>\n#include <cstdint>\n#include <limits>\n"
             "#include <optional>\n#include <tuple>\n\n"
             "namespace ac_generated {\n\n";
@@ -2873,8 +3002,8 @@ llvm::Expected<std::string> generateQueueGraphCpp(const QueueGraphPlan &plan) {
     }
     output << "  bool operator==(const " << payload->name
            << " &) const = default;\n";
-    emitReplayFields(output, *payload);
-    output << "};\n\n";
+    output << "};\n";
+    emitPayloadCodec(output, *payload);
   }
 
   for (const TableMatchPlan &match : plan.tableMatches) {
@@ -4370,6 +4499,18 @@ llvm::Expected<std::string> generateQueueGraphCpp(const QueueGraphPlan &plan) {
              << "_active() const { return block_" << index << "_.active(); }\n";
       ++reorderIndex;
     }
+  }
+  {
+    std::vector<std::pair<const QueueBlockPlan *, std::string>>
+        observationBlocks;
+    std::vector<std::string> observationQueues;
+    for (auto [i, block] : llvm::enumerate(runtimeBlocks))
+      observationBlocks.emplace_back(block, "block_" + std::to_string(i) + "_");
+    for (const auto &queue : plan.queues)
+      observationQueues.push_back(queueMembers[queue.name]);
+    emitObservationRegistration(output, plan, queueMembers, tableMembers,
+                                observationBlocks, observationQueues, false,
+                                "instance_");
   }
   output << "\n  std::array<gfsim::DispatchRow, " << nextId
          << "> dispatch_rows() {\n    return {\n";

@@ -2294,6 +2294,7 @@ int main() {{
     replay = std::make_unique<gfsim::ReplaySession>("execution.pyctrace", rows);
     replay->source("{model}");
     replay->source("{harness}");
+    model.registerObservations(*replay);
     replay->start();
   }}
   std::uint64_t tick = 0;
@@ -2632,6 +2633,7 @@ int main() {{
     replay = std::make_unique<gfsim::ReplaySession>("execution.pyctrace", rows);
     replay->source("{model}");
     replay->source("{harness}");
+    model.registerObservations(*replay);
     replay->start();
   }}
   std::uint64_t tick = 0;
@@ -3009,10 +3011,12 @@ int main() {
   if (std::getenv("PYC_RECORD_REPLAY")) {
     scanReplay = std::make_unique<gfsim::ReplaySession>("scan.pyctrace", std::span(scanRows).first(kModelObjects));
     incrementalReplay = std::make_unique<gfsim::ReplaySession>("activation.pyctrace", std::span(incrementalRows).first(kModelObjects));
+    scanModel.registerObservations(*scanReplay);
+    incrementalModel.registerObservations(*incrementalReplay);
     scanReplay->start();
     incrementalReplay->start();
-    scanSystem.setReplayRecorder(&scanReplay->recorder());
-    incrementalSystem.setReplayRecorder(&incrementalReplay->recorder());
+    scanReplay->attach(scanSystem);
+    incrementalReplay->attach(incrementalSystem);
   }
   bool equivalent = true;
   auto advance = [&]() {
@@ -3273,8 +3277,7 @@ int main() {
   if (scanReplay) {
     scanReplay->finish();
     incrementalReplay->finish();
-    scanSystem.setReplayRecorder(nullptr);
-    incrementalSystem.setReplayRecorder(nullptr);
+
   }
   return 0;
 }
@@ -4881,14 +4884,29 @@ int main() {{
                 )
                 self.assertEqual(0, generated.returncode, generated.stderr)
                 self.assertIn(expected, model.read_text(encoding="utf-8"))
+                harness = root / f"{name}-observe.cpp"
+                executable = root / f"{name}-observe"
+                harness.write_text(
+                    f'''#include "{model.name}"
+#include "gfsim/replay_session.h"
+int main() {{
+  ac_generated::Pipeline model;
+  auto rows = model.dispatch_rows();
+  gfsim::ReplaySession session("{name}.pyctrace", rows);
+  model.registerObservations(session);
+  session.start();
+  session.finish();
+}}
+''', encoding="utf-8")
                 compiled = subprocess.run(
                     (
                         compiler,
                         "-std=c++20",
                         "-I",
                         str(ROOT / "simulator/gfsim/include"),
-                        "-fsyntax-only",
-                        str(model),
+                        str(harness),
+                        "-o",
+                        str(executable),
                     ),
                     cwd=root,
                     text=True,
@@ -4896,6 +4914,21 @@ int main() {{
                     check=False,
                 )
                 self.assertEqual(0, compiled.returncode, compiled.stderr)
+                executed = subprocess.run((str(executable),), cwd=root, text=True,
+                                          capture_output=True, check=False)
+                self.assertEqual(0, executed.returncode, executed.stderr)
+                if name in {"broadcast", "feedback", "memory"}:
+                    from agentic_circuit._queue_codegen import lower_queue_source_to_cpp
+                    model.write_text(lower_queue_source_to_cpp(source, "pipeline"), encoding="utf-8")
+                    compiled = subprocess.run(
+                        (compiler, "-std=c++20", "-I", str(ROOT / "simulator/gfsim/include"),
+                         str(harness), "-o", str(executable)),
+                        cwd=root, text=True, capture_output=True, check=False)
+                    self.assertEqual(0, compiled.returncode, compiled.stderr)
+                    executed = subprocess.run((str(executable),), cwd=root, text=True,
+                                              capture_output=True, check=False)
+                    self.assertEqual(0, executed.returncode, executed.stderr)
+
 
     def test_davincioo_like_python_generates_and_runs_typed_cpp(self) -> None:
         compiler = shutil.which("c++")

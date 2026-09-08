@@ -1,0 +1,50 @@
+{
+  "before-replay": {
+    "SimObject_bytes": 120,
+    "SimQueue_unsigned_bytes": 312,
+    "SimTable_unsigned_bytes": 256,
+    "checksum": 2839207360,
+    "ms": [
+      190.696169,
+      63.563206,
+      62.72107,
+      64.114181,
+      64.08036,
+      64.0629,
+      62.893301
+    ],
+    "median_ms": 64.0629
+  },
+  "before-refactor": {
+    "SimObject_bytes": 128,
+    "SimQueue_unsigned_bytes": 416,
+    "SimTable_unsigned_bytes": 264,
+    "checksum": 2839207360,
+    "ms": [
+      69.589371,
+      69.218098,
+      69.731701,
+      69.053897,
+      69.355819,
+      69.59693,
+      70.174755
+    ],
+    "median_ms": 69.589371
+  },
+  "after-refactor": {
+    "SimObject_bytes": 128,
+    "SimQueue_unsigned_bytes": 320,
+    "SimTable_unsigned_bytes": 264,
+    "checksum": 2839207360,
+    "ms": [
+      64.362543,
+      64.382712,
+      64.356652,
+      64.566763,
+      64.332952,
+      64.704015,
+      64.424943
+    ],
+    "median_ms": 64.382712
+  }
+}

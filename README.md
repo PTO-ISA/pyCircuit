@@ -110,6 +110,8 @@ See the [ACIR architecture overview](docs/acir/index.md) and
 [migration record](docs/acir/migration.md).
 
 Agentic gfsim runs can export Queue/Table dataflow with `run --record-replay`.
+Lightweight runtime notifications feed a separate recording adapter; generated
+models register state and topology without recording methods in primitives.
 See the [recording contract](docs/development/acir/queue-table-flow.md); HTML
 visualization is provided by an independent tool, not the framework package.
 

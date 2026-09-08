@@ -43,6 +43,11 @@ TEST(ReplayTest, FullMultiOwnerJournalPreservesBackpressureAndRetry) {
                         makeDispatchRow(&count), makeDispatchRow(&entries),
                         makeDispatchRow(&transition)};
   ReplaySession replay(path.string(), rows);
+  replay.add(input);
+  replay.add(output);
+  replay.add(count);
+  replay.add(entries);
+  replay.connect(transition, {&input}, {&output}, {&count, &entries});
   replay.start();
   std::ofstream native;
   if (const char *directory = std::getenv("PYC_REPLAY_TEST_OUT")) {
@@ -100,6 +105,7 @@ TEST(ReplayTest, EqualTokensAndDelayedReadinessHaveDistinctIdentity) {
   SimQueue<UInt<64>> queue("delayed", 0, nullptr, 4, SIZE_MAX, nullptr, 3, 2);
   const std::array rows{makeDispatchRow(&queue)};
   ReplaySession replay(path.string(), rows);
+  replay.add(queue);
   replay.start();
   ASSERT_TRUE(queue.proposePush(9));
   ASSERT_TRUE(queue.proposePush(9));
@@ -143,12 +149,13 @@ TEST(ReplayTest, SessionDetachesAndCanBeReattached) {
   for (unsigned i = 0; i < 2; ++i) {
     {
       ReplaySession replay(path.string(), rows);
+      replay.add(queue);
       replay.start();
       EXPECT_THROW(queue.reset(), std::runtime_error);
       replay.finish();
       EXPECT_NO_THROW(queue.reset());
     }
-    EXPECT_EQ(queue.replayRecorder(), nullptr);
+    EXPECT_EQ(queue.stateObserver(), nullptr);
   }
   std::filesystem::remove(path);
 }
@@ -159,7 +166,9 @@ TEST(ReplayTest, RejectsMissingSerializerInsteadOfClaimingCompleteCoverage) {
   const auto path =
       std::filesystem::temp_directory_path() / "pyc-replay-opaque.pyctrace";
   const std::array rows{makeDispatchRow(&state)};
-  EXPECT_THROW(ReplaySession replay(path.string(), rows), std::runtime_error);
+  ReplaySession replay(path.string(), rows);
+  EXPECT_THROW(replay.add(state), std::runtime_error);
+  EXPECT_EQ(state.stateObserver(), nullptr);
   std::filesystem::remove(path);
 }
 
@@ -176,6 +185,53 @@ TEST(ReplayTest, RejectsPartialBarrierAndUntrackedMutation) {
   EXPECT_THROW(recorder.finish("completed"), std::runtime_error);
   recorder.end();
   recorder.finish("completed");
+  std::filesystem::remove(path);
+}
+
+TEST(ReplayTest, FailedAttachmentDoesNotDetachAnotherSession) {
+  const auto a =
+      std::filesystem::temp_directory_path() / "pyc-observe-a.pyctrace";
+  const auto b =
+      std::filesystem::temp_directory_path() / "pyc-observe-b.pyctrace";
+  SimQueue<unsigned> first("first", 0, nullptr, 1),
+      second("second", 1, nullptr, 1);
+  const std::array firstRows{makeDispatchRow(&second)};
+  ReplaySession active(a.string(), firstRows);
+  active.add(second);
+  active.start();
+  const std::array rows{makeDispatchRow(&first), makeDispatchRow(&second)};
+  {
+    ReplaySession rejected(b.string(), rows);
+    rejected.add(first);
+    rejected.add(second);
+    EXPECT_THROW(rejected.start(), std::runtime_error);
+    EXPECT_EQ(first.stateObserver(), nullptr);
+    EXPECT_EQ(second.stateObserver(), &active);
+  }
+  EXPECT_EQ(second.stateObserver(), &active);
+  active.finish();
+  std::filesystem::remove(a);
+  std::filesystem::remove(b);
+}
+TEST(ReplayTest, FinishedSessionAllowsContinuedExecutionAndSystemReset) {
+  const auto path =
+      std::filesystem::temp_directory_path() / "pyc-observe-system.pyctrace";
+  SimSystem system("system");
+  SimQueue<unsigned> queue("queue", 0, nullptr, 1);
+  const std::array rows{makeDispatchRow(&queue)};
+  ReplaySession replay(path.string(), rows);
+  replay.add(queue);
+  replay.start();
+  replay.attach(system);
+  EXPECT_THROW(system.reset(), std::runtime_error);
+  replay.finish();
+  EXPECT_EQ(system.stateObserver(), nullptr);
+  EXPECT_EQ(queue.stateObserver(), nullptr);
+  EXPECT_NO_THROW(system.reset());
+  EXPECT_NO_THROW(queue.reset());
+  ASSERT_TRUE(queue.proposePush(9));
+  queue.doXfer({1, 0});
+  EXPECT_EQ(*queue.peek(), 9);
   std::filesystem::remove(path);
 }
 } // namespace

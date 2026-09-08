@@ -11,7 +11,11 @@ module attributes {ac.contract_epoch = "0.5", ac.model_kind = "queue_graph", ac.
   ac.sink %input {ac.name = "sink"} : !ac.queue<!ac.struct<@types::@Entry>>
 }
 
-// CHECK: gfsim::ReplayValue replayValue() const
-// CHECK: {"z", gfsim::replayValue(z)}, {"a", gfsim::replayValue(a)}
-// CHECK: static constexpr bool replayFlat = true;
-// CHECK: static gfsim::ReplayValue::Array replayFields() { return {"z", "a"}; }
+// CHECK: template <> struct ValueCodec<ac_generated::Entry>
+// CHECK: static ReplayValue encode(const ac_generated::Entry &value)
+// CHECK: {"z", gfsim::replayValue(value.z)}, {"a", gfsim::replayValue(value.a)}
+// CHECK: static constexpr bool flat = true;
+// CHECK: static gfsim::ReplayValue::Array fields() { return {"z", "a"}; }
+// CHECK: template <typename Registry> void registerObservations(Registry &registry)
+// CHECK: registry.add(
+// CHECK: registry.connect(

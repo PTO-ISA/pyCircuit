@@ -1,0 +1,18 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "circuit-flow-viewer"
+version = "0.1.0"
+description = "Offline Queue and Table dataflow animations"
+requires-python = ">=3.11"
+
+[project.scripts]
+circuit-flow-viewer = "circuit_flow_viewer.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+circuit_flow_viewer = ["*.html"]

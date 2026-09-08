@@ -2,6 +2,7 @@
 #define GFSIM_DISPATCH_H
 
 #include "gfsim/core.h"
+#include "gfsim/state_observation.h"
 
 #include <concepts>
 #include <cstddef>
@@ -54,32 +55,18 @@ template <DispatchObject T> DispatchRow makeDispatchRow(T *object) {
       .work =
           [](void *storage, Epoch epoch) {
             auto *typed = static_cast<T *>(static_cast<SimObject *>(storage));
-            if (typed->replayRecorder())
-              typed->replayRecorder()->context(typed->id(), "Work");
-            struct Clear {
-              T *object;
-              ~Clear() {
-                if (object->replayRecorder())
-                  object->replayRecorder()->clearContext();
-              }
-            } clear{typed};
+            StateObservationScope context(typed->stateObserver(), typed->id(),
+                                          ExecutionPhase::Work);
             typed->T::doWork(epoch);
           },
       .xfer =
           [](void *storage, Epoch epoch, XferPhase phase) {
             T *typed = static_cast<T *>(static_cast<SimObject *>(storage));
-            if (typed->replayRecorder())
-              typed->replayRecorder()->context(
-                  typed->id(), phase == XferPhase::Arbitrate ? "Arbitrate"
-                               : phase == XferPhase::Probe   ? "Probe"
-                                                             : "Commit");
-            struct Clear {
-              T *object;
-              ~Clear() {
-                if (object->replayRecorder())
-                  object->replayRecorder()->clearContext();
-              }
-            } clear{typed};
+            StateObservationScope context(
+                typed->stateObserver(), typed->id(),
+                phase == XferPhase::Arbitrate ? ExecutionPhase::Arbitrate
+                : phase == XferPhase::Probe   ? ExecutionPhase::Probe
+                                              : ExecutionPhase::Commit);
             if (phase == XferPhase::Arbitrate) {
               typed->T::doArbitrate(epoch);
               return false;
