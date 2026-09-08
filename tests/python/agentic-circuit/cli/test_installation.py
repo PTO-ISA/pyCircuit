@@ -8,10 +8,12 @@ import tempfile
 import unittest
 from pathlib import Path
 
-
 REPOSITORY = Path(__file__).resolve().parents[4]
 BUILD = REPOSITORY / ".pycircuit_out" / "acir" / "dev-llvm22"
 FIXTURE = Path(__file__).parent / "fixtures" / "inspect"
+RUNTIME_CONSUMER = (
+    REPOSITORY / "tests/integration/agentic-circuit/runtime-install-consumer"
+)
 
 
 def install_to(prefix: Path) -> subprocess.CompletedProcess[str]:
@@ -48,7 +50,146 @@ def run_installed(
     )
 
 
+def cmake_cache_path(name: str) -> Path:
+    for line in (BUILD / "CMakeCache.txt").read_text().splitlines():
+        if line.startswith(f"{name}:") and "=" in line:
+            return Path(line.split("=", 1)[1])
+    raise AssertionError(f"{name} is missing from {BUILD / 'CMakeCache.txt'}")
+
+
 class InstallationTest(unittest.TestCase):
+    def test_runtime_component_builds_without_llvm_or_mlir_packages(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            prefix = root / "prefix"
+            build = root / "build"
+            installed = install_to(prefix)
+            self.assertEqual(0, installed.returncode, installed.stderr)
+            runtime_targets = (
+                prefix
+                / "lib/cmake/AgenticCircuit/AgenticCircuitRuntimeTargets.cmake"
+            ).read_text()
+            for forbidden in ("LLVM", "MLIR", "ACIRBindings", "GfsimTooling"):
+                self.assertNotIn(forbidden, runtime_targets)
+            runtime_headers = prefix / "include/gfsim"
+            self.assertFalse((runtime_headers / "tooling").exists())
+            self.assertTrue(
+                (
+                    prefix
+                    / "include/agentic-circuit-tooling/gfsim/tooling/harness.h"
+                ).is_file()
+            )
+            for header in runtime_headers.rglob("*.h"):
+                text = header.read_text()
+                self.assertNotIn('#include "acir/', text, header)
+                self.assertNotIn('#include "llvm/', text, header)
+                self.assertNotIn("#include <llvm/", text, header)
+
+            configured = subprocess.run(
+                [
+                    "cmake",
+                    "-S",
+                    str(RUNTIME_CONSUMER),
+                    "-B",
+                    str(build),
+                    f"-DCMAKE_PREFIX_PATH={prefix}",
+                    "-DCMAKE_DISABLE_FIND_PACKAGE_LLVM=TRUE",
+                    "-DCMAKE_DISABLE_FIND_PACKAGE_MLIR=TRUE",
+                ],
+                cwd=root,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(0, configured.returncode, configured.stderr)
+            built = subprocess.run(
+                ["cmake", "--build", str(build)],
+                cwd=root,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(0, built.returncode, built.stderr)
+            executed = subprocess.run(
+                [str(build / "runtime-consumer")],
+                cwd=root,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(0, executed.returncode, executed.stderr)
+
+    def test_unknown_cmake_component_fails_with_supported_components(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            prefix = root / "prefix"
+            source = root / "consumer"
+            source.mkdir()
+            (source / "CMakeLists.txt").write_text(
+                "cmake_minimum_required(VERSION 3.25)\n"
+                "project(UnknownAgenticCircuitComponent LANGUAGES CXX)\n"
+                "find_package(AgenticCircuit 0.1.0 EXACT CONFIG REQUIRED "
+                "COMPONENTS Unknown)\n",
+                encoding="utf-8",
+            )
+            installed = install_to(prefix)
+            self.assertEqual(0, installed.returncode, installed.stderr)
+            configured = subprocess.run(
+                [
+                    "cmake",
+                    "-S",
+                    str(source),
+                    "-B",
+                    str(root / "build"),
+                    f"-DCMAKE_PREFIX_PATH={prefix}",
+                ],
+                cwd=root,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertNotEqual(0, configured.returncode)
+            self.assertIn(
+                "Unknown AgenticCircuit component 'Unknown'", configured.stderr
+            )
+            self.assertIn("Runtime and CompilerDev", configured.stderr)
+
+    def test_default_component_rejects_missing_compiler_dev_cli(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            prefix = root / "prefix"
+            source = root / "consumer"
+            source.mkdir()
+            (source / "CMakeLists.txt").write_text(
+                "cmake_minimum_required(VERSION 3.25)\n"
+                "project(DefaultAgenticCircuitComponent LANGUAGES C CXX)\n"
+                "find_package(AgenticCircuit 0.1.0 EXACT CONFIG REQUIRED)\n",
+                encoding="utf-8",
+            )
+            installed = install_to(prefix)
+            self.assertEqual(0, installed.returncode, installed.stderr)
+            executable = prefix / "bin/agentic-circuit"
+            executable.rename(executable.with_suffix(".missing"))
+
+            configured = subprocess.run(
+                [
+                    "cmake",
+                    "-S",
+                    str(source),
+                    "-B",
+                    str(root / "build"),
+                    f"-DCMAKE_PREFIX_PATH={prefix}",
+                    f"-DLLVM_DIR={cmake_cache_path('LLVM_DIR')}",
+                    f"-DMLIR_DIR={cmake_cache_path('MLIR_DIR')}",
+                ],
+                cwd=root,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertNotEqual(0, configured.returncode)
+            self.assertIn("Agentic Circuit executable is missing", configured.stderr)
+
     def test_installed_prefix_runs_without_source_checkout(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

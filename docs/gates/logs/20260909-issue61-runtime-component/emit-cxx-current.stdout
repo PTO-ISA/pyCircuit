@@ -1,0 +1,7 @@
+-- Testing: 1 tests, 1 workers --
+PASS: AgenticCircuit :: CodeGen/emit-cxx-current.mlir (1 of 1)
+
+Testing Time: 2.00s
+
+Total Discovered Tests: 1
+  Passed: 1 (100.00%)

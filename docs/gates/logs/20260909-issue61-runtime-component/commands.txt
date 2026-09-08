@@ -1,0 +1,28 @@
+cmake --preset dev-llvm22 -S compiler/acir
+cmake --build .pycircuit_out/acir/dev-llvm22 --target GfsimTests CodeGenTests agentic_circuit_native acir-build -j 8
+.pycircuit_out/acir/dev-llvm22/bin/GfsimTests
+.pycircuit_out/acir/dev-llvm22/bin/CodeGenTests
+PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=python/semantic-core/src:python/agentic-circuit/src:.pycircuit_out/acir/dev-llvm22/python pytest -q tests/python/agentic-circuit/cli/test_installation.py
+cmake --install .pycircuit_out/acir/dev-llvm22 --prefix .pycircuit_out/gates/20260909-issue61-runtime-component/p1-final-v2/prefix
+cmake -S tests/integration/agentic-circuit/runtime-install-consumer -B .pycircuit_out/gates/20260909-issue61-runtime-component/p1-final-v2/runtime-consumer-build -DCMAKE_PREFIX_PATH=<prefix> -DCMAKE_DISABLE_FIND_PACKAGE_LLVM=TRUE -DCMAKE_DISABLE_FIND_PACKAGE_MLIR=TRUE
+cmake --build .pycircuit_out/gates/20260909-issue61-runtime-component/p1-final-v2/runtime-consumer-build
+.pycircuit_out/gates/20260909-issue61-runtime-component/p1-final-v2/runtime-consumer-build/runtime-consumer
+cmake -S tests/integration/agentic-circuit/install-consumer -B .pycircuit_out/gates/20260909-issue61-runtime-component/p1-final-v2/compiler-consumer-build -DCMAKE_PREFIX_PATH=<prefix>;/opt/homebrew/opt/llvm
+cmake --build .pycircuit_out/gates/20260909-issue61-runtime-component/p1-final-v2/compiler-consumer-build
+.pycircuit_out/gates/20260909-issue61-runtime-component/p1-final-v2/compiler-consumer-build/process-state-plan-consumer
+! cmake -S tests/integration/agentic-circuit/install-consumer -B .pycircuit_out/gates/20260909-issue61-runtime-component/p1-final-v2/compiler-hidden-build -DCMAKE_PREFIX_PATH=<prefix> -DCMAKE_DISABLE_FIND_PACKAGE_LLVM=TRUE -DCMAKE_DISABLE_FIND_PACKAGE_MLIR=TRUE
+cmake -S <default-component-fixture> -B .pycircuit_out/gates/20260909-issue61-runtime-component/p1-final-v2/default-component-build -DCMAKE_PREFIX_PATH=<prefix>;/opt/homebrew/opt/llvm
+cmake --install .pycircuit_out/acir/dev-llvm22 --prefix <broken-prefix>
+mv <broken-prefix>/bin/agentic-circuit <broken-prefix>/bin/agentic-circuit.missing
+! cmake -S <default-component-fixture> -B .pycircuit_out/gates/20260909-issue61-runtime-component/p1-final-v2/default-broken-build -DCMAKE_PREFIX_PATH=<broken-prefix>;/opt/homebrew/opt/llvm
+! cmake -S <unknown-component-fixture> -B .pycircuit_out/gates/20260909-issue61-runtime-component/p1-final-v2/unknown-build -DCMAKE_PREFIX_PATH=<prefix>
+.pycircuit_out/ac-venv/bin/python .pycircuit_out/ac-venv/bin/lit -v .pycircuit_out/acir/dev-llvm22/tests/mlir/CodeGen/emit-cxx-current.mlir
+nm -u .pycircuit_out/gates/20260909-issue61-runtime-component/p1-final-v2/prefix/lib/libgfsim.a
+! rg '^#include [<"](?:llvm|mlir|acir)' .pycircuit_out/gates/20260909-issue61-runtime-component/p1-final-v2/prefix/include/gfsim
+! rg 'LLVM|MLIR|ACIRBindings|GfsimTooling' .pycircuit_out/gates/20260909-issue61-runtime-component/p1-final-v2/prefix/lib/cmake/AgenticCircuit/AgenticCircuitRuntimeTargets.cmake
+.pycircuit_out/contracts-venv/bin/python tools/agentic-circuit/check-contracts.py
+.pycircuit_out/contracts-venv/bin/python tools/agentic-circuit/check-sdk-contract.py
+pytest -q tests/unit -m unit
+mkdocs build --strict
+pre-commit run --all-files
+python3 flows/tools/check_decision_status.py --rfc docs/rfcs/pyc6-decisions.md --status docs/gates/decision_status_v6.md --out docs/gates/logs/20260909-issue61-runtime-component/decision_status_report.json --require-concrete-evidence --require-existing-evidence

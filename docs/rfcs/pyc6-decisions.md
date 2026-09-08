@@ -8188,6 +8188,10 @@ agentic-circuit wheel, checksums, and platform contract.
   ABI and `AgenticCircuit::Gfsim` without finding LLVM/MLIR development
   packages. `CompilerDev` exposes dialect/pass/compiler targets and requires
   LLVM/MLIR 22.1.8 exactly. Unknown components fail.
+- The Runtime header tree and Gfsim library contain no LLVM, MLIR, or ACIR
+  dependency. LLVM-based trace JSON and run-manifest support belongs to
+  `AgenticCircuit::GfsimTooling` under CompilerDev. Internal generated-model
+  tools link Tooling explicitly; an external Runtime consumer does not.
 - A platform SDK archive contains installed tools, Runtime headers/libraries,
   CMake exports, the wheelhouse, schemas, licenses, and one embedded platform
   manifest. That manifest hashes installed files except itself and never hashes

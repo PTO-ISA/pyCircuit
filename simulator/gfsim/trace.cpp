@@ -1,4 +1,4 @@
-#include "gfsim/trace.h"
+#include "gfsim/tooling/trace_io.h"
 
 #include "acir/Bindings/Binding.h"
 

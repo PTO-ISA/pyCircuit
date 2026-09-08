@@ -125,7 +125,7 @@ V6 tests plus the examples, simulation, and semantic lanes archived under
 - [x] Freeze issue #61's SDK `6.0.0` identity tuple, two-platform contract,
   Runtime/CompilerDev split, model plan/manifest schemas, generated ABI v1, and
   candidate-byte release order in Decisions 0232 through 0234.
-- [ ] Implement a relocatable Runtime-only AgenticCircuit CMake component that
+- [x] Implement a relocatable Runtime-only AgenticCircuit CMake component that
   does not require LLVM/MLIR development packages.
 - [ ] Implement installed `agentic-circuit model plan` and `model emit-cpp`
   with deterministic multi-TU output, depfiles, atomic publication, and the

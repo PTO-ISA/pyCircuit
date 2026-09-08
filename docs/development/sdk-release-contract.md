@@ -126,6 +126,12 @@ complete transitive runtime link interface. Resolving this component MUST NOT
 call `find_dependency(LLVM)` or `find_dependency(MLIR)` and MUST succeed when
 LLVM and MLIR development packages are hidden.
 
+The Runtime header tree and `AgenticCircuit::Gfsim` contain no LLVM, MLIR, or
+ACIR dependency. LLVM-based PTO JSON parsing and run-manifest publication live
+in `AgenticCircuit::GfsimTooling`, which is available only through
+`CompilerDev`. Generated-model and compiler tools may link Tooling internally;
+an external runtime consumer links only Gfsim.
+
 ### CompilerDev
 
 ```cmake
@@ -134,7 +140,9 @@ find_package(AgenticCircuit 0.1.0 EXACT CONFIG REQUIRED COMPONENTS CompilerDev)
 
 `CompilerDev` exposes dialect, pass, analysis, and compiler-development targets.
 It requires LLVM and MLIR `22.1.8` exactly. Requesting both components returns
-the union. Unknown components fail with an actionable diagnostic.
+the union. Omitting components preserves the CompilerDev behavior. Unknown
+components fail with an actionable diagnostic that lists `Runtime` and
+`CompilerDev`.
 
 `pycircuit` runtime targets remain available through their existing package.
 A configuration with zlib trace support MUST express a relocatable conditional

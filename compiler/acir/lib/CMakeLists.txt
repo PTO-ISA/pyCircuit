@@ -23,7 +23,7 @@ install(
     ACIRToACSim
     ACIRCodeGen
     ACIRCompiler
-  EXPORT AgenticCircuitTargets
+  EXPORT AgenticCircuitCompilerDevTargets
   ARCHIVE DESTINATION lib
   LIBRARY DESTINATION lib
 )

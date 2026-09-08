@@ -1,0 +1,10 @@
+CMake Error at CMakeLists.txt:3 (find_package):
+  Found package configuration file:
+
+    /Users/zhoubot/linx-isa/tools/pyCircuit/.pycircuit_out/gates/20260909-issue61-runtime-component/p1-final-v2/prefix/lib/cmake/AgenticCircuit/AgenticCircuitConfig.cmake
+
+  but it set AgenticCircuit_FOUND to FALSE so package "AgenticCircuit" is
+  considered to be NOT FOUND.  Reason given by package:
+
+  Unknown AgenticCircuit component 'Unknown'.  Supported components are
+  Runtime and CompilerDev.

@@ -142,8 +142,12 @@ public:
     request_.bindingLockBytes = lockBytes;
     request_.profile = "fast";
     request_.passPipeline = {"acsim-emit-cxx", "compile", "link"};
-    request_.includeRoots = {ACIR_TEST_SOURCE_DIR "/simulator/gfsim/include"};
-    request_.linkInputs = {ACIR_TEST_BINARY_DIR "/gfsim/libgfsim.a",
+    request_.includeRoots = {
+        ACIR_TEST_SOURCE_DIR "/simulator/gfsim/include",
+        ACIR_TEST_SOURCE_DIR "/simulator/gfsim/tooling/include"};
+    request_.linkInputs = {ACIR_TEST_BINARY_DIR
+                           "/gfsim/libgfsim_tooling.a",
+                           ACIR_TEST_BINARY_DIR "/gfsim/libgfsim.a",
                            ACIR_TEST_BINARY_DIR
                            "/lib/Bindings/libACIRBindings.a"};
     request_.linkerFlags = test::llvmLinkerFlags();

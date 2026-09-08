@@ -102,12 +102,15 @@ def _runtime_linkage() -> tuple[list[str], list[str], list[str]]:
     repository = Path(__file__).resolve().parents[5]
     build_root = extension.parents[2]
     source_include = repository / "simulator" / "gfsim" / "include"
+    tooling_include = repository / "simulator" / "gfsim" / "tooling" / "include"
     build_layouts = (
         (
+            build_root / "gfsim" / "libgfsim_tooling.a",
             build_root / "gfsim" / "libgfsim.a",
             build_root / "lib" / "Bindings" / "libACIRBindings.a",
         ),
         (
+            build_root / "compiler" / "acir" / "gfsim" / "libgfsim_tooling.a",
             build_root / "compiler" / "acir" / "gfsim" / "libgfsim.a",
             build_root / "compiler" / "acir" / "lib" / "Bindings" / "libACIRBindings.a",
         ),
@@ -115,14 +118,25 @@ def _runtime_linkage() -> tuple[list[str], list[str], list[str]]:
     for libraries in build_layouts:
         if source_include.is_dir() and all(path.is_file() for path in libraries):
             return (
-                [source_include.resolve().as_posix()],
+                [
+                    source_include.resolve().as_posix(),
+                    tooling_include.resolve().as_posix(),
+                ],
                 [path.resolve().as_posix() for path in libraries],
                 [],
             )
 
     for root in extension.parents:
         include = root / "include"
-        installed = (root / "lib/libgfsim.a", root / "lib/libACIRBindings.a")
+        installed_includes = [
+            include.resolve().as_posix(),
+            (include / "agentic-circuit-tooling").resolve().as_posix(),
+        ]
+        installed = (
+            root / "lib/libgfsim_tooling.a",
+            root / "lib/libgfsim.a",
+            root / "lib/libACIRBindings.a",
+        )
         if (include / "gfsim").is_dir() and all(
             library.is_file() for library in installed
         ):
@@ -137,14 +151,14 @@ def _runtime_linkage() -> tuple[list[str], list[str], list[str]]:
                 # its own build, while the installed gfsim/ACIR libraries and
                 # headers remain prefix-local.
                 return (
-                    [include.resolve().as_posix()],
+                    installed_includes,
                     [library.resolve().as_posix() for library in installed],
                     [],
                 )
             llvm_library = llvm_libraries[0].resolve()
             library_root = llvm_library.parent
             return (
-                [include.resolve().as_posix()],
+                installed_includes,
                 [
                     *(library.resolve().as_posix() for library in installed),
                     llvm_library.as_posix(),
