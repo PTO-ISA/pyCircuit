@@ -2045,6 +2045,31 @@ Cross-backend refinement does not require equality of:
 - abstract versus detailed pipeline latency that is outside the declared
   observation contract.
 
+### Canonical PTO trace oracle
+
+The repository trace oracle compares two normalized
+`agentic-circuit-pto-trace-result` documents derived from one canonical
+`pto-trace@0.1` content hash. Each dense instruction record carries its opcode,
+architectural value, completion ordinal, retirement ordinal, and the stage
+timestamps declared observable by that comparison profile. Model identity and
+specialization are explicit; checkout and output paths are absent.
+
+The comparator emits one canonical
+`agentic-circuit-pto-trace-oracle-report`. It checks trace identity, record and
+opcode counts, architectural values, completion/retirement order, and declared
+timestamps. A failure records the first deterministic divergence as instruction
+sequence, opcode, stage, field, reference/candidate values, and cycles. Fields
+are compared in that normative order; stage names are sorted. `PYC6TRC3` remains
+the binary simulator event-trace format and is not this PTO workload oracle.
+
+The DavinciOO gate canonicalizes one imported JSONL trace once, executes the
+pinned reference model from the same source bytes, and feeds the canonical
+records to the frozen ACIR specialization. The live reference must match its
+pinned record/opcode counts, completion/retirement order, and complete-run
+timestamp before the checked projection supplies architectural values that the
+reference executable does not export. Only common declared timestamps are
+compared; internal stage cycles may differ across model boundaries.
+
 ## End-to-end example
 
 The executable

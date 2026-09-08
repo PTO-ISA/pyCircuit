@@ -99,11 +99,17 @@ REUSABLE_OLDEST_READY_ISQ_SOURCE = (
 )
 DAVINCIOO_TRACE = (
     ROOT
-    / "references/davincioo-gfsim/upstream/tests/fixtures/traces"
+    / "third_party/references/davincioo-gfsim/upstream/tests/fixtures/traces"
     / "examples_intermediate_softmax.pto.trace"
 )
 DAVINCIOO_PROJECTION = (
     ROOT / "tests/goldens/agentic-circuit/davincioo/softmax-projection.json"
+)
+DAVINCIOO_REFERENCE = Path(
+    os.environ.get(
+        "DAVINCIOO_GFSIM_REFERENCE",
+        ROOT / ".pycircuit_out/issue17-reference/davincioo-gfsim-reference",
+    )
 )
 
 
@@ -4778,6 +4784,8 @@ int main() {{
             self.skipTest("C++ compiler is unavailable")
         if not DAVINCIOO_TRACE.is_file() or not DAVINCIOO_PROJECTION.is_file():
             self.skipTest("DavinciOO reference trace fixture is unavailable")
+        if not DAVINCIOO_REFERENCE.is_file():
+            self.skipTest("standalone DavinciOO reference executable is unavailable")
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             model = root / "model.cpp"
@@ -4928,8 +4936,7 @@ int main() {{
             oracle = subprocess.run(
                 (
                     str(
-                        ROOT
-                        / ".pycircuit_out/acir/dev-llvm22/bin/davincioo-gfsim-reference"
+                        DAVINCIOO_REFERENCE
                     ),
                     "simulate",
                     "--trace",
@@ -4964,15 +4971,18 @@ int main() {{
   const std::array<ac_generated::WorkItem, 15> input{{
       {input_rows},
   }};
-  for (const auto &item : input)
-    if (!model.trace().proposePush(item))
-      return 1;
   auto rows = model.dispatch_rows();
+  std::size_t nextInput = 0;
   std::size_t simulatedCycles = 0;
   std::size_t dependencyPeak = 0;
   std::size_t reorderPeak = 0;
   std::array<std::size_t, 4> resourcePeaks{{}};
   for (std::size_t tick = 0; tick < 600; ++tick) {{
+    while (nextInput < input.size() && model.trace().canProposePush()) {{
+      if (!model.trace().proposePush(input[nextInput]))
+        return 1;
+      ++nextInput;
+    }}
     const gfsim::Epoch epoch{{tick, 0}};
     for (auto &row : rows)
       row.work(row.object, epoch);
@@ -5009,7 +5019,7 @@ int main() {{
       return 4;
     if (value.value != architecturalValues[index])
       return 5;
-    ++opcodeCounts[value.opcode];
+    ++opcodeCounts[static_cast<std::size_t>(value.opcode.value())];
   }}
   const std::array<std::size_t, 8> expectedCounts{{{expected_counts_text}}};
   if (opcodeCounts != expectedCounts)

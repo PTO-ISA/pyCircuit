@@ -7920,3 +7920,72 @@ readable naming contract without weakening reproducibility or integrity.
 - User direction (2026-09-06): remove fingerprints from routine generated C++
   namespaces, classes, functions, and dispatch names while retaining canonical
   integrity metadata.
+
+## Decision 0229: one canonical PTO trace oracle reports the first structured divergence
+
+**Status:** Accepted; implemented and verified
+
+**Context / Goal**
+The repository already converts the imported DavinciOO JSONL trace to canonical
+`pto-trace@0.1`, runs a frozen ACIR specialization, and compares it with a
+checked projection. The pinned reference executable separately reports counts
+and cycles. Issue #17 requires these paths to form one deterministic oracle and
+to report the first instruction, stage, and cycle divergence structurally
+instead of stopping at an unstructured field error. `PYC6TRC3` is a different
+binary simulator-event format and does not satisfy this workload comparison.
+
+**Decision (strong constraint)**
+- Each side normalizes to schema `agentic-circuit-pto-trace-result` version 0.1
+  at contract epoch 0.5. It contains the canonical trace content hash, explicit
+  model revision/specialization, dense sequence-ordered records, opcode,
+  architectural value, completion and retirement ordinals, per-record declared
+  stage timestamps, and declared run timestamps. Checkout and output paths,
+  Python hash order, pointers, and host timing are absent.
+- Completion and retirement ordinals are each exact permutations of the trace
+  record domain. Result validation rejects missing/extra fields, non-portable
+  integers, non-dense sequence identity, malformed SHA-256, or duplicate order
+  before comparison.
+- The comparator produces schema
+  `agentic-circuit-pto-trace-oracle-report` version 0.1. It checks trace
+  identity, record/opcode counts, architectural values, completion order,
+  retirement order, then observable timestamps. The first mismatch records
+  sequence, opcode, stage, field, reference/candidate values, and reference/
+  candidate cycles. Record order and lexically sorted stage names make the
+  report independent of dictionary/hash iteration.
+- The DavinciOO gate canonicalizes one raw trace source once. The live imported
+  reference executable consumes those same source bytes; the generated frozen
+  ACIR specialization consumes the resulting canonical records. The reference
+  revision in `SOURCE.json` must match the checked projection revision.
+- The live reference must match projected record/opcode counts, completion and
+  retirement order, and complete-run timestamp. Its normalized cycle replay is
+  archived. The checked projection supplies architectural values because the
+  imported reference executable does not export them. This limitation is
+  explicit rather than presenting a single-side value as a live dual result.
+- Only timestamps declared common by the comparison profile are equalities.
+  The current bounded profile declares complete-run cycle 453. Internal stage
+  cycles remain available in reference/generated observations but differ across
+  the documented ingress/drain model boundary and are not silently compared.
+- A matching report exits successfully. A semantic mismatch still publishes
+  the canonical failed report and exits nonzero. Malformed input fails before a
+  report is published.
+
+**Required verification**
+- Schema tests validate matching result/report documents and reject malformed
+  sequence and order identity. Table-driven negatives cover trace hash, record
+  count, opcode, architectural value, completion order, per-record timestamp,
+  and run timestamp; each asserts the exact first divergence and cycles.
+- The CLI publishes both passing and failing reports with corresponding exit
+  status. The DavinciOO integration builds the pinned reference, executes both
+  sides, validates live reference counts/order/cycles, and produces a passing
+  oracle over all 15 records.
+- Two runs use copied trace/projection roots and distinct `PYTHONHASHSEED`
+  values. Canonical trace, normalized reference/candidate results, live
+  reference observations, oracle report, and generated run report are
+  byte-identical.
+- Existing adapter, QueueGraph/gfsim, PYC/Verilog, repository contract,
+  inventory, documentation, and decision-status gates remain green.
+
+**Source**
+- PTO-ISA/pyCircuit issue #17.
+- Pinned DavinciOO reference revision
+  `a542b9cf705096288c615575be222b974b570a18`.
