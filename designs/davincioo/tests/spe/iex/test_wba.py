@@ -16,6 +16,22 @@ ROOT = Path(__file__).resolve().parents[5]
 DEFAULT_ACIR = ROOT / ".pycircuit_out/acir/dev-llvm22/bin/acir-opt"
 
 
+def _assert_wba_match_fusion(generated: str) -> None:
+    assert (
+        generated.count(
+            "for (std::size_t index = 0; index < table_entries->size(); ++index)"
+        )
+        == 13
+    )
+    assert generated.count("fused_match_") == 4
+    fused_begin = generated.index("auto [fused_match_")
+    fused_end = generated.index("}();", fused_begin)
+    fused_predicates = generated[fused_begin:fused_end]
+    assert fused_predicates.count("entry.valid") == 1
+    assert fused_predicates.count("entry.completed") == 1
+    assert fused_predicates.count("item.key") == 1
+
+
 def test_wba_uses_nominal_attempt_equality_without_expanded_leaf_chains() -> None:
     source_path = ROOT / "designs/davincioo/spe/iex/wba.py"
     source = source_path.read_text(encoding="utf-8")
@@ -82,6 +98,7 @@ def test_wba_source_closure_reaches_frozen_queuegraph_and_rejects_table_pyc() ->
             check=False,
         )
         assert generated.returncode == 0, generated.stderr
+        _assert_wba_match_fusion(generated.stdout)
         aggregate_table_reads = re.findall(
             r"^\s+const auto &[A-Za-z0-9_]+ = "
             r"table_[A-Za-z0-9_]+->at\(static_cast<size_t>",
@@ -165,6 +182,7 @@ def test_wba_executes_terminal_apply_cancel_drain_and_backpressure_matrix() -> N
         pytest.skip("current-checkout ACIR/gfsim toolchain is unavailable")
 
     generated = _lower_acir_to_cpp(ac.jit(wba_system, workspace=ROOT).lower_acir())
+    _assert_wba_match_fusion(generated)
     assert re.search(
         r"^\s+const auto &[A-Za-z0-9_]+ = "
         r"table_[A-Za-z0-9_]+->at\(static_cast<size_t>",
@@ -468,6 +486,62 @@ int main() {
       !model.sink_0_values().empty() || !model.sink_1_values().empty() ||
       !model.apply_ack().isEmpty() || validCount(isolatedEntries) != 0)
     return 12;
+
+  // The fused target/completed scan keeps independent masks. A completed row
+  // blocks cancellation even when an unpublished row has the same attempt.
+  WbaSystem mixedMatch;
+  auto mixedRows = mixedMatch.dispatch_rows();
+  auto &mixedEntries = objectByName<gfsim::SimTable<WbaEntry>>(
+      mixedRows, "entries", gfsim::ObjectKind::Memory);
+  auto &mixedTombstones = objectByName<gfsim::SimTable<AttemptTombstone>>(
+      mixedRows, "cancel_tombstones", gfsim::ObjectKind::Memory);
+  auto mixedResult = makeValue(60, 60);
+  WbaEntry pending{};
+  pending.result = mixedResult;
+  pending.canceled = gfsim::UInt<1>{1};
+  pending.valid = gfsim::UInt<1>{1};
+  WbaEntry completed = pending;
+  completed.completed = gfsim::UInt<1>{1};
+  if (!mixedEntries.initializeEntry(1, pending) ||
+      !mixedEntries.initializeEntry(6, completed))
+    return 50;
+  IssueCancel mixedCancel{mixedResult.attempt, IssueCancelReason::RECOVERY,
+                          gfsim::UInt<1>{1}};
+  std::uint64_t mixedTick = 0;
+  if (!offer(mixedMatch.cancel(), mixedCancel, mixedTick)) return 51;
+  for (int i = 0; i < 3; ++i)
+    cycle(mixedRows, mixedTick, {false, true, true, true});
+  if (mixedMatch.sink_2_values().size() != 1 ||
+      static_cast<bool>(mixedMatch.sink_2_values()[0].accepted) ||
+      !static_cast<bool>(mixedMatch.sink_2_values()[0].already_completed) ||
+      validCount(mixedEntries) != 2 || validCount(mixedTombstones) != 0)
+    return 52;
+
+  // Duplicate unpublished rows preserve low-index first selection and leave
+  // the second candidate untouched.
+  WbaSystem duplicateMatch;
+  auto duplicateRows = duplicateMatch.dispatch_rows();
+  auto &duplicateEntries = objectByName<gfsim::SimTable<WbaEntry>>(
+      duplicateRows, "entries", gfsim::ObjectKind::Memory);
+  auto &duplicateTombstones = objectByName<gfsim::SimTable<AttemptTombstone>>(
+      duplicateRows, "cancel_tombstones", gfsim::ObjectKind::Memory);
+  WbaEntry publishedPending = pending;
+  publishedPending.published = gfsim::UInt<1>{1};
+  if (!duplicateEntries.initializeEntry(1, pending) ||
+      !duplicateEntries.initializeEntry(6, publishedPending))
+    return 53;
+  std::uint64_t duplicateTick = 0;
+  if (!offer(duplicateMatch.cancel(), mixedCancel, duplicateTick)) return 54;
+  for (int i = 0; i < 3; ++i)
+    cycle(duplicateRows, duplicateTick, {false, true, true, true});
+  if (duplicateMatch.sink_2_values().size() != 1) return 55;
+  if (!static_cast<bool>(duplicateMatch.sink_2_values()[0].accepted)) return 56;
+  if (!static_cast<bool>(
+          duplicateMatch.sink_2_values()[0].unpublished_cleared) ||
+      static_cast<bool>(duplicateMatch.sink_2_values()[0].apply_owned))
+    return 57;
+  if (!static_cast<bool>(duplicateEntries.at(6).valid)) return 58;
+  if (validCount(duplicateTombstones) != 1) return 59;
 
   // Early cancel installs a tombstone. A later matching terminal result stays
   // at the source boundary until a producer-drained request reclaims it.

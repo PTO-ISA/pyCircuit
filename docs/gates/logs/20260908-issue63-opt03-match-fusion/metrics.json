@@ -1,0 +1,39 @@
+{
+  "base_revision": "6c9bf7eabab70a30bed7e4081bde5a4ae5f7433c",
+  "implementation_diff_sha256": "6ed3d54d5322d1f3a048dd73e557e978e5133fd5dd9fc773645dbb7ce85c5ea3",
+  "local_apple_clang_o3_ns_per_iteration": {
+    "checksum": 1275000000,
+    "fused_median": 2.50232,
+    "fused_samples": [
+      2.50232,
+      2.29107,
+      2.66422,
+      2.55179,
+      2.4041
+    ],
+    "note": "Diagnostic eight-entry predicate benchmark; not a semantic threshold.",
+    "separate_median": 3.24676,
+    "separate_samples": [
+      3.20735,
+      3.24676,
+      3.2688,
+      3.25133,
+      3.22193
+    ]
+  },
+  "wba_generated": {
+    "after": {
+      "bytes": 232221,
+      "entries_scan_loops": 13,
+      "fused_match_markers": 4,
+      "sha256": "1606d7ac484b0093914dd0a5eb23899cce8b8442cda83c1ceefcd03650ba4896"
+    },
+    "before": {
+      "bytes": 237663,
+      "entries_scan_loops": 14,
+      "fused_match_markers": 0,
+      "note": "Generated from the exact base revision before the implementation edit.",
+      "sha256": "27f986786f0d09d4e0d4b18c2a161e6d1036bcfbffd7cce5dfc6271e6fdb6732"
+    }
+  }
+}

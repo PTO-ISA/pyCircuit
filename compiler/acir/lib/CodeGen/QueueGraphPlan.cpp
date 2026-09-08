@@ -2531,6 +2531,23 @@ std::string inlineTableChoiceContractKey(
   return result;
 }
 
+bool isEffectFreeTableMatchExpression(
+    const QueueExpressionPlan &expression) {
+  if (!expression.nestedExpressions.empty() || !expression.nestedYields.empty())
+    return false;
+  return llvm::StringSwitch<bool>(expression.kind)
+      .Cases({"constant", "enum_constant", "get", "masked_match"}, true)
+      .Cases({"not", "popcount", "count_zeros", "cmp"}, true)
+      .Cases({"value_select", "bit_extract", "aggregate_get", "bit_concat"},
+             true)
+      .Cases({"tuple_create", "array_create", "record_create", "bit_insert"},
+             true)
+      .Cases({"with", "add", "sub", "mul"}, true)
+      .Cases({"and", "or", "xor", "shl", "shr"}, true)
+      .Cases({"priority_index", "priority_valid"}, true)
+      .Default(false);
+}
+
 llvm::Expected<QueueGraphPlan> buildQueueGraphPlan(mlir::ModuleOp module) {
   return Extractor(module).run();
 }

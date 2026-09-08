@@ -1,0 +1,305 @@
+Running main() from /private/tmp/googletest-20250910-5249-qce8ci/googletest-1.17.0/googletest/src/gtest_main.cc
+[==========] Running 136 tests from 9 test suites.
+[----------] Global test environment set-up.
+[----------] 11 tests from BuildTest
+[ RUN      ] BuildTest.CompilePlanIsClosedCanonicalAndArgumentVectorBased
+[       OK ] BuildTest.CompilePlanIsClosedCanonicalAndArgumentVectorBased (78 ms)
+[ RUN      ] BuildTest.LinkInputContentsParticipateInCompilePlanIdentity
+[       OK ] BuildTest.LinkInputContentsParticipateInCompilePlanIdentity (92 ms)
+[ RUN      ] BuildTest.RejectsToolchainOrPrebuiltProvenanceMismatch
+[       OK ] BuildTest.RejectsToolchainOrPrebuiltProvenanceMismatch (134 ms)
+[ RUN      ] BuildTest.RejectsProfileAndToolchainIdentityMismatch
+[       OK ] BuildTest.RejectsProfileAndToolchainIdentityMismatch (54 ms)
+[ RUN      ] BuildTest.PublishedBuildRequiresFrozenAcirAndBindingLockBytes
+[       OK ] BuildTest.PublishedBuildRequiresFrozenAcirAndBindingLockBytes (132 ms)
+[ RUN      ] BuildTest.FrontendProvenanceIsClosedAndContentAddressed
+[       OK ] BuildTest.FrontendProvenanceIsClosedAndContentAddressed (91 ms)
+[ RUN      ] BuildTest.RejectsNonCanonicalPathsAndSourceFingerprintMismatch
+[       OK ] BuildTest.RejectsNonCanonicalPathsAndSourceFingerprintMismatch (109 ms)
+[ RUN      ] BuildTest.ExactSecondBuildIsCacheHitAndUnequalInputMisses
+[       OK ] BuildTest.ExactSecondBuildIsCacheHitAndUnequalInputMisses (5681 ms)
+[ RUN      ] BuildTest.FailedStagePreservesPublishedBuildAndCurrentPointer
+[       OK ] BuildTest.FailedStagePreservesPublishedBuildAndCurrentPointer (2930 ms)
+[ RUN      ] BuildTest.RejectsEveryEscapingOrNonCanonicalArtifactPath
+[       OK ] BuildTest.RejectsEveryEscapingOrNonCanonicalArtifactPath (0 ms)
+[ RUN      ] BuildTest.EveryInjectedBoundaryPreservesPublishedState
+[       OK ] BuildTest.EveryInjectedBoundaryPreservesPublishedState (11341 ms)
+[----------] 11 tests from BuildTest (20648 ms total)
+
+[----------] 5 tests from CodeGenManifestTest
+[ RUN      ] CodeGenManifestTest.FingerprintsUseNormativeSpelling
+[       OK ] CodeGenManifestTest.FingerprintsUseNormativeSpelling (0 ms)
+[ RUN      ] CodeGenManifestTest.CanonicalManifestMatchesClosedSchemaShape
+[       OK ] CodeGenManifestTest.CanonicalManifestMatchesClosedSchemaShape (0 ms)
+[ RUN      ] CodeGenManifestTest.ManifestRejectsMissingIdentityAndEscapingPath
+[       OK ] CodeGenManifestTest.ManifestRejectsMissingIdentityAndEscapingPath (0 ms)
+[ RUN      ] CodeGenManifestTest.ManifestCanonicalizesSetLikeCollections
+[       OK ] CodeGenManifestTest.ManifestCanonicalizesSetLikeCollections (0 ms)
+[ RUN      ] CodeGenManifestTest.BuildFingerprintUsesClosedVersionedPreimage
+[       OK ] CodeGenManifestTest.BuildFingerprintUsesClosedVersionedPreimage (1 ms)
+[----------] 5 tests from CodeGenManifestTest (2 ms total)
+
+[----------] 9 tests from CodeGenEmitterTest
+[ RUN      ] CodeGenEmitterTest.EmitsPragmaOnce
+[       OK ] CodeGenEmitterTest.EmitsPragmaOnce (0 ms)
+[ RUN      ] CodeGenEmitterTest.EmitsInclude
+[       OK ] CodeGenEmitterTest.EmitsInclude (0 ms)
+[ RUN      ] CodeGenEmitterTest.EmitsNamespace
+[       OK ] CodeGenEmitterTest.EmitsNamespace (0 ms)
+[ RUN      ] CodeGenEmitterTest.EmitsClassWithBase
+[       OK ] CodeGenEmitterTest.EmitsClassWithBase (0 ms)
+[ RUN      ] CodeGenEmitterTest.EmitsEnum
+[       OK ] CodeGenEmitterTest.EmitsEnum (0 ms)
+[ RUN      ] CodeGenEmitterTest.EmitsConstructor
+[       OK ] CodeGenEmitterTest.EmitsConstructor (0 ms)
+[ RUN      ] CodeGenEmitterTest.ConstructorDeclarationOmitsInitializers
+[       OK ] CodeGenEmitterTest.ConstructorDeclarationOmitsInitializers (0 ms)
+[ RUN      ] CodeGenEmitterTest.EmitsMethod
+[       OK ] CodeGenEmitterTest.EmitsMethod (0 ms)
+[ RUN      ] CodeGenEmitterTest.EmitsSwitch
+[       OK ] CodeGenEmitterTest.EmitsSwitch (0 ms)
+[----------] 9 tests from CodeGenEmitterTest (0 ms total)
+
+[----------] 3 tests from CodeGenGenTest
+[ RUN      ] CodeGenGenTest.GenerateDispatchHeaderIsDenseAndDeterministic
+[       OK ] CodeGenGenTest.GenerateDispatchHeaderIsDenseAndDeterministic (0 ms)
+[ RUN      ] CodeGenGenTest.GenerateDispatchHeaderRejectsNonDenseIds
+[       OK ] CodeGenGenTest.GenerateDispatchHeaderRejectsNonDenseIds (0 ms)
+[ RUN      ] CodeGenGenTest.GenerateDispatchHeaderRejectsInvalidActivationEdge
+[       OK ] CodeGenGenTest.GenerateDispatchHeaderRejectsInvalidActivationEdge (0 ms)
+[----------] 3 tests from CodeGenGenTest (0 ms total)
+
+[----------] 1 test from GeneratedModelCompileTest
+[ RUN      ] GeneratedModelCompileTest.MinimalBundleCompilesLinksAndPrintsFingerprint
+[       OK ] GeneratedModelCompileTest.MinimalBundleCompilesLinksAndPrintsFingerprint (1861 ms)
+[----------] 1 test from GeneratedModelCompileTest (1861 ms total)
+
+[----------] 2 tests from GeneratedModelRuntimeTest
+[ RUN      ] GeneratedModelRuntimeTest.PermanentlyIdleObjectsDoNotIncreaseHotWork
+[       OK ] GeneratedModelRuntimeTest.PermanentlyIdleObjectsDoNotIncreaseHotWork (12 ms)
+[ RUN      ] GeneratedModelRuntimeTest.GeneratedDomainLimitStopsBeforeExcessWork
+[       OK ] GeneratedModelRuntimeTest.GeneratedDomainLimitStopsBeforeExcessWork (0 ms)
+[----------] 2 tests from GeneratedModelRuntimeTest (12 ms total)
+
+[----------] 22 tests from GeneratorTest
+[ RUN      ] GeneratorTest.EmitsExactOrderedFileSetAndTypedOwnership
+[       OK ] GeneratorTest.EmitsExactOrderedFileSetAndTypedOwnership (6 ms)
+[ RUN      ] GeneratorTest.EmitsReusableNestedModulesWithContextDenseIds
+[       OK ] GeneratorTest.EmitsReusableNestedModulesWithContextDenseIds (2 ms)
+[ RUN      ] GeneratorTest.RecursivelyAttachesMultidimensionalArrays
+[       OK ] GeneratorTest.RecursivelyAttachesMultidimensionalArrays (1 ms)
+[ RUN      ] GeneratorTest.RepeatedGenerationIsByteIdentical
+[       OK ] GeneratorTest.RepeatedGenerationIsByteIdentical (5 ms)
+[ RUN      ] GeneratorTest.SourceIdentityChangesWithGeneratedTopology
+[       OK ] GeneratorTest.SourceIdentityChangesWithGeneratedTopology (5 ms)
+[ RUN      ] GeneratorTest.SourceContractRejectsRehashedMutationAndForbiddenTokens
+[       OK ] GeneratorTest.SourceContractRejectsRehashedMutationAndForbiddenTokens (4 ms)
+[ RUN      ] GeneratorTest.RejectsExecutableCppInStructuredMetadata
+[       OK ] GeneratorTest.RejectsExecutableCppInStructuredMetadata (1 ms)
+[ RUN      ] GeneratorTest.RejectsExecutableThunkInStructuredMetadata
+[       OK ] GeneratorTest.RejectsExecutableThunkInStructuredMetadata (1 ms)
+[ RUN      ] GeneratorTest.EmitsClosedEnumPcProcessWithoutRawFrames
+[       OK ] GeneratorTest.EmitsClosedEnumPcProcessWithoutRawFrames (3 ms)
+[ RUN      ] GeneratorTest.EmitsTypedLocalDispatchForMultiBlockProcess
+[       OK ] GeneratorTest.EmitsTypedLocalDispatchForMultiBlockProcess (2 ms)
+[ RUN      ] GeneratorTest.EmitsSortedExactTimeDomainRuntimeMetadata
+[       OK ] GeneratorTest.EmitsSortedExactTimeDomainRuntimeMetadata (3 ms)
+[ RUN      ] GeneratorTest.EmitsManifestAwareMainWithoutPythonOrMlirDependencies
+[       OK ] GeneratorTest.EmitsManifestAwareMainWithoutPythonOrMlirDependencies (3 ms)
+[ RUN      ] GeneratorTest.EmitsStaticTypedTraceOwnerInjection
+[       OK ] GeneratorTest.EmitsStaticTypedTraceOwnerInjection (3 ms)
+[ RUN      ] GeneratorTest.EmitsClosedTraceOwnerCardinalityFailures
+[       OK ] GeneratorTest.EmitsClosedTraceOwnerCardinalityFailures (4 ms)
+[ RUN      ] GeneratorTest.RejectsMismatchedMultiBlockSuccessorType
+[       OK ] GeneratorTest.RejectsMismatchedMultiBlockSuccessorType (0 ms)
+[ RUN      ] GeneratorTest.RejectsMultiBlockSuccessorValueOutsideSourceBlock
+[       OK ] GeneratorTest.RejectsMultiBlockSuccessorValueOutsideSourceBlock (0 ms)
+[ RUN      ] GeneratorTest.EmitsTypedScalarOperationsWithoutRuntimeHelpers
+[       OK ] GeneratorTest.EmitsTypedScalarOperationsWithoutRuntimeHelpers (3 ms)
+[ RUN      ] GeneratorTest.ResolvesStaticTypeTemplateArgumentsThroughTypePlan
+[       OK ] GeneratorTest.ResolvesStaticTypeTemplateArgumentsThroughTypePlan (3 ms)
+[ RUN      ] GeneratorTest.RejectsProcessValueFromAnotherPc
+[       OK ] GeneratorTest.RejectsProcessValueFromAnotherPc (1 ms)
+[ RUN      ] GeneratorTest.RejectsProcessEffectMismatch
+[       OK ] GeneratorTest.RejectsProcessEffectMismatch (1 ms)
+[ RUN      ] GeneratorTest.RejectsProcessSuspendWithoutExactWake
+[       OK ] GeneratorTest.RejectsProcessSuspendWithoutExactWake (1 ms)
+[ RUN      ] GeneratorTest.EmitsDenseDispatchAndCanonicalActivation
+[       OK ] GeneratorTest.EmitsDenseDispatchAndCanonicalActivation (3 ms)
+[----------] 22 tests from GeneratorTest (65 ms total)
+
+[----------] 9 tests from ModelPlanTest
+[ RUN      ] ModelPlanTest.ExtractsClosedIdentitiesTypesAndDenseRuntimePlan
+[       OK ] ModelPlanTest.ExtractsClosedIdentitiesTypesAndDenseRuntimePlan (1 ms)
+[ RUN      ] ModelPlanTest.IdentifiesTraceOwnersFromTypedBindingMetadata
+[       OK ] ModelPlanTest.IdentifiesTraceOwnersFromTypedBindingMetadata (1 ms)
+[ RUN      ] ModelPlanTest.RejectsInputWithoutOneCanonicalACSimModel
+[       OK ] ModelPlanTest.RejectsInputWithoutOneCanonicalACSimModel (0 ms)
+[ RUN      ] ModelPlanTest.ValidationRejectsDestructionThatIsNotReverseConstruction
+[       OK ] ModelPlanTest.ValidationRejectsDestructionThatIsNotReverseConstruction (1 ms)
+[ RUN      ] ModelPlanTest.ExtractsHierarchyBindingsExpressionsAndProcesses
+[       OK ] ModelPlanTest.ExtractsHierarchyBindingsExpressionsAndProcesses (1 ms)
+[ RUN      ] ModelPlanTest.PreservesEveryBlockAndBranchOperandInProcessStates
+[       OK ] ModelPlanTest.PreservesEveryBlockAndBranchOperandInProcessStates (0 ms)
+[ RUN      ] ModelPlanTest.RejectsBranchOutsideClosedPcBlockSet
+[       OK ] ModelPlanTest.RejectsBranchOutsideClosedPcBlockSet (0 ms)
+[ RUN      ] ModelPlanTest.ValidationRejectsTransitionOutsideClosedPcSet
+[       OK ] ModelPlanTest.ValidationRejectsTransitionOutsideClosedPcSet (1 ms)
+[ RUN      ] ModelPlanTest.IndependentCanonicalParsesProduceIdenticalOwnedPlans
+[       OK ] ModelPlanTest.IndependentCanonicalParsesProduceIdenticalOwnedPlans (2 ms)
+[----------] 9 tests from ModelPlanTest (11 ms total)
+
+[----------] 74 tests from QueueGraphPlanTest
+[ RUN      ] QueueGraphPlanTest.ExtractsFrozenQueueIdentitiesAndTopology
+[       OK ] QueueGraphPlanTest.ExtractsFrozenQueueIdentitiesAndTopology (2 ms)
+[ RUN      ] QueueGraphPlanTest.RejectsRawUnfrozenQueueGraph
+[       OK ] QueueGraphPlanTest.RejectsRawUnfrozenQueueGraph (0 ms)
+[ RUN      ] QueueGraphPlanTest.CanonicalJsonIsByteIdenticalAndClosed
+[       OK ] QueueGraphPlanTest.CanonicalJsonIsByteIdenticalAndClosed (3 ms)
+[ RUN      ] QueueGraphPlanTest.PreservesJitSpecializationIdentity
+[       OK ] QueueGraphPlanTest.PreservesJitSpecializationIdentity (2 ms)
+[ RUN      ] QueueGraphPlanTest.RejectsRecursiveNestedPayloadDefinitions
+[       OK ] QueueGraphPlanTest.RejectsRecursiveNestedPayloadDefinitions (1 ms)
+[ RUN      ] QueueGraphPlanTest.RejectsMalformedNominalEnumMetadata
+[       OK ] QueueGraphPlanTest.RejectsMalformedNominalEnumMetadata (0 ms)
+[ RUN      ] QueueGraphPlanTest.RejectsTupleAggregateWidthMismatch
+[       OK ] QueueGraphPlanTest.RejectsTupleAggregateWidthMismatch (0 ms)
+[ RUN      ] QueueGraphPlanTest.RejectsMalformedValueArrayMetadata
+[       OK ] QueueGraphPlanTest.RejectsMalformedValueArrayMetadata (0 ms)
+[ RUN      ] QueueGraphPlanTest.RejectsAggregateMetadataWiderThanSixtyFourBits
+[       OK ] QueueGraphPlanTest.RejectsAggregateMetadataWiderThanSixtyFourBits (0 ms)
+[ RUN      ] QueueGraphPlanTest.RejectsAggregateBitWidthArithmeticOverflow
+[       OK ] QueueGraphPlanTest.RejectsAggregateBitWidthArithmeticOverflow (0 ms)
+[ RUN      ] QueueGraphPlanTest.RejectsPayloadFieldWidthMismatch
+[       OK ] QueueGraphPlanTest.RejectsPayloadFieldWidthMismatch (0 ms)
+[ RUN      ] QueueGraphPlanTest.RejectsAggregateCreateOperandTypeOrArityForgery
+[       OK ] QueueGraphPlanTest.RejectsAggregateCreateOperandTypeOrArityForgery (0 ms)
+[ RUN      ] QueueGraphPlanTest.RejectsAggregateGetCrossElementSliceForgery
+[       OK ] QueueGraphPlanTest.RejectsAggregateGetCrossElementSliceForgery (0 ms)
+[ RUN      ] QueueGraphPlanTest.RejectsResidualAggregateComparisonBeforeCodegen
+[       OK ] QueueGraphPlanTest.RejectsResidualAggregateComparisonBeforeCodegen (0 ms)
+[ RUN      ] QueueGraphPlanTest.RejectsResidualInvariantBeforeCodegen
+[       OK ] QueueGraphPlanTest.RejectsResidualInvariantBeforeCodegen (0 ms)
+[ RUN      ] QueueGraphPlanTest.VerifiesNestedTableMatchCaptureTypes
+[       OK ] QueueGraphPlanTest.VerifiesNestedTableMatchCaptureTypes (0 ms)
+[ RUN      ] QueueGraphPlanTest.PreservesExactU64MaskedMatchAndRejectsForgedMetadata
+[       OK ] QueueGraphPlanTest.PreservesExactU64MaskedMatchAndRejectsForgedMetadata (1101 ms)
+[ RUN      ] QueueGraphPlanTest.PreservesReusableModuleSpecializationAndRunsIndependentInstances
+[       OK ] QueueGraphPlanTest.PreservesReusableModuleSpecializationAndRunsIndependentInstances (794 ms)
+[ RUN      ] QueueGraphPlanTest.ReusesStatefulModuleImplementationWithIndependentPersistentState
+[       OK ] QueueGraphPlanTest.ReusesStatefulModuleImplementationWithIndependentPersistentState (909 ms)
+[ RUN      ] QueueGraphPlanTest.ReusesMultiRuleModuleAndPreservesOwnerLocalLexicalArbitration
+[       OK ] QueueGraphPlanTest.ReusesMultiRuleModuleAndPreservesOwnerLocalLexicalArbitration (968 ms)
+[ RUN      ] QueueGraphPlanTest.ReusesMultiOwnerModuleWithAtomicIndependentInstanceState
+[       OK ] QueueGraphPlanTest.ReusesMultiOwnerModuleWithAtomicIndependentInstanceState (920 ms)
+[ RUN      ] QueueGraphPlanTest.StructuredGeneratorPreservesOrderedRepeatedWritesPerOwner
+[       OK ] QueueGraphPlanTest.StructuredGeneratorPreservesOrderedRepeatedWritesPerOwner (433 ms)
+[ RUN      ] QueueGraphPlanTest.ReusesCombinedMultiRuleMultiOwnerModuleWithAtomicArbitration
+[       OK ] QueueGraphPlanTest.ReusesCombinedMultiRuleMultiOwnerModuleWithAtomicArbitration (990 ms)
+[ RUN      ] QueueGraphPlanTest.PreservesNestedSpecializationReuseWithoutFlatteningChildBodies
+[       OK ] QueueGraphPlanTest.PreservesNestedSpecializationReuseWithoutFlatteningChildBodies (823 ms)
+[ RUN      ] QueueGraphPlanTest.OwnsInternalQueuesPerMixedNestedSpecializationInstance
+[       OK ] QueueGraphPlanTest.OwnsInternalQueuesPerMixedNestedSpecializationInstance (806 ms)
+[ RUN      ] QueueGraphPlanTest.PreservesQueueRateAndRejectsUnspecializedPycLanes
+[       OK ] QueueGraphPlanTest.PreservesQueueRateAndRejectsUnspecializedPycLanes (6 ms)
+[ RUN      ] QueueGraphPlanTest.RejectsLegacyContractEpochBeforePlanning
+[       OK ] QueueGraphPlanTest.RejectsLegacyContractEpochBeforePlanning (1 ms)
+[ RUN      ] QueueGraphPlanTest.ExtractsPayloadAndImmutableVarDag
+[       OK ] QueueGraphPlanTest.ExtractsPayloadAndImmutableVarDag (2 ms)
+[ RUN      ] QueueGraphPlanTest.NativeGeneratorConsumesOnlyExtractedPlan
+[       OK ] QueueGraphPlanTest.NativeGeneratorConsumesOnlyExtractedPlan (2 ms)
+[ RUN      ] QueueGraphPlanTest.EmitsCanonicalScalarQueuePyc
+[       OK ] QueueGraphPlanTest.EmitsCanonicalScalarQueuePyc (0 ms)
+[ RUN      ] QueueGraphPlanTest.LowersUnsignedAcirShrToCanonicalPycLshr
+[       OK ] QueueGraphPlanTest.LowersUnsignedAcirShrToCanonicalPycLshr (0 ms)
+[ RUN      ] QueueGraphPlanTest.EmitsAtomicTransformWithIndependentArity
+[       OK ] QueueGraphPlanTest.EmitsAtomicTransformWithIndependentArity (0 ms)
+[ RUN      ] QueueGraphPlanTest.EmitsStatelessHeterogeneousOptionalMultiOutputTransition
+[       OK ] QueueGraphPlanTest.EmitsStatelessHeterogeneousOptionalMultiOutputTransition (383 ms)
+[ RUN      ] QueueGraphPlanTest.CompilesSevenOptionalOutputsPlusMandatoryAck
+[       OK ] QueueGraphPlanTest.CompilesSevenOptionalOutputsPlusMandatoryAck (466 ms)
+[ RUN      ] QueueGraphPlanTest.RejectsNoncanonicalOutputPresenceOrdinalOrder
+[       OK ] QueueGraphPlanTest.RejectsNoncanonicalOutputPresenceOrdinalOrder (0 ms)
+[ RUN      ] QueueGraphPlanTest.RejectsDuplicateOutputPresenceOrdinal
+[       OK ] QueueGraphPlanTest.RejectsDuplicateOutputPresenceOrdinal (0 ms)
+[ RUN      ] QueueGraphPlanTest.EmitsHeterogeneousBarrierForBothBackends
+[       OK ] QueueGraphPlanTest.EmitsHeterogeneousBarrierForBothBackends (0 ms)
+[ RUN      ] QueueGraphPlanTest.EmitsStaticQueueCollectionSelectForBothBackends
+[       OK ] QueueGraphPlanTest.EmitsStaticQueueCollectionSelectForBothBackends (0 ms)
+[ RUN      ] QueueGraphPlanTest.EmitsTypedReorderForBothBackends
+[       OK ] QueueGraphPlanTest.EmitsTypedReorderForBothBackends (0 ms)
+[ RUN      ] QueueGraphPlanTest.EmitsTypedDependencyForBothBackends
+[       OK ] QueueGraphPlanTest.EmitsTypedDependencyForBothBackends (0 ms)
+[ RUN      ] QueueGraphPlanTest.EmitsTypedCreditWindowForBothBackends
+[       OK ] QueueGraphPlanTest.EmitsTypedCreditWindowForBothBackends (0 ms)
+[ RUN      ] QueueGraphPlanTest.EmitsOldDataMemoryForBothBackends
+[       OK ] QueueGraphPlanTest.EmitsOldDataMemoryForBothBackends (332 ms)
+[ RUN      ] QueueGraphPlanTest.NativeTableKeyConvertsExactWidthValue
+[       OK ] QueueGraphPlanTest.NativeTableKeyConvertsExactWidthValue (353 ms)
+[ RUN      ] QueueGraphPlanTest.EmitsQueuePredicateAsPycComparison
+[       OK ] QueueGraphPlanTest.EmitsQueuePredicateAsPycComparison (4 ms)
+[ RUN      ] QueueGraphPlanTest.EmitsOneReadyValidStagePerQueueLatency
+[       OK ] QueueGraphPlanTest.EmitsOneReadyValidStagePerQueueLatency (0 ms)
+[ RUN      ] QueueGraphPlanTest.RejectsImplicitMultipleConsumers
+[       OK ] QueueGraphPlanTest.RejectsImplicitMultipleConsumers (0 ms)
+[ RUN      ] QueueGraphPlanTest.FlatGeneratorPreservesOrderedRepeatedWritesPerOwner
+[       OK ] QueueGraphPlanTest.FlatGeneratorPreservesOrderedRepeatedWritesPerOwner (395 ms)
+[ RUN      ] QueueGraphPlanTest.BorrowsAggregateTableReadsAndMaterializesOutputsBeforeCommit
+[       OK ] QueueGraphPlanTest.BorrowsAggregateTableReadsAndMaterializesOutputsBeforeCommit (929 ms)
+[ RUN      ] QueueGraphPlanTest.BorrowsCheckedAggregateReadsWithoutDroppingChecks
+[       OK ] QueueGraphPlanTest.BorrowsCheckedAggregateReadsWithoutDroppingChecks (582 ms)
+[ RUN      ] QueueGraphPlanTest.OwnerWriteExclusionProofUsesBoundedSharedDagKeys
+[       OK ] QueueGraphPlanTest.OwnerWriteExclusionProofUsesBoundedSharedDagKeys (2 ms)
+[ RUN      ] QueueGraphPlanTest.RejectsOutOfRangeConstantTableFiringPlan
+[       OK ] QueueGraphPlanTest.RejectsOutOfRangeConstantTableFiringPlan (1 ms)
+[ RUN      ] QueueGraphPlanTest.RecomputesBoundedFiringIndexConstraints
+[       OK ] QueueGraphPlanTest.RecomputesBoundedFiringIndexConstraints (451 ms)
+[ RUN      ] QueueGraphPlanTest.RecomputesTableEndpointAndObservationConstraints
+[       OK ] QueueGraphPlanTest.RecomputesTableEndpointAndObservationConstraints (1 ms)
+[ RUN      ] QueueGraphPlanTest.RejectsTableFiringPlanTypeAndOwnershipBypasses
+[       OK ] QueueGraphPlanTest.RejectsTableFiringPlanTypeAndOwnershipBypasses (1 ms)
+[ RUN      ] QueueGraphPlanTest.RejectsForgedFrozenFiringBeforePlanExtraction
+[       OK ] QueueGraphPlanTest.RejectsForgedFrozenFiringBeforePlanExtraction (1 ms)
+[ RUN      ] QueueGraphPlanTest.RejectsInvalidSharedTableReferenceTargets
+[       OK ] QueueGraphPlanTest.RejectsInvalidSharedTableReferenceTargets (0 ms)
+[ RUN      ] QueueGraphPlanTest.RejectsInvalidSharedTableReferenceProvenance
+[       OK ] QueueGraphPlanTest.RejectsInvalidSharedTableReferenceProvenance (0 ms)
+[ RUN      ] QueueGraphPlanTest.RejectsInvalidSharedTableReferenceFieldTypes
+[       OK ] QueueGraphPlanTest.RejectsInvalidSharedTableReferenceFieldTypes (0 ms)
+[ RUN      ] QueueGraphPlanTest.RejectsInvalidSharedTableWidths
+[       OK ] QueueGraphPlanTest.RejectsInvalidSharedTableWidths (0 ms)
+[ RUN      ] QueueGraphPlanTest.FirstTableChooseUsesSharedScalarPriorityEncoder
+[       OK ] QueueGraphPlanTest.FirstTableChooseUsesSharedScalarPriorityEncoder (3600 ms)
+[ RUN      ] QueueGraphPlanTest.FusesPureSameSnapshotMatchesAndSharesPredicateDag
+[       OK ] QueueGraphPlanTest.FusesPureSameSnapshotMatchesAndSharesPredicateDag (3661 ms)
+[ RUN      ] QueueGraphPlanTest.KeyedTableChooseRetainsSelectionLoop
+[       OK ] QueueGraphPlanTest.KeyedTableChooseRetainsSelectionLoop (0 ms)
+[ RUN      ] QueueGraphPlanTest.VerifiesInlineTableChooseProvenanceAndPairs
+[       OK ] QueueGraphPlanTest.VerifiesInlineTableChooseProvenanceAndPairs (0 ms)
+[ RUN      ] QueueGraphPlanTest.DuplicateKeyedChoicesKeepIndependentSnapshotEffects
+[       OK ] QueueGraphPlanTest.DuplicateKeyedChoicesKeepIndependentSnapshotEffects (541 ms)
+[ RUN      ] QueueGraphPlanTest.DistinctKeyMetadataGeneratesIndependentScans
+[       OK ] QueueGraphPlanTest.DistinctKeyMetadataGeneratesIndependentScans (438 ms)
+[ RUN      ] QueueGraphPlanTest.RejectsMalformedPriorityExpressionPlan
+[       OK ] QueueGraphPlanTest.RejectsMalformedPriorityExpressionPlan (0 ms)
+[ RUN      ] QueueGraphPlanTest.RejectsMalformedPopcountExpressionPlan
+[       OK ] QueueGraphPlanTest.RejectsMalformedPopcountExpressionPlan (0 ms)
+[ RUN      ] QueueGraphPlanTest.RejectsMalformedCountZerosExpressionPlan
+[       OK ] QueueGraphPlanTest.RejectsMalformedCountZerosExpressionPlan (0 ms)
+[ RUN      ] QueueGraphPlanTest.RejectsUnconsumedQueueAsStaticDeadlockRisk
+[       OK ] QueueGraphPlanTest.RejectsUnconsumedQueueAsStaticDeadlockRisk (0 ms)
+[ RUN      ] QueueGraphPlanTest.RejectsRawQueueCycleOutsideFeedbackBlock
+[       OK ] QueueGraphPlanTest.RejectsRawQueueCycleOutsideFeedbackBlock (0 ms)
+[ RUN      ] QueueGraphPlanTest.ObservationDoesNotConsumeQueue
+[       OK ] QueueGraphPlanTest.ObservationDoesNotConsumeQueue (0 ms)
+[ RUN      ] QueueGraphPlanTest.VerificationLeafRunsInGfsimAndRejectsPycDesign
+[       OK ] QueueGraphPlanTest.VerificationLeafRunsInGfsimAndRejectsPycDesign (0 ms)
+[ RUN      ] QueueGraphPlanTest.RejectsMalformedPycFeedbackContract
+[       OK ] QueueGraphPlanTest.RejectsMalformedPycFeedbackContract (0 ms)
+[ RUN      ] QueueGraphPlanTest.BackendsRejectUncatalogedApplicationBlock
+[       OK ] QueueGraphPlanTest.BackendsRejectUncatalogedApplicationBlock (0 ms)
+[----------] 74 tests from QueueGraphPlanTest (19928 ms total)
+
+[----------] Global test environment tear-down
+[==========] 136 tests from 9 test suites ran. (42529 ms total)
+[  PASSED  ] 136 tests.

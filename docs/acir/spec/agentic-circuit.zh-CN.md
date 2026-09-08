@@ -705,6 +705,13 @@ aggregate 字段投影绑定为 `const` 引用。这些引用只观察 committed
 transition plan 和 Queue output 都会在 invocation 结束前物化为值。scalar read 仍按值
 生成，checked Table access 继续保留运行时诊断。
 
+在一次 policy invocation 内，只有多个必需的 `table_match` 指向同一 Table、捕获完全
+相同的 operands、predicate 只含无 effect 的 value expression，并且没有
+snapshot-set reservation 时，生成的 gfsim C++ 才能把它们融合成一次 Table scan。
+融合循环用精确的 typed expression DAG key 共享公共 predicate value；每个 match 仍
+保留独立 candidate mask 和后续 selection。不同 capture/Table、首个 match 前不可用的
+capture、嵌套 Table/Slot observation 或 snapshot effect 都保留独立扫描。
+
 `EntryView` 只存在于 elaboration。`patch` 在 Frozen ACIR 前展开成
 `ac.table.get -> ac.var.with -> ac.table.write` 或 `ac.table.masked_write`，不存在
 `ac.table.patch`。两种 Frozen write op 都必须携带规范化、非空、无重复的

@@ -3782,6 +3782,12 @@ evaluation order observable in simulator cost.
   returns, and Queue outputs materialize complete values before the invocation
   ends. Scalar observations stay by value, and checked access keeps its runtime
   failure behavior.
+- Required inline Table matches in one policy invocation may share one scan
+  only when Table identity and captured operands are exact, every predicate
+  expression is effect-free, every capture dominates the group, and no match
+  owns a snapshot-set reservation. Exact typed DAG keys share common predicate
+  values while each original candidate mask and selection remains independent.
+  All unproven groups keep their original scans.
 
 **Verification**
 - Frontend and ACIR tests prove one shared SSA definition, dominance, same-Table
@@ -3795,6 +3801,10 @@ evaluation order observable in simulator cost.
 - Nested aggregate Table fixtures compile both `at` and `checkedAt` paths,
   preserve scalar projection values, and replace the source row before a
   queued result is consumed to prove output and proposal materialization.
+- A dual-match fixture proves one scan, two masks, hygienic local SSA and one
+  common comparison; different captures and snapshot-bearing predicates prove
+  fail-closed fallback. WBA covers simultaneous completed/uncompleted rows,
+  duplicate pending rows, no-match and generation-sensitive cases.
 - The multi-writer Issue Queue example compiles and runs in direct and native
   gfsim while its grant read and valid-clear patch reuse one selection.
 
