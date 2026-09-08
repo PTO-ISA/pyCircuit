@@ -20,10 +20,11 @@ builtin.module attributes {ac.contract_epoch = "0.5"} {
   ^cost(%item: !ac.var<i8>):
     %one = ac.var.constant 1 : i8 as !ac.var<i8>
     ac.dependency.yield %one : !ac.var<i8>
-  } : !ac.queue<i8> -> !ac.queue<i8>
+  } {ac.schedule_provider = "v2"} : !ac.queue<i8> -> !ac.queue<i8>
   ac.sink %completed : !ac.queue<i8>
 }
 
 // CHECK: ac.dependency
 // CHECK: capacity 16 resources 4 no_dependency 255 depth 8 latency 1
 // CHECK-COUNT-4: ac.dependency.yield
+// CHECK: ac.schedule_provider = "v2"

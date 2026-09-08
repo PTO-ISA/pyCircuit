@@ -578,6 +578,38 @@ integer at runtime. Dependencies refer to tokens retained in the bounded
 window; a missing predecessor blocks the token and can participate in deadlock
 diagnostics.
 
+The high-level `ac.schedule(...)` spelling selects provider `v2`. Its key and
+predecessor type is limited to 16 bits, and `no_dependency` must be that type's
+all-ones value and must be supplied explicitly. The gfsim provider keeps one
+bounded completion bitmap for the entire key domain and rejects key reuse until
+reset. A producer may therefore
+leave the resident/output window without losing readiness for a later accepted
+dependent. Frozen ACIR records `ac.schedule_provider = "v2"`; the
+`ac.dependency` verifier rejects unknown providers, wider or mismatched keys,
+and a non-all-ones sentinel before codegen. QueueGraph keeps and defensively
+rechecks that identity and emits `gfsim::Schedule`, while plain `depend`
+continues to emit `gfsim::QueueDependency` with resident-only dependency
+semantics.
+
+The PTO specialization of the same `ac.schedule.v2` contract uses bounded
+physical tags and generations instead of sequence history. `NpuScheduleV2`
+borrows parent-owned dispatch, completion, recycle, and four per-engine issued
+Queues. Ordered shadow rename provides read-before-write behavior inside one
+Arbitrate, multiple source tags become independent exact-generation
+dependencies, completion updates a bounded readiness scoreboard, and recycle
+accepts only the exact replaced generation. The lowest free tag and oldest
+ready instruction are selected deterministically. Invalid/stale completion or
+recycle tokens, and dispatches with an invalid stable ID, sequence, or engine
+class, are consumed once with a rejection observation and no state change.
+Capacity, tag-pool, and output backpressure retain the dispatch or issue
+transaction without partial commit.
+
+The specialization reports per-engine occupancy/peak, free/allocated/retired
+tags, rename entries, outstanding producers, live dependency flows, stalls,
+issues, wakeups, recycles, and rejected updates. PYC/Verilog lane realization
+remains fail-closed until issue #21 defines the multi-port scalar lane lowering;
+this does not change the verified gfsim schedule-v2 contract.
+
 ### Credit scheduling
 
 `credit` is a bounded parallel completion window. It admits at most `credits`

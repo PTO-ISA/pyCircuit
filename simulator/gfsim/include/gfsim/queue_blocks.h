@@ -456,14 +456,17 @@ public:
 
   QueueDependency(std::string name, ObjectId id, SimObject *parent,
                   SimQueue<T> &input, SimQueue<T> &output, size_t capacity,
-                  size_t resources, uint64_t noDependency, Key key = {},
+                  size_t resources, uint64_t noDependency,
+                  size_t completionDomain = 0, Key key = {},
                   Dependency dependency = {}, Resource resource = {},
                   Cost cost = {}, ObservationSink *observations = nullptr)
       : SimObject(componentKind, std::move(name), id, parent, observations),
         input_(input), output_(output), capacity_(capacity),
         resources_(resources), noDependency_(noDependency),
         key_(std::move(key)), dependency_(std::move(dependency)),
-        resource_(std::move(resource)), cost_(std::move(cost)) {}
+        resource_(std::move(resource)), cost_(std::move(cost)),
+        completedKeys_(completionDomain, false),
+        seenKeys_(completionDomain, false) {}
 
   void doWork(Epoch epoch) override {
     if (proposed_)
@@ -507,8 +510,11 @@ public:
     if (pendingOutputKey_)
       entries_.erase(*pendingOutputKey_);
     for (uint64_t key : pendingCompletions_)
-      if (auto found = entries_.find(key); found != entries_.end())
+      if (auto found = entries_.find(key); found != entries_.end()) {
         found->second.state = State::Done;
+        if (!completedKeys_.empty())
+          completedKeys_[key] = true;
+      }
     for (uint64_t key : pendingIssues_)
       if (auto found = entries_.find(key); found != entries_.end()) {
         if (epoch.time >
@@ -527,6 +533,8 @@ public:
       entry.cost = pendingInput_->cost;
       entry.value = std::move(pendingInput_->value);
       entries_.emplace(entry.key, std::move(entry));
+      if (!seenKeys_.empty())
+        seenKeys_[pendingInput_->key] = true;
     }
     pendingInput_.reset();
     pendingOutputKey_.reset();
@@ -564,6 +572,8 @@ public:
     pendingOutputKey_.reset();
     pendingIssues_.clear();
     pendingCompletions_.clear();
+    std::fill(completedKeys_.begin(), completedKeys_.end(), false);
+    std::fill(seenKeys_.begin(), seenKeys_.end(), false);
     proposed_ = false;
     clearRuntimeFailureCode();
   }
@@ -590,6 +600,8 @@ private:
   bool dependencyReady(const Entry &entry) const {
     if (entry.dependency == noDependency_)
       return true;
+    if (!completedKeys_.empty())
+      return completedKeys_[entry.dependency];
     auto found = entries_.find(entry.dependency);
     return found != entries_.end() && found->second.state == State::Done;
   }
@@ -645,8 +657,15 @@ private:
     const uint64_t predecessor = static_cast<uint64_t>(rawDependency);
     const uint64_t resource = static_cast<uint64_t>(rawResource);
     const uint64_t cost = static_cast<uint64_t>(rawCost);
-    if (entries_.contains(key)) {
+    if ((!seenKeys_.empty() &&
+         (key >= seenKeys_.size() || seenKeys_[key])) ||
+        entries_.contains(key)) {
       setRuntimeFailureCode("dependency_duplicate_key");
+      return false;
+    }
+    if (!completedKeys_.empty() && predecessor != noDependency_ &&
+        predecessor >= completedKeys_.size()) {
+      setRuntimeFailureCode("dependency_predecessor_out_of_range");
       return false;
     }
     if (resource >= resources_) {
@@ -673,12 +692,15 @@ private:
   std::optional<uint64_t> pendingOutputKey_;
   std::vector<uint64_t> pendingIssues_;
   std::vector<uint64_t> pendingCompletions_;
+  std::vector<bool> completedKeys_;
+  std::vector<bool> seenKeys_;
   bool proposed_ = false;
 };
 
 template <typename T, size_t Entries, size_t Resources, uint64_t NoDependency,
           typename Key, typename Dependency, typename Resource, typename Cost>
-  requires(Entries > 0) && (Resources > 0) &&
+  requires(Entries > 0) && (Resources > 0) && (NoDependency > 0) &&
+          (NoDependency <= 65535) &&
           std::invocable<const Key &, const T &> &&
           IntegralLike<std::invoke_result_t<const Key &, const T &>> &&
           std::invocable<const Dependency &, const T &> &&
@@ -699,7 +721,8 @@ public:
            ObservationSink *observations = nullptr)
       : QueueDependency<T, Key, Dependency, Resource, Cost>(
             std::move(name), id, parent, input, output, Entries, Resources,
-            NoDependency, std::move(key), std::move(dependency),
+            NoDependency, static_cast<size_t>(NoDependency), std::move(key),
+            std::move(dependency),
             std::move(resource), std::move(cost), observations) {}
 };
 

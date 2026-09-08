@@ -1,0 +1,19 @@
+cmake --build .pycircuit_out/acir/dev-llvm22 --target GfsimTests CodeGenTests acir-queue-plan acir-queue-cxxgen acir-queue-pycgen acir-opt -j 8
+.pycircuit_out/acir/dev-llvm22/bin/GfsimTests
+.pycircuit_out/acir/dev-llvm22/bin/CodeGenTests
+PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=.pycircuit_out/contracts-venv/lib/python3.14/site-packages:python/agentic-circuit/src:python/semantic-core/src pytest -q tests/python/agentic-circuit/python_frontend/test_jit_blocks.py
+AC_PYTHON_ONLY=1 PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=python/semantic-core/src:python/agentic-circuit/src:tests/python/agentic-circuit .pycircuit_out/contracts-venv/bin/python tools/agentic-circuit/check-contracts.py
+AC_PYTHON_ONLY=1 PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=python/semantic-core/src:python/agentic-circuit/src:tests/python/agentic-circuit .pycircuit_out/contracts-venv/bin/python -m unittest discover -s tests/python/agentic-circuit/contracts -p 'test_*.py'
+AC_PYTHON_ONLY=1 PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=python/semantic-core/src:python/agentic-circuit/src:tests/python/agentic-circuit .pycircuit_out/contracts-venv/bin/python -m unittest discover -s tests/python/agentic-circuit/python_frontend -p 'test_*.py'
+AC_PYTHON_ONLY=1 PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=python/semantic-core/src:python/agentic-circuit/src:tests/python/agentic-circuit .pycircuit_out/contracts-venv/bin/python -m unittest discover -s tests/python/agentic-circuit/cli -p 'test_all_commands.py'
+AC_PYTHON_ONLY=1 PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=python/semantic-core/src:python/agentic-circuit/src:tests/python/agentic-circuit .pycircuit_out/contracts-venv/bin/python -m unittest discover -s tests/python/agentic-circuit/cli -p 'test_workspace.py'
+cmake --build .pycircuit_out/acir/dev-llvm22 --target check-acir -j 8
+PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=.pycircuit_out/contracts-venv/lib/python3.14/site-packages:python/agentic-circuit/src:python/semantic-core/src pytest -q tests/integration/agentic-circuit/e2e/test_persistent_schedule.py tests/integration/agentic-circuit/e2e/test_queue_codegen.py -k 'frozen_schedule or reusable_oldest_ready_isq'
+pytest -q tests/unit -m unit
+.pycircuit_out/contracts-venv/bin/python tools/agentic-circuit/check-contracts.py
+python3 tools/check-pyc-inventory.py
+python3 tools/agentic-circuit/check-ir-coverage.py
+python3 flows/tools/check_api_hygiene.py python/pycircuit/src/pycircuit examples/pycircuit docs README.md
+mkdocs build --strict
+pre-commit run --all-files
+python3 flows/tools/check_decision_status.py --rfc docs/rfcs/pyc6-decisions.md --status docs/gates/decision_status_v6.md --out docs/gates/logs/20260909-issue19-schedule-v2/decision_status_report.json --require-no-deferred --require-all-verified --require-concrete-evidence --require-existing-evidence

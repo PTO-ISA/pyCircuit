@@ -773,6 +773,22 @@ left_ready, right_ready = left.barrier(
 它们可以组合成 issue/execute/retire 风格架构，但这些应用阶段仍是 scope，而不是新
 opcode。
 
+高层 `ac.schedule(...)` 选择 `v2` provider：key/waits-for 最多 16 bit，
+`no_dependency` 必须显式提供并且是该类型的全 1 值。gfsim 为整个 key domain 保留 bounded completion
+bitmap，producer 离开 resident/output window 后，后到的 dependent 仍能看到 completion；
+同一 key 在 reset 前不得复用。Frozen ACIR 保存 `ac.schedule_provider = "v2"`；
+`ac.dependency` verifier 在 codegen 前拒绝未知 provider、过宽或不匹配的 key，以及非全 1
+sentinel。QueueGraph 保留并再次核验该 identity，据此生成 `gfsim::Schedule`；普通 `depend`
+仍保持 resident-only `QueueDependency` 语义。
+
+PTO specialization 使用 bounded physical-tag pool 与 generation scoreboard。`NpuScheduleV2`
+只借用 parent-owned dispatch/completion/recycle 与四个 per-engine issued Queue；同一
+Arbitrate 内按 sequence 做 shadow rename 并保持 read-before-write，多 source tag 分别等待
+exact-generation completion，recycle 只接受被替换的精确 generation。free tag、oldest-ready、
+capacity 和 output backpressure 都确定性处理，不发生 partial commit。invalid/stale update
+以及 stable ID、sequence 或 engine class 非法的 dispatch 只消费一次并记录 reject
+observation，不改变 scoreboard。PYC/Verilog multi-port lane 在 #21 完成前明确 fail-close。
+
 ```python
 completed = issued.depend(
     key=lambda item: item.sequence,

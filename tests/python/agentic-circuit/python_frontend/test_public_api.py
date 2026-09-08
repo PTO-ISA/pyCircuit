@@ -254,6 +254,7 @@ class PublicApiTest(unittest.TestCase):
                 waits_for=object(),
                 resource=object(),
                 cost=object(),
+                no_dependency=255,
             ),
             lambda: api.engine(object(), cost=object()),
             lambda: api.reorder(object(), by=object()),

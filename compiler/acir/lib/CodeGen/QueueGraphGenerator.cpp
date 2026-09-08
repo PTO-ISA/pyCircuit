@@ -4312,11 +4312,18 @@ llvm::Expected<std::string> generateQueueGraphCpp(const QueueGraphPlan &plan) {
                         queueMembers[block->outputs[0]], ", ", block->capacity,
                         ", ", block->start, ")");
     } else if (block->kind == "dependency") {
-      appendInitializer(initializers, member, "(\"", instanceName, "\", ",
-                        blockIds[key], ", ", *parent, ", ",
-                        queueMembers[block->inputs[0]], ", ",
-                        queueMembers[block->outputs[0]], ", ", block->capacity,
-                        ", ", block->resources, ", ", block->noDependency, ")");
+      if (block->provider == "v2")
+        appendInitializer(initializers, member, "(\"", instanceName, "\", ",
+                          blockIds[key], ", ", *parent, ", ",
+                          queueMembers[block->inputs[0]], ", ",
+                          queueMembers[block->outputs[0]], ")");
+      else
+        appendInitializer(initializers, member, "(\"", instanceName, "\", ",
+                          blockIds[key], ", ", *parent, ", ",
+                          queueMembers[block->inputs[0]], ", ",
+                          queueMembers[block->outputs[0]], ", ",
+                          block->capacity, ", ", block->resources, ", ",
+                          block->noDependency, ")");
     } else if (block->kind == "credit") {
       appendInitializer(
           initializers, member, "(\"", instanceName, "\", ", blockIds[key],
@@ -4831,10 +4838,19 @@ llvm::Expected<std::string> generateQueueGraphCpp(const QueueGraphPlan &plan) {
                               generatorError("dependency input missing"));
       if (!type)
         return type.takeError();
-      output << "  gfsim::QueueDependency<" << *type << ", block_" << index
-             << "_key_policy, block_" << index << "_dependency_policy, block_"
-             << index << "_resource_policy, block_" << index
-             << "_cost_policy> block_" << index << "_;\n";
+      if (block->provider == "v2")
+        output << "  gfsim::Schedule<" << *type << ", " << block->capacity
+               << ", " << block->resources << ", " << block->noDependency
+               << ", block_" << index << "_key_policy, block_" << index
+               << "_dependency_policy, block_" << index
+               << "_resource_policy, block_" << index << "_cost_policy> block_"
+               << index << "_;\n";
+      else
+        output << "  gfsim::QueueDependency<" << *type << ", block_" << index
+               << "_key_policy, block_" << index
+               << "_dependency_policy, block_" << index
+               << "_resource_policy, block_" << index
+               << "_cost_policy> block_" << index << "_;\n";
     } else if (block->kind == "credit") {
       const QueuePlan *input = findQueue(plan, block->inputs[0]);
       auto type = input ? cppType(input->payloadType)

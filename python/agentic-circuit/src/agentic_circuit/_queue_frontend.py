@@ -6177,6 +6177,7 @@ def parse_queue_program(
                     cost = field_expression(keyword_value(call, "cost"), incoming)
                     capacity = _positive_int(call, "entries", 16)
                     resources = _positive_int(call, "resources", 1)
+                    keyword_value(call, "no_dependency")
                     no_dependency = _nonnegative_int(call, "no_dependency", 0)
                     depth = _positive_int(call, "depth", 1)
                     latency = _positive_int(call, "latency", 1)
@@ -10514,6 +10515,20 @@ def lower_queue_program(
                     raise QueueFrontendError(
                         "ACPY-QUEUE-014: key and waits_for types must match"
                     )
+                key_width = _epoch_05_integer_width(emitted[0][1])
+                if dependency.provider == "schedule" and (
+                    not isinstance(emitted[0][1], BitsType)
+                    or not isinstance(emitted[1][1], BitsType)
+                    or emitted[0][1] != emitted[1][1]
+                    or key_width is None
+                    or key_width > 16
+                    or dependency.no_dependency != (1 << key_width) - 1
+                ):
+                    raise QueueFrontendError(
+                        "ACPY-QUEUE-014: schedule requires exact matching unsigned "
+                        "key/waits_for bits no wider than 16 and an all-ones "
+                        "no_dependency sentinel"
+                    )
                 output = (
                     dependency.output_name
                     if not path
@@ -10542,8 +10557,13 @@ def lower_queue_program(
                         f"{indent}  ac.dependency.yield %{value} : "
                         f"!ac.var<{_render_type(value_type)}>"
                     )
+                provider = (
+                    ', ac.schedule_provider = "v2"'
+                    if dependency.provider == "schedule"
+                    else ""
+                )
                 lines.append(
-                    f'{indent}}} {{ac.name = "{dependency.output_name}"}} : '
+                    f'{indent}}} {{ac.name = "{dependency.output_name}"{provider}}} : '
                     f"!ac.queue<{_render_type(incoming.payload)}> -> "
                     f"!ac.queue<{_render_type(incoming.payload)}>"
                 )

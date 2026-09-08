@@ -3,6 +3,7 @@
 
 #include "gfsim/components.h"
 #include "gfsim/observation.h"
+#include "gfsim/queue.h"
 #include "gfsim/trace.h"
 
 #include <array>
@@ -107,20 +108,60 @@ struct NpuIssueQueueCapacities {
   size_t tma = 0;
 };
 
+struct NpuPhysicalTag {
+  uint32_t tag = 0;
+  uint64_t generation = 0;
+
+  auto operator<=>(const NpuPhysicalTag &) const = default;
+};
+
 struct NpuDependency {
   uint64_t producerSequenceId = 0;
   std::string tileIdentity;
   uint64_t flowId = 0;
+  uint32_t tag = 0;
+  uint64_t generation = 0;
 
   bool operator==(const NpuDependency &) const = default;
+};
+
+struct NpuOutputRename {
+  std::string tileIdentity;
+  NpuPhysicalTag output;
+  std::optional<NpuPhysicalTag> replaced;
+
+  bool operator==(const NpuOutputRename &) const = default;
 };
 
 struct NpuIssueEntry {
   NpuInstruction instruction;
   ObjectId stableObjectId = kInvalidObjectId;
   std::vector<NpuDependency> derivedDependencies;
+  std::vector<NpuOutputRename> outputRenames;
 
   bool operator==(const NpuIssueEntry &) const = default;
+};
+
+struct NpuCompletion {
+  uint64_t sequenceId = 0;
+  std::vector<NpuPhysicalTag> outputTags;
+
+  bool operator==(const NpuCompletion &) const = default;
+};
+
+struct NpuDispatch {
+  NpuInstruction instruction;
+  ObjectId stableObjectId = kInvalidObjectId;
+
+  bool operator==(const NpuDispatch &) const = default;
+};
+
+enum class NpuDispatchValidation : uint8_t {
+  Acceptable,
+  InvalidEngineClass,
+  InvalidStableObjectId,
+  DuplicateSequence,
+  StaleSequence,
 };
 
 /// Block-local tile rename state and four finite deterministic issue queues.
@@ -132,11 +173,19 @@ public:
   NpuDependencyTracker(std::string name, ObjectId id, SimObject *parent,
                        NpuIssueQueueCapacities capacities,
                        ObservationSink *observations = nullptr);
+  NpuDependencyTracker(std::string name, ObjectId id, SimObject *parent,
+                       NpuIssueQueueCapacities capacities,
+                       size_t physicalTagCapacity,
+                       ObservationSink *observations = nullptr);
 
   bool proposeDispatch(const NpuInstruction &instruction,
                        ObjectId stableObjectId);
+  NpuDispatchValidation validateDispatch(const NpuInstruction &instruction,
+                                         ObjectId stableObjectId) const;
   bool proposeIssue(NpuEngineClass engine);
   bool proposeComplete(uint64_t sequenceId);
+  bool proposeComplete(NpuCompletion completion);
+  bool proposeRecycle(NpuPhysicalTag tag);
 
   void doArbitrate(Epoch epoch) override;
   void doXfer(Epoch epoch) override;
@@ -147,17 +196,30 @@ public:
   void reset() override;
 
   const NpuIssueEntry *proposedIssue(NpuEngineClass engine) const;
+  const NpuIssueEntry *oldestReadyIssue(NpuEngineClass engine) const;
   const std::vector<NpuIssueEntry> &issued() const { return issued_; }
   std::vector<NpuIssueEntry> queued(NpuEngineClass engine) const;
   std::vector<NpuDependency> dependencies(uint64_t sequenceId) const;
   bool isReady(uint64_t sequenceId) const;
   bool dispatchAccepted(uint64_t sequenceId) const;
   size_t queueSize(NpuEngineClass engine) const;
+  size_t issueWindowOccupancy(NpuEngineClass engine) const;
+  bool hasReadyIssue(NpuEngineClass engine) const;
+  size_t physicalTagCapacity() const { return tags_.size(); }
+  size_t freeTagCount() const;
+  size_t liveFlowCount() const { return usedFlowIds_.size(); }
+  size_t outstandingProducerCount() const { return outstanding_.size(); }
+  bool tagReady(NpuPhysicalTag tag) const;
+  std::optional<NpuPhysicalTag> producerTag(uint64_t blockId,
+                                            std::string_view tile) const;
+  bool dispatchWillCommit(uint64_t sequenceId) const;
   const std::vector<uint64_t> &rejectedDispatches() const {
     return rejectedDispatches_;
   }
 
 private:
+  friend class NpuScheduleV2;
+
   using TileKey = std::pair<uint64_t, std::string>;
 
   struct DispatchProposal {
@@ -165,32 +227,104 @@ private:
     ObjectId stableObjectId = kInvalidObjectId;
   };
 
+  struct TagState {
+    uint64_t generation = 0;
+    uint64_t producerSequenceId = 0;
+    bool allocated = false;
+    bool ready = false;
+  };
+
   static size_t engineIndex(NpuEngineClass engine);
   size_t capacity(NpuEngineClass engine) const;
   bool knownSequence(uint64_t sequenceId) const;
   bool ready(const NpuIssueEntry &entry) const;
+  void cancelIssueProposals();
+  void cancelAllProposals();
+
+  struct OutstandingProducer {
+    NpuEngineClass engine = NpuEngineClass::Scalar;
+    std::vector<NpuPhysicalTag> outputTags;
+  };
 
   NpuIssueQueueCapacities capacities_;
   std::array<std::vector<NpuIssueEntry>, 4> queues_;
   std::vector<DispatchProposal> dispatchProposals_;
   std::vector<NpuIssueEntry> acceptedDispatches_;
   std::vector<uint64_t> proposedRejectedDispatches_;
+  std::set<uint64_t> proposedTagStalls_;
+  std::map<uint64_t, NpuEngineClass> proposedWindowStalls_;
   std::vector<uint64_t> rejectedDispatches_;
   std::set<uint64_t> acceptedDispatchSequences_;
   std::array<std::optional<NpuIssueEntry>, 4> issueProposals_;
   std::vector<NpuIssueEntry> issued_;
-  std::vector<uint64_t> completionProposals_;
-  std::set<uint64_t> outstandingSequences_;
-  std::set<uint64_t> completedSequences_;
-  std::map<TileKey, uint64_t> producers_;
+  std::vector<NpuCompletion> completionProposals_;
+  std::vector<NpuPhysicalTag> recycleProposals_;
+  std::vector<NpuPhysicalTag> acceptedRecycles_;
+  std::map<uint64_t, OutstandingProducer> outstanding_;
+  std::map<TileKey, NpuPhysicalTag> producers_;
+  std::vector<TagState> tags_;
   std::set<uint64_t> usedFlowIds_;
   std::optional<uint64_t> lastDispatchedSequence_;
   std::array<size_t, 4> highWatermarks_{};
+  std::array<size_t, 4> windowHighWatermarks_{};
+  std::array<uint64_t, 4> totalWindowStalls_{};
   uint64_t totalDispatches_ = 0;
   uint64_t totalDispatchStalls_ = 0;
   uint64_t totalIssues_ = 0;
   uint64_t totalDependencyWakeups_ = 0;
+  uint64_t totalTagPoolStalls_ = 0;
+  uint64_t totalTagRecycles_ = 0;
   Epoch lastUpdate_;
+};
+
+/// Queue-backed schedule-v2 provider. All Queue storage remains owned by the
+/// parent module; this object borrows endpoints and atomically publishes one
+/// dispatch, one completion/recycle, and at most one issue per engine/epoch.
+/// Stale completion/recycle tokens are consumed once as observable rejects so
+/// an invalid update cannot permanently block a later valid Queue token.
+class NpuScheduleV2 final : public SimObject {
+public:
+  static constexpr std::string_view contractName = "ac.schedule.v2";
+  static constexpr ObjectKind componentKind = ObjectKind::Scheduler;
+
+  NpuScheduleV2(std::string name, ObjectId id, SimObject *parent,
+                NpuIssueQueueCapacities capacities, size_t physicalTagCapacity,
+                SimQueue<NpuDispatch> &dispatch,
+                SimQueue<NpuCompletion> &completion,
+                std::array<SimQueue<NpuIssueEntry> *, 4> issued,
+                SimQueue<NpuPhysicalTag> *recycle = nullptr,
+                ObservationSink *observations = nullptr);
+
+  void doWork(Epoch epoch) override;
+  void doArbitrate(Epoch epoch) override;
+  void doXfer(Epoch epoch) override;
+  bool hasPendingCommit() const override;
+  bool isRunnable(Epoch epoch) const override;
+  RuntimeObjectState runtimeState(Epoch epoch) const override;
+  void collectStatistics(std::vector<StatSnapshot> &out) const override;
+  void reset() override;
+  bool validate() const;
+
+  const NpuDependencyTracker &tracker() const { return tracker_; }
+
+private:
+  bool endpointsOwnedByParent() const;
+  void cancelPrepared();
+
+  NpuDependencyTracker tracker_;
+  SimQueue<NpuDispatch> &dispatch_;
+  SimQueue<NpuCompletion> &completion_;
+  std::array<SimQueue<NpuIssueEntry> *, 4> issued_;
+  SimQueue<NpuPhysicalTag> *recycle_ = nullptr;
+  bool candidate_ = false;
+  bool fired_ = false;
+  bool completionRejected_ = false;
+  bool recycleRejected_ = false;
+  bool dispatchRejected_ = false;
+  uint64_t totalCompletionRejects_ = 0;
+  uint64_t totalRecycleRejects_ = 0;
+  uint64_t totalDispatchRejects_ = 0;
+  Epoch lastRejectUpdate_;
 };
 
 struct NpuExecutionConfig {

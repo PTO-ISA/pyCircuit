@@ -937,6 +937,19 @@ LogicalResult DependencyOp::verify() {
         "capacity, resources, depth, and latency must be positive");
   if (getNoDependency() < 0)
     return emitOpError("no_dependency must be non-negative");
+  if ((*this)->getAttr("schedule_provider"))
+    return emitOpError(
+        "schedule provider must use the canonical 'ac.schedule_provider' "
+        "attribute");
+  Attribute providerValue = (*this)->getAttr("ac.schedule_provider");
+  StringAttr provider;
+  if (providerValue) {
+    provider = dyn_cast<StringAttr>(providerValue);
+    if (!provider)
+      return emitOpError("ac.schedule_provider must be a StringAttr");
+  }
+  if (provider && provider.getValue() != "v2")
+    return emitOpError("schedule provider must be 'v2'");
 
   Type payload = cast<QueueType>(getInput().getType()).getElementType();
   Type argumentType = VarType::get(getContext(), payload);
@@ -977,6 +990,15 @@ LogicalResult DependencyOp::verify() {
     return failure();
   if (*key != *dependency)
     return emitOpError("key and waits_for must use the same integer Var type");
+  if (provider) {
+    if (key->getWidth() > 16)
+      return emitOpError(
+          "schedule v2 key and waits_for width must be at most 16");
+    const uint64_t allOnes = (uint64_t{1} << key->getWidth()) - 1;
+    if (static_cast<uint64_t>(getNoDependency()) != allOnes)
+      return emitOpError(
+          "schedule v2 no_dependency must be the key type's all-ones value");
+  }
   if (dependency->getWidth() < 64 &&
       static_cast<uint64_t>(getNoDependency()) >=
           (uint64_t{1} << dependency->getWidth()))

@@ -347,6 +347,12 @@ PYC semantic contracts.
   typed and bounded opcode/engine/identity/Tile/scalar fields, exact 79-leaf
   mapping and serialization, explicit provider-local exclusion, wide immutable
   gfsim storage, and identical PYC C++/Verilog word results.
+- [x] Close issue #19 with Decision 0231 schedule-v2 semantics: persistent
+  bounded completion history for high-level Schedule, Frozen ACIR provider
+  identity, generation-qualified physical-Tile rename, multi-source readiness,
+  four finite issue windows, Queue-backed atomic gfsim execution, stable
+  observations, stale-update rejection, and long-run tag reuse. Keep the
+  multi-port PYC/Verilog lane boundary fail-closed for #21.
 - [x] Close #46 and #48 framework prerequisites before their dependent
   DavinciOO H3 implementations. Decision 0222 places new design-program work
   under `designs/davincioo/`; independent contracts/modules may proceed when

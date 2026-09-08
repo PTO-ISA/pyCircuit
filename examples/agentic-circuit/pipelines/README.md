@@ -146,6 +146,11 @@ a frozen three-stage Queue chain before ACIR publication.
 register-bank and handshake semantics in typed gfsim, PYC C++, and Verilog.
 `pyc_dependency_pipeline.py` verifies predecessor wakeup, execution countdown,
 out-of-order completion, and PYC C++/Verilator cycle equivalence.
+`persistent_schedule.py` verifies that high-level `ac.schedule` keeps its provider
+identity through Frozen ACIR and QueueGraph, retains bounded completion after a
+producer leaves the output window, and generates the gfsim v2 specialization.
+The multi-port PTO schedule provider remains a gfsim boundary until #21 adds
+its explicit scalar lane lowering.
 `pyc_barrier_pipeline.py` verifies heterogeneous positional payloads and an
 all-input/all-output atomic synchronization firing shared by typed gfsim, PYC
 C++, and Verilog.
