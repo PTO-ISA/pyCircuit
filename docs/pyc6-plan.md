@@ -41,7 +41,7 @@ remains distinct.
 
 ### Queue/Table dataflow observation
 
-- [x] Define Decision 0227's recording/presentation boundary and versioned format.
+- [x] Define Decision 0228's recording/presentation boundary and versioned format.
 - [x] Separate lightweight state notifications from the recording adapter; register
   Queue/Table state and topology at model assembly, with external payload codecs.
 - [x] Verify opt-in gfsim Queue/Table operations, token identities, atomic state
@@ -337,6 +337,14 @@ PYC semantic contracts.
   - [x] Compare explicit/captured I2 state, Queue, rule and generated C++ shape;
     run backpressure, cancel/sink-decision, retry, release and instance-isolation
     gates with unchanged conflict and output behavior.
+- [x] Complete issue #63 OPT-06 framework prerequisite for static fabric
+  generation: allow `ac.array` to elaborate supported Queue-producing calls and
+  allow static collection elements as `apply`/`merge` receivers, with no
+  runtime Queue collection or new primitive.
+- [x] Implement the dependent TMU BGF, GPE IPF, and MEM NOC H3 XBAR pilots from
+  one static four-egress template each; preserve their exact packet schemas,
+  topology, latency tuples, FIFO/arbitration, backpressure, reset, and instance
+  semantics through gfsim and admitted PYC C++/Verilog build gates.
 - [x] Close #46 and #48 framework prerequisites before their dependent
   DavinciOO H3 implementations. Decision 0222 places new design-program work
   under `designs/davincioo/`; independent contracts/modules may proceed when

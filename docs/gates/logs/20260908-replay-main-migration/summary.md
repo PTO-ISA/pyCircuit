@@ -62,3 +62,26 @@ Upstream merged: `d6bc7baf` (22 commits since common base `0e014154`).
   or a PYC pass. Final upstream checks deliberately target the gfsim cases.
 - Full disposable logs and regenerated HTML are under
   `.pycircuit_out/replay/main-migration/`.
+
+## Latest upstream follow-up
+
+During final fetch main advanced by two commits to `b69cbd7d` (#77 and #78).
+The first merge is retained as `8e8d7ce0`; the follow-up incorporates indexed
+Queue operator-array elaboration and the static xbar pilots. Only the decision
+corpus/status conflicted: upstream now owns 0227, so the replay decision is
+finally 0228. Active references are updated; the first-phase results above
+retain their original revision/number context. No C++ runtime or codegen changed
+in this second upstream update. Frontend, ROB/backpressure and decision/docs
+checks are rerun for the final combined version.
+
+Final follow-up results: frontend 256 tests (252 pass / 4 existing skips),
+ROB plus host backpressure 4/4 pass, xbar source/topology and gfsim 6/6 pass,
+contracts 42/42 pass, catalog and changed-file pre-commit pass. Documentation
+build passes. All four final ROB recordings again match the retained baseline
+exactly (`comparison-latest.json`); scheduler counters are unchanged. Strict
+decision status still has only the same 35 historical missing paths.
+
+The first follow-up contract run overlapped `git add`; its read-only coverage
+check compares repository status and detected that unrelated index change.
+Rerunning the full contract suite without concurrent workspace/index mutations
+passed all 42 tests (`contracts-latest-final.log`).

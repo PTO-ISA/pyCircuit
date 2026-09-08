@@ -1,0 +1,14 @@
+.................................F........
+======================================================================
+FAIL: test_read_only_checker_accepts_the_repository (test_ir_coverage.IRCoverageTest.test_read_only_checker_accepts_the_repository)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/lc/pyCircuit/tests/python/agentic-circuit/contracts/test_ir_coverage.py", line 129, in test_read_only_checker_accepts_the_repository
+    self.assertEqual(before, after, "coverage checker modified the repository")
+AssertionError: 'M  d[489 chars].md\n M docs/development/acir/queue-table-flow[2837 chars]md\n' != 'M  d[489 chars].md\nM  docs/development/acir/queue-table-flow[2837 chars]md\n'
+Diff is 3735 characters long. Set self.maxDiff to None to see it. : coverage checker modified the repository
+
+----------------------------------------------------------------------
+Ran 42 tests in 25.317s
+
+FAILED (failures=1)

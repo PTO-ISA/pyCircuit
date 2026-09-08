@@ -5,7 +5,9 @@
 - NDF refinement: **L2 microarchitecture**; module-specific L1 behavior links still require review.
 - Recommended disposition: **leaf** (proposal, not registry approval)
 - Proposed implementation path, if accepted as an independent leaf: `designs/davincioo/mem/noc/xbar.py`
-- Current design-program execution status: **not implemented**. External source evidence is recorded separately.
+- Current design-program execution status: **implemented with static egress
+  generation; gfsim behavior and PYC C++/Verilog build verified; H2/H1
+  integration remains pending**.
 
 Existing registered transport-only leaf with frozen pilot Queue ports and NoCPacket schema.
 
@@ -50,16 +52,31 @@ gfsim execution is the first implementation gate. PYC/RTL obligations apply to t
 
 - Decide how the four-port pilot maps to the selected production router/VC topology.
 
+## Focused implementation evidence
+
+- `designs/davincioo/mem/noc/xbar.py` freezes four NOC ports, round-robin
+  ingress/completion merges, destination routing, and static latencies
+  `(1, 2, 3, 5)` from one indexed `apply` template.
+- `pytest -q designs/davincioo/tests/fabric/test_xbar_static_generation.py`
+  checks the frozen packet schema, exact Queue topology, all four destinations,
+  latency offsets, full-packet identity, per-ingress FIFO under contention,
+  backpressure retention, exactly-once completion, in-flight reset, active
+  instance isolation, and PYC C++/Verilog build closure.
+- The static template depends on [Decision 0227](../../../../docs/rfcs/pyc6-decisions.md#decision-0227-static-queue-collections-elaborate-supported-operator-families).
+  Framework and design gate results are archived under
+  `docs/gates/logs/20260908-issue63-opt06-static-queue-array/` and
+  `docs/gates/logs/20260908-issue63-opt06-davincioo-xbars/`.
+
 ## Contributor closure
 
-- [ ] Claim the candidate and identify its parent/containing state owner.
-- [ ] Resolve disposition; aliases and contained state must not duplicate hardware.
+- [x] Claim the candidate and identify its parent/containing state owner.
+- [x] Resolve disposition; aliases and contained state must not duplicate hardware.
 - [ ] Link the relevant NDF L0 intent and L1 behavior to this L2 implementation.
 - [ ] Freeze port payload fields/widths, producer/consumer, parent seam, state/reset and timing profile.
-- [ ] Define functional branches, all-or-none effects, contention and cancel/recovery lifecycle.
-- [ ] Link a minimal failing gate for each actual framework/primitive gap and merge that shared fix first.
-- [ ] Implement the accepted owner and design-local expected-result tests.
-- [ ] Prove backpressure, identity/generation, exactly-once effects and isolated instances in gfsim.
+- [x] Define functional branches, all-or-none effects, contention and cancel/recovery lifecycle.
+- [x] Link a minimal failing gate for each actual framework/primitive gap and merge that shared fix first.
+- [x] Implement the accepted owner and design-local expected-result tests.
+- [x] Prove backpressure, identity/generation, exactly-once effects and isolated instances in gfsim.
 - [ ] Integrate into H2/H1 and record admitted PYC/RTL evidence or remaining boundary.
 
 ## Source evidence

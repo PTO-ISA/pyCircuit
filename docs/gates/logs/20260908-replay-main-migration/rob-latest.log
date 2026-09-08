@@ -1,0 +1,9 @@
+test_circular_rob_wraps_rejects_stale_completion_and_recovers (test_queue_codegen.QueueCodegenTest.test_circular_rob_wraps_rejects_stale_completion_and_recovers) ... ok
+test_host_result_boundary_preserves_real_rob_backpressure (test_queue_codegen.QueueCodegenTest.test_host_result_boundary_preserves_real_rob_backpressure) ... ok
+test_reusable_circular_rob_preserves_rules_and_instance_state (test_queue_codegen.QueueCodegenTest.test_reusable_circular_rob_preserves_rules_and_instance_state) ... ok
+test_reusable_rob_scan_and_activation_match_every_tick (test_queue_codegen.QueueCodegenTest.test_reusable_rob_scan_and_activation_match_every_tick) ... ok
+
+----------------------------------------------------------------------
+Ran 4 tests in 35.113s
+
+OK

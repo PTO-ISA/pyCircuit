@@ -48,3 +48,19 @@ excluding historical `docs/gates/logs/` evidence and deleted files. Cache:
 Black/Ruff/pre-commit were installed in the fixed Python environment because
 `.pre-commit-config.yaml` requires them. Browser and hooks ran outside the sandbox
 with approval; no generated dependencies or browser evidence were staged.
+
+## Follow-up for b69cbd7d
+
+```sh
+git fetch origin main
+git merge --no-commit --no-ff origin/main
+RUN python -m unittest discover -s tests/python/agentic-circuit/python_frontend -p 'test_*.py'
+RUN env PYC_RECORD_REPLAY=1 PYC_ROB_ARTIFACT_DIR=/home/lc/pyCircuit/.pycircuit_out/replay/main-migration/latest-verified python -m unittest discover -s tests/integration/agentic-circuit/e2e -p test_queue_codegen.py -k rob -v
+RUN python -m pytest designs/davincioo/tests/fabric/test_xbar_static_generation.py -k 'source_and_topology or gfsim_preserves_behavior' -q
+RUN python designs/davincioo/tools/check_catalog.py
+RUN python docs/gates/logs/20260908-replay-main-migration/compare-latest.py
+```
+
+Contracts, strict decision status and docs were rerun with the same commands.
+The last pre-commit run checks the updated decision/spec/plan/flow docs and
+Queue frontend source/tests using the already installed hooks.

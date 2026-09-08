@@ -1,0 +1,35 @@
+{
+  "run_id": "20260908-issue63-opt06-davincioo-xbars",
+  "status": "passed",
+  "base_revision": "912b8c43ea12609670a6fc9d35d8fe0b14f4eb80",
+  "decision_ids": ["0227"],
+  "issue": 63,
+  "checklist": ["OPT-06a", "OPT-06b", "OPT-06c"],
+  "designs": [
+    "DAV-TMU-BGF-XBAR-0001",
+    "DAV-GPE-IPF-XBAR-0001",
+    "DAV-MEM-NOC-XBAR-0001"
+  ],
+  "results": {
+    "xbar_source_behavior_and_build": {"passed": 9, "skipped": 0, "failed": 0},
+    "xbar_local_python_only_mode": {"passed": 6, "skipped": 3, "failed": 0},
+    "catalog": {"h1": 7, "h2": 31, "h3_candidates": 240, "cards": 278, "passed": true},
+    "primitive_selection": {"passed": 16, "failed": 0},
+    "unit": {"passed": 90, "failed": 0},
+    "agentic_repository_contracts": {"passed": true},
+    "pyc_inventory": {"operations": 41, "types": 2, "passed": true},
+    "ir_coverage": {"passed": true},
+    "pre_commit": {"passed": true},
+    "mkdocs_strict": {"passed": true},
+    "decision_status": {"rows": 227, "deferred": 0, "passed": true}
+  },
+  "metrics": {
+    "external_source_loc": 277,
+    "static_template_source_loc": 211,
+    "source_loc_removed": 66,
+    "apply_calls_per_design": 1,
+    "expanded_transforms_per_design": 4,
+    "pyc_cpp_and_verilog_built_for_all_designs": true
+  },
+  "skill_evolve": "no-update"
+}

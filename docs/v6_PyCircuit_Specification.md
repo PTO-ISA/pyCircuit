@@ -702,7 +702,7 @@ outs = domain.call(alu, inputs={...}, tier=1)             # 模块级缺省 tier
 
 ## Agentic Queue/Table 数据流观察
 
-Decision 0227 为 gfsim 提供可选的 Queue/Table 提交记录，包含对象拓扑、
+Decision 0228 为 gfsim 提供可选的 Queue/Table 提交记录，包含对象拓扑、
 flat entry 描述、Queue 元素标识、表行访问和原子提交前后值。
 记录使用 `PYC6TRC3` 容器，默认关闭，不改变 CAS、规则执行或 activation 语义。
 组件只提供同步状态观察通知，记录适配器统一管理 token、快照和编码；

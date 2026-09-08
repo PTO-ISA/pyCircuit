@@ -19,6 +19,10 @@ EXPECTED = {
     "MEM": 22,
     "GPE": 20,
 }
+EXECUTION_STATUSES = {
+    "not-implemented-in-design-program",
+    "implemented-and-verified-in-design-program",
+}
 
 
 def require(condition: bool, message: str) -> None:
@@ -61,6 +65,10 @@ def main() -> None:
             row["disposition_recommendation"]
             in {"leaf", "state_schema", "interface", "alias", "assembly", "review"},
             f"{name}: invalid disposition",
+        )
+        require(
+            row["execution_status"] in EXECUTION_STATUSES,
+            f"{name}: invalid execution status",
         )
         require(row["evidence"], f"{name}: missing evidence")
         for evidence in row["evidence"]:
@@ -131,10 +139,16 @@ def main() -> None:
         )
         require((ROOT / row["card"]).is_file(), f"{row['key']}: missing assembly card")
     checklist = (ROOT / "MODULE_CHECKLIST.md").read_text()
-    for name in ids:
+    for row in modules:
+        name = row["candidate_id"]
+        marker = (
+            "x"
+            if row["execution_status"] == "implemented-and-verified-in-design-program"
+            else " "
+        )
         require(
-            checklist.count(f"[{name} —") == 1,
-            f"{name}: missing or duplicated checklist entry",
+            checklist.count(f"- [{marker}] [{name} —") == 1,
+            f"{name}: checklist execution status drift",
         )
     for path in ROOT.rglob("*.md"):
         for target in re.findall(r"\]\(([^)]+)\)", path.read_text()):

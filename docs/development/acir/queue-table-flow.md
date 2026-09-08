@@ -1,6 +1,6 @@
 # Queue and Table flow recording
 
-Decision 0227 adds opt-in dataflow observation to Agentic Circuit/gfsim. It does
+Decision 0228 adds opt-in dataflow observation to Agentic Circuit/gfsim. It does
 not change rule semantics, the Queue/Table commit barrier, activation, or the
 CycleAwareSignal authoring contract. PYC/Verilator recording is outside this lane.
 

@@ -2779,6 +2779,144 @@ class QueueFrontendTest(unittest.TestCase):
         )
         self.assertEqual(lowered, lower_queue_source(reordered, "pipeline"))
 
+    def test_static_array_generates_indexed_queue_operations(self) -> None:
+        from agentic_circuit._queue_frontend import (
+            QueueFrontendError,
+            lower_queue_source,
+        )
+
+        source = """
+import agentic_circuit as ac
+
+@ac.system
+def pipeline() -> None:
+    inputs = ac.array(2, lambda index: ac.source(int))
+    outputs = ac.array(
+        2,
+        lambda index: inputs[index].apply(
+            lambda item: item + index,
+            depth=1,
+            latency=(1, 3)[index],
+        ),
+    )
+    completed = outputs[0].merge(
+        outputs[1], policy="round_robin", depth=2, latency=1
+    )
+    ac.sink(completed)
+"""
+        lowered = lower_queue_source(source, "pipeline")
+        self.assertEqual(2, lowered.count(" = ac.transform "))
+        self.assertIn(
+            "%outputs__0 = ac.transform %inputs__0 depths [1] latencies [1]",
+            lowered,
+        )
+        self.assertIn(
+            "%outputs__1 = ac.transform %inputs__1 depths [1] latencies [3]",
+            lowered,
+        )
+        self.assertIn(
+            '%completed = ac.merge %outputs__0, %outputs__1 policy "round_robin"',
+            lowered,
+        )
+        self.assertEqual(lowered, lower_queue_source(source, "pipeline"))
+        static_extent = source.replace(
+            "def pipeline() -> None:",
+            "def pipeline(count: ac.const[int]) -> None:",
+        ).replace("outputs = ac.array(\n        2,", "outputs = ac.array(\n        count,")
+        self.assertEqual(
+            lowered,
+            lower_queue_source(
+                static_extent, "pipeline", static_arguments={"count": 2}
+            ),
+        )
+        apply_expression = """inputs[index].apply(
+            lambda item: item + index,
+            depth=1,
+            latency=(1, 3)[index],
+        )"""
+        indexed_operators = {
+            "credit": """inputs[index].credit(
+            cost=lambda item: 1,
+            credits=2,
+            depth=1,
+            latency=(1, 3)[index],
+        )""",
+            "reorder": """inputs[index].reorder(
+            key=lambda item: item,
+            capacity=4,
+            start=0,
+            depth=1,
+            latency=(1, 3)[index],
+        )""",
+            "dependency": """inputs[index].depend(
+            key=lambda item: item,
+            waits_for=lambda item: item,
+            resource=lambda item: 0,
+            cost=lambda item: 1,
+            capacity=4,
+            resources=1,
+            no_dependency=0,
+            depth=1,
+            latency=(1, 3)[index],
+        )""",
+        }
+        for operation, expression in indexed_operators.items():
+            with self.subTest(operation=operation):
+                operator_source = source.replace(apply_expression, expression)
+                operator_lowered = lower_queue_source(operator_source, "pipeline")
+                self.assertEqual(2, operator_lowered.count(f" = ac.{operation} "))
+        with self.assertRaisesRegex(QueueFrontendError, "compile-time integer"):
+            lower_queue_source(
+                source.replace("latency=(1, 3)[index]", "latency=runtime"),
+                "pipeline",
+            )
+        with self.assertRaisesRegex(QueueFrontendError, "cannot be shadowed"):
+            lower_queue_source(
+                source.replace(
+                    "lambda item: item + index", "lambda index: index + 1"
+                ),
+                "pipeline",
+            )
+        dynamic_merge = source.replace(
+            "completed = outputs[0].merge",
+            "completed = outputs[runtime].merge",
+        )
+        with self.assertRaisesRegex(QueueFrontendError, "statically resolvable"):
+            lower_queue_source(dynamic_merge, "pipeline")
+        dynamic_apply = source.replace(
+            "    completed = outputs[0].merge(\n"
+            "        outputs[1], policy=\"round_robin\", depth=2, latency=1\n"
+            "    )",
+            "    completed = outputs[runtime].apply(lambda item: item)",
+        )
+        with self.assertRaisesRegex(QueueFrontendError, "statically resolvable"):
+            lower_queue_source(dynamic_apply, "pipeline")
+        out_of_range = source.replace(
+            "completed = outputs[0].merge",
+            "completed = outputs[4].merge",
+        )
+        with self.assertRaisesRegex(QueueFrontendError, "has no key 4"):
+            lower_queue_source(out_of_range, "pipeline")
+        with self.assertRaisesRegex(QueueFrontendError, "must produce a Queue"):
+            lower_queue_source(
+                source.replace(
+                    "lambda index: inputs[index].apply(\n"
+                    "            lambda item: item + index,\n"
+                    "            depth=1,\n"
+                    "            latency=(1, 3)[index],\n"
+                    "        )",
+                    "lambda index: index",
+                ),
+                "pipeline",
+            )
+        collision = source.replace(
+            "    outputs = ac.array(",
+            "    outputs__0 = inputs[0].apply(lambda item: item)\n"
+            "    outputs = ac.array(",
+        )
+        with self.assertRaisesRegex(QueueFrontendError, "fresh name"):
+            lower_queue_source(collision, "pipeline")
+
     def test_dynamic_or_duplicate_collection_shape_is_rejected(self) -> None:
         from agentic_circuit._queue_frontend import (
             QueueFrontendError,

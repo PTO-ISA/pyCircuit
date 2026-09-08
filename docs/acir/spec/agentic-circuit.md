@@ -1199,6 +1199,14 @@ for index in range(2):
     ac.sink(lanes[index])
 ```
 
+`ac.array(extent, lambda index: queue_operation)` may also generate any Queue
+producing operation already accepted as an ordinary assignment. The frontend
+substitutes each static index, emits a fresh named Queue per element, and
+retains a static collection for later indexed `apply` or `merge` receivers.
+Every element must resolve to one Queue with a common payload/shape. Runtime
+extents, runtime collection indices, non-Queue results, and unresolved operator
+parameters fail closed; no Queue pointer array or loop remains in ACIR.
+
 One structurally decreasing Queue helper may recurse at compile time:
 
 ```python

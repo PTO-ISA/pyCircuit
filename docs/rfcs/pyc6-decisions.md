@@ -7817,7 +7817,58 @@ the existing explicit ownership, conflict, snapshot, or transaction model.
 - PTO-ISA/pyCircuit issue #63 OPT-02.
 - In-tree DavinciOO I2 at `designs/davincioo/spe/iex/i2.py`.
 
-## Decision 0227: gfsim records Queue/Table dataflow for independent viewers
+## Decision 0227: static Queue collections elaborate supported operator families
+
+**Status:** Accepted; framework prerequisite implemented and verified
+
+**Context / Goal**
+Static Queue collections can currently generate sources, memories, and nested
+collections, but not transformations of an already routed collection. Four-way
+transport fabrics therefore repeat the same `apply` source four times even when
+only a compile-time destination marker and latency differ. Issue #63 OPT-06
+requires configuration-driven source without a runtime Queue array or a new
+business primitive.
+
+**Decision (strong constraint)**
+- `ac.array(extent, lambda index: expression)` may generate an expression that
+  is already accepted as an ordinary Queue-producing assignment. The extent is
+  a positive compile-time integer. The frontend substitutes each index through
+  the existing static evaluator and visits each expanded expression through the
+  same Queue operation parser and verifier.
+- Each generated element receives the canonical `<collection>__<index>` name
+  and must produce exactly one Queue. The resulting collection has a finite,
+  homogeneous static signature. Dynamic extent/index, unresolved constants,
+  non-Queue results, name collision, or heterogeneous element shape fails
+  closed.
+- Queue operators that accept one receiver, including `apply` and `merge`,
+  resolve that receiver through the common static Queue-reference path. A
+  compile-time indexed array/map element is therefore equivalent to spelling
+  its canonical Queue name. Runtime pointer/container dispatch is not admitted.
+- Elaboration leaves the same ordinary `ac.transform`, `ac.merge`, `ac.route`
+  and Queue topology as handwritten expansion. C++ and PYC/RTL backends gain no
+  alternate semantics or new primitive. Depth, latency, arbitration, accepted
+  transfer order and reset remain properties of the expanded operations.
+
+**Required verification**
+- Frontend tests expand indexed `apply` operations with distinct constants and
+  latencies, merge static indexed results, reject dynamic/unresolved shapes, and
+  prove deterministic lowering.
+- A generic fixture generates indexed `apply`, `credit`, `reorder`, and
+  dependency operations, including static-parameter extents and distinct
+  per-element latencies. It merges indexed results and preserves specific
+  diagnostics for dynamic, out-of-range, colliding, shadowed, or non-Queue
+  forms.
+- DavinciOO TMU BGF, GPE IPF and MEM NOC XBAR pilots are dependent design work.
+  They land only after this framework decision and carry separate destination,
+  timing, backpressure, reset, instance-isolation, PYC C++ and Verilog evidence.
+
+**Source**
+- PTO-ISA/pyCircuit issue #63 OPT-06.
+- DavinciOO candidates `DAV-TMU-BGF-XBAR-0001`, `DAV-GPE-IPF-XBAR-0001`, and
+  `DAV-MEM-NOC-XBAR-0001` at external source revision
+  `b81ecfc2b634d41886b01fd8724905eeb5bb6551`.
+
+## Decision 0228: gfsim records Queue/Table dataflow for independent viewers
 
 **Status:** Accepted; Queue/Table recording and local viewer verified in the scoped G1 lane
 
