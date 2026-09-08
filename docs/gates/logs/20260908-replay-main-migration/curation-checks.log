@@ -1,0 +1,24 @@
+Curation verification (documentation/evidence only; no runtime change)
+Replay comparison: exact archived JSON unchanged.
+Deleted-path references: none.
+Strict decision status: same 35 missing historical paths, no new gap.
+
+Complete PR pre-commit (including evidence scripts):
+check for merge conflicts................................................Passed
+check yaml...........................................(no files to check)Skipped
+fix end of files.........................................................Passed
+trim trailing whitespace.................................................Passed
+ruff.....................................................................Passed
+black....................................................................Passed
+markdownlint-cli2........................................................Passed
+pyCircuit API hygiene gate...............................................Passed
+
+Contracts (no concurrent tracked/index writes):
+..........................................
+----------------------------------------------------------------------
+Ran 42 tests in 24.255s
+
+OK
+
+Strict documentation build:
+INFO    -  Documentation built in 5.64 seconds

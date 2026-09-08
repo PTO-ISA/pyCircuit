@@ -1,6 +1,0 @@
-test_owner_write_batch_executes_atomically_under_backpressure (test_typed_system_transactions.TypedSystemTransactionTest.test_owner_write_batch_executes_atomically_under_backpressure) ... ok
-
-----------------------------------------------------------------------
-Ran 1 test in 3.292s
-
-OK

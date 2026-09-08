@@ -1,6 +1,0 @@
-test_blocking_guard_captures_state_and_local_versions_before_its_body (test_queue_frontend.QueueFrontendTest.test_blocking_guard_captures_state_and_local_versions_before_its_body) ... ok
-
-----------------------------------------------------------------------
-Ran 1 test in 0.137s
-
-OK

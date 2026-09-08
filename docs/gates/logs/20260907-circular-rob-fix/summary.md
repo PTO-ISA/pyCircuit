@@ -1,97 +1,46 @@
-# Circular ROB regression repair
+# Circular ROB repair — c0b42d91
 
-Base checkout: `0e014154285ab3b74c1297a71204e17753f6f337`.
-Environment: `/home/lc/.codex/skills/pyc/scripts/run.sh`, current checkout's
-`.pycircuit_out/local-clang22/build`, Clang 22 and fixed Python 3.11.
-The legacy `dev-llvm22` paths used by the Queue tests are symlinks into that same
-build. No artifacts were imported from another checkout.
+Base: `0e014154`. Clang 22/Python 3.11 via `$pyc`, built in the current checkout.
+Decisions 0176, 0177, 0189, 0194 and 0196; source-order SSA under 0221.
 
-## Root cause and repair
+## Root cause
 
-The first incorrect representation is raw frontend ACIR, before MLIR storage
-selection, QueueGraph, C++ generation or runtime arbitration. The recent serial
-SSA rebinding path flattened a trailing blocking `if`, processed its body, then
-rewrote the saved condition using the final local-version environment.
+The frontend flattened a trailing blocking `if`, processed its body, then
+rewrote the guard using the final local versions. Allocation tested `count + 1`
+against four; retirement tested `count - 1` against zero. The first wrong form
+was raw ACIR; subsequent lowering and runtime preserved those legal operands.
+The fix captures the condition at its source position before body rebinding.
+Two adjacent raw-IR diffs preserve this before/after evidence.
 
-For allocation, `count != 4` consequently compared `count + 1` with four. For
-retirement, `count != 0` compared `count - 1` with zero. The later compiler stages
-faithfully preserved these incorrect operands. The raw before/after diffs in
-this directory show the condition moving to the branch-entry SSA value.
+## Behavioral evidence
 
-The repair captures the blocking condition in a fresh compiler-owned local at
-the original `if` position, before flattening its body. The existing source-order
-SSA path preserves that value. Capture naming avoids user identifiers. Body
-expressions still see preceding scalar assignments, including `mirror = count`
-after changing count. This restores Decisions 0176, 0177, 0189, 0194 and 0196 under
-the serial SSA contract of Decision 0221. Conditional-effect/snapshot contracts
-0201, 0202, 0205 and 0206 remain intact.
+- Single ROB stopped at count/tail 3/3 instead of 4/0. It now fills, retains the
+  fifth request, wraps, retires in order, rejects stale generation and recovers.
+- Dual ROB consumed completions and set done, but failed to retire the final
+  entries. It now retires 100/200 and preserves instance isolation.
+- Equivalence timed out waiting for a result despite matching scheduler state;
+  exit 6 did not establish activation divergence. The matched-boundary run now
+  completes with unchanged counters: scan 1769, incremental 182, activation
+  215, closure 511 (`rob-counters.stdout`).
+- `before.log` and `before-diagnostics.log` preserve failures; `final-rob.log`
+  records all three ROB tests plus host backpressure passing.
+- At this stage: 73 QueueBlocks C++ and 6 focused lit tests passed; frontend
+  225 passed / 4 skipped; typed transactions 1 passed; contracts 42 passed;
+  CLI 53 passed. Full Queue codegen: 30 passed / 2 failures / 1 fixture skip.
 
-No runtime/backend change or new verifier restriction is appropriate: both old
-and new expressions are legal typed SSA; MLIR cannot reconstruct which Python
-source environment was intended. The new lit regression checks the raw operand,
-its preservation through the existing MLIR passes, and generated C++ behavior.
+## Unresolved at this stage
 
-## Before and after
+`baseline-non-rob.log` independently reproduces two pre-existing structural
+assertion failures: ISQ snapshot-set occurrence count 2 versus 0, and same-owner
+write-policy count 1 versus 3. These are not proven harmless and were not relaxed.
+Strict decision status reported 35 missing historical paths (0176–0210).
+Pre-commit was unavailable at this stage; only direct formatting/hygiene checks
+ran. No PYC/RTL/Verilator or release-closure claim is made.
 
-- Single ROB: at tick 13, count/tail were 3/3 and request value 40 was retained.
-  It now reaches 4/0, retains the fifth request, wraps, retires in order, rejects
-  stale generation, and recovers after flush.
-- Dual ROB: at tick 24, both completion inputs were empty and entries had done=1,
-  but both counts remained one and neither retired. Both now retire 100/200 and
-  preserve subsequent instance isolation.
-- Equivalence: both schedulers reached tick 35 with the same state and done=1 on
-  the right entry; the result wait timed out. Exit 6 did not diagnose activation
-  divergence. The full matched-boundary scenario now completes.
-- Performance assertions are unchanged: `scan_work=1769 incremental_work=182
-  activation=215 closure=511` (also in `rob-counters.stdout`).
-
-All three harnesses now dump tick, named input/output Queues, scalar state, and
-entry index/generation/epoch/value/done on failure. Equivalence distinguishes
-step failure, epoch mismatch, committed-state mismatch, timeline mismatch and
-result timeout. `PYC_ROB_ARTIFACT_DIR` retains generated artifacts and simulation
-stdout/stderr without altering stimuli or expected behavior.
-
-## Validation
-
-| Gate | Result |
-| --- | --- |
-| Current-checkout native tools and GfsimTests build | Up to date |
-| Three ROB tests, plus existing host-result backpressure test | 4 passed |
-| New generic frontend regression | Five subcases fail before, all pass after |
-| Focused lit, including new generated C++ execution | 6 passed |
-| Gfsim QueueBlocksTest | 73 passed |
-| Typed owner-write-batch transaction | 1 passed |
-| Full Queue codegen file | 30 passed, 2 existing failures, 1 skipped |
-| Agentic Python frontend | 225 passed, 4 skipped (229 total) |
-| Agentic contracts | 42 passed after regenerating the lit coverage ledger |
-| Agentic CLI | 53 passed |
-| API hygiene, clang-format dry run and git diff --check | Passed |
-| Changed-file pre-commit | Unavailable: executable absent in fixed environment |
-| Strict decision status | Failed: 35 existing missing historical evidence entries |
-
-The two non-ROB failures were independently reproduced with the HEAD frontend
-Python source and the same current-checkout native tools (`baseline-non-rob.log`):
-ISQ expects two occurrences of `snapshot_set_1_0 |= ` but gets zero; branch-join
-expects one generated write-policy occurrence but gets three. Neither assertion
-was relaxed. The skipped Queue case lacks the DavinciOO reference trace fixture.
-The frontend's four existing skips are retained. No Verilator or DavinciOO design
-implementation lane is claimed.
-
-The decision report has no missing decisions, unverified statuses, deferred
-items, or placeholder evidence; its failure is exclusively absent historical
-paths for Decisions 0176–0210. Historical statuses/evidence were not fabricated
-or redirected to this narrower run. The pre-commit tool is unavailable; C++
-formatting and whitespace checks ran, but the complete hook suite is not claimed.
-
-## Evidence and artifacts
-
-`commands.txt` records commands; `.log` files preserve combined stdout/stderr
-as captured. `summary.json` records counts/durations and validation gaps.
-`decision_status_report.json` is the unmodified strict checker report.
-
-Raw ACIR is retained in `.pycircuit_out/rob-regression/raw-before/` and
-`raw-after/`. Final frozen ACIR, QueueGraph JSON, generated C++, harnesses,
-executables and simulation output are under `.pycircuit_out/rob-regression/final/`.
-The generic lit artifacts are under
-`.pycircuit_out/local-clang22/build/compiler/acir/tests/mlir/Transforms/Output/`.
-Only bounded diagnostics and raw-IR diffs are archived here.
+Final evidence and reproduction commands are centralized in
+[the migration report](../20260908-replay-main-migration/summary.md) and
+[commands](../20260908-replay-main-migration/commands.md). The shared
+[decision report](../20260908-replay-main-migration/decision_status_report.json)
+checks the final curated tree, not this historical stage. Earlier reports and
+repeated logs were archived locally before curation; they remain recoverable
+from pre-curation commit `9ddb1c72`.

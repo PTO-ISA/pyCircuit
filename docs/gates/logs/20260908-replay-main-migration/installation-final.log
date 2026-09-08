@@ -1,6 +1,0 @@
-test_installed_prefix_runs_without_source_checkout (test_installation.InstallationTest.test_installed_prefix_runs_without_source_checkout) ... ok
-
-----------------------------------------------------------------------
-Ran 1 test in 14.076s
-
-OK

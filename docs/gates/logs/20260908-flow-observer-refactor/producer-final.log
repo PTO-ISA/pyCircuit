@@ -1,9 +1,0 @@
-test_equal_tokens_keep_identity_through_delay_and_simultaneous_push_pop (test_replay.ReplayTest.test_equal_tokens_keep_identity_through_delay_and_simultaneous_push_pop) ... ok
-test_exact_integer_and_float_bits (test_replay.ReplayTest.test_exact_integer_and_float_bits) ... ok
-test_invalid_binary_inputs_are_rejected (test_replay.ReplayTest.test_invalid_binary_inputs_are_rejected) ... ok
-test_native_atomic_journal_and_truncated_tail (test_replay.ReplayTest.test_native_atomic_journal_and_truncated_tail) ... ok
-
-----------------------------------------------------------------------
-Ran 4 tests in 0.032s
-
-OK

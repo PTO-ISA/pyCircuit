@@ -1,6 +1,0 @@
-test_every_command_has_required_behavior_classes (test_all_commands.AllCommandsTest.test_every_command_has_required_behavior_classes) ... ok
-
-----------------------------------------------------------------------
-Ran 1 test in 0.098s
-
-OK

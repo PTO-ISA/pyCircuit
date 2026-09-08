@@ -1,6 +1,0 @@
-test_recursive_equality_and_invariant_execute_through_gfsim (test_aggregate_equality_invariant.AggregateEqualityInvariantTest.test_recursive_equality_and_invariant_execute_through_gfsim) ... ok
-
-----------------------------------------------------------------------
-Ran 1 test in 2.773s
-
-OK

@@ -19,6 +19,24 @@ Each run directory must include:
 - `cases/run_sims/<case>/...`: per-case logs for `flows/scripts/run_sims.sh`
 - `cases/run_sims_nightly/<case>/...`: per-case logs for `flows/scripts/run_sims_nightly.sh`
 
+## Consolidated targeted PR evidence
+
+Related targeted stages in one PR may share one final evidence bundle. Preserve
+original stage directory names and a short summary per stage identifying its
+revision, historical results, failures and link to the final bundle. The final
+bundle must include exact commands (`commands.txt` or `commands.md`), a result
+summary (`summary.json` or `summary.md`), one full decision-status report,
+key gate outputs and indispensable before/after or reproducibility material.
+Shared final reports must identify the checked revision/tree; they do not certify
+earlier stages retroactively. Keep known failures and validation gaps explicit.
+
+Redundant newly proposed reports/logs may be removed before merge after updating
+all references and retaining recoverable originals. Distinguish original raw
+outputs from terminal summaries or curated excerpts. Do not minify JSON merely
+to reduce review line counts. Existing main history is not renamed or pruned;
+independent runs and release closure retain the per-run requirements above.
+Python scripts under evidence directories remain subject to CI lint/format checks.
+
 ## Decision Status Source
 
 - Status file: `docs/gates/decision_status_v6.md`

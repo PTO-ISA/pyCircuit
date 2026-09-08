@@ -2,8 +2,8 @@
 
 All environment-dependent commands use
 `/home/lc/.codex/skills/pyc/scripts/run.sh` (RUN below), from this checkout.
-The JSON command inventories in this directory record the initial grouped runs;
-final corrections and additional checks are below.
+This consolidated index preserves commands used for the final gates. RUN is a
+notation for the wrapper, not a separately installed executable.
 
 ```sh
 git fetch origin main
@@ -17,7 +17,6 @@ RUN env PYC_RECORD_REPLAY=1 python -m unittest discover -s tests/integration/age
 RUN python -c 'from lit.main import main; main()' -v .pycircuit_out/local-clang22/build/compiler/acir/tests/mlir --filter='(queue-flow-metadata|rule-owner-write-batch|atomic-transform|queue-multi-rule-multi-owner-module|rule-multi-output|value-contracts)'
 RUN env ACIR_QUEUE_PLAN=/home/lc/pyCircuit/.pycircuit_out/local-clang22/build/bin/acir-queue-plan python -m unittest discover -s tests/integration/agentic-circuit/e2e -p test_multi_output_atomic.py -k test_public_python_state_and_outputs_commit_as_one_gfsim_transaction -v
 RUN env ACIR_QUEUE_PLAN=/home/lc/pyCircuit/.pycircuit_out/local-clang22/build/bin/acir-queue-plan python -m unittest discover -s tests/integration/agentic-circuit/e2e -p test_aggregate_equality_invariant.py -k test_recursive_equality_and_invariant_execute_through_gfsim -v
-RUN python docs/gates/logs/20260908-replay-main-migration/compare.py
 RUN env PYTHONPATH=third_party/circuit-flow-viewer/src python -m unittest discover -s third_party/circuit-flow-viewer/tests -v
 RUN env PYTHONPATH=third_party/circuit-flow-viewer/src python -m circuit_flow_viewer.cli render .pycircuit_out/replay/main-migration/verified/single-*/execution.pyctrace --output .pycircuit_out/replay/main-migration/viewer/replay.html
 RUN env PYTHONPATH=third_party/circuit-flow-viewer/src python -m circuit_flow_viewer.cli render third_party/circuit-flow-viewer/tests/fixtures/latency.pyctrace --output .pycircuit_out/replay/main-migration/viewer/queue-latency.html
@@ -43,7 +42,8 @@ unittest.TextTestRunner(verbosity=2).run(
 ```
 
 Changed-file pre-commit uses files from `git diff --name-only origin/main`,
-excluding historical `docs/gates/logs/` evidence and deleted files. Cache:
+including Python evidence scripts; only deleted files are excluded. The original
+exclusion of evidence paths was a validation mistake corrected by 9ddb1c72. Cache:
 `.pycircuit_out/replay/main-migration/pre-commit-cache`.
 Black/Ruff/pre-commit were installed in the fixed Python environment because
 `.pre-commit-config.yaml` requires them. Browser and hooks ran outside the sandbox
@@ -62,5 +62,31 @@ RUN python docs/gates/logs/20260908-replay-main-migration/compare-latest.py
 ```
 
 Contracts, strict decision status and docs were rerun with the same commands.
-The last pre-commit run checks the updated decision/spec/plan/flow docs and
-Queue frontend source/tests using the already installed hooks.
+Final PR pre-commit uses the complete ACMR diff against origin/main, including
+evidence scripts, with the repository hooks unchanged.
+
+## Additional retained gate commands
+
+```sh
+RUN python -m unittest discover -s tests/python/agentic-circuit/tools -p test_replay.py -v
+RUN python -m unittest discover -s tests/python/agentic-circuit/contracts -p 'test_*.py'
+RUN python -m unittest discover -s tests/integration/agentic-circuit/e2e -p test_typed_system_transactions.py -v
+RUN env -u AC_GATE_TOOLCHAIN_ROOT python -m unittest discover -s tests/python/agentic-circuit/cli -p 'test_*.py'
+RUN python -m pytest tests/unit -m unit -q
+RUN python -m mkdocs build --strict --site-dir .pycircuit_out/evidence-curation/site
+RUN python flows/tools/check_api_hygiene.py python/pycircuit/src/pycircuit examples/pycircuit docs README.md
+```
+
+The footprint diagnostic retains its source/raw samples in the observer stage.
+Extract headers from this repository's c0b42d91 and 24a891fe Git trees into
+disposable directories, then compile each alongside the current include tree:
+
+```sh
+RUN c++ -std=c++20 -O2 -I<headers> docs/gates/logs/20260908-flow-observer-refactor/footprint.cpp -o .pycircuit_out/replay/refactor/<label>-bench
+```
+
+Run each binary seven times; compare checksums and report unisolated timing only.
+Original stage-specific commands and diagnostics remain recoverable from
+pre-curation commit 9ddb1c72. JSON comparisons require the retained local traces
+in `.pycircuit_out/replay/verified-rob` and `main-migration/latest-verified`;
+regenerate current traces with the ROB artifact-directory command above.

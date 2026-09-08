@@ -1,6 +1,0 @@
-test_public_python_state_and_outputs_commit_as_one_gfsim_transaction (test_multi_output_atomic.MultiOutputAtomicTest.test_public_python_state_and_outputs_commit_as_one_gfsim_transaction) ... ok
-
-----------------------------------------------------------------------
-Ran 1 test in 3.590s
-
-OK
