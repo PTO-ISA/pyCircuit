@@ -339,6 +339,10 @@ PYC semantic contracts.
   verification and direct emission, structured ModelPlan source bundles,
   QueueGraph specialization classes, and generated process helpers while
   retaining complete fingerprints in canonical metadata and cache identity.
+- [x] Close issue #17 with one canonical PTO trace result/report contract,
+  live pinned DavinciOO reference plus frozen-ACIR execution from the same trace
+  source, deterministic first instruction/stage/cycle divergence, and
+  root/hash-seed-independent oracle artifacts.
 - [x] Close #46 and #48 framework prerequisites before their dependent
   DavinciOO H3 implementations. Decision 0222 places new design-program work
   under `designs/davincioo/`; independent contracts/modules may proceed when

@@ -800,6 +800,24 @@ retired = completed.reorder(
 积木构造 DavinciOO-like 拓扑，并验证 15 条记录、out-of-order completion、in-order
 retirement、Queue occupancy 和 453-cycle 投影。
 
+### Canonical PTO trace oracle
+
+trace oracle 把同一个 canonical `pto-trace@0.1` content hash 的两侧执行结果归一化为
+`agentic-circuit-pto-trace-result`。每条连续编号的 instruction 记录 opcode、架构值、
+completion/retirement ordinal，以及当前比较 profile 声明为 observable 的 stage
+timestamp；model identity 和 specialization 显式记录，checkout/output path 不进入结果。
+
+比较器输出 canonical `agentic-circuit-pto-trace-oracle-report`，依次比较 trace identity、
+record/opcode count、架构值、completion/retirement order 和声明的 timestamp。失败时报告
+第一个确定性 divergence：instruction sequence、opcode、stage、field、reference/candidate
+值和 cycle。`PYC6TRC3` 仍是 simulator binary event trace，并不是该 PTO workload oracle。
+
+DavinciOO gate 对一份 imported JSONL 只做一次 canonicalization；pinned reference 从同一份
+source bytes 执行，frozen ACIR specialization 消费 canonical records。live reference 必须
+先匹配 pinned record/opcode count、completion/retirement order 和 complete-run timestamp；
+reference executable 尚未导出的架构值由同 revision 的 checked projection 提供。只有双方
+共同声明的 timestamp 才比较，模型边界不同导致的内部 stage cycle 不要求相等。
+
 ## 串行控制流
 
 ### 编译期控制

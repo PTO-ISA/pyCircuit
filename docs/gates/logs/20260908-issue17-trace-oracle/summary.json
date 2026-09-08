@@ -1,0 +1,25 @@
+{
+  "run_id": "20260908-issue17-trace-oracle",
+  "status": "passed",
+  "base_revision": "9f239ddad2506c7d024292e7ccbc4eb540f9df2f",
+  "decision_ids": ["0229"],
+  "issue": 17,
+  "results": {
+    "unit": {"passed": 90, "failed": 0},
+    "repository_contracts": {"schemas": 14, "passed": true},
+    "agentic_contracts": {"passed": 42, "failed": 0},
+    "agentic_frontend": {"passed": 253, "skipped": 2, "failed": 0},
+    "agentic_cli": {"passed": 6, "failed": 0},
+    "oracle_unit": {"passed": 12, "failed": 0},
+    "davincioo_live_reference": {"passed": 2, "failed": 0},
+    "queuegraph_davincioo": {"passed": 1, "failed": 0},
+    "api_hygiene": {"passed": true},
+    "pre_commit": {"passed": true},
+    "mkdocs_strict": {"passed": true},
+    "decision_status": {"passed": true}
+  },
+  "behavior": "One captured PTO trace byte sequence drives a mandatory pinned DavinciOO runtime replay and a frozen ACIR gfsim run; normalized results produce a deterministic first structured divergence or a canonical passing report.",
+  "reference_architectural_values": "pinned projection at the imported reference revision because the reference executable does not export architectural values",
+  "timestamp_profile": "complete-run cycle only",
+  "skill_evolve": "no-update"
+}

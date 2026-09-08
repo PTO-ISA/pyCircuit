@@ -1,0 +1,13 @@
+pre-commit run --all-files
+pytest -q tests/unit -m unit
+.pycircuit_out/contracts-venv/bin/python tools/agentic-circuit/check-contracts.py
+PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=.pycircuit_out/contracts-venv/lib/python3.14/site-packages:python/semantic-core/src:python/agentic-circuit/src:tests/python/agentic-circuit .pycircuit_out/contracts-venv/bin/python -m unittest discover -s tests/python/agentic-circuit/contracts -p 'test_*.py'
+PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=.pycircuit_out/contracts-venv/lib/python3.14/site-packages:python/semantic-core/src:python/agentic-circuit/src:tests/python/agentic-circuit .pycircuit_out/contracts-venv/bin/python -m unittest discover -s tests/python/agentic-circuit/python_frontend -p 'test_*.py'
+PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=.pycircuit_out/contracts-venv/lib/python3.14/site-packages:python/semantic-core/src:python/agentic-circuit/src:tests/python/agentic-circuit .pycircuit_out/contracts-venv/bin/python -m unittest discover -s tests/python/agentic-circuit/cli -p 'test_all_commands.py'
+PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=.pycircuit_out/contracts-venv/lib/python3.14/site-packages:python/semantic-core/src:python/agentic-circuit/src:tests/python/agentic-circuit .pycircuit_out/contracts-venv/bin/python -m unittest discover -s tests/python/agentic-circuit/cli -p 'test_workspace.py'
+PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=.pycircuit_out/contracts-venv/lib/python3.14/site-packages:python/agentic-circuit/src:python/semantic-core/src pytest -q tests/python/agentic-circuit/tools/test_pto_trace_oracle.py
+PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=.pycircuit_out/contracts-venv/lib/python3.14/site-packages:python/agentic-circuit/src:python/semantic-core/src pytest -q tests/integration/agentic-circuit/e2e/test_davincioo_trace.py
+PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=.pycircuit_out/contracts-venv/lib/python3.14/site-packages:python/agentic-circuit/src:python/semantic-core/src pytest -q tests/integration/agentic-circuit/e2e/test_queue_codegen.py -k davincioo_like_python_generates_and_runs_typed_cpp
+python3 flows/tools/check_api_hygiene.py python/pycircuit/src/pycircuit examples/pycircuit docs README.md
+mkdocs build --strict
+python3 flows/tools/check_decision_status.py --rfc docs/rfcs/pyc6-decisions.md --status docs/gates/decision_status_v6.md --out docs/gates/logs/20260908-issue17-trace-oracle/decision_status_report.json --require-no-deferred --require-all-verified --require-concrete-evidence --require-existing-evidence

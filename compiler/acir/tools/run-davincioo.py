@@ -4,23 +4,26 @@
 from __future__ import annotations
 
 import argparse
-from html import escape
 import json
-from pathlib import Path
 import shutil
 import subprocess
 import sys
-
+from html import escape
+from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[3]
+sys.path.insert(0, str(ROOT / "python/semantic-core/src"))
 sys.path.insert(0, str(ROOT / "python/agentic-circuit/src"))
 sys.path.insert(0, str(ROOT / "examples/agentic-circuit/architecture"))
 sys.path.insert(0, str(ROOT / "compiler/acir/tools"))
 
-from agentic_circuit._canonical_json import canonical_json_bytes  # noqa: E402
+from agentic_circuit._canonical_json import (  # noqa: E402
+    canonical_json_bytes,
+    sha256_bytes,
+)
 from davincioo_jit import specialization  # noqa: E402
 from pto_trace_adapter import convert_davincioo_trace  # noqa: E402
-
+from pto_trace_oracle import compare_results, make_result, publish_report  # noqa: E402
 
 DEFAULT_TRACE = (
     ROOT
@@ -31,6 +34,7 @@ DEFAULT_PROJECTION = (
     ROOT / "tests/goldens/agentic-circuit/davincioo/softmax-projection.json"
 )
 HARNESS = ROOT / "examples/agentic-circuit/architecture/davincioo_trace_harness.cpp"
+REFERENCE_SOURCE = ROOT / "third_party/references/davincioo-gfsim/SOURCE.json"
 
 
 def fixture_header(trace: dict[str, object], projection: dict[str, object]) -> str:
@@ -133,6 +137,77 @@ def parse_harness_output(text: str) -> dict[str, object]:
     return result
 
 
+def parse_reference_cycle_output(
+    text: str, records: list[dict[str, object]]
+) -> dict[str, object]:
+    observations: list[dict[str, object]] = []
+    for line in text.splitlines():
+        if not line.startswith("retire_index="):
+            continue
+        fields: dict[str, str] = {}
+        for token in line.split():
+            if "=" in token:
+                key, value = token.split("=", 1)
+                fields[key] = value
+        required = {
+            "retire_index",
+            "sequence_id",
+            "opcode",
+            "alloc_cycle",
+            "rename_cycle",
+            "dispatch_cycle",
+            "issue_cycle",
+            "engine_pop_cycle",
+            "engine_complete_cycle",
+            "retire_cycle",
+        }
+        if not required <= set(fields):
+            raise ValueError("reference cycle replay record is incomplete")
+        sequence = int(fields["sequence_id"])
+        if (
+            not 0 <= sequence < len(records)
+            or fields["opcode"] != records[sequence]["opcode"]
+        ):
+            raise ValueError("reference cycle replay identity differs from trace")
+        observations.append(
+            {
+                "sequence_id": sequence,
+                "opcode": fields["opcode"],
+                "retirement_ordinal": int(fields["retire_index"]),
+                "timestamps": {
+                    "allocate": int(fields["alloc_cycle"]),
+                    "rename": int(fields["rename_cycle"]),
+                    "dispatch": int(fields["dispatch_cycle"]),
+                    "issue": int(fields["issue_cycle"]),
+                    "engine_pop": int(fields["engine_pop_cycle"]),
+                    "complete": int(fields["engine_complete_cycle"]),
+                    "retire": int(fields["retire_cycle"]),
+                },
+            }
+        )
+    if len(observations) != len(records):
+        raise ValueError("reference cycle replay record count differs from trace")
+    retirement_order = [item["sequence_id"] for item in observations]
+    completion_order = [
+        item["sequence_id"]
+        for item in sorted(
+            observations,
+            key=lambda item: (
+                item["timestamps"]["complete"],
+                item["sequence_id"],
+            ),
+        )
+    ]
+    return {
+        "schema": "agentic-circuit-davincioo-reference-observations",
+        "version": "0.1",
+        "contract_epoch": "0.5",
+        "records": observations,
+        "completion_order": completion_order,
+        "retirement_order": retirement_order,
+    }
+
+
 def render_svg(run: dict[str, object], opcodes: list[str]) -> str:
     cycles = int(run["cycles"])
     spans = run["spans"]
@@ -220,17 +295,69 @@ def main() -> int:
         "--output-dir", type=Path, default=ROOT / "build/davincioo-trace"
     )
     parser.add_argument("--cxx", default=shutil.which("c++") or "c++")
+    parser.add_argument("--reference-executable", type=Path, required=True)
     arguments = parser.parse_args()
 
     output = arguments.output_dir.resolve()
     output.mkdir(parents=True, exist_ok=True)
+    raw_trace_bytes = arguments.trace.read_bytes()
+    reference_input = output / "reference-input.jsonl"
+    reference_input.write_bytes(raw_trace_bytes)
     canonical_bytes = convert_davincioo_trace(
-        arguments.trace.read_bytes(), source_program="davincioo-softmax"
+        raw_trace_bytes, source_program="davincioo-softmax"
     )
     canonical = json.loads(canonical_bytes)
     projection = json.loads(arguments.projection.read_text(encoding="utf-8"))
+    reference_source = json.loads(REFERENCE_SOURCE.read_text(encoding="utf-8"))
+    if projection["source"]["repository_commit"] != reference_source["commit"]:
+        parser.error("projection and imported reference revisions differ")
     records = canonical["records"]
     opcodes = [str(record["opcode"]) for record in records]
+
+    reference_summary_path = output / "reference-runtime-summary.json"
+    reference = subprocess.run(
+        (
+            str(arguments.reference_executable.resolve()),
+            "simulate",
+            "--trace",
+            str(reference_input),
+            "--summary-out",
+            str(reference_summary_path),
+            "--dump-cycles",
+        ),
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    if reference.returncode != 0:
+        parser.error(
+            "DavinciOO reference execution failed "
+            f"({reference.returncode}):\n{reference.stderr}"
+        )
+    reference_summary = json.loads(reference_summary_path.read_bytes())
+    try:
+        reference_observations = parse_reference_cycle_output(reference.stdout, records)
+    except (KeyError, TypeError, ValueError) as error:
+        parser.error(f"DavinciOO reference cycle replay is invalid: {error}")
+    if (
+        reference_summary.get("record_count") != len(records)
+        or reference_summary.get("opcode_counts") != projection["opcode_counts"]
+        or reference_summary.get("simulated_cycles")
+        != projection["simulated_cycles"]
+        or reference_observations["completion_order"]
+        != projection["completion_order"]
+        or reference_observations["retirement_order"]
+        != projection["retirement_order"]
+    ):
+        parser.error("live DavinciOO reference differs from the pinned projection")
+    reference_observations["raw_trace_sha256"] = sha256_bytes(raw_trace_bytes)
+    reference_observations["trace_content_hash"] = canonical["metadata"][
+        "content_hash"
+    ]
+    reference_observations["reference_revision"] = reference_source["commit"]
+    (output / "reference-runtime-observations.json").write_bytes(
+        canonical_json_bytes(reference_observations) + b"\n"
+    )
 
     (output / "canonical-trace.json").write_bytes(canonical_bytes)
     (output / "davincioo.generated.cpp").write_text(
@@ -285,14 +412,52 @@ def main() -> int:
         **run,
     }
     (output / "run.json").write_bytes(canonical_json_bytes(report) + b"\n")
+    reference_model = make_result(
+        trace_content_hash=canonical["metadata"]["content_hash"],
+        model={
+            "kind": "davincioo-pinned-reference-projection",
+            "revision": projection["source"]["repository_commit"],
+            "specialization": "basic-core-model",
+        },
+        trace_records=records,
+        architectural_values=projection["architectural_values"],
+        completion_order=projection["completion_order"],
+        retirement_order=projection["retirement_order"],
+        run_timestamps={"complete": projection["simulated_cycles"]},
+    )
+    candidate_model = make_result(
+        trace_content_hash=canonical["metadata"]["content_hash"],
+        model={
+            "kind": "frozen-acir-generated-gfsim",
+            "revision": "agentic-circuit-contract-0.5",
+            "specialization": specialization.fingerprint,
+        },
+        trace_records=records,
+        architectural_values=run["architectural_values"],
+        completion_order=run["completion_order"],
+        retirement_order=run["retirement_order"],
+        run_timestamps={"complete": run["cycles"]},
+    )
+    oracle_report = compare_results(reference_model, candidate_model)
+    (output / "reference-result.json").write_bytes(
+        canonical_json_bytes(reference_model) + b"\n"
+    )
+    (output / "candidate-result.json").write_bytes(
+        canonical_json_bytes(candidate_model) + b"\n"
+    )
+    publish_report(output / "oracle-report.json", oracle_report)
+    if oracle_report["status"] != "passed":
+        parser.error("generated gfsim differs from the structured PTO trace oracle")
     (output / "swimlane.svg").write_text(render_svg(report, opcodes), encoding="utf-8")
-    print(
+    sys.stdout.write(
         f"generated_cycles={report['cycles']} "
         f"reference_cycles={report['reference_cycles']} "
-        f"records={report['record_count']}"
+        f"records={report['record_count']} "
+        "reference_runtime_verified=true\n"
+        f"{output / 'run.json'}\n"
+        f"{output / 'swimlane.svg'}\n"
+        f"{output / 'oracle-report.json'}\n"
     )
-    print(output / "run.json")
-    print(output / "swimlane.svg")
     return 0
 
 
