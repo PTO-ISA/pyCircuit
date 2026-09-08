@@ -11,6 +11,8 @@
 
 namespace acir::codegen {
 
+inline constexpr uint64_t kMaximumPackedValueWidth = 1u << 16;
+
 struct QueuePayloadFieldPlan {
   std::string name;
   std::string type;

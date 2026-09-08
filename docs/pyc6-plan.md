@@ -343,6 +343,10 @@ PYC semantic contracts.
   live pinned DavinciOO reference plus frozen-ACIR execution from the same trace
   source, deterministic first instruction/stage/cycle divergence, and
   root/hash-seed-independent oracle artifacts.
+- [x] Close issue #18 with one versioned 1258-bit PTO execution-payload ABI,
+  typed and bounded opcode/engine/identity/Tile/scalar fields, exact 79-leaf
+  mapping and serialization, explicit provider-local exclusion, wide immutable
+  gfsim storage, and identical PYC C++/Verilog word results.
 - [x] Close #46 and #48 framework prerequisites before their dependent
   DavinciOO H3 implementations. Decision 0222 places new design-program work
   under `designs/davincioo/`; independent contracts/modules may proceed when

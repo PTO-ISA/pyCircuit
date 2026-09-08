@@ -1297,8 +1297,11 @@ aggregate identity and width in QueueGraph, and uses one packed value in gfsim
 and PYC rather than expanding a hardware container object in Python.
 Enum and nominal struct elements are recursively packed before construction and
 restored after selection, using the same MSB-first field order as PYC. Width
-addition/multiplication is checked; a field wider than 64 bits or a malformed
-element boundary is rejected before backend generation.
+addition/multiplication is checked. Scalar leaves remain at most 64 bits;
+immutable tuple, fixed-array, nested-struct fields and complete payloads may use
+exact multiword storage up to the shared 65,536-bit generated-value bound.
+Malformed element boundaries and larger widths are rejected before code
+generation.
 
 QueueProgram retains these descriptors on Queue payloads, persistent values,
 Table entries, memories, slots, rule state effects, and reusable module
@@ -2069,6 +2072,35 @@ pinned record/opcode counts, completion/retirement order, and complete-run
 timestamp before the checked projection supplies architectural values that the
 reference executable does not export. Only common declared timestamps are
 compared; internal stage cycles may differ across model boundaries.
+
+### Canonical PTO execution-payload ABI
+
+`agentic-circuit-pto-payload-abi@0.1` is the bounded projection from canonical
+PTO workload records to an executable immutable payload. Its public
+`PTOExecutionPayload` contains a numeric opcode ID, engine kind, 16-bit sequence
+and block identities, four input Tile slots, four scalar-input slots, and two
+output Tile slots. Tile operands carry presence, 64-bit address, dtype, layout,
+and a five-dimension bounded shape; scalar operands carry presence, dtype, and
+64 raw value bits. Counts select a present prefix, and every unused slot must be
+the canonical all-zero image.
+
+The ABI is 1258 meaningful bits in 158 bytes. Struct fields and array elements
+follow declaration order from most-significant to least-significant bits;
+serialized bytes are little-endian with LSB0 bit numbering and six zero
+most-significant padding bits. The checked descriptor publishes 79 leaf paths
+with exact width and LSB offset plus a fingerprint over the complete layout and
+catalogs. The strict codec rejects reserved opcode/enum values, invalid counts,
+rank/dimension violations, nonzero unused slots, wrong byte length, and nonzero
+padding.
+
+Every serialized leaf is classified `architectural` or `execution`; engine and
+sequence/block routing identity use the latter. Dispatch residency,
+rename/ROB/ISQ tags, generation counters, provider timestamps, and other
+provider-local runtime state are excluded from the descriptor, fingerprint,
+and bytes. A provider may keep such state in a separate model-owned object, but
+cannot append it to this ABI. Frozen ACIR carries the same nominal enums,
+structs, and fixed arrays; wide gfsim storage and packed scalar PYC produce the
+same field mapping in generated C++ and Verilog.
 
 ## End-to-end example
 

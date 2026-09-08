@@ -2396,7 +2396,7 @@ llvm::Error verifyPayloadGraph(const QueueGraphPlan &plan) {
   llvm::StringMap<const QueueAggregatePlan *> aggregates;
   for (const QueueAggregatePlan &aggregate : plan.aggregates)
     if (aggregate.type.empty() || aggregate.width == 0 ||
-        aggregate.width > 64 ||
+        aggregate.width > kMaximumPackedValueWidth ||
         !aggregates.try_emplace(aggregate.type, &aggregate).second)
       return planError("aggregate type metadata must be complete and unique");
 
@@ -2434,6 +2434,9 @@ llvm::Error verifyPayloadGraph(const QueueGraphPlan &plan) {
         if (!next)
           return finish(next.takeError());
         total = *next;
+        if (total > kMaximumPackedValueWidth)
+          return finish(
+              planError("payload width exceeds the backend template domain"));
       }
       return finish(total);
     }

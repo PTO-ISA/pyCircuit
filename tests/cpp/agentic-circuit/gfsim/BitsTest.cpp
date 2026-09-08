@@ -5,10 +5,26 @@
 
 #include "gtest/gtest.h"
 
+#include <array>
 #include <cstdint>
 
 namespace gfsim {
 namespace {
+
+template <typename T>
+concept Addable = requires(T lhs, T rhs) { lhs + rhs; };
+
+template <typename T>
+concept HasScalarValue = requires(T value) { value.value(); };
+
+template <typename T>
+concept HasSignedValue = requires(T value) { signedValue(value); };
+
+template <typename T>
+concept Shiftable = requires(T lhs, T rhs) { lhs << rhs; };
+
+template <typename T>
+concept Ordered = requires(T lhs, T rhs) { lhs < rhs; };
 
 TEST(UIntTest, OperationsTruncateToDeclaredWidth) {
   UInt<3> seven = 7;
@@ -98,6 +114,43 @@ TEST(UIntTest, UnaryFullWidthConcatDoesNotShiftByStorageWidth) {
   EXPECT_EQ(value, joined);
 }
 
+TEST(UIntTest, WideStoragePreservesBitsAcrossWordBoundaries) {
+  using Wide = UInt<130>;
+  constexpr Wide value{Wide::word_array_type{0x8000000000000001ULL,
+                                             0x0123456789abcdefULL, 0x3ULL}};
+  constexpr Wide lowOnly{42};
+  constexpr Wide negativeOne{-1};
+  constexpr Wide inserted = bitInsert(value, UInt<9>{0x155}, 60);
+  constexpr UInt<70> crossing = bitExtract<70>(inserted, 60);
+  constexpr UInt<130> joined =
+      bitConcat(bitExtract<65>(inserted, 65), bitExtract<65>(inserted, 0));
+
+  static_assert(Wide::word_count == 3);
+  static_assert(PacketTraits<Wide>::serializedSize == 17);
+  static_assert(value.word(0) == 0x8000000000000001ULL);
+  static_assert(value.word(1) == 0x0123456789abcdefULL);
+  static_assert(value.word(2) == 0x3ULL);
+  static_assert(lowOnly.word(0) == 42 && lowOnly.word(1) == 0);
+  static_assert(negativeOne.word(0) == ~std::uint64_t{0});
+  static_assert(negativeOne.word(1) == ~std::uint64_t{0});
+  static_assert(negativeOne.word(2) == 0x3);
+  static_assert(value.bit(64) && value[129] && !value.bit(130));
+  static_assert(bitExtract<9>(inserted, 60) == UInt<9>{0x155});
+  static_assert(joined == inserted);
+  static_assert((inserted & value).bit(129));
+  static_assert((inserted | ~inserted) == ~Wide{});
+  static_assert(!Addable<Wide>);
+  static_assert(!HasScalarValue<Wide>);
+  static_assert(!HasSignedValue<Wide>);
+  static_assert(!Shiftable<Wide>);
+  static_assert(!Ordered<Wide>);
+  static_assert(!IntegralLike<Wide>);
+  static_assert(!UnsignedIntegralLike<Wide>);
+  EXPECT_EQ(crossing.word(0), bitExtract<64>(inserted, 60).word(0));
+  EXPECT_EQ(crossing.bit(64), inserted.bit(124));
+  EXPECT_EQ(joined, inserted);
+}
+
 TEST(PriorityEncodeTest, ConstantAndRuntimeBitScansPreserveExactWidths) {
   static_assert(PriorityIndexWidth<1> == 1);
   static_assert(PriorityIndexWidth<16> == 4);
@@ -113,8 +166,7 @@ TEST(PriorityEncodeTest, ConstantAndRuntimeBitScansPreserveExactWidths) {
   static_assert(oneSetHigh.index.value() == 0 && oneSetHigh.valid);
 
   constexpr UInt<16> multi16{(std::uint64_t{1} << 14) |
-                             (std::uint64_t{1} << 7) |
-                             (std::uint64_t{1} << 2)};
+                             (std::uint64_t{1} << 7) | (std::uint64_t{1} << 2)};
   static_assert(priorityEncode(multi16, true).index.value() == 2);
   static_assert(priorityEncode(multi16, false).index.value() == 14);
   constexpr UInt<64> high64{std::uint64_t{1} << 63};
