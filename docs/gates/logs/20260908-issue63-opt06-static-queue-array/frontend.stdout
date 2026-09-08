@@ -1,0 +1,33 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.14.6, pytest-9.0.2, pluggy-1.6.0
+rootdir: /Users/zhoubot/linx-isa/tools/pyCircuit
+configfile: pyproject.toml
+collected 255 items
+
+tests/python/agentic-circuit/python_frontend/test_acpy.py ...            [  1%]
+tests/python/agentic-circuit/python_frontend/test_definitions.py ....... [  3%]
+..                                                                       [  4%]
+tests/python/agentic-circuit/python_frontend/test_determinism.py ..      [  5%]
+tests/python/agentic-circuit/python_frontend/test_jit_blocks.py ......s. [  8%]
+..............                                                           [ 14%]
+tests/python/agentic-circuit/python_frontend/test_jit_source_closure.py . [ 14%]
+.....                                                                    [ 16%]
+tests/python/agentic-circuit/python_frontend/test_lower_acir.py ...s     [ 18%]
+tests/python/agentic-circuit/python_frontend/test_normalization.py ...   [ 19%]
+tests/python/agentic-circuit/python_frontend/test_process.py .....       [ 21%]
+tests/python/agentic-circuit/python_frontend/test_public_api.py ........ [ 24%]
+..........                                                               [ 28%]
+tests/python/agentic-circuit/python_frontend/test_queue_codegen.py ..... [ 30%]
+........                                                                 [ 33%]
+tests/python/agentic-circuit/python_frontend/test_queue_frontend.py .... [ 34%]
+........................................................................ [ 63%]
+.....................................................................    [ 90%]
+tests/python/agentic-circuit/python_frontend/test_resources.py ....      [ 91%]
+tests/python/agentic-circuit/python_frontend/test_scopes_collections.py . [ 92%]
+....                                                                     [ 93%]
+tests/python/agentic-circuit/python_frontend/test_source_capture.py .... [ 95%]
+....                                                                     [ 96%]
+tests/python/agentic-circuit/python_frontend/test_static_eval.py ....... [ 99%]
+.                                                                        [100%]
+
+======================= 253 passed, 2 skipped in 15.47s ========================

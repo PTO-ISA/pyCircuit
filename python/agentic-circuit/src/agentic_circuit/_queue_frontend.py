@@ -3622,6 +3622,19 @@ def parse_queue_program(
             "ACPY-QUEUE-005: a collection cannot be used as one Queue"
         )
 
+    def is_queue_reference_syntax(
+        node: ast.expr,
+        aliases: dict[str, str | StaticQueueCollection],
+    ) -> bool:
+        return isinstance(node, ast.Subscript) or (
+            isinstance(node, ast.Name)
+            and (
+                node.id in by_name
+                or node.id in collections
+                or node.id in aliases
+            )
+        )
+
     def collection_signature(
         value: str | StaticQueueCollection,
     ) -> tuple[object, ...]:
@@ -4918,6 +4931,130 @@ def parse_queue_program(
                         current_order,
                     )
                     continue
+                if call_name(call) == "array" and len(call.args) == 2:
+                    extent = _static_int(call.args[0])
+                    argument, generator = _lambda(call.args[1])
+                    collection_kinds = {"array", "map", "set", "source", "memory"}
+                    if (
+                        extent is not None
+                        and extent > 0
+                        and isinstance(generator, ast.Call)
+                        and call_name(generator) not in collection_kinds
+                    ):
+                        shadows_index = any(
+                            (
+                                isinstance(candidate, ast.Lambda)
+                                and argument
+                                in {
+                                    item.arg
+                                    for item in (
+                                        *candidate.args.posonlyargs,
+                                        *candidate.args.args,
+                                        *candidate.args.kwonlyargs,
+                                    )
+                                }
+                            )
+                            or (
+                                isinstance(candidate, ast.comprehension)
+                                and any(
+                                    isinstance(target, ast.Name)
+                                    and target.id == argument
+                                    for target in ast.walk(candidate.target)
+                                )
+                            )
+                            for candidate in ast.walk(generator)
+                        )
+                        if shadows_index:
+                            raise QueueFrontendError(
+                                "ACPY-QUEUE-005: array generator index cannot be "
+                                "shadowed in a nested expression"
+                            )
+                        class CanonicalizeQueueReferences(ast.NodeTransformer):
+                            def __init__(self) -> None:
+                                self.bound_names: set[str] = set()
+
+                            def visit_Lambda(self, node: ast.Lambda) -> ast.AST:
+                                node.args.defaults = [
+                                    self.visit(default) for default in node.args.defaults
+                                ]
+                                node.args.kw_defaults = [
+                                    None if default is None else self.visit(default)
+                                    for default in node.args.kw_defaults
+                                ]
+                                prior = self.bound_names
+                                self.bound_names = prior | {
+                                    item.arg
+                                    for item in (
+                                        *node.args.posonlyargs,
+                                        *node.args.args,
+                                        *node.args.kwonlyargs,
+                                    )
+                                }
+                                node.body = self.visit(node.body)
+                                self.bound_names = prior
+                                return node
+
+                            def visit_Subscript(self, node: ast.Subscript) -> ast.AST:
+                                rewritten = self.generic_visit(node)
+                                assert isinstance(rewritten, ast.Subscript)
+                                if (
+                                    isinstance(rewritten.value, ast.Name)
+                                    and rewritten.value.id in self.bound_names
+                                ):
+                                    return rewritten
+                                try:
+                                    queue = queue_reference(rewritten, aliases)
+                                except QueueFrontendError:
+                                    return rewritten
+                                return ast.copy_location(
+                                    ast.Name(id=queue, ctx=ast.Load()), rewritten
+                                )
+
+                        canonicalizer = CanonicalizeQueueReferences()
+                        members: list[tuple[int, str]] = []
+                        for index in range(extent):
+                            member_name = f"{name}__{index}"
+                            expanded = _constantize_expression(
+                                generator,
+                                "",
+                                {**system_static_values, argument: index},
+                            )
+                            expanded = canonicalizer.visit(expanded)
+                            assert isinstance(expanded, ast.Call)
+                            visit(
+                                [
+                                    ast.Assign(
+                                        targets=[
+                                            ast.Name(id=member_name, ctx=ast.Store())
+                                        ],
+                                        value=expanded,
+                                    )
+                                ],
+                                scope_path,
+                                aliases,
+                            )
+                            if member_name not in by_name:
+                                raise QueueFrontendError(
+                                    "ACPY-QUEUE-005: array generator must produce "
+                                    "one Queue per element"
+                                )
+                            members.append((index, member_name))
+                        collection = StaticQueueCollection("array", tuple(members))
+                        signatures = {
+                            collection_signature(member) for _, member in members
+                        }
+                        if len(signatures) != 1:
+                            raise QueueFrontendError(
+                                "ACPY-QUEUE-005: array-generated Queue elements "
+                                "must have one static shape"
+                            )
+                        collections[name] = collection
+                        collection_bindings.append(
+                            CollectionBinding(
+                                name, collection, scope_path, current_order
+                            )
+                        )
+                        continue
                 collection = collection_binding(
                     name,
                     call,
@@ -5201,8 +5338,7 @@ def parse_queue_program(
                 and isinstance(statement.value, ast.Call)
                 and isinstance(statement.value.func, ast.Attribute)
                 and statement.value.func.attr == "merge"
-                and isinstance(statement.value.func.value, ast.Name)
-                and statement.value.func.value.id in by_name
+                and is_queue_reference_syntax(statement.value.func.value, aliases)
             ):
                 name = statement.targets[0].id
                 if name in by_name or name in collections:
@@ -6548,10 +6684,10 @@ def parse_queue_program(
                 elif (
                     isinstance(call.func, ast.Attribute)
                     and call.func.attr == "apply"
-                    and isinstance(call.func.value, ast.Name)
+                    and is_queue_reference_syntax(call.func.value, aliases)
                     and len(call.args) == 1
                 ):
-                    input_name = call.func.value.id
+                    input_name = queue_reference(call.func.value, aliases)
                     incoming = by_name.get(input_name)
                     if incoming is None:
                         raise QueueFrontendError(
@@ -6571,7 +6707,8 @@ def parse_queue_program(
                     )
                 else:
                     raise QueueFrontendError(
-                        "ACPY-QUEUE-001: unsupported queue-producing call"
+                        "ACPY-QUEUE-001: unsupported queue-producing call "
+                        f"{ast.unparse(call)!r}"
                     )
                 queues.append(binding)
                 if binding.rule_output_payloads:

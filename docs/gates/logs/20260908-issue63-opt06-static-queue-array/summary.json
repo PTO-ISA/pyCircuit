@@ -1,0 +1,21 @@
+{
+  "run_id": "20260908-issue63-opt06-static-queue-array",
+  "status": "passed",
+  "base_revision": "d6bc7bafcd32e951c9b6b73a83db483ac21e1192",
+  "decision_ids": ["0227"],
+  "issue": 63,
+  "checklist_dependency": "OPT-06 framework prerequisite",
+  "results": {
+    "frontend": {"passed": 253, "skipped": 2, "failed": 0},
+    "primitive_selection": {"passed": 16, "failed": 0},
+    "unit": {"passed": 90, "failed": 0},
+    "agentic_repository_contracts": {"passed": true},
+    "pyc_inventory": {"operations": 41, "types": 2, "passed": true},
+    "ir_coverage": {"passed": true},
+    "pre_commit": {"passed": true},
+    "mkdocs_strict": {"passed": true},
+    "decision_status": {"rows": 227, "deferred": 0, "passed": true}
+  },
+  "behavior": "Static Queue-operation arrays expand through existing operator semantics and indexed apply/merge/credit/reorder/dependency receivers without runtime Queue collections.",
+  "skill_evolve": "no-update"
+}
