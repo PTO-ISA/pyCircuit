@@ -1,4 +1,4 @@
-#include "gfsim/harness.h"
+#include "gfsim/tooling/harness.h"
 
 #include "acir/Bindings/Binding.h"
 #include "gfsim/trace.h"

@@ -1,0 +1,30 @@
+{
+  "run_id": "20260909-issue61-runtime-component",
+  "status": "passed",
+  "base_revision": "30d4ff59d06b1076f141fba4374548503928b465",
+  "issue": 61,
+  "decision_ids": ["0232"],
+  "platform": "macos-arm64",
+  "llvm_version": "22.1.8",
+  "results": {
+    "runtime_hidden_llvm": true,
+    "compiler_dev": true,
+    "default_component_is_compiler_dev": true,
+    "default_component_missing_cli_rejected": true,
+    "compiler_dev_hidden_llvm_rejected": true,
+    "unknown_component_rejected": true,
+    "runtime_symbols_clean": true,
+    "runtime_headers_clean": true,
+    "tooling_headers_isolated": true,
+    "gfsim": 285,
+    "codegen": 143,
+    "installation": 4,
+    "emit_cxx_current": 1,
+    "unit": 90,
+    "contracts": "passed",
+    "sdk_contract": "passed",
+    "mkdocs_strict": "passed",
+    "decision_status": "rows=234 deferred=3",
+    "pre_commit": "passed"
+  }
+}

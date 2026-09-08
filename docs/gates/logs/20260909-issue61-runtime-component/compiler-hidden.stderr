@@ -1,0 +1,20 @@
+CMake Error at /opt/homebrew/share/cmake/Modules/CMakeFindDependencyMacro.cmake:93 (find_package):
+  find_package for module LLVM called with REQUIRED, but
+  CMAKE_DISABLE_FIND_PACKAGE_LLVM is enabled.  A REQUIRED package cannot be
+  disabled.
+Call Stack (most recent call first):
+  /opt/homebrew/share/cmake/Modules/CMakeFindDependencyMacro.cmake:125 (__find_dependency_common)
+  /Users/zhoubot/linx-isa/tools/pyCircuit/.pycircuit_out/gates/20260909-issue61-runtime-component/p1-final-v2/prefix/lib/cmake/AgenticCircuit/AgenticCircuitConfig.cmake:56 (find_dependency)
+  CMakeLists.txt:8 (find_package)
+
+
+CMake Error at CMakeLists.txt:8 (find_package):
+  Found package configuration file:
+
+    /Users/zhoubot/linx-isa/tools/pyCircuit/.pycircuit_out/gates/20260909-issue61-runtime-component/p1-final-v2/prefix/lib/cmake/AgenticCircuit/AgenticCircuitConfig.cmake
+
+  but it set AgenticCircuit_FOUND to FALSE so package "AgenticCircuit" is
+  considered to be NOT FOUND.  Reason given by package:
+
+  AgenticCircuit could not be found because dependency LLVM could not be
+  found.

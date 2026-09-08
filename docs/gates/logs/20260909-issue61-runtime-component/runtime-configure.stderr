@@ -1,0 +1,5 @@
+CMake Warning:
+  Manually-specified variables were not used by the project:
+
+    CMAKE_DISABLE_FIND_PACKAGE_LLVM
+    CMAKE_DISABLE_FIND_PACKAGE_MLIR

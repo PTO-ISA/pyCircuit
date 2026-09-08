@@ -1,18 +1,53 @@
 @PACKAGE_INIT@
 
-include(CMakeFindDependencyMacro)
-find_dependency(LLVM 22.1.8 EXACT CONFIG)
-find_dependency(MLIR 22.1.8 EXACT CONFIG)
+set(_AgenticCircuit_known_components Runtime CompilerDev)
+set(_AgenticCircuit_unknown_component FALSE)
+if(NOT AgenticCircuit_FIND_COMPONENTS)
+  set(AgenticCircuit_FIND_COMPONENTS CompilerDev)
+  set(AgenticCircuit_FIND_REQUIRED_CompilerDev TRUE)
+endif()
 
-include("${CMAKE_CURRENT_LIST_DIR}/AgenticCircuitTargets.cmake")
-list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_LIST_DIR}/modules")
-include(AddACIR)
+foreach(_AgenticCircuit_component IN LISTS AgenticCircuit_FIND_COMPONENTS)
+  if(NOT _AgenticCircuit_component IN_LIST _AgenticCircuit_known_components)
+    set(AgenticCircuit_${_AgenticCircuit_component}_FOUND FALSE)
+    set(AgenticCircuit_FOUND FALSE)
+    set(_AgenticCircuit_unknown_component TRUE)
+    set(AgenticCircuit_NOT_FOUND_MESSAGE "Unknown AgenticCircuit component '${_AgenticCircuit_component}'. Supported components are Runtime and CompilerDev.")
+  endif()
+endforeach()
 
-set(AgenticCircuit_EXECUTABLE "${PACKAGE_PREFIX_DIR}/bin/agentic-circuit")
-if(NOT EXISTS "${AgenticCircuit_EXECUTABLE}")
-  set(AgenticCircuit_FOUND FALSE)
-  set(AgenticCircuit_NOT_FOUND_MESSAGE
-      "Agentic Circuit executable is missing: ${AgenticCircuit_EXECUTABLE}")
+if(_AgenticCircuit_unknown_component)
+  check_required_components(AgenticCircuit)
+  return()
+endif()
+
+if("Runtime" IN_LIST AgenticCircuit_FIND_COMPONENTS OR
+   "CompilerDev" IN_LIST AgenticCircuit_FIND_COMPONENTS)
+  include("${CMAKE_CURRENT_LIST_DIR}/AgenticCircuitRuntimeTargets.cmake")
+  set(AgenticCircuit_Runtime_FOUND TRUE)
+endif()
+
+if("CompilerDev" IN_LIST AgenticCircuit_FIND_COMPONENTS)
+  include(CMakeFindDependencyMacro)
+  find_dependency(LLVM 22.1.8 EXACT CONFIG)
+  find_dependency(MLIR 22.1.8 EXACT CONFIG)
+
+  include("${CMAKE_CURRENT_LIST_DIR}/AgenticCircuitCompilerDevTargets.cmake")
+  list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_LIST_DIR}/modules")
+  include(AddACIR)
+
+  set(AgenticCircuit_EXECUTABLE "${PACKAGE_PREFIX_DIR}/bin/agentic-circuit")
+  if(NOT EXISTS "${AgenticCircuit_EXECUTABLE}")
+    set(AgenticCircuit_CompilerDev_FOUND FALSE)
+    set(AgenticCircuit_NOT_FOUND_MESSAGE
+        "Agentic Circuit executable is missing: ${AgenticCircuit_EXECUTABLE}")
+  else()
+    set(AgenticCircuit_CompilerDev_FOUND TRUE)
+  endif()
 endif()
 
 check_required_components(AgenticCircuit)
+
+unset(_AgenticCircuit_component)
+unset(_AgenticCircuit_known_components)
+unset(_AgenticCircuit_unknown_component)

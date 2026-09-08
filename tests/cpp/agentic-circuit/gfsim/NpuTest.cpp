@@ -1,4 +1,5 @@
 #include "gfsim/npu.h"
+#include "gfsim/tooling/trace_io.h"
 
 #include "gtest/gtest.h"
 

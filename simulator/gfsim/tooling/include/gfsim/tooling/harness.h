@@ -1,8 +1,9 @@
-#ifndef GFSIM_HARNESS_H
-#define GFSIM_HARNESS_H
+#ifndef GFSIM_TOOLING_HARNESS_H
+#define GFSIM_TOOLING_HARNESS_H
 
 #include "gfsim/core.h"
 #include "gfsim/trace.h"
+#include "gfsim/tooling/trace_io.h"
 
 #include "llvm/ADT/StringRef.h"
 #include "llvm/Support/Errc.h"
@@ -128,4 +129,4 @@ llvm::Expected<RunResultDocument> runGeneratedModel(Model &model,
 
 } // namespace gfsim
 
-#endif // GFSIM_HARNESS_H
+#endif // GFSIM_TOOLING_HARNESS_H

@@ -152,10 +152,16 @@ install(
     "${ACIR_BINARY_DIR}/AgenticCircuitConfigVersion.cmake"
   DESTINATION lib/cmake/AgenticCircuit
 )
-install(TARGETS acir_project_options EXPORT AgenticCircuitTargets)
+install(TARGETS acir_project_options EXPORT AgenticCircuitRuntimeTargets)
 install(
-  EXPORT AgenticCircuitTargets
-  FILE AgenticCircuitTargets.cmake
+  EXPORT AgenticCircuitRuntimeTargets
+  FILE AgenticCircuitRuntimeTargets.cmake
+  NAMESPACE AgenticCircuit::
+  DESTINATION lib/cmake/AgenticCircuit
+)
+install(
+  EXPORT AgenticCircuitCompilerDevTargets
+  FILE AgenticCircuitCompilerDevTargets.cmake
   NAMESPACE AgenticCircuit::
   DESTINATION lib/cmake/AgenticCircuit
 )

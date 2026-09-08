@@ -675,7 +675,7 @@ llvm::Expected<GeneratedFile> modelHeader(const ModelPlan &plan,
   std::ostringstream output;
   output
       << "#pragma once\n\n#include \"generated/modules/" << root->className
-      << ".h\"\n#include \"gfsim/dispatch.h\"\n#include \"gfsim/harness.h\"\n"
+      << ".h\"\n#include \"gfsim/dispatch.h\"\n#include \"gfsim/tooling/harness.h\"\n"
          "#include \"gfsim/object.h\"\n\n"
          "#include <array>\n#include <string_view>\n#include <vector>\n\n"
          "namespace acsim_generated {\n\ninline constexpr std::string_view "

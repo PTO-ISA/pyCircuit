@@ -31,6 +31,18 @@
 #ifndef ACIR_GFSIM_LIBRARY
 #define ACIR_GFSIM_LIBRARY "libgfsim.a"
 #endif
+#ifndef ACIR_GFSIM_TOOLING_LIBRARY
+#define ACIR_GFSIM_TOOLING_LIBRARY "libgfsim_tooling.a"
+#endif
+#ifndef ACIR_GFSIM_TOOLING_INCLUDE
+#define ACIR_GFSIM_TOOLING_INCLUDE "include"
+#endif
+#ifndef ACIR_BINDINGS_LIBRARY
+#define ACIR_BINDINGS_LIBRARY "libACIRBindings.a"
+#endif
+#ifndef ACIR_BUILD_LLVM_LINK_FLAGS
+#define ACIR_BUILD_LLVM_LINK_FLAGS ""
+#endif
 
 using namespace mlir;
 
@@ -183,19 +195,26 @@ int main(int argc, char **argv) {
   includeDir = work.string();
   llvm::sys::path::append(includeDir, "include");
 
-  llvm::SmallVector<llvm::StringRef, 16> args = {
+  llvm::SmallVector<llvm::StringRef, 32> args = {
       cxxCompiler,
       "-std=c++20",
       "-I",
       ACIR_GFSIM_INCLUDE,
       "-I",
+      ACIR_GFSIM_TOOLING_INCLUDE,
+      "-I",
       includeDir.c_str(),
       modelCpp.c_str(),
       mainCpp.c_str(),
+      ACIR_GFSIM_TOOLING_LIBRARY,
       ACIR_GFSIM_LIBRARY,
-      "-o",
-      simPath.c_str(),
+      ACIR_BINDINGS_LIBRARY,
   };
+  llvm::SmallVector<llvm::StringRef, 16> llvmLinkFlags;
+  llvm::StringRef(ACIR_BUILD_LLVM_LINK_FLAGS)
+      .split(llvmLinkFlags, '|', -1, false);
+  args.append(llvmLinkFlags);
+  args.append({"-o", simPath.c_str()});
   std::string compileError;
   int compile = llvm::sys::ExecuteAndWait(cxxCompiler, args, {}, {}, 120, 0,
                                           &compileError);

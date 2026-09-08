@@ -14,6 +14,7 @@ target_compile_definitions(GfsimTests PRIVATE
 )
 target_link_libraries(GfsimTests PRIVATE
   gfsim
+  gfsim_tooling
   GTest::gtest_main
 )
 add_test(NAME GfsimTests COMMAND GfsimTests)

@@ -5,7 +5,7 @@ project(AgenticCircuitInstallConsumer VERSION 0.1.0 LANGUAGES C CXX)
 # This consumer configures against the installed AgenticCircuit package only.
 # It must not see source-tree or build-tree include paths; CI verifies that
 # CMAKE_CURRENT_SOURCE_DIR stays this directory.
-find_package(AgenticCircuit 0.1.0 EXACT CONFIG REQUIRED)
+find_package(AgenticCircuit 0.1.0 EXACT CONFIG REQUIRED COMPONENTS CompilerDev)
 
 execute_process(
   COMMAND "${AgenticCircuit_EXECUTABLE}" schema capabilities --json
