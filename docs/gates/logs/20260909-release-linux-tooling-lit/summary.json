@@ -1,0 +1,23 @@
+{
+  "run_id": "20260909-release-linux-tooling-lit",
+  "status": "passed",
+  "base_revision": "6902097ef932b5f007171a8fa64c470484fe4167",
+  "issue": 61,
+  "decision_ids": ["0232"],
+  "release_probe": {
+    "run_id": 34285561787,
+    "status": "failed",
+    "failing_step": "Build integrated toolchain",
+    "failing_tests": [
+      "CodeGen/driver-stages.mlir",
+      "CodeGen/full-structured-model.mlir",
+      "CodeGen/multidimensional-array.mlir",
+      "CodeGen/nested-modules.mlir"
+    ],
+    "root_cause": "Direct acir-cxxgen fixtures omitted the GfsimTooling include root and archive after the Runtime/CompilerDev split."
+  },
+  "results": {
+    "check_acir": "192/192",
+    "pre_commit": "passed"
+  }
+}
