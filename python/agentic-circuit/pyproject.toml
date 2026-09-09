@@ -9,7 +9,7 @@ authors = [{ name = "PTO-ISA Contributors" }]
 dependencies = ["pycircuit-semantic-core==6.0.0"]
 
 [project.optional-dependencies]
-test = ["jsonschema>=4.18", "lit>=18,<19", "pyyaml>=6.0"]
+test = ["jsonschema>=4.18", "lit>=18,<19", "pytest>=7.0.0", "pyyaml>=6.0"]
 
 [project.scripts]
 agentic-circuit = "agentic_circuit._cli:main"

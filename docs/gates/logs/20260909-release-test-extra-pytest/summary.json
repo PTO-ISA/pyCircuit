@@ -1,0 +1,18 @@
+{
+  "run_id": "20260909-release-test-extra-pytest",
+  "status": "passed",
+  "base_revision": "c053fe2a5fc0502804ca17f3064456e8b73b505a",
+  "issue": 61,
+  "decision_ids": ["0234"],
+  "release_probe": {
+    "run_id": 34293584812,
+    "prior_stages": "integrated build, check-acir, ctest, and DavinciOOTraceTests passed",
+    "failure": "agentic-circuit test venv had no pytest module"
+  },
+  "change": "Declare pytest in the agentic-circuit test extra used by release and CI workflows.",
+  "results": {
+    "unit": "6/6",
+    "repository_contracts": "passed",
+    "pre_commit": "passed"
+  }
+}
