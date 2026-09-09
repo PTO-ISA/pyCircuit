@@ -115,6 +115,170 @@ void expectCppRuns(llvm::StringRef source) {
                                      : std::string{});
 }
 
+void expectModelBundleRuns(
+    const std::vector<QueueGraphGeneratedFile> &bundle) {
+  llvm::SmallString<256> directory;
+  ASSERT_FALSE(
+      llvm::sys::fs::createUniqueDirectory("acir-model-bundle", directory));
+  struct Cleanup {
+    llvm::SmallString<256> path;
+    ~Cleanup() { llvm::sys::fs::remove_directories(path); }
+  } cleanup{directory};
+
+  std::vector<std::string> sources;
+  for (const QueueGraphGeneratedFile &file : bundle) {
+    llvm::SmallString<256> path(directory);
+    llvm::sys::path::append(path, file.relativePath);
+    llvm::SmallString<256> parent(path);
+    llvm::sys::path::remove_filename(parent);
+    ASSERT_FALSE(llvm::sys::fs::create_directories(parent));
+    std::error_code error;
+    llvm::raw_fd_ostream output(path, error);
+    ASSERT_FALSE(error);
+    output << file.content;
+    output.close();
+    if (llvm::StringRef(file.relativePath).ends_with(".cpp"))
+      sources.push_back(path.str().str());
+  }
+
+  llvm::SmallString<256> harness(directory);
+  llvm::sys::path::append(harness, "harness.cpp");
+  std::error_code error;
+  llvm::raw_fd_ostream output(harness, error);
+  ASSERT_FALSE(error);
+  output << R"cpp(#include "generated/model.h"
+#include <cstring>
+#include <string>
+#include <string_view>
+int main() {
+  const AgenticModelApiV1 *api = agentic_model_query_v1();
+  if (!api || api->struct_size != sizeof(*api) || api->abi_version != 1 ||
+      std::strcmp(api->sdk_product_version, "6.0.0") != 0)
+    return 1;
+  AgenticModelV1 *model = nullptr;
+  if (api->create(&model) != AGENTIC_MODEL_STATUS_V1_OK || !model)
+    return 2;
+  const auto bytes = [](std::string_view value) {
+    return reinterpret_cast<const std::uint8_t *>(value.data());
+  };
+  AgenticModelStepResultV1 early{};
+  early.struct_size = sizeof(early);
+  if (api->step(model, &early) != AGENTIC_MODEL_STATUS_V1_INVALID_STATE)
+    return 3;
+  AgenticModelBufferV1 error{};
+  if (api->last_error(model, &error) != AGENTIC_MODEL_STATUS_V1_OK ||
+      error.size == 0)
+    return 4;
+  if (api->configure_json(model, nullptr, 1) !=
+      AGENTIC_MODEL_STATUS_V1_INVALID_ARGUMENT)
+    return 5;
+  constexpr std::string_view badConfig = "{ }";
+  if (api->configure_json(model, bytes(badConfig), badConfig.size()) !=
+      AGENTIC_MODEL_STATUS_V1_INVALID_ARGUMENT)
+    return 6;
+  constexpr std::string_view badLimits =
+      "{\"deadlock_window\":0,\"max_domain_cycles\":{},\"max_ticks\":null,"
+      "\"schema\":\"agentic-model-config\",\"version\":\"1\"}";
+  if (api->configure_json(model, bytes(badLimits), badLimits.size()) !=
+      AGENTIC_MODEL_STATUS_V1_INVALID_ARGUMENT)
+    return 61;
+  constexpr std::string_view config = "{}\n";
+  if (api->configure_json(model, bytes(config), config.size()) !=
+      AGENTIC_MODEL_STATUS_V1_OK)
+    return 7;
+  if (api->last_error(model, &error) != AGENTIC_MODEL_STATUS_V1_OK ||
+      error.size != 0)
+    return 71;
+  if (api->configure_json(model, bytes(config), config.size()) !=
+      AGENTIC_MODEL_STATUS_V1_INVALID_STATE)
+    return 8;
+  if (api->reset(model) != AGENTIC_MODEL_STATUS_V1_OK)
+    return 12;
+  AgenticModelStepResultV1 step{};
+  if (api->step(model, &step) != AGENTIC_MODEL_STATUS_V1_INVALID_ARGUMENT)
+    return 13;
+  step.struct_size = sizeof(step);
+  if (api->step(model, &step) != AGENTIC_MODEL_STATUS_V1_OK)
+    return 14;
+  const AgenticModelStepStateV1 firstState = step.state;
+  if (api->reset(model) != AGENTIC_MODEL_STATUS_V1_OK)
+    return 15;
+  step = {};
+  step.struct_size = sizeof(step);
+  if (api->step(model, &step) != AGENTIC_MODEL_STATUS_V1_OK)
+    return 16;
+  if (step.state != firstState)
+    return 17;
+  AgenticModelBufferV1 buffer{};
+  if (api->statistics_json(model, &buffer) != AGENTIC_MODEL_STATUS_V1_OK)
+    return 18;
+  const std::string firstStatistics(
+      reinterpret_cast<const char *>(buffer.data), buffer.size);
+  if (firstStatistics.size() < 3 || firstStatistics.front() != '[' ||
+      !firstStatistics.ends_with("]\n") ||
+      api->statistics_json(model, &buffer) != AGENTIC_MODEL_STATUS_V1_OK ||
+      std::string(reinterpret_cast<const char *>(buffer.data), buffer.size) !=
+          firstStatistics)
+    return 181;
+  api->destroy(model);
+
+  model = nullptr;
+  constexpr std::string_view fullConfig =
+      "{\"deadlock_window\":8,\"max_domain_cycles\":{\"cycle\":64},"
+      "\"max_ticks\":1024,\"schema\":\"agentic-model-config\","
+      "\"version\":\"1\"}\n";
+  if (api->create(&model) != AGENTIC_MODEL_STATUS_V1_OK || !model ||
+      api->configure_json(model, bytes(fullConfig), fullConfig.size()) !=
+          AGENTIC_MODEL_STATUS_V1_OK)
+    return 19;
+  if (api->reset(model) != AGENTIC_MODEL_STATUS_V1_OK)
+    return 20;
+  step = {};
+  step.struct_size = sizeof(step);
+  if (api->step(model, &step) != AGENTIC_MODEL_STATUS_V1_OK)
+    return 21;
+  api->destroy(model);
+  return 0;
+}
+)cpp";
+  output.close();
+
+  llvm::SmallString<256> executable(directory);
+  llvm::sys::path::append(executable, "model");
+  llvm::SmallString<256> log(directory);
+  llvm::sys::path::append(log, "run.log");
+  llvm::SmallString<256> include(directory);
+  llvm::sys::path::append(include, "include");
+  std::vector<std::string> ownedArguments = {
+      ACIR_TEST_CXX_COMPILER,
+      "-std=c++20",
+      "-fvisibility=hidden",
+      "-I" ACIR_TEST_SOURCE_DIR "/simulator/gfsim/include",
+      "-I" + include.str().str(),
+  };
+  ownedArguments.insert(ownedArguments.end(), sources.begin(), sources.end());
+  ownedArguments.push_back(harness.str().str());
+  ownedArguments.push_back(ACIR_TEST_BINARY_DIR "/gfsim/libgfsim.a");
+  ownedArguments.push_back("-o");
+  ownedArguments.push_back(executable.str().str());
+  llvm::SmallVector<llvm::StringRef> arguments;
+  for (const std::string &argument : ownedArguments)
+    arguments.push_back(argument);
+  const std::array<std::optional<llvm::StringRef>, 3> redirects = {
+      std::nullopt, log.str(), log.str()};
+  int status = llvm::sys::ExecuteAndWait(ACIR_TEST_CXX_COMPILER, arguments,
+                                         std::nullopt, redirects);
+  auto logBuffer = llvm::MemoryBuffer::getFile(log);
+  ASSERT_EQ(status, 0) << (logBuffer ? logBuffer.get()->getBuffer().str()
+                                     : std::string{});
+  const std::array<llvm::StringRef, 1> runArguments = {executable.str()};
+  status = llvm::sys::ExecuteAndWait(executable, runArguments, std::nullopt,
+                                     redirects);
+  logBuffer = llvm::MemoryBuffer::getFile(log);
+  EXPECT_EQ(status, 0) << (logBuffer ? logBuffer.get()->getBuffer().str()
+                                     : std::string{});
+}
+
 constexpr llvm::StringLiteral kQueueGraph = R"mlir(
 module attributes {ac.contract_epoch = "0.5", ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle", ac.system = "pipeline"} {
   %input = ac.source depth 4 latency 1 {ac.name = "input"} : !ac.queue<i64>
@@ -1659,6 +1823,69 @@ TEST(QueueGraphPlanTest, NativeGeneratorConsumesOnlyExtractedPlan) {
   EXPECT_NE(source->find("gfsim::QueueMerge<gfsim::UInt<64>, 2>"),
             std::string::npos);
   EXPECT_NE(source->find("gfsim::QueueSink<gfsim::UInt<64>>"),
+            std::string::npos);
+}
+
+TEST(QueueGraphPlanTest, EmitsClosedOpaqueRuntimeAbiBundle) {
+  mlir::MLIRContext context;
+  context.loadDialect<ac::ACIRDialect, mlir::DLTIDialect>();
+  auto module = mlir::parseSourceString<mlir::ModuleOp>(kQueueGraph, &context);
+  ASSERT_TRUE(module);
+  ASSERT_TRUE(freezeQueueGraph(*module));
+  auto plan = buildQueueGraphPlan(*module);
+  ASSERT_TRUE(bool(plan)) << llvm::toString(plan.takeError());
+
+  auto bundle = generateQueueGraphModelBundle(
+      *plan, {.sdkProductVersion = "6.0.0",
+              .sdkSourceRevision =
+                  "c053fe2a00000000000000000000000000000000"});
+  ASSERT_TRUE(bool(bundle)) << llvm::toString(bundle.takeError());
+  ASSERT_EQ(bundle->size(), 3u);
+  EXPECT_EQ((*bundle)[0].relativePath, "include/generated/model.h");
+  EXPECT_EQ((*bundle)[1].relativePath, "src/generated/model.cpp");
+  EXPECT_EQ((*bundle)[2].relativePath, "src/generated/queuegraph.cpp");
+
+  const llvm::StringRef header((*bundle)[0].content);
+  EXPECT_NE(header.find("gfsim/model_api.h"), llvm::StringRef::npos);
+  EXPECT_EQ(header.find("class "), llvm::StringRef::npos);
+  EXPECT_EQ(header.find("SimSystem"), llvm::StringRef::npos);
+
+  const llvm::StringRef model((*bundle)[1].content);
+  EXPECT_EQ(model.count("agentic_model_query_v1"), 1u);
+  EXPECT_NE(model.find("AgenticModelApiV1 api"), llvm::StringRef::npos);
+  EXPECT_NE(model.find("\"6.0.0\""), llvm::StringRef::npos);
+  EXPECT_NE(model.find("createModel, destroyModel"), llvm::StringRef::npos);
+  EXPECT_EQ(model.find("gfsim::SimSystem"), llvm::StringRef::npos);
+  EXPECT_EQ(model.find("load_trace_json"), llvm::StringRef::npos);
+  EXPECT_EQ(model.find("observations_json"), llvm::StringRef::npos);
+  EXPECT_EQ(model.find("trace_position"), llvm::StringRef::npos);
+
+  const llvm::StringRef queueGraph((*bundle)[2].content);
+  EXPECT_NE(queueGraph.find("gfsim::SimSystem system"), llvm::StringRef::npos);
+  EXPECT_NE(queueGraph.find("system.statistics()"), llvm::StringRef::npos);
+  EXPECT_EQ(queueGraph.find("loadPtoTraceText"), llvm::StringRef::npos);
+  EXPECT_EQ(queueGraph.find("system.observations()"), llvm::StringRef::npos);
+  EXPECT_NE(queueGraph.find("std::vector<gfsim::DispatchRow> rows"),
+            llvm::StringRef::npos);
+  EXPECT_EQ(queueGraph.count("runtime->model.reset();"), 1u);
+  expectModelBundleRuns(*bundle);
+}
+
+TEST(QueueGraphPlanTest, ModelBundleRequiresExplicitSdkIdentity) {
+  QueueGraphPlan plan;
+  auto missingProduct = generateQueueGraphModelBundle(
+      plan, {.sdkSourceRevision =
+                 "c053fe2a00000000000000000000000000000000"});
+  ASSERT_FALSE(bool(missingProduct));
+  EXPECT_NE(llvm::toString(missingProduct.takeError())
+                .find("SDK product version is required"),
+            std::string::npos);
+
+  auto missingRevision = generateQueueGraphModelBundle(
+      plan, {.sdkProductVersion = "6.0.0"});
+  ASSERT_FALSE(bool(missingRevision));
+  EXPECT_NE(llvm::toString(missingRevision.takeError())
+                .find("SDK source revision is required"),
             std::string::npos);
 }
 

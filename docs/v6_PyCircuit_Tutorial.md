@@ -681,7 +681,8 @@ designs/my_soc/
 - 集成自底向上：先单测 `alu`，再单测 `scalar_rs`，最后 `soc_top` 集成测试；
 - 参数集中管理，模块通过 keyword-only 配置参数接收。
 
-（大规模范例：Davinci 乱序处理器核，27 个模块层次化组合，见 [DavinciOO 仓库](https://github.com/hengliao1972/DavinciOO)。）
+大规模设计应在独立 consumer 仓库中组合模块，并通过固定的 pyCircuit
+版本执行兼容性验证。
 
 ### 调试清单
 

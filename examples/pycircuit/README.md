@@ -86,5 +86,4 @@ Examples in this repository demonstrate supported framework features. Complete
 processor, accelerator, SoC, and board designs belong to their consumer
 repositories and use pyCircuit as a pinned package/toolchain dependency.
 Repository layout checks reject product-system orchestration classes under the
-framework example tree. The FM16 full-mesh system is owned by
-[`hengliao1972/DavinciOO`](https://github.com/hengliao1972/DavinciOO/tree/main/srcs/core/system/fm16).
+framework example tree.

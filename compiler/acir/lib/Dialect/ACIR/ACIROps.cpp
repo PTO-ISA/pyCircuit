@@ -4242,7 +4242,6 @@ verifyRuntimeReferences(ModuleOp module,
                 .Case("module", ProcessOp::getOperationName())
                 .Case("storage", AddressSpaceOp::getOperationName())
                 .Case("protocol", QueueOp::getOperationName())
-                .Case("trace", ProcessOp::getOperationName())
                 .Case("event_queue", EventQueueOp::getOperationName())
                 .Case("external_io", ProcessOp::getOperationName())
                 .Case("statistics", StatOp::getOperationName())
@@ -4284,9 +4283,8 @@ LogicalResult verifyProcessOperations(ModuleOp module) {
       result =
           TypeSwitch<Operation *, LogicalResult>(operation)
               .Case<TrySendOp, TryRecvOp, ScheduleOp, WaitUntilOp, WaitForOp,
-                    AwaitEventOp, YieldSimOp, TraceOpenOp, TraceNextOp,
-                    TraceDecodeOp, TraceEofOp, TracePositionOp, RequireOp,
-                    EnsureOp, AssertOp, ProbeOp, StatAddOp, InstrumentationOp>(
+                    AwaitEventOp, YieldSimOp, RequireOp, EnsureOp, AssertOp,
+                    ProbeOp, StatAddOp, InstrumentationOp>(
                   [](auto op) { return op.verify(); })
               .Default([](Operation *) { return success(); });
       return failed(result) ? WalkResult::interrupt() : WalkResult::advance();
@@ -4536,19 +4534,6 @@ LogicalResult ModuleOp::verify() {
   }
   if (entry.empty() || !isa<ReturnOp>(entry.back()))
     return emitOpError("module Graph region must end with ac.return");
-  llvm::StringMap<Operation *> traceSources;
-  for (ProcessOp process : entry.getOps<ProcessOp>()) {
-    WalkResult result = process.getBody().walk([&](TraceOpenOp trace) {
-      if (!traceSources.try_emplace(trace.getSource(), trace).second) {
-        trace.emitOpError() << "trace source '" << trace.getSource()
-                            << "' must have exactly one cursor owner";
-        return WalkResult::interrupt();
-      }
-      return WalkResult::advance();
-    });
-    if (result.wasInterrupted())
-      return failure();
-  }
   for (Operation &child : entry) {
     LogicalResult local = TypeSwitch<Operation *, LogicalResult>(&child)
                               .Case<QueueOp, EventQueueOp, ResourceOp,
@@ -5200,10 +5185,6 @@ void addContractEffect(SmallVectorImpl<MemoryEffects::EffectInstance> &effects,
                        ExternalIOResource::get());
 }
 
-std::string traceOwnerIdentity(Operation *operation, StringRef trace) {
-  return (processIdentity(operation) + "/" + trace).str();
-}
-
 bool isSuspension(Operation *operation) {
   return isa<WaitUntilOp, WaitForOp, AwaitEventOp, YieldSimOp>(operation);
 }
@@ -5220,9 +5201,8 @@ bool isAllowedProcessOperation(Operation *operation) {
           operation))
     return true;
   return isa<TrySendOp, TryRecvOp, ScheduleOp, WaitUntilOp, WaitForOp,
-             AwaitEventOp, YieldSimOp, TraceOpenOp, TraceNextOp,
-             TraceDecodeOp, TraceEofOp, TracePositionOp, RequireOp, EnsureOp,
-             AssertOp, ProbeOp, StatAddOp, InstrumentationOp>(operation);
+             AwaitEventOp, YieldSimOp, RequireOp, EnsureOp, AssertOp, ProbeOp,
+             StatAddOp, InstrumentationOp>(operation);
 }
 
 std::optional<bool> constantBool(Value value) {
@@ -5508,228 +5488,6 @@ private:
   detail::ProcessLivenessWork *work;
 };
 
-LogicalResult verifyTraceProvenance(ProcessOp process) {
-  llvm::DenseMap<Value, SmallVector<Value>> forwarding;
-  llvm::DenseSet<OpOperand *> forwardingUses;
-  auto connect = [&](Value left, Value right, OpOperand *use = nullptr) {
-    if (!left.getType().isIndex() || !right.getType().isIndex())
-      return;
-    forwarding[left].push_back(right);
-    forwarding[right].push_back(left);
-    if (use)
-      forwardingUses.insert(use);
-  };
-
-  process.getBody().walk([&](Operation *operation) {
-    if (auto ifOp = dyn_cast<scf::IfOp>(operation)) {
-      for (Region *region : {&ifOp.getThenRegion(), &ifOp.getElseRegion()}) {
-        if (region->empty())
-          continue;
-        auto yield = cast<scf::YieldOp>(region->front().getTerminator());
-        for (auto [operand, result] :
-             llvm::zip(yield->getOpOperands(), ifOp.getResults()))
-          connect(operand.get(), result, &operand);
-      }
-    } else if (auto forOp = dyn_cast<scf::ForOp>(operation)) {
-      auto yield = cast<scf::YieldOp>(forOp.getBody()->getTerminator());
-      for (auto [index, init, iter, result, yielded] :
-           llvm::enumerate(forOp.getInitArgs(), forOp.getRegionIterArgs(),
-                           forOp.getResults(), yield->getOpOperands())) {
-        connect(init, iter, &forOp->getOpOperand(index + 3));
-        connect(iter, result);
-        connect(yielded.get(), iter, &yielded);
-      }
-    } else if (auto whileOp = dyn_cast<scf::WhileOp>(operation)) {
-      for (auto [index, init, argument] :
-           llvm::enumerate(whileOp.getInits(), whileOp.getBeforeArguments()))
-        connect(init, argument, &whileOp->getOpOperand(index));
-      auto condition = whileOp.getConditionOp();
-      for (auto [index, forwarded, afterArgument, result] :
-           llvm::enumerate(condition.getArgs(), whileOp.getAfterArguments(),
-                           whileOp.getResults())) {
-        connect(forwarded, afterArgument, &condition->getOpOperand(index + 1));
-        connect(afterArgument, result);
-      }
-      auto yield = whileOp.getYieldOp();
-      for (auto [yielded, beforeArgument] :
-           llvm::zip(yield->getOpOperands(), whileOp.getBeforeArguments()))
-        connect(yielded.get(), beforeArgument, &yielded);
-    }
-    return WalkResult::advance();
-  });
-
-  llvm::DenseMap<Value, unsigned> component;
-  unsigned nextComponent = 0;
-  for (auto &entry : forwarding) {
-    Value seed = entry.first;
-    if (component.count(seed))
-      continue;
-    SmallVector<Value> worklist{seed};
-    component.try_emplace(seed, nextComponent);
-    while (!worklist.empty()) {
-      Value current = worklist.pop_back_val();
-      for (Value adjacent : forwarding[current])
-        if (component.try_emplace(adjacent, nextComponent).second)
-          worklist.push_back(adjacent);
-    }
-    ++nextComponent;
-  }
-  auto getComponent = [&](Value value) {
-    auto [it, inserted] = component.try_emplace(value, nextComponent);
-    if (inserted)
-      ++nextComponent;
-    return it->second;
-  };
-
-  SmallVector<TraceOpenOp> openOps;
-  SmallVector<TraceNextOp> nextOps;
-  process.getBody().walk([&](Operation *operation) {
-    if (auto open = dyn_cast<TraceOpenOp>(operation)) {
-      openOps.push_back(open);
-      (void)getComponent(open.getCursor());
-    } else if (auto next = dyn_cast<TraceNextOp>(operation)) {
-      nextOps.push_back(next);
-      (void)getComponent(next.getInputCursor());
-      (void)getComponent(next.getCursor());
-    } else if (auto eof = dyn_cast<TraceEofOp>(operation)) {
-      (void)getComponent(eof.getInputCursor());
-    } else if (auto position = dyn_cast<TracePositionOp>(operation)) {
-      (void)getComponent(position.getInputCursor());
-    }
-    return WalkResult::advance();
-  });
-
-  enum class CursorLattice { Unknown, NonCursor, SingleSource, Conflict };
-  struct CursorState {
-    CursorLattice lattice = CursorLattice::Unknown;
-    StringAttr source;
-  };
-  SmallVector<CursorState> states(nextComponent);
-  auto isConcreteNonCursor = [](Value value) {
-    if (isa_and_nonnull<TraceOpenOp>(value.getDefiningOp()))
-      return false;
-    if (auto next = dyn_cast_or_null<TraceNextOp>(value.getDefiningOp()))
-      return value != next.getCursor();
-    if (isa_and_nonnull<scf::IfOp, scf::ForOp, scf::WhileOp>(
-            value.getDefiningOp()))
-      return false;
-    if (auto argument = dyn_cast<BlockArgument>(value)) {
-      Operation *parent = argument.getOwner()->getParentOp();
-      if (auto forOp = dyn_cast_or_null<scf::ForOp>(parent))
-        return argument == forOp.getInductionVar();
-      return !isa_and_nonnull<scf::IfOp, scf::ForOp, scf::WhileOp>(parent);
-    }
-    return true;
-  };
-  for (auto &[value, id] : component)
-    if (isConcreteNonCursor(value))
-      states[id].lattice = CursorLattice::NonCursor;
-
-  for (TraceOpenOp open : openOps) {
-    unsigned id = getComponent(open.getCursor());
-    if (states[id].lattice == CursorLattice::NonCursor) {
-      states[id].lattice = CursorLattice::Conflict;
-      return open.emitOpError(
-          "trace cursor forwarding merges cursor and non-cursor values");
-    }
-    if (states[id].lattice == CursorLattice::SingleSource &&
-        states[id].source != open.getSourceAttr()) {
-      states[id].lattice = CursorLattice::Conflict;
-      return open.emitOpError(
-          "trace cursor forwarding merges distinct provenance");
-    }
-    states[id] = {CursorLattice::SingleSource, open.getSourceAttr()};
-  }
-
-  bool changed = true;
-  while (changed) {
-    changed = false;
-    for (TraceNextOp next : nextOps) {
-      unsigned input = getComponent(next.getInputCursor());
-      unsigned output = getComponent(next.getCursor());
-      if (isa_and_nonnull<arith::IndexCastOp>(
-              next.getInputCursor().getDefiningOp()) &&
-          states[output].lattice == CursorLattice::Unknown) {
-        states[output] = {CursorLattice::SingleSource, next.getSourceAttr()};
-        changed = true;
-        continue;
-      }
-      if (states[input].lattice != CursorLattice::SingleSource)
-        continue;
-      if (states[output].lattice == CursorLattice::NonCursor) {
-        states[output].lattice = CursorLattice::Conflict;
-        return next.emitOpError(
-            "trace cursor forwarding merges cursor and non-cursor values");
-      }
-      if (states[output].lattice == CursorLattice::SingleSource &&
-          states[output].source != states[input].source) {
-        states[output].lattice = CursorLattice::Conflict;
-        return next.emitOpError(
-            "trace cursor forwarding merges distinct provenance");
-      }
-      if (states[output].lattice == CursorLattice::Unknown) {
-        states[output] = states[input];
-        changed = true;
-      }
-    }
-  }
-
-  SmallVector<unsigned> advancing(nextComponent);
-  LogicalResult result = success();
-  auto verifyConsumer = [&](Operation *operation, Value cursor,
-                            StringRef source, bool advances) -> LogicalResult {
-    // A generated timing model may checkpoint an index cursor in an integer
-    // register between ticks.  The source remains explicit on every trace
-    // operation and the runtime bounds-checks the restored cursor.
-    if (isa_and_nonnull<arith::IndexCastOp>(cursor.getDefiningOp()))
-      return success();
-    unsigned id = getComponent(cursor);
-    if (id >= states.size() ||
-        states[id].lattice != CursorLattice::SingleSource)
-      return operation->emitOpError(
-          "trace cursor must originate from ac.trace.open or ac.trace.next");
-    if (states[id].source.getValue() != source)
-      return operation->emitOpError(
-          "trace cursor owner does not match 'from source'");
-    if (advances && ++advancing[id] > 1)
-      return operation->emitOpError(
-          "trace cursor provenance has more than one advancing consumer");
-    return success();
-  };
-  for (TraceNextOp next : nextOps)
-    if (failed(verifyConsumer(next, next.getInputCursor(), next.getSource(),
-                              true)))
-      return failure();
-  process.getBody().walk([&](Operation *operation) {
-    if (failed(result))
-      return WalkResult::interrupt();
-    if (auto eof = dyn_cast<TraceEofOp>(operation))
-      result =
-          verifyConsumer(eof, eof.getInputCursor(), eof.getSource(), false);
-    else if (auto position = dyn_cast<TracePositionOp>(operation))
-      result = verifyConsumer(position, position.getInputCursor(),
-                              position.getSource(), false);
-    return failed(result) ? WalkResult::interrupt() : WalkResult::advance();
-  });
-  if (failed(result))
-    return failure();
-
-  for (auto &[value, id] : component) {
-    if (id >= states.size() ||
-        states[id].lattice != CursorLattice::SingleSource)
-      continue;
-    for (OpOperand &use : value.getUses()) {
-      if (forwardingUses.contains(&use) ||
-          isa<TraceNextOp, TraceEofOp, TracePositionOp, arith::IndexCastOp>(
-              use.getOwner()))
-        continue;
-      return use.getOwner()->emitOpError(
-          "trace cursor may only feed trace cursor operations");
-    }
-  }
-  return success();
-}
-
 template <typename Callback>
 WalkResult walkOperationsIterative(Region &region, Callback callback) {
   SmallVector<Operation *> worklist;
@@ -5760,7 +5518,6 @@ SideEffects::Resource *probeResource(StringRef kind) {
       .Case("module", ModuleStateResource::get())
       .Case("storage", StorageStateResource::get())
       .Case("protocol", ProtocolStateResource::get())
-      .Case("trace", TracePositionResource::get())
       .Case("event_queue", EventQueueStateResource::get())
       .Case("external_io", ExternalIOResource::get())
       .Case("statistics", StatisticsResource::get())
@@ -5831,7 +5588,7 @@ LogicalResult ProcessOp::verify() {
       });
   if (instrumentationResult.wasInterrupted())
     return failure();
-  return verifyTraceProvenance(*this);
+  return success();
 }
 
 LogicalResult TrySendOp::verify() { return requireProcess(*this); }
@@ -5860,28 +5617,6 @@ LogicalResult YieldSimOp::verify() {
   return success();
 }
 
-LogicalResult TraceOpenOp::verify() {
-  if (!isStableHierarchySegment(getSource()))
-    return emitOpError(
-        "trace source must be one stable logical identifier segment");
-  return requireProcess(*this);
-}
-
-LogicalResult TraceNextOp::verify() { return requireProcess(*this); }
-
-LogicalResult TraceDecodeOp::verify() {
-  auto next = getEntry().getDefiningOp<TraceNextOp>();
-  if ((!next || getEntry() != next.getEntry()) &&
-      !getEntry().getType().isSignlessInteger(64))
-    return emitOpError(
-        "trace.decode input must be an ac.trace.next entry or an i64 handle");
-  return requireProcess(*this);
-}
-
-LogicalResult TraceEofOp::verify() { return requireProcess(*this); }
-
-LogicalResult TracePositionOp::verify() { return requireProcess(*this); }
-
 LogicalResult RequireOp::verify() {
   if (isa_and_nonnull<ModuleOp>((*this)->getParentOp()))
     return success();
@@ -5900,7 +5635,7 @@ LogicalResult ProbeOp::verify() {
   if (!probeResource(getKind()) ||
       !hasStringValue(getKind(),
                       {"queue", "resource", "module", "storage", "protocol",
-                       "trace", "event_queue", "external_io", "statistics"}))
+                       "event_queue", "external_io", "statistics"}))
     return emitOpError("unsupported probe resource kind '") << getKind() << "'";
   if (failed(requireProcess(*this)))
     return failure();
@@ -5935,8 +5670,7 @@ LogicalResult InstrumentationOp::verify() {
   walkOperationsIterative(getBody(), [&](Operation *operation) {
     if (isa<ObservationOpInterface>(operation) || isMemoryEffectFree(operation))
       if (!isa<TrySendOp, TryRecvOp, ScheduleOp, WaitUntilOp, WaitForOp,
-               AwaitEventOp, YieldSimOp, TraceOpenOp, TraceNextOp, TraceEofOp,
-               TracePositionOp>(operation))
+               AwaitEventOp, YieldSimOp>(operation))
         return WalkResult::advance();
     operation->emitOpError(
         "instrumentation may contain only removable observation operations");
@@ -6021,40 +5755,6 @@ void YieldSimOp::getEffects(
             "module", ModuleStateResource::get());
 }
 
-void TraceOpenOp::getEffects(
-    SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
-  std::string identity = traceOwnerIdentity(*this, getSource());
-  addEffect(effects, *this, MemoryEffects::Read::get(), identity, "external_io",
-            ExternalIOResource::get());
-  addEffect(effects, *this, MemoryEffects::Write::get(), identity, "trace",
-            TracePositionResource::get());
-}
-
-void TraceNextOp::getEffects(
-    SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
-  std::string identity = traceOwnerIdentity(*this, getSource());
-  addEffect(effects, *this, MemoryEffects::Read::get(), identity, "trace",
-            TracePositionResource::get());
-  addEffect(effects, *this, MemoryEffects::Write::get(), identity, "trace",
-            TracePositionResource::get());
-  addEffect(effects, *this, MemoryEffects::Read::get(), identity, "external_io",
-            ExternalIOResource::get());
-}
-
-void TraceEofOp::getEffects(
-    SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
-  std::string identity = traceOwnerIdentity(*this, getSource());
-  addEffect(effects, *this, MemoryEffects::Read::get(), identity, "trace",
-            TracePositionResource::get());
-}
-
-void TracePositionOp::getEffects(
-    SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
-  std::string identity = traceOwnerIdentity(*this, getSource());
-  addEffect(effects, *this, MemoryEffects::Read::get(), identity, "trace",
-            TracePositionResource::get());
-}
-
 void RequireOp::getEffects(
     SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
   addContractEffect(effects, *this);
@@ -6079,7 +5779,6 @@ void ProbeOp::getEffects(
                      .Case("module", isa_and_nonnull<ProcessOp>(target))
                      .Case("storage", isa_and_nonnull<AddressSpaceOp>(target))
                      .Case("protocol", isa_and_nonnull<QueueOp>(target))
-                     .Case("trace", isa_and_nonnull<ProcessOp>(target))
                      .Case("event_queue", isa_and_nonnull<EventQueueOp>(target))
                      .Case("external_io", isa_and_nonnull<ProcessOp>(target))
                      .Case("statistics", isa_and_nonnull<StatOp>(target))

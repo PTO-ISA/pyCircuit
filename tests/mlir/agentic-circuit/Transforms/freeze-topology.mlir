@@ -34,7 +34,6 @@ builtin.module attributes {ac.contract_epoch = "0.5"} {
     ac.process @workload kind "workload" {
       %zero = arith.constant 0 : i32
       %value = func.call @helper(%zero) : (i32) -> i32
-      %cursor = ac.trace.open source "pto"
       ac.instrumentation @trace {
         ac.stat.add @requests %value : i32
       }
@@ -52,7 +51,6 @@ builtin.module attributes {ac.contract_epoch = "0.5"} {
 // FROZEN: ac.process @workload
 // FROZEN: path = "root.workload"
 // FROZEN: stable_id = "root/workload"
-// FROZEN: trace_sources = ["pto"]
 // FROZEN: path = "root.requests"
 // FROZEN: stable_id = "root/requests"
 // FROZEN: ac.ensure

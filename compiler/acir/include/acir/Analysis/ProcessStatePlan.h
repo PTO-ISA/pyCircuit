@@ -111,14 +111,9 @@ enum class ProcessTerminateStatus { Success, Failure };
 enum class ProcessEffectKind { Pure, Stateful };
 enum class ProcessValueTypeKind { Value, Packet };
 enum class ProcessHelperRole {
-  TraceDecode,
   QueueTrySend,
   QueueTryRecv,
   EventSchedule,
-  TraceOpen,
-  TraceNext,
-  TraceEof,
-  TracePosition,
   ContractRequire,
   ContractEnsure,
   ContractAssert,
@@ -469,10 +464,6 @@ private:
   public:                                                                      \
   __VA_ARGS__ private : ACIR_PROCESS_PIMPL(Name);                              \
   }
-ACIR_DECLARE_STRING_PAYLOAD(ProcessTraceDecodePayload,
-                            llvm::StringRef entry() const;
-                            llvm::StringRef result() const;
-                            llvm::StringRef source() const;);
 ACIR_DECLARE_STRING_PAYLOAD(ProcessQueueTrySendPayload,
                             llvm::StringRef element() const;
                             llvm::StringRef queue() const;);
@@ -483,15 +474,6 @@ ACIR_DECLARE_STRING_PAYLOAD(ProcessEventSchedulePayload,
                             llvm::StringRef delay() const;
                             llvm::StringRef target() const;
                             llvm::StringRef value() const;);
-ACIR_DECLARE_STRING_PAYLOAD(ProcessTraceOpenPayload,
-                            llvm::StringRef source() const;);
-ACIR_DECLARE_STRING_PAYLOAD(ProcessTraceNextPayload,
-                            llvm::StringRef entry() const;
-                            llvm::StringRef source() const;);
-ACIR_DECLARE_STRING_PAYLOAD(ProcessTraceEofPayload,
-                            llvm::StringRef source() const;);
-ACIR_DECLARE_STRING_PAYLOAD(ProcessTracePositionPayload,
-                            llvm::StringRef source() const;);
 ACIR_DECLARE_STRING_PAYLOAD(ProcessContractRequirePayload,
                             llvm::StringRef message() const;);
 ACIR_DECLARE_STRING_PAYLOAD(ProcessContractEnsurePayload,
@@ -540,14 +522,9 @@ private:
 class ProcessGeneratedCalleePayload {
 public:
   ProcessHelperRole role() const;
-  const ProcessTraceDecodePayload &traceDecode() const;
   const ProcessQueueTrySendPayload &queueTrySend() const;
   const ProcessQueueTryRecvPayload &queueTryRecv() const;
   const ProcessEventSchedulePayload &eventSchedule() const;
-  const ProcessTraceOpenPayload &traceOpen() const;
-  const ProcessTraceNextPayload &traceNext() const;
-  const ProcessTraceEofPayload &traceEof() const;
-  const ProcessTracePositionPayload &tracePosition() const;
   const ProcessContractRequirePayload &contractRequire() const;
   const ProcessContractEnsurePayload &contractEnsure() const;
   const ProcessContractAssertPayload &contractAssert() const;

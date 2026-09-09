@@ -8,11 +8,11 @@
   "entry": "model.top:main",
   "exports": {
     "abi_version": "1",
-    "api_struct_size": 96,
+    "api_struct_size": 80,
     "buffer_struct_size": 16,
     "header": "include/gfsim/model_api.h",
     "query_symbol": "agentic_model_query_v1",
-    "step_result_struct_size": 32
+    "step_result_struct_size": 24
   },
   "generated_files": [
     {

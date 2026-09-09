@@ -1,1 +1,0 @@
-{"architectural_values":{"digest":11635184385557860000,"retired_instructions":6},"schema":"workspace-npu-result","simulated_ticks":3,"status":"completed","termination_reason":"trace_drained","trace_position":{"last_committed_sequence_id":5,"next_record_index":6},"version":"0.1"}

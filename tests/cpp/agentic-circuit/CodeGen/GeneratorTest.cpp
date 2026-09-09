@@ -350,7 +350,7 @@ TEST(GeneratorTest, EmitsSortedExactTimeDomainRuntimeMetadata) {
             std::string::npos);
 }
 
-TEST(GeneratorTest, EmitsManifestAwareMainWithoutPythonOrMlirDependencies) {
+TEST(GeneratorTest, EmitsGenericMainWithoutTraceHarnessOrCompilerDependencies) {
   mlir::MLIRContext context;
   auto plan = fixturePlan(context);
   ASSERT_TRUE(static_cast<bool>(plan));
@@ -363,10 +363,11 @@ TEST(GeneratorTest, EmitsManifestAwareMainWithoutPythonOrMlirDependencies) {
                                  &GeneratedFile::relativePath);
   ASSERT_NE(main, bundle->files.end());
   ASSERT_NE(model, bundle->files.end());
-  EXPECT_NE(main->content.find("--run-manifest"), std::string::npos);
-  EXPECT_NE(main->content.find("--run-result-stage"), std::string::npos);
-  EXPECT_NE(main->content.find("gfsim::loadRunManifest"), std::string::npos);
-  EXPECT_NE(main->content.find("gfsim::runGeneratedModel"), std::string::npos);
+  EXPECT_EQ(main->content.find("--run-manifest"), std::string::npos);
+  EXPECT_EQ(main->content.find("gfsim::loadRunManifest"), std::string::npos);
+  EXPECT_EQ(main->content.find("gfsim::runGeneratedModel"), std::string::npos);
+  EXPECT_EQ(model->content.find("gfsim/tooling/harness.h"), std::string::npos);
+  EXPECT_EQ(model->content.find("loadTrace"), std::string::npos);
   EXPECT_NE(model->content.find("void configure(const gfsim::RuntimeLimits"),
             std::string::npos);
   EXPECT_NE(model->content.find("gfsim::TerminationResult run()"),
@@ -378,53 +379,6 @@ TEST(GeneratorTest, EmitsManifestAwareMainWithoutPythonOrMlirDependencies) {
             std::string::npos);
   EXPECT_EQ(main->content.find("Python"), std::string::npos);
   EXPECT_EQ(main->content.find("mlir"), std::string::npos);
-}
-
-TEST(GeneratorTest, EmitsStaticTypedTraceOwnerInjection) {
-  mlir::MLIRContext context;
-  auto plan = fixturePlan(context);
-  ASSERT_TRUE(static_cast<bool>(plan));
-  ASSERT_FALSE(plan->runtimeObjects.empty());
-  plan->runtimeObjects.front().traceOwner = true;
-
-  auto bundle = generateModelSources(*plan);
-  ASSERT_TRUE(static_cast<bool>(bundle)) << llvm::toString(bundle.takeError());
-  const GeneratedFile *header = findFile(*bundle, "include/generated/model.h");
-  const GeneratedFile *source = findFile(*bundle, "src/generated/model.cpp");
-  ASSERT_NE(header, nullptr);
-  ASSERT_NE(source, nullptr);
-  EXPECT_NE(header->content.find("bool loadTrace(gfsim::PtoTraceDocument"),
-            std::string::npos);
-  EXPECT_NE(source->content.find(
-                "return top_.fifo_.loadDocument(std::move(document));"),
-            std::string::npos);
-}
-
-TEST(GeneratorTest, EmitsClosedTraceOwnerCardinalityFailures) {
-  mlir::MLIRContext context;
-  auto plan = fixturePlan(context);
-  ASSERT_TRUE(static_cast<bool>(plan));
-
-  auto withoutOwner = generateModelSources(*plan);
-  ASSERT_TRUE(static_cast<bool>(withoutOwner));
-  const GeneratedFile *emptySource =
-      findFile(*withoutOwner, "src/generated/model.cpp");
-  ASSERT_NE(emptySource, nullptr);
-  EXPECT_NE(emptySource->content.find("return document.records.empty();"),
-            std::string::npos);
-
-  ASSERT_GE(plan->runtimeObjects.size(), 2u);
-  plan->runtimeObjects[0].traceOwner = true;
-  plan->runtimeObjects[1].traceOwner = true;
-  auto multipleOwners = generateModelSources(*plan);
-  ASSERT_TRUE(static_cast<bool>(multipleOwners));
-  const GeneratedFile *multipleSource =
-      findFile(*multipleOwners, "src/generated/model.cpp");
-  ASSERT_NE(multipleSource, nullptr);
-  EXPECT_NE(multipleSource->content.find(
-                "bool Model::loadTrace(gfsim::PtoTraceDocument document) {\n"
-                "  return false;\n"),
-            std::string::npos);
 }
 
 TEST(GeneratorTest, RejectsMismatchedMultiBlockSuccessorType) {

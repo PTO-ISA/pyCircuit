@@ -98,21 +98,17 @@ PYC_GATE_RUN_ID=local-ac-$(date +%Y%m%d-%H%M%S) \
 bash flows/scripts/run_agentic_circuit.sh
 ```
 
-Then check a maintained workspace example from the repository root:
+Then run the maintained vendor-neutral routed dependency example from the
+repository root:
 
 ```bash
-AC_ROOT="$PWD"
-AC_PYTHON="$PWD/.pycircuit_out/agentic-circuit/venv/bin/python"
-cd "$AC_ROOT/examples/agentic-circuit/workspaces/producer_queue_consumer"
-PYTHONPATH="$AC_ROOT/python/agentic-circuit/src:$AC_ROOT/.pycircuit_out/acir/dev-llvm22/python" \
-"$AC_PYTHON" -m agentic_circuit._cli check architecture.py \
-  --project agentic-circuit.toml \
-  --json
+pytest -q \
+  tests/integration/agentic-circuit/e2e/test_queue_codegen.py \
+  -k routed_dependency_topology
 ```
 
 The generated resource tree contains the packaged AC schemas and diagnostics;
-an editable Python install by itself does not create it. Return to the
-repository root before running more repository gates. Continue with the
+an editable Python install by itself does not create it. Continue with the
 [Agentic Circuit and ACIR overview](../acir/index.md).
 
 ## How the flows meet

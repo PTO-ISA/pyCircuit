@@ -39,7 +39,6 @@ typedef struct AgenticModelStepResultV1 {
   uint64_t epoch_time;
   uint32_t epoch_delta;
   uint32_t reserved;
-  uint64_t trace_position;
 } AgenticModelStepResultV1;
 
 typedef struct AgenticModelApiV1 {
@@ -50,17 +49,15 @@ typedef struct AgenticModelApiV1 {
 
   AgenticModelStatusV1 (*create)(AgenticModelV1 **model);
   void (*destroy)(AgenticModelV1 *model);
+  /* Created -> Configured. Accepts canonical {} or agentic-model-config v1. */
   AgenticModelStatusV1 (*configure_json)(AgenticModelV1 *model,
                                          const uint8_t *data, uint64_t size);
-  AgenticModelStatusV1 (*load_trace_json)(AgenticModelV1 *model,
-                                          const uint8_t *data, uint64_t size);
+  /* Configured/Ready/Completed -> Ready and restores deterministic state. */
   AgenticModelStatusV1 (*reset)(AgenticModelV1 *model);
   AgenticModelStatusV1 (*step)(AgenticModelV1 *model,
                                AgenticModelStepResultV1 *result);
   AgenticModelStatusV1 (*statistics_json)(AgenticModelV1 *model,
                                           AgenticModelBufferV1 *result);
-  AgenticModelStatusV1 (*observations_json)(AgenticModelV1 *model,
-                                            AgenticModelBufferV1 *result);
   AgenticModelStatusV1 (*last_error)(AgenticModelV1 *model,
                                      AgenticModelBufferV1 *result);
 } AgenticModelApiV1;
@@ -70,18 +67,18 @@ typedef struct AgenticModelApiV1 {
 #endif
 
 #if defined(__cplusplus)
-static_assert(sizeof(AgenticModelApiV1) == 96,
+static_assert(sizeof(AgenticModelApiV1) == 80,
               "AgenticModelApiV1 layout changed");
 static_assert(sizeof(AgenticModelBufferV1) == 16,
               "AgenticModelBufferV1 layout changed");
-static_assert(sizeof(AgenticModelStepResultV1) == 32,
+static_assert(sizeof(AgenticModelStepResultV1) == 24,
               "AgenticModelStepResultV1 layout changed");
 #elif defined(__STDC_VERSION__) && __STDC_VERSION__ >= 201112L
-_Static_assert(sizeof(AgenticModelApiV1) == 96,
+_Static_assert(sizeof(AgenticModelApiV1) == 80,
                "AgenticModelApiV1 layout changed");
 _Static_assert(sizeof(AgenticModelBufferV1) == 16,
                "AgenticModelBufferV1 layout changed");
-_Static_assert(sizeof(AgenticModelStepResultV1) == 32,
+_Static_assert(sizeof(AgenticModelStepResultV1) == 24,
                "AgenticModelStepResultV1 layout changed");
 #endif
 

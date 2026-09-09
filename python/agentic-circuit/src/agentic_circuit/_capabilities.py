@@ -21,11 +21,8 @@ EXACT_CONTRACT_IDENTITIES: dict[str, str] = {
     "opcode_catalog": "agentic-circuit-opcode-catalog@0.5",
     "block_spec": "agentic-circuit-block-spec@0.5",
     "cxx_source_contract": "gfsim-cxx20@0.1",
-    "pto_trace": "pto-trace@0.1",
     "diagnostic": "agentic-circuit-diagnostic@0.1",
     "build_manifest": "agentic-circuit-build-manifest@0.1",
-    "run_manifest": "agentic-circuit-run-manifest@0.1",
-    "run_result": "agentic-circuit-run-result@0.1",
 }
 
 

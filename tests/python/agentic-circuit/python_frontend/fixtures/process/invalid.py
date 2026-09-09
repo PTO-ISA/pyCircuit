@@ -15,11 +15,11 @@ class Consumer:
     pass
 
 
-class TraceCursor:
+class LinearToken:
     pass
 
 
-class CursorOwner:
+class TokenOwner:
     pass
 
 
@@ -51,11 +51,11 @@ def partial_busy_process(
 
 
 @process
-def forked_cursor_process(
-    cursor: ResourceRef[TraceCursor, CursorOwner],
+def forked_linear_process(
+    token: ResourceRef[LinearToken, TokenOwner],
 ) -> None:
-    first = trace_next(cursor)
-    second = trace_next(cursor)
+    first = advance_linear(token)
+    second = advance_linear(token)
 
 
 @process

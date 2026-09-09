@@ -203,33 +203,6 @@ if(ACIR_BUILD_TESTING)
     "PYTHONPATH=${ACIR_REPO_ROOT}/python/semantic-core/src:${ACIR_REPO_ROOT}/python/agentic-circuit/src:${ACIR_BINARY_DIR}/python"
   )
   add_test(
-    NAME WorkspaceE2ETests
-    COMMAND "${Python3_EXECUTABLE}"
-      "${ACIR_REPO_ROOT}/tests/integration/agentic-circuit/e2e/test_workspace_examples.py"
-      -v
-  )
-  set_tests_properties(WorkspaceE2ETests PROPERTIES
-    WORKING_DIRECTORY "${ACIR_REPO_ROOT}"
-    TIMEOUT 300
-    LABELS "e2e;workspace"
-    ENVIRONMENT "${_ACIR_PYTHON_TEST_ENVIRONMENT}"
-  )
-  add_test(
-    NAME DavinciOOTraceTests
-    COMMAND "${Python3_EXECUTABLE}"
-      "${ACIR_REPO_ROOT}/tests/integration/agentic-circuit/e2e/test_davincioo_trace.py"
-      -v
-  )
-  set_tests_properties(DavinciOOTraceTests PROPERTIES
-    WORKING_DIRECTORY "${ACIR_REPO_ROOT}"
-    # The release gate runs this compile-heavy reference comparison beside
-    # CodeGen and analysis tests. Its serial Linux baseline is 36 seconds, so
-    # retain a bounded timeout while allowing expected parallel contention.
-    TIMEOUT 180
-    LABELS "e2e;davincioo"
-    ENVIRONMENT "${_ACIR_PYTHON_TEST_ENVIRONMENT}"
-  )
-  add_test(
     NAME RuleRetirementE2ETests
     COMMAND "${Python3_EXECUTABLE}"
       "${ACIR_REPO_ROOT}/tests/integration/agentic-circuit/e2e/test_queue_codegen.py"

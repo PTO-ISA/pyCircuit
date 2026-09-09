@@ -190,12 +190,6 @@
       "schema_fingerprint": "sha256:6bb4977e5927be37f4d9184505cc37e082b1680f73bf2aba88a82861925b20a4"
     },
     {
-      "canonical_name": "ac.TraceSource",
-      "availability": "available",
-      "schema_path": "schemas/agentic-circuit/stdlib/TraceSource.json",
-      "schema_fingerprint": "sha256:94b4d87ca72f5a714d58be2c9b3090559c1950fbb2560a4b55eb7030f83f5665"
-    },
-    {
       "canonical_name": "ac.TrafficSource",
       "availability": "declared_unavailable",
       "schema_path": "schemas/agentic-circuit/stdlib/TrafficSource.json",

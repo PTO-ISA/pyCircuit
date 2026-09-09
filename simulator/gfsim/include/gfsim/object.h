@@ -96,9 +96,6 @@ public:
   virtual void bindSystem(SimSystem *) {}
   void setObservationSink(ObservationSink *sink) { observationSink_ = sink; }
 
-  /// Request deterministic shutdown at a voluntary trace-end yield point.
-  virtual bool requestTraceEnd() { return false; }
-
   // ── Reset ───────────────────────────────────────────────────────────
 
   virtual void reset() {}
@@ -270,6 +267,9 @@ public:
   /// Advance one (time, delta) step. Returns false if no more work.
   bool step();
 
+  /// Reset scheduler-owned state without resetting model objects.
+  void resetScheduler();
+
   // ── Termination ─────────────────────────────────────────────────────
 
   bool isTerminated() const { return terminated_; }
@@ -303,23 +303,12 @@ public:
 
   std::string chromeTraceJson() const;
 
-  // ── PTO trace provider ───────────────────────────────────────────────
-
-  void loadPtoTrace(std::string source, const std::string &path);
-  uint64_t traceOpen(std::string_view source) const;
-  TraceNextResult traceNext(std::string_view source, uint64_t cursor) const;
-  uint64_t traceDecode(uint64_t handle) const;
-  bool traceEof(std::string_view source, uint64_t cursor) const;
-  uint64_t tracePosition(std::string_view source, uint64_t cursor) const;
-  uint64_t traceRecordCount(std::string_view source) const;
-
   void reset() override;
 
   // ── Caps ────────────────────────────────────────────────────────────
 
   void setMaxTicks(Tick max) { maxTicks_ = max; }
   void setMaxEvents(uint64_t max) { maxEvents_ = max; }
-  void setMaxTraceRecords(uint64_t max) { maxTraceRecords_ = max; }
   bool setDeadlockWindow(std::optional<uint64_t> window);
   bool setMaxDomainCycles(const std::map<std::string, uint64_t> &limits);
   bool setRuntimeLimits(const RuntimeLimits &limits);
@@ -340,7 +329,6 @@ private:
 
   Tick maxTicks_ = UINT64_MAX;
   uint64_t maxEvents_ = UINT64_MAX;
-  uint64_t maxTraceRecords_ = UINT64_MAX;
   BuildProfile profile_ = BuildProfile::Fast;
 
   struct Impl;
@@ -350,7 +338,6 @@ private:
   TerminationResult runLegacy();
   std::vector<SimObject *> runtimeObjects() const;
   void refreshRuntimeSummary();
-  bool stopAtTraceCap();
   bool validateRuntimeIdentities();
 };
 

@@ -83,16 +83,6 @@ public:
     if (committedStatus_ != ProcessStatus::Runnable || pendingCommit_)
       return;
 
-    if (traceEndRequested_) {
-      proposedPc_ = committedPc_;
-      proposedStatus_ = ProcessStatus::Terminated;
-      proposedWake_.reset();
-      proposedContinuationId_ = 0;
-      proposedDiagnostic_ = {};
-      pendingCommit_ = true;
-      return;
-    }
-
     uint32_t localPc = committedPc_;
     for (uint64_t work = 0; work < fairnessWork_; ++work) {
       ProcessStep step = derived().executeProcessStep(localPc, epoch);
@@ -139,8 +129,6 @@ public:
     committedContinuationId_ = proposedContinuationId_;
     committedDiagnostic_ = proposedDiagnostic_;
     pendingCommit_ = false;
-    if (committedStatus_ == ProcessStatus::Terminated)
-      traceEndRequested_ = false;
     if (committedStatus_ == ProcessStatus::Failed)
       setRuntimeFailureCode(committedDiagnostic_);
   }
@@ -197,16 +185,6 @@ public:
     return true;
   }
 
-  bool requestTraceEnd() override {
-    if (pendingCommit_ || committedStatus_ != ProcessStatus::Suspended ||
-        !committedWake_ || committedWake_->kind != ProcessWakeKind::NextDelta)
-      return false;
-    traceEndRequested_ = true;
-    committedStatus_ = ProcessStatus::Runnable;
-    committedWake_.reset();
-    return true;
-  }
-
   uint32_t pc() const { return committedPc_; }
   ProcessStatus status() const { return committedStatus_; }
   uint64_t continuationId() const { return committedContinuationId_; }
@@ -234,7 +212,6 @@ public:
     committedDiagnostic_ = {};
     proposedDiagnostic_ = {};
     pendingCommit_ = false;
-    traceEndRequested_ = false;
     clearRuntimeFailureCode();
   }
 
@@ -262,7 +239,6 @@ private:
   std::string_view committedDiagnostic_;
   std::string_view proposedDiagnostic_;
   bool pendingCommit_ = false;
-  bool traceEndRequested_ = false;
 };
 
 } // namespace gfsim

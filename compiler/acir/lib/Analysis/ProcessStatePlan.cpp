@@ -43,14 +43,9 @@ bool validDefinitionKey(llvm::StringRef key) {
 }
 
 llvm::StringRef helperRoleSpelling(ProcessHelperRole role) {
-  static constexpr llvm::StringLiteral names[] = {"trace_decode",
-                                                  "queue_try_send",
+  static constexpr llvm::StringLiteral names[] = {"queue_try_send",
                                                   "queue_try_recv",
                                                   "event_schedule",
-                                                  "trace_open",
-                                                  "trace_next",
-                                                  "trace_eof",
-                                                  "trace_position",
                                                   "contract_require",
                                                   "contract_ensure",
                                                   "contract_assert",
@@ -104,10 +99,6 @@ bool validCalleeSemantics(const ProcessGeneratedCalleePlan &callee) {
   auto results = callee.resultTypeKeys();
   const ProcessGeneratedCalleePayload &payload = callee.payload();
   switch (callee.role()) {
-  case ProcessHelperRole::TraceDecode:
-    return inputs.size() == 1 && results.size() == 1 &&
-           inputs[0] == payload.traceDecode().entry() &&
-           results[0] == payload.traceDecode().result();
   case ProcessHelperRole::QueueTrySend:
     return inputs.size() == 1 && results.size() == 1 &&
            inputs[0] == payload.queueTrySend().element();
@@ -118,14 +109,6 @@ bool validCalleeSemantics(const ProcessGeneratedCalleePlan &callee) {
     return inputs.size() == 2 && results.empty() &&
            inputs[0] == payload.eventSchedule().value() &&
            inputs[1] == payload.eventSchedule().delay();
-  case ProcessHelperRole::TraceOpen:
-    return inputs.empty() && results.size() == 1;
-  case ProcessHelperRole::TraceNext:
-    return inputs.size() == 1 && results.size() == 3 &&
-           inputs[0] == results[0] && results[1] == payload.traceNext().entry();
-  case ProcessHelperRole::TraceEof:
-  case ProcessHelperRole::TracePosition:
-    return inputs.size() == 1 && results.size() == 1;
   case ProcessHelperRole::ContractRequire:
   case ProcessHelperRole::ContractEnsure:
   case ProcessHelperRole::ContractAssert:
@@ -1913,11 +1896,6 @@ bool detail::PlanSetBuilder::exerciseCompleteApiFixture(
   expect(state.pcBitWidth() == 3);
   expect(state.fairnessWork() == 4);
 
-  auto traceDecodeImpl = std::make_shared<ProcessTraceDecodePayload::Impl>();
-  traceDecodeImpl->entry = "mlir:i32";
-  traceDecodeImpl->result = "mlir:i64";
-  traceDecodeImpl->source = "trace";
-  ProcessTraceDecodePayload traceDecode(traceDecodeImpl);
   auto queueSendImpl = std::make_shared<ProcessQueueTrySendPayload::Impl>();
   queueSendImpl->element = "mlir:i32";
   queueSendImpl->queue = "@queue";
@@ -1931,9 +1909,6 @@ bool detail::PlanSetBuilder::exerciseCompleteApiFixture(
   eventImpl->target = "@event";
   eventImpl->value = "mlir:i32";
   ProcessEventSchedulePayload event(eventImpl);
-  expect(traceDecode.entry() == "mlir:i32");
-  expect(traceDecode.result() == "mlir:i64");
-  expect(traceDecode.source() == "trace");
   expect(queueSend.element() == "mlir:i32");
   expect(queueSend.queue() == "@queue");
   expect(queueRecv.element() == "mlir:i32");
@@ -1941,26 +1916,6 @@ bool detail::PlanSetBuilder::exerciseCompleteApiFixture(
   expect(event.delay() == "mlir:i64");
   expect(event.target() == "@event");
   expect(event.value() == "mlir:i32");
-
-  auto traceOpenImpl = std::make_shared<ProcessTraceOpenPayload::Impl>();
-  traceOpenImpl->source = "trace";
-  ProcessTraceOpenPayload traceOpen(traceOpenImpl);
-  auto traceNextImpl = std::make_shared<ProcessTraceNextPayload::Impl>();
-  traceNextImpl->entry = "mlir:i32";
-  traceNextImpl->source = "trace";
-  ProcessTraceNextPayload traceNext(traceNextImpl);
-  auto traceEofImpl = std::make_shared<ProcessTraceEofPayload::Impl>();
-  traceEofImpl->source = "trace";
-  ProcessTraceEofPayload traceEof(traceEofImpl);
-  auto tracePositionImpl =
-      std::make_shared<ProcessTracePositionPayload::Impl>();
-  tracePositionImpl->source = "trace";
-  ProcessTracePositionPayload tracePosition(tracePositionImpl);
-  expect(traceOpen.source() == "trace");
-  expect(traceNext.entry() == "mlir:i32");
-  expect(traceNext.source() == "trace");
-  expect(traceEof.source() == "trace");
-  expect(tracePosition.source() == "trace");
 
   auto requireImpl = std::make_shared<ProcessContractRequirePayload::Impl>();
   requireImpl->message = "require";
@@ -2040,22 +1995,12 @@ bool detail::PlanSetBuilder::exerciseCompleteApiFixture(
     impl.get()->*member = value;
     payloads.push_back(ProcessGeneratedCalleePayload(impl));
   };
-  addPayload(ProcessHelperRole::TraceDecode, traceDecode,
-             &ProcessGeneratedCalleePayload::Impl::traceDecode);
   addPayload(ProcessHelperRole::QueueTrySend, queueSend,
              &ProcessGeneratedCalleePayload::Impl::queueTrySend);
   addPayload(ProcessHelperRole::QueueTryRecv, queueRecv,
              &ProcessGeneratedCalleePayload::Impl::queueTryRecv);
   addPayload(ProcessHelperRole::EventSchedule, event,
              &ProcessGeneratedCalleePayload::Impl::eventSchedule);
-  addPayload(ProcessHelperRole::TraceOpen, traceOpen,
-             &ProcessGeneratedCalleePayload::Impl::traceOpen);
-  addPayload(ProcessHelperRole::TraceNext, traceNext,
-             &ProcessGeneratedCalleePayload::Impl::traceNext);
-  addPayload(ProcessHelperRole::TraceEof, traceEof,
-             &ProcessGeneratedCalleePayload::Impl::traceEof);
-  addPayload(ProcessHelperRole::TracePosition, tracePosition,
-             &ProcessGeneratedCalleePayload::Impl::tracePosition);
   addPayload(ProcessHelperRole::ContractRequire, requirePayload,
              &ProcessGeneratedCalleePayload::Impl::contractRequire);
   addPayload(ProcessHelperRole::ContractEnsure, ensurePayload,
@@ -2078,7 +2023,7 @@ bool detail::PlanSetBuilder::exerciseCompleteApiFixture(
              &ProcessGeneratedCalleePayload::Impl::scalarWrap);
   addPayload(ProcessHelperRole::ScalarUnwrap, scalarUnwrap,
              &ProcessGeneratedCalleePayload::Impl::scalarUnwrap);
-  expect(payloads.size() == 19);
+  expect(payloads.size() == 14);
   for (auto [index, payload] : llvm::enumerate(payloads))
     expect(static_cast<unsigned>(payload.role()) == index);
 
@@ -2156,7 +2101,7 @@ bool detail::PlanSetBuilder::exerciseCompleteApiFixture(
   calleeImpl->resultTypeKeyStorage = {"mlir:i64"};
   calleeImpl->resultTypeKeys = {calleeImpl->resultTypeKeyStorage[0]};
   calleeImpl->role = ProcessHelperRole::Probe;
-  calleeImpl->payload = payloads[11];
+  calleeImpl->payload = payloads[6];
   // NOLINTBEGIN(performance-no-int-to-ptr) sentinel test identities
   calleeImpl->sourceOperations = {
       reinterpret_cast<mlir::Operation *>(uintptr_t{1})};
@@ -2338,12 +2283,11 @@ bool detail::PlanSetBuilder::exerciseAllActionArmsFixture(
   auto makePayload = [](ProcessHelperRole role) {
     auto payload = std::make_shared<ProcessGeneratedCalleePayload::Impl>();
     payload->role = role;
-    if (role == ProcessHelperRole::TraceDecode) {
-      auto arm = std::make_shared<ProcessTraceDecodePayload::Impl>();
-      arm->entry = "mlir:i32";
-      arm->result = "mlir:i32";
-      arm->source = "fixture";
-      payload->traceDecode = ProcessTraceDecodePayload(arm);
+    if (role == ProcessHelperRole::QueueTrySend) {
+      auto arm = std::make_shared<ProcessQueueTrySendPayload::Impl>();
+      arm->element = "mlir:i32";
+      arm->queue = "@fixture";
+      payload->queueTrySend = ProcessQueueTrySendPayload(arm);
     } else if (role == ProcessHelperRole::Probe) {
       auto arm = std::make_shared<ProcessProbePayload::Impl>();
       arm->kind = "fixture";
@@ -2366,7 +2310,7 @@ bool detail::PlanSetBuilder::exerciseAllActionArmsFixture(
     return ProcessGeneratedCalleePayload(payload);
   };
   const ProcessHelperRole calleeRoles[] = {
-      ProcessHelperRole::TraceDecode, ProcessHelperRole::Probe,
+      ProcessHelperRole::QueueTrySend, ProcessHelperRole::Probe,
       ProcessHelperRole::ScalarWrap, ProcessHelperRole::ScalarUnwrap};
   std::vector<ProcessGeneratedCalleePlan> callees;
   for (auto [index, role] : llvm::enumerate(calleeRoles)) {
@@ -2419,7 +2363,7 @@ bool detail::PlanSetBuilder::exerciseAllActionArmsFixture(
       makeLoop(ProcessLoopPhase::Condition), loopOperation, {lower, upper},
       {boolean}, std::nullopt, cmpi));
   actions.push_back(makeAction(
-      1, ProcessActionKind::Original, ProcessEmissionClass::Inline, original,
+      1, ProcessActionKind::Original, ProcessEmissionClass::Invoke, original,
       module->getOperation(), {lhs}, {rhs}, ProcessCalleeId(0), nullptr));
   actions.push_back(makeAction(
       2, ProcessActionKind::Original, ProcessEmissionClass::Invoke, original,
@@ -2442,7 +2386,7 @@ bool detail::PlanSetBuilder::exerciseAllActionArmsFixture(
       {step}, std::nullopt, addi));
 
   const ProcessEmissionClass emissions[] = {
-      ProcessEmissionClass::CopyScalar, ProcessEmissionClass::Inline,
+      ProcessEmissionClass::CopyScalar, ProcessEmissionClass::Invoke,
       ProcessEmissionClass::Invoke,     ProcessEmissionClass::Wrap,
       ProcessEmissionClass::Unwrap,     ProcessEmissionClass::ForwardOnly,
       ProcessEmissionClass::CopyScalar};
@@ -2478,7 +2422,7 @@ bool detail::PlanSetBuilder::exerciseAllActionArmsFixture(
   expect(actions[1].sourceOperation() == module->getOperation());
   expect(actions[1].callee() == ProcessCalleeId(0));
   expect(callees[actions[1].callee()->value()].role() ==
-         ProcessHelperRole::TraceDecode);
+         ProcessHelperRole::QueueTrySend);
   expect(!actions[1].scalarOp());
   expect(actions[2].sourceOperation() == module->getOperation());
   expect(actions[2].callee() == ProcessCalleeId(1));
@@ -2655,14 +2599,9 @@ detail::PlanSetBuilder::structuralError(const ProcessStatePlanSet &plans) {
     if (!payload.impl_)
       return false;
     auto &p = *payload.impl_;
-    unsigned active = static_cast<unsigned>(p.traceDecode.has_value()) +
-                      static_cast<unsigned>(p.queueTrySend.has_value()) +
+    unsigned active = static_cast<unsigned>(p.queueTrySend.has_value()) +
                       static_cast<unsigned>(p.queueTryRecv.has_value()) +
                       static_cast<unsigned>(p.eventSchedule.has_value()) +
-                      static_cast<unsigned>(p.traceOpen.has_value()) +
-                      static_cast<unsigned>(p.traceNext.has_value()) +
-                      static_cast<unsigned>(p.traceEof.has_value()) +
-                      static_cast<unsigned>(p.tracePosition.has_value()) +
                       static_cast<unsigned>(p.contractRequire.has_value()) +
                       static_cast<unsigned>(p.contractEnsure.has_value()) +
                       static_cast<unsigned>(p.contractAssert.has_value()) +
@@ -2678,22 +2617,12 @@ detail::PlanSetBuilder::structuralError(const ProcessStatePlanSet &plans) {
       return false;
     auto present = [](const auto &arm) { return arm && arm->impl_; };
     switch (p.role) {
-    case ProcessHelperRole::TraceDecode:
-      return present(p.traceDecode);
     case ProcessHelperRole::QueueTrySend:
       return present(p.queueTrySend);
     case ProcessHelperRole::QueueTryRecv:
       return present(p.queueTryRecv);
     case ProcessHelperRole::EventSchedule:
       return present(p.eventSchedule);
-    case ProcessHelperRole::TraceOpen:
-      return present(p.traceOpen);
-    case ProcessHelperRole::TraceNext:
-      return present(p.traceNext);
-    case ProcessHelperRole::TraceEof:
-      return present(p.traceEof);
-    case ProcessHelperRole::TracePosition:
-      return present(p.tracePosition);
     case ProcessHelperRole::ContractRequire:
       return present(p.contractRequire);
     case ProcessHelperRole::ContractEnsure:
@@ -3168,10 +3097,7 @@ mlir::LogicalResult verifyProcessStatePlan(const ProcessStatePlanSet &plans,
           ProcessHelperRole role =
               plans.callees()[action.callee()->value()].role();
           ProcessEmissionClass expectedEmission =
-              role <= ProcessHelperRole::TraceDecode
-                  ? ProcessEmissionClass::Inline
-              : role == ProcessHelperRole::ScalarWrap
-                  ? ProcessEmissionClass::Wrap
+              role == ProcessHelperRole::ScalarWrap ? ProcessEmissionClass::Wrap
               : role == ProcessHelperRole::ScalarUnwrap
                   ? ProcessEmissionClass::Unwrap
                   : ProcessEmissionClass::Invoke;
@@ -3586,8 +3512,7 @@ mlir::LogicalResult verifyProcessStatePlan(const ProcessStatePlanSet &plans,
                 "order");
     previousSpecialization = detail::generatedCalleeSpecializationBytes(callee);
     ProcessEffectKind expectedEffect =
-        callee.role() <= ProcessHelperRole::TraceDecode ||
-                callee.role() >= ProcessHelperRole::ScalarWrap
+        callee.role() >= ProcessHelperRole::ScalarWrap
             ? ProcessEffectKind::Pure
             : ProcessEffectKind::Stateful;
     if (callee.effect() != expectedEffect)
@@ -3613,10 +3538,10 @@ mlir::LogicalResult verifyProcessStatePlan(const ProcessStatePlanSet &plans,
       return reject(plans,
                     "process-state plan invariant violated: callee sources");
     bool ownsDeclaration = callee.role() == ProcessHelperRole::QueueTrySend ||
-        callee.role() == ProcessHelperRole::QueueTryRecv ||
-        callee.role() == ProcessHelperRole::EventSchedule ||
-        callee.role() == ProcessHelperRole::Probe ||
-        callee.role() == ProcessHelperRole::StatAdd;
+                           callee.role() == ProcessHelperRole::QueueTryRecv ||
+                           callee.role() == ProcessHelperRole::EventSchedule ||
+                           callee.role() == ProcessHelperRole::Probe ||
+                           callee.role() == ProcessHelperRole::StatAdd;
     llvm::SmallPtrSet<mlir::Operation *, 8> uniqueDeclarations;
     if ((ownsDeclaration && callee.declarations().empty()) ||
         (!ownsDeclaration && !callee.declarations().empty()) ||
@@ -3625,22 +3550,22 @@ mlir::LogicalResult verifyProcessStatePlan(const ProcessStatePlanSet &plans,
         llvm::any_of(callee.declarations(), [&](mlir::Operation *op) {
           return op == nullptr || !uniqueDeclarations.insert(op).second;
         }))
-      return reject(plans,
-                    "process-state plan invariant violated: callee declarations");
+      return reject(
+          plans, "process-state plan invariant violated: callee declarations");
     auto canonical = detail::canonicalGeneratedCalleeSpecialization(callee);
     if (!canonical) {
       llvm::consumeError(canonical.takeError());
-      return reject(plans,
-                    "process-state plan invariant violated: callee canonicalization");
+      return reject(
+          plans,
+          "process-state plan invariant violated: callee canonicalization");
     }
     std::string fingerprint = bindings::sha256Fingerprint(*canonical);
     std::string expectedStem = helperRoleSpelling(callee.role()).str();
     if (callee.role() == ProcessHelperRole::ScalarWrap ||
         callee.role() == ProcessHelperRole::ScalarUnwrap) {
-      llvm::StringRef scalar =
-          callee.role() == ProcessHelperRole::ScalarWrap
-              ? callee.payload().scalarWrap().scalar()
-              : callee.payload().scalarUnwrap().scalar();
+      llvm::StringRef scalar = callee.role() == ProcessHelperRole::ScalarWrap
+                                   ? callee.payload().scalarWrap().scalar()
+                                   : callee.payload().scalarUnwrap().scalar();
       if (!scalar.consume_front("mlir:"))
         return reject(plans,
                       "process-state plan invariant violated: scalar helper "
@@ -3703,8 +3628,7 @@ mlir::LogicalResult verifyProcessStatePlan(const ProcessStatePlanSet &plans,
       return reject(plans,
                     "process-state plan invariant violated: readable value "
                     "type identity");
-    std::string expectedSymbol =
-        ("@acir_" + stem + "_" + readableType).str();
+    std::string expectedSymbol = ("@acir_" + stem + "_" + readableType).str();
     std::string expectedCpp =
         ("acir::generated::" + stem + "_" + readableType).str();
     if (*canonical != specialization || fingerprint != type.fingerprint() ||

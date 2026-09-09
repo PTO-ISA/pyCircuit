@@ -34,7 +34,6 @@ EXPECTED_LLVM = {
 }
 
 AVAILABLE_STDLIB_COMPONENTS = {
-    "ac.TraceSource",
     "ac.Queue",
     "ac.Scheduler",
     "ac.Compute",
@@ -45,7 +44,6 @@ AVAILABLE_STDLIB_COMPONENTS = {
     "ac.request_response",
 }
 AVAILABLE_STDLIB_BINDINGS = {
-    "ac.TraceSource": ("gfsim/trace.h", "gfsim::TraceSource"),
     "ac.Queue": ("gfsim/queue.h", "gfsim::Queue"),
     "ac.Scheduler": ("gfsim/components.h", "gfsim::Scheduler"),
     "ac.Compute": ("gfsim/components.h", "gfsim::Compute"),
@@ -98,8 +96,8 @@ def check_governance(errors):
 
 def check_epochs(errors):
     schemas = sorted((ROOT / "schemas/agentic-circuit").glob("*.schema.json"))
-    if len(schemas) != 21:
-        errors.append(f"expected 21 JSON schemas, found {len(schemas)}")
+    if len(schemas) != 15:
+        errors.append(f"expected 15 JSON schemas, found {len(schemas)}")
     for path in schemas:
         document = json.loads(path.read_text())
         actual = document.get("properties", {}).get("contract_epoch", {}).get("const")
@@ -118,7 +116,7 @@ def check_schemas(errors):
     if importlib.util.find_spec("jsonschema") is None:
         errors.append("jsonschema is unavailable; install requirements-dev.lock")
         return
-    from jsonschema.exceptions import SchemaError, ValidationError
+    from jsonschema.exceptions import SchemaError
     from jsonschema.validators import Draft202012Validator
 
     for path in sorted((ROOT / "schemas/agentic-circuit").glob("*.schema.json")):
@@ -130,16 +128,6 @@ def check_schemas(errors):
             Draft202012Validator.check_schema(document)
         except SchemaError as exc:
             errors.append(f"{path.relative_to(ROOT)} does not compile: {exc.message}")
-    abi_schema_path = ROOT / "schemas/agentic-circuit/pto-payload-abi.schema.json"
-    abi_path = ROOT / "schemas/agentic-circuit/pto-payload-abi.json"
-    try:
-        Draft202012Validator(json.loads(abi_schema_path.read_text())).validate(
-            json.loads(abi_path.read_text())
-        )
-    except (OSError, json.JSONDecodeError) as exc:
-        errors.append(f"cannot read PTO payload ABI contract: {exc}")
-    except ValidationError as exc:
-        errors.append(f"PTO payload ABI does not validate: {exc}")
 
 
 def check_stdlib_catalog(errors):
@@ -451,7 +439,7 @@ def main():
         return 1
     print(
         "repository contracts: OK "
-        "(21 public schemas, 36 stdlib components, epoch 0.5, LLVM 22.1.8)"
+        "(15 public schemas, 35 stdlib components, epoch 0.5, LLVM 22.1.8)"
     )
     return 0
 

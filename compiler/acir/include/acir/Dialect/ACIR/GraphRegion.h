@@ -26,8 +26,6 @@ struct ElaboratedStateOwner {
   mlir::Operation *declaration;
   std::string path;
   std::string stableId;
-  /// Logical harness-bound trace sources owned by this process instance.
-  llvm::SmallVector<std::string> traceSources;
 };
 
 /// Every owning structural object expanded in the selected hierarchy. Unlike

@@ -1,2 +1,0 @@
-{"block_idx":0,"sequence_id":0,"opcode":"TASSIGN","input_tiles":[],"scalar_inputs":[{"dtype":"uint64","value":"0"}],"output_tiles":[{"address":"0x0","shape":[64,256],"layout":"outer=col_major,inner=row_major,fractal_size=512","dtype":"float32"}]}
-{"block_idx":0,"sequence_id":1,"opcode":"TLOAD","input_tiles":[{"address":"0xfffd835fd000","shape":[1,1,1,64,256],"layout":"ND","dtype":"float32"}],"scalar_inputs":[],"output_tiles":[{"address":"0x0","shape":[64,256],"layout":"outer=col_major,inner=row_major,fractal_size=512","dtype":"float32"}]}

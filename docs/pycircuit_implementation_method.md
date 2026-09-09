@@ -84,7 +84,7 @@ Illustrations of **grammar and structure** are under **`designs/`** and subfolde
 | **Testbench layout** (low-level `Tb`) | `examples/pycircuit/*/tb_*.py`, `designs/blocks/BypassUnit/tb_bypass_unit.py`, `designs/blocks/RegisterFile/tb_regfile.py` |
 | **Structured IO** | Designs using `spec` / bundles per `docs/SPEC_STRUCTURES.md` |
 
-Mirror the **directory layout** (design file + `tb_*.py` + optional `README.md`) of the example closest to your block's complexity. For **hierarchical multi-module designs**, use the Davinci project in **[DavinciOO](https://github.com/hengliao1972/DavinciOO)** (`davinci/`) as the canonical reference.
+Mirror the **directory layout** (design file + `tb_*.py` + optional `README.md`) of the generic example closest to your block's complexity. Complete consumer hierarchies remain in their owning repositories.
 
 ---
 

@@ -19,9 +19,7 @@ target_compile_definitions(acir-build PRIVATE
   "ACIR_HOST_CXX=\"${CMAKE_CXX_COMPILER}\""
   "ACIR_BINDINGS_LIBRARY=\"$<TARGET_FILE:ACIRBindings>\""
   "ACIR_GFSIM_INCLUDE=\"${ACIR_GFSIM_SOURCE_DIR}/include\""
-  "ACIR_GFSIM_TOOLING_INCLUDE=\"${ACIR_GFSIM_SOURCE_DIR}/tooling/include\""
-  "ACIR_GFSIM_TOOLING_LIBRARY=\"$<TARGET_FILE:gfsim_tooling>\""
   "ACIR_GFSIM_LIBRARY=\"$<TARGET_FILE:gfsim>\""
   "ACIR_BUILD_LLVM_LINK_FLAGS=\"${ACIR_BUILD_LLVM_LINK_FLAGS}\""
 )
-add_dependencies(acir-build gfsim gfsim_tooling)
+add_dependencies(acir-build gfsim)

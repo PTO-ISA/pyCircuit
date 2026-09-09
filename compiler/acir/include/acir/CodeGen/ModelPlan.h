@@ -54,7 +54,6 @@ struct RuntimeObjectPlan {
   std::string hierarchyPath;
   std::vector<uint64_t> indices;
   RuntimeObjectKind objectKind = RuntimeObjectKind::External;
-  bool traceOwner = false;
   std::string workThunk;
   std::string xferThunk;
   std::string resetThunk;

@@ -781,13 +781,8 @@ bitmap，producer 离开 resident/output window 后，后到的 dependent 仍能
 sentinel。QueueGraph 保留并再次核验该 identity，据此生成 `gfsim::Schedule`；普通 `depend`
 仍保持 resident-only `QueueDependency` 语义。
 
-PTO specialization 使用 bounded physical-tag pool 与 generation scoreboard。`NpuScheduleV2`
-只借用 parent-owned dispatch/completion/recycle 与四个 per-engine issued Queue；同一
-Arbitrate 内按 sequence 做 shadow rename 并保持 read-before-write，多 source tag 分别等待
-exact-generation completion，recycle 只接受被替换的精确 generation。free tag、oldest-ready、
-capacity 和 output backpressure 都确定性处理，不发生 partial commit。invalid/stale update
-以及 stable ID、sequence 或 engine class 非法的 dispatch 只消费一次并记录 reject
-observation，不改变 scoreboard。PYC/Verilog multi-port lane 在 #21 完成前明确 fail-close。
+具体处理器的 rename、scoreboard、engine queue 和 retirement 协议属于 consumer
+实现。框架只保留有界调度、精确 identity、backpressure 和原子提交等通用语义。
 
 ```python
 completed = issued.depend(
@@ -811,49 +806,16 @@ retired = completed.reorder(
 )
 ```
 
-完整参考：
-`davincioo_queue_model.py`。该模型用公共
-积木构造 DavinciOO-like 拓扑，并验证 15 条记录、out-of-order completion、in-order
-retirement、Queue occupancy 和 453-cycle 投影。
+完整参考使用 `routed_dependency_pipeline.py`。它只验证公共 Queue、dependency、
+backpressure、typed payload 和确定性生成，不包含 consumer ISA、payload、trace 或
+reference model。
 
-### Canonical PTO trace oracle
+### Consumer-neutral refinement boundary
 
-trace oracle 把同一个 canonical `pto-trace@0.1` content hash 的两侧执行结果归一化为
-`agentic-circuit-pto-trace-result`。每条连续编号的 instruction 记录 opcode、架构值、
-completion/retirement ordinal，以及当前比较 profile 声明为 observable 的 stage
-timestamp；model identity 和 specialization 显式记录，checkout/output path 不进入结果。
-
-比较器输出 canonical `agentic-circuit-pto-trace-oracle-report`，依次比较 trace identity、
-record/opcode count、架构值、completion/retirement order 和声明的 timestamp。失败时报告
-第一个确定性 divergence：instruction sequence、opcode、stage、field、reference/candidate
-值和 cycle。`PYC6TRC3` 仍是 simulator binary event trace，并不是该 PTO workload oracle。
-
-DavinciOO gate 对一份 imported JSONL 只做一次 canonicalization；pinned reference 从同一份
-source bytes 执行，frozen ACIR specialization 消费 canonical records。live reference 必须
-先匹配 pinned record/opcode count、completion/retirement order 和 complete-run timestamp；
-reference executable 尚未导出的架构值由同 revision 的 checked projection 提供。只有双方
-共同声明的 timestamp 才比较，模型边界不同导致的内部 stage cycle 不要求相等。
-
-### Canonical PTO execution-payload ABI
-
-`agentic-circuit-pto-payload-abi@0.1` 把 canonical PTO workload record 投影为有界、不可变的
-execution payload。`PTOExecutionPayload` 固定 numeric opcode ID、engine kind、16-bit
-sequence/block identity、4 个 input Tile slot、4 个 scalar input slot 和 2 个 output Tile
-slot。Tile operand 固定 presence、64-bit address、dtype、layout 和最多 5 维 shape；scalar
-operand 固定 presence、dtype 和 64-bit raw bits。count 选择连续的 present prefix，未使用
-slot 必须是全零 canonical image。
-
-ABI 有 1258 个有效 bit，序列化为 158 byte。struct field 和 array element 按 declaration
-order 从 MSB 到 LSB 排列；byte order 是 little-endian，bit numbering 是 LSB0，最高 6 个
-padding bit 必须为零。checked descriptor 发布 79 个 leaf path 的 width/LSB offset，并对
-完整 layout 与 catalog 计算 fingerprint。strict codec 拒绝 reserved opcode/enum、越界
-count、非法 rank/dimension、非零 unused slot、错误长度和非零 padding。
-
-serialized leaf 明确标记为 `architectural` 或 `execution`；engine 和 sequence/block routing
-identity 属于后者。dispatch residency、rename/ROB/ISQ tag、generation、provider timestamp
-等 provider-local runtime state 不进入 descriptor、fingerprint 或 bytes。Frozen ACIR 使用
-同一 nominal enum/struct/fixed array；wide gfsim storage 与 packed scalar PYC 在 generated
-C++/Verilog 中保持同一 field mapping。
+框架 refinement 只比较已声明的通用 transaction、state、memory-visible effect、
+assertion 和 failure。产品 payload、instruction/opcode catalog、序列化 workload trace、
+reference model 与 comparison adapter 由 consumer 仓库拥有，不是 pyCircuit schema、
+runtime input 或 generated-model ABI 字段。
 
 ## 串行控制流
 
@@ -1189,20 +1151,20 @@ cmake --build --preset dev-llvm22
 
 ```bash
 PYTHONPATH=src .venv/bin/python tools/ac-queue-cxxgen.py \
-  examples/pipelines/davincioo_queue_model.py \
-  --system davincioo_queue_model \
-  --acir-output build/davincioo_queue_model.ac.mlir \
-  --plan-output build/davincioo_queue_model.queue-plan.json \
+  examples/pipelines/routed_dependency_pipeline.py \
+  --system routed_dependency_pipeline \
+  --acir-output build/routed_dependency_pipeline.ac.mlir \
+  --plan-output build/routed_dependency_pipeline.queue-plan.json \
   --acir-opt build/dev-llvm22/bin/acir-opt \
   --queue-plan-tool build/dev-llvm22/bin/acir-queue-plan \
   --queue-cxxgen-tool build/dev-llvm22/bin/acir-queue-cxxgen \
-  --output build/davincioo_queue_model.cpp
+  --output build/routed_dependency_pipeline.cpp
 ```
 
 验证生成 C++：
 
 ```bash
-c++ -std=c++20 -I include -fsyntax-only build/davincioo_queue_model.cpp
+c++ -std=c++20 -I include -fsyntax-only build/routed_dependency_pipeline.cpp
 ```
 
 使用锁定的 pyCircuit toolchain 生成 PYC C++ 与 Verilog：
@@ -1211,7 +1173,7 @@ c++ -std=c++20 -I include -fsyntax-only build/davincioo_queue_model.cpp
 PYC_TOOLCHAIN_ROOT=/path/to/pycircuit/toolchain/install
 
 .venv/bin/python tools/ac-queue-pyc-build.py \
-  build/davincioo_queue_model.ac.mlir \
+  build/routed_dependency_pipeline.ac.mlir \
   --pycgen-tool build/dev-llvm22/bin/acir-queue-pycgen \
   --pycc "$PYC_TOOLCHAIN_ROOT/bin/pycc" \
   --toolchain-lock toolchains/pyc.lock.json \
@@ -1219,10 +1181,10 @@ PYC_TOOLCHAIN_ROOT=/path/to/pycircuit/toolchain/install
     "$PYC_TOOLCHAIN_ROOT/share/pycircuit/toolchain-metadata.json" \
   --cxx "$(command -v c++)" \
   --verilator "$(command -v verilator)" \
-  --pyc-output build/davincioo_queue_model.pyc \
-  --cpp-output-dir build/davincioo_queue_model-pyc-cpp \
-  --verilog-output-dir build/davincioo_queue_model-verilog \
-  --manifest build/davincioo_queue_model-pyc-manifest.json
+  --pyc-output build/routed_dependency_pipeline.pyc \
+  --cpp-output-dir build/routed_dependency_pipeline-pyc-cpp \
+  --verilog-output-dir build/routed_dependency_pipeline-verilog \
+  --manifest build/routed_dependency_pipeline-pyc-manifest.json
 ```
 
 命令会检查 `pyc.lock.json`，执行 PYC
@@ -1423,7 +1385,7 @@ match/choose index set 的通用推导及 multiple selected output 仍不属于�
 
 1. 本文的“核心对象”和“最小示例”；
 2. `examples/pipelines/README.md`；
-3. `davincioo_queue_model.py`；
+3. `routed_dependency_pipeline.py`；
 4. [英文规范](agentic-circuit.md)；
 5. `opcodes.json` 和
    `test/ACIR`；

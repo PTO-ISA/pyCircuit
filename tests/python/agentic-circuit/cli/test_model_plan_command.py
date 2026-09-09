@@ -17,6 +17,10 @@ from agentic_circuit._capture_worker import CaptureWorkerRequest, run_capture_wo
 REPOSITORY = Path(__file__).resolve().parents[4]
 BUILD = REPOSITORY / ".pycircuit_out/acir/dev-llvm22"
 MODEL_PLAN_SCHEMA = REPOSITORY / "schemas/agentic-circuit/model-plan.schema.json"
+MODEL_MANIFEST_SCHEMA = (
+    REPOSITORY / "schemas/agentic-circuit/model-manifest.schema.json"
+)
+MODEL_CONSUMER = REPOSITORY / "tests/integration/agentic-circuit/model-install-consumer"
 FIXTURE_SOURCE_REVISION = "a" * 40
 PLAN_FILES = (
     "frozen.ac.mlir",
@@ -24,6 +28,14 @@ PLAN_FILES = (
     "model-sources.cmake",
     "model.d",
     "queuegraph.json",
+)
+EMIT_FILES = (
+    "include/generated/model.h",
+    "model-manifest.json",
+    "model-sources.cmake",
+    "model.d",
+    "src/generated/model.cpp",
+    "src/generated/queuegraph.cpp",
 )
 
 
@@ -107,6 +119,7 @@ def install_sdk(prefix: Path) -> None:
     license_root.mkdir(parents=True, exist_ok=True)
     wheelhouse.mkdir(parents=True, exist_ok=True)
     shutil.copyfile(MODEL_PLAN_SCHEMA, schema_root / "model-plan.schema.json")
+    shutil.copyfile(MODEL_MANIFEST_SCHEMA, schema_root / "model-manifest.schema.json")
     shutil.copyfile(REPOSITORY / "LICENSE", license_root / "LICENSE")
     (wheelhouse / "agentic_circuit-0.1.0-py3-none-any.whl").write_bytes(b"wheel")
 
@@ -258,6 +271,124 @@ def run_plan(
     )
 
 
+def emit_command(
+    prefix: Path, plan: Path, output: Path
+) -> tuple[list[str], dict[str, str]]:
+    environment = os.environ.copy()
+    environment.pop("PYTHONPATH", None)
+    return (
+        [
+            sys.executable,
+            str(prefix / "bin/agentic-circuit"),
+            "model",
+            "emit-cpp",
+            "--sdk-root",
+            str(prefix),
+            "--plan",
+            str(plan / "model-plan.json"),
+            "--out-dir",
+            str(output),
+            "--manifest",
+            str(output / "model-manifest.json"),
+            "--depfile",
+            str(output / "model.d"),
+            "--json",
+        ],
+        environment,
+    )
+
+
+def run_emit(
+    prefix: Path, plan: Path, output: Path
+) -> subprocess.CompletedProcess[str]:
+    command, environment = emit_command(prefix, plan, output)
+    return subprocess.run(
+        command,
+        cwd=plan,
+        env=environment,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+
+def compile_emitted_model(
+    prefix: Path, output: Path
+) -> subprocess.CompletedProcess[str]:
+    build = output.parent / "model-consumer-build"
+    configured = subprocess.run(
+        [
+            "cmake",
+            "-S",
+            str(MODEL_CONSUMER),
+            "-B",
+            str(build),
+            f"-DCMAKE_PREFIX_PATH={prefix}",
+            f"-DAGENTIC_MODEL_ROOT={output}",
+            "-DCMAKE_DISABLE_FIND_PACKAGE_LLVM=TRUE",
+            "-DCMAKE_DISABLE_FIND_PACKAGE_MLIR=TRUE",
+        ],
+        cwd=output.parent,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    if configured.returncode != 0:
+        return configured
+    built = subprocess.run(
+        ["cmake", "--build", str(build)],
+        cwd=output.parent,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    if built.returncode != 0:
+        return built
+    plugin = next(
+        (
+            path
+            for path in build.iterdir()
+            if path.name in {"libmodel-plugin.dylib", "libmodel-plugin.so"}
+        ),
+        None,
+    )
+    if plugin is None:
+        return subprocess.CompletedProcess(
+            args=("find-model-plugin",),
+            returncode=1,
+            stdout="",
+            stderr="model plugin was not built",
+        )
+    symbols = subprocess.run(
+        ["nm", "-gU", str(plugin)]
+        if platform.system() == "Darwin"
+        else ["nm", "-D", "--defined-only", str(plugin)],
+        cwd=build,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    defined = tuple(line for line in symbols.stdout.splitlines() if line.strip())
+    if (
+        symbols.returncode != 0
+        or len(defined) != 1
+        or not defined[0].endswith("agentic_model_query_v1")
+    ):
+        return subprocess.CompletedProcess(
+            args=symbols.args,
+            returncode=1,
+            stdout=symbols.stdout,
+            stderr=symbols.stderr or "model plugin exported more than the query symbol",
+        )
+    return subprocess.run(
+        [str(build / "model-consumer")],
+        cwd=output.parent,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+
 @unittest.skipUnless(
     sys.version_info[:2] == (3, 11), "SDK model-plan profile requires Python 3.11"
 )
@@ -285,10 +416,32 @@ class ModelPlanCommandTest(unittest.TestCase):
             repeated_files = {
                 path.name: path.read_bytes() for path in (root / "left-plan").iterdir()
             }
+            (left / "model/top.py").write_text(
+                "raise RuntimeError('must not import')\n"
+            )
+            (right / "model/top.py").write_text(
+                "raise RuntimeError('must not import')\n"
+            )
+            left_emit = run_emit(prefix, root / "left-plan", root / "left-generated")
+            right_emit = run_emit(prefix, root / "right-plan", root / "right-generated")
+            left_generated = {
+                path.relative_to(root / "left-generated").as_posix(): path.read_bytes()
+                for path in (root / "left-generated").rglob("*")
+                if path.is_file()
+            }
+            right_generated = {
+                path.relative_to(root / "right-generated").as_posix(): path.read_bytes()
+                for path in (root / "right-generated").rglob("*")
+                if path.is_file()
+            }
+            runtime = compile_emitted_model(prefix, root / "left-generated")
 
         self.assertEqual(0, left_result.returncode, left_result.stdout)
         self.assertEqual(0, right_result.returncode, right_result.stdout)
         self.assertEqual(0, repeated.returncode, repeated.stdout)
+        self.assertEqual(0, left_emit.returncode, left_emit.stdout)
+        self.assertEqual(0, right_emit.returncode, right_emit.stdout)
+        self.assertEqual(0, runtime.returncode, runtime.stderr)
         self.assertNotEqual(first_directory_inode, repeated_directory_inode)
         self.assertEqual(left_files, repeated_files)
         self.assertEqual(PLAN_FILES, tuple(sorted(left_files)))
@@ -321,6 +474,166 @@ class ModelPlanCommandTest(unittest.TestCase):
         for name in set(PLAN_FILES) - {"model.d"}:
             self.assertNotIn(str(left).encode(), left_files[name], name)
             self.assertNotIn(str(prefix).encode(), left_files[name], name)
+        self.assertEqual(EMIT_FILES, tuple(sorted(left_generated)))
+        self.assertEqual(EMIT_FILES, tuple(sorted(right_generated)))
+        for name in set(EMIT_FILES) - {"model.d"}:
+            self.assertEqual(left_generated[name], right_generated[name], name)
+        manifest = json.loads(left_generated["model-manifest.json"])
+        self.assertEqual(
+            set(json.loads(MODEL_MANIFEST_SCHEMA.read_text())["required"]),
+            set(manifest),
+        )
+        self.assertEqual(
+            [item["path"] for item in manifest["generated_files"]],
+            list(plan["outputs"]),
+        )
+
+    def test_emit_rejects_tamper_and_cleans_only_manifest_owned_files(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            prefix = root / "sdk"
+            source = root / "source"
+            plan = root / "plan"
+            output = root / "generated"
+            install_sdk(prefix)
+            write_source(source)
+            planned = run_plan(prefix, source, plan)
+            self.assertEqual(0, planned.returncode, planned.stdout)
+            emitted = run_emit(prefix, plan, output)
+            self.assertEqual(0, emitted.returncode, emitted.stdout)
+
+            manifest_path = output / "model-manifest.json"
+            manifest = json.loads(manifest_path.read_bytes())
+            obsolete = output / "src/generated/obsolete.cpp"
+            obsolete.write_text("obsolete\n")
+            manifest["generated_files"].append(
+                {"path": "src/generated/obsolete.cpp", "sha256": sha256(b"obsolete\n")}
+            )
+            manifest_path.write_text(
+                json.dumps(manifest, sort_keys=True, separators=(",", ":")) + "\n"
+            )
+            replaced = run_emit(prefix, plan, output)
+            self.assertEqual(0, replaced.returncode, replaced.stdout)
+            self.assertFalse(obsolete.exists())
+
+            unowned = output / "keep.txt"
+            unowned.write_text("keep\n")
+            refused = run_emit(prefix, plan, output)
+            self.assertEqual(2, refused.returncode, refused.stdout)
+            self.assertEqual(
+                "ACSDK-EMIT-OUTPUT-001", json.loads(refused.stdout)["code"]
+            )
+            self.assertEqual("keep\n", unowned.read_text())
+            unowned.unlink()
+
+            def output_bytes() -> dict[str, bytes]:
+                return {
+                    path.relative_to(output).as_posix(): path.read_bytes()
+                    for path in output.rglob("*")
+                    if path.is_file()
+                }
+
+            preserved = output_bytes()
+
+            frozen = plan / "frozen.ac.mlir"
+            frozen_bytes = frozen.read_bytes()
+            frozen.write_bytes(frozen_bytes + b"tampered")
+            rejected_hash = run_emit(prefix, plan, output)
+            self.assertEqual(2, rejected_hash.returncode, rejected_hash.stdout)
+            self.assertEqual(
+                "ACSDK-EMIT-HASH-001", json.loads(rejected_hash.stdout)["code"]
+            )
+            self.assertEqual(preserved, output_bytes())
+            frozen.write_bytes(frozen_bytes)
+
+            queuegraph = plan / "queuegraph.json"
+            queuegraph_bytes = queuegraph.read_bytes()
+            queuegraph.write_bytes(queuegraph_bytes + b"tampered")
+            rejected_queuegraph = run_emit(prefix, plan, output)
+            self.assertEqual(
+                2, rejected_queuegraph.returncode, rejected_queuegraph.stdout
+            )
+            self.assertEqual(
+                "ACSDK-EMIT-HASH-001",
+                json.loads(rejected_queuegraph.stdout)["code"],
+            )
+            self.assertEqual(preserved, output_bytes())
+            queuegraph.write_bytes(queuegraph_bytes)
+
+            cmake = plan / "model-sources.cmake"
+            cmake_bytes = cmake.read_bytes()
+            cmake.write_bytes(cmake_bytes + b"# tampered\n")
+            rejected_cmake = run_emit(prefix, plan, output)
+            self.assertEqual(2, rejected_cmake.returncode, rejected_cmake.stdout)
+            self.assertEqual(
+                "ACSDK-EMIT-HASH-001", json.loads(rejected_cmake.stdout)["code"]
+            )
+            self.assertEqual(preserved, output_bytes())
+            cmake.write_bytes(cmake_bytes)
+
+            plan_path = plan / "model-plan.json"
+            plan_bytes = plan_path.read_bytes()
+            plan_document = json.loads(plan_bytes)
+            plan_document["sdk"]["runtime_abi"] = "2"
+            plan_path.write_text(
+                json.dumps(plan_document, sort_keys=True, separators=(",", ":")) + "\n"
+            )
+            rejected_plan = run_emit(prefix, plan, output)
+            self.assertEqual(2, rejected_plan.returncode, rejected_plan.stdout)
+            self.assertEqual(
+                "ACSDK-EMIT-SDK-001", json.loads(rejected_plan.stdout)["code"]
+            )
+            self.assertEqual(preserved, output_bytes())
+            plan_path.write_bytes(plan_bytes)
+
+            cxxgen = prefix / "bin/acir-queue-cxxgen"
+            cxxgen_bytes = cxxgen.read_bytes()
+            cxxgen.write_bytes(cxxgen_bytes + b"tampered")
+            cxxgen.chmod(0o755)
+            rejected_generator = run_emit(prefix, plan, output)
+            self.assertEqual(
+                2, rejected_generator.returncode, rejected_generator.stdout
+            )
+            self.assertEqual(
+                "ACSDK-PLAN-MANIFEST-003",
+                json.loads(rejected_generator.stdout)["code"],
+            )
+            self.assertEqual(preserved, output_bytes())
+            cxxgen.write_bytes(cxxgen_bytes)
+            cxxgen.chmod(0o755)
+
+            first_command, first_environment = emit_command(prefix, plan, output)
+            second_command, second_environment = emit_command(prefix, plan, output)
+            first = subprocess.Popen(
+                first_command,
+                cwd=plan,
+                env=first_environment,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+            second = subprocess.Popen(
+                second_command,
+                cwd=plan,
+                env=second_environment,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+            first_stdout, first_stderr = first.communicate(timeout=30)
+            second_stdout, second_stderr = second.communicate(timeout=30)
+            self.assertEqual(0, first.returncode, first_stderr or first_stdout)
+            self.assertEqual(0, second.returncode, second_stderr or second_stdout)
+            self.assertEqual(
+                EMIT_FILES,
+                tuple(
+                    sorted(
+                        path.relative_to(output).as_posix()
+                        for path in output.rglob("*")
+                        if path.is_file()
+                    )
+                ),
+            )
 
     def test_plan_failures_publish_nothing_and_preserve_stale_output(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

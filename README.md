@@ -19,9 +19,6 @@ ACIR, then targets either ACSim/gfsim or the pyCircuit 6 hardware flow.
 [`PTO-ISA/pyCircuit`](https://github.com/PTO-ISA/pyCircuit) is the canonical
 repository, release authority, and only active source of truth for both
 pyCircuit and Agentic Circuit.
-[`LinxISA/pyCircuit`](https://github.com/LinxISA/pyCircuit) is its downstream
-fork for downstream compatibility validation.
-
 The former standalone `PTO-ISA/agentic-circuit` repository is a private,
 archived provenance record. Its final tombstone points to pyCircuit merge
 [`cba1d938`](https://github.com/PTO-ISA/pyCircuit/commit/cba1d938ddcfaadf021bbff5a91553869028e124).
@@ -37,8 +34,8 @@ New AC source, issues, releases, and packages belong only in this repository.
 - **One semantic IR:** C++ and Verilog consume the same verified `pyc` MLIR.
 - **Preserved hierarchy:** module instances remain visible to simulation, DFX,
   and emitted RTL.
-- **Scalable validation:** legality, cycle, depth, clock-domain, trace, and
-  backend-equivalence gates are part of the repository workflow.
+- **Scalable validation:** legality, cycle, depth, clock-domain, observation,
+  and backend-equivalence gates are part of the repository workflow.
 
 ## Choose a frontend
 
@@ -292,10 +289,10 @@ backend libraries, generic examples, and verification contracts. Complete CPU,
 NPU, SoC, board, and product-specific testbench sources are consumer-owned and
 live outside this repository.
 
-Linx, Janus, XiangShan, QEMU comparison, and FPGA flows consume a released or
-pinned pyCircuit toolchain from their own repositories. The framework does not
-carry consumer path allowlists, consumer-specific runtime headers, or in-tree
-integration scripts.
+Consumer designs, model comparisons, ISA adapters, and FPGA flows consume a
+released or pinned pyCircuit toolchain from their own repositories. The
+framework does not carry consumer path allowlists, consumer-specific runtime
+headers, payload/trace schemas, or in-tree integration scripts.
 
 ## Documentation
 
@@ -316,20 +313,17 @@ integration scripts.
 PTO-ISA owns product decisions, both Python distributions, releases, package
 publication, and the default branch. Consumer repositories pin a released or
 reviewed pyCircuit revision and own their design-specific integration gates.
-The LinxISA fork follows the upstream default branch and does not define a
-second framework API. The standalone Agentic Circuit repository remains a
-public migration record until its operational cutover checklist passes; it is
-not an active development or publishing source.
+Downstream forks consume the upstream contract and do not define a second
+framework API. The standalone Agentic Circuit repository remains a public
+migration record until its operational cutover checklist passes; it is not an
+active development or publishing source.
 
 - [Contribution workflow](docs/development/contributing-workflow.md)
 - [Testing and gates](docs/development/testing-and-gates.md)
 - [Review and merge](docs/development/review-and-merge.md)
 - [Repository management](docs/development/repository-management.md)
-- [DavinciOO contributor designs and H1/H2/H3 checklist](designs/davincioo/README.md)
-
-Historical gate logs retain their original directory names. Active runtime,
-trace, and gate contracts use `libpyc6_runtime`, `PYC6TRC3`, and
-`run_semantic_regressions_v6.sh`.
+Historical gate logs retain their original directory names. Active runtime and
+gate contracts use `libpyc6_runtime` and `run_semantic_regressions_v6.sh`.
 
 ## Repository layout
 

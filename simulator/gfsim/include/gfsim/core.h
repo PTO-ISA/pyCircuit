@@ -60,7 +60,6 @@ enum class ObjectKind : uint8_t {
   EventQueue,
   Resource,
   Process,
-  TraceSource,
   Compute,
   Link,
   Memory,
@@ -120,20 +119,11 @@ struct TerminationResult {
   TerminationClass classification = TerminationClass::Incomplete;
   Epoch finalEpoch;
   uint64_t committedEventCount = 0;
-  uint64_t tracePosition = 0;
-  std::optional<uint64_t> traceLastCommittedSequenceId;
   std::optional<uint64_t> terminationCap;
   std::map<std::string, uint64_t> domainCycles;
   std::string diagnosticCode;
   std::optional<std::string> message;
   std::vector<StatSnapshot> stats;
-};
-
-/// Result of an indexed, non-consuming PTO trace lookup.
-struct TraceNextResult {
-  uint64_t cursor = 0;
-  uint64_t handle = 0;
-  bool advanced = false;
 };
 
 // ── Build profiles ────────────────────────────────────────────────────
@@ -219,10 +209,6 @@ struct RuntimeObjectState {
   size_t pendingOffers = 0;
   size_t activeReservations = 0;
   std::string protocolState;
-  bool traceOwner = false;
-  uint64_t tracePosition = 0;
-  std::optional<uint64_t> traceLastCommittedSequenceId;
-  bool traceEof = false;
 };
 
 struct BlockedObject {
@@ -244,8 +230,6 @@ struct NoProgressReport {
   size_t pendingOffers = 0;
   size_t activeReservations = 0;
   std::optional<Event> nextEvent;
-  uint64_t tracePosition = 0;
-  std::optional<uint64_t> lastCommittedSequenceId;
   std::string summary;
   bool empty() const { return blockedObjects.empty() && !nextEvent; }
 };

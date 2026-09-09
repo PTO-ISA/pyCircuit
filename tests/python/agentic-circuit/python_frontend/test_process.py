@@ -4,7 +4,6 @@ import importlib.util
 import unittest
 from pathlib import Path
 
-
 WORKSPACE = Path(__file__).resolve().parent / "fixtures" / "process"
 
 
@@ -34,7 +33,7 @@ def effect_registry():
             EffectDeclaration("schedule", "event"),
             EffectDeclaration("wait_for", "suspension", suspension=True),
             EffectDeclaration("record_stat", "statistics"),
-            EffectDeclaration("trace_next", "trace", linear_arguments=(0,)),
+            EffectDeclaration("advance_linear", "external_io", linear_arguments=(0,)),
         )
     )
 
@@ -135,7 +134,7 @@ class ProcessFrontendTest(unittest.TestCase):
             "generator_process": "ACPY-PROCESS-002",
             "busy_process": "ACPY-PROCESS-006",
             "partial_busy_process": "ACPY-PROCESS-006",
-            "forked_cursor_process": "ACPY-PROCESS-007",
+            "forked_linear_process": "ACPY-PROCESS-007",
             "undeclared_effect_process": "ACPY-EFFECT-003",
         }
         observed: set[str] = set()

@@ -1,644 +1,68 @@
 # pyCircuit 6 Evolution Plan
 
-This plan turns the accepted contracts in
-[`pyc6-decisions.md`](rfcs/pyc6-decisions.md) into reviewable work. The V6
-language specification is the product contract; the decision corpus records why
-that contract exists.
+This is the active pyCircuit 6 implementation plan. Historical implementation
+details remain in Git history and archived gate evidence; they are not current
+product commitments.
 
-## Ground rules
+## Product boundary
 
-- Treat `docs/v6_PyCircuit_Specification.md` as the language source of truth.
-- Treat `docs/rfcs/pyc6-decisions.md` as the semantic decision source of truth.
-- Preserve the CycleAwareSignal model defined by Decision 0148.
-- Add or tighten MLIR verification before changing semantics.
-- Do not implement semantic fixes in only one backend.
-- Build and test from the current worktree.
-- Reference affected decision IDs and archive reviewable semantic evidence under
-  `docs/gates/logs/<run-id>/`.
-- Use `libpyc6_runtime`, `.pyctrace` schema magic `PYC6TRC3`, and
-  `run_semantic_regressions_v6.sh` for active products and gates. Preserve only
-  historical files under `docs/gates/logs/` as immutable evidence.
+pyCircuit is a programming, compiler, runtime, and backend framework. It owns:
 
-## Baseline inherited by V6
+- the `pycircuit` and `agentic_circuit` authoring surfaces;
+- semantic types and primitives;
+- PYC, ACIR, and ACSim dialects, verifiers, and passes;
+- generic C++/Verilog/gfsim backends;
+- vendor-neutral examples and regression fixtures; and
+- compiler/runtime packaging and release gates.
 
-The earlier closure evidence remains the verified baseline for Decisions
-0001–0147. It covers static-hardware legality, backend equivalence, observation
-points, reset and trace semantics, structured interfaces, DFX, incremental
-builds, and cosimulation. The active status index is
-`docs/gates/decision_status_v6.md`; its older rows retain their original
-evidence paths.
+Consumer designs, ISA/opcode catalogs, architectural payloads, ELF loaders,
+reference models, model-comparison tools, serialized workload traces, trace
+adapters, and product-specific testbenches are out of tree. There is no design
+exception. The generated-model ABI has no trace loading, trace cursor,
+trace-position, or trace/observation export surface (Decision 0235).
 
-V6 adds Decision 0148: the global CycleAwareSignal design is the primary
-authoring model. This supersedes Decision 0010 without invalidating the
-unrelated earlier closure evidence.
+## Current priorities
 
-Decision 0150 adds Agentic Circuit as an independent upper-level ACIR and
-frontend in this repository. Its synthesizable path converges on verified PYC
-IR and the pyCircuit 6 backends; its ACSim/gfsim architecture-simulation path
-remains distinct.
+### 1. Preserve the pyCircuit 6 language contract
 
-## Milestones
+- Keep `CycleAwareSignal`, `CycleAwareDomain`, timed-domain authoring, and
+  automatic cycle balancing as first-class contracts.
+- Keep structural and cycle-aware authoring on one verified PYC semantics path.
+- Enforce semantic changes in dialect verifiers or passes before backend code.
+- Keep canonical PYC vendor-neutral; implementation selection is backend-owned.
+- Preserve C++/Verilog equivalence at the documented observation boundaries.
 
-### DavinciOO contributor design program
+### 2. Complete generic Agentic Circuit semantics
 
-- [x] Record Decision 0222's scoped source-placement change: new DavinciOO
-  modules, design contracts and design-local tests belong in
-  `designs/davincioo/` and expose generic framework/primitive gaps.
-- [x] Separate NDF L0 intent / L1 behavior / L2 microarchitecture from hardware
-  H1/H2/H3, all of which are inside NDF L2.
-- [x] Account for all 240 H3 source candidates and seven H1 / 31 H2 groups
-  with input/output proposals, explicit evidence, ownership and work checklists.
-- [ ] Review and implement bounded H3 owners, then H2/H1 compositions, with
-  generic capability fixes merged before dependent designs. Catalog checks
-  are not implementation or simulation evidence.
+- Keep typed payloads, recursive aggregates, exact-width bit operations,
+  immutable updates, and nominal identity verified across ACPy and ACIR.
+- Keep Queue/Table/Reg effects in inferred prepare/publish/no-fail commit groups.
+- Complete the generic firing/transition contract tracked by issue #28.
+- Complete generic Table lowering and parity work tracked by issues #22–#25.
+- Express multi-lane ordered Queue behavior without processor-stage or
+  design-specific terminology.
 
-### Documentation and governance convergence
+### 3. Publish a consumer-neutral SDK
 
-**Goal:** Present one current language and one repository authority.
+- Provide installed `model plan` and `model emit-cpp` commands using the shared
+  frontend, verifier, and QueueGraph path.
+- Keep model plans, manifests, source hashes, generated-source lists, and
+  depfiles deterministic and root-independent.
+- Split Runtime and CompilerDev package dependencies so ordinary generated
+  models do not require LLVM/MLIR development packages.
+- Keep the public runtime lifecycle limited to create, configure, reset, step,
+  statistics, and error reporting.
+- Validate the SDK with an external vendor-neutral fixture containing no ISA,
+  product, trace, or reference-model contract.
 
-- [x] Make the V6 specification, tutorial, and software architecture the
-  product-facing documentation set.
-- [x] Supersede Decision 0010 with Decision 0148.
-- [x] Remove the duplicate prior-version specification from current navigation.
-- [x] Document PTO-ISA/pyCircuit as upstream and LinxISA/pyCircuit as a
-  downstream fork.
-- [x] Keep automation, issue templates, release metadata, and repository rules
-  aligned with the upstream/fork ownership model.
+### 4. Keep framework gates independent
 
-### Public API convergence
-
-**Goal:** Remove versioned implementation vocabulary from the supported API
-without removing cycle-aware semantics.
-
-- [x] Make CycleAwareSignal examples and API references consistent across the
-  README, tutorial, and reference pages.
-- [x] Rename prior-version-labelled modules, comments, diagnostics, and tests where
-  the name is not an ABI or serialized compatibility contract.
-- [x] Keep `CycleAwareCircuit`, `CycleAwareDomain`, `CycleAwareSignal`,
-  `CycleAwareTb`, and `compile_cycle_aware()` supported as defined by the V6
-  specification.
-- [x] Reject removed compatibility APIs instead of silently accepting them.
-
-### Post-6.0 cycle-aware hardening backlog
-
-Decision 0148's public V6 contract is implemented and verified by the focused
-V6 tests plus the examples, simulation, and semantic lanes archived under
-`docs/gates/logs/pyc6-unification/`. The items below expand coverage beyond the
-6.0 migration baseline and remain follow-up hardening work.
-
-- [x] Unify `ForwardSignal`/`StateSignal` current-occurrence coercion across
-  properties, operators, mux/cat, and method/module-level semantic helpers.
-- [x] Make `domain.cycle()` return a CAS tagged at source occurrence plus one.
-- [x] Make composed `submodule_input()` and `domain.call()` reject missing,
-  extra, wrong-domain, wrong-width, and unsupported input values.
-- [x] Remove the unused tutorial façade and reject description strings passed
-  to cycle-aware bitwise OR.
-- [x] Split canonical JIT `compile_cycle_aware()` from explicit eager
-  `build_cycle_aware()` with stable return types and hardened MLIR on both paths.
-- [x] Stabilize the CAS/Wire boundary: domain factories and top-level `mux()`
-  return CAS; raw Wire selection is explicit under `pycircuit.structural`.
-- [x] Make API hygiene and JIT accept normative CAS method-style operations
-  while rejecting the removed Wire forms from receiver-kind evidence.
-- [x] Remove phantom domain frequency/reset-polarity and constant-name
-  parameters instead of silently accepting metadata with no IR representation.
-- [ ] Verify cycle provenance across `domain.call()` and `pyc.instance`
-  boundaries.
-- [x] Verify automatic delay insertion for mixed-cycle arithmetic, comparison,
-  mux, vector, and structured signals.
-- [x] Verify `domain.signal()` inference for combinational, single-stage, and
-  multi-stage assignments.
-- [ ] Verify invalid backward-cycle assignments fail with source-located
-  diagnostics.
-- [x] Compare C++ and Verilator results at TICK-OBS and XFER-OBS.
-
-### Repository and release closure
-
-**Goal:** Make PTO-ISA/pyCircuit the only release and governance authority.
-
-- [x] Require protected review and required checks on the upstream default
-  branch.
-- [x] Publish releases and packages only from PTO-ISA/pyCircuit.
-- [x] Remove consumer-owned Linx, Janus, XiangShan, QEMU-comparison, and board
-  designs/tools from the framework tree; consumers pin pyCircuit externally.
-- [x] Ensure package metadata, documentation URLs, badges, and source links name
-  PTO-ISA/pyCircuit.
-- [x] Freeze issue #61's SDK `6.0.0` identity tuple, two-platform contract,
-  Runtime/CompilerDev split, model plan/manifest schemas, generated ABI v1, and
-  candidate-byte release order in Decisions 0232 through 0234.
-- [x] Implement a relocatable Runtime-only AgenticCircuit CMake component that
-  does not require LLVM/MLIR development packages.
-- [x] Implement installed `agentic-circuit model plan` with SDK-bound tool and
-  schema discovery, transitive source/config hashes, canonical Frozen ACIR and
-  QueueGraph artifacts, deterministic multi-TU output prediction, depfiles,
-  and atomic publication.
-- [ ] Implement installed `agentic-circuit model emit-cpp` with hash and stale
-  plan validation, deterministic multi-TU generation, output locking and
-  cleanup, and the versioned opaque runtime ABI.
-- [ ] Build the complete SDK/wheel set with manifest, checksums, dependency
-  closure, license inventory, and exact distribution-version mapping.
-- [ ] Validate the exact candidate bytes after relocation on Linux x86_64 and
-  macOS arm64, then publish, redownload, verify, and hand the stable lock to
-  SuperScalarModel issue #578.
-
-### Agentic Circuit consolidation
-
-**Goal:** Make this repository the only development and release authority for
-ACIR, Agentic Circuit, and pyCircuit without weakening the CycleAwareSignal or
-PYC semantic contracts.
-
-#### Issue #39: static value types and decode-oriented bitfields
-
-- [x] Record Decision 0211 for `bits[N]`, bool/u1, signedness, layout identity,
-  width limits, bitfield ordering, and contract-epoch handling.
-- [x] Add the neutral `pycircuit-semantic-core` package so pyCircuit and
-  Agentic Circuit use one immutable bitfield validation/fingerprint
-  implementation without merging public namespaces.
-- [x] Close the first bit-operation slice through static `bits[N]`, half-open
-  extract, MSB-first concat, immutable insert, ACIR verification, QueueGraph,
-  gfsim, and PYC.
-- [x] Add Agentic `BitfieldSpec`, closed `(msb, lsb)` fields, overlapping read
-  views, disjoint immutable updates, stable schema fingerprints, and
-  field-qualified ACIR provenance verification.
-- [x] Execute a 32-bit u3/u5/u17 overlapping-view decode through generated
-  gfsim and compare a scalar bitfield transform cycle-for-cycle through PYC
-  C++ and Verilator.
-- [x] Add Decision 0212's immutable recursive descriptor covering Bool, Bits,
-  Enum, Struct, Tuple, and Array; migrate scalar annotation and flat-struct
-  payload discovery to descriptors before MLIR rendering.
-- [x] Separate fixed payload arrays from topology collections in ACIR:
-  `!ac.value_array<N x T>` is recursively immutable, builtin tuple payloads
-  require immutable elements, and existing `!ac.array` remains Queue/Var
-  topology only.
-- [x] Complete Decision 0216 by replacing QueueProgram and expression-lowering
-  MLIR type strings with descriptor identities and keep string conversion at
-  the ACIR printer boundary only.
-- [ ] Separate logical bool from u1 only with an explicit hard-break decision
-  and a coordinated ACPy/ACIR contract-epoch transition.
-- [x] Add Decision 0213's nested nominal struct slice with source-order-
-  independent resolution, recursive field access/replacement, QueueGraph cycle
-  rejection, dependency-ordered gfsim C++ types, and PYC C++/RTL parity.
-- [x] Add Decision 0214's standard Python `enum.Enum` slice with contiguous
-  declaration-order encoding, canonical `ac.enum`/`ac.var.enum`, nested struct
-  fields, equality-only semantics, QueueGraph metadata, compact gfsim enums,
-  and PYC C++/RTL parity.
-- [x] Add Decision 0215's tuple and fixed-size value-array lowering; keep value
-  arrays distinct from persistent Python lists selected to `ac.var` storage.
-- [x] Add Constant/FiniteSet/ClosedInterval/Unknown static constraints and use
-  them for widths, slices, indices, shifts, loops, and enum exhaustiveness.
-- [x] Add verified masked bit matching and a decode example without importing
-  general ASL pattern matching.
-- [x] Restore the broad PYC integration suite to 13/13: derive the framework
-  DavinciOO workload from tracked framework goldens instead of a consumer
-  trace, verify two fork delivery-state bits, compile split dependency and
-  DavinciOO translation units, and print exact-width gfsim values explicitly.
-- [x] Run complete issue #39 closure, prepare `Closes #39`, merge upstream, and
-  confirm the issue is closed before producing the consumer pin.
-
-#### Strict cleanup and consumer handoff sequence
-
-- [x] Finish, review, merge, and confirm closure of upstream issue #39. Do not
-  begin issue #41 or consumer implementation before this gate.
-- [x] Complete Decision 0219 and upstream issue #41's non-vector primitive
-  cleanup:
-  - [x] Remove `ac.module.generated`, raw `ac.record.*`/`ac.packet.*`, and the
-    dormant ACIR declarations/types named by #41 while preserving canonical
-    `ac.var` aggregates, `!ac.value_array`, and topology `!ac.array`.
-  - [x] Complete Decision 0199 by deleting legacy rule/firing strings after
-    typed/SSA verifiers, footprints, activation, and QueueGraph consumers are
-    authoritative.
-  - [x] Rename canonical PYC `mux` to `select` and consolidate `eq/ult/slt`
-    into `cmp {predicate}` without compatibility aliases.
-  - [x] Remove `shli/lshri/ashri`; retain only SSA `shl/lshr/ashr`, with
-    Agentic unsigned `shr` lowering to `lshr`.
-  - [x] Add an exact machine-readable PYC inventory and generated coverage/
-    producer/emitter/consumer ledger; mark unchanged vector ops as #42-owned.
-  - [x] Run #41 closure, admin-merge its independent PR, restore
-    `enforce_admins=true`, and confirm #41 closed.
-- [x] Delegate issue #41's vector section to issue #42; do not modify PYC
-  vector operations, lowering, emitters, runtime, or tests in the #41 change.
-- [x] Complete Decision 0220 and upstream issue #42's vector hard break:
-  - [x] Remove first-class PYC vector values, `pyc.v_*`, vector-accepting scalar
-    ops, vector passes, backend dispatch, and runtime helpers.
-  - [x] Remove the Python `Wire[Vector]`, `shape=`, vector broadcast/reduce,
-    lane iteration, and vector-port testbench surface without compatibility
-    aliases.
-  - [x] Keep recursive ACIR struct/enum/tuple/value-array aggregates and lower
-    them to stable MSB-first packed scalar PYC before the backend boundary.
-  - [x] Rewrite retained framework examples/gates with ordinary Python lists of
-    scalar signals and add fail-closed residual-vector checks.
-  - [x] Synchronize the exact PYC inventory, product documentation, and
-    C++/Verilog equivalence evidence.
-  - [x] Run #42 closure, admin-merge its independent PR, restore
-    `enforce_admins=true`, and confirm #42 closed.
-- [x] Implement and verify issue #44: allow `ac.jit(system)` to bind structural
-  `ac.const` parameters while leaving ordinary typed parameters as inferred
-  runtime Queue inputs. Close the framework-owned multi-input/multi-output ROB-
-  through WBA-shaped ACIR→gfsim compatibility gates before producing a
-  consumer pin, including consume-and-classify, nested identity, conflict,
-  tombstone, and independent backpressure behavior.
-  - [x] Keep ordinary typed system parameters unbound at JIT and outside the
-    specialization fingerprint; reject attempts to bind runtime payloads.
-  - [x] Capture deterministic workspace-local source closure including nominal
-    Python Enum contracts, with mutation and dynamic-import rejection.
-  - [x] Lower keyword-only module constants, heterogeneous rule payloads,
-    record construction, read-only firings, nested branch proposals, and
-    128-entry sparse state snapshots through QueueGraph/gfsim.
-  - [x] Fold imported immutable contract bitmasks, keep serial local rebinding
-    as exact-width SSA, and support 128-entry `ac.find` through word-array
-    candidate sets without widening public payload integers.
-  - [x] Preserve simultaneously selected same-owner entry writes as one ordered
-    runtime batch; have `ACDataFlowAnalyzer` and QueueGraph reject index aliasing
-    unless indices are disjoint or path predicates are mutually exclusive.
-  - [x] Execute the framework typed-state fixture at dynamic index 127 and
-    compile the current `DAV-OQ-PYC-0002` GPR consumer through gfsim C++.
-  - [x] Compile the current DavinciOO MPQ and REN typed systems through frozen
-    QueueGraph and gfsim C++ while retaining REN's nine-write `scalar_map`
-    publication batch.
-  - [x] Complete the #44-compatible ALU/GPR/ROB/CMT/ISQ/MPQ/REN/S1 consumer
-    matrix and the provisional-Table PYC fail-closed boundary. I1/I2/WBA/CMAP
-    require heterogeneous optional multi-output presence and belong to #46.
-  - [x] Close takeover review findings in source-order SSA, predicate identity,
-    live-IR footprints, raw variable-effect verification, source capture,
-    runtime batch construction, and public IR coverage.
-  - [x] Execute atomic four-write/backpressure and stateless record C++/Verilog
-    parity regressions; include both in the release's Agentic gate.
-  - [x] Archive review and current-checkout evidence under
-    `docs/gates/logs/20260907-issue44-review-closure/` for the upstream
-    `Closes #44` merge. GitHub records the final merge and issue state.
-- [x] Complete Decision 0223 and issue #46's heterogeneous optional multi-output rule
-  contract: infer one presence per result, apply backpressure only to selected
-  sinks, and commit all selected outputs, input consumption, state proposals,
-  and the mandatory acknowledgement in one transaction without dummy tokens.
-  - [x] Freeze fixed-arity tuple authoring: each annotated result position
-    carries a typed value or Python `None`; `None` is compile-time absence and
-    never becomes a Queue token or public presence marker.
-  - [x] Verify one SSA value/presence pair per ordinal through nested CFG and
-    preserve it in Rule, Firing, QueueGraph and generated gfsim.
-  - [x] Execute selected-full, unselected-full, mandatory-ack-full, multi-full,
-    release, exactly-once and state/input-retention cases with heterogeneous
-    results in one prepare/publish/Probe/no-fail-Commit group.
-  - [x] Preserve the explicit Table-to-PYC rejection while proving applicable
-    stateless multi-output PYC C++/Verilog parity.
-- [x] Complete Decision 0224 and issue #48's recursive equality and named
-  payload-invariant contract before simplifying dependent DavinciOO H3 modules.
-  - [x] Admit same-descriptor `==`/`!=` for recursive nominal struct, tuple and
-    fixed value-array values, including packed widths above 64 bits; keep
-    ordered aggregate comparison and nominal mismatch fail closed.
-  - [x] Add one `@ac.invariant` pure predicate surface for a nominal struct and
-    lower each explicit call through verifier-visible ACIR before shared
-    scalar expansion. Do not infer or assume invariants implicitly.
-  - [x] Eliminate aggregate comparison and invariant ops in a shared pass before
-    QueueGraph; independently reject residual high-level contracts downstream.
-  - [x] Execute equal and per-field-family unequal cases in gfsim, boundary
-    invariant true/false cases, and admitted PYC C++/Verilog parity.
-  - [x] Merge the framework PR, then update the in-tree DavinciOO design
-    contracts/implementations and record the mechanical I2 comparison reduction.
-    The focused port reduces I2 from 284 to 41 comparisons. Generated gfsim
-    behavior matrices now cover I1 grant/retry/cancel, I2 operand/dependency/
-    execute/release/cancel, and WBA terminal/apply/retry/cancel/drain, including
-    backpressure, reset, identity, capacity, and isolated-instance cases.
-- [x] Complete Decision 0225 and issue #63 OPT-01 invariant composition.
-  - [x] Build the full invariant call graph before body validation; accept only
-    exact-typed calls in one deterministic closure and reject self/indirect
-    recursion, unknown calls, effects, and implicit captures.
-  - [x] Keep composed calls as verifier-visible nested `ac.var.invariant`, then
-    lower leaf callees before callers with no residual value-contract op before
-    QueueGraph.
-  - [x] Split DavinciOO producer identity into one shared invariant, preserve the
-    operand truth table, and record source LOC plus expanded comparison counts.
-  - [x] Keep generated gfsim and admitted packed PYC C++/Verilator value-contract
-    gates green.
-- [x] Complete issue #63 OPT-04 scalar `find(first)` selection optimization.
-  - [x] Use the shared low-first priority encoder only for effect-free 1..64-bit
-    scalar candidate masks; retain min/max, snapshot and wider-mask scans.
-  - [x] Replace the priority reference loop with exact-width C++20 bit scans and
-    preserve zero/default index plus low/high direction.
-  - [x] Execute width 1/16/64 zero, bit-63 and multi-hit cases; keep I2 generated
-    gfsim behavior and the existing PYC/Verilog priority primitive gates green.
-  - [x] Record generated-loop/byte changes and separate runtime timing from
-    semantic gate results.
-- [x] Complete issue #63 OPT-05 aggregate Table observation borrowing.
-  - [x] Bind aggregate `table_get` results and nested aggregate projections as
-    lexical `const` references; keep scalar observations by value and preserve
-    checked-access diagnostics.
-  - [x] Materialize immutable updates, state proposals, transition returns and
-    Queue outputs before the policy invocation ends.
-  - [x] Compile and execute nested-entry `at`/`checkedAt` fixtures, overwrite a
-    source row before consuming its output, and record WBA generated-source and
-    optimized-machine-code comparisons without claiming unmeasured speedup.
-- [x] Complete issue #63 OPT-03 same-snapshot Table match fusion.
-  - [x] Cover completed/uncompleted rows with one key, duplicate pending rows,
-    no-match and generation-sensitive WBA behavior while retaining two masks.
-  - [x] Fuse only same-Table, same-capture, effect-free inline predicates whose
-    captures dominate the group; retain independent paths for snapshot effects
-    and different captures.
-  - [x] Share exact typed predicate DAG values with hygienic generated SSA,
-    compile flat/hierarchy C++, run WBA behavior, and record loop/source/runtime
-    measurements without claiming Table PYC/RTL support.
-- [x] Complete issue #63 OPT-02 nested rule module-state capture.
-  - [x] Canonicalize direct nested-rule `nonlocal` captures of typed scalar,
-    record and fixed-list module state into exact existing owner bindings;
-    reject missing declarations, aliases, collisions and nested-rule calls.
-  - [x] Convert all seven I2 rules so only real Queue payloads remain explicit;
-    preserve inactive/bare-return, committed/proposed SSA and transaction shape.
-  - [x] Compare explicit/captured I2 state, Queue, rule and generated C++ shape;
-    run backpressure, cancel/sink-decision, retry, release and instance-isolation
-    gates with unchanged conflict and output behavior.
-- [x] Complete issue #63 OPT-06 framework prerequisite for static fabric
-  generation: allow `ac.array` to elaborate supported Queue-producing calls and
-  allow static collection elements as `apply`/`merge` receivers, with no
-  runtime Queue collection or new primitive.
-- [x] Implement the dependent TMU BGF, GPE IPF, and MEM NOC H3 XBAR pilots from
-  one static four-egress template each; preserve their exact packet schemas,
-  topology, latency tuples, FIFO/arbitration, backpressure, reset, and instance
-  semantics through gfsim and admitted PYC C++/Verilog build gates.
-- [x] Close issue #7 generated-symbol readability across ACSim lowering,
-  verification and direct emission, structured ModelPlan source bundles,
-  QueueGraph specialization classes, and generated process helpers while
-  retaining complete fingerprints in canonical metadata and cache identity.
-- [x] Close issue #17 with one canonical PTO trace result/report contract,
-  live pinned DavinciOO reference plus frozen-ACIR execution from the same trace
-  source, deterministic first instruction/stage/cycle divergence, and
-  root/hash-seed-independent oracle artifacts.
-- [x] Close issue #18 with one versioned 1258-bit PTO execution-payload ABI,
-  typed and bounded opcode/engine/identity/Tile/scalar fields, exact 79-leaf
-  mapping and serialization, explicit provider-local exclusion, wide immutable
-  gfsim storage, and identical PYC C++/Verilog word results.
-- [x] Close issue #19 with Decision 0231 schedule-v2 semantics: persistent
-  bounded completion history for high-level Schedule, Frozen ACIR provider
-  identity, generation-qualified physical-Tile rename, multi-source readiness,
-  four finite issue windows, Queue-backed atomic gfsim execution, stable
-  observations, stale-update rejection, and long-run tag reuse. Keep the
-  multi-port PYC/Verilog lane boundary fail-closed for #21.
-- [x] Close #46 and #48 framework prerequisites before their dependent
-  DavinciOO H3 implementations. Decision 0222 places new design-program work
-  under `designs/davincioo/`; independent contracts/modules may proceed when
-  their own capabilities are verified. External integrations pin the resulting
-  upstream revision separately.
-
-- [x] Import the Agentic Circuit `main` history at
-  `756002e2998b11dfe1fed14dc3d63cdad8be694c` with provenance intact.
-- [x] Record PTO-ISA's BSD-3-Clause owner direction and the imported main and
-  open-PR head objects in `docs/legal/AC-RELICENSE-BSD-3-CLAUSE.md`.
-- [x] Migrate the unique work and review disposition from Agentic Circuit PR
-  #18 and PR #23 into reviewable pyCircuit changes.
-- [x] Integrate the `agentic_circuit` distribution, ACPy/ACIR, ACSim/gfsim,
-  and ACIR-to-PYC targets without merging their Python or MLIR namespaces.
-- [x] Replace prior-version pyCircuit runtime references with repo-local
-  pyCircuit 6 targets and `libpyc6_runtime`.
-- [x] Run the ACIR/ACSim verifier and unit lanes, ACIR-to-gfsim execution, and
-  ACIR-to-PYC-to-C++/Verilog gates from the consolidated checkout.
-- [x] Run the existing pyCircuit 6 API, examples, simulation, and semantic
-  closure lanes from the same checkout.
-- [x] Attach gate evidence and promote Decision 0150 to
-  `implemented-verified` for repository and compiler consolidation.
-- [ ] Close Decision 0151 for Agentic Circuit epoch `0.4`: verify the
-  one-dimensional zero-initialized single-writer Table through ACPy, Frozen
-  ACIR, QueueGraph, and typed gfsim C++, with a stable PYC rejection boundary.
-- [x] Close Decision 0152 without changing epoch `0.4`: verify state-driven
-  Table updates, match/choose, and committed Queue slots through both typed
-  gfsim C++ generators while preserving the same PYC rejection boundary.
-- [x] Close Decision 0153 without changing epoch `0.4`: accept a same-Table
-  CandidateSet in `table.view(mask)`, retain scalar-index writes, and verify
-  atomic uniform masked write/patch through both typed gfsim C++ generators.
-- [x] Close Decision 0154 without changing epoch `0.4`: permit multiple Table
-  writer endpoints with pairwise-disjoint top-level field sets and merge their
-  old-state proposals atomically through both typed gfsim C++ generators.
-- [x] Close Decision 0155 without changing epoch `0.4`: lower each authored
-  Table match/choose once and reuse its lazy full-Epoch result across all
-  direct and native gfsim endpoint consumers.
-- [x] Close Decision 0156 without changing epoch `0.4`: add one state-driven
-  scalar allocation endpoint whose complete Entry replacement wins over
-  same-Entry field writers in direct and native typed gfsim C++.
-- [ ] Implement `D-RULE-LOWERING-001`: make `@ac.rule` the simple Python
-  scheduling boundary; infer types, effects, checks, handshake, and conflicts
-  through staged ACIR passes; preserve incomplete knowledge with typed markers;
-  bump the Agentic Circuit contract epoch to `0.5`; and reject every unresolved
-  marker before Frozen ACIR topology freeze, hashing, or serialization.
-  - [x] Land the epoch `0.5` hard break, remove Python `atomic`/`.firing()`, add
-    closed typed marker attributes, and implement the one-input/one-output pure
-    rule pipeline through internal `ac.firing`, proven `ac.transform`,
-    QueueGraph, gfsim, and the PYC build lane.
-  - [x] Land Decision 0162's gfsim transaction substrate: owner-tagged Queue
-    and Table prepare/publish/no-fail commit groups, dynamic index/field
-    footprints, and four Table-plus-Queue ROB-shaped transition regressions.
-  - [x] Land Decision 0163's first stateful rule slice: simple Python Table
-    read/complete Entry assignment, firing-local `ac.table.propose`, inferred
-    Table-aware handshake/schedule, marker-free `ac.firing`, QueueGraph, and
-    grouped gfsim execution with provisional PYC rejection.
-  - [x] Land Decision 0167's first multi-Queue slice: accept variadic inputs on
-    one pure `@ac.rule`, infer `ready_valid_Nx1` in MLIR, and lower to one typed
-    gfsim atomic transform without exposing Queue mechanics in Python.
-  - [x] Land Decision 0168's stateful multi-Queue slice: accept heterogeneous
-    Queue payloads beside one owner Table, infer `ready_valid_Nx1_table`, and
-    generate one variadic gfsim Table transaction with all-resource commit.
-  - [x] Land Decision 0169's first variable-analysis slice: use
-    `ACDataFlowAnalyzer` over MLIR dataflow to infer orthogonal lifetime/update
-    properties and lexical ownership without hardware-named Python annotations
-    or markers.
-  - [x] Land Decision 0170's generic persistent-variable IR slice:
-    `ac.var.decl/read/assign` storage-select to existing committed state before
-    rule lowering, preserving one ac.var concept and the grouped gfsim path.
-  - [x] Land Decision 0171's inferred external-boundary slice: ordinary typed
-    system parameters become internal sources and typed returns become one or
-    more internal sinks, with no Python source/sink syntax required.
-  - [x] Land Decision 0172's first persistent-list slice: infer fixed shape
-    from a normal zero-initialized Python `list`, retain indexed operations in
-    the `ac.var` family, and storage-select to touched-entry Table updates.
-  - [ ] Replace phase-one string rule proofs with typed guards, selected output
-    presence, Queue effects, state footprints, and path-qualified alternatives.
-  - [x] Land Decision 0173's stateful arbitration substrate: Work computes an
-    immutable candidate only, while stable Arbitrate order performs the atomic
-    prepare/publish step independently of Work traversal order.
-  - [x] Land Decision 0174's first shared-state slice: `ACDataFlowAnalyzer`
-    emits ordered read/write footprints, MLIR freezes lexical rule priority,
-    and multiple whole-entry rules may share one inferred persistent list.
-  - [x] Land Decision 0176's multi-owner transaction slice: one rule may update
-    heterogeneous scalar/list state owners, and QueueGraph/gfsim commits every
-    owner plus selected Queues in one group using allocation-free candidate
-    write slots.
-  - [ ] Generalize shared-state analysis from whole-entry proposals to
-    path-qualified field/index footprints and conditional proposals.
-  - [x] Land Decision 0175's first guarded/arity slice: support consume-only
-    input rules, state-driven zero-input rules, a typed single `if` condition,
-    and inferred `Nx0`/`0x1` handshakes through generated gfsim.
-  - [ ] Generalize the single guarded block into CFG joins and path-qualified
-    effects; require every selected path to close one atomic
-    prepare/publish/no-fail commit group.
-  - [ ] Extend 0/1 rule results to optional and multiple selected results, and
-    derive backpressure from the chosen output presence set.
-  - [x] Generalize one rule activation to propose updates to multiple lexical
-    persistent variables, including fixed lists with dynamic indices.
-  - [ ] Extend `ACDataFlowAnalyzer` footprints with path predicates and
-    read/write conflict classes, then build explicit arbitration IR for each
-    owner-local compatible candidate set.
-  - [ ] Preserve module specializations in QueueGraph/gfsim so repeated module
-    instances share one implementation instead of flattening generated code.
-    - [x] Admit hierarchy-preserving QueueGraph freeze IR using existing
-      `ac.system`, `ac.module`, `ac.instance`, and `ac.scope`, and seal each
-      definition/instance with compiler-derived fingerprints.
-    - [x] Extract specialization-keyed QueueGraph definitions and instance
-      bindings without copying module bodies into the root plan.
-    - [x] Generate one typed gfsim implementation class for the first pure
-      one-input/one-output transform specialization and verify two instances
-      bind independent Queues to that class and execute independently.
-    - [x] Give the first single-rule stateful specialization one implementation
-      class with independently constructed persistent Table state per instance.
-    - [x] Generalize one-owner specialization classes to multiple firing rules
-      and arbitrary direct interface Queue arity while preserving lexical
-      arbitration.
-    - [x] Generalize a reusable firing to heterogeneous multi-owner state using
-      one per-instance `QueueStateTransition` commit group.
-    - [x] Combine multi-rule and multi-owner specialization classes while
-      preserving per-rule owner subsets and lexical arbitration.
-    - [x] Consolidate the pure, single-owner, multi-owner, and combined codegen
-      branches behind one typed stateful-specialization emitter before adding
-      more module shapes.
-      - [x] Centralize structured field-merge policy generation and diagnostics
-        across all stateful specialization shapes.
-      - [x] Centralize transition policy/class/member emission and delete the
-        remaining shape-specific branches.
-    - [x] Preserve direct nested specialization wrappers with child-before-
-      parent plan/codegen order and recursive dense runtime-ID partitions.
-    - [x] Preserve the first mixed local-transform plus nested-child module with
-      one independently owned internal Queue per parent instance.
-    - [ ] Generalize mixed modules to arbitrary internal Queue graphs, multiple
-      local blocks, and local state combined with child instances.
-    - [x] Lower the first pure typed 1x1 `@ac.module` definition and ordinary
-      Python calls into structured QueueGraph without frontend markers or
-      hardware-specific authoring objects.
-    - [x] Lower a direct nested Python module return into parent/child
-      specialization structure and recursive gfsim reuse.
-    - [x] Lower one zero-initialized scalar lexical variable in a typed Python
-      module through `ac.var` analysis, MLIR storage selection, and a reused
-      gfsim specialization with independent state per instance.
-    - [x] Generalize the stateful Python module slice to multiple scalar
-      lexical variables with serial assignment semantics and one inferred
-      multi-owner atomic commit group.
-    - [x] Reuse the system rule/variable body parser and QueueProgram renderer
-      for direct-interface `@ac.module` bodies with arbitrary Queue arity and
-      multiple ordinary rule calls.
-    - [x] Move the four-rule, five-owner circular ROB behind a reusable typed
-      3-input/2-output module and prove two placements share one implementation
-      class while retaining independent state.
-    - [ ] Extend Python module lowering to arbitrary internal Queue graphs,
-      conditional state updates, static parameters, and compiler-inferred
-      fanout for repeated values.
-  - [x] Land Decision 0177's real circular ROB example covering allocation,
-    completion, in-order retire or oldest-ready issue, full/empty backpressure,
-    wraparound, stale-generation rejection, flush/recovery, and atomic state
-    plus Queue effects.
-  - [x] Land Decision 0189's reusable circular ROB module using the same four
-    rules and five lexical owners behind a 3-input/2-output typed interface.
-  - [ ] Replace QueueGraph's per-tick full `dispatch_rows()` scan with generated
-    incremental activation while preserving an explicit scan-mode reference.
-    - [x] Add Decision 0190's first exact Queue/Table-to-transaction-closure
-      adjacency and initial zero-input frontier to QueueGraph plans.
-    - [x] Bind direct leaf-specialization edges through per-instance dense IDs
-      and emit canonical activation offsets, targets, and initial Work IDs.
-    - [x] Prove the first scan/activation result equivalence on the reusable
-      ROB; 32 dispatch rows require 134 scheduled Work calls instead of the
-      256 calls in an eight-tick full scan reference.
-    - [x] Add Decision 0191's enum-typed MLIR activation sources, transaction
-      resources, and initial-rule facts; make QueueGraph consume this evidence
-      for rule-backed blocks.
-    - [x] Generate `offer_<input>(SimSystem&, value)` adapters and initial-Work
-      scheduling so external input proposals enter activation automatically.
-    - [x] Recursively bind activation through nested wrappers and parent-local
-      internal Queues without flattening reusable specialization classes.
-    - [x] Add Decision 0193's separate Work-closure CSR, owner-first/resource-
-      second arbitration, global Probe barrier, and external-Xfer frontier.
-    - [x] Move generated input offers from Queue-as-Work scheduling to explicit
-      external Xfer enrollment; the ROB scenario now uses 40 Work calls.
-    - [x] Add Decision 0194's compiler-owned root Queue results and generated
-      external dequeue adapters without changing the Python authoring surface.
-    - [x] Add Decision 0195's semantic-change filter: equal final Table values
-      still commit their atomic transaction but do not propagate activation;
-      changed values retain the existing wake graph.
-    - [x] Add Decision 0196's full reusable-ROB equivalence gate: compare every
-      tick's ten Queue images, both instances' scalar/entry state, exact result
-      visibility, and validated commit timeline; lock 1769 scan Work calls
-      versus 182 incremental Work calls for the complete scenario.
-  - [ ] Replace string guard/effect proofs with typed path-qualified CFG facts,
-    output presence, conflict classes, and explicit arbitration IR before
-    general transactional fanout.
-    - [x] Add Decision 0199's phase-0 typed-summary bridge for the current
-      single-condition 0/1-output subset: closed guard/check/effect/presence/
-      state-access/schedule/arbitration-membership enums, pass derivation,
-      independent verifier reconstruction, and unchanged ROB/ISQ execution.
-    - [x] Add Decision 0200's SSA `!ac.var<i1>` presence to each output and
-      state proposal in the current single-condition, 0/1-output subset;
-      preserve it through Firing and QueueGraph, and verify it independently
-      before admitting CFG joins or multiple selected outputs.
-    - [x] Add Decision 0201's conditional-effect slice: recognize a serial
-      Python early `return` as unconditional input consumption followed by
-      optional state effects; carry a distinct SSA presence through `ac.var`
-      storage selection, Firing, QueueGraph, and gfsim without weakening the
-      existing blocking semantics of a trailing rule guard.
-    - [x] Add Decision 0202's exact top-level `TableGet` snapshot reservations
-      for conditional-effect predicates; infer read-only scalar state, preserve
-      typed proof through QueueGraph/gfsim, and remove the ROB completion
-      self-assignment previously used to force epoch serialization.
-    - [x] Add Decision 0203's candidate/output snapshot roots and exact
-      `table.match` dependency sets: emit compiler-owned
-      `ac.state.snapshot_set`, accumulate its mask during the original scan,
-      and cover ISQ same-tag clear plus continuous unrelated-readiness stress.
-    - [x] Add Decision 0204's exact choose-key dependency sets: use the
-      canonical `table.choose` index result as evaluation provenance and
-      accumulate foreign-state indices only for candidates whose key executes.
-    - [x] Add Decision 0205's field-qualified snapshot relation: propagate
-      direct `ac.var.get` field use into snapshot proof and encode exact
-      `(entry, field)` pairs through QueueGraph and gfsim without allocation.
-    - [x] Add Decision 0206's serial early-return guard chains: combine
-      contiguous pre-effect returns into one SSA effect presence while keeping
-      input acceptance unconditional and Python control flow ordinary.
-    - [x] Add Decision 0207's first branch-local effect join: lower one Python
-      `if/else` to a verifier-proven complementary presence pair over distinct
-      lexical state owners and one atomic runtime candidate.
-    - [x] Add Decision 0208's scalar same-owner join: introduce compiler-owned
-      `ac.var.select`, produce one state proposal, and preserve gfsim/PYC mux
-      parity without adding a Python primitive.
-    - [x] Add Decision 0209's indexed same-owner join: select both branch index
-      and value, retain full-domain safety, and emit one dynamic state proposal.
-    - [x] Add Decision 0210's first optional selected output: keep input/state
-      candidate true, carry independent SSA output presence, and apply output
-      backpressure only when that output is selected.
-    - [ ] Extend joins to multiple selected outputs, nested/multi-block CFG,
-      multi-input branches, and more-than-64-bit entry/field relations without
-      weakening provenance or module reuse.
-    - [ ] Derive pairwise conflict relations/classes and explicit contender
-      arbitration from satisfiable path-qualified state footprints.
-  - [x] Add Decision 0197's compiler-recognized `ac.find` over an ordinary
-    persistent list, storage-neutral `ac.var.match/choose`, read-only state
-    activation, and a reusable oldest-ready ISQ with persistent ready lookup,
-    same-epoch lost-wakeup coverage, tag clear/reuse, output backpressure, full
-    input retention, and two independent placements sharing one class.
-  - [x] Add Decision 0198's ISQ scan/incremental lockstep gate: compare every
-    boundary Queue, both entry/readiness images, exact output visibility, and
-    validated commit timeline; lock 952 scan Work calls versus 129 incremental
-    Work calls for the complete lost-wakeup/backpressure/tag-reuse scenario.
-  - [ ] Run focused frontend/ACIR/gfsim gates after every slice, then archive
-    full AC G0/G1/G2 and pyCircuit semantic closure for the ROB/ISQ result.
-- [x] Land Decision 0161's first qualified primitive vertical slice:
-  vendor-neutral `pyc.priority_encode`, backend-only `pyc.rtl.comb`,
-  deterministic digest-verified BSD RTL selection, parameterized pyCircuit and
-  Agentic Python APIs, QueueGraph-to-PYC, and gfsim SimQueue execution.
-- [x] Land Decision 0164's qualified `pyc.popcount` slice: structural and
-  Cycle-Aware Python APIs, semantic PYC/ACIR lowering, C++ and gfsim reference
-  behavior, BSD-3-Clause selected RTL, and digest-closed manifest evidence.
-- [x] Land Decision 0165's leading-zero semantic slice: define
-  all-zero as `N`, preserve exact result width and cycle, lower Agentic ACIR to
-  semantic PYC/gfsim, and select repository-owned balanced BSD RTL.
-- [x] Generalize Decision 0166 into one parameterized zero-count family:
-  leading/trailing remain simple Python helpers, while ACIR/PYC, gfsim, catalog
-  selection, and the balanced BSD RTL share one static `direction` contract.
-- [ ] Normalize the remaining PR #29 catalog into semantic families. Admit
-  combinational families only after per-family C++/RTL/Agentic parity; keep
-  stateful, handshake, memory, and CDC families blocked on the inferred
-  prepare/publish/no-fail commit contract and circular ROB evidence.
-- [ ] After the internal AC G0/G1/G2 and pyCircuit closure passes, disable the
-  old repository's publishing/CI authority and make it private with only
-  `zhoubot` as a direct repository collaborator.
+- Required PR CI remains lightweight.
+- Native or semantic PRs attach the narrowest focused evidence.
+- Release closure runs the complete integrated AC/PYC matrix.
+- No framework gate checks out, imports, builds, or executes a consumer design
+  or reference model.
+- Consumer-originated failures must first be reduced to vendor-neutral fixtures.
 
 ## Gate mapping
 
@@ -647,27 +71,25 @@ Use the minimum applicable lanes from
 
 | Change | Required evidence |
 | --- | --- |
-| Documentation or governance | changed-file pre-commit checks, API hygiene, `mkdocs build` |
+| Documentation or governance | changed-file checks, API hygiene, strict docs build |
 | Cycle-aware frontend or inference | unit tests, API hygiene, examples, semantic regressions |
-| MLIR semantics or legality | examples, normal and nightly simulations, semantic regressions, strict decision status |
-| C++ or Verilog behavior | both simulation lanes and backend-equivalence evidence |
-| Consumer compatibility | Run external-consumer gates against a pin; the Decision 0222 design program runs design-local gates in this checkout |
-| ACIR or Agentic Circuit integration | ACIR/ACSim verifier and unit lanes, ACIR-to-gfsim, ACIR-to-PYC-to-C++/Verilog, plus pyCircuit examples, simulations, and semantic regressions |
+| MLIR semantics or legality | focused lit/CTest plus strict decision status |
+| C++ or Verilog behavior | focused backend execution and applicable equivalence evidence |
+| ACIR or Agentic Circuit | frontend contracts, ACIR/ACSim tests, QueueGraph/gfsim, applicable PYC parity |
+| Packaging or installed SDK | schema/contract checks and relocated external consumer smoke |
 
 Use one `PYC_GATE_RUN_ID` for related semantic lanes. Record skipped gates and
 their risk in the pull request.
 
 ## Completion criteria
 
-The pyCircuit 6 transition is complete when:
+The current cleanup and SDK milestone is complete when:
 
-- current docs contain no prior-version label as the active product language;
-- Decision 0148 has focused tests and cross-backend evidence;
-- supported examples use the V6 CycleAwareSignal contract;
-- repository metadata and release automation point only to PTO-ISA/pyCircuit;
-- the LinxISA repository is maintained only as a framework-compatibility fork,
-  while other consumer designs remain out of tree and the DavinciOO design
-  program follows Decision 0222; and
-- Decision 0150 has archived AC and PYC closure evidence, and the retired
-  Agentic Circuit repository has no publishing or CI authority; and
-- all required gates pass from a clean worktree.
+- active source, tests, examples, schemas, build files, and gates contain no
+  consumer or product implementation;
+- no public model/runtime ABI exposes trace input, cursor, position, or output;
+- Decisions 0222, 0229, and 0230 are superseded and Decision 0235 is verified;
+- the generic frontend, verifier, QueueGraph/gfsim, PYC, SDK, and documentation
+  gates pass from the current checkout; and
+- consumer compatibility is tested only in the consumer repository against a
+  pinned pyCircuit revision.

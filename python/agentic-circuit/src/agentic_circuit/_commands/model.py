@@ -76,6 +76,38 @@ _PLAN_OUTPUTS = (
     "src/generated/model.cpp",
     "src/generated/queuegraph.cpp",
 )
+_PLAN_KEYS = frozenset(
+    {
+        "schema",
+        "version",
+        "contract_epoch",
+        "sdk",
+        "entry",
+        "specialization",
+        "config",
+        "static_config",
+        "inputs",
+        "frozen_acir",
+        "queuegraph",
+        "outputs",
+        "cmake_sources",
+        "depfile_path",
+        "required_runtime",
+        "capabilities",
+    }
+)
+_PLAN_SDK_KEYS = frozenset(
+    {
+        "product_version",
+        "source_revision",
+        "platform_manifest_sha256",
+        "model_plan_abi",
+        "generator_abi",
+        "runtime_abi",
+    }
+)
+_HASHED_PATH_KEYS = frozenset({"path", "sha256"})
+_PLAN_INPUT_KEYS = frozenset({"path", "sha256", "role"})
 _MANIFEST_KEYS = frozenset(
     {
         "schema",
@@ -108,6 +140,9 @@ class SdkIdentity:
     manifest_sha256: str
     source_revision: str
     queue_plan_tool: Path
+    queue_cxxgen_tool: Path
+    queue_cxxgen_sha256: str
+    queue_cxxgen_size: int
     native_extension: Path
     native_sha256: str
     native_size: int
@@ -116,7 +151,9 @@ class SdkIdentity:
 def _fail(code: str, message: str) -> NoReturn:
     raise UserInputError(
         Diagnostic(
-            stage="model-plan",
+            stage=(
+                "model-emit-cpp" if code.startswith("ACSDK-EMIT-") else "model-plan"
+            ),
             code=code,
             severity="error",
             message=message,
@@ -325,6 +362,8 @@ def _sdk_identity(value: object) -> SdkIdentity:
     if launcher != running_launcher:
         _fail("ACSDK-PLAN-ROOT-002", "--sdk-root does not own the running CLI")
     queue_plan = _manifest_file(root, entries, "bin/acir-queue-plan", kind="tool")
+    queue_cxxgen = _manifest_file(root, entries, "bin/acir-queue-cxxgen", kind="tool")
+    queue_cxxgen_entry = entries["bin/acir-queue-cxxgen"]
     model_plan_schema = _manifest_file(
         root,
         entries,
@@ -341,6 +380,22 @@ def _sdk_identity(value: object) -> SdkIdentity:
         != "https://pto-isa.org/schemas/agentic-circuit/model-plan-v1.schema.json"
     ):
         _fail("ACSDK-PLAN-MANIFEST-002", "model plan schema identity is invalid")
+    model_manifest_schema = _manifest_file(
+        root,
+        entries,
+        "share/pycircuit/schemas/model-manifest.schema.json",
+        kind="schema",
+    )
+    try:
+        manifest_schema = json.loads(model_manifest_schema.read_bytes())
+    except (UnicodeError, json.JSONDecodeError) as error:
+        _fail("ACSDK-PLAN-MANIFEST-002", f"model manifest schema is invalid: {error}")
+    if (
+        type(manifest_schema) is not dict
+        or manifest_schema.get("$id")
+        != "https://pto-isa.org/schemas/agentic-circuit/model-manifest-v1.schema.json"
+    ):
+        _fail("ACSDK-PLAN-MANIFEST-002", "model manifest schema identity is invalid")
     package_root = Path(__file__).resolve().parents[1]
     try:
         package_root.relative_to(root)
@@ -362,6 +417,9 @@ def _sdk_identity(value: object) -> SdkIdentity:
         sha256_bytes(raw),
         source_revision,
         queue_plan,
+        queue_cxxgen,
+        str(queue_cxxgen_entry["sha256"]),
+        int(queue_cxxgen_entry["size"]),
         native,
         str(native_entry["sha256"]),
         int(native_entry["size"]),
@@ -703,7 +761,454 @@ def _plan(arguments: object, sink: OutputSink) -> int:
     return 0
 
 
+@dataclass(frozen=True, slots=True)
+class VerifiedPlan:
+    path: Path
+    raw: bytes
+    document: dict[str, object]
+    frozen_path: Path
+    frozen: bytes
+    queuegraph_path: Path
+    queuegraph: bytes
+    cmake_sources_path: Path
+    cmake_sources: bytes
+
+
+def _emit_fail(suffix: str, message: str) -> NoReturn:
+    _fail(f"ACSDK-EMIT-{suffix}", message)
+
+
+def _emit_closed(value: object, keys: frozenset[str], label: str) -> dict[str, object]:
+    if type(value) is not dict or set(value) != keys:
+        _emit_fail("PLAN-001", f"{label} is not a closed record")
+    return value
+
+
+def _emit_logical_path(value: object, label: str) -> str:
+    if type(value) is not str or not _LOGICAL_PATH.fullmatch(value):
+        _emit_fail("PLAN-001", f"{label} is not a canonical logical path")
+    return value
+
+
+def _plan_artifact(plan_root: Path, value: object, label: str) -> tuple[Path, bytes]:
+    record = _emit_closed(value, _HASHED_PATH_KEYS, label)
+    logical = _emit_logical_path(record["path"], f"{label}.path")
+    expected = record["sha256"]
+    if type(expected) is not str or not _SHA256.fullmatch(expected):
+        _emit_fail("PLAN-001", f"{label}.sha256 is invalid")
+    path = _regular_file(
+        plan_root.joinpath(*PurePosixPath(logical).parts),
+        code="ACSDK-EMIT-PLAN-001",
+        label=label,
+    )
+    if not path.is_relative_to(plan_root):
+        _emit_fail("PLAN-001", f"{label} escapes the plan directory")
+    raw = path.read_bytes()
+    if sha256_bytes(raw) != expected:
+        _emit_fail("HASH-001", f"{label} hash does not match the plan")
+    return path, raw
+
+
+def _verify_plan(value: object, sdk: SdkIdentity) -> VerifiedPlan:
+    path = _regular_file(Path(value), code="ACSDK-EMIT-PLAN-001", label="model plan")
+    if path.name != "model-plan.json":
+        _emit_fail("PLAN-001", "model plan must be named model-plan.json")
+    raw = path.read_bytes()
+    try:
+        document = _emit_closed(json.loads(raw), _PLAN_KEYS, "model plan")
+    except (UnicodeError, json.JSONDecodeError) as error:
+        _emit_fail("PLAN-001", f"model plan is invalid JSON: {error}")
+    try:
+        canonical = canonical_json_bytes(document) + b"\n"
+    except (TypeError, ValueError) as error:
+        _emit_fail("PLAN-001", f"model plan is not canonical I-JSON: {error}")
+    if raw != canonical:
+        _emit_fail("PLAN-001", "model plan bytes are not canonical")
+    if (
+        document["schema"] != "agentic-circuit-model-plan"
+        or document["version"] != "1"
+        or document["contract_epoch"] != "0.5"
+        or document["required_runtime"] != "AgenticCircuit::Gfsim"
+        or document["depfile_path"] != "model.d"
+        or document["outputs"] != list(_PLAN_OUTPUTS)
+        or document["capabilities"] != list(_PLAN_CAPABILITIES)
+    ):
+        _emit_fail("PLAN-001", "model plan identity or fixed outputs are invalid")
+    entry = document["entry"]
+    specialization = document["specialization"]
+    if type(entry) is not str or _ENTRY.fullmatch(entry) is None:
+        _emit_fail("PLAN-001", "model plan entry is invalid")
+    if type(specialization) is not str or not _SHA256.fullmatch(specialization):
+        _emit_fail("PLAN-001", "model plan specialization is invalid")
+
+    plan_sdk = _emit_closed(document["sdk"], _PLAN_SDK_KEYS, "model plan SDK")
+    expected_sdk = {
+        "product_version": _PRODUCT_VERSION,
+        "source_revision": sdk.source_revision,
+        "platform_manifest_sha256": sdk.manifest_sha256,
+        "model_plan_abi": "1",
+        "generator_abi": "1",
+        "runtime_abi": "1",
+    }
+    if plan_sdk != expected_sdk:
+        _emit_fail("SDK-001", "model plan SDK identity does not match --sdk-root")
+
+    config = _emit_closed(document["config"], _HASHED_PATH_KEYS, "model config")
+    config_path = _emit_logical_path(config["path"], "model config path")
+    config_hash = config["sha256"]
+    if type(config_hash) is not str or not _SHA256.fullmatch(config_hash):
+        _emit_fail("PLAN-001", "model config hash is invalid")
+    static_config = document["static_config"]
+    if type(static_config) is not dict:
+        _emit_fail("PLAN-001", "model static config is invalid")
+    try:
+        validate_ijson_value(static_config)
+    except ValueError as error:
+        _emit_fail("PLAN-001", f"model static config is invalid: {error}")
+
+    inputs = document["inputs"]
+    if type(inputs) is not list or not inputs:
+        _emit_fail("PLAN-001", "model plan inputs are invalid")
+    input_paths: list[str] = []
+    config_inputs = 0
+    entry_inputs = 0
+    entry_path = ""
+    source_manifest: list[dict[str, JsonValue]] = []
+    for value in inputs:
+        item = _emit_closed(value, _PLAN_INPUT_KEYS, "model plan input")
+        logical = _emit_logical_path(item["path"], "model plan input path")
+        digest = item["sha256"]
+        role = item["role"]
+        if type(digest) is not str or not _SHA256.fullmatch(digest):
+            _emit_fail("PLAN-001", "model plan input hash is invalid")
+        if role not in {"entry", "import", "contract", "config"}:
+            _emit_fail("PLAN-001", "model plan input role is invalid")
+        input_paths.append(logical)
+        config_inputs += int(role == "config" and logical == config_path)
+        if role == "entry":
+            entry_inputs += 1
+            entry_path = logical
+        if role != "config":
+            source_manifest.append({"path": logical, "sha256": digest})
+    if (
+        input_paths != sorted(input_paths)
+        or len(input_paths) != len(set(input_paths))
+        or config_inputs != 1
+        or entry_inputs != 1
+    ):
+        _emit_fail("PLAN-001", "model plan input closure is not canonical")
+    config_input = next(item for item in inputs if item["role"] == "config")
+    if config_input["sha256"] != config_hash:
+        _emit_fail("PLAN-001", "model config hash disagrees with the input closure")
+    entry_match = _ENTRY.fullmatch(entry)
+    assert entry_match is not None
+    module_path = entry_match.group("module").replace(".", "/")
+    if entry_path not in {module_path + ".py", module_path + "/__init__.py"}:
+        _emit_fail("PLAN-001", "model entry path disagrees with entry identity")
+    source_closure_sha256 = sha256_bytes(canonical_json_bytes(source_manifest))
+    specialization_preimage: dict[str, JsonValue] = {
+        "schema": "agentic-circuit-jit-specialization",
+        "version": "0.5",
+        "system": PurePosixPath(entry_path).with_suffix("").as_posix()
+        + "::"
+        + entry_match.group("symbol"),
+        "source_sha256": None,
+        "source_closure_sha256": source_closure_sha256,
+        "source_manifest": source_manifest,
+        "arguments": static_config,
+    }
+    if sha256_bytes(canonical_json_bytes(specialization_preimage)) != specialization:
+        _emit_fail("PLAN-001", "model specialization provenance is inconsistent")
+
+    plan_root = path.parent.resolve()
+    frozen_path, frozen = _plan_artifact(
+        plan_root, document["frozen_acir"], "Frozen ACIR"
+    )
+    queuegraph_path, queuegraph = _plan_artifact(
+        plan_root, document["queuegraph"], "QueueGraph"
+    )
+    cmake_path, cmake = _plan_artifact(
+        plan_root, document["cmake_sources"], "CMake source fragment"
+    )
+    if cmake != _cmake_sources():
+        _emit_fail("PLAN-001", "CMake source fragment is not the fixed v1 contract")
+    rebuilt_queuegraph = _queuegraph(sdk.queue_plan_tool, frozen)
+    if rebuilt_queuegraph != queuegraph:
+        _emit_fail("HASH-001", "QueueGraph does not match Frozen ACIR")
+    try:
+        queuegraph_document = json.loads(queuegraph)
+    except (UnicodeError, json.JSONDecodeError) as error:
+        _emit_fail("PLAN-001", f"QueueGraph is invalid JSON: {error}")
+    if queuegraph_document.get("specialization") != specialization:
+        _emit_fail("PLAN-001", "QueueGraph specialization does not match the plan")
+    return VerifiedPlan(
+        path,
+        raw,
+        document,
+        frozen_path,
+        frozen,
+        queuegraph_path,
+        queuegraph,
+        cmake_path,
+        cmake,
+    )
+
+
+def _generate_model_sources(sdk: SdkIdentity, plan: VerifiedPlan) -> dict[str, bytes]:
+    with tempfile.TemporaryDirectory(prefix="agentic-model-emit-") as temporary:
+        temporary_root = Path(temporary)
+        output = temporary_root / "bundle"
+        frozen = temporary_root / "verified.frozen.ac.mlir"
+        frozen.write_bytes(plan.frozen)
+        try:
+            generator_bytes = sdk.queue_cxxgen_tool.read_bytes()
+        except OSError as error:
+            _emit_fail("GENERATOR-001", f"model generator is unavailable: {error}")
+        if (
+            len(generator_bytes) != sdk.queue_cxxgen_size
+            or sha256_bytes(generator_bytes) != sdk.queue_cxxgen_sha256
+        ):
+            _emit_fail(
+                "GENERATOR-001", "model generator identity changed after preflight"
+            )
+        try:
+            completed = subprocess.run(
+                [
+                    os.fspath(sdk.queue_cxxgen_tool),
+                    os.fspath(frozen),
+                    "--output-root",
+                    os.fspath(output),
+                    "--sdk-product-version",
+                    _PRODUCT_VERSION,
+                    "--sdk-source-revision",
+                    sdk.source_revision,
+                ],
+                env={"PATH": os.environ.get("PATH", "")},
+                text=True,
+                capture_output=True,
+                check=False,
+                timeout=60,
+            )
+        except (OSError, subprocess.TimeoutExpired) as error:
+            _emit_fail("GENERATOR-001", f"model generator failed: {error}")
+        if completed.returncode != 0:
+            detail, _ = OutputSink.bounded_capture(completed.stderr or completed.stdout)
+            _emit_fail("GENERATOR-001", f"model generator failed: {detail}")
+        if not output.is_dir():
+            _emit_fail("GENERATOR-001", "model generator produced no bundle")
+        found = tuple(
+            item.relative_to(output).as_posix()
+            for item in sorted(output.rglob("*"))
+            if item.is_file()
+        )
+        if found != _PLAN_OUTPUTS:
+            _emit_fail(
+                "GENERATOR-001", "model generator produced an unexpected file set"
+            )
+        artifacts = {path: (output / path).read_bytes() for path in found}
+    forbidden = (os.fspath(sdk.root).encode(), os.fspath(plan.path.parent).encode())
+    for path, raw in artifacts.items():
+        if any(value in raw for value in forbidden):
+            _emit_fail(
+                "GENERATOR-001", f"generated source leaks a producer path: {path}"
+            )
+    return artifacts
+
+
+def _emit_depfile(output: Path, plan: VerifiedPlan) -> bytes:
+    def escape(path: Path) -> str:
+        return (
+            path.as_posix().replace("$", "$$").replace("#", "\\#").replace(" ", "\\ ")
+        )
+
+    targets = tuple(
+        output / path
+        for path in (*_PLAN_OUTPUTS, "model-manifest.json", "model-sources.cmake")
+    )
+    dependencies = (
+        plan.path,
+        plan.frozen_path,
+        plan.queuegraph_path,
+        plan.cmake_sources_path,
+    )
+    return (
+        " ".join(escape(path) for path in targets)
+        + ": "
+        + " ".join(escape(path) for path in dependencies)
+        + "\n"
+    ).encode()
+
+
+def _model_manifest(
+    sdk: SdkIdentity, plan: VerifiedPlan, generated: dict[str, bytes]
+) -> bytes:
+    document = plan.document
+    manifest: dict[str, JsonValue] = {
+        "schema": "agentic-circuit-model-manifest",
+        "version": "1",
+        "contract_epoch": "0.5",
+        "plan": {"path": "model-plan.json", "sha256": sha256_bytes(plan.raw)},
+        "sdk": {
+            "product_version": _PRODUCT_VERSION,
+            "source_revision": sdk.source_revision,
+            "platform_manifest_sha256": sdk.manifest_sha256,
+        },
+        "entry": document["entry"],
+        "specialization": document["specialization"],
+        "generated_files": [
+            {"path": path, "sha256": sha256_bytes(generated[path])}
+            for path in _PLAN_OUTPUTS
+        ],
+        "cmake_sources": {
+            "path": "model-sources.cmake",
+            "sha256": sha256_bytes(plan.cmake_sources),
+        },
+        "depfile_path": "model.d",
+        "required_runtime": "AgenticCircuit::Gfsim",
+        "runtime_abi": "1",
+        "exports": {
+            "header": "include/gfsim/model_api.h",
+            "query_symbol": "agentic_model_query_v1",
+            "abi_version": "1",
+            "api_struct_size": 80,
+            "buffer_struct_size": 16,
+            "step_result_struct_size": 24,
+        },
+    }
+    return canonical_json_bytes(manifest) + b"\n"
+
+
+def _existing_model_files(output: Path) -> frozenset[str]:
+    if not output.exists():
+        return frozenset()
+    if output.is_symlink() or not output.is_dir():
+        _emit_fail("OUTPUT-001", "model output must be a regular directory")
+    entries = tuple(output.rglob("*"))
+    if any(item.is_symlink() for item in entries):
+        _emit_fail("OUTPUT-001", "model output contains a symlink")
+    files = frozenset(
+        item.relative_to(output).as_posix() for item in entries if item.is_file()
+    )
+    if not files:
+        return files
+    manifest_path = output / "model-manifest.json"
+    if not manifest_path.is_file():
+        _emit_fail("OUTPUT-001", "existing model output has no ownership manifest")
+    try:
+        manifest_raw = manifest_path.read_bytes()
+        manifest = json.loads(manifest_raw)
+        if canonical_json_bytes(manifest) + b"\n" != manifest_raw:
+            _emit_fail("OUTPUT-001", "existing ownership manifest is not canonical")
+        if (
+            manifest.get("schema") != "agentic-circuit-model-manifest"
+            or manifest.get("version") != "1"
+            or manifest.get("contract_epoch") != "0.5"
+            or manifest.get("required_runtime") != "AgenticCircuit::Gfsim"
+            or manifest.get("runtime_abi") != "1"
+        ):
+            _emit_fail("OUTPUT-001", "existing ownership manifest identity is invalid")
+        generated = manifest["generated_files"]
+        if type(generated) is not list:
+            _emit_fail("OUTPUT-001", "existing generated file list is invalid")
+        cmake_record = _emit_closed(
+            manifest["cmake_sources"], _HASHED_PATH_KEYS, "old CMake source"
+        )
+        cmake_path = cmake_record["path"]
+        depfile_path = manifest["depfile_path"]
+        generated_paths: list[str] = []
+        for value in generated:
+            record = _emit_closed(value, _HASHED_PATH_KEYS, "old generated file")
+            logical = _emit_logical_path(record["path"], "old generated file path")
+            digest = record["sha256"]
+            if type(digest) is not str or not _SHA256.fullmatch(digest):
+                _emit_fail("OUTPUT-001", "old generated file hash is invalid")
+            generated_path = output.joinpath(*PurePosixPath(logical).parts)
+            if (
+                not generated_path.is_file()
+                or sha256_bytes(generated_path.read_bytes()) != digest
+            ):
+                _emit_fail("OUTPUT-001", "old generated file identity is invalid")
+            generated_paths.append(logical)
+        cmake_logical = _emit_logical_path(cmake_path, "old CMake source path")
+        cmake_digest = cmake_record["sha256"]
+        cmake_file = output.joinpath(*PurePosixPath(cmake_logical).parts)
+        if (
+            type(cmake_digest) is not str
+            or not _SHA256.fullmatch(cmake_digest)
+            or not cmake_file.is_file()
+            or sha256_bytes(cmake_file.read_bytes()) != cmake_digest
+        ):
+            _emit_fail("OUTPUT-001", "old CMake source identity is invalid")
+        owned = {
+            "model-manifest.json",
+            cmake_logical,
+            _emit_logical_path(depfile_path, "old depfile path"),
+            *generated_paths,
+        }
+    except (KeyError, OSError, TypeError, UnicodeError, json.JSONDecodeError) as error:
+        _emit_fail("OUTPUT-001", f"existing ownership manifest is invalid: {error}")
+    if files != owned:
+        _emit_fail("OUTPUT-001", "existing model output contains an unowned file")
+    return files
+
+
+def _publish_model(output: Path, artifacts: dict[str, bytes]) -> tuple[str, ...]:
+    expected = tuple(sorted(artifacts))
+    output.parent.mkdir(parents=True, exist_ok=True)
+    lock_path = output.parent / f".{output.name}.lock"
+    with lock_path.open("a+b") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        _existing_model_files(output)
+        with ArtifactStage(output, expected=expected) as stage:
+            for path in expected:
+                stage.write_bytes(path, artifacts[path])
+            stage.commit_directory()
+    return expected
+
+
+def _emit(arguments: object, sink: OutputSink) -> int:
+    sdk = _sdk_identity(arguments.sdk_root)
+    plan = _verify_plan(arguments.plan, sdk)
+    output_candidate = Path(arguments.out_dir).expanduser()
+    if output_candidate.is_symlink():
+        _emit_fail("OUTPUT-001", "model output must not be a symlink")
+    output = output_candidate.resolve()
+    manifest = Path(arguments.manifest).expanduser().resolve()
+    depfile = Path(arguments.depfile).expanduser().resolve()
+    if manifest != output / "model-manifest.json":
+        _emit_fail("OUTPUT-001", "--manifest must name <out-dir>/model-manifest.json")
+    if depfile != output / "model.d":
+        _emit_fail("OUTPUT-001", "--depfile must name <out-dir>/model.d")
+
+    generated = _generate_model_sources(sdk, plan)
+    artifacts = {
+        **generated,
+        "model-sources.cmake": plan.cmake_sources,
+        "model.d": _emit_depfile(output, plan),
+        "model-manifest.json": _model_manifest(sdk, plan, generated),
+    }
+    published = _publish_model(output, artifacts)
+    manifest_bytes = artifacts["model-manifest.json"]
+    sink.result(
+        {
+            "schema": "agentic-circuit-model-emit-result",
+            "version": "1",
+            "contract_epoch": "0.5",
+            "status": "passed",
+            "entry": plan.document["entry"],
+            "specialization": plan.document["specialization"],
+            "output_dir": output.as_posix(),
+            "artifacts": list(published),
+            "model_manifest_sha256": sha256_bytes(manifest_bytes),
+        },
+        human=f"emitted model sources to {output}",
+    )
+    return 0
+
+
 def run(arguments: object, sink: OutputSink) -> int:
     if getattr(arguments, "model_command", None) == "plan":
         return _plan(arguments, sink)
-    _fail("ACSDK-PLAN-CLI-001", "unknown model command")
+    if getattr(arguments, "model_command", None) == "emit-cpp":
+        return _emit(arguments, sink)
+    _emit_fail("CLI-001", "unknown model command")

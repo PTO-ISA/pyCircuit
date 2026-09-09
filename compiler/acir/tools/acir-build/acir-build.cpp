@@ -31,12 +31,6 @@
 #ifndef ACIR_GFSIM_LIBRARY
 #define ACIR_GFSIM_LIBRARY "libgfsim.a"
 #endif
-#ifndef ACIR_GFSIM_TOOLING_LIBRARY
-#define ACIR_GFSIM_TOOLING_LIBRARY "libgfsim_tooling.a"
-#endif
-#ifndef ACIR_GFSIM_TOOLING_INCLUDE
-#define ACIR_GFSIM_TOOLING_INCLUDE "include"
-#endif
 #ifndef ACIR_BINDINGS_LIBRARY
 #define ACIR_BINDINGS_LIBRARY "libACIRBindings.a"
 #endif
@@ -201,12 +195,9 @@ int main(int argc, char **argv) {
       "-I",
       ACIR_GFSIM_INCLUDE,
       "-I",
-      ACIR_GFSIM_TOOLING_INCLUDE,
-      "-I",
       includeDir.c_str(),
       modelCpp.c_str(),
       mainCpp.c_str(),
-      ACIR_GFSIM_TOOLING_LIBRARY,
       ACIR_GFSIM_LIBRARY,
       ACIR_BINDINGS_LIBRARY,
   };

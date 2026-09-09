@@ -17,9 +17,8 @@ of truth.
 
 - Apply `$pyc6` first for hard contracts and evidence expectations.
 - Use `$pyc-build-v60` when running builds or gate lanes.
-- Consumer-specific compatibility work runs in the owning consumer repository,
-  not in this framework tree, except the maintainer-authorized DavinciOO
-  design program under `designs/davincioo/` (Decision 0222).
+- Consumer-specific compatibility and design work runs in the owning consumer
+  repository, never in this framework tree (Decisions 0158 and 0235).
 
 ## Task mapping
 
@@ -50,26 +49,22 @@ of truth.
   evidence under `docs/gates/logs/<run-id>/`.
 - Keep the repository hard-break only. Do not restore removed compatibility
   modes or label the current CycleAwareSignal API with a prior product version.
-- Keep active runtime, trace, and semantic-gate names on the pyCircuit 6
-  contract: `libpyc6_runtime`, `PYC6TRC3`, and
-  `run_semantic_regressions_v6.sh`.
+- Keep the active runtime and semantic-gate names on the pyCircuit 6 contract:
+  `libpyc6_runtime` and `run_semantic_regressions_v6.sh`. Serialized trace
+  formats are tooling artifacts, not public model or runtime ABIs.
 - Keep complete CPU/NPU/SoC/board designs, consumer testbenches, ISA decoders,
-  model-comparison scripts, and consumer-specific runtime adapters out of this
-  repository (Decision 0158), except DavinciOO modules and their design-local
-  contracts, testbenches and integration harnesses explicitly admitted under
-  `designs/davincioo/` by Decision 0222. Framework semantics remain design-neutral.
+  model-comparison scripts, consumer payload/trace schemas, and
+  consumer-specific runtime adapters out of this repository (Decisions 0158
+  and 0235). Framework semantics remain design-neutral.
 - Do not add AI co-author lines to commits or pull request text.
 
 ## Repository authority
 
 - `PTO-ISA/pyCircuit` is the upstream source of truth and release authority.
-- `LinxISA/pyCircuit` is a downstream framework-compatibility fork, not the
-  owner of Linx design or integration sources.
 - Product decisions and reusable framework fixes land upstream. Consumer
   compatibility gates run from the consumer checkout against a pinned
-  revision. DavinciOO design-program gates run from this checkout under
-  `designs/davincioo/`; a separate consumer checkout is only needed for optional
-  source comparison or reference-model validation.
+  revision. Product design, source comparison, and reference-model validation
+  stay in the owning consumer checkout.
 - See `docs/development/repository-management.md` for branch, release, and fork
   synchronization policy.
 

@@ -1,7 +1,6 @@
 find_package(GTest CONFIG REQUIRED)
 add_executable(GfsimTests
   BitsTest.cpp
-  NpuTest.cpp
   QueueBlocksTest.cpp
   ShowcaseTest.cpp
   core_test.cpp
@@ -14,7 +13,6 @@ target_compile_definitions(GfsimTests PRIVATE
 )
 target_link_libraries(GfsimTests PRIVATE
   gfsim
-  gfsim_tooling
   GTest::gtest_main
 )
 add_test(NAME GfsimTests COMMAND GfsimTests)

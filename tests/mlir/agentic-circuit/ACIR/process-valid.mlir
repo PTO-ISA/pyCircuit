@@ -45,21 +45,6 @@ builtin.module attributes {ac.contract_epoch = "0.5"} {
     }
     ac.return
   }
-  ac.module @BranchLocal(i1) parameters {} graph {
-  ^bb0(%condition : i1):
-    ac.process @control kind "control" captures(%condition : i1) {
-    ^bb0(%branch : i1):
-      %cursor = ac.trace.open source "branch_linear"
-      %next, %captured, %advanced = ac.trace.next %cursor from source "branch_linear" : !ac.resource_token<@r>
-      scf.if %branch {
-        ac.wait_until %branch
-      } else {
-        %decoded = ac.trace.decode %captured : !ac.resource_token<@r> to i64
-      }
-      ac.yield_sim
-    }
-    ac.return
-  }
 }
 
 // CHECK: ac.process @control kind "control" captures(%{{.*}} : i32)
@@ -71,7 +56,6 @@ builtin.module attributes {ac.contract_epoch = "0.5"} {
 // CHECK: ac.await_event @done
 // CHECK: scf.if
 // CHECK: ac.yield_sim
-// CHECK: ac.module @BranchLocal
 // EFFECTS: ac.try_send
 // EFFECTS: ac.try_recv
 // EFFECTS: ac.schedule

@@ -1,3 +1,0 @@
-{"args":{"gfsim_epoch_delta":0,"gfsim_epoch_time":0,"gfsim_local_committed_index":0,"gfsim_object_id":0,"showcase_epoch_delta":0,"showcase_epoch_time":0},"cat":"process","name":"suspended","ph":"i","pid":0,"s":"t","tid":0,"ts":0}
-{"args":{"gfsim_epoch_delta":0,"gfsim_epoch_time":0,"gfsim_local_committed_index":1,"gfsim_object_id":0,"showcase_epoch_delta":0,"showcase_epoch_time":3},"cat":"process","name":"wake","ph":"i","pid":0,"s":"t","tid":0,"ts":0}
-{"args":{"gfsim_epoch_delta":0,"gfsim_epoch_time":0,"gfsim_local_committed_index":2,"gfsim_object_id":0,"showcase_epoch_delta":1,"showcase_epoch_time":3},"cat":"process","name":"resumed","ph":"i","pid":0,"s":"t","tid":0,"ts":0}

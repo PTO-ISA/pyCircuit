@@ -12,7 +12,7 @@
     "contract_identities": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["acpy", "acir", "acsim", "cli", "component_schema", "opcode_catalog", "block_spec", "cxx_source_contract", "pto_trace", "diagnostic", "build_manifest", "run_manifest", "run_result"],
+      "required": ["acpy", "acir", "acsim", "cli", "component_schema", "opcode_catalog", "block_spec", "cxx_source_contract", "diagnostic", "build_manifest"],
       "properties": {
         "acpy": {"const": "acpy@0.1"},
         "acir": {"const": "acir@0.1"},
@@ -22,11 +22,8 @@
         "opcode_catalog": {"const": "agentic-circuit-opcode-catalog@0.5"},
         "block_spec": {"const": "agentic-circuit-block-spec@0.5"},
         "cxx_source_contract": {"const": "gfsim-cxx20@0.1"},
-        "pto_trace": {"const": "pto-trace@0.1"},
         "diagnostic": {"const": "agentic-circuit-diagnostic@0.1"},
-        "build_manifest": {"const": "agentic-circuit-build-manifest@0.1"},
-        "run_manifest": {"const": "agentic-circuit-run-manifest@0.1"},
-        "run_result": {"const": "agentic-circuit-run-result@0.1"}
+        "build_manifest": {"const": "agentic-circuit-build-manifest@0.1"}
       }
     },
     "items": {"type": "array", "items": {"$ref": "#/$defs/item"}},

@@ -80,7 +80,15 @@ class SdkReleaseContractTest(unittest.TestCase):
         self.assertIn("COMPONENTS Runtime", contract)
         self.assertIn("COMPONENTS CompilerDev", contract)
         self.assertIn("agentic_model_query_v1", contract)
-        self.assertIn("SuperScalarModel#578", contract)
+        self.assertIn("create -> configure -> reset -> step", contract)
+        self.assertIn("fixed 24-byte result", contract)
+        for forbidden in (
+            "load_trace_json",
+            "agentic-model-trace",
+            "trace_position",
+            "SuperScalarModel",
+        ):
+            self.assertNotIn(forbidden, contract)
 
     def test_examples_and_adversarial_contracts_are_checked(self) -> None:
         result = subprocess.run(

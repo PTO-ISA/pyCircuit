@@ -111,7 +111,6 @@ constexpr llvm::StringLiteral kProcessModel = R"mlir(
         ac.wait_until %true
         ac.wait_for @r0
         ac.await_event @e0
-        %cursor = ac.trace.open source "pto"
         %observed = ac.probe @q0 kind "queue" : i32
         ac.stat.add @s0 %captured : i32
         ac.assert %true, "runtime"
@@ -236,7 +235,6 @@ OwningOpRef<mlir::ModuleOp> makeFlatAddressModel(MLIRContext &context,
   builder.setInsertionPointToStart(&workload.getBody().emplaceBlock());
   auto instrumentation = InstrumentationOp::create(builder, loc, "trace");
   instrumentation.getBody().emplaceBlock();
-  TraceOpenOp::create(builder, loc, builder.getIndexType(), "pto");
   YieldSimOp::create(builder, loc);
   builder.setInsertionPointToEnd(&top.getBody().front());
   ReturnOp::create(builder, loc, ValueRange{});
@@ -447,18 +445,6 @@ TEST(ModelAnalysisTest, FrozenProcessSkeletonRejectsEffectSemanticMutation) {
       {"event target",
        [&](mlir::ModuleOp model) {
          one<AwaitEventOp>(model).setEventQueueAttr(symbol("e1"));
-       }},
-      {"trace source",
-       [&](mlir::ModuleOp model) {
-         one<TraceOpenOp>(model).setSource("pto_other");
-       }},
-      {"trace frozen owner",
-       [&](mlir::ModuleOp model) {
-         auto trace = one<TraceOpenOp>(model);
-         auto owner = trace->getAttrOfType<DictionaryAttr>("ac.frozen_owner");
-         NamedAttrList fields(owner);
-         fields.set("path", StringAttr::get(&context, "wrong.path"));
-         trace->setAttr("ac.frozen_owner", fields.getDictionary(&context));
        }},
       {"probe target",
        [&](mlir::ModuleOp model) {
@@ -874,9 +860,10 @@ TEST(ModelAnalysisTest, FullFreezePathHasExactLinearIndexedWork) {
     manager.addPass(createFreezeTopologyPass());
     EXPECT_TRUE(succeeded(manager.run(*model)));
     // The complete path constructs the seal, then independently reconstructs
-    // the manifest during final frozen verification.
+    // the manifest during final frozen verification. With no external trace
+    // cursor owner, topology-index lookup work remains zero.
     EXPECT_EQ(work.stateIndexInsertions, 2 * (ownerCount + 1));
-    EXPECT_EQ(work.topologyIndexLookups, 2 * (ownerCount + 1));
+    EXPECT_EQ(work.topologyIndexLookups, 0u);
     EXPECT_EQ(work.manifestIndexInsertions, ownerCount + 2);
     EXPECT_EQ(work.manifestOwnerLookups, 2u);
     EXPECT_EQ(work.declarationIndexInsertions, ownerCount + 1);
@@ -885,9 +872,9 @@ TEST(ModelAnalysisTest, FullFreezePathHasExactLinearIndexedWork) {
   };
   uint64_t work1000 = measure(1000);
   uint64_t work4000 = measure(4000);
-  EXPECT_EQ(work1000, 7010u);
-  EXPECT_EQ(work4000, 28010u);
-  EXPECT_EQ(work4000 - 10, 4 * (work1000 - 10));
+  EXPECT_EQ(work1000, 5008u);
+  EXPECT_EQ(work4000, 20008u);
+  EXPECT_EQ(work4000 - 8, 4 * (work1000 - 8));
 }
 
 TEST(ModelAnalysisTest, DeepProcessDependencyChainsFreezeWithoutStackGrowth) {

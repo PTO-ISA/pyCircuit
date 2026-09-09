@@ -1,104 +1,29 @@
-# Queue/Var DavinciOO-like model
+# Queue and value pipelines
 
 The [Agentic Circuit Specification Manual](../../../docs/acir/spec/agentic-circuit.md)
 defines the authoring, ACIR, runtime, backend, and refinement contracts exercised
 by these examples.
 
-`bitfield_decode_pipeline.py` demonstrates a static 32-bit `BitfieldSpec` with
-overlapping read views, u3/u5/u17 fields, MSB-first multi-field selection, and
-an immutable two-field update. The frontend emits only verified
-`ac.var.extract`, `ac.var.concat`, and `ac.var.insert` operations; Queue and
-backpressure mechanics remain compiler-owned.
-`bitfield_scalar_pipeline.py` keeps the boundary at 32 bits so the same named
-extract/concat/insert behavior can be compared directly in generated C++ and
-Verilog simulations.
-`nested_payload_pipeline.py` defines its outer nominal struct before the nested
-struct, proving descriptor resolution and generated C++ declaration order are
-dependency-driven rather than source-order dependent. Its rule performs an
-immutable nested field replacement; Queue checks remain compiler-inferred.
-`enum_payload_pipeline.py` uses the standard Python `enum.Enum` class rather
-than an Agentic hardware constructor. Declaration-order ordinals become the
-explicit nominal encoding; nested equality and immutable replacement lower
-through verified ACIR and the shared gfsim/PYC backends.
-`aggregate_payload_pipeline.py` uses ordinary typed tuples and `ac.array[N, T]`
-value annotations. Tuple/list literals construct immutable aggregate values,
-constant indexing stays structural, and the compiler packs the 28-bit payload
-without exposing Queue operations or hardware container classes in Python.
-`recursive_aggregate_payload_pipeline.py` places standard Python enum and
-nominal struct values inside those aggregates. The same compiler-owned layout
-recursively packs and restores the nominal values in gfsim, PYC C++, and
-Verilog.
-`pto_payload_abi.py` instantiates the versioned 1258-bit PTO execution payload
-from nested nominal structs, standard enums, and bounded fixed arrays. The
-checked ABI descriptor publishes every leaf offset; generated gfsim uses exact
-multiword aggregate storage, while PYC C++ and Verilog share one packed scalar
-port and update the same published `block_id` slice.
-`masked_decode_pipeline.py` uses the pure `ac.matches(value, "1xx0")`
-intrinsic for an MSB-first four-bit decode. Python supplies only the compact
-lowercase `0`/`1`/`x` pattern; ACIR verifies its canonical mask/value operation
-and the backends implement the same boolean result without exposing decode
-hardware or transaction checks in the frontend.
+The payload examples cover exact bit widths, immutable nominal structs,
+standard Python enums, fixed arrays, nested aggregates, and masked matching.
+They prove that layout and value semantics stay consistent across ACIR, gfsim,
+PYC C++, and Verilog without embedding a consumer instruction format.
 
-`davincioo_queue_model.py` is the first executable topology generated
-from serial Python. It uses only repository-owned common building blocks:
-`ac.source`, `ac.transform`, `ac.dependency`, `ac.route`, `ac.merge`,
-`ac.observe`, `ac.reorder`, and `ac.sink`, connected by typed `ac.queue` values.
+The routed dependency pipeline is a vendor-neutral, architecture-scale
+QueueGraph topology. It combines dependency scheduling, four-way routing,
+round-robin merge, ordered output, observations, and backpressure using only
+framework primitives:
 
-Generate one canonical typed C++ model:
+    source -> transform -> dependency window -> 4-way route
+                                                 | route 0
+                                                 | route 1
+                                                 | route 2
+                                                 | route 3
+                                            merge -> reorder -> output -> sink
 
-```bash
-PYTHONPATH=src tools/ac-queue-cxxgen.py \
-  examples/pipelines/davincioo_queue_model.py \
-  --system davincioo_queue_model \
-  --acir-output build/davincioo_queue_model.ac.mlir \
-  --plan-output build/davincioo_queue_model.queue-plan.json \
-  --acir-opt build/dev-llvm22/bin/acir-opt \
-  --queue-plan-tool build/dev-llvm22/bin/acir-queue-plan \
-  --queue-cxxgen-tool build/dev-llvm22/bin/acir-queue-cxxgen \
-  -o build/davincioo_queue_model.cpp
-```
-
-The generated class owns every interconnect as a typed `gfsim::SimQueue<T>`.
-Lexical scopes become `gfsim::Module` hierarchy nodes. Engine blocks borrow
-Queue references; they do not allocate or own sibling interconnect.
-
-The example models the reference shape at building-block level:
-
-```text
-trace -> frontend -> dependency window -> 4-way dispatch
-                                              | scalar
-                                              | vector
-                                              | cube
-                                              | tma
-                                         merge -> reorder -> retire -> sink
-```
-
-The checked-in
-[`softmax-projection.json`](../../../tests/goldens/agentic-circuit/davincioo/softmax-projection.json) binds
-this generated topology to the provenance-locked 15-record softmax trace. It
-records opcode identities, engine routes, reference execution costs, explicit
-predecessors, fixed boundary-cycle compensation, out-of-order completion order,
-in-order retirement, architectural values, and the 453-cycle oracle.
-
-The generated model uses the official bounded `ac.dependency` window with four
-reserved resource classes, round-robin merge, committed observations, and the
-official `ac.reorder` block. The same serial Python and frozen ACIR now pass all
-of these gates:
-
-- typed gfsim consumes all 15 projected records and finishes in 453 cycles;
-- opcode counts and completion/retirement order match the reference projection;
-- copied-source generation remains byte-identical across unrelated roots;
-- the same frozen ACIR builds with pinned `pycc` as PYC C++ and Verilog;
-- PYC C++ and Verilator produce cycle-identical ready/valid/data observations;
-- gfsim, PYC C++, and Verilog produce the same projected output transactions.
-
-Dependency wait is no longer folded into token latency. `ac.dependency` tracks
-predecessor completion explicitly and counts the reference execution cost. The
-projection applies only a documented 5-cycle ingress and 4-cycle drain
-compensation for the different Queue boundaries. It checks dependency-window
-peak occupancy, per-resource executing peaks, and reorder-window peak occupancy
-through stable generated-model accessors; raw reference rename-table structure
-remains outside the declared observation projection.
+The regression for this example checks topology cardinality, deterministic
+generation from copied source, and generated C++ compilation. It does not load
+a product trace or compare against a processor reference model.
 
 ## PYC and Verilog slice
 
@@ -149,8 +74,6 @@ out-of-order completion, and PYC C++/Verilator cycle equivalence.
 `persistent_schedule.py` verifies that high-level `ac.schedule` keeps its provider
 identity through Frozen ACIR and QueueGraph, retains bounded completion after a
 producer leaves the output window, and generates the gfsim v2 specialization.
-The multi-port PTO schedule provider remains a gfsim boundary until #21 adds
-its explicit scalar lane lowering.
 `pyc_barrier_pipeline.py` verifies heterogeneous positional payloads and an
 all-input/all-output atomic synchronization firing shared by typed gfsim, PYC
 C++, and Verilog.

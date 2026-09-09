@@ -145,8 +145,7 @@ TEST(GeneratedModelCompileTest,
 
   std::vector<std::string> ownedArguments = {
       ACIR_TEST_CXX_COMPILER, "-std=c++20", "-I" + generatedInclude.str().str(),
-      "-I" ACIR_TEST_SOURCE_DIR "/simulator/gfsim/include",
-      "-I" ACIR_TEST_SOURCE_DIR "/simulator/gfsim/tooling/include"};
+      "-I" ACIR_TEST_SOURCE_DIR "/simulator/gfsim/include"};
   for (const std::string &include : test::llvmIncludeDirectories())
     ownedArguments.push_back("-I" + include);
   if (llvm::StringRef(ACIR_TEST_RTTI_FLAG).size())
@@ -160,8 +159,6 @@ TEST(GeneratedModelCompileTest,
     llvm::sys::path::append(path, file.relativePath);
     ownedArguments.push_back(path.str().str());
   }
-  ownedArguments.push_back(ACIR_TEST_BINARY_DIR
-                           "/gfsim/libgfsim_tooling.a");
   ownedArguments.push_back(ACIR_TEST_BINARY_DIR "/gfsim/libgfsim.a");
   ownedArguments.push_back(ACIR_TEST_BINARY_DIR
                            "/lib/Bindings/libACIRBindings.a");

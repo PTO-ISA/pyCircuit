@@ -3918,9 +3918,8 @@ compatibility aliases.
 
 **Status:** Accepted and implemented
 
-**Scoped update:** Decision 0222 supersedes the placement restriction for the
-maintainer-authorized DavinciOO design program under `designs/davincioo/`.
-The design-neutral compiler contract and other consumer boundaries remain.
+**Scoped update:** Decision 0235 removes the former Decision 0222 placement
+exception. All consumer designs and integration assets are out of tree.
 
 **Supersedes:** the external-system and board placement rules in Decision 0157,
 Decision 0142, and Decision 0146.
@@ -3945,9 +3944,11 @@ consumer infrastructure.
   record the exact pyCircuit revision.
 - Framework code has no consumer-path allowlists, consumer-named runtime
   headers, or conditional semantics selected by a design filename.
-- Generic trace, probe, testbench, package, CLI, and plugin/extension contracts
-  remain framework APIs. Processor commit bundles and viewer adapters are
-  consumer contracts built on those generic surfaces.
+- Generic in-process probes, observations, testbenches, packages, CLI, and
+  plugin/extension contracts remain framework APIs. Serialized workload trace
+  formats, trace adapters, processor commit bundles, and viewer adapters are
+  consumer contracts. No trace loader, cursor, or trace export crosses the
+  public generated-model ABI.
 - Git history preserves removed in-tree designs and tools for migration. No
   forwarding path, compatibility copy, symlink, or empty placeholder restores
   the old roots.
@@ -7453,7 +7454,11 @@ dynamic indices wider than the original 64-entry snapshot mask.
 
 ## Decision 0222: DavinciOO contributor designs use H1/H2/H3 within NDF L2
 
-**Status:** Implemented for governance and the contributor inventory; design execution remains individually unverified
+**Status:** Superseded by Decision 0235
+
+This historical placement exception is no longer active. Its in-tree design
+program, inventory, tests, and reference harnesses were removed when the
+framework boundary was restored.
 
 **Supersedes:** Decision 0158's DavinciOO source-placement restriction only.
 
@@ -7933,7 +7938,11 @@ readable naming contract without weakening reproducibility or integrity.
 
 ## Decision 0229: one canonical PTO trace oracle reports the first structured divergence
 
-**Status:** Accepted; implemented and verified
+**Status:** Superseded by Decision 0235
+
+The generic lesson—deterministic comparison of canonical data—remains useful,
+but the consumer trace oracle, adapter, schemas, pinned reference executable,
+and integration gate are no longer pyCircuit product surfaces.
 
 **Context / Goal**
 The repository already converts the imported DavinciOO JSONL trace to canonical
@@ -8002,7 +8011,11 @@ binary simulator-event format and does not satisfy this workload comparison.
 
 ## Decision 0230: one bounded PTO execution payload owns the packed cross-backend ABI
 
-**Status:** Accepted; implemented and verified
+**Status:** Superseded by Decision 0235
+
+Wide immutable aggregate support remains part of the framework. The concrete
+PTO payload, opcode catalog, serialization profile, trace projection, and
+cross-backend ABI were consumer-owned and have been removed.
 
 **Context / Goal**
 Issue #18 requires an executable PTO payload rather than another open JSON
@@ -8074,6 +8087,10 @@ realistic multi-Tile payload to cross the former 64-bit gfsim aggregate bound.
 ## Decision 0231: schedule v2 uses bounded persistent readiness and generation-qualified rename
 
 **Status:** Accepted; implemented and verified for gfsim, with PYC lane lowering assigned to #21
+
+**Scoped update:** Decision 0235 removes the PTO/NPU specialization, physical
+rename protocol, processor issue windows, and consumer observations. The
+generic bounded Schedule-v2 provider and lost-wakeup regression remain.
 
 **Context / Goal**
 Issue #19 requires one scheduling contract that cannot lose readiness when
@@ -8166,9 +8183,9 @@ not form a bounded reusable schedule-v2 provider.
 **Status:** Accepted; implementation tracked by issue #61
 
 **Context / Goal**
-SuperScalarModel needs a relocatable binary SDK that can generate and link a
-gfsim model without a pyCircuit checkout or LLVM/MLIR development packages.
-The current AgenticCircuit package is a compiler-development export: its config
+External framework users need a relocatable binary SDK that can generate and
+link a generic model without a pyCircuit checkout or LLVM/MLIR development
+packages. The current AgenticCircuit package is a compiler-development export: its config
 always finds LLVM/MLIR, while release artifacts omit an explicit SDK identity,
 agentic-circuit wheel, checksums, and platform contract.
 
@@ -8188,10 +8205,9 @@ agentic-circuit wheel, checksums, and platform contract.
   ABI and `AgenticCircuit::Gfsim` without finding LLVM/MLIR development
   packages. `CompilerDev` exposes dialect/pass/compiler targets and requires
   LLVM/MLIR 22.1.8 exactly. Unknown components fail.
-- The Runtime header tree and Gfsim library contain no LLVM, MLIR, or ACIR
-  dependency. LLVM-based trace JSON and run-manifest support belongs to
-  `AgenticCircuit::GfsimTooling` under CompilerDev. Internal generated-model
-  tools link Tooling explicitly; an external Runtime consumer does not.
+- The Runtime header tree and Gfsim library contain no LLVM, MLIR, ACIR,
+  consumer payload, or workload-trace dependency. External Runtime consumers
+  link only the generic runtime target.
 - A platform SDK archive contains installed tools, Runtime headers/libraries,
   CMake exports, the wheelhouse, schemas, licenses, and one embedded platform
   manifest. That manifest hashes installed files except itself and never hashes
@@ -8215,14 +8231,13 @@ agentic-circuit wheel, checksums, and platform contract.
 
 **Source**
 - PTO-ISA/pyCircuit issue #61 R01-R04 and R09-R17.
-- LinxISA/SuperScalarModel issue #578.
 
 ## Decision 0233: installed model plan and emit-cpp use verified schemas and an opaque runtime ABI
 
 **Status:** Accepted; implementation tracked by issue #61
 
 **Context / Goal**
-The QueueGraph/JIT path already expresses the DavinciOO authoring semantics, and
+The QueueGraph/JIT path already expresses generic typed authoring semantics, and
 the ACSim path already demonstrates deterministic multi-TU source bundles.
 Neither exposes a stable installed plan/emit contract. A consumer must not call
 repo scripts, infer output files, bind a generated class layout, or open a
@@ -8265,10 +8280,14 @@ second semantic lowering path.
   `gfsim/model_api.h` fixes the 64-bit layouts, sizes, status values, opaque
   handle, buffer/step types, identity strings, function signatures, lifetime,
   single-thread ownership, and non-reentrancy rules. The table owns
-  create/destroy, canonical JSON configuration/trace loading, reset,
-  step/status, canonical JSON statistics/observations, and last-error access.
+  create/destroy, canonical JSON configuration, reset, step/status, canonical
+  JSON statistics, and last-error access.
   STL, LLVM/MLIR, generated class layout, ELF loading, ISA decoding, and product
   state do not cross this ABI.
+- The ABI lifecycle is create, configure, reset, then step. Runtime
+  configuration uses a closed version-1 RuntimeLimits document. Workload input,
+  trace loading, trace cursors, and observation export are deliberately absent;
+  consumers provide their own adapters outside the framework ABI.
 - SDK, source, plan, generator, and runtime ABI mismatches fail before output
   mutation. Unsupported Table/PYC or other backend boundaries remain explicit.
 
@@ -8278,7 +8297,7 @@ second semantic lowering path.
   canonical document includes its content hash.
 - External multi-file fixtures cover nominal imports, const specialization,
   multiple independent instances, admitted Table state, optional heterogeneous
-  outputs, backpressure, reset, step, statistics, and observations.
+  outputs, backpressure, reset, step, and statistics.
 - Negative tests cover escaped imports, stale source/config/plan, wrong SDK/ABI,
   missing tool, parallel same-root generation, failed publication rollback, and
   obsolete-TU cleanup.
@@ -8316,10 +8335,10 @@ redownload one immutable candidate byte set.
   an artifact after acceptance.
 - After publication, a separate job redownloads every asset from the stable
   release, verifies `SHA256SUMS`, installs the wheels and relocated SDK, and
-  reruns the smoke consumer. Failure blocks the SuperScalarModel handoff.
-- The final handoff records stable asset URLs/hashes, source revision, version
-  map, ABI tuple, capabilities, and known unsupported boundaries in the
-  version-1 consumer lock. A branch SHA or temporary artifact cannot substitute.
+  reruns the generic smoke consumer.
+- The release records stable asset URLs/hashes, source revision, version map,
+  ABI tuple, capabilities, and known unsupported boundaries. A branch SHA or
+  temporary artifact cannot substitute.
 
 **Required verification**
 - Workflow dependency tests prove all publish jobs require candidate acceptance
@@ -8327,7 +8346,60 @@ redownload one immutable candidate byte set.
 - Each platform validates the exact archive and wheels later published, with no
   producer absolute path or undeclared dynamic dependency.
 - The final non-draft, non-prerelease release is redownloaded successfully and
-  its consumer lock is posted to SuperScalarModel issue #578.
+  the generic installed-model smoke passes.
 
 **Source**
 - PTO-ISA/pyCircuit issue #61 R13-R23.
+
+## Decision 0235: framework code and public ABIs are consumer-neutral
+
+**Status:** Accepted and implemented
+
+**Supersedes:** Decision 0222, Decision 0229, Decision 0230, the consumer
+specialization clauses of Decision 0231, and the trace-ABI clauses of Decision
+0233.
+
+**Context / Goal**
+pyCircuit is a programming and compiler framework. A temporary design-program
+exception and subsequent workload-comparison work allowed product designs,
+opcode catalogs, trace adapters, payload schemas, reference executables, and
+trace-driven runtime entrypoints to become framework dependencies. That made
+generic builds and releases carry contracts owned by particular consumers.
+
+**Decision (strong constraint)**
+- Framework source owns language frontends, semantic types and primitives,
+  dialects, verifiers, passes, generic runtime/backend libraries, compiler
+  packaging, and vendor-neutral regression fixtures.
+- Complete processors, accelerators, product modules, ISA/opcode catalogs,
+  architectural payloads, ELF loaders, reference models, model-comparison
+  tools, and product-specific testbenches live only in their consumer
+  repositories. There is no in-tree design exception.
+- Public Python, MLIR, C++, CMake, schema, CLI, generated-source, and runtime
+  surfaces contain no consumer or product identity and no design-name semantic
+  branch.
+- The generated-model ABI exposes only generic lifecycle, configuration,
+  execution status, statistics, and error reporting. It does not expose trace
+  loading, trace cursors, trace-position state, trace-derived workload input,
+  or observation/trace export.
+- Generic probes and observations may remain internal compiler/runtime
+  semantics for debugging and backend equivalence. A serialized diagnostic
+  format is a tooling artifact, not a stable consumer or generated-model ABI.
+- Consumer-originated failures enter pyCircuit only after reduction to a
+  vendor-neutral fixture that names no product, ISA, opcode, architectural
+  packet, or external source tree.
+- Historical decisions, issue discussions, and gate logs retain their original
+  names as provenance. They do not define active product behavior and are not
+  installed, built, imported, or run by current gates.
+
+**Required verification**
+- Repository boundary tests reject consumer design roots, consumer/reference
+  adapters, product-named simulator/compiler branches, and trace methods in the
+  public generated-model ABI.
+- The Agentic Circuit gate and release closure run without any consumer design,
+  trace fixture, reference checkout, or consumer-specific schema.
+- Generic frontend, verifier, QueueGraph/gfsim, ACIR-to-PYC, SDK model emission,
+  and documentation checks remain green.
+
+**Source**
+- User direction (2026-09-09): separate pyCircuit from consumer implementations,
+  including Linx, DavinciOO, LinxTrace, and every ABI-level trace interface.

@@ -2080,64 +2080,18 @@ Cross-backend refinement does not require equality of:
 - abstract versus detailed pipeline latency that is outside the declared
   observation contract.
 
-### Canonical PTO trace oracle
+### Consumer-neutral refinement boundary
 
-The repository trace oracle compares two normalized
-`agentic-circuit-pto-trace-result` documents derived from one canonical
-`pto-trace@0.1` content hash. Each dense instruction record carries its opcode,
-architectural value, completion ordinal, retirement ordinal, and the stage
-timestamps declared observable by that comparison profile. Model identity and
-specialization are explicit; checkout and output paths are absent.
-
-The comparator emits one canonical
-`agentic-circuit-pto-trace-oracle-report`. It checks trace identity, record and
-opcode counts, architectural values, completion/retirement order, and declared
-timestamps. A failure records the first deterministic divergence as instruction
-sequence, opcode, stage, field, reference/candidate values, and cycles. Fields
-are compared in that normative order; stage names are sorted. `PYC6TRC3` remains
-the binary simulator event-trace format and is not this PTO workload oracle.
-
-The DavinciOO gate canonicalizes one imported JSONL trace once, executes the
-pinned reference model from the same source bytes, and feeds the canonical
-records to the frozen ACIR specialization. The live reference must match its
-pinned record/opcode counts, completion/retirement order, and complete-run
-timestamp before the checked projection supplies architectural values that the
-reference executable does not export. Only common declared timestamps are
-compared; internal stage cycles may differ across model boundaries.
-
-### Canonical PTO execution-payload ABI
-
-`agentic-circuit-pto-payload-abi@0.1` is the bounded projection from canonical
-PTO workload records to an executable immutable payload. Its public
-`PTOExecutionPayload` contains a numeric opcode ID, engine kind, 16-bit sequence
-and block identities, four input Tile slots, four scalar-input slots, and two
-output Tile slots. Tile operands carry presence, 64-bit address, dtype, layout,
-and a five-dimension bounded shape; scalar operands carry presence, dtype, and
-64 raw value bits. Counts select a present prefix, and every unused slot must be
-the canonical all-zero image.
-
-The ABI is 1258 meaningful bits in 158 bytes. Struct fields and array elements
-follow declaration order from most-significant to least-significant bits;
-serialized bytes are little-endian with LSB0 bit numbering and six zero
-most-significant padding bits. The checked descriptor publishes 79 leaf paths
-with exact width and LSB offset plus a fingerprint over the complete layout and
-catalogs. The strict codec rejects reserved opcode/enum values, invalid counts,
-rank/dimension violations, nonzero unused slots, wrong byte length, and nonzero
-padding.
-
-Every serialized leaf is classified `architectural` or `execution`; engine and
-sequence/block routing identity use the latter. Dispatch residency,
-rename/ROB/ISQ tags, generation counters, provider timestamps, and other
-provider-local runtime state are excluded from the descriptor, fingerprint,
-and bytes. A provider may keep such state in a separate model-owned object, but
-cannot append it to this ABI. Frozen ACIR carries the same nominal enums,
-structs, and fixed arrays; wide gfsim storage and packed scalar PYC produce the
-same field mapping in generated C++ and Verilog.
+Framework refinement compares only declared, vendor-neutral transactions,
+state, memory-visible effects, assertions, and failures. Product payloads,
+instruction/opcode catalogs, serialized workload traces, reference models, and
+comparison adapters belong to the consumer repository. They are not pyCircuit
+schemas, runtime inputs, or generated-model ABI fields.
 
 ## End-to-end example
 
 The executable
-`davincioo_queue_model.py`
+`routed_dependency_pipeline.py`
 uses only serial Python and common building blocks.
 
 ```python
@@ -2152,7 +2106,7 @@ class WorkItem:
 
 
 @ac.system
-def davincioo_queue_model() -> None:
+def routed_dependency_pipeline() -> None:
     trace = ac.source(WorkItem, depth=8, latency=1)
 
     with ac.scope("frontend"):
@@ -2213,20 +2167,20 @@ Generate all canonical Queue artifacts:
 
 ```sh
 PYTHONPATH=src .venv/bin/python tools/ac-queue-cxxgen.py \
-  examples/pipelines/davincioo_queue_model.py \
-  --system davincioo_queue_model \
-  --acir-output build/davincioo_queue_model.ac.mlir \
-  --plan-output build/davincioo_queue_model.queue-plan.json \
+  examples/pipelines/routed_dependency_pipeline.py \
+  --system routed_dependency_pipeline \
+  --acir-output build/routed_dependency_pipeline.ac.mlir \
+  --plan-output build/routed_dependency_pipeline.queue-plan.json \
   --acir-opt build/dev-llvm22/bin/acir-opt \
   --queue-plan-tool build/dev-llvm22/bin/acir-queue-plan \
   --queue-cxxgen-tool build/dev-llvm22/bin/acir-queue-cxxgen \
-  --output build/davincioo_queue_model.cpp
+  --output build/routed_dependency_pipeline.cpp
 ```
 
 Check that the generated C++ is valid for the local compiler:
 
 ```sh
-c++ -std=c++20 -I include -fsyntax-only build/davincioo_queue_model.cpp
+c++ -std=c++20 -I include -fsyntax-only build/routed_dependency_pipeline.cpp
 ```
 
 ### Generate PYC, PYC C++, and Verilog
@@ -2238,7 +2192,7 @@ matching local pyCircuit installation, run the canonical bundle command:
 PYC_TOOLCHAIN_ROOT=/path/to/pycircuit/toolchain/install
 
 .venv/bin/python tools/ac-queue-pyc-build.py \
-  build/davincioo_queue_model.ac.mlir \
+  build/routed_dependency_pipeline.ac.mlir \
   --pycgen-tool build/dev-llvm22/bin/acir-queue-pycgen \
   --pycc "$PYC_TOOLCHAIN_ROOT/bin/pycc" \
   --toolchain-lock toolchains/pyc.lock.json \
@@ -2246,10 +2200,10 @@ PYC_TOOLCHAIN_ROOT=/path/to/pycircuit/toolchain/install
     "$PYC_TOOLCHAIN_ROOT/share/pycircuit/toolchain-metadata.json" \
   --cxx "$(command -v c++)" \
   --verilator "$(command -v verilator)" \
-  --pyc-output build/davincioo_queue_model.pyc \
-  --cpp-output-dir build/davincioo_queue_model-pyc-cpp \
-  --verilog-output-dir build/davincioo_queue_model-verilog \
-  --manifest build/davincioo_queue_model-pyc-manifest.json
+  --pyc-output build/routed_dependency_pipeline.pyc \
+  --cpp-output-dir build/routed_dependency_pipeline-pyc-cpp \
+  --verilog-output-dir build/routed_dependency_pipeline-verilog \
+  --manifest build/routed_dependency_pipeline-pyc-manifest.json
 ```
 
 The command validates the toolchain lock, emits PYC C++ and Verilog, runs C++
@@ -2391,18 +2345,10 @@ building blocks, richer signedness semantics, and additional refinement
 projections are new contract work rather than incomplete requirements of these
 issues.
 
-The checked-in DavinciOO-like model now proves topology, typed payloads, finite
-Queues, backpressure, deterministic C++ generation, the 15-record softmax
-opcode/completion/retirement projection, and the 453-cycle bounded oracle. The
-same frozen ACIR produces PYC C++ and Verilog with cycle-identical hardware
-observations and the same projected output transactions. Dependency readiness
-resource reservation, and execution countdown are now explicit `ac.dependency`
-state, while bounded parallel in-flight work is explicit `ac.credit` state. The
-projection
-retains only a fixed 5-cycle ingress and 4-cycle drain compensation for the
-different model boundaries. The checked occupancy projection records dependency
-window peak 8, per-resource executing peaks `[1, 1, 0, 1]`, and reorder window
-peak 8 through stable generated-model accessors.
+The checked-in routed dependency example proves topology, typed payloads,
+finite Queues, backpressure, deterministic generation, dependency readiness,
+resource reservation, and bounded parallel work without importing a consumer
+ISA, payload, trace, or model.
 
 ## Contributor checklist
 

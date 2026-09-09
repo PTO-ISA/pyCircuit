@@ -57,12 +57,11 @@ bool installRuntime(SimSystem &system, std::span<const DispatchRow> rows,
 ShowcaseResult finish(SimSystem &system, TerminationResult termination,
                       std::span<SimObject *const> objects,
                       std::map<std::string, uint64_t> values,
-                      uint64_t tracePosition) {
+                      uint64_t completedTransactions) {
   ShowcaseResult result;
   result.termination = std::move(termination);
-  result.termination.tracePosition = tracePosition;
   result.architecturalValues = std::move(values);
-  result.tracePosition = tracePosition;
+  result.completedTransactions = completedTransactions;
   result.statistics = system.statistics();
   auto events = system.observations();
   result.events.assign(events.begin(), events.end());
@@ -418,15 +417,15 @@ ShowcaseResult runNestedArrays(const NestedArraysPolicy &policy,
   installRuntime(system, rows, offsets, targets);
   TerminationResult termination = system.run();
   std::map<std::string, uint64_t> values;
-  uint64_t tracePosition = 0;
+  uint64_t completedTransactions = 0;
   for (size_t lane = 0; lane < sinks.size(); ++lane) {
     uint64_t sum = std::accumulate(sinks[lane]->received().begin(),
                                    sinks[lane]->received().end(), 0ULL);
     values.emplace("lane." + std::to_string(lane) + ".sum", sum);
-    tracePosition += sinks[lane]->totalReceived();
+    completedTransactions += sinks[lane]->totalReceived();
   }
   return finish(system, std::move(termination), objects, std::move(values),
-                tracePosition);
+                completedTransactions);
 }
 
 class TimeDomainActor final : public SimObject {
@@ -642,129 +641,6 @@ void appendObservationValue(std::ostringstream &output,
 
 } // namespace
 
-ShowcaseTraceSource::ShowcaseTraceSource(std::string name, ObjectId id,
-                                         SimObject *parent, uint64_t scenario)
-    : SimObject(ObjectKind::TraceSource, std::move(name), id, parent),
-      scenario_(scenario) {}
-
-bool ShowcaseTraceSource::loadDocument(PtoTraceDocument document) {
-  if (loaded_ || pending_ || committed_)
-    return false;
-  document_ = std::move(document);
-  loaded_ = true;
-  return true;
-}
-
-void ShowcaseTraceSource::doWork(Epoch) {
-  if (pending_ || committed_)
-    return;
-  if (!loaded_) {
-    setRuntimeFailureCode("showcase_trace_not_loaded");
-    return;
-  }
-  ShowcasePolicy policy;
-  switch (scenario_) {
-  case 0:
-    policy = ProducerQueueConsumerPolicy{};
-    break;
-  case 1:
-    policy = BackpressuredPipelinePolicy{};
-    break;
-  case 2:
-    policy = RequestResponseMemoryPolicy{};
-    break;
-  case 3:
-    policy = NestedArraysPolicy{};
-    break;
-  case 4:
-    policy = MultiTimeDomainBridgePolicy{};
-    break;
-  case 5:
-    policy = SuspendedProcessPolicy{};
-    break;
-  default:
-    setRuntimeFailureCode("invalid_showcase_scenario");
-    return;
-  }
-  result_ = runShowcase(policy, ShowcaseWorkOrder::Ascending);
-  if (result_.termination.classification != TerminationClass::Completed) {
-    setRuntimeFailureCode(result_.termination.diagnosticCode.empty()
-                              ? "showcase_execution_failed"
-                              : result_.termination.diagnosticCode);
-    return;
-  }
-  for (const CommittedEvent &event : result_.events) {
-    std::vector<ObservationArgument> arguments = event.arguments;
-    arguments.push_back({.name = "showcase_epoch_delta",
-                         .value = static_cast<uint64_t>(event.epoch.delta)});
-    arguments.push_back(
-        {.name = "showcase_epoch_time", .value = event.epoch.time});
-    if (!emitObservation({.category = event.category,
-                          .name = event.name,
-                          .phase = event.phase,
-                          .rootSequenceId = event.rootSequenceId,
-                          .duration = event.duration,
-                          .flowId = event.flowId,
-                          .arguments = std::move(arguments)}))
-      return;
-  }
-  pending_ = true;
-}
-
-void ShowcaseTraceSource::doXfer(Epoch epoch) {
-  if (!pending_)
-    return;
-  pending_ = false;
-  committed_ = true;
-  lastUpdate_ = epoch;
-}
-
-bool ShowcaseTraceSource::hasPendingCommit() const { return pending_; }
-
-RuntimeObjectState ShowcaseTraceSource::runtimeState(Epoch) const {
-  return {.quiescent = committed_ && !pending_,
-          .runnable = loaded_ && !committed_ && !pending_,
-          .pendingCommit = pending_,
-          .reason = committed_ ? "" : "showcase_trace_pending",
-          .traceOwner = true,
-          .tracePosition = committed_ ? document_.records.size() : 0,
-          .traceLastCommittedSequenceId =
-              committed_ && !document_.records.empty()
-                  ? std::optional<uint64_t>(document_.records.back().sequenceId)
-                  : std::nullopt,
-          .traceEof = committed_};
-}
-
-void ShowcaseTraceSource::collectStatistics(
-    std::vector<StatSnapshot> &out) const {
-  if (!committed_)
-    return;
-  auto append = [&](std::string name, uint64_t value) {
-    std::replace(name.begin(), name.end(), '.', '_');
-    out.push_back({.name = std::move(name),
-                   .objectPath = std::string(path()),
-                   .kind = StatisticKind::Counter,
-                   .value = value,
-                   .lastUpdate = lastUpdate_});
-  };
-  append("trace_records", document_.records.size());
-  append("showcase_events", result_.events.size());
-  for (const auto &[name, value] : result_.architecturalValues)
-    append("architectural_" + name, value);
-}
-
-void ShowcaseTraceSource::reset() {
-  document_ = {};
-  result_ = {};
-  loaded_ = false;
-  pending_ = false;
-  committed_ = false;
-  lastUpdate_ = {};
-  clearRuntimeFailureCode();
-}
-
-bool ShowcaseTraceSource::validate() const { return scenario_ < 6; }
-
 ShowcaseResult runShowcase(const ShowcasePolicy &policy,
                            ShowcaseWorkOrder order, uint64_t permutationSeed) {
   return std::visit(
@@ -792,10 +668,7 @@ std::string canonicalShowcaseResult(const ShowcaseResult &result) {
   output << "termination|" << static_cast<unsigned>(termination.classification)
          << '|' << termination.finalEpoch.time << '|'
          << termination.finalEpoch.delta << '|'
-         << termination.committedEventCount << '|' << termination.tracePosition
-         << '|';
-  appendOptional(output, termination.traceLastCommittedSequenceId);
-  output << '|';
+         << termination.committedEventCount << '|';
   appendOptional(output, termination.terminationCap);
   output << '|' << termination.diagnosticCode << '|';
   appendOptional(output, termination.message);
@@ -804,7 +677,7 @@ std::string canonicalShowcaseResult(const ShowcaseResult &result) {
     output << "domain|" << name << '|' << cycles << '\n';
   for (const auto &[name, value] : result.architecturalValues)
     output << "value|" << name << '|' << value << '\n';
-  output << "trace|" << result.tracePosition << '\n';
+  output << "transactions|" << result.completedTransactions << '\n';
   for (const auto &entry : result.hierarchy)
     output << "hierarchy|" << entry.id << '|' << entry.path << '|'
            << static_cast<unsigned>(entry.kind) << '\n';
