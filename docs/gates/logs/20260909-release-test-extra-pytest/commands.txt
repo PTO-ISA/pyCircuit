@@ -1,0 +1,3 @@
+PYTHONDONTWRITEBYTECODE=1 pytest -q tests/unit/test_agentic_circuit_component.py
+.pycircuit_out/contracts-venv/bin/python tools/agentic-circuit/check-contracts.py
+pre-commit run --files python/agentic-circuit/pyproject.toml tests/unit/test_agentic_circuit_component.py

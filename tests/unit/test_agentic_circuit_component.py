@@ -60,6 +60,13 @@ def test_acpy_contract_epoch_is_0_5_across_active_surfaces() -> None:
     assert '"contract_epoch": "0.5"' in gate_script
 
 
+def test_agentic_test_extra_contains_its_pytest_runner() -> None:
+    metadata = tomllib.loads((AC_ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    dependencies = metadata["project"]["optional-dependencies"]["test"]
+
+    assert any(item.startswith("pytest>=") for item in dependencies)
+
+
 def test_consumer_designs_and_adapters_are_out_of_tree() -> None:
     forbidden_roots = (
         "integrations",
