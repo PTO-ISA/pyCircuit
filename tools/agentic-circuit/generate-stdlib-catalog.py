@@ -12,7 +12,6 @@ ROOT = Path(__file__).resolve().parents[2]
 OUTPUT = ROOT / "schemas/agentic-circuit" / "stdlib"
 
 AVAILABLE = {
-    "TraceSource": ("workload", "source", "gfsim/trace.h"),
     "Queue": ("transport", "duplex", "gfsim/queue.h"),
     "Scheduler": ("control", "duplex", "gfsim/components.h"),
     "Compute": ("compute", "duplex", "gfsim/components.h"),
@@ -104,7 +103,6 @@ def bindings_for(shape):
 
 def static_parameters_for(name, shape):
     type_names = {
-        "TraceSource": ["Transaction", "Decoder"],
         "Queue": ["T"],
         "Scheduler": ["T"],
         "Compute": ["Input", "Output", "FunctionalPolicy"],
@@ -123,11 +121,7 @@ def static_parameters_for(name, shape):
             "constraint": (
                 "ac.FunctionalPolicy"
                 if type_name == "FunctionalPolicy"
-                else (
-                    "gfsim::TraceDecoder<Decoder,Transaction>"
-                    if name == "TraceSource" and type_name == "Decoder"
-                    else "ac.Packet"
-                )
+                else "ac.Packet"
             ),
             "cpp_mapping": "template_argument",
         }
@@ -249,7 +243,6 @@ def address_behavior(family):
 
 def observations_for(name, has_resources):
     available = {
-        "TraceSource": (["accepted_transactions"], ["trace_position"]),
         "Queue": (
             ["accepted_transactions", "completed_transactions"],
             ["queue_occupancy", "queue_occupancy_peak"],
@@ -399,13 +392,13 @@ def main():
             for path in failures:
                 print(f"error: generated catalog is stale: {path}", file=sys.stderr)
             return 1
-        print("standard-library catalog generation: OK (36 component schemas)")
+        print("standard-library catalog generation: OK (35 component schemas)")
         return 0
 
     OUTPUT.mkdir(parents=True, exist_ok=True)
     for path, content in expected.items():
         path.write_text(content)
-    print("generated 36 standard-library component schemas and catalog")
+    print("generated 35 standard-library component schemas and catalog")
     return 0
 
 

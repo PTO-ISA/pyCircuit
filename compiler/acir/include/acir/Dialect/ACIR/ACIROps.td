@@ -1395,41 +1395,6 @@ def ACIR_YieldSimOp : ACIR_RuntimeEffectOp<"yield_sim", [Terminator]> {
   let assemblyFormat = "attr-dict";
 }
 
-def ACIR_TraceOpenOp : ACIR_RuntimeEffectOp<"trace.open"> {
-  let arguments = (ins StrAttr:$source);
-  let results = (outs Index:$cursor);
-  let hasVerifier = 1;
-  let assemblyFormat = "`source` $source attr-dict";
-}
-
-def ACIR_TraceNextOp : ACIR_RuntimeEffectOp<"trace.next"> {
-  let arguments = (ins Index:$input_cursor, StrAttr:$source);
-  let results = (outs Index:$cursor, AnyType:$entry, I1:$advanced);
-  let hasVerifier = 1;
-  let assemblyFormat = "$input_cursor `from` `source` $source attr-dict `:` type($entry)";
-}
-
-def ACIR_TraceDecodeOp : ACIR_Op<"trace.decode", [Pure]> {
-  let arguments = (ins AnyType:$entry);
-  let results = (outs AnyType:$result);
-  let hasVerifier = 1;
-  let assemblyFormat = "$entry attr-dict `:` type($entry) `to` type($result)";
-}
-
-def ACIR_TraceEofOp : ACIR_RuntimeEffectOp<"trace.eof"> {
-  let arguments = (ins Index:$input_cursor, StrAttr:$source);
-  let results = (outs I1:$eof);
-  let hasVerifier = 1;
-  let assemblyFormat = "$input_cursor `from` `source` $source attr-dict";
-}
-
-def ACIR_TracePositionOp : ACIR_RuntimeEffectOp<"trace.position"> {
-  let arguments = (ins Index:$input_cursor, StrAttr:$source);
-  let results = (outs Index:$position);
-  let hasVerifier = 1;
-  let assemblyFormat = "$input_cursor `from` `source` $source attr-dict";
-}
-
 class ACIR_ContractOp<string mnemonic>
     : ACIR_RuntimeEffectOp<mnemonic, [ACIR_Observation]> {
   let arguments = (ins I1:$condition, StrAttr:$message);

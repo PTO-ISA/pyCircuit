@@ -122,31 +122,6 @@ TEST(ModelPlanTest, ExtractsClosedIdentitiesTypesAndDenseRuntimePlan) {
   EXPECT_FALSE(hasError(validateModelPlan(*plan)));
 }
 
-TEST(ModelPlanTest, IdentifiesTraceOwnersFromTypedBindingMetadata) {
-  mlir::MLIRContext context;
-  loadACSimDialects(context);
-  auto input = llvm::MemoryBuffer::getFile(ACSIM_VALID_TEST_FILE);
-  ASSERT_TRUE(static_cast<bool>(input));
-  std::string source = input.get()->getBuffer().str();
-  auto replaceAll = [&](std::string_view from, std::string_view to) {
-    for (size_t position = source.find(from); position != std::string::npos;
-         position = source.find(from, position + to.size()))
-      source.replace(position, from.size(), to);
-  };
-  replaceAll("gfsim::Fifo", "gfsim::TraceSource");
-  replaceAll("fifo.schema", "ac.TraceSource");
-  auto file = mlir::parseSourceString<mlir::ModuleOp>(source, &context);
-  ASSERT_TRUE(file);
-
-  auto plan = buildModelPlan(*file);
-  ASSERT_TRUE(static_cast<bool>(plan)) << llvm::toString(plan.takeError());
-  ASSERT_EQ(plan->runtimeObjects.size(), 4u);
-  EXPECT_TRUE(plan->runtimeObjects[0].traceOwner);
-  EXPECT_TRUE(plan->runtimeObjects[1].traceOwner);
-  EXPECT_TRUE(plan->runtimeObjects[2].traceOwner);
-  EXPECT_FALSE(plan->runtimeObjects[3].traceOwner);
-}
-
 TEST(ModelPlanTest, RejectsInputWithoutOneCanonicalACSimModel) {
   mlir::MLIRContext context;
   loadACSimDialects(context);

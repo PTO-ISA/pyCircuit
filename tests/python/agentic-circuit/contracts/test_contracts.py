@@ -1,4 +1,3 @@
-import hashlib
 import importlib.util
 import json
 import re
@@ -392,7 +391,7 @@ class RepositoryContractsTest(unittest.TestCase):
             r'^contract-epoch\s*=\s*"([^"]+)"\s*$', pyproject, re.MULTILINE
         )
 
-        self.assertEqual(21, len(schema_epochs))
+        self.assertEqual(15, len(schema_epochs))
         self.assertEqual({CONTRACT_EPOCH}, set(schema_epochs.values()), schema_epochs)
         self.assertIsNotNone(declared_epoch, "pyproject.toml lacks contract-epoch")
         self.assertEqual(CONTRACT_EPOCH, declared_epoch.group(1))
@@ -414,20 +413,8 @@ class RepositoryContractsTest(unittest.TestCase):
             )
             Draft202012Validator.check_schema(document)
             checked.append(path.name)
-        self.assertEqual(21, len(checked), checked)
+        self.assertEqual(15, len(checked), checked)
 
-    def test_trace_source_decoder_uses_the_runtime_decoder_concept(self):
-        record = json.loads(
-            (ROOT / "schemas/agentic-circuit/stdlib/TraceSource.json").read_text()
-        )
-        parameters = {
-            parameter["name"]: parameter for parameter in record["static_parameters"]
-        }
-
-        self.assertEqual(
-            "gfsim::TraceDecoder<Decoder,Transaction>",
-            parameters["Decoder"]["constraint"],
-        )
 
     def test_process_state_plan_schema_is_closed_and_accepts_exact_baseline(self):
         self.assertIsNotNone(importlib.util.find_spec("jsonschema"))
@@ -691,11 +678,6 @@ class RepositoryContractsTest(unittest.TestCase):
                 "packet": "@packet",
                 "packet_type": "mlir:!ac.packet",
             },
-            "trace_decode": {
-                "entry": "mlir:i32",
-                "result": "mlir:i64",
-                "source": "trace",
-            },
             "queue_try_send": {"element": "mlir:i32", "queue": "@queue"},
             "queue_try_recv": {"element": "mlir:i32", "queue": "@queue"},
             "event_schedule": {
@@ -703,10 +685,6 @@ class RepositoryContractsTest(unittest.TestCase):
                 "target": "@event",
                 "value": "mlir:i32",
             },
-            "trace_open": {"source": "trace"},
-            "trace_next": {"entry": "mlir:i32", "source": "trace"},
-            "trace_eof": {"source": "trace"},
-            "trace_position": {"source": "trace"},
             "contract_require": {"message": "required"},
             "contract_ensure": {"message": "ensured"},
             "contract_assert": {"message": "asserted"},
@@ -745,7 +723,6 @@ class RepositoryContractsTest(unittest.TestCase):
             "record_with",
             "packet_serialize",
             "packet_deserialize",
-            "trace_decode",
             "scalar_wrap",
             "scalar_unwrap",
         }
@@ -1085,39 +1062,6 @@ class RepositoryContractsTest(unittest.TestCase):
             offenders.append("README.md (stale specification-phase placeholder)")
         self.assertEqual([], offenders, f"placeholder content: {offenders}")
 
-    def test_davincioo_reference_snapshot_is_provenance_locked(self):
-        reference = ROOT / "third_party/references/davincioo-gfsim"
-        source = json.loads((reference / "SOURCE.json").read_text())
-        self.assertEqual("agentic-circuit-reference-source@0.1", source.get("schema"))
-        self.assertEqual(
-            "https://github.com/hengliao1972/DavinciOO.git",
-            source.get("repository"),
-        )
-        self.assertEqual(
-            "a542b9cf705096288c615575be222b974b570a18",
-            source.get("commit"),
-        )
-        self.assertEqual("model", source.get("subtree"))
-        self.assertEqual("unresolved", source.get("license_status"))
-
-        manifest = {}
-        for line in (reference / "UPSTREAM_FILES.sha256").read_text().splitlines():
-            digest, separator, path = line.partition("  ")
-            self.assertEqual("  ", separator)
-            self.assertRegex(digest, r"^[0-9a-f]{64}$")
-            self.assertNotIn(path, manifest)
-            manifest[path] = digest
-
-        upstream = reference / "upstream"
-        actual = {
-            path.relative_to(reference).as_posix()
-            for path in upstream.rglob("*")
-            if path.is_file()
-        }
-        self.assertEqual(actual, set(manifest))
-        for relative, expected in manifest.items():
-            digest = hashlib.sha256((reference / relative).read_bytes()).hexdigest()
-            self.assertEqual(expected, digest, relative)
 
     def test_llvm_lock_is_exact_and_complete(self):
         lock = json.loads(

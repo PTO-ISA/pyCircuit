@@ -9,7 +9,6 @@ import subprocess
 import sys
 from pathlib import Path
 
-
 FORBIDDEN = re.compile(
     r"(?:^|[-_./])(?:v0?\d+(?:[._]\d+)*|phase[-_]?\d+[a-z]?)" r"(?:[-_./]|$)",
     re.IGNORECASE,
@@ -19,9 +18,6 @@ REQUIRED_ROOTS = (
     Path("examples/agentic-circuit/pipelines"),
     Path("examples/agentic-circuit/memory"),
     Path("examples/agentic-circuit/blocks"),
-    Path("examples/agentic-circuit/architecture"),
-    Path("examples/agentic-circuit/workspaces"),
-    Path("third_party/references"),
     Path("tests/goldens/agentic-circuit"),
 )
 LAYOUT_REQUIRED_ROOTS = (
@@ -36,7 +32,6 @@ LAYOUT_REQUIRED_ROOTS = (
     Path("examples/pycircuit"),
     Path("examples/agentic-circuit"),
     Path("designs/blocks"),
-    Path("third_party/references/davincioo-gfsim"),
     Path("toolchains/agentic-circuit"),
     Path("tools/agentic-circuit"),
 )

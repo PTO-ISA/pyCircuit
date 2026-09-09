@@ -1,5 +1,4 @@
 #include "gfsim/object.h"
-#include "gfsim/pto_trace.h"
 #include "gfsim/queue.h"
 
 #include <algorithm>
@@ -33,8 +32,6 @@ struct SimSystem::Impl {
   bool executingEpoch = false;
   std::optional<ObjectId> activeProposalOwner;
   NoProgressReport noProgress;
-  size_t traceOwnerCount = 0;
-  bool traceEof = true;
   bool preflightValidated = false;
   std::map<ObjectId, Tick> lastCommitTick;
   std::optional<Tick> eventQueueLastCommitTick;
@@ -45,7 +42,6 @@ struct SimSystem::Impl {
   std::vector<TimelineEvent> timeline;
   std::vector<CommitEvent> commitTimeline;
   ObservationRecorder observations;
-  PtoTraceProvider ptoTrace;
   std::optional<uint64_t> deadlockWindow;
   Tick lastProgressTick = 0;
 };
@@ -136,18 +132,8 @@ bool SimSystem::validateRuntimeIdentities() {
 void SimSystem::refreshRuntimeSummary() {
   impl_->noProgress = {};
   impl_->noProgress.nextEvent = impl_->eventQueue.nextEvent();
-  impl_->traceOwnerCount = 0;
-  impl_->traceEof = true;
-
   for (SimObject *object : runtimeObjects()) {
     RuntimeObjectState state = object->runtimeState(epoch_);
-    if (state.traceOwner) {
-      ++impl_->traceOwnerCount;
-      impl_->traceEof = impl_->traceEof && state.traceEof;
-      impl_->noProgress.tracePosition = state.tracePosition;
-      impl_->noProgress.lastCommittedSequenceId =
-          state.traceLastCommittedSequenceId;
-    }
     impl_->noProgress.queueOccupancy += state.queueOccupancy;
     impl_->noProgress.pendingOffers += state.pendingOffers;
     impl_->noProgress.activeReservations += state.activeReservations;
@@ -165,33 +151,9 @@ void SimSystem::refreshRuntimeSummary() {
          .activeReservations = state.activeReservations,
          .protocolState = std::move(state.protocolState)});
   }
-  result_.tracePosition = impl_->noProgress.tracePosition;
-  result_.traceLastCommittedSequenceId =
-      impl_->noProgress.lastCommittedSequenceId;
   if (!impl_->noProgress.blockedObjects.empty())
     impl_->noProgress.summary =
         "unfinished runtime state has no scheduled wake or future event";
-}
-
-bool SimSystem::stopAtTraceCap() {
-  refreshRuntimeSummary();
-  if (impl_->traceOwnerCount > 1) {
-    fail("multiple_trace_owners",
-         "the runtime must have exactly one committed trace cursor owner");
-    return true;
-  }
-  if (impl_->traceOwnerCount == 0 || impl_->traceEof ||
-      result_.tracePosition < maxTraceRecords_)
-    return false;
-  terminated_ = true;
-  impl_->executingEpoch = false;
-  result_.classification = TerminationClass::Incomplete;
-  result_.finalEpoch = epoch_;
-  result_.committedEventCount = impl_->committedEventCount;
-  result_.domainCycles = impl_->domainCycles;
-  result_.terminationCap = maxTraceRecords_;
-  result_.diagnosticCode = "max_trace_records_reached";
-  return true;
 }
 
 NoProgressReport SimSystem::noProgressReport() const {
@@ -402,17 +364,6 @@ void SimSystem::recordTraceEvent(std::string lane, std::string phase,
   event.lane = std::move(lane);
   event.phase = std::move(phase);
   event.handle = handle;
-  try {
-    uint64_t descriptor = impl_->ptoTrace.decode(handle);
-    using D = PtoScheduleDescriptor;
-    event.sequence = (descriptor >> D::kSequenceShift) & 0xffu;
-    event.opcode = (descriptor >> D::kOpcodeShift) & D::kOpcodeMask;
-    event.dependencyValid = (descriptor >> D::kDependencyValidShift) & 7u;
-    event.dependencies[0] = (descriptor >> D::kDependency0Shift) & 0xffu;
-    event.dependencies[1] = (descriptor >> D::kDependency1Shift) & 0xffu;
-    event.dependencies[2] = (descriptor >> D::kDependency2Shift) & 0xffu;
-  } catch (const std::runtime_error &) {
-  }
   impl_->timeline.push_back(std::move(event));
 }
 
@@ -591,7 +542,7 @@ std::string SimSystem::chromeTraceJson() const {
   std::ostringstream os;
   os << "{\"displayTimeUnit\":\"ns\",\"traceEvents\":[";
   os << "{\"name\":\"process_name\",\"ph\":\"M\",\"pid\":1,\"args\":"
-        "{\"name\":\"DavinciOO\"}}";
+        "{\"name\":\"gfsim\"}}";
   for (const auto &[tid, name] : kSliceLanes) {
     os << ",{\"name\":\"thread_name\",\"ph\":\"M\",\"pid\":1,\"tid\":" << tid
        << ",\"args\":{\"name\":\"" << name << "\"}}";
@@ -689,36 +640,6 @@ std::string SimSystem::chromeTraceJson() const {
   return os.str();
 }
 
-void SimSystem::loadPtoTrace(std::string source, const std::string &path) {
-  impl_->ptoTrace.load(std::move(source), path);
-}
-
-uint64_t SimSystem::traceOpen(std::string_view source) const {
-  return impl_->ptoTrace.open(source);
-}
-
-TraceNextResult SimSystem::traceNext(std::string_view source,
-                                     uint64_t cursor) const {
-  return impl_->ptoTrace.next(source, static_cast<size_t>(cursor));
-}
-
-uint64_t SimSystem::traceDecode(uint64_t handle) const {
-  return impl_->ptoTrace.decode(handle);
-}
-
-bool SimSystem::traceEof(std::string_view source, uint64_t cursor) const {
-  return impl_->ptoTrace.eof(source, static_cast<size_t>(cursor));
-}
-
-uint64_t SimSystem::tracePosition(std::string_view source,
-                                  uint64_t cursor) const {
-  return impl_->ptoTrace.position(source, static_cast<size_t>(cursor));
-}
-
-uint64_t SimSystem::traceRecordCount(std::string_view source) const {
-  return impl_->ptoTrace.recordCount(source);
-}
-
 uint64_t SimSystem::workInvocationCount() const {
   return impl_->workInvocations;
 }
@@ -806,9 +727,6 @@ bool SimSystem::step() {
     return false;
   if (!impl_->preflightValidated && !validateRuntimeIdentities())
     return false;
-  if (stopAtTraceCap())
-    return false;
-
   if (epoch_.time >= maxTicks_) {
     terminated_ = true;
     result_.classification = TerminationClass::Incomplete;
@@ -1077,37 +995,7 @@ bool SimSystem::step() {
   }
 
   if (!nextEpoch) {
-    if (stopAtTraceCap())
-      return false;
     refreshRuntimeSummary();
-    if (impl_->traceOwnerCount == 1 && impl_->traceEof) {
-      std::vector<ObjectId> traceEndProcesses;
-      for (SimObject *object : runtimeObjects())
-        if (object->requestTraceEnd())
-          traceEndProcesses.push_back(object->id());
-      if (!traceEndProcesses.empty()) {
-        if (epoch_.time == std::numeric_limits<Tick>::max())
-          return fail("tick_overflow",
-                      "trace-end process termination exceeds tick range");
-        Epoch shutdownEpoch{epoch_.time + 1, 0};
-        if (shutdownEpoch.time >= maxTicks_) {
-          epoch_ = {maxTicks_, 0};
-          terminated_ = true;
-          result_.classification = TerminationClass::Incomplete;
-          result_.finalEpoch = epoch_;
-          result_.committedEventCount = impl_->committedEventCount;
-          result_.terminationCap = maxTicks_;
-          result_.domainCycles = impl_->domainCycles;
-          result_.diagnosticCode = "max_ticks_reached";
-          return false;
-        }
-        for (ObjectId id : traceEndProcesses)
-          if (!scheduleWork(id, shutdownEpoch))
-            return false;
-        epoch_ = shutdownEpoch;
-        return true;
-      }
-    }
     if (!impl_->noProgress.blockedObjects.empty() && impl_->deadlockWindow) {
       const Tick window = *impl_->deadlockWindow;
       if (impl_->lastProgressTick > std::numeric_limits<Tick>::max() - window)
@@ -1162,6 +1050,7 @@ bool SimSystem::step() {
     result_.diagnosticCode = "max_ticks_reached";
     return false;
   }
+  refreshRuntimeSummary();
   epoch_ = *nextEpoch;
   return true;
 }
@@ -1283,8 +1172,7 @@ TerminationResult SimSystem::run() {
   epoch_ = {0, 0};
 
   for (SimObject *object : runtimeObjects())
-    if (object->kind() == ObjectKind::Process ||
-        object->kind() == ObjectKind::TraceSource)
+    if (object->kind() == ObjectKind::Process)
       scheduleWork(object->id(), epoch_);
   if (impl_->legacyDispatch.rows)
     for (ObjectId id = 0; id < impl_->legacyDispatch.objectCount; ++id)
@@ -1302,7 +1190,7 @@ TerminationResult SimSystem::run() {
   return result_;
 }
 
-void SimSystem::reset() {
+void SimSystem::resetScheduler() {
   epoch_ = {0, 0};
   terminated_ = false;
   result_ = TerminationResult{};
@@ -1319,8 +1207,6 @@ void SimSystem::reset() {
   impl_->noProgress = {};
   impl_->generatedStats.clear();
   impl_->observations.reset();
-  impl_->traceOwnerCount = 0;
-  impl_->traceEof = true;
   impl_->preflightValidated = false;
   impl_->lastCommitTick.clear();
   impl_->eventQueueLastCommitTick.reset();
@@ -1328,6 +1214,10 @@ void SimSystem::reset() {
   impl_->domainCycles.clear();
   for (const auto &[name, domain] : impl_->timeDomains)
     impl_->domainCycles.emplace(name, 0);
+}
+
+void SimSystem::reset() {
+  resetScheduler();
   if (impl_->legacyDispatch.rows) {
     for (ObjectId id = 0; id < impl_->legacyDispatch.objectCount; ++id) {
       const LegacyDispatchThunk &row = impl_->legacyDispatch.rows[id];

@@ -50,14 +50,6 @@
       "causes": ["All activations are blocked and no future event can wake the model."],
       "examples": ["A cyclic protocol dependency left every queue waiting for input."],
       "repairs": ["Inspect blocked activations and repair the protocol or resource dependency cycle."]
-    },
-    {
-      "code": "ACTRACE-SCHEMA-001",
-      "title": "Trace input does not match pto-trace@0.1",
-      "rule": "Runtime traces must use the closed pto-trace@0.1 schema and exact contract epoch.",
-      "causes": ["The trace contains an unknown field or a different schema version."],
-      "examples": ["A trace produced for another epoch was supplied to the runtime."],
-      "repairs": ["Regenerate or convert the trace to the exact pto-trace@0.1 contract."]
     }
   ]
 }

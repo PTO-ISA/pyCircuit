@@ -4988,4 +4988,451 @@ llvm::Expected<std::string> generateQueueGraphCpp(const QueueGraphPlan &plan) {
   return output.str();
 }
 
+llvm::Expected<std::vector<QueueGraphGeneratedFile>>
+generateQueueGraphModelBundle(const QueueGraphPlan &plan,
+                              const QueueGraphBundleOptions &options) {
+  if (options.sdkProductVersion.empty())
+    return generatorError("SDK product version is required");
+  if (options.sdkSourceRevision.empty())
+    return generatorError("SDK source revision is required");
+
+  auto queueGraph = generateQueueGraphCpp(plan);
+  if (!queueGraph)
+    return queueGraph.takeError();
+
+  const std::string modelClass = className(plan.system);
+  std::ostringstream queueGraphSource;
+  queueGraphSource << *queueGraph
+                   << R"cpp(
+
+#include "gfsim/model_input.h"
+
+#include <sstream>
+#include <stdexcept>
+#include <string>
+#include <string_view>
+#include <vector>
+
+namespace agentic_generated_detail {
+
+#if defined(__GNUC__) || defined(__clang__)
+#define AGENTIC_GENERATED_HIDDEN __attribute__((visibility("hidden")))
+#else
+#define AGENTIC_GENERATED_HIDDEN
+#endif
+
+struct Runtime {
+  gfsim::SimSystem system{"agentic_model"};
+  ac_generated::)cpp"
+                   << modelClass << R"cpp( model;
+  std::vector<gfsim::DispatchRow> rows;
+  std::vector<std::uint32_t> activationOffsets;
+  std::vector<gfsim::ObjectId> activationTargets;
+  std::vector<std::uint32_t> workClosureOffsets;
+  std::vector<gfsim::ObjectId> workClosureTargets;
+  std::array<gfsim::TimeDomainRuntime, 1> timeDomains{{
+      {"cycle", 1, 0, 1},
+  }};
+
+  Runtime() {
+    if (!system.root().attachChild(model))
+      throw std::runtime_error("generated model attachment failed");
+    const auto generatedRows = model.dispatch_rows();
+    rows.assign(generatedRows.begin(), generatedRows.end());
+)cpp";
+  if (!plan.definition.empty()) {
+    queueGraphSource << R"cpp(    constexpr auto generatedActivationOffsets = ac_generated::)cpp"
+                     << modelClass << R"cpp(::activation_offsets();
+    constexpr auto generatedActivationTargets = ac_generated::)cpp"
+                     << modelClass << R"cpp(::activation_targets();
+    constexpr auto generatedWorkClosureOffsets = ac_generated::)cpp"
+                     << modelClass << R"cpp(::work_closure_offsets();
+    constexpr auto generatedWorkClosureTargets = ac_generated::)cpp"
+                     << modelClass << R"cpp(::work_closure_targets();
+    activationOffsets.assign(generatedActivationOffsets.begin(),
+                             generatedActivationOffsets.end());
+    activationTargets.assign(generatedActivationTargets.begin(),
+                             generatedActivationTargets.end());
+    workClosureOffsets.assign(generatedWorkClosureOffsets.begin(),
+                              generatedWorkClosureOffsets.end());
+    workClosureTargets.assign(generatedWorkClosureTargets.begin(),
+                              generatedWorkClosureTargets.end());
+    if (!system.setTimeDomains(timeDomains) ||
+        !system.setDispatchTable(rows) ||
+        !system.setActivationPlan(activationOffsets, activationTargets) ||
+        !system.setWorkClosurePlan(workClosureOffsets, workClosureTargets) ||
+        !ac_generated::)cpp"
+                     << modelClass << R"cpp(::schedule_initial_work(system))
+      throw std::runtime_error("generated model runtime initialization failed");
+)cpp";
+  } else {
+    queueGraphSource << R"cpp(    if (!system.setTimeDomains(timeDomains) ||
+        !system.setDispatchTable(rows))
+      throw std::runtime_error("generated model runtime initialization failed");
+)cpp";
+  }
+  queueGraphSource << R"cpp(  }
+};
+
+namespace {
+
+std::string escapeJson(std::string_view value) {
+  std::ostringstream output;
+  for (unsigned char character : value) {
+    switch (character) {
+    case '\\': output << "\\\\"; break;
+    case '"': output << "\\\""; break;
+    case '\b': output << "\\b"; break;
+    case '\f': output << "\\f"; break;
+    case '\n': output << "\\n"; break;
+    case '\r': output << "\\r"; break;
+    case '\t': output << "\\t"; break;
+    default:
+      if (character < 0x20) {
+        constexpr char digits[] = "0123456789abcdef";
+        output << "\\u00" << digits[character >> 4] << digits[character & 0xf];
+      } else {
+        output << static_cast<char>(character);
+      }
+    }
+  }
+  return output.str();
+}
+
+void appendJsonString(std::ostringstream &output, std::string_view value) {
+  output << '"' << escapeJson(value) << '"';
+}
+
+} // namespace
+
+AGENTIC_GENERATED_HIDDEN Runtime *create(std::string &error) noexcept {
+  try {
+    return new Runtime();
+  } catch (const std::exception &exception) {
+    error = exception.what();
+  } catch (...) {
+    error = "generated model construction failed";
+  }
+  return nullptr;
+}
+
+AGENTIC_GENERATED_HIDDEN void destroy(Runtime *runtime) noexcept {
+  delete runtime;
+}
+
+AGENTIC_GENERATED_HIDDEN int configure(Runtime *runtime, std::string_view json,
+                                       std::string &error) noexcept {
+  if (!runtime) {
+    error = "model handle is null";
+    return 2;
+  }
+  try {
+    gfsim::RuntimeLimits limits;
+    if (!gfsim::parseModelConfigJson(json, limits, error))
+      return 1;
+    if (!runtime->system.setRuntimeLimits(limits)) {
+      error = "generated model rejected runtime limits";
+      runtime->system.resetScheduler();
+      return 1;
+    }
+    return 0;
+  } catch (const std::exception &exception) {
+    error = exception.what();
+  } catch (...) {
+    error = "generated model configuration failed";
+  }
+  return 2;
+}
+
+AGENTIC_GENERATED_HIDDEN bool reset(Runtime *runtime,
+                                    std::string &error) noexcept {
+  if (!runtime) {
+    error = "model handle is null";
+    return false;
+  }
+  try {
+    runtime->system.resetScheduler();
+    runtime->model.reset();
+)cpp";
+  if (!plan.definition.empty()) {
+    queueGraphSource << R"cpp(    if (!ac_generated::)cpp"
+                     << modelClass << R"cpp(::schedule_initial_work(runtime->system)) {
+      error = "generated model initial work could not be rescheduled";
+      return false;
+    }
+)cpp";
+  }
+  queueGraphSource << R"cpp(    return true;
+  } catch (const std::exception &exception) {
+    error = exception.what();
+  } catch (...) {
+    error = "generated model reset failed";
+  }
+  return false;
+}
+
+AGENTIC_GENERATED_HIDDEN int step(Runtime *runtime, std::uint64_t &time,
+                                  std::uint32_t &delta,
+                                  std::string &error) noexcept {
+  if (!runtime) {
+    error = "model handle is null";
+    return 3;
+  }
+  try {
+    const bool advanced = runtime->system.step();
+    const gfsim::Epoch epoch = runtime->system.currentEpoch();
+    const gfsim::TerminationResult result = runtime->system.terminationResult();
+    time = epoch.time;
+    delta = epoch.delta;
+    if (advanced)
+      return 0;
+    if (!runtime->system.isTerminated())
+      return 1;
+    if (result.classification == gfsim::TerminationClass::Failed) {
+      error = result.diagnosticCode;
+      if (result.message && !result.message->empty())
+        error += ": " + *result.message;
+      return 3;
+    }
+    return 2;
+  } catch (const std::exception &exception) {
+    error = exception.what();
+  } catch (...) {
+    error = "generated model step failed";
+  }
+  return 3;
+}
+
+AGENTIC_GENERATED_HIDDEN std::string statisticsJson(Runtime *runtime) {
+  const auto statistics = runtime->system.statistics();
+  std::ostringstream output;
+  output << '[';
+  for (std::size_t index = 0; index < statistics.size(); ++index) {
+    const auto &statistic = statistics[index];
+    if (index) output << ',';
+    output << "{\"buckets\":[";
+    for (std::size_t bucketIndex = 0; bucketIndex < statistic.buckets.size();
+         ++bucketIndex) {
+      if (bucketIndex) output << ',';
+      const auto &bucket = statistic.buckets[bucketIndex];
+      output << "{\"count\":" << bucket.count
+             << ",\"upper_bound\":" << bucket.upperBound << '}';
+    }
+    output << "],\"count\":" << statistic.count << ",\"kind\":";
+    constexpr std::string_view kinds[] = {"counter", "gauge", "histogram"};
+    appendJsonString(output, kinds[static_cast<unsigned>(statistic.kind)]);
+    output << ",\"last_update\":{\"delta\":" << statistic.lastUpdate.delta
+           << ",\"time\":" << statistic.lastUpdate.time << '}'
+           << ",\"maximum\":" << statistic.maximum
+           << ",\"minimum\":" << statistic.minimum << ",\"name\":";
+    appendJsonString(output, statistic.name);
+    output << ",\"object_path\":";
+    appendJsonString(output, statistic.objectPath);
+    output << ",\"sum\":" << statistic.sum
+           << ",\"value\":" << statistic.value << '}';
+  }
+  output << "]\n";
+  return output.str();
+}
+
+#undef AGENTIC_GENERATED_HIDDEN
+} // namespace agentic_generated_detail
+)cpp";
+
+  const std::string modelHeader = R"cpp(#ifndef AGENTIC_GENERATED_MODEL_H
+#define AGENTIC_GENERATED_MODEL_H
+
+#include "gfsim/model_api.h"
+
+#endif // AGENTIC_GENERATED_MODEL_H
+)cpp";
+
+  std::ostringstream modelSource;
+  modelSource << R"cpp(#include "generated/model.h"
+
+#include <cstdint>
+#include <new>
+#include <string>
+#include <string_view>
+#include <utility>
+
+namespace agentic_generated_detail {
+struct Runtime;
+Runtime *create(std::string &error) noexcept;
+void destroy(Runtime *runtime) noexcept;
+int configure(Runtime *runtime, std::string_view json,
+              std::string &error) noexcept;
+bool reset(Runtime *runtime, std::string &error) noexcept;
+int step(Runtime *runtime, std::uint64_t &time, std::uint32_t &delta,
+         std::string &error) noexcept;
+std::string statisticsJson(Runtime *runtime);
+} // namespace agentic_generated_detail
+
+struct AgenticModelV1 {
+  enum class State { Created, Configured, Ready, Completed };
+  agentic_generated_detail::Runtime *runtime = nullptr;
+  State state = State::Created;
+  std::string result;
+  std::string error;
+};
+
+namespace {
+
+void setBuffer(const std::string &value, AgenticModelBufferV1 *buffer) {
+  buffer->data = reinterpret_cast<const std::uint8_t *>(value.data());
+  buffer->size = value.size();
+}
+
+AgenticModelStatusV1 createModel(AgenticModelV1 **result) {
+  if (!result)
+    return AGENTIC_MODEL_STATUS_V1_INVALID_ARGUMENT;
+  *result = nullptr;
+  AgenticModelV1 *model = new (std::nothrow) AgenticModelV1();
+  if (!model)
+    return AGENTIC_MODEL_STATUS_V1_RUNTIME_FAILURE;
+  model->runtime = agentic_generated_detail::create(model->error);
+  if (!model->runtime) {
+    delete model;
+    return AGENTIC_MODEL_STATUS_V1_RUNTIME_FAILURE;
+  }
+  *result = model;
+  return AGENTIC_MODEL_STATUS_V1_OK;
+}
+
+void destroyModel(AgenticModelV1 *model) {
+  if (!model) return;
+  agentic_generated_detail::destroy(model->runtime);
+  delete model;
+}
+
+AgenticModelStatusV1 failState(AgenticModelV1 *model, std::string message) {
+  model->result.clear();
+  model->error = std::move(message);
+  return AGENTIC_MODEL_STATUS_V1_INVALID_STATE;
+}
+
+std::string_view inputView(const std::uint8_t *data, std::uint64_t size) {
+  if (size == 0)
+    return {};
+  return {reinterpret_cast<const char *>(data), static_cast<std::size_t>(size)};
+}
+
+AgenticModelStatusV1 configure(AgenticModelV1 *model,
+                               const std::uint8_t *data,
+                               std::uint64_t size) {
+  if (!model || (size != 0 && !data))
+    return AGENTIC_MODEL_STATUS_V1_INVALID_ARGUMENT;
+  if (model->state != AgenticModelV1::State::Created)
+    return failState(model, "configure_json requires a newly created model");
+  std::string_view input = inputView(data, size);
+  if (input.ends_with('\n'))
+    input.remove_suffix(1);
+  model->result.clear();
+  model->error.clear();
+  const int status =
+      agentic_generated_detail::configure(model->runtime, input, model->error);
+  if (status != 0)
+    return status == 1 ? AGENTIC_MODEL_STATUS_V1_INVALID_ARGUMENT
+                       : AGENTIC_MODEL_STATUS_V1_RUNTIME_FAILURE;
+  model->state = AgenticModelV1::State::Configured;
+  return AGENTIC_MODEL_STATUS_V1_OK;
+}
+
+AgenticModelStatusV1 resetModel(AgenticModelV1 *model) {
+  if (!model)
+    return AGENTIC_MODEL_STATUS_V1_INVALID_ARGUMENT;
+  if (model->state != AgenticModelV1::State::Configured &&
+      model->state != AgenticModelV1::State::Ready &&
+      model->state != AgenticModelV1::State::Completed)
+    return failState(model, "reset requires configured state");
+  model->result.clear();
+  model->error.clear();
+  if (!agentic_generated_detail::reset(model->runtime, model->error))
+    return AGENTIC_MODEL_STATUS_V1_RUNTIME_FAILURE;
+  model->state = AgenticModelV1::State::Ready;
+  return AGENTIC_MODEL_STATUS_V1_OK;
+}
+
+AgenticModelStatusV1 stepModel(AgenticModelV1 *model,
+                               AgenticModelStepResultV1 *result) {
+  if (!model || !result)
+    return AGENTIC_MODEL_STATUS_V1_INVALID_ARGUMENT;
+  if (result->struct_size != sizeof(*result)) {
+    model->error = "step result struct_size does not match runtime ABI v1";
+    return AGENTIC_MODEL_STATUS_V1_INVALID_ARGUMENT;
+  }
+  if (model->state != AgenticModelV1::State::Ready)
+    return failState(model, "step requires reset-ready state");
+  model->result.clear();
+  model->error.clear();
+  result->reserved = 0;
+  const int state = agentic_generated_detail::step(
+      model->runtime, result->epoch_time, result->epoch_delta, model->error);
+  result->state = state;
+  if (state == AGENTIC_MODEL_STEP_V1_TERMINATED ||
+      state == AGENTIC_MODEL_STEP_V1_FAILED)
+    model->state = AgenticModelV1::State::Completed;
+  return state == AGENTIC_MODEL_STEP_V1_FAILED
+             ? AGENTIC_MODEL_STATUS_V1_RUNTIME_FAILURE
+             : AGENTIC_MODEL_STATUS_V1_OK;
+}
+
+AgenticModelStatusV1 statistics(AgenticModelV1 *model,
+                                AgenticModelBufferV1 *result) {
+  if (!model || !result)
+    return AGENTIC_MODEL_STATUS_V1_INVALID_ARGUMENT;
+  if (model->state != AgenticModelV1::State::Ready &&
+      model->state != AgenticModelV1::State::Completed)
+    return failState(model, "statistics_json requires reset-ready state");
+  try {
+    model->error.clear();
+    model->result = agentic_generated_detail::statisticsJson(model->runtime);
+    setBuffer(model->result, result);
+    return AGENTIC_MODEL_STATUS_V1_OK;
+  } catch (...) {
+    model->error = "statistics serialization failed";
+    return AGENTIC_MODEL_STATUS_V1_RUNTIME_FAILURE;
+  }
+}
+
+AgenticModelStatusV1 lastError(AgenticModelV1 *model,
+                               AgenticModelBufferV1 *result) {
+  if (!model || !result)
+    return AGENTIC_MODEL_STATUS_V1_INVALID_ARGUMENT;
+  setBuffer(model->error, result);
+  return AGENTIC_MODEL_STATUS_V1_OK;
+}
+
+const AgenticModelApiV1 api = {
+    sizeof(AgenticModelApiV1), AGENTIC_MODEL_ABI_V1,
+)cpp";
+  modelSource << "    " << cppStringLiteral(options.sdkProductVersion) << ", "
+              << cppStringLiteral(options.sdkSourceRevision) << R"cpp(,
+    createModel, destroyModel, configure, resetModel, stepModel, statistics,
+    lastError};
+
+} // namespace
+
+#if defined(_WIN32)
+#define AGENTIC_MODEL_EXPORT __declspec(dllexport)
+#elif defined(__GNUC__) || defined(__clang__)
+#define AGENTIC_MODEL_EXPORT __attribute__((visibility("default")))
+#else
+#define AGENTIC_MODEL_EXPORT
+#endif
+
+extern "C" AGENTIC_MODEL_EXPORT const AgenticModelApiV1 *
+agentic_model_query_v1(void) {
+  return &api;
+}
+)cpp";
+
+  std::vector<QueueGraphGeneratedFile> result;
+  result.push_back({"include/generated/model.h", modelHeader});
+  result.push_back({"src/generated/model.cpp", modelSource.str()});
+  result.push_back(
+      {"src/generated/queuegraph.cpp", queueGraphSource.str()});
+  return result;
+}
+
 } // namespace acir::codegen

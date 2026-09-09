@@ -41,7 +41,7 @@
           "const": "1"
         },
         "api_struct_size": {
-          "const": 96
+          "const": 80
         },
         "buffer_struct_size": {
           "const": 16
@@ -53,7 +53,7 @@
           "const": "agentic_model_query_v1"
         },
         "step_result_struct_size": {
-          "const": 32
+          "const": 24
         }
       },
       "required": [

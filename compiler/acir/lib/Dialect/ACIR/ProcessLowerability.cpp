@@ -39,9 +39,8 @@ bool isAllowedProcessOperation(Operation *operation) {
           scf::ConditionOp, scf::YieldOp>(operation))
     return true;
   return isa<TrySendOp, TryRecvOp, ScheduleOp, WaitUntilOp, WaitForOp,
-             AwaitEventOp, YieldSimOp, TraceOpenOp, TraceNextOp,
-             TraceDecodeOp, TraceEofOp, TracePositionOp, RequireOp, EnsureOp,
-             AssertOp, ProbeOp, StatAddOp, InstrumentationOp>(operation);
+             AwaitEventOp, YieldSimOp, RequireOp, EnsureOp, AssertOp, ProbeOp,
+             StatAddOp, InstrumentationOp>(operation);
 }
 
 LogicalResult verifySCFShape(Operation *operation) {

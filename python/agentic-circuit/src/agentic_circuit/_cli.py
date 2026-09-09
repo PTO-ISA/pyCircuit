@@ -16,7 +16,6 @@ from ._commands import explain as explain_command
 from ._commands import init as init_command
 from ._commands import inspect as inspect_command
 from ._commands import model as model_command
-from ._commands import run as run_command
 from ._commands import schema as schema_command
 from ._diagnostics import Diagnostic
 from ._output import OutputSink
@@ -29,7 +28,6 @@ EXACT_COMMANDS = (
     "elaborate",
     "compile",
     "build",
-    "run",
     "inspect",
     "explain",
     "doctor",
@@ -198,19 +196,6 @@ def build_parser() -> argparse.ArgumentParser:
     _add_workspace_options(build, output=True, jobs=True)
     _add_output_options(build)
 
-    run = commands.add_parser("run", allow_abbrev=False)
-    run.add_argument("architecture", nargs="?")
-    run.add_argument("--trace", type=Path, action=_OnceValue)
-    run.add_argument("--deadlock-window", type=_positive, action=_OnceValue)
-    run.add_argument("--max-ticks", type=_positive, action=_OnceValue)
-    run.add_argument("--max-domain-cycles", action="append", default=[])
-    run.add_argument("--expect-termination", action=_OnceTrue)
-    run.add_argument("--stats-format", choices=("json",), action=_OnceValue)
-    run.add_argument("--event-log", choices=("jsonl",), action=_OnceValue)
-    run.add_argument("--replay-manifest", type=Path, action=_OnceValue)
-    _add_workspace_options(run, output=True, jobs=True, seed=True, seed_type=_uint64)
-    _add_output_options(run)
-
     inspect = commands.add_parser("inspect", allow_abbrev=False)
     inspect.add_argument(
         "view",
@@ -248,6 +233,13 @@ def build_parser() -> argparse.ArgumentParser:
     model_plan.add_argument("--config", type=Path, required=True, action=_OnceValue)
     model_plan.add_argument("--out-dir", type=Path, required=True, action=_OnceValue)
     _add_output_options(model_plan)
+    model_emit = model_commands.add_parser("emit-cpp", allow_abbrev=False)
+    model_emit.add_argument("--sdk-root", type=Path, required=True, action=_OnceValue)
+    model_emit.add_argument("--plan", type=Path, required=True, action=_OnceValue)
+    model_emit.add_argument("--out-dir", type=Path, required=True, action=_OnceValue)
+    model_emit.add_argument("--manifest", type=Path, required=True, action=_OnceValue)
+    model_emit.add_argument("--depfile", type=Path, required=True, action=_OnceValue)
+    _add_output_options(model_emit)
     return parser
 
 
@@ -290,8 +282,6 @@ def main(argv: Sequence[str] | None = None) -> int:
             return doctor_command.run(arguments, sink)
         if arguments.command == "model":
             return model_command.run(arguments, sink)
-        if arguments.command == "run" and arguments.replay_manifest is not None:
-            return run_command.run(arguments, None, sink)
         workspace = (
             load_workspace(arguments.project)
             if arguments.project is not None
@@ -308,8 +298,6 @@ def main(argv: Sequence[str] | None = None) -> int:
             return compile_command.run(arguments, workspace, sink)
         if arguments.command == "build":
             return build_command.run(arguments, workspace, sink)
-        if arguments.command == "run":
-            return run_command.run(arguments, workspace, sink)
         if arguments.command == "inspect":
             return inspect_command.run(arguments, workspace, sink)
         sink.result(

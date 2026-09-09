@@ -324,26 +324,6 @@ LogicalResult freezeTopology(ModuleOp model) {
              << record.getAs<SymbolRefAttr>("owner") << "'";
     byDeclaration[declaration].push_back(record);
 
-    if (record.getAs<StringAttr>("kind").getValue() != "ac.process")
-      continue;
-    ArrayAttr traces = record.getAs<ArrayAttr>("trace_sources");
-    if (!traces)
-      continue;
-    auto process = dyn_cast<ac::ProcessOp>(declaration);
-    if (!process)
-      return declaration->emitOpError(
-          "process owner record does not resolve to ac.process");
-    process.getBody().walk([&](ac::TraceOpenOp trace) {
-      if (!llvm::is_contained(traces, builder.getStringAttr(trace.getSource())))
-        return;
-      trace->setAttr(
-          "ac.frozen_owner",
-          builder.getDictionaryAttr({
-              builder.getNamedAttr("path", record.get("path")),
-              builder.getNamedAttr("stable_id", record.get("stable_id")),
-              builder.getNamedAttr("source", trace.getSourceAttr()),
-          }));
-    });
   }
   for (auto &[declaration, records] : byDeclaration) {
     llvm::sort(records, [](Attribute left, Attribute right) {

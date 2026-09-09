@@ -56,7 +56,7 @@ author evidence, not additional always-on CI jobs.
 | Docs-only, governance docs, PR or issue templates | Required PR CI is sufficient |
 | Frontend API, CLI orchestration, manifest generation, packaging, example discovery | Relevant unit test or smallest affected example in addition to required PR CI |
 | Examples, testbenches, simulation entrypoint behavior | Smallest affected example or simulation case; add `pytest tests/system -m system` only when its flow is touched |
-| MLIR dialect, passes, legality, runtime, codegen, trace semantics | Focused lit/CTest or semantic reproducer for the changed contract, plus decision ID and evidence path |
+| MLIR dialect, passes, legality, runtime, codegen, observation semantics | Focused lit/CTest or semantic reproducer for the changed contract, plus decision ID and evidence path |
 | Agentic Circuit Python frontend, ACPy, schemas or CLI | Required Agentic Python check plus the changed focused test |
 | ACIR/ACSim dialect, verifier, transformation or gfsim | Focused ACIR/ACSim lit or C++ test |
 | ACIR-to-PYC, pyc6 runtime integration or synthesizable AC semantics | Focused AC G2 case proving the changed lowering/backend path |
@@ -113,11 +113,10 @@ closure. Product-specific compatibility and model-comparison gates run in the
 corresponding consumer repositories against a pinned pyCircuit revision; they
 are not pyCircuit release gates.
 
-Decision 0222 admits the DavinciOO contributor design program under
-`designs/davincioo/`. Its inventory checker and design-local tests run from
-this checkout. Framework regressions discovered through those designs remain
-generic and follow the matrix above; design inventory checks do not establish
-gfsim or RTL support and the full design is not an implicit release gate.
+Consumer-originated regressions must be reduced to vendor-neutral framework
+fixtures before entering this repository. Product designs, payload/trace
+adapters, reference models, and their gates run only in the owning consumer
+repository against a pinned pyCircuit revision.
 
 ## When strict decision-status validation is required
 
@@ -126,7 +125,7 @@ when the change affects:
 
 - semantics or legality
 - decision-bearing examples
-- trace or reset contracts
+- observation or reset contracts
 - contributor-facing statements about decision completion
 
 Docs-only changes that do not alter semantic claims can rely on required PR CI.

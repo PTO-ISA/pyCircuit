@@ -71,7 +71,7 @@ struct ShowcaseResult {
   TerminationResult termination;
   std::map<std::string, uint64_t> architecturalValues;
   std::vector<ShowcaseHierarchyEntry> hierarchy;
-  uint64_t tracePosition = 0;
+  uint64_t completedTransactions = 0;
   std::vector<StatSnapshot> statistics;
   std::vector<CommittedEvent> events;
 };
@@ -88,35 +88,6 @@ ShowcaseResult runShowcase(const Policy &policy, ShowcaseWorkOrder order,
 
 /// Stable byte representation used by conformance tests and golden fixtures.
 std::string canonicalShowcaseResult(const ShowcaseResult &result);
-
-/// Private provider component used by checked-in example workspaces. It is
-/// intentionally absent from the public standard-library catalog.
-class ShowcaseTraceSource final : public SimObject {
-public:
-  static constexpr std::string_view contractName = "workspace.Showcase";
-  static constexpr ObjectKind componentKind = ObjectKind::TraceSource;
-
-  ShowcaseTraceSource(std::string name, ObjectId id, SimObject *parent,
-                      uint64_t scenario);
-
-  bool loadDocument(PtoTraceDocument document);
-  void doWork(Epoch epoch) override;
-  void doXfer(Epoch epoch) override;
-  bool hasPendingCommit() const override;
-  RuntimeObjectState runtimeState(Epoch epoch) const override;
-  void collectStatistics(std::vector<StatSnapshot> &out) const override;
-  void reset() override;
-  bool validate() const;
-
-private:
-  uint64_t scenario_ = 0;
-  PtoTraceDocument document_;
-  ShowcaseResult result_;
-  bool loaded_ = false;
-  bool pending_ = false;
-  bool committed_ = false;
-  Epoch lastUpdate_;
-};
 
 } // namespace gfsim
 

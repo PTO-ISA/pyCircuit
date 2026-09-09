@@ -1,1 +1,0 @@
-{"schema":"workspace-showcase-result","version":"0.1","status":"completed","termination_reason":"trace_drained","simulated_ticks":3,"trace_position":{"last_committed_sequence_id":1,"next_record_index":2},"architectural_values":{"completed_responses":2,"memory_0":0,"memory_1":17,"memory_2":0,"memory_3":29}}

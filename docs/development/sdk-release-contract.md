@@ -1,8 +1,7 @@
 # Stable SDK release contract
 
-This document defines the first installable pyCircuit SDK contract for external
-gfsim model consumers. It is the source of truth for issue #61 and the
-SuperScalarModel handoff in LinxISA/SuperScalarModel#578.
+This document defines the first installable pyCircuit SDK contract for generic
+external model consumers. It is the source of truth for issue #61.
 
 The contract is accepted before implementation so each implementation PR has a
 fixed boundary. A `v6.0.0` release remains blocked until every required command,
@@ -126,11 +125,9 @@ complete transitive runtime link interface. Resolving this component MUST NOT
 call `find_dependency(LLVM)` or `find_dependency(MLIR)` and MUST succeed when
 LLVM and MLIR development packages are hidden.
 
-The Runtime header tree and `AgenticCircuit::Gfsim` contain no LLVM, MLIR, or
-ACIR dependency. LLVM-based PTO JSON parsing and run-manifest publication live
-in `AgenticCircuit::GfsimTooling`, which is available only through
-`CompilerDev`. Generated-model and compiler tools may link Tooling internally;
-an external runtime consumer links only Gfsim.
+The Runtime header tree and `AgenticCircuit::Gfsim` contain no LLVM, MLIR, ACIR,
+consumer payload, or workload-trace dependency. External runtime consumers link
+only Gfsim.
 
 ### CompilerDev
 
@@ -246,6 +243,12 @@ depfile content. Plans, manifests, CMake fragments, and generated sources are
 byte-identical across source roots and hash seeds; only local depfile content
 may differ.
 
+The source and config hashes are captured facts sealed by the canonical plan;
+emit does not reopen those consumer files. It revalidates the plan schema and
+SDK tuple, rehashes the plan-contained Frozen ACIR, QueueGraph, and CMake
+fragment, rebuilds QueueGraph from Frozen ACIR, and requires byte equality
+before invoking the installed C++ generator.
+
 `model-sources.cmake` is declarative and sets exactly these variables:
 
 - `AGENTIC_MODEL_GENERATED_SOURCES`: sorted generated `.cpp` paths relative to
@@ -258,6 +261,12 @@ may differ.
 The fragment contains no command, target, generator expression, absolute path,
 SDK lookup, or consumer-specific option. The consumer prepends its generated
 root and owns the target definition.
+
+The consumer builds those sources as a hidden-visibility shared library. Its
+dynamic export list contains only `AGENTIC_MODEL_QUERY_SYMBOL`: use a GNU-style
+version script plus `--exclude-libs,ALL` on Linux, or `-exported_symbol` on
+macOS. Static Gfsim implementation symbols do not enter the plugin's public
+dynamic symbol table.
 
 One process holds an exclusive lock for an output root. Emission stages a closed
 file set, validates it, then atomically publishes it. A failure keeps the prior
@@ -280,16 +289,15 @@ handle, byte-buffer representation, epoch/step result layout, SDK identity
 strings, and function signatures. The table has function pointers for:
 
 - create and destroy;
-- configure and load consumer-provided canonical JSON inputs;
+- configure using a closed, consumer-neutral JSON document;
 - reset;
 - one simulation step with an explicit epoch/result;
 - termination and failure status;
 - canonical JSON statistics;
-- canonical JSON committed observations.
 
 The exact structure is installed in `include/gfsim/model_api.h`. The only
-exported symbol is `agentic_model_query_v1`; create, destroy, configure, load,
-reset, step, statistics, observations, and last-error operations are table
+exported symbol is `agentic_model_query_v1`; create, destroy, configure, reset,
+step, statistics, and last-error operations are table
 pointers. The query table is immutable for process lifetime. A model handle is
 single-thread-owned and not reentrant. The caller serializes every call for one
 handle. Returned buffers remain owned by the model and valid until the next
@@ -298,16 +306,45 @@ remain valid for the duration of the call.
 
 Every function-table operation except the `void` destroy function returns a
 stable integer status. `step` advances one scheduler epoch/delta and fills the
-fixed 32-byte result with running, quiescent, terminated, or failed state. The
+fixed 24-byte result with running, quiescent, terminated, or failed state. The
 ABI does not expose a generated C++ class, STL container, MLIR/LLVM type,
 consumer ELF loader, ISA decoder, or product-specific state.
+
+The handle lifecycle is `create -> configure -> reset -> step`.
+Calls in another order return `AGENTIC_MODEL_STATUS_V1_INVALID_STATE`; malformed
+or noncanonical JSON and bad pointers or structure sizes return
+`AGENTIC_MODEL_STATUS_V1_INVALID_ARGUMENT`. Reset is allowed after ready or
+terminated state and restores the same specialized model for deterministic
+rerun.
+
+`configure_json` accepts the closed empty config `{}` or this canonical runtime
+limits document (shown with whitespace only for readability):
+
+```json
+{
+  "deadlock_window": 8,
+  "max_domain_cycles": {"cycle": 64},
+  "max_ticks": 1024,
+  "schema": "agentic-model-config",
+  "version": "1"
+}
+```
+
+Each limit may be `null`, and domain names are sorted. Unknown fields,
+non-unsigned values, duplicate or unsorted domain names, and noncanonical bytes
+are rejected.
+
+Trace loading, trace cursors, workload-trace inputs, and observation/trace
+exports are intentionally absent from the generated-model ABI. Consumers own
+such adapters outside pyCircuit. Generated models link only
+`AgenticCircuit::Gfsim`; they do not acquire LLVM, MLIR, or ACIR dependencies.
 
 A model manifest names the exported query symbol and exact runtime ABI. A
 consumer MUST reject a missing symbol or ABI mismatch before creating a model.
 
 ## Manifest contracts
 
-The six public schemas are:
+The public schemas are:
 
 - `sdk-version-map.schema.json`: candidate product/distribution mapping,
   contract versions, and the two exact platform profiles;
@@ -349,9 +386,9 @@ consumer lock, and SDK manifest. Source topology or SDK identity changes force a
 new plan. Content-only changes rebuild emission through the depfile. Parallel
 attempts for one output root serialize through the generator lock.
 
-The consumer owns its ELF loader, ISA decoder, memory initialization, PTO
-adapter, model configuration, test harness, and result comparison. The SDK owns
-only generic frontend/compiler/runtime/model ABI behavior.
+The consumer owns its input adapters, executable or image loading, memory
+initialization, model configuration, test harness, and result comparison. The
+SDK owns only generic frontend/compiler/runtime/model ABI behavior.
 
 ## Candidate and publication gates
 
@@ -381,8 +418,7 @@ missing tool, and the explicit unsupported PYC Table boundary.
 Every publish job depends on candidate acceptance. GitHub Release, GHCR, and
 optional PyPI publication cannot run from a failed, skipped, or unvalidated
 candidate. Post-publish failure does not rewrite the tag; it marks the release
-verification failed and blocks the SuperScalarModel handoff until corrected by
-a new release.
+verification failed until corrected by a new release.
 
 ## Diagnostics
 
@@ -405,12 +441,11 @@ explicit verifier failures and are never silently downgraded to another backend.
 
 Do not create the canonical tag until all of these are true:
 
-- Decisions 0232–0234 are implemented and verified.
+- Decisions 0232–0235 are implemented and verified.
 - Every R01–R20 and R23 item in issue #61 has merged evidence.
 - Both exact candidate archives and all wheels pass installed relocation tests.
 - The release source revision is final and all manifests use it.
 - An independent architecture review has no unresolved blocker.
 
 After publication, complete R21 and R22 by redownloading the release, verifying
-hashes, rerunning smoke tests, and posting the exact consumer lock data to
-SuperScalarModel#578.
+hashes, and rerunning the generic installed-model smoke tests.

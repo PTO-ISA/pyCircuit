@@ -5,7 +5,6 @@
 #include "gfsim/object.h"
 #include "gfsim/queue.h"
 #include "gfsim/resource.h"
-#include "gfsim/trace.h"
 
 #include <algorithm>
 #include <concepts>

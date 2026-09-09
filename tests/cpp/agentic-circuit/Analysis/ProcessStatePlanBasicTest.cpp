@@ -59,15 +59,9 @@ concept CompleteProcessStatePlanApi = requires(
     const ProcessForwardingBindingPlan &binding,
     const ProcessControlFramePlan &frame, const ProcessControlEdgePlan &edge,
     const ProcessBlockPlan &block, const ProcessPcPlan &pc,
-    const ProcessStatePlan &plan,
-    const ProcessTraceDecodePayload &traceDecode,
-    const ProcessQueueTrySendPayload &queueSend,
+    const ProcessStatePlan &plan, const ProcessQueueTrySendPayload &queueSend,
     const ProcessQueueTryRecvPayload &queueRecv,
     const ProcessEventSchedulePayload &eventSchedule,
-    const ProcessTraceOpenPayload &traceOpen,
-    const ProcessTraceNextPayload &traceNext,
-    const ProcessTraceEofPayload &traceEof,
-    const ProcessTracePositionPayload &tracePosition,
     const ProcessContractRequirePayload &requirePayload,
     const ProcessContractEnsurePayload &ensurePayload,
     const ProcessContractAssertPayload &assertPayload,
@@ -229,9 +223,6 @@ concept CompleteProcessStatePlanApi = requires(
   plan.transitions();
   plan.pcBitWidth();
   plan.fairnessWork();
-  traceDecode.entry();
-  traceDecode.result();
-  traceDecode.source();
   queueSend.element();
   queueSend.queue();
   queueRecv.element();
@@ -239,11 +230,6 @@ concept CompleteProcessStatePlanApi = requires(
   eventSchedule.delay();
   eventSchedule.target();
   eventSchedule.value();
-  traceOpen.source();
-  traceNext.entry();
-  traceNext.source();
-  traceEof.source();
-  tracePosition.source();
   requirePayload.message();
   ensurePayload.message();
   assertPayload.message();
@@ -267,14 +253,9 @@ concept CompleteProcessStatePlanApi = requires(
   unwrap.scalar();
   unwrap.valueType();
   calleePayload.role();
-  calleePayload.traceDecode();
   calleePayload.queueTrySend();
   calleePayload.queueTryRecv();
   calleePayload.eventSchedule();
-  calleePayload.traceOpen();
-  calleePayload.traceNext();
-  calleePayload.traceEof();
-  calleePayload.tracePosition();
   calleePayload.contractRequire();
   calleePayload.contractEnsure();
   calleePayload.contractAssert();
@@ -531,14 +512,9 @@ CHECK_U64(ProcessStatePlan, fairnessWork);
   CHECK_STRING(Class, First);                                                  \
   CHECK_STRING(Class, Second);                                                 \
   CHECK_STRING(Class, Third)
-CHECK_THREE_STRINGS(ProcessTraceDecodePayload, entry, result, source);
 CHECK_TWO_STRINGS(ProcessQueueTrySendPayload, element, queue);
 CHECK_TWO_STRINGS(ProcessQueueTryRecvPayload, element, queue);
 CHECK_THREE_STRINGS(ProcessEventSchedulePayload, delay, target, value);
-CHECK_STRING(ProcessTraceOpenPayload, source);
-CHECK_TWO_STRINGS(ProcessTraceNextPayload, entry, source);
-CHECK_STRING(ProcessTraceEofPayload, source);
-CHECK_STRING(ProcessTracePositionPayload, source);
 CHECK_STRING(ProcessContractRequirePayload, message);
 CHECK_STRING(ProcessContractEnsurePayload, message);
 CHECK_STRING(ProcessContractAssertPayload, message);
@@ -560,14 +536,9 @@ CHECK_SCALAR_PAYLOAD(ProcessScalarUnwrapPayload);
 CHECK_GETTER(ProcessGeneratedCalleePayload, role, ProcessHelperRole);
 #define CHECK_PAYLOAD_ARM(Method, Type)                                        \
   CHECK_GETTER(ProcessGeneratedCalleePayload, Method, const Type &)
-CHECK_PAYLOAD_ARM(traceDecode, ProcessTraceDecodePayload);
 CHECK_PAYLOAD_ARM(queueTrySend, ProcessQueueTrySendPayload);
 CHECK_PAYLOAD_ARM(queueTryRecv, ProcessQueueTryRecvPayload);
 CHECK_PAYLOAD_ARM(eventSchedule, ProcessEventSchedulePayload);
-CHECK_PAYLOAD_ARM(traceOpen, ProcessTraceOpenPayload);
-CHECK_PAYLOAD_ARM(traceNext, ProcessTraceNextPayload);
-CHECK_PAYLOAD_ARM(traceEof, ProcessTraceEofPayload);
-CHECK_PAYLOAD_ARM(tracePosition, ProcessTracePositionPayload);
 CHECK_PAYLOAD_ARM(contractRequire, ProcessContractRequirePayload);
 CHECK_PAYLOAD_ARM(contractEnsure, ProcessContractEnsurePayload);
 CHECK_PAYLOAD_ARM(contractAssert, ProcessContractAssertPayload);

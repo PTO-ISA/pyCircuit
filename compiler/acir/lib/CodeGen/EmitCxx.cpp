@@ -1536,62 +1536,6 @@ private:
       return "static_cast<" + ownerTypeName(declaring) + " *>(static_cast<" +
              ownerTypeName(module) + " *>(owner_)->parent_)";
     };
-    auto traceSource = [&](StringRef kind) {
-      std::string prefix = ("acir_trace_" + kind + "_").str();
-      StringRef symbol = callee.getValue();
-      return symbol.starts_with(prefix) ? symbol.drop_front(prefix.size()).str()
-                                        : std::string("pto");
-    };
-
-    if (cppName == "acir.trace.open") {
-      std::string source = traceSource("open");
-      emitResult(results.front(), Twine("system ? system->traceOpen(\"") +
-                                      source + "\") : UINT64_C(0)");
-      return success();
-    }
-    if (cppName == "acir.trace.next") {
-      std::string source = traceSource("next");
-      std::string pack = "trace_next_" + bind(results.front());
-      os << "      gfsim::TraceNextResult " << pack << "{};\n";
-      os << "      if (system)\n";
-      os << "        " << pack << " = system->traceNext(\"" << source
-         << "\", static_cast<std::uint64_t>(" << bind(args.front()) << "));\n";
-      emitResult(results[0], Twine("static_cast<") +
-                                 cppTypeName(model, results[0].getType()) +
-                                 ">(" + pack + ".cursor)");
-      emitResult(results[1], Twine("static_cast<") +
-                                 cppTypeName(model, results[1].getType()) +
-                                 ">(" + pack + ".handle)");
-      emitResult(results[2], Twine(pack) + ".advanced");
-      return success();
-    }
-    if (cppName == "acir.trace.decode") {
-      emitResult(
-          results.front(),
-          Twine("static_cast<") +
-              cppTypeName(model, results.front().getType()) +
-              ">(system ? system->traceDecode(static_cast<std::uint64_t>(" +
-              bind(args.front()) + ")) : UINT64_C(0))");
-      return success();
-    }
-    if (cppName == "acir.trace.eof") {
-      std::string source = traceSource("eof");
-      emitResult(results.front(), Twine("system && system->traceEof(\"") +
-                                      source +
-                                      "\", static_cast<std::uint64_t>(" +
-                                      bind(args.front()) + "))");
-      return success();
-    }
-    if (cppName == "acir.trace.position") {
-      std::string source = traceSource("position");
-      emitResult(results.front(),
-                 Twine("static_cast<") +
-                     cppTypeName(model, results.front().getType()) +
-                     ">(system ? system->tracePosition(\"" + source +
-                     "\", static_cast<std::uint64_t>(" + bind(args.front()) +
-                     ")) : UINT64_C(0))");
-      return success();
-    }
     if (cppName == "acir.register.load") {
       auto [declaring, field] = resolveMember("acir_register_load");
       std::string owner = ownerCast(declaring);
@@ -1913,7 +1857,6 @@ private:
     os << "int main(int argc, char **argv) {\n";
     os << "  std::uint64_t maxTicks = ~0ull;\n";
     os << "  std::uint64_t maxEvents = ~0ull;\n";
-    os << "  std::string tracePath;\n";
     os << "  for (int index = 1; index < argc; ++index) {\n";
     os << "    if (std::strncmp(argv[index], \"--max-ticks=\", 12) == 0)\n";
     os << "      maxTicks = std::strtoull(argv[index] + 12, nullptr, 10);\n";
@@ -1926,19 +1869,12 @@ private:
     os << "    else if (std::strcmp(argv[index], \"--max-events\") == 0 && "
           "index + 1 < argc)\n";
     os << "      maxEvents = std::strtoull(argv[++index], nullptr, 10);\n";
-    os << "    else if (std::strncmp(argv[index], \"--trace=\", 8) == 0)\n";
-    os << "      tracePath = argv[index] + 8;\n";
-    os << "    else if (std::strcmp(argv[index], \"--trace\") == 0 && "
-          "index + 1 < argc)\n";
-    os << "      tracePath = argv[++index];\n";
     os << "  }\n";
     os << "  acsim_generated::GeneratedModel model;\n";
     os << "  model.system.setMaxTicks(maxTicks);\n";
     os << "  model.system.setMaxEvents(maxEvents);\n";
     os << "  gfsim::TerminationResult result;\n";
     os << "  try {\n";
-    os << "    if (!tracePath.empty())\n";
-    os << "      model.system.loadPtoTrace(\"pto\", tracePath);\n";
     os << "    result = model.run();\n";
     os << "  } catch (const std::exception &error) {\n";
     os << "    result.classification = gfsim::TerminationClass::Failed;\n";
@@ -2020,8 +1956,7 @@ private:
         processSpec["schema_fingerprint"] = schemaSetFingerprint.str();
         processSpec["specialization_fingerprint"] =
             process.getSpecializationFingerprint().str();
-        specializations.push_back(
-            llvm::json::Value(std::move(processSpec)));
+        specializations.push_back(llvm::json::Value(std::move(processSpec)));
       }
     }
 

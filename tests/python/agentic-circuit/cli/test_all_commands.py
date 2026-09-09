@@ -21,7 +21,6 @@ def cli_test_ledger() -> dict[str, CommandCoverage]:
     frontend = f"{module_prefix}test_frontend_commands.FrontendCommandTest"
     compile_command = f"{module_prefix}test_compile_command.CompileCommandTest"
     build = f"{module_prefix}test_build_command.BuildCommandTest"
-    run = f"{module_prefix}test_run_command.RunCommandTest"
     inspect = f"{module_prefix}test_inspect_command.InspectCommandTest"
     model = f"{module_prefix}test_model_plan_command.ModelPlanCommandTest"
     exits = f"{module_prefix}test_exit_codes.ExitCodeTest"
@@ -67,12 +66,6 @@ def cli_test_ledger() -> dict[str, CommandCoverage]:
             (f"{exits}.test_missing_cpp_compiler_is_four",),
             (f"{build}.test_identical_build_reports_cache_hit",),
             (f"{build}.test_identical_build_reports_cache_hit",),
-        ),
-        "run": CommandCoverage(
-            (f"{run}.test_completed_run_publishes_exact_documents",),
-            (f"{run}.test_invalid_trace_is_preflight_five_and_preserves_output",),
-            (f"{run}.test_replay_uses_only_the_immutable_bundle",),
-            (f"{run}.test_tick_cap_is_incomplete_exit_seven",),
         ),
         "inspect": CommandCoverage(
             (f"{inspect}.test_every_exact_view_is_machine_readable_and_read_only",),

@@ -2,47 +2,9 @@
 
 ## Parameterized high-level blocks
 
-`davincioo_jit.py` keeps every dynamic connection as a typed Queue SSA edge,
-freezes `CoreConfig` through `ac.jit`, and uses the simple high-level block
-names `compute`, `route`, `pipeline`, `merge`, `schedule`, and `reorder`.
-Only `compute` carries a lambda; other blocks select typed payload fields with
-compile-time descriptors and bind optimized gfsim and PYC/Verilog providers.
-
-```bash
-PYTHONPATH=src python - <<'PY'
-from examples.architecture.davincioo_jit import specialization
-
-open("build/davincioo.ac.mlir", "w").write(specialization.lower_acir())
-open("build/davincioo.cpp", "w").write(specialization.lower_cpp())
-PY
-
-c++ -std=c++20 -I include -fsyntax-only build/davincioo.cpp
-```
-
-`specialization.materialize_cpp(cache_root)` compiles the generated C++ on
-first use and returns the content-addressed cached object later.
-`materialize_pyc(...)` publishes the corresponding PYC/C++/Verilog bundle.
-
 `multirate_compute.py` freezes `rate=4` into the Queue and C++ template
 identities. Native QueueGraph/gfsim supports it; PYC deliberately rejects
 `rate>1` until shared ordered FIFO lane lowering is implemented.
-
-### DavinciOO canonical PTO trace
-
-The trace runner converts the locked DavinciOO JSONL trace to canonical PTO
-trace JSON, specializes the high-level Python model, compiles generated gfsim,
-and checks completion order, retirement order, architectural values, and the
-453-cycle reference contract. It also emits a deterministic instruction
-swimlane.
-
-```bash
-.venv/bin/python tools/run-davincioo.py
-```
-
-Checked-in evidence:
-
-- [`davincioo-softmax-run.json`](../../../tests/goldens/agentic-circuit/davincioo/davincioo-softmax-run.json)
-- [`davincioo-softmax-swimlane.svg`](../../../tests/goldens/agentic-circuit/davincioo/davincioo-softmax-swimlane.svg)
 
 ## Explicit memory (epoch 0.5)
 

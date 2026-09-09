@@ -347,11 +347,6 @@ TEST(ACIROpsTest, RegistryContainsExactQueueVarOperations) {
       "ac.transition",
       "ac.transform",
       "ac.transform.yield",
-      "ac.trace.decode",
-      "ac.trace.eof",
-      "ac.trace.next",
-      "ac.trace.open",
-      "ac.trace.position",
       "ac.try_recv",
       "ac.try_send",
       "ac.type_alias",
@@ -514,19 +509,6 @@ TEST(ACIROpsTest, PublicBuildersConstructEveryTaskEightOperation) {
   auto waitFor = WaitForOp::create(builder, loc, "resource");
   auto awaitEvent = AwaitEventOp::create(builder, loc, "events");
   EXPECT_TRUE(schedule && waitUntil && waitFor && awaitEvent);
-  auto cursor =
-      TraceOpenOp::create(builder, loc, builder.getIndexType(), "pto");
-  EXPECT_EQ(cursor.getSource(), "pto");
-  auto next = TraceNextOp::create(builder, loc, builder.getIndexType(),
-                                  builder.getI32Type(), builder.getI1Type(),
-                                  cursor, "pto");
-  auto decoded = TraceDecodeOp::create(builder, loc, builder.getI64Type(),
-                                       next.getEntry());
-  auto position = TracePositionOp::create(builder, loc, builder.getIndexType(),
-                                          next.getCursor(), "pto");
-  auto eof = TraceEofOp::create(builder, loc, builder.getI1Type(),
-                                next.getCursor(), "pto");
-  EXPECT_TRUE(decoded && eof);
   auto runtimeRequire = RequireOp::create(builder, loc, i1, "require");
   EXPECT_TRUE(runtimeRequire);
   auto runtimeEnsure = EnsureOp::create(builder, loc, i1, "ensure");
@@ -638,17 +620,6 @@ TEST(ACIROpsTest, PublicBuildersConstructEveryTaskEightOperation) {
       {read(EventQueueStateResource::get(), "events", "event_queue"),
        write(ModuleStateResource::get(), "p", "module")});
   expectExactEffects(yield, {write(ModuleStateResource::get(), "p", "module")});
-  expectExactEffects(cursor,
-                     {read(ExternalIOResource::get(), "p/pto", "external_io"),
-                      write(TracePositionResource::get(), "p/pto", "trace")});
-  expectExactEffects(next,
-                     {read(TracePositionResource::get(), "p/pto", "trace"),
-                      write(TracePositionResource::get(), "p/pto", "trace"),
-                      read(ExternalIOResource::get(), "p/pto", "external_io")});
-  for (mlir::Operation *operation :
-       {position.getOperation(), eof.getOperation()})
-    expectExactEffects(operation,
-                       {read(TracePositionResource::get(), "p/pto", "trace")});
   for (mlir::Operation *operation :
        {runtimeRequire.getOperation(), runtimeEnsure.getOperation(),
         runtimeAssert.getOperation()})
@@ -662,13 +633,9 @@ TEST(ACIROpsTest, PublicBuildersConstructEveryTaskEightOperation) {
   expectExactEffects(statAdd,
                      {read(StatisticsResource::get(), "count", "statistics"),
                       write(StatisticsResource::get(), "count", "statistics")});
-  EXPECT_TRUE(mlir::isMemoryEffectFree(decoded));
   EXPECT_TRUE(mlir::isa<ObservationOpInterface>(*instrumentation));
   EXPECT_FALSE(mlir::isMemoryEffectFree(process));
   EXPECT_FALSE(mlir::isMemoryEffectFree(send));
-  EXPECT_FALSE(mlir::isMemoryEffectFree(next));
-  EXPECT_FALSE(mlir::isMemoryEffectFree(position));
-  EXPECT_FALSE(mlir::isMemoryEffectFree(eof));
   EXPECT_FALSE(mlir::isMemoryEffectFree(statAdd));
 }
 
@@ -698,14 +665,12 @@ TEST(ACIROpsTest, UnresolvedRuntimeReferencesDoNotInventEffects) {
 TEST(ACIROpsTest, RuntimeAndQueueVarRegistryIsExact) {
   mlir::MLIRContext context;
   context.loadDialect<ACIRDialect>();
-  const std::array<llvm::StringLiteral, 20> names = {
+  const std::array<llvm::StringLiteral, 15> names = {
       "ac.process",        "ac.try_send",        "ac.try_recv",
       "ac.schedule",       "ac.wait_until",      "ac.wait_for",
-      "ac.await_event",    "ac.yield_sim",       "ac.trace.open",
-      "ac.trace.next",     "ac.trace.decode",    "ac.trace.eof",
-      "ac.trace.position", "ac.require",         "ac.ensure",
-      "ac.assert",         "ac.probe",           "ac.stat",
-      "ac.stat.add",       "ac.instrumentation",
+      "ac.await_event", "ac.yield_sim", "ac.require", "ac.ensure",
+      "ac.assert",      "ac.probe",     "ac.stat",    "ac.stat.add",
+      "ac.instrumentation",
   };
   for (llvm::StringLiteral name : names)
     EXPECT_TRUE(mlir::OperationName(name, &context).isRegistered())
@@ -811,80 +776,9 @@ TEST(ACIROpsTest, RuntimeAndQueueVarRegistryIsExact) {
   for (llvm::StringLiteral name : queueVarNames)
     EXPECT_TRUE(mlir::OperationName(name, &context).isRegistered())
         << name.str();
-  EXPECT_EQ(context.getRegisteredOperationsByDialect("ac").size(), 142u);
+  EXPECT_EQ(context.getRegisteredOperationsByDialect("ac").size(), 137u);
 }
 
-TEST(ACIROpsTest, ProcessLinearLivenessDoesNotRescanBlockPerValue) {
-  mlir::MLIRContext context;
-  context.loadDialect<ACIRDialect, mlir::arith::ArithDialect,
-                      mlir::scf::SCFDialect>();
-
-  auto buildProcess = [&](unsigned valueCount) {
-    std::string source;
-    llvm::raw_string_ostream os(source);
-    os << "builtin.module attributes {ac.contract_epoch = \"0.5\"} {\n"
-          "  ac.module @Scale() parameters {} graph {\n"
-          "    ac.process @worker kind \"control\" {\n";
-    for (unsigned index = 0; index != valueCount; ++index)
-      os << "      %cursor" << index << " = ac.trace.open source \"source"
-         << index << "\"\n"
-         << "      %next" << index << ", %value" << index << ", %advanced"
-         << index << " = ac.trace.next %cursor" << index
-         << " from source \"source" << index
-         << "\" : !ac.resource_token<@resource>\n";
-    for (unsigned index = 0; index != valueCount; ++index)
-      os << "      %decoded" << index << " = ac.trace.decode %value" << index
-         << " : !ac.resource_token<@resource> to i64\n";
-    os << "      ac.yield_sim\n"
-          "    }\n"
-          "    ac.return\n"
-          "  }\n"
-          "}\n";
-    auto file = mlir::parseSourceString<mlir::ModuleOp>(source, &context);
-    EXPECT_TRUE(file);
-    return file;
-  };
-  auto measureWork = [&](unsigned valueCount) {
-    auto file = buildProcess(valueCount);
-    if (!file)
-      return detail::ProcessLivenessWork{};
-    ProcessOp process;
-    file->walk([&](ProcessOp candidate) { process = candidate; });
-    EXPECT_TRUE(process);
-    detail::ProcessLivenessWork work;
-    {
-      detail::ScopedProcessLivenessWorkCollector collector(work);
-      EXPECT_TRUE(mlir::succeeded(process.verify()));
-    }
-    return work;
-  };
-
-  auto expectSinglePassWork = [](const detail::ProcessLivenessWork &work,
-                                 uint64_t valueCount) {
-    // Each fixture value contributes trace.open, trace.next, and trace.decode.
-    // The only fixed operation is the terminating ac.yield_sim.
-    uint64_t operationCount = valueCount * 3 + 1;
-    EXPECT_EQ(work.summaryOperationVisits, operationCount);
-    EXPECT_EQ(work.epochOperationVisits, operationCount);
-    EXPECT_EQ(work.livenessOperationVisits, operationCount);
-    EXPECT_EQ(work.valueVisits, valueCount * 5);
-    EXPECT_EQ(work.useVisits, valueCount);
-    EXPECT_EQ(work.total(), valueCount * 15 + 3);
-  };
-
-  constexpr unsigned smallSize = 64;
-  constexpr unsigned largeSize = 256;
-  detail::ProcessLivenessWork smallWork = measureWork(smallSize);
-  detail::ProcessLivenessWork largeWork = measureWork(largeSize);
-  RecordProperty("small_values", smallSize);
-  RecordProperty("large_values", largeSize);
-  RecordProperty("small_work_units", smallWork.total());
-  RecordProperty("large_work_units", largeWork.total());
-  expectSinglePassWork(smallWork, smallSize);
-  expectSinglePassWork(largeWork, largeSize);
-  EXPECT_EQ(largeWork.total() - smallWork.total(),
-            uint64_t{15} * (largeSize - smallSize));
-}
 
 TEST(ACIROpsTest, LargeArrayVerificationIsDeterministic) {
   mlir::MLIRContext context;
@@ -1346,161 +1240,6 @@ TEST(ACIROpsTest, TaskEightOwnersParticipateInSaturatedArrayBudget) {
             std::string::npos);
 }
 
-TEST(ACIROpsTest, TraceSourcesHaveOneOwnerAcrossElaboratedHierarchy) {
-  mlir::MLIRContext context;
-  context.loadDialect<ACIRDialect>();
-  auto singleOwner = mlir::parseSourceString<mlir::ModuleOp>(R"mlir(
-    builtin.module attributes {ac.contract_epoch = "0.5"} {
-      ac.module @Top() parameters {} graph {
-        ac.process @workload kind "workload" {
-          %cursor = ac.trace.open source "pto"
-          ac.yield_sim
-        }
-        ac.return
-      }
-      ac.system @test root @Top as "root" tick 0 "cycle"
-          seed {kind = "fixed", value = 0 : i64}
-          instrumentation [] results {id = "trace", format = "json"} selected true
-    }
-  )mlir",
-                                                             &context);
-  ASSERT_TRUE(singleOwner);
-  llvm::SmallVector<ElaboratedStateOwner> owners;
-  ASSERT_TRUE(mlir::succeeded(
-      collectElaboratedStateOwners(singleOwner->getOperation(), owners)));
-  ASSERT_EQ(owners.size(), 1u);
-  EXPECT_EQ(owners.front().path, "root.workload");
-  EXPECT_EQ(owners.front().stableId, "root/workload");
-  ASSERT_EQ(owners.front().traceSources.size(), 1u);
-  EXPECT_EQ(owners.front().traceSources.front(), "pto");
-
-  auto expectDuplicate = [&](llvm::StringRef source) {
-    auto file = mlir::parseSourceString<mlir::ModuleOp>(source, &context);
-    ASSERT_TRUE(file);
-    std::string diagnostic;
-    mlir::ScopedDiagnosticHandler handler(
-        &context, [&](mlir::Diagnostic &value) {
-          llvm::raw_string_ostream(diagnostic) << value;
-          return mlir::success();
-        });
-    EXPECT_TRUE(mlir::failed(verifyGraphStructure(file->getOperation())));
-    EXPECT_NE(diagnostic.find("trace source 'pto' has multiple elaborated "
-                              "cursor owners"),
-              std::string::npos);
-  };
-
-  expectDuplicate(R"mlir(
-    builtin.module attributes {ac.contract_epoch = "0.5"} {
-      ac.module @Left() parameters {} graph {
-        ac.process @workload kind "workload" {
-          %cursor = ac.trace.open source "pto"
-          ac.yield_sim
-        }
-        ac.return
-      }
-      ac.module @Right() parameters {} graph {
-        ac.process @workload kind "workload" {
-          %cursor = ac.trace.open source "pto"
-          ac.yield_sim
-        }
-        ac.return
-      }
-      ac.module @Top() parameters {} graph {
-        ac.instance @left of @Left() static {} id "left" path "left" : () -> ()
-        ac.instance @right of @Right() static {} id "right" path "right" : () -> ()
-        ac.return
-      }
-      ac.system @test root @Top as "root" tick 0 "cycle"
-          seed {kind = "fixed", value = 0 : i64}
-          instrumentation [] results {id = "trace", format = "json"} selected true
-    }
-  )mlir");
-
-  expectDuplicate(R"mlir(
-    builtin.module attributes {ac.contract_epoch = "0.5"} {
-      ac.module @Leaf() parameters {} graph {
-        ac.process @workload kind "workload" {
-          %cursor = ac.trace.open source "pto"
-          ac.yield_sim
-        }
-        ac.return
-      }
-      ac.module @Top() parameters {} graph {
-        ac.instance @left of @Leaf() static {} id "left" path "left" : () -> ()
-        ac.instance @right of @Leaf() static {} id "right" path "right" : () -> ()
-        ac.return
-      }
-      ac.system @test root @Top as "root" tick 0 "cycle"
-          seed {kind = "fixed", value = 0 : i64}
-          instrumentation [] results {id = "trace", format = "json"} selected true
-    }
-  )mlir");
-}
-
-TEST(ACIROpsTest, TraceSourceArrayDuplicationFailsBeforeElaboration) {
-  mlir::MLIRContext context;
-  context.loadDialect<ACIRDialect>();
-  mlir::OpBuilder builder(&context);
-  auto loc = builder.getUnknownLoc();
-  auto emptyType = builder.getFunctionType({}, {});
-  auto emptyDictionary = builder.getDictionaryAttr({});
-  auto file = mlir::ModuleOp::create(loc);
-  builder.setInsertionPointToStart(file.getBody());
-  auto leaf =
-      ModuleOp::create(builder, loc, "Leaf", emptyType, emptyDictionary);
-  builder.setInsertionPointToStart(leaf.addEntryBlock());
-  auto process = ProcessOp::create(builder, loc, "workload", "workload",
-                                   mlir::ValueRange{});
-  builder.setInsertionPointToStart(&process.getBody().emplaceBlock());
-  TraceOpenOp::create(builder, loc, builder.getIndexType(), "pto");
-  YieldSimOp::create(builder, loc);
-  builder.setInsertionPointToEnd(&leaf.getBody().front());
-  ReturnOp::create(builder, loc, mlir::ValueRange{});
-
-  llvm::SmallVector<mlir::Attribute> staticArgs(
-      512, mlir::Attribute(emptyDictionary));
-  builder.setInsertionPointToEnd(file.getBody());
-  auto middle =
-      ModuleOp::create(builder, loc, "Middle", emptyType, emptyDictionary);
-  builder.setInsertionPointToStart(middle.addEntryBlock());
-  ArrayOp::create(builder, loc, mlir::TypeRange{}, mlir::ValueRange{}, "Leaf",
-                  "leaves", "leaves", "leaves",
-                  builder.getDenseI64ArrayAttr({512}),
-                  builder.getArrayAttr(staticArgs));
-  ReturnOp::create(builder, loc, mlir::ValueRange{});
-  builder.setInsertionPointToEnd(file.getBody());
-  auto top = ModuleOp::create(builder, loc, "Top", emptyType, emptyDictionary);
-  builder.setInsertionPointToStart(top.addEntryBlock());
-  ArrayOp::create(builder, loc, mlir::TypeRange{}, mlir::ValueRange{}, "Middle",
-                  "middles", "middles", "middles",
-                  builder.getDenseI64ArrayAttr({512}),
-                  builder.getArrayAttr(staticArgs));
-  ReturnOp::create(builder, loc, mlir::ValueRange{});
-  builder.setInsertionPointToEnd(file.getBody());
-  auto seed = builder.getDictionaryAttr({
-      builder.getNamedAttr("kind", builder.getStringAttr("fixed")),
-      builder.getNamedAttr("value", builder.getI64IntegerAttr(0)),
-  });
-  auto results = builder.getDictionaryAttr({
-      builder.getNamedAttr("id", builder.getStringAttr("trace")),
-      builder.getNamedAttr("format", builder.getStringAttr("json")),
-  });
-  SystemOp::create(builder, loc, "trace", "Top", "root", 0, "cycle",
-                   mlir::FlatSymbolRefAttr(), seed, builder.getArrayAttr({}),
-                   results, true);
-
-  std::string diagnostic;
-  mlir::ScopedDiagnosticHandler handler(&context, [&](mlir::Diagnostic &value) {
-    llvm::raw_string_ostream(diagnostic) << value;
-    return mlir::success();
-  });
-  auto start = std::chrono::steady_clock::now();
-  EXPECT_TRUE(mlir::failed(verifyGraphStructure(file)));
-  EXPECT_NE(diagnostic.find("trace source 'pto' has multiple elaborated cursor "
-                            "owners"),
-            std::string::npos);
-  EXPECT_LT(std::chrono::steady_clock::now() - start, std::chrono::seconds(1));
-}
 
 TEST(ACIROpsTest, StaticContractsUseFreezePhaseModuleEffects) {
   mlir::MLIRContext context;

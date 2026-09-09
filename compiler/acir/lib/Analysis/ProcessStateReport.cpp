@@ -184,14 +184,9 @@ llvm::StringRef spelling(ProcessStorageSignedness value) {
   llvm_unreachable("unknown signedness");
 }
 llvm::StringRef spelling(ProcessHelperRole value) {
-  static constexpr llvm::StringLiteral names[] = {"trace_decode",
-                                                  "queue_try_send",
+  static constexpr llvm::StringLiteral names[] = {"queue_try_send",
                                                   "queue_try_recv",
                                                   "event_schedule",
-                                                  "trace_open",
-                                                  "trace_next",
-                                                  "trace_eof",
-                                                  "trace_position",
                                                   "contract_require",
                                                   "contract_ensure",
                                                   "contract_assert",
@@ -337,11 +332,6 @@ Value json(const ProcessGeneratedCalleePayload &payload) {
     object[b] = bv;
   };
   switch (payload.role()) {
-  case ProcessHelperRole::TraceDecode:
-    object["entry"] = payload.traceDecode().entry();
-    object["result"] = payload.traceDecode().result();
-    object["source"] = payload.traceDecode().source();
-    break;
   case ProcessHelperRole::QueueTrySend:
     two("element", payload.queueTrySend().element(), "queue",
         payload.queueTrySend().queue());
@@ -354,19 +344,6 @@ Value json(const ProcessGeneratedCalleePayload &payload) {
     object["delay"] = payload.eventSchedule().delay();
     object["target"] = payload.eventSchedule().target();
     object["value"] = payload.eventSchedule().value();
-    break;
-  case ProcessHelperRole::TraceOpen:
-    object["source"] = payload.traceOpen().source();
-    break;
-  case ProcessHelperRole::TraceNext:
-    two("entry", payload.traceNext().entry(), "source",
-        payload.traceNext().source());
-    break;
-  case ProcessHelperRole::TraceEof:
-    object["source"] = payload.traceEof().source();
-    break;
-  case ProcessHelperRole::TracePosition:
-    object["source"] = payload.tracePosition().source();
     break;
   case ProcessHelperRole::ContractRequire:
     object["message"] = payload.contractRequire().message();

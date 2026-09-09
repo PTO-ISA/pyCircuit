@@ -159,9 +159,7 @@ bool isDatapathProcess(ac::ProcessOp process) {
     hasBody = true;
     if (isa<ac::TrySendOp, ac::TryRecvOp, ac::ScheduleOp, ac::WaitUntilOp,
             ac::WaitForOp, ac::AwaitEventOp, ac::StatAddOp, ac::StatOp,
-            ac::ProbeOp, ac::RequireOp, ac::EnsureOp, ac::TraceOpenOp,
-            ac::TraceNextOp, ac::TraceDecodeOp, ac::TraceEofOp,
-            ac::TracePositionOp>(op)) {
+            ac::ProbeOp, ac::RequireOp, ac::EnsureOp>(op)) {
       if (isa<ac::WaitUntilOp, ac::WaitForOp, ac::AwaitEventOp>(op) &&
           op->getParentOp() != process.getOperation()) {
         auto ifOp = dyn_cast<scf::IfOp>(op->getParentOp());
@@ -1563,30 +1561,6 @@ mlir::LogicalResult ACIRToACSimPass::planProcesses(mlir::ModuleOp input) {
           return WalkResult::interrupt();
         }
       }
-      auto internTrace = [&](llvm::StringRef kind, llvm::StringRef source,
-                             llvm::StringRef cpp) {
-        std::string identity =
-            (llvm::Twine("acir.trace.") + kind + "." + source).str();
-        return typeSymbols.intern(op, identity, "implementation", cpp);
-      };
-      LogicalResult traceResult = success();
-      if (auto open = dyn_cast<ac::TraceOpenOp>(op))
-        traceResult = internTrace("open", open.getSource(), "acir.trace.open");
-      else if (auto next = dyn_cast<ac::TraceNextOp>(op))
-        traceResult = internTrace("next", next.getSource(), "acir.trace.next");
-      else if (auto eof = dyn_cast<ac::TraceEofOp>(op))
-        traceResult = internTrace("eof", eof.getSource(), "acir.trace.eof");
-      else if (auto position = dyn_cast<ac::TracePositionOp>(op))
-        traceResult = internTrace("position", position.getSource(),
-                                  "acir.trace.position");
-      else if (isa<ac::TraceDecodeOp>(op))
-        traceResult =
-            typeSymbols.intern(op, "acir.trace.decode", "implementation",
-                               "acir.trace.decode");
-      if (failed(traceResult)) {
-        extraWalk = failure();
-        return WalkResult::interrupt();
-      }
       return WalkResult::advance();
     });
     if (failed(extraWalk))
@@ -2340,71 +2314,6 @@ mlir::LogicalResult ACIRToACSimPass::emitProcessBody(
         auto copy = arith::IndexCastOp::create(
             builder, loc, cast.getType(), mapValue(cast.getIn()));
         values[cast.getResult()] = copy.getResult();
-        continue;
-      }
-      auto traceCallee = [&](llvm::StringRef kind, llvm::StringRef source) {
-        std::string identity =
-            (llvm::Twine("acir.trace.") + kind + "." + source).str();
-        return FlatSymbolRefAttr::get(context, typeSymbols.symbolFor(identity));
-      };
-      if (auto open = dyn_cast<ac::TraceOpenOp>(op)) {
-        auto invoke = acsim::InvokeOp::create(
-            builder, loc, TypeRange{builder.getI64Type()}, ValueRange{},
-            traceCallee("open", open.getSource()));
-        auto cast = arith::IndexCastOp::create(
-            builder, loc, open.getCursor().getType(), invoke.getResult(0));
-        values[open.getCursor()] = cast.getResult();
-        continue;
-      }
-      if (auto next = dyn_cast<ac::TraceNextOp>(op)) {
-        auto input = arith::IndexCastOp::create(
-            builder, loc, builder.getI64Type(),
-            mapValue(next.getInputCursor()));
-        auto invoke = acsim::InvokeOp::create(
-            builder, loc,
-            TypeRange{builder.getI64Type(), next.getEntry().getType(),
-                      next.getAdvanced().getType()},
-            ValueRange{input.getResult()},
-            traceCallee("next", next.getSource()));
-        auto cursor = arith::IndexCastOp::create(
-            builder, loc, next.getCursor().getType(), invoke.getResult(0));
-        values[next.getCursor()] = cursor.getResult();
-        values[next.getEntry()] = invoke.getResult(1);
-        values[next.getAdvanced()] = invoke.getResult(2);
-        continue;
-      }
-      if (auto decode = dyn_cast<ac::TraceDecodeOp>(op)) {
-        auto invoke = acsim::InvokeOp::create(
-            builder, loc, TypeRange{decode.getResult().getType()},
-            ValueRange{mapValue(decode.getEntry())},
-            FlatSymbolRefAttr::get(
-                context, typeSymbols.symbolFor("acir.trace.decode")));
-        values[decode.getResult()] = invoke.getResult(0);
-        continue;
-      }
-      if (auto eof = dyn_cast<ac::TraceEofOp>(op)) {
-        auto input = arith::IndexCastOp::create(
-            builder, loc, builder.getI64Type(),
-            mapValue(eof.getInputCursor()));
-        auto invoke = acsim::InvokeOp::create(
-            builder, loc, TypeRange{eof.getEof().getType()},
-            ValueRange{input.getResult()},
-            traceCallee("eof", eof.getSource()));
-        values[eof.getEof()] = invoke.getResult(0);
-        continue;
-      }
-      if (auto position = dyn_cast<ac::TracePositionOp>(op)) {
-        auto input = arith::IndexCastOp::create(
-            builder, loc, builder.getI64Type(),
-            mapValue(position.getInputCursor()));
-        auto invoke = acsim::InvokeOp::create(
-            builder, loc, TypeRange{builder.getI64Type()},
-            ValueRange{input.getResult()},
-            traceCallee("position", position.getSource()));
-        auto cast = arith::IndexCastOp::create(
-            builder, loc, position.getPosition().getType(),
-            invoke.getResult(0));
-        values[position.getPosition()] = cast.getResult();
         continue;
       }
       if (auto send = dyn_cast<ac::TrySendOp>(op)) {

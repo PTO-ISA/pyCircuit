@@ -210,9 +210,6 @@ struct ProcessStatePlan::Impl {
   uint32_t pcBitWidth = 1;
   uint64_t fairnessWork = 1;
 };
-struct ProcessTraceDecodePayload::Impl {
-  std::string entry, result, source;
-};
 struct ProcessQueueTrySendPayload::Impl {
   std::string element, queue;
 };
@@ -221,18 +218,6 @@ struct ProcessQueueTryRecvPayload::Impl {
 };
 struct ProcessEventSchedulePayload::Impl {
   std::string delay, target, value;
-};
-struct ProcessTraceOpenPayload::Impl {
-  std::string source;
-};
-struct ProcessTraceNextPayload::Impl {
-  std::string entry, source;
-};
-struct ProcessTraceEofPayload::Impl {
-  std::string source;
-};
-struct ProcessTracePositionPayload::Impl {
-  std::string source;
 };
 struct ProcessContractRequirePayload::Impl {
   std::string message;
@@ -275,14 +260,9 @@ struct ProcessScalarUnwrapPayload::Impl {
 };
 struct ProcessGeneratedCalleePayload::Impl {
   ProcessHelperRole role = ProcessHelperRole::WakeNextDelta;
-  std::optional<ProcessTraceDecodePayload> traceDecode;
   std::optional<ProcessQueueTrySendPayload> queueTrySend;
   std::optional<ProcessQueueTryRecvPayload> queueTryRecv;
   std::optional<ProcessEventSchedulePayload> eventSchedule;
-  std::optional<ProcessTraceOpenPayload> traceOpen;
-  std::optional<ProcessTraceNextPayload> traceNext;
-  std::optional<ProcessTraceEofPayload> traceEof;
-  std::optional<ProcessTracePositionPayload> tracePosition;
   std::optional<ProcessContractRequirePayload> contractRequire;
   std::optional<ProcessContractEnsurePayload> contractEnsure;
   std::optional<ProcessContractAssertPayload> contractAssert;

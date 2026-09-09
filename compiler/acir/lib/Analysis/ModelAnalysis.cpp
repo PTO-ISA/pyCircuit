@@ -910,15 +910,14 @@ FailureOr<ArrayAttr> detail::buildFrozenOwnerManifest(ModuleOp model) {
     std::string stableId;
     std::string kind;
     SymbolRefAttr owner;
-    SmallVector<std::string> traceSources;
   };
-  llvm::StringMap<SmallVector<std::string>> stateOwnerIndex;
+  llvm::StringMap<bool> stateOwnerIndex;
   for (const ac::ElaboratedStateOwner &owner : stateOwners) {
     if (activeFreezeWork)
       ++activeFreezeWork->stateIndexInsertions;
     std::string key =
         ownerJoinKey(owner.declaration, owner.path, owner.stableId);
-    bool inserted = stateOwnerIndex.try_emplace(key, owner.traceSources).second;
+    bool inserted = stateOwnerIndex.try_emplace(key, true).second;
     if (!inserted)
       return owner.declaration->emitOpError()
              << "duplicate elaborated state-owner identity for path '"
@@ -931,8 +930,7 @@ FailureOr<ArrayAttr> detail::buildFrozenOwnerManifest(ModuleOp model) {
       records.push_back({system.getRootName().str(),
                          system.getRootName().str(),
                          "ac.system_root",
-                         system.getRootAttr(),
-                         {}});
+                         system.getRootAttr()});
 
   for (const ac::ElaboratedTopologyOwner &owner : topologyOwners) {
     Operation *declaration = owner.declaration;
@@ -946,17 +944,8 @@ FailureOr<ArrayAttr> detail::buildFrozenOwnerManifest(ModuleOp model) {
     else if (definition)
       reference =
           FlatSymbolRefAttr::get(model.getContext(), definition.getSymName());
-    if (activeFreezeWork)
-      ++activeFreezeWork->topologyIndexLookups;
-    SmallVector<std::string> traces;
-    auto state = stateOwnerIndex.find(
-        ownerJoinKey(declaration, owner.path, owner.stableId));
-    if (state != stateOwnerIndex.end())
-      traces = state->second;
-    llvm::sort(traces);
     records.push_back({owner.path, owner.stableId,
-                       declaration->getName().getStringRef().str(), reference,
-                       std::move(traces)});
+                       declaration->getName().getStringRef().str(), reference});
   }
   llvm::sort(records, [](const Record &left, const Record &right) {
     return std::tie(left.path, left.stableId, left.kind) <
@@ -974,13 +963,6 @@ FailureOr<ArrayAttr> detail::buildFrozenOwnerManifest(ModuleOp model) {
         builder.getNamedAttr("stable_id",
                              builder.getStringAttr(record.stableId)),
     };
-    if (!record.traceSources.empty()) {
-      SmallVector<Attribute> sources;
-      for (const std::string &source : record.traceSources)
-        sources.push_back(builder.getStringAttr(source));
-      fields.push_back(
-          builder.getNamedAttr("trace_sources", builder.getArrayAttr(sources)));
-    }
     manifest.push_back(builder.getDictionaryAttr(fields));
   }
   return builder.getArrayAttr(manifest);

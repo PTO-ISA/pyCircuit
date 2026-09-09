@@ -9,7 +9,12 @@ import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[4]
-SOURCE = ROOT / "examples/agentic-circuit" / "pipelines" / "davincioo_queue_model.py"
+ROUTED_DEPENDENCY_SOURCE = (
+    ROOT
+    / "examples/agentic-circuit"
+    / "pipelines"
+    / "routed_dependency_pipeline.py"
+)
 CONDITIONAL_SOURCE = (
     ROOT / "examples/agentic-circuit" / "pipelines" / "pyc_conditional_pipeline.py"
 )
@@ -97,21 +102,6 @@ REUSABLE_CIRCULAR_ROB_SOURCE = (
 REUSABLE_OLDEST_READY_ISQ_SOURCE = (
     ROOT / "examples/agentic-circuit" / "state" / "reusable_oldest_ready_isq.py"
 )
-DAVINCIOO_TRACE = (
-    ROOT
-    / "third_party/references/davincioo-gfsim/upstream/tests/fixtures/traces"
-    / "examples_intermediate_softmax.pto.trace"
-)
-DAVINCIOO_PROJECTION = (
-    ROOT / "tests/goldens/agentic-circuit/davincioo/softmax-projection.json"
-)
-DAVINCIOO_REFERENCE = Path(
-    os.environ.get(
-        "DAVINCIOO_GFSIM_REFERENCE",
-        ROOT / ".pycircuit_out/issue17-reference/davincioo-gfsim-reference",
-    )
-)
-
 WIDE_NESTED_AGGREGATE_SOURCE = """
 from __future__ import annotations
 
@@ -4932,296 +4922,77 @@ int main() {{
                 )
                 self.assertEqual(0, compiled.returncode, compiled.stderr)
 
-    def test_davincioo_like_python_generates_and_runs_typed_cpp(self) -> None:
+
+    def test_routed_dependency_topology_generates_deterministically(self) -> None:
         compiler = shutil.which("c++")
-        if compiler is None:
-            self.skipTest("C++ compiler is unavailable")
-        if not DAVINCIOO_TRACE.is_file() or not DAVINCIOO_PROJECTION.is_file():
-            self.skipTest("DavinciOO reference trace fixture is unavailable")
-        if not DAVINCIOO_REFERENCE.is_file():
-            self.skipTest("standalone DavinciOO reference executable is unavailable")
+        tools = {
+            "opt": ROOT / ".pycircuit_out/acir/dev-llvm22/bin/acir-opt",
+            "plan": ROOT / ".pycircuit_out/acir/dev-llvm22/bin/acir-queue-plan",
+            "cxxgen": ROOT / ".pycircuit_out/acir/dev-llvm22/bin/acir-queue-cxxgen",
+        }
+        if compiler is None or any(not path.is_file() for path in tools.values()):
+            self.skipTest("native QueueGraph tools or C++ compiler are unavailable")
+
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            model = root / "model.cpp"
-            acir = root / "model.ac.mlir"
-            plan = root / "model.queue-plan.json"
-            harness = root / "harness.cpp"
-            executable = root / "model"
-            generated = subprocess.run(
-                (
-                    str(ROOT / "compiler/acir/tools" / "ac-queue-cxxgen.py"),
-                    str(SOURCE),
-                    "--system",
-                    "davincioo_queue_model",
-                    "--acir-output",
-                    str(acir),
-                    "--plan-output",
-                    str(plan),
-                    "--acir-opt",
-                    str(
-                        ROOT
-                        / ".pycircuit_out"
-                        / "acir"
-                        / "dev-llvm22"
-                        / "bin"
-                        / "acir-opt"
+            outputs = []
+            for index in range(2):
+                source = root / f"topology-{index}.py"
+                model = root / f"topology-{index}.cpp"
+                acir = root / f"topology-{index}.ac.mlir"
+                plan = root / f"topology-{index}.queue-plan.json"
+                shutil.copyfile(ROUTED_DEPENDENCY_SOURCE, source)
+                generated = subprocess.run(
+                    (
+                        str(ROOT / "compiler/acir/tools/ac-queue-cxxgen.py"),
+                        str(source),
+                        "--system",
+                        "routed_dependency_pipeline",
+                        "--acir-output",
+                        str(acir),
+                        "--plan-output",
+                        str(plan),
+                        "--acir-opt",
+                        str(tools["opt"]),
+                        "--queue-plan-tool",
+                        str(tools["plan"]),
+                        "--queue-cxxgen-tool",
+                        str(tools["cxxgen"]),
+                        "-o",
+                        str(model),
                     ),
-                    "--queue-plan-tool",
-                    str(ROOT / ".pycircuit_out/acir/dev-llvm22/bin/acir-queue-plan"),
-                    "--queue-cxxgen-tool",
-                    str(ROOT / ".pycircuit_out/acir/dev-llvm22/bin/acir-queue-cxxgen"),
-                    "-o",
-                    str(model),
-                ),
-                cwd=ROOT,
-                env={
-                    **os.environ,
-                    "PYTHONPATH": str(ROOT / "python/agentic-circuit/src"),
-                },
-                text=True,
-                capture_output=True,
-                check=False,
-            )
-            self.assertEqual(0, generated.returncode, generated.stderr)
-            content = model.read_text(encoding="utf-8")
-            plan_document = json.loads(plan.read_text(encoding="utf-8"))
-            self.assertEqual("davincioo_queue_model", plan_document["system"])
-            self.assertEqual(8, len(plan_document["scopes"]))
-            self.assertEqual(14, len(plan_document["queues"]))
-            self.assertEqual(16, len(plan_document["blocks"]))
-            copied_source = root / "copied_model.py"
-            copied_model = root / "copied_model.cpp"
-            copied_acir = root / "copied_model.ac.mlir"
-            copied_plan = root / "copied_model.queue-plan.json"
-            shutil.copyfile(SOURCE, copied_source)
-            regenerated = subprocess.run(
-                (
-                    str(ROOT / "compiler/acir/tools" / "ac-queue-cxxgen.py"),
-                    str(copied_source),
-                    "--system",
-                    "davincioo_queue_model",
-                    "--acir-output",
-                    str(copied_acir),
-                    "--plan-output",
-                    str(copied_plan),
-                    "--acir-opt",
-                    str(
-                        ROOT
-                        / ".pycircuit_out"
-                        / "acir"
-                        / "dev-llvm22"
-                        / "bin"
-                        / "acir-opt"
-                    ),
-                    "--queue-plan-tool",
-                    str(ROOT / ".pycircuit_out/acir/dev-llvm22/bin/acir-queue-plan"),
-                    "--queue-cxxgen-tool",
-                    str(ROOT / ".pycircuit_out/acir/dev-llvm22/bin/acir-queue-cxxgen"),
-                    "-o",
-                    str(copied_model),
-                ),
-                cwd=root,
-                env={
-                    **os.environ,
-                    "PYTHONPATH": str(ROOT / "python/agentic-circuit/src"),
-                },
-                text=True,
-                capture_output=True,
-                check=False,
-            )
-            self.assertEqual(0, regenerated.returncode, regenerated.stderr)
-            self.assertEqual(content, copied_model.read_text(encoding="utf-8"))
-            for scope in (
-                "frontend",
-                "dependency",
-                "dispatch",
-                "scalar_engine",
-                "vector_engine",
-                "cube_engine",
-                "tma_engine",
-                "retire",
-            ):
-                self.assertIn(f'("{scope}", gfsim::kInvalidObjectId', content)
-            self.assertIn("gfsim::QueueRoute<WorkItem, 4", content)
-            self.assertIn("gfsim::QueueMerge<WorkItem, 4>", content)
-            self.assertNotIn("gfsim::QueueFeedback<WorkItem", content)
-            self.assertIn("gfsim::QueueDependency<WorkItem", content)
-            self.assertIn("gfsim::QueueReorder<WorkItem", content)
-
-            records = [
-                json.loads(line)
-                for line in DAVINCIOO_TRACE.read_text(encoding="utf-8").splitlines()
-                if line.strip()
-            ]
-            self.assertEqual(list(range(15)), [row["sequence_id"] for row in records])
-            projection = json.loads(DAVINCIOO_PROJECTION.read_text(encoding="utf-8"))
-            opcode_ids = projection["opcode_ids"]
-            model_cost = projection["model_cost"]
-            routes = projection["routes"]
-            items = [
-                (
-                    row["sequence_id"],
-                    opcode_ids[row["opcode"]],
-                    routes[row["opcode"]],
-                    projection["waits_for"][row["sequence_id"]],
-                    model_cost[row["opcode"]],
-                    row["sequence_id"] * 10,
+                    cwd=ROOT,
+                    env={
+                        **os.environ,
+                        "PYTHONPATH": str(ROOT / "python/agentic-circuit/src"),
+                    },
+                    text=True,
+                    capture_output=True,
+                    check=False,
                 )
-                for row in records
-            ]
-            input_rows = ",\n      ".join(
-                "ac_generated::WorkItem{" + ", ".join(map(str, item)) + "}"
-                for item in items
-            )
-            expected_counts = [0] * len(opcode_ids)
-            for opcode, count in projection["opcode_counts"].items():
-                expected_counts[opcode_ids[opcode]] = count
-            expected_counts_text = ", ".join(map(str, expected_counts))
-            completion_order_text = ", ".join(map(str, projection["completion_order"]))
-            architectural_values_text = ", ".join(
-                map(str, projection["architectural_values"])
-            )
-            occupancy = projection["occupancy_projection"]
-            resource_peaks_text = ", ".join(
-                map(str, occupancy["resource_executing_peaks"])
-            )
-
-            oracle_summary = root / "oracle-summary.json"
-            oracle = subprocess.run(
-                (
-                    str(
-                        DAVINCIOO_REFERENCE
+                self.assertEqual(0, generated.returncode, generated.stderr)
+                document = json.loads(plan.read_text(encoding="utf-8"))
+                self.assertEqual("routed_dependency_pipeline", document["system"])
+                self.assertEqual(8, len(document["scopes"]))
+                self.assertEqual(14, len(document["queues"]))
+                self.assertEqual(16, len(document["blocks"]))
+                compiled = subprocess.run(
+                    (
+                        compiler,
+                        "-std=c++20",
+                        "-I",
+                        str(ROOT / "simulator/gfsim/include"),
+                        "-fsyntax-only",
+                        str(model),
                     ),
-                    "simulate",
-                    "--trace",
-                    str(DAVINCIOO_TRACE),
-                    "--summary-out",
-                    str(oracle_summary),
-                ),
-                text=True,
-                capture_output=True,
-                check=False,
-            )
-            self.assertEqual(0, oracle.returncode, oracle.stderr)
-            oracle_document = json.loads(oracle_summary.read_text(encoding="utf-8"))
-            self.assertEqual(15, oracle_document["record_count"])
-            self.assertEqual(
-                projection["simulated_cycles"],
-                oracle_document["simulated_cycles"],
-            )
-            self.assertEqual(
-                projection["opcode_counts"], oracle_document["opcode_counts"]
-            )
+                    text=True,
+                    capture_output=True,
+                    check=False,
+                )
+                self.assertEqual(0, compiled.returncode, compiled.stderr)
+                outputs.append((model.read_bytes(), acir.read_bytes(), plan.read_bytes()))
 
-            harness.write_text(
-                f"""#include "{model.name}"
-#include <array>
-#include <cstddef>
-#include <cstdint>
-#include <iostream>
-
-int main() {{
-  ac_generated::DavinciooQueueModel model;
-  const std::array<ac_generated::WorkItem, 15> input{{
-      {input_rows},
-  }};
-  auto rows = model.dispatch_rows();
-  std::size_t nextInput = 0;
-  std::size_t simulatedCycles = 0;
-  std::size_t dependencyPeak = 0;
-  std::size_t reorderPeak = 0;
-  std::array<std::size_t, 4> resourcePeaks{{}};
-  for (std::size_t tick = 0; tick < 600; ++tick) {{
-    while (nextInput < input.size() && model.trace().canProposePush()) {{
-      if (!model.trace().proposePush(input[nextInput]))
-        return 1;
-      ++nextInput;
-    }}
-    const gfsim::Epoch epoch{{tick, 0}};
-    for (auto &row : rows)
-      row.work(row.object, epoch);
-    for (auto &row : rows)
-      row.xfer(row.object, epoch, gfsim::XferPhase::Arbitrate);
-    for (auto &row : rows)
-      row.xfer(row.object, epoch, gfsim::XferPhase::Commit);
-    dependencyPeak = std::max(dependencyPeak, model.dependency_0_active());
-    reorderPeak = std::max(reorderPeak, model.reorder_0_active());
-    for (std::size_t resource = 0; resource < resourcePeaks.size(); ++resource)
-      resourcePeaks[resource] = std::max(
-          resourcePeaks[resource],
-          model.dependency_0_resource_active(resource));
-    if (model.sink_0_values().size() == input.size()) {{
-      simulatedCycles = tick + 1;
-      break;
-    }}
-  }}
-  if (simulatedCycles != {projection["simulated_cycles"]}) {{
-    std::cerr << "simulated_cycles=" << simulatedCycles << "\\n";
-    return 2;
-  }}
-  const auto &values = model.sink_0_values();
-  if (values.size() != input.size())
-    return 3;
-  std::array<std::size_t, 8> opcodeCounts{{}};
-  const std::array<std::int64_t, 15> architecturalValues{{
-      {architectural_values_text}}};
-  for (std::size_t index = 0; index < values.size(); ++index) {{
-    const auto &value = values[index];
-    if (value.sequence_id != index || value.opcode != input[index].opcode ||
-        value.waits_for != input[index].waits_for ||
-        value.cycles != input[index].cycles)
-      return 4;
-    if (value.value != architecturalValues[index])
-      return 5;
-    ++opcodeCounts[static_cast<std::size_t>(value.opcode.value())];
-  }}
-  const std::array<std::size_t, 8> expectedCounts{{{expected_counts_text}}};
-  if (opcodeCounts != expectedCounts)
-    return 6;
-  const std::array<std::uint8_t, 15> completionOrder{{
-      {completion_order_text}}};
-  const auto &completed = model.observation_0_values();
-  if (completed.size() != completionOrder.size())
-    return 7;
-  for (std::size_t index = 0; index < completed.size(); ++index)
-    if (completed[index].sequence_id != completionOrder[index])
-      return 8;
-  if (dependencyPeak != {occupancy["dependency_window_peak"]} ||
-      reorderPeak != {occupancy["reorder_window_peak"]})
-    return 9;
-  const std::array<std::size_t, 4> expectedResourcePeaks{{
-      {resource_peaks_text}}};
-  if (resourcePeaks != expectedResourcePeaks)
-    return 10;
-  return 0;
-}}
-""",
-                encoding="utf-8",
-            )
-            linked = subprocess.run(
-                (
-                    compiler,
-                    "-std=c++20",
-                    "-I",
-                    str(ROOT / "simulator/gfsim/include"),
-                    str(harness),
-                    "-o",
-                    str(executable),
-                ),
-                cwd=root,
-                text=True,
-                capture_output=True,
-                check=False,
-            )
-            self.assertEqual(0, linked.returncode, linked.stderr)
-            executed = subprocess.run(
-                (str(executable),),
-                cwd=root,
-                text=True,
-                capture_output=True,
-                check=False,
-            )
-            self.assertEqual(0, executed.returncode, executed.stderr)
+            self.assertEqual(outputs[0], outputs[1])
 
     def _assert_typed_module_example(
         self,

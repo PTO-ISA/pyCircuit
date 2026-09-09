@@ -84,11 +84,6 @@ struct ProtocolStateResource
   llvm::StringRef getName() final { return "ac.protocol.state"; }
 };
 
-struct TracePositionResource
-    : public mlir::SideEffects::Resource::Base<TracePositionResource> {
-  llvm::StringRef getName() final { return "ac.trace.position"; }
-};
-
 struct ExternalIOResource
     : public mlir::SideEffects::Resource::Base<ExternalIOResource> {
   llvm::StringRef getName() final { return "ac.external_io"; }

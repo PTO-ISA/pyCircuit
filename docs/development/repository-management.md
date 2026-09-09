@@ -8,23 +8,22 @@ ownership for pyCircuit.
 | Repository | Role | Authority |
 | --- | --- | --- |
 | [`PTO-ISA/pyCircuit`](https://github.com/PTO-ISA/pyCircuit) | Canonical upstream | Product decisions, default branch, releases, packages, documentation, CI policy |
-| [`LinxISA/pyCircuit`](https://github.com/LinxISA/pyCircuit) | Downstream fork | Framework compatibility validation against Linx consumers; no consumer design ownership |
 | `PTO-ISA/agentic-circuit` | Private archived migration source | Original commits, pull requests and audit history only; no source development or publishing |
 
 The upstream repository is the only source of truth. Do not maintain a second
-independent product history in the LinxISA fork or the standalone Agentic
+independent product history in a downstream fork or the standalone Agentic
 Circuit repository. The latter is a private historical archive.
 
 ## Change flow
 
 1. Open general compiler, runtime, documentation, and API changes against
    PTO-ISA/pyCircuit.
-2. Develop Linx-, Janus-, XiangShan-, QEMU-, and board-specific designs and
-   tooling in their owning consumer repositories against a pinned pyCircuit
-   revision.
+2. Develop processor-, accelerator-, model-comparison-, and board-specific
+   designs and tooling in their owning consumer repositories against a pinned
+   pyCircuit revision.
 3. Submit only reusable language, IR, runtime, backend, and generic diagnostic
-   fixes to framework source roots. Decision 0222 additionally admits the
-   DavinciOO contributor design program under `designs/davincioo/`.
+   fixes to framework source roots. Consumer designs and payload/trace adapters
+   have no in-tree exception.
 4. Update the downstream default branch from the upstream default branch after
    upstream changes merge.
 5. Keep downstream-only commits focused and rebaseable; do not rewrite upstream
@@ -53,15 +52,12 @@ Only PTO-ISA/pyCircuit may:
 - publish the `pycircuit-hisi` package;
 - publish the `agentic-circuit` package;
 - publish canonical compiler or runtime artifacts; and
-- announce a language, ABI, trace-schema, or toolchain compatibility level.
+- announce a language, framework-runtime, or toolchain compatibility level.
 
-The LinxISA fork or the Linx superproject may publish downstream compatibility
-evidence, but must link to the matching upstream revision and must not reuse
-canonical release tags for divergent commits. Consumer design sources,
-testbenches, board files, and comparison scripts normally remain out of tree.
-Decision 0222 makes a scoped exception for DavinciOO design-program modules
-and their supporting contracts and tests under `designs/davincioo/`; it does
-not restore the retired integration/platform roots.
+Downstream repositories may publish compatibility evidence, but must link to
+the matching upstream revision and must not reuse canonical release tags for
+divergent commits. Consumer design sources, testbenches, board files, payload
+and trace adapters, and comparison scripts always remain out of tree.
 
 ## Fork synchronization
 
@@ -70,7 +66,7 @@ Before synchronizing the downstream fork:
 1. Verify the target upstream commit and required gate results.
 2. Fetch the upstream default branch.
 3. Fast-forward or rebase downstream-only work onto that commit.
-4. Run Linx compatibility gates from the consumer repository, not from the
+4. Run compatibility gates from the consumer repository, not from the
    pyCircuit worktree.
 5. Record the upstream commit in the integration report.
 

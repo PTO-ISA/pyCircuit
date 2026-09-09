@@ -167,6 +167,21 @@ def validate_exact(document: dict[str, Any], version_map: dict[str, Any]) -> Non
         require_equal(document["depfile_path"], "model.d", f"{identity}.depfile_path")
     elif identity == "agentic-circuit-model-manifest":
         require_unique_paths(document["generated_files"], f"{identity}.generated_files")
+        require_equal(
+            [item["path"] for item in document["generated_files"]],
+            [
+                "include/generated/model.h",
+                "src/generated/model.cpp",
+                "src/generated/queuegraph.cpp",
+            ],
+            f"{identity}.generated_files",
+        )
+        require_equal(
+            document["cmake_sources"]["path"],
+            "model-sources.cmake",
+            f"{identity}.cmake_sources.path",
+        )
+        require_equal(document["depfile_path"], "model.d", f"{identity}.depfile_path")
 
     release_base = (
         f"https://github.com/PTO-ISA/pyCircuit/releases/download/{candidate_tag}/"
@@ -287,9 +302,9 @@ def validate_header() -> None:
         "#define AGENTIC_MODEL_ABI_V1 1u",
         "typedef struct AgenticModelApiV1",
         "agentic_model_query_v1(void)",
-        "sizeof(AgenticModelApiV1) == 96",
+        "sizeof(AgenticModelApiV1) == 80",
         "sizeof(AgenticModelBufferV1) == 16",
-        "sizeof(AgenticModelStepResultV1) == 32",
+        "sizeof(AgenticModelStepResultV1) == 24",
     )
     for marker in required:
         if marker not in text:
@@ -441,10 +456,20 @@ def main() -> int:
         )
         validate_plan_manifest(plan, manifest)
         adversarial_checks(version_map)
+        provided: dict[str, dict[str, Any]] = {}
         for raw in args.document:
             document = load_json(Path(raw))
             validate_schema(document)
             validate_exact(document, version_map)
+            provided[str(document["schema"])] = document
+        if {
+            "agentic-circuit-model-plan",
+            "agentic-circuit-model-manifest",
+        }.issubset(provided):
+            validate_plan_manifest(
+                provided["agentic-circuit-model-plan"],
+                provided["agentic-circuit-model-manifest"],
+            )
     except (OSError, KeyError, TypeError, ValueError, json.JSONDecodeError) as error:
         print(f"error: {error}", file=sys.stderr)
         return 1

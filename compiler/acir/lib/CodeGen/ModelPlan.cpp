@@ -75,65 +75,6 @@ RuntimeObjectKind inferRuntimeObjectKind(acsim::ModelOp model,
   return RuntimeObjectKind::External;
 }
 
-const BindingPlan *findBinding(const ModelPlan &plan, llvm::StringRef symbol) {
-  auto found = std::find_if(
-      plan.bindings.begin(), plan.bindings.end(),
-      [&](const BindingPlan &binding) { return binding.symbol == symbol; });
-  return found == plan.bindings.end() ? nullptr : &*found;
-}
-
-const ModulePlan *findModule(const ModelPlan &plan, llvm::StringRef symbol) {
-  auto found = std::find_if(
-      plan.modules.begin(), plan.modules.end(),
-      [&](const ModulePlan &module) { return module.symbol == symbol; });
-  return found == plan.modules.end() ? nullptr : &*found;
-}
-
-bool isTraceSourceBinding(const ModelPlan &plan, const BindingPlan &binding) {
-  if (binding.cppSymbol == "gfsim::TraceSource" ||
-      llvm::StringRef(binding.cppSymbol).starts_with("gfsim::TraceSource<") ||
-      binding.cppSymbol == "gfsim::ShowcaseTraceSource" ||
-      binding.cppSymbol == "gfsim::NpuTraceSource")
-    return true;
-  auto schema = std::find_if(plan.types.begin(), plan.types.end(),
-                             [&](const TypePlan &type) {
-                               return type.symbol == binding.componentSchema;
-                             });
-  return schema != plan.types.end() && schema->cppType == "ac.TraceSource";
-}
-
-bool isTraceOwner(const ModelPlan &plan,
-                  const RuntimeObjectPlan &runtimeObject) {
-  const ModulePlan *module = findModule(plan, plan.rootSymbol);
-  if (!module)
-    return false;
-  llvm::SmallVector<llvm::StringRef> segments;
-  llvm::StringRef(runtimeObject.hierarchyPath).split(segments, '.');
-  if (segments.size() < 2)
-    return false;
-  for (size_t index = 1; index < segments.size(); ++index) {
-    const llvm::StringRef symbol =
-        segments[index].take_until([](char value) { return value == '['; });
-    auto placement =
-        std::find_if(module->placements.begin(), module->placements.end(),
-                     [&](const PlacementPlan &candidate) {
-                       return candidate.symbol == symbol;
-                     });
-    if (placement == module->placements.end())
-      return false;
-    llvm::StringRef target = placement->target;
-    target = target.take_until([](char value) { return value == ':'; });
-    if (index + 1 == segments.size()) {
-      const BindingPlan *binding = findBinding(plan, target);
-      return binding && isTraceSourceBinding(plan, *binding);
-    }
-    module = findModule(plan, target);
-    if (!module)
-      return false;
-  }
-  return false;
-}
-
 llvm::Expected<uint32_t> checkedId(uint64_t value, llvm::StringRef field) {
   if (value > std::numeric_limits<uint32_t>::max())
     return planError("ACLOWER-DISPATCH", field + " exceeds uint32_t");
@@ -385,8 +326,6 @@ llvm::Expected<ModelPlan> buildModelPlan(mlir::ModuleOp canonicalACSim) {
 
   if (auto error = detail::populateModelDetails(model, plan))
     return std::move(error);
-  for (RuntimeObjectPlan &runtimeObject : plan.runtimeObjects)
-    runtimeObject.traceOwner = isTraceOwner(plan, runtimeObject);
   if (auto error = validateModelPlan(plan))
     return std::move(error);
   return plan;

@@ -73,12 +73,7 @@ class InstallationTest(unittest.TestCase):
                 self.assertNotIn(forbidden, runtime_targets)
             runtime_headers = prefix / "include/gfsim"
             self.assertFalse((runtime_headers / "tooling").exists())
-            self.assertTrue(
-                (
-                    prefix
-                    / "include/agentic-circuit-tooling/gfsim/tooling/harness.h"
-                ).is_file()
-            )
+            self.assertFalse((prefix / "include/agentic-circuit-tooling").exists())
             for header in runtime_headers.rglob("*.h"):
                 text = header.read_text()
                 self.assertNotIn('#include "acir/', text, header)
@@ -250,7 +245,6 @@ class InstallationTest(unittest.TestCase):
         self.assertEqual("passed", json.loads(checked.stdout)["status"])
         self.assertEqual(0, initialized.returncode, initialized.stderr)
         self.assertEqual(0, built.returncode, built.stderr)
-        self.assertNotIn("import-davincioo-pto-trace.py", installed_bins)
         self.assertNotIn("pack-perfetto-trace.py", installed_bins)
 
 

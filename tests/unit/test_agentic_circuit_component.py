@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -79,6 +80,9 @@ def test_consumer_designs_and_adapters_are_out_of_tree() -> None:
     for relative in (
         "library/cpp/pyc_linxtrace.hpp",
         "library/cpp/pyc_konata.hpp",
+        "designs/davincioo",
+        "examples/agentic-circuit/workspaces",
+        "third_party/references/davincioo-gfsim",
     ):
         assert not (REPOSITORY / relative).exists(), relative
 
@@ -100,6 +104,77 @@ def test_consumer_designs_and_adapters_are_out_of_tree() -> None:
     )
     for token in ("integrations/", "XiangShan", "Konata", "outerCube"):
         assert token not in repository_config
+
+    checked_roots = (
+        REPOSITORY / "compiler",
+        REPOSITORY / "flows" / "scripts",
+        REPOSITORY / "python" / "agentic-circuit" / "src",
+        REPOSITORY / "python" / "pycircuit" / "src",
+        REPOSITORY / "simulator" / "gfsim",
+        REPOSITORY / "examples" / "agentic-circuit",
+    )
+    forbidden_consumer = re.compile(
+        r"(?:davincioo|linxtrace|(?<![a-z])linx(?![a-z])|"
+        r"(?<![a-z])pto(?:[_-]|\b))",
+        re.IGNORECASE,
+    )
+    forbidden_model_abi = re.compile(
+        r"(?:load_trace_json|observations_json|trace_position|agentic-model-trace)",
+        re.IGNORECASE,
+    )
+    text_suffixes = {
+        ".c",
+        ".cc",
+        ".cpp",
+        ".h",
+        ".hpp",
+        ".json",
+        ".md",
+        ".mlir",
+        ".py",
+        ".sh",
+        ".toml",
+        ".txt",
+        ".yaml",
+        ".yml",
+    }
+    offenders = []
+    for root in checked_roots:
+        if not root.exists():
+            continue
+        for path in root.rglob("*"):
+            if not path.is_file() or path.suffix.lower() not in text_suffixes:
+                continue
+            content = path.read_text(encoding="utf-8").replace(
+                "https://pto-isa.org/", ""
+            )
+            match = forbidden_consumer.search(content)
+            if match:
+                offenders.append(
+                    f"{path.relative_to(REPOSITORY)}: forbidden {match.group(0)!r}"
+                )
+
+    abi_roots = (
+        REPOSITORY / "compiler" / "acir" / "lib" / "CodeGen",
+        REPOSITORY / "flows" / "scripts",
+        REPOSITORY / "python" / "agentic-circuit" / "src",
+        REPOSITORY / "simulator" / "gfsim" / "include" / "gfsim" / "model_api.h",
+        REPOSITORY / "examples" / "agentic-circuit",
+    )
+    for root in abi_roots:
+        paths = root.rglob("*") if root.is_dir() else (root,)
+        for path in paths:
+            if not path.is_file() or path.suffix.lower() not in text_suffixes:
+                continue
+            match = forbidden_model_abi.search(path.read_text(encoding="utf-8"))
+            if match:
+                offenders.append(
+                    f"{path.relative_to(REPOSITORY)}: forbidden model ABI "
+                    f"{match.group(0)!r}"
+                )
+    assert not offenders, "consumer coupling crossed framework boundary:\n" + "\n".join(
+        offenders
+    )
 
 
 def test_repository_layout_rejects_product_system_examples(tmp_path: Path) -> None:

@@ -673,16 +673,15 @@ llvm::Expected<GeneratedFile> modelHeader(const ModelPlan &plan,
     return generatorError("ACLOWER-OWNERSHIP",
                           "root module has no generated specialization");
   std::ostringstream output;
-  output
-      << "#pragma once\n\n#include \"generated/modules/" << root->className
-      << ".h\"\n#include \"gfsim/dispatch.h\"\n#include \"gfsim/tooling/harness.h\"\n"
-         "#include \"gfsim/object.h\"\n\n"
-         "#include <array>\n#include <string_view>\n#include <vector>\n\n"
-         "namespace acsim_generated {\n\ninline constexpr std::string_view "
-         "kBuildFingerprint = \""
-      << fingerprint.str()
-      << "\";\n\ninline const std::array<gfsim::TimeDomainRuntime, "
-      << plan.timeDomains.size() << "> kTimeDomains = {{";
+  output << "#pragma once\n\n#include \"generated/modules/" << root->className
+         << ".h\"\n#include \"gfsim/dispatch.h\"\n"
+            "#include \"gfsim/object.h\"\n\n"
+            "#include <array>\n#include <string_view>\n#include <vector>\n\n"
+            "namespace acsim_generated {\n\ninline constexpr std::string_view "
+            "kBuildFingerprint = \""
+         << fingerprint.str()
+         << "\";\n\ninline const std::array<gfsim::TimeDomainRuntime, "
+         << plan.timeDomains.size() << "> kTimeDomains = {{";
   for (auto [index, domain] : llvm::enumerate(plan.timeDomains)) {
     if (index != 0)
       output << ", ";
@@ -690,35 +689,30 @@ llvm::Expected<GeneratedFile> modelHeader(const ModelPlan &plan,
            << domain.period << ", " << domain.phase << ", " << domain.tickScale
            << "}";
   }
-  output
-      << "}};\n\nstruct DispatchAccess;\n\nclass Model final {\n"
-         "public:\n  Model();\n  void configure(const gfsim::RuntimeLimits "
-         "&limits);\n  bool loadTrace(gfsim::PtoTraceDocument document);\n  "
-         "gfsim::TerminationResult run();\n  std::string_view "
-         "buildFingerprint() const { return kBuildFingerprint; }\n  "
-         "std::span<const gfsim::TimeDomainRuntime> timeDomains() const { "
-         "return kTimeDomains; }\n  std::vector<gfsim::StatSnapshot> "
-         "statistics() const { return system_.statistics(); }\n  "
-         "std::span<const gfsim::CommittedEvent> observations() const { "
-         "return system_.observations(); }\n\nprivate:\n "
-         " "
-         "friend struct "
-         "DispatchAccess;\n  static constexpr std::size_t kTraceOwnerCount = "
-      << std::count_if(
-             plan.runtimeObjects.begin(), plan.runtimeObjects.end(),
-             [](const RuntimeObjectPlan &object) { return object.traceOwner; })
-      << ";\n  "
-      << "gfsim::SimSystem system_;\n  gfsim::ObjectId nextObjectId_ = 0;\n  "
-      << root->className << " top_;\n"
-      << "  std::array<gfsim::DispatchRow, " << plan.runtimeObjects.size()
-      << "> dispatch_;\n};\n\n} // namespace acsim_generated\n";
+  output << "}};\n\nstruct DispatchAccess;\n\nclass Model final {\n"
+            "public:\n  Model();\n  void configure(const gfsim::RuntimeLimits "
+            "&limits);\n  "
+            "gfsim::TerminationResult run();\n  std::string_view "
+            "buildFingerprint() const { return kBuildFingerprint; }\n  "
+            "std::span<const gfsim::TimeDomainRuntime> timeDomains() const { "
+            "return kTimeDomains; }\n  std::vector<gfsim::StatSnapshot> "
+            "statistics() const { return system_.statistics(); }\n  "
+            "std::span<const gfsim::CommittedEvent> observations() const { "
+            "return system_.observations(); }\n\nprivate:\n "
+            " "
+            "friend struct "
+            "DispatchAccess;\n  gfsim::SimSystem system_;\n  gfsim::ObjectId "
+            "nextObjectId_ = 0;\n  "
+         << root->className << " top_;\n"
+         << "  std::array<gfsim::DispatchRow, " << plan.runtimeObjects.size()
+         << "> dispatch_;\n};\n\n} // namespace acsim_generated\n";
   return makeFile("include/generated/model.h", output.str());
 }
 
 llvm::Expected<GeneratedFile> modelSource(const ModelPlan &plan) {
   std::ostringstream output;
   output << "#include \"generated/dispatch.h\"\n\n#include <stdexcept>\n"
-            "#include <utility>\n\n"
+            "\n"
             "namespace acsim_generated {\n\nModel::Model()\n"
             "    : system_(\"generated\"),\n"
             "      nextObjectId_(0),\n"
@@ -742,29 +736,7 @@ llvm::Expected<GeneratedFile> modelSource(const ModelPlan &plan) {
             "}\n\nvoid Model::configure(const gfsim::RuntimeLimits &limits) {\n"
             "  if (!system_.setRuntimeLimits(limits))\n"
             "    throw std::logic_error(\"ACRUN-LIMITS\");\n"
-            "}\n\nbool Model::loadTrace(gfsim::PtoTraceDocument document) {\n";
-  const auto traceOwnerCount = std::count_if(
-      plan.runtimeObjects.begin(), plan.runtimeObjects.end(),
-      [](const RuntimeObjectPlan &object) { return object.traceOwner; });
-  if (traceOwnerCount == 0) {
-    output << "  return document.records.empty();\n";
-  } else if (traceOwnerCount == 1) {
-    const RuntimeObjectPlan &traceOwner = *std::find_if(
-        plan.runtimeObjects.begin(), plan.runtimeObjects.end(),
-        [](const RuntimeObjectPlan &object) { return object.traceOwner; });
-    auto expression = runtimeObjectExpression(plan, traceOwner);
-    if (!expression)
-      return expression.takeError();
-    llvm::StringRef memberExpression(*expression);
-    if (!memberExpression.consume_front("model."))
-      return generatorError("ACLOWER-DISPATCH",
-                            "trace owner expression is not model-relative");
-    output << "  return " << memberExpression.str()
-           << ".loadDocument(std::move(document));\n";
-  } else {
-    output << "  return false;\n";
-  }
-  output << "}\n\ngfsim::TerminationResult Model::run() {\n"
+            "}\n\ngfsim::TerminationResult Model::run() {\n"
             "  return system_.run();\n}\n\n} // namespace acsim_generated\n";
   return makeFile("src/generated/model.cpp", output.str());
 }
@@ -772,47 +744,19 @@ llvm::Expected<GeneratedFile> modelSource(const ModelPlan &plan) {
 GeneratedFile mainSource() {
   return makeFile(
       "src/generated/main.cpp",
-      "#include \"generated/model.h\"\n\n#include \"llvm/Support/Error.h\"\n\n"
-      "#include <filesystem>\n#include <fstream>\n#include "
-      "<iostream>\n#include "
-      "<iterator>\n#include <string>\n#include <string_view>\n\nnamespace "
-      "{\n\nint "
-      "exitCode(gfsim::RunStatus status) {\n  switch (status) {\n  case "
-      "gfsim::RunStatus::Completed:\n    return 0;\n  case "
-      "gfsim::RunStatus::Incomplete:\n    return 7;\n  case "
-      "gfsim::RunStatus::Failed:\n    return 6;\n  }\n  return 6;\n}\n\nint "
-      "exitCode(gfsim::TerminationClass classification) {\n  switch "
+      "#include \"generated/model.h\"\n\n#include <iostream>\n#include "
+      "<string_view>\n\nnamespace {\n\nint exitCode(\n"
+      "    gfsim::TerminationClass classification) {\n  switch "
       "(classification) {\n  case gfsim::TerminationClass::Completed:\n    "
-      "return "
-      "0;\n  case gfsim::TerminationClass::Incomplete:\n    return 7;\n  case "
-      "gfsim::TerminationClass::Failed:\n    return 6;\n  }\n  return "
-      "6;\n}\n\n} "
-      "// namespace\n\nint main(int argc, char **argv) {\n  if (argc == 2 && "
-      "std::string_view(argv[1]) == \"--build-fingerprint\") {\n    std::cout "
-      "<< acsim_generated::kBuildFingerprint << '\\n';\n    return 0;\n  }\n\n "
-      " "
-      "acsim_generated::Model model;\n  if (argc == 1) {\n    "
-      "model.configure({});\n    return "
-      "exitCode(model.run().classification);\n  "
-      "}\n  if (argc != 5 || std::string_view(argv[1]) != \"--run-manifest\" "
-      "||\n"
-      "      std::string_view(argv[3]) != \"--run-result-stage\")\n    return "
-      "2;\n\n  std::ifstream input(argv[2], std::ios::binary);\n  if "
-      "(!input)\n    "
-      "return 5;\n  std::string "
-      "bytes((std::istreambuf_iterator<char>(input)),\n"
-      "                    std::istreambuf_iterator<char>());\n  "
-      "std::filesystem::path "
-      "manifestPath(argv[2]);\n  auto manifest = gfsim::loadRunManifest(\n     "
-      " "
-      "bytes, manifestPath.parent_path().string());\n  if (!manifest) {\n    "
-      "std::cerr << llvm::toString(manifest.takeError()) << '\\n';\n    return "
-      "5;\n  }\n  auto result =\n      gfsim::runGeneratedModel(model, "
-      "*manifest, "
-      "argv[4]);\n  if (!result) {\n    std::cerr << "
-      "llvm::toString(result.takeError()) << '\\n';\n    return 5;\n  }\n  "
-      "return "
-      "exitCode(result->status);\n}\n");
+      "return 0;\n  case gfsim::TerminationClass::Incomplete:\n    return "
+      "7;\n  case gfsim::TerminationClass::Failed:\n    return 6;\n  }\n  "
+      "return 6;\n}\n\n} // namespace\n\nint main(int argc, char **argv) "
+      "{\n  if (argc == 2 && std::string_view(argv[1]) == "
+      "\"--build-fingerprint\") {\n    std::cout << "
+      "acsim_generated::kBuildFingerprint << '\\n';\n    return 0;\n  }\n  if "
+      "(argc != 1)\n    return 2;\n\n  acsim_generated::Model model;\n  "
+      "model.configure({});\n  return "
+      "exitCode(model.run().classification);\n}\n");
 }
 
 std::vector<std::string> expectedPaths(const ModelPlan &plan) {
