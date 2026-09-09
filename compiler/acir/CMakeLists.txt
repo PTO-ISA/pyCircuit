@@ -222,7 +222,10 @@ if(ACIR_BUILD_TESTING)
   )
   set_tests_properties(DavinciOOTraceTests PROPERTIES
     WORKING_DIRECTORY "${ACIR_REPO_ROOT}"
-    TIMEOUT 60
+    # The release gate runs this compile-heavy reference comparison beside
+    # CodeGen and analysis tests. Its serial Linux baseline is 36 seconds, so
+    # retain a bounded timeout while allowing expected parallel contention.
+    TIMEOUT 180
     LABELS "e2e;davincioo"
     ENVIRONMENT "${_ACIR_PYTHON_TEST_ENVIRONMENT}"
   )

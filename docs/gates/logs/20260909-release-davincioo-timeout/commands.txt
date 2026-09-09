@@ -1,0 +1,4 @@
+cmake --preset dev-llvm22 -S compiler/acir
+ctest --test-dir .pycircuit_out/acir/dev-llvm22 -R '^DavinciOOTraceTests$' --output-on-failure
+ctest --test-dir .pycircuit_out/acir/dev-llvm22 --show-only=json-v1
+pre-commit run --files compiler/acir/CMakeLists.txt
