@@ -114,8 +114,7 @@ def test_consumer_designs_and_adapters_are_out_of_tree() -> None:
         REPOSITORY / "examples" / "agentic-circuit",
     )
     forbidden_consumer = re.compile(
-        r"(?:davincioo|linxtrace|(?<![a-z])linx(?![a-z])|"
-        r"(?<![a-z])pto(?:[_-]|\b))",
+        r"(?:davincioo|linxtrace|(?<![a-z])linx(?![a-z])|" r"(?<![a-z])pto(?:[_-]|\b))",
         re.IGNORECASE,
     )
     forbidden_model_abi = re.compile(
