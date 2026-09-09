@@ -1,0 +1,11 @@
+Test project /Users/zhoubot/linx-isa/tools/pyCircuit/.pycircuit_out/acir/dev-llvm22
+    Start 2: DavinciOOTraceTests
+1/1 Test #2: DavinciOOTraceTests ..............   Passed   14.13 sec
+
+100% tests passed, 0 tests failed out of 1
+
+Label Time Summary:
+davincioo    =  14.13 sec*proc (1 test)
+e2e          =  14.13 sec*proc (1 test)
+
+Total Test time (real) =  14.13 sec

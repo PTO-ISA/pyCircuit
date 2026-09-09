@@ -1,0 +1,23 @@
+{
+  "run_id": "20260909-release-davincioo-timeout",
+  "status": "passed",
+  "base_revision": "1c78ab02c43832ea97a91df9c5932e1d1f34a695",
+  "issue": 61,
+  "decision_ids": ["0232"],
+  "release_probe": {
+    "run_id": 34288505807,
+    "serial_result": "36.12 seconds passed",
+    "parallel_result": "60.03 seconds timeout",
+    "parallel_completion": "167.34 seconds total ctest wall time"
+  },
+  "change": {
+    "old_timeout_seconds": 60,
+    "new_timeout_seconds": 180,
+    "product_behavior_changed": false
+  },
+  "results": {
+    "local_davincioo_trace": "1/1 passed in 14.13 seconds",
+    "ctest_timeout_property": 180,
+    "pre_commit": "passed"
+  }
+}

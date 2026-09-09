@@ -1,0 +1,660 @@
+{
+  "backtraceGraph": {
+    "commands": [
+      "add_test"
+    ],
+    "files": [
+      "/Users/zhoubot/linx-isa/tools/pyCircuit/compiler/acir/CMakeLists.txt",
+      "/Users/zhoubot/linx-isa/tools/pyCircuit/tests/cpp/agentic-circuit/gfsim/CMakeLists.txt",
+      "/Users/zhoubot/linx-isa/tools/pyCircuit/tests/cpp/agentic-circuit/Dialect/ACIR/CMakeLists.txt",
+      "/Users/zhoubot/linx-isa/tools/pyCircuit/tests/cpp/agentic-circuit/Dialect/ACSim/CMakeLists.txt",
+      "/Users/zhoubot/linx-isa/tools/pyCircuit/tests/cpp/agentic-circuit/Analysis/CMakeLists.txt",
+      "/Users/zhoubot/linx-isa/tools/pyCircuit/tests/cpp/agentic-circuit/Bindings/CMakeLists.txt",
+      "/Users/zhoubot/linx-isa/tools/pyCircuit/tests/cpp/agentic-circuit/Conversion/CMakeLists.txt",
+      "/Users/zhoubot/linx-isa/tools/pyCircuit/tests/cpp/agentic-circuit/CodeGen/CMakeLists.txt",
+      "/Users/zhoubot/linx-isa/tools/pyCircuit/tests/cpp/agentic-circuit/Compiler/CMakeLists.txt"
+    ],
+    "nodes": [
+      {
+        "file": 0
+      },
+      {
+        "command": 0,
+        "file": 0,
+        "line": 205,
+        "parent": 0
+      },
+      {
+        "file": 0
+      },
+      {
+        "command": 0,
+        "file": 0,
+        "line": 217,
+        "parent": 2
+      },
+      {
+        "file": 0
+      },
+      {
+        "command": 0,
+        "file": 0,
+        "line": 232,
+        "parent": 4
+      },
+      {
+        "file": 0
+      },
+      {
+        "command": 0,
+        "file": 0,
+        "line": 245,
+        "parent": 6
+      },
+      {
+        "file": 0
+      },
+      {
+        "command": 0,
+        "file": 0,
+        "line": 258,
+        "parent": 8
+      },
+      {
+        "file": 0
+      },
+      {
+        "command": 0,
+        "file": 0,
+        "line": 271,
+        "parent": 10
+      },
+      {
+        "file": 0
+      },
+      {
+        "command": 0,
+        "file": 0,
+        "line": 284,
+        "parent": 12
+      },
+      {
+        "file": 0
+      },
+      {
+        "command": 0,
+        "file": 0,
+        "line": 297,
+        "parent": 14
+      },
+      {
+        "file": 0
+      },
+      {
+        "command": 0,
+        "file": 0,
+        "line": 310,
+        "parent": 16
+      },
+      {
+        "file": 1
+      },
+      {
+        "command": 0,
+        "file": 1,
+        "line": 20,
+        "parent": 18
+      },
+      {
+        "file": 2
+      },
+      {
+        "command": 0,
+        "file": 2,
+        "line": 10,
+        "parent": 20
+      },
+      {
+        "file": 2
+      },
+      {
+        "command": 0,
+        "file": 2,
+        "line": 30,
+        "parent": 22
+      },
+      {
+        "file": 3
+      },
+      {
+        "command": 0,
+        "file": 3,
+        "line": 10,
+        "parent": 24
+      },
+      {
+        "file": 3
+      },
+      {
+        "command": 0,
+        "file": 3,
+        "line": 33,
+        "parent": 26
+      },
+      {
+        "file": 4
+      },
+      {
+        "command": 0,
+        "file": 4,
+        "line": 21,
+        "parent": 28
+      },
+      {
+        "file": 4
+      },
+      {
+        "command": 0,
+        "file": 4,
+        "line": 50,
+        "parent": 30
+      },
+      {
+        "file": 5
+      },
+      {
+        "command": 0,
+        "file": 5,
+        "line": 19,
+        "parent": 32
+      },
+      {
+        "file": 6
+      },
+      {
+        "command": 0,
+        "file": 6,
+        "line": 16,
+        "parent": 34
+      },
+      {
+        "file": 7
+      },
+      {
+        "command": 0,
+        "file": 7,
+        "line": 46,
+        "parent": 36
+      },
+      {
+        "file": 8
+      },
+      {
+        "command": 0,
+        "file": 8,
+        "line": 8,
+        "parent": 38
+      }
+    ]
+  },
+  "kind": "ctestInfo",
+  "tests": [
+    {
+      "backtrace": 1,
+      "command": [
+        "/Users/zhoubot/linx-isa/tools/pyCircuit/.pycircuit_out/ac-venv/bin/python",
+        "/Users/zhoubot/linx-isa/tools/pyCircuit/tests/integration/agentic-circuit/e2e/test_workspace_examples.py",
+        "-v"
+      ],
+      "name": "WorkspaceE2ETests",
+      "properties": [
+        {
+          "name": "ENVIRONMENT",
+          "value": [
+            "AGENTIC_CIRCUIT_TEST_BUILD_DIR=/Users/zhoubot/linx-isa/tools/pyCircuit/.pycircuit_out/acir/dev-llvm22",
+            "PYTHONPATH=/Users/zhoubot/linx-isa/tools/pyCircuit/python/semantic-core/src:/Users/zhoubot/linx-isa/tools/pyCircuit/python/agentic-circuit/src:/Users/zhoubot/linx-isa/tools/pyCircuit/.pycircuit_out/acir/dev-llvm22/python"
+          ]
+        },
+        {
+          "name": "LABELS",
+          "value": [
+            "e2e",
+            "workspace"
+          ]
+        },
+        {
+          "name": "TIMEOUT",
+          "value": 300.0
+        },
+        {
+          "name": "WORKING_DIRECTORY",
+          "value": "/Users/zhoubot/linx-isa/tools/pyCircuit"
+        }
+      ]
+    },
+    {
+      "backtrace": 3,
+      "command": [
+        "/Users/zhoubot/linx-isa/tools/pyCircuit/.pycircuit_out/ac-venv/bin/python",
+        "/Users/zhoubot/linx-isa/tools/pyCircuit/tests/integration/agentic-circuit/e2e/test_davincioo_trace.py",
+        "-v"
+      ],
+      "name": "DavinciOOTraceTests",
+      "properties": [
+        {
+          "name": "ENVIRONMENT",
+          "value": [
+            "AGENTIC_CIRCUIT_TEST_BUILD_DIR=/Users/zhoubot/linx-isa/tools/pyCircuit/.pycircuit_out/acir/dev-llvm22",
+            "PYTHONPATH=/Users/zhoubot/linx-isa/tools/pyCircuit/python/semantic-core/src:/Users/zhoubot/linx-isa/tools/pyCircuit/python/agentic-circuit/src:/Users/zhoubot/linx-isa/tools/pyCircuit/.pycircuit_out/acir/dev-llvm22/python"
+          ]
+        },
+        {
+          "name": "LABELS",
+          "value": [
+            "davincioo",
+            "e2e"
+          ]
+        },
+        {
+          "name": "TIMEOUT",
+          "value": 180.0
+        },
+        {
+          "name": "WORKING_DIRECTORY",
+          "value": "/Users/zhoubot/linx-isa/tools/pyCircuit"
+        }
+      ]
+    },
+    {
+      "backtrace": 5,
+      "command": [
+        "/Users/zhoubot/linx-isa/tools/pyCircuit/.pycircuit_out/ac-venv/bin/python",
+        "/Users/zhoubot/linx-isa/tools/pyCircuit/tests/integration/agentic-circuit/e2e/test_queue_codegen.py",
+        "QueueCodegenTest.test_rule_retirement_demo_runs_through_mlir_passes_and_gfsim",
+        "-v"
+      ],
+      "name": "RuleRetirementE2ETests",
+      "properties": [
+        {
+          "name": "ENVIRONMENT",
+          "value": [
+            "AGENTIC_CIRCUIT_TEST_BUILD_DIR=/Users/zhoubot/linx-isa/tools/pyCircuit/.pycircuit_out/acir/dev-llvm22",
+            "PYTHONPATH=/Users/zhoubot/linx-isa/tools/pyCircuit/python/semantic-core/src:/Users/zhoubot/linx-isa/tools/pyCircuit/python/agentic-circuit/src:/Users/zhoubot/linx-isa/tools/pyCircuit/.pycircuit_out/acir/dev-llvm22/python"
+          ]
+        },
+        {
+          "name": "LABELS",
+          "value": [
+            "e2e",
+            "gfsim",
+            "rule"
+          ]
+        },
+        {
+          "name": "TIMEOUT",
+          "value": 60.0
+        },
+        {
+          "name": "WORKING_DIRECTORY",
+          "value": "/Users/zhoubot/linx-isa/tools/pyCircuit"
+        }
+      ]
+    },
+    {
+      "backtrace": 7,
+      "command": [
+        "/Users/zhoubot/linx-isa/tools/pyCircuit/.pycircuit_out/ac-venv/bin/python",
+        "/Users/zhoubot/linx-isa/tools/pyCircuit/tests/integration/agentic-circuit/e2e/test_queue_codegen.py",
+        "QueueCodegenTest.test_bitfield_decode_runs_through_frozen_queuegraph_and_gfsim",
+        "-v"
+      ],
+      "name": "BitfieldE2ETests",
+      "properties": [
+        {
+          "name": "ENVIRONMENT",
+          "value": [
+            "AGENTIC_CIRCUIT_TEST_BUILD_DIR=/Users/zhoubot/linx-isa/tools/pyCircuit/.pycircuit_out/acir/dev-llvm22",
+            "PYTHONPATH=/Users/zhoubot/linx-isa/tools/pyCircuit/python/semantic-core/src:/Users/zhoubot/linx-isa/tools/pyCircuit/python/agentic-circuit/src:/Users/zhoubot/linx-isa/tools/pyCircuit/.pycircuit_out/acir/dev-llvm22/python"
+          ]
+        },
+        {
+          "name": "LABELS",
+          "value": [
+            "bitfield",
+            "e2e",
+            "gfsim"
+          ]
+        },
+        {
+          "name": "TIMEOUT",
+          "value": 60.0
+        },
+        {
+          "name": "WORKING_DIRECTORY",
+          "value": "/Users/zhoubot/linx-isa/tools/pyCircuit"
+        }
+      ]
+    },
+    {
+      "backtrace": 9,
+      "command": [
+        "/Users/zhoubot/linx-isa/tools/pyCircuit/.pycircuit_out/ac-venv/bin/python",
+        "/Users/zhoubot/linx-isa/tools/pyCircuit/tests/integration/agentic-circuit/e2e/test_queue_codegen.py",
+        "QueueCodegenTest.test_nested_payload_runs_with_dependency_ordered_cpp_types",
+        "-v"
+      ],
+      "name": "NestedPayloadE2ETests",
+      "properties": [
+        {
+          "name": "ENVIRONMENT",
+          "value": [
+            "AGENTIC_CIRCUIT_TEST_BUILD_DIR=/Users/zhoubot/linx-isa/tools/pyCircuit/.pycircuit_out/acir/dev-llvm22",
+            "PYTHONPATH=/Users/zhoubot/linx-isa/tools/pyCircuit/python/semantic-core/src:/Users/zhoubot/linx-isa/tools/pyCircuit/python/agentic-circuit/src:/Users/zhoubot/linx-isa/tools/pyCircuit/.pycircuit_out/acir/dev-llvm22/python"
+          ]
+        },
+        {
+          "name": "LABELS",
+          "value": [
+            "e2e",
+            "gfsim",
+            "nested-payload"
+          ]
+        },
+        {
+          "name": "TIMEOUT",
+          "value": 60.0
+        },
+        {
+          "name": "WORKING_DIRECTORY",
+          "value": "/Users/zhoubot/linx-isa/tools/pyCircuit"
+        }
+      ]
+    },
+    {
+      "backtrace": 11,
+      "command": [
+        "/Users/zhoubot/linx-isa/tools/pyCircuit/.pycircuit_out/ac-venv/bin/python",
+        "/Users/zhoubot/linx-isa/tools/pyCircuit/tests/integration/agentic-circuit/e2e/test_queue_codegen.py",
+        "QueueCodegenTest.test_nominal_enum_nested_payload_runs_in_gfsim",
+        "-v"
+      ],
+      "name": "EnumPayloadE2ETests",
+      "properties": [
+        {
+          "name": "ENVIRONMENT",
+          "value": [
+            "AGENTIC_CIRCUIT_TEST_BUILD_DIR=/Users/zhoubot/linx-isa/tools/pyCircuit/.pycircuit_out/acir/dev-llvm22",
+            "PYTHONPATH=/Users/zhoubot/linx-isa/tools/pyCircuit/python/semantic-core/src:/Users/zhoubot/linx-isa/tools/pyCircuit/python/agentic-circuit/src:/Users/zhoubot/linx-isa/tools/pyCircuit/.pycircuit_out/acir/dev-llvm22/python"
+          ]
+        },
+        {
+          "name": "LABELS",
+          "value": [
+            "e2e",
+            "enum-payload",
+            "gfsim"
+          ]
+        },
+        {
+          "name": "TIMEOUT",
+          "value": 60.0
+        },
+        {
+          "name": "WORKING_DIRECTORY",
+          "value": "/Users/zhoubot/linx-isa/tools/pyCircuit"
+        }
+      ]
+    },
+    {
+      "backtrace": 13,
+      "command": [
+        "/Users/zhoubot/linx-isa/tools/pyCircuit/.pycircuit_out/ac-venv/bin/python",
+        "/Users/zhoubot/linx-isa/tools/pyCircuit/tests/integration/agentic-circuit/e2e/test_queue_codegen.py",
+        "QueueCodegenTest.test_tuple_and_value_array_payload_runs_packed_in_gfsim",
+        "-v"
+      ],
+      "name": "AggregatePayloadE2ETests",
+      "properties": [
+        {
+          "name": "ENVIRONMENT",
+          "value": [
+            "AGENTIC_CIRCUIT_TEST_BUILD_DIR=/Users/zhoubot/linx-isa/tools/pyCircuit/.pycircuit_out/acir/dev-llvm22",
+            "PYTHONPATH=/Users/zhoubot/linx-isa/tools/pyCircuit/python/semantic-core/src:/Users/zhoubot/linx-isa/tools/pyCircuit/python/agentic-circuit/src:/Users/zhoubot/linx-isa/tools/pyCircuit/.pycircuit_out/acir/dev-llvm22/python"
+          ]
+        },
+        {
+          "name": "LABELS",
+          "value": [
+            "aggregate-payload",
+            "e2e",
+            "gfsim"
+          ]
+        },
+        {
+          "name": "TIMEOUT",
+          "value": 60.0
+        },
+        {
+          "name": "WORKING_DIRECTORY",
+          "value": "/Users/zhoubot/linx-isa/tools/pyCircuit"
+        }
+      ]
+    },
+    {
+      "backtrace": 15,
+      "command": [
+        "/Users/zhoubot/linx-isa/tools/pyCircuit/.pycircuit_out/ac-venv/bin/python",
+        "/Users/zhoubot/linx-isa/tools/pyCircuit/tests/integration/agentic-circuit/e2e/test_queue_codegen.py",
+        "QueueCodegenTest.test_recursive_nominal_aggregate_payload_runs_packed_in_gfsim",
+        "-v"
+      ],
+      "name": "RecursiveAggregatePayloadE2ETests",
+      "properties": [
+        {
+          "name": "ENVIRONMENT",
+          "value": [
+            "AGENTIC_CIRCUIT_TEST_BUILD_DIR=/Users/zhoubot/linx-isa/tools/pyCircuit/.pycircuit_out/acir/dev-llvm22",
+            "PYTHONPATH=/Users/zhoubot/linx-isa/tools/pyCircuit/python/semantic-core/src:/Users/zhoubot/linx-isa/tools/pyCircuit/python/agentic-circuit/src:/Users/zhoubot/linx-isa/tools/pyCircuit/.pycircuit_out/acir/dev-llvm22/python"
+          ]
+        },
+        {
+          "name": "LABELS",
+          "value": [
+            "aggregate-payload",
+            "e2e",
+            "gfsim",
+            "recursive-payload"
+          ]
+        },
+        {
+          "name": "TIMEOUT",
+          "value": 60.0
+        },
+        {
+          "name": "WORKING_DIRECTORY",
+          "value": "/Users/zhoubot/linx-isa/tools/pyCircuit"
+        }
+      ]
+    },
+    {
+      "backtrace": 17,
+      "command": [
+        "/Users/zhoubot/linx-isa/tools/pyCircuit/.pycircuit_out/ac-venv/bin/python",
+        "/Users/zhoubot/linx-isa/tools/pyCircuit/tests/python/agentic-circuit/tools/test_pyc_verilog_backend.py",
+        "-v"
+      ],
+      "name": "PycVerilogBackendTests",
+      "properties": [
+        {
+          "name": "ENVIRONMENT",
+          "value": [
+            "AGENTIC_CIRCUIT_TEST_BUILD_DIR=/Users/zhoubot/linx-isa/tools/pyCircuit/.pycircuit_out/acir/dev-llvm22",
+            "PYTHONPATH=/Users/zhoubot/linx-isa/tools/pyCircuit/python/semantic-core/src:/Users/zhoubot/linx-isa/tools/pyCircuit/python/agentic-circuit/src:/Users/zhoubot/linx-isa/tools/pyCircuit/.pycircuit_out/acir/dev-llvm22/python"
+          ]
+        },
+        {
+          "name": "LABELS",
+          "value": [
+            "pyc",
+            "verilog"
+          ]
+        },
+        {
+          "name": "TIMEOUT",
+          "value": 30.0
+        },
+        {
+          "name": "WORKING_DIRECTORY",
+          "value": "/Users/zhoubot/linx-isa/tools/pyCircuit"
+        }
+      ]
+    },
+    {
+      "backtrace": 19,
+      "command": [
+        "/Users/zhoubot/linx-isa/tools/pyCircuit/.pycircuit_out/acir/dev-llvm22/bin/GfsimTests"
+      ],
+      "name": "GfsimTests",
+      "properties": [
+        {
+          "name": "WORKING_DIRECTORY",
+          "value": "/Users/zhoubot/linx-isa/tools/pyCircuit/.pycircuit_out/acir/dev-llvm22/tests/cpp/gfsim"
+        }
+      ]
+    },
+    {
+      "backtrace": 21,
+      "command": [
+        "/Users/zhoubot/linx-isa/tools/pyCircuit/.pycircuit_out/acir/dev-llvm22/bin/ACIRTypesTests"
+      ],
+      "name": "ACIRTypesTests",
+      "properties": [
+        {
+          "name": "WORKING_DIRECTORY",
+          "value": "/Users/zhoubot/linx-isa/tools/pyCircuit/.pycircuit_out/acir/dev-llvm22/tests/cpp/Dialect/ACIR"
+        }
+      ]
+    },
+    {
+      "backtrace": 23,
+      "command": [
+        "/Users/zhoubot/linx-isa/tools/pyCircuit/.pycircuit_out/acir/dev-llvm22/bin/ACIROpsTests"
+      ],
+      "name": "ACIROpsTests",
+      "properties": [
+        {
+          "name": "WORKING_DIRECTORY",
+          "value": "/Users/zhoubot/linx-isa/tools/pyCircuit/.pycircuit_out/acir/dev-llvm22/tests/cpp/Dialect/ACIR"
+        }
+      ]
+    },
+    {
+      "backtrace": 25,
+      "command": [
+        "/Users/zhoubot/linx-isa/tools/pyCircuit/.pycircuit_out/acir/dev-llvm22/bin/ACSimTypesTests"
+      ],
+      "name": "ACSimTypesTests",
+      "properties": [
+        {
+          "name": "WORKING_DIRECTORY",
+          "value": "/Users/zhoubot/linx-isa/tools/pyCircuit/.pycircuit_out/acir/dev-llvm22/tests/cpp/Dialect/ACSim"
+        }
+      ]
+    },
+    {
+      "backtrace": 27,
+      "command": [
+        "/Users/zhoubot/linx-isa/tools/pyCircuit/.pycircuit_out/acir/dev-llvm22/bin/ACSimOpsTests"
+      ],
+      "name": "ACSimOpsTests",
+      "properties": [
+        {
+          "name": "WORKING_DIRECTORY",
+          "value": "/Users/zhoubot/linx-isa/tools/pyCircuit/.pycircuit_out/acir/dev-llvm22/tests/cpp/Dialect/ACSim"
+        }
+      ]
+    },
+    {
+      "backtrace": 29,
+      "command": [
+        "/Users/zhoubot/linx-isa/tools/pyCircuit/.pycircuit_out/acir/dev-llvm22/bin/ACIRModelAnalysisTests"
+      ],
+      "name": "ACIRModelAnalysisTests",
+      "properties": [
+        {
+          "name": "WORKING_DIRECTORY",
+          "value": "/Users/zhoubot/linx-isa/tools/pyCircuit/.pycircuit_out/acir/dev-llvm22/tests/cpp/Analysis"
+        }
+      ]
+    },
+    {
+      "backtrace": 31,
+      "command": [
+        "/Users/zhoubot/linx-isa/tools/pyCircuit/.pycircuit_out/acir/dev-llvm22/bin/ACIRProcessStatePlanTests"
+      ],
+      "name": "ACIRProcessStatePlanTests",
+      "properties": [
+        {
+          "name": "WORKING_DIRECTORY",
+          "value": "/Users/zhoubot/linx-isa/tools/pyCircuit/.pycircuit_out/acir/dev-llvm22/tests/cpp/Analysis"
+        }
+      ]
+    },
+    {
+      "backtrace": 33,
+      "command": [
+        "/Users/zhoubot/linx-isa/tools/pyCircuit/.pycircuit_out/acir/dev-llvm22/bin/ACIRBindingTests"
+      ],
+      "name": "ACIRBindingTests",
+      "properties": [
+        {
+          "name": "WORKING_DIRECTORY",
+          "value": "/Users/zhoubot/linx-isa/tools/pyCircuit/.pycircuit_out/acir/dev-llvm22/tests/cpp/Bindings"
+        }
+      ]
+    },
+    {
+      "backtrace": 35,
+      "command": [
+        "/Users/zhoubot/linx-isa/tools/pyCircuit/.pycircuit_out/acir/dev-llvm22/bin/ACIRToACSimTests"
+      ],
+      "name": "ACIRToACSimTests",
+      "properties": [
+        {
+          "name": "WORKING_DIRECTORY",
+          "value": "/Users/zhoubot/linx-isa/tools/pyCircuit/.pycircuit_out/acir/dev-llvm22/tests/cpp/Conversion"
+        }
+      ]
+    },
+    {
+      "backtrace": 37,
+      "command": [
+        "/Users/zhoubot/linx-isa/tools/pyCircuit/.pycircuit_out/acir/dev-llvm22/bin/CodeGenTests"
+      ],
+      "name": "CodeGenTests",
+      "properties": [
+        {
+          "name": "WORKING_DIRECTORY",
+          "value": "/Users/zhoubot/linx-isa/tools/pyCircuit/.pycircuit_out/acir/dev-llvm22/tests/cpp/CodeGen"
+        }
+      ]
+    },
+    {
+      "backtrace": 39,
+      "command": [
+        "/Users/zhoubot/linx-isa/tools/pyCircuit/.pycircuit_out/acir/dev-llvm22/bin/CompilerTests"
+      ],
+      "name": "CompilerTests",
+      "properties": [
+        {
+          "name": "WORKING_DIRECTORY",
+          "value": "/Users/zhoubot/linx-isa/tools/pyCircuit/.pycircuit_out/acir/dev-llvm22/tests/cpp/Compiler"
+        }
+      ]
+    }
+  ],
+  "version": {
+    "major": 1,
+    "minor": 0
+  }
+}
