@@ -409,11 +409,40 @@
           ],
           "type": "object"
         },
-        "pycircuit-hisi": {
+        "pycircuit-hisi-linux-x86_64": {
           "additionalProperties": false,
           "properties": {
             "name": {
-              "minLength": 1,
+              "pattern": "^pycircuit_hisi-[0-9]+\\.[0-9]+\\.[0-9]+-py3-none-linux_x86_64\\.whl$",
+              "type": "string"
+            },
+            "sha256": {
+              "pattern": "^sha256:[0-9a-f]{64}$",
+              "type": "string"
+            },
+            "size": {
+              "minimum": 1,
+              "type": "integer"
+            },
+            "url": {
+              "format": "uri",
+              "pattern": "^https://github\\.com/PTO-ISA/pyCircuit/releases/download/v[0-9]+\\.[0-9]+\\.[0-9]+/[A-Za-z0-9._+-]+$",
+              "type": "string"
+            }
+          },
+          "required": [
+            "name",
+            "sha256",
+            "size",
+            "url"
+          ],
+          "type": "object"
+        },
+        "pycircuit-hisi-macos-arm64": {
+          "additionalProperties": false,
+          "properties": {
+            "name": {
+              "pattern": "^pycircuit_hisi-[0-9]+\\.[0-9]+\\.[0-9]+-py3-none-macosx_[0-9]+_[0-9]+_arm64\\.whl$",
               "type": "string"
             },
             "sha256": {
@@ -469,7 +498,8 @@
         }
       },
       "required": [
-        "pycircuit-hisi",
+        "pycircuit-hisi-linux-x86_64",
+        "pycircuit-hisi-macos-arm64",
         "pycircuit-semantic-core",
         "agentic-circuit"
       ],

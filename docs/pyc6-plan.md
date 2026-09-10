@@ -79,12 +79,15 @@ canonical-PYC Table admission and the remaining C++/Verilog Table parity.
   statistics, and error reporting.
 - Validate the SDK with an external vendor-neutral fixture containing no ISA,
   product, trace, or reference-model contract.
-- Implement Decision 0232 with exactly four release wheel assets: one
-  platform-specific `pycircuit-hisi` wheel for each supported platform and one
-  universal wheel each for `pycircuit-semantic-core` and `agentic-circuit`.
-- Implement Decision 0234 Part A as one source-SHA-pinned manual workflow whose
-  single candidate-acceptance barrier gates annotated-tag creation and every
-  publish job. Publish jobs consume retained accepted bytes and never rebuild.
+- Decision 0232 repository support is implemented-unverified with exactly four
+  release wheel assets: one platform-specific `pycircuit-hisi` wheel for each
+  supported platform and one universal wheel each for
+  `pycircuit-semantic-core` and `agentic-circuit`. Promotion requires the real
+  Linux and macOS candidate jobs and relocated installed-consumer evidence.
+- Decision 0234 Part A is implemented-unverified as one source-SHA-pinned
+  manual workflow whose single candidate-acceptance barrier gates annotated-tag
+  creation and every publish job. Repository tests parse the dependency DAG,
+  reject publication bypass/rebuild, and verify final attestation bindings.
 - Treat Decision 0234 Part B as the release-instance stop condition: redownload
   stable GitHub Release URLs on both platforms, rerun the relocated consumer,
   and record an immutable Actions/check-run attestation outside the release

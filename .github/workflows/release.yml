@@ -4,12 +4,13 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: Release version, matching pyproject.toml (for example 6.0.0)
+        description: Release version matching repository metadata
         required: true
         type: string
-  push:
-    tags:
-      - "v*"
+      commit_sha:
+        description: Full commit SHA to validate, package, tag, and publish
+        required: true
+        type: string
 
 permissions:
   contents: read
@@ -24,41 +25,29 @@ jobs:
   full-validation:
     name: "Release: Full AC/PYC Closure"
     if: github.repository == 'PTO-ISA/pyCircuit'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 240
     steps:
-      - name: Checkout
+      - name: Checkout exact candidate SHA
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-
+        with:
+          ref: ${{ inputs.commit_sha }}
       - name: Set up Python
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
         with:
           python-version: "3.11"
-
-      - name: Validate release version
-        shell: bash
-        env:
-          REQUESTED_VERSION: ${{ github.event_name == 'push' && github.ref_name || inputs.version }}
+      - name: Validate release version and source identity
         run: |
           set -euo pipefail
-          requested="${REQUESTED_VERSION#v}"
+          [[ "${{ inputs.commit_sha }}" =~ ^[0-9a-f]{40}$ ]]
+          test "$(git rev-parse HEAD)" = "${{ inputs.commit_sha }}"
           project="$(python3 -c 'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["project"]["version"])')"
           semantic="$(python3 -c 'import tomllib; print(tomllib.load(open("python/semantic-core/pyproject.toml", "rb"))["project"]["version"])')"
-          if [[ ! "${requested}" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.a-zA-Z0-9+-]*)?$ ]]; then
-            echo "invalid release version: ${requested}" >&2
-            exit 1
-          fi
-          if [[ "${requested}" != "${project}" ]]; then
-            echo "release version ${requested} does not match pyproject.toml ${project}" >&2
-            exit 1
-          fi
-          if [[ "${requested}" != "${semantic}" ]]; then
-            echo "release version ${requested} does not match semantic core ${semantic}" >&2
-            exit 1
-          fi
-
+          test "${{ inputs.version }}" = "${project}"
+          test "${{ inputs.version }}" = "${semantic}"
+          test "v${{ inputs.version }}" = "$(python3 -c 'import json; print(json.load(open("packaging/sdk/version-map.json"))["candidate_tag"])')"
+          ! git ls-remote --exit-code --tags origin "refs/tags/v${{ inputs.version }}"
       - name: Install Python, LLVM, and simulation dependencies
-        shell: bash
         run: |
           set -euxo pipefail
           python -m pip install -e "python/semantic-core"
@@ -72,271 +61,515 @@ jobs:
           sudo ./llvm.sh "${LLVM_VERSION}"
           sudo apt-get install -y "llvm-${LLVM_VERSION}-dev" "mlir-${LLVM_VERSION}-tools" "libmlir-${LLVM_VERSION}-dev"
           echo "/usr/lib/llvm-${LLVM_VERSION}/bin" >> "$GITHUB_PATH"
-
       - name: Setup Verilator
         uses: ./.github/actions/setup-verilator
         with:
           version: ${{ env.VERILATOR_VERSION }}
-
       - name: Build integrated toolchain
-        shell: bash
         run: |
-          set -euxo pipefail
-          PYC_BUILD_AGENTIC_CIRCUIT_TESTS=ON bash flows/scripts/pyc build \
-            --llvm-config "/usr/lib/llvm-${LLVM_VERSION}/bin/llvm-config" \
-            --build-dir "$PWD/.pycircuit_out/toolchain/build" \
-            --install-prefix "$PWD/.pycircuit_out/toolchain/install"
+          export PYC_PYTHON_EXECUTABLE="$(command -v python3)"
+          PYC_BUILD_AGENTIC_CIRCUIT_TESTS=ON bash flows/scripts/pyc build --llvm-config "/usr/lib/llvm-${LLVM_VERSION}/bin/llvm-config" --build-dir "$PWD/.pycircuit_out/toolchain/build" --install-prefix "$PWD/.pycircuit_out/toolchain/install"
           cmake --build "$PWD/.pycircuit_out/toolchain/build" --target check-acir
           ctest --test-dir "$PWD/.pycircuit_out/toolchain/build" --output-on-failure
-
       - name: Run full Agentic Circuit closure
-        shell: bash
         run: |
-          set -euxo pipefail
           export AC_GATE_TOOLCHAIN_ROOT="$PWD/.pycircuit_out/toolchain/install"
           bash flows/scripts/run_agentic_circuit.sh
-
       - name: Run full pyCircuit closure
-        shell: bash
         run: |
-          set -euxo pipefail
           export PYC_TOOLCHAIN_ROOT="$PWD/.pycircuit_out/toolchain/install"
           export PATH="$PYC_TOOLCHAIN_ROOT/bin:$PATH"
-          unset PYC_SKIP_SEMANTIC_REGRESSIONS || true
-          unset PYCC || true
+          unset PYC_SKIP_SEMANTIC_REGRESSIONS PYCC || true
           bash flows/scripts/run_examples.sh
           bash flows/scripts/run_sims.sh
           bash flows/scripts/run_sims_nightly.sh
-          python3 flows/tools/check_decision_status.py \
-            --rfc docs/rfcs/pyc6-decisions.md \
-            --status docs/gates/decision_status_v6.md \
-            --out "docs/gates/logs/${PYC_GATE_RUN_ID}/release_decision_status.json" \
-            --require-no-deferred \
-            --require-all-verified \
-            --require-concrete-evidence \
-            --require-existing-evidence
+          bash flows/scripts/run_semantic_regressions_v6.sh
+          python3 flows/tools/check_decision_status.py --rfc docs/rfcs/pyc6-decisions.md --status docs/gates/decision_status_v6.md --out "docs/gates/logs/${PYC_GATE_RUN_ID}/release_decision_status.json" --require-no-deferred --require-all-verified --require-concrete-evidence --require-existing-evidence
           mkdocs build --strict
-
       - name: Upload release gate logs
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: release-gate-logs-${{ env.PYC_GATE_RUN_ID }}
           path: docs/gates/logs/${{ env.PYC_GATE_RUN_ID }}/
-          if-no-files-found: warn
           retention-days: 30
 
-  build-packages:
-    needs: [full-validation]
+  build-platform-candidates:
+    needs: [full-validation, build-universal-wheels]
     if: github.repository == 'PTO-ISA/pyCircuit'
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
-
+        include:
+          - os: ubuntu-24.04
+            platform: linux-x86_64
+          - os: macos-15
+            platform: macos-arm64
     runs-on: ${{ matrix.os }}
-
     steps:
-      - name: Checkout
+      - name: Checkout exact candidate SHA
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-
+        with:
+          ref: ${{ inputs.commit_sha }}
       - name: Set up Python
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
         with:
           python-version: "3.11"
-
-      - name: Validate release version
-        id: version
-        shell: bash
-        env:
-          REQUESTED_VERSION: ${{ github.event_name == 'push' && github.ref_name || inputs.version }}
-        run: |
-          set -euo pipefail
-          requested="${REQUESTED_VERSION#v}"
-          project="$(python3 -c 'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["project"]["version"])')"
-          semantic="$(python3 -c 'import tomllib; print(tomllib.load(open("python/semantic-core/pyproject.toml", "rb"))["project"]["version"])')"
-          if [[ ! "${requested}" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.a-zA-Z0-9+-]*)?$ ]]; then
-            echo "invalid release version: ${requested}" >&2
-            exit 1
-          fi
-          if [[ "${requested}" != "${project}" ]]; then
-            echo "release version ${requested} does not match pyproject.toml ${project}" >&2
-            exit 1
-          fi
-          if [[ "${requested}" != "${semantic}" ]]; then
-            echo "release version ${requested} does not match semantic core ${semantic}" >&2
-            exit 1
-          fi
-          echo "version=${requested}" >> "${GITHUB_OUTPUT}"
-
-      - name: Install deps (Ubuntu)
-        if: runner.os == 'Linux'
-        run: |
-          set -euxo pipefail
-          sudo apt-get update
-          sudo apt-get install -y wget gnupg software-properties-common cmake ninja-build python3 python3-pip clang tar iverilog
-          python3 -m pip install setuptools wheel
-          wget --https-only https://apt.llvm.org/llvm.sh
-          printf '%s  %s\n' "${LLVM_INSTALL_SCRIPT_SHA256}" llvm.sh | sha256sum --check --strict
-          chmod +x llvm.sh
-          sudo ./llvm.sh "${LLVM_VERSION}"
-          sudo apt-get install -y "llvm-${LLVM_VERSION}-dev" "mlir-${LLVM_VERSION}-tools" "libmlir-${LLVM_VERSION}-dev"
-          echo "/usr/lib/llvm-${LLVM_VERSION}/bin" >> "$GITHUB_PATH"
-
-      - name: Setup Verilator (Ubuntu)
-        if: runner.os == 'Linux'
-        uses: ./.github/actions/setup-verilator
+      - name: Download retained universal wheels
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
-          version: ${{ env.VERILATOR_VERSION }}
-
-      - name: Install deps (macOS)
-        if: runner.os == 'macOS'
+          name: release-shard-universal
+          path: universal
+      - name: Install platform dependencies
         run: |
           set -euxo pipefail
-          brew update
-          brew install ninja cmake "llvm@${LLVM_VERSION}" python@3
-          python3 -m pip install setuptools wheel
-          echo "$(brew --prefix "llvm@${LLVM_VERSION}")/bin" >> "$GITHUB_PATH"
-
-      - name: Build staged toolchain
-        run: |
-          set -euxo pipefail
-          VERSION="${{ steps.version.outputs.version }}"
-          PKG="pycircuit-${VERSION}-${RUNNER_OS}-${RUNNER_ARCH}"
           if [[ "${RUNNER_OS}" == "Linux" ]]; then
-            LLVM_CONFIG="/usr/lib/llvm-${LLVM_VERSION}/bin/llvm-config"
+            sudo apt-get update
+            sudo apt-get install -y wget gnupg software-properties-common cmake ninja-build clang patchelf
+            command -v patchelf
+            wget --https-only https://apt.llvm.org/llvm.sh
+            printf '%s  %s\n' "${LLVM_INSTALL_SCRIPT_SHA256}" llvm.sh | sha256sum --check --strict
+            chmod +x llvm.sh && sudo ./llvm.sh "${LLVM_VERSION}"
+            sudo apt-get install -y "llvm-${LLVM_VERSION}-dev" "mlir-${LLVM_VERSION}-tools" "libmlir-${LLVM_VERSION}-dev"
+            echo "/usr/lib/llvm-${LLVM_VERSION}/bin" >> "$GITHUB_PATH"
           else
-            LLVM_CONFIG="$(brew --prefix "llvm@${LLVM_VERSION}")/bin/llvm-config"
+            brew install ninja cmake "llvm@${LLVM_VERSION}"
+            echo "$(brew --prefix "llvm@${LLVM_VERSION}")/bin" >> "$GITHUB_PATH"
           fi
-
-          bash flows/scripts/pyc build \
-            --llvm-config "${LLVM_CONFIG}" \
-            --build-dir "$PWD/.pycircuit_out/toolchain/build" \
-            --install-prefix "$PWD/.pycircuit_out/toolchain/install"
-
-          cmake -S . -B .pycircuit_out/toolchain/build \
-            -DCMAKE_BUILD_TYPE=Release \
-            -DCMAKE_INSTALL_PREFIX="$PWD/.pycircuit_out/toolchain/install" \
-            -DLLVM_DIR="$("${LLVM_CONFIG}" --cmakedir)" \
-            -DMLIR_DIR="$(dirname "$("${LLVM_CONFIG}" --cmakedir)")/mlir" \
-            -DCPACK_PACKAGE_VERSION="$VERSION" \
-            -DCPACK_PACKAGE_FILE_NAME="$PKG"
-          (cd .pycircuit_out/toolchain/build && cpack -G TGZ)
-
-          mkdir -p dist
-          mv ".pycircuit_out/toolchain/build/${PKG}.tar.gz" "dist/${PKG}.tar.gz"
-
-          python3 -m pip wheel --no-deps --wheel-dir "$PWD/dist" \
-            "$PWD/python/semantic-core"
-
-          python3 packaging/wheel/create_wheel.py \
+          python3 -m pip install setuptools wheel twine
+      - name: Build retained platform bytes
+        run: |
+          set -euxo pipefail
+          if [[ "${RUNNER_OS}" == "Linux" ]]; then
+            llvm_config="/usr/lib/llvm-${LLVM_VERSION}/bin/llvm-config"
+            export CC="/usr/bin/clang-${LLVM_VERSION}"
+            export CXX="/usr/bin/clang++-${LLVM_VERSION}"
+            [[ "$(${CXX} -dumpmachine)" == x86_64*-linux-* ]]
+          else
+            llvm_root="$(brew --prefix "llvm@${LLVM_VERSION}")"
+            llvm_config="${llvm_root}/bin/llvm-config"
+            export CC="/usr/bin/clang"
+            export CXX="/usr/bin/clang++"
+            export MACOSX_DEPLOYMENT_TARGET=15.0
+            [[ "$(${CXX} -dumpmachine)" == arm64-apple-* ]]
+          fi
+          export CFLAGS="-ffile-prefix-map=$GITHUB_WORKSPACE=. -fdebug-prefix-map=$GITHUB_WORKSPACE=."
+          export CXXFLAGS="$CFLAGS"
+          export PYC_PYTHON_EXECUTABLE="$(command -v python3)"
+          bash flows/scripts/pyc build --llvm-config "${llvm_config}" --build-dir "$PWD/.pycircuit_out/toolchain/build" --install-prefix "$PWD/.pycircuit_out/toolchain/install"
+          mkdir candidate
+          python3 packaging/wheel/create_wheel.py --install-dir "$PWD/.pycircuit_out/toolchain/install" --out-dir candidate --wheel-version "${{ inputs.version }}"
+          wheel="$(find candidate -maxdepth 1 -name 'pycircuit_hisi-*.whl' -print -quit)"
+          python3 packaging/sdk/create_platform_manifest.py \
             --install-dir "$PWD/.pycircuit_out/toolchain/install" \
-            --out-dir "$PWD/dist" \
-            --wheel-version "${VERSION}"
-
-          python3 -m venv .venv-wheel
-          source .venv-wheel/bin/activate
-          pip install dist/*.whl
-          export PYC_TOOLCHAIN_ROOT="$(python -c 'import pycircuit, pathlib; print((pathlib.Path(pycircuit.__file__).resolve().parent / "_toolchain").as_posix())')"
-          export PYC_USE_INSTALLED_PYTHON_PACKAGE=1
-          export PYC_SKIP_SEMANTIC_REGRESSIONS=1
-          unset PYCC
-          bash flows/scripts/run_examples.sh
-
-      - name: Upload artifact
+            --wheel "${wheel}" \
+            --wheel "$(find universal -name 'pycircuit_semantic_core-*.whl' -print -quit)" \
+            --wheel "$(find universal -name 'agentic_circuit-*.whl' -print -quit)" \
+            --platform "${{ matrix.platform }}" \
+            --source-revision "${{ inputs.commit_sha }}" \
+            --cxx-compiler "${CXX}" \
+            --out-dir candidate
+          python3 -m twine check candidate/*.whl
+      - name: Upload retained platform bytes
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
-          name: pycircuit-${{ runner.os }}-${{ runner.arch }}
-          path: |
-            dist/*.tar.gz
-            dist/*.whl
+          name: release-shard-platform-${{ matrix.platform }}
+          path: candidate/
+          if-no-files-found: error
+          retention-days: 7
 
-      - name: Check wheel metadata
-        env:
-          EXPECTED_VERSION: ${{ steps.version.outputs.version }}
+  build-universal-wheels:
+    needs: [full-validation]
+    if: github.repository == 'PTO-ISA/pyCircuit'
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout exact candidate SHA
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ inputs.commit_sha }}
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: "3.11"
+      - name: Build retained universal wheels and metadata
         run: |
-          set -euxo pipefail
-          python3 -m pip install twine
-          python3 -m twine check dist/*.whl
-          python3 -c 'import os; from pathlib import Path; from packaging.utils import parse_wheel_filename; expected=os.environ["EXPECTED_VERSION"]; versions={str(parse_wheel_filename(p.name)[1]) for p in Path("dist").glob("*.whl")}; assert versions == {expected}, f"wheel versions {versions} != {expected}"'
+          python3 -m pip install build twine
+          mkdir candidate licenses
+          python3 -m build --wheel --outdir candidate python/semantic-core
+          python3 -m build --wheel --outdir candidate python/agentic-circuit
+          python3 -m twine check candidate/*.whl
+          cp LICENSE licenses/LICENSE
+          tar --sort=name --mtime='UTC 1970-01-01' --owner=0 --group=0 --numeric-owner -czf candidate/LICENSES.tar.gz -C licenses LICENSE
+          git show -s --format='pyCircuit ${{ inputs.version }}%n%nSource revision: %H%n%n%s%n' "${{ inputs.commit_sha }}" > candidate/RELEASE_NOTES.md
+      - name: Upload retained universal bytes
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: release-shard-universal
+          path: candidate/
+          if-no-files-found: error
+          retention-days: 7
 
-  github-packages:
-    needs: [build-packages]
-    runs-on: ubuntu-latest
-    if: github.repository == 'PTO-ISA/pyCircuit' && startsWith(github.ref, 'refs/tags/v')
+  aggregate-candidate:
+    needs: [build-platform-candidates, build-universal-wheels]
+    if: github.repository == 'PTO-ISA/pyCircuit'
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout exact candidate SHA
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ inputs.commit_sha }}
+      - name: Download candidate shards
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          pattern: release-shard-*
+          path: shards
+      - name: Deterministically aggregate exact candidate set
+        run: |
+          python3 -m pip install jsonschema
+          python3 packaging/sdk/release_candidate.py aggregate --candidate-dir shards --out-dir candidate --source-revision "${{ inputs.commit_sha }}"
+          python3 tools/agentic-circuit/check-sdk-contract.py \
+            --document candidate/pycircuit-sdk-${{ inputs.version }}-release-index.json \
+            --document candidate/pycircuit-sdk-${{ inputs.version }}-linux-x86_64.manifest.json \
+            --document candidate/pycircuit-sdk-${{ inputs.version }}-macos-arm64.manifest.json \
+            --document candidate/pycircuit-sdk-${{ inputs.version }}-linux-x86_64.lock.json \
+            --document candidate/pycircuit-sdk-${{ inputs.version }}-macos-arm64.lock.json
+      - name: Upload immutable candidate
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: release-candidate-${{ inputs.commit_sha }}
+          path: candidate/
+          if-no-files-found: error
+          retention-days: 7
+
+  verify-platform-candidates:
+    needs: [aggregate-candidate]
+    if: github.repository == 'PTO-ISA/pyCircuit'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            platform: linux-x86_64
+          - os: macos-15
+            platform: macos-arm64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Checkout exact candidate SHA
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ inputs.commit_sha }}
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: "3.11"
+      - name: Download immutable candidate
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: release-candidate-${{ inputs.commit_sha }}
+          path: candidate
+      - name: Verify candidate relocation, manifest, wheels, and installed smoke
+        run: |
+          python3 -m pip install jsonschema
+          python3 tools/agentic-circuit/check-sdk-contract.py --document "candidate/pycircuit-sdk-${{ inputs.version }}-${{ matrix.platform }}.manifest.json"
+          python3 packaging/sdk/verify_platform_candidate.py \
+            --archive "candidate/pycircuit-sdk-${{ inputs.version }}-${{ matrix.platform }}.tar.gz" \
+            --manifest "candidate/pycircuit-sdk-${{ inputs.version }}-${{ matrix.platform }}.manifest.json" \
+            --forbidden-path "$GITHUB_WORKSPACE" \
+            --attestation "candidate-verification-${{ matrix.platform }}.json"
+      - name: Retain platform candidate verification
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: candidate-verification-${{ matrix.platform }}-${{ inputs.commit_sha }}
+          path: candidate-verification-${{ matrix.platform }}.json
+          if-no-files-found: error
+          retention-days: 90
+
+  accept-candidate:
+    needs: [aggregate-candidate, verify-platform-candidates]
+    if: github.repository == 'PTO-ISA/pyCircuit'
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout exact candidate SHA
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ inputs.commit_sha }}
+      - name: Download immutable candidate
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: release-candidate-${{ inputs.commit_sha }}
+          path: candidate
+      - name: Candidate acceptance barrier
+        run: mkdir evidence && python3 packaging/sdk/release_candidate.py accept --candidate-dir candidate --source-revision "${{ inputs.commit_sha }}" --attestation evidence/ACCEPTANCE.json
+      - name: Retain accepted bytes
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: accepted-release-${{ inputs.commit_sha }}
+          path: candidate/
+          if-no-files-found: error
+          retention-days: 30
+      - name: Retain acceptance evidence separately
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: release-acceptance-${{ inputs.commit_sha }}
+          path: evidence/ACCEPTANCE.json
+          if-no-files-found: error
+          retention-days: 90
+
+  create-tag:
+    needs: [accept-candidate]
+    if: github.repository == 'PTO-ISA/pyCircuit'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout exact accepted SHA
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ inputs.commit_sha }}
+          fetch-depth: 0
+      - name: Create annotated tag after acceptance
+        run: |
+          git tag -a "v${{ inputs.version }}" "${{ inputs.commit_sha }}" -m "pyCircuit ${{ inputs.version }}"
+          git push origin "refs/tags/v${{ inputs.version }}"
+
+  publish-release:
+    needs: [create-tag]
+    if: github.repository == 'PTO-ISA/pyCircuit'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+      id-token: write
+    environment:
+      name: release
+    steps:
+      - name: Download accepted bytes without rebuilding
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: accepted-release-${{ inputs.commit_sha }}
+          path: candidate
+      - name: Publish retained bytes to GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "v${{ inputs.version }}" candidate/* --repo "${{ github.repository }}" --title "pyCircuit ${{ inputs.version }}" --notes-file candidate/RELEASE_NOTES.md --verify-tag
+      - name: Select retained wheel bytes for PyPI
+        if: vars.PYC_PUBLISH_PYPI == '1'
+        run: mkdir wheels && cp candidate/*.whl wheels/
+      - name: Publish the same four retained wheels to PyPI
+        if: vars.PYC_PUBLISH_PYPI == '1'
+        uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # release/v1
+        with:
+          packages-dir: wheels
+
+  publish-ghcr:
+    needs: [create-tag]
+    if: github.repository == 'PTO-ISA/pyCircuit'
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
       packages: write
     steps:
-      - name: Download artifacts
+      - name: Download accepted bytes without rebuilding
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
-          path: dist
-          merge-multiple: true
-
+          name: accepted-release-${{ inputs.commit_sha }}
+          path: candidate
       - name: Set up ORAS
         uses: oras-project/setup-oras@22ce207df3b08e061f537244349aac6ae1d214f6 # v1
-
-      - name: Login to GHCR
-        run: echo "${{ secrets.GITHUB_TOKEN }}" | oras login ghcr.io -u "${{ github.actor }}" --password-stdin
-
-      - name: Publish GHCR artifacts
+      - name: Publish retained SDK archives to GHCR
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          set -euxo pipefail
-          VERSION="${GITHUB_REF_NAME#v}"
-          shopt -s nullglob
-          for archive in dist/*.tar.gz; do
-            base="$(basename "${archive}" .tar.gz)"
-            platform="${base#pycircuit-${VERSION}-}"
-            platform="$(echo "${platform}" | tr '[:upper:]' '[:lower:]')"
-            platform="${platform/linux-x64/linux-x86_64}"
-            platform="${platform/macos-x64/macos-x86_64}"
-            platform="${platform/macos-arm64/macos-arm64}"
-            ref="ghcr.io/pto-isa/pyc-tools-${platform}"
-            oras push "${ref}:v${VERSION}" "${archive}:application/gzip"
-            oras push "${ref}:latest" "${archive}:application/gzip"
-            oras push "${ref}:llvm22" "${archive}:application/gzip"
+          echo "${GH_TOKEN}" | oras login ghcr.io -u "${{ github.actor }}" --password-stdin
+          for platform in linux-x86_64 macos-arm64; do
+            archive="candidate/pycircuit-sdk-${{ inputs.version }}-${platform}.tar.gz"
+            oras push "ghcr.io/pto-isa/pyc-tools-${platform}:v${{ inputs.version }}" "${archive}:application/gzip"
           done
 
-  github-release:
-    needs: [build-packages]
-    runs-on: ubuntu-latest
-    if: github.repository == 'PTO-ISA/pyCircuit' && startsWith(github.ref, 'refs/tags/v')
-    permissions:
-      contents: write
-
+  verify-stable-platforms:
+    needs: [verify-published-bytes]
+    if: github.repository == 'PTO-ISA/pyCircuit'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            platform: linux-x86_64
+          - os: macos-15
+            platform: macos-arm64
+    runs-on: ${{ matrix.os }}
     steps:
-      - name: Download artifacts
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+      - name: Checkout exact candidate SHA
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          path: dist
-          merge-multiple: true
-
-      - name: Publish GitHub Release
-        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
+          ref: ${{ inputs.commit_sha }}
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
         with:
-          files: |
-            dist/*.tar.gz
-            dist/*.whl
+          python-version: "3.11"
+      - name: Redownload stable assets and verify exact bytes before execution
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 -m pip install jsonschema
+          mkdir stable
+          gh release download "v${{ inputs.version }}" --repo "${{ github.repository }}" --dir stable
+          mkdir evidence
+          python3 packaging/sdk/release_candidate.py accept \
+            --candidate-dir stable \
+            --source-revision "${{ inputs.commit_sha }}" \
+            --attestation "evidence/stable-bytes-${{ matrix.platform }}.json"
+          archive="pycircuit-sdk-${{ inputs.version }}-${{ matrix.platform }}.tar.gz"
+          manifest="pycircuit-sdk-${{ inputs.version }}-${{ matrix.platform }}.manifest.json"
+          python3 tools/agentic-circuit/check-sdk-contract.py --document "stable/${manifest}"
+          python3 packaging/sdk/verify_platform_candidate.py \
+            --archive "stable/${archive}" \
+            --manifest "stable/${manifest}" \
+            --forbidden-path "$GITHUB_WORKSPACE" \
+            --candidate-tag "v${{ inputs.version }}" \
+            --release-url "https://github.com/${{ github.repository }}/releases/tag/v${{ inputs.version }}" \
+            --attestation "evidence/stable-platform-${{ matrix.platform }}.json"
+      - name: Retain stable platform verification
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: stable-verification-${{ matrix.platform }}-${{ inputs.commit_sha }}
+          path: evidence/*.json
+          if-no-files-found: error
+          retention-days: 90
 
-  pypi-publish:
-    needs: [build-packages]
-    runs-on: ubuntu-latest
-    if: github.repository == 'PTO-ISA/pyCircuit' && startsWith(github.ref, 'refs/tags/v') && vars.PYC_PUBLISH_PYPI == '1'
+  verify-published-bytes:
+    needs: [publish-release]
+    if: github.repository == 'PTO-ISA/pyCircuit'
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
-      id-token: write
-    environment:
-      name: pypi
     steps:
-      - name: Download wheel artifacts
+      - name: Checkout exact candidate SHA
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ inputs.commit_sha }}
+      - name: Download accepted release index
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
-          path: dist
-          merge-multiple: true
-
-      - name: Publish to PyPI
-        uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # release/v1
+          name: accepted-release-${{ inputs.commit_sha }}
+          path: candidate
+      - name: Verify stable GitHub Release URLs serve accepted bytes
+        run: python3 packaging/sdk/release_candidate.py verify-published --release-index "candidate/pycircuit-sdk-${{ inputs.version }}-release-index.json" --candidate-dir candidate --attestation publication-attestation.json
+      - name: Retain publication attestation as Actions evidence
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
-          packages-dir: dist
-          skip-existing: true
+          name: publication-attestation-${{ inputs.commit_sha }}
+          path: publication-attestation.json
+          if-no-files-found: error
+          retention-days: 90
+      - name: Add publication result to workflow summary
+        run: cat publication-attestation.json >> "$GITHUB_STEP_SUMMARY"
+
+  release-attestation:
+    needs: [verify-published-bytes, verify-stable-platforms, publish-ghcr]
+    if: github.repository == 'PTO-ISA/pyCircuit'
+    runs-on: ubuntu-24.04
+    permissions:
+      actions: read
+      contents: write
+      issues: write
+    steps:
+      - name: Download publication verification
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: publication-attestation-${{ inputs.commit_sha }}
+          path: evidence/publication
+      - name: Download stable platform verification
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          pattern: stable-verification-*-${{ inputs.commit_sha }}
+          path: evidence/platforms
+          merge-multiple: true
+      - name: Create immutable final release attestation
+        env:
+          CANDIDATE_TAG: v${{ inputs.version }}
+          RELEASE_URL: https://github.com/${{ github.repository }}/releases/tag/v${{ inputs.version }}
+          SOURCE_REVISION: ${{ inputs.commit_sha }}
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          publication = json.loads(
+              Path("evidence/publication/publication-attestation.json").read_text()
+          )
+          platforms = [
+              json.loads(path.read_text())
+              for path in sorted(Path("evidence/platforms").glob("stable-platform-*.json"))
+          ]
+          source_revision = os.environ["SOURCE_REVISION"]
+          candidate_tag = os.environ["CANDIDATE_TAG"]
+          release_url = os.environ["RELEASE_URL"]
+          if (
+              publication.get("schema")
+              != "pycircuit-release-publication-attestation"
+              or publication.get("verified") is not True
+              or publication.get("source_revision") != source_revision
+              or publication.get("candidate_tag") != candidate_tag
+              or not publication.get("assets")
+              or any(
+                  not item.get("url", "").startswith(release_url + "/")
+                  for item in publication["assets"]
+              )
+          ):
+              raise SystemExit("publication attestation is not bound to this release")
+          if {item["platform"] for item in platforms} != {
+              "linux-x86_64",
+              "macos-arm64",
+          }:
+              raise SystemExit("both stable platform attestations are required")
+          for item in platforms:
+              if (
+                  item.get("schema") != "pycircuit-platform-verification"
+                  or item.get("verified") is not True
+                  or item.get("source_revision") != source_revision
+                  or item.get("candidate_tag") != candidate_tag
+                  or item.get("release_url") != release_url
+                  or item.get("relocated_model_consumer") is not True
+                  or item.get("incremental_determinism") is not True
+                  or item.get("topology_change") is not True
+                  or item.get("parallel_same_root") is not True
+                  or item.get("mismatch_rejection") is not True
+                  or item.get("unsupported_boundary_rejection") is not True
+              ):
+                  raise SystemExit(
+                      "platform attestation is not bound to this release"
+                  )
+          result = {
+              "schema": "pycircuit-release-final-attestation",
+              "version": "1",
+              "source_revision": source_revision,
+              "candidate_tag": candidate_tag,
+              "release_url": release_url,
+              "publication": publication,
+              "platforms": platforms,
+              "ghcr_retained_archives": True,
+              "verified": True,
+          }
+          Path("release-final-attestation.json").write_text(
+              json.dumps(result, indent=2, sort_keys=True) + "\n"
+          )
+          PY
+      - name: Retain final release attestation outside release assets
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: release-final-attestation-${{ inputs.commit_sha }}
+          path: release-final-attestation.json
+          if-no-files-found: error
+          retention-days: 90
+      - name: Publish final verification summary
+        run: cat release-final-attestation.json >> "$GITHUB_STEP_SUMMARY"
+      - name: Link immutable verification from release and issue 61
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ATTESTATION_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          gh release view "v${{ inputs.version }}" --json body --jq .body > release-notes.md
+          printf '\n\nVerification attestation: %s\n' "${ATTESTATION_URL}" >> release-notes.md
+          gh release edit "v${{ inputs.version }}" --notes-file release-notes.md
+          gh issue comment 61 --body "Release v${{ inputs.version }} verification attestation: ${ATTESTATION_URL}"

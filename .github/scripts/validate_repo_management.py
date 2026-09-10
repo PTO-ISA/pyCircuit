@@ -24,6 +24,95 @@ def require(condition: bool, message: str, errors: list[str]) -> None:
         errors.append(message)
 
 
+def validate_release_graph(document: object) -> list[str]:
+    errors: list[str] = []
+    if not isinstance(document, dict) or not isinstance(document.get("jobs"), dict):
+        return ["release workflow must contain a jobs mapping"]
+    jobs = document["jobs"]
+
+    def needs(name: str) -> tuple[str, ...]:
+        job = jobs.get(name)
+        if not isinstance(job, dict):
+            return ()
+        value = job.get("needs", ())
+        if isinstance(value, str):
+            return (value,)
+        if isinstance(value, list) and all(isinstance(item, str) for item in value):
+            return tuple(value)
+        return ()
+
+    def ancestors(name: str, active: frozenset[str] = frozenset()) -> set[str]:
+        if name in active:
+            errors.append(f"release job dependency cycle includes {name}")
+            return set()
+        result: set[str] = set()
+        for dependency in needs(name):
+            if dependency not in jobs:
+                errors.append(f"release job {name} needs unknown job {dependency}")
+                continue
+            result.add(dependency)
+            result.update(ancestors(dependency, active | {name}))
+        return result
+
+    for name in (
+        "accept-candidate",
+        "create-tag",
+        "publish-release",
+        "publish-ghcr",
+        "verify-published-bytes",
+        "verify-stable-platforms",
+        "release-attestation",
+    ):
+        if name not in jobs:
+            errors.append(f"release workflow is missing job {name}")
+
+    for name in ("create-tag", "publish-release", "publish-ghcr"):
+        if name in jobs and "accept-candidate" not in ancestors(name):
+            errors.append(f"release publication job {name} bypasses accept-candidate")
+
+    rebuild_markers = (
+        "flows/scripts/pyc build",
+        "cmake --build",
+        "python3 -m build",
+        "create_wheel.py",
+        "acir-queue-cxxgen",
+    )
+    for name in ("publish-release", "publish-ghcr"):
+        job = jobs.get(name)
+        if not isinstance(job, dict):
+            continue
+        steps = job.get("steps", [])
+        if not isinstance(steps, list):
+            errors.append(f"release publication job {name} has invalid steps")
+            continue
+        uses = [step.get("uses", "") for step in steps if isinstance(step, dict)]
+        if not any("actions/download-artifact" in value for value in uses):
+            errors.append(f"release publication job {name} does not download accepted bytes")
+        commands = "\n".join(
+            str(step.get("run", "")) for step in steps if isinstance(step, dict)
+        )
+        for marker in rebuild_markers:
+            if marker in commands:
+                errors.append(
+                    f"release publication job {name} rebuilds candidate bytes: {marker}"
+                )
+
+    if "verify-published-bytes" in jobs and "publish-release" not in ancestors(
+        "verify-published-bytes"
+    ):
+        errors.append("published-byte verification does not depend on release publication")
+    if "verify-stable-platforms" in jobs and "verify-published-bytes" not in ancestors(
+        "verify-stable-platforms"
+    ):
+        errors.append("stable platform verification bypasses published-byte verification")
+    if "release-attestation" in jobs:
+        final_ancestors = ancestors("release-attestation")
+        for required in ("verify-published-bytes", "verify-stable-platforms"):
+            if required not in final_ancestors:
+                errors.append(f"final release attestation bypasses {required}")
+    return errors
+
+
 def main() -> int:
     errors: list[str] = []
 
@@ -102,6 +191,11 @@ def main() -> int:
     )
 
     release = read(".github/workflows/release.yml")
+    try:
+        release_document = yaml.safe_load(release)
+    except yaml.YAMLError:
+        release_document = None
+    errors.extend(validate_release_graph(release_document))
     for command in (
         "LLVM_INSTALL_SCRIPT_SHA256",
         "sha256sum --check --strict",
@@ -124,18 +218,45 @@ def main() -> int:
         errors,
     )
     require(
-        '--wheel-version "${VERSION}"' in release,
-        "release must pass the tag-derived version to wheel creation",
+        '--wheel-version "${{ inputs.version }}"' in release,
+        "release must pass the validated dispatch version to wheel creation",
         errors,
     )
     require(
-        "Validate release version" in release,
-        "release must validate tag/project/wheel version consistency",
+        "Validate release version and source identity" in release,
+        "release must validate SHA/project/wheel version consistency",
         errors,
     )
     require(
-        release.count("github.repository == 'PTO-ISA/pyCircuit'") >= 4,
+        release.count("github.repository == 'PTO-ISA/pyCircuit'") >= 7,
         "every release job must be restricted to the canonical PTO-ISA repository",
+        errors,
+    )
+    require(
+        re.search(r"(?m)^\s+push:\s*$", release) is None,
+        "tag pushes must not trigger publication",
+        errors,
+    )
+    for marker in (
+        "commit_sha:",
+        "ref: ${{ inputs.commit_sha }}",
+        "aggregate-candidate:",
+        "accept-candidate:",
+        "needs: [accept-candidate]",
+        "git tag -a",
+        "Download accepted bytes without rebuilding",
+        "verify-published",
+    ):
+        require(
+            marker in release,
+            f"release is missing immutable-candidate contract: {marker}",
+            errors,
+        )
+    require(
+        release.find("accept-candidate:")
+        < release.find("create-tag:")
+        < release.find("publish-release:"),
+        "release must accept the candidate before tagging and publishing",
         errors,
     )
     global_permissions = release.split("env:", 1)[0]

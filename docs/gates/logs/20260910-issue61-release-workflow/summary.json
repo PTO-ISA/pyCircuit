@@ -1,0 +1,16 @@
+{
+  "base_revision": "bd44e8a5",
+  "decision_ids": ["0232", "0234"],
+  "issue": 61,
+  "local_gap": "The host Python 3.11 venv/ensurepip aborts; full relocated install remains a two-platform Actions gate.",
+  "results": {
+    "contracts": {"passed": 7, "failed": 0},
+    "docs": {"passed": true},
+    "fresh_python311_toolchain": {"passed": true},
+    "macos_exact_candidate_closure": {"passed": true},
+    "repository_validator": {"passed": true},
+    "sdk_checker": {"schemas": 6, "documents": 6, "passed": true}
+  },
+  "run_id": "20260910-issue61-release-workflow",
+  "status": "implemented-unverified"
+}

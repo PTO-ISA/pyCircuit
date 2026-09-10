@@ -83,11 +83,17 @@
       "size": 1,
       "url": "https://github.com/PTO-ISA/pyCircuit/releases/download/v6.0.0/agentic_circuit-0.1.0-py3-none-any.whl"
     },
-    "pycircuit-hisi": {
+    "pycircuit-hisi-linux-x86_64": {
       "name": "pycircuit_hisi-6.0.0-py3-none-linux_x86_64.whl",
       "sha256": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
       "size": 1,
       "url": "https://github.com/PTO-ISA/pyCircuit/releases/download/v6.0.0/pycircuit_hisi-6.0.0-py3-none-linux_x86_64.whl"
+    },
+    "pycircuit-hisi-macos-arm64": {
+      "name": "pycircuit_hisi-6.0.0-py3-none-macosx_15_0_arm64.whl",
+      "sha256": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "size": 1,
+      "url": "https://github.com/PTO-ISA/pyCircuit/releases/download/v6.0.0/pycircuit_hisi-6.0.0-py3-none-macosx_15_0_arm64.whl"
     },
     "pycircuit-semantic-core": {
       "name": "pycircuit_semantic_core-6.0.0-py3-none-any.whl",
