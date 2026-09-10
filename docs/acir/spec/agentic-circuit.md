@@ -72,11 +72,12 @@ requirement-by-requirement status.
 ### Accepted 6.0 release-train decisions
 
 Decisions 0236 through 0241 freeze the remaining issue contracts for release
-6.0.0, but their rows in
-[`decision_status_v6.md`](../../gates/decision_status_v6.md) remain `deferred`.
-They do not describe implemented behavior until concrete gate evidence moves
-the corresponding row to `implemented-verified`. Until then, the current
-limitations documented later in this manual remain authoritative.
+6.0.0. Decision 0236 is implemented-verified; Decisions 0237 through 0241 remain
+`deferred` in
+[`decision_status_v6.md`](../../gates/decision_status_v6.md). A deferred
+decision does not describe implemented behavior until concrete gate evidence
+moves its row to `implemented-verified`; the current limitations documented
+later in this manual remain authoritative for those decisions.
 
 - Decision 0236 keeps `@ac.rule` as the only public scheduling boundary and
   assigns complete atomic transaction formation to the compiler (#28).

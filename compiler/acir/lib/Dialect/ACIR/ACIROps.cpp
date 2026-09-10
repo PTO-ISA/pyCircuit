@@ -523,10 +523,9 @@ LogicalResult RuleOp::verify() {
             "output presence must uniquely name one rule result");
       if (!presenceImpliesCandidate(output.getWhen(), conditionValue) ||
           (output.getWhen() != conditionValue &&
-           (getInputs().size() != 1 ||
-            constantVarBool(conditionValue) != true)))
+           constantVarBool(conditionValue) != true))
         return output.emitOpError(
-            "optional output presence requires one input and a true candidate");
+            "optional output presence requires a true candidate");
     }
     for (TableProposeOp proposal : proposals) {
       if (!proposal.getWhen() ||
@@ -534,9 +533,9 @@ LogicalResult RuleOp::verify() {
         return proposal.emitOpError(
             "state proposal presence must imply the rule condition");
       if (proposal.getWhen() != conditionValue) {
-        if (getInputs().size() != 1)
+        if (constantVarBool(conditionValue) != true)
           return proposal.emitOpError(
-              "conditional-effect presence requires one input");
+              "conditional-effect presence requires a true candidate");
       }
     }
   }
@@ -1154,9 +1153,9 @@ LogicalResult FiringOp::verify() {
             "output presence must uniquely name one firing result");
       if (!presenceImpliesCandidate(output.getWhen(), condition) ||
           (output.getWhen() != condition &&
-           (getInputs().size() != 1 || constantVarBool(condition) != true)))
+           constantVarBool(condition) != true))
         return output.emitOpError(
-            "optional output presence requires one input and a true candidate");
+            "optional output presence requires a true candidate");
     }
     for (TableProposeOp proposal : proposals) {
       if (!proposal.getWhen() ||
@@ -1164,9 +1163,9 @@ LogicalResult FiringOp::verify() {
         return proposal.emitOpError(
             "state proposal presence must imply the firing condition");
       if (proposal.getWhen() != condition) {
-        if (getInputs().size() != 1)
+        if (constantVarBool(condition) != true)
           return proposal.emitOpError(
-              "conditional-effect presence requires one input");
+              "conditional-effect presence requires a true candidate");
       }
     }
   }

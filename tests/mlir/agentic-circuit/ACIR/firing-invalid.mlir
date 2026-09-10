@@ -102,7 +102,7 @@ module attributes {ac.contract_epoch = "0.5"} {
   } : (!ac.queue<i32>) -> !ac.queue<i32>
 }
 
-// OPTIONAL-OUTPUT: optional output presence requires one input and a true candidate
+// OPTIONAL-OUTPUT: optional output presence requires a true candidate
 
 //--- presence-does-not-imply.mlir
 module attributes {ac.contract_epoch = "0.5"} {

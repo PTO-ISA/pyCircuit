@@ -27,10 +27,11 @@
 
 ### 已接受但尚未实现的 6.0 release-train decisions
 
-Decision 0236–0241 已冻结 release 6.0.0 的剩余 issue 合同，但它们在
+Decision 0236–0241 已冻结 release 6.0.0 的剩余 issue 合同。Decision 0236
+已为 `implemented-verified`；Decision 0237–0241 在
 [`decision_status_v6.md`](../../gates/decision_status_v6.md) 中仍为 `deferred`。
-在具体 gate 证据将对应行推进到 `implemented-verified` 前，这些 decision 不代表
-当前实现；本文后续写明的现有限制仍然有效。
+在具体 gate 证据将对应行推进到 `implemented-verified` 前，deferred decision
+不代表当前实现；本文后续写明的现有限制仍然有效。
 
 - Decision 0236 保持 `@ac.rule` 为唯一公共调度边界，由编译器形成完整原子事务
   （#28）。

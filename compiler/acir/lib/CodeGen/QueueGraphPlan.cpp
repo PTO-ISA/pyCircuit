@@ -3546,7 +3546,7 @@ llvm::Error verifyQueueGraphPlan(const QueueGraphPlan &plan) {
           return false;
         if (present == block.guard)
           return true;
-        return candidateAlways && block.inputs.size() == 1;
+        return candidateAlways;
       };
       for (const StateWritePlan &write : block.stateWrites) {
         const TablePlan *table = tables.lookup(write.table);
