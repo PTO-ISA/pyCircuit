@@ -1,0 +1,12 @@
+{
+  "decision_ids": ["0221"],
+  "issue": 102,
+  "results": {
+    "check_acir": {"passed": 203, "failed": 0},
+    "decision_status": {"passed": true},
+    "diff_check": {"passed": true},
+    "focused_reproducer": {"passed": true}
+  },
+  "run_id": "20260911-issue102-rule-cse-footprints",
+  "status": "passed"
+}

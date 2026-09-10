@@ -1137,10 +1137,11 @@ void addRuleLoweringPipeline(mlir::OpPassManager &manager) {
   manager.addPass(createLowerVariableStatePass());
   manager.addPass(createVerifyValueConstraintsPass());
   manager.addPass(std::make_unique<InferRuleTypesPass>());
-  // Rule summaries are derived evidence.  Eliminate dead state reads before
-  // effect inference so footprints and typed summaries describe the live IR
-  // that later canonicalization preserves.
+  // Rule summaries are derived evidence. Eliminate dead and duplicate state
+  // reads before effect inference so footprints and typed summaries describe
+  // the live IR that later canonicalization preserves.
   manager.addPass(createCanonicalizerPass());
+  manager.addPass(createCSEPass());
   manager.addPass(std::make_unique<InferRuleEffectsPass>());
   manager.addPass(std::make_unique<InferRuleActivationPass>());
   manager.addPass(std::make_unique<MaterializeRuleChecksPass>());
