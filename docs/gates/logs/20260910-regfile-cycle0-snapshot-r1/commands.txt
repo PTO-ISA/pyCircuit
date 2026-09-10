@@ -1,0 +1,33 @@
+# RegisterFile cycle-0 snapshot validation
+
+PYTHONPATH="$PWD/python/semantic-core/src:$PWD/python/pycircuit/src:$PWD" PYTHONDONTWRITEBYTECODE=1 pytest -q tests/unit/test_register_file.py
+
+source flows/scripts/lib.sh
+pyc_find_pycc
+PYTHONPATH="$(pyc_pythonpath)" PYTHONDONTWRITEBYTECODE=1 PYCC="$PYCC" python3 -m pycircuit.cli build designs/blocks/RegisterFile/tb_regfile.py --out-dir "$PWD/.pycircuit_out/gates/20260910-regfile-cycle0-snapshot-r1/fresh_both" --target both --jobs 4 --logic-depth 256 --run-verilator
+
+manifest=.pycircuit_out/gates/20260910-regfile-cycle0-snapshot-r1/fresh_both/project_manifest.json
+cpp_bin=$(python3 - "$manifest" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as f:
+    print(json.load(f)["cpp_executable"])
+PY
+)
+"$cpp_bin"
+
+PYTHONPATH="$PWD/python/semantic-core/src:$PWD/python/pycircuit/src:$PWD" PYTHONDONTWRITEBYTECODE=1 pytest -q tests/unit/test_v6_forward_signal.py
+
+python3 flows/tools/check_decision_status.py --rfc docs/rfcs/pyc6-decisions.md --status docs/gates/decision_status_v6.md --out docs/gates/logs/20260910-regfile-cycle0-snapshot-r1/decision_status_report.json
+
+git diff --check -- designs/blocks/RegisterFile/regfile.py tests/unit/test_register_file.py
+git diff --check
+
+PYC_GATE_RUN_ID=20260910-regfile-cycle0-snapshot-r1 PYC_SIM_RESUME_FROM_CASE=regfile PYC_SIM_CASE_TIMEOUT_SEC=600 PYC_SIM_RETRY_ON_TIMEOUT=0 bash flows/scripts/run_sims_nightly.sh
+
+pre-commit run --files designs/blocks/RegisterFile/regfile.py tests/unit/test_register_file.py
+
+ruff check --fix tests/unit/test_register_file.py
+
+pre-commit run --files designs/blocks/RegisterFile/regfile.py tests/unit/test_register_file.py

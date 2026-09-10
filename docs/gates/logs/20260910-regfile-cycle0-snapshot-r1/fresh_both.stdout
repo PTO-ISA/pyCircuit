@@ -1,0 +1,23 @@
+PYCC=/Users/zhoubot/linx-isa/tools/pyCircuit/.pycircuit_out/toolchain/install/bin/pycc
+OUT_DIR=/Users/zhoubot/linx-isa/tools/pyCircuit/.pycircuit_out/gates/20260910-regfile-cycle0-snapshot-r1/fresh_both
+jit-cache: miss
+/Users/zhoubot/linx-isa/tools/pyCircuit/.pycircuit_out/gates/20260910-regfile-cycle0-snapshot-r1/fresh_both/cpp_build/src/CMakeLists.txt
+-- The CXX compiler identification is AppleClang 21.0.0.21000101
+-- Detecting CXX compiler ABI info
+-- Detecting CXX compiler ABI info - done
+-- Check for working CXX compiler: /usr/bin/c++ - skipped
+-- Detecting CXX compile features
+-- Detecting CXX compile features - done
+-- Configuring done (0.2s)
+-- Generating done (0.0s)
+-- Build files have been written to: /Users/zhoubot/linx-isa/tools/pyCircuit/.pycircuit_out/gates/20260910-regfile-cycle0-snapshot-r1/fresh_both/cpp_build/build
+[1/3] Building CXX object CMakeFiles/pyc_tb.dir/Users/zhoubot/linx-isa/tools/pyCircuit/.pycircuit_out/gates/20260910-regfile-cycle0-snapshot-r1/fresh_both/tb/tb_regfile.cpp.o
+[2/3] Building CXX object CMakeFiles/pyc_tb.dir/Users/zhoubot/linx-isa/tools/pyCircuit/.pycircuit_out/gates/20260910-regfile-cycle0-snapshot-r1/fresh_both/device/cpp/regfile/regfile.cpp.o
+[3/3] Linking CXX executable pyc_tb
+OK
+- /Users/zhoubot/linx-isa/tools/pyCircuit/.pycircuit_out/gates/20260910-regfile-cycle0-snapshot-r1/fresh_both/tb/tb_regfile.sv:586: Verilog $finish
+- S i m u l a t i o n   R e p o r t: Verilator 5.044 2026-01-01
+- Verilator: $finish at 27ns; walltime 0.000 s; speed 109.312 us/s
+- Verilator: cpu 0.000 s on 1 threads; alloced 2 MB
+/Users/zhoubot/linx-isa/tools/pyCircuit/.pycircuit_out/gates/20260910-regfile-cycle0-snapshot-r1/fresh_both/project_manifest.json
+BUILD_RC=0
