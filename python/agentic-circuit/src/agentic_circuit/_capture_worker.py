@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import argparse
-import ast
 import contextlib
 import importlib.util
 import io
@@ -13,6 +12,7 @@ import subprocess
 import sys
 from dataclasses import dataclass
 from pathlib import Path
+from types import ModuleType
 
 try:
     import _pycircuit_semantics
@@ -21,6 +21,7 @@ except ModuleNotFoundError:
 
 from ._canonical_json import JsonValue, canonical_json_bytes
 from ._capabilities import schema_root
+from ._definitions import Definition
 from ._diagnostics import Diagnostic, FixIt, RelatedLocation, SourceSpan
 from ._frontend import CaptureRequest, elaborate_frontend
 from ._output import OutputSink
@@ -275,23 +276,18 @@ def _static_value(value: JsonValue) -> StaticValue:
     raise TypeError("capture static argument is not an I-JSON value")
 
 
-def _decorator_leaf(node: ast.expr) -> str:
-    candidate = node.func if isinstance(node, ast.Call) else node
-    if isinstance(candidate, ast.Name):
-        return candidate.id
-    if isinstance(candidate, ast.Attribute):
-        return candidate.attr
-    return ""
+def _contains_registered_rule(namespace: dict[str, object]) -> bool:
+    def is_rule(value: object) -> bool:
+        return isinstance(value, Definition) and value.kind == "rule"
 
-
-def _contains_rule(tree: ast.Module) -> bool:
-    return any(
-        isinstance(node, ast.FunctionDef)
-        and any(
-            _decorator_leaf(decorator) == "rule" for decorator in node.decorator_list
-        )
-        for node in tree.body
-    )
+    for value in namespace.values():
+        if is_rule(value):
+            return True
+        if isinstance(value, (type, ModuleType)) and any(
+            is_rule(item) for item in vars(value).values()
+        ):
+            return True
+    return False
 
 
 def _worker_main(request_path: Path) -> int:
@@ -317,8 +313,7 @@ def _worker_main(request_path: Path) -> int:
             if any(not path.is_relative_to(workspace) for path in component_roots):
                 raise ValueError("component root escapes the workspace")
             text = entry.read_text(encoding="utf-8")
-            tree = ast.parse(text, filename=entry.name, type_comments=True)
-            has_rule = _contains_rule(tree)
+            has_rule = _contains_registered_rule(namespace)
             static_arguments = {
                 key: _static_value(value)
                 for key, value in request["static_arguments"].items()

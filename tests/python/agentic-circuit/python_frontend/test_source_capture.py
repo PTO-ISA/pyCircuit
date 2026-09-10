@@ -5,15 +5,38 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from types import ModuleType
 
 from jsonschema import Draft202012Validator
-
 
 REPOSITORY = Path(__file__).resolve().parents[4]
 WORKSPACE = Path(__file__).resolve().parent / "fixtures" / "source"
 
 
 class SourceCaptureTest(unittest.TestCase):
+    def test_frontend_kind_uses_registered_rule_definitions(self) -> None:
+        from agentic_circuit import module, rule
+        from agentic_circuit._capture_worker import _contains_registered_rule
+
+        @module
+        def structural() -> None:
+            pass
+
+        @rule
+        def imported_rule(value):
+            return value
+
+        class Rules:
+            nested = imported_rule
+
+        helper = ModuleType("helper")
+        helper.imported_rule = imported_rule
+
+        self.assertFalse(_contains_registered_rule({"structural": structural}))
+        self.assertTrue(_contains_registered_rule({"imported": imported_rule}))
+        self.assertTrue(_contains_registered_rule({"Rules": Rules}))
+        self.assertTrue(_contains_registered_rule({"helper": helper}))
+
     def test_identity_is_workspace_relative_and_hashed(self) -> None:
         from agentic_circuit._source import load_source_unit
 
