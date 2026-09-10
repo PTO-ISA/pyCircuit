@@ -46,6 +46,21 @@ struct SumToWide {
   }
 };
 
+struct RoutePairAtomically {
+  using Plan =
+      StateTransitionPlan<std::tuple<>, std::tuple<uint16_t, uint8_t>>;
+
+  std::optional<Plan> operator()(Epoch, std::tuple<>, const uint8_t &take,
+                                 const uint16_t &payload) const {
+    Plan plan;
+    if (take != 0)
+      std::get<0>(plan.outputs) = payload;
+    else
+      std::get<1>(plan.outputs) = take;
+    return plan;
+  }
+};
+
 struct SequencedValue {
   uint64_t sequence = 0;
   int value = 0;
@@ -1359,6 +1374,57 @@ TEST(QueueBlocksTest, AbsentMultiOwnerEffectsSkipEveryTableCommit) {
   EXPECT_TRUE(input.isEmpty());
   EXPECT_EQ(cursor.at(0), 0u);
   EXPECT_FALSE(entries.at(0).valid);
+}
+
+TEST(QueueBlocksTest,
+     MultiInputSelectedBranchStallsAtomicallyAndResetClearsCandidate) {
+  SimQueue<uint8_t> select("select", 1, nullptr, 1);
+  SimQueue<uint16_t> payload("payload", 2, nullptr, 1);
+  SimQueue<uint16_t> selected("selected", 3, nullptr, 1);
+  SimQueue<uint8_t> rejected("rejected", 4, nullptr, 1);
+  QueueStateTransition<RoutePairAtomically, std::tuple<>,
+                       std::tuple<uint8_t, uint16_t>,
+                       std::tuple<uint16_t, uint8_t>, std::tuple<>>
+      transition("route", 5, nullptr, {}, {&select, &payload},
+                 {&selected, &rejected}, {});
+
+  ASSERT_TRUE(select.proposePush(1));
+  ASSERT_TRUE(payload.proposePush(42));
+  ASSERT_TRUE(selected.proposePush(99));
+  select.doXfer({0, 0});
+  payload.doXfer({0, 0});
+  selected.doXfer({0, 0});
+
+  transition.doWork({1, 0});
+  transition.doArbitrate({1, 0});
+  EXPECT_FALSE(transition.hasPendingCommit());
+  EXPECT_EQ(select.committedSize(), 1u);
+  EXPECT_EQ(payload.committedSize(), 1u);
+  EXPECT_TRUE(rejected.isEmpty());
+
+  ASSERT_TRUE(selected.proposePop());
+  selected.doXfer({1, 0});
+  transition.doWork({2, 0});
+  transition.reset();
+  EXPECT_FALSE(transition.hasPendingCommit());
+  EXPECT_FALSE(select.hasPrepared(transition.id()));
+  EXPECT_FALSE(payload.hasPrepared(transition.id()));
+  EXPECT_FALSE(selected.hasPrepared(transition.id()));
+  EXPECT_FALSE(rejected.hasPrepared(transition.id()));
+
+  transition.doWork({3, 0});
+  transition.doArbitrate({3, 0});
+  ASSERT_TRUE(transition.hasPendingCommit());
+  select.doXfer({3, 0});
+  payload.doXfer({3, 0});
+  selected.doXfer({3, 0});
+  rejected.doXfer({3, 0});
+  transition.doXfer({3, 0});
+  EXPECT_TRUE(select.isEmpty());
+  EXPECT_TRUE(payload.isEmpty());
+  ASSERT_NE(selected.peek(), nullptr);
+  EXPECT_EQ(*selected.peek(), 42);
+  EXPECT_TRUE(rejected.isEmpty());
 }
 
 TEST(QueueBlocksTest, WholeEntryTransitionUsesExplicitReplaceMode) {

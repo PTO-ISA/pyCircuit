@@ -580,9 +580,9 @@ LogicalResult resolveRuleSchedule(ModuleOp model) {
           return;
         }
         if (proposal.getWhen() != presence) {
-          if (rule.getInputs().size() != 1) {
+          if (!always) {
             result = proposal.emitOpError(
-                "conditional-effect presence requires one input");
+                "conditional-effect presence requires a true candidate");
             return;
           }
         }

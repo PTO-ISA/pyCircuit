@@ -36,8 +36,8 @@ trace-position, or trace/observation export surface (Decision 0235).
 
 - Keep typed payloads, recursive aggregates, exact-width bit operations,
   immutable updates, and nominal identity verified across ACPy and ACIR.
-- Implement Decision 0236 first: `@ac.rule` remains the only public scheduling
-  boundary while the compiler forms complete Queue/Table/Reg/Slot
+- Decision 0236 is implemented-verified: `@ac.rule` remains the only public
+  scheduling boundary while the compiler forms complete Queue/Table/Reg/Slot
   prepare/publish/no-fail commit groups for issue #28.
 - Implement Decision 0237 writer proof and deterministic arbitration for issue
   #25, then Decision 0238 multidimensional shape, typed initialization, and
@@ -51,10 +51,10 @@ trace-position, or trace/observation export surface (Decision 0235).
   Table profile through an explicit canonical-PYC register bank and prove C++ /
   Verilog parity for issue #22.
 
-Decisions 0236–0241 are Accepted but remain `deferred` in the decision-status
-table until their implementations and concrete gate evidence land. The frozen
-order is #28 -> #25/#23 -> #24/#21 -> #22; #21 may proceed after #28 while the
-Table slices converge.
+Decisions 0237–0241 are Accepted but remain `deferred` in the decision-status
+table until their implementations and concrete gate evidence land. Decision
+0236 is implemented-verified. The frozen remaining order is #25/#23 -> #24/#21
+-> #22; #21 may proceed while the Table slices converge.
 
 ### 3. Publish a consumer-neutral SDK
 
