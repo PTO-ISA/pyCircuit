@@ -69,6 +69,35 @@ The executable conformance suites and generated
 [IR coverage ledger](../../development/acir/verification/ir-coverage.md) track the live
 requirement-by-requirement status.
 
+### Accepted 6.0 release-train decisions
+
+Decisions 0236 through 0241 freeze the remaining issue contracts for release
+6.0.0, but their rows in
+[`decision_status_v6.md`](../../gates/decision_status_v6.md) remain `deferred`.
+They do not describe implemented behavior until concrete gate evidence moves
+the corresponding row to `implemented-verified`. Until then, the current
+limitations documented later in this manual remain authoritative.
+
+- Decision 0236 keeps `@ac.rule` as the only public scheduling boundary and
+  assigns complete atomic transaction formation to the compiler (#28).
+- Decision 0237 requires verifier proof or explicit deterministic pre-prepare
+  branch arbitration for same-field Table writers while preserving the
+  Decision 0156 replace-over-field policy (#25).
+- Decision 0238 freezes multidimensional row-major Table shape, typed
+  initialization, bounds, masked-domain identity, and flattened scalar
+  `TableChoice.index` (#23).
+- Decision 0239 preserves scalar `TableChoice` for `count=1` and uses a static
+  tuple plus one atomic contiguous valid prefix for `count>1` (#24).
+- Decision 0240 preserves one ordered multi-lane Queue identity and transfers a
+  formed valid prefix atomically (#21).
+- Decision 0241 admits only a bounded Table profile through an explicit
+  canonical-PYC `pyc.reg` bank; it does not infer `sync_mem` (#22).
+
+Decision 0232 now freezes a four-wheel release map, and Decision 0234 separates
+repository-verifiable workflow behavior from the mandatory per-release
+stable-URL attestation (#61). Both remain deferred until implementation evidence
+exists.
+
 ## Core mental model
 
 ### Serial Python elaborates a static graph
