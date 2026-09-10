@@ -1081,6 +1081,7 @@
       "positive_mlir": [
         "tests/mlir/agentic-circuit/ACIR/collections-valid.mlir",
         "tests/mlir/agentic-circuit/CodeGen/value-select.mlir",
+        "tests/mlir/agentic-circuit/Transforms/rule-multi-input-branch-lowering.mlir",
         "tests/mlir/pyc/canonical-ops-valid.mlir"
       ],
       "python_producer": [
@@ -1101,6 +1102,7 @@
         "tests/mlir/agentic-circuit/ACIR/collections-invalid.mlir",
         "tests/mlir/agentic-circuit/ACIR/collections-valid.mlir",
         "tests/mlir/agentic-circuit/CodeGen/value-select.mlir",
+        "tests/mlir/agentic-circuit/Transforms/rule-multi-input-branch-lowering.mlir",
         "tests/mlir/pyc/canonical-ops-valid.mlir",
         "tests/mlir/pyc/canonical-select-invalid.mlir",
         "tests/test_pyc_canonical_ops.py",
