@@ -56,10 +56,8 @@ struct QueueExpressionPlan {
   std::string value;
 };
 
-std::string inlineTableChoiceContractKey(
-    const QueueExpressionPlan &expression);
-bool isEffectFreeTableMatchExpression(
-    const QueueExpressionPlan &expression);
+std::string inlineTableChoiceContractKey(const QueueExpressionPlan &expression);
+bool isEffectFreeTableMatchExpression(const QueueExpressionPlan &expression);
 
 struct StateWritePlan {
   std::string table;
@@ -102,6 +100,16 @@ struct QueueRuleResourcePlan {
   bool operator==(const QueueRuleResourcePlan &) const = default;
 };
 
+struct QueueWriterArbitrationPlan {
+  std::string owner;
+  std::string endpointStableId;
+  std::string policy;
+  uint64_t declaredRank = 0;
+  std::string resolution;
+
+  bool operator==(const QueueWriterArbitrationPlan &) const = default;
+};
+
 struct QueueBlockPlan {
   std::string kind;
   std::string name;
@@ -139,10 +147,12 @@ struct QueueBlockPlan {
   std::vector<OutputPresencePlan> outputPresence;
   std::vector<QueueRuleResourcePlan> activationSources;
   std::vector<QueueRuleResourcePlan> transactionResources;
+  std::vector<QueueWriterArbitrationPlan> arbitrationMembership;
   bool hasActivationEvidence = false;
   bool initiallyActive = false;
   uint64_t lexicalOrder = 0;
   std::string provider;
+  std::string stableId;
 };
 
 struct MemoryInstancePlan {
@@ -300,6 +310,7 @@ struct QueueGraphPlan {
 };
 
 llvm::Expected<QueueGraphPlan> buildQueueGraphPlan(mlir::ModuleOp module);
+llvm::Error resolveQueueWriterPriorities(QueueGraphPlan &plan);
 llvm::Error verifyQueueGraphPlan(const QueueGraphPlan &plan);
 
 } // namespace acir::codegen

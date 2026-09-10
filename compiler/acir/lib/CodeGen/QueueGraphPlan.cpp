@@ -13,8 +13,8 @@
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/SmallVector.h"
-#include "llvm/ADT/StringMap.h"
 #include "llvm/ADT/StringExtras.h"
+#include "llvm/ADT/StringMap.h"
 #include "llvm/ADT/StringSet.h"
 #include "llvm/Support/Format.h"
 #include "llvm/Support/JSON.h"
@@ -201,9 +201,8 @@ ValueConstraint planTypeConstraint(llvm::StringRef type) {
   auto width = integerWidth(type);
   if (!width || *width > 64)
     return ValueConstraint::unknown();
-  const uint64_t upper =
-      *width == 64 ? std::numeric_limits<uint64_t>::max()
-                   : (uint64_t{1} << *width) - 1;
+  const uint64_t upper = *width == 64 ? std::numeric_limits<uint64_t>::max()
+                                      : (uint64_t{1} << *width) - 1;
   return ValueConstraint::closedInterval(0, upper);
 }
 
@@ -217,9 +216,8 @@ std::optional<uint64_t> planConstantValue(llvm::StringRef literal,
   auto width = integerWidth(type);
   if (!width || *width > 64)
     return std::nullopt;
-  const uint64_t mask =
-      *width == 64 ? std::numeric_limits<uint64_t>::max()
-                   : (uint64_t{1} << *width) - 1;
+  const uint64_t mask = *width == 64 ? std::numeric_limits<uint64_t>::max()
+                                     : (uint64_t{1} << *width) - 1;
   if (literal.starts_with('-')) {
     int64_t value = 0;
     if (literal.getAsInteger(10, value))
@@ -232,11 +230,11 @@ std::optional<uint64_t> planConstantValue(llvm::StringRef literal,
   return value & mask;
 }
 
-ValueConstraint inferPlanConstraint(
-    const QueueExpressionPlan &expression,
-    const llvm::StringMap<ValueConstraint> &constraints,
-    const llvm::StringMap<std::string> &types,
-    const llvm::StringMap<const TablePlan *> &tables) {
+ValueConstraint
+inferPlanConstraint(const QueueExpressionPlan &expression,
+                    const llvm::StringMap<ValueConstraint> &constraints,
+                    const llvm::StringMap<std::string> &types,
+                    const llvm::StringMap<const TablePlan *> &tables) {
   ValueConstraint fallback = planTypeConstraint(expression.type);
   auto operand = [&](size_t index) {
     auto found = index < expression.operands.size()
@@ -272,8 +270,8 @@ ValueConstraint inferPlanConstraint(
       return ValueConstraint::constant(1);
     ValueConstraint input = operand(0);
     if (input.kind == ValueConstraintKind::Constant)
-      return ValueConstraint::constant(
-          (input.values.front() & *mask) == *expected);
+      return ValueConstraint::constant((input.values.front() & *mask) ==
+                                       *expected);
     return ValueConstraint::closedInterval(0, 1);
   }
   if (expression.kind == "cmp" || expression.kind == "priority_valid" ||
@@ -293,21 +291,19 @@ ValueConstraint inferPlanConstraint(
       expression.kind == "table_selection_index_ref") {
     auto table = tables.find(expression.table);
     return table != tables.end() && table->getValue()->entries != 0
-               ? ValueConstraint::closedInterval(
-                     0, table->getValue()->entries - 1)
+               ? ValueConstraint::closedInterval(0,
+                                                 table->getValue()->entries - 1)
                : ValueConstraint::unknown();
   }
 
   ValueConstraint left = operand(0);
   ValueConstraint right = operand(1);
-  const bool constantOperands =
-      left.kind == ValueConstraintKind::Constant &&
-      right.kind == ValueConstraintKind::Constant;
+  const bool constantOperands = left.kind == ValueConstraintKind::Constant &&
+                                right.kind == ValueConstraintKind::Constant;
   auto resultWidth = integerWidth(expression.type);
-  const uint64_t mask =
-      !resultWidth || *resultWidth == 64
-          ? std::numeric_limits<uint64_t>::max()
-          : (uint64_t{1} << *resultWidth) - 1;
+  const uint64_t mask = !resultWidth || *resultWidth == 64
+                            ? std::numeric_limits<uint64_t>::max()
+                            : (uint64_t{1} << *resultWidth) - 1;
   if (constantOperands) {
     uint64_t lhs = left.values.front();
     uint64_t rhs = right.values.front();
@@ -336,8 +332,7 @@ ValueConstraint inferPlanConstraint(
     if (right.kind == ValueConstraintKind::Constant)
       return ValueConstraint::closedInterval(0, right.values.front() & mask);
   }
-  if (expression.kind == "not" &&
-      left.kind == ValueConstraintKind::Constant)
+  if (expression.kind == "not" && left.kind == ValueConstraintKind::Constant)
     return ValueConstraint::constant((~left.values.front()) & mask);
   return fallback;
 }
@@ -428,8 +423,7 @@ extractExpressions(mlir::Region &region, QueueBlockPlan &plan,
   for (auto [index, argument] : llvm::enumerate(block.getArguments()))
     values[argument] =
         index == 0 ? (prefix == "v" ? "item" : "entry")
-                   : (prefix == "v" ? "item" : "entry") +
-                         std::to_string(index);
+                   : (prefix == "v" ? "item" : "entry") + std::to_string(index);
   auto operandNames = [&](mlir::ValueRange operands)
       -> llvm::Expected<std::vector<std::string>> {
     std::vector<std::string> result;
@@ -532,7 +526,8 @@ extractExpressions(mlir::Region &region, QueueBlockPlan &plan,
       llvm::SmallVector<mlir::Type> active;
       auto width = mlirValueBitWidth(
           record,
-          mlir::cast<ac::VarType>(record.getResult().getType()).getElementType(),
+          mlir::cast<ac::VarType>(record.getResult().getType())
+              .getElementType(),
           active);
       if (!width)
         return width.takeError();
@@ -751,12 +746,11 @@ extractExpressions(mlir::Region &region, QueueBlockPlan &plan,
         (void)value;
         const bool used =
             llvm::is_contained(nested.yields, identity) ||
-            llvm::any_of(
-                nested.expressions,
-                [&](const QueueExpressionPlan &nestedExpression) {
-                  return llvm::is_contained(nestedExpression.operands,
-                                            identity);
-                });
+            llvm::any_of(nested.expressions,
+                         [&](const QueueExpressionPlan &nestedExpression) {
+                           return llvm::is_contained(nestedExpression.operands,
+                                                     identity);
+                         });
         if (used && !llvm::is_contained(expression.operands, identity))
           expression.operands.push_back(identity);
       }
@@ -796,12 +790,11 @@ extractExpressions(mlir::Region &region, QueueBlockPlan &plan,
           (void)value;
           const bool used =
               llvm::is_contained(nested.yields, identity) ||
-              llvm::any_of(
-                  nested.expressions,
-                  [&](const QueueExpressionPlan &nestedExpression) {
-                    return llvm::is_contained(nestedExpression.operands,
-                                              identity);
-                  });
+              llvm::any_of(nested.expressions,
+                           [&](const QueueExpressionPlan &nestedExpression) {
+                             return llvm::is_contained(
+                                 nestedExpression.operands, identity);
+                           });
           if (used && !llvm::is_contained(expression.operands, identity))
             expression.operands.push_back(identity);
         }
@@ -943,11 +936,10 @@ extractExpressions(mlir::Region &region, QueueBlockPlan &plan,
   }
   if (!sawStructuredYield)
     return planError("Queue Var region has no structured yield");
-  llvm::sort(plan.outputPresence,
-             [](const OutputPresencePlan &left,
-                const OutputPresencePlan &right) {
-               return left.ordinal < right.ordinal;
-             });
+  llvm::sort(plan.outputPresence, [](const OutputPresencePlan &left,
+                                     const OutputPresencePlan &right) {
+    return left.ordinal < right.ordinal;
+  });
   return llvm::Error::success();
 }
 
@@ -1210,6 +1202,119 @@ llvm::Error extractRuleActivation(mlir::Operation *operation,
   return llvm::Error::success();
 }
 
+llvm::Error extractWriterArbitration(mlir::Operation *operation,
+                                     QueueBlockPlan &block) {
+  auto membership =
+      operation->getAttrOfType<mlir::ArrayAttr>("ac.arbitration_membership");
+  if (!membership)
+    return planError("lowered writer arbitration membership is missing");
+  for (mlir::Attribute raw : membership) {
+    auto record = mlir::dyn_cast<mlir::DictionaryAttr>(raw);
+    auto owner = record ? record.getAs<mlir::FlatSymbolRefAttr>("owner")
+                        : mlir::FlatSymbolRefAttr();
+    auto endpoint = record
+                        ? record.getAs<mlir::StringAttr>("endpoint_stable_id")
+                        : mlir::StringAttr();
+    auto rank = record ? record.getAs<mlir::IntegerAttr>("declared_rank")
+                       : mlir::IntegerAttr();
+    auto policy = record
+                      ? record.getAs<ac::WriterArbitrationPolicyAttr>("policy")
+                      : ac::WriterArbitrationPolicyAttr();
+    auto resolution =
+        record ? record.getAs<ac::WriterArbitrationResolutionAttr>("resolution")
+               : ac::WriterArbitrationResolutionAttr();
+    if (!owner || !endpoint || endpoint.getValue().empty() || !rank ||
+        rank.getInt() < 0 || !policy ||
+        policy.getValue() != ac::WriterArbitrationPolicy::Priority ||
+        !resolution ||
+        resolution.getValue() !=
+            ac::WriterArbitrationResolution::WinnerTakesTransaction)
+      return planError("lowered writer arbitration membership is malformed");
+    block.arbitrationMembership.push_back(
+        {owner.getValue().str(), endpoint.getValue().str(), "priority",
+         static_cast<uint64_t>(rank.getInt()), "winner_takes_transaction"});
+  }
+  return llvm::Error::success();
+}
+
+llvm::Error resolveWriterPriorities(QueueGraphPlan &plan) {
+  std::vector<size_t> nodes;
+  for (auto [index, block] : llvm::enumerate(plan.blocks)) {
+    llvm::sort(block.arbitrationMembership,
+               [](const QueueWriterArbitrationPlan &left,
+                  const QueueWriterArbitrationPlan &right) {
+                 return std::tie(left.owner, left.declaredRank,
+                                 left.endpointStableId, left.policy,
+                                 left.resolution) <
+                        std::tie(right.owner, right.declaredRank,
+                                 right.endpointStableId, right.policy,
+                                 right.resolution);
+               });
+    if (block.kind == "firing" || block.kind == "table_write" ||
+        block.kind == "table_masked_write")
+      nodes.push_back(index);
+  }
+  std::vector<std::vector<bool>> edges(nodes.size(),
+                                       std::vector<bool>(nodes.size(), false));
+  std::vector<size_t> indegree(nodes.size(), 0);
+  for (size_t left = 0; left < nodes.size(); ++left) {
+    for (size_t right = left + 1; right < nodes.size(); ++right) {
+      const QueueBlockPlan &lhs = plan.blocks[nodes[left]];
+      const QueueBlockPlan &rhs = plan.blocks[nodes[right]];
+      for (const QueueWriterArbitrationPlan &lhsPolicy :
+           lhs.arbitrationMembership) {
+        for (const QueueWriterArbitrationPlan &rhsPolicy :
+             rhs.arbitrationMembership) {
+          if (lhsPolicy.owner != rhsPolicy.owner)
+            continue;
+          if (lhsPolicy.declaredRank == rhsPolicy.declaredRank)
+            return planError(
+                "writer arbitration contains an owner-local rank tie");
+          const size_t before =
+              lhsPolicy.declaredRank < rhsPolicy.declaredRank ? left : right;
+          const size_t after = before == left ? right : left;
+          if (!edges[before][after]) {
+            edges[before][after] = true;
+            ++indegree[after];
+          }
+        }
+      }
+    }
+  }
+  auto identity = [&](size_t node) -> llvm::StringRef {
+    const QueueBlockPlan &block = plan.blocks[nodes[node]];
+    return block.stableId.empty() ? llvm::StringRef(block.name)
+                                  : llvm::StringRef(block.stableId);
+  };
+  std::vector<bool> emitted(nodes.size(), false);
+  std::vector<size_t> canonicalNodes;
+  canonicalNodes.reserve(nodes.size());
+  for (uint64_t ordinal = 0; ordinal < nodes.size(); ++ordinal) {
+    std::optional<size_t> selected;
+    for (size_t node = 0; node < nodes.size(); ++node) {
+      if (emitted[node] || indegree[node] != 0)
+        continue;
+      if (!selected || identity(node) < identity(*selected))
+        selected = node;
+    }
+    if (!selected)
+      return planError("writer arbitration precedence contains a cycle");
+    emitted[*selected] = true;
+    plan.blocks[nodes[*selected]].priority = ordinal;
+    canonicalNodes.push_back(nodes[*selected]);
+    for (size_t successor = 0; successor < nodes.size(); ++successor)
+      if (edges[*selected][successor])
+        --indegree[successor];
+  }
+  std::vector<QueueBlockPlan> orderedWriters;
+  orderedWriters.reserve(canonicalNodes.size());
+  for (size_t index : canonicalNodes)
+    orderedWriters.push_back(std::move(plan.blocks[index]));
+  for (auto [slot, writer] : llvm::zip_equal(nodes, orderedWriters))
+    plan.blocks[slot] = std::move(writer);
+  return llvm::Error::success();
+}
+
 class Extractor {
 public:
   explicit Extractor(mlir::ModuleOp module) : module(module) {}
@@ -1265,6 +1370,8 @@ public:
     }
     if (auto error = extractBlock(*module.getBody(), {}))
       return std::move(error);
+    if (auto error = resolveWriterPriorities(plan))
+      return std::move(error);
     if (auto error = materializeActivation(plan))
       return std::move(error);
     if (auto error = validateGraph())
@@ -1303,6 +1410,8 @@ private:
           {std::move(name), printType(queue.getElementType())});
     }
     if (auto error = nested.extractBlock(body, {}))
+      return std::move(error);
+    if (auto error = resolveWriterPriorities(nested.plan))
       return std::move(error);
     auto returned = mlir::dyn_cast<ac::ReturnOp>(body.getTerminator());
     if (!returned)
@@ -1729,6 +1838,7 @@ private:
                                  outputs.empty() ? firing.getStableId().str()
                                                  : outputs.front(),
                                  scopePath(scope), std::move(*inputs), outputs};
+        blockPlan.stableId = firing.getStableId().str();
         for (int64_t value : firing.getOutputDepths())
           blockPlan.depths.push_back(value);
         for (int64_t value : firing.getOutputLatencies())
@@ -1744,6 +1854,8 @@ private:
         if (firing->hasAttr("ac.activation_sources"))
           if (auto error = extractRuleActivation(firing, blockPlan))
             return error;
+        if (auto error = extractWriterArbitration(firing, blockPlan))
+          return error;
         appendBlock(std::move(blockPlan));
         continue;
       }
@@ -2080,6 +2192,21 @@ private:
         QueueBlockPlan blockPlan{
             "table_write", name.getValue().str(), scopePath(scope), inputs, {}};
         blockPlan.table = write.getTable().str();
+        if (auto endpoint =
+                write->getAttrOfType<mlir::StringAttr>("ac.endpoint_id"))
+          blockPlan.stableId = endpoint.getValue().str();
+        if (auto arbitration = write->getAttrOfType<ac::WriterPriorityAttr>(
+                "ac.arbitration")) {
+          auto endpoint =
+              write->getAttrOfType<mlir::StringAttr>("ac.endpoint_id");
+          if (!endpoint || endpoint.getValue().empty())
+            return planError(
+                "arbitrated table writer stable identity is missing");
+          blockPlan.arbitrationMembership.push_back(
+              {blockPlan.table, endpoint.getValue().str(), "priority",
+               static_cast<uint64_t>(arbitration.getRank()),
+               "winner_takes_transaction"});
+        }
         blockPlan.writeMode = write.getMode().str();
         for (mlir::Attribute rawField : write.getWriteFields())
           blockPlan.writeFields.push_back(
@@ -2112,6 +2239,21 @@ private:
                                  {},
                                  {}};
         blockPlan.table = write.getTable().str();
+        if (auto endpoint =
+                write->getAttrOfType<mlir::StringAttr>("ac.endpoint_id"))
+          blockPlan.stableId = endpoint.getValue().str();
+        if (auto arbitration = write->getAttrOfType<ac::WriterPriorityAttr>(
+                "ac.arbitration")) {
+          auto endpoint =
+              write->getAttrOfType<mlir::StringAttr>("ac.endpoint_id");
+          if (!endpoint || endpoint.getValue().empty())
+            return planError(
+                "arbitrated masked writer stable identity is missing");
+          blockPlan.arbitrationMembership.push_back(
+              {blockPlan.table, endpoint.getValue().str(), "priority",
+               static_cast<uint64_t>(arbitration.getRank()),
+               "winner_takes_transaction"});
+        }
         blockPlan.writeMode = write.getMode().str();
         for (mlir::Attribute rawField : write.getWriteFields())
           blockPlan.writeFields.push_back(
@@ -2491,13 +2633,15 @@ llvm::Error verifyPayloadGraph(const QueueGraphPlan &plan) {
 
 } // namespace
 
-std::string inlineTableChoiceContractKey(
-    const QueueExpressionPlan &expression) {
+llvm::Error resolveQueueWriterPriorities(QueueGraphPlan &plan) {
+  return resolveWriterPriorities(plan);
+}
+
+std::string
+inlineTableChoiceContractKey(const QueueExpressionPlan &expression) {
   std::string result;
   auto append = [&](llvm::StringRef value) {
-    result.append(std::to_string(value.size()))
-        .append(":")
-        .append(value.str());
+    result.append(std::to_string(value.size())).append(":").append(value.str());
   };
   auto appendExpression = [&](auto &&self,
                               const QueueExpressionPlan &nested) -> void {
@@ -2537,8 +2681,7 @@ std::string inlineTableChoiceContractKey(
   return result;
 }
 
-bool isEffectFreeTableMatchExpression(
-    const QueueExpressionPlan &expression) {
+bool isEffectFreeTableMatchExpression(const QueueExpressionPlan &expression) {
   if (!expression.nestedExpressions.empty() || !expression.nestedYields.empty())
     return false;
   return llvm::StringSwitch<bool>(expression.kind)
@@ -2753,7 +2896,7 @@ llvm::Error verifyQueueGraphPlan(const QueueGraphPlan &plan) {
   llvm::StringMap<llvm::StringSet<>> tableWriterFields;
   llvm::StringSet<> tableReplaceWriters;
   llvm::StringMap<unsigned> tableFirings;
-  std::optional<uint64_t> previousFiringPriority;
+  llvm::DenseSet<uint64_t> firingPriorities;
   auto verifyWriteFields = [&](llvm::StringRef tableName, llvm::StringRef mode,
                                const std::vector<std::string> &writeFields,
                                bool reserveOwnership = true,
@@ -2851,9 +2994,8 @@ llvm::Error verifyQueueGraphPlan(const QueueGraphPlan &plan) {
   for (const QueueBlockPlan &block : plan.blocks) {
     if (block.kind != "firing")
       continue;
-    if (previousFiringPriority && block.priority <= *previousFiringPriority)
-      return planError("firing priorities must follow stable lexical order");
-    previousFiringPriority = block.priority;
+    if (!firingPriorities.insert(block.priority).second)
+      return planError("firing arbitration priorities must be unique");
     if (block.stateWrites.empty() && block.outputs.empty())
       return planError("outputless firing must update state");
     if (block.guard.empty() || block.yields.size() != block.outputs.size() ||
@@ -2863,11 +3005,10 @@ llvm::Error verifyQueueGraphPlan(const QueueGraphPlan &plan) {
       return planError(
           "table firing metadata is incomplete or conflicting for '" +
           block.name + "' (writes=" + std::to_string(block.stateWrites.size()) +
-          ", reservations=" +
-          std::to_string(block.stateReservations.size()) + ", inputs=" +
-          std::to_string(block.inputs.size()) + ", outputs=" +
-          std::to_string(block.outputs.size()) + ", yields=" +
-          std::to_string(block.yields.size()) + ")");
+          ", reservations=" + std::to_string(block.stateReservations.size()) +
+          ", inputs=" + std::to_string(block.inputs.size()) +
+          ", outputs=" + std::to_string(block.outputs.size()) +
+          ", yields=" + std::to_string(block.yields.size()) + ")");
     const bool hasPresence =
         !block.outputPresence.empty() ||
         llvm::any_of(block.stateWrites,
@@ -2913,9 +3054,8 @@ llvm::Error verifyQueueGraphPlan(const QueueGraphPlan &plan) {
           !verifyWriteFields(write.table, write.mode, write.fields, false))
         return planError("state firing write metadata is invalid");
       auto [position, inserted] = ownerWrites.try_emplace(write.table, &write);
-      if (!inserted &&
-          (position->getValue()->mode != write.mode ||
-           position->getValue()->fields != write.fields))
+      if (!inserted && (position->getValue()->mode != write.mode ||
+                        position->getValue()->fields != write.fields))
         return planError(
             "one owner-local write batch requires one mode and field schema");
       if (inserted)
@@ -3079,22 +3219,21 @@ llvm::Error verifyQueueGraphPlan(const QueueGraphPlan &plan) {
               "aggregate create expression widths are inconsistent");
       } else if (expression.kind == "record_create") {
         std::optional<llvm::StringRef> name = payloadTypeName(expression.type);
-        auto payload = name ? llvm::find_if(
-                                  plan.payloads,
-                                  [&](const QueuePayloadPlan &candidate) {
-                                    return candidate.name == *name;
-                                  })
-                            : plan.payloads.end();
+        auto payload =
+            name ? llvm::find_if(plan.payloads,
+                                 [&](const QueuePayloadPlan &candidate) {
+                                   return candidate.name == *name;
+                                 })
+                 : plan.payloads.end();
         if (!name || payload == plan.payloads.end() ||
             expression.operands.empty() ||
             payload->fields.size() != expression.operands.size())
           return planError("record create expression is malformed");
         uint64_t total = 0;
-        for (auto [operandName, field] : llvm::zip_equal(
-                 expression.operands, payload->fields)) {
+        for (auto [operandName, field] :
+             llvm::zip_equal(expression.operands, payload->fields)) {
           auto operand = valueTypes.find(operandName);
-          if (operand == valueTypes.end() ||
-              operand->getValue() != field.type)
+          if (operand == valueTypes.end() || operand->getValue() != field.type)
             return planError("record create operand type is inconsistent");
           auto width = valueWidth(field.type);
           if (!width)
@@ -3169,12 +3308,11 @@ llvm::Error verifyQueueGraphPlan(const QueueGraphPlan &plan) {
         std::optional<llvm::StringRef> enumName =
             enumTypeName(left->getValue());
         const bool enumeration = enumName && enums.contains(*enumName);
-        const bool equality = expression.predicate == "eq" ||
-                              expression.predicate == "ne";
+        const bool equality =
+            expression.predicate == "eq" || expression.predicate == "ne";
         const bool ordered =
             llvm::StringSwitch<bool>(expression.predicate)
-                .Cases({"slt", "sle", "sgt", "sge", "ult", "ule", "ugt",
-                        "uge"},
+                .Cases({"slt", "sle", "sgt", "sge", "ult", "ule", "ugt", "uge"},
                        true)
                 .Default(false);
         if ((!integer && !enumeration) || (!equality && !integer) ||
@@ -3194,8 +3332,7 @@ llvm::Error verifyQueueGraphPlan(const QueueGraphPlan &plan) {
         auto mask = parseExactWidthHex(expression.mask, *inputWidth);
         auto value = parseExactWidthHex(expression.value, *inputWidth);
         if (!mask || !value || (*value & ~*mask) != 0)
-          return planError(
-              "masked_match mask/value metadata is inconsistent");
+          return planError("masked_match mask/value metadata is inconsistent");
       } else if (expression.kind == "priority_index" ||
                  expression.kind == "priority_valid") {
         if (expression.operands.size() != 1 ||
@@ -3257,13 +3394,11 @@ llvm::Error verifyQueueGraphPlan(const QueueGraphPlan &plan) {
             inlineChoiceKinds[inlineTableChoiceContractKey(expression)];
         if (expression.kind == "table_choose_index") {
           if (kinds.first != kinds.second)
-            return planError(
-                "inline table choose requires index before valid");
+            return planError("inline table choose requires index before valid");
           ++kinds.first;
         } else {
           if (kinds.first != kinds.second + 1)
-            return planError(
-                "inline table choose requires index before valid");
+            return planError("inline table choose requires index before valid");
           ++kinds.second;
         }
       } else if (expression.kind == "popcount") {
@@ -3417,13 +3552,12 @@ llvm::Error verifyQueueGraphPlan(const QueueGraphPlan &plan) {
     if (table)
       roots.push_back(table->entryType);
     llvm::StringMap<std::string> noInheritedTypes;
-    if (auto error = verifyExpressionList(verifyExpressionList,
-                                          match.expressions, roots, "item",
-                                          noInheritedTypes))
-      return error;
     if (auto error =
-            verifyTableGetConstraints(verifyTableGetConstraints,
-                                      match.expressions, roots))
+            verifyExpressionList(verifyExpressionList, match.expressions, roots,
+                                 "item", noInheritedTypes))
+      return error;
+    if (auto error = verifyTableGetConstraints(verifyTableGetConstraints,
+                                               match.expressions, roots))
       return error;
   }
   for (const TableSelectionPlan &selection : plan.tableSelections) {
@@ -3432,12 +3566,12 @@ llvm::Error verifyQueueGraphPlan(const QueueGraphPlan &plan) {
     if (table)
       roots.push_back(table->entryType);
     llvm::StringMap<std::string> noInheritedTypes;
-    if (auto error = verifyExpressionList(
-            verifyExpressionList, selection.keyExpressions, roots, "item",
-            noInheritedTypes))
+    if (auto error =
+            verifyExpressionList(verifyExpressionList, selection.keyExpressions,
+                                 roots, "item", noInheritedTypes))
       return error;
-    if (auto error = verifyTableGetConstraints(
-            verifyTableGetConstraints, selection.keyExpressions, roots))
+    if (auto error = verifyTableGetConstraints(verifyTableGetConstraints,
+                                               selection.keyExpressions, roots))
       return error;
   }
 
@@ -3447,14 +3581,14 @@ llvm::Error verifyQueueGraphPlan(const QueueGraphPlan &plan) {
       if (auto found = queueTypes.find(input); found != queueTypes.end())
         roots.push_back(found->getValue());
     llvm::StringMap<std::string> noInheritedTypes;
-    if (auto error = verifyExpressionList(verifyExpressionList,
-                                          block.expressions, roots, "item",
-                                          noInheritedTypes))
+    if (auto error =
+            verifyExpressionList(verifyExpressionList, block.expressions, roots,
+                                 "item", noInheritedTypes))
       return error;
     if (auto error = verifySharedExpressions(block.expressions))
       return error;
-    if (auto error = verifyTableGetConstraints(
-            verifyTableGetConstraints, block.expressions, roots))
+    if (auto error = verifyTableGetConstraints(verifyTableGetConstraints,
+                                               block.expressions, roots))
       return error;
     llvm::StringMap<std::string> identities;
     llvm::StringMap<ValueConstraint> constraints;
@@ -3479,15 +3613,15 @@ llvm::Error verifyQueueGraphPlan(const QueueGraphPlan &plan) {
       auto predecessor = identities.find(block.yields[1]);
       auto resource = identities.find(block.yields[2]);
       auto cost = identities.find(block.yields[3]);
-      std::optional<unsigned> keyWidth =
-          key == identities.end() ? std::nullopt
-                                  : integerWidth(key->getValue());
+      std::optional<unsigned> keyWidth = key == identities.end()
+                                             ? std::nullopt
+                                             : integerWidth(key->getValue());
       std::optional<unsigned> resourceWidth =
           resource == identities.end() ? std::nullopt
                                        : integerWidth(resource->getValue());
-      std::optional<unsigned> costWidth =
-          cost == identities.end() ? std::nullopt
-                                   : integerWidth(cost->getValue());
+      std::optional<unsigned> costWidth = cost == identities.end()
+                                              ? std::nullopt
+                                              : integerWidth(cost->getValue());
       if (!keyWidth || *keyWidth == 0 || *keyWidth > 16 ||
           predecessor == identities.end() ||
           predecessor->getValue() != key->getValue() || !resourceWidth ||
@@ -3597,23 +3731,22 @@ llvm::Error verifyQueueGraphPlan(const QueueGraphPlan &plan) {
         if (expression->kind == "mul" || expression->kind == "and" ||
             expression->kind == "or" || expression->kind == "xor" ||
             (expression->kind == "cmp" &&
-             (expression->predicate == "eq" ||
-              expression->predicate == "ne")))
+             (expression->predicate == "eq" || expression->predicate == "ne")))
           llvm::sort(operands);
         std::string key;
         llvm::raw_string_ostream stream(key);
         auto writeString = [&](llvm::StringRef value) {
           stream << value.size() << ':' << value;
         };
-        for (llvm::StringRef value :
-             {llvm::StringRef(expression->kind), llvm::StringRef(expression->type),
-              llvm::StringRef(expression->field),
-              llvm::StringRef(expression->literal),
-              llvm::StringRef(expression->predicate),
-              llvm::StringRef(expression->table),
-              llvm::StringRef(expression->slot),
-              llvm::StringRef(expression->mask),
-              llvm::StringRef(expression->value)})
+        for (llvm::StringRef value : {llvm::StringRef(expression->kind),
+                                      llvm::StringRef(expression->type),
+                                      llvm::StringRef(expression->field),
+                                      llvm::StringRef(expression->literal),
+                                      llvm::StringRef(expression->predicate),
+                                      llvm::StringRef(expression->table),
+                                      llvm::StringRef(expression->slot),
+                                      llvm::StringRef(expression->mask),
+                                      llvm::StringRef(expression->value)})
           writeString(value);
         stream << expression->lsb << ':' << expression->width << ':';
         for (uint64_t operand : operands)
@@ -3633,16 +3766,15 @@ llvm::Error verifyQueueGraphPlan(const QueueGraphPlan &plan) {
               return candidate.result == identity;
             });
         return expression != block.expressions.end() &&
-               expression->kind == "constant" &&
-               expression->literal == "false";
+               expression->kind == "constant" && expression->literal == "false";
       };
       std::function<void(llvm::StringRef, bool,
                          llvm::DenseSet<std::pair<uint64_t, uint8_t>> &,
                          llvm::SmallVectorImpl<Literal> &)>
-          collectConjuncts =
-              [&](llvm::StringRef identity, bool negated,
-                  llvm::DenseSet<std::pair<uint64_t, uint8_t>> &visited,
-                  llvm::SmallVectorImpl<Literal> &literals) {
+          collectConjuncts = [&](llvm::StringRef identity, bool negated,
+                                 llvm::DenseSet<std::pair<uint64_t, uint8_t>>
+                                     &visited,
+                                 llvm::SmallVectorImpl<Literal> &literals) {
             const uint64_t atom = canonicalExpression(identity);
             if (!visited.insert({atom, static_cast<uint8_t>(negated)}).second)
               return;
@@ -3662,8 +3794,7 @@ llvm::Error verifyQueueGraphPlan(const QueueGraphPlan &plan) {
               return;
             }
             if (expression != block.expressions.end() &&
-                expression->kind == "cmp" &&
-                expression->predicate == "eq" &&
+                expression->kind == "cmp" && expression->predicate == "eq" &&
                 expression->operands.size() == 2) {
               if (isFalse(expression->operands[0])) {
                 collectConjuncts(expression->operands[1], !negated, visited,
@@ -3698,16 +3829,14 @@ llvm::Error verifyQueueGraphPlan(const QueueGraphPlan &plan) {
           for (size_t left = 0; left < right; ++left) {
             auto leftConstraint = constraints.find(writes[left]->index);
             auto rightConstraint = constraints.find(writes[right]->index);
-            const bool disjoint =
-                leftConstraint != constraints.end() &&
-                rightConstraint != constraints.end() &&
-                leftConstraint->getValue().provesDisjoint(
-                    rightConstraint->getValue());
-            const bool exclusive =
-                !writes[left]->present.empty() &&
-                !writes[right]->present.empty() &&
-                mutuallyExclusive(writes[left]->present,
-                                  writes[right]->present);
+            const bool disjoint = leftConstraint != constraints.end() &&
+                                  rightConstraint != constraints.end() &&
+                                  leftConstraint->getValue().provesDisjoint(
+                                      rightConstraint->getValue());
+            const bool exclusive = !writes[left]->present.empty() &&
+                                   !writes[right]->present.empty() &&
+                                   mutuallyExclusive(writes[left]->present,
+                                                     writes[right]->present);
             if (!disjoint && !exclusive)
               return planError(
                   "same-owner firing writes may select one index concurrently");
@@ -3915,8 +4044,8 @@ llvm::Expected<std::string> QueueGraphPlan::canonicalJson() const {
       result["lsb"] = expression.lsb;
     if (expression.kind == "bit_extract" ||
         expression.kind == "aggregate_get" ||
-        expression.kind == "tuple_create" || expression.kind == "array_create" ||
-        expression.kind == "record_create")
+        expression.kind == "tuple_create" ||
+        expression.kind == "array_create" || expression.kind == "record_create")
       result["width"] = expression.width;
     if (expression.kind == "masked_match") {
       result["mask"] = expression.mask;
@@ -3980,6 +4109,15 @@ llvm::Expected<std::string> QueueGraphPlan::canonicalJson() const {
     llvm::json::Array transactionResources;
     for (const QueueRuleResourcePlan &resource : block.transactionResources)
       transactionResources.push_back(resourceJson(resource));
+    llvm::json::Array arbitrationMembership;
+    for (const QueueWriterArbitrationPlan &membership :
+         block.arbitrationMembership)
+      arbitrationMembership.push_back(llvm::json::Object{
+          {"declared_rank", membership.declaredRank},
+          {"endpoint_stable_id", membership.endpointStableId},
+          {"owner", membership.owner},
+          {"policy", membership.policy},
+          {"resolution", membership.resolution}});
     llvm::json::Array inputs;
     for (const std::string &input : block.inputs)
       inputs.push_back(input);
@@ -4033,6 +4171,7 @@ llvm::Expected<std::string> QueueGraphPlan::canonicalJson() const {
                                                   {"value", output.value}});
     blockValues.push_back(llvm::json::Object{
         {"activation_sources", std::move(activationSources)},
+        {"arbitration_membership", std::move(arbitrationMembership)},
         {"capacity", block.capacity},
         {"credits", block.credits},
         {"depths", std::move(depths)},
@@ -4068,6 +4207,7 @@ llvm::Expected<std::string> QueueGraphPlan::canonicalJson() const {
         {"start", block.start},
         {"state_reservations", std::move(stateReservations)},
         {"state_writes", std::move(stateWrites)},
+        {"stable_id", block.stableId},
         {"transaction_resources", std::move(transactionResources)},
         {"init", block.init},
         {"write_fields", std::move(writeFields)},

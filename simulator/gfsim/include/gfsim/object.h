@@ -252,6 +252,10 @@ public:
   bool setWorkClosurePlan(std::span<const uint32_t> offsets,
                           std::span<const ObjectId> targets);
 
+  /// Install the explicit stable order used to arbitrate scheduled workers.
+  /// Objects omitted from the order retain ascending stable-ID order.
+  bool setArbitrationOrder(std::span<const ObjectId> order);
+
   /// Install the opaque dispatch ABI emitted by the legacy ACIR C++ path.
   bool setLegacyDispatchTable(LegacyDispatchTable table);
   bool setLegacyActivationGraph(LegacyActivationGraph graph);

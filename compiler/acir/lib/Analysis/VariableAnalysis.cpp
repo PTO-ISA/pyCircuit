@@ -769,6 +769,7 @@ ACDataFlowAnalyzer::stateFootprints(Operation *scope) const {
   scope->walk([&](Operation *operation) {
     Value index;
     StateAccessFootprint footprint;
+    footprint.endpoint = operation;
     if (auto read = dyn_cast<ac::TableGetOp>(operation)) {
       index = read.getIndex();
       footprint.resource = read.getTable().str();

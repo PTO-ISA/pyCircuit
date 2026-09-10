@@ -705,9 +705,23 @@ Entry 只能是 bool、定宽整数或仅包含这些字段的扁平 struct。`r
 state-driven masked update。masked `write` 给所有命中 Entry 写入同一个完整值；
 masked `patch` 的字段可以是统一表达式，也可以是从各命中 old Entry 求值的纯
 `lambda entry`。`enable=false` 不求值 mask/value，空 mask 是 no-op，所有命中项在
-同一个 tick edge 原子提交。scalar 与 masked endpoint 可以共存，但各 endpoint 静态声明的
-顶层写字段集合必须两两不相交。第一版不分析 address、mask、enable 或 predicate 的动态
-互斥性；只要两个 endpoint 声明同一字段就静态拒绝。
+同一个 tick edge 原子提交。scalar 与 masked endpoint 进入同一个规范化
+`(owner, index-domain, field, endpoint)` writer 关系。不同 owner、不同字段和静态可证
+不同的 index 不冲突。即使两个 endpoint 声明同一字段，只要 ACIR verifier 能从同一份
+committed snapshot 证明 guard 互斥，也可以并存。无法证明的 same-field overlap 会拒绝，
+除非所有冲突 endpoint 都声明显式仲裁。
+
+`ac.writer_priority(rank)` 声明确定性的 owner-local 仲裁。`rank` 必须是非负编译期整数，
+数值更小者优先。前端发射 `#ac.writer_priority<rank>` 和由内容导出的稳定 endpoint
+identity；rule lowering 在 effect 与 arbitration summary 中保留 typed policy、declared
+rank、endpoint identity、owner 以及 `winner_takes_transaction` resolution。priority tie、
+缺失或重复 endpoint identity、畸形 policy attribute、一个 Python descriptor 跨 Table
+复用、互相矛盾的 cross-owner precedence cycle，以及用户书写的 `safe` assertion 都会
+fail closed。源码、声明、遍历、对象或 Work 顺序都不能充当 tie-break。
+
+仲裁在资源 prepare 之前选出 winner。loser 不会保留 Queue、Table、Reg、Slot 或 output，
+也不会发布其中任何 effect。可兼容的 guarded-disjoint writer 从同一 old image 求值并合并
+为一个确定的 next image。reset 会清除未完成的 proposal、reservation 与 arbitration state。
 
 每张 Table 可以额外声明一个 state-driven scalar `allocate` endpoint，与上述普通字段
 writer 共存。它在调用方提供的 index 安装完整 Entry，不搜索空位、不检查占用状态，也不
@@ -745,8 +759,9 @@ capture、嵌套 Table/Slot observation 或 snapshot effect 都保留独立扫�
 使用 `mode "replace"`，masked write 只允许 `field`。完整 struct write 展开为所有实际
 字段，bool/int Entry 使用 `$entry`。
 value region 仍返回完整 Entry，但 commit 只复制声明字段；所有 writer 从同一 old
-committed image 求值，并在 tick edge 合并后一次发布。
-当前 Table 只支持 typed gfsim C++；PYC/RTL 返回稳定的
+committed image 求值，并在 tick edge 合并兼容 proposal 后一次发布。QueueGraph 与 typed
+gfsim C++ 已实现 Table 执行和 writer arbitration。canonical-PYC register-bank admission
+以及 C++/Verilog parity 仍由 Decision 0241 管控；在该 decision 落地前，PYC/RTL 返回稳定的
 `unsupported provisional Table` 诊断。旧 `ac.table(...)` 已删除，请求响应存储继续
 使用 `ac.memory`。纵向示例见
 唯一公开的 Python Table 示例是

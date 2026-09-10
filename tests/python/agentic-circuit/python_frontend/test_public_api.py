@@ -16,6 +16,7 @@ PUBLIC = {
     "process",
     "rule",
     "invariant",
+    "writer_priority",
     "scope",
     "array",
     "map",
@@ -79,6 +80,18 @@ class PublicApiTest(unittest.TestCase):
         self.assertEqual(PUBLIC, set(api.__all__))
         for name in PUBLIC:
             self.assertIsNotNone(getattr(api, name))
+
+    def test_writer_priority_is_an_immutable_checked_compile_descriptor(self) -> None:
+        api = importlib.import_module("agentic_circuit")
+
+        policy = api.writer_priority(3)
+        self.assertEqual(3, policy.rank)
+        with self.assertRaises(FrozenInstanceError):
+            policy.rank = 4
+        for invalid in (-1, True, 1.0):
+            with self.subTest(invalid=invalid):
+                with self.assertRaisesRegex(ValueError, "non-negative static integer"):
+                    api.writer_priority(invalid)
 
     def test_variable_has_no_long_form_public_alias(self) -> None:
         api = importlib.import_module("agentic_circuit")

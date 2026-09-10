@@ -122,6 +122,33 @@ def ACIR_RuleScheduleKind
 def ACIR_RuleScheduleKindAttr
     : EnumAttr<ACIR_Dialect, ACIR_RuleScheduleKind, "rule_schedule_kind">;
 
+def ACIR_WriterArbitrationPolicy_Priority
+    : I32EnumAttrCase<"Priority", 0, "priority">;
+def ACIR_WriterArbitrationPolicy
+    : I32EnumAttr<"WriterArbitrationPolicy",
+                  "typed same-owner writer arbitration policy",
+                  [ACIR_WriterArbitrationPolicy_Priority]> {
+  let genSpecializedAttr = 0;
+  let cppNamespace = "::acir::ac";
+}
+def ACIR_WriterArbitrationPolicyAttr
+    : EnumAttr<ACIR_Dialect, ACIR_WriterArbitrationPolicy,
+               "writer_arbitration_policy">;
+
+def ACIR_WriterArbitrationResolution_WinnerTakesTransaction
+    : I32EnumAttrCase<"WinnerTakesTransaction", 0,
+                      "winner_takes_transaction">;
+def ACIR_WriterArbitrationResolution
+    : I32EnumAttr<"WriterArbitrationResolution",
+                  "typed writer conflict resolution",
+                  [ACIR_WriterArbitrationResolution_WinnerTakesTransaction]> {
+  let genSpecializedAttr = 0;
+  let cppNamespace = "::acir::ac";
+}
+def ACIR_WriterArbitrationResolutionAttr
+    : EnumAttr<ACIR_Dialect, ACIR_WriterArbitrationResolution,
+               "writer_arbitration_resolution">;
+
 def ACIR_RuleCheckKind_InputAvailable
     : I32EnumAttrCase<"InputAvailable", 0, "input_available">;
 def ACIR_RuleCheckKind_OutputCapacity
@@ -204,5 +231,13 @@ def ACIR_RuleIndexKind
 }
 def ACIR_RuleIndexKindAttr
     : EnumAttr<ACIR_Dialect, ACIR_RuleIndexKind, "rule_index_kind">;
+
+def ACIR_WriterPriorityAttr : AttrDef<ACIR_Dialect, "WriterPriority"> {
+  let mnemonic = "writer_priority";
+  let summary = "explicit owner-local Table writer priority";
+  let parameters = (ins "int64_t":$rank);
+  let assemblyFormat = "`<` $rank `>`";
+  let genVerifyDecl = 1;
+}
 
 #endif // ACIR_DIALECT_ACIR_ACIRATTRIBUTES_TD

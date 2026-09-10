@@ -639,6 +639,7 @@ class TableWriteBinding:
     patch_fields: tuple[tuple[str, ast.expr], ...]
     write_fields: tuple[str, ...]
     write_mode: str
+    arbitration_rank: int | None
     scope: tuple[str, ...]
     order: int
 
@@ -652,6 +653,7 @@ class MaskedTableWriteBinding:
     patch_fields: tuple[tuple[str, ast.expr], ...]
     write_fields: tuple[str, ...]
     write_mode: str
+    arbitration_rank: int | None
     scope: tuple[str, ...]
     order: int
 
@@ -3357,6 +3359,8 @@ def parse_queue_program(
     table_reads: list[TableReadBinding] = []
     table_writes: list[TableWriteBinding] = []
     masked_table_writes: list[MaskedTableWriteBinding] = []
+    arbitration_descriptors: dict[str, int] = {}
+    arbitration_owners: dict[str, str] = {}
     slots: list[SlotBinding] = []
     slot_releases: list[SlotReleaseBinding] = []
     candidates: list[CandidateSetBinding] = []
@@ -3419,8 +3423,52 @@ def parse_queue_program(
             return ("$entry",)
         return tuple(field.name for field in value_type.fields)
 
+    def writer_priority_rank(policy: ast.expr, diagnostic: str) -> int:
+        if (
+            not isinstance(policy, ast.Call)
+            or _decorator_name(policy.func).rsplit(".", 1)[-1] != "writer_priority"
+            or len(policy.args) != 1
+            or policy.keywords
+        ):
+            raise QueueFrontendError(
+                f"{diagnostic}: arbitration requires ac.writer_priority(rank)"
+            )
+        rank = _constant_integer(policy.args[0], system_static_values)
+        if rank is None or rank < 0:
+            raise QueueFrontendError(
+                f"{diagnostic}: writer priority rank must be a non-negative "
+                "static integer"
+            )
+        return rank
+
+    def table_writer_arbitration(
+        call: ast.Call, diagnostic: str, table: str
+    ) -> int | None:
+        policies = [
+            keyword.value
+            for keyword in call.keywords
+            if keyword.arg == "arbitration"
+        ]
+        if len(policies) > 1:
+            raise QueueFrontendError(f"{diagnostic}: repeated arbitration policy")
+        if not policies:
+            return None
+        policy = policies[0]
+        if isinstance(policy, ast.Name) and policy.id in arbitration_descriptors:
+            owner = arbitration_owners.setdefault(policy.id, table)
+            if owner != table:
+                raise QueueFrontendError(
+                    f"{diagnostic}: arbitration descriptor {policy.id!r} cannot "
+                    "cross Table owners"
+                )
+            return arbitration_descriptors[policy.id]
+        return writer_priority_rank(policy, diagnostic)
+
     def reject_overlapping_table_writer(
-        table: str, write_fields: tuple[str, ...], write_mode: str
+        table: str,
+        write_fields: tuple[str, ...],
+        write_mode: str,
+        arbitration_rank: int | None,
     ) -> None:
         requested = set(write_fields)
         for write in (*table_writes, *masked_table_writes):
@@ -3428,16 +3476,31 @@ def parse_queue_program(
                 continue
             if write_mode == "replace" or write.write_mode == "replace":
                 if write_mode == write.write_mode == "replace":
-                    raise QueueFrontendError(
-                        "ACPY-TABLE-009: table permits one allocation endpoint"
-                    )
+                    if arbitration_rank is None or write.arbitration_rank is None:
+                        raise QueueFrontendError(
+                            "ACPY-TABLE-009: table permits one allocation endpoint "
+                            "unless multiple endpoints declare explicit writer "
+                            "arbitration"
+                        )
+                    if arbitration_rank == write.arbitration_rank:
+                        raise QueueFrontendError(
+                            "ACPY-TABLE-011: writer priority ranks must be unique "
+                            "for conflicting endpoints"
+                        )
                 continue
             overlap = requested.intersection(write.write_fields)
             if overlap:
+                if arbitration_rank is not None and write.arbitration_rank is not None:
+                    if arbitration_rank == write.arbitration_rank:
+                        raise QueueFrontendError(
+                            "ACPY-TABLE-011: writer priority ranks must be unique "
+                            "for conflicting endpoints"
+                        )
+                    continue
                 field = min(overlap)
                 raise QueueFrontendError(
                     "ACPY-TABLE-004: table write field "
-                    f"'{field}' has multiple endpoints"
+                    f"'{field}' has multiple endpoints without explicit arbitration"
                 )
 
     def table_declaration(
@@ -4110,6 +4173,23 @@ def parse_queue_program(
             current_order = order
             order += 1
             if (
+                isinstance(statement, ast.Assign)
+                and len(statement.targets) == 1
+                and isinstance(statement.targets[0], ast.Name)
+                and isinstance(statement.value, ast.Call)
+                and _decorator_name(statement.value.func).rsplit(".", 1)[-1]
+                == "writer_priority"
+            ):
+                name = statement.targets[0].id
+                if name in arbitration_descriptors:
+                    raise QueueFrontendError(
+                        "ACPY-TABLE-011: arbitration descriptor requires a fresh name"
+                    )
+                arbitration_descriptors[name] = writer_priority_rank(
+                    statement.value, "ACPY-TABLE-011"
+                )
+                continue
+            if (
                 isinstance(statement, ast.AnnAssign)
                 and isinstance(statement.target, ast.Name)
                 and statement.value is not None
@@ -4550,6 +4630,9 @@ def parse_queue_program(
                 view = resolve_view(call.func.value, scope_path, current_order)
                 if view is not None:
                     method = call.func.attr
+                    arbitration_rank = table_writer_arbitration(
+                        call, "ACPY-TABLE-011", view.table
+                    )
                     if isinstance(view, MaskedEntryViewBinding):
                         if method == "allocate":
                             raise QueueFrontendError(
@@ -4585,7 +4668,8 @@ def parse_queue_program(
                         if method == "write":
                             if any(
                                 keyword.arg is None
-                                or keyword.arg not in {"value", "enable"}
+                                or keyword.arg
+                                not in {"value", "enable", "arbitration"}
                                 for keyword in call.keywords
                             ):
                                 raise QueueFrontendError(
@@ -4621,7 +4705,7 @@ def parse_queue_program(
                             }
                             patches: list[tuple[str, ast.expr]] = []
                             for keyword in call.keywords:
-                                if keyword.arg == "enable":
+                                if keyword.arg in {"enable", "arbitration"}:
                                     continue
                                 if (
                                     keyword.arg is None
@@ -4670,7 +4754,7 @@ def parse_queue_program(
                             table, value, patch_fields
                         )
                         reject_overlapping_table_writer(
-                            view.table, write_fields, "field"
+                            view.table, write_fields, "field", arbitration_rank
                         )
                         masked_table_writes.append(
                             MaskedTableWriteBinding(
@@ -4681,6 +4765,7 @@ def parse_queue_program(
                                 patch_fields,
                                 write_fields,
                                 "field",
+                                arbitration_rank,
                                 scope_path,
                                 current_order,
                             )
@@ -4735,7 +4820,8 @@ def parse_queue_program(
                     if method in {"write", "allocate"}:
                         if any(
                             keyword.arg is None
-                            or keyword.arg not in {"value", "enable"}
+                            or keyword.arg
+                            not in {"value", "enable", "arbitration"}
                             for keyword in call.keywords
                         ):
                             raise QueueFrontendError(
@@ -4778,7 +4864,7 @@ def parse_queue_program(
                         }
                         patches: list[tuple[str, ast.expr]] = []
                         for keyword in call.keywords:
-                            if keyword.arg == "enable":
+                            if keyword.arg in {"enable", "arbitration"}:
                                 continue
                             if keyword.arg is None or keyword.arg not in field_types:
                                 raise QueueFrontendError(
@@ -4813,7 +4899,7 @@ def parse_queue_program(
                     write_fields = normalized_write_fields(table, value, patch_fields)
                     write_mode = "replace" if method == "allocate" else "field"
                     reject_overlapping_table_writer(
-                        view.table, write_fields, write_mode
+                        view.table, write_fields, write_mode, arbitration_rank
                     )
                     table_writes.append(
                         TableWriteBinding(
@@ -4826,6 +4912,7 @@ def parse_queue_program(
                             patch_fields,
                             write_fields,
                             write_mode,
+                            arbitration_rank,
                             scope_path,
                             current_order,
                         )
@@ -8902,6 +8989,38 @@ class _ExpressionEmitter:
 def lower_queue_program(
     program: QueueProgram, *, module: _ModuleRenderSpec | None = None
 ) -> str:
+    def table_writer_identity(
+        write: TableWriteBinding | MaskedTableWriteBinding,
+    ) -> str:
+        record: dict[str, object] = {
+            "address": (
+                ast.dump(write.address, include_attributes=False)
+                if isinstance(write, TableWriteBinding)
+                else None
+            ),
+            "arbitration_rank": write.arbitration_rank,
+            "candidates": (
+                write.candidates if isinstance(write, MaskedTableWriteBinding) else None
+            ),
+            "enable": ast.dump(write.enable, include_attributes=False),
+            "input": (
+                write.input_name if isinstance(write, TableWriteBinding) else None
+            ),
+            "mode": write.write_mode,
+            "owner": "/".join((*write.scope, write.table)),
+            "patch_fields": [
+                [name, ast.dump(value, include_attributes=False)]
+                for name, value in write.patch_fields
+            ],
+            "value": (
+                None
+                if write.value is None
+                else ast.dump(write.value, include_attributes=False)
+            ),
+            "write_fields": list(write.write_fields),
+        }
+        return sha256_bytes(canonical_json_bytes(record)).removeprefix("sha256:")
+
     specialization = (
         ""
         if program.specialization_fingerprint is None
@@ -10103,7 +10222,8 @@ def lower_queue_program(
                     f"{indent}  ac.table.propose @{queue.rule_table} "
                     f"[%{index_result}] = %{write_result}{effect_presence} "
                     f'mode "replace" '
-                    f"write_fields {fields} : !ac.var<{_render_type(index_type)}>, "
+                    f"write_fields {fields} : "
+                    f"!ac.var<{_render_type(index_type)}>, "
                     f"!ac.var<{_render_type(queue.payload)}>"
                 )
             if queue.rule_has_output:
@@ -11119,19 +11239,25 @@ def lower_queue_program(
                     if write.write_mode == "replace"
                     else f"{write.table}__write"
                 )
-                prior_writes = sum(
+                peer_writes = sum(
                     candidate.table == write.table
                     and candidate.write_mode == write.write_mode
-                    and candidate.order < write.order
                     for candidate in program.table_writes
                 )
+                endpoint_id = table_writer_identity(write)
                 endpoint_name = endpoint_base + (
-                    "" if prior_writes == 0 else f"_{prior_writes}"
+                    "" if peer_writes == 1 else f"_{endpoint_id[:24]}"
+                )
+                arbitration = (
+                    ""
+                    if write.arbitration_rank is None
+                    else f", ac.arbitration = #ac.writer_priority<{write.arbitration_rank}>"
                 )
                 lines.append(
                     f'{indent}}} {{ac.endpoint_path = "'
                     f'{"/" + "/".join((*write.scope, endpoint_name))}", '
-                    f'ac.name = "{endpoint_name}"}}'
+                    f'ac.name = "{endpoint_name}", '
+                    f'ac.endpoint_id = "table-writer/{endpoint_id}"{arbitration}}}'
                 )
             elif kind == "masked_table_write":
                 write = item
@@ -11227,17 +11353,24 @@ def lower_queue_program(
                     f"{indent}  ac.table.yield %{value} : "
                     f"!ac.var<{_render_type(value_type)}>"
                 )
-                prior_writes = sum(
-                    candidate.table == write.table and candidate.order < write.order
+                peer_writes = sum(
+                    candidate.table == write.table
                     for candidate in program.masked_table_writes
                 )
+                endpoint_id = table_writer_identity(write)
                 endpoint_name = f"{write.table}__masked_write" + (
-                    "" if prior_writes == 0 else f"_{prior_writes}"
+                    "" if peer_writes == 1 else f"_{endpoint_id[:24]}"
+                )
+                arbitration = (
+                    ""
+                    if write.arbitration_rank is None
+                    else f", ac.arbitration = #ac.writer_priority<{write.arbitration_rank}>"
                 )
                 lines.append(
                     f'{indent}}} {{ac.endpoint_path = "'
                     f'{"/" + "/".join((*write.scope, endpoint_name))}", '
-                    f'ac.name = "{endpoint_name}"}}'
+                    f'ac.name = "{endpoint_name}", '
+                    f'ac.endpoint_id = "table-writer/{endpoint_id}"{arbitration}}}'
                 )
             elif kind == "slot":
                 slot = item

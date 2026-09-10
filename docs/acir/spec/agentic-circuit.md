@@ -784,9 +784,29 @@ state-driven masked update. Masked `write` assigns one uniform complete value;
 masked `patch` assigns uniform fields or evaluates a pure `lambda entry` from
 each selected old Entry. A false enable does not evaluate the mask or value,
 an empty mask is a no-op, and all selected Entries commit atomically. Scalar
-and masked endpoints may coexist under the same disjoint-field rule. Dynamic
-address, mask, enable, and predicate mutual exclusion is not analyzed; two
-endpoints that declare the same field are rejected.
+and masked endpoints participate in one normalized
+`(owner, index-domain, field, endpoint)` writer relation. Distinct owners,
+fields, and statically disjoint indices do not conflict. The ACIR verifier also
+accepts overlapping field declarations when it proves their guards mutually
+exclusive from the same committed snapshot. An unresolved same-field overlap
+is rejected unless every conflicting endpoint declares explicit arbitration.
+
+Use `ac.writer_priority(rank)` to declare deterministic owner-local
+arbitration. `rank` is a non-negative compile-time integer; lower ranks win.
+The frontend emits `#ac.writer_priority<rank>` and a content-derived stable
+endpoint identity. Rule lowering preserves typed policy, declared rank,
+endpoint identity, owner, and `winner_takes_transaction` resolution metadata in
+the effect and arbitration summaries. Priority ties, missing or duplicate
+endpoint identities, malformed policy attributes, cross-Table reuse of one
+Python descriptor, contradictory cross-owner precedence cycles, and user
+`safe` assertions all fail closed. Source, declaration, traversal, object, and
+Work order never break a tie.
+
+Arbitration selects a winner before resource preparation. A losing transition
+does not reserve a Queue, Table, Reg, Slot, or output and publishes none of its
+effects. Compatible guarded-disjoint writers evaluate from one old image and
+merge into one deterministic next image. Reset clears pending proposals,
+reservations, and arbitration state.
 
 One state-driven scalar `allocate` endpoint may coexist with those ordinary
 field writers. It installs one complete Entry at the caller-supplied index; it
@@ -835,9 +855,10 @@ required `mode`. Ordinary writes use `mode "field"`; scalar allocation uses
 Struct full writes list every declared field; scalar Entries use `$entry`.
 Every value region still returns a complete Entry, but commit copies only the
 declared fields. All endpoints evaluate from one old committed image and their
-disjoint proposals are merged once at the tick edge. Table is a
-typed gfsim C++ prototype. PYC/RTL
-lowering is deferred and rejects the graph with `unsupported provisional
+compatible proposals are merged once at the tick edge. Table execution and
+writer arbitration are implemented in QueueGraph and typed gfsim C++. Decision
+0241 still gates canonical-PYC register-bank admission and C++/Verilog parity;
+until it lands, PYC/RTL lowering rejects the graph with `unsupported provisional
 Table`. Request/response storage remains `ac.memory`; legacy `ac.table(...)`
 has been removed. The single public Python example is
 `issue.py`. It combines two field-disjoint

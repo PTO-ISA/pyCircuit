@@ -20,6 +20,7 @@ from ._definitions import (
     struct,
     system,
     transaction,
+    writer_priority,
 )
 from ._jit import config, jit
 from ._resources import address_map, address_space, queue
@@ -56,6 +57,7 @@ __all__ = (
     "process",
     "rule",
     "invariant",
+    "writer_priority",
     "scope",
     "array",
     "map",

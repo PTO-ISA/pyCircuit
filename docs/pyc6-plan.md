@@ -39,8 +39,11 @@ trace-position, or trace/observation export surface (Decision 0235).
 - Decision 0236 is implemented-verified: `@ac.rule` remains the only public
   scheduling boundary while the compiler forms complete Queue/Table/Reg/Slot
   prepare/publish/no-fail commit groups for issue #28.
-- Implement Decision 0237 writer proof and deterministic arbitration for issue
-  #25, then Decision 0238 multidimensional shape, typed initialization, and
+- Decision 0237 is implemented-verified: same-field Table writers require a
+  committed-snapshot disjointness proof or explicit stable-identity priority;
+  QueueGraph and gfsim perform deterministic pre-prepare winner selection and
+  atomic loser suppression for issue #25.
+- Implement Decision 0238 multidimensional shape, typed initialization, and
   masked domains for issue #23.
 - Implement Decision 0239 static-tuple multi-selection for issue #24. Preserve
   scalar `TableChoice` for omitted `count` and `count=1`; make every formed
@@ -51,10 +54,12 @@ trace-position, or trace/observation export surface (Decision 0235).
   Table profile through an explicit canonical-PYC register bank and prove C++ /
   Verilog parity for issue #22.
 
-Decisions 0237–0241 are Accepted but remain `deferred` in the decision-status
-table until their implementations and concrete gate evidence land. Decision
-0236 is implemented-verified. The frozen remaining order is #25/#23 -> #24/#21
--> #22; #21 may proceed while the Table slices converge.
+Decisions 0236 and 0237 are implemented-verified. Decisions 0238–0241 remain
+`deferred` until their implementations and concrete gate evidence land. The
+remaining order is #23 -> #24/#21 -> #22; #21 may proceed while the Table
+slices converge. Decision 0241 remains the authority for canonical-PYC Table
+admission and C++/Verilog parity; Decision 0237 does not remove the current
+`unsupported provisional Table` boundary.
 
 ### 3. Publish a consumer-neutral SDK
 

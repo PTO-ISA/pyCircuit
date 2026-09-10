@@ -1,0 +1,45 @@
+{
+  "run_id": "20260910-issue25-writer-arbitration",
+  "status": "passed",
+  "base_revision": "57ab569e2a7aed7dc08bea8be2e38608e33af262",
+  "decision_ids": ["0237"],
+  "issue": 25,
+  "results": {
+    "check_acir": {
+      "passed": 192,
+      "failed": 0
+    },
+    "native": {
+      "passed": 4,
+      "failed": 0,
+      "tests": [
+        "ACIROpsTests",
+        "ACIRModelAnalysisTests",
+        "CodeGenTests",
+        "GfsimTests"
+      ]
+    },
+    "python_frontend": {
+      "passed": 166,
+      "failed": 0
+    },
+    "focused_d0237": {
+      "run_directives_passed": 12,
+      "run_directives_failed": 0,
+      "lit_tests_passed": 1,
+      "lit_tests_failed": 0
+    },
+    "git_diff_check": {
+      "passed": true
+    },
+    "decision_status": {
+      "passed": true
+    },
+    "mkdocs_strict": {
+      "passed": true
+    }
+  },
+  "contract": "Same-field Table writers require committed-snapshot disjointness proof or explicit owner-local writer_priority metadata with stable endpoint identity. Priority composition is acyclic, winner selection is independent of source and traversal order, and losers publish no effects.",
+  "pyc_rtl_boundary": "Decision 0237 verifies frontend, ACIR, QueueGraph, and typed gfsim arbitration. Decision 0241 still owns canonical-PYC Table admission and C++/Verilog parity; PYC/RTL continues to reject Table with unsupported provisional Table.",
+  "release_scope": "Focused issue #25 semantic evidence; full release closure remains release-workflow authority."
+}

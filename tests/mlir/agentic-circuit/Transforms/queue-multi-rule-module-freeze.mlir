@@ -37,15 +37,15 @@ builtin.module attributes {
         %enabled = ac.var.constant true as !ac.var<i1>
         ac.firing.condition %enabled : !ac.var<i1>
         ac.table.propose @sum[%index] = %value when %enabled : !ac.var<i1> mode "replace"
-            write_fields ["$entry"] : !ac.var<i1>, !ac.var<i8>
+            write_fields ["$entry"] {ac.arbitration = #ac.writer_priority<1>} : !ac.var<i1>, !ac.var<i8>
         ac.firing.output %value when %enabled ordinal 0 : !ac.var<i8>, !ac.var<i1>
         ac.state.snapshot @sum[%index : !ac.var<i1>] for %enabled : !ac.var<i1> kind static read_fields ["$entry"]
         ac.firing.yield %value : !ac.var<i8>
       } {
         ac.activation_sources = [{kind = #ac<activation_resource_kind input_queue>, ordinal = 0 : i64}, {kind = #ac<activation_resource_kind output_queue>, ordinal = 0 : i64}, {kind = #ac<activation_resource_kind state>, resource = @sum}],
-        ac.arbitration_membership = [{priority = 0 : i64, resource = @sum}],
+        ac.arbitration_membership = [{declared_rank = 1 : i64, endpoint_stable_id = "accumulate_a", owner = @sum, policy = #ac<writer_arbitration_policy priority>, resolution = #ac<writer_arbitration_resolution winner_takes_transaction>}],
         ac.checks_typed = [{guard_kind = #ac<rule_guard_kind always>, kind = #ac<rule_check_kind input_available>, ordinal = 0 : i64}, {guard_kind = #ac<rule_guard_kind always>, kind = #ac<rule_check_kind output_capacity>, ordinal = 0 : i64}],
-        ac.effects_typed = [{guard_kind = #ac<rule_guard_kind always>, kind = #ac<rule_effect_kind input_consume>, ordinal = 0 : i64}, {guard_kind = #ac<rule_guard_kind always>, kind = #ac<rule_effect_kind output_produce>, ordinal = 0 : i64}, {guard_kind = #ac<rule_guard_kind always>, kind = #ac<rule_effect_kind state_read>, resource = @sum}, {guard_kind = #ac<rule_guard_kind always>, kind = #ac<rule_effect_kind state_write>, resource = @sum}],
+        ac.effects_typed = [{guard_kind = #ac<rule_guard_kind always>, kind = #ac<rule_effect_kind input_consume>, ordinal = 0 : i64}, {guard_kind = #ac<rule_guard_kind always>, kind = #ac<rule_effect_kind output_produce>, ordinal = 0 : i64}, {guard_kind = #ac<rule_guard_kind always>, kind = #ac<rule_effect_kind state_read>, resource = @sum}, {declared_rank = 1 : i64, endpoint_stable_id = "accumulate_a", guard_kind = #ac<rule_guard_kind always>, kind = #ac<rule_effect_kind state_write>, owner = @sum, policy = #ac<writer_arbitration_policy priority>, resolution = #ac<writer_arbitration_resolution winner_takes_transaction>, resource = @sum}],
         ac.guard_kind = #ac<rule_guard_kind always>,
         ac.initially_active = false,
         ac.name = "output_a",
@@ -69,15 +69,15 @@ builtin.module attributes {
         %enabled = ac.var.constant true as !ac.var<i1>
         ac.firing.condition %enabled : !ac.var<i1>
         ac.table.propose @sum[%index] = %value when %enabled : !ac.var<i1> mode "replace"
-            write_fields ["$entry"] : !ac.var<i1>, !ac.var<i8>
+            write_fields ["$entry"] {ac.arbitration = #ac.writer_priority<0>} : !ac.var<i1>, !ac.var<i8>
         ac.firing.output %value when %enabled ordinal 0 : !ac.var<i8>, !ac.var<i1>
         ac.state.snapshot @sum[%index : !ac.var<i1>] for %enabled : !ac.var<i1> kind static read_fields ["$entry"]
         ac.firing.yield %value : !ac.var<i8>
       } {
         ac.activation_sources = [{kind = #ac<activation_resource_kind input_queue>, ordinal = 0 : i64}, {kind = #ac<activation_resource_kind output_queue>, ordinal = 0 : i64}, {kind = #ac<activation_resource_kind state>, resource = @sum}],
-        ac.arbitration_membership = [{priority = 1 : i64, resource = @sum}],
+        ac.arbitration_membership = [{declared_rank = 0 : i64, endpoint_stable_id = "accumulate_b", owner = @sum, policy = #ac<writer_arbitration_policy priority>, resolution = #ac<writer_arbitration_resolution winner_takes_transaction>}],
         ac.checks_typed = [{guard_kind = #ac<rule_guard_kind always>, kind = #ac<rule_check_kind input_available>, ordinal = 0 : i64}, {guard_kind = #ac<rule_guard_kind always>, kind = #ac<rule_check_kind output_capacity>, ordinal = 0 : i64}],
-        ac.effects_typed = [{guard_kind = #ac<rule_guard_kind always>, kind = #ac<rule_effect_kind input_consume>, ordinal = 0 : i64}, {guard_kind = #ac<rule_guard_kind always>, kind = #ac<rule_effect_kind output_produce>, ordinal = 0 : i64}, {guard_kind = #ac<rule_guard_kind always>, kind = #ac<rule_effect_kind state_read>, resource = @sum}, {guard_kind = #ac<rule_guard_kind always>, kind = #ac<rule_effect_kind state_write>, resource = @sum}],
+        ac.effects_typed = [{guard_kind = #ac<rule_guard_kind always>, kind = #ac<rule_effect_kind input_consume>, ordinal = 0 : i64}, {guard_kind = #ac<rule_guard_kind always>, kind = #ac<rule_effect_kind output_produce>, ordinal = 0 : i64}, {guard_kind = #ac<rule_guard_kind always>, kind = #ac<rule_effect_kind state_read>, resource = @sum}, {declared_rank = 0 : i64, endpoint_stable_id = "accumulate_b", guard_kind = #ac<rule_guard_kind always>, kind = #ac<rule_effect_kind state_write>, owner = @sum, policy = #ac<writer_arbitration_policy priority>, resolution = #ac<writer_arbitration_resolution winner_takes_transaction>, resource = @sum}],
         ac.guard_kind = #ac<rule_guard_kind always>,
         ac.initially_active = false,
         ac.name = "output_b",
@@ -132,9 +132,9 @@ builtin.module attributes {
 // PLAN-SAME: "inputs":["right_a","right_b"]
 // PLAN-SAME: "outputs":["right_0","right_1"]
 // PLAN-SAME: "module_specializations":[{
-// PLAN-SAME: "name":"output_a"
-// PLAN-SAME: "priority":0
 // PLAN-SAME: "name":"output_b"
+// PLAN-SAME: "priority":0
+// PLAN-SAME: "name":"output_a"
 // PLAN-SAME: "priority":1
 // PLAN-SAME: "definition":"DualAccumulator"
 // PLAN-SAME: "interface_inputs":[{"name":"input_0","payload_type":"i8"},{"name":"input_1","payload_type":"i8"}]

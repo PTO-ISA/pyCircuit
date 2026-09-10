@@ -15,6 +15,7 @@
 #include <set>
 #include <sstream>
 #include <system_error>
+#include <tuple>
 #include <utility>
 
 namespace acir::codegen {
@@ -1307,6 +1308,30 @@ const SlotPlan *findSlot(const QueueGraphPlan &plan, llvm::StringRef name) {
 
 bool isRuntimeBlock(const QueueBlockPlan &block) {
   return block.kind != "source";
+}
+
+bool isWriterBlock(const QueueBlockPlan &block) {
+  return block.kind == "firing" || block.kind == "table_write" ||
+         block.kind == "table_masked_write";
+}
+
+std::vector<const QueueBlockPlan *>
+arbitrationDispatchOrder(llvm::ArrayRef<const QueueBlockPlan *> blocks) {
+  std::vector<const QueueBlockPlan *> ordered(blocks.begin(), blocks.end());
+  std::vector<const QueueBlockPlan *> writers;
+  for (const QueueBlockPlan *block : blocks)
+    if (isWriterBlock(*block))
+      writers.push_back(block);
+  llvm::sort(writers,
+             [](const QueueBlockPlan *left, const QueueBlockPlan *right) {
+               return std::tie(left->priority, left->stableId) <
+                      std::tie(right->priority, right->stableId);
+             });
+  size_t nextWriter = 0;
+  for (const QueueBlockPlan *&block : ordered)
+    if (isWriterBlock(*block))
+      block = writers[nextWriter++];
+  return ordered;
 }
 
 llvm::Error emitStructuredMergePolicy(std::ostringstream &output,
@@ -2776,6 +2801,37 @@ generateStructuredQueueGraphCpp(const QueueGraphPlan &plan) {
              << "_.received(); }\n";
       ++sinkIndex;
     }
+  using ArbitrationId = std::pair<uint64_t, uint64_t>;
+  std::vector<ArbitrationId> arbitrationIds;
+  for (const QueueBlockPlan *block : runtimeBlocks)
+    if (!block->arbitrationMembership.empty())
+      arbitrationIds.emplace_back(block->priority, blockIds[block]);
+  std::function<void(const QueueGraphPlan &, llvm::ArrayRef<uint64_t>)>
+      collectNestedArbitration;
+  collectNestedArbitration = [&](const QueueGraphPlan &specialization,
+                                 llvm::ArrayRef<uint64_t> objectIds) {
+    for (auto [index, block] : llvm::enumerate(specialization.blocks))
+      if (!block.arbitrationMembership.empty())
+        arbitrationIds.emplace_back(block.priority, objectIds[index]);
+    size_t offset = specialization.blocks.size() + specialization.tables.size();
+    for (const QueueModuleInstancePlan &instance :
+         specialization.moduleInstances) {
+      const QueueGraphPlan *child =
+          specializations.lookup(instance.specializationFingerprint);
+      if (!child)
+        continue;
+      const size_t count = specializationObjectCount(*child);
+      collectNestedArbitration(*child, objectIds.slice(offset, count));
+      offset += count;
+    }
+  };
+  for (auto [index, instance] : llvm::enumerate(plan.moduleInstances)) {
+    const QueueGraphPlan *specialization =
+        specializations.lookup(instance.specializationFingerprint);
+    if (specialization)
+      collectNestedArbitration(*specialization, instanceObjectIds[index]);
+  }
+  llvm::sort(arbitrationIds);
   output << "\n  std::array<gfsim::DispatchRow, " << nextId
          << "> dispatch_rows() {\n    return {\n";
   for (const QueuePlan &queue : plan.queues)
@@ -2798,6 +2854,15 @@ generateStructuredQueueGraphCpp(const QueueGraphPlan &plan) {
     }
   }
   output << "    };\n  }\n\n"
+         << "  static constexpr std::array<gfsim::ObjectId, "
+         << arbitrationIds.size()
+         << "> arbitration_order() {\n    return {";
+  for (auto [index, entry] : llvm::enumerate(arbitrationIds)) {
+    if (index)
+      output << ", ";
+    output << entry.second;
+  }
+  output << "};\n  }\n\n"
          << "  static constexpr std::array<uint32_t, "
          << activationOffsets.size()
          << "> activation_offsets() {\n    return {";
@@ -3008,6 +3073,7 @@ llvm::Expected<std::string> generateQueueGraphCpp(const QueueGraphPlan &plan) {
   for (const QueueBlockPlan &block : plan.blocks)
     if (isRuntimeBlock(block) && block.kind != "memory_request")
       runtimeBlocks.push_back(&block);
+  runtimeBlocks = arbitrationDispatchOrder(runtimeBlocks);
   llvm::StringMap<std::vector<const QueueBlockPlan *>> memoryEndpoints;
   for (const QueueBlockPlan &block : plan.blocks)
     if (block.kind == "memory_request")
@@ -4576,6 +4642,13 @@ llvm::Expected<std::string> generateQueueGraphCpp(const QueueGraphPlan &plan) {
       ++reorderIndex;
     }
   }
+  std::vector<std::pair<uint64_t, uint64_t>> arbitrationIds;
+  for (auto [index, block] : llvm::enumerate(runtimeBlocks))
+    if (!block->arbitrationMembership.empty())
+      arbitrationIds.emplace_back(
+          block->priority,
+          blockIds[block->name + "#" + std::to_string(index)]);
+  llvm::sort(arbitrationIds);
   output << "\n  std::array<gfsim::DispatchRow, " << nextId
          << "> dispatch_rows() {\n    return {\n";
   for (const QueuePlan &queue : plan.queues)
@@ -4593,7 +4666,16 @@ llvm::Expected<std::string> generateQueueGraphCpp(const QueueGraphPlan &plan) {
   for (const TablePlan &table : plan.tables)
     output << "        gfsim::makeDispatchRow(&" << tableMembers[table.name]
            << "),\n";
-  output << "    };\n  }\n\nprivate:\n";
+  output << "    };\n  }\n\n"
+         << "  static constexpr std::array<gfsim::ObjectId, "
+         << arbitrationIds.size()
+         << "> arbitration_order() {\n    return {";
+  for (auto [index, entry] : llvm::enumerate(arbitrationIds)) {
+    if (index)
+      output << ", ";
+    output << entry.second;
+  }
+  output << "};\n  }\n\nprivate:\n";
   for (const std::string &scope : plan.scopes)
     output << "  gfsim::Module " << scopeMembers[scope] << ";\n";
   for (const QueuePlan &queue : plan.queues) {
@@ -5030,6 +5112,7 @@ struct Runtime {
   std::vector<gfsim::ObjectId> activationTargets;
   std::vector<std::uint32_t> workClosureOffsets;
   std::vector<gfsim::ObjectId> workClosureTargets;
+  std::vector<gfsim::ObjectId> arbitrationOrder;
   std::array<gfsim::TimeDomainRuntime, 1> timeDomains{{
       {"cycle", 1, 0, 1},
   }};
@@ -5039,6 +5122,10 @@ struct Runtime {
       throw std::runtime_error("generated model attachment failed");
     const auto generatedRows = model.dispatch_rows();
     rows.assign(generatedRows.begin(), generatedRows.end());
+    constexpr auto generatedArbitrationOrder = ac_generated::)cpp"
+                   << modelClass << R"cpp(::arbitration_order();
+    arbitrationOrder.assign(generatedArbitrationOrder.begin(),
+                            generatedArbitrationOrder.end());
 )cpp";
   if (!plan.definition.empty()) {
     queueGraphSource << R"cpp(    constexpr auto generatedActivationOffsets = ac_generated::)cpp"
@@ -5059,6 +5146,7 @@ struct Runtime {
                               generatedWorkClosureTargets.end());
     if (!system.setTimeDomains(timeDomains) ||
         !system.setDispatchTable(rows) ||
+        !system.setArbitrationOrder(arbitrationOrder) ||
         !system.setActivationPlan(activationOffsets, activationTargets) ||
         !system.setWorkClosurePlan(workClosureOffsets, workClosureTargets) ||
         !ac_generated::)cpp"
@@ -5067,7 +5155,8 @@ struct Runtime {
 )cpp";
   } else {
     queueGraphSource << R"cpp(    if (!system.setTimeDomains(timeDomains) ||
-        !system.setDispatchTable(rows))
+        !system.setDispatchTable(rows) ||
+        !system.setArbitrationOrder(arbitrationOrder))
       throw std::runtime_error("generated model runtime initialization failed");
 )cpp";
   }

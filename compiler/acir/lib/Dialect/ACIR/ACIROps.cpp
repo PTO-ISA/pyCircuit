@@ -35,6 +35,13 @@ thread_local detail::ProcessLivenessWork *processLivenessWorkCollector =
 
 } // namespace
 
+LogicalResult WriterPriorityAttr::verify(
+    llvm::function_ref<InFlightDiagnostic()> emitError, int64_t rank) {
+  if (rank < 0)
+    return emitError() << "writer priority rank must be non-negative";
+  return success();
+}
+
 static DictionaryAttr activationQueueResource(MLIRContext *context,
                                               ActivationResourceKind kind,
                                               size_t ordinal) {
@@ -67,6 +74,35 @@ static std::optional<bool> constantVarBool(Value value) {
 static RuleGuardKind guardKindFor(Value value) {
   return constantVarBool(value) == true ? RuleGuardKind::Always
                                         : RuleGuardKind::Predicate;
+}
+
+static StringRef ruleEndpointStableId(Operation *operation) {
+  if (auto rule = dyn_cast<RuleOp>(operation))
+    return rule.getStableId();
+  if (auto firing = dyn_cast<FiringOp>(operation))
+    return firing.getStableId();
+  if (auto transform = dyn_cast<TransformOp>(operation)) {
+    auto stable = transform->getAttrOfType<StringAttr>("ac.rule_stable_id");
+    return stable ? stable.getValue() : StringRef();
+  }
+  return {};
+}
+
+static void addWriterArbitrationFields(NamedAttrList &fields,
+                                       Operation *scope, StringRef owner,
+                                       WriterPriorityAttr request) {
+  Builder builder(scope->getContext());
+  fields.set("owner", FlatSymbolRefAttr::get(scope->getContext(), owner));
+  fields.set("endpoint_stable_id",
+             builder.getStringAttr(ruleEndpointStableId(scope)));
+  fields.set("policy", WriterArbitrationPolicyAttr::get(
+                           scope->getContext(),
+                           WriterArbitrationPolicy::Priority));
+  fields.set("declared_rank", builder.getI64IntegerAttr(request.getRank()));
+  fields.set("resolution", WriterArbitrationResolutionAttr::get(
+                               scope->getContext(),
+                               WriterArbitrationResolution::
+                                   WinnerTakesTransaction));
 }
 
 static bool presenceImpliesCandidate(Value present, Value candidate) {
@@ -228,7 +264,16 @@ verifyTypedRuleSummary(Operation *operation, ValueRange inputs,
   }
 
   SmallVector<Attribute> expectedConflicts;
-  for (Attribute attribute : footprints) {
+  SmallVector<Operation *> summaryStateOperations;
+  body.walk([&](Operation *nested) {
+    if (isa<TableGetOp, TableMatchOp, TableChooseOp, TableProposeOp>(nested))
+      summaryStateOperations.push_back(nested);
+  });
+  if (summaryStateOperations.size() != footprints.size())
+    return operation->emitOpError(
+        "typed rule summary state operation count mismatch");
+  for (auto [attribute, stateOperation] :
+       llvm::zip_equal(footprints, summaryStateOperations)) {
     auto footprint = dyn_cast<DictionaryAttr>(attribute);
     auto access =
         footprint ? footprint.getAs<StringAttr>("access") : StringAttr();
@@ -253,6 +298,15 @@ verifyTypedRuleSummary(Operation *operation, ValueRange inputs,
     effect.set("resource", resource);
     effect.set("guard_kind",
                RuleGuardKindAttr::get(operation->getContext(), stateGuard));
+    if (!read) {
+      auto proposal = dyn_cast<TableProposeOp>(stateOperation);
+      auto request = proposal ? proposal->getAttrOfType<WriterPriorityAttr>(
+                                    "ac.arbitration")
+                              : WriterPriorityAttr();
+      if (request)
+        addWriterArbitrationFields(effect, operation, resource.getValue(),
+                                   request);
+    }
     expectedEffects.push_back(builder.getDictionaryAttr(effect));
 
     NamedAttrList conflict;
@@ -280,11 +334,14 @@ verifyTypedRuleSummary(Operation *operation, ValueRange inputs,
   SmallVector<Attribute> expectedArbitration;
   llvm::StringSet<> seenResources;
   for (TableProposeOp proposal : proposals) {
+    auto request =
+        proposal->getAttrOfType<WriterPriorityAttr>("ac.arbitration");
+    if (!request)
+      continue;
     if (!seenResources.insert(proposal.getTable()).second)
       continue;
     NamedAttrList record;
-    record.set("resource", proposal.getTableAttr());
-    record.set("priority", priority);
+    addWriterArbitrationFields(record, operation, proposal.getTable(), request);
     expectedArbitration.push_back(builder.getDictionaryAttr(record));
   }
   if (checks != builder.getArrayAttr(expectedChecks) ||
@@ -3065,13 +3122,9 @@ LogicalResult TableOp::verify() {
           ++proposalReplaceWriters;
           return;
         }
-        StringSet<> localFields;
-        for (Attribute rawField : proposal.getWriteFields()) {
-          auto field = cast<StringAttr>(rawField).getValue();
-          if (localFields.insert(field).second &&
-              !fieldWriters.try_emplace(field, operation).second)
-            overlappingField = field.str();
-        }
+        // Firing-local proposals are checked as normalized whole-model
+        // footprints by ac-verify-value-constraints.  A declaration-local
+        // source-order check cannot prove dynamic disjointness or arbitration.
       }
     }
     if (auto match = dyn_cast<TableMatchOp>(operation))
@@ -3084,12 +3137,9 @@ LogicalResult TableOp::verify() {
     return emitOpError("stable_id must be unique");
   if (endpoints == 0)
     return emitOpError("must have at least one table read/write endpoint");
-  if (!overlappingField.empty())
-    return emitOpError() << "write field '" << overlappingField
-                         << "' has multiple endpoints";
-  if (replaceWriters > 1 ||
-      (replaceWriters != 0 && proposalReplaceWriters != 0))
-    return emitOpError("has multiple replace writer endpoints");
+  // Cross-endpoint overlap is a whole-model proof obligation.  Declaration
+  // traversal cannot prove dynamic index/guard disjointness and must not
+  // manufacture source-order writer priority.
   return success();
 }
 
@@ -3104,6 +3154,30 @@ LogicalResult TableGetOp::verify() {
   return verifyTableIndex(*this, table, getIndex());
 }
 
+static LogicalResult verifyTableWriterArbitration(Operation *operation) {
+  for (NamedAttribute attribute : operation->getAttrs()) {
+    StringRef name = attribute.getName().getValue();
+    if (name.starts_with("ac.writer_"))
+      return operation->emitOpError()
+             << "has unknown writer proof '" << name << "'";
+    if (name == "safe" || name == "safety" || name == "ac.safe")
+      return operation->emitOpError(
+          "user safety assertions cannot bypass writer proof");
+  }
+  if (Attribute arbitration = operation->getAttr("ac.arbitration")) {
+    if (!isa<WriterPriorityAttr>(arbitration))
+      return operation->emitOpError(
+          "ac.arbitration requires typed #ac.writer_priority<rank>");
+    if (!isa<TableProposeOp>(operation)) {
+      auto endpoint = operation->getAttrOfType<StringAttr>("ac.endpoint_id");
+      if (!endpoint || endpoint.getValue().empty())
+        return operation->emitOpError(
+            "arbitrated writer requires stable ac.endpoint_id");
+    }
+  }
+  return success();
+}
+
 LogicalResult TableProposeOp::verify() {
   Operation *parent = (*this)->getParentOp();
   if (!isa_and_nonnull<RuleOp, FiringOp>(parent))
@@ -3113,8 +3187,6 @@ LogicalResult TableProposeOp::verify() {
     return emitOpError() << "unresolved table " << getTable();
   if (!tableVisibleFrom(*this, table))
     return emitOpError("table is outside the proposal scope ancestry");
-  if (getMode() != "replace")
-    return emitOpError("stateful rule phase one supports replace mode only");
   if (failed(verifyTableWriteFields(*this, table, getWriteFields())) ||
       failed(verifyTableWriteMode(*this, table, getMode(), getWriteFields())))
     return failure();
@@ -3124,7 +3196,7 @@ LogicalResult TableProposeOp::verify() {
     return failure();
   if (failed(verifyStaticallySafeRuleTableIndex(*this, table, getIndex())))
     return failure();
-  return success();
+  return verifyTableWriterArbitration(*this);
 }
 
 static FailureOr<Type> verifyTablePolicy(Operation *endpoint, Region &region,
@@ -3300,7 +3372,7 @@ LogicalResult TableWriteOp::verify() {
     return emitOpError("enable must yield !ac.var<i1>");
   if (*value != table.getEntryType())
     return emitOpError("value must yield the table entry type");
-  return success();
+  return verifyTableWriterArbitration(*this);
 }
 
 LogicalResult TableMaskedWriteOp::verify() {
@@ -3332,7 +3404,7 @@ LogicalResult TableMaskedWriteOp::verify() {
     return emitOpError("enable must yield !ac.var<i1>");
   if (*value != table.getEntryType())
     return emitOpError("value must yield the table entry type");
-  return success();
+  return verifyTableWriterArbitration(*this);
 }
 
 LogicalResult TableMatchOp::verify() {

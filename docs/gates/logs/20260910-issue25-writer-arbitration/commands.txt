@@ -1,0 +1,7 @@
+cmake --build .pycircuit_out/acir/dev-llvm22 --target check-acir -j4
+ctest --test-dir .pycircuit_out/acir/dev-llvm22 --output-on-failure -R '^(ACIROpsTests|ACIRModelAnalysisTests|CodeGenTests|GfsimTests)$'
+PYTHONPATH=python/agentic-circuit/src pytest -q tests/python/agentic-circuit/python_frontend/test_public_api.py tests/python/agentic-circuit/python_frontend/test_queue_frontend.py
+.pycircuit_out/ac-venv/bin/lit -sv --no-progress-bar .pycircuit_out/acir/dev-llvm22/tests/mlir/ACIR/writer-arbitration.mlir
+git diff --check
+python3 flows/tools/check_decision_status.py --rfc docs/rfcs/pyc6-decisions.md --status docs/gates/decision_status_v6.md --out docs/gates/logs/20260910-issue25-writer-arbitration/decision_status_report.json --require-concrete-evidence --require-existing-evidence
+mkdocs build --strict --site-dir .pycircuit_out/issue25-writer-arbitration/site

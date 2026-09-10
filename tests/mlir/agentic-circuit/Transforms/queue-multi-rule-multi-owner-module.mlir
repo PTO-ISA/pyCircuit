@@ -42,18 +42,18 @@ builtin.module attributes {
         %enabled = ac.var.constant true as !ac.var<i1>
         ac.firing.condition %enabled : !ac.var<i1>
         ac.table.propose @cursor[%index] = %next_cursor when %enabled : !ac.var<i1> mode "replace"
-            write_fields ["$entry"] : !ac.var<i1>, !ac.var<i8>
+            write_fields ["$entry"] {ac.arbitration = #ac.writer_priority<0>} : !ac.var<i1>, !ac.var<i8>
         ac.table.propose @total[%index] = %next_total when %enabled : !ac.var<i1> mode "replace"
-            write_fields ["$entry"] : !ac.var<i1>, !ac.var<i8>
+            write_fields ["$entry"] {ac.arbitration = #ac.writer_priority<0>} : !ac.var<i1>, !ac.var<i8>
         ac.firing.output %reported when %enabled ordinal 0 : !ac.var<i8>, !ac.var<i1>
         ac.state.snapshot @total[%index : !ac.var<i1>] for %enabled : !ac.var<i1> kind static read_fields ["$entry"]
         ac.state.snapshot @cursor[%index : !ac.var<i1>] for %enabled : !ac.var<i1> kind static read_fields ["$entry"]
         ac.firing.yield %reported : !ac.var<i8>
       } {
         ac.activation_sources = [{kind = #ac<activation_resource_kind input_queue>, ordinal = 0 : i64}, {kind = #ac<activation_resource_kind output_queue>, ordinal = 0 : i64}, {kind = #ac<activation_resource_kind state>, resource = @cursor}, {kind = #ac<activation_resource_kind state>, resource = @total}],
-        ac.arbitration_membership = [{priority = 0 : i64, resource = @cursor}, {priority = 0 : i64, resource = @total}],
+        ac.arbitration_membership = [{declared_rank = 0 : i64, endpoint_stable_id = "update_a", owner = @cursor, policy = #ac<writer_arbitration_policy priority>, resolution = #ac<writer_arbitration_resolution winner_takes_transaction>}, {declared_rank = 0 : i64, endpoint_stable_id = "update_a", owner = @total, policy = #ac<writer_arbitration_policy priority>, resolution = #ac<writer_arbitration_resolution winner_takes_transaction>}],
         ac.checks_typed = [{guard_kind = #ac<rule_guard_kind always>, kind = #ac<rule_check_kind input_available>, ordinal = 0 : i64}, {guard_kind = #ac<rule_guard_kind always>, kind = #ac<rule_check_kind output_capacity>, ordinal = 0 : i64}],
-        ac.effects_typed = [{guard_kind = #ac<rule_guard_kind always>, kind = #ac<rule_effect_kind input_consume>, ordinal = 0 : i64}, {guard_kind = #ac<rule_guard_kind always>, kind = #ac<rule_effect_kind output_produce>, ordinal = 0 : i64}, {guard_kind = #ac<rule_guard_kind always>, kind = #ac<rule_effect_kind state_read>, resource = @cursor}, {guard_kind = #ac<rule_guard_kind always>, kind = #ac<rule_effect_kind state_read>, resource = @total}, {guard_kind = #ac<rule_guard_kind always>, kind = #ac<rule_effect_kind state_write>, resource = @cursor}, {guard_kind = #ac<rule_guard_kind always>, kind = #ac<rule_effect_kind state_write>, resource = @total}],
+        ac.effects_typed = [{guard_kind = #ac<rule_guard_kind always>, kind = #ac<rule_effect_kind input_consume>, ordinal = 0 : i64}, {guard_kind = #ac<rule_guard_kind always>, kind = #ac<rule_effect_kind output_produce>, ordinal = 0 : i64}, {guard_kind = #ac<rule_guard_kind always>, kind = #ac<rule_effect_kind state_read>, resource = @cursor}, {guard_kind = #ac<rule_guard_kind always>, kind = #ac<rule_effect_kind state_read>, resource = @total}, {declared_rank = 0 : i64, endpoint_stable_id = "update_a", guard_kind = #ac<rule_guard_kind always>, kind = #ac<rule_effect_kind state_write>, owner = @cursor, policy = #ac<writer_arbitration_policy priority>, resolution = #ac<writer_arbitration_resolution winner_takes_transaction>, resource = @cursor}, {declared_rank = 0 : i64, endpoint_stable_id = "update_a", guard_kind = #ac<rule_guard_kind always>, kind = #ac<rule_effect_kind state_write>, owner = @total, policy = #ac<writer_arbitration_policy priority>, resolution = #ac<writer_arbitration_resolution winner_takes_transaction>, resource = @total}],
         ac.guard_kind = #ac<rule_guard_kind always>,
         ac.initially_active = false,
         ac.name = "output_a",
@@ -83,18 +83,18 @@ builtin.module attributes {
         %enabled = ac.var.constant true as !ac.var<i1>
         ac.firing.condition %enabled : !ac.var<i1>
         ac.table.propose @cursor[%index] = %next_cursor when %enabled : !ac.var<i1> mode "replace"
-            write_fields ["$entry"] : !ac.var<i1>, !ac.var<i8>
+            write_fields ["$entry"] {ac.arbitration = #ac.writer_priority<1>} : !ac.var<i1>, !ac.var<i8>
         ac.table.propose @total[%index] = %next_total when %enabled : !ac.var<i1> mode "replace"
-            write_fields ["$entry"] : !ac.var<i1>, !ac.var<i8>
+            write_fields ["$entry"] {ac.arbitration = #ac.writer_priority<1>} : !ac.var<i1>, !ac.var<i8>
         ac.firing.output %reported when %enabled ordinal 0 : !ac.var<i8>, !ac.var<i1>
         ac.state.snapshot @total[%index : !ac.var<i1>] for %enabled : !ac.var<i1> kind static read_fields ["$entry"]
         ac.state.snapshot @cursor[%index : !ac.var<i1>] for %enabled : !ac.var<i1> kind static read_fields ["$entry"]
         ac.firing.yield %reported : !ac.var<i8>
       } {
         ac.activation_sources = [{kind = #ac<activation_resource_kind input_queue>, ordinal = 0 : i64}, {kind = #ac<activation_resource_kind output_queue>, ordinal = 0 : i64}, {kind = #ac<activation_resource_kind state>, resource = @cursor}, {kind = #ac<activation_resource_kind state>, resource = @total}],
-        ac.arbitration_membership = [{priority = 1 : i64, resource = @cursor}, {priority = 1 : i64, resource = @total}],
+        ac.arbitration_membership = [{declared_rank = 1 : i64, endpoint_stable_id = "update_b", owner = @cursor, policy = #ac<writer_arbitration_policy priority>, resolution = #ac<writer_arbitration_resolution winner_takes_transaction>}, {declared_rank = 1 : i64, endpoint_stable_id = "update_b", owner = @total, policy = #ac<writer_arbitration_policy priority>, resolution = #ac<writer_arbitration_resolution winner_takes_transaction>}],
         ac.checks_typed = [{guard_kind = #ac<rule_guard_kind always>, kind = #ac<rule_check_kind input_available>, ordinal = 0 : i64}, {guard_kind = #ac<rule_guard_kind always>, kind = #ac<rule_check_kind output_capacity>, ordinal = 0 : i64}],
-        ac.effects_typed = [{guard_kind = #ac<rule_guard_kind always>, kind = #ac<rule_effect_kind input_consume>, ordinal = 0 : i64}, {guard_kind = #ac<rule_guard_kind always>, kind = #ac<rule_effect_kind output_produce>, ordinal = 0 : i64}, {guard_kind = #ac<rule_guard_kind always>, kind = #ac<rule_effect_kind state_read>, resource = @cursor}, {guard_kind = #ac<rule_guard_kind always>, kind = #ac<rule_effect_kind state_read>, resource = @total}, {guard_kind = #ac<rule_guard_kind always>, kind = #ac<rule_effect_kind state_write>, resource = @cursor}, {guard_kind = #ac<rule_guard_kind always>, kind = #ac<rule_effect_kind state_write>, resource = @total}],
+        ac.effects_typed = [{guard_kind = #ac<rule_guard_kind always>, kind = #ac<rule_effect_kind input_consume>, ordinal = 0 : i64}, {guard_kind = #ac<rule_guard_kind always>, kind = #ac<rule_effect_kind output_produce>, ordinal = 0 : i64}, {guard_kind = #ac<rule_guard_kind always>, kind = #ac<rule_effect_kind state_read>, resource = @cursor}, {guard_kind = #ac<rule_guard_kind always>, kind = #ac<rule_effect_kind state_read>, resource = @total}, {declared_rank = 1 : i64, endpoint_stable_id = "update_b", guard_kind = #ac<rule_guard_kind always>, kind = #ac<rule_effect_kind state_write>, owner = @cursor, policy = #ac<writer_arbitration_policy priority>, resolution = #ac<writer_arbitration_resolution winner_takes_transaction>, resource = @cursor}, {declared_rank = 1 : i64, endpoint_stable_id = "update_b", guard_kind = #ac<rule_guard_kind always>, kind = #ac<rule_effect_kind state_write>, owner = @total, policy = #ac<writer_arbitration_policy priority>, resolution = #ac<writer_arbitration_resolution winner_takes_transaction>, resource = @total}],
         ac.guard_kind = #ac<rule_guard_kind always>,
         ac.initially_active = false,
         ac.name = "output_b",

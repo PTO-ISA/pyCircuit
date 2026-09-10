@@ -24,6 +24,26 @@ F = TypeVar("F", bound=Callable[..., object])
 
 
 @dataclass(frozen=True, slots=True)
+class WriterPriority:
+    """Compile-time priority descriptor for one Table mutation endpoint."""
+
+    rank: int
+
+    def __post_init__(self) -> None:
+        if type(self.rank) is not int or self.rank < 0:
+            raise ValueError(
+                "ACPY-TABLE-011: writer priority rank must be a non-negative "
+                "static integer"
+            )
+
+
+def writer_priority(rank: int) -> WriterPriority:
+    """Declare a deterministic priority rank for a Table writer."""
+
+    return WriterPriority(rank)
+
+
+@dataclass(frozen=True, slots=True)
 class Definition:
     """A captured definition registered without executing its body."""
 

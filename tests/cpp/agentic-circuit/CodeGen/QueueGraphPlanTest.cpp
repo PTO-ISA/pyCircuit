@@ -342,7 +342,7 @@ module attributes {ac.contract_epoch = "0.5", ac.model_kind = "queue_graph", ac.
         write_fields ["$entry"] : !ac.var<i2>, !ac.var<i8>
     ac.firing.output %item when %enabled ordinal 0 : !ac.var<i8>, !ac.var<i1>
     ac.firing.yield %item : !ac.var<i8>
-  } {ac.activation_sources = [{kind = #ac<activation_resource_kind input_queue>, ordinal = 0 : i64}, {kind = #ac<activation_resource_kind output_queue>, ordinal = 0 : i64}, {kind = #ac<activation_resource_kind state>, resource = @table}], ac.arbitration_membership = [{priority = 0 : i64, resource = @table}], ac.checks_typed = [{guard_kind = #ac<rule_guard_kind always>, kind = #ac<rule_check_kind input_available>, ordinal = 0 : i64}, {guard_kind = #ac<rule_guard_kind always>, kind = #ac<rule_check_kind output_capacity>, ordinal = 0 : i64}], ac.effects_typed = [{guard_kind = #ac<rule_guard_kind always>, kind = #ac<rule_effect_kind input_consume>, ordinal = 0 : i64}, {guard_kind = #ac<rule_guard_kind always>, kind = #ac<rule_effect_kind output_produce>, ordinal = 0 : i64}, {guard_kind = #ac<rule_guard_kind always>, kind = #ac<rule_effect_kind state_write>, resource = @table}], ac.guard_kind = #ac<rule_guard_kind always>, ac.initially_active = false, ac.name = "output", ac.output_presence = [{ordinal = 0 : i64, presence_kind = #ac<rule_output_presence_kind always>}], ac.rule_definition = "install", ac.rule_footprints = [{access = "replace", fields = ["$entry"], guard_kind = #ac<rule_guard_kind always>, index_kind = "static", resource = @table}], ac.rule_priority = 0 : i64, ac.schedule_kind = #ac<rule_schedule_kind lexical_priority>, ac.state_accesses = [{fields = ["$entry"], guard_kind = #ac<rule_guard_kind always>, index_kind = #ac<rule_index_kind static>, kind = #ac<rule_state_access_kind replace>, resource = @table}], ac.transaction_resources = [{kind = #ac<activation_resource_kind input_queue>, ordinal = 0 : i64}, {kind = #ac<activation_resource_kind output_queue>, ordinal = 0 : i64}, {kind = #ac<activation_resource_kind state>, resource = @table}]} : (!ac.queue<i8>) -> !ac.queue<i8>
+  } {ac.activation_sources = [{kind = #ac<activation_resource_kind input_queue>, ordinal = 0 : i64}, {kind = #ac<activation_resource_kind output_queue>, ordinal = 0 : i64}, {kind = #ac<activation_resource_kind state>, resource = @table}], ac.arbitration_membership = [], ac.checks_typed = [{guard_kind = #ac<rule_guard_kind always>, kind = #ac<rule_check_kind input_available>, ordinal = 0 : i64}, {guard_kind = #ac<rule_guard_kind always>, kind = #ac<rule_check_kind output_capacity>, ordinal = 0 : i64}], ac.effects_typed = [{guard_kind = #ac<rule_guard_kind always>, kind = #ac<rule_effect_kind input_consume>, ordinal = 0 : i64}, {guard_kind = #ac<rule_guard_kind always>, kind = #ac<rule_effect_kind output_produce>, ordinal = 0 : i64}, {guard_kind = #ac<rule_guard_kind always>, kind = #ac<rule_effect_kind state_write>, resource = @table}], ac.guard_kind = #ac<rule_guard_kind always>, ac.initially_active = false, ac.name = "output", ac.output_presence = [{ordinal = 0 : i64, presence_kind = #ac<rule_output_presence_kind always>}], ac.rule_definition = "install", ac.rule_footprints = [{access = "replace", fields = ["$entry"], guard_kind = #ac<rule_guard_kind always>, index_kind = "static", resource = @table}], ac.rule_priority = 0 : i64, ac.schedule_kind = #ac<rule_schedule_kind lexical_priority>, ac.state_accesses = [{fields = ["$entry"], guard_kind = #ac<rule_guard_kind always>, index_kind = #ac<rule_index_kind static>, kind = #ac<rule_state_access_kind replace>, resource = @table}], ac.transaction_resources = [{kind = #ac<activation_resource_kind input_queue>, ordinal = 0 : i64}, {kind = #ac<activation_resource_kind output_queue>, ordinal = 0 : i64}, {kind = #ac<activation_resource_kind state>, resource = @table}]} : (!ac.queue<i8>) -> !ac.queue<i8>
   ac.sink %output {ac.name = "sink"} : !ac.queue<i8>
 }
 )mlir";
@@ -1357,7 +1357,7 @@ int main() {
 }
 
 TEST(QueueGraphPlanTest,
-     ReusesMultiRuleModuleAndPreservesOwnerLocalLexicalArbitration) {
+     ReusesMultiRuleModuleAndUsesExplicitPriorityIndependentOfSourceOrder) {
   mlir::MLIRContext context;
   context.loadDialect<ac::ACIRDialect, mlir::DLTIDialect>();
   auto module = mlir::parseSourceFile<mlir::ModuleOp>(
@@ -1374,7 +1374,9 @@ TEST(QueueGraphPlanTest,
   ASSERT_EQ(specialization.interfaceInputs.size(), 2u);
   ASSERT_EQ(specialization.interfaceOutputs.size(), 2u);
   ASSERT_EQ(specialization.blocks.size(), 2u);
+  EXPECT_EQ(specialization.blocks[0].stableId, "accumulate_b");
   EXPECT_EQ(specialization.blocks[0].priority, 0u);
+  EXPECT_EQ(specialization.blocks[1].stableId, "accumulate_a");
   EXPECT_EQ(specialization.blocks[1].priority, 1u);
 
   auto generated = generateQueueGraphCpp(*plan);
@@ -1405,12 +1407,14 @@ int main() {
   model.left_b().doXfer({0, 0});
   model.right_b().doXfer({0, 0});
   auto rows = model.dispatch_rows();
+  constexpr auto arbitrationOrder =
+      ac_generated::MultiRuleReuse::arbitration_order();
   for (unsigned tick = 1; tick != 12; ++tick) {
     const gfsim::Epoch epoch{tick, 0};
     for (auto &row : rows)
       row.work(row.object, epoch);
-    for (auto &row : rows)
-      row.xfer(row.object, epoch, gfsim::XferPhase::Arbitrate);
+    for (gfsim::ObjectId id : arbitrationOrder)
+      rows[id].xfer(rows[id].object, epoch, gfsim::XferPhase::Arbitrate);
     for (auto &row : rows)
       row.xfer(row.object, epoch, gfsim::XferPhase::Commit);
   }
@@ -1418,14 +1422,80 @@ int main() {
   const auto &leftB = model.sink_1_values();
   const auto &rightA = model.sink_2_values();
   const auto &rightB = model.sink_3_values();
-  return leftA.size() == 1 && leftA[0] == 1 && leftB.size() == 1 &&
-                 leftB[0] == 3 && rightA.empty() && rightB.size() == 1 &&
+  return leftA.size() == 1 && leftA[0] == 3 && leftB.size() == 1 &&
+                 leftB[0] == 2 && rightA.empty() && rightB.size() == 1 &&
                  rightB[0] == 10
              ? 0
              : 2;
 }
 )cpp");
   expectCppRuns(executableSource);
+}
+
+TEST(QueueGraphPlanTest, WriterPriorityCanonicalizesDeclarationOrder) {
+  auto writer = [](llvm::StringRef name, uint64_t rank,
+                   bool reverseMembership = false) {
+    QueueBlockPlan block;
+    block.kind = "firing";
+    block.name = name.str();
+    block.stableId = name.str();
+    block.arbitrationMembership = {
+        {"z_state", name.str(), "priority", rank,
+         "winner_takes_transaction"},
+        {"a_state", name.str(), "priority", rank,
+         "winner_takes_transaction"}};
+    if (reverseMembership)
+      std::reverse(block.arbitrationMembership.begin(),
+                   block.arbitrationMembership.end());
+    return block;
+  };
+  QueueGraphPlan first;
+  first.blocks = {writer("later", 1), writer("winner", 0, true)};
+  QueueGraphPlan second;
+  second.blocks = {writer("winner", 0), writer("later", 1, true)};
+  EXPECT_FALSE(bool(resolveQueueWriterPriorities(first)));
+  EXPECT_FALSE(bool(resolveQueueWriterPriorities(second)));
+  ASSERT_EQ(first.blocks.size(), 2u);
+  EXPECT_EQ(first.blocks[0].stableId, "winner");
+  EXPECT_EQ(first.blocks[1].stableId, "later");
+  ASSERT_EQ(second.blocks.size(), 2u);
+  for (size_t index = 0; index < first.blocks.size(); ++index) {
+    EXPECT_EQ(first.blocks[index].stableId, second.blocks[index].stableId);
+    EXPECT_EQ(first.blocks[index].priority, second.blocks[index].priority);
+  }
+  auto firstJson = first.canonicalJson();
+  auto secondJson = second.canonicalJson();
+  ASSERT_TRUE(bool(firstJson)) << llvm::toString(firstJson.takeError());
+  ASSERT_TRUE(bool(secondJson)) << llvm::toString(secondJson.takeError());
+  EXPECT_EQ(*firstJson, *secondJson);
+  EXPECT_NE(firstJson->find("\"stable_id\":\"winner\""),
+            std::string::npos);
+  EXPECT_NE(firstJson->find("\"policy\":\"priority\""),
+            std::string::npos);
+  EXPECT_NE(firstJson->find(
+                "\"resolution\":\"winner_takes_transaction\""),
+            std::string::npos);
+}
+
+TEST(QueueGraphPlanTest, WriterPriorityRejectsCrossOwnerPrecedenceCycle) {
+  QueueGraphPlan plan;
+  QueueBlockPlan first;
+  first.kind = "firing";
+  first.stableId = "first";
+  first.arbitrationMembership = {
+      {"left", "first", "priority", 0, "winner_takes_transaction"},
+      {"right", "first", "priority", 1, "winner_takes_transaction"}};
+  QueueBlockPlan second;
+  second.kind = "firing";
+  second.stableId = "second";
+  second.arbitrationMembership = {
+      {"left", "second", "priority", 1, "winner_takes_transaction"},
+      {"right", "second", "priority", 0, "winner_takes_transaction"}};
+  plan.blocks = {std::move(first), std::move(second)};
+  llvm::Error error = resolveQueueWriterPriorities(plan);
+  ASSERT_TRUE(bool(error));
+  EXPECT_NE(llvm::toString(std::move(error)).find("precedence contains a cycle"),
+            std::string::npos);
 }
 
 TEST(QueueGraphPlanTest,

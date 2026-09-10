@@ -657,8 +657,7 @@ private:
     const uint64_t predecessor = static_cast<uint64_t>(rawDependency);
     const uint64_t resource = static_cast<uint64_t>(rawResource);
     const uint64_t cost = static_cast<uint64_t>(rawCost);
-    if ((!seenKeys_.empty() &&
-         (key >= seenKeys_.size() || seenKeys_[key])) ||
+    if ((!seenKeys_.empty() && (key >= seenKeys_.size() || seenKeys_[key])) ||
         entries_.contains(key)) {
       setRuntimeFailureCode("dependency_duplicate_key");
       return false;
@@ -700,8 +699,7 @@ private:
 template <typename T, size_t Entries, size_t Resources, uint64_t NoDependency,
           typename Key, typename Dependency, typename Resource, typename Cost>
   requires(Entries > 0) && (Resources > 0) && (NoDependency > 0) &&
-          (NoDependency <= 65535) &&
-          std::invocable<const Key &, const T &> &&
+          (NoDependency <= 65535) && std::invocable<const Key &, const T &> &&
           IntegralLike<std::invoke_result_t<const Key &, const T &>> &&
           std::invocable<const Dependency &, const T &> &&
           IntegralLike<std::invoke_result_t<const Dependency &, const T &>> &&
@@ -722,8 +720,8 @@ public:
       : QueueDependency<T, Key, Dependency, Resource, Cost>(
             std::move(name), id, parent, input, output, Entries, Resources,
             NoDependency, static_cast<size_t>(NoDependency), std::move(key),
-            std::move(dependency),
-            std::move(resource), std::move(cost), observations) {}
+            std::move(dependency), std::move(resource), std::move(cost),
+            observations) {}
 };
 
 template <typename T, typename Cost>
@@ -1001,9 +999,8 @@ struct StateReservation {
     return result;
   }
 
-  static constexpr StateReservation forFieldsAt(size_t entry,
-                                                uint64_t fieldMask,
-                                                uint8_t fieldsPerEntry) {
+  static constexpr StateReservation
+  forFieldsAt(size_t entry, uint64_t fieldMask, uint8_t fieldsPerEntry) {
     StateReservation result;
     if (fieldsPerEntry == 0 || fieldsPerEntry > 64)
       return result;
@@ -1070,15 +1067,15 @@ struct StateReservation {
   }
 
   constexpr bool within(size_t entries) const {
-    if (entries == 0 || fieldCount > 64 ||
-        sparseWholeCount > sparseCapacity || sparseFieldCount > sparseCapacity)
+    if (entries == 0 || fieldCount > 64 || sparseWholeCount > sparseCapacity ||
+        sparseFieldCount > sparseCapacity)
       return false;
     if (entries < 64 && (wholeEntries >> entries) != 0)
       return false;
-    const uint64_t validFieldMask =
-        fieldCount == 64
-            ? ~uint64_t{0}
-            : fieldCount == 0 ? 0 : (uint64_t{1} << fieldCount) - 1;
+    const uint64_t validFieldMask = fieldCount == 64 ? ~uint64_t{0}
+                                    : fieldCount == 0
+                                        ? 0
+                                        : (uint64_t{1} << fieldCount) - 1;
     if ((allFieldEntries &&
          (fieldCount == 0 || (allFieldMask & ~validFieldMask) != 0)) ||
         (!allFieldEntries && allFieldMask != 0) ||
@@ -1313,8 +1310,9 @@ public:
       std::optional<size_t> first;
       if constexpr (requires { mask.firstSet(table_.size()); }) {
         first = mask.firstSet(table_.size());
-      } else if constexpr (!requires { mask.test(size_t{}); } &&
-                           requires { static_cast<uint64_t>(mask); }) {
+      } else if constexpr (
+          !requires { mask.test(size_t{}); } &&
+          requires { static_cast<uint64_t>(mask); }) {
         uint64_t word = static_cast<uint64_t>(mask);
         if (table_.size() < 64)
           word &= (uint64_t{1} << table_.size()) - 1;
@@ -1440,27 +1438,42 @@ public:
     return prepareTransaction(group, writerId, 0, indices, fields, mode);
   }
 
-  bool prepareTransaction(CommitGroupId group, ObjectId writerId,
-                          StateReservation snapshot,
-                          std::span<const size_t> writeIndices,
-                          std::span<const size_t> writeFields,
-                          TableWriteMode mode = TableWriteMode::FieldMerge) {
+  bool canPrepareTransaction(CommitGroupId group, ObjectId writerId,
+                             StateReservation snapshot,
+                             std::span<const size_t> writeIndices,
+                             std::span<const size_t> writeFields,
+                             TableWriteMode mode = TableWriteMode::FieldMerge,
+                             bool exclusiveEndpoint = false) const {
     if (group == kInvalidCommitGroupId || prepared_.contains(group) ||
-        writerHasProposal(writerId))
-      return false;
-    if (!snapshot.within(size()))
+        writerHasProposal(writerId) || !snapshot.within(size()))
       return false;
     std::optional<WriteFootprint> write;
     if (!writeIndices.empty()) {
       write = makeFootprint(writeIndices, writeFields, mode);
       if (!write)
         return false;
+      write->exclusiveEndpoint = exclusiveEndpoint;
     }
-    if (snapshotConflictsWithPending(snapshot) ||
-        snapshotConflictsWithPrepared(snapshot) ||
-        (write &&
-         (conflictsWithPending(*write) || conflictsWithPrepared(*write))))
+    return !snapshotConflictsWithPending(snapshot) &&
+           !snapshotConflictsWithPrepared(snapshot) &&
+           (!write ||
+            (!conflictsWithPending(*write) && !conflictsWithPrepared(*write)));
+  }
+
+  bool prepareTransaction(CommitGroupId group, ObjectId writerId,
+                          StateReservation snapshot,
+                          std::span<const size_t> writeIndices,
+                          std::span<const size_t> writeFields,
+                          TableWriteMode mode = TableWriteMode::FieldMerge,
+                          bool exclusiveEndpoint = false) {
+    if (!canPrepareTransaction(group, writerId, snapshot, writeIndices,
+                               writeFields, mode, exclusiveEndpoint))
       return false;
+    std::optional<WriteFootprint> write;
+    if (!writeIndices.empty()) {
+      write = makeFootprint(writeIndices, writeFields, mode);
+      write->exclusiveEndpoint = exclusiveEndpoint;
+    }
     PreparedProposal proposal;
     proposal.writerId = writerId;
     proposal.snapshot = snapshot;
@@ -1613,6 +1626,7 @@ private:
     std::vector<size_t> indices;
     std::vector<size_t> fields;
     TableWriteMode mode = TableWriteMode::FieldMerge;
+    bool exclusiveEndpoint = false;
   };
 
   std::vector<Entry> committed_;
@@ -1681,6 +1695,10 @@ private:
                                  const WriteFootprint &right) {
     if (!intersects(left.indices, right.indices))
       return false;
+    if (left.exclusiveEndpoint && right.exclusiveEndpoint &&
+        (left.mode == TableWriteMode::Replace ||
+         right.mode == TableWriteMode::Replace))
+      return true;
     if (left.mode == TableWriteMode::Replace &&
         right.mode == TableWriteMode::Replace)
       return true;
@@ -1961,8 +1979,9 @@ public:
     }
     const bool hasTableReservation =
         !plan.reservations.empty() || !writeIndices.empty();
-    if (!selectedOutputsReady(plan, std::index_sequence_for<Outputs...>{}) ||
-        !prepareOutputs(group, plan, std::index_sequence_for<Outputs...>{}) ||
+    if (!preflightResources(group, plan, writeIndices, hasTableReservation))
+      return;
+    if (!prepareOutputs(group, plan, std::index_sequence_for<Outputs...>{}) ||
         !prepareInputs(group, std::index_sequence_for<Inputs...>{}) ||
         (hasTableReservation &&
          !table_.prepareTransaction(group, id(), plan.reservations,
@@ -2016,6 +2035,59 @@ private:
   std::tuple<Inputs...> peekInputValues(std::index_sequence<Indices...>) const {
     return std::tuple<Inputs...>{
         *std::get<Indices>(inputs_)->peekProposable()...};
+  }
+
+  static bool addResource(std::vector<const SimObject *> &resources,
+                          const SimObject *resource) {
+    if (resource == nullptr ||
+        std::ranges::find(resources, resource) != resources.end())
+      return false;
+    resources.push_back(resource);
+    return true;
+  }
+
+  template <size_t... Indices>
+  bool preflightInputs(std::vector<const SimObject *> &resources,
+                       std::index_sequence<Indices...>) const {
+    bool ready = true;
+    auto check = [&](const auto *queue) {
+      ready = ready && queue != nullptr && queue->canProposePop() &&
+              addResource(resources, queue);
+    };
+    (check(std::get<Indices>(inputs_)), ...);
+    return ready;
+  }
+
+  template <size_t... Indices>
+  bool preflightOutputs(const Plan &plan,
+                        std::vector<const SimObject *> &resources,
+                        std::index_sequence<Indices...>) const {
+    bool ready = true;
+    auto check = [&]<size_t Index>() {
+      if (!std::get<Index>(plan.outputs))
+        return;
+      const auto *queue = std::get<Index>(outputs_);
+      ready = ready && queue != nullptr && queue->canProposePush() &&
+              addResource(resources, queue);
+    };
+    (check.template operator()<Indices>(), ...);
+    return ready;
+  }
+
+  bool preflightResources(CommitGroupId group, const Plan &plan,
+                          std::span<const size_t> writeIndices,
+                          bool hasTableReservation) const {
+    std::vector<const SimObject *> resources;
+    resources.reserve(sizeof...(Inputs) + sizeof...(Outputs) + 1);
+    if (!preflightInputs(resources, std::index_sequence_for<Inputs...>{}) ||
+        !preflightOutputs(plan, resources,
+                          std::index_sequence_for<Outputs...>{}))
+      return false;
+    if (!hasTableReservation)
+      return true;
+    return addResource(resources, &table_) &&
+           table_.canPrepareTransaction(group, id(), plan.reservations,
+                                        writeIndices, Merge::fields, mode_);
   }
 
   template <size_t... Indices>
@@ -2079,8 +2151,9 @@ private:
     }
     if (plan.writes.size() == 1)
       return table_.publishPreparedSingleWrite(
-          group, std::optional<typename OwnerWriteBatch<Entry>::Value>{
-                     std::move(plan.writes.front())},
+          group,
+          std::optional<typename OwnerWriteBatch<Entry>::Value>{
+              std::move(plan.writes.front())},
           merge_);
     return table_.publishPreparedWrite(
         group, std::move(plan.writes).intoVector(), merge_);
@@ -2184,8 +2257,9 @@ public:
     Plan plan = std::move(*candidate_);
     candidate_.reset();
     const CommitGroupId group = id();
-    if (!selectedOutputsReady(plan, std::index_sequence_for<Outputs...>{}) ||
-        !prepareOutputs(group, plan, std::index_sequence_for<Outputs...>{}) ||
+    if (!preflightResources(group, plan))
+      return;
+    if (!prepareOutputs(group, plan, std::index_sequence_for<Outputs...>{}) ||
         !prepareInputs(group, std::index_sequence_for<Inputs...>{}) ||
         !prepareTables(group, plan, std::index_sequence_for<Entries...>{})) {
       cancelPrepared(group);
@@ -2241,6 +2315,79 @@ private:
   auto constTableViews(std::index_sequence<Indices...>) const {
     return std::tuple<const SimTable<Entries> *...>{
         std::get<Indices>(tables_)...};
+  }
+
+  static bool addResource(std::vector<const SimObject *> &resources,
+                          const SimObject *resource) {
+    if (resource == nullptr ||
+        std::ranges::find(resources, resource) != resources.end())
+      return false;
+    resources.push_back(resource);
+    return true;
+  }
+
+  template <size_t... Indices>
+  bool preflightInputs(std::vector<const SimObject *> &resources,
+                       std::index_sequence<Indices...>) const {
+    bool ready = true;
+    auto check = [&](const auto *queue) {
+      ready = ready && queue != nullptr && queue->canProposePop() &&
+              addResource(resources, queue);
+    };
+    (check(std::get<Indices>(inputs_)), ...);
+    return ready;
+  }
+
+  template <size_t... Indices>
+  bool preflightOutputs(const Plan &plan,
+                        std::vector<const SimObject *> &resources,
+                        std::index_sequence<Indices...>) const {
+    bool ready = true;
+    auto check = [&]<size_t Index>() {
+      if (!std::get<Index>(plan.outputs))
+        return;
+      const auto *queue = std::get<Index>(outputs_);
+      ready = ready && queue != nullptr && queue->canProposePush() &&
+              addResource(resources, queue);
+    };
+    (check.template operator()<Indices>(), ...);
+    return ready;
+  }
+
+  template <size_t Index>
+  bool preflightTable(CommitGroupId group, const Plan &plan,
+                      std::vector<const SimObject *> &resources) const {
+    const auto &writes = std::get<Index>(plan.writes);
+    const StateReservation &reservation = std::get<Index>(plan.reservations);
+    if (writes.empty() && reservation.empty())
+      return true;
+    const auto *table = std::get<Index>(tables_);
+    if (!addResource(resources, table))
+      return false;
+    using Merge = std::tuple_element_t<Index, std::tuple<Merges...>>;
+    std::vector<size_t> indices;
+    indices.reserve(writes.size());
+    writes.forEach([&](const auto &write) { indices.push_back(write.first); });
+    return table->canPrepareTransaction(group, id(), reservation, indices,
+                                        Merge::fields, modes_[Index]);
+  }
+
+  template <size_t... Indices>
+  bool preflightTables(CommitGroupId group, const Plan &plan,
+                       std::vector<const SimObject *> &resources,
+                       std::index_sequence<Indices...>) const {
+    return (preflightTable<Indices>(group, plan, resources) && ...);
+  }
+
+  bool preflightResources(CommitGroupId group, const Plan &plan) const {
+    std::vector<const SimObject *> resources;
+    resources.reserve(sizeof...(Inputs) + sizeof...(Outputs) +
+                      sizeof...(Entries));
+    return preflightInputs(resources, std::index_sequence_for<Inputs...>{}) &&
+           preflightOutputs(plan, resources,
+                            std::index_sequence_for<Outputs...>{}) &&
+           preflightTables(group, plan, resources,
+                           std::index_sequence_for<Entries...>{});
   }
 
   template <size_t... Indices>
@@ -2315,8 +2462,10 @@ private:
     }
     if (writes.size() == 1)
       return std::get<Index>(tables_)->publishPreparedSingleWrite(
-          group, std::optional<typename std::remove_reference_t<
-                     decltype(writes)>::Value>{std::move(writes.front())},
+          group,
+          std::optional<
+              typename std::remove_reference_t<decltype(writes)>::Value>{
+              std::move(writes.front())},
           std::get<Index>(merges_));
     return std::get<Index>(tables_)->publishPreparedWrite(
         group, std::move(writes).intoVector(), std::get<Index>(merges_));
@@ -2500,37 +2649,59 @@ public:
         merge_(std::move(merge)), writerId_(id), mode_(mode) {}
 
   void doWork(Epoch epoch) override {
-    if (fired_ || !input_.canProposePop())
+    if (fired_ || candidate_ || !input_.canProposePop())
       return;
     const Input *head = input_.peekProposable();
     if (!head)
       return;
-    proposed_ = false;
+    Candidate candidate;
     if (static_cast<bool>(invokeTablePolicy(enable_, epoch, *head))) {
       const auto address = invokeTablePolicy(address_, epoch, *head);
       if (!tableAddressInRange(address, table_.size())) {
         setRuntimeFailureCode("table_index_out_of_range");
         return;
       }
-      if (!table_.proposeWrite(
-              writerId_, static_cast<size_t>(address),
-              static_cast<Entry>(invokeTablePolicy(value_, epoch, *head)),
-              Merge::fields, merge_, mode_)) {
-        setRuntimeFailureCode("table_write_conflict");
-        return;
-      }
-      proposed_ = true;
+      candidate.write = std::pair<size_t, Entry>{
+          static_cast<size_t>(address),
+          static_cast<Entry>(invokeTablePolicy(value_, epoch, *head))};
     }
-    if (!input_.proposePop()) {
-      if (proposed_)
-        table_.cancelWrite(writerId_);
-      proposed_ = false;
+    candidate_ = std::move(candidate);
+  }
+  void doArbitrate(Epoch) override {
+    if (fired_ || !candidate_ || !input_.canProposePop())
+      return;
+    const CommitGroupId group = id();
+    std::array<size_t, 1> index{};
+    std::span<const size_t> indices;
+    if (candidate_->write) {
+      index[0] = candidate_->write->first;
+      indices = index;
+      if (!table_.canPrepareTransaction(group, writerId_, {}, indices,
+                                        Merge::fields, mode_, true))
+        return;
+    }
+    if (!input_.preparePop(group) ||
+        (candidate_->write &&
+         !table_.prepareTransaction(group, writerId_, {}, indices,
+                                    Merge::fields, mode_, true))) {
+      input_.cancelPrepared(group);
+      table_.cancelPreparedWrite(group);
       return;
     }
+    if (!input_.publishPop(group) ||
+        (candidate_->write &&
+         !table_.publishPreparedSingleWrite(group, std::move(candidate_->write),
+                                            merge_))) {
+      setRuntimeFailureCode("table_write_publish_failed");
+      input_.cancelPrepared(group);
+      table_.cancelPreparedWrite(group);
+      return;
+    }
+    candidate_.reset();
     fired_ = true;
   }
   void doXfer(Epoch) override {
-    proposed_ = false;
+    candidate_.reset();
     fired_ = false;
   }
   bool hasPendingCommit() const override { return fired_; }
@@ -2538,9 +2709,9 @@ public:
     return !fired_ && input_.canProposePop();
   }
   void reset() override {
-    if (proposed_)
-      table_.cancelWrite(writerId_);
-    proposed_ = false;
+    input_.cancelPrepared(id());
+    table_.cancelPreparedWrite(id());
+    candidate_.reset();
     fired_ = false;
     clearRuntimeFailureCode();
   }
@@ -2554,7 +2725,10 @@ private:
   [[no_unique_address]] Merge merge_;
   ObjectId writerId_;
   TableWriteMode mode_;
-  bool proposed_ = false;
+  struct Candidate {
+    std::optional<std::pair<size_t, Entry>> write;
+  };
+  std::optional<Candidate> candidate_;
   bool fired_ = false;
 };
 
@@ -2583,25 +2757,40 @@ public:
         mode_(mode) {}
 
   void doWork(Epoch epoch) override {
-    if (fired_ || !static_cast<bool>(invokeTablePolicy(enable_, epoch)))
+    if (fired_ || candidate_ ||
+        !static_cast<bool>(invokeTablePolicy(enable_, epoch)))
       return;
     const auto address = invokeTablePolicy(address_, epoch);
     if (!tableAddressInRange(address, table_.size())) {
       setRuntimeFailureCode("table_index_out_of_range");
       return;
     }
-    if (!table_.proposeWrite(
-            writerId_, static_cast<size_t>(address),
-            static_cast<Entry>(invokeTablePolicy(value_, epoch)), Merge::fields,
-            merge_, mode_)) {
-      setRuntimeFailureCode("table_write_conflict");
+    candidate_ = std::pair<size_t, Entry>{
+        static_cast<size_t>(address),
+        static_cast<Entry>(invokeTablePolicy(value_, epoch))};
+  }
+  void doArbitrate(Epoch) override {
+    if (fired_ || !candidate_)
+      return;
+    const CommitGroupId group = id();
+    const size_t index = candidate_->first;
+    const std::span<const size_t> indices(&index, 1);
+    if (!table_.canPrepareTransaction(group, writerId_, {}, indices,
+                                      Merge::fields, mode_, true))
+      return;
+    if (!table_.prepareTransaction(group, writerId_, {}, indices, Merge::fields,
+                                   mode_, true) ||
+        !table_.publishPreparedSingleWrite(group, std::move(candidate_),
+                                           merge_)) {
+      setRuntimeFailureCode("table_write_publish_failed");
+      table_.cancelPreparedWrite(group);
       return;
     }
-    proposed_ = true;
+    candidate_.reset();
     fired_ = true;
   }
   void doXfer(Epoch) override {
-    proposed_ = false;
+    candidate_.reset();
     fired_ = false;
   }
   bool hasPendingCommit() const override { return fired_; }
@@ -2609,9 +2798,8 @@ public:
     return !fired_ && static_cast<bool>(invokeTablePolicy(enable_, epoch));
   }
   void reset() override {
-    if (proposed_)
-      table_.cancelWrite(writerId_);
-    proposed_ = false;
+    table_.cancelPreparedWrite(id());
+    candidate_.reset();
     fired_ = false;
     clearRuntimeFailureCode();
   }
@@ -2624,7 +2812,7 @@ private:
   [[no_unique_address]] Merge merge_;
   ObjectId writerId_;
   TableWriteMode mode_;
-  bool proposed_ = false;
+  std::optional<std::pair<size_t, Entry>> candidate_;
   bool fired_ = false;
 };
 
@@ -2652,7 +2840,8 @@ public:
         value_(std::move(value)), merge_(std::move(merge)), writerId_(id) {}
 
   void doWork(Epoch epoch) override {
-    if (fired_ || !static_cast<bool>(invokeTablePolicy(enable_, epoch)))
+    if (fired_ || candidate_ ||
+        !static_cast<bool>(invokeTablePolicy(enable_, epoch)))
       return;
     const auto rawMask = invokeTablePolicy(mask_, epoch);
     const uint64_t mask = static_cast<uint64_t>(rawMask);
@@ -2664,16 +2853,39 @@ public:
       values.emplace_back(index, static_cast<Entry>(invokeTablePolicy(
                                      value_, epoch, table_.at(index))));
     }
-    if (!table_.proposeMaskedWrite(writerId_, std::move(values), Merge::fields,
-                                   merge_)) {
-      setRuntimeFailureCode("table_write_conflict");
+    candidate_ = std::move(values);
+  }
+  void doArbitrate(Epoch) override {
+    if (fired_ || !candidate_)
+      return;
+    if (candidate_->empty()) {
+      candidate_.reset();
+      fired_ = true;
       return;
     }
-    proposed_ = true;
+    std::vector<size_t> indices;
+    indices.reserve(candidate_->size());
+    for (const auto &[index, value] : *candidate_) {
+      (void)value;
+      indices.push_back(index);
+    }
+    const CommitGroupId group = id();
+    if (!table_.canPrepareTransaction(group, writerId_, {}, indices,
+                                      Merge::fields, TableWriteMode::FieldMerge,
+                                      true))
+      return;
+    if (!table_.prepareTransaction(group, writerId_, {}, indices, Merge::fields,
+                                   TableWriteMode::FieldMerge, true) ||
+        !table_.publishPreparedWrite(group, std::move(*candidate_), merge_)) {
+      setRuntimeFailureCode("table_write_publish_failed");
+      table_.cancelPreparedWrite(group);
+      return;
+    }
+    candidate_.reset();
     fired_ = true;
   }
   void doXfer(Epoch) override {
-    proposed_ = false;
+    candidate_.reset();
     fired_ = false;
   }
   bool hasPendingCommit() const override { return fired_; }
@@ -2681,9 +2893,8 @@ public:
     return !fired_ && static_cast<bool>(invokeTablePolicy(enable_, epoch));
   }
   void reset() override {
-    if (proposed_)
-      table_.cancelWrite(writerId_);
-    proposed_ = false;
+    table_.cancelPreparedWrite(id());
+    candidate_.reset();
     fired_ = false;
     clearRuntimeFailureCode();
   }
@@ -2695,7 +2906,7 @@ private:
   [[no_unique_address]] Value value_;
   [[no_unique_address]] Merge merge_;
   ObjectId writerId_;
-  bool proposed_ = false;
+  std::optional<std::vector<std::pair<size_t, Entry>>> candidate_;
   bool fired_ = false;
 };
 

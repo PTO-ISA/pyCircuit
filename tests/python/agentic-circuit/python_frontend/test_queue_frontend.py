@@ -1860,6 +1860,22 @@ def pipeline() -> None:
     ac.sink(snapshots)
 """
 
+ARBITRATED_TABLE_WRITER_SOURCE = """
+import agentic_circuit as ac
+
+@ac.struct
+class Entry:
+    valid: bool
+
+@ac.system
+def pipeline() -> None:
+    issue = ac.table[4, Entry](init=0)
+    issue.view(0).patch(valid=True, arbitration=ac.writer_priority(0))
+    issue.view(0).patch(valid=False, arbitration=ac.writer_priority(1))
+    snapshots = issue.view(0).read()
+    ac.sink(snapshots)
+"""
+
 ALLOCATION_TABLE_SOURCE = """
 import agentic_circuit as ac
 
@@ -2444,6 +2460,86 @@ class QueueFrontendTest(unittest.TestCase):
                 ),
                 "pipeline",
             )
+
+    def test_table_writer_priority_is_typed_and_order_independent(self) -> None:
+        from agentic_circuit._queue_frontend import lower_queue_source
+
+        lowered = lower_queue_source(ARBITRATED_TABLE_WRITER_SOURCE, "pipeline")
+        self.assertEqual(2, lowered.count("ac.arbitration = #ac.writer_priority<"))
+        self.assertIn("ac.arbitration = #ac.writer_priority<0>", lowered)
+        self.assertIn("ac.arbitration = #ac.writer_priority<1>", lowered)
+
+        swapped = ARBITRATED_TABLE_WRITER_SOURCE.replace(
+            "    issue.view(0).patch(valid=True, arbitration=ac.writer_priority(0))\n"
+            "    issue.view(0).patch(valid=False, arbitration=ac.writer_priority(1))",
+            "    issue.view(0).patch(valid=False, arbitration=ac.writer_priority(1))\n"
+            "    issue.view(0).patch(valid=True, arbitration=ac.writer_priority(0))",
+        )
+        endpoint_pattern = re.compile(
+            r'ac.endpoint_id = "(table-writer/[0-9a-f]{64})", '
+            r"ac.arbitration = #ac.writer_priority<(\d+)>"
+        )
+        self.assertEqual(
+            sorted(endpoint_pattern.findall(lowered)),
+            sorted(endpoint_pattern.findall(lower_queue_source(swapped, "pipeline"))),
+        )
+
+        masked = MASKED_TABLE_WRITE_SOURCE.replace(
+            "value=pending.value)",
+            "value=pending.value, arbitration=ac.writer_priority(0))",
+        ).replace(
+            "    pending.release(when=pending.valid)",
+            "    issue.view(0).write(\n"
+            "        value=pending.value, arbitration=ac.writer_priority(1)\n"
+            "    )\n"
+            "    pending.release(when=pending.valid)",
+        )
+        masked_lowered = lower_queue_source(masked, "pipeline")
+        self.assertIn("ac.table.masked_write @issue", masked_lowered)
+        self.assertEqual(
+            2, masked_lowered.count("ac.arbitration = #ac.writer_priority<")
+        )
+
+    def test_table_writer_priority_rejects_invalid_or_unowned_policies(self) -> None:
+        from agentic_circuit._queue_frontend import (
+            QueueFrontendError,
+            lower_queue_source,
+        )
+
+        replacements = (
+            ("ac.writer_priority(0)", "ac.writer_priority(-1)"),
+            ("ac.writer_priority(0)", "ac.writer_priority(issue)"),
+            ("ac.writer_priority(0)", "ac.round_robin(0)"),
+            ("ac.writer_priority(0)", "ac.writer_priority(0, 1)"),
+        )
+        for old, new in replacements:
+            with self.subTest(policy=new):
+                with self.assertRaisesRegex(QueueFrontendError, "ACPY-TABLE-011"):
+                    lower_queue_source(
+                        ARBITRATED_TABLE_WRITER_SOURCE.replace(old, new, 1),
+                        "pipeline",
+                    )
+
+        duplicate = ARBITRATED_TABLE_WRITER_SOURCE.replace(
+            "ac.writer_priority(1)", "ac.writer_priority(0)"
+        )
+        with self.assertRaisesRegex(QueueFrontendError, "ranks must be unique"):
+            lower_queue_source(duplicate, "pipeline")
+
+        cross_owner = ARBITRATED_TABLE_WRITER_SOURCE.replace(
+            "    issue = ac.table[4, Entry](init=0)",
+            "    policy = ac.writer_priority(0)\n"
+            "    issue = ac.table[4, Entry](init=0)\n"
+            "    other = ac.table[4, Entry](init=0)\n"
+            "    other.view(0).patch(valid=True, arbitration=policy)\n"
+            "    other_snapshots = other.view(0).read()\n"
+            "    ac.sink(other_snapshots)",
+        ).replace(
+            "issue.view(0).patch(valid=True, arbitration=ac.writer_priority(0))",
+            "issue.view(0).patch(valid=True, arbitration=policy)",
+        )
+        with self.assertRaisesRegex(QueueFrontendError, "cross Table owners"):
+            lower_queue_source(cross_owner, "pipeline")
 
     def test_scalar_allocation_lowers_as_unique_replace_writer(self) -> None:
         from agentic_circuit._queue_frontend import (

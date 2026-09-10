@@ -11,7 +11,6 @@
 
 #include "gtest/gtest.h"
 
-
 #include <algorithm>
 #include <array>
 #include <memory>
@@ -82,7 +81,6 @@ namespace {
 constexpr std::string_view kHarnessFingerprint =
     "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
 
-
 class DomainClockObject : public SimObject {
 public:
   DomainClockObject(ObjectId id, SimSystem &system)
@@ -114,7 +112,6 @@ public:
 private:
   SimSystem &system_;
 };
-
 
 TEST(RuntimeHarnessTest, DomainCycleCapStopsBeforeWorkBeyondTheBound) {
   SimSystem system("test");
@@ -1156,7 +1153,6 @@ TEST(GfsimProtocolTest, ProtocolStatePreservesCreditAndPhaseInvariants) {
   EXPECT_TRUE(state.validate());
 }
 
-
 // ═══════════════════════════════════════════════════════════════════════
 // Statistics, diagnostics, and termination
 // ═══════════════════════════════════════════════════════════════════════
@@ -1480,7 +1476,6 @@ TEST(GfsimComponentObservationTest,
   EXPECT_NE(findObservation(events, sink.id(), "accepted"), nullptr);
 }
 
-
 TEST(GfsimComponentObservationTest,
      DisabledAndEnabledObservationProduceEqualFunctionalResults) {
   auto run = [](bool enabled) {
@@ -1530,7 +1525,6 @@ TEST(GfsimSystemTest, NonEmptyQueueWithoutWakeFailsWithNoProgressReport) {
   EXPECT_EQ(report.blockedObjects[0].reason, "queue_not_empty");
   EXPECT_EQ(report.queueOccupancy, 1u);
 }
-
 
 TEST(GfsimSystemTest,
      NoProgressReportIncludesReservationsProtocolsAndCorrelations) {
@@ -1737,6 +1731,35 @@ TEST(GfsimSystemTest, StaticDispatchUsesDenseStableOrderAndBarrierPhases) {
               (std::vector<std::string>{"work:0", "work:1", "arbitrate:0",
                                         "arbitrate:1", "xfer:0", "xfer:1"}));
   }
+}
+
+TEST(GfsimSystemTest, ExplicitArbitrationOrderOverridesWorkAndObjectOrder) {
+  SimSystem system("test");
+  std::vector<std::string> log;
+  RecordingDispatchObject first(0, log);
+  RecordingDispatchObject second(1, log);
+  std::array rows = {makeDispatchRow(&first), makeDispatchRow(&second)};
+  constexpr std::array<ObjectId, 2> arbitrationOrder = {1, 0};
+  ASSERT_TRUE(system.setDispatchTable(rows));
+  ASSERT_TRUE(system.setArbitrationOrder(arbitrationOrder));
+  ASSERT_TRUE(system.scheduleWork(0, {0, 0}));
+  ASSERT_TRUE(system.scheduleWork(1, {0, 0}));
+
+  system.step();
+  EXPECT_EQ(log, (std::vector<std::string>{"work:0", "work:1", "arbitrate:1",
+                                           "arbitrate:0", "xfer:0", "xfer:1"}));
+}
+
+TEST(GfsimSystemTest, ArbitrationOrderRejectsDuplicateOrUnknownIds) {
+  SimSystem system("test");
+  std::vector<std::string> log;
+  RecordingDispatchObject object(0, log);
+  std::array rows = {makeDispatchRow(&object)};
+  ASSERT_TRUE(system.setDispatchTable(rows));
+  constexpr std::array<ObjectId, 2> duplicate = {0, 0};
+  EXPECT_FALSE(system.setArbitrationOrder(duplicate));
+  EXPECT_EQ(system.terminationResult().diagnosticCode,
+            "invalid_arbitration_order");
 }
 
 TEST(GfsimSystemTest, StaticDispatchRejectsNonDenseRows) {
@@ -2160,7 +2183,6 @@ TEST(GfsimProcessTest, FairnessCapProducesDeterministicFailure) {
   EXPECT_EQ(process.diagnosticCode(), "process_fairness_exceeded");
   EXPECT_FALSE(process.isRunnable({1, 0}));
 }
-
 
 TEST(GfsimProcessTest, ResetRestoresEntryState) {
   SuspendingProcess process;
