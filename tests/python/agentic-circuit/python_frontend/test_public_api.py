@@ -276,7 +276,11 @@ class PublicApiTest(unittest.TestCase):
         )
         for operation in operations:
             with self.subTest(operation=operation):
-                with self.assertRaises(NotImplementedError):
+                with self.assertRaisesRegex(
+                    NotImplementedError,
+                    "ACPy source marker interpreted during capture|"
+                    "AST intrinsic inside Agentic definitions",
+                ):
                     operation()
 
     def test_table_factory_is_subscript_only_and_legacy_call_is_removed(self) -> None:

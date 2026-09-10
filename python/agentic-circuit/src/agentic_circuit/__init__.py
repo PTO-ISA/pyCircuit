@@ -112,7 +112,8 @@ __all__ = (
 
 def _not_implemented(primitive: str) -> Never:
     raise NotImplementedError(
-        f"{primitive} is part of the public surface but is not implemented yet"
+        f"{primitive} is an ACPy source marker interpreted during capture; "
+        "it cannot be called by ordinary Python execution"
     )
 
 
