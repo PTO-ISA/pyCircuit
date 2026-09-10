@@ -55,6 +55,10 @@ def test_semantic_registry_contains_no_implementation_names() -> None:
     }
     assert "implementation_id" not in encoded
     assert all("module" not in item for item in registry["primitives"])
+    assert all(
+        item["inputs"][0]["constraints"] == ["1 <= N <= 64"]
+        for item in registry["primitives"]
+    )
     assert "basejump" not in encoded
     leading = next(
         item

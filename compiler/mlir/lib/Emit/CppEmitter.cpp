@@ -544,24 +544,10 @@ static LogicalResult emitCombAssign(Operation &op, llvm::raw_ostream &os, NameTa
     const std::string index = nt.get(priority.getIndex());
     const std::string valid = nt.get(priority.getValid());
     const std::string input = nt.get(priority.getIn());
-    const std::string position = "_pyc_priority_position_" + index;
-    const std::string bit = "_pyc_priority_bit_" + index;
-    os << "    " << index << " = pyc::cpp::Wire<" << indexWidth << ">(0);\n";
-    os << "    " << valid << " = pyc::cpp::Wire<1>(0);\n";
-    os << "    for (unsigned " << position << " = 0; " << position << " < "
-       << inputWidth << "; ++" << position << ") {\n";
-    os << "      const unsigned " << bit << " = "
-       << (priority.getOrder() == "low"
-               ? position
-               : std::to_string(inputWidth) + "u - 1u - " + position)
-       << ";\n";
-    os << "      if (" << input << ".bit(" << bit << ")) {\n";
-    os << "        " << index << " = pyc::cpp::Wire<" << indexWidth << ">("
-       << bit << ");\n";
-    os << "        " << valid << " = pyc::cpp::Wire<1>(1);\n";
-    os << "        break;\n";
-    os << "      }\n";
-    os << "    }\n";
+    os << "    pyc::cpp::priority_encode<" << inputWidth << ", " << indexWidth
+       << ">(" << input << ", "
+       << (priority.getOrder() == "high" ? "true" : "false") << ", "
+       << index << ", " << valid << ");\n";
     return success();
   }
   if (auto popcount = dyn_cast<pyc::PopcountOp>(op)) {
@@ -571,13 +557,8 @@ static LogicalResult emitCombAssign(Operation &op, llvm::raw_ostream &os, NameTa
       return popcount.emitError("invalid popcount width");
     const std::string input = nt.get(popcount.getIn());
     const std::string count = nt.get(popcount.getCount());
-    const std::string bit = "_pyc_popcount_bit_" + count;
-    os << "    " << count << " = pyc::cpp::Wire<" << outputWidth << ">(0);\n";
-    os << "    for (unsigned " << bit << " = 0; " << bit << " < " << inputWidth
-       << "; ++" << bit << ")\n";
-    os << "      if (" << input << ".bit(" << bit << "))\n";
-    os << "        " << count << " = pyc::cpp::Wire<" << outputWidth << ">("
-       << count << ".value() + 1);\n";
+    os << "    " << count << " = pyc::cpp::population_count<" << inputWidth
+       << ", " << outputWidth << ">(" << input << ");\n";
     return success();
   }
   if (auto countZeros = dyn_cast<pyc::CountZerosOp>(op)) {
@@ -587,23 +568,10 @@ static LogicalResult emitCombAssign(Operation &op, llvm::raw_ostream &os, NameTa
       return countZeros.emitError("invalid count_zeros width");
     const std::string input = nt.get(countZeros.getIn());
     const std::string count = nt.get(countZeros.getCount());
-    const std::string offset = "_pyc_zero_count_offset_" + count;
-    const std::string bit = "_pyc_zero_count_bit_" + count;
-    os << "    " << count << " = pyc::cpp::Wire<" << outputWidth << ">("
-       << inputWidth << ");\n";
-    os << "    for (unsigned " << offset << " = 0; " << offset << " < "
-       << inputWidth << "; ++" << offset << ") {\n";
-    os << "      const unsigned " << bit << " = "
-       << (countZeros.getDirection() == "trailing"
-               ? offset
-               : std::to_string(inputWidth) + "u - 1u - " + offset)
-       << ";\n";
-    os << "      if (" << input << ".bit(" << bit << ")) {\n";
-    os << "        " << count << " = pyc::cpp::Wire<" << outputWidth << ">("
-       << offset << ");\n";
-    os << "        break;\n";
-    os << "      }\n";
-    os << "    }\n";
+    os << "    " << count << " = pyc::cpp::count_zeros<" << inputWidth << ", "
+       << outputWidth << ">(" << input << ", "
+       << (countZeros.getDirection() == "leading" ? "true" : "false")
+       << ");\n";
     return success();
   }
   return op.emitError("unsupported combinational op for C++ emission");

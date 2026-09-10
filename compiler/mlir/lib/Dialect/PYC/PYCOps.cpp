@@ -680,6 +680,8 @@ LogicalResult PriorityEncodeOp::verify() {
   if (!inputType || !indexType)
     return emitOpError("input and index result must be integer types");
   const unsigned inputWidth = inputType.getWidth();
+  if (inputWidth > 64)
+    return emitOpError("input width must be in the shared backend range 1..64");
   unsigned indexWidth = 1;
   for (unsigned extent = 2; extent < inputWidth; extent <<= 1)
     ++indexWidth;
@@ -696,6 +698,8 @@ LogicalResult PopcountOp::verify() {
   auto countType = dyn_cast<IntegerType>(getCount().getType());
   if (!inputType || !countType)
     return emitOpError("input and count result must be integer types");
+  if (inputType.getWidth() > 64)
+    return emitOpError("input width must be in the shared backend range 1..64");
   unsigned expectedWidth = 1;
   uint64_t representable = 1;
   while (representable < inputType.getWidth()) {
@@ -714,6 +718,8 @@ LogicalResult CountZerosOp::verify() {
   auto countType = dyn_cast<IntegerType>(getCount().getType());
   if (!inputType || !countType)
     return emitOpError("input and count result must be integer types");
+  if (inputType.getWidth() > 64)
+    return emitOpError("input width must be in the shared backend range 1..64");
   unsigned expectedWidth = 1;
   uint64_t representable = 1;
   while (representable < inputType.getWidth()) {

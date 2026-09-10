@@ -15,7 +15,7 @@
         {
           "name": "mask",
           "type": "iN",
-          "constraints": ["N >= 1"]
+          "constraints": ["1 <= N <= 64"]
         }
       ],
       "outputs": [
@@ -47,7 +47,7 @@
         {
           "name": "value",
           "type": "iN",
-          "constraints": ["N >= 1"]
+          "constraints": ["1 <= N <= 64"]
         }
       ],
       "outputs": [
@@ -78,7 +78,7 @@
         {
           "name": "value",
           "type": "iN",
-          "constraints": ["N >= 1"]
+          "constraints": ["1 <= N <= 64"]
         }
       ],
       "outputs": [

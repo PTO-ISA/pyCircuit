@@ -156,6 +156,32 @@ def test_selector_is_catalog_owned_and_fail_closed(tmp_path: Path) -> None:
     assert "selection is ambiguous" in rejected.stderr
 
 
+def test_priority_cpp_emitter_calls_the_shared_primitive_library(
+    tmp_path: Path,
+) -> None:
+    root = _root()
+    pycc = _tool("pycc")
+    fixture = root / "tests/mlir/pyc/priority-primitive.mlir"
+    output = tmp_path / "priority.cpp"
+    subprocess.run(
+        [
+            pycc,
+            str(fixture),
+            "--emit=cpp",
+            "-o",
+            str(output),
+            "--hierarchy-policy=strict",
+            "--inline-policy=off",
+        ],
+        cwd=root,
+        check=True,
+        env=_environment(),
+    )
+    text = output.read_text(encoding="utf-8")
+    assert text.count("pyc::cpp::priority_encode<13, 4>") >= 2
+    assert "_pyc_priority_position_" not in text
+
+
 @pytest.mark.parametrize(
     ("body", "message"),
     [
@@ -328,7 +354,7 @@ def test_zero_count_candidate_is_one_parameterized_balanced_tree() -> None:
     assert "assign count = zero_tree" not in source
 
 
-def test_selector_rejects_width_without_qualified_candidate() -> None:
+def test_verifier_rejects_width_outside_the_shared_backend_profile() -> None:
     pyc_opt = _tool("pyc-opt")
     catalog = _root() / "library" / "verilog" / "rtl_catalog.json"
     source = """module {
@@ -351,7 +377,7 @@ def test_selector_rejects_width_without_qualified_candidate() -> None:
         check=False,
     )
     assert rejected.returncode != 0
-    assert "no qualified RTL implementation supports width 65" in rejected.stderr
+    assert "shared backend range 1..64" in rejected.stderr
 
     source = """module {
   func.func @wide(%value: i65) -> i7 {
@@ -373,7 +399,7 @@ def test_selector_rejects_width_without_qualified_candidate() -> None:
         check=False,
     )
     assert rejected.returncode != 0
-    assert "no qualified RTL implementation supports width 65" in rejected.stderr
+    assert "shared backend range 1..64" in rejected.stderr
 
     source = """module {
   func.func @wide(%value: i65) -> i7 {
@@ -395,7 +421,7 @@ def test_selector_rejects_width_without_qualified_candidate() -> None:
         check=False,
     )
     assert rejected.returncode != 0
-    assert "no qualified RTL implementation supports width 65" in rejected.stderr
+    assert "shared backend range 1..64" in rejected.stderr
 
 
 def test_popcount_pyc_cpp_and_selected_rtl_agree(tmp_path: Path) -> None:
@@ -417,6 +443,9 @@ def test_popcount_pyc_cpp_and_selected_rtl_agree(tmp_path: Path) -> None:
         check=True,
         env=_environment(),
     )
+    cpp_text = cpp.read_text(encoding="utf-8")
+    assert "pyc::cpp::population_count<13, 4>" in cpp_text
+    assert "_pyc_popcount_bit_" not in cpp_text
 
     manifest = json.loads((verilog / "manifest.json").read_text(encoding="utf-8"))
     selection = manifest["rtl_selection"]
@@ -557,6 +586,9 @@ def test_zero_count_pyc_cpp_and_selected_rtl_agree(
         check=True,
         env=_environment(),
     )
+    cpp_text = cpp.read_text(encoding="utf-8")
+    assert "pyc::cpp::count_zeros<13, 4>" in cpp_text
+    assert "_pyc_zero_count_offset_" not in cpp_text
 
     manifest = json.loads((verilog / "manifest.json").read_text(encoding="utf-8"))
     selection = manifest["rtl_selection"]
