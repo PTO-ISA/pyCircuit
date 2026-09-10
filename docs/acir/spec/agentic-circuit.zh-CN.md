@@ -25,6 +25,31 @@
 具有 RFC 风格的约束含义。本文使用“必须”“禁止”“应该”和“可以”表达同一
 含义。
 
+### 已接受但尚未实现的 6.0 release-train decisions
+
+Decision 0236–0241 已冻结 release 6.0.0 的剩余 issue 合同，但它们在
+[`decision_status_v6.md`](../../gates/decision_status_v6.md) 中仍为 `deferred`。
+在具体 gate 证据将对应行推进到 `implemented-verified` 前，这些 decision 不代表
+当前实现；本文后续写明的现有限制仍然有效。
+
+- Decision 0236 保持 `@ac.rule` 为唯一公共调度边界，由编译器形成完整原子事务
+  （#28）。
+- Decision 0237 要求同字段 Table writer 具有 verifier 可证明的互斥关系或在
+  prepare 前完成显式、确定的 branch 仲裁，并保留 Decision 0156 的
+  replace-over-field policy（#25）。
+- Decision 0238 冻结多维 row-major Table shape、类型化初始化、bounds 与 masked
+  domain identity，并将 `TableChoice.index` 固定为 row-major 扁平标量（#23）。
+- Decision 0239 保持 `count=1` 的标量 `TableChoice`，并为 `count>1` 使用静态 tuple
+  和一次原子提交的连续 valid prefix（#24）。
+- Decision 0240 保留一个 ordered multi-lane Queue identity，并原子传输已形成的
+  valid prefix（#21）。
+- Decision 0241 只允许有界 Table profile 通过显式 canonical-PYC `pyc.reg` bank，
+  不推导 `sync_mem`（#22）。
+
+Decision 0232 现冻结四 wheel release map；Decision 0234 将仓库内可验证的 workflow
+实现与每次 release 必需的 stable-URL attestation 分离（#61）。两者在实现证据存在前
+仍保持 `deferred`。
+
 ## 一句话理解
 
 用户编写串行风格的 Python。编译器读取 AST，把 Python 变量解释成静态连接的

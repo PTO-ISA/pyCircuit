@@ -8208,14 +8208,20 @@ agentic-circuit wheel, checksums, and platform contract.
 - The Runtime header tree and Gfsim library contain no LLVM, MLIR, ACIR,
   consumer payload, or workload-trace dependency. External Runtime consumers
   link only the generic runtime target.
+- The release has exactly four wheel assets. `pycircuit-hisi` contributes one
+  platform wheel for `linux-x86_64` and one for `macos-arm64`;
+  `pycircuit-semantic-core` and `agentic-circuit` each contribute one universal
+  wheel. Release-index and consumer-lock schemas distinguish platform-keyed
+  wheels from universal wheels and reject a legacy unkeyed three-wheel map.
 - A platform SDK archive contains installed tools, Runtime headers/libraries,
-  CMake exports, the wheelhouse, schemas, licenses, and one embedded platform
-  manifest. That manifest hashes installed files except itself and never hashes
-  the enclosing archive. A separate release index hashes and names both
-  archives, both attached platform manifests, the exact wheel map, licenses,
-  and release notes. `SHA256SUMS` covers the index but excludes itself.
-  Native non-system dependencies are relocatable inside the archive; each
-  platform manifest classifies documented system dependencies.
+  CMake exports, its matching `pycircuit-hisi` wheel, the two universal wheels,
+  schemas, licenses, and one embedded platform manifest. That manifest hashes
+  installed files except itself and never hashes the enclosing archive. A
+  separate release index hashes and names both archives, both attached platform
+  manifests, all four wheel assets, licenses, and release notes.
+  `SHA256SUMS` covers the index but excludes itself. Native non-system
+  dependencies are relocatable inside the archive; each platform manifest
+  classifies documented system dependencies.
 - `packaging/sdk/version-map.json` is the canonical candidate version/platform
   map. The final manifest supplies the release source revision and artifact
   URLs/hashes after all issue #61 implementation merges.
@@ -8226,11 +8232,17 @@ agentic-circuit wheel, checksums, and platform contract.
   LLVM/MLIR.
 - Linux x86_64 and macOS arm64 archives pass dependency, producer-path, C++ ABI,
   Python 3.11, and move-to-new-prefix checks.
-- A clean environment installs the exact three-wheel combination recorded by
-  the SDK manifest. Wrong version/platform/ABI tuples fail before generation.
+- A clean environment installs the matching platform-specific
+  `pycircuit-hisi` wheel and the same two universal wheels recorded by the SDK
+  manifest. Candidate aggregation proves that the complete release contains
+  exactly four unique mapped wheels. Wrong version/platform/ABI tuples,
+  duplicate universal wheels, and missing or mismatched platform wheels fail
+  before generation.
 
 **Source**
 - PTO-ISA/pyCircuit issue #61 R01-R04 and R09-R17.
+- Independent release-architect review (2026-09-10): use a platform-keyed
+  four-wheel topology and reject ambiguous or legacy unkeyed maps.
 
 ## Decision 0233: installed model plan and emit-cpp use verified schemas and an opaque runtime ABI
 
@@ -8305,51 +8317,70 @@ second semantic lowering path.
 **Source**
 - PTO-ISA/pyCircuit issue #61 R02 and R05-R08.
 
-## Decision 0234: release publication consumes only accepted candidate bytes
+## Decision 0234: one SHA-pinned release run publishes only accepted candidate bytes
 
 **Status:** Accepted; implementation tracked by issue #61
 
 **Context / Goal**
 Source-tree gates and package construction do not prove that the exact uploaded
 archive is complete or relocatable. Temporary Actions artifacts also do not
-establish a stable consumer pin. Release authority must validate, publish, and
-redownload one immutable candidate byte set.
+establish a stable consumer pin. The prior wording also made post-publication
+evidence an apparent prerequisite of the pre-candidate strict source gate.
+Release authority needs one acyclic protocol that validates, publishes, and
+redownloads one immutable candidate byte set.
 
 **Decision (strong constraint)**
-- Full integrated AC/PYC closure runs before candidate construction and retains
-  Decision 0159's native, G0/G1/G2, examples, normal/nightly, semantic, strict
-  decision-status, API, unit, and documentation gates.
+- **Part A, repository implementation contract:** one `workflow_dispatch` run
+  is pinned to an explicit source SHA. It performs full integrated AC/PYC
+  closure, deterministic candidate construction, platform validation, one
+  candidate-acceptance barrier, annotated-tag creation, publication, and
+  stable-URL post-download verification. Repository tests parse the workflow
+  dependency graph and fail if a publish path can bypass candidate acceptance,
+  rebuild an artifact, or use tag-push as a build or publication entry point.
 - Candidate construction produces both platform SDK archives, their uniquely
-  named attached manifests, the three-wheel set, licenses, release notes, one
-  release index, and `SHA256SUMS`. Platform manifests hash installed files
-  except themselves; the release index names exact external bytes, sizes,
-  identities, capabilities, and hashes; `SHA256SUMS` covers the index and all
-  other attached files except itself.
-- Installed-candidate jobs download or transfer those exact artifacts, verify
-  their hashes, move each SDK to an unrelated prefix, hide producer source/build
-  and LLVM/MLIR development paths, and run the generic external model consumer.
-  Incremental, topology-change, concurrency, mismatch, dependency, and
-  unsupported-boundary gates are mandatory on both platforms.
-- GitHub Release, GHCR, and optional PyPI jobs all depend on one successful
-  candidate-acceptance job and upload the same bytes. No publish path rebuilds
-  an artifact after acceptance.
-- After publication, a separate job redownloads every asset from the stable
-  release, verifies `SHA256SUMS`, installs the wheels and relocated SDK, and
-  reruns the generic smoke consumer.
-- The release records stable asset URLs/hashes, source revision, version map,
-  ABI tuple, capabilities, and known unsupported boundaries. A branch SHA or
-  temporary artifact cannot substitute.
+  named attached manifests, the four-wheel set defined by Decision 0232,
+  licenses, release notes, one release index, and `SHA256SUMS`. Platform
+  manifests hash installed files except themselves; the release index names
+  exact external bytes, sizes, identities, capabilities, and hashes;
+  `SHA256SUMS` covers the index and all other attached files except itself.
+- Installed-candidate jobs consume those exact artifacts, verify their hashes,
+  move each SDK to an unrelated prefix, hide producer source/build and LLVM/MLIR
+  development paths, and run the generic external model consumer. Incremental,
+  topology-change, concurrency, mismatch, dependency, and unsupported-boundary
+  gates are mandatory on both platforms.
+- The single candidate-acceptance job is the sole publication input. Only after
+  it succeeds may the same manual run create and verify annotated tag `v6.0.0`
+  at the pinned SHA. GitHub Release, GHCR, and optional PyPI jobs depend on that
+  barrier, download retained accepted artifacts, and never rebuild or mutate
+  them. A tag-push workflow may audit identity but cannot build or publish.
+- **Part B, release-instance protocol:** after publication, jobs in the same
+  manual run download every asset from stable GitHub Release URLs, verify
+  `SHA256SUMS`, install the wheels and relocated SDK, and rerun the generic
+  consumer on both supported platforms. Actions artifact URLs cannot substitute
+  for stable release URLs.
+- The post-download result is an immutable Actions/check-run attestation bound
+  to the tagged SHA and stable release URL. It is not a release asset and is
+  excluded from the release index and `SHA256SUMS`. Release notes and issue #61
+  link to it after publication.
+- Part A has repository-addressable implementation evidence and is what
+  `decision_status_v6.md` evaluates. Part B is a mandatory per-release stop
+  condition evaluated after the strict source gate; that gate never requires a
+  not-yet-created post-publication file.
 
 **Required verification**
-- Workflow dependency tests prove all publish jobs require candidate acceptance
-  and post-publish verification consumes release URLs.
+- Part A evidence proves deterministic construction, exact four-wheel
+  aggregation, workflow dependencies, tag-push non-publication, no downstream
+  rebuild, stable-URL verifier behavior, and adversarial rejection paths.
 - Each platform validates the exact archive and wheels later published, with no
   producer absolute path or undeclared dynamic dependency.
-- The final non-draft, non-prerelease release is redownloaded successfully and
-  the generic installed-model smoke passes.
+- For each release instance, the annotated tag peels to the accepted source
+  SHA, the non-draft/non-prerelease release contains the accepted bytes, and the
+  stable-URL redownload plus relocated generic consumer passes on both platforms.
 
 **Source**
 - PTO-ISA/pyCircuit issue #61 R13-R23.
+- Independent release-architect review (2026-09-10): use one SHA-pinned manual
+  run, gate tag and publication on accepted bytes, and verify stable URLs.
 
 ## Decision 0235: framework code and public ABIs are consumer-neutral
 
@@ -8403,3 +8434,289 @@ generic builds and releases carry contracts owned by particular consumers.
 **Source**
 - User direction (2026-09-09): separate pyCircuit from consumer implementations,
   including Linx, DavinciOO, LinxTrace, and every ABI-level trace interface.
+
+## Decision 0236: ordinary rules lower to one compiler-owned atomic transaction
+
+**Status:** Accepted; implementation tracked by issue #28
+
+**Supersedes:** The public `@ac.transition` and `safe=True` API sketch in issue
+issue #28 and the deferred single-output/single-owner limitations of Decisions 0167,
+0168, and 0223.
+
+**Context / Goal**
+Existing rule slices prove several atomic Queue and Table combinations, but the
+complete ordinary Python CFG does not yet have one frozen ownership, branch,
+reservation, and commit contract. Exposing those mechanics in Python would
+couple authoring to a particular runtime protocol.
+
+**Decision (strong constraint)**
+- `@ac.rule` remains the only public scheduling decorator. Python exposes no
+  `@ac.transition`, `safe=True`, readiness, pop/push, reservation, commit,
+  rollback, atomic/check primitive, or compatibility alias.
+- The compiler lowers ordinary rule CFG internally to transition and branch
+  ownership metadata and then to marker-free `ac.firing`. Each firing owns its
+  complete selected Queue, Table, Reg, and Slot effect set.
+- Every rule attempt observes one tick-start committed snapshot. Functional
+  branch selection happens before resource availability. If the selected
+  branch cannot reserve every required resource, the whole rule stalls; it does
+  not fall through to a later branch.
+- Static conflicts fail in the verifier. Compiler-derived dynamic footprints
+  and availability checks are executable and deterministic. Unproven overlap
+  fails unless an explicit accepted high-level arbitration policy, such as the
+  policy governed by Decision 0237, resolves it. No user assertion bypasses the
+  proof obligation.
+- Prepare reserves every selected effect or none. Publish occurs only after all
+  prepares succeed and makes commit no-fail. A rejected or blocked attempt
+  leaves every Queue and persistent owner unchanged.
+- Reset discards all transient candidates, reservations, proposals, branch
+  selections, and caches. Gate-only observations may record committed
+  transitions, but no public runtime or generated-model ABI exposes them.
+
+**Required verification**
+- Public API and documentation scans prove that `@ac.rule` is the only
+  scheduling entry point and that every rejected spelling remains absent.
+- Frontend and ACIR tests cover zero or many inputs and outputs, heterogeneous
+  optional results, Table/Reg/Slot effects, serial branches, and invalid
+  ownership or overlap metadata.
+- Direct and native gfsim agree for no-fire, full-fire, selected-branch stall,
+  conflict, reset, and output-backpressure cases with no partial commit.
+
+**Source**
+- PTO-ISA/pyCircuit issue #28 and independent release-architect review
+  (2026-09-10).
+
+## Decision 0237: same-field Table writers require proof or explicit arbitration
+
+**Status:** Accepted; implementation tracked by issue #25
+
+**Extends:** Decisions 0154 and 0156.
+
+**Context / Goal**
+Decision 0154 accepts only pairwise-disjoint top-level field sets. Useful
+generic designs also need same-field writers whose dynamic footprints are
+provably disjoint or whose conflict is resolved by a declared deterministic
+policy. Source order cannot define state semantics.
+
+**Decision (strong constraint)**
+- Distinct owners, fields, or statically distinct indices remain conflict-free.
+  The verifier may also accept guarded disjointness only when it proves the
+  guards and footprints from the same committed snapshot and canonical
+  resource invariants.
+- Same-field writers without a proof require one explicit high-level priority
+  or arbitration policy attached to their shared semantic owner. The policy
+  uses stable endpoint identity and a deterministic tie-break; source,
+  traversal, generator, or simulator execution order is never a tie-break.
+- Decision 0156 remains the built-in policy for its admitted single-replace
+  case: field proposals form the next image first and the one replace/allocation
+  proposal wins only at the same Entry. This rule is not generalized into
+  implicit priority for multiple replace or ordinary same-field writers.
+- Complete-entry, field, masked, replace, and allocation proposals participate
+  in the same normalized `(owner, index-domain, field, endpoint)` footprint
+  relation. A policy cannot hide type, scope, ownership, or atomicity errors.
+- Conflict arbitration selects one explicit branch before resource preparation.
+  A losing candidate never becomes a selected or committed transition, never
+  reserves resources, and none of its Queue, Table, Reg, Slot, or output
+  effects publish. Compatible guarded-disjoint writers may form concurrent
+  selected transitions from one old image and merge to one deterministic next
+  image.
+- If a proof is absent, malformed, cross-owner, or violated at runtime, the
+  verifier or generated dynamic check fails before mutation. Implicit
+  last-writer-wins behavior is forbidden.
+
+**Required verification**
+- Positive coverage proves distinct and guarded-disjoint footprints plus every
+  admitted explicit policy; negative coverage rejects unresolved overlap,
+  malformed priorities, duplicate ties, cross-owner proof, and user safety
+  assertions.
+- Declaration and traversal order shuffles produce identical canonical plans
+  and committed results.
+- Direct/native gfsim and the later admitted PYC C++/Verilog path agree on
+  winner selection, cancellation, merged disjoint writes, and no-partial-commit
+  behavior.
+
+**Source**
+- PTO-ISA/pyCircuit issue #25 and the issue #28 atomic transaction model.
+
+## Decision 0238: Table shape, initialization, and mask domains are canonical
+
+**Status:** Accepted; implementation tracked by issue #23
+
+**Extends:** Decisions 0151 through 0155.
+
+**Context / Goal**
+The provisional Table contract is one-dimensional and all-zero initialized.
+Multidimensional state needs one portable layout, bounds model, initialization
+image, and masked-domain identity before any backend may implement it.
+
+**Decision (strong constraint)**
+- A Table shape is a non-empty tuple of positive static extents. Each axis has
+  its own canonical unsigned index width and bounds obligation. Static
+  out-of-range indices fail verification; a dynamic out-of-range index reports
+  a stable error before any proposal is formed.
+- Canonical storage order is row-major with the rightmost axis varying fastest.
+  Flattening uses overflow-checked arithmetic and contributes shape, Entry
+  descriptor, and layout version to stable Table identity.
+- `TableChoice.index` is always the canonical unsigned row-major flattened
+  scalar for the complete Table domain. For rank greater than one, a frontend
+  may expose a pure static `coordinates` tuple derived from that scalar with
+  constant row-major division and remainder; the tuple is not an additional
+  choose result, a runtime collection, or persistent state.
+- Initialization is either zero shorthand or a versioned typed image containing
+  exactly the flattened entry count. Its values must match the Entry descriptor,
+  serialize canonically, contain no producer path, and load deterministically.
+- `match` and its resulting mask have an explicit domain over the Table axes not
+  fixed by the view. Mask bit order follows the same row-major projection.
+  Empty/full masks, rank-one compatibility, and same-Table provenance are
+  preserved.
+- All reads, selection, and proposals in one attempt observe the same committed
+  multidimensional image. Failed bounds or image validation cannot partially
+  mutate state.
+
+**Required verification**
+- Frontend and ACIR coverage exercises rank-one compatibility, multiple ranks,
+  extent one, non-power-of-two extents, per-axis static/dynamic bounds, overflow,
+  rank mismatch, and noncanonical metadata.
+- Typed nonzero scalar and aggregate images load byte-identically across repeat
+  runs; invalid version, count, type, or root-dependent content is rejected.
+- Direct/native gfsim and the later admitted PYC C++/Verilog path agree on
+  row-major indices, projected masks, old-state reads, reset, and next-state
+  publication.
+
+**Source**
+- PTO-ISA/pyCircuit issue #23.
+
+## Decision 0239: multi-selection returns a static tuple with one atomic valid prefix
+
+**Status:** Accepted; implementation tracked by issue #24
+
+**Extends:** Decisions 0152 and 0155.
+
+**Context / Goal**
+The current Table selection contract returns one scalar choice. A multi-choice
+contract must preserve existing callers, avoid runtime collections in Frozen
+ACIR/PYC, and define ordering, validity, policy state, and backpressure exactly.
+
+**Decision (strong constraint)**
+- Omitting `count` or setting `count=1` preserves the existing scalar
+  `TableChoice`. Static `count=N>1` returns a Python tuple containing exactly N
+  `TableChoice` lanes. The tuple may be statically indexed or unrolled; runtime
+  indexing, iteration, collection storage, and escape across Queue/Table/cycle
+  boundaries are rejected.
+- `1 <= count <= domain size` is a verifier obligation. Frozen
+  `ac.table.choose {count=N}` returns exactly `2*N` scalar results in segment
+  order `[index_0..index_N-1, valid_0..valid_N-1]`. All indices use one
+  canonical unsigned Table-domain type and all valid values are i1. For every
+  Table rank, each `index_i` is the row-major flattened scalar defined by
+  Decision 0238; derived coordinate tuples do not change result arity.
+- Lanes are ordered by the selected policy and form one contiguous valid prefix.
+  If fewer candidates exist, only the suffix is invalid and every invalid lane
+  carries index zero. Once formed, the whole valid prefix is one atomic
+  transaction; partial downstream readiness stalls it without consuming
+  candidates, clearing entries, advancing policy state, or committing a subset.
+- `first`, `min`, and `max` support exact declared signed or unsigned key
+  comparison. Equal keys use the lowest Table index. Round-robin owns a
+  committed cursor that advances only after an accepted transaction, wraps
+  deterministically, stalls under backpressure, and resets to its initial value.
+- QueueGraph and canonical PYC preserve `count`, segment order, and lane ordinal
+  as scalars, never as a runtime collection. One authored match/choose evaluates
+  once per Epoch and recomputes after Epoch advance or reset.
+
+**Required verification**
+- Positive and negative tests cover scalar compatibility, static tuple shape,
+  result arity/order/types, invalid counts and dynamic use, zero/short/full
+  candidate sets, invalid suffix zeroing, and whole-prefix backpressure.
+- Policy tests cover signed/unsigned boundary keys, equal-key tie-break,
+  round-robin acceptance/stall/wrap/reset, and once-per-Epoch evaluation.
+- QueueGraph, direct/native gfsim, PYC C++, and Verilog preserve lane order and
+  committed prefix behavior for the admitted Table family.
+
+**Source**
+- PTO-ISA/pyCircuit issue #24 and independent release-architect review
+  (2026-09-10).
+
+## Decision 0240: ordered multi-lane Queues retain one logical transaction identity
+
+**Status:** Accepted; implementation tracked by issue #21
+
+**Context / Goal**
+Ordered multi-lane transport cannot be modeled as unrelated scalar Queues
+without losing accepted order and whole-bundle backpressure. Port arity, lane
+count, Queue rate, and payload shape need separate verified meanings.
+
+**Decision (strong constraint)**
+- Lane count is a positive static parameter independent of Queue depth, rate,
+  producer/consumer port arity, and recursive payload shape. Unsupported
+  combinations fail in a verifier before QueueGraph or PYC lowering.
+- Frozen ACIR and QueueGraph preserve one logical Queue identity with explicit
+  lane ordinals. Lowering cannot replace the ordered bundle with unrelated
+  scalar Queue identities or runtime Queue pointers.
+- Available lanes form a contiguous valid prefix in accepted token order. A
+  short prefix is legal only because fewer ordered tokens are available. Once
+  formed, the complete prefix transfers atomically; readiness for fewer lanes
+  stalls every pop, push, state effect, and accepted-order advance.
+- Full, partial, empty, simultaneous pop/push, rate-limited, wraparound, reset,
+  and repeated-backpressure behavior is deterministic. No lane may be lost,
+  duplicated, reordered, or independently committed.
+- This whole-prefix rule is shared with Decision 0239 multi-selection and
+  Decision 0236 transactions so selection and transport cannot disagree about
+  the commit boundary.
+
+**Required verification**
+- Verifiers distinguish and validate lane count, Queue rate, port arity, depth,
+  and payload shape and reject zero/dynamic lanes or scalarized identity.
+- Generic fixtures cover power-of-two and non-power-of-two lanes, partial
+  availability/capacity, wraparound, simultaneous transfer, reset, and stalls.
+- The same frozen fixture produces identical committed transactions in native
+  gfsim, PYC C++, and Verilog across repeat runs.
+
+**Source**
+- PTO-ISA/pyCircuit issue #21 and independent release-architect review
+  (2026-09-10).
+
+## Decision 0241: bounded Table PYC uses an explicit register bank
+
+**Status:** Accepted; implementation tracked by issue #22
+
+**Supersedes:** The blanket `unsupported provisional Table` boundary in
+Decisions 0151 through 0156 for the admitted profile only.
+
+**Context / Goal**
+Table semantics now have a typed gfsim realization but no shared PYC/RTL path.
+The existing synchronous memory prototypes have registered-read and restricted
+port contracts that cannot preserve same-cycle old-state observation plus
+multiple atomic writers.
+
+**Decision (strong constraint)**
+- The first admitted profile has rank at most 4, at most 256 flattened entries,
+  packed Entry width at most 256 bits, total Table state at most 65,536 bits,
+  and at most 4 writer endpoints. Verifiers check every limit independently
+  with overflow-safe arithmetic before lowering.
+- An admitted Table lowers through canonical PYC as an explicit bank of one
+  `pyc.reg` old-state value per entry, combinational reads/match/choose, and one
+  deterministic next-state expression per entry. Table lowering does not select
+  `pyc.sync_mem` or `pyc.sync_mem_dp` and performs no automatic memory inference.
+- The admitted path covers get/read, field and masked writers, replace
+  allocation, multidimensional layout and initialization, count-greater-than-one
+  selection, signed policies, round-robin state, and accepted arbitration.
+  Semantic metadata is verified before PYC; emitters do not repair it.
+- No admitted ACIR Table operation may remain at a supported backend boundary.
+  Shapes, modes, writer counts, or state outside the profile keep an explicit
+  fail-closed diagnostic. Expanding the profile requires a later decision and
+  synthesis/cost evidence.
+- C++ and Verilog observe old committed data during the cycle and publish the
+  complete next image at the edge. They agree at TICK-OBS/XFER-OBS boundaries
+  for backpressure, simultaneous admitted writers, reset, and selection.
+
+**Required verification**
+- Boundary tests accept each maximum independently and reject rank 5, 257
+  entries, 257-bit entries, total state above 65,536 bits, a fifth writer, and
+  arithmetic overflow before code generation.
+- Canonical PYC inspection proves explicit `pyc.reg` banking and absence of
+  Table-selected synchronous memory operations or residual ACIR Table state.
+- AC G2, normal/nightly simulation, semantic regression, sanitizer,
+  determinism, and strict decision-status evidence prove admitted C++/Verilog
+  parity before the blanket diagnostic is removed for that profile.
+
+**Source**
+- PTO-ISA/pyCircuit issue #22 and independent release-architect review
+  (2026-09-10).
