@@ -56,6 +56,10 @@ def _render_type(value_type: ValueType) -> str:
     return value_type.mlir()
 
 
+def _render_i64_shape(shape: tuple[int, ...]) -> str:
+    return "[" + ", ".join(f"{extent} : i64" for extent in shape) + "]"
+
+
 def _static_json_value(value: StaticValue) -> object:
     if isinstance(value, FrozenMap):
         return {name: _static_json_value(item) for name, item in value.entries}
@@ -574,6 +578,8 @@ class TableBinding:
     name: str
     entry_type: ValueType
     entries: int
+    shape: tuple[int, ...]
+    init_image: str | None
     scope: tuple[str, ...]
     order: int
 
@@ -671,6 +677,7 @@ class SlotReleaseBinding:
 class CandidateSetBinding:
     name: str
     table: str
+    domain_shape: tuple[int, ...]
     argument: str
     predicate: ast.expr
     scope: tuple[str, ...]
@@ -3433,7 +3440,9 @@ def parse_queue_program(
                     f"'{field}' has multiple endpoints"
                 )
 
-    def table_declaration(call: ast.Call) -> tuple[int, ValueType] | None:
+    def table_declaration(
+        call: ast.Call,
+    ) -> tuple[int, tuple[int, ...], ValueType, str | None] | None:
         if not isinstance(call.func, ast.Subscript):
             return None
         if _decorator_name(call.func.value).rsplit(".", 1)[-1] != "table":
@@ -3443,23 +3452,161 @@ def parse_queue_program(
             raise QueueFrontendError(
                 "ACPY-TABLE-001: table requires ac.table[entries, Entry]"
             )
-        entries = _static_int(parameters.elts[0])
-        if entries is None or entries <= 0:
+        shape_node = parameters.elts[0]
+        extent_nodes = (
+            tuple(shape_node.elts)
+            if isinstance(shape_node, ast.Tuple)
+            else (shape_node,)
+        )
+        if not extent_nodes:
+            raise QueueFrontendError("ACPY-TABLE-010: Table shape must be non-empty")
+        shape_values = tuple(
+            _constant_integer(extent, system_static_values)
+            for extent in extent_nodes
+        )
+        if any(extent is None for extent in shape_values):
             raise QueueFrontendError(
-                "ACPY-TABLE-001: table entries must be a positive static integer"
+                "ACPY-TABLE-010: every Table extent must be a positive static integer"
             )
+        shape = tuple(int(extent) for extent in shape_values if extent is not None)
+        if any(extent <= 0 for extent in shape):
+            raise QueueFrontendError(
+                "ACPY-TABLE-010: every Table extent must be positive"
+            )
+        entries = 1
+        for extent in shape:
+            if entries > ((1 << 63) - 1) // extent:
+                raise QueueFrontendError(
+                    "ACPY-TABLE-010: Table flattened size overflows signed i64"
+                )
+            entries *= extent
         entry_type = _payload(parameters.elts[1], payload_map)
         if call.args or any(
             keyword.arg is None or keyword.arg != "init" for keyword in call.keywords
         ):
             raise QueueFrontendError(
-                "ACPY-TABLE-001: table accepts only keyword init=0"
+                "ACPY-TABLE-001: table accepts only keyword init"
             )
         init_values = [keyword.value for keyword in call.keywords]
-        init = 0 if not init_values else _static_int(init_values[0])
-        if len(init_values) > 1 or init != 0:
-            raise QueueFrontendError("ACPY-TABLE-001: table init must be exactly zero")
-        return entries, entry_type
+        if len(init_values) > 1:
+            raise QueueFrontendError("ACPY-TABLE-011: Table init is repeated")
+        init_node = init_values[0] if init_values else ast.Constant(0)
+        if _constant_integer(init_node, system_static_values) == 0:
+            return entries, shape, entry_type, None
+
+        if not isinstance(init_node, ast.Dict):
+            raise QueueFrontendError(
+                "ACPY-TABLE-011: table init must be exactly zero or a "
+                "versioned typed image"
+            )
+        image_fields: dict[str, ast.expr] = {}
+        for key, value in zip(init_node.keys, init_node.values, strict=True):
+            if not isinstance(key, ast.Constant) or type(key.value) is not str:
+                raise QueueFrontendError(
+                    "ACPY-TABLE-011: typed image keys must be static strings"
+                )
+            if key.value in image_fields:
+                raise QueueFrontendError(
+                    "ACPY-TABLE-011: typed image field is repeated"
+                )
+            image_fields[key.value] = value
+        if set(image_fields) != {"version", "entry", "values"}:
+            raise QueueFrontendError(
+                "ACPY-TABLE-011: typed image requires version, entry, and values"
+            )
+        if _constant_integer(image_fields["version"], system_static_values) != 1:
+            raise QueueFrontendError(
+                "ACPY-TABLE-011: typed image version must be exactly 1"
+            )
+        image_entry = _payload(image_fields["entry"], payload_map)
+        if image_entry != entry_type:
+            raise QueueFrontendError(
+                "ACPY-TABLE-011: typed image Entry type must match the Table"
+            )
+        values_node = image_fields["values"]
+        if not isinstance(values_node, (ast.List, ast.Tuple)):
+            raise QueueFrontendError(
+                "ACPY-TABLE-011: typed image values must be a static sequence"
+            )
+        if len(values_node.elts) != entries:
+            raise QueueFrontendError(
+                f"ACPY-TABLE-011: typed image requires exactly {entries} entries"
+            )
+
+        def canonical_image_value(node: ast.expr, descriptor: ValueType) -> object:
+            if isinstance(descriptor, BoolType):
+                if isinstance(node, ast.Constant) and type(node.value) is bool:
+                    return node.value
+            elif isinstance(descriptor, BitsType):
+                value = _constant_integer(node, system_static_values)
+                if value is not None and 0 <= value < (1 << descriptor.width):
+                    return value
+                if value is not None:
+                    raise QueueFrontendError(
+                        f"ACPY-TABLE-011: typed image value does not fit i{descriptor.width}"
+                    )
+            elif isinstance(descriptor, EnumType):
+                if (
+                    isinstance(node, ast.Attribute)
+                    and _decorator_name(node.value).rsplit(".", 1)[-1]
+                    == descriptor.name
+                    and node.attr in descriptor.enumerants
+                ):
+                    return node.attr
+            elif isinstance(descriptor, StructType):
+                if (
+                    isinstance(node, ast.Call)
+                    and not node.args
+                    and _decorator_name(node.func).rsplit(".", 1)[-1]
+                    == descriptor.name
+                    and all(keyword.arg is not None for keyword in node.keywords)
+                ):
+                    fields = {keyword.arg: keyword.value for keyword in node.keywords}
+                    if len(fields) == len(node.keywords) and set(fields) == {
+                        field.name for field in descriptor.fields
+                    }:
+                        return {
+                            field.name: canonical_image_value(
+                                fields[field.name], field.type
+                            )
+                            for field in descriptor.fields
+                        }
+            elif isinstance(descriptor, TupleType) and isinstance(
+                node, (ast.List, ast.Tuple)
+            ):
+                if len(node.elts) == len(descriptor.elements):
+                    return [
+                        canonical_image_value(value, value_type)
+                        for value, value_type in zip(
+                            node.elts, descriptor.elements, strict=True
+                        )
+                    ]
+            elif isinstance(descriptor, ArrayType) and isinstance(
+                node, (ast.List, ast.Tuple)
+            ):
+                if len(node.elts) == descriptor.length:
+                    return [
+                        canonical_image_value(value, descriptor.element)
+                        for value in node.elts
+                    ]
+            raise QueueFrontendError(
+                "ACPY-TABLE-011: typed image values must be closed literals "
+                "matching the Entry descriptor"
+            )
+
+        canonical_values = [
+            canonical_image_value(value, entry_type) for value in values_node.elts
+        ]
+        image = json.dumps(
+            {
+                "entry": _render_type(entry_type),
+                "values": canonical_values,
+                "version": 1,
+            },
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        return entries, shape, entry_type, image
 
     def parse_view(
         node: ast.expr,
@@ -3503,6 +3650,52 @@ def parse_queue_program(
             argument, address = (
                 None,
                 _constantize_expression(selector, "", system_static_values),
+            )
+        table = table_by_name[table_name]
+        flattened_choice_index = (
+            isinstance(address, ast.Attribute)
+            and isinstance(address.value, ast.Name)
+            and address.attr == "index"
+            and address.value.id in selection_by_name
+            and selection_by_name[address.value.id].table == table_name
+        )
+        if flattened_choice_index:
+            return EntryViewBinding(
+                alias, table_name, argument, address, scope_path, current_order
+            )
+        coordinates = (
+            tuple(address.elts) if isinstance(address, ast.Tuple) else (address,)
+        )
+        if len(table.shape) != 1 and not isinstance(address, ast.Tuple):
+            raise QueueFrontendError(
+                "ACPY-TABLE-010: multidimensional Table index rank must match shape"
+            )
+        if len(coordinates) != len(table.shape):
+            raise QueueFrontendError(
+                "ACPY-TABLE-010: Table index rank must match shape"
+            )
+        static_coordinates = tuple(
+            _constant_integer(coordinate, system_static_values)
+            for coordinate in coordinates
+        )
+        for axis, (coordinate, extent) in enumerate(
+            zip(static_coordinates, table.shape, strict=True)
+        ):
+            if coordinate is not None and not 0 <= coordinate < extent:
+                raise QueueFrontendError(
+                    f"ACPY-TABLE-010: Table index axis {axis} is out of range"
+                )
+        if all(coordinate is not None for coordinate in static_coordinates):
+            flattened = 0
+            for coordinate, extent in zip(
+                static_coordinates, table.shape, strict=True
+            ):
+                flattened = flattened * extent + int(coordinate)
+            address = ast.copy_location(ast.Constant(flattened), address)
+        elif len(table.shape) > 1:
+            raise QueueFrontendError(
+                "ACPY-TABLE-010: dynamic multidimensional index requires "
+                "native per-axis bounds lowering"
             )
         return EntryViewBinding(
             alias, table_name, argument, address, scope_path, current_order
@@ -4058,7 +4251,7 @@ def parse_queue_program(
                         raise QueueFrontendError(
                             "ACPY-TABLE-001: table declaration requires a fresh name"
                         )
-                    entries, entry_type = declaration
+                    entries, shape, entry_type, init_image = declaration
                     if entry_kind == "module":
                         variable = VarStateBinding(
                             name,
@@ -4072,7 +4265,13 @@ def parse_queue_program(
                         variable_by_name[name] = variable
                         continue
                     binding = TableBinding(
-                        name, entry_type, entries, scope_path, current_order
+                        name,
+                        entry_type,
+                        entries,
+                        shape,
+                        init_image,
+                        scope_path,
+                        current_order,
                     )
                     tables.append(binding)
                     table_by_name[name] = binding
@@ -4117,7 +4316,13 @@ def parse_queue_program(
                         )
                     argument, predicate = _lambda(call.args[0])
                     binding = CandidateSetBinding(
-                        name, table_name, argument, predicate, scope_path, current_order
+                        name,
+                        table_name,
+                        table.shape,
+                        argument,
+                        predicate,
+                        scope_path,
+                        current_order,
                     )
                     candidates.append(binding)
                     candidate_by_name[name] = binding
@@ -8030,7 +8235,12 @@ class _ExpressionEmitter:
             )
             self.lines.extend(predicate_emitter.lines)
             self.lines.append(f"      ac.table.match.yield %{predicate} : !ac.var<i1>")
-            self.lines.append(f"    }} -> !ac.var<i{mask_width}>")
+            self.lines.append(
+                "    } {ac.table_mask_domain_shape = "
+                + _render_i64_shape(candidate.domain_shape)
+                + ', ac.table_mask_layout = "row-major-v1"} '
+                + f"-> !ac.var<i{mask_width}>"
+            )
             return mask, BitsType(mask_width)
         if (
             isinstance(node, ast.Attribute)
@@ -8141,7 +8351,12 @@ class _ExpressionEmitter:
             )
             self.lines.extend(predicate_emitter.lines)
             self.lines.append(f"      ac.table.match.yield %{predicate} : !ac.var<i1>")
-            self.lines.append(f"    }} -> !ac.var<i{mask_width}>")
+            self.lines.append(
+                "    } {ac.table_mask_domain_shape = "
+                + _render_i64_shape(candidate.domain_shape)
+                + ', ac.table_mask_layout = "row-major-v1"} '
+                + f"-> !ac.var<i{mask_width}>"
+            )
             index = self._new()
             valid = self._new()
             index_width = max(1, (mask_width - 1).bit_length())
@@ -8825,11 +9040,29 @@ def lower_queue_program(
         owner_scope = table.scope if module is None else ("body", *table.scope)
         owner = "/" + "/".join(owner_scope) if owner_scope else "/"
         stable_id = "/".join((*owner_scope, table.name)) if owner_scope else table.name
+        layout_identity = json.dumps(
+            {
+                "entry": _render_type(table.entry_type),
+                "layout": "row-major-v1",
+                "shape": list(table.shape),
+            },
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        attributes = (
+            " {ac.table_layout = \"row-major-v1\", ac.table_layout_identity = "
+            + json.dumps(layout_identity)
+            + ", ac.table_shape = "
+            + _render_i64_shape(table.shape)
+        )
+        if table.init_image is not None:
+            attributes += ", ac.table_init_image = " + json.dumps(table.init_image)
+        attributes += "}"
         lines.append(
             f"{content_indent}ac.table @{table.name} "
             f"entry {_render_type(table.entry_type)} "
             f'entries {table.entries} init 0 owner "{owner}" '
-            f'stable_id "table/{stable_id}"'
+            f'stable_id "table/{stable_id}"' + attributes
         )
     by_name = {item.name: item for item in program.queues}
     for item in program.queues:
@@ -10183,7 +10416,12 @@ def lower_queue_program(
                 lines.append(
                     f"{indent}  ac.table.match.yield %{predicate} : !ac.var<i1>"
                 )
-                lines.append(f"{indent}}} -> !ac.var<i{table.entries}>")
+                lines.append(
+                    f"{indent}}} {{ac.table_mask_domain_shape = "
+                    + _render_i64_shape(candidate.domain_shape)
+                    + ', ac.table_mask_layout = "row-major-v1"} '
+                    + f"-> !ac.var<i{table.entries}>"
+                )
                 materialized_candidates[candidate.name] = (
                     result,
                     BitsType(table.entries),
