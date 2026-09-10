@@ -57,7 +57,9 @@ LogicalResult verifyTableAccessIndex(ACDataFlowAnalyzer &analysis,
     return success();
   }
   if (auto selection = index.getDefiningOp<ac::TableChooseOp>()) {
-    if (selection.getIndex() != index ||
+    const int64_t count = selection.getCountAttr().getInt();
+    if (count <= 0 || selection.getResults().size() != 2 * count ||
+        !llvm::is_contained(selection.getResults().take_front(count), index) ||
         selection.getTableAttr() !=
             FlatSymbolRefAttr::get(operation->getContext(), table.getSymName()))
       return operation->emitOpError(

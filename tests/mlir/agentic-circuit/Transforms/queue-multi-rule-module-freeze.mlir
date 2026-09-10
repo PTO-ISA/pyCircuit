@@ -137,8 +137,8 @@ builtin.module attributes {
 // PLAN-SAME: "name":"output_a"
 // PLAN-SAME: "priority":1
 // PLAN-SAME: "definition":"DualAccumulator"
-// PLAN-SAME: "interface_inputs":[{"name":"input_0","payload_type":"i8"},{"name":"input_1","payload_type":"i8"}]
-// PLAN-SAME: "interface_outputs":[{"name":"output_a","payload_type":"i8"},{"name":"output_b","payload_type":"i8"}]
+// PLAN-SAME: "interface_inputs":[{"lanes":1,"name":"input_0","payload_type":"i8","rate":1},{"lanes":1,"name":"input_1","payload_type":"i8","rate":1}]
+// PLAN-SAME: "interface_outputs":[{"lanes":1,"name":"output_a","payload_type":"i8","rate":1},{"lanes":1,"name":"output_b","payload_type":"i8","rate":1}]
 
 // CXX-COUNT-1: class [[IMPLEMENTATION:Module_DualAccumulator]] final : public gfsim::Module
 // CXX: gfsim::QueueTableTransition<[[IMPLEMENTATION]]_block_0_policy

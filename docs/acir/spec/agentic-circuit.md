@@ -72,12 +72,10 @@ requirement-by-requirement status.
 ### Accepted 6.0 release-train decisions
 
 Decisions 0236 through 0241 freeze the remaining issue contracts for release
-6.0.0. Decision 0236 is implemented-verified; Decisions 0237 through 0241 remain
-`deferred` in
-[`decision_status_v6.md`](../../gates/decision_status_v6.md). A deferred
-decision does not describe implemented behavior until concrete gate evidence
-moves its row to `implemented-verified`; the current limitations documented
-later in this manual remain authoritative for those decisions.
+6.0.0. Decisions 0236, 0237, and 0240 are implemented-verified. Decisions 0238
+and 0239 are implemented-unverified at the explicit Table-to-PYC boundary, and
+Decision 0241 remains deferred. The exact status and evidence paths are in
+[`decision_status_v6.md`](../../gates/decision_status_v6.md).
 
 - Decision 0236 keeps `@ac.rule` as the only public scheduling boundary and
   assigns complete atomic transaction formation to the compiler (#28).
@@ -580,6 +578,29 @@ Supported policies are:
 
 The output Queue applies ordinary capacity and latency rules.
 
+### Ordered multi-lane Queues
+
+`source(..., lanes=N, rate=R)` creates one logical ordered Queue with static
+positive lane count and `1 <= R <= N`. One-to-one compute and pipeline blocks
+inherit the exact lane/rate contract. Frozen ACIR spells the type as
+`!ac.queue<T, lanes=N, rate=R>`; lane-one/rate-one keeps the legacy
+`!ac.queue<T>` spelling. Payload aggregate shape is independent of lane count.
+
+Available tokens form one contiguous valid prefix of at most `rate` lanes. The
+complete prefix is prepared and published atomically: partial output capacity
+or readiness stalls every pop, push, state effect, and accepted-order update.
+The queue runtime supports simultaneous dequeue and append in one commit group,
+depth greater than rate, repeated backpressure, reset, and deterministic FIFO
+wrap-equivalent sequences without scalarizing the Queue identity. QueueGraph
+records canonical lane ordinals `0..N-1`.
+
+The current canonical-PYC admitted profile is a direct source-to-sink Queue or
+a chain of one-input/one-output pure transforms, each with latency one and an
+identical lane/rate contract. It emits scalar lane ports sharing one ready and
+commit decision while retaining one logical Queue identity. Other multi-lane
+topologies fail closed at the PYC admission boundary. The admitted generic
+fixtures execute equivalently in generated gfsim C++, PYC C++, and Verilator.
+
 ### Dependency scheduling
 
 `depend` is the generic bounded dependency window. It admits typed tokens,
@@ -854,8 +875,23 @@ Projection metadata must be complete, in increasing axis order, in bounds, and
 consistent with the Table shape. Empty projections contain the one fixed
 element; non-power-of-two and extent-one axes retain their exact domains.
 `choose` validates same-Table mask provenance but still returns an index over
-the complete flattened Table domain. D0238 does not add multi-selection;
-`count=1` remains the only admitted ACIR form until Decision 0239.
+the complete flattened Table domain. Omitting `count` or using `count=1`
+preserves scalar `TableChoice`. A static `count=N>1` returns an N-element Python
+tuple and lowers to one `ac.table.choose` with exactly `2*N` scalar results in
+segment order `[index_0..index_N-1, valid_0..valid_N-1]`. Invalid suffix lanes
+carry index zero, and runtime tuple indexing, storage, or escape is rejected.
+
+`first`, signed or unsigned `min`/`max`, and `round_robin` produce a contiguous
+valid prefix with lowest-global-index tie breaking. Round-robin advances its
+committed cursor to the projected-local position after the last accepted lane;
+empty selections and stalls do not advance it, and reset restores the declared
+initial cursor. Mask and key evaluation are cached once per Epoch. All direct
+Table reads consuming one multi-selection are grouped into one prefix
+transaction: every valid-lane output must be ready before any lane publishes or
+the cursor advances. A firing must consume every lane exactly once; partial,
+mixed, direct-write, or otherwise ungrouped consumers fail QueueGraph
+verification. Canonical-PYC Table admission and D0239 C++/Verilog parity remain
+owned by Decision 0241.
 
 One state-driven scalar `allocate` endpoint may coexist with those ordinary
 field writers. It installs one complete Entry at the caller-supplied index; it
@@ -1597,7 +1633,7 @@ realization; Table entries explicitly declare their gfsim-only boundary.
 | `ac.table.write` | design | optional update to none | Table identity, `mode`, `write_fields` | Queue-driven consumption, state-driven field proposal, or scalar replace allocation |
 | `ac.table.masked_write` | design | committed mask to none | Table identity, `mode="field"`, `write_fields` | atomic state-driven field update of every Entry selected by a same-Table match |
 | `ac.table.propose` | internal rule IR | firing-local Var operands | Table identity, index, value, `mode`, `write_fields` | next-state intent committed only with the owning `ac.firing` Queue effects |
-| `ac.table.match` / `ac.table.choose` | design | committed state to Vars | Table identity, `count=1`, `policy` | 1..64-entry candidate mask and deterministic first/min/max selection |
+| `ac.table.match` / `ac.table.choose` | design | committed state to Vars | Table identity, static `count`, typed policy/key order, stable selection identity | canonical 2N index/valid segments, contiguous atomic valid prefix, first/min/max/round-robin |
 | `ac.slot` | design | one to none | owner, stable identity | one committed request with backpressure, retained payload, and explicit release |
 | `ac.dependency` | design | one to one | `capacity`, `resources`, `no_dependency`, `depth`, `latency` | bounded predecessor tracking, resource reservation, and execution countdown |
 | `ac.reorder` | design | one to one | `capacity`, `start`, `depth`, `latency` | bounded key-ordered retirement |

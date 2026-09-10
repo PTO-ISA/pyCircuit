@@ -48,22 +48,24 @@ trace-position, or trace/observation export surface (Decision 0235).
   typed initialization, and projected mask domains. It remains
   implemented-unverified until Decision 0241 admits Table to canonical PYC and
   supplies the required C++/Verilog parity evidence for issue #23.
-- Implement Decision 0239 static-tuple multi-selection for issue #24. Preserve
-  scalar `TableChoice` for omitted `count` and `count=1`; make every formed
-  multi-lane valid prefix one atomic transaction.
-- Implement Decision 0240 ordered multi-lane Queue identity and whole-prefix
-  transfer for issue #21 without processor-stage or design-specific terminology.
+- Decision 0239 has implemented frontend, ACIR, QueueGraph, and typed gfsim
+  coverage for static-tuple multi-selection, typed first/min/max/round-robin
+  policies, once-per-Epoch evaluation, and atomic valid-prefix consumption. It
+  remains implemented-unverified until Decision 0241 supplies Table PYC/RTL
+  parity for issue #24.
+- Decision 0240 is implemented-verified for generic direct and one-to-one pure
+  transform Queue profiles: one typed Queue identity preserves lane ordinals,
+  whole-prefix backpressure, simultaneous dequeue/append, reset, and generated
+  gfsim/PYC C++/Verilator equivalence for issue #21. Other multi-lane PYC
+  topologies remain explicit fail-closed extensions.
 - Complete Decision 0241 last in the semantic train: admit only the bounded
   Table profile through an explicit canonical-PYC register bank and prove C++ /
   Verilog parity for issue #22.
 
-Decisions 0236 and 0237 are implemented-verified. Decision 0238 is
-implemented-unverified at the explicit Table-to-PYC boundary. Decisions
-0239–0241 remain `deferred` until their implementations and concrete gate
-evidence land. The remaining order is #24/#21 -> #22; #21 may proceed while
-the Table slices converge. Decision 0241 remains the authority for
-canonical-PYC Table admission and C++/Verilog parity; Decisions 0237 and 0238
-do not remove the current `unsupported provisional Table` boundary.
+Decisions 0236, 0237, and 0240 are implemented-verified. Decisions 0238 and
+0239 are implemented-unverified at the explicit Table-to-PYC boundary.
+Decision 0241 remains deferred and is the final semantic-train item; it owns
+canonical-PYC Table admission and the remaining C++/Verilog Table parity.
 
 ### 3. Publish a consumer-neutral SDK
 

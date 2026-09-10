@@ -43,7 +43,7 @@ module attributes {ac.contract_epoch = "0.5", ac.model_kind = "queue_graph", ac.
 // STORAGE: %[[MASK:.*]] = ac.table.match @entries predicate
 // STORAGE: ac.table.match.yield
 // STORAGE: } {ac.query = "ready"} -> !ac.var<!ac.value_array<2 x i64>>
-// STORAGE: ac.table.choose @entries %[[MASK]] : !ac.var<!ac.value_array<2 x i64>> count 1 policy "min" key
+// STORAGE: ac.table.choose @entries %[[MASK]] : !ac.var<!ac.value_array<2 x i64>> count 1 policy min key_order unsigned stable_id "entries/oldest" key
 // STORAGE: ac.table.choose.yield
 // STORAGE: } {ac.query = "oldest"} -> !ac.var<i7>, !ac.var<i1>
 // STORAGE: ac.table.get @entries[%{{.*}}]

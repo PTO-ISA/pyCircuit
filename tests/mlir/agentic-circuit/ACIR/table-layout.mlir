@@ -61,7 +61,8 @@ module attributes {ac.contract_epoch = "0.5"} {
     domain_strides = array<i64>, domain_offset = 5 : i64
   } -> !ac.var<i1>
   %chosen, %valid = ac.table.choose @tiles %mask : !ac.var<i3>
-      count 1 policy "first" key {} -> !ac.var<i3>, !ac.var<i1>
+      count 1 policy #ac<table_selection_policy first>
+      stable_id "tiles/first" key {} -> !ac.var<i3>, !ac.var<i1>
   %chosen_entry = ac.table.get @tiles[%chosen] : !ac.var<i3> -> !ac.var<i8>
 }
 

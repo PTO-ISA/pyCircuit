@@ -871,14 +871,19 @@ def ACIR_TableChooseOp : ACIR_Op<"table.choose", [
     DeclareOpInterfaceMethods<MemoryEffectsOpInterface>
   ]> {
   let arguments = (ins FlatSymbolRefAttr:$table, ACIR_VarType:$mask,
-                       I64Attr:$count, StrAttr:$policy);
-  let results = (outs ACIR_VarType:$index, ACIR_VarType:$valid);
+                       I64Attr:$count, ACIR_TableSelectionPolicyAttr:$policy,
+                       OptionalAttr<ACIR_TableKeyOrderingAttr>:$key_ordering,
+                       StrAttr:$stable_id,
+                       DefaultValuedAttr<I64Attr, "0">:$initial_cursor);
+  // Segment order is normative: indices[0..count), then valids[0..count).
+  let results = (outs Variadic<ACIR_VarType>:$results);
   let regions = (region AnyRegion:$key);
   let hasVerifier = 1;
   let assemblyFormat = [{
     $table $mask `:` qualified(type($mask)) `count` $count `policy` $policy
-    `key` $key attr-dict `->`
-    qualified(type($index)) `,` qualified(type($valid))
+    (`key_order` $key_ordering^)? `stable_id` $stable_id
+    (`initial_cursor` $initial_cursor^)? `key` $key attr-dict `->`
+    qualified(type($results))
   }];
 }
 

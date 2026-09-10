@@ -886,11 +886,15 @@ extractExpressions(mlir::Region &region, QueueBlockPlan &plan,
                                             captures, nestedPrefix))
           return error;
       }
-      const std::array<std::pair<mlir::Value, llvm::StringRef>, 2> results = {{
-          {choose.getIndex(), "table_choose_index"},
-          {choose.getValid(), "table_choose_valid"},
-      }};
-      for (auto [resultValue, kind] : results) {
+      const uint64_t count = static_cast<uint64_t>(choose.getCount());
+      const std::string policy =
+          ac::stringifyTableSelectionPolicy(choose.getPolicy()).str();
+      for (auto [resultIndex, resultValue] :
+           llvm::enumerate(choose.getResults())) {
+        const bool indexLane = resultIndex < count;
+        const uint64_t lane = indexLane ? resultIndex : resultIndex - count;
+        const llvm::StringRef kind = indexLane ? "table_choose_index"
+                                                : "table_choose_valid";
         auto resultType = mlir::cast<ac::VarType>(resultValue.getType());
         std::string result =
             prefix.str() + std::to_string(plan.expressions.size());
@@ -911,7 +915,15 @@ extractExpressions(mlir::Region &region, QueueBlockPlan &plan,
             expression.operands.push_back(identity);
         }
         expression.table = choose.getTable().str();
-        expression.predicate = choose.getPolicy().str();
+        expression.field = choose.getStableId().str();
+        expression.predicate = policy;
+        expression.selectionCount = count;
+        expression.laneOrdinal = lane;
+        if (auto ordering = choose.getKeyOrdering())
+          expression.keyOrdering =
+              ac::stringifyTableKeyOrdering(*ordering).str();
+        expression.initialCursor =
+            static_cast<uint64_t>(choose.getInitialCursor());
         expression.nestedExpressions = nested.expressions;
         expression.nestedYields = nested.yields;
         plan.expressions.push_back(std::move(expression));
@@ -1427,6 +1439,121 @@ llvm::Error resolveWriterPriorities(QueueGraphPlan &plan) {
   return llvm::Error::success();
 }
 
+llvm::Error groupMultiSelectionReads(QueueGraphPlan &plan) {
+  std::vector<bool> remove(plan.blocks.size(), false);
+  for (const TableSelectionPlan &selection : plan.tableSelections) {
+    if (selection.count <= 1)
+      continue;
+    struct LaneUse {
+      bool index = false;
+      bool valid = false;
+    };
+    std::vector<size_t> consumers;
+    std::vector<LaneUse> uses(selection.count);
+    auto collectUses = [&](auto &&self, const auto &expressions,
+                           bool &used) -> void {
+      for (const QueueExpressionPlan &expression : expressions) {
+        if ((expression.kind == "table_selection_index_ref" ||
+             expression.kind == "table_selection_valid_ref") &&
+            expression.field == selection.name) {
+          used = true;
+          if (expression.laneOrdinal < uses.size()) {
+            if (expression.kind == "table_selection_index_ref")
+              uses[expression.laneOrdinal].index = true;
+            else
+              uses[expression.laneOrdinal].valid = true;
+          }
+        }
+        self(self, expression.nestedExpressions, used);
+      }
+    };
+    for (auto [blockIndex, block] : llvm::enumerate(plan.blocks)) {
+      bool used = false;
+      collectUses(collectUses, block.expressions, used);
+      if (used)
+        consumers.push_back(blockIndex);
+    }
+    const bool complete = llvm::all_of(uses, [](const LaneUse &use) {
+      return use.index && use.valid;
+    });
+    if (!consumers.empty() &&
+        (!complete || (consumers.size() != selection.count &&
+                       !(consumers.size() == 1 &&
+                         plan.blocks[consumers.front()].kind == "firing"))))
+      return planError(
+          "multi-selection consumers must form one complete prefix transaction");
+    if (consumers.size() == 1 &&
+        plan.blocks[consumers.front()].kind == "firing")
+      continue;
+    if (llvm::any_of(consumers, [&](size_t index) {
+          return plan.blocks[index].kind != "table_read";
+        }))
+      return planError(
+          "multi-selection consumer kind cannot form one commit group");
+    std::vector<std::pair<uint64_t, size_t>> lanes;
+    for (auto [blockIndex, block] : llvm::enumerate(plan.blocks)) {
+      if (block.kind != "table_read" || !block.inputs.empty() ||
+          block.table != selection.table || block.yields.size() != 2)
+        continue;
+      auto index = llvm::find_if(
+          block.expressions, [&](const QueueExpressionPlan &expression) {
+            return expression.result == block.yields[0] &&
+                   expression.kind == "table_selection_index_ref" &&
+                   expression.field == selection.name;
+          });
+      auto valid = llvm::find_if(
+          block.expressions, [&](const QueueExpressionPlan &expression) {
+            return expression.result == block.yields[1] &&
+                   expression.kind == "table_selection_valid_ref" &&
+                   expression.field == selection.name;
+          });
+      if (index == block.expressions.end() || valid == block.expressions.end())
+        continue;
+      if (index->selectionCount != selection.count ||
+          valid->selectionCount != selection.count ||
+          index->laneOrdinal != valid->laneOrdinal)
+        return planError("multi-selection TableRead lane metadata is invalid");
+      lanes.emplace_back(index->laneOrdinal, blockIndex);
+    }
+    if (lanes.empty())
+      continue;
+    llvm::sort(lanes);
+    if (lanes.size() != selection.count)
+      return planError(
+          "multi-selection TableRead must consume the complete lane set");
+    for (auto [expected, lane] : llvm::enumerate(lanes))
+      if (lane.first != expected)
+        return planError(
+            "multi-selection TableRead lanes must be contiguous from zero");
+    QueueBlockPlan grouped = plan.blocks[lanes.front().second];
+    grouped.kind = "table_read_group";
+    grouped.name = selection.stableId;
+    grouped.selection = selection.name;
+    grouped.selectionCount = selection.count;
+    grouped.outputs.clear();
+    grouped.depths.clear();
+    grouped.latencies.clear();
+    grouped.expressions.clear();
+    grouped.yields.clear();
+    for (auto [lane, blockIndex] : lanes) {
+      const QueueBlockPlan &member = plan.blocks[blockIndex];
+      grouped.outputs.push_back(member.outputs.front());
+      grouped.depths.push_back(member.depths.front());
+      grouped.latencies.push_back(member.latencies.front());
+      if (blockIndex != lanes.front().second)
+        remove[blockIndex] = true;
+    }
+    plan.blocks[lanes.front().second] = std::move(grouped);
+  }
+  std::vector<QueueBlockPlan> blocks;
+  blocks.reserve(plan.blocks.size());
+  for (auto [index, block] : llvm::enumerate(plan.blocks))
+    if (!remove[index])
+      blocks.push_back(std::move(block));
+  plan.blocks = std::move(blocks);
+  return llvm::Error::success();
+}
+
 class Extractor {
 public:
   explicit Extractor(mlir::ModuleOp module) : module(module) {}
@@ -1482,6 +1609,8 @@ public:
     }
     if (auto error = extractBlock(*module.getBody(), {}))
       return std::move(error);
+    if (auto error = groupMultiSelectionReads(plan))
+      return std::move(error);
     if (auto error = resolveWriterPriorities(plan))
       return std::move(error);
     if (auto error = materializeActivation(plan))
@@ -1519,9 +1648,13 @@ private:
       std::string name = "input_" + std::to_string(index);
       nested.names[argument] = name;
       nested.plan.interfaceInputs.push_back(
-          {std::move(name), printType(queue.getElementType())});
+          {std::move(name), printType(queue.getElementType()),
+           static_cast<uint64_t>(queue.getLanes()),
+           static_cast<uint64_t>(queue.getRate())});
     }
     if (auto error = nested.extractBlock(body, {}))
+      return std::move(error);
+    if (auto error = groupMultiSelectionReads(nested.plan))
       return std::move(error);
     if (auto error = resolveWriterPriorities(nested.plan))
       return std::move(error);
@@ -1534,7 +1667,9 @@ private:
         return name.takeError();
       auto queue = mlir::cast<ac::QueueType>(value.getType());
       nested.plan.interfaceOutputs.push_back(
-          {*name, printType(queue.getElementType())});
+          {*name, printType(queue.getElementType()),
+           static_cast<uint64_t>(queue.getLanes()),
+           static_cast<uint64_t>(queue.getRate())});
     }
     if (auto error = materializeActivation(nested.plan))
       return std::move(error);
@@ -1773,12 +1908,19 @@ private:
     if (name.empty() || !queueIdentities.insert(name).second)
       return planError("Queue logical identities must be non-empty and unique");
     auto queue = mlir::dyn_cast<ac::QueueType>(value.getType());
-    if (!queue || depth == 0 || latency == 0 || rate == 0 || rate > depth)
+    if (!queue || depth == 0 || latency == 0 || rate == 0 || rate > depth ||
+        queue.getLanes() <= 0 || queue.getRate() <= 0 ||
+        queue.getRate() > queue.getLanes())
       return planError(
-          "Queue plan requires typed positive depth/latency and rate <= depth");
+          "Queue plan requires typed lanes/rate matching endpoint metadata");
     names[value] = name.str();
-    plan.queues.push_back({name.str(), printType(queue.getElementType()),
-                           scopePath(scope), depth, latency, rate});
+    plan.queues.push_back(
+        {name.str(), printType(queue.getElementType()), scopePath(scope), depth,
+         latency, static_cast<uint64_t>(queue.getRate())});
+    QueuePlan &planned = plan.queues.back();
+    planned.lanes = static_cast<uint64_t>(queue.getLanes());
+    for (uint64_t lane = 0; lane < planned.lanes; ++lane)
+      planned.laneOrdinals.push_back(lane);
     return llvm::Error::success();
   }
 
@@ -1924,39 +2066,57 @@ private:
         const std::string name =
             "table_selection_" + std::to_string(plan.tableSelections.size());
         QueueBlockPlan key;
-        if (choose.getPolicy() != "first") {
+        if (choose.getPolicy() != ac::TableSelectionPolicy::First &&
+            choose.getPolicy() != ac::TableSelectionPolicy::RoundRobin) {
           if (auto error = extractExpressions(choose.getKey(), key))
             return error;
           if (key.yields.size() != 1)
             return planError("table.choose key must yield one value");
         }
-        auto indexType = mlir::cast<ac::VarType>(choose.getIndex().getType());
-        plan.tableSelections.push_back(
-            {name, choose.getTable().str(), scopePath(scope),
-             matchValue->second.field, choose.getPolicy().str(),
-             printType(indexType.getElementType()), std::move(key.expressions),
-             key.yields.empty() ? std::string() : key.yields.front()});
-        QueueExpressionPlan indexReference{
-            "shared_selection_" +
-                std::to_string(plan.tableSelections.size() - 1) + "_index",
-            "table_selection_index_ref",
+        const uint64_t count = static_cast<uint64_t>(choose.getCount());
+        const std::string policy =
+            ac::stringifyTableSelectionPolicy(choose.getPolicy()).str();
+        auto indexType = mlir::cast<ac::VarType>(
+            choose.getResults().front().getType());
+        TableSelectionPlan selection{
+            name,
+            choose.getTable().str(),
+            scopePath(scope),
+            matchValue->second.field,
+            policy,
             printType(indexType.getElementType()),
-            {}};
-        indexReference.field = name;
-        indexReference.table = choose.getTable().str();
-        sharedExpressions.emplace_back(choose.getIndex(),
-                                       std::move(indexReference));
-        auto validType = mlir::cast<ac::VarType>(choose.getValid().getType());
-        QueueExpressionPlan validReference{
-            "shared_selection_" +
-                std::to_string(plan.tableSelections.size() - 1) + "_valid",
-            "table_selection_valid_ref",
-            printType(validType.getElementType()),
-            {}};
-        validReference.field = name;
-        validReference.table = choose.getTable().str();
-        sharedExpressions.emplace_back(choose.getValid(),
-                                       std::move(validReference));
+            std::move(key.expressions),
+            key.yields.empty() ? std::string() : key.yields.front()};
+        selection.count = count;
+        if (auto ordering = choose.getKeyOrdering())
+          selection.keyOrdering =
+              ac::stringifyTableKeyOrdering(*ordering).str();
+        selection.stableId = choose.getStableId().str();
+        selection.initialCursor =
+            static_cast<uint64_t>(choose.getInitialCursor());
+        plan.tableSelections.push_back(std::move(selection));
+        for (auto [resultIndex, resultValue] :
+             llvm::enumerate(choose.getResults())) {
+          const bool indexLane = resultIndex < count;
+          const uint64_t lane =
+              indexLane ? resultIndex : resultIndex - count;
+          auto resultType = mlir::cast<ac::VarType>(resultValue.getType());
+          QueueExpressionPlan reference{
+              "shared_selection_" +
+                  std::to_string(plan.tableSelections.size() - 1) +
+                  (indexLane ? "_index_" : "_valid_") +
+                  std::to_string(lane),
+              indexLane ? "table_selection_index_ref"
+                        : "table_selection_valid_ref",
+              printType(resultType.getElementType()),
+              {}};
+          reference.field = name;
+          reference.table = choose.getTable().str();
+          reference.predicate = policy;
+          reference.selectionCount = count;
+          reference.laneOrdinal = lane;
+          sharedExpressions.emplace_back(resultValue, std::move(reference));
+        }
         continue;
       }
       if (auto source = mlir::dyn_cast<ac::SourceOp>(operation)) {
@@ -2500,7 +2660,9 @@ private:
         for (auto [input, interface] :
              llvm::zip_equal(instance.getInputs(), target->interfaceInputs)) {
           auto queue = mlir::cast<ac::QueueType>(input.getType());
-          if (printType(queue.getElementType()) != interface.payloadType)
+          if (printType(queue.getElementType()) != interface.payloadType ||
+              static_cast<uint64_t>(queue.getLanes()) != interface.lanes ||
+              static_cast<uint64_t>(queue.getRate()) != interface.rate)
             return planError("module instance input payload mismatch");
         }
         std::vector<std::string> outputs;
@@ -2826,6 +2988,7 @@ inlineTableChoiceContractKey(const QueueExpressionPlan &expression) {
       self(self, child);
   };
   append(expression.table);
+  append(expression.field);
   append(std::to_string(expression.operands.size()));
   append(expression.operands.empty() ? llvm::StringRef()
                                      : expression.operands.front());
@@ -2844,6 +3007,9 @@ inlineTableChoiceContractKey(const QueueExpressionPlan &expression) {
     append(std::to_string(value));
   append(std::to_string(expression.domainOffset));
   append(expression.hasDomainProjection ? "1" : "0");
+  append(std::to_string(expression.selectionCount));
+  append(expression.keyOrdering);
+  append(std::to_string(expression.initialCursor));
   return result;
 }
 
@@ -3080,6 +3246,8 @@ llvm::Error verifyQueueGraphPlan(const QueueGraphPlan &plan) {
   for (const TableSelectionPlan &selection : plan.tableSelections) {
     const TablePlan *table = tables.lookup(selection.table);
     const TableMatchPlan *match = tableMatches.lookup(selection.match);
+    std::optional<uint64_t> domainEntries =
+        table && match ? projectionSize(*match, *table) : std::nullopt;
     auto indexWidth = integerWidth(selection.indexType);
     const unsigned expectedIndexWidth =
         table ? std::max<unsigned>(1, llvm::Log2_64_Ceil(table->entries)) : 0;
@@ -3087,10 +3255,19 @@ llvm::Error verifyQueueGraphPlan(const QueueGraphPlan &plan) {
         *indexWidth != expectedIndexWidth || match->table != selection.table ||
         selection.indexType.empty() ||
         (selection.policy != "first" && selection.policy != "min" &&
-         selection.policy != "max") ||
-        (selection.policy == "first" &&
+         selection.policy != "max" && selection.policy != "round_robin") ||
+        !domainEntries || selection.count == 0 ||
+        selection.count > *domainEntries ||
+        ((selection.policy == "first" ||
+          selection.policy == "round_robin") &&
          (!selection.keyExpressions.empty() || !selection.keyYield.empty())) ||
-        (selection.policy != "first" && selection.keyYield.empty()) ||
+        ((selection.policy == "min" || selection.policy == "max") &&
+         (selection.keyYield.empty() ||
+          (selection.keyOrdering != "signed" &&
+           selection.keyOrdering != "unsigned"))) ||
+        (selection.policy == "round_robin" &&
+         (selection.stableId.empty() ||
+          selection.initialCursor >= *domainEntries)) ||
         !tableSelections.try_emplace(selection.name, &selection).second)
       return planError("table selection metadata is incomplete, duplicated, or "
                        "inconsistent");
@@ -3121,6 +3298,9 @@ llvm::Error verifyQueueGraphPlan(const QueueGraphPlan &plan) {
               : llvm::StringRef("i1");
       if (expression.type != expected)
         return planError("table_selection_ref field type is inconsistent");
+      if (expression.selectionCount != selection->count ||
+          expression.laneOrdinal >= selection->count)
+        return planError("table_selection_ref lane metadata is inconsistent");
     }
     for (const QueueExpressionPlan &nested : expression.nestedExpressions)
       if (auto error = self(self, nested))
@@ -3140,6 +3320,60 @@ llvm::Error verifyQueueGraphPlan(const QueueGraphPlan &plan) {
   for (const TableSelectionPlan &selection : plan.tableSelections)
     if (auto error = verifySharedExpressions(selection.keyExpressions))
       return error;
+  for (const TableSelectionPlan &selection : plan.tableSelections) {
+    if (selection.count <= 1)
+      continue;
+    std::vector<unsigned> indexUses(selection.count, 0);
+    std::vector<unsigned> validUses(selection.count, 0);
+    size_t firingConsumers = 0;
+    auto collectSelectionUses = [&](auto &&self, const auto &expressions,
+                                    bool &used) -> llvm::Error {
+      for (const QueueExpressionPlan &expression : expressions) {
+        if ((expression.kind == "table_selection_index_ref" ||
+             expression.kind == "table_selection_valid_ref") &&
+            expression.field == selection.name) {
+          used = true;
+          if (expression.laneOrdinal >= selection.count)
+            return planError(
+                "multi-selection consumer lane ordinal is out of range");
+          auto &uses = expression.kind == "table_selection_index_ref"
+                           ? indexUses
+                           : validUses;
+          ++uses[expression.laneOrdinal];
+        }
+        if (auto error = self(self, expression.nestedExpressions, used))
+          return error;
+      }
+      return llvm::Error::success();
+    };
+    for (const QueueBlockPlan &block : plan.blocks) {
+      bool used = false;
+      if (auto error =
+              collectSelectionUses(collectSelectionUses, block.expressions,
+                                   used))
+        return error;
+      if (!used)
+        continue;
+      if (block.kind != "firing")
+        return planError(
+            "multi-selection references must belong to one firing or one "
+            "TableRead prefix group");
+      ++firingConsumers;
+    }
+    const size_t readGroups = llvm::count_if(
+        plan.blocks, [&](const QueueBlockPlan &block) {
+          return block.kind == "table_read_group" &&
+                 block.selection == selection.name;
+        });
+    if (firingConsumers + readGroups != 1)
+      return planError(
+          "multi-selection must have exactly one atomic prefix consumer");
+    if (firingConsumers == 1)
+      for (size_t lane = 0; lane < selection.count; ++lane)
+        if (indexUses[lane] != 1 || validUses[lane] != 1)
+          return planError(
+              "multi-selection firing must consume every lane exactly once");
+  }
   llvm::StringMap<unsigned> tableReaders;
   llvm::StringMap<llvm::StringSet<>> tableWriterFields;
   llvm::StringSet<> tableReplaceWriters;
@@ -3332,28 +3566,41 @@ llvm::Error verifyQueueGraphPlan(const QueueGraphPlan &plan) {
   llvm::StringMap<unsigned> indegree;
   llvm::StringMap<std::vector<std::string>> successors;
   llvm::StringMap<std::string> queueTypes;
+  llvm::StringMap<std::pair<uint64_t, uint64_t>> queueLanesAndRates;
   for (const QueueInterfacePlan &input : plan.interfaceInputs) {
     if (input.name.empty() || input.payloadType.empty() ||
+        input.lanes == 0 || input.rate == 0 || input.rate > input.lanes ||
         !queueNames.insert(input.name).second)
       return planError("module input identities must be typed and unique");
     indegree[input.name] = 0;
     queueTypes[input.name] = input.payloadType;
+    queueLanesAndRates[input.name] = {input.lanes, input.rate};
     producers[input.name] = 1;
   }
   for (const QueuePlan &queue : plan.queues) {
     if (queue.name.empty() || !queueNames.insert(queue.name).second)
       return planError("Queue logical identities must be non-empty and unique");
     if (queue.payloadType.empty() || queue.depth == 0 || queue.latency == 0 ||
-        queue.rate == 0 || queue.rate > queue.depth)
+        queue.rate == 0 || queue.rate > queue.depth || queue.lanes == 0 ||
+        (!queue.laneOrdinals.empty() &&
+         (queue.rate > queue.lanes ||
+          queue.laneOrdinals.size() != queue.lanes ||
+          llvm::any_of(llvm::enumerate(queue.laneOrdinals), [](auto item) {
+            return item.value() != item.index();
+          }))))
       return planError(
           "Queue plan requires typed positive depth/latency and rate <= depth");
     indegree[queue.name] = 0;
     queueTypes[queue.name] = queue.payloadType;
+    queueLanesAndRates[queue.name] = {queue.lanes, queue.rate};
   }
   for (const QueueInterfacePlan &output : plan.interfaceOutputs) {
     if (output.name.empty() || output.payloadType.empty() ||
+        output.lanes == 0 || output.rate == 0 || output.rate > output.lanes ||
         !queueNames.contains(output.name) ||
-        queueTypes.lookup(output.name) != output.payloadType)
+        queueTypes.lookup(output.name) != output.payloadType ||
+        queueLanesAndRates.lookup(output.name) !=
+            std::pair<uint64_t, uint64_t>{output.lanes, output.rate})
       return planError(
           "module output must reference an exact typed local Queue");
     ++consumers[output.name];
@@ -3373,14 +3620,18 @@ llvm::Error verifyQueueGraphPlan(const QueueGraphPlan &plan) {
     for (auto [input, interface] :
          llvm::zip_equal(instance.inputs, target->interfaceInputs)) {
       if (!queueNames.contains(input) ||
-          queueTypes.lookup(input) != interface.payloadType)
+          queueTypes.lookup(input) != interface.payloadType ||
+          queueLanesAndRates.lookup(input) !=
+              std::pair<uint64_t, uint64_t>{interface.lanes, interface.rate})
         return planError("module instance input Queue type is inconsistent");
       ++consumers[input];
     }
     for (auto [output, interface] :
          llvm::zip_equal(instance.outputs, target->interfaceOutputs)) {
       if (!queueNames.contains(output) ||
-          queueTypes.lookup(output) != interface.payloadType)
+          queueTypes.lookup(output) != interface.payloadType ||
+          queueLanesAndRates.lookup(output) !=
+              std::pair<uint64_t, uint64_t>{interface.lanes, interface.rate})
         return planError("module instance output Queue type is inconsistent");
       ++producers[output];
     }
@@ -3629,8 +3880,8 @@ llvm::Error verifyQueueGraphPlan(const QueueGraphPlan &plan) {
                  expression.kind == "table_choose_valid") {
         if (expression.operands.size() != 1)
           return planError("inline table choose requires one candidate mask");
-        if (!expression.field.empty() || !expression.literal.empty() ||
-            !expression.slot.empty() || !expression.mask.empty() ||
+        if (!expression.literal.empty() || !expression.slot.empty() ||
+            !expression.mask.empty() ||
             !expression.value.empty() || expression.lsb != 0 ||
             expression.width != 0)
           return planError("inline table choose metadata is not canonical");
@@ -3655,25 +3906,53 @@ llvm::Error verifyQueueGraphPlan(const QueueGraphPlan &plan) {
                 : "i1";
         if (expression.type != expectedType)
           return planError("inline table choose result type is inconsistent");
+        if (expression.selectionCount == 0 ||
+            expression.selectionCount > *maskEntries ||
+            expression.laneOrdinal >= expression.selectionCount ||
+            ((expression.selectionCount > 1 ||
+              expression.predicate == "round_robin") &&
+             expression.field.empty()))
+          return planError("inline table choose lane metadata is malformed");
         if (expression.predicate != "first" && expression.predicate != "min" &&
-            expression.predicate != "max")
+            expression.predicate != "max" &&
+            expression.predicate != "round_robin")
           return planError("inline table choose policy is unsupported");
-        if ((expression.predicate == "first" &&
+        if (((expression.predicate == "first" ||
+              expression.predicate == "round_robin") &&
              (!expression.nestedExpressions.empty() ||
               !expression.nestedYields.empty())) ||
-            (expression.predicate != "first" &&
-             expression.nestedYields.size() != 1))
+            ((expression.predicate == "min" || expression.predicate == "max") &&
+             (expression.nestedYields.size() != 1 ||
+              (!expression.field.empty() &&
+               expression.keyOrdering != "signed" &&
+               expression.keyOrdering != "unsigned"))))
           return planError("inline table choose key shape is inconsistent");
 
         auto &kinds =
             inlineChoiceKinds[inlineTableChoiceContractKey(expression)];
-        if (expression.kind == "table_choose_index") {
-          if (kinds.first != kinds.second)
-            return planError("inline table choose requires index before valid");
+        if (expression.field.empty()) {
+          if (expression.kind == "table_choose_index") {
+            if (kinds.first != kinds.second)
+              return planError(
+                  "inline table choose requires index before valid");
+            ++kinds.first;
+          } else {
+            if (kinds.first != kinds.second + 1)
+              return planError(
+                  "inline table choose requires index before valid");
+            ++kinds.second;
+          }
+        } else if (expression.kind == "table_choose_index") {
+          if (kinds.second != 0 ||
+              expression.laneOrdinal != kinds.first)
+            return planError(
+                "inline table choose indices must form the first segment");
           ++kinds.first;
         } else {
-          if (kinds.first != kinds.second + 1)
-            return planError("inline table choose requires index before valid");
+          if (kinds.first != expression.selectionCount ||
+              expression.laneOrdinal != kinds.second)
+            return planError(
+                "inline table choose valids must form the second segment");
           ++kinds.second;
         }
       } else if (expression.kind == "popcount") {
@@ -4188,10 +4467,22 @@ llvm::Error verifyQueueGraphPlan(const QueueGraphPlan &plan) {
     if (block.kind == "memory_request" &&
         !memoryInstances.contains(block.memoryInstance))
       return planError("memory request block references unknown instance");
-    if ((block.kind == "table_read" || block.kind == "table_write" ||
+    if ((block.kind == "table_read" || block.kind == "table_read_group" ||
+         block.kind == "table_write" ||
          block.kind == "table_masked_write") &&
         !tables.contains(block.table))
       return planError("table endpoint block references unknown table");
+    if (block.kind == "table_read_group") {
+      const TableSelectionPlan *selection =
+          tableSelections.lookup(block.selection);
+      if (!selection || selection->table != block.table ||
+          block.selectionCount != selection->count ||
+          block.inputs.size() != 0 ||
+          block.outputs.size() != block.selectionCount ||
+          block.depths.size() != block.selectionCount ||
+          block.latencies.size() != block.selectionCount)
+        return planError("selection TableRead group metadata is inconsistent");
+    }
     if (block.kind == "table_read" || block.kind == "table_write") {
       const TablePlan *table = tables.lookup(block.table);
       const size_t expectedYields = block.kind == "table_read" ? 2 : 3;
@@ -4350,6 +4641,15 @@ llvm::Expected<std::string> QueueGraphPlan::canonicalJson() const {
       result["domain_strides"] = std::move(strides);
       result["has_domain_projection"] = expression.hasDomainProjection;
     }
+    if (expression.kind == "table_choose_index" ||
+        expression.kind == "table_choose_valid" ||
+        expression.kind == "table_selection_index_ref" ||
+        expression.kind == "table_selection_valid_ref") {
+      result["lane_ordinal"] = expression.laneOrdinal;
+      result["selection_count"] = expression.selectionCount;
+      result["key_ordering"] = expression.keyOrdering;
+      result["initial_cursor"] = expression.initialCursor;
+    }
     return result;
   };
   auto initValueJson = [&](auto &&self,
@@ -4402,13 +4702,20 @@ llvm::Expected<std::string> QueueGraphPlan::canonicalJson() const {
     scopeValues.push_back(scope);
   llvm::json::Array queueValues;
   for (const QueuePlan &queue : queues)
-    queueValues.push_back(
+    {
+      llvm::json::Array laneOrdinals;
+      for (uint64_t lane : queue.laneOrdinals)
+        laneOrdinals.push_back(lane);
+      queueValues.push_back(
         llvm::json::Object{{"depth", queue.depth},
+                           {"lane_ordinals", std::move(laneOrdinals)},
+                           {"lanes", queue.lanes},
                            {"latency", queue.latency},
                            {"name", queue.name},
                            {"payload_type", queue.payloadType},
                            {"rate", queue.rate},
                            {"scope", queue.scope}});
+    }
   llvm::json::Array blockValues;
   for (const QueueBlockPlan &block : blocks) {
     auto resourceJson = [](const QueueRuleResourcePlan &resource) {
@@ -4517,6 +4824,8 @@ llvm::Expected<std::string> QueueGraphPlan::canonicalJson() const {
         {"result_field", block.resultField},
         {"resources", block.resources},
         {"scope", block.scope},
+        {"selection", block.selection},
+        {"selection_count", block.selectionCount},
         {"start", block.start},
         {"state_reservations", std::move(stateReservations)},
         {"state_writes", std::move(stateWrites)},
@@ -4607,13 +4916,17 @@ llvm::Expected<std::string> QueueGraphPlan::canonicalJson() const {
     for (const QueueExpressionPlan &expression : selection.keyExpressions)
       expressions.push_back(expressionJson(expressionJson, expression));
     tableSelectionValues.push_back(
-        llvm::json::Object{{"index_type", selection.indexType},
+        llvm::json::Object{{"count", selection.count},
+                           {"index_type", selection.indexType},
+                           {"initial_cursor", selection.initialCursor},
+                           {"key_ordering", selection.keyOrdering},
                            {"key_expressions", std::move(expressions)},
                            {"key_yield", selection.keyYield},
                            {"match", selection.match},
                            {"name", selection.name},
                            {"policy", selection.policy},
                            {"scope", selection.scope},
+                           {"stable_id", selection.stableId},
                            {"table", selection.table}});
   }
   llvm::json::Array tableReadValues;
@@ -4661,11 +4974,17 @@ llvm::Expected<std::string> QueueGraphPlan::canonicalJson() const {
   llvm::json::Array interfaceInputValues;
   for (const QueueInterfacePlan &input : interfaceInputs)
     interfaceInputValues.push_back(llvm::json::Object{
-        {"name", input.name}, {"payload_type", input.payloadType}});
+        {"lanes", input.lanes},
+        {"name", input.name},
+        {"payload_type", input.payloadType},
+        {"rate", input.rate}});
   llvm::json::Array interfaceOutputValues;
   for (const QueueInterfacePlan &output : interfaceOutputs)
     interfaceOutputValues.push_back(llvm::json::Object{
-        {"name", output.name}, {"payload_type", output.payloadType}});
+        {"lanes", output.lanes},
+        {"name", output.name},
+        {"payload_type", output.payloadType},
+        {"rate", output.rate}});
   llvm::json::Array moduleInstanceValues;
   for (const QueueModuleInstancePlan &instance : moduleInstances) {
     llvm::json::Array inputs;

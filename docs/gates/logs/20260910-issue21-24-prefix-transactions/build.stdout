@@ -1,0 +1,6 @@
+[1/3] Linking CXX executable bin/acir-queue-pycgen
+ld: warning: ignoring duplicate libraries: 'lib/Dialect/ACIR/libACIRDialect.a'
+[2/3] Linking CXX executable bin/acir-queue-cxxgen
+ld: warning: ignoring duplicate libraries: 'lib/Dialect/ACIR/libACIRDialect.a'
+[3/3] Linking CXX executable bin/acir-opt-internal
+ld: warning: ignoring duplicate libraries: '/opt/homebrew/Cellar/llvm/22.1.8/lib/libMLIRFuncDialect.a', '/opt/homebrew/Cellar/llvm/22.1.8/lib/libMLIRSCFDialect.a', '/opt/homebrew/Cellar/llvm/22.1.8/lib/libMLIRTransforms.a', 'lib/Analysis/libACIRAnalysis.a', 'lib/Dialect/ACIR/libACIRDialect.a', 'lib/Transforms/libACIRTransforms.a'

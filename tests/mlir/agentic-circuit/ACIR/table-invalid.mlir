@@ -25,7 +25,7 @@
 // INDEX: error: 'ac.table.read' op static table index is out of range
 // WRITER: same-field overlap on owner @bad requires explicit priority
 // MATCH: error: 'ac.table.match' op mask must exactly cover the Table domain in 64-bit words
-// CHOOSE: error: 'ac.table.choose' op choose supports count=1 only
+// CHOOSE: error: 'ac.table.choose' op result count must be exactly 2*count with indices before valids
 // CHOOSE-MASK: error: 'ac.table.choose' op candidate mask must be produced directly by ac.table.match
 // CHOOSE-TABLE: error: 'ac.table.choose' op candidate mask must come from the same Table
 // RELEASE: error: 'ac.slot' op slot requires exactly one release endpoint
@@ -119,7 +119,7 @@ builtin.module attributes {ac.contract_epoch = "0.5"} {
     %true = ac.var.constant true as !ac.var<i1>
     ac.table.match.yield %true : !ac.var<i1>
   } -> !ac.var<i4>
-  %index, %valid = ac.table.choose @bad %mask : !ac.var<i4> count 2 policy "min" key {
+  %index, %valid = ac.table.choose @bad %mask : !ac.var<i4> count 2 policy #ac<table_selection_policy min> key_order #ac<table_key_ordering unsigned> stable_id "table/choose/min" key {
   ^key(%entry: !ac.var<i16>):
     ac.table.choose.yield %entry : !ac.var<i16>
   } -> !ac.var<i2>, !ac.var<i1>
@@ -129,7 +129,7 @@ builtin.module attributes {ac.contract_epoch = "0.5"} {
 builtin.module attributes {ac.contract_epoch = "0.5"} {
   ac.table @bad entry i16 entries 4 init 0 owner "/" stable_id "table/bad"
   %mask = ac.var.constant 15 : i4 as !ac.var<i4>
-  %index, %valid = ac.table.choose @bad %mask : !ac.var<i4> count 1 policy "min" key {
+  %index, %valid = ac.table.choose @bad %mask : !ac.var<i4> count 1 policy #ac<table_selection_policy min> key_order #ac<table_key_ordering unsigned> stable_id "table/choose/min" key {
   ^key(%entry: !ac.var<i16>):
     ac.table.choose.yield %entry : !ac.var<i16>
   } -> !ac.var<i2>, !ac.var<i1>
@@ -152,7 +152,7 @@ builtin.module attributes {ac.contract_epoch = "0.5"} {
     %true = ac.var.constant true as !ac.var<i1>
     ac.table.match.yield %true : !ac.var<i1>
   } -> !ac.var<i4>
-  %index, %valid = ac.table.choose @right %mask : !ac.var<i4> count 1 policy "min" key {
+  %index, %valid = ac.table.choose @right %mask : !ac.var<i4> count 1 policy #ac<table_selection_policy min> key_order #ac<table_key_ordering unsigned> stable_id "table/choose/min" key {
   ^key(%entry: !ac.var<i16>):
     ac.table.choose.yield %entry : !ac.var<i16>
   } -> !ac.var<i2>, !ac.var<i1>
@@ -281,7 +281,7 @@ builtin.module attributes {ac.contract_epoch = "0.5"} {
     %true = ac.var.constant true as !ac.var<i1>
     ac.table.match.yield %true : !ac.var<i1>
   } -> !ac.var<i4>
-  %index, %valid = ac.table.choose @right %left_mask : !ac.var<i4> count 1 policy "first" key {} -> !ac.var<i2>, !ac.var<i1>
+  %index, %valid = ac.table.choose @right %left_mask : !ac.var<i4> count 1 policy #ac<table_selection_policy first> stable_id "table/choose/first" key {} -> !ac.var<i2>, !ac.var<i1>
 }
 
 //--- external-capture.mlir

@@ -17,7 +17,7 @@ module attributes {ac.contract_epoch = "0.5"} {
       ac.table.match.yield %true : !ac.var<i1>
     } -> !ac.var<i4>
     %index, %present = ac.table.choose @entries %mask : !ac.var<i4>
-        count 1 policy "min" key {
+        count 1 policy #ac<table_selection_policy min> key_order #ac<table_key_ordering unsigned> stable_id "table/choose/min" key {
     ^bb0(%entry: !ac.var<i2>):
       %priority = ac.table.get @priority[%entry] : !ac.var<i2> -> !ac.var<i2>
       ac.table.choose.yield %priority : !ac.var<i2>
@@ -48,7 +48,7 @@ module attributes {ac.contract_epoch = "0.5"} {
       ac.table.match.yield %true : !ac.var<i1>
     } -> !ac.var<i4>
     %index, %present = ac.table.choose @entries %mask : !ac.var<i4>
-        count 1 policy "min" key {
+        count 1 policy #ac<table_selection_policy min> key_order #ac<table_key_ordering unsigned> stable_id "table/choose/min" key {
     ^bb0(%entry: !ac.var<i2>):
       %priority = ac.table.get @priority[%entry] : !ac.var<i2> -> !ac.var<i2>
       ac.table.choose.yield %priority : !ac.var<i2>
@@ -78,7 +78,7 @@ module attributes {ac.contract_epoch = "0.5"} {
     ac.table.match.yield %true : !ac.var<i1>
   } -> !ac.var<i4>
   %index, %present = ac.table.choose @entries %mask : !ac.var<i4>
-      count 1 policy "min" key {
+      count 1 policy #ac<table_selection_policy min> key_order #ac<table_key_ordering unsigned> stable_id "table/choose/min" key {
   ^bb0(%entry: !ac.var<i2>):
     %priority = ac.table.get @priority[%entry] : !ac.var<i2> -> !ac.var<i2>
     ac.table.choose.yield %priority : !ac.var<i2>

@@ -424,6 +424,21 @@ LogicalResult verifyLoweredRuleTransformContract(TransformOp transform) {
                                   transform.getBody(), true);
 }
 
+static LogicalResult verifyQueueRatesAgainstDepths(Operation *operation,
+                                                   ValueRange outputs,
+                                                   ArrayRef<int64_t> depths) {
+  if (outputs.size() != depths.size())
+    return operation->emitOpError(
+        "Queue rate/depth verification requires aligned outputs");
+  for (auto [output, depth] : llvm::zip_equal(outputs, depths)) {
+    auto queue = cast<QueueType>(output.getType());
+    if (queue.getRate() > depth)
+      return operation->emitOpError(
+          "Queue rate must not exceed its independently declared depth");
+  }
+  return success();
+}
+
 LogicalResult TransformOp::verify() {
   if (getInputs().empty())
     return emitOpError("requires at least one input queue");
@@ -440,6 +455,8 @@ LogicalResult TransformOp::verify() {
     return emitOpError("output depths must be positive");
   if (llvm::any_of(latencies, [](int64_t value) { return value <= 0; }))
     return emitOpError("output latencies must be positive");
+  if (failed(verifyQueueRatesAgainstDepths(*this, getOutputs(), depths)))
+    return failure();
 
   Block &block = getBody().front();
   if (block.getNumArguments() != getInputs().size())
@@ -523,6 +540,8 @@ LogicalResult RuleOp::verify() {
   if (latencies.size() != getOutputs().size() ||
       llvm::any_of(latencies, [](int64_t value) { return value <= 0; }))
     return emitOpError("output latencies must match results and be positive");
+  if (failed(verifyQueueRatesAgainstDepths(*this, getOutputs(), depths)))
+    return failure();
 
   Block &block = getBody().front();
   if (block.getNumArguments() != getInputs().size())
@@ -734,7 +753,9 @@ LogicalResult StateSnapshotSetOp::verify() {
           "source table.match must belong to the owning rule/firing");
     sourceRegion = &match.getPredicate();
   } else if (auto choose = getSource().getDefiningOp<TableChooseOp>()) {
-    if (getSource() != choose.getIndex() ||
+    const int64_t count = choose.getCountAttr().getInt();
+    if (count <= 0 || choose.getResults().size() != 2 * count ||
+        !llvm::is_contained(choose.getResults().take_front(count), getSource()) ||
         choose->getParentOp() != (*this)->getParentOp())
       return emitOpError(
           "source table.choose must use the owning rule/firing's index result");
@@ -778,6 +799,9 @@ LogicalResult SourceOp::verify() {
     return emitOpError("depth must be positive");
   if (getLatency() <= 0)
     return emitOpError("latency must be positive");
+  if (cast<QueueType>(getOutput().getType()).getRate() > getDepth())
+    return emitOpError(
+        "Queue rate must not exceed its independently declared depth");
   return success();
 }
 
@@ -1147,6 +1171,9 @@ LogicalResult FiringOp::verify() {
       llvm::any_of(getOutputLatenciesAttr().asArrayRef(),
                    [](int64_t value) { return value <= 0; }))
     return emitOpError("output depths and latencies must be positive");
+  if (failed(verifyQueueRatesAgainstDepths(
+          *this, getOutputs(), getOutputDepthsAttr().asArrayRef())))
+    return failure();
   if (getStableId().empty())
     return emitOpError("requires explicit stable identity");
   for (StringRef name : {"functional_guard", "checks", "handshake",
@@ -3019,7 +3046,9 @@ static LogicalResult verifyCanonicalFlattenedTableIndex(Operation *operation,
         "flattened Table index belongs to another Table");
   }
   if (auto selection = index.getDefiningOp<TableChooseOp>()) {
-    if (selection.getIndex() == index &&
+    const int64_t count = selection.getCountAttr().getInt();
+    if (count > 0 && selection.getResults().size() == 2 * count &&
+        llvm::is_contained(selection.getResults().take_front(count), index) &&
         resolveTable(selection, selection.getTableAttr()) == table)
       return success();
     return operation->emitOpError(
@@ -3248,6 +3277,8 @@ LogicalResult TableOp::verify() {
     root = root->getParentOp();
   bool ownerExists = getOwner() == "/";
   bool duplicateStableId = false;
+  bool duplicateSelectionStableId = false;
+  llvm::StringSet<> selectionStableIds;
   ModuleOp owningModule = (*this)->getParentOfType<ModuleOp>();
   unsigned endpoints = 0;
   llvm::StringMap<Operation *> fieldWriters;
@@ -3279,6 +3310,9 @@ LogicalResult TableOp::verify() {
         ++endpoints;
     }
     if (auto choose = dyn_cast<TableChooseOp>(operation)) {
+      if (!choose.getStableId().empty() &&
+          !selectionStableIds.insert(choose.getStableId()).second)
+        duplicateSelectionStableId = true;
       if (resolveTable(choose, choose.getTableAttr()) == *this)
         ++endpoints;
     }
@@ -3330,6 +3364,9 @@ LogicalResult TableOp::verify() {
     return emitOpError("owner does not name a declared scope path");
   if (duplicateStableId)
     return emitOpError("stable_id must be unique");
+  if (duplicateSelectionStableId)
+    return emitOpError(
+        "Table selection stable_id must be unique within the module");
   if (endpoints == 0)
     return emitOpError("must have at least one table read/write endpoint");
   // Cross-endpoint overlap is a whole-model proof obligation.  Declaration
@@ -3789,23 +3826,59 @@ LogicalResult TableChooseOp::verify() {
                              "Table domain in 64-bit words"
                            : "candidate mask must exactly cover the Table "
                              "domain in 64-bit words");
-  if (getCount() != 1)
-    return emitOpError("choose supports count=1 only");
-  if (getPolicy() != "first" && getPolicy() != "min" && getPolicy() != "max")
-    return emitOpError("policy must be first, min, or max");
+  const int64_t count = getCountAttr().getInt();
+  if (count <= 0 || static_cast<uint64_t>(count) > *domainEntries)
+    return emitOpError(
+        "count must be positive and not exceed the projected Table domain");
+  if (getResults().size() != static_cast<size_t>(2 * count))
+    return emitOpError(
+        "result count must be exactly 2*count with indices before valids");
+  if (getStableId().empty())
+    return emitOpError("stable_id must be non-empty");
+  bool duplicateStableId = false;
+  if (ModuleOp module = (*this)->getParentOfType<ModuleOp>())
+    module.walk([&](TableChooseOp other) {
+      duplicateStableId |= other != *this &&
+                           other.getStableId() == getStableId();
+    });
+  if (duplicateStableId)
+    return emitOpError("stable_id must be unique within the module");
   unsigned indexWidth = canonicalTableIndexWidth(table.getEntries());
-  if (getIndex().getType() !=
-      VarType::get(getContext(), IntegerType::get(getContext(), indexWidth)))
-    return emitOpError("index result width must address the Table domain");
-  if (getValid().getType() !=
-      VarType::get(getContext(), IntegerType::get(getContext(), 1)))
-    return emitOpError("valid result must be !ac.var<i1>");
-  if (getPolicy() == "first") {
+  Type expectedIndex =
+      VarType::get(getContext(), IntegerType::get(getContext(), indexWidth));
+  Type expectedValid =
+      VarType::get(getContext(), IntegerType::get(getContext(), 1));
+  for (Value index : getResults().take_front(count))
+    if (index.getType() != expectedIndex)
+      return emitOpError(
+          "index result segment must use the complete Table-domain width");
+  for (Value valid : getResults().drop_front(count))
+    if (valid.getType() != expectedValid)
+      return emitOpError("valid result segment must contain !ac.var<i1>");
+
+  const TableSelectionPolicy policy = getPolicy();
+  const int64_t initialCursor = getInitialCursorAttr().getInt();
+  if (policy == TableSelectionPolicy::First ||
+      policy == TableSelectionPolicy::RoundRobin) {
     if (!getKey().empty() &&
         !(getKey().hasOneBlock() && getKey().front().empty()))
-      return emitOpError("first policy does not accept a key region");
+      return emitOpError("first/round_robin policy does not accept a key region");
+    if (getKeyOrderingAttr())
+      return emitOpError(
+          "first/round_robin policy does not accept key ordering");
+    if (policy == TableSelectionPolicy::First && initialCursor != 0)
+      return emitOpError("first policy requires initial_cursor=0");
+    if (policy == TableSelectionPolicy::RoundRobin &&
+        (initialCursor < 0 ||
+         static_cast<uint64_t>(initialCursor) >= *domainEntries))
+      return emitOpError(
+          "round_robin initial_cursor must be within the projected domain");
     return success();
   }
+  if (initialCursor != 0)
+    return emitOpError("min/max policy requires initial_cursor=0");
+  if (!getKeyOrderingAttr())
+    return emitOpError("min/max policy requires typed key ordering");
   if (!getKey().hasOneBlock())
     return emitOpError("min/max policy requires one key region");
   Block &block = getKey().front();
@@ -3829,8 +3902,7 @@ LogicalResult TableChooseOp::verify() {
                   cast<VarType>(yield.getValue().getType()).getElementType())
             : IntegerType();
   if (!key || key.getWidth() == 0 || key.getWidth() > 64)
-    return emitOpError(
-        "min/max key must yield an unsigned fixed-width integer");
+    return emitOpError("min/max key must yield a fixed-width integer");
   return success();
 }
 

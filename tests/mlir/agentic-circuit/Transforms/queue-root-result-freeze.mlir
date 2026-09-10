@@ -42,7 +42,7 @@ builtin.module attributes {
 }
 
 // PLAN: "definition":"Top"
-// PLAN-SAME: "interface_outputs":[{"name":"increment"
+// PLAN-SAME: "interface_outputs":[{"lanes":1,"name":"increment"
 // PLAN-SAME: "module_instances":[{"definition":"Increment"
 
 // CXX: const gfsim::SimQueue<gfsim::UInt<8>> &result_0() const

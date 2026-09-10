@@ -49,8 +49,12 @@ def ACIR_VarType : ACIR_Type<"Var", "var"> {
 }
 
 def ACIR_QueueType : ACIR_Type<"Queue", "queue"> {
-  let parameters = (ins "mlir::Type":$elementType);
-  let assemblyFormat = "`<` $elementType `>`";
+  let parameters = (ins "mlir::Type":$elementType,
+                        DefaultValuedParameter<"int64_t", "1">:$lanes,
+                        DefaultValuedParameter<"int64_t", "1">:$rate);
+  let assemblyFormat = [{
+    `<` $elementType (`,` `lanes` `=` $lanes^)? (`,` `rate` `=` $rate^)? `>`
+  }];
   let genVerifyDecl = 1;
 }
 

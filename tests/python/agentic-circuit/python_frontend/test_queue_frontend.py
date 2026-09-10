@@ -2329,10 +2329,12 @@ class QueueFrontendTest(unittest.TestCase):
             'ready, count=1, policy="first"',
         )
         first_lowered = lower_queue_source(first, "pipeline")
-        self.assertIn('count 1 policy "first" key {}', first_lowered)
+        self.assertIn(
+            "count 1 policy #ac<table_selection_policy first>", first_lowered
+        )
         self.assertEqual(1, first_lowered.count("ac.table.choose @issue"))
         self.assertIn(
-            'count 1 policy "max"',
+            "count 1 policy #ac<table_selection_policy max>",
             lower_queue_source(
                 SLOT_TABLE_SOURCE.replace('policy="min"', 'policy="max"'),
                 "pipeline",
@@ -2343,7 +2345,7 @@ class QueueFrontendTest(unittest.TestCase):
             "pipeline",
         )
         self.assertIn("-> !ac.var<i64>", boundary)
-        with self.assertRaisesRegex(QueueFrontendError, "count=1 only"):
+        with self.assertRaisesRegex(QueueFrontendError, "static scope"):
             lower_queue_source(
                 SLOT_TABLE_SOURCE.replace("count=1", "count=2"), "pipeline"
             )
@@ -4123,6 +4125,7 @@ def invariant_module(value: Payload) -> Payload:
         self.assertIn("ac.var.match.yield", lowered)
         self.assertIn('count 1 policy "min"', lowered)
         self.assertIn("ac.var.choose.yield", lowered)
+        self.assertIn('ac.query = "__ac_rule_local_0_selected"', lowered)
         self.assertIn("ac.var.read_element @entries", lowered)
         self.assertIn("ac.var.assign_element @entries", lowered)
         self.assertNotIn("ac.table", lowered)

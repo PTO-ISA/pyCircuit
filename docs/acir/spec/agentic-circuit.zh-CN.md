@@ -27,11 +27,10 @@
 
 ### 已接受但尚未实现的 6.0 release-train decisions
 
-Decision 0236–0241 已冻结 release 6.0.0 的剩余 issue 合同。Decision 0236
-已为 `implemented-verified`；Decision 0237–0241 在
-[`decision_status_v6.md`](../../gates/decision_status_v6.md) 中仍为 `deferred`。
-在具体 gate 证据将对应行推进到 `implemented-verified` 前，deferred decision
-不代表当前实现；本文后续写明的现有限制仍然有效。
+Decision 0236–0241 已冻结 release 6.0.0 的剩余 issue 合同。Decision 0236、0237、
+0240 已为 `implemented-verified`；Decision 0238、0239 在 Table-to-PYC 边界为
+`implemented-unverified`；Decision 0241 仍为 `deferred`。精确状态与证据路径见
+[`decision_status_v6.md`](../../gates/decision_status_v6.md)。
 
 - Decision 0236 保持 `@ac.rule` 为唯一公共调度边界，由编译器形成完整原子事务
   （#28）。
@@ -50,6 +49,25 @@ Decision 0236–0241 已冻结 release 6.0.0 的剩余 issue 合同。Decision 0
 Decision 0232 现冻结四 wheel release map；Decision 0234 将仓库内可验证的 workflow
 实现与每次 release 必需的 stable-URL attestation 分离（#61）。两者在实现证据存在前
 仍保持 `deferred`。
+
+### Ordered multi-lane Queue
+
+`source(..., lanes=N, rate=R)` 创建一个 logical ordered Queue；lane count 为静态正整数，
+且 `1 <= R <= N`。one-to-one compute/pipeline 继承完全相同的 lane/rate contract。
+Frozen ACIR 使用 `!ac.queue<T, lanes=N, rate=R>`；lane-one/rate-one 仍打印为旧的
+`!ac.queue<T>`。payload aggregate shape 与 lane count 相互独立。
+
+可用 token 形成不超过 `rate` 的连续 valid prefix。整个 prefix 在同一 commit group 中
+prepare/publish；任一 output capacity 或 readiness 不足都会让所有 pop、push、state effect
+和 accepted-order update 一起 stall。runtime 支持同拍 dequeue+append、depth>rate、重复
+backpressure、reset 与确定性的 FIFO wrap-equivalent 序列，同时保持单一 Queue identity 和
+canonical lane ordinal `0..N-1`。
+
+当前 canonical-PYC admitted profile 是 direct source-to-sink Queue，或由 one-input/
+one-output pure transform 组成的链；每段 latency 为一且 lane/rate 完全一致。生成接口仍为
+scalar lane ports，但共享同一个 ready/commit 决策，不会拆成独立 Queue identity。其它
+multi-lane topology 在 PYC admission boundary fail closed。已准入的通用 fixture 在 generated
+gfsim C++、PYC C++ 与 Verilator 中执行结果一致。
 
 ## 一句话理解
 
@@ -762,8 +780,20 @@ full-Table `match` 的 domain axes 等于完整 shape。静态 projected view �
 `domain_offset`。mask bit zero 对应该局部 row-major projection 的首个元素。projection
 metadata 必须完整、axis 递增、范围合法并与 Table shape 一致。空 projection 包含唯一的
 fixed element；non-power-of-two 和 extent-one axis 保留精确 domain。`choose` 检查同 Table
-mask provenance，但返回值仍使用完整 flattened Table domain 的 index。D0238 不引入
-multi-selection；Decision 0239 落地前，ACIR 仍只接受 `count=1`。
+mask provenance，但返回值仍使用完整 flattened Table domain 的 index。省略 `count` 或
+使用 `count=1` 时保持 scalar `TableChoice`；静态 `count=N>1` 返回 N 元素 Python tuple，
+并 lower 为一个含 `2*N` 个 scalar result 的 `ac.table.choose`，固定 segment 顺序为
+`[index_0..index_N-1, valid_0..valid_N-1]`。invalid suffix 的 index 必须为零；runtime
+tuple indexing、存储或跨边界 escape 均拒绝。
+
+`first`、有符号/无符号 `min`/`max` 与 `round_robin` 都产生连续 valid prefix，并以最低
+global index 解决相等 key。round-robin 仅在完整 prefix 接受后，将 committed cursor 推进到
+最后一个 accepted lane 的下一个 projected-local 位置；空选择与 stall 不推进，reset 恢复
+初值。mask/key 每个 Epoch 只求值一次。直接消费同一 multi-selection 的 Table read 会合并为
+一个 prefix transaction：所有 valid-lane output 均 ready 后才整体 publish 并推进 cursor。
+firing 必须恰好消费每个 lane；partial、mixed、direct-write 或其它未归组 consumer 在
+QueueGraph verifier 中 fail closed。Table 的 canonical-PYC admission 与 D0239 C++/Verilog
+parity 仍由 Decision 0241 管控。
 
 每张 Table 可以额外声明一个 state-driven scalar `allocate` endpoint，与上述普通字段
 writer 共存。它在调用方提供的 index 安装完整 Entry，不搜索空位、不检查占用状态，也不

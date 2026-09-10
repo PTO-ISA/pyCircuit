@@ -955,9 +955,12 @@ ACDataFlowAnalyzer::stateSnapshots(Operation *scope) const {
                           completeStateFields(choose, entryType));
             }
             collect(choose.getMask(), {}, {});
+            Value firstIndex = choose.getResults().empty()
+                                   ? Value()
+                                   : choose.getResults().front();
             for (Block &block : choose.getKey())
               for (Value operand : block.getTerminator()->getOperands())
-                collect(operand, choose.getIndex(), {});
+                collect(operand, firstIndex, {});
             return;
           }
           for (Value operand : definition->getOperands())

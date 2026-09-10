@@ -1,0 +1,24 @@
+Running main() from /private/tmp/googletest-20250910-5249-qce8ci/googletest-1.17.0/googletest/src/gtest_main.cc
+Note: Google Test filter = QueueBlocksTest.MultiSelectionOrdersSignedKeysAndZeroesInvalidSuffixLanes:QueueBlocksTest.RoundRobinSelectionAdvancesOnlyOnAcceptAndResetsInitialCursor:QueueBlocksTest.SelectionReadGroupStallsWholePrefixAndAcceptsRoundRobinOnce:QueueBlocksTest.SimQueueBatchTransfersOneOrderedAtomicPrefix:QueueBlocksTest.SimQueueBatchStallsWholePrefixAndResetClearsReservation:QueueBlocksTest.QueueLaneTransformStallsWholePrefixUnderBackpressure:QueueBlocksTest.QueueLaneSinkConsumesOneRateLimitedOrderedPrefix
+[==========] Running 7 tests from 1 test suite.
+[----------] Global test environment set-up.
+[----------] 7 tests from QueueBlocksTest
+[ RUN      ] QueueBlocksTest.MultiSelectionOrdersSignedKeysAndZeroesInvalidSuffixLanes
+[       OK ] QueueBlocksTest.MultiSelectionOrdersSignedKeysAndZeroesInvalidSuffixLanes (0 ms)
+[ RUN      ] QueueBlocksTest.RoundRobinSelectionAdvancesOnlyOnAcceptAndResetsInitialCursor
+[       OK ] QueueBlocksTest.RoundRobinSelectionAdvancesOnlyOnAcceptAndResetsInitialCursor (0 ms)
+[ RUN      ] QueueBlocksTest.SelectionReadGroupStallsWholePrefixAndAcceptsRoundRobinOnce
+[       OK ] QueueBlocksTest.SelectionReadGroupStallsWholePrefixAndAcceptsRoundRobinOnce (0 ms)
+[ RUN      ] QueueBlocksTest.SimQueueBatchTransfersOneOrderedAtomicPrefix
+[       OK ] QueueBlocksTest.SimQueueBatchTransfersOneOrderedAtomicPrefix (0 ms)
+[ RUN      ] QueueBlocksTest.SimQueueBatchStallsWholePrefixAndResetClearsReservation
+[       OK ] QueueBlocksTest.SimQueueBatchStallsWholePrefixAndResetClearsReservation (0 ms)
+[ RUN      ] QueueBlocksTest.QueueLaneTransformStallsWholePrefixUnderBackpressure
+[       OK ] QueueBlocksTest.QueueLaneTransformStallsWholePrefixUnderBackpressure (0 ms)
+[ RUN      ] QueueBlocksTest.QueueLaneSinkConsumesOneRateLimitedOrderedPrefix
+[       OK ] QueueBlocksTest.QueueLaneSinkConsumesOneRateLimitedOrderedPrefix (0 ms)
+[----------] 7 tests from QueueBlocksTest (0 ms total)
+
+[----------] Global test environment tear-down
+[==========] 7 tests from 1 test suite ran. (0 ms total)
+[  PASSED  ] 7 tests.

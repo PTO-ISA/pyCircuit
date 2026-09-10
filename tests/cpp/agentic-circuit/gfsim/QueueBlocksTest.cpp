@@ -1065,6 +1065,123 @@ TEST(QueueBlocksTest, FirstSelectionPreservesMaskTestPrecedence) {
   EXPECT_EQ(testCalls, 3u);
 }
 
+TEST(QueueBlocksTest,
+     MultiSelectionOrdersSignedKeysAndZeroesInvalidSuffixLanes) {
+  using Value = UInt<8>;
+  SimTable<Value> table("table", 1, nullptr,
+                        std::vector<Value>{Value{128}, Value{127}, Value{255},
+                                           Value{127}});
+  CandidateSet mask(table.size());
+  for (size_t index = 0; index < table.size(); ++index)
+    mask.set(index);
+  auto maskPolicy = [&](Epoch) -> const CandidateSet & { return mask; };
+  unsigned keyEvaluations = 0;
+  auto keyPolicy = [&](const Value &value) {
+    ++keyEvaluations;
+    return value;
+  };
+  TableMultiSelectionCache<Value, decltype(maskPolicy), decltype(keyPolicy), 3>
+      selection(table, TableDomainProjection(table.size()), maskPolicy,
+                keyPolicy,
+                TableChoosePolicy::Min, TableKeyOrdering::Signed);
+  const auto &signedResult = selection.get({1, 0});
+  EXPECT_EQ(signedResult.indices, (std::array<size_t, 3>{0, 2, 1}));
+  EXPECT_EQ(signedResult.valid, (std::array<bool, 3>{true, true, true}));
+  EXPECT_EQ(selection.get({1, 0}).indices,
+            (std::array<size_t, 3>{0, 2, 1}));
+  EXPECT_EQ(keyEvaluations, 4u);
+
+  CandidateSet shortMask(table.size());
+  shortMask.set(2);
+  auto shortPolicy = [&](Epoch) -> const CandidateSet & { return shortMask; };
+  TableMultiSelectionCache<Value, decltype(shortPolicy), std::identity, 3>
+      shortSelection(table, TableDomainProjection(table.size()), shortPolicy,
+                     {}, TableChoosePolicy::First);
+  const auto &shortResult = shortSelection.get({1, 0});
+  EXPECT_EQ(shortResult.indices, (std::array<size_t, 3>{2, 0, 0}));
+  EXPECT_EQ(shortResult.valid, (std::array<bool, 3>{true, false, false}));
+}
+
+TEST(QueueBlocksTest,
+     RoundRobinSelectionAdvancesOnlyOnAcceptAndResetsInitialCursor) {
+  using Value = UInt<8>;
+  SimTable<Value> table("table", 1, nullptr,
+                        std::vector<Value>{Value{1}, Value{2}, Value{3},
+                                           Value{4}});
+  CandidateSet mask(table.size());
+  for (size_t index = 0; index < table.size(); ++index)
+    mask.set(index);
+  unsigned evaluations = 0;
+  auto maskPolicy = [&](Epoch) -> const CandidateSet & {
+    ++evaluations;
+    return mask;
+  };
+  TableMultiSelectionCache<Value, decltype(maskPolicy), std::identity, 2>
+      selection(table, TableDomainProjection(table.size()), maskPolicy, {},
+                TableChoosePolicy::RoundRobin, TableKeyOrdering::Unsigned, 1);
+
+  EXPECT_EQ(selection.get({1, 0}).indices,
+            (std::array<size_t, 2>{1, 2}));
+  EXPECT_EQ(selection.get({1, 0}).indices,
+            (std::array<size_t, 2>{1, 2}));
+  EXPECT_EQ(evaluations, 1u);
+  EXPECT_EQ(selection.cursor(), 1u);
+  selection.accept({1, 0});
+  EXPECT_EQ(selection.cursor(), 3u);
+  EXPECT_EQ(selection.get({2, 0}).indices,
+            (std::array<size_t, 2>{3, 0}));
+  EXPECT_EQ(selection.cursor(), 3u);
+  EXPECT_EQ(selection.get({3, 0}).indices,
+            (std::array<size_t, 2>{3, 0}));
+  EXPECT_EQ(selection.cursor(), 3u);
+  selection.reset();
+  EXPECT_EQ(selection.cursor(), 1u);
+  EXPECT_EQ(selection.get({4, 0}).indices,
+            (std::array<size_t, 2>{1, 2}));
+}
+
+TEST(QueueBlocksTest,
+     SelectionReadGroupStallsWholePrefixAndAcceptsRoundRobinOnce) {
+  using Value = UInt<8>;
+  SimTable<Value> table("table", 1, nullptr,
+                        std::vector<Value>{Value{10}, Value{20}, Value{30},
+                                           Value{40}});
+  CandidateSet mask(table.size());
+  mask.set(1);
+  mask.set(2);
+  auto maskPolicy = [&](Epoch) -> const CandidateSet & { return mask; };
+  using Selection =
+      TableMultiSelectionCache<Value, decltype(maskPolicy), std::identity, 2>;
+  Selection selection(table, TableDomainProjection(table.size()), maskPolicy,
+                      {}, TableChoosePolicy::RoundRobin);
+  SimQueue<Value> first("first", 2, nullptr, 1);
+  SimQueue<Value> second("second", 3, nullptr, 1);
+  TableSelectionReadGroup<Value, Selection, 2> reads(
+      "reads", 4, nullptr, table, selection, {&first, &second});
+  ASSERT_TRUE(second.proposePush(Value{99}));
+  second.doXfer({0, 0});
+
+  reads.doWork({1, 0});
+  EXPECT_FALSE(reads.hasPendingCommit());
+  EXPECT_EQ(selection.cursor(), 0u);
+  EXPECT_TRUE(first.isEmpty());
+  ASSERT_TRUE(second.proposePop());
+  second.doXfer({1, 0});
+
+  reads.doWork({2, 0});
+  ASSERT_TRUE(reads.hasPendingCommit());
+  EXPECT_EQ(selection.cursor(), 3u);
+  selection.accept({2, 0});
+  EXPECT_EQ(selection.cursor(), 3u);
+  first.doXfer({2, 0});
+  second.doXfer({2, 0});
+  reads.doXfer({2, 0});
+  ASSERT_NE(first.peek(), nullptr);
+  ASSERT_NE(second.peek(), nullptr);
+  EXPECT_EQ(*first.peek(), Value{20});
+  EXPECT_EQ(*second.peek(), Value{30});
+}
+
 TEST(QueueBlocksTest, TableCancellationIsWriterLocal) {
   SimTable<FieldEntry> table("table", 1, nullptr, 1);
   ASSERT_TRUE(table.proposeWrite(10, 0, FieldEntry{true, false},
@@ -2360,6 +2477,103 @@ TEST(QueueBlocksTest, SimQueueCommitGroupPreparePublishIsNoFail) {
   EXPECT_EQ(queue.publishPop(group), 7);
   queue.doXfer({1, 0});
   EXPECT_TRUE(queue.isEmpty());
+}
+
+TEST(QueueBlocksTest, SimQueueBatchTransfersOneOrderedAtomicPrefix) {
+  SimQueue<uint16_t> queue("queue", 1, nullptr, 4, SIZE_MAX, nullptr, 1, 3,
+                           3);
+  ASSERT_TRUE(queue.proposePush(1));
+  ASSERT_TRUE(queue.proposePush(2));
+  ASSERT_TRUE(queue.proposePush(3));
+  queue.doXfer({0, 0});
+
+  constexpr CommitGroupId group = 41;
+  ASSERT_TRUE(queue.prepareBatch(group, 2, 2));
+  const std::span<const uint16_t> prepared = queue.preparedPopValues(group);
+  ASSERT_EQ(prepared.size(), 2u);
+  EXPECT_EQ(prepared[0], 1u);
+  EXPECT_EQ(prepared[1], 2u);
+  EXPECT_FALSE(queue.publishPushBatch(group, {4}));
+  EXPECT_TRUE(queue.hasPrepared(group));
+  ASSERT_TRUE(queue.publishPushBatch(group, {4, 5}));
+  auto popped = queue.publishPopBatch(group);
+  ASSERT_TRUE(popped);
+  EXPECT_EQ(*popped, (std::vector<uint16_t>{1, 2}));
+  EXPECT_EQ(queue.committedValues(), (std::vector<uint16_t>{1, 2, 3}));
+  queue.doXfer({1, 0});
+  EXPECT_EQ(queue.committedValues(), (std::vector<uint16_t>{3, 4, 5}));
+}
+
+TEST(QueueBlocksTest, SimQueueBatchStallsWholePrefixAndResetClearsReservation) {
+  SimQueue<uint16_t> queue("queue", 1, nullptr, 3, SIZE_MAX, nullptr, 1, 2,
+                           3);
+  ASSERT_TRUE(queue.proposePush(1));
+  queue.doXfer({0, 0});
+  EXPECT_FALSE(queue.prepareBatch(42, 2, 0));
+  EXPECT_EQ(queue.committedValues(), (std::vector<uint16_t>{1}));
+
+  ASSERT_TRUE(queue.prepareBatch(42, 1, 2));
+  EXPECT_TRUE(queue.hasPrepared(42));
+  queue.reset();
+  EXPECT_FALSE(queue.hasPrepared(42));
+  EXPECT_TRUE(queue.committedValues().empty());
+  EXPECT_FALSE(queue.publishPopBatch(42));
+  EXPECT_FALSE(queue.publishPushBatch(42, {2, 3}));
+}
+
+TEST(QueueBlocksTest, QueueLaneTransformStallsWholePrefixUnderBackpressure) {
+  SimQueue<uint16_t> input("input", 1, nullptr, 4, SIZE_MAX, nullptr, 1, 2,
+                           3);
+  SimQueue<uint16_t> output("output", 2, nullptr, 2, SIZE_MAX, nullptr, 1, 2,
+                            3);
+  QueueLaneTransform<uint16_t, uint16_t, Identity<uint16_t>> transform(
+      "lanes", 3, nullptr, input, output);
+  ASSERT_TRUE(input.proposePush(1));
+  ASSERT_TRUE(input.proposePush(2));
+  ASSERT_TRUE(output.proposePush(9));
+  input.doXfer({0, 0});
+  output.doXfer({0, 0});
+
+  transform.doWork({1, 0});
+  EXPECT_FALSE(transform.hasPendingCommit());
+  EXPECT_EQ(input.committedValues(), (std::vector<uint16_t>{1, 2}));
+  EXPECT_EQ(output.committedValues(), (std::vector<uint16_t>{9}));
+
+  ASSERT_TRUE(output.proposePop());
+  output.doXfer({1, 0});
+  transform.doWork({2, 0});
+  ASSERT_TRUE(transform.hasPendingCommit());
+  input.doXfer({2, 0});
+  output.doXfer({2, 0});
+  transform.doXfer({2, 0});
+  EXPECT_TRUE(input.isEmpty());
+  EXPECT_EQ(output.committedValues(), (std::vector<uint16_t>{1, 2}));
+}
+
+TEST(QueueBlocksTest, QueueLaneSinkConsumesOneRateLimitedOrderedPrefix) {
+  SimQueue<uint16_t> input("input", 1, nullptr, 4, SIZE_MAX, nullptr, 1, 2,
+                           3);
+  QueueLaneSink<uint16_t> sink("sink", 2, nullptr, input);
+  ASSERT_TRUE(input.proposePush(1));
+  ASSERT_TRUE(input.proposePush(2));
+  input.doXfer({0, 0});
+  ASSERT_TRUE(input.proposePush(3));
+
+  sink.doWork({1, 0});
+  EXPECT_TRUE(sink.hasPendingCommit());
+  EXPECT_EQ(input.committedValues(), (std::vector<uint16_t>{1, 2}));
+  input.doXfer({1, 0});
+  sink.doXfer({1, 0});
+  EXPECT_EQ(input.committedValues(), (std::vector<uint16_t>{3}));
+  EXPECT_EQ(sink.received(), (std::vector<uint16_t>{1, 2}));
+
+  sink.doWork({2, 0});
+  input.doXfer({2, 0});
+  sink.doXfer({2, 0});
+  EXPECT_TRUE(input.isEmpty());
+  EXPECT_EQ(sink.received(), (std::vector<uint16_t>{1, 2, 3}));
+  sink.reset();
+  EXPECT_TRUE(sink.received().empty());
 }
 
 TEST(QueueBlocksTest, SimQueueCancelledGroupLeavesCommittedStateUntouched) {

@@ -579,6 +579,7 @@ emitExpressionBody(const QueueGraphPlan &plan, const QueueBlockPlan &block,
   std::string padding(indent, ' ');
   llvm::StringMap<std::string> priorityEncodings;
   llvm::StringMap<std::pair<std::string, std::string>> tableChoices;
+  llvm::StringMap<std::vector<std::string>> priorChoiceIndices;
   llvm::StringMap<std::pair<unsigned, unsigned>> tableChoicePairCounts;
   llvm::StringMap<unsigned> tableChoicePairOrdinals;
   for (const QueueExpressionPlan &expression : block.expressions) {
@@ -602,6 +603,18 @@ emitExpressionBody(const QueueGraphPlan &plan, const QueueBlockPlan &block,
       if (expression.kind == "snapshot_set")
         needed.insert(expression.field);
     }
+  for (const QueueExpressionPlan &expression : block.expressions) {
+    if (!needed.contains(expression.result) ||
+        (expression.kind != "table_choose_index" &&
+         expression.kind != "table_choose_valid"))
+      continue;
+    const std::string contract = inlineTableChoiceContractKey(expression);
+    for (const QueueExpressionPlan &candidate : block.expressions)
+      if (candidate.kind == "table_choose_index" &&
+          candidate.laneOrdinal <= expression.laneOrdinal &&
+          inlineTableChoiceContractKey(candidate) == contract)
+        needed.insert(candidate.result);
+  }
   llvm::StringMap<size_t> expressionPositions;
   for (auto [index, expression] : llvm::enumerate(block.expressions))
     expressionPositions[expression.result] = index;
@@ -662,9 +675,16 @@ emitExpressionBody(const QueueGraphPlan &plan, const QueueBlockPlan &block,
     if (expression.kind == "table_selection_index_ref" ||
         expression.kind == "table_selection_valid_ref") {
       output << padding << "auto " << expression.result << " = "
-             << identifier(expression.field) << "->get(epoch)."
-             << (expression.kind == "table_selection_index_ref" ? "index"
-                                                                : "valid")
+             << identifier(expression.field) << "->get(epoch).";
+      if (expression.selectionCount == 1 &&
+          expression.predicate != "round_robin")
+        output << (expression.kind == "table_selection_index_ref" ? "index"
+                                                                  : "valid");
+      else
+        output << (expression.kind == "table_selection_index_ref" ? "indices["
+                                                                  : "valid[")
+               << expression.laneOrdinal << ']';
+      output
              << ";\n";
       continue;
     }
@@ -1001,6 +1021,8 @@ emitExpressionBody(const QueueGraphPlan &plan, const QueueBlockPlan &block,
       std::string choiceKey =
           inlineTableChoiceContractKey(expression) + "#" +
           std::to_string(tableChoicePairOrdinals.lookup(expression.result));
+      const std::string choiceContract =
+          inlineTableChoiceContractKey(expression);
       if (auto cached = tableChoices.find(choiceKey);
           cached != tableChoices.end()) {
         auto resultType = cppType(expression.type);
@@ -1043,7 +1065,8 @@ emitExpressionBody(const QueueGraphPlan &plan, const QueueBlockPlan &block,
                   !maskExpression->hasDomainProjection
               ? std::optional<unsigned>(choiceTable->entries)
               : std::nullopt;
-      if (expression.predicate == "first" && scalarMaskWidth &&
+      if (expression.predicate == "first" && expression.selectionCount == 1 &&
+          scalarMaskWidth &&
           nested.expressions.empty() && nested.yields.empty() &&
           snapshotSets.empty()) {
         auto resultType = cppType(expression.type);
@@ -1067,7 +1090,10 @@ emitExpressionBody(const QueueGraphPlan &plan, const QueueBlockPlan &block,
                << "{};\n";
       output << padding << "std::uint64_t " << choiceIndex << " = 0;\n"
              << padding << "bool " << choiceValid << " = false;\n"
-             << padding << "std::uint64_t " << choiceBest << " = 0;\n";
+             << padding
+             << (expression.keyOrdering == "signed" ? "std::int64_t "
+                                                     : "std::uint64_t ")
+             << choiceBest << " = 0;\n";
       if (choiceTable == plan.tables.end() ||
           maskExpression == block.expressions.end())
         return generatorError("table.choose projection metadata is missing");
@@ -1087,6 +1113,9 @@ emitExpressionBody(const QueueGraphPlan &plan, const QueueBlockPlan &block,
       output << ") == 0) continue;\n";
       output << padding << "  const std::size_t global_index = *projection_"
              << choice << ".globalIndex(index);\n";
+      for (const std::string &prior : priorChoiceIndices[choiceContract])
+        output << padding << "  if (global_index == " << prior
+               << ") continue;\n";
       if (expression.predicate != "first")
         output << padding << "  const auto &entry = "
                << (qualifyTables ? "table_" + identifier(expression.table)
@@ -1142,15 +1171,19 @@ emitExpressionBody(const QueueGraphPlan &plan, const QueueBlockPlan &block,
         if (!key)
           return key.takeError();
         const char *comparison = expression.predicate == "min" ? "<" : ">";
+        const std::string normalizedKey =
+            expression.keyOrdering == "signed"
+                ? "gfsim::signedValue(key)"
+                : "static_cast<std::uint64_t>(key)";
         output << padding << "  auto key = [&]() {\n"
                << *key << padding << "  }();\n"
                << padding << "  if (!" << choiceValid
-               << " || static_cast<std::uint64_t>(key) " << comparison << " "
+               << " || " << normalizedKey << ' ' << comparison << " "
                << choiceBest << ") {\n"
                << padding << "    " << choiceIndex << " = global_index;\n"
                << padding << "    " << choiceValid << " = true;\n"
-               << padding << "    " << choiceBest
-               << " = static_cast<std::uint64_t>(key);\n"
+               << padding << "    " << choiceBest << " = " << normalizedKey
+               << ";\n"
                << padding << "  }\n";
       }
       auto resultType = cppType(expression.type);
@@ -1163,6 +1196,8 @@ emitExpressionBody(const QueueGraphPlan &plan, const QueueBlockPlan &block,
                                                          : choiceValid)
              << "};\n";
       tableChoices[choiceKey] = {choiceIndex, choiceValid};
+      if (expression.kind == "table_choose_index")
+        priorChoiceIndices[choiceContract].push_back(choiceIndex);
       continue;
     }
     if (expression.kind == "not") {
@@ -1356,6 +1391,17 @@ bool referencesTable(const std::vector<QueueExpressionPlan> &expressions,
         referencesTable(expression.nestedExpressions, table))
       return true;
   }
+  return false;
+}
+
+bool referencesSelection(const std::vector<QueueExpressionPlan> &expressions,
+                         llvm::StringRef selection) {
+  for (const QueueExpressionPlan &expression : expressions)
+    if (((expression.kind == "table_selection_index_ref" ||
+          expression.kind == "table_selection_valid_ref") &&
+         expression.field == selection) ||
+        referencesSelection(expression.nestedExpressions, selection))
+      return true;
   return false;
 }
 
@@ -2691,7 +2737,8 @@ generateStructuredQueueGraphCpp(const QueueGraphPlan &plan) {
       output << ",\n        queue_" << index << "_(\"" << queue->name
              << "\", object_" << index << "_id, this, " << queue->depth
              << ", std::numeric_limits<size_t>::max(), nullptr, "
-             << queue->latency << ", " << queue->rate << ")";
+             << queue->latency << ", " << queue->rate << ", "
+             << queue->lanes << ")";
     const uint64_t blockId = internalQueues.size();
     output << ",\n        block_(\"transform_" << block.name << "\", object_"
            << blockId << "_id, &scope_, "
@@ -2853,7 +2900,8 @@ generateStructuredQueueGraphCpp(const QueueGraphPlan &plan) {
                       "\", ", queueIds[queue.name], ", ", *parent, ", ",
                       queue.depth,
                       ", std::numeric_limits<size_t>::max(), nullptr, ",
-                      queue.latency, ", ", queue.rate, ")");
+                      queue.latency, ", ", queue.rate, ", ", queue.lanes,
+                      ")");
   }
   for (auto [index, instance] : llvm::enumerate(plan.moduleInstances)) {
     const QueueGraphPlan *specialization =
@@ -3127,7 +3175,9 @@ generateStructuredQueueGraphCpp(const QueueGraphPlan &plan) {
       output << "  gfsim::QueueBroadcast<" << *type << ", "
              << block->outputs.size() << "> block_" << index << "_;\n";
     else if (block->kind == "sink")
-      output << "  gfsim::QueueSink<" << *type << "> block_" << index << "_;\n";
+      output << "  gfsim::"
+             << (input->lanes > 1 ? "QueueLaneSink<" : "QueueSink<")
+             << *type << "> block_" << index << "_;\n";
     else if (block->kind == "observe")
       output << "  gfsim::QueueObserve<" << *type << "> block_" << index
              << "_;\n";
@@ -3149,6 +3199,8 @@ llvm::Expected<std::string> generateQueueGraphCpp(const QueueGraphPlan &plan) {
       return generatorError("official opcode has no gfsim lowering: 'scope'");
   }
   for (const QueueBlockPlan &block : plan.blocks) {
+    if (block.kind == "table_read_group")
+      continue;
     const QueueBlockContract *contract = findQueueBlockContract(block.kind);
     if (!contract || !contract->gfsimAvailable)
       return generatorError("official opcode has no gfsim lowering: '" +
@@ -3369,31 +3421,42 @@ llvm::Expected<std::string> generateQueueGraphCpp(const QueueGraphPlan &plan) {
            << "  const gfsim::CandidateSet &operator()(gfsim::Epoch epoch) const {\n"
            << "    return match->get(epoch);\n  }\n};\n";
     output << "struct " << identifier(selection.name) << "_key_policy {\n"
-           << "  std::uint64_t operator()(const " << *entryType
+           << "  auto operator()(const " << *entryType
            << " &item) const {\n";
-    if (selection.policy == "first") {
-      output << "    return 0;\n";
+    if (selection.policy == "first" || selection.policy == "round_robin") {
+      output << "    return std::uint64_t{0};\n";
     } else {
       QueueBlockPlan key;
       key.expressions = selection.keyExpressions;
       key.yields = {selection.keyYield};
-      output << "    return static_cast<std::uint64_t>([&]() {\n";
+      output << "    return [&]() {\n";
       auto body = emitExpressionBody(plan, key, selection.keyYield, 6);
       if (!body)
         return body.takeError();
       output << *body;
-      output << "    }());\n";
+      output << "    }();\n";
     }
     output << "  }\n};\n"
            << "using " << identifier(selection.name) << "_cache = "
-           << "gfsim::TableSelectionCache<" << *entryType << ", "
+           << (selection.count == 1 && selection.policy != "round_robin"
+                   ? "gfsim::TableSelectionCache<"
+                   : "gfsim::TableMultiSelectionCache<")
+           << *entryType << ", "
            << identifier(selection.name) << "_mask_policy, "
-           << identifier(selection.name) << "_key_policy>;\n"
+           << identifier(selection.name) << "_key_policy";
+    if (selection.count != 1 || selection.policy == "round_robin")
+      output << ", " << selection.count;
+    output << ">;\n"
            << "inline constexpr auto " << identifier(selection.name)
            << "_choose_policy = gfsim::TableChoosePolicy::"
            << (selection.policy == "first" ? "First"
                : selection.policy == "min" ? "Min"
-                                           : "Max")
+               : selection.policy == "max" ? "Max"
+                                             : "RoundRobin")
+           << ";\n"
+           << "inline constexpr auto " << identifier(selection.name)
+           << "_key_ordering = gfsim::TableKeyOrdering::"
+           << (selection.keyOrdering == "signed" ? "Signed" : "Unsigned")
            << ";\n\n";
   }
 
@@ -3402,7 +3465,8 @@ llvm::Expected<std::string> generateQueueGraphCpp(const QueueGraphPlan &plan) {
         block->kind != "select" && block->kind != "expect" &&
         block->kind != "dependency" && block->kind != "credit" &&
         block->kind != "reorder" && block->kind != "feedback" &&
-        block->kind != "table_read" && block->kind != "table_write" &&
+        block->kind != "table_read" && block->kind != "table_read_group" &&
+        block->kind != "table_write" &&
         block->kind != "table_masked_write" && block->kind != "firing" &&
         block->kind != "slot")
       continue;
@@ -3577,6 +3641,12 @@ llvm::Expected<std::string> generateQueueGraphCpp(const QueueGraphPlan &plan) {
           output << "  const gfsim::SimTable<" << *readType << "> *read_table_"
                  << identifier(readTable->name) << "{};\n";
         }
+        for (const TableMatchPlan &match : plan.tableMatches)
+          output << "  " << identifier(match.name) << "_cache *"
+                 << identifier(match.name) << "{};\n";
+        for (const TableSelectionPlan &selection : plan.tableSelections)
+          output << "  " << identifier(selection.name) << "_cache *"
+                 << identifier(selection.name) << "{};\n";
         output << "  std::optional<" << planType
                << "> operator()(gfsim::Epoch epoch, std::tuple<";
         for (auto [typeIndex, type] : llvm::enumerate(tableTypes)) {
@@ -3696,7 +3766,14 @@ llvm::Expected<std::string> generateQueueGraphCpp(const QueueGraphPlan &plan) {
             }
           }
         }
-        output << "}};\n  }\n};\n\n";
+        output << "}};\n  }\n";
+        output << "  void accepted(gfsim::Epoch epoch) {\n";
+        for (const TableSelectionPlan &selection : plan.tableSelections)
+          if (selection.policy == "round_robin" &&
+              referencesSelection(block->expressions, selection.name))
+            output << "    " << identifier(selection.name)
+                   << "->accept(epoch);\n";
+        output << "  }\n};\n\n";
 
         for (auto [ownerIndex, table] : llvm::enumerate(ownerTables)) {
           const std::string &entryType = tableTypes[ownerIndex];
@@ -3854,6 +3931,12 @@ llvm::Expected<std::string> generateQueueGraphCpp(const QueueGraphPlan &plan) {
         output << "  const gfsim::SimTable<" << *readType << "> *read_table_"
                << identifier(readTable->name) << "{};\n";
       }
+      for (const TableMatchPlan &match : plan.tableMatches)
+        output << "  " << identifier(match.name) << "_cache *"
+               << identifier(match.name) << "{};\n";
+      for (const TableSelectionPlan &selection : plan.tableSelections)
+        output << "  " << identifier(selection.name) << "_cache *"
+               << identifier(selection.name) << "{};\n";
       output << "  std::optional<" << planType
              << "> operator()(gfsim::Epoch epoch, "
              << "const gfsim::SimTable<" << *entryType << "> &table_ref";
@@ -3946,7 +4029,14 @@ llvm::Expected<std::string> generateQueueGraphCpp(const QueueGraphPlan &plan) {
                    << fieldMask->count << ")";
         }
       }
-      output << "};\n  }\n};\n\n";
+      output << "};\n  }\n";
+      output << "  void accepted(gfsim::Epoch epoch) {\n";
+      for (const TableSelectionPlan &selection : plan.tableSelections)
+        if (selection.policy == "round_robin" &&
+            referencesSelection(block->expressions, selection.name))
+          output << "    " << identifier(selection.name)
+                 << "->accept(epoch);\n";
+      output << "  }\n};\n\n";
       output << "struct block_" << index
              << "_merge_policy {\n  static constexpr std::array<size_t, "
              << ownerWriteFields.size() << "> fields{";
@@ -4186,6 +4276,8 @@ llvm::Expected<std::string> generateQueueGraphCpp(const QueueGraphPlan &plan) {
       output << "    };\n  }\n};\n\n";
       continue;
     }
+    if (block->kind == "table_read_group")
+      continue;
     const size_t expectedYields = block->kind == "feedback" ? 2 : 1;
     if (block->yields.size() != expectedYields ||
         (block->kind != "select" && block->inputs.size() != 1))
@@ -4327,7 +4419,8 @@ llvm::Expected<std::string> generateQueueGraphCpp(const QueueGraphPlan &plan) {
                       "\", ", queueIds[queue.name], ", ", *parent, ", ",
                       queue.depth,
                       ", std::numeric_limits<size_t>::max(), nullptr, ",
-                      queue.latency, ", ", queue.rate, ")");
+                      queue.latency, ", ", queue.rate, ", ", queue.lanes,
+                      ")");
   }
   for (const TablePlan &table : plan.tables) {
     auto parent = modulePointer(table.ownerPath);
@@ -4383,7 +4476,14 @@ llvm::Expected<std::string> generateQueueGraphCpp(const QueueGraphPlan &plan) {
                       identifier(selection.name),
                       "_mask_policy{&", identifier(selection.match), "_}, ",
                       identifier(selection.name), "_key_policy{}, ",
-                      identifier(selection.name), "_choose_policy)");
+                      identifier(selection.name), "_choose_policy");
+    if (selection.count != 1 || selection.policy == "round_robin")
+      initializers.back()
+          .append(", ")
+          .append(identifier(selection.name))
+          .append("_key_ordering, ")
+          .append(std::to_string(selection.initialCursor));
+    initializers.back().append(")");
   }
   for (auto [index, block] : llvm::enumerate(runtimeBlocks)) {
     auto state = feedbackStateIds.find(index);
@@ -4426,14 +4526,28 @@ llvm::Expected<std::string> generateQueueGraphCpp(const QueueGraphPlan &plan) {
         outputs.append("&").append(queueMembers[block->outputs[outputIndex]]);
       }
       std::string policy = "block_" + std::to_string(index) + "_policy{";
+      bool hasPolicyMember = false;
       for (auto [readIndex, readTable] :
            llvm::enumerate(readOnlyTables(plan, *block))) {
         auto table = tableMembers.find(readTable->name);
         if (table == tableMembers.end())
           return generatorError("read-only state declaration is missing");
-        if (readIndex)
+        if (hasPolicyMember)
           policy.append(", ");
         policy.append("&").append(table->getValue());
+        hasPolicyMember = true;
+      }
+      for (const TableMatchPlan &match : plan.tableMatches) {
+        if (hasPolicyMember)
+          policy.append(", ");
+        policy.append("&").append(identifier(match.name)).append("_");
+        hasPolicyMember = true;
+      }
+      for (const TableSelectionPlan &selection : plan.tableSelections) {
+        if (hasPolicyMember)
+          policy.append(", ");
+        policy.append("&").append(identifier(selection.name)).append("_");
+        hasPolicyMember = true;
       }
       policy.push_back('}');
       const std::vector<const TablePlan *> ownerTables =
@@ -4615,6 +4729,20 @@ llvm::Expected<std::string> generateQueueGraphCpp(const QueueGraphPlan &plan) {
                         blockIds[key], ", ", *parent, ", ",
                         queueMembers[block->inputs[0]], ", ",
                         cppStringLiteral(block->message), ")");
+    } else if (block->kind == "table_read_group") {
+      auto table = tableMembers.find(block->table);
+      if (table == tableMembers.end())
+        return generatorError("selection read group Table is missing");
+      std::string outputs;
+      for (auto [lane, output] : llvm::enumerate(block->outputs)) {
+        if (lane)
+          outputs.append(", ");
+        outputs.append("&").append(queueMembers[output]);
+      }
+      appendInitializer(initializers, member, "(\"", instanceName, "\", ",
+                        blockIds[key], ", ", *parent, ", ", table->getValue(),
+                        ", ", identifier(block->selection), "_, std::array{",
+                        outputs, "})");
     } else if (block->kind == "table_read") {
       auto table = tableMembers.find(block->table);
       if (table == tableMembers.end())
@@ -5044,9 +5172,14 @@ llvm::Expected<std::string> generateQueueGraphCpp(const QueueGraphPlan &plan) {
           return inputType.takeError();
         if (!resultType)
           return resultType.takeError();
-        output << "  gfsim::QueueTransform<" << *inputType << ", "
-               << *resultType << ", block_" << index << "_policy, "
-               << result->rate << "> block_" << index << "_;\n";
+        if (input->lanes > 1 || result->lanes > 1)
+          output << "  gfsim::QueueLaneTransform<" << *inputType << ", "
+                 << *resultType << ", block_" << index << "_policy> block_"
+                 << index << "_;\n";
+        else
+          output << "  gfsim::QueueTransform<" << *inputType << ", "
+                 << *resultType << ", block_" << index << "_policy, "
+                 << result->rate << "> block_" << index << "_;\n";
       } else {
         output << "  gfsim::QueueAtomicTransform<block_" << index
                << "_policy, std::tuple<";
@@ -5189,6 +5322,16 @@ llvm::Expected<std::string> generateQueueGraphCpp(const QueueGraphPlan &plan) {
         return type.takeError();
       output << "  gfsim::QueueExpect<" << *type << ", block_" << index
              << "_policy> block_" << index << "_;\n";
+    } else if (block->kind == "table_read_group") {
+      const TablePlan *table = findTable(plan, block->table);
+      auto entryType = table ? cppType(table->entryType)
+                             : llvm::Expected<std::string>(generatorError(
+                                   "selection read group Table missing"));
+      if (!entryType)
+        return entryType.takeError();
+      output << "  gfsim::TableSelectionReadGroup<" << *entryType << ", "
+             << identifier(block->selection) << "_cache, "
+             << block->selectionCount << "> block_" << index << "_;\n";
     } else if (block->kind == "table_read") {
       const TablePlan *table = findTable(plan, block->table);
       auto entryType = table ? cppType(table->entryType)
@@ -5264,8 +5407,9 @@ llvm::Expected<std::string> generateQueueGraphCpp(const QueueGraphPlan &plan) {
       if (!type)
         return type.takeError();
       if (block->kind == "sink") {
-        output << "  gfsim::QueueSink<" << *type << "> block_" << index
-               << "_;\n";
+        output << "  gfsim::"
+               << (input->lanes > 1 ? "QueueLaneSink<" : "QueueSink<")
+               << *type << "> block_" << index << "_;\n";
         ++sinkIndex;
       } else {
         output << "  gfsim::QueueObserve<" << *type << "> block_" << index

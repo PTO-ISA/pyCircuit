@@ -141,6 +141,315 @@ emitTransform(const QueueGraphPlan &plan, const QueueBlockPlan &block,
               llvm::ArrayRef<std::string> inputData,
               llvm::ArrayRef<std::string> inputTypes, size_t yieldIndex,
               unsigned &nextValue, std::ostringstream &body,
+              llvm::StringMap<std::string> *emittedValues);
+
+constexpr llvm::StringLiteral kStructMetrics =
+    "{\\\"ast_node_count\\\":0,\\\"collection_count\\\":0,"
+    "\\\"collection_instance_count\\\":0,"
+    "\\\"estimated_inline_cost\\\":0,\\\"hardware_call_count\\\":0,"
+    "\\\"instance_count\\\":0,\\\"loop_count\\\":0,"
+    "\\\"module_call_count\\\":0,"
+    "\\\"module_family_collection_count\\\":0,"
+    "\\\"repeat_pressure\\\":0,\\\"repeated_body_clusters\\\":[],"
+    "\\\"source_loc\\\":0,\\\"state_alloc_count\\\":0,"
+    "\\\"state_call_count\\\":0}";
+
+llvm::Expected<std::string>
+generateLaneQueuePyc(const QueueGraphPlan &plan,
+                     llvm::ArrayRef<const QueueBlockPlan *> sources,
+                     llvm::ArrayRef<const QueueBlockPlan *> sinks) {
+  if (sources.size() != 1 || sinks.size() != 1 || plan.queues.empty() ||
+      sources.front()->outputs.size() != 1 || sinks.front()->inputs.size() != 1)
+    return pycError(
+        "multi-lane PYC requires one source and one sink boundary");
+  llvm::StringMap<const QueueBlockPlan *> transformsByOutput;
+  for (const QueueBlockPlan &block : plan.blocks) {
+    if (block.kind == "source" || block.kind == "sink")
+      continue;
+    if (block.kind != "transform" || block.inputs.size() != 1 ||
+        block.outputs.size() != 1 || block.yields.size() != 1)
+      return pycError(
+          "multi-lane PYC supports only a chain of 1x1 pure transforms");
+    transformsByOutput[block.outputs.front()] = &block;
+  }
+  const QueuePlan *boundaryQueue =
+      findQueue(plan, sources.front()->outputs.front());
+  const QueuePlan *sinkQueue = findQueue(plan, sinks.front()->inputs.front());
+  if (!boundaryQueue || !sinkQueue)
+    return pycError("multi-lane Queue boundary identity is missing");
+  for (const QueuePlan &queue : plan.queues) {
+    if (queue.lanes != boundaryQueue->lanes ||
+        queue.rate != boundaryQueue->rate ||
+        queue.payloadType != boundaryQueue->payloadType || queue.lanes <= 1 ||
+        queue.rate == 0 || queue.rate > queue.lanes ||
+        queue.depth < queue.rate || queue.latency != 1)
+      return pycError(
+          "multi-lane transform chain requires uniform payload/lanes/rate, "
+          "latency=1, and depth>=rate");
+    if (queue.laneOrdinals.size() != queue.lanes)
+      return pycError("multi-lane Queue requires explicit lane ordinals");
+    for (auto [ordinal, lane] : llvm::enumerate(queue.laneOrdinals))
+      if (lane != ordinal)
+        return pycError(
+            "multi-lane Queue ordinals must be contiguous from zero");
+  }
+  auto payloadWidth = typeWidth(plan, boundaryQueue->payloadType);
+  if (!payloadWidth)
+    return payloadWidth.takeError();
+  const QueuePlan &queue = *boundaryQueue;
+  unsigned nextValue = 0;
+  auto newValue = [&]() { return "%v" + std::to_string(nextValue++); };
+  std::ostringstream body;
+  auto emitConstant = [&](uint64_t value, llvm::StringRef type) {
+    std::string result = newValue();
+    body << "    " << result << " = pyc.constant " << value << " : "
+         << type.str() << "\n";
+    return result;
+  };
+  auto emitBinary = [&](llvm::StringRef operation, llvm::StringRef lhs,
+                        llvm::StringRef rhs, llvm::StringRef type) {
+    std::string result = newValue();
+    body << "    " << result << " = pyc." << operation.str() << ' '
+         << lhs.str() << ", " << rhs.str() << " : " << type.str() << ", "
+         << type.str() << " -> " << type.str() << "\n";
+    return result;
+  };
+  auto emitNot = [&](llvm::StringRef value) {
+    std::string result = newValue();
+    body << "    " << result << " = pyc.not " << value.str() << " : i1\n";
+    return result;
+  };
+  auto emitSelect = [&](llvm::StringRef condition, llvm::StringRef trueValue,
+                        llvm::StringRef falseValue, llvm::StringRef type) {
+    std::string result = newValue();
+    body << "    " << result << " = pyc.select " << condition.str() << ", "
+         << trueValue.str() << ", " << falseValue.str() << " : i1, "
+         << type.str() << ", " << type.str() << " -> " << type.str()
+         << "\n";
+    return result;
+  };
+
+  const std::string payloadType = "i" + std::to_string(*payloadWidth);
+  std::vector<std::string> inputValids;
+  std::vector<std::string> inputData;
+  for (uint64_t lane = 0; lane < queue.lanes; ++lane) {
+    inputValids.push_back("%in_valid_" + std::to_string(lane));
+    inputData.push_back("%in_data_" + std::to_string(lane));
+  }
+  for (uint64_t lane = 1; lane < queue.lanes; ++lane) {
+    std::string prefixOk = emitBinary(
+        "or", emitNot(inputValids[lane]), inputValids[lane - 1], "i1");
+    body << "    pyc.assert " << prefixOk
+         << " {msg = \"queue_valid_prefix\"}\n";
+  }
+  for (uint64_t lane = queue.rate; lane < queue.lanes; ++lane) {
+    std::string rateOk = emitNot(inputValids[lane]);
+    body << "    pyc.assert " << rateOk
+         << " {msg = \"queue_rate_exceeded\"}\n";
+  }
+  std::string zeroI1 = emitConstant(0, "i1");
+  std::string zeroData = emitConstant(0, payloadType);
+  struct LaneQueueState {
+    std::vector<std::string> valid;
+    std::vector<std::string> data;
+    std::string dequeue;
+    std::string producerReady;
+  };
+  llvm::StringMap<LaneQueueState> queueStates;
+  std::string sourceReady;
+  for (const QueuePlan &currentQueue : plan.queues) {
+    std::vector<std::string> producerValids;
+    std::vector<std::string> producerData;
+    const QueueBlockPlan *transform = nullptr;
+    if (currentQueue.name == sources.front()->outputs.front()) {
+      producerValids = inputValids;
+      producerData = inputData;
+    } else {
+      auto found = transformsByOutput.find(currentQueue.name);
+      if (found == transformsByOutput.end())
+        return pycError("multi-lane transform chain is not topologically closed");
+      transform = found->getValue();
+      auto input = queueStates.find(transform->inputs.front());
+      if (input == queueStates.end())
+        return pycError("multi-lane transform input is not in topological order");
+      for (uint64_t lane = 0; lane < currentQueue.lanes; ++lane) {
+        producerValids.push_back(lane < currentQueue.rate
+                                     ? input->getValue().valid[lane]
+                                     : zeroI1);
+        auto transformed = emitTransform(
+            plan, *transform, {input->getValue().data[lane]},
+            {currentQueue.payloadType}, 0, nextValue, body, nullptr);
+        if (!transformed)
+          return transformed.takeError();
+        producerData.push_back(std::move(*transformed));
+      }
+    }
+
+    std::vector<std::string> validNext, validEnable, validState;
+    std::vector<std::string> dataNext, dataEnable, dataState;
+    for (uint64_t slot = 0; slot < currentQueue.depth; ++slot) {
+      validNext.push_back(newValue());
+      validEnable.push_back(newValue());
+      validState.push_back(newValue());
+      body << "    " << validNext.back() << " = pyc.wire : i1\n";
+      body << "    " << validEnable.back() << " = pyc.wire : i1\n";
+      body << "    " << validState.back() << " = pyc.reg %clk, %rst, "
+           << validEnable.back() << ", " << validNext.back() << ", "
+           << zeroI1 << " : i1\n";
+      dataNext.push_back(newValue());
+      dataEnable.push_back(newValue());
+      dataState.push_back(newValue());
+      body << "    " << dataNext.back() << " = pyc.wire : " << payloadType
+           << "\n";
+      body << "    " << dataEnable.back() << " = pyc.wire : i1\n";
+      body << "    " << dataState.back() << " = pyc.reg %clk, %rst, "
+           << dataEnable.back() << ", " << dataNext.back() << ", "
+           << zeroData << " : " << payloadType << "\n";
+    }
+    std::string dequeue = newValue();
+    body << "    " << dequeue << " = pyc.wire : i1\n";
+    std::vector<std::string> nextValid, nextData;
+    for (uint64_t slot = 0; slot < currentQueue.depth; ++slot) {
+      const std::string shiftedValid =
+          slot + currentQueue.rate < currentQueue.depth
+              ? validState[slot + currentQueue.rate]
+              : zeroI1;
+      const std::string shiftedData =
+          slot + currentQueue.rate < currentQueue.depth
+              ? dataState[slot + currentQueue.rate]
+              : zeroData;
+      nextValid.push_back(
+          emitSelect(dequeue, shiftedValid, validState[slot], "i1"));
+      nextData.push_back(
+          emitSelect(dequeue, shiftedData, dataState[slot], payloadType));
+    }
+    std::string ready = emitConstant(1, "i1");
+    for (uint64_t lane = 0; lane < currentQueue.rate; ++lane) {
+      std::string capacity =
+          emitNot(nextValid[currentQueue.depth - 1 - lane]);
+      std::string laneFits = emitBinary(
+          "or", emitNot(producerValids[lane]), capacity, "i1");
+      ready = emitBinary("and", ready, laneFits, "i1");
+    }
+    std::string accepted =
+        emitBinary("and", producerValids.front(), ready, "i1");
+    for (uint64_t lane = 0; lane < currentQueue.rate; ++lane) {
+      const std::vector<std::string> beforeValid = nextValid;
+      const std::vector<std::string> beforeData = nextData;
+      for (uint64_t slot = 0; slot < currentQueue.depth; ++slot) {
+        std::string firstFree = emitNot(beforeValid[slot]);
+        if (slot != 0)
+          firstFree =
+              emitBinary("and", firstFree, beforeValid[slot - 1], "i1");
+        std::string insert =
+            emitBinary("and", ready, producerValids[lane], "i1");
+        insert = emitBinary("and", insert, firstFree, "i1");
+        nextData[slot] = emitSelect(insert, producerData[lane],
+                                    beforeData[slot], payloadType);
+        nextValid[slot] = emitBinary("or", beforeValid[slot], insert, "i1");
+      }
+    }
+    std::string stateEnable = emitBinary("or", dequeue, accepted, "i1");
+    for (uint64_t slot = 0; slot < currentQueue.depth; ++slot) {
+      body << "    pyc.assign " << validNext[slot] << ", " << nextValid[slot]
+           << " : i1\n";
+      body << "    pyc.assign " << validEnable[slot] << ", " << stateEnable
+           << " : i1\n";
+      body << "    pyc.assign " << dataNext[slot] << ", " << nextData[slot]
+           << " : " << payloadType << "\n";
+      body << "    pyc.assign " << dataEnable[slot] << ", " << stateEnable
+           << " : i1\n";
+    }
+    LaneQueueState state{std::move(validState), std::move(dataState),
+                         dequeue, ready};
+    auto inserted =
+        queueStates.try_emplace(currentQueue.name, std::move(state)).first;
+    if (transform) {
+      LaneQueueState &input = queueStates[transform->inputs.front()];
+      std::string consume =
+          emitBinary("and", input.valid.front(), ready, "i1");
+      body << "    pyc.assign " << input.dequeue << ", " << consume
+           << " : i1\n";
+    } else {
+      sourceReady = ready;
+    }
+    (void)inserted;
+  }
+  LaneQueueState &outputState = queueStates[sinkQueue->name];
+  std::string outputDequeue =
+      emitBinary("and", outputState.valid.front(), "%out_ready", "i1");
+  body << "    pyc.assign " << outputState.dequeue << ", " << outputDequeue
+       << " : i1\n";
+
+  std::vector<std::string> returnValues;
+  std::vector<std::string> resultTypes;
+  std::vector<std::string> resultNames;
+  for (uint64_t lane = 0; lane < queue.lanes; ++lane) {
+    std::string valid =
+        lane < queue.rate ? outputState.valid[lane] : zeroI1;
+    std::string data = lane < queue.rate ? outputState.data[lane] : zeroData;
+    returnValues.push_back(valid);
+    returnValues.push_back(data);
+    resultTypes.push_back("i1");
+    resultTypes.push_back(payloadType);
+    resultNames.push_back("out_valid_" + std::to_string(lane));
+    resultNames.push_back("out_data_" + std::to_string(lane));
+  }
+  returnValues.push_back(sourceReady);
+  resultTypes.push_back("i1");
+  resultNames.push_back("in_ready");
+
+  std::vector<std::string> arguments = {"%clk: !pyc.clock",
+                                        "%rst: !pyc.reset"};
+  std::vector<std::string> argumentNames = {"clk", "rst"};
+  for (uint64_t lane = 0; lane < queue.lanes; ++lane) {
+    arguments.push_back(inputValids[lane] + ": i1");
+    arguments.push_back(inputData[lane] + ": " + payloadType);
+    argumentNames.push_back("in_valid_" + std::to_string(lane));
+    argumentNames.push_back("in_data_" + std::to_string(lane));
+  }
+  arguments.push_back("%out_ready: i1");
+  argumentNames.push_back("out_ready");
+  auto writeList = [](std::ostringstream &stream,
+                      llvm::ArrayRef<std::string> values,
+                      llvm::StringRef prefix = {},
+                      llvm::StringRef suffix = {}) {
+    for (auto [index, value] : llvm::enumerate(values)) {
+      if (index)
+        stream << ", ";
+      stream << prefix.str() << value << suffix.str();
+    }
+  };
+  std::ostringstream output;
+  output << "module attributes {pyc.top = @" << plan.system
+         << ", pyc.frontend.contract = \"pycircuit\"} {\n  func.func @"
+         << plan.system << '(';
+  writeList(output, arguments);
+  output << ") -> (";
+  writeList(output, resultTypes);
+  output << ") attributes {arg_names = [";
+  writeList(output, argumentNames, "\"", "\"");
+  output << "], result_names = [";
+  writeList(output, resultNames, "\"", "\"");
+  output << "], pyc.value_params = [], pyc.value_param_types = [], "
+            "pyc.kind = \"module\", pyc.inline = \"false\", "
+            "pyc.params = \"{}\", pyc.base = \""
+         << plan.system << "\", pyc.struct.metrics = \""
+         << kStructMetrics.str()
+         << "\", pyc.struct.collections = \"[]\"} {\n"
+         << body.str() << "    func.return ";
+  writeList(output, returnValues);
+  output << " : ";
+  writeList(output, resultTypes);
+  output << "\n  }\n}\n";
+  return output.str();
+}
+
+llvm::Expected<std::string>
+emitTransform(const QueueGraphPlan &plan, const QueueBlockPlan &block,
+              llvm::ArrayRef<std::string> inputData,
+              llvm::ArrayRef<std::string> inputTypes, size_t yieldIndex,
+              unsigned &nextValue, std::ostringstream &body,
               llvm::StringMap<std::string> *emittedValues = nullptr) {
   if (inputData.size() != inputTypes.size() || inputData.empty())
     return pycError("transform input data/type arity mismatch");
@@ -564,17 +873,6 @@ emitTransform(const QueueGraphPlan &plan, const QueueBlockPlan &block,
   return result;
 }
 
-constexpr llvm::StringLiteral kStructMetrics =
-    "{\\\"ast_node_count\\\":0,\\\"collection_count\\\":0,"
-    "\\\"collection_instance_count\\\":0,"
-    "\\\"estimated_inline_cost\\\":0,\\\"hardware_call_count\\\":0,"
-    "\\\"instance_count\\\":0,\\\"loop_count\\\":0,"
-    "\\\"module_call_count\\\":0,"
-    "\\\"module_family_collection_count\\\":0,"
-    "\\\"repeat_pressure\\\":0,\\\"repeated_body_clusters\\\":[],"
-    "\\\"source_loc\\\":0,\\\"state_alloc_count\\\":0,"
-    "\\\"state_call_count\\\":0}";
-
 } // namespace
 
 llvm::Expected<std::string> generateQueueGraphPyc(const QueueGraphPlan &plan) {
@@ -832,14 +1130,17 @@ llvm::Expected<std::string> generateQueueGraphPyc(const QueueGraphPlan &plan) {
     return std::move(error);
   if (sources.empty() || sinks.empty())
     return pycError("PYC lowering requires at least one source and one sink");
+  if (llvm::any_of(plan.queues, [](const QueuePlan &queue) {
+        return queue.lanes > 1 || queue.rate > 1;
+      }))
+    return generateLaneQueuePyc(plan, sources, sinks);
   for (const QueuePlan &queue : plan.queues) {
     if (auto width = typeWidth(plan, queue.payloadType); !width)
       return width.takeError();
     if (queue.latency == 0)
       return pycError("PYC Queue latency must be positive");
-    if (queue.rate != 1)
-      return pycError(
-          "PYC Queue rate greater than one requires explicit lane lowering");
+    if (queue.lanes != 1 || queue.rate != 1)
+      return pycError("PYC scalar Queue requires lanes=rate=1");
   }
   llvm::StringMap<size_t> sourceBoundary;
   std::vector<std::string> inputPortTypes;

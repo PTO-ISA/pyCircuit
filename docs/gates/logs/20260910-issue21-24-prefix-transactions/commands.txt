@@ -1,0 +1,27 @@
+cmake --build .pycircuit_out/acir/dev-llvm22 --target ACIRTypesTests ACIROpsTests ACIRModelAnalysisTests CodeGenTests GfsimTests acir-opt-internal acir-queue-cxxgen acir-queue-pycgen -j 8
+cmake --build .pycircuit_out/acir/dev-llvm22 --target check-acir -j 8
+ctest --test-dir .pycircuit_out/acir/dev-llvm22 --output-on-failure -R ^(ACIRTypesTests|ACIROpsTests|ACIRModelAnalysisTests|CodeGenTests|GfsimTests)$
+.pycircuit_out/acir/dev-llvm22/bin/GfsimTests --gtest_filter=QueueBlocksTest.MultiSelectionOrdersSignedKeysAndZeroesInvalidSuffixLanes:QueueBlocksTest.RoundRobinSelectionAdvancesOnlyOnAcceptAndResetsInitialCursor:QueueBlocksTest.SelectionReadGroupStallsWholePrefixAndAcceptsRoundRobinOnce:QueueBlocksTest.SimQueueBatchTransfersOneOrderedAtomicPrefix:QueueBlocksTest.SimQueueBatchStallsWholePrefixAndResetClearsReservation:QueueBlocksTest.QueueLaneTransformStallsWholePrefixUnderBackpressure:QueueBlocksTest.QueueLaneSinkConsumesOneRateLimitedOrderedPrefix
+.pycircuit_out/acir/dev-llvm22/bin/CodeGenTests --gtest_filter=QueueGraphPlanTest.MultiSelectionAndQueueLanesRemainCanonicalPlanDimensions:QueueGraphPlanTest.GeneratedRoundRobinSelectionAdvancesOnAcceptedFiring:QueueGraphPlanTest.MultiSelectionTableReadsBecomeOnePrefixTransaction:QueueGraphPlanTest.InlineMultiSelectionPreservesSegmentedDistinctLanes
+.pycircuit_out/venv-release-test/bin/python -m pytest -q tests/python/agentic-circuit/python_frontend
+.pycircuit_out/venv-release-test/bin/python -m pytest -q tests/integration/agentic-circuit/e2e/test_queue_lanes_backend.py
+.pycircuit_out/venv-release-test/bin/python tools/check-pyc-inventory.py
+.pycircuit_out/venv-release-test/bin/python tools/agentic-circuit/check-contracts.py
+python3 flows/tools/check_decision_status.py --status docs/gates/decision_status_v6.md --out docs/gates/logs/20260910-issue21-24-prefix-transactions/decision_status_report.json --require-concrete-evidence --require-existing-evidence
+mkdocs build --strict
+git diff --check
+ctest --test-dir .pycircuit_out/acir/dev-llvm22 --output-on-failure -R ^(ACIRTypesTests|ACIROpsTests|ACIRModelAnalysisTests|CodeGenTests|GfsimTests)$
+.pycircuit_out/acir/dev-llvm22/bin/CodeGenTests --gtest_filter=QueueGraphPlanTest.MultiSelectionAndQueueLanesRemainCanonicalPlanDimensions:QueueGraphPlanTest.GeneratedRoundRobinSelectionAdvancesOnAcceptedFiring:QueueGraphPlanTest.MultiSelectionTableReadsBecomeOnePrefixTransaction:QueueGraphPlanTest.InlineMultiSelectionPreservesSegmentedDistinctLanes
+zsh -c
+  work=$(mktemp -d /tmp/pyc-prefix-asan.XXXXXX) || exit 1
+  for stem in queue-lanes-pyc queue-lanes-transform-pyc; do
+    .pycircuit_out/acir/dev-llvm22/bin/acir-opt-internal --pass-pipeline="builtin.module(ac-freeze-topology)" "tests/mlir/agentic-circuit/CodeGen/${stem}.mlir" -o "$work/${stem}.frozen.mlir" || exit 2
+    .pycircuit_out/acir/dev-llvm22/bin/acir-queue-cxxgen "$work/${stem}.frozen.mlir" > "$work/${stem}.cpp" || exit 3
+  done
+  clang++ -std=c++20 -fsanitize=address,undefined -fno-omit-frame-pointer -Isimulator/gfsim/include -DGENERATED_SOURCE=\"$work/queue-lanes-pyc.cpp\" tests/mlir/agentic-circuit/CodeGen/Inputs/queue-lanes-main.cpp -o "$work/direct" || exit 4
+  ASAN_OPTIONS=detect_leaks=0 "$work/direct" || exit 5
+  clang++ -std=c++20 -fsanitize=address,undefined -fno-omit-frame-pointer -Isimulator/gfsim/include -DGENERATED_SOURCE=\"$work/queue-lanes-transform-pyc.cpp\" tests/mlir/agentic-circuit/CodeGen/Inputs/queue-lanes-transform-main.cpp -o "$work/transform" || exit 6
+  ASAN_OPTIONS=detect_leaks=0 "$work/transform" || exit 7
+
+python3 flows/tools/check_decision_status.py --status docs/gates/decision_status_v6.md --out docs/gates/logs/20260910-issue21-24-prefix-transactions/decision_status_report.json --require-concrete-evidence --require-existing-evidence
+git diff --check

@@ -1507,7 +1507,9 @@ TEST(ACDataFlowAnalyzerTest, InfersMatchAndChooseSnapshotSets) {
           ac.table.match.yield %is_ready : !ac.var<i1>
         } -> !ac.var<i4>
         %index, %present = ac.table.choose @entries %mask : !ac.var<i4>
-            count 1 policy "min" key {
+            count 1 policy #ac<table_selection_policy min>
+            key_order #ac<table_key_ordering unsigned>
+            stable_id "entries/min" key {
         ^bb0(%entry: !ac.var<i2>):
           %priority = ac.table.get @priority[%entry] : !ac.var<i2> -> !ac.var<i2>
           ac.table.choose.yield %priority : !ac.var<i2>
@@ -1551,7 +1553,7 @@ TEST(ACDataFlowAnalyzerTest, InfersMatchAndChooseSnapshotSets) {
   EXPECT_EQ((std::vector<std::string>{"$entry"}), snapshots[1].fields);
   EXPECT_EQ("priority", snapshots[2].resource);
   EXPECT_EQ("set", snapshots[2].indexKind);
-  EXPECT_EQ(choose.getIndex(), snapshots[2].source);
+  EXPECT_EQ(choose.getResults().front(), snapshots[2].source);
   EXPECT_EQ((std::vector<std::string>{"$entry"}), snapshots[2].fields);
 }
 

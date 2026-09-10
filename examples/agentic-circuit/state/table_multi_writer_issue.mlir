@@ -63,7 +63,7 @@ module attributes {ac.contract_epoch = "0.5", ac.model_kind = "queue_graph", ac.
     %match_7_v4 = ac.var.mul %match_7_v2, %match_7_v3 : !ac.var<i1>
     ac.table.match.yield %match_7_v4 : !ac.var<i1>
   } -> !ac.var<i4>
-  %table_choose_8_index, %table_choose_8_valid = ac.table.choose @issue %table_match_7 : !ac.var<i4> count 1 policy "min" key {
+  %table_choose_8_index, %table_choose_8_valid = ac.table.choose @issue %table_match_7 : !ac.var<i4> count 1 policy #ac<table_selection_policy min> key_order #ac<table_key_ordering unsigned> stable_id "table/choose/min" key {
   ^key(%entry: !ac.var<!ac.struct<@types::@Entry>>):
     %choose_8_v0 = ac.var.get %entry field "age" : !ac.var<!ac.struct<@types::@Entry>> -> !ac.var<i8>
     ac.table.choose.yield %choose_8_v0 : !ac.var<i8>

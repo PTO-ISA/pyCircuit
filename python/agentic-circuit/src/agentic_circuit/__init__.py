@@ -156,7 +156,12 @@ def matches(value: object, pattern: str) -> Never:
 
 
 def source(
-    payload: object, *, depth: int = 1, latency: int = 1, rate: int = 1
+    payload: object,
+    *,
+    depth: int = 1,
+    latency: int = 1,
+    rate: int = 1,
+    lanes: int = 1,
 ) -> Never:
     return _not_implemented("source")
 

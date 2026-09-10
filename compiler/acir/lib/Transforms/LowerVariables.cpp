@@ -110,6 +110,26 @@ LogicalResult lowerVariableState(ModuleOp model) {
     NamedAttrList attributes(choice->getAttrs());
     attributes.erase("variable");
     attributes.set("table", choice.getVariableAttr());
+    const ac::TableSelectionPolicy policy =
+        choice.getPolicy() == "first"
+            ? ac::TableSelectionPolicy::First
+            : (choice.getPolicy() == "min" ? ac::TableSelectionPolicy::Min
+                                            : ac::TableSelectionPolicy::Max);
+    attributes.set("policy", ac::TableSelectionPolicyAttr::get(
+                                 model.getContext(), policy));
+    if (policy == ac::TableSelectionPolicy::Min ||
+        policy == ac::TableSelectionPolicy::Max)
+      attributes.set("key_ordering", ac::TableKeyOrderingAttr::get(
+                                         model.getContext(),
+                                         ac::TableKeyOrdering::Unsigned));
+    auto query = choice->getAttrOfType<StringAttr>("ac.query");
+    if (!query || query.getValue().empty())
+      return choice.emitOpError(
+          "storage selection requires stable ac.query identity");
+    attributes.set(
+        "stable_id",
+        builder.getStringAttr((choice.getVariable() + "/" + query.getValue())
+                                  .str()));
     state.addAttributes(attributes);
     state.addRegion();
     Operation *replacement = builder.create(state);

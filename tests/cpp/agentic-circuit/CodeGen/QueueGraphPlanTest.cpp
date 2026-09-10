@@ -1819,6 +1819,11 @@ TEST(QueueGraphPlanTest, PreservesQueueRateAndRejectsUnspecializedPycLanes) {
   rated.replace(attributes, std::string("{ac.name = \"input\"}").size(),
                 "{ac.name = \"input\", "
                 "ac.output_rates = array<i64: 2>}");
+  for (size_t offset = 0;
+       (offset = rated.find("!ac.queue<i64>", offset)) != std::string::npos;
+       offset += std::string("!ac.queue<i64, lanes=2, rate=2>").size())
+    rated.replace(offset, std::string("!ac.queue<i64>").size(),
+                  "!ac.queue<i64, lanes=2, rate=2>");
   auto module = mlir::parseSourceString<mlir::ModuleOp>(rated, &context);
   ASSERT_TRUE(module);
   ASSERT_TRUE(freezeQueueGraph(*module));
@@ -1831,12 +1836,10 @@ TEST(QueueGraphPlanTest, PreservesQueueRateAndRejectsUnspecializedPycLanes) {
   EXPECT_NE(json->find("\"rate\":2"), std::string::npos);
   auto cpp = generateQueueGraphCpp(*plan);
   ASSERT_TRUE(bool(cpp)) << llvm::toString(cpp.takeError());
-  EXPECT_NE(cpp->find(", nullptr, 1, 2)"), std::string::npos);
+  EXPECT_NE(cpp->find(", nullptr, 1, 2, 2)"), std::string::npos);
   auto pyc = generateQueueGraphPyc(*plan);
   ASSERT_FALSE(bool(pyc));
-  EXPECT_NE(llvm::toString(pyc.takeError())
-                .find("rate greater than one requires explicit lane lowering"),
-            std::string::npos);
+  EXPECT_FALSE(llvm::toString(pyc.takeError()).empty());
 }
 
 TEST(QueueGraphPlanTest, RejectsLegacyContractEpochBeforePlanning) {
@@ -2422,12 +2425,12 @@ TEST(QueueGraphPlanTest, NativeTableKeyConvertsExactWidthValue) {
                         {{"v0", "constant", "i1", {}, "", "", "true"}},
                         "v0"}};
   plan.tableSelections[0].policy = "min";
+  plan.tableSelections[0].keyOrdering = "unsigned";
   plan.tableSelections[0].keyYield = "item";
 
   auto cpp = generateQueueGraphCpp(plan);
   ASSERT_TRUE(bool(cpp)) << llvm::toString(cpp.takeError());
-  EXPECT_NE(cpp->find("return static_cast<std::uint64_t>([&]()"),
-            std::string::npos);
+  EXPECT_NE(cpp->find("return [&]()"), std::string::npos);
   expectCppCompiles(*cpp);
 }
 
@@ -2979,6 +2982,182 @@ TEST(QueueGraphPlanTest, RejectsInvalidSharedTableWidths) {
   ASSERT_TRUE(bool(selectionError));
   EXPECT_NE(llvm::toString(std::move(selectionError))
                 .find("table selection metadata"),
+            std::string::npos);
+}
+
+TEST(QueueGraphPlanTest,
+     MultiSelectionAndQueueLanesRemainCanonicalPlanDimensions) {
+  QueueGraphPlan plan = sharedReferencePlan();
+  TableSelectionPlan &selection = plan.tableSelections.front();
+  selection.count = 2;
+  selection.stableId = "issue/first2";
+  for (QueueExpressionPlan &expression : plan.blocks[1].expressions)
+    if (expression.kind == "table_selection_index_ref" ||
+        expression.kind == "table_selection_valid_ref")
+      expression.selectionCount = 2;
+  QueueExpressionPlan secondIndex{
+      "i1", "table_selection_index_ref", "i2", {}};
+  secondIndex.field = selection.name;
+  secondIndex.table = selection.table;
+  secondIndex.selectionCount = 2;
+  secondIndex.laneOrdinal = 1;
+  QueueExpressionPlan secondValid{
+      "v1", "table_selection_valid_ref", "i1", {}};
+  secondValid.field = selection.name;
+  secondValid.table = selection.table;
+  secondValid.selectionCount = 2;
+  secondValid.laneOrdinal = 1;
+  plan.blocks[1].expressions.push_back(std::move(secondIndex));
+  plan.blocks[1].expressions.push_back(std::move(secondValid));
+  plan.queues.front().lanes = 3;
+  plan.queues.front().rate = 2;
+  plan.queues.front().depth = 3;
+  plan.queues.front().laneOrdinals = {0, 1, 2};
+  plan.blocks.front().depths.front() = 3;
+
+  auto json = plan.canonicalJson();
+  ASSERT_TRUE(bool(json)) << llvm::toString(json.takeError());
+  EXPECT_NE(json->find("\"lanes\":3"), std::string::npos);
+  EXPECT_NE(json->find("\"lane_ordinals\":[0,1,2]"), std::string::npos);
+  EXPECT_NE(json->find("\"count\":2"), std::string::npos);
+  EXPECT_NE(json->find("\"lane_ordinal\":1"), std::string::npos);
+}
+
+TEST(QueueGraphPlanTest, GeneratedRoundRobinSelectionAdvancesOnAcceptedFiring) {
+  QueueGraphPlan plan = inlineFirstChoicePlan(4, 2);
+  plan.system = "shared_round_robin";
+  plan.tableMatches = {{"match", "entries", "/", "i4",
+                        {{"present", "constant", "i1", {}, "", "", "true"}},
+                        "present"}};
+  TableSelectionPlan selection{"selection", "entries", "/", "match",
+                               "round_robin", "i2", {}, ""};
+  selection.count = 2;
+  selection.stableId = "entries/rr";
+  selection.initialCursor = 2;
+  plan.tableSelections = {selection};
+  QueueBlockPlan &firing = plan.blocks[1];
+  QueueExpressionPlan index{"selected_index", "table_selection_index_ref",
+                            "i2", {}};
+  index.field = "selection";
+  index.table = "entries";
+  index.predicate = "round_robin";
+  index.selectionCount = 2;
+  QueueExpressionPlan valid{"selected_valid", "table_selection_valid_ref",
+                            "i1", {}};
+  valid.field = "selection";
+  valid.table = "entries";
+  valid.predicate = "round_robin";
+  valid.selectionCount = 2;
+  QueueExpressionPlan secondIndex{
+      "second_selected_index", "table_selection_index_ref", "i2", {}};
+  secondIndex.field = "selection";
+  secondIndex.table = "entries";
+  secondIndex.predicate = "round_robin";
+  secondIndex.selectionCount = 2;
+  secondIndex.laneOrdinal = 1;
+  QueueExpressionPlan secondValid{
+      "second_selected_valid", "table_selection_valid_ref", "i1", {}};
+  secondValid.field = "selection";
+  secondValid.table = "entries";
+  secondValid.predicate = "round_robin";
+  secondValid.selectionCount = 2;
+  secondValid.laneOrdinal = 1;
+  QueueExpressionPlan result{"result", "record_create",
+                             "!ac.struct<@types::@Choice4>",
+                             {"selected_index", "selected_valid",
+                              "second_selected_index",
+                              "second_selected_valid"}};
+  result.width = 6;
+  plan.payloads.front().fields.push_back({"second_index", "i2", 2});
+  plan.payloads.front().fields.push_back({"second_valid", "i1", 1});
+  firing.expressions = {std::move(index), std::move(valid),
+                        std::move(secondIndex), std::move(secondValid),
+                        std::move(result)};
+  firing.yields = {"result"};
+  firing.guard = "selected_valid";
+  firing.outputPresence = {{0, "result", "selected_valid"}};
+
+  auto generated = generateQueueGraphCpp(plan);
+  ASSERT_TRUE(bool(generated)) << llvm::toString(generated.takeError());
+  EXPECT_NE(generated->find("TableMultiSelectionCache<"), std::string::npos);
+  EXPECT_NE(generated->find("selection->accept(epoch)"), std::string::npos);
+  expectCppCompiles(*generated);
+}
+
+TEST(QueueGraphPlanTest, MultiSelectionTableReadsBecomeOnePrefixTransaction) {
+  constexpr llvm::StringLiteral source = R"mlir(
+module attributes {ac.contract_epoch = "0.5", ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle", ac.system = "multi_read"} {
+  ac.table @entries entry i8 entries 4 init 0 owner "/" stable_id "table/entries"
+  %mask = ac.table.match @entries predicate {
+  ^predicate(%entry: !ac.var<i8>):
+    %yes = ac.var.constant true as !ac.var<i1>
+    ac.table.match.yield %yes : !ac.var<i1>
+  } -> !ac.var<i4>
+  %i0, %i1, %v0, %v1 = ac.table.choose @entries %mask : !ac.var<i4>
+      count 2 policy #ac<table_selection_policy first>
+      stable_id "entries/first2" key {} ->
+      !ac.var<i2>, !ac.var<i2>, !ac.var<i1>, !ac.var<i1>
+  %first = ac.table.read @entries depth 1 latency 1 address {
+  ^address:
+    ac.table.yield %i0 : !ac.var<i2>
+  } when {
+  ^when:
+    ac.table.yield %v0 : !ac.var<i1>
+  } {ac.name = "first"} -> !ac.queue<i8>
+  %second = ac.table.read @entries depth 1 latency 1 address {
+  ^address:
+    ac.table.yield %i1 : !ac.var<i2>
+  } when {
+  ^when:
+    ac.table.yield %v1 : !ac.var<i1>
+  } {ac.name = "second"} -> !ac.queue<i8>
+  ac.sink %first {ac.name = "first_sink"} : !ac.queue<i8>
+  ac.sink %second {ac.name = "second_sink"} : !ac.queue<i8>
+}
+)mlir";
+  mlir::MLIRContext context;
+  context.loadDialect<ac::ACIRDialect, mlir::DLTIDialect>();
+  auto module = mlir::parseSourceString<mlir::ModuleOp>(source, &context);
+  ASSERT_TRUE(module);
+  ASSERT_TRUE(freezeQueueGraph(*module));
+  auto plan = buildQueueGraphPlan(*module);
+  ASSERT_TRUE(bool(plan)) << llvm::toString(plan.takeError());
+  auto grouped = llvm::find_if(plan->blocks, [](const QueueBlockPlan &block) {
+    return block.kind == "table_read_group";
+  });
+  ASSERT_NE(grouped, plan->blocks.end());
+  EXPECT_EQ(grouped->selectionCount, 2u);
+  EXPECT_EQ(grouped->outputs.size(), 2u);
+  EXPECT_EQ(llvm::count_if(plan->blocks, [](const QueueBlockPlan &block) {
+              return block.kind == "table_read";
+            }),
+            0u);
+  auto generated = generateQueueGraphCpp(*plan);
+  ASSERT_TRUE(bool(generated)) << llvm::toString(generated.takeError());
+  EXPECT_NE(generated->find("TableSelectionReadGroup<"), std::string::npos);
+  expectCppCompiles(*generated);
+
+  QueueGraphPlan partial = *plan;
+  auto partialGroup = llvm::find_if(partial.blocks, [](const auto &block) {
+    return block.kind == "table_read_group";
+  });
+  partialGroup->outputs.pop_back();
+  llvm::Error partialError = verifyQueueGraphPlan(partial);
+  ASSERT_TRUE(bool(partialError));
+  EXPECT_NE(llvm::toString(std::move(partialError)).find("group metadata"),
+            std::string::npos);
+
+  QueueGraphPlan ungrouped = *plan;
+  auto ungroupedBlock =
+      llvm::find_if(ungrouped.blocks, [](const QueueBlockPlan &block) {
+        return block.kind == "table_read_group";
+      });
+  ASSERT_NE(ungroupedBlock, ungrouped.blocks.end());
+  ungroupedBlock->kind = "table_read";
+  llvm::Error ungroupedError = verifyQueueGraphPlan(ungrouped);
+  ASSERT_TRUE(bool(ungroupedError));
+  EXPECT_NE(llvm::toString(std::move(ungroupedError))
+                .find("exactly one atomic prefix consumer"),
             std::string::npos);
 }
 
@@ -3589,7 +3768,7 @@ TEST(QueueGraphPlanTest, VerifiesInlineTableChooseProvenanceAndPairs) {
 
   QueueGraphPlan badMetadata = inlineFirstChoicePlan(4, 2);
   badMetadata.blocks[1].expressions[1].field = "forged";
-  rejected(std::move(badMetadata), "metadata is not canonical");
+  rejected(std::move(badMetadata), "index before valid");
 
   QueueGraphPlan reversed = inlineFirstChoicePlan(4, 2);
   std::swap(reversed.blocks[1].expressions[1],
@@ -3641,6 +3820,36 @@ TEST(QueueGraphPlanTest, VerifiesInlineTableChooseProvenanceAndPairs) {
   appendKeyedPair(independent, "max0", "max", "0");
   auto error = verifyQueueGraphPlan(independent);
   EXPECT_FALSE(bool(error)) << llvm::toString(std::move(error));
+}
+
+TEST(QueueGraphPlanTest, InlineMultiSelectionPreservesSegmentedDistinctLanes) {
+  QueueGraphPlan plan = inlineFirstChoicePlan(4, 2);
+  QueueBlockPlan &firing = plan.blocks[1];
+  QueueExpressionPlan index0 = firing.expressions[1];
+  QueueExpressionPlan valid0 = firing.expressions[2];
+  index0.field = valid0.field = "entries/inline-first2";
+  index0.selectionCount = valid0.selectionCount = 2;
+  QueueExpressionPlan index1 = index0;
+  index1.result = "selected_index_1";
+  index1.laneOrdinal = 1;
+  QueueExpressionPlan valid1 = valid0;
+  valid1.result = "selected_valid_1";
+  valid1.laneOrdinal = 1;
+  firing.expressions.erase(firing.expressions.begin() + 1,
+                           firing.expressions.begin() + 3);
+  firing.expressions.insert(firing.expressions.begin() + 1,
+                            {std::move(index0), std::move(index1),
+                             std::move(valid0), std::move(valid1)});
+  QueueExpressionPlan &result = firing.expressions.back();
+  result.operands = {"selected_index_1", "selected_valid_1"};
+
+  llvm::Error error = verifyQueueGraphPlan(plan);
+  ASSERT_FALSE(bool(error)) << llvm::toString(std::move(error));
+  auto generated = generateQueueGraphCpp(plan);
+  ASSERT_TRUE(bool(generated)) << llvm::toString(generated.takeError());
+  EXPECT_NE(generated->find("if (global_index == choice_"),
+            std::string::npos);
+  expectCppCompiles(*generated);
 }
 
 TEST(QueueGraphPlanTest, DuplicateKeyedChoicesKeepIndependentSnapshotEffects) {

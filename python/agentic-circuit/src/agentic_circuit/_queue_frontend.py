@@ -56,6 +56,17 @@ def _render_type(value_type: ValueType) -> str:
     return value_type.mlir()
 
 
+def _render_queue_type(
+    payload: ValueType, *, lanes: int = 1, rate: int = 1
+) -> str:
+    parameters = [_render_type(payload)]
+    if lanes != 1:
+        parameters.append(f"lanes = {lanes}")
+    if rate != 1:
+        parameters.append(f"rate = {rate}")
+    return "!ac.queue<" + ", ".join(parameters) + ">"
+
+
 def _render_dense_i64(values: tuple[int, ...]) -> str:
     return "array<i64: " + ", ".join(str(value) for value in values) + ">"
 
@@ -395,6 +406,7 @@ class QueueBinding:
     select_output: bool = False
     provider: str = "transform"
     rate: int = 1
+    lanes: int = 1
     rule_name: str | None = None
     rule_source_line: int | None = None
     rule_source_column: int | None = None
@@ -767,9 +779,14 @@ def _render_table_domain_attributes(candidate: CandidateSetBinding) -> str:
 @dataclass(frozen=True, slots=True)
 class SelectionBinding:
     name: str
+    aliases: tuple[str, ...]
     table: str
     candidates: str
+    count: int
     policy: str
+    key_ordering: str | None
+    stable_id: str
+    initial_cursor: int
     argument: str | None
     key: ast.expr | None
     scope: tuple[str, ...]
@@ -3452,6 +3469,8 @@ def parse_queue_program(
     slot_by_name: dict[str, SlotBinding] = {}
     candidate_by_name: dict[str, CandidateSetBinding] = {}
     selection_by_name: dict[str, SelectionBinding] = {}
+    selection_tuple_aliases: dict[str, tuple[str, ...]] = {}
+    selection_lane_ordinals: dict[str, int] = {}
     memory_by_name: dict[str, MemoryInstanceBinding] = {}
     memory_arrays: dict[str, StaticMemoryArrayBinding] = {}
     selected_memories: dict[str, SelectedMemoryBinding] = {}
@@ -3486,6 +3505,36 @@ def parse_queue_program(
     def call_name(call: ast.Call) -> str:
         return _decorator_name(call.func).rsplit(".", 1)[-1]
 
+    def rewrite_selection_tuple_refs(statement: ast.stmt) -> ast.stmt:
+        class StaticSelectionTupleRefs(ast.NodeTransformer):
+            def visit_Subscript(self, node: ast.Subscript) -> ast.expr:
+                if isinstance(node.value, ast.Name) and (
+                    aliases := selection_tuple_aliases.get(node.value.id)
+                ) is not None:
+                    index = _constant_integer(node.slice, system_static_values)
+                    if index is None:
+                        raise QueueFrontendError(
+                            "ACPY-TABLE-012: TableChoice tuple index must be static"
+                        )
+                    if not 0 <= index < len(aliases):
+                        raise QueueFrontendError(
+                            "ACPY-TABLE-012: TableChoice tuple index is out of range"
+                        )
+                    return ast.copy_location(
+                        ast.Name(id=aliases[index], ctx=node.ctx), node
+                    )
+                return self.generic_visit(node)
+
+            def visit_Name(self, node: ast.Name) -> ast.expr:
+                if isinstance(node.ctx, ast.Load) and node.id in selection_tuple_aliases:
+                    raise QueueFrontendError(
+                        "ACPY-TABLE-012: TableChoice tuple cannot be iterated, "
+                        "stored, or escape its static scope"
+                    )
+                return node
+
+        return ast.fix_missing_locations(StaticSelectionTupleRefs().visit(statement))
+
     def normalized_write_fields(
         table: TableBinding,
         value: ast.expr | None,
@@ -3503,6 +3552,31 @@ def parse_queue_program(
         if not isinstance(value_type, StructType):
             return ("$entry",)
         return tuple(field.name for field in value_type.fields)
+
+    def table_key_ordering(
+        table: TableBinding, argument: str, expression: ast.expr
+    ) -> str:
+        if not (
+            isinstance(table.entry_type, StructType)
+            and isinstance(expression, ast.Attribute)
+            and isinstance(expression.value, ast.Name)
+            and expression.value.id == argument
+        ):
+            return "unsigned"
+        for declaration in tree.body:
+            if not isinstance(declaration, ast.ClassDef) or (
+                declaration.name != table.entry_type.name
+            ):
+                continue
+            for field in declaration.body:
+                if (
+                    isinstance(field, ast.AnnAssign)
+                    and isinstance(field.target, ast.Name)
+                    and field.target.id == expression.attr
+                ):
+                    annotation = _decorator_name(field.annotation).rsplit(".", 1)[-1]
+                    return "signed" if annotation in {"s8", "s16", "s32", "s64"} else "unsigned"
+        return "unsigned"
 
     def writer_priority_rank(policy: ast.expr, diagnostic: str) -> int:
         if (
@@ -4057,8 +4131,11 @@ def parse_queue_program(
             )
         depth = _positive_int(call, "depth", 1, static_values)
         rate = _positive_int(call, "rate", 1, static_values)
+        lanes = _positive_int(call, "lanes", 1, static_values)
         if rate > depth:
             raise QueueFrontendError("ACPY-QUEUE-025: Queue rate must not exceed depth")
+        if rate > lanes:
+            raise QueueFrontendError("ACPY-QUEUE-025: Queue rate must not exceed lanes")
         return QueueBinding(
             name,
             _payload(call.args[0], payload_map),
@@ -4068,6 +4145,7 @@ def parse_queue_program(
             scope=scope_path,
             order=current_order,
             rate=rate,
+            lanes=lanes,
         )
 
     def memory_instance_binding(
@@ -4291,6 +4369,7 @@ def parse_queue_program(
         nonlocal order
         aliases = {} if aliases is None else aliases
         for statement in statements:
+            statement = rewrite_selection_tuple_refs(statement)
             if (
                 isinstance(statement, ast.Expr)
                 and isinstance(statement.value, ast.Constant)
@@ -4438,6 +4517,31 @@ def parse_queue_program(
             ):
                 raise QueueFrontendError(
                     "ACPY-QUEUE-015: state binding cannot be rebound"
+                )
+            selection_unpack: tuple[str, ...] = ()
+            if (
+                isinstance(statement, ast.Assign)
+                and len(statement.targets) == 1
+                and isinstance(statement.targets[0], (ast.Tuple, ast.List))
+                and isinstance(statement.value, ast.Call)
+                and isinstance(statement.value.func, ast.Attribute)
+                and statement.value.func.attr == "choose"
+            ):
+                if not all(
+                    isinstance(item, ast.Name) for item in statement.targets[0].elts
+                ):
+                    raise QueueFrontendError(
+                        "ACPY-TABLE-012: TableChoice tuple unpack requires names"
+                    )
+                selection_unpack = tuple(
+                    item.id for item in statement.targets[0].elts
+                    if isinstance(item, ast.Name)
+                )
+                statement.targets[0] = ast.copy_location(
+                    ast.Name(
+                        id=f"__table_selection_{current_order}", ctx=ast.Store()
+                    ),
+                    statement.targets[0],
                 )
             if (
                 isinstance(statement, ast.Assign)
@@ -4612,14 +4716,20 @@ def parse_queue_program(
                             "Table view"
                         )
                     keywords = {keyword.arg: keyword.value for keyword in call.keywords}
-                    if None in keywords or set(keywords) - {"count", "policy", "key"}:
+                    if None in keywords or set(keywords) - {
+                        "count",
+                        "policy",
+                        "key",
+                        "initial_cursor",
+                    }:
                         raise QueueFrontendError(
                             "ACPY-TABLE-007: table.choose parameters are invalid"
                         )
                     count = _static_int(keywords.get("count", ast.Constant(1)))
-                    if count != 1:
+                    if count is None or not 1 <= count <= candidate.entries:
                         raise QueueFrontendError(
-                            "ACPY-TABLE-007: table.choose supports count=1 only"
+                            "ACPY-TABLE-012: table.choose count must be a static "
+                            "integer within the candidate domain"
                         )
                     policy_node = keywords.get("policy", ast.Constant("first"))
                     policy = (
@@ -4628,17 +4738,20 @@ def parse_queue_program(
                         and isinstance(policy_node.value, str)
                         else None
                     )
-                    if policy not in {"first", "min", "max"}:
+                    if policy not in {"first", "min", "max", "round_robin"}:
                         raise QueueFrontendError(
-                            "ACPY-TABLE-007: choose policy must be first, min, or max"
+                            "ACPY-TABLE-007: choose policy must be first, min, max, "
+                            "or round_robin"
                         )
                     key_node = keywords.get("key")
                     key_argument: str | None = None
                     key: ast.expr | None = None
-                    if policy == "first":
+                    key_ordering: str | None = None
+                    if policy in {"first", "round_robin"}:
                         if key_node is not None:
                             raise QueueFrontendError(
-                                "ACPY-TABLE-007: first policy does not accept key"
+                                "ACPY-TABLE-007: first/round_robin policy does not "
+                                "accept key"
                             )
                     else:
                         if key_node is None:
@@ -4646,18 +4759,51 @@ def parse_queue_program(
                                 "ACPY-TABLE-007: min/max policy requires key lambda"
                             )
                         key_argument, key = _lambda(key_node)
+                        key_ordering = table_key_ordering(
+                            table_by_name[table_name], key_argument, key
+                        )
+                    initial_cursor = _nonnegative_int(call, "initial_cursor", 0)
+                    if initial_cursor >= candidate.entries:
+                        raise QueueFrontendError(
+                            "ACPY-TABLE-012: initial cursor is outside the "
+                            "candidate domain"
+                        )
+                    if policy != "round_robin" and initial_cursor != 0:
+                        raise QueueFrontendError(
+                            "ACPY-TABLE-012: initial cursor requires round_robin"
+                        )
+                    if selection_unpack:
+                        if len(selection_unpack) != count:
+                            raise QueueFrontendError(
+                                "ACPY-TABLE-012: TableChoice tuple unpack arity "
+                                "must equal count"
+                            )
+                        aliases = selection_unpack
+                    elif count == 1:
+                        aliases = (name,)
+                    else:
+                        aliases = tuple(f"{name}__lane{lane}" for lane in range(count))
+                        selection_tuple_aliases[name] = aliases
+                    stable_path = "/".join((*scope_path, name)) if scope_path else name
                     binding = SelectionBinding(
                         name,
+                        aliases,
                         table_name,
                         candidate.name,
+                        count,
                         str(policy),
+                        key_ordering,
+                        f"table-selection/{stable_path}",
+                        initial_cursor,
                         key_argument,
                         key,
                         scope_path,
                         current_order,
                     )
                     selections.append(binding)
-                    selection_by_name[name] = binding
+                    for lane, alias in enumerate(aliases):
+                        selection_by_name[alias] = binding
+                        selection_lane_ordinals[alias] = lane
                     continue
                 view = parse_view(
                     statement.value,
@@ -6543,6 +6689,10 @@ def parse_queue_program(
                         raise QueueFrontendError(
                             "ACPY-QUEUE-025: Queue rate must not exceed depth"
                         )
+                    if rate > incoming.lanes:
+                        raise QueueFrontendError(
+                            "ACPY-QUEUE-025: Queue rate must not exceed lanes"
+                        )
                     binding = QueueBinding(
                         name,
                         incoming.payload,
@@ -6555,6 +6705,7 @@ def parse_queue_program(
                         current_order,
                         provider="compute",
                         rate=rate,
+                        lanes=incoming.lanes,
                     )
                 elif call_name(call) == "pipeline" and len(call.args) == 1:
                     if any(
@@ -6574,6 +6725,10 @@ def parse_queue_program(
                         raise QueueFrontendError(
                             "ACPY-QUEUE-025: Queue rate must not exceed depth"
                         )
+                    if rate > incoming.lanes:
+                        raise QueueFrontendError(
+                            "ACPY-QUEUE-025: Queue rate must not exceed lanes"
+                        )
                     binding = QueueBinding(
                         name,
                         incoming.payload,
@@ -6586,6 +6741,7 @@ def parse_queue_program(
                         current_order,
                         provider="pipeline",
                         rate=rate,
+                        lanes=incoming.lanes,
                     )
                 elif call_name(call) == "merge":
                     if len(call.args) < 2 or any(
@@ -6609,6 +6765,16 @@ def parse_queue_program(
                         raise QueueFrontendError(
                             "ACPY-QUEUE-024: merge inputs require one payload type"
                         )
+                    lane_shapes = {
+                        (by_name[item].lanes, by_name[item].rate)
+                        for item in input_names
+                    }
+                    if len(lane_shapes) != 1:
+                        raise QueueFrontendError(
+                            "ACPY-QUEUE-025: merge inputs require matching lanes "
+                            "and rate"
+                        )
+                    lanes, rate = next(iter(lane_shapes))
                     depth = _positive_int(call, "depth", 1)
                     latency = _positive_int(call, "latency", 1)
                     policy = policy_value(call)
@@ -6621,6 +6787,8 @@ def parse_queue_program(
                         scope=scope_path,
                         order=current_order,
                         merge_output=True,
+                        rate=rate,
+                        lanes=lanes,
                     )
                     merges.append(
                         MergeBinding(
@@ -7989,6 +8157,9 @@ class _ExpressionEmitter:
         self.lines: list[str] = []
         self.index = 0
         self.priority_values: dict[str, tuple[str, ValueType, str, ValueType]] = {}
+        self.selection_batch_values: dict[
+            str, tuple[tuple[str, ValueType, str, ValueType], ...]
+        ] = {}
         self.table_view_values: dict[str, tuple[str, ValueType]] = {}
         self.state_read_values: dict[tuple[str, str], tuple[str, ValueType]] = {}
         self.deferred_values: dict[str, ast.expr] = {}
@@ -8647,6 +8818,14 @@ class _ExpressionEmitter:
             and node.attr in {"index", "valid"}
         ):
             selection = self.selections[node.value.id]
+            lane = selection.aliases.index(node.value.id)
+            if cached := self.selection_batch_values.get(selection.name):
+                index, index_type, valid, valid_type = cached[lane]
+                return (
+                    (index, index_type)
+                    if node.attr == "index"
+                    else (valid, valid_type)
+                )
             candidate = self.candidates[selection.candidates]
             domain = self.table_domains.get(selection.table)
             if domain is None:
@@ -8687,17 +8866,11 @@ class _ExpressionEmitter:
                 + " "
                 + f"-> !ac.var<i{mask_width}>"
             )
-            index = self._new()
-            valid = self._new()
+            indices = [self._new() for _ in range(selection.count)]
+            valids = [self._new() for _ in range(selection.count)]
             index_width = max(1, (table_entries - 1).bit_length())
-            if selection.policy == "first":
+            if selection.policy in {"first", "round_robin"}:
                 key_region = "{}"
-                self.lines.append(
-                    f"    %{index}, %{valid} = ac.table.choose @{selection.table} "
-                    f'%{mask} : !ac.var<i{mask_width}> count 1 policy "first" '
-                    f"key {key_region} -> "
-                    f"!ac.var<i{index_width}>, !ac.var<i1>"
-                )
             else:
                 assert selection.argument is not None and selection.key is not None
                 key_emitter = _ExpressionEmitter(
@@ -8714,25 +8887,46 @@ class _ExpressionEmitter:
                     raise QueueFrontendError(
                         "ACPY-TABLE-007: choose key must lower to an integer"
                     )
-                self.lines.append(
-                    f"    %{index}, %{valid} = ac.table.choose @{selection.table} "
-                    f"%{mask} : !ac.var<i{mask_width}> count 1 "
-                    f'policy "{selection.policy}" key {{'
-                )
-                self.lines.append(
-                    f"    ^key(%entry: !ac.var<{_render_type(entry_type)}>):"
-                )
-                self.lines.extend(key_emitter.lines)
-                self.lines.append(
+                key_lines = [
+                    "{",
+                    f"    ^key(%entry: !ac.var<{_render_type(entry_type)}>):",
+                    *key_emitter.lines,
                     f"      ac.table.choose.yield %{key} : "
-                    f"!ac.var<{_render_type(key_type)}>"
-                )
-                self.lines.append(f"    }} -> !ac.var<i{index_width}>, !ac.var<i1>")
-            return (
-                (index, BitsType(index_width))
-                if node.attr == "index"
-                else (valid, BoolType())
+                    f"!ac.var<{_render_type(key_type)}>",
+                    "    }",
+                ]
+                key_region = "\n".join(key_lines)
+            lhs = ", ".join(f"%{value}" for value in (*indices, *valids))
+            result_types = ", ".join(
+                [f"!ac.var<i{index_width}>"] * selection.count
+                + ["!ac.var<i1>"] * selection.count
             )
+            key_order = (
+                ""
+                if selection.key_ordering is None
+                else " key_order #ac<table_key_ordering "
+                + selection.key_ordering
+                + ">"
+            )
+            cursor = (
+                ""
+                if selection.initial_cursor == 0
+                else f" initial_cursor {selection.initial_cursor}"
+            )
+            self.lines.append(
+                f"    {lhs} = ac.table.choose @{selection.table} %{mask} : "
+                f"!ac.var<i{mask_width}> count {selection.count} policy "
+                f"#ac<table_selection_policy {selection.policy}>{key_order} "
+                f"stable_id {json.dumps(selection.stable_id)}{cursor} "
+                f"key {key_region} -> {result_types}"
+            )
+            batch = tuple(
+                (index, BitsType(index_width), valid, BoolType())
+                for index, valid in zip(indices, valids, strict=True)
+            )
+            self.selection_batch_values[selection.name] = batch
+            index, index_type, valid, valid_type = batch[lane]
+            return (index, index_type) if node.attr == "index" else (valid, valid_type)
         if isinstance(node, ast.Constant) and type(node.value) in {int, bool}:
             typ = expected or (BoolType() if type(node.value) is bool else BitsType(64))
             name = self._new()
@@ -9614,7 +9808,9 @@ def lower_queue_program(
                 f"{indent}%{output_ssa} = ac.source depth {queue.depth} "
                 f"latency {queue.latency} "
                 f"{queue_attributes(queue.name, (queue.rate,))} : "
-                f"!ac.queue<{_render_type(queue.payload)}>"
+                + _render_queue_type(
+                    queue.payload, lanes=queue.lanes, rate=queue.rate
+                )
             )
             mapping[queue.name] = output_ssa
             return
@@ -9815,7 +10011,8 @@ def lower_queue_program(
                         f"ac.var.choose @{find.variable} %{mask} : "
                         f"!ac.var<{_render_type(mask_type)}> count 1 "
                         f'policy "first" '
-                        f"key {{}} -> !ac.var<i{index_width}>, !ac.var<i1>"
+                        f"key {{}} {{ac.query = {json.dumps(find.name)}}} -> "
+                        f"!ac.var<i{index_width}>, !ac.var<i1>"
                     )
                 else:
                     assert find.key_argument is not None
@@ -9851,7 +10048,8 @@ def lower_queue_program(
                         f"!ac.var<{_render_type(key_type)}>"
                     )
                     emitter.lines.append(
-                        f"    }} -> !ac.var<i{index_width}>, !ac.var<i1>"
+                        f"    }} {{ac.query = {json.dumps(find.name)}}} -> "
+                        f"!ac.var<i{index_width}>, !ac.var<i1>"
                     )
                 emitter.find_values[find.name] = (
                     selected_index,
@@ -10598,8 +10796,16 @@ def lower_queue_program(
         )
         lines.append(
             f"{indent}}} {queue_attributes(queue.name, (queue.rate,))} : "
-            f"(!ac.queue<{_render_type(queue.payload)}>) -> "
-            f"!ac.queue<{_render_type(queue.payload)}>"
+            "("
+            + _render_queue_type(
+                by_name[queue.input_name].payload,
+                lanes=by_name[queue.input_name].lanes,
+                rate=by_name[queue.input_name].rate,
+            )
+            + ") -> "
+            + _render_queue_type(
+                queue.payload, lanes=queue.lanes, rate=queue.rate
+            )
         )
         mapping[queue.name] = output_ssa
 
@@ -10807,10 +11013,16 @@ def lower_queue_program(
                     value for value in program.tables if value.name == selection.table
                 )
                 mask, mask_type = materialized_candidates[selection.candidates]
-                index = f"table_choose_{selection.order}_index"
-                valid = f"table_choose_{selection.order}_valid"
+                indices = [
+                    f"table_choose_{selection.order}_index_{lane}"
+                    for lane in range(selection.count)
+                ]
+                valids = [
+                    f"table_choose_{selection.order}_valid_{lane}"
+                    for lane in range(selection.count)
+                ]
                 index_type = BitsType(max(1, (table.entries - 1).bit_length()))
-                if selection.policy == "first":
+                if selection.policy in {"first", "round_robin"}:
                     key_region = "{}"
                 else:
                     assert selection.argument is not None and selection.key is not None
@@ -10839,19 +11051,40 @@ def lower_queue_program(
                     )
                     key_lines.append(f"{indent}}}")
                     key_region = "\n".join(key_lines)
+                lhs = ", ".join(f"%{name}" for name in (*indices, *valids))
+                result_types = ", ".join(
+                    [f"!ac.var<{_render_type(index_type)}>"] * selection.count
+                    + ["!ac.var<i1>"] * selection.count
+                )
+                key_order = (
+                    ""
+                    if selection.key_ordering is None
+                    else " key_order #ac<table_key_ordering "
+                    + selection.key_ordering
+                    + ">"
+                )
+                cursor = (
+                    ""
+                    if selection.initial_cursor == 0
+                    else f" initial_cursor {selection.initial_cursor}"
+                )
                 lines.append(
-                    f"{indent}%{index}, %{valid} = ac.table.choose "
-                    f"@{selection.table} %{mask} : "
-                    f"!ac.var<{_render_type(mask_type)}> count 1 "
-                    f'policy "{selection.policy}" key {key_region} -> '
-                    f"!ac.var<{_render_type(index_type)}>, !ac.var<i1>"
+                    f"{indent}{lhs} = ac.table.choose @{selection.table} "
+                    f"%{mask} : !ac.var<{_render_type(mask_type)}> "
+                    f"count {selection.count} policy "
+                    f"#ac<table_selection_policy {selection.policy}>{key_order} "
+                    f"stable_id {json.dumps(selection.stable_id)}{cursor} "
+                    f"key {key_region} -> {result_types}"
                 )
-                materialized_selections[selection.name] = (
-                    index,
-                    index_type,
-                    valid,
-                    BoolType(),
-                )
+                for alias, index, valid in zip(
+                    selection.aliases, indices, valids, strict=True
+                ):
+                    materialized_selections[alias] = (
+                        index,
+                        index_type,
+                        valid,
+                        BoolType(),
+                    )
             elif kind == "scope":
                 scope = item
                 assert isinstance(scope, ScopeBinding)
@@ -11682,15 +11915,24 @@ def lower_queue_program(
                 output = merge.output if not path else f"{merge.output}__local"
                 operands = ", ".join(f"%{mapping[name]}" for name in merge.inputs)
                 input_types = ", ".join(
-                    f"!ac.queue<{_render_type(by_name[name].payload)}>"
+                    _render_queue_type(
+                        by_name[name].payload,
+                        lanes=by_name[name].lanes,
+                        rate=by_name[name].rate,
+                    )
                     for name in merge.inputs
                 )
-                payload = by_name[merge.output].payload
+                output_queue = by_name[merge.output]
                 lines.append(
                     f'{indent}%{output} = ac.merge {operands} policy "{merge.policy}" '
                     f"depth {merge.depth} latency {merge.latency} "
                     f'{{ac.name = "{merge.output}"}} : '
-                    f"({input_types}) -> !ac.queue<{_render_type(payload)}>"
+                    f"({input_types}) -> "
+                    + _render_queue_type(
+                        output_queue.payload,
+                        lanes=output_queue.lanes,
+                        rate=output_queue.rate,
+                    )
                 )
                 mapping[merge.output] = output
             elif kind == "expect":
@@ -11720,7 +11962,9 @@ def lower_queue_program(
                 lines.append(f"{indent}  ac.expect.yield %{condition} : !ac.var<i1>")
                 lines.append(
                     f'{indent}}} {{ac.name = "expect_{expectation.order}"}} : '
-                    f"!ac.queue<{_render_type(queue.payload)}>"
+                    + _render_queue_type(
+                        queue.payload, lanes=queue.lanes, rate=queue.rate
+                    )
                 )
             elif kind == "observe":
                 observation = item
@@ -11729,7 +11973,9 @@ def lower_queue_program(
                 lines.append(
                     f"{indent}ac.observe %{mapping[observation.queue]} name "
                     f'"{observation.name}" : '
-                    f"!ac.queue<{_render_type(queue.payload)}>"
+                    + _render_queue_type(
+                        queue.payload, lanes=queue.lanes, rate=queue.rate
+                    )
                 )
             else:
                 sink_binding = item
@@ -11738,7 +11984,9 @@ def lower_queue_program(
                 lines.append(
                     f"{indent}ac.sink %{mapping[sink_binding.queue]} "
                     f'{{ac.name = "sink_{sink_binding.order}"}} : '
-                    f"!ac.queue<{_render_type(queue.payload)}>"
+                    + _render_queue_type(
+                        queue.payload, lanes=queue.lanes, rate=queue.rate
+                    )
                 )
 
     def render_scope(

@@ -134,18 +134,21 @@ TEST(ACIRTypesTest, CheckedBuildersRejectInvalidParameters) {
   EXPECT_FALSE(
       VarType::getChecked(emitError, &context, mlir::Type(functionType)));
   EXPECT_FALSE(
-      QueueType::getChecked(emitError, &context, mlir::Type(functionType)));
+      QueueType::getChecked(emitError, &context, mlir::Type(functionType),
+                            int64_t{1}, int64_t{1}));
   auto variable = VarType::get(&context, payload);
-  auto queue = QueueType::get(&context, payload);
+  auto queue = QueueType::get(&context, payload, int64_t{1}, int64_t{1});
   auto valueArray = ValueArrayType::get(&context, int64_t{2}, payload);
   EXPECT_FALSE(
-      QueueType::getChecked(emitError, &context, mlir::Type(variable)));
+      QueueType::getChecked(emitError, &context, mlir::Type(variable),
+                            int64_t{1}, int64_t{1}));
   EXPECT_FALSE(VarType::getChecked(emitError, &context, mlir::Type(queue)));
   EXPECT_TRUE(
       VarType::getChecked(emitError, &context, mlir::Type(valueArray)));
   EXPECT_FALSE(ValueArrayType::getChecked(emitError, &context, int64_t{2},
                                           mlir::Type(queue)));
-  auto queueCollection = QueueType::get(&context, payload);
+  auto queueCollection =
+      QueueType::get(&context, payload, int64_t{1}, int64_t{1});
   EXPECT_FALSE(ArrayType::getChecked(emitError, &context, int64_t{0},
                                      mlir::Type(queueCollection)));
   EXPECT_FALSE(ArrayType::getChecked(emitError, &context, int64_t{2},

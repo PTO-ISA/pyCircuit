@@ -35,7 +35,7 @@
 // DYNAMIC-OOB: cannot prove Table coordinate axis 1 index is within [0, 2]
 // DIRECT-FLAT: multidimensional access requires same-Table ac.table.index or ac.table.choose index provenance
 // CROSS-TABLE-CHOICE: TableChoice index belongs to another Table
-// CHOICE-WIDTH: index result width must address the Table domain
+// CHOICE-WIDTH: index result segment must use the complete Table-domain width
 // DOMAIN-PARTIAL: projected mask domain requires axes, shape, strides, and offset
 // DOMAIN-STRIDE: projected mask domain must use canonical Table extents and strides
 // DOMAIN-OFFSET: projected mask domain offset must fix only omitted axes
@@ -213,7 +213,8 @@ module attributes {ac.contract_epoch = "0.5"} {
   } {domain_axes = array<i64: 0, 1>, domain_shape = array<i64: 2, 3>,
      domain_strides = array<i64: 3, 1>, domain_offset = 0 : i64} -> !ac.var<i6>
   %index, %valid = ac.table.choose @left %mask : !ac.var<i6>
-      count 1 policy "first" key {} -> !ac.var<i3>, !ac.var<i1>
+      count 1 policy #ac<table_selection_policy first>
+      stable_id "left/first" key {} -> !ac.var<i3>, !ac.var<i1>
   %value = ac.table.get @right[%index] : !ac.var<i3> -> !ac.var<i8>
 }
 
@@ -231,7 +232,8 @@ module attributes {ac.contract_epoch = "0.5"} {
   } {domain_axes = array<i64: 0, 1>, domain_shape = array<i64: 2, 3>,
      domain_strides = array<i64: 3, 1>, domain_offset = 0 : i64} -> !ac.var<i6>
   %index, %valid = ac.table.choose @bad %mask : !ac.var<i6>
-      count 1 policy "first" key {} -> !ac.var<i2>, !ac.var<i1>
+      count 1 policy #ac<table_selection_policy first>
+      stable_id "bad/first" key {} -> !ac.var<i2>, !ac.var<i1>
 }
 
 //--- domain-partial.mlir

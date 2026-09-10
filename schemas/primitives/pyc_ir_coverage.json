@@ -19,6 +19,7 @@
       "negative_mlir": [],
       "positive_mlir": [
         "tests/mlir/agentic-circuit/CodeGen/atomic-transform.mlir",
+        "tests/mlir/agentic-circuit/CodeGen/queue-lanes-transform-pyc.mlir",
         "tests/mlir/agentic-circuit/Transforms/rule-multi-input-lowering.mlir"
       ],
       "python_producer": [
@@ -33,6 +34,7 @@
         "tests/cpp/agentic-circuit/CodeGen/QueueGraphPlanTest.cpp",
         "tests/integration/agentic-circuit/e2e/test_pyc_backend.py",
         "tests/mlir/agentic-circuit/CodeGen/atomic-transform.mlir",
+        "tests/mlir/agentic-circuit/CodeGen/queue-lanes-transform-pyc.mlir",
         "tests/mlir/agentic-circuit/Transforms/rule-multi-input-lowering.mlir",
         "tests/python/agentic-circuit/contracts/test_contracts.py",
         "tests/unit/test_pyc6_surface.py",
@@ -167,7 +169,9 @@
       "kind": "operation",
       "name": "pyc.assert",
       "negative_mlir": [],
-      "positive_mlir": [],
+      "positive_mlir": [
+        "tests/mlir/agentic-circuit/CodeGen/queue-lanes-pyc.mlir"
+      ],
       "python_producer": [
         "python/pycircuit/src/pycircuit/dsl.py",
         "python/pycircuit/src/pycircuit/hw.py",
@@ -180,6 +184,7 @@
       "symbol": "PYC_AssertOp",
       "tests": [
         "tests/cpp/agentic-circuit/Dialect/ACIR/OpsTest.cpp",
+        "tests/mlir/agentic-circuit/CodeGen/queue-lanes-pyc.mlir",
         "tests/python/agentic-circuit/tools/test_pyc_verilog_backend.py",
         "tests/test_assert_fits.py"
       ],
@@ -936,7 +941,11 @@
       "kind": "operation",
       "name": "pyc.reg",
       "negative_mlir": [],
-      "positive_mlir": [],
+      "positive_mlir": [
+        "tests/mlir/agentic-circuit/CodeGen/queue-lanes-pyc.mlir",
+        "tests/mlir/agentic-circuit/CodeGen/queue-lanes-transform-pyc.mlir",
+        "tests/mlir/agentic-circuit/CodeGen/queue-lanes4-pyc.mlir"
+      ],
       "python_producer": [
         "python/pycircuit/src/pycircuit/dsl.py",
         "python/pycircuit/src/pycircuit/hierarchical.py",
@@ -951,6 +960,9 @@
         "tests/cpp/agentic-circuit/CodeGen/QueueGraphPlanTest.cpp",
         "tests/integration/agentic-circuit/e2e/test_credit_backend.py",
         "tests/integration/agentic-circuit/e2e/test_pyc_backend.py",
+        "tests/mlir/agentic-circuit/CodeGen/queue-lanes-pyc.mlir",
+        "tests/mlir/agentic-circuit/CodeGen/queue-lanes-transform-pyc.mlir",
+        "tests/mlir/agentic-circuit/CodeGen/queue-lanes4-pyc.mlir",
         "tests/test_bitfield_view.py",
         "tests/unit/test_v6_forward_signal.py"
       ],

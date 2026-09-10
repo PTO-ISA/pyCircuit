@@ -59,6 +59,10 @@ struct QueueExpressionPlan {
   std::vector<uint64_t> domainStrides;
   uint64_t domainOffset = 0;
   bool hasDomainProjection = false;
+  uint64_t selectionCount = 1;
+  uint64_t laneOrdinal = 0;
+  std::string keyOrdering;
+  uint64_t initialCursor = 0;
 };
 
 std::string inlineTableChoiceContractKey(const QueueExpressionPlan &expression);
@@ -95,6 +99,8 @@ struct QueuePlan {
   uint64_t depth = 1;
   uint64_t latency = 1;
   uint64_t rate = 1;
+  uint64_t lanes = 1;
+  std::vector<uint64_t> laneOrdinals;
 };
 
 struct QueueRuleResourcePlan {
@@ -158,6 +164,8 @@ struct QueueBlockPlan {
   uint64_t lexicalOrder = 0;
   std::string provider;
   std::string stableId;
+  std::string selection;
+  uint64_t selectionCount = 0;
 };
 
 struct MemoryInstancePlan {
@@ -231,6 +239,10 @@ struct TableSelectionPlan {
   std::string indexType;
   std::vector<QueueExpressionPlan> keyExpressions;
   std::string keyYield;
+  uint64_t count = 1;
+  std::string keyOrdering;
+  std::string stableId;
+  uint64_t initialCursor = 0;
 };
 
 struct TableReadPlan {
@@ -272,6 +284,8 @@ struct SlotPlan {
 struct QueueInterfacePlan {
   std::string name;
   std::string payloadType;
+  uint64_t lanes = 1;
+  uint64_t rate = 1;
 };
 
 struct QueueModuleInstancePlan {
