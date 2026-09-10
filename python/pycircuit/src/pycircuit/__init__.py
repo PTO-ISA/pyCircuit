@@ -3,6 +3,7 @@ from .bitfield import BitfieldSignal, BitfieldSpec, BitfieldView
 from .connectors import (
     Connector,
     ConnectorBundle,
+    ConnectorError,
     ConnectorStruct,
     ModuleCollectionHandle,
     ModuleInstanceHandle,
@@ -10,6 +11,7 @@ from .connectors import (
     WireConnector,
 )
 from .design import (
+    DesignError,
     const,
     function,
     module,
@@ -20,6 +22,7 @@ from .design import (
 from .design import (
     testbench as _testbench_decorator,
 )
+from .diagnostics import DiagnosticError
 from .enums import EnumSignal, PycEnum, auto, enumeration
 from .hw import (
     Bundle,
@@ -43,8 +46,9 @@ from .probe import (
     TbProbeHandle,
     TbProbes,
 )
-from .tb import Tb, sva
+from .tb import Tb, TbError, sva
 from .testbench import TestbenchProgram
+from .trace_dsl import TraceConfigError
 from .v6 import (
     CycleAwareCircuit,
     CycleAwareDomain,
@@ -83,6 +87,7 @@ __all__ = [
     "wire_of",
     "Connector",
     "ConnectorBundle",
+    "ConnectorError",
     "ConnectorStruct",
     "BitfieldSignal",
     "BitfieldSpec",
@@ -95,6 +100,8 @@ __all__ = [
     "Circuit",
     "ClockDomain",
     "const",
+    "DesignError",
+    "DiagnosticError",
     "hierarchical",
     "JitError",
     "LiteralValue",
@@ -109,6 +116,8 @@ __all__ = [
     "RegConnector",
     "S",
     "Tb",
+    "TbError",
+    "TraceConfigError",
     "TbProbeHandle",
     "TbProbes",
     "TestbenchProgram",

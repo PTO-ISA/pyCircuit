@@ -6,12 +6,15 @@ Circuit
 ClockDomain
 Connector
 ConnectorBundle
+ConnectorError
 ConnectorStruct
 CycleAwareCircuit
 CycleAwareDomain
 CycleAwarePriorityEncodeResult
 CycleAwareSignal
 CycleAwareTb
+DesignError
+DiagnosticError
 EnumSignal
 ForwardSignal
 JitError
@@ -28,9 +31,11 @@ Reg
 RegConnector
 S
 Tb
+TbError
 TbProbeHandle
 TbProbes
 TestbenchProgram
+TraceConfigError
 U
 Wire
 WireConnector
