@@ -1459,17 +1459,17 @@ class CycleAwareSignal(Generic[DT]):
         a, b, c = self._align(amount)  # type: ignore[arg-type]
         return CycleAwareSignal(self._domain, a.ashr(amount=b), c)
 
-    def trunc(self, width: int) -> "CycleAwareSignal":
+    def trunc(self, *, width: int) -> "CycleAwareSignal":
         return CycleAwareSignal(
             self._domain, self._w.trunc(width=int(width)), self._cycle
         )
 
-    def zext(self, width: int) -> "CycleAwareSignal":
+    def zext(self, *, width: int) -> "CycleAwareSignal":
         return CycleAwareSignal(
             self._domain, self._w.zext(width=int(width)), self._cycle
         )
 
-    def sext(self, width: int) -> "CycleAwareSignal":
+    def sext(self, *, width: int) -> "CycleAwareSignal":
         return CycleAwareSignal(
             self._domain, self._w.sext(width=int(width)), self._cycle
         )
