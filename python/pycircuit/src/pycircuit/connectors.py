@@ -4,10 +4,11 @@ from collections.abc import Iterable, Iterator, Mapping, MutableMapping
 from dataclasses import dataclass
 from typing import Any
 
+from .diagnostics import PyCircuitError
 from .spec.types import BundleSpec, StagePipeSpec, StructSpec
 
 
-class ConnectorError(TypeError):
+class ConnectorError(PyCircuitError, TypeError):
     pass
 
 

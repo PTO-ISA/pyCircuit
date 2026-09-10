@@ -22,7 +22,7 @@ from .design import (
 from .design import (
     testbench as _testbench_decorator,
 )
-from .diagnostics import DiagnosticError
+from .diagnostics import DiagnosticError, PyCircuitError
 from .enums import EnumSignal, PycEnum, auto, enumeration
 from .hw import (
     Bundle,
@@ -112,6 +112,7 @@ __all__ = [
     "ProbeBuilder",
     "ProbeRef",
     "ProbeView",
+    "PyCircuitError",
     "Reg",
     "RegConnector",
     "S",

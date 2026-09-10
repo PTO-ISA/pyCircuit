@@ -8,10 +8,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from .diagnostics import PyCircuitError
 from .path_shortening import InstancePathShorteningPolicy, xxhash64
 
 
-class ProbeError(RuntimeError):
+class ProbeError(PyCircuitError):
     pass
 
 

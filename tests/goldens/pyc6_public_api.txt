@@ -26,6 +26,7 @@ ProbeBuilder
 ProbeError
 ProbeRef
 ProbeView
+PyCircuitError
 PycEnum
 Reg
 RegConnector

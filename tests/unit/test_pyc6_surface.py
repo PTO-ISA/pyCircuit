@@ -52,6 +52,20 @@ def test_tutorial_facade_is_not_part_of_the_public_surface() -> None:
         assert not hasattr(pycircuit, name)
 
 
+def test_public_exception_families_share_one_runtime_base() -> None:
+    for error in (
+        pycircuit.ConnectorError,
+        pycircuit.DesignError,
+        pycircuit.DiagnosticError,
+        pycircuit.JitError,
+        pycircuit.ProbeError,
+        pycircuit.TbError,
+        pycircuit.TraceConfigError,
+    ):
+        assert issubclass(error, pycircuit.PyCircuitError)
+    assert issubclass(pycircuit.ConnectorError, TypeError)
+
+
 def test_cycle_aware_compile_entrypoints_have_stable_modes_and_types() -> None:
     compile_sig = inspect.signature(pycircuit.compile_cycle_aware)
     build_sig = inspect.signature(pycircuit.build_cycle_aware)

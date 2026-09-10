@@ -16,6 +16,7 @@ from typing import (
 
 from .api_contract import FRONTEND_CONTRACT
 from .data import Data
+from .diagnostics import PyCircuitError
 from .dsl import Module
 from .jit_cache import get_structural_metrics
 
@@ -23,7 +24,7 @@ if TYPE_CHECKING:
     pass
 
 
-class DesignError(RuntimeError):
+class DesignError(PyCircuitError):
     pass
 
 
