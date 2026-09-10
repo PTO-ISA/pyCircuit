@@ -963,6 +963,7 @@
         "tests/mlir/agentic-circuit/CodeGen/queue-lanes-pyc.mlir",
         "tests/mlir/agentic-circuit/CodeGen/queue-lanes-transform-pyc.mlir",
         "tests/mlir/agentic-circuit/CodeGen/queue-lanes4-pyc.mlir",
+        "tests/system/test_dodgeball_example.py",
         "tests/test_bitfield_view.py",
         "tests/unit/test_v6_forward_signal.py"
       ],
