@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 import ast
-import math
 import operator
 from collections.abc import Callable, Iterator, Mapping
 from dataclasses import dataclass, field
 from types import MappingProxyType
 from typing import TypeAlias
+
+from ._canonical_json import validate_ijson_value as validate_canonical_ijson
 
 StaticScalar: TypeAlias = None | bool | int | float | str
 
@@ -52,27 +53,29 @@ class StaticEnvironment:
 
 
 def _check_scalar(value: StaticScalar) -> StaticScalar:
-    if isinstance(value, int) and not isinstance(value, bool):
-        if not -_MAX_SAFE_INTEGER <= value <= _MAX_SAFE_INTEGER:
-            raise StaticEvalError("integer is outside the portable I-JSON range")
-    if isinstance(value, float) and not math.isfinite(value):
-        raise StaticEvalError("static floating-point values must be finite")
+    try:
+        validate_canonical_ijson(value)
+    except ValueError as error:
+        raise StaticEvalError(str(error)) from error
     return value
 
 
 def validate_ijson_value(value: StaticValue) -> None:
-    if value is None or isinstance(value, (bool, int, float, str)):
-        _check_scalar(value)
-        return
-    if isinstance(value, tuple):
-        for item in value:
-            validate_ijson_value(item)
-        return
-    if isinstance(value, FrozenMap):
-        for _, item in value.entries:
-            validate_ijson_value(item)
-        return
-    raise StaticEvalError(f"unsupported static value {type(value).__name__}")
+    def canonical(item: StaticValue):
+        if item is None or type(item) in {bool, int, float, str}:
+            return item
+        if isinstance(item, tuple):
+            return [canonical(element) for element in item]
+        if isinstance(item, FrozenMap):
+            if any(type(key) is not str for key, _ in item.entries):
+                raise StaticEvalError("JSON object names must be strings")
+            return {key: canonical(element) for key, element in item.entries}
+        raise StaticEvalError(f"unsupported static value {type(item).__name__}")
+
+    try:
+        validate_canonical_ijson(canonical(value))
+    except ValueError as error:
+        raise StaticEvalError(str(error)) from error
 
 
 class _StaticEvaluator(ast.NodeVisitor):
