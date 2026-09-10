@@ -370,6 +370,7 @@ int main() {{
         right = ac.jit(core, cfg=Config(entries=16, lanes=4))
 
         self.assertEqual(left.fingerprint, right.fingerprint)
+        self.assertEqual((), left.diagnostics)
         self.assertEqual(
             (("cfg", (("entries", 16), ("lanes", 4))),),
             left.canonical_arguments,

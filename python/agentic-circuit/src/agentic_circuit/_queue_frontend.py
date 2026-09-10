@@ -31,10 +31,10 @@ from _pycircuit_semantics import (
 
 from ._acpy import AcpyDocument, EntityAllocator, Property, SourceFile
 from ._canonical_json import canonical_json_bytes, sha256_bytes
-from ._diagnostics import SourceSpan
+from ._diagnostics import Diagnostic, SourceSpan
 from ._static_eval import (
-    FrozenMap,
     MAX_STATIC_EXPANSION,
+    FrozenMap,
     StaticEnvironment,
     StaticValue,
     evaluate_static,
@@ -925,6 +925,7 @@ class QueueProgram:
     expectations: tuple[ExpectBinding, ...]
     sinks: tuple[SinkBinding, ...]
     specialization_fingerprint: str | None = None
+    diagnostics: tuple[Diagnostic, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)

@@ -332,7 +332,7 @@ def _worker_main(request_path: Path) -> int:
                     definition, workspace=workspace, **static_arguments
                 )
                 acir = specialization.lower_acir()
-                diagnostics = ()
+                diagnostics = specialization.diagnostics
             elif has_rule:
                 from ._queue_frontend import (
                     build_queue_acpy,
@@ -352,7 +352,7 @@ def _worker_main(request_path: Path) -> int:
                     entry.relative_to(workspace).as_posix(),
                 )
                 acir = lower_queue_program(program)
-                diagnostics = ()
+                diagnostics = program.diagnostics
             else:
                 schemas = SchemaRegistry.from_catalog(
                     schema_root() / "stdlib" / "catalog.json",

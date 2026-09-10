@@ -4118,9 +4118,15 @@ def invariant_module(value: Payload) -> Payload:
             lower_queue_source(invalid, "indexed_state")
 
     def test_persistent_list_find_lowers_to_generic_ac_var_selection(self) -> None:
-        from agentic_circuit._queue_frontend import lower_queue_source
+        from agentic_circuit._queue_frontend import (
+            lower_queue_source,
+            parse_queue_program,
+        )
 
         lowered = lower_queue_source(LIST_FIND_RULE_SOURCE, "issue_queue")
+        self.assertEqual(
+            (), parse_queue_program(LIST_FIND_RULE_SOURCE, "issue_queue").diagnostics
+        )
         self.assertIn("ac.var.match @entries predicate", lowered)
         self.assertIn("ac.var.match.yield", lowered)
         self.assertIn('count 1 policy "min"', lowered)
