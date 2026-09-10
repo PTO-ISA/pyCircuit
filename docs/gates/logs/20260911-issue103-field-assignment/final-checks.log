@@ -1,0 +1,18 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.14.6, pytest-9.0.2, pluggy-1.6.0
+rootdir: /Users/zhoubot/linx-isa/tools/pyCircuit
+configfile: pyproject.toml
+collected 94 items
+
+tests/unit/test_agentic_circuit_component.py ......                      [  6%]
+tests/unit/test_api_contract.py ....                                     [ 10%]
+tests/unit/test_cli_entrypoints.py ....                                  [ 14%]
+tests/unit/test_primitive_catalog.py ..                                  [ 17%]
+tests/unit/test_pyc6_surface.py .................................        [ 52%]
+tests/unit/test_pyc_ir_inventory.py ...                                  [ 55%]
+tests/unit/test_register_file.py .                                       [ 56%]
+tests/unit/test_semantic_core.py .........................               [ 82%]
+tests/unit/test_v6_forward_signal.py ................                    [100%]
+
+============================== 94 passed in 3.00s ==============================
+ok: decision status coverage validated (rows=241 deferred=1)

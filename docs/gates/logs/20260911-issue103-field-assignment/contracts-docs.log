@@ -1,0 +1,169 @@
+repository contracts: OK (15 public schemas, 35 stdlib components, epoch 0.5, LLVM 22.1.8)
+ok: API hygiene check passed
+
+[31m │  ⚠  Warning from the Material for MkDocs team[0m
+[31m │[0m
+[31m │[0m  MkDocs 2.0, the underlying framework of Material for MkDocs,
+[31m │[0m  will introduce backward-incompatible changes, including:
+[31m │[0m
+[31m │  × [0mAll plugins will stop working – the plugin system has been removed
+[31m │  × [0mAll theme overrides will break – the theming system has been rewritten
+[31m │  × [0mNo migration path exists – existing projects cannot be upgraded
+[31m │  × [0mClosed contribution model – community members can't report bugs
+[31m │  × [0mCurrently unlicensed – unsuitable for production use
+[31m │[0m
+[31m │[0m  Our full analysis:
+[31m │[0m
+[31m │[0m  [4mhttps://squidfunk.github.io/mkdocs-material/blog/2026/02/18/mkdocs-2.0/[0m
+[0m
+INFO    -  Cleaning site directory
+INFO    -  Building documentation to directory: /Users/zhoubot/linx-isa/tools/pyCircuit/_build/html
+INFO    -  The following pages exist in the docs directory, but are not included in the "nav" configuration:
+  - SIDECAR_SCHEDULE.md
+  - arm_data_type.md
+  - asl_alignment_todo.md
+  - cycle_balance_improvement.md
+  - cycle_balance_improvement_detailed_plan.md
+  - pycircuit_implementation_method.md
+  - simulation.md
+  - acir/table-abstraction-design.zh-CN.md
+  - acir/spec/README.md
+  - acir/spec/agentic-circuit.md
+  - acir/spec/agentic-circuit.zh-CN.md
+  - acir/spec/verification.md
+  - acir/spec/00-charter/scope.md
+  - acir/spec/refs/history.md
+  - development/pyc-ir-inventory.md
+  - development/acir/support.md
+  - development/acir/verification/ir-coverage.md
+  - development/acir/verification/pyc-verilog-backend.md
+  - development/acir/verification/repository-layout.md
+  - gates/logs/20260303-093808/matrix_summary.md
+  - gates/logs/20260831-agentic-consolidation-r2/migration_closure.md
+  - gates/logs/20260901-ac-table-prototype/summary.md
+  - gates/logs/20260902-ac-table-masked-write/commands.md
+  - gates/logs/20260902-ac-table-masked-write/summary.md
+  - gates/logs/20260902-ac-table-slot-match/commands.md
+  - gates/logs/20260903-ac-table-allocation/summary.md
+  - gates/logs/20260903-ac-table-multi-writer/summary.md
+  - gates/logs/20260903-ac-table-shared-selection/summary.md
+  - gates/logs/20260903-ac-table-stack-closure-r5/closure_summary.md
+  - gates/logs/20260904-ac-rule-epoch05-r1/closure_summary.md
+  - gates/logs/20260904-ac-rule-epoch05-r4/closure_summary.md
+  - gates/logs/20260904-ac-rule-epoch05-r6/closure_summary.md
+  - gates/logs/20260904-framework-boundary-r1/boundary_summary.md
+  - gates/logs/20260904-pr-release-gate-tiering-r1/summary.md
+  - gates/logs/20260905-ac-commit-groups-r1/summary.md
+  - gates/logs/20260905-ac-multi-input-rule-r1/summary.md
+  - gates/logs/20260905-ac-stateful-rule-r1/summary.md
+  - gates/logs/20260905-ac-uint-widths-r1/summary.md
+  - gates/logs/20260905-agentic-retirement/summary.md
+  - gates/logs/20260905-pyc-count-leading-zeros-r1/summary.md
+  - gates/logs/20260905-pyc-popcount-rtl-r1/summary.md
+  - gates/logs/20260905-pyc-priority-rtl-r1/summary.md
+  - gates/logs/20260905-pyc-zero-count-family-r1/summary.md
+  - gates/logs/20260906-aggregate-payload/summary.md
+  - gates/logs/20260906-bitfield-spec/summary.md
+  - gates/logs/20260906-bounded-constraints/summary.md
+  - gates/logs/20260906-branch-local-effects/summary.md
+  - gates/logs/20260906-choose-key-snapshot-set/summary.md
+  - gates/logs/20260906-circular-rob/summary.md
+  - gates/logs/20260906-combined-module-reuse/summary.md
+  - gates/logs/20260906-conditional-rule-effects/summary.md
+  - gates/logs/20260906-enum-payload/summary.md
+  - gates/logs/20260906-field-snapshot-reservations/summary.md
+  - gates/logs/20260906-host-result-boundary/summary.md
+  - gates/logs/20260906-indexed-branch-join/summary.md
+  - gates/logs/20260906-internal-queue-module/summary.md
+  - gates/logs/20260906-isq-tick-equivalence/summary.md
+  - gates/logs/20260906-issue39-closure-r3/summary.md
+  - gates/logs/20260906-masked-matching/summary.md
+  - gates/logs/20260906-masked-matching-r2/summary.md
+  - gates/logs/20260906-mlir-rule-activation/summary.md
+  - gates/logs/20260906-multi-owner-module-reuse/summary.md
+  - gates/logs/20260906-multi-rule-module-reuse/summary.md
+  - gates/logs/20260906-nested-activation/summary.md
+  - gates/logs/20260906-nested-module-reuse/summary.md
+  - gates/logs/20260906-nested-payload/summary.md
+  - gates/logs/20260906-optional-output-presence/summary.md
+  - gates/logs/20260906-python-module-lowering/summary.md
+  - gates/logs/20260906-python-multi-state-module/summary.md
+  - gates/logs/20260906-python-nested-module/summary.md
+  - gates/logs/20260906-python-stateful-module/summary.md
+  - gates/logs/20260906-queue-descriptor-migration/summary.md
+  - gates/logs/20260906-queue-module-freeze/summary.md
+  - gates/logs/20260906-queuegraph-activation/summary.md
+  - gates/logs/20260906-recursive-type-descriptor/summary.md
+  - gates/logs/20260906-reusable-circular-rob/summary.md
+  - gates/logs/20260906-reusable-oldest-ready-isq/summary.md
+  - gates/logs/20260906-rob-tick-equivalence/summary.md
+  - gates/logs/20260906-same-owner-branch-join/summary.md
+  - gates/logs/20260906-serial-guard-chain/summary.md
+  - gates/logs/20260906-snapshot-set-isq/summary.md
+  - gates/logs/20260906-ssa-rule-presence/summary.md
+  - gates/logs/20260906-state-snapshot-reservations/summary.md
+  - gates/logs/20260906-stateful-module-reuse/summary.md
+  - gates/logs/20260906-table-semantic-activation/summary.md
+  - gates/logs/20260906-typed-rule-summary/summary.md
+  - gates/logs/20260906-work-xfer-closure/summary.md
+  - gates/logs/20260907-issue40-p0-provenance/review.md
+  - gates/logs/20260907-issue40-p1-facade/review.md
+  - gates/logs/20260907-issue41-primitive-cleanup/summary.md
+  - gates/logs/20260907-issue42-scalar-pyc/summary.md
+  - gates/logs/20260907-issue44-review-closure/review.md
+  - gates/logs/20260907-issue46-multi-output/review.md
+  - gates/logs/20260907-issue48-aggregate-invariants/review.md
+  - gates/logs/20260907-issue48-davincioo-iex/review.md
+  - gates/logs/20260908-issue40-p1-api-hygiene/review.md
+  - gates/logs/20260908-issue40-p1-cas-boundary/review.md
+  - gates/logs/20260908-issue40-p1-compile/review.md
+  - gates/logs/20260908-issue40-p1-phantom-params/review.md
+  - gates/logs/20260908-issue40-p2-fm16-boundary/review.md
+  - gates/logs/20260908-issue48-iex-behavior/review.md
+  - gates/logs/20260908-issue48-state-guard-snapshot/review.md
+  - gates/logs/20260908-issue63-opt01-invariant-composition/review.md
+  - gates/logs/20260908-issue63-opt02-rule-capture/review.md
+  - gates/logs/20260908-issue63-opt03-match-fusion/review.md
+  - gates/logs/20260908-issue63-opt04-priority-find/review.md
+  - gates/logs/20260908-issue63-opt05-table-borrow/review.md
+  - gates/logs/20260908-issue63-opt06-davincioo-xbars/review.md
+  - gates/logs/20260908-issue63-opt06-static-queue-array/review.md
+  - gates/logs/20260908-issue7-readable-symbols/review.md
+  - gates/logs/20260909-framework-boundary-cleanup/commands.md
+  - gates/logs/20260909-framework-boundary-cleanup/summary.md
+  - gates/logs/20260909-issue19-schedule-v2/review.md
+  - gates/logs/20260909-issue61-model-plan/review.md
+  - gates/logs/20260909-issue61-runtime-component/review.md
+  - gates/logs/20260909-issue61-sdk-contract/review.md
+  - gates/logs/20260909-release-davincioo-timeout/review.md
+  - gates/logs/20260909-release-linux-tooling-lit/review.md
+  - gates/logs/20260909-release-preflight-structural-instances/review.md
+  - gates/logs/20260909-release-test-extra-pytest/review.md
+  - gates/logs/20260910-issue21-24-prefix-transactions/summary.md
+  - gates/logs/20260910-issue23-table-layout/summary.md
+  - gates/logs/20260910-issue25-writer-arbitration/summary.md
+  - gates/logs/20260910-issue28-atomic-rule/commands.md
+  - gates/logs/20260910-issue28-atomic-rule/summary.md
+  - gates/logs/20260910-issue61-release-workflow/summary.md
+  - gates/logs/20260910-regfile-cycle0-snapshot-r1/summary.md
+  - gates/logs/20260910-release-train-decision-freeze/advisor-addendum.raw.md
+  - gates/logs/20260910-release-train-decision-freeze/commands.md
+  - gates/logs/20260910-release-train-decision-freeze/summary.md
+  - gates/logs/20260910-release-train-decision-freeze/third-party-architect.md
+  - gates/logs/20260911-issue102-rule-cse-footprints/summary.md
+  - gates/logs/llvm22-upgrade-20260828/llvm22_upgrade_summary.md
+  - gates/logs/pyc6-unification/pyc6_migration_summary.md
+  - legal/AC-RELICENSE-BSD-3-CLAUSE.md
+  - rfcs/block_inference_binding.md
+  - rfcs/acir/D-BLOCK-MODEL-001.md
+  - rfcs/acir/D-RELEASE-LAYOUT-001.md
+  - rfcs/acir/D-RULE-LOWERING-001.md
+INFO    -  Documentation built in 2.16 seconds
+check for merge conflicts................................................Passed
+check yaml...........................................(no files to check)Skipped
+fix end of files.........................................................Passed
+trim trailing whitespace.................................................Passed
+ruff.................................................(no files to check)Skipped
+black................................................(no files to check)Skipped
+markdownlint-cli2....................................(no files to check)Skipped
+pyCircuit API hygiene gate...............................................Passed

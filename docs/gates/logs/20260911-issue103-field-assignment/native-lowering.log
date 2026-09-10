@@ -1,0 +1,3 @@
+PASS: ACPy field assignment -> ACIR rule lowering -> frozen QueueGraph plan -> gfsim C++ generation
+PASS: generated gfsim C++ compiled with C++20
+PASS: serial scalar field assignment -> one frozen state proposal -> generated gfsim C++ compiled

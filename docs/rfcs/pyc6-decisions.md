@@ -8437,7 +8437,7 @@ generic builds and releases carry contracts owned by particular consumers.
 
 ## Decision 0236: ordinary rules lower to one compiler-owned atomic transaction
 
-**Status:** Accepted; implementation tracked by issue #28
+**Status:** Accepted; implementation tracked by issues #28 and #103
 
 **Supersedes:** The public `@ac.transition` and `safe=True` API sketch in issue
 issue #28 and the deferred single-output/single-owner limitations of Decisions 0167,
@@ -8453,6 +8453,13 @@ couple authoring to a particular runtime protocol.
 - `@ac.rule` remains the only public scheduling decorator. Python exposes no
   `@ac.transition`, `safe=True`, readiness, pop/push, reservation, commit,
   rollback, atomic/check primitive, or compatibility alias.
+- A rule may spell an immutable record replacement as direct field assignment.
+  The frontend normalizes a local or persistent-scalar target to an SSA
+  `with_fields(...)` rebind and an indexed persistent target to one
+  index-evaluated-once complete-entry proposal. This syntax creates no mutable
+  alias, implicit local-copy writeback, Queue-token mutation, or new scheduling
+  boundary. Nested or sliced targets, augmented assignment, and invalid field,
+  type, or index contracts fail closed before transaction lowering.
 - The compiler lowers ordinary rule CFG internally to transition and branch
   ownership metadata and then to marker-free `ac.firing`. Each firing owns its
   complete selected Queue, Table, Reg, and Slot effect set.
@@ -8478,12 +8485,15 @@ couple authoring to a particular runtime protocol.
 - Frontend and ACIR tests cover zero or many inputs and outputs, heterogeneous
   optional results, Table/Reg/Slot effects, serial branches, and invalid
   ownership or overlap metadata.
+- Frontend tests prove that field-assignment shorthand matches explicit
+  immutable updates in raw ACIR, preserves serial SSA ordering, evaluates an
+  indexed target once, and retains the existing field/type/index diagnostics.
 - Direct and native gfsim agree for no-fire, full-fire, selected-branch stall,
   conflict, reset, and output-backpressure cases with no partial commit.
 
 **Source**
-- PTO-ISA/pyCircuit issue #28 and independent release-architect review
-  (2026-09-10).
+- PTO-ISA/pyCircuit issues #28 and #103 and independent release-architect
+  review (2026-09-10 through 2026-09-11).
 
 ## Decision 0237: same-field Table writers require proof or explicit arbitration
 

@@ -1028,6 +1028,18 @@ def pipeline(incoming: Item) -> Item:
     return outgoing
 ```
 
+在 rule 内，字段直接赋值是不可变记录替换的简写。`local.field = value` 会规范化为
+`local = local.with_fields(field=value)`；若 base 是 persistent scalar，该 rebinding
+会成为此 owner 的 next-state proposal。对于 persistent list，
+`entries[index].field = value` 会将 `index` 恰好求值一次，并提出等价的完整 Entry
+替换 proposal。后续串行的 local 或 scalar-state 赋值读取最新 SSA proposal，但
+committed state 在整条 rule transaction 提交前保持不变。
+
+该语法不会原地修改 Python 对象。从 persistent state 复制出的 local 被更新时，不会
+隐式写回 owner；已经存入 Queue 的 payload 仍是不可变值。需要把更新后的记录直接用于
+表达式时，继续显式使用 `with_fields(...)`。嵌套字段目标、切片、字段增量赋值、未知字段、
+字段类型不匹配和越界索引都会 fail closed。
+
 非 `const` system 参数和带类型的返回值是推荐的外部边界写法。编译器在内部插入
 `ac.source` 和 `ac.sink`；多个输出使用有序 `tuple[...]` 注解与 tuple 返回。显式
 Python `source(...)`/`sink(...)` 仅作为过渡兼容路径保留。

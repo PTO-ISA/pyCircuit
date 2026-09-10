@@ -1031,6 +1031,22 @@ def pipeline(incoming: Item) -> Item:
     return outgoing
 ```
 
+Inside a rule, direct field assignment is shorthand for an immutable record
+replacement. `local.field = value` is normalized to
+`local = local.with_fields(field=value)`. When the base is a persistent scalar,
+that rebinding becomes the owner's next-state proposal. For a persistent list,
+`entries[index].field = value` evaluates `index` exactly once and proposes the
+equivalent complete-entry replacement. Later serial local or scalar-state
+assignments read the latest SSA proposal, while committed state remains
+unchanged until the complete rule transaction commits.
+
+This syntax never mutates an object in place. Updating a local copied from
+persistent state does not implicitly write the owner back, and Queue payloads
+already stored in a channel remain immutable. Use `with_fields(...)` directly
+when the updated record is needed as an expression. Nested field targets,
+slices, augmented field assignment, unknown fields, type mismatches, and
+out-of-range indices fail closed.
+
 Non-`const` system parameters and typed returns are the preferred external
 boundary surface. The compiler inserts internal `ac.source` and `ac.sink`
 nodes; multiple outputs use an ordered `tuple[...]` annotation and tuple

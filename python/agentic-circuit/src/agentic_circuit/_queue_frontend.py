@@ -1888,6 +1888,122 @@ def _desugar_nested_rule_captures(
     return ast.fix_missing_locations(tree)
 
 
+def _normalize_rule_field_assignments(
+    statements: list[ast.stmt], *, reserved_names: set[str]
+) -> list[ast.stmt]:
+    next_index = 0
+
+    def fresh_index_name() -> str:
+        nonlocal next_index
+        while True:
+            name = f"__ac_field_index_{next_index}"
+            next_index += 1
+            if name not in reserved_names:
+                reserved_names.add(name)
+                return name
+
+    def normalize(items: list[ast.stmt]) -> list[ast.stmt]:
+        normalized: list[ast.stmt] = []
+        for statement in items:
+            if isinstance(statement, ast.If):
+                rewritten = copy.deepcopy(statement)
+                rewritten.body = normalize(rewritten.body)
+                rewritten.orelse = normalize(rewritten.orelse)
+                normalized.append(ast.fix_missing_locations(rewritten))
+                continue
+            if isinstance(statement, ast.For):
+                rewritten = copy.deepcopy(statement)
+                rewritten.body = normalize(rewritten.body)
+                rewritten.orelse = normalize(rewritten.orelse)
+                normalized.append(ast.fix_missing_locations(rewritten))
+                continue
+            if isinstance(statement, ast.AugAssign) and isinstance(
+                statement.target, (ast.Attribute, ast.Subscript)
+            ):
+                raise QueueFrontendError(
+                    "ACPY-RULE-002: field and indexed state updates do not "
+                    "support augmented assignment"
+                )
+            if not (
+                isinstance(statement, ast.Assign)
+                and len(statement.targets) == 1
+                and isinstance(statement.targets[0], ast.Attribute)
+            ):
+                normalized.append(statement)
+                continue
+            target = statement.targets[0]
+            if isinstance(target.value, ast.Name):
+                base_name = target.value.id
+                updated = ast.Call(
+                    func=ast.Attribute(
+                        value=ast.Name(id=base_name, ctx=ast.Load()),
+                        attr="with_fields",
+                        ctx=ast.Load(),
+                    ),
+                    args=[],
+                    keywords=[ast.keyword(arg=target.attr, value=statement.value)],
+                )
+                rewritten = ast.Assign(
+                    targets=[ast.Name(id=base_name, ctx=ast.Store())],
+                    value=updated,
+                )
+                normalized.append(
+                    ast.fix_missing_locations(ast.copy_location(rewritten, statement))
+                )
+                continue
+            if (
+                isinstance(target.value, ast.Subscript)
+                and isinstance(target.value.value, ast.Name)
+            ):
+                if isinstance(target.value.slice, ast.Slice):
+                    raise QueueFrontendError(
+                        "ACPY-RULE-002: field assignment does not support a "
+                        "slice target"
+                    )
+                owner = target.value.value.id
+                index_name = fresh_index_name()
+                index_assign = ast.Assign(
+                    targets=[ast.Name(id=index_name, ctx=ast.Store())],
+                    value=copy.deepcopy(target.value.slice),
+                )
+                indexed_value = ast.Subscript(
+                    value=ast.Name(id=owner, ctx=ast.Load()),
+                    slice=ast.Name(id=index_name, ctx=ast.Load()),
+                    ctx=ast.Load(),
+                )
+                updated = ast.Call(
+                    func=ast.Attribute(
+                        value=copy.deepcopy(indexed_value),
+                        attr="with_fields",
+                        ctx=ast.Load(),
+                    ),
+                    args=[],
+                    keywords=[ast.keyword(arg=target.attr, value=statement.value)],
+                )
+                state_assign = ast.Assign(
+                    targets=[
+                        ast.Subscript(
+                            value=ast.Name(id=owner, ctx=ast.Load()),
+                            slice=ast.Name(id=index_name, ctx=ast.Load()),
+                            ctx=ast.Store(),
+                        )
+                    ],
+                    value=updated,
+                )
+                normalized.extend(
+                    ast.fix_missing_locations(ast.copy_location(item, statement))
+                    for item in (index_assign, state_assign)
+                )
+                continue
+            raise QueueFrontendError(
+                "ACPY-RULE-002: field assignment target must be one local/state "
+                "record or one directly indexed persistent record"
+            )
+        return normalized
+
+    return normalize(statements)
+
+
 def parse_queue_program(
     text: str,
     system: str,
@@ -1974,6 +2090,15 @@ def parse_queue_program(
             and isinstance(body[0].value.value, str)
         ):
             body.pop(0)
+        reserved_names = {
+            candidate.id
+            for statement in body
+            for candidate in ast.walk(statement)
+            if isinstance(candidate, ast.Name)
+        }
+        body = _normalize_rule_field_assignments(
+            body, reserved_names=reserved_names
+        )
         if not body or not isinstance(body[-1], ast.Return):
             raise QueueFrontendError(
                 "ACPY-RULE-014: multi-output rule requires one final fixed tuple return"
@@ -2329,6 +2454,15 @@ def parse_queue_program(
             and isinstance(body[0].value.value, str)
         ):
             body.pop(0)
+        reserved_names = {
+            candidate.id
+            for statement in body
+            for candidate in ast.walk(statement)
+            if isinstance(candidate, ast.Name)
+        }
+        body = _normalize_rule_field_assignments(
+            body, reserved_names=reserved_names
+        )
         if (
             len(body) == 1
             and isinstance(body[0], ast.Return)
@@ -2822,6 +2956,29 @@ def parse_queue_program(
             else:
                 valid_multi_state = False
                 break
+        unconditionally_written_scalars = {
+            write.argument
+            for write in state_writes
+            if write.index is None and write.guard is None
+        }
+        if unconditionally_written_scalars:
+            last_scalar_write = {
+                write.argument: index
+                for index, write in enumerate(state_writes)
+                if write.index is None
+                and write.argument in unconditionally_written_scalars
+            }
+            state_writes = [
+                replace(write, guard=None, guard_negated=False)
+                if write.index is None
+                and write.argument in unconditionally_written_scalars
+                and last_scalar_write[write.argument] == index
+                else write
+                for index, write in enumerate(state_writes)
+                if write.index is not None
+                or write.argument not in unconditionally_written_scalars
+                or last_scalar_write[write.argument] == index
+            ]
         state_names = {
             *(write.argument for write in state_writes),
             *(read.argument for read in state_reads),
@@ -2923,7 +3080,6 @@ def parse_queue_program(
                 or rule_finds
                 or (
                     multi_return is not None
-                    and multi_output_guard is not None
                     and rule_locals
                 )
             )
@@ -2931,6 +3087,7 @@ def parse_queue_program(
                 len(ordered_state) >= 2
                 or bool(rule_finds)
                 or bool(state_reference_arguments)
+                or bool(rule_locals)
                 or has_branch_effects
                 or rewritten_multi_guard is not None
                 or rewritten_multi_output_guard is not None
