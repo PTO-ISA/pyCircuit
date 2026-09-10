@@ -9638,7 +9638,8 @@ def lower_queue_program(
             ),
             "write_fields": list(write.write_fields),
         }
-        return sha256_bytes(canonical_json_bytes(record)).removeprefix("sha256:")
+        digest = sha256_bytes(canonical_json_bytes(record))
+        return digest[len("sha256:") :]
 
     specialization = (
         ""

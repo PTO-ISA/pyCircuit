@@ -790,11 +790,12 @@ table.view(tail).allocate(
     value=allocation.value,
 )
 
-tiles = ac.table[(2, 3), ac.u8](
+TileTable = ac.table[(2, 3), ac.u8]
+tiles = TileTable(
     init={
         "version": 1,
         "entry": ac.u8,
-        "values": [1, 2, 3, 4, 5, 6],
+        "values": list((1, 2, 3, 4, 5, 6)),
     }
 )
 last = tiles.view((1, 2)).read()

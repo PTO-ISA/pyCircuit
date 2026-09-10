@@ -87,7 +87,9 @@ def validate_release_graph(document: object) -> list[str]:
             continue
         uses = [step.get("uses", "") for step in steps if isinstance(step, dict)]
         if not any("actions/download-artifact" in value for value in uses):
-            errors.append(f"release publication job {name} does not download accepted bytes")
+            errors.append(
+                f"release publication job {name} does not download accepted bytes"
+            )
         commands = "\n".join(
             str(step.get("run", "")) for step in steps if isinstance(step, dict)
         )
@@ -100,11 +102,15 @@ def validate_release_graph(document: object) -> list[str]:
     if "verify-published-bytes" in jobs and "publish-release" not in ancestors(
         "verify-published-bytes"
     ):
-        errors.append("published-byte verification does not depend on release publication")
+        errors.append(
+            "published-byte verification does not depend on release publication"
+        )
     if "verify-stable-platforms" in jobs and "verify-published-bytes" not in ancestors(
         "verify-stable-platforms"
     ):
-        errors.append("stable platform verification bypasses published-byte verification")
+        errors.append(
+            "stable platform verification bypasses published-byte verification"
+        )
     if "release-attestation" in jobs:
         final_ancestors = ancestors("release-attestation")
         for required in ("verify-published-bytes", "verify-stable-platforms"):

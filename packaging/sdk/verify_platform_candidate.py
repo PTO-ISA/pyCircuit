@@ -378,9 +378,7 @@ def installed_smoke(sdk_root: Path, wheels: list[Path], workspace: Path) -> None
     parallel_results = [process.communicate() for process in parallel]
     for process, (stdout, stderr) in zip(parallel, parallel_results, strict=True):
         if process.returncode:
-            raise ValueError(
-                "parallel same-root emission failed: " + stdout + stderr
-            )
+            raise ValueError("parallel same-root emission failed: " + stdout + stderr)
     if tree_hashes(generated) != first_generated:
         raise ValueError("parallel same-root emission changed accepted output")
 
