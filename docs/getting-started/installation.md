@@ -116,7 +116,8 @@ installation command until the corresponding PTO-ISA release is published.
 ## Install Python Package
 
 ```bash
-# Install the frontend package in development mode
+# Install the semantic core and frontend package in development mode
+python3 -m pip install -e "python/semantic-core"
 python3 -m pip install -e .
 
 # Verify installation metadata

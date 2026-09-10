@@ -81,7 +81,6 @@ nav:
       - Repository Migration: acir/migration.md
       - Collaboration Migration: acir/agentic-circuit-collaboration.md
   - Core Docs:
-      - QUICKSTART.md
       - FRONTEND_API.md
       - TESTBENCH.md
       - PRIMITIVES.md

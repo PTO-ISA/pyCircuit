@@ -19,8 +19,8 @@ ACIR, then targets either ACSim/gfsim or the pyCircuit 6 hardware flow.
 [`PTO-ISA/pyCircuit`](https://github.com/PTO-ISA/pyCircuit) is the canonical
 repository, release authority, and only active source of truth for both
 pyCircuit and Agentic Circuit.
-The former standalone `PTO-ISA/agentic-circuit` repository is a private,
-archived provenance record. Its final tombstone points to pyCircuit merge
+The former standalone `PTO-ISA/agentic-circuit` repository is an archived
+provenance record. Its final tombstone points to pyCircuit merge
 [`cba1d938`](https://github.com/PTO-ISA/pyCircuit/commit/cba1d938ddcfaadf021bbff5a91553869028e124).
 New AC source, issues, releases, and packages belong only in this repository.
 
@@ -34,8 +34,9 @@ New AC source, issues, releases, and packages belong only in this repository.
 - **One semantic IR:** C++ and Verilog consume the same verified `pyc` MLIR.
 - **Preserved hierarchy:** module instances remain visible to simulation, DFX,
   and emitted RTL.
-- **Scalable validation:** legality, cycle, depth, clock-domain, observation,
-  and backend-equivalence gates are part of the repository workflow.
+- **Scalable validation:** lightweight G0 repository/Python checks, focused
+  native semantic evidence, G3 nightly diagnostics, and the full release
+  closure are explicit repository lanes.
 
 ## Choose a frontend
 
@@ -314,9 +315,8 @@ PTO-ISA owns product decisions, both Python distributions, releases, package
 publication, and the default branch. Consumer repositories pin a released or
 reviewed pyCircuit revision and own their design-specific integration gates.
 Downstream forks consume the upstream contract and do not define a second
-framework API. The standalone Agentic Circuit repository remains a public
-migration record until its operational cutover checklist passes; it is not an
-active development or publishing source.
+framework API. The archived standalone Agentic Circuit repository is provenance
+only; it is not an active development or publishing source.
 
 - [Contribution workflow](docs/development/contributing-workflow.md)
 - [Testing and gates](docs/development/testing-and-gates.md)
