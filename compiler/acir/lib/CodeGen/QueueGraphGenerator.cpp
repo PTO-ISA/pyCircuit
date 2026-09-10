@@ -265,6 +265,8 @@ bool isAggregateValueType(const QueueGraphPlan &plan, llvm::StringRef type) {
   return findPayloadType(plan, type) || findAggregateType(plan, type);
 }
 
+const TablePlan *findTable(const QueueGraphPlan &plan, llvm::StringRef name);
+
 llvm::Expected<uint64_t> generatedTypeWidth(const QueueGraphPlan &plan,
                                             llvm::StringRef type) {
   if (type.starts_with('i')) {
@@ -402,6 +404,113 @@ llvm::Expected<std::string> emitUnpackedValue(const QueueGraphPlan &plan,
   return emitUnpackedValueImpl(plan, type, value, active);
 }
 
+llvm::Expected<std::string>
+emitTableInitValue(const QueueGraphPlan &plan,
+                   const TableInitValuePlan &value) {
+  if (value.kind == "integer") {
+    auto type = cppType(value.type);
+    if (!type)
+      return type.takeError();
+    return *type + "{" + value.value + "}";
+  }
+  if (value.kind == "enum") {
+    auto name = enumTypeName(value.type);
+    if (!name || value.value.empty())
+      return generatorError("typed Table enum initializer is malformed");
+    return name->str() + "::" + identifier(value.value);
+  }
+  if (value.kind == "struct") {
+    const QueuePayloadPlan *payload = findPayloadType(plan, value.type);
+    if (!payload || payload->fields.size() != value.elements.size() ||
+        value.fieldNames.size() != value.elements.size())
+      return generatorError("typed Table struct initializer is malformed");
+    std::string result = payload->name + "{";
+    for (auto [index, element] : llvm::enumerate(value.elements)) {
+      if (payload->fields[index].name != value.fieldNames[index])
+        return generatorError(
+            "typed Table struct initializer field order is inconsistent");
+      auto emitted = emitTableInitValue(plan, element);
+      if (!emitted)
+        return emitted.takeError();
+      if (index)
+        result.append(", ");
+      result.append(*emitted);
+    }
+    result.push_back('}');
+    return result;
+  }
+  if (value.kind == "tuple" || value.kind == "array") {
+    const QueueAggregatePlan *aggregate = findAggregateType(plan, value.type);
+    if (!aggregate || value.elements.empty())
+      return generatorError("typed Table aggregate initializer is malformed");
+    std::vector<std::string> packed;
+    packed.reserve(value.elements.size());
+    for (const TableInitValuePlan &element : value.elements) {
+      auto emitted = emitTableInitValue(plan, element);
+      if (!emitted)
+        return emitted.takeError();
+      auto encoded = emitPackedValue(plan, element.type, *emitted);
+      if (!encoded)
+        return encoded.takeError();
+      packed.push_back(std::move(*encoded));
+    }
+    if (packed.size() == 1)
+      return packed.front();
+    std::string result = "gfsim::bitConcat(";
+    for (auto [index, element] : llvm::enumerate(packed)) {
+      if (index)
+        result.append(", ");
+      result.append(element);
+    }
+    result.push_back(')');
+    return result;
+  }
+  return generatorError("typed Table initializer kind is unsupported");
+}
+
+llvm::Expected<std::string> tableStorageArgument(const QueueGraphPlan &plan,
+                                                 const TablePlan &table) {
+  if (table.initImage.empty())
+    return std::to_string(table.entries);
+  auto type = cppType(table.entryType);
+  if (!type)
+    return type.takeError();
+  std::string result = "std::vector<" + *type + ">{";
+  for (auto [index, value] : llvm::enumerate(table.initImage)) {
+    auto emitted = emitTableInitValue(plan, value);
+    if (!emitted)
+      return emitted.takeError();
+    if (index)
+      result.append(", ");
+    result.append(*emitted);
+  }
+  result.push_back('}');
+  return result;
+}
+
+template <typename Domain>
+std::string tableProjectionArgument(const TablePlan &table,
+                                    const Domain &match) {
+  if (!match.hasDomainProjection)
+    return "gfsim::TableDomainProjection(" + std::to_string(table.entries) +
+           ")";
+  auto array = [](llvm::ArrayRef<uint64_t> values) {
+    std::string result = "std::array<std::size_t, " +
+                         std::to_string(values.size()) + ">{";
+    for (auto [index, value] : llvm::enumerate(values)) {
+      if (index)
+        result.append(", ");
+      result.append(std::to_string(value));
+    }
+    result.push_back('}');
+    return result;
+  };
+  return "gfsim::TableDomainProjection(" + std::to_string(table.entries) +
+         ", " + array(match.domainShape) + ", " +
+         array(match.domainStrides) + ", " +
+         std::to_string(match.domainOffset) + ")";
+}
+
 std::vector<std::string> pathParts(llvm::StringRef path) {
   std::vector<std::string> result;
   while (!path.empty()) {
@@ -449,6 +558,14 @@ std::string matchExpressionValueKey(const QueueExpressionPlan &expression) {
   append(std::to_string(expression.width));
   append(expression.mask);
   append(expression.value);
+  for (uint64_t value : expression.domainAxes)
+    append(std::to_string(value));
+  for (uint64_t value : expression.domainShape)
+    append(std::to_string(value));
+  for (uint64_t value : expression.domainStrides)
+    append(std::to_string(value));
+  append(std::to_string(expression.domainOffset));
+  append(expression.hasDomainProjection ? "1" : "0");
   return result;
 }
 
@@ -568,6 +685,11 @@ emitExpressionBody(const QueueGraphPlan &plan, const QueueBlockPlan &block,
             candidate.table != expression.table ||
             candidate.type != expression.type ||
             candidate.operands != expression.operands ||
+            candidate.domainAxes != expression.domainAxes ||
+            candidate.domainShape != expression.domainShape ||
+            candidate.domainStrides != expression.domainStrides ||
+            candidate.domainOffset != expression.domainOffset ||
+            candidate.hasDomainProjection != expression.hasDomainProjection ||
             candidate.nestedYields.size() != 1 ||
             !needed.contains(candidate.result) ||
             hasSnapshotSet(candidate.result) ||
@@ -663,10 +785,19 @@ emitExpressionBody(const QueueGraphPlan &plan, const QueueBlockPlan &block,
             output << padding << "std::array<std::uint64_t, " << *maskWords
                    << "> " << match->result << "{};\n";
         }
-        output << padding << "for (std::size_t index = 0; index < " << table
-               << "->size(); ++index) {\n"
+        const TablePlan *tablePlan = findTable(plan, expression.table);
+        if (!tablePlan)
+          return generatorError("table.match Table is missing");
+        output << padding << "const auto projection_" << expression.result
+               << " = " << tableProjectionArgument(*tablePlan, expression)
+               << ";\n"
+               << padding << "for (std::size_t index = 0; index < "
+               << "projection_" << expression.result << ".size(); "
+               << "++index) {\n"
+               << padding << "  const std::size_t global_index = *projection_"
+               << expression.result << ".globalIndex(index);\n"
                << padding << "  const auto &entry = " << table
-               << "->at(index);\n"
+               << "->at(global_index);\n"
                << padding << "  auto [";
         for (auto [index, match] : llvm::enumerate(fusedMatches)) {
           if (index)
@@ -685,7 +816,8 @@ emitExpressionBody(const QueueGraphPlan &plan, const QueueBlockPlan &block,
                    << " |= (std::uint64_t{1} << index);\n";
           else
             output << match->result
-                   << "[index / 64] |= (std::uint64_t{1} << (index % 64));\n";
+                   << "[index / 64] |= (std::uint64_t{1} << "
+                      "(index % 64));\n";
           emittedTableMatches.insert(match->result);
         }
         output << padding << "}\n";
@@ -717,9 +849,18 @@ emitExpressionBody(const QueueGraphPlan &plan, const QueueBlockPlan &block,
       for (const QueueExpressionPlan *snapshotSet : snapshotSets)
         output << padding << "gfsim::StateReservation " << snapshotSet->result
                << "{};\n";
-      output << padding << "for (std::size_t index = 0; index < " << table
-             << "->size(); ++index) {\n"
-             << padding << "  const auto &entry = " << table << "->at(index);\n";
+      const TablePlan *tablePlan = findTable(plan, expression.table);
+      if (!tablePlan)
+        return generatorError("table.match Table is missing");
+      output << padding << "const auto projection_" << expression.result
+             << " = " << tableProjectionArgument(*tablePlan, expression)
+             << ";\n"
+             << padding << "for (std::size_t index = 0; index < "
+             << "projection_" << expression.result << ".size(); "
+             << "++index) {\n"
+             << padding << "  const std::size_t global_index = *projection_"
+             << expression.result << ".globalIndex(index);\n"
+             << padding << "  const auto &entry = " << table << "->at(global_index);\n";
       for (auto [setIndex, snapshotSet] : llvm::enumerate(snapshotSets)) {
         std::vector<const QueueExpressionPlan *> reads;
         for (const QueueExpressionPlan &candidate :
@@ -760,10 +901,12 @@ emitExpressionBody(const QueueGraphPlan &plan, const QueueBlockPlan &block,
              << *predicate << padding << "  }())\n"
              << padding << "    ";
       if (*maskWords == 1)
-        output << expression.result << " |= (std::uint64_t{1} << index);\n";
+        output << expression.result
+               << " |= (std::uint64_t{1} << index);\n";
       else
         output << expression.result
-               << "[index / 64] |= (std::uint64_t{1} << (index % 64));\n";
+               << "[index / 64] |= (std::uint64_t{1} << "
+                  "(index % 64));\n";
       output << padding << "}\n";
       continue;
     }
@@ -776,6 +919,36 @@ emitExpressionBody(const QueueGraphPlan &plan, const QueueBlockPlan &block,
           });
       if (source == block.expressions.end())
         return generatorError("snapshot-set source evaluation is missing");
+      continue;
+    }
+    if (expression.kind == "table_index") {
+      const TablePlan *table = findTable(plan, expression.table);
+      if (!table || expression.operands.size() != table->shape.size())
+        return generatorError("Table index expression is malformed");
+      std::vector<uint64_t> strides(table->shape.size(), 1);
+      for (size_t axis = table->shape.size(); axis > 1; --axis)
+        strides[axis - 2] = strides[axis - 1] * table->shape[axis - 1];
+      const std::string tableName = qualifyTables
+                                        ? "table_" + identifier(expression.table)
+                                        : std::string("table");
+      output << padding << "const std::optional<std::size_t> "
+             << expression.result << "_checked = [&]() -> "
+             << "std::optional<std::size_t> {\n";
+      for (auto [axis, coordinate] : llvm::enumerate(expression.operands))
+        output << padding << "  const std::size_t coordinate_" << axis
+               << " = static_cast<std::size_t>(" << coordinate << ");\n"
+               << padding << "  if (coordinate_" << axis << " >= "
+               << table->shape[axis] << ") return std::nullopt;\n";
+      output << padding << "  return ";
+      for (size_t axis = 0; axis < table->shape.size(); ++axis) {
+        if (axis)
+          output << " + ";
+        output << "coordinate_" << axis << " * " << strides[axis];
+      }
+      output << ";\n" << padding << "}();\n"
+             << padding << "const std::size_t " << expression.result << " = "
+             << expression.result << "_checked.value_or(" << tableName
+             << "->size());\n";
       continue;
     }
     auto first = operand(0);
@@ -865,7 +1038,9 @@ emitExpressionBody(const QueueGraphPlan &plan, const QueueBlockPlan &block,
             return table.name == expression.table;
           });
       auto scalarMaskWidth =
-          choiceTable != plan.tables.end() && choiceTable->entries <= 64
+          choiceTable != plan.tables.end() && choiceTable->entries <= 64 &&
+                  maskExpression != block.expressions.end() &&
+                  !maskExpression->hasDomainProjection
               ? std::optional<unsigned>(choiceTable->entries)
               : std::nullopt;
       if (expression.predicate == "first" && scalarMaskWidth &&
@@ -892,11 +1067,16 @@ emitExpressionBody(const QueueGraphPlan &plan, const QueueBlockPlan &block,
                << "{};\n";
       output << padding << "std::uint64_t " << choiceIndex << " = 0;\n"
              << padding << "bool " << choiceValid << " = false;\n"
-             << padding << "std::uint64_t " << choiceBest << " = 0;\n"
-             << padding << "for (std::size_t index = 0; index < "
-             << (qualifyTables ? "table_" + identifier(expression.table)
-                               : std::string("table"))
-             << "->size(); ++index) {\n"
+             << padding << "std::uint64_t " << choiceBest << " = 0;\n";
+      if (choiceTable == plan.tables.end() ||
+          maskExpression == block.expressions.end())
+        return generatorError("table.choose projection metadata is missing");
+      output << padding << "const auto projection_" << choice
+             << " = "
+             << tableProjectionArgument(*choiceTable, *maskExpression)
+             << ";\n"
+             << padding << "for (std::size_t index = 0; index < projection_"
+             << choice << ".size(); ++index) {\n"
              << padding << "  if ((";
       if (*maskWords == 1)
         output << "static_cast<std::uint64_t>(" << first->str()
@@ -905,11 +1085,13 @@ emitExpressionBody(const QueueGraphPlan &plan, const QueueBlockPlan &block,
         output << first->str()
                << "[index / 64] & (std::uint64_t{1} << (index % 64))";
       output << ") == 0) continue;\n";
+      output << padding << "  const std::size_t global_index = *projection_"
+             << choice << ".globalIndex(index);\n";
       if (expression.predicate != "first")
         output << padding << "  const auto &entry = "
                << (qualifyTables ? "table_" + identifier(expression.table)
                                  : std::string("table"))
-               << "->at(index);\n";
+               << "->at(global_index);\n";
       for (auto [setIndex, snapshotSet] : llvm::enumerate(snapshotSets)) {
         std::vector<const QueueExpressionPlan *> reads;
         for (const QueueExpressionPlan &candidate : nested.expressions)
@@ -948,7 +1130,7 @@ emitExpressionBody(const QueueGraphPlan &plan, const QueueBlockPlan &block,
         }
       }
       if (expression.predicate == "first") {
-        output << padding << "  " << choiceIndex << " = index;\n"
+        output << padding << "  " << choiceIndex << " = global_index;\n"
                << padding << "  " << choiceValid << " = true;\n"
                << padding << "  break;\n";
       } else {
@@ -965,7 +1147,7 @@ emitExpressionBody(const QueueGraphPlan &plan, const QueueBlockPlan &block,
                << padding << "  if (!" << choiceValid
                << " || static_cast<std::uint64_t>(key) " << comparison << " "
                << choiceBest << ") {\n"
-               << padding << "    " << choiceIndex << " = index;\n"
+               << padding << "    " << choiceIndex << " = global_index;\n"
                << padding << "    " << choiceValid << " = true;\n"
                << padding << "    " << choiceBest
                << " = static_cast<std::uint64_t>(key);\n"
@@ -2236,9 +2418,14 @@ generateStructuredQueueGraphCpp(const QueueGraphPlan &plan) {
               "gfsim::kInvalidObjectId, parent),\n        scope_(\""
            << localScope << "\", gfsim::kInvalidObjectId, this)";
     for (auto [index, table] : llvm::enumerate(specialization.tables))
-      output << ",\n        table_" << index << "_(\"" << table.name
-             << "\", table_" << index << "_id, &scope_, " << table.entries
-             << ")";
+      {
+        auto storage = tableStorageArgument(specialization, table);
+        if (!storage)
+          return storage.takeError();
+        output << ",\n        table_" << index << "_(\"" << table.name
+               << "\", table_" << index << "_id, &scope_, " << *storage
+               << ")";
+      }
     for (auto [blockIndex, firing] : llvm::enumerate(specialization.blocks)) {
       const std::vector<size_t> tables = tableBindings(firing);
       const std::vector<size_t> readOnlyTables = readOnlyTableBindings(firing);
@@ -3838,6 +4025,15 @@ llvm::Expected<std::string> generateQueueGraphCpp(const QueueGraphPlan &plan) {
         auto resultCppType = cppType(resultType);
         if (!resultCppType)
           return resultCppType.takeError();
+        if (block->yields[policyIndex] != "item") {
+          auto expression = llvm::find_if(
+              block->expressions, [&](const QueueExpressionPlan &candidate) {
+                return candidate.result == block->yields[policyIndex];
+              });
+          if (expression != block->expressions.end() &&
+              expression->kind == "table_index")
+            *resultCppType = "std::size_t";
+        }
         output << "struct block_" << index << '_' << policyName.str()
                << "_policy {\n  gfsim::SimTable<" << *entryType
                << "> *table{};\n";
@@ -4137,9 +4333,12 @@ llvm::Expected<std::string> generateQueueGraphCpp(const QueueGraphPlan &plan) {
     auto parent = modulePointer(table.ownerPath);
     if (!parent)
       return parent.takeError();
+    auto storage = tableStorageArgument(plan, table);
+    if (!storage)
+      return storage.takeError();
     appendInitializer(initializers, tableMembers[table.name], "(\"", table.name,
                       "\", ", tableIds[table.name], ", ", *parent, ", ",
-                      table.entries, ")");
+                      *storage, ")");
   }
   std::string slotPolicyPointers;
   for (auto [index, slot] : llvm::enumerate(plan.slots)) {
@@ -4159,19 +4358,29 @@ llvm::Expected<std::string> generateQueueGraphCpp(const QueueGraphPlan &plan) {
         .append("_");
   for (const TableMatchPlan &match : plan.tableMatches) {
     auto table = tableMembers.find(match.table);
-    if (table == tableMembers.end())
+    const TablePlan *tablePlan = findTable(plan, match.table);
+    if (table == tableMembers.end() || !tablePlan)
       return generatorError("table.match declaration is missing");
     appendInitializer(initializers, identifier(match.name), "_(",
-                      table->getValue(), ", ", identifier(match.name),
+                      table->getValue(), ", ",
+                      tableProjectionArgument(*tablePlan, match), ", ",
+                      identifier(match.name),
                       "_predicate_policy{&", table->getValue(),
                       slotPolicyPointers, "})");
   }
   for (const TableSelectionPlan &selection : plan.tableSelections) {
     auto table = tableMembers.find(selection.table);
-    if (table == tableMembers.end())
+    const TablePlan *tablePlan = findTable(plan, selection.table);
+    auto match = llvm::find_if(plan.tableMatches, [&](const auto &candidate) {
+      return candidate.name == selection.match;
+    });
+    if (table == tableMembers.end() || !tablePlan ||
+        match == plan.tableMatches.end())
       return generatorError("table.choose declaration is missing");
     appendInitializer(initializers, identifier(selection.name), "_(",
-                      table->getValue(), ", ", identifier(selection.name),
+                      table->getValue(), ", ",
+                      tableProjectionArgument(*tablePlan, *match), ", ",
+                      identifier(selection.name),
                       "_mask_policy{&", identifier(selection.match), "_}, ",
                       identifier(selection.name), "_key_policy{}, ",
                       identifier(selection.name), "_choose_policy)");
@@ -4456,11 +4665,30 @@ llvm::Expected<std::string> generateQueueGraphCpp(const QueueGraphPlan &plan) {
             block->writeMode == "replace" ? "Replace" : "FieldMerge", ")");
     } else if (block->kind == "table_masked_write") {
       auto table = tableMembers.find(block->table);
-      if (table == tableMembers.end())
+      const TablePlan *tablePlan = findTable(plan, block->table);
+      if (table == tableMembers.end() || !tablePlan)
         return generatorError("masked table write declaration is missing");
+      std::string projection =
+          "gfsim::TableDomainProjection(" +
+          std::to_string(tablePlan->entries) + ")";
+      auto mask = llvm::find_if(block->expressions, [&](const auto &expression) {
+        return !block->yields.empty() && expression.result == block->yields[0];
+      });
+      if (mask != block->expressions.end() && mask->kind == "table_match") {
+        projection = tableProjectionArgument(*tablePlan, *mask);
+      } else if (mask != block->expressions.end() &&
+                 mask->kind == "table_match_ref") {
+        auto shared = llvm::find_if(plan.tableMatches, [&](const auto &match) {
+          return match.name == mask->field;
+        });
+        if (shared == plan.tableMatches.end())
+          return generatorError("masked table write match is missing");
+        projection = tableProjectionArgument(*tablePlan, *shared);
+      }
       appendInitializer(initializers, member, "(\"", instanceName, "\", ",
                         blockIds[key], ", ", *parent, ", ", table->getValue(),
-                        ", block_", index, "_mask_policy{&", table->getValue(),
+                        ", ", projection, ", block_", index,
+                        "_mask_policy{&", table->getValue(),
                         slotPolicyPointers, sharedPolicyPointers, "}, block_",
                         index, "_enable_policy{&", table->getValue(),
                         slotPolicyPointers, sharedPolicyPointers, "}, block_",

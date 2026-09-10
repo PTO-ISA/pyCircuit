@@ -56,8 +56,57 @@ def _render_type(value_type: ValueType) -> str:
     return value_type.mlir()
 
 
-def _render_i64_shape(shape: tuple[int, ...]) -> str:
-    return "[" + ", ".join(f"{extent} : i64" for extent in shape) + "]"
+def _render_dense_i64(values: tuple[int, ...]) -> str:
+    return "array<i64: " + ", ".join(str(value) for value in values) + ">"
+
+
+def _table_axis_width(extent: int) -> int:
+    return max(1, (extent - 1).bit_length())
+
+
+def _product(values: tuple[int, ...]) -> int:
+    result = 1
+    for value in values:
+        result *= value
+    return result
+
+
+def _table_schema_id(entry_type: ValueType, shape: tuple[int, ...]) -> str:
+    return sha256_bytes(
+        canonical_json_bytes(
+            {
+                "entry": _render_type(entry_type),
+                "layout": "row_major",
+                "layout_version": 1,
+                "shape": list(shape),
+            }
+        )
+    )
+
+
+def _render_table_init_value(value: object, descriptor: ValueType) -> str:
+    if isinstance(descriptor, BoolType) and type(value) is bool:
+        return f"{1 if value else 0} : i1"
+    if isinstance(descriptor, BitsType) and type(value) is int:
+        return f"{value} : i{descriptor.width}"
+    if isinstance(descriptor, EnumType) and type(value) is str:
+        return json.dumps(value)
+    if isinstance(descriptor, StructType) and isinstance(value, dict):
+        return "{" + ", ".join(
+            f"{field.name} = "
+            + _render_table_init_value(value[field.name], field.type)
+            for field in descriptor.fields
+        ) + "}"
+    if isinstance(descriptor, TupleType) and isinstance(value, list):
+        return "[" + ", ".join(
+            _render_table_init_value(item, item_type)
+            for item, item_type in zip(value, descriptor.elements, strict=True)
+        ) + "]"
+    if isinstance(descriptor, ArrayType) and isinstance(value, list):
+        return "[" + ", ".join(
+            _render_table_init_value(item, descriptor.element) for item in value
+        ) + "]"
+    raise AssertionError("validated Table initializer cannot be rendered")
 
 
 def _static_json_value(value: StaticValue) -> object:
@@ -579,7 +628,7 @@ class TableBinding:
     entry_type: ValueType
     entries: int
     shape: tuple[int, ...]
-    init_image: str | None
+    init_image: tuple[object, ...] | None
     scope: tuple[str, ...]
     order: int
 
@@ -609,6 +658,19 @@ class MaskedEntryViewBinding:
     name: str
     table: str
     candidates: str
+    scope: tuple[str, ...]
+    order: int
+
+
+@dataclass(frozen=True, slots=True)
+class ProjectedTableViewBinding:
+    name: str
+    table: str
+    prefix: tuple[ast.expr, ...]
+    domain_axes: tuple[int, ...]
+    domain_shape: tuple[int, ...]
+    domain_strides: tuple[int, ...]
+    domain_offset: int
     scope: tuple[str, ...]
     order: int
 
@@ -679,11 +741,27 @@ class SlotReleaseBinding:
 class CandidateSetBinding:
     name: str
     table: str
+    entries: int
+    domain_axes: tuple[int, ...]
     domain_shape: tuple[int, ...]
+    domain_strides: tuple[int, ...]
+    domain_offset: int
     argument: str
     predicate: ast.expr
     scope: tuple[str, ...]
     order: int
+
+
+def _render_table_domain_attributes(candidate: CandidateSetBinding) -> str:
+    return (
+        "{domain_axes = "
+        + _render_dense_i64(candidate.domain_axes)
+        + ", domain_shape = "
+        + _render_dense_i64(candidate.domain_shape)
+        + ", domain_strides = "
+        + _render_dense_i64(candidate.domain_strides)
+        + f", domain_offset = {candidate.domain_offset} : i64}}"
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -3367,7 +3445,10 @@ def parse_queue_program(
     selections: list[SelectionBinding] = []
     table_by_name: dict[str, TableBinding] = {}
     variable_by_name: dict[str, VarStateBinding] = {}
-    entry_views: dict[str, EntryViewBinding | MaskedEntryViewBinding] = {}
+    entry_views: dict[
+        str,
+        EntryViewBinding | MaskedEntryViewBinding | ProjectedTableViewBinding,
+    ] = {}
     slot_by_name: dict[str, SlotBinding] = {}
     candidate_by_name: dict[str, CandidateSetBinding] = {}
     selection_by_name: dict[str, SelectionBinding] = {}
@@ -3505,7 +3586,7 @@ def parse_queue_program(
 
     def table_declaration(
         call: ast.Call,
-    ) -> tuple[int, tuple[int, ...], ValueType, str | None] | None:
+    ) -> tuple[int, tuple[int, ...], ValueType, tuple[object, ...] | None] | None:
         if not isinstance(call.func, ast.Subscript):
             return None
         if _decorator_name(call.func.value).rsplit(".", 1)[-1] != "table":
@@ -3660,29 +3741,32 @@ def parse_queue_program(
         canonical_values = [
             canonical_image_value(value, entry_type) for value in values_node.elts
         ]
-        image = json.dumps(
-            {
-                "entry": _render_type(entry_type),
-                "values": canonical_values,
-                "version": 1,
-            },
-            sort_keys=True,
-            separators=(",", ":"),
-        )
-        return entries, shape, entry_type, image
+        return entries, shape, entry_type, tuple(canonical_values)
 
     def parse_view(
         node: ast.expr,
         alias: str,
         scope_path: tuple[str, ...],
         current_order: int,
-    ) -> EntryViewBinding | MaskedEntryViewBinding | None:
+    ) -> (
+        EntryViewBinding
+        | MaskedEntryViewBinding
+        | ProjectedTableViewBinding
+        | None
+    ):
         if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Attribute):
             return None
         if node.func.attr != "view" or not isinstance(node.func.value, ast.Name):
             return None
-        table_name = node.func.value.id
-        if table_name not in table_by_name:
+        source_name = node.func.value.id
+        projected_source = entry_views.get(source_name)
+        if source_name in table_by_name:
+            table_name = source_name
+            prefix: tuple[ast.expr, ...] = ()
+        elif isinstance(projected_source, ProjectedTableViewBinding):
+            table_name = projected_source.table
+            prefix = projected_source.prefix
+        else:
             return None
         if len(node.args) != 1 or node.keywords:
             raise QueueFrontendError(
@@ -3694,6 +3778,15 @@ def parse_queue_program(
             if candidate.table != table_name:
                 raise QueueFrontendError(
                     "ACPY-TABLE-008: CandidateSet belongs to a different Table"
+                )
+            if isinstance(projected_source, ProjectedTableViewBinding) and (
+                candidate.domain_axes != projected_source.domain_axes
+                or candidate.domain_shape != projected_source.domain_shape
+                or candidate.domain_strides != projected_source.domain_strides
+                or candidate.domain_offset != projected_source.domain_offset
+            ):
+                raise QueueFrontendError(
+                    "ACPY-TABLE-008: CandidateSet belongs to a different Table view"
                 )
             return MaskedEntryViewBinding(
                 alias, table_name, candidate.name, scope_path, current_order
@@ -3726,14 +3819,11 @@ def parse_queue_program(
             return EntryViewBinding(
                 alias, table_name, argument, address, scope_path, current_order
             )
-        coordinates = (
+        local_coordinates = (
             tuple(address.elts) if isinstance(address, ast.Tuple) else (address,)
         )
-        if len(table.shape) != 1 and not isinstance(address, ast.Tuple):
-            raise QueueFrontendError(
-                "ACPY-TABLE-010: multidimensional Table index rank must match shape"
-            )
-        if len(coordinates) != len(table.shape):
+        coordinates = (*prefix, *local_coordinates)
+        if len(coordinates) > len(table.shape):
             raise QueueFrontendError(
                 "ACPY-TABLE-010: Table index rank must match shape"
             )
@@ -3742,23 +3832,55 @@ def parse_queue_program(
             for coordinate in coordinates
         )
         for axis, (coordinate, extent) in enumerate(
-            zip(static_coordinates, table.shape, strict=True)
+            zip(
+                static_coordinates,
+                table.shape[: len(static_coordinates)],
+                strict=True,
+            )
         ):
             if coordinate is not None and not 0 <= coordinate < extent:
                 raise QueueFrontendError(
                     f"ACPY-TABLE-010: Table index axis {axis} is out of range"
                 )
-        if all(coordinate is not None for coordinate in static_coordinates):
-            flattened = 0
-            for coordinate, extent in zip(
-                static_coordinates, table.shape, strict=True
+        if len(coordinates) < len(table.shape):
+            if argument is not None or any(
+                coordinate is None for coordinate in static_coordinates
             ):
-                flattened = flattened * extent + int(coordinate)
-            address = ast.copy_location(ast.Constant(flattened), address)
-        elif len(table.shape) > 1:
-            raise QueueFrontendError(
-                "ACPY-TABLE-010: dynamic multidimensional index requires "
-                "native per-axis bounds lowering"
+                raise QueueFrontendError(
+                    "ACPY-TABLE-010: projected Table view requires static prefix "
+                    "coordinates"
+                )
+            strides = tuple(
+                _product(table.shape[axis + 1 :])
+                for axis in range(len(table.shape))
+            )
+            prefix_values = tuple(
+                int(coordinate)
+                for coordinate in static_coordinates
+                if coordinate is not None
+            )
+            fixed = len(prefix_values)
+            return ProjectedTableViewBinding(
+                alias,
+                table_name,
+                tuple(coordinates),
+                tuple(range(fixed, len(table.shape))),
+                table.shape[fixed:],
+                strides[fixed:],
+                sum(
+                    coordinate * stride
+                    for coordinate, stride in zip(
+                        prefix_values, strides[:fixed], strict=True
+                    )
+                ),
+                scope_path,
+                current_order,
+            )
+        if len(table.shape) == 1:
+            address = coordinates[0]
+        else:
+            address = ast.copy_location(
+                ast.Tuple(elts=list(coordinates), ctx=ast.Load()), address
             )
         return EntryViewBinding(
             alias, table_name, argument, address, scope_path, current_order
@@ -3768,7 +3890,12 @@ def parse_queue_program(
         node: ast.expr,
         scope_path: tuple[str, ...],
         current_order: int,
-    ) -> EntryViewBinding | MaskedEntryViewBinding | None:
+    ) -> (
+        EntryViewBinding
+        | MaskedEntryViewBinding
+        | ProjectedTableViewBinding
+        | None
+    ):
         if isinstance(node, ast.Name):
             view = entry_views.get(node.id)
             if view and view.scope == scope_path:
@@ -4381,12 +4508,47 @@ def parse_queue_program(
                     isinstance(call.func, ast.Attribute)
                     and call.func.attr == "match"
                     and isinstance(call.func.value, ast.Name)
-                    and call.func.value.id in table_by_name
+                    and (
+                        call.func.value.id in table_by_name
+                        or isinstance(
+                            entry_views.get(call.func.value.id),
+                            ProjectedTableViewBinding,
+                        )
+                    )
                 ):
                     name = statement.targets[0].id
-                    table_name = call.func.value.id
+                    projected = entry_views.get(call.func.value.id)
+                    table_name = (
+                        projected.table
+                        if isinstance(projected, ProjectedTableViewBinding)
+                        else call.func.value.id
+                    )
                     table = table_by_name[table_name]
-                    if table.entries > 64:
+                    domain_axes = (
+                        projected.domain_axes
+                        if isinstance(projected, ProjectedTableViewBinding)
+                        else tuple(range(len(table.shape)))
+                    )
+                    domain_shape = (
+                        projected.domain_shape
+                        if isinstance(projected, ProjectedTableViewBinding)
+                        else table.shape
+                    )
+                    domain_strides = (
+                        projected.domain_strides
+                        if isinstance(projected, ProjectedTableViewBinding)
+                        else tuple(
+                            _product(table.shape[axis + 1 :])
+                            for axis in range(len(table.shape))
+                        )
+                    )
+                    domain_offset = (
+                        projected.domain_offset
+                        if isinstance(projected, ProjectedTableViewBinding)
+                        else 0
+                    )
+                    domain_entries = _product(domain_shape)
+                    if domain_entries > 64:
                         raise QueueFrontendError(
                             "ACPY-TABLE-006: table.match domain must contain 1..64 entries"
                         )
@@ -4398,7 +4560,11 @@ def parse_queue_program(
                     binding = CandidateSetBinding(
                         name,
                         table_name,
-                        table.shape,
+                        domain_entries,
+                        domain_axes,
+                        domain_shape,
+                        domain_strides,
+                        domain_offset,
                         argument,
                         predicate,
                         scope_path,
@@ -4411,10 +4577,21 @@ def parse_queue_program(
                     isinstance(call.func, ast.Attribute)
                     and call.func.attr == "choose"
                     and isinstance(call.func.value, ast.Name)
-                    and call.func.value.id in table_by_name
+                    and (
+                        call.func.value.id in table_by_name
+                        or isinstance(
+                            entry_views.get(call.func.value.id),
+                            ProjectedTableViewBinding,
+                        )
+                    )
                 ):
                     name = statement.targets[0].id
-                    table_name = call.func.value.id
+                    projected = entry_views.get(call.func.value.id)
+                    table_name = (
+                        projected.table
+                        if isinstance(projected, ProjectedTableViewBinding)
+                        else call.func.value.id
+                    )
                     if len(call.args) != 1 or not isinstance(call.args[0], ast.Name):
                         raise QueueFrontendError(
                             "ACPY-TABLE-007: table.choose requires one CandidateSet"
@@ -4423,6 +4600,16 @@ def parse_queue_program(
                     if candidate is None or candidate.table != table_name:
                         raise QueueFrontendError(
                             "ACPY-TABLE-007: CandidateSet belongs to a different Table"
+                        )
+                    if isinstance(projected, ProjectedTableViewBinding) and (
+                        candidate.domain_axes != projected.domain_axes
+                        or candidate.domain_shape != projected.domain_shape
+                        or candidate.domain_strides != projected.domain_strides
+                        or candidate.domain_offset != projected.domain_offset
+                    ):
+                        raise QueueFrontendError(
+                            "ACPY-TABLE-007: CandidateSet belongs to a different "
+                            "Table view"
                         )
                     keywords = {keyword.arg: keyword.value for keyword in call.keywords}
                     if None in keywords or set(keywords) - {"count", "policy", "key"}:
@@ -4533,6 +4720,11 @@ def parse_queue_program(
                 call = statement.value
                 view = resolve_view(call.func.value, scope_path, current_order)
                 if view is not None:
+                    if isinstance(view, ProjectedTableViewBinding):
+                        raise QueueFrontendError(
+                            "ACPY-TABLE-003: projected Table view requires a "
+                            "complete index before read"
+                        )
                     if isinstance(view, MaskedEntryViewBinding):
                         raise QueueFrontendError(
                             "ACPY-TABLE-008: masked Table view does not support read"
@@ -4630,6 +4822,11 @@ def parse_queue_program(
                 view = resolve_view(call.func.value, scope_path, current_order)
                 if view is not None:
                     method = call.func.attr
+                    if isinstance(view, ProjectedTableViewBinding):
+                        raise QueueFrontendError(
+                            "ACPY-TABLE-004: projected Table view requires a "
+                            "complete index before write"
+                        )
                     arbitration_rank = table_writer_arbitration(
                         call, "ACPY-TABLE-011", view.table
                     )
@@ -7746,7 +7943,8 @@ class _ExpressionEmitter:
         ]
         | None = None,
         state_views: Mapping[str, tuple[str, ValueType, int]] | None = None,
-        table_domains: Mapping[str, tuple[ValueType, int]] | None = None,
+        table_domains: Mapping[str, tuple[ValueType, int, tuple[int, ...]]]
+        | None = None,
         bitfields: Mapping[str, BitfieldLayout] | None = None,
         invariants: Mapping[str, InvariantDefinition] | None = None,
     ) -> None:
@@ -7835,6 +8033,53 @@ class _ExpressionEmitter:
             return
         if type(fact.value) is not int or not prove_within(fact, 0, entries - 1):
             raise QueueFrontendError(diagnostic)
+
+    def emit_table_index(
+        self, table: str, address: ast.expr
+    ) -> tuple[str, ValueType]:
+        domain = self.table_domains.get(table)
+        if domain is None:
+            raise QueueFrontendError("ACPY-TABLE-010: Table domain is unresolved")
+        _, entries, shape = domain
+        flattened_type = BitsType(max(1, (entries - 1).bit_length()))
+        if len(shape) == 1 or not isinstance(address, ast.Tuple):
+            index, index_type = self.emit(address, flattened_type)
+            if not _types_equal_in_epoch_05(index_type, flattened_type):
+                raise QueueFrontendError(
+                    "ACPY-TABLE-010: Table index requires the canonical flattened "
+                    f"type {_render_type(flattened_type)}"
+                )
+            return index, index_type
+        if len(address.elts) != len(shape):
+            raise QueueFrontendError(
+                "ACPY-TABLE-010: Table index rank must match shape"
+            )
+        coordinates: list[str] = []
+        coordinate_types: list[ValueType] = []
+        for axis, (coordinate, extent) in enumerate(
+            zip(address.elts, shape, strict=True)
+        ):
+            expected_type = BitsType(_table_axis_width(extent))
+            value, value_type = self.emit(coordinate, expected_type)
+            if not _types_equal_in_epoch_05(value_type, expected_type):
+                raise QueueFrontendError(
+                    f"ACPY-TABLE-010: Table index axis {axis} requires "
+                    f"{_render_type(expected_type)}"
+                )
+            coordinates.append(value)
+            coordinate_types.append(value_type)
+        flattened = self._new()
+        self.lines.append(
+            f"    %{flattened} = ac.table.index @{table} ["
+            + ", ".join(f"%{coordinate}" for coordinate in coordinates)
+            + "] : "
+            + ", ".join(
+                f"!ac.var<{_render_type(value_type)}>"
+                for value_type in coordinate_types
+            )
+            + f" -> !ac.var<{_render_type(flattened_type)}>"
+        )
+        return self._remember(flattened, flattened_type)
 
     def _coerce_bool_to_expected_bits(
         self, value: str, value_type: ValueType, expected: ValueType | None
@@ -8295,7 +8540,8 @@ class _ExpressionEmitter:
                 raise QueueFrontendError(
                     "ACPY-TABLE-008: CandidateSet domain is unresolved"
                 )
-            entry_type, mask_width = domain
+            entry_type, _, _ = domain
+            mask_width = candidate.entries
             predicate_emitter = _ExpressionEmitter(
                 self.payloads,
                 candidate.argument,
@@ -8323,9 +8569,9 @@ class _ExpressionEmitter:
             self.lines.extend(predicate_emitter.lines)
             self.lines.append(f"      ac.table.match.yield %{predicate} : !ac.var<i1>")
             self.lines.append(
-                "    } {ac.table_mask_domain_shape = "
-                + _render_i64_shape(candidate.domain_shape)
-                + ', ac.table_mask_layout = "row-major-v1"} '
+                "    } "
+                + _render_table_domain_attributes(candidate)
+                + " "
                 + f"-> !ac.var<i{mask_width}>"
             )
             return mask, BitsType(mask_width)
@@ -8363,11 +8609,7 @@ class _ExpressionEmitter:
             if node.id in self.table_view_values:
                 return self.table_view_values[node.id]
             table, address, entry_type = self.table_views[node.id]
-            index, index_type = self.emit(address)
-            if _epoch_05_integer_width(index_type) is None:
-                raise QueueFrontendError(
-                    "ACPY-TABLE-003: table index must lower to an integer"
-                )
+            index, index_type = self.emit_table_index(table, address)
             name = self._new()
             self.lines.append(
                 f"    %{name} = ac.table.get @{table} [%{index}] : "
@@ -8411,7 +8653,8 @@ class _ExpressionEmitter:
                 raise QueueFrontendError(
                     "ACPY-TABLE-007: selection domain is unresolved"
                 )
-            entry_type, mask_width = domain
+            entry_type, table_entries, _ = domain
+            mask_width = candidate.entries
             predicate_emitter = _ExpressionEmitter(
                 self.payloads,
                 candidate.argument,
@@ -8439,14 +8682,14 @@ class _ExpressionEmitter:
             self.lines.extend(predicate_emitter.lines)
             self.lines.append(f"      ac.table.match.yield %{predicate} : !ac.var<i1>")
             self.lines.append(
-                "    } {ac.table_mask_domain_shape = "
-                + _render_i64_shape(candidate.domain_shape)
-                + ', ac.table_mask_layout = "row-major-v1"} '
+                "    } "
+                + _render_table_domain_attributes(candidate)
+                + " "
                 + f"-> !ac.var<i{mask_width}>"
             )
             index = self._new()
             valid = self._new()
-            index_width = max(1, (mask_width - 1).bit_length())
+            index_width = max(1, (table_entries - 1).bit_length())
             if selection.policy == "first":
                 key_region = "{}"
                 self.lines.append(
@@ -9159,24 +9402,32 @@ def lower_queue_program(
         owner_scope = table.scope if module is None else ("body", *table.scope)
         owner = "/" + "/".join(owner_scope) if owner_scope else "/"
         stable_id = "/".join((*owner_scope, table.name)) if owner_scope else table.name
-        layout_identity = json.dumps(
-            {
-                "entry": _render_type(table.entry_type),
-                "layout": "row-major-v1",
-                "shape": list(table.shape),
-            },
-            sort_keys=True,
-            separators=(",", ":"),
-        )
-        attributes = (
-            " {ac.table_layout = \"row-major-v1\", ac.table_layout_identity = "
-            + json.dumps(layout_identity)
-            + ", ac.table_shape = "
-            + _render_i64_shape(table.shape)
-        )
-        if table.init_image is not None:
-            attributes += ", ac.table_init_image = " + json.dumps(table.init_image)
-        attributes += "}"
+        attributes = ""
+        if len(table.shape) > 1 or table.init_image is not None:
+            typed_attributes = [
+                "shape = " + _render_dense_i64(table.shape),
+                "axis_widths = "
+                + _render_dense_i64(
+                    tuple(_table_axis_width(extent) for extent in table.shape)
+                ),
+                'layout = "row_major"',
+                "layout_version = 1 : i64",
+                "schema_id = "
+                + json.dumps(_table_schema_id(table.entry_type, table.shape)),
+            ]
+            if table.init_image is not None:
+                typed_attributes.extend(
+                    (
+                        "init_version = 1 : i64",
+                        "init_image = ["
+                        + ", ".join(
+                            _render_table_init_value(value, table.entry_type)
+                            for value in table.init_image
+                        )
+                        + "]",
+                    )
+                )
+            attributes = " {" + ", ".join(typed_attributes) + "}"
         lines.append(
             f"{content_indent}ac.table @{table.name} "
             f"entry {_render_type(table.entry_type)} "
@@ -9244,7 +9495,8 @@ def lower_queue_program(
     candidate_views = {candidate.name: candidate for candidate in program.candidates}
     selection_views = {selection.name: selection for selection in program.selections}
     table_domains = {
-        table.name: (table.entry_type, table.entries) for table in program.tables
+        table.name: (table.entry_type, table.entries, table.shape)
+        for table in program.tables
     }
     variable_domains = {
         variable.name: (variable.value_type, variable.entries)
@@ -9392,7 +9644,7 @@ def lower_queue_program(
             if queue.rule_table_read_name is not None:
                 assert queue.rule_table is not None
                 assert queue.rule_table_read_index is not None
-                entry_type, _ = table_domains[queue.rule_table]
+                entry_type, _, _ = table_domains[queue.rule_table]
                 rule_table_views[queue.rule_table_read_name] = (
                     queue.rule_table,
                     queue.rule_table_read_index,
@@ -9405,6 +9657,7 @@ def lower_queue_program(
                 root_name="item",
                 root_values=root_values,
                 table_views=rule_table_views,
+                table_domains=table_domains,
                 state_views={
                     owner.argument: (
                         owner.variable,
@@ -9774,14 +10027,16 @@ def lower_queue_program(
             if queue.rule_table is not None:
                 assert queue.rule_table_index is not None
                 assert queue.rule_table_value is not None
-                index_result, index_type = emitter.emit(queue.rule_table_index)
+                index_result, index_type = emitter.emit_table_index(
+                    queue.rule_table, queue.rule_table_index
+                )
                 index_width = _epoch_05_integer_width(index_type)
                 if index_width is None:
                     raise QueueFrontendError(
                         "ACPY-RULE-004: stateful rule Table index must be an "
                         "exact-width integer"
                     )
-                _, entries = table_domains[queue.rule_table]
+                _, entries, _ = table_domains[queue.rule_table]
                 emitter.reject_constant_index_outside(
                     index_result,
                     index_type,
@@ -10537,14 +10792,13 @@ def lower_queue_program(
                     f"{indent}  ac.table.match.yield %{predicate} : !ac.var<i1>"
                 )
                 lines.append(
-                    f"{indent}}} {{ac.table_mask_domain_shape = "
-                    + _render_i64_shape(candidate.domain_shape)
-                    + ', ac.table_mask_layout = "row-major-v1"} '
-                    + f"-> !ac.var<i{table.entries}>"
+                    f"{indent}}} "
+                    + _render_table_domain_attributes(candidate)
+                    + f" -> !ac.var<i{candidate.entries}>"
                 )
                 materialized_candidates[candidate.name] = (
                     result,
-                    BitsType(table.entries),
+                    BitsType(candidate.entries),
                 )
             elif kind == "table_choose":
                 selection = item
@@ -11065,7 +11319,9 @@ def lower_queue_program(
                     table_domains=table_domains,
                     bitfields=bitfields,
                 )
-                address, address_type = address_emitter.emit(read.address)
+                address, address_type = address_emitter.emit_table_index(
+                    read.table, read.address
+                )
                 when_emitter = _ExpressionEmitter(
                     payloads,
                     argument,
@@ -11143,7 +11399,9 @@ def lower_queue_program(
                     table_domains=table_domains,
                     bitfields=bitfields,
                 )
-                address, address_type = address_emitter.emit(write.address)
+                address, address_type = address_emitter.emit_table_index(
+                    write.table, write.address
+                )
                 enable_emitter = _ExpressionEmitter(
                     payloads,
                     argument,
@@ -11265,6 +11523,7 @@ def lower_queue_program(
                 table = next(
                     value for value in program.tables if value.name == write.table
                 )
+                candidate = candidate_views[write.candidates]
                 mask_emitter = _ExpressionEmitter(
                     payloads,
                     "",
@@ -11327,7 +11586,7 @@ def lower_queue_program(
                     )
                     value, value_type = value_emitter.emit(patch_call, table.entry_type)
                 if (
-                    mask_type != BitsType(table.entries)
+                    mask_type != BitsType(candidate.entries)
                     or not _is_epoch_05_bool_compatible(enable_type)
                     or not _types_equal_in_epoch_05(value_type, table.entry_type)
                 ):

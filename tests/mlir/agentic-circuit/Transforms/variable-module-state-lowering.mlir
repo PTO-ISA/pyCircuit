@@ -66,7 +66,7 @@ builtin.module attributes {
 // STORAGE-NOT: ac.var.assign
 
 // PLAN: "definition":"Accumulator"
-// PLAN-SAME: "tables":[{"entries":1
+// PLAN-SAME: "tables":[{"axis_widths":[1],"entries":1
 // PLAN-SAME: "name":"total"
 
 // CXX-COUNT-1: class [[IMPLEMENTATION:Module_Accumulator]] final : public gfsim::Module

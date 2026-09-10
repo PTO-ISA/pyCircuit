@@ -737,11 +737,31 @@ def ACIR_TableOp : ACIR_Op<"table", [
   ]> {
   let arguments = (ins SymbolNameAttr:$sym_name, TypeAttr:$entry_type,
                        I64Attr:$entries, I64Attr:$init, StrAttr:$owner,
-                       StrAttr:$stable_id);
+                       StrAttr:$stable_id,
+                       OptionalAttr<DenseI64ArrayAttr>:$shape,
+                       OptionalAttr<DenseI64ArrayAttr>:$axis_widths,
+                       OptionalAttr<StrAttr>:$layout,
+                       OptionalAttr<I64Attr>:$layout_version,
+                       OptionalAttr<StrAttr>:$schema_id,
+                       OptionalAttr<I64Attr>:$init_version,
+                       OptionalAttr<ArrayAttr>:$init_image);
   let hasVerifier = 1;
   let assemblyFormat = [{
     $sym_name `entry` $entry_type `entries` $entries `init` $init
     `owner` $owner `stable_id` $stable_id attr-dict
+  }];
+}
+
+// Canonical row-major flattening boundary for a multidimensional Table.  The
+// result is the only runtime Table index consumed by get/propose/read/write.
+def ACIR_TableIndexOp : ACIR_Op<"table.index", [Pure]> {
+  let arguments = (ins FlatSymbolRefAttr:$table,
+                       Variadic<ACIR_VarType>:$coordinates);
+  let results = (outs ACIR_VarType:$index);
+  let hasVerifier = 1;
+  let assemblyFormat = [{
+    $table `[` $coordinates `]` attr-dict `:` type($coordinates) `->`
+    qualified(type($index))
   }];
 }
 
@@ -831,7 +851,11 @@ def ACIR_TableYieldOp : ACIR_Op<"table.yield", [Pure, Terminator]> {
 def ACIR_TableMatchOp : ACIR_Op<"table.match", [
     SingleBlock, DeclareOpInterfaceMethods<MemoryEffectsOpInterface>
   ]> {
-  let arguments = (ins FlatSymbolRefAttr:$table);
+  let arguments = (ins FlatSymbolRefAttr:$table,
+                       OptionalAttr<DenseI64ArrayAttr>:$domain_axes,
+                       OptionalAttr<DenseI64ArrayAttr>:$domain_shape,
+                       OptionalAttr<DenseI64ArrayAttr>:$domain_strides,
+                       OptionalAttr<I64Attr>:$domain_offset);
   let results = (outs ACIR_VarType:$mask);
   let regions = (region SizedRegion<1>:$predicate);
   let hasVerifier = 1;

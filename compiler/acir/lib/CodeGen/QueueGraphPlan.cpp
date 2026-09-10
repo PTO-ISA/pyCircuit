@@ -12,6 +12,7 @@
 #include "mlir/IR/Verifier.h"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/DenseSet.h"
+#include "llvm/ADT/SmallString.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/StringExtras.h"
 #include "llvm/ADT/StringMap.h"
@@ -19,6 +20,7 @@
 #include "llvm/Support/Format.h"
 #include "llvm/Support/JSON.h"
 #include "llvm/Support/MathExtras.h"
+#include "llvm/Support/SHA256.h"
 #include "llvm/Support/raw_ostream.h"
 
 #include <array>
@@ -55,6 +57,109 @@ std::string printType(mlir::Type type) {
   llvm::raw_string_ostream stream(result);
   stream << type;
   return result;
+}
+
+mlir::Operation *lookupTypeDeclaration(mlir::Operation *from,
+                                       mlir::SymbolRefAttr name);
+
+llvm::Expected<TableInitValuePlan>
+extractTableInitValue(mlir::Operation *anchor, mlir::Type type,
+                      mlir::Attribute value) {
+  TableInitValuePlan result;
+  result.type = printType(type);
+  if (auto integer = mlir::dyn_cast<mlir::IntegerType>(type)) {
+    auto typed = mlir::dyn_cast<mlir::IntegerAttr>(value);
+    if (!typed || typed.getType() != integer)
+      return planError("typed Table integer initializer is malformed");
+    llvm::SmallString<32> literal;
+    typed.getValue().toString(literal, 10, /*Signed=*/false);
+    result.kind = "integer";
+    result.value = literal.str().str();
+    return result;
+  }
+  if (auto enumeration = mlir::dyn_cast<ac::EnumType>(type)) {
+    auto enumerant = mlir::dyn_cast<mlir::StringAttr>(value);
+    if (!enumerant)
+      return planError("typed Table enum initializer is malformed");
+    result.kind = "enum";
+    result.value = enumerant.getValue().str();
+    return result;
+  }
+  if (auto structure = mlir::dyn_cast<ac::StructType>(type)) {
+    auto record = mlir::dyn_cast<mlir::DictionaryAttr>(value);
+    auto declaration = mlir::dyn_cast_or_null<ac::StructOp>(
+        lookupTypeDeclaration(anchor, structure.getName()));
+    if (!record || !declaration)
+      return planError("typed Table struct initializer is malformed");
+    result.kind = "struct";
+    for (mlir::Attribute rawField : declaration.getFields()) {
+      auto field = mlir::dyn_cast<mlir::DictionaryAttr>(rawField);
+      auto name = field ? field.getAs<mlir::StringAttr>("name")
+                        : mlir::StringAttr();
+      auto fieldType = field ? field.getAs<mlir::TypeAttr>("type")
+                             : mlir::TypeAttr();
+      mlir::Attribute member = name ? record.get(name.getValue())
+                                    : mlir::Attribute();
+      if (!name || !fieldType || !member)
+        return planError("typed Table struct field initializer is malformed");
+      auto element =
+          extractTableInitValue(anchor, fieldType.getValue(), member);
+      if (!element)
+        return element.takeError();
+      result.fieldNames.push_back(name.getValue().str());
+      result.elements.push_back(std::move(*element));
+    }
+    return result;
+  }
+  if (auto tuple = mlir::dyn_cast<mlir::TupleType>(type)) {
+    auto elements = mlir::dyn_cast<mlir::ArrayAttr>(value);
+    if (!elements || elements.size() != tuple.size())
+      return planError("typed Table tuple initializer is malformed");
+    result.kind = "tuple";
+    for (auto [elementType, element] :
+         llvm::zip_equal(tuple.getTypes(), elements)) {
+      auto nested = extractTableInitValue(anchor, elementType, element);
+      if (!nested)
+        return nested.takeError();
+      result.elements.push_back(std::move(*nested));
+    }
+    return result;
+  }
+  if (auto array = mlir::dyn_cast<ac::ValueArrayType>(type)) {
+    auto elements = mlir::dyn_cast<mlir::ArrayAttr>(value);
+    if (!elements || static_cast<int64_t>(elements.size()) != array.getLength())
+      return planError("typed Table array initializer is malformed");
+    result.kind = "array";
+    for (mlir::Attribute element : elements) {
+      auto nested =
+          extractTableInitValue(anchor, array.getElementType(), element);
+      if (!nested)
+        return nested.takeError();
+      result.elements.push_back(std::move(*nested));
+    }
+    return result;
+  }
+  return planError("typed Table initializer type is unsupported");
+}
+
+template <typename Target, typename Match>
+void extractTableDomain(Target &target, Match match) {
+  auto copy = [](std::optional<llvm::ArrayRef<int64_t>> values) {
+    std::vector<uint64_t> result;
+    if (values)
+      for (int64_t value : *values)
+        result.push_back(static_cast<uint64_t>(value));
+    return result;
+  };
+  target.domainAxes = copy(match.getDomainAxes());
+  target.domainShape = copy(match.getDomainShape());
+  target.domainStrides = copy(match.getDomainStrides());
+  if (auto offset = match.getDomainOffset())
+    target.domainOffset = static_cast<uint64_t>(*offset);
+  target.hasDomainProjection = match.getDomainAxesAttr() ||
+                               match.getDomainShapeAttr() ||
+                               match.getDomainStridesAttr() ||
+                               match.getDomainOffsetAttr();
 }
 
 mlir::Operation *lookupTypeDeclaration(mlir::Operation *from,
@@ -700,6 +805,12 @@ extractExpressions(mlir::Region &region, QueueBlockPlan &plan,
         return error;
       continue;
     }
+    if (auto index = mlir::dyn_cast<ac::TableIndexOp>(operation)) {
+      if (auto error = append(operation, "table_index"))
+        return error;
+      plan.expressions.back().table = index.getTable().str();
+      continue;
+    }
     if (auto get = mlir::dyn_cast<ac::TableGetOp>(operation)) {
       if (auto error = append(operation, "table_get"))
         return error;
@@ -756,6 +867,7 @@ extractExpressions(mlir::Region &region, QueueBlockPlan &plan,
       }
       expression.nestedExpressions = std::move(nested.expressions);
       expression.nestedYields = std::move(nested.yields);
+      extractTableDomain(expression, match);
       plan.expressions.push_back(std::move(expression));
       continue;
     }
@@ -1722,10 +1834,46 @@ private:
         continue;
       }
       if (auto table = mlir::dyn_cast<ac::TableOp>(operation)) {
-        plan.tables.push_back(
-            {table.getSymName().str(), printType(table.getEntryType()),
-             uint64_t(table.getEntries()), uint64_t(table.getInit()),
-             table.getStableId().str(), table.getOwner().str()});
+        TablePlan tablePlan;
+        tablePlan.name = table.getSymName().str();
+        tablePlan.entryType = printType(table.getEntryType());
+        tablePlan.entries = static_cast<uint64_t>(table.getEntries());
+        tablePlan.init = static_cast<uint64_t>(table.getInit());
+        if (auto shape = table.getShape())
+          for (int64_t extent : *shape)
+            tablePlan.shape.push_back(static_cast<uint64_t>(extent));
+        else
+          tablePlan.shape.push_back(tablePlan.entries);
+        if (auto widths = table.getAxisWidths())
+          for (int64_t width : *widths)
+            tablePlan.axisWidths.push_back(static_cast<uint64_t>(width));
+        else
+          tablePlan.axisWidths.push_back(
+              std::max<uint64_t>(1, llvm::Log2_64_Ceil(tablePlan.entries)));
+        tablePlan.layout = table.getLayout() ? table.getLayout()->str()
+                                             : "row_major";
+        tablePlan.layoutVersion = table.getLayoutVersion()
+                                      ? static_cast<uint64_t>(
+                                            *table.getLayoutVersion())
+                                      : uint64_t{1};
+        if (auto schemaId = table.getSchemaId())
+          tablePlan.schemaId = schemaId->str();
+        if (auto initVersion = table.getInitVersion())
+          tablePlan.initVersion = static_cast<uint64_t>(*initVersion);
+        if (auto initImage = table.getInitImage()) {
+          for (mlir::Attribute value : *initImage) {
+            auto initial =
+                extractTableInitValue(table.getOperation(),
+                                      table.getEntryType(), value);
+            if (!initial)
+              return initial.takeError();
+            tablePlan.initImage.push_back(std::move(*initial));
+          }
+        }
+        tablePlan.hasTypedSchema = table.getShapeAttr() != nullptr;
+        tablePlan.stableId = table.getStableId().str();
+        tablePlan.ownerPath = table.getOwner().str();
+        plan.tables.push_back(std::move(tablePlan));
         continue;
       }
       if (auto slot = mlir::dyn_cast<ac::SlotOp>(operation)) {
@@ -1749,10 +1897,12 @@ private:
         if (predicate.yields.size() != 1)
           return planError("table.match predicate must yield one value");
         auto resultType = mlir::cast<ac::VarType>(match.getMask().getType());
-        plan.tableMatches.push_back(
-            {name, match.getTable().str(), scopePath(scope),
-             printType(resultType.getElementType()),
-             std::move(predicate.expressions), predicate.yields.front()});
+        TableMatchPlan matchPlan{
+            name, match.getTable().str(), scopePath(scope),
+            printType(resultType.getElementType()),
+            std::move(predicate.expressions), predicate.yields.front()};
+        extractTableDomain(matchPlan, match);
+        plan.tableMatches.push_back(std::move(matchPlan));
         QueueExpressionPlan reference{
             "shared_match_" + std::to_string(plan.tableMatches.size() - 1),
             "table_match_ref",
@@ -2660,6 +2810,14 @@ inlineTableChoiceContractKey(const QueueExpressionPlan &expression) {
     append(std::to_string(nested.width));
     append(nested.mask);
     append(nested.value);
+    for (uint64_t value : nested.domainAxes)
+      append(std::to_string(value));
+    for (uint64_t value : nested.domainShape)
+      append(std::to_string(value));
+    for (uint64_t value : nested.domainStrides)
+      append(std::to_string(value));
+    append(std::to_string(nested.domainOffset));
+    append(nested.hasDomainProjection ? "1" : "0");
     append(std::to_string(nested.nestedYields.size()));
     for (const std::string &yield : nested.nestedYields)
       append(yield);
@@ -2678,6 +2836,14 @@ inlineTableChoiceContractKey(const QueueExpressionPlan &expression) {
   append(std::to_string(expression.nestedExpressions.size()));
   for (const QueueExpressionPlan &nested : expression.nestedExpressions)
     appendExpression(appendExpression, nested);
+  for (uint64_t value : expression.domainAxes)
+    append(std::to_string(value));
+  for (uint64_t value : expression.domainShape)
+    append(std::to_string(value));
+  for (uint64_t value : expression.domainStrides)
+    append(std::to_string(value));
+  append(std::to_string(expression.domainOffset));
+  append(expression.hasDomainProjection ? "1" : "0");
   return result;
 }
 
@@ -2818,12 +2984,94 @@ llvm::Error verifyQueueGraphPlan(const QueueGraphPlan &plan) {
     if (table.entryType.empty() || table.entries == 0 || table.init != 0 ||
         table.stableId.empty() || table.ownerPath.empty())
       return planError("table metadata is incomplete");
+    const bool legacyShape =
+        !table.hasTypedSchema && table.schemaId.empty() &&
+        table.initVersion == 0 && table.initImage.empty() &&
+        (table.shape.empty() ||
+         (table.shape.size() == 1 && table.shape.front() == table.entries));
+    const llvm::ArrayRef<uint64_t> shape =
+        legacyShape ? llvm::ArrayRef<uint64_t>(&table.entries, 1)
+                    : llvm::ArrayRef<uint64_t>(table.shape);
+    const uint64_t legacyWidth =
+        std::max<uint64_t>(1, llvm::Log2_64_Ceil(table.entries));
+    const llvm::ArrayRef<uint64_t> axisWidths =
+        legacyShape ? llvm::ArrayRef<uint64_t>(&legacyWidth, 1)
+                    : llvm::ArrayRef<uint64_t>(table.axisWidths);
+    if ((!legacyShape &&
+         (table.axisWidths.size() != table.shape.size() ||
+          table.layout != "row_major" || table.layoutVersion != 1)))
+      return planError("table shape/layout metadata is incomplete");
+    if (!legacyShape) {
+      std::string preimage;
+      llvm::raw_string_ostream stream(preimage);
+      stream << R"({"entry":)" << llvm::json::Value(table.entryType)
+             << R"(,"layout":"row_major","layout_version":1,"shape":[)";
+      for (auto [index, extent] : llvm::enumerate(table.shape)) {
+        if (index)
+          stream << ',';
+        stream << extent;
+      }
+      stream << "]}";
+      llvm::SHA256 sha;
+      sha.update(stream.str());
+      const std::string expected =
+          "sha256:" + llvm::toHex(sha.final(), /*LowerCase=*/true);
+      if (table.schemaId != expected)
+        return planError("table schema_id is not canonical; expected " +
+                         expected);
+    }
+    uint64_t flattened = 1;
+    for (auto [extent, width] : llvm::zip_equal(shape, axisWidths)) {
+      if (extent == 0 ||
+          flattened > std::numeric_limits<uint64_t>::max() / extent ||
+          width != std::max<uint64_t>(1, llvm::Log2_64_Ceil(extent)))
+        return planError("table shape/axis metadata is invalid");
+      flattened *= extent;
+    }
+    if (flattened != table.entries ||
+        (table.initImage.empty() ? table.initVersion != 0
+                                 : table.initVersion != 1 ||
+                                       table.initImage.size() != table.entries))
+      return planError("table flattened shape or typed init image is invalid");
   }
+  auto projectionSize = [](const auto &domain,
+                           const TablePlan &table) -> std::optional<uint64_t> {
+    if (!domain.hasDomainProjection)
+      return table.entries;
+    if (domain.domainAxes.size() != domain.domainShape.size() ||
+        domain.domainShape.size() != domain.domainStrides.size())
+      return std::nullopt;
+    uint64_t entries = 1;
+    uint64_t maximum = domain.domainOffset;
+    llvm::DenseSet<uint64_t> axes;
+    for (auto [axis, extent, stride] : llvm::zip_equal(
+             domain.domainAxes, domain.domainShape, domain.domainStrides)) {
+      const size_t rank = table.shape.empty() ? 1 : table.shape.size();
+      if (axis >= rank)
+        return std::nullopt;
+      const uint64_t tableExtent = table.shape.empty() ? table.entries
+                                                       : table.shape[axis];
+      if (!axes.insert(axis).second || extent != tableExtent || extent == 0 ||
+          stride == 0 ||
+          entries > std::numeric_limits<uint64_t>::max() / extent ||
+          (extent - 1) >
+              (std::numeric_limits<uint64_t>::max() - maximum) / stride)
+        return std::nullopt;
+      entries *= extent;
+      maximum += (extent - 1) * stride;
+    }
+    if (maximum >= table.entries)
+      return std::nullopt;
+    return entries;
+  };
   llvm::StringMap<const TableMatchPlan *> tableMatches;
   for (const TableMatchPlan &match : plan.tableMatches) {
     const TablePlan *table = tables.lookup(match.table);
+    std::optional<uint64_t> domainEntries =
+        table ? projectionSize(match, *table) : std::nullopt;
     if (match.name.empty() || !table ||
-        !isCandidateMaskType(match.resultType, table->entries) ||
+        !domainEntries ||
+        !isCandidateMaskType(match.resultType, *domainEntries) ||
         match.resultType.empty() || match.yield.empty() ||
         !tableMatches.try_emplace(match.name, &match).second)
       return planError("table match metadata is incomplete or duplicated");
@@ -3164,7 +3412,32 @@ llvm::Error verifyQueueGraphPlan(const QueueGraphPlan &plan) {
         return planError(
             "residual ac.var.invariant must be lowered before QueueGraph "
             "planning");
-      if (expression.kind == "enum_constant") {
+      if (expression.kind == "table_index") {
+        const TablePlan *table = tables.lookup(expression.table);
+        const size_t rank = table && table->shape.empty()
+                                ? 1
+                                : (table ? table->shape.size() : 0);
+        if (!table || expression.operands.size() != rank)
+          return planError("Table index expression contract is malformed");
+        for (auto [axis, operandName] : llvm::enumerate(expression.operands)) {
+          auto operand = valueTypes.find(operandName);
+          const uint64_t extent =
+              table->shape.empty() ? table->entries : table->shape[axis];
+          const uint64_t expectedWidth = table->axisWidths.empty()
+                                             ? std::max<uint64_t>(
+                                                   1,
+                                                   llvm::Log2_64_Ceil(extent))
+                                             : table->axisWidths[axis];
+          if (operand == valueTypes.end() ||
+              operand->getValue() != "i" + std::to_string(expectedWidth))
+            return planError("Table coordinate type is inconsistent");
+        }
+        const std::string expectedType =
+            "i" + std::to_string(std::max<uint64_t>(
+                      1, llvm::Log2_64_Ceil(table->entries)));
+        if (expression.type != expectedType)
+          return planError("flattened Table index type is inconsistent");
+      } else if (expression.kind == "enum_constant") {
         if (!expression.operands.empty() || expression.field.empty() ||
             expression.literal.empty())
           return planError("enum constant expression contract is malformed");
@@ -3369,7 +3642,9 @@ llvm::Error verifyQueueGraphPlan(const QueueGraphPlan &plan) {
             producer->getValue()->table != expression.table)
           return planError(
               "inline table choose mask must come from the same Table match");
-        if (!isCandidateMaskType(producer->getValue()->type, table->entries))
+        auto maskEntries = projectionSize(*producer->getValue(), *table);
+        if (!maskEntries ||
+            !isCandidateMaskType(producer->getValue()->type, *maskEntries))
           return planError(
               "inline table choose mask width must equal Table entries");
         const unsigned expectedIndexWidth =
@@ -3639,6 +3914,14 @@ llvm::Error verifyQueueGraphPlan(const QueueGraphPlan &plan) {
                                             : integerWidth(type->getValue());
       if (!width || *width == 0 || *width > 64)
         return false;
+      auto flattened = llvm::find_if(
+          block.expressions, [&](const QueueExpressionPlan &expression) {
+            return expression.result == identity &&
+                   expression.kind == "table_index" &&
+                   expression.table == table.name;
+          });
+      if (flattened != block.expressions.end())
+        return true;
       auto constraint = constraints.find(identity);
       return constraint != constraints.end() && table.entries != 0 &&
              constraint->getValue().provesWithin(0, table.entries - 1);
@@ -4051,7 +4334,37 @@ llvm::Expected<std::string> QueueGraphPlan::canonicalJson() const {
       result["mask"] = expression.mask;
       result["value"] = expression.value;
     }
+    if (expression.kind == "table_match") {
+      llvm::json::Array axes;
+      llvm::json::Array shape;
+      llvm::json::Array strides;
+      for (uint64_t value : expression.domainAxes)
+        axes.push_back(value);
+      for (uint64_t value : expression.domainShape)
+        shape.push_back(value);
+      for (uint64_t value : expression.domainStrides)
+        strides.push_back(value);
+      result["domain_axes"] = std::move(axes);
+      result["domain_offset"] = expression.domainOffset;
+      result["domain_shape"] = std::move(shape);
+      result["domain_strides"] = std::move(strides);
+      result["has_domain_projection"] = expression.hasDomainProjection;
+    }
     return result;
+  };
+  auto initValueJson = [&](auto &&self,
+                           const TableInitValuePlan &value) -> llvm::json::Object {
+    llvm::json::Array elements;
+    for (const TableInitValuePlan &element : value.elements)
+      elements.push_back(self(self, element));
+    llvm::json::Array fieldNames;
+    for (const std::string &field : value.fieldNames)
+      fieldNames.push_back(field);
+    return llvm::json::Object{{"elements", std::move(elements)},
+                              {"field_names", std::move(fieldNames)},
+                              {"kind", value.kind},
+                              {"type", value.type},
+                              {"value", value.value}};
   };
   llvm::json::Array payloadValues;
   for (const QueuePayloadPlan &payload : payloads) {
@@ -4235,20 +4548,53 @@ llvm::Expected<std::string> QueueGraphPlan::canonicalJson() const {
                            {"result_field", request.resultField},
                            {"scope", request.scope}});
   llvm::json::Array tableValues;
-  for (const TablePlan &table : tables)
-    tableValues.push_back(llvm::json::Object{{"entries", table.entries},
-                                             {"entry_type", table.entryType},
-                                             {"init", table.init},
-                                             {"name", table.name},
-                                             {"owner_path", table.ownerPath},
-                                             {"stable_id", table.stableId}});
+  for (const TablePlan &table : tables) {
+    llvm::json::Array shape;
+    llvm::json::Array axisWidths;
+    llvm::json::Array initImage;
+    for (uint64_t value : table.shape)
+      shape.push_back(value);
+    for (uint64_t value : table.axisWidths)
+      axisWidths.push_back(value);
+    for (const TableInitValuePlan &value : table.initImage)
+      initImage.push_back(initValueJson(initValueJson, value));
+    tableValues.push_back(llvm::json::Object{
+        {"axis_widths", std::move(axisWidths)},
+        {"entries", table.entries},
+        {"entry_type", table.entryType},
+        {"init", table.init},
+        {"init_image", std::move(initImage)},
+        {"init_version", table.initVersion},
+        {"has_typed_schema", table.hasTypedSchema},
+        {"layout", table.layout},
+        {"layout_version", table.layoutVersion},
+        {"name", table.name},
+        {"owner_path", table.ownerPath},
+        {"schema_id", table.schemaId},
+        {"shape", std::move(shape)},
+        {"stable_id", table.stableId}});
+  }
   llvm::json::Array tableMatchValues;
   for (const TableMatchPlan &match : tableMatches) {
     llvm::json::Array expressions;
+    llvm::json::Array domainAxes;
+    llvm::json::Array domainShape;
+    llvm::json::Array domainStrides;
     for (const QueueExpressionPlan &expression : match.expressions)
       expressions.push_back(expressionJson(expressionJson, expression));
+    for (uint64_t value : match.domainAxes)
+      domainAxes.push_back(value);
+    for (uint64_t value : match.domainShape)
+      domainShape.push_back(value);
+    for (uint64_t value : match.domainStrides)
+      domainStrides.push_back(value);
     tableMatchValues.push_back(
-        llvm::json::Object{{"expressions", std::move(expressions)},
+        llvm::json::Object{{"domain_axes", std::move(domainAxes)},
+                           {"domain_offset", match.domainOffset},
+                           {"domain_shape", std::move(domainShape)},
+                           {"domain_strides", std::move(domainStrides)},
+                           {"has_domain_projection", match.hasDomainProjection},
+                           {"expressions", std::move(expressions)},
                            {"name", match.name},
                            {"result_type", match.resultType},
                            {"scope", match.scope},

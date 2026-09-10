@@ -660,6 +660,62 @@ TEST(QueueBlocksTest, StatefulTableReadsOldDataAndCommitsWriteAtTickEnd) {
   EXPECT_EQ(table.at(2), 0u);
 }
 
+TEST(QueueBlocksTest, MultidimensionalTableResetRestoresTypedInitialImage) {
+  SimTable<uint16_t> table("table", 1, nullptr,
+                           std::vector<uint16_t>{10, 11, 12, 20, 21, 22});
+  EXPECT_EQ(table.size(), 6u);
+  EXPECT_EQ(table.at(5), 22u);
+  ASSERT_TRUE(table.proposeWrite(2, 5, uint16_t{99},
+                                 TableFullEntryMerge<uint16_t>::fields,
+                                 TableFullEntryMerge<uint16_t>{},
+                                 TableWriteMode::Replace));
+  table.doXfer({1, 0});
+  EXPECT_EQ(table.at(5), 99u);
+  table.reset();
+  EXPECT_EQ(table.at(0), 10u);
+  EXPECT_EQ(table.at(5), 22u);
+}
+
+TEST(QueueBlocksTest,
+     TableMaskProjectionUsesLocalRowMajorBitsAndGlobalFlattenedIndices) {
+  SimTable<uint16_t> table(
+      "table", 1, nullptr,
+      std::vector<uint16_t>{0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11});
+  constexpr std::array<size_t, 2> domainShape{2, 2};
+  constexpr std::array<size_t, 2> domainStrides{6, 1};
+  TableDomainProjection projection(table.size(), domainShape, domainStrides, 2);
+  ASSERT_EQ(projection.size(), 4u);
+  EXPECT_EQ(projection.globalIndex(0), 2u);
+  EXPECT_EQ(projection.globalIndex(1), 3u);
+  EXPECT_EQ(projection.globalIndex(2), 8u);
+  EXPECT_EQ(projection.globalIndex(3), 9u);
+  EXPECT_FALSE(projection.globalIndex(4));
+  constexpr std::array<size_t, 0> fixedShape{};
+  constexpr std::array<size_t, 0> fixedStrides{};
+  TableDomainProjection fixed(table.size(), fixedShape, fixedStrides, 5);
+  EXPECT_EQ(fixed.size(), 1u);
+  EXPECT_EQ(fixed.globalIndex(0), 5u);
+
+  TableMatchCache<uint16_t, std::function<bool(const uint16_t &)>> match(
+      table, projection, [](const uint16_t &value) { return value >= 8; });
+  const CandidateSet &mask = match.get({1, 0});
+  EXPECT_FALSE(mask.test(0));
+  EXPECT_FALSE(mask.test(1));
+  EXPECT_TRUE(mask.test(2));
+  EXPECT_TRUE(mask.test(3));
+
+  TableSelectionCache<uint16_t, std::function<const CandidateSet &(Epoch)>,
+                      std::identity>
+      selection(table, projection,
+                [&](Epoch epoch) -> const CandidateSet & {
+                  return match.get(epoch);
+                },
+                {}, TableChoosePolicy::First);
+  TableSelectionResult selected = selection.get({1, 0});
+  EXPECT_TRUE(selected.valid);
+  EXPECT_EQ(selected.index, 8u);
+}
+
 TEST(QueueBlocksTest, DisabledTableWriteConsumesWithoutChangingState) {
   SimTable<uint16_t> table("table", 1, nullptr, 4);
   SimQueue<MemoryRequest> input("input", 2, nullptr, 1);
@@ -1209,7 +1265,27 @@ TEST(QueueBlocksTest, MaskedTableWriteCommitsSelectedOldStateAtomically) {
 
   table.reset();
   for (size_t index = 0; index < table.size(); ++index)
-    EXPECT_EQ(table.at(index), 0u);
+    EXPECT_EQ(table.at(index), static_cast<uint16_t>(index + 1));
+}
+
+TEST(QueueBlocksTest, MaskedTableWriteProjectsLocalMaskBitsToGlobalIndices) {
+  SimTable<uint16_t> table(
+      "table", 1, nullptr, std::vector<uint16_t>{10, 20, 30, 40});
+  constexpr std::array<size_t, 1> domainShape{2};
+  constexpr std::array<size_t, 1> domainStrides{2};
+  TableDomainProjection projection(table.size(), domainShape, domainStrides, 1);
+  TableMaskedWriteSource<uint16_t, FixedMask, AlwaysEnabled, FixedMaskedValue>
+      write("write", 2, nullptr, table, projection, {0b10}, {}, {99});
+
+  write.doWork({1, 0});
+  write.doArbitrate({1, 0});
+  write.doXfer({1, 0});
+  table.doXfer({1, 0});
+
+  EXPECT_EQ(table.at(0), 10u);
+  EXPECT_EQ(table.at(1), 20u);
+  EXPECT_EQ(table.at(2), 30u);
+  EXPECT_EQ(table.at(3), 99u);
 }
 
 TEST(QueueBlocksTest, TransitionAllocatesWithInputAndOutputAsOneCommit) {

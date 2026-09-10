@@ -17,6 +17,7 @@
 #include <map>
 #include <optional>
 #include <span>
+#include <stdexcept>
 #include <tuple>
 #include <utility>
 #include <vector>
@@ -1230,6 +1231,69 @@ struct TableSelectionResult {
 
 template <typename Entry> class SimTable;
 
+/// Maps a row-major local mask domain onto canonical flattened Table indices.
+/// The compiler supplies one extent and one global stride per unfixed axis.
+class TableDomainProjection {
+public:
+  explicit TableDomainProjection(size_t tableEntries = 0)
+      : tableEntries_(tableEntries), domainEntries_(tableEntries) {}
+
+  TableDomainProjection(size_t tableEntries, std::span<const size_t> shape,
+                        std::span<const size_t> strides, size_t offset)
+      : tableEntries_(tableEntries), offset_(offset), shape_(shape.begin(),
+                                                            shape.end()),
+        strides_(strides.begin(), strides.end()) {
+    if (tableEntries_ == 0 || shape_.size() != strides_.size())
+      throw std::invalid_argument("table projection metadata is malformed");
+    if (shape_.empty()) {
+      domainEntries_ = 1;
+      if (offset_ >= tableEntries_)
+        throw std::invalid_argument("table projection exceeds Table bounds");
+      return;
+    }
+    domainEntries_ = 1;
+    for (size_t extent : shape_) {
+      if (extent == 0 || domainEntries_ >
+                             std::numeric_limits<size_t>::max() / extent)
+        throw std::invalid_argument("table projection domain overflows");
+      domainEntries_ *= extent;
+    }
+    for (size_t local = 0; local < domainEntries_; ++local)
+      if (!globalIndex(local))
+        throw std::invalid_argument("table projection exceeds Table bounds");
+  }
+
+  size_t size() const { return domainEntries_; }
+
+  std::optional<size_t> globalIndex(size_t localIndex) const {
+    if (localIndex >= domainEntries_)
+      return std::nullopt;
+    if (shape_.empty())
+      return offset_ + localIndex < tableEntries_
+                 ? std::optional<size_t>(offset_ + localIndex)
+                 : std::nullopt;
+    size_t global = offset_;
+    for (size_t axis = shape_.size(); axis-- != 0;) {
+      const size_t coordinate = localIndex % shape_[axis];
+      localIndex /= shape_[axis];
+      if (coordinate != 0 &&
+          strides_[axis] >
+              (std::numeric_limits<size_t>::max() - global) / coordinate)
+        return std::nullopt;
+      global += coordinate * strides_[axis];
+    }
+    return global < tableEntries_ ? std::optional<size_t>(global)
+                                  : std::nullopt;
+  }
+
+private:
+  size_t tableEntries_ = 0;
+  size_t domainEntries_ = 0;
+  size_t offset_ = 0;
+  std::vector<size_t> shape_;
+  std::vector<size_t> strides_;
+};
+
 class CandidateSet {
 public:
   explicit CandidateSet(size_t entries = 0)
@@ -1262,19 +1326,38 @@ private:
   std::vector<uint64_t> words_;
 };
 
+template <typename Mask>
+bool tableMaskTest(const Mask &mask, size_t index) {
+  if constexpr (requires { mask.test(index); })
+    return mask.test(index);
+  else
+    return index < 64 &&
+           (static_cast<uint64_t>(mask) & (uint64_t{1} << index)) != 0;
+}
+
 template <typename Entry, typename Predicate> class TableMatchCache {
 public:
   TableMatchCache(SimTable<Entry> &table, Predicate predicate = {})
-      : table_(table), predicate_(std::move(predicate)), mask_(table.size()) {}
+      : TableMatchCache(table, TableDomainProjection(table.size()),
+                        std::move(predicate)) {}
+
+  TableMatchCache(SimTable<Entry> &table, TableDomainProjection projection,
+                  Predicate predicate = {})
+      : table_(table), projection_(std::move(projection)),
+        predicate_(std::move(predicate)), mask_(projection_.size()) {}
 
   const CandidateSet &get(Epoch epoch) const {
     if (epoch_ && *epoch_ == epoch)
       return mask_;
     mask_.clear();
-    for (size_t index = 0; index < table_.size(); ++index)
+    for (size_t index = 0; index < projection_.size(); ++index) {
+      const std::optional<size_t> global = projection_.globalIndex(index);
+      if (!global)
+        continue;
       if (static_cast<bool>(
-              std::invoke(std::as_const(predicate_), table_.at(index))))
+              std::invoke(std::as_const(predicate_), table_.at(*global))))
         mask_.set(index);
+    }
     epoch_ = epoch;
     return mask_;
   }
@@ -1286,6 +1369,7 @@ public:
 
 private:
   SimTable<Entry> &table_;
+  TableDomainProjection projection_;
   [[no_unique_address]] Predicate predicate_;
   mutable std::optional<Epoch> epoch_;
   mutable CandidateSet mask_;
@@ -1298,33 +1382,39 @@ class TableSelectionCache {
 public:
   TableSelectionCache(SimTable<Entry> &table, Mask mask, Key key = {},
                       TableChoosePolicy policy = TableChoosePolicy::First)
-      : table_(table), mask_(std::move(mask)), key_(std::move(key)),
-        policy_(policy) {}
+      : TableSelectionCache(table, TableDomainProjection(table.size()),
+                            std::move(mask), std::move(key), policy) {}
+
+  TableSelectionCache(SimTable<Entry> &table,
+                      TableDomainProjection projection, Mask mask, Key key = {},
+                      TableChoosePolicy policy = TableChoosePolicy::First)
+      : table_(table), projection_(std::move(projection)),
+        mask_(std::move(mask)), key_(std::move(key)), policy_(policy) {}
 
   TableSelectionResult get(Epoch epoch) const {
     if (epoch_ && *epoch_ == epoch)
       return result_;
     result_ = {};
     decltype(auto) mask = std::invoke(mask_, epoch);
-    if (policy_ == TableChoosePolicy::First && table_.size() <= 64) {
+    if (policy_ == TableChoosePolicy::First && projection_.size() <= 64) {
       std::optional<size_t> first;
-      if constexpr (requires { mask.firstSet(table_.size()); }) {
-        first = mask.firstSet(table_.size());
+      if constexpr (requires { mask.firstSet(projection_.size()); }) {
+        first = mask.firstSet(projection_.size());
       } else if constexpr (
           !requires { mask.test(size_t{}); } &&
           requires { static_cast<uint64_t>(mask); }) {
         uint64_t word = static_cast<uint64_t>(mask);
-        if (table_.size() < 64)
-          word &= (uint64_t{1} << table_.size()) - 1;
+        if (projection_.size() < 64)
+          word &= (uint64_t{1} << projection_.size()) - 1;
         if (word != 0)
           first = static_cast<size_t>(std::countr_zero(word));
       }
       if (first) {
-        result_ = {*first, true};
+        result_ = {*projection_.globalIndex(*first), true};
         epoch_ = epoch;
         return result_;
       }
-      if constexpr (requires { mask.firstSet(table_.size()); } ||
+      if constexpr (requires { mask.firstSet(projection_.size()); } ||
                     (!requires { mask.test(size_t{}); } &&
                      requires { static_cast<uint64_t>(mask); })) {
         epoch_ = epoch;
@@ -1332,24 +1422,22 @@ public:
       }
     }
     uint64_t best = 0;
-    for (size_t index = 0; index < table_.size(); ++index) {
-      const bool selected = [&] {
-        if constexpr (requires { mask.test(index); })
-          return mask.test(index);
-        else
-          return (static_cast<uint64_t>(mask) & (uint64_t{1} << index)) != 0;
-      }();
+    for (size_t index = 0; index < projection_.size(); ++index) {
+      const bool selected = tableMaskTest(mask, index);
       if (!selected)
         continue;
+      const std::optional<size_t> global = projection_.globalIndex(index);
+      if (!global)
+        continue;
       if (policy_ == TableChoosePolicy::First) {
-        result_ = {index, true};
+        result_ = {*global, true};
         break;
       }
       const uint64_t key = static_cast<uint64_t>(
-          std::invoke(std::as_const(key_), table_.at(index)));
+          std::invoke(std::as_const(key_), table_.at(*global)));
       if (!result_.valid ||
           (policy_ == TableChoosePolicy::Min ? key < best : key > best)) {
-        result_ = {index, true};
+        result_ = {*global, true};
         best = key;
       }
     }
@@ -1364,6 +1452,7 @@ public:
 
 private:
   SimTable<Entry> &table_;
+  TableDomainProjection projection_;
   [[no_unique_address]] Mask mask_;
   [[no_unique_address]] Key key_;
   TableChoosePolicy policy_;
@@ -1371,9 +1460,9 @@ private:
   mutable TableSelectionResult result_;
 };
 
-/// A one-dimensional committed-state table. Reads observe only committed
-/// state. Writer-specific field proposals are merged from the same committed
-/// snapshot and published together during the tick transfer phase.
+/// A canonical flattened row-major committed-state Table. Reads observe only
+/// committed state. Writer-specific field proposals are merged from the same
+/// committed snapshot and published together during the tick transfer phase.
 template <typename Entry> class SimTable final : public SimObject {
 public:
   static constexpr std::string_view contractName = "ac.table";
@@ -1382,9 +1471,18 @@ public:
   SimTable(std::string name, ObjectId id, SimObject *parent, size_t entries,
            ObservationSink *observations = nullptr)
       : SimObject(componentKind, std::move(name), id, parent, observations),
-        committed_(entries) {
+        initial_(entries), committed_(initial_) {
     if (entries == 0)
       throw std::invalid_argument("table entries must be positive");
+  }
+
+  SimTable(std::string name, ObjectId id, SimObject *parent,
+           std::vector<Entry> initial,
+           ObservationSink *observations = nullptr)
+      : SimObject(componentKind, std::move(name), id, parent, observations),
+        initial_(std::move(initial)), committed_(initial_) {
+    if (initial_.empty())
+      throw std::invalid_argument("table initial image must not be empty");
   }
 
   size_t size() const { return committed_.size(); }
@@ -1537,6 +1635,7 @@ public:
   bool initializeEntry(size_t index, Entry value) {
     if (!pending_.empty() || !prepared_.empty() || index >= committed_.size())
       return false;
+    initial_[index] = value;
     committed_[index] = std::move(value);
     return true;
   }
@@ -1614,7 +1713,7 @@ public:
   }
   bool lastCommitChanged() const override { return lastCommitChanged_; }
   void reset() override {
-    std::fill(committed_.begin(), committed_.end(), Entry{});
+    committed_ = initial_;
     pending_.clear();
     prepared_.clear();
     lastCommitChanged_ = false;
@@ -1629,6 +1728,7 @@ private:
     bool exclusiveEndpoint = false;
   };
 
+  std::vector<Entry> initial_;
   std::vector<Entry> committed_;
   Entry zeroEntry_{};
   struct PendingProposal {
@@ -2819,7 +2919,9 @@ private:
 template <typename Entry, typename Mask, typename Enable, typename Value,
           typename Merge = TableFullEntryMerge<Entry>>
   requires TablePolicyInvocable<Mask> &&
-           IntegralLike<TablePolicyResult<Mask>> &&
+           requires(const TablePolicyResult<Mask> &mask) {
+             { tableMaskTest(mask, size_t{}) } -> std::same_as<bool>;
+           } &&
            TablePolicyInvocable<Enable> &&
            std::convertible_to<TablePolicyResult<Enable>, bool> &&
            TablePolicyInvocable<Value, const Entry &> &&
@@ -2835,8 +2937,20 @@ public:
                          SimTable<Entry> &table, Mask mask = {},
                          Enable enable = {}, Value value = {}, Merge merge = {},
                          ObservationSink *observations = nullptr)
+      : TableMaskedWriteSource(std::move(name), id, parent, table,
+                               TableDomainProjection(table.size()),
+                               std::move(mask), std::move(enable),
+                               std::move(value), std::move(merge),
+                               observations) {}
+
+  TableMaskedWriteSource(std::string name, ObjectId id, SimObject *parent,
+                         SimTable<Entry> &table,
+                         TableDomainProjection projection, Mask mask = {},
+                         Enable enable = {}, Value value = {}, Merge merge = {},
+                         ObservationSink *observations = nullptr)
       : SimObject(componentKind, std::move(name), id, parent, observations),
-        table_(table), mask_(std::move(mask)), enable_(std::move(enable)),
+        table_(table), projection_(std::move(projection)),
+        mask_(std::move(mask)), enable_(std::move(enable)),
         value_(std::move(value)), merge_(std::move(merge)), writerId_(id) {}
 
   void doWork(Epoch epoch) override {
@@ -2844,14 +2958,18 @@ public:
         !static_cast<bool>(invokeTablePolicy(enable_, epoch)))
       return;
     const auto rawMask = invokeTablePolicy(mask_, epoch);
-    const uint64_t mask = static_cast<uint64_t>(rawMask);
     std::vector<std::pair<size_t, Entry>> values;
-    values.reserve(table_.size());
-    for (size_t index = 0; index < table_.size(); ++index) {
-      if ((mask & (uint64_t{1} << index)) == 0)
+    values.reserve(projection_.size());
+    for (size_t index = 0; index < projection_.size(); ++index) {
+      if (!tableMaskTest(rawMask, index))
         continue;
-      values.emplace_back(index, static_cast<Entry>(invokeTablePolicy(
-                                     value_, epoch, table_.at(index))));
+      const std::optional<size_t> global = projection_.globalIndex(index);
+      if (!global) {
+        setRuntimeFailureCode("table_index_out_of_range");
+        return;
+      }
+      values.emplace_back(*global, static_cast<Entry>(invokeTablePolicy(
+                                       value_, epoch, table_.at(*global))));
     }
     candidate_ = std::move(values);
   }
@@ -2901,6 +3019,7 @@ public:
 
 private:
   SimTable<Entry> &table_;
+  TableDomainProjection projection_;
   [[no_unique_address]] Mask mask_;
   [[no_unique_address]] Enable enable_;
   [[no_unique_address]] Value value_;

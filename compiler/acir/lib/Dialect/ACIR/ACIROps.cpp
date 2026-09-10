@@ -3005,6 +3005,31 @@ static bool tableVisibleFrom(Operation *operation, TableOp table) {
           requestPath[owner.size()] == '/');
 }
 
+static unsigned canonicalTableIndexWidth(uint64_t extent);
+static FailureOr<SmallVector<int64_t>> canonicalTableShape(TableOp table);
+static FailureOr<uint64_t> flattenedTableEntries(ArrayRef<int64_t> shape);
+
+static LogicalResult verifyCanonicalFlattenedTableIndex(Operation *operation,
+                                                        TableOp table,
+                                                        Value index) {
+  if (auto flattened = index.getDefiningOp<TableIndexOp>()) {
+    if (resolveTable(flattened, flattened.getTableAttr()) == table)
+      return success();
+    return operation->emitOpError(
+        "flattened Table index belongs to another Table");
+  }
+  if (auto selection = index.getDefiningOp<TableChooseOp>()) {
+    if (selection.getIndex() == index &&
+        resolveTable(selection, selection.getTableAttr()) == table)
+      return success();
+    return operation->emitOpError(
+        "TableChoice index belongs to another Table");
+  }
+  return operation->emitOpError(
+      "multidimensional access requires same-Table ac.table.index or "
+      "ac.table.choose index provenance");
+}
+
 static LogicalResult verifyTableIndex(Operation *operation, TableOp table,
                                       Value index) {
   auto indexType = cast<VarType>(index.getType()).getElementType();
@@ -3012,6 +3037,18 @@ static LogicalResult verifyTableIndex(Operation *operation, TableOp table,
   if (!integer || integer.getWidth() == 0 || integer.getWidth() > 64)
     return operation->emitOpError(
         "table index must be an integer Var no wider than 64 bits");
+  if (table.getShapeAttr()) {
+    auto shape = canonicalTableShape(table);
+    auto entries = succeeded(shape) ? flattenedTableEntries(*shape)
+                                    : FailureOr<uint64_t>(failure());
+    if (failed(entries) ||
+        integer.getWidth() != canonicalTableIndexWidth(*entries))
+      return operation->emitOpError(
+          "table index must use the canonical flattened domain width");
+    if (shape->size() > 1 &&
+        failed(verifyCanonicalFlattenedTableIndex(operation, table, index)))
+      return failure();
+  }
   auto constant = index.getDefiningOp<VarConstantOp>();
   auto value =
       constant ? dyn_cast<IntegerAttr>(constant.getValueAttr()) : IntegerAttr();
@@ -3027,6 +3064,114 @@ static LogicalResult verifyStaticallySafeRuleTableIndex(Operation *operation,
   return verifyTableIndex(operation, table, index);
 }
 
+static unsigned canonicalTableIndexWidth(uint64_t extent) {
+  return std::max<unsigned>(1, llvm::Log2_64_Ceil(extent));
+}
+
+static FailureOr<SmallVector<int64_t>> canonicalTableShape(TableOp table) {
+  if (!table.getShapeAttr())
+    return SmallVector<int64_t>{static_cast<int64_t>(table.getEntries())};
+  ArrayRef<int64_t> rawShape = *table.getShape();
+  SmallVector<int64_t> shape(rawShape.begin(), rawShape.end());
+  if (shape.empty() || llvm::any_of(shape, [](int64_t extent) {
+        return extent <= 0;
+      }))
+    return failure();
+  return shape;
+}
+
+static FailureOr<uint64_t> flattenedTableEntries(ArrayRef<int64_t> shape) {
+  uint64_t entries = 1;
+  for (int64_t extent : shape) {
+    if (extent <= 0 ||
+        entries > static_cast<uint64_t>(std::numeric_limits<int64_t>::max()) /
+                      static_cast<uint64_t>(extent))
+      return failure();
+    entries *= static_cast<uint64_t>(extent);
+  }
+  return entries;
+}
+
+static SmallVector<int64_t> canonicalTableStrides(ArrayRef<int64_t> shape) {
+  SmallVector<int64_t> strides(shape.size(), 1);
+  for (size_t axis = shape.size(); axis > 1; --axis)
+    strides[axis - 2] = strides[axis - 1] * shape[axis - 1];
+  return strides;
+}
+
+static std::string canonicalTableSchemaId(TableOp table,
+                                          ArrayRef<int64_t> shape,
+                                          std::string *canonicalBytes = nullptr) {
+  std::string entry;
+  llvm::raw_string_ostream entryStream(entry);
+  entryStream << table.getEntryType();
+  std::string preimage;
+  llvm::raw_string_ostream stream(preimage);
+  stream << R"({"entry":)" << llvm::json::Value(entryStream.str())
+         << R"(,"layout":"row_major","layout_version":1,"shape":[)";
+  llvm::interleave(shape, stream, ",");
+  stream << "]}";
+  stream.flush();
+  if (canonicalBytes)
+    *canonicalBytes = preimage;
+  llvm::SHA256 sha;
+  sha.update(preimage);
+  return "sha256:" + llvm::toHex(sha.final(), /*LowerCase=*/true);
+}
+
+static LogicalResult verifyTableInitValue(Operation *anchor, Type type,
+                                          Attribute value) {
+  if (auto integer = dyn_cast<IntegerType>(type)) {
+    auto typed = dyn_cast<IntegerAttr>(value);
+    return success(typed && typed.getType() == integer);
+  }
+  if (auto enumeration = dyn_cast<EnumType>(type)) {
+    auto enumerant = dyn_cast<StringAttr>(value);
+    auto declaration =
+        dyn_cast_or_null<EnumOp>(lookup(anchor, enumeration.getName()));
+    return success(enumerant && declaration &&
+                   llvm::any_of(declaration.getEnumerants(), [&](Attribute raw) {
+                     return cast<StringAttr>(raw).getValue() ==
+                            enumerant.getValue();
+                   }));
+  }
+  if (auto structure = dyn_cast<StructType>(type)) {
+    auto record = dyn_cast<DictionaryAttr>(value);
+    Operation *declaration = recordDecl(anchor, structure);
+    ArrayAttr fields = declaration ? declarationFields(declaration) : ArrayAttr();
+    if (!record || !fields || record.size() != fields.size())
+      return failure();
+    for (Attribute rawField : fields) {
+      auto field = cast<DictionaryAttr>(rawField);
+      Attribute member = record.get(fieldName(field));
+      if (!member ||
+          failed(verifyTableInitValue(anchor, fieldType(field), member)))
+        return failure();
+    }
+    return success();
+  }
+  if (auto tuple = dyn_cast<TupleType>(type)) {
+    auto values = dyn_cast<ArrayAttr>(value);
+    if (!values || values.size() != tuple.size())
+      return failure();
+    for (auto [elementType, element] :
+         llvm::zip_equal(tuple.getTypes(), values))
+      if (failed(verifyTableInitValue(anchor, elementType, element)))
+        return failure();
+    return success();
+  }
+  if (auto array = dyn_cast<ValueArrayType>(type)) {
+    auto values = dyn_cast<ArrayAttr>(value);
+    if (!values || static_cast<int64_t>(values.size()) != array.getLength())
+      return failure();
+    for (Attribute element : values)
+      if (failed(verifyTableInitValue(anchor, array.getElementType(), element)))
+        return failure();
+    return success();
+  }
+  return failure();
+}
+
 LogicalResult TableOp::verify() {
   if (!isTableEntryType(*this, getEntryType()))
     return emitOpError(
@@ -3034,8 +3179,58 @@ LogicalResult TableOp::verify() {
         "recursive struct");
   if (getEntries() <= 0)
     return emitOpError("entries must be positive");
+  const bool hasTypedSchema = getShapeAttr() || getAxisWidthsAttr() ||
+                              getLayoutAttr() || getLayoutVersionAttr() ||
+                              getSchemaIdAttr() || getInitVersionAttr() ||
+                              getInitImageAttr();
+  if (hasTypedSchema &&
+      (!getShapeAttr() || !getAxisWidthsAttr() || !getLayoutAttr() ||
+       !getLayoutVersionAttr() || !getSchemaIdAttr()))
+    return emitOpError(
+        "typed Table schema requires shape, axis_widths, layout, "
+        "layout_version, and schema_id");
+  auto shape = canonicalTableShape(*this);
+  if (failed(shape))
+    return emitOpError("shape must be a non-empty tuple of positive extents");
+  auto flattenedEntries = flattenedTableEntries(*shape);
+  if (failed(flattenedEntries))
+    return emitOpError("shape product overflows the canonical Table domain");
+  if (*flattenedEntries != static_cast<uint64_t>(getEntries()))
+    return emitOpError("entries must equal the flattened shape product");
+  if (hasTypedSchema) {
+    if (getLayout() != "row_major" || getLayoutVersion() != 1)
+      return emitOpError("Table layout must be row_major version 1");
+    ArrayRef<int64_t> axisWidths = *getAxisWidths();
+    if (axisWidths.size() != shape->size())
+      return emitOpError("axis_widths rank must match shape rank");
+    for (auto [extent, width] : llvm::zip_equal(*shape, axisWidths))
+      if (width != canonicalTableIndexWidth(extent))
+        return emitOpError(
+            "axis_widths must be the canonical unsigned widths for shape");
+    std::string schemaBytes;
+    std::string expectedSchemaId =
+        canonicalTableSchemaId(*this, *shape, &schemaBytes);
+    if (getSchemaId() != expectedSchemaId)
+      return emitOpError()
+             << "schema_id does not match canonical Table schema; expected "
+             << expectedSchemaId << " for " << schemaBytes;
+  }
   if (getInit() != 0)
     return emitOpError("table init must be zero");
+  if (getInitVersionAttr() && !getInitImageAttr())
+    return emitOpError("init_version requires a typed init_image");
+  if (getInitImageAttr()) {
+    if (!getInitVersionAttr() || getInitVersion() != 1)
+      return emitOpError("typed init_image requires init_version 1");
+    ArrayAttr initImage = *getInitImage();
+    if (initImage.size() != *flattenedEntries)
+      return emitOpError(
+          "typed init_image count must equal the flattened entry count");
+    for (Attribute value : initImage)
+      if (failed(verifyTableInitValue(*this, getEntryType(), value)))
+        return emitOpError(
+            "typed init_image element does not match the Table Entry type");
+  }
   if (getOwner().empty() || !getOwner().starts_with('/') ||
       (getOwner().size() > 1 && getOwner().ends_with('/')))
     return emitOpError("owner must be a canonical absolute scope path");
@@ -3140,6 +3335,45 @@ LogicalResult TableOp::verify() {
   // Cross-endpoint overlap is a whole-model proof obligation.  Declaration
   // traversal cannot prove dynamic index/guard disjointness and must not
   // manufacture source-order writer priority.
+  return success();
+}
+
+LogicalResult TableIndexOp::verify() {
+  TableOp table = resolveTable(*this, getTableAttr());
+  if (!table)
+    return emitOpError() << "unresolved table " << getTable();
+  if (!tableVisibleFrom(*this, table))
+    return emitOpError("table is outside the index scope ancestry");
+  auto shape = canonicalTableShape(table);
+  if (failed(shape))
+    return emitOpError("referenced Table has invalid shape metadata");
+  if (getCoordinates().size() != shape->size())
+    return emitOpError("coordinate rank must match the Table shape rank");
+  for (auto [coordinate, extent] : llvm::zip_equal(getCoordinates(), *shape)) {
+    auto type = dyn_cast<IntegerType>(cast<VarType>(coordinate.getType())
+                                         .getElementType());
+    if (!type || !type.isSignless() ||
+        type.getWidth() != canonicalTableIndexWidth(extent))
+      return emitOpError(
+          "coordinate type must use the canonical unsigned axis width");
+    auto constant = coordinate.getDefiningOp<VarConstantOp>();
+    auto value = constant
+                     ? dyn_cast<IntegerAttr>(constant.getValueAttr())
+                     : IntegerAttr();
+    if (value && value.getValue().getZExtValue() >=
+                     static_cast<uint64_t>(extent))
+      return emitOpError("static Table coordinate is out of range");
+  }
+  auto flattenedEntries = flattenedTableEntries(*shape);
+  if (failed(flattenedEntries))
+    return emitOpError("Table shape product overflows during flattening");
+  Type expected = VarType::get(
+      getContext(), IntegerType::get(
+                        getContext(),
+                        canonicalTableIndexWidth(*flattenedEntries)));
+  if (getIndex().getType() != expected)
+    return emitOpError(
+        "flattened index must use the canonical Table-domain width");
   return success();
 }
 
@@ -3375,6 +3609,98 @@ LogicalResult TableWriteOp::verify() {
   return verifyTableWriterArbitration(*this);
 }
 
+static FailureOr<uint64_t> tableMatchDomainEntries(TableMatchOp match,
+                                                   TableOp table) {
+  const bool hasProjection = match.getDomainAxesAttr() ||
+                             match.getDomainShapeAttr() ||
+                             match.getDomainStridesAttr() ||
+                             match.getDomainOffsetAttr();
+  if (!hasProjection) {
+    if (auto shape = table.getShape(); shape && shape->size() > 1) {
+      match.emitOpError(
+          "multidimensional match requires an explicit projected mask domain");
+      return failure();
+    } else {
+      return static_cast<uint64_t>(table.getEntries());
+    }
+  }
+  if (!match.getDomainAxesAttr() || !match.getDomainShapeAttr() ||
+      !match.getDomainStridesAttr() || !match.getDomainOffsetAttr()) {
+    match.emitOpError(
+        "projected mask domain requires axes, shape, strides, and offset");
+    return failure();
+  }
+  auto tableShape = canonicalTableShape(table);
+  if (failed(tableShape)) {
+    match.emitOpError("referenced Table has invalid shape metadata");
+    return failure();
+  }
+  ArrayRef<int64_t> axes = *match.getDomainAxes();
+  ArrayRef<int64_t> shape = *match.getDomainShape();
+  ArrayRef<int64_t> strides = *match.getDomainStrides();
+  if (axes.size() != shape.size() || axes.size() != strides.size()) {
+    match.emitOpError("projected mask domain arrays must have one shared rank");
+    return failure();
+  }
+  SmallVector<int64_t> tableStrides = canonicalTableStrides(*tableShape);
+  std::optional<int64_t> previousAxis;
+  uint64_t domainEntries = 1;
+  const int64_t signedDomainOffset = match.getDomainOffsetAttr().getInt();
+  if (signedDomainOffset < 0) {
+    match.emitOpError("projected mask domain offset is out of range");
+    return failure();
+  }
+  const uint64_t domainOffset = static_cast<uint64_t>(signedDomainOffset);
+  uint64_t maximumIndex = domainOffset;
+  if (domainOffset >= static_cast<uint64_t>(table.getEntries())) {
+    match.emitOpError("projected mask domain offset is out of range");
+    return failure();
+  }
+  for (auto [axis, extent, stride] : llvm::zip_equal(axes, shape, strides)) {
+    if (axis < 0 || static_cast<size_t>(axis) >= tableShape->size() ||
+        (previousAxis && axis <= *previousAxis)) {
+      match.emitOpError(
+          "projected mask domain axes must be unique and increasing");
+      return failure();
+    }
+    previousAxis = axis;
+    if (extent != (*tableShape)[axis] || stride != tableStrides[axis]) {
+      match.emitOpError(
+          "projected mask domain must use canonical Table extents and strides");
+      return failure();
+    }
+    if ((domainOffset / static_cast<uint64_t>(stride)) %
+            static_cast<uint64_t>(extent) !=
+        0) {
+      match.emitOpError(
+          "projected mask domain offset must fix only omitted axes");
+      return failure();
+    }
+    const uint64_t unsignedExtent = static_cast<uint64_t>(extent);
+    const uint64_t unsignedStride = static_cast<uint64_t>(stride);
+    if (unsignedExtent - 1 >
+            std::numeric_limits<uint64_t>::max() / unsignedStride ||
+        domainEntries >
+            std::numeric_limits<uint64_t>::max() / unsignedExtent) {
+      match.emitOpError("projected mask domain arithmetic overflows");
+      return failure();
+    }
+    const uint64_t contribution = (unsignedExtent - 1) * unsignedStride;
+    if (maximumIndex >
+        std::numeric_limits<uint64_t>::max() - contribution) {
+      match.emitOpError("projected mask domain arithmetic overflows");
+      return failure();
+    }
+    maximumIndex += contribution;
+    domainEntries *= unsignedExtent;
+  }
+  if (maximumIndex >= static_cast<uint64_t>(table.getEntries())) {
+    match.emitOpError("projected mask domain exceeds the Table shape");
+    return failure();
+  }
+  return domainEntries;
+}
+
 LogicalResult TableMaskedWriteOp::verify() {
   TableOp table = resolveTable(*this, getTableAttr());
   if (!table)
@@ -3385,15 +3711,18 @@ LogicalResult TableMaskedWriteOp::verify() {
     return failure();
   if (getMode() != "field")
     return emitOpError("masked write mode must be 'field'");
-  if (table.getEntries() == 0 || table.getEntries() > 64)
-    return emitOpError("masked write domain must contain 1..64 entries");
-  auto maskType = dyn_cast<IntegerType>(
-      cast<VarType>(getMask().getType()).getElementType());
-  if (!maskType || maskType.getWidth() != table.getEntries())
-    return emitOpError("mask width must equal the Table entry count");
   auto match = getMask().getDefiningOp<TableMatchOp>();
   if (!match || resolveTable(match, match.getTableAttr()) != table)
     return emitOpError("mask must be produced by match on the same Table");
+  auto domainEntries = tableMatchDomainEntries(match, table);
+  if (failed(domainEntries) || *domainEntries == 0 || *domainEntries > 64)
+    return emitOpError("masked write domain must contain 1..64 entries");
+  auto maskType = dyn_cast<IntegerType>(
+      cast<VarType>(getMask().getType()).getElementType());
+  if (!maskType || maskType.getWidth() != *domainEntries)
+    return emitOpError(match.getDomainAxesAttr()
+                           ? "mask width must equal the projected Table domain"
+                           : "mask width must equal the Table entry count");
   auto enable = verifyTablePolicy(*this, getEnable(), "enable", Type(), false);
   Type entryArgument = VarType::get(getContext(), table.getEntryType());
   auto value =
@@ -3413,9 +3742,15 @@ LogicalResult TableMatchOp::verify() {
     return emitOpError() << "unresolved table " << getTable();
   if (!tableVisibleFrom(*this, table))
     return emitOpError("table is outside the match scope ancestry");
-  if (!isCandidateMaskType(getMask().getType(), table.getEntries()))
+  auto domainEntries = tableMatchDomainEntries(*this, table);
+  if (failed(domainEntries))
+    return failure();
+  if (!isCandidateMaskType(getMask().getType(), *domainEntries))
     return emitOpError(
-        "mask must exactly cover the Table domain in 64-bit words");
+        getDomainAxesAttr()
+            ? "mask must exactly cover the projected Table domain in 64-bit "
+              "words"
+            : "mask must exactly cover the Table domain in 64-bit words");
   if (!getPredicate().hasOneBlock())
     return emitOpError("predicate must contain exactly one block");
   Block &block = getPredicate().front();
@@ -3440,21 +3775,25 @@ LogicalResult TableChooseOp::verify() {
     return emitOpError() << "unresolved table " << getTable();
   if (!tableVisibleFrom(*this, table))
     return emitOpError("table is outside the choose scope ancestry");
-  if (!isCandidateMaskType(getMask().getType(), table.getEntries()))
-    return emitOpError(
-        "candidate mask must exactly cover the Table domain in 64-bit words");
   auto match = getMask().getDefiningOp<TableMatchOp>();
   if (!match)
     return emitOpError("candidate mask must be produced directly by "
                        "ac.table.match");
   if (resolveTable(match, match.getTableAttr()) != table)
     return emitOpError("candidate mask must come from the same Table");
+  auto domainEntries = tableMatchDomainEntries(match, table);
+  if (failed(domainEntries) ||
+      !isCandidateMaskType(getMask().getType(), *domainEntries))
+    return emitOpError(match.getDomainAxesAttr()
+                           ? "candidate mask must exactly cover the projected "
+                             "Table domain in 64-bit words"
+                           : "candidate mask must exactly cover the Table "
+                             "domain in 64-bit words");
   if (getCount() != 1)
     return emitOpError("choose supports count=1 only");
   if (getPolicy() != "first" && getPolicy() != "min" && getPolicy() != "max")
     return emitOpError("policy must be first, min, or max");
-  unsigned indexWidth = std::max<unsigned>(
-      1, llvm::Log2_64_Ceil(static_cast<uint64_t>(table.getEntries())));
+  unsigned indexWidth = canonicalTableIndexWidth(table.getEntries());
   if (getIndex().getType() !=
       VarType::get(getContext(), IntegerType::get(getContext(), indexWidth)))
     return emitOpError("index result width must address the Table domain");

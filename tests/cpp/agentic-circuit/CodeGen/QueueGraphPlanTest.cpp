@@ -1594,6 +1594,8 @@ TEST(QueueGraphPlanTest,
   firing.expressions.push_back(
       {"second_index", "constant", "i1", {}, "", "", "1 : i1"});
   specialization.tables.front().entries = 2;
+  specialization.tables.front().shape = {2};
+  specialization.tables.front().axisWidths = {1};
   firing.stateWrites.push_back(std::move(repeated));
 
   auto generated = generateQueueGraphCpp(*plan);
@@ -2774,6 +2776,8 @@ TEST(QueueGraphPlanTest, RecomputesBoundedFiringIndexConstraints) {
       queue.payloadType = payload.str();
     plan.tables.front().entryType = payload.str();
     plan.tables.front().entries = 5;
+    plan.tables.front().shape = {5};
+    plan.tables.front().axisWidths = {3};
     QueueBlockPlan &firing = *llvm::find_if(
         plan.blocks,
         [](const QueueBlockPlan &block) { return block.kind == "firing"; });
@@ -3057,8 +3061,8 @@ TEST(QueueGraphPlanTest, FusesPureSameSnapshotMatchesAndSharesPredicateDag) {
   auto loopCount = [](llvm::StringRef source) {
     size_t count = 0;
     for (size_t offset = 0;
-         (offset = source.find("for (std::size_t index = 0; index < table",
-                               offset)) != llvm::StringRef::npos;
+         (offset = source.find("for (std::size_t index = 0; index < ", offset)) !=
+         llvm::StringRef::npos;
          offset += 8)
       ++count;
     return count;
@@ -3241,12 +3245,222 @@ int main() {
   expectCppRuns(wideExecutable);
 }
 
+TEST(QueueGraphPlanTest,
+     MultidimensionalTablePlanEmitsTypedInitAndProjectedSelection) {
+  QueueGraphPlan plan = inlineFirstChoicePlan(4, 2);
+  TablePlan &table = plan.tables.front();
+  table.shape = {2, 2};
+  table.axisWidths = {1, 1};
+  table.layout = "row_major";
+  table.layoutVersion = 1;
+  table.schemaId =
+      "sha256:4a70f7d8db73203752e325ee25c9904cdc9b1e136078b0955f7b8642c05d560b";
+  table.initVersion = 1;
+  table.hasTypedSchema = true;
+  table.initImage = {{"integer", "i1", "0", {}, {}},
+                     {"integer", "i1", "1", {}, {}},
+                     {"integer", "i1", "1", {}, {}},
+                     {"integer", "i1", "0", {}, {}}};
+  QueueExpressionPlan &mask = plan.blocks[1].expressions.front();
+  mask.type = "i2";
+  mask.domainAxes = {1};
+  mask.domainShape = {2};
+  mask.domainStrides = {1};
+  mask.domainOffset = 2;
+  mask.hasDomainProjection = true;
+
+  auto json = plan.canonicalJson();
+  ASSERT_TRUE(bool(json)) << llvm::toString(json.takeError());
+  EXPECT_NE(json->find("\"shape\":[2,2]"), std::string::npos);
+  EXPECT_NE(json->find("\"init_version\":1"), std::string::npos);
+  EXPECT_NE(json->find("\"domain_offset\":2"), std::string::npos);
+
+  auto generated = generateQueueGraphCpp(plan);
+  ASSERT_TRUE(bool(generated)) << llvm::toString(generated.takeError());
+  EXPECT_NE(generated->find(
+                "std::vector<gfsim::UInt<1>>{gfsim::UInt<1>{0}, "
+                "gfsim::UInt<1>{1}, gfsim::UInt<1>{1}, "
+                "gfsim::UInt<1>{0}}"),
+            std::string::npos);
+  EXPECT_NE(generated->find("TableDomainProjection(4, "), std::string::npos);
+
+  QueueGraphPlan forged = plan;
+  forged.tables.front().schemaId = "sha256:forged";
+  llvm::Error schemaError = verifyQueueGraphPlan(forged);
+  ASSERT_TRUE(bool(schemaError));
+  EXPECT_NE(llvm::toString(std::move(schemaError)).find("schema_id"),
+            std::string::npos);
+
+  std::string executable = *generated;
+  executable.append(R"cpp(
+int main() {
+  using gfsim::UInt;
+  ac_generated::FirstChoice4 model;
+  auto rows = model.dispatch_rows();
+  gfsim::SimTable<UInt<1>> *table = nullptr;
+  for (auto &row : rows) {
+    auto *object = static_cast<gfsim::SimObject *>(row.object);
+    if (row.kind == gfsim::ObjectKind::Memory && object->name() == "entries")
+      table = dynamic_cast<gfsim::SimTable<UInt<1>> *>(object);
+  }
+  if (table == nullptr || table->at(1) != UInt<1>{1} ||
+      table->at(2) != UInt<1>{1} || !model.input().proposePush(UInt<4>{0}))
+    return 1;
+  model.input().doXfer({0, 0});
+  for (unsigned tick = 1; tick != 3; ++tick) {
+    const gfsim::Epoch epoch{tick, 0};
+    for (auto &row : rows) row.work(row.object, epoch);
+    for (auto &row : rows)
+      row.xfer(row.object, epoch, gfsim::XferPhase::Arbitrate);
+    for (auto &row : rows)
+      row.xfer(row.object, epoch, gfsim::XferPhase::Commit);
+  }
+  const auto &values = model.sink_0_values();
+  return values.size() == 1 && values[0].valid == UInt<1>{1} &&
+                 values[0].index == UInt<2>{2}
+             ? 0
+             : 2;
+}
+)cpp");
+  expectCppRuns(executable);
+}
+
+TEST(QueueGraphPlanTest,
+     MultidimensionalDynamicCoordinateFailsBeforeWriteProposal) {
+  QueueGraphPlan plan;
+  plan.system = "multidimensional_index";
+  plan.queues = {{"input", "i1", "/", 1, 1}};
+  plan.blocks.push_back({"source", "input", "/", {}, {"input"}, {1}, {1}});
+  TablePlan table{"tiles", "i8", 8, 0, "table/tiles", "/"};
+  table.shape = {1, 8};
+  table.axisWidths = {1, 3};
+  table.layout = "row_major";
+  table.layoutVersion = 1;
+  table.schemaId =
+      "sha256:f463610aee6b6eee51dd35c20fe85d789a9a616536b9c37eab9d54b5ce40f3aa";
+  table.hasTypedSchema = true;
+  plan.tables.push_back(std::move(table));
+  QueueBlockPlan writer{"table_write", "writer", "/", {"input"}, {}};
+  writer.table = "tiles";
+  writer.writeMode = "replace";
+  writer.writeFields = {"$entry"};
+  writer.expressions = {
+      {"column", "constant", "i3", {}, "", "", "0 : i3"},
+      {"flat", "table_index", "i3", {"item", "column"}},
+      {"enabled", "constant", "i1", {}, "", "", "true"},
+      {"value", "constant", "i8", {}, "", "", "9 : i8"},
+  };
+  writer.expressions[1].table = "tiles";
+  writer.yields = {"flat", "enabled", "value"};
+  plan.blocks.push_back(std::move(writer));
+  plan.tableWrites = {{"tiles", "writer", "/", "input", "replace",
+                       {"$entry"}}};
+
+  auto generated = generateQueueGraphCpp(plan);
+  ASSERT_TRUE(bool(generated)) << llvm::toString(generated.takeError());
+  EXPECT_NE(generated->find("coordinate_0 >= 1"), std::string::npos);
+  EXPECT_NE(generated->find("std::optional<std::size_t> flat_checked"),
+            std::string::npos);
+
+  std::string executable = *generated;
+  executable.append(R"cpp(
+int main() {
+  using gfsim::UInt;
+  ac_generated::MultidimensionalIndex model;
+  auto rows = model.dispatch_rows();
+  if (!model.input().proposePush(UInt<1>{1})) return 1;
+  model.input().doXfer({0, 0});
+  const gfsim::Epoch epoch{1, 0};
+  for (auto &row : rows) row.work(row.object, epoch);
+  for (auto &row : rows)
+    row.xfer(row.object, epoch, gfsim::XferPhase::Arbitrate);
+  auto *writer = static_cast<gfsim::SimObject *>(rows[1].object);
+  if (model.input().committedSize() != 1) return 2;
+  if (writer->runtimeFailureCode() != "table_index_out_of_range") return 3;
+  if (writer->hasPendingCommit()) return 4;
+  return 0;
+}
+)cpp");
+  expectCppRuns(executable);
+}
+
+TEST(QueueGraphPlanTest, TypedAggregateTableImageEmitsAndResetRestoresIt) {
+  QueueGraphPlan plan = inlineFirstChoicePlan(2, 1);
+  plan.system = "typed_aggregate_init";
+  plan.payloads.push_back(
+      {"InitEntry", {{"value", "i8", 8}, {"valid", "i1", 1}}});
+  TablePlan &table = plan.tables.front();
+  table.entryType = "!ac.struct<@types::@InitEntry>";
+  table.shape = {2};
+  table.axisWidths = {1};
+  table.layout = "row_major";
+  table.layoutVersion = 1;
+  table.schemaId =
+      "sha256:449a42ef009910a4ff74ed0d4f267848682de3a97b81df9045daf2ca9a674d52";
+  table.initVersion = 1;
+  table.hasTypedSchema = true;
+  table.initImage = {
+      {"struct",
+       table.entryType,
+       "",
+       {"value", "valid"},
+       {{"integer", "i8", "7", {}, {}},
+        {"integer", "i1", "1", {}, {}}}},
+      {"struct",
+       table.entryType,
+       "",
+       {"value", "valid"},
+       {{"integer", "i8", "9", {}, {}},
+        {"integer", "i1", "0", {}, {}}}},
+  };
+
+  auto generated = generateQueueGraphCpp(plan);
+  ASSERT_TRUE(bool(generated)) << llvm::toString(generated.takeError());
+  EXPECT_NE(generated->find(
+                "InitEntry{gfsim::UInt<8>{7}, gfsim::UInt<1>{1}}"),
+            std::string::npos);
+
+  std::string executable = *generated;
+  executable.append(R"cpp(
+int main() {
+  using gfsim::UInt;
+  ac_generated::TypedAggregateInit model;
+  auto rows = model.dispatch_rows();
+  gfsim::SimTable<ac_generated::InitEntry> *table = nullptr;
+  for (auto &row : rows) {
+    auto *object = static_cast<gfsim::SimObject *>(row.object);
+    if (row.kind == gfsim::ObjectKind::Memory && object->name() == "entries")
+      table = dynamic_cast<gfsim::SimTable<ac_generated::InitEntry> *>(object);
+  }
+  if (table == nullptr || table->at(0).value != UInt<8>{7} ||
+      table->at(0).valid != UInt<1>{1})
+    return 1;
+  if (!table->proposeWrite(
+          99, 0, ac_generated::InitEntry{UInt<8>{42}, UInt<1>{0}},
+          gfsim::TableFullEntryMerge<ac_generated::InitEntry>::fields,
+          gfsim::TableFullEntryMerge<ac_generated::InitEntry>{},
+          gfsim::TableWriteMode::Replace))
+    return 2;
+  table->doXfer({1, 0});
+  if (table->at(0).value != UInt<8>{42}) return 3;
+  table->reset();
+  return table->at(0).value == UInt<8>{7} &&
+                 table->at(0).valid == UInt<1>{1} &&
+                 table->at(1).value == UInt<8>{9} &&
+                 table->at(1).valid == UInt<1>{0}
+             ? 0
+             : 4;
+}
+)cpp");
+  expectCppRuns(executable);
+}
+
 TEST(QueueGraphPlanTest, KeyedTableChooseRetainsSelectionLoop) {
   auto loopCount = [](llvm::StringRef source) {
     size_t count = 0;
     for (size_t offset = 0;
-         (offset = source.find("for (std::size_t index = 0; index < table",
-                               offset)) != llvm::StringRef::npos;
+         (offset = source.find("for (std::size_t index = 0; index < ", offset)) !=
+         llvm::StringRef::npos;
          offset += 8)
       ++count;
     return count;
@@ -3517,8 +3731,8 @@ TEST(QueueGraphPlanTest, DistinctKeyMetadataGeneratesIndependentScans) {
   ASSERT_TRUE(bool(cpp)) << llvm::toString(cpp.takeError());
   size_t loops = 0;
   for (size_t offset = 0;
-       (offset = cpp->find("for (std::size_t index = 0; index < table",
-                           offset)) != std::string::npos;
+       (offset = cpp->find("for (std::size_t index = 0; index < ", offset)) !=
+       std::string::npos;
        offset += 8)
     ++loops;
   EXPECT_EQ(loops, 3u);

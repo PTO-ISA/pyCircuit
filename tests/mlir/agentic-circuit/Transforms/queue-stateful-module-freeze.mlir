@@ -104,7 +104,7 @@ builtin.module attributes {
 // PLAN-SAME: "activation_edges":[
 // PLAN-SAME: "kind":"firing"
 // PLAN-SAME: "definition":"Accumulator"
-// PLAN-SAME: "tables":[{"entries":1
+// PLAN-SAME: "tables":[{"axis_widths":[1],"entries":1
 // PLAN-SAME: "name":"sum"
 // PLAN: "work_closure_edges":[
 

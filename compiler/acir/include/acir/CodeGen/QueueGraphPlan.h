@@ -54,6 +54,11 @@ struct QueueExpressionPlan {
   uint64_t width = 0;
   std::string mask;
   std::string value;
+  std::vector<uint64_t> domainAxes;
+  std::vector<uint64_t> domainShape;
+  std::vector<uint64_t> domainStrides;
+  uint64_t domainOffset = 0;
+  bool hasDomainProjection = false;
 };
 
 std::string inlineTableChoiceContractKey(const QueueExpressionPlan &expression);
@@ -176,6 +181,16 @@ struct MemoryRequestPlan {
   std::string resultField;
 };
 
+struct TableInitValuePlan {
+  std::string kind;
+  std::string type;
+  std::string value;
+  std::vector<std::string> fieldNames;
+  std::vector<TableInitValuePlan> elements;
+
+  bool operator==(const TableInitValuePlan &) const = default;
+};
+
 struct TablePlan {
   std::string name;
   std::string entryType;
@@ -183,6 +198,14 @@ struct TablePlan {
   uint64_t init = 0;
   std::string stableId;
   std::string ownerPath;
+  std::vector<uint64_t> shape;
+  std::vector<uint64_t> axisWidths;
+  std::string layout;
+  uint64_t layoutVersion = 0;
+  std::string schemaId;
+  uint64_t initVersion = 0;
+  std::vector<TableInitValuePlan> initImage;
+  bool hasTypedSchema = false;
 };
 
 struct TableMatchPlan {
@@ -192,6 +215,11 @@ struct TableMatchPlan {
   std::string resultType;
   std::vector<QueueExpressionPlan> expressions;
   std::string yield;
+  std::vector<uint64_t> domainAxes;
+  std::vector<uint64_t> domainShape;
+  std::vector<uint64_t> domainStrides;
+  uint64_t domainOffset = 0;
+  bool hasDomainProjection = false;
 };
 
 struct TableSelectionPlan {

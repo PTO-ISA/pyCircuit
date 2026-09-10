@@ -303,7 +303,7 @@ class _TableDeclaration:
         self.entries = entries
         self.entry_type = entry_type
 
-    def __call__(self, *, init: int = 0) -> Never:
+    def __call__(self, *, init: object = 0) -> Never:
         return _not_implemented("table")
 
 

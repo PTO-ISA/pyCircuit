@@ -668,7 +668,8 @@ array。
 
 ### Stateful Table 原型
 
-epoch `0.5` 新增一维、全零初始化的状态 Table：
+epoch `0.5` 将本地状态 Table 与 request/response memory 分离。Table shape 可以是
+rank-one extent，也可以是由正静态 extent 组成的非空 tuple：
 
 ```python
 Table16 = ac.table[16, Entry]
@@ -694,12 +695,45 @@ table.view(tail).allocate(
     enable=allocation.valid,
     value=allocation.value,
 )
+
+tiles = ac.table[(2, 3), ac.u8](
+    init={
+        "version": 1,
+        "entry": ac.u8,
+        "values": [1, 2, 3, 4, 5, 6],
+    }
+)
+last = tiles.view((1, 2)).read()
+row = tiles.view(1)
+row_matches = row.match(lambda value: value != 0)
+row_choice = row.choose(row_matches)
+chosen = tiles.view(row_choice.index).read(when=row_choice.valid)
 ```
 
-Entry 只能是 bool、定宽整数或仅包含这些字段的扁平 struct。`read()` 总是返回
-`Queue<Entry>`；Queue-driven read 的 `when=false` 不消费输入，disabled write 消费
-输入但不提出写 proposal。同 tick 读写返回 old committed Entry，写入在 tick commit
-后可见，动态越界报告 `table_index_out_of_range`。
+Entry 可以是 bool、定宽整数、enum 或由支持 value type 组成的 immutable aggregate。
+shape 与 canonical Entry descriptor、layout version 一同参与 Table identity。存储采用
+row-major version 1，最右侧 axis 变化最快。每个 axis 使用能表示其 extent 的最小无符号
+宽度；extent 为一时仍保留一 bit。shape product 使用 checked arithmetic，并且必须等于
+flattened `entries` 数量。使用 `init=0` 的 rank-one Table declaration 仍是 canonical
+zero shorthand。
+
+非零初始化使用 closed typed image，键必须精确为 `version`、`entry` 和 `values`。
+version 1 必须包含恰好 flattened entry count 个元素；每个 scalar、enum、struct、tuple 或
+value-array 元素都必须递归匹配 Entry descriptor。字段顺序和 serialized bytes 是 canonical
+的，并且不能包含 producer path。Frozen ACIR 保存 `shape`、`axis_widths`、`layout`、
+`layout_version`、`schema_id`、`init_version` 和 `init_image`。rank、extent、product、
+layout、digest、version、count 或 value type 不合法时，必须在创建 runtime Table 前拒绝。
+
+`read()` 总是返回 `Queue<Entry>`；Queue-driven read 的 `when=false` 不消费输入，
+disabled write 消费输入但不提出写 proposal。同 tick 读写返回 old committed Entry，
+写入在 tick commit 后可见，动态越界报告 `table_index_out_of_range`。
+
+多维 view 的每个 coordinate 经 `ac.table.index` lowering。该 op 检查 rank、canonical
+per-axis type 与静态 bounds，然后产生 get/read/write/proposal 唯一使用的 canonical
+row-major flattened scalar。动态 coordinate 各自携带独立的 per-axis bounds obligation。
+`TableChoice.index` 已经是完整 Table domain 的 flattened type，可以直接流入同 Table view，
+不会在 runtime 被还原为 coordinate。普通 flattened value、错误位宽以及跨 Table 的 index
+或 choice provenance 都会 fail closed。
 
 `Table.view(candidates)` 接受同一张 Table 的 `match` 所产生的 `CandidateSet`，用于
 state-driven masked update。masked `write` 给所有命中 Entry 写入同一个完整值；
@@ -722,6 +756,14 @@ fail closed。源码、声明、遍历、对象或 Work 顺序都不能充当 ti
 仲裁在资源 prepare 之前选出 winner。loser 不会保留 Queue、Table、Reg、Slot 或 output，
 也不会发布其中任何 effect。可兼容的 guarded-disjoint writer 从同一 old image 求值并合并
 为一个确定的 next image。reset 会清除未完成的 proposal、reservation 与 arbitration state。
+
+full-Table `match` 的 domain axes 等于完整 shape。静态 projected view 固定一个 axis prefix，
+并记录剩余的 `domain_axes`、`domain_shape`、canonical row-major `domain_strides` 与
+`domain_offset`。mask bit zero 对应该局部 row-major projection 的首个元素。projection
+metadata 必须完整、axis 递增、范围合法并与 Table shape 一致。空 projection 包含唯一的
+fixed element；non-power-of-two 和 extent-one axis 保留精确 domain。`choose` 检查同 Table
+mask provenance，但返回值仍使用完整 flattened Table domain 的 index。D0238 不引入
+multi-selection；Decision 0239 落地前，ACIR 仍只接受 `count=1`。
 
 每张 Table 可以额外声明一个 state-driven scalar `allocate` endpoint，与上述普通字段
 writer 共存。它在调用方提供的 index 安装完整 Entry，不搜索空位、不检查占用状态，也不
@@ -759,8 +801,11 @@ capture、嵌套 Table/Slot observation 或 snapshot effect 都保留独立扫�
 使用 `mode "replace"`，masked write 只允许 `field`。完整 struct write 展开为所有实际
 字段，bool/int Entry 使用 `$entry`。
 value region 仍返回完整 Entry，但 commit 只复制声明字段；所有 writer 从同一 old
-committed image 求值，并在 tick edge 合并兼容 proposal 后一次发布。QueueGraph 与 typed
-gfsim C++ 已实现 Table 执行和 writer arbitration。canonical-PYC register-bank admission
+committed image 求值，并在 tick edge 合并兼容 proposal 后一次发布。QueueGraph 保留
+shape、schema identity、typed image tree、flattened index expression 与 projected match
+domain。typed gfsim 会确定性加载 image，执行 row-major access 和 projected mask，在 Work
+阶段观察 old state，并在 Xfer 一次发布 next image；reset 恢复 typed initial image，同时
+清除 transient selection 与 proposal。canonical-PYC register-bank admission
 以及 C++/Verilog parity 仍由 Decision 0241 管控；在该 decision 落地前，PYC/RTL 返回稳定的
 `unsupported provisional Table` 诊断。旧 `ac.table(...)` 已删除，请求响应存储继续
 使用 `ac.memory`。纵向示例见

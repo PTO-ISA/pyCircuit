@@ -5045,17 +5045,22 @@ def two_accumulators(left: ac.u8, right: ac.u8) -> tuple[ac.u8, ac.u8]:
         self.assertNotIn(".push", lowered)
 
     def test_stateful_rule_defers_nonconstant_index_proof_to_mlir(self) -> None:
-        from agentic_circuit._queue_frontend import lower_queue_source
+        from agentic_circuit._queue_frontend import (
+            QueueFrontendError,
+            lower_queue_source,
+        )
 
         u2_into_five = STATEFUL_RULE_SOURCE.replace(
             "index: ac.u1", "index: ac.u2"
         ).replace("ac.table[2, Entry]", "ac.table[5, Entry]")
         u3_into_five = u2_into_five.replace("index: ac.u2", "index: ac.u3")
 
-        for source, index_type in ((u2_into_five, "i2"), (u3_into_five, "i3")):
-            lowered = lower_queue_source(source, "table_rule")
-            self.assertIn(f"ac.table.get @rob [%v1] : !ac.var<{index_type}>", lowered)
-            self.assertIn("ac.table.propose @rob [%v0] = %item", lowered)
+        with self.assertRaisesRegex(QueueFrontendError, "canonical flattened type i3"):
+            lower_queue_source(u2_into_five, "table_rule")
+
+        lowered = lower_queue_source(u3_into_five, "table_rule")
+        self.assertIn("ac.table.get @rob [%v1] : !ac.var<i3>", lowered)
+        self.assertIn("ac.table.propose @rob [%v0] = %item", lowered)
 
     def test_persistent_var_defers_nonconstant_index_proof_to_mlir(self) -> None:
         from agentic_circuit._queue_frontend import lower_queue_source

@@ -736,7 +736,9 @@ request returns old data and makes the new data visible to a later request.
 
 ### Stateful Table prototype
 
-Epoch `0.5` separates locally owned state from request/response memory:
+Epoch `0.5` separates locally owned state from request/response memory. A
+Table may use a rank-one extent or a non-empty tuple of positive static
+extents:
 
 ```python
 Table16 = ac.table[16, Entry]
@@ -768,16 +770,52 @@ table.view(tail).allocate(
     enable=allocation.valid,
     value=allocation.value,
 )
+
+tiles = ac.table[(2, 3), ac.u8](
+    init={
+        "version": 1,
+        "entry": ac.u8,
+        "values": [1, 2, 3, 4, 5, 6],
+    }
+)
+last = tiles.view((1, 2)).read()
+row = tiles.view(1)
+row_matches = row.match(lambda value: value != 0)
+row_choice = row.choose(row_matches)
+chosen = tiles.view(row_choice.index).read(when=row_choice.valid)
 ```
 
-`Entry` is a boolean, a fixed-width integer, or a flat struct of those scalar
-types. The Table is one-dimensional and has an all-zero initial image. It may
-have multiple `write` or `patch` endpoints when their statically declared
-top-level field sets are pairwise disjoint. `read` always returns `Queue<Entry>`.
-Queue-driven read with `when=false` preserves its input; disabled write consumes
-its input without proposing state. Same-tick reads observe old committed data,
+`Entry` is a boolean, fixed-width integer, enum, or immutable aggregate of
+supported value types. A shape contributes to Table identity together with the
+canonical Entry descriptor and layout version. Storage is row-major version 1,
+with the rightmost axis varying fastest. Each axis uses the minimum unsigned
+width that represents its extent, with one bit retained for extent one. Shape
+products use checked arithmetic and must equal the flattened `entries` count.
+Rank-one Table declarations with `init=0` remain the canonical zero shorthand.
+
+A nonzero initializer is a closed typed image with exact keys `version`,
+`entry`, and `values`. Version 1 contains exactly the flattened entry count;
+every scalar, enum, struct, tuple, or value-array element must match the Entry
+descriptor recursively. Field order and serialized bytes are canonical and do
+not contain a producer path. Frozen ACIR records `shape`, `axis_widths`,
+`layout`, `layout_version`, `schema_id`, `init_version`, and `init_image`.
+Malformed rank, extent, product, layout, digest, version, count, or value type
+fails before a runtime Table is created.
+
+`read` always returns `Queue<Entry>`. Queue-driven read with `when=false`
+preserves its input; disabled write consumes its input without proposing state.
+Same-tick reads observe old committed data,
 and a write becomes visible at tick commit. Dynamic bounds failures use
 `table_index_out_of_range`.
+
+Multidimensional views lower each coordinate through `ac.table.index`. The op
+checks rank, canonical per-axis types, and static bounds, then produces the one
+canonical row-major flattened scalar used by get, read, write, and proposal
+operations. Dynamic coordinates carry independent per-axis bounds obligations.
+`TableChoice.index` already has this complete flattened Table-domain type and
+may flow directly into another same-Table view; it is never expanded back into
+runtime coordinates. Arbitrary flattened values, wrong-width indices, and
+cross-Table index or choice provenance fail closed.
 
 `Table.view(candidates)` accepts a same-Table `CandidateSet` from `match` for a
 state-driven masked update. Masked `write` assigns one uniform complete value;
@@ -807,6 +845,17 @@ does not reserve a Queue, Table, Reg, Slot, or output and publishes none of its
 effects. Compatible guarded-disjoint writers evaluate from one old image and
 merge into one deterministic next image. Reset clears pending proposals,
 reservations, and arbitration state.
+
+A full-Table `match` has domain axes equal to the complete shape. A statically
+projected view fixes a prefix of axes and records the remaining `domain_axes`,
+`domain_shape`, canonical row-major `domain_strides`, and `domain_offset`.
+Mask bit zero names the first element of that local row-major projection.
+Projection metadata must be complete, in increasing axis order, in bounds, and
+consistent with the Table shape. Empty projections contain the one fixed
+element; non-power-of-two and extent-one axes retain their exact domains.
+`choose` validates same-Table mask provenance but still returns an index over
+the complete flattened Table domain. D0238 does not add multi-selection;
+`count=1` remains the only admitted ACIR form until Decision 0239.
 
 One state-driven scalar `allocate` endpoint may coexist with those ordinary
 field writers. It installs one complete Entry at the caller-supplied index; it
@@ -855,9 +904,13 @@ required `mode`. Ordinary writes use `mode "field"`; scalar allocation uses
 Struct full writes list every declared field; scalar Entries use `$entry`.
 Every value region still returns a complete Entry, but commit copies only the
 declared fields. All endpoints evaluate from one old committed image and their
-compatible proposals are merged once at the tick edge. Table execution and
-writer arbitration are implemented in QueueGraph and typed gfsim C++. Decision
-0241 still gates canonical-PYC register-bank admission and C++/Verilog parity;
+compatible proposals are merged once at the tick edge. QueueGraph preserves
+shape, schema identity, typed image trees, flattened index expressions, and
+projected match domains. Typed gfsim loads the image deterministically, applies
+row-major accesses and projected masks, observes old state during Work, and
+publishes one next image at Xfer; reset restores the typed initial image and
+clears transient selections and proposals. Decision 0241 still gates
+canonical-PYC register-bank admission and C++/Verilog parity;
 until it lands, PYC/RTL lowering rejects the graph with `unsupported provisional
 Table`. Request/response storage remains `ac.memory`; legacy `ac.table(...)`
 has been removed. The single public Python example is

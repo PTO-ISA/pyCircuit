@@ -46,6 +46,27 @@ LogicalResult verifyIndex(ACDataFlowAnalyzer &analysis, Operation *operation,
          << extent - 1 << "]; inferred " << constraintText(constraint);
 }
 
+LogicalResult verifyTableAccessIndex(ACDataFlowAnalyzer &analysis,
+                                     Operation *operation, Value index,
+                                     ac::TableOp table, StringRef resource) {
+  if (auto flattened = index.getDefiningOp<ac::TableIndexOp>()) {
+    if (flattened.getTableAttr() !=
+        FlatSymbolRefAttr::get(operation->getContext(), table.getSymName()))
+      return operation->emitOpError(
+          "flattened Table index belongs to another Table");
+    return success();
+  }
+  if (auto selection = index.getDefiningOp<ac::TableChooseOp>()) {
+    if (selection.getIndex() != index ||
+        selection.getTableAttr() !=
+            FlatSymbolRefAttr::get(operation->getContext(), table.getSymName()))
+      return operation->emitOpError(
+          "TableChoice index belongs to another Table");
+    return success();
+  }
+  return verifyIndex(analysis, operation, index, table.getEntries(), resource);
+}
+
 struct WriterEndpoint {
   Operation *operation = nullptr;
   ac::TableOp owner;
@@ -313,44 +334,66 @@ LogicalResult verifyValueConstraints(ModuleOp model) {
       result = verifyIndex(analysis, assign, assign.getIndex(),
                            variable.getShapeAttr().asArrayRef().front(),
                            "shaped ac.var");
+    } else if (auto flattened = dyn_cast<ac::TableIndexOp>(operation)) {
+      auto table = resolveFlatDeclaration<ac::TableOp>(
+          flattened, flattened.getTableAttr());
+      if (!table)
+        return WalkResult::advance();
+      SmallVector<int64_t> shape;
+      if (auto rawShape = table.getShape())
+        shape.assign(rawShape->begin(), rawShape->end());
+      else
+        shape.push_back(table.getEntries());
+      if (shape.size() != flattened.getCoordinates().size())
+        return WalkResult::advance();
+      for (auto [axis, values] : llvm::enumerate(
+               llvm::zip_equal(flattened.getCoordinates(), shape))) {
+        auto [coordinate, extent] = values;
+        std::string resource = "Table coordinate axis " + std::to_string(axis);
+        result = verifyIndex(analysis, flattened, coordinate, extent,
+                             resource);
+        if (failed(result))
+          break;
+      }
     } else if (auto read = dyn_cast<ac::TableGetOp>(operation)) {
       auto table = resolveFlatDeclaration<ac::TableOp>(read,
                                                        read.getTableAttr());
       if (table)
-        result = verifyIndex(analysis, read, read.getIndex(),
-                             table.getEntries(), "Table");
+        result = verifyTableAccessIndex(analysis, read, read.getIndex(), table,
+                                        "Table");
     } else if (auto read = dyn_cast<ac::TableReadOp>(operation)) {
       auto table = resolveFlatDeclaration<ac::TableOp>(read,
                                                        read.getTableAttr());
       if (table && read.getAddress().hasOneBlock())
-        result = verifyIndex(
+        result = verifyTableAccessIndex(
             analysis, read,
             cast<ac::TableYieldOp>(read.getAddress().front().getTerminator())
                 .getValue(),
-            table.getEntries(), "Table read address");
+            table, "Table read address");
     } else if (auto write = dyn_cast<ac::TableWriteOp>(operation)) {
       auto table = resolveFlatDeclaration<ac::TableOp>(write,
                                                        write.getTableAttr());
       if (table && write.getAddress().hasOneBlock())
-        result = verifyIndex(
+        result = verifyTableAccessIndex(
             analysis, write,
             cast<ac::TableYieldOp>(write.getAddress().front().getTerminator())
                 .getValue(),
-            table.getEntries(), "Table write address");
+            table, "Table write address");
     } else if (auto proposal = dyn_cast<ac::TableProposeOp>(operation)) {
       auto table = resolveFlatDeclaration<ac::TableOp>(
           proposal, proposal.getTableAttr());
       if (table)
-        result = verifyIndex(analysis, proposal, proposal.getIndex(),
-                             table.getEntries(), "Table");
+        result = verifyTableAccessIndex(analysis, proposal,
+                                        proposal.getIndex(), table, "Table");
     } else if (auto snapshot = dyn_cast<ac::StateSnapshotOp>(operation)) {
       if (!snapshot.getIndex())
         return WalkResult::advance();
       auto table = resolveFlatDeclaration<ac::TableOp>(
           snapshot, snapshot.getTableAttr());
       if (table)
-        result = verifyIndex(analysis, snapshot, snapshot.getIndex(),
-                             table.getEntries(), "Table snapshot");
+        result = verifyTableAccessIndex(analysis, snapshot,
+                                        snapshot.getIndex(), table,
+                                        "Table snapshot");
     }
     return succeeded(result) ? WalkResult::advance()
                              : WalkResult::interrupt();

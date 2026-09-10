@@ -1,0 +1,9 @@
+cmake --build .pycircuit_out/acir/dev-llvm22 -j4
+cmake --build .pycircuit_out/acir/dev-llvm22 --target check-acir -j4
+ctest --test-dir .pycircuit_out/acir/dev-llvm22 --output-on-failure -R '^(ACIROpsTests|CodeGenTests|GfsimTests)$'
+PYTHONPATH=python/semantic-core/src:python/agentic-circuit/src pytest -q tests/python/agentic-circuit/python_frontend/test_public_api.py tests/python/agentic-circuit/python_frontend/test_queue_frontend.py tests/python/agentic-circuit/python_frontend/test_multidimensional_table.py
+AC_PYTHON_ONLY=1 PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=python/semantic-core/src:python/agentic-circuit/src:tests/python/agentic-circuit .pycircuit_out/contracts-venv/bin/python tools/agentic-circuit/check-contracts.py
+.pycircuit_out/ac-venv/bin/lit -sv --no-progress-bar .pycircuit_out/acir/dev-llvm22/tests/mlir/ACIR/table-layout.mlir .pycircuit_out/acir/dev-llvm22/tests/mlir/ACIR/table-layout-invalid.mlir
+mkdocs build --strict --site-dir .pycircuit_out/issue23-table-layout/site
+python3 flows/tools/check_decision_status.py --rfc docs/rfcs/pyc6-decisions.md --status docs/gates/decision_status_v6.md --out docs/gates/logs/20260910-issue23-table-layout/decision_status_report.json --require-concrete-evidence --require-existing-evidence
+git diff --check

@@ -103,9 +103,9 @@ builtin.module attributes {
 // PLAN-SAME: {"fields":["$entry"]
 // PLAN-SAME: "table":"total"
 // PLAN-SAME: "definition":"StatePair"
-// PLAN-SAME: "tables":[{"entries":1
+// PLAN-SAME: "tables":[{"axis_widths":[1],"entries":1
 // PLAN-SAME: "name":"cursor"
-// PLAN-SAME: {"entries":1
+// PLAN-SAME: {"axis_widths":[1],"entries":1
 // PLAN-SAME: "name":"total"
 
 // CXX: gfsim::StateTransitionPlan<std::tuple<gfsim::UInt<8>, gfsim::UInt<8>>
