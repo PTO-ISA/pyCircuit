@@ -1328,6 +1328,15 @@ emitExpressionBody(const QueueGraphPlan &plan, const QueueBlockPlan &block,
              << ";\n";
       continue;
     }
+    if (expression.type == "i1" &&
+        (expression.kind == "mul" || expression.kind == "and" ||
+         expression.kind == "or")) {
+      output << padding << "auto " << expression.result
+             << " = gfsim::UInt<1>{static_cast<bool>(" << first->str()
+             << ") " << (expression.kind == "or" ? "||" : "&&")
+             << " static_cast<bool>(" << second->str() << ")};\n";
+      continue;
+    }
     llvm::StringRef operation;
     if (expression.kind == "add")
       operation = "+";

@@ -1981,10 +1981,6 @@ private:
                                  const WriteFootprint &right) {
     if (!intersects(left.indices, right.indices))
       return false;
-    if (left.exclusiveEndpoint && right.exclusiveEndpoint &&
-        (left.mode == TableWriteMode::Replace ||
-         right.mode == TableWriteMode::Replace))
-      return true;
     if (left.mode == TableWriteMode::Replace &&
         right.mode == TableWriteMode::Replace)
       return true;

@@ -72,9 +72,7 @@ requirement-by-requirement status.
 ### Accepted 6.0 release-train decisions
 
 Decisions 0236 through 0241 freeze the remaining issue contracts for release
-6.0.0. Decisions 0236, 0237, and 0240 are implemented-verified. Decisions 0238
-and 0239 are implemented-unverified at the explicit Table-to-PYC boundary, and
-Decision 0241 remains deferred. The exact status and evidence paths are in
+6.0.0 and are implemented-verified. The exact status and evidence paths are in
 [`decision_status_v6.md`](../../gates/decision_status_v6.md).
 
 - Decision 0236 keeps `@ac.rule` as the only public scheduling boundary and
@@ -890,8 +888,9 @@ Table reads consuming one multi-selection are grouped into one prefix
 transaction: every valid-lane output must be ready before any lane publishes or
 the cursor advances. A firing must consume every lane exactly once; partial,
 mixed, direct-write, or otherwise ungrouped consumers fail QueueGraph
-verification. Canonical-PYC Table admission and D0239 C++/Verilog parity remain
-owned by Decision 0241.
+verification. Canonical PYC uses the same prefix transaction and advances the
+explicit register-bank cursor only after the complete selected prefix is
+accepted.
 
 One state-driven scalar `allocate` endpoint may coexist with those ordinary
 field writers. It installs one complete Entry at the caller-supplied index; it
@@ -942,13 +941,13 @@ Every value region still returns a complete Entry, but commit copies only the
 declared fields. All endpoints evaluate from one old committed image and their
 compatible proposals are merged once at the tick edge. QueueGraph preserves
 shape, schema identity, typed image trees, flattened index expressions, and
-projected match domains. Typed gfsim loads the image deterministically, applies
-row-major accesses and projected masks, observes old state during Work, and
-publishes one next image at Xfer; reset restores the typed initial image and
-clears transient selections and proposals. Decision 0241 still gates
-canonical-PYC register-bank admission and C++/Verilog parity;
-until it lands, PYC/RTL lowering rejects the graph with `unsupported provisional
-Table`. Request/response storage remains `ac.memory`; legacy `ac.table(...)`
+projected match domains. Typed gfsim and canonical PYC load the image
+deterministically, apply row-major accesses and projected masks, observe old
+state during Work/combinational evaluation, and publish one next image at
+Xfer/the clock edge. Canonical PYC uses one explicit `pyc.reg` per Entry and
+never selects `pyc.sync_mem`; reset restores the typed initial image and clears
+transient selections and proposals. Request/response storage remains
+`ac.memory`; legacy `ac.table(...)`
 has been removed. The single public Python example is
 `issue.py`. It combines two field-disjoint
 operand wakeups, next-tick minimum-age selection, grant-driven removal, and a
@@ -1267,23 +1266,22 @@ outgoing = install(rob, incoming, metadata)
 ```
 
 The Table Entry, primary input, and any output Queue payload types MUST match;
-additional input Queue payloads may differ. The body MAY bind one committed
-Table Entry observation, MUST perform exactly one complete Entry replacement,
-and MAY return zero or one payload. A dynamic `ac.uN` index is
-accepted only for a `2^N`-entry Table; a constant index must be in range. This
-statically discharges bounds while executable dynamic checked IR remains
-pending.
+additional input Queue payloads may differ. A rule may observe and update
+multiple persistent owners and may return zero, one, optional, or several typed
+payloads. Dynamic indices require compiler proof for the complete accessed
+domain; constant and multidimensional coordinates must be in range.
 
 The frontend emits firing-local `ac.table.propose`. Separate MLIR passes infer
 every input consume, the output produce, and the Table replace effect;
 materialize `ready_valid_Nx1_table`; infer lexical priority and typed state
 footprints; discharge every marker; and retain the result as stateful
-`ac.firing`. QueueGraph lowers the
-closed firing to `gfsim::QueueTableTransition`. It is not canonicalized to
-`ac.transform`, and PYC continues to reject the provisional Table boundary.
-Field or masked updates, optional or multiple outputs, multiple state
-proposals, CFG branches, Reg effects, and arbitration are not part of this
-subset.
+`ac.firing`. QueueGraph lowers the closed firing to the typed gfsim transition
+family and to canonical PYC. It is not canonicalized to `ac.transform`. The
+admitted PYC profile is rank <= 4, entries <= 256, packed Entry width <= 256
+bits, total state <= 65,536 bits, and at most four writer endpoints. It covers
+field, masked, and replace proposals, optional/multiple outputs, owner-local
+batches, CFG selection, and accepted priority arbitration through an explicit
+register bank.
 
 ### Bounded feedback
 
@@ -1628,8 +1626,8 @@ another supported static array with a valid fixed shape.
 ### Implemented common building blocks
 
 The official graph-level catalog contains exactly these operations. Every
-non-provisional design entry has both a typed gfsim realization and a PYC
-realization; Table entries explicitly declare their gfsim-only boundary.
+admitted design entry has both a typed gfsim realization and a PYC realization;
+out-of-profile state retains an explicit backend admission error.
 
 | Operation | Role | Queue arity | Static parameters | Core behavior |
 | --- | --- | --- | --- | --- |
@@ -1646,7 +1644,7 @@ realization; Table entries explicitly declare their gfsim-only boundary.
 | `ac.barrier` | design | two or more to the same count | output depths and latencies | positionally typed atomic synchronization |
 | `ac.credit` | design | one to one | `credits`, `depth`, `latency` | bounded parallel cost countdown and completion |
 | `ac.memory.instance` / `ac.memory.request` | design | shared instance, one-to-one endpoint | instance identity, ordinal, `entries`, `init`, instance `latency`, `result_field`, `depth` | fixed-priority single-outstanding old-data memory |
-| `ac.table` | design | state owner | Entry type, `entries`, `init`, owner, stable identity | committed zero-initialized state image; gfsim-only prototype |
+| `ac.table` | design | state owner | Entry type, shape, typed init, owner, stable identity | committed state image; bounded PYC profile uses one explicit `pyc.reg` per Entry |
 | `ac.table.read` | design | optional request to one | Table identity, `depth`, `latency` | state- or Queue-driven old-data capture |
 | `ac.table.write` | design | optional update to none | Table identity, `mode`, `write_fields` | Queue-driven consumption, state-driven field proposal, or scalar replace allocation |
 | `ac.table.masked_write` | design | committed mask to none | Table identity, `mode="field"`, `write_fields` | atomic state-driven field update of every Entry selected by a same-Table match |
@@ -2486,12 +2484,12 @@ The following slices are implemented and tested:
   static loops, and symmetric runtime Queue `if` lowering through
   route/transform/merge;
 - canonical QueueGraph extraction;
-- typed gfsim C++ generation, including the provisional one-dimensional Table;
+- typed gfsim C++ generation, including typed multidimensional Table state;
 - PYC/Verilog lowering for transform, broadcast, fork, route, select, merge,
   atomic barrier, bounded credit, typed synchronous memory, dependency,
   reorder, bounded feedback, elaboration-time scope flattening, packed
-  structures, atomic handshakes, and exact Queue latency;
-- stable PYC rejection of provisional Table graphs;
+  structures, atomic handshakes, exact Queue latency, and bounded explicit-reg
+  Table state;
 - PYC C++ versus Verilog cycle equivalence and gfsim/PYC projected transaction
   comparison.
 

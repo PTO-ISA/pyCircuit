@@ -1,0 +1,20 @@
+test_priority_writer_wins_before_lower_rank (__main__.TablePycParityTest.test_priority_writer_wins_before_lower_rank) ... ok
+test_replace_is_applied_after_field_merge (__main__.TablePycParityTest.test_replace_is_applied_after_field_merge) ... ok
+test_round_robin_prefix_is_cycle_equivalent (__main__.TablePycParityTest.test_round_robin_prefix_is_cycle_equivalent) ... ok
+
+----------------------------------------------------------------------
+Ran 3 tests in 13.042s
+
+OK
+test_allocation_examples_execute_replace_contract_in_both_cpp_paths (__main__.TableBackendTest.test_allocation_examples_execute_replace_contract_in_both_cpp_paths) ... ok
+test_batch_wakeup_example_generates_both_cpp_paths (__main__.TableBackendTest.test_batch_wakeup_example_generates_both_cpp_paths) ... ok
+test_disjoint_writers_merge_same_entry_in_both_cpp_paths (__main__.TableBackendTest.test_disjoint_writers_merge_same_entry_in_both_cpp_paths) ... ok
+test_masked_update_direct_and_native_generators_compile_and_run (__main__.TableBackendTest.test_masked_update_direct_and_native_generators_compile_and_run) ... ok
+test_native_queuegraph_and_pyc_boundary_when_tools_are_available (__main__.TableBackendTest.test_native_queuegraph_and_pyc_boundary_when_tools_are_available) ... ok
+test_python_codegen_checks_queue_driven_entry_expressions (__main__.TableBackendTest.test_python_codegen_checks_queue_driven_entry_expressions) ... ok
+test_scoreboard_generates_compiles_and_runs_old_data_contract (__main__.TableBackendTest.test_scoreboard_generates_compiles_and_runs_old_data_contract) ... ok
+
+----------------------------------------------------------------------
+Ran 7 tests in 12.523s
+
+OK

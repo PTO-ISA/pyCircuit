@@ -3461,15 +3461,29 @@ llvm::Error verifyQueueGraphPlan(const QueueGraphPlan &plan) {
   for (const TableWritePlan &write : plan.tableWrites) {
     if (!tables.contains(write.table) || write.name.empty())
       return planError("table write endpoint metadata is incomplete");
-    if (!verifyWriteFields(write.table, write.mode, write.writeFields))
+    const bool arbitrated = llvm::any_of(
+        plan.blocks, [&](const QueueBlockPlan &block) {
+          return block.kind == "table_write" && block.name == write.name &&
+                 block.table == write.table &&
+                 !block.arbitrationMembership.empty();
+        });
+    if (!verifyWriteFields(write.table, write.mode, write.writeFields,
+                           !arbitrated))
       return planError(
           "table write_fields are invalid or overlap another writer");
   }
   for (const TableMaskedWritePlan &write : plan.tableMaskedWrites) {
     if (!tables.contains(write.table) || write.name.empty())
       return planError("masked table write endpoint metadata is incomplete");
+    const bool arbitrated = llvm::any_of(
+        plan.blocks, [&](const QueueBlockPlan &block) {
+          return block.kind == "table_masked_write" &&
+                 block.name == write.name && block.table == write.table &&
+                 !block.arbitrationMembership.empty();
+        });
     if (write.mode != "field" ||
-        !verifyWriteFields(write.table, write.mode, write.writeFields))
+        !verifyWriteFields(write.table, write.mode, write.writeFields,
+                           !arbitrated))
       return planError(
           "table write_fields are invalid or overlap another writer");
   }

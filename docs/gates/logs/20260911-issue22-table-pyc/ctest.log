@@ -1,0 +1,53 @@
+Test project /Users/zhoubot/linx-isa/tools/pyCircuit/.pycircuit_out/acir/dev-llvm22
+      Start 17: CodeGenTests
+      Start 13: ACIRModelAnalysisTests
+      Start 14: ACIRProcessStatePlanTests
+      Start 10: ACIROpsTests
+      Start  6: RecursiveAggregatePayloadE2ETests
+      Start  4: EnumPayloadE2ETests
+ 1/18 Test  #4: EnumPayloadE2ETests .................   Passed    1.46 sec
+      Start  7: PycVerilogBackendTests
+ 2/18 Test  #6: RecursiveAggregatePayloadE2ETests ...   Passed    1.81 sec
+      Start  5: AggregatePayloadE2ETests
+ 3/18 Test  #5: AggregatePayloadE2ETests ............   Passed    1.82 sec
+      Start  3: NestedPayloadE2ETests
+ 4/18 Test  #3: NestedPayloadE2ETests ...............   Passed    1.63 sec
+      Start  2: BitfieldE2ETests
+ 5/18 Test  #7: PycVerilogBackendTests ..............   Passed    4.35 sec
+      Start  1: RuleRetirementE2ETests
+ 6/18 Test  #2: BitfieldE2ETests ....................   Passed    1.56 sec
+      Start 18: CompilerTests
+ 7/18 Test #18: CompilerTests .......................   Passed    0.18 sec
+      Start 16: ACIRToACSimTests
+ 8/18 Test #16: ACIRToACSimTests ....................   Passed    0.18 sec
+      Start 12: ACSimOpsTests
+ 9/18 Test  #1: RuleRetirementE2ETests ..............   Passed    1.74 sec
+      Start 15: ACIRBindingTests
+10/18 Test #12: ACSimOpsTests .......................   Passed    0.56 sec
+      Start  9: ACIRTypesTests
+11/18 Test #15: ACIRBindingTests ....................   Passed    0.20 sec
+      Start 11: ACSimTypesTests
+12/18 Test #11: ACSimTypesTests .....................   Passed    0.04 sec
+      Start  8: GfsimTests
+13/18 Test  #8: GfsimTests ..........................   Passed    0.03 sec
+14/18 Test  #9: ACIRTypesTests ......................   Passed    0.11 sec
+15/18 Test #10: ACIROpsTests ........................   Passed    8.68 sec
+16/18 Test #14: ACIRProcessStatePlanTests ...........   Passed    9.09 sec
+17/18 Test #13: ACIRModelAnalysisTests ..............   Passed   22.22 sec
+18/18 Test #17: CodeGenTests ........................   Passed   50.43 sec
+
+100% tests passed, 0 tests failed out of 18
+
+Label Time Summary:
+aggregate-payload    =   3.63 sec*proc (2 tests)
+bitfield             =   1.56 sec*proc (1 test)
+e2e                  =  10.02 sec*proc (6 tests)
+enum-payload         =   1.46 sec*proc (1 test)
+gfsim                =  10.02 sec*proc (6 tests)
+nested-payload       =   1.63 sec*proc (1 test)
+pyc                  =   4.35 sec*proc (1 test)
+recursive-payload    =   1.81 sec*proc (1 test)
+rule                 =   1.74 sec*proc (1 test)
+verilog              =   4.35 sec*proc (1 test)
+
+Total Test time (real) =  50.44 sec

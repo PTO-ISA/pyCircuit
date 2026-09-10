@@ -43,29 +43,26 @@ trace-position, or trace/observation export surface (Decision 0235).
   committed-snapshot disjointness proof or explicit stable-identity priority;
   QueueGraph and gfsim perform deterministic pre-prepare winner selection and
   atomic loser suppression for issue #25.
-- Decision 0238 has implemented frontend, ACIR, QueueGraph, and typed gfsim
-  coverage for multidimensional shape, row-major flattened indices, versioned
-  typed initialization, and projected mask domains. It remains
-  implemented-unverified until Decision 0241 admits Table to canonical PYC and
-  supplies the required C++/Verilog parity evidence for issue #23.
-- Decision 0239 has implemented frontend, ACIR, QueueGraph, and typed gfsim
-  coverage for static-tuple multi-selection, typed first/min/max/round-robin
-  policies, once-per-Epoch evaluation, and atomic valid-prefix consumption. It
-  remains implemented-unverified until Decision 0241 supplies Table PYC/RTL
-  parity for issue #24.
+- Decision 0238 is implemented-verified across frontend, ACIR, QueueGraph,
+  typed gfsim, and canonical PYC for multidimensional shape, row-major
+  flattened indices, versioned typed initialization, projected mask domains,
+  reset, and C++/Verilog parity for issue #23.
+- Decision 0239 is implemented-verified across frontend, ACIR, QueueGraph,
+  typed gfsim, and canonical PYC for static-tuple multi-selection, typed
+  first/min/max/round-robin policies, once-per-attempt combinational
+  evaluation, accepted-only cursor advance, and atomic valid-prefix
+  consumption for issue #24.
 - Decision 0240 is implemented-verified for generic direct and one-to-one pure
   transform Queue profiles: one typed Queue identity preserves lane ordinals,
   whole-prefix backpressure, simultaneous dequeue/append, reset, and generated
   gfsim/PYC C++/Verilator equivalence for issue #21. Other multi-lane PYC
   topologies remain explicit fail-closed extensions.
-- Complete Decision 0241 last in the semantic train: admit only the bounded
-  Table profile through an explicit canonical-PYC register bank and prove C++ /
-  Verilog parity for issue #22.
+- Decision 0241 is implemented-verified for the bounded explicit-register-bank
+  Table profile, including independent admission limits and C++/Verilog parity
+  for issue #22.
 
-Decisions 0236, 0237, and 0240 are implemented-verified. Decisions 0238 and
-0239 are implemented-unverified at the explicit Table-to-PYC boundary.
-Decision 0241 remains deferred and is the final semantic-train item; it owns
-canonical-PYC Table admission and the remaining C++/Verilog Table parity.
+Decisions 0236 through 0241 are implemented-verified. The semantic train is
+closed; remaining release work is repository/platform evidence and publication.
 
 ### 3. Publish a consumer-neutral SDK
 

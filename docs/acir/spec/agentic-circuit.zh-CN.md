@@ -25,11 +25,10 @@
 具有 RFC 风格的约束含义。本文使用“必须”“禁止”“应该”和“可以”表达同一
 含义。
 
-### 已接受但尚未实现的 6.0 release-train decisions
+### 6.0 release-train decisions
 
-Decision 0236–0241 已冻结 release 6.0.0 的剩余 issue 合同。Decision 0236、0237、
-0240 已为 `implemented-verified`；Decision 0238、0239 在 Table-to-PYC 边界为
-`implemented-unverified`；Decision 0241 仍为 `deferred`。精确状态与证据路径见
+Decision 0236–0241 已冻结 release 6.0.0 的剩余 issue 合同，并全部达到
+`implemented-verified`。精确状态与证据路径见
 [`decision_status_v6.md`](../../gates/decision_status_v6.md)。
 
 - Decision 0236 保持 `@ac.rule` 为唯一公共调度边界，由编译器形成完整原子事务
@@ -792,8 +791,8 @@ global index 解决相等 key。round-robin 仅在完整 prefix 接受后，将 
 初值。mask/key 每个 Epoch 只求值一次。直接消费同一 multi-selection 的 Table read 会合并为
 一个 prefix transaction：所有 valid-lane output 均 ready 后才整体 publish 并推进 cursor。
 firing 必须恰好消费每个 lane；partial、mixed、direct-write 或其它未归组 consumer 在
-QueueGraph verifier 中 fail closed。Table 的 canonical-PYC admission 与 D0239 C++/Verilog
-parity 仍由 Decision 0241 管控。
+QueueGraph verifier 中 fail closed。canonical PYC 使用同一个 prefix transaction，只有
+完整 selected prefix 被接受后才推进显式 register-bank cursor。
 
 每张 Table 可以额外声明一个 state-driven scalar `allocate` endpoint，与上述普通字段
 writer 共存。它在调用方提供的 index 安装完整 Entry，不搜索空位、不检查占用状态，也不
@@ -833,11 +832,11 @@ capture、嵌套 Table/Slot observation 或 snapshot effect 都保留独立扫�
 value region 仍返回完整 Entry，但 commit 只复制声明字段；所有 writer 从同一 old
 committed image 求值，并在 tick edge 合并兼容 proposal 后一次发布。QueueGraph 保留
 shape、schema identity、typed image tree、flattened index expression 与 projected match
-domain。typed gfsim 会确定性加载 image，执行 row-major access 和 projected mask，在 Work
-阶段观察 old state，并在 Xfer 一次发布 next image；reset 恢复 typed initial image，同时
-清除 transient selection 与 proposal。canonical-PYC register-bank admission
-以及 C++/Verilog parity 仍由 Decision 0241 管控；在该 decision 落地前，PYC/RTL 返回稳定的
-`unsupported provisional Table` 诊断。旧 `ac.table(...)` 已删除，请求响应存储继续
+domain。typed gfsim 与 canonical PYC 会确定性加载 image，执行 row-major access 和
+projected mask，在 Work/组合求值阶段观察 old state，并在 Xfer/时钟边沿一次发布 next
+image。canonical PYC 使用每个 Entry 一个显式 `pyc.reg` 的 register bank，且不会选择
+`pyc.sync_mem`。reset 恢复 typed initial image，同时清除 transient selection 与 proposal。
+旧 `ac.table(...)` 已删除，请求响应存储继续
 使用 `ac.memory`。纵向示例见
 唯一公开的 Python Table 示例是
 `issue.py`。它组合两个字段不相交的操作数唤醒、下一

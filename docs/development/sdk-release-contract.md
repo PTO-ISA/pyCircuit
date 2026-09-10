@@ -415,7 +415,7 @@ consumers. The generic fixture covers imported nominal contracts, const
 specialization, multiple independent instances, admitted Table state,
 heterogeneous optional outputs, backpressure, reset, incremental rebuild,
 topology changes, concurrent generation, stale plan, wrong SDK, wrong ABI,
-missing tool, and the explicit unsupported PYC Table boundary.
+missing tool, and bounded Table PYC admission with out-of-profile rejection.
 
 Every publish job depends on candidate acceptance. GitHub Release, GHCR, and
 optional PyPI publication cannot run from a failed, skipped, or unvalidated

@@ -4,6 +4,8 @@
 // RUN: %acir_queue_cxxgen %t.frozen.mlir > %t.cpp
 // RUN: %FileCheck %s --check-prefix=GFSIM < %t.cpp
 // RUN: %cxx -std=c++20 -I%source_root/simulator/gfsim/include -c %t.cpp -o %t.o
+// RUN: %acir_queue_pycgen %t.frozen.mlir | %FileCheck %s --check-prefix=PYC
+// RUN: %python %source_root/compiler/acir/tools/acir-queue-veriloggen.py %t.frozen.mlir --pycgen %acir_queue_pycgen | %FileCheck %s --check-prefix=VERILOG
 
 module attributes {ac.contract_epoch = "0.5", ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle", ac.system = "consume_only"} {
   ac.type_scope @types {
@@ -52,3 +54,11 @@ module attributes {ac.contract_epoch = "0.5", ac.model_kind = "queue_graph", ac.
 // GFSIM: gfsim::OwnerWriteBatch<gfsim::UInt<7>> owner_writes1;
 // GFSIM: gfsim::StateReservation::forFieldsAt({{.*}}, std::uint64_t{2}, 2)
 // GFSIM: gfsim::StateReservation::forEntry({{.*}})
+
+// PYC: func.func @consume_only
+// PYC-COUNT-3: pyc.reg
+// PYC-NOT: sync_mem
+// PYC-NOT: ac.table
+
+// VERILOG: module consume_only (
+// VERILOG: pyc_reg

@@ -8689,7 +8689,7 @@ count, Queue rate, and payload shape need separate verified meanings.
 
 ## Decision 0241: bounded Table PYC uses an explicit register bank
 
-**Status:** Accepted; implementation tracked by issue #22
+**Status:** Accepted; implemented and verified
 
 **Supersedes:** The blanket `unsupported provisional Table` boundary in
 Decisions 0151 through 0156 for the admitted profile only.

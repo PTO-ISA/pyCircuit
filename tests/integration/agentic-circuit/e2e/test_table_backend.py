@@ -21,6 +21,33 @@ ALLOCATION_SOURCES = (
 
 
 class TableBackendTest(unittest.TestCase):
+    def freeze_acir(self, root: Path, name: str, text: str) -> Path:
+        tool = Path(
+            os.environ.get(
+                "ACIR_OPT", ROOT / ".pycircuit_out/acir/dev-llvm22/bin/acir-opt"
+            )
+        )
+        if not tool.is_file():
+            self.skipTest("acir-opt is unavailable")
+        source = root / f"{name}.raw.mlir"
+        frozen = root / f"{name}.frozen.mlir"
+        source.write_text(text, encoding="utf-8")
+        completed = subprocess.run(
+            (
+                str(tool),
+                "--verify-each=false",
+                "--pass-pipeline=builtin.module(ac-lower-rules,canonicalize,cse,ac-verify-rule-closure,ac-freeze-topology)",
+                str(source),
+                "-o",
+                str(frozen),
+            ),
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        self.assertEqual(0, completed.returncode, completed.stderr)
+        return frozen
+
     def test_allocation_examples_execute_replace_contract_in_both_cpp_paths(
         self,
     ) -> None:
@@ -61,8 +88,7 @@ class TableBackendTest(unittest.TestCase):
             generated = [("direct", lower_queue_program_to_cpp(program))]
             if plan_tool.is_file():
                 with tempfile.TemporaryDirectory() as directory:
-                    source = Path(directory) / f"{system}.mlir"
-                    source.write_text(acir, encoding="utf-8")
+                    source = self.freeze_acir(Path(directory), system, acir)
                     planned = subprocess.run(
                         (str(plan_tool), str(source)),
                         text=True,
@@ -83,8 +109,7 @@ class TableBackendTest(unittest.TestCase):
                     self.assertTrue(replace_block["write_fields"])
             if cxxgen.is_file():
                 with tempfile.TemporaryDirectory() as directory:
-                    source = Path(directory) / f"{system}.mlir"
-                    source.write_text(acir, encoding="utf-8")
+                    source = self.freeze_acir(Path(directory), system, acir)
                     native = subprocess.run(
                         (str(cxxgen), str(source)),
                         text=True,
@@ -95,8 +120,7 @@ class TableBackendTest(unittest.TestCase):
                     generated.append(("native", native.stdout))
             if pycgen.is_file():
                 with tempfile.TemporaryDirectory() as directory:
-                    source = Path(directory) / f"{system}.mlir"
-                    source.write_text(acir, encoding="utf-8")
+                    source = self.freeze_acir(Path(directory), system, acir)
                     rejected = subprocess.run(
                         (str(pycgen), str(source)),
                         text=True,
@@ -104,7 +128,7 @@ class TableBackendTest(unittest.TestCase):
                         check=False,
                     )
                     self.assertNotEqual(0, rejected.returncode)
-                    self.assertIn("unsupported provisional Table", rejected.stderr)
+                    self.assertIn("Slot PYC lowering is not implemented", rejected.stderr)
             for variant, model_text in generated:
                 self.assertEqual(1, model_text.count("gfsim::TableWriteMode::Replace"))
                 with tempfile.TemporaryDirectory() as directory:
@@ -331,8 +355,7 @@ int main() {{
         )
         if plan_tool.is_file():
             with tempfile.TemporaryDirectory() as directory:
-                source = Path(directory) / "multi_writer.mlir"
-                source.write_text(acir, encoding="utf-8")
+                source = self.freeze_acir(Path(directory), "multi_writer", acir)
                 planned = subprocess.run(
                     (str(plan_tool), str(source)),
                     text=True,
@@ -354,8 +377,7 @@ int main() {{
                 self.assertNotIn("table_choose_index", expression_kinds)
         if cxxgen.is_file():
             with tempfile.TemporaryDirectory() as directory:
-                source = Path(directory) / "multi_writer.mlir"
-                source.write_text(acir, encoding="utf-8")
+                source = self.freeze_acir(Path(directory), "multi_writer", acir)
                 native = subprocess.run(
                     (str(cxxgen), str(source)),
                     text=True,
@@ -477,8 +499,7 @@ int main() {{
         )
         if cxxgen.is_file():
             with tempfile.TemporaryDirectory() as directory:
-                source = Path(directory) / "wakeup.mlir"
-                source.write_text(acir, encoding="utf-8")
+                source = self.freeze_acir(Path(directory), "wakeup", acir)
                 native = subprocess.run(
                     (str(cxxgen), str(source)),
                     text=True,
@@ -538,9 +559,10 @@ int main() {{
         )
         if cxxgen.is_file():
             with tempfile.TemporaryDirectory() as directory:
-                acir_file = Path(directory) / "masked.mlir"
-                acir_file.write_text(
-                    lower_queue_source(text, "table_masked_update"), encoding="utf-8"
+                acir_file = self.freeze_acir(
+                    Path(directory),
+                    "masked",
+                    lower_queue_source(text, "table_masked_update"),
                 )
                 native = subprocess.run(
                     (str(cxxgen), str(acir_file)),
@@ -559,7 +581,7 @@ int main() {{
                     )
                     self.assertNotEqual(0, rejected.returncode)
                     self.assertIn(
-                        "unsupported provisional Table",
+                        "Slot PYC lowering is not implemented",
                         rejected.stdout + rejected.stderr,
                     )
 
@@ -774,16 +796,7 @@ int main() {{
         )
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            source = root / "table.ac.mlir"
-            frozen = root / "table.frozen.mlir"
-            source.write_text(acir, encoding="utf-8")
-            verified = subprocess.run(
-                (str(tools["opt"]), "--verify-ac-file", str(source), "-o", str(frozen)),
-                text=True,
-                capture_output=True,
-                check=False,
-            )
-            self.assertEqual(0, verified.returncode, verified.stderr)
+            frozen = self.freeze_acir(root, "table", acir)
             planned = subprocess.run(
                 (str(tools["plan"]), str(frozen)),
                 text=True,
@@ -886,14 +899,16 @@ int main() {{
             )
             self.assertEqual(0, executed.returncode, executed.stderr)
 
-            rejected = subprocess.run(
+            lowered = subprocess.run(
                 (str(tools["pycgen"]), str(frozen)),
                 text=True,
                 capture_output=True,
                 check=False,
             )
-            self.assertNotEqual(0, rejected.returncode)
-            self.assertIn("unsupported provisional Table", rejected.stderr)
+            self.assertEqual(0, lowered.returncode, lowered.stderr)
+            self.assertIn("pyc.reg", lowered.stdout)
+            self.assertNotIn("sync_mem", lowered.stdout)
+            self.assertNotIn("ac.table", lowered.stdout)
 
 
 if __name__ == "__main__":

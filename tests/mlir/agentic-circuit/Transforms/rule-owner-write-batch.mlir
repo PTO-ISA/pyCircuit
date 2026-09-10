@@ -4,7 +4,7 @@
 // RUN: %acir_queue_cxxgen %t.frozen.mlir > %t.cpp
 // RUN: %FileCheck %s --check-prefix=CXX < %t.cpp
 // RUN: %cxx -std=c++20 -I%source_root/simulator/gfsim/include -fsyntax-only %t.cpp
-// RUN: %not %acir_queue_pycgen %t.frozen.mlir 2>&1 | %FileCheck %s --check-prefix=PYC-ERR
+// RUN: %acir_queue_pycgen %t.frozen.mlir | %FileCheck %s --check-prefix=PYC
 
 module attributes {ac.contract_epoch = "0.5", ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle", ac.system = "owner_write_batch"} {
   ac.type_scope @types {
@@ -46,4 +46,7 @@ module attributes {ac.contract_epoch = "0.5", ac.model_kind = "queue_graph", ac.
 // PLAN-SAME: "table":"entries"
 // CXX: gfsim::OwnerWriteBatch<gfsim::UInt<8>> owner_writes0;
 // CXX-COUNT-4: owner_writes0.emplace_back
-// PYC-ERR: unsupported provisional Table
+// PYC: func.func @owner_write_batch
+// PYC-COUNT-4: pyc.reg
+// PYC-NOT: sync_mem
+// PYC-NOT: ac.table
