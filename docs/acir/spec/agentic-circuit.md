@@ -1053,7 +1053,8 @@ nodes; multiple outputs use an ordered `tuple[...]` annotation and tuple
 return. Explicit Python `source(...)` and `sink(...)` remain transitional.
 
 A rule defined directly inside an `@ac.module` may omit repeated module-private
-state parameters and declare each captured owner with Python `nonlocal`:
+state parameters. The frontend infers each captured owner from static references
+to direct typed module state:
 
 ```python
 @ac.module
@@ -1062,7 +1063,6 @@ def accumulator(incoming: ac.u8) -> ac.u8:
 
     @ac.rule
     def add(value):
-        nonlocal total
         total = total + value
         return total
 
@@ -1072,8 +1072,10 @@ def accumulator(incoming: ac.u8) -> ac.u8:
 The frontend canonicalizes this form to the existing explicit state-parameter
 rule contract before type, owner, footprint, conflict, or lowering analysis.
 Only direct, typed module state declarations may be captured; their canonical
-order is their declaration order. State must be declared before the nested
-rule. Missing `nonlocal`, untyped locals, module inputs, aliases, attributes,
+order is their declaration order, independent of first use. State must be
+declared before the nested rule. An explicit direct-body `nonlocal` declaration
+remains accepted when it exactly matches the inferred capture set. Untyped or
+late state, module inputs, parameter shadowing, aliases, attributes,
 generated-name collisions, nested-scope declarations, and calls between nested
 rules fail closed. Each module instance owns its existing independent state;
 capture does not introduce a module-object reference or change committed-read,

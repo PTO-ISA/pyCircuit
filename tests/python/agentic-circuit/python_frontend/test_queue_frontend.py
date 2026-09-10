@@ -4878,6 +4878,9 @@ def nested_allocate(incoming: Entry) -> Entry:
 """
         lowered = lower_queue_source(nested, "nested_allocate")
         self.assertEqual(lowered, lower_queue_source(nested, "nested_allocate"))
+        inferred_source = nested.replace("        nonlocal tail, entries\n", "")
+        inferred = lower_queue_source(inferred_source, "nested_allocate")
+        self.assertEqual(lowered, inferred)
         explicit = lower_queue_source(MULTI_STATE_RULE_SOURCE, "multi_state_allocate")
         for operation in (
             "ac.var.decl @tail",
@@ -4887,6 +4890,7 @@ def nested_allocate(incoming: Entry) -> Entry:
             "ac.rule.output",
         ):
             self.assertEqual(explicit.count(operation), lowered.count(operation))
+            self.assertEqual(lowered.count(operation), inferred.count(operation))
         self.assertEqual(explicit.count("ac.rule "), lowered.count("ac.rule "))
 
         with self.assertRaisesRegex(QueueFrontendError, "unknown capture 'incoming'"):
@@ -4896,11 +4900,17 @@ def nested_allocate(incoming: Entry) -> Entry:
                 ),
                 "nested_allocate",
             )
-        with self.assertRaisesRegex(QueueFrontendError, "requires nonlocal.*tail"):
+        with self.assertRaisesRegex(QueueFrontendError, "must match inferred.*tail"):
             lower_queue_source(
                 nested.replace("nonlocal tail, entries", "nonlocal entries"),
                 "nested_allocate",
             )
+        stale_nonlocal = nested.replace(
+            "    entries: list[Entry] = [0] * 4",
+            "    entries: list[Entry] = [0] * 4\n    spare: ac.u2 = 0",
+        ).replace("nonlocal tail, entries", "nonlocal tail, entries, spare")
+        with self.assertRaisesRegex(QueueFrontendError, "must match inferred.*spare"):
+            lower_queue_source(stale_nonlocal, "nested_allocate")
         with self.assertRaisesRegex(QueueFrontendError, "cannot call or recurse"):
             lower_queue_source(
                 nested.replace(
@@ -4911,7 +4921,7 @@ def nested_allocate(incoming: Entry) -> Entry:
             )
         with self.assertRaisesRegex(QueueFrontendError, "typed module state.*tail"):
             lower_queue_source(
-                nested.replace("tail: ac.u2 = 0", "tail = 0"),
+                inferred_source.replace("tail: ac.u2 = 0", "tail = 0"),
                 "nested_allocate",
             )
         collision = nested.replace(
@@ -4925,7 +4935,7 @@ def nested_allocate(incoming: Entry) -> Entry:
         )
         with self.assertRaisesRegex(QueueFrontendError, "identity collides"):
             lower_queue_source(collision, "nested_allocate")
-        late = nested.replace("    tail: ac.u2 = 0\n", "").replace(
+        late = inferred_source.replace("    tail: ac.u2 = 0\n", "").replace(
             "    allocated = allocate(incoming)",
             "    tail: ac.u2 = 0\n    allocated = allocate(incoming)",
         )
@@ -4937,7 +4947,7 @@ def nested_allocate(incoming: Entry) -> Entry:
         )
         with self.assertRaisesRegex(QueueFrontendError, "direct body statements"):
             lower_queue_source(nested_scope, "nested_allocate")
-        shadowed = nested.replace(
+        shadowed = inferred_source.replace(
             "def allocate(incoming):", "def allocate(tail, incoming):"
         )
         with self.assertRaisesRegex(QueueFrontendError, "cannot shadow parameter 'tail'"):
@@ -4961,7 +4971,6 @@ def accumulator(incoming: ac.u8) -> ac.u8:
 
     @ac.rule
     def add(value):
-        nonlocal total
         total = total + value
         return total
 

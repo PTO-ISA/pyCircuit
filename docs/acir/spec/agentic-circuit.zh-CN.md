@@ -1044,8 +1044,8 @@ committed state 在整条 rule transaction 提交前保持不变。
 `ac.source` 和 `ac.sink`；多个输出使用有序 `tuple[...]` 注解与 tuple 返回。显式
 Python `source(...)`/`sink(...)` 仅作为过渡兼容路径保留。
 
-直接定义在 `@ac.module` 内的 rule 可以省略重复的 module-private state 参数，并用
-Python `nonlocal` 声明每个捕获的 owner：
+直接定义在 `@ac.module` 内的 rule 可以省略重复的 module-private state 参数。前端根据对
+module 直接 typed state 的静态引用推导每个捕获的 owner：
 
 ```python
 @ac.module
@@ -1054,7 +1054,6 @@ def accumulator(incoming: ac.u8) -> ac.u8:
 
     @ac.rule
     def add(value):
-        nonlocal total
         total = total + value
         return total
 
@@ -1062,11 +1061,12 @@ def accumulator(incoming: ac.u8) -> ac.u8:
 ```
 
 前端会在 type、owner、footprint、conflict 和 lowering 分析前，把这种写法规范化成已有的
-显式 state 参数 rule 合同。只能捕获 module 直接声明的 typed state，并按声明顺序规范化；
-state 必须定义在 nested rule 之前。遗漏 `nonlocal`、untyped local、module input、alias、
-attribute、生成名冲突、嵌套作用域声明以及 nested rule 互调都会 fail-close。每个 module
-instance 继续独立拥有原 state；capture 不产生 module-object reference，也不改变 committed
-read、proposal、仲裁、output presence 或 backpressure 语义。
+显式 state 参数 rule 合同。只能捕获 module 直接声明的 typed state，并按声明顺序而不是
+首次使用顺序规范化；state 必须定义在 nested rule 之前。显式的 direct-body `nonlocal`
+仍可使用，但必须与推导出的 capture 集合完全一致。untyped/late state、module input、参数
+遮蔽、alias、attribute、生成名冲突、嵌套作用域声明以及 nested rule 互调都会 fail-close。
+每个 module instance 继续独立拥有原 state；capture 不产生 module-object reference，也不
+改变 committed read、proposal、仲裁、output presence 或 backpressure 语义。
 
 epoch 0.5 的 pure rule 支持一个或多个 Queue 输入、一个输出和一条完整返回路径。
 每个参数都是对应 Queue 的 committed head payload。前端只生成 variadic transient

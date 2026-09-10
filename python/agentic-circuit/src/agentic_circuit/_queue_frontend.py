@@ -1698,6 +1698,14 @@ def _desugar_nested_rule_captures(
         if isinstance(statement, ast.AnnAssign)
         and isinstance(statement.target, ast.Name)
     }
+    untyped_module_names = {
+        target.id
+        for statement in function.body
+        if isinstance(statement, ast.Assign)
+        for target in statement.targets
+        if isinstance(target, ast.Name)
+    } - state_names
+    module_parameter_names = {argument.arg for argument in function.args.args}
     nested_rules = {
         statement.name: statement
         for statement in function.body
@@ -1760,9 +1768,43 @@ def _desugar_nested_rule_captures(
                 "ACPY-RULE-015: nested rule capture must name typed module "
                 f"state; unknown capture {unknown[0]!r}"
             )
+        parameter_names = {argument.arg for argument in nested.args.args}
+        referenced_names = {
+            candidate.id
+            for candidate in ast.walk(nested)
+            if isinstance(candidate, ast.Name)
+        }
+        referenced_state = referenced_names & state_names
+        overlap = sorted(referenced_state & parameter_names)
+        if overlap:
+            raise QueueFrontendError(
+                "ACPY-RULE-015: nested rule state capture cannot shadow parameter "
+                f"{overlap[0]!r}"
+            )
+        referenced_untyped = sorted(referenced_names & untyped_module_names)
+        if referenced_untyped:
+            raise QueueFrontendError(
+                "ACPY-RULE-015: nested rule capture must name typed module "
+                f"state; untyped reference {referenced_untyped[0]!r}"
+            )
+        referenced_inputs = sorted(
+            (referenced_names & module_parameter_names) - parameter_names
+        )
+        if referenced_inputs:
+            raise QueueFrontendError(
+                "ACPY-RULE-015: nested rule cannot capture module input "
+                f"{referenced_inputs[0]!r}"
+            )
+        if nonlocals and requested != referenced_state:
+            mismatch = sorted(requested ^ referenced_state)
+            raise QueueFrontendError(
+                "ACPY-RULE-015: explicit nonlocal captures must match inferred "
+                f"module-state references; mismatch {mismatch[0]!r}"
+            )
+        captured_state = requested if nonlocals else referenced_state
         late = sorted(
             captured
-            for captured in requested
+            for captured in captured_state
             if state_lines[captured] >= nested.lineno
         )
         if late:
@@ -1770,25 +1812,7 @@ def _desugar_nested_rule_captures(
                 "ACPY-RULE-015: captured module state must be declared before "
                 f"the nested rule; late capture {late[0]!r}"
             )
-        parameter_names = {argument.arg for argument in nested.args.args}
-        overlap = sorted(requested & parameter_names)
-        if overlap:
-            raise QueueFrontendError(
-                "ACPY-RULE-015: nested rule state capture cannot shadow parameter "
-                f"{overlap[0]!r}"
-            )
-        captures = tuple(state for state in state_order if state in requested)
-        referenced_state = {
-            candidate.id
-            for candidate in ast.walk(nested)
-            if isinstance(candidate, ast.Name) and candidate.id in state_names
-        }
-        missing = sorted(referenced_state - requested)
-        if missing:
-            raise QueueFrontendError(
-                "ACPY-RULE-015: nested rule module-state reference requires "
-                f"nonlocal declaration for {missing[0]!r}"
-            )
+        captures = tuple(state for state in state_order if state in captured_state)
         for candidate in ast.walk(nested):
             if (
                 isinstance(candidate, ast.Call)
