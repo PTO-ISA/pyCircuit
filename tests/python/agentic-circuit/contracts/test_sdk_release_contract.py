@@ -167,6 +167,14 @@ class SdkReleaseContractTest(unittest.TestCase):
         self.assertIn("ref: ${{ inputs.commit_sha }}", workflow)
         self.assertIn("needs: [accept-candidate]", workflow)
         self.assertIn("git tag -a", workflow)
+        self.assertIn('git config user.name "github-actions[bot]"', workflow)
+        self.assertIn(
+            'git config user.email "41898282+github-actions[bot]@users.noreply.github.com"',
+            workflow,
+        )
+        self.assertIn("git cat-file -t", workflow)
+        self.assertIn("git rev-parse", workflow)
+        self.assertIn("git ls-remote origin", workflow)
         self.assertIn("verify-published", workflow)
         self.assertIn("publish-ghcr:", workflow)
         self.assertIn("verify-platform-candidates:", workflow)
@@ -182,6 +190,9 @@ class SdkReleaseContractTest(unittest.TestCase):
         self.assertIn("--candidate-tag \"v${{ inputs.version }}\"", workflow)
         self.assertIn("platform attestation is not bound to this release", workflow)
         self.assertIn("gh issue comment 61", workflow)
+        self.assertIn("ASSET_URL_PREFIX:", workflow)
+        self.assertIn('asset_url_prefix = os.environ["ASSET_URL_PREFIX"]', workflow)
+        self.assertIn('startswith(asset_url_prefix)', workflow)
         self.assertNotIn("--attestation candidate/ACCEPTANCE.json", workflow)
         self.assertNotIn("gh release upload", workflow)
         self.assertNotIn("startsWith(github.ref, 'refs/tags/v')", workflow)
