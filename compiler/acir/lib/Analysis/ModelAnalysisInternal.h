@@ -38,6 +38,13 @@ mlir::FailureOr<ValidatedPureCallGraph> validatePureProcessCallGraph(
         ac::RawModelStructureLimits(),
     const PureCallGraphLimits &callLimits = PureCallGraphLimits());
 
+/// The purity and bounded-control authority for Queue/rule expression calls.
+mlir::FailureOr<ValidatedPureCallGraph> validatePureQueueCallGraph(
+    mlir::ModuleOp model,
+    const ac::RawModelStructureLimits &structureLimits =
+        ac::RawModelStructureLimits(),
+    const PureCallGraphLimits &callLimits = PureCallGraphLimits());
+
 /// Checks whole-file structural budgets without recursive or typed IR access.
 mlir::LogicalResult preflightModelStructure(mlir::ModuleOp model);
 

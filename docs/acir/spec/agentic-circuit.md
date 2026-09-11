@@ -511,8 +511,47 @@ The current lambda subset supports:
 - immutable `with_fields(...)` updates.
 
 The lambda MUST take exactly one argument and MUST return the Queue payload
-type. Function calls other than `with_fields`, mutation, I/O, allocation,
-ambient state access, and arbitrary Python expressions are rejected.
+type. Calls are limited to the intrinsic operations above and the typed pure
+helpers defined below. Mutation, I/O, dynamic allocation, ambient state access,
+and arbitrary Python execution are rejected.
+
+### Typed pure helpers
+
+A top-level function whose parameters and result all use closed ACPy value
+types is a zero-delay pure helper. An ordinary helper remains a named function:
+
+```python
+def add_one(value: ac.u8) -> ac.u8:
+    return value + 1
+
+outgoing = incoming.apply(lambda item: add_one(item))
+```
+
+Authors use `@ac.inline` only when the call must be expanded by the Agentic
+Circuit compiler:
+
+```python
+@ac.inline
+def add_one(value: ac.u8) -> ac.u8:
+    return value + 1
+```
+
+Both forms have identical value and timing semantics. Raw ACIR represents both
+as private `func.func` definitions and typed `func.call` operations. The
+explicit inline form carries `ac.inline = true`; its calls are expanded before
+QueueGraph planning and general canonicalization. Ordinary helpers remain
+named functions in GFSim C++, while ACIR-to-PYC expands them during target
+legalization because canonical PYC has no function-call operation.
+
+The first helper subset supports positional parameters, local assignment and
+rebinding, bounded `if`/`elif`/`else`, one final `return`, fixed tuple results
+with direct unpacking, and calls to other pure helpers. Every argument and
+result must match its declared ACPy type exactly. The compiler rejects default
+or variadic parameters, recursion, loops, early returns, path-undefined values,
+mutable captures, Queue/Table/persistent-state access, I/O, dynamic allocation,
+and unknown Python calls. A helper call consumes no Queue token, creates no
+state owner or rule, and does not change candidate selection, backpressure,
+reservation, or atomic commit scope.
 
 ### Lexical scope and inferred boundaries
 

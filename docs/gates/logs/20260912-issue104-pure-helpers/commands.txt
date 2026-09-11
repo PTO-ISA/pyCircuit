@@ -1,0 +1,17 @@
+cmake --build .pycircuit_out/toolchain/build --target acir-opt-internal acir-queue-plan acir-queue-cxxgen acir-queue-pycgen CodeGenTests -j4
+.pycircuit_out/agentic-g0-venv/bin/lit -sv .pycircuit_out/toolchain/build/compiler/acir/tests/mlir
+.pycircuit_out/toolchain/build/bin/CodeGenTests --gtest_filter='QueueGraphPlanTest.*'
+AC_PYTHON_ONLY=1 python3 -m unittest discover -s tests/python/agentic-circuit/python_frontend -p 'test_*.py'
+python3 -m unittest tests/integration/agentic-circuit/e2e/test_pure_helper_parity.py -v
+python3 tools/agentic-circuit/check-contracts.py
+python3 tools/agentic-circuit/generate-diagnostic-catalog.py --check
+python3 tools/agentic-circuit/check-ir-coverage.py
+python3 tools/check-pyc-inventory.py
+python3 -m unittest discover -s tests/python/agentic-circuit/contracts -p 'test_*.py'
+python3 -m unittest discover -s tests/python/agentic-circuit/cli -p 'test_all_commands.py'
+python3 -m unittest discover -s tests/python/agentic-circuit/cli -p 'test_workspace.py'
+pytest tests/unit -m unit
+pre-commit run --all-files
+python3 .github/scripts/validate_repo_management.py
+mkdocs build --strict
+python3 flows/tools/check_decision_status.py --rfc docs/rfcs/pyc6-decisions.md --status docs/gates/decision_status_v6.md --out .pycircuit_out/gates/20260912-issue104-pure-helpers/decision_status_report.json --require-no-deferred --require-all-verified --require-concrete-evidence --require-existing-evidence

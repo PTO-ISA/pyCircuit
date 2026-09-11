@@ -261,6 +261,14 @@ const QueueAggregatePlan *findAggregateType(const QueueGraphPlan &plan,
   return found == plan.aggregates.end() ? nullptr : &*found;
 }
 
+const QueueHelperPlan *findHelper(const QueueGraphPlan &plan,
+                                  llvm::StringRef name) {
+  auto found = llvm::find_if(plan.helpers, [&](const QueueHelperPlan &helper) {
+    return helper.name == name;
+  });
+  return found == plan.helpers.end() ? nullptr : &*found;
+}
+
 bool isAggregateValueType(const QueueGraphPlan &plan, llvm::StringRef type) {
   return findPayloadType(plan, type) || findAggregateType(plan, type);
 }
@@ -578,6 +586,7 @@ emitExpressionBody(const QueueGraphPlan &plan, const QueueBlockPlan &block,
   std::ostringstream output;
   std::string padding(indent, ' ');
   llvm::StringMap<std::string> priorityEncodings;
+  llvm::StringMap<std::string> helperCallValues;
   llvm::StringMap<std::pair<std::string, std::string>> tableChoices;
   llvm::StringMap<std::vector<std::string>> priorChoiceIndices;
   llvm::StringMap<std::pair<unsigned, unsigned>> tableChoicePairCounts;
@@ -628,6 +637,35 @@ emitExpressionBody(const QueueGraphPlan &plan, const QueueBlockPlan &block,
         return generatorError("expression operand arity mismatch");
       return llvm::StringRef(expression.operands[index]);
     };
+    if (expression.kind == "helper_call") {
+      const QueueHelperPlan *helper = findHelper(plan, expression.field);
+      if (!helper || expression.literal.empty() ||
+          expression.selectionCount != helper->resultTypes.size() ||
+          expression.laneOrdinal >= helper->resultTypes.size())
+        return generatorError("helper_call expression is malformed");
+      auto emitted = helperCallValues.find(expression.literal);
+      if (emitted == helperCallValues.end()) {
+        const std::string callValue = identifier(expression.literal);
+        output << padding << "auto " << callValue << " = helper_"
+               << identifier(helper->name) << '(';
+        for (auto [index, argument] : llvm::enumerate(expression.operands)) {
+          if (index)
+            output << ", ";
+          output << argument;
+        }
+        output << ");\n";
+        helperCallValues[expression.literal] = callValue;
+        emitted = helperCallValues.find(expression.literal);
+      }
+      if (helper->resultTypes.size() == 1)
+        output << padding << "auto " << expression.result << " = "
+               << emitted->getValue() << ";\n";
+      else
+        output << padding << "auto " << expression.result << " = std::get<"
+               << expression.laneOrdinal << ">(" << emitted->getValue()
+               << ");\n";
+      continue;
+    }
     if (expression.kind == "enum_constant") {
       std::optional<llvm::StringRef> type = enumTypeName(expression.type);
       if (!type || expression.field.empty())
@@ -1393,6 +1431,85 @@ emitExpressionBody(const QueueGraphPlan &plan, const QueueBlockPlan &block,
   return output.str();
 }
 
+llvm::Error emitHelperDefinitions(std::ostringstream &output,
+                                  const QueueGraphPlan &plan,
+                                  llvm::StringSet<> *emitted = nullptr) {
+  auto emitResultType = [&](const QueueHelperPlan &helper) -> llvm::Error {
+    if (helper.resultTypes.size() == 1) {
+      auto type = cppType(helper.resultTypes.front());
+      if (!type)
+        return type.takeError();
+      output << *type;
+    } else {
+      output << "std::tuple<";
+      for (auto [index, resultType] : llvm::enumerate(helper.resultTypes)) {
+        auto type = cppType(resultType);
+        if (!type)
+          return type.takeError();
+        if (index)
+          output << ", ";
+        output << *type;
+      }
+      output << '>';
+    }
+    return llvm::Error::success();
+  };
+  auto emitArguments = [&](const QueueHelperPlan &helper) -> llvm::Error {
+    for (auto [index, inputType] : llvm::enumerate(helper.inputTypes)) {
+      auto type = cppType(inputType);
+      if (!type)
+        return type.takeError();
+      if (index)
+        output << ", ";
+      output << *type << ' ' << identifier(helper.inputNames[index]);
+    }
+    return llvm::Error::success();
+  };
+  for (const QueueHelperPlan &helper : plan.helpers) {
+    if (emitted && emitted->contains(helper.name))
+      continue;
+    output << "static ";
+    if (auto error = emitResultType(helper))
+      return error;
+    output << " helper_" << identifier(helper.name) << '(';
+    if (auto error = emitArguments(helper))
+      return error;
+    output << ");\n";
+  }
+  if (!plan.helpers.empty())
+    output << '\n';
+  for (const QueueHelperPlan &helper : plan.helpers) {
+    if (emitted && !emitted->insert(helper.name).second)
+      continue;
+    output << "static ";
+    if (auto error = emitResultType(helper))
+      return error;
+    output << " helper_" << identifier(helper.name) << '(';
+    if (auto error = emitArguments(helper))
+      return error;
+    output << ") {\n";
+    QueueBlockPlan body;
+    body.expressions = helper.expressions;
+    body.yields = helper.yields;
+    std::string returned;
+    if (helper.yields.size() > 1) {
+      returned = "std::tuple{";
+      for (auto [index, yield] : llvm::enumerate(helper.yields)) {
+        if (index)
+          returned += ", ";
+        returned += yield;
+      }
+      returned += "}";
+    }
+    auto generated = emitExpressionBody(plan, body, helper.yields.front(), 2,
+                                        false, true, {}, returned);
+    if (!generated)
+      return generated.takeError();
+    output << *generated << "}\n\n";
+  }
+  return llvm::Error::success();
+}
+
 bool referencesTable(const std::vector<QueueExpressionPlan> &expressions,
                      llvm::StringRef table) {
   for (const QueueExpressionPlan &expression : expressions) {
@@ -2123,6 +2240,14 @@ generateStructuredQueueGraphCpp(const QueueGraphPlan &plan) {
     output << "  bool operator==(const " << payload->name
            << " &) const = default;\n};\n\n";
   }
+
+  llvm::StringSet<> emittedHelpers;
+  for (const QueueGraphPlan *specialization : emissionOrder)
+    if (auto error =
+            emitHelperDefinitions(output, *specialization, &emittedHelpers))
+      return std::move(error);
+  if (auto error = emitHelperDefinitions(output, plan, &emittedHelpers))
+    return std::move(error);
 
   auto emitStatefulSpecialization =
       [&](const QueueGraphPlan &specialization,
@@ -3389,6 +3514,9 @@ llvm::Expected<std::string> generateQueueGraphCpp(const QueueGraphPlan &plan) {
            << " &) const = default;\n";
     output << "};\n\n";
   }
+
+  if (auto error = emitHelperDefinitions(output, plan))
+    return std::move(error);
 
   for (const TableMatchPlan &match : plan.tableMatches) {
     const TablePlan *table = findTable(plan, match.table);

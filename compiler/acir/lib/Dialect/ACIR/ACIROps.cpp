@@ -6,6 +6,7 @@
 #include "acir/Support/PrimitiveWidths.h"
 
 #include "mlir/Dialect/DLTI/DLTI.h"
+#include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/SymbolTable.h"
@@ -13,8 +14,8 @@
 #include "mlir/Interfaces/SideEffectInterfaces.h"
 #include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/STLExtras.h"
-#include "llvm/ADT/SmallSet.h"
 #include "llvm/ADT/SmallPtrSet.h"
+#include "llvm/ADT/SmallSet.h"
 #include "llvm/ADT/StringExtras.h"
 #include "llvm/ADT/StringMap.h"
 #include "llvm/ADT/StringSwitch.h"
@@ -33,6 +34,10 @@ namespace {
 
 thread_local detail::ProcessLivenessWork *processLivenessWorkCollector =
     nullptr;
+
+bool isPureExpressionOperation(Operation *operation) {
+  return isMemoryEffectFree(operation) || isa<func::CallOp>(operation);
+}
 
 } // namespace
 
@@ -473,7 +478,7 @@ LogicalResult TransformOp::verify() {
   }
 
   for (Operation &operation : block.without_terminator()) {
-    if (!isMemoryEffectFree(&operation))
+    if (!isPureExpressionOperation(&operation))
       return emitOpError() << "body operation '" << operation.getName()
                            << "' must be pure";
   }
@@ -569,7 +574,7 @@ LogicalResult RuleOp::verify() {
     } else if (auto condition = dyn_cast<RuleConditionOp>(operation)) {
       ++conditions;
       conditionValue = condition.getCondition();
-    } else if (!isMemoryEffectFree(&operation) &&
+    } else if (!isPureExpressionOperation(&operation) &&
                !isa<TypeConstraintMarkerOp, ValueFactMarkerOp,
                     PendingObligationMarkerOp, VarAssignOp, VarAssignElementOp>(
                    operation) &&
@@ -822,7 +827,7 @@ LogicalResult ExpectOp::verify() {
       block.getArgument(0).getType() != expected)
     return emitOpError("predicate argument must match queue payload Var");
   for (Operation &operation : block.without_terminator())
-    if (!isMemoryEffectFree(&operation))
+    if (!isPureExpressionOperation(&operation))
       return emitOpError() << "predicate operation '" << operation.getName()
                            << "' must be pure";
   auto yield = dyn_cast<ExpectYieldOp>(block.getTerminator());
@@ -923,7 +928,7 @@ LogicalResult SelectOp::verify() {
       block.getArgument(0).getType() != expected)
     return emitOpError("key argument must match control queue payload Var");
   for (Operation &operation : block.without_terminator())
-    if (!isMemoryEffectFree(&operation))
+    if (!isPureExpressionOperation(&operation))
       return emitOpError() << "key operation '" << operation.getName()
                            << "' must be pure";
   auto yield = dyn_cast<SelectYieldOp>(block.getTerminator());
@@ -993,7 +998,7 @@ LogicalResult ReorderOp::verify() {
       block.getArgument(0).getType() != expected)
     return emitOpError("key argument must match queue payload Var");
   for (Operation &operation : block.without_terminator())
-    if (!isMemoryEffectFree(&operation))
+    if (!isPureExpressionOperation(&operation))
       return emitOpError() << "key operation '" << operation.getName()
                            << "' must be pure";
   auto yield = dyn_cast<ReorderYieldOp>(block.getTerminator());
@@ -1043,7 +1048,7 @@ LogicalResult DependencyOp::verify() {
       return failure();
     }
     for (Operation &operation : block.without_terminator())
-      if (!isMemoryEffectFree(&operation)) {
+      if (!isPureExpressionOperation(&operation)) {
         emitOpError() << name << " operation '" << operation.getName()
                       << "' must be pure";
         return failure();
@@ -1103,7 +1108,7 @@ LogicalResult CreditOp::verify() {
       block.getArgument(0).getType() != expected)
     return emitOpError("cost argument must match queue payload Var");
   for (Operation &operation : block.without_terminator())
-    if (!isMemoryEffectFree(&operation))
+    if (!isPureExpressionOperation(&operation))
       return emitOpError() << "cost operation '" << operation.getName()
                            << "' must be pure";
   auto yield = dyn_cast<CreditYieldOp>(block.getTerminator());
@@ -1129,7 +1134,7 @@ LogicalResult FeedbackOp::verify() {
       block.getArgument(0).getType() != expectedValue)
     return emitOpError("body argument must match queue payload Var");
   for (Operation &operation : block.without_terminator())
-    if (!isMemoryEffectFree(&operation))
+    if (!isPureExpressionOperation(&operation))
       return emitOpError() << "body operation '" << operation.getName()
                            << "' must be pure";
   auto yield = dyn_cast<FeedbackYieldOp>(block.getTerminator());
@@ -1351,7 +1356,7 @@ LogicalResult FiringOp::verify() {
       return emitOpError("body arguments must match input Queue payloads");
   }
   for (Operation &operation : block.without_terminator())
-    if (!isMemoryEffectFree(&operation) &&
+    if (!isPureExpressionOperation(&operation) &&
         !isa<TableGetOp, TableProposeOp, TableMatchOp, TableChooseOp,
              VarAssignOp, FiringConditionOp, FiringOutputOp, StateSnapshotOp,
              StateSnapshotSetOp>(operation))
@@ -2161,7 +2166,7 @@ LogicalResult VarMatchOp::verify() {
     return emitOpError("predicate argument must match the ac.var element");
   for (Operation &operation : block.without_terminator())
     if (!isa<SlotGetOp, VarReadOp, VarReadElementOp>(operation) &&
-        !isMemoryEffectFree(&operation))
+        !isPureExpressionOperation(&operation))
       return emitOpError() << "predicate operation '" << operation.getName()
                            << "' is not permitted";
   auto yield = dyn_cast<VarMatchYieldOp>(block.getTerminator());
@@ -2214,7 +2219,7 @@ LogicalResult VarChooseOp::verify() {
     if (isa<VarReadOp, VarReadElementOp>(operation))
       return emitOpError() << "key operation '" << operation.getName()
                            << "' is not permitted";
-    if (!isMemoryEffectFree(&operation))
+    if (!isPureExpressionOperation(&operation))
       return emitOpError() << "key operation '" << operation.getName()
                            << "' is not permitted";
   }
@@ -2829,7 +2834,7 @@ LogicalResult MemoryRequestOp::verify() {
       return failure();
     }
     for (Operation &operation : block.without_terminator())
-      if (!isMemoryEffectFree(&operation)) {
+      if (!isPureExpressionOperation(&operation)) {
         emitOpError() << name << " operation '" << operation.getName()
                       << "' must be pure";
         return failure();
@@ -3558,7 +3563,7 @@ static FailureOr<Type> verifyTablePolicy(Operation *endpoint, Region &region,
         }
         continue;
       }
-    if (!isMemoryEffectFree(&operation)) {
+    if (!isPureExpressionOperation(&operation)) {
       endpoint->emitOpError() << name << " operation '" << operation.getName()
                               << "' is not permitted";
       return failure();
@@ -3790,7 +3795,7 @@ LogicalResult TableMatchOp::verify() {
     return emitOpError("predicate argument must match the Table Entry");
   for (Operation &operation : block.without_terminator())
     if (!isa<SlotGetOp, TableGetOp>(operation) &&
-        !isMemoryEffectFree(&operation))
+        !isPureExpressionOperation(&operation))
       return emitOpError() << "predicate operation '" << operation.getName()
                            << "' is not permitted";
   auto yield = dyn_cast<TableMatchYieldOp>(block.getTerminator());
@@ -3886,7 +3891,7 @@ LogicalResult TableChooseOp::verify() {
             "key Table reads require transactional rule/firing ownership");
       continue;
     }
-    if (!isa<SlotGetOp>(operation) && !isMemoryEffectFree(&operation))
+    if (!isa<SlotGetOp>(operation) && !isPureExpressionOperation(&operation))
       return emitOpError() << "key operation '" << operation.getName()
                            << "' is not permitted";
   }
@@ -3979,7 +3984,7 @@ LogicalResult SlotReleaseOp::verify() {
     }
     if (isa<TableMatchOp, TableChooseOp>(operation))
       continue;
-    if (!isMemoryEffectFree(&operation))
+    if (!isPureExpressionOperation(&operation))
       return emitOpError() << "when operation '" << operation.getName()
                            << "' is not permitted";
   }

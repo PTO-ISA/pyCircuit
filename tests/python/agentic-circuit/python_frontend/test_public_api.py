@@ -48,6 +48,7 @@ RUNTIME = {
     "process",
     "rule",
     "invariant",
+    "inline",
     "writer_priority",
     "array",
     "bits",

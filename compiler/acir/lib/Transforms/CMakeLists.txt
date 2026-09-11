@@ -9,6 +9,7 @@ add_acir_library(ACIRTransforms SOURCES
   LowerProcessState.cpp
   LowerRules.cpp
   LowerValueContracts.cpp
+  InlinePureHelpers.cpp
   LowerVariables.cpp
 )
 add_dependencies(ACIRTransforms ACIRTransformsIncGen)

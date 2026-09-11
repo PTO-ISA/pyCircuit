@@ -168,6 +168,15 @@ struct QueueBlockPlan {
   uint64_t selectionCount = 0;
 };
 
+struct QueueHelperPlan {
+  std::string name;
+  std::vector<std::string> inputNames;
+  std::vector<std::string> inputTypes;
+  std::vector<std::string> resultTypes;
+  std::vector<QueueExpressionPlan> expressions;
+  std::vector<std::string> yields;
+};
+
 struct MemoryInstancePlan {
   std::string name;
   std::string dataType;
@@ -335,6 +344,7 @@ struct QueueGraphPlan {
   std::vector<QueuePayloadPlan> payloads;
   std::vector<QueueEnumPlan> enums;
   std::vector<QueueAggregatePlan> aggregates;
+  std::vector<QueueHelperPlan> helpers;
   std::vector<std::string> scopes;
   std::vector<QueuePlan> queues;
   std::vector<QueueBlockPlan> blocks;

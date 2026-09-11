@@ -1132,6 +1132,7 @@ std::unique_ptr<Pass> createVerifyRuleClosurePass() {
 }
 
 void addRuleLoweringPipeline(mlir::OpPassManager &manager) {
+  manager.addPass(createInlinePureHelpersPass());
   manager.addPass(createLowerValueContractsPass());
   manager.addPass(createVerifyValueConstraintsPass());
   manager.addPass(createLowerVariableStatePass());

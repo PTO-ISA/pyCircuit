@@ -50,6 +50,7 @@ from ._static_eval import (
 RULE_LOWERING_PIPELINE = (
     "builtin.module("
     "ac-lower-rules,"
+    "ac-inline-pure-helpers,"
     "canonicalize,cse,"
     "ac-verify-rule-closure,"
     "ac-freeze-topology)"
@@ -63,9 +64,7 @@ def _render_type(value_type: ValueType) -> str:
     return value_type.mlir()
 
 
-def _render_queue_type(
-    payload: ValueType, *, lanes: int = 1, rate: int = 1
-) -> str:
+def _render_queue_type(payload: ValueType, *, lanes: int = 1, rate: int = 1) -> str:
     parameters = [_render_type(payload)]
     if lanes != 1:
         parameters.append(f"lanes = {lanes}")
@@ -893,6 +892,17 @@ class InvariantDefinition:
     expression: ast.expr
 
 
+@dataclass(frozen=True, slots=True)
+class PureHelperDefinition:
+    """One closed, typed, zero-delay helper retained in raw ACIR."""
+
+    name: str
+    arguments: tuple[tuple[str, ValueType], ...]
+    result: ValueType
+    expression: ast.expr
+    inline: bool
+
+
 def _resolve_invariant_call(
     call: ast.Call,
     invariants: Mapping[str, InvariantDefinition],
@@ -910,6 +920,7 @@ class QueueProgram:
     enums: tuple[EnumBinding, ...]
     bitfields: tuple[BitfieldBinding, ...]
     invariants: tuple[InvariantDefinition, ...]
+    helpers: tuple[PureHelperDefinition, ...]
     queues: tuple[QueueBinding, ...]
     effect_rules: tuple[QueueBinding, ...]
     scopes: tuple[ScopeBinding, ...]
@@ -1509,11 +1520,7 @@ def _invariant_definitions(
                 resolved.function_name
                 for candidate in ast.walk(definition.expression)
                 if isinstance(candidate, ast.Call)
-                and (
-                    resolved := _resolve_invariant_call(
-                        candidate, by_name, shadowed
-                    )
-                )
+                and (resolved := _resolve_invariant_call(candidate, by_name, shadowed))
                 is not None
             )
         )
@@ -1561,6 +1568,268 @@ def _invariant_definitions(
                 f"for payload {definition.payload.name} must produce bool"
             )
     return tuple(definitions)
+
+
+def _helper_type(
+    node: ast.expr, payloads: dict[str, Payload], enums: Mapping[str, ValueType]
+) -> ValueType:
+    if isinstance(node, ast.Subscript) and _decorator_name(node.value).rsplit(".", 1)[
+        -1
+    ] in {"tuple", "Tuple"}:
+        elements = (
+            tuple(node.slice.elts)
+            if isinstance(node.slice, ast.Tuple)
+            else (node.slice,)
+        )
+        if not elements:
+            raise QueueFrontendError("ACPY-HELPER-002: tuple result cannot be empty")
+        return TupleType(
+            tuple(_helper_type(item, payloads, enums) for item in elements)
+        )
+    return _payload(node, payloads, enums)
+
+
+def _pure_helper_definitions(
+    tree: ast.Module, payloads: dict[str, Payload], enums: Mapping[str, ValueType]
+) -> tuple[PureHelperDefinition, ...]:
+    """Capture typed, state-free helpers as closed SSA-like expressions."""
+
+    architecture = {"system", "module", "extern_module", "process", "rule", "invariant"}
+    nodes: dict[str, ast.FunctionDef] = {}
+    signatures: dict[str, tuple[tuple[tuple[str, ValueType], ...], ValueType, bool]] = (
+        {}
+    )
+    for node in tree.body:
+        if not isinstance(node, ast.FunctionDef):
+            continue
+        decorators = {
+            _decorator_name(item).rsplit(".", 1)[-1] for item in node.decorator_list
+        }
+        if decorators & architecture:
+            continue
+        inline_requested = "inline" in decorators
+        fully_typed = node.returns is not None and all(
+            argument.annotation is not None for argument in node.args.args
+        )
+        if not fully_typed and not inline_requested:
+            continue
+        if not fully_typed or decorators - {"inline"}:
+            raise QueueFrontendError(
+                f"ACPY-HELPER-002: helper {node.name!r} requires only @ac.inline "
+                "and exact parameter/result annotations"
+            )
+        if (
+            node.args.posonlyargs
+            or node.args.kwonlyargs
+            or node.args.vararg
+            or node.args.kwarg
+            or node.args.defaults
+            or node.args.kw_defaults
+        ):
+            raise QueueFrontendError(
+                f"ACPY-HELPER-002: helper {node.name!r} requires fixed positional parameters"
+            )
+        if node.name in nodes:
+            raise QueueFrontendError(f"ACPY-HELPER-001: duplicate helper {node.name!r}")
+        assert node.returns is not None
+        nodes[node.name] = node
+        signatures[node.name] = (
+            tuple(
+                (argument.arg, _helper_type(argument.annotation, payloads, enums))
+                for argument in node.args.args
+                if argument.annotation is not None
+            ),
+            _helper_type(node.returns, payloads, enums),
+            inline_requested,
+        )
+
+    graph: dict[str, set[str]] = {name: set() for name in nodes}
+    pure_intrinsics = {
+        "concat",
+        "insert",
+        "matches",
+        "popcount",
+        "count_leading_zeros",
+        "count_trailing_zeros",
+        "priority_encode",
+    }
+
+    class Rewrite(ast.NodeTransformer):
+        def __init__(self, values: Mapping[str, ast.expr]) -> None:
+            self.values = values
+
+        def visit_Name(self, node: ast.Name) -> ast.expr:
+            if isinstance(node.ctx, ast.Load) and node.id in self.values:
+                return ast.copy_location(copy.deepcopy(self.values[node.id]), node)
+            return node
+
+        def visit_Call(self, node: ast.Call) -> ast.Call:
+            node.args = [self.visit(item) for item in node.args]
+            node.keywords = [
+                ast.keyword(arg=item.arg, value=self.visit(item.value))
+                for item in node.keywords
+            ]
+            if isinstance(node.func, ast.Attribute):
+                node.func.value = self.visit(node.func.value)
+            return node
+
+    def rewrite(value: ast.expr, environment: Mapping[str, ast.expr]) -> ast.expr:
+        result = Rewrite(environment).visit(copy.deepcopy(value))
+        assert isinstance(result, ast.expr)
+        return ast.fix_missing_locations(result)
+
+    def lower(node: ast.FunctionDef) -> ast.expr:
+        body = list(node.body)
+        if (
+            body
+            and isinstance(body[0], ast.Expr)
+            and isinstance(body[0].value, ast.Constant)
+            and type(body[0].value.value) is str
+        ):
+            body.pop(0)
+        returns = [item for item in ast.walk(node) if isinstance(item, ast.Return)]
+        if not body or not isinstance(body[-1], ast.Return) or len(returns) != 1:
+            raise QueueFrontendError(
+                f"ACPY-HELPER-003: helper {node.name!r} requires one final return"
+            )
+        returned = body.pop()
+        assert isinstance(returned, ast.Return)
+        if returned.value is None:
+            raise QueueFrontendError(
+                f"ACPY-HELPER-003: helper {node.name!r} must return a value"
+            )
+        environment: dict[str, ast.expr] = {
+            item.arg: ast.Name(id=item.arg, ctx=ast.Load()) for item in node.args.args
+        }
+
+        def validate_expression(
+            expression: ast.expr, values: Mapping[str, ast.expr]
+        ) -> None:
+            allowed_names = (
+                set(nodes)
+                | pure_intrinsics
+                | set(payloads)
+                | set(enums)
+                | set(values)
+                | {"ac", "agentic_circuit"}
+            )
+            for item in ast.walk(expression):
+                if isinstance(item, ast.Call):
+                    call = _decorator_name(item.func).rsplit(".", 1)[-1]
+                    if call in nodes:
+                        graph[node.name].add(call)
+                    elif (
+                        call not in pure_intrinsics
+                        and call not in payloads
+                        and not (
+                            isinstance(item.func, ast.Attribute)
+                            and item.func.attr in {"with_fields", "view", "update"}
+                        )
+                    ):
+                        raise QueueFrontendError(
+                            f"ACPY-HELPER-005: helper {node.name!r} calls "
+                            f"unknown or effectful function {call!r}"
+                        )
+                if (
+                    isinstance(item, ast.Name)
+                    and isinstance(item.ctx, ast.Load)
+                    and item.id not in allowed_names
+                ):
+                    raise QueueFrontendError(
+                        f"ACPY-HELPER-004: helper {node.name!r} reads undefined "
+                        f"or captured name {item.id!r}"
+                    )
+
+        def bind(
+            target: ast.expr, value: ast.expr, values: dict[str, ast.expr]
+        ) -> None:
+            if isinstance(target, ast.Name):
+                values[target.id] = value
+            elif isinstance(target, (ast.Tuple, ast.List)) and all(
+                isinstance(item, ast.Name) for item in target.elts
+            ):
+                for index, item in enumerate(target.elts):
+                    assert isinstance(item, ast.Name)
+                    values[item.id] = ast.Subscript(
+                        value=copy.deepcopy(value),
+                        slice=ast.Constant(index),
+                        ctx=ast.Load(),
+                    )
+            else:
+                raise QueueFrontendError(
+                    f"ACPY-HELPER-003: helper {node.name!r} has unsupported assignment"
+                )
+
+        def walk(statements: list[ast.stmt], values: dict[str, ast.expr]) -> None:
+            for statement in statements:
+                if isinstance(statement, ast.Assign) and len(statement.targets) == 1:
+                    value = rewrite(statement.value, values)
+                    validate_expression(value, values)
+                    bind(statement.targets[0], value, values)
+                elif (
+                    isinstance(statement, ast.AnnAssign) and statement.value is not None
+                ):
+                    value = rewrite(statement.value, values)
+                    validate_expression(value, values)
+                    bind(statement.target, value, values)
+                elif isinstance(statement, ast.If):
+                    condition = rewrite(statement.test, values)
+                    validate_expression(condition, values)
+                    true_values, false_values = dict(values), dict(values)
+                    walk(statement.body, true_values)
+                    walk(statement.orelse, false_values)
+                    for name in set(true_values) | set(false_values):
+                        if name not in true_values or name not in false_values:
+                            raise QueueFrontendError(
+                                f"ACPY-HELPER-004: helper {node.name!r} local {name!r} is not defined on every path"
+                            )
+                        left, right = true_values[name], false_values[name]
+                        values[name] = (
+                            left
+                            if ast.dump(left) == ast.dump(right)
+                            else ast.IfExp(
+                                test=copy.deepcopy(condition), body=left, orelse=right
+                            )
+                        )
+                else:
+                    raise QueueFrontendError(
+                        f"ACPY-HELPER-003: helper {node.name!r} supports only assignments and finite if/elif/else"
+                    )
+
+        walk(body, environment)
+        expression = rewrite(returned.value, environment)
+        validate_expression(expression, environment)
+        return ast.fix_missing_locations(expression)
+
+    expressions = {name: lower(node) for name, node in nodes.items()}
+    active: set[str] = set()
+    done: set[str] = set()
+
+    def visit(name: str) -> None:
+        if name in active:
+            raise QueueFrontendError(
+                f"ACPY-HELPER-006: recursive helper involving {name!r} is forbidden"
+            )
+        if name in done:
+            return
+        active.add(name)
+        for callee in graph[name]:
+            visit(callee)
+        active.remove(name)
+        done.add(name)
+
+    for name in nodes:
+        visit(name)
+    return tuple(
+        PureHelperDefinition(
+            name,
+            signatures[name][0],
+            signatures[name][1],
+            expressions[name],
+            signatures[name][2],
+        )
+        for name in nodes
+    )
 
 
 def _lambda_value(node: ast.expr) -> tuple[str, ast.expr]:
@@ -1642,6 +1911,7 @@ def _extract_conditional_effect_guard(
             raise QueueFrontendError(
                 "ACPY-RULE-010: early-return guards must precede state effects"
             )
+
     def continuing_condition(statement: ast.If) -> ast.expr:
         if isinstance(statement.test, ast.UnaryOp) and isinstance(
             statement.test.op, ast.Not
@@ -1747,9 +2017,7 @@ def _desugar_nested_rule_captures(
 
     transformed: list[ast.FunctionDef] = []
     captures_by_rule: dict[str, tuple[str, ...]] = {}
-    qualified_names = {
-        name: f"__ac_nested_{system}_{name}" for name in nested_rules
-    }
+    qualified_names = {name: f"__ac_nested_{system}_{name}" for name in nested_rules}
     existing_names = {
         node.name
         for node in tree.body
@@ -1763,7 +2031,9 @@ def _desugar_nested_rule_captures(
         )
     for name, nested in nested_rules.items():
         nonlocals = [
-            statement for statement in nested.body if isinstance(statement, ast.Nonlocal)
+            statement
+            for statement in nested.body
+            if isinstance(statement, ast.Nonlocal)
         ]
         nested_nonlocals = [
             statement
@@ -1921,9 +2191,7 @@ def _desugar_nested_rule_captures(
     rewritten_function.body = [
         rewriter.visit(statement) for statement in rewritten_function.body
     ]
-    tree.body = [
-        rewritten_function if node is function else node for node in tree.body
-    ]
+    tree.body = [rewritten_function if node is function else node for node in tree.body]
     tree.body.extend(transformed)
     return ast.fix_missing_locations(tree)
 
@@ -1991,9 +2259,8 @@ def _normalize_rule_field_assignments(
                     ast.fix_missing_locations(ast.copy_location(rewritten, statement))
                 )
                 continue
-            if (
-                isinstance(target.value, ast.Subscript)
-                and isinstance(target.value.value, ast.Name)
+            if isinstance(target.value, ast.Subscript) and isinstance(
+                target.value.value, ast.Name
             ):
                 if isinstance(target.value.slice, ast.Slice):
                     raise QueueFrontendError(
@@ -2072,6 +2339,58 @@ def parse_queue_program(
     bitfields = _bitfields(tree)
     bitfield_map = {binding.name: binding.layout for binding in bitfields}
     invariant_definitions = _invariant_definitions(tree, payload_map, bitfield_map)
+    helper_definitions = _pure_helper_definitions(tree, payload_map, enum_map)
+    helper_map = {definition.name: definition for definition in helper_definitions}
+
+    class DesugarHelperUnpacking(ast.NodeTransformer):
+        next_index = 0
+
+        def visit_Assign(self, node: ast.Assign) -> ast.Assign | list[ast.stmt]:
+            transformed = self.generic_visit(node)
+            assert isinstance(transformed, ast.Assign)
+            if not (
+                len(transformed.targets) == 1
+                and isinstance(transformed.targets[0], (ast.Tuple, ast.List))
+                and isinstance(transformed.value, ast.Call)
+                and isinstance(transformed.value.func, ast.Name)
+                and transformed.value.func.id in helper_map
+                and isinstance(helper_map[transformed.value.func.id].result, TupleType)
+            ):
+                return transformed
+            target = transformed.targets[0]
+            helper = helper_map[transformed.value.func.id]
+            assert isinstance(target, (ast.Tuple, ast.List))
+            assert isinstance(helper.result, TupleType)
+            if len(target.elts) != len(helper.result.elements) or not all(
+                isinstance(item, ast.Name) for item in target.elts
+            ):
+                raise QueueFrontendError(
+                    "ACPY-HELPER-002: helper tuple unpack arity must match its result"
+                )
+            temporary = f"__ac_helper_tuple_{self.next_index}"
+            self.next_index += 1
+            statements: list[ast.stmt] = [
+                ast.Assign(
+                    targets=[ast.Name(id=temporary, ctx=ast.Store())],
+                    value=transformed.value,
+                )
+            ]
+            statements.extend(
+                ast.Assign(
+                    targets=[copy.deepcopy(item)],
+                    value=ast.Subscript(
+                        value=ast.Name(id=temporary, ctx=ast.Load()),
+                        slice=ast.Constant(index),
+                        ctx=ast.Load(),
+                    ),
+                )
+                for index, item in enumerate(target.elts)
+            )
+            return [ast.copy_location(statement, node) for statement in statements]
+
+    transformed_tree = DesugarHelperUnpacking().visit(tree)
+    assert isinstance(transformed_tree, ast.Module)
+    tree = ast.fix_missing_locations(transformed_tree)
     rule_definitions: dict[str, RuleDefinition] = {}
 
     def parse_optional_multi_output_rule(
@@ -2108,9 +2427,7 @@ def parse_queue_program(
             spelling = (
                 candidate.func.attr
                 if isinstance(candidate.func, ast.Attribute)
-                else candidate.func.id
-                if isinstance(candidate.func, ast.Name)
-                else None
+                else candidate.func.id if isinstance(candidate.func, ast.Name) else None
             )
             if spelling in forbidden_runtime_mechanics:
                 raise QueueFrontendError(
@@ -2136,9 +2453,7 @@ def parse_queue_program(
             for candidate in ast.walk(statement)
             if isinstance(candidate, ast.Name)
         }
-        body = _normalize_rule_field_assignments(
-            body, reserved_names=reserved_names
-        )
+        body = _normalize_rule_field_assignments(body, reserved_names=reserved_names)
         if not body or not isinstance(body[-1], ast.Return):
             raise QueueFrontendError(
                 "ACPY-RULE-014: multi-output rule requires one final fixed tuple return"
@@ -2260,7 +2575,10 @@ def parse_queue_program(
                 and isinstance(target.value, ast.Name)
                 and target.value.id in state_parameters
             ):
-                if isinstance(statement.value, ast.Constant) and statement.value.value is None:
+                if (
+                    isinstance(statement.value, ast.Constant)
+                    and statement.value.value is None
+                ):
                     raise QueueFrontendError(
                         "ACPY-RULE-014: persistent state cannot be assigned None"
                     )
@@ -2402,9 +2720,7 @@ def parse_queue_program(
                         value=rewrite(statement.test),
                     )
                     assign(ast.fix_missing_locations(condition_assign), guard)
-                    condition = ast.Name(
-                        id=versions[condition_name], ctx=ast.Load()
-                    )
+                    condition = ast.Name(id=versions[condition_name], ctx=ast.Load())
                     walk(statement.body, conjunction(guard, condition, False))
                     walk(statement.orelse, conjunction(guard, condition, True))
                     continue
@@ -2503,6 +2819,59 @@ def parse_queue_program(
         body = _normalize_rule_field_assignments(
             body, reserved_names=reserved_names
         )
+        if any(
+            isinstance(candidate, ast.Name)
+            and candidate.id[:18] == "__ac_helper_tuple_"
+            for statement in body
+            for candidate in ast.walk(statement)
+        ):
+            class SubstituteHelperLocals(ast.NodeTransformer):
+                def __init__(self, values: Mapping[str, ast.expr]) -> None:
+                    self.values = values
+
+                def visit_Name(self, candidate: ast.Name) -> ast.expr:
+                    if isinstance(candidate.ctx, ast.Load) and candidate.id in self.values:
+                        return ast.copy_location(
+                            copy.deepcopy(self.values[candidate.id]), candidate
+                        )
+                    return candidate
+
+            def substitute_helper_locals(
+                expression: ast.expr, values: Mapping[str, ast.expr]
+            ) -> ast.expr:
+                result = SubstituteHelperLocals(values).visit(copy.deepcopy(expression))
+                assert isinstance(result, ast.expr)
+                return ast.fix_missing_locations(result)
+
+            helper_locals: dict[str, ast.expr] = {}
+            collapsed = True
+            for statement in body[:-1]:
+                if (
+                    not isinstance(statement, ast.Assign)
+                    or len(statement.targets) != 1
+                    or not isinstance(statement.targets[0], ast.Name)
+                ):
+                    collapsed = False
+                    break
+                helper_locals[statement.targets[0].id] = substitute_helper_locals(
+                    statement.value, helper_locals
+                )
+            if (
+                collapsed
+                and body
+                and isinstance(body[-1], ast.Return)
+                and body[-1].value is not None
+            ):
+                body = [
+                    ast.copy_location(
+                        ast.Return(
+                            value=substitute_helper_locals(
+                                body[-1].value, helper_locals
+                            )
+                        ),
+                        body[-1],
+                    )
+                ]
         if (
             len(body) == 1
             and isinstance(body[0], ast.Return)
@@ -2617,9 +2986,7 @@ def parse_queue_program(
                 guard, negated = branch_guard(path)
                 assert guard is not None
                 absent_output_paths.append(
-                    ast.UnaryOp(op=ast.Not(), operand=guard)
-                    if negated
-                    else guard
+                    ast.UnaryOp(op=ast.Not(), operand=guard) if negated else guard
                 )
                 return
             if isinstance(statement, ast.For):
@@ -2689,9 +3056,7 @@ def parse_queue_program(
                     (
                         ast.copy_location(
                             ast.Assign(
-                                targets=[
-                                    ast.Name(id=condition_name, ctx=ast.Store())
-                                ],
+                                targets=[ast.Name(id=condition_name, ctx=ast.Store())],
                                 value=copy.deepcopy(statement.test),
                             ),
                             statement,
@@ -2790,9 +3155,7 @@ def parse_queue_program(
                 and isinstance(effective.op, ast.And)
                 else (effective,)
             )
-            return frozenset(
-                ast.dump(term, include_attributes=False) for term in terms
-            )
+            return frozenset(ast.dump(term, include_attributes=False) for term in terms)
 
         def guard_covers_partial_values(
             guard: ast.expr | None,
@@ -2862,9 +3225,7 @@ def parse_queue_program(
                 assert rewritten_predicate is not None
                 rewritten_key = rewrite_local_loads(
                     key,
-                    excluded=frozenset(
-                        () if key_argument is None else (key_argument,)
-                    ),
+                    excluded=frozenset(() if key_argument is None else (key_argument,)),
                 )
                 rule_finds.append(
                     RuleFindDefinition(
@@ -2964,8 +3325,7 @@ def parse_queue_program(
                     and branch_guard is None
                     and isinstance(statement.value, ast.Subscript)
                     and not any(
-                        isinstance(candidate, ast.Name)
-                        and candidate.id in local_names
+                        isinstance(candidate, ast.Name) and candidate.id in local_names
                         for candidate in ast.walk(statement.value.slice)
                     )
                 ):
@@ -3118,10 +3478,7 @@ def parse_queue_program(
                 state_writes
                 or state_reads
                 or rule_finds
-                or (
-                    multi_return is not None
-                    and rule_locals
-                )
+                or (multi_return is not None and rule_locals)
             )
             and (
                 len(ordered_state) >= 2
@@ -3433,18 +3790,14 @@ def parse_queue_program(
         returned_values = (
             tuple(returned.elts)
             if isinstance(returned, (ast.Tuple, ast.List))
-            else (returned,)
-            if returned is not None
-            else ()
+            else (returned,) if returned is not None else ()
         )
         if len(returned_values) == len(result_payloads) and all(
             isinstance(value, ast.Name) for value in returned_values
         ):
             typed_result_payloads = {
                 value.id: payload
-                for value, payload in zip(
-                    returned_values, result_payloads, strict=True
-                )
+                for value, payload in zip(returned_values, result_payloads, strict=True)
                 if isinstance(value, ast.Name)
             }
 
@@ -3706,9 +4059,11 @@ def parse_queue_program(
     def rewrite_selection_tuple_refs(statement: ast.stmt) -> ast.stmt:
         class StaticSelectionTupleRefs(ast.NodeTransformer):
             def visit_Subscript(self, node: ast.Subscript) -> ast.expr:
-                if isinstance(node.value, ast.Name) and (
-                    aliases := selection_tuple_aliases.get(node.value.id)
-                ) is not None:
+                if (
+                    isinstance(node.value, ast.Name)
+                    and (aliases := selection_tuple_aliases.get(node.value.id))
+                    is not None
+                ):
                     index = _constant_integer(node.slice, system_static_values)
                     if index is None:
                         raise QueueFrontendError(
@@ -3724,7 +4079,10 @@ def parse_queue_program(
                 return self.generic_visit(node)
 
             def visit_Name(self, node: ast.Name) -> ast.expr:
-                if isinstance(node.ctx, ast.Load) and node.id in selection_tuple_aliases:
+                if (
+                    isinstance(node.ctx, ast.Load)
+                    and node.id in selection_tuple_aliases
+                ):
                     raise QueueFrontendError(
                         "ACPY-TABLE-012: TableChoice tuple cannot be iterated, "
                         "stored, or escape its static scope"
@@ -3773,7 +4131,11 @@ def parse_queue_program(
                     and field.target.id == expression.attr
                 ):
                     annotation = _decorator_name(field.annotation).rsplit(".", 1)[-1]
-                    return "signed" if annotation in {"s8", "s16", "s32", "s64"} else "unsigned"
+                    return (
+                        "signed"
+                        if annotation in {"s8", "s16", "s32", "s64"}
+                        else "unsigned"
+                    )
         return "unsigned"
 
     def writer_priority_rank(policy: ast.expr, diagnostic: str) -> int:
@@ -3798,9 +4160,7 @@ def parse_queue_program(
         call: ast.Call, diagnostic: str, table: str
     ) -> int | None:
         policies = [
-            keyword.value
-            for keyword in call.keywords
-            if keyword.arg == "arbitration"
+            keyword.value for keyword in call.keywords if keyword.arg == "arbitration"
         ]
         if len(policies) > 1:
             raise QueueFrontendError(f"{diagnostic}: repeated arbitration policy")
@@ -3877,8 +4237,7 @@ def parse_queue_program(
         if not extent_nodes:
             raise QueueFrontendError("ACPY-TABLE-010: Table shape must be non-empty")
         shape_values = tuple(
-            _constant_integer(extent, system_static_values)
-            for extent in extent_nodes
+            _constant_integer(extent, system_static_values) for extent in extent_nodes
         )
         if any(extent is None for extent in shape_values):
             raise QueueFrontendError(
@@ -3900,9 +4259,7 @@ def parse_queue_program(
         if call.args or any(
             keyword.arg is None or keyword.arg != "init" for keyword in call.keywords
         ):
-            raise QueueFrontendError(
-                "ACPY-TABLE-001: table accepts only keyword init"
-            )
+            raise QueueFrontendError("ACPY-TABLE-001: table accepts only keyword init")
         init_values = [keyword.value for keyword in call.keywords]
         if len(init_values) > 1:
             raise QueueFrontendError("ACPY-TABLE-011: Table init is repeated")
@@ -3973,8 +4330,7 @@ def parse_queue_program(
                 if (
                     isinstance(node, ast.Call)
                     and not node.args
-                    and _decorator_name(node.func).rsplit(".", 1)[-1]
-                    == descriptor.name
+                    and _decorator_name(node.func).rsplit(".", 1)[-1] == descriptor.name
                     and all(keyword.arg is not None for keyword in node.keywords)
                 ):
                     fields = {keyword.arg: keyword.value for keyword in node.keywords}
@@ -4020,12 +4376,7 @@ def parse_queue_program(
         alias: str,
         scope_path: tuple[str, ...],
         current_order: int,
-    ) -> (
-        EntryViewBinding
-        | MaskedEntryViewBinding
-        | ProjectedTableViewBinding
-        | None
-    ):
+    ) -> EntryViewBinding | MaskedEntryViewBinding | ProjectedTableViewBinding | None:
         if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Attribute):
             return None
         if node.func.attr != "view" or not isinstance(node.func.value, ast.Name):
@@ -4123,8 +4474,7 @@ def parse_queue_program(
                     "coordinates"
                 )
             strides = tuple(
-                _product(table.shape[axis + 1 :])
-                for axis in range(len(table.shape))
+                _product(table.shape[axis + 1 :]) for axis in range(len(table.shape))
             )
             prefix_values = tuple(
                 int(coordinate)
@@ -4162,12 +4512,7 @@ def parse_queue_program(
         node: ast.expr,
         scope_path: tuple[str, ...],
         current_order: int,
-    ) -> (
-        EntryViewBinding
-        | MaskedEntryViewBinding
-        | ProjectedTableViewBinding
-        | None
-    ):
+    ) -> EntryViewBinding | MaskedEntryViewBinding | ProjectedTableViewBinding | None:
         if isinstance(node, ast.Name):
             view = entry_views.get(node.id)
             if view and view.scope == scope_path:
@@ -4287,11 +4632,7 @@ def parse_queue_program(
     ) -> bool:
         return isinstance(node, ast.Subscript) or (
             isinstance(node, ast.Name)
-            and (
-                node.id in by_name
-                or node.id in collections
-                or node.id in aliases
-            )
+            and (node.id in by_name or node.id in collections or node.id in aliases)
         )
 
     def collection_signature(
@@ -4732,13 +5073,12 @@ def parse_queue_program(
                         "ACPY-TABLE-012: TableChoice tuple unpack requires names"
                     )
                 selection_unpack = tuple(
-                    item.id for item in statement.targets[0].elts
+                    item.id
+                    for item in statement.targets[0].elts
                     if isinstance(item, ast.Name)
                 )
                 statement.targets[0] = ast.copy_location(
-                    ast.Name(
-                        id=f"__table_selection_{current_order}", ctx=ast.Store()
-                    ),
+                    ast.Name(id=f"__table_selection_{current_order}", ctx=ast.Store()),
                     statement.targets[0],
                 )
             if (
@@ -5209,8 +5549,7 @@ def parse_queue_program(
                         if method == "write":
                             if any(
                                 keyword.arg is None
-                                or keyword.arg
-                                not in {"value", "enable", "arbitration"}
+                                or keyword.arg not in {"value", "enable", "arbitration"}
                                 for keyword in call.keywords
                             ):
                                 raise QueueFrontendError(
@@ -5361,8 +5700,7 @@ def parse_queue_program(
                     if method in {"write", "allocate"}:
                         if any(
                             keyword.arg is None
-                            or keyword.arg
-                            not in {"value", "enable", "arbitration"}
+                            or keyword.arg not in {"value", "enable", "arbitration"}
                             for keyword in call.keywords
                         ):
                             raise QueueFrontendError(
@@ -5806,13 +6144,15 @@ def parse_queue_program(
                                 "ACPY-QUEUE-005: array generator index cannot be "
                                 "shadowed in a nested expression"
                             )
+
                         class CanonicalizeQueueReferences(ast.NodeTransformer):
                             def __init__(self) -> None:
                                 self.bound_names: set[str] = set()
 
                             def visit_Lambda(self, node: ast.Lambda) -> ast.AST:
                                 node.args.defaults = [
-                                    self.visit(default) for default in node.args.defaults
+                                    self.visit(default)
+                                    for default in node.args.defaults
                                 ]
                                 node.args.kw_defaults = [
                                     None if default is None else self.visit(default)
@@ -8248,6 +8588,7 @@ def parse_queue_program(
         enums,
         bitfields,
         tuple(invariant_definitions),
+        tuple(helper_definitions),
         tuple(queues),
         tuple(effect_rules),
         tuple(scopes),
@@ -8313,6 +8654,7 @@ class _ExpressionEmitter:
         | None = None,
         bitfields: Mapping[str, BitfieldLayout] | None = None,
         invariants: Mapping[str, InvariantDefinition] | None = None,
+        helpers: Mapping[str, PureHelperDefinition] | None = None,
     ) -> None:
         self.payloads = payloads
         self.enum_types: dict[str, EnumType] = {}
@@ -8352,6 +8694,7 @@ class _ExpressionEmitter:
         self.table_domains = dict(table_domains or {})
         self.bitfields = dict(bitfields or {})
         self.invariants = dict(invariants or {})
+        self.helpers = dict(helpers or {})
         self.lines: list[str] = []
         self.index = 0
         self.priority_values: dict[str, tuple[str, ValueType, str, ValueType]] = {}
@@ -8403,9 +8746,7 @@ class _ExpressionEmitter:
         if type(fact.value) is not int or not prove_within(fact, 0, entries - 1):
             raise QueueFrontendError(diagnostic)
 
-    def emit_table_index(
-        self, table: str, address: ast.expr
-    ) -> tuple[str, ValueType]:
+    def emit_table_index(self, table: str, address: ast.expr) -> tuple[str, ValueType]:
         domain = self.table_domains.get(table)
         if domain is None:
             raise QueueFrontendError("ACPY-TABLE-010: Table domain is unresolved")
@@ -8464,12 +8805,10 @@ class _ExpressionEmitter:
         result = self._new()
         rendered = _render_type(expected)
         self.lines.append(
-            f"    %{zero} = ac.var.constant 0 : {rendered} "
-            f"as !ac.var<{rendered}>"
+            f"    %{zero} = ac.var.constant 0 : {rendered} " f"as !ac.var<{rendered}>"
         )
         self.lines.append(
-            f"    %{one} = ac.var.constant 1 : {rendered} "
-            f"as !ac.var<{rendered}>"
+            f"    %{one} = ac.var.constant 1 : {rendered} " f"as !ac.var<{rendered}>"
         )
         self.lines.append(
             f"    %{result} = ac.var.select %{value}, %{one}, %{zero} : "
@@ -8529,6 +8868,40 @@ class _ExpressionEmitter:
         self, node: ast.expr, expected: ValueType | None = None
     ) -> tuple[str, ValueType]:
         if isinstance(node, ast.Call):
+            helper = (
+                self.helpers.get(node.func.id)
+                if isinstance(node.func, ast.Name)
+                else None
+            )
+            if helper is not None:
+                if node.keywords or len(node.args) != len(helper.arguments):
+                    raise QueueFrontendError(
+                        f"ACPY-HELPER-002: helper {helper.name!r} call arity does not match"
+                    )
+                operands: list[str] = []
+                operand_types: list[ValueType] = []
+                for argument, (_, parameter_type) in zip(
+                    node.args, helper.arguments, strict=True
+                ):
+                    operand, operand_type = self.emit(argument, parameter_type)
+                    if not _types_equal_in_epoch_05(operand_type, parameter_type):
+                        raise QueueFrontendError(
+                            f"ACPY-HELPER-002: helper {helper.name!r} argument type does not match"
+                        )
+                    operands.append(operand)
+                    operand_types.append(operand_type)
+                result = self._new()
+                self.lines.append(
+                    f"    %{result} = func.call @{helper.name}("
+                    + ", ".join(f"%{operand}" for operand in operands)
+                    + ") : ("
+                    + ", ".join(
+                        f"!ac.var<{_render_type(value_type)}>"
+                        for value_type in operand_types
+                    )
+                    + f") -> !ac.var<{_render_type(helper.result)}>"
+                )
+                return self._remember(result, helper.result)
             lexical_bindings = {
                 self.argument,
                 *self.root_values,
@@ -8543,9 +8916,7 @@ class _ExpressionEmitter:
                 *self.state_views,
                 *self.table_domains,
             }
-            invariant = _resolve_invariant_call(
-                node, self.invariants, lexical_bindings
-            )
+            invariant = _resolve_invariant_call(node, self.invariants, lexical_bindings)
             if invariant is not None:
                 if len(node.args) != 1 or node.keywords:
                     raise QueueFrontendError(
@@ -8569,6 +8940,7 @@ class _ExpressionEmitter:
                     prefix=predicate_prefix,
                     bitfields=self.bitfields,
                     invariants=self.invariants,
+                    helpers=self.helpers,
                 )
                 predicate, predicate_type = predicate_emitter.emit(
                     invariant.expression, BoolType()
@@ -8922,6 +9294,7 @@ class _ExpressionEmitter:
                 slot_views=self.slot_views,
                 bitfields=self.bitfields,
                 invariants=self.invariants,
+                helpers=self.helpers,
             )
             predicate, predicate_type = predicate_emitter.emit(
                 candidate.predicate, BoolType()
@@ -9022,9 +9395,7 @@ class _ExpressionEmitter:
             if cached := self.selection_batch_values.get(selection.name):
                 index, index_type, valid, valid_type = cached[lane]
                 return (
-                    (index, index_type)
-                    if node.attr == "index"
-                    else (valid, valid_type)
+                    (index, index_type) if node.attr == "index" else (valid, valid_type)
                 )
             candidate = self.candidates[selection.candidates]
             domain = self.table_domains.get(selection.table)
@@ -9043,6 +9414,7 @@ class _ExpressionEmitter:
                 slot_views=self.slot_views,
                 bitfields=self.bitfields,
                 invariants=self.invariants,
+                helpers=self.helpers,
             )
             predicate, predicate_type = predicate_emitter.emit(
                 candidate.predicate, BoolType()
@@ -9104,9 +9476,7 @@ class _ExpressionEmitter:
             key_order = (
                 ""
                 if selection.key_ordering is None
-                else " key_order #ac<table_key_ordering "
-                + selection.key_ordering
-                + ">"
+                else " key_order #ac<table_key_ordering " + selection.key_ordering + ">"
             )
             cursor = (
                 ""
@@ -9133,9 +9503,7 @@ class _ExpressionEmitter:
             value = (
                 "true"
                 if node.value is True
-                else "false"
-                if node.value is False
-                else str(node.value)
+                else "false" if node.value is False else str(node.value)
             )
             attribute = (
                 value if type(node.value) is bool else f"{value} : {_render_type(typ)}"
@@ -9326,10 +9694,7 @@ class _ExpressionEmitter:
             and len(node.ops) == len(node.comparators) == 1
         ):
             comparator = node.comparators[0]
-            if (
-                isinstance(node.left, ast.Name)
-                and node.left.id in self.deferred_values
-            ):
+            if isinstance(node.left, ast.Name) and node.left.id in self.deferred_values:
                 right, right_type = self.emit(comparator)
                 left, left_type = self.emit(node.left, right_type)
             else:
@@ -9603,7 +9968,10 @@ class _ExpressionEmitter:
 
 
 def lower_queue_program(
-    program: QueueProgram, *, module: _ModuleRenderSpec | None = None
+    program: QueueProgram,
+    *,
+    module: _ModuleRenderSpec | None = None,
+    include_helpers: bool = True,
 ) -> str:
     def table_writer_identity(
         write: TableWriteBinding | MaskedTableWriteBinding,
@@ -9696,6 +10064,7 @@ def lower_queue_program(
         }
         content_indent = "      "
     payloads = {item.name: item for item in program.payloads}
+    helpers = {item.name: item for item in program.helpers}
     invariants = {
         definition.function_name: definition for definition in program.invariants
     }
@@ -9721,6 +10090,42 @@ def lower_queue_program(
             )
         else:
             lines.append("  }")
+    helper_start = len(lines)
+    for helper in program.helpers if include_helpers else ():
+        arguments = ", ".join(
+            f"%{name}: !ac.var<{_render_type(value_type)}>"
+            for name, value_type in helper.arguments
+        )
+        attributes = " attributes {ac.inline = true}" if helper.inline else ""
+        lines.append(
+            f"  func.func private @{helper.name}({arguments}) -> "
+            f"!ac.var<{_render_type(helper.result)}>{attributes} {{"
+        )
+        helper_emitter = _ExpressionEmitter(
+            payloads,
+            "",
+            helper.result,
+            root_values={
+                name: (name, value_type) for name, value_type in helper.arguments
+            },
+            bitfields=bitfields,
+            invariants=invariants,
+            helpers=helpers,
+        )
+        result, result_type = helper_emitter.emit(helper.expression, helper.result)
+        if not _types_equal_in_epoch_05(result_type, helper.result):
+            raise QueueFrontendError(
+                f"ACPY-HELPER-002: helper {helper.name!r} result type does not match"
+            )
+        lines.extend("  " + line for line in helper_emitter.lines)
+        lines.append(
+            f"    func.return %{result} : !ac.var<{_render_type(helper.result)}>"
+        )
+        lines.append("  }")
+    if module is not None and len(lines) != helper_start:
+        helper_lines = lines[helper_start:]
+        del lines[helper_start:]
+        lines[0:0] = helper_lines
     for instance in sorted(
         program.memory_instances,
         key=lambda value: (value.scope, value.order, value.name),
@@ -9788,7 +10193,9 @@ def lower_queue_program(
                 'layout = "row_major"',
                 "layout_version = 1 : i64",
                 "schema_id = "
-                + canonical_mlir_string(_table_schema_id(table.entry_type, table.shape)),
+                + canonical_mlir_string(
+                    _table_schema_id(table.entry_type, table.shape)
+                ),
             ]
             if table.init_image is not None:
                 typed_attributes.extend(
@@ -9846,9 +10253,9 @@ def lower_queue_program(
         )
         for input_index, input_name in enumerate(input_names):
             consumers.setdefault(input_name, []).append((queue, input_index))
-    fanouts: dict[
-        str, tuple[tuple[str, ...], tuple[tuple[QueueBinding, int], ...]]
-    ] = {}
+    fanouts: dict[str, tuple[tuple[str, ...], tuple[tuple[QueueBinding, int], ...]]] = (
+        {}
+    )
 
     def common_scope(scopes: list[tuple[str, ...]]) -> tuple[str, ...]:
         common: list[str] = []
@@ -9989,9 +10396,7 @@ def lower_queue_program(
                 f"{indent}%{output_ssa} = ac.source depth {queue.depth} "
                 f"latency {queue.latency} "
                 f"{queue_attributes(queue.name, (queue.rate,))} : "
-                + _render_queue_type(
-                    queue.payload, lanes=queue.lanes, rate=queue.rate
-                )
+                + _render_queue_type(queue.payload, lanes=queue.lanes, rate=queue.rate)
             )
             mapping[queue.name] = output_ssa
             return
@@ -10045,6 +10450,7 @@ def lower_queue_program(
                 },
                 bitfields=bitfields,
                 invariants=invariants,
+                helpers=helpers,
             )
             rule_expressions: list[ast.expr] = []
             if queue.expression is not None:
@@ -10161,6 +10567,7 @@ def lower_queue_program(
                     state_views=emitter.state_views,
                     bitfields=bitfields,
                     invariants=invariants,
+                    helpers=helpers,
                 )
                 predicate_emitter.deferred_values.update(find_local_values)
                 predicate, predicate_type = predicate_emitter.emit(
@@ -10181,9 +10588,7 @@ def lower_queue_program(
                 emitter.lines.append(
                     f"      ac.var.match.yield %{predicate} : !ac.var<i1>"
                 )
-                emitter.lines.append(
-                    f"    }} -> !ac.var<{_render_type(mask_type)}>"
-                )
+                emitter.lines.append(f"    }} -> !ac.var<{_render_type(mask_type)}>")
                 selected_index = emitter._new()
                 selected_valid = emitter._new()
                 if find.key is None:
@@ -10207,6 +10612,7 @@ def lower_queue_program(
                         state_views=emitter.state_views,
                         bitfields=bitfields,
                         invariants=invariants,
+                        helpers=helpers,
                     )
                     key_emitter.deferred_values.update(find_local_values)
                     key, key_type = key_emitter.emit(find.key)
@@ -10302,9 +10708,7 @@ def lower_queue_program(
                         guard_expression = ast.UnaryOp(
                             op=ast.Not(), operand=copy.deepcopy(local.guard)
                         )
-                    guard, guard_type = emitter.emit(
-                        guard_expression, BoolType()
-                    )
+                    guard, guard_type = emitter.emit(guard_expression, BoolType())
                     if not _is_epoch_05_bool_compatible(guard_type):
                         raise QueueFrontendError(
                             "ACPY-RULE-011: branch-local assignment guard "
@@ -10393,9 +10797,11 @@ def lower_queue_program(
                 emitter.lines.append(
                     f"    %{condition_result} = ac.var.constant true as !ac.var<i1>"
                 )
-            elif output_guard_result is not None or any(
-                write.guard is not None for write in queue.rule_state_writes
-            ) or multi_output_guard_results:
+            elif (
+                output_guard_result is not None
+                or any(write.guard is not None for write in queue.rule_state_writes)
+                or multi_output_guard_results
+            ):
                 condition_result = emitter._new()
                 emitter.lines.append(
                     f"    %{condition_result} = ac.var.constant true as !ac.var<i1>"
@@ -10522,9 +10928,7 @@ def lower_queue_program(
                 expected_index_type = BitsType(
                     max(1, (state_write.entries - 1).bit_length())
                 )
-                index, index_type = emitter.emit(
-                    state_write.index, expected_index_type
-                )
+                index, index_type = emitter.emit(state_write.index, expected_index_type)
                 index_width = _epoch_05_integer_width(index_type)
                 if index_width is None:
                     raise QueueFrontendError(
@@ -10541,18 +10945,13 @@ def lower_queue_program(
 
             writes_by_owner: dict[str, list[RuleStateWriteBinding]] = {}
             for state_write in queue.rule_state_writes:
-                writes_by_owner.setdefault(state_write.variable, []).append(
-                    state_write
-                )
-            writes_by_variable: dict[
-                tuple[str, str], list[RuleStateWriteBinding]
-            ] = {}
+                writes_by_owner.setdefault(state_write.variable, []).append(state_write)
+            writes_by_variable: dict[tuple[str, str], list[RuleStateWriteBinding]] = {}
             for variable, owner_writes in writes_by_owner.items():
                 complementary_pair = (
                     len(owner_writes) == 2
                     and all(write.guard is not None for write in owner_writes)
-                    and {write.guard_negated for write in owner_writes}
-                    == {False, True}
+                    and {write.guard_negated for write in owner_writes} == {False, True}
                     and ast.dump(owner_writes[0].guard, include_attributes=False)
                     == ast.dump(owner_writes[1].guard, include_attributes=False)
                 )
@@ -10563,9 +10962,7 @@ def lower_queue_program(
                     index_identity = (
                         "<scalar>"
                         if state_write.index is None
-                        else ast.dump(
-                            state_write.index, include_attributes=False
-                        )
+                        else ast.dump(state_write.index, include_attributes=False)
                     )
                     writes_by_variable.setdefault(
                         (variable, index_identity), []
@@ -10655,7 +11052,13 @@ def lower_queue_program(
                             f"%{guard} : !ac.var<i1>"
                         )
                         combined_guard = joined
-                    selected_write, _, selected_index, selected_index_type, selected_value = rendered[0]
+                    (
+                        selected_write,
+                        _,
+                        selected_index,
+                        selected_index_type,
+                        selected_value,
+                    ) = rendered[0]
                     for (
                         candidate,
                         guard,
@@ -10760,9 +11163,7 @@ def lower_queue_program(
             )
             lines.append(
                 (
-                    f"{indent}"
-                    + ", ".join(f"%{name}" for name in output_ssas)
-                    + " = "
+                    f"{indent}" + ", ".join(f"%{name}" for name in output_ssas) + " = "
                     if output_ssas
                     else indent
                 )
@@ -10797,8 +11198,7 @@ def lower_queue_program(
                 if effect_guard_result is not None
                 else (
                     f" when %{condition_result} : !ac.var<i1>"
-                    if output_guard_result is not None
-                    or multi_output_guard_results
+                    if output_guard_result is not None or multi_output_guard_results
                     else ""
                 )
             )
@@ -10904,9 +11304,8 @@ def lower_queue_program(
                         f"!ac.var<{_render_type(queue.payload)}>"
                     )
                 if not multi_output_results and (
-                    output_guard_result is not None or any(
-                    write.guard is not None for write in queue.rule_state_writes
-                    )
+                    output_guard_result is not None
+                    or any(write.guard is not None for write in queue.rule_state_writes)
                 ):
                     presence = output_guard_result or condition_result
                     assert presence is not None
@@ -10931,10 +11330,12 @@ def lower_queue_program(
                 + ") -> "
                 + (
                     (
-                        "(" + ", ".join(
+                        "("
+                        + ", ".join(
                             f"!ac.queue<{_render_type(payload)}>"
                             for payload in queue.rule_output_payloads
-                        ) + ") "
+                        )
+                        + ") "
                         if queue.rule_output_payloads
                         else f"!ac.queue<{_render_type(queue.payload)}> "
                     )
@@ -10959,6 +11360,7 @@ def lower_queue_program(
             queue.argument,
             queue.payload,
             bitfields=bitfields,
+            helpers=helpers,
         )
         result, result_type = emitter.emit(queue.expression)
         if not _types_equal_in_epoch_05(result_type, queue.payload):
@@ -10986,9 +11388,7 @@ def lower_queue_program(
                 rate=by_name[queue.input_name].rate,
             )
             + ") -> "
-            + _render_queue_type(
-                queue.payload, lanes=queue.lanes, rate=queue.rate
-            )
+            + _render_queue_type(queue.payload, lanes=queue.lanes, rate=queue.rate)
         )
         mapping[queue.name] = output_ssa
 
@@ -11159,6 +11559,7 @@ def lower_queue_program(
                     prefix=f"match_{candidate.order}_",
                     slot_views=slot_views,
                     bitfields=bitfields,
+                    helpers=helpers,
                 )
                 predicate, predicate_type = emitter.emit(
                     candidate.predicate, BoolType()
@@ -11216,6 +11617,7 @@ def lower_queue_program(
                         root_name="entry",
                         prefix=f"choose_{selection.order}_",
                         bitfields=bitfields,
+                        helpers=helpers,
                     )
                     key, key_type = emitter.emit(selection.key)
                     if _epoch_05_integer_width(key_type) is None:
@@ -11329,6 +11731,7 @@ def lower_queue_program(
                     select.argument,
                     control.payload,
                     bitfields=bitfields,
+                    helpers=helpers,
                 )
                 selector, selector_type = emitter.emit(select.selector)
                 if _epoch_05_integer_width(selector_type) is None:
@@ -11370,6 +11773,7 @@ def lower_queue_program(
                     route.argument,
                     incoming.payload,
                     bitfields=bitfields,
+                    helpers=helpers,
                 )
                 selector, selector_type = emitter.emit(route.selector)
                 if route.boolean_selector and not _is_epoch_05_bool_compatible(
@@ -11443,6 +11847,7 @@ def lower_queue_program(
                     feedback.argument,
                     incoming.payload,
                     bitfields=bitfields,
+                    helpers=helpers,
                 )
                 condition, condition_type = emitter.emit(feedback.condition)
                 update, update_type = emitter.emit(feedback.update)
@@ -11486,6 +11891,7 @@ def lower_queue_program(
                     reorder.argument,
                     incoming.payload,
                     bitfields=bitfields,
+                    helpers=helpers,
                 )
                 key, key_type = emitter.emit(reorder.key)
                 if _epoch_05_integer_width(key_type) is None:
@@ -11532,6 +11938,7 @@ def lower_queue_program(
                         dependency.argument,
                         incoming.payload,
                         bitfields=bitfields,
+                        helpers=helpers,
                     )
                     value, value_type = emitter.emit(expression)
                     if _epoch_05_integer_width(value_type) is None:
@@ -11605,6 +12012,7 @@ def lower_queue_program(
                     credit.argument,
                     incoming.payload,
                     bitfields=bitfields,
+                    helpers=helpers,
                 )
                 cost, cost_type = emitter.emit(credit.cost)
                 if _epoch_05_integer_width(cost_type) is None:
@@ -11654,6 +12062,7 @@ def lower_queue_program(
                         memory.argument,
                         incoming.payload,
                         bitfields=bitfields,
+                        helpers=helpers,
                     )
                     value, value_type = emitter.emit(expression)
                     emitted.append((value, value_type, emitter.lines))
@@ -11734,6 +12143,7 @@ def lower_queue_program(
                     selection_values=materialized_selections,
                     table_domains=table_domains,
                     bitfields=bitfields,
+                    helpers=helpers,
                 )
                 address, address_type = address_emitter.emit_table_index(
                     read.table, read.address
@@ -11750,6 +12160,7 @@ def lower_queue_program(
                     selection_values=materialized_selections,
                     table_domains=table_domains,
                     bitfields=bitfields,
+                    helpers=helpers,
                 )
                 condition, condition_type = when_emitter.emit(read.when, BoolType())
                 if not isinstance(
@@ -11814,6 +12225,7 @@ def lower_queue_program(
                     selection_values=materialized_selections,
                     table_domains=table_domains,
                     bitfields=bitfields,
+                    helpers=helpers,
                 )
                 address, address_type = address_emitter.emit_table_index(
                     write.table, write.address
@@ -11829,6 +12241,7 @@ def lower_queue_program(
                     selection_values=materialized_selections,
                     table_domains=table_domains,
                     bitfields=bitfields,
+                    helpers=helpers,
                 )
                 enabled, enable_type = enable_emitter.emit(write.enable, BoolType())
                 value_emitter = _ExpressionEmitter(
@@ -11845,6 +12258,7 @@ def lower_queue_program(
                     selection_values=materialized_selections,
                     table_domains=table_domains,
                     bitfields=bitfields,
+                    helpers=helpers,
                 )
                 if write.value is not None:
                     value, value_type = value_emitter.emit(
@@ -11951,6 +12365,7 @@ def lower_queue_program(
                     selection_values=materialized_selections,
                     table_domains=table_domains,
                     bitfields=bitfields,
+                    helpers=helpers,
                 )
                 mask, mask_type = mask_emitter.emit(
                     ast.Name(id=write.candidates, ctx=ast.Load())
@@ -11967,6 +12382,7 @@ def lower_queue_program(
                     selection_values=materialized_selections,
                     table_domains=table_domains,
                     bitfields=bitfields,
+                    helpers=helpers,
                 )
                 enabled, enable_type = enable_emitter.emit(write.enable, BoolType())
                 value_emitter = _ExpressionEmitter(
@@ -11982,6 +12398,7 @@ def lower_queue_program(
                     selection_values=materialized_selections,
                     table_domains=table_domains,
                     bitfields=bitfields,
+                    helpers=helpers,
                 )
                 if write.value is not None:
                     value, value_type = value_emitter.emit(
@@ -12076,6 +12493,7 @@ def lower_queue_program(
                     selection_values=materialized_selections,
                     table_domains=table_domains,
                     bitfields=bitfields,
+                    helpers=helpers,
                 )
                 condition, condition_type = emitter.emit(release.when, BoolType())
                 if not _is_epoch_05_bool_compatible(condition_type):
@@ -12127,6 +12545,7 @@ def lower_queue_program(
                     expectation.argument,
                     queue.payload,
                     bitfields=bitfields,
+                    helpers=helpers,
                 )
                 condition, condition_type = emitter.emit(expectation.predicate)
                 if not _is_epoch_05_bool_compatible(condition_type):
@@ -12238,9 +12657,7 @@ def lower_queue_program(
         output_signature = (
             "()"
             if not module.outputs
-            else output_types
-            if len(module.outputs) == 1
-            else f"({output_types})"
+            else output_types if len(module.outputs) == 1 else f"({output_types})"
         )
         lines.append(f"    }} : ({input_types}) -> {output_signature}")
         returned = ", ".join(
@@ -12276,6 +12693,7 @@ def _lower_simple_module_source(
         tree = _desugar_nested_rule_captures(tree, module_name, "module")
     module_static_values = _module_static_values(tree)
     enum_bindings = _enums(tree)
+    enum_map = {item.name: item.descriptor for item in enum_bindings}
     payloads = _payloads(tree, enum_bindings)
     payload_map = {payload.name: payload for payload in payloads}
     bitfield_bindings = _bitfields(tree)
@@ -12284,6 +12702,8 @@ def _lower_simple_module_source(
         definition.function_name: definition
         for definition in _invariant_definitions(tree, payload_map, bitfield_map)
     }
+    helper_definitions = _pure_helper_definitions(tree, payload_map, enum_map)
+    helpers = {definition.name: definition for definition in helper_definitions}
     modules = {
         node.name: node
         for node in tree.body
@@ -12782,9 +13202,7 @@ def _lower_simple_module_source(
             return module_name, frozen
         specialization_fingerprint = sha256_bytes(
             canonical_json_bytes(
-                {
-                    name: static_json_value(value) for name, value in frozen
-                }
+                {name: static_json_value(value) for name, value in frozen}
             )
         )
         digest = specialization_fingerprint.removeprefix("sha256:")[:12]
@@ -12830,7 +13248,10 @@ def _lower_simple_module_source(
                 )
             )
             normalized_statements.extend(
-                [ast.Assign(targets=[target], value=statement.value), ast.Return(returned)]
+                [
+                    ast.Assign(targets=[target], value=statement.value),
+                    ast.Return(returned),
+                ]
             )
             continue
         normalized_statements.append(statement)
@@ -12984,6 +13405,37 @@ def _lower_simple_module_source(
             )
         else:
             lines.append("  }")
+    for helper in helper_definitions:
+        arguments = ", ".join(
+            f"%{name}: !ac.var<{_render_type(value_type)}>"
+            for name, value_type in helper.arguments
+        )
+        attributes = " attributes {ac.inline = true}" if helper.inline else ""
+        lines.append(
+            f"  func.func private @{helper.name}({arguments}) -> "
+            f"!ac.var<{_render_type(helper.result)}>{attributes} {{"
+        )
+        helper_emitter = _ExpressionEmitter(
+            payload_map,
+            "",
+            helper.result,
+            root_values={
+                name: (name, value_type) for name, value_type in helper.arguments
+            },
+            bitfields=bitfield_map,
+            invariants=invariants,
+            helpers=helpers,
+        )
+        result, result_type = helper_emitter.emit(helper.expression, helper.result)
+        if not _types_equal_in_epoch_05(result_type, helper.result):
+            raise QueueFrontendError(
+                f"ACPY-HELPER-002: helper {helper.name!r} result type does not match"
+            )
+        lines.extend("  " + line for line in helper_emitter.lines)
+        lines.append(
+            f"    func.return %{result} : !ac.var<{_render_type(helper.result)}>"
+        )
+        lines.append("  }")
     lines.append(
         f'  ac.system @{system} root @Top as "root" tick 0 "cycle" '
         'seed {kind = "fixed", value = 0 : i64} instrumentation [] '
@@ -13050,6 +13502,7 @@ def _lower_simple_module_source(
                 root_values=root_values,
                 bitfields=bitfield_map,
                 invariants=invariants,
+                helpers=helpers,
             )
             lines.extend(
                 [
@@ -13129,6 +13582,7 @@ def _lower_simple_module_source(
             input_type,
             bitfields=bitfield_map,
             invariants=invariants,
+            helpers=helpers,
         )
         value, value_type = emitter.emit(expression, output_type)
         if not _types_equal_in_epoch_05(value_type, output_type):
@@ -13177,6 +13631,7 @@ def _lower_simple_module_source(
                     definition.outputs,
                     static_arguments,
                 ),
+                include_helpers=False,
             )
             .rstrip()
             .splitlines()

@@ -56,6 +56,14 @@ const QueueAggregatePlan *findAggregate(const QueueGraphPlan &plan,
   return found == plan.aggregates.end() ? nullptr : &*found;
 }
 
+const QueueHelperPlan *findHelper(const QueueGraphPlan &plan,
+                                  llvm::StringRef name) {
+  auto found = std::find_if(
+      plan.helpers.begin(), plan.helpers.end(),
+      [&](const QueueHelperPlan &helper) { return helper.name == name; });
+  return found == plan.helpers.end() ? nullptr : &*found;
+}
+
 llvm::Expected<unsigned> typeWidth(const QueueGraphPlan &plan,
                                    llvm::StringRef type) {
   if (type.starts_with('i')) {
@@ -602,6 +610,7 @@ emitTransform(const QueueGraphPlan &plan, const QueueBlockPlan &block,
     std::vector<std::string> valids;
   };
   llvm::StringMap<ChoiceValues> choiceValues;
+  llvm::StringMap<std::vector<std::string>> helperCallValues;
   for (size_t index = 0; index < inputData.size(); ++index) {
     std::string name = index == 0 ? "item" : "item" + std::to_string(index);
     values[name] = inputData[index];
@@ -629,7 +638,46 @@ emitTransform(const QueueGraphPlan &plan, const QueueBlockPlan &block,
     if (values.contains(expression.result))
       continue;
     std::string result;
-    if (expression.kind == "enum_constant") {
+    if (expression.kind == "helper_call") {
+      const QueueHelperPlan *helper = findHelper(plan, expression.field);
+      if (!helper || expression.literal.empty() ||
+          expression.selectionCount != helper->resultTypes.size() ||
+          expression.laneOrdinal >= helper->yields.size())
+        return pycError("helper_call expression is malformed");
+      auto cached = helperCallValues.find(expression.literal);
+      if (cached == helperCallValues.end()) {
+        llvm::StringMap<std::string> arguments;
+        llvm::StringMap<std::string> argumentTypes;
+        for (auto [name, type, operandName] : llvm::zip_equal(
+                 helper->inputNames, helper->inputTypes, expression.operands)) {
+          auto operandValue = value(operandName);
+          if (!operandValue)
+            return operandValue.takeError();
+          arguments[name] = *operandValue;
+          argumentTypes[name] = type;
+        }
+        QueueBlockPlan helperBody;
+        helperBody.expressions = helper->expressions;
+        helperBody.yields = helper->yields;
+        llvm::StringMap<std::string> emitted;
+        auto lowered = emitTransform(
+            plan, helperBody, {}, {}, helper->yields.size(), nextValue, body,
+            &emitted, tableValues, roundRobinStates, choiceOwner, &arguments,
+            &argumentTypes, sharedTableValues);
+        if (!lowered)
+          return lowered.takeError();
+        std::vector<std::string> results;
+        for (const std::string &yield : helper->yields) {
+          auto found = emitted.find(yield);
+          if (found == emitted.end())
+            return pycError("helper result was not legalized exactly once");
+          results.push_back(found->getValue());
+        }
+        helperCallValues[expression.literal] = std::move(results);
+        cached = helperCallValues.find(expression.literal);
+      }
+      result = cached->getValue()[expression.laneOrdinal];
+    } else if (expression.kind == "enum_constant") {
       result = newValue();
       auto type = pycType(plan, expression.type);
       if (!type)

@@ -57,6 +57,17 @@ def LowerValueContractsPass
   let summary = "Lower recursive equality and reusable value invariants";
 }
 
+def InlinePureHelpersPass
+    : Pass<"ac-inline-pure-helpers", "::mlir::ModuleOp"> {
+  let summary = "Inline explicitly annotated pure ACIR helper functions";
+  let description = [{
+    Expands calls to single-block private func.func definitions carrying
+    `ac.inline = true`.  Whole-model purity verification remains the authority
+    for rejecting unresolved, external, recursive, effectful, or looping
+    helper closures.
+  }];
+}
+
 def InferRuleTypesPass : Pass<"ac-infer-rule-types", "::mlir::ModuleOp"> {
   let summary = "Refine transient rule type-constraint markers";
 }
