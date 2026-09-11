@@ -18,6 +18,14 @@ from pathlib import Path
 from typing import Any
 
 ROOT = Path(__file__).resolve().parents[2]
+SDK_SCHEMA_NAMES = (
+    "consumer-lock.schema.json",
+    "model-manifest.schema.json",
+    "model-plan.schema.json",
+    "release-index.schema.json",
+    "sdk-manifest.schema.json",
+    "sdk-version-map.schema.json",
+)
 
 
 def digest(path: Path) -> str:
@@ -165,6 +173,13 @@ def relocate_native_dependencies(stage: Path, identity: str) -> None:
                     capture_output=True,
                     check=True,
                 )
+        for path in binaries:
+            subprocess.run(
+                ["codesign", "--force", "--sign", "-", "--timestamp=none", path],
+                text=True,
+                capture_output=True,
+                check=True,
+            )
         return
     patchelf = shutil.which("patchelf")
     if patchelf is None and binaries:
@@ -219,6 +234,8 @@ def runtime_dependencies(stage: Path, identity: str) -> list[dict[str, Any]]:
             if linked.returncode:
                 raise ValueError(f"ldd failed for {path}: {linked.stderr}")
             for raw in linked.stdout.splitlines():
+                if raw.strip() == "statically linked":
+                    continue
                 fields = raw.replace("=>", " ").split()
                 if "not found" in raw:
                     raise ValueError(f"unresolved dependency: {raw.strip()}")
@@ -325,6 +342,10 @@ def main() -> int:
         wheelhouse.mkdir(parents=True, exist_ok=True)
         for name, source in sorted(observed.items()):
             shutil.copyfile(source, wheelhouse / name)
+        schema_root = stage / "share/pycircuit/schemas"
+        schema_root.mkdir(parents=True, exist_ok=True)
+        for name in SDK_SCHEMA_NAMES:
+            shutil.copyfile(ROOT / "schemas/agentic-circuit" / name, schema_root / name)
         license_path = stage / "share/pycircuit/licenses/LICENSE"
         license_path.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(ROOT / "LICENSE", license_path)

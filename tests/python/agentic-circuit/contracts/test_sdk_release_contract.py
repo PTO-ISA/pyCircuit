@@ -10,6 +10,7 @@ import tarfile
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 import tomllib
 
@@ -32,6 +33,58 @@ def project_version(path: Path) -> str:
 
 
 class SdkReleaseContractTest(unittest.TestCase):
+    def test_platform_dependency_probes_ignore_static_status_and_resign_macos(self) -> None:
+        generator_path = ROOT / "packaging/sdk/create_platform_manifest.py"
+        spec = importlib.util.spec_from_file_location("platform_generator", generator_path)
+        if spec is None or spec.loader is None:
+            self.fail("cannot load platform SDK generator")
+        generator = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(generator)
+
+        stage = Path("/tmp/sdk")
+        native = stage / "lib/python3.11/site-packages/agentic_circuit/_native.so"
+        with (
+            mock.patch.object(generator, "native_files", return_value=[native]),
+            mock.patch.object(generator.subprocess, "run") as run,
+        ):
+            run.return_value = subprocess.CompletedProcess(
+                ["otool", "-L", native], 0, stdout=f"{native}:\n", stderr=""
+            )
+            generator.relocate_native_dependencies(stage, "macos-arm64")
+            self.assertIn(
+                mock.call(
+                    [
+                        "codesign",
+                        "--force",
+                        "--sign",
+                        "-",
+                        "--timestamp=none",
+                        native,
+                    ],
+                    text=True,
+                    capture_output=True,
+                    check=True,
+                ),
+                run.call_args_list,
+            )
+
+        with (
+            mock.patch.object(generator, "native_files", return_value=[native]),
+            mock.patch.object(
+                generator.subprocess,
+                "run",
+                side_effect=(
+                    subprocess.CompletedProcess(
+                        ["ldd", "--version"], 0, stdout="ldd 2.39\n", stderr=""
+                    ),
+                    subprocess.CompletedProcess(
+                        ["ldd", native], 0, stdout="statically linked\n", stderr=""
+                    ),
+                ),
+            ),
+        ):
+            self.assertEqual([], generator.runtime_dependencies(stage, "linux-x86_64"))
+
     def test_version_map_matches_distribution_metadata(self) -> None:
         version_map = json.loads(VERSION_MAP.read_text())
         self.assertEqual("pycircuit-sdk-version-map", version_map["schema"])
@@ -252,6 +305,27 @@ class SdkReleaseContractTest(unittest.TestCase):
                     0, checked_lock.returncode, checked_lock.stdout + checked_lock.stderr
                 )
 
+            accepted_attestation = root / "accepted-attestation.json"
+            accepted = subprocess.run(
+                [
+                    sys.executable,
+                    ROOT / "packaging/sdk/release_candidate.py",
+                    "accept",
+                    "--candidate-dir",
+                    root / "one",
+                    "--source-revision",
+                    source,
+                    "--attestation",
+                    accepted_attestation,
+                ],
+                cwd=ROOT,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(0, accepted.returncode, accepted.stdout + accepted.stderr)
+            self.assertTrue(json.loads(accepted_attestation.read_text())["accepted"])
+
             tampered = root / "one" / "agentic_circuit-0.1.0-py3-none-any.whl"
             tampered.write_bytes(b"tampered")
             rejected_bytes = subprocess.run(
@@ -307,7 +381,6 @@ class SdkReleaseContractTest(unittest.TestCase):
                 "include/gfsim/model_api.h",
                 "lib/libgfsim.a",
                 "lib/cmake/AgenticCircuit/AgenticCircuitConfig.cmake",
-                "share/pycircuit/schemas/model-plan.schema.json",
             )
             for name in required:
                 path = install / name
@@ -382,13 +455,25 @@ class SdkReleaseContractTest(unittest.TestCase):
             self.assertFalse(attested["relocated_model_consumer"])
             self.assertFalse(attested["incremental_determinism"])
             with tarfile.open(archive, "r:gz") as bundle:
+                archive_names = set(bundle.getnames())
                 self.assertNotIn(
                     "lib/python/site-packages/example/__pycache__/x.pyc",
-                    bundle.getnames(),
+                    archive_names,
                 )
                 embedded = sorted(
-                    name for name in bundle.getnames() if name.startswith("python/wheelhouse/")
+                    name for name in archive_names if name.startswith("python/wheelhouse/")
                 )
+            self.assertTrue(
+                {
+                    "share/pycircuit/schemas/consumer-lock.schema.json",
+                    "share/pycircuit/schemas/model-manifest.schema.json",
+                    "share/pycircuit/schemas/model-plan.schema.json",
+                    "share/pycircuit/schemas/release-index.schema.json",
+                    "share/pycircuit/schemas/sdk-manifest.schema.json",
+                    "share/pycircuit/schemas/sdk-version-map.schema.json",
+                }
+                <= archive_names
+            )
             self.assertEqual(
                 sorted(f"python/wheelhouse/{wheel.name}" for wheel in wheels), embedded
             )
