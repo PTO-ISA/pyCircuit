@@ -29,9 +29,10 @@ a product trace or compare against a processor reference model.
 
 `pyc_queue_pipeline.py` exercises the initial scalar hardware lowering. Generate
 frozen ACIR first, then run `acir-queue-pycgen` or the bundled
-`tools/ac-queue-pyc-build.py` command. The bundle command validates the pinned
-toolchain lock, invokes external `pycc` for C++ and Verilog, compiles the C++
-source, runs Verilator lint, and writes a canonical hash manifest.
+`compiler/acir/tools/ac-queue-pyc-build.py` command. The bundle command
+validates the pinned toolchain lock, invokes external `pycc` for C++ and
+Verilog, compiles the C++ source, runs Verilator lint, and writes a canonical
+hash manifest.
 
 The repo-local pyCircuit 6 toolchain contract is recorded in
 `toolchains/agentic-circuit/pyc.lock.json`. Build it with the repository's

@@ -2,14 +2,15 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-ROOT_DIR="$(cd -- "${SCRIPT_DIR}/../.." && pwd)"
-# shellcheck source=../flows/scripts/lib.sh
+ROOT_DIR="$(cd -- "${SCRIPT_DIR}/../../.." && pwd)"
+# shellcheck source=../../../flows/scripts/lib.sh
 source "${ROOT_DIR}/flows/scripts/lib.sh"
 pyc_find_pycc
 
 SEED="${SEED:-1}"
 CYCLES="${CYCLES:-20000}"
 PACKETS="${PACKETS:-60000}"
+export PYC_TRACE_DIR="${PYC_TRACE_DIR:-${ROOT_DIR}/.pycircuit_out/benchmarks/fastfwd}"
 PARAMS=()
 STATS=0
 
@@ -38,7 +39,8 @@ while [[ $# -gt 0 ]]; do
     -h|--help)
       cat <<EOF
 Usage:
-  $0 [--seed N] [--cycles N] [--packets N] [--param name=value]... [--stats]
+  benchmarks/pycircuit/fastfwd/run_cpp.sh \
+    [--seed N] [--cycles N] [--packets N] [--param name=value]... [--stats]
 
 Env vars:
   SEED, CYCLES, PACKETS
@@ -46,7 +48,7 @@ Env vars:
 Tracing:
   PYC_TRACE=1        write a text log
   PYC_VCD=1          write a VCD
-  PYC_TRACE_DIR=...  output directory (default: .pycircuit_out/examples/fastfwd)
+  PYC_TRACE_DIR=...  output directory (default: .pycircuit_out/benchmarks/fastfwd)
 
 Stats:
   --stats            also emit Verilog and print basic size proxies (regs/fifos/wires/assigns)
@@ -119,7 +121,7 @@ fi
 
 build_cmd=(python3 "${ROOT_DIR}/flows/tools/build_cpp_manifest.py"
   --manifest "${CPP_OUT_DIR}/cpp_compile_manifest.json"
-  --tb "${ROOT_DIR}/contrib/fastfwd/tb_fastfwd_pyc.cpp"
+  --tb "${SCRIPT_DIR}/tb_fastfwd_pyc.cpp"
   --out "${WORK_DIR}/tb_fastfwd_pyc"
   --profile release
   --extra-include "${ROOT_DIR}/library"

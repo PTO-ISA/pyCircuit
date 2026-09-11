@@ -15,13 +15,17 @@ int main() {
       ac_generated::BankRequest{2, 3, 0, 0, 5},
   }};
 
-  for (const auto &request : requests)
+  for (std::size_t index = 0; index < requests.size(); ++index) {
+    const auto &request = requests[index];
     if (!model.requests().proposePush(request))
       return 1;
+    model.requests().doXfer({index, 0});
+  }
 
   auto rows = model.dispatch_rows();
   std::size_t cycles = 0;
-  for (std::size_t tick = 0; tick < 64; ++tick) {
+  const std::size_t firstTick = requests.size();
+  for (std::size_t tick = firstTick; tick < firstTick + 64; ++tick) {
     const gfsim::Epoch epoch{tick, 0};
     for (auto &row : rows)
       row.work(row.object, epoch);
@@ -30,7 +34,7 @@ int main() {
     for (auto &row : rows)
       row.xfer(row.object, epoch, gfsim::XferPhase::Commit);
     if (model.sink_0_values().size() == requests.size()) {
-      cycles = tick + 1;
+      cycles = tick - firstTick + 1;
       break;
     }
   }
@@ -40,9 +44,10 @@ int main() {
   if (responses.size() != requests.size())
     return 2;
   for (const auto &response : responses) {
-    if (response.tag == 0 || response.tag >= oldDataByTag.size())
+    const std::size_t tag = response.tag.value();
+    if (tag == 0 || tag >= oldDataByTag.size())
       return 3;
-    oldDataByTag[response.tag] = response.data;
+    oldDataByTag[tag] = static_cast<std::uint16_t>(response.data.value());
   }
   if (oldDataByTag[1] != 0 || oldDataByTag[2] != 0 || oldDataByTag[3] != 41 ||
       oldDataByTag[4] != 91 || oldDataByTag[5] != 0)

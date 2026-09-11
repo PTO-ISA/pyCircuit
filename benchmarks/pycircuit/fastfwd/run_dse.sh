@@ -2,7 +2,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-ROOT_DIR="$(cd -- "${SCRIPT_DIR}/../.." && pwd)"
+ROOT_DIR="$(cd -- "${SCRIPT_DIR}/../../.." && pwd)"
 
 SEED="${SEED:-1}"
 CYCLES="${CYCLES:-20000}"
@@ -33,7 +33,8 @@ while [[ $# -gt 0 ]]; do
     -h|--help)
       cat <<EOF
 Usage:
-  $0 [--seed N] [--cycles N] [--packets N] [--max-runs N]
+  benchmarks/pycircuit/fastfwd/run_dse.sh \
+    [--seed N] [--cycles N] [--packets N] [--max-runs N]
 
 This runs a design-space exploration sweep for the FastFwd example by varying
 JIT parameters and collecting both performance and simple area proxies.
@@ -122,7 +123,7 @@ while IFS= read -r cfg; do
   done
 
   set +e
-  out="$("${ROOT_DIR}/flows/tools/run_fastfwd_pyc_cpp.sh" --seed "${SEED}" --cycles "${CYCLES}" --packets "${PACKETS}" --stats "${params[@]}" 2>&1)"
+  out="$("${SCRIPT_DIR}/run_cpp.sh" --seed "${SEED}" --cycles "${CYCLES}" --packets "${PACKETS}" --stats "${params[@]}" 2>&1)"
   rc=$?
   set -e
   if (( rc != 0 )); then

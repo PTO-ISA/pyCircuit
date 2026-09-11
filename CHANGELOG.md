@@ -5,6 +5,10 @@ may change frequently.
 
 ## Unreleased
 
+- Consolidate FastFwd performance harnesses and design-space exploration under
+  `benchmarks/pycircuit/fastfwd`, remove the ambiguous `contrib/fastfwd` root,
+  and tighten repository layout checks for public examples and benchmarks
+  (Decision 0157).
 - Preserve rule, state, port, local, and project-relative source provenance in
   QueueGraph/GFSim output and render state transitions through reviewable named
   components without changing runtime behavior or ABI (Decision 0244, issue

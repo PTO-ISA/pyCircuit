@@ -1,0 +1,24 @@
+{
+  "run_id": "20260912-repository-layout-followup",
+  "status": "passed",
+  "base_revision": "88bfa1381a5dd1f9022cc327bd7465cc2e1f7619",
+  "decision_ids": ["0157", "0158", "0159"],
+  "results": {
+    "public_examples": {"discovered_and_emitted": 28, "passed": true},
+    "fastfwd_cpp_benchmark": {"passed": true},
+    "fastfwd_dse_smoke": {"runs": 1, "passed": true},
+    "agentic_memory_harnesses": {"passed": 4, "failed": 0},
+    "agentic_documented_codegen": {"passed": true},
+    "focused_layout_tests": {"passed": 11, "failed": 0},
+    "unit": {"passed": 130, "failed": 0},
+    "agentic_contracts": {"passed": true},
+    "ir_coverage": {"passed": true},
+    "pyc_inventory": {"operations": 41, "types": 2, "passed": true},
+    "release_layout": {"passed": true},
+    "repository_management": {"passed": true},
+    "pre_commit": {"passed": true},
+    "mkdocs_strict": {"passed": true},
+    "decision_status": {"passed": true, "deferred": 0}
+  },
+  "behavior": "Public examples, correctness fixtures, performance workloads, and consumer designs have distinct enforced ownership; FastFwd performance tooling is runnable from its benchmark root and no deprecated designs or contrib surface remains."
+}

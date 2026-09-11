@@ -85,6 +85,7 @@ large cross-backend coverage. The repository has no general-purpose
 | **V6 testbench** (`CycleAwareTb`) | `tests/unit/test_pyc6_surface.py`, `tests/unit/test_v6_state_signal.py`, and repository examples |
 | **Testbench layout** (low-level `Tb`) | `examples/pycircuit/*/*/tb_*.py` and `tests/integration/pycircuit/fixtures/*/tb_*.py` |
 | **Structured IO** | Designs using `spec` / bundles per `docs/reference/spec-structures.md` |
+| **Performance-only workloads** | `benchmarks/pycircuit/`; FastFwd and RegisterFile keep long-running harnesses outside public examples and correctness fixtures |
 
 Mirror the **directory layout** (design file + `tb_*.py` + optional `README.md`) of the generic example closest to your block's complexity. Complete consumer hierarchies remain in their owning repositories.
 

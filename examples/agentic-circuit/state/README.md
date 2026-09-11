@@ -18,7 +18,8 @@ is not the lost-wakeup solution tracked by issue #11.
 
 The checked multi-writer Frozen ACIR fixture remains
 `table_multi_writer_issue.mlir`. Additional Python inputs used only for E2E
-regression coverage live under `tests/e2e/fixtures/table_examples/` and are not
+regression coverage live under
+`tests/integration/agentic-circuit/e2e/fixtures/table_examples/` and are not
 public examples.
 
 `rob.py` is the first epoch 0.5 rule-lowering example. It is intentionally a

@@ -6,8 +6,8 @@
 | 状态 | 已在 `main` 实现；本文是团队阅读入口 |
 | 适用读者 | Python 前端、ACIR、gfsim、PYC/Verilog 和模型验证开发者 |
 | 规范主文档 | [Agentic Circuit Specification Manual](agentic-circuit.md) |
-| 机器可读清单 | `opcodes.json` |
-| 可执行示例 | `examples/pipelines` |
+| 机器可读清单 | `schemas/agentic-circuit/opcodes.json` |
+| 可执行示例 | `examples/agentic-circuit/pipelines` |
 
 ## 文档定位
 
@@ -145,7 +145,7 @@ credit、dependency 和 reorder 等可复用硬件行为。
 查看当前闭集：
 
 ```bash
-build/dev-llvm22/bin/acir-opcode-catalog
+.pycircuit_out/acir/dev-llvm22/bin/acir-opcode-catalog
 agentic-circuit schema opcode ac.transform
 ```
 
@@ -1343,30 +1343,32 @@ PYC design hierarchy 明确拒绝 `ac.expect`；对应检查必须放到 PYC tes
 先配置 LLVM 22.1.8 开发环境：
 
 ```bash
-scripts/bootstrap-dev.sh
+tools/agentic-circuit/bootstrap-dev.sh
 source .venv/bin/activate
-cmake --preset dev-llvm22
-cmake --build --preset dev-llvm22
+(cd compiler/acir && cmake --preset dev-llvm22)
+cmake --build .pycircuit_out/acir/dev-llvm22
 ```
 
 生成 frozen ACIR、QueueGraph plan 和 typed gfsim C++：
 
 ```bash
-PYTHONPATH=src .venv/bin/python tools/ac-queue-cxxgen.py \
-  examples/pipelines/routed_dependency_pipeline.py \
+PYTHONPATH=python/semantic-core/src:python/agentic-circuit/src \
+  .venv/bin/python compiler/acir/tools/ac-queue-cxxgen.py \
+  examples/agentic-circuit/pipelines/routed_dependency_pipeline.py \
   --system routed_dependency_pipeline \
-  --acir-output build/routed_dependency_pipeline.ac.mlir \
-  --plan-output build/routed_dependency_pipeline.queue-plan.json \
-  --acir-opt build/dev-llvm22/bin/acir-opt \
-  --queue-plan-tool build/dev-llvm22/bin/acir-queue-plan \
-  --queue-cxxgen-tool build/dev-llvm22/bin/acir-queue-cxxgen \
-  --output build/routed_dependency_pipeline.cpp
+  --acir-output .pycircuit_out/examples/routed_dependency_pipeline.ac.mlir \
+  --plan-output .pycircuit_out/examples/routed_dependency_pipeline.queue-plan.json \
+  --acir-opt .pycircuit_out/acir/dev-llvm22/bin/acir-opt \
+  --queue-plan-tool .pycircuit_out/acir/dev-llvm22/bin/acir-queue-plan \
+  --queue-cxxgen-tool .pycircuit_out/acir/dev-llvm22/bin/acir-queue-cxxgen \
+  --output .pycircuit_out/examples/routed_dependency_pipeline.cpp
 ```
 
 验证生成 C++：
 
 ```bash
-c++ -std=c++20 -I include -fsyntax-only build/routed_dependency_pipeline.cpp
+c++ -std=c++20 -Isimulator/gfsim/include -fsyntax-only \
+  .pycircuit_out/examples/routed_dependency_pipeline.cpp
 ```
 
 使用锁定的 pyCircuit toolchain 生成 PYC C++ 与 Verilog：
@@ -1374,19 +1376,19 @@ c++ -std=c++20 -I include -fsyntax-only build/routed_dependency_pipeline.cpp
 ```bash
 PYC_TOOLCHAIN_ROOT=/path/to/pycircuit/toolchain/install
 
-.venv/bin/python tools/ac-queue-pyc-build.py \
-  build/routed_dependency_pipeline.ac.mlir \
-  --pycgen-tool build/dev-llvm22/bin/acir-queue-pycgen \
+.venv/bin/python compiler/acir/tools/ac-queue-pyc-build.py \
+  .pycircuit_out/examples/routed_dependency_pipeline.ac.mlir \
+  --pycgen-tool .pycircuit_out/toolchain/build/bin/acir-queue-pycgen \
   --pycc "$PYC_TOOLCHAIN_ROOT/bin/pycc" \
-  --toolchain-lock toolchains/pyc.lock.json \
+  --toolchain-lock toolchains/agentic-circuit/pyc.lock.json \
   --toolchain-metadata \
     "$PYC_TOOLCHAIN_ROOT/share/pycircuit/toolchain-metadata.json" \
   --cxx "$(command -v c++)" \
   --verilator "$(command -v verilator)" \
-  --pyc-output build/routed_dependency_pipeline.pyc \
-  --cpp-output-dir build/routed_dependency_pipeline-pyc-cpp \
-  --verilog-output-dir build/routed_dependency_pipeline-verilog \
-  --manifest build/routed_dependency_pipeline-pyc-manifest.json
+  --pyc-output .pycircuit_out/examples/routed_dependency_pipeline.pyc \
+  --cpp-output-dir .pycircuit_out/examples/routed_dependency_pipeline-pyc-cpp \
+  --verilog-output-dir .pycircuit_out/examples/routed_dependency_pipeline-verilog \
+  --manifest .pycircuit_out/examples/routed_dependency_pipeline-pyc-manifest.json
 ```
 
 命令会检查 `pyc.lock.json`，执行 PYC
@@ -1612,9 +1614,9 @@ Queue 拓扑错误使用 `ACPY-QUEUE-*`，标量 value primitive 的调用、类
 新同学可以按以下顺序阅读和动手：
 
 1. 本文的“核心对象”和“最小示例”；
-2. `examples/pipelines/README.md`；
-3. `routed_dependency_pipeline.py`；
+2. `examples/agentic-circuit/pipelines/README.md`；
+3. `examples/agentic-circuit/pipelines/routed_dependency_pipeline.py`；
 4. [英文规范](agentic-circuit.md)；
-5. `opcodes.json` 和
-   `test/ACIR`；
+5. `schemas/agentic-circuit/opcodes.json` 和
+   `tests/mlir/agentic-circuit/ACIR`；
 6. [NDF 仓库布局验证](../../development/acir/verification/repository-layout.md)。

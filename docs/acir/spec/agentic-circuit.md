@@ -63,7 +63,7 @@ The principal machine-readable and executable sources are:
   `queue_blocks.h` for gfsim behavior;
 - `test_queue_frontend.py`
   for accepted and rejected Python syntax;
-- `test/ACIR` for ACIR conformance tests.
+- `tests/mlir/agentic-circuit/ACIR` for ACIR conformance tests.
 
 The executable conformance suites and generated
 [IR coverage ledger](../../development/acir/verification/ir-coverage.md) track the live
@@ -171,7 +171,7 @@ scope names or compositions. They are not generic ACIR opcodes.
 Generate the canonical catalog directly from the shared backend contract table:
 
 ```sh
-build/dev-llvm22/bin/acir-opcode-catalog
+.pycircuit_out/acir/dev-llvm22/bin/acir-opcode-catalog
 agentic-circuit schema opcode ac.transform
 ```
 
@@ -2414,29 +2414,31 @@ trace -> frontend transform -> four-way route
 Configure and build the native tools first:
 
 ```sh
-scripts/bootstrap-dev.sh
-cmake --preset dev-llvm22
-cmake --build --preset dev-llvm22
+tools/agentic-circuit/bootstrap-dev.sh
+(cd compiler/acir && cmake --preset dev-llvm22)
+cmake --build .pycircuit_out/acir/dev-llvm22
 ```
 
 Generate all canonical Queue artifacts:
 
 ```sh
-PYTHONPATH=src .venv/bin/python tools/ac-queue-cxxgen.py \
-  examples/pipelines/routed_dependency_pipeline.py \
+PYTHONPATH=python/semantic-core/src:python/agentic-circuit/src \
+  .venv/bin/python compiler/acir/tools/ac-queue-cxxgen.py \
+  examples/agentic-circuit/pipelines/routed_dependency_pipeline.py \
   --system routed_dependency_pipeline \
-  --acir-output build/routed_dependency_pipeline.ac.mlir \
-  --plan-output build/routed_dependency_pipeline.queue-plan.json \
-  --acir-opt build/dev-llvm22/bin/acir-opt \
-  --queue-plan-tool build/dev-llvm22/bin/acir-queue-plan \
-  --queue-cxxgen-tool build/dev-llvm22/bin/acir-queue-cxxgen \
-  --output build/routed_dependency_pipeline.cpp
+  --acir-output .pycircuit_out/examples/routed_dependency_pipeline.ac.mlir \
+  --plan-output .pycircuit_out/examples/routed_dependency_pipeline.queue-plan.json \
+  --acir-opt .pycircuit_out/acir/dev-llvm22/bin/acir-opt \
+  --queue-plan-tool .pycircuit_out/acir/dev-llvm22/bin/acir-queue-plan \
+  --queue-cxxgen-tool .pycircuit_out/acir/dev-llvm22/bin/acir-queue-cxxgen \
+  --output .pycircuit_out/examples/routed_dependency_pipeline.cpp
 ```
 
 Check that the generated C++ is valid for the local compiler:
 
 ```sh
-c++ -std=c++20 -I include -fsyntax-only build/routed_dependency_pipeline.cpp
+c++ -std=c++20 -Isimulator/gfsim/include -fsyntax-only \
+  .pycircuit_out/examples/routed_dependency_pipeline.cpp
 ```
 
 ### Generate PYC, PYC C++, and Verilog
@@ -2447,19 +2449,19 @@ matching local pyCircuit installation, run the canonical bundle command:
 ```sh
 PYC_TOOLCHAIN_ROOT=/path/to/pycircuit/toolchain/install
 
-.venv/bin/python tools/ac-queue-pyc-build.py \
-  build/routed_dependency_pipeline.ac.mlir \
-  --pycgen-tool build/dev-llvm22/bin/acir-queue-pycgen \
+.venv/bin/python compiler/acir/tools/ac-queue-pyc-build.py \
+  .pycircuit_out/examples/routed_dependency_pipeline.ac.mlir \
+  --pycgen-tool .pycircuit_out/toolchain/build/bin/acir-queue-pycgen \
   --pycc "$PYC_TOOLCHAIN_ROOT/bin/pycc" \
-  --toolchain-lock toolchains/pyc.lock.json \
+  --toolchain-lock toolchains/agentic-circuit/pyc.lock.json \
   --toolchain-metadata \
     "$PYC_TOOLCHAIN_ROOT/share/pycircuit/toolchain-metadata.json" \
   --cxx "$(command -v c++)" \
   --verilator "$(command -v verilator)" \
-  --pyc-output build/routed_dependency_pipeline.pyc \
-  --cpp-output-dir build/routed_dependency_pipeline-pyc-cpp \
-  --verilog-output-dir build/routed_dependency_pipeline-verilog \
-  --manifest build/routed_dependency_pipeline-pyc-manifest.json
+  --pyc-output .pycircuit_out/examples/routed_dependency_pipeline.pyc \
+  --cpp-output-dir .pycircuit_out/examples/routed_dependency_pipeline-pyc-cpp \
+  --verilog-output-dir .pycircuit_out/examples/routed_dependency_pipeline-verilog \
+  --manifest .pycircuit_out/examples/routed_dependency_pipeline-pyc-manifest.json
 ```
 
 The command validates the toolchain lock, emits PYC C++ and Verilog, runs C++
