@@ -2203,7 +2203,7 @@ TEST(QueueBlocksTest, DirectWritersUseExplicitPriorityNotObjectOrWorkOrder) {
 }
 
 TEST(QueueBlocksTest,
-     MaskedWriterLosesToHigherPriorityCompleteWriterAndResets) {
+     MaskedWriterMergesBeforeHigherPriorityCompleteWriterAndResets) {
   SimTable<uint16_t> table("table", 2, nullptr, 2);
   TableMaskedWriteSource<uint16_t, FixedMask, AlwaysEnabled, FixedMaskedValue>
       masked("masked", 0, nullptr, table, {0b11}, {}, {22});
@@ -2218,7 +2218,7 @@ TEST(QueueBlocksTest,
   complete.doXfer({0, 0});
   masked.doXfer({0, 0});
   EXPECT_EQ(table.at(0), 11u);
-  EXPECT_EQ(table.at(1), 0u);
+  EXPECT_EQ(table.at(1), 22u);
   EXPECT_TRUE(masked.runtimeFailureCode().empty());
 
   masked.doWork({1, 0});
@@ -2226,7 +2226,7 @@ TEST(QueueBlocksTest,
   masked.doArbitrate({1, 0});
   table.doXfer({1, 0});
   EXPECT_EQ(table.at(0), 11u);
-  EXPECT_EQ(table.at(1), 0u);
+  EXPECT_EQ(table.at(1), 22u);
 }
 
 TEST(QueueBlocksTest,

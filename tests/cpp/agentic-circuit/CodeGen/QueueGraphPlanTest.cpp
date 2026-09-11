@@ -147,6 +147,7 @@ void expectModelBundleRuns(
   llvm::raw_fd_ostream output(harness, error);
   ASSERT_FALSE(error);
   output << R"cpp(#include "generated/model.h"
+#include <cstdint>
 #include <cstring>
 #include <string>
 #include <string_view>
