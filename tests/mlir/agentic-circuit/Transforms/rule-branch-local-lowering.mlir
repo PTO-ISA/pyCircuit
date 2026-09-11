@@ -38,8 +38,8 @@ module attributes {ac.contract_epoch = "0.5", ac.model_kind = "queue_graph", ac.
 // PLAN: "state_writes":[{"fields":["$entry"],"index":"v{{[0-9]+}}","mode":"replace","present":"v{{[0-9]+}}","table":"right"
 // PLAN-SAME: {"fields":["$entry"],"index":"v{{[0-9]+}}","mode":"replace","present":"v{{[0-9]+}}","table":"left"
 
-// GFSIM: gfsim::OwnerWriteBatch<gfsim::UInt<8>> owner_writes0;
-// GFSIM: if (proposal_present1)
-// GFSIM: owner_writes0.emplace_back(static_cast<size_t>(proposal_index1), proposal_value1);
-// GFSIM: gfsim::OwnerWriteBatch<gfsim::UInt<8>> owner_writes1;
-// GFSIM: if (proposal_present0)
+// GFSIM: gfsim::OwnerWriteBatch<gfsim::UInt<8>> state_left_writes;
+// GFSIM: if (state_left_write_present)
+// GFSIM: state_left_writes.emplace_back(static_cast<size_t>(state_left_index), state_left_next);
+// GFSIM: gfsim::OwnerWriteBatch<gfsim::UInt<8>> state_right_writes;
+// GFSIM: if (state_right_write_present)

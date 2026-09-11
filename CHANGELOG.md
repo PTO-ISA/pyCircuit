@@ -5,6 +5,10 @@ may change frequently.
 
 ## Unreleased
 
+- Preserve rule, state, port, local, and project-relative source provenance in
+  QueueGraph/GFSim output and render state transitions through reviewable named
+  components without changing runtime behavior or ABI (Decision 0244, issue
+  #106).
 - Add typed pure ACPy helpers for rule and Queue expressions, including explicit
   `@ac.inline`, bounded conditional/local lowering, ordinary GFSim functions,
   and call-free PYC legalization (Decision 0243, issue #104).

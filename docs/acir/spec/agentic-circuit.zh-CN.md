@@ -1125,6 +1125,23 @@ def accumulator(incoming: ac.u8) -> ac.u8:
 每个 module instance 继续独立拥有原 state；capture 不产生 module-object reference，也不
 改变 committed read、proposal、仲裁、output presence 或 backpressure 语义。
 
+### 生成 rule 的来源信息与 transition 可读性
+
+QueueGraph 和 GFSim 将源码中的 rule、状态、端口和显式局部变量名称保存为展示元数据。
+生成的 stateful policy 会标明 rule 与 stable ID，给出规范化的工程相对
+`file:line:column`，并在构造 `gfsim::StateTransitionPlan` 前分别命名功能触发条件、
+每个 owner 写入、每个可选输出和每个 reservation。
+
+展示元数据不承担身份语义。`ac.name`、stable ID、scheduler object ID、specialization
+fingerprint、cache key 和 tuple 顺序继续保持原有含义。编译器从 fingerprint 输入中删除
+`ac.display_name`，统一合法化 C++ 标识符，并只在真实冲突时添加确定性的短编号。没有
+源码名称的值退化为稳定临时名；生成结果绝不写入构建主机的绝对路径。
+
+这种可读构造不是新的运行时 API。transition plan 仍按完全相同的类型化 tuple 顺序承载
+writes、outputs 与 reservations。局部 record 更新不等同于字段级状态写；后端不会把已经
+lower 的字段比较猜测并恢复为整体相等。位宽、溢出、访问检查、求值顺序、ownership、
+backpressure、reservation、arbitration 与原子提交行为均保持不变。
+
 epoch 0.5 的 pure rule 支持一个或多个 Queue 输入、一个输出和一条完整返回路径。
 每个参数都是对应 Queue 的 committed head payload。前端只生成 variadic transient
 `ac.rule` 与 typed output-handshake obligation；MLIR pass 推导全部输入消费和输出生产

@@ -137,11 +137,11 @@ builtin.module attributes {
 // PLAN-SAME: "name":"output_a"
 // PLAN-SAME: "priority":1
 // PLAN-SAME: "definition":"DualAccumulator"
-// PLAN-SAME: "interface_inputs":[{"lanes":1,"name":"input_0","payload_type":"i8","rate":1},{"lanes":1,"name":"input_1","payload_type":"i8","rate":1}]
-// PLAN-SAME: "interface_outputs":[{"lanes":1,"name":"output_a","payload_type":"i8","rate":1},{"lanes":1,"name":"output_b","payload_type":"i8","rate":1}]
+// PLAN-SAME: "interface_inputs":[{"display_name":"input_0","lanes":1,"name":"input_0","payload_type":"i8","rate":1},{"display_name":"input_1","lanes":1,"name":"input_1","payload_type":"i8","rate":1}]
+// PLAN-SAME: "interface_outputs":[{"display_name":"output_0","lanes":1,"name":"output_a","payload_type":"i8","rate":1},{"display_name":"output_1","lanes":1,"name":"output_b","payload_type":"i8","rate":1}]
 
 // CXX-COUNT-1: class [[IMPLEMENTATION:Module_DualAccumulator]] final : public gfsim::Module
-// CXX: gfsim::QueueTableTransition<[[IMPLEMENTATION]]_block_0_policy
-// CXX: gfsim::QueueTableTransition<[[IMPLEMENTATION]]_block_1_policy
+// CXX: gfsim::QueueTableTransition<[[IMPLEMENTATION]]_rule_accumulate_b_policy
+// CXX: gfsim::QueueTableTransition<[[IMPLEMENTATION]]_rule_accumulate_a_policy
 // CXX: class MultiRuleReuse final : public gfsim::Module
 // CXX-COUNT-2: [[IMPLEMENTATION]] instance_

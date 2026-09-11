@@ -40,6 +40,18 @@ def _write_atomic(path: Path, content: str) -> None:
             os.unlink(temporary)
 
 
+def _display_source_path(path: Path) -> str:
+    """Normalize a source path for generated diagnostics and comments."""
+
+    source = path.resolve()
+    for root in (_REPO_ROOT.resolve(), Path.cwd().resolve()):
+        try:
+            return source.relative_to(root).as_posix()
+        except ValueError:
+            continue
+    return source.name
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(allow_abbrev=False)
     parser.add_argument("source", type=Path)
@@ -71,11 +83,17 @@ def main() -> int:
             "--queue-cxxgen-tool must be provided together"
         )
     source_text = arguments.source.read_text(encoding="utf-8")
+    source_path = _display_source_path(arguments.source)
     raw_acir = lower_queue_source(
-        source_text, arguments.system, host_results=arguments.host_results
+        source_text,
+        arguments.system,
+        host_results=arguments.host_results,
+        source_path=source_path,
     )
     try:
-        program = parse_queue_program(source_text, arguments.system)
+        program = parse_queue_program(
+            source_text, arguments.system, source_path=source_path
+        )
     except QueueFrontendError:
         program = None
     requires_native = (

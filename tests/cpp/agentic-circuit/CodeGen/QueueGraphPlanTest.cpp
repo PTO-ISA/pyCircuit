@@ -6,6 +6,7 @@
 #include "acir/Dialect/ACIR/ACIRDialect.h"
 #include "mlir/Dialect/DLTI/DLTI.h"
 #include "mlir/IR/MLIRContext.h"
+#include "mlir/IR/SymbolTable.h"
 #include "mlir/Parser/Parser.h"
 #include "mlir/Pass/PassManager.h"
 #include "llvm/ADT/SmallString.h"
@@ -1290,7 +1291,7 @@ TEST(QueueGraphPlanTest,
       source.slice(classBegin + std::string("class ").size(), classEnd);
   EXPECT_EQ(source.count(("class " + implementation + " final").str()), 1u);
   EXPECT_EQ(source.count(("  " + implementation + " instance_").str()), 2u);
-  EXPECT_EQ(source.count("gfsim::SimTable<gfsim::UInt<8>> table_0_;"), 1u);
+  EXPECT_EQ(source.count("gfsim::SimTable<gfsim::UInt<8>> state_sum_;"), 1u);
   EXPECT_NE(source.find("activation_offsets()"), llvm::StringRef::npos);
   EXPECT_NE(source.find("activation_complete() { return true; }"),
             llvm::StringRef::npos);
@@ -1366,6 +1367,19 @@ TEST(QueueGraphPlanTest,
                            "queue-multi-rule-module-freeze.mlir",
       &context);
   ASSERT_TRUE(module);
+  mlir::SymbolTable symbols(*module);
+  auto definition = symbols.lookup<ac::ModuleOp>("DualAccumulator");
+  ASSERT_TRUE(definition);
+  definition->setAttr(
+      "ac.input_display_names",
+      mlir::ArrayAttr::get(&context,
+                           {mlir::StringAttr::get(&context, "completion-in"),
+                            mlir::StringAttr::get(&context, "completion_in")}));
+  definition->setAttr(
+      "ac.output_display_names",
+      mlir::ArrayAttr::get(&context,
+                           {mlir::StringAttr::get(&context, "result"),
+                            mlir::StringAttr::get(&context, "result")}));
   ASSERT_TRUE(freezeQueueGraph(*module));
   auto plan = buildQueueGraphPlan(*module);
   ASSERT_TRUE(bool(plan)) << llvm::toString(plan.takeError());
@@ -1374,6 +1388,10 @@ TEST(QueueGraphPlanTest,
   const QueueGraphPlan &specialization = *plan->moduleSpecializations.front();
   ASSERT_EQ(specialization.interfaceInputs.size(), 2u);
   ASSERT_EQ(specialization.interfaceOutputs.size(), 2u);
+  EXPECT_EQ(specialization.interfaceInputs[0].displayName, "completion-in");
+  EXPECT_EQ(specialization.interfaceInputs[1].displayName, "completion_in");
+  EXPECT_EQ(specialization.interfaceOutputs[0].displayName, "result");
+  EXPECT_EQ(specialization.interfaceOutputs[1].displayName, "result");
   ASSERT_EQ(specialization.blocks.size(), 2u);
   EXPECT_EQ(specialization.blocks[0].stableId, "accumulate_b");
   EXPECT_EQ(specialization.blocks[0].priority, 0u);
@@ -1391,9 +1409,17 @@ TEST(QueueGraphPlanTest,
       source.slice(classBegin + std::string("class ").size(), classEnd);
   EXPECT_EQ(source.count(("class " + implementation + " final").str()), 1u);
   EXPECT_EQ(source.count(("  " + implementation + " instance_").str()), 2u);
-  EXPECT_NE(source.find((implementation + "_block_0_policy").str()),
+  EXPECT_NE(source.find((implementation + "_rule_accumulate_b_policy").str()),
             llvm::StringRef::npos);
-  EXPECT_NE(source.find((implementation + "_block_1_policy").str()),
+  EXPECT_NE(source.find((implementation + "_rule_accumulate_a_policy").str()),
+            llvm::StringRef::npos);
+  EXPECT_NE(source.find("gfsim::SimQueue<gfsim::UInt<8>> &completion_in"),
+            llvm::StringRef::npos);
+  EXPECT_NE(source.find("gfsim::SimQueue<gfsim::UInt<8>> &completion_in_2"),
+            llvm::StringRef::npos);
+  EXPECT_NE(source.find("gfsim::SimQueue<gfsim::UInt<8>> &result"),
+            llvm::StringRef::npos);
+  EXPECT_NE(source.find("gfsim::SimQueue<gfsim::UInt<8>> &result_2"),
             llvm::StringRef::npos);
 
   std::string executableSource = *generated;
@@ -1602,21 +1628,20 @@ TEST(QueueGraphPlanTest,
   auto generated = generateQueueGraphCpp(*plan);
   ASSERT_TRUE(bool(generated)) << llvm::toString(generated.takeError());
   llvm::StringRef source(*generated);
-  const size_t first = source.find(
-      "owner_writes0.emplace_back(static_cast<size_t>(proposal_index0), "
-      "proposal_value0)");
-  const size_t second = source.find(
-      "owner_writes0.emplace_back(static_cast<size_t>(proposal_index2), "
-      "proposal_value2)");
+  const size_t first =
+      source.find("state_cursor_writes.emplace_back(static_cast<size_t>("
+                  "state_cursor_index), state_cursor_next)");
+  const size_t second =
+      source.find("state_cursor_writes.emplace_back(static_cast<size_t>("
+                  "state_cursor_2_index), state_cursor_2_next)");
   ASSERT_NE(first, llvm::StringRef::npos);
   ASSERT_NE(second, llvm::StringRef::npos);
   EXPECT_LT(first, second);
-  EXPECT_NE(source.find(
-                "owner_writes1.emplace_back(static_cast<size_t>("
-                "proposal_index1), proposal_value1)"),
+  EXPECT_NE(source.find("state_total_writes.emplace_back(static_cast<size_t>("
+                        "state_total_index), state_total_next)"),
             llvm::StringRef::npos);
-  EXPECT_NE(source.find("std::move(owner_writes0), "
-                        "std::move(owner_writes1)"),
+  EXPECT_NE(source.find("std::move(state_cursor_writes), "
+                        "std::move(state_total_writes)"),
             llvm::StringRef::npos);
   expectCppCompiles(*generated);
 }
@@ -2047,11 +2072,9 @@ TEST(QueueGraphPlanTest,
   EXPECT_NE(cpp->find("gfsim::StateTransitionPlan<std::tuple<>, "
                       "std::tuple<gfsim::UInt<8>, gfsim::UInt<16>>>"),
             std::string::npos);
-  EXPECT_NE(cpp->find(
-                "output_present0 ? std::optional<gfsim::UInt<8>>"),
+  EXPECT_NE(cpp->find("output_narrow_present ? std::optional<gfsim::UInt<8>>"),
             std::string::npos);
-  EXPECT_NE(cpp->find(
-                "output_present1 ? std::optional<gfsim::UInt<16>>"),
+  EXPECT_NE(cpp->find("output_wide_present ? std::optional<gfsim::UInt<16>>"),
             std::string::npos);
   expectCppCompiles(*cpp);
 
@@ -2071,8 +2094,8 @@ TEST(QueueGraphPlanTest, CompilesSevenOptionalOutputsPlusMandatoryAck) {
   auto cpp = generateQueueGraphCpp(plan);
   ASSERT_TRUE(bool(cpp)) << llvm::toString(cpp.takeError());
   for (unsigned ordinal = 0; ordinal < 8; ++ordinal)
-    EXPECT_NE(cpp->find("output_present" + std::to_string(ordinal) +
-                        " ? std::optional<"),
+    EXPECT_NE(cpp->find("output_" + plan.blocks[1].outputs[ordinal] +
+                        "_present ? std::optional<"),
               std::string::npos);
   EXPECT_NE(cpp->find("gfsim::UInt<15>"), std::string::npos);
   expectCppCompiles(*cpp);
@@ -2539,20 +2562,19 @@ TEST(QueueGraphPlanTest, FlatGeneratorPreservesOrderedRepeatedWritesPerOwner) {
   ASSERT_TRUE(bool(generated)) << llvm::toString(generated.takeError());
   llvm::StringRef source(*generated);
   const size_t first = source.find(
-      "owner_writes0.emplace_back(static_cast<size_t>(proposal_index0), "
-      "proposal_value0)");
-  const size_t second = source.find(
-      "owner_writes0.emplace_back(static_cast<size_t>(proposal_index2), "
-      "proposal_value2)");
+      "state_table_writes.emplace_back(static_cast<size_t>(state_table_index), "
+      "state_table_next)");
+  const size_t second =
+      source.find("state_table_writes.emplace_back(static_cast<size_t>("
+                  "state_table_2_index), state_table_2_next)");
   ASSERT_NE(first, llvm::StringRef::npos);
   ASSERT_NE(second, llvm::StringRef::npos);
   EXPECT_LT(first, second);
-  EXPECT_NE(source.find(
-                "owner_writes1.emplace_back(static_cast<size_t>("
-                "proposal_index1), proposal_value1)"),
+  EXPECT_NE(source.find("state_shadow_writes.emplace_back(static_cast<size_t>("
+                        "state_shadow_index), state_shadow_next)"),
             llvm::StringRef::npos);
-  EXPECT_NE(source.find("std::move(owner_writes0), "
-                        "std::move(owner_writes1)"),
+  EXPECT_NE(source.find("std::move(state_table_writes), "
+                        "std::move(state_shadow_writes)"),
             llvm::StringRef::npos);
   expectCppCompiles(*generated);
 }
@@ -4162,6 +4184,148 @@ TEST(QueueGraphPlanTest, BackendsRejectUncatalogedApplicationBlock) {
   EXPECT_NE(llvm::toString(pyc.takeError())
                 .find("official opcode has no PYC lowering: 'dispatch'"),
             std::string::npos);
+}
+
+TEST(QueueGraphPlanTest, PreservesReadableRuleSourceAndLocalNames) {
+  EXPECT_EQ(legalizeQueueGraphIdentifier("old-value"), "old_value");
+  EXPECT_EQ(legalizeQueueGraphIdentifier("class"), "class_");
+
+  mlir::MLIRContext context;
+  context.loadDialect<ac::ACIRDialect, mlir::DLTIDialect>();
+  auto module =
+      mlir::parseSourceString<mlir::ModuleOp>(kStatefulFiring, &context);
+  ASSERT_TRUE(module);
+  ac::FiringOp firing;
+  module->walk([&](ac::FiringOp candidate) { firing = candidate; });
+  ASSERT_TRUE(firing);
+  unsigned named = 0;
+  firing.getBody().walk([&](mlir::Operation *operation) {
+    if (named == 2 || operation->getNumResults() != 1 ||
+        !mlir::isa<ac::VarType>(operation->getResult(0).getType()))
+      return;
+    operation->setAttr("ac.display_name",
+                       mlir::StringAttr::get(&context, "old-value"));
+    ++named;
+  });
+  firing->setLoc(mlir::FileLineColLoc::get(
+      &context, "/tmp/project/examples/agentic/readable.py", 120, 5));
+  ASSERT_TRUE(freezeQueueGraph(*module));
+  auto plan = buildQueueGraphPlan(*module);
+  ASSERT_TRUE(bool(plan)) << llvm::toString(plan.takeError());
+  const QueueBlockPlan &block =
+      *llvm::find_if(plan->blocks, [](const QueueBlockPlan &candidate) {
+        return candidate.kind == "firing";
+      });
+  EXPECT_EQ(block.displayRuleName, "install");
+  EXPECT_EQ(block.sourceFile, "examples/agentic/readable.py");
+  EXPECT_EQ(block.expressions[0].result, "old_value");
+  EXPECT_EQ(block.expressions[1].result, "old_value_2");
+  auto cpp = generateQueueGraphCpp(*plan);
+  ASSERT_TRUE(bool(cpp)) << llvm::toString(cpp.takeError());
+  EXPECT_NE(cpp->find("struct rule_install_policy"), std::string::npos);
+  EXPECT_NE(cpp->find("// source: examples/agentic/readable.py:120:5"),
+            std::string::npos);
+  EXPECT_NE(cpp->find("state_table_next"), std::string::npos);
+  EXPECT_NE(cpp->find("output_output"), std::string::npos);
+  EXPECT_NE(cpp->find("rule_condition"), std::string::npos);
+  EXPECT_NE(cpp->find("nullopt means this rule performs no transition"),
+            std::string::npos);
+  expectCppCompiles(*cpp);
+}
+
+TEST(QueueGraphPlanTest, DisplayNamesDoNotChangeStructuredFingerprints) {
+  mlir::MLIRContext context;
+  context.loadDialect<ac::ACIRDialect, mlir::DLTIDialect>();
+  auto parse = [&]() {
+    return mlir::parseSourceFile<mlir::ModuleOp>(
+        ACIR_TEST_SOURCE_DIR "/tests/mlir/agentic-circuit/Transforms/"
+                             "queue-module-freeze.mlir",
+        &context);
+  };
+  auto baseline = parse();
+  auto displayed = parse();
+  ASSERT_TRUE(baseline);
+  ASSERT_TRUE(displayed);
+  mlir::SymbolTable preFreezeSymbols(*displayed);
+  auto displayedModule = preFreezeSymbols.lookup<ac::ModuleOp>("Increment");
+  ASSERT_TRUE(displayedModule);
+  displayedModule->setAttr(
+      "ac.input_display_names",
+      mlir::ArrayAttr::get(
+          &context, {mlir::StringAttr::get(&context, "request")}));
+  displayedModule->setAttr(
+      "ac.output_display_names",
+      mlir::ArrayAttr::get(
+          &context, {mlir::StringAttr::get(&context, "response")}));
+  bool labeled = false;
+  displayed->walk([&](ac::VarAddOp operation) {
+    if (labeled)
+      return;
+    operation->setAttr("ac.display_name",
+                       mlir::StringAttr::get(&context, "next_value"));
+    operation->setAttr("ac.source_file",
+                       mlir::StringAttr::get(&context, "src/readable.py"));
+    operation->setAttr("ac.source_line",
+                       mlir::IntegerAttr::get(
+                           mlir::IntegerType::get(&context, 64), 12));
+    operation->setAttr("ac.source_column",
+                       mlir::IntegerAttr::get(
+                           mlir::IntegerType::get(&context, 64), 3));
+    labeled = true;
+  });
+  ASSERT_TRUE(labeled);
+  ASSERT_TRUE(freezeQueueGraph(*baseline));
+  ASSERT_TRUE(freezeQueueGraph(*displayed));
+  mlir::SymbolTable baselineSymbols(*baseline);
+  mlir::SymbolTable displayedSymbols(*displayed);
+  auto baselineDefinition = baselineSymbols.lookup<ac::ModuleOp>("Increment");
+  auto displayedDefinition = displayedSymbols.lookup<ac::ModuleOp>("Increment");
+  ASSERT_TRUE(baselineDefinition);
+  ASSERT_TRUE(displayedDefinition);
+  EXPECT_EQ(baselineDefinition->getAttr("ac.definition_fingerprint"),
+            displayedDefinition->getAttr("ac.definition_fingerprint"));
+  ac::InstanceOp baselineInstance;
+  ac::InstanceOp displayedInstance;
+  baseline->walk([&](ac::InstanceOp operation) {
+    if (!baselineInstance)
+      baselineInstance = operation;
+  });
+  displayed->walk([&](ac::InstanceOp operation) {
+    if (!displayedInstance)
+      displayedInstance = operation;
+  });
+  ASSERT_TRUE(baselineInstance);
+  ASSERT_TRUE(displayedInstance);
+  EXPECT_EQ(baselineInstance->getAttr("ac.specialization"),
+            displayedInstance->getAttr("ac.specialization"));
+}
+
+TEST(QueueGraphPlanTest, RejectsMalformedModuleInterfaceDisplayNames) {
+  mlir::MLIRContext context;
+  context.loadDialect<ac::ACIRDialect, mlir::DLTIDialect>();
+  auto rejects = [&](mlir::Attribute attribute, llvm::StringRef expected) {
+    auto module = mlir::parseSourceFile<mlir::ModuleOp>(
+        ACIR_TEST_SOURCE_DIR
+        "/tests/mlir/agentic-circuit/Transforms/queue-module-freeze.mlir",
+        &context);
+    ASSERT_TRUE(module);
+    mlir::SymbolTable symbols(*module);
+    auto definition = symbols.lookup<ac::ModuleOp>("Increment");
+    ASSERT_TRUE(definition);
+    definition->setAttr("ac.input_display_names", attribute);
+    ASSERT_TRUE(freezeQueueGraph(*module));
+    auto plan = buildQueueGraphPlan(*module);
+    ASSERT_FALSE(bool(plan));
+    EXPECT_NE(llvm::toString(plan.takeError()).find(expected),
+              std::string::npos);
+  };
+  rejects(mlir::StringAttr::get(&context, "request"),
+          "must be an array of strings");
+  rejects(mlir::ArrayAttr::get(&context, {}),
+          "must match the module interface arity");
+  rejects(mlir::ArrayAttr::get(
+              &context, {mlir::StringAttr::get(&context, "")}),
+          "must contain only non-empty strings");
 }
 
 } // namespace

@@ -13,7 +13,7 @@
 // SAME: gfsim::SimTable<gfsim::UInt<16>> *table_second{};
 // SAME-LABEL: bool operator()(gfsim::Epoch epoch) const {
 // SAME: table_second->checkedAt
-// SAME: block_0_release_policy{&slot_0_state_, &table_1_}
+// SAME: block_0_release_policy{&slot_0_state_, &state_second_}
 
 // DIFFERENT-LABEL: struct block_0_release_policy {
 // DIFFERENT: gfsim::SimTable<gfsim::UInt<8>> *table_first{};
@@ -21,7 +21,7 @@
 // DIFFERENT-LABEL: bool operator()(gfsim::Epoch epoch) const {
 // DIFFERENT: table_first->checkedAt
 // DIFFERENT: table_second->checkedAt
-// DIFFERENT: block_0_release_policy{&slot_0_state_, &table_0_, &table_1_}
+// DIFFERENT: block_0_release_policy{&slot_0_state_, &state_first_, &state_second_}
 
 //--- same-type.mlir
 module attributes {ac.contract_epoch = "0.5", ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle", ac.system = "same_type"} {

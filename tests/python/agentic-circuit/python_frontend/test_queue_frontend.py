@@ -1155,6 +1155,32 @@ def multi_state_allocate(incoming: Entry) -> Entry:
     return allocated
 """
 
+READABLE_RULE_METADATA_SOURCE = """
+import agentic_circuit as ac
+
+@ac.struct
+class Entry:
+    index: ac.u2
+    value: ac.u8
+
+@ac.rule
+def update(count, entries, incoming):
+    old = entries[incoming.index]
+    ack = old.with_fields(value=incoming.value)
+    count_next = count + 1
+    ack = ack.with_fields(value=count_next)
+    entries[incoming.index] = ack
+    count = count_next
+    return ack
+
+@ac.system
+def readable_metadata(incoming: Entry) -> Entry:
+    count: ac.u8 = 0
+    entries: list[Entry] = [0] * 4
+    result = update(count, entries, incoming)
+    return result
+"""
+
 BRANCH_LOCAL_STATE_SOURCE = """
 import agentic_circuit as ac
 
@@ -4327,7 +4353,7 @@ def invariant_module(value: Payload) -> Payload:
         self.assertIn("ac.rule.condition", lowered)
         self.assertIn("ac.var.read_element @entries", lowered)
         self.assertIn("ac.var.assign_element @entries", lowered)
-        self.assertNotIn("ac.source", lowered)
+        self.assertNotIn(" = ac.source depth", lowered)
 
     def test_guarded_rule_requires_boolean_condition(self) -> None:
         from agentic_circuit._queue_frontend import (
@@ -4349,6 +4375,49 @@ def invariant_module(value: Payload) -> Payload:
         self.assertIn("ac.var.assign_element @entries", lowered)
         self.assertIn("ac.var.assign @tail", lowered)
         self.assertEqual(2, lowered.count("ac.var.assign"))
+
+    def test_rule_source_and_local_display_metadata_are_preserved(self) -> None:
+        from agentic_circuit._queue_frontend import (
+            lower_queue_source,
+            parse_queue_program,
+        )
+
+        source_path = "tests/fixtures/readable_rule.py"
+        program = parse_queue_program(
+            READABLE_RULE_METADATA_SOURCE,
+            "readable_metadata",
+            source_path=source_path,
+        )
+        self.assertEqual(source_path, program.source_path)
+        lowered = lower_queue_source(
+            READABLE_RULE_METADATA_SOURCE,
+            "readable_metadata",
+            source_path=source_path,
+        )
+
+        self.assertIn(f'loc("{source_path}":10:1)', lowered)
+        self.assertEqual(1, lowered.count('ac.display_name = "old"'))
+        self.assertEqual(2, lowered.count('ac.display_name = "ack"'))
+        self.assertEqual(1, lowered.count('ac.display_name = "count_next"'))
+        self.assertNotRegex(
+            lowered,
+            r'ac\.display_name = "__ac_rule_local_[0-9]+_',
+        )
+        self.assertIn('name "update" stable_id "result"', lowered)
+        self.assertIn('ac.name = "result"', lowered)
+
+    def test_absolute_rule_source_path_is_not_emitted(self) -> None:
+        from agentic_circuit._queue_frontend import lower_queue_source
+
+        absolute_path = "/private/build/checkout/readable_rule.py"
+        lowered = lower_queue_source(
+            READABLE_RULE_METADATA_SOURCE,
+            "readable_metadata",
+            source_path=absolute_path,
+        )
+
+        self.assertIn('loc("readable_rule.py":10:1)', lowered)
+        self.assertNotIn("/private/build/checkout", lowered)
 
     def test_if_else_infers_complementary_branch_local_state_presence(self) -> None:
         from agentic_circuit._queue_frontend import lower_queue_source
@@ -5147,7 +5216,8 @@ def two_accumulators(left: ac.u8, right: ac.u8) -> tuple[ac.u8, ac.u8]:
         for source, index_type in ((five_entries, "i2"), (u3_into_five, "i3")):
             lowered = lower_queue_source(source, "indexed_state")
             self.assertIn(
-                f"ac.var.read_element @entries[%v0] : !ac.var<{index_type}>",
+                "ac.var.read_element @entries[%v0] "
+                f'{{ac.display_name = "old"}} : !ac.var<{index_type}>',
                 lowered,
             )
             self.assertIn(
@@ -5279,7 +5349,12 @@ def two_accumulators(left: ac.u8, right: ac.u8) -> tuple[ac.u8, ac.u8]:
 
         lowered = lower_queue_source(INFERRED_MODULE_SOURCE, "pipeline")
         self.assertIn("ac.system @pipeline root @Top", lowered)
-        self.assertIn("ac.module @increment", lowered)
+        self.assertIn(
+            'ac.module @increment(%input: !ac.queue<i8>) -> !ac.queue<i8> parameters {}'
+            ' attributes {ac.input_display_names = ["value"], '
+            'ac.output_display_names = ["result"]} graph {',
+            lowered,
+        )
         self.assertEqual(lowered.count("ac.instance"), 2)
         self.assertIn("ac.instance @left_result of @increment", lowered)
         self.assertIn("ac.instance @right_result of @increment", lowered)
@@ -5305,7 +5380,12 @@ def two_accumulators(left: ac.u8, right: ac.u8) -> tuple[ac.u8, ac.u8]:
 
         lowered = lower_queue_source(INFERRED_NESTED_MODULE_SOURCE, "pipeline")
         self.assertIn("ac.module @increment", lowered)
-        self.assertIn("ac.module @wrapper", lowered)
+        self.assertIn(
+            'ac.module @wrapper(%input: !ac.queue<i8>) -> !ac.queue<i8> parameters {}'
+            ' attributes {ac.input_display_names = ["value"], '
+            'ac.output_display_names = ["result"]} graph {',
+            lowered,
+        )
         self.assertIn("ac.instance @result of @increment", lowered)
         self.assertEqual(2, lowered.count(" of @wrapper"))
 
@@ -5313,13 +5393,50 @@ def two_accumulators(left: ac.u8, right: ac.u8) -> tuple[ac.u8, ac.u8]:
         from agentic_circuit._queue_frontend import lower_queue_source
 
         lowered = lower_queue_source(INFERRED_STATEFUL_MODULE_SOURCE, "pipeline")
-        self.assertIn("ac.module @accumulator", lowered)
+        self.assertIn(
+            'ac.module @accumulator(%input: !ac.queue<i8>) -> !ac.queue<i8> '
+            'parameters {} attributes {ac.input_display_names = ["value"], '
+            'ac.output_display_names = ["result"]} graph {',
+            lowered,
+        )
         self.assertIn("ac.var.decl @total", lowered)
         self.assertIn("ac.var.read @total", lowered)
         self.assertIn("ac.var.assign @total", lowered)
         self.assertIn('owner "/body" stable_id "var/body/total"', lowered)
         self.assertEqual(2, lowered.count(" of @accumulator"))
         self.assertNotIn("ac.table", lowered)
+
+    def test_module_interface_display_names_are_stable_and_display_only(self) -> None:
+        from agentic_circuit._queue_frontend import lower_queue_source
+
+        renamed_source = INFERRED_MODULE_SOURCE.replace(
+            "def increment(value: ac.u8)", "def increment(operand: ac.u8)"
+        ).replace("return value + 1", "return operand + 1")
+        original = lower_queue_source(INFERRED_MODULE_SOURCE, "pipeline")
+        renamed = lower_queue_source(renamed_source, "pipeline")
+        self.assertEqual(renamed, lower_queue_source(renamed_source, "pipeline"))
+        self.assertIn('ac.input_display_names = ["operand"]', renamed)
+        self.assertEqual(
+            original.replace(
+                'ac.input_display_names = ["value"]',
+                'ac.input_display_names = ["logical_input"]',
+            ),
+            renamed.replace(
+                'ac.input_display_names = ["operand"]',
+                'ac.input_display_names = ["logical_input"]',
+            ),
+        )
+
+        colliding_source = renamed_source.replace(
+            "def increment(operand: ac.u8)", "def increment(result: ac.u8)"
+        ).replace("return operand + 1", "return result + 1")
+        colliding = lower_queue_source(colliding_source, "pipeline")
+        self.assertIn(
+            'ac.input_display_names = ["result"], '
+            'ac.output_display_names = ["result"]',
+            colliding,
+        )
+        self.assertEqual(colliding, lower_queue_source(colliding_source, "pipeline"))
 
     def test_module_multiple_lexical_states_remain_one_atomic_rule(self) -> None:
         from agentic_circuit._queue_frontend import lower_queue_source

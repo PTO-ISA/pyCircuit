@@ -1,0 +1,28 @@
+{
+  "run_id": "20260912-issue106-readable-transitions",
+  "status": "passed",
+  "base_revision": "eaa0082c512651fcf85365cd302162e03423b124",
+  "decision_ids": ["0228", "0235", "0236", "0242", "0244"],
+  "issue": 106,
+  "results": {
+    "native_incremental_build": {"targets": 5, "passed": true},
+    "acir_lit": {"passed": 217, "failed": 0},
+    "codegen_tests": {"passed": 154, "failed": 0},
+    "native_frontend_and_jit": {"passed": 174, "failed": 0},
+    "agentic_frontend": {"passed": 317, "failed": 0, "skipped": 4},
+    "gfsim_atomic_transaction": {"passed": 1, "failed": 0},
+    "agentic_contracts": {"passed": true},
+    "agentic_contract_tests": {"passed": 50, "failed": 0},
+    "agentic_cli": {"passed": 6, "failed": 0},
+    "ir_coverage": {"passed": true},
+    "pyc_inventory": {"operations": 41, "types": 2, "passed": true},
+    "unit": {"passed": 129, "failed": 0},
+    "api_hygiene": {"passed": true},
+    "pre_commit": {"passed": true},
+    "repository_management": {"passed": true},
+    "mkdocs_strict": {"passed": true},
+    "decision_status": {"passed": true, "deferred": 0},
+    "adversarial_review": {"remaining_p0_p1_p2": 0, "passed": true}
+  },
+  "behavior": "Display provenance improves QueueGraph and GFSim reviewability without changing fingerprints, stable IDs, scheduling, transition ordering, runtime behavior, or ABI."
+}

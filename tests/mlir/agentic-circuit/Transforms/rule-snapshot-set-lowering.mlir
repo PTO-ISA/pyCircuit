@@ -58,5 +58,5 @@ module attributes {ac.contract_epoch = "0.5", ac.model_kind = "queue_graph", ac.
 // GFSIM-COUNT-1: snapshot_set_2_0 = snapshot_set_2_0 | gfsim::StateReservation::forEntry
 // GFSIM-NOT: snapshot_entry
 // GFSIM: gfsim::StateReservation::all()
-// GFSIM-SAME: snapshot_set_1_0
-// GFSIM-SAME: snapshot_set_2_0
+// GFSIM-SAME: state_ready_reservation_set_0
+// GFSIM-SAME: state_priority_reservation_set_0

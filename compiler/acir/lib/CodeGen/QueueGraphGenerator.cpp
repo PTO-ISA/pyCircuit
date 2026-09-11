@@ -38,40 +38,76 @@ void appendInitializer(std::vector<std::string> &initializers,
 }
 
 std::string identifier(llvm::StringRef value) {
-  std::string result;
-  for (char character : value)
-    result.push_back(
-        std::isalnum(static_cast<unsigned char>(character)) ? character : '_');
-  if (result.empty() ||
-      std::isdigit(static_cast<unsigned char>(result.front())))
-    result.insert(result.begin(), '_');
-  static constexpr llvm::StringLiteral keywords[] = {
-      "alignas",   "alignof",      "and",          "and_eq",
-      "asm",       "auto",         "bitand",       "bitor",
-      "bool",      "break",        "case",         "catch",
-      "char",      "char8_t",      "char16_t",     "char32_t",
-      "class",     "compl",        "concept",      "const",
-      "consteval", "constexpr",    "constinit",    "const_cast",
-      "continue",  "co_await",     "co_return",    "co_yield",
-      "decltype",  "default",      "delete",       "do",
-      "double",    "dynamic_cast", "else",         "enum",
-      "explicit",  "export",       "extern",       "false",
-      "float",     "for",          "friend",       "goto",
-      "if",        "inline",       "int",          "long",
-      "mutable",   "namespace",    "new",          "noexcept",
-      "not",       "not_eq",       "nullptr",      "operator",
-      "or",        "or_eq",        "private",      "protected",
-      "public",    "register",     "reinterpret_cast", "requires",
-      "return",    "short",        "signed",       "sizeof",
-      "static",    "static_assert", "static_cast", "struct",
-      "switch",    "template",     "this",         "thread_local",
-      "throw",     "true",         "try",          "typedef",
-      "typeid",    "typename",     "union",        "unsigned",
-      "using",     "virtual",      "void",         "volatile",
-      "wchar_t",   "while",        "xor",          "xor_eq"};
-  if (llvm::is_contained(keywords, llvm::StringRef(result)))
-    result.push_back('_');
+  return legalizeQueueGraphIdentifier(value);
+}
+
+std::string uniqueIdentifier(llvm::StringRef preferred,
+                             llvm::StringSet<> &used) {
+  const std::string base = identifier(preferred);
+  std::string result = base;
+  for (uint64_t suffix = 2; !used.insert(result).second; ++suffix)
+    result = base + "_" + std::to_string(suffix);
   return result;
+}
+
+llvm::StringMap<std::string>
+interfaceParameterNames(const QueueGraphPlan &specialization,
+                        uint64_t reservedObjectIds = 0) {
+  llvm::StringSet<> used;
+  used.insert("name");
+  used.insert("parent");
+  used.insert("epoch");
+  used.insert("table_ref");
+  used.insert("table_refs");
+  for (uint64_t index = 0; index < reservedObjectIds; ++index)
+    used.insert("object_" + std::to_string(index) + "_id");
+  for (size_t index = 0; index < specialization.blocks.size(); ++index)
+    used.insert("block_" + std::to_string(index) + "_id");
+  for (size_t index = 0; index < specialization.tables.size(); ++index)
+    used.insert("table_" + std::to_string(index) + "_id");
+
+  llvm::StringMap<std::string> result;
+  auto add = [&](const QueueInterfacePlan &port, llvm::StringRef fallback) {
+    llvm::StringRef display = port.displayName.empty()
+                                  ? llvm::StringRef(port.name)
+                                  : llvm::StringRef(port.displayName);
+    result[port.name] = uniqueIdentifier(
+        display.empty() ? fallback : display, used);
+  };
+  for (auto [index, input] : llvm::enumerate(specialization.interfaceInputs))
+    add(input, ("input_" + std::to_string(index)));
+  for (auto [index, output] :
+       llvm::enumerate(specialization.interfaceOutputs))
+    add(output, ("output_" + std::to_string(index)));
+  return result;
+}
+
+void emitRuleProvenance(std::ostringstream &output,
+                        const QueueBlockPlan &block) {
+  output << "// rule: "
+         << (block.displayRuleName.empty() ? block.name : block.displayRuleName)
+         << "; stable_id: " << block.stableId << "\n";
+  if (!block.sourceFile.empty())
+    output << "// source: " << block.sourceFile << ':' << block.sourceLine
+           << ':' << block.sourceColumn << "\n";
+  output << "// nullopt means this rule performs no transition. A valid plan "
+            "may have no state writes while consuming inputs or producing "
+            "outputs; Queue backpressure, reservations, and atomic commit "
+            "remain runtime-owned.\n";
+  for (const StateWritePlan &write : block.stateWrites) {
+    output << "// state write: " << write.table << " mode=" << write.mode
+           << " fields=";
+    for (auto [index, field] : llvm::enumerate(write.fields)) {
+      if (index)
+        output << ',';
+      output << field;
+    }
+    output << " (local record edits do not imply field-level writes)\n";
+  }
+  for (const StateReservationPlan &reservation : block.stateReservations)
+    output << "// reservation: " << reservation.table
+           << " index_kind=" << reservation.indexKind
+           << " (field masks name reserved owner fields)\n";
 }
 
 std::string className(llvm::StringRef value) {
@@ -1608,17 +1644,70 @@ std::vector<size_t> findStateWriteOrdinals(const QueueBlockPlan &block,
   return result;
 }
 
+std::string stateWriteStem(const QueueBlockPlan &block, size_t writeIndex) {
+  const StateWritePlan &write = block.stateWrites[writeIndex];
+  size_t occurrence = 0;
+  for (size_t index = 0; index < writeIndex; ++index)
+    occurrence += block.stateWrites[index].table == write.table;
+  std::string result = "state_" + identifier(write.table);
+  if (occurrence)
+    result += "_" + std::to_string(occurrence + 1);
+  return result;
+}
+
+std::string stateWriteIndexName(const QueueBlockPlan &block,
+                                size_t writeIndex) {
+  return stateWriteStem(block, writeIndex) + "_index";
+}
+
+std::string stateWriteValueName(const QueueBlockPlan &block,
+                                size_t writeIndex) {
+  return stateWriteStem(block, writeIndex) + "_next";
+}
+
+std::string stateWritePresentName(const QueueBlockPlan &block,
+                                  size_t writeIndex) {
+  return stateWriteStem(block, writeIndex) + "_write_present";
+}
+
+std::string stateWriteBatchName(llvm::StringRef table) {
+  return "state_" + identifier(table) + "_writes";
+}
+
+std::string outputValueName(const QueueBlockPlan &block, size_t outputIndex) {
+  const std::string suffix = outputIndex < block.outputs.size()
+                                 ? identifier(block.outputs[outputIndex])
+                                 : std::to_string(outputIndex);
+  return "output_" + suffix;
+}
+
+std::string outputPresentName(const QueueBlockPlan &block, size_t outputIndex) {
+  return outputValueName(block, outputIndex) + "_present";
+}
+
+std::string reservationBindingName(llvm::StringRef table,
+                                   const StateReservationPlan &reservation,
+                                   size_t reservationIndex) {
+  return "state_" + identifier(table) + "_reservation_" +
+         (reservation.indexKind == "set" ? "set_" : "index_") +
+         std::to_string(reservationIndex);
+}
+
 void emitStateWriteBatch(std::ostringstream &output,
                          const QueueBlockPlan &block, llvm::StringRef table,
                          llvm::StringRef entryType, size_t ownerIndex,
                          llvm::StringRef padding) {
+  (void)ownerIndex;
+  const std::string batch = stateWriteBatchName(table);
   output << padding.str() << "gfsim::OwnerWriteBatch<" << entryType.str()
-         << "> owner_writes" << ownerIndex << ";\n";
+         << "> " << batch << ";\n";
   for (size_t writeIndex : findStateWriteOrdinals(block, table))
-    output << padding.str() << "if (proposal_present" << writeIndex << ")\n"
-           << padding.str() << "  owner_writes" << ownerIndex
-           << ".emplace_back(static_cast<size_t>(proposal_index" << writeIndex
-           << "), proposal_value" << writeIndex << ");\n";
+    output << padding.str() << "if ("
+           << stateWritePresentName(block, writeIndex) << ")\n"
+           << padding.str() << "  " << batch
+           << ".emplace_back(static_cast<size_t>("
+           << stateWriteIndexName(block, writeIndex) << "), "
+           << stateWriteValueName(block, writeIndex) << ");\n";
 }
 
 std::vector<const StateReservationPlan *>
@@ -2255,6 +2344,8 @@ generateStructuredQueueGraphCpp(const QueueGraphPlan &plan) {
     const std::string localScope =
         pathParts(specialization.scopes.front()).back();
     std::vector<std::string> tableTypes;
+    std::vector<std::string> tableMembers;
+    llvm::StringSet<> usedTableMembers;
     llvm::StringMap<size_t> tableIndices;
     for (auto [index, table] : llvm::enumerate(specialization.tables)) {
       if (table.ownerPath != specialization.scopes.front())
@@ -2265,31 +2356,38 @@ generateStructuredQueueGraphCpp(const QueueGraphPlan &plan) {
         return type.takeError();
       tableIndices[table.name] = index;
       tableTypes.push_back(std::move(*type));
+      tableMembers.push_back(
+          uniqueIdentifier("state_" + table.name, usedTableMembers) + "_");
     }
     llvm::StringMap<std::string> portTypes;
-    llvm::StringMap<std::string> portParameters;
-    for (auto [index, input] :
-         llvm::enumerate(specialization.interfaceInputs)) {
+    llvm::StringMap<std::string> portParameters =
+        interfaceParameterNames(specialization);
+    for (const QueueInterfacePlan &input : specialization.interfaceInputs) {
       auto type = cppType(input.payloadType);
       if (!type)
         return type.takeError();
       portTypes[input.name] = *type;
-      portParameters[input.name] = "input_" + std::to_string(index);
     }
-    for (auto [index, result] :
-         llvm::enumerate(specialization.interfaceOutputs)) {
+    for (const QueueInterfacePlan &result : specialization.interfaceOutputs) {
       auto type = cppType(result.payloadType);
       if (!type)
         return type.takeError();
       portTypes[result.name] = *type;
-      portParameters[result.name] = "output_" + std::to_string(index);
+    }
+    std::vector<std::string> firingSymbols;
+    llvm::StringSet<> usedFiringSymbols;
+    for (const QueueBlockPlan &firing : specialization.blocks) {
+      llvm::StringRef display = firing.displayRuleName.empty()
+                                    ? llvm::StringRef(firing.name)
+                                    : llvm::StringRef(firing.displayRuleName);
+      firingSymbols.push_back(
+          uniqueIdentifier(("rule_" + display).str(), usedFiringSymbols));
     }
     auto policyName = [&](size_t blockIndex) {
-      return implementation + "_block_" + std::to_string(blockIndex) +
-             "_policy";
+      return implementation + "_" + firingSymbols[blockIndex] + "_policy";
     };
     auto mergeName = [&](size_t blockIndex, size_t writeIndex) {
-      return implementation + "_block_" + std::to_string(blockIndex) +
+      return implementation + "_" + firingSymbols[blockIndex] +
              "_merge_policy_" + std::to_string(writeIndex);
     };
     auto queueTypes = [&](llvm::ArrayRef<std::string> queues) {
@@ -2416,6 +2514,7 @@ generateStructuredQueueGraphCpp(const QueueGraphPlan &plan) {
         planType = "gfsim::StateTransitionPlan<" + tupleType(writeTypes) +
                    ", " + tupleType(outputTypes) + ">";
       }
+      emitRuleProvenance(output, firing);
       output << "struct " << policyName(blockIndex) << " {\n";
       for (size_t table : readOnlyTables)
         output << "  const gfsim::SimTable<" << tableTypes[table]
@@ -2462,16 +2561,17 @@ generateStructuredQueueGraphCpp(const QueueGraphPlan &plan) {
            ++writeIndex) {
         if (bindingHasValue)
           output << ", ";
-        output << "proposal_index" << writeIndex << ", proposal_value"
-               << writeIndex << ", proposal_present" << writeIndex;
+        output << stateWriteIndexName(firing, writeIndex) << ", "
+               << stateWriteValueName(firing, writeIndex) << ", "
+               << stateWritePresentName(firing, writeIndex);
         bindingHasValue = true;
       }
       for (size_t outputIndex = 0; outputIndex < outputTypes.size();
            ++outputIndex) {
         if (bindingHasValue)
           output << ", ";
-        output << "output_value" << outputIndex << ", output_present"
-               << outputIndex;
+        output << outputValueName(firing, outputIndex) << ", "
+               << outputPresentName(firing, outputIndex);
         bindingHasValue = true;
       }
       for (auto [ownerIndex, tableIndex] : llvm::enumerate(tables)) {
@@ -2484,38 +2584,44 @@ generateStructuredQueueGraphCpp(const QueueGraphPlan &plan) {
           }
           if (bindingHasValue)
             output << ", ";
-          output << (reservation->indexKind == "set" ? "snapshot_set_"
-                                                       : "reservation_index")
-                 << ownerIndex << '_' << reservationIndex++;
+          output << reservationBindingName(
+              specialization.tables[tableIndex].name, *reservation,
+              reservationIndex++);
           bindingHasValue = true;
         }
       }
-      output << ", condition] = [&]() {\n"
+      output << ", rule_condition] = [&]() {\n"
              << *body << "    }();\n"
-             << "    if (!condition)\n      return std::nullopt;\n";
+             << "    if (!rule_condition)\n      return std::nullopt;\n";
       for (auto [ownerIndex, tableIndex] : llvm::enumerate(tables))
         emitStateWriteBatch(output, firing,
                             specialization.tables[tableIndex].name,
                             writeTypes[ownerIndex], ownerIndex, "    ");
       output << "    return " << planType;
       if (oneOwner) {
-        output << "{std::move(owner_writes0), {";
+        output << "{std::move("
+               << stateWriteBatchName(
+                      specialization.tables[tables.front()].name)
+               << "), {";
       } else {
         output << "{{";
         for (size_t ownerIndex = 0; ownerIndex < writeTypes.size();
              ++ownerIndex) {
           if (ownerIndex)
             output << ", ";
-          output << "std::move(owner_writes" << ownerIndex << ")";
+          output << "std::move("
+                 << stateWriteBatchName(
+                        specialization.tables[tables[ownerIndex]].name)
+                 << ")";
         }
         output << "}, {";
       }
       for (auto [outputIndex, type] : llvm::enumerate(outputTypes)) {
         if (outputIndex)
           output << ", ";
-        output << "output_present" << outputIndex << " ? std::optional<" << type
-               << ">{output_value" << outputIndex << "} : std::optional<"
-               << type << ">{}";
+        output << outputPresentName(firing, outputIndex) << " ? std::optional<"
+               << type << ">{" << outputValueName(firing, outputIndex)
+               << "} : std::optional<" << type << ">{}";
       }
       output << "}, {";
       for (size_t ownerIndex = 0; ownerIndex < writeTypes.size();
@@ -2541,15 +2647,18 @@ generateStructuredQueueGraphCpp(const QueueGraphPlan &plan) {
                                  std::to_string(fieldMask->count) + ")");
             ++reservationIndex;
           } else if (reservation->indexKind == "set") {
-            output << " | snapshot_set_" << ownerIndex << '_'
-                   << reservationIndex++;
+            output << " | "
+                   << reservationBindingName(table.name, *reservation,
+                                             reservationIndex++);
           } else {
             output << " | "
                    << (fieldMask->complete
                            ? "gfsim::StateReservation::forEntry("
                            : "gfsim::StateReservation::forFieldsAt(")
-                   << "static_cast<std::size_t>(reservation_index" << ownerIndex
-                   << '_' << reservationIndex++ << ")";
+                   << "static_cast<std::size_t>("
+                   << reservationBindingName(table.name, *reservation,
+                                             reservationIndex++)
+                   << ")";
             if (fieldMask->complete)
               output << ")";
             else
@@ -2587,13 +2696,12 @@ generateStructuredQueueGraphCpp(const QueueGraphPlan &plan) {
     for (size_t index = 0; index < specialization.tables.size(); ++index)
       output << ", gfsim::ObjectId table_" << index << "_id";
     output << ", gfsim::SimObject *parent";
-    for (auto [index, input] : llvm::enumerate(specialization.interfaceInputs))
+    for (const QueueInterfacePlan &input : specialization.interfaceInputs)
       output << ", gfsim::SimQueue<" << portTypes.lookup(input.name)
-             << "> &input_" << index;
-    for (auto [index, result] :
-         llvm::enumerate(specialization.interfaceOutputs))
+             << "> &" << portParameters.lookup(input.name);
+    for (const QueueInterfacePlan &result : specialization.interfaceOutputs)
       output << ", gfsim::SimQueue<" << portTypes.lookup(result.name)
-             << "> &output_" << index;
+             << "> &" << portParameters.lookup(result.name);
     output << ")\n      : gfsim::Module(std::move(name), "
               "gfsim::kInvalidObjectId, parent),\n        scope_(\""
            << localScope << "\", gfsim::kInvalidObjectId, this)";
@@ -2602,9 +2710,8 @@ generateStructuredQueueGraphCpp(const QueueGraphPlan &plan) {
         auto storage = tableStorageArgument(specialization, table);
         if (!storage)
           return storage.takeError();
-        output << ",\n        table_" << index << "_(\"" << table.name
-               << "\", table_" << index << "_id, &scope_, " << *storage
-               << ")";
+        output << ",\n        " << tableMembers[index] << "(\"" << table.name
+               << "\", table_" << index << "_id, &scope_, " << *storage << ")";
       }
     for (auto [blockIndex, firing] : llvm::enumerate(specialization.blocks)) {
       const std::vector<size_t> tables = tableBindings(firing);
@@ -2613,19 +2720,19 @@ generateStructuredQueueGraphCpp(const QueueGraphPlan &plan) {
       for (auto [index, table] : llvm::enumerate(readOnlyTables)) {
         if (index)
           policy.append(", ");
-        policy.append("&table_").append(std::to_string(table)).append("_");
+        policy.append("&").append(tableMembers[table]);
       }
       policy.push_back('}');
-      output << ",\n        block_" << blockIndex << "_(\"firing_"
+      output << ",\n        " << firingSymbols[blockIndex] << "_(\"firing_"
              << firing.name << "\", block_" << blockIndex << "_id, &scope_, ";
       if (tables.size() == 1) {
-        output << "table_" << tables.front() << "_, ";
+        output << tableMembers[tables.front()] << ", ";
       } else {
         output << "std::tuple{";
         for (auto [index, table] : llvm::enumerate(tables)) {
           if (index)
             output << ", ";
-          output << "&table_" << table << '_';
+          output << '&' << tableMembers[table];
         }
         output << "}, ";
       }
@@ -2664,21 +2771,23 @@ generateStructuredQueueGraphCpp(const QueueGraphPlan &plan) {
     }
     output << " {\n    attachChild(scope_);\n";
     for (size_t index = 0; index < specialization.tables.size(); ++index)
-      output << "    scope_.attachChild(table_" << index << "_);\n";
+      output << "    scope_.attachChild(" << tableMembers[index] << ");\n";
     for (size_t index = 0; index < specialization.blocks.size(); ++index)
-      output << "    scope_.attachChild(block_" << index << "_);\n";
+      output << "    scope_.attachChild(" << firingSymbols[index] << "_);\n";
     output << "  }\n\n  gfsim::DispatchRow dispatch_row(size_t index) {\n"
            << "    switch (index) {\n";
     for (size_t index = 0; index < specialization.blocks.size(); ++index)
-      output << "    case " << index
-             << ": return gfsim::makeDispatchRow(&block_" << index << "_);\n";
+      output << "    case " << index << ": return gfsim::makeDispatchRow(&"
+             << firingSymbols[index] << "_);\n";
     for (size_t index = 0; index < specialization.tables.size(); ++index)
       output << "    case " << specialization.blocks.size() + index
-             << ": return gfsim::makeDispatchRow(&table_" << index << "_);\n";
+             << ": return gfsim::makeDispatchRow(&" << tableMembers[index]
+             << ");\n";
     output << "    default: return {};\n    }\n  }\n\nprivate:\n"
            << "  gfsim::Module scope_;\n";
     for (auto [index, type] : llvm::enumerate(tableTypes))
-      output << "  gfsim::SimTable<" << type << "> table_" << index << "_;\n";
+      output << "  gfsim::SimTable<" << type << "> " << tableMembers[index]
+             << ";\n";
     for (auto [blockIndex, firing] : llvm::enumerate(specialization.blocks)) {
       const std::vector<size_t> tables = tableBindings(firing);
       const std::vector<std::string> inputTypes = queueTypes(firing.inputs);
@@ -2687,8 +2796,8 @@ generateStructuredQueueGraphCpp(const QueueGraphPlan &plan) {
         output << "  gfsim::QueueTableTransition<" << policyName(blockIndex)
                << ", " << tableTypes[tables.front()] << ", "
                << tupleType(inputTypes) << ", " << tupleType(outputTypes)
-               << ", " << mergeName(blockIndex, 0) << "> block_" << blockIndex
-               << "_;\n";
+               << ", " << mergeName(blockIndex, 0) << "> "
+               << firingSymbols[blockIndex] << "_;\n";
       } else {
         std::vector<std::string> writeTypes;
         for (size_t table : tables)
@@ -2701,7 +2810,7 @@ generateStructuredQueueGraphCpp(const QueueGraphPlan &plan) {
             output << ", ";
           output << mergeName(blockIndex, index);
         }
-        output << ">> block_" << blockIndex << "_;\n";
+        output << ">> " << firingSymbols[blockIndex] << "_;\n";
       }
     }
     output << "};\n\n";
@@ -2712,37 +2821,33 @@ generateStructuredQueueGraphCpp(const QueueGraphPlan &plan) {
       [&](const QueueGraphPlan &specialization,
           const std::string &implementation) -> llvm::Error {
     llvm::StringMap<std::string> portTypes;
-    llvm::StringMap<std::string> portParameters;
-    for (auto [index, input] :
-         llvm::enumerate(specialization.interfaceInputs)) {
+    const uint64_t objectCount = specializationObjectCount(specialization);
+    llvm::StringMap<std::string> portParameters =
+        interfaceParameterNames(specialization, objectCount);
+    for (const QueueInterfacePlan &input : specialization.interfaceInputs) {
       auto type = cppType(input.payloadType);
       if (!type)
         return type.takeError();
       portTypes[input.name] = *type;
-      portParameters[input.name] = "input_" + std::to_string(index);
     }
-    for (auto [index, result] :
-         llvm::enumerate(specialization.interfaceOutputs)) {
+    for (const QueueInterfacePlan &result : specialization.interfaceOutputs) {
       auto type = cppType(result.payloadType);
       if (!type)
         return type.takeError();
       portTypes[result.name] = *type;
-      portParameters[result.name] = "output_" + std::to_string(index);
     }
-    const uint64_t objectCount = specializationObjectCount(specialization);
     output << "class " << implementation
            << " final : public gfsim::Module {\npublic:\n  " << implementation
            << "(std::string name";
     for (uint64_t index = 0; index < objectCount; ++index)
       output << ", gfsim::ObjectId object_" << index << "_id";
     output << ", gfsim::SimObject *parent";
-    for (auto [index, input] : llvm::enumerate(specialization.interfaceInputs))
+    for (const QueueInterfacePlan &input : specialization.interfaceInputs)
       output << ", gfsim::SimQueue<" << portTypes.lookup(input.name)
-             << "> &input_" << index;
-    for (auto [index, result] :
-         llvm::enumerate(specialization.interfaceOutputs))
+             << "> &" << portParameters.lookup(input.name);
+    for (const QueueInterfacePlan &result : specialization.interfaceOutputs)
       output << ", gfsim::SimQueue<" << portTypes.lookup(result.name)
-             << "> &output_" << index;
+             << "> &" << portParameters.lookup(result.name);
     output << ")\n      : gfsim::Module(std::move(name), "
               "gfsim::kInvalidObjectId, parent)";
     uint64_t objectOffset = 0;
@@ -3447,6 +3552,23 @@ llvm::Expected<std::string> generateQueueGraphCpp(const QueueGraphPlan &plan) {
     if (isRuntimeBlock(block) && block.kind != "memory_request")
       runtimeBlocks.push_back(&block);
   runtimeBlocks = arbitrationDispatchOrder(runtimeBlocks);
+  std::vector<std::string> blockSymbols;
+  llvm::StringSet<> usedBlockSymbols;
+  for (auto [index, block] : llvm::enumerate(runtimeBlocks)) {
+    if (block->kind != "firing") {
+      blockSymbols.push_back("block_" + std::to_string(index));
+      usedBlockSymbols.insert(blockSymbols.back());
+      continue;
+    }
+    llvm::StringRef display = block->displayRuleName.empty()
+                                  ? llvm::StringRef(block->name)
+                                  : llvm::StringRef(block->displayRuleName);
+    blockSymbols.push_back(
+        uniqueIdentifier(("rule_" + display).str(), usedBlockSymbols));
+  }
+  auto blockSymbol = [&](size_t index) -> const std::string & {
+    return blockSymbols[index];
+  };
   llvm::StringMap<std::vector<const QueueBlockPlan *>> memoryEndpoints;
   for (const QueueBlockPlan &block : plan.blocks)
     if (block.kind == "memory_request")
@@ -3472,9 +3594,11 @@ llvm::Expected<std::string> generateQueueGraphCpp(const QueueGraphPlan &plan) {
     memoryIds[instance.name] = nextId++;
   llvm::StringMap<uint64_t> tableIds;
   llvm::StringMap<std::string> tableMembers;
-  for (auto [index, table] : llvm::enumerate(plan.tables)) {
+  llvm::StringSet<> usedTableMembers;
+  for (const TablePlan &table : plan.tables) {
     tableIds[table.name] = nextId++;
-    tableMembers[table.name] = "table_" + std::to_string(index) + "_";
+    tableMembers[table.name] =
+        uniqueIdentifier("state_" + table.name, usedTableMembers) + "_";
   }
 
   std::ostringstream output;
@@ -3770,7 +3894,8 @@ llvm::Expected<std::string> generateQueueGraphCpp(const QueueGraphPlan &plan) {
         outputTuple.push_back('>');
         const std::string planType = "gfsim::StateTransitionPlan<" +
                                      tableTuple + ", " + outputTuple + ">";
-        output << "struct block_" << index << "_policy {\n";
+        emitRuleProvenance(output, *block);
+        output << "struct " << blockSymbol(index) << "_policy {\n";
         for (const TablePlan *readTable : readTables) {
           auto readType = cppType(readTable->entryType);
           if (!readType)
@@ -3810,16 +3935,17 @@ llvm::Expected<std::string> generateQueueGraphCpp(const QueueGraphPlan &plan) {
              ++writeIndex) {
           if (bindingHasValue)
             output << ", ";
-          output << "proposal_index" << writeIndex << ", proposal_value"
-                 << writeIndex << ", proposal_present" << writeIndex;
+          output << stateWriteIndexName(*block, writeIndex) << ", "
+                 << stateWriteValueName(*block, writeIndex) << ", "
+                 << stateWritePresentName(*block, writeIndex);
           bindingHasValue = true;
         }
         for (size_t outputIndex = 0; outputIndex < outputTypes.size();
              ++outputIndex) {
           if (bindingHasValue)
             output << ", ";
-          output << "output_value" << outputIndex << ", output_present"
-                 << outputIndex;
+          output << outputValueName(*block, outputIndex) << ", "
+                 << outputPresentName(*block, outputIndex);
           bindingHasValue = true;
         }
         for (auto [ownerIndex, table] : llvm::enumerate(ownerTables)) {
@@ -3832,17 +3958,16 @@ llvm::Expected<std::string> generateQueueGraphCpp(const QueueGraphPlan &plan) {
             }
             if (bindingHasValue)
               output << ", ";
-            output << (reservation->indexKind == "set" ? "snapshot_set_"
-                                                        : "reservation_index")
-                   << ownerIndex << '_' << reservationIndex++;
+            output << reservationBindingName(table->name, *reservation,
+                                             reservationIndex++);
             bindingHasValue = true;
           }
         }
         if (bindingHasValue)
           output << ", ";
-        output << "condition] = [&]() {\n"
+        output << "rule_condition] = [&]() {\n"
                << *evaluationBody << "    }();\n"
-               << "    if (!condition)\n"
+               << "    if (!rule_condition)\n"
                << "      return std::nullopt;\n";
         for (auto [ownerIndex, table] : llvm::enumerate(ownerTables))
           emitStateWriteBatch(output, *block, table->name,
@@ -3852,15 +3977,17 @@ llvm::Expected<std::string> generateQueueGraphCpp(const QueueGraphPlan &plan) {
              ++ownerIndex) {
           if (ownerIndex)
             output << ", ";
-          output << "std::move(owner_writes" << ownerIndex << ")";
+          output << "std::move("
+                 << stateWriteBatchName(ownerTables[ownerIndex]->name) << ")";
         }
         output << "}, {";
         for (auto [outputIndex, type] : llvm::enumerate(outputTypes)) {
           if (outputIndex)
             output << ", ";
-          output << "output_present" << outputIndex << " ? std::optional<"
-                 << type << ">{output_value" << outputIndex
-                 << "} : std::optional<" << type << ">{}";
+          output << outputPresentName(*block, outputIndex)
+                 << " ? std::optional<" << type << ">{"
+                 << outputValueName(*block, outputIndex) << "} : std::optional<"
+                 << type << ">{}";
         }
         output << "}, {";
         for (size_t ownerIndex = 0; ownerIndex < tableTypes.size();
@@ -3886,15 +4013,18 @@ llvm::Expected<std::string> generateQueueGraphCpp(const QueueGraphPlan &plan) {
                                    std::to_string(fieldMask->count) + ")");
               ++reservationIndex;
             } else if (reservation->indexKind == "set") {
-              output << " | snapshot_set_" << ownerIndex << '_'
-                     << reservationIndex++;
+              output << " | "
+                     << reservationBindingName(table.name, *reservation,
+                                               reservationIndex++);
             } else {
               output << " | "
                      << (fieldMask->complete
                              ? "gfsim::StateReservation::forEntry("
                              : "gfsim::StateReservation::forFieldsAt(")
-                     << "static_cast<std::size_t>(reservation_index"
-                     << ownerIndex << '_' << reservationIndex++ << ")";
+                     << "static_cast<std::size_t>("
+                     << reservationBindingName(table.name, *reservation,
+                                               reservationIndex++)
+                     << ")";
               if (fieldMask->complete)
                 output << ")";
               else
@@ -3917,8 +4047,8 @@ llvm::Expected<std::string> generateQueueGraphCpp(const QueueGraphPlan &plan) {
           const StateWritePlan *write = findStateWrite(*block, table->name);
           const std::vector<std::string> fields =
               write ? write->fields : std::vector<std::string>{"$entry"};
-          output << "struct block_" << index << "_merge_policy_" << ownerIndex
-                 << " {\n  static constexpr std::array<size_t, "
+          output << "struct " << blockSymbol(index) << "_merge_policy_"
+                 << ownerIndex << " {\n  static constexpr std::array<size_t, "
                  << fields.size() << "> fields{";
           for (auto [fieldIndex, field] : llvm::enumerate(fields)) {
             if (fieldIndex)
@@ -4060,7 +4190,8 @@ llvm::Expected<std::string> generateQueueGraphCpp(const QueueGraphPlan &plan) {
       for (const std::string &outputType : outputTypes)
         planType.append(", ").append(outputType);
       planType.push_back('>');
-      output << "struct block_" << index << "_policy {\n";
+      emitRuleProvenance(output, *block);
+      output << "struct " << blockSymbol(index) << "_policy {\n";
       for (const TablePlan *readTable : readTables) {
         auto readType = cppType(readTable->entryType);
         if (!readType)
@@ -4094,16 +4225,17 @@ llvm::Expected<std::string> generateQueueGraphCpp(const QueueGraphPlan &plan) {
            ++writeIndex) {
         if (bindingHasValue)
           output << ", ";
-        output << "proposal_index" << writeIndex << ", proposal_value"
-               << writeIndex << ", proposal_present" << writeIndex;
+        output << stateWriteIndexName(*block, writeIndex) << ", "
+               << stateWriteValueName(*block, writeIndex) << ", "
+               << stateWritePresentName(*block, writeIndex);
         bindingHasValue = true;
       }
       for (size_t outputIndex = 0; outputIndex < outputTypes.size();
            ++outputIndex) {
         if (bindingHasValue)
           output << ", ";
-        output << "output_value" << outputIndex << ", output_present"
-               << outputIndex;
+        output << outputValueName(*block, outputIndex) << ", "
+               << outputPresentName(*block, outputIndex);
         bindingHasValue = true;
       }
       size_t reservationIndex = 0;
@@ -4115,22 +4247,22 @@ llvm::Expected<std::string> generateQueueGraphCpp(const QueueGraphPlan &plan) {
         }
         if (bindingHasValue)
           output << ", ";
-        output << (reservation->indexKind == "set" ? "snapshot_set_0_"
-                                                    : "reservation_index")
-               << reservationIndex++;
+        output << reservationBindingName(table->name, *reservation,
+                                         reservationIndex++);
         bindingHasValue = true;
       }
-      output << ", condition] = [&]() {\n"
+      output << ", rule_condition] = [&]() {\n"
              << *evaluationBody << "    }();\n"
-             << "    if (!condition)\n"
+             << "    if (!rule_condition)\n"
              << "      return std::nullopt;\n";
       emitStateWriteBatch(output, *block, table->name, *entryType, 0, "    ");
-      output << "    return " << planType << "{std::move(owner_writes0), {";
+      output << "    return " << planType << "{std::move("
+             << stateWriteBatchName(table->name) << "), {";
       for (auto [outputIndex, outputType] : llvm::enumerate(outputTypes)) {
         if (outputIndex)
           output << ", ";
-        output << "output_present" << outputIndex << " ? std::optional<"
-               << outputType << ">{output_value" << outputIndex
+        output << outputPresentName(*block, outputIndex) << " ? std::optional<"
+               << outputType << ">{" << outputValueName(*block, outputIndex)
                << "} : std::optional<" << outputType << ">{}";
       }
       output << "}, gfsim::StateReservation{}";
@@ -4151,14 +4283,18 @@ llvm::Expected<std::string> generateQueueGraphCpp(const QueueGraphPlan &plan) {
                                std::to_string(fieldMask->count) + ")");
           ++reservationIndex;
         } else if (reservation->indexKind == "set") {
-          output << " | snapshot_set_0_" << reservationIndex++;
+          output << " | "
+                 << reservationBindingName(table->name, *reservation,
+                                           reservationIndex++);
         } else {
           output << " | "
                  << (fieldMask->complete
                          ? "gfsim::StateReservation::forEntry("
                          : "gfsim::StateReservation::forFieldsAt(")
-                 << "static_cast<std::size_t>(reservation_index"
-                 << reservationIndex++ << ")";
+                 << "static_cast<std::size_t>("
+                 << reservationBindingName(table->name, *reservation,
+                                           reservationIndex++)
+                 << ")";
           if (fieldMask->complete)
             output << ")";
           else
@@ -4174,7 +4310,7 @@ llvm::Expected<std::string> generateQueueGraphCpp(const QueueGraphPlan &plan) {
           output << "    " << identifier(selection.name)
                  << "->accept(epoch);\n";
       output << "  }\n};\n\n";
-      output << "struct block_" << index
+      output << "struct " << blockSymbol(index)
              << "_merge_policy {\n  static constexpr std::array<size_t, "
              << ownerWriteFields.size() << "> fields{";
       for (auto [fieldIndex, field] : llvm::enumerate(ownerWriteFields)) {
@@ -4645,7 +4781,7 @@ llvm::Expected<std::string> generateQueueGraphCpp(const QueueGraphPlan &plan) {
     auto parent = modulePointer(block->scope);
     if (!parent)
       return parent.takeError();
-    std::string member = "block_" + std::to_string(index) + "_";
+    std::string member = blockSymbol(index) + "_";
     std::string key = block->name + "#" + std::to_string(index);
     std::string instanceName = block->kind + "_" + block->name;
     if (block->kind == "firing") {
@@ -4662,7 +4798,7 @@ llvm::Expected<std::string> generateQueueGraphCpp(const QueueGraphPlan &plan) {
           outputs.append(", ");
         outputs.append("&").append(queueMembers[block->outputs[outputIndex]]);
       }
-      std::string policy = "block_" + std::to_string(index) + "_policy{";
+      std::string policy = blockSymbol(index) + "_policy{";
       bool hasPolicyMember = false;
       for (auto [readIndex, readTable] :
            llvm::enumerate(readOnlyTables(plan, *block))) {
@@ -4707,8 +4843,7 @@ llvm::Expected<std::string> generateQueueGraphCpp(const QueueGraphPlan &plan) {
           modes.append("gfsim::TableWriteMode::")
               .append(!write || write->mode == "replace" ? "Replace"
                                                          : "FieldMerge");
-          merges.append("block_")
-              .append(std::to_string(index))
+          merges.append(blockSymbol(index))
               .append("_merge_policy_")
               .append(std::to_string(ownerIndex))
               .append("{}");
@@ -4731,9 +4866,8 @@ llvm::Expected<std::string> generateQueueGraphCpp(const QueueGraphPlan &plan) {
             initializers, member, "(\"", instanceName, "\", ", blockIds[key],
             ", ", *parent, ", ", table->getValue(), ", std::tuple{", inputs,
             "}, std::tuple{", outputs, "}, gfsim::TableWriteMode::",
-            !write || write->mode == "replace" ? "Replace" : "FieldMerge",
-            ", ",
-            policy, ", block_", index, "_merge_policy{})");
+            !write || write->mode == "replace" ? "Replace" : "FieldMerge", ", ",
+            policy, ", ", blockSymbol(index), "_merge_policy{})");
       }
     } else if (block->kind == "transform") {
       if (block->inputs.size() == 1 && block->outputs.size() == 1) {
@@ -5060,7 +5194,7 @@ llvm::Expected<std::string> generateQueueGraphCpp(const QueueGraphPlan &plan) {
     output << *line << '\n';
   }
   for (auto [index, block] : llvm::enumerate(runtimeBlocks)) {
-    auto line = attach(block->scope, "block_" + std::to_string(index) + "_");
+    auto line = attach(block->scope, blockSymbol(index) + "_");
     if (!line)
       return line.takeError();
     output << *line << '\n';
@@ -5151,9 +5285,9 @@ llvm::Expected<std::string> generateQueueGraphCpp(const QueueGraphPlan &plan) {
     if (feedbackStateIds.contains(index))
       output << "        gfsim::makeDispatchRow(&block_" << index
              << "_state_),\n";
-  for (size_t index = 0; index < runtimeBlocks.size(); ++index) {
-    output << "        gfsim::makeDispatchRow(&block_" << index << "_),\n";
-  }
+  for (size_t index = 0; index < runtimeBlocks.size(); ++index)
+    output << "        gfsim::makeDispatchRow(&" << blockSymbol(index)
+           << "_),\n";
   for (size_t index = 0; index < plan.memoryInstances.size(); ++index)
     output << "        gfsim::makeDispatchRow(&memory_" << index << "_),\n";
   for (const TablePlan &table : plan.tables)
@@ -5216,7 +5350,7 @@ llvm::Expected<std::string> generateQueueGraphCpp(const QueueGraphPlan &plan) {
       const std::vector<const TablePlan *> ownerTables =
           stateOwnerTables(plan, *block);
       if (ownerTables.size() != 1) {
-        output << "  gfsim::QueueStateTransition<block_" << index
+        output << "  gfsim::QueueStateTransition<" << blockSymbol(index)
                << "_policy, std::tuple<";
         for (auto [ownerIndex, table] : llvm::enumerate(ownerTables)) {
           auto type = table ? cppType(table->entryType)
@@ -5257,9 +5391,9 @@ llvm::Expected<std::string> generateQueueGraphCpp(const QueueGraphPlan &plan) {
              ++ownerIndex) {
           if (ownerIndex)
             output << ", ";
-          output << "block_" << index << "_merge_policy_" << ownerIndex;
+          output << blockSymbol(index) << "_merge_policy_" << ownerIndex;
         }
-        output << ">> block_" << index << "_;\n";
+        output << ">> " << blockSymbol(index) << "_;\n";
         continue;
       }
       const TablePlan *table = findTable(plan, block->table);
@@ -5268,8 +5402,8 @@ llvm::Expected<std::string> generateQueueGraphCpp(const QueueGraphPlan &plan) {
                                    "table firing Table missing"));
       if (!entryType)
         return entryType.takeError();
-      output << "  gfsim::QueueTableTransition<block_" << index << "_policy, "
-             << *entryType << ", std::tuple<";
+      output << "  gfsim::QueueTableTransition<" << blockSymbol(index)
+             << "_policy, " << *entryType << ", std::tuple<";
       for (auto [inputIndex, inputName] : llvm::enumerate(block->inputs)) {
         const QueuePlan *input = findQueue(plan, inputName);
         auto inputType = input ? cppType(input->payloadType)
@@ -5293,8 +5427,8 @@ llvm::Expected<std::string> generateQueueGraphCpp(const QueueGraphPlan &plan) {
           output << ", ";
         output << *resultType;
       }
-      output << ">, block_" << index << "_merge_policy> block_" << index
-             << "_;\n";
+      output << ">, " << blockSymbol(index) << "_merge_policy> "
+             << blockSymbol(index) << "_;\n";
     } else if (block->kind == "transform") {
       if (block->inputs.size() == 1 && block->outputs.size() == 1) {
         const QueuePlan *input = findQueue(plan, block->inputs[0]);

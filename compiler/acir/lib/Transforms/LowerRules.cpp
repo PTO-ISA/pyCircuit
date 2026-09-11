@@ -838,7 +838,8 @@ LogicalResult lowerRulesToFiring(ModuleOp model) {
     state.addAttribute("ac.arbitration_membership",
                        rule->getAttr("ac.rule.arbitration_membership"));
     state.addAttribute("ac.rule_definition", rule.getNameAttr());
-    for (StringRef name : {"ac.name", "ac.output_names"})
+    for (StringRef name : {"ac.name", "ac.output_names", "ac.source_file",
+                           "ac.source_line", "ac.source_column"})
       if (Attribute attribute = rule->getAttr(name))
         state.addAttribute(name, attribute);
     state.addRegion();
@@ -905,7 +906,8 @@ LogicalResult canonicalizePureFirings(ModuleOp model) {
     state.addTypes(firing.getResultTypes());
     state.addAttribute("output_depths", firing.getOutputDepthsAttr());
     state.addAttribute("output_latencies", firing.getOutputLatenciesAttr());
-    for (StringRef name : {"ac.name", "ac.rule_definition"})
+    for (StringRef name : {"ac.name", "ac.rule_definition", "ac.source_file",
+                           "ac.source_line", "ac.source_column"})
       if (Attribute attribute = firing->getAttr(name))
         state.addAttribute(name, attribute);
     state.addAttribute("ac.rule_stable_id", firing.getStableIdAttr());

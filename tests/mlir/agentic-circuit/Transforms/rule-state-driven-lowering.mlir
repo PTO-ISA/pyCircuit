@@ -54,7 +54,7 @@ module attributes {ac.contract_epoch = "0.5", ac.model_kind = "queue_graph", ac.
 // PLAN-SAME: "outputs":["retired"]
 // PLAN: "state_writes":[{"fields":["index","value","valid"],"index":"v{{[0-9]+}}","mode":"replace","present":"v{{[0-9]+}}"
 
-// GFSIM: if (!condition)
+// GFSIM: if (!rule_condition)
 // GFSIM-NEXT: return std::nullopt;
 // GFSIM: std::tuple<>, std::tuple<Entry>
 

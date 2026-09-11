@@ -84,6 +84,12 @@ class MultiOutputAtomicTest(unittest.TestCase):
                 for block in json.loads(planned.stdout)["blocks"]
                 if block["kind"] == "firing"
             )
+            self.assertEqual("dispatch", firing["display_rule_name"])
+            self.assertEqual(
+                "architecture.py", firing["source_file"]
+            )
+            expression_names = {item["result"] for item in firing["expressions"]}
+            self.assertTrue({"ack", "left", "right"} <= expression_names)
             self.assertEqual(
                 [0, 1, 2], [item["ordinal"] for item in firing["output_presence"]]
             )
@@ -91,6 +97,20 @@ class MultiOutputAtomicTest(unittest.TestCase):
                 (str(cxxgen), str(frozen)), text=True, capture_output=True, check=False
             )
             self.assertEqual(0, emitted.returncode, emitted.stderr)
+            repeated = subprocess.run(
+                (str(cxxgen), str(frozen)),
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(0, repeated.returncode, repeated.stderr)
+            self.assertEqual(emitted.stdout, repeated.stdout)
+            self.assertIn("struct rule_dispatch_policy", emitted.stdout)
+            self.assertIn("state_entries_next", emitted.stdout)
+            self.assertIn("output_ack_present", emitted.stdout)
+            self.assertIn("rule_condition", emitted.stdout)
+            self.assertIn("state_entries_", emitted.stdout)
+            self.assertNotIn(str(ROOT), emitted.stdout)
             generated.write_text(emitted.stdout, encoding="utf-8")
             harness = root / "harness.cpp"
             harness.write_text(

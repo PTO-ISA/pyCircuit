@@ -70,5 +70,5 @@ builtin.module attributes {
 // PLAN-SAME: "name":"total"
 
 // CXX-COUNT-1: class [[IMPLEMENTATION:Module_Accumulator]] final : public gfsim::Module
-// CXX: gfsim::SimTable<gfsim::UInt<8>> table_0_;
+// CXX: gfsim::SimTable<gfsim::UInt<8>> state_total_;
 // CXX-COUNT-2: [[IMPLEMENTATION]] instance_

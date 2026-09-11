@@ -56,6 +56,23 @@ RULE_LOWERING_PIPELINE = (
     "ac-freeze-topology)"
 )
 MAX_PACKED_VALUE_WIDTH = 1 << 16
+_DEFAULT_QUEUE_SOURCE_PATH = "<queue-model>"
+
+
+def _normalize_queue_source_path(source_path: str | None) -> str:
+    """Return a stable, non-absolute source path for display metadata."""
+
+    if source_path is None or source_path == _DEFAULT_QUEUE_SOURCE_PATH:
+        return _DEFAULT_QUEUE_SOURCE_PATH
+    normalized = source_path.replace("\\", "/")
+    parts = [part for part in normalized.split("/") if part not in {"", "."}]
+    if (
+        normalized[:1] == "/"
+        or re.match(r"^[A-Za-z]:/", normalized) is not None
+        or ".." in parts
+    ):
+        return parts[-1] if parts else _DEFAULT_QUEUE_SOURCE_PATH
+    return "/".join(parts) or _DEFAULT_QUEUE_SOURCE_PATH
 
 
 def _render_type(value_type: ValueType) -> str:
@@ -146,6 +163,25 @@ def _render_static_mlir_dictionary(
         f"{name} = {_render_static_mlir_value(value)}"
         for name, value in sorted(values)
     ) + "}"
+
+
+def _render_interface_display_attributes(
+    inputs: tuple[str, ...], outputs: tuple[str, ...]
+) -> str:
+    fields = []
+    if inputs:
+        fields.append(
+            "ac.input_display_names = ["
+            + ", ".join(canonical_mlir_string(name) for name in inputs)
+            + "]"
+        )
+    if outputs:
+        fields.append(
+            "ac.output_display_names = ["
+            + ", ".join(canonical_mlir_string(name) for name in outputs)
+            + "]"
+        )
+    return "" if not fields else " attributes {" + ", ".join(fields) + "}"
 
 
 def _static_constraint(
@@ -951,6 +987,7 @@ class QueueProgram:
     sinks: tuple[SinkBinding, ...]
     specialization_fingerprint: str | None = None
     diagnostics: tuple[Diagnostic, ...] = ()
+    source_path: str = _DEFAULT_QUEUE_SOURCE_PATH
 
 
 @dataclass(frozen=True, slots=True)
@@ -2318,8 +2355,10 @@ def parse_queue_program(
     specialization_fingerprint: str | None = None,
     *,
     entry_kind: str = "system",
+    source_path: str | None = None,
 ) -> QueueProgram:
-    tree = ast.parse(text, filename="<queue-model>", type_comments=True)
+    normalized_source_path = _normalize_queue_source_path(source_path)
+    tree = ast.parse(text, filename=normalized_source_path, type_comments=True)
     tree = _desugar_nested_rule_captures(tree, system, entry_kind)
     module_static_values = _module_static_values(tree)
     for node in tree.body:
@@ -8617,7 +8656,8 @@ def parse_queue_program(
         tuple(observations),
         tuple(expectations),
         tuple(sinks),
-        specialization_fingerprint,
+        specialization_fingerprint=specialization_fingerprint,
+        source_path=normalized_source_path,
     )
 
 
@@ -9973,6 +10013,34 @@ def lower_queue_program(
     module: _ModuleRenderSpec | None = None,
     include_helpers: bool = True,
 ) -> str:
+    def add_display_name(
+        emitted_lines: list[str], result: str, logical_name: str
+    ) -> None:
+        """Attach presentation-only metadata to the op defining ``result``."""
+
+        display_name = re.sub(r"^__ac_rule_local_[0-9]+_", "", logical_name)
+        for index in range(len(emitted_lines) - 1, -1, -1):
+            line = emitted_lines[index]
+            operation, separator, _ = line.partition("=")
+            defined_results = re.findall(r"%([A-Za-z0-9_.$-]+)", operation)
+            if not separator or result not in defined_results:
+                continue
+            if "= ac.var." not in line or " : " not in line:
+                return
+            prefix, type_separator, suffix = line.rpartition(" : ")
+            attribute = "ac.display_name = " + canonical_mlir_string(display_name)
+            existing = re.search(r" \{([^{}]*)\}$", prefix)
+            if existing is None:
+                prefix += f" {{{attribute}}}"
+            else:
+                contents = existing.group(1).strip()
+                if re.search(r"(?:^|, )ac\.display_name\s*=", contents):
+                    return
+                merged = attribute if not contents else f"{contents}, {attribute}"
+                prefix = prefix[: existing.start()] + f" {{{merged}}}"
+            emitted_lines[index] = prefix + type_separator + suffix
+            return
+
     def table_writer_identity(
         write: TableWriteBinding | MaskedTableWriteBinding,
     ) -> str:
@@ -10055,6 +10123,7 @@ def lower_queue_program(
         lines = [
             f"  ac.module @{module.name}({argument_types}){result_signature} "
             f"parameters {_render_static_mlir_dictionary(module.static_arguments)} "
+            f"{_render_interface_display_attributes(tuple(name for name, _ in module.inputs), tuple(name for name, _ in module.outputs))} "
             "graph {",
             f"    {scope_lhs}ac.scope @body({scope_operands}) {{",
             f"    ^bb0({scope_arguments}):" if scope_arguments else "    ^bb0:",
@@ -10368,6 +10437,7 @@ def lower_queue_program(
         name: str,
         rates: tuple[int, ...],
         output_names: tuple[str, ...] = (),
+        source: tuple[str, int, int] | None = None,
     ) -> str:
         attributes = [f'ac.name = "{name}"']
         if output_names:
@@ -10381,6 +10451,15 @@ def lower_queue_program(
                 "ac.output_rates = array<i64: "
                 + ", ".join(str(rate) for rate in rates)
                 + ">"
+            )
+        if source is not None:
+            source_file, source_line, source_column = source
+            attributes.extend(
+                (
+                    "ac.source_file = " + canonical_mlir_string(source_file),
+                    f"ac.source_line = {source_line} : i64",
+                    f"ac.source_column = {source_column} : i64",
+                )
             )
         return "{" + ", ".join(attributes) + "}"
 
@@ -10529,6 +10608,7 @@ def lower_queue_program(
                     f"!ac.var<{_render_type(read_index_type)}> -> "
                     f"!ac.var<{_render_type(state_read_binding.value_type)}>"
                 )
+                add_display_name(emitter.lines, state_read, state_read_binding.name)
                 emitter.root_values[state_read_binding.name] = (
                     state_read,
                     state_read_binding.value_type,
@@ -10724,6 +10804,7 @@ def lower_queue_program(
                             f"!ac.var<{_render_type(local_type)}>"
                         )
                         local_value = selected
+                add_display_name(emitter.lines, local_value, local.name)
                 emitter.root_values[local.name] = (local_value, local_type)
             if queue.rule_var is not None:
                 assert queue.rule_var_argument is not None
@@ -10753,6 +10834,9 @@ def lower_queue_program(
                         f"@{queue.rule_var}[%{read_index}] : "
                         f"!ac.var<{_render_type(read_index_type)}> -> "
                         f"!ac.var<{_render_type(queue.payload)}>"
+                    )
+                    add_display_name(
+                        emitter.lines, state_read, queue.rule_var_read_name
                     )
                     emitter.root_values[queue.rule_var_read_name] = (
                         state_read,
@@ -11322,7 +11406,8 @@ def lower_queue_program(
             else:
                 lines.append(f"{indent}  ac.rule.return")
             lines.append(
-                f"{indent}}} {queue_attributes(queue.name, (queue.rate,), queue.rule_output_names)} : "
+                f"{indent}}} "
+                f"{queue_attributes(queue.name, (queue.rate,), queue.rule_output_names, (program.source_path, queue.rule_source_line or 1, queue.rule_source_column or 1))} : "
                 f"("
                 + ", ".join(
                     f"!ac.queue<{_render_type(payload)}>" for payload in rule_payloads
@@ -11342,7 +11427,8 @@ def lower_queue_program(
                     if queue.rule_has_output
                     else "() "
                 )
-                + f'loc("<queue-model>":{queue.rule_source_line}:'
+                + f"loc({canonical_mlir_string(program.source_path)}:"
+                f"{queue.rule_source_line}:"
                 f"{queue.rule_source_column})"
             )
             if output_ssas:
@@ -12678,8 +12764,10 @@ def _lower_simple_module_source(
     static_arguments: Mapping[str, StaticValue] | None = None,
     specialization_fingerprint: str | None = None,
     host_results: bool = False,
+    source_path: str | None = None,
 ) -> str | None:
-    tree = ast.parse(text, filename="<queue-model>", type_comments=True)
+    normalized_source_path = _normalize_queue_source_path(source_path)
+    tree = ast.parse(text, filename=normalized_source_path, type_comments=True)
     module_names = [
         node.name
         for node in tree.body
@@ -13196,7 +13284,12 @@ def _lower_simple_module_source(
             if module_name not in rule_module_specializations:
                 rule_module_specializations[module_name] = (
                     definition,
-                    parse_queue_program(text, module_name, entry_kind="module"),
+                    parse_queue_program(
+                        text,
+                        module_name,
+                        entry_kind="module",
+                        source_path=normalized_source_path,
+                    ),
                     frozen,
                 )
             return module_name, frozen
@@ -13215,6 +13308,7 @@ def _lower_simple_module_source(
                     module_name,
                     static_arguments=dict(frozen),
                     entry_kind="module",
+                    source_path=normalized_source_path,
                 ),
                 frozen,
             )
@@ -13476,7 +13570,9 @@ def _lower_simple_module_source(
                 [
                     f"  ac.module @{name}(%input: "
                     f"!ac.queue<{_render_type(input_type)}>) -> "
-                    f"!ac.queue<{_render_type(output_type)}> parameters {{}} graph {{",
+                    f"!ac.queue<{_render_type(output_type)}> parameters {{}}"
+                    f"{_render_interface_display_attributes((argument,), ('result',))} "
+                    "graph {",
                     f"    %output = ac.instance @result of @{child}(%input) "
                     'static {} id "result" path "result" '
                     f": (!ac.queue<{_render_type(input_type)}>) -> "
@@ -13508,7 +13604,9 @@ def _lower_simple_module_source(
                 [
                     f"  ac.module @{name}(%input: "
                     f"!ac.queue<{_render_type(input_type)}>) -> "
-                    f"!ac.queue<{_render_type(output_type)}> parameters {{}} graph {{",
+                    f"!ac.queue<{_render_type(output_type)}> parameters {{}}"
+                    f"{_render_interface_display_attributes((argument,), ('result',))} "
+                    "graph {",
                     "    %output = ac.scope @body(%input) {",
                     f"    ^bb0(%borrowed: !ac.queue<{_render_type(input_type)}>):",
                 ]
@@ -13593,7 +13691,9 @@ def _lower_simple_module_source(
             [
                 f"  ac.module @{name}(%input: "
                 f"!ac.queue<{_render_type(input_type)}>) -> "
-                f"!ac.queue<{_render_type(output_type)}> parameters {{}} graph {{",
+                f"!ac.queue<{_render_type(output_type)}> parameters {{}}"
+                f"{_render_interface_display_attributes((argument,), ('result',))} "
+                "graph {",
                 "    %output = ac.scope @body(%input) {",
                 f"    ^bb0(%borrowed: !ac.queue<{_render_type(input_type)}>):",
                 "      %transformed = ac.transform %borrowed depths [1] "
@@ -13749,6 +13849,7 @@ def lower_queue_source(
     specialization_fingerprint: str | None = None,
     *,
     host_results: bool = False,
+    source_path: str | None = None,
 ) -> str:
     if lowered := _lower_simple_module_source(
         text,
@@ -13756,6 +13857,7 @@ def lower_queue_source(
         static_arguments=static_arguments,
         specialization_fingerprint=specialization_fingerprint,
         host_results=host_results,
+        source_path=source_path,
     ):
         return lowered
     if host_results:
@@ -13768,6 +13870,7 @@ def lower_queue_source(
             system,
             static_arguments=static_arguments,
             specialization_fingerprint=specialization_fingerprint,
+            source_path=source_path,
         )
     )
 

@@ -41,12 +41,12 @@ module attributes {ac.contract_epoch = "0.5", ac.model_kind = "queue_graph", ac.
 // FROZEN: ac.firing
 // FROZEN: ac.table.propose @rob
 
-// GFSIM: struct block_0_policy
+// GFSIM: struct rule_install_policy
 // GFSIM: std::optional<gfsim::TableTransitionPlan<Entry, Entry>>
-// GFSIM: auto [proposal_index0, proposal_value0, proposal_present0, output_value0, output_present0, reservation_index0, condition]
+// GFSIM: auto [state_rob_index, state_rob_next, state_rob_write_present, output_output, output_output_present, state_rob_reservation_index_0, rule_condition]
 // GFSIM-COUNT-1: table_rob->at
 // GFSIM: gfsim::TableWriteMode::Replace
-// GFSIM: gfsim::QueueTableTransition<block_0_policy, Entry
+// GFSIM: gfsim::QueueTableTransition<rule_install_policy, Entry
 
 // PYC: func.func @rule_table
 // PYC-COUNT-2: pyc.reg

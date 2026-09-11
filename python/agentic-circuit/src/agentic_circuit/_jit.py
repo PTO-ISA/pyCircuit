@@ -235,6 +235,14 @@ class JitSpecialization:
     def _source(self) -> str:
         closure = self._validated_closure()
         if closure is not None:
+            if len(closure.entries) == 1:
+                entry = closure.entries[0]
+                raw = Path(entry.source_file).read_bytes()
+                if sha256_bytes(raw) != entry.sha256:
+                    raise DiagnosticRuntimeError(
+                        "ACPY-JIT-003: source changed during lowering"
+                    )
+                return raw.decode("utf-8")
             statements: list[ast.stmt] = []
             for entry in closure.entries:
                 source = Path(entry.source_file)
@@ -259,6 +267,27 @@ class JitSpecialization:
             raise DiagnosticRuntimeError("ACPY-JIT-003: system source file is unavailable")
         return path.read_text(encoding="utf-8")
 
+    def _display_source_path(self) -> str | None:
+        """Return a stable project-relative path without exposing host paths."""
+
+        if self.definition.source_file is None:
+            return None
+        source = Path(self.definition.source_file).resolve()
+        roots: list[Path] = []
+        if self.workspace is not None:
+            roots.append(Path(self.workspace).resolve())
+        try:
+            roots.append(repository_root().resolve())
+        except FileNotFoundError:
+            pass
+        roots.append(Path.cwd().resolve())
+        for root in roots:
+            try:
+                return source.relative_to(root).as_posix()
+            except ValueError:
+                continue
+        return source.name
+
     def lower_acir(self) -> str:
         """Materialize the specialization as Queue/Var ACIR text."""
 
@@ -269,6 +298,7 @@ class JitSpecialization:
             self.definition.__name__,
             static_arguments=dict(self.arguments),
             specialization_fingerprint=self.fingerprint,
+            source_path=self._display_source_path(),
         )
 
     def lower_cpp(self) -> str:
@@ -285,6 +315,7 @@ class JitSpecialization:
             self.definition.__name__,
             static_arguments=dict(self.arguments),
             specialization_fingerprint=self.fingerprint,
+            source_path=self._display_source_path(),
         )
         if program.helpers or any(
             queue.rule_name is not None for queue in program.queues
