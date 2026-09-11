@@ -91,6 +91,23 @@ def test_designs_root_and_generated_profiles_are_not_tracked() -> None:
     )
 
 
+def test_fastfwd_performance_assets_live_under_benchmarks() -> None:
+    benchmark = ROOT / "benchmarks/pycircuit/fastfwd"
+    required = {
+        "README.md",
+        "run_cpp.sh",
+        "run_dse.sh",
+        "tb_fastfwd_pyc.cpp",
+    }
+
+    assert {path.name for path in benchmark.iterdir() if path.is_file()} == required
+    assert os.access(benchmark / "run_cpp.sh", os.X_OK)
+    assert os.access(benchmark / "run_dse.sh", os.X_OK)
+    assert not (ROOT / "contrib/fastfwd").exists()
+    assert not (ROOT / "flows/tools/run_fastfwd_pyc_cpp.sh").exists()
+    assert not (ROOT / "flows/tools/dse_fastfwd_pyc.sh").exists()
+
+
 def test_every_public_example_emits_canonical_pyc(tmp_path: Path) -> None:
     discovered = subprocess.run(
         (

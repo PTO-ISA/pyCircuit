@@ -14,15 +14,20 @@ int main() {
 
   // Both logical endpoints are valid before the first simulated epoch. Fixed
   // priority drains both writer requests before accepting the reader request.
-  for (const auto &request : writes)
+  for (std::size_t index = 0; index < writes.size(); ++index) {
+    const auto &request = writes[index];
     if (!model.writes().proposePush(request))
       return 1;
+    model.writes().doXfer({index, 0});
+  }
   if (!model.reads().proposePush(read))
     return 1;
+  model.reads().doXfer({writes.size() - 1, 0});
 
   auto rows = model.dispatch_rows();
   std::size_t cycles = 0;
-  for (std::size_t tick = 0; tick < 32; ++tick) {
+  const std::size_t firstTick = writes.size();
+  for (std::size_t tick = firstTick; tick < firstTick + 32; ++tick) {
     const gfsim::Epoch epoch{tick, 0};
     for (auto &row : rows)
       row.work(row.object, epoch);
@@ -32,7 +37,7 @@ int main() {
       row.xfer(row.object, epoch, gfsim::XferPhase::Commit);
     if (model.sink_0_values().size() == writes.size() &&
         model.sink_1_values().size() == 1) {
-      cycles = tick + 1;
+      cycles = tick - firstTick + 1;
       break;
     }
   }
@@ -46,8 +51,9 @@ int main() {
     return 2;
 
   std::cout << "cycles=" << cycles
-            << " write_old_values=" << write_responses[0].data << ","
-            << write_responses[1].data
-            << " read_after_priority=" << read_responses[0].data << "\n";
+            << " write_old_values=" << write_responses[0].data.value() << ","
+            << write_responses[1].data.value()
+            << " read_after_priority=" << read_responses[0].data.value()
+            << "\n";
   return 0;
 }

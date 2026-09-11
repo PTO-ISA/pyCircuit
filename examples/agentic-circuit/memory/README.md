@@ -26,29 +26,36 @@ reader run, and it observes the final value `99`. This exercises:
 From the repository root:
 
 ```bash
-PYTHONPATH=src \
-  .venv/bin/python \
-  tools/ac-queue-cxxgen.py examples/memory/memory_simple.py \
+AC_BUILD=.pycircuit_out/acir/dev-llvm22
+AC_MEMORY_OUT=.pycircuit_out/examples/agentic-circuit/memory
+mkdir -p "${AC_MEMORY_OUT}"
+
+PYTHONDONTWRITEBYTECODE=1 \
+PYTHONPATH=python/semantic-core/src:python/agentic-circuit/src \
+python3 compiler/acir/tools/ac-queue-cxxgen.py \
+  examples/agentic-circuit/memory/memory_simple.py \
   --system memory_simple \
-  --acir-output /tmp/memory_simple.mlir \
-  --plan-output /tmp/memory_simple.plan.json \
-  --acir-opt build/dev-llvm22/bin/acir-opt \
-  --queue-plan-tool build/dev-llvm22/bin/acir-queue-plan \
-  --queue-cxxgen-tool build/dev-llvm22/bin/acir-queue-cxxgen \
-  --output examples/memory/memory_simple.generated.cpp
+  --acir-output "${AC_MEMORY_OUT}/memory_simple.ac.mlir" \
+  --plan-output "${AC_MEMORY_OUT}/memory_simple.plan.json" \
+  --acir-opt "${AC_BUILD}/bin/acir-opt" \
+  --queue-plan-tool "${AC_BUILD}/bin/acir-queue-plan" \
+  --queue-cxxgen-tool "${AC_BUILD}/bin/acir-queue-cxxgen" \
+  --output "${AC_MEMORY_OUT}/memory_simple.generated.cpp"
 
 c++ \
-  -std=c++20 -Iinclude -Iexamples/memory \
-  examples/memory/memory_simple_harness.cpp \
-  -o /tmp/memory_simple_sim
+  -std=c++20 \
+  -I"${AC_MEMORY_OUT}" \
+  -Isimulator/gfsim/include \
+  examples/agentic-circuit/memory/memory_simple_harness.cpp \
+  -o "${AC_MEMORY_OUT}/memory_simple_sim"
 
-/tmp/memory_simple_sim
+"${AC_MEMORY_OUT}/memory_simple_sim"
 ```
 
 Expected output:
 
 ```text
-cycles=8 write_old_values=0,42 read_after_priority=99
+cycles=7 write_old_values=0,42 read_after_priority=99
 ```
 
 The generated `memory_simple.generated.cpp` is a build artifact and is not
@@ -64,23 +71,30 @@ has independent storage and one outstanding request; responses from different
 banks may be reordered, so the harness checks them by tag.
 
 ```bash
-PYTHONPATH=src \
-  .venv/bin/python \
-  tools/ac-queue-cxxgen.py examples/memory/memory_banks.py \
+AC_BUILD=.pycircuit_out/acir/dev-llvm22
+AC_MEMORY_OUT=.pycircuit_out/examples/agentic-circuit/memory
+mkdir -p "${AC_MEMORY_OUT}"
+
+PYTHONDONTWRITEBYTECODE=1 \
+PYTHONPATH=python/semantic-core/src:python/agentic-circuit/src \
+python3 compiler/acir/tools/ac-queue-cxxgen.py \
+  examples/agentic-circuit/memory/memory_banks.py \
   --system memory_banks \
-  --acir-output /tmp/memory_banks.mlir \
-  --plan-output /tmp/memory_banks.plan.json \
-  --acir-opt build/dev-llvm22/bin/acir-opt \
-  --queue-plan-tool build/dev-llvm22/bin/acir-queue-plan \
-  --queue-cxxgen-tool build/dev-llvm22/bin/acir-queue-cxxgen \
-  --output examples/memory/memory_banks.generated.cpp
+  --acir-output "${AC_MEMORY_OUT}/memory_banks.ac.mlir" \
+  --plan-output "${AC_MEMORY_OUT}/memory_banks.plan.json" \
+  --acir-opt "${AC_BUILD}/bin/acir-opt" \
+  --queue-plan-tool "${AC_BUILD}/bin/acir-queue-plan" \
+  --queue-cxxgen-tool "${AC_BUILD}/bin/acir-queue-cxxgen" \
+  --output "${AC_MEMORY_OUT}/memory_banks.generated.cpp"
 
 c++ \
-  -std=c++20 -Iinclude -Iexamples/memory \
-  examples/memory/memory_banks_harness.cpp \
-  -o /tmp/memory_banks_sim
+  -std=c++20 \
+  -I"${AC_MEMORY_OUT}" \
+  -Isimulator/gfsim/include \
+  examples/agentic-circuit/memory/memory_banks_harness.cpp \
+  -o "${AC_MEMORY_OUT}/memory_banks_sim"
 
-/tmp/memory_banks_sim
+"${AC_MEMORY_OUT}/memory_banks_sim"
 ```
 
 Expected output has the following values; the cycle count is deterministic but
@@ -99,23 +113,30 @@ physical access latency, then is accepted only after the first response
 releases `busy`.
 
 ```bash
-PYTHONPATH=src \
-  .venv/bin/python \
-  tools/ac-queue-cxxgen.py examples/memory/memory_busy.py \
+AC_BUILD=.pycircuit_out/acir/dev-llvm22
+AC_MEMORY_OUT=.pycircuit_out/examples/agentic-circuit/memory
+mkdir -p "${AC_MEMORY_OUT}"
+
+PYTHONDONTWRITEBYTECODE=1 \
+PYTHONPATH=python/semantic-core/src:python/agentic-circuit/src \
+python3 compiler/acir/tools/ac-queue-cxxgen.py \
+  examples/agentic-circuit/memory/memory_busy.py \
   --system memory_busy \
-  --acir-output /tmp/memory_busy.mlir \
-  --plan-output /tmp/memory_busy.plan.json \
-  --acir-opt build/dev-llvm22/bin/acir-opt \
-  --queue-plan-tool build/dev-llvm22/bin/acir-queue-plan \
-  --queue-cxxgen-tool build/dev-llvm22/bin/acir-queue-cxxgen \
-  --output examples/memory/memory_busy.generated.cpp
+  --acir-output "${AC_MEMORY_OUT}/memory_busy.ac.mlir" \
+  --plan-output "${AC_MEMORY_OUT}/memory_busy.plan.json" \
+  --acir-opt "${AC_BUILD}/bin/acir-opt" \
+  --queue-plan-tool "${AC_BUILD}/bin/acir-queue-plan" \
+  --queue-cxxgen-tool "${AC_BUILD}/bin/acir-queue-cxxgen" \
+  --output "${AC_MEMORY_OUT}/memory_busy.generated.cpp"
 
 c++ \
-  -std=c++20 -Iinclude -Iexamples/memory \
-  examples/memory/memory_busy_harness.cpp \
-  -o /tmp/memory_busy_sim
+  -std=c++20 \
+  -I"${AC_MEMORY_OUT}" \
+  -Isimulator/gfsim/include \
+  examples/agentic-circuit/memory/memory_busy_harness.cpp \
+  -o "${AC_MEMORY_OUT}/memory_busy_sim"
 
-/tmp/memory_busy_sim
+"${AC_MEMORY_OUT}/memory_busy_sim"
 ```
 
 Expected output:
@@ -143,23 +164,30 @@ endpoint. The harness first seeds `DRAM[5]` with `0x1234`, runs one DMA copy to
 `SRAM[3]`, then reads SRAM back to verify the transferred value.
 
 ```bash
-PYTHONPATH=src \
-  .venv/bin/python \
-  tools/ac-queue-cxxgen.py examples/memory/dma.py \
+AC_BUILD=.pycircuit_out/acir/dev-llvm22
+AC_MEMORY_OUT=.pycircuit_out/examples/agentic-circuit/memory
+mkdir -p "${AC_MEMORY_OUT}"
+
+PYTHONDONTWRITEBYTECODE=1 \
+PYTHONPATH=python/semantic-core/src:python/agentic-circuit/src \
+python3 compiler/acir/tools/ac-queue-cxxgen.py \
+  examples/agentic-circuit/memory/dma.py \
   --system dma \
-  --acir-output /tmp/dma.mlir \
-  --plan-output /tmp/dma.plan.json \
-  --acir-opt build/dev-llvm22/bin/acir-opt \
-  --queue-plan-tool build/dev-llvm22/bin/acir-queue-plan \
-  --queue-cxxgen-tool build/dev-llvm22/bin/acir-queue-cxxgen \
-  --output examples/memory/dma.generated.cpp
+  --acir-output "${AC_MEMORY_OUT}/dma.ac.mlir" \
+  --plan-output "${AC_MEMORY_OUT}/dma.plan.json" \
+  --acir-opt "${AC_BUILD}/bin/acir-opt" \
+  --queue-plan-tool "${AC_BUILD}/bin/acir-queue-plan" \
+  --queue-cxxgen-tool "${AC_BUILD}/bin/acir-queue-cxxgen" \
+  --output "${AC_MEMORY_OUT}/dma.generated.cpp"
 
 c++ \
-  -std=c++20 -Iinclude -Iexamples/memory \
-  examples/memory/dma_harness.cpp \
-  -o /tmp/dma_sim
+  -std=c++20 \
+  -I"${AC_MEMORY_OUT}" \
+  -Isimulator/gfsim/include \
+  examples/agentic-circuit/memory/dma_harness.cpp \
+  -o "${AC_MEMORY_OUT}/dma_sim"
 
-/tmp/dma_sim
+"${AC_MEMORY_OUT}/dma_sim"
 ```
 
 Expected output:

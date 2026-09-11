@@ -18,6 +18,8 @@ REQUIRED_ROOTS = (
     Path("examples/agentic-circuit/pipelines"),
     Path("examples/agentic-circuit/memory"),
     Path("examples/agentic-circuit/blocks"),
+    Path("examples/agentic-circuit/state"),
+    Path("examples/agentic-circuit/types"),
     Path("tests/goldens/agentic-circuit"),
 )
 LAYOUT_REQUIRED_ROOTS = (
@@ -33,6 +35,7 @@ LAYOUT_REQUIRED_ROOTS = (
     Path("examples/pycircuit/basics"),
     Path("examples/pycircuit/features"),
     Path("examples/agentic-circuit"),
+    Path("benchmarks/pycircuit/fastfwd"),
     Path("benchmarks/pycircuit"),
     Path("tests/integration/pycircuit/fixtures"),
     Path("toolchains/agentic-circuit"),
@@ -61,6 +64,7 @@ DEPRECATED_ROOTS = (
     Path("designs/IssueQueue"),
     Path("designs/RegisterFile"),
     Path("designs/XiangShan-pyc"),
+    Path("contrib/fastfwd"),
     Path("contrib/linx"),
     Path("boards"),
     Path("janus"),

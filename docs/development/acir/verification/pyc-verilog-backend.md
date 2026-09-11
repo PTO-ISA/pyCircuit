@@ -39,7 +39,8 @@ For a constrained host, build only the required producers and keep Ninja
 single-threaded:
 
 ```bash
-cmake --build build/dev-llvm22 --target acir-queue-pycgen pycc -j1
+cmake --build .pycircuit_out/toolchain/build \
+  --target acir-queue-pycgen pycc -j1
 ```
 
 `tests/mlir/agentic-circuit/CodeGen/popcount.mlir` proves ACIR-to-semantic-PYC.

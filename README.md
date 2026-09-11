@@ -338,6 +338,10 @@ pyCircuit/
 ├── simulator/gfsim/             # Agentic Circuit architecture simulator
 ├── examples/                     # Public pyCircuit and Agentic Circuit examples
 ├── benchmarks/                   # Performance workloads; generated data stays out of tree
+├── schemas/                      # Versioned machine-readable contracts and registries
+├── packaging/                    # SDK and wheel assembly from accepted source artifacts
+├── toolchains/                   # Pinned compiler/toolchain lock metadata
+├── tools/                        # Product-facing repository utilities
 ├── flows/                        # Build and validation orchestration
 ├── tests/                        # Language- and layer-classified tests
 └── docs/                         # Audience-organized product, architecture, and contributor docs

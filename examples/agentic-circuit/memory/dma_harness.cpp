@@ -63,7 +63,8 @@ int main() {
 
   std::cout << "seed_tick=" << seedTick << " copy_tick=" << copyTick
             << " verify_tick=" << verifyTick << " dram_value=0x" << std::hex
-            << model.sink_2_values()[0].data << std::dec
-            << " copy_old_sram=" << model.sink_1_values()[0].data << "\n";
+            << model.sink_2_values()[0].data.value() << std::dec
+            << " copy_old_sram=" << model.sink_1_values()[0].data.value()
+            << "\n";
   return 0;
 }

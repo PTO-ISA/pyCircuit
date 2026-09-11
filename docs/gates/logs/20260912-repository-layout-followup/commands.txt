@@ -1,0 +1,17 @@
+bash -n benchmarks/pycircuit/fastfwd/run_cpp.sh benchmarks/pycircuit/fastfwd/run_dse.sh
+benchmarks/pycircuit/fastfwd/run_cpp.sh --seed 1 --cycles 64 --packets 128 --stats
+benchmarks/pycircuit/fastfwd/run_dse.sh --seed 1 --cycles 16 --packets 16 --max-runs 1
+PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=python/semantic-core/src:python/agentic-circuit/src python3 compiler/acir/tools/ac-queue-cxxgen.py examples/agentic-circuit/memory/<case>.py --system <case> --acir-output .pycircuit_out/examples/agentic-circuit/memory/<case>.ac.mlir --plan-output .pycircuit_out/examples/agentic-circuit/memory/<case>.plan.json --acir-opt .pycircuit_out/acir/dev-llvm22/bin/acir-opt --queue-plan-tool .pycircuit_out/acir/dev-llvm22/bin/acir-queue-plan --queue-cxxgen-tool .pycircuit_out/acir/dev-llvm22/bin/acir-queue-cxxgen --output .pycircuit_out/examples/agentic-circuit/memory/<case>.generated.cpp
+c++ -std=c++20 -I.pycircuit_out/examples/agentic-circuit/memory -Isimulator/gfsim/include examples/agentic-circuit/memory/<case>_harness.cpp -o .pycircuit_out/examples/agentic-circuit/memory/<case>_sim
+PYTHONPATH=python/semantic-core/src:python/agentic-circuit/src .venv/bin/python compiler/acir/tools/ac-queue-cxxgen.py examples/agentic-circuit/pipelines/routed_dependency_pipeline.py --system routed_dependency_pipeline --acir-output .pycircuit_out/examples/routed_dependency_pipeline.ac.mlir --plan-output .pycircuit_out/examples/routed_dependency_pipeline.queue-plan.json --acir-opt .pycircuit_out/acir/dev-llvm22/bin/acir-opt --queue-plan-tool .pycircuit_out/acir/dev-llvm22/bin/acir-queue-plan --queue-cxxgen-tool .pycircuit_out/acir/dev-llvm22/bin/acir-queue-cxxgen --output .pycircuit_out/examples/routed_dependency_pipeline.cpp
+c++ -std=c++20 -Isimulator/gfsim/include -fsyntax-only .pycircuit_out/examples/routed_dependency_pipeline.cpp
+pytest -q tests/unit -m unit
+env -u AC_GATE_TOOLCHAIN_ROOT PYTHONPATH="$PWD/python/semantic-core/src:$PWD/python/agentic-circuit/src:$PWD/tests/python/agentic-circuit:$PWD/.pycircuit_out/acir/dev-llvm22/python" .pycircuit_out/agentic-circuit/venv/bin/python tools/agentic-circuit/check-contracts.py
+env -u AC_GATE_TOOLCHAIN_ROOT PYTHONPATH="$PWD/python/semantic-core/src:$PWD/python/agentic-circuit/src:$PWD/tests/python/agentic-circuit:$PWD/.pycircuit_out/acir/dev-llvm22/python" .pycircuit_out/agentic-circuit/venv/bin/python tools/agentic-circuit/generate-diagnostic-catalog.py --check
+env -u AC_GATE_TOOLCHAIN_ROOT PYTHONPATH="$PWD/python/semantic-core/src:$PWD/python/agentic-circuit/src:$PWD/tests/python/agentic-circuit:$PWD/.pycircuit_out/acir/dev-llvm22/python" .pycircuit_out/agentic-circuit/venv/bin/python tools/agentic-circuit/check-ir-coverage.py
+env -u AC_GATE_TOOLCHAIN_ROOT PYTHONPATH="$PWD/python/semantic-core/src:$PWD/python/agentic-circuit/src:$PWD/tests/python/agentic-circuit:$PWD/.pycircuit_out/acir/dev-llvm22/python" .pycircuit_out/agentic-circuit/venv/bin/python tools/check-pyc-inventory.py
+python3 tools/agentic-circuit/check-release-layout.py
+python3 .github/scripts/validate_repo_management.py
+pre-commit run --all-files
+mkdocs build --strict
+python3 flows/tools/check_decision_status.py --rfc docs/rfcs/pyc6-decisions.md --status docs/gates/decision_status_v6.md --out docs/gates/logs/20260912-repository-layout-followup/decision_status_report.json --require-no-deferred --require-all-verified --require-concrete-evidence --require-existing-evidence
