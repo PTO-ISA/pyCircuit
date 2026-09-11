@@ -136,6 +136,8 @@ def verify_native_closure(root: Path, manifest: dict[str, Any]) -> None:
             if linked.returncode:
                 raise ValueError(f"ldd failed for {path}: {linked.stderr}")
             for raw in linked.stdout.splitlines():
+                if raw.strip() == "statically linked":
+                    continue
                 if "not found" in raw:
                     raise ValueError(f"unresolved dynamic dependency: {raw.strip()}")
                 fields = raw.replace("=>", " ").split()
