@@ -1,10 +1,11 @@
-# PYC IR Spec (prototype)
+# PYC IR Reference
 
 PYC is an MLIR dialect (`pyc`) intended to be a common, backend-agnostic IR for
 hardware components, with multi-clock modeling and strict ready/valid streaming
 semantics.
 
-For the compiler pipeline and pass-by-pass behavior, see `docs/PIPELINE.md`.
+For the compiler pipeline and pass-by-pass behavior, see the
+[compiler pipeline](../architecture/compiler-pipeline.md).
 
 ## 1) Types
 
@@ -61,7 +62,36 @@ All examples below live inside a standard MLIR `module { ... }` and use
 %bus = pyc.concat(%a, %b, %c) : (i8, i16, i1) -> i25
 ```
 
-### 2.2.1 `pyc.alias` (debug naming)
+### 2.2.1 Semantic bit primitives
+
+These operations are vendor-neutral canonical PYC. Their inputs are limited to
+1–64 bits, and their result widths are verified:
+
+```mlir
+%index, %valid = pyc.priority_encode %mask {order = "low"} : i13 -> i4, i1
+%population = pyc.popcount %mask : i13 -> i4
+%leading = pyc.count_zeros %mask {direction = "leading"} : i13 -> i4
+%trailing = pyc.count_zeros %mask {direction = "trailing"} : i13 -> i4
+```
+
+- `pyc.priority_encode` selects the lowest or highest asserted bit. A zero input
+  returns `index = 0` and `valid = 0`.
+- `pyc.popcount` returns the number of asserted bits.
+- `pyc.count_zeros` counts leading or trailing zero bits. An all-zero input
+  returns the input width.
+
+The canonical operations remain in C++ reference simulation. The Verilog-only
+selection pass may replace them with a qualified implementation from the
+digest-verified RTL catalog.
+
+### 2.2.2 `pyc.rtl.comb` (backend-owned implementation)
+
+`pyc.rtl.comb` is internal backend IR emitted only by
+`pyc-select-rtl-primitives`. It records a selected implementation, typed port
+names, parameters, source digests, license identity, and catalog fingerprint.
+Frontend or persisted canonical PYC containing this operation is rejected.
+
+### 2.2.3 `pyc.alias` (debug naming)
 
 `pyc.alias` is a pure identity op used to attach stable debug names for codegen:
 
@@ -72,7 +102,7 @@ All examples below live inside a standard MLIR `module { ... }` and use
 Backends use the `pyc.name` attribute (not `name`) to avoid conflicts with other
 ops that legitimately use a `name` attribute (e.g. memory instances).
 
-### 2.2.2 `pyc.instance` (hierarchical instantiation)
+### 2.2.4 `pyc.instance` (hierarchical instantiation)
 
 `pyc.instance` instantiates another `func.func` hardware module while preserving
 module boundaries (for big designs / readable codegen):
@@ -111,7 +141,7 @@ Hierarchy preservation policy:
 - Default C++ out-dir flows use `--inline-policy=off` so `@module` callsites
   remain explicit instance boundaries.
 
-### 2.2.3 `pyc.assert` (simulation-only assertion)
+### 2.2.5 `pyc.assert` (simulation-only assertion)
 
 `pyc.assert` is a simulation-only check that aborts when `cond` is false.
 Backends emit it under `ifndef SYNTHESIS` in Verilog, and as a runtime check in

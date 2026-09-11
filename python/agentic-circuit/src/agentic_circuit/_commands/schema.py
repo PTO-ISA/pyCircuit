@@ -16,6 +16,7 @@ from .._capabilities import (
 )
 from .._contract import CONTRACT_EPOCH
 from .._diagnostics import Diagnostic
+from .._exit_codes import ExitCode
 from .._output import OutputSink
 from .._workspace import UserInputError
 
@@ -149,4 +150,4 @@ def run(arguments: object, sink: OutputSink) -> int:
     else:
         _fail(f"schema kind is unknown: {kind}")
     sink.result(document, human=str(document))
-    return 0
+    return ExitCode.SUCCESS

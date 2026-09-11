@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from pathlib import Path
 
 import pytest
 from pycircuit.cli import (
@@ -12,6 +13,7 @@ from pycircuit.cli import (
 )
 
 pytestmark = pytest.mark.unit
+ROOT = Path(__file__).resolve().parents[2]
 
 
 def timed_build(m, domain, *, width: int = 8, signed: bool = False) -> None:
@@ -41,6 +43,13 @@ def test_collect_jit_params_keeps_structural_defaults() -> None:
 def test_base_name_prefers_public_cycle_aware_symbol_override() -> None:
     assert _base_name_of(timed_build) == "timed_smoke"
     assert _base_name_of(structural_build) == "structural_build"
+
+
+def test_make_smoke_stages_the_toolchain_before_using_install_paths() -> None:
+    makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
+
+    assert "smoke: install" in makefile
+    assert 'PYCC="$(INSTALL_PREFIX)/bin/pycc"' in makefile
 
 
 def test_verilog_primitive_merge_keeps_later_module_closure(tmp_path) -> None:

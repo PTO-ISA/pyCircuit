@@ -296,6 +296,32 @@ def _contains_registered_rule(namespace: dict[str, object]) -> bool:
     return False
 
 
+def _capture_queue_rule(
+    text: str,
+    system: str,
+    source_path: str,
+    static_arguments: dict[str, StaticValue],
+) -> tuple[object, str, tuple[Diagnostic, ...]]:
+    """Capture Queue/rule artifacts and preserve frontend diagnostics."""
+
+    from ._queue_frontend import (
+        build_queue_acpy,
+        lower_queue_program,
+        parse_queue_program,
+    )
+
+    program = parse_queue_program(
+        text,
+        system,
+        static_arguments=static_arguments,
+    )
+    return (
+        build_queue_acpy(text, system, source_path),
+        lower_queue_program(program),
+        program.diagnostics,
+    )
+
+
 def _worker_main(request_path: Path) -> int:
     request = json.loads(request_path.read_text())
     workspace = Path(request["workspace"]).resolve()
@@ -335,25 +361,13 @@ def _worker_main(request_path: Path) -> int:
                 acir = specialization.lower_acir()
                 diagnostics = specialization.diagnostics
             elif has_rule:
-                from ._queue_frontend import (
-                    build_queue_acpy,
-                    lower_queue_program,
-                    parse_queue_program,
-                )
-
                 frontend_kind = "queue_rule"
-                program = parse_queue_program(
-                    text,
-                    request["system"],
-                    static_arguments=static_arguments,
-                )
-                document = build_queue_acpy(
+                document, acir, diagnostics = _capture_queue_rule(
                     text,
                     request["system"],
                     entry.relative_to(workspace).as_posix(),
+                    static_arguments,
                 )
-                acir = lower_queue_program(program)
-                diagnostics = program.diagnostics
             else:
                 schemas = SchemaRegistry.from_catalog(
                     schema_root() / "stdlib" / "catalog.json",

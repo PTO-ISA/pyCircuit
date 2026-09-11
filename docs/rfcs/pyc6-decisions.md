@@ -9,7 +9,7 @@ supersede earlier ones explicitly. When two decisions conflict, the later
 accepted decision governs.
 
 The product-facing language and API contract are defined by
-`docs/v6_PyCircuit_Specification.md`. The implementation plan is
+`docs/reference/language.md`. The implementation plan is
 `docs/pyc6-plan.md`.
 
 ## Decision 0001: C++ sim object model and module boundary
@@ -3901,6 +3901,14 @@ compatibility aliases.
   `tests/*/agentic-circuit` roots. ACIR/ACSim sources live under
   `compiler/acir`; the `agentic_circuit` Python distribution remains separate
   under `python/agentic-circuit`.
+- Product documentation is partitioned by audience and authority:
+  `getting-started`, `reference`, `architecture`, `acir`, `development`,
+  `rfcs`, `research`, `gates`, and `legal`. Only the documentation home and
+  active evolution plan remain at the root. Active pages are reachable from
+  MkDocs navigation; historical gate evidence retains its original path.
+- Byte-for-byte Agentic frontend outputs live under
+  `tests/goldens/agentic-circuit/frontend`; source fixtures remain beside the
+  frontend tests that consume them.
 - Reference designs and external-system work are classified explicitly:
   reusable blocks live under `designs/blocks`, supported frontend examples live
   under `examples`, system integrations live under `integrations`, board assets
@@ -4004,6 +4012,13 @@ delayed review feedback without changing the release acceptance contract.
   packaging still carry the narrowest relevant local test evidence and
   decision mapping. Passing lightweight CI is not evidence that an untested
   native change is correct.
+- Curated evidence is proportional to the lane: focused PR runs record commands
+  and a summary, decision-bearing runs add a decision report, and only
+  simulation or release lanes require their corresponding case trees and full
+  closure artifacts. Historical evidence is not rewritten to a newer profile.
+- Repository smoke entrypoints stage the toolchain before referencing installed
+  binaries. Optimizer drivers use the same explicit CLI/configuration flow and
+  expose every registered pass in `--help`.
 - The release workflow is the only automatic full-closure authority. Before
   publishing, it builds the integrated LLVM/MLIR toolchain, runs ACIR/ACSim and
   gfsim tests, completes AC G0/G1/G2, and runs pyCircuit examples, semantic
@@ -4116,6 +4131,9 @@ handwritten implementation without lowering it into gates.
   `ac.var.priority_encode`; QueueGraph lowers it to the semantic PYC operation,
   while gfsim uses `gfsim::priorityEncode` and a dedicated SimQueue
   `PriorityEncode` block.
+- One ACPy-authored boundary-value fixture executes priority encode, popcount,
+  and both zero-count directions through typed gfsim and PYC C++; their packed
+  results must match exactly.
 - The gfsim reference implementation masks to the declared width, returns
   `index=0, valid=0` for zero, and uses C++20 leading/trailing bit scans for
   high/low order. It does not iterate through every declared bit.
@@ -8783,6 +8801,10 @@ message punctuation or when one code has multiple owners.
   cycle-aware authoring surface plus Design/JIT/probe/testbench/trace/connector
   boundaries a structured `Diagnostic`; the two packages do not import one
   another's exception types.
+- Queue/rule capture preserves frontend diagnostics instead of replacing them
+  with an empty tuple. All CLI commands return the shared `ExitCode` policy;
+  unreachable parser states fail internally rather than publishing placeholder
+  success documents.
 - Native compiler adapters carry code separately from the rendered MLIR
   diagnostic text. Diagnostics originating in MLIR or third-party parsers
   without a more specific registered identity use an explicit, registered

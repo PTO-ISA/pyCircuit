@@ -33,7 +33,7 @@ tools: configure
 	ninja -C "$(BUILD_DIR)" pycc pyc6_runtime
 	ninja -C "$(BUILD_DIR)" pyc-opt 2>/dev/null || true
 
-smoke: tools
+smoke: install
 	PYC_TOOLCHAIN_ROOT="$(INSTALL_PREFIX)" PYCC="$(INSTALL_PREFIX)/bin/pycc" bash flows/scripts/run_examples.sh
 	PYC_TOOLCHAIN_ROOT="$(INSTALL_PREFIX)" PYCC="$(INSTALL_PREFIX)/bin/pycc" bash flows/scripts/run_sims.sh
 

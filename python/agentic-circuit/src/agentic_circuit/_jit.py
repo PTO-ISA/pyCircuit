@@ -18,6 +18,7 @@ from typing import TYPE_CHECKING, get_origin
 from ._canonical_json import canonical_json_bytes, sha256_bytes, validate_ijson_value
 from ._definitions import Definition
 from ._diagnostics import Diagnostic, DiagnosticRuntimeError, DiagnosticTypeError
+from ._package_data import repository_root
 from ._source_closure import SourceClosure, SourceClosureEntry, capture_source_closure
 from ._static_eval import FrozenMap, StaticValue, static_json_value
 from ._types import Static
@@ -31,8 +32,12 @@ def _native_queue_tool(name: str, environment: str) -> Path:
     configured = os.environ.get(environment)
     if configured:
         candidates.append(Path(configured))
-    repository = Path(__file__).resolve().parents[4]
-    candidates.append(repository / ".pycircuit_out/acir/dev-llvm22/bin" / name)
+    try:
+        repository = repository_root()
+    except FileNotFoundError:
+        repository = None
+    if repository is not None:
+        candidates.append(repository / ".pycircuit_out/acir/dev-llvm22/bin" / name)
     candidates.append(Path(sys.prefix) / "bin" / name)
     try:
         from ._native_api import native_extension_path
@@ -328,7 +333,7 @@ class JitSpecialization:
 
         directory.mkdir(parents=True, exist_ok=True)
         _write_atomic(source, cpp.encode("utf-8"))
-        repository = Path(__file__).resolve().parents[4]
+        repository = repository_root()
         include_root = repository / "simulator" / "gfsim" / "include"
         with tempfile.TemporaryDirectory(dir=directory) as temporary:
             candidate = Path(temporary) / "model.o"
@@ -379,7 +384,7 @@ class JitSpecialization:
     ) -> "JitPycArtifact":
         """Build cached canonical PYC, C++, and Verilog artifacts."""
 
-        repository = Path(__file__).resolve().parents[4]
+        repository = repository_root()
         bundle_tool = (
             repository / "compiler" / "acir" / "tools" / "ac-queue-pyc-build.py"
         )

@@ -185,6 +185,14 @@ PYTHONPATH="${PYC_ROOT_DIR}/python/semantic-core/src:${ac_python}/src:${ac_build
   -v
 
 PYC_TOOLCHAIN_ROOT="${toolchain}" \
+ACIR_BIN="$(dirname "${acir_opt}")" \
+PYCC="${pycc}" \
+PYTHONPATH="${PYC_ROOT_DIR}/python/semantic-core/src:${ac_python}/src:${ac_build}/python" \
+  "${venv}/bin/python" \
+  "${PYC_ROOT_DIR}/tests/integration/agentic-circuit/e2e/test_bit_primitive_parity.py" \
+  -v
+
+PYC_TOOLCHAIN_ROOT="${toolchain}" \
 ACIR_OPT="${acir_opt}" \
 ACIR_QUEUE_PLAN="${acir_plan}" \
 ACIR_QUEUE_CXXGEN="${acir_cxxgen}" \

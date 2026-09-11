@@ -5,7 +5,8 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
-from types import ModuleType
+from types import ModuleType, SimpleNamespace
+from unittest.mock import patch, sentinel
 
 from jsonschema import Draft202012Validator
 
@@ -36,6 +37,42 @@ class SourceCaptureTest(unittest.TestCase):
         self.assertTrue(_contains_registered_rule({"imported": imported_rule}))
         self.assertTrue(_contains_registered_rule({"Rules": Rules}))
         self.assertTrue(_contains_registered_rule({"helper": helper}))
+
+    def test_queue_rule_capture_preserves_frontend_diagnostics(self) -> None:
+        from agentic_circuit._capture_worker import _capture_queue_rule
+        from agentic_circuit._diagnostics import Diagnostic
+
+        diagnostic = Diagnostic(
+            stage="queue-frontend",
+            code="ACPY-VERIFY-001",
+            severity="warning",
+            message="captured rule warning",
+        )
+        program = SimpleNamespace(diagnostics=(diagnostic,))
+        with (
+            patch(
+                "agentic_circuit._queue_frontend.parse_queue_program",
+                return_value=program,
+            ),
+            patch(
+                "agentic_circuit._queue_frontend.build_queue_acpy",
+                return_value=sentinel.document,
+            ),
+            patch(
+                "agentic_circuit._queue_frontend.lower_queue_program",
+                return_value="module {}\n",
+            ),
+        ):
+            document, acir, diagnostics = _capture_queue_rule(
+                "@ac.system\ndef top(): ...\n",
+                "top",
+                "architecture.py",
+                {},
+            )
+
+        self.assertIs(sentinel.document, document)
+        self.assertEqual("module {}\n", acir)
+        self.assertEqual((diagnostic,), diagnostics)
 
     def test_identity_is_workspace_relative_and_hashed(self) -> None:
         from agentic_circuit._source import load_source_unit

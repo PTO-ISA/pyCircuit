@@ -10,6 +10,7 @@ from typing import Literal
 from .._canonical_json import canonical_json_bytes
 from .._capabilities import standard_library_catalog
 from .._contract import CONTRACT_EPOCH
+from .._exit_codes import ExitCode
 from .._native_api import capabilities
 from .._output import OutputSink
 
@@ -118,4 +119,4 @@ def run(arguments: object, sink: OutputSink) -> int:
         "checks": [check.to_json() for check in checks],
     }
     sink.result(document, human=f"doctor: {document['status']}")
-    return 0 if passed else 3
+    return ExitCode.SUCCESS if passed else ExitCode.INTERNAL

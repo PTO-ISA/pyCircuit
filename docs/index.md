@@ -10,13 +10,30 @@ frontend, ACIR/ACSim dialects, and gfsim runtime. Synthesizable ACIR models join
 the pyCircuit 6 flow at verified PYC; the Python and MLIR frontend namespaces do
 not collapse into one API.
 
+## Documentation map
+
+| Directory | Audience and content |
+| --- | --- |
+| `getting-started/` | Installation, frontend selection, quickstart, and tutorial |
+| `reference/` | Normative language, API, PYC IR, diagnostics, and testbench contracts |
+| `architecture/` | Compiler, cycle balancing, and simulation design |
+| `acir/` | Agentic Circuit and ACIR specifications, designs, and migration records |
+| `development/` | Contributor workflows, gates, release contracts, and inventories |
+| `rfcs/` | Accepted decisions and active proposals |
+| `research/` | Comparative studies that inform, but do not define, the product contract |
+| `gates/` | Decision status plus immutable validation evidence |
+| `legal/` | Licensing and provenance records |
+
+Only `index.md` and the active `pyc6-plan.md` remain at the documentation root.
+Historical gate logs retain their original paths.
+
 ## Start here
 
 - [Install pyCircuit](getting-started/installation.md)
 - [Choose between `pycircuit` and `agentic_circuit`](getting-started/choose-a-frontend.md)
-- [Follow the V6 tutorial](v6_PyCircuit_Tutorial.md)
-- [Read the V6 language specification](v6_PyCircuit_Specification.md)
-- [Understand the software architecture](v6_PyCircuit_Software_Architecture.md)
+- [Follow the V6 tutorial](getting-started/tutorial.md)
+- [Read the V6 language specification](reference/language.md)
+- [Understand the software architecture](architecture/overview.md)
 
 ## Core contracts
 
@@ -29,12 +46,12 @@ not collapse into one API.
 
 ## Reference
 
-- [Frontend API](FRONTEND_API.md)
-- [Testbench API](TESTBENCH.md)
-- [Primitive reference](PRIMITIVES.md)
-- [IR specification](IR_SPEC.md)
-- [Diagnostics](DIAGNOSTICS.md)
-- [Sidecar schedule](SIDECAR_SCHEDULE.md)
+- [Frontend API](reference/frontend-api.md)
+- [Testbench API](reference/testbench.md)
+- [Primitive reference](reference/primitives.md)
+- [IR specification](reference/pyc-ir.md)
+- [Diagnostics](reference/diagnostics.md)
+- [Sidecar schedule](reference/sidecar-schedule.md)
 - [Agentic Circuit and ACIR](acir/index.md)
 - [Repository migration status](acir/migration.md)
 

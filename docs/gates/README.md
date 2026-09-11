@@ -8,16 +8,26 @@ tracking. Historical run directories retain the names they had when generated.
 - Required root: `docs/gates/logs/<run-id>/`
 - `<run-id>` format recommendation: `YYYYMMDD-HHMMSS` (override via env if needed)
 
-## Required Artifacts Per Run
+## Evidence profiles
 
-Each run directory must include:
+Evidence is proportional to the lane that ran. New curated evidence directories
+use one of these profiles:
 
-- `commands.txt`: exact commands executed in order
-- `<gate>.stdout` and `<gate>.stderr`: raw command outputs
-- `summary.json`: pass/fail summary with durations
-- `decision_status_report.json`: output from `flows/tools/check_decision_status.py`
-- `cases/run_sims/<case>/...`: per-case logs for `flows/scripts/run_sims.sh`
-- `cases/run_sims_nightly/<case>/...`: per-case logs for `flows/scripts/run_sims_nightly.sh`
+| Profile | Required artifacts |
+| --- | --- |
+| Focused PR evidence | `commands.txt` plus `summary.json` or `summary.md` |
+| Decision-bearing evidence | Focused PR evidence plus `decision_status_report.json` |
+| Scripted gate lane | The command file and summary produced by that script, plus bounded stdout/stderr or per-case logs when the script emits them |
+| Full release closure | Decision report, Agentic G0/G1/G2 summaries, examples, semantic regressions, normal/nightly simulation summaries, and platform/package attestations |
+
+`cases/run_sims/` exists only when `run_sims.sh` ran;
+`cases/run_sims_nightly/` exists only when the nightly simulation lane ran.
+Likewise, a focused documentation or Python contract run does not manufacture
+empty simulation directories or unrelated native logs.
+
+Historical directories are immutable evidence. Many predate these profiles or
+represent one focused lane, so they are not required to contain the complete
+release artifact set.
 
 ## Decision Status Source
 

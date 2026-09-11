@@ -26,6 +26,7 @@ from .._canonical_json import (
 )
 from .._capture_worker import CaptureWorkerRequest, run_capture_worker
 from .._contract import CONTRACT_EPOCH
+from .._exit_codes import ExitCode
 from .._diagnostics import Diagnostic
 from .._native_api import NativeRequest, native_extension_path, run_native_compiler
 from .._output import OutputSink
@@ -759,7 +760,7 @@ def _plan(arguments: object, sink: OutputSink) -> int:
         },
         human=f"planned model {entry_text} to {output}",
     )
-    return 0
+    return ExitCode.SUCCESS
 
 
 @dataclass(frozen=True, slots=True)
@@ -1204,7 +1205,7 @@ def _emit(arguments: object, sink: OutputSink) -> int:
         },
         human=f"emitted model sources to {output}",
     )
-    return 0
+    return ExitCode.SUCCESS
 
 
 def run(arguments: object, sink: OutputSink) -> int:

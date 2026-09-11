@@ -5,6 +5,7 @@ from __future__ import annotations
 from .._capabilities import diagnostic_catalog
 from .._contract import CONTRACT_EPOCH
 from .._diagnostics import Diagnostic
+from .._exit_codes import ExitCode
 from .._output import OutputSink
 from .._workspace import UserInputError
 
@@ -33,4 +34,4 @@ def run(arguments: object, sink: OutputSink) -> int:
         **matches[0],
     }
     sink.result(document, human=f"{code}: {matches[0]['rule']}")
-    return 0
+    return ExitCode.SUCCESS

@@ -16,7 +16,7 @@
 ### 2.1 驱动与前端
 
 - Python `pycircuit` 前端通过 `Module`/`Circuit` 生成文本 **`.pyc`（MLIR）**。
-- **pyCircuit 6 以 CycleAwareSignal 为主路径**：`CycleAwareDomain.next()` 推进逻辑周期，信号运算按 cycle provenance 自动对齐。`ClockHandle`、`clk.next()` 和 `m.assign(..., dst_cycle=, src_cycle=)` 是结构化库接口使用的显式 occurrence-cycle 机制。两条入口降低到同一个 `pyc-cycle-balance` 语义；规范见 `docs/v6_PyCircuit_Specification.md`。
+- **pyCircuit 6 以 CycleAwareSignal 为主路径**：`CycleAwareDomain.next()` 推进逻辑周期，信号运算按 cycle provenance 自动对齐。`ClockHandle`、`clk.next()` 和 `m.assign(..., dst_cycle=, src_cycle=)` 是结构化库接口使用的显式 occurrence-cycle 机制。两条入口降低到同一个 `pyc-cycle-balance` 语义；规范见 `docs/reference/language.md`。
 
 ### 2.2 `pycc` 流水线（与 cycle 相关的位置）
 
@@ -85,7 +85,7 @@
 
 ## 5. 文档索引
 
-更细的步骤、文件清单与验收标准见 **`docs/cycle_balance_improvement_detailed_plan.md`**。
+更细的步骤、文件清单与验收标准见 **`docs/architecture/cycle-balancing-design.md`**。
 
 ## 6. 实现落点（代码）
 

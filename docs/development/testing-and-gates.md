@@ -85,7 +85,8 @@ source.
 ### AC G0: frontend and contracts
 
 - install/import the `agentic-circuit` distribution from the current worktree;
-- validate ACPy epoch `0.5` golden serialization;
+- validate ACPy epoch `0.5` golden serialization under
+  `tests/goldens/agentic-circuit/frontend/`;
 - run Python frontend, schema, contract and CLI inventory tests; and
 - verify that `agentic_circuit` remains separate from `pycircuit` exports.
 
@@ -103,6 +104,8 @@ source.
 - generate and validate Verilog for the same canonical cases;
 - compare applicable gfsim, pyc6 C++ and Verilator observations; and
 - prove unsupported ACIR constructs fail at the intended verifier boundary.
+- compare ACPy-derived scalar bit primitives in typed gfsim and PYC C++ on the
+  same boundary-value sequence.
 
 Decision 0241 admits the bounded Table profile to G2 through an explicit
 `pyc.reg` bank. G2 evidence covers independent profile limits, typed and

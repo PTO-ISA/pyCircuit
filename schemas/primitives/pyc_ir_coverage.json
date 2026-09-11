@@ -1019,8 +1019,8 @@
         "tests/mlir/agentic-circuit/Transforms/rule-consume-only-lowering.mlir",
         "tests/mlir/agentic-circuit/Transforms/rule-owner-write-batch.mlir",
         "tests/mlir/agentic-circuit/Transforms/rule-table-lowering.mlir",
-        "tests/system/test_dodgeball_example.py",
         "tests/test_bitfield_view.py",
+        "tests/unit/test_dodgeball_example.py",
         "tests/unit/test_v6_forward_signal.py"
       ],
       "verifier": "compiler/mlir/lib/Dialect/PYC/PYCOps.cpp",

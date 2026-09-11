@@ -43,9 +43,9 @@ selection; top-level `mux()` is CycleAware and always returns a CAS.
 
 ## Reference documents
 
-- [V6 language specification](../v6_PyCircuit_Specification.md)
-- [Frontend API details](../FRONTEND_API.md)
-- [Testbench API](../TESTBENCH.md)
-- [Primitive reference](../PRIMITIVES.md)
-- [IR specification](../IR_SPEC.md)
-- [Diagnostics](../DIAGNOSTICS.md)
+- [V6 language specification](language.md)
+- [Frontend API details](frontend-api.md)
+- [Testbench API](testbench.md)
+- [Primitive reference](primitives.md)
+- [IR specification](pyc-ir.md)
+- [Diagnostics](diagnostics.md)

@@ -14,6 +14,7 @@ from typing import Literal, NoReturn
 from .._canonical_json import canonical_json_bytes
 from .._contract import CONTRACT_EPOCH
 from .._diagnostics import Diagnostic
+from .._exit_codes import ExitCode
 from .._native_api import NativeRequest, native_extension_path, run_native_compiler
 from .._output import OutputSink
 from .._workspace import UserInputError, WorkspaceConfig
@@ -226,13 +227,13 @@ def _failure_exit(diagnostics: tuple[Diagnostic, ...]) -> int:
         or item.code.startswith(("ACBUILD-", "ACLOWER-CXX", "ACLOWER-COMPILE"))
         for item in diagnostics
     ):
-        return 4
+        return ExitCode.BUILD
     if all(
         item.code.startswith(("ACPY-", "ACELAB-", "ACIR-", "ACLOWER-"))
         for item in diagnostics
     ):
-        return 2
-    return 3
+        return ExitCode.USER_INPUT
+    return ExitCode.INTERNAL
 
 
 def build_publication(
@@ -389,4 +390,4 @@ def run(arguments: object, workspace: WorkspaceConfig, sink: OutputSink) -> int:
         },
         human=f"built {publication.executable}",
     )
-    return 0
+    return ExitCode.SUCCESS

@@ -10,6 +10,7 @@ from pathlib import Path
 
 REPOSITORY = Path(__file__).resolve().parents[4]
 FIXTURES = Path(__file__).resolve().parent / "fixtures" / "lowering"
+GOLDENS = REPOSITORY / "tests" / "goldens" / "agentic-circuit" / "frontend"
 ZERO_DIGEST = "sha256:" + "0" * 64
 
 
@@ -54,11 +55,11 @@ def elaborate(path: Path, workspace: Path, *, schemas=None):
 
 
 def golden_bytes(name: str) -> bytes:
-    return (FIXTURES / name).read_bytes().rstrip(b"\n")
+    return (GOLDENS / name).read_bytes().rstrip(b"\n")
 
 
 def golden_text(name: str) -> str:
-    return (FIXTURES / name).read_text(encoding="utf-8")
+    return (GOLDENS / name).read_text(encoding="utf-8")
 
 
 def acir_opt() -> Path | None:

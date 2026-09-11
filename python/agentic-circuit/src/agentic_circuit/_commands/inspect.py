@@ -10,6 +10,7 @@ from typing import NoReturn
 from .._canonical_json import canonical_json_bytes, sha256_bytes
 from .._contract import CONTRACT_EPOCH
 from .._diagnostics import Diagnostic
+from .._exit_codes import ExitCode
 from .._inspect import (
     InspectionError,
     InspectionRequest,
@@ -179,7 +180,7 @@ def run(arguments: object, workspace: WorkspaceConfig, sink: OutputSink) -> int:
             frontend = capture(arguments, workspace)
             if _has_errors(frontend.diagnostics):
                 sink.diagnostics(frontend.diagnostics)
-                return 2
+                return ExitCode.USER_INPUT
             if frontend.acpy is None or frontend.acir is None:
                 _fail("frontend produced incomplete inspection artifacts")
             result = inspect_model(frontend.acpy, frontend.acir, request)
@@ -189,4 +190,4 @@ def run(arguments: object, workspace: WorkspaceConfig, sink: OutputSink) -> int:
         sink.stdout.write(render_dot(result))
     else:
         sink.result(result.to_json(), human=render_text(result))
-    return 0
+    return ExitCode.SUCCESS

@@ -26,7 +26,7 @@ from pycircuit.design import probe, testbench
 
 Use `domain.signal()` plus `<<=` or `.assign()` to infer state. Use
 `domain.next()` to advance the logical cycle. See the
-[V6 specification](v6_PyCircuit_Specification.md) for the normative API and
+[V6 specification](language.md) for the normative API and
 cycle-balancing rules.
 
 `compile_cycle_aware()` always uses the canonical JIT path and returns a

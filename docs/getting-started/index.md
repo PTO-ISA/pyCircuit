@@ -16,9 +16,9 @@ flow.
 
 - [Installation](installation.md)
 - [Choose a frontend](choose-a-frontend.md)
-- [Repository quickstart](../QUICKSTART.md)
-- [V6 tutorial](../v6_PyCircuit_Tutorial.md)
-- [V6 language specification](../v6_PyCircuit_Specification.md)
+- [Repository quickstart](quickstart.md)
+- [V6 tutorial](tutorial.md)
+- [V6 language specification](../reference/language.md)
 
 ## Installation options
 
@@ -66,7 +66,7 @@ artifacts or build from source.
 
 After installation:
 
-- follow the [V6 tutorial](../v6_PyCircuit_Tutorial.md) for Cycle-Aware Signal
+- follow the [V6 tutorial](tutorial.md) for Cycle-Aware Signal
   hardware and testbenches; or
 - read the [ACIR overview](../acir/index.md) for architecture, process, queue,
   and resource modeling.
