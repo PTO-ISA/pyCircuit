@@ -6,7 +6,7 @@ of truth.
 
 ## Read first
 
-- `docs/v6_PyCircuit_Specification.md`
+- `docs/reference/language.md`
 - `docs/rfcs/pyc6-decisions.md`
 - `docs/pyc6-plan.md`
 - `docs/development/contributing-workflow.md`

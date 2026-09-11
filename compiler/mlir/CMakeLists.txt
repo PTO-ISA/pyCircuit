@@ -110,7 +110,7 @@ target_link_libraries(pyc_support PUBLIC
   LLVMSupport
 )
 
-add_library(pyc_transforms
+add_library(pyc_transforms OBJECT
   lib/Transforms/CombDepGraph.cpp
   lib/Transforms/CheckFrontendContractPass.cpp
   lib/Transforms/CheckHierarchyDisciplinePass.cpp
@@ -158,6 +158,11 @@ if(TARGET MLIRRegisterAllPasses)
     BUILD_WITH_INSTALL_RPATH OFF
   )
   llvm_update_compile_flags(pyc-opt)
+  if(MSVC)
+    target_compile_options(pyc-opt PRIVATE /EHsc)
+  else()
+    target_compile_options(pyc-opt PRIVATE -fexceptions)
+  endif()
   target_include_directories(pyc-opt PRIVATE
     "${PYC_SOURCE_DIR}/include"
     "${PYC_BINARY_DIR}/include"

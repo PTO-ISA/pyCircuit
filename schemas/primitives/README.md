@@ -13,6 +13,12 @@ implementations:
   MLIR, examples, tests, and end-to-end coverage.
 - `library/verilog/rtl_catalog.json` contains qualified implementation choices.
 
+The format split is intentional: the small hand-maintained inventory uses YAML;
+machine-consumed registries and generated coverage use canonical JSON. Every
+document declares a versioned `schema` identity, and
+`python3 tools/check-pyc-inventory.py` validates the exact ODS/inventory/ledger
+relationship.
+
 Python and canonical PYC may reference only semantic IDs.  Vendor module,
 parameter, port, source, digest, provenance, and license data enter IR only in
 the Verilog-only `pyc-select-rtl-primitives` pass.

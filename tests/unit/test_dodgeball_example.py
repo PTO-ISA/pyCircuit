@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-pytestmark = pytest.mark.system
+pytestmark = pytest.mark.unit
 ROOT = Path(__file__).resolve().parents[2]
 DESIGN = ROOT / "examples/pycircuit/dodgeball_game/lab_final_top.py"
 

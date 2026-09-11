@@ -6,7 +6,7 @@
 **Scope:** pyCircuit 6 cycle-aware API、MLIR 属性、Verilog 发射、sidecar 交付物
 **关联文档:**
 - 需求来源:`agentic_tao_physical_design_flow.md` §2.4(TAO 后端流程文档,位于 agentic_circuit_optimizer 项目)
-- 前置概念：`docs/v6_PyCircuit_Specification.md`（CycleAwareSignal 与周期元数据）、`docs/rfcs/pyc6-decisions.md`（稳定层次命名）
+- 前置概念：`docs/reference/language.md`（CycleAwareSignal 与周期元数据）、`docs/rfcs/pyc6-decisions.md`（稳定层次命名）
 
 ---
 

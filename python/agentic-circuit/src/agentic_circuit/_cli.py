@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import argparse
 from collections.abc import Callable, Sequence
-from enum import IntEnum
 from pathlib import Path
 
 from ._commands import build as build_command
@@ -17,8 +16,8 @@ from ._commands import init as init_command
 from ._commands import inspect as inspect_command
 from ._commands import model as model_command
 from ._commands import schema as schema_command
-from ._contract import CONTRACT_EPOCH
 from ._diagnostics import Diagnostic
+from ._exit_codes import ExitCode
 from ._output import OutputSink
 from ._workspace import UserInputError, discover_workspace, load_workspace
 
@@ -34,17 +33,6 @@ EXACT_COMMANDS = (
     "doctor",
     "model",
 )
-
-
-class ExitCode(IntEnum):
-    SUCCESS = 0
-    USER_INPUT = 2
-    INTERNAL = 3
-    BUILD = 4
-    PREFLIGHT = 5
-    SIMULATION = 6
-    INCOMPLETE = 7
-    INTERRUPTED = 130
 
 
 class _OnceValue(argparse.Action):
@@ -256,19 +244,6 @@ def _workspace_start(arguments: argparse.Namespace) -> Path:
     return Path(architecture) if architecture else Path.cwd()
 
 
-def _placeholder_result(
-    arguments: argparse.Namespace, project: str
-) -> dict[str, object]:
-    return {
-        "schema": "agentic-circuit-command-result",
-        "version": "0.1",
-        "contract_epoch": CONTRACT_EPOCH,
-        "command": arguments.command,
-        "project": project,
-        "status": "accepted",
-    }
-
-
 def main(argv: Sequence[str] | None = None) -> int:
     arguments = build_parser().parse_args(argv)
     sink = OutputSink.from_arguments(arguments)
@@ -301,11 +276,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             return build_command.run(arguments, workspace, sink)
         if arguments.command == "inspect":
             return inspect_command.run(arguments, workspace, sink)
-        sink.result(
-            _placeholder_result(arguments, workspace.project_name),
-            human=f"{arguments.command} accepted for {workspace.project_name}",
-        )
-        return ExitCode.SUCCESS
+        raise RuntimeError(f"unhandled command parser state: {arguments.command}")
     except UserInputError as error:
         sink.diagnostics((error.diagnostic,))
         return ExitCode.USER_INPUT

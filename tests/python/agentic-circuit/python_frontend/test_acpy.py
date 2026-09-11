@@ -10,6 +10,7 @@ from jsonschema import Draft202012Validator
 
 REPOSITORY = Path(__file__).resolve().parents[4]
 FIXTURES = Path(__file__).resolve().parent / "fixtures"
+GOLDENS = REPOSITORY / "tests" / "goldens" / "agentic-circuit" / "frontend"
 ZERO_DIGEST = "sha256:" + "0" * 64
 
 
@@ -39,7 +40,7 @@ def minimal_document():
 
 class AcpyContractTest(unittest.TestCase):
     def test_minimal_document_matches_golden_and_schema(self) -> None:
-        expected = (FIXTURES / "acpy" / "minimal.acpy.json").read_bytes().rstrip(b"\n")
+        expected = (GOLDENS / "minimal.acpy.json").read_bytes().rstrip(b"\n")
 
         actual = minimal_document().canonical_bytes()
 

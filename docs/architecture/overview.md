@@ -4,7 +4,8 @@
 
 本文档描述 PyCircuit 工具链的内部架构：Python 前端、MLIR `pyc` 方言与 pass 流水线、Verilog / C++ 双发射器、C++ 仿真运行时、测试调度（inline / sidecar）以及构建系统。目标读者：工具链开发者、需要理解生成产物的设计者。
 
-**配套文档**：语言定义 → `v6_PyCircuit_Specification.md`；使用教程 → `v6_PyCircuit_Tutorial.md`。
+**配套文档**：语言定义 → `docs/reference/language.md`；使用教程 →
+`docs/getting-started/tutorial.md`。
 
 ---
 

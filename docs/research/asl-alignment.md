@@ -4,7 +4,7 @@
 
 **状态：** 待开工（v0.1）
 **分支：** `asl_align`
-**来源：** 对照 `docs/arm_data_type.md`（ARM ASL1 数据类型分析）与当前 pyCircuit 6 代码库（`python/pycircuit/src/pycircuit/`）逐项核实。
+**来源：** 对照 `docs/research/asl-data-types.md`（ARM ASL1 数据类型分析）与当前 pyCircuit 6 代码库（`python/pycircuit/src/pycircuit/`）逐项核实。
 **用途：** 逐条列出「ASL 有、PyCircuit 信号级 DSL 缺」的功能、当前现状、可复用基座、建议 API 与门禁，供开工。勾选框仅表示"是否已实现"，不代表优先级。
 
 ---
@@ -31,13 +31,13 @@ ASL 是**行为规范语言**（单一时间轴＝指令执行，数学域在运
 | T5 | 缩放切片 ✅ **已完成** | `x[idx *: len]` | ★ 低 | `Wire.lane` → `Wire.slice` |
 | T6 | 文档级约定 ✅ **已完成** | `UInt/SInt`、`constant`/`config` 意图分层 | ★ 低 | 编程规范 + 补齐 `sgt/sle/sge` |
 
-**明确不吸纳**（`docs/arm_data_type.md` §9.5 已论证）：约束整数（width 已承担该职责）、运行时无界整数（违背硬件代价显式）、`ARBITRARY`（硬件需确定性）、短路布尔（组合电路无短路）。
+**明确不吸纳**（`docs/research/asl-data-types.md` §9.5 已论证）：约束整数（width 已承担该职责）、运行时无界整数（违背硬件代价显式）、`ARBITRARY`（硬件需确定性）、短路布尔（组合电路无短路）。
 
 ---
 
 ## T1. 单信号位域视图（对应 ASL `bits(N) { [31] N, [3:0] M }`）—— ★★★
 
-- **ASL 对照**（`arm_data_type.md` §2.1/§5.2/§9.5-①）：位向量可带命名位域，**字段可重叠**（同一寄存器多种视图），`x.fld` 读、`x.[f1,f2]` 拼接读、`PSTATE.[N,Z,C,V] = '0011'` 多字段写（读-改-写语义）。
+- **ASL 对照**（`asl-data-types.md` §2.1/§5.2/§9.5-①）：位向量可带命名位域，**字段可重叠**（同一寄存器多种视图），`x.fld` 读、`x.[f1,f2]` 拼接读、`PSTATE.[N,Z,C,V] = '0011'` 多字段写（读-改-写语义）。
 - **现状（0.40）**：
   - `Wire`/`CycleAwareSignal` **无位域方法**；解码/系统寄存器代码充满 `instr[25:21]` 魔法数字。
   - `RecordSpec`（`record.py`）是**端口级**展开（`in_engine_kind_0`），`Bundle.unpack`（`hw.py`）是**位置级**，均非单信号命名切片视图。
@@ -154,7 +154,7 @@ layout   = instr.spec
 
 ## T2. 位掩码模式匹配（对应 ASL `x IN {'1xx0'}` / `opcode == '1(0)x0'`）—— ★★★（解码器刚需）
 
-- **ASL 对照**（`arm_data_type.md` §5.7/§9.5-②）：`x` 为忽略位，括号内 0/1 也视为忽略位；`x == bit_mask ≡ x IN {bit_mask}`。ASL 用它把指令编码表写得与架构手册一字不差。
+- **ASL 对照**（`asl-data-types.md` §5.7/§9.5-②）：`x` 为忽略位，括号内 0/1 也视为忽略位；`x == bit_mask ≡ x IN {bit_mask}`。ASL 用它把指令编码表写得与架构手册一字不差。
 - **现状（0.40）**：
   - 信号级**无位掩码匹配**。`trace_dsl.py:123` 的 `matches` 是 trace 元数据匹配、`spec/builders.py:69` 的 `in_` 是端口方向 builder，**均与位掩码无关**。
   - **可复用基座**：`spec.DecodeRule(mask, match, ...)`（`spec/types.py:741-783` + `ruleset()` builder）是**编译期解码规则表**，语义接近但不作用于活信号。
@@ -195,7 +195,7 @@ m.output("is_add", wire_of(is_add))
 
 ## T3. 类型安全枚举（对应 ASL `enumeration {...}`，不可与整数互转）—— ★★
 
-- **ASL 对照**（`arm_data_type.md` §2.5/§9.5-④）：枚举必须声明为命名类型，**不可与整数互转**；防"拼错枚举/宽度不够/跨枚举比较"。
+- **ASL 对照**（`asl-data-types.md` §2.5/§9.5-④）：枚举必须声明为命名类型，**不可与整数互转**；防"拼错枚举/宽度不够/跨枚举比较"。
 - **现状（0.40）**：**无 `PycEnum`**；枚举仍是裸整型常量 + 手算 width，防错价值缺失。
 - **缺口**：展开期类型安全枚举，自动推 width、禁止与裸 int/跨枚举比较。
 - **建议 API**：
@@ -269,7 +269,7 @@ low    = tagged.raw                      # 取回底层 Wire
 
 ## T4. 断言式类型转换（对应 ASL `expression as ty`）—— ★★ ✅ **已完成**
 
-- **ASL 对照**（`arm_data_type.md` §5.5/§9.5-⑤）：`as` = 断言表达式属于该类型（不满足即编码错误）+ 转换静态类型。
+- **ASL 对照**（`asl-data-types.md` §5.5/§9.5-⑤）：`as` = 断言表达式属于该类型（不满足即编码错误）+ 转换静态类型。
 - **现状（0.40）**：只有静默 `trunc()`（`hw.py:416-423`），**无 `assert_fits`**；"我确信高位为零"的设计意图无法转成可仿真检查的契约。
 - **缺口**：截断前挂一条仿真期断言。
 - **拼写说明**：Python 的 `as` 是保留关键字，无法重载成 `x as ty`，故用带下划线的方法 `x.as_(width=..)`（与 T2 的 `in_`/`not_in_` 同一惯例），并提供 `assert_fits` 别名。
@@ -328,7 +328,7 @@ y = x.assert_fits(width=4)                # 等价别名
 
 ## T5. 缩放切片（对应 ASL `x[idx *: len]`）—— ★ ✅ 已完成
 
-- **ASL 对照**（`arm_data_type.md` §5.1/§9.5-③）：`x[idx *: len] ≡ x[(idx*len) +: len]`，按元素粒度索引。
+- **ASL 对照**（`asl-data-types.md` §5.1/§9.5-③）：`x[idx *: len] ≡ x[(idx*len) +: len]`，按元素粒度索引。
 - **现状（0.40）**：无 `Wire.lane()`，需手写 `x[i*8:(i+1)*8]`；`Vec` 已覆盖多数"按元素取"场景。
 - **缺口**：给扁平总线一个按元素取的糖（残余场景）。
 - **API**（两种等价写法）：
@@ -371,6 +371,6 @@ y = x.assert_fits(width=4)                # 等价别名
 
 **参考**
 
-- `docs/arm_data_type.md` §9（ASL ↔ PyCircuit 对照与建议）
+- `docs/research/asl-data-types.md` §9（ASL ↔ PyCircuit 对照与建议）
 - `python/pycircuit/src/pycircuit/hw.py`（`Wire`/`Vec`/`cat`/`zext`）、`v6.py`（`CycleAwareSignal`/`mux`）、`record.py`、`spec/types.py`（`StructSpec.field_slices`/`DecodeRule`）
 - `docs/rfcs/pyc6-decisions.md` Decision 0008（spec 分层类型系统）

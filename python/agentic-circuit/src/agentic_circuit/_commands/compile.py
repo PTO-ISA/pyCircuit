@@ -9,6 +9,7 @@ from typing import Literal, NoReturn
 from .._canonical_json import sha256_bytes
 from .._contract import CONTRACT_EPOCH
 from .._diagnostics import Diagnostic
+from .._exit_codes import ExitCode
 from .._native_api import NativeRequest, NativeResult, run_native_compiler
 from .._output import OutputSink
 from .._staging import ArtifactStage
@@ -229,13 +230,13 @@ def _failure_exit(diagnostics: tuple[Diagnostic, ...]) -> int:
         item.stage == "cxx" or item.code.startswith(("ACBUILD-", "ACLOWER-CXX"))
         for item in diagnostics
     ):
-        return 4
+        return ExitCode.BUILD
     if all(
         item.code.startswith(("ACPY-", "ACELAB-", "ACIR-", "ACLOWER-"))
         for item in diagnostics
     ):
-        return 2
-    return 3
+        return ExitCode.USER_INPUT
+    return ExitCode.INTERNAL
 
 
 def _frontend_dump(logical: str, acpy: bytes, acir: bytes) -> bytes | None:
@@ -309,7 +310,7 @@ def run(arguments: object, workspace: WorkspaceConfig, sink: OutputSink) -> int:
     frontend = capture(arguments, workspace)
     if _has_errors(frontend.diagnostics):
         sink.diagnostics(frontend.diagnostics)
-        return 2
+        return ExitCode.USER_INPUT
     if frontend.acpy is None or frontend.acir is None:
         _fail("ACPY-VERIFY-001", "frontend produced incomplete compile artifacts")
     if frontend.frontend_kind == "queue_rule" and (
@@ -376,4 +377,4 @@ def run(arguments: object, workspace: WorkspaceConfig, sink: OutputSink) -> int:
         },
         human=f"compiled {len(ordered)} artifacts to {output}",
     )
-    return 0
+    return ExitCode.SUCCESS

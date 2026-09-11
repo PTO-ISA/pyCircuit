@@ -6,8 +6,8 @@
 
 **配套文档**：
 
-- 语言定义 → `docs/v6_PyCircuit_Specification.md`
-- 工具链架构 → `docs/v6_PyCircuit_Software_Architecture.md`
+- 语言定义 → `docs/reference/language.md`
+- 工具链架构 → `docs/architecture/overview.md`
 
 ---
 
@@ -19,7 +19,8 @@
 git clone https://github.com/PTO-ISA/pyCircuit.git
 cd pyCircuit
 
-# 安装 Python 前端（editable）
+# 安装共享语义核心与 Python 前端（editable）
+python3 -m pip install -e "python/semantic-core"
 python3 -m pip install -e .
 
 # 构建 pycc 后端工具链（需要已安装 LLVM/MLIR，见 docs/getting-started/installation.md）
@@ -706,9 +707,9 @@ designs/my_soc/
 
 ## 下一步
 
-- 完整语言定义（`Data` 类型体系 / `Wire[DT]` / MLIR 映射的权威语义）：`docs/v6_PyCircuit_Specification.md`
-- 3D 堆叠分层标注（`tier=` / `jump_tier`，Proposed）：`docs/v6_PyCircuit_Specification.md` 的“Tier 分层标注”与 `docs/rfcs/tier_annotation.md`
-- 工具链内部（pyc 方言、pass 流水线、双发射器、sidecar 运行时）：`docs/v6_PyCircuit_Software_Architecture.md`
+- 完整语言定义（`Data` 类型体系 / `Wire[DT]` / MLIR 映射的权威语义）：`docs/reference/language.md`
+- 3D 堆叠分层标注（`tier=` / `jump_tier`，Proposed）：`docs/reference/language.md` 的“Tier 分层标注”与 `docs/rfcs/tier_annotation.md`
+- 工具链内部（pyc 方言、pass 流水线、双发射器、sidecar 运行时）：`docs/architecture/overview.md`
 - 仓库内可运行示例：`examples/pycircuit/`（counter、calculator、fifo_loopback…）、`designs/blocks/BypassUnit`（标量 lane 列表）、`designs/blocks/IssueQueue`（标量重复结构 + 复杂状态）
 
 ---

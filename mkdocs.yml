@@ -71,41 +71,65 @@ nav:
       - Overview: getting-started/index.md
       - Choose a Frontend: getting-started/choose-a-frontend.md
       - Installation: getting-started/installation.md
-      - Quickstart: QUICKSTART.md
-  - pyCircuit 6:
-      - Language Specification: v6_PyCircuit_Specification.md
-      - Tutorial: v6_PyCircuit_Tutorial.md
-      - Software Architecture: v6_PyCircuit_Software_Architecture.md
+      - Quickstart: getting-started/quickstart.md
+      - Tutorial: getting-started/tutorial.md
+  - Language and API:
+      - Reference Overview: reference/index.md
+      - Language Specification: reference/language.md
+      - Frontend API: reference/frontend-api.md
+      - Testbench API: reference/testbench.md
+      - Primitives: reference/primitives.md
+      - Structured Types: reference/spec-structures.md
+      - Collections: reference/spec-collections.md
+      - Const Metaprogramming: reference/const-metaprogramming.md
+      - PYC IR: reference/pyc-ir.md
+      - Diagnostics: reference/diagnostics.md
+      - Sidecar Schedule: reference/sidecar-schedule.md
+  - Architecture:
+      - Overview: architecture/overview.md
+      - Compiler Pipeline: architecture/compiler-pipeline.md
+      - Cycle Balancing: architecture/cycle-balancing.md
+      - Cycle-Balancing Design: architecture/cycle-balancing-design.md
+      - Simulation Runtimes: architecture/simulation.md
   - Agentic Circuit:
       - ACIR Architecture: acir/index.md
+      - Specification Index: acir/spec/README.md
+      - Language Specification: acir/spec/agentic-circuit.md
+      - 中文规范: acir/spec/agentic-circuit.zh-CN.md
+      - Verification: acir/spec/verification.md
+      - Repository Charter: acir/spec/00-charter/scope.md
+      - Historical Reference: acir/spec/refs/history.md
+      - Table Design: acir/design/table-abstraction.zh-CN.md
       - Repository Migration: acir/migration.md
       - Collaboration Migration: acir/agentic-circuit-collaboration.md
-  - Core Docs:
-      - FRONTEND_API.md
-      - TESTBENCH.md
-      - PRIMITIVES.md
-      - SPEC_STRUCTURES.md
-      - SPEC_COLLECTIONS.md
-      - CONST_METAPROGRAMMING.md
-      - IR_SPEC.md
-      - DIAGNOSTICS.md
-      - PIPELINE.md
-  - API Reference:
-      - api/index.md
   - Development:
       - Overview: development/index.md
+      - Implementation Guide: development/implementation-guide.md
       - Contributing Workflow: development/contributing-workflow.md
       - Testing and Gates: development/testing-and-gates.md
       - Stable SDK Release Contract: development/sdk-release-contract.md
       - Review and Merge: development/review-and-merge.md
       - Repository Management: development/repository-management.md
+      - PYC IR Inventory: development/pyc-ir-inventory.md
+      - ACIR Support: development/acir/support.md
+      - ACIR IR Coverage: development/acir/verification/ir-coverage.md
+      - PYC/Verilog Backend: development/acir/verification/pyc-verilog-backend.md
+      - Repository Layout: development/acir/verification/repository-layout.md
+  - Research:
+      - ASL Data Types: research/asl-data-types.md
+      - ASL Alignment: research/asl-alignment.md
   - Decisions:
       - pyCircuit 6 Decisions: rfcs/pyc6-decisions.md
       - Evolution Plan: pyc6-plan.md
       - Tier Annotation RFC: rfcs/tier_annotation.md
+      - ACIR Block Model: rfcs/acir/D-BLOCK-MODEL-001.md
+      - ACIR Release Layout: rfcs/acir/D-RELEASE-LAYOUT-001.md
+      - ACIR Rule Lowering: rfcs/acir/D-RULE-LOWERING-001.md
   - Gates:
       - Evidence Contract: gates/README.md
       - Decision Status: gates/decision_status_v6.md
+  - Legal:
+      - Agentic Circuit Relicensing: legal/AC-RELICENSE-BSD-3-CLAUSE.md
 
 # Plugins
 plugins:

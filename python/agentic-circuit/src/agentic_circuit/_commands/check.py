@@ -13,6 +13,7 @@ from .._capture_worker import (
 )
 from .._contract import CONTRACT_EPOCH
 from .._diagnostics import Diagnostic
+from .._exit_codes import ExitCode
 from .._native_api import NativeRequest, run_native_compiler
 from .._output import OutputSink
 from .._workspace import UserInputError, WorkspaceConfig
@@ -56,7 +57,7 @@ def run(arguments: object, workspace: WorkspaceConfig, sink: OutputSink) -> int:
     frontend = capture(arguments, workspace)
     if _has_errors(frontend.diagnostics):
         sink.diagnostics(frontend.diagnostics)
-        return 2
+        return ExitCode.USER_INPUT
     stage = "acpy-verify"
     if getattr(arguments, "stop_after", None) != "acpy-verify":
         if frontend.acir is None:
@@ -70,7 +71,7 @@ def run(arguments: object, workspace: WorkspaceConfig, sink: OutputSink) -> int:
                     ),
                 )
             )
-            return 2
+            return ExitCode.USER_INPUT
         from .build import _binding_registry
 
         native = run_native_compiler(
@@ -85,7 +86,7 @@ def run(arguments: object, workspace: WorkspaceConfig, sink: OutputSink) -> int:
         )
         if _has_errors(native.diagnostics):
             sink.diagnostics(native.diagnostics)
-            return 2
+            return ExitCode.USER_INPUT
         stage = "acir-core"
     sink.result(
         {
@@ -100,4 +101,4 @@ def run(arguments: object, workspace: WorkspaceConfig, sink: OutputSink) -> int:
         },
         human=f"check passed through {stage}",
     )
-    return 0
+    return ExitCode.SUCCESS

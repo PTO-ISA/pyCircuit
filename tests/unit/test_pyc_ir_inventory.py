@@ -57,6 +57,8 @@ def test_pyc_inventory_records_exact_rtl_selection_boundary() -> None:
     coverage = json.loads(
         (ROOT / "schemas/primitives/pyc_ir_coverage.json").read_text()
     )
+    assert coverage["schema"] == "pyc-ir-coverage-v1"
+    assert coverage["dialect"] == "pyc"
     operations = {entry["name"]: entry for entry in coverage["operations"]}
     expected = {
         "pyc.priority_encode": "pyc.priority_encode.v1",

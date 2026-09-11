@@ -2,6 +2,16 @@
 
 ## 1. 概述
 
+本文只描述 PYC 生成的 `libpyc6_runtime` 周期模型。Agentic Circuit 的
+`gfsim` 是另一套架构级运行时：它以 `(time, causal_delta)` 为全局 epoch，
+用有限 delta 推进同一 tick 内的因果连续执行。两者共享验证边界，但不共享内部
+调度器。
+
+`gfsim::TimeDomainRuntime` 的 `period`、`phase` 与 `tickScale` 不是孤立的
+C++ 字段。它们分别来自已验证的 `ac.time_domain` 和 `acsim.type`
+`period`/`phase`/`tick_scale` 元数据；ACIR/ACSim ODS 与
+`schemas/agentic-circuit/contracts/acsim.yaml` 共同定义公开 inventory。
+
 pyCircuit 的 C++ 仿真引擎采用 **静态编译-直接执行 (Compiled-Code Simulation)** 模型，
 而非传统 Verilog/VHDL 仿真器常用的 **事件驱动 (Event-Driven Simulation)** 模型。
 
@@ -9,7 +19,7 @@ pyCircuit 的 C++ 仿真引擎采用 **静态编译-直接执行 (Compiled-Code 
 寄存器实例（`pyc_reg`）以及组合逻辑求值函数（`eval()`/`tick()`）。
 仿真通过反复调用这些方法来推进时钟周期，在主机 CPU 上直接执行原生 C++ 代码。
 
-```
+```text
 ┌─────────────────────────────────────────────────────────┐
 │  Python 测试驱动 (ctypes)                                │
 │    设置输入 → 调用 C API → 读取输出                      │
@@ -70,7 +80,7 @@ class pyc_reg {
 
 每个仿真步（half-cycle step）按固定顺序执行，**没有事件队列**：
 
-```
+```text
 ┌───────────────────────────────────────────────────────────────┐
 │  Testbench::step()  [pyc_tb.hpp:130]                          │
 │                                                               │
@@ -87,7 +97,7 @@ class pyc_reg {
 快速路径 `runPosedgeCyclesFast()` 对单时钟设计做了优化，
 将上升沿和下降沿合并处理，每个完整周期执行：
 
-```
+```text
 comb → clk=1 → tick_posedge → transfer → comb → clk=0 → tick_negedge → transfer
 ```
 
@@ -138,19 +148,23 @@ void tick() {
 
 ## 4. 与事件驱动仿真的对比
 
-| 特性 | pyCircuit (Compiled-Code) | 事件驱动 (如 Verilator/iverilog) |
+| 特性 | pyc6 C++ (Compiled-Code) | 事件驱动 (如 Verilator/iverilog) |
 |---|---|---|
 | **调度模型** | 无事件队列；支持可选变化检测 | 全局事件队列 + 敏感列表 |
-| **Delta 周期** | 无；拓扑排序保证单遍收敛 | 需要 delta 迭代直到稳定 |
+| **Delta 周期** | PYC 模型无 delta；拓扑排序保证单遍收敛 | 需要 delta 迭代直到稳定 |
 | **信号变化检测** | 可选 InputFingerprint 跳过 eval | 仅重新评估受影响的进程 |
 | **时间模型** | 周期精确 (cycle-accurate) | 支持精细时间步 (time-step) |
 | **代码生成** | 单一 C++ 结构体 + 内联函数 | 多线程调度器 + 进程模型 |
 | **延迟建模** | 不支持门级延迟 | 支持 inertial/transport delay |
 | **适用场景** | RTL 功能验证、高吞吐仿真 | 门级仿真、精确时序分析 |
 
-**pyCircuit 没有采用全局事件队列。** 它的核心是一个确定性的
+**PYC 生成的 pyc6 模型没有采用全局事件队列。** 它的核心是一个确定性的
 "对所有组合逻辑做一次完整拓扑排序求值 → 两阶段寄存器更新"循环。
 这种设计使得每个周期的执行路径完全确定，指令缓存友好，分支预测友好。
+
+`gfsim` 不适用上述“无 delta”描述。其 causal delta 有固定上限，调度事件、
+进程 continuation 和跨 time-domain 激活必须在 `Epoch{time, delta}` 上保持确定
+顺序；超过上限以 `max_deltas_exceeded` 失败，而不是无限迭代。
 
 ## 5. RegisterFile RTL 仿真基准测试
 
@@ -235,7 +249,7 @@ ARM NEON 加速路径。每次处理 128 bit（2 × uint64_t）：
 
 PGO 是最大的单一优化因素。流程：
 
-```
+```bash
 # 1. 带插桩编译
 c++ -Os -fprofile-instr-generate ... -o lib_instr.dylib
 
@@ -250,6 +264,7 @@ c++ -O2 -fprofile-instr-use=regfile.profdata ... -o lib_pgo.dylib
 ```
 
 PGO 的效果：
+
 - 编译器将冷路径（从未执行的 MUX 分支）优化为 size
 - 热路径保持高度优化，布局紧凑
 - `__TEXT` 从 278 KB 降至 213 KB（-23%）
@@ -341,7 +356,7 @@ pycircuit pgo-build regfile_capi.cpp -o libregfile_sim.dylib -I include \
 
 #### 自动化流程
 
-```
+```text
 ┌──────────────────────────────────────────────────────────────┐
 │  pycircuit pgo-build                                          │
 │                                                               │
@@ -383,7 +398,7 @@ pycircuit pgo-build regfile_capi.cpp -o libregfile_sim.dylib -I include \
 
 #### 方向 A: eval() 内部并行化（周期内并行）
 
-```
+```text
 eval_comb_0 ──┐
 eval_comb_1 ──┼── 独立子图 → Thread 0
 eval_comb_2 ──┘
@@ -398,6 +413,7 @@ eval_comb_6 ──── 需要两个子图的结果 → 单线程
 识别不相互依赖的 eval_comb 子图，插入 barrier 同步点。
 
 **挑战**:
+
 - 线程同步开销（barrier、原子操作）每周期至少数百纳秒，
   而当前单周期仅 ~32 μs，同步开销占比可达 1-5%
 - 对于像 RegisterFile 这样高度交叉的 MUX 网络，
@@ -409,7 +425,7 @@ eval_comb_6 ──── 需要两个子图的结果 → 单线程
 
 #### 方向 B: tick() 内部并行化（寄存器更新并行）
 
-```
+```text
 Thread 0: tick_compute() for reg[0..127]
 Thread 1: tick_compute() for reg[128..255]
 ──── barrier ────
@@ -421,6 +437,7 @@ Thread 1: tick_commit() for reg[128..255]
 写入各自的 qNext），天然适合数据并行。
 
 **挑战**:
+
 - tick() 通常只占每周期执行时间的一小部分（< 10%），
   大部分时间在 eval()
 - 256 个寄存器的 tick_compute 每个仅几十纳秒，
@@ -430,7 +447,7 @@ Thread 1: tick_commit() for reg[128..255]
 
 #### 方向 C: 模块级并行化（多模块 SoC 设计）
 
-```
+```text
 ┌──────────┐    ┌──────────┐    ┌──────────┐
 │  CPU Core │    │  RegFile  │    │   Cache  │
 │ Thread 0  │    │ Thread 1  │    │ Thread 2 │
@@ -443,6 +460,7 @@ Thread 1: tick_commit() for reg[128..255]
 各模块独立求值，接口处插入同步。
 
 **挑战**:
+
 - 当前 `pyc-compile` 会内联所有子模块（不支持 `pyc.instance`）
 - 模块间组合路径（如 bypass 网络）跨越边界，需要迭代稳定
 - 需要重新设计编译器后端以保留层次结构
@@ -468,6 +486,7 @@ SIMD 贡献约 1.01x。对宽数据路径密集的设计（如 512-bit AXI 总�
 #### 方向 E: Profile-Guided Optimization（已实现，效果最佳）
 
 PGO 让编译器基于实际运行 profile 优化代码布局：
+
 - 将冷路径压缩（-Os），热路径保持优化
 - 改善分支预测准确率
 - `__TEXT` 从 278 KB 降至 213 KB（-23%）
@@ -487,6 +506,7 @@ PGO 让编译器基于实际运行 profile 优化代码布局：
 | C: 模块级并行 | 低-中 | 很高 (全栈) | 2-8× (预期) | SoC 级 |
 
 **已完成优化** (总加速 1.90x; 变化检测对低活动率设计可达 1.74x):
+
 1. **PGO 构建流程**: `fprofile-instr-generate` → 训练 → `fprofile-instr-use`
 2. **NEON SIMD**: `Wire<N>` 多 word 位操作向量化
 3. **pyc_reg 优化**: `__builtin_expect` 分支提示 + posedge/negedge 分离

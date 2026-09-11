@@ -11,7 +11,7 @@ matrix and keep the separate frontend and IR boundaries defined by Decision
 
 ## Core references
 
-- [V6 language specification](../v6_PyCircuit_Specification.md)
+- [V6 language specification](../reference/language.md)
 - [pyCircuit 6 decisions](../rfcs/pyc6-decisions.md)
 - [pyCircuit 6 evolution plan](../pyc6-plan.md)
 - [Decision status](../gates/decision_status_v6.md)

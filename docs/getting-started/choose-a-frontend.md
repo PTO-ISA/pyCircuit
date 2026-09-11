@@ -43,7 +43,7 @@ python3 -m pycircuit.cli build \
   --target both
 ```
 
-Continue with the [pyCircuit 6 tutorial](../v6_PyCircuit_Tutorial.md).
+Continue with the [pyCircuit 6 tutorial](tutorial.md).
 
 ## Use Agentic Circuit for architecture models
 

@@ -1,0 +1,24 @@
+{
+  "run_id": "20260911-issues-100-101-docs-hierarchy",
+  "status": "passed",
+  "base_revision": "b4dcc33300ddba4c348922ae960b27186a324457",
+  "decision_ids": ["0150", "0157", "0159", "0161", "0164", "0165", "0166", "0242"],
+  "issues": [100, 101],
+  "results": {
+    "unit": {"passed": 126, "failed": 0},
+    "agentic_contracts": {"passed": true},
+    "agentic_contract_tests": {"passed": 50, "failed": 0},
+    "agentic_frontend": {"passed": 306, "failed": 0, "skipped": 4},
+    "agentic_cli": {"passed": 6, "failed": 0},
+    "pyc_opt_and_primitives_system": {"passed": 19, "failed": 0},
+    "acpy_gfsim_pyc_primitive_parity": {"passed": 1, "failed": 0},
+    "acir_primitive_widths_cpp": {"passed": 1, "failed": 0},
+    "pyc_inventory": {"operations": 41, "types": 2, "passed": true},
+    "api_hygiene": {"passed": true},
+    "pre_commit": {"passed": true},
+    "mkdocs_strict": {"passed": true},
+    "decision_status": {"deferred": 0, "passed": true}
+  },
+  "behavior": "Documentation, gate evidence, optimizer registration, CLI exits, capture diagnostics, examples, schemas, and scalar primitive parity now have explicit maintained contracts.",
+  "skill_evolve": "no-update"
+}

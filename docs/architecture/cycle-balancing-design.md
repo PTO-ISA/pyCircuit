@@ -1,6 +1,6 @@
 # Cycle balance 详细实施计划
 
-本文档是 `cycle_balance_improvement.md` 的落地细化，并记录已执行项。
+本文档是 [Cycle Balancing](cycle-balancing.md) 的落地细化，并记录已执行项。
 
 ## 阶段 A：IR 与校验
 

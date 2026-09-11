@@ -12,15 +12,15 @@ All normative and tutorial material for authoring lives under the repository **`
 
 | Topic | Primary documents |
 |--------|-------------------|
-| **V6 编程规范**（API + 教程 + 子模块调用 + 层次化编译 + 仿真） | `docs/v6_PyCircuit_Specification.md` |
-| **V6 `@module` / `Circuit` structural frontend** | `docs/FRONTEND_API.md` |
-| **Occurrence cycles and automatic balancing** | `docs/v6_PyCircuit_Specification.md`, `docs/cycle_balance_improvement.md` |
-| **Testbenches** (low-level `Tb` API) | `docs/TESTBENCH.md` |
-| **IR / lowering expectations** | `docs/IR_SPEC.md`, `docs/PIPELINE.md` |
-| **Primitives vs generated code** | `docs/PRIMITIVES.md` |
+| **V6 编程规范**（API + 教程 + 子模块调用 + 层次化编译 + 仿真） | `docs/reference/language.md` |
+| **V6 `@module` / `Circuit` structural frontend** | `docs/reference/frontend-api.md` |
+| **Occurrence cycles and automatic balancing** | `docs/reference/language.md`, `docs/architecture/cycle-balancing.md` |
+| **Testbenches** (low-level `Tb` API) | `docs/reference/testbench.md` |
+| **IR / lowering expectations** | `docs/reference/pyc-ir.md`, `docs/architecture/compiler-pipeline.md` |
+| **Primitives vs generated code** | `docs/reference/primitives.md` |
 | **Compiler evolution rules** | `docs/pyc6-plan.md`, `docs/rfcs/pyc6-decisions.md`, root `AGENTS.md` |
-| **Diagnostics** | `docs/DIAGNOSTICS.md` |
-| **API index** | `docs/api/index.md`, `docs/index.md` |
+| **Diagnostics** | `docs/reference/diagnostics.md` |
+| **API index** | `docs/reference/index.md`, `docs/index.md` |
 
 ### V6 signal type discipline
 
@@ -57,7 +57,7 @@ my_module.__pycircuit_name__ = "my_module"
 
 ### V6 submodule calling workflow
 
-The full workflow is documented in `docs/v6_PyCircuit_Specification.md` under
+The full workflow is documented in `docs/reference/language.md` under
 "模块签名与层次化组合". The key steps:
 
 1. **Declare inputs** with `submodule_input(inputs, key, m, domain, prefix=prefix, width=W)` — dual-mode: reads from parent dict or creates `m.input()` port
@@ -82,7 +82,7 @@ Illustrations of **grammar and structure** are under **`designs/`** and subfolde
 | **`@module` + JIT** | `examples/pycircuit/counter/`, `examples/pycircuit/jit_control_flow/`, `examples/pycircuit/hier_modules/` |
 | **V6 testbench** (`CycleAwareTb`) | `tests/unit/test_pyc6_surface.py`, `tests/unit/test_v6_state_signal.py`, and repository examples |
 | **Testbench layout** (low-level `Tb`) | `examples/pycircuit/*/tb_*.py`, `designs/blocks/BypassUnit/tb_bypass_unit.py`, `designs/blocks/RegisterFile/tb_regfile.py` |
-| **Structured IO** | Designs using `spec` / bundles per `docs/SPEC_STRUCTURES.md` |
+| **Structured IO** | Designs using `spec` / bundles per `docs/reference/spec-structures.md` |
 
 Mirror the **directory layout** (design file + `tb_*.py` + optional `README.md`) of the generic example closest to your block's complexity. Complete consumer hierarchies remain in their owning repositories.
 
@@ -96,14 +96,14 @@ the structural API's explicit occurrence metadata.
 
 **Actions:**
 
-1. Read **`docs/v6_PyCircuit_Specification.md`** end-to-end when the block uses
+1. Read **`docs/reference/language.md`** end-to-end when the block uses
    **`CycleAwareCircuit` / `CycleAwareDomain`**. Pay special attention to:
    - **Signal Type Discipline**: all signals are `CycleAwareSignal`; `domain.state()` and `.wire` are removed.
    - **Module Signature Convention**: `(m, domain, *, inputs=None, prefix=...) -> dict` pattern.
    - **Sub-Module Calling Convention** (6-step workflow): `domain.call()`, `submodule_input()`, `wire_of()`, key-matching rules, prefix cascade.
    - **Hierarchical MLIR Emission**: `build_cycle_aware(..., hierarchical=True)`.
    - **Simulation**: `CycleAwareTb` for cycle-aware testbenches.
-2. Read **`docs/FRONTEND_API.md`** and **`docs/TESTBENCH.md`** for `@module`, `Circuit`, and simulation contracts.
+2. Read **`docs/reference/frontend-api.md`** and **`docs/reference/testbench.md`** for `@module`, `Circuit`, and simulation contracts.
 3. Open **2–3 concrete examples** under `designs/` that match your intended style:
    - **V6 hierarchical**: supported repository designs using `domain.call()`.
    - **V6 single-module**: `designs/blocks/BypassUnit/`, `designs/blocks/RegisterFile/`.
@@ -327,7 +327,7 @@ For complex blocks, mirror this repository's **10-step** narrative in **block-lo
      `tb.next()`, mirroring `domain.next()` in design code. Use
      `tb.drive(port, value)` and `tb.expect(port, value)` at the current cycle.
      See the V6 specification's testbench section.
-   - **Alternative: raw `Tb`** — explicit `at=cycle` parameter on every drive/expect. See `docs/TESTBENCH.md`.
+   - **Alternative: raw `Tb`** — explicit `at=cycle` parameter on every drive/expect. See `docs/reference/testbench.md`.
 
 5. **Coverage rule (Markdown-first blocks):** each **F-xxx** in `FEATURE_LIST.md` (including ranges filled after the **heading checklist**) must have a planned **directed** or **system** test before tape-out, unless waived in `TRACEABILITY.md`; stimulus/expected values may cite **`converted/*.md`** tables.
 

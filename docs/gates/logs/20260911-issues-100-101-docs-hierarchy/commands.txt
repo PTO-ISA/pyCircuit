@@ -1,0 +1,18 @@
+pre-commit run --all-files
+cmake --build .pycircuit_out/toolchain/build --target pyc-opt pycc -j 8
+PYTHONPATH=python/semantic-core/src:python/pycircuit/src pytest -q tests/system/test_pyc_opt_driver.py tests/system/test_primitive_selection.py
+PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=python/semantic-core/src:python/pycircuit/src pytest -q tests/unit -m unit
+uv run --no-project --with-requirements python/agentic-circuit/requirements-dev.lock python3 tools/agentic-circuit/check-contracts.py
+uv run --no-project --with-requirements python/agentic-circuit/requirements-dev.lock env AC_PYTHON_ONLY=1 PYTHONPATH="$PWD/python/semantic-core/src:$PWD/python/agentic-circuit/src:$PWD/tests/python/agentic-circuit" python3 -m unittest discover -s tests/python/agentic-circuit/contracts -p 'test_*.py'
+uv run --no-project --with-requirements python/agentic-circuit/requirements-dev.lock env AC_PYTHON_ONLY=1 PYTHONPATH="$PWD/python/semantic-core/src:$PWD/python/agentic-circuit/src:$PWD/tests/python/agentic-circuit" python3 -m unittest discover -s tests/python/agentic-circuit/python_frontend -p 'test_*.py'
+uv run --no-project --with-requirements python/agentic-circuit/requirements-dev.lock env AC_PYTHON_ONLY=1 PYTHONPATH="$PWD/python/semantic-core/src:$PWD/python/agentic-circuit/src:$PWD/tests/python/agentic-circuit" python3 -m unittest discover -s tests/python/agentic-circuit/cli -p 'test_all_commands.py'
+uv run --no-project --with-requirements python/agentic-circuit/requirements-dev.lock env AC_PYTHON_ONLY=1 PYTHONPATH="$PWD/python/semantic-core/src:$PWD/python/agentic-circuit/src:$PWD/tests/python/agentic-circuit" python3 -m unittest discover -s tests/python/agentic-circuit/cli -p 'test_workspace.py'
+ACIR_BIN="$PWD/.pycircuit_out/toolchain/install/bin" PYCC="$PWD/.pycircuit_out/toolchain/build/bin/pycc" PYC_TOOLCHAIN_ROOT="$PWD/.pycircuit_out/toolchain/install" PYTHONPATH=python/semantic-core/src:python/agentic-circuit/src python3 tests/integration/agentic-circuit/e2e/test_bit_primitive_parity.py -v
+cmake -S . -B .pycircuit_out/toolchain/build -DPYC_BUILD_AGENTIC_CIRCUIT_TESTS=ON
+cmake --build .pycircuit_out/toolchain/build --target ACIROpsTests -j 8
+.pycircuit_out/toolchain/build/bin/ACIROpsTests --gtest_filter=ACIROpsTest.SemanticPrimitiveWidthsAcceptOneTo64AndReject65To130
+bash -n flows/scripts/run_agentic_circuit.sh
+python3 tools/check-pyc-inventory.py
+python3 flows/tools/check_api_hygiene.py python/pycircuit/src/pycircuit examples/pycircuit docs README.md
+mkdocs build --strict --site-dir .pycircuit_out/issues-100-101-docs/site
+python3 flows/tools/check_decision_status.py --rfc docs/rfcs/pyc6-decisions.md --status docs/gates/decision_status_v6.md --out docs/gates/logs/20260911-issues-100-101-docs-hierarchy/decision_status_report.json --require-no-deferred --require-all-verified --require-concrete-evidence --require-existing-evidence

@@ -73,6 +73,22 @@ def test_agentic_test_extra_contains_its_pytest_runner() -> None:
     assert any(item.startswith("pytest>=") for item in dependencies)
 
 
+def test_agentic_source_resources_do_not_assume_package_depth() -> None:
+    sys.path.insert(0, str(AC_ROOT / "src"))
+    try:
+        from agentic_circuit._capabilities import schema_root
+        from agentic_circuit._package_data import repository_root
+    finally:
+        sys.path.pop(0)
+
+    assert repository_root() == REPOSITORY
+    assert schema_root() == REPOSITORY / "schemas" / "agentic-circuit"
+    source = (AC_ROOT / "src" / "agentic_circuit" / "_package_data.py").read_text(
+        encoding="utf-8"
+    )
+    assert "parents[4]" not in source
+
+
 def test_consumer_designs_and_adapters_are_out_of_tree() -> None:
     forbidden_roots = (
         "integrations",

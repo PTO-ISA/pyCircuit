@@ -297,13 +297,13 @@ headers, payload/trace schemas, or in-tree integration scripts.
 
 ## Documentation
 
-- [V6 language specification](docs/v6_PyCircuit_Specification.md)
-- [V6 tutorial](docs/v6_PyCircuit_Tutorial.md)
-- [V6 software architecture](docs/v6_PyCircuit_Software_Architecture.md)
+- [V6 language specification](docs/reference/language.md)
+- [V6 tutorial](docs/getting-started/tutorial.md)
+- [V6 software architecture](docs/architecture/overview.md)
 - [Choose a frontend](docs/getting-started/choose-a-frontend.md)
-- [Frontend API](docs/FRONTEND_API.md)
-- [Testbench API](docs/TESTBENCH.md)
-- [IR specification](docs/IR_SPEC.md)
+- [Frontend API](docs/reference/frontend-api.md)
+- [Testbench API](docs/reference/testbench.md)
+- [IR specification](docs/reference/pyc-ir.md)
 - [pyCircuit 6 decisions](docs/rfcs/pyc6-decisions.md)
 - [pyCircuit 6 evolution plan](docs/pyc6-plan.md)
 - [ACIR architecture and frontend](docs/acir/index.md)
@@ -339,7 +339,7 @@ pyCircuit/
 ├── examples/                     # pyCircuit and Agentic Circuit examples
 ├── flows/                        # Build and validation orchestration
 ├── tests/                        # Language- and layer-classified tests
-└── docs/                         # Product and contributor documentation
+└── docs/                         # Audience-organized product, architecture, and contributor docs
 ```
 
 ## License

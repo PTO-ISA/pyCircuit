@@ -7,6 +7,7 @@ from pathlib import Path, PurePosixPath
 from .._capabilities import schema_root
 from .._contract import CONTRACT_EPOCH
 from .._diagnostics import Diagnostic
+from .._exit_codes import ExitCode
 from .._output import OutputSink
 from .._staging import ArtifactStage
 from .._workspace import UserInputError
@@ -57,11 +58,11 @@ def run(arguments: object, sink: OutputSink) -> int:
     }
     if result["dry_run"]:
         sink.result(result, human=f"Would initialize {destination}")
-        return 0
+        return ExitCode.SUCCESS
 
     with ArtifactStage(destination, expected=files) as stage:
         for name, contents in sorted(files.items()):
             stage.write_text(name, contents)
         stage.commit(allow_replace=force)
     sink.result(result, human=f"Initialized {destination}")
-    return 0
+    return ExitCode.SUCCESS

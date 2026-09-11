@@ -356,7 +356,7 @@ class RepositoryContractsTest(unittest.TestCase):
         fixture = json.loads(
             (
                 ROOT
-                / "tests/python/agentic-circuit/python_frontend/fixtures/acpy/minimal.acpy.json"
+                / "tests/goldens/agentic-circuit/frontend/minimal.acpy.json"
             ).read_text()
         )
 

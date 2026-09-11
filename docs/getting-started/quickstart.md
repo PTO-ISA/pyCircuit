@@ -42,6 +42,6 @@ checks C++ and Verilator behavior.
 
 ## Continue learning
 
-- [V6 tutorial](v6_PyCircuit_Tutorial.md)
-- [V6 language specification](v6_PyCircuit_Specification.md)
-- [Testing and gates](development/testing-and-gates.md)
+- [V6 tutorial](tutorial.md)
+- [V6 language specification](../reference/language.md)
+- [Testing and gates](../development/testing-and-gates.md)
