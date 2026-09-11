@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from .._canonical_json import sha256_bytes
+from .._contract import CONTRACT_EPOCH
 from .._diagnostics import Diagnostic
 from .._native_api import NativeRequest, run_native_compiler
 from .._output import OutputSink
@@ -73,7 +74,7 @@ def run(arguments: object, workspace: WorkspaceConfig, sink: OutputSink) -> int:
         {
             "schema": "agentic-circuit-elaborate-result",
             "version": "0.1",
-            "contract_epoch": "0.5",
+            "contract_epoch": CONTRACT_EPOCH,
             "emit": emit,
             "path": output.as_posix(),
             "sha256": fingerprint,

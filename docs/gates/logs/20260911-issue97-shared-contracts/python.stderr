@@ -1,0 +1,1 @@
+No Python gate errors. One frontend test skipped its optional in-process native tool path; the same native parser was exercised by the explicit round-trip command.

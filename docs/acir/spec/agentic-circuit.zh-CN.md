@@ -1477,6 +1477,19 @@ snapshot reader 彼此兼容；snapshot/write 在 index 重叠时冲突，不相
 Python 不暴露这些 proof 或 reservation operation。candidate/output predicate 与
 match/choose index set 的通用推导及 multiple selected output 仍不属于当前子集。
 
+## 共享契约来源
+
+Agentic Python 只保留一个严格 I-JSON validator 和一个产品
+`CONTRACT_EPOCH`；包元数据中的 `contract-epoch` 是受测试约束的镜像。JSON hash 使用
+RFC 8785 规范形式，而 MLIR 字符串使用独立的字节转义器，确保引号、反斜杠、控制字符和
+UTF-8 字节都能被 MLIR parser 往返读取。
+
+`schemas/primitives/semantic_registry.json` 是三个 semantic primitive 的实现无关契约源，
+记录 semantic ID、参数枚举、`1 <= N <= 64` 和结果位宽公式。构建会验证该封闭公式集合并
+生成 selector 消费的语义表；implementation ID、端口绑定、digest 和 license 仍只属于
+`library/verilog/rtl_catalog.json`（Decision 0161）。PYC、ACIR 与 gfsim 各自只保留一个
+位宽 helper，并由 1..64 全枚举与 65..130 拒绝测试锁定一致性。
+
 ## 诊断契约
 
 诊断码是稳定的工具标识，不是从人类可读消息中拆出的字符串。Python 前端异常分别携带

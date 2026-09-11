@@ -7,7 +7,6 @@ import json
 import math
 from typing import TypeAlias
 
-
 JsonScalar: TypeAlias = None | bool | int | float | str
 JsonValue: TypeAlias = JsonScalar | list["JsonValue"] | dict[str, "JsonValue"]
 
@@ -138,3 +137,20 @@ def _encode_value(value: JsonValue) -> str:
 def canonical_json_bytes(value: JsonValue) -> bytes:
     validate_ijson_value(value)
     return _encode_value(value).encode("utf-8")
+
+
+def canonical_mlir_string(value: str) -> str:
+    """Quote one strict I-JSON string using canonical MLIR byte escapes."""
+
+    if type(value) is not str:
+        raise TypeError("MLIR string values must be strings")
+    validate_ijson_value(value)
+    escaped: list[str] = []
+    for byte in value.encode("utf-8"):
+        if byte == 0x5C:
+            escaped.append("\\\\")
+        elif 0x20 <= byte <= 0x7E and byte != 0x22:
+            escaped.append(chr(byte))
+        else:
+            escaped.append(f"\\{byte:02X}")
+    return '"' + "".join(escaped) + '"'

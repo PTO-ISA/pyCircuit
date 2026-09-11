@@ -10,6 +10,7 @@ from typing import Literal, NoReturn
 import tomllib
 
 from ._canonical_json import JsonValue, validate_ijson_value
+from ._contract import CONTRACT_EPOCH
 from ._diagnostics import AgenticCircuitError, Diagnostic
 
 _NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_.-]*$")
@@ -139,8 +140,8 @@ def load_workspace(manifest: Path) -> WorkspaceConfig:
         _fail("ACPY-CONFIG-002", f"workspace is missing {missing[0]!r}")
 
     epoch = document["contract_epoch"]
-    if epoch != "0.5":
-        _fail("ACPY-CONFIG-005", "contract_epoch must equal 0.5")
+    if epoch != CONTRACT_EPOCH:
+        _fail("ACPY-CONFIG-005", f"contract_epoch must equal {CONTRACT_EPOCH}")
     root = manifest.parent.resolve()
 
     project = _closed_table(
@@ -249,7 +250,7 @@ def load_workspace(manifest: Path) -> WorkspaceConfig:
         root=root,
         project_name=project_name,
         project_version=project_version,
-        contract_epoch="0.5",
+        contract_epoch=CONTRACT_EPOCH,
         architecture=architecture,
         default_system=default_system,
         standard_library_providers=provider_names,

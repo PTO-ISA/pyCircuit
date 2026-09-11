@@ -6,6 +6,12 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Generic, TypeGuard
 
+from _pycircuit_semantics import (
+    is_primitive_input_width,
+    primitive_count_width,
+    primitive_priority_index_width,
+)
+
 from .connectors import Connector
 from .data import DT, Bits, Clock, Data, Reset
 
@@ -314,10 +320,12 @@ class Module:
     ) -> PriorityEncodeResult:
         if not isinstance(value.ty, Bits):
             raise TypeError(f"priority_encode expects scalar Bits, got {value.ty}")
+        if not is_primitive_input_width(value.width):
+            raise ValueError("priority_encode input width must be in [1, 64]")
         normalized = str(order).strip().lower()
         if normalized not in {"low", "high"}:
             raise ValueError("priority_encode order must be 'low' or 'high'")
-        index_type = Bits(max(1, (value.width - 1).bit_length()))
+        index_type = Bits(primitive_priority_index_width(value.width))
         index_ref = self._get_next_temp_var()
         valid_ref = self._get_next_temp_var()
         self._emit(
@@ -333,7 +341,7 @@ class Module:
     def popcount(self, value: Signal[Bits]) -> Signal[Bits]:
         if not isinstance(value.ty, Bits):
             raise TypeError(f"popcount expects scalar Bits, got {value.ty}")
-        count_type = Bits(max(1, value.width.bit_length()))
+        count_type = Bits(primitive_count_width(value.width))
         count_ref = self._get_next_temp_var()
         self._emit(
             f"{count_ref} = pyc.popcount {value.ref} : {value.ty} -> {count_type}"
@@ -343,9 +351,11 @@ class Module:
     def _count_zeros(self, value: Signal[Bits], *, direction: str) -> Signal[Bits]:
         if not isinstance(value.ty, Bits):
             raise TypeError(f"count_zeros expects scalar Bits, got {value.ty}")
+        if not is_primitive_input_width(value.width):
+            raise ValueError("count_zeros input width must be in [1, 64]")
         if direction not in {"leading", "trailing"}:
             raise ValueError("count_zeros direction must be 'leading' or 'trailing'")
-        count_type = Bits(max(1, value.width.bit_length()))
+        count_type = Bits(primitive_count_width(value.width))
         count_ref = self._get_next_temp_var()
         self._emit(
             f'{count_ref} = pyc.count_zeros {value.ref} {{direction = "{direction}"}} '

@@ -11,6 +11,7 @@ from .._capture_worker import (
     CaptureWorkerResult,
     run_capture_worker,
 )
+from .._contract import CONTRACT_EPOCH
 from .._diagnostics import Diagnostic
 from .._native_api import NativeRequest, run_native_compiler
 from .._output import OutputSink
@@ -90,7 +91,7 @@ def run(arguments: object, workspace: WorkspaceConfig, sink: OutputSink) -> int:
         {
             "schema": "agentic-circuit-check-result",
             "version": "0.1",
-            "contract_epoch": "0.5",
+            "contract_epoch": CONTRACT_EPOCH,
             "project": workspace.project_name,
             "system": getattr(arguments, "system", None) or workspace.default_system,
             "frontend": frontend.frontend_kind,

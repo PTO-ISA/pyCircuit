@@ -542,6 +542,7 @@
         "tests/cpp/agentic-circuit/CodeGen/QueueGraphPlanTest.cpp",
         "tests/mlir/agentic-circuit/CodeGen/count-leading-zeros.mlir",
         "tests/mlir/pyc/count-leading-zeros-primitive.mlir",
+        "tests/python/agentic-circuit/tools/test_pyc_verilog_backend.py",
         "tests/system/test_primitive_selection.py",
         "tests/unit/test_pyc6_surface.py",
         "tests/unit/test_pyc_ir_inventory.py"
@@ -885,6 +886,7 @@
         "tests/mlir/pyc/popcount-primitive.mlir",
         "tests/python/agentic-circuit/python_frontend/test_public_api.py",
         "tests/python/agentic-circuit/python_frontend/test_queue_frontend.py",
+        "tests/python/agentic-circuit/tools/test_pyc_verilog_backend.py",
         "tests/system/test_primitive_selection.py",
         "tests/unit/test_pyc6_surface.py",
         "tests/unit/test_pyc_ir_inventory.py"
@@ -934,7 +936,9 @@
         "tests/mlir/pyc/priority-primitive.mlir",
         "tests/python/agentic-circuit/python_frontend/test_determinism.py",
         "tests/python/agentic-circuit/python_frontend/test_public_api.py",
+        "tests/python/agentic-circuit/tools/test_pyc_verilog_backend.py",
         "tests/system/test_primitive_selection.py",
+        "tests/unit/test_primitive_catalog.py",
         "tests/unit/test_pyc6_surface.py",
         "tests/unit/test_pyc_ir_inventory.py"
       ],

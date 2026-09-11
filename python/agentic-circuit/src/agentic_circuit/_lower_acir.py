@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import re
 from dataclasses import dataclass
 
@@ -13,14 +12,14 @@ from ._acpy import (
     SchemaRef,
     SourceFile,
 )
-from ._canonical_json import sha256_bytes, utf16_sort_key
+from ._canonical_json import canonical_mlir_string, sha256_bytes, utf16_sort_key
+from ._contract import CONTRACT_EPOCH
 from ._diagnostics import DiagnosticError, SourceSpan
 from ._frontend import CapturedProgram
 from ._normalize import NormalizedProgram
 from ._process import ProcessProgram
 from ._resolve import ValueVersion
 from ._static_eval import StaticValue
-
 
 _SYMBOL = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
@@ -171,7 +170,7 @@ def _static_attribute(value: StaticValue) -> str:
     if type(value) is int:
         return str(value)
     if type(value) is str:
-        return json.dumps(value, ensure_ascii=False)
+        return canonical_mlir_string(value)
     raise DiagnosticError(
         f"ACPY-VERIFY-001: unsupported ACIR static value {type(value).__name__}"
     )
@@ -226,7 +225,7 @@ def _component_declarations(program: NormalizedProgram) -> list[str]:
                 f"  ac.module.extern @{symbol} : ({', '.join(port.acir_type for port in schema.ports)})"
                 f" -> {('()' if not result_types else result_signature.removeprefix(' -> '))} "
                 f"parameters {{{parameter_text}}} implementation "
-                f'{{registry = "cpp", name = {json.dumps(schema.external_binding)}}}'
+                f'{{registry = "cpp", name = {canonical_mlir_string(schema.external_binding)}}}'
             )
             continue
         lines.append(
@@ -262,7 +261,7 @@ def _emit_process(process: ProcessProgram, kind: str) -> list[str]:
     ):
         raise DiagnosticError("ACPY-VERIFY-001: unsupported process operation shape")
     return [
-        f"    ac.process @{_symbol(process.name)} kind {json.dumps(kind)} {{",
+        f"    ac.process @{_symbol(process.name)} kind {canonical_mlir_string(kind)} {{",
         "      ac.yield_sim",
         "    }",
     ]
@@ -280,7 +279,11 @@ def lower_to_acir(
         raise DiagnosticError("ACPY-VERIFY-001: lowering requires verified ACPy")
     types = _argument_types(program)
     root = _symbol(program.definition)
-    lines = ['module attributes {ac.contract_epoch = "0.5"} {']
+    lines = [
+        "module attributes {ac.contract_epoch = "
+        + canonical_mlir_string(CONTRACT_EPOCH)
+        + "} {"
+    ]
     workload = next(
         (process.name for process, kind in processes if kind == "workload"), None
     )
@@ -337,8 +340,8 @@ def lower_to_acir(
         arrow = result_types if len(call.schema.results) == 1 else f"({result_types})"
         lines.append(
             f"    {prefix}ac.instance @{_symbol(call.instance_name)} of @{_symbol(call.schema.identity)}({operands}) "
-            f"static {{{_static_arguments(call.static_arguments)}}} id {json.dumps(call.instance_name)} "
-            f"path {json.dumps(call.instance_name)} : ({operand_types}) -> {arrow}"
+            f"static {{{_static_arguments(call.static_arguments)}}} id {canonical_mlir_string(call.instance_name)} "
+            f"path {canonical_mlir_string(call.instance_name)} : ({operand_types}) -> {arrow}"
         )
         source_map.append((f"@{root}::@{call.instance_name}", call.source))
 

@@ -4,9 +4,10 @@ from __future__ import annotations
 
 from pathlib import Path, PurePosixPath
 
+from .._capabilities import schema_root
+from .._contract import CONTRACT_EPOCH
 from .._diagnostics import Diagnostic
 from .._output import OutputSink
-from .._capabilities import schema_root
 from .._staging import ArtifactStage
 from .._workspace import UserInputError
 
@@ -49,7 +50,7 @@ def run(arguments: object, sink: OutputSink) -> int:
     result = {
         "schema": "agentic-circuit-init-result",
         "version": "0.1",
-        "contract_epoch": "0.5",
+        "contract_epoch": CONTRACT_EPOCH,
         "directory": destination.as_posix(),
         "files": sorted(files),
         "dry_run": bool(getattr(arguments, "dry_run", False)),

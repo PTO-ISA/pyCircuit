@@ -25,6 +25,7 @@ from .._canonical_json import (
     validate_ijson_value,
 )
 from .._capture_worker import CaptureWorkerRequest, run_capture_worker
+from .._contract import CONTRACT_EPOCH
 from .._diagnostics import Diagnostic
 from .._native_api import NativeRequest, native_extension_path, run_native_compiler
 from .._output import OutputSink
@@ -52,8 +53,8 @@ _DISTRIBUTIONS = {
     "pycircuit-semantic-core": "6.0.0",
 }
 _ABI = {
-    "acpy_epoch": "0.5",
-    "acir_contract": "0.5",
+    "acpy_epoch": CONTRACT_EPOCH,
+    "acir_contract": CONTRACT_EPOCH,
     "sdk_manifest": "1",
     "release_index": "1",
     "model_plan": "1",
@@ -314,7 +315,7 @@ def _sdk_identity(value: object) -> SdkIdentity:
     if (
         manifest["schema"] != "pycircuit-sdk-platform-manifest"
         or manifest["version"] != "1"
-        or manifest["contract_epoch"] != "0.5"
+        or manifest["contract_epoch"] != CONTRACT_EPOCH
         or manifest["product_version"] != _PRODUCT_VERSION
         or manifest["self_path"] != "share/pycircuit/sdk-manifest.json"
         or manifest["distributions"] != _DISTRIBUTIONS
@@ -707,7 +708,7 @@ def _plan(arguments: object, sink: OutputSink) -> int:
     plan: dict[str, JsonValue] = {
         "schema": "agentic-circuit-model-plan",
         "version": "1",
-        "contract_epoch": "0.5",
+        "contract_epoch": CONTRACT_EPOCH,
         "sdk": {
             "product_version": _PRODUCT_VERSION,
             "source_revision": sdk.source_revision,
@@ -748,7 +749,7 @@ def _plan(arguments: object, sink: OutputSink) -> int:
         {
             "schema": "agentic-circuit-model-plan-result",
             "version": "1",
-            "contract_epoch": "0.5",
+            "contract_epoch": CONTRACT_EPOCH,
             "status": "passed",
             "entry": entry_text,
             "specialization": specialization,
@@ -827,7 +828,7 @@ def _verify_plan(value: object, sdk: SdkIdentity) -> VerifiedPlan:
     if (
         document["schema"] != "agentic-circuit-model-plan"
         or document["version"] != "1"
-        or document["contract_epoch"] != "0.5"
+        or document["contract_epoch"] != CONTRACT_EPOCH
         or document["required_runtime"] != "AgenticCircuit::Gfsim"
         or document["depfile_path"] != "model.d"
         or document["outputs"] != list(_PLAN_OUTPUTS)
@@ -1046,7 +1047,7 @@ def _model_manifest(
     manifest: dict[str, JsonValue] = {
         "schema": "agentic-circuit-model-manifest",
         "version": "1",
-        "contract_epoch": "0.5",
+        "contract_epoch": CONTRACT_EPOCH,
         "plan": {"path": "model-plan.json", "sha256": sha256_bytes(plan.raw)},
         "sdk": {
             "product_version": _PRODUCT_VERSION,
@@ -1102,7 +1103,7 @@ def _existing_model_files(output: Path) -> frozenset[str]:
         if (
             manifest.get("schema") != "agentic-circuit-model-manifest"
             or manifest.get("version") != "1"
-            or manifest.get("contract_epoch") != "0.5"
+            or manifest.get("contract_epoch") != CONTRACT_EPOCH
             or manifest.get("required_runtime") != "AgenticCircuit::Gfsim"
             or manifest.get("runtime_abi") != "1"
         ):
@@ -1193,7 +1194,7 @@ def _emit(arguments: object, sink: OutputSink) -> int:
         {
             "schema": "agentic-circuit-model-emit-result",
             "version": "1",
-            "contract_epoch": "0.5",
+            "contract_epoch": CONTRACT_EPOCH,
             "status": "passed",
             "entry": plan.document["entry"],
             "specialization": plan.document["specialization"],

@@ -59,6 +59,7 @@ author evidence, not additional always-on CI jobs.
 | Examples, testbenches, simulation entrypoint behavior | Smallest affected example or simulation case; add `pytest tests/system -m system` only when its flow is touched |
 | MLIR dialect, passes, legality, runtime, codegen, observation semantics | Focused lit/CTest or semantic reproducer for the changed contract, plus decision ID and evidence path |
 | Agentic Circuit Python frontend, ACPy, schemas or CLI | Required Agentic Python check plus the changed focused test |
+| Shared I-JSON, epoch, MLIR escaping, or semantic primitive contracts | Agentic contract/frontend tests plus exhaustive primitive registry/PYC/ACIR/gfsim width checks |
 | Diagnostic codes, exception payloads, or native diagnostic adapters | Catalog generation check plus the smallest Python or native code-propagation test |
 | ACIR/ACSim dialect, verifier, transformation or gfsim | Focused ACIR/ACSim lit or C++ test |
 | ACIR-to-PYC, pyc6 runtime integration or synthesizable AC semantics | Focused AC G2 case proving the changed lowering/backend path |

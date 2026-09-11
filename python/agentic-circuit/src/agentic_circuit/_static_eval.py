@@ -9,7 +9,8 @@ from dataclasses import dataclass, field
 from types import MappingProxyType
 from typing import TypeAlias
 
-from ._canonical_json import validate_ijson_value as validate_canonical_ijson
+from ._canonical_json import JsonValue
+from ._canonical_json import validate_ijson_value as _validate_ijson_value
 
 StaticScalar: TypeAlias = None | bool | int | float | str
 
@@ -54,26 +55,29 @@ class StaticEnvironment:
 
 def _check_scalar(value: StaticScalar) -> StaticScalar:
     try:
-        validate_canonical_ijson(value)
+        _validate_ijson_value(value)
     except ValueError as error:
         raise StaticEvalError(str(error)) from error
     return value
 
 
-def validate_ijson_value(value: StaticValue) -> None:
-    def canonical(item: StaticValue):
-        if item is None or type(item) in {bool, int, float, str}:
-            return item
-        if isinstance(item, tuple):
-            return [canonical(element) for element in item]
-        if isinstance(item, FrozenMap):
-            if any(type(key) is not str for key, _ in item.entries):
-                raise StaticEvalError("JSON object names must be strings")
-            return {key: canonical(element) for key, element in item.entries}
-        raise StaticEvalError(f"unsupported static value {type(item).__name__}")
+def static_json_value(value: StaticValue) -> JsonValue:
+    """Convert the closed static representation to its JSON value form."""
 
+    if value is None or type(value) in {bool, int, float, str}:
+        return value
+    if isinstance(value, tuple):
+        return [static_json_value(element) for element in value]
+    if isinstance(value, FrozenMap):
+        if any(type(key) is not str for key, _ in value.entries):
+            raise StaticEvalError("JSON object names must be strings")
+        return {key: static_json_value(element) for key, element in value.entries}
+    raise StaticEvalError(f"unsupported static value {type(value).__name__}")
+
+
+def _require_static_ijson(value: StaticValue) -> None:
     try:
-        validate_canonical_ijson(canonical(value))
+        _validate_ijson_value(static_json_value(value))
     except ValueError as error:
         raise StaticEvalError(str(error)) from error
 
@@ -180,7 +184,7 @@ class _StaticEvaluator(ast.NodeVisitor):
             result = function(left, right)
         except (ArithmeticError, TypeError, ValueError) as error:
             raise StaticEvalError("static arithmetic failed") from error
-        validate_ijson_value(result)
+        _require_static_ijson(result)
         return result
 
     def visit_UnaryOp(self, node: ast.UnaryOp) -> StaticValue:
@@ -194,7 +198,7 @@ class _StaticEvaluator(ast.NodeVisitor):
             result = function(value)
         except TypeError as error:
             raise StaticEvalError("static unary operation failed") from error
-        validate_ijson_value(result)
+        _require_static_ijson(result)
         return result
 
     def visit_BoolOp(self, node: ast.BoolOp) -> StaticValue:
@@ -292,7 +296,7 @@ class _StaticEvaluator(ast.NodeVisitor):
         if None in keywords:
             raise StaticEvalError("static helper keyword unpacking is forbidden")
         result = helper(*arguments, **keywords)
-        validate_ijson_value(result)
+        _require_static_ijson(result)
         return result
 
     def _bind_target(self, target: ast.expr, value: StaticValue) -> None:
@@ -370,5 +374,5 @@ class _StaticEvaluator(ast.NodeVisitor):
 
 def evaluate_static(node: ast.AST, environment: StaticEnvironment) -> StaticValue:
     value = _StaticEvaluator(environment).visit(node)
-    validate_ijson_value(value)
+    _require_static_ijson(value)
     return value

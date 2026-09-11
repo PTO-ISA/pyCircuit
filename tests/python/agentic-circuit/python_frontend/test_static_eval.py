@@ -92,7 +92,7 @@ class StaticEvaluationTest(unittest.TestCase):
 
 class ValidationTest(unittest.TestCase):
     def test_static_values_use_the_canonical_ijson_rules(self) -> None:
-        from agentic_circuit._static_eval import StaticEvalError, validate_ijson_value
+        from agentic_circuit._canonical_json import validate_ijson_value
 
         for value, message in (
             (-0.0, "negative zero"),
@@ -101,8 +101,28 @@ class ValidationTest(unittest.TestCase):
             (1 << 53, "portable I-JSON range"),
         ):
             with self.subTest(value=repr(value)):
-                with self.assertRaisesRegex(StaticEvalError, message):
+                with self.assertRaisesRegex(ValueError, message):
                     validate_ijson_value(value)
+
+    def test_static_evaluation_maps_canonical_ijson_failures(self) -> None:
+        from agentic_circuit._static_eval import (
+            StaticEnvironment,
+            StaticEvalError,
+            evaluate_static,
+        )
+
+        for expression, message in (
+            ("-0.0", "negative zero"),
+            ('"\\ud800"', "Unicode scalar"),
+        ):
+            with self.subTest(expression=expression):
+                with self.assertRaisesRegex(StaticEvalError, message):
+                    evaluate_static(parse_expr(expression), StaticEnvironment({}))
+
+    def test_static_eval_does_not_export_a_second_ijson_validator(self) -> None:
+        from agentic_circuit import _static_eval
+
+        self.assertFalse(hasattr(_static_eval, "validate_ijson_value"))
 
     def test_supported_static_control_has_no_diagnostics(self) -> None:
         from agentic_circuit._diagnostics import DiagnosticBag

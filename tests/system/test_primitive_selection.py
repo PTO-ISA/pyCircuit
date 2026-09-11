@@ -40,6 +40,58 @@ def _environment() -> dict[str, str]:
     return environment
 
 
+def _primitive_width_module(widths: range) -> str:
+    functions: list[str] = []
+    for width in widths:
+        priority_width = max(1, (width - 1).bit_length())
+        count_width = max(1, width.bit_length())
+        functions.append(
+            f"""  func.func @width_{width}(%value: i{width})
+      -> (i{priority_width}, i1, i{count_width}, i{count_width}) {{
+    %index, %valid = pyc.priority_encode %value {{order = \"low\"}} :
+        i{width} -> i{priority_width}, i1 loc(\"width_{width}\":1:1)
+    %population = pyc.popcount %value :
+        i{width} -> i{count_width} loc(\"width_{width}\":2:1)
+    %zeros = pyc.count_zeros %value {{direction = \"leading\"}} :
+        i{width} -> i{count_width} loc(\"width_{width}\":3:1)
+    func.return %index, %valid, %population, %zeros :
+        i{priority_width}, i1, i{count_width}, i{count_width}
+  }}"""
+        )
+    return "module {\n" + "\n".join(functions) + "\n}\n"
+
+
+def test_pyc_primitive_width_contract_accepts_1_to_64_and_rejects_65_to_130(
+    tmp_path: Path,
+) -> None:
+    root = _root()
+    pyc_opt = _tool("pyc-opt")
+    accepted = tmp_path / "accepted.mlir"
+    accepted.write_text(_primitive_width_module(range(1, 65)), encoding="utf-8")
+    subprocess.run(
+        [pyc_opt, str(accepted), "-o", os.devnull],
+        cwd=root,
+        check=True,
+        env=_environment(),
+    )
+
+    rejected_source = tmp_path / "rejected.mlir"
+    rejected_source.write_text(
+        _primitive_width_module(range(65, 131)), encoding="utf-8"
+    )
+    rejected = subprocess.run(
+        [pyc_opt, str(rejected_source), "-o", os.devnull],
+        cwd=root,
+        text=True,
+        capture_output=True,
+        check=False,
+        env=_environment(),
+    )
+    assert rejected.returncode != 0
+    for width in range(65, 131):
+        assert f"width_{width}" in rejected.stderr
+
+
 def test_selector_is_catalog_owned_and_fail_closed(tmp_path: Path) -> None:
     root = _root()
     pyc_opt = _tool("pyc-opt")
@@ -131,6 +183,27 @@ def test_selector_is_catalog_owned_and_fail_closed(tmp_path: Path) -> None:
     )
     assert rejected.returncode != 0
     assert "digest mismatch" in rejected.stderr
+
+    outside_registry_catalog = json.loads(catalog.read_text(encoding="utf-8"))
+    outside_registry_catalog["implementations"][0]["max_width"] = 65
+    outside_registry = isolated / "outside_registry_catalog.json"
+    outside_registry.write_text(json.dumps(outside_registry_catalog), encoding="utf-8")
+    rejected = subprocess.run(
+        [
+            pyc_opt,
+            str(fixture),
+            f"--pyc-select-rtl-primitives=catalog={outside_registry}",
+            "-o",
+            os.devnull,
+        ],
+        cwd=root,
+        text=True,
+        capture_output=True,
+        check=False,
+        env=_environment(),
+    )
+    assert rejected.returncode != 0
+    assert "outside the semantic registry" in rejected.stderr
 
     ambiguous_catalog = json.loads(catalog.read_text(encoding="utf-8"))
     duplicate = dict(ambiguous_catalog["implementations"][0])

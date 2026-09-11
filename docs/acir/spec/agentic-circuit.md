@@ -434,6 +434,16 @@ is `[0,N]`, so an all-zero `N`-bit input returns `N`; its result width is
 direction marker, then to one vendor-neutral `pyc.count_zeros` family.
 QueueGraph C++ uses the corresponding typed gfsim helper.
 
+`schemas/primitives/semantic_registry.json` is the implementation-neutral
+source for these three semantic IDs, parameter enums, the admitted input range
+`1 <= N <= 64`, and output-width formulas. The build validates its closed
+formula vocabulary and generates the semantic table consumed by the
+Verilog-only selection pass. Implementation IDs, module/port bindings, source
+digests, and licenses remain exclusively in `library/verilog/rtl_catalog.json`
+as required by Decision 0161. PYC, ACIR, and gfsim each use one local width
+helper; exhaustive contract tests compare every width 1 through 64 and reject
+65 through 130 so no backend silently widens the admitted profile.
+
 ### Source and sink
 
 `ac.source(T, depth=N, latency=L)` creates a Queue boundary with payload `T`.
@@ -2485,6 +2495,13 @@ observations MUST NOT depend on:
 
 Canonical ordering uses source occurrence, static collection order, frozen
 logical identity, and declared arbitration policy.
+
+Agentic Python has one strict I-JSON validator and one product
+`CONTRACT_EPOCH`. The `contract-epoch` value in package metadata is a checked
+mirror, not an independent runtime definition. JSON hashing uses RFC 8785
+spelling, while MLIR emission uses a distinct validated byte escaper: quotes,
+backslashes, control bytes, and UTF-8 bytes are encoded using MLIR-compatible
+escapes rather than reusing JSON-only escapes such as `\b` or `\f`.
 
 ## Current implementation boundary
 

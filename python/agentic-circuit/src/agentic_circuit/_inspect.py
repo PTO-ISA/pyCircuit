@@ -8,7 +8,7 @@ from types import MappingProxyType
 from typing import Literal, Mapping, TypeAlias
 
 from ._canonical_json import JsonValue, canonical_json_bytes, sha256_bytes
-
+from ._contract import CONTRACT_EPOCH
 
 InspectionKind: TypeAlias = Literal[
     "graph",
@@ -42,7 +42,7 @@ class InspectionResult:
         return {
             "schema": "agentic-circuit-inspection",
             "version": "0.1",
-            "contract_epoch": "0.5",
+            "contract_epoch": CONTRACT_EPOCH,
             "kind": self.kind,
             "system": self.system,
             "path": self.path,
@@ -92,7 +92,7 @@ def _entities(acpy: dict[str, object]) -> tuple[dict[str, object], ...]:
     if (
         acpy.get("schema") != "agentic-circuit-acpy"
         or acpy.get("version") != "0.1"
-        or acpy.get("contract_epoch") != "0.5"
+        or acpy.get("contract_epoch") != CONTRACT_EPOCH
         or type(acpy.get("entities")) is not list
     ):
         raise InspectionError("ACPy has an invalid envelope")

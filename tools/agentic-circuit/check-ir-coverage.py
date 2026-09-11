@@ -22,13 +22,19 @@ import re
 import sys
 from pathlib import Path
 
+import tomllib
+
 ROOT = Path(__file__).resolve().parents[2]
+with (ROOT / "python/agentic-circuit/pyproject.toml").open("rb") as stream:
+    CONTRACT_EPOCH = tomllib.load(stream)["tool"]["agentic-circuit"][
+        "contract-epoch"
+    ]
 LEDGER_PATH = "docs/development/acir/verification/ir-coverage.md"
 
 DIALECTS = {
     "acir": {
         "manifest": "schemas/agentic-circuit/contracts/acir.yaml",
-        "contract_epoch": "0.5",
+        "contract_epoch": CONTRACT_EPOCH,
         "ops_td": "compiler/acir/include/acir/Dialect/ACIR/ACIROps.td",
         "types_td": "compiler/acir/include/acir/Dialect/ACIR/ACIRTypes.td",
         "registration": "compiler/acir/lib/Dialect/ACIR/ACIRTypes.cpp",
@@ -39,7 +45,7 @@ DIALECTS = {
     },
     "acsim": {
         "manifest": "schemas/agentic-circuit/contracts/acsim.yaml",
-        "contract_epoch": "0.5",
+        "contract_epoch": CONTRACT_EPOCH,
         "ops_td": "compiler/acir/include/acir/Dialect/ACSim/ACSimOps.td",
         "types_td": "compiler/acir/include/acir/Dialect/ACSim/ACSimTypes.td",
         "registration": "compiler/acir/lib/Dialect/ACSim/ACSimTypes.cpp",

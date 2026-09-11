@@ -2,15 +2,13 @@
 #define GFSIM_POPCOUNT_H
 
 #include "gfsim/bits.h"
+#include "gfsim/primitive_widths.h"
 #include "gfsim/queue_blocks.h"
-
-#include <bit>
 
 namespace gfsim {
 
 template <unsigned Width>
-inline constexpr unsigned PopcountWidth =
-    Width <= 1 ? 1 : static_cast<unsigned>(std::bit_width(Width));
+inline constexpr unsigned PopcountWidth = CountWidth<Width>;
 
 template <unsigned Width>
 constexpr UInt<PopcountWidth<Width>> populationCount(UInt<Width> input) {

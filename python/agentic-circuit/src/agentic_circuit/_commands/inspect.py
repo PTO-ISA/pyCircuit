@@ -8,6 +8,7 @@ from pathlib import Path, PurePosixPath
 from typing import NoReturn
 
 from .._canonical_json import canonical_json_bytes, sha256_bytes
+from .._contract import CONTRACT_EPOCH
 from .._diagnostics import Diagnostic
 from .._inspect import (
     InspectionError,
@@ -20,7 +21,6 @@ from .._inspect import (
 from .._output import OutputSink
 from .._workspace import UserInputError, WorkspaceConfig
 from .check import _has_errors, capture
-
 
 _BUILD_MANIFEST_KEYS = {
     "schema",
@@ -110,7 +110,7 @@ def _current_build(workspace: WorkspaceConfig, system: str) -> dict[str, object]
             set(manifest) != _BUILD_MANIFEST_KEYS
             or manifest.get("schema") != "agentic-circuit-build-manifest"
             or manifest.get("version") != "0.1"
-            or manifest.get("contract_epoch") != "0.5"
+            or manifest.get("contract_epoch") != CONTRACT_EPOCH
             or manifest.get("build_fingerprint") != pointer["build_fingerprint"]
         ):
             _fail("current build manifest identity does not match its pointer")

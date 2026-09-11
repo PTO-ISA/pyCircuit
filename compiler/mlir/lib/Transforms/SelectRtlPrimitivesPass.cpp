@@ -1,6 +1,7 @@
 #include "pyc/Transforms/Passes.h"
 
 #include "pyc/Dialect/PYC/PYCOps.h"
+#include "pyc/Generated/SemanticPrimitiveRegistry.h"
 
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinOps.h"
@@ -127,6 +128,16 @@ loadCatalog(llvm::StringRef path, std::string &catalogSha256,
         !qualificationReport || qualificationReport->empty() ||
         !knownSemanticShape || !licenseFile || !licenseSha256) {
       error = "RTL primitive catalog has malformed implementation entry";
+      return failure();
+    }
+    const generated::SemanticPrimitiveContract *semanticContract =
+        generated::findSemanticPrimitive(semantic->str());
+    if (!semanticContract ||
+        static_cast<unsigned>(*minWidth) <
+            semanticContract->minimumInputWidth ||
+        static_cast<unsigned>(*maxWidth) >
+            semanticContract->maximumInputWidth) {
+      error = "RTL primitive catalog entry is outside the semantic registry";
       return failure();
     }
     bool licenseEscapes = llvm::sys::path::is_absolute(*licenseFile);

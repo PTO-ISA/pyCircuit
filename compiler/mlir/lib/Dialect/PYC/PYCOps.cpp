@@ -2,6 +2,7 @@
 
 #include "pyc/Dialect/PYC/PYCDialect.h"
 #include "pyc/Dialect/PYC/PYCTypes.h"
+#include "pyc/Generated/SemanticPrimitiveRegistry.h"
 
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
@@ -680,15 +681,18 @@ LogicalResult PriorityEncodeOp::verify() {
   if (!inputType || !indexType)
     return emitOpError("input and index result must be integer types");
   const unsigned inputWidth = inputType.getWidth();
-  if (inputWidth > 64)
+  const auto *contract =
+      generated::findSemanticPrimitive("pyc.priority_encode.v1");
+  if (!contract)
+    return emitOpError("semantic primitive is missing from the registry");
+  if (!generated::supportsInputWidth(*contract, inputWidth))
     return emitOpError("input width must be in the shared backend range 1..64");
-  unsigned indexWidth = 1;
-  for (unsigned extent = 2; extent < inputWidth; extent <<= 1)
-    ++indexWidth;
+  const unsigned indexWidth =
+      generated::outputWidth(*contract, "index", inputWidth);
   if (indexType.getWidth() != indexWidth)
     return emitOpError() << "index result width must be max(1, ceil(log2("
                          << inputWidth << "))) = " << indexWidth;
-  if (getOrder() != "low" && getOrder() != "high")
+  if (!generated::enumAllows(*contract, "order", getOrder()))
     return emitOpError("order must be \"low\" or \"high\"");
   return success();
 }
@@ -698,14 +702,13 @@ LogicalResult PopcountOp::verify() {
   auto countType = dyn_cast<IntegerType>(getCount().getType());
   if (!inputType || !countType)
     return emitOpError("input and count result must be integer types");
-  if (inputType.getWidth() > 64)
+  const auto *contract = generated::findSemanticPrimitive("pyc.popcount.v1");
+  if (!contract)
+    return emitOpError("semantic primitive is missing from the registry");
+  if (!generated::supportsInputWidth(*contract, inputType.getWidth()))
     return emitOpError("input width must be in the shared backend range 1..64");
-  unsigned expectedWidth = 1;
-  uint64_t representable = 1;
-  while (representable < inputType.getWidth()) {
-    ++expectedWidth;
-    representable = (representable << 1) | 1;
-  }
+  const unsigned expectedWidth =
+      generated::outputWidth(*contract, "count", inputType.getWidth());
   if (countType.getWidth() != expectedWidth)
     return emitOpError()
            << "count result width must be max(1, ceil(log2(N+1))) = "
@@ -718,19 +721,19 @@ LogicalResult CountZerosOp::verify() {
   auto countType = dyn_cast<IntegerType>(getCount().getType());
   if (!inputType || !countType)
     return emitOpError("input and count result must be integer types");
-  if (inputType.getWidth() > 64)
+  const auto *contract =
+      generated::findSemanticPrimitive("pyc.count_zeros.v1");
+  if (!contract)
+    return emitOpError("semantic primitive is missing from the registry");
+  if (!generated::supportsInputWidth(*contract, inputType.getWidth()))
     return emitOpError("input width must be in the shared backend range 1..64");
-  unsigned expectedWidth = 1;
-  uint64_t representable = 1;
-  while (representable < inputType.getWidth()) {
-    ++expectedWidth;
-    representable = (representable << 1) | 1;
-  }
+  const unsigned expectedWidth =
+      generated::outputWidth(*contract, "count", inputType.getWidth());
   if (countType.getWidth() != expectedWidth)
     return emitOpError()
            << "count result width must be max(1, ceil(log2(N+1))) = "
            << expectedWidth;
-  if (getDirection() != "leading" && getDirection() != "trailing")
+  if (!generated::enumAllows(*contract, "direction", getDirection()))
     return emitOpError("direction must be \"leading\" or \"trailing\"");
   return success();
 }

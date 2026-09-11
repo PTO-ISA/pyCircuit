@@ -7,6 +7,7 @@
 
 #include <array>
 #include <cstdint>
+#include <utility>
 
 namespace gfsim {
 namespace {
@@ -25,6 +26,57 @@ concept Shiftable = requires(T lhs, T rhs) { lhs << rhs; };
 
 template <typename T>
 concept Ordered = requires(T lhs, T rhs) { lhs < rhs; };
+
+constexpr unsigned expectedPriorityWidth(unsigned width) {
+  unsigned result = 1;
+  for (unsigned extent = 2; extent < width; extent <<= 1)
+    ++result;
+  return result;
+}
+
+constexpr unsigned expectedCountWidth(unsigned width) {
+  unsigned result = 1;
+  for (unsigned extent = 1; extent < width; extent = (extent << 1) | 1)
+    ++result;
+  return result;
+}
+
+template <std::size_t... Index>
+consteval bool allPrimitiveWidthsAgree(std::index_sequence<Index...>) {
+  return ((PriorityIndexWidth<Index + 1> ==
+               expectedPriorityWidth(Index + 1) &&
+           CountWidth<Index + 1> == expectedCountWidth(Index + 1)) &&
+          ...);
+}
+
+static_assert(allPrimitiveWidthsAgree(std::make_index_sequence<64>{}));
+
+template <std::size_t... Index>
+consteval bool allPrimitiveImplementationsAgree(std::index_sequence<Index...>) {
+  return ((populationCount(UInt<Index + 1>{~std::uint64_t{0}}).value() ==
+               Index + 1 &&
+           countLeadingZeros(UInt<Index + 1>{0}).value() == Index + 1 &&
+           countTrailingZeros(UInt<Index + 1>{0}).value() == Index + 1 &&
+           priorityEncode(UInt<Index + 1>{1}, true).index.value() == 0 &&
+           priorityEncode(UInt<Index + 1>{1}, true).valid.value() == 1) &&
+          ...);
+}
+
+static_assert(allPrimitiveImplementationsAgree(std::make_index_sequence<64>{}));
+
+template <std::size_t... Index>
+consteval bool allWidePrimitiveWidthsRejected(std::index_sequence<Index...>) {
+  return ((!IsPrimitiveInputWidth<Index + 65>) && ...);
+}
+
+static_assert(allWidePrimitiveWidthsRejected(std::make_index_sequence<66>{}));
+
+TEST(PrimitiveWidthTest, AcceptsOnlySharedBackendRange) {
+  for (unsigned width = 65; width <= 130; ++width)
+    EXPECT_GT(width, PrimitiveMaximumInputWidth);
+  EXPECT_EQ(PrimitiveMinimumInputWidth, 1u);
+  EXPECT_EQ(PrimitiveMaximumInputWidth, 64u);
+}
 
 TEST(UIntTest, OperationsTruncateToDeclaredWidth) {
   UInt<3> seven = 7;

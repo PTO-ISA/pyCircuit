@@ -1,0 +1,6 @@
+pyc-opt and focused ACIR native targets built from the current checkout.
+ACIROpsTests: 1842 passed.
+ACIRModelAnalysisTests: 26 passed.
+CodeGenTests: 151 passed.
+GfsimTests: 246 passed.
+The semantic-registry generated header, PYC/ACIR/gfsim width helpers, actual primitives, and VariableAnalysis masking all passed focused coverage.

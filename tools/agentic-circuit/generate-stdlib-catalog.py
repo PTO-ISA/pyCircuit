@@ -7,9 +7,14 @@ import json
 import sys
 from pathlib import Path
 
+import tomllib
 
 ROOT = Path(__file__).resolve().parents[2]
 OUTPUT = ROOT / "schemas/agentic-circuit" / "stdlib"
+with (ROOT / "python/agentic-circuit/pyproject.toml").open("rb") as stream:
+    CONTRACT_EPOCH = tomllib.load(stream)["tool"]["agentic-circuit"][
+        "contract-epoch"
+    ]
 
 AVAILABLE = {
     "Queue": ("transport", "duplex", "gfsim/queue.h"),
@@ -289,7 +294,7 @@ def component_record(name, family, shape, header):
     record = {
         "schema_kind": "agentic-circuit-component",
         "schema_version": "0.1",
-        "contract_epoch": "0.5",
+        "contract_epoch": CONTRACT_EPOCH,
         "canonical_name": f"ac.{name}",
         "family": family,
         "provider_namespace": "ac",
@@ -367,7 +372,7 @@ def rendered_files():
     catalog = {
         "catalog": "ac",
         "version": "0.1",
-        "contract_epoch": "0.5",
+        "contract_epoch": CONTRACT_EPOCH,
         "entries": catalog_entries,
     }
     records[OUTPUT / "catalog.json"] = (

@@ -6,6 +6,7 @@
 #include "acir/CodeGen/Manifest.h"
 #include "acir/Dialect/ACIR/ACIROps.h"
 #include "acir/Dialect/ACIR/ACIRTypes.h"
+#include "acir/Support/PrimitiveWidths.h"
 
 #include "mlir/IR/Operation.h"
 #include "mlir/IR/SymbolTable.h"
@@ -3880,14 +3881,14 @@ llvm::Error verifyQueueGraphPlan(const QueueGraphPlan &plan) {
         auto inputWidth = operand == valueTypes.end()
                               ? std::optional<unsigned>()
                               : integerWidth(operand->getValue());
-        if (!inputWidth || *inputWidth == 0 || *inputWidth > 64)
+        if (!inputWidth || !acir::isPrimitiveInputWidth(*inputWidth))
           return planError(
               "priority expression input must be an i1..i64 value");
         const std::string expected =
             expression.kind == "priority_valid"
                 ? "i1"
-                : "i" + std::to_string(std::max<unsigned>(
-                            1, llvm::Log2_64_Ceil(*inputWidth)));
+                : "i" + std::to_string(
+                            acir::primitivePriorityIndexWidth(*inputWidth));
         if (expression.type != expected)
           return planError("priority expression result type is inconsistent");
       } else if (expression.kind == "table_choose_index" ||
@@ -3976,10 +3977,9 @@ llvm::Error verifyQueueGraphPlan(const QueueGraphPlan &plan) {
         auto inputWidth = operand == valueTypes.end()
                               ? std::optional<unsigned>()
                               : integerWidth(operand->getValue());
-        if (!inputWidth || *inputWidth == 0 || *inputWidth > 64)
+        if (!inputWidth || !acir::isPrimitiveInputWidth(*inputWidth))
           return planError("popcount input must be an i1..i64 value");
-        const unsigned resultWidth =
-            std::max(1u, static_cast<unsigned>(llvm::Log2_64(*inputWidth) + 1));
+        const unsigned resultWidth = acir::primitiveCountWidth(*inputWidth);
         if (expression.type != "i" + std::to_string(resultWidth))
           return planError("popcount expression result type is inconsistent");
       } else if (expression.kind == "count_zeros") {
@@ -3992,10 +3992,9 @@ llvm::Error verifyQueueGraphPlan(const QueueGraphPlan &plan) {
         auto inputWidth = operand == valueTypes.end()
                               ? std::optional<unsigned>()
                               : integerWidth(operand->getValue());
-        if (!inputWidth || *inputWidth == 0 || *inputWidth > 64)
+        if (!inputWidth || !acir::isPrimitiveInputWidth(*inputWidth))
           return planError("count_zeros input must be an i1..i64 value");
-        const unsigned resultWidth =
-            std::max(1u, static_cast<unsigned>(llvm::Log2_64(*inputWidth) + 1));
+        const unsigned resultWidth = acir::primitiveCountWidth(*inputWidth);
         if (expression.type != "i" + std::to_string(resultWidth))
           return planError(
               "count_zeros expression result type is inconsistent");

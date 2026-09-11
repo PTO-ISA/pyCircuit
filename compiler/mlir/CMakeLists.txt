@@ -9,6 +9,7 @@ include(GNUInstallDirs)
 
 find_package(LLVM REQUIRED CONFIG)
 find_package(MLIR REQUIRED CONFIG)
+find_package(Python3 3.11 REQUIRED COMPONENTS Interpreter)
 
 set(PYC_REQUIRED_LLVM_MAJOR 22)
 if(NOT LLVM_VERSION_MAJOR EQUAL PYC_REQUIRED_LLVM_MAJOR)
@@ -44,6 +45,24 @@ include_directories("${PYC_SOURCE_DIR}/include")
 
 file(MAKE_DIRECTORY "${PYC_BINARY_DIR}/include/pyc/Dialect/PYC")
 
+set(PYC_SEMANTIC_REGISTRY
+  "${PYC_REPO_ROOT}/schemas/primitives/semantic_registry.json")
+set(PYC_GENERATED_SEMANTIC_REGISTRY
+  "${PYC_BINARY_DIR}/include/pyc/Generated/SemanticPrimitiveRegistry.h")
+add_custom_command(
+  OUTPUT "${PYC_GENERATED_SEMANTIC_REGISTRY}"
+  COMMAND "${Python3_EXECUTABLE}"
+          "${PYC_REPO_ROOT}/tools/generate-semantic-primitive-registry.py"
+          "${PYC_SEMANTIC_REGISTRY}"
+          "${PYC_GENERATED_SEMANTIC_REGISTRY}"
+  DEPENDS
+    "${PYC_SEMANTIC_REGISTRY}"
+    "${PYC_REPO_ROOT}/tools/generate-semantic-primitive-registry.py"
+  VERBATIM
+)
+add_custom_target(PYCSemanticPrimitiveRegistryGen
+  DEPENDS "${PYC_GENERATED_SEMANTIC_REGISTRY}")
+
 # --- TableGen: types ---
 set(LLVM_TARGET_DEFINITIONS "${PYC_SOURCE_DIR}/include/pyc/Dialect/PYC/PYCTypes.td")
 mlir_tablegen(include/pyc/Dialect/PYC/PYCTypes.h.inc -gen-typedef-decls -dialect=pyc)
@@ -64,6 +83,7 @@ add_library(pyc_dialect
 add_dependencies(pyc_dialect
   PYCTypesIncGen
   PYCOpsIncGen
+  PYCSemanticPrimitiveRegistryGen
 )
 llvm_update_compile_flags(pyc_dialect)
 target_include_directories(pyc_dialect PUBLIC
@@ -112,6 +132,7 @@ add_library(pyc_transforms
   lib/Transforms/PrunePortsPass.cpp
   lib/Transforms/SelectRtlPrimitivesPass.cpp
 )
+add_dependencies(pyc_transforms PYCSemanticPrimitiveRegistryGen)
 llvm_update_compile_flags(pyc_transforms)
 target_include_directories(pyc_transforms PUBLIC
   "${PYC_SOURCE_DIR}/include"

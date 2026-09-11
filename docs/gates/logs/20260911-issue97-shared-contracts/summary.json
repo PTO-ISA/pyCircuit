@@ -1,0 +1,18 @@
+{
+  "decision_ids": ["0139", "0144", "0150", "0160", "0161", "0164", "0165", "0166", "0232"],
+  "issue": 97,
+  "results": {
+    "acir_analysis": {"passed": 26, "failed": 0},
+    "acir_ops": {"passed": 1842, "failed": 0},
+    "agentic_contracts": {"passed": 50, "failed": 0},
+    "agentic_frontend": {"passed": 301, "failed": 0, "skipped": 1},
+    "codegen": {"passed": 151, "failed": 0},
+    "gfsim": {"passed": 246, "failed": 0},
+    "mlir_string_roundtrip": {"passed": true},
+    "primitive_python_system": {"passed": 24, "failed": 0},
+    "repository_contracts": {"passed": true},
+    "unit": {"passed": 115, "failed": 0}
+  },
+  "run_id": "20260911-issue97-shared-contracts",
+  "status": "passed"
+}

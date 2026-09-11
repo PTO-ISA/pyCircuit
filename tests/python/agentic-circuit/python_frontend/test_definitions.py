@@ -8,7 +8,6 @@ import tempfile
 import unittest
 from pathlib import Path
 
-
 REPOSITORY = Path(__file__).resolve().parents[4]
 WORKSPACE = Path(__file__).resolve().parent / "fixtures" / "definitions"
 
@@ -184,6 +183,23 @@ class SchemaCallableTest(unittest.TestCase):
                 capacity=4,
                 surprise=True,
             )
+
+    def test_callable_uses_canonical_ijson_validation_for_static_values(self) -> None:
+        from agentic_circuit._types import _test_symbolic
+
+        queue = stdlib_registry().callable("ac.Queue")
+        input_value = _test_symbolic("input", object())
+        output_value = _test_symbolic("output", object())
+
+        for value in (-0.0, float("inf"), "\ud800", 1 << 53):
+            with self.subTest(value=repr(value)):
+                with self.assertRaisesRegex(TypeError, "is not static"):
+                    queue(
+                        input_value,
+                        output_value,
+                        T="Packet",
+                        capacity=value,
+                    )
 
     def test_valid_call_records_schema_defaults_in_signature_order(self) -> None:
         from agentic_circuit._types import _test_symbolic

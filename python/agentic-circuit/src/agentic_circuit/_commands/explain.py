@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from .._capabilities import diagnostic_catalog
+from .._contract import CONTRACT_EPOCH
 from .._diagnostics import Diagnostic
 from .._output import OutputSink
 from .._workspace import UserInputError
@@ -28,7 +29,7 @@ def run(arguments: object, sink: OutputSink) -> int:
     document = {
         "schema": "agentic-circuit-diagnostic-explanation",
         "version": "0.1",
-        "contract_epoch": "0.5",
+        "contract_epoch": CONTRACT_EPOCH,
         **matches[0],
     }
     sink.result(document, human=f"{code}: {matches[0]['rule']}")

@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from typing import Literal, TypeAlias
 
 from ._canonical_json import JsonValue, canonical_json_bytes, utf16_sort_key
+from ._contract import CONTRACT_EPOCH
 from ._diagnostics import Diagnostic, SourceSpan
 from ._static_eval import FrozenMap, StaticValue
 
@@ -136,7 +137,7 @@ class AcpyDocument:
     entities: tuple[Entity, ...]
     schema: str = "agentic-circuit-acpy"
     version: str = "0.1"
-    contract_epoch: str = "0.5"
+    contract_epoch: str = CONTRACT_EPOCH
 
     def to_json(self) -> dict[str, JsonValue]:
         return {
@@ -162,9 +163,13 @@ class AcpyDocument:
         if (self.schema, self.version, self.contract_epoch) != (
             "agentic-circuit-acpy",
             "0.1",
-            "0.5",
+            CONTRACT_EPOCH,
         ):
-            errors.append(self._diagnostic("ACPy schema identity must be epoch 0.5"))
+            errors.append(
+                self._diagnostic(
+                    f"ACPy schema identity must be epoch {CONTRACT_EPOCH}"
+                )
+            )
 
         expected_ids = [f"e{index}" for index in range(len(self.entities))]
         actual_ids = [entity.id for entity in self.entities]

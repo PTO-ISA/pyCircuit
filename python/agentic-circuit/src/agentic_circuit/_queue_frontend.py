@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import ast
 import copy
-import json
 import re
 from collections.abc import Collection, Mapping
 from dataclasses import dataclass, replace
@@ -24,20 +23,28 @@ from _pycircuit_semantics import (
     ValueType,
     constraint_for_type,
     is_exhaustive,
+    is_primitive_input_width,
     parse_bitmask_checked,
+    primitive_count_width,
+    primitive_priority_index_width,
     prove_within,
     transfer_bits,
 )
 
 from ._acpy import AcpyDocument, EntityAllocator, Property, SourceFile
-from ._canonical_json import canonical_json_bytes, sha256_bytes
+from ._canonical_json import (
+    canonical_json_bytes,
+    canonical_mlir_string,
+    sha256_bytes,
+)
+from ._contract import CONTRACT_EPOCH
 from ._diagnostics import Diagnostic, DiagnosticError, SourceSpan
 from ._static_eval import (
     MAX_STATIC_EXPANSION,
-    FrozenMap,
     StaticEnvironment,
     StaticValue,
     evaluate_static,
+    static_json_value,
 )
 
 RULE_LOWERING_PIPELINE = (
@@ -101,7 +108,7 @@ def _render_table_init_value(value: object, descriptor: ValueType) -> str:
     if isinstance(descriptor, BitsType) and type(value) is int:
         return f"{value} : i{descriptor.width}"
     if isinstance(descriptor, EnumType) and type(value) is str:
-        return json.dumps(value)
+        return canonical_mlir_string(value)
     if isinstance(descriptor, StructType) and isinstance(value, dict):
         return "{" + ", ".join(
             f"{field.name} = "
@@ -120,21 +127,13 @@ def _render_table_init_value(value: object, descriptor: ValueType) -> str:
     raise AssertionError("validated Table initializer cannot be rendered")
 
 
-def _static_json_value(value: StaticValue) -> object:
-    if isinstance(value, FrozenMap):
-        return {name: _static_json_value(item) for name, item in value.entries}
-    if isinstance(value, tuple):
-        return [_static_json_value(item) for item in value]
-    return value
-
-
 def _render_static_mlir_value(value: StaticValue) -> str:
     if type(value) is bool:
         return "true" if value else "false"
     if type(value) is int:
         return f"{value} : i64"
     if type(value) is str:
-        return json.dumps(value)
+        return canonical_mlir_string(value)
     raise QueueFrontendError(
         "ACPY-MODULE-007: module ac.const arguments must lower to bool, int, "
         "or str attributes"
@@ -182,7 +181,7 @@ def _proven_integer_in(value: int, lower: int, upper: int) -> bool:
 
 
 def _is_epoch_05_bool_compatible(value_type: ValueType) -> bool:
-    """Preserve the accepted epoch-0.5 i1 condition boundary.
+    """Preserve the accepted current-contract i1 condition boundary.
 
     Bool and u1 retain distinct descriptor identities; this predicate exists
     only where the current ACIR contract historically accepts either i1 view.
@@ -194,7 +193,7 @@ def _is_epoch_05_bool_compatible(value_type: ValueType) -> bool:
 
 
 def _types_equal_in_epoch_05(left: ValueType, right: ValueType) -> bool:
-    """Compare semantic types at the epoch-0.5 ACIR rendering boundary."""
+    """Compare semantic types at the current ACIR rendering boundary."""
 
     return left == right or (
         _is_epoch_05_bool_compatible(left) and _is_epoch_05_bool_compatible(right)
@@ -202,7 +201,7 @@ def _types_equal_in_epoch_05(left: ValueType, right: ValueType) -> bool:
 
 
 def _epoch_05_integer_width(value_type: ValueType) -> int | None:
-    """Return the width of a value accepted by the epoch-0.5 integer boundary."""
+    """Return the width accepted by the current integer boundary."""
 
     if isinstance(value_type, BitsType):
         return value_type.width
@@ -268,7 +267,7 @@ def _primitive_integer_width(operation: str, value_type: ValueType) -> int:
         raise QueueFrontendError(
             "ACPY-VAR-003", f"{operation} operand must be an integer payload"
         )
-    if not 1 <= width <= 64:
+    if not is_primitive_input_width(width):
         raise QueueFrontendError(
             "ACPY-VAR-003", f"{operation} operand width must be in [1, 64]"
         )
@@ -1237,12 +1236,12 @@ def _bitfields(tree: ast.Module) -> tuple[BitfieldBinding, ...]:
 
 def _render_bitfield(binding: BitfieldBinding, indent: str) -> str:
     fields = ", ".join(
-        f"{{lsb = {lsb} : i64, msb = {msb} : i64, name = {json.dumps(name)}}}"
+        f"{{lsb = {lsb} : i64, msb = {msb} : i64, name = {canonical_mlir_string(name)}}}"
         for name, (msb, lsb) in binding.layout.fields.items()
     )
     return (
         f"{indent}ac.bitfield @{binding.name} width {binding.layout.width} "
-        f"fingerprint {json.dumps(binding.layout.fingerprint)} fields [{fields}]"
+        f"fingerprint {canonical_mlir_string(binding.layout.fingerprint)} fields [{fields}]"
     )
 
 
@@ -1293,7 +1292,9 @@ def _enum_layout_entry(binding: EnumBinding) -> str:
 
 
 def _render_enum(binding: EnumBinding, indent: str) -> str:
-    enumerants = json.dumps(list(binding.descriptor.enumerants))
+    enumerants = "[" + ", ".join(
+        canonical_mlir_string(item) for item in binding.descriptor.enumerants
+    ) + "]"
     return f"{indent}ac.enum @{binding.name} enumerants {enumerants}"
 
 
@@ -5684,7 +5685,7 @@ def parse_queue_program(
                 ):
                     raise QueueFrontendError(
                         "ACPY-RULE-005: ac.atomic() was removed in contract epoch "
-                        "0.5; express the transaction as @ac.rule"
+                        f"{CONTRACT_EPOCH}; express the transaction as @ac.rule"
                     )
             if (
                 isinstance(statement, ast.Assign)
@@ -7538,7 +7539,7 @@ def parse_queue_program(
                 ):
                     raise QueueFrontendError(
                         "ACPY-RULE-005: Queue.firing() was removed in contract "
-                        "epoch 0.5; express the transaction as @ac.rule"
+                        f"epoch {CONTRACT_EPOCH}; express the transaction as @ac.rule"
                     )
                 elif (
                     isinstance(call.func, ast.Attribute)
@@ -8516,8 +8517,8 @@ class _ExpressionEmitter:
         name = self._new()
         self.lines.append(
             f"    %{name} = ac.var.extract %{base} from {lsb} width {width} "
-            f"{{ac.bitfield_field = {json.dumps(field_name)}, "
-            f"ac.bitfield_fingerprint = {json.dumps(layout.fingerprint)}, "
+            f"{{ac.bitfield_field = {canonical_mlir_string(field_name)}, "
+            f"ac.bitfield_fingerprint = {canonical_mlir_string(layout.fingerprint)}, "
             f"ac.bitfield_schema = @types::@{schema_name}}} : "
             f"!ac.var<{_render_type(base_type)}> -> "
             f"!ac.var<{_render_type(result_type)}>"
@@ -8581,7 +8582,7 @@ class _ExpressionEmitter:
                 rendered_payload = _render_type(invariant.payload)
                 self.lines.append(
                     f"    %{result} = ac.var.invariant %{operand} name "
-                    f"{json.dumps(invariant.qualified_name)} {{"
+                    f"{canonical_mlir_string(invariant.qualified_name)} {{"
                 )
                 self.lines.append(
                     f"    ^predicate(%{predicate_argument}: "
@@ -8629,7 +8630,7 @@ class _ExpressionEmitter:
             name = self._new()
             self.lines.append(
                 f"    %{name} = ac.var.enum @types::@{enumeration.name} "
-                f"{json.dumps(node.attr)} : "
+                f"{canonical_mlir_string(node.attr)} : "
                 f"!ac.var<{_render_type(enumeration)}>"
             )
             return self._remember(name, enumeration, Constant(node.attr))
@@ -8717,9 +8718,11 @@ class _ExpressionEmitter:
                     f"    %{name} = ac.var.concat "
                     + ", ".join(f"%{value}" for value, _ in selected)
                     + " {ac.bitfield_fields = "
-                    + json.dumps(field_names)
+                    + "["
+                    + ", ".join(canonical_mlir_string(item) for item in field_names)
+                    + "]"
                     + ", ac.bitfield_fingerprint = "
-                    + json.dumps(layout.fingerprint)
+                    + canonical_mlir_string(layout.fingerprint)
                     + ", ac.bitfield_schema = @types::@"
                     + schema_name
                     + "} : "
@@ -8780,8 +8783,8 @@ class _ExpressionEmitter:
                 name = self._new()
                 self.lines.append(
                     f"    %{name} = ac.var.insert %{current}, %{value} at {lsb} "
-                    f"{{ac.bitfield_field = {json.dumps(field_name)}, "
-                    f"ac.bitfield_fingerprint = {json.dumps(layout.fingerprint)}, "
+                    f"{{ac.bitfield_field = {canonical_mlir_string(field_name)}, "
+                    f"ac.bitfield_fingerprint = {canonical_mlir_string(layout.fingerprint)}, "
                     f"ac.bitfield_schema = @types::@{schema_name}}} : "
                     f"!ac.var<{_render_type(base_type)}>, "
                     f"!ac.var<{_render_type(value_type)}> -> "
@@ -9114,7 +9117,7 @@ class _ExpressionEmitter:
                 f"    {lhs} = ac.table.choose @{selection.table} %{mask} : "
                 f"!ac.var<i{mask_width}> count {selection.count} policy "
                 f"#ac<table_selection_policy {selection.policy}>{key_order} "
-                f"stable_id {json.dumps(selection.stable_id)}{cursor} "
+                f"stable_id {canonical_mlir_string(selection.stable_id)}{cursor} "
                 f"key {key_region} -> {result_types}"
             )
             batch = tuple(
@@ -9176,7 +9179,7 @@ class _ExpressionEmitter:
             if cached is None:
                 value, value_type = self.emit(call.args[0])
                 width = _primitive_integer_width("priority_encode", value_type)
-                index_type = BitsType(max(1, (width - 1).bit_length()))
+                index_type = BitsType(primitive_priority_index_width(width))
                 index = self._new()
                 valid = self._new()
                 self.lines.append(
@@ -9486,7 +9489,7 @@ class _ExpressionEmitter:
                 )
             value, value_type = self.emit(node.args[0])
             width = _primitive_integer_width("popcount", value_type)
-            result_width = width.bit_length()
+            result_width = primitive_count_width(width)
             name = self._new()
             self.lines.append(
                 f"    %{name} = ac.var.popcount %{value} : "
@@ -9504,7 +9507,7 @@ class _ExpressionEmitter:
                 )
             value, value_type = self.emit(node.args[0])
             width = _primitive_integer_width(operation, value_type)
-            result_width = width.bit_length()
+            result_width = primitive_count_width(width)
             name = self._new()
             direction = "trailing" if operation == "count_trailing_zeros" else "leading"
             self.lines.append(
@@ -9645,7 +9648,8 @@ def lower_queue_program(
     initial_mapping: dict[str, str] = {}
     if module is None:
         lines = [
-            f'module attributes {{ac.contract_epoch = "0.5", '
+            "module attributes {ac.contract_epoch = "
+            f"{canonical_mlir_string(CONTRACT_EPOCH)}, "
             f'ac.model_kind = "queue_graph", '
             f'ac.queue_graph_domain = "cycle", '
             f'ac.system = "{program.system}"{specialization}}} {{'
@@ -9784,7 +9788,7 @@ def lower_queue_program(
                 'layout = "row_major"',
                 "layout_version = 1 : i64",
                 "schema_id = "
-                + json.dumps(_table_schema_id(table.entry_type, table.shape)),
+                + canonical_mlir_string(_table_schema_id(table.entry_type, table.shape)),
             ]
             if table.init_image is not None:
                 typed_attributes.extend(
@@ -9962,7 +9966,7 @@ def lower_queue_program(
         if output_names:
             attributes.append(
                 "ac.output_names = ["
-                + ", ".join(json.dumps(output) for output in output_names)
+                + ", ".join(canonical_mlir_string(output) for output in output_names)
                 + "]"
             )
         if any(rate != 1 for rate in rates):
@@ -10188,7 +10192,7 @@ def lower_queue_program(
                         f"ac.var.choose @{find.variable} %{mask} : "
                         f"!ac.var<{_render_type(mask_type)}> count 1 "
                         f'policy "first" '
-                        f"key {{}} {{ac.query = {json.dumps(find.name)}}} -> "
+                        f"key {{}} {{ac.query = {canonical_mlir_string(find.name)}}} -> "
                         f"!ac.var<i{index_width}>, !ac.var<i1>"
                     )
                 else:
@@ -10225,7 +10229,7 @@ def lower_queue_program(
                         f"!ac.var<{_render_type(key_type)}>"
                     )
                     emitter.lines.append(
-                        f"    }} {{ac.query = {json.dumps(find.name)}}} -> "
+                        f"    }} {{ac.query = {canonical_mlir_string(find.name)}}} -> "
                         f"!ac.var<i{index_width}>, !ac.var<i1>"
                     )
                 emitter.find_values[find.name] = (
@@ -10774,8 +10778,8 @@ def lower_queue_program(
                     if queue.rule_has_output
                     else "depths [] latencies [] "
                 )
-                + f"name {json.dumps(queue.rule_name)} "
-                f"stable_id {json.dumps('/'.join((*queue.scope, queue.name)))} "
+                + f"name {canonical_mlir_string(queue.rule_name)} "
+                f"stable_id {canonical_mlir_string('/'.join((*queue.scope, queue.name)))} "
                 f'domain "cycle" type exact {{'
             )
             block_arguments = ", ".join(
@@ -10847,7 +10851,9 @@ def lower_queue_program(
                 assert index_result is not None
                 assert index_type is not None
                 assert write_result is not None
-                fields = json.dumps(list(queue.rule_write_fields))
+                fields = "[" + ", ".join(
+                    canonical_mlir_string(item) for item in queue.rule_write_fields
+                ) + "]"
                 lines.append(
                     f"{indent}  ac.table.propose @{queue.rule_table} "
                     f"[%{index_result}] = %{write_result}{effect_presence} "
@@ -10873,7 +10879,7 @@ def lower_queue_program(
                         lines.append(
                             f"{indent}  %{ready} = ac.marker.obligation "
                             f"%{output_value} state pending resolver handshake "
-                            f"origin {json.dumps(queue.rule_name + ':return[' + str(ordinal) + ']')} "
+                            f"origin {canonical_mlir_string(queue.rule_name + ':return[' + str(ordinal) + ']')} "
                             f'path "true" : !ac.var<{_render_type(payload)}> '
                         )
                         lines.append(
@@ -10894,7 +10900,7 @@ def lower_queue_program(
                     lines.append(
                         f"{indent}  %rule_ready = ac.marker.obligation %{result} "
                         f"state pending resolver handshake origin "
-                        f'{json.dumps(queue.rule_name + ":return")} path "true" : '
+                        f'{canonical_mlir_string(queue.rule_name + ":return")} path "true" : '
                         f"!ac.var<{_render_type(queue.payload)}>"
                     )
                 if not multi_output_results and (
@@ -11250,7 +11256,7 @@ def lower_queue_program(
                     f"%{mask} : !ac.var<{_render_type(mask_type)}> "
                     f"count {selection.count} policy "
                     f"#ac<table_selection_policy {selection.policy}>{key_order} "
-                    f"stable_id {json.dumps(selection.stable_id)}{cursor} "
+                    f"stable_id {canonical_mlir_string(selection.stable_id)}{cursor} "
                     f"key {key_region} -> {result_types}"
                 )
                 for alias, index, valid in zip(
@@ -12129,7 +12135,7 @@ def lower_queue_program(
                     )
                 lines.append(
                     f"{indent}ac.expect %{mapping[expectation.queue]} message "
-                    f"{json.dumps(expectation.message)} {{"
+                    f"{canonical_mlir_string(expectation.message)} {{"
                 )
                 lines.append(
                     f"{indent}^predicate(%item: "
@@ -12678,7 +12684,7 @@ def _lower_simple_module_source(
                     "system": system,
                     "source": text,
                     "arguments": {
-                        name: _static_json_value(value)
+                        name: static_json_value(value)
                         for name, value in sorted(system_static_values.items())
                     },
                 }
@@ -12777,7 +12783,7 @@ def _lower_simple_module_source(
         specialization_fingerprint = sha256_bytes(
             canonical_json_bytes(
                 {
-                    name: _static_json_value(value) for name, value in frozen
+                    name: static_json_value(value) for name, value in frozen
                 }
             )
         )
@@ -12953,7 +12959,8 @@ def _lower_simple_module_source(
         )
 
     lines = [
-        'builtin.module attributes {ac.contract_epoch = "0.5", '
+        "builtin.module attributes {ac.contract_epoch = "
+        f"{canonical_mlir_string(CONTRACT_EPOCH)}, "
         'ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle"} {'
     ]
     if payloads or enum_bindings or bitfield_bindings:
@@ -13184,7 +13191,7 @@ def _lower_simple_module_source(
         "{}"
         if specialization_fingerprint is None
         else "{jit_specialization = "
-        + json.dumps(specialization_fingerprint)
+        + canonical_mlir_string(specialization_fingerprint)
         + "}"
     )
     lines.append(

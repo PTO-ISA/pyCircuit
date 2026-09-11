@@ -2,17 +2,15 @@
 #define GFSIM_COUNT_ZEROS_H
 
 #include "gfsim/bits.h"
+#include "gfsim/primitive_widths.h"
 #include "gfsim/queue_blocks.h"
-
-#include <bit>
 
 namespace gfsim {
 
 enum class ZeroCountDirection { Leading, Trailing };
 
 template <unsigned Width>
-inline constexpr unsigned CountZerosWidth =
-    Width <= 1 ? 1 : static_cast<unsigned>(std::bit_width(Width));
+inline constexpr unsigned CountZerosWidth = CountWidth<Width>;
 
 template <unsigned Width, ZeroCountDirection Direction>
 constexpr UInt<CountZerosWidth<Width>> countZeros(UInt<Width> input) {
