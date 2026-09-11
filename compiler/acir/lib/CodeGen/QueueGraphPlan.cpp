@@ -8,6 +8,7 @@
 #include "acir/Dialect/ACIR/ACIRTypes.h"
 #include "acir/Support/PrimitiveWidths.h"
 
+#include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/IR/Operation.h"
 #include "mlir/IR/SymbolTable.h"
 #include "mlir/IR/Verifier.h"
@@ -514,7 +515,8 @@ llvm::Error
 extractExpressions(mlir::Region &region, QueueBlockPlan &plan,
                    llvm::ArrayRef<SharedExpression> sharedExpressions = {},
                    llvm::ArrayRef<SharedValue> sharedValues = {},
-                   llvm::StringRef prefix = "v") {
+                   llvm::StringRef prefix = "v",
+                   llvm::ArrayRef<std::string> argumentNames = {}) {
   mlir::Block &block = region.front();
   llvm::DenseMap<mlir::Value, std::string> values;
   for (const auto &[value, identity] : sharedValues)
@@ -526,10 +528,13 @@ extractExpressions(mlir::Region &region, QueueBlockPlan &plan,
         }))
       plan.expressions.push_back(expression);
   }
+  if (!argumentNames.empty() && argumentNames.size() != block.getNumArguments())
+    return planError("helper argument identity count is malformed");
   for (auto [index, argument] : llvm::enumerate(block.getArguments()))
-    values[argument] =
-        index == 0 ? (prefix == "v" ? "item" : "entry")
-                   : (prefix == "v" ? "item" : "entry") + std::to_string(index);
+    values[argument] = !argumentNames.empty() ? argumentNames[index]
+                       : index == 0 ? (prefix == "v" ? "item" : "entry")
+                                    : (prefix == "v" ? "item" : "entry") +
+                                          std::to_string(index);
   auto operandNames = [&](mlir::ValueRange operands)
       -> llvm::Expected<std::vector<std::string>> {
     std::vector<std::string> result;
@@ -574,6 +579,33 @@ extractExpressions(mlir::Region &region, QueueBlockPlan &plan,
       return planError(
           "residual ac.var.invariant must be lowered before QueueGraph "
           "planning");
+    if (auto call = mlir::dyn_cast<mlir::func::CallOp>(operation)) {
+      auto operands = operandNames(call.getOperands());
+      if (!operands)
+        return operands.takeError();
+      if (call.getNumResults() == 0)
+        return planError("pure Queue helper call must return a value");
+      const std::string callIdentity =
+          prefix.str() + "call" + std::to_string(plan.expressions.size());
+      for (auto [resultIndex, resultValue] :
+           llvm::enumerate(call.getResults())) {
+        auto resultType = mlir::dyn_cast<ac::VarType>(resultValue.getType());
+        if (!resultType)
+          return planError("pure Queue helper result must be ac.var");
+        std::string result =
+            prefix.str() + std::to_string(plan.expressions.size());
+        values[resultValue] = result;
+        QueueExpressionPlan expression{result, "helper_call",
+                                       printType(resultType.getElementType()),
+                                       *operands};
+        expression.field = call.getCallee().str();
+        expression.literal = callIdentity;
+        expression.selectionCount = call.getNumResults();
+        expression.laneOrdinal = resultIndex;
+        plan.expressions.push_back(std::move(expression));
+      }
+      continue;
+    }
     if (auto constant = mlir::dyn_cast<ac::VarConstantOp>(operation)) {
       if (auto error = append(operation, "constant", {}, {},
                               printAttribute(constant.getValueAttr())))
@@ -1050,7 +1082,10 @@ extractExpressions(mlir::Region &region, QueueBlockPlan &plan,
     else if (auto yield = mlir::dyn_cast<ac::FeedbackYieldOp>(operation)) {
       yielded.push_back(yield.getValue());
       yielded.push_back(yield.getContinueValue());
-    } else
+    } else if (auto returned = mlir::dyn_cast<mlir::func::ReturnOp>(operation))
+      yielded.append(returned.getOperands().begin(),
+                     returned.getOperands().end());
+    else
       return planError("unsupported operation in Queue Var region: " +
                        operation.getName().getStringRef());
     sawStructuredYield = true;
@@ -1065,6 +1100,75 @@ extractExpressions(mlir::Region &region, QueueBlockPlan &plan,
                                      const OutputPresencePlan &right) {
     return left.ordinal < right.ordinal;
   });
+  return llvm::Error::success();
+}
+
+void collectHelperCalls(const std::vector<QueueExpressionPlan> &expressions,
+                        llvm::StringSet<> &names) {
+  for (const QueueExpressionPlan &expression : expressions) {
+    if (expression.kind == "helper_call")
+      names.insert(expression.field);
+    collectHelperCalls(expression.nestedExpressions, names);
+  }
+}
+
+llvm::Error extractHelperPlans(mlir::ModuleOp module, QueueGraphPlan &plan) {
+  llvm::StringSet<> requested;
+  for (const QueueBlockPlan &block : plan.blocks)
+    collectHelperCalls(block.expressions, requested);
+  for (const TableMatchPlan &match : plan.tableMatches)
+    collectHelperCalls(match.expressions, requested);
+  for (const TableSelectionPlan &selection : plan.tableSelections)
+    collectHelperCalls(selection.keyExpressions, requested);
+  mlir::SymbolTable symbols(module);
+  llvm::StringSet<> extracted;
+  while (extracted.size() != requested.size()) {
+    std::vector<std::string> pending;
+    for (const auto &entry : requested)
+      if (!extracted.contains(entry.getKey()))
+        pending.push_back(entry.getKey().str());
+    llvm::sort(pending);
+    for (const std::string &name : pending) {
+      auto function = symbols.lookup<mlir::func::FuncOp>(name);
+      if (!function || function.isExternal() ||
+          !function.getBody().hasOneBlock())
+        return planError("Queue helper '@" + name +
+                         "' is unresolved or has no single body");
+      if (auto marker = function->getAttrOfType<mlir::BoolAttr>("ac.inline");
+          marker && marker.getValue())
+        return planError("residual ac.inline helper reached QueueGraph plan");
+      QueueHelperPlan helper;
+      helper.name = name;
+      for (auto [index, type] : llvm::enumerate(function.getArgumentTypes())) {
+        auto variable = mlir::dyn_cast<ac::VarType>(type);
+        if (!variable)
+          return planError("Queue helper argument must be ac.var");
+        helper.inputNames.push_back("arg" + std::to_string(index));
+        helper.inputTypes.push_back(printType(variable.getElementType()));
+      }
+      for (mlir::Type type : function.getResultTypes()) {
+        auto variable = mlir::dyn_cast<ac::VarType>(type);
+        if (!variable)
+          return planError("Queue helper result must be ac.var");
+        helper.resultTypes.push_back(printType(variable.getElementType()));
+      }
+      QueueBlockPlan body;
+      if (auto error = extractExpressions(function.getBody(), body, {}, {},
+                                          "h_", helper.inputNames))
+        return error;
+      if (body.yields.size() != helper.resultTypes.size())
+        return planError("Queue helper return arity is malformed");
+      helper.expressions = std::move(body.expressions);
+      helper.yields = std::move(body.yields);
+      collectHelperCalls(helper.expressions, requested);
+      plan.helpers.push_back(std::move(helper));
+      extracted.insert(name);
+    }
+  }
+  llvm::sort(plan.helpers,
+             [](const QueueHelperPlan &left, const QueueHelperPlan &right) {
+               return left.name < right.name;
+             });
   return llvm::Error::success();
 }
 
@@ -1568,6 +1672,8 @@ public:
     auto modelKind = module->getAttrOfType<mlir::StringAttr>("ac.model_kind");
     if (!modelKind || modelKind.getValue() != "queue_graph")
       return planError("module requires ac.model_kind exactly 'queue_graph'");
+    if (auto error = extractAggregateTypes())
+      return std::move(error);
     if (!module.getOps<ac::SystemOp>().empty())
       return runStructured();
     for (mlir::Operation &operation : module.getBody()->getOperations()) {
@@ -1609,6 +1715,8 @@ public:
       plan.specializationFingerprint = specialization.getValue().str();
     }
     if (auto error = extractBlock(*module.getBody(), {}))
+      return std::move(error);
+    if (auto error = extractHelperPlans(module, plan))
       return std::move(error);
     if (auto error = groupMultiSelectionReads(plan))
       return std::move(error);
@@ -1654,6 +1762,8 @@ private:
            static_cast<uint64_t>(queue.getRate())});
     }
     if (auto error = nested.extractBlock(body, {}))
+      return std::move(error);
+    if (auto error = extractHelperPlans(module, nested.plan))
       return std::move(error);
     if (auto error = groupMultiSelectionReads(nested.plan))
       return std::move(error);
@@ -1858,6 +1968,33 @@ private:
       plan.aggregates.push_back(std::move(aggregate));
     }
     return llvm::Error::success();
+  }
+
+  llvm::Error extractAggregateTypes() {
+    llvm::Error error = llvm::Error::success();
+    auto inspect = [&](mlir::Operation *operation, mlir::Type type) {
+      if (error)
+        return;
+      if (auto variable = mlir::dyn_cast<ac::VarType>(type))
+        type = variable.getElementType();
+      else if (auto queue = mlir::dyn_cast<ac::QueueType>(type))
+        type = queue.getElementType();
+      if (mlir::isa<mlir::TupleType, ac::ValueArrayType>(type))
+        error = recordAggregateType(operation, type);
+    };
+    module.walk([&](mlir::Operation *operation) {
+      if (error)
+        return;
+      for (mlir::Type type : operation->getOperandTypes())
+        inspect(operation, type);
+      for (mlir::Type type : operation->getResultTypes())
+        inspect(operation, type);
+      for (mlir::Region &region : operation->getRegions())
+        for (mlir::Block &block : region)
+          for (mlir::BlockArgument argument : block.getArguments())
+            inspect(operation, argument.getType());
+    });
+    return error;
   }
 
   llvm::Error extractTypeScope(ac::TypeScopeOp typeScope) {
@@ -3657,6 +3794,60 @@ llvm::Error verifyQueueGraphPlan(const QueueGraphPlan &plan) {
       }
   }
 
+  llvm::StringMap<const QueueHelperPlan *> helpers;
+  if (plan.helpers.size() > acir::kMaxPureCallFunctions)
+    return planError("Queue helper count exceeds the ACIR capability limit");
+  for (const QueueHelperPlan &helper : plan.helpers)
+    if (helper.name.empty() ||
+        helper.inputNames.size() != helper.inputTypes.size() ||
+        helper.resultTypes.size() != helper.yields.size() ||
+        !helpers.try_emplace(helper.name, &helper).second)
+      return planError("Queue helper metadata is incomplete or duplicated");
+  llvm::StringMap<std::vector<std::string>> helperEdges;
+  for (const QueueHelperPlan &helper : plan.helpers) {
+    llvm::StringSet<> dependencies;
+    collectHelperCalls(helper.expressions, dependencies);
+    for (const auto &dependency : dependencies) {
+      if (!helpers.contains(dependency.getKey()))
+        return planError("Queue helper references an unknown helper");
+      helperEdges[helper.name].push_back(dependency.getKey().str());
+    }
+    llvm::sort(helperEdges[helper.name]);
+  }
+  enum class HelperState : uint8_t { Unvisited, Active, Complete };
+  llvm::StringMap<HelperState> helperStates;
+  struct HelperFrame {
+    std::string name;
+    size_t next = 0;
+  };
+  uint64_t helperEdgeCount = 0;
+  for (const QueueHelperPlan &helper : plan.helpers) {
+    if (helperStates.lookup(helper.name) != HelperState::Unvisited)
+      continue;
+    std::vector<HelperFrame> stack{{helper.name, 0}};
+    helperStates[helper.name] = HelperState::Active;
+    while (!stack.empty()) {
+      HelperFrame &frame = stack.back();
+      auto &edges = helperEdges[frame.name];
+      if (frame.next == edges.size()) {
+        helperStates[frame.name] = HelperState::Complete;
+        stack.pop_back();
+        continue;
+      }
+      if (++helperEdgeCount > acir::kMaxPureCallEdges)
+        return planError("Queue helper graph exceeds the ACIR edge limit");
+      const std::string &target = edges[frame.next++];
+      if (helperStates.lookup(target) == HelperState::Active)
+        return planError("Queue helper graph contains a recursive cycle");
+      if (helperStates.lookup(target) == HelperState::Unvisited) {
+        if (stack.size() >= acir::kMaxPureCallDepth)
+          return planError("Queue helper graph exceeds the ACIR depth limit");
+        helperStates[target] = HelperState::Active;
+        stack.push_back({target, 0});
+      }
+    }
+  }
+
   auto verifyExpressionList =
       [&](auto &&self, const auto &expressions,
           llvm::ArrayRef<std::string> rootTypes, llvm::StringRef rootPrefix,
@@ -3678,7 +3869,21 @@ llvm::Error verifyQueueGraphPlan(const QueueGraphPlan &plan) {
         return planError(
             "residual ac.var.invariant must be lowered before QueueGraph "
             "planning");
-      if (expression.kind == "table_index") {
+      if (expression.kind == "helper_call") {
+        const QueueHelperPlan *helper = helpers.lookup(expression.field);
+        if (!helper || expression.literal.empty() ||
+            expression.selectionCount != helper->resultTypes.size() ||
+            expression.laneOrdinal >= helper->resultTypes.size() ||
+            expression.operands.size() != helper->inputTypes.size() ||
+            expression.type != helper->resultTypes[expression.laneOrdinal])
+          return planError("helper_call expression contract is malformed");
+        for (auto [operandName, expected] :
+             llvm::zip_equal(expression.operands, helper->inputTypes)) {
+          auto operand = valueTypes.find(operandName);
+          if (operand == valueTypes.end() || operand->getValue() != expected)
+            return planError("helper_call operand type is inconsistent");
+        }
+      } else if (expression.kind == "table_index") {
         const TablePlan *table = tables.lookup(expression.table);
         const size_t rank = table && table->shape.empty()
                                 ? 1
@@ -4078,6 +4283,25 @@ llvm::Error verifyQueueGraphPlan(const QueueGraphPlan &plan) {
             "inline table choose requires balanced index/valid result pairs");
     return llvm::Error::success();
   };
+  for (const QueueHelperPlan &helper : plan.helpers) {
+    llvm::StringMap<std::string> inputTypes;
+    for (auto [name, type] :
+         llvm::zip_equal(helper.inputNames, helper.inputTypes))
+      inputTypes[name] = type;
+    if (auto error = verifyExpressionList(
+            verifyExpressionList, helper.expressions, {}, "", inputTypes))
+      return error;
+    llvm::StringMap<std::string> valueTypes;
+    for (auto [name, type] :
+         llvm::zip_equal(helper.inputNames, helper.inputTypes))
+      valueTypes[name] = type;
+    for (const QueueExpressionPlan &expression : helper.expressions)
+      valueTypes[expression.result] = expression.type;
+    for (auto [yield, expected] :
+         llvm::zip_equal(helper.yields, helper.resultTypes))
+      if (valueTypes.lookup(yield) != expected)
+        return planError("Queue helper return type is inconsistent");
+  }
   auto verifyTableGetConstraints =
       [&](auto &&self, const std::vector<QueueExpressionPlan> &expressions,
           llvm::ArrayRef<std::string> rootTypes) -> llvm::Error {
@@ -4657,7 +4881,8 @@ llvm::Expected<std::string> QueueGraphPlan::canonicalJson() const {
     if (expression.kind == "table_choose_index" ||
         expression.kind == "table_choose_valid" ||
         expression.kind == "table_selection_index_ref" ||
-        expression.kind == "table_selection_valid_ref") {
+        expression.kind == "table_selection_valid_ref" ||
+        expression.kind == "helper_call") {
       result["lane_ordinal"] = expression.laneOrdinal;
       result["selection_count"] = expression.selectionCount;
       result["key_ordering"] = expression.keyOrdering;
@@ -4709,6 +4934,31 @@ llvm::Expected<std::string> QueueGraphPlan::canonicalJson() const {
                            {"length", aggregate.length},
                            {"type", aggregate.type},
                            {"width", aggregate.width}});
+  }
+  llvm::json::Array helperValues;
+  for (const QueueHelperPlan &helper : helpers) {
+    llvm::json::Array inputNames;
+    llvm::json::Array inputTypes;
+    llvm::json::Array resultTypes;
+    llvm::json::Array expressions;
+    llvm::json::Array yields;
+    for (const std::string &name : helper.inputNames)
+      inputNames.push_back(name);
+    for (const std::string &type : helper.inputTypes)
+      inputTypes.push_back(type);
+    for (const std::string &type : helper.resultTypes)
+      resultTypes.push_back(type);
+    for (const QueueExpressionPlan &expression : helper.expressions)
+      expressions.push_back(expressionJson(expressionJson, expression));
+    for (const std::string &yield : helper.yields)
+      yields.push_back(yield);
+    helperValues.push_back(
+        llvm::json::Object{{"expressions", std::move(expressions)},
+                           {"input_names", std::move(inputNames)},
+                           {"input_types", std::move(inputTypes)},
+                           {"name", helper.name},
+                           {"result_types", std::move(resultTypes)},
+                           {"yields", std::move(yields)}});
   }
   llvm::json::Array scopeValues;
   for (const std::string &scope : scopes)
@@ -5059,6 +5309,7 @@ llvm::Expected<std::string> QueueGraphPlan::canonicalJson() const {
       {"enums", std::move(enumValues)},
       {"interface_inputs", std::move(interfaceInputValues)},
       {"interface_outputs", std::move(interfaceOutputValues)},
+      {"helpers", std::move(helperValues)},
       {"initial_activation", std::move(initialActivationValues)},
       {"memory_instances", std::move(memoryInstanceValues)},
       {"memory_requests", std::move(memoryRequestValues)},

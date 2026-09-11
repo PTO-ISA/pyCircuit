@@ -286,7 +286,9 @@ class JitSpecialization:
             static_arguments=dict(self.arguments),
             specialization_fingerprint=self.fingerprint,
         )
-        if any(queue.rule_name is not None for queue in program.queues):
+        if program.helpers or any(
+            queue.rule_name is not None for queue in program.queues
+        ):
             return _lower_rule_program_to_cpp(program)
         return lower_queue_program_to_cpp(program)
 

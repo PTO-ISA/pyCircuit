@@ -19,6 +19,7 @@ DefinitionKind: TypeAlias = Literal[
     "process",
     "rule",
     "invariant",
+    "inline",
 ]
 F = TypeVar("F", bound=Callable[..., object])
 
@@ -167,3 +168,9 @@ def invariant(function: F | None = None, **options: object):
     """Declare one pure typed payload invariant."""
 
     return _decorate("invariant", function, **options)
+
+
+def inline(function: F) -> Definition:
+    """Mark one typed pure helper for mandatory ACIR inlining."""
+
+    return _decorate("inline", function)

@@ -496,6 +496,39 @@ verifyFunctionEffectsIterative(func::FuncOp function) {
   return calls;
 }
 
+LogicalResult verifyQueueHelperLowerability(func::FuncOp function) {
+  if (function.isExternal() || !function.getBody().hasOneBlock())
+    return function.emitOpError(
+        "Queue/rule helper must contain exactly one non-external block");
+  auto isVar = [](Type type) { return isa<ac::VarType>(type); };
+  if (!llvm::all_of(function.getArgumentTypes(), isVar) ||
+      !llvm::all_of(function.getResultTypes(), isVar))
+    return function.emitOpError(
+        "Queue/rule helper parameters and results must use !ac.var types");
+  LogicalResult result = success();
+  function.walk([&](Operation *operation) {
+    if (failed(result) || operation == function.getOperation())
+      return WalkResult::advance();
+    const bool allowed =
+        isa<func::CallOp, func::ReturnOp, scf::IfOp, scf::YieldOp,
+            ac::VarConstantOp, ac::VarEnumOp, ac::VarTupleOp, ac::VarArrayOp,
+            ac::VarRecordOp, ac::VarElementOp, ac::VarAddOp, ac::VarSubOp,
+            ac::VarMulOp, ac::VarAndOp, ac::VarOrOp, ac::VarXorOp, ac::VarShlOp,
+            ac::VarShrOp, ac::VarMatchesOp, ac::VarNotOp,
+            ac::VarPriorityEncodeOp, ac::VarPopcountOp, ac::VarCountZerosOp,
+            ac::VarCmpOp, ac::VarSelectOp, ac::VarExtractOp, ac::VarConcatOp,
+            ac::VarInsertOp, ac::VarGetOp, ac::VarWithOp>(operation);
+    if (!allowed) {
+      result = operation->emitOpError(
+          "is not legal in a pure Queue/rule helper; loops, state, Queue, "
+          "Table, I/O, and runtime effects are rejected");
+      return WalkResult::interrupt();
+    }
+    return WalkResult::advance();
+  });
+  return result;
+}
+
 } // namespace
 
 LogicalResult detail::preflightModelStructure(ModuleOp model) {
@@ -522,10 +555,10 @@ detail::ValidatedPureCallGraph::lookup(StringRef name, uint64_t *probes) const {
   return nullptr;
 }
 
-FailureOr<detail::ValidatedPureCallGraph>
-detail::validatePureProcessCallGraph(ModuleOp model,
-                                     const ac::RawModelStructureLimits &limits,
-                                     const PureCallGraphLimits &callLimits) {
+static FailureOr<detail::ValidatedPureCallGraph>
+validatePureCallGraph(ModuleOp model, const ac::RawModelStructureLimits &limits,
+                      const detail::PureCallGraphLimits &callLimits,
+                      bool queueRoots) {
   std::map<std::string, func::FuncOp> symbols;
   for (func::FuncOp function : model.getOps<func::FuncOp>()) {
     auto [position, inserted] =
@@ -548,14 +581,20 @@ detail::validatePureProcessCallGraph(ModuleOp model,
           model,
           [&](Operation *operation) -> LogicalResult {
             auto call = dyn_cast<func::CallOp>(operation);
-            if (!call || !operation->getParentOfType<ac::ProcessOp>())
+            if (!call || operation->getParentOfType<func::FuncOp>())
               return success();
             ac::ProcessOp process = operation->getParentOfType<ac::ProcessOp>();
-            ac::ModuleOp owner = process->getParentOfType<ac::ModuleOp>();
-            roots.push_back({(owner.getSymName() + "::" + process.getSymName() +
-                              "::" + call.getCallee())
-                                 .str(),
-                             call});
+            if (queueRoots == static_cast<bool>(process))
+              return success();
+            if (process) {
+              ac::ModuleOp owner = process->getParentOfType<ac::ModuleOp>();
+              roots.push_back({(owner.getSymName() + "::" +
+                                process.getSymName() + "::" + call.getCallee())
+                                   .str(),
+                               call});
+            } else {
+              roots.push_back({call.getCallee().str(), call});
+            }
             return success();
           },
           limits)))
@@ -567,7 +606,7 @@ detail::validatePureProcessCallGraph(ModuleOp model,
   enum class State : uint8_t { Unvisited, Active, Pure };
   std::map<std::string, State> states;
   std::map<std::string, std::vector<func::CallOp>> indexedCalls;
-  ValidatedPureCallGraph graph;
+  detail::ValidatedPureCallGraph graph;
   uint64_t edges = 0;
   struct Frame {
     func::FuncOp function;
@@ -580,7 +619,8 @@ detail::validatePureProcessCallGraph(ModuleOp model,
     (void)key;
     auto rootFunction = symbols.find(root.getCallee().str());
     if (rootFunction == symbols.end()) {
-      root.emitOpError() << "process func.call callee '@" << root.getCallee()
+      root.emitOpError() << (queueRoots ? "Queue/rule" : "process")
+                         << " func.call callee '@" << root.getCallee()
                          << "' is unresolved";
       return failure();
     }
@@ -593,7 +633,8 @@ detail::validatePureProcessCallGraph(ModuleOp model,
       if (!frame.entered) {
         if (frame.function.isExternal()) {
           frame.origin->emitOpError()
-              << "process func.call callee '@" << name
+              << (queueRoots ? "Queue/rule" : "process")
+              << " func.call callee '@" << name
               << "' has no body and cannot be proven effect-free";
           return failure();
         }
@@ -603,7 +644,9 @@ detail::validatePureProcessCallGraph(ModuleOp model,
               << callLimits.maxDepth;
           return failure();
         }
-        if (failed(ac::verifyProcessLowerability(frame.function, limits)))
+        if (failed(queueRoots
+                       ? verifyQueueHelperLowerability(frame.function)
+                       : ac::verifyProcessLowerability(frame.function, limits)))
           return failure();
         FailureOr<std::vector<func::CallOp>> calls =
             verifyFunctionEffectsIterative(frame.function);
@@ -630,7 +673,8 @@ detail::validatePureProcessCallGraph(ModuleOp model,
       ++edges;
       auto target = symbols.find(call.getCallee().str());
       if (target == symbols.end()) {
-        call.emitOpError() << "process func.call callee '@" << call.getCallee()
+        call.emitOpError() << (queueRoots ? "Queue/rule" : "process")
+                           << " func.call callee '@" << call.getCallee()
                            << "' is unresolved";
         return failure();
       }
@@ -653,8 +697,8 @@ detail::validatePureProcessCallGraph(ModuleOp model,
       stack.push_back({target->second, call, 0, false});
     }
   }
-  llvm::sort(graph.functions, [](const ValidatedPureFunction &left,
-                                 const ValidatedPureFunction &right) {
+  llvm::sort(graph.functions, [](const detail::ValidatedPureFunction &left,
+                                 const detail::ValidatedPureFunction &right) {
     auto name = [](func::FuncOp function) {
       return cast<StringAttr>(
                  function->getAttr(SymbolTable::getSymbolAttrName()))
@@ -663,6 +707,20 @@ detail::validatePureProcessCallGraph(ModuleOp model,
     return name(left.function) < name(right.function);
   });
   return graph;
+}
+
+FailureOr<detail::ValidatedPureCallGraph>
+detail::validatePureProcessCallGraph(ModuleOp model,
+                                     const ac::RawModelStructureLimits &limits,
+                                     const PureCallGraphLimits &callLimits) {
+  return validatePureCallGraph(model, limits, callLimits, false);
+}
+
+FailureOr<detail::ValidatedPureCallGraph>
+detail::validatePureQueueCallGraph(ModuleOp model,
+                                   const ac::RawModelStructureLimits &limits,
+                                   const PureCallGraphLimits &callLimits) {
+  return validatePureCallGraph(model, limits, callLimits, true);
 }
 
 FailureOr<ArrayAttr> detail::buildFrozenProcessSkeleton(ac::ProcessOp process) {
@@ -691,8 +749,10 @@ bool isTopologyFrozen(ModuleOp model) {
 }
 
 LogicalResult ModelAnalysis::verifyPureProcessCalls() {
-  return succeeded(detail::validatePureProcessCallGraph(model)) ? success()
-                                                                : failure();
+  if (failed(detail::validatePureProcessCallGraph(model)) ||
+      failed(detail::validatePureQueueCallGraph(model)))
+    return failure();
+  return success();
 }
 
 LogicalResult ModelAnalysis::verifyZeroDelayDependencies() {

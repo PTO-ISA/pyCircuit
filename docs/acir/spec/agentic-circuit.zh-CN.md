@@ -571,7 +571,40 @@ updated = incoming.apply(
 ```
 
 lambda 必须是纯 Var 表达式，且返回类型与输出 Queue payload 一致。当前支持字段读取、
-常量、`+`、`-`、`*`、比较和不可变 `with_fields(...)` 更新。
+常量、`+`、`-`、`*`、比较、不可变 `with_fields(...)` 更新，以及下述类型化纯辅助
+函数。仍然拒绝可变状态、I/O、动态分配、环境状态访问和任意 Python 运行时执行。
+
+### 类型化纯辅助函数
+
+参数和结果均使用封闭 ACPy 值类型的顶层函数，是零延迟纯辅助函数。普通 helper 保留
+为具名函数：
+
+```python
+def add_one(value: ac.u8) -> ac.u8:
+    return value + 1
+
+outgoing = incoming.apply(lambda item: add_one(item))
+```
+
+只有需要编译器强制展开时才使用 `@ac.inline`：
+
+```python
+@ac.inline
+def add_one(value: ac.u8) -> ac.u8:
+    return value + 1
+```
+
+两种形式的值语义和时序完全相同。原始 ACIR 都使用 private `func.func` 和类型化
+`func.call`；显式 inline 形式携带 `ac.inline = true`，并在 QueueGraph 规划和通用
+规范化之前展开。普通 helper 在 GFSim C++ 中保留为具名函数；由于 canonical PYC 没有
+函数调用操作，ACIR-to-PYC 在目标合法化阶段展开普通 helper。
+
+首期支持位置参数、局部赋值与重绑定、有限 `if`/`elif`/`else`、唯一且位于末尾的
+`return`、固定 tuple 结果及直接解构，以及纯 helper 的嵌套调用。每个实参和结果必须
+与声明的 ACPy 类型精确一致。默认参数、变参、递归、循环、early return、路径未定义
+值、可变捕获、Queue/Table/持久状态、I/O、动态分配和未知 Python 调用均被拒绝。
+helper 调用不消费 Queue token，不创建状态 owner 或 rule，也不改变 candidate、背压、
+预约和原子提交范围。
 
 ### Broadcast 与 Fork
 

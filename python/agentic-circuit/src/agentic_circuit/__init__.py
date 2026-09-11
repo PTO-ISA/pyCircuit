@@ -11,6 +11,7 @@ from . import markers as markers
 from ._definitions import (
     extern_module,
     interface,
+    inline,
     invariant,
     module,
     packet,
@@ -90,6 +91,7 @@ RUNTIME_API = (
     "process",
     "rule",
     "invariant",
+    "inline",
     "writer_priority",
     "array",
     "bits",

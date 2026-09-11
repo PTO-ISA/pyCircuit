@@ -5,6 +5,9 @@ may change frequently.
 
 ## Unreleased
 
+- Add typed pure ACPy helpers for rule and Queue expressions, including explicit
+  `@ac.inline`, bounded conditional/local lowering, ordinary GFSim functions,
+  and call-free PYC legalization (Decision 0243, issue #104).
 - Classify every public pyCircuit example as a basic, feature, or application;
   gate all 28 examples; move large framework fixtures under integration tests;
   and separate benchmark sources from generated profiles.

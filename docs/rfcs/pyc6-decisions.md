@@ -8843,3 +8843,57 @@ message punctuation or when one code has multiple owners.
 
 **Source**
 - GitHub issue #95 diagnostic consistency audit and implementation (2026-09-11).
+
+## Decision 0243: typed pure helpers are zero-delay value functions
+
+**Status:** Accepted; implementation tracked by issue #104
+
+**Extends:** Decisions 0150, 0228, 0235, 0236, and 0242.
+
+**Context / Goal**
+Rule and Queue expressions need reusable eligibility, classification, and
+next-value logic without introducing hidden scheduling boundaries or arbitrary
+Python execution. Ordinary functions and author-requested expansion must remain
+distinguishable in generated code while producing identical hardware behavior.
+
+**Decision (strong constraint)**
+- A helper is a top-level function with closed, exact ACPy parameter and result
+  types. Ordinary helpers remain named; `@ac.inline` is the only author-facing
+  mandatory-expansion marker. Neither form executes through the host Python
+  runtime during lowering.
+- Raw ACIR represents helpers as private `func.func` definitions and calls as
+  typed `func.call` operations. Explicit inline definitions carry the boolean
+  `ac.inline` attribute. The pure-call verifier closes the complete call graph,
+  rejects unresolved/external/effectful callees and recursion, and applies
+  bounded function, edge, depth, and region analysis before code generation.
+- The first source subset admits positional parameters, local assignment and
+  rebinding, bounded conditional control, one final return, fixed tuple results
+  with direct unpacking, and nested pure calls. It rejects defaults, variadics,
+  loops, early returns, path-undefined locals, mutable captures, Queue/Table or
+  persistent-state access, I/O, allocation, and unknown runtime calls.
+- Mandatory inline calls are expanded before QueueGraph planning, then pass
+  through canonicalization, CSE, and constant folding. Expansion substitutes
+  parameters once, gives cloned SSA values deterministic identities, and maps
+  the complete fixed result without duplicating the call.
+- Ordinary helpers remain typed C++ functions and calls in GFSim output. PYC
+  target legalization expands ordinary helpers because canonical PYC has no
+  call operation. No helper call may remain at the PYC boundary.
+- A helper operates only on current-rule `ac.var` values. It consumes or
+  produces no Queue token, owns no persistent state, creates no rule or commit
+  group, adds no cycle, and cannot change candidate, backpressure, reservation,
+  arbitration, or atomic-commit behavior.
+
+**Required verification**
+- Frontend tests cover ordinary and mandatory-inline helpers, exact argument and
+  result types, local rebinding, nested conditionals, fixed tuple unpacking,
+  nested calls, shadowing, and every rejected effect/control-flow category.
+- ACIR tests prove complete call-graph purity, recursion and unresolved-call
+  rejection, inline expansion, deterministic SSA/result mapping, and no
+  residual mandatory-inline calls before QueueGraph planning.
+- Generated GFSim retains one ordinary typed function and call while omitting
+  mandatory-inline calls. PYC C++ and Verilog contain no residual helper calls;
+  ordinary and inline forms agree on values, accepted cycles, stalls, and
+  reset behavior.
+
+**Source**
+- PTO-ISA/pyCircuit issue #104.
