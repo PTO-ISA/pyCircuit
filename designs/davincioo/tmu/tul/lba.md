@@ -5,9 +5,51 @@
 - NDF refinement: **L2 microarchitecture**; module-specific L1 behavior links still require review.
 - Recommended disposition: **alias** (proposal, not registry approval)
 - Implementation placement: use the accepted containing owner or contract file under `designs/davincioo/`; no independent leaf is authorized by this inventory disposition.
-- Current design-program execution status: **not implemented**. External source evidence is recorded separately.
+- Current design-program execution status: **alias; no implementation exists and
+  none should**. The owners named below are the implementation record.
 
 Legacy scalar T/U late-binding name; selected owner is existing SPE.OOO rename state.
+
+## What the name meant
+
+Late binding allocation is deciding *which* physical resource a write lands in as
+late as possible, rather than at the moment the instruction is named. It buys
+allocation that can still be taken back when speculation resolves the wrong way.
+This candidate named that policy for T/U registers.
+
+## Where the function lives now
+
+| Resource | Owner | How late binding appears there |
+| --- | --- | --- |
+| Scalar T/U | SPE.OOO rename state ([SMAP](../../spe/ooo/smap.md), [MPQ](../../spe/ooo/mpq.md)) | The speculative map holds the binding until it is committed or discarded |
+| Tile storage | [TMU.TRN.FRE](../trn/fre.md) | Allocation is split in two: reserve, then commit or cancel |
+
+[fre.md](../trn/fre.md) describes that split in the terms this card cared about:
+asking for a block cannot be a one-shot action, because a branch can resolve the
+wrong way, so a reservation stays undoable until the transaction that made it
+resolves. A cancel returns the block as if it had never been requested.
+
+So the *policy* this name describes is alive in TMU -- it is simply not a module.
+It is the shape of FRE's operation set, and a separate late-binding owner would
+have to re-decide bindings FRE already owns.
+
+## Why TMU must not own it
+
+[architecture](../../ARCHITECTURE.md) records that all scalar T/U state belongs to
+SPE.OOO. A parallel late-binding owner would be a second answer to "which physical
+resource does this write use", which is exactly the question one allocator must
+answer alone; [fre.md](../trn/fre.md) records that FRE is the only module in the
+design program that reserves storage, and that the candidate which looked like a
+second allocator folds into it.
+
+## If you arrived here
+
+- Binding a **scalar** T/U register late: SPE.OOO rename state.
+- Binding **tile** storage late: [FRE](../trn/fre.md)'s reserve/commit/cancel is
+  the mechanism; a repeated reserve returns the block it already holds rather than
+  taking a second one.
+- Looking for capacity projection: [alc.md](../trf/alc.md) folds it into FRE, and
+  [fre.md](../trn/fre.md) records how much of it FRE can actually answer.
 
 ## Inputs
 
@@ -21,36 +63,42 @@ Payload names in proposed rows are design pseudotypes until fields, widths and n
 
 ## Owned or containing state
 
-- No additional item recorded; exact state/port review remains required.
+None. The speculative scalar binding belongs to SPE.OOO rename state; the tile
+free list and its cancellable reservations belong to [FRE](../trn/fre.md).
 
 ## Required capabilities to verify
 
-- No additional item recorded; exact state/port review remains required.
-
-These are requirements, not proof that the current framework is missing each one. First test the current revision; a demonstrated gap becomes a generic framework/primitive issue and regression before a dependent design PR.
+None. An alias executes nothing. [fre.md](../trn/fre.md) records the capabilities
+late binding actually needs, including the one it does not have: an exhausted pool
+reports rather than stalls.
 
 ## Behavioral acceptance
 
-- No TMU implementation or scalar state
-- No parallel late-binding owner
+- No TMU implementation or scalar state — **holds**; no `lba.py` exists under
+  `tmu/tul/`
+- No parallel late-binding owner — **holds**; the two bindings above have one
+  owner each, and FRE's reservation table is the only cancellable tile binding
 
-gfsim execution is the first implementation gate. PYC/RTL obligations apply to the admitted lowering and remain explicit future work where provisional storage is rejected. Compile-only evidence does not establish behavior.
+No gfsim or PYC/RTL evidence is owed. There is nothing here to execute.
 
 ## Open decisions
 
-- Complete formal old-ID migration/disposition record.
+- **Complete the formal old-ID migration/disposition record.**
+- **Whether "late binding" should remain a design term at all.** It describes
+  FRE's reserve/commit/cancel shape accurately, so retiring the ID does not retire
+  the idea; if the term is kept, [fre.md](../trn/fre.md) is where it should be
+  defined, so the word and the mechanism stay in one place.
 
 ## Contributor closure
 
 - [ ] Claim the candidate and identify its parent/containing state owner.
-- [ ] Resolve disposition; aliases and contained state must not duplicate hardware.
+- [x] Resolve disposition; aliases and contained state must not duplicate hardware.
+      Resolved as an alias: the owners are listed under "Where the function lives now".
 - [ ] Link the relevant NDF L0 intent and L1 behavior to this L2 implementation.
-- [ ] Freeze port payload fields/widths, producer/consumer, parent seam, state/reset and timing profile.
-- [ ] Define functional branches, all-or-none effects, contention and cancel/recovery lifecycle.
-- [ ] Link a minimal failing gate for each actual framework/primitive gap and merge that shared fix first.
-- [ ] Implement the accepted owner and design-local expected-result tests.
-- [ ] Prove backpressure, identity/generation, exactly-once effects and isolated instances in gfsim.
-- [ ] Integrate into H2/H1 and record admitted PYC/RTL evidence or remaining boundary.
+- [x] Freeze port payload fields/widths, producer/consumer, parent seam, state/reset and timing profile.
+      The frozen answer is that there are none.
+- [ ] Complete the old-ID migration record.
+- [ ] Decide whether the term is defined on [fre.md](../trn/fre.md) or retired.
 
 ## Source evidence
 
