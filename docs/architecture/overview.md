@@ -72,8 +72,9 @@ pyCircuit/
 │       ├── lib/Emit/              # VerilogEmitter / CppEmitter
 │       └── tools/                 # pycc / pyc-opt
 ├── library/cpp/                   # C++ 仿真运行时头文件库
-├── designs/                       # 示例与设计（designs/blocks/BypassUnit 等）
-├── tests/                         # pytest（vec 算子框架、sidecar 单测等）
+├── examples/                      # basics / features / applications 公共示例
+├── benchmarks/                    # 性能负载（产物写入 .pycircuit_out）
+├── tests/                         # unit / system / integration / MLIR / C++
 ├── flows/scripts/                 # pyc build、run_examples 等脚本
 ├── docs/
 └── Makefile / CMake / pyproject.toml

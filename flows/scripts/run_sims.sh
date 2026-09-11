@@ -281,17 +281,17 @@ PY
   fi
 }
 
-while IFS=$'\t' read -r name _design tb _cfg _tier; do
+while IFS=$'\t' read -r name _category _design tb _cfg _tier; do
   [[ -n "${name}" ]] || continue
   trace_cfg=""
-  if [[ "${name}" == "bundle_probe_expand" || "${name}" == "trace_dsl_smoke" || "${name}" == "xz_value_model_smoke" || "${name}" == "reset_invalidate_order_smoke" ]]; then
-    trace_cfg="${PYC_ROOT_DIR}/examples/pycircuit/${name}/${name}_trace.json"
+  if [[ "${name}" == "trace_dsl_smoke" || "${name}" == "xz_value_model_smoke" || "${name}" == "reset_invalidate_order_smoke" ]]; then
+    trace_cfg="$(dirname "${tb}")/${name}_trace.json"
     [[ -f "${trace_cfg}" ]] || trace_cfg=""
   fi
   run_case_examples "example_${name}" "${tb}" "${trace_cfg}"
 done < <(python3 "${DISCOVER}" --root "${PYC_ROOT_DIR}/examples/pycircuit" --tier normal --format tsv)
 
-run_case_nonexample() {
+run_case_fixture() {
   local name="$1"
   local src="$2"
   if ! should_run_case "${name}"; then
@@ -300,7 +300,7 @@ run_case_nonexample() {
   local out_dir="${OUT_BASE}/${name}"
   rm -rf "${out_dir}" >/dev/null 2>&1 || true
   mkdir -p "${out_dir}"
-  pyc_log "sim(non-example) ${name}: ${src}"
+  pyc_log "sim(fixture) ${name}: ${src}"
   if ! run_with_case_logs "${name}" build "${PYC_ROOT_DIR}" \
       env PYTHONPATH="${PYTHONPATH_VAL}" PYTHONDONTWRITEBYTECODE=1 PYCC="${PYCC}" \
       python3 -m pycircuit.cli build \
@@ -314,9 +314,9 @@ run_case_nonexample() {
   fi
 }
 
-run_case_nonexample issq "${PYC_ROOT_DIR}/designs/blocks/IssueQueue/tb_issq.py"
-run_case_nonexample regfile "${PYC_ROOT_DIR}/designs/blocks/RegisterFile/tb_regfile.py"
-run_case_nonexample bypass_unit "${PYC_ROOT_DIR}/designs/blocks/BypassUnit/tb_bypass_unit.py"
+run_case_fixture issq "${PYC_ROOT_DIR}/tests/integration/pycircuit/fixtures/issq/tb_issq.py"
+run_case_fixture regfile "${PYC_ROOT_DIR}/tests/integration/pycircuit/fixtures/regfile/tb_regfile.py"
+run_case_fixture bypass_unit "${PYC_ROOT_DIR}/tests/integration/pycircuit/fixtures/bypass_unit/tb_bypass_unit.py"
 
 if [[ -n "${resume_from_case}" && "${resume_seen}" -eq 0 ]]; then
   pyc_die "resume case not found: ${resume_from_case}"

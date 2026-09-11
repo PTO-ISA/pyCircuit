@@ -168,6 +168,10 @@ void tick() {
 
 ## 5. RegisterFile RTL 仿真基准测试
 
+正确性设计位于 `tests/integration/pycircuit/fixtures/regfile/`，性能驱动位于
+`benchmarks/pycircuit/register_file/`。生成模型、共享库和 PGO profile 统一写入
+`.pycircuit_out/benchmarks/register_file/`。
+
 ### 5.1 设计规格
 
 | 参数 | 值 |

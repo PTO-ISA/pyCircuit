@@ -45,7 +45,7 @@ Emit + compile one module:
 ```bash
 REPO=/path/to/pyCircuit
 export PYTHONPATH="$REPO/python/pycircuit/src"
-python3 -m pycircuit.cli emit "$REPO/examples/pycircuit/counter/counter.py" -o /tmp/counter.pyc
+python3 -m pycircuit.cli emit "$REPO/examples/pycircuit/basics/counter/counter.py" -o /tmp/counter.pyc
 
 export PYC_TOOLCHAIN_ROOT="$REPO/.pycircuit_out/toolchain/install"
 "$PYC_TOOLCHAIN_ROOT/bin/pycc" /tmp/counter.pyc --emit=cpp --out-dir /tmp/counter_cpp

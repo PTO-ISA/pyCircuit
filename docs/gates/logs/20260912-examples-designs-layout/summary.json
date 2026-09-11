@@ -1,0 +1,28 @@
+{
+  "run_id": "20260912-examples-designs-layout",
+  "status": "passed",
+  "base_revision": "4827c902",
+  "decision_ids": ["0148", "0157", "0159"],
+  "results": {
+    "public_examples": {"discovered": 28, "compiled_cpp": 28, "passed": true},
+    "example_project_build_smoke": {"passed": 3, "failed": 0},
+    "normal_simulations": {"examples": 26, "fixtures": 3, "passed": true},
+    "semantic_cpp_verilator": {"passed": 3, "failed": 0},
+    "unit": {"passed": 129, "failed": 0},
+    "agentic_contracts": {"passed": true},
+    "agentic_contract_tests": {"passed": 50, "failed": 0},
+    "agentic_frontend": {"passed": 306, "failed": 0, "skipped": 4},
+    "agentic_cli": {"passed": 6, "failed": 0},
+    "pyc_inventory": {"operations": 41, "types": 2, "passed": true},
+    "api_hygiene": {"passed": true},
+    "repository_management": {"passed": true},
+    "pre_commit": {"passed": true},
+    "mkdocs_strict": {"passed": true},
+    "decision_status": {"rows": 242, "deferred": 0, "passed": true}
+  },
+  "behavior": "Public examples are classified as basics, features, or applications; reusable integration fixtures and performance benchmarks have dedicated roots; the mixed-purpose designs root and tracked generated profiles are removed.",
+  "notes": [
+    "The bypass_unit Verilator compile required a 900-second per-case timeout and then passed without a semantic failure.",
+    "All validation used the current checkout and its staged toolchain."
+  ]
+}

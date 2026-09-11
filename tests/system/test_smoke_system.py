@@ -46,7 +46,7 @@ def test_counter_build_smoke_runs_cpp_and_verilator(tmp_path: Path) -> None:
         "-m",
         "pycircuit.cli",
         "build",
-        str(root / "examples" / "pycircuit" / "counter" / "tb_counter.py"),
+        str(root / "examples" / "pycircuit" / "basics" / "counter" / "tb_counter.py"),
         "--out-dir",
         str(out_dir),
         "--target",
@@ -74,6 +74,7 @@ def test_trace_dsl_build_emits_probe_manifest(tmp_path: Path) -> None:
             root
             / "examples"
             / "pycircuit"
+            / "features"
             / "trace_dsl_smoke"
             / "tb_trace_dsl_smoke.py"
         ),
@@ -90,6 +91,7 @@ def test_trace_dsl_build_emits_probe_manifest(tmp_path: Path) -> None:
             root
             / "examples"
             / "pycircuit"
+            / "features"
             / "trace_dsl_smoke"
             / "trace_dsl_smoke_trace.json"
         ),

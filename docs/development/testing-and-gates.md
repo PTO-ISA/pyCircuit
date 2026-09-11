@@ -46,6 +46,13 @@ bash flows/scripts/run_sims_nightly.sh
 bash flows/scripts/run_semantic_regressions_v6.sh
 ```
 
+`tests/unit/test_example_layout.py` keeps every tracked pyCircuit example in a
+named `basics`, `features`, or `applications` category, requires the canonical
+design/testbench/config triplet, and emits every public design through the
+Python frontend. Larger generic designs live under
+`tests/integration/pycircuit/fixtures`; performance-only workloads live under
+`benchmarks/` and cannot substitute for correctness gates.
+
 ## Pull-request validation matrix
 
 The two required GitHub checks are `G0: Python Checks` and

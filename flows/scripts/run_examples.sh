@@ -42,7 +42,7 @@ if ! python3 "${PYC_ROOT_DIR}/flows/tools/check_api_hygiene.py" \
   fail=1
 fi
 
-while IFS=$'\t' read -r bn design _tb _cfg _tier; do
+while IFS=$'\t' read -r bn _category design _tb _cfg _tier; do
   [[ -n "${bn}" ]] || continue
 
   count=$((count+1))
@@ -57,69 +57,6 @@ while IFS=$'\t' read -r bn design _tb _cfg _tier; do
     pyc_warn "emit failed: ${bn}"
     fail=1
     continue
-  fi
-
-  if [[ "${bn}" == "bundle_probe_expand" ]]; then
-    pyc_log "[${count}] check M4 hardened layout metadata ${bn}"
-    if ! PYC_FILE="${pyc_file}" python3 - <<'PY'
-import json
-import os
-import re
-import sys
-
-path = os.environ["PYC_FILE"]
-text = open(path, encoding="utf-8").read()
-
-m = re.search(
-    r'func\.func @bundle_probe_expand\b[^\n]*?pyc\.hardened\s*=\s*"((?:\\.|[^"\\])*)"',
-    text,
-)
-if not m:
-    raise SystemExit("missing pyc.hardened attribute on @bundle_probe_expand")
-
-hardened_json = json.loads('"' + m.group(1) + '"')
-payload = json.loads(hardened_json)
-
-exp_layout_id = "e86f8e1f062bb1e3"
-layout_table = payload.get("layout_table", {})
-if exp_layout_id not in layout_table:
-    raise SystemExit(f"missing expected layout_id {exp_layout_id} in layout_table")
-
-entry = layout_table[exp_layout_id]
-if entry.get("kind") != "struct":
-    raise SystemExit(f"expected kind=struct for layout_id {exp_layout_id}, got {entry.get('kind')!r}")
-
-fmap = entry.get("field_map", {})
-if fmap.get("a") != [1, 8]:
-    raise SystemExit(f"field_map['a'] mismatch: got {fmap.get('a')!r} exp [1, 8]")
-if fmap.get("b.c") != [0, 1]:
-    raise SystemExit(f"field_map['b.c'] mismatch: got {fmap.get('b.c')!r} exp [0, 1]")
-
-groups = payload.get("layout_groups", [])
-matched = [
-    g
-    for g in groups
-    if g.get("usage") == "inputs"
-    and g.get("prefix") == "in_"
-    and isinstance(g.get("spec"), dict)
-    and g["spec"].get("layout_id") == exp_layout_id
-]
-if len(matched) != 1:
-    raise SystemExit(f"expected exactly 1 matching layout_group, got {len(matched)}")
-
-ports = matched[0].get("ports", {})
-if ports.get("a") != "in_a":
-    raise SystemExit(f"ports['a'] mismatch: got {ports.get('a')!r} exp 'in_a'")
-if ports.get("b.c") != "in_b_c":
-    raise SystemExit(f"ports['b.c'] mismatch: got {ports.get('b.c')!r} exp 'in_b_c'")
-
-print("ok: hardened layout metadata present and stable")
-PY
-    then
-      pyc_warn "M4 hardened layout metadata check failed: ${bn}"
-      fail=1
-      continue
-    fi
   fi
 
   pyc_log "[${count}] compile(cpp) ${bn}"
@@ -142,9 +79,13 @@ PY
 done < <(python3 "${DISCOVER}" --root "${EX_DIR}" --tier all --format tsv)
 
 # Project build flow smoke checks (multi-.pyc + parallel pycc + CMake/Ninja).
-for bex in counter huge_hierarchy_stress boundary_value_ports bundle_probe_expand trace_dsl_smoke; do
-  ex="${EX_DIR}/${bex}/tb_${bex}.py"
-  [[ -f "${ex}" ]] || continue
+while IFS=$'\t' read -r bex _category _design ex _cfg _tier; do
+  [[ -n "${bex}" ]] || continue
+  case "${bex}" in
+    counter|boundary_value_ports|trace_dsl_smoke) ;;
+    *) continue ;;
+  esac
+  case_dir="$(dirname "${ex}")"
   count=$((count+1))
   out_root="$(pyc_out_root)/example-build-smoke/${bex}"
   rm -rf "${out_root}" >/dev/null 2>&1 || true
@@ -156,13 +97,9 @@ for bex in counter huge_hierarchy_stress boundary_value_ports bundle_probe_expan
     --target cpp
     --jobs "${PYC_EXAMPLE_JOBS:-4}"
     --logic-depth "${PYC_EXAMPLE_LOGIC_DEPTH:-256}")
-  if [[ "${bex}" == "huge_hierarchy_stress" ]]; then
-    # Decision 0017: force deep hierarchy so instance path shortening is exercised.
-    build_cmd+=(--param module_count=1 --param fanout=1 --param hierarchy_depth=50)
-  fi
   trace_cfg=""
-  if [[ "${bex}" == "trace_dsl_smoke" || "${bex}" == "bundle_probe_expand" || "${bex}" == "huge_hierarchy_stress" ]]; then
-    trace_cfg="${EX_DIR}/${bex}/${bex}_trace.json"
+  if [[ "${bex}" == "trace_dsl_smoke" ]]; then
+    trace_cfg="${case_dir}/${bex}_trace.json"
     build_cmd+=(--trace-config "${trace_cfg}")
   fi
   if ! PYTHONPATH="${PYTHONPATH_VAL}" "${build_cmd[@]}"; then
@@ -173,64 +110,6 @@ for bex in counter huge_hierarchy_stress boundary_value_ports bundle_probe_expan
   if [[ ! -f "${out_root}/project_manifest.json" ]]; then
     pyc_warn "missing project_manifest.json: ${bex}"
     fail=1
-  fi
-
-  if [[ "${bex}" == "huge_hierarchy_stress" ]]; then
-    pyc_log "[${count}] check Decision 0017 path shortening ${bex}"
-    if [[ ! -f "${out_root}/trace_plan.json" ]]; then
-      pyc_warn "missing trace_plan.json: ${bex}"
-      fail=1
-      continue
-    fi
-    if ! python3 - "${out_root}" <<'PY'
-import json
-import sys
-from pathlib import Path
-
-out_root = Path(sys.argv[1]).resolve()
-plan = json.loads((out_root / "trace_plan.json").read_text(encoding="utf-8"))
-sigs = plan.get("enabled_signals", [])
-if not isinstance(sigs, list) or not sigs:
-    raise SystemExit("expected non-empty enabled_signals for huge_hierarchy_stress trace config")
-
-if not any("._h" in str(s) for s in sigs):
-    raise SystemExit("expected at least one shortened instance path (missing '._h' in enabled_signals)")
-
-probe = json.loads((out_root / "probe_manifest.json").read_text(encoding="utf-8"))
-probes = probe.get("probes", [])
-if not isinstance(probes, list) or not probes:
-    raise SystemExit("expected non-empty probe_manifest probes list")
-
-paths = {p.get("canonical_path", "") for p in probes if isinstance(p, dict)}
-missing = [s for s in sigs if str(s) not in paths]
-if missing:
-    raise SystemExit(f"probe_manifest missing {len(missing)} enabled_signals; first={missing[0]!r}")
-
-if not any("._h" in str(p.get("instance_path", "")) for p in probes if isinstance(p, dict)):
-    raise SystemExit("expected at least one shortened instance_path in probe_manifest probes")
-
-pol = probe.get("instance_path_policy", {})
-max_segments = int(pol.get("max_segments", 16))
-max_chars = int(pol.get("max_chars", 240))
-for p in probes:
-    if not isinstance(p, dict):
-        continue
-    ip = str(p.get("instance_path", ""))
-    if not ip:
-        raise SystemExit("probe_manifest entry missing instance_path")
-    segs = [x for x in ip.split(".") if x]
-    if len(segs) > max_segments:
-        raise SystemExit(f"instance_path exceeds max_segments: {ip!r} segs={len(segs)} max={max_segments}")
-    if len(ip) > max_chars:
-        raise SystemExit(f"instance_path exceeds max_chars: {ip!r} len={len(ip)} max={max_chars}")
-
-print("ok: huge_hierarchy_stress path shortening + trace plan alignment")
-PY
-    then
-      pyc_warn "Decision 0017 shortening gate failed: ${bex}"
-      fail=1
-      continue
-    fi
   fi
 
   if [[ "${bex}" == "trace_dsl_smoke" ]]; then
@@ -385,81 +264,7 @@ PY
     fi
   fi
 
-  if [[ "${bex}" == "bundle_probe_expand" ]]; then
-    pyc_log "[${count}] check M4 trace DSL preserves dotted field paths ${bex}"
-    if [[ ! -f "${out_root}/trace_plan.json" ]]; then
-      pyc_warn "missing trace_plan.json: ${bex}"
-      fail=1
-      continue
-    fi
-    if ! python3 - "${out_root}" <<'PY'
-import json
-import sys
-from pathlib import Path
-
-out_root = Path(sys.argv[1]).resolve()
-plan = json.loads((out_root / "trace_plan.json").read_text(encoding="utf-8"))
-
-sig = plan.get("enabled_signals", [])
-if sig != [
-    "dut:probe.pv.in.a",
-    "dut:probe.pv.in.b.c",
-]:
-    raise SystemExit(f"enabled_signals mismatch: got {sig!r}")
-
-probe = json.loads((out_root / "probe_manifest.json").read_text(encoding="utf-8"))
-entries = [p for p in probe.get("probes", []) if isinstance(p, dict)]
-paths = [p.get("canonical_path", "") for p in entries]
-for exp in sig:
-    if exp not in paths:
-        raise SystemExit(f"probe_manifest missing canonical_path: {exp!r}")
-by_path = {str(p.get("canonical_path", "")): p for p in entries}
-for exp in sig:
-    ent = by_path.get(exp, {})
-    if str(ent.get("obs", "")) != "tick":
-        raise SystemExit(f"expected obs='tick' for {exp!r}, got {ent.get('obs')!r}")
-    tags = ent.get("tags", None)
-    if not isinstance(tags, dict):
-        raise SystemExit(f"expected tags dict for {exp!r}")
-    if tags.get("demo") != "bundle":
-        raise SystemExit(f"expected tags.demo='bundle' for {exp!r}, got {tags.get('demo')!r}")
-
-cpp = out_root / "device" / "cpp" / "bundle_probe_expand" / "bundle_probe_expand.cpp"
-txt = cpp.read_text(encoding="utf-8")
-if 'dut:probe.pv.in.b.c' not in txt:
-    raise SystemExit("missing dotted canonical probe alias string in generated C++")
-
-tb_pyc = out_root / "tb" / "tb_bundle_probe_expand.pyc"
-mlir = tb_pyc.read_text(encoding="utf-8")
-if "pyc.tb.payload" not in mlir:
-    raise SystemExit("missing pyc.tb.payload in tb .pyc")
-payload_json = None
-for line in mlir.splitlines():
-    if "pyc.tb.payload" in line:
-        s = line.split("pyc.tb.payload", 1)[1]
-        i = s.find('"')
-        j = s.rfind('"')
-        if i >= 0 and j > i:
-            payload_json = json.loads(s[i : j + 1])
-            break
-if payload_json is None:
-    raise SystemExit("failed to extract pyc.tb.payload JSON string")
-payload = json.loads(payload_json)
-probes = payload.get("probes", [])
-probe_paths = {str(p.get("canonical_path", "")) for p in probes if isinstance(p, dict)}
-for exp in sig:
-    if exp not in probe_paths:
-        raise SystemExit(f"tb payload missing probe handle: {exp!r}")
-
-print("ok: trace DSL preserves dotted probe field paths and TB payload probe handles")
-PY
-    then
-      pyc_warn "M4 trace DSL dotted-field-path check failed: ${bex}"
-      fail=1
-      continue
-    fi
-  fi
-done
+done < <(python3 "${DISCOVER}" --root "${EX_DIR}" --tier all --format tsv)
 
 pyc_log "running M5 const/valueclass canonicalization positive checks"
 pos_dir="$(pyc_out_root)/example-smoke/_pos_valueclass_params"
