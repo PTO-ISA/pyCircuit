@@ -5,9 +5,34 @@
 - NDF refinement: **L2 microarchitecture**; module-specific L1 behavior links still require review.
 - Recommended disposition: **alias** (proposal, not registry approval)
 - Implementation placement: use the accepted containing owner or contract file under `designs/davincioo/`; no independent leaf is authorized by this inventory disposition.
-- Current design-program execution status: **not implemented**. External source evidence is recorded separately.
+- Current design-program execution status: **resolved as an alias; no module
+  exists and none should**. [RAT](rat.md) is implemented and carries the Local
+  projection.
 
 Local Rename Map is only the Local projection of RAT and must not own a second mapping table.
+
+## Where the alias lands
+
+There is no `lrm.py`, and creating one would be the defect this disposition exists
+to prevent. The alias lands in two places instead:
+
+- **Type.** A Local request is a `MapRequest` with `scope = SCOPE_LOCAL`, declared
+  in [`contracts/tmu_trn.py`](../../contracts/tmu_trn.py) alongside RAT's other
+  types. There is no `LocalMapRequest`; a separate type would let the two drift
+  and would make "the Local map" look like a different thing.
+- **Instance.** The Local projection is [`rat.py`](rat.py) instantiated per PE.
+  Per-PE isolation is structural -- the map is declared inside the system, so two
+  PEs using the same logical name cannot collide -- which is exactly the property
+  the LRM vocabulary names.
+
+`scope` is carried for the parent, which uses it to select the Local or the Shared
+instance. RAT never reads it, for the same reason BANK never reads `cell_key`:
+whoever routes on a field must be the only one interpreting it.
+
+`designs/davincioo/AGENTS.md` is explicit that empty Python modules must not be
+created to make the inventory look implemented. An `lrm.py` that forwarded to RAT
+would add a transport hop and a second name for one owner, which is what
+"no added transport latency when represented as schema alias" rules out.
 
 ## Inputs
 
@@ -35,15 +60,23 @@ These are requirements, not proof that the current framework is missing each one
 
 ## Behavioral acceptance
 
-- All mutations occur in RAT
-- Local keys retain FlowKey and pe_id
-- No added transport latency when represented as schema alias
+- All mutations occur in RAT — **holds**; there is no other writer, because there
+  is no other module
+- Local keys retain FlowKey and pe_id — **partially**; PE identity is instance
+  geometry rather than a key field, so a Local request carries no `pe_id` at all.
+  Whether the flow qualification RAT does carry is sufficient is part of RAT's
+  open decision on transaction identity
+- No added transport latency when represented as schema alias — **holds**; the
+  alias is a type and an instance, not a forwarding module
 
 gfsim execution is the first implementation gate. PYC/RTL obligations apply to the admitted lowering and remain explicit future work where provisional storage is rejected. Compile-only evidence does not establish behavior.
 
 ## Open decisions
 
-- Decide whether to retain the vocabulary alias or formally retire the candidate ID.
+- **Whether to retain the vocabulary alias or formally retire the candidate ID.**
+  The alias is currently retained because [rat.md](rat.md) and the source evidence
+  both use the word, and a reader meeting "LRM" needs somewhere to land. Nothing
+  in the implementation depends on the ID.
 
 ## Contributor closure
 
