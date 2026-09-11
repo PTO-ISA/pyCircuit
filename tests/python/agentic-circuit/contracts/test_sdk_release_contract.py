@@ -234,6 +234,23 @@ class SdkReleaseContractTest(unittest.TestCase):
             self.assertTrue(
                 all("size" not in wheel for wheel in lock["wheels"].values())
             )
+            self.assertNotIn("size", lock["release_index"])
+            for platform in ("linux-x86_64", "macos-arm64"):
+                checked_lock = subprocess.run(
+                    [
+                        sys.executable,
+                        ROOT / "tools/agentic-circuit/check-sdk-contract.py",
+                        "--document",
+                        root / "one" / f"pycircuit-sdk-{version}-{platform}.lock.json",
+                    ],
+                    cwd=ROOT,
+                    text=True,
+                    capture_output=True,
+                    check=False,
+                )
+                self.assertEqual(
+                    0, checked_lock.returncode, checked_lock.stdout + checked_lock.stderr
+                )
 
             tampered = root / "one" / "agentic_circuit-0.1.0-py3-none-any.whl"
             tampered.write_bytes(b"tampered")
