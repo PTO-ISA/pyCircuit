@@ -286,10 +286,7 @@ private:
     }
     llvm::StringRef token = input.slice(start, position);
     double value = 0.0;
-    auto converted = std::from_chars(token.begin(), token.end(), value,
-                                     std::chars_format::general);
-    if (converted.ec != std::errc() || converted.ptr != token.end() ||
-        !std::isfinite(value))
+    if (token.getAsDouble(value) || !std::isfinite(value))
       return jsonError("number is not a finite IEEE-754 binary64 value");
     if (negative && value == 0.0)
       return jsonError("negative zero is forbidden by RFC 8785 errata 7920");
