@@ -35,14 +35,23 @@ upstream issue or pull request and avoid creating a competing public API.
 ## Branch and review policy
 
 - Protect the upstream default branch.
-- Require pull request review and all gates applicable to the change class.
+- Require pull request review and all gates applicable to the change class for
+  ordinary contributors.
+- Keep repository-administrator bypass permanently available. GitHub branch
+  protection must set `enforce_admins=false`; an administrator may explicitly
+  use an admin merge after reviewing the change and available gate evidence,
+  without waiting for the ordinary approval count.
 - Require semantic changes to cite decision IDs and evidence paths.
 - Prevent direct release publication from downstream branches.
 - Keep branch names descriptive and scoped to one change family.
 - Delete merged topic branches when no active downstream dependency needs them.
 
-The exact repository ruleset lives in GitHub settings. This document states the
-policy that settings must enforce.
+The versioned desired state is
+`.github/repository-governance.json`; GitHub settings must match it. Admin
+bypass changes review enforcement for administrators only: required status
+checks, code-owner review, stale-review dismissal, linear history, conversation
+resolution, and the no-force-push/no-deletion rules remain the ordinary branch
+policy. Admin merges remain visible in GitHub's pull-request and audit history.
 
 ## Release authority
 

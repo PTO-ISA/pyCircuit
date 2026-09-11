@@ -1,0 +1,17 @@
+{
+  "schema": "pycircuit-repository-governance-v1",
+  "repository": "PTO-ISA/pyCircuit",
+  "default_branch": "main",
+  "branch_protection": {
+    "required_status_checks": [
+      "G0: Agentic Python Checks",
+      "G0: Python Checks"
+    ],
+    "strict_status_checks": true,
+    "required_approving_reviews": 1,
+    "require_code_owner_reviews": true,
+    "dismiss_stale_reviews": true,
+    "enforce_admins": false,
+    "admin_merge_bypass": "always"
+  }
+}
