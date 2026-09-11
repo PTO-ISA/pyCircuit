@@ -329,8 +329,13 @@ jobs:
           fetch-depth: 0
       - name: Create annotated tag after acceptance
         run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git tag -a "v${{ inputs.version }}" "${{ inputs.commit_sha }}" -m "pyCircuit ${{ inputs.version }}"
+          test "$(git cat-file -t "v${{ inputs.version }}")" = tag
+          test "$(git rev-parse "v${{ inputs.version }}^{}")" = "${{ inputs.commit_sha }}"
           git push origin "refs/tags/v${{ inputs.version }}"
+          test "$(git ls-remote origin "refs/tags/v${{ inputs.version }}^{}" | cut -f1)" = "${{ inputs.commit_sha }}"
 
   publish-release:
     needs: [create-tag]
@@ -486,6 +491,7 @@ jobs:
           merge-multiple: true
       - name: Create immutable final release attestation
         env:
+          ASSET_URL_PREFIX: https://github.com/${{ github.repository }}/releases/download/v${{ inputs.version }}/
           CANDIDATE_TAG: v${{ inputs.version }}
           RELEASE_URL: https://github.com/${{ github.repository }}/releases/tag/v${{ inputs.version }}
           SOURCE_REVISION: ${{ inputs.commit_sha }}
@@ -504,6 +510,7 @@ jobs:
           ]
           source_revision = os.environ["SOURCE_REVISION"]
           candidate_tag = os.environ["CANDIDATE_TAG"]
+          asset_url_prefix = os.environ["ASSET_URL_PREFIX"]
           release_url = os.environ["RELEASE_URL"]
           if (
               publication.get("schema")
@@ -513,7 +520,7 @@ jobs:
               or publication.get("candidate_tag") != candidate_tag
               or not publication.get("assets")
               or any(
-                  not item.get("url", "").startswith(release_url + "/")
+                  not item.get("url", "").startswith(asset_url_prefix)
                   for item in publication["assets"]
               )
           ):
