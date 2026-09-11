@@ -5,7 +5,10 @@
 - NDF refinement: **L2 microarchitecture**; module-specific L1 behavior links still require review.
 - Recommended disposition: **state_schema** (proposal, not registry approval)
 - Implementation placement: use the accepted containing owner or contract file under `designs/davincioo/`; no independent leaf is authorized by this inventory disposition.
-- Current design-program execution status: **not implemented**. External source evidence is recorded separately.
+- Current design-program execution status: **not implemented, and no `rdy.py`
+  should exist**. This disposition authorises no independent leaf, and the first
+  behavioral acceptance below forbids the state such a leaf would hold; see
+  "Open decisions".
 
 Readiness is a projection derived from STS coverage and BANK acknowledgements, not an independent mutable truth.
 
@@ -44,7 +47,15 @@ gfsim execution is the first implementation gate. PYC/RTL obligations apply to t
 
 ## Open decisions
 
-- Choose whether readiness is computed by STS query response or represented as a reusable interface schema.
+- Choose whether readiness is computed by STS query response or represented as a
+  reusable interface schema. **Neither option is an independent leaf**, so this
+  decision selects a containing owner, not an implementation path. A separate
+  `rdy.py` would own a second ready bit that can diverge from STS and BANK, which
+  the first behavioral acceptance forbids; readiness is a projection, so its only
+  correct forms are a computation inside its containing owner or a shared type.
+- Resolving it depends on [sts.md](../trn/sts.md), which is not implemented. Until
+  STS exists there is no query response to project from and no owner to host the
+  computation, so this candidate is blocked rather than merely unclaimed.
 
 ## Contributor closure
 

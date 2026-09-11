@@ -5,9 +5,21 @@
 - NDF refinement: **L2 microarchitecture**; module-specific L1 behavior links still require review.
 - Recommended disposition: **state_schema** (proposal, not registry approval)
 - Implementation placement: use the accepted containing owner or contract file under `designs/davincioo/`; no independent leaf is authorized by this inventory disposition.
-- Current design-program execution status: **not implemented**. External source evidence is recorded separately.
+- Current design-program execution status: **implemented as contained state**, in
+  the two arrays [bank.py](bank.py) elaborates plus the geometry constants in
+  [contracts/tmu_trf.py](../../contracts/tmu_trf.py). There is deliberately no
+  `cell.py`: this disposition authorises no independent leaf, and a module here
+  would create a second owner of the same bytes.
 
 Defines one raw 128-byte payload cell and generation; it is not a separately scheduled module or descriptor owner.
+
+## Containing owner
+
+| Element | Where it lives | Note |
+| --- | --- | --- |
+| 128-byte payload | `cells` array in [bank.py](bank.py) | **One entry holds one whole cell.** The element is the `CellData` struct, whose lowered size is exactly 128 bytes |
+| Cell generation | `generations` array in [bank.py](bank.py) | One entry per row, since a generation qualifies a whole cell |
+| Layout geometry | [contracts/tmu_trf.py](../../contracts/tmu_trf.py) | `ROWS_PER_BANK`, `CELL_BYTES`, `WORDS_PER_CELL`, `CELL_READ_LATENCY` |
 
 ## Inputs
 
@@ -27,22 +39,42 @@ Payload names in proposed rows are design pseudotypes until fields, widths and n
 
 ## Required capabilities to verify
 
-- Exact aggregate/array schema for 1024 payload bits
-- Masked subword access representation
+- Exact aggregate/array schema for 1024 payload bits — **available**; the cell
+  is one flat struct of sixteen `u64` fields stored in one entry of a persistent
+  indexed variable (Decision 0151). Those fields are a representation of one
+  indivisible payload, not an addressable coordinate
+- Masked subword access representation — **not required**; access granularity is
+  one whole cell, so no subword access exists
 
 These are requirements, not proof that the current framework is missing each one. First test the current revision; a demonstrated gap becomes a generic framework/primitive issue and regression before a dependent design PR.
 
 ## Behavioral acceptance
 
-- Schema is embedded in BANK-owned Array
-- CellKey never substitutes for TileVersion/TileLease
-- Allocation does not imply payload definedness
+- Schema is embedded in BANK-owned Array — **holds**; the two arrays are
+  elaborated by BANK and no other owner exists
+- CellKey never substitutes for TileVersion/TileLease — **holds structurally**;
+  BANK never reads `cell_key` at all. Addressing uses `row` and the generation
+  decision uses `tile_version`, so the two cannot be confused even by mistake
+- Allocation does not imply payload definedness — **not yet provable here**; the
+  cell array initialises to zero and BANK carries no definedness state, so nothing
+  distinguishes "allocated" from "genuinely written to zero". Proving it needs the
+  allocator, [fre.md](../trn/fre.md), and an owner for definedness. Neither is
+  implemented. Note the allocator is FRE, not ALC: ALC does not allocate
+
+Design-local evidence: `designs/davincioo/tests/fabric/test_bank_physical_access.py`
+(`test_cell_key_never_substitutes_for_tile_version`,
+`test_cell_schema_lives_in_bank_owned_arrays_only`).
 
 gfsim execution is the first implementation gate. PYC/RTL obligations apply to the admitted lowering and remain explicit future work where provisional storage is rejected. Compile-only evidence does not establish behavior.
 
 ## Open decisions
 
-- Freeze representation of 1024-bit payload and byte mask in pyCircuit/PYC/RTL.
+- **PYC/RTL representation of the 1024-bit payload is still open.** The pyCircuit
+  representation is settled: one entry, one flat struct, no byte mask, since
+  access granularity is one whole cell and no sub-cell extent is requestable.
+  But that storage is provisional state under Decision 0151, which PYC/RTL must
+  reject, so a lowerable representation still depends on the aggregate-memory
+  framework fix; see [bank.md](bank.md) for the boundary and its reproducer.
 
 ## Contributor closure
 

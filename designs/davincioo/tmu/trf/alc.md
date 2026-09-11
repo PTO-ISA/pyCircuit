@@ -5,9 +5,16 @@
 - NDF refinement: **L2 microarchitecture**; module-specific L1 behavior links still require review.
 - Recommended disposition: **interface** (proposal, not registry approval)
 - Implementation placement: use the accepted containing owner or contract file under `designs/davincioo/`; no independent leaf is authorized by this inventory disposition.
-- Current design-program execution status: **not implemented**. External source evidence is recorded separately.
+- Current design-program execution status: **not implemented, and deliberately
+  so**. No capacity-query consumer exists, so the recorded fallback applies and
+  this candidate should collapse into FRE's interface; see "Open decisions".
 
 Allocation ownership belongs to FRE; ALC may only adapt capacity queries at the TRF boundary.
+
+**ALC does not allocate.** The name is the work item's, not a description of its
+behaviour: allocation state, reservations and allocator generations all belong to
+[fre.md](../trn/fre.md). ALC's entire proposed scope is one stateless capacity
+projection that reserves nothing.
 
 ## Inputs
 
@@ -43,7 +50,19 @@ gfsim execution is the first implementation gate. PYC/RTL obligations apply to t
 
 ## Open decisions
 
-- Determine whether any runtime capacity-query consumer exists; otherwise collapse this candidate into FRE's interface.
+- **No runtime capacity-query consumer exists in this design program, so the
+  recorded fallback applies: collapse this candidate into FRE's interface.**
+  Searching `designs/davincioo/` for `capacity_query`, `TrfCapacityQuery` and
+  `capacity_response` returns only this card and its Chinese counterpart. No
+  module declares either port as a producer or a consumer. Meanwhile
+  [fre.md](../trn/fre.md) already returns a capacity result on `alloc_ack`
+  ("Stable TileVersion/extent or capacity result"), which is the path a caller
+  actually has. Deleting the candidate needs registry approval, so it stays
+  recorded here rather than removed.
+- Consequently **no `alc.py` is authorised or useful**. This disposition
+  authorises no independent leaf, ALC owns no state, and a stateless adapter with
+  no consumer on either side would be an empty module. Work that looks like
+  allocation belongs in [fre.md](../trn/fre.md).
 
 ## Contributor closure
 
