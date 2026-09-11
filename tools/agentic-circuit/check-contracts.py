@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-import importlib.util
 import hashlib
+import importlib.util
 import json
 import re
 import subprocess
@@ -8,9 +8,12 @@ import sys
 from pathlib import Path
 from urllib.parse import unquote
 
+import tomllib
 
 ROOT = Path(__file__).resolve().parents[2]
-EPOCH = "0.5"
+PYPROJECT = ROOT / "python/agentic-circuit/pyproject.toml"
+with PYPROJECT.open("rb") as stream:
+    EPOCH = tomllib.load(stream)["tool"]["agentic-circuit"]["contract-epoch"]
 GOVERNANCE_FILES = (
     "LICENSE",
     "CONTRIBUTING.md",
@@ -103,13 +106,8 @@ def check_epochs(errors):
         actual = document.get("properties", {}).get("contract_epoch", {}).get("const")
         if actual != EPOCH:
             errors.append(f"{path.relative_to(ROOT)} declares epoch {actual!r}")
-    pyproject_path = ROOT / "python/agentic-circuit/pyproject.toml"
-    pyproject = pyproject_path.read_text()
-    match = re.search(r'^contract-epoch\s*=\s*"([^"]+)"\s*$', pyproject, re.MULTILINE)
-    if match is None or match.group(1) != EPOCH:
-        errors.append(
-            'python/agentic-circuit/pyproject.toml must declare contract-epoch = "0.5"'
-        )
+    if not isinstance(EPOCH, str) or not EPOCH:
+        errors.append("pyproject contract-epoch must be a non-empty string")
 
 
 def check_schemas(errors):
@@ -439,7 +437,7 @@ def main():
         return 1
     print(
         "repository contracts: OK "
-        "(15 public schemas, 35 stdlib components, epoch 0.5, LLVM 22.1.8)"
+        f"(15 public schemas, 35 stdlib components, epoch {EPOCH}, LLVM 22.1.8)"
     )
     return 0
 

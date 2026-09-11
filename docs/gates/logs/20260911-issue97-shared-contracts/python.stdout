@@ -1,0 +1,6 @@
+Agentic Python frontend: 296 passed, 1 skipped (the separate native MLIR round-trip test passed).
+Agentic contracts: 49 passed.
+pyCircuit/semantic-core unit tests: 101 passed.
+Primitive selection plus compatibility-Verilog tests: 24 passed.
+Repository contracts, IR coverage, stdlib catalog generation, and PYC inventory: passed.
+Canonical MLIR string fixture with quote, slash, control bytes, euro, and emoji round-tripped through acir-opt.

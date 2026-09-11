@@ -17,6 +17,7 @@ from ._commands import init as init_command
 from ._commands import inspect as inspect_command
 from ._commands import model as model_command
 from ._commands import schema as schema_command
+from ._contract import CONTRACT_EPOCH
 from ._diagnostics import Diagnostic
 from ._output import OutputSink
 from ._workspace import UserInputError, discover_workspace, load_workspace
@@ -261,7 +262,7 @@ def _placeholder_result(
     return {
         "schema": "agentic-circuit-command-result",
         "version": "0.1",
-        "contract_epoch": "0.5",
+        "contract_epoch": CONTRACT_EPOCH,
         "command": arguments.command,
         "project": project,
         "status": "accepted",

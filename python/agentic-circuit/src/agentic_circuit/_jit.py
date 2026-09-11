@@ -15,11 +15,11 @@ from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import TYPE_CHECKING, get_origin
 
-from ._canonical_json import canonical_json_bytes, sha256_bytes
+from ._canonical_json import canonical_json_bytes, sha256_bytes, validate_ijson_value
 from ._definitions import Definition
 from ._diagnostics import Diagnostic
 from ._source_closure import SourceClosure, SourceClosureEntry, capture_source_closure
-from ._static_eval import FrozenMap, StaticValue, validate_ijson_value
+from ._static_eval import FrozenMap, StaticValue, static_json_value
 from ._types import Static
 
 if TYPE_CHECKING:
@@ -164,18 +164,10 @@ def _closed(value: object) -> StaticValue:
     else:
         raise TypeError(f"ACPY-JIT-002: unsupported const value {type(value).__name__}")
     try:
-        validate_ijson_value(result)
+        validate_ijson_value(static_json_value(result))
     except ValueError as error:
         raise TypeError(f"ACPY-JIT-002: {error}") from error
     return result
-
-
-def _json_value(value: StaticValue):
-    if isinstance(value, FrozenMap):
-        return {key: _json_value(item) for key, item in value.entries}
-    if isinstance(value, tuple):
-        return [_json_value(item) for item in value]
-    return value
 
 
 def _display(value: StaticValue):
@@ -648,7 +640,9 @@ def jit(
         "source_manifest": [
             {"path": source.path, "sha256": source.sha256} for source in sources
         ],
-        "arguments": {name: _json_value(value) for name, value in frozen_arguments},
+        "arguments": {
+            name: static_json_value(value) for name, value in frozen_arguments
+        },
     }
     return JitSpecialization(
         system,

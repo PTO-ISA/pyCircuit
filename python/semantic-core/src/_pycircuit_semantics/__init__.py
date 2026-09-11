@@ -25,6 +25,13 @@ from .constraints import (
     transfer_compare,
     transfer_static_binary,
 )
+from .primitive_widths import (
+    PRIMITIVE_MAXIMUM_INPUT_WIDTH,
+    PRIMITIVE_MINIMUM_INPUT_WIDTH,
+    is_primitive_input_width,
+    primitive_count_width,
+    primitive_priority_index_width,
+)
 from .types import (
     ACType,
     ArrayType,
@@ -54,6 +61,8 @@ __all__ = (
     "EnumType",
     "FiniteSet",
     "MAX_STATIC_TRANSFER_SHIFT",
+    "PRIMITIVE_MAXIMUM_INPUT_WIDTH",
+    "PRIMITIVE_MINIMUM_INPUT_WIDTH",
     "StructType",
     "TupleType",
     "Unknown",
@@ -66,12 +75,15 @@ __all__ = (
     "finite_values",
     "integer_bounds",
     "is_exhaustive",
+    "is_primitive_input_width",
     "join",
     "meet",
     "normalize_patterns",
     "parse_bitmask",
     "parse_bitmask_checked",
     "prove_within",
+    "primitive_count_width",
+    "primitive_priority_index_width",
     "transfer_bits",
     "transfer_compare",
     "transfer_static_binary",

@@ -3,6 +3,7 @@
 #include "ProcessLowerability.h"
 #include "acir/Dialect/ACIR/ACIRResources.h"
 #include "acir/Dialect/ACIR/GraphRegion.h"
+#include "acir/Support/PrimitiveWidths.h"
 
 #include "mlir/Dialect/DLTI/DLTI.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
@@ -2333,12 +2334,9 @@ LogicalResult VarPopcountOp::verify() {
   auto resultInt = dyn_cast<IntegerType>(result.getElementType());
   if (!inputInt || !resultInt)
     return emitOpError("input and result payloads must be integer types");
-  if (inputInt.getWidth() == 0 || inputInt.getWidth() > 64)
+  if (!acir::isPrimitiveInputWidth(inputInt.getWidth()))
     return emitOpError("input width must be in [1, 64]");
-
-  unsigned required = 0;
-  for (unsigned width = inputInt.getWidth(); width != 0; width >>= 1)
-    ++required;
+  const unsigned required = acir::primitiveCountWidth(inputInt.getWidth());
   if (resultInt.getWidth() != required)
     return emitOpError()
            << "result width must be ceil(log2(input_width + 1)) = " << required;
@@ -2352,12 +2350,9 @@ LogicalResult VarCountZerosOp::verify() {
   auto resultInt = dyn_cast<IntegerType>(result.getElementType());
   if (!inputInt || !resultInt)
     return emitOpError("input and result payloads must be integer types");
-  if (inputInt.getWidth() == 0 || inputInt.getWidth() > 64)
+  if (!acir::isPrimitiveInputWidth(inputInt.getWidth()))
     return emitOpError("input width must be in [1, 64]");
-
-  unsigned required = 0;
-  for (unsigned width = inputInt.getWidth(); width != 0; width >>= 1)
-    ++required;
+  const unsigned required = acir::primitiveCountWidth(inputInt.getWidth());
   if (resultInt.getWidth() != required)
     return emitOpError()
            << "result width must be ceil(log2(input_width + 1)) = " << required;
@@ -2373,13 +2368,12 @@ LogicalResult VarPriorityEncodeOp::verify() {
   auto inputInteger = dyn_cast<IntegerType>(input.getElementType());
   auto indexInteger = dyn_cast<IntegerType>(index.getElementType());
   if (!inputInteger || !inputInteger.isSignless() ||
-      inputInteger.getWidth() == 0 || inputInteger.getWidth() > 64)
+      !acir::isPrimitiveInputWidth(inputInteger.getWidth()))
     return emitOpError("input must carry a signless integer width in [1, 64]");
   if (!indexInteger || !indexInteger.isSignless())
     return emitOpError("index must carry a signless integer");
-  unsigned required = 1;
-  for (unsigned extent = 2; extent < inputInteger.getWidth(); extent <<= 1)
-    ++required;
+  const unsigned required =
+      acir::primitivePriorityIndexWidth(inputInteger.getWidth());
   if (indexInteger.getWidth() != required)
     return emitOpError()
            << "index width must be max(1, ceil(log2(input_width))) = "

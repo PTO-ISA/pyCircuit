@@ -396,18 +396,21 @@ ValueConstraint inferConstraint(
     });
   }
   if (auto popcount = dyn_cast<ac::VarPopcountOp>(operation)) {
+    const unsigned inputWidth = *integerWidth(popcount.getIn().getType());
+    const uint64_t inputMask = widthMask(inputWidth);
     ValueConstraint result = evaluateUnary(
         operandConstraint(operands, 0),
-        [](uint64_t value) { return llvm::popcount(value); });
+        [&](uint64_t value) { return llvm::popcount(value & inputMask); });
     return result.kind == ValueConstraintKind::Unknown
-               ? ValueConstraint::closedInterval(
-                     0, *integerWidth(popcount.getIn().getType()))
+               ? ValueConstraint::closedInterval(0, inputWidth)
                : result;
   }
   if (auto zeros = dyn_cast<ac::VarCountZerosOp>(operation)) {
     unsigned inputWidth = *integerWidth(zeros.getIn().getType());
+    const uint64_t inputMask = widthMask(inputWidth);
     ValueConstraint result = evaluateUnary(
         operandConstraint(operands, 0), [&](uint64_t value) {
+      value &= inputMask;
       if (value == 0)
         return static_cast<uint64_t>(inputWidth);
       return zeros.getDirection() == "leading"

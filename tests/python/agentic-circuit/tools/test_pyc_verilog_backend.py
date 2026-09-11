@@ -1,13 +1,12 @@
 from __future__ import annotations
 
 import importlib.util
-from pathlib import Path
 import shutil
 import subprocess
-import tempfile
 import sys
+import tempfile
 import unittest
-
+from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[4]
 TOOL = ROOT / "compiler/acir/tools/acir-queue-veriloggen.py"
@@ -37,8 +36,40 @@ func.func @compare(%left: i8, %right: i8) -> (i1) attributes {result_names = ["e
 }
 """
 
+PYC_SEMANTIC_PRIMITIVES = {
+    "priority_encode": """
+func.func @priority(%value: i8) -> (i3, i1) attributes {result_names = ["index", "valid"]} {
+    %index, %valid = pyc.priority_encode %value {order = "low"} : i8 -> i3, i1
+    func.return %index, %valid : i3, i1
+}
+""",
+    "popcount": """
+func.func @popcount(%value: i8) -> (i4) attributes {result_names = ["count"]} {
+    %count = pyc.popcount %value : i8 -> i4
+    func.return %count : i4
+}
+""",
+    "count_zeros": """
+func.func @count_zeros(%value: i8) -> (i4) attributes {result_names = ["count"]} {
+    %count = pyc.count_zeros %value {direction = "leading"} : i8 -> i4
+    func.return %count : i4
+}
+""",
+}
+
 
 class PycVerilogBackendTest(unittest.TestCase):
+    def test_semantic_primitives_fail_closed_without_selection(self) -> None:
+        tool = load_tool()
+        for name, source in PYC_SEMANTIC_PRIMITIVES.items():
+            with self.subTest(primitive=name):
+                module = tool.parse_pyc_module(source)
+                with self.assertRaisesRegex(
+                    tool.PYCVerilogError,
+                    rf"unsupported canonical PYC operation: .*pyc\.{name}",
+                ):
+                    tool.emit_verilog(module, ROOT / "library/verilog")
+
     def test_assertion_is_preserved_in_simulation_only_rtl(self) -> None:
         tool = load_tool()
         module = tool.parse_pyc_module(PYC_ASSERT)

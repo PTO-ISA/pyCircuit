@@ -1,0 +1,21 @@
+PYTHONPATH=python/semantic-core/src:python/agentic-circuit/src .pycircuit_out/release-local-current/venv311/bin/python -m pytest tests/python/agentic-circuit/python_frontend -q
+PYTHONPATH=python/semantic-core/src:python/agentic-circuit/src .pycircuit_out/release-local-current/venv311/bin/python -m pytest tests/python/agentic-circuit/contracts -q
+PYTHONPATH=python/semantic-core/src:python/pycircuit/src:python/agentic-circuit/src .pycircuit_out/release-local-current/venv311/bin/python -m pytest tests/unit -m unit -q
+PYC_OPT=$PWD/.pycircuit_out/build-llvm22/bin/pyc-opt pytest -q tests/system/test_primitive_selection.py tests/python/agentic-circuit/tools/test_pyc_verilog_backend.py
+cmake --build .pycircuit_out/build-llvm22 --target pyc-opt -j2
+cmake --build .pycircuit_out/acir/dev-llvm22 --target ACIROpsTests GfsimTests CodeGenTests ACIRModelAnalysisTests -j2
+.pycircuit_out/acir/dev-llvm22/bin/ACIROpsTests --gtest_brief=1
+.pycircuit_out/acir/dev-llvm22/bin/ACIRModelAnalysisTests --gtest_brief=1
+.pycircuit_out/acir/dev-llvm22/bin/CodeGenTests --gtest_brief=1
+.pycircuit_out/acir/dev-llvm22/bin/GfsimTests --gtest_brief=1
+python3 tools/generate-semantic-primitive-registry.py schemas/primitives/semantic_registry.json .pycircuit_out/issue97/SemanticPrimitiveRegistry.h
+PYTHONPATH=python/semantic-core/src:python/agentic-circuit/src .pycircuit_out/release-local-current/venv311/bin/python tools/agentic-circuit/check-contracts.py
+python3 tools/agentic-circuit/check-ir-coverage.py
+python3 tools/agentic-circuit/generate-stdlib-catalog.py --check
+python3 tools/check-pyc-inventory.py
+PYTHONPATH=python/semantic-core/src:python/agentic-circuit/src .pycircuit_out/release-local-current/venv311/bin/python -m pytest tests/python/agentic-circuit/python_frontend/test_acpy.py::AcpyContractTest::test_canonical_mlir_string_round_trips_through_native_parser -q
+python3 flows/tools/check_api_hygiene.py python/pycircuit/src/pycircuit examples/pycircuit docs README.md
+.pycircuit_out/venv-llvm22/bin/mkdocs build --strict
+git diff --name-only -z --diff-filter=ACM | xargs -0 pre-commit run --files
+git diff --check
+python3 flows/tools/check_decision_status.py --rfc docs/rfcs/pyc6-decisions.md --status docs/gates/decision_status_v6.md --out docs/gates/logs/20260911-issue97-shared-contracts/decision_status_report.json --require-no-deferred --require-all-verified --require-concrete-evidence --require-existing-evidence

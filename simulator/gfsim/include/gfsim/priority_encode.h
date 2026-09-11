@@ -2,13 +2,10 @@
 #define GFSIM_PRIORITY_ENCODE_H
 
 #include "gfsim/bits.h"
+#include "gfsim/primitive_widths.h"
 #include "gfsim/queue_blocks.h"
 
 namespace gfsim {
-
-template <unsigned Width>
-inline constexpr unsigned PriorityIndexWidth =
-    Width <= 1 ? 1 : static_cast<unsigned>(std::bit_width(Width - 1));
 
 template <unsigned Width> struct PriorityEncodeResult {
   UInt<PriorityIndexWidth<Width>> index{};

@@ -397,6 +397,18 @@ int main() {{
         with self.assertRaisesRegex(TypeError, "ACPY-JIT-002"):
             ac.jit(templated, value={"mutable"})
 
+    def test_jit_uses_canonical_ijson_validation_for_const_values(self) -> None:
+        import agentic_circuit as ac
+
+        @ac.system
+        def templated(value: ac.const[object]) -> None:
+            pass
+
+        for value in (-0.0, float("inf"), "\ud800", 1 << 53):
+            with self.subTest(value=repr(value)):
+                with self.assertRaisesRegex(TypeError, "ACPY-JIT-002"):
+                    ac.jit(templated, value=value)
+
     def test_typed_runtime_jit_selects_static_structure(self) -> None:
         import agentic_circuit as ac
 

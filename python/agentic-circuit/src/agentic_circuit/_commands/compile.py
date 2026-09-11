@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Literal, NoReturn
 
 from .._canonical_json import sha256_bytes
+from .._contract import CONTRACT_EPOCH
 from .._diagnostics import Diagnostic
 from .._native_api import NativeRequest, NativeResult, run_native_compiler
 from .._output import OutputSink
@@ -360,7 +361,7 @@ def run(arguments: object, workspace: WorkspaceConfig, sink: OutputSink) -> int:
         {
             "schema": "agentic-circuit-compile-result",
             "version": "0.1",
-            "contract_epoch": "0.5",
+            "contract_epoch": CONTRACT_EPOCH,
             "project": workspace.project_name,
             "system": getattr(arguments, "system", None) or workspace.default_system,
             "profile": profile,

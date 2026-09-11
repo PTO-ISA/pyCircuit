@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from typing import Literal
 
 from ._canonical_json import JsonValue
+from ._contract import CONTRACT_EPOCH
 
 Severity = Literal["error", "warning", "note"]
 _CODE = re.compile(
@@ -93,15 +94,17 @@ class Diagnostic:
     fixits: tuple[FixIt, ...] = ()
     schema: str = "agentic-circuit-diagnostic"
     version: str = "0.1"
-    contract_epoch: str = "0.5"
+    contract_epoch: str = CONTRACT_EPOCH
 
     def __post_init__(self) -> None:
         if (
             self.schema,
             self.version,
             self.contract_epoch,
-        ) != ("agentic-circuit-diagnostic", "0.1", "0.5"):
-            raise ValueError("diagnostic schema identity is fixed at epoch 0.5")
+        ) != ("agentic-circuit-diagnostic", "0.1", CONTRACT_EPOCH):
+            raise ValueError(
+                f"diagnostic schema identity is fixed at epoch {CONTRACT_EPOCH}"
+            )
         if not self.stage:
             raise ValueError("diagnostic stage must not be empty")
         if not _CODE.fullmatch(self.code):

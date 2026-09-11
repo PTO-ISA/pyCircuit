@@ -7,8 +7,10 @@ import tempfile
 import unittest
 from pathlib import Path
 
+import tomllib
+from agentic_circuit._contract import CONTRACT_EPOCH
+
 ROOT = Path(__file__).resolve().parents[4]
-CONTRACT_EPOCH = "0.5"
 LLVM_LOCK = {
     "release": "22.1.8",
     "upstream_commit": "ca7933e47d3a3451d81e72ac174dcb5aa28b59d1",
@@ -386,15 +388,44 @@ class RepositoryContractsTest(unittest.TestCase):
             epoch = properties.get("contract_epoch", {}).get("const")
             schema_epochs[path.name] = epoch
 
-        pyproject = (ROOT / "python/agentic-circuit/pyproject.toml").read_text()
-        declared_epoch = re.search(
-            r'^contract-epoch\s*=\s*"([^"]+)"\s*$', pyproject, re.MULTILINE
-        )
+        pyproject_path = ROOT / "python/agentic-circuit/pyproject.toml"
+        with pyproject_path.open("rb") as stream:
+            declared_epoch = tomllib.load(stream)["tool"]["agentic-circuit"][
+                "contract-epoch"
+            ]
 
         self.assertEqual(15, len(schema_epochs))
         self.assertEqual({CONTRACT_EPOCH}, set(schema_epochs.values()), schema_epochs)
-        self.assertIsNotNone(declared_epoch, "pyproject.toml lacks contract-epoch")
-        self.assertEqual(CONTRACT_EPOCH, declared_epoch.group(1))
+        self.assertEqual(CONTRACT_EPOCH, declared_epoch)
+
+    def test_python_contract_identity_and_ir_escaping_have_single_owners(self):
+        source_root = ROOT / "python/agentic-circuit/src/agentic_circuit"
+        contract_source = (source_root / "_contract.py").read_text()
+        self.assertEqual(1, contract_source.count('CONTRACT_EPOCH = "0.5"'))
+
+        for path in source_root.rglob("*.py"):
+            source = path.read_text()
+            if path.name != "_contract.py":
+                self.assertNotIn('contract_epoch = "0.5"', source, path)
+                self.assertNotIn('["contract_epoch"] != "0.5"', source, path)
+                self.assertNotIn('"contract_epoch": "0.5"', source, path)
+
+        for name in ("_lower_acir.py", "_queue_frontend.py"):
+            source = (source_root / name).read_text()
+            self.assertNotIn("json.dumps", source, name)
+
+        allowed_format_versions = {
+            "_commands/model.py": 2,
+            "_jit.py": 5,
+            "_queue_frontend.py": 1,
+            "_contract.py": 1,
+        }
+        actual_literals = {
+            path.relative_to(source_root).as_posix(): path.read_text().count('"0.5"')
+            for path in source_root.rglob("*.py")
+            if '"0.5"' in path.read_text()
+        }
+        self.assertEqual(allowed_format_versions, actual_literals)
 
     def test_all_json_schemas_compile_as_draft_2020_12(self):
         self.assertIsNotNone(

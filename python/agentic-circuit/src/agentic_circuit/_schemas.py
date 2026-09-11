@@ -10,10 +10,15 @@ from pathlib import Path
 from types import MappingProxyType
 from typing import Literal
 
-from ._canonical_json import JsonValue, canonical_json_bytes, sha256_bytes
-from ._static_eval import validate_ijson_value
+from ._canonical_json import (
+    JsonValue,
+    canonical_json_bytes,
+    sha256_bytes,
+    validate_ijson_value,
+)
+from ._contract import CONTRACT_EPOCH
+from ._static_eval import static_json_value
 from ._types import SymbolicValue
-
 
 Availability = Literal["available", "declared_unavailable"]
 _TOP_LEVEL_KEYS = {
@@ -423,7 +428,7 @@ def _component_schema(
     if (
         record["schema_kind"] != "agentic-circuit-component"
         or record["schema_version"] != "0.1"
-        or record["contract_epoch"] != "0.5"
+        or record["contract_epoch"] != CONTRACT_EPOCH
         or record["canonical_name"] != expected_name
     ):
         raise SchemaError(f"component identity mismatch for {expected_name}")
@@ -599,7 +604,9 @@ class ComponentCallable:
                 )
         for parameter in self.schema.parameters:
             try:
-                validate_ijson_value(bound.arguments[parameter.name])
+                validate_ijson_value(
+                    static_json_value(bound.arguments[parameter.name])
+                )
             except ValueError as error:
                 raise TypeError(
                     f"ACPY-CALL-003: parameter {parameter.name!r} is not static"
@@ -629,7 +636,7 @@ class SchemaRegistry:
         if (
             catalog["catalog"] != "ac"
             or catalog["version"] != "0.1"
-            or catalog["contract_epoch"] != "0.5"
+            or catalog["contract_epoch"] != CONTRACT_EPOCH
         ):
             raise SchemaError("stdlib catalog identity must be ac@0.1")
         entries = _record_list(

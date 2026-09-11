@@ -2088,6 +2088,43 @@ def pipeline() -> None:
 
 
 class QueueFrontendTest(unittest.TestCase):
+    def test_semantic_primitive_widths_cover_every_supported_input(self) -> None:
+        from agentic_circuit._queue_frontend import lower_queue_source
+
+        for width in range(1, 65):
+            priority_width = max(1, (width - 1).bit_length())
+            count_width = max(1, width.bit_length())
+            source = f"""
+import agentic_circuit as ac
+
+@ac.struct
+class Item:
+    value: ac.u{width}
+    index: ac.u{priority_width}
+    valid: ac.u1
+    count: ac.u{count_width}
+    zeros: ac.u{count_width}
+
+@ac.system
+def pipeline() -> None:
+    incoming = ac.source(Item)
+    outgoing = incoming.apply(lambda item: item.with_fields(
+        index=ac.priority_encode(item.value).index,
+        valid=ac.priority_encode(item.value).valid,
+        count=ac.popcount(item.value),
+        zeros=ac.count_leading_zeros(item.value),
+    ))
+    ac.sink(outgoing)
+"""
+            lowered = lower_queue_source(source, "pipeline")
+            self.assertIn(
+                f"!ac.var<i{width}> -> !ac.var<i{priority_width}>, !ac.var<i1>",
+                lowered,
+            )
+            self.assertIn(
+                f"!ac.var<i{width}> -> !ac.var<i{count_width}>", lowered
+            )
+
     def test_popcount_lowers_to_width_checked_var_operation(self) -> None:
         from agentic_circuit._queue_frontend import lower_queue_source
 

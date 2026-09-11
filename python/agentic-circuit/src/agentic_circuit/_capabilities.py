@@ -8,9 +8,10 @@ from pathlib import Path
 from typing import Mapping
 
 from ._canonical_json import JsonValue, canonical_json_bytes, sha256_bytes
-from ._native_api import NativeCapabilities, capabilities as native_capabilities
+from ._contract import CONTRACT_EPOCH
+from ._native_api import NativeCapabilities
+from ._native_api import capabilities as native_capabilities
 from ._package_data import resource_directory
-
 
 EXACT_CONTRACT_IDENTITIES: dict[str, str] = {
     "acpy": "acpy@0.1",
@@ -68,7 +69,7 @@ class CapabilityDocument:
         return {
             "schema": "agentic-circuit-capabilities",
             "version": "0.1",
-            "contract_epoch": "0.5",
+            "contract_epoch": CONTRACT_EPOCH,
             "contract_identities": dict(self.contract_identities),
             "items": [dict(item) for item in self.items],
             "compiler_build_id": self.compiler_build_id,

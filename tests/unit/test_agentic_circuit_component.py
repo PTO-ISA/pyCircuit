@@ -50,7 +50,12 @@ def test_acpy_contract_epoch_is_0_5_across_active_surfaces() -> None:
     )
     assert 'schema: str = "agentic-circuit-acpy"' in source
     assert 'version: str = "0.1"' in source
-    assert 'contract_epoch: str = "0.5"' in source
+    assert "from ._contract import CONTRACT_EPOCH" in source
+    assert "contract_epoch: str = CONTRACT_EPOCH" in source
+    contract = (AC_ROOT / "src" / "agentic_circuit" / "_contract.py").read_text(
+        encoding="utf-8"
+    )
+    assert 'CONTRACT_EPOCH = "0.5"' in contract
 
     readme = (REPOSITORY / "README.md").read_text(encoding="utf-8")
     assert "agentic_circuit frontend -> ACPy 0.5 -> ACIR" in readme

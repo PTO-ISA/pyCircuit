@@ -21,6 +21,7 @@ except ModuleNotFoundError:
 
 from ._canonical_json import JsonValue, canonical_json_bytes
 from ._capabilities import schema_root
+from ._contract import CONTRACT_EPOCH
 from ._definitions import Definition
 from ._diagnostics import Diagnostic, FixIt, RelatedLocation, SourceSpan
 from ._frontend import CaptureRequest, elaborate_frontend
@@ -123,7 +124,7 @@ def _request_json(request: CaptureWorkerRequest, output: Path) -> dict[str, Json
     return {
         "schema": "agentic-circuit-capture-request",
         "version": "0.1",
-        "contract_epoch": "0.5",
+        "contract_epoch": CONTRACT_EPOCH,
         "workspace": request.workspace.resolve().as_posix(),
         "entry": request.entry.resolve().as_posix(),
         "system": request.system,
@@ -381,7 +382,7 @@ def _worker_main(request_path: Path) -> int:
     response = {
         "schema": "agentic-circuit-capture-result",
         "version": "0.1",
-        "contract_epoch": "0.5",
+        "contract_epoch": CONTRACT_EPOCH,
         "has_acpy": document is not None,
         "has_acir": acir is not None,
         "diagnostics": [item.to_json() for item in diagnostics],

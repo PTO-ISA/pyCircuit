@@ -6,6 +6,7 @@
 #include "acir/Dialect/ACIR/ACIRResources.h"
 #include "acir/Dialect/ACIR/GraphRegion.h"
 #include "acir/InitAllDialects.h"
+#include "acir/Support/PrimitiveWidths.h"
 #include "acir/Transforms/Passes.h"
 
 #include "mlir/AsmParser/AsmParser.h"
@@ -19,6 +20,7 @@
 #include "mlir/Interfaces/SideEffectInterfaces.h"
 #include "mlir/Parser/Parser.h"
 #include "mlir/Pass/PassManager.h"
+#include "llvm/Support/raw_ostream.h"
 #include "gtest/gtest.h"
 
 #include <algorithm>
@@ -29,6 +31,30 @@
 
 namespace acir::ac {
 namespace {
+
+TEST(ACIROpsTest, SemanticPrimitiveWidthsAcceptOneTo64AndReject65To130) {
+  mlir::MLIRContext context;
+  context.loadDialect<ACIRDialect>();
+  for (unsigned width = 1; width <= 130; ++width) {
+    const unsigned priorityWidth = acir::primitivePriorityIndexWidth(width);
+    const unsigned countWidth = acir::primitiveCountWidth(width);
+    std::string source;
+    llvm::raw_string_ostream stream(source);
+    stream << "builtin.module attributes {ac.contract_epoch = \"0.5\"} {\n"
+           << "  %value = \"builtin.unrealized_conversion_cast\"() : () -> "
+           << "!ac.var<i" << width << ">\n"
+           << "  %index, %valid = ac.var.priority_encode %value order \"low\" : "
+           << "!ac.var<i" << width << "> -> !ac.var<i" << priorityWidth
+           << ">, !ac.var<i1>\n"
+           << "  %count = ac.var.popcount %value : !ac.var<i" << width
+           << "> -> !ac.var<i" << countWidth << ">\n"
+           << "  %zeros = ac.var.count_zeros %value direction \"leading\" : "
+           << "!ac.var<i" << width << "> -> !ac.var<i" << countWidth << ">\n"
+           << "}\n";
+    auto module = mlir::parseSourceString<mlir::ModuleOp>(source, &context);
+    EXPECT_EQ(static_cast<bool>(module), width <= 64) << "width " << width;
+  }
+}
 
 TEST(ACIROpsTest, QueueBoundariesOwnEffectsAndFiringBodyIsPure) {
   mlir::MLIRContext context;

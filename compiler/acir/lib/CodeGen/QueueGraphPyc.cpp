@@ -1,5 +1,6 @@
 #include "acir/CodeGen/QueueGraphPyc.h"
 #include "acir/CodeGen/QueueBlockContract.h"
+#include "acir/Support/PrimitiveWidths.h"
 
 #include "llvm/ADT/APInt.h"
 #include "llvm/ADT/ArrayRef.h"
@@ -9,7 +10,6 @@
 #include "llvm/ADT/StringSet.h"
 
 #include <algorithm>
-#include <bit>
 #include <limits>
 #include <memory>
 #include <sstream>
@@ -1388,8 +1388,7 @@ emitTransform(const QueueGraphPlan &plan, const QueueBlockPlan &block,
         if (!inputWidth)
           return inputWidth.takeError();
         unsigned indexWidth =
-            std::max(1u, static_cast<unsigned>(std::bit_width(
-                             static_cast<unsigned>(*inputWidth - 1))));
+            acir::primitivePriorityIndexWidth(*inputWidth);
         std::string key = expression.operands[0] + "#" + expression.predicate;
         auto found = priorityValues.find(key);
         if (found == priorityValues.end()) {
