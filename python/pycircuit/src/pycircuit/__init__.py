@@ -1,4 +1,4 @@
-from . import ct, hierarchical, lib, logic, spec, structural, wiring
+from . import ct, hierarchical, lib, logic, probe, spec, structural, testbench, wiring
 from .bitfield import BitfieldSignal, BitfieldSpec, BitfieldView
 from .connectors import (
     Connector,
@@ -16,13 +16,8 @@ from .design import (
     function,
     module,
 )
-from .design import (
-    probe as _probe_decorator,
-)
-from .design import (
-    testbench as _testbench_decorator,
-)
 from .diagnostics import DiagnosticError, PyCircuitError
+from .dsl import PriorityEncodeResult
 from .enums import EnumSignal, PycEnum, auto, enumeration
 from .hw import (
     Bundle,
@@ -52,7 +47,6 @@ from .trace_dsl import TraceConfigError
 from .v6 import (
     CycleAwareCircuit,
     CycleAwareDomain,
-    CycleAwarePriorityEncodeResult,
     CycleAwareSignal,
     CycleAwareTb,
     ForwardSignal,
@@ -69,13 +63,9 @@ from .v6 import (
     wire_of,
 )
 
-testbench = _testbench_decorator
-probe = _probe_decorator
-
 __all__ = [
     "CycleAwareCircuit",
     "CycleAwareDomain",
-    "CycleAwarePriorityEncodeResult",
     "CycleAwareSignal",
     "CycleAwareTb",
     "ForwardSignal",
@@ -112,6 +102,7 @@ __all__ = [
     "ProbeBuilder",
     "ProbeRef",
     "ProbeView",
+    "PriorityEncodeResult",
     "PyCircuitError",
     "Reg",
     "RegConnector",

@@ -18,9 +18,9 @@ from pycircuit import (
     compile_cycle_aware,
     mux,
     submodule_input,
-    testbench,
     wire_of,
 )
+from pycircuit.design import probe, testbench
 ```
 
 Use `CycleAwareSignal` for scalar design values. Use `domain.signal()` to infer

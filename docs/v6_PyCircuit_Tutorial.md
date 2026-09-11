@@ -210,8 +210,9 @@ cursor 不会改变这个 provenance。
 ```python
 from pycircuit import (
     CycleAwareCircuit, CycleAwareDomain, CycleAwareTb, Tb,
-    build_cycle_aware, cas, testbench, wire_of,
+    build_cycle_aware, cas, wire_of,
 )
+from pycircuit.design import testbench
 from counter import build   # 前文的计数器设计
 
 @testbench

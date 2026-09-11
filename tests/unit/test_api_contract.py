@@ -57,6 +57,20 @@ def build(value: pycircuit.v6.CycleAwareSignal):
     assert _codes(qualified) == []
 
 
+def test_named_comparison_methods_are_rejected_for_every_receiver_kind() -> None:
+    source = """
+from pycircuit import CycleAwareSignal, Wire
+
+def build(cas_value: CycleAwareSignal, wire_value: Wire, unknown):
+    cas_value.eq(cas_value)
+    cas_value.lt(cas_value)
+    wire_value.eq(wire_value)
+    unknown.lt(unknown)
+"""
+
+    assert _codes(source) == ["PYC415", "PYC415", "PYC415", "PYC415"]
+
+
 def test_explicit_wire_method_surface_fails_api_hygiene() -> None:
     source = """
 from pycircuit import Wire

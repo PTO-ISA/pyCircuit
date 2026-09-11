@@ -5,7 +5,7 @@
 | Specification | Serial Python, Queue/Var ACIR, typed gfsim, and PYC refinement |
 | Target contract epoch | `0.5` |
 | Status | Current implementation contract; serialized epoch `0.5` is active on `main` |
-| Public namespace | `ac` |
+| Public namespaces | runtime authoring API as `ac`; capture-only syntax in `agentic_circuit.markers` |
 | Audience | Frontend, compiler, simulator, and RTL contributors |
 | Design background | [NDF block-model decision](../../rfcs/acir/D-BLOCK-MODEL-001.md) |
 | Executable examples | Pipeline examples |
@@ -176,6 +176,34 @@ agentic-circuit schema opcode ac.transform
 ```
 
 ## Python authoring contract
+
+### Runtime API and capture-only markers
+
+The package separates Python objects that have ordinary runtime behavior from
+names that exist only for ACPy source capture. `agentic_circuit.RUNTIME_API` is
+the exact runtime authoring inventory and is also the package's `__all__`.
+Consequently, wildcard imports do not claim that capture-only syntax produces
+runtime values. `agentic_circuit.CAPTURE_ONLY_API` is the exact 29-name marker
+inventory:
+
+```text
+scope map set instances view find concat insert matches source popcount
+count_leading_zeros count_trailing_zeros priority_encode memory sink observe
+expect compute pipeline route merge schedule engine reorder fork barrier table
+slot
+```
+
+The canonical marker namespace is `agentic_circuit.markers`. For example,
+`markers.source(...)` and `markers.sink(...)` are parsed during capture just as
+their established `ac.source(...)` and `ac.sink(...)` spellings are. Explicit
+imports from the package root remain source compatible, but those aliases are
+not part of root `__all__`.
+
+Calling a marker through ordinary Python MUST raise an error that identifies it
+as capture-time only. A marker MUST NOT return a placeholder queue, value,
+table, or other fake runtime object. `ac.table[...]` remains subscript-only, and
+calling the removed legacy `ac.table(value, ...)` spelling continues to raise
+`TypeError` with the `ac.memory` migration guidance.
 
 ### System declaration
 

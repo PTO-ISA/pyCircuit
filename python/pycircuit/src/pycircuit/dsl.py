@@ -4,7 +4,7 @@ import json
 import re
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Generic, TypeGuard
+from typing import TYPE_CHECKING, Generic, TypeGuard, TypeVar
 
 from _pycircuit_semantics import (
     is_primitive_input_width,
@@ -54,10 +54,15 @@ class Signal(Generic[DT]):
         raise TypeError(f"cannot convert {type(v).__name__} to Signal")
 
 
+T = TypeVar("T")
+
+
 @dataclass(frozen=True)
-class PriorityEncodeResult:
-    index: Any
-    valid: Any
+class PriorityEncodeResult(Generic[T]):
+    """Uniform result shape for priority encoding across frontend surfaces."""
+
+    index: T
+    valid: T
 
 
 def is_bits_signal(signal: Signal[Data]) -> TypeGuard[Signal[Bits]]:
@@ -317,7 +322,7 @@ class Module:
 
     def priority_encode(
         self, value: Signal[Bits], *, order: str = "low"
-    ) -> PriorityEncodeResult:
+    ) -> PriorityEncodeResult[Signal[Bits]]:
         if not isinstance(value.ty, Bits):
             raise TypeError(f"priority_encode expects scalar Bits, got {value.ty}")
         if not is_primitive_input_width(value.width):

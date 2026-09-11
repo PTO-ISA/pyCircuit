@@ -18,10 +18,26 @@ def _jit_cas_method_build(m, domain) -> None:
     m.output("result", pycircuit.wire_of(result))
 
 
+def _jit_cas_eq_method_build(m, domain) -> None:
+    value = pycircuit.cas(domain, m.input("value", width=8), cycle=0)
+    m.output("result", pycircuit.wire_of(value.eq(value)))
+
+
+def _jit_cas_lt_method_build(m, domain) -> None:
+    value = pycircuit.cas(domain, m.input("value", width=8), cycle=0)
+    m.output("result", pycircuit.wire_of(value.lt(value)))
+
+
 def _jit_wire_method_build(m, domain) -> None:
     _ = domain
     value = m.input("value", width=8)
     m.output("result", value.trunc(width=4))
+
+
+def _jit_removed_cond_build(m, domain) -> None:
+    _ = domain
+    value = m.input("value", width=8)
+    m.output("result", value.cond(value, value))
 
 
 def _jit_wire_method_alias_build(m, domain) -> None:
@@ -69,6 +85,12 @@ def test_jit_allows_cas_methods_and_evaluates_receiver_once() -> None:
     assert "pyc.select" in mlir
 
 
+@pytest.mark.parametrize("build", [_jit_cas_eq_method_build, _jit_cas_lt_method_build])
+def test_jit_rejects_named_comparison_methods_for_cas(build) -> None:
+    with pytest.raises(pycircuit.JitError, match="PYC430"):
+        pycircuit.compile_cycle_aware(build)
+
+
 def test_cas_width_conversions_are_keyword_only() -> None:
     circuit = pycircuit.CycleAwareCircuit("keyword_widths")
     domain = circuit.create_domain("clk")
@@ -82,6 +104,8 @@ def test_cas_width_conversions_are_keyword_only() -> None:
 def test_jit_rejects_removed_wire_methods() -> None:
     with pytest.raises(pycircuit.JitError, match="PYC430"):
         pycircuit.compile_cycle_aware(_jit_wire_method_build)
+    with pytest.raises(pycircuit.JitError, match="PYC430"):
+        pycircuit.compile_cycle_aware(_jit_removed_cond_build)
 
     with pytest.raises(pycircuit.JitError, match="PYC430"):
         pycircuit.compile_cycle_aware(_jit_wire_method_alias_build)

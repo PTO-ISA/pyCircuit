@@ -8,9 +8,9 @@ from pycircuit import (
     build_cycle_aware,
     cas,
     mux,
-    probe,
     wire_of,
 )
+from pycircuit.design import probe
 
 
 def build(m: CycleAwareCircuit, domain: CycleAwareDomain, width: int = 8) -> None:

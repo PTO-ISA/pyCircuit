@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 from pkgutil import extend_path
-from typing import Never
 
 __path__ = extend_path(__path__, __name__)
 
 from . import _types as _types_module
+from . import markers as markers
 from ._definitions import (
     extern_module,
     interface,
@@ -38,6 +38,37 @@ from ._types import (
     s32,
     s64,
 )
+from .markers import (
+    barrier,
+    compute,
+    concat,
+    count_leading_zeros,
+    count_trailing_zeros,
+    engine,
+    expect,
+    find,
+    fork,
+    insert,
+    instances,
+    map,
+    matches,
+    memory,
+    merge,
+    observe,
+    pipeline,
+    popcount,
+    priority_encode,
+    reorder,
+    route,
+    schedule,
+    scope,
+    set,
+    sink,
+    slot,
+    source,
+    table,
+    view,
+)
 
 _UNSIGNED_NAMES = tuple(f"u{width}" for width in _types_module.UNSIGNED_WIDTHS)
 for _name in _UNSIGNED_NAMES:
@@ -45,7 +76,9 @@ for _name in _UNSIGNED_NAMES:
 del _name
 
 
-__all__ = (
+CAPTURE_ONLY_API = markers.CAPTURE_ONLY_API
+
+RUNTIME_API = (
     "system",
     "module",
     "extern_module",
@@ -58,18 +91,9 @@ __all__ = (
     "rule",
     "invariant",
     "writer_priority",
-    "scope",
     "array",
-    "map",
-    "set",
-    "instances",
-    "view",
-    "find",
     "bits",
     "BitfieldSpec",
-    "concat",
-    "insert",
-    "matches",
     "queue",
     "ResourceRef",
     "address_space",
@@ -77,31 +101,11 @@ __all__ = (
     "Static",
     "Flow",
     "Endpoint",
-    "source",
-    "count_leading_zeros",
-    "count_trailing_zeros",
-    "popcount",
-    "priority_encode",
-    "memory",
-    "sink",
-    "observe",
-    "expect",
-    "compute",
-    "pipeline",
     "config",
     "const",
     "jit",
-    "route",
-    "merge",
-    "schedule",
-    "engine",
-    "reorder",
     "round_robin",
     "priority",
-    "fork",
-    "barrier",
-    "table",
-    "slot",
     *_UNSIGNED_NAMES,
     "s8",
     "s16",
@@ -109,227 +113,7 @@ __all__ = (
     "s64",
 )
 
-
-def _not_implemented(primitive: str) -> Never:
-    raise NotImplementedError(
-        f"{primitive} is an ACPy source marker interpreted during capture; "
-        "it cannot be called by ordinary Python execution"
-    )
-
-
-def scope(name: str) -> Never:
-    return _not_implemented("scope")
-
-
-def map(*values: object) -> Never:
-    return _not_implemented("map")
-
-
-def set(*values: object) -> Never:
-    return _not_implemented("set")
-
-
-def instances(*values: object) -> Never:
-    return _not_implemented("instances")
-
-
-def view(value: object, *selectors: object) -> Never:
-    return _not_implemented("view")
-
-
-def find(values: object, *, where: object, key: object | None = None) -> Never:
-    _ = (values, where, key)
-    return _not_implemented("find")
-
-
-def concat(*values: object) -> Never:
-    return _not_implemented("concat")
-
-
-def insert(value: object, field: object, *, lsb: int) -> Never:
-    _ = (value, field, lsb)
-    return _not_implemented("insert")
-
-
-def matches(value: object, pattern: str) -> Never:
-    _ = (value, pattern)
-    return _not_implemented("matches")
-
-
-def source(
-    payload: object,
-    *,
-    depth: int = 1,
-    latency: int = 1,
-    rate: int = 1,
-    lanes: int = 1,
-) -> Never:
-    return _not_implemented("source")
-
-
-def popcount(value: object) -> Never:
-    return _not_implemented("popcount")
-
-
-def count_leading_zeros(value: object) -> Never:
-    return _not_implemented("count_leading_zeros")
-
-
-def count_trailing_zeros(value: object) -> Never:
-    return _not_implemented("count_trailing_zeros")
-
-
-def priority_encode(value: object, *, order: str = "low") -> Never:
-    _ = (value, order)
-    return _not_implemented("priority_encode")
-
-
-def memory(
-    data_type: object, *, entries: int = 16, init: int = 0, latency: int = 1
-) -> Never:
-    return _not_implemented("memory")
-
-
-def sink(value: object) -> Never:
-    return _not_implemented("sink")
-
-
-def observe(value: object) -> Never:
-    return _not_implemented("observe")
-
-
-def expect(value: object, *, predicate: object, message: str) -> Never:
-    return _not_implemented("expect")
-
-
-def compute(
-    value: object,
-    function: object,
-    *,
-    depth: int = 1,
-    latency: int = 1,
-    rate: int = 1,
-) -> Never:
-    return _not_implemented("compute")
-
-
-def pipeline(
-    value: object,
-    *,
-    stages: int = 1,
-    depth: int = 1,
-    rate: int = 1,
-) -> Never:
-    return _not_implemented("pipeline")
-
-
 round_robin = "round_robin"
 priority = "priority"
 
-
-def route(
-    value: object,
-    *,
-    by: object,
-    outputs: int,
-    depth: int = 1,
-    latency: int = 1,
-) -> Never:
-    return _not_implemented("route")
-
-
-def merge(
-    *values: object,
-    policy: object = priority,
-    depth: int = 1,
-    latency: int = 1,
-) -> Never:
-    return _not_implemented("merge")
-
-
-def schedule(
-    value: object,
-    *,
-    by: object,
-    waits_for: object,
-    resource: object,
-    cost: object,
-    no_dependency: int,
-    entries: int = 16,
-    resources: int = 1,
-    depth: int = 1,
-    latency: int = 1,
-) -> Never:
-    return _not_implemented("schedule")
-
-
-def engine(
-    value: object,
-    *,
-    cost: object,
-    lanes: int = 1,
-    depth: int = 1,
-    latency: int = 1,
-) -> Never:
-    return _not_implemented("engine")
-
-
-def reorder(
-    value: object,
-    *,
-    by: object,
-    entries: int = 16,
-    start: int = 0,
-    depth: int = 1,
-    latency: int = 1,
-) -> Never:
-    return _not_implemented("reorder")
-
-
-def fork(
-    value: object,
-    *,
-    outputs: int,
-    depth: int = 1,
-    latency: int = 1,
-) -> Never:
-    return _not_implemented("fork")
-
-
-def barrier(
-    *values: object,
-    depth: int = 1,
-    latency: int = 1,
-) -> Never:
-    return _not_implemented("barrier")
-
-
-class _TableDeclaration:
-    def __init__(self, entries: object, entry_type: object) -> None:
-        self.entries = entries
-        self.entry_type = entry_type
-
-    def __call__(self, *, init: object = 0) -> Never:
-        return _not_implemented("table")
-
-
-class _TableFactory:
-    def __getitem__(self, parameters: object) -> _TableDeclaration:
-        if not isinstance(parameters, tuple) or len(parameters) != 2:
-            raise TypeError("ac.table requires ac.table[entries, Entry]")
-        return _TableDeclaration(parameters[0], parameters[1])
-
-    def __call__(self, *args: object, **kwargs: object) -> Never:
-        del args, kwargs
-        raise TypeError(
-            "legacy ac.table(value, ...) was removed; use ac.memory for "
-            "request/response memory or ac.table[entries, Entry](init=0) "
-            "for state Table"
-        )
-
-
-table = _TableFactory()
-
-
-def slot(value: object) -> Never:
-    return _not_implemented("slot")
+__all__ = RUNTIME_API

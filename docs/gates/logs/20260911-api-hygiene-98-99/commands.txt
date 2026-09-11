@@ -1,0 +1,18 @@
+PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=python/semantic-core/src:python/pycircuit/src pytest -q tests/unit -m unit
+PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=python/semantic-core/src:python/pycircuit/src pytest -q tests/unit/test_v6_forward_signal.py tests/unit/test_api_contract.py tests/unit/test_pyc6_surface.py
+PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=python/semantic-core/src:python/pycircuit/src python3 flows/tools/check_api_hygiene.py python/pycircuit/src/pycircuit examples/pycircuit docs README.md
+python3 tools/check-pyc-inventory.py
+uv run --no-project --with-requirements python/agentic-circuit/requirements-dev.lock env AC_PYTHON_ONLY=1 PYTHONPATH="$PWD/python/semantic-core/src:$PWD/python/agentic-circuit/src:$PWD/tests/python/agentic-circuit" python3 tools/agentic-circuit/check-contracts.py
+uv run --no-project --with-requirements python/agentic-circuit/requirements-dev.lock env AC_PYTHON_ONLY=1 PYTHONPATH="$PWD/python/semantic-core/src:$PWD/python/agentic-circuit/src:$PWD/tests/python/agentic-circuit" python3 -m unittest discover -s tests/python/agentic-circuit/contracts -p 'test_*.py'
+uv run --no-project --with-requirements python/agentic-circuit/requirements-dev.lock env AC_PYTHON_ONLY=1 PYTHONPATH="$PWD/python/semantic-core/src:$PWD/python/agentic-circuit/src:$PWD/tests/python/agentic-circuit" python3 -m unittest discover -s tests/python/agentic-circuit/python_frontend -p 'test_*.py'
+uv run --no-project --with-requirements python/agentic-circuit/requirements-dev.lock env AC_PYTHON_ONLY=1 PYTHONPATH="$PWD/python/semantic-core/src:$PWD/python/agentic-circuit/src:$PWD/tests/python/agentic-circuit" python3 -m unittest discover -s tests/python/agentic-circuit/cli -p 'test_all_commands.py'
+uv run --no-project --with-requirements python/agentic-circuit/requirements-dev.lock env AC_PYTHON_ONLY=1 PYTHONPATH="$PWD/python/semantic-core/src:$PWD/python/agentic-circuit/src:$PWD/tests/python/agentic-circuit" python3 -m unittest discover -s tests/python/agentic-circuit/cli -p 'test_workspace.py'
+PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=python/semantic-core/src:python/pycircuit/src python3 examples/pycircuit/counter/counter.py
+PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=python/semantic-core/src:python/pycircuit/src python3 examples/pycircuit/counter/tb_counter.py
+PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=python/semantic-core/src:python/pycircuit/src python3 examples/pycircuit/trace_dsl_smoke/trace_dsl_smoke.py
+PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=python/semantic-core/src:python/pycircuit/src python3 examples/pycircuit/trace_dsl_smoke/tb_trace_dsl_smoke.py
+cmake --build .pycircuit_out/toolchain/build --target pycc pyc-opt -j 8
+PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=python/semantic-core/src:python/pycircuit/src pytest -q tests/system/test_primitive_selection.py
+pre-commit run --files <all tracked files changed by the pull request>
+mkdocs build --strict --site-dir .pycircuit_out/20260911-api-hygiene-98-99/site
+python3 flows/tools/check_decision_status.py --rfc docs/rfcs/pyc6-decisions.md --status docs/gates/decision_status_v6.md --out docs/gates/logs/20260911-api-hygiene-98-99/decision_status_report.json --require-no-deferred --require-all-verified --require-concrete-evidence --require-existing-evidence

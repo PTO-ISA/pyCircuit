@@ -8,7 +8,11 @@ import operator as _pyop
 from dataclasses import dataclass, fields, is_dataclass
 from typing import Any, Hashable, Mapping, get_args, get_origin
 
-from .api_contract import removed_call_diagnostic
+from .api_contract import (
+    DECLARATIVE_METHOD_POLICY,
+    declarative_method_allowed,
+    removed_call_diagnostic,
+)
 from .connectors import Connector, ConnectorBundle, is_connector, is_connector_bundle
 from .data import Bits, Data
 from .diagnostics import (
@@ -110,15 +114,10 @@ def _check_removed_api_call(
     if not isinstance(node.func, ast.Attribute):
         return
     attr = str(node.func.attr)
-    if attr in {
-        "as_unsigned",
-        "eq",
-        "lt",
-        "select",
-        "sext",
-        "trunc",
-        "zext",
-    } and _is_cas(receiver):
+    receiver_kind = "CAS" if _is_cas(receiver) else "WIRE"
+    if attr in DECLARATIVE_METHOD_POLICY and declarative_method_allowed(
+        attr, receiver_kind
+    ):
         return
     line = compiler._abs_lineno(node)
     col = getattr(node, "col_offset", None)
@@ -140,7 +139,7 @@ def _removed_bound_method(value: Any) -> tuple[str, Any] | None:
         value = value.func
     name = getattr(value, "__name__", None)
     receiver = getattr(value, "__self__", None)
-    if name in {"as_unsigned", "eq", "lt", "select", "sext", "trunc", "zext"}:
+    if name in DECLARATIVE_METHOD_POLICY:
         return str(name), receiver
     return None
 
@@ -1476,15 +1475,8 @@ class _Compiler:
             return self.eval_call(node)
         if isinstance(node, ast.Attribute):
             base = self.eval_expr(node.value)
-            if node.attr in {
-                "as_unsigned",
-                "eq",
-                "lt",
-                "select",
-                "sext",
-                "trunc",
-                "zext",
-            } and not _is_cas(base):
+            receiver_kind = "CAS" if _is_cas(base) else "WIRE"
+            if not declarative_method_allowed(node.attr, receiver_kind):
                 diag = removed_call_diagnostic(
                     attr=node.attr,
                     path=self.source_file,
@@ -1520,7 +1512,9 @@ class _Compiler:
                 node, eval_expr=self.eval_expr, env=self.env, globals_=self.globals
             )
         removed_bound = _removed_bound_method(fn)
-        if removed_bound is not None and not _is_cas(removed_bound[1]):
+        if removed_bound is not None and not declarative_method_allowed(
+            removed_bound[0], "CAS" if _is_cas(removed_bound[1]) else "WIRE"
+        ):
             diag = removed_call_diagnostic(
                 attr=removed_bound[0],
                 path=self.source_file,
@@ -1574,7 +1568,10 @@ class _Compiler:
                 return self._eval_template_call(fn, args=args, kwargs=kwargs)
             result = fn(*args, **kwargs)
             removed_result = _removed_bound_method(result)
-            if removed_result is not None and not _is_cas(removed_result[1]):
+            if removed_result is not None and not declarative_method_allowed(
+                removed_result[0],
+                "CAS" if _is_cas(removed_result[1]) else "WIRE",
+            ):
                 diag = removed_call_diagnostic(
                     attr=removed_result[0],
                     path=self.source_file,

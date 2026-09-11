@@ -4,7 +4,39 @@ import importlib
 import unittest
 from dataclasses import FrozenInstanceError
 
-PUBLIC = {
+CAPTURE_ONLY = {
+    "scope",
+    "map",
+    "set",
+    "instances",
+    "view",
+    "find",
+    "concat",
+    "insert",
+    "matches",
+    "source",
+    "count_leading_zeros",
+    "count_trailing_zeros",
+    "popcount",
+    "priority_encode",
+    "memory",
+    "sink",
+    "observe",
+    "expect",
+    "compute",
+    "pipeline",
+    "route",
+    "merge",
+    "schedule",
+    "engine",
+    "reorder",
+    "fork",
+    "barrier",
+    "table",
+    "slot",
+}
+
+RUNTIME = {
     "system",
     "module",
     "extern_module",
@@ -17,18 +49,9 @@ PUBLIC = {
     "rule",
     "invariant",
     "writer_priority",
-    "scope",
     "array",
-    "map",
-    "set",
-    "instances",
-    "view",
-    "find",
     "bits",
     "BitfieldSpec",
-    "concat",
-    "insert",
-    "matches",
     "queue",
     "ResourceRef",
     "address_space",
@@ -36,31 +59,11 @@ PUBLIC = {
     "Static",
     "Flow",
     "Endpoint",
-    "source",
-    "count_leading_zeros",
-    "count_trailing_zeros",
-    "popcount",
-    "priority_encode",
-    "memory",
-    "sink",
-    "observe",
-    "expect",
-    "compute",
-    "pipeline",
     "config",
     "const",
     "jit",
-    "route",
-    "merge",
-    "schedule",
-    "engine",
-    "reorder",
     "round_robin",
     "priority",
-    "fork",
-    "barrier",
-    "table",
-    "slot",
     *(f"u{width}" for width in range(1, 65)),
     "s8",
     "s16",
@@ -77,9 +80,28 @@ class PublicApiTest(unittest.TestCase):
     def test_exact_public_inventory_is_importable(self) -> None:
         api = importlib.import_module("agentic_circuit")
 
-        self.assertEqual(PUBLIC, set(api.__all__))
-        for name in PUBLIC:
+        self.assertEqual(RUNTIME, set(api.RUNTIME_API))
+        self.assertEqual(RUNTIME, set(api.__all__))
+        for name in RUNTIME:
             self.assertIsNotNone(getattr(api, name))
+
+    def test_capture_only_inventory_has_a_dedicated_namespace(self) -> None:
+        api = importlib.import_module("agentic_circuit")
+        markers = importlib.import_module("agentic_circuit.markers")
+
+        self.assertEqual(CAPTURE_ONLY, set(api.CAPTURE_ONLY_API))
+        self.assertEqual(CAPTURE_ONLY, set(markers.__all__))
+        self.assertTrue(CAPTURE_ONLY.isdisjoint(api.__all__))
+        for name in CAPTURE_ONLY:
+            self.assertIs(getattr(markers, name), getattr(api, name))
+
+    def test_runtime_inventory_contains_no_capture_only_stubs(self) -> None:
+        api = importlib.import_module("agentic_circuit")
+
+        marker_objects = {getattr(api.markers, name) for name in CAPTURE_ONLY}
+        self.assertTrue(
+            all(getattr(api, name) not in marker_objects for name in api.RUNTIME_API)
+        )
 
     def test_writer_priority_is_an_immutable_checked_compile_descriptor(self) -> None:
         api = importlib.import_module("agentic_circuit")
@@ -278,10 +300,40 @@ class PublicApiTest(unittest.TestCase):
             with self.subTest(operation=operation):
                 with self.assertRaisesRegex(
                     NotImplementedError,
-                    "ACPy source marker interpreted during capture|"
-                    "AST intrinsic inside Agentic definitions",
+                    "capture-time only|AST intrinsic inside Agentic definitions",
                 ):
                     operation()
+
+    def test_marker_namespace_and_explicit_root_imports_are_captured(self) -> None:
+        from agentic_circuit._queue_frontend import lower_queue_source
+
+        namespaced = lower_queue_source(
+            """
+import agentic_circuit as ac
+import agentic_circuit.markers as markers
+
+@ac.system
+def pipeline() -> None:
+    incoming = markers.source(int)
+    markers.sink(incoming)
+""",
+            "pipeline",
+        )
+        explicit = lower_queue_source(
+            """
+from agentic_circuit import sink, source, system
+
+@system
+def pipeline() -> None:
+    incoming = source(int)
+    sink(incoming)
+""",
+            "pipeline",
+        )
+
+        for lowered in (namespaced, explicit):
+            self.assertIn("ac.source depth 1 latency 1", lowered)
+            self.assertIn("ac.sink", lowered)
 
     def test_table_factory_is_subscript_only_and_legacy_call_is_removed(self) -> None:
         import agentic_circuit as api

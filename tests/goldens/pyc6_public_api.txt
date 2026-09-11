@@ -10,7 +10,6 @@ ConnectorError
 ConnectorStruct
 CycleAwareCircuit
 CycleAwareDomain
-CycleAwarePriorityEncodeResult
 CycleAwareSignal
 CycleAwareTb
 DesignError
@@ -26,6 +25,7 @@ ProbeBuilder
 ProbeError
 ProbeRef
 ProbeView
+PriorityEncodeResult
 PyCircuitError
 PycEnum
 Reg

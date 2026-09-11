@@ -21,13 +21,7 @@ FRONTEND_CONTRACT = "pycircuit"
 
 
 _REMOVED_CALL_HINTS: dict[str, str] = {
-    "eq": "use `lhs == rhs`",
-    "lt": "use `lhs < rhs`",
     "cond": "use Python control flow (`if` / `a if cond else b`)",
-    "select": "use `true_val if cond else false_val`",
-    "trunc": "remove explicit cast and use slicing only when required",
-    "zext": "remove explicit cast and rely on width inference",
-    "sext": "remove explicit cast and rely on signed inference",
     "compile_design": "use `compile(...)`",
     "template": "use `const`",
     "instance_bind": "use `new(...)`",
@@ -63,13 +57,56 @@ _REMOVED_CALL_HINTS: dict[str, str] = {
 
 
 def removed_call_hint(name: str) -> str | None:
-    return _REMOVED_CALL_HINTS.get(str(name))
+    normalized = str(name)
+    policy = DECLARATIVE_METHOD_POLICY.get(normalized)
+    if policy is not None:
+        return policy.hint
+    return _REMOVED_CALL_HINTS.get(normalized)
+
+
+@dataclass(frozen=True)
+class DeclarativeMethodPolicy:
+    """Receiver policy shared by static API scanning and declarative JIT."""
+
+    code: str
+    allowed_receiver_kinds: frozenset[str]
+    hint: str
+
+
+DECLARATIVE_METHOD_POLICY: dict[str, DeclarativeMethodPolicy] = {
+    "eq": DeclarativeMethodPolicy("PYC415", frozenset(), "use `lhs == rhs`"),
+    "lt": DeclarativeMethodPolicy("PYC415", frozenset(), "use `lhs < rhs`"),
+    "select": DeclarativeMethodPolicy(
+        "PYC415", frozenset({"CAS"}), "use `true_val if cond else false_val`"
+    ),
+    "trunc": DeclarativeMethodPolicy(
+        "PYC415",
+        frozenset({"CAS"}),
+        "use CycleAwareSignal.trunc(width=...) or slicing",
+    ),
+    "zext": DeclarativeMethodPolicy(
+        "PYC415", frozenset({"CAS"}), "use CycleAwareSignal.zext(width=...)"
+    ),
+    "sext": DeclarativeMethodPolicy(
+        "PYC415", frozenset({"CAS"}), "use CycleAwareSignal.sext(width=...)"
+    ),
+    "as_unsigned": DeclarativeMethodPolicy(
+        "PYC418", frozenset({"CAS"}), "use CycleAwareSignal.as_unsigned()"
+    ),
+}
+
+
+def declarative_method_allowed(attr: str, receiver_kind: str) -> bool:
+    """Return whether a declarative method is valid for a receiver category."""
+
+    policy = DECLARATIVE_METHOD_POLICY.get(str(attr))
+    return policy is None or str(receiver_kind).upper() in policy.allowed_receiver_kinds
 
 
 @dataclass(frozen=True)
 class TextRule:
     code: str
-    pattern: re.Pattern[str]
+    pattern: re.Pattern[str] | None
     message: str
     hint: str | None = None
 
@@ -141,8 +178,8 @@ TEXT_RULES: tuple[TextRule, ...] = (
     ),
     TextRule(
         code="PYC415",
-        pattern=_rx(r"(?!x)x"),
-        message="removed method-style Wire API",
+        pattern=None,
+        message="non-canonical method-style signal API",
     ),
     # PYC416 (ban on mux/cond) intentionally omitted:
     # Direct CycleAware elaboration requires mux(); JIT also accepts it, so
@@ -161,7 +198,7 @@ TEXT_RULES: tuple[TextRule, ...] = (
     ),
     TextRule(
         code="PYC418",
-        pattern=_rx(r"(?!x)x"),
+        pattern=None,
         message="removed Wire cast helper",
     ),
     TextRule(
@@ -197,17 +234,6 @@ TEXT_RULES: tuple[TextRule, ...] = (
         hint="use standalone `@probe(target=...)` definitions",
     ),
 )
-
-
-_REMOVED_WIRE_METHODS = {
-    "eq": "PYC415",
-    "lt": "PYC415",
-    "select": "PYC415",
-    "trunc": "PYC415",
-    "zext": "PYC415",
-    "sext": "PYC415",
-    "as_unsigned": "PYC418",
-}
 
 
 _PYC_IMPORT_MODULES = {"pycircuit", "pycircuit.hw", "pycircuit.v6"}
@@ -380,7 +406,7 @@ class _TypedWireMethodVisitor(ast.NodeVisitor):
         if isinstance(node, ast.Attribute):
             if node.attr == "q":
                 return "WIRE"
-            if node.attr in _REMOVED_WIRE_METHODS:
+            if node.attr in DECLARATIVE_METHOD_POLICY:
                 return "UNKNOWN"
             return self._infer(node.value)
         if not isinstance(node, ast.Call):
@@ -554,7 +580,7 @@ class _TypedWireMethodVisitor(ast.NodeVisitor):
             and len(value.args) >= 2
             and isinstance(value.args[1], ast.Constant)
             and isinstance(value.args[1].value, str)
-            and value.args[1].value in _REMOVED_WIRE_METHODS
+            and value.args[1].value in DECLARATIVE_METHOD_POLICY
         ):
             self._diagnose_receiver(value.args[0], value.args[1].value, value)
 
@@ -562,9 +588,9 @@ class _TypedWireMethodVisitor(ast.NodeVisitor):
         self, receiver: ast.expr, attr: str, location: ast.expr
     ) -> None:
         receiver_kind = self._infer(receiver)
-        if receiver_kind == "CAS":
+        if declarative_method_allowed(attr, receiver_kind):
             return
-        code = _REMOVED_WIRE_METHODS[attr]
+        code = DECLARATIVE_METHOD_POLICY[attr].code
         self.diagnostics.append(
             make_diagnostic(
                 code=code,
@@ -572,7 +598,10 @@ class _TypedWireMethodVisitor(ast.NodeVisitor):
                 path=str(self.path),
                 line=location.lineno,
                 col=location.col_offset + 1,
-                message=f"removed Wire method `.{attr}()` on {receiver_kind.lower()} receiver",
+                message=(
+                    f"non-canonical signal method `.{attr}()` on "
+                    f"{receiver_kind.lower()} receiver"
+                ),
                 hint=removed_call_hint(attr),
                 snippet=self.lines[location.lineno - 1],
             )
@@ -621,7 +650,7 @@ class _TypedWireMethodVisitor(ast.NodeVisitor):
         self._visit_comprehension(node.generators, [node.key, node.value])
 
     def visit_Attribute(self, node: ast.Attribute) -> None:  # noqa: N802
-        if node.attr in _REMOVED_WIRE_METHODS:
+        if node.attr in DECLARATIVE_METHOD_POLICY:
             self._diagnose_method(node)
         self.generic_visit(node)
 
@@ -655,6 +684,8 @@ def scan_text(
     out: list[Diagnostic] = []
     for line_no, line in enumerate(text.splitlines(), start=1):
         for rule in rules:
+            if rule.pattern is None:
+                continue
             for m in rule.pattern.finditer(line):
                 out.append(
                     make_diagnostic(

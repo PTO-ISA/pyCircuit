@@ -6,8 +6,8 @@ from pycircuit import (
     Tb,
     build_cycle_aware,
     structural,
-    testbench,
 )
+from pycircuit.design import testbench
 
 PTYPE_C = 0
 PTYPE_P = 1
