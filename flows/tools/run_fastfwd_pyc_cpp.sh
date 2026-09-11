@@ -67,7 +67,7 @@ cd "${ROOT_DIR}"
 
 python3 "${ROOT_DIR}/flows/tools/check_api_hygiene.py" \
   python/pycircuit/src/pycircuit \
-  examples/pycircuit/fastfwd \
+  examples/pycircuit/features/fastfwd \
   docs \
   README.md
 
@@ -98,7 +98,7 @@ if (( ${#PARAMS[@]} )); then
   done
 fi
 
-emit_cmd=(python3 -m pycircuit.cli emit examples/pycircuit/fastfwd/fastfwd.py)
+emit_cmd=(python3 -m pycircuit.cli emit examples/pycircuit/features/fastfwd/fastfwd.py)
 if (( ${#EMIT_ARGS[@]} )); then
   emit_cmd+=("${EMIT_ARGS[@]}")
 fi

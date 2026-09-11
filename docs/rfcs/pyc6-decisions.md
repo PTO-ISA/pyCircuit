@@ -3909,10 +3909,12 @@ compatibility aliases.
 - Byte-for-byte Agentic frontend outputs live under
   `tests/goldens/agentic-circuit/frontend`; source fixtures remain beside the
   frontend tests that consume them.
-- Reference designs and external-system work are classified explicitly:
-  reusable blocks live under `designs/blocks`, supported frontend examples live
-  under `examples`, system integrations live under `integrations`, board assets
-  live under `platforms`, and imported upstream references live under
+- Public examples are minimal runnable demonstrations under `examples`; larger
+  framework-owned cross-backend designs live under
+  `tests/integration/pycircuit/fixtures`. Performance workloads live under
+  `benchmarks`, while generated profiles and binaries remain in
+  `.pycircuit_out`. Complete consumer systems and board assets stay in their
+  owning repositories; imported upstream material lives under
   `third_party/references`.
 - The former nested Agentic Circuit and runtime directories are removed from the
   current tree. No symlink, forwarding package, path fallback, or duplicate
@@ -3926,8 +3928,9 @@ compatibility aliases.
   namespaces remain distinct.
 
 **Verification**
-- Layout checks reject deprecated current-tree roots and verify every required
-  Agentic Circuit module root.
+- Layout checks reject deprecated current-tree roots, generated artifacts in
+  active source trees, undiscovered public examples, and missing responsibility
+  roots.
 - Repository CMake configuration, AC G0/G1/G2 orchestration, schema/IR coverage,
   example discovery, and documentation build resolve only canonical paths.
 - API hygiene, shell syntax checks, schema catalog generation, and strict
@@ -3935,6 +3938,13 @@ compatibility aliases.
 
 **Source**
 - pyCircuit repository responsibility-layout hard break (2026-09-03).
+- Layout refresh (2026-09-12), informed by the LLVM testing split between
+  unit, regression, and whole-program suites; CIRCT's separate `examples`,
+  `test`, `unittests`, and `integration_test` roots; and Amaranth's
+  CI-executed, purpose-grouped examples:
+  [LLVM Testing Guide](https://llvm.org/docs/TestingGuide.html),
+  [CIRCT tree](https://github.com/llvm/circt/tree/b792c772819df723628d1fe6073269b85a8ade5d),
+  [Amaranth example gate](https://github.com/amaranth-lang/amaranth/blob/56f1cab5a19240d54e1bf587a27d831bade6de61/tests/test_examples.py).
 
 ## Decision 0158: consumer designs and integration tooling are out of tree
 

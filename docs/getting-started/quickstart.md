@@ -21,7 +21,7 @@ PYTHONPATH=python/pycircuit/src python3 -c \
 ```bash
 PYTHONPATH=python/pycircuit/src \
 python3 -m pycircuit.cli build \
-  examples/pycircuit/counter/tb_counter.py \
+  examples/pycircuit/basics/counter/tb_counter.py \
   --out-dir /tmp/pyc_counter \
   --target both \
   --jobs 8

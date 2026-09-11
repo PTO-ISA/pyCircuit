@@ -35,7 +35,7 @@ export PYTHONPATH=$PWD/python/pycircuit/src:$PYTHONPATH
 export PYC_TOOLCHAIN_ROOT=$PWD/.pycircuit_out/toolchain/install
 
 python3 -c "import pycircuit; print('ok')"
-python3 -m pycircuit.cli build examples/pycircuit/counter/tb_counter.py \
+python3 -m pycircuit.cli build examples/pycircuit/basics/counter/tb_counter.py \
     --out-dir /tmp/pyc_counter --target cpp --jobs 8
 ```
 
@@ -494,7 +494,7 @@ export PYC_TOOLCHAIN_ROOT=$PWD/.pycircuit_out/toolchain/install   # pycc 所在�
 
 ```bash
 # 生成 RTL + C++ 仿真器 + Verilator 仿真器，并直接运行 Verilator 仿真
-python3 -m pycircuit.cli build examples/pycircuit/counter/tb_counter.py \
+python3 -m pycircuit.cli build examples/pycircuit/basics/counter/tb_counter.py \
     --out-dir /tmp/pyc_counter \
     --target both --jobs 8 \
     --logic-depth 64 \
@@ -663,7 +663,7 @@ C++ 仿真器支持 VCD：测试运行目录下生成 `.vcd`，用 GTKWave / Sur
 ### 目录布局
 
 ```text
-designs/my_soc/
+consumer_project/my_soc/
 ├── common/parameters.py       # 全局参数（位宽、深度、端口数）
 ├── frontend/
 │   ├── fetch/fetch.py         # 一个模块函数 = 一个文件
@@ -710,7 +710,8 @@ designs/my_soc/
 - 完整语言定义（`Data` 类型体系 / `Wire[DT]` / MLIR 映射的权威语义）：`docs/reference/language.md`
 - 3D 堆叠分层标注（`tier=` / `jump_tier`，Proposed）：`docs/reference/language.md` 的“Tier 分层标注”与 `docs/rfcs/tier_annotation.md`
 - 工具链内部（pyc 方言、pass 流水线、双发射器、sidecar 运行时）：`docs/architecture/overview.md`
-- 仓库内可运行示例：`examples/pycircuit/`（counter、calculator、fifo_loopback…）、`designs/blocks/BypassUnit`（标量 lane 列表）、`designs/blocks/IssueQueue`（标量重复结构 + 复杂状态）
+- 仓库内可运行示例：`examples/pycircuit/{basics,features,applications}/`；
+  较大的跨后端门禁设计位于 `tests/integration/pycircuit/fixtures/`。
 
 ---
 

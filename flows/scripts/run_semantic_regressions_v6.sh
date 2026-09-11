@@ -6,6 +6,7 @@ pyc_find_pycc
 
 PYTHONPATH_VAL="$(pyc_pythonpath)"
 OUT_BASE="$(pyc_out_root)/semantic_v6"
+DISCOVER="${PYC_ROOT_DIR}/flows/tools/discover_examples.py"
 mkdir -p "${OUT_BASE}"
 
 gate_run_id="${PYC_GATE_RUN_ID:-$(date +%Y%m%d-%H%M%S)}"
@@ -16,12 +17,19 @@ pyc_log "semantic regressions v6 run-id=${gate_run_id}"
 
 run_case() {
   local case_name="$1"
-  local trace_cfg="${2:-}"
+  local trace_name="${2:-}"
   local out_dir="${OUT_BASE}/${case_name}"
   rm -rf "${out_dir}" >/dev/null 2>&1 || true
   mkdir -p "${out_dir}"
-  local tb="${PYC_ROOT_DIR}/examples/pycircuit/${case_name}/tb_${case_name}.py"
-  [[ -f "${tb}" ]] || pyc_die "missing tb source: ${tb}"
+  local record
+  record="$(python3 "${DISCOVER}" --root "${PYC_ROOT_DIR}/examples/pycircuit" --tier all --format tsv | awk -F '\t' -v name="${case_name}" '$1 == name { print; exit }')"
+  [[ -n "${record}" ]] || pyc_die "missing discovered example: ${case_name}"
+  local _name _category design tb _cfg _tier
+  IFS=$'\t' read -r _name _category design tb _cfg _tier <<< "${record}"
+  local trace_cfg=""
+  if [[ -n "${trace_name}" ]]; then
+    trace_cfg="$(dirname "${design}")/${trace_name}"
+  fi
 
   local cmd=(python3 -m pycircuit.cli build
     "${tb}"
@@ -51,8 +59,8 @@ PY
   (cd "${out_dir}" && "${cpp_bin}")
 }
 
-run_case "xz_value_model_smoke" "${PYC_ROOT_DIR}/examples/pycircuit/xz_value_model_smoke/xz_value_model_smoke_trace.json"
-run_case "reset_invalidate_order_smoke" "${PYC_ROOT_DIR}/examples/pycircuit/reset_invalidate_order_smoke/reset_invalidate_order_smoke_trace.json"
+run_case "xz_value_model_smoke" "xz_value_model_smoke_trace.json"
+run_case "reset_invalidate_order_smoke" "reset_invalidate_order_smoke_trace.json"
 run_case "net_resolution_depth_smoke" ""
 
 xz_out="${OUT_BASE}/xz_value_model_smoke"

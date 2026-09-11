@@ -1,6 +1,11 @@
 # Examples
 
-This directory contains folderized pyCircuit examples.
+This directory contains public, folderized pyCircuit examples grouped by user
+intent:
+
+- [`basics`](basics/README.md): minimal introductions to core authoring.
+- [`features`](features/README.md): one focused language or tooling contract.
+- [`applications`](applications/README.md): self-contained multi-feature demos.
 
 ## Layout contract
 
@@ -11,9 +16,9 @@ Each example case `X` is a folder. Runnable compiler/simulation cases use:
 - `X/tb_X.py`: testbench (`@testbench def tb(...)`)
 - `X/X_config.py`: default params + TB presets + `SIM_TIER`
 
-Some focused API or visualization examples are not simulation cases and may
-carry only their design and supporting assets. `discover_examples.py` is the
-authority for the folderized gate set; a CycleAware design uses
+Application examples may also contain an emulator or handwritten host wrapper.
+`discover_examples.py` is the authority for the folderized gate set and rejects
+any named design outside the canonical triplet. A CycleAware design uses
 `compile_cycle_aware()` for canonical JIT compilation or
 `build_cycle_aware()` for explicit Python elaboration.
 

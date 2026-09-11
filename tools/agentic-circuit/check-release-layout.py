@@ -29,19 +29,25 @@ LAYOUT_REQUIRED_ROOTS = (
     Path("library/verilog"),
     Path("simulator/gfsim"),
     Path("schemas/agentic-circuit"),
-    Path("examples/pycircuit"),
+    Path("examples/pycircuit/applications"),
+    Path("examples/pycircuit/basics"),
+    Path("examples/pycircuit/features"),
     Path("examples/agentic-circuit"),
-    Path("designs/blocks"),
+    Path("benchmarks/pycircuit"),
+    Path("tests/integration/pycircuit/fixtures"),
     Path("toolchains/agentic-circuit"),
     Path("tools/agentic-circuit"),
 )
 ACTIVE_ROOTS = REQUIRED_ROOTS + (
+    Path("benchmarks"),
     Path("compiler/acir"),
+    Path("examples/pycircuit"),
     Path("python/agentic-circuit"),
     Path("schemas/agentic-circuit"),
     Path("simulator/gfsim"),
     Path("tests/cpp/agentic-circuit"),
     Path("tests/integration/agentic-circuit"),
+    Path("tests/integration/pycircuit"),
     Path("tests/mlir/agentic-circuit"),
     Path("tests/python/agentic-circuit"),
     Path("toolchains/agentic-circuit"),
@@ -50,7 +56,7 @@ ACTIVE_ROOTS = REQUIRED_ROOTS + (
 DEPRECATED_ROOTS = (
     Path("components"),
     Path("runtime"),
-    Path("designs/examples"),
+    Path("designs"),
     Path("designs/BypassUnit"),
     Path("designs/IssueQueue"),
     Path("designs/RegisterFile"),
@@ -62,6 +68,14 @@ DEPRECATED_ROOTS = (
     Path("platforms"),
     Path("examples/pycircuit/linxcore_frontend_pipeline"),
 )
+GENERATED_ARTIFACT_SUFFIXES = {
+    ".a",
+    ".dylib",
+    ".o",
+    ".profdata",
+    ".profraw",
+    ".so",
+}
 DEPRECATED_TEXT_PATTERNS = {
     "components/agentic-circuit": re.compile(
         r"(?:components/agentic-circuit|[\"']components[\"']\s*/\s*[\"']agentic-circuit[\"'])"
@@ -168,6 +182,11 @@ def main(argv: list[str] | None = None) -> int:
     errors.extend(
         f"deprecated repository root is still tracked: {file_path}"
         for file_path in tracked_deprecated_paths(root)
+    )
+    errors.extend(
+        f"generated artifact is tracked in an active source tree: {file_path}"
+        for file_path in tracked_paths(root)
+        if Path(file_path).suffix.lower() in GENERATED_ARTIFACT_SUFFIXES
     )
     for path in tracked_text_files(root):
         text = path.read_text(encoding="utf-8")

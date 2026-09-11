@@ -246,7 +246,7 @@ Build the repository counter example for both backends:
 export PYC_TOOLCHAIN_ROOT="$PWD/.pycircuit_out/toolchain/install"
 PYTHONPATH=python/pycircuit/src \
 python3 -m pycircuit.cli build \
-  examples/pycircuit/counter/tb_counter.py \
+  examples/pycircuit/basics/counter/tb_counter.py \
   --out-dir /tmp/pyc_counter \
   --target both \
   --jobs 8
@@ -336,7 +336,8 @@ pyCircuit/
 ├── compiler/acir/                # ACIR/ACSim dialects, passes, and tools
 ├── library/                      # pyCircuit C++ and Verilog libraries
 ├── simulator/gfsim/             # Agentic Circuit architecture simulator
-├── examples/                     # pyCircuit and Agentic Circuit examples
+├── examples/                     # Public pyCircuit and Agentic Circuit examples
+├── benchmarks/                   # Performance workloads; generated data stays out of tree
 ├── flows/                        # Build and validation orchestration
 ├── tests/                        # Language- and layer-classified tests
 └── docs/                         # Audience-organized product, architecture, and contributor docs

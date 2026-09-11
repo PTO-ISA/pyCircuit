@@ -12,6 +12,7 @@ from pathlib import Path
 @dataclass(frozen=True)
 class ExampleCase:
     name: str
+    category: str
     design: Path
     tb: Path
     config: Path
@@ -61,9 +62,10 @@ def _parse_pyc_name(design_path: Path) -> str | None:
     return None
 
 
-def _looks_like_design(path: Path) -> bool:
-    text = path.read_text(encoding="utf-8")
-    return "@module" in text and "def build(" in text
+def _declares_design(path: Path) -> bool:
+    """Return whether a Python file declares a named pyCircuit build."""
+
+    return _parse_pyc_name(path) is not None
 
 
 def _discover(root: Path) -> list[ExampleCase]:
@@ -78,21 +80,23 @@ def _discover(root: Path) -> list[ExampleCase]:
         if d.name == "__pycache__":
             continue
         name = d.name
+        relative_parts = d.relative_to(root).parts
+        category = relative_parts[0] if len(relative_parts) > 1 else ""
         design = d / f"{name}.py"
         tb = d / f"tb_{name}.py"
         cfg = d / f"{name}_config.py"
 
         present = [design.exists(), tb.exists(), cfg.exists()]
-        # Cycle-aware examples use their own compile_cycle_aware entrypoint and
-        # are not consumable by the @module-based folderized-example runner.
-        if design.exists() and not _looks_like_design(design):
-            continue
         if any(present) and not all(present):
             errs.append(
                 f"{d}: malformed example folder (requires {name}.py, tb_{name}.py, {name}_config.py)"
             )
             continue
         if not all(present):
+            continue
+
+        if category not in {"applications", "basics", "features"}:
+            errs.append(f"{d}: example must belong to a supported category")
             continue
 
         if name in names:
@@ -114,7 +118,14 @@ def _discover(root: Path) -> list[ExampleCase]:
             continue
 
         cases.append(
-            ExampleCase(name=name, design=design, tb=tb, config=cfg, tier=tier)
+            ExampleCase(
+                name=name,
+                category=category,
+                design=design,
+                tb=tb,
+                config=cfg,
+                tier=tier,
+            )
         )
 
     # Enforce hard-break layout: every design module under examples/ must belong to a discovered case.
@@ -128,7 +139,7 @@ def _discover(root: Path) -> list[ExampleCase]:
             continue
         if py.name.startswith("emulate_"):
             continue
-        if not _looks_like_design(py):
+        if not _declares_design(py):
             continue
         if py.resolve() not in case_designs:
             errs.append(f"{py}: design module is outside required folderized layout")
@@ -142,6 +153,7 @@ def _emit_json(cases: list[ExampleCase]) -> None:
     payload = [
         {
             "name": c.name,
+            "category": c.category,
             "design": str(c.design),
             "tb": str(c.tb),
             "config": str(c.config),
@@ -154,7 +166,7 @@ def _emit_json(cases: list[ExampleCase]) -> None:
 
 def _emit_tsv(cases: list[ExampleCase]) -> None:
     for c in cases:
-        print(f"{c.name}\t{c.design}\t{c.tb}\t{c.config}\t{c.tier}")
+        print(f"{c.name}\t{c.category}\t{c.design}\t{c.tb}\t{c.config}\t{c.tier}")
 
 
 def main(argv: list[str] | None = None) -> int:

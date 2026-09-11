@@ -71,17 +71,19 @@ The full workflow is documented in `docs/reference/language.md` under
 
 ---
 
-## Where example designs live
+## Where examples and integration fixtures live
 
-Illustrations of **grammar and structure** are under **`designs/`** and subfolders (path: `/designs` relative to repo root). Study these in **Step 1**:
+Use public examples to learn authoring and integration fixtures to study
+large cross-backend coverage. The repository has no general-purpose
+`designs/` root:
 
 | Area | Examples (non-exhaustive) |
 |------|---------------------------|
 | **V6 hierarchical composition** (full-scale, `domain.call()` + `submodule_input()` + `wire_of()`) | Repository designs and examples using the pyCircuit 6 surface |
-| **V6 cycle-aware style** (single-module) | `designs/blocks/BypassUnit/`, `designs/blocks/RegisterFile/`, `designs/blocks/IssueQueue/`, and `examples/pycircuit/*/` |
-| **`@module` + JIT** | `examples/pycircuit/counter/`, `examples/pycircuit/jit_control_flow/`, `examples/pycircuit/hier_modules/` |
+| **V6 cycle-aware style** (single-module) | `examples/pycircuit/basics/`, `examples/pycircuit/features/`, and `examples/pycircuit/applications/` |
+| **`@module` + JIT** | `examples/pycircuit/basics/counter/`, `examples/pycircuit/features/jit_control_flow/`, `examples/pycircuit/features/hier_modules/` |
 | **V6 testbench** (`CycleAwareTb`) | `tests/unit/test_pyc6_surface.py`, `tests/unit/test_v6_state_signal.py`, and repository examples |
-| **Testbench layout** (low-level `Tb`) | `examples/pycircuit/*/tb_*.py`, `designs/blocks/BypassUnit/tb_bypass_unit.py`, `designs/blocks/RegisterFile/tb_regfile.py` |
+| **Testbench layout** (low-level `Tb`) | `examples/pycircuit/*/*/tb_*.py` and `tests/integration/pycircuit/fixtures/*/tb_*.py` |
 | **Structured IO** | Designs using `spec` / bundles per `docs/reference/spec-structures.md` |
 
 Mirror the **directory layout** (design file + `tb_*.py` + optional `README.md`) of the generic example closest to your block's complexity. Complete consumer hierarchies remain in their owning repositories.
@@ -104,10 +106,10 @@ the structural API's explicit occurrence metadata.
    - **Hierarchical MLIR Emission**: `build_cycle_aware(..., hierarchical=True)`.
    - **Simulation**: `CycleAwareTb` for cycle-aware testbenches.
 2. Read **`docs/reference/frontend-api.md`** and **`docs/reference/testbench.md`** for `@module`, `Circuit`, and simulation contracts.
-3. Open **2–3 concrete examples** under `designs/` that match your intended style:
+3. Open **2–3 concrete examples or fixtures** that match your intended style:
    - **V6 hierarchical**: supported repository designs using `domain.call()`.
-   - **V6 single-module**: `designs/blocks/BypassUnit/`, `designs/blocks/RegisterFile/`.
-   - **`@module`**: `examples/pycircuit/counter/`, `examples/pycircuit/hier_modules/`.
+   - **V6 single-module**: `tests/integration/pycircuit/fixtures/bypass_unit/`, `tests/integration/pycircuit/fixtures/regfile/`.
+   - **`@module`**: `examples/pycircuit/basics/counter/`, `examples/pycircuit/features/hier_modules/`.
 4. Note **non-negotiables** from `AGENTS.md`: gate-first IR changes; no backend-only semantic fixes.
 
 **Deliverable:** Short notes in the design documentation: identify whether the
@@ -120,7 +122,12 @@ name the supported example used as the style reference.
 
 **Why:** Autonomous agents and text-first workflows search, diff, and cite specifications most reliably from **plain Markdown**. Raw **`.docx`**, **`.pdf`**, and **`.xlsx`** files are easy for humans to open but are **poor primary sources** for automated analysis: layout noise, embedded objects, multi-sheet structure, and extraction errors make "read the spec" ambiguous.
 
-**Rule:** **Before** analyzing block-specific design documents in **Step 2**, convert every **normative** artifact in those formats into **`.md`** under the block's documentation tree (e.g. `designs/<Block>/docs/` or `designs/<Block>/docs/converted/`). Treat the Markdown as the **working copy** for implementation and traceability; keep the originals as the legal/normative file where the project requires it.
+**Rule:** **Before** analyzing block-specific design documents in **Step 2**,
+convert every **normative** artifact in those formats into **`.md`** under the
+owning consumer project's documentation tree, such as
+`docs/blocks/<block>/converted/`. Treat the Markdown as the **working copy** for
+implementation and traceability; keep the originals where the owning project
+requires them.
 
 **Conversion expectations:**
 
@@ -141,7 +148,11 @@ name the supported example used as the style reference.
 
 ## From converted Markdown to feature list, step docs, and test plan
 
-**Purpose:** Once normative inputs live as **`.md`** under the block (typically `designs/<Block>/docs/converted/`), this subsection defines how to **propagate** that text into **`FEATURE_LIST`**, optional **per-step markdown** (`step1.md` … `step10.md`), **`TRACEABILITY`**, and **`TEST_PLAN`** so agents and reviewers share one chain of evidence. A completed block under **`designs/`** can serve as a **reference layout** (e.g. `feature_list.md`, `workflow_substeps.md`, `run_<block>_verification.py`).
+**Purpose:** Once normative inputs live as **`.md`** under the owning block,
+this subsection defines how to **propagate** that text into `FEATURE_LIST`,
+optional per-step Markdown, `TRACEABILITY`, and `TEST_PLAN` so agents and
+reviewers share one chain of evidence. Framework examples demonstrate language
+usage; consumer repositories own complete block documentation and sign-off.
 
 ### 1. End-to-end pipeline (recommended order)
 
@@ -376,11 +387,15 @@ For complex blocks, mirror this repository's **10-step** narrative in **block-lo
 
 ## Relationship to block-specific projects
 
-- For any block, block-specific specs live under `designs/<Block>/docs/`. Start Step 2 there after Step 1, **after** any **DOCX/PDF/XLSX → Markdown** conversion for files you will analyze in depth.
-- Existing completed blocks under `designs/` can serve as worked examples of the **From converted Markdown to feature list, step docs, and test plan** pipeline (including **heading checklist**, **`workflow_substeps.md`**, **`cycle_budget.md`**, and **`run_<block>_verification.py`**).
+- Complete block specifications and sign-off assets live in the owning consumer
+  repository. Start Step 2 there after converting any binary source that will
+  be analyzed in depth.
+- Framework integration fixtures prove generic compiler/runtime behavior; they
+  are not templates for consumer project ownership or documentation layout.
 - Supported repository examples and V6 tests are the canonical references for
   the hierarchical composition workflow.
-- For new blocks, substitute the appropriate `designs/<Block>/docs/` (or project doc root) and reuse the same artifact names where practical.
+- For new blocks, use the owning project's documentation root and reuse the same
+  artifact names where practical.
 
 ## Relationship to repository policy
 

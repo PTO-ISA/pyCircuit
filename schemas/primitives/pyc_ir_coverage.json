@@ -738,7 +738,7 @@
       "cpp_emitter": "compiler/mlir/lib/Emit/CppEmitter.cpp",
       "e2e": [],
       "examples": [
-        "examples/pycircuit/fmac/primitive_standard_cells.py"
+        "examples/pycircuit/applications/bf16_fmac/primitive_standard_cells.py"
       ],
       "folder": "compiler/mlir/lib/Dialect/PYC/PYCOps.cpp",
       "kind": "operation",

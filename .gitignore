@@ -10,6 +10,8 @@ __pycache__/
 *.so
 *.dylib
 *.dSYM/
+*.profdata
+*.profraw
 
 # Generated PDFs (schematics, etc.)
 *.pdf
@@ -19,8 +21,6 @@ __pycache__/
 /build/
 /build-*/
 python/semantic-core/build/
-designs/**/build/
-designs/**/build_out/
 compiler/mlir/build*/
 develop-eggs/
 dist/

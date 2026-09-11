@@ -5,6 +5,9 @@ may change frequently.
 
 ## Unreleased
 
+- Classify every public pyCircuit example as a basic, feature, or application;
+  gate all 28 examples; move large framework fixtures under integration tests;
+  and separate benchmark sources from generated profiles.
 - Reorganize documentation by audience and contract type.
 - Close repository consistency gaps in the optimizer driver, source-resource
   discovery, CLI exit policy, examples, and verification coverage.

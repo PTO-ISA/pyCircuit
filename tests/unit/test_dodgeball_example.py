@@ -7,7 +7,7 @@ import pytest
 
 pytestmark = pytest.mark.unit
 ROOT = Path(__file__).resolve().parents[2]
-DESIGN = ROOT / "examples/pycircuit/dodgeball_game/lab_final_top.py"
+DESIGN = ROOT / "examples/pycircuit/applications/dodgeball_game/dodgeball_game.py"
 
 
 def test_dodgeball_cycle_aware_example_emits_canonical_pyc() -> None:

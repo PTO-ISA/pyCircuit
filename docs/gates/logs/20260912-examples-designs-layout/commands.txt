@@ -1,0 +1,15 @@
+pre-commit run --all-files
+pytest tests/unit -m unit
+python3 .github/scripts/validate_repo_management.py
+python3 flows/tools/check_api_hygiene.py python/pycircuit/src/pycircuit examples/pycircuit docs README.md
+python3 tools/check-pyc-inventory.py
+AC_PYTHON_ONLY=1 python3 tools/agentic-circuit/check-contracts.py
+AC_PYTHON_ONLY=1 python3 -m unittest discover -s tests/python/agentic-circuit/contracts -p 'test_*.py'
+AC_PYTHON_ONLY=1 python3 -m unittest discover -s tests/python/agentic-circuit/python_frontend -p 'test_*.py'
+AC_PYTHON_ONLY=1 python3 -m unittest discover -s tests/python/agentic-circuit/cli -p 'test_all_commands.py'
+AC_PYTHON_ONLY=1 python3 -m unittest discover -s tests/python/agentic-circuit/cli -p 'test_workspace.py'
+PYC_GATE_RUN_ID=20260912-examples-designs-layout bash flows/scripts/run_examples.sh
+PYC_GATE_RUN_ID=20260912-examples-designs-layout bash flows/scripts/run_semantic_regressions_v6.sh
+PYC_GATE_RUN_ID=20260912-examples-layout PYC_SIM_CASE_TIMEOUT_SEC=900 PYC_SIM_RETRY_ON_TIMEOUT=0 PYC_SIM_RESUME_FROM_CASE=bypass_unit bash flows/scripts/run_sims.sh
+python3 flows/tools/check_decision_status.py --rfc docs/rfcs/pyc6-decisions.md --status docs/gates/decision_status_v6.md --out .pycircuit_out/gates/20260912-examples-designs-layout/decision_status_report.json --require-no-deferred --require-all-verified --require-concrete-evidence --require-existing-evidence
+mkdocs build --strict
