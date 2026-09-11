@@ -1,0 +1,4 @@
+CompilerTests: 9 passed across CompilerDriverTest and PYCDiagnosticsTest.
+Focused diagnostic-codes lit: 1 passed, 214 excluded.
+Primitive-selection system test: 1 passed.
+pycc, ACIRCompiler, and CompilerTests targets built successfully from the current checkout.

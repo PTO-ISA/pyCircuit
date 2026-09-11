@@ -9,7 +9,7 @@ from .spec.types import BundleSpec, StagePipeSpec, StructSpec
 
 
 class ConnectorError(PyCircuitError, TypeError):
-    pass
+    default_code = "PYC-PY-CONNECTOR"
 
 
 def _merge_owner(owner: Any | None, candidate: Any | None, *, ctx: str) -> Any | None:

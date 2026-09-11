@@ -17,7 +17,7 @@ from typing import TYPE_CHECKING, get_origin
 
 from ._canonical_json import canonical_json_bytes, sha256_bytes
 from ._definitions import Definition
-from ._diagnostics import Diagnostic
+from ._diagnostics import Diagnostic, DiagnosticRuntimeError, DiagnosticTypeError
 from ._source_closure import SourceClosure, SourceClosureEntry, capture_source_closure
 from ._static_eval import FrozenMap, StaticValue, validate_ijson_value
 from ._types import Static
@@ -47,7 +47,7 @@ def _native_queue_tool(name: str, environment: str) -> Path:
     for candidate in candidates:
         if candidate.is_file():
             return candidate.resolve()
-    raise RuntimeError(
+    raise DiagnosticRuntimeError(
         f"ACPY-JIT-004: native {name} is required for @ac.rule lowering"
     )
 
@@ -61,7 +61,7 @@ def _lower_queue_acir(
         "acir-opt", "ACIR_OPT"
     )
     if not selected.is_file():
-        raise RuntimeError(
+        raise DiagnosticRuntimeError(
             f"ACPY-JIT-004: native acir-opt is unavailable: {selected}"
         )
     with tempfile.TemporaryDirectory() as directory:
@@ -82,7 +82,7 @@ def _lower_queue_acir(
             check=False,
         )
         if optimized.returncode != 0:
-            raise RuntimeError(
+            raise DiagnosticRuntimeError(
                 "ACPY-JIT-004: native rule lowering failed:\n" + optimized.stderr
             )
         return lowered.read_text(encoding="utf-8")
@@ -102,7 +102,7 @@ def _lower_acir_to_cpp(acir: str) -> str:
             check=False,
         )
         if emitted.returncode != 0:
-            raise RuntimeError(
+            raise DiagnosticRuntimeError(
                 "ACPY-JIT-004: native rule C++ generation failed:\n"
                 + emitted.stderr
             )
@@ -119,9 +119,9 @@ def config(cls: type[object]) -> type[object]:
     """Freeze one closed elaboration-time configuration record."""
 
     if not isinstance(cls, type):
-        raise TypeError("ACPY-JIT-001: config must decorate a class")
+        raise DiagnosticTypeError("ACPY-JIT-001: config must decorate a class")
     if dataclasses.is_dataclass(cls):
-        raise TypeError("ACPY-JIT-001: config class must not already be a dataclass")
+        raise DiagnosticTypeError("ACPY-JIT-001: config class must not already be a dataclass")
     frozen = dataclasses.dataclass(frozen=True, slots=True)(cls)
     setattr(frozen, "__ac_config__", True)
     return frozen
@@ -157,16 +157,16 @@ def _closed(value: object) -> StaticValue:
         result = tuple(_closed(item) for item in value)
     elif type(value) is dict:
         if any(type(key) is not str or not key for key in value):
-            raise TypeError("ACPY-JIT-002: const map keys must be non-empty strings")
+            raise DiagnosticTypeError("ACPY-JIT-002: const map keys must be non-empty strings")
         result = FrozenMap(
             tuple(sorted((key, _closed(item)) for key, item in value.items()))
         )
     else:
-        raise TypeError(f"ACPY-JIT-002: unsupported const value {type(value).__name__}")
+        raise DiagnosticTypeError(f"ACPY-JIT-002: unsupported const value {type(value).__name__}")
     try:
         validate_ijson_value(result)
     except ValueError as error:
-        raise TypeError(f"ACPY-JIT-002: {error}") from error
+        raise DiagnosticTypeError(f"ACPY-JIT-002: {error}") from error
     return result
 
 
@@ -216,13 +216,13 @@ class JitSpecialization:
         if self.workspace is None:
             return None
         if self.definition.source_file is None:
-            raise RuntimeError("ACPY-JIT-003: system has no readable source file")
+            raise DiagnosticRuntimeError("ACPY-JIT-003: system has no readable source file")
         try:
             current = capture_source_closure(
                 Path(self.definition.source_file), Path(self.workspace)
             )
         except (OSError, ValueError) as error:
-            raise RuntimeError(
+            raise DiagnosticRuntimeError(
                 f"ACPY-JIT-003: source closure is unavailable: {error}"
             ) from error
         if (
@@ -230,7 +230,7 @@ class JitSpecialization:
             or tuple((item.path, item.sha256) for item in current.entries)
             != self.source_manifest
         ):
-            raise RuntimeError(
+            raise DiagnosticRuntimeError(
                 "ACPY-JIT-003: source closure changed after specialization"
             )
         return current
@@ -243,7 +243,7 @@ class JitSpecialization:
                 source = Path(entry.source_file)
                 raw = source.read_bytes()
                 if sha256_bytes(raw) != entry.sha256:
-                    raise RuntimeError(
+                    raise DiagnosticRuntimeError(
                         "ACPY-JIT-003: source changed during lowering"
                     )
                 tree = ast.parse(
@@ -256,10 +256,10 @@ class JitSpecialization:
                 )
             return ast.unparse(ast.fix_missing_locations(ast.Module(statements, [])))
         if self.definition.source_file is None:
-            raise RuntimeError("ACPY-JIT-003: system has no readable source file")
+            raise DiagnosticRuntimeError("ACPY-JIT-003: system has no readable source file")
         path = Path(self.definition.source_file)
         if not path.is_file():
-            raise RuntimeError("ACPY-JIT-003: system source file is unavailable")
+            raise DiagnosticRuntimeError("ACPY-JIT-003: system source file is unavailable")
         return path.read_text(encoding="utf-8")
 
     def lower_acir(self) -> str:
@@ -303,7 +303,7 @@ class JitSpecialization:
 
         selected = str(compiler or shutil.which("c++") or "")
         if not selected:
-            raise RuntimeError("ACPY-JIT-004: no C++ compiler is available")
+            raise DiagnosticRuntimeError("ACPY-JIT-004: no C++ compiler is available")
         version = subprocess.run(
             (selected, "--version"),
             text=True,
@@ -311,7 +311,7 @@ class JitSpecialization:
             check=False,
         )
         if version.returncode != 0:
-            raise RuntimeError("ACPY-JIT-004: C++ compiler identity failed")
+            raise DiagnosticRuntimeError("ACPY-JIT-004: C++ compiler identity failed")
         compiler_identity = version.stdout.splitlines()[0].strip()
         cpp = self.lower_cpp()
         cpp_hash = sha256_bytes(cpp.encode("utf-8"))
@@ -357,7 +357,7 @@ class JitSpecialization:
                 check=False,
             )
             if completed.returncode != 0:
-                raise RuntimeError(
+                raise DiagnosticRuntimeError(
                     "ACPY-JIT-004: C++ specialization failed:\n" + completed.stderr
                 )
             os.replace(candidate, artifact)
@@ -408,7 +408,7 @@ class JitSpecialization:
         }
         for name, path in paths.items():
             if not path.is_file():
-                raise RuntimeError(
+                raise DiagnosticRuntimeError(
                     f"ACPY-JIT-005: required {name} path is unavailable: {path}"
                 )
         acir = _lower_queue_acir(
@@ -492,7 +492,7 @@ class JitSpecialization:
                 },
             )
             if completed.returncode != 0:
-                raise RuntimeError(
+                raise DiagnosticRuntimeError(
                     "ACPY-JIT-005: PYC specialization failed:\n" + completed.stderr
                 )
             manifest_value = {
@@ -511,7 +511,7 @@ class JitSpecialization:
                 canonical_json_bytes(manifest_value) + b"\n",
             )
             if directory.exists():
-                raise RuntimeError(
+                raise DiagnosticRuntimeError(
                     "ACPY-JIT-005: specialization cache entry appeared incomplete"
                 )
             os.replace(stage, directory)
@@ -579,10 +579,10 @@ def jit(
     """
 
     if not isinstance(system, Definition) or system.kind != "system":
-        raise TypeError("ACPY-JIT-001: jit requires an @ac.system definition")
+        raise DiagnosticTypeError("ACPY-JIT-001: jit requires an @ac.system definition")
     signature = inspect.signature(system.function)
     if "workspace" in signature.parameters:
-        raise TypeError(
+        raise DiagnosticTypeError(
             "ACPY-JIT-001: system parameter 'workspace' is reserved by jit"
         )
     parameters = tuple(signature.parameters.values())
@@ -598,13 +598,13 @@ def jit(
     supplied_names = set(constants)
     supplied_runtime = sorted(supplied_names & runtime_names)
     if supplied_runtime:
-        raise TypeError(
+        raise DiagnosticTypeError(
             "ACPY-JIT-001: runtime system parameter "
             f"{supplied_runtime[0]!r} cannot be specialized"
         )
     unknown = sorted(supplied_names - static_names)
     if unknown:
-        raise TypeError(f"ACPY-JIT-001: unexpected const argument {unknown[0]!r}")
+        raise DiagnosticTypeError(f"ACPY-JIT-001: unexpected const argument {unknown[0]!r}")
 
     arguments: list[tuple[str, StaticValue]] = []
     for parameter in static_parameters:
@@ -613,7 +613,7 @@ def jit(
         elif parameter.default is not inspect.Parameter.empty:
             value = parameter.default
         else:
-            raise TypeError(
+            raise DiagnosticTypeError(
                 "ACPY-JIT-001: missing required const argument "
                 f"{parameter.name!r}"
             )

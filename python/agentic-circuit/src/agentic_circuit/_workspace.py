@@ -3,14 +3,14 @@
 from __future__ import annotations
 
 import re
-import tomllib
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal, NoReturn
 
-from ._canonical_json import JsonValue, validate_ijson_value
-from ._diagnostics import Diagnostic
+import tomllib
 
+from ._canonical_json import JsonValue, validate_ijson_value
+from ._diagnostics import AgenticCircuitError, Diagnostic
 
 _NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_.-]*$")
 _TOP_LEVEL = frozenset(
@@ -18,11 +18,11 @@ _TOP_LEVEL = frozenset(
 )
 
 
-class UserInputError(Exception):
+class UserInputError(AgenticCircuitError):
     """A stable user-facing configuration or command failure."""
 
     def __init__(self, diagnostic: Diagnostic):
-        super().__init__(diagnostic.message)
+        super().__init__(diagnostic.code, diagnostic.message, diagnostic.source)
         self.diagnostic = diagnostic
 
 

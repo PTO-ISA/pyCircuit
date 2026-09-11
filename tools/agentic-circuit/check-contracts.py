@@ -1,13 +1,12 @@
 #!/usr/bin/env python3
-import importlib.util
 import hashlib
+import importlib.util
 import json
 import re
 import subprocess
 import sys
 from pathlib import Path
 from urllib.parse import unquote
-
 
 ROOT = Path(__file__).resolve().parents[2]
 EPOCH = "0.5"
@@ -255,6 +254,22 @@ def check_stdlib_catalog(errors):
         errors.append(generation.stderr.strip() or "standard-library catalog is stale")
 
 
+def check_diagnostic_catalog(errors):
+    generation = subprocess.run(
+        [
+            sys.executable,
+            ROOT / "tools/agentic-circuit/generate-diagnostic-catalog.py",
+            "--check",
+        ],
+        cwd=ROOT,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    if generation.returncode:
+        errors.append(generation.stderr.strip() or "diagnostic catalog is stale")
+
+
 def tracked_markdown_files():
     result = subprocess.run(
         ["git", "ls-files", "-z", "--", "*.md"],
@@ -428,6 +443,7 @@ def main():
     check_epochs(errors)
     check_schemas(errors)
     check_stdlib_catalog(errors)
+    check_diagnostic_catalog(errors)
     check_links(errors)
     check_placeholders(errors)
     check_llvm_lock(errors)

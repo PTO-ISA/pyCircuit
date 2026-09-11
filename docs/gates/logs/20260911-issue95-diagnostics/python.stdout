@@ -1,0 +1,11 @@
+Agentic diagnostic registry/catalog: generated output current; 209 registered codes with exact implementation-source coverage.
+Agentic universal wheel: built, installed into a fresh virtual environment, and `explain ACPY-RULE-014 --json` resolved a concrete explanation from the site-packages catalog.
+PYC inventory: OK (41 operations, 2 types, exact ODS/ledger match).
+Unit tests: 108 passed.
+Agentic Python frontend: 294 passed, 1 skipped (acir-opt unavailable in the Python-only environment).
+Agentic repository contracts: 25 passed.
+Agentic discovery/explain CLI: 4 passed.
+Repository contracts: OK (15 public schemas, 35 stdlib components, epoch 0.5, LLVM 22.1.8).
+API hygiene: passed.
+Pre-commit changed-file checks: passed.
+git diff --check: passed.

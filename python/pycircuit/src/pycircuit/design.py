@@ -25,7 +25,7 @@ if TYPE_CHECKING:
 
 
 class DesignError(PyCircuitError):
-    pass
+    default_code = "PYC-PY-DESIGN"
 
 
 P = ParamSpec("P")

@@ -2097,6 +2097,28 @@ class QueueFrontendTest(unittest.TestCase):
             lowered,
         )
 
+    def test_value_primitives_share_one_diagnostic_family(self) -> None:
+        from agentic_circuit._queue_frontend import (
+            QueueFrontendError,
+            lower_queue_source,
+        )
+
+        invalid_sources = (
+            POPCOUNT_SOURCE.replace("ac.popcount(item.value)", "ac.popcount()"),
+            ZERO_COUNT_SOURCE.replace(
+                "ac.count_leading_zeros(item.value)", "ac.count_leading_zeros()"
+            ),
+            BIT_WIDTH_SOURCE.replace(
+                'ac.priority_encode(item.left, order="low")',
+                'ac.priority_encode(item.left, order="middle")',
+            ),
+        )
+        for source in invalid_sources:
+            with self.subTest(source=source):
+                with self.assertRaises(QueueFrontendError) as raised:
+                    lower_queue_source(source, "pipeline")
+                self.assertEqual("ACPY-VAR-003", raised.exception.code)
+
     def test_zero_counts_lower_to_one_parameterized_var_operation(self) -> None:
         from agentic_circuit._queue_frontend import lower_queue_source
 

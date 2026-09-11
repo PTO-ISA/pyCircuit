@@ -490,6 +490,22 @@ pycircuit sidecar verify  out/tb.sidecar        # 校验结构
 
 ## 编译入口
 
+### 公共诊断
+
+pyCircuit 6 的 cycle-aware 公共 authoring 入口，以及 Design、JIT、probe、
+testbench、trace 和 connector 边界的失败都属于 `PyCircuitError`，并携带结构化
+`diagnostic` 以及便捷的 `code`、`message`、`location` 属性。参数类型、参数值和查找错误分别仍可被标准
+`TypeError`、`ValueError`、`KeyError` 捕获；调用方无需解析异常字符串。Python
+诊断使用独立的 `PYC-PY-*` 码族，native PYC 诊断继续使用注册的 `PYCnnn`
+码族，两者不与 Agentic Circuit 的 `AC*` 码族混用（Decision 0242）。
+
+```python
+try:
+    build_cycle_aware(module, unexpected=True)
+except PyCircuitError as error:
+    print(error.code, error.message, error.location)
+```
+
 ### compile_cycle_aware()（canonical JIT）
 
 ```python

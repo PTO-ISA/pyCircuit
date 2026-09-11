@@ -17,6 +17,12 @@ from collections.abc import Callable, Iterable
 
 from .data import DT, Bits
 from .design import Design, canonical_params_json
+from .diagnostics import (
+    PyCircuitError,
+    PyCircuitKeyError,
+    PyCircuitTypeError,
+    PyCircuitValueError,
+)
 from .dsl import PriorityEncodeResult, Signal
 from .hw import Circuit, ClockDomain, Reg, Wire
 from .literals import LiteralValue, infer_literal_width
@@ -176,7 +182,7 @@ class CycleAwareDomain:
 
     def pop(self) -> None:
         if not self._stack:
-            raise RuntimeError("clock_domain.pop() without matching push()")
+            raise PyCircuitError("clock_domain.pop() without matching push()")
         self._occurrence = self._stack.pop()
 
     @property
@@ -192,7 +198,7 @@ class CycleAwareDomain:
         """Register one value and return a CAS at source occurrence plus one."""
         source = CycleAwareSignal.as_cas(sig, domain=self)
         if source.domain is not self:
-            raise ValueError("cycle() source must belong to the same domain")
+            raise PyCircuitValueError("cycle() source must belong to the same domain")
         w = source._w
         width = w.width
         init = 0 if reset_value is None else reset_value
@@ -255,7 +261,9 @@ class CycleAwareDomain:
         """
         if enum is not None:
             if fields is not None:
-                raise TypeError("signal(enum=...) cannot be combined with fields=")
+                raise PyCircuitTypeError(
+                    "signal(enum=...) cannot be combined with fields="
+                )
             from .enums import EnumSignal, coerce_enum_cls, enum_width
 
             enum = coerce_enum_cls(enum)
@@ -263,7 +271,7 @@ class CycleAwareDomain:
             if width is None:
                 width = ew
             elif int(width) != ew:
-                raise ValueError(
+                raise PyCircuitValueError(
                     f"signal width {width} does not match enum {enum.__name__} width {ew}"
                 )
             st = self._state(width=width, reset_value=reset_value, name=name)
@@ -275,11 +283,11 @@ class CycleAwareDomain:
             if width is None:
                 width = int(fields.width)
             elif int(width) != int(fields.width):
-                raise ValueError(
+                raise PyCircuitValueError(
                     f"signal width {width} does not match BitfieldSpec width {fields.width}"
                 )
         if width is None:
-            raise TypeError("signal() requires width= (or fields=)")
+            raise PyCircuitTypeError("signal() requires width= (or fields=)")
         st = self._state(width=width, reset_value=reset_value, name=name)
         fwd = ForwardSignal(st)
         return fields.bind(fwd) if fields is not None else fwd
@@ -303,7 +311,7 @@ class CycleAwareDomain:
         The returned dict preserves each signal's ``cycle`` attribute.
         """
         if inputs is not None and not isinstance(inputs, dict):
-            raise TypeError("domain.call: inputs must be a dict or None")
+            raise PyCircuitTypeError("domain.call: inputs must be a dict or None")
         if self._hierarchical:
             return self._call_hierarchical(fn, inputs=inputs, **kwargs)
         tracked_inputs = None if inputs is None else _TrackedInputs(inputs)
@@ -315,7 +323,7 @@ class CycleAwareDomain:
         if tracked_inputs is not None:
             extra = sorted(set(tracked_inputs) - tracked_inputs.used)
             if extra:
-                raise KeyError(
+                raise PyCircuitKeyError(
                     "domain.call: unexpected composed inputs: " + ", ".join(extra)
                 )
         return result
@@ -395,7 +403,7 @@ class CycleAwareDomain:
                 else:
                     actual_sig = _to_wire(actual).sig
                 if actual_sig.ty != port_sig.ty:
-                    raise TypeError(
+                    raise PyCircuitTypeError(
                         f"input {port_name!r} type mismatch: actual {actual_sig.ty} != expected {port_sig.ty}"
                     )
                 input_sigs.append(actual_sig)
@@ -406,7 +414,9 @@ class CycleAwareDomain:
                         if port_name.startswith(canonical_prefix + "_")
                         else port_name
                     )
-                    raise KeyError(f"domain.call: missing composed input '{missing}'")
+                    raise PyCircuitKeyError(
+                        f"domain.call: missing composed input '{missing}'"
+                    )
                 if isinstance(port_sig.ty, Bits):
                     width = port_sig.ty.width
                 else:
@@ -429,7 +439,7 @@ class CycleAwareDomain:
                 )
                 for name in extra_inputs
             ]
-            raise KeyError(
+            raise PyCircuitKeyError(
                 "domain.call: unexpected composed inputs: " + ", ".join(display)
             )
 
@@ -650,7 +660,7 @@ def _as_wire(
         return sig
     if isinstance(sig, Signal):
         return Wire(m, sig)
-    raise TypeError(
+    raise PyCircuitTypeError(
         f"expected Wire/Reg/CycleAwareSignal/ForwardSignal/Signal, got {type(sig).__name__}"
     )
 
@@ -997,7 +1007,7 @@ def _to_wire(v: "Wire | Reg | CycleAwareSignal | StateSignal | ForwardSignal") -
         return v.q
     if isinstance(v, Wire):
         return v
-    raise TypeError(
+    raise PyCircuitTypeError(
         f"expected Wire/Reg/CycleAwareSignal/StateSignal/ForwardSignal, got {type(v).__name__}"
     )
 
@@ -1048,9 +1058,9 @@ def submodule_input(
     if io is None:
         return CycleAwareSignal(domain, m.input(f"{prefix}_{key}", width=width), cycle)
     if not isinstance(io, dict):
-        raise TypeError("submodule_input: inputs must be a dict or None")
+        raise PyCircuitTypeError("submodule_input: inputs must be a dict or None")
     if key not in io:
-        raise KeyError(f"submodule_input: missing composed input '{key}'")
+        raise PyCircuitKeyError(f"submodule_input: missing composed input '{key}'")
     return _normalize_composed_input(
         io[key],
         domain=domain,
@@ -1072,11 +1082,11 @@ def _normalize_composed_input(
     elif isinstance(sig, (Wire, Reg)):
         normalized = CycleAwareSignal.as_cas(sig, domain=domain)
     else:
-        raise TypeError(f"{context}: unexpected type {type(sig).__name__}")
+        raise PyCircuitTypeError(f"{context}: unexpected type {type(sig).__name__}")
     if normalized.domain is not domain:
-        raise ValueError(f"{context}: domain mismatch")
+        raise PyCircuitValueError(f"{context}: domain mismatch")
     if normalized.width != int(width):
-        raise TypeError(
+        raise PyCircuitTypeError(
             f"{context}: width mismatch: expected {int(width)}, got {normalized.width}"
         )
     return normalized
@@ -1106,7 +1116,7 @@ def wire_of(
         return sig.q
     if isinstance(sig, Wire):
         return sig
-    raise TypeError(f"wire_of: unsupported type {type(sig).__name__}")
+    raise PyCircuitTypeError(f"wire_of: unsupported type {type(sig).__name__}")
 
 
 class CycleAwareSignal(Generic[DT]):
@@ -1116,7 +1126,9 @@ class CycleAwareSignal(Generic[DT]):
 
     def __init__(self, domain: CycleAwareDomain, wire: Wire[DT], cycle: int) -> None:
         if wire.m is not domain._m:
-            raise ValueError("Wire must belong to the same circuit as the domain")
+            raise PyCircuitValueError(
+                "Wire must belong to the same circuit as the domain"
+            )
         self._domain = domain
         self._w = wire
         self._cycle = int(cycle)
@@ -1180,7 +1192,7 @@ class CycleAwareSignal(Generic[DT]):
 
         # Scalar promotion path below — needs a domain.
         if domain is None:
-            raise TypeError(
+            raise PyCircuitTypeError(
                 f"as_cas: domain is required to promote {type(v).__name__} to a CycleAwareSignal"
             )
         m = domain._m
@@ -1202,7 +1214,7 @@ class CycleAwareSignal(Generic[DT]):
             )
             w = m.const(int(v.value), width=int(lw))
             return CycleAwareSignal(domain, w, tag)
-        raise TypeError(f"as_cas: unsupported operand type {type(v).__name__}")
+        raise PyCircuitTypeError(f"as_cas: unsupported operand type {type(v).__name__}")
 
     @property
     def cycle(self) -> int:
@@ -1244,7 +1256,9 @@ class CycleAwareSignal(Generic[DT]):
             return self._align(CycleAwareSignal.as_cas(other))
         if isinstance(other, CycleAwareSignal):
             if other._domain is not self._domain:
-                raise ValueError("CycleAwareSignal operands must share the same domain")
+                raise PyCircuitValueError(
+                    "CycleAwareSignal operands must share the same domain"
+                )
             oc = other._cycle
             ow = other._w
         elif isinstance(other, (Wire, Reg)):
@@ -1264,7 +1278,7 @@ class CycleAwareSignal(Generic[DT]):
             ow = self._domain._m.const(int(other.value), width=int(lit_w))
             oc = self._domain.cycle_index
         else:
-            raise TypeError(f"unsupported operand: {type(other).__name__}")
+            raise PyCircuitTypeError(f"unsupported operand: {type(other).__name__}")
         mx = max(self._cycle, oc)
         aw = self._domain.delay_to(
             self._w, from_cycle=self._cycle, to_cycle=mx, width=self._w.width
@@ -1314,13 +1328,13 @@ class CycleAwareSignal(Generic[DT]):
 
     def __truediv__(self, other: object) -> "CycleAwareSignal":
         _ = other
-        raise TypeError(
+        raise PyCircuitTypeError(
             "hardware `/` division is not supported; use `//` for integer division"
         )
 
     def __rtruediv__(self, other: object) -> "CycleAwareSignal":
         _ = other
-        raise TypeError(
+        raise PyCircuitTypeError(
             "hardware `/` division is not supported; use `//` for integer division"
         )
 
@@ -1485,7 +1499,7 @@ class CycleAwareSignal(Generic[DT]):
         """Extract a range using inclusive ``high, low`` or ``lsb, width``."""
         if lsb is not None or width is not None:
             if high is not None or low is not None or lsb is None or width is None:
-                raise TypeError(
+                raise PyCircuitTypeError(
                     "slice() requires either (high, low) or keyword lsb=..., width=..."
                 )
             return CycleAwareSignal(
@@ -1494,7 +1508,7 @@ class CycleAwareSignal(Generic[DT]):
                 self._cycle,
             )
         if high is None or low is None:
-            raise TypeError(
+            raise PyCircuitTypeError(
                 "slice() requires either (high, low) or keyword lsb=..., width=..."
             )
         return CycleAwareSignal(
@@ -1606,7 +1620,7 @@ class CycleAwareSignal(Generic[DT]):
             if v is not None
         ]
         if len(given) != 1:
-            raise TypeError(
+            raise PyCircuitTypeError(
                 "as_ requires exactly one of: positional value(s)/values=, width=, or range="
             )
         if val_set is not None:
@@ -1614,9 +1628,9 @@ class CycleAwareSignal(Generic[DT]):
         if width is not None:
             w = int(width)
             if w <= 0:
-                raise ValueError("as_(width=) must be > 0")
+                raise PyCircuitValueError("as_(width=) must be > 0")
             if w > self._w.width:
-                raise ValueError(
+                raise PyCircuitValueError(
                     f"as_(width={w}) cannot widen a {self._w.width}-bit value; use zext/sext"
                 )
             if w == self._w.width:
@@ -1707,7 +1721,7 @@ def mux(
     if not any(
         isinstance(value, CycleAwareSignal) for value in (raw_cond, raw_a, raw_b)
     ):
-        raise TypeError(
+        raise PyCircuitTypeError(
             "mux() requires at least one cycle-aware operand; "
             "use pycircuit.structural.mux() for raw Wire selection"
         )
@@ -1723,7 +1737,7 @@ def _mux_cycle_aware(
         for x in (cond, a, b):
             if isinstance(x, CycleAwareSignal):
                 return x._domain
-        raise RuntimeError("internal: mux cycle-aware without CycleAwareSignal")
+        raise PyCircuitError("internal: mux cycle-aware without CycleAwareSignal")
 
     dom = pick_dom()
     m = dom._m
@@ -1748,7 +1762,7 @@ def _mux_cycle_aware(
             )
             w = m.const(int(x.value), width=int(lw))
             return CycleAwareSignal(dom, w, dom.cycle_index)
-        raise TypeError(f"mux: unsupported value {type(x).__name__}")
+        raise PyCircuitTypeError(f"mux: unsupported value {type(x).__name__}")
 
     c_cas = to_cas(cond) if not isinstance(cond, CycleAwareSignal) else cond
     ca = to_cas(a)
@@ -1761,7 +1775,7 @@ def _mux_cycle_aware(
     bw = dom.delay_to(cb._w, from_cycle=cb._cycle, to_cycle=mx, width=cb._w.width)
     aw, bw = _promote_pair(m, aw, bw)
     if cw2.width != 1:
-        raise TypeError("mux condition must be i1")
+        raise PyCircuitTypeError("mux condition must be i1")
     out_w = cw2._select_internal(aw, bw)
     return CycleAwareSignal(dom, out_w, mx)
 
@@ -1813,14 +1827,14 @@ def cat(
     a scalar (``Wire`` / ``Reg`` / ``int``) without a domain.
     """
     if not elems:
-        raise ValueError("cat() requires at least one element")
+        raise PyCircuitValueError("cat() requires at least one element")
     dom = None
     for _v in elems:
         if CycleAwareSignal.is_cas(_v):
             dom = CycleAwareSignal.as_cas(_v).domain
             break
     if dom is None:
-        raise TypeError(
+        raise PyCircuitTypeError(
             "cat: at least one operand must be cycle-aware "
             "(CycleAwareSignal / StateSignal / ForwardSignal) to anchor the domain"
         )
@@ -1851,7 +1865,7 @@ def cas(
     :meth:`CycleAwareSignal.as_cas` instead.
     """
     if isinstance(w, (CycleAwareSignal, StateSignal, ForwardSignal)):
-        raise TypeError(
+        raise PyCircuitTypeError(
             f"cas() expects Wire, Reg, int, or LiteralValue; got {type(w).__name__} (use CycleAwareSignal.as_cas)"
         )
     return CycleAwareSignal.as_cas(w, domain=domain, cycle=cycle)
@@ -1864,30 +1878,32 @@ def _strip_domain_for_jit(
     try:
         source = textwrap.dedent(inspect.getsource(fn))
     except OSError as e:
-        raise TypeError(
+        raise PyCircuitTypeError(
             "compile_cycle_aware(fn): need inspectable source for JIT; use build_cycle_aware() for direct Python elaboration"
         ) from e
     tree = ast.parse(source)
     name = getattr(fn, "__name__", None)
     if not isinstance(name, str) or not name:
-        raise TypeError("compile_cycle_aware(fn): function must have a __name__")
+        raise PyCircuitTypeError(
+            "compile_cycle_aware(fn): function must have a __name__"
+        )
     fdef: ast.FunctionDef | None = None
     for node in tree.body:
         if isinstance(node, ast.FunctionDef) and node.name == name:
             fdef = node
             break
     if fdef is None:
-        raise TypeError(
+        raise PyCircuitTypeError(
             f"compile_cycle_aware: could not find def {name!r} in source of {fn!r}"
         )
     pos = fdef.args.args
     if len(pos) < 2:
-        raise TypeError(
+        raise PyCircuitTypeError(
             "compile_cycle_aware(fn): source must declare at least (m, domain, ...)"
         )
     m_arg = pos[0].arg
     if pos[1].arg != "domain":
-        raise TypeError(
+        raise PyCircuitTypeError(
             "compile_cycle_aware(fn): second parameter must be named 'domain' for JIT (or use build_cycle_aware())"
         )
     fdef.args.args.pop(1)
@@ -1937,7 +1953,7 @@ def compile_cycle_aware(
     )
     if removed:
         names = ", ".join(removed)
-        raise TypeError(
+        raise PyCircuitTypeError(
             f"compile_cycle_aware() no longer accepts {names}; "
             "use build_cycle_aware() for direct Python elaboration and hierarchy"
         )
@@ -1992,10 +2008,10 @@ def build_cycle_aware(
     )
     if removed:
         names = ", ".join(removed)
-        raise TypeError(f"build_cycle_aware() no longer accepts {names}")
+        raise PyCircuitTypeError(f"build_cycle_aware() no longer accepts {names}")
     value_params = getattr(fn, "__pycircuit_value_params__", None)
     if value_params:
-        raise TypeError(
+        raise PyCircuitTypeError(
             "build_cycle_aware() does not support runtime value_params; "
             "use compile_cycle_aware()"
         )
@@ -2092,7 +2108,7 @@ class CycleAwareTb:
 
     def __init__(self, t: _Tb) -> None:
         if not isinstance(t, _Tb):
-            raise TypeError(
+            raise PyCircuitTypeError(
                 f"CycleAwareTb requires a Tb instance, got {type(t).__name__}"
             )
         self._t = t

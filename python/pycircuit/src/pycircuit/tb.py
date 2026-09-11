@@ -8,7 +8,7 @@ from .diagnostics import PyCircuitError
 
 
 class TbError(PyCircuitError):
-    pass
+    default_code = "PYC-PY-TB"
 
 
 def _sanitize_id(s: str) -> str:

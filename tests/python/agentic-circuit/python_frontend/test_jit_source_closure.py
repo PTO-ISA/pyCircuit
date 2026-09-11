@@ -63,6 +63,7 @@ class JitSourceClosureTest(unittest.TestCase):
 
             with self.assertRaisesRegex(SourceClosureError, "symbol 'helper'") as caught:
                 capture_source_closure(entry, root)
+            self.assertEqual("ACPY-JIT-006", caught.exception.code)
             self.assertIn("left.py", str(caught.exception))
             self.assertIn("right.py", str(caught.exception))
 

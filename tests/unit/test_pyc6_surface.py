@@ -66,6 +66,56 @@ def test_public_exception_families_share_one_runtime_base() -> None:
     assert issubclass(pycircuit.ConnectorError, TypeError)
 
 
+@pytest.mark.parametrize(
+    ("error_type", "code"),
+    [
+        (pycircuit.ConnectorError, "PYC-PY-CONNECTOR"),
+        (pycircuit.DesignError, "PYC-PY-DESIGN"),
+        (pycircuit.JitError, "PYC-PY-JIT"),
+        (pycircuit.ProbeError, "PYC-PY-PROBE"),
+        (pycircuit.TbError, "PYC-PY-TB"),
+        (pycircuit.TraceConfigError, "PYC-PY-TRACE"),
+    ],
+)
+def test_public_exception_families_have_stable_structured_codes(
+    error_type: type[pycircuit.PyCircuitError], code: str
+) -> None:
+    error = error_type("invalid public API input")
+
+    assert error.code == code
+    assert error.diagnostic.code == code
+    assert error.diagnostic.message == "invalid public API input"
+
+
+@pytest.mark.parametrize(
+    ("invoke", "builtin_type", "code"),
+    [
+        (lambda: pycircuit.wire_of(object()), TypeError, "PYC-PY-TYPE"),
+        (lambda: pycircuit.cat(), ValueError, "PYC-PY-VALUE"),
+        (
+            lambda: pycircuit.submodule_input(
+                {}, "missing", None, None, prefix="sub", width=1
+            ),
+            KeyError,
+            "PYC-PY-KEY",
+        ),
+    ],
+)
+def test_cycle_aware_public_errors_preserve_builtin_compatibility_and_diagnostics(
+    invoke, builtin_type: type[Exception], code: str
+) -> None:
+    with pytest.raises(pycircuit.PyCircuitError) as exc_info:
+        invoke()
+
+    error = exc_info.value
+    assert isinstance(error, builtin_type)
+    assert error.code == code
+    assert error.diagnostic.code == code
+    assert error.diagnostic.message
+    assert error.location == "<unknown>"
+    assert f"[{code}]" in str(error)
+
+
 def test_cycle_aware_compile_entrypoints_have_stable_modes_and_types() -> None:
     compile_sig = inspect.signature(pycircuit.compile_cycle_aware)
     build_sig = inspect.signature(pycircuit.build_cycle_aware)

@@ -15,7 +15,7 @@ from .tb import _sanitize_id
 
 
 class TraceConfigError(PyCircuitError):
-    pass
+    default_code = "PYC-PY-TRACE"
 
 
 def _as_str_list(v: Any, *, field: str) -> list[str]:

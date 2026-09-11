@@ -15,7 +15,6 @@ from .diagnostics import (
     Diagnostic,
     PyCircuitError,
     make_diagnostic,
-    render_diagnostic,
     snippet_from_text,
 )
 from .dsl import Signal
@@ -38,10 +37,11 @@ _DEFAULT_INLINE_COMPLEXITY_CAP = 1400
 
 
 class JitError(PyCircuitError):
+    default_code = "PYC-PY-JIT"
+
     def __init__(self, message: str, *, diagnostic: Diagnostic | None = None) -> None:
-        self.diagnostic = diagnostic
-        text = render_diagnostic(diagnostic) if diagnostic is not None else str(message)
-        super().__init__(text)
+        self._diagnostic_is_explicit = diagnostic is not None
+        super().__init__(diagnostic if diagnostic is not None else message)
 
     @classmethod
     def from_diagnostic(cls, diagnostic: Diagnostic) -> "JitError":
@@ -548,9 +548,11 @@ class _Compiler:
         code: str = "PYC500",
         hint: str | None = None,
     ) -> JitError:
-        if isinstance(err, JitError) and err.diagnostic is not None:
+        if isinstance(err, JitError) and err._diagnostic_is_explicit:
             return err
-        message = str(err) if str(err).strip() else err.__class__.__name__
+        message = err.message if isinstance(err, PyCircuitError) else str(err)
+        if not message.strip():
+            message = err.__class__.__name__
         line = self._abs_lineno(node)
         snippet = (
             snippet_from_text(self.source_text, line)

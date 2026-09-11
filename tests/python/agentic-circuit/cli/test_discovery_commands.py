@@ -9,11 +9,12 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from jsonschema.validators import Draft202012Validator
 from cli import cli_test_pythonpath
-
+from jsonschema.validators import Draft202012Validator
 
 REPOSITORY = Path(__file__).resolve().parents[4]
+
+
 def run_cli(*arguments: str, cwd: Path) -> subprocess.CompletedProcess[str]:
     environment = os.environ.copy()
     environment["PYTHONPATH"] = cli_test_pythonpath(REPOSITORY, environment)
@@ -124,12 +125,24 @@ class DiscoveryCommandTest(unittest.TestCase):
             before = snapshot_tree(workspace)
 
             explained = run_cli("explain", "ACIR-PROTOCOL-004", "--json", cwd=workspace)
+            frontend_explained = run_cli(
+                "explain", "ACPY-RULE-014", "--json", cwd=workspace
+            )
+            lowering_explained = run_cli(
+                "explain", "ACLOWER-QUEUE-CXX", "--json", cwd=workspace
+            )
             doctor = run_cli("doctor", "--json", cwd=workspace)
 
             self.assertEqual(before, snapshot_tree(workspace))
 
         self.assertEqual(0, explained.returncode, explained.stderr)
         self.assertEqual("ACIR-PROTOCOL-004", json.loads(explained.stdout)["code"])
+        self.assertEqual(0, frontend_explained.returncode, frontend_explained.stderr)
+        self.assertEqual("ACPY-RULE-014", json.loads(frontend_explained.stdout)["code"])
+        self.assertEqual(0, lowering_explained.returncode, lowering_explained.stderr)
+        self.assertEqual(
+            "ACLOWER-QUEUE-CXX", json.loads(lowering_explained.stdout)["code"]
+        )
         self.assertEqual(0, doctor.returncode, doctor.stderr)
         checks = json.loads(doctor.stdout)["checks"]
         self.assertTrue(all(check["status"] == "passed" for check in checks))

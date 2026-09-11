@@ -8,9 +8,10 @@ from enum import Enum, auto
 from pathlib import Path
 
 from ._canonical_json import canonical_json_bytes, sha256_bytes
+from ._diagnostics import DiagnosticError
 
 
-class SourceClosureError(ValueError):
+class SourceClosureError(DiagnosticError):
     """A fail-closed source-closure diagnostic."""
 
 
