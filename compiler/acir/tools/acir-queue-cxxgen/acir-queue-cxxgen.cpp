@@ -127,6 +127,6 @@ int main(int argc, char **argv) {
                  << '\n';
     return EXIT_FAILURE;
   }
-  llvm::outs() << "ACLOWER-QUEUE-CXX: emitted model bundle v1 (3 files)\n";
+  llvm::outs() << "emitted model bundle v1 (3 files)\n";
   return EXIT_SUCCESS;
 }

@@ -1,0 +1,20 @@
+python3 tools/agentic-circuit/generate-diagnostic-catalog.py --check
+python3 tools/check-pyc-inventory.py
+.pycircuit_out/release-local-current/venv311/bin/python -m build --wheel --no-isolation --outdir .pycircuit_out/issue95-wheel-compact python/agentic-circuit
+/var/folders/dw/zd1zl_y14dndg0ydz1mdt25h0000gn/T/tmp.YxWDhCayEv/venv/bin/python -m pip install --no-deps .pycircuit_out/issue95-wheel-compact/agentic_circuit-0.1.0-py3-none-any.whl
+PYTHONPATH=$PWD/python/semantic-core/src /var/folders/dw/zd1zl_y14dndg0ydz1mdt25h0000gn/T/tmp.YxWDhCayEv/venv/bin/agentic-circuit explain ACPY-RULE-014 --json
+PYTHONPATH=python/semantic-core/src:python/pycircuit/src:python/agentic-circuit/src .pycircuit_out/release-local-current/venv311/bin/python -m pytest tests/unit -m unit -q
+PYTHONPATH=python/semantic-core/src:python/agentic-circuit/src .pycircuit_out/release-local-current/venv311/bin/python -m pytest tests/python/agentic-circuit/python_frontend -q
+PYTHONPATH=python/semantic-core/src:python/agentic-circuit/src .pycircuit_out/release-local-current/venv311/bin/python -m pytest tests/python/agentic-circuit/contracts/test_contracts.py -q
+PYTHONPATH=python/semantic-core/src:python/agentic-circuit/src:tests/python/agentic-circuit .pycircuit_out/release-local-current/venv311/bin/python -m pytest tests/python/agentic-circuit/cli/test_discovery_commands.py -q
+.pycircuit_out/issue95-native-build/bin/CompilerTests
+cmake --build .pycircuit_out/issue95-native-build --target acir-queue-cxxgen -j 6
+PYTHONPATH=/tmp/pyc-issue95-lit18/lib/python3.14/site-packages python3 /tmp/pyc-issue95-lit18/bin/lit -sv --filter=diagnostic-codes .pycircuit_out/issue95-native-build/compiler/acir/tests/mlir
+PYC_TOOLCHAIN_ROOT=$PWD/.pycircuit_out/issue95-native-build pytest -q tests/system/test_primitive_selection.py::test_selector_is_catalog_owned_and_fail_closed
+PYTHONPATH=python/semantic-core/src:python/agentic-circuit/src .pycircuit_out/release-local-current/venv311/bin/python tools/agentic-circuit/check-contracts.py
+python3 flows/tools/check_api_hygiene.py python/pycircuit/src/pycircuit examples/pycircuit docs README.md
+.pycircuit_out/venv-llvm22/bin/mkdocs build --strict
+git diff --name-only -z --diff-filter=ACM | xargs -0 pre-commit run --files
+pre-commit run --files compiler/mlir/include/pyc/Support/Diagnostics.h compiler/mlir/lib/Support/Diagnostics.cpp tests/cpp/agentic-circuit/Compiler/PYCDiagnosticsTest.cpp tests/mlir/agentic-circuit/PYC/diagnostic-codes.mlir tests/unit/test_diagnostics.py tools/agentic-circuit/generate-diagnostic-catalog.py
+git diff --check
+python3 flows/tools/check_decision_status.py --rfc docs/rfcs/pyc6-decisions.md --status docs/gates/decision_status_v6.md --out docs/gates/logs/20260911-issue95-diagnostics/decision_status_report.json --require-no-deferred --require-all-verified --require-concrete-evidence --require-existing-evidence

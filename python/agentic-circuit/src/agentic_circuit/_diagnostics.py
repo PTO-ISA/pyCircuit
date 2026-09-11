@@ -10,7 +10,8 @@ from ._canonical_json import JsonValue
 
 Severity = Literal["error", "warning", "note"]
 _CODE = re.compile(
-    r"^AC(PY|ELAB|IR-[A-Z]+|LOWER|BUILD|TRACE|RUN|SDK-[A-Z]+)-[A-Z0-9-]+$"
+    r"^AC(PY|ELAB|IR-[A-Z]+|SIM|LOWER|BUILD|TRACE|RUN|SDK-[A-Z]+)"
+    r"-[A-Z0-9-]+$"
 )
 
 
@@ -139,6 +140,88 @@ class Diagnostic:
             "related": [location.to_json() for location in self.related],
             "fixits": [fixit.to_json() for fixit in self.fixits],
         }
+
+
+class AgenticCircuitError(Exception):
+    """Common base for structured Agentic Circuit user-facing failures."""
+
+    __slots__ = ("code", "message", "source")
+
+    def __init__(
+        self,
+        code: str,
+        message: str | None = None,
+        source: SourceSpan | None = None,
+    ) -> None:
+        if message is None:
+            candidate, separator, detail = code.partition(":")
+            if not separator or not _CODE.fullmatch(candidate) or not detail.strip():
+                raise ValueError("legacy diagnostic exceptions require 'CODE: message'")
+            code = candidate
+            message = detail.lstrip()
+        if not _CODE.fullmatch(code):
+            raise ValueError(f"invalid diagnostic code: {code!r}")
+        if not message:
+            raise ValueError("diagnostic exception message must not be empty")
+        if source is not None and not isinstance(source, SourceSpan):
+            raise TypeError("diagnostic exception source must be a SourceSpan")
+        self.code = code
+        self.message = message
+        self.source = source
+        super().__init__(f"{code}: {message}")
+
+
+class DiagnosticError(AgenticCircuitError, ValueError):
+    """Structured diagnostic retaining ``ValueError`` catch compatibility."""
+
+
+class DiagnosticTypeError(AgenticCircuitError, TypeError):
+    """Structured diagnostic retaining ``TypeError`` catch compatibility."""
+
+
+class DiagnosticRuntimeError(AgenticCircuitError, RuntimeError):
+    """Structured diagnostic retaining ``RuntimeError`` catch compatibility."""
+
+
+def diagnostic_from_exception(
+    error: BaseException,
+    *,
+    stage: str,
+    default_code: str,
+    source: SourceSpan | None = None,
+    message_prefix: str = "",
+) -> Diagnostic:
+    """Convert structured and legacy frontend exceptions at one boundary."""
+
+    if isinstance(error, AgenticCircuitError):
+        code = error.code
+        message = error.message
+        source = error.source or source
+    else:
+        code = default_code
+        message = str(error)
+
+        structured_code = getattr(error, "code", None)
+        structured_message = getattr(error, "message", None)
+        structured_source = getattr(error, "source", None)
+        if (
+            isinstance(structured_code, str)
+            and _CODE.fullmatch(structured_code)
+            and isinstance(structured_message, str)
+            and structured_message
+        ):
+            code = structured_code
+            message = structured_message
+            if isinstance(structured_source, SourceSpan):
+                source = structured_source
+
+    return Diagnostic(
+        stage=stage,
+        code=code,
+        severity="error",
+        message=message_prefix + message,
+        source=source,
+    )
 
 
 class DiagnosticBag:

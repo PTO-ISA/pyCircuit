@@ -76,6 +76,20 @@ target_link_libraries(pyc_dialect PUBLIC
   LLVMSupport
 )
 
+add_library(pyc_support
+  lib/Support/Diagnostics.cpp
+)
+llvm_update_compile_flags(pyc_support)
+target_include_directories(pyc_support PUBLIC
+  "${PYC_SOURCE_DIR}/include"
+  "${PYC_BINARY_DIR}/include"
+)
+target_link_libraries(pyc_support PUBLIC
+  MLIRIR
+  MLIRSupport
+  LLVMSupport
+)
+
 add_library(pyc_transforms
   lib/Transforms/CombDepGraph.cpp
   lib/Transforms/CheckFrontendContractPass.cpp
@@ -105,6 +119,7 @@ target_include_directories(pyc_transforms PUBLIC
 )
 target_link_libraries(pyc_transforms PUBLIC
   pyc_dialect
+  pyc_support
   MLIRArithDialect
   MLIRFuncDialect
   MLIRPass
@@ -155,6 +170,7 @@ target_include_directories(pycc PRIVATE
 )
 target_link_libraries(pycc PRIVATE
   pyc_dialect
+  pyc_support
   pyc_transforms
   MLIRArithDialect
   MLIRIR

@@ -198,6 +198,17 @@ jobs:
           python3 -m build --wheel --outdir candidate python/semantic-core
           python3 -m build --wheel --outdir candidate python/agentic-circuit
           python3 -m twine check candidate/*.whl
+          python3 -m venv wheel-smoke
+          wheel-smoke/bin/python -m pip install --no-index --find-links candidate agentic-circuit
+          wheel-smoke/bin/agentic-circuit explain ACPY-RULE-014 --json > wheel-smoke/explain.json
+          wheel-smoke/bin/python - <<'PY'
+          import json
+          from pathlib import Path
+
+          explanation = json.loads(Path("wheel-smoke/explain.json").read_text())
+          if explanation.get("code") != "ACPY-RULE-014":
+              raise SystemExit("installed Agentic Circuit diagnostic catalog is incomplete")
+          PY
           cp LICENSE licenses/LICENSE
           tar --sort=name --mtime='UTC 1970-01-01' --owner=0 --group=0 --numeric-owner -czf candidate/LICENSES.tar.gz -C licenses LICENSE
           git show -s --format='pyCircuit ${{ inputs.version }}%n%nSource revision: %H%n%n%s%n' "${{ inputs.commit_sha }}" > candidate/RELEASE_NOTES.md

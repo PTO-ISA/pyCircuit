@@ -8734,3 +8734,63 @@ multiple atomic writers.
 **Source**
 - PTO-ISA/pyCircuit issue #22 and independent release-architect review
   (2026-09-10).
+
+## Decision 0242: diagnostic identities are registered separately from rendered messages
+
+**Status:** Accepted and implemented
+
+**Context / Goal**
+Agentic Circuit, pyCircuit authoring, ACIR tooling, and PYC tooling already emit
+machine-readable error codes, but several boundaries recovered those codes by
+parsing human-readable messages. The packaged Agentic Circuit explanation
+catalog covered only a small subset of codes used by the implementation, and
+some PYC numeric codes identified more than one failure meaning. Tooling cannot
+reliably select repairs or classify failures when code identity depends on
+message punctuation or when one code has multiple owners.
+
+**Decision (strong constraint)**
+- A diagnostic code is a stable tooling identity. Human-readable message text
+  is explanatory data and must not be parsed to recover the identity at a
+  published Python or native compiler boundary.
+- Each public namespace owns an independent registry. Agentic Circuit keeps the
+  `ACPY-*`, `ACIR-*`, `ACLOWER-*`, `ACBUILD-*`, `ACRUN-*`, and `ACSDK-*`
+  families; pyCircuit and PYC keep their own Python and native PYC families.
+  Decision 0150's separate Python packages and IR layers remain intact.
+- One code maps to one owner, stage, and meaning. The same meaning may be
+  emitted at multiple source sites, but unrelated meanings must use distinct
+  codes. Reserved or retired codes remain registered and cannot be silently
+  reassigned.
+- Agentic Python exceptions crossing a frontend or CLI boundary carry code,
+  message, and optional source span as structured fields. The pyCircuit Python
+  package preserves its `PyCircuitError` hierarchy and gives the pyCircuit 6
+  cycle-aware authoring surface plus Design/JIT/probe/testbench/trace/connector
+  boundaries a structured `Diagnostic`; the two packages do not import one
+  another's exception types.
+- Native compiler adapters carry code separately from the rendered MLIR
+  diagnostic text. Diagnostics originating in MLIR or third-party parsers
+  without a more specific registered identity use an explicit, registered
+  stage fallback rather than scanning the message.
+- The Agentic explanation catalog is generated from the registered code set.
+  Repository contract checks fail when implementation code literals are absent
+  from the registry, generated catalog output is stale, or a code definition is
+  duplicated.
+- Serialized diagnostics and catalogs remain tooling artifacts rather than a
+  generated-model runtime ABI, consistent with Decision 0235.
+
+**Compatibility and verification**
+- Existing concrete exception subclasses and builtin `TypeError`/`ValueError`
+  catch behavior may be retained through subclassing while callers migrate to
+  the structured fields.
+- Diagnostic wording may improve without changing code identity. Renaming or
+  reassigning an active code requires an explicit hard-break update and matching
+  tests; compatibility aliases are not added.
+- Required evidence includes Agentic catalog generation and `explain` coverage,
+  structured Python exception tests, pyCircuit public error-payload tests, and
+  focused native tests proving code capture does not depend on message text and
+  that PYC code definitions are unique.
+- This work follows Decision 0159: Python/catalog checks remain in lightweight
+  PR CI, while focused native tests are targeted author evidence and full native
+  closure remains a release gate.
+
+**Source**
+- GitHub issue #95 diagnostic consistency audit and implementation (2026-09-11).

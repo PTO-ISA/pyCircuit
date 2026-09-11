@@ -14,6 +14,10 @@
 #include <system_error>
 #include <vector>
 
+namespace mlir {
+class Diagnostic;
+}
+
 namespace acir::compiler {
 
 enum class CompilerStage {
@@ -107,6 +111,10 @@ private:
 };
 
 llvm::StringRef compilerStageName(CompilerStage stage);
+namespace detail {
+std::optional<std::string>
+diagnosticCodeFromMetadata(mlir::Diagnostic &diagnostic);
+} // namespace detail
 llvm::Expected<CompilerResult> runCompiler(const CompilerRequest &request);
 
 } // namespace acir::compiler

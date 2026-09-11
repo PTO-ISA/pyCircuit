@@ -36,6 +36,7 @@ pre-commit run --all-files
 pytest tests/unit -m unit
 pytest tests/system -m system
 python3 flows/tools/check_api_hygiene.py python/pycircuit/src/pycircuit examples/pycircuit docs README.md
+python3 tools/agentic-circuit/generate-diagnostic-catalog.py --check
 python3 flows/tools/check_decision_status.py --rfc docs/rfcs/pyc6-decisions.md --status docs/gates/decision_status_v6.md --out .pycircuit_out/gates/<run-id>/decision_status_report.json
 python3 flows/tools/check_decision_status.py --rfc docs/rfcs/pyc6-decisions.md --status docs/gates/decision_status_v6.md --out .pycircuit_out/gates/<run-id>/decision_status_report.json --require-no-deferred --require-all-verified --require-concrete-evidence --require-existing-evidence
 mkdocs build
@@ -58,6 +59,7 @@ author evidence, not additional always-on CI jobs.
 | Examples, testbenches, simulation entrypoint behavior | Smallest affected example or simulation case; add `pytest tests/system -m system` only when its flow is touched |
 | MLIR dialect, passes, legality, runtime, codegen, observation semantics | Focused lit/CTest or semantic reproducer for the changed contract, plus decision ID and evidence path |
 | Agentic Circuit Python frontend, ACPy, schemas or CLI | Required Agentic Python check plus the changed focused test |
+| Diagnostic codes, exception payloads, or native diagnostic adapters | Catalog generation check plus the smallest Python or native code-propagation test |
 | ACIR/ACSim dialect, verifier, transformation or gfsim | Focused ACIR/ACSim lit or C++ test |
 | ACIR-to-PYC, pyc6 runtime integration or synthesizable AC semantics | Focused AC G2 case proving the changed lowering/backend path |
 | Repository retirement or release-management changes | Repository-governance checks and workflow validation |

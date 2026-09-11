@@ -1,0 +1,21 @@
+{
+  "decision_ids": ["0242"],
+  "issue": 95,
+  "results": {
+    "agentic_catalog": {"registered_codes": 209, "stale": false},
+    "agentic_cli": {"passed": 4, "failed": 0},
+    "agentic_contracts": {"passed": 25, "failed": 0},
+    "agentic_frontend": {"passed": 294, "failed": 0, "skipped": 1},
+    "agentic_wheel_explain": {"passed": true, "resource": "site-packages"},
+    "api_hygiene": {"passed": true},
+    "compiler_cpp": {"passed": 9, "failed": 0},
+    "diagnostic_lit": {"passed": 1, "failed": 0},
+    "documentation": {"passed": true},
+    "pre_commit": {"passed": true},
+    "primitive_selection": {"passed": 1, "failed": 0},
+    "pyc_inventory": {"operations": 41, "types": 2, "exact_match": true},
+    "unit": {"passed": 108, "failed": 0}
+  },
+  "run_id": "20260911-issue95-diagnostics",
+  "status": "passed"
+}

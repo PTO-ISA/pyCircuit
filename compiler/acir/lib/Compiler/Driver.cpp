@@ -12,6 +12,7 @@
 #include "acir/InitAllPasses.h"
 #include "acir/Transforms/Passes.h"
 
+#include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/Diagnostics.h"
 #include "mlir/IR/Location.h"
@@ -26,7 +27,6 @@
 #include "llvm/Support/raw_ostream.h"
 
 #include <algorithm>
-#include <cctype>
 #include <mutex>
 #include <set>
 #include <string>
@@ -65,22 +65,6 @@ std::optional<SourceLocation> sourceLocation(mlir::Location location) {
     return SourceLocation{file.getFilename().str(), file.getLine(),
                           file.getColumn()};
   return std::nullopt;
-}
-
-std::string diagnosticCode(llvm::StringRef message, llvm::StringRef fallback) {
-  for (size_t start = message.find("AC"); start != llvm::StringRef::npos;
-       start = message.find("AC", start + 2)) {
-    size_t end = start;
-    while (end < message.size() &&
-           (std::isupper(static_cast<unsigned char>(message[end])) ||
-            std::isdigit(static_cast<unsigned char>(message[end])) ||
-            message[end] == '-'))
-      ++end;
-    llvm::StringRef candidate = message.slice(start, end);
-    if (candidate.contains('-') && candidate.size() >= 6)
-      return candidate.str();
-  }
-  return fallback.str();
 }
 
 std::string defaultDiagnosticCode(CompilerStage stage) {
@@ -138,7 +122,8 @@ public:
           std::string message = diagnostic.str();
           diagnostics_.push_back(CompilerDiagnostic{
               .stage = compilerStageName(stage_).str(),
-              .code = diagnosticCode(message, defaultDiagnosticCode(stage_)),
+              .code = detail::diagnosticCodeFromMetadata(diagnostic).value_or(
+                  defaultDiagnosticCode(stage_)),
               .severity = severityName(diagnostic.getSeverity()),
               .message = std::move(message),
               .source = sourceLocation(diagnostic.getLocation())});
@@ -497,6 +482,23 @@ llvm::StringRef compilerStageName(CompilerStage stage) {
     return "publish";
   }
   llvm_unreachable("closed CompilerStage is exhaustive");
+}
+
+std::optional<std::string>
+detail::diagnosticCodeFromMetadata(mlir::Diagnostic &diagnostic) {
+  static constexpr llvm::StringLiteral kCodeField = "diagnostic.code";
+  for (mlir::DiagnosticArgument &argument : diagnostic.getMetadata()) {
+    if (argument.getKind() !=
+        mlir::DiagnosticArgument::DiagnosticArgumentKind::Attribute)
+      continue;
+    auto fields = mlir::dyn_cast<mlir::DictionaryAttr>(argument.getAsAttribute());
+    if (!fields)
+      continue;
+    if (auto code = fields.getAs<mlir::StringAttr>(kCodeField);
+        code && !code.getValue().empty())
+      return code.getValue().str();
+  }
+  return std::nullopt;
 }
 
 llvm::Expected<CompilerResult> runCompiler(const CompilerRequest &request) {

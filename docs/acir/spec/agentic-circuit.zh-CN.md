@@ -1477,6 +1477,19 @@ snapshot reader 彼此兼容；snapshot/write 在 index 重叠时冲突，不相
 Python 不暴露这些 proof 或 reservation operation。candidate/output predicate 与
 match/choose index set 的通用推导及 multiple selected output 仍不属于当前子集。
 
+## 诊断契约
+
+诊断码是稳定的工具标识，不是从人类可读消息中拆出的字符串。Python 前端异常分别携带
+`code`、`message` 和可选源码范围；CLI 与编译边界直接消费这些字段。完整 catalog 可用
+`agentic-circuit explain CODE` 查询。`schemas/agentic-circuit/diagnostics/registry.json`
+是 code owner、stage、meaning、status 与精确源码集合的唯一来源；
+`tools/agentic-circuit/generate-diagnostic-catalog.py --check` 会阻止实现使用未注册的
+`ACPY-*`、`ACIR-*`、`ACLOWER-*`、`ACBUILD-*`、`ACRUN-*` 或 `ACSDK-*` 诊断码。
+
+Queue 拓扑错误使用 `ACPY-QUEUE-*`，标量 value primitive 的调用、类型、选项或位宽错误
+统一使用 `ACPY-VAR-003`，native QueueGraph/backend 使用 `ACLOWER-QUEUE-*`。同一码可在
+同一语义的多个检查点发射，但不得表示不同含义；详见 Decision 0242。
+
 ## 常见问题
 
 | 现象 | 原因 | 处理方法 |
