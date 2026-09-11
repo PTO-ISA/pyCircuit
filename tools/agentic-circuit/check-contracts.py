@@ -9,7 +9,6 @@ from pathlib import Path
 from urllib.parse import unquote
 
 import tomllib
-
 ROOT = Path(__file__).resolve().parents[2]
 PYPROJECT = ROOT / "python/agentic-circuit/pyproject.toml"
 with PYPROJECT.open("rb") as stream:
@@ -253,6 +252,22 @@ def check_stdlib_catalog(errors):
         errors.append(generation.stderr.strip() or "standard-library catalog is stale")
 
 
+def check_diagnostic_catalog(errors):
+    generation = subprocess.run(
+        [
+            sys.executable,
+            ROOT / "tools/agentic-circuit/generate-diagnostic-catalog.py",
+            "--check",
+        ],
+        cwd=ROOT,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    if generation.returncode:
+        errors.append(generation.stderr.strip() or "diagnostic catalog is stale")
+
+
 def tracked_markdown_files():
     result = subprocess.run(
         ["git", "ls-files", "-z", "--", "*.md"],
@@ -426,6 +441,7 @@ def main():
     check_epochs(errors)
     check_schemas(errors)
     check_stdlib_catalog(errors)
+    check_diagnostic_catalog(errors)
     check_links(errors)
     check_placeholders(errors)
     check_llvm_lock(errors)

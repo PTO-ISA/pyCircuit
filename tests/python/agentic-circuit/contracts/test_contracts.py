@@ -286,21 +286,65 @@ class RepositoryContractsTest(unittest.TestCase):
         codes = []
         for entry in document["entries"]:
             self.assertEqual(
-                {"code", "title", "rule", "causes", "examples", "repairs"},
+                {
+                    "code",
+                    "owner",
+                    "stage",
+                    "status",
+                    "title",
+                    "rule",
+                    "causes",
+                    "examples",
+                    "repairs",
+                },
                 set(entry),
             )
             self.assertRegex(
                 entry["code"],
-                r"^AC(PY|ELAB|IR-[A-Z]+|LOWER|BUILD|TRACE|RUN|SDK-[A-Z]+)-[A-Z0-9-]+$",
+                r"^AC(PY|ELAB|IR-[A-Z]+|SIM|LOWER|BUILD|TRACE|RUN|SDK-[A-Z]+)-[A-Z0-9-]+$",
             )
             for key in ("causes", "examples", "repairs"):
                 self.assertTrue(entry[key])
                 self.assertTrue(
                     all(isinstance(item, str) and item for item in entry[key])
                 )
+            self.assertTrue(entry["owner"])
+            self.assertTrue(entry["stage"])
+            self.assertIn(entry["status"], {"active", "reserved", "retired"})
             codes.append(entry["code"])
         self.assertEqual(sorted(codes), codes)
         self.assertEqual(len(codes), len(set(codes)))
+
+        generated = subprocess.run(
+            [
+                sys.executable,
+                ROOT / "tools/agentic-circuit/generate-diagnostic-catalog.py",
+                "--check",
+            ],
+            cwd=ROOT,
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        self.assertEqual(0, generated.returncode, generated.stderr)
+
+    def test_release_smokes_the_installed_diagnostic_catalog(self):
+        setup = (ROOT / "python/agentic-circuit/setup.py").read_text()
+        workflow = (ROOT / ".github/workflows/release.yml").read_text()
+
+        self.assertIn("BuildPyWithSchemas", setup)
+        self.assertIn('files("agentic_circuit._data").joinpath(name)', (
+            ROOT
+            / "python/agentic-circuit/src/agentic_circuit/_package_data.py"
+        ).read_text())
+        self.assertIn(
+            "wheel-smoke/bin/agentic-circuit explain ACPY-RULE-014 --json",
+            workflow,
+        )
+        self.assertIn(
+            "installed Agentic Circuit diagnostic catalog is incomplete",
+            workflow,
+        )
 
     def test_minimal_acpy_fixture_matches_the_public_schema(self):
         self.assertIsNotNone(importlib.util.find_spec("jsonschema"))
@@ -445,7 +489,6 @@ class RepositoryContractsTest(unittest.TestCase):
             Draft202012Validator.check_schema(document)
             checked.append(path.name)
         self.assertEqual(15, len(checked), checked)
-
 
     def test_process_state_plan_schema_is_closed_and_accepts_exact_baseline(self):
         self.assertIsNotNone(importlib.util.find_spec("jsonschema"))
@@ -1092,7 +1135,6 @@ class RepositoryContractsTest(unittest.TestCase):
         ):
             offenders.append("README.md (stale specification-phase placeholder)")
         self.assertEqual([], offenders, f"placeholder content: {offenders}")
-
 
     def test_llvm_lock_is_exact_and_complete(self):
         lock = json.loads(

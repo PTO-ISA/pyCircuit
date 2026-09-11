@@ -38,7 +38,7 @@ from ._canonical_json import (
     sha256_bytes,
 )
 from ._contract import CONTRACT_EPOCH
-from ._diagnostics import Diagnostic, SourceSpan
+from ._diagnostics import Diagnostic, DiagnosticError, SourceSpan
 from ._static_eval import (
     MAX_STATIC_EXPANSION,
     StaticEnvironment,
@@ -255,8 +255,23 @@ def _module_static_values(tree: ast.Module) -> dict[str, StaticValue]:
     return values
 
 
-class QueueFrontendError(ValueError):
+class QueueFrontendError(DiagnosticError):
     """A stable rejection from the queue frontend."""
+
+
+def _primitive_integer_width(operation: str, value_type: ValueType) -> int:
+    """Apply the shared exact-width contract for scalar value primitives."""
+
+    width = _epoch_05_integer_width(value_type)
+    if width is None:
+        raise QueueFrontendError(
+            "ACPY-VAR-003", f"{operation} operand must be an integer payload"
+        )
+    if not is_primitive_input_width(width):
+        raise QueueFrontendError(
+            "ACPY-VAR-003", f"{operation} operand width must be in [1, 64]"
+        )
+    return width
 
 
 @dataclass(frozen=True, slots=True)
@@ -9141,7 +9156,8 @@ class _ExpressionEmitter:
                 keyword.arg != "order" for keyword in call.keywords
             ):
                 raise QueueFrontendError(
-                    "ACPY-QUEUE-025: priority_encode requires one value and optional order"
+                    "ACPY-VAR-003",
+                    "priority_encode requires one value and optional order",
                 )
             order = "low"
             if call.keywords:
@@ -9151,26 +9167,18 @@ class _ExpressionEmitter:
                     or type(raw_order.value) is not str
                 ):
                     raise QueueFrontendError(
-                        "ACPY-QUEUE-025: priority_encode order must be static"
+                        "ACPY-VAR-003", "priority_encode order must be static"
                     )
                 order = raw_order.value.strip().lower()
             if order not in {"low", "high"}:
                 raise QueueFrontendError(
-                    "ACPY-QUEUE-025: priority_encode order must be low or high"
+                    "ACPY-VAR-003", "priority_encode order must be low or high"
                 )
             key = ast.dump(call, include_attributes=False)
             cached = self.priority_values.get(key)
             if cached is None:
                 value, value_type = self.emit(call.args[0])
-                width = _epoch_05_integer_width(value_type)
-                if width is None:
-                    raise QueueFrontendError(
-                        "ACPY-QUEUE-025: priority_encode requires an integer payload"
-                    )
-                if not is_primitive_input_width(width):
-                    raise QueueFrontendError(
-                        "ACPY-QUEUE-025: priority_encode width must be in [1, 64]"
-                    )
+                width = _primitive_integer_width("priority_encode", value_type)
                 index_type = BitsType(primitive_priority_index_width(width))
                 index = self._new()
                 valid = self._new()
@@ -9476,18 +9484,11 @@ class _ExpressionEmitter:
         ):
             if len(node.args) != 1 or node.keywords:
                 raise QueueFrontendError(
-                    "ACPY-QUEUE-003: popcount requires exactly one positional operand"
+                    "ACPY-VAR-003",
+                    "popcount requires exactly one positional operand",
                 )
             value, value_type = self.emit(node.args[0])
-            width = _epoch_05_integer_width(value_type)
-            if width is None:
-                raise QueueFrontendError(
-                    "ACPY-QUEUE-003: popcount operand must be an integer payload"
-                )
-            if not is_primitive_input_width(width):
-                raise QueueFrontendError(
-                    "ACPY-QUEUE-003: popcount operand width must be in [1, 64]"
-                )
+            width = _primitive_integer_width("popcount", value_type)
             result_width = primitive_count_width(width)
             name = self._new()
             self.lines.append(
@@ -9501,18 +9502,11 @@ class _ExpressionEmitter:
             operation = _decorator_name(node.func).rsplit(".", 1)[-1]
             if len(node.args) != 1 or node.keywords:
                 raise QueueFrontendError(
-                    f"ACPY-QUEUE-003: {operation} requires exactly one positional operand"
+                    "ACPY-VAR-003",
+                    f"{operation} requires exactly one positional operand",
                 )
             value, value_type = self.emit(node.args[0])
-            width = _epoch_05_integer_width(value_type)
-            if width is None:
-                raise QueueFrontendError(
-                    f"ACPY-QUEUE-003: {operation} operand must be an integer payload"
-                )
-            if not is_primitive_input_width(width):
-                raise QueueFrontendError(
-                    f"ACPY-QUEUE-003: {operation} operand width must be in [1, 64]"
-                )
+            width = _primitive_integer_width(operation, value_type)
             result_width = primitive_count_width(width)
             name = self._new()
             direction = "trailing" if operation == "count_trailing_zeros" else "leading"

@@ -2439,15 +2439,22 @@ repository-owned inventory with ACIR, gfsim, PYC, and conformance definitions.
 
 ## Diagnostics
 
-Frontend Queue diagnostics use the `ACPY-QUEUE-*` family. They SHOULD identify
-the source construct, violated static rule, and repair. Important current codes
-include:
+Diagnostic codes are stable tooling identities registered independently from
+their rendered messages. Frontend exceptions expose `code`, `message`, and an
+optional `SourceSpan`; compiler and CLI boundaries consume those fields rather
+than parsing message punctuation. The packaged catalog is complete for the
+implementation and is queried with `agentic-circuit explain CODE`.
+
+Frontend Queue diagnostics use the `ACPY-QUEUE-*` family. Value-level primitive
+validation uses `ACPY-VAR-*`; lowering, build, and runtime stages keep their own
+registered families. Diagnostics SHOULD identify the source construct,
+violated static rule, and repair. Important current codes include:
 
 | Code | Meaning |
 | --- | --- |
 | `ACPY-QUEUE-001` | invalid system, assignment, statement, or positive constant |
 | `ACPY-QUEUE-002` | unsupported payload or structure declaration |
-| `ACPY-QUEUE-003` | invalid lambda or Var expression |
+| `ACPY-QUEUE-003` | invalid lambda or general Queue expression |
 | `ACPY-QUEUE-004` | duplicate scope path |
 | `ACPY-QUEUE-005` | invalid static collection or reference |
 | `ACPY-QUEUE-006` | invalid route declaration |
@@ -2456,6 +2463,7 @@ include:
 | `ACPY-QUEUE-010` | forbidden user opcode or backend provider |
 | `ACPY-QUEUE-011` | runtime `if` is not a symmetric Boolean Queue branch |
 | `ACPY-QUEUE-012` | invalid fork |
+| `ACPY-VAR-003` | invalid scalar value primitive call, type, option, or width |
 
 Rule diagnostics use `ACPY-RULE-001` through `ACPY-RULE-005` for invalid rule
 definitions, unsupported control flow, invalid Queue invocation, result-type
@@ -2463,6 +2471,14 @@ mismatch, and removed epoch 0.4 `atomic`/`.firing()` spellings respectively.
 
 Native QueueGraph/backend diagnostics use the `ACLOWER-QUEUE-*` family and
 MUST reject an invalid graph before emitting partial backend artifacts.
+
+`schemas/agentic-circuit/diagnostics/registry.json` is the single source table
+for code owner, stage, meaning, status, and exact implementation source set.
+`tools/agentic-circuit/generate-diagnostic-catalog.py --check` verifies that
+every implementation code and source site is registered and that the generated
+explanation catalog is current. Adding a code requires updating the registry and
+regenerating the catalog in the same change; reusing an existing code for a
+different meaning is forbidden by Decision 0242.
 
 ## Determinism requirements
 

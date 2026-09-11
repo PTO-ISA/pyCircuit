@@ -23,7 +23,13 @@ from ._canonical_json import JsonValue, canonical_json_bytes
 from ._capabilities import schema_root
 from ._contract import CONTRACT_EPOCH
 from ._definitions import Definition
-from ._diagnostics import Diagnostic, FixIt, RelatedLocation, SourceSpan
+from ._diagnostics import (
+    Diagnostic,
+    FixIt,
+    RelatedLocation,
+    SourceSpan,
+    diagnostic_from_exception,
+)
 from ._frontend import CaptureRequest, elaborate_frontend
 from ._output import OutputSink
 from ._schemas import SchemaRegistry
@@ -251,17 +257,16 @@ def _worker_diagnostic(error: BaseException, entry: Path) -> Diagnostic:
         line = error.lineno or 1
         column = error.offset or 1
         source = SourceSpan(entry.name, line, column, line, column)
-        code = "ACPY-SYNTAX-001"
+        default_code = "ACPY-SYNTAX-SOURCE"
     else:
         source = None
-        candidate = str(error).partition(":")[0]
-        code = candidate if candidate.startswith("ACPY-") else "ACPY-CAPTURE-001"
-    return Diagnostic(
+        default_code = "ACPY-CAPTURE-001"
+    return diagnostic_from_exception(
+        error,
         stage="frontend-capture",
-        code=code,
-        severity="error",
-        message=f"trusted project execution failed: {error}",
+        default_code=default_code,
         source=source,
+        message_prefix="trusted project execution failed: ",
     )
 
 

@@ -148,7 +148,7 @@ def test_selector_is_catalog_owned_and_fail_closed(tmp_path: Path) -> None:
             env=_environment(),
         )
         assert rejected.returncode != 0
-        assert "PYC982" in rejected.stderr
+        assert "PYC932" in rejected.stderr
 
     isolated = tmp_path / "catalog"
     isolated.mkdir()

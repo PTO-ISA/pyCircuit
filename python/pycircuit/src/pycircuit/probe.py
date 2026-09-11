@@ -13,7 +13,7 @@ from .path_shortening import InstancePathShorteningPolicy, xxhash64
 
 
 class ProbeError(PyCircuitError):
-    pass
+    default_code = "PYC-PY-PROBE"
 
 
 def _normalize_at(at: str | None) -> str:

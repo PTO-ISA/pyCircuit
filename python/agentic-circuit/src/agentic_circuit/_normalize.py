@@ -9,8 +9,8 @@ from ._diagnostics import Diagnostic, DiagnosticBag, RelatedLocation, SourceSpan
 from ._frontend import CapturedProgram
 from ._naming import StableNameAllocator, StableNameError
 from ._resolve import (
-    ResolvedCall,
     ResolutionError,
+    ResolvedCall,
     UnresolvedCall,
     ValueCategory,
     ValueVersion,
@@ -303,7 +303,7 @@ class _Normalizer:
     def _assignment(self, statement: ast.Assign) -> None:
         if len(statement.targets) != 1:
             self._error(
-                "ACPY-SYNTAX-001", "chained assignment is not supported", statement
+                "ACPY-NORMALIZE-001", "chained assignment is not supported", statement
             )
             return
         if isinstance(statement.value, ast.Call):
@@ -317,7 +317,7 @@ class _Normalizer:
             return
         if len(targets) != 1:
             self._error(
-                "ACPY-SYNTAX-001", "value shape does not match target", statement
+                "ACPY-NORMALIZE-001", "value shape does not match target", statement
             )
             return
         self._new_value(
@@ -399,7 +399,7 @@ class _Normalizer:
             return
         else:
             self._error(
-                "ACPY-SYNTAX-001",
+                "ACPY-NORMALIZE-001",
                 f"{type(statement).__name__} normalization is not supported yet",
                 statement,
             )

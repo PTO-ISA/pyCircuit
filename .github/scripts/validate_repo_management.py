@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import json
 import re
 import sys
 from pathlib import Path
@@ -121,6 +122,40 @@ def validate_release_graph(document: object) -> list[str]:
 
 def main() -> int:
     errors: list[str] = []
+
+    try:
+        governance = json.loads(read(".github/repository-governance.json"))
+    except (json.JSONDecodeError, TypeError):
+        governance = None
+    require(
+        isinstance(governance, dict)
+        and governance.get("schema") == "pycircuit-repository-governance-v1"
+        and governance.get("repository") == "PTO-ISA/pyCircuit"
+        and governance.get("default_branch") == "main",
+        "repository governance identity is invalid",
+        errors,
+    )
+    protection = (
+        governance.get("branch_protection") if isinstance(governance, dict) else None
+    )
+    require(
+        isinstance(protection, dict)
+        and protection.get("enforce_admins") is False
+        and protection.get("admin_merge_bypass") == "always",
+        "repository admins must retain permanent branch-protection bypass",
+        errors,
+    )
+    require(
+        isinstance(protection, dict)
+        and protection.get("required_status_checks")
+        == ["G0: Agentic Python Checks", "G0: Python Checks"]
+        and protection.get("strict_status_checks") is True
+        and protection.get("required_approving_reviews") == 1
+        and protection.get("require_code_owner_reviews") is True
+        and protection.get("dismiss_stale_reviews") is True,
+        "ordinary main-branch review and status-check policy drifted",
+        errors,
+    )
 
     workflows = sorted((ROOT / ".github" / "workflows").glob("*.yml"))
     for path in workflows:

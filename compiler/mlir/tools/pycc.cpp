@@ -2,6 +2,7 @@
 #include "pyc/Dialect/PYC/PYCOps.h"
 #include "pyc/Emit/CppEmitter.h"
 #include "pyc/Emit/VerilogEmitter.h"
+#include "pyc/Support/Diagnostics.h"
 #include "pyc/Transforms/Passes.h"
 
 #include "mlir/Dialect/Arith/IR/Arith.h"
@@ -539,13 +540,13 @@ static LogicalResult writeProbeManifestJson(llvm::StringRef path,
 static LogicalResult emitProbeManifest(ModuleOp module, llvm::StringRef outPath) {
   std::string top = topSymbol(module);
   if (top.empty()) {
-    module.emitError("[PYC970] cannot emit probe manifest: missing `pyc.top`");
+    pyc::emitError(module, "PYC926") << "cannot emit probe manifest: missing `pyc.top`";
     return failure();
   }
 
   auto topFunc = module.lookupSymbol<func::FuncOp>(top);
   if (!topFunc) {
-    module.emitError("[PYC971] cannot emit probe manifest: top symbol not found: ") << top;
+    pyc::emitError(module, "PYC927") << "cannot emit probe manifest: top symbol not found: " << top;
     return failure();
   }
 
@@ -575,7 +576,7 @@ static LogicalResult emitProbeManifest(ModuleOp module, llvm::StringRef outPath)
   auto rec = [&](auto &&self, func::FuncOp f, std::string instPath) -> LogicalResult {
     const std::string sym = f.getSymName().str();
     if (std::find(stack.begin(), stack.end(), sym) != stack.end()) {
-      f.emitError() << "[PYC972] recursive instance hierarchy is not supported for probe manifest: " << sym;
+      pyc::emitError(f, "PYC928") << "recursive instance hierarchy is not supported for probe manifest: " << sym;
       return failure();
     }
     stack.push_back(sym);
@@ -617,7 +618,7 @@ static LogicalResult emitProbeManifest(ModuleOp module, llvm::StringRef outPath)
     if (!f.isDeclaration()) {
       auto ret = dyn_cast_or_null<func::ReturnOp>(f.getBody().front().getTerminator());
       if (!ret) {
-        f.emitError("[PYC975] probe manifest emission requires func.return terminator");
+        pyc::emitError(f, "PYC931") << "probe manifest emission requires func.return terminator";
         return failure();
       }
       auto isRegQ = [&](Value v) -> bool {
@@ -744,7 +745,7 @@ static LogicalResult emitProbeManifest(ModuleOp module, llvm::StringRef outPath)
     };
 
     if (!llvm::hasSingleElement(f.getBody()))
-      return f.emitError("[PYC973] probe manifest emission requires single-block funcs (match C++ emitter contract)");
+      return pyc::emitError(f, "PYC929") << "probe manifest emission requires single-block funcs (match C++ emitter contract)";
 
     Block &topBlock = f.getBody().front();
 
@@ -851,7 +852,7 @@ static LogicalResult emitProbeManifest(ModuleOp module, llvm::StringRef outPath)
         continue;
       auto nameAttr = inst.getNameAttr();
       if (!nameAttr)
-        return inst.emitError("[PYC974] missing required InstanceOp name (expected frontend contract to enforce)");
+        return pyc::emitError(inst, "PYC930") << "missing required InstanceOp name (expected frontend contract to enforce)";
       auto calleeAttr = inst.getCalleeAttr();
       if (!calleeAttr)
         return inst.emitError("missing required FlatSymbolRefAttr `callee`");
@@ -899,7 +900,7 @@ static FailureOr<llvm::json::Object> parseTbPayload(ModuleOp module) {
     return failure();
   auto parsed = llvm::json::parse(*payloadOpt);
   if (!parsed || !parsed->getAsObject()) {
-    module.emitError("[PYC920] invalid `pyc.tb.payload` JSON encoding");
+    pyc::emitError(module, "PYC920") << "invalid `pyc.tb.payload` JSON encoding";
     return failure();
   }
   return *parsed->getAsObject();
@@ -915,7 +916,7 @@ static LogicalResult emitTbTextFromPayload(ModuleOp module, llvm::StringRef kind
       os << txt->str();
       return success();
     }
-    module.emitError("[PYC921] testbench payload missing `cpp_text`");
+    pyc::emitError(module, "PYC921") << "testbench payload missing `cpp_text`";
     return failure();
   }
   if (kind == "verilog") {
@@ -923,10 +924,10 @@ static LogicalResult emitTbTextFromPayload(ModuleOp module, llvm::StringRef kind
       os << txt->str();
       return success();
     }
-    module.emitError("[PYC922] testbench payload missing `sv_text`");
+    pyc::emitError(module, "PYC922") << "testbench payload missing `sv_text`";
     return failure();
   }
-  module.emitError("[PYC923] unsupported testbench emit kind `") << kind << "`";
+  pyc::emitError(module, "PYC923") << "unsupported testbench emit kind `" << kind << "`";
   return failure();
 }
 
@@ -1331,19 +1332,19 @@ static LogicalResult enforceCppCompileBudgets(ModuleOp module, llvm::ArrayRef<Cp
 
   bool ok = true;
   if (topSourceCost > kHardMaxSourcePredictedCompileCost) {
-    module.emitError() << "[PYC991] hottest emitted C++ TU exceeds hard budget: path=`" << topSourcePath
+    pyc::emitError(module, "PYC991") << "hottest emitted C++ TU exceeds hard budget: path=`" << topSourcePath
                        << "` predicted_compile_cost=" << topSourceCost
                        << " > " << kHardMaxSourcePredictedCompileCost;
     ok = false;
   }
   if (topModuleCost > kHardMaxModulePredictedCompileCost) {
-    module.emitError() << "[PYC992] hottest emitted module exceeds hard budget: module=`" << topModuleName
+    pyc::emitError(module, "PYC992") << "hottest emitted module exceeds hard budget: module=`" << topModuleName
                        << "` predicted_compile_cost=" << topModuleCost
                        << " > " << kHardMaxModulePredictedCompileCost;
     ok = false;
   }
   if (totalCost > kHardMaxTotalPredictedCompileCost) {
-    module.emitError() << "[PYC993] total emitted C++ compile cost exceeds hard budget: predicted_compile_cost="
+    pyc::emitError(module, "PYC993") << "total emitted C++ compile cost exceeds hard budget: predicted_compile_cost="
                        << totalCost << " > " << kHardMaxTotalPredictedCompileCost;
     ok = false;
   }

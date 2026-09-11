@@ -1,4 +1,5 @@
 #include "pyc/Transforms/Passes.h"
+#include "pyc/Support/Diagnostics.h"
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/IR/BuiltinAttributes.h"
@@ -26,12 +27,12 @@ static int64_t jsonIntOr(const llvm::json::Object &obj, llvm::StringRef key, int
 static LogicalResult parseStructMetrics(func::FuncOp f, llvm::json::Object &out) {
   auto raw = f->getAttrOfType<StringAttr>("pyc.struct.metrics");
   if (!raw) {
-    f.emitError("[PYC982] missing required `pyc.struct.metrics` for hierarchy discipline");
+    pyc::emitError(f, "PYC982") << "missing required `pyc.struct.metrics` for hierarchy discipline";
     return failure();
   }
   llvm::Expected<llvm::json::Value> parsed = llvm::json::parse(raw.getValue());
   if (!parsed || !parsed->getAsObject()) {
-    f.emitError("[PYC983] invalid `pyc.struct.metrics` JSON for hierarchy discipline");
+    pyc::emitError(f, "PYC983") << "invalid `pyc.struct.metrics` JSON for hierarchy discipline";
     return failure();
   }
   out = *parsed->getAsObject();
@@ -41,12 +42,12 @@ static LogicalResult parseStructMetrics(func::FuncOp f, llvm::json::Object &out)
 static LogicalResult parseStructCollections(func::FuncOp f, llvm::json::Array &out) {
   auto raw = f->getAttrOfType<StringAttr>("pyc.struct.collections");
   if (!raw) {
-    f.emitError("[PYC984] missing required `pyc.struct.collections` for hierarchy discipline");
+    pyc::emitError(f, "PYC984") << "missing required `pyc.struct.collections` for hierarchy discipline";
     return failure();
   }
   llvm::Expected<llvm::json::Value> parsed = llvm::json::parse(raw.getValue());
   if (!parsed || !parsed->getAsArray()) {
-    f.emitError("[PYC985] invalid `pyc.struct.collections` JSON for hierarchy discipline");
+    pyc::emitError(f, "PYC985") << "invalid `pyc.struct.collections` JSON for hierarchy discipline";
     return failure();
   }
   out = *parsed->getAsArray();
@@ -154,7 +155,7 @@ public:
 
       if (kind == "function") {
         if (instanceCount > 0 || collectionCount > 0 || moduleCallCount > 0) {
-          f.emitError() << "[PYC986] `@function` must not instantiate modules or collections "
+          pyc::emitError(f, "PYC986") << "`@function` must not instantiate modules or collections "
                         << "(instance_count=" << instanceCount
                         << ", collection_count=" << collectionCount
                         << ", module_call_count=" << moduleCallCount
@@ -162,20 +163,20 @@ public:
           ok = false;
         }
         if (stateAllocCount > 0 || stateCallCount > 0) {
-          f.emitError() << "[PYC987] `@function` must not allocate state "
+          pyc::emitError(f, "PYC987") << "`@function` must not allocate state "
                         << "(state_alloc_count=" << stateAllocCount
                         << ", state_call_count=" << stateCallCount
                         << "; hint: move stateful logic behind a `@module` boundary)";
           ok = false;
         }
         if (inlineCost > kFunctionInlineCostCap) {
-          f.emitError() << "[PYC988] `@function` exceeds inline complexity cap: estimated_inline_cost="
+          pyc::emitError(f, "PYC988") << "`@function` exceeds inline complexity cap: estimated_inline_cost="
                         << inlineCost << " > " << kFunctionInlineCostCap
                         << " (hint: split the helper or promote it to `@module`)";
           ok = false;
         }
         if (repeat > kFunctionRepeatPressureCap) {
-          f.emitError() << "[PYC989] `@function` contains repeated inline hardware pressure=" << repeat
+          pyc::emitError(f, "PYC989") << "`@function` contains repeated inline hardware pressure=" << repeat
                         << " > " << kFunctionRepeatPressureCap
                         << " (hint: use `spec.module_family(...)` + `array(...)` for repeated structure)";
           ok = false;
@@ -185,7 +186,7 @@ public:
 
       if (kind == "module") {
         if (hierarchyRepeat > kModuleRepeatPressureCap && !hasFamilyCollection) {
-          f.emitError() << "[PYC990] repeated hierarchy pressure=" << hierarchyRepeat
+          pyc::emitError(f, "PYC990") << "repeated hierarchy pressure=" << hierarchyRepeat
                         << " exceeds module discipline cap " << kModuleRepeatPressureCap
                         << " without `ModuleFamilySpec` collections"
                         << " (hint: model repeated same-shape hierarchy with `spec.module_family(...)` "

@@ -9,10 +9,15 @@ from pathlib import Path
 
 from ._acpy import AcpyDocument
 from ._definitions import Definition
-from ._diagnostics import Diagnostic, DiagnosticBag, SourceSpan
+from ._diagnostics import (
+    Diagnostic,
+    DiagnosticBag,
+    SourceSpan,
+    diagnostic_from_exception,
+)
 from ._schemas import SchemaRegistry
 from ._source import DefinitionSite, SourceUnit, load_source_unit
-from ._static_eval import StaticValue, evaluate_static, StaticEnvironment
+from ._static_eval import StaticEnvironment, StaticValue, evaluate_static
 
 
 @dataclass(frozen=True, slots=True)
@@ -326,14 +331,10 @@ def elaborate_frontend(
             processes=tuple(process_records),
         )
     except ValueError as error:
-        message = str(error)
-        candidate = message.partition(":")[0]
-        code = candidate if candidate.startswith("ACPY-") else "ACPY-VERIFY-001"
-        diagnostic = Diagnostic(
+        diagnostic = diagnostic_from_exception(
+            error,
             stage="acir-lowering",
-            code=code,
-            severity="error",
-            message=message,
+            default_code="ACPY-VERIFY-001",
         )
         return FrontendResult(None, None, (diagnostic,))
     return FrontendResult(document, artifact.text, ())

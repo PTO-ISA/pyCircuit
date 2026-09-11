@@ -14,7 +14,7 @@ from ._acpy import (
 )
 from ._canonical_json import canonical_mlir_string, sha256_bytes, utf16_sort_key
 from ._contract import CONTRACT_EPOCH
-from ._diagnostics import SourceSpan
+from ._diagnostics import DiagnosticError, SourceSpan
 from ._frontend import CapturedProgram
 from ._normalize import NormalizedProgram
 from ._process import ProcessProgram
@@ -49,12 +49,12 @@ def build_verified_acpy(
 
     selected = captured.selected_system
     if selected is None:
-        raise ValueError("ACPY-VERIFY-001: a selected system is required")
+        raise DiagnosticError("ACPY-VERIFY-001: a selected system is required")
     sites = {site.qualified_name: site for site in captured.source.definitions}
     system_site = sites[selected.qualified_name]
     module_site = sites.get(program.definition)
     if module_site is None:
-        raise ValueError("ACPY-VERIFY-001: root module source is missing")
+        raise DiagnosticError("ACPY-VERIFY-001: root module source is missing")
 
     allocator = EntityAllocator()
     system = allocator.allocate(
@@ -144,7 +144,7 @@ def build_verified_acpy(
     )
     errors = document.verify()
     if errors:
-        raise ValueError(
+        raise DiagnosticError(
             "ACPY-VERIFY-001: " + "; ".join(error.message for error in errors)
         )
     return document
@@ -153,7 +153,7 @@ def build_verified_acpy(
 def _symbol(value: str) -> str:
     candidate = value.rsplit(".", 1)[-1]
     if not _SYMBOL.fullmatch(candidate):
-        raise ValueError(f"ACPY-VERIFY-001: invalid ACIR symbol {value!r}")
+        raise DiagnosticError(f"ACPY-VERIFY-001: invalid ACIR symbol {value!r}")
     return candidate
 
 
@@ -171,7 +171,7 @@ def _static_attribute(value: StaticValue) -> str:
         return str(value)
     if type(value) is str:
         return canonical_mlir_string(value)
-    raise ValueError(
+    raise DiagnosticError(
         f"ACPY-VERIFY-001: unsupported ACIR static value {type(value).__name__}"
     )
 
@@ -201,7 +201,7 @@ def _component_declarations(program: NormalizedProgram) -> list[str]:
         schema = schemas[identity]
         symbol = _symbol(identity)
         if symbol in symbols:
-            raise ValueError("ACPY-CALL-006: component symbol collision")
+            raise DiagnosticError("ACPY-CALL-006: component symbol collision")
         symbols.add(symbol)
         arguments = ", ".join(
             f"%{port.name} : {port.acir_type}" for port in schema.ports
@@ -234,7 +234,7 @@ def _component_declarations(program: NormalizedProgram) -> list[str]:
         returned: list[str] = []
         for result in schema.results:
             if result.source_binding is None:
-                raise ValueError(
+                raise DiagnosticError(
                     f"ACPY-VERIFY-001: {identity} result {result.name!r} has no structural source"
                 )
             returned.append(f"%{result.source_binding}")
@@ -250,16 +250,16 @@ def _component_declarations(program: NormalizedProgram) -> list[str]:
 
 def _emit_process(process: ProcessProgram, kind: str) -> list[str]:
     if process.captures:
-        raise ValueError("ACPY-VERIFY-001: captured process lowering is not closed yet")
+        raise DiagnosticError("ACPY-VERIFY-001: captured process lowering is not closed yet")
     if len(process.blocks) != 1:
-        raise ValueError("ACPY-VERIFY-001: multi-block process requires CFG lowering")
+        raise DiagnosticError("ACPY-VERIFY-001: multi-block process requires CFG lowering")
     block = process.blocks[0]
     if (
         block.actions
         or block.edge.kind != "suspend"
         or block.edge.operation != "yield_sim"
     ):
-        raise ValueError("ACPY-VERIFY-001: unsupported process operation shape")
+        raise DiagnosticError("ACPY-VERIFY-001: unsupported process operation shape")
     return [
         f"    ac.process @{_symbol(process.name)} kind {canonical_mlir_string(kind)} {{",
         "      ac.yield_sim",
@@ -276,7 +276,7 @@ def lower_to_acir(
 ) -> AcirArtifact:
     errors = document.verify()
     if errors:
-        raise ValueError("ACPY-VERIFY-001: lowering requires verified ACPy")
+        raise DiagnosticError("ACPY-VERIFY-001: lowering requires verified ACPy")
     types = _argument_types(program)
     root = _symbol(program.definition)
     lines = [
@@ -328,7 +328,7 @@ def lower_to_acir(
         operand_types = ", ".join(port.acir_type for port in call.schema.ports)
         results = tuple(binding.value for binding in call.results)
         if len(results) > 1:
-            raise ValueError(
+            raise DiagnosticError(
                 "ACPY-VERIFY-001: multi-result instance emission is not closed"
             )
         prefix = ""

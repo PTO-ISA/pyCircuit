@@ -111,6 +111,84 @@ class SourceCaptureTest(unittest.TestCase):
 
 
 class DiagnosticTest(unittest.TestCase):
+    def test_structured_exception_converts_without_string_parsing(self) -> None:
+        from agentic_circuit._diagnostics import (
+            AgenticCircuitError,
+            DiagnosticError,
+            SourceSpan,
+            diagnostic_from_exception,
+        )
+
+        source = SourceSpan("basic.py", 9, 5, 9, 12)
+        error = DiagnosticError("ACPY-QUEUE-001", "queue is invalid", source)
+
+        diagnostic = diagnostic_from_exception(
+            error,
+            stage="queue-frontend",
+            default_code="ACPY-VERIFY-001",
+        )
+
+        self.assertIsInstance(error, ValueError)
+        self.assertIsInstance(error, AgenticCircuitError)
+        self.assertEqual("ACPY-QUEUE-001: queue is invalid", str(error))
+        self.assertEqual("ACPY-QUEUE-001", diagnostic.code)
+        self.assertEqual("queue is invalid", diagnostic.message)
+        self.assertEqual(source, diagnostic.source)
+
+    def test_legacy_queue_frontend_exception_is_structured_at_boundary(self) -> None:
+        from agentic_circuit._diagnostics import diagnostic_from_exception
+        from agentic_circuit._queue_frontend import QueueFrontendError
+
+        error = QueueFrontendError("ACPY-QUEUE-002: unsupported field type")
+
+        diagnostic = diagnostic_from_exception(
+            error,
+            stage="queue-frontend",
+            default_code="ACPY-VERIFY-001",
+        )
+
+        self.assertIsInstance(error, ValueError)
+        self.assertEqual("ACPY-QUEUE-002", error.code)
+        self.assertEqual("unsupported field type", error.message)
+        self.assertIsNone(error.source)
+        self.assertEqual("ACPY-QUEUE-002", diagnostic.code)
+        self.assertEqual("unsupported field type", diagnostic.message)
+
+    def test_unstructured_exception_cannot_smuggle_a_code_in_its_message(self) -> None:
+        from agentic_circuit._diagnostics import diagnostic_from_exception
+
+        diagnostic = diagnostic_from_exception(
+            ValueError("ACPY-RULE-001: text is not diagnostic identity"),
+            stage="queue-frontend",
+            default_code="ACPY-VERIFY-001",
+        )
+
+        self.assertEqual("ACPY-VERIFY-001", diagnostic.code)
+        self.assertEqual(
+            "ACPY-RULE-001: text is not diagnostic identity", diagnostic.message
+        )
+
+    def test_jit_and_lowering_errors_are_structured_at_the_raise_site(self) -> None:
+        from agentic_circuit._diagnostics import (
+            AgenticCircuitError,
+            DiagnosticRuntimeError,
+            DiagnosticTypeError,
+        )
+        from agentic_circuit._jit import jit
+        from agentic_circuit._lower_acir import _symbol
+
+        with self.assertRaises(TypeError) as jit_raised:
+            jit(object())
+        with self.assertRaises(ValueError) as lowering_raised:
+            _symbol("not a symbol")
+
+        self.assertIsInstance(jit_raised.exception, AgenticCircuitError)
+        self.assertEqual("ACPY-JIT-001", jit_raised.exception.code)
+        self.assertFalse(issubclass(DiagnosticTypeError, ValueError))
+        self.assertFalse(issubclass(DiagnosticRuntimeError, ValueError))
+        self.assertIsInstance(lowering_raised.exception, AgenticCircuitError)
+        self.assertEqual("ACPY-VERIFY-001", lowering_raised.exception.code)
+
     def test_diagnostic_contract_identity_cannot_be_overridden(self) -> None:
         from agentic_circuit._diagnostics import Diagnostic
 
