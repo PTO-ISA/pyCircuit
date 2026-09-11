@@ -11,6 +11,16 @@ module implementations placed here. Other consumers retain their boundaries.
 - Put ordinary `.py` implementations next to their cards, shared contracts in
   `contracts/`, tests in `tests/`, and tooling in `tools/`. Do not create empty
   Python modules to make the inventory look implemented.
+- Order a card so a reader learns what the module does before why it is built
+  that way. The functional sections come first: the problem it solves, where it
+  sits among its siblings, and how one operation completes end to end. Framework
+  limits and deviations belong in a later "Departures from the original proposal"
+  section, never interleaved with the functional description -- a constraint
+  argument is review material, not an explanation of the hardware.
+  `tmu/trn/fre.md` is the reference structure.
+- A `_CN.md` card is an independent Chinese rendering, not a sentence-by-sentence
+  mirror of the English one. Literal, nominalization-heavy translation is a
+  defect to fix, not a style choice.
 - Resolve contained-state and alias ownership before creating an independent
   module. Each persistent state value has exactly one owner.
 - Keep public Python marker-free. ACIR infers handshake, effects and commit
