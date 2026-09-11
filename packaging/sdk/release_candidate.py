@@ -177,14 +177,15 @@ def aggregate(args: argparse.Namespace) -> int:
     for platform_id, platform in platforms.items():
         hisi_key = f"pycircuit-hisi-{platform_id}"
 
-        def lock_wheel(identity: str, version: str) -> dict[str, Any]:
-            record = wheel_records[identity]
+        def lock_reference(record: dict[str, Any]) -> dict[str, Any]:
             return {
                 "name": record["name"],
                 "sha256": record["sha256"],
                 "url": record["url"],
-                "version": version,
             }
+
+        def lock_wheel(identity: str, version: str) -> dict[str, Any]:
+            return {**lock_reference(wheel_records[identity]), "version": version}
 
         lock = {
             "schema": "pycircuit-sdk-lock",
@@ -192,7 +193,7 @@ def aggregate(args: argparse.Namespace) -> int:
             "contract_epoch": version_map["contract_epoch"],
             "release": tag,
             "source_revision": source_revision,
-            "release_index": _record(output_dir / index_name, tag),
+            "release_index": lock_reference(_record(output_dir / index_name, tag)),
             "platform": {"id": platform_id, **platform},
             "wheels": {
                 "agentic-circuit": lock_wheel(
