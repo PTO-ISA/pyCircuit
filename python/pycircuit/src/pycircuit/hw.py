@@ -2274,7 +2274,7 @@ class Circuit(Module):
         value: Union[Wire, Reg, Signal],
         *,
         order: str = "low",
-    ) -> PriorityEncodeResult:
+    ) -> PriorityEncodeResult[Wire]:
         result = super().priority_encode(Signal.as_sig(value), order=order)
         return PriorityEncodeResult(
             index=Wire(self, result.index),

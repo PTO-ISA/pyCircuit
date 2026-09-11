@@ -1,0 +1,25 @@
+{
+  "run_id": "20260911-api-hygiene-98-99",
+  "status": "passed",
+  "base_revision": "25b1d686a1f86dba3c7b05ee479f1854d5c5a2f1",
+  "decision_ids": ["0148", "0150", "0161"],
+  "issues": [98, 99],
+  "results": {
+    "focused_pycircuit": {"passed": 68, "failed": 0},
+    "unit": {"passed": 121, "failed": 0},
+    "api_hygiene": {"passed": true},
+    "pyc_inventory": {"operations": 41, "types": 2, "passed": true},
+    "agentic_contracts": {"passed": true},
+    "agentic_contract_tests": {"passed": 50, "failed": 0},
+    "agentic_frontend": {"passed": 305, "failed": 0, "skipped": 4},
+    "agentic_cli": {"passed": 6, "failed": 0},
+    "focused_examples": {"passed": 4, "failed": 0},
+    "toolchain_incremental_build": {"passed": true},
+    "primitive_system": {"passed": 18, "failed": 0},
+    "pre_commit": {"passed": true},
+    "mkdocs_strict": {"passed": true},
+    "decision_status": {"deferred": 0, "passed": true}
+  },
+  "behavior": "Public module/decorator ownership, declarative receiver policy, priority result shape, and Agentic runtime/capture namespaces are explicit and regression-tested.",
+  "skill_evolve": "no-update"
+}

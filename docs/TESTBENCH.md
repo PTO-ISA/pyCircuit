@@ -15,7 +15,8 @@ Observation points (pyCircuit 6):
 Write a module `build` and a decorated testbench:
 
 ```python
-from pycircuit import Circuit, Tb, module, testbench
+from pycircuit import Circuit, Tb, module
+from pycircuit.design import testbench
 
 @module
 def build(m: Circuit):

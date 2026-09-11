@@ -10,8 +10,8 @@ from pycircuit import (
     ProbeView,
     compile_cycle_aware,
     module,
-    probe,
 )
+from pycircuit.design import probe
 from pycircuit.hw import ClockDomain
 
 

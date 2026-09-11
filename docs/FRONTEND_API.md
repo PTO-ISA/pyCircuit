@@ -19,9 +19,9 @@ from pycircuit import (
     compile_cycle_aware,
     mux,
     submodule_input,
-    testbench,
     wire_of,
 )
+from pycircuit.design import probe, testbench
 ```
 
 Use `domain.signal()` plus `<<=` or `.assign()` to infer state. Use
@@ -35,6 +35,13 @@ elaboration path; it returns `CycleAwareCircuit` and accepts `hierarchical=`.
 CAS method forms such as `.select()`, `.trunc()`, `.zext()`, `.sext()`, and
 `.as_unsigned()` are supported. The API-hygiene and JIT checks use receiver
 provenance to reject those spellings only on raw Wire or unknown receivers.
+Width-changing calls use keyword-only `width=...`. Named `.eq()` and `.lt()`
+methods are rejected on every receiver; use `==` and `<` operators.
+
+`pycircuit.probe` and `pycircuit.testbench` are modules. Import the decorators
+from `pycircuit.design`, as shown above. `priority_encode(...)` and the matching
+Signal/Wire/CAS methods all return `PriorityEncodeResult[T]` with `.index` and
+`.valid` fields.
 
 ## Structural decorators and library API
 
@@ -54,7 +61,8 @@ CycleAwareSignal timing model.
 ### Structural imports
 
 ```python
-from pycircuit import Circuit, compile, module, function, const, testbench
+from pycircuit import Circuit, compile, const, function, module
+from pycircuit.design import probe, testbench
 from pycircuit import ct, spec, wiring, logic, lib, structural
 ```
 

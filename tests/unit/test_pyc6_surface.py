@@ -4,6 +4,7 @@ import importlib.util
 import inspect
 import re
 import subprocess
+import types
 from pathlib import Path
 
 import pycircuit
@@ -28,6 +29,45 @@ def test_cycle_aware_frontend_is_the_pyc6_surface() -> None:
     assert pycircuit.build_cycle_aware is pyc6.build_cycle_aware
     assert not hasattr(pycircuit, "StateSignal")
     assert not hasattr(pycircuit, "priority_mux")
+
+
+def test_probe_and_testbench_keep_module_semantics() -> None:
+    assert isinstance(pycircuit.probe, types.ModuleType)
+    assert isinstance(pycircuit.testbench, types.ModuleType)
+    assert pycircuit.probe.ProbeBuilder is pycircuit.ProbeBuilder
+    assert pycircuit.testbench.TestbenchProgram is pycircuit.TestbenchProgram
+
+    from pycircuit.design import probe, testbench
+
+    assert callable(probe)
+    assert callable(testbench)
+    assert probe is not pycircuit.probe
+    assert testbench is not pycircuit.testbench
+
+
+def test_priority_encode_uses_one_public_generic_result_type() -> None:
+    circuit = pycircuit.CycleAwareCircuit("priority_result")
+    domain = circuit.create_domain("clk")
+    value = pycircuit.cas(domain, circuit.input("value", width=8), cycle=0)
+
+    raw_result = circuit.priority_encode(pycircuit.wire_of(value))
+    cycle_aware_result = pycircuit.priority_encode(value)
+
+    assert type(raw_result) is pycircuit.PriorityEncodeResult
+    assert type(cycle_aware_result) is pycircuit.PriorityEncodeResult
+    assert not hasattr(pycircuit, "CycleAwarePriorityEncodeResult")
+
+
+def test_public_width_conversions_are_keyword_only() -> None:
+    for operation in (pycircuit.trunc, pycircuit.zext, pycircuit.sext):
+        assert inspect.signature(operation).parameters["width"].kind is (
+            inspect.Parameter.KEYWORD_ONLY
+        )
+    for owner in (pycircuit.Wire, pycircuit.Reg, pycircuit.CycleAwareSignal):
+        for name in ("trunc", "zext", "sext"):
+            assert inspect.signature(getattr(owner, name)).parameters["width"].kind is (
+                inspect.Parameter.KEYWORD_ONLY
+            )
 
 
 def test_tutorial_facade_is_not_part_of_the_public_surface() -> None:

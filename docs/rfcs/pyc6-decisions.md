@@ -3360,7 +3360,14 @@ an artificial split between the implementation, examples, and product docs.
   normative on CAS/Forward/State values. API hygiene classifies Python receiver
   provenance with AST def-use data and rejects these removed methods for Wire
   or unknown receivers; JIT uses the evaluated receiver object and must evaluate
-  it exactly once before applying the same boundary.
+  it exactly once before applying the same boundary. Named comparison methods
+  `eq` and `lt` are not public on any receiver; authors use `==` and `<`.
+  Static hygiene and JIT consume one declarative receiver-policy table.
+- Width-changing calls use keyword-only `width=` on Wire, Reg, CAS, and
+  module-level helpers.
+- `pycircuit.probe` and `pycircuit.testbench` retain ordinary submodule
+  semantics. Their decorators are imported from `pycircuit.design`, so a
+  decorator cannot hide the module that owns the corresponding runtime types.
 - Public constructors do not accept metadata they cannot represent:
   `Circuit.create_domain()` and `CycleAwareCircuit.create_domain()` accept only
   the domain name, and `CycleAwareDomain.create_const()` has no `name` option.
@@ -3437,6 +3444,13 @@ create a second timing model that competes with pyCircuit 6.
   process, and queue operations must not be folded into the `pyc` dialect.
 - The `agentic_circuit` and `pycircuit` Python distributions and import
   namespaces remain distinct public surfaces in the shared repository.
+- Agentic Circuit separates ordinary runtime authoring objects from ACPy
+  capture-only syntax. The package `__all__` is the exact runtime inventory;
+  the 29 capture-only markers live canonically in `agentic_circuit.markers`.
+  Established root-qualified and explicit root imports remain valid capture
+  spellings but are excluded from wildcard imports. Ordinary Python execution
+  of a marker fails explicitly as capture-time only and never returns a fake
+  runtime value.
 - The Agentic Circuit frontend continues to emit ACPy and ACIR. Existing ACPy
   contract epochs and schemas may change only through an explicit contract
   decision and matching compatibility evidence.
@@ -4076,7 +4090,10 @@ handwritten implementation without lowering it into gates.
   Python and canonical PYC.
 - `pyc.priority_encode` is the first admitted semantic primitive.  It returns
   exact `index` and `valid` results, supports low-first and high-first order,
-  and participates in combinational dependency and logic-depth analysis.
+  and participates in combinational dependency and logic-depth analysis. The
+  Python Signal, Wire, and CycleAwareSignal surfaces expose those fields through
+  one public generic `PriorityEncodeResult[T]`; `logic.priority_pick` remains a
+  separate structural-library helper with its own tuple result.
 - C++ simulation retains the semantic operation and executes reference
   behavior.  The Verilog-only `pyc-select-rtl-primitives` pass selects exactly
   one highest-priority qualified candidate and rewrites it to internal

@@ -7,8 +7,8 @@ from pycircuit import (
     CycleAwareTb,
     Tb,
     compile_cycle_aware,
-    testbench,
 )
+from pycircuit.design import testbench
 from pycircuit.tb import sva
 
 _THIS_DIR = Path(__file__).resolve().parent

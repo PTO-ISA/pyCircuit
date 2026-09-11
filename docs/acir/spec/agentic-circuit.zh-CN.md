@@ -149,6 +149,30 @@ build/dev-llvm22/bin/acir-opcode-catalog
 agentic-circuit schema opcode ac.transform
 ```
 
+## 运行时 API 与 capture-only marker
+
+Python 包明确区分可按普通 Python 语义使用的对象和只供 ACPy 源码捕获的语法
+marker。`agentic_circuit.RUNTIME_API` 是精确的运行时 authoring API 清单，也就是
+包的 `__all__`；因此 wildcard import 不再暗示 capture-only 语法会产生运行时值。
+`agentic_circuit.CAPTURE_ONLY_API` 是以下 29 个 marker 的精确清单：
+
+```text
+scope map set instances view find concat insert matches source popcount
+count_leading_zeros count_trailing_zeros priority_encode memory sink observe
+expect compute pipeline route merge schedule engine reorder fork barrier table
+slot
+```
+
+规范 marker 命名空间是 `agentic_circuit.markers`。例如，前端捕获
+`markers.source(...)` 和 `markers.sink(...)` 的方式与既有的 `ac.source(...)`、
+`ac.sink(...)` 完全相同。为保持现有源码兼容，仍可从包根显式导入这些名字，
+但它们不属于根模块的 `__all__`。
+
+通过普通 Python 调用 marker 必须抛出明确的 `capture-time only` 异常，不得返回
+伪造的 Queue、值、Table 或其他运行时占位对象。`ac.table[...]` 仍然只能用下标
+形式声明；被移除的旧式 `ac.table(value, ...)` 调用继续抛出 `TypeError`，并给出
+迁移到 `ac.memory` 的提示。
+
 ## 最小示例
 
 下面的系统没有显式输入输出声明。`source` 和 `sink` 定义可执行边界，变量的定义和

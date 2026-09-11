@@ -8,7 +8,6 @@ compile_cycle_aware() instead of @module + compile().
 from __future__ import annotations
 
 import ast
-from dataclasses import dataclass
 import hashlib
 import inspect
 import textwrap
@@ -103,14 +102,6 @@ class CycleAwareCircuit(Circuit):
     ) -> "CycleAwareSignal":
         """Create a scalar input port in a V6 clock domain."""
         return domain.create_signal(str(name), width=int(width), signed=signed)
-
-
-@dataclass(frozen=True)
-class CycleAwarePriorityEncodeResult:
-    """Cycle-tagged result of :func:`priority_encode`."""
-
-    index: "CycleAwareSignal"
-    valid: "CycleAwareSignal"
 
 
 class CycleAwareDomain:
@@ -1528,13 +1519,15 @@ class CycleAwareSignal(Generic[DT]):
     def select(self, true_val: object, false_val: object) -> "CycleAwareSignal":
         return mux(self, true_val, false_val)
 
-    def priority_encode(self, *, order: str = "low") -> CycleAwarePriorityEncodeResult:
+    def priority_encode(
+        self, *, order: str = "low"
+    ) -> PriorityEncodeResult["CycleAwareSignal"]:
         """Return the selected bit index and validity at this signal's cycle."""
 
-        result: PriorityEncodeResult = self._domain._m.priority_encode(
+        result: PriorityEncodeResult[Wire] = self._domain._m.priority_encode(
             self._w, order=order
         )
-        return CycleAwarePriorityEncodeResult(
+        return PriorityEncodeResult(
             index=CycleAwareSignal(self._domain, result.index, self._cycle),
             valid=CycleAwareSignal(self._domain, result.valid, self._cycle),
         )
@@ -1784,7 +1777,7 @@ def priority_encode(
     value: CycleAwareSignal | StateSignal | ForwardSignal,
     *,
     order: str = "low",
-) -> CycleAwarePriorityEncodeResult:
+) -> PriorityEncodeResult[CycleAwareSignal]:
     """Encode the first asserted bit without exposing an RTL implementation."""
 
     return CycleAwareSignal.as_cas(value).priority_encode(order=order)

@@ -40,10 +40,11 @@ from pycircuit import (
     submodule_input,      # 双模输入辅助
     wire_of,              # 边界提取 Wire（仅用于 m.output()）
     # ── 测试 ──
-    Tb, CycleAwareTb, testbench,
+    Tb, CycleAwareTb,
     # ── 位操作辅助 ──
     cat, zext, sext, trunc,
 )
+from pycircuit.design import probe, testbench
 ```
 
 ---
@@ -184,8 +185,9 @@ low = data[0:8];  bit5 = data[5]            # 切片 / 索引
 | 方法 | 说明 |
 |------|------|
 | `select(t, f)` | 条件选择（等价 `mux(self, t, f)`） |
-| `trunc(w)` / `zext(w)` / `sext(w)` | 宽度变换 |
+| `trunc(width=w)` / `zext(width=w)` / `sext(width=w)` | 关键字参数形式的宽度变换 |
 | `slice(high, low)` | 位片段 |
+| `priority_encode(order="low")` | 返回统一的 `PriorityEncodeResult[CycleAwareSignal]`（`.index` / `.valid`） |
 | `named(name)` | 调试名称 |
 | `as_signed()` / `as_unsigned()` | 符号标记（影响比较与右移语义） |
 
@@ -417,7 +419,8 @@ circ = build_cycle_aware(top, name="top", hierarchical=True)
 ### Tb（周期编号模型）
 
 ```python
-from pycircuit import Tb, testbench
+from pycircuit import Tb
+from pycircuit.design import testbench
 
 @testbench
 def tb(t: Tb) -> None:
@@ -438,7 +441,8 @@ def tb(t: Tb) -> None:
 将 `at=cycle` 替换为与设计对称的 `tb.next()`：
 
 ```python
-from pycircuit import CycleAwareTb, Tb, testbench
+from pycircuit import CycleAwareTb, Tb
+from pycircuit.design import testbench
 
 @testbench
 def tb(t: Tb) -> None:
@@ -687,7 +691,8 @@ outs = domain.call(alu, inputs={...}, tier=1)             # 模块级缺省 tier
 | `structural.mux(cond, t, f)` | 纯 Wire 多路选择，稳定返回 Wire |
 | `submodule_input(io, key, m, domain, *, prefix, width, cycle=0)` | 双模输入 |
 | `wire_of(sig)` | 提取 Wire（仅 `m.output()`） |
-| `cat / zext / sext / trunc` | 位操作辅助 |
+| `cat / zext / sext / trunc` | 位操作辅助；宽度变换使用关键字参数 `width=` |
+| `priority_encode(value, order="low")` | 返回统一的 `PriorityEncodeResult[CycleAwareSignal]` |
 
 ### ForwardSignal
 

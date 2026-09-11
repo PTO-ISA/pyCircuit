@@ -1157,8 +1157,7 @@
       ],
       "python_producer": [
         "python/pycircuit/src/pycircuit/api_contract.py",
-        "python/pycircuit/src/pycircuit/dsl.py",
-        "python/pycircuit/src/pycircuit/jit.py"
+        "python/pycircuit/src/pycircuit/dsl.py"
       ],
       "replacement": null,
       "rtl_selection": null,
@@ -1202,8 +1201,7 @@
         "python/pycircuit/src/pycircuit/__init__.py",
         "python/pycircuit/src/pycircuit/api_contract.py",
         "python/pycircuit/src/pycircuit/dsl.py",
-        "python/pycircuit/src/pycircuit/hw.py",
-        "python/pycircuit/src/pycircuit/jit.py"
+        "python/pycircuit/src/pycircuit/hw.py"
       ],
       "replacement": null,
       "rtl_selection": null,
@@ -1212,6 +1210,7 @@
       "symbol": "PYC_SextOp",
       "tests": [
         "tests/unit/test_api_contract.py",
+        "tests/unit/test_pyc6_surface.py",
         "tests/unit/test_v6_forward_signal.py"
       ],
       "verifier": "compiler/mlir/lib/Dialect/PYC/PYCOps.cpp",
@@ -1403,8 +1402,7 @@
         "python/pycircuit/src/pycircuit/__init__.py",
         "python/pycircuit/src/pycircuit/api_contract.py",
         "python/pycircuit/src/pycircuit/dsl.py",
-        "python/pycircuit/src/pycircuit/hw.py",
-        "python/pycircuit/src/pycircuit/jit.py"
+        "python/pycircuit/src/pycircuit/hw.py"
       ],
       "replacement": null,
       "rtl_selection": null,
@@ -1414,6 +1412,7 @@
       "tests": [
         "tests/test_assert_fits.py",
         "tests/unit/test_api_contract.py",
+        "tests/unit/test_pyc6_surface.py",
         "tests/unit/test_v6_forward_signal.py"
       ],
       "verifier": "compiler/mlir/lib/Dialect/PYC/PYCOps.cpp",
@@ -1589,8 +1588,7 @@
         "python/pycircuit/src/pycircuit/__init__.py",
         "python/pycircuit/src/pycircuit/api_contract.py",
         "python/pycircuit/src/pycircuit/dsl.py",
-        "python/pycircuit/src/pycircuit/hw.py",
-        "python/pycircuit/src/pycircuit/jit.py"
+        "python/pycircuit/src/pycircuit/hw.py"
       ],
       "replacement": null,
       "rtl_selection": null,
@@ -1599,6 +1597,7 @@
       "symbol": "PYC_ZextOp",
       "tests": [
         "tests/mlir/agentic-circuit/CodeGen/table-multidimensional-pyc.mlir",
+        "tests/unit/test_pyc6_surface.py",
         "tests/unit/test_v6_forward_signal.py"
       ],
       "verifier": "compiler/mlir/lib/Dialect/PYC/PYCOps.cpp",
