@@ -576,7 +576,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           ATTESTATION_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
-          gh release view "v${{ inputs.version }}" --json body --jq .body > release-notes.md
+          gh release view "v${{ inputs.version }}" --repo "${{ github.repository }}" --json body --jq .body > release-notes.md
           printf '\n\nVerification attestation: %s\n' "${ATTESTATION_URL}" >> release-notes.md
-          gh release edit "v${{ inputs.version }}" --notes-file release-notes.md
-          gh issue comment 61 --body "Release v${{ inputs.version }} verification attestation: ${ATTESTATION_URL}"
+          gh release edit "v${{ inputs.version }}" --repo "${{ github.repository }}" --notes-file release-notes.md
+          gh issue comment 61 --repo "${{ github.repository }}" --body "Release v${{ inputs.version }} verification attestation: ${ATTESTATION_URL}"

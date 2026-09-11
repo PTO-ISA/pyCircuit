@@ -190,6 +190,17 @@ class SdkReleaseContractTest(unittest.TestCase):
         self.assertIn("--candidate-tag \"v${{ inputs.version }}\"", workflow)
         self.assertIn("platform attestation is not bound to this release", workflow)
         self.assertIn("gh issue comment 61", workflow)
+        self.assertIn(
+            'gh release view "v${{ inputs.version }}" --repo "${{ github.repository }}"',
+            workflow,
+        )
+        self.assertIn(
+            'gh release edit "v${{ inputs.version }}" --repo "${{ github.repository }}"',
+            workflow,
+        )
+        self.assertIn(
+            'gh issue comment 61 --repo "${{ github.repository }}"', workflow
+        )
         self.assertIn("ASSET_URL_PREFIX:", workflow)
         self.assertIn('asset_url_prefix = os.environ["ASSET_URL_PREFIX"]', workflow)
         self.assertIn('startswith(asset_url_prefix)', workflow)
