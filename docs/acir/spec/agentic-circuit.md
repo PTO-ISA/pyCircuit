@@ -1158,6 +1158,28 @@ rules fail closed. Each module instance owns its existing independent state;
 capture does not introduce a module-object reference or change committed-read,
 proposal, arbitration, output-presence, or backpressure semantics.
 
+### Generated rule provenance and transition readability
+
+QueueGraph and GFSim preserve source-facing rule, state, port, and explicit
+local names as display metadata. A generated stateful policy identifies its
+rule and stable ID, cites a normalized project-relative `file:line:column`, and
+names the functional condition, each owner write, each optional output, and
+each reservation before constructing `gfsim::StateTransitionPlan`.
+
+Display metadata is not identity. `ac.name`, stable IDs, scheduler object IDs,
+specialization fingerprints, cache keys, and tuple ordering retain their
+existing semantic roles. The compiler removes `ac.display_name` from
+fingerprint input, legalizes C++ identifiers centrally, and uses deterministic
+numeric suffixes only for real collisions. A missing source name falls back to
+a stable temporary identifier; an absolute build-host path is never emitted.
+
+The readable construction is not a new runtime API. The existing transition
+plan still carries writes, outputs, and reservations in the same typed tuple
+order. A local record update does not imply a field-level state write, and the
+backend does not reverse already-lowered field comparisons into aggregate
+equality. Width, overflow, access checks, evaluation order, ownership,
+backpressure, reservation, arbitration, and atomic commit remain unchanged.
+
 The epoch 0.5 pure-rule frontend accepts one or more Queue inputs and one total
 return path. Every argument is the immutable committed head payload of its
 corresponding Queue. It emits transient variadic `ac.rule` IR and one typed

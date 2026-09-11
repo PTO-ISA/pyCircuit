@@ -36,4 +36,4 @@ module attributes {ac.contract_epoch = "0.5", ac.model_kind = "queue_graph", ac.
 // PLAN: "output_presence":[{"ordinal":0,"present":"item","value":"item1"},{"ordinal":1,"present":"v{{[0-9]+}}","value":"item"}]
 // PLAN: "transaction_resources":[{"kind":"input_queue","ordinal":0,"resource":""},{"kind":"input_queue","ordinal":1,"resource":""},{"kind":"output_queue","ordinal":0,"resource":""},{"kind":"output_queue","ordinal":1,"resource":""}]
 
-// GFSIM: gfsim::QueueStateTransition<block_{{[0-9]+}}_policy, std::tuple<>, std::tuple<gfsim::UInt<1>, gfsim::UInt<8>>, std::tuple<gfsim::UInt<8>, gfsim::UInt<1>>, std::tuple<>>
+// GFSIM: gfsim::QueueStateTransition<rule_route_policy, std::tuple<>, std::tuple<gfsim::UInt<1>, gfsim::UInt<8>>, std::tuple<gfsim::UInt<8>, gfsim::UInt<1>>, std::tuple<>>

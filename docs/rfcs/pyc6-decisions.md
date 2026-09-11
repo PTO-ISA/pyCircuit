@@ -8897,3 +8897,58 @@ distinguishable in generated code while producing identical hardware behavior.
 
 **Source**
 - PTO-ISA/pyCircuit issue #104.
+
+## Decision 0244: generated QueueGraph code preserves separate display provenance
+
+**Status:** Accepted; implementation tracked by issue #106
+
+**Extends:** Decisions 0228, 0235, 0236, and 0242.
+
+**Context / Goal**
+QueueGraph and GFSim preserve behavior but currently replace source-facing rule,
+state, port, and local names with positional identifiers. Reviewers cannot
+trace a transition back to its Python source or distinguish its writes,
+outputs, reservations, and trigger without manually matching tuple ordinals.
+
+**Decision (strong constraint)**
+- Source-facing names and locations are display metadata, separate from stable
+  IDs, specialization fingerprints, scheduler object IDs, cache keys, and the
+  semantic `ac.name` contract. New display-only attributes are removed from
+  fingerprint input; changing only display metadata cannot change semantic
+  identity, topology, scheduling, or generated behavior.
+- The frontend records module, rule, state, port, and explicit local names.
+  Locations use normalized project-relative POSIX paths plus one-based line and
+  column. Generated output never embeds a checkout or build-host absolute path.
+- Lowering propagates display metadata when it clones or splits values.
+  Generated identifiers use one shared C++ legalizer and deterministic
+  collision allocation. Semantic suffixes describe split values; stable short
+  ordinals are used only for actual collisions or source-free temporaries.
+- QueueGraph plans carry display names and locations explicitly instead of
+  relying on textual SSA spelling. Canonical plan JSON may expose this metadata
+  for review, but stable IDs and fingerprints remain the unique identity
+  authority.
+- Generated GFSim makes each stateful rule's functional condition, state
+  writes, optional outputs, and reservations visible as named local values
+  before constructing the existing `gfsim::StateTransitionPlan`. The runtime
+  tuple order and public ABI do not change.
+- Readability folding is allowed only for expressions already proven pure and
+  total by ACIR. The backend does not reconstruct aggregate equality after it
+  has been lowered, infer field writes from local record edits, alter bit width
+  or overflow, or change evaluation order, access checks, ownership, or commit
+  behavior.
+
+**Required verification**
+- A consumer-neutral multi-input, multi-owner, optional-output fixture exposes
+  readable state, rule, port, and key local names plus a relative source
+  location in generated C++.
+- Same-name locals, nested scopes, module instances, specializations, and
+  source-free intermediates generate collision-free byte-deterministic output.
+- Display-only edits preserve definition/specialization fingerprints, stable
+  IDs, dispatch order, and cache identity; semantic edits still change the
+  applicable identity.
+- Before/after runtime scenarios agree cycle by cycle for allocation,
+  completion, handoff, flush, backpressure, conflict, reset, and atomic
+  publication. Generated C++ compiles against the unchanged GFSim ABI.
+
+**Source**
+- PTO-ISA/pyCircuit issue #106.

@@ -752,6 +752,47 @@ class JitQueueLoweringTest(unittest.TestCase):
         self.assertIn("gfsim::QueueTransform<Entry, Entry", cpp)
         self.assertIn("gfsim::QueueReorder<Entry", cpp)
 
+    def test_jit_rule_locations_use_workspace_relative_paths(self) -> None:
+        import agentic_circuit as ac
+
+        source_text = """\
+import agentic_circuit as ac
+
+@ac.struct
+class Entry:
+    index: ac.u1
+    value: ac.u8
+
+@ac.rule
+def replace(entries, incoming):
+    old = entries[incoming.index]
+    entries[incoming.index] = incoming
+    return old
+
+@ac.system
+def readable(incoming: Entry) -> Entry:
+    entries: list[Entry] = [0] * 2
+    result = replace(entries, incoming)
+    return result
+"""
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "src" / "readable.py"
+            source.parent.mkdir()
+            source.write_text(source_text, encoding="utf-8")
+            spec = importlib.util.spec_from_file_location("ac_readable_source", source)
+            if spec is None or spec.loader is None:
+                raise RuntimeError("cannot load readable source fixture")
+            module = importlib.util.module_from_spec(spec)
+            sys.modules[spec.name] = module
+            self.addCleanup(sys.modules.pop, spec.name, None)
+            spec.loader.exec_module(module)
+
+            lowered = ac.jit(module.readable, workspace=root).lower_acir()
+
+        self.assertIn('loc("src/readable.py":9:1)', lowered)
+        self.assertNotIn(str(root), lowered)
+
     def test_const_config_and_compute_lower_to_frozen_acir(self) -> None:
         from agentic_circuit._queue_frontend import lower_queue_source
         from agentic_circuit._static_eval import FrozenMap

@@ -1,0 +1,20 @@
+cmake --build .pycircuit_out/toolchain/build --target acir-opt acir-opt-internal acir-queue-plan acir-queue-cxxgen CodeGenTests -j4
+cmake --build .pycircuit_out/acir/dev-llvm22 --target acir-opt acir-queue-plan acir-queue-cxxgen -j4
+.pycircuit_out/agentic-g0-venv/bin/lit -sv .pycircuit_out/toolchain/build/compiler/acir/tests/mlir
+ctest --test-dir .pycircuit_out/toolchain/build -R '^CodeGenTests$' --output-on-failure
+ACIR_OPT="$PWD/.pycircuit_out/acir/dev-llvm22/bin/acir-opt" ACIR_QUEUE_CXXGEN="$PWD/.pycircuit_out/acir/dev-llvm22/bin/acir-queue-cxxgen" pytest -q tests/python/agentic-circuit/python_frontend/test_queue_frontend.py tests/python/agentic-circuit/python_frontend/test_jit_blocks.py
+ACIR_OPT="$PWD/.pycircuit_out/acir/dev-llvm22/bin/acir-opt" ACIR_QUEUE_PLAN="$PWD/.pycircuit_out/acir/dev-llvm22/bin/acir-queue-plan" ACIR_QUEUE_CXXGEN="$PWD/.pycircuit_out/acir/dev-llvm22/bin/acir-queue-cxxgen" pytest -q tests/integration/agentic-circuit/e2e/test_multi_output_atomic.py::MultiOutputAtomicTest::test_public_python_state_and_outputs_commit_as_one_gfsim_transaction
+env -u AC_GATE_TOOLCHAIN_ROOT PYTHONPATH="$PWD/python/semantic-core/src:$PWD/python/agentic-circuit/src:$PWD/tests/python/agentic-circuit:$PWD/.pycircuit_out/acir/dev-llvm22/python" AC_PYTHON_ONLY=1 .pycircuit_out/agentic-circuit/venv/bin/python -m unittest discover -s tests/python/agentic-circuit/python_frontend -p 'test_*.py'
+env -u AC_GATE_TOOLCHAIN_ROOT PYTHONPATH="$PWD/python/semantic-core/src:$PWD/python/agentic-circuit/src:$PWD/tests/python/agentic-circuit:$PWD/.pycircuit_out/acir/dev-llvm22/python" .pycircuit_out/agentic-circuit/venv/bin/python -m unittest discover -s tests/python/agentic-circuit/contracts -p 'test_*.py'
+env -u AC_GATE_TOOLCHAIN_ROOT PYTHONPATH="$PWD/python/semantic-core/src:$PWD/python/agentic-circuit/src:$PWD/tests/python/agentic-circuit:$PWD/.pycircuit_out/acir/dev-llvm22/python" .pycircuit_out/agentic-circuit/venv/bin/python -m unittest discover -s tests/python/agentic-circuit/cli -p 'test_all_commands.py'
+env -u AC_GATE_TOOLCHAIN_ROOT PYTHONPATH="$PWD/python/semantic-core/src:$PWD/python/agentic-circuit/src:$PWD/tests/python/agentic-circuit:$PWD/.pycircuit_out/acir/dev-llvm22/python" .pycircuit_out/agentic-circuit/venv/bin/python -m unittest discover -s tests/python/agentic-circuit/cli -p 'test_workspace.py'
+env -u AC_GATE_TOOLCHAIN_ROOT PYTHONPATH="$PWD/python/semantic-core/src:$PWD/python/agentic-circuit/src:$PWD/tests/python/agentic-circuit:$PWD/.pycircuit_out/acir/dev-llvm22/python" .pycircuit_out/agentic-circuit/venv/bin/python tools/agentic-circuit/check-contracts.py
+env -u AC_GATE_TOOLCHAIN_ROOT PYTHONPATH="$PWD/python/semantic-core/src:$PWD/python/agentic-circuit/src:$PWD/tests/python/agentic-circuit:$PWD/.pycircuit_out/acir/dev-llvm22/python" .pycircuit_out/agentic-circuit/venv/bin/python tools/agentic-circuit/generate-diagnostic-catalog.py --check
+env -u AC_GATE_TOOLCHAIN_ROOT PYTHONPATH="$PWD/python/semantic-core/src:$PWD/python/agentic-circuit/src:$PWD/tests/python/agentic-circuit:$PWD/.pycircuit_out/acir/dev-llvm22/python" .pycircuit_out/agentic-circuit/venv/bin/python tools/agentic-circuit/check-ir-coverage.py
+env -u AC_GATE_TOOLCHAIN_ROOT PYTHONPATH="$PWD/python/semantic-core/src:$PWD/python/agentic-circuit/src:$PWD/tests/python/agentic-circuit:$PWD/.pycircuit_out/acir/dev-llvm22/python" .pycircuit_out/agentic-circuit/venv/bin/python tools/check-pyc-inventory.py
+pytest -q tests/unit -m unit
+python3 flows/tools/check_api_hygiene.py python/pycircuit/src/pycircuit examples/pycircuit docs README.md
+pre-commit run --all-files
+python3 .github/scripts/validate_repo_management.py
+mkdocs build --strict
+python3 flows/tools/check_decision_status.py --rfc docs/rfcs/pyc6-decisions.md --status docs/gates/decision_status_v6.md --out docs/gates/logs/20260912-issue106-readable-transitions/decision_status_report.json --require-no-deferred --require-all-verified --require-concrete-evidence --require-existing-evidence

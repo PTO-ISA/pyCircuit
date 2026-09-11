@@ -40,4 +40,4 @@ module attributes {ac.contract_epoch = "0.5", ac.model_kind = "queue_graph", ac.
 // PLAN: "output_presence":[{"ordinal":0,"present":"v{{[0-9]+}}","value":"item"}]
 // PLAN: "state_writes":[{"fields":["$entry"],"index":"v{{[0-9]+}}","mode":"replace","present":"v{{[0-9]+}}","table":"count"
 
-// GFSIM: output_present0 ? std::optional<Event>{output_value0} : std::optional<Event>{}
+// GFSIM: output_output_present ? std::optional<Event>{output_output} : std::optional<Event>{}

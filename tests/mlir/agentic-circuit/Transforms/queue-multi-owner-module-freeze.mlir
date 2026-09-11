@@ -110,8 +110,8 @@ builtin.module attributes {
 
 // CXX: gfsim::StateTransitionPlan<std::tuple<gfsim::UInt<8>, gfsim::UInt<8>>
 // CXX-COUNT-1: class [[IMPLEMENTATION:Module_StatePair]] final : public gfsim::Module
-// CXX: gfsim::SimTable<gfsim::UInt<8>> table_0_;
-// CXX: gfsim::SimTable<gfsim::UInt<8>> table_1_;
-// CXX: gfsim::QueueStateTransition<[[IMPLEMENTATION]]_block_0_policy
+// CXX: gfsim::SimTable<gfsim::UInt<8>> state_cursor_;
+// CXX: gfsim::SimTable<gfsim::UInt<8>> state_total_;
+// CXX: gfsim::QueueStateTransition<[[IMPLEMENTATION]]_rule_update_policy
 // CXX: class MultiOwnerReuse final : public gfsim::Module
 // CXX-COUNT-2: [[IMPLEMENTATION]] instance_

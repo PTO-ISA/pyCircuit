@@ -16,12 +16,14 @@
 #include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/SmallString.h"
 #include "llvm/ADT/SmallVector.h"
+#include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/StringExtras.h"
 #include "llvm/ADT/StringMap.h"
 #include "llvm/ADT/StringSet.h"
 #include "llvm/Support/Format.h"
 #include "llvm/Support/JSON.h"
 #include "llvm/Support/MathExtras.h"
+#include "llvm/Support/Path.h"
 #include "llvm/Support/SHA256.h"
 #include "llvm/Support/raw_ostream.h"
 
@@ -34,6 +36,49 @@
 #include <tuple>
 
 namespace acir::codegen {
+
+std::string legalizeQueueGraphIdentifier(llvm::StringRef value) {
+  auto isAsciiAlphaNumeric = [](unsigned char character) {
+    return (character >= 'a' && character <= 'z') ||
+           (character >= 'A' && character <= 'Z') ||
+           (character >= '0' && character <= '9');
+  };
+  std::string result;
+  for (unsigned char character : value.bytes())
+    result.push_back(isAsciiAlphaNumeric(character) || character == '_'
+                         ? static_cast<char>(character)
+                         : '_');
+  if (result.empty() || (result.front() >= '0' && result.front() <= '9'))
+    result.insert(result.begin(), '_');
+  static constexpr llvm::StringLiteral keywords[] = {
+      "alignas",   "alignof",      "and",          "and_eq",
+      "asm",       "auto",         "bitand",       "bitor",
+      "bool",      "break",        "case",         "catch",
+      "char",      "char8_t",      "char16_t",     "char32_t",
+      "class",     "compl",        "concept",      "const",
+      "consteval", "constexpr",    "constinit",    "const_cast",
+      "continue",  "co_await",     "co_return",    "co_yield",
+      "decltype",  "default",      "delete",       "do",
+      "double",    "dynamic_cast", "else",         "enum",
+      "explicit",  "export",       "extern",       "false",
+      "float",     "for",          "friend",       "goto",
+      "if",        "inline",       "int",          "long",
+      "mutable",   "namespace",    "new",          "noexcept",
+      "not",       "not_eq",       "nullptr",      "operator",
+      "or",        "or_eq",        "private",      "protected",
+      "public",    "register",     "reinterpret_cast", "requires",
+      "return",    "short",        "signed",       "sizeof",
+      "static",    "static_assert", "static_cast", "struct",
+      "switch",    "template",     "this",         "thread_local",
+      "throw",     "true",         "try",          "typedef",
+      "typeid",    "typename",     "union",        "unsigned",
+      "using",     "virtual",      "void",         "volatile",
+      "wchar_t",   "while",        "xor",          "xor_eq"};
+  if (llvm::is_contained(keywords, llvm::StringRef(result)))
+    result.push_back('_');
+  return result;
+}
+
 namespace {
 
 llvm::Error planError(const llvm::Twine &message) {
@@ -511,6 +556,46 @@ llvm::Expected<std::vector<std::string>> outputNames(mlir::Operation *op,
 using SharedExpression = std::pair<mlir::Value, QueueExpressionPlan>;
 using SharedValue = std::pair<mlir::Value, std::string>;
 
+std::string legalDisplayIdentity(llvm::StringRef value) {
+  return legalizeQueueGraphIdentifier(value);
+}
+
+std::string normalizedRelativeSourcePath(llvm::StringRef filename) {
+  for (llvm::StringRef marker : {"/examples/", "/tests/", "/python/",
+                                 "/compiler/", "/simulator/", "/tools/"})
+    if (size_t position = filename.find(marker);
+        position != llvm::StringRef::npos)
+      return filename.drop_front(position + 1).str();
+  if (llvm::sys::path::is_absolute(filename))
+    return llvm::sys::path::filename(filename).str();
+  return filename.str();
+}
+
+void extractDisplayProvenance(mlir::Operation *operation,
+                              QueueBlockPlan &plan) {
+  if (auto name =
+          operation->getAttrOfType<mlir::StringAttr>("ac.rule_definition"))
+    plan.displayRuleName = name.getValue().str();
+  auto sourceFile =
+      operation->getAttrOfType<mlir::StringAttr>("ac.source_file");
+  auto sourceLine =
+      operation->getAttrOfType<mlir::IntegerAttr>("ac.source_line");
+  auto sourceColumn =
+      operation->getAttrOfType<mlir::IntegerAttr>("ac.source_column");
+  if (sourceFile && sourceLine && sourceColumn) {
+    plan.sourceFile = normalizedRelativeSourcePath(sourceFile.getValue());
+    plan.sourceLine = static_cast<uint64_t>(sourceLine.getInt());
+    plan.sourceColumn = static_cast<uint64_t>(sourceColumn.getInt());
+    return;
+  }
+  auto source = mlir::dyn_cast<mlir::FileLineColLoc>(operation->getLoc());
+  if (!source)
+    return;
+  plan.sourceFile = normalizedRelativeSourcePath(source.getFilename());
+  plan.sourceLine = source.getLine();
+  plan.sourceColumn = source.getColumn();
+}
+
 llvm::Error
 extractExpressions(mlir::Region &region, QueueBlockPlan &plan,
                    llvm::ArrayRef<SharedExpression> sharedExpressions = {},
@@ -519,10 +604,14 @@ extractExpressions(mlir::Region &region, QueueBlockPlan &plan,
                    llvm::ArrayRef<std::string> argumentNames = {}) {
   mlir::Block &block = region.front();
   llvm::DenseMap<mlir::Value, std::string> values;
-  for (const auto &[value, identity] : sharedValues)
+  llvm::StringSet<> identities;
+  for (const auto &[value, identity] : sharedValues) {
     values[value] = identity;
+    identities.insert(identity);
+  }
   for (const auto &[value, expression] : sharedExpressions) {
     values[value] = expression.result;
+    identities.insert(expression.result);
     if (llvm::none_of(plan.expressions, [&](const QueueExpressionPlan &item) {
           return item.result == expression.result;
         }))
@@ -530,11 +619,26 @@ extractExpressions(mlir::Region &region, QueueBlockPlan &plan,
   }
   if (!argumentNames.empty() && argumentNames.size() != block.getNumArguments())
     return planError("helper argument identity count is malformed");
-  for (auto [index, argument] : llvm::enumerate(block.getArguments()))
+  for (auto [index, argument] : llvm::enumerate(block.getArguments())) {
     values[argument] = !argumentNames.empty() ? argumentNames[index]
                        : index == 0 ? (prefix == "v" ? "item" : "entry")
                                     : (prefix == "v" ? "item" : "entry") +
                                           std::to_string(index);
+    identities.insert(values[argument]);
+  }
+  auto resultIdentity = [&](mlir::Operation &operation,
+                            llvm::StringRef fallback) {
+    std::string base;
+    if (auto display =
+            operation.getAttrOfType<mlir::StringAttr>("ac.display_name"))
+      base = legalDisplayIdentity(display.getValue());
+    if (base.empty())
+      base = fallback.str();
+    std::string result = base;
+    for (uint64_t suffix = 2; !identities.insert(result).second; ++suffix)
+      result = base + "_" + std::to_string(suffix);
+    return result;
+  };
   auto operandNames = [&](mlir::ValueRange operands)
       -> llvm::Expected<std::vector<std::string>> {
     std::vector<std::string> result;
@@ -564,7 +668,8 @@ extractExpressions(mlir::Region &region, QueueBlockPlan &plan,
     auto operands = operandNames(operation.getOperands());
     if (!operands)
       return operands.takeError();
-    std::string result = prefix.str() + std::to_string(plan.expressions.size());
+    std::string result = resultIdentity(
+        operation, prefix.str() + std::to_string(plan.expressions.size()));
     values[operation.getResult(0)] = result;
     plan.expressions.push_back(
         {std::move(result), kind.str(), printType(resultType.getElementType()),
@@ -1750,6 +1855,34 @@ private:
       nested.availableSpecializations = *available;
 
     mlir::Block &body = definition.getBody().front();
+    auto displayNames = [&](llvm::StringRef attribute, size_t count,
+                            llvm::StringRef fallbackPrefix)
+        -> llvm::Expected<std::vector<std::string>> {
+      std::vector<std::string> result;
+      auto values = definition->getAttrOfType<mlir::ArrayAttr>(attribute);
+      if (!values) {
+        if (definition->hasAttr(attribute))
+          return planError(attribute + " must be an array of strings");
+        for (size_t index = 0; index < count; ++index)
+          result.push_back(fallbackPrefix.str() + "_" +
+                           std::to_string(index));
+        return result;
+      }
+      if (values.size() != count)
+        return planError(attribute + " must match the module interface arity");
+      for (mlir::Attribute value : values) {
+        auto name = mlir::dyn_cast<mlir::StringAttr>(value);
+        if (!name || name.getValue().empty())
+          return planError(attribute +
+                           " must contain only non-empty strings");
+        result.push_back(name.getValue().str());
+      }
+      return result;
+    };
+    auto inputDisplayNames = displayNames("ac.input_display_names",
+                                          body.getNumArguments(), "input");
+    if (!inputDisplayNames)
+      return inputDisplayNames.takeError();
     for (auto [index, argument] : llvm::enumerate(body.getArguments())) {
       auto queue = mlir::dyn_cast<ac::QueueType>(argument.getType());
       if (!queue)
@@ -1759,7 +1892,8 @@ private:
       nested.plan.interfaceInputs.push_back(
           {std::move(name), printType(queue.getElementType()),
            static_cast<uint64_t>(queue.getLanes()),
-           static_cast<uint64_t>(queue.getRate())});
+           static_cast<uint64_t>(queue.getRate()),
+           (*inputDisplayNames)[index]});
     }
     if (auto error = nested.extractBlock(body, {}))
       return std::move(error);
@@ -1772,7 +1906,11 @@ private:
     auto returned = mlir::dyn_cast<ac::ReturnOp>(body.getTerminator());
     if (!returned)
       return planError("module definition must terminate with ac.return");
-    for (mlir::Value value : returned.getOperands()) {
+    auto outputDisplayNames = displayNames("ac.output_display_names",
+                                           returned.getNumOperands(), "output");
+    if (!outputDisplayNames)
+      return outputDisplayNames.takeError();
+    for (auto [index, value] : llvm::enumerate(returned.getOperands())) {
       auto name = queueName(value, nested.names);
       if (!name)
         return name.takeError();
@@ -1780,7 +1918,8 @@ private:
       nested.plan.interfaceOutputs.push_back(
           {*name, printType(queue.getElementType()),
            static_cast<uint64_t>(queue.getLanes()),
-           static_cast<uint64_t>(queue.getRate())});
+           static_cast<uint64_t>(queue.getRate()),
+           (*outputDisplayNames)[index]});
     }
     if (auto error = materializeActivation(nested.plan))
       return std::move(error);
@@ -2292,6 +2431,7 @@ private:
         for (int64_t value : firing.getOutputLatencies())
           blockPlan.latencies.push_back(value);
         blockPlan.region = printRegion(firing.getBody());
+        extractDisplayProvenance(firing, blockPlan);
         auto priority =
             firing->getAttrOfType<mlir::IntegerAttr>("ac.rule_priority");
         if (!priority || priority.getInt() < 0)
@@ -2325,6 +2465,7 @@ private:
         for (int64_t value : transform.getOutputLatencies())
           blockPlan.latencies.push_back(value);
         blockPlan.region = printRegion(transform.getBody());
+        extractDisplayProvenance(transform, blockPlan);
         if (auto error = extractExpressions(transform.getBody(), blockPlan))
           return error;
         if (transform->hasAttr("ac.activation_sources"))
@@ -5058,6 +5199,7 @@ llvm::Expected<std::string> QueueGraphPlan::canonicalJson() const {
         {"capacity", block.capacity},
         {"credits", block.credits},
         {"depths", std::move(depths)},
+        {"display_rule_name", block.displayRuleName},
         {"entries", block.entries},
         {"expressions", std::move(expressions)},
         {"inputs", std::move(inputs)},
@@ -5089,6 +5231,9 @@ llvm::Expected<std::string> QueueGraphPlan::canonicalJson() const {
         {"scope", block.scope},
         {"selection", block.selection},
         {"selection_count", block.selectionCount},
+        {"source_column", block.sourceColumn},
+        {"source_file", block.sourceFile},
+        {"source_line", block.sourceLine},
         {"start", block.start},
         {"state_reservations", std::move(stateReservations)},
         {"state_writes", std::move(stateWrites)},
@@ -5237,6 +5382,7 @@ llvm::Expected<std::string> QueueGraphPlan::canonicalJson() const {
   llvm::json::Array interfaceInputValues;
   for (const QueueInterfacePlan &input : interfaceInputs)
     interfaceInputValues.push_back(llvm::json::Object{
+        {"display_name", input.displayName},
         {"lanes", input.lanes},
         {"name", input.name},
         {"payload_type", input.payloadType},
@@ -5244,6 +5390,7 @@ llvm::Expected<std::string> QueueGraphPlan::canonicalJson() const {
   llvm::json::Array interfaceOutputValues;
   for (const QueueInterfacePlan &output : interfaceOutputs)
     interfaceOutputValues.push_back(llvm::json::Object{
+        {"display_name", output.displayName},
         {"lanes", output.lanes},
         {"name", output.name},
         {"payload_type", output.payloadType},

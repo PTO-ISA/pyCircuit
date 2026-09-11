@@ -44,8 +44,8 @@ module attributes {ac.contract_epoch = "0.5", ac.model_kind = "queue_graph", ac.
 // PLAN-SAME: "table":"entries"
 // PLAN-SAME: "table":"entries"
 // PLAN-SAME: "table":"entries"
-// CXX: gfsim::OwnerWriteBatch<gfsim::UInt<8>> owner_writes0;
-// CXX-COUNT-4: owner_writes0.emplace_back
+// CXX: gfsim::OwnerWriteBatch<gfsim::UInt<8>> state_entries_writes;
+// CXX-COUNT-4: state_entries_writes.emplace_back
 // PYC: func.func @owner_write_batch
 // PYC-COUNT-4: pyc.reg
 // PYC-NOT: sync_mem

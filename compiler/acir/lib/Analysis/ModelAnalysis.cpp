@@ -1060,6 +1060,12 @@ std::string printWithoutQueueGraphFingerprints(ac::ModuleOp definition) {
   copy->walk([](Operation *operation) {
     operation->removeAttr("ac.definition_fingerprint");
     operation->removeAttr("ac.specialization");
+    operation->removeAttr("ac.display_name");
+    operation->removeAttr("ac.input_display_names");
+    operation->removeAttr("ac.output_display_names");
+    operation->removeAttr("ac.source_file");
+    operation->removeAttr("ac.source_line");
+    operation->removeAttr("ac.source_column");
   });
   std::string serialized;
   llvm::raw_string_ostream stream(serialized);

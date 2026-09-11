@@ -2,6 +2,7 @@
 #define ACIR_CODEGEN_QUEUEGRAPHPLAN_H
 
 #include "mlir/IR/BuiltinOps.h"
+#include "llvm/ADT/StringRef.h"
 #include "llvm/Support/Error.h"
 
 #include <cstdint>
@@ -12,6 +13,8 @@
 namespace acir::codegen {
 
 inline constexpr uint64_t kMaximumPackedValueWidth = 1u << 16;
+
+std::string legalizeQueueGraphIdentifier(llvm::StringRef value);
 
 struct QueuePayloadFieldPlan {
   std::string name;
@@ -166,6 +169,10 @@ struct QueueBlockPlan {
   std::string stableId;
   std::string selection;
   uint64_t selectionCount = 0;
+  std::string displayRuleName;
+  std::string sourceFile;
+  uint64_t sourceLine = 0;
+  uint64_t sourceColumn = 0;
 };
 
 struct QueueHelperPlan {
@@ -295,6 +302,7 @@ struct QueueInterfacePlan {
   std::string payloadType;
   uint64_t lanes = 1;
   uint64_t rate = 1;
+  std::string displayName;
 };
 
 struct QueueModuleInstancePlan {

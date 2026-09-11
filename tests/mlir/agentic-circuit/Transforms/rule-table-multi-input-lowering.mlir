@@ -36,4 +36,4 @@ module attributes {ac.contract_epoch = "0.5", ac.model_kind = "queue_graph", ac.
 // LOWERED: ac.table.propose @rob
 
 // GFSIM: std::optional<gfsim::TableTransitionPlan<Entry, Entry>> operator()(gfsim::Epoch epoch, const gfsim::SimTable<Entry> &table_ref, const Entry &item, const Delta &item1)
-// GFSIM: gfsim::QueueTableTransition<block_0_policy, Entry, std::tuple<Entry, Delta>, std::tuple<Entry>, block_0_merge_policy> block_0_;
+// GFSIM: gfsim::QueueTableTransition<rule_install_policy, Entry, std::tuple<Entry, Delta>, std::tuple<Entry>, rule_install_merge_policy> rule_install_;
