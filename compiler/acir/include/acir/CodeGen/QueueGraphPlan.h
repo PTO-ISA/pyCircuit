@@ -54,12 +54,19 @@ struct QueueExpressionPlan {
   uint64_t width = 0;
   std::string mask;
   std::string value;
+  std::vector<uint64_t> domainAxes;
+  std::vector<uint64_t> domainShape;
+  std::vector<uint64_t> domainStrides;
+  uint64_t domainOffset = 0;
+  bool hasDomainProjection = false;
+  uint64_t selectionCount = 1;
+  uint64_t laneOrdinal = 0;
+  std::string keyOrdering;
+  uint64_t initialCursor = 0;
 };
 
-std::string inlineTableChoiceContractKey(
-    const QueueExpressionPlan &expression);
-bool isEffectFreeTableMatchExpression(
-    const QueueExpressionPlan &expression);
+std::string inlineTableChoiceContractKey(const QueueExpressionPlan &expression);
+bool isEffectFreeTableMatchExpression(const QueueExpressionPlan &expression);
 
 struct StateWritePlan {
   std::string table;
@@ -92,6 +99,8 @@ struct QueuePlan {
   uint64_t depth = 1;
   uint64_t latency = 1;
   uint64_t rate = 1;
+  uint64_t lanes = 1;
+  std::vector<uint64_t> laneOrdinals;
 };
 
 struct QueueRuleResourcePlan {
@@ -100,6 +109,16 @@ struct QueueRuleResourcePlan {
   std::string resource;
 
   bool operator==(const QueueRuleResourcePlan &) const = default;
+};
+
+struct QueueWriterArbitrationPlan {
+  std::string owner;
+  std::string endpointStableId;
+  std::string policy;
+  uint64_t declaredRank = 0;
+  std::string resolution;
+
+  bool operator==(const QueueWriterArbitrationPlan &) const = default;
 };
 
 struct QueueBlockPlan {
@@ -139,10 +158,14 @@ struct QueueBlockPlan {
   std::vector<OutputPresencePlan> outputPresence;
   std::vector<QueueRuleResourcePlan> activationSources;
   std::vector<QueueRuleResourcePlan> transactionResources;
+  std::vector<QueueWriterArbitrationPlan> arbitrationMembership;
   bool hasActivationEvidence = false;
   bool initiallyActive = false;
   uint64_t lexicalOrder = 0;
   std::string provider;
+  std::string stableId;
+  std::string selection;
+  uint64_t selectionCount = 0;
 };
 
 struct MemoryInstancePlan {
@@ -166,6 +189,16 @@ struct MemoryRequestPlan {
   std::string resultField;
 };
 
+struct TableInitValuePlan {
+  std::string kind;
+  std::string type;
+  std::string value;
+  std::vector<std::string> fieldNames;
+  std::vector<TableInitValuePlan> elements;
+
+  bool operator==(const TableInitValuePlan &) const = default;
+};
+
 struct TablePlan {
   std::string name;
   std::string entryType;
@@ -173,6 +206,14 @@ struct TablePlan {
   uint64_t init = 0;
   std::string stableId;
   std::string ownerPath;
+  std::vector<uint64_t> shape;
+  std::vector<uint64_t> axisWidths;
+  std::string layout;
+  uint64_t layoutVersion = 0;
+  std::string schemaId;
+  uint64_t initVersion = 0;
+  std::vector<TableInitValuePlan> initImage;
+  bool hasTypedSchema = false;
 };
 
 struct TableMatchPlan {
@@ -182,6 +223,11 @@ struct TableMatchPlan {
   std::string resultType;
   std::vector<QueueExpressionPlan> expressions;
   std::string yield;
+  std::vector<uint64_t> domainAxes;
+  std::vector<uint64_t> domainShape;
+  std::vector<uint64_t> domainStrides;
+  uint64_t domainOffset = 0;
+  bool hasDomainProjection = false;
 };
 
 struct TableSelectionPlan {
@@ -193,6 +239,10 @@ struct TableSelectionPlan {
   std::string indexType;
   std::vector<QueueExpressionPlan> keyExpressions;
   std::string keyYield;
+  uint64_t count = 1;
+  std::string keyOrdering;
+  std::string stableId;
+  uint64_t initialCursor = 0;
 };
 
 struct TableReadPlan {
@@ -234,6 +284,8 @@ struct SlotPlan {
 struct QueueInterfacePlan {
   std::string name;
   std::string payloadType;
+  uint64_t lanes = 1;
+  uint64_t rate = 1;
 };
 
 struct QueueModuleInstancePlan {
@@ -300,6 +352,7 @@ struct QueueGraphPlan {
 };
 
 llvm::Expected<QueueGraphPlan> buildQueueGraphPlan(mlir::ModuleOp module);
+llvm::Error resolveQueueWriterPriorities(QueueGraphPlan &plan);
 llvm::Error verifyQueueGraphPlan(const QueueGraphPlan &plan);
 
 } // namespace acir::codegen

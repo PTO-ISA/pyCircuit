@@ -737,11 +737,31 @@ def ACIR_TableOp : ACIR_Op<"table", [
   ]> {
   let arguments = (ins SymbolNameAttr:$sym_name, TypeAttr:$entry_type,
                        I64Attr:$entries, I64Attr:$init, StrAttr:$owner,
-                       StrAttr:$stable_id);
+                       StrAttr:$stable_id,
+                       OptionalAttr<DenseI64ArrayAttr>:$shape,
+                       OptionalAttr<DenseI64ArrayAttr>:$axis_widths,
+                       OptionalAttr<StrAttr>:$layout,
+                       OptionalAttr<I64Attr>:$layout_version,
+                       OptionalAttr<StrAttr>:$schema_id,
+                       OptionalAttr<I64Attr>:$init_version,
+                       OptionalAttr<ArrayAttr>:$init_image);
   let hasVerifier = 1;
   let assemblyFormat = [{
     $sym_name `entry` $entry_type `entries` $entries `init` $init
     `owner` $owner `stable_id` $stable_id attr-dict
+  }];
+}
+
+// Canonical row-major flattening boundary for a multidimensional Table.  The
+// result is the only runtime Table index consumed by get/propose/read/write.
+def ACIR_TableIndexOp : ACIR_Op<"table.index", [Pure]> {
+  let arguments = (ins FlatSymbolRefAttr:$table,
+                       Variadic<ACIR_VarType>:$coordinates);
+  let results = (outs ACIR_VarType:$index);
+  let hasVerifier = 1;
+  let assemblyFormat = [{
+    $table `[` $coordinates `]` attr-dict `:` type($coordinates) `->`
+    qualified(type($index))
   }];
 }
 
@@ -831,7 +851,11 @@ def ACIR_TableYieldOp : ACIR_Op<"table.yield", [Pure, Terminator]> {
 def ACIR_TableMatchOp : ACIR_Op<"table.match", [
     SingleBlock, DeclareOpInterfaceMethods<MemoryEffectsOpInterface>
   ]> {
-  let arguments = (ins FlatSymbolRefAttr:$table);
+  let arguments = (ins FlatSymbolRefAttr:$table,
+                       OptionalAttr<DenseI64ArrayAttr>:$domain_axes,
+                       OptionalAttr<DenseI64ArrayAttr>:$domain_shape,
+                       OptionalAttr<DenseI64ArrayAttr>:$domain_strides,
+                       OptionalAttr<I64Attr>:$domain_offset);
   let results = (outs ACIR_VarType:$mask);
   let regions = (region SizedRegion<1>:$predicate);
   let hasVerifier = 1;
@@ -847,14 +871,19 @@ def ACIR_TableChooseOp : ACIR_Op<"table.choose", [
     DeclareOpInterfaceMethods<MemoryEffectsOpInterface>
   ]> {
   let arguments = (ins FlatSymbolRefAttr:$table, ACIR_VarType:$mask,
-                       I64Attr:$count, StrAttr:$policy);
-  let results = (outs ACIR_VarType:$index, ACIR_VarType:$valid);
+                       I64Attr:$count, ACIR_TableSelectionPolicyAttr:$policy,
+                       OptionalAttr<ACIR_TableKeyOrderingAttr>:$key_ordering,
+                       StrAttr:$stable_id,
+                       DefaultValuedAttr<I64Attr, "0">:$initial_cursor);
+  // Segment order is normative: indices[0..count), then valids[0..count).
+  let results = (outs Variadic<ACIR_VarType>:$results);
   let regions = (region AnyRegion:$key);
   let hasVerifier = 1;
   let assemblyFormat = [{
     $table $mask `:` qualified(type($mask)) `count` $count `policy` $policy
-    `key` $key attr-dict `->`
-    qualified(type($index)) `,` qualified(type($valid))
+    (`key_order` $key_ordering^)? `stable_id` $stable_id
+    (`initial_cursor` $initial_cursor^)? `key` $key attr-dict `->`
+    qualified(type($results))
   }];
 }
 

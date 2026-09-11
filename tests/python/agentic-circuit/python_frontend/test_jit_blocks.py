@@ -141,16 +141,22 @@ class Config:
 
 @ac.system
 def multirate(cfg: ac.const[Config]) -> None:
-    incoming = ac.source(int, depth=8, rate=cfg.rate)
+    incoming = ac.source(int, depth=8, lanes=cfg.rate, rate=cfg.rate)
     computed = ac.compute(
-        incoming, lambda item: item + 1, depth=8, rate=cfg.rate
+        incoming,
+        lambda item: item + 1,
+        depth=8,
+        rate=cfg.rate,
     )
-    pipelined = ac.pipeline(computed, stages=2, depth=8, rate=cfg.rate)
+    pipelined = ac.pipeline(
+        computed, stages=2, depth=8, rate=cfg.rate
+    )
     ac.sink(pipelined)
 """
 
 
 REPOSITORY = Path(__file__).resolve().parents[4]
+NATIVE_BUILD = REPOSITORY / ".pycircuit_out/acir/dev-llvm22"
 
 
 class ConfigAndJitTest(unittest.TestCase):
@@ -364,6 +370,7 @@ int main() {{
         right = ac.jit(core, cfg=Config(entries=16, lanes=4))
 
         self.assertEqual(left.fingerprint, right.fingerprint)
+        self.assertEqual((), left.diagnostics)
         self.assertEqual(
             (("cfg", (("entries", 16), ("lanes", 4))),),
             left.canonical_arguments,
@@ -443,13 +450,13 @@ int main() {{
         optimizer = Path(
             os.environ.get(
                 "ACIR_OPT",
-                REPOSITORY / ".pycircuit_out/layout-root/bin/acir-opt",
+                NATIVE_BUILD / "bin/acir-opt-internal",
             )
         )
         generator = Path(
             os.environ.get(
                 "ACIR_QUEUE_CXXGEN",
-                REPOSITORY / ".pycircuit_out/layout-root/bin/acir-queue-cxxgen",
+                NATIVE_BUILD / "bin/acir-queue-cxxgen",
             )
         )
         if not optimizer.is_file() or not generator.is_file():
@@ -540,20 +547,19 @@ int main() {{
         optimizer = Path(
             os.environ.get(
                 "ACIR_OPT",
-                REPOSITORY / ".pycircuit_out/layout-root/bin/acir-opt",
+                NATIVE_BUILD / "bin/acir-opt-internal",
             )
         )
         generator = Path(
             os.environ.get(
                 "ACIR_QUEUE_CXXGEN",
-                REPOSITORY / ".pycircuit_out/layout-root/bin/acir-queue-cxxgen",
+                NATIVE_BUILD / "bin/acir-queue-cxxgen",
             )
         )
         runtime = Path(
             os.environ.get(
                 "GFSIM_LIBRARY",
-                REPOSITORY
-                / ".pycircuit_out/layout-root/compiler/acir/gfsim/libgfsim.a",
+                NATIVE_BUILD / "gfsim/libgfsim.a",
             )
         )
         if not optimizer.is_file() or not generator.is_file() or not runtime.is_file():

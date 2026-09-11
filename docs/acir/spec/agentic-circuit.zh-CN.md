@@ -25,12 +25,11 @@
 具有 RFC 风格的约束含义。本文使用“必须”“禁止”“应该”和“可以”表达同一
 含义。
 
-### 已接受但尚未实现的 6.0 release-train decisions
+### 6.0 release-train decisions
 
-Decision 0236–0241 已冻结 release 6.0.0 的剩余 issue 合同，但它们在
-[`decision_status_v6.md`](../../gates/decision_status_v6.md) 中仍为 `deferred`。
-在具体 gate 证据将对应行推进到 `implemented-verified` 前，这些 decision 不代表
-当前实现；本文后续写明的现有限制仍然有效。
+Decision 0236–0241 已冻结 release 6.0.0 的剩余 issue 合同，并全部达到
+`implemented-verified`。精确状态与证据路径见
+[`decision_status_v6.md`](../../gates/decision_status_v6.md)。
 
 - Decision 0236 保持 `@ac.rule` 为唯一公共调度边界，由编译器形成完整原子事务
   （#28）。
@@ -49,6 +48,25 @@ Decision 0236–0241 已冻结 release 6.0.0 的剩余 issue 合同，但它们�
 Decision 0232 现冻结四 wheel release map；Decision 0234 将仓库内可验证的 workflow
 实现与每次 release 必需的 stable-URL attestation 分离（#61）。两者在实现证据存在前
 仍保持 `deferred`。
+
+### Ordered multi-lane Queue
+
+`source(..., lanes=N, rate=R)` 创建一个 logical ordered Queue；lane count 为静态正整数，
+且 `1 <= R <= N`。one-to-one compute/pipeline 继承完全相同的 lane/rate contract。
+Frozen ACIR 使用 `!ac.queue<T, lanes=N, rate=R>`；lane-one/rate-one 仍打印为旧的
+`!ac.queue<T>`。payload aggregate shape 与 lane count 相互独立。
+
+可用 token 形成不超过 `rate` 的连续 valid prefix。整个 prefix 在同一 commit group 中
+prepare/publish；任一 output capacity 或 readiness 不足都会让所有 pop、push、state effect
+和 accepted-order update 一起 stall。runtime 支持同拍 dequeue+append、depth>rate、重复
+backpressure、reset 与确定性的 FIFO wrap-equivalent 序列，同时保持单一 Queue identity 和
+canonical lane ordinal `0..N-1`。
+
+当前 canonical-PYC admitted profile 是 direct source-to-sink Queue，或由 one-input/
+one-output pure transform 组成的链；每段 latency 为一且 lane/rate 完全一致。生成接口仍为
+scalar lane ports，但共享同一个 ready/commit 决策，不会拆成独立 Queue identity。其它
+multi-lane topology 在 PYC admission boundary fail closed。已准入的通用 fixture 在 generated
+gfsim C++、PYC C++ 与 Verilator 中执行结果一致。
 
 ## 一句话理解
 
@@ -667,7 +685,8 @@ array。
 
 ### Stateful Table 原型
 
-epoch `0.5` 新增一维、全零初始化的状态 Table：
+epoch `0.5` 将本地状态 Table 与 request/response memory 分离。Table shape 可以是
+rank-one extent，也可以是由正静态 extent 组成的非空 tuple：
 
 ```python
 Table16 = ac.table[16, Entry]
@@ -693,20 +712,88 @@ table.view(tail).allocate(
     enable=allocation.valid,
     value=allocation.value,
 )
+
+TileTable = ac.table[(2, 3), ac.u8]
+tiles = TileTable(
+    init={
+        "version": 1,
+        "entry": ac.u8,
+        "values": list((1, 2, 3, 4, 5, 6)),
+    }
+)
+last = tiles.view((1, 2)).read()
+row = tiles.view(1)
+row_matches = row.match(lambda value: value != 0)
+row_choice = row.choose(row_matches)
+chosen = tiles.view(row_choice.index).read(when=row_choice.valid)
 ```
 
-Entry 只能是 bool、定宽整数或仅包含这些字段的扁平 struct。`read()` 总是返回
-`Queue<Entry>`；Queue-driven read 的 `when=false` 不消费输入，disabled write 消费
-输入但不提出写 proposal。同 tick 读写返回 old committed Entry，写入在 tick commit
-后可见，动态越界报告 `table_index_out_of_range`。
+Entry 可以是 bool、定宽整数、enum 或由支持 value type 组成的 immutable aggregate。
+shape 与 canonical Entry descriptor、layout version 一同参与 Table identity。存储采用
+row-major version 1，最右侧 axis 变化最快。每个 axis 使用能表示其 extent 的最小无符号
+宽度；extent 为一时仍保留一 bit。shape product 使用 checked arithmetic，并且必须等于
+flattened `entries` 数量。使用 `init=0` 的 rank-one Table declaration 仍是 canonical
+zero shorthand。
+
+非零初始化使用 closed typed image，键必须精确为 `version`、`entry` 和 `values`。
+version 1 必须包含恰好 flattened entry count 个元素；每个 scalar、enum、struct、tuple 或
+value-array 元素都必须递归匹配 Entry descriptor。字段顺序和 serialized bytes 是 canonical
+的，并且不能包含 producer path。Frozen ACIR 保存 `shape`、`axis_widths`、`layout`、
+`layout_version`、`schema_id`、`init_version` 和 `init_image`。rank、extent、product、
+layout、digest、version、count 或 value type 不合法时，必须在创建 runtime Table 前拒绝。
+
+`read()` 总是返回 `Queue<Entry>`；Queue-driven read 的 `when=false` 不消费输入，
+disabled write 消费输入但不提出写 proposal。同 tick 读写返回 old committed Entry，
+写入在 tick commit 后可见，动态越界报告 `table_index_out_of_range`。
+
+多维 view 的每个 coordinate 经 `ac.table.index` lowering。该 op 检查 rank、canonical
+per-axis type 与静态 bounds，然后产生 get/read/write/proposal 唯一使用的 canonical
+row-major flattened scalar。动态 coordinate 各自携带独立的 per-axis bounds obligation。
+`TableChoice.index` 已经是完整 Table domain 的 flattened type，可以直接流入同 Table view，
+不会在 runtime 被还原为 coordinate。普通 flattened value、错误位宽以及跨 Table 的 index
+或 choice provenance 都会 fail closed。
 
 `Table.view(candidates)` 接受同一张 Table 的 `match` 所产生的 `CandidateSet`，用于
 state-driven masked update。masked `write` 给所有命中 Entry 写入同一个完整值；
 masked `patch` 的字段可以是统一表达式，也可以是从各命中 old Entry 求值的纯
 `lambda entry`。`enable=false` 不求值 mask/value，空 mask 是 no-op，所有命中项在
-同一个 tick edge 原子提交。scalar 与 masked endpoint 可以共存，但各 endpoint 静态声明的
-顶层写字段集合必须两两不相交。第一版不分析 address、mask、enable 或 predicate 的动态
-互斥性；只要两个 endpoint 声明同一字段就静态拒绝。
+同一个 tick edge 原子提交。scalar 与 masked endpoint 进入同一个规范化
+`(owner, index-domain, field, endpoint)` writer 关系。不同 owner、不同字段和静态可证
+不同的 index 不冲突。即使两个 endpoint 声明同一字段，只要 ACIR verifier 能从同一份
+committed snapshot 证明 guard 互斥，也可以并存。无法证明的 same-field overlap 会拒绝，
+除非所有冲突 endpoint 都声明显式仲裁。
+
+`ac.writer_priority(rank)` 声明确定性的 owner-local 仲裁。`rank` 必须是非负编译期整数，
+数值更小者优先。前端发射 `#ac.writer_priority<rank>` 和由内容导出的稳定 endpoint
+identity；rule lowering 在 effect 与 arbitration summary 中保留 typed policy、declared
+rank、endpoint identity、owner 以及 `winner_takes_transaction` resolution。priority tie、
+缺失或重复 endpoint identity、畸形 policy attribute、一个 Python descriptor 跨 Table
+复用、互相矛盾的 cross-owner precedence cycle，以及用户书写的 `safe` assertion 都会
+fail closed。源码、声明、遍历、对象或 Work 顺序都不能充当 tie-break。
+
+仲裁在资源 prepare 之前选出 winner。loser 不会保留 Queue、Table、Reg、Slot 或 output，
+也不会发布其中任何 effect。可兼容的 guarded-disjoint writer 从同一 old image 求值并合并
+为一个确定的 next image。reset 会清除未完成的 proposal、reservation 与 arbitration state。
+
+full-Table `match` 的 domain axes 等于完整 shape。静态 projected view 固定一个 axis prefix，
+并记录剩余的 `domain_axes`、`domain_shape`、canonical row-major `domain_strides` 与
+`domain_offset`。mask bit zero 对应该局部 row-major projection 的首个元素。projection
+metadata 必须完整、axis 递增、范围合法并与 Table shape 一致。空 projection 包含唯一的
+fixed element；non-power-of-two 和 extent-one axis 保留精确 domain。`choose` 检查同 Table
+mask provenance，但返回值仍使用完整 flattened Table domain 的 index。省略 `count` 或
+使用 `count=1` 时保持 scalar `TableChoice`；静态 `count=N>1` 返回 N 元素 Python tuple，
+并 lower 为一个含 `2*N` 个 scalar result 的 `ac.table.choose`，固定 segment 顺序为
+`[index_0..index_N-1, valid_0..valid_N-1]`。invalid suffix 的 index 必须为零；runtime
+tuple indexing、存储或跨边界 escape 均拒绝。
+
+`first`、有符号/无符号 `min`/`max` 与 `round_robin` 都产生连续 valid prefix，并以最低
+global index 解决相等 key。round-robin 仅在完整 prefix 接受后，将 committed cursor 推进到
+最后一个 accepted lane 的下一个 projected-local 位置；空选择与 stall 不推进，reset 恢复
+初值。mask/key 每个 Epoch 只求值一次。直接消费同一 multi-selection 的 Table read 会合并为
+一个 prefix transaction：所有 valid-lane output 均 ready 后才整体 publish 并推进 cursor。
+firing 必须恰好消费每个 lane；partial、mixed、direct-write 或其它未归组 consumer 在
+QueueGraph verifier 中 fail closed。canonical PYC 使用同一个 prefix transaction，只有
+完整 selected prefix 被接受后才推进显式 register-bank cursor。
 
 每张 Table 可以额外声明一个 state-driven scalar `allocate` endpoint，与上述普通字段
 writer 共存。它在调用方提供的 index 安装完整 Entry，不搜索空位、不检查占用状态，也不
@@ -744,9 +831,13 @@ capture、嵌套 Table/Slot observation 或 snapshot effect 都保留独立扫�
 使用 `mode "replace"`，masked write 只允许 `field`。完整 struct write 展开为所有实际
 字段，bool/int Entry 使用 `$entry`。
 value region 仍返回完整 Entry，但 commit 只复制声明字段；所有 writer 从同一 old
-committed image 求值，并在 tick edge 合并后一次发布。
-当前 Table 只支持 typed gfsim C++；PYC/RTL 返回稳定的
-`unsupported provisional Table` 诊断。旧 `ac.table(...)` 已删除，请求响应存储继续
+committed image 求值，并在 tick edge 合并兼容 proposal 后一次发布。QueueGraph 保留
+shape、schema identity、typed image tree、flattened index expression 与 projected match
+domain。typed gfsim 与 canonical PYC 会确定性加载 image，执行 row-major access 和
+projected mask，在 Work/组合求值阶段观察 old state，并在 Xfer/时钟边沿一次发布 next
+image。canonical PYC 使用每个 Entry 一个显式 `pyc.reg` 的 register bank，且不会选择
+`pyc.sync_mem`。reset 恢复 typed initial image，同时清除 transient selection 与 proposal。
+旧 `ac.table(...)` 已删除，请求响应存储继续
 使用 `ac.memory`。纵向示例见
 唯一公开的 Python Table 示例是
 `issue.py`。它组合两个字段不相交的操作数唤醒、下一
@@ -937,12 +1028,24 @@ def pipeline(incoming: Item) -> Item:
     return outgoing
 ```
 
+在 rule 内，字段直接赋值是不可变记录替换的简写。`local.field = value` 会规范化为
+`local = local.with_fields(field=value)`；若 base 是 persistent scalar，该 rebinding
+会成为此 owner 的 next-state proposal。对于 persistent list，
+`entries[index].field = value` 会将 `index` 恰好求值一次，并提出等价的完整 Entry
+替换 proposal。后续串行的 local 或 scalar-state 赋值读取最新 SSA proposal，但
+committed state 在整条 rule transaction 提交前保持不变。
+
+该语法不会原地修改 Python 对象。从 persistent state 复制出的 local 被更新时，不会
+隐式写回 owner；已经存入 Queue 的 payload 仍是不可变值。需要把更新后的记录直接用于
+表达式时，继续显式使用 `with_fields(...)`。嵌套字段目标、切片、字段增量赋值、未知字段、
+字段类型不匹配和越界索引都会 fail closed。
+
 非 `const` system 参数和带类型的返回值是推荐的外部边界写法。编译器在内部插入
 `ac.source` 和 `ac.sink`；多个输出使用有序 `tuple[...]` 注解与 tuple 返回。显式
 Python `source(...)`/`sink(...)` 仅作为过渡兼容路径保留。
 
-直接定义在 `@ac.module` 内的 rule 可以省略重复的 module-private state 参数，并用
-Python `nonlocal` 声明每个捕获的 owner：
+直接定义在 `@ac.module` 内的 rule 可以省略重复的 module-private state 参数。前端根据对
+module 直接 typed state 的静态引用推导每个捕获的 owner：
 
 ```python
 @ac.module
@@ -951,7 +1054,6 @@ def accumulator(incoming: ac.u8) -> ac.u8:
 
     @ac.rule
     def add(value):
-        nonlocal total
         total = total + value
         return total
 
@@ -959,11 +1061,12 @@ def accumulator(incoming: ac.u8) -> ac.u8:
 ```
 
 前端会在 type、owner、footprint、conflict 和 lowering 分析前，把这种写法规范化成已有的
-显式 state 参数 rule 合同。只能捕获 module 直接声明的 typed state，并按声明顺序规范化；
-state 必须定义在 nested rule 之前。遗漏 `nonlocal`、untyped local、module input、alias、
-attribute、生成名冲突、嵌套作用域声明以及 nested rule 互调都会 fail-close。每个 module
-instance 继续独立拥有原 state；capture 不产生 module-object reference，也不改变 committed
-read、proposal、仲裁、output presence 或 backpressure 语义。
+显式 state 参数 rule 合同。只能捕获 module 直接声明的 typed state，并按声明顺序而不是
+首次使用顺序规范化；state 必须定义在 nested rule 之前。显式的 direct-body `nonlocal`
+仍可使用，但必须与推导出的 capture 集合完全一致。untyped/late state、module input、参数
+遮蔽、alias、attribute、生成名冲突、嵌套作用域声明以及 nested rule 互调都会 fail-close。
+每个 module instance 继续独立拥有原 state；capture 不产生 module-object reference，也不
+改变 committed read、proposal、仲裁、output presence 或 backpressure 语义。
 
 epoch 0.5 的 pure rule 支持一个或多个 Queue 输入、一个输出和一条完整返回路径。
 每个参数都是对应 Queue 的 committed head payload。前端只生成 variadic transient

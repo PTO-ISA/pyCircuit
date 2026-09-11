@@ -97,4 +97,4 @@ module attributes {ac.contract_epoch = "0.5", ac.model_kind = "queue_graph", ac.
     ac.rule.return
   } : (!ac.queue<i8>) -> ()
 }
-// DUPLICATE: same-owner proposals may select one index concurrently
+// DUPLICATE: one stable writer endpoint has unresolved overlapping proposals

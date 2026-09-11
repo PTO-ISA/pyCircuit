@@ -1,0 +1,13 @@
+Test project /Users/zhoubot/linx-isa/tools/pyCircuit/.pycircuit_out/acir/dev-llvm22
+    Start  8: GfsimTests
+1/4 Test  #8: GfsimTests .......................   Passed    0.02 sec
+    Start 10: ACIROpsTests
+2/4 Test #10: ACIROpsTests .....................   Passed    6.84 sec
+    Start 13: ACIRModelAnalysisTests
+3/4 Test #13: ACIRModelAnalysisTests ...........   Passed   21.07 sec
+    Start 17: CodeGenTests
+4/4 Test #17: CodeGenTests .....................   Passed   48.40 sec
+
+100% tests passed, 0 tests failed out of 4
+
+Total Test time (real) =  76.32 sec

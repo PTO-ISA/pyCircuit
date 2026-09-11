@@ -1,0 +1,58 @@
+{
+  "run_id": "20260910-regfile-cycle0-snapshot-r1",
+  "decision": "0148",
+  "status": "pass",
+  "gates": {
+    "register_file_structure": {
+      "status": "pass",
+      "return_code": 0,
+      "duration_seconds": 0.16,
+      "proof": {
+        "balance_registers": 0,
+        "pyc_register_ops": 256
+      }
+    },
+    "fresh_both": {
+      "status": "pass",
+      "return_code": 0,
+      "duration_seconds": 24.73,
+      "verilator": "finish at 27ns"
+    },
+    "fresh_cpp": {
+      "status": "pass",
+      "return_code": 0,
+      "duration_seconds": 0.24,
+      "output": "OK"
+    },
+    "forward_signal_unit": {
+      "status": "pass",
+      "return_code": 0,
+      "duration_seconds": 0.12,
+      "tests": 15
+    },
+    "decision_status": {
+      "status": "pass",
+      "return_code": 0,
+      "rows": 241,
+      "deferred": 7
+    },
+    "git_diff_check": {
+      "status": "pass",
+      "return_code": 0
+    },
+    "pre_commit": {
+      "status": "pass",
+      "return_code": 0,
+      "duration_seconds": 1.17,
+      "note": "Initial ruff I001 was fixed before the passing rerun."
+    },
+    "run_sims_nightly_resume_regfile": {
+      "status": "pass",
+      "return_code": 0,
+      "cases": [
+        "regfile",
+        "bypass_unit"
+      ]
+    }
+  }
+}

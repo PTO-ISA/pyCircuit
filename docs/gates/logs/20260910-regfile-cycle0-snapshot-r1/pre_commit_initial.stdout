@@ -1,0 +1,16 @@
+check for merge conflicts................................................Passed
+check yaml...........................................(no files to check)Skipped
+fix end of files.........................................................Passed
+trim trailing whitespace.................................................Passed
+ruff.....................................................................Failed
+- hook id: ruff
+- exit code: 1
+
+tests/unit/test_register_file.py:1:1: I001 [*] Import block is un-sorted or un-formatted
+
+Found 1 error.
+[*] 1 fixable with the `--fix` option.
+
+black....................................................................Passed
+markdownlint-cli2....................................(no files to check)Skipped
+pyCircuit API hygiene gate...........................(no files to check)Skipped

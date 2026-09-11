@@ -31,6 +31,8 @@ compiler/acir/tools/ac-queue-pyc-build.py <ACIR> ...
 python3 tests/integration/agentic-circuit/e2e/test_typed_system_transactions.py -v
 python3 tests/integration/agentic-circuit/e2e/test_typed_record_pyc.py -v
 python3 tests/integration/agentic-circuit/e2e/test_aggregate_equality_invariant.py -v
+python3 tests/integration/agentic-circuit/e2e/test_table_pyc_parity.py -v
+python3 tests/integration/agentic-circuit/e2e/test_table_backend.py -v
 acir-opt --verify-each=false --pass-pipeline='builtin.module(ac-lower-rules,canonicalize,cse,ac-verify-rule-closure,ac-freeze-topology)' tests/mlir/agentic-circuit/Transforms/rule-multi-output-lowering.mlir
 pytest tests/unit -m unit
 python3 flows/tools/check_api_hygiene.py python/pycircuit/src/pycircuit examples/pycircuit docs README.md
@@ -167,6 +169,8 @@ done
 
 PYC_TOOLCHAIN_ROOT="${toolchain}" \
 ACIR_OPT="${acir_opt}" \
+ACIR_QUEUE_PLAN="${acir_plan}" \
+ACIR_QUEUE_CXXGEN="${acir_cxxgen}" \
 ACIR_QUEUE_PYCGEN="${pycgen}" \
 PYTHONPATH="${PYC_ROOT_DIR}/python/semantic-core/src:${ac_python}/src:${ac_build}/python" \
   "${venv}/bin/python" \
@@ -225,6 +229,25 @@ PYTHONPATH="${PYC_ROOT_DIR}/python/semantic-core/src:${ac_python}/src:${ac_build
   "${PYC_ROOT_DIR}/tests/integration/agentic-circuit/e2e/test_aggregate_equality_invariant.py" \
   -v
 
+PYC_TOOLCHAIN_ROOT="${toolchain}" \
+ACIR_OPT="${acir_opt}" \
+ACIR_QUEUE_PYCGEN="${pycgen}" \
+PYCC="${pycc}" \
+PYTHONPATH="${PYC_ROOT_DIR}/python/semantic-core/src:${ac_python}/src:${ac_build}/python" \
+  "${venv}/bin/python" \
+  "${PYC_ROOT_DIR}/tests/integration/agentic-circuit/e2e/test_table_pyc_parity.py" \
+  -v
+
+PYC_TOOLCHAIN_ROOT="${toolchain}" \
+ACIR_OPT="${acir_opt}" \
+ACIR_QUEUE_PLAN="${acir_plan}" \
+ACIR_QUEUE_CXXGEN="${acir_cxxgen}" \
+ACIR_QUEUE_PYCGEN="${pycgen}" \
+PYTHONPATH="${PYC_ROOT_DIR}/python/semantic-core/src:${ac_python}/src:${ac_build}/python" \
+  "${venv}/bin/python" \
+  "${PYC_ROOT_DIR}/tests/integration/agentic-circuit/e2e/test_table_backend.py" \
+  -v
+
 pyc_log "pyCircuit 6 root contracts and documentation"
 (
   cd "${PYC_ROOT_DIR}"
@@ -251,7 +274,7 @@ cat > "${docs_gate_dir}/agentic_circuit_summary.json" <<EOF
   "resume_from": "${resume_from}",
   "contract_epoch": "0.5",
   "pyc_interface": "pyc6",
-  "cases": ["arbiter", "atomic-transform", "bit-widths", "masked-match", "popcount", "multi-output-atomic", "rule-retirement", "bitfield", "masked-decode", "nested-payload", "enum-payload", "aggregate-payload", "recursive-aggregate-payload", "typed-system-transactions", "typed-record-pyc", "multi-output-state-gfsim", "multi-output-pyc-parity", "aggregate-equality-invariant-gfsim", "aggregate-equality-invariant-pyc-parity"]
+  "cases": ["arbiter", "atomic-transform", "bit-widths", "masked-match", "popcount", "multi-output-atomic", "rule-retirement", "bitfield", "masked-decode", "nested-payload", "enum-payload", "aggregate-payload", "recursive-aggregate-payload", "typed-system-transactions", "typed-record-pyc", "multi-output-state-gfsim", "multi-output-pyc-parity", "aggregate-equality-invariant-gfsim", "aggregate-equality-invariant-pyc-parity", "table-round-robin-pyc-parity", "table-writer-arbitration-pyc-parity", "table-field-replace-order-pyc-parity", "table-direct-native-gfsim"]
 }
 EOF
 

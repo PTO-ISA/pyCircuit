@@ -55,6 +55,7 @@ struct VariableProperties {
 };
 
 struct StateAccessFootprint {
+  mlir::Operation *endpoint = nullptr;
   std::string resource;
   std::string access;
   mlir::Value index;

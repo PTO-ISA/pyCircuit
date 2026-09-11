@@ -101,10 +101,11 @@ source.
 - compare applicable gfsim, pyc6 C++ and Verilator observations; and
 - prove unsupported ACIR constructs fail at the intended verifier boundary.
 
-Decision 0151's provisional Table is intentionally gfsim-only. Its G2 evidence
-is the stable PYC diagnostic `unsupported provisional Table`; do not report a
-Table PYC, C++, Verilog, or cross-backend lane as supported until a later
-decision adds and verifies that lowering.
+Decision 0241 admits the bounded Table profile to G2 through an explicit
+`pyc.reg` bank. G2 evidence covers independent profile limits, typed and
+multidimensional initialization, old-state reads, field/masked/replace writes,
+multi-selection and accepted-only round-robin, arbitration, outputless rules,
+and PYC C++/Verilator parity. Out-of-profile Table state remains fail closed.
 
 AC G2 consumes current pyCircuit 6 contracts. A PR that changes ACIR-to-PYC
 provides a focused G2 reproducer; the release workflow provides the complete

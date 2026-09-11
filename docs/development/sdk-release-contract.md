@@ -70,7 +70,9 @@ Each archive embeds one platform manifest at
 `share/pycircuit/sdk-manifest.json`. The same bytes are attached with the unique
 name `pycircuit-sdk-6.0.0-<platform-id>.manifest.json`. A separate
 `pycircuit-sdk-6.0.0-release-index.json` names both archives, both platform
-manifests, the three matching wheels, license material, and release notes.
+manifests, the exact four-wheel set, license material, and release notes. The
+set contains one `pycircuit-hisi` wheel for each supported platform plus the
+universal `pycircuit-semantic-core` and `agentic-circuit` wheels.
 
 `SHA256SUMS` covers every attached file including the release index, but does
 not contain a checksum for itself. A platform manifest lists and hashes the
@@ -351,7 +353,7 @@ The public schemas are:
 - `sdk-manifest.schema.json`: one installed platform, source, ABI,
   capabilities, dependencies, and installed file inventory without an
   enclosing-archive or self hash;
-- `release-index.schema.json`: both archive/manifests, exact three-wheel map,
+- `release-index.schema.json`: both archive/manifests, exact four-wheel map,
   supporting artifacts, hashes, sizes, and final URLs;
 - `model-plan.schema.json`: verified source closure, config, IR identities,
   deterministic output plan, and required runtime;
@@ -413,7 +415,7 @@ consumers. The generic fixture covers imported nominal contracts, const
 specialization, multiple independent instances, admitted Table state,
 heterogeneous optional outputs, backpressure, reset, incremental rebuild,
 topology changes, concurrent generation, stale plan, wrong SDK, wrong ABI,
-missing tool, and the explicit unsupported PYC Table boundary.
+missing tool, and bounded Table PYC admission with out-of-profile rejection.
 
 Every publish job depends on candidate acceptance. GitHub Release, GHCR, and
 optional PyPI publication cannot run from a failed, skipped, or unvalidated

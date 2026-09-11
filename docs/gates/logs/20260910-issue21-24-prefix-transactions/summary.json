@@ -1,0 +1,23 @@
+{
+  "base_revision": "db6a3211",
+  "decision_ids": ["0239", "0240"],
+  "issues": [21, 24],
+  "results": {
+    "backend_e2e": {"passed": 2, "failed": 0},
+    "build": {"passed": true},
+    "check_acir": {"passed": 202, "failed": 0},
+    "contracts": {"passed": true},
+    "decision_status": {"passed": true},
+    "diff_check": {"passed": true},
+    "focused_codegen": {"passed": 4, "failed": 0},
+    "focused_gfsim": {"passed": 7, "failed": 0},
+    "frontend": {"passed": 275, "skipped": 1, "failed": 0},
+    "inventory": {"passed": true},
+    "mkdocs_strict": {"passed": true},
+    "native_suites": {"passed": 5, "failed": 0},
+    "sanitizer_fixtures": {"passed": 2, "failed": 0}
+  },
+  "run_id": "20260910-issue21-24-prefix-transactions",
+  "status": "passed",
+  "table_pyc_boundary": "Decision 0239 remains implemented-unverified until Decision 0241 supplies canonical-PYC Table C++/Verilog parity."
+}

@@ -1,0 +1,9 @@
+ruff check .github/scripts/validate_repo_management.py packaging/sdk/create_platform_manifest.py packaging/sdk/release_candidate.py packaging/sdk/verify_platform_candidate.py tests/python/agentic-circuit/contracts/test_sdk_release_contract.py
+.pycircuit_out/venv-release-test/bin/python -m pytest -q tests/python/agentic-circuit/contracts/test_sdk_release_contract.py
+.pycircuit_out/venv-release-test/bin/python tools/agentic-circuit/check-sdk-contract.py
+.pycircuit_out/venv-release-test/bin/python .github/scripts/validate_repo_management.py
+.pycircuit_out/release-inline-py311/install/bin/agentic-circuit model --help
+python3.11 packaging/sdk/verify_platform_candidate.py --archive /tmp/pyc-sdk-local.ravNyI/candidate-py311/pycircuit-sdk-6.0.0-macos-arm64.tar.gz --manifest /tmp/pyc-sdk-local.ravNyI/candidate-py311/pycircuit-sdk-6.0.0-macos-arm64.manifest.json --forbidden-path /Users/zhoubot/linx-isa/tools/pyCircuit --attestation /tmp/pyc-sdk-local.ravNyI/platform-attestation-skip-final.json --skip-install
+python3 flows/tools/check_decision_status.py --status docs/gates/decision_status_v6.md --out docs/gates/logs/20260910-issue61-release-workflow/decision_status_report.json --require-concrete-evidence --require-existing-evidence
+mkdocs build --strict
+git diff --check

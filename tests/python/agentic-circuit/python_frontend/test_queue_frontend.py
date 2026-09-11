@@ -1860,6 +1860,22 @@ def pipeline() -> None:
     ac.sink(snapshots)
 """
 
+ARBITRATED_TABLE_WRITER_SOURCE = """
+import agentic_circuit as ac
+
+@ac.struct
+class Entry:
+    valid: bool
+
+@ac.system
+def pipeline() -> None:
+    issue = ac.table[4, Entry](init=0)
+    issue.view(0).patch(valid=True, arbitration=ac.writer_priority(0))
+    issue.view(0).patch(valid=False, arbitration=ac.writer_priority(1))
+    snapshots = issue.view(0).read()
+    ac.sink(snapshots)
+"""
+
 ALLOCATION_TABLE_SOURCE = """
 import agentic_circuit as ac
 
@@ -2313,10 +2329,12 @@ class QueueFrontendTest(unittest.TestCase):
             'ready, count=1, policy="first"',
         )
         first_lowered = lower_queue_source(first, "pipeline")
-        self.assertIn('count 1 policy "first" key {}', first_lowered)
+        self.assertIn(
+            "count 1 policy #ac<table_selection_policy first>", first_lowered
+        )
         self.assertEqual(1, first_lowered.count("ac.table.choose @issue"))
         self.assertIn(
-            'count 1 policy "max"',
+            "count 1 policy #ac<table_selection_policy max>",
             lower_queue_source(
                 SLOT_TABLE_SOURCE.replace('policy="min"', 'policy="max"'),
                 "pipeline",
@@ -2327,7 +2345,7 @@ class QueueFrontendTest(unittest.TestCase):
             "pipeline",
         )
         self.assertIn("-> !ac.var<i64>", boundary)
-        with self.assertRaisesRegex(QueueFrontendError, "count=1 only"):
+        with self.assertRaisesRegex(QueueFrontendError, "static scope"):
             lower_queue_source(
                 SLOT_TABLE_SOURCE.replace("count=1", "count=2"), "pipeline"
             )
@@ -2444,6 +2462,86 @@ class QueueFrontendTest(unittest.TestCase):
                 ),
                 "pipeline",
             )
+
+    def test_table_writer_priority_is_typed_and_order_independent(self) -> None:
+        from agentic_circuit._queue_frontend import lower_queue_source
+
+        lowered = lower_queue_source(ARBITRATED_TABLE_WRITER_SOURCE, "pipeline")
+        self.assertEqual(2, lowered.count("ac.arbitration = #ac.writer_priority<"))
+        self.assertIn("ac.arbitration = #ac.writer_priority<0>", lowered)
+        self.assertIn("ac.arbitration = #ac.writer_priority<1>", lowered)
+
+        swapped = ARBITRATED_TABLE_WRITER_SOURCE.replace(
+            "    issue.view(0).patch(valid=True, arbitration=ac.writer_priority(0))\n"
+            "    issue.view(0).patch(valid=False, arbitration=ac.writer_priority(1))",
+            "    issue.view(0).patch(valid=False, arbitration=ac.writer_priority(1))\n"
+            "    issue.view(0).patch(valid=True, arbitration=ac.writer_priority(0))",
+        )
+        endpoint_pattern = re.compile(
+            r'ac.endpoint_id = "(table-writer/[0-9a-f]{64})", '
+            r"ac.arbitration = #ac.writer_priority<(\d+)>"
+        )
+        self.assertEqual(
+            sorted(endpoint_pattern.findall(lowered)),
+            sorted(endpoint_pattern.findall(lower_queue_source(swapped, "pipeline"))),
+        )
+
+        masked = MASKED_TABLE_WRITE_SOURCE.replace(
+            "value=pending.value)",
+            "value=pending.value, arbitration=ac.writer_priority(0))",
+        ).replace(
+            "    pending.release(when=pending.valid)",
+            "    issue.view(0).write(\n"
+            "        value=pending.value, arbitration=ac.writer_priority(1)\n"
+            "    )\n"
+            "    pending.release(when=pending.valid)",
+        )
+        masked_lowered = lower_queue_source(masked, "pipeline")
+        self.assertIn("ac.table.masked_write @issue", masked_lowered)
+        self.assertEqual(
+            2, masked_lowered.count("ac.arbitration = #ac.writer_priority<")
+        )
+
+    def test_table_writer_priority_rejects_invalid_or_unowned_policies(self) -> None:
+        from agentic_circuit._queue_frontend import (
+            QueueFrontendError,
+            lower_queue_source,
+        )
+
+        replacements = (
+            ("ac.writer_priority(0)", "ac.writer_priority(-1)"),
+            ("ac.writer_priority(0)", "ac.writer_priority(issue)"),
+            ("ac.writer_priority(0)", "ac.round_robin(0)"),
+            ("ac.writer_priority(0)", "ac.writer_priority(0, 1)"),
+        )
+        for old, new in replacements:
+            with self.subTest(policy=new):
+                with self.assertRaisesRegex(QueueFrontendError, "ACPY-TABLE-011"):
+                    lower_queue_source(
+                        ARBITRATED_TABLE_WRITER_SOURCE.replace(old, new, 1),
+                        "pipeline",
+                    )
+
+        duplicate = ARBITRATED_TABLE_WRITER_SOURCE.replace(
+            "ac.writer_priority(1)", "ac.writer_priority(0)"
+        )
+        with self.assertRaisesRegex(QueueFrontendError, "ranks must be unique"):
+            lower_queue_source(duplicate, "pipeline")
+
+        cross_owner = ARBITRATED_TABLE_WRITER_SOURCE.replace(
+            "    issue = ac.table[4, Entry](init=0)",
+            "    policy = ac.writer_priority(0)\n"
+            "    issue = ac.table[4, Entry](init=0)\n"
+            "    other = ac.table[4, Entry](init=0)\n"
+            "    other.view(0).patch(valid=True, arbitration=policy)\n"
+            "    other_snapshots = other.view(0).read()\n"
+            "    ac.sink(other_snapshots)",
+        ).replace(
+            "issue.view(0).patch(valid=True, arbitration=ac.writer_priority(0))",
+            "issue.view(0).patch(valid=True, arbitration=policy)",
+        )
+        with self.assertRaisesRegex(QueueFrontendError, "cross Table owners"):
+            lower_queue_source(cross_owner, "pipeline")
 
     def test_scalar_allocation_lowers_as_unique_replace_writer(self) -> None:
         from agentic_circuit._queue_frontend import (
@@ -4020,13 +4118,20 @@ def invariant_module(value: Payload) -> Payload:
             lower_queue_source(invalid, "indexed_state")
 
     def test_persistent_list_find_lowers_to_generic_ac_var_selection(self) -> None:
-        from agentic_circuit._queue_frontend import lower_queue_source
+        from agentic_circuit._queue_frontend import (
+            lower_queue_source,
+            parse_queue_program,
+        )
 
         lowered = lower_queue_source(LIST_FIND_RULE_SOURCE, "issue_queue")
+        self.assertEqual(
+            (), parse_queue_program(LIST_FIND_RULE_SOURCE, "issue_queue").diagnostics
+        )
         self.assertIn("ac.var.match @entries predicate", lowered)
         self.assertIn("ac.var.match.yield", lowered)
         self.assertIn('count 1 policy "min"', lowered)
         self.assertIn("ac.var.choose.yield", lowered)
+        self.assertIn('ac.query = "__ac_rule_local_0_selected"', lowered)
         self.assertIn("ac.var.read_element @entries", lowered)
         self.assertIn("ac.var.assign_element @entries", lowered)
         self.assertNotIn("ac.table", lowered)
@@ -4773,6 +4878,9 @@ def nested_allocate(incoming: Entry) -> Entry:
 """
         lowered = lower_queue_source(nested, "nested_allocate")
         self.assertEqual(lowered, lower_queue_source(nested, "nested_allocate"))
+        inferred_source = nested.replace("        nonlocal tail, entries\n", "")
+        inferred = lower_queue_source(inferred_source, "nested_allocate")
+        self.assertEqual(lowered, inferred)
         explicit = lower_queue_source(MULTI_STATE_RULE_SOURCE, "multi_state_allocate")
         for operation in (
             "ac.var.decl @tail",
@@ -4782,6 +4890,7 @@ def nested_allocate(incoming: Entry) -> Entry:
             "ac.rule.output",
         ):
             self.assertEqual(explicit.count(operation), lowered.count(operation))
+            self.assertEqual(lowered.count(operation), inferred.count(operation))
         self.assertEqual(explicit.count("ac.rule "), lowered.count("ac.rule "))
 
         with self.assertRaisesRegex(QueueFrontendError, "unknown capture 'incoming'"):
@@ -4791,11 +4900,17 @@ def nested_allocate(incoming: Entry) -> Entry:
                 ),
                 "nested_allocate",
             )
-        with self.assertRaisesRegex(QueueFrontendError, "requires nonlocal.*tail"):
+        with self.assertRaisesRegex(QueueFrontendError, "must match inferred.*tail"):
             lower_queue_source(
                 nested.replace("nonlocal tail, entries", "nonlocal entries"),
                 "nested_allocate",
             )
+        stale_nonlocal = nested.replace(
+            "    entries: list[Entry] = [0] * 4",
+            "    entries: list[Entry] = [0] * 4\n    spare: ac.u2 = 0",
+        ).replace("nonlocal tail, entries", "nonlocal tail, entries, spare")
+        with self.assertRaisesRegex(QueueFrontendError, "must match inferred.*spare"):
+            lower_queue_source(stale_nonlocal, "nested_allocate")
         with self.assertRaisesRegex(QueueFrontendError, "cannot call or recurse"):
             lower_queue_source(
                 nested.replace(
@@ -4806,7 +4921,7 @@ def nested_allocate(incoming: Entry) -> Entry:
             )
         with self.assertRaisesRegex(QueueFrontendError, "typed module state.*tail"):
             lower_queue_source(
-                nested.replace("tail: ac.u2 = 0", "tail = 0"),
+                inferred_source.replace("tail: ac.u2 = 0", "tail = 0"),
                 "nested_allocate",
             )
         collision = nested.replace(
@@ -4820,7 +4935,7 @@ def nested_allocate(incoming: Entry) -> Entry:
         )
         with self.assertRaisesRegex(QueueFrontendError, "identity collides"):
             lower_queue_source(collision, "nested_allocate")
-        late = nested.replace("    tail: ac.u2 = 0\n", "").replace(
+        late = inferred_source.replace("    tail: ac.u2 = 0\n", "").replace(
             "    allocated = allocate(incoming)",
             "    tail: ac.u2 = 0\n    allocated = allocate(incoming)",
         )
@@ -4832,7 +4947,7 @@ def nested_allocate(incoming: Entry) -> Entry:
         )
         with self.assertRaisesRegex(QueueFrontendError, "direct body statements"):
             lower_queue_source(nested_scope, "nested_allocate")
-        shadowed = nested.replace(
+        shadowed = inferred_source.replace(
             "def allocate(incoming):", "def allocate(tail, incoming):"
         )
         with self.assertRaisesRegex(QueueFrontendError, "cannot shadow parameter 'tail'"):
@@ -4856,7 +4971,6 @@ def accumulator(incoming: ac.u8) -> ac.u8:
 
     @ac.rule
     def add(value):
-        nonlocal total
         total = total + value
         return total
 
@@ -4949,17 +5063,22 @@ def two_accumulators(left: ac.u8, right: ac.u8) -> tuple[ac.u8, ac.u8]:
         self.assertNotIn(".push", lowered)
 
     def test_stateful_rule_defers_nonconstant_index_proof_to_mlir(self) -> None:
-        from agentic_circuit._queue_frontend import lower_queue_source
+        from agentic_circuit._queue_frontend import (
+            QueueFrontendError,
+            lower_queue_source,
+        )
 
         u2_into_five = STATEFUL_RULE_SOURCE.replace(
             "index: ac.u1", "index: ac.u2"
         ).replace("ac.table[2, Entry]", "ac.table[5, Entry]")
         u3_into_five = u2_into_five.replace("index: ac.u2", "index: ac.u3")
 
-        for source, index_type in ((u2_into_five, "i2"), (u3_into_five, "i3")):
-            lowered = lower_queue_source(source, "table_rule")
-            self.assertIn(f"ac.table.get @rob [%v1] : !ac.var<{index_type}>", lowered)
-            self.assertIn("ac.table.propose @rob [%v0] = %item", lowered)
+        with self.assertRaisesRegex(QueueFrontendError, "canonical flattened type i3"):
+            lower_queue_source(u2_into_five, "table_rule")
+
+        lowered = lower_queue_source(u3_into_five, "table_rule")
+        self.assertIn("ac.table.get @rob [%v1] : !ac.var<i3>", lowered)
+        self.assertIn("ac.table.propose @rob [%v0] = %item", lowered)
 
     def test_persistent_var_defers_nonconstant_index_proof_to_mlir(self) -> None:
         from agentic_circuit._queue_frontend import lower_queue_source

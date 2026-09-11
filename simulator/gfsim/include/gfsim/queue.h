@@ -9,6 +9,7 @@
 #include <optional>
 #include <queue>
 #include <set>
+#include <span>
 #include <stdexcept>
 #include <utility>
 #include <vector>
@@ -25,12 +26,13 @@ public:
   SimQueue(std::string name, ObjectId id, SimObject *parent,
            size_t entryCapacity, size_t byteCapacity = SIZE_MAX,
            ObservationSink *observations = nullptr, size_t latency = 1,
-           size_t rate = SIZE_MAX)
+           size_t rate = SIZE_MAX, size_t lanes = 1)
       : SimObject(ObjectKind::Queue, std::move(name), id, parent, observations),
         entryCapacity_(entryCapacity), byteCapacity_(byteCapacity),
-        latency_(latency), rate_(rate == SIZE_MAX ? entryCapacity : rate) {
+        latency_(latency), rate_(rate == SIZE_MAX ? entryCapacity : rate),
+        lanes_(lanes) {
     if (entryCapacity_ == 0 || latency_ == 0 || rate_ == 0 ||
-        rate_ > entryCapacity_)
+        rate_ > entryCapacity_ || lanes_ == 0)
       throw std::invalid_argument(
           "SimQueue capacity, latency, and rate are inconsistent");
   }
@@ -41,6 +43,7 @@ public:
   size_t byteCapacity() const { return byteCapacity_; }
   size_t latency() const { return latency_; }
   size_t rate() const { return rate_; }
+  size_t lanes() const { return lanes_; }
 
   size_t committedSize() const { return committed_.size(); }
   const std::vector<T> &committedValues() const { return committed_; }
@@ -69,6 +72,15 @@ public:
 
   const T *peekProposable() const {
     return canProposePop() ? &committed_[popProposalCount_] : nullptr;
+  }
+
+  bool canPrepareBatch(size_t popCount, size_t pushCount) const {
+    if (preparedPush_ || preparedPop_ || !pushProposals_.empty() ||
+        popProposalCount_ != 0 || popCount > rate_ || pushCount > rate_ ||
+        popCount > lanes_ || pushCount > lanes_ ||
+        popCount > committed_.size())
+      return false;
+    return canProposePushWithAdditionalPops(pushCount, popCount);
   }
 
 private:
@@ -106,57 +118,97 @@ public:
 
   /// Reserve one push endpoint without changing architectural Queue state.
   bool preparePush(CommitGroupId group) {
-    if (group == kInvalidCommitGroupId || preparedPush_ || preparedPop_ ||
-        !pushProposals_.empty() || popProposalCount_ != 0 ||
-        !canProposePushWithAdditionalPops(1, 0))
+    if (group == kInvalidCommitGroupId || !canPrepareBatch(0, 1))
       return false;
-    preparedPush_ = group;
+    preparedPush_ = PreparedPush{group, 1};
     return true;
   }
 
   /// Reserve the next FIFO token without proposing its removal.
   bool preparePop(CommitGroupId group) {
-    if (group == kInvalidCommitGroupId || preparedPop_ || preparedPush_ ||
-        !pushProposals_.empty() || popProposalCount_ != 0 ||
-        committed_.empty() || rate_ == 0)
+    if (group == kInvalidCommitGroupId || !canPrepareBatch(1, 0))
       return false;
-    preparedPop_ = PreparedPop{group, committed_.front()};
+    preparedPop_ = PreparedPop{group, {committed_.front()}};
+    return true;
+  }
+
+  bool prepareBatch(CommitGroupId group, size_t popCount, size_t pushCount) {
+    if (group == kInvalidCommitGroupId ||
+        (popCount == 0 && pushCount == 0) ||
+        !canPrepareBatch(popCount, pushCount))
+      return false;
+    if (popCount != 0)
+      preparedPop_ = PreparedPop{
+          group, std::vector<T>(committed_.begin(),
+                                committed_.begin() + popCount)};
+    if (pushCount != 0)
+      preparedPush_ = PreparedPush{group, pushCount};
     return true;
   }
 
   const T *preparedPopValue(CommitGroupId group) const {
-    return preparedPop_ && preparedPop_->group == group ? &preparedPop_->value
-                                                        : nullptr;
+    return preparedPop_ && preparedPop_->group == group &&
+                   !preparedPop_->values.empty()
+               ? &preparedPop_->values.front()
+               : nullptr;
+  }
+
+  std::span<const T> preparedPopValues(CommitGroupId group) const {
+    return preparedPop_ && preparedPop_->group == group
+               ? std::span<const T>(preparedPop_->values)
+               : std::span<const T>();
   }
 
   /// Convert a successful reservation into a proposal. This cannot fail when
   /// called with the same group before the Xfer barrier.
   bool publishPush(CommitGroupId group, T element) {
-    if (!preparedPush_ || *preparedPush_ != group)
+    if (!preparedPush_ || preparedPush_->group != group ||
+        preparedPush_->count != 1)
       return false;
     preparedPush_.reset();
     pushProposals_.push_back(std::move(element));
     return true;
   }
 
+  bool publishPushBatch(CommitGroupId group, std::vector<T> elements) {
+    if (!preparedPush_ || preparedPush_->group != group ||
+        preparedPush_->count != elements.size())
+      return false;
+    preparedPush_.reset();
+    for (T &element : elements)
+      pushProposals_.push_back(std::move(element));
+    return true;
+  }
+
   std::optional<T> publishPop(CommitGroupId group) {
     if (!preparedPop_ || preparedPop_->group != group)
       return std::nullopt;
-    T value = preparedPop_->value;
+    if (preparedPop_->values.size() != 1)
+      return std::nullopt;
+    T value = preparedPop_->values.front();
     preparedPop_.reset();
     ++popProposalCount_;
     return value;
   }
 
+  std::optional<std::vector<T>> publishPopBatch(CommitGroupId group) {
+    if (!preparedPop_ || preparedPop_->group != group)
+      return std::nullopt;
+    std::vector<T> values = std::move(preparedPop_->values);
+    preparedPop_.reset();
+    popProposalCount_ += values.size();
+    return values;
+  }
+
   void cancelPrepared(CommitGroupId group) {
-    if (preparedPush_ && *preparedPush_ == group)
+    if (preparedPush_ && preparedPush_->group == group)
       preparedPush_.reset();
     if (preparedPop_ && preparedPop_->group == group)
       preparedPop_.reset();
   }
 
   bool hasPrepared(CommitGroupId group) const {
-    return (preparedPush_ && *preparedPush_ == group) ||
+    return (preparedPush_ && preparedPush_->group == group) ||
            (preparedPop_ && preparedPop_->group == group);
   }
 
@@ -292,14 +344,19 @@ private:
   size_t byteCapacity_;
   size_t latency_;
   size_t rate_;
+  size_t lanes_;
   std::vector<T> committed_;
   std::vector<std::pair<uint64_t, T>> delayed_;
   std::vector<T> pushProposals_;
   struct PreparedPop {
     CommitGroupId group = kInvalidCommitGroupId;
-    T value;
+    std::vector<T> values;
   };
-  std::optional<CommitGroupId> preparedPush_;
+  struct PreparedPush {
+    CommitGroupId group = kInvalidCommitGroupId;
+    size_t count = 0;
+  };
+  std::optional<PreparedPush> preparedPush_;
   std::optional<PreparedPop> preparedPop_;
   size_t popProposalCount_ = 0;
   size_t highWatermark_ = 0;

@@ -17,6 +17,7 @@
 #include <map>
 #include <optional>
 #include <span>
+#include <stdexcept>
 #include <tuple>
 #include <utility>
 #include <vector>
@@ -66,6 +67,66 @@ private:
   SimQueue<Output> &output_;
   [[no_unique_address]] Policy policy_;
   size_t fired_ = 0;
+};
+
+template <typename Input, typename Output, typename Policy>
+  requires std::invocable<const Policy &, const Input &> &&
+           std::convertible_to<
+               std::invoke_result_t<const Policy &, const Input &>, Output>
+class QueueLaneTransform final : public SimObject {
+public:
+  QueueLaneTransform(std::string name, ObjectId id, SimObject *parent,
+                     SimQueue<Input> &input, SimQueue<Output> &output,
+                     Policy policy = {}, ObservationSink *observations = nullptr)
+      : SimObject(ObjectKind::Compute, std::move(name), id, parent,
+                  observations),
+        input_(input), output_(output), policy_(std::move(policy)) {}
+
+  void doWork(Epoch) override {
+    if (fired_)
+      return;
+    const size_t count = prefixSize();
+    if (count == 0 || !input_.prepareBatch(id(), count, 0) ||
+        !output_.prepareBatch(id(), 0, count)) {
+      input_.cancelPrepared(id());
+      output_.cancelPrepared(id());
+      return;
+    }
+    std::vector<Output> results;
+    results.reserve(count);
+    for (const Input &value : input_.preparedPopValues(id()))
+      results.push_back(std::invoke(std::as_const(policy_), value));
+    if (!output_.publishPushBatch(id(), std::move(results)) ||
+        !input_.publishPopBatch(id())) {
+      setRuntimeFailureCode("queue_lane_publish_failed");
+      input_.cancelPrepared(id());
+      output_.cancelPrepared(id());
+      return;
+    }
+    fired_ = true;
+  }
+  void doXfer(Epoch) override { fired_ = false; }
+  bool hasPendingCommit() const override { return fired_; }
+  bool isRunnable(Epoch) const override {
+    const size_t count = prefixSize();
+    return !fired_ && count != 0 && output_.canPrepareBatch(0, count);
+  }
+  void reset() override {
+    input_.cancelPrepared(id());
+    output_.cancelPrepared(id());
+    fired_ = false;
+    clearRuntimeFailureCode();
+  }
+
+private:
+  size_t prefixSize() const {
+    return std::min({input_.committedSize(), input_.lanes(), input_.rate(),
+                     output_.lanes(), output_.rate()});
+  }
+  SimQueue<Input> &input_;
+  SimQueue<Output> &output_;
+  [[no_unique_address]] Policy policy_;
+  bool fired_ = false;
 };
 
 template <typename Input, typename Output, size_t Rate, typename Policy>
@@ -657,8 +718,7 @@ private:
     const uint64_t predecessor = static_cast<uint64_t>(rawDependency);
     const uint64_t resource = static_cast<uint64_t>(rawResource);
     const uint64_t cost = static_cast<uint64_t>(rawCost);
-    if ((!seenKeys_.empty() &&
-         (key >= seenKeys_.size() || seenKeys_[key])) ||
+    if ((!seenKeys_.empty() && (key >= seenKeys_.size() || seenKeys_[key])) ||
         entries_.contains(key)) {
       setRuntimeFailureCode("dependency_duplicate_key");
       return false;
@@ -700,8 +760,7 @@ private:
 template <typename T, size_t Entries, size_t Resources, uint64_t NoDependency,
           typename Key, typename Dependency, typename Resource, typename Cost>
   requires(Entries > 0) && (Resources > 0) && (NoDependency > 0) &&
-          (NoDependency <= 65535) &&
-          std::invocable<const Key &, const T &> &&
+          (NoDependency <= 65535) && std::invocable<const Key &, const T &> &&
           IntegralLike<std::invoke_result_t<const Key &, const T &>> &&
           std::invocable<const Dependency &, const T &> &&
           IntegralLike<std::invoke_result_t<const Dependency &, const T &>> &&
@@ -722,8 +781,8 @@ public:
       : QueueDependency<T, Key, Dependency, Resource, Cost>(
             std::move(name), id, parent, input, output, Entries, Resources,
             NoDependency, static_cast<size_t>(NoDependency), std::move(key),
-            std::move(dependency),
-            std::move(resource), std::move(cost), observations) {}
+            std::move(dependency), std::move(resource), std::move(cost),
+            observations) {}
 };
 
 template <typename T, typename Cost>
@@ -1001,9 +1060,8 @@ struct StateReservation {
     return result;
   }
 
-  static constexpr StateReservation forFieldsAt(size_t entry,
-                                                uint64_t fieldMask,
-                                                uint8_t fieldsPerEntry) {
+  static constexpr StateReservation
+  forFieldsAt(size_t entry, uint64_t fieldMask, uint8_t fieldsPerEntry) {
     StateReservation result;
     if (fieldsPerEntry == 0 || fieldsPerEntry > 64)
       return result;
@@ -1070,15 +1128,15 @@ struct StateReservation {
   }
 
   constexpr bool within(size_t entries) const {
-    if (entries == 0 || fieldCount > 64 ||
-        sparseWholeCount > sparseCapacity || sparseFieldCount > sparseCapacity)
+    if (entries == 0 || fieldCount > 64 || sparseWholeCount > sparseCapacity ||
+        sparseFieldCount > sparseCapacity)
       return false;
     if (entries < 64 && (wholeEntries >> entries) != 0)
       return false;
-    const uint64_t validFieldMask =
-        fieldCount == 64
-            ? ~uint64_t{0}
-            : fieldCount == 0 ? 0 : (uint64_t{1} << fieldCount) - 1;
+    const uint64_t validFieldMask = fieldCount == 64 ? ~uint64_t{0}
+                                    : fieldCount == 0
+                                        ? 0
+                                        : (uint64_t{1} << fieldCount) - 1;
     if ((allFieldEntries &&
          (fieldCount == 0 || (allFieldMask & ~validFieldMask) != 0)) ||
         (!allFieldEntries && allFieldMask != 0) ||
@@ -1233,6 +1291,69 @@ struct TableSelectionResult {
 
 template <typename Entry> class SimTable;
 
+/// Maps a row-major local mask domain onto canonical flattened Table indices.
+/// The compiler supplies one extent and one global stride per unfixed axis.
+class TableDomainProjection {
+public:
+  explicit TableDomainProjection(size_t tableEntries = 0)
+      : tableEntries_(tableEntries), domainEntries_(tableEntries) {}
+
+  TableDomainProjection(size_t tableEntries, std::span<const size_t> shape,
+                        std::span<const size_t> strides, size_t offset)
+      : tableEntries_(tableEntries), offset_(offset), shape_(shape.begin(),
+                                                            shape.end()),
+        strides_(strides.begin(), strides.end()) {
+    if (tableEntries_ == 0 || shape_.size() != strides_.size())
+      throw std::invalid_argument("table projection metadata is malformed");
+    if (shape_.empty()) {
+      domainEntries_ = 1;
+      if (offset_ >= tableEntries_)
+        throw std::invalid_argument("table projection exceeds Table bounds");
+      return;
+    }
+    domainEntries_ = 1;
+    for (size_t extent : shape_) {
+      if (extent == 0 || domainEntries_ >
+                             std::numeric_limits<size_t>::max() / extent)
+        throw std::invalid_argument("table projection domain overflows");
+      domainEntries_ *= extent;
+    }
+    for (size_t local = 0; local < domainEntries_; ++local)
+      if (!globalIndex(local))
+        throw std::invalid_argument("table projection exceeds Table bounds");
+  }
+
+  size_t size() const { return domainEntries_; }
+
+  std::optional<size_t> globalIndex(size_t localIndex) const {
+    if (localIndex >= domainEntries_)
+      return std::nullopt;
+    if (shape_.empty())
+      return offset_ + localIndex < tableEntries_
+                 ? std::optional<size_t>(offset_ + localIndex)
+                 : std::nullopt;
+    size_t global = offset_;
+    for (size_t axis = shape_.size(); axis-- != 0;) {
+      const size_t coordinate = localIndex % shape_[axis];
+      localIndex /= shape_[axis];
+      if (coordinate != 0 &&
+          strides_[axis] >
+              (std::numeric_limits<size_t>::max() - global) / coordinate)
+        return std::nullopt;
+      global += coordinate * strides_[axis];
+    }
+    return global < tableEntries_ ? std::optional<size_t>(global)
+                                  : std::nullopt;
+  }
+
+private:
+  size_t tableEntries_ = 0;
+  size_t domainEntries_ = 0;
+  size_t offset_ = 0;
+  std::vector<size_t> shape_;
+  std::vector<size_t> strides_;
+};
+
 class CandidateSet {
 public:
   explicit CandidateSet(size_t entries = 0)
@@ -1265,19 +1386,38 @@ private:
   std::vector<uint64_t> words_;
 };
 
+template <typename Mask>
+bool tableMaskTest(const Mask &mask, size_t index) {
+  if constexpr (requires { mask.test(index); })
+    return mask.test(index);
+  else
+    return index < 64 &&
+           (static_cast<uint64_t>(mask) & (uint64_t{1} << index)) != 0;
+}
+
 template <typename Entry, typename Predicate> class TableMatchCache {
 public:
   TableMatchCache(SimTable<Entry> &table, Predicate predicate = {})
-      : table_(table), predicate_(std::move(predicate)), mask_(table.size()) {}
+      : TableMatchCache(table, TableDomainProjection(table.size()),
+                        std::move(predicate)) {}
+
+  TableMatchCache(SimTable<Entry> &table, TableDomainProjection projection,
+                  Predicate predicate = {})
+      : table_(table), projection_(std::move(projection)),
+        predicate_(std::move(predicate)), mask_(projection_.size()) {}
 
   const CandidateSet &get(Epoch epoch) const {
     if (epoch_ && *epoch_ == epoch)
       return mask_;
     mask_.clear();
-    for (size_t index = 0; index < table_.size(); ++index)
+    for (size_t index = 0; index < projection_.size(); ++index) {
+      const std::optional<size_t> global = projection_.globalIndex(index);
+      if (!global)
+        continue;
       if (static_cast<bool>(
-              std::invoke(std::as_const(predicate_), table_.at(index))))
+              std::invoke(std::as_const(predicate_), table_.at(*global))))
         mask_.set(index);
+    }
     epoch_ = epoch;
     return mask_;
   }
@@ -1289,44 +1429,178 @@ public:
 
 private:
   SimTable<Entry> &table_;
+  TableDomainProjection projection_;
   [[no_unique_address]] Predicate predicate_;
   mutable std::optional<Epoch> epoch_;
   mutable CandidateSet mask_;
 };
 
-enum class TableChoosePolicy : uint8_t { First, Min, Max };
+enum class TableChoosePolicy : uint8_t { First, Min, Max, RoundRobin };
+enum class TableKeyOrdering : uint8_t { Unsigned, Signed };
+
+template <size_t Count> struct TableSelectionBatchResult {
+  std::array<size_t, Count> indices{};
+  std::array<bool, Count> valid{};
+};
+
+template <typename Entry, typename Mask, typename Key, size_t Count>
+  requires(Count > 0)
+class TableMultiSelectionCache {
+public:
+  using Result = TableSelectionBatchResult<Count>;
+
+  TableMultiSelectionCache(
+      SimTable<Entry> &table, TableDomainProjection projection, Mask mask,
+      Key key, TableChoosePolicy policy,
+      TableKeyOrdering ordering = TableKeyOrdering::Unsigned,
+      size_t initialCursor = 0)
+      : table_(table), projection_(std::move(projection)),
+        mask_(std::move(mask)), key_(std::move(key)), policy_(policy),
+        ordering_(ordering), initialCursor_(initialCursor),
+        cursor_(initialCursor) {
+    if (projection_.size() == 0 || initialCursor_ >= projection_.size())
+      throw std::invalid_argument("Table selection cursor is out of range");
+  }
+
+  const Result &get(Epoch epoch) const {
+    if (epoch_ && *epoch_ == epoch)
+      return result_;
+    result_ = {};
+    localIndices_.fill(0);
+    decltype(auto) mask = std::invoke(mask_, epoch);
+    std::vector<size_t> candidates;
+    for (size_t local = 0; local < projection_.size(); ++local)
+      if (tableMaskTest(mask, local))
+        candidates.push_back(local);
+    if (policy_ == TableChoosePolicy::First) {
+      // Candidate iteration is already canonical low-index order.
+    } else if (policy_ == TableChoosePolicy::Min ||
+               policy_ == TableChoosePolicy::Max) {
+      std::vector<int64_t> signedKeys(projection_.size());
+      std::vector<uint64_t> unsignedKeys(projection_.size());
+      for (size_t local : candidates) {
+        const size_t global = *projection_.globalIndex(local);
+        const auto key = std::invoke(std::as_const(key_), table_.at(global));
+        if (ordering_ == TableKeyOrdering::Signed)
+          signedKeys[local] = gfsim::signedValue(key);
+        else
+          unsignedKeys[local] = static_cast<uint64_t>(key);
+      }
+      auto compare = [&](size_t left, size_t right) {
+        const size_t leftGlobal = *projection_.globalIndex(left);
+        const size_t rightGlobal = *projection_.globalIndex(right);
+        bool ordered = false;
+        bool equal = false;
+        if (ordering_ == TableKeyOrdering::Signed) {
+          const int64_t lhs = signedKeys[left];
+          const int64_t rhs = signedKeys[right];
+          ordered = policy_ == TableChoosePolicy::Min ? lhs < rhs : lhs > rhs;
+          equal = lhs == rhs;
+        } else {
+          const uint64_t lhs = unsignedKeys[left];
+          const uint64_t rhs = unsignedKeys[right];
+          ordered = policy_ == TableChoosePolicy::Min ? lhs < rhs : lhs > rhs;
+          equal = lhs == rhs;
+        }
+        return ordered || (equal && leftGlobal < rightGlobal);
+      };
+      std::stable_sort(candidates.begin(), candidates.end(), compare);
+    } else {
+      std::stable_sort(candidates.begin(), candidates.end(), [&](size_t left,
+                                                                 size_t right) {
+        const size_t leftDistance =
+            (left + projection_.size() - cursor_) % projection_.size();
+        const size_t rightDistance =
+            (right + projection_.size() - cursor_) % projection_.size();
+        return leftDistance < rightDistance;
+      });
+    }
+    const size_t selected = std::min<size_t>(Count, candidates.size());
+    for (size_t lane = 0; lane < selected; ++lane) {
+      localIndices_[lane] = candidates[lane];
+      result_.indices[lane] = *projection_.globalIndex(candidates[lane]);
+      result_.valid[lane] = true;
+    }
+    epoch_ = epoch;
+    return result_;
+  }
+
+  void accept(Epoch epoch) {
+    if (policy_ != TableChoosePolicy::RoundRobin || !epoch_ || *epoch_ != epoch)
+      return;
+    if (acceptedEpoch_ && *acceptedEpoch_ == epoch)
+      return;
+    size_t selected = 0;
+    while (selected < Count && result_.valid[selected])
+      ++selected;
+    if (selected != 0) {
+      cursor_ = (localIndices_[selected - 1] + 1) % projection_.size();
+      acceptedEpoch_ = epoch;
+    }
+  }
+
+  size_t cursor() const { return cursor_; }
+  void reset() {
+    epoch_.reset();
+    acceptedEpoch_.reset();
+    result_ = {};
+    localIndices_.fill(0);
+    cursor_ = initialCursor_;
+  }
+
+private:
+  SimTable<Entry> &table_;
+  TableDomainProjection projection_;
+  [[no_unique_address]] Mask mask_;
+  [[no_unique_address]] Key key_;
+  TableChoosePolicy policy_;
+  TableKeyOrdering ordering_;
+  size_t initialCursor_ = 0;
+  size_t cursor_ = 0;
+  mutable std::optional<Epoch> epoch_;
+  std::optional<Epoch> acceptedEpoch_;
+  mutable Result result_;
+  mutable std::array<size_t, Count> localIndices_{};
+};
 
 template <typename Entry, typename Mask, typename Key>
 class TableSelectionCache {
 public:
   TableSelectionCache(SimTable<Entry> &table, Mask mask, Key key = {},
                       TableChoosePolicy policy = TableChoosePolicy::First)
-      : table_(table), mask_(std::move(mask)), key_(std::move(key)),
-        policy_(policy) {}
+      : TableSelectionCache(table, TableDomainProjection(table.size()),
+                            std::move(mask), std::move(key), policy) {}
+
+  TableSelectionCache(SimTable<Entry> &table,
+                      TableDomainProjection projection, Mask mask, Key key = {},
+                      TableChoosePolicy policy = TableChoosePolicy::First)
+      : table_(table), projection_(std::move(projection)),
+        mask_(std::move(mask)), key_(std::move(key)), policy_(policy) {}
 
   TableSelectionResult get(Epoch epoch) const {
     if (epoch_ && *epoch_ == epoch)
       return result_;
     result_ = {};
     decltype(auto) mask = std::invoke(mask_, epoch);
-    if (policy_ == TableChoosePolicy::First && table_.size() <= 64) {
+    if (policy_ == TableChoosePolicy::First && projection_.size() <= 64) {
       std::optional<size_t> first;
-      if constexpr (requires { mask.firstSet(table_.size()); }) {
-        first = mask.firstSet(table_.size());
-      } else if constexpr (!requires { mask.test(size_t{}); } &&
-                           requires { static_cast<uint64_t>(mask); }) {
+      if constexpr (requires { mask.firstSet(projection_.size()); }) {
+        first = mask.firstSet(projection_.size());
+      } else if constexpr (
+          !requires { mask.test(size_t{}); } &&
+          requires { static_cast<uint64_t>(mask); }) {
         uint64_t word = static_cast<uint64_t>(mask);
-        if (table_.size() < 64)
-          word &= (uint64_t{1} << table_.size()) - 1;
+        if (projection_.size() < 64)
+          word &= (uint64_t{1} << projection_.size()) - 1;
         if (word != 0)
           first = static_cast<size_t>(std::countr_zero(word));
       }
       if (first) {
-        result_ = {*first, true};
+        result_ = {*projection_.globalIndex(*first), true};
         epoch_ = epoch;
         return result_;
       }
-      if constexpr (requires { mask.firstSet(table_.size()); } ||
+      if constexpr (requires { mask.firstSet(projection_.size()); } ||
                     (!requires { mask.test(size_t{}); } &&
                      requires { static_cast<uint64_t>(mask); })) {
         epoch_ = epoch;
@@ -1334,24 +1608,22 @@ public:
       }
     }
     uint64_t best = 0;
-    for (size_t index = 0; index < table_.size(); ++index) {
-      const bool selected = [&] {
-        if constexpr (requires { mask.test(index); })
-          return mask.test(index);
-        else
-          return (static_cast<uint64_t>(mask) & (uint64_t{1} << index)) != 0;
-      }();
+    for (size_t index = 0; index < projection_.size(); ++index) {
+      const bool selected = tableMaskTest(mask, index);
       if (!selected)
         continue;
+      const std::optional<size_t> global = projection_.globalIndex(index);
+      if (!global)
+        continue;
       if (policy_ == TableChoosePolicy::First) {
-        result_ = {index, true};
+        result_ = {*global, true};
         break;
       }
       const uint64_t key = static_cast<uint64_t>(
-          std::invoke(std::as_const(key_), table_.at(index)));
+          std::invoke(std::as_const(key_), table_.at(*global)));
       if (!result_.valid ||
           (policy_ == TableChoosePolicy::Min ? key < best : key > best)) {
-        result_ = {index, true};
+        result_ = {*global, true};
         best = key;
       }
     }
@@ -1366,6 +1638,7 @@ public:
 
 private:
   SimTable<Entry> &table_;
+  TableDomainProjection projection_;
   [[no_unique_address]] Mask mask_;
   [[no_unique_address]] Key key_;
   TableChoosePolicy policy_;
@@ -1373,9 +1646,9 @@ private:
   mutable TableSelectionResult result_;
 };
 
-/// A one-dimensional committed-state table. Reads observe only committed
-/// state. Writer-specific field proposals are merged from the same committed
-/// snapshot and published together during the tick transfer phase.
+/// A canonical flattened row-major committed-state Table. Reads observe only
+/// committed state. Writer-specific field proposals are merged from the same
+/// committed snapshot and published together during the tick transfer phase.
 template <typename Entry> class SimTable final : public SimObject {
 public:
   static constexpr std::string_view contractName = "ac.table";
@@ -1384,9 +1657,18 @@ public:
   SimTable(std::string name, ObjectId id, SimObject *parent, size_t entries,
            ObservationSink *observations = nullptr)
       : SimObject(componentKind, std::move(name), id, parent, observations),
-        committed_(entries) {
+        initial_(entries), committed_(initial_) {
     if (entries == 0)
       throw std::invalid_argument("table entries must be positive");
+  }
+
+  SimTable(std::string name, ObjectId id, SimObject *parent,
+           std::vector<Entry> initial,
+           ObservationSink *observations = nullptr)
+      : SimObject(componentKind, std::move(name), id, parent, observations),
+        initial_(std::move(initial)), committed_(initial_) {
+    if (initial_.empty())
+      throw std::invalid_argument("table initial image must not be empty");
   }
 
   size_t size() const { return committed_.size(); }
@@ -1440,27 +1722,42 @@ public:
     return prepareTransaction(group, writerId, 0, indices, fields, mode);
   }
 
-  bool prepareTransaction(CommitGroupId group, ObjectId writerId,
-                          StateReservation snapshot,
-                          std::span<const size_t> writeIndices,
-                          std::span<const size_t> writeFields,
-                          TableWriteMode mode = TableWriteMode::FieldMerge) {
+  bool canPrepareTransaction(CommitGroupId group, ObjectId writerId,
+                             StateReservation snapshot,
+                             std::span<const size_t> writeIndices,
+                             std::span<const size_t> writeFields,
+                             TableWriteMode mode = TableWriteMode::FieldMerge,
+                             bool exclusiveEndpoint = false) const {
     if (group == kInvalidCommitGroupId || prepared_.contains(group) ||
-        writerHasProposal(writerId))
-      return false;
-    if (!snapshot.within(size()))
+        writerHasProposal(writerId) || !snapshot.within(size()))
       return false;
     std::optional<WriteFootprint> write;
     if (!writeIndices.empty()) {
       write = makeFootprint(writeIndices, writeFields, mode);
       if (!write)
         return false;
+      write->exclusiveEndpoint = exclusiveEndpoint;
     }
-    if (snapshotConflictsWithPending(snapshot) ||
-        snapshotConflictsWithPrepared(snapshot) ||
-        (write &&
-         (conflictsWithPending(*write) || conflictsWithPrepared(*write))))
+    return !snapshotConflictsWithPending(snapshot) &&
+           !snapshotConflictsWithPrepared(snapshot) &&
+           (!write ||
+            (!conflictsWithPending(*write) && !conflictsWithPrepared(*write)));
+  }
+
+  bool prepareTransaction(CommitGroupId group, ObjectId writerId,
+                          StateReservation snapshot,
+                          std::span<const size_t> writeIndices,
+                          std::span<const size_t> writeFields,
+                          TableWriteMode mode = TableWriteMode::FieldMerge,
+                          bool exclusiveEndpoint = false) {
+    if (!canPrepareTransaction(group, writerId, snapshot, writeIndices,
+                               writeFields, mode, exclusiveEndpoint))
       return false;
+    std::optional<WriteFootprint> write;
+    if (!writeIndices.empty()) {
+      write = makeFootprint(writeIndices, writeFields, mode);
+      write->exclusiveEndpoint = exclusiveEndpoint;
+    }
     PreparedProposal proposal;
     proposal.writerId = writerId;
     proposal.snapshot = snapshot;
@@ -1524,6 +1821,7 @@ public:
   bool initializeEntry(size_t index, Entry value) {
     if (!pending_.empty() || !prepared_.empty() || index >= committed_.size())
       return false;
+    initial_[index] = value;
     committed_[index] = std::move(value);
     return true;
   }
@@ -1601,7 +1899,7 @@ public:
   }
   bool lastCommitChanged() const override { return lastCommitChanged_; }
   void reset() override {
-    std::fill(committed_.begin(), committed_.end(), Entry{});
+    committed_ = initial_;
     pending_.clear();
     prepared_.clear();
     lastCommitChanged_ = false;
@@ -1613,8 +1911,10 @@ private:
     std::vector<size_t> indices;
     std::vector<size_t> fields;
     TableWriteMode mode = TableWriteMode::FieldMerge;
+    bool exclusiveEndpoint = false;
   };
 
+  std::vector<Entry> initial_;
   std::vector<Entry> committed_;
   Entry zeroEntry_{};
   struct PendingProposal {
@@ -1940,7 +2240,7 @@ public:
     candidate_ = std::move(*plan);
   }
 
-  void doArbitrate(Epoch) override {
+  void doArbitrate(Epoch epoch) override {
     if (fired_ || !candidate_)
       return;
     Plan plan = std::move(*candidate_);
@@ -1961,8 +2261,9 @@ public:
     }
     const bool hasTableReservation =
         !plan.reservations.empty() || !writeIndices.empty();
-    if (!selectedOutputsReady(plan, std::index_sequence_for<Outputs...>{}) ||
-        !prepareOutputs(group, plan, std::index_sequence_for<Outputs...>{}) ||
+    if (!preflightResources(group, plan, writeIndices, hasTableReservation))
+      return;
+    if (!prepareOutputs(group, plan, std::index_sequence_for<Outputs...>{}) ||
         !prepareInputs(group, std::index_sequence_for<Inputs...>{}) ||
         (hasTableReservation &&
          !table_.prepareTransaction(group, id(), plan.reservations,
@@ -1982,6 +2283,8 @@ public:
     }
     proposed_ = true;
     fired_ = true;
+    if constexpr (requires(Policy &policy) { policy.accepted(epoch); })
+      policy_.accepted(epoch);
   }
 
   void doXfer(Epoch) override {
@@ -2016,6 +2319,59 @@ private:
   std::tuple<Inputs...> peekInputValues(std::index_sequence<Indices...>) const {
     return std::tuple<Inputs...>{
         *std::get<Indices>(inputs_)->peekProposable()...};
+  }
+
+  static bool addResource(std::vector<const SimObject *> &resources,
+                          const SimObject *resource) {
+    if (resource == nullptr ||
+        std::ranges::find(resources, resource) != resources.end())
+      return false;
+    resources.push_back(resource);
+    return true;
+  }
+
+  template <size_t... Indices>
+  bool preflightInputs(std::vector<const SimObject *> &resources,
+                       std::index_sequence<Indices...>) const {
+    bool ready = true;
+    auto check = [&](const auto *queue) {
+      ready = ready && queue != nullptr && queue->canProposePop() &&
+              addResource(resources, queue);
+    };
+    (check(std::get<Indices>(inputs_)), ...);
+    return ready;
+  }
+
+  template <size_t... Indices>
+  bool preflightOutputs(const Plan &plan,
+                        std::vector<const SimObject *> &resources,
+                        std::index_sequence<Indices...>) const {
+    bool ready = true;
+    auto check = [&]<size_t Index>() {
+      if (!std::get<Index>(plan.outputs))
+        return;
+      const auto *queue = std::get<Index>(outputs_);
+      ready = ready && queue != nullptr && queue->canProposePush() &&
+              addResource(resources, queue);
+    };
+    (check.template operator()<Indices>(), ...);
+    return ready;
+  }
+
+  bool preflightResources(CommitGroupId group, const Plan &plan,
+                          std::span<const size_t> writeIndices,
+                          bool hasTableReservation) const {
+    std::vector<const SimObject *> resources;
+    resources.reserve(sizeof...(Inputs) + sizeof...(Outputs) + 1);
+    if (!preflightInputs(resources, std::index_sequence_for<Inputs...>{}) ||
+        !preflightOutputs(plan, resources,
+                          std::index_sequence_for<Outputs...>{}))
+      return false;
+    if (!hasTableReservation)
+      return true;
+    return addResource(resources, &table_) &&
+           table_.canPrepareTransaction(group, id(), plan.reservations,
+                                        writeIndices, Merge::fields, mode_);
   }
 
   template <size_t... Indices>
@@ -2079,8 +2435,9 @@ private:
     }
     if (plan.writes.size() == 1)
       return table_.publishPreparedSingleWrite(
-          group, std::optional<typename OwnerWriteBatch<Entry>::Value>{
-                     std::move(plan.writes.front())},
+          group,
+          std::optional<typename OwnerWriteBatch<Entry>::Value>{
+              std::move(plan.writes.front())},
           merge_);
     return table_.publishPreparedWrite(
         group, std::move(plan.writes).intoVector(), merge_);
@@ -2178,14 +2535,15 @@ public:
     candidate_ = std::move(*plan);
   }
 
-  void doArbitrate(Epoch) override {
+  void doArbitrate(Epoch epoch) override {
     if (fired_ || !candidate_)
       return;
     Plan plan = std::move(*candidate_);
     candidate_.reset();
     const CommitGroupId group = id();
-    if (!selectedOutputsReady(plan, std::index_sequence_for<Outputs...>{}) ||
-        !prepareOutputs(group, plan, std::index_sequence_for<Outputs...>{}) ||
+    if (!preflightResources(group, plan))
+      return;
+    if (!prepareOutputs(group, plan, std::index_sequence_for<Outputs...>{}) ||
         !prepareInputs(group, std::index_sequence_for<Inputs...>{}) ||
         !prepareTables(group, plan, std::index_sequence_for<Entries...>{})) {
       cancelPrepared(group);
@@ -2203,6 +2561,8 @@ public:
       return;
     }
     fired_ = true;
+    if constexpr (requires(Policy &policy) { policy.accepted(epoch); })
+      policy_.accepted(epoch);
   }
 
   void doXfer(Epoch) override {
@@ -2241,6 +2601,79 @@ private:
   auto constTableViews(std::index_sequence<Indices...>) const {
     return std::tuple<const SimTable<Entries> *...>{
         std::get<Indices>(tables_)...};
+  }
+
+  static bool addResource(std::vector<const SimObject *> &resources,
+                          const SimObject *resource) {
+    if (resource == nullptr ||
+        std::ranges::find(resources, resource) != resources.end())
+      return false;
+    resources.push_back(resource);
+    return true;
+  }
+
+  template <size_t... Indices>
+  bool preflightInputs(std::vector<const SimObject *> &resources,
+                       std::index_sequence<Indices...>) const {
+    bool ready = true;
+    auto check = [&](const auto *queue) {
+      ready = ready && queue != nullptr && queue->canProposePop() &&
+              addResource(resources, queue);
+    };
+    (check(std::get<Indices>(inputs_)), ...);
+    return ready;
+  }
+
+  template <size_t... Indices>
+  bool preflightOutputs(const Plan &plan,
+                        std::vector<const SimObject *> &resources,
+                        std::index_sequence<Indices...>) const {
+    bool ready = true;
+    auto check = [&]<size_t Index>() {
+      if (!std::get<Index>(plan.outputs))
+        return;
+      const auto *queue = std::get<Index>(outputs_);
+      ready = ready && queue != nullptr && queue->canProposePush() &&
+              addResource(resources, queue);
+    };
+    (check.template operator()<Indices>(), ...);
+    return ready;
+  }
+
+  template <size_t Index>
+  bool preflightTable(CommitGroupId group, const Plan &plan,
+                      std::vector<const SimObject *> &resources) const {
+    const auto &writes = std::get<Index>(plan.writes);
+    const StateReservation &reservation = std::get<Index>(plan.reservations);
+    if (writes.empty() && reservation.empty())
+      return true;
+    const auto *table = std::get<Index>(tables_);
+    if (!addResource(resources, table))
+      return false;
+    using Merge = std::tuple_element_t<Index, std::tuple<Merges...>>;
+    std::vector<size_t> indices;
+    indices.reserve(writes.size());
+    writes.forEach([&](const auto &write) { indices.push_back(write.first); });
+    return table->canPrepareTransaction(group, id(), reservation, indices,
+                                        Merge::fields, modes_[Index]);
+  }
+
+  template <size_t... Indices>
+  bool preflightTables(CommitGroupId group, const Plan &plan,
+                       std::vector<const SimObject *> &resources,
+                       std::index_sequence<Indices...>) const {
+    return (preflightTable<Indices>(group, plan, resources) && ...);
+  }
+
+  bool preflightResources(CommitGroupId group, const Plan &plan) const {
+    std::vector<const SimObject *> resources;
+    resources.reserve(sizeof...(Inputs) + sizeof...(Outputs) +
+                      sizeof...(Entries));
+    return preflightInputs(resources, std::index_sequence_for<Inputs...>{}) &&
+           preflightOutputs(plan, resources,
+                            std::index_sequence_for<Outputs...>{}) &&
+           preflightTables(group, plan, resources,
+                           std::index_sequence_for<Entries...>{});
   }
 
   template <size_t... Indices>
@@ -2315,8 +2748,10 @@ private:
     }
     if (writes.size() == 1)
       return std::get<Index>(tables_)->publishPreparedSingleWrite(
-          group, std::optional<typename std::remove_reference_t<
-                     decltype(writes)>::Value>{std::move(writes.front())},
+          group,
+          std::optional<
+              typename std::remove_reference_t<decltype(writes)>::Value>{
+              std::move(writes.front())},
           std::get<Index>(merges_));
     return std::get<Index>(tables_)->publishPreparedWrite(
         group, std::move(writes).intoVector(), std::get<Index>(merges_));
@@ -2424,6 +2859,83 @@ private:
   bool fired_ = false;
 };
 
+template <typename Entry, typename Selection, size_t Count>
+class TableSelectionReadGroup final : public SimObject {
+public:
+  TableSelectionReadGroup(std::string name, ObjectId id, SimObject *parent,
+                          SimTable<Entry> &table, Selection &selection,
+                          std::array<SimQueue<Entry> *, Count> outputs,
+                          ObservationSink *observations = nullptr)
+      : SimObject(ObjectKind::Memory, std::move(name), id, parent,
+                  observations),
+        table_(table), selection_(selection), outputs_(outputs) {
+    if (id == kInvalidObjectId ||
+        std::ranges::any_of(outputs_, [](const auto *queue) {
+          return queue == nullptr;
+        }))
+      throw std::invalid_argument(
+          "selection read group requires stable outputs");
+  }
+
+  void doWork(Epoch epoch) override {
+    if (fired_ != 0)
+      return;
+    const auto &selected = selection_.get(epoch);
+    size_t count = 0;
+    while (count < Count && selected.valid[count])
+      ++count;
+    if (count == 0)
+      return;
+    for (size_t lane = 0; lane < count; ++lane)
+      if (!outputs_[lane]->canProposePush())
+        return;
+    for (size_t lane = 0; lane < count; ++lane)
+      if (!outputs_[lane]->preparePush(id())) {
+        cancelPrepared();
+        return;
+      }
+    for (size_t lane = 0; lane < count; ++lane)
+      if (!outputs_[lane]->publishPush(id(), table_.at(selected.indices[lane]))) {
+        setRuntimeFailureCode("selection_read_group_publish_failed");
+        cancelPrepared();
+        return;
+      }
+    fired_ = count;
+    selection_.accept(epoch);
+  }
+  void doXfer(Epoch) override { fired_ = 0; }
+  bool hasPendingCommit() const override { return fired_ != 0; }
+  bool isRunnable(Epoch epoch) const override {
+    if (fired_ != 0)
+      return false;
+    const auto &selected = selection_.get(epoch);
+    size_t count = 0;
+    while (count < Count && selected.valid[count])
+      ++count;
+    if (count == 0)
+      return false;
+    for (size_t lane = 0; lane < count; ++lane)
+      if (!outputs_[lane]->canProposePush())
+        return false;
+    return true;
+  }
+  void reset() override {
+    cancelPrepared();
+    fired_ = 0;
+    clearRuntimeFailureCode();
+  }
+
+private:
+  void cancelPrepared() {
+    for (SimQueue<Entry> *queue : outputs_)
+      queue->cancelPrepared(id());
+  }
+  SimTable<Entry> &table_;
+  Selection &selection_;
+  std::array<SimQueue<Entry> *, Count> outputs_;
+  size_t fired_ = 0;
+};
+
 template <typename Entry, typename Address, typename When>
   requires TablePolicyInvocable<Address> &&
            IntegralLike<TablePolicyResult<Address>> &&
@@ -2500,37 +3012,59 @@ public:
         merge_(std::move(merge)), writerId_(id), mode_(mode) {}
 
   void doWork(Epoch epoch) override {
-    if (fired_ || !input_.canProposePop())
+    if (fired_ || candidate_ || !input_.canProposePop())
       return;
     const Input *head = input_.peekProposable();
     if (!head)
       return;
-    proposed_ = false;
+    Candidate candidate;
     if (static_cast<bool>(invokeTablePolicy(enable_, epoch, *head))) {
       const auto address = invokeTablePolicy(address_, epoch, *head);
       if (!tableAddressInRange(address, table_.size())) {
         setRuntimeFailureCode("table_index_out_of_range");
         return;
       }
-      if (!table_.proposeWrite(
-              writerId_, static_cast<size_t>(address),
-              static_cast<Entry>(invokeTablePolicy(value_, epoch, *head)),
-              Merge::fields, merge_, mode_)) {
-        setRuntimeFailureCode("table_write_conflict");
-        return;
-      }
-      proposed_ = true;
+      candidate.write = std::pair<size_t, Entry>{
+          static_cast<size_t>(address),
+          static_cast<Entry>(invokeTablePolicy(value_, epoch, *head))};
     }
-    if (!input_.proposePop()) {
-      if (proposed_)
-        table_.cancelWrite(writerId_);
-      proposed_ = false;
+    candidate_ = std::move(candidate);
+  }
+  void doArbitrate(Epoch) override {
+    if (fired_ || !candidate_ || !input_.canProposePop())
+      return;
+    const CommitGroupId group = id();
+    std::array<size_t, 1> index{};
+    std::span<const size_t> indices;
+    if (candidate_->write) {
+      index[0] = candidate_->write->first;
+      indices = index;
+      if (!table_.canPrepareTransaction(group, writerId_, {}, indices,
+                                        Merge::fields, mode_, true))
+        return;
+    }
+    if (!input_.preparePop(group) ||
+        (candidate_->write &&
+         !table_.prepareTransaction(group, writerId_, {}, indices,
+                                    Merge::fields, mode_, true))) {
+      input_.cancelPrepared(group);
+      table_.cancelPreparedWrite(group);
       return;
     }
+    if (!input_.publishPop(group) ||
+        (candidate_->write &&
+         !table_.publishPreparedSingleWrite(group, std::move(candidate_->write),
+                                            merge_))) {
+      setRuntimeFailureCode("table_write_publish_failed");
+      input_.cancelPrepared(group);
+      table_.cancelPreparedWrite(group);
+      return;
+    }
+    candidate_.reset();
     fired_ = true;
   }
   void doXfer(Epoch) override {
-    proposed_ = false;
+    candidate_.reset();
     fired_ = false;
   }
   bool hasPendingCommit() const override { return fired_; }
@@ -2538,9 +3072,9 @@ public:
     return !fired_ && input_.canProposePop();
   }
   void reset() override {
-    if (proposed_)
-      table_.cancelWrite(writerId_);
-    proposed_ = false;
+    input_.cancelPrepared(id());
+    table_.cancelPreparedWrite(id());
+    candidate_.reset();
     fired_ = false;
     clearRuntimeFailureCode();
   }
@@ -2554,7 +3088,10 @@ private:
   [[no_unique_address]] Merge merge_;
   ObjectId writerId_;
   TableWriteMode mode_;
-  bool proposed_ = false;
+  struct Candidate {
+    std::optional<std::pair<size_t, Entry>> write;
+  };
+  std::optional<Candidate> candidate_;
   bool fired_ = false;
 };
 
@@ -2583,25 +3120,40 @@ public:
         mode_(mode) {}
 
   void doWork(Epoch epoch) override {
-    if (fired_ || !static_cast<bool>(invokeTablePolicy(enable_, epoch)))
+    if (fired_ || candidate_ ||
+        !static_cast<bool>(invokeTablePolicy(enable_, epoch)))
       return;
     const auto address = invokeTablePolicy(address_, epoch);
     if (!tableAddressInRange(address, table_.size())) {
       setRuntimeFailureCode("table_index_out_of_range");
       return;
     }
-    if (!table_.proposeWrite(
-            writerId_, static_cast<size_t>(address),
-            static_cast<Entry>(invokeTablePolicy(value_, epoch)), Merge::fields,
-            merge_, mode_)) {
-      setRuntimeFailureCode("table_write_conflict");
+    candidate_ = std::pair<size_t, Entry>{
+        static_cast<size_t>(address),
+        static_cast<Entry>(invokeTablePolicy(value_, epoch))};
+  }
+  void doArbitrate(Epoch) override {
+    if (fired_ || !candidate_)
+      return;
+    const CommitGroupId group = id();
+    const size_t index = candidate_->first;
+    const std::span<const size_t> indices(&index, 1);
+    if (!table_.canPrepareTransaction(group, writerId_, {}, indices,
+                                      Merge::fields, mode_, true))
+      return;
+    if (!table_.prepareTransaction(group, writerId_, {}, indices, Merge::fields,
+                                   mode_, true) ||
+        !table_.publishPreparedSingleWrite(group, std::move(candidate_),
+                                           merge_)) {
+      setRuntimeFailureCode("table_write_publish_failed");
+      table_.cancelPreparedWrite(group);
       return;
     }
-    proposed_ = true;
+    candidate_.reset();
     fired_ = true;
   }
   void doXfer(Epoch) override {
-    proposed_ = false;
+    candidate_.reset();
     fired_ = false;
   }
   bool hasPendingCommit() const override { return fired_; }
@@ -2609,9 +3161,8 @@ public:
     return !fired_ && static_cast<bool>(invokeTablePolicy(enable_, epoch));
   }
   void reset() override {
-    if (proposed_)
-      table_.cancelWrite(writerId_);
-    proposed_ = false;
+    table_.cancelPreparedWrite(id());
+    candidate_.reset();
     fired_ = false;
     clearRuntimeFailureCode();
   }
@@ -2624,14 +3175,16 @@ private:
   [[no_unique_address]] Merge merge_;
   ObjectId writerId_;
   TableWriteMode mode_;
-  bool proposed_ = false;
+  std::optional<std::pair<size_t, Entry>> candidate_;
   bool fired_ = false;
 };
 
 template <typename Entry, typename Mask, typename Enable, typename Value,
           typename Merge = TableFullEntryMerge<Entry>>
   requires TablePolicyInvocable<Mask> &&
-           IntegralLike<TablePolicyResult<Mask>> &&
+           requires(const TablePolicyResult<Mask> &mask) {
+             { tableMaskTest(mask, size_t{}) } -> std::same_as<bool>;
+           } &&
            TablePolicyInvocable<Enable> &&
            std::convertible_to<TablePolicyResult<Enable>, bool> &&
            TablePolicyInvocable<Value, const Entry &> &&
@@ -2647,33 +3200,73 @@ public:
                          SimTable<Entry> &table, Mask mask = {},
                          Enable enable = {}, Value value = {}, Merge merge = {},
                          ObservationSink *observations = nullptr)
+      : TableMaskedWriteSource(std::move(name), id, parent, table,
+                               TableDomainProjection(table.size()),
+                               std::move(mask), std::move(enable),
+                               std::move(value), std::move(merge),
+                               observations) {}
+
+  TableMaskedWriteSource(std::string name, ObjectId id, SimObject *parent,
+                         SimTable<Entry> &table,
+                         TableDomainProjection projection, Mask mask = {},
+                         Enable enable = {}, Value value = {}, Merge merge = {},
+                         ObservationSink *observations = nullptr)
       : SimObject(componentKind, std::move(name), id, parent, observations),
-        table_(table), mask_(std::move(mask)), enable_(std::move(enable)),
+        table_(table), projection_(std::move(projection)),
+        mask_(std::move(mask)), enable_(std::move(enable)),
         value_(std::move(value)), merge_(std::move(merge)), writerId_(id) {}
 
   void doWork(Epoch epoch) override {
-    if (fired_ || !static_cast<bool>(invokeTablePolicy(enable_, epoch)))
+    if (fired_ || candidate_ ||
+        !static_cast<bool>(invokeTablePolicy(enable_, epoch)))
       return;
     const auto rawMask = invokeTablePolicy(mask_, epoch);
-    const uint64_t mask = static_cast<uint64_t>(rawMask);
     std::vector<std::pair<size_t, Entry>> values;
-    values.reserve(table_.size());
-    for (size_t index = 0; index < table_.size(); ++index) {
-      if ((mask & (uint64_t{1} << index)) == 0)
+    values.reserve(projection_.size());
+    for (size_t index = 0; index < projection_.size(); ++index) {
+      if (!tableMaskTest(rawMask, index))
         continue;
-      values.emplace_back(index, static_cast<Entry>(invokeTablePolicy(
-                                     value_, epoch, table_.at(index))));
+      const std::optional<size_t> global = projection_.globalIndex(index);
+      if (!global) {
+        setRuntimeFailureCode("table_index_out_of_range");
+        return;
+      }
+      values.emplace_back(*global, static_cast<Entry>(invokeTablePolicy(
+                                       value_, epoch, table_.at(*global))));
     }
-    if (!table_.proposeMaskedWrite(writerId_, std::move(values), Merge::fields,
-                                   merge_)) {
-      setRuntimeFailureCode("table_write_conflict");
+    candidate_ = std::move(values);
+  }
+  void doArbitrate(Epoch) override {
+    if (fired_ || !candidate_)
+      return;
+    if (candidate_->empty()) {
+      candidate_.reset();
+      fired_ = true;
       return;
     }
-    proposed_ = true;
+    std::vector<size_t> indices;
+    indices.reserve(candidate_->size());
+    for (const auto &[index, value] : *candidate_) {
+      (void)value;
+      indices.push_back(index);
+    }
+    const CommitGroupId group = id();
+    if (!table_.canPrepareTransaction(group, writerId_, {}, indices,
+                                      Merge::fields, TableWriteMode::FieldMerge,
+                                      true))
+      return;
+    if (!table_.prepareTransaction(group, writerId_, {}, indices, Merge::fields,
+                                   TableWriteMode::FieldMerge, true) ||
+        !table_.publishPreparedWrite(group, std::move(*candidate_), merge_)) {
+      setRuntimeFailureCode("table_write_publish_failed");
+      table_.cancelPreparedWrite(group);
+      return;
+    }
+    candidate_.reset();
     fired_ = true;
   }
   void doXfer(Epoch) override {
-    proposed_ = false;
+    candidate_.reset();
     fired_ = false;
   }
   bool hasPendingCommit() const override { return fired_; }
@@ -2681,21 +3274,21 @@ public:
     return !fired_ && static_cast<bool>(invokeTablePolicy(enable_, epoch));
   }
   void reset() override {
-    if (proposed_)
-      table_.cancelWrite(writerId_);
-    proposed_ = false;
+    table_.cancelPreparedWrite(id());
+    candidate_.reset();
     fired_ = false;
     clearRuntimeFailureCode();
   }
 
 private:
   SimTable<Entry> &table_;
+  TableDomainProjection projection_;
   [[no_unique_address]] Mask mask_;
   [[no_unique_address]] Enable enable_;
   [[no_unique_address]] Value value_;
   [[no_unique_address]] Merge merge_;
   ObjectId writerId_;
-  bool proposed_ = false;
+  std::optional<std::vector<std::pair<size_t, Entry>>> candidate_;
   bool fired_ = false;
 };
 
@@ -3010,6 +3603,55 @@ public:
 private:
   SimQueue<T> &input_;
   std::optional<T> pending_;
+  std::vector<T> received_;
+};
+
+template <typename T> class QueueLaneSink final : public SimObject {
+public:
+  QueueLaneSink(std::string name, ObjectId id, SimObject *parent,
+                SimQueue<T> &input,
+                ObservationSink *observations = nullptr)
+      : SimObject(ObjectKind::Sink, std::move(name), id, parent, observations),
+        input_(input) {}
+
+  void doWork(Epoch) override {
+    if (!pending_.empty())
+      return;
+    const size_t count =
+        std::min({input_.committedSize(), input_.lanes(), input_.rate()});
+    if (count == 0)
+      return;
+    pending_.reserve(count);
+    for (size_t lane = 0; lane < count; ++lane) {
+      auto value = input_.proposePop();
+      if (!value) {
+        setRuntimeFailureCode("queue_lane_sink_prefix_failed");
+        pending_.clear();
+        return;
+      }
+      pending_.push_back(std::move(*value));
+    }
+  }
+  void doXfer(Epoch) override {
+    for (T &value : pending_)
+      received_.push_back(std::move(value));
+    pending_.clear();
+  }
+  bool hasPendingCommit() const override { return !pending_.empty(); }
+  bool isRunnable(Epoch) const override {
+    return pending_.empty() && !input_.isEmpty();
+  }
+  const std::vector<T> &received() const { return received_; }
+  void reset() override {
+    input_.cancelPrepared(id());
+    pending_.clear();
+    received_.clear();
+    clearRuntimeFailureCode();
+  }
+
+private:
+  SimQueue<T> &input_;
+  std::vector<T> pending_;
   std::vector<T> received_;
 };
 

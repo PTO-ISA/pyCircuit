@@ -1,0 +1,78 @@
+[pyc] Agentic Circuit closure run-id=20260911-issue22-table-pyc-g2
+Obtaining file:///Users/zhoubot/linx-isa/tools/pyCircuit/python/semantic-core
+  Installing build dependencies: started
+  Installing build dependencies: finished with status 'done'
+  Checking if build backend supports build_editable: started
+  Checking if build backend supports build_editable: finished with status 'done'
+  Getting requirements to build editable: started
+  Getting requirements to build editable: finished with status 'done'
+  Preparing editable metadata (pyproject.toml): started
+  Preparing editable metadata (pyproject.toml): finished with status 'done'
+Building wheels for collected packages: pycircuit-semantic-core
+  Building editable for pycircuit-semantic-core (pyproject.toml): started
+  Building editable for pycircuit-semantic-core (pyproject.toml): finished with status 'done'
+  Created wheel for pycircuit-semantic-core: filename=pycircuit_semantic_core-6.0.0-0.editable-py3-none-any.whl size=1497 sha256=b2e3e40df3a4ddf546082067d6c1e9b2d5fbee71e9092f4ba064d780ea5f8cc3
+  Stored in directory: /private/var/folders/dw/zd1zl_y14dndg0ydz1mdt25h0000gn/T/pip-ephem-wheel-cache-b944a4py/wheels/18/18/59/f590cbd4466ba08c77ce31d532c2edd518f77415ab158a24c7
+Successfully built pycircuit-semantic-core
+Installing collected packages: pycircuit-semantic-core
+  Attempting uninstall: pycircuit-semantic-core
+    Found existing installation: pycircuit-semantic-core 6.0.0
+    Uninstalling pycircuit-semantic-core-6.0.0:
+      Successfully uninstalled pycircuit-semantic-core-6.0.0
+Successfully installed pycircuit-semantic-core-6.0.0
+Obtaining file:///Users/zhoubot/linx-isa/tools/pyCircuit/python/agentic-circuit
+  Installing build dependencies: started
+  Installing build dependencies: finished with status 'done'
+  Checking if build backend supports build_editable: started
+  Checking if build backend supports build_editable: finished with status 'done'
+  Getting requirements to build editable: started
+  Getting requirements to build editable: finished with status 'done'
+  Preparing editable metadata (pyproject.toml): started
+  Preparing editable metadata (pyproject.toml): finished with status 'done'
+Requirement already satisfied: pycircuit-semantic-core==6.0.0 in ./.pycircuit_out/agentic-circuit/venv/lib/python3.14/site-packages (from agentic-circuit==0.1.0) (6.0.0)
+Requirement already satisfied: jsonschema>=4.18 in ./.pycircuit_out/agentic-circuit/venv/lib/python3.14/site-packages (from agentic-circuit==0.1.0) (4.26.0)
+Requirement already satisfied: lit<19,>=18 in ./.pycircuit_out/agentic-circuit/venv/lib/python3.14/site-packages (from agentic-circuit==0.1.0) (18.1.8)
+Requirement already satisfied: pytest>=7.0.0 in ./.pycircuit_out/agentic-circuit/venv/lib/python3.14/site-packages (from agentic-circuit==0.1.0) (9.1.1)
+Requirement already satisfied: pyyaml>=6.0 in ./.pycircuit_out/agentic-circuit/venv/lib/python3.14/site-packages (from agentic-circuit==0.1.0) (6.0.3)
+Requirement already satisfied: attrs>=22.2.0 in ./.pycircuit_out/agentic-circuit/venv/lib/python3.14/site-packages (from jsonschema>=4.18->agentic-circuit==0.1.0) (26.1.0)
+Requirement already satisfied: jsonschema-specifications>=2023.03.6 in ./.pycircuit_out/agentic-circuit/venv/lib/python3.14/site-packages (from jsonschema>=4.18->agentic-circuit==0.1.0) (2025.9.1)
+Requirement already satisfied: referencing>=0.28.4 in ./.pycircuit_out/agentic-circuit/venv/lib/python3.14/site-packages (from jsonschema>=4.18->agentic-circuit==0.1.0) (0.37.0)
+Requirement already satisfied: rpds-py>=0.25.0 in ./.pycircuit_out/agentic-circuit/venv/lib/python3.14/site-packages (from jsonschema>=4.18->agentic-circuit==0.1.0) (2026.6.3)
+Requirement already satisfied: iniconfig>=1.0.1 in ./.pycircuit_out/agentic-circuit/venv/lib/python3.14/site-packages (from pytest>=7.0.0->agentic-circuit==0.1.0) (2.3.0)
+Requirement already satisfied: packaging>=22 in ./.pycircuit_out/agentic-circuit/venv/lib/python3.14/site-packages (from pytest>=7.0.0->agentic-circuit==0.1.0) (26.3)
+Requirement already satisfied: pluggy<2,>=1.5 in ./.pycircuit_out/agentic-circuit/venv/lib/python3.14/site-packages (from pytest>=7.0.0->agentic-circuit==0.1.0) (1.6.0)
+Requirement already satisfied: pygments>=2.7.2 in ./.pycircuit_out/agentic-circuit/venv/lib/python3.14/site-packages (from pytest>=7.0.0->agentic-circuit==0.1.0) (2.21.0)
+Building wheels for collected packages: agentic-circuit
+  Building editable for agentic-circuit (pyproject.toml): started
+  Building editable for agentic-circuit (pyproject.toml): finished with status 'done'
+  Created wheel for agentic-circuit: filename=agentic_circuit-0.1.0-0.editable-py3-none-any.whl size=4255 sha256=db79dc4c64ff46263297b56e141bc5164a44ed6c32b6ae57b9e5d0708dc24a8d
+  Stored in directory: /private/var/folders/dw/zd1zl_y14dndg0ydz1mdt25h0000gn/T/pip-ephem-wheel-cache-i7wyg6wg/wheels/4a/52/c1/0d118760cea8f6ac5269a29f1e1932145039bb6c8a43cf6cd4
+Successfully built agentic-circuit
+Installing collected packages: agentic-circuit
+  Attempting uninstall: agentic-circuit
+    Found existing installation: agentic-circuit 0.1.0
+    Uninstalling agentic-circuit-0.1.0:
+      Successfully uninstalled agentic-circuit-0.1.0
+Successfully installed agentic-circuit-0.1.0
+[pyc] AC G2: build and install the repo-local pyc6 + AC toolchain
+[pyc] AC G2: reusing integrated toolchain /Users/zhoubot/linx-isa/tools/pyCircuit/.pycircuit_out/toolchain/install
+[pyc] pyCircuit 6 root contracts and documentation
+============================= test session starts ==============================
+platform darwin -- Python 3.14.6, pytest-9.0.2, pluggy-1.6.0
+rootdir: /Users/zhoubot/linx-isa/tools/pyCircuit
+configfile: pyproject.toml
+collected 94 items
+
+tests/unit/test_agentic_circuit_component.py ......                      [  6%]
+tests/unit/test_api_contract.py ....                                     [ 10%]
+tests/unit/test_cli_entrypoints.py ....                                  [ 14%]
+tests/unit/test_primitive_catalog.py ..                                  [ 17%]
+tests/unit/test_pyc6_surface.py .................................        [ 52%]
+tests/unit/test_pyc_ir_inventory.py ...                                  [ 55%]
+tests/unit/test_register_file.py .                                       [ 56%]
+tests/unit/test_semantic_core.py .........................               [ 82%]
+tests/unit/test_v6_forward_signal.py ................                    [100%]
+
+============================== 94 passed in 3.11s ==============================
+ok: API hygiene check passed
+error: non-verified decisions remain: 0232 0234

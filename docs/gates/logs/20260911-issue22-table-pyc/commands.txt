@@ -1,0 +1,20 @@
+cmake --build .pycircuit_out/acir/dev-llvm22 --target check-acir -j 6
+ctest --test-dir .pycircuit_out/acir/dev-llvm22 --output-on-failure -j 6
+LLVM_DIR=<llvm22-cmake> MLIR_DIR=<mlir22-cmake> bash flows/scripts/pyc build
+PYC_TOOLCHAIN_ROOT=$PWD/.pycircuit_out/toolchain/install ACIR_OPT=$PWD/.pycircuit_out/toolchain/install/bin/acir-opt ACIR_QUEUE_PYCGEN=$PWD/.pycircuit_out/toolchain/install/bin/acir-queue-pycgen python tests/integration/agentic-circuit/e2e/test_table_pyc_parity.py -v
+PYC_TOOLCHAIN_ROOT=$PWD/.pycircuit_out/toolchain/install ACIR_OPT=$PWD/.pycircuit_out/toolchain/install/bin/acir-opt ACIR_QUEUE_PLAN=$PWD/.pycircuit_out/toolchain/install/bin/acir-queue-plan ACIR_QUEUE_CXXGEN=$PWD/.pycircuit_out/toolchain/install/bin/acir-queue-cxxgen ACIR_QUEUE_PYCGEN=$PWD/.pycircuit_out/toolchain/install/bin/acir-queue-pycgen python tests/integration/agentic-circuit/e2e/test_table_backend.py -v
+ASAN_OPTIONS=detect_leaks=0:halt_on_error=1 .pycircuit_out/acir/asan-llvm22/bin/GfsimTests --gtest_filter='QueueBlocksTest.*Table*'
+UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1 .pycircuit_out/acir/ubsan-llvm22/bin/GfsimTests --gtest_filter='QueueBlocksTest.*Table*'
+UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1 .pycircuit_out/acir/ubsan-llvm22/bin/acir-queue-pycgen <frozen-table-fixture>
+.pycircuit_out/toolchain/install/bin/acir-queue-pycgen <frozen-table-fixture> > first.pyc && .pycircuit_out/toolchain/install/bin/acir-queue-pycgen <frozen-table-fixture> > second.pyc && cmp first.pyc second.pyc
+PYC_GATE_RUN_ID=20260911-issue22-table-pyc-g2 AC_GATE_RESUME_FROM=g2 AC_GATE_TOOLCHAIN_ROOT=$PWD/.pycircuit_out/toolchain/install bash flows/scripts/run_agentic_circuit.sh
+PYC_GATE_RUN_ID=20260911-issue22-table-pyc PYC_TOOLCHAIN_ROOT=$PWD/.pycircuit_out/toolchain/install PYC_DECISION_STATUS_STRICT=0 bash flows/scripts/run_examples.sh
+PYC_GATE_RUN_ID=20260911-issue22-table-pyc-sims PYC_TOOLCHAIN_ROOT=$PWD/.pycircuit_out/toolchain/install bash flows/scripts/run_sims.sh
+PYC_GATE_RUN_ID=20260911-issue22-table-pyc-nightly PYC_TOOLCHAIN_ROOT=$PWD/.pycircuit_out/toolchain/install bash flows/scripts/run_sims_nightly.sh
+PYC_GATE_RUN_ID=20260911-issue22-table-pyc-semantic PYC_TOOLCHAIN_ROOT=$PWD/.pycircuit_out/toolchain/install bash flows/scripts/run_semantic_regressions_v6.sh
+python -m unittest discover -s tests/python/agentic-circuit/python_frontend -p 'test_*.py'
+pytest tests/unit -m unit -q
+python3 flows/tools/check_api_hygiene.py python/pycircuit/src/pycircuit examples/pycircuit docs README.md
+python3 flows/tools/check_decision_status.py --rfc docs/rfcs/pyc6-decisions.md --status docs/gates/decision_status_v6.md --out docs/gates/logs/20260911-issue22-table-pyc/decision_status_report.json --require-concrete-evidence --require-existing-evidence
+mkdocs build --strict
+git diff --check

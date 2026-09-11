@@ -7,16 +7,17 @@ import dataclasses
 import enum
 import inspect
 import os
-from dataclasses import dataclass
-from pathlib import Path, PurePosixPath
 import shutil
 import subprocess
 import sys
 import tempfile
+from dataclasses import dataclass
+from pathlib import Path, PurePosixPath
 from typing import TYPE_CHECKING, get_origin
 
 from ._canonical_json import canonical_json_bytes, sha256_bytes
 from ._definitions import Definition
+from ._diagnostics import Diagnostic
 from ._source_closure import SourceClosure, SourceClosureEntry, capture_source_closure
 from ._static_eval import FrozenMap, StaticValue, validate_ijson_value
 from ._types import Static
@@ -194,6 +195,7 @@ class JitSpecialization:
     sources: tuple[SourceClosureEntry, ...]
     source_closure_sha256: str | None
     fingerprint: str
+    diagnostics: tuple[Diagnostic, ...] = ()
 
     @property
     def canonical_arguments(self) -> tuple[tuple[str, object], ...]:

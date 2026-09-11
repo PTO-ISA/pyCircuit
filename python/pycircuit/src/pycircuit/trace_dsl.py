@@ -9,11 +9,12 @@ from pathlib import Path
 from typing import Any
 
 from .design import Design
+from .diagnostics import PyCircuitError
 from .path_shortening import shorten_instance_path
 from .tb import _sanitize_id
 
 
-class TraceConfigError(RuntimeError):
+class TraceConfigError(PyCircuitError):
     pass
 
 

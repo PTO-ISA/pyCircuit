@@ -3,6 +3,8 @@
 // RUN: %acir_queue_plan %t.frozen.mlir | %FileCheck %s --check-prefix=PLAN
 // RUN: %acir_queue_cxxgen %t.frozen.mlir > %t.cpp
 // RUN: %cxx -std=c++20 -I%source_root/simulator/gfsim/include -c %t.cpp -o %t.o
+// RUN: %acir_queue_pycgen %t.frozen.mlir | %FileCheck %s --check-prefix=PYC
+// RUN: %python %source_root/compiler/acir/tools/acir-queue-veriloggen.py %t.frozen.mlir --pycgen %acir_queue_pycgen | %FileCheck %s --check-prefix=VERILOG
 
 module attributes {ac.contract_epoch = "0.5", ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle", ac.system = "bounded_endpoints"} {
   ac.table @entries entry i2 entries 5 init 0 owner "/" stable_id "table/entries"
@@ -50,3 +52,11 @@ module attributes {ac.contract_epoch = "0.5", ac.model_kind = "queue_graph", ac.
 // PLAN: "kind":"table_write"
 // PLAN-SAME: "yields":["item"
 // PLAN: "kind":"table_get"
+
+// PYC: func.func @bounded_endpoints
+// PYC-COUNT-10: pyc.reg
+// PYC-NOT: sync_mem
+// PYC-NOT: ac.table
+
+// VERILOG: module bounded_endpoints (
+// VERILOG: pyc_reg

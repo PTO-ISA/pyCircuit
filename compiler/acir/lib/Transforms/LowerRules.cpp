@@ -8,6 +8,7 @@
 #include "mlir/Transforms/Passes.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallVector.h"
+#include "llvm/ADT/StringMap.h"
 #include "llvm/ADT/StringSet.h"
 #include "llvm/ADT/StringSwitch.h"
 
@@ -100,13 +101,48 @@ DictionaryAttr queueRuleFact(Builder &builder, StringRef kindName,
 }
 
 DictionaryAttr stateRuleEffect(Builder &builder, ac::RuleEffectKind kind,
-                               StringRef resource, ac::RuleGuardKind path) {
+                               StringRef resource, ac::RuleGuardKind path,
+                               StringRef endpointStableId = {},
+                               ac::WriterPriorityAttr arbitrationRequest = {}) {
   NamedAttrList fields;
   fields.set("kind", ac::RuleEffectKindAttr::get(builder.getContext(), kind));
   fields.set("resource",
              FlatSymbolRefAttr::get(builder.getContext(), resource));
   fields.set("guard_kind",
              ac::RuleGuardKindAttr::get(builder.getContext(), path));
+  if (arbitrationRequest) {
+    fields.set("owner",
+               FlatSymbolRefAttr::get(builder.getContext(), resource));
+    fields.set("endpoint_stable_id",
+               builder.getStringAttr(endpointStableId));
+    fields.set("policy", ac::WriterArbitrationPolicyAttr::get(
+                             builder.getContext(),
+                             ac::WriterArbitrationPolicy::Priority));
+    fields.set("declared_rank",
+               builder.getI64IntegerAttr(arbitrationRequest.getRank()));
+    fields.set("resolution", ac::WriterArbitrationResolutionAttr::get(
+                                 builder.getContext(),
+                                 ac::WriterArbitrationResolution::
+                                     WinnerTakesTransaction));
+  }
+  return builder.getDictionaryAttr(fields);
+}
+
+DictionaryAttr writerArbitrationMembership(Builder &builder,
+                                           StringRef owner,
+                                           StringRef endpointStableId,
+                                           ac::WriterPriorityAttr request) {
+  NamedAttrList fields;
+  fields.set("owner", FlatSymbolRefAttr::get(builder.getContext(), owner));
+  fields.set("endpoint_stable_id", builder.getStringAttr(endpointStableId));
+  fields.set("policy", ac::WriterArbitrationPolicyAttr::get(
+                           builder.getContext(),
+                           ac::WriterArbitrationPolicy::Priority));
+  fields.set("declared_rank", builder.getI64IntegerAttr(request.getRank()));
+  fields.set("resolution", ac::WriterArbitrationResolutionAttr::get(
+                               builder.getContext(),
+                               ac::WriterArbitrationResolution::
+                                   WinnerTakesTransaction));
   return builder.getDictionaryAttr(fields);
 }
 
@@ -228,10 +264,16 @@ LogicalResult inferRuleEffects(ModuleOp model) {
         fields.set("fields", builder.getStrArrayAttr(fieldNames));
       }
       footprintAttrs.push_back(builder.getDictionaryAttr(fields));
+      ac::WriterPriorityAttr arbitrationRequest;
+      if (!read && footprint.endpoint)
+        arbitrationRequest =
+            footprint.endpoint->getAttrOfType<ac::WriterPriorityAttr>(
+                "ac.arbitration");
       typedEffects.push_back(stateRuleEffect(
           builder,
           read ? ac::RuleEffectKind::StateRead : ac::RuleEffectKind::StateWrite,
-          footprint.resource, footprintGuard));
+          footprint.resource, footprintGuard, rule.getStableId(),
+          arbitrationRequest));
       NamedAttrList conflict;
       conflict.set("kind",
                    ac::RuleStateAccessKindAttr::get(
@@ -489,7 +531,14 @@ LogicalResult dischargeRuleObligations(ModuleOp model) {
 LogicalResult resolveRuleSchedule(ModuleOp model) {
   LogicalResult result = success();
   llvm::StringSet<> stableIds;
-  int64_t lexicalPriority = 0;
+  SmallVector<StringRef> orderedStableIds;
+  model.walk([&](ac::RuleOp rule) {
+    orderedStableIds.push_back(rule.getStableId());
+  });
+  llvm::sort(orderedStableIds);
+  llvm::StringMap<int64_t> canonicalPriorities;
+  for (auto [ordinal, stableId] : llvm::enumerate(orderedStableIds))
+    canonicalPriorities[stableId] = ordinal;
   Builder builder(model.getContext());
   ACDataFlowAnalyzer dataFlow(model.getOperation());
   if (failed(dataFlow.run()))
@@ -580,9 +629,9 @@ LogicalResult resolveRuleSchedule(ModuleOp model) {
           return;
         }
         if (proposal.getWhen() != presence) {
-          if (rule.getInputs().size() != 1) {
+          if (!always) {
             result = proposal.emitOpError(
-                "conditional-effect presence requires one input");
+                "conditional-effect presence requires a true candidate");
             return;
           }
         }
@@ -668,7 +717,9 @@ LogicalResult resolveRuleSchedule(ModuleOp model) {
                                      typedIndexKind(snapshot.indexKind)),
           readFieldsAttr);
     }
-    const int64_t priority = lexicalPriority++;
+    // Stable canonical plan order only. Same-field winner selection requires
+    // explicit arbitration membership and never consumes this rank.
+    const int64_t priority = canonicalPriorities.lookup(rule.getStableId());
     rule->setAttr("ac.rule.priority", builder.getI64IntegerAttr(priority));
     rule->setAttr(
         "ac.rule.guard_kind",
@@ -684,12 +735,14 @@ LogicalResult resolveRuleSchedule(ModuleOp model) {
     SmallVector<Attribute> arbitration;
     llvm::StringSet<> arbitrated;
     for (ac::TableProposeOp proposal : proposals) {
+      auto request = proposal->getAttrOfType<ac::WriterPriorityAttr>(
+          "ac.arbitration");
+      if (!request)
+        continue;
       if (!arbitrated.insert(proposal.getTable()).second)
         continue;
-      NamedAttrList record;
-      record.set("resource", proposal.getTableAttr());
-      record.set("priority", builder.getI64IntegerAttr(priority));
-      arbitration.push_back(builder.getDictionaryAttr(record));
+      arbitration.push_back(writerArbitrationMembership(
+          builder, proposal.getTable(), rule.getStableId(), request));
     }
     rule->setAttr("ac.rule.arbitration_membership",
                   builder.getArrayAttr(arbitration));
@@ -1084,10 +1137,11 @@ void addRuleLoweringPipeline(mlir::OpPassManager &manager) {
   manager.addPass(createLowerVariableStatePass());
   manager.addPass(createVerifyValueConstraintsPass());
   manager.addPass(std::make_unique<InferRuleTypesPass>());
-  // Rule summaries are derived evidence.  Eliminate dead state reads before
-  // effect inference so footprints and typed summaries describe the live IR
-  // that later canonicalization preserves.
+  // Rule summaries are derived evidence. Eliminate dead and duplicate state
+  // reads before effect inference so footprints and typed summaries describe
+  // the live IR that later canonicalization preserves.
   manager.addPass(createCanonicalizerPass());
+  manager.addPass(createCSEPass());
   manager.addPass(std::make_unique<InferRuleEffectsPass>());
   manager.addPass(std::make_unique<InferRuleActivationPass>());
   manager.addPass(std::make_unique<MaterializeRuleChecksPass>());

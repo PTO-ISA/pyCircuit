@@ -69,6 +69,16 @@ def test_jit_allows_cas_methods_and_evaluates_receiver_once() -> None:
     assert "pyc.select" in mlir
 
 
+def test_cas_width_conversions_are_keyword_only() -> None:
+    circuit = pycircuit.CycleAwareCircuit("keyword_widths")
+    domain = circuit.create_domain("clk")
+    value = pycircuit.cas(domain, circuit.input("value", width=8), cycle=0)
+
+    for operation in (value.trunc, value.zext, value.sext):
+        with pytest.raises(TypeError, match="positional argument"):
+            operation(4)  # type: ignore[misc]
+
+
 def test_jit_rejects_removed_wire_methods() -> None:
     with pytest.raises(pycircuit.JitError, match="PYC430"):
         pycircuit.compile_cycle_aware(_jit_wire_method_build)

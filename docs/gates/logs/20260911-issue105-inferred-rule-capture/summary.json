@@ -1,0 +1,17 @@
+{
+  "decision_ids": ["0226"],
+  "issue": 105,
+  "results": {
+    "api_hygiene": {"passed": true},
+    "decision_status": {"passed": true},
+    "diff_check": {"passed": true},
+    "documentation": {"passed": true},
+    "focused_nested_rule": {"passed": 2, "failed": 0},
+    "frontend": {"passed": 290, "failed": 0, "skipped": 1},
+    "jit_blocks": {"passed": 20, "failed": 0},
+    "native_queuegraph_cxx": {"passed": true},
+    "unit": {"passed": 94, "failed": 0}
+  },
+  "run_id": "20260911-issue105-inferred-rule-capture",
+  "status": "passed"
+}

@@ -108,6 +108,7 @@ operations:
   - ac.memory.request
   - ac.memory.yield
   - ac.table
+  - ac.table.index
   - ac.table.get
   - ac.table.propose
   - ac.table.match

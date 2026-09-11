@@ -91,6 +91,19 @@ class StaticEvaluationTest(unittest.TestCase):
 
 
 class ValidationTest(unittest.TestCase):
+    def test_static_values_use_the_canonical_ijson_rules(self) -> None:
+        from agentic_circuit._static_eval import StaticEvalError, validate_ijson_value
+
+        for value, message in (
+            (-0.0, "negative zero"),
+            (float("inf"), "finite binary64"),
+            ("\ud800", "Unicode scalar"),
+            (1 << 53, "portable I-JSON range"),
+        ):
+            with self.subTest(value=repr(value)):
+                with self.assertRaisesRegex(StaticEvalError, message):
+                    validate_ijson_value(value)
+
     def test_supported_static_control_has_no_diagnostics(self) -> None:
         from agentic_circuit._diagnostics import DiagnosticBag
         from agentic_circuit._source import load_source_unit

@@ -1,12 +1,16 @@
 #include "acir/CodeGen/QueueGraphPyc.h"
 #include "acir/CodeGen/QueueBlockContract.h"
 
+#include "llvm/ADT/APInt.h"
 #include "llvm/ADT/ArrayRef.h"
+#include "llvm/ADT/SmallString.h"
 #include "llvm/ADT/StringMap.h"
 #include "llvm/ADT/StringRef.h"
+#include "llvm/ADT/StringSet.h"
 
 #include <algorithm>
 #include <bit>
+#include <limits>
 #include <memory>
 #include <sstream>
 #include <system_error>
@@ -32,7 +36,8 @@ const QueuePayloadPlan *findPayload(const QueueGraphPlan &plan,
   return found == plan.payloads.end() ? nullptr : &*found;
 }
 
-const QueueEnumPlan *findEnum(const QueueGraphPlan &plan, llvm::StringRef type) {
+const QueueEnumPlan *findEnum(const QueueGraphPlan &plan,
+                              llvm::StringRef type) {
   constexpr llvm::StringLiteral prefix = "!ac.enum<@types::@";
   if (!type.starts_with(prefix) || !type.ends_with('>'))
     return nullptr;
@@ -72,7 +77,8 @@ llvm::Expected<unsigned> typeWidth(const QueueGraphPlan &plan,
   unsigned total = 0;
   for (const QueuePayloadFieldPlan &field : payload->fields) {
     if (field.width == 0 || field.width > kMaximumPackedValueWidth - total)
-      return pycError("packed payload width exceeds the backend template domain");
+      return pycError(
+          "packed payload width exceeds the backend template domain");
     total += static_cast<unsigned>(field.width);
   }
   if (total == 0)
@@ -88,10 +94,118 @@ llvm::Expected<std::string> pycType(const QueueGraphPlan &plan,
   return "i" + std::to_string(*width);
 }
 
+bool pycIntegerCanRepresent(uint64_t value, llvm::StringRef type) {
+  uint64_t width = 0;
+  return type.consume_front("i") && !type.getAsInteger(10, width) &&
+         (width >= 64 || value < (uint64_t{1} << width));
+}
+
+llvm::Error verifyTablePycProfile(const QueueGraphPlan &plan) {
+  constexpr uint64_t maximumRank = 4;
+  constexpr uint64_t maximumEntries = 256;
+  constexpr uint64_t maximumEntryWidth = 256;
+  constexpr uint64_t maximumStateBits = 65'536;
+  constexpr uint64_t maximumWriters = 4;
+
+  llvm::StringMap<uint64_t> writerCounts;
+  for (const TableWritePlan &write : plan.tableWrites)
+    ++writerCounts[write.table];
+  for (const TableMaskedWritePlan &write : plan.tableMaskedWrites)
+    ++writerCounts[write.table];
+  for (const QueueBlockPlan &block : plan.blocks) {
+    if (block.kind != "firing")
+      continue;
+    llvm::StringSet<> writtenOwners;
+    for (const StateWritePlan &write : block.stateWrites)
+      if (writtenOwners.insert(write.table).second)
+        ++writerCounts[write.table];
+  }
+
+  for (const TablePlan &table : plan.tables) {
+    const uint64_t rank = table.shape.empty() ? 1 : table.shape.size();
+    if (rank > maximumRank)
+      return pycError("bounded Table PYC rank exceeds 4 for '" + table.name +
+                      "'");
+    auto width = typeWidth(plan, table.entryType);
+    if (!width)
+      return width.takeError();
+    if (*width > maximumEntryWidth)
+      return pycError("bounded Table PYC Entry width exceeds 256 bits for '" +
+                      table.name + "'");
+    if (table.entries != 0 &&
+        *width > std::numeric_limits<uint64_t>::max() / table.entries)
+      return pycError("bounded Table PYC total state width overflows for '" +
+                      table.name + "'");
+    if (table.entries * *width > maximumStateBits)
+      return pycError("bounded Table PYC total state exceeds 65536 bits for '" +
+                      table.name + "'");
+    if (table.entries > maximumEntries)
+      return pycError("bounded Table PYC entry count exceeds 256 for '" +
+                      table.name + "'");
+    if (writerCounts[table.name] > maximumWriters)
+      return pycError("bounded Table PYC writer count exceeds 4 for '" +
+                      table.name + "'");
+  }
+  return llvm::Error::success();
+}
+
+llvm::Expected<llvm::APInt>
+packTableInitValue(const QueueGraphPlan &plan,
+                   const TableInitValuePlan &value) {
+  auto width = typeWidth(plan, value.type);
+  if (!width)
+    return width.takeError();
+  if (value.kind == "integer")
+    return llvm::APInt(*width, value.value, 10);
+  if (value.kind == "enum") {
+    const QueueEnumPlan *enumeration = findEnum(plan, value.type);
+    if (!enumeration)
+      return pycError("typed Table enum initializer has unknown type");
+    auto found = llvm::find(enumeration->enumerants, value.value);
+    if (found == enumeration->enumerants.end())
+      return pycError("typed Table enum initializer has unknown enumerant");
+    return llvm::APInt(*width,
+                       std::distance(enumeration->enumerants.begin(), found));
+  }
+  if (value.kind != "struct" && value.kind != "tuple" && value.kind != "array")
+    return pycError("typed Table initializer kind is unsupported");
+  llvm::APInt packed(*width, 0);
+  uint64_t used = 0;
+  for (const TableInitValuePlan &element : value.elements) {
+    auto member = packTableInitValue(plan, element);
+    if (!member)
+      return member.takeError();
+    if (used > *width || member->getBitWidth() > *width - used)
+      return pycError("typed Table initializer width is inconsistent");
+    packed = packed.shl(member->getBitWidth());
+    packed |= member->zext(*width);
+    used += member->getBitWidth();
+  }
+  if (used != *width)
+    return pycError("typed Table initializer width is incomplete");
+  return packed;
+}
+
+std::string unsignedDecimal(const llvm::APInt &value) {
+  llvm::SmallString<96> storage;
+  value.toString(storage, 10, /*Signed=*/false);
+  return storage.str().str();
+}
+
 struct FieldLayout {
   unsigned lsb = 0;
   unsigned width = 0;
   std::string type;
+};
+
+struct RoundRobinPycState {
+  std::string nextWire;
+  std::string enableWire;
+  std::string cursor;
+  std::string type;
+  std::string nextCandidate;
+  std::string anyCandidate;
+  std::string owner;
 };
 
 llvm::Expected<FieldLayout> fieldLayout(const QueueGraphPlan &plan,
@@ -136,21 +250,366 @@ llvm::Expected<std::string> yieldedType(const QueueBlockPlan &block,
   return found->type;
 }
 
+QueueBlockPlan expressionSlice(const QueueBlockPlan &block,
+                               llvm::StringRef yield) {
+  QueueBlockPlan sliced;
+  sliced.yields.push_back(yield.str());
+  llvm::StringSet<> needed;
+  needed.insert(yield);
+  for (const QueueExpressionPlan &expression :
+       llvm::reverse(block.expressions)) {
+    if (!needed.contains(expression.result))
+      continue;
+    sliced.expressions.push_back(expression);
+    for (const std::string &operand : expression.operands)
+      needed.insert(operand);
+  }
+  std::reverse(sliced.expressions.begin(), sliced.expressions.end());
+  return sliced;
+}
+
+llvm::Expected<std::string> emitTransform(
+    const QueueGraphPlan &plan, const QueueBlockPlan &block,
+    llvm::ArrayRef<std::string> inputData,
+    llvm::ArrayRef<std::string> inputTypes, size_t yieldIndex,
+    unsigned &nextValue, std::ostringstream &body,
+    llvm::StringMap<std::string> *emittedValues = nullptr,
+    const llvm::StringMap<std::vector<std::string>> *tableValues = nullptr,
+    llvm::StringMap<RoundRobinPycState> *roundRobinStates = nullptr,
+    llvm::StringRef choiceOwner = {},
+    const llvm::StringMap<std::string> *inheritedValues = nullptr,
+    const llvm::StringMap<std::string> *inheritedTypes = nullptr,
+    llvm::StringMap<std::string> *sharedTableValues = nullptr);
+
+constexpr llvm::StringLiteral kStructMetrics =
+    "{\\\"ast_node_count\\\":0,\\\"collection_count\\\":0,"
+    "\\\"collection_instance_count\\\":0,"
+    "\\\"estimated_inline_cost\\\":0,\\\"hardware_call_count\\\":0,"
+    "\\\"instance_count\\\":0,\\\"loop_count\\\":0,"
+    "\\\"module_call_count\\\":0,"
+    "\\\"module_family_collection_count\\\":0,"
+    "\\\"repeat_pressure\\\":0,\\\"repeated_body_clusters\\\":[],"
+    "\\\"source_loc\\\":0,\\\"state_alloc_count\\\":0,"
+    "\\\"state_call_count\\\":0}";
+
+llvm::Expected<std::string>
+generateLaneQueuePyc(const QueueGraphPlan &plan,
+                     llvm::ArrayRef<const QueueBlockPlan *> sources,
+                     llvm::ArrayRef<const QueueBlockPlan *> sinks) {
+  if (sources.size() != 1 || sinks.size() != 1 || plan.queues.empty() ||
+      sources.front()->outputs.size() != 1 || sinks.front()->inputs.size() != 1)
+    return pycError("multi-lane PYC requires one source and one sink boundary");
+  llvm::StringMap<const QueueBlockPlan *> transformsByOutput;
+  for (const QueueBlockPlan &block : plan.blocks) {
+    if (block.kind == "source" || block.kind == "sink")
+      continue;
+    if (block.kind != "transform" || block.inputs.size() != 1 ||
+        block.outputs.size() != 1 || block.yields.size() != 1)
+      return pycError(
+          "multi-lane PYC supports only a chain of 1x1 pure transforms");
+    transformsByOutput[block.outputs.front()] = &block;
+  }
+  const QueuePlan *boundaryQueue =
+      findQueue(plan, sources.front()->outputs.front());
+  const QueuePlan *sinkQueue = findQueue(plan, sinks.front()->inputs.front());
+  if (!boundaryQueue || !sinkQueue)
+    return pycError("multi-lane Queue boundary identity is missing");
+  for (const QueuePlan &queue : plan.queues) {
+    if (queue.lanes != boundaryQueue->lanes ||
+        queue.rate != boundaryQueue->rate ||
+        queue.payloadType != boundaryQueue->payloadType || queue.lanes <= 1 ||
+        queue.rate == 0 || queue.rate > queue.lanes ||
+        queue.depth < queue.rate || queue.latency != 1)
+      return pycError(
+          "multi-lane transform chain requires uniform payload/lanes/rate, "
+          "latency=1, and depth>=rate");
+    if (queue.laneOrdinals.size() != queue.lanes)
+      return pycError("multi-lane Queue requires explicit lane ordinals");
+    for (auto [ordinal, lane] : llvm::enumerate(queue.laneOrdinals))
+      if (lane != ordinal)
+        return pycError(
+            "multi-lane Queue ordinals must be contiguous from zero");
+  }
+  auto payloadWidth = typeWidth(plan, boundaryQueue->payloadType);
+  if (!payloadWidth)
+    return payloadWidth.takeError();
+  const QueuePlan &queue = *boundaryQueue;
+  unsigned nextValue = 0;
+  auto newValue = [&]() { return "%v" + std::to_string(nextValue++); };
+  std::ostringstream body;
+  auto emitConstant = [&](uint64_t value, llvm::StringRef type) {
+    std::string result = newValue();
+    body << "    " << result << " = pyc.constant " << value << " : "
+         << type.str() << "\n";
+    return result;
+  };
+  auto emitBinary = [&](llvm::StringRef operation, llvm::StringRef lhs,
+                        llvm::StringRef rhs, llvm::StringRef type) {
+    std::string result = newValue();
+    body << "    " << result << " = pyc." << operation.str() << ' ' << lhs.str()
+         << ", " << rhs.str() << " : " << type.str() << ", " << type.str()
+         << " -> " << type.str() << "\n";
+    return result;
+  };
+  auto emitNot = [&](llvm::StringRef value) {
+    std::string result = newValue();
+    body << "    " << result << " = pyc.not " << value.str() << " : i1\n";
+    return result;
+  };
+  auto emitSelect = [&](llvm::StringRef condition, llvm::StringRef trueValue,
+                        llvm::StringRef falseValue, llvm::StringRef type) {
+    std::string result = newValue();
+    body << "    " << result << " = pyc.select " << condition.str() << ", "
+         << trueValue.str() << ", " << falseValue.str() << " : i1, "
+         << type.str() << ", " << type.str() << " -> " << type.str() << "\n";
+    return result;
+  };
+
+  const std::string payloadType = "i" + std::to_string(*payloadWidth);
+  std::vector<std::string> inputValids;
+  std::vector<std::string> inputData;
+  for (uint64_t lane = 0; lane < queue.lanes; ++lane) {
+    inputValids.push_back("%in_valid_" + std::to_string(lane));
+    inputData.push_back("%in_data_" + std::to_string(lane));
+  }
+  for (uint64_t lane = 1; lane < queue.lanes; ++lane) {
+    std::string prefixOk = emitBinary("or", emitNot(inputValids[lane]),
+                                      inputValids[lane - 1], "i1");
+    body << "    pyc.assert " << prefixOk
+         << " {msg = \"queue_valid_prefix\"}\n";
+  }
+  for (uint64_t lane = queue.rate; lane < queue.lanes; ++lane) {
+    std::string rateOk = emitNot(inputValids[lane]);
+    body << "    pyc.assert " << rateOk << " {msg = \"queue_rate_exceeded\"}\n";
+  }
+  std::string zeroI1 = emitConstant(0, "i1");
+  std::string zeroData = emitConstant(0, payloadType);
+  struct LaneQueueState {
+    std::vector<std::string> valid;
+    std::vector<std::string> data;
+    std::string dequeue;
+    std::string producerReady;
+  };
+  llvm::StringMap<LaneQueueState> queueStates;
+  std::string sourceReady;
+  for (const QueuePlan &currentQueue : plan.queues) {
+    std::vector<std::string> producerValids;
+    std::vector<std::string> producerData;
+    const QueueBlockPlan *transform = nullptr;
+    if (currentQueue.name == sources.front()->outputs.front()) {
+      producerValids = inputValids;
+      producerData = inputData;
+    } else {
+      auto found = transformsByOutput.find(currentQueue.name);
+      if (found == transformsByOutput.end())
+        return pycError(
+            "multi-lane transform chain is not topologically closed");
+      transform = found->getValue();
+      auto input = queueStates.find(transform->inputs.front());
+      if (input == queueStates.end())
+        return pycError(
+            "multi-lane transform input is not in topological order");
+      for (uint64_t lane = 0; lane < currentQueue.lanes; ++lane) {
+        producerValids.push_back(
+            lane < currentQueue.rate ? input->getValue().valid[lane] : zeroI1);
+        auto transformed = emitTransform(
+            plan, *transform, {input->getValue().data[lane]},
+            {currentQueue.payloadType}, 0, nextValue, body, nullptr);
+        if (!transformed)
+          return transformed.takeError();
+        producerData.push_back(std::move(*transformed));
+      }
+    }
+
+    std::vector<std::string> validNext, validEnable, validState;
+    std::vector<std::string> dataNext, dataEnable, dataState;
+    for (uint64_t slot = 0; slot < currentQueue.depth; ++slot) {
+      validNext.push_back(newValue());
+      validEnable.push_back(newValue());
+      validState.push_back(newValue());
+      body << "    " << validNext.back() << " = pyc.wire : i1\n";
+      body << "    " << validEnable.back() << " = pyc.wire : i1\n";
+      body << "    " << validState.back() << " = pyc.reg %clk, %rst, "
+           << validEnable.back() << ", " << validNext.back() << ", " << zeroI1
+           << " : i1\n";
+      dataNext.push_back(newValue());
+      dataEnable.push_back(newValue());
+      dataState.push_back(newValue());
+      body << "    " << dataNext.back() << " = pyc.wire : " << payloadType
+           << "\n";
+      body << "    " << dataEnable.back() << " = pyc.wire : i1\n";
+      body << "    " << dataState.back() << " = pyc.reg %clk, %rst, "
+           << dataEnable.back() << ", " << dataNext.back() << ", " << zeroData
+           << " : " << payloadType << "\n";
+    }
+    std::string dequeue = newValue();
+    body << "    " << dequeue << " = pyc.wire : i1\n";
+    std::vector<std::string> nextValid, nextData;
+    for (uint64_t slot = 0; slot < currentQueue.depth; ++slot) {
+      const std::string shiftedValid =
+          slot + currentQueue.rate < currentQueue.depth
+              ? validState[slot + currentQueue.rate]
+              : zeroI1;
+      const std::string shiftedData =
+          slot + currentQueue.rate < currentQueue.depth
+              ? dataState[slot + currentQueue.rate]
+              : zeroData;
+      nextValid.push_back(
+          emitSelect(dequeue, shiftedValid, validState[slot], "i1"));
+      nextData.push_back(
+          emitSelect(dequeue, shiftedData, dataState[slot], payloadType));
+    }
+    std::string ready = emitConstant(1, "i1");
+    for (uint64_t lane = 0; lane < currentQueue.rate; ++lane) {
+      std::string capacity = emitNot(nextValid[currentQueue.depth - 1 - lane]);
+      std::string laneFits =
+          emitBinary("or", emitNot(producerValids[lane]), capacity, "i1");
+      ready = emitBinary("and", ready, laneFits, "i1");
+    }
+    std::string accepted =
+        emitBinary("and", producerValids.front(), ready, "i1");
+    for (uint64_t lane = 0; lane < currentQueue.rate; ++lane) {
+      const std::vector<std::string> beforeValid = nextValid;
+      const std::vector<std::string> beforeData = nextData;
+      for (uint64_t slot = 0; slot < currentQueue.depth; ++slot) {
+        std::string firstFree = emitNot(beforeValid[slot]);
+        if (slot != 0)
+          firstFree = emitBinary("and", firstFree, beforeValid[slot - 1], "i1");
+        std::string insert =
+            emitBinary("and", ready, producerValids[lane], "i1");
+        insert = emitBinary("and", insert, firstFree, "i1");
+        nextData[slot] = emitSelect(insert, producerData[lane],
+                                    beforeData[slot], payloadType);
+        nextValid[slot] = emitBinary("or", beforeValid[slot], insert, "i1");
+      }
+    }
+    std::string stateEnable = emitBinary("or", dequeue, accepted, "i1");
+    for (uint64_t slot = 0; slot < currentQueue.depth; ++slot) {
+      body << "    pyc.assign " << validNext[slot] << ", " << nextValid[slot]
+           << " : i1\n";
+      body << "    pyc.assign " << validEnable[slot] << ", " << stateEnable
+           << " : i1\n";
+      body << "    pyc.assign " << dataNext[slot] << ", " << nextData[slot]
+           << " : " << payloadType << "\n";
+      body << "    pyc.assign " << dataEnable[slot] << ", " << stateEnable
+           << " : i1\n";
+    }
+    LaneQueueState state{std::move(validState), std::move(dataState), dequeue,
+                         ready};
+    auto inserted =
+        queueStates.try_emplace(currentQueue.name, std::move(state)).first;
+    if (transform) {
+      LaneQueueState &input = queueStates[transform->inputs.front()];
+      std::string consume = emitBinary("and", input.valid.front(), ready, "i1");
+      body << "    pyc.assign " << input.dequeue << ", " << consume
+           << " : i1\n";
+    } else {
+      sourceReady = ready;
+    }
+    (void)inserted;
+  }
+  LaneQueueState &outputState = queueStates[sinkQueue->name];
+  std::string outputDequeue =
+      emitBinary("and", outputState.valid.front(), "%out_ready", "i1");
+  body << "    pyc.assign " << outputState.dequeue << ", " << outputDequeue
+       << " : i1\n";
+
+  std::vector<std::string> returnValues;
+  std::vector<std::string> resultTypes;
+  std::vector<std::string> resultNames;
+  for (uint64_t lane = 0; lane < queue.lanes; ++lane) {
+    std::string valid = lane < queue.rate ? outputState.valid[lane] : zeroI1;
+    std::string data = lane < queue.rate ? outputState.data[lane] : zeroData;
+    returnValues.push_back(valid);
+    returnValues.push_back(data);
+    resultTypes.push_back("i1");
+    resultTypes.push_back(payloadType);
+    resultNames.push_back("out_valid_" + std::to_string(lane));
+    resultNames.push_back("out_data_" + std::to_string(lane));
+  }
+  returnValues.push_back(sourceReady);
+  resultTypes.push_back("i1");
+  resultNames.push_back("in_ready");
+
+  std::vector<std::string> arguments = {"%clk: !pyc.clock", "%rst: !pyc.reset"};
+  std::vector<std::string> argumentNames = {"clk", "rst"};
+  for (uint64_t lane = 0; lane < queue.lanes; ++lane) {
+    arguments.push_back(inputValids[lane] + ": i1");
+    arguments.push_back(inputData[lane] + ": " + payloadType);
+    argumentNames.push_back("in_valid_" + std::to_string(lane));
+    argumentNames.push_back("in_data_" + std::to_string(lane));
+  }
+  arguments.push_back("%out_ready: i1");
+  argumentNames.push_back("out_ready");
+  auto writeList =
+      [](std::ostringstream &stream, llvm::ArrayRef<std::string> values,
+         llvm::StringRef prefix = {}, llvm::StringRef suffix = {}) {
+        for (auto [index, value] : llvm::enumerate(values)) {
+          if (index)
+            stream << ", ";
+          stream << prefix.str() << value << suffix.str();
+        }
+      };
+  std::ostringstream output;
+  output << "module attributes {pyc.top = @" << plan.system
+         << ", pyc.frontend.contract = \"pycircuit\"} {\n  func.func @"
+         << plan.system << '(';
+  writeList(output, arguments);
+  output << ") -> (";
+  writeList(output, resultTypes);
+  output << ") attributes {arg_names = [";
+  writeList(output, argumentNames, "\"", "\"");
+  output << "], result_names = [";
+  writeList(output, resultNames, "\"", "\"");
+  output << "], pyc.value_params = [], pyc.value_param_types = [], "
+            "pyc.kind = \"module\", pyc.inline = \"false\", "
+            "pyc.params = \"{}\", pyc.base = \""
+         << plan.system << "\", pyc.struct.metrics = \"" << kStructMetrics.str()
+         << "\", pyc.struct.collections = \"[]\"} {\n"
+         << body.str() << "    func.return ";
+  writeList(output, returnValues);
+  output << " : ";
+  writeList(output, resultTypes);
+  output << "\n  }\n}\n";
+  return output.str();
+}
+
 llvm::Expected<std::string>
 emitTransform(const QueueGraphPlan &plan, const QueueBlockPlan &block,
               llvm::ArrayRef<std::string> inputData,
               llvm::ArrayRef<std::string> inputTypes, size_t yieldIndex,
               unsigned &nextValue, std::ostringstream &body,
-              llvm::StringMap<std::string> *emittedValues = nullptr) {
-  if (inputData.size() != inputTypes.size() || inputData.empty())
+              llvm::StringMap<std::string> *emittedValues,
+              const llvm::StringMap<std::vector<std::string>> *tableValues,
+              llvm::StringMap<RoundRobinPycState> *roundRobinStates,
+              llvm::StringRef choiceOwner,
+              const llvm::StringMap<std::string> *inheritedValues,
+              const llvm::StringMap<std::string> *inheritedTypes,
+              llvm::StringMap<std::string> *sharedTableValues) {
+  if (inputData.size() != inputTypes.size())
     return pycError("transform input data/type arity mismatch");
   llvm::StringMap<std::string> values;
   llvm::StringMap<std::string> types;
+  if (inheritedValues)
+    for (const auto &entry : *inheritedValues)
+      values[entry.getKey()] = entry.getValue();
+  if (inheritedTypes)
+    for (const auto &entry : *inheritedTypes)
+      types[entry.getKey()] = entry.getValue();
   llvm::StringMap<std::pair<std::string, std::string>> priorityValues;
+  struct ChoiceValues {
+    std::vector<std::string> indices;
+    std::vector<std::string> valids;
+  };
+  llvm::StringMap<ChoiceValues> choiceValues;
   for (size_t index = 0; index < inputData.size(); ++index) {
     std::string name = index == 0 ? "item" : "item" + std::to_string(index);
     values[name] = inputData[index];
     types[name] = inputTypes[index];
+  }
+  if (inputData.size() == 1) {
+    values["entry"] = inputData.front();
+    types["entry"] = inputTypes.front();
   }
   auto newValue = [&]() { return "%v" + std::to_string(nextValue++); };
   auto value = [&](llvm::StringRef name) -> llvm::Expected<std::string> {
@@ -167,6 +626,8 @@ emitTransform(const QueueGraphPlan &plan, const QueueBlockPlan &block,
     return found->getValue();
   };
   for (const QueueExpressionPlan &expression : block.expressions) {
+    if (values.contains(expression.result))
+      continue;
     std::string result;
     if (expression.kind == "enum_constant") {
       result = newValue();
@@ -181,15 +642,716 @@ emitTransform(const QueueGraphPlan &plan, const QueueBlockPlan &block,
       auto type = pycType(plan, expression.type);
       if (!type)
         return type.takeError();
-      body << "    " << result << " = pyc.constant "
-           << literal.split(" : ").first.str() << " : " << *type << "\n";
+      llvm::StringRef spelling = literal.split(" : ").first;
+      if (spelling == "true")
+        spelling = "1";
+      else if (spelling == "false")
+        spelling = "0";
+      body << "    " << result << " = pyc.constant " << spelling.str() << " : "
+           << *type << "\n";
     } else {
-      if (expression.operands.empty())
+      if (expression.operands.empty() && expression.kind != "table_match" &&
+          expression.kind != "table_match_ref" &&
+          expression.kind != "table_selection_index_ref" &&
+          expression.kind != "table_selection_valid_ref")
         return pycError("transform expression operand is missing");
-      auto first = value(expression.operands[0]);
+      auto first = expression.operands.empty()
+                       ? llvm::Expected<std::string>(std::string())
+                       : value(expression.operands[0]);
       if (!first)
         return first.takeError();
-      if (expression.kind == "masked_match") {
+      if (expression.kind == "table_selection_index_ref" ||
+          expression.kind == "table_selection_valid_ref") {
+        const std::string sharedKey =
+            "selection:" + expression.table + ":" + expression.field + ":" +
+            expression.kind + ":" + std::to_string(expression.laneOrdinal);
+        auto shared = sharedTableValues
+                          ? sharedTableValues->find(sharedKey)
+                          : llvm::StringMap<std::string>::iterator();
+        if (sharedTableValues && shared != sharedTableValues->end()) {
+          result = shared->getValue();
+        } else {
+          auto selection = llvm::find_if(
+              plan.tableSelections, [&](const TableSelectionPlan &candidate) {
+                return candidate.name == expression.field &&
+                       candidate.table == expression.table;
+              });
+          if (selection == plan.tableSelections.end())
+            return pycError(
+                "table_selection_ref references unknown shared selection");
+          auto maskExpression = llvm::find_if(
+              block.expressions, [&](const QueueExpressionPlan &candidate) {
+                return candidate.kind == "table_match_ref" &&
+                       candidate.field == selection->match;
+              });
+          if (maskExpression == block.expressions.end() ||
+              !values.contains(maskExpression->result))
+            return pycError("shared Table selection match value is missing");
+          QueueBlockPlan evaluation;
+          auto match = llvm::find_if(
+              plan.tableMatches, [&](const TableMatchPlan &candidate) {
+                return candidate.name == selection->match &&
+                       candidate.table == selection->table;
+              });
+          if (match == plan.tableMatches.end())
+            return pycError("shared Table selection match plan is missing");
+          QueueExpressionPlan matchMetadata = *maskExpression;
+          matchMetadata.kind = "table_match";
+          matchMetadata.table = match->table;
+          matchMetadata.type = match->resultType;
+          matchMetadata.domainAxes = match->domainAxes;
+          matchMetadata.domainShape = match->domainShape;
+          matchMetadata.domainStrides = match->domainStrides;
+          matchMetadata.domainOffset = match->domainOffset;
+          matchMetadata.hasDomainProjection = match->hasDomainProjection;
+          evaluation.expressions.push_back(std::move(matchMetadata));
+          for (const QueueExpressionPlan &reference : block.expressions) {
+            if ((reference.kind != "table_selection_index_ref" &&
+                 reference.kind != "table_selection_valid_ref") ||
+                reference.field != expression.field)
+              continue;
+            QueueExpressionPlan choice = reference;
+            choice.kind = reference.kind == "table_selection_index_ref"
+                              ? "table_choose_index"
+                              : "table_choose_valid";
+            choice.operands = {maskExpression->result};
+            choice.field = selection->stableId.empty() ? selection->name
+                                                       : selection->stableId;
+            choice.predicate = selection->policy;
+            choice.nestedExpressions = selection->keyExpressions;
+            if (!selection->keyYield.empty())
+              choice.nestedYields = {selection->keyYield};
+            choice.selectionCount = selection->count;
+            choice.keyOrdering = selection->keyOrdering;
+            choice.initialCursor = selection->initialCursor;
+            evaluation.yields.push_back(choice.result);
+            evaluation.expressions.push_back(std::move(choice));
+          }
+          llvm::StringMap<std::string> emitted;
+          auto selected =
+              emitTransform(plan, evaluation, {}, {}, 0, nextValue, body,
+                            &emitted, tableValues, roundRobinStates,
+                            choiceOwner, &values, &types, sharedTableValues);
+          if (!selected)
+            return selected.takeError();
+          for (const QueueExpressionPlan &reference : block.expressions) {
+            if ((reference.kind == "table_selection_index_ref" ||
+                 reference.kind == "table_selection_valid_ref") &&
+                reference.field == expression.field) {
+              auto found = emitted.find(reference.result);
+              if (found == emitted.end())
+                return pycError("shared Table selection result is missing");
+              values[reference.result] = found->getValue();
+              types[reference.result] = reference.type;
+            }
+          }
+          result = values[expression.result];
+          if (sharedTableValues)
+            for (const QueueExpressionPlan &reference : block.expressions) {
+              if ((reference.kind != "table_selection_index_ref" &&
+                   reference.kind != "table_selection_valid_ref") ||
+                  reference.field != expression.field)
+                continue;
+              const std::string key =
+                  "selection:" + reference.table + ":" + reference.field + ":" +
+                  reference.kind + ":" + std::to_string(reference.laneOrdinal);
+              (*sharedTableValues)[key] = values[reference.result];
+            }
+        }
+      } else if (expression.kind == "table_match_ref") {
+        const std::string sharedKey =
+            "match:" + expression.table + ":" + expression.field;
+        auto shared = sharedTableValues
+                          ? sharedTableValues->find(sharedKey)
+                          : llvm::StringMap<std::string>::iterator();
+        if (sharedTableValues && shared != sharedTableValues->end()) {
+          result = shared->getValue();
+        } else {
+          auto match = llvm::find_if(
+              plan.tableMatches, [&](const TableMatchPlan &candidate) {
+                return candidate.name == expression.field &&
+                       candidate.table == expression.table;
+              });
+          if (match == plan.tableMatches.end())
+            return pycError("table_match_ref references unknown shared match");
+          QueueExpressionPlan materialized;
+          materialized.result = expression.result;
+          materialized.kind = "table_match";
+          materialized.type = expression.type;
+          materialized.table = match->table;
+          materialized.nestedExpressions = match->expressions;
+          materialized.nestedYields = {match->yield};
+          materialized.domainAxes = match->domainAxes;
+          materialized.domainShape = match->domainShape;
+          materialized.domainStrides = match->domainStrides;
+          materialized.domainOffset = match->domainOffset;
+          materialized.hasDomainProjection = match->hasDomainProjection;
+          QueueBlockPlan matchBlock;
+          matchBlock.expressions.push_back(std::move(materialized));
+          matchBlock.yields.push_back(expression.result);
+          auto emitted = emitTransform(plan, matchBlock, {}, {}, 0, nextValue,
+                                       body, nullptr, tableValues);
+          if (!emitted)
+            return emitted.takeError();
+          result = std::move(*emitted);
+          if (sharedTableValues)
+            (*sharedTableValues)[sharedKey] = result;
+        }
+      } else if (expression.kind == "table_choose_index" ||
+                 expression.kind == "table_choose_valid") {
+        if (!tableValues || expression.operands.size() != 1 ||
+            expression.field.empty() || expression.selectionCount == 0)
+          return pycError("table_choose expression contract is malformed");
+        auto cached = choiceValues.find(expression.field);
+        if (cached == choiceValues.end()) {
+          const TablePlan *tablePlan = nullptr;
+          for (const TablePlan &candidate : plan.tables)
+            if (candidate.name == expression.table) {
+              tablePlan = &candidate;
+              break;
+            }
+          auto table = tableValues->find(expression.table);
+          auto mask = value(expression.operands.front());
+          auto maskSourceType = valueType(expression.operands.front());
+          auto maskType =
+              maskSourceType
+                  ? pycType(plan, *maskSourceType)
+                  : llvm::Expected<std::string>(maskSourceType.takeError());
+          if (!tablePlan || table == tableValues->end())
+            return pycError("table_choose references unknown Table bank");
+          if (!mask)
+            return mask.takeError();
+          if (!maskType)
+            return maskType.takeError();
+          const QueueExpressionPlan *match = nullptr;
+          for (const QueueExpressionPlan &candidate : block.expressions)
+            if (candidate.result == expression.operands.front() &&
+                candidate.kind == "table_match") {
+              match = &candidate;
+              break;
+            }
+          if (!match)
+            return pycError("table_choose candidate mask has no match plan");
+          std::vector<uint64_t> tableIndices;
+          if (!match->hasDomainProjection) {
+            for (uint64_t index = 0; index < tablePlan->entries; ++index)
+              tableIndices.push_back(index);
+          } else {
+            uint64_t domainEntries = 1;
+            for (uint64_t extent : match->domainShape)
+              domainEntries *= extent;
+            for (uint64_t ordinal = 0; ordinal < domainEntries; ++ordinal) {
+              uint64_t remaining = ordinal;
+              uint64_t tableIndex = match->domainOffset;
+              for (size_t axis = match->domainShape.size(); axis-- > 0;) {
+                const uint64_t coordinate =
+                    remaining % match->domainShape[axis];
+                remaining /= match->domainShape[axis];
+                tableIndex += coordinate * match->domainStrides[axis];
+              }
+              tableIndices.push_back(tableIndex);
+            }
+          }
+          const unsigned indexWidth =
+              std::max(1u, static_cast<unsigned>(std::bit_width(
+                               static_cast<unsigned>(tablePlan->entries - 1))));
+          const std::string indexType = "i" + std::to_string(indexWidth);
+          std::vector<std::string> remaining;
+          remaining.reserve(tableIndices.size());
+          for (uint64_t ordinal = 0; ordinal < tableIndices.size(); ++ordinal) {
+            std::string valid = newValue();
+            body << "    " << valid << " = pyc.extract " << *mask
+                 << " {lsb = " << ordinal << "} : " << *maskType << " -> i1\n";
+            remaining.push_back(std::move(valid));
+          }
+          std::vector<std::string> candidateKeys;
+          std::string selectionKeyType;
+          if (expression.predicate == "min" || expression.predicate == "max") {
+            if (expression.nestedYields.size() != 1)
+              return pycError("ordered table_choose requires one key");
+            QueueBlockPlan keyBlock;
+            keyBlock.expressions = expression.nestedExpressions;
+            keyBlock.yields = expression.nestedYields;
+            auto type = yieldedType(keyBlock, keyBlock.yields.front(),
+                                    tablePlan->entryType);
+            auto pyc = type ? pycType(plan, *type)
+                            : llvm::Expected<std::string>(type.takeError());
+            if (!pyc)
+              return pyc.takeError();
+            selectionKeyType = std::move(*pyc);
+            for (uint64_t tableIndex : tableIndices) {
+              auto key =
+                  emitTransform(plan, keyBlock, {table->getValue()[tableIndex]},
+                                {tablePlan->entryType}, 0, nextValue, body,
+                                nullptr, tableValues);
+              if (!key)
+                return key.takeError();
+              candidateKeys.push_back(std::move(*key));
+            }
+          }
+          ChoiceValues selected;
+          if (expression.predicate == "round_robin") {
+            if (!roundRobinStates || choiceOwner.empty())
+              return pycError(
+                  "round-robin Table selection has no transaction owner");
+            const unsigned cursorWidth = std::max(
+                1u, static_cast<unsigned>(std::bit_width(
+                        static_cast<unsigned>(tableIndices.size() - 1))));
+            const std::string cursorType = "i" + std::to_string(cursorWidth);
+            RoundRobinPycState rr;
+            rr.nextWire = newValue();
+            rr.enableWire = newValue();
+            std::string initial = newValue();
+            body << "    " << rr.nextWire << " = pyc.wire : " << cursorType
+                 << "\n";
+            body << "    " << rr.enableWire << " = pyc.wire : i1\n";
+            body << "    " << initial << " = pyc.constant "
+                 << expression.initialCursor << " : " << cursorType << "\n";
+            rr.cursor = newValue();
+            rr.type = cursorType;
+            rr.owner = choiceOwner.str();
+            body << "    " << rr.cursor << " = pyc.reg %clk, %rst, "
+                 << rr.enableWire << ", " << rr.nextWire << ", " << initial
+                 << " : " << cursorType << "\n";
+            std::vector<ChoiceValues> byStart;
+            std::vector<std::string> nextByStart;
+            for (size_t start = 0; start < tableIndices.size(); ++start) {
+              std::vector<std::string> localRemaining = remaining;
+              ChoiceValues choice;
+              std::string nextCursor = rr.cursor;
+              for (uint64_t lane = 0; lane < expression.selectionCount;
+                   ++lane) {
+                std::string chosenValid = newValue();
+                body << "    " << chosenValid << " = pyc.constant 0 : i1\n";
+                std::string chosenIndex = newValue();
+                body << "    " << chosenIndex
+                     << " = pyc.constant 0 : " << indexType << "\n";
+                std::string chosenLocal = newValue();
+                body << "    " << chosenLocal << " = pyc.constant " << start
+                     << " : " << cursorType << "\n";
+                for (size_t offset = 0; offset < tableIndices.size();
+                     ++offset) {
+                  const size_t candidate =
+                      (start + offset) % tableIndices.size();
+                  std::string noChoice = newValue();
+                  body << "    " << noChoice << " = pyc.not " << chosenValid
+                       << " : i1\n";
+                  std::string take = newValue();
+                  body << "    " << take << " = pyc.and "
+                       << localRemaining[candidate] << ", " << noChoice
+                       << " : i1, i1 -> i1\n";
+                  std::string candidateIndex = newValue();
+                  body << "    " << candidateIndex << " = pyc.constant "
+                       << tableIndices[candidate] << " : " << indexType << "\n";
+                  std::string nextIndex = newValue();
+                  body << "    " << nextIndex << " = pyc.select " << take
+                       << ", " << candidateIndex << ", " << chosenIndex
+                       << " : i1, " << indexType << ", " << indexType << " -> "
+                       << indexType << "\n";
+                  chosenIndex = std::move(nextIndex);
+                  std::string candidateLocal = newValue();
+                  body << "    " << candidateLocal << " = pyc.constant "
+                       << candidate << " : " << cursorType << "\n";
+                  std::string nextLocal = newValue();
+                  body << "    " << nextLocal << " = pyc.select " << take
+                       << ", " << candidateLocal << ", " << chosenLocal
+                       << " : i1, " << cursorType << ", " << cursorType
+                       << " -> " << cursorType << "\n";
+                  chosenLocal = std::move(nextLocal);
+                  std::string nextValid = newValue();
+                  body << "    " << nextValid << " = pyc.or " << chosenValid
+                       << ", " << localRemaining[candidate]
+                       << " : i1, i1 -> i1\n";
+                  chosenValid = std::move(nextValid);
+                }
+                choice.indices.push_back(chosenIndex);
+                choice.valids.push_back(chosenValid);
+                for (auto [candidate, tableIndex] :
+                     llvm::enumerate(tableIndices)) {
+                  std::string candidateIndex = newValue();
+                  body << "    " << candidateIndex << " = pyc.constant "
+                       << tableIndex << " : " << indexType << "\n";
+                  std::string same = newValue();
+                  body << "    " << same << " = pyc.cmp " << chosenIndex << ", "
+                       << candidateIndex
+                       << " {predicate = \"eq\"} : " << indexType << ", "
+                       << indexType << " -> i1\n";
+                  std::string remove = newValue();
+                  body << "    " << remove << " = pyc.and " << chosenValid
+                       << ", " << same << " : i1, i1 -> i1\n";
+                  std::string keep = newValue();
+                  body << "    " << keep << " = pyc.not " << remove
+                       << " : i1\n";
+                  std::string nextRemaining = newValue();
+                  body << "    " << nextRemaining << " = pyc.and "
+                       << localRemaining[candidate] << ", " << keep
+                       << " : i1, i1 -> i1\n";
+                  localRemaining[candidate] = std::move(nextRemaining);
+                }
+                std::string advanced = nextCursor;
+                for (size_t candidate = tableIndices.size(); candidate-- > 0;) {
+                  std::string candidateLocal = newValue();
+                  body << "    " << candidateLocal << " = pyc.constant "
+                       << candidate << " : " << cursorType << "\n";
+                  std::string same = newValue();
+                  body << "    " << same << " = pyc.cmp " << chosenLocal << ", "
+                       << candidateLocal
+                       << " {predicate = \"eq\"} : " << cursorType << ", "
+                       << cursorType << " -> i1\n";
+                  std::string use = newValue();
+                  body << "    " << use << " = pyc.and " << chosenValid << ", "
+                       << same << " : i1, i1 -> i1\n";
+                  std::string following = newValue();
+                  body << "    " << following << " = pyc.constant "
+                       << ((candidate + 1) % tableIndices.size()) << " : "
+                       << cursorType << "\n";
+                  advanced = [&]() {
+                    std::string value = newValue();
+                    body << "    " << value << " = pyc.select " << use << ", "
+                         << following << ", " << advanced << " : i1, "
+                         << cursorType << ", " << cursorType << " -> "
+                         << cursorType << "\n";
+                    return value;
+                  }();
+                }
+                nextCursor = std::move(advanced);
+              }
+              byStart.push_back(std::move(choice));
+              nextByStart.push_back(std::move(nextCursor));
+            }
+            selected = byStart.front();
+            std::string selectedNext = nextByStart.front();
+            for (size_t start = 1; start < tableIndices.size(); ++start) {
+              std::string startValue = newValue();
+              body << "    " << startValue << " = pyc.constant " << start
+                   << " : " << cursorType << "\n";
+              std::string atStart = newValue();
+              body << "    " << atStart << " = pyc.cmp " << rr.cursor << ", "
+                   << startValue << " {predicate = \"eq\"} : " << cursorType
+                   << ", " << cursorType << " -> i1\n";
+              for (size_t lane = 0; lane < selected.indices.size(); ++lane) {
+                std::string index = newValue();
+                body << "    " << index << " = pyc.select " << atStart << ", "
+                     << byStart[start].indices[lane] << ", "
+                     << selected.indices[lane] << " : i1, " << indexType << ", "
+                     << indexType << " -> " << indexType << "\n";
+                selected.indices[lane] = std::move(index);
+                std::string valid = newValue();
+                body << "    " << valid << " = pyc.select " << atStart << ", "
+                     << byStart[start].valids[lane] << ", "
+                     << selected.valids[lane] << " : i1, i1, i1 -> i1\n";
+                selected.valids[lane] = std::move(valid);
+              }
+              std::string next = newValue();
+              body << "    " << next << " = pyc.select " << atStart << ", "
+                   << nextByStart[start] << ", " << selectedNext << " : i1, "
+                   << cursorType << ", " << cursorType << " -> " << cursorType
+                   << "\n";
+              selectedNext = std::move(next);
+            }
+            rr.nextCandidate = std::move(selectedNext);
+            rr.anyCandidate = selected.valids.front();
+            for (size_t lane = 1; lane < selected.valids.size(); ++lane) {
+              std::string any = newValue();
+              body << "    " << any << " = pyc.or " << rr.anyCandidate << ", "
+                   << selected.valids[lane] << " : i1, i1 -> i1\n";
+              rr.anyCandidate = std::move(any);
+            }
+            (*roundRobinStates)[expression.table + "\x1f" + expression.field] =
+                std::move(rr);
+          } else {
+            for (uint64_t lane = 0; lane < expression.selectionCount; ++lane) {
+              std::string chosenValid = newValue();
+              body << "    " << chosenValid << " = pyc.constant 0 : i1\n";
+              std::string chosenIndex = newValue();
+              body << "    " << chosenIndex
+                   << " = pyc.constant 0 : " << indexType << "\n";
+              std::string chosenKey;
+              std::string keyType;
+              for (auto [candidate, tableIndex] :
+                   llvm::enumerate(tableIndices)) {
+                std::string take;
+                std::string key;
+                if (expression.predicate == "first") {
+                  std::string noChoice = newValue();
+                  body << "    " << noChoice << " = pyc.not " << chosenValid
+                       << " : i1\n";
+                  take = newValue();
+                  body << "    " << take << " = pyc.and "
+                       << remaining[candidate] << ", " << noChoice
+                       << " : i1, i1 -> i1\n";
+                } else {
+                  if (candidate >= candidateKeys.size() ||
+                      selectionKeyType.empty())
+                    return pycError(
+                        "ordered table_choose key cache is missing");
+                  key = candidateKeys[candidate];
+                  if (keyType.empty()) {
+                    keyType = selectionKeyType;
+                    chosenKey = newValue();
+                    body << "    " << chosenKey
+                         << " = pyc.constant 0 : " << keyType << "\n";
+                  }
+                  const bool selectMinimum = expression.predicate == "min";
+                  if (!selectMinimum && expression.predicate != "max")
+                    return pycError("unsupported Table selection policy");
+                  const std::string predicate =
+                      expression.keyOrdering == "signed" ? "slt" : "ult";
+                  std::string better = newValue();
+                  body << "    " << better << " = pyc.cmp "
+                       << (selectMinimum ? key : chosenKey) << ", "
+                       << (selectMinimum ? chosenKey : key)
+                       << " {predicate = \"" << predicate << "\"} : " << keyType
+                       << ", " << keyType << " -> i1\n";
+                  std::string noChoice = newValue();
+                  body << "    " << noChoice << " = pyc.not " << chosenValid
+                       << " : i1\n";
+                  std::string preferred = newValue();
+                  body << "    " << preferred << " = pyc.or " << noChoice
+                       << ", " << better << " : i1, i1 -> i1\n";
+                  take = newValue();
+                  body << "    " << take << " = pyc.and "
+                       << remaining[candidate] << ", " << preferred
+                       << " : i1, i1 -> i1\n";
+                  std::string nextKey = newValue();
+                  body << "    " << nextKey << " = pyc.select " << take << ", "
+                       << key << ", " << chosenKey << " : i1, " << keyType
+                       << ", " << keyType << " -> " << keyType << "\n";
+                  chosenKey = std::move(nextKey);
+                }
+                std::string candidateIndex = newValue();
+                body << "    " << candidateIndex << " = pyc.constant "
+                     << tableIndex << " : " << indexType << "\n";
+                std::string nextIndex = newValue();
+                body << "    " << nextIndex << " = pyc.select " << take << ", "
+                     << candidateIndex << ", " << chosenIndex << " : i1, "
+                     << indexType << ", " << indexType << " -> " << indexType
+                     << "\n";
+                chosenIndex = std::move(nextIndex);
+                std::string nextValid = newValue();
+                body << "    " << nextValid << " = pyc.or " << chosenValid
+                     << ", " << remaining[candidate] << " : i1, i1 -> i1\n";
+                chosenValid = std::move(nextValid);
+              }
+              selected.indices.push_back(chosenIndex);
+              selected.valids.push_back(chosenValid);
+              for (auto [candidate, tableIndex] :
+                   llvm::enumerate(tableIndices)) {
+                std::string candidateIndex = newValue();
+                body << "    " << candidateIndex << " = pyc.constant "
+                     << tableIndex << " : " << indexType << "\n";
+                std::string same = newValue();
+                body << "    " << same << " = pyc.cmp " << chosenIndex << ", "
+                     << candidateIndex
+                     << " {predicate = \"eq\"} : " << indexType << ", "
+                     << indexType << " -> i1\n";
+                std::string remove = newValue();
+                body << "    " << remove << " = pyc.and " << chosenValid << ", "
+                     << same << " : i1, i1 -> i1\n";
+                std::string keep = newValue();
+                body << "    " << keep << " = pyc.not " << remove << " : i1\n";
+                std::string nextRemaining = newValue();
+                body << "    " << nextRemaining << " = pyc.and "
+                     << remaining[candidate] << ", " << keep
+                     << " : i1, i1 -> i1\n";
+                remaining[candidate] = std::move(nextRemaining);
+              }
+            }
+          }
+          choiceValues[expression.field] = std::move(selected);
+          cached = choiceValues.find(expression.field);
+        }
+        if (expression.laneOrdinal >= expression.selectionCount ||
+            expression.laneOrdinal >= cached->getValue().indices.size())
+          return pycError("table_choose lane is outside result count");
+        result = expression.kind == "table_choose_index"
+                     ? cached->getValue().indices[expression.laneOrdinal]
+                     : cached->getValue().valids[expression.laneOrdinal];
+      } else if (expression.kind == "table_match") {
+        if (!tableValues)
+          return pycError("table_match expression has no PYC register bank");
+        const TablePlan *tablePlan = nullptr;
+        for (const TablePlan &candidate : plan.tables)
+          if (candidate.name == expression.table) {
+            tablePlan = &candidate;
+            break;
+          }
+        auto table = tableValues->find(expression.table);
+        if (!tablePlan || table == tableValues->end() ||
+            expression.nestedYields.size() != 1)
+          return pycError("table_match expression contract is malformed");
+        auto maskType = pycType(plan, expression.type);
+        auto maskWidth = typeWidth(plan, expression.type);
+        if (!maskType)
+          return maskType.takeError();
+        if (!maskWidth)
+          return maskWidth.takeError();
+        std::vector<uint64_t> tableIndices;
+        if (!expression.hasDomainProjection) {
+          for (uint64_t index = 0; index < tablePlan->entries; ++index)
+            tableIndices.push_back(index);
+        } else {
+          uint64_t domainEntries = 1;
+          for (uint64_t extent : expression.domainShape)
+            domainEntries *= extent;
+          for (uint64_t ordinal = 0; ordinal < domainEntries; ++ordinal) {
+            uint64_t remaining = ordinal;
+            uint64_t tableIndex = expression.domainOffset;
+            for (size_t axis = expression.domainShape.size(); axis-- > 0;) {
+              const uint64_t coordinate =
+                  remaining % expression.domainShape[axis];
+              remaining /= expression.domainShape[axis];
+              tableIndex += coordinate * expression.domainStrides[axis];
+            }
+            tableIndices.push_back(tableIndex);
+          }
+        }
+        result = newValue();
+        body << "    " << result << " = pyc.constant 0 : " << *maskType << "\n";
+        QueueBlockPlan predicateBlock;
+        predicateBlock.expressions = expression.nestedExpressions;
+        predicateBlock.yields = expression.nestedYields;
+        for (auto [ordinal, tableIndex] : llvm::enumerate(tableIndices)) {
+          auto predicate = emitTransform(
+              plan, predicateBlock, {table->getValue()[tableIndex]},
+              {tablePlan->entryType}, 0, nextValue, body, nullptr, tableValues);
+          if (!predicate)
+            return predicate.takeError();
+          llvm::APInt bit(*maskWidth, 1);
+          bit <<= ordinal;
+          std::string bitValue = newValue();
+          body << "    " << bitValue << " = pyc.constant "
+               << unsignedDecimal(bit) << " : " << *maskType << "\n";
+          std::string zero = newValue();
+          body << "    " << zero << " = pyc.constant 0 : " << *maskType << "\n";
+          std::string selected = newValue();
+          body << "    " << selected << " = pyc.select " << *predicate << ", "
+               << bitValue << ", " << zero << " : i1, " << *maskType << ", "
+               << *maskType << " -> " << *maskType << "\n";
+          std::string combined = newValue();
+          body << "    " << combined << " = pyc.or " << result << ", "
+               << selected << " : " << *maskType << ", " << *maskType << " -> "
+               << *maskType << "\n";
+          result = std::move(combined);
+        }
+      } else if (expression.kind == "table_index") {
+        const TablePlan *tablePlan = nullptr;
+        for (const TablePlan &candidate : plan.tables)
+          if (candidate.name == expression.table) {
+            tablePlan = &candidate;
+            break;
+          }
+        if (!tablePlan)
+          return pycError("Table index expression references unknown Table");
+        std::vector<uint64_t> legacyShape;
+        llvm::ArrayRef<uint64_t> shape = tablePlan->shape;
+        if (shape.empty()) {
+          legacyShape.push_back(tablePlan->entries);
+          shape = legacyShape;
+        }
+        if (expression.operands.size() != shape.size())
+          return pycError("Table index expression is malformed");
+        auto resultType = pycType(plan, expression.type);
+        if (!resultType)
+          return resultType.takeError();
+        std::vector<uint64_t> strides(shape.size(), 1);
+        for (size_t axis = shape.size(); axis > 1; --axis)
+          strides[axis - 2] = strides[axis - 1] * shape[axis - 1];
+        result = newValue();
+        body << "    " << result << " = pyc.constant 0 : " << *resultType
+             << "\n";
+        for (auto [axis, operandName] : llvm::enumerate(expression.operands)) {
+          auto coordinate = value(operandName);
+          auto coordinateType = valueType(operandName);
+          auto coordinatePycType =
+              coordinateType
+                  ? pycType(plan, *coordinateType)
+                  : llvm::Expected<std::string>(coordinateType.takeError());
+          if (!coordinate)
+            return coordinate.takeError();
+          if (!coordinatePycType)
+            return coordinatePycType.takeError();
+          auto coordinateWidth = typeWidth(plan, *coordinateType);
+          auto flattenedWidth = typeWidth(plan, expression.type);
+          if (!coordinateWidth)
+            return coordinateWidth.takeError();
+          if (!flattenedWidth)
+            return flattenedWidth.takeError();
+          if (*coordinateWidth < 64 &&
+              shape[axis] < (uint64_t{1} << *coordinateWidth)) {
+            std::string extent = newValue();
+            body << "    " << extent << " = pyc.constant " << shape[axis]
+                 << " : " << *coordinatePycType << "\n";
+            std::string inBounds = newValue();
+            body << "    " << inBounds << " = pyc.cmp " << *coordinate << ", "
+                 << extent << " {predicate = \"ult\"} : " << *coordinatePycType
+                 << ", " << *coordinatePycType << " -> i1\n";
+            body << "    pyc.assert " << inBounds
+                 << " {msg = \"table_index_out_of_range\"}\n";
+          }
+          std::string widened = *coordinate;
+          if (*coordinateWidth != *flattenedWidth) {
+            widened = newValue();
+            body << "    " << widened << " = pyc.zext " << *coordinate << " : "
+                 << *coordinatePycType << " -> " << *resultType << "\n";
+          }
+          if (strides[axis] != 1) {
+            std::string stride = newValue();
+            body << "    " << stride << " = pyc.constant " << strides[axis]
+                 << " : " << *resultType << "\n";
+            std::string product = newValue();
+            body << "    " << product << " = pyc.mul " << widened << ", "
+                 << stride << " : " << *resultType << ", " << *resultType
+                 << " -> " << *resultType << "\n";
+            widened = std::move(product);
+          }
+          std::string sum = newValue();
+          body << "    " << sum << " = pyc.add " << result << ", " << widened
+               << " : " << *resultType << ", " << *resultType << " -> "
+               << *resultType << "\n";
+          result = std::move(sum);
+        }
+      } else if (expression.kind == "table_get") {
+        if (!tableValues || expression.operands.size() != 1)
+          return pycError("table_get expression has no PYC register bank");
+        auto table = tableValues->find(expression.table);
+        const TablePlan *tablePlan = nullptr;
+        for (const TablePlan &candidate : plan.tables)
+          if (candidate.name == expression.table) {
+            tablePlan = &candidate;
+            break;
+          }
+        if (table == tableValues->end() || !tablePlan ||
+            table->getValue().size() != tablePlan->entries)
+          return pycError("table_get expression references unknown Table bank");
+        auto indexType = valueType(expression.operands.front());
+        auto indexPycType =
+            indexType ? pycType(plan, *indexType)
+                      : llvm::Expected<std::string>(indexType.takeError());
+        auto entryPycType = pycType(plan, tablePlan->entryType);
+        if (!indexPycType)
+          return indexPycType.takeError();
+        if (!entryPycType)
+          return entryPycType.takeError();
+        result = table->getValue().back();
+        for (size_t index = tablePlan->entries; index-- > 0;) {
+          if (!pycIntegerCanRepresent(index, *indexPycType))
+            continue;
+          std::string indexValue = newValue();
+          body << "    " << indexValue << " = pyc.constant " << index << " : "
+               << *indexPycType << "\n";
+          std::string selected = newValue();
+          body << "    " << selected << " = pyc.cmp " << *first << ", "
+               << indexValue << " {predicate = \"eq\"} : " << *indexPycType
+               << ", " << *indexPycType << " -> i1\n";
+          std::string next = newValue();
+          body << "    " << next << " = pyc.select " << selected << ", "
+               << table->getValue()[index] << ", " << result << " : i1, "
+               << *entryPycType << ", " << *entryPycType << " -> "
+               << *entryPycType << "\n";
+          result = std::move(next);
+        }
+      } else if (expression.kind == "masked_match") {
         if (expression.operands.size() != 1)
           return pycError("matches expression arity mismatch");
         auto inputType = valueType(expression.operands[0]);
@@ -202,18 +1364,17 @@ emitTransform(const QueueGraphPlan &plan, const QueueBlockPlan &block,
         std::string masked = newValue();
         std::string expected = newValue();
         result = newValue();
-        body << "    " << mask << " = pyc.constant " << expression.mask
-             << " : " << *type << "\n";
+        body << "    " << mask << " = pyc.constant " << expression.mask << " : "
+             << *type << "\n";
         body << "    " << masked << " = pyc.and " << *first << ", " << mask
-             << " : " << *type << ", " << *type << " -> " << *type
-             << "\n";
+             << " : " << *type << ", " << *type << " -> " << *type << "\n";
         body << "    " << expected << " = pyc.constant " << expression.value
              << " : " << *type << "\n";
-        body << "    " << result << " = pyc.cmp " << masked << ", "
-             << expected << " {predicate = \"eq\"} : " << *type << ", " << *type
+        body << "    " << result << " = pyc.cmp " << masked << ", " << expected
+             << " {predicate = \"eq\"} : " << *type << ", " << *type
              << " -> i1\n";
       } else if (expression.kind == "priority_index" ||
-          expression.kind == "priority_valid") {
+                 expression.kind == "priority_valid") {
         if (expression.operands.size() != 1 ||
             (expression.predicate != "low" && expression.predicate != "high"))
           return pycError("priority encoder expression contract is malformed");
@@ -296,7 +1457,8 @@ emitTransform(const QueueGraphPlan &plan, const QueueBlockPlan &block,
                  expression.kind == "array_create" ||
                  expression.kind == "record_create") {
         if (expression.operands.empty())
-          return pycError("concat/aggregate create requires at least one operand");
+          return pycError(
+              "concat/aggregate create requires at least one operand");
         result = newValue();
         body << "    " << result << " = pyc.concat(";
         for (auto [index, operandName] : llvm::enumerate(expression.operands)) {
@@ -471,8 +1633,8 @@ emitTransform(const QueueGraphPlan &plan, const QueueBlockPlan &block,
         }
         std::string compared = newValue();
         body << "    " << compared << " = pyc.cmp " << lhs << ", " << rhs
-             << " {predicate = \"" << opcode.str() << "\"} : " << *type
-             << ", " << *type << " -> i1\n";
+             << " {predicate = \"" << opcode.str() << "\"} : " << *type << ", "
+             << *type << " -> i1\n";
         if (negate) {
           result = newValue();
           body << "    " << result << " = pyc.not " << compared << " : i1\n";
@@ -553,8 +1715,14 @@ emitTransform(const QueueGraphPlan &plan, const QueueBlockPlan &block,
     values[expression.result] = result;
     types[expression.result] = expression.type;
   }
-  if (yieldIndex >= block.yields.size())
-    return pycError("transform yield index is outside result arity");
+  if (yieldIndex >= block.yields.size()) {
+    if (emittedValues) {
+      *emittedValues = std::move(values);
+      return std::string();
+    } else {
+      return pycError("transform yield index is outside result arity");
+    }
+  }
   auto yielded = value(block.yields[yieldIndex]);
   if (!yielded)
     return yielded.takeError();
@@ -564,25 +1732,18 @@ emitTransform(const QueueGraphPlan &plan, const QueueBlockPlan &block,
   return result;
 }
 
-constexpr llvm::StringLiteral kStructMetrics =
-    "{\\\"ast_node_count\\\":0,\\\"collection_count\\\":0,"
-    "\\\"collection_instance_count\\\":0,"
-    "\\\"estimated_inline_cost\\\":0,\\\"hardware_call_count\\\":0,"
-    "\\\"instance_count\\\":0,\\\"loop_count\\\":0,"
-    "\\\"module_call_count\\\":0,"
-    "\\\"module_family_collection_count\\\":0,"
-    "\\\"repeat_pressure\\\":0,\\\"repeated_body_clusters\\\":[],"
-    "\\\"source_loc\\\":0,\\\"state_alloc_count\\\":0,"
-    "\\\"state_call_count\\\":0}";
-
 } // namespace
 
 llvm::Expected<std::string> generateQueueGraphPyc(const QueueGraphPlan &plan) {
   if (!plan.definition.empty())
     return pycError(
         "module-preserving QueueGraph PYC lowering is not implemented");
-  if (!plan.tables.empty() || !plan.slots.empty())
-    return pycError("unsupported provisional Table: PYC lowering is deferred");
+  if (!plan.slots.empty())
+    return pycError("Slot PYC lowering is not implemented");
+  if (!plan.tables.empty()) {
+    if (auto error = verifyTablePycProfile(plan))
+      return std::move(error);
+  }
   if (!plan.scopes.empty()) {
     const QueueBlockContract *scope = findQueueBlockContract("scope");
     if (!scope || !scope->pycAvailable)
@@ -595,6 +1756,10 @@ llvm::Expected<std::string> generateQueueGraphPyc(const QueueGraphPlan &plan) {
   struct RouteProducer {
     const QueueBlockPlan *block = nullptr;
     size_t index = 0;
+  };
+  struct TableReadGroupState {
+    std::vector<std::string> indices;
+    std::vector<std::string> valids;
   };
   struct SelectState {
     std::vector<std::string> conditions;
@@ -631,6 +1796,12 @@ llvm::Expected<std::string> generateQueueGraphPyc(const QueueGraphPlan &plan) {
     std::string underLimit;
     std::string dataType;
     std::string iterationType;
+  };
+  struct TableState {
+    std::vector<std::string> next;
+    std::vector<std::string> enable;
+    std::vector<std::string> value;
+    std::string type;
   };
   struct ReorderSlotState {
     std::string next;
@@ -720,6 +1891,8 @@ llvm::Expected<std::string> generateQueueGraphPyc(const QueueGraphPlan &plan) {
   std::vector<const QueueBlockPlan *> observations;
   llvm::StringMap<TransformProducer> transformByOutput;
   llvm::StringMap<TransformProducer> firingByOutput;
+  llvm::StringMap<const QueueBlockPlan *> tableReadByOutput;
+  llvm::StringMap<TransformProducer> tableReadGroupByOutput;
   llvm::StringMap<TransformProducer> barrierByOutput;
   llvm::StringMap<const QueueBlockPlan *> broadcastByOutput;
   llvm::StringMap<const QueueBlockPlan *> forkByOutput;
@@ -733,11 +1906,14 @@ llvm::Expected<std::string> generateQueueGraphPyc(const QueueGraphPlan &plan) {
   llvm::StringMap<const QueueBlockPlan *> feedbackByOutput;
   for (const QueueBlockPlan &block : plan.blocks) {
     const QueueBlockContract *contract = findQueueBlockContract(block.kind);
+    const bool admittedTableBlock =
+        block.kind == "table_read" || block.kind == "table_write" ||
+        block.kind == "table_masked_write" || block.kind == "table_read_group";
     if (contract && contract->role == "verification")
       return pycError("verification-only opcode '" + contract->operation +
                       "' cannot appear in a design hierarchy; place it at "
                       "the PYC testbench boundary");
-    if (!contract || !contract->pycAvailable)
+    if ((!contract || !contract->pycAvailable) && !admittedTableBlock)
       return pycError("official opcode has no PYC lowering: '" + block.kind +
                       "'");
     if (block.kind == "source")
@@ -753,14 +1929,30 @@ llvm::Expected<std::string> generateQueueGraphPyc(const QueueGraphPlan &plan) {
       for (auto [index, output] : llvm::enumerate(block.outputs))
         transformByOutput[output] = TransformProducer{&block, index};
     } else if (block.kind == "firing") {
-      if (!block.stateWrites.empty() || !block.stateReservations.empty() ||
-          block.inputs.empty() || block.outputs.empty() ||
-          block.yields.size() != block.outputs.size() ||
+      if (block.yields.size() != block.outputs.size() ||
           block.outputPresence.size() != block.outputs.size() ||
-          block.guard.empty())
+          block.guard.empty() ||
+          (block.outputs.empty() && block.stateWrites.empty()))
         return pycError("stateful or malformed firing has no PYC lowering");
       for (auto [index, output] : llvm::enumerate(block.outputs))
         firingByOutput[output] = TransformProducer{&block, index};
+    } else if (block.kind == "table_read") {
+      if (block.outputs.size() != 1 || block.yields.size() != 2)
+        return pycError("Table read contract is unsupported");
+      tableReadByOutput[block.outputs.front()] = &block;
+    } else if (block.kind == "table_read_group") {
+      if (block.inputs.size() != 0 || block.outputs.empty() ||
+          block.outputs.size() != block.selectionCount)
+        return pycError("grouped Table read contract is unsupported");
+      for (auto [index, output] : llvm::enumerate(block.outputs))
+        tableReadGroupByOutput[output] = TransformProducer{&block, index};
+    } else if (block.kind == "table_write") {
+      if (!block.outputs.empty() || block.yields.size() != 3)
+        return pycError("Table write contract is unsupported");
+    } else if (block.kind == "table_masked_write") {
+      if (!block.inputs.empty() || !block.outputs.empty() ||
+          block.yields.size() != 3 || block.writeMode != "field")
+        return pycError("masked Table write contract is unsupported");
     } else if (block.kind == "route") {
       if (block.inputs.size() != 1 || block.outputs.size() < 2)
         return pycError("route arity is unsupported");
@@ -821,25 +2013,28 @@ llvm::Expected<std::string> generateQueueGraphPyc(const QueueGraphPlan &plan) {
         return pycError("feedback contract is unsupported");
       feedbackByOutput[block.outputs.front()] = &block;
     } else {
-      return pycError(
-          "PYC QueueGraph supports "
-          "source/transform/broadcast/fork/route/select/"
-          "firing/merge/barrier/credit/memory_request/dependency/reorder/feedback/"
-          "observe/sink");
+      return pycError("PYC QueueGraph supports "
+                      "source/transform/broadcast/fork/route/select/"
+                      "firing/merge/barrier/credit/memory_request/dependency/"
+                      "reorder/feedback/"
+                      "observe/sink");
     }
   }
   if (auto error = verifyQueueGraphPlan(plan))
     return std::move(error);
-  if (sources.empty() || sinks.empty())
-    return pycError("PYC lowering requires at least one source and one sink");
+  if (sources.empty() && sinks.empty())
+    return pycError("PYC lowering requires at least one external boundary");
+  if (llvm::any_of(plan.queues, [](const QueuePlan &queue) {
+        return queue.lanes > 1 || queue.rate > 1;
+      }))
+    return generateLaneQueuePyc(plan, sources, sinks);
   for (const QueuePlan &queue : plan.queues) {
     if (auto width = typeWidth(plan, queue.payloadType); !width)
       return width.takeError();
     if (queue.latency == 0)
       return pycError("PYC Queue latency must be positive");
-    if (queue.rate != 1)
-      return pycError(
-          "PYC Queue rate greater than one requires explicit lane lowering");
+    if (queue.lanes != 1 || queue.rate != 1)
+      return pycError("PYC scalar Queue requires lanes=rate=1");
   }
   llvm::StringMap<size_t> sourceBoundary;
   std::vector<std::string> inputPortTypes;
@@ -884,8 +2079,24 @@ llvm::Expected<std::string> generateQueueGraphPyc(const QueueGraphPlan &plan) {
   llvm::StringMap<std::string> atomicTransformValid;
   llvm::StringMap<std::string> firingPresence;
   llvm::StringMap<std::string> firingGuard;
+  llvm::StringMap<std::string> firingAccepted;
+  llvm::StringMap<std::string> tableReadWhen;
+  llvm::StringMap<std::shared_ptr<llvm::StringMap<std::string>>>
+      tableWriteExpressionValues;
+  llvm::StringMap<std::string> tableWriteAccepted;
+  struct MaskedWriteValues {
+    std::string mask;
+    std::string enabled;
+  };
+  llvm::StringMap<MaskedWriteValues> tableMaskedWriteValues;
+  llvm::StringMap<TableReadGroupState> tableReadGroupStates;
+  llvm::StringMap<std::string> tableReadGroupValidWires;
+  llvm::StringMap<std::string> tableSelectionAccepted;
   llvm::StringMap<std::shared_ptr<llvm::StringMap<std::string>>>
       firingExpressionValues;
+  llvm::StringMap<std::shared_ptr<llvm::StringMap<std::string>>>
+      firingExpressionValuesByBlock;
+  llvm::StringMap<std::string> firingGuardByBlock;
   llvm::StringMap<std::vector<std::string>> mergeGrants;
   llvm::StringMap<MergeState> mergeStates;
   llvm::StringMap<ForkState> forkStates;
@@ -896,6 +2107,11 @@ llvm::Expected<std::string> generateQueueGraphPyc(const QueueGraphPlan &plan) {
   llvm::StringMap<DependencyState> dependencyStates;
   llvm::StringMap<ReorderState> reorderStates;
   llvm::StringMap<std::string> forkOfferValid;
+  llvm::StringMap<TableState> tableStates;
+  llvm::StringMap<std::vector<std::string>> tableStateValues;
+  llvm::StringMap<RoundRobinPycState> roundRobinStates;
+  llvm::StringMap<std::string> blockArbitrationAllowed;
+  llvm::StringMap<std::string> sharedTableExpressionValues;
   std::ostringstream body;
   unsigned nextValue = 0;
   auto newValue = [&]() { return "%v" + std::to_string(nextValue++); };
@@ -908,8 +2124,8 @@ llvm::Expected<std::string> generateQueueGraphPyc(const QueueGraphPlan &plan) {
   auto emitBinary = [&](llvm::StringRef operation, llvm::StringRef lhs,
                         llvm::StringRef rhs, llvm::StringRef type) {
     std::string result = newValue();
-    bool isCompare = operation == "eq" || operation == "ult" ||
-                     operation == "slt";
+    bool isCompare =
+        operation == "eq" || operation == "ult" || operation == "slt";
     body << "    " << result << " = pyc."
          << (isCompare ? "cmp" : operation.str()) << ' ' << lhs.str() << ", "
          << rhs.str();
@@ -1023,6 +2239,78 @@ llvm::Expected<std::string> generateQueueGraphPyc(const QueueGraphPlan &plan) {
     }
     return std::pair<std::string, std::string>{valids.front(), values.front()};
   };
+  auto emitTableLookup =
+      [&](const TablePlan &table, llvm::StringRef index,
+          llvm::StringRef indexType) -> llvm::Expected<std::string> {
+    auto state = tableStates.find(table.name);
+    if (state == tableStates.end() || state->getValue().value.empty())
+      return pycError("Table lookup has no register-bank state");
+    std::string result = state->getValue().value.back();
+    for (size_t slot = table.entries; slot-- > 0;) {
+      if (!pycIntegerCanRepresent(slot, indexType))
+        continue;
+      std::string slotValue = emitConstant(slot, indexType);
+      std::string selected = emitBinary("eq", index, slotValue, indexType);
+      result = emitMux(selected, state->getValue().value[slot], result,
+                       state->getValue().type);
+    }
+    return result;
+  };
+  auto emitTableFieldMerge =
+      [&](llvm::StringRef current, llvm::StringRef proposed,
+          llvm::StringRef entryType,
+          llvm::ArrayRef<std::string> fields) -> llvm::Expected<std::string> {
+    if (fields.size() == 1 && fields.front() == "$entry")
+      return proposed.str();
+    std::string merged = current.str();
+    for (const std::string &field : fields) {
+      auto layout = fieldLayout(plan, entryType, field);
+      auto packedType = pycType(plan, entryType);
+      if (!layout)
+        return layout.takeError();
+      if (!packedType)
+        return packedType.takeError();
+      std::string replacement =
+          emitExtract(proposed, layout->lsb, *packedType,
+                      "i" + std::to_string(layout->width));
+      auto updated = emitFieldReplace(merged, entryType, field, replacement);
+      if (!updated)
+        return updated.takeError();
+      merged = std::move(*updated);
+    }
+    return merged;
+  };
+  for (const TablePlan &table : plan.tables) {
+    auto type = pycType(plan, table.entryType);
+    if (!type)
+      return type.takeError();
+    TableState state;
+    state.type = *type;
+    for (uint64_t index = 0; index < table.entries; ++index) {
+      std::string initial;
+      if (table.initImage.empty()) {
+        initial = emitConstant(table.init, state.type);
+      } else {
+        auto packed = packTableInitValue(plan, table.initImage[index]);
+        if (!packed)
+          return packed.takeError();
+        initial = newValue();
+        body << "    " << initial << " = pyc.constant "
+             << unsignedDecimal(*packed) << " : " << state.type << "\n";
+      }
+      state.next.push_back(newValue());
+      state.enable.push_back(newValue());
+      state.value.push_back(newValue());
+      body << "    " << state.next.back() << " = pyc.wire : " << state.type
+           << "\n";
+      body << "    " << state.enable.back() << " = pyc.wire : i1\n";
+      body << "    " << state.value.back() << " = pyc.reg %clk, %rst, "
+           << state.enable.back() << ", " << state.next.back() << ", "
+           << initial << " : " << state.type << "\n";
+    }
+    tableStateValues[table.name] = state.value;
+    tableStates[table.name] = std::move(state);
+  }
   for (const QueuePlan &queue : plan.queues) {
     std::string ready = newValue();
     readyWires[queue.name] = ready;
@@ -1038,6 +2326,8 @@ llvm::Expected<std::string> generateQueueGraphPyc(const QueueGraphPlan &plan) {
     } else {
       auto transformProducer = transformByOutput.find(queue.name);
       auto firingProducer = firingByOutput.find(queue.name);
+      auto tableReadProducer = tableReadByOutput.find(queue.name);
+      auto tableReadGroupProducer = tableReadGroupByOutput.find(queue.name);
       auto barrierProducer = barrierByOutput.find(queue.name);
       auto broadcastProducer = broadcastByOutput.find(queue.name);
       auto forkProducer = forkByOutput.find(queue.name);
@@ -1101,19 +2391,21 @@ llvm::Expected<std::string> generateQueueGraphPyc(const QueueGraphPlan &plan) {
         atomicTransformValid[queue.name] = producerValid;
         auto cached = firingExpressionValues.find(queue.name);
         if (cached == firingExpressionValues.end()) {
-          auto values =
-              std::make_shared<llvm::StringMap<std::string>>();
-          auto emitted = emitTransform(plan, firing, inputDataValues,
-                                       inputTypes, producer.index, nextValue,
-                                       body, values.get());
+          auto values = std::make_shared<llvm::StringMap<std::string>>();
+          auto emitted =
+              emitTransform(plan, firing, inputDataValues, inputTypes,
+                            producer.index, nextValue, body, values.get(),
+                            &tableStateValues, &roundRobinStates, firing.name,
+                            nullptr, nullptr, &sharedTableExpressionValues);
           if (!emitted)
             return emitted.takeError();
           for (const std::string &output : firing.outputs)
             firingExpressionValues[output] = values;
+          firingExpressionValuesByBlock[firing.name] = values;
           cached = firingExpressionValues.find(queue.name);
         }
-        auto lookup = [&](llvm::StringRef identity)
-            -> llvm::Expected<std::string> {
+        auto lookup =
+            [&](llvm::StringRef identity) -> llvm::Expected<std::string> {
           auto found = cached->getValue()->find(identity);
           if (found == cached->getValue()->end())
             return pycError("firing expression identity is missing: '" +
@@ -1121,8 +2413,7 @@ llvm::Expected<std::string> generateQueueGraphPyc(const QueueGraphPlan &plan) {
           return found->getValue();
         };
         auto transformed = lookup(firing.yields[producer.index]);
-        auto presence =
-            lookup(firing.outputPresence[producer.index].present);
+        auto presence = lookup(firing.outputPresence[producer.index].present);
         auto guard = lookup(firing.guard);
         if (!transformed)
           return transformed.takeError();
@@ -1133,6 +2424,168 @@ llvm::Expected<std::string> generateQueueGraphPyc(const QueueGraphPlan &plan) {
         producerData = std::move(*transformed);
         firingPresence[queue.name] = std::move(*presence);
         firingGuard[queue.name] = std::move(*guard);
+        firingGuardByBlock[firing.name] = firingGuard[queue.name];
+      } else if (tableReadProducer != tableReadByOutput.end()) {
+        const QueueBlockPlan &read = *tableReadProducer->getValue();
+        const TablePlan *table = nullptr;
+        for (const TablePlan &candidate : plan.tables)
+          if (candidate.name == read.table) {
+            table = &candidate;
+            break;
+          }
+        if (!table)
+          return pycError("Table read references unknown register bank");
+        std::vector<std::string> inputDataValues;
+        std::vector<std::string> inputTypes;
+        std::string allValid = emitConstant(1, "i1");
+        for (const std::string &input : read.inputs) {
+          auto valid = outputValid.find(input);
+          auto data = outputData.find(input);
+          const QueuePlan *inputQueue = findQueue(plan, input);
+          if (valid == outputValid.end() || data == outputData.end() ||
+              !inputQueue)
+            return pycError("Table read input is not in topological order");
+          allValid = emitBinary("and", allValid, valid->getValue(), "i1");
+          inputDataValues.push_back(data->getValue());
+          inputTypes.push_back(inputQueue->payloadType);
+        }
+        auto values = std::make_shared<llvm::StringMap<std::string>>();
+        auto index =
+            emitTransform(plan, read, inputDataValues, inputTypes, 0, nextValue,
+                          body, values.get(), &tableStateValues, nullptr, {},
+                          nullptr, nullptr, &sharedTableExpressionValues);
+        if (!index)
+          return index.takeError();
+        auto present = values->find(read.yields[1]);
+        if (present == values->end())
+          return pycError("Table read predicate value is missing");
+        auto indexType = yieldedType(read, read.yields.front(),
+                                     read.inputs.empty() ? table->entryType
+                                                         : inputTypes.front());
+        auto indexPycType =
+            indexType ? pycType(plan, *indexType)
+                      : llvm::Expected<std::string>(indexType.takeError());
+        if (!indexPycType)
+          return indexPycType.takeError();
+        auto data = emitTableLookup(*table, *index, *indexPycType);
+        if (!data)
+          return data.takeError();
+        producerValid = emitBinary("and", allValid, present->getValue(), "i1");
+        producerData = std::move(*data);
+        tableReadWhen[read.name] = present->getValue();
+      } else if (tableReadGroupProducer != tableReadGroupByOutput.end()) {
+        const TransformProducer &producer = tableReadGroupProducer->getValue();
+        const QueueBlockPlan &group = *producer.block;
+        const TablePlan *table = nullptr;
+        const TableSelectionPlan *selection = nullptr;
+        const TableMatchPlan *match = nullptr;
+        for (const TablePlan &candidate : plan.tables)
+          if (candidate.name == group.table) {
+            table = &candidate;
+            break;
+          }
+        for (const TableSelectionPlan &candidate : plan.tableSelections)
+          if (candidate.name == group.selection) {
+            selection = &candidate;
+            break;
+          }
+        if (selection)
+          for (const TableMatchPlan &candidate : plan.tableMatches)
+            if (candidate.name == selection->match) {
+              match = &candidate;
+              break;
+            }
+        if (!table || !selection || !match ||
+            selection->count != group.outputs.size())
+          return pycError("grouped Table read selection is incomplete");
+        auto state = tableReadGroupStates.find(group.name);
+        if (state == tableReadGroupStates.end()) {
+          QueueBlockPlan evaluation;
+          QueueExpressionPlan mask;
+          mask.result = "__pyc_match_" + group.name;
+          mask.kind = "table_match";
+          mask.type = match->resultType;
+          mask.table = match->table;
+          mask.nestedExpressions = match->expressions;
+          mask.nestedYields = {match->yield};
+          mask.domainAxes = match->domainAxes;
+          mask.domainShape = match->domainShape;
+          mask.domainStrides = match->domainStrides;
+          mask.domainOffset = match->domainOffset;
+          mask.hasDomainProjection = match->hasDomainProjection;
+          evaluation.expressions.push_back(mask);
+          std::vector<std::string> indexNames;
+          std::vector<std::string> validNames;
+          const std::string choiceIdentity = selection->stableId.empty()
+                                                 ? selection->name
+                                                 : selection->stableId;
+          for (uint64_t lane = 0; lane < selection->count; ++lane) {
+            QueueExpressionPlan index;
+            index.result =
+                "__pyc_choice_index_" + std::to_string(lane) + "_" + group.name;
+            index.kind = "table_choose_index";
+            index.type = selection->indexType;
+            index.operands = {mask.result};
+            index.field = choiceIdentity;
+            index.predicate = selection->policy;
+            index.table = selection->table;
+            index.nestedExpressions = selection->keyExpressions;
+            if (!selection->keyYield.empty())
+              index.nestedYields = {selection->keyYield};
+            index.selectionCount = selection->count;
+            index.laneOrdinal = lane;
+            index.keyOrdering = selection->keyOrdering;
+            index.initialCursor = selection->initialCursor;
+            indexNames.push_back(index.result);
+            evaluation.expressions.push_back(std::move(index));
+          }
+          for (uint64_t lane = 0; lane < selection->count; ++lane) {
+            QueueExpressionPlan valid;
+            valid.result =
+                "__pyc_choice_valid_" + std::to_string(lane) + "_" + group.name;
+            valid.kind = "table_choose_valid";
+            valid.type = "i1";
+            valid.operands = {mask.result};
+            valid.field = choiceIdentity;
+            valid.predicate = selection->policy;
+            valid.table = selection->table;
+            valid.nestedExpressions = selection->keyExpressions;
+            if (!selection->keyYield.empty())
+              valid.nestedYields = {selection->keyYield};
+            valid.selectionCount = selection->count;
+            valid.laneOrdinal = lane;
+            valid.keyOrdering = selection->keyOrdering;
+            valid.initialCursor = selection->initialCursor;
+            validNames.push_back(valid.result);
+            evaluation.expressions.push_back(std::move(valid));
+          }
+          evaluation.yields = indexNames;
+          evaluation.yields.insert(evaluation.yields.end(), validNames.begin(),
+                                   validNames.end());
+          llvm::StringMap<std::string> emittedValues;
+          auto emitted = emitTransform(plan, evaluation, {}, {}, 0, nextValue,
+                                       body, &emittedValues, &tableStateValues,
+                                       &roundRobinStates, group.name, nullptr,
+                                       nullptr, &sharedTableExpressionValues);
+          if (!emitted)
+            return emitted.takeError();
+          TableReadGroupState created;
+          for (const std::string &name : indexNames)
+            created.indices.push_back(emittedValues.lookup(name));
+          for (const std::string &name : validNames)
+            created.valids.push_back(emittedValues.lookup(name));
+          tableReadGroupStates[group.name] = std::move(created);
+          state = tableReadGroupStates.find(group.name);
+        }
+        producerValid = newValue();
+        body << "    " << producerValid << " = pyc.wire : i1\n";
+        tableReadGroupValidWires[queue.name] = producerValid;
+        auto data =
+            emitTableLookup(*table, state->getValue().indices[producer.index],
+                            selection->indexType);
+        if (!data)
+          return data.takeError();
+        producerData = std::move(*data);
       } else if (barrierProducer != barrierByOutput.end()) {
         const TransformProducer &producer = barrierProducer->getValue();
         const QueueBlockPlan &barrier = *producer.block;
@@ -2114,6 +3567,177 @@ llvm::Expected<std::string> generateQueueGraphPyc(const QueueGraphPlan &plan) {
     body << "    pyc.assign " << busyNext << ", " << nextBusy << " : i1\n";
     body << "    pyc.assign " << busyEnable << ", " << updateBusy << " : i1\n";
   }
+  for (const QueueBlockPlan &firing : plan.blocks) {
+    if (firing.kind != "firing" || !firing.outputs.empty())
+      continue;
+    std::vector<std::string> inputDataValues;
+    std::vector<std::string> inputTypes;
+    for (const std::string &input : firing.inputs) {
+      auto data = outputData.find(input);
+      const QueuePlan *queue = findQueue(plan, input);
+      if (data == outputData.end() || !queue)
+        return pycError("outputless firing input is not available");
+      inputDataValues.push_back(data->getValue());
+      inputTypes.push_back(queue->payloadType);
+    }
+    auto values = std::make_shared<llvm::StringMap<std::string>>();
+    auto emitted = emitTransform(
+        plan, firing, inputDataValues, inputTypes, 0, nextValue, body,
+        values.get(), &tableStateValues, &roundRobinStates, firing.name,
+        nullptr, nullptr, &sharedTableExpressionValues);
+    if (!emitted)
+      return emitted.takeError();
+    auto guard = values->find(firing.guard);
+    if (guard == values->end())
+      return pycError("outputless firing guard is missing");
+    firingExpressionValuesByBlock[firing.name] = values;
+    firingGuardByBlock[firing.name] = guard->getValue();
+  }
+  for (const QueueBlockPlan &block : plan.blocks) {
+    if (block.kind == "table_write") {
+      std::vector<std::string> inputDataValues;
+      std::vector<std::string> inputTypes;
+      std::string allValid = emitConstant(1, "i1");
+      for (const std::string &input : block.inputs) {
+        auto valid = outputValid.find(input);
+        auto data = outputData.find(input);
+        const QueuePlan *inputQueue = findQueue(plan, input);
+        if (valid == outputValid.end() || data == outputData.end() ||
+            !inputQueue)
+          return pycError("Table write input is not available");
+        allValid = emitBinary("and", allValid, valid->getValue(), "i1");
+        inputDataValues.push_back(data->getValue());
+        inputTypes.push_back(inputQueue->payloadType);
+      }
+      auto values = std::make_shared<llvm::StringMap<std::string>>();
+      auto index =
+          emitTransform(plan, block, inputDataValues, inputTypes, 0, nextValue,
+                        body, values.get(), &tableStateValues, nullptr, {},
+                        nullptr, nullptr, &sharedTableExpressionValues);
+      if (!index)
+        return index.takeError();
+      auto present = values->find(block.yields[1]);
+      auto proposed = values->find(block.yields[2]);
+      if (present == values->end() || proposed == values->end())
+        return pycError("Table write expression values are missing");
+      tableWriteAccepted[block.name] =
+          block.inputs.empty() ? present->getValue() : allValid;
+      tableWriteExpressionValues[block.name] = values;
+    } else if (block.kind == "table_masked_write") {
+      QueueBlockPlan maskBlock = expressionSlice(block, block.yields[0]);
+      QueueBlockPlan enableBlock = expressionSlice(block, block.yields[1]);
+      auto mask = emitTransform(plan, maskBlock, {}, {}, 0, nextValue, body,
+                                nullptr, &tableStateValues, nullptr, {},
+                                nullptr, nullptr, &sharedTableExpressionValues);
+      auto enabled =
+          emitTransform(plan, enableBlock, {}, {}, 0, nextValue, body, nullptr,
+                        &tableStateValues, nullptr, {}, nullptr, nullptr,
+                        &sharedTableExpressionValues);
+      if (!mask)
+        return mask.takeError();
+      if (!enabled)
+        return enabled.takeError();
+      tableMaskedWriteValues[block.name] = {*mask, *enabled};
+    }
+  }
+  using ArbitrationMember =
+      std::pair<const QueueBlockPlan *, const QueueWriterArbitrationPlan *>;
+  llvm::StringMap<std::vector<ArbitrationMember>> arbitrationByOwner;
+  llvm::StringMap<std::string> arbitrationCandidates;
+  auto arbitrationKey = [](llvm::StringRef block, llvm::StringRef owner) {
+    return (block + "\x1f" + owner).str();
+  };
+  for (const QueueBlockPlan &block : plan.blocks) {
+    for (const QueueWriterArbitrationPlan &membership :
+         block.arbitrationMembership) {
+      arbitrationByOwner[membership.owner].push_back({&block, &membership});
+      std::string candidate;
+      if (block.kind == "firing") {
+        auto guard = firingGuardByBlock.find(block.name);
+        auto values = firingExpressionValuesByBlock.find(block.name);
+        if (guard == firingGuardByBlock.end() ||
+            values == firingExpressionValuesByBlock.end())
+          return pycError("arbitrated firing values are missing");
+        candidate = guard->getValue();
+        for (const std::string &input : block.inputs)
+          candidate = emitBinary("and", candidate, outputValid[input], "i1");
+        std::vector<std::string> presents;
+        for (const StateWritePlan &write : block.stateWrites) {
+          if (write.table != membership.owner)
+            continue;
+          auto present = values->getValue()->find(write.present);
+          if (present == values->getValue()->end())
+            return pycError("arbitrated firing presence is missing");
+          presents.push_back(present->getValue());
+        }
+        if (!presents.empty())
+          candidate = emitBinary("and", candidate,
+                                 presents.size() == 1
+                                     ? presents.front()
+                                     : reduceBalanced("or", presents, "i1"),
+                                 "i1");
+      } else if (block.kind == "table_write") {
+        auto accepted = tableWriteAccepted.find(block.name);
+        auto values = tableWriteExpressionValues.find(block.name);
+        if (accepted == tableWriteAccepted.end() ||
+            values == tableWriteExpressionValues.end())
+          return pycError("arbitrated Table write values are missing");
+        auto present = values->getValue()->find(block.yields[1]);
+        if (present == values->getValue()->end())
+          return pycError("arbitrated Table write enable is missing");
+        candidate =
+            emitBinary("and", accepted->getValue(), present->getValue(), "i1");
+      } else if (block.kind == "table_masked_write") {
+        auto masked = tableMaskedWriteValues.find(block.name);
+        if (masked == tableMaskedWriteValues.end())
+          return pycError("arbitrated masked write values are missing");
+        auto type = yieldedType(block, block.yields[0], "i1");
+        if (!type)
+          return type.takeError();
+        auto width = typeWidth(plan, *type);
+        auto pyc = pycType(plan, *type);
+        if (!width)
+          return width.takeError();
+        if (!pyc)
+          return pyc.takeError();
+        std::vector<std::string> bits;
+        for (unsigned bit = 0; bit < *width; ++bit) {
+          std::string value = newValue();
+          body << "    " << value << " = pyc.extract "
+               << masked->getValue().mask << " {lsb = " << bit << "} : " << *pyc
+               << " -> i1\n";
+          bits.push_back(std::move(value));
+        }
+        std::string any =
+            bits.size() == 1 ? bits.front() : reduceBalanced("or", bits, "i1");
+        candidate = emitBinary("and", masked->getValue().enabled, any, "i1");
+      } else {
+        return pycError("unsupported arbitrated Table writer kind");
+      }
+      arbitrationCandidates[arbitrationKey(block.name, membership.owner)] =
+          std::move(candidate);
+    }
+  }
+  for (auto &entry : arbitrationByOwner) {
+    std::vector<ArbitrationMember> &members = entry.getValue();
+    llvm::sort(members, [](const ArbitrationMember &left,
+                           const ArbitrationMember &right) {
+      return left.second->declaredRank < right.second->declaredRank;
+    });
+    std::string prior = emitConstant(0, "i1");
+    for (const ArbitrationMember &member : members) {
+      const std::string &candidate = arbitrationCandidates.lookup(
+          arbitrationKey(member.first->name, entry.getKey()));
+      std::string grant = emitBinary("and", candidate, emitNot(prior), "i1");
+      std::string allowed = emitBinary("or", emitNot(candidate), grant, "i1");
+      auto existing = blockArbitrationAllowed.find(member.first->name);
+      blockArbitrationAllowed[member.first->name] =
+          existing == blockArbitrationAllowed.end()
+              ? allowed
+              : emitBinary("and", existing->getValue(), allowed, "i1");
+      prior = emitBinary("or", prior, candidate, "i1");
+    }
+  }
   for (const QueueBlockPlan &block : plan.blocks) {
     if (block.kind == "transform") {
       if (block.inputs.size() == 1 && block.outputs.size() == 1) {
@@ -2155,9 +3779,14 @@ llvm::Expected<std::string> generateQueueGraphPyc(const QueueGraphPlan &plan) {
         }
       }
     } else if (block.kind == "firing") {
-      auto guard = firingGuard.find(block.outputs.front());
-      if (guard == firingGuard.end())
+      auto guard = firingGuardByBlock.find(block.name);
+      if (guard == firingGuardByBlock.end())
         return pycError("firing guard value is missing");
+      auto arbitration = blockArbitrationAllowed.find(block.name);
+      std::string arbitrationAllowed =
+          arbitration == blockArbitrationAllowed.end()
+              ? std::string()
+              : arbitration->getValue();
       std::vector<std::string> selectedReady;
       selectedReady.reserve(block.outputs.size());
       for (const std::string &output : block.outputs) {
@@ -2165,14 +3794,18 @@ llvm::Expected<std::string> generateQueueGraphPyc(const QueueGraphPlan &plan) {
         auto ready = inputReady.find(output);
         if (presence == firingPresence.end() || ready == inputReady.end())
           return pycError("firing output handshake is missing");
-        selectedReady.push_back(emitBinary(
-            "or", emitNot(presence->getValue()), ready->getValue(), "i1"));
+        selectedReady.push_back(emitBinary("or", emitNot(presence->getValue()),
+                                           ready->getValue(), "i1"));
       }
       std::string allSelectedReady =
-          reduceBalanced("and", selectedReady, "i1");
+          selectedReady.empty() ? emitConstant(1, "i1")
+                                : reduceBalanced("and", selectedReady, "i1");
       for (auto [inputIndex, input] : llvm::enumerate(block.inputs)) {
         std::string inputCanFire =
             emitBinary("and", guard->getValue(), allSelectedReady, "i1");
+        if (!arbitrationAllowed.empty())
+          inputCanFire =
+              emitBinary("and", inputCanFire, arbitrationAllowed, "i1");
         for (auto [otherIndex, other] : llvm::enumerate(block.inputs)) {
           if (otherIndex == inputIndex)
             continue;
@@ -2193,14 +3826,22 @@ llvm::Expected<std::string> generateQueueGraphPyc(const QueueGraphPlan &plan) {
         allInputsValid =
             emitBinary("and", allInputsValid, valid->getValue(), "i1");
       }
+      firingAccepted[block.name] =
+          emitBinary("and", allInputsValid, allSelectedReady, "i1");
+      if (!arbitrationAllowed.empty())
+        firingAccepted[block.name] = emitBinary(
+            "and", firingAccepted[block.name], arbitrationAllowed, "i1");
       for (auto [outputIndex, output] : llvm::enumerate(block.outputs)) {
         auto validWire = atomicTransformValid.find(output);
         auto presence = firingPresence.find(output);
         if (validWire == atomicTransformValid.end() ||
             presence == firingPresence.end())
           return pycError("firing output valid is missing");
-        std::string outputCanFire = emitBinary(
-            "and", allInputsValid, presence->getValue(), "i1");
+        std::string outputCanFire =
+            emitBinary("and", allInputsValid, presence->getValue(), "i1");
+        if (!arbitrationAllowed.empty())
+          outputCanFire =
+              emitBinary("and", outputCanFire, arbitrationAllowed, "i1");
         for (auto [otherIndex, other] : llvm::enumerate(block.outputs)) {
           if (otherIndex == outputIndex)
             continue;
@@ -2209,14 +3850,71 @@ llvm::Expected<std::string> generateQueueGraphPyc(const QueueGraphPlan &plan) {
           if (otherPresence == firingPresence.end() ||
               otherReady == inputReady.end())
             return pycError("firing output handshake is missing");
-          std::string otherSelectedReady = emitBinary(
-              "or", emitNot(otherPresence->getValue()),
-              otherReady->getValue(), "i1");
+          std::string otherSelectedReady =
+              emitBinary("or", emitNot(otherPresence->getValue()),
+                         otherReady->getValue(), "i1");
           outputCanFire =
               emitBinary("and", outputCanFire, otherSelectedReady, "i1");
         }
         body << "    pyc.assign " << validWire->getValue() << ", "
              << outputCanFire << " : i1\n";
+      }
+    } else if (block.kind == "table_read_group") {
+      auto state = tableReadGroupStates.find(block.name);
+      if (state == tableReadGroupStates.end() ||
+          state->getValue().valids.size() != block.outputs.size())
+        return pycError("grouped Table read values are missing");
+      std::vector<std::string> selectedReady;
+      for (auto [index, output] : llvm::enumerate(block.outputs)) {
+        std::string notSelected = emitNot(state->getValue().valids[index]);
+        selectedReady.push_back(
+            emitBinary("or", notSelected, inputReady[output], "i1"));
+      }
+      std::string allSelectedReady = reduceBalanced("and", selectedReady, "i1");
+      std::string anySelected =
+          reduceBalanced("or", state->getValue().valids, "i1");
+      tableSelectionAccepted[block.name] =
+          emitBinary("and", anySelected, allSelectedReady, "i1");
+      for (auto [index, output] : llvm::enumerate(block.outputs)) {
+        auto valid = tableReadGroupValidWires.find(output);
+        if (valid == tableReadGroupValidWires.end())
+          return pycError("grouped Table read valid wire is missing");
+        std::string publish = emitBinary("and", state->getValue().valids[index],
+                                         allSelectedReady, "i1");
+        body << "    pyc.assign " << valid->getValue() << ", " << publish
+             << " : i1\n";
+      }
+    } else if (block.kind == "table_write") {
+      auto arbitration = blockArbitrationAllowed.find(block.name);
+      for (auto [inputIndex, input] : llvm::enumerate(block.inputs)) {
+        std::string ready = arbitration == blockArbitrationAllowed.end()
+                                ? emitConstant(1, "i1")
+                                : arbitration->getValue();
+        for (auto [otherIndex, other] : llvm::enumerate(block.inputs)) {
+          if (otherIndex == inputIndex)
+            continue;
+          ready = emitBinary("and", ready, outputValid[other], "i1");
+        }
+        body << "    pyc.assign " << readyWires[input] << ", " << ready
+             << " : i1\n";
+      }
+    } else if (block.kind == "table_masked_write") {
+      // Stateful masked writers have no Queue handshake. Their register-bank
+      // updates are emitted after arbitration below.
+    } else if (block.kind == "table_read") {
+      auto present = tableReadWhen.find(block.name);
+      if (present == tableReadWhen.end())
+        return pycError("Table read predicate is missing");
+      for (auto [inputIndex, input] : llvm::enumerate(block.inputs)) {
+        std::string ready = emitBinary("and", inputReady[block.outputs.front()],
+                                       present->getValue(), "i1");
+        for (auto [otherIndex, other] : llvm::enumerate(block.inputs)) {
+          if (otherIndex == inputIndex)
+            continue;
+          ready = emitBinary("and", ready, outputValid[other], "i1");
+        }
+        body << "    pyc.assign " << readyWires[input] << ", " << ready
+             << " : i1\n";
       }
     } else if (block.kind == "barrier") {
       std::string allReady = inputReady[block.outputs.front()];
@@ -2693,6 +4391,220 @@ llvm::Expected<std::string> generateQueueGraphPyc(const QueueGraphPlan &plan) {
       std::string limitOk = emitNot(limitViolation);
       body << "    pyc.assert " << limitOk
            << " {msg = \"feedback_iteration_limit\"}\n";
+    }
+  }
+  for (const auto &entry : roundRobinStates) {
+    const RoundRobinPycState &state = entry.getValue();
+    std::string acceptedValue;
+    if (auto accepted = firingAccepted.find(state.owner);
+        accepted != firingAccepted.end())
+      acceptedValue = accepted->getValue();
+    else if (auto accepted = tableSelectionAccepted.find(state.owner);
+             accepted != tableSelectionAccepted.end())
+      acceptedValue = accepted->getValue();
+    if (acceptedValue.empty())
+      return pycError("round-robin Table selection acceptance is missing");
+    std::string advance =
+        emitBinary("and", acceptedValue, state.anyCandidate, "i1");
+    body << "    pyc.assign " << state.nextWire << ", " << state.nextCandidate
+         << " : " << state.type << "\n";
+    body << "    pyc.assign " << state.enableWire << ", " << advance
+         << " : i1\n";
+  }
+  for (const TablePlan &table : plan.tables) {
+    auto state = tableStates.find(table.name);
+    if (state == tableStates.end())
+      return pycError("Table register-bank state is missing");
+    for (uint64_t slot = 0; slot < table.entries; ++slot) {
+      std::string next = state->getValue().value[slot];
+      std::string enabled = emitConstant(0, "i1");
+      std::string firingNext = state->getValue().value[slot];
+      std::string firingEnabled = emitConstant(0, "i1");
+      for (const QueueBlockPlan &block : plan.blocks) {
+        if (block.kind != "firing" || block.stateWrites.empty())
+          continue;
+        auto accepted = firingAccepted.find(block.name);
+        if (accepted == firingAccepted.end())
+          return pycError("stateful firing acceptance is missing");
+        auto values = firingExpressionValuesByBlock.find(block.name);
+        if (values == firingExpressionValuesByBlock.end())
+          return pycError("stateful firing expression values are missing");
+        auto lookup =
+            [&](llvm::StringRef identity) -> llvm::Expected<std::string> {
+          auto found = values->getValue()->find(identity);
+          if (found == values->getValue()->end())
+            return pycError("stateful firing value identity is missing: '" +
+                            identity + "'");
+          return found->getValue();
+        };
+        for (const StateWritePlan &write : block.stateWrites) {
+          if (write.table != table.name)
+            continue;
+          auto index = lookup(write.index);
+          auto value = lookup(write.value);
+          auto present = lookup(write.present);
+          if (!index)
+            return index.takeError();
+          if (!value)
+            return value.takeError();
+          if (!present)
+            return present.takeError();
+          auto indexType = yieldedType(
+              block, write.index,
+              block.inputs.empty()
+                  ? table.entryType
+                  : findQueue(plan, block.inputs.front())->payloadType);
+          auto indexPycType =
+              indexType ? pycType(plan, *indexType)
+                        : llvm::Expected<std::string>(indexType.takeError());
+          if (!indexPycType)
+            return indexPycType.takeError();
+          if (!pycIntegerCanRepresent(slot, *indexPycType))
+            continue;
+          std::string slotValue = emitConstant(slot, *indexPycType);
+          std::string atSlot =
+              emitBinary("eq", *index, slotValue, *indexPycType);
+          std::string selected =
+              emitBinary("and", accepted->getValue(), *present, "i1");
+          selected = emitBinary("and", selected, atSlot, "i1");
+          firingNext =
+              emitMux(selected, *value, firingNext, state->getValue().type);
+          firingEnabled = emitBinary("or", firingEnabled, selected, "i1");
+        }
+      }
+      for (const QueueBlockPlan &block : plan.blocks) {
+        if (block.kind != "table_masked_write" || block.table != table.name)
+          continue;
+        auto masked = tableMaskedWriteValues.find(block.name);
+        if (masked == tableMaskedWriteValues.end() || block.expressions.empty())
+          return pycError("masked Table write values are missing");
+        const QueueExpressionPlan &maskExpression = block.expressions.front();
+        auto match = llvm::find_if(
+            plan.tableMatches, [&](const TableMatchPlan &candidate) {
+              return candidate.name == maskExpression.field &&
+                     candidate.table == table.name;
+            });
+        if (match == plan.tableMatches.end())
+          return pycError("masked Table write match plan is missing");
+        std::vector<uint64_t> tableIndices;
+        if (!match->hasDomainProjection) {
+          for (uint64_t index = 0; index < table.entries; ++index)
+            tableIndices.push_back(index);
+        } else {
+          uint64_t domainEntries = 1;
+          for (uint64_t extent : match->domainShape)
+            domainEntries *= extent;
+          for (uint64_t ordinal = 0; ordinal < domainEntries; ++ordinal) {
+            uint64_t remaining = ordinal;
+            uint64_t tableIndex = match->domainOffset;
+            for (size_t axis = match->domainShape.size(); axis-- > 0;) {
+              const uint64_t coordinate = remaining % match->domainShape[axis];
+              remaining /= match->domainShape[axis];
+              tableIndex += coordinate * match->domainStrides[axis];
+            }
+            tableIndices.push_back(tableIndex);
+          }
+        }
+        auto position = llvm::find(tableIndices, slot);
+        if (position == tableIndices.end())
+          continue;
+        const uint64_t ordinal = std::distance(tableIndices.begin(), position);
+        auto maskType = pycType(plan, maskExpression.type);
+        if (!maskType)
+          return maskType.takeError();
+        std::string selectedBit = newValue();
+        body << "    " << selectedBit << " = pyc.extract "
+             << masked->getValue().mask << " {lsb = " << ordinal
+             << "} : " << *maskType << " -> i1\n";
+        std::string selected =
+            emitBinary("and", masked->getValue().enabled, selectedBit, "i1");
+        if (auto arbitration = blockArbitrationAllowed.find(block.name);
+            arbitration != blockArbitrationAllowed.end())
+          selected = emitBinary("and", selected, arbitration->getValue(), "i1");
+        QueueBlockPlan valueBlock = expressionSlice(block, block.yields[2]);
+        auto proposed = emitTransform(
+            plan, valueBlock, {state->getValue().value[slot]},
+            {table.entryType}, 0, nextValue, body, nullptr, &tableStateValues,
+            nullptr, {}, nullptr, nullptr, &sharedTableExpressionValues);
+        if (!proposed)
+          return proposed.takeError();
+        auto merged = emitTableFieldMerge(next, *proposed, table.entryType,
+                                          block.writeFields);
+        if (!merged)
+          return merged.takeError();
+        next = emitMux(selected, *merged, next, state->getValue().type);
+        enabled = emitBinary("or", enabled, selected, "i1");
+      }
+      for (const char *mode : {"field", "replace"}) {
+        if (llvm::StringRef(mode) == "replace") {
+          next =
+              emitMux(firingEnabled, firingNext, next, state->getValue().type);
+          enabled = emitBinary("or", enabled, firingEnabled, "i1");
+        }
+        for (const QueueBlockPlan &block : plan.blocks) {
+          if (block.kind != "table_write" || block.table != table.name ||
+              block.writeMode != mode)
+            continue;
+          auto accepted = tableWriteAccepted.find(block.name);
+          auto values = tableWriteExpressionValues.find(block.name);
+          if (accepted == tableWriteAccepted.end() ||
+              values == tableWriteExpressionValues.end())
+            return pycError("Table write acceptance or values are missing");
+          auto lookup =
+              [&](llvm::StringRef identity) -> llvm::Expected<std::string> {
+            auto found = values->getValue()->find(identity);
+            if (found == values->getValue()->end())
+              return pycError("Table write value identity is missing: '" +
+                              identity + "'");
+            return found->getValue();
+          };
+          auto index = lookup(block.yields[0]);
+          auto present = lookup(block.yields[1]);
+          auto value = lookup(block.yields[2]);
+          if (!index)
+            return index.takeError();
+          if (!present)
+            return present.takeError();
+          if (!value)
+            return value.takeError();
+          auto indexType = yieldedType(
+              block, block.yields[0],
+              block.inputs.empty()
+                  ? table.entryType
+                  : findQueue(plan, block.inputs.front())->payloadType);
+          auto indexPycType =
+              indexType ? pycType(plan, *indexType)
+                        : llvm::Expected<std::string>(indexType.takeError());
+          if (!indexPycType)
+            return indexPycType.takeError();
+          if (!pycIntegerCanRepresent(slot, *indexPycType))
+            continue;
+          std::string slotValue = emitConstant(slot, *indexPycType);
+          std::string atSlot =
+              emitBinary("eq", *index, slotValue, *indexPycType);
+          std::string selected =
+              emitBinary("and", accepted->getValue(), *present, "i1");
+          if (auto arbitration = blockArbitrationAllowed.find(block.name);
+              arbitration != blockArbitrationAllowed.end())
+            selected =
+                emitBinary("and", selected, arbitration->getValue(), "i1");
+          selected = emitBinary("and", selected, atSlot, "i1");
+          std::string proposed = *value;
+          if (block.writeMode == "field") {
+            auto merged = emitTableFieldMerge(next, proposed, table.entryType,
+                                              block.writeFields);
+            if (!merged)
+              return merged.takeError();
+            proposed = std::move(*merged);
+          }
+          next = emitMux(selected, proposed, next, state->getValue().type);
+          enabled = emitBinary("or", enabled, selected, "i1");
+        }
+      }
+      body << "    pyc.assign " << state->getValue().next[slot] << ", " << next
+           << " : " << state->getValue().type << "\n";
+      body << "    pyc.assign " << state->getValue().enable[slot] << ", "
+           << enabled << " : i1\n";
     }
   }
   for (auto [index, sink] : llvm::enumerate(sinks))

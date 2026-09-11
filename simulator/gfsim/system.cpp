@@ -23,6 +23,7 @@ struct SimSystem::Impl {
   DispatchTable dispatch;
   ActivationPlan activation;
   ActivationPlan workClosure;
+  std::vector<ObjectId> arbitrationOrder;
   LegacyDispatchTable legacyDispatch;
   LegacyActivationGraph legacyActivation;
   uint64_t committedEventCount = 0;
@@ -210,6 +211,7 @@ bool SimSystem::setDispatchTable(std::span<const DispatchRow> rows) {
   impl_->dispatch = candidate;
   impl_->activation = ActivationPlan{};
   impl_->workClosure = ActivationPlan{};
+  impl_->arbitrationOrder.clear();
   impl_->preflightValidated = false;
   return true;
 }
@@ -231,6 +233,16 @@ bool SimSystem::setWorkClosurePlan(std::span<const uint32_t> offsets,
     return fail("invalid_work_closure_plan",
                 "Work closure offsets and targets must be canonical and dense");
   impl_->workClosure = candidate;
+  return true;
+}
+
+bool SimSystem::setArbitrationOrder(std::span<const ObjectId> order) {
+  std::set<ObjectId> seen;
+  for (ObjectId id : order)
+    if (id >= impl_->dispatch.size() || !seen.insert(id).second)
+      return fail("invalid_arbitration_order",
+                  "arbitration order must contain unique dispatch IDs");
+  impl_->arbitrationOrder.assign(order.begin(), order.end());
   return true;
 }
 
@@ -846,7 +858,15 @@ bool SimSystem::step() {
     }
     impl_->activeProposalOwner.reset();
   };
-  for (ObjectId id : currentWork) {
+  std::vector<ObjectId> arbitrationWork;
+  arbitrationWork.reserve(currentWork.size());
+  std::set<ObjectId> unorderedWork = currentWork;
+  for (ObjectId id : impl_->arbitrationOrder)
+    if (unorderedWork.erase(id) != 0)
+      arbitrationWork.push_back(id);
+  arbitrationWork.insert(arbitrationWork.end(), unorderedWork.begin(),
+                         unorderedWork.end());
+  for (ObjectId id : arbitrationWork) {
     arbitrate(id);
     if (terminated_)
       return false;

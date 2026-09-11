@@ -188,10 +188,15 @@ LogicalResult VarType::verify(function_ref<InFlightDiagnostic()> emitError,
 }
 
 LogicalResult QueueType::verify(function_ref<InFlightDiagnostic()> emitError,
-                                Type elementType) {
-  if (isImmutablePayloadType(elementType))
-    return success();
-  return emitError() << "queue payload must be an immutable ACIR value type";
+                                Type elementType, int64_t lanes,
+                                int64_t rate) {
+  if (!isImmutablePayloadType(elementType))
+    return emitError() << "queue payload must be an immutable ACIR value type";
+  if (lanes <= 0)
+    return emitError() << "queue lane count must be positive";
+  if (rate <= 0 || rate > lanes)
+    return emitError() << "queue rate must be positive and not exceed lanes";
+  return success();
 }
 
 LogicalResult ArrayType::verify(function_ref<InFlightDiagnostic()> emitError,

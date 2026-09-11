@@ -49,11 +49,11 @@ builtin.module attributes {ac.contract_epoch = "0.5"} {
     %true = ac.var.constant true as !ac.var<i1>
     ac.table.match.yield %true : !ac.var<i1>
   } -> !ac.var<i4>
-  %index, %valid = ac.table.choose @candidates %mask : !ac.var<i4> count 1 policy "min" key {
+  %index, %valid = ac.table.choose @candidates %mask : !ac.var<i4> count 1 policy #ac<table_selection_policy min> key_order #ac<table_key_ordering unsigned> stable_id "table/choose/min" key {
   ^key(%entry: !ac.var<i16>):
     ac.table.choose.yield %entry : !ac.var<i16>
   } -> !ac.var<i2>, !ac.var<i1>
-  %first_index, %first_valid = ac.table.choose @candidates %mask : !ac.var<i4> count 1 policy "first" key {} -> !ac.var<i2>, !ac.var<i1>
+  %first_index, %first_valid = ac.table.choose @candidates %mask : !ac.var<i4> count 1 policy #ac<table_selection_policy first> stable_id "table/choose/first" key {} -> !ac.var<i2>, !ac.var<i1>
   ac.table.masked_write @candidates %mask : !ac.var<i4> mode "field" write_fields ["$entry"] enable {
   ^enable:
     %true = ac.var.constant true as !ac.var<i1>
@@ -114,7 +114,7 @@ builtin.module attributes {ac.contract_epoch = "0.5"} {
 // CHECK: ac.table.match.yield
 // CHECK: ac.table.choose @candidates
 // CHECK: ac.table.choose.yield
-// CHECK: policy "first" key {
+// CHECK: policy first stable_id "table/choose/first" key {
 // CHECK: ac.table.masked_write @candidates %{{.*}} : !ac.var<i4> mode "field" write_fields ["$entry"]
 // CHECK: ac.slot.release @pending
 // CHECK: ac.slot.get @pending

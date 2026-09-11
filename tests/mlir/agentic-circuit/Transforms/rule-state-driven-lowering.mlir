@@ -37,7 +37,7 @@ module attributes {ac.contract_epoch = "0.5", ac.model_kind = "queue_graph", ac.
 // LOWERED: ac.table.propose @entries[%{{[0-9]+}}] = %{{[0-9]+}} when %[[PRESENT:[0-9]+]] : !ac.var<i1>
 // LOWERED: ac.firing.output %{{.*}} when %[[PRESENT]] ordinal 0
 // LOWERED: ac.activation_sources = [{kind = #ac<activation_resource_kind output_queue>, ordinal = 0 : i64}, {kind = #ac<activation_resource_kind state>, resource = @entries}]
-// LOWERED-SAME: ac.arbitration_membership = [{priority = 0 : i64, resource = @entries}]
+// LOWERED-SAME: ac.arbitration_membership = []
 // LOWERED-SAME: ac.checks_typed = [{guard_kind = #ac<rule_guard_kind predicate>, kind = #ac<rule_check_kind output_capacity>, ordinal = 0 : i64}]
 // LOWERED-SAME: ac.guard_kind = #ac<rule_guard_kind predicate>
 // LOWERED-SAME: ac.initially_active = true

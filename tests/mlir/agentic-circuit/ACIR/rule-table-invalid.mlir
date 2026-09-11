@@ -1,7 +1,7 @@
 // RUN: %split_file %s %t
 // RUN: %not %acir_opt %t/outside.mlir 2>&1 | %FileCheck %s --check-prefix=OUTSIDE
 // RUN: %not %acir_opt %t/dynamic-bounds.mlir -ac-verify-value-constraints 2>&1 | %FileCheck %s --check-prefix=BOUNDS
-// RUN: %not %acir_opt %t/field-mode.mlir 2>&1 | %FileCheck %s --check-prefix=MODE
+// RUN: %acir_opt %t/field-mode.mlir | %FileCheck %s --check-prefix=MODE
 // RUN: %acir_opt %t/type-mismatch.mlir | %FileCheck %s --check-prefix=HETERO
 // RUN: %not %acir_opt %t/unsafe-read.mlir -ac-verify-value-constraints 2>&1 | %FileCheck %s --check-prefix=READ-BOUNDS
 // RUN: %not %acir_opt --verify-each=false --pass-pipeline='builtin.module(ac-canonicalize-pure-firings,ac-verify-rule-closure)' %t/forged-pure-firing.mlir 2>&1 | %FileCheck %s --check-prefix=FORGED
@@ -59,7 +59,7 @@ module attributes {ac.contract_epoch = "0.5", ac.model_kind = "queue_graph", ac.
   } : (!ac.queue<!ac.struct<@types::@Entry>>) -> !ac.queue<!ac.struct<@types::@Entry>>
   ac.sink %output : !ac.queue<!ac.struct<@types::@Entry>>
 }
-// MODE: 'ac.table.propose' op stateful rule phase one supports replace mode only
+// MODE: ac.table.propose @table
 
 //--- write-conflict.mlir
 module attributes {ac.contract_epoch = "0.5", ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle", ac.system = "write_conflict"} {
@@ -95,7 +95,7 @@ module attributes {ac.contract_epoch = "0.5", ac.model_kind = "queue_graph", ac.
   ac.sink %output : !ac.queue<!ac.struct<@types::@Entry>>
 }
 // SHARED-SCHEDULE: ac.rule
-// SHARED-SCHEDULE: ac.rule.arbitration_membership = [{priority = 0 : i64, resource = @table}]
+// SHARED-SCHEDULE: ac.rule.arbitration_membership = []
 // SHARED-SCHEDULE: ac.rule.footprints = [{access = "replace"
 // SHARED-SCHEDULE-SAME: resource = @table
 // SHARED-SCHEDULE: ac.rule.priority = 0 : i64
@@ -159,7 +159,7 @@ module attributes {ac.contract_epoch = "0.5", ac.model_kind = "queue_graph", ac.
     ac.table.propose @table [%index] = %item mode "replace"
         write_fields ["$entry"] : !ac.var<i1>, !ac.var<i8>
     ac.firing.yield %item : !ac.var<i8>
-  } {ac.activation_sources = [{kind = #ac<activation_resource_kind input_queue>, ordinal = 0 : i64}, {kind = #ac<activation_resource_kind output_queue>, ordinal = 0 : i64}, {kind = #ac<activation_resource_kind state>, resource = @table}], ac.arbitration_membership = [{priority = 0 : i64, resource = @table}], ac.checks_typed = [{guard_kind = #ac<rule_guard_kind always>, kind = #ac<rule_check_kind input_available>, ordinal = 0 : i64}, {guard_kind = #ac<rule_guard_kind always>, kind = #ac<rule_check_kind output_capacity>, ordinal = 0 : i64}], ac.effects_typed = [{guard_kind = #ac<rule_guard_kind always>, kind = #ac<rule_effect_kind input_consume>, ordinal = 0 : i64}, {guard_kind = #ac<rule_guard_kind always>, kind = #ac<rule_effect_kind output_produce>, ordinal = 0 : i64}, {guard_kind = #ac<rule_guard_kind always>, kind = #ac<rule_effect_kind state_write>, resource = @table}], ac.guard_kind = #ac<rule_guard_kind always>, ac.initially_active = false, ac.output_presence = [{ordinal = 0 : i64, presence_kind = #ac<rule_output_presence_kind always>}], ac.rule_footprints = [{access = "replace", fields = ["$entry"], guard_kind = #ac<rule_guard_kind always>, index_kind = "static", resource = @table}], ac.rule_priority = 0 : i64, ac.schedule_kind = #ac<rule_schedule_kind independent>, ac.state_accesses = [{fields = ["$entry"], guard_kind = #ac<rule_guard_kind always>, index_kind = #ac<rule_index_kind static>, kind = #ac<rule_state_access_kind replace>, resource = @table}], ac.transaction_resources = [{kind = #ac<activation_resource_kind input_queue>, ordinal = 0 : i64}, {kind = #ac<activation_resource_kind output_queue>, ordinal = 0 : i64}, {kind = #ac<activation_resource_kind state>, resource = @table}]} : (!ac.queue<i8>) -> !ac.queue<i8>
+  } {ac.activation_sources = [{kind = #ac<activation_resource_kind input_queue>, ordinal = 0 : i64}, {kind = #ac<activation_resource_kind output_queue>, ordinal = 0 : i64}, {kind = #ac<activation_resource_kind state>, resource = @table}], ac.arbitration_membership = [], ac.checks_typed = [{guard_kind = #ac<rule_guard_kind always>, kind = #ac<rule_check_kind input_available>, ordinal = 0 : i64}, {guard_kind = #ac<rule_guard_kind always>, kind = #ac<rule_check_kind output_capacity>, ordinal = 0 : i64}], ac.effects_typed = [{guard_kind = #ac<rule_guard_kind always>, kind = #ac<rule_effect_kind input_consume>, ordinal = 0 : i64}, {guard_kind = #ac<rule_guard_kind always>, kind = #ac<rule_effect_kind output_produce>, ordinal = 0 : i64}, {guard_kind = #ac<rule_guard_kind always>, kind = #ac<rule_effect_kind state_write>, resource = @table}], ac.guard_kind = #ac<rule_guard_kind always>, ac.initially_active = false, ac.output_presence = [{ordinal = 0 : i64, presence_kind = #ac<rule_output_presence_kind always>}], ac.rule_footprints = [{access = "replace", fields = ["$entry"], guard_kind = #ac<rule_guard_kind always>, index_kind = "static", resource = @table}], ac.rule_priority = 0 : i64, ac.schedule_kind = #ac<rule_schedule_kind independent>, ac.state_accesses = [{fields = ["$entry"], guard_kind = #ac<rule_guard_kind always>, index_kind = #ac<rule_index_kind static>, kind = #ac<rule_state_access_kind replace>, resource = @table}], ac.transaction_resources = [{kind = #ac<activation_resource_kind input_queue>, ordinal = 0 : i64}, {kind = #ac<activation_resource_kind output_queue>, ordinal = 0 : i64}, {kind = #ac<activation_resource_kind state>, resource = @table}]} : (!ac.queue<i8>) -> !ac.queue<i8>
   ac.sink %output : !ac.queue<i8>
 }
 // FORGED: typed guard/schedule evidence does not match the body

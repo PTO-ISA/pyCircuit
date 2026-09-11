@@ -24,7 +24,7 @@ module attributes {ac.contract_epoch = "0.5", ac.model_kind = "queue_graph", ac.
       ac.table.match.yield %selected : !ac.var<i1>
     } -> !ac.var<i4>
     %index, %present = ac.table.choose @entries %mask : !ac.var<i4>
-        count 1 policy "min" key {
+        count 1 policy #ac<table_selection_policy min> key_order #ac<table_key_ordering unsigned> stable_id "table/choose/min" key {
     ^bb0(%entry: !ac.var<!ac.struct<@types::@Entry>>):
       %tag = ac.var.get %entry field "tag" : !ac.var<!ac.struct<@types::@Entry>> -> !ac.var<i2>
       %priority = ac.table.get @priority[%tag] : !ac.var<i2> -> !ac.var<i2>
@@ -44,11 +44,11 @@ module attributes {ac.contract_epoch = "0.5", ac.model_kind = "queue_graph", ac.
 }
 
 // LOWERED: %[[MASK:[^ ]+]] = ac.table.match @entries predicate
-// LOWERED: %[[INDEX:[^, ]+]], %[[PRESENT:[^ ]+]] = ac.table.choose @entries %[[MASK]]
-// LOWERED: ac.firing.condition %[[PRESENT]] : !ac.var<i1>
-// LOWERED: ac.state.snapshot @entries for %[[PRESENT]] : !ac.var<i1> kind all read_fields ["tag", "valid"]
-// LOWERED: ac.state.snapshot_set @ready from %[[MASK]] : !ac.var<i4> for %[[PRESENT]] : !ac.var<i1> read_fields ["$entry"]
-// LOWERED: ac.state.snapshot_set @priority from %[[INDEX]] : !ac.var<i2> for %[[PRESENT]] : !ac.var<i1> read_fields ["$entry"]
+// LOWERED: %[[CHOICE:[^ ]+]]:2 = ac.table.choose @entries %[[MASK]]
+// LOWERED: ac.firing.condition %[[CHOICE]]#1 : !ac.var<i1>
+// LOWERED: ac.state.snapshot @entries for %[[CHOICE]]#1 : !ac.var<i1> kind all read_fields ["tag", "valid"]
+// LOWERED: ac.state.snapshot_set @ready from %[[MASK]] : !ac.var<i4> for %[[CHOICE]]#1 : !ac.var<i1> read_fields ["$entry"]
+// LOWERED: ac.state.snapshot_set @priority from %[[CHOICE]]#0 : !ac.var<i2> for %[[CHOICE]]#1 : !ac.var<i1> read_fields ["$entry"]
 
 // PLAN: "state_reservations":[{"fields":["tag","valid"],"index":"","index_kind":"all","predicate":"v{{[0-9]+}}","source":"","table":"entries"},{"fields":["$entry"],"index":"","index_kind":"set","predicate":"v{{[0-9]+}}","source":"v{{[0-9]+}}","table":"ready"},{"fields":["$entry"],"index":"","index_kind":"set","predicate":"v{{[0-9]+}}","source":"v{{[0-9]+}}","table":"priority"}]
 

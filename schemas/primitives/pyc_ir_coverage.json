@@ -19,6 +19,8 @@
       "negative_mlir": [],
       "positive_mlir": [
         "tests/mlir/agentic-circuit/CodeGen/atomic-transform.mlir",
+        "tests/mlir/agentic-circuit/CodeGen/queue-lanes-transform-pyc.mlir",
+        "tests/mlir/agentic-circuit/CodeGen/table-masked-write-pyc.mlir",
         "tests/mlir/agentic-circuit/Transforms/rule-multi-input-lowering.mlir"
       ],
       "python_producer": [
@@ -33,6 +35,8 @@
         "tests/cpp/agentic-circuit/CodeGen/QueueGraphPlanTest.cpp",
         "tests/integration/agentic-circuit/e2e/test_pyc_backend.py",
         "tests/mlir/agentic-circuit/CodeGen/atomic-transform.mlir",
+        "tests/mlir/agentic-circuit/CodeGen/queue-lanes-transform-pyc.mlir",
+        "tests/mlir/agentic-circuit/CodeGen/table-masked-write-pyc.mlir",
         "tests/mlir/agentic-circuit/Transforms/rule-multi-input-lowering.mlir",
         "tests/python/agentic-circuit/contracts/test_contracts.py",
         "tests/unit/test_pyc6_surface.py",
@@ -100,7 +104,8 @@
       "negative_mlir": [],
       "positive_mlir": [
         "tests/mlir/agentic-circuit/CodeGen/bit-widths.mlir",
-        "tests/mlir/agentic-circuit/CodeGen/masked-match.mlir"
+        "tests/mlir/agentic-circuit/CodeGen/masked-match.mlir",
+        "tests/mlir/agentic-circuit/CodeGen/table-writer-arbitration-pyc.mlir"
       ],
       "python_producer": [
         "python/pycircuit/src/pycircuit/dsl.py",
@@ -116,6 +121,7 @@
         "tests/integration/agentic-circuit/e2e/test_pyc_backend.py",
         "tests/mlir/agentic-circuit/CodeGen/bit-widths.mlir",
         "tests/mlir/agentic-circuit/CodeGen/masked-match.mlir",
+        "tests/mlir/agentic-circuit/CodeGen/table-writer-arbitration-pyc.mlir",
         "tests/python/agentic-circuit/python_frontend/test_queue_frontend.py",
         "tests/test_bitmask_match.py",
         "tests/test_pyc_enum.py",
@@ -167,7 +173,10 @@
       "kind": "operation",
       "name": "pyc.assert",
       "negative_mlir": [],
-      "positive_mlir": [],
+      "positive_mlir": [
+        "tests/mlir/agentic-circuit/CodeGen/queue-lanes-pyc.mlir",
+        "tests/mlir/agentic-circuit/CodeGen/table-multidimensional-pyc.mlir"
+      ],
       "python_producer": [
         "python/pycircuit/src/pycircuit/dsl.py",
         "python/pycircuit/src/pycircuit/hw.py",
@@ -180,6 +189,8 @@
       "symbol": "PYC_AssertOp",
       "tests": [
         "tests/cpp/agentic-circuit/Dialect/ACIR/OpsTest.cpp",
+        "tests/mlir/agentic-circuit/CodeGen/queue-lanes-pyc.mlir",
+        "tests/mlir/agentic-circuit/CodeGen/table-multidimensional-pyc.mlir",
         "tests/python/agentic-circuit/tools/test_pyc_verilog_backend.py",
         "tests/test_assert_fits.py"
       ],
@@ -205,7 +216,8 @@
       "name": "pyc.assign",
       "negative_mlir": [],
       "positive_mlir": [
-        "tests/mlir/agentic-circuit/CodeGen/atomic-transform.mlir"
+        "tests/mlir/agentic-circuit/CodeGen/atomic-transform.mlir",
+        "tests/mlir/agentic-circuit/CodeGen/table-multi-selection-pyc.mlir"
       ],
       "python_producer": [
         "python/pycircuit/src/pycircuit/dsl.py",
@@ -219,7 +231,8 @@
       "symbol": "PYC_AssignOp",
       "tests": [
         "tests/cpp/agentic-circuit/CodeGen/QueueGraphPlanTest.cpp",
-        "tests/mlir/agentic-circuit/CodeGen/atomic-transform.mlir"
+        "tests/mlir/agentic-circuit/CodeGen/atomic-transform.mlir",
+        "tests/mlir/agentic-circuit/CodeGen/table-multi-selection-pyc.mlir"
       ],
       "verifier": "compiler/mlir/lib/Dialect/PYC/PYCOps.cpp",
       "verilog_emitter": "compiler/mlir/lib/Emit/VerilogEmitter.cpp"
@@ -414,7 +427,8 @@
       "positive_mlir": [
         "tests/mlir/agentic-circuit/ACIR/collections-valid.mlir",
         "tests/mlir/agentic-circuit/ACIR/view-provenance.mlir",
-        "tests/mlir/agentic-circuit/CodeGen/bit-operations.mlir"
+        "tests/mlir/agentic-circuit/CodeGen/bit-operations.mlir",
+        "tests/mlir/agentic-circuit/CodeGen/table-field-replace-order-pyc.mlir"
       ],
       "python_producer": [
         "python/pycircuit/src/pycircuit/dsl.py"
@@ -433,6 +447,7 @@
         "tests/mlir/agentic-circuit/ACIR/collections-valid.mlir",
         "tests/mlir/agentic-circuit/ACIR/view-provenance.mlir",
         "tests/mlir/agentic-circuit/CodeGen/bit-operations.mlir",
+        "tests/mlir/agentic-circuit/CodeGen/table-field-replace-order-pyc.mlir",
         "tests/python/agentic-circuit/python_frontend/test_public_api.py"
       ],
       "verifier": "compiler/mlir/lib/Dialect/PYC/PYCOps.cpp",
@@ -460,7 +475,10 @@
       "name": "pyc.constant",
       "negative_mlir": [],
       "positive_mlir": [
-        "tests/mlir/agentic-circuit/CodeGen/masked-match.mlir"
+        "tests/mlir/agentic-circuit/CodeGen/masked-match.mlir",
+        "tests/mlir/agentic-circuit/CodeGen/table-masked-write-pyc.mlir",
+        "tests/mlir/agentic-circuit/CodeGen/table-selection-write-pyc.mlir",
+        "tests/mlir/agentic-circuit/CodeGen/table-typed-init-pyc.mlir"
       ],
       "python_producer": [
         "python/pycircuit/src/pycircuit/dsl.py"
@@ -474,6 +492,9 @@
         "tests/cpp/agentic-circuit/CodeGen/QueueGraphPlanTest.cpp",
         "tests/integration/agentic-circuit/e2e/test_pyc_backend.py",
         "tests/mlir/agentic-circuit/CodeGen/masked-match.mlir",
+        "tests/mlir/agentic-circuit/CodeGen/table-masked-write-pyc.mlir",
+        "tests/mlir/agentic-circuit/CodeGen/table-selection-write-pyc.mlir",
+        "tests/mlir/agentic-circuit/CodeGen/table-typed-init-pyc.mlir",
         "tests/python/agentic-circuit/contracts/test_contracts.py",
         "tests/test_pyc_canonical_ops.py",
         "tests/test_pyc_enum.py"
@@ -547,7 +568,8 @@
       "name": "pyc.extract",
       "negative_mlir": [],
       "positive_mlir": [
-        "tests/mlir/agentic-circuit/CodeGen/bit-operations.mlir"
+        "tests/mlir/agentic-circuit/CodeGen/bit-operations.mlir",
+        "tests/mlir/agentic-circuit/CodeGen/table-field-replace-order-pyc.mlir"
       ],
       "python_producer": [
         "python/pycircuit/src/pycircuit/dsl.py"
@@ -561,6 +583,7 @@
         "tests/integration/agentic-circuit/e2e/test_pyc_backend.py",
         "tests/integration/agentic-circuit/e2e/test_typed_record_pyc.py",
         "tests/mlir/agentic-circuit/CodeGen/bit-operations.mlir",
+        "tests/mlir/agentic-circuit/CodeGen/table-field-replace-order-pyc.mlir",
         "tests/test_assert_fits.py",
         "tests/test_bitfield_view.py"
       ],
@@ -720,7 +743,9 @@
       "kind": "operation",
       "name": "pyc.mul",
       "negative_mlir": [],
-      "positive_mlir": [],
+      "positive_mlir": [
+        "tests/mlir/agentic-circuit/CodeGen/table-multidimensional-pyc.mlir"
+      ],
       "python_producer": [
         "python/pycircuit/src/pycircuit/dsl.py"
       ],
@@ -730,6 +755,7 @@
       "status": "normative",
       "symbol": "PYC_MulOp",
       "tests": [
+        "tests/mlir/agentic-circuit/CodeGen/table-multidimensional-pyc.mlir",
         "tests/unit/test_semantic_core.py"
       ],
       "verifier": "compiler/mlir/lib/Dialect/PYC/PYCOps.cpp",
@@ -754,6 +780,7 @@
       "negative_mlir": [],
       "positive_mlir": [
         "tests/mlir/agentic-circuit/CodeGen/bit-widths.mlir",
+        "tests/mlir/agentic-circuit/CodeGen/table-writer-arbitration-pyc.mlir",
         "tests/mlir/agentic-circuit/lit.cfg.py"
       ],
       "python_producer": [
@@ -769,6 +796,7 @@
         "tests/cpp/agentic-circuit/CodeGen/QueueGraphPlanTest.cpp",
         "tests/integration/agentic-circuit/e2e/test_pyc_backend.py",
         "tests/mlir/agentic-circuit/CodeGen/bit-widths.mlir",
+        "tests/mlir/agentic-circuit/CodeGen/table-writer-arbitration-pyc.mlir",
         "tests/mlir/agentic-circuit/lit.cfg.py",
         "tests/python/agentic-circuit/python_frontend/test_queue_frontend.py"
       ],
@@ -929,14 +957,33 @@
       "cpp_emitter": "compiler/mlir/lib/Emit/CppEmitter.cpp",
       "e2e": [
         "tests/integration/agentic-circuit/e2e/test_credit_backend.py",
-        "tests/integration/agentic-circuit/e2e/test_pyc_backend.py"
+        "tests/integration/agentic-circuit/e2e/test_pyc_backend.py",
+        "tests/integration/agentic-circuit/e2e/test_table_backend.py"
       ],
       "examples": [],
       "folder": null,
       "kind": "operation",
       "name": "pyc.reg",
-      "negative_mlir": [],
-      "positive_mlir": [],
+      "negative_mlir": [
+        "tests/mlir/agentic-circuit/CodeGen/table-pyc-profile-invalid.mlir"
+      ],
+      "positive_mlir": [
+        "tests/mlir/agentic-circuit/CodeGen/queue-lanes-pyc.mlir",
+        "tests/mlir/agentic-circuit/CodeGen/queue-lanes-transform-pyc.mlir",
+        "tests/mlir/agentic-circuit/CodeGen/queue-lanes4-pyc.mlir",
+        "tests/mlir/agentic-circuit/CodeGen/table-endpoint-value-constraints.mlir",
+        "tests/mlir/agentic-circuit/CodeGen/table-field-replace-order-pyc.mlir",
+        "tests/mlir/agentic-circuit/CodeGen/table-masked-write-pyc.mlir",
+        "tests/mlir/agentic-circuit/CodeGen/table-multi-selection-pyc.mlir",
+        "tests/mlir/agentic-circuit/CodeGen/table-multidimensional-pyc.mlir",
+        "tests/mlir/agentic-circuit/CodeGen/table-read-pyc.mlir",
+        "tests/mlir/agentic-circuit/CodeGen/table-selection-write-pyc.mlir",
+        "tests/mlir/agentic-circuit/CodeGen/table-typed-init-pyc.mlir",
+        "tests/mlir/agentic-circuit/CodeGen/table-writer-arbitration-pyc.mlir",
+        "tests/mlir/agentic-circuit/Transforms/rule-consume-only-lowering.mlir",
+        "tests/mlir/agentic-circuit/Transforms/rule-owner-write-batch.mlir",
+        "tests/mlir/agentic-circuit/Transforms/rule-table-lowering.mlir"
+      ],
       "python_producer": [
         "python/pycircuit/src/pycircuit/dsl.py",
         "python/pycircuit/src/pycircuit/hierarchical.py",
@@ -951,6 +998,24 @@
         "tests/cpp/agentic-circuit/CodeGen/QueueGraphPlanTest.cpp",
         "tests/integration/agentic-circuit/e2e/test_credit_backend.py",
         "tests/integration/agentic-circuit/e2e/test_pyc_backend.py",
+        "tests/integration/agentic-circuit/e2e/test_table_backend.py",
+        "tests/mlir/agentic-circuit/CodeGen/queue-lanes-pyc.mlir",
+        "tests/mlir/agentic-circuit/CodeGen/queue-lanes-transform-pyc.mlir",
+        "tests/mlir/agentic-circuit/CodeGen/queue-lanes4-pyc.mlir",
+        "tests/mlir/agentic-circuit/CodeGen/table-endpoint-value-constraints.mlir",
+        "tests/mlir/agentic-circuit/CodeGen/table-field-replace-order-pyc.mlir",
+        "tests/mlir/agentic-circuit/CodeGen/table-masked-write-pyc.mlir",
+        "tests/mlir/agentic-circuit/CodeGen/table-multi-selection-pyc.mlir",
+        "tests/mlir/agentic-circuit/CodeGen/table-multidimensional-pyc.mlir",
+        "tests/mlir/agentic-circuit/CodeGen/table-pyc-profile-invalid.mlir",
+        "tests/mlir/agentic-circuit/CodeGen/table-read-pyc.mlir",
+        "tests/mlir/agentic-circuit/CodeGen/table-selection-write-pyc.mlir",
+        "tests/mlir/agentic-circuit/CodeGen/table-typed-init-pyc.mlir",
+        "tests/mlir/agentic-circuit/CodeGen/table-writer-arbitration-pyc.mlir",
+        "tests/mlir/agentic-circuit/Transforms/rule-consume-only-lowering.mlir",
+        "tests/mlir/agentic-circuit/Transforms/rule-owner-write-batch.mlir",
+        "tests/mlir/agentic-circuit/Transforms/rule-table-lowering.mlir",
+        "tests/system/test_dodgeball_example.py",
         "tests/test_bitfield_view.py",
         "tests/unit/test_v6_forward_signal.py"
       ],
@@ -1080,7 +1145,10 @@
       ],
       "positive_mlir": [
         "tests/mlir/agentic-circuit/ACIR/collections-valid.mlir",
+        "tests/mlir/agentic-circuit/CodeGen/table-read-pyc.mlir",
         "tests/mlir/agentic-circuit/CodeGen/value-select.mlir",
+        "tests/mlir/agentic-circuit/Transforms/rule-multi-input-branch-lowering.mlir",
+        "tests/mlir/agentic-circuit/Transforms/rule-table-lowering.mlir",
         "tests/mlir/pyc/canonical-ops-valid.mlir"
       ],
       "python_producer": [
@@ -1100,7 +1168,10 @@
         "tests/integration/agentic-circuit/e2e/test_queue_codegen.py",
         "tests/mlir/agentic-circuit/ACIR/collections-invalid.mlir",
         "tests/mlir/agentic-circuit/ACIR/collections-valid.mlir",
+        "tests/mlir/agentic-circuit/CodeGen/table-read-pyc.mlir",
         "tests/mlir/agentic-circuit/CodeGen/value-select.mlir",
+        "tests/mlir/agentic-circuit/Transforms/rule-multi-input-branch-lowering.mlir",
+        "tests/mlir/agentic-circuit/Transforms/rule-table-lowering.mlir",
         "tests/mlir/pyc/canonical-ops-valid.mlir",
         "tests/mlir/pyc/canonical-select-invalid.mlir",
         "tests/test_pyc_canonical_ops.py",
@@ -1252,7 +1323,8 @@
       ],
       "cpp_emitter": "compiler/mlir/lib/Emit/CppEmitter.cpp",
       "e2e": [
-        "tests/integration/agentic-circuit/e2e/test_pyc_backend.py"
+        "tests/integration/agentic-circuit/e2e/test_pyc_backend.py",
+        "tests/integration/agentic-circuit/e2e/test_table_backend.py"
       ],
       "examples": [],
       "folder": null,
@@ -1271,7 +1343,8 @@
       "symbol": "PYC_SyncMemOp",
       "tests": [
         "tests/cpp/agentic-circuit/CodeGen/QueueGraphPlanTest.cpp",
-        "tests/integration/agentic-circuit/e2e/test_pyc_backend.py"
+        "tests/integration/agentic-circuit/e2e/test_pyc_backend.py",
+        "tests/integration/agentic-circuit/e2e/test_table_backend.py"
       ],
       "verifier": "compiler/mlir/lib/Dialect/PYC/PYCOps.cpp",
       "verilog_emitter": "compiler/mlir/lib/Emit/VerilogEmitter.cpp"
@@ -1491,7 +1564,9 @@
       "verilog_emitter": "compiler/mlir/lib/Emit/VerilogEmitter.cpp"
     },
     {
-      "acir_producer": [],
+      "acir_producer": [
+        "compiler/acir/lib/CodeGen/QueueGraphPyc.cpp"
+      ],
       "canonicalization": [
         "compiler/mlir/lib/Transforms/FuseCombPass.cpp"
       ],
@@ -1502,7 +1577,9 @@
       "kind": "operation",
       "name": "pyc.zext",
       "negative_mlir": [],
-      "positive_mlir": [],
+      "positive_mlir": [
+        "tests/mlir/agentic-circuit/CodeGen/table-multidimensional-pyc.mlir"
+      ],
       "python_producer": [
         "python/pycircuit/src/pycircuit/__init__.py",
         "python/pycircuit/src/pycircuit/api_contract.py",
@@ -1516,6 +1593,7 @@
       "status": "normative",
       "symbol": "PYC_ZextOp",
       "tests": [
+        "tests/mlir/agentic-circuit/CodeGen/table-multidimensional-pyc.mlir",
         "tests/unit/test_v6_forward_signal.py"
       ],
       "verifier": "compiler/mlir/lib/Dialect/PYC/PYCOps.cpp",

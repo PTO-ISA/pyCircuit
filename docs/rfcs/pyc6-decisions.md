@@ -7780,19 +7780,20 @@ the existing explicit ownership, conflict, snapshot, or transaction model.
 
 **Decision (strong constraint)**
 - An `@ac.rule` may be defined directly in an `@ac.module`. It captures only
-  direct typed module-state declarations named by direct-body Python
-  `nonlocal` statements. Module inputs, static/global mutable values, untyped
-  assignments, attributes, aliases, late declarations and deeper lexical
-  scopes are not captureable.
+  direct typed module-state declarations referenced by the nested rule. The
+  compiler infers that capture set statically; a direct-body Python `nonlocal`
+  remains accepted only when it names exactly the same set. Module inputs,
+  static/global mutable values, untyped assignments, attributes, aliases, late
+  declarations and deeper lexical scopes are not captureable.
 - Capture order is the module state declaration order. Before ordinary rule
   parsing, the frontend gives each nested rule a deterministic module-qualified
   identity, prepends the captured owners as explicit rule parameters, and
   prepends the same state values at each direct call. A collision with any
   flattened source definition fails closed.
-- Every module-state reference in a nested rule requires `nonlocal`, including
-  read-only references. A capture cannot shadow a rule parameter. Nested rules
-  cannot call or recurse through another nested rule and cannot escape through
-  an alias or dynamic call.
+- Capture inference includes read-only and writable module-state references and
+  preserves module declaration order. A capture cannot shadow a rule parameter.
+  Nested rules cannot call or recurse through another nested rule and cannot
+  escape through an alias or dynamic call.
 - The canonicalized rule uses the existing `RuleStateOwnerBinding`, exact
   scalar/list index and field footprints, committed-state reads, SSA updates,
   proposal presence, conflict analysis, arbitration and lowering. No new ACIR
@@ -7806,9 +7807,11 @@ the existing explicit ownership, conflict, snapshot, or transaction model.
 **Required verification**
 - Frontend positives cover scalar plus fixed-list capture, read/write owners,
   no-payload state-driven rules, canonical ordering, deterministic lowering and
-  two instances of one specialization. Negatives cover missing `nonlocal`,
-  untyped/unknown/late state, parameter shadowing, nested-scope declarations,
-  recursive/inter-rule calls and generated identity collisions.
+  two instances of one specialization, and equivalence with the explicit
+  `nonlocal` spelling. Negatives cover mismatched explicit captures,
+  untyped/unknown/late state, module-input and parameter shadowing,
+  nested-scope declarations, recursive/inter-rule calls and generated identity
+  collisions.
 - Explicit and captured I2 retain seven rules, thirteen state owners, four
   inputs, seven outputs, exact state read/write/proposal counts, five Table
   scans and five priority encoders. Normalizing the specialization fingerprint
@@ -7820,6 +7823,7 @@ the existing explicit ownership, conflict, snapshot, or transaction model.
 
 **Source**
 - PTO-ISA/pyCircuit issue #63 OPT-02.
+- PTO-ISA/pyCircuit issue #105.
 - In-tree DavinciOO I2 at `designs/davincioo/spe/iex/i2.py`.
 
 ## Decision 0227: static Queue collections elaborate supported operator families
@@ -8437,7 +8441,7 @@ generic builds and releases carry contracts owned by particular consumers.
 
 ## Decision 0236: ordinary rules lower to one compiler-owned atomic transaction
 
-**Status:** Accepted; implementation tracked by issue #28
+**Status:** Accepted; implementation tracked by issues #28 and #103
 
 **Supersedes:** The public `@ac.transition` and `safe=True` API sketch in issue
 issue #28 and the deferred single-output/single-owner limitations of Decisions 0167,
@@ -8453,6 +8457,13 @@ couple authoring to a particular runtime protocol.
 - `@ac.rule` remains the only public scheduling decorator. Python exposes no
   `@ac.transition`, `safe=True`, readiness, pop/push, reservation, commit,
   rollback, atomic/check primitive, or compatibility alias.
+- A rule may spell an immutable record replacement as direct field assignment.
+  The frontend normalizes a local or persistent-scalar target to an SSA
+  `with_fields(...)` rebind and an indexed persistent target to one
+  index-evaluated-once complete-entry proposal. This syntax creates no mutable
+  alias, implicit local-copy writeback, Queue-token mutation, or new scheduling
+  boundary. Nested or sliced targets, augmented assignment, and invalid field,
+  type, or index contracts fail closed before transaction lowering.
 - The compiler lowers ordinary rule CFG internally to transition and branch
   ownership metadata and then to marker-free `ac.firing`. Each firing owns its
   complete selected Queue, Table, Reg, and Slot effect set.
@@ -8478,12 +8489,15 @@ couple authoring to a particular runtime protocol.
 - Frontend and ACIR tests cover zero or many inputs and outputs, heterogeneous
   optional results, Table/Reg/Slot effects, serial branches, and invalid
   ownership or overlap metadata.
+- Frontend tests prove that field-assignment shorthand matches explicit
+  immutable updates in raw ACIR, preserves serial SSA ordering, evaluates an
+  indexed target once, and retains the existing field/type/index diagnostics.
 - Direct and native gfsim agree for no-fire, full-fire, selected-branch stall,
   conflict, reset, and output-backpressure cases with no partial commit.
 
 **Source**
-- PTO-ISA/pyCircuit issue #28 and independent release-architect review
-  (2026-09-10).
+- PTO-ISA/pyCircuit issues #28 and #103 and independent release-architect
+  review (2026-09-10 through 2026-09-11).
 
 ## Decision 0237: same-field Table writers require proof or explicit arbitration
 
@@ -8675,7 +8689,7 @@ count, Queue rate, and payload shape need separate verified meanings.
 
 ## Decision 0241: bounded Table PYC uses an explicit register bank
 
-**Status:** Accepted; implementation tracked by issue #22
+**Status:** Accepted; implemented and verified
 
 **Supersedes:** The blanket `unsupported provisional Table` boundary in
 Decisions 0151 through 0156 for the admitted profile only.

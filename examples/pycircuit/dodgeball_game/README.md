@@ -38,30 +38,30 @@ The emulator will build the C++ simulation library if it is missing. Use
 `--rebuild` to force regeneration.
 
 ```bash
-python3 examples/dodgeball_game/emulate_dodgeball.py
-python3 examples/dodgeball_game/emulate_dodgeball.py --rebuild
+python3 examples/pycircuit/dodgeball_game/emulate_dodgeball.py
+python3 examples/pycircuit/dodgeball_game/emulate_dodgeball.py --rebuild
 ```
 
 ## Manual Build and Run
 
 ```bash
 PYTHONPATH=python:. python3 -m pycircuit.cli emit \
-  examples/dodgeball_game/lab_final_top.py \
+  examples/pycircuit/dodgeball_game/lab_final_top.py \
   -o examples/generated/dodgeball_game/dodgeball_game.pyc
 
 ./build/bin/pyc-compile examples/generated/dodgeball_game/dodgeball_game.pyc \
   --emit=cpp --out-dir=examples/generated/dodgeball_game
 
 c++ -std=c++17 -O2 -shared -fPIC -I include -I . \
-  -o examples/dodgeball_game/libdodgeball_sim.dylib \
-  examples/dodgeball_game/dodgeball_capi.cpp
+  -o examples/pycircuit/dodgeball_game/libdodgeball_sim.dylib \
+  examples/pycircuit/dodgeball_game/dodgeball_capi.cpp
 
-python3 examples/dodgeball_game/emulate_dodgeball.py --stim basic
+python3 examples/pycircuit/dodgeball_game/emulate_dodgeball.py --stim basic
 ```
 
 ## Stimuli
 
 Stimulus is separated from the DUT and loaded as a module.
-Available modules live under `examples/dodgeball_game/stimuli/`.
+Available modules live under `examples/pycircuit/dodgeball_game/stimuli/`.
 
 - `basic`: start, move left, then move right, plus a reset/restart sequence.

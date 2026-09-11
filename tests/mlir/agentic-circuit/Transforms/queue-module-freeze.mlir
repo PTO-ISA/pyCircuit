@@ -88,8 +88,8 @@ builtin.module attributes {
 // PLAN-SAME: "specialization":"[[PLAN_SPECIALIZATION]]"
 // PLAN-SAME: "module_specializations":[{
 // PLAN-SAME: "definition":"Increment"
-// PLAN-SAME: "interface_inputs":[{"name":"input_0","payload_type":"i8"}]
-// PLAN-SAME: "interface_outputs":[{"name":"module_output","payload_type":"i8"}]
+// PLAN-SAME: "interface_inputs":[{"lanes":1,"name":"input_0","payload_type":"i8","rate":1}]
+// PLAN-SAME: "interface_outputs":[{"lanes":1,"name":"module_output","payload_type":"i8","rate":1}]
 
 // CXX-COUNT-1: class [[IMPLEMENTATION:Module_Increment]] final : public gfsim::Module
 // CXX: class ReusedPipeline final : public gfsim::Module

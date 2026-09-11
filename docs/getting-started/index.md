@@ -45,7 +45,8 @@ bash flows/scripts/pyc build
 ### Python frontend only
 
 ```bash
-# Install Python package
+# Install the semantic core, then the pyCircuit frontend
+python3 -m pip install -e "python/semantic-core"
 python3 -m pip install -e .
 
 # Use the frontend to emit MLIR

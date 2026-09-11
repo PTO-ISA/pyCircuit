@@ -36,25 +36,33 @@ trace-position, or trace/observation export surface (Decision 0235).
 
 - Keep typed payloads, recursive aggregates, exact-width bit operations,
   immutable updates, and nominal identity verified across ACPy and ACIR.
-- Implement Decision 0236 first: `@ac.rule` remains the only public scheduling
-  boundary while the compiler forms complete Queue/Table/Reg/Slot
+- Decision 0236 is implemented-verified: `@ac.rule` remains the only public
+  scheduling boundary while the compiler forms complete Queue/Table/Reg/Slot
   prepare/publish/no-fail commit groups for issue #28.
-- Implement Decision 0237 writer proof and deterministic arbitration for issue
-  #25, then Decision 0238 multidimensional shape, typed initialization, and
-  masked domains for issue #23.
-- Implement Decision 0239 static-tuple multi-selection for issue #24. Preserve
-  scalar `TableChoice` for omitted `count` and `count=1`; make every formed
-  multi-lane valid prefix one atomic transaction.
-- Implement Decision 0240 ordered multi-lane Queue identity and whole-prefix
-  transfer for issue #21 without processor-stage or design-specific terminology.
-- Complete Decision 0241 last in the semantic train: admit only the bounded
-  Table profile through an explicit canonical-PYC register bank and prove C++ /
-  Verilog parity for issue #22.
+- Decision 0237 is implemented-verified: same-field Table writers require a
+  committed-snapshot disjointness proof or explicit stable-identity priority;
+  QueueGraph and gfsim perform deterministic pre-prepare winner selection and
+  atomic loser suppression for issue #25.
+- Decision 0238 is implemented-verified across frontend, ACIR, QueueGraph,
+  typed gfsim, and canonical PYC for multidimensional shape, row-major
+  flattened indices, versioned typed initialization, projected mask domains,
+  reset, and C++/Verilog parity for issue #23.
+- Decision 0239 is implemented-verified across frontend, ACIR, QueueGraph,
+  typed gfsim, and canonical PYC for static-tuple multi-selection, typed
+  first/min/max/round-robin policies, once-per-attempt combinational
+  evaluation, accepted-only cursor advance, and atomic valid-prefix
+  consumption for issue #24.
+- Decision 0240 is implemented-verified for generic direct and one-to-one pure
+  transform Queue profiles: one typed Queue identity preserves lane ordinals,
+  whole-prefix backpressure, simultaneous dequeue/append, reset, and generated
+  gfsim/PYC C++/Verilator equivalence for issue #21. Other multi-lane PYC
+  topologies remain explicit fail-closed extensions.
+- Decision 0241 is implemented-verified for the bounded explicit-register-bank
+  Table profile, including independent admission limits and C++/Verilog parity
+  for issue #22.
 
-Decisions 0236–0241 are Accepted but remain `deferred` in the decision-status
-table until their implementations and concrete gate evidence land. The frozen
-order is #28 -> #25/#23 -> #24/#21 -> #22; #21 may proceed after #28 while the
-Table slices converge.
+Decisions 0236 through 0241 are implemented-verified. The semantic train is
+closed; remaining release work is repository/platform evidence and publication.
 
 ### 3. Publish a consumer-neutral SDK
 
@@ -68,12 +76,16 @@ Table slices converge.
   statistics, and error reporting.
 - Validate the SDK with an external vendor-neutral fixture containing no ISA,
   product, trace, or reference-model contract.
-- Implement Decision 0232 with exactly four release wheel assets: one
-  platform-specific `pycircuit-hisi` wheel for each supported platform and one
-  universal wheel each for `pycircuit-semantic-core` and `agentic-circuit`.
-- Implement Decision 0234 Part A as one source-SHA-pinned manual workflow whose
-  single candidate-acceptance barrier gates annotated-tag creation and every
-  publish job. Publish jobs consume retained accepted bytes and never rebuild.
+- Decision 0232 repository support is implemented-verified with exactly four
+  release wheel assets: one platform-specific `pycircuit-hisi` wheel for each
+  supported platform and one universal wheel each for
+  `pycircuit-semantic-core` and `agentic-circuit`. The release instance still
+  requires the real Linux and macOS candidate jobs and relocated
+  installed-consumer evidence before tag creation.
+- Decision 0234 Part A is implemented-verified as one source-SHA-pinned
+  manual workflow whose single candidate-acceptance barrier gates annotated-tag
+  creation and every publish job. Repository tests parse the dependency DAG,
+  reject publication bypass/rebuild, and verify final attestation bindings.
 - Treat Decision 0234 Part B as the release-instance stop condition: redownload
   stable GitHub Release URLs on both platforms, rerun the relocated consumer,
   and record an immutable Actions/check-run attestation outside the release

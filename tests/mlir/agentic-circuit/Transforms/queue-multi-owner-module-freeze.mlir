@@ -51,7 +51,7 @@ builtin.module attributes {
         ac.firing.yield %reported : !ac.var<i8>
       } {
         ac.activation_sources = [{kind = #ac<activation_resource_kind input_queue>, ordinal = 0 : i64}, {kind = #ac<activation_resource_kind output_queue>, ordinal = 0 : i64}, {kind = #ac<activation_resource_kind state>, resource = @cursor}, {kind = #ac<activation_resource_kind state>, resource = @total}],
-        ac.arbitration_membership = [{priority = 0 : i64, resource = @cursor}, {priority = 0 : i64, resource = @total}],
+        ac.arbitration_membership = [],
         ac.checks_typed = [{guard_kind = #ac<rule_guard_kind always>, kind = #ac<rule_check_kind input_available>, ordinal = 0 : i64}, {guard_kind = #ac<rule_guard_kind always>, kind = #ac<rule_check_kind output_capacity>, ordinal = 0 : i64}],
         ac.effects_typed = [{guard_kind = #ac<rule_guard_kind always>, kind = #ac<rule_effect_kind input_consume>, ordinal = 0 : i64}, {guard_kind = #ac<rule_guard_kind always>, kind = #ac<rule_effect_kind output_produce>, ordinal = 0 : i64}, {guard_kind = #ac<rule_guard_kind always>, kind = #ac<rule_effect_kind state_read>, resource = @cursor}, {guard_kind = #ac<rule_guard_kind always>, kind = #ac<rule_effect_kind state_read>, resource = @total}, {guard_kind = #ac<rule_guard_kind always>, kind = #ac<rule_effect_kind state_write>, resource = @cursor}, {guard_kind = #ac<rule_guard_kind always>, kind = #ac<rule_effect_kind state_write>, resource = @total}],
         ac.guard_kind = #ac<rule_guard_kind always>,
@@ -103,9 +103,9 @@ builtin.module attributes {
 // PLAN-SAME: {"fields":["$entry"]
 // PLAN-SAME: "table":"total"
 // PLAN-SAME: "definition":"StatePair"
-// PLAN-SAME: "tables":[{"entries":1
+// PLAN-SAME: "tables":[{"axis_widths":[1],"entries":1
 // PLAN-SAME: "name":"cursor"
-// PLAN-SAME: {"entries":1
+// PLAN-SAME: {"axis_widths":[1],"entries":1
 // PLAN-SAME: "name":"total"
 
 // CXX: gfsim::StateTransitionPlan<std::tuple<gfsim::UInt<8>, gfsim::UInt<8>>

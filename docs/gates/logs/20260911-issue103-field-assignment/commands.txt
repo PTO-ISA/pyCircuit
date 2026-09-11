@@ -1,0 +1,15 @@
+pytest -q tests/python/agentic-circuit/python_frontend/test_rule_field_assignment.py
+env -u AC_GATE_TOOLCHAIN_ROOT PYTHONPATH="$PWD/python/semantic-core/src:$PWD/python/agentic-circuit/src:$PWD/tests/python/agentic-circuit:$PWD/.pycircuit_out/acir/dev-llvm22/python" .pycircuit_out/agentic-circuit/venv/bin/python -m unittest discover -s tests/python/agentic-circuit/python_frontend -p 'test_*.py'
+PYTHONPATH="<venv-site-packages>" cmake --build .pycircuit_out/acir/dev-llvm22 --target check-acir -j 6
+ctest --test-dir .pycircuit_out/acir/dev-llvm22 --output-on-failure -j 6
+.pycircuit_out/acir/dev-llvm22/bin/acir-opt --verify-each=false --pass-pipeline='builtin.module(ac-lower-rules,canonicalize,cse,ac-verify-rule-closure,ac-freeze-topology)' .pycircuit_out/gates/20260911-issue103-field-assignment/field-assignment/model.raw.ac.mlir -o .pycircuit_out/gates/20260911-issue103-field-assignment/field-assignment/model.frozen.ac.mlir
+.pycircuit_out/acir/dev-llvm22/bin/acir-queue-plan .pycircuit_out/gates/20260911-issue103-field-assignment/field-assignment/model.frozen.ac.mlir
+.pycircuit_out/acir/dev-llvm22/bin/acir-queue-cxxgen .pycircuit_out/gates/20260911-issue103-field-assignment/field-assignment/model.frozen.ac.mlir --output-root=.pycircuit_out/gates/20260911-issue103-field-assignment/field-assignment/cxx --sdk-product-version=6.0.0 --sdk-source-revision=b48a76e7
+c++ -std=c++20 -I <generated-include> -I simulator/gfsim/include -c <generated-model.cpp>
+c++ -std=c++20 -I <generated-include> -I simulator/gfsim/include -c <generated-queuegraph.cpp>
+.pycircuit_out/agentic-circuit/venv/bin/python tools/agentic-circuit/check-contracts.py
+pytest tests/unit -m unit -q
+python3 flows/tools/check_api_hygiene.py python/pycircuit/src/pycircuit examples/pycircuit docs README.md
+python3 flows/tools/check_decision_status.py --rfc docs/rfcs/pyc6-decisions.md --status docs/gates/decision_status_v6.md --out docs/gates/logs/20260911-issue103-field-assignment/decision_status_report.json --require-concrete-evidence --require-existing-evidence
+mkdocs build --strict
+git diff --check

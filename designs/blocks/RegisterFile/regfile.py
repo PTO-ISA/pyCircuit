@@ -65,6 +65,8 @@ def build(
         domain.signal(width=32, reset_value=0, name=f"rf_bank1_{i}")
         for i in range(storage_depth)
     ]
+    bank0_q = [state.as_cas() for state in bank0]
+    bank1_q = [state.as_cas() for state in bank1]
 
     # ══════════════════════════════════════════════════════════════
     # Cycle 0 — Combinational read logic
@@ -93,8 +95,8 @@ def build(
         for sidx in range(storage_depth):
             ptag = const_n + sidx
             hit = ra == cas(domain, m.const(ptag, width=ptag_w), cycle=0)
-            store_lo = mux(hit, bank0[sidx], store_lo)
-            store_hi = mux(hit, bank1[sidx], store_hi)
+            store_lo = mux(hit, bank0_q[sidx], store_lo)
+            store_hi = mux(hit, bank1_q[sidx], store_hi)
         store64 = cas(
             domain,
             m.cat(wire_of(store_hi), wire_of(store_lo)),
@@ -113,8 +115,8 @@ def build(
     for sidx in range(storage_depth):
         ptag = const_n + sidx
         we_any = cas(domain, m.const(0, width=1), cycle=0)
-        next_lo: CycleAwareSignal = bank0[sidx]
-        next_hi: CycleAwareSignal = bank1[sidx]
+        next_lo: CycleAwareSignal = bank0_q[sidx]
+        next_hi: CycleAwareSignal = bank1_q[sidx]
         for lane in range(nw_n):
             hit = wen[lane] & (
                 waddr[lane] == cas(domain, m.const(ptag, width=ptag_w), cycle=0)

@@ -20,6 +20,7 @@ from ._definitions import (
     struct,
     system,
     transaction,
+    writer_priority,
 )
 from ._jit import config, jit
 from ._resources import address_map, address_space, queue
@@ -56,6 +57,7 @@ __all__ = (
     "process",
     "rule",
     "invariant",
+    "writer_priority",
     "scope",
     "array",
     "map",
@@ -110,7 +112,8 @@ __all__ = (
 
 def _not_implemented(primitive: str) -> Never:
     raise NotImplementedError(
-        f"{primitive} is part of the public surface but is not implemented yet"
+        f"{primitive} is an ACPy source marker interpreted during capture; "
+        "it cannot be called by ordinary Python execution"
     )
 
 
@@ -154,7 +157,12 @@ def matches(value: object, pattern: str) -> Never:
 
 
 def source(
-    payload: object, *, depth: int = 1, latency: int = 1, rate: int = 1
+    payload: object,
+    *,
+    depth: int = 1,
+    latency: int = 1,
+    rate: int = 1,
+    lanes: int = 1,
 ) -> Never:
     return _not_implemented("source")
 
@@ -301,7 +309,7 @@ class _TableDeclaration:
         self.entries = entries
         self.entry_type = entry_type
 
-    def __call__(self, *, init: int = 0) -> Never:
+    def __call__(self, *, init: object = 0) -> Never:
         return _not_implemented("table")
 
 

@@ -27,6 +27,7 @@ state when mixed-cycle expressions need balancing.
 Install and build:
 
 ```bash
+python3 -m pip install -e "python/semantic-core"
 python3 -m pip install -e ".[dev,docs]"
 bash flows/scripts/pyc build
 export PYC_TOOLCHAIN_ROOT="$PWD/.pycircuit_out/toolchain/install"

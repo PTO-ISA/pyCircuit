@@ -8,7 +8,7 @@
 >
 > **当前契约**：V6 以周期感知（Cycle-Aware）信号模型与层次化组合为正式语言设计，并统一类型化数据体系、Sidecar 测试调度、双编译路径以及存储 / FIFO / CDC 原语。Decision 0148 取代了早期移除全局周期感知模型的方向。
 >
-> **Agentic Circuit 边界**：Agentic Circuit 已切换到 epoch `0.5`，Python 以简单的 `@ac.rule` 作为唯一显式调度边界，MLIR pass 负责类型/effect 推导、检查、握手、调度与 marker 消除。Decision 0163 已贯通首个“一张 Table、一个 Queue 输入/输出、一次完整 Entry replace”的 stateful rule 到 QueueGraph/gfsim；Table 仍是 provisional state，PYC/RTL 必须在明确边界拒绝。该迁移不改变 CycleAwareSignal 或 PYC 的语义。
+> **Agentic Circuit 边界**：Agentic Circuit 使用 epoch `0.5`，Python 以简单的 `@ac.rule` 作为唯一显式调度边界，MLIR pass 负责类型/effect 推导、检查、握手、调度与 marker 消除。Decision 0241 的有界 Table profile 已通过显式 `pyc.reg` bank 贯通 QueueGraph/gfsim、PYC C++ 与 Verilog；超出 rank、entry、位宽、总容量或 writer 上限的状态仍在 backend admission 边界 fail closed。该迁移不改变 CycleAwareSignal 或 PYC 的语义。
 
 ---
 

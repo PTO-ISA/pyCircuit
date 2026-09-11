@@ -769,6 +769,7 @@ ACDataFlowAnalyzer::stateFootprints(Operation *scope) const {
   scope->walk([&](Operation *operation) {
     Value index;
     StateAccessFootprint footprint;
+    footprint.endpoint = operation;
     if (auto read = dyn_cast<ac::TableGetOp>(operation)) {
       index = read.getIndex();
       footprint.resource = read.getTable().str();
@@ -954,9 +955,12 @@ ACDataFlowAnalyzer::stateSnapshots(Operation *scope) const {
                           completeStateFields(choose, entryType));
             }
             collect(choose.getMask(), {}, {});
+            Value firstIndex = choose.getResults().empty()
+                                   ? Value()
+                                   : choose.getResults().front();
             for (Block &block : choose.getKey())
               for (Value operand : block.getTerminator()->getOperands())
-                collect(operand, choose.getIndex(), {});
+                collect(operand, firstIndex, {});
             return;
           }
           for (Value operand : definition->getOperands())

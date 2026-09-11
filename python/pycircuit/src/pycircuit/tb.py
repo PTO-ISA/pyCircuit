@@ -4,8 +4,10 @@ from collections.abc import Iterable
 from dataclasses import dataclass, field
 from typing import Any
 
+from .diagnostics import PyCircuitError
 
-class TbError(RuntimeError):
+
+class TbError(PyCircuitError):
     pass
 
 

@@ -129,20 +129,57 @@ def validate_exact(document: dict[str, Any], version_map: dict[str, Any]) -> Non
 
     wheels = document.get("wheels")
     if isinstance(wheels, dict):
-        for distribution, expected_version in versions.items():
-            wheel = wheels[distribution]
+        expected_wheels = (
+            {
+                "agentic-circuit": versions["agentic-circuit"],
+                "pycircuit-hisi-linux-x86_64": versions["pycircuit-hisi"],
+                "pycircuit-hisi-macos-arm64": versions["pycircuit-hisi"],
+                "pycircuit-semantic-core": versions["pycircuit-semantic-core"],
+            }
+            if identity == "pycircuit-sdk-release-index"
+            else versions
+        )
+        if identity == "pycircuit-sdk-release-index":
+            require_equal(list(wheels), list(expected_wheels), f"{identity}.wheels keys")
+        else:
+            require_equal(set(wheels), set(expected_wheels), f"{identity}.wheels keys")
+        for wheel_id, expected_version in expected_wheels.items():
+            wheel = wheels[wheel_id]
             if "version" in wheel:
                 require_equal(
                     wheel["version"],
                     expected_version,
-                    f"{identity}.wheels.{distribution}.version",
+                    f"{identity}.wheels.{wheel_id}.version",
                 )
+            distribution = (
+                "pycircuit-hisi" if wheel_id.startswith("pycircuit-hisi-") else wheel_id
+            )
             normalized = distribution.replace("-", "_")
             if f"{normalized}-{expected_version}" not in wheel["name"]:
                 fail(
-                    f"{identity}.wheels.{distribution}.name: "
+                    f"{identity}.wheels.{wheel_id}.name: "
                     f"must contain {normalized}-{expected_version}"
                 )
+        if identity == "pycircuit-sdk-release-index":
+            require_equal(
+                wheels["agentic-circuit"]["name"].endswith("-py3-none-any.whl"),
+                True,
+                f"{identity}.wheels.agentic-circuit universal tag",
+            )
+            require_equal(
+                wheels["pycircuit-semantic-core"]["name"].endswith("-py3-none-any.whl"),
+                True,
+                f"{identity}.wheels.pycircuit-semantic-core universal tag",
+            )
+            if not wheels["pycircuit-hisi-linux-x86_64"]["name"].endswith(
+                "-py3-none-linux_x86_64.whl"
+            ):
+                fail(f"{identity}: Linux pycircuit-hisi wheel has the wrong platform tag")
+            if re.search(
+                r"-py3-none-macosx_[0-9]+_[0-9]+_arm64\.whl$",
+                wheels["pycircuit-hisi-macos-arm64"]["name"],
+            ) is None:
+                fail(f"{identity}: macOS pycircuit-hisi wheel has the wrong platform tag")
 
     if identity == "pycircuit-sdk-platform-manifest":
         require_unique_paths(document["files"], f"{identity}.files")
@@ -418,6 +455,18 @@ def adversarial_checks(version_map: dict[str, Any]) -> None:
         "platforms"
     ]["linux-x86_64"]["archive"]["url"].replace("/v6.0.0/", "/v9.9.9/")
     negatives.append(("wrong release tag in URL", wrong_url_tag))
+    missing_platform_wheel = copy.deepcopy(release_index)
+    del missing_platform_wheel["wheels"]["pycircuit-hisi-macos-arm64"]
+    negatives.append(("missing platform wheel", missing_platform_wheel))
+    universal_with_platform_tag = copy.deepcopy(release_index)
+    universal_with_platform_tag["wheels"]["agentic-circuit"]["name"] = (
+        "agentic_circuit-0.1.0-py3-none-linux_x86_64.whl"
+    )
+    universal_with_platform_tag["wheels"]["agentic-circuit"]["url"] = (
+        "https://github.com/PTO-ISA/pyCircuit/releases/download/v6.0.0/"
+        "agentic_circuit-0.1.0-py3-none-linux_x86_64.whl"
+    )
+    negatives.append(("non-universal Python wheel", universal_with_platform_tag))
 
     for name, document in negatives:
         try:

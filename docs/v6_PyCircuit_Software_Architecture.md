@@ -71,7 +71,7 @@ pyCircuit/
 │       ├── lib/Emit/              # VerilogEmitter / CppEmitter
 │       └── tools/                 # pycc / pyc-opt
 ├── library/cpp/                   # C++ 仿真运行时头文件库
-├── designs/                       # 示例与设计（examples/BypassUnit/IssueQueue…）
+├── designs/                       # 示例与设计（designs/blocks/BypassUnit 等）
 ├── tests/                         # pytest（vec 算子框架、sidecar 单测等）
 ├── flows/scripts/                 # pyc build、run_examples 等脚本
 ├── docs/

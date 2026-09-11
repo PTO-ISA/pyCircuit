@@ -16,7 +16,11 @@ class Diagnostic:
     snippet: str | None = None
 
 
-class DiagnosticError(RuntimeError):
+class PyCircuitError(RuntimeError):
+    """Base class for public pyCircuit runtime and authoring failures."""
+
+
+class DiagnosticError(PyCircuitError):
     def __init__(self, diagnostic: Diagnostic) -> None:
         self.diagnostic = diagnostic
         super().__init__(render_diagnostic(diagnostic))

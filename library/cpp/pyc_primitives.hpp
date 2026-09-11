@@ -5,6 +5,43 @@
 
 namespace pyc::cpp {
 
+template <unsigned InputWidth, unsigned IndexWidth>
+inline void priority_encode(const Wire<InputWidth> &input, bool highOrder,
+                            Wire<IndexWidth> &index, Wire<1> &valid) {
+  static_assert(InputWidth >= 1 && InputWidth <= 64);
+  index = Wire<IndexWidth>(0);
+  valid = Wire<1>(0);
+  for (unsigned position = 0; position < InputWidth; ++position) {
+    const unsigned bit = highOrder ? InputWidth - 1 - position : position;
+    if (!input.bit(bit))
+      continue;
+    index = Wire<IndexWidth>(bit);
+    valid = Wire<1>(1);
+    return;
+  }
+}
+
+template <unsigned InputWidth, unsigned OutputWidth>
+inline Wire<OutputWidth> population_count(const Wire<InputWidth> &input) {
+  static_assert(InputWidth >= 1 && InputWidth <= 64);
+  unsigned count = 0;
+  for (unsigned bit = 0; bit < InputWidth; ++bit)
+    count += input.bit(bit) ? 1u : 0u;
+  return Wire<OutputWidth>(count);
+}
+
+template <unsigned InputWidth, unsigned OutputWidth>
+inline Wire<OutputWidth> count_zeros(const Wire<InputWidth> &input,
+                                     bool leading) {
+  static_assert(InputWidth >= 1 && InputWidth <= 64);
+  for (unsigned offset = 0; offset < InputWidth; ++offset) {
+    const unsigned bit = leading ? InputWidth - 1 - offset : offset;
+    if (input.bit(bit))
+      return Wire<OutputWidth>(offset);
+  }
+  return Wire<OutputWidth>(InputWidth);
+}
+
 // "Module-like" primitives that mirror the Verilog templates in
 // `library/verilog/` (same names, same port names).
 //

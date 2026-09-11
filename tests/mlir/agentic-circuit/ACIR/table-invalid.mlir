@@ -2,7 +2,7 @@
 // RUN: %not %acir_opt %t/init.mlir 2>&1 | %FileCheck %s --check-prefix=INIT
 // RUN: %not %acir_opt %t/no-endpoint.mlir 2>&1 | %FileCheck %s --check-prefix=ENDPOINT
 // RUN: %not %acir_opt %t/static-index.mlir 2>&1 | %FileCheck %s --check-prefix=INDEX
-// RUN: %not %acir_opt %t/two-writers.mlir 2>&1 | %FileCheck %s --check-prefix=WRITER
+// RUN: %not %acir_opt %t/two-writers.mlir -ac-verify-value-constraints 2>&1 | %FileCheck %s --check-prefix=WRITER
 // RUN: %not %acir_opt %t/match-domain.mlir 2>&1 | %FileCheck %s --check-prefix=MATCH
 // RUN: %not %acir_opt %t/choose-count.mlir 2>&1 | %FileCheck %s --check-prefix=CHOOSE
 // RUN: %not %acir_opt %t/choose-arbitrary-mask.mlir 2>&1 | %FileCheck %s --check-prefix=CHOOSE-MASK
@@ -18,14 +18,14 @@
 // RUN: %not %acir_opt %t/illegal-mode.mlir 2>&1 | %FileCheck %s --check-prefix=MODE
 // RUN: %not %acir_opt %t/incomplete-replace.mlir 2>&1 | %FileCheck %s --check-prefix=REPLACE-FIELDS
 // RUN: %not %acir_opt %t/masked-replace.mlir 2>&1 | %FileCheck %s --check-prefix=MASKED-MODE
-// RUN: %not %acir_opt %t/two-replaces.mlir 2>&1 | %FileCheck %s --check-prefix=REPLACES
+// RUN: %not %acir_opt %t/two-replaces.mlir -ac-verify-value-constraints 2>&1 | %FileCheck %s --check-prefix=REPLACES
 
 // INIT: error: 'ac.table' op table init must be zero
 // ENDPOINT: error: 'ac.table' op must have at least one table read/write endpoint
 // INDEX: error: 'ac.table.read' op static table index is out of range
-// WRITER: error: 'ac.table' op write field '$entry' has multiple endpoints
+// WRITER: same-field overlap on owner @bad requires explicit priority
 // MATCH: error: 'ac.table.match' op mask must exactly cover the Table domain in 64-bit words
-// CHOOSE: error: 'ac.table.choose' op choose supports count=1 only
+// CHOOSE: error: 'ac.table.choose' op result count must be exactly 2*count with indices before valids
 // CHOOSE-MASK: error: 'ac.table.choose' op candidate mask must be produced directly by ac.table.match
 // CHOOSE-TABLE: error: 'ac.table.choose' op candidate mask must come from the same Table
 // RELEASE: error: 'ac.slot' op slot requires exactly one release endpoint
@@ -39,7 +39,7 @@
 // MODE: error: 'ac.table.write' op mode must be 'field' or 'replace'
 // REPLACE-FIELDS: error: 'ac.table.write' op replace mode must declare every Table Entry field
 // MASKED-MODE: error: 'ac.table.masked_write' op masked write mode must be 'field'
-// REPLACES: error: 'ac.table' op has multiple replace writer endpoints
+// REPLACES: same-field overlap on owner @bad requires explicit priority
 
 //--- init.mlir
 builtin.module attributes {ac.contract_epoch = "0.5"} {
@@ -75,7 +75,8 @@ builtin.module attributes {ac.contract_epoch = "0.5"} {
   %right = ac.source depth 1 latency 1 {ac.name = "right"} : !ac.queue<i8>
   ac.table.write @bad, %left : !ac.queue<i8> mode "field" write_fields ["$entry"] address {
   ^address(%item: !ac.var<i8>):
-    ac.table.yield %item : !ac.var<i8>
+    %zero_index = ac.var.constant 0 : i8 as !ac.var<i8>
+    ac.table.yield %zero_index : !ac.var<i8>
   } enable {
   ^enable(%item: !ac.var<i8>):
     %true = ac.var.constant true as !ac.var<i1>
@@ -84,10 +85,11 @@ builtin.module attributes {ac.contract_epoch = "0.5"} {
   ^value(%item: !ac.var<i8>):
     %zero = ac.var.constant 0 : i16 as !ac.var<i16>
     ac.table.yield %zero : !ac.var<i16>
-  } {ac.endpoint_path = "/left_write", ac.name = "left_write"}
+  } {ac.endpoint_path = "/left_write", ac.name = "left_write", ac.endpoint_id = "table-writer/left"}
   ac.table.write @bad, %right : !ac.queue<i8> mode "field" write_fields ["$entry"] address {
   ^address(%item: !ac.var<i8>):
-    ac.table.yield %item : !ac.var<i8>
+    %zero_index = ac.var.constant 0 : i8 as !ac.var<i8>
+    ac.table.yield %zero_index : !ac.var<i8>
   } enable {
   ^enable(%item: !ac.var<i8>):
     %true = ac.var.constant true as !ac.var<i1>
@@ -96,7 +98,7 @@ builtin.module attributes {ac.contract_epoch = "0.5"} {
   ^value(%item: !ac.var<i8>):
     %zero = ac.var.constant 0 : i16 as !ac.var<i16>
     ac.table.yield %zero : !ac.var<i16>
-  } {ac.endpoint_path = "/right_write", ac.name = "right_write"}
+  } {ac.endpoint_path = "/right_write", ac.name = "right_write", ac.endpoint_id = "table-writer/right"}
 }
 
 //--- match-domain.mlir
@@ -117,7 +119,7 @@ builtin.module attributes {ac.contract_epoch = "0.5"} {
     %true = ac.var.constant true as !ac.var<i1>
     ac.table.match.yield %true : !ac.var<i1>
   } -> !ac.var<i4>
-  %index, %valid = ac.table.choose @bad %mask : !ac.var<i4> count 2 policy "min" key {
+  %index, %valid = ac.table.choose @bad %mask : !ac.var<i4> count 2 policy #ac<table_selection_policy min> key_order #ac<table_key_ordering unsigned> stable_id "table/choose/min" key {
   ^key(%entry: !ac.var<i16>):
     ac.table.choose.yield %entry : !ac.var<i16>
   } -> !ac.var<i2>, !ac.var<i1>
@@ -127,7 +129,7 @@ builtin.module attributes {ac.contract_epoch = "0.5"} {
 builtin.module attributes {ac.contract_epoch = "0.5"} {
   ac.table @bad entry i16 entries 4 init 0 owner "/" stable_id "table/bad"
   %mask = ac.var.constant 15 : i4 as !ac.var<i4>
-  %index, %valid = ac.table.choose @bad %mask : !ac.var<i4> count 1 policy "min" key {
+  %index, %valid = ac.table.choose @bad %mask : !ac.var<i4> count 1 policy #ac<table_selection_policy min> key_order #ac<table_key_ordering unsigned> stable_id "table/choose/min" key {
   ^key(%entry: !ac.var<i16>):
     ac.table.choose.yield %entry : !ac.var<i16>
   } -> !ac.var<i2>, !ac.var<i1>
@@ -150,7 +152,7 @@ builtin.module attributes {ac.contract_epoch = "0.5"} {
     %true = ac.var.constant true as !ac.var<i1>
     ac.table.match.yield %true : !ac.var<i1>
   } -> !ac.var<i4>
-  %index, %valid = ac.table.choose @right %mask : !ac.var<i4> count 1 policy "min" key {
+  %index, %valid = ac.table.choose @right %mask : !ac.var<i4> count 1 policy #ac<table_selection_policy min> key_order #ac<table_key_ordering unsigned> stable_id "table/choose/min" key {
   ^key(%entry: !ac.var<i16>):
     ac.table.choose.yield %entry : !ac.var<i16>
   } -> !ac.var<i2>, !ac.var<i1>
@@ -279,7 +281,7 @@ builtin.module attributes {ac.contract_epoch = "0.5"} {
     %true = ac.var.constant true as !ac.var<i1>
     ac.table.match.yield %true : !ac.var<i1>
   } -> !ac.var<i4>
-  %index, %valid = ac.table.choose @right %left_mask : !ac.var<i4> count 1 policy "first" key {} -> !ac.var<i2>, !ac.var<i1>
+  %index, %valid = ac.table.choose @right %left_mask : !ac.var<i4> count 1 policy #ac<table_selection_policy first> stable_id "table/choose/first" key {} -> !ac.var<i2>, !ac.var<i1>
 }
 
 //--- external-capture.mlir
@@ -360,7 +362,7 @@ builtin.module attributes {ac.contract_epoch = "0.5"} {
   } value {
     %zero = ac.var.constant 0 : i16 as !ac.var<i16>
     ac.table.yield %zero : !ac.var<i16>
-  }
+  } {ac.endpoint_id = "table-writer/replace-left"}
   ac.table.write @bad mode "replace" write_fields ["$entry"] address {
     %zero = ac.var.constant 0 : i64 as !ac.var<i64>
     ac.table.yield %zero : !ac.var<i64>
@@ -370,5 +372,5 @@ builtin.module attributes {ac.contract_epoch = "0.5"} {
   } value {
     %zero = ac.var.constant 0 : i16 as !ac.var<i16>
     ac.table.yield %zero : !ac.var<i16>
-  }
+  } {ac.endpoint_id = "table-writer/replace-right"}
 }

@@ -1,0 +1,6 @@
+bash flows/scripts/run_sims_nightly.sh
+env:
+  PYC_GATE_RUN_ID=20260910-regfile-cycle0-snapshot-r1
+  PYC_SIM_CASE_TIMEOUT_SEC=600
+  PYC_SIM_RETRY_ON_TIMEOUT=0
+  PYC_SIM_RESUME_FROM_CASE=regfile

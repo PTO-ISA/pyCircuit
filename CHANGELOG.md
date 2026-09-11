@@ -2,6 +2,14 @@
 
 This project is still in an early prototype stage; APIs and generated outputs may change frequently.
 
+## 6.0.0 (in development)
+
+- Establish Cycle-Aware Signal as the primary pyCircuit 6 authoring model.
+- Unify structural and cycle-aware authoring on verified PYC semantics and the
+  `libpyc6_runtime` C++/Verilog backend contract.
+- Integrate Agentic Circuit as the separate ACPy/ACIR frontend and gfsim model
+  runtime within the canonical PTO-ISA/pyCircuit repository.
+
 ## Unreleased
 
 - Add `pyc.concat` lowering for readable `{a, b, c}` packed concatenations in generated Verilog and C++.

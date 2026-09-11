@@ -23,6 +23,7 @@ Env:
   PYC_INSTALL_PREFIX        Optional install prefix override.
   PYC_BUILD_AGENTIC_CIRCUIT Build/install ACIR, ACSim, gfsim, and AC tools (default: ON).
   PYC_BUILD_AGENTIC_CIRCUIT_TESTS Build the integrated ACIR test targets (default: OFF).
+  PYC_PYTHON_EXECUTABLE   Optional exact Python interpreter for installed SDK packages.
   PYCC                      Path to pycc (overrides auto-detect).
 EOF
 }
@@ -115,6 +116,11 @@ case "${cmd}" in
       -DPYC_BUILD_AGENTIC_CIRCUIT="${PYC_BUILD_AGENTIC_CIRCUIT:-ON}"
       -DPYC_BUILD_AGENTIC_CIRCUIT_TESTS="${PYC_BUILD_AGENTIC_CIRCUIT_TESTS:-OFF}"
     )
+    if [[ -n "${PYC_PYTHON_EXECUTABLE:-}" ]]; then
+      cmake_args+=(
+        -DPython3_EXECUTABLE="${PYC_PYTHON_EXECUTABLE}"
+      )
+    fi
     if [[ "${MSYSTEM:-}" == MINGW64* || "${uname_s}" == MINGW* || "${uname_s}" == MSYS* ]]; then
       cmake_args+=(
         -DCMAKE_C_COMPILER=gcc

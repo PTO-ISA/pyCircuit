@@ -13,6 +13,7 @@ from .connectors import Connector, ConnectorBundle, is_connector, is_connector_b
 from .data import Bits, Data
 from .diagnostics import (
     Diagnostic,
+    PyCircuitError,
     make_diagnostic,
     render_diagnostic,
     snippet_from_text,
@@ -36,7 +37,7 @@ from .literals import LiteralValue
 _DEFAULT_INLINE_COMPLEXITY_CAP = 1400
 
 
-class JitError(RuntimeError):
+class JitError(PyCircuitError):
     def __init__(self, message: str, *, diagnostic: Diagnostic | None = None) -> None:
         self.diagnostic = diagnostic
         text = render_diagnostic(diagnostic) if diagnostic is not None else str(message)

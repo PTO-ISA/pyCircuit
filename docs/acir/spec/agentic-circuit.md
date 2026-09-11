@@ -72,11 +72,8 @@ requirement-by-requirement status.
 ### Accepted 6.0 release-train decisions
 
 Decisions 0236 through 0241 freeze the remaining issue contracts for release
-6.0.0, but their rows in
-[`decision_status_v6.md`](../../gates/decision_status_v6.md) remain `deferred`.
-They do not describe implemented behavior until concrete gate evidence moves
-the corresponding row to `implemented-verified`. Until then, the current
-limitations documented later in this manual remain authoritative.
+6.0.0 and are implemented-verified. The exact status and evidence paths are in
+[`decision_status_v6.md`](../../gates/decision_status_v6.md).
 
 - Decision 0236 keeps `@ac.rule` as the only public scheduling boundary and
   assigns complete atomic transaction formation to the compiler (#28).
@@ -579,6 +576,29 @@ Supported policies are:
 
 The output Queue applies ordinary capacity and latency rules.
 
+### Ordered multi-lane Queues
+
+`source(..., lanes=N, rate=R)` creates one logical ordered Queue with static
+positive lane count and `1 <= R <= N`. One-to-one compute and pipeline blocks
+inherit the exact lane/rate contract. Frozen ACIR spells the type as
+`!ac.queue<T, lanes=N, rate=R>`; lane-one/rate-one keeps the legacy
+`!ac.queue<T>` spelling. Payload aggregate shape is independent of lane count.
+
+Available tokens form one contiguous valid prefix of at most `rate` lanes. The
+complete prefix is prepared and published atomically: partial output capacity
+or readiness stalls every pop, push, state effect, and accepted-order update.
+The queue runtime supports simultaneous dequeue and append in one commit group,
+depth greater than rate, repeated backpressure, reset, and deterministic FIFO
+wrap-equivalent sequences without scalarizing the Queue identity. QueueGraph
+records canonical lane ordinals `0..N-1`.
+
+The current canonical-PYC admitted profile is a direct source-to-sink Queue or
+a chain of one-input/one-output pure transforms, each with latency one and an
+identical lane/rate contract. It emits scalar lane ports sharing one ready and
+commit decision while retaining one logical Queue identity. Other multi-lane
+topologies fail closed at the PYC admission boundary. The admitted generic
+fixtures execute equivalently in generated gfsim C++, PYC C++, and Verilator.
+
 ### Dependency scheduling
 
 `depend` is the generic bounded dependency window. It admits typed tokens,
@@ -735,7 +755,9 @@ request returns old data and makes the new data visible to a later request.
 
 ### Stateful Table prototype
 
-Epoch `0.5` separates locally owned state from request/response memory:
+Epoch `0.5` separates locally owned state from request/response memory. A
+Table may use a rank-one extent or a non-empty tuple of positive static
+extents:
 
 ```python
 Table16 = ac.table[16, Entry]
@@ -767,25 +789,109 @@ table.view(tail).allocate(
     enable=allocation.valid,
     value=allocation.value,
 )
+
+TileTable = ac.table[(2, 3), ac.u8]
+tiles = TileTable(
+    init={
+        "version": 1,
+        "entry": ac.u8,
+        "values": list((1, 2, 3, 4, 5, 6)),
+    }
+)
+last = tiles.view((1, 2)).read()
+row = tiles.view(1)
+row_matches = row.match(lambda value: value != 0)
+row_choice = row.choose(row_matches)
+chosen = tiles.view(row_choice.index).read(when=row_choice.valid)
 ```
 
-`Entry` is a boolean, a fixed-width integer, or a flat struct of those scalar
-types. The Table is one-dimensional and has an all-zero initial image. It may
-have multiple `write` or `patch` endpoints when their statically declared
-top-level field sets are pairwise disjoint. `read` always returns `Queue<Entry>`.
-Queue-driven read with `when=false` preserves its input; disabled write consumes
-its input without proposing state. Same-tick reads observe old committed data,
+`Entry` is a boolean, fixed-width integer, enum, or immutable aggregate of
+supported value types. A shape contributes to Table identity together with the
+canonical Entry descriptor and layout version. Storage is row-major version 1,
+with the rightmost axis varying fastest. Each axis uses the minimum unsigned
+width that represents its extent, with one bit retained for extent one. Shape
+products use checked arithmetic and must equal the flattened `entries` count.
+Rank-one Table declarations with `init=0` remain the canonical zero shorthand.
+
+A nonzero initializer is a closed typed image with exact keys `version`,
+`entry`, and `values`. Version 1 contains exactly the flattened entry count;
+every scalar, enum, struct, tuple, or value-array element must match the Entry
+descriptor recursively. Field order and serialized bytes are canonical and do
+not contain a producer path. Frozen ACIR records `shape`, `axis_widths`,
+`layout`, `layout_version`, `schema_id`, `init_version`, and `init_image`.
+Malformed rank, extent, product, layout, digest, version, count, or value type
+fails before a runtime Table is created.
+
+`read` always returns `Queue<Entry>`. Queue-driven read with `when=false`
+preserves its input; disabled write consumes its input without proposing state.
+Same-tick reads observe old committed data,
 and a write becomes visible at tick commit. Dynamic bounds failures use
 `table_index_out_of_range`.
+
+Multidimensional views lower each coordinate through `ac.table.index`. The op
+checks rank, canonical per-axis types, and static bounds, then produces the one
+canonical row-major flattened scalar used by get, read, write, and proposal
+operations. Dynamic coordinates carry independent per-axis bounds obligations.
+`TableChoice.index` already has this complete flattened Table-domain type and
+may flow directly into another same-Table view; it is never expanded back into
+runtime coordinates. Arbitrary flattened values, wrong-width indices, and
+cross-Table index or choice provenance fail closed.
 
 `Table.view(candidates)` accepts a same-Table `CandidateSet` from `match` for a
 state-driven masked update. Masked `write` assigns one uniform complete value;
 masked `patch` assigns uniform fields or evaluates a pure `lambda entry` from
 each selected old Entry. A false enable does not evaluate the mask or value,
 an empty mask is a no-op, and all selected Entries commit atomically. Scalar
-and masked endpoints may coexist under the same disjoint-field rule. Dynamic
-address, mask, enable, and predicate mutual exclusion is not analyzed; two
-endpoints that declare the same field are rejected.
+and masked endpoints participate in one normalized
+`(owner, index-domain, field, endpoint)` writer relation. Distinct owners,
+fields, and statically disjoint indices do not conflict. The ACIR verifier also
+accepts overlapping field declarations when it proves their guards mutually
+exclusive from the same committed snapshot. An unresolved same-field overlap
+is rejected unless every conflicting endpoint declares explicit arbitration.
+
+Use `ac.writer_priority(rank)` to declare deterministic owner-local
+arbitration. `rank` is a non-negative compile-time integer; lower ranks win.
+The frontend emits `#ac.writer_priority<rank>` and a content-derived stable
+endpoint identity. Rule lowering preserves typed policy, declared rank,
+endpoint identity, owner, and `winner_takes_transaction` resolution metadata in
+the effect and arbitration summaries. Priority ties, missing or duplicate
+endpoint identities, malformed policy attributes, cross-Table reuse of one
+Python descriptor, contradictory cross-owner precedence cycles, and user
+`safe` assertions all fail closed. Source, declaration, traversal, object, and
+Work order never break a tie.
+
+Arbitration selects a winner before resource preparation. A losing transition
+does not reserve a Queue, Table, Reg, Slot, or output and publishes none of its
+effects. Compatible guarded-disjoint writers evaluate from one old image and
+merge into one deterministic next image. Reset clears pending proposals,
+reservations, and arbitration state.
+
+A full-Table `match` has domain axes equal to the complete shape. A statically
+projected view fixes a prefix of axes and records the remaining `domain_axes`,
+`domain_shape`, canonical row-major `domain_strides`, and `domain_offset`.
+Mask bit zero names the first element of that local row-major projection.
+Projection metadata must be complete, in increasing axis order, in bounds, and
+consistent with the Table shape. Empty projections contain the one fixed
+element; non-power-of-two and extent-one axes retain their exact domains.
+`choose` validates same-Table mask provenance but still returns an index over
+the complete flattened Table domain. Omitting `count` or using `count=1`
+preserves scalar `TableChoice`. A static `count=N>1` returns an N-element Python
+tuple and lowers to one `ac.table.choose` with exactly `2*N` scalar results in
+segment order `[index_0..index_N-1, valid_0..valid_N-1]`. Invalid suffix lanes
+carry index zero, and runtime tuple indexing, storage, or escape is rejected.
+
+`first`, signed or unsigned `min`/`max`, and `round_robin` produce a contiguous
+valid prefix with lowest-global-index tie breaking. Round-robin advances its
+committed cursor to the projected-local position after the last accepted lane;
+empty selections and stalls do not advance it, and reset restores the declared
+initial cursor. Mask and key evaluation are cached once per Epoch. All direct
+Table reads consuming one multi-selection are grouped into one prefix
+transaction: every valid-lane output must be ready before any lane publishes or
+the cursor advances. A firing must consume every lane exactly once; partial,
+mixed, direct-write, or otherwise ungrouped consumers fail QueueGraph
+verification. Canonical PYC uses the same prefix transaction and advances the
+explicit register-bank cursor only after the complete selected prefix is
+accepted.
 
 One state-driven scalar `allocate` endpoint may coexist with those ordinary
 field writers. It installs one complete Entry at the caller-supplied index; it
@@ -834,10 +940,15 @@ required `mode`. Ordinary writes use `mode "field"`; scalar allocation uses
 Struct full writes list every declared field; scalar Entries use `$entry`.
 Every value region still returns a complete Entry, but commit copies only the
 declared fields. All endpoints evaluate from one old committed image and their
-disjoint proposals are merged once at the tick edge. Table is a
-typed gfsim C++ prototype. PYC/RTL
-lowering is deferred and rejects the graph with `unsupported provisional
-Table`. Request/response storage remains `ac.memory`; legacy `ac.table(...)`
+compatible proposals are merged once at the tick edge. QueueGraph preserves
+shape, schema identity, typed image trees, flattened index expressions, and
+projected match domains. Typed gfsim and canonical PYC load the image
+deterministically, apply row-major accesses and projected masks, observe old
+state during Work/combinational evaluation, and publish one next image at
+Xfer/the clock edge. Canonical PYC uses one explicit `pyc.reg` per Entry and
+never selects `pyc.sync_mem`; reset restores the typed initial image and clears
+transient selections and proposals. Request/response storage remains
+`ac.memory`; legacy `ac.table(...)`
 has been removed. The single public Python example is
 `issue.py`. It combines two field-disjoint
 operand wakeups, next-tick minimum-age selection, grant-driven removal, and a
@@ -920,13 +1031,30 @@ def pipeline(incoming: Item) -> Item:
     return outgoing
 ```
 
+Inside a rule, direct field assignment is shorthand for an immutable record
+replacement. `local.field = value` is normalized to
+`local = local.with_fields(field=value)`. When the base is a persistent scalar,
+that rebinding becomes the owner's next-state proposal. For a persistent list,
+`entries[index].field = value` evaluates `index` exactly once and proposes the
+equivalent complete-entry replacement. Later serial local or scalar-state
+assignments read the latest SSA proposal, while committed state remains
+unchanged until the complete rule transaction commits.
+
+This syntax never mutates an object in place. Updating a local copied from
+persistent state does not implicitly write the owner back, and Queue payloads
+already stored in a channel remain immutable. Use `with_fields(...)` directly
+when the updated record is needed as an expression. Nested field targets,
+slices, augmented field assignment, unknown fields, type mismatches, and
+out-of-range indices fail closed.
+
 Non-`const` system parameters and typed returns are the preferred external
 boundary surface. The compiler inserts internal `ac.source` and `ac.sink`
 nodes; multiple outputs use an ordered `tuple[...]` annotation and tuple
 return. Explicit Python `source(...)` and `sink(...)` remain transitional.
 
 A rule defined directly inside an `@ac.module` may omit repeated module-private
-state parameters and declare each captured owner with Python `nonlocal`:
+state parameters. The frontend infers each captured owner from static references
+to direct typed module state:
 
 ```python
 @ac.module
@@ -935,7 +1063,6 @@ def accumulator(incoming: ac.u8) -> ac.u8:
 
     @ac.rule
     def add(value):
-        nonlocal total
         total = total + value
         return total
 
@@ -945,8 +1072,10 @@ def accumulator(incoming: ac.u8) -> ac.u8:
 The frontend canonicalizes this form to the existing explicit state-parameter
 rule contract before type, owner, footprint, conflict, or lowering analysis.
 Only direct, typed module state declarations may be captured; their canonical
-order is their declaration order. State must be declared before the nested
-rule. Missing `nonlocal`, untyped locals, module inputs, aliases, attributes,
+order is their declaration order, independent of first use. State must be
+declared before the nested rule. An explicit direct-body `nonlocal` declaration
+remains accepted when it exactly matches the inferred capture set. Untyped or
+late state, module inputs, parameter shadowing, aliases, attributes,
 generated-name collisions, nested-scope declarations, and calls between nested
 rules fail closed. Each module instance owns its existing independent state;
 capture does not introduce a module-object reference or change committed-read,
@@ -1138,23 +1267,22 @@ outgoing = install(rob, incoming, metadata)
 ```
 
 The Table Entry, primary input, and any output Queue payload types MUST match;
-additional input Queue payloads may differ. The body MAY bind one committed
-Table Entry observation, MUST perform exactly one complete Entry replacement,
-and MAY return zero or one payload. A dynamic `ac.uN` index is
-accepted only for a `2^N`-entry Table; a constant index must be in range. This
-statically discharges bounds while executable dynamic checked IR remains
-pending.
+additional input Queue payloads may differ. A rule may observe and update
+multiple persistent owners and may return zero, one, optional, or several typed
+payloads. Dynamic indices require compiler proof for the complete accessed
+domain; constant and multidimensional coordinates must be in range.
 
 The frontend emits firing-local `ac.table.propose`. Separate MLIR passes infer
 every input consume, the output produce, and the Table replace effect;
 materialize `ready_valid_Nx1_table`; infer lexical priority and typed state
 footprints; discharge every marker; and retain the result as stateful
-`ac.firing`. QueueGraph lowers the
-closed firing to `gfsim::QueueTableTransition`. It is not canonicalized to
-`ac.transform`, and PYC continues to reject the provisional Table boundary.
-Field or masked updates, optional or multiple outputs, multiple state
-proposals, CFG branches, Reg effects, and arbitration are not part of this
-subset.
+`ac.firing`. QueueGraph lowers the closed firing to the typed gfsim transition
+family and to canonical PYC. It is not canonicalized to `ac.transform`. The
+admitted PYC profile is rank <= 4, entries <= 256, packed Entry width <= 256
+bits, total state <= 65,536 bits, and at most four writer endpoints. It covers
+field, masked, and replace proposals, optional/multiple outputs, owner-local
+batches, CFG selection, and accepted priority arbitration through an explicit
+register bank.
 
 ### Bounded feedback
 
@@ -1499,8 +1627,8 @@ another supported static array with a valid fixed shape.
 ### Implemented common building blocks
 
 The official graph-level catalog contains exactly these operations. Every
-non-provisional design entry has both a typed gfsim realization and a PYC
-realization; Table entries explicitly declare their gfsim-only boundary.
+admitted design entry has both a typed gfsim realization and a PYC realization;
+out-of-profile state retains an explicit backend admission error.
 
 | Operation | Role | Queue arity | Static parameters | Core behavior |
 | --- | --- | --- | --- | --- |
@@ -1517,12 +1645,12 @@ realization; Table entries explicitly declare their gfsim-only boundary.
 | `ac.barrier` | design | two or more to the same count | output depths and latencies | positionally typed atomic synchronization |
 | `ac.credit` | design | one to one | `credits`, `depth`, `latency` | bounded parallel cost countdown and completion |
 | `ac.memory.instance` / `ac.memory.request` | design | shared instance, one-to-one endpoint | instance identity, ordinal, `entries`, `init`, instance `latency`, `result_field`, `depth` | fixed-priority single-outstanding old-data memory |
-| `ac.table` | design | state owner | Entry type, `entries`, `init`, owner, stable identity | committed zero-initialized state image; gfsim-only prototype |
+| `ac.table` | design | state owner | Entry type, shape, typed init, owner, stable identity | committed state image; bounded PYC profile uses one explicit `pyc.reg` per Entry |
 | `ac.table.read` | design | optional request to one | Table identity, `depth`, `latency` | state- or Queue-driven old-data capture |
 | `ac.table.write` | design | optional update to none | Table identity, `mode`, `write_fields` | Queue-driven consumption, state-driven field proposal, or scalar replace allocation |
 | `ac.table.masked_write` | design | committed mask to none | Table identity, `mode="field"`, `write_fields` | atomic state-driven field update of every Entry selected by a same-Table match |
 | `ac.table.propose` | internal rule IR | firing-local Var operands | Table identity, index, value, `mode`, `write_fields` | next-state intent committed only with the owning `ac.firing` Queue effects |
-| `ac.table.match` / `ac.table.choose` | design | committed state to Vars | Table identity, `count=1`, `policy` | 1..64-entry candidate mask and deterministic first/min/max selection |
+| `ac.table.match` / `ac.table.choose` | design | committed state to Vars | Table identity, static `count`, typed policy/key order, stable selection identity | canonical 2N index/valid segments, contiguous atomic valid prefix, first/min/max/round-robin |
 | `ac.slot` | design | one to none | owner, stable identity | one committed request with backpressure, retained payload, and explicit release |
 | `ac.dependency` | design | one to one | `capacity`, `resources`, `no_dependency`, `depth`, `latency` | bounded predecessor tracking, resource reservation, and execution countdown |
 | `ac.reorder` | design | one to one | `capacity`, `start`, `depth`, `latency` | bounded key-ordered retirement |
@@ -2357,12 +2485,12 @@ The following slices are implemented and tested:
   static loops, and symmetric runtime Queue `if` lowering through
   route/transform/merge;
 - canonical QueueGraph extraction;
-- typed gfsim C++ generation, including the provisional one-dimensional Table;
+- typed gfsim C++ generation, including typed multidimensional Table state;
 - PYC/Verilog lowering for transform, broadcast, fork, route, select, merge,
   atomic barrier, bounded credit, typed synchronous memory, dependency,
   reorder, bounded feedback, elaboration-time scope flattening, packed
-  structures, atomic handshakes, and exact Queue latency;
-- stable PYC rejection of provisional Table graphs;
+  structures, atomic handshakes, exact Queue latency, and bounded explicit-reg
+  Table state;
 - PYC C++ versus Verilog cycle equivalence and gfsim/PYC projected transaction
   comparison.
 

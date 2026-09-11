@@ -4,7 +4,8 @@
 // RUN: %acir_queue_cxxgen %t.frozen.mlir > %t.cpp
 // RUN: %FileCheck %s --check-prefix=GFSIM < %t.cpp
 // RUN: %cxx -std=c++20 -I%source_root/simulator/gfsim/include -c %t.cpp -o %t.o
-// RUN: %not %acir_queue_pycgen %t.frozen.mlir 2>&1 | %FileCheck %s --check-prefix=PYC-ERR
+// RUN: %acir_queue_pycgen %t.frozen.mlir | %FileCheck %s --check-prefix=PYC
+// RUN: %python %source_root/compiler/acir/tools/acir-queue-veriloggen.py %t.frozen.mlir --pycgen %acir_queue_pycgen | %FileCheck %s --check-prefix=VERILOG
 
 module attributes {ac.contract_epoch = "0.5", ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle", ac.system = "rule_table"} {
   ac.type_scope @types {
@@ -47,4 +48,11 @@ module attributes {ac.contract_epoch = "0.5", ac.model_kind = "queue_graph", ac.
 // GFSIM: gfsim::TableWriteMode::Replace
 // GFSIM: gfsim::QueueTableTransition<block_0_policy, Entry
 
-// PYC-ERR: unsupported provisional Table
+// PYC: func.func @rule_table
+// PYC-COUNT-2: pyc.reg
+// PYC: pyc.select
+// PYC-NOT: sync_mem
+// PYC-NOT: ac.table
+
+// VERILOG: module rule_table (
+// VERILOG-COUNT-2: pyc_reg
