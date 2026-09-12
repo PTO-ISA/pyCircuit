@@ -6,6 +6,7 @@ of truth.
 
 ## Read first
 
+- `docs/development/agent-frontend-guide.md`
 - `docs/reference/language.md`
 - `docs/rfcs/pyc6-decisions.md`
 - `docs/pyc6-plan.md`
@@ -22,6 +23,8 @@ of truth.
 
 ## Task mapping
 
+- Complex circuit authoring: choose the frontend and decomposition pattern in
+  `docs/development/agent-frontend-guide.md` before writing implementation.
 - Issue fix or feature work: identify affected decision IDs, then map the change
   to the required gates in `docs/development/testing-and-gates.md`.
 - Code review: prioritize semantic regressions, missing gate coverage,
@@ -33,6 +36,9 @@ of truth.
 
 ## Hard rules
 
+- Author product behavior through the supported Python frontends. Handwritten
+  PYC or ACIR is valid as focused compiler test input, not as the implementation
+  of a user-facing circuit.
 - Keep CycleAwareSignal, CycleAwareDomain, and automatic cycle balancing as
   first-class pyCircuit 6 design contracts (Decision 0148).
 - Add or tighten MLIR verifiers or passes before changing semantics.

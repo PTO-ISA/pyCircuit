@@ -74,6 +74,11 @@ pycircuit -> Cycle-Aware Signal / structural modules
 PYC is the shared verified hardware contract. The Python frontends remain
 separate public namespaces and are not interchangeable compatibility layers.
 
+Coding agents implementing a non-trivial design should continue with the
+[Pythonic Frontend Guide for Coding Agents](../development/agent-frontend-guide.md)
+for decomposition recipes, maintained examples, failure modes, and handoff
+requirements.
+
 ## Validate the selected path
 
 For pyCircuit changes:

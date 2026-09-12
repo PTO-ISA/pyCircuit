@@ -107,6 +107,7 @@ and are not compatibility aliases.
 | [Architecture](docs/architecture/overview.md) | Understand frontends, compiler stages, runtimes, and backends |
 | [Agentic Circuit and ACIR](docs/acir/index.md) | Learn ACPy, ACIR/ACSim, QueueGraph, and gfsim |
 | [Development Guide](docs/development/index.md) | Build, test, contribute, and prepare pull requests |
+| [Agent Frontend Guide](docs/development/agent-frontend-guide.md) | Choose and apply a Pythonic authoring model for complex circuits |
 
 ## Repository layout
 

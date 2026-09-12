@@ -112,7 +112,6 @@ def test_consumer_designs_and_adapters_are_out_of_tree() -> None:
     )
     assert "_INTERNAL_INLINE_COMPLEXITY_ALLOWLIST" not in jit_source
     assert "integrations/" not in jit_source
-
     nightly = (REPOSITORY / ".github/workflows/gates-nightly.yml").read_text(
         encoding="utf-8"
     )
@@ -195,6 +194,22 @@ def test_consumer_designs_and_adapters_are_out_of_tree() -> None:
     assert not offenders, "consumer coupling crossed framework boundary:\n" + "\n".join(
         offenders
     )
+
+
+def test_nested_rule_example_lowers_deterministically() -> None:
+    from agentic_circuit._queue_frontend import lower_queue_source
+
+    example = (
+        REPOSITORY / "examples/agentic-circuit/state/inferred_nested_rule.py"
+    ).read_text(encoding="utf-8")
+    first = lower_queue_source(example, "inferred_nested_rule")
+    second = lower_queue_source(example, "inferred_nested_rule")
+
+    assert first == second
+    assert first.count("ac.module @accumulator") == 1
+    assert first.count("ac.rule ") == 1
+    assert first.count("ac.var.decl @total") == 1
+    assert "ac.var.assign @total" in first
 
 
 def test_repository_layout_rejects_product_system_examples(tmp_path: Path) -> None:
