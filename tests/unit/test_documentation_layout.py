@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import subprocess
 from pathlib import Path
 
@@ -73,3 +74,89 @@ def test_every_active_document_is_reachable_from_navigation() -> None:
     }
 
     assert nav_pages == active_pages
+
+
+def test_active_markdown_uses_semantic_unnumbered_headings() -> None:
+    tracked = subprocess.run(
+        ("git", "ls-files", "docs"),
+        cwd=ROOT,
+        text=True,
+        capture_output=True,
+        check=True,
+    ).stdout.splitlines()
+    numbered = re.compile(r"^#{2,6} \d+(?:\.\d+)*(?:[.)])? ")
+    offenders = []
+
+    for relative in tracked:
+        path = ROOT / relative
+        if (
+            not path.is_file()
+            or path.suffix != ".md"
+            or relative.startswith("docs/gates/logs/")
+        ):
+            continue
+        fenced = False
+        fence = ""
+        for line_number, line in enumerate(
+            path.read_text(encoding="utf-8").splitlines(), 1
+        ):
+            stripped = line.lstrip()
+            if stripped.startswith(("```", "~~~")):
+                marker = stripped[:3]
+                if not fenced:
+                    fenced = True
+                    fence = marker
+                elif marker == fence:
+                    fenced = False
+                    fence = ""
+                continue
+            if not fenced and numbered.match(line):
+                if line == "### 6.0 release-train decisions":
+                    continue
+                offenders.append(f"{relative}:{line_number}: {line}")
+
+    assert not offenders, "manually numbered headings:\n" + "\n".join(offenders)
+
+
+def test_onboarding_uses_current_paths_and_product_language() -> None:
+    paths = [ROOT / "README.md", *(ROOT / "docs/getting-started").glob("*.md")]
+    forbidden = (
+        "docs/acir/migration.md",
+        "build/rule",
+        "flows/tools/dump_pyctrace.py",
+        "phase-one",
+        "/tmp/pyc_counter",
+        "/tmp/tb_counter",
+    )
+
+    for path in paths:
+        content = path.read_text(encoding="utf-8")
+        for token in forbidden:
+            assert token not in content, f"{path.relative_to(ROOT)}: {token}"
+
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    assert readme.count("<img src=") == 6
+    assert "agentic_circuit frontend -> ACPy 0.5 -> ACIR" in readme
+    assert "docs/development/repository-layout.md" in readme
+
+
+def test_current_product_docs_do_not_present_supported_surfaces_as_legacy() -> None:
+    roots = (
+        ROOT / "docs/getting-started",
+        ROOT / "docs/reference",
+        ROOT / "docs/architecture",
+        ROOT / "docs/development",
+        ROOT / "docs/acir",
+    )
+    forbidden = re.compile(r"\b(?:legacy|prototype|phase-one)\b", re.IGNORECASE)
+    offenders = []
+
+    for root in roots:
+        for path in root.rglob("*.md"):
+            if path == ROOT / "docs/acir/spec/refs/history.md":
+                continue
+            match = forbidden.search(path.read_text(encoding="utf-8"))
+            if match:
+                offenders.append(f"{path.relative_to(ROOT)}: {match.group(0)}")
+
+    assert not offenders, "stale product language:\n" + "\n".join(offenders)

@@ -181,7 +181,7 @@ class PrintAction:
 
 @dataclass
 class Tb:
-    """A tiny, cycle-based testbench description (prototype).
+    """A compact, cycle-based testbench description.
 
     This builder is intentionally backend-neutral: it can be rendered into a
     C++ testbench (fast) or a SystemVerilog testbench with SVA.

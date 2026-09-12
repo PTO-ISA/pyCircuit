@@ -20,7 +20,7 @@
 
 namespace acir::ac {
 
-/// Verify the complete phase-one proof carried by an ac.transform produced
+/// Verify the complete lowered-rule proof carried by an ac.transform produced
 /// from ac.firing. Plain transforms without any ac.rule_* attributes succeed.
 mlir::LogicalResult verifyLoweredRuleTransformContract(TransformOp transform);
 

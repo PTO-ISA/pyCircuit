@@ -11,7 +11,8 @@ namespace pyc::cpp {
 template <unsigned Width, unsigned Stages>
 class pyc_cdc_sync {
 public:
-  static_assert(Width > 0 && Width <= 64, "pyc_cdc_sync supports widths 1..64 in the prototype");
+  static_assert(Width > 0 && Width <= 64,
+                "pyc_cdc_sync supports widths 1..64");
   static_assert(Stages >= 1, "pyc_cdc_sync requires Stages >= 1");
 
   pyc_cdc_sync(Wire<1> &clk, Wire<1> &rst, Wire<Width> &in, Wire<Width> &out) : clk(clk), rst(rst), in(in), out(out) {

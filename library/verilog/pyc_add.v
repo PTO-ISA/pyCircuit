@@ -1,4 +1,4 @@
-// Combinational adder (prototype).
+// Combinational adder.
 module pyc_add #(
   parameter WIDTH = 1
 ) (

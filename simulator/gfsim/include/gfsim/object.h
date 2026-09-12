@@ -256,9 +256,9 @@ public:
   /// Objects omitted from the order retain ascending stable-ID order.
   bool setArbitrationOrder(std::span<const ObjectId> order);
 
-  /// Install the opaque dispatch ABI emitted by the legacy ACIR C++ path.
-  bool setLegacyDispatchTable(LegacyDispatchTable table);
-  bool setLegacyActivationGraph(LegacyActivationGraph graph);
+  /// Install the opaque dispatch ABI emitted by generated ACIR C++ models.
+  bool setOpaqueDispatchTable(OpaqueDispatchTable table);
+  bool setOpaqueActivationGraph(OpaqueActivationGraph graph);
 
   /// Get the next pending event (earliest ready time).
   std::optional<Event> nextEvent() const;
@@ -339,7 +339,7 @@ private:
   std::unique_ptr<Impl> impl_;
 
   bool fail(std::string code, std::string message);
-  TerminationResult runLegacy();
+  TerminationResult runOpaqueDispatch();
   std::vector<SimObject *> runtimeObjects() const;
   void refreshRuntimeSummary();
   bool validateRuntimeIdentities();

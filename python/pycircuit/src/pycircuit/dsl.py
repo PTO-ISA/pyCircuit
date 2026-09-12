@@ -458,7 +458,7 @@ class Module:
         self._emit(f"pyc.assign {dst.ref}, {src.ref} : {dst.ty}")
 
     def assert_(self, cond: Signal, *, msg: str | None = None) -> None:
-        """Simulation-only assertion (prototype)."""
+        """Add a simulation-only assertion."""
         if cond.ty != Bits(1):
             raise TypeError("assert_ cond must be i1")
         if msg is None:
@@ -534,7 +534,7 @@ class Module:
         depth: int,
         name: str,
     ) -> Signal:
-        """Byte-addressed memory (async read + sync write, prototype)."""
+        """Create byte-addressed memory with async read and sync write."""
         if not isinstance(clk.ty, Clock):
             raise TypeError("byte_mem clk must be !pyc.clock")
         if not isinstance(rst.ty, Reset):
@@ -576,7 +576,7 @@ class Module:
         depth: int,
         name: str,
     ) -> Signal:
-        """Synchronous 1R1W memory (registered read data, prototype)."""
+        """Create synchronous 1R1W memory with registered read data."""
         if not isinstance(clk.ty, Clock):
             raise TypeError("sync_mem clk must be !pyc.clock")
         if not isinstance(rst.ty, Reset):
@@ -618,7 +618,7 @@ class Module:
         depth: int,
         name: str,
     ) -> tuple[Signal, Signal]:
-        """Synchronous 2R1W memory (registered outputs, prototype)."""
+        """Create synchronous 2R1W memory with registered outputs."""
         if not isinstance(clk.ty, Clock):
             raise TypeError("sync_mem_dp clk must be !pyc.clock")
         if not isinstance(rst.ty, Reset):

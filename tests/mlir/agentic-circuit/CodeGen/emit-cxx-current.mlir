@@ -53,7 +53,7 @@ module attributes {ac.contract_epoch = "0.5"} {
 // SRC-NOT: ::s{{[0-9a-f]+}}::
 // SRC-NOT: ::p{{[0-9a-f]+}}::
 // SRC: scheduleWork
-// SRC: setLegacyDispatchTable
+// SRC: setOpaqueDispatchTable
 // MAN-DAG: "schema":"agentic-circuit-build-manifest"
 // MAN-DAG: "contract_epoch":"0.5"
 // MAN-DAG: "pass_pipeline":["acsim-emit-cxx"]

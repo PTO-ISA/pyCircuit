@@ -434,11 +434,11 @@ CMake 目标：TableGen（`PYCOps.td` → `.inc`）→ `pyc_dialect` → `pyc_tr
 
 ```bash
 make smoke                                    # 示例 + 仿真冒烟
-python3 tools/check-pyc-inventory.py          # scalar-only IR 与覆盖台账
+python3 tools/pycircuit/check-pyc-inventory.py  # scalar-only IR 与覆盖台账
 PYTHONPATH=python/pycircuit/src pytest tests/test_sidecar_sections.py
 ```
 
-`tools/check-pyc-inventory.py` 精确核对 scalar ODS、producer、verifier、
+`tools/pycircuit/check-pyc-inventory.py` 精确核对 scalar ODS、producer、verifier、
 pass、双 emitter、RTL selection 与测试台账。Agentic recursive aggregate
 cases 负责证明 struct/enum/tuple/value-array 在进入 PYC 前成为 packed scalar，
 并在 C++/Verilog 保持周期和值等价。

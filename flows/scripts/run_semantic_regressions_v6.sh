@@ -73,7 +73,7 @@ print(m.get("top", ""))
 PY
 )"
 xz_trace="${xz_out}/tb_${xz_top}/tb_${xz_top}.pyctrace"
-python3 "${PYC_ROOT_DIR}/flows/tools/dump_pyctrace.py" "${xz_trace}" --manifest "${xz_out}/probe_manifest.json" --max-cycles 8 --max-events 100 --no-header \
+python3 "${PYC_ROOT_DIR}/tools/pycircuit/dump_pyctrace.py" "${xz_trace}" --manifest "${xz_out}/probe_manifest.json" --max-cycles 8 --max-events 100 --no-header \
   > "${docs_gate_dir}/semantic_xz_dump.stdout" \
   2> "${docs_gate_dir}/semantic_xz_dump.stderr"
 if ! grep -Eq "known=0x[0-9a-f]+ z=0x[0-9a-f]+" "${docs_gate_dir}/semantic_xz_dump.stdout"; then
@@ -90,7 +90,7 @@ print(m.get("top", ""))
 PY
 )"
 rst_trace="${rst_out}/tb_${rst_top}/tb_${rst_top}.pyctrace"
-python3 "${PYC_ROOT_DIR}/flows/tools/dump_pyctrace.py" "${rst_trace}" --manifest "${rst_out}/probe_manifest.json" --max-cycles 8 --max-events 200 --no-header \
+python3 "${PYC_ROOT_DIR}/tools/pycircuit/dump_pyctrace.py" "${rst_trace}" --manifest "${rst_out}/probe_manifest.json" --max-cycles 8 --max-events 200 --no-header \
   > "${docs_gate_dir}/semantic_reset_dump.stdout" \
   2> "${docs_gate_dir}/semantic_reset_dump.stderr"
 python3 - "${rst_trace}" <<'PY'

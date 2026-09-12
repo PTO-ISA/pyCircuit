@@ -202,6 +202,7 @@ def main() -> int:
     ci = read(".github/workflows/ci.yml")
     for command in (
         "pre-commit run --files",
+        "SKIP=pyc-api-hygiene",
         "pytest tests/unit -m unit",
         "mkdocs build",
         "check_api_hygiene.py",
@@ -245,12 +246,33 @@ def main() -> int:
         "run_examples.sh",
         "run_sims.sh",
         "run_sims_nightly.sh",
+        "run_semantic_regressions_v6.sh",
+        "pytest tests/unit -m unit",
+        "check_api_hygiene.py",
+        "check_decision_status.py",
+        "pre-commit run --all-files",
         "--require-all-verified",
         "mkdocs build --strict",
     ):
         require(
             command in release,
             f"release is missing required full-closure gate: {command}",
+            errors,
+        )
+    for command in (
+        "run_agentic_circuit.sh",
+        "run_examples.sh",
+        "run_sims.sh",
+        "run_sims_nightly.sh",
+        "run_semantic_regressions_v6.sh",
+        "pytest tests/unit -m unit",
+        "flows/tools/check_api_hygiene.py",
+        "flows/tools/check_decision_status.py",
+        "mkdocs build --strict",
+    ):
+        require(
+            release.count(command) == 1,
+            f"release must run exactly one {command} closure",
             errors,
         )
     require(

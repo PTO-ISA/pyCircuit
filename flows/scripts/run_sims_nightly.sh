@@ -155,7 +155,7 @@ PY
 while IFS=$'\t' read -r name _category _design tb _cfg _tier; do
   [[ -n "${name}" ]] || continue
   run_case_examples "example_${name}" "${tb}"
-done < <(python3 "${DISCOVER}" --root "${PYC_ROOT_DIR}/examples/pycircuit" --tier all --format tsv)
+done < <(python3 "${DISCOVER}" --root "${PYC_ROOT_DIR}/examples/pycircuit" --tier heavy --format tsv)
 
 run_case_fixture() {
   local name="$1"
@@ -166,7 +166,7 @@ run_case_fixture() {
   local out_dir="${OUT_BASE}/${name}"
   rm -rf "${out_dir}" >/dev/null 2>&1 || true
   mkdir -p "${out_dir}"
-  pyc_log "sim(fixture) ${name}: ${src}"
+  pyc_log "sim(heavy fixture) ${name}: ${src}"
 
   if ! run_with_case_logs "${name}" build "${PYC_ROOT_DIR}" \
       env PYTHONPATH="${PYTHONPATH_VAL}" PYTHONDONTWRITEBYTECODE=1 PYCC="${PYCC}" \
@@ -181,9 +181,8 @@ run_case_fixture() {
   fi
 }
 
-run_case_fixture issq "${PYC_ROOT_DIR}/tests/integration/pycircuit/fixtures/issq/tb_issq.py"
-run_case_fixture regfile "${PYC_ROOT_DIR}/tests/integration/pycircuit/fixtures/regfile/tb_regfile.py"
-run_case_fixture bypass_unit "${PYC_ROOT_DIR}/tests/integration/pycircuit/fixtures/bypass_unit/tb_bypass_unit.py"
+run_case_fixture bypass_unit \
+  "${PYC_ROOT_DIR}/tests/integration/pycircuit/fixtures/bypass_unit/tb_bypass_unit.py"
 
 if [[ -n "${resume_from_case}" && "${resume_seen}" -eq 0 ]]; then
   pyc_die "resume case not found: ${resume_from_case}"

@@ -99,7 +99,7 @@ struct CheckCombCyclesPass : public PassWrapper<CheckCombCyclesPass, OperationPa
 
   StringRef getArgument() const override { return "pyc-check-comb-cycles"; }
   StringRef getDescription() const override {
-    return "Detect combinational cycles involving pyc.wire/pyc.assign feedback without a pyc.reg break (prototype)";
+    return "Detect combinational cycles involving pyc.wire/pyc.assign feedback without a pyc.reg break";
   }
 
   void runOnOperation() override {

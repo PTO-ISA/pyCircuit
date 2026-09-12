@@ -1,4 +1,4 @@
-// Synchronous 1R1W memory with registered read data (prototype).
+// Synchronous 1R1W memory with registered read data.
 //
 // - `DEPTH` is in entries (not bytes).
 // - Read is synchronous: when `ren` is asserted, `rdata` updates on the next

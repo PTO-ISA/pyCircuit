@@ -13,7 +13,7 @@ with the current pyCircuit 6 CycleAwareSignal authoring contract.
 - Build and validate from the current worktree. Never copy toolchains or shared
   libraries from another checkout.
 - Keep the repo hard-break only. Do not add compatibility shims for removed
-  APIs or reclassify CycleAwareSignal as a legacy surface.
+  APIs or reclassify CycleAwareSignal as a removed surface.
 
 ## Standard development loop
 

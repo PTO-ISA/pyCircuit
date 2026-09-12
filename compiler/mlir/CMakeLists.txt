@@ -52,12 +52,12 @@ set(PYC_GENERATED_SEMANTIC_REGISTRY
 add_custom_command(
   OUTPUT "${PYC_GENERATED_SEMANTIC_REGISTRY}"
   COMMAND "${Python3_EXECUTABLE}"
-          "${PYC_REPO_ROOT}/tools/generate-semantic-primitive-registry.py"
+          "${PYC_REPO_ROOT}/tools/pycircuit/generate-semantic-primitive-registry.py"
           "${PYC_SEMANTIC_REGISTRY}"
           "${PYC_GENERATED_SEMANTIC_REGISTRY}"
   DEPENDS
     "${PYC_SEMANTIC_REGISTRY}"
-    "${PYC_REPO_ROOT}/tools/generate-semantic-primitive-registry.py"
+    "${PYC_REPO_ROOT}/tools/pycircuit/generate-semantic-primitive-registry.py"
   VERBATIM
 )
 add_custom_target(PYCSemanticPrimitiveRegistryGen

@@ -138,7 +138,7 @@ def test_semantic_registry_generates_the_compiler_selection_table(tmp_path) -> N
     subprocess.run(
         [
             sys.executable,
-            str(root / "tools/generate-semantic-primitive-registry.py"),
+            str(root / "tools/pycircuit/generate-semantic-primitive-registry.py"),
             str(root / "schemas/primitives/semantic_registry.json"),
             str(output),
         ],
@@ -183,7 +183,7 @@ def test_semantic_registry_generator_rejects_contract_drift(
     completed = subprocess.run(
         [
             sys.executable,
-            str(root / "tools/generate-semantic-primitive-registry.py"),
+            str(root / "tools/pycircuit/generate-semantic-primitive-registry.py"),
             str(source),
             str(tmp_path / "out.h"),
         ],
@@ -206,7 +206,7 @@ def test_cpp_primitive_width_helpers_match_registry_for_every_width(
     subprocess.run(
         [
             sys.executable,
-            str(root / "tools/generate-semantic-primitive-registry.py"),
+            str(root / "tools/pycircuit/generate-semantic-primitive-registry.py"),
             str(root / "schemas/primitives/semantic_registry.json"),
             str(generated),
         ],

@@ -1,4 +1,4 @@
-// Combinational bitwise XOR (prototype).
+// Combinational bitwise XOR.
 module pyc_xor #(
   parameter WIDTH = 1
 ) (

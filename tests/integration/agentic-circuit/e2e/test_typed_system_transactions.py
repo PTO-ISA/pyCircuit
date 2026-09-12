@@ -3,6 +3,7 @@ from __future__ import annotations
 import importlib.util
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -105,8 +106,15 @@ class TypedSystemTransactionTest(unittest.TestCase):
             ):
                 generated_text = specialization.lower_cpp()
             generated.write_text(generated_text, encoding="utf-8")
-            self.assertIn("gfsim::OwnerWriteBatch<gfsim::UInt<8>>", generated_text)
-            self.assertEqual(4, generated_text.count("owner_writes0.emplace_back"))
+            batch = re.search(
+                r"gfsim::OwnerWriteBatch<gfsim::UInt<8>>\s+([A-Za-z_][A-Za-z0-9_]*);",
+                generated_text,
+            )
+            self.assertIsNotNone(batch)
+            self.assertEqual(
+                4,
+                generated_text.count(f"{batch.group(1)}.emplace_back"),
+            )
 
             harness = output / "harness.cpp"
             executable = output / "atomic_shift"

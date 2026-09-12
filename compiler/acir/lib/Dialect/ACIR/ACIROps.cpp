@@ -412,7 +412,7 @@ LogicalResult verifyLoweredRuleTransformContract(TransformOp transform) {
                                  "exactly one output Queue");
   if ((*domain).getValue() != "cycle" || !footprints.empty())
     return transform.emitOpError(
-        "has invalid phase-one lowered-rule domain/footprint proof");
+        "has invalid lowered-rule domain/footprint proof");
   auto model = transform->getParentOfType<mlir::ModuleOp>();
   auto graphDomain =
       model ? model->getAttrOfType<StringAttr>("ac.queue_graph_domain")
@@ -520,7 +520,7 @@ LogicalResult RuleOp::verify() {
     return emitOpError(
         "requires non-empty definition and stable instance names");
   if (getTimeDomain() != "cycle")
-    return emitOpError("phase-one rule requires exact time domain 'cycle'");
+    return emitOpError("rule requires exact time domain 'cycle'");
   auto model = (*this)->getParentOfType<mlir::ModuleOp>();
   auto modelKind =
       model ? model->getAttrOfType<StringAttr>("ac.model_kind") : StringAttr();
@@ -531,12 +531,12 @@ LogicalResult RuleOp::verify() {
       return emitOpError("rule domain must match the exact QueueGraph domain");
   }
   if (getTypeState() != TypeConstraintState::Exact)
-    return emitOpError("phase-one frontend rule requires an exact Queue type");
+    return emitOpError("frontend rule requires an exact Queue type");
   for (StringRef name : {"ac.rule.effects", "ac.rule.checks",
                          "ac.rule.handshake", "ac.rule.guard",
                          "ac.rule.schedule"})
     if ((*this)->hasAttr(name))
-      return emitOpError() << "legacy rule summary attribute '" << name
+      return emitOpError() << "removed rule summary attribute '" << name
                            << "' is not part of canonical ACIR";
   ArrayRef<int64_t> depths = getOutputDepthsAttr().asArrayRef();
   ArrayRef<int64_t> latencies = getOutputLatenciesAttr().asArrayRef();
@@ -583,7 +583,7 @@ LogicalResult RuleOp::verify() {
                !isa<RuleOutputOp, StateSnapshotOp, StateSnapshotSetOp>(
                    operation))
       return emitOpError() << "body operation '" << operation.getName()
-                           << "' must be pure in the phase-one rule subset";
+                           << "' must be pure in the supported rule subset";
   if (conditions > 1)
     return emitOpError("permits at most one functional condition");
   SmallVector<RuleOutputOp> outputPaths;
@@ -1185,10 +1185,10 @@ LogicalResult FiringOp::verify() {
   for (StringRef name : {"functional_guard", "checks", "handshake",
                          "schedule", "effects"})
     if ((*this)->hasAttr(name))
-      return emitOpError() << "legacy firing summary attribute '" << name
+      return emitOpError() << "removed firing summary attribute '" << name
                            << "' is not part of canonical ACIR";
   if (getTimeDomain() != "cycle")
-    return emitOpError("phase-one firing requires exact time domain 'cycle'");
+    return emitOpError("firing requires exact time domain 'cycle'");
   auto model = (*this)->getParentOfType<mlir::ModuleOp>();
   auto modelKind =
       model ? model->getAttrOfType<StringAttr>("ac.model_kind") : StringAttr();
@@ -1343,7 +1343,7 @@ LogicalResult FiringOp::verify() {
     return emitOpError("requires one typed functional condition");
   }
   if (!validArity)
-    return emitOpError("has invalid phase-one Queue/state arity");
+    return emitOpError("has invalid Queue/state arity");
 
   Block &block = getBody().front();
   if (block.getNumArguments() != getInputs().size())

@@ -90,7 +90,7 @@ module attributes {ac.contract_epoch = "0.5"} {
     ac.rule.return %ready : !ac.var<i32>
   } : (!ac.queue<i32>) -> !ac.queue<i32>
 }
-// DOMAIN: 'ac.rule' op phase-one rule requires exact time domain 'cycle'
+// DOMAIN: 'ac.rule' op rule requires exact time domain 'cycle'
 
 //--- output-ordinal.mlir
 module attributes {ac.contract_epoch = "0.5"} {

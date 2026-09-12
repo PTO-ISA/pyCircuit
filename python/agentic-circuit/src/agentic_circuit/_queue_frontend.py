@@ -7909,7 +7909,7 @@ def parse_queue_program(
                     )
                 elif call_name(call) == "table":
                     raise QueueFrontendError(
-                        "ACPY-TABLE-000: legacy ac.table(value, ...) was removed; "
+                        "ACPY-TABLE-000: ac.table(value, ...) was removed; "
                         "use ac.memory for request/response memory or "
                         "ac.table[entries, Entry](init=0) for state Table"
                     )

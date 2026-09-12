@@ -9,7 +9,16 @@ gate_out_dir="$(pyc_out_root)/gates/${gate_run_id}/agentic-circuit"
 ac_source="${PYC_ROOT_DIR}/compiler/acir"
 ac_python="${PYC_ROOT_DIR}/python/agentic-circuit"
 ac_test_python="${PYC_ROOT_DIR}/tests/python/agentic-circuit"
-ac_build="$(pyc_out_root)/acir/dev-llvm22"
+ac_build="${AC_GATE_BUILD_ROOT:-$(pyc_out_root)/acir/dev-llvm22}"
+if [[ -n "${AC_GATE_BUILD_ROOT:-}" ]]; then
+  ac_python_build="${ac_build}/compiler/acir/python"
+  ac_native_gfsim="${ac_build}/compiler/acir/gfsim/libgfsim.a"
+else
+  ac_python_build="${ac_build}/python"
+  ac_native_gfsim="${ac_build}/gfsim/libgfsim.a"
+fi
+ac_native_opt="${ac_build}/bin/acir-opt-internal"
+ac_native_cxxgen="${ac_build}/bin/acir-queue-cxxgen"
 ac_tests="${PYC_ROOT_DIR}/tests"
 ac_tools="${PYC_ROOT_DIR}/compiler/acir/tools"
 ac_lock="${PYC_ROOT_DIR}/toolchains/agentic-circuit/pyc.lock.json"
@@ -18,27 +27,6 @@ mkdir -p "${docs_gate_dir}" "${gate_out_dir}" "$(dirname "${venv}")"
 
 exec > >(tee -a "${docs_gate_dir}/agentic_circuit.stdout") \
   2> >(tee -a "${docs_gate_dir}/agentic_circuit.stderr" >&2)
-
-cat > "${docs_gate_dir}/agentic_circuit_commands.txt" <<EOF
-bash flows/scripts/run_agentic_circuit.sh
-python3 -m unittest discover -s tests/python/agentic-circuit/python_frontend -p 'test_*.py'
-python3 -m unittest discover -s tests/python/agentic-circuit/cli -p 'test_*.py'
-cmake --build .pycircuit_out/acir/dev-llvm22 --target check-acir
-ctest --test-dir .pycircuit_out/acir/dev-llvm22 --output-on-failure
-bash flows/scripts/pyc build
-acir-opt --pass-pipeline='builtin.module(ac-freeze-topology)' <raw-queue-graph>
-compiler/acir/tools/ac-queue-pyc-build.py <ACIR> ...
-python3 tests/integration/agentic-circuit/e2e/test_typed_system_transactions.py -v
-python3 tests/integration/agentic-circuit/e2e/test_typed_record_pyc.py -v
-python3 tests/integration/agentic-circuit/e2e/test_aggregate_equality_invariant.py -v
-python3 tests/integration/agentic-circuit/e2e/test_table_pyc_parity.py -v
-python3 tests/integration/agentic-circuit/e2e/test_table_backend.py -v
-acir-opt --verify-each=false --pass-pipeline='builtin.module(ac-lower-rules,canonicalize,cse,ac-verify-rule-closure,ac-freeze-topology)' tests/mlir/agentic-circuit/Transforms/rule-multi-output-lowering.mlir
-pytest tests/unit -m unit
-python3 flows/tools/check_api_hygiene.py python/pycircuit/src/pycircuit examples/pycircuit docs README.md
-python3 flows/tools/check_decision_status.py --require-no-deferred --require-all-verified --require-concrete-evidence --require-existing-evidence
-mkdocs build --strict
-EOF
 
 pyc_log "Agentic Circuit closure run-id=${gate_run_id}"
 
@@ -54,53 +42,146 @@ else
   completion_message="Agentic Circuit G2 closure passed (G0/G1 explicitly skipped)"
 fi
 
+recorded_toolchain="${AC_GATE_TOOLCHAIN_ROOT:-${gate_out_dir}/toolchain/install}"
+{
+  echo "PYC_GATE_RUN_ID=${gate_run_id} AC_GATE_RESUME_FROM=${resume_from} bash flows/scripts/run_agentic_circuit.sh"
+  if [[ "${resume_from}" == "g0" ]]; then
+    if [[ -n "${AC_GATE_BUILD_ROOT:-}" ]]; then
+      echo "# reuse integrated native build: ${ac_build}"
+    else
+      echo "cmake --preset dev-llvm22 -S ${ac_source} -DACIR_BUILD_TESTING=ON"
+      echo "cmake --build ${ac_build}"
+    fi
+    echo "python3 tools/agentic-circuit/check-contracts.py"
+    echo "python3 -m unittest discover -s tests/python/agentic-circuit/contracts -p 'test_*.py'"
+    echo "python3 -m unittest discover -s tests/python/agentic-circuit/python_frontend -p 'test_*.py'"
+    echo "python3 -m unittest discover -s tests/python/agentic-circuit/cli -p 'test_*.py'"
+    echo "cmake --build ${ac_build} --target check-acir"
+    echo "ctest --test-dir ${ac_build} --output-on-failure"
+  fi
+  if [[ -n "${AC_GATE_TOOLCHAIN_ROOT:-}" ]]; then
+    echo "# reuse installed toolchain: ${recorded_toolchain}"
+  else
+    echo "PYC_BUILD_AGENTIC_CIRCUIT=ON bash flows/scripts/pyc build"
+  fi
+  echo "${recorded_toolchain}/bin/acir-opt --pass-pipeline='builtin.module(ac-freeze-topology)' <raw-queue-graph>"
+  echo "compiler/acir/tools/ac-queue-pyc-build.py <ACIR> ..."
+  echo "python3 tests/integration/agentic-circuit/e2e/test_pyc_backend.py <selected-cases> -v"
+  echo "python3 tests/integration/agentic-circuit/e2e/test_bit_primitive_parity.py -v"
+  echo "python3 tests/integration/agentic-circuit/e2e/test_typed_system_transactions.py -v"
+  echo "python3 tests/integration/agentic-circuit/e2e/test_typed_record_pyc.py -v"
+  echo "python3 tests/integration/agentic-circuit/e2e/test_multi_output_atomic.py -v"
+  echo "python3 tests/integration/agentic-circuit/e2e/test_aggregate_equality_invariant.py -v"
+  echo "python3 tests/integration/agentic-circuit/e2e/test_table_pyc_parity.py -v"
+  echo "python3 tests/integration/agentic-circuit/e2e/test_table_backend.py -v"
+} > "${docs_gate_dir}/agentic_circuit_commands.txt"
+
 if [[ ! -x "${venv}/bin/python" ]]; then
   python3 -m venv "${venv}"
 fi
-"${venv}/bin/python" -m pip install -e "${PYC_ROOT_DIR}/python/semantic-core"
-"${venv}/bin/python" -m pip install -e "${ac_python}[test]"
+gate_environment_fingerprint="$("${venv}/bin/python" - \
+  "${PYC_ROOT_DIR}/python/semantic-core/pyproject.toml" \
+  "${ac_python}/pyproject.toml" \
+  "${ac_python}/setup.py" <<'PY'
+import hashlib
+import sys
+from pathlib import Path
+
+digest = hashlib.sha256()
+digest.update(sys.version.encode("utf-8"))
+for argument in sys.argv[1:]:
+    path = Path(argument).resolve()
+    digest.update(path.as_posix().encode("utf-8"))
+    digest.update(path.read_bytes())
+print(digest.hexdigest())
+PY
+)"
+gate_environment_stamp="${venv}/.pycircuit-gate-environment"
+installed_fingerprint=""
+if [[ -f "${gate_environment_stamp}" ]]; then
+  installed_fingerprint="$(<"${gate_environment_stamp}")"
+fi
+if [[ "${installed_fingerprint}" == "${gate_environment_fingerprint}" ]] && \
+  "${venv}/bin/python" -c \
+    'import agentic_circuit, jsonschema, pytest, yaml; import _pycircuit_semantics' \
+    >/dev/null 2>&1; then
+  pyc_log "reusing Agentic Circuit gate environment ${venv}"
+else
+  "${venv}/bin/python" -m pip install -e "${PYC_ROOT_DIR}/python/semantic-core"
+  "${venv}/bin/python" -m pip install -e "${ac_python}[test]"
+  printf '%s\n' "${gate_environment_fingerprint}" > "${gate_environment_stamp}"
+fi
 
 if [[ "${resume_from}" == "g0" ]]; then
-  llvm_config="${LLVM_CONFIG:-}"
-  if [[ -z "${llvm_config}" ]]; then
-    for candidate in llvm-config-22 llvm-config; do
-      if command -v "${candidate}" >/dev/null 2>&1; then
-        llvm_config="$(command -v "${candidate}")"
-        break
-      fi
-    done
-  fi
-  if [[ -z "${llvm_config}" ]]; then
-    for candidate in \
-      /opt/homebrew/opt/llvm/bin/llvm-config \
-      /usr/local/opt/llvm/bin/llvm-config; do
-      if [[ -x "${candidate}" ]]; then
-        llvm_config="${candidate}"
-        break
-      fi
-    done
-  fi
-  [[ -n "${llvm_config}" ]] || pyc_die "LLVM 22 llvm-config is required"
-  [[ "$("${llvm_config}" --version | cut -d. -f1)" == "22" ]] || \
-    pyc_die "Agentic Circuit requires LLVM 22"
-  export LLVM_DIR="${LLVM_DIR:-$("${llvm_config}" --cmakedir)}"
-  export MLIR_DIR="${MLIR_DIR:-$(dirname "${LLVM_DIR}")/mlir}"
+  if [[ -n "${AC_GATE_BUILD_ROOT:-}" ]]; then
+    [[ -d "${ac_build}" ]] || pyc_die "AC_GATE_BUILD_ROOT does not exist: ${ac_build}"
+    [[ -d "${ac_python_build}" ]] || \
+      pyc_die "integrated Agentic Circuit Python build is missing: ${ac_python_build}"
+    pyc_log "AC G0/G1: reusing integrated native build ${ac_build}"
+  else
+    llvm_config="${LLVM_CONFIG:-}"
+    if [[ -z "${llvm_config}" ]]; then
+      for candidate in llvm-config-22 llvm-config; do
+        if command -v "${candidate}" >/dev/null 2>&1; then
+          llvm_config="$(command -v "${candidate}")"
+          break
+        fi
+      done
+    fi
+    if [[ -z "${llvm_config}" ]]; then
+      for candidate in \
+        /opt/homebrew/opt/llvm/bin/llvm-config \
+        /usr/local/opt/llvm/bin/llvm-config; do
+        if [[ -x "${candidate}" ]]; then
+          llvm_config="${candidate}"
+          break
+        fi
+      done
+    fi
+    [[ -n "${llvm_config}" ]] || pyc_die "LLVM 22 llvm-config is required"
+    [[ "$("${llvm_config}" --version | cut -d. -f1)" == "22" ]] || \
+      pyc_die "Agentic Circuit requires LLVM 22"
+    export LLVM_DIR="${LLVM_DIR:-$("${llvm_config}" --cmakedir)}"
+    export MLIR_DIR="${MLIR_DIR:-$(dirname "${LLVM_DIR}")/mlir}"
 
-  pyc_log "AC G0/G1: configure integrated ACIR compiler"
-  PATH="${venv}/bin:${PATH}" cmake --preset dev-llvm22 \
-    -S "${ac_source}" -DACIR_BUILD_TESTING=ON
-  cmake --build "${ac_build}" -j "${PYC_BUILD_JOBS:-6}"
+    pyc_log "AC G0/G1: configure Agentic Circuit compiler"
+    PATH="${venv}/bin:${PATH}" cmake --preset dev-llvm22 \
+      -S "${ac_source}" -DACIR_BUILD_TESTING=ON
+    cmake --build "${ac_build}" -j "${PYC_BUILD_JOBS:-6}"
+  fi
 
   site_packages="$("${venv}/bin/python" -c \
     'import sysconfig; print(sysconfig.get_paths()["purelib"])')"
+  for required in "${ac_native_opt}" "${ac_native_cxxgen}" "${ac_native_gfsim}"; do
+    [[ -f "${required}" ]] || pyc_die "missing native Agentic test artifact: ${required}"
+  done
   (
     cd "${PYC_ROOT_DIR}"
     env -u AC_GATE_TOOLCHAIN_ROOT \
-      PYTHONPATH="${PYC_ROOT_DIR}/python/semantic-core/src:${ac_python}/src:${ac_test_python}:${ac_build}/python" \
+      ACIR_OPT="${ac_native_opt}" \
+      ACIR_QUEUE_CXXGEN="${ac_native_cxxgen}" \
+      GFSIM_LIBRARY="${ac_native_gfsim}" \
+      PYTHONPATH="${PYC_ROOT_DIR}/python/semantic-core/src:${ac_python}/src:${ac_test_python}:${ac_python_build}" \
+      "${venv}/bin/python" tools/agentic-circuit/check-contracts.py
+    env -u AC_GATE_TOOLCHAIN_ROOT \
+      ACIR_OPT="${ac_native_opt}" \
+      ACIR_QUEUE_CXXGEN="${ac_native_cxxgen}" \
+      GFSIM_LIBRARY="${ac_native_gfsim}" \
+      PYTHONPATH="${PYC_ROOT_DIR}/python/semantic-core/src:${ac_python}/src:${ac_test_python}:${ac_python_build}" \
+      "${venv}/bin/python" -m unittest discover \
+        -s tests/python/agentic-circuit/contracts -p 'test_*.py'
+    env -u AC_GATE_TOOLCHAIN_ROOT \
+      ACIR_OPT="${ac_native_opt}" \
+      ACIR_QUEUE_CXXGEN="${ac_native_cxxgen}" \
+      GFSIM_LIBRARY="${ac_native_gfsim}" \
+      PYTHONPATH="${PYC_ROOT_DIR}/python/semantic-core/src:${ac_python}/src:${ac_test_python}:${ac_python_build}" \
       "${venv}/bin/python" -m unittest discover \
         -s tests/python/agentic-circuit/python_frontend -p 'test_*.py'
     env -u AC_GATE_TOOLCHAIN_ROOT \
-      PYTHONPATH="${PYC_ROOT_DIR}/python/semantic-core/src:${ac_python}/src:${ac_test_python}:${ac_build}/python" \
+      ACIR_OPT="${ac_native_opt}" \
+      ACIR_QUEUE_CXXGEN="${ac_native_cxxgen}" \
+      GFSIM_LIBRARY="${ac_native_gfsim}" \
+      PYTHONPATH="${PYC_ROOT_DIR}/python/semantic-core/src:${ac_python}/src:${ac_test_python}:${ac_python_build}" \
       "${venv}/bin/python" -m unittest discover \
         -s tests/python/agentic-circuit/cli -p 'test_*.py'
     PYTHONPATH="${site_packages}" \
@@ -172,7 +253,7 @@ ACIR_OPT="${acir_opt}" \
 ACIR_QUEUE_PLAN="${acir_plan}" \
 ACIR_QUEUE_CXXGEN="${acir_cxxgen}" \
 ACIR_QUEUE_PYCGEN="${pycgen}" \
-PYTHONPATH="${PYC_ROOT_DIR}/python/semantic-core/src:${ac_python}/src:${ac_build}/python" \
+PYTHONPATH="${PYC_ROOT_DIR}/python/semantic-core/src:${ac_python}/src:${ac_python_build}" \
   "${venv}/bin/python" \
   "${PYC_ROOT_DIR}/tests/integration/agentic-circuit/e2e/test_pyc_backend.py" \
   PycBackendTest.test_rule_retirement_builds_pyc_and_verilog \
@@ -187,7 +268,7 @@ PYTHONPATH="${PYC_ROOT_DIR}/python/semantic-core/src:${ac_python}/src:${ac_build
 PYC_TOOLCHAIN_ROOT="${toolchain}" \
 ACIR_BIN="$(dirname "${acir_opt}")" \
 PYCC="${pycc}" \
-PYTHONPATH="${PYC_ROOT_DIR}/python/semantic-core/src:${ac_python}/src:${ac_build}/python" \
+PYTHONPATH="${PYC_ROOT_DIR}/python/semantic-core/src:${ac_python}/src:${ac_python_build}" \
   "${venv}/bin/python" \
   "${PYC_ROOT_DIR}/tests/integration/agentic-circuit/e2e/test_bit_primitive_parity.py" \
   -v
@@ -196,7 +277,7 @@ PYC_TOOLCHAIN_ROOT="${toolchain}" \
 ACIR_OPT="${acir_opt}" \
 ACIR_QUEUE_PLAN="${acir_plan}" \
 ACIR_QUEUE_CXXGEN="${acir_cxxgen}" \
-PYTHONPATH="${PYC_ROOT_DIR}/python/semantic-core/src:${ac_python}/src:${ac_build}/python" \
+PYTHONPATH="${PYC_ROOT_DIR}/python/semantic-core/src:${ac_python}/src:${ac_python_build}" \
   "${venv}/bin/python" \
   "${PYC_ROOT_DIR}/tests/integration/agentic-circuit/e2e/test_typed_system_transactions.py" \
   -v
@@ -207,7 +288,7 @@ ACIR_QUEUE_PYCGEN="${pycgen}" \
 PYCC="${pycc}" \
 PYC_RUNTIME_LIB="${runtime}" \
 PYC_RUNTIME_INCLUDE="${runtime_include}" \
-PYTHONPATH="${PYC_ROOT_DIR}/python/semantic-core/src:${ac_python}/src:${ac_build}/python" \
+PYTHONPATH="${PYC_ROOT_DIR}/python/semantic-core/src:${ac_python}/src:${ac_python_build}" \
   "${venv}/bin/python" \
   "${PYC_ROOT_DIR}/tests/integration/agentic-circuit/e2e/test_typed_record_pyc.py" \
   -v
@@ -220,7 +301,7 @@ ACIR_QUEUE_PYCGEN="${pycgen}" \
 PYCC="${pycc}" \
 PYC_RUNTIME_LIB="${runtime}" \
 PYC_RUNTIME_INCLUDE="${runtime_include}" \
-PYTHONPATH="${PYC_ROOT_DIR}/python/semantic-core/src:${ac_python}/src:${ac_build}/python" \
+PYTHONPATH="${PYC_ROOT_DIR}/python/semantic-core/src:${ac_python}/src:${ac_python_build}" \
   "${venv}/bin/python" \
   "${PYC_ROOT_DIR}/tests/integration/agentic-circuit/e2e/test_multi_output_atomic.py" \
   -v
@@ -232,7 +313,7 @@ ACIR_QUEUE_PLAN="${acir_plan}" \
 ACIR_QUEUE_CXXGEN="${acir_cxxgen}" \
 ACIR_QUEUE_PYCGEN="${pycgen}" \
 PYCC="${pycc}" \
-PYTHONPATH="${PYC_ROOT_DIR}/python/semantic-core/src:${ac_python}/src:${ac_build}/python" \
+PYTHONPATH="${PYC_ROOT_DIR}/python/semantic-core/src:${ac_python}/src:${ac_python_build}" \
   "${venv}/bin/python" \
   "${PYC_ROOT_DIR}/tests/integration/agentic-circuit/e2e/test_aggregate_equality_invariant.py" \
   -v
@@ -241,7 +322,7 @@ PYC_TOOLCHAIN_ROOT="${toolchain}" \
 ACIR_OPT="${acir_opt}" \
 ACIR_QUEUE_PYCGEN="${pycgen}" \
 PYCC="${pycc}" \
-PYTHONPATH="${PYC_ROOT_DIR}/python/semantic-core/src:${ac_python}/src:${ac_build}/python" \
+PYTHONPATH="${PYC_ROOT_DIR}/python/semantic-core/src:${ac_python}/src:${ac_python_build}" \
   "${venv}/bin/python" \
   "${PYC_ROOT_DIR}/tests/integration/agentic-circuit/e2e/test_table_pyc_parity.py" \
   -v
@@ -251,27 +332,10 @@ ACIR_OPT="${acir_opt}" \
 ACIR_QUEUE_PLAN="${acir_plan}" \
 ACIR_QUEUE_CXXGEN="${acir_cxxgen}" \
 ACIR_QUEUE_PYCGEN="${pycgen}" \
-PYTHONPATH="${PYC_ROOT_DIR}/python/semantic-core/src:${ac_python}/src:${ac_build}/python" \
+PYTHONPATH="${PYC_ROOT_DIR}/python/semantic-core/src:${ac_python}/src:${ac_python_build}" \
   "${venv}/bin/python" \
   "${PYC_ROOT_DIR}/tests/integration/agentic-circuit/e2e/test_table_backend.py" \
   -v
-
-pyc_log "pyCircuit 6 root contracts and documentation"
-(
-  cd "${PYC_ROOT_DIR}"
-  pytest tests/unit -m unit -q
-  python3 flows/tools/check_api_hygiene.py \
-    python/pycircuit/src/pycircuit examples/pycircuit docs README.md
-  python3 flows/tools/check_decision_status.py \
-    --rfc docs/rfcs/pyc6-decisions.md \
-    --status docs/gates/decision_status_v6.md \
-    --out "${docs_gate_dir}/decision_status_report.json" \
-    --require-no-deferred \
-    --require-all-verified \
-    --require-concrete-evidence \
-    --require-existing-evidence
-  mkdocs build --strict
-)
 
 cat > "${docs_gate_dir}/agentic_circuit_summary.json" <<EOF
 {

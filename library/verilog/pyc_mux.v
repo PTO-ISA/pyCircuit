@@ -1,4 +1,4 @@
-// Combinational mux (prototype).
+// Combinational mux.
 module pyc_mux #(
   parameter WIDTH = 1
 ) (

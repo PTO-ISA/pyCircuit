@@ -1,4 +1,4 @@
-// Async ready/valid FIFO with gray-code pointers (prototype).
+// Async ready/valid FIFO with gray-code pointers.
 //
 // - Strict ready/valid handshake (no combinational cross-domain paths).
 // - `DEPTH` must be a power of two and >= 2.

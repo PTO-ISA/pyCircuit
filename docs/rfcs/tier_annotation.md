@@ -10,7 +10,7 @@
 
 ---
 
-## 1. 动机
+## 动机
 
 TAO 物理设计流程把设计**细粒度折叠**到 2–3 层垂直堆叠的裸片(tier)上:同一条组合路径的前半段在 tier 0、后半段在 tier 1,层间通过混合键合点连接,以缩短关键路径线长并提升单位投影面积的晶体管数。分割方案的质量直接决定最终 PPA,而分割器(路径感知网表分割 EDA 工具)需要**来自前端的意图与热启动**:哪些模块预期落在哪层、哪些信号是期望的跨层切换点。
 
@@ -18,7 +18,7 @@ TAO 物理设计流程把设计**细粒度折叠**到 2–3 层垂直堆叠的�
 
 **术语约定:分层维度统一用 tier(裸片层),不用 layer**——后者在物理设计语境里指金属布线层(metal layer)。API 命名(`tier=`、`tier_lock`、`jump_tier`)与所有报告字段遵循此约定。
 
-## 2. 语义基石:tier 是零电路效应的元数据
+## 语义基石:tier 是零电路效应的元数据
 
 与周期元数据的对照是理解本扩展的钥匙:
 
@@ -33,9 +33,9 @@ TAO 物理设计流程把设计**细粒度折叠**到 2–3 层垂直堆叠的�
 
 这个不对称的直接推论:**tier 标注是 agentic 循环中最安全的一类旋钮**——智能体可以自由修改它而不触发任何功能验证,因此应该在语法上暴露得尽可能细。
 
-## 3. 语法提案
+## 语法提案
 
-### 3.1 标注形式一览
+### 标注形式一览
 
 ```python
 from pycircuit import build_cycle_aware, cas, compile_cycle_aware, jump_tier, wire_of
@@ -72,7 +72,7 @@ outs = domain.call(alu, inputs={...}, tier=1)
 | ⑤ | `tier=None` | — | 自由信号,分割器全权优化 |
 | ⑥ | 模块/调用级 | `domain.call(fn, ..., tier=1)` 或模块装饰参数 | 该模块端口与内部信号的**缺省 tier**;内部标注可覆盖 |
 
-### 3.2 强度三态与 EDA 契约
+### 强度三态与 EDA 契约
 
 每个信号的 tier 指派携带强度,下游分割器的覆写权限逐级递减:
 
@@ -82,7 +82,7 @@ outs = domain.call(alu, inputs={...}, tier=1)
 
 分割器结果**不回写源码**,写入以稳定 ID 为键的 sidecar tier 指派表;上游(人或智能体)读取"标注 vs 实际指派"diff 后自行决定是否把结果固化回源码。这构成人(意图,locked/条款)、智能体(迭代,hint 调整)、EDA 算法(全局优化,free/hint)三方在同一张表上的分权协作协议(详见 TAO 文档 §2.4"human in the loop 与 agent in the loop")。
 
-## 4. 前端语义细则
+## 前端语义细则
 
 1. **传播规则(elaboration 期):**
    - 运算结果的 tier:所有输入同 tier → 继承;混层 → 取主导输入的 tier(实现可选:多数票,平票取编号小者),强度记为推断(hint);
@@ -92,7 +92,7 @@ outs = domain.call(alu, inputs={...}, tier=1)
 3. **合法性检查(elaboration 期告警,非错误):** tier 取值超出声明层数报错;locked 信号之间的直接组合依赖若形成"每级门都跨层"的病态模式,给出统计告警(键合点预算问题留给分割器定量裁决)。
 4. **compile/build 双入口:** tier 与 cut_after 类编译期特化参数正交;`compile_cycle_aware()` 的 JIT 与 `build_cycle_aware()` 的直接 Python elaboration 都只把元数据挂到信号上,无控制流影响。`tier=`/`jump_tier` 在 JIT 路径经由 CAS 运算符委托机制透明工作(参见 jit.py 的 cycle-aware interop)。
 
-## 5. IR 与下游交付
+## IR 与下游交付
 
 1. **MLIR:** 新增可选属性 `pyc.tier`(整数)与 `pyc.tier_strength`(`"hint" | "locked"`),挂在产生该值的 op 上;模块级缺省挂在 `func.func` 属性 `pyc.tier_default`。无标注即无属性(向后兼容)。
 2. **Verilog 发射(三条冗余通道):**
@@ -101,7 +101,7 @@ outs = domain.call(alu, inputs={...}, tier=1)
    - **sidecar tier 指派表(主通道):** 稳定 ID → (tier, strength) 的独立文件(建议 JSON Lines),与网表并行交付、并行版本控制。三通道不一致构成流程告警。
 3. **C++ 仿真后端:** 忽略 tier(功能语义无关);可选地在 DFX/probe 元数据中携带,便于按 tier 聚合功耗/活动统计。
 
-## 6. 实现草图与阶段
+## 实现草图与阶段
 
 - **阶段 1(前端元数据,~1 人月):** `CycleAwareSignal` 增加 `_tier`/`_tier_strength` 槽位与传播;`cas()`/`domain.signal()`/`domain.call()` 增加 `tier=`/`tier_lock=` 参数;新增 `jump_tier()`;`build_cycle_aware()` 路径 MLIR 属性发射。
 - **阶段 2(JIT 与发射,~1 人月):** JIT 路径透传(依托既有 CAS 运算符委托);Verilog 属性/命名通道;sidecar 表导出器。
@@ -109,7 +109,7 @@ outs = domain.call(alu, inputs={...}, tier=1)
 
 **兼容性:** 全部参数可选、缺省 `None`,对现有设计零影响;不改变任何现有 IR 语义。
 
-## 7. 开放问题
+## 开放问题
 
 - 异质层(逻辑层 + 存储层)下,宏单元(SRAM)的 tier 指派是否需要独立的语法(如 `m.mem(..., tier=...)`)与更强的缺省锁定;
 - 混层输入的推断规则(多数票 vs 键合点代价最小)是否需要做成可配置策略;

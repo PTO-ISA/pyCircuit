@@ -1,4 +1,4 @@
-// Synchronous 2R1W memory with registered read data (prototype).
+// Synchronous 2R1W memory with registered read data.
 //
 // - `DEPTH` is in entries (not bytes).
 // - Both reads are synchronous (registered outputs).

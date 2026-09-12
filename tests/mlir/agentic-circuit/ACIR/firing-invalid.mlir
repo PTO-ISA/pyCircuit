@@ -72,7 +72,7 @@ module attributes {ac.contract_epoch = "0.5"} {
     ac.firing.yield %item : !ac.var<i32>
   } : (!ac.queue<i32>) -> !ac.queue<i32>
 }
-// DOMAIN: phase-one firing requires exact time domain 'cycle'
+// DOMAIN: firing requires exact time domain 'cycle'
 
 //--- output-presence.mlir
 module attributes {ac.contract_epoch = "0.5"} {
@@ -150,7 +150,7 @@ module attributes {ac.contract_epoch = "0.5", ac.model_kind = "queue_graph", ac.
   } {ac.rule_footprints = [], ac.rule_priority = 0 : i64, functional_guard = "forged"} : (!ac.queue<i32>) -> !ac.queue<i32>
   ac.sink %output : !ac.queue<i32>
 }
-// FORGED: legacy firing summary attribute 'functional_guard' is not part of canonical ACIR
+// FORGED: removed firing summary attribute 'functional_guard' is not part of canonical ACIR
 
 //--- missing-snapshot.mlir
 module attributes {ac.contract_epoch = "0.5"} {

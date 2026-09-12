@@ -160,9 +160,9 @@ private:
   std::span<const ObjectId> targets_;
 };
 
-/// Compatibility dispatch ABI for the ACIR-to-C++ emitter. Its generated
-/// process storage is intentionally opaque and does not derive from SimObject.
-struct LegacyDispatchThunk {
+/// Opaque dispatch ABI for the ACIR-to-C++ emitter. Generated process storage
+/// intentionally does not derive from SimObject.
+struct OpaqueDispatchThunk {
   void *object = nullptr;
   void (*work)(void *object, Epoch epoch) = nullptr;
   void (*xfer)(void *object, Epoch epoch) = nullptr;
@@ -170,14 +170,14 @@ struct LegacyDispatchThunk {
   bool (*validate)(void *object) = nullptr;
 };
 
-struct LegacyActivationGraph {
+struct OpaqueActivationGraph {
   const uint32_t *offsets = nullptr;
   const uint32_t *targets = nullptr;
   uint32_t sourceCount = 0;
 };
 
-struct LegacyDispatchTable {
-  const LegacyDispatchThunk *rows = nullptr;
+struct OpaqueDispatchTable {
+  const OpaqueDispatchThunk *rows = nullptr;
   uint32_t objectCount = 0;
 };
 

@@ -15,7 +15,7 @@ struct CheckNoDynamicPass : public PassWrapper<CheckNoDynamicPass, OperationPass
 
   StringRef getArgument() const override { return "pyc-check-no-dynamic"; }
   StringRef getDescription() const override {
-    return "Validate that no dynamic control-flow (scf) or index-typed values remain (prototype)";
+    return "Validate that no dynamic control-flow (scf) or index-typed values remain";
   }
 
   void runOnOperation() override {

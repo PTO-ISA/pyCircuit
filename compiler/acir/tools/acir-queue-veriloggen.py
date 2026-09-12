@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Generate self-contained Verilog from a frozen Queue ACIR module.
 
-This is the first in-tree PYC compatibility backend.  It deliberately consumes
-the canonical textual PYC emitted by ``acir-queue-pycgen`` instead of adding a
-second ACIR lowering.  The small emitter covers the pyCircuit 6 operations used
+This is a standalone PYC verification backend. It deliberately consumes the
+canonical textual PYC emitted by ``acir-queue-pycgen`` instead of adding a
+second ACIR lowering. The small emitter covers the pyCircuit 6 operations used
 by the golden queue slice and embeds only the required sequential runtime
 modules in the resulting Verilog file.
 """

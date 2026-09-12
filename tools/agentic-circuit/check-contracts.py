@@ -425,7 +425,7 @@ def check_release_layout(errors):
 
 def check_pyc_inventory(errors):
     completed = subprocess.run(
-        [sys.executable, ROOT / "tools/check-pyc-inventory.py"],
+        [sys.executable, ROOT / "tools/pycircuit/check-pyc-inventory.py"],
         cwd=ROOT,
         text=True,
         capture_output=True,

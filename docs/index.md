@@ -17,7 +17,7 @@ not collapse into one API.
 | `getting-started/` | Installation, frontend selection, quickstart, and tutorial |
 | `reference/` | Normative language, API, PYC IR, diagnostics, and testbench contracts |
 | `architecture/` | Compiler, cycle balancing, and simulation design |
-| `acir/` | Agentic Circuit and ACIR specifications, designs, and migration records |
+| `acir/` | Agentic Circuit and ACIR specifications, designs, and historical provenance |
 | `development/` | Contributor workflows, gates, release contracts, and inventories |
 | `rfcs/` | Accepted decisions and active proposals |
 | `research/` | Comparative studies that inform, but do not define, the product contract |
@@ -53,13 +53,14 @@ Historical gate logs retain their original paths.
 - [Diagnostics](reference/diagnostics.md)
 - [Sidecar schedule](reference/sidecar-schedule.md)
 - [Agentic Circuit and ACIR](acir/index.md)
-- [Repository migration status](acir/migration.md)
+- [Historical repository record](acir/spec/refs/history.md)
 
 ## Development and governance
 
 - [Development guide](development/index.md)
 - [Testing and gates](development/testing-and-gates.md)
 - [Repository management](development/repository-management.md)
+- [Repository layout](development/repository-layout.md)
 - [pyCircuit 6 decisions](rfcs/pyc6-decisions.md)
 - [pyCircuit 6 evolution plan](pyc6-plan.md)
 

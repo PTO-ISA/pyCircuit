@@ -1097,7 +1097,7 @@ class Circuit(Module):
     ) -> Wire:
         _ = (name, value, at, tags)
         raise DesignError(
-            "Legacy debug helper was removed; use standalone `@probe(target=...)` definitions instead"
+            "This debug helper was removed; use standalone `@probe(target=...)` definitions instead"
         )
 
     def debug_bundle(
@@ -1105,7 +1105,7 @@ class Circuit(Module):
     ) -> dict[str, Wire]:
         _ = (prefix, fields)
         raise DesignError(
-            "Legacy debug-bundle helper was removed; use standalone `@probe(target=...)` definitions instead"
+            "This debug-bundle helper was removed; use standalone `@probe(target=...)` definitions instead"
         )
 
     def debug_probe(
@@ -1120,7 +1120,7 @@ class Circuit(Module):
     ) -> dict[str, Wire]:
         _ = (stage, lane, fields, family, at, tags)
         raise DesignError(
-            "Legacy debug-probe helper was removed; use standalone `@probe(target=...)` definitions instead"
+            "This debug-probe helper was removed; use standalone `@probe(target=...)` definitions instead"
         )
 
     def debug_occ(
@@ -1131,7 +1131,7 @@ class Circuit(Module):
     ) -> dict[str, Wire]:
         _ = (stage, lane, fields)
         raise DesignError(
-            "Legacy occupancy-debug helper was removed; use standalone `@probe(target=...)` definitions instead"
+            "This occupancy-debug helper was removed; use standalone `@probe(target=...)` definitions instead"
         )
 
     def probe(
@@ -1147,7 +1147,7 @@ class Circuit(Module):
     ) -> dict[str, Wire]:
         _ = (value, stage, lane, family, prefix, at, tags)
         raise DesignError(
-            "Legacy probe helper was removed; use standalone `@probe(target=...)` definitions instead"
+            "This probe helper was removed; use standalone `@probe(target=...)` definitions instead"
         )
 
     def assign(
@@ -2256,7 +2256,7 @@ class Circuit(Module):
         out_ready: Union[Wire, Reg, Signal],
         depth: int,
     ) -> tuple[Wire, Wire, Wire]:
-        """Strict ready/valid FIFO (single-clock, prototype)."""
+        """Create a strict single-clock ready/valid FIFO."""
 
         in_ready, out_valid, out_data = super().fifo(
             clk,
@@ -2455,7 +2455,7 @@ class RvQueue:
     ) -> Wire:
         if self._push_bound:
             raise ValueError(
-                "RvQueue.push() may only be called once per RvQueue instance (prototype limitation)"
+                "RvQueue.push() may only be called once per RvQueue instance"
             )
         self._push_bound = True
         self._push_valid_expr = when
@@ -2467,7 +2467,7 @@ class RvQueue:
     def pop(self, *, when: Union[Wire, Signal, int, LiteralValue] = 1) -> Pop:
         if self._pop_bound:
             raise ValueError(
-                "RvQueue.pop() may only be called once per RvQueue instance (prototype limitation)"
+                "RvQueue.pop() may only be called once per RvQueue instance"
             )
         self._pop_bound = True
         self._pop_ready_expr = when

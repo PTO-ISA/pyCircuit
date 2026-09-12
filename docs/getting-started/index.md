@@ -1,72 +1,61 @@
 # Getting Started
 
-Use this section to choose a frontend, install the integrated repository, and
-run either the pyCircuit 6 hardware flow or the Agentic Circuit architecture
-flow.
+Use this section to install pyCircuit, choose the right frontend, and run a
+design through the current pyCircuit 6 toolchain.
 
-## Prerequisites
+## Choose your path
 
+| Goal | Start here |
+| --- | --- |
+| Build synthesizable hardware from signals and logical cycles | [pyCircuit quickstart](quickstart.md#build-the-counter-example) |
+| Model queues, resources, processes, and architecture state | [Choose Agentic Circuit](choose-a-frontend.md#use-agentic-circuit-for-architecture-models) |
+| Set up a compiler-development checkout | [Installation guide](installation.md#full-source-toolchain) |
+| Learn the language step by step | [pyCircuit 6 tutorial](tutorial.md) |
+
+## Requirements
+
+- Linux or macOS
 - Python 3.10 or later for `pycircuit`
-- Python 3.11 or later for `agentic_circuit` and the integrated AC gates
-- LLVM/MLIR 22 (for compiler backend)
-- CMake 3.20+
-- Ninja build system
+- Python 3.11 or later for the integrated Agentic Circuit toolchain
+- CMake and Ninja for native builds
+- LLVM/MLIR 22.1.8 for compiler development
+- Verilator for Verilog simulation lanes
 
-## What is covered
+## Fastest frontend-only setup
 
-- [Installation](installation.md)
-- [Choose a frontend](choose-a-frontend.md)
-- [Repository quickstart](quickstart.md)
-- [V6 tutorial](tutorial.md)
-- [V6 language specification](../reference/language.md)
-
-## Installation options
-
-### Full development setup
+This path emits PYC MLIR without building the native compiler:
 
 ```bash
-# Install system dependencies (Ubuntu)
-sudo apt-get install cmake ninja-build python3 python3-pip clang wget
-LLVM_INSTALL_SCRIPT_SHA256=03878e08f47b66cc95bc4b544b0db3c6d9ce8d60e6cf2492ae357984330a9eae
-wget --https-only https://apt.llvm.org/llvm.sh
-printf '%s  %s\n' "$LLVM_INSTALL_SCRIPT_SHA256" llvm.sh | sha256sum --check --strict
-chmod +x llvm.sh
-sudo ./llvm.sh 22
-sudo apt-get install llvm-22-dev mlir-22-tools libmlir-22-dev
-
-# Clone and build
 git clone https://github.com/PTO-ISA/pyCircuit.git
 cd pyCircuit
 
-# Build the compiler
-bash flows/scripts/pyc build
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install -e "python/semantic-core"
+python -m pip install -e .
+
+mkdir -p .pycircuit_out/quickstart
+python -m pycircuit.cli emit \
+  examples/pycircuit/basics/counter/counter.py \
+  -o .pycircuit_out/quickstart/counter.pyc
 ```
 
-### Python frontend only
+Build the native toolchain when you need C++ simulation, Verilog, ACIR/ACSim,
+or gfsim:
 
 ```bash
-# Install the semantic core, then the pyCircuit frontend
-python3 -m pip install -e "python/semantic-core"
-python3 -m pip install -e .
-
-# Use the frontend to emit MLIR
-PYTHONPATH=python/pycircuit/src \
-python -m pycircuit.cli emit your_design.py -o your_design.pyc
+bash flows/scripts/pyc build
+export PYC_TOOLCHAIN_ROOT="$PWD/.pycircuit_out/toolchain/install"
 ```
 
-### Release packages
+## Documentation map
 
-The reserved distribution name is `pycircuit-hisi` to avoid the unrelated
-`pycircuit` project that already exists on PyPI. The import path remains
-`pycircuit`. Do not use a PyPI installation command until a matching PTO-ISA
-release has been published; use a release wheel from the repository's release
-artifacts or build from source.
+- [Installation](installation.md)
+- [Choose a frontend](choose-a-frontend.md)
+- [Quickstart](quickstart.md)
+- [Tutorial](tutorial.md)
+- [Language and API reference](../reference/index.md)
+- [Troubleshooting and diagnostics](../reference/diagnostics.md)
 
-## Next Steps
-
-After installation:
-
-- follow the [V6 tutorial](tutorial.md) for Cycle-Aware Signal
-  hardware and testbenches; or
-- read the [ACIR overview](../acir/index.md) for architecture, process, queue,
-  and resource modeling.
+Generated files belong under `.pycircuit_out/`. Keep complete product designs
+and product-specific verification in their owning consumer repositories.

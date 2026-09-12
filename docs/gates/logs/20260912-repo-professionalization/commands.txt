@@ -1,0 +1,38 @@
+pytest -q tests/unit/test_repository_layout.py
+cmake --build .pycircuit_out/toolchain/build --target acir-opt-internal acir-cxxgen ACIROpsTests ACSimOpsTests ACIRToACSimTests GfsimTests CodeGenTests pycc -j4
+ctest --test-dir .pycircuit_out/toolchain/build -R '^(ACIROpsTests|ACSimOpsTests|ACIRToACSimTests|GfsimTests|CodeGenTests)$' --output-on-failure
+cmake --build .pycircuit_out/toolchain/build --target check-acir -j4
+cmake --install .pycircuit_out/toolchain/build --prefix "$PWD/.pycircuit_out/toolchain/install"
+PYC_TOOLCHAIN_ROOT="$PWD/.pycircuit_out/toolchain/install" PYTHONPATH=python/pycircuit/src python -m pycircuit.cli build examples/pycircuit/basics/counter/tb_counter.py --out-dir .pycircuit_out/quickstart/counter --target both --jobs 8
+PYTHONPATH=python/semantic-core/src:python/agentic-circuit/src python compiler/acir/tools/ac-queue-cxxgen.py examples/agentic-circuit/pipelines/routed_dependency_pipeline.py --system routed_dependency_pipeline --acir-output .pycircuit_out/quickstart/agentic/routed_dependency.ac.mlir --plan-output .pycircuit_out/quickstart/agentic/routed_dependency.plan.json --acir-opt .pycircuit_out/toolchain/install/bin/acir-opt --queue-plan-tool .pycircuit_out/toolchain/install/bin/acir-queue-plan --queue-cxxgen-tool .pycircuit_out/toolchain/install/bin/acir-queue-cxxgen --output .pycircuit_out/quickstart/agentic/routed_dependency.cpp
+python3 tools/pycircuit/check-pyc-inventory.py
+python3 tools/pycircuit/dump_pyctrace.py --help
+python3 tools/pycircuit/pyc_module_graph.py --help
+python3 tools/pycircuit/schematic_view.py --help
+python3 tools/pycircuit/visualize_cpp.py --help
+PYC_GATE_RUN_ID=20260912-repo-professionalization bash flows/scripts/run_semantic_regressions_v6.sh
+pytest -q tests/unit -m unit
+env -u AC_GATE_TOOLCHAIN_ROOT PYTHONPATH="$PWD/python/semantic-core/src:$PWD/python/agentic-circuit/src:$PWD/tests/python/agentic-circuit:$PWD/.pycircuit_out/acir/dev-llvm22/python" AC_PYTHON_ONLY=1 .pycircuit_out/agentic-circuit/venv/bin/python -m unittest discover -s tests/python/agentic-circuit/python_frontend -p 'test_*.py'
+env -u AC_GATE_TOOLCHAIN_ROOT PYTHONPATH="$PWD/python/semantic-core/src:$PWD/python/agentic-circuit/src:$PWD/tests/python/agentic-circuit:$PWD/.pycircuit_out/acir/dev-llvm22/python" .pycircuit_out/agentic-circuit/venv/bin/python -m unittest discover -s tests/python/agentic-circuit/contracts -p 'test_*.py'
+env -u AC_GATE_TOOLCHAIN_ROOT PYTHONPATH="$PWD/python/semantic-core/src:$PWD/python/agentic-circuit/src:$PWD/tests/python/agentic-circuit:$PWD/.pycircuit_out/acir/dev-llvm22/python" .pycircuit_out/agentic-circuit/venv/bin/python -m unittest discover -s tests/python/agentic-circuit/cli -p 'test_all_commands.py'
+env -u AC_GATE_TOOLCHAIN_ROOT PYTHONPATH="$PWD/python/semantic-core/src:$PWD/python/agentic-circuit/src:$PWD/tests/python/agentic-circuit:$PWD/.pycircuit_out/acir/dev-llvm22/python" .pycircuit_out/agentic-circuit/venv/bin/python -m unittest discover -s tests/python/agentic-circuit/cli -p 'test_workspace.py'
+env -u AC_GATE_TOOLCHAIN_ROOT PYTHONPATH="$PWD/python/semantic-core/src:$PWD/python/agentic-circuit/src:$PWD/tests/python/agentic-circuit:$PWD/.pycircuit_out/acir/dev-llvm22/python" .pycircuit_out/agentic-circuit/venv/bin/python tools/agentic-circuit/check-contracts.py
+env -u AC_GATE_TOOLCHAIN_ROOT PYTHONPATH="$PWD/python/semantic-core/src:$PWD/python/agentic-circuit/src:$PWD/tests/python/agentic-circuit:$PWD/.pycircuit_out/acir/dev-llvm22/python" .pycircuit_out/agentic-circuit/venv/bin/python tools/agentic-circuit/generate-diagnostic-catalog.py --check
+env -u AC_GATE_TOOLCHAIN_ROOT PYTHONPATH="$PWD/python/semantic-core/src:$PWD/python/agentic-circuit/src:$PWD/tests/python/agentic-circuit:$PWD/.pycircuit_out/acir/dev-llvm22/python" .pycircuit_out/agentic-circuit/venv/bin/python tools/agentic-circuit/check-ir-coverage.py
+python3 flows/tools/check_api_hygiene.py python/pycircuit/src/pycircuit examples/pycircuit docs README.md
+python3 tools/agentic-circuit/check-release-layout.py
+python3 .github/scripts/validate_repo_management.py
+pre-commit run --all-files
+mkdocs build --strict
+python3 flows/tools/check_decision_status.py --rfc docs/rfcs/pyc6-decisions.md --status docs/gates/decision_status_v6.md --out docs/gates/logs/20260912-repo-professionalization/decision_status_report.json --require-no-deferred --require-all-verified --require-concrete-evidence --require-existing-evidence
+pytest -q tests/unit/test_gate_topology.py tests/unit/test_repository_layout.py tests/unit/test_documentation_layout.py
+python3 .github/scripts/validate_repo_management.py
+bash -n flows/scripts/run_agentic_circuit.sh flows/scripts/run_examples.sh flows/scripts/run_sims.sh flows/scripts/run_sims_nightly.sh flows/scripts/run_semantic_regressions_v6.sh
+AC_GATE_BUILD_ROOT="$PWD/.pycircuit_out/toolchain/build" AC_GATE_TOOLCHAIN_ROOT="$PWD/.pycircuit_out/toolchain/install" PYC_GATE_RUN_ID=20260912-repo-professionalization bash flows/scripts/run_agentic_circuit.sh
+PYC_GATE_RUN_ID=20260912-gate-topology PYC_TOOLCHAIN_ROOT="$PWD/.pycircuit_out/toolchain/install" bash flows/scripts/run_examples.sh
+PYC_GATE_RUN_ID=20260912-gate-topology PYC_TOOLCHAIN_ROOT="$PWD/.pycircuit_out/toolchain/install" bash flows/scripts/run_sims.sh
+PYC_GATE_RUN_ID=20260912-gate-topology PYC_TOOLCHAIN_ROOT="$PWD/.pycircuit_out/toolchain/install" bash flows/scripts/run_semantic_regressions_v6.sh
+python3 flows/tools/discover_examples.py --root examples/pycircuit --tier heavy --format tsv
+AC_GATE_BUILD_ROOT="$PWD/.pycircuit_out/toolchain/build" PYC_TOOLCHAIN_ROOT="$PWD/.pycircuit_out/toolchain/install" python3 tests/integration/agentic-circuit/e2e/test_pyc_backend.py
+PYTHONPATH=python/semantic-core/src:python/pycircuit/src PYC_TOOLCHAIN_ROOT="$PWD/.pycircuit_out/toolchain/install" python3 -m pycircuit.cli build examples/pycircuit/applications/bf16_fmac/tb_bf16_fmac.py --out-dir .pycircuit_out/gate-topology-heavy/bf16_fmac --target both --run-verilator
+PYTHONPATH=python/semantic-core/src:python/pycircuit/src PYC_TOOLCHAIN_ROOT="$PWD/.pycircuit_out/toolchain/install" python3 -m pycircuit.cli build examples/pycircuit/applications/dodgeball_game/tb_dodgeball_game.py --out-dir .pycircuit_out/gate-topology-heavy/dodgeball_game --target both --run-verilator

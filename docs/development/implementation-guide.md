@@ -155,7 +155,7 @@ optional per-step Markdown, `TRACEABILITY`, and `TEST_PLAN` so agents and
 reviewers share one chain of evidence. Framework examples demonstrate language
 usage; consumer repositories own complete block documentation and sign-off.
 
-### 1. End-to-end pipeline (recommended order)
+### End-to-end pipeline (recommended order)
 
 | Order | Artifact | Typical location | Tied to step |
 |-------|----------|------------------|--------------|
@@ -173,7 +173,7 @@ usage; consumer repositories own complete block documentation and sign-off.
 | — | **Optional:** `workflow_substeps.md` | Splits a single Step into **2a, 3b, …** for large blocks | Any step |
 | — | **Optional:** `cycle_budget.md` | `domain.next()` count, occurrence stages, golden **`pyc.reg`** / MLIR checks | **Steps 5–6**, **9** |
 
-### 2. Structure of `FEATURE_LIST.md` (normative for agent-friendly blocks)
+### Structure of `FEATURE_LIST.md` (normative for agent-friendly blocks)
 
 1. **Legend** — priority (P0/P1/P2), column meanings.
 2. **Numbered features F-001…** — each row: name, priority, **Spec trace** = pointer into **converted** `.md` (heading text or stable section id), trigger, observable effect, dependencies.
@@ -184,7 +184,7 @@ usage; consumer repositories own complete block documentation and sign-off.
 
 Spreadsheet-derived behavior (opcodes, field maps) should cite the **specific** `converted/SRC-xx_xlsx_*.md` file in **Spec trace**, and keep any RTL allowlists (e.g. legal opcodes) **in sync** with that file.
 
-### 3. Block `step1.md` … `step10.md` (optional but recommended)
+### Block `step1.md` … `step10.md` (optional but recommended)
 
 For complex blocks, mirror this repository's **10-step** narrative in **block-local** files so block-specific rules (converted paths, **F-xxx** ranges, **heading checklist**, **cycle_budget**, **workflow_substeps**) do not clutter the generic steps above. Each `stepN.md` should:
 
@@ -192,13 +192,13 @@ For complex blocks, mirror this repository's **10-step** narrative in **block-lo
 - State which **F-xxx** band or **checklist** rows that step owns or reviews.
 - Cross-link **`PORT_LIST`**, **`FEATURE_LIST`**, **`TRACEABILITY`**, **`TEST_LIST`** as appropriate.
 
-### 4. Tests and automation
+### Tests and automation
 
 - **Directed tests:** at least one **regression-sensitive** case per **F-xxx** before milestone close; build opcode / flit matrices from **Markdown tables** in `converted/` where possible.
 - **Block runner:** optional `run_<block>_verification.py` that executes **stdlib** checks: digests present, key markdown sections exist, `emit_mlir()` or compile smoke, width/contract assertions.
 - **pytest:** optional `test_<block>_steps.py` with markers `step1` … `step10` mirroring the same checks.
 
-### 5. Relation to the generic Steps 2–10 below
+### Relation to the generic Steps 2–10 below
 
 **Steps 2–10** in this document remain the **canonical** workflow. The tables in §1–§4 **specialize** those steps for **Markdown-first** specs; when a bullet in Step 3 / 7 / 8 says "every feature", use **`FEATURE_LIST`** + **heading checklist** as the definition of "every" **heading-level** requirement unless the project explicitly waives finer bullets under a parent **F-xxx**.
 

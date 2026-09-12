@@ -1,4 +1,4 @@
-name: Gates Nightly (G3)
+name: Nightly Heavy Simulation Diagnostics (G3)
 
 on:
   workflow_dispatch:
@@ -18,7 +18,7 @@ env:
 
 jobs:
   gate-g3-linux:
-    name: "G3: Nightly System Gates (Linux)"
+    name: "G3: Heavy Simulation Diagnostics (Linux)"
     runs-on: ubuntu-latest
     timeout-minutes: 240
     steps:
@@ -54,7 +54,7 @@ jobs:
             --build-dir "$PWD/.pycircuit_out/toolchain/build" \
             --install-prefix "$PWD/.pycircuit_out/toolchain/install"
 
-      - name: Run sims nightly (G3)
+      - name: Run heavy simulation diagnostics (G3)
         id: sims_nightly
         shell: bash
         run: |

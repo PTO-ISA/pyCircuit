@@ -1,4 +1,4 @@
-// Combinational bitwise AND (prototype).
+// Combinational bitwise AND.
 module pyc_and #(
   parameter WIDTH = 1
 ) (

@@ -786,7 +786,7 @@ private:
       if (root)
         os << "  " << ownerTypeName(root) << " root;\n";
     }
-    os << "  std::array<gfsim::LegacyDispatchThunk, "
+    os << "  std::array<gfsim::OpaqueDispatchThunk, "
        << (objectCount == 0 ? 1 : objectCount) << "> dispatch{};\n";
     os << "  std::array<std::uint32_t, "
        << (activationCount == 0 ? 1 : activationCount + 1)
@@ -1809,9 +1809,9 @@ private:
       }
     }
 
-    os << "  system.setLegacyDispatchTable({dispatch.data(), static_cast<"
+    os << "  system.setOpaqueDispatchTable({dispatch.data(), static_cast<"
           "std::uint32_t>(kObjectCount)});\n";
-    os << "  system.setLegacyActivationGraph({activationOffsets.data(), "
+    os << "  system.setOpaqueActivationGraph({activationOffsets.data(), "
           "activationTargets.data(), static_cast<std::uint32_t>("
           "kActivationCount)});\n";
     os << "  system.setBuildProfile(";

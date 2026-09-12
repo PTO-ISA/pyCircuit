@@ -24,8 +24,8 @@ struct SimSystem::Impl {
   ActivationPlan activation;
   ActivationPlan workClosure;
   std::vector<ObjectId> arbitrationOrder;
-  LegacyDispatchTable legacyDispatch;
-  LegacyActivationGraph legacyActivation;
+  OpaqueDispatchTable opaqueDispatch;
+  OpaqueActivationGraph opaqueActivation;
   uint64_t committedEventCount = 0;
   uint64_t workInvocations = 0;
   uint64_t activationTraversals = 0;
@@ -246,43 +246,43 @@ bool SimSystem::setArbitrationOrder(std::span<const ObjectId> order) {
   return true;
 }
 
-bool SimSystem::setLegacyDispatchTable(LegacyDispatchTable table) {
+bool SimSystem::setOpaqueDispatchTable(OpaqueDispatchTable table) {
   if ((!table.rows && table.objectCount != 0) ||
       (table.rows && table.objectCount == 0))
     return fail("invalid_dispatch_table",
-                "legacy dispatch storage and object count disagree");
+                "opaque dispatch storage and object count disagree");
   for (uint32_t id = 0; id < table.objectCount; ++id) {
-    const LegacyDispatchThunk &row = table.rows[id];
+    const OpaqueDispatchThunk &row = table.rows[id];
     if (!row.object || !row.work || !row.xfer || !row.reset || !row.validate ||
         !row.validate(row.object))
       return fail("invalid_dispatch_table",
-                  "legacy dispatch rows must be complete and valid");
+                  "opaque dispatch rows must be complete and valid");
   }
-  impl_->legacyDispatch = table;
-  impl_->legacyActivation = {};
+  impl_->opaqueDispatch = table;
+  impl_->opaqueActivation = {};
   impl_->preflightValidated = false;
   return true;
 }
 
-bool SimSystem::setLegacyActivationGraph(LegacyActivationGraph graph) {
-  if (!graph.offsets || graph.sourceCount != impl_->legacyDispatch.objectCount)
+bool SimSystem::setOpaqueActivationGraph(OpaqueActivationGraph graph) {
+  if (!graph.offsets || graph.sourceCount != impl_->opaqueDispatch.objectCount)
     return fail("invalid_activation_plan",
-                "legacy activation graph must cover every dispatch row");
+                "opaque activation graph must cover every dispatch row");
   const uint32_t targetCount = graph.offsets[graph.sourceCount];
   if (targetCount != 0 && !graph.targets)
     return fail("invalid_activation_plan",
-                "legacy activation targets are missing");
+                "opaque activation targets are missing");
   for (uint32_t source = 0; source < graph.sourceCount; ++source) {
     if (graph.offsets[source] > graph.offsets[source + 1])
       return fail("invalid_activation_plan",
-                  "legacy activation offsets must be monotonic");
+                  "opaque activation offsets must be monotonic");
     for (uint32_t index = graph.offsets[source];
          index < graph.offsets[source + 1]; ++index)
       if (graph.targets[index] >= graph.sourceCount)
         return fail("invalid_activation_plan",
-                    "legacy activation target is out of range");
+                    "opaque activation target is out of range");
   }
-  impl_->legacyActivation = graph;
+  impl_->opaqueActivation = graph;
   return true;
 }
 
@@ -681,10 +681,10 @@ bool SimSystem::scheduleWork(ObjectId id, Epoch epoch) {
   if (epoch < epoch_)
     return fail("work_before_current_epoch",
                 "work cannot be scheduled before the committed epoch");
-  const bool hasLegacy = impl_->legacyDispatch.rows &&
-                         id < impl_->legacyDispatch.objectCount &&
-                         impl_->legacyDispatch.rows[id].object;
-  if (!lookup(id) && !hasLegacy)
+  const bool hasOpaque = impl_->opaqueDispatch.rows &&
+                         id < impl_->opaqueDispatch.objectCount &&
+                         impl_->opaqueDispatch.rows[id].object;
+  if (!lookup(id) && !hasOpaque)
     return fail("unknown_work_target",
                 "work target is absent from the static dispatch table");
   if (impl_->executingEpoch && epoch == epoch_) {
@@ -831,12 +831,12 @@ bool SimSystem::step() {
   for (ObjectId id : currentWork) {
     ++impl_->workInvocations;
     impl_->activeProposalOwner = id;
-    const LegacyDispatchThunk *legacy =
-        impl_->legacyDispatch.rows && id < impl_->legacyDispatch.objectCount
-            ? &impl_->legacyDispatch.rows[id]
+    const OpaqueDispatchThunk *opaque =
+        impl_->opaqueDispatch.rows && id < impl_->opaqueDispatch.objectCount
+            ? &impl_->opaqueDispatch.rows[id]
             : nullptr;
-    if (legacy)
-      legacy->work(legacy->object, epoch_);
+    if (opaque)
+      opaque->work(opaque->object, epoch_);
     else if (const DispatchRow *row = impl_->dispatch.lookup(id))
       row->work(row->object, epoch_);
     else if (SimObject *object = lookup(id))
@@ -848,9 +848,9 @@ bool SimSystem::step() {
 
   auto arbitrate = [&](ObjectId id) {
     impl_->activeProposalOwner = id;
-    const bool hasLegacy =
-        impl_->legacyDispatch.rows && id < impl_->legacyDispatch.objectCount;
-    if (!hasLegacy) {
+    const bool hasOpaque =
+        impl_->opaqueDispatch.rows && id < impl_->opaqueDispatch.objectCount;
+    if (!hasOpaque) {
       if (const DispatchRow *row = impl_->dispatch.lookup(id))
         row->xfer(row->object, epoch_, XferPhase::Arbitrate);
       else if (SimObject *object = lookup(id))
@@ -884,18 +884,18 @@ bool SimSystem::step() {
   for (ObjectId id : xferClosure) {
     SimObject *object = lookup(id);
     const DispatchRow *row = impl_->dispatch.lookup(id);
-    const LegacyDispatchThunk *legacy =
-        impl_->legacyDispatch.rows && id < impl_->legacyDispatch.objectCount
-            ? &impl_->legacyDispatch.rows[id]
+    const OpaqueDispatchThunk *opaque =
+        impl_->opaqueDispatch.rows && id < impl_->opaqueDispatch.objectCount
+            ? &impl_->opaqueDispatch.rows[id]
             : nullptr;
     bool willCommit =
-        legacy ? true
+        opaque ? true
                : (row ? row->xfer(row->object, epoch_, XferPhase::Probe)
                       : object && object->hasPendingCommit());
     pendingCommits[id] = willCommit;
     if (willCommit) {
       auto previousCommit = impl_->lastCommitTick.find(id);
-      if (!legacy && previousCommit != impl_->lastCommitTick.end() &&
+      if (!opaque && previousCommit != impl_->lastCommitTick.end() &&
           previousCommit->second == epoch_.time)
         return fail("multiple_stateful_commits",
                     "a stateful object cannot commit twice in one tick");
@@ -905,14 +905,14 @@ bool SimSystem::step() {
   for (ObjectId id : xferClosure) {
     SimObject *object = lookup(id);
     const DispatchRow *row = impl_->dispatch.lookup(id);
-    const LegacyDispatchThunk *legacy =
-        impl_->legacyDispatch.rows && id < impl_->legacyDispatch.objectCount
-            ? &impl_->legacyDispatch.rows[id]
+    const OpaqueDispatchThunk *opaque =
+        impl_->opaqueDispatch.rows && id < impl_->opaqueDispatch.objectCount
+            ? &impl_->opaqueDispatch.rows[id]
             : nullptr;
     const bool willCommit = pendingCommits.at(id);
     bool committed = false;
-    if (legacy) {
-      legacy->xfer(legacy->object, epoch_);
+    if (opaque) {
+      opaque->xfer(opaque->object, epoch_);
       committed = true;
     } else if (row)
       committed = row->xfer(row->object, epoch_, XferPhase::Commit);
@@ -965,17 +965,17 @@ bool SimSystem::step() {
           return false;
       }
   }
-  if (!committedSources.empty() && impl_->legacyActivation.offsets) {
+  if (!committedSources.empty() && impl_->opaqueActivation.offsets) {
     if (epoch_.time == std::numeric_limits<Tick>::max())
       return fail("tick_overflow", "activation would overflow simulation time");
     Epoch activationEpoch{epoch_.time + 1, 0};
     for (ObjectId source : committedSources) {
-      if (source >= impl_->legacyActivation.sourceCount)
+      if (source >= impl_->opaqueActivation.sourceCount)
         continue;
-      for (uint32_t index = impl_->legacyActivation.offsets[source];
-           index < impl_->legacyActivation.offsets[source + 1]; ++index) {
+      for (uint32_t index = impl_->opaqueActivation.offsets[source];
+           index < impl_->opaqueActivation.offsets[source + 1]; ++index) {
         ++impl_->activationTraversals;
-        if (!scheduleWork(impl_->legacyActivation.targets[index],
+        if (!scheduleWork(impl_->opaqueActivation.targets[index],
                           activationEpoch))
           return false;
       }
@@ -1075,7 +1075,7 @@ bool SimSystem::step() {
   return true;
 }
 
-TerminationResult SimSystem::runLegacy() {
+TerminationResult SimSystem::runOpaqueDispatch() {
   epoch_ = {0, 0};
   terminated_ = false;
   result_ = {};
@@ -1088,8 +1088,8 @@ TerminationResult SimSystem::runLegacy() {
   impl_->commitTimeline.clear();
   impl_->generatedStats.clear();
 
-  for (ObjectId id = 0; id < impl_->legacyDispatch.objectCount; ++id)
-    if (impl_->legacyDispatch.rows[id].work)
+  for (ObjectId id = 0; id < impl_->opaqueDispatch.objectCount; ++id)
+    if (impl_->opaqueDispatch.rows[id].work)
       impl_->scheduledWork[epoch_].insert(id);
 
   while (!terminated_) {
@@ -1121,7 +1121,7 @@ TerminationResult SimSystem::runLegacy() {
     impl_->executingEpoch = true;
     for (ObjectId id : executed) {
       ++impl_->workInvocations;
-      LegacyDispatchThunk const &row = impl_->legacyDispatch.rows[id];
+      OpaqueDispatchThunk const &row = impl_->opaqueDispatch.rows[id];
       row.work(row.object, epoch_);
       if (terminated_)
         break;
@@ -1129,7 +1129,7 @@ TerminationResult SimSystem::runLegacy() {
     for (ObjectId id : executed) {
       if (terminated_)
         break;
-      LegacyDispatchThunk const &row = impl_->legacyDispatch.rows[id];
+      OpaqueDispatchThunk const &row = impl_->opaqueDispatch.rows[id];
       row.xfer(row.object, epoch_);
       if (profile_ == BuildProfile::Validated && !row.validate(row.object)) {
         terminated_ = true;
@@ -1141,17 +1141,17 @@ TerminationResult SimSystem::runLegacy() {
     if (terminated_)
       break;
 
-    if (impl_->legacyActivation.offsets &&
+    if (impl_->opaqueActivation.offsets &&
         epoch_.time != std::numeric_limits<Tick>::max()) {
       Epoch activationEpoch{epoch_.time + 1, 0};
       for (ObjectId source : executed) {
-        if (source >= impl_->legacyActivation.sourceCount)
+        if (source >= impl_->opaqueActivation.sourceCount)
           continue;
-        for (uint32_t index = impl_->legacyActivation.offsets[source];
-             index < impl_->legacyActivation.offsets[source + 1]; ++index) {
+        for (uint32_t index = impl_->opaqueActivation.offsets[source];
+             index < impl_->opaqueActivation.offsets[source + 1]; ++index) {
           ++impl_->activationTraversals;
           impl_->scheduledWork[activationEpoch].insert(
-              impl_->legacyActivation.targets[index]);
+              impl_->opaqueActivation.targets[index]);
         }
       }
     }
@@ -1186,16 +1186,16 @@ TerminationResult SimSystem::runLegacy() {
 }
 
 TerminationResult SimSystem::run() {
-  if (impl_->legacyDispatch.rows)
-    return runLegacy();
+  if (impl_->opaqueDispatch.rows)
+    return runOpaqueDispatch();
 
   epoch_ = {0, 0};
 
   for (SimObject *object : runtimeObjects())
     if (object->kind() == ObjectKind::Process)
       scheduleWork(object->id(), epoch_);
-  if (impl_->legacyDispatch.rows)
-    for (ObjectId id = 0; id < impl_->legacyDispatch.objectCount; ++id)
+  if (impl_->opaqueDispatch.rows)
+    for (ObjectId id = 0; id < impl_->opaqueDispatch.objectCount; ++id)
       scheduleWork(id, epoch_);
 
   while (!terminated_)
@@ -1238,9 +1238,9 @@ void SimSystem::resetScheduler() {
 
 void SimSystem::reset() {
   resetScheduler();
-  if (impl_->legacyDispatch.rows) {
-    for (ObjectId id = 0; id < impl_->legacyDispatch.objectCount; ++id) {
-      const LegacyDispatchThunk &row = impl_->legacyDispatch.rows[id];
+  if (impl_->opaqueDispatch.rows) {
+    for (ObjectId id = 0; id < impl_->opaqueDispatch.objectCount; ++id) {
+      const OpaqueDispatchThunk &row = impl_->opaqueDispatch.rows[id];
       row.reset(row.object);
     }
   } else if (!impl_->dispatch.empty()) {

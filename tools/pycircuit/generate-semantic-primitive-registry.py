@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate the semantic primitive registry and emit its complete C++ table."""
+"""Validate the pyCircuit semantic primitive registry and emit its C++ table."""
 
 from __future__ import annotations
 

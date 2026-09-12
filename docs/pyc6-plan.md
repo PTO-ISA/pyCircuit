@@ -23,7 +23,7 @@ trace-position, or trace/observation export surface (Decision 0235).
 
 ## Current priorities
 
-### 1. Preserve the pyCircuit 6 language contract
+### Preserve the pyCircuit 6 language contract
 
 - Keep `CycleAwareSignal`, `CycleAwareDomain`, timed-domain authoring, and
   automatic cycle balancing as first-class contracts.
@@ -32,7 +32,7 @@ trace-position, or trace/observation export surface (Decision 0235).
 - Keep canonical PYC vendor-neutral; implementation selection is backend-owned.
 - Preserve C++/Verilog equivalence at the documented observation boundaries.
 
-### 2. Complete generic Agentic Circuit semantics
+### Complete generic Agentic Circuit semantics
 
 - Keep typed payloads, recursive aggregates, exact-width bit operations,
   immutable updates, and nominal identity verified across ACPy and ACIR.
@@ -64,7 +64,7 @@ trace-position, or trace/observation export surface (Decision 0235).
 Decisions 0236 through 0241 are implemented-verified. The semantic train is
 closed; remaining release work is repository/platform evidence and publication.
 
-### 3. Publish a consumer-neutral SDK
+### Publish a consumer-neutral SDK
 
 - Provide installed `model plan` and `model emit-cpp` commands using the shared
   frontend, verifier, and QueueGraph path.
@@ -91,7 +91,7 @@ closed; remaining release work is repository/platform evidence and publication.
   and record an immutable Actions/check-run attestation outside the release
   asset set.
 
-### 4. Keep framework gates independent
+### Keep framework gates independent
 
 - Required PR CI remains lightweight.
 - Native or semantic PRs attach the narrowest focused evidence.
