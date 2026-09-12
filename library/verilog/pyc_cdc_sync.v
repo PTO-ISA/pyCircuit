@@ -1,4 +1,4 @@
-// CDC synchronizer (prototype).
+// CDC synchronizer.
 //
 // This is a simple multi-stage flop pipeline in the destination clock domain.
 // It is suitable for single-bit control signals. For multi-bit buses, prefer a

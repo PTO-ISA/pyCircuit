@@ -15,4 +15,4 @@ module attributes {ac.contract_epoch = "0.5", ac.model_kind = "queue_graph", ac.
   ac.sink %output : !ac.queue<i32>
 }
 
-// CHECK: dynamic checks are not executable in the phase-one pure rule subset
+// CHECK: dynamic checks are not executable in the supported pure rule subset

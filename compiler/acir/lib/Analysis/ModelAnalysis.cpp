@@ -1136,7 +1136,7 @@ LogicalResult verifyFrozenStructuredQueueGraph(ModuleOp model) {
         "structured QueueGraph requires ac.system and ac.module definitions");
   if (!model.getOps<ac::ModuleExternOp>().empty())
     return model.emitError(
-        "structured QueueGraph first slice requires materialized modules");
+        "structured QueueGraph requires materialized modules");
   if (failed(ac::verifyGraphStructure(model)))
     return failure();
 

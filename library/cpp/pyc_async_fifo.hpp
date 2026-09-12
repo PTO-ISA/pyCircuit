@@ -25,14 +25,15 @@ constexpr unsigned clog2(std::size_t value) {
 
 } // namespace detail
 
-// Async ready/valid FIFO with gray-code pointers (prototype).
+// Async ready/valid FIFO with gray-code pointers.
 //
 // - Strict ready/valid handshake (no combinational cross-domain paths).
 // - Depth must be a power of two and >= 2.
 template <unsigned Width, std::size_t Depth>
 class pyc_async_fifo {
 public:
-  static_assert(Width > 0 && Width <= 64, "pyc_async_fifo supports widths 1..64 in the prototype");
+  static_assert(Width > 0 && Width <= 64,
+                "pyc_async_fifo supports widths 1..64");
   static_assert(Depth >= 2, "pyc_async_fifo requires Depth >= 2");
   static_assert(detail::isPowerOfTwo(Depth), "pyc_async_fifo requires power-of-two Depth");
 

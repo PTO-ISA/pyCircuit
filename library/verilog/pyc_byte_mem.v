@@ -1,4 +1,4 @@
-// Byte-addressed memory (prototype).
+// Byte-addressed memory.
 //
 // - `DEPTH` is in bytes.
 // - Combinational little-endian read window.

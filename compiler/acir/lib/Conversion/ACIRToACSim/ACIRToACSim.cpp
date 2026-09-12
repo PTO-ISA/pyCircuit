@@ -10,8 +10,7 @@
 //   ac.process (yield-only or i32 queue datapath)
 //                                    -> acsim.process enum-PC state machine
 //   ac.queue (signless integer fifo, widths 1..64) -> SimQueue + invoke callees
-//   watermarks.kind register/regfile (or legacy names pc/busy/rf)
-//                                    -> gfsim::Register / RegFile members
+//   watermarks.kind register/regfile -> gfsim::Register / RegFile members
 //   selected ac.system              -> acsim.model with exact fingerprints,
 //                                      canonical construction/destruction
 //                                      order, and dispatch rows. Processes
@@ -103,11 +102,6 @@ DeviceKind deviceKindForQueue(ac::QueueOp queue) {
         return DeviceKind::RegFile;
     }
   }
-  llvm::StringRef name = queue.getSymName();
-  if (name == "rf")
-    return DeviceKind::RegFile;
-  if (name == "pc" || name == "busy")
-    return DeviceKind::Register;
   return DeviceKind::None;
 }
 
@@ -1567,7 +1561,7 @@ mlir::LogicalResult ACIRToACSimPass::planProcesses(mlir::ModuleOp input) {
       return mlir::failure();
   }
 
-  // Adopt the generated next-delta wake helper used by the legacy emitter.
+  // Adopt the generated next-delta wake helper used by the C++ emitter.
   for (const ProcessGeneratedCalleePlan &callee : processPlans->callees()) {
     if (callee.role() != ProcessHelperRole::WakeNextDelta)
       continue;

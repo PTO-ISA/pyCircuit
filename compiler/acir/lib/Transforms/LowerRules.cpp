@@ -152,7 +152,7 @@ LogicalResult inferRuleTypes(ModuleOp model) {
     ac::RuleOp rule = marker->getParentOfType<ac::RuleOp>();
     if (!rule || !llvm::is_contained(rule.getBody().front().getArguments(),
                                      marker.getInput()))
-      return marker.emitOpError("phase-one Queue payload inference must refine "
+      return marker.emitOpError("Queue payload inference must refine "
                                 "a rule input");
     // The ACIR Var wrapper already carries the exact element type.  This first
     // inference lane therefore refines unknown/constrained Queue payload facts
@@ -192,7 +192,7 @@ LogicalResult inferRuleEffects(ModuleOp model) {
                             marker.getInput()) ||
         marker.getPathPredicate() != "true")
       return marker.emitOpError(
-          "phase-one value inference requires a committed rule input on path "
+          "value inference requires a committed rule input on path "
           "true");
     const size_t inputIndex =
         cast<BlockArgument>(marker.getInput()).getArgNumber();
@@ -397,7 +397,7 @@ LogicalResult materializeRuleChecks(ModuleOp model) {
         result = failure();
         return;
       }
-      marker.emitOpError("dynamic checks are not executable in the phase-one "
+      marker.emitOpError("dynamic checks are not executable in the supported "
                          "pure rule subset");
       result = failure();
       return;
@@ -865,7 +865,7 @@ LogicalResult canonicalizePureFirings(ModuleOp model) {
       continue;
     if (firing.getInputs().empty() || firing.getTimeDomain() != "cycle")
       return firing.emitOpError(
-          "is not proven equivalent to the phase-one pure transform subset");
+          "is not proven equivalent to the canonical pure transform subset");
     // A variadic firing is already the canonical atomic representation.  Only
     // the historical one-output, always-present subset canonicalizes to the
     // simpler ac.transform operation.

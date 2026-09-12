@@ -159,7 +159,7 @@ class AgenticCircuitError(Exception):
         if message is None:
             candidate, separator, detail = code.partition(":")
             if not separator or not _CODE.fullmatch(candidate) or not detail.strip():
-                raise ValueError("legacy diagnostic exceptions require 'CODE: message'")
+                raise ValueError("string-only diagnostic exceptions require 'CODE: message'")
             code = candidate
             message = detail.lstrip()
         if not _CODE.fullmatch(code):
@@ -194,7 +194,7 @@ def diagnostic_from_exception(
     source: SourceSpan | None = None,
     message_prefix: str = "",
 ) -> Diagnostic:
-    """Convert structured and legacy frontend exceptions at one boundary."""
+    """Convert structured and string-only frontend exceptions at one boundary."""
 
     if isinstance(error, AgenticCircuitError):
         code = error.code

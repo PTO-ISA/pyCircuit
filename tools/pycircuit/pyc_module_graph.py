@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+"""Render or inspect the module graph of canonical PYC input."""
+
 from __future__ import annotations
 
 import argparse

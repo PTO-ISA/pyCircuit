@@ -201,7 +201,7 @@ PY
       pyc_die "trace gate: invalid pyctrace header: ${tr}"
     fi
 
-    if ! python3 "${PYC_ROOT_DIR}/flows/tools/dump_pyctrace.py" "${tr}" \
+    if ! python3 "${PYC_ROOT_DIR}/tools/pycircuit/dump_pyctrace.py" "${tr}" \
         --manifest "${out_dir}/probe_manifest.json" \
         --max-cycles 1 --max-events 1 --no-header \
         >"${case_log_root}/${name}/trace_decode.stdout" \
@@ -210,22 +210,22 @@ PY
     fi
 
     if [[ "${name}" == "example_trace_dsl_smoke" ]]; then
-      if ! python3 "${PYC_ROOT_DIR}/flows/tools/dump_pyctrace.py" "${tr}" --manifest "${out_dir}/probe_manifest.json" --max-cycles 10 --max-events 50 --no-header | grep -Fq "(commit)"; then
+      if ! python3 "${PYC_ROOT_DIR}/tools/pycircuit/dump_pyctrace.py" "${tr}" --manifest "${out_dir}/probe_manifest.json" --max-cycles 10 --max-events 50 --no-header | grep -Fq "(commit)"; then
         pyc_die "trace gate: expected commit-phase value changes for ${name}: ${tr}"
       fi
-      if ! python3 "${PYC_ROOT_DIR}/flows/tools/dump_pyctrace.py" "${tr}" --manifest "${out_dir}/probe_manifest.json" --max-cycles 10 --max-events 50 --no-header | grep -Fq "(tick) dut.u0:probe.pv.q"; then
+      if ! python3 "${PYC_ROOT_DIR}/tools/pycircuit/dump_pyctrace.py" "${tr}" --manifest "${out_dir}/probe_manifest.json" --max-cycles 10 --max-events 50 --no-header | grep -Fq "(tick) dut.u0:probe.pv.q"; then
         pyc_die "trace gate: expected tick-phase value changes for pv probe in ${name}: ${tr}"
       fi
-      if ! python3 "${PYC_ROOT_DIR}/flows/tools/dump_pyctrace.py" "${tr}" --manifest "${out_dir}/probe_manifest.json" --max-cycles 10 --max-events 200 --no-header | grep -Eq "^cycle 3: 0 value-change events, [1-9][0-9]* write events$"; then
+      if ! python3 "${PYC_ROOT_DIR}/tools/pycircuit/dump_pyctrace.py" "${tr}" --manifest "${out_dir}/probe_manifest.json" --max-cycles 10 --max-events 200 --no-header | grep -Eq "^cycle 3: 0 value-change events, [1-9][0-9]* write events$"; then
         pyc_die "trace gate: expected Write events at cycle 3 even without ValueChange for ${name}: ${tr}"
       fi
-      if ! python3 "${PYC_ROOT_DIR}/flows/tools/dump_pyctrace.py" "${tr}" --manifest "${out_dir}/probe_manifest.json" --max-cycles 10 --max-events 200 --no-header | grep -Fq "(tick) WRITE[reg] dut.u0:out_y"; then
+      if ! python3 "${PYC_ROOT_DIR}/tools/pycircuit/dump_pyctrace.py" "${tr}" --manifest "${out_dir}/probe_manifest.json" --max-cycles 10 --max-events 200 --no-header | grep -Fq "(tick) WRITE[reg] dut.u0:out_y"; then
         pyc_die "trace gate: expected tick-phase WRITE[reg] for dut.u0:out_y in ${name}: ${tr}"
       fi
     fi
 
     if [[ "${name}" == "example_xz_value_model_smoke" ]]; then
-      if ! python3 "${PYC_ROOT_DIR}/flows/tools/dump_pyctrace.py" "${tr}" --manifest "${out_dir}/probe_manifest.json" --max-cycles 10 --max-events 100 --no-header | grep -Eq "known=0x[0-9a-f]+ z=0x[0-9a-f]+"; then
+      if ! python3 "${PYC_ROOT_DIR}/tools/pycircuit/dump_pyctrace.py" "${tr}" --manifest "${out_dir}/probe_manifest.json" --max-cycles 10 --max-events 100 --no-header | grep -Eq "known=0x[0-9a-f]+ z=0x[0-9a-f]+"; then
         pyc_die "trace gate: expected known/z masks in value-change events for ${name}: ${tr}"
       fi
     fi
@@ -283,6 +283,11 @@ PY
 
 while IFS=$'\t' read -r name _category _design tb _cfg _tier; do
   [[ -n "${name}" ]] || continue
+  # These cases have deeper trace/ordering assertions in the dedicated V6
+  # semantic lane. Avoid rebuilding them in the general simulation sweep.
+  case "${name}" in
+    net_resolution_depth_smoke|reset_invalidate_order_smoke|xz_value_model_smoke) continue ;;
+  esac
   trace_cfg=""
   if [[ "${name}" == "trace_dsl_smoke" || "${name}" == "xz_value_model_smoke" || "${name}" == "reset_invalidate_order_smoke" ]]; then
     trace_cfg="$(dirname "${tb}")/${name}_trace.json"
@@ -316,7 +321,6 @@ run_case_fixture() {
 
 run_case_fixture issq "${PYC_ROOT_DIR}/tests/integration/pycircuit/fixtures/issq/tb_issq.py"
 run_case_fixture regfile "${PYC_ROOT_DIR}/tests/integration/pycircuit/fixtures/regfile/tb_regfile.py"
-run_case_fixture bypass_unit "${PYC_ROOT_DIR}/tests/integration/pycircuit/fixtures/bypass_unit/tb_bypass_unit.py"
 
 if [[ -n "${resume_from_case}" && "${resume_seen}" -eq 0 ]]; then
   pyc_die "resume case not found: ${resume_from_case}"

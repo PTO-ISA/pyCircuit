@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+"""Inspect a pyCircuit binary trace with optional manifest decoding."""
+
 from __future__ import annotations
 
 import argparse

@@ -1,4 +1,4 @@
-# PyCircuit V6 编程教程（Tutorial）
+# pyCircuit 6 编程教程
 
 版本：6.0
 
@@ -19,9 +19,11 @@
 git clone https://github.com/PTO-ISA/pyCircuit.git
 cd pyCircuit
 
-# 安装共享语义核心与 Python 前端（editable）
-python3 -m pip install -e "python/semantic-core"
-python3 -m pip install -e .
+# 创建隔离环境并安装共享语义核心与 Python 前端
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install -e "python/semantic-core"
+python -m pip install -e .
 
 # 构建 pycc 后端工具链（需要已安装 LLVM/MLIR，见 docs/getting-started/installation.md）
 bash flows/scripts/pyc build
@@ -31,12 +33,12 @@ bash flows/scripts/pyc build
 ### 环境验证
 
 ```bash
-export PYTHONPATH=$PWD/python/pycircuit/src:$PYTHONPATH
-export PYC_TOOLCHAIN_ROOT=$PWD/.pycircuit_out/toolchain/install
+export PYTHONPATH="$PWD/python/pycircuit/src${PYTHONPATH:+:$PYTHONPATH}"
+export PYC_TOOLCHAIN_ROOT="$PWD/.pycircuit_out/toolchain/install"
 
-python3 -c "import pycircuit; print('ok')"
-python3 -m pycircuit.cli build examples/pycircuit/basics/counter/tb_counter.py \
-    --out-dir /tmp/pyc_counter --target cpp --jobs 8
+python -c "import pycircuit; print('ok')"
+python -m pycircuit.cli build examples/pycircuit/basics/counter/tb_counter.py \
+  --out-dir .pycircuit_out/tutorial/counter --target cpp --jobs 8
 ```
 
 如果最后一条命令能编译并跑通仿真，环境就绪。
@@ -256,10 +258,10 @@ def tb(t: Tb) -> None:
 
 ```bash
 # 生成并编译 C++ 仿真器
-python3 -m pycircuit.cli build tb_counter.py --out-dir /tmp/tb_counter --target cpp
+python3 -m pycircuit.cli build tb_counter.py --out-dir .pycircuit_out/tutorial/tb-counter --target cpp
 
 # 运行：expect 全部通过则正常退出，失败则报错并返回非零码
-/tmp/tb_counter/cpp_build/build/pyc_tb
+.pycircuit_out/tutorial/tb-counter/cpp_build/build/pyc_tb
 ```
 
 **长测试用 sidecar**：当激励长达数万周期时，加 `--tb-schedule-mode=sidecar`，事件序列会外置为二进制文件，C++ 编译时间不随测试长度增长，且改激励不需要重编仿真器。
@@ -495,7 +497,7 @@ export PYC_TOOLCHAIN_ROOT=$PWD/.pycircuit_out/toolchain/install   # pycc 所在�
 ```bash
 # 生成 RTL + C++ 仿真器 + Verilator 仿真器，并直接运行 Verilator 仿真
 python3 -m pycircuit.cli build examples/pycircuit/basics/counter/tb_counter.py \
-    --out-dir /tmp/pyc_counter \
+    --out-dir .pycircuit_out/tutorial/counter \
     --target both --jobs 8 \
     --logic-depth 64 \
     --run-verilator
@@ -510,10 +512,10 @@ python3 -m pycircuit.cli build examples/pycircuit/basics/counter/tb_counter.py \
 | `--tb-schedule-mode sidecar` | 长测试改用 sidecar 外置激励 |
 | `--param width=16` | 覆盖设计的 JIT 参数（可重复） |
 
-**产物目录布局**（`--out-dir /tmp/pyc_counter`）：
+**产物目录布局**（`--out-dir .pycircuit_out/tutorial/counter`）：
 
 ```text
-/tmp/pyc_counter/
+.pycircuit_out/tutorial/counter/
 ├── device/verilog/           ← ★ RTL 输出（综合用）
 │   ├── counter.v             #    每个模块一个 .v
 │   ├── pyc_primitives.v      #    pyc_reg 等原语库
@@ -532,10 +534,10 @@ python3 -m pycircuit.cli build examples/pycircuit/basics/counter/tb_counter.py \
 
 ```bash
 # C++ 周期精确仿真（构建完成后手动运行）
-/tmp/pyc_counter/cpp_build/build/pyc_tb
+.pycircuit_out/tutorial/counter/cpp_build/build/pyc_tb
 
 # Verilator 仿真（--run-verilator 已自动跑过；也可手动重跑）
-cd /tmp/pyc_counter && ./verilator_build/Vtb_counter
+cd .pycircuit_out/tutorial/counter && ./verilator_build/Vtb_counter
 ```
 
 测试中的 `expect` 失败会报错并以非零码退出；全部通过则正常结束。VCD 波形按 `--trace-config` / 测试台配置生成在运行目录。
@@ -580,16 +582,16 @@ PYCC=$PYC_TOOLCHAIN_ROOT/bin/pycc
 
 # ── 层次化输出：每个子模块独立 .v + 原语库 + manifest + yosys 脚本 ──
 $PYCC my_top.mlir --emit=verilog --hierarchical \
-      --logic-depth=256 --out-dir=build_out/verilog_hier
-# 产物: build_out/verilog_hier/{my_top.v, fetch.v, ..., pyc_primitives.v,
+      --logic-depth=256 --out-dir=.pycircuit_out/tutorial/manual/verilog_hier
+# 产物: .pycircuit_out/tutorial/manual/verilog_hier/{my_top.v, fetch.v, ..., pyc_primitives.v,
 #        manifest.json, compile_stats.json, yosys_synth.ys}
 
 # ── 扁平单文件输出：全部内联为一个 module ──
 $PYCC my_top.mlir --emit=verilog --flatten \
-      --logic-depth=256 -o build_out/my_top_flat.v
+      --logic-depth=256 -o .pycircuit_out/tutorial/manual/my_top_flat.v
 
 # ── FPGA 目标（在文件头加 `define PYC_TARGET_FPGA）──
-$PYCC my_top.mlir --emit=verilog --target=fpga -o build_out/my_top_fpga.v
+$PYCC my_top.mlir --emit=verilog --target=fpga -o .pycircuit_out/tutorial/manual/my_top_fpga.v
 ```
 
 编译成功时 stderr 会打印资源统计并写出 `.stats.json`：
@@ -601,13 +603,13 @@ stats: regs=42 (336 bits), mems=0 (0 bits), max_depth=7/256, WNS=249, TNS=0, fus
 拿到 RTL 后可直接用发射器生成的脚本走 Yosys 综合冒烟：
 
 ```bash
-cd build_out/verilog_hier && yosys -s yosys_synth.ys
+cd .pycircuit_out/tutorial/manual/verilog_hier && yosys -s yosys_synth.ys
 ```
 
 #### MLIR → C++ 仿真模型
 
 ```bash
-$PYCC my_top.mlir --emit=cpp --out-dir=build_out/cpp
+$PYCC my_top.mlir --emit=cpp --out-dir=.pycircuit_out/tutorial/manual/cpp
 # 产物: 每模块 .hpp/.cpp 分片 + cpp_compile_manifest.json（源列表/包含路径/运行时库）
 ```
 
@@ -622,12 +624,12 @@ $PYCC my_top.mlir --emit=cpp --out-dir=build_out/cpp
 ```bash
 verilator --binary -Wall -Wno-fatal --timing --trace \
     --top-module tb_counter \
-    --Mdir build_out/verilator_build \
-    /tmp/pyc_counter/tb/tb_counter.sv \
-    /tmp/pyc_counter/device/verilog/pyc_primitives.v \
-    /tmp/pyc_counter/device/verilog/counter.v
+    --Mdir .pycircuit_out/tutorial/manual/verilator_build \
+    .pycircuit_out/tutorial/counter/tb/tb_counter.sv \
+    .pycircuit_out/tutorial/counter/device/verilog/pyc_primitives.v \
+    .pycircuit_out/tutorial/counter/device/verilog/counter.v
 
-./build_out/verilator_build/Vtb_counter     # 运行 RTL 仿真
+./.pycircuit_out/tutorial/manual/verilator_build/Vtb_counter     # 运行 RTL 仿真
 ```
 
 同一份测试台同时驱动 C++ 模型（`tb/*.cpp`）与 RTL（`tb/*.sv`），

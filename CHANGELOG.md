@@ -1,10 +1,15 @@
 # Changelog
 
-This project is still in an early prototype stage; APIs and generated outputs
-may change frequently.
+All notable user-facing changes to pyCircuit and the integrated Agentic Circuit
+toolchain are recorded here. Release artifacts and immutable source tags are
+published through the repository's release workflow.
 
 ## Unreleased
 
+- Professionalize repository navigation and onboarding: separate pyCircuit
+  tools from flow internals, retire completed migration pages and obsolete
+  design docs, remove name-based ACIR-to-ACSim device inference, rename the
+  active generated dispatch ABI, and refresh README/getting-started content.
 - Consolidate FastFwd performance harnesses and design-space exploration under
   `benchmarks/pycircuit/fastfwd`, remove the ambiguous `contrib/fastfwd` root,
   and tighten repository layout checks for public examples and benchmarks

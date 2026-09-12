@@ -1,4 +1,4 @@
-// Combinational bitwise OR (prototype).
+// Combinational bitwise OR.
 module pyc_or #(
   parameter WIDTH = 1
 ) (

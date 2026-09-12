@@ -201,9 +201,9 @@ not part of root `__all__`.
 
 Calling a marker through ordinary Python MUST raise an error that identifies it
 as capture-time only. A marker MUST NOT return a placeholder queue, value,
-table, or other fake runtime object. `ac.table[...]` remains subscript-only, and
-calling the removed legacy `ac.table(value, ...)` spelling continues to raise
-`TypeError` with the `ac.memory` migration guidance.
+table, or other fake runtime object. `ac.table[...]` remains subscript-only,
+and calling the removed `ac.table(value, ...)` form raises `TypeError` with the
+`ac.memory` replacement guidance.
 
 ### System declaration
 
@@ -436,7 +436,7 @@ rewriting every resident entry.
 Rules and firings carry only verifier-derived typed summary attributes for
 guard kind, Queue availability/capacity checks, effects, output presence, state
 accesses, schedule kind, and lexical arbitration membership. SSA conditions
-and per-effect presence values identify the actual selected paths. Legacy
+and per-effect presence values identify the actual selected paths. Removed
 guard/check/handshake/schedule/effect strings are unregistered canonical
 attributes and are rejected rather than retained as readable aliases.
 
@@ -658,7 +658,7 @@ The output Queue applies ordinary capacity and latency rules.
 `source(..., lanes=N, rate=R)` creates one logical ordered Queue with static
 positive lane count and `1 <= R <= N`. One-to-one compute and pipeline blocks
 inherit the exact lane/rate contract. Frozen ACIR spells the type as
-`!ac.queue<T, lanes=N, rate=R>`; lane-one/rate-one keeps the legacy
+`!ac.queue<T, lanes=N, rate=R>`; lane-one/rate-one keeps the compact
 `!ac.queue<T>` spelling. Payload aggregate shape is independent of lane count.
 
 Available tokens form one contiguous valid prefix of at most `rate` lanes. The
@@ -830,7 +830,7 @@ pre-transfer memory value. A
 write commits at Xfer. Therefore a read and write to the same address in one
 request returns old data and makes the new data visible to a later request.
 
-### Stateful Table prototype
+### Stateful Table
 
 Epoch `0.5` separates locally owned state from request/response memory. A
 Table may use a rank-one extent or a non-empty tuple of positive static
@@ -1025,8 +1025,8 @@ state during Work/combinational evaluation, and publish one next image at
 Xfer/the clock edge. Canonical PYC uses one explicit `pyc.reg` per Entry and
 never selects `pyc.sync_mem`; reset restores the typed initial image and clears
 transient selections and proposals. Request/response storage remains
-`ac.memory`; legacy `ac.table(...)`
-has been removed. The single public Python example is
+`ac.memory`; the removed callable `ac.table(...)` form is rejected. The single
+public Python example is
 `issue.py`. It combines two field-disjoint
 operand wakeups, next-tick minimum-age selection, grant-driven removal, and a
 complete Entry allocation after explicitly matching and choosing an old-state
@@ -1597,10 +1597,9 @@ signatures. Expression lowering returns `(SSA name, ValueType)` and performs
 identity, width, enum, aggregate, and field checks on descriptors. MLIR spelling
 is produced only by the ACIR text renderer; the C++ QueueGraph begins its own
 string representation only after parsing that verified ACIR boundary.
-`BoolType()` and `BitsType(1)` remain distinct inside the frontend while a
-small explicit pair of epoch-0.5 compatibility helpers preserves the accepted
-`i1` equality and integer-width boundaries until a separate hard-break
-decision.
+`BoolType()` and `BitsType(1)` remain distinct inside the frontend while two
+explicit epoch-0.5 boundary-normalization helpers preserve the accepted `i1`
+equality and integer-width rules.
 
 One nominal struct may now contain another nominal struct. Declarations may
 appear in either source order; cycles are rejected. Nested access and update
@@ -1926,21 +1925,21 @@ internal firing operation.
 ```
 
 The stable identity, exact domain, typed summaries, SSA presence, footprints,
-and activation/transaction resources form the complete contract. No typed
-marker or legacy string summary may survive into Frozen ACIR. Pure firings may
-become `ac.transform` only after canonicalization proves that this contract is
-preserved.
+and activation/transaction resources form the complete contract. No transient
+rule marker or removed string summary may survive into Frozen ACIR. Pure
+firings may become `ac.transform` only after canonicalization proves that this
+contract is preserved.
 
 ### Frozen logical identity
 
 Every QueueGraph representation carries `ac.model_kind = "queue_graph"` and
 the exact singleton-domain declaration `ac.queue_graph_domain = "cycle"`.
-Every phase-one rule domain must equal that declaration. QueueGraph planning
+Every rule domain must equal that declaration. QueueGraph planning
 and generation accept only verified epoch 0.5 frozen input with a matching
 owner manifest and topology digest. Raw or forged models are rejected rather
 than frozen implicitly by a backend.
 
-The legacy flat representation additionally carries the string attribute
+The flat representation additionally carries the string attribute
 `ac.system`; it contains no structured `ac.system` or `ac.module*`
 declarations and freezes with an empty owner manifest. The module-preserving
 representation instead uses one selected `ac.system`, materialized

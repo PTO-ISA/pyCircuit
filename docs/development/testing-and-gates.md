@@ -8,17 +8,19 @@ demands it.
 
 - **Required PR CI** is intentionally lightweight: changed-file pre-commit,
   repository-management checks, documentation, pyCircuit Python unit tests,
-  packaging-helper checks, API hygiene, and Python-only Agentic Circuit
-  contract/frontend/CLI-inventory tests.
+  packaging-helper checks, one explicit API-hygiene pass, and Python-only
+  Agentic Circuit contract/frontend/CLI tests. CI skips the matching local
+  pre-commit hook so API hygiene does not run twice.
 - **Targeted author evidence** covers the narrow native, MLIR, runtime, or
   backend behavior changed by a PR. Run the smallest relevant local command and
   record it in the PR; do not substitute an unrelated broad lane.
-- **Release closure** is the only automatic full matrix. It builds the
-  integrated toolchain, completes AC G0/G1/G2, runs all pyCircuit semantic and
-  simulation lanes, validates packages on Linux and macOS, and blocks
-  publication on failure.
-- **Nightly/manual diagnostics** may run expensive subsets to find failures
-  earlier. They are diagnostic signals, not PR merge or release authority.
+- **Release closure** is the only automatic full matrix. It builds one
+  integrated toolchain, reuses that build for AC G0/G1/G2, executes each
+  repository, example, simulation, and semantic gate once, validates packages
+  on Linux and macOS, and blocks publication on failure.
+- **Nightly/manual diagnostics** run the heavy simulation tier to find costly
+  failures earlier without replaying the normal simulation or fixture lanes.
+  They are diagnostic signals, not PR merge or release authority.
 
 ## Shared rules
 
@@ -27,6 +29,20 @@ demands it.
 - Evidence root: `docs/gates/logs/<run-id>/`
 - Keep logs bounded. Capture only the lanes needed for review.
 - If a gate is skipped, say why in the PR.
+- Keep gate scripts composable: a product-specific script must not recursively
+  invoke repository-wide checks or another closure lane.
+
+## Gate ownership
+
+| Owner | Coverage | Intentionally excluded |
+| --- | --- | --- |
+| `.github/workflows/ci.yml` | Repository policy, changed-file formatting/lint, unit tests, docs, packaging helpers, API hygiene, Python-only AC checks | LLVM builds, CTest, Verilator, full examples and simulations |
+| `run_agentic_circuit.sh` | AC contracts, frontend/CLI, ACIR/ACSim/gfsim native tests, AC-to-PYC integration | Root pyCircuit unit/API/docs/decision checks |
+| `run_examples.sh` | Every public example through emit/C++ compile plus focused project-build and artifact contracts | API hygiene, decision status, simulation and semantic lanes |
+| `run_sims.sh` | Normal-tier C++/Verilator execution plus `issq` and `regfile` fixtures | Heavy examples, the heavy `bypass_unit` fixture, and the three dedicated semantic cases |
+| `run_sims_nightly.sh` | Heavy-tier C++/Verilator execution plus the compile-intensive `bypass_unit` fixture | Normal examples and fast fixtures |
+| `run_semantic_regressions_v6.sh` | X/Z trace values, reset/invalidate ordering, net-resolution depth | General example and simulation sweeps |
+| `.github/workflows/release.yml` | One invocation of every closure owner against one exact candidate SHA | Recursive or repeated gate execution |
 
 ## Core commands
 
@@ -37,9 +53,9 @@ pytest tests/unit -m unit
 pytest tests/system -m system
 python3 flows/tools/check_api_hygiene.py python/pycircuit/src/pycircuit examples/pycircuit docs README.md
 python3 tools/agentic-circuit/generate-diagnostic-catalog.py --check
-python3 flows/tools/check_decision_status.py --rfc docs/rfcs/pyc6-decisions.md --status docs/gates/decision_status_v6.md --out .pycircuit_out/gates/<run-id>/decision_status_report.json
 python3 flows/tools/check_decision_status.py --rfc docs/rfcs/pyc6-decisions.md --status docs/gates/decision_status_v6.md --out .pycircuit_out/gates/<run-id>/decision_status_report.json --require-no-deferred --require-all-verified --require-concrete-evidence --require-existing-evidence
-mkdocs build
+mkdocs build --strict
+bash flows/scripts/run_agentic_circuit.sh
 bash flows/scripts/run_examples.sh
 bash flows/scripts/run_sims.sh
 bash flows/scripts/run_sims_nightly.sh
@@ -74,13 +90,14 @@ author evidence, not additional always-on CI jobs.
 
 ## Release validation matrix
 
-Every release runs all of the following before package jobs may start:
+Every release runs all of the following once before package jobs may start:
 
-- integrated LLVM/MLIR toolchain build and ACIR/ACSim/gfsim native tests;
-- AC G0/G1/G2;
-- pyCircuit examples and V6 semantic regressions;
-- normal and nightly cross-backend simulations;
-- strict decision-status, API-hygiene, unit, and documentation checks;
+- one integrated LLVM/MLIR toolchain build, reused by AC native tests and G2;
+- AC contracts, frontend/CLI, ACIR/ACSim/gfsim native tests, and G0/G1/G2;
+- every example compile contract, the normal simulation partition, the heavy
+  simulation partition, and dedicated V6 semantic regressions;
+- strict decision status, API hygiene, unit tests, pre-commit, repository
+  policy, and documentation checks; and
 - Linux and macOS archive/wheel builds plus installed-wheel smoke tests.
 
 ## Agentic Circuit gates
@@ -94,7 +111,8 @@ source.
 - install/import the `agentic-circuit` distribution from the current worktree;
 - validate ACPy epoch `0.5` golden serialization under
   `tests/goldens/agentic-circuit/frontend/`;
-- run Python frontend, schema, contract and CLI inventory tests; and
+- run the contract checker plus Python contract, frontend, schema, and CLI
+  tests; and
 - verify that `agentic_circuit` remains separate from `pycircuit` exports.
 
 ### AC G1: ACIR, ACSim and gfsim
@@ -162,14 +180,21 @@ Use `docs/gates/README.md` for the directory contract and naming.
 - `pytest tests/system -m system` exercises end-to-end CLI smoke cases and
   requires `PYC_TOOLCHAIN_ROOT` or `PYCC` plus `verilator`.
 - `pre-commit run --files <changed-file> ...` matches the CI pre-commit lane,
-  which runs against the PR or push diff.
+  which runs against the PR or push diff. CI sets `SKIP=pyc-api-hygiene` and
+  executes API hygiene once as a separate, visible gate.
 - `pre-commit run --all-files` runs the full repo Python format/lint, markdown
-  lint, YAML sanity, and pyCircuit API hygiene sweep.
+  lint, YAML sanity, and—unless skipped explicitly—the pyCircuit API-hygiene
+  hook.
 
 ## Notes on simulation lanes
 
-- `run_sims.sh` validates the normal simulation lane.
-- `run_sims_nightly.sh` exercises the broader nightly lane and should be run for
-  example, testbench, or simulation-orchestration changes.
-- `run_semantic_regressions_v6.sh` is the semantic closure lane for reset,
-  trace, and related hard contracts.
+- `run_examples.sh` compiles every public example but does not invoke other
+  gates. Run the affected simulation lane separately when execution changes.
+- `run_sims.sh` validates normal-tier examples plus the `issq` and `regfile`
+  fixtures. It leaves X/Z, reset/invalidate, and net-resolution cases to the
+  deeper semantic assertions below.
+- `run_sims_nightly.sh` exercises heavy-tier examples and the compile-intensive
+  `bypass_unit` fixture. Run it for heavy examples, bypass changes, or
+  simulation-orchestration changes.
+- `run_semantic_regressions_v6.sh` owns the X/Z trace,
+  reset/invalidate-ordering, and net-resolution-depth cases.

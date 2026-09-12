@@ -16,7 +16,8 @@ implementations:
 The format split is intentional: the small hand-maintained inventory uses YAML;
 machine-consumed registries and generated coverage use canonical JSON. Every
 document declares a versioned `schema` identity, and
-`python3 tools/check-pyc-inventory.py` validates the exact ODS/inventory/ledger
+`python3 tools/pycircuit/check-pyc-inventory.py` validates the exact
+ODS/inventory/ledger
 relationship.
 
 Python and canonical PYC may reference only semantic IDs.  Vendor module,

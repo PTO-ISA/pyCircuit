@@ -1000,10 +1000,10 @@ LogicalResult AsyncFifoOp::verify() {
   std::int64_t depth = depthAttr.getValue().getSExtValue();
   if (depth < 2)
     return emitOpError("depth must be >= 2");
-  // Prototype async FIFO assumes a power-of-two depth for gray-code pointers.
+  // The async FIFO requires a power-of-two depth for gray-code pointers.
   std::uint64_t d = static_cast<std::uint64_t>(depth);
   if ((d & (d - 1)) != 0)
-    return emitOpError("depth must be a power of two in the prototype");
+    return emitOpError("depth must be a power of two");
   return success();
 }
 
@@ -1012,7 +1012,7 @@ LogicalResult CdcSyncOp::verify() {
   if (!ty)
     return emitOpError("only supports integer types");
   if (ty.getWidth() == 0 || ty.getWidth() > 64)
-    return emitOpError("prototype supports widths 1..64");
+    return emitOpError("supports widths 1..64");
   auto stagesAttr = (*this)->getAttrOfType<IntegerAttr>("stages");
   if (stagesAttr) {
     if (stagesAttr.getValue().getSExtValue() < 1)

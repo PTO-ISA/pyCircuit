@@ -1051,7 +1051,7 @@ class _Compiler:
                 v = self.env[node.id]
                 if isinstance(v, _IndexValue):
                     raise JitError(
-                        "loop induction variables are not usable in expressions (prototype limitation)"
+                        "loop induction variables are not usable in expressions"
                     )
                 return v
             if node.id in self.globals:
@@ -1957,12 +1957,12 @@ class _Compiler:
         )
 
     def compile_with(self, node: ast.With) -> None:
-        # Prototype support for naming scopes / context managers.
+        # Supported naming scopes use one explicit context manager.
         if len(node.items) != 1:
-            raise JitError("with supports exactly one context manager (prototype)")
+            raise JitError("with supports exactly one context manager")
         item = node.items[0]
         if item.optional_vars is not None:
-            raise JitError("with-as is not supported (prototype)")
+            raise JitError("with-as is not supported")
 
         cm = self.eval_expr(item.context_expr)
         enter = getattr(cm, "__enter__", None)
@@ -2323,7 +2323,7 @@ def compile_module(
     MLIR SCF + PYC ops, then `pycc` will lower SCF into static muxes and
     unrolled logic.
 
-    Restrictions (prototype):
+    Supported control-flow subset:
     - `if` conditions: python bool or `i1` Wire
     - `for` loops: `for ... in range(const)` only, step must be > 0
     - Loop induction variable is currently not usable in expressions.

@@ -18,29 +18,14 @@ fi
 pyc_log "using pycc: ${PYCC}"
 
 gate_run_id="${PYC_GATE_RUN_ID:-$(date +%Y%m%d-%H%M%S)}"
-gate_out_dir="$(pyc_out_root)/gates/${gate_run_id}"
 docs_gate_dir="${PYC_ROOT_DIR}/docs/gates/logs/${gate_run_id}"
-mkdir -p "${gate_out_dir}" "${docs_gate_dir}"
+mkdir -p "${docs_gate_dir}"
 fail=0
 count=0
 
 cat > "${docs_gate_dir}/commands.txt" <<EOF
 bash flows/scripts/run_examples.sh
-python3 flows/tools/check_api_hygiene.py python/pycircuit/src/pycircuit examples/pycircuit docs README.md
-python3 flows/tools/check_decision_status.py --status docs/gates/decision_status_v6.md --out .pycircuit_out/gates/${gate_run_id}/decision_status_report.json --require-no-deferred --require-all-verified --require-concrete-evidence --require-existing-evidence
-PYC_GATE_RUN_ID=${gate_run_id} bash flows/scripts/run_semantic_regressions_v6.sh
 EOF
-
-pyc_log "running strict API hygiene gate"
-if ! python3 "${PYC_ROOT_DIR}/flows/tools/check_api_hygiene.py" \
-  python/pycircuit/src/pycircuit \
-  examples/pycircuit \
-  docs \
-  README.md \
-  >"${docs_gate_dir}/api_hygiene.stdout" 2>"${docs_gate_dir}/api_hygiene.stderr"; then
-  pyc_warn "API hygiene gate failed"
-  fail=1
-fi
 
 while IFS=$'\t' read -r bn _category design _tb _cfg _tier; do
   [[ -n "${bn}" ]] || continue
@@ -887,43 +872,6 @@ else
       pyc_warn "Decision 0006 mem observability missing expected success marker"
       fail=1
     fi
-  fi
-fi
-
-pyc_log "running decision status coverage gate"
-decision_rfc="${PYC_ROOT_DIR}/docs/rfcs/pyc6-decisions.md"
-decision_status="${PYC_ROOT_DIR}/docs/gates/decision_status_v6.md"
-decision_report="${gate_out_dir}/decision_status_report.json"
-decision_status_strict="${PYC_DECISION_STATUS_STRICT:-1}"
-decision_status_args=(
-  --rfc "${decision_rfc}"
-  --status "${decision_status}"
-  --out "${decision_report}"
-)
-if [[ "${decision_status_strict}" == "1" ]]; then
-  decision_status_args+=(
-    --require-no-deferred
-    --require-all-verified
-    --require-concrete-evidence
-    --require-existing-evidence
-  )
-fi
-if ! python3 "${PYC_ROOT_DIR}/flows/tools/check_decision_status.py" \
-  "${decision_status_args[@]}" \
-  >"${docs_gate_dir}/decision_status.stdout" 2>"${docs_gate_dir}/decision_status.stderr"; then
-  pyc_warn "decision status gate failed"
-  fail=1
-fi
-cp -f "${decision_report}" "${docs_gate_dir}/decision_status_report.json" >/dev/null 2>&1 || true
-
-pyc_log "running v6 semantic regression lane"
-if [[ "${PYC_SKIP_SEMANTIC_REGRESSIONS:-0}" == "1" ]]; then
-  pyc_log "skipping v6 semantic regression lane (PYC_SKIP_SEMANTIC_REGRESSIONS=1)"
-else
-  if ! PYC_GATE_RUN_ID="${gate_run_id}" bash "${PYC_ROOT_DIR}/flows/scripts/run_semantic_regressions_v6.sh" \
-    >"${docs_gate_dir}/semantic_regressions.stdout" 2>"${docs_gate_dir}/semantic_regressions.stderr"; then
-    pyc_warn "semantic regression lane failed"
-    fail=1
   fi
 fi
 

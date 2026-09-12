@@ -1,18 +1,19 @@
 # pyCircuit Documentation Configuration
 
 site_name: pyCircuit
-site_description: "A Python-based hardware description framework that compiles Python functions to synthesizable RTL through MLIR"
+site_description: "Python-first hardware construction and architecture modeling with MLIR, C++ simulation, and Verilog generation"
 site_author: PTO-ISA Contributors
-site_url: https://github.com/PTO-ISA/pyCircuit
 
 repo_url: https://github.com/PTO-ISA/pyCircuit
 repo_name: PTO-ISA/pyCircuit
 
-copyright: "Copyright &copy; 2024 PTO-ISA Contributors"
+copyright: "Copyright &copy; 2024&ndash;2026 PTO-ISA Contributors"
 
 # Configuration
 docs_dir: docs
 site_dir: _build/html
+exclude_docs: |
+  gates/logs/
 
 # Theme
 theme:
@@ -36,9 +37,11 @@ theme:
     - navigation.tabs
     - navigation.sections
     - navigation.top
+    - navigation.footer
     - search.suggest
     - search.highlight
     - content.code.annotate
+    - content.code.copy
   icon:
     repo: fontawesome/brands/github
 
@@ -98,10 +101,7 @@ nav:
       - 中文规范: acir/spec/agentic-circuit.zh-CN.md
       - Verification: acir/spec/verification.md
       - Repository Charter: acir/spec/00-charter/scope.md
-      - Historical Reference: acir/spec/refs/history.md
-      - Table Design: acir/design/table-abstraction.zh-CN.md
-      - Repository Migration: acir/migration.md
-      - Collaboration Migration: acir/agentic-circuit-collaboration.md
+      - Historical Repository Record: acir/spec/refs/history.md
   - Development:
       - Overview: development/index.md
       - Implementation Guide: development/implementation-guide.md
@@ -110,6 +110,7 @@ nav:
       - Stable SDK Release Contract: development/sdk-release-contract.md
       - Review and Merge: development/review-and-merge.md
       - Repository Management: development/repository-management.md
+      - Repository Layout: development/repository-layout.md
       - PYC IR Inventory: development/pyc-ir-inventory.md
       - ACIR Support: development/acir/support.md
       - ACIR IR Coverage: development/acir/verification/ir-coverage.md

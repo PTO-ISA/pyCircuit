@@ -3,7 +3,7 @@
 schematic_view.py — Generate a PDF schematic from a pyCircuit-generated Verilog file.
 
 Usage:
-    python schematic_view.py <verilog_file> [-o output.pdf] [--collapse] [--no-constants]
+    python tools/pycircuit/schematic_view.py <verilog_file> [-o output.pdf]
 
 Layout:
     - Input ports on the left
@@ -20,8 +20,6 @@ import sys
 from collections import defaultdict
 from dataclasses import dataclass, field
 from pathlib import Path
-
-import graphviz
 
 # ---------------------------------------------------------------------------
 # 1. Verilog parser  (targeted at pyCircuit-generated Verilog)
@@ -613,6 +611,14 @@ def render_schematic(
     fmt: str = "pdf",
 ) -> str:
     """Render the graph to a file (pdf/svg/png). Returns the output path."""
+    try:
+        import graphviz
+    except ImportError as error:
+        raise SystemExit(
+            "schematic rendering requires the 'graphviz' Python package and "
+            "Graphviz executable; install the documentation extras and retry"
+        ) from error
+
     if len(nodes) > max_nodes:
         print(
             f"ERROR: {len(nodes)} nodes exceeds max_nodes={max_nodes}. "

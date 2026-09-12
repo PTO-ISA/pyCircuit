@@ -3901,6 +3901,10 @@ compatibility aliases.
   `tests/*/agentic-circuit` roots. ACIR/ACSim sources live under
   `compiler/acir`; the `agentic_circuit` Python distribution remains separate
   under `python/agentic-circuit`.
+- Direct pyCircuit maintenance and inspection utilities live under
+  `tools/pycircuit`; private build, gate, discovery, and evidence helpers live
+  under `flows/tools`. The repository keeps no loose Python utilities at the
+  `tools/` root.
 - Product documentation is partitioned by audience and authority:
   `getting-started`, `reference`, `architecture`, `acir`, `development`,
   `rfcs`, `research`, `gates`, and `legal`. Only the documentation home and
@@ -8457,6 +8461,8 @@ generic builds and releases carry contracts owned by particular consumers.
 - Public Python, MLIR, C++, CMake, schema, CLI, generated-source, and runtime
   surfaces contain no consumer or product identity and no design-name semantic
   branch.
+- ACIR-to-ACSim storage selection uses explicit verified attributes. Queue
+  symbols such as `pc`, `busy`, or `rf` have no implicit device semantics.
 - The generated-model ABI exposes only generic lifecycle, configuration,
   execution status, statistics, and error reporting. It does not expose trace
   loading, trace cursors, trace-position state, trace-derived workload input,

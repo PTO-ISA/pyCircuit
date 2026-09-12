@@ -17,7 +17,7 @@ def test_pyc_inventory_matches_ods_and_generated_ledger() -> None:
         text=True,
     ).stdout
     checked = subprocess.run(
-        [sys.executable, "tools/check-pyc-inventory.py"],
+        [sys.executable, "tools/pycircuit/check-pyc-inventory.py"],
         cwd=ROOT,
         capture_output=True,
         text=True,

@@ -1,27 +1,29 @@
-# `compiler/mlir`: MLIR dialect + tools (prototype)
+# `compiler/mlir`: MLIR dialect + tools
 
-This folder contains the MLIR-based implementation of the `pyc` dialect, along with:
+This directory contains the MLIR-based implementation of the `pyc` dialect and
+its command-line tools:
 
 - `pyc-opt`: `mlir-opt`-style tool with `pyc` dialect + passes
 - `pycc`: compile `.pyc` (MLIR) to Verilog or C++ via template libraries
 
 ## Build
 
-Recommended: build from the repo root via top-level `CMakeLists.txt` (see `README.md`).
+Build from the repository root through the top-level `CMakeLists.txt`; see the
+[installation guide](../../docs/getting-started/installation.md).
 
 You can also build this subproject standalone if you already have an LLVM+MLIR build/install.
 
 This example assumes an existing LLVM/MLIR 22 install or build tree.
 
 ```bash
-cmake -G Ninja -S compiler/mlir -B /tmp/pyc-mlir-build \
+cmake -G Ninja -S compiler/mlir -B .pycircuit_out/mlir-standalone \
   -DMLIR_DIR=/path/to/llvm-22/lib/cmake/mlir \
   -DLLVM_DIR=/path/to/llvm-22/lib/cmake/llvm
 
-ninja -C /tmp/pyc-mlir-build pyc-opt pycc
+ninja -C .pycircuit_out/mlir-standalone pyc-opt pycc
 ```
 
-## Passes (prototype)
+## Passes
 
 ### `pyc-eliminate-wires`
 

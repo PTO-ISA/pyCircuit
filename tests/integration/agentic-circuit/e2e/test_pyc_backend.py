@@ -66,9 +66,22 @@ RECURSIVE_AGGREGATE_PAYLOAD_EXAMPLE = (
 )
 PYC_REPOSITORY = ROOT
 DEFAULT_TOOLCHAIN = PYC_REPOSITORY / ".pycircuit_out/toolchain/install"
+DEFAULT_NATIVE_BUILD = ROOT / ".pycircuit_out/acir/dev-llvm22"
+
+
+def _native_tool(environment: str, executable: str) -> Path:
+    configured = os.environ.get(environment)
+    if configured:
+        return Path(configured)
+    gate_build = os.environ.get("AC_GATE_BUILD_ROOT")
+    if gate_build:
+        return Path(gate_build) / "bin" / executable
+    return DEFAULT_NATIVE_BUILD / "bin" / executable
+
+
 def _freeze_command(raw: Path) -> tuple[str, str, str]:
     return (
-        str(ROOT / ".pycircuit_out/acir/dev-llvm22/bin/acir-opt-internal"),
+        str(_native_tool("ACIR_OPT", "acir-opt-internal")),
         "--pass-pipeline=builtin.module(ac-freeze-topology)",
         str(raw),
     )
@@ -84,7 +97,7 @@ class PycBackendTest(unittest.TestCase):
         pycgen = Path(
             os.environ.get(
                 "ACIR_QUEUE_PYCGEN",
-                ROOT / ".pycircuit_out/acir/dev-llvm22/bin/acir-queue-pycgen",
+                _native_tool("ACIR_QUEUE_PYCGEN", "acir-queue-pycgen"),
             )
         )
         cxx = shutil.which("c++")
@@ -111,7 +124,7 @@ class PycBackendTest(unittest.TestCase):
             )
             optimized = subprocess.run(
                 (
-                    str(ROOT / ".pycircuit_out/acir/dev-llvm22/bin/acir-opt-internal"),
+                    str(_native_tool("ACIR_OPT", "acir-opt-internal")),
                     f"--pass-pipeline={RULE_LOWERING_PIPELINE}",
                     str(raw),
                 ),
@@ -286,7 +299,7 @@ int main() {
         pycgen = Path(
             os.environ.get(
                 "ACIR_QUEUE_PYCGEN",
-                ROOT / ".pycircuit_out/acir/dev-llvm22/bin/acir-queue-pycgen",
+                _native_tool("ACIR_QUEUE_PYCGEN", "acir-queue-pycgen"),
             )
         )
         cxx = shutil.which("c++")
@@ -313,7 +326,7 @@ int main() {
             )
             optimized = subprocess.run(
                 (
-                    str(ROOT / ".pycircuit_out/acir/dev-llvm22/bin/acir-opt-internal"),
+                    str(_native_tool("ACIR_OPT", "acir-opt-internal")),
                     f"--pass-pipeline={RULE_LOWERING_PIPELINE}",
                     str(raw),
                 ),
@@ -513,7 +526,7 @@ int main() {
             )
             optimized = subprocess.run(
                 (
-                    str(ROOT / ".pycircuit_out/acir/dev-llvm22/bin/acir-opt-internal"),
+                    str(_native_tool("ACIR_OPT", "acir-opt-internal")),
                     f"--pass-pipeline={RULE_LOWERING_PIPELINE}",
                     str(raw),
                 ),
@@ -528,7 +541,7 @@ int main() {
                     str(ROOT / "compiler/acir/tools/ac-queue-pyc-build.py"),
                     str(frozen),
                     "--pycgen-tool",
-                    str(ROOT / ".pycircuit_out/acir/dev-llvm22/bin/acir-queue-pycgen"),
+                    str(_native_tool("ACIR_QUEUE_PYCGEN", "acir-queue-pycgen")),
                     "--pycc",
                     str(pycc),
                     "--toolchain-lock",
@@ -710,7 +723,7 @@ int main() {
             )
             optimized = subprocess.run(
                 (
-                    str(ROOT / ".pycircuit_out/acir/dev-llvm22/bin/acir-opt-internal"),
+                    str(_native_tool("ACIR_OPT", "acir-opt-internal")),
                     f"--pass-pipeline={RULE_LOWERING_PIPELINE}",
                     str(raw),
                 ),
@@ -725,7 +738,7 @@ int main() {
                     str(ROOT / "compiler/acir/tools/ac-queue-pyc-build.py"),
                     str(frozen),
                     "--pycgen-tool",
-                    str(ROOT / ".pycircuit_out/acir/dev-llvm22/bin/acir-queue-pycgen"),
+                    str(_native_tool("ACIR_QUEUE_PYCGEN", "acir-queue-pycgen")),
                     "--pycc",
                     str(pycc),
                     "--toolchain-lock",
@@ -903,7 +916,7 @@ int main() {
             )
             optimized = subprocess.run(
                 (
-                    str(ROOT / ".pycircuit_out/acir/dev-llvm22/bin/acir-opt-internal"),
+                    str(_native_tool("ACIR_OPT", "acir-opt-internal")),
                     f"--pass-pipeline={RULE_LOWERING_PIPELINE}",
                     str(raw),
                 ),
@@ -918,7 +931,7 @@ int main() {
                     str(ROOT / "compiler/acir/tools/ac-queue-pyc-build.py"),
                     str(frozen),
                     "--pycgen-tool",
-                    str(ROOT / ".pycircuit_out/acir/dev-llvm22/bin/acir-queue-pycgen"),
+                    str(_native_tool("ACIR_QUEUE_PYCGEN", "acir-queue-pycgen")),
                     "--pycc",
                     str(pycc),
                     "--toolchain-lock",
@@ -1093,7 +1106,7 @@ int main() {
             )
             optimized = subprocess.run(
                 (
-                    str(ROOT / ".pycircuit_out/acir/dev-llvm22/bin/acir-opt-internal"),
+                    str(_native_tool("ACIR_OPT", "acir-opt-internal")),
                     f"--pass-pipeline={RULE_LOWERING_PIPELINE}",
                     str(raw),
                 ),
@@ -1108,7 +1121,7 @@ int main() {
                     str(ROOT / "compiler/acir/tools/ac-queue-pyc-build.py"),
                     str(frozen),
                     "--pycgen-tool",
-                    str(ROOT / ".pycircuit_out/acir/dev-llvm22/bin/acir-queue-pycgen"),
+                    str(_native_tool("ACIR_QUEUE_PYCGEN", "acir-queue-pycgen")),
                     "--pycc",
                     str(pycc),
                     "--toolchain-lock",
@@ -1255,8 +1268,8 @@ int main() {
             self.assertEqual("2 17\n3 18\n", cpp_run.stdout)
 
     def test_memory_array_frontend_expands_to_one_sync_mem_per_bank(self) -> None:
-        acir_opt = ROOT / ".pycircuit_out/acir/dev-llvm22/bin/acir-opt-internal"
-        pycgen = ROOT / ".pycircuit_out/acir/dev-llvm22/bin/acir-queue-pycgen"
+        acir_opt = _native_tool("ACIR_OPT", "acir-opt-internal")
+        pycgen = _native_tool("ACIR_QUEUE_PYCGEN", "acir-queue-pycgen")
         if not acir_opt.is_file() or not pycgen.is_file():
             self.skipTest("ACIR optimizer or Queue PYC generator is unavailable")
         source = MEMORY_BANKS_EXAMPLE.read_text(encoding="utf-8")
@@ -1324,7 +1337,7 @@ int main() {
                     str(ROOT / "compiler/acir/tools/ac-queue-pyc-build.py"),
                     str(frozen),
                     "--pycgen-tool",
-                    str(ROOT / ".pycircuit_out/acir/dev-llvm22/bin/acir-queue-pycgen"),
+                    str(_native_tool("ACIR_QUEUE_PYCGEN", "acir-queue-pycgen")),
                     "--pycc",
                     str(pycc),
                     "--toolchain-lock",
@@ -1477,7 +1490,7 @@ int main() {
             gfsim_executable = root / "gfsim_model"
             gfsim_generated = subprocess.run(
                 (
-                    str(ROOT / ".pycircuit_out/acir/dev-llvm22/bin/acir-queue-cxxgen"),
+                    str(_native_tool("ACIR_QUEUE_CXXGEN", "acir-queue-cxxgen")),
                     str(frozen),
                 ),
                 text=True,
@@ -1576,7 +1589,7 @@ int main() {{
                     str(ROOT / "compiler/acir/tools/ac-queue-pyc-build.py"),
                     str(frozen),
                     "--pycgen-tool",
-                    str(ROOT / ".pycircuit_out/acir/dev-llvm22/bin/acir-queue-pycgen"),
+                    str(_native_tool("ACIR_QUEUE_PYCGEN", "acir-queue-pycgen")),
                     "--pycc",
                     str(pycc),
                     "--toolchain-lock",
@@ -1652,7 +1665,7 @@ int main() {{
                     str(ROOT / "compiler/acir/tools/ac-queue-pyc-build.py"),
                     str(frozen),
                     "--pycgen-tool",
-                    str(ROOT / ".pycircuit_out/acir/dev-llvm22/bin/acir-queue-pycgen"),
+                    str(_native_tool("ACIR_QUEUE_PYCGEN", "acir-queue-pycgen")),
                     "--pycc",
                     str(pycc),
                     "--toolchain-lock",
@@ -1693,7 +1706,7 @@ int main() {{
         pycgen = Path(
             os.environ.get(
                 "ACIR_QUEUE_PYCGEN",
-                ROOT / ".pycircuit_out/acir/dev-llvm22/bin/acir-queue-pycgen",
+                _native_tool("ACIR_QUEUE_PYCGEN", "acir-queue-pycgen"),
             )
         )
         cxx = shutil.which("c++")
@@ -1846,7 +1859,7 @@ int main() {
                     str(ROOT / "compiler/acir/tools/ac-queue-pyc-build.py"),
                     str(frozen),
                     "--pycgen-tool",
-                    str(ROOT / ".pycircuit_out/acir/dev-llvm22/bin/acir-queue-pycgen"),
+                    str(_native_tool("ACIR_QUEUE_PYCGEN", "acir-queue-pycgen")),
                     "--pycc",
                     str(pycc),
                     "--toolchain-lock",
@@ -2066,7 +2079,7 @@ int main() {
                     str(ROOT / "compiler/acir/tools/ac-queue-pyc-build.py"),
                     str(frozen),
                     "--pycgen-tool",
-                    str(ROOT / ".pycircuit_out/acir/dev-llvm22/bin/acir-queue-pycgen"),
+                    str(_native_tool("ACIR_QUEUE_PYCGEN", "acir-queue-pycgen")),
                     "--pycc",
                     str(pycc),
                     "--toolchain-lock",
@@ -2292,7 +2305,7 @@ int main() {
                     str(ROOT / "compiler/acir/tools/ac-queue-pyc-build.py"),
                     str(frozen),
                     "--pycgen-tool",
-                    str(ROOT / ".pycircuit_out/acir/dev-llvm22/bin/acir-queue-pycgen"),
+                    str(_native_tool("ACIR_QUEUE_PYCGEN", "acir-queue-pycgen")),
                     "--pycc",
                     str(pycc),
                     "--toolchain-lock",
@@ -2499,7 +2512,7 @@ int main() {
                     str(ROOT / "compiler/acir/tools/ac-queue-pyc-build.py"),
                     str(frozen),
                     "--pycgen-tool",
-                    str(ROOT / ".pycircuit_out/acir/dev-llvm22/bin/acir-queue-pycgen"),
+                    str(_native_tool("ACIR_QUEUE_PYCGEN", "acir-queue-pycgen")),
                     "--pycc",
                     str(pycc),
                     "--toolchain-lock",
@@ -2576,7 +2589,7 @@ int main() {
                     str(ROOT / "compiler/acir/tools/ac-queue-pyc-build.py"),
                     str(frozen),
                     "--pycgen-tool",
-                    str(ROOT / ".pycircuit_out/acir/dev-llvm22/bin/acir-queue-pycgen"),
+                    str(_native_tool("ACIR_QUEUE_PYCGEN", "acir-queue-pycgen")),
                     "--pycc",
                     str(pycc),
                     "--toolchain-lock",
@@ -2648,7 +2661,7 @@ int main() {
                     str(ROOT / "compiler/acir/tools/ac-queue-pyc-build.py"),
                     str(frozen),
                     "--pycgen-tool",
-                    str(ROOT / ".pycircuit_out/acir/dev-llvm22/bin/acir-queue-pycgen"),
+                    str(_native_tool("ACIR_QUEUE_PYCGEN", "acir-queue-pycgen")),
                     "--pycc",
                     str(pycc),
                     "--toolchain-lock",
@@ -2727,10 +2740,7 @@ int main() {
                         str(ROOT / "compiler/acir/tools/ac-queue-pyc-build.py"),
                         str(frozen),
                         "--pycgen-tool",
-                        str(
-                            ROOT
-                            / ".pycircuit_out/acir/dev-llvm22/bin/acir-queue-pycgen"
-                        ),
+                        str(_native_tool("ACIR_QUEUE_PYCGEN", "acir-queue-pycgen")),
                         "--pycc",
                         str(pycc),
                         "--toolchain-lock",
@@ -2893,7 +2903,7 @@ int main() {
             gfsim_executable = first / "gfsim_model"
             gfsim_generated = subprocess.run(
                 (
-                    str(ROOT / ".pycircuit_out/acir/dev-llvm22/bin/acir-queue-cxxgen"),
+                    str(_native_tool("ACIR_QUEUE_CXXGEN", "acir-queue-cxxgen")),
                     str(frozen),
                 ),
                 text=True,

@@ -7,7 +7,7 @@ semantics.
 For the compiler pipeline and pass-by-pass behavior, see the
 [compiler pipeline](../architecture/compiler-pipeline.md).
 
-## 1) Types
+## Types
 
 - `!pyc.clock`: a clock signal
 - `!pyc.reset`: a reset signal
@@ -18,18 +18,18 @@ removed `pyc.v_*` family are rejected. Recursive ACIR aggregates cross this
 boundary as exact-width packed integers with descriptor metadata retained in
 ACIR/QueueGraph manifests.
 
-## 2) Operations
+## Operations
 
 All examples below live inside a standard MLIR `module { ... }` and use
-`func.func` as the top-level “hardware module” container (prototype convention).
+`func.func` as the top-level hardware-module container.
 
-### 2.1 `pyc.constant`
+### `pyc.constant`
 
 ```mlir
 %c1 = pyc.constant 1 : i8
 ```
 
-### 2.2 Combinational ops
+### Combinational ops
 
 ```mlir
 %y = pyc.add %a, %b : i8
@@ -62,7 +62,7 @@ All examples below live inside a standard MLIR `module { ... }` and use
 %bus = pyc.concat(%a, %b, %c) : (i8, i16, i1) -> i25
 ```
 
-### 2.2.1 Semantic bit primitives
+### Semantic bit primitives
 
 These operations are vendor-neutral canonical PYC. Their inputs are limited to
 1–64 bits, and their result widths are verified:
@@ -84,14 +84,14 @@ The canonical operations remain in C++ reference simulation. The Verilog-only
 selection pass may replace them with a qualified implementation from the
 digest-verified RTL catalog.
 
-### 2.2.2 `pyc.rtl.comb` (backend-owned implementation)
+### `pyc.rtl.comb` (backend-owned implementation)
 
 `pyc.rtl.comb` is internal backend IR emitted only by
 `pyc-select-rtl-primitives`. It records a selected implementation, typed port
 names, parameters, source digests, license identity, and catalog fingerprint.
 Frontend or persisted canonical PYC containing this operation is rejected.
 
-### 2.2.3 `pyc.alias` (debug naming)
+### `pyc.alias` (debug naming)
 
 `pyc.alias` is a pure identity op used to attach stable debug names for codegen:
 
@@ -102,7 +102,7 @@ Frontend or persisted canonical PYC containing this operation is rejected.
 Backends use the `pyc.name` attribute (not `name`) to avoid conflicts with other
 ops that legitimately use a `name` attribute (e.g. memory instances).
 
-### 2.2.4 `pyc.instance` (hierarchical instantiation)
+### `pyc.instance` (hierarchical instantiation)
 
 `pyc.instance` instantiates another `func.func` hardware module while preserving
 module boundaries (for big designs / readable codegen):
@@ -141,7 +141,7 @@ Hierarchy preservation policy:
 - Default C++ out-dir flows use `--inline-policy=off` so `@module` callsites
   remain explicit instance boundaries.
 
-### 2.2.5 `pyc.assert` (simulation-only assertion)
+### `pyc.assert` (simulation-only assertion)
 
 `pyc.assert` is a simulation-only check that aborts when `cond` is false.
 Backends emit it under `ifndef SYNTHESIS` in Verilog, and as a runtime check in
@@ -155,9 +155,9 @@ Attributes:
 
 - `msg`: `StringAttr` (optional) human-readable message
 
-### 2.3 `pyc.wire` / `pyc.assign` (netlist backedges)
+### `pyc.wire` / `pyc.assign` (netlist backedges)
 
-The prototype includes a netlist-style “wire placeholder” + explicit driver:
+PYC uses a netlist-style wire placeholder with an explicit driver:
 
 ```mlir
 %d = pyc.wire : i64
@@ -167,7 +167,7 @@ pyc.assign %d, %next : i64
 `pyc.assign` destinations must be defined by `pyc.wire`. This is used to model
 feedback loops (state machines) in SSA-based MLIR.
 
-### 2.4 `pyc.reg` (clocked register)
+### `pyc.reg` (clocked register)
 
 ```mlir
 %q = pyc.reg %clk, %rst, %en, %next, %init : i8
@@ -187,7 +187,7 @@ Common pattern (backedge):
 pyc.assign %d, %next : i8
 ```
 
-### 2.5 `pyc.fifo` (strict ready/valid)
+### `pyc.fifo` (strict ready/valid)
 
 ```mlir
 %in_ready, %out_valid, %out_data =
@@ -201,10 +201,10 @@ Handshake semantics:
 
 Notes:
 
-- This prototype FIFO is **single-clock** (one `%clk`, one `%rst`).
+- `pyc.fifo` is **single-clock** (one `%clk`, one `%rst`).
 - Cross-clock FIFOs should use `pyc.async_fifo` (dual-clock, strict ready/valid).
 
-### 2.6 `pyc.comb` / `pyc.yield` (fused combinational regions)
+### `pyc.comb` / `pyc.yield` (fused combinational regions)
 
 `pyc.comb` is a codegen-oriented wrapper for fusing many small pure comb ops
 into a single region:
@@ -217,7 +217,7 @@ into a single region:
 }
 ```
 
-## 3) Verilog backend (prototype)
+## Verilog backend
 
 `pycc --emit=verilog` emits Verilog:
 
@@ -234,7 +234,7 @@ into a single region:
 `pycc` also runs `pyc-fuse-comb`, which enables emission of flattened
 Verilog `assign` statements for large purely-combinational regions.
 
-## 4) Structured control flow (frontend temporary IR)
+## Structured control flow (frontend temporary IR)
 
 The Python AST/JIT frontend may emit a small subset of standard MLIR dialects:
 

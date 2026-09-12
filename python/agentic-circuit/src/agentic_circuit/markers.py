@@ -279,7 +279,7 @@ class _TableFactory:
     def __call__(self, *args: object, **kwargs: object) -> Never:
         del args, kwargs
         raise TypeError(
-            "legacy ac.table(value, ...) was removed; use ac.memory for "
+            "ac.table(value, ...) was removed; use ac.memory for "
             "request/response memory or ac.table[entries, Entry](init=0) "
             "for state Table"
         )

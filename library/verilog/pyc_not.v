@@ -1,4 +1,4 @@
-// Combinational bitwise NOT (prototype).
+// Combinational bitwise NOT.
 module pyc_not #(
   parameter WIDTH = 1
 ) (

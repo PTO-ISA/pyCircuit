@@ -1,211 +1,164 @@
-# Installation Guide
+# Installation
 
-This guide sets up the integrated pyCircuit 6 and Agentic Circuit development
-environment. The integrated setup requires Python 3.11 or later; pyCircuit-only
-frontend use supports Python 3.10. Read
-[Choose a Frontend](choose-a-frontend.md) first if you only need one authoring
-surface.
+Choose the smallest installation profile that matches the work you need to do.
 
-## System Requirements
+## Requirements
 
-| Component | Minimum Version | Recommended Version |
-|-----------|---------------|---------------------|
-| pyCircuit Python | 3.10 | 3.14 |
-| Agentic Circuit Python | 3.11 | 3.14 |
-| LLVM | 22 | 22.1.8 |
-| CMake | 3.20 | 3.28+ |
-| Ninja | 1.10 | Latest |
+| Component | Frontend only | Full toolchain |
+| --- | --- | --- |
+| Operating system | Linux or macOS | Linux or macOS |
+| Python | 3.10+ | 3.11+ recommended |
+| CMake and Ninja | Not required | Required |
+| LLVM/MLIR 22.1.8 | Not required | Required |
+| Verilator | Not required | Required for Verilog simulation |
 
-## Install System Dependencies
-
-### Ubuntu/Debian
+On macOS, install the native dependencies with Homebrew:
 
 ```bash
-# Update package lists
-sudo apt-get update
-
-# Install build tools
-sudo apt-get install -y cmake ninja-build python3 python3-pip clang wget
-
-# Install LLVM/MLIR 22 (Ubuntu 22.04+)
-LLVM_INSTALL_SCRIPT_SHA256=03878e08f47b66cc95bc4b544b0db3c6d9ce8d60e6cf2492ae357984330a9eae
-wget --https-only https://apt.llvm.org/llvm.sh
-printf '%s  %s\n' "$LLVM_INSTALL_SCRIPT_SHA256" llvm.sh | sha256sum --check --strict
-chmod +x llvm.sh
-sudo ./llvm.sh 22
-sudo apt-get install -y llvm-22-dev mlir-22-tools libmlir-22-dev
-
-# Verify installation
-llvm-config-22 --version
-mlir-opt --version
+brew install cmake ninja python@3 llvm@22 verilator
+export PATH="$(brew --prefix llvm@22)/bin:$PATH"
 ```
 
-### macOS
+On Ubuntu or Debian, install CMake, Ninja, Python, a C++ compiler, and the LLVM
+22 development packages from the
+[official LLVM package repository](https://apt.llvm.org/). Verify the selected
+toolchain before configuring the build:
 
 ```bash
-# Install Homebrew first by following the official instructions at:
-# https://brew.sh/
-
-# Install build tools
-brew install cmake ninja python@3
-
-# Install LLVM 22 with MLIR
-brew install llvm@22
-# Add LLVM to PATH
-echo 'export PATH="$(brew --prefix llvm@22)/bin:$PATH"' >> ~/.zshrc
-source ~/.zshrc
-
-# Verify installation
-llvm-config --version
+LLVM_CONFIG="$(command -v llvm-config-22 || command -v llvm-config)"
+MLIR_OPT="$(command -v mlir-opt-22 || command -v mlir-opt)"
+"$LLVM_CONFIG" --version
+"$MLIR_OPT" --version
+python3 --version
 ```
 
-## Clone and Build
+## Frontend-only editable install
+
+Use this profile to author Python and emit PYC MLIR:
 
 ```bash
-# Clone the repository
 git clone https://github.com/PTO-ISA/pyCircuit.git
 cd pyCircuit
 
-# Configure with CMake
-LLVM_CONFIG="${LLVM_CONFIG:-$(command -v llvm-config-22 || command -v llvm-config)}"
-: "${LLVM_CONFIG:?LLVM 22 llvm-config not found}"
-LLVM_DIR="$("$LLVM_CONFIG" --cmakedir)"
-MLIR_DIR="$(dirname "$LLVM_DIR")/mlir"
-
-cmake -G Ninja -S . -B .pycircuit_out/toolchain/build \
-  -DCMAKE_BUILD_TYPE=Release \
-  -DCMAKE_INSTALL_PREFIX="$PWD/.pycircuit_out/toolchain/install" \
-  -DLLVM_DIR="$LLVM_DIR" \
-  -DMLIR_DIR="$MLIR_DIR" \
-  -DPYC_BUILD_AGENTIC_CIRCUIT=ON
-
-# Build and stage pyCircuit plus the integrated ACIR/ACSim/gfsim tools
-ninja -C .pycircuit_out/toolchain/build all
-cmake --install .pycircuit_out/toolchain/build --prefix "$PWD/.pycircuit_out/toolchain/install"
-
-# Verify the build
-./.pycircuit_out/toolchain/install/bin/pycc --version
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip
+python -m pip install -e "python/semantic-core"
+python -m pip install -e .
 ```
 
-## Alternative: Use Build Script
+Verify the installation:
 
 ```bash
-# The project includes a build script that handles LLVM detection
+python -c "import pycircuit; print(pycircuit.__name__)"
+python -m pycircuit.cli --help
+```
+
+The distribution name is `pycircuit-hisi`; the Python import is `pycircuit`.
+An editable frontend install does not place `pycc` on `PATH`.
+
+## Full source toolchain
+
+Install development and documentation dependencies, then run the canonical
+build wrapper:
+
+```bash
+python -m pip install -e "python/semantic-core"
+python -m pip install -e ".[dev,docs]"
 bash flows/scripts/pyc build
-```
 
-## Alternative: Install a Release Wheel
-
-```bash
-python3 -m pip install /path/to/pycircuit_hisi-<version>-py3-none-<platform>.whl
-
-# The wheel ships the matching toolchain inside site-packages.
+export PYC_TOOLCHAIN_ROOT="$PWD/.pycircuit_out/toolchain/install"
+export PATH="$PYC_TOOLCHAIN_ROOT/bin:$PATH"
 pycc --version
-python3 -m pycircuit.cli --help
 ```
 
-The wheel is platform-specific because it embeds `pycc`, the runtime archive,
-and the required LLVM/MLIR shared libraries. Use the wheel that matches your
-OS and architecture. A single wheel now covers Python 3.10+ on that platform.
+The build wrapper detects LLVM, configures Ninja, builds PYC plus the integrated
+ACIR/ACSim/gfsim components, and stages the install tree under
+`.pycircuit_out/toolchain/install/`.
 
-The reserved distribution name is `pycircuit-hisi` to avoid the existing
-unrelated `pycircuit` package on PyPI. The import path remains `pycircuit`, and
-the CLI entrypoints remain `pycircuit`, `pycc`, and `pyc-opt`. Do not use a PyPI
-installation command until the corresponding PTO-ISA release is published.
+For manual configuration or constrained build hosts, see the
+[development guide](../development/index.md) and
+[testing matrix](../development/testing-and-gates.md).
 
-## Install Python Package
+## Add Agentic Circuit
 
-```bash
-# Install the semantic core and frontend package in development mode
-python3 -m pip install -e "python/semantic-core"
-python3 -m pip install -e .
-
-# Verify installation metadata
-python3 -c "from importlib.metadata import version; print(version('pycircuit-hisi'))"
-```
-
-Editable install is frontend-only. It does not provide `pycc` on `PATH`; build
-the toolchain with `bash flows/scripts/pyc build` and export
-`PYC_TOOLCHAIN_ROOT="$PWD/.pycircuit_out/toolchain/install"`, or install a
-release wheel instead.
-
-## Install Agentic Circuit
-
-Agentic Circuit remains a second distribution and import namespace in the same
+Agentic Circuit is a separate distribution and import namespace in the same
 repository:
 
 ```bash
-python3 -m pip install -e "python/agentic-circuit[test]"
-python3 -c "import agentic_circuit; print(agentic_circuit.__name__)"
+python -m pip install -e "python/agentic-circuit[test]"
 agentic-circuit --help
 ```
 
-This installation provides the Python frontend and CLI. Build the repository
-toolchain to obtain `acir-opt`, `acir-build`, ACIR/ACSim libraries, and gfsim.
-The canonical `bash flows/scripts/pyc build` command enables the integrated
-Agentic Circuit modules by default. Schema-backed CLI commands also require
-the generated Python resource tree under
-`.pycircuit_out/acir/dev-llvm22/python`; the canonical
-`run_agentic_circuit.sh` gate configures it and uses the matching Python
-environment.
-
-## Verify Your Setup
-
-```bash
-# Run the smoke test
-bash flows/scripts/run_examples.sh
-
-# Should output something like:
-# Compiling counter... OK
-# Compiling calculator... OK
-# Compiling fifo_loopback... OK
-```
-
-To validate the complete Agentic Circuit integration:
+The Python package provides authoring and CLI surfaces. Native compilation uses
+the ACIR/ACSim/gfsim tools built by the full source toolchain. Run the integrated
+gate once to validate the complete local environment:
 
 ```bash
 PYC_GATE_RUN_ID=local-ac-$(date +%Y%m%d-%H%M%S) \
 bash flows/scripts/run_agentic_circuit.sh
 ```
 
+## Install a release wheel
+
+Download the wheel for your platform from
+[GitHub Releases](https://github.com/PTO-ISA/pyCircuit/releases/latest), then
+install the local file:
+
+```bash
+python3 -m pip install /path/to/pycircuit_hisi-6.0.0-*.whl
+pycc --version
+python3 -m pycircuit.cli --help
+```
+
+Platform wheels include the compiler and runtime assets. The semantic-core and
+Agentic Circuit distributions remain separate universal wheels. Use exactly the
+asset set published by one release.
+
+## Verify the setup
+
+```bash
+pytest tests/unit -m unit
+bash flows/scripts/run_examples.sh
+```
+
+System and Verilog simulation checks require the full toolchain and Verilator:
+
+```bash
+pytest tests/system -m system
+bash flows/scripts/run_sims.sh
+bash flows/scripts/run_semantic_regressions_v6.sh
+```
+
 ## Troubleshooting
 
-### LLVM Not Found
+### LLVM is not found
 
-If CMake can't find LLVM, set the paths explicitly:
-
-```bash
-export LLVM_DIR=/path/to/llvm/lib/cmake/llvm
-export MLIR_DIR=/path/to/mlir/lib/cmake/mlir
-cmake -G Ninja -S . -B .pycircuit_out/toolchain/build ...
-```
-
-### Python Version Issues
-
-pyCircuit requires Python 3.10 or later. Agentic Circuit and the integrated AC
-gates require Python 3.11 or later. Check your version:
+Ensure `llvm-config` reports version 22.1.8 and export the package directories:
 
 ```bash
-python3 --version
+LLVM_CONFIG="$(command -v llvm-config-22 || command -v llvm-config)"
+export LLVM_DIR="$("$LLVM_CONFIG" --cmakedir)"
+export MLIR_DIR="$(dirname "$LLVM_DIR")/mlir"
+bash flows/scripts/pyc build
 ```
 
-If you need to install a newer Python version:
+### `pycc` is not found
+
+Build the full toolchain and add its staged binary directory to `PATH`:
 
 ```bash
-# Ubuntu
-sudo apt-get install python3.11 python3.11-venv
-
-# macOS
-brew install python@3.11
+export PYC_TOOLCHAIN_ROOT="$PWD/.pycircuit_out/toolchain/install"
+export PATH="$PYC_TOOLCHAIN_ROOT/bin:$PATH"
 ```
 
-### Build Errors
+### A build needs a clean reconfiguration
 
-Clean and rebuild:
+Keep the existing checkout and ask CMake to rebuild the configured tree:
 
 ```bash
-rm -rf .pycircuit_out/toolchain
-cmake -G Ninja -S . -B .pycircuit_out/toolchain/build ...
-ninja -C .pycircuit_out/toolchain/build clean
-ninja -C .pycircuit_out/toolchain/build pycc
+cmake --build .pycircuit_out/toolchain/build --clean-first --parallel
 ```
+
+If configuration itself is stale, create a new ignored build directory instead
+of deleting source or evidence files.

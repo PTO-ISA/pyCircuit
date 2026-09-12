@@ -1,8 +1,8 @@
 # Choose a Frontend
 
-pyCircuit contains two supported Python distributions and authoring models.
-Choose the frontend from the abstraction you want to describe, not from the
-backend you eventually want to run.
+pyCircuit contains two supported Python distributions. Choose from the
+abstraction you want to describe; both can target the same verified hardware
+backend.
 
 ## Frontend comparison
 
@@ -10,137 +10,86 @@ backend you eventually want to run.
 | --- | --- | --- |
 | Distribution | `pycircuit-hisi` | `agentic-circuit` |
 | Python import | `pycircuit` | `agentic_circuit` |
-| Primary authoring model | Signals, state, hierarchy, and logical cycles | Architecture, processes, queues, resources, and workloads |
-| Source contract | Cycle-Aware Signal or structural modules | ACPy contract epoch `0.5` with `@ac.rule` |
-| Primary IR | PYC MLIR | ACIR, then ACSim or PYC |
+| Authoring focus | Signals, state, hierarchy, and logical cycles | Processes, queues, resources, scheduling, and architecture state |
+| Primary representation | Cycle-Aware Signal or structural modules | ACPy contract epoch 0.5 and ACIR |
 | Native simulation | pyc6 C++ cycle model | ACSim/gfsim |
-| Hardware generation | PYC → `pycc` → C++ and Verilog | Synthesizable ACIR → PYC → `pycc` → C++ and Verilog |
-| CLI | `pycircuit` / `python -m pycircuit.cli` | `agentic-circuit` |
+| Hardware generation | PYC → `pycc` → C++ / Verilog | Synthesizable ACIR → PYC → `pycc` → C++ / Verilog |
+| CLI | `pycircuit` | `agentic-circuit` |
 
 ## Use pyCircuit 6 for hardware
 
-Choose `pycircuit` when the design is expressed in terms of ports, signals,
+Choose `pycircuit` when the design is naturally expressed as ports, signals,
 registers, memories, combinational logic, pipeline stages, or clock domains.
-Cycle-Aware Signal tracks logical-cycle provenance and inserts explicit delay
-state when mixed-cycle expressions need balancing.
-
-Install and build:
+Cycle-Aware Signal tracks logical-cycle provenance and materializes the delay
+state needed to balance mixed-cycle expressions.
 
 ```bash
-python3 -m pip install -e "python/semantic-core"
-python3 -m pip install -e ".[dev,docs]"
+python -m pip install -e "python/semantic-core"
+python -m pip install -e ".[dev,docs]"
 bash flows/scripts/pyc build
 export PYC_TOOLCHAIN_ROOT="$PWD/.pycircuit_out/toolchain/install"
 ```
 
-Compile the repository counter example:
-
-```bash
-PYTHONPATH=python/pycircuit/src \
-python3 -m pycircuit.cli build \
-  examples/pycircuit/basics/counter/tb_counter.py \
-  --out-dir /tmp/pyc_counter \
-  --target both
-```
-
-Continue with the [pyCircuit 6 tutorial](tutorial.md).
+Start with the [counter quickstart](quickstart.md#build-the-counter-example),
+then continue to the [pyCircuit 6 tutorial](tutorial.md).
 
 ## Use Agentic Circuit for architecture models
 
-Choose `agentic_circuit` when the source model describes processes, queues,
-resources, scheduling, architectural state, workloads, or simulator behavior.
-ACIR remains an upper-level dialect; ACSim/gfsim is its native architecture
-simulation path.
+Choose `agentic_circuit` when the model is naturally expressed as processes,
+queues, resources, arbitration, scheduling, committed tables, or architecture
+state. `@ac.rule` describes schedulable typed behavior while the compiler owns
+Queue availability, reservations, backpressure, and atomic commit.
 
-Install the second distribution from the same checkout:
+The current frontend supports typed pure helpers, structured payloads,
+multi-input and optional multi-output rules, persistent scalar/list state,
+reusable modules, Table selection and arbitration, explicit memories, and the
+synthesizable ACIR subset. Unsupported behavior fails at a documented verifier
+boundary rather than receiving a silent default.
 
 ```bash
-python3 -m pip install -e "python/agentic-circuit[test]"
+python -m pip install -e "python/agentic-circuit[test]"
 agentic-circuit --help
 ```
 
-Use `@ac.rule` for schedulable payload behavior. Queue consumption, checks,
-handshake, scheduling, and commit are compiler-owned:
-
-```python
-@ac.rule
-def complete(entry):
-    return entry.with_fields(done=True)
-
-completed = complete(issued)
-```
-
-The current phase-one subset is one type-preserving input and output with one
-total return path. It may additionally bind one Table, observe one committed
-Entry, and perform one complete Entry replacement; MLIR groups that proposal
-with the Queue transfer for gfsim. Unsupported control flow, broader state
-effects, or unresolved markers fail before Frozen ACIR; the compiler never
-supplies a silent default.
-
-Compile a Queue/rule architecture through the public CLI to hashed,
-marker-free Frozen ACIR:
-
-```bash
-agentic-circuit compile architecture.py \
-  --emit=acpy,acir,frozen-acir \
-  --stop-after=topology-freeze \
-  --output-dir build/rule
-```
-
-For gfsim C++ specialization, use `ac.jit(system).materialize_cpp(...)`; this
-path invokes the same native rule pipeline and refuses direct Python-to-C++
-rule lowering.
-
-Configure the ACIR toolchain, generated schema resources, and validation
-environment:
+Build the integrated native tools and run the maintained architecture-model
+closure:
 
 ```bash
 PYC_GATE_RUN_ID=local-ac-$(date +%Y%m%d-%H%M%S) \
 bash flows/scripts/run_agentic_circuit.sh
 ```
 
-Then run the maintained vendor-neutral routed dependency example from the
-repository root:
-
-```bash
-pytest -q \
-  tests/integration/agentic-circuit/e2e/test_queue_codegen.py \
-  -k routed_dependency_topology
-```
-
-The generated resource tree contains the packaged AC schemas and diagnostics;
-an editable Python install by itself does not create it. Continue with the
-[Agentic Circuit and ACIR overview](../acir/index.md).
+Continue with the [Agentic Circuit and ACIR overview](../acir/index.md).
 
 ## How the flows meet
 
 ```text
-agentic_circuit -> ACPy -> ACIR -> ACSim -> gfsim
-                              `-> PYC -> pycc -> pyc6 C++ / Verilog
+agentic_circuit -> ACPy 0.5 -> ACIR -> ACSim -> gfsim
+                                    `-> PYC -> pycc -> pyc6 C++ / Verilog
 
 pycircuit -> Cycle-Aware Signal / structural modules
-                              `-> PYC -> pycc -> pyc6 C++ / Verilog
+                                    `-> PYC -> pycc -> pyc6 C++ / Verilog
 ```
 
-PYC is the shared verified hardware contract. It does not make the two Python
-frontends interchangeable, and Agentic Circuit symbols are not re-exported
-from `pycircuit`.
+PYC is the shared verified hardware contract. The Python frontends remain
+separate public namespaces and are not interchangeable compatibility layers.
 
-## Validate your path
+## Validate the selected path
 
-For pyCircuit-only changes, start with:
+For pyCircuit changes:
 
 ```bash
 pytest tests/unit -m unit
 bash flows/scripts/run_examples.sh
 ```
 
-For Agentic Circuit or ACIR changes, run the integrated closure:
+For Agentic Circuit or ACIR changes:
 
 ```bash
+python tools/agentic-circuit/check-contracts.py
 PYC_GATE_RUN_ID=local-ac-$(date +%Y%m%d-%H%M%S) \
 bash flows/scripts/run_agentic_circuit.sh
 ```
 
-See [Testing and Gates](../development/testing-and-gates.md) for the required
-lane matrix.
+See [Testing and Gates](../development/testing-and-gates.md) for the complete
+change-to-gate matrix.

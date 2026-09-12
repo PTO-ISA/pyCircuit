@@ -24,6 +24,7 @@ matrix and keep the separate frontend and IR boundaries defined by Decision
 - [Stable SDK release contract](sdk-release-contract.md)
 - [Review and merge](review-and-merge.md)
 - [Repository management](repository-management.md)
+- [Repository layout](repository-layout.md)
 
 ## Build and gate commands
 
@@ -37,8 +38,9 @@ python3 flows/tools/summarize_gate_run.py --run-id <run-id>
 ```
 
 GitHub Actions runs the configured pull request lanes. The nightly workflow
-exercises the broader simulation matrix. Use the same `PYC_GATE_RUN_ID` across
-related local lanes so evidence lands in one reviewable directory.
+exercises only heavy-tier simulations; normal and semantic simulations have
+separate owners. Use the same `PYC_GATE_RUN_ID` across related local lanes so
+evidence lands in one reviewable directory.
 
 ## Local environment
 
@@ -54,20 +56,9 @@ bash flows/scripts/run_sims.sh
 
 ## Repository layout
 
-```text
-pyCircuit/
-├── python/semantic-core/        # Shared immutable value/layout semantics
-├── python/pycircuit/src/pycircuit/  # Python frontend
-├── python/agentic-circuit/       # Agentic Circuit Python distribution
-├── compiler/mlir/                # MLIR dialect, passes, and emitters
-├── compiler/acir/                # ACIR/ACSim compiler and tools
-├── library/                      # C++ and Verilog library support
-├── simulator/gfsim/             # Architecture simulator
-├── examples/                     # Supported examples by frontend
-├── flows/                        # Build and gate orchestration
-├── tests/                        # Test suites classified by layer
-└── docs/                         # Product and contributor docs
-```
+The repository is organized by responsibility rather than by one build flow.
+See [Repository Layout](repository-layout.md) for the complete ownership map,
+placement checklist, and automated layout contracts.
 
 Use the repository's GitHub issue and pull request surfaces only when enabled by
 the PTO-ISA organization. Do not document unofficial support channels as

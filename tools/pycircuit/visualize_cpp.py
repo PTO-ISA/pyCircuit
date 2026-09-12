@@ -3,7 +3,7 @@
 visualize_cpp.py — Generate a PDF schematic from a pyCircuit-generated C++ .hpp file.
 
 Usage:
-    python visualize_cpp.py <hpp_file> [-o output.pdf] [--collapse] [--no-constants]
+    python tools/pycircuit/visualize_cpp.py <hpp_file> [-o output.pdf]
 
 Layout follows the same style as schematic_view.py:
     - Input ports on the left

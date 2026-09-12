@@ -302,7 +302,7 @@ def PYC_FifoOp : PYC_Op<"fifo", [MemoryEffects<[MemRead, MemWrite]>, AllTypesMat
 def PYC_ByteMemOp : PYC_Op<"byte_mem", [MemoryEffects<[MemRead, MemWrite]>,
                                        AllTypesMatch<["raddr", "waddr"]>,
                                        AllTypesMatch<["wdata", "rdata"]>]> {
-  let summary = "Byte-addressed memory (async read, sync write, prototype)";
+  let summary = "Byte-addressed memory with async read and synchronous write";
   let arguments = (ins PYC_ClockType:$clk,
                        PYC_ResetType:$rst,
                        AnyInteger:$raddr,
@@ -318,7 +318,7 @@ def PYC_ByteMemOp : PYC_Op<"byte_mem", [MemoryEffects<[MemRead, MemWrite]>,
 def PYC_SyncMemOp : PYC_Op<"sync_mem", [MemoryEffects<[MemRead, MemWrite]>,
                                        AllTypesMatch<["raddr", "waddr"]>,
                                        AllTypesMatch<["wdata", "rdata"]>]> {
-  let summary = "Synchronous 1R1W memory (registered read data, prototype)";
+  let summary = "Synchronous 1R1W memory with registered read data";
   let arguments = (ins PYC_ClockType:$clk,
                        PYC_ResetType:$rst,
                        I1:$ren,
@@ -335,7 +335,7 @@ def PYC_SyncMemOp : PYC_Op<"sync_mem", [MemoryEffects<[MemRead, MemWrite]>,
 def PYC_SyncMemDPOp : PYC_Op<"sync_mem_dp", [MemoryEffects<[MemRead, MemWrite]>,
                                             AllTypesMatch<["raddr0", "raddr1", "waddr"]>,
                                             AllTypesMatch<["wdata", "rdata0", "rdata1"]>]> {
-  let summary = "Synchronous 2R1W memory (dual-read, registered outputs, prototype)";
+  let summary = "Synchronous 2R1W memory with registered outputs";
   let arguments = (ins PYC_ClockType:$clk,
                        PYC_ResetType:$rst,
                        I1:$ren0,
@@ -352,7 +352,7 @@ def PYC_SyncMemDPOp : PYC_Op<"sync_mem_dp", [MemoryEffects<[MemRead, MemWrite]>,
 }
 
 def PYC_AsyncFifoOp : PYC_Op<"async_fifo", [MemoryEffects<[MemRead, MemWrite]>, AllTypesMatch<["in_data", "out_data"]>]> {
-  let summary = "Ready/valid async FIFO (dual-clock, strict handshake, prototype)";
+  let summary = "Dual-clock ready/valid FIFO with strict handshake";
   let arguments = (ins PYC_ClockType:$in_clk,
                        PYC_ResetType:$in_rst,
                        PYC_ClockType:$out_clk,
@@ -366,7 +366,7 @@ def PYC_AsyncFifoOp : PYC_Op<"async_fifo", [MemoryEffects<[MemRead, MemWrite]>, 
 }
 
 def PYC_CdcSyncOp : PYC_Op<"cdc_sync", [MemoryEffects<[MemRead, MemWrite]>, AllTypesMatch<["in", "out"]>]> {
-  let summary = "CDC synchronizer (dst-clocked, prototype)";
+  let summary = "Destination-clocked CDC synchronizer";
   let arguments = (ins PYC_ClockType:$clk, PYC_ResetType:$rst, AnyInteger:$in);
   let results = (outs AnyInteger:$out);
   let hasVerifier = 1;
@@ -382,13 +382,13 @@ def PYC_InstanceOp : PYC_Op<"instance", []> {
 }
 
 def PYC_AssertOp : PYC_Op<"assert", [MemoryEffects<[MemWrite]>]> {
-  let summary = "Simulation-only assertion (prototype)";
+  let summary = "Simulation-only assertion";
   let arguments = (ins I1:$cond, OptionalAttr<StrAttr>:$msg);
   let hasVerifier = 1;
   let assemblyFormat = "$cond attr-dict";
 }
 
-// Fused combinational region (prototype).
+// Fused combinational region.
 //
 // This is intended as a codegen-friendly wrapper that allows backends to emit
 // a single flattened combinational block (Verilog assigns / inlined C++ function)

@@ -481,7 +481,7 @@ def test_runtime_and_trace_identifiers_are_pyc6_only() -> None:
         root / "python/pycircuit/src/pycircuit/cli.py",
         root / "compiler/mlir/tools/pycc.cpp",
         root / "flows/tools/gen_cmake_from_manifest.py",
-        root / "flows/tools/dump_pyctrace.py",
+        root / "tools/pycircuit/dump_pyctrace.py",
     )
     text = "\n".join(path.read_text(encoding="utf-8") for path in contract_files)
 

@@ -601,7 +601,7 @@ static bool topoSortCombOps(ArrayRef<Operation *> ops, NameTable &nt, llvm::Smal
     }
   }
 
-  // Verilog does not support multiple continuous drivers for a single net in this prototype.
+  // Verilog does not support multiple continuous drivers for one net.
   for (auto &it : wireAssignCount) {
     if (it.second > 1)
       return false;

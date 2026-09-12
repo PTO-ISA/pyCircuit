@@ -1,6 +1,6 @@
 # pyCircuit C++ 仿真引擎架构
 
-## 1. 概述
+## 概述
 
 本文只描述 PYC 生成的 `libpyc6_runtime` 周期模型。Agentic Circuit 的
 `gfsim` 是另一套架构级运行时：它以 `(time, causal_delta)` 为全局 epoch，
@@ -38,9 +38,9 @@ pyCircuit 的 C++ 仿真引擎采用 **静态编译-直接执行 (Compiled-Code 
 └─────────────────────────────────────────────────────────┘
 ```
 
-## 2. 核心数据结构
+## 核心数据结构
 
-### 2.1 `Wire<N>` (pyc_bits.hpp)
+### `Wire<N>` (pyc_bits.hpp)
 
 所有信号（无论组合还是寄存器输出）都用 `Wire<N>` 表示，它是固定宽度的无符号位向量。
 
@@ -59,7 +59,7 @@ using Wire = Bits<Width>;
 - 宽度 ≤ 64 bit 的信号仅占 1 个 word，零额外开销
 - 宽度 > 64 bit 的信号（如 RegisterFile 的 640-bit rdata_bus）自动扩展为多 word
 
-### 2.2 `pyc_reg<Width>` (pyc_primitives.hpp)
+### `pyc_reg<Width>` (pyc_primitives.hpp)
 
 寄存器原语，实现两阶段更新协议：
 
@@ -76,7 +76,7 @@ class pyc_reg {
 };
 ```
 
-## 3. 单周期执行流程
+## 单周期执行流程
 
 每个仿真步（half-cycle step）按固定顺序执行，**没有事件队列**：
 
@@ -105,7 +105,7 @@ comb → clk=1 → tick_posedge → transfer → comb → clk=0 → tick_negedge
 如果 DUT 提供了分离的时钟边沿方法，下降沿仅执行轻量级 `clkPrev` 更新，
 避免对所有寄存器执行完整的 `tick_compute()` 检查。
 
-### 3.1 eval() 组合逻辑求值
+### eval() 组合逻辑求值
 
 `eval()` 是编译器生成的纯函数，按 **拓扑排序** 展开所有组合逻辑节点。
 编译器在 MLIR 层已完成数据流分析和调度，将组合逻辑分割为多个
@@ -128,7 +128,7 @@ void eval() {
 通过可选的 **信号变化检测 (Change Detection)** 机制，可以在输入未变化时
 跳过 `eval()` 调用，形成混合 compiled/event 模型（参见 §5.6）。
 
-### 3.2 tick() 时序更新
+### tick() 时序更新
 
 `tick()` 采用经典的 **两阶段更新协议**（compute-then-commit），
 确保寄存器间无顺序依赖：
@@ -146,7 +146,7 @@ void tick() {
 }
 ```
 
-## 4. 与事件驱动仿真的对比
+## 与事件驱动仿真的对比
 
 | 特性 | pyc6 C++ (Compiled-Code) | 事件驱动 (如 Verilator/iverilog) |
 |---|---|---|
@@ -166,13 +166,13 @@ void tick() {
 进程 continuation 和跨 time-domain 激活必须在 `Epoch{time, delta}` 上保持确定
 顺序；超过上限以 `max_deltas_exceeded` 失败，而不是无限迭代。
 
-## 5. RegisterFile RTL 仿真基准测试
+## RegisterFile RTL 仿真基准测试
 
 正确性设计位于 `tests/integration/pycircuit/fixtures/regfile/`，性能驱动位于
 `benchmarks/pycircuit/register_file/`。生成模型、共享库和 PGO profile 统一写入
 `.pycircuit_out/benchmarks/register_file/`。
 
-### 5.1 设计规格
+### 设计规格
 
 | 参数 | 值 |
 |---|---|
@@ -183,7 +183,7 @@ void tick() {
 | 数据宽度 | 64 bit |
 | 存储组织 | 2 bank × 128 entry × 32 bit |
 
-### 5.2 生成代码统计
+### 生成代码统计
 
 | 指标 | 值 |
 |---|---|
@@ -193,7 +193,7 @@ void tick() {
 | 组合逻辑函数 (eval_comb) | 131 |
 | tick_compute/commit 调用 | 各 256 次 |
 
-### 5.3 性能数据
+### 性能数据
 
 测试环境：Apple M1 (arm64)，macOS (darwin 25.2.0)，Apple Clang 17。
 工作负载：每周期混合随机 10-路读 + 5-路写流量，100K cycles，取 5 次最优。
@@ -208,7 +208,7 @@ void tick() {
 
 最佳配置（PGO + O2 + SIMD + pyc_reg 优化）实现了 **1.90x 加速**。
 
-### 5.3.1 优化前后实测对比
+### 优化前后实测对比
 
 | 指标 | 优化前 (`-O2`) | 优化后 (PGO+SIMD) | 提升 |
 |---|---|---|---|
@@ -217,7 +217,7 @@ void tick() {
 | 单周期耗时 | 32.10 μs | **16.93 μs** | -47% |
 | __TEXT 代码大小 | 278 KB | **213 KB** | -23% |
 
-### 5.4 性能瓶颈分析与优化
+### 性能瓶颈分析与优化
 
 **瓶颈诊断**: 生成代码的 `__TEXT` 段为 278 KB，远超 Apple M1 的 L1
 I-cache (192 KB/core)。`eval()` 函数体包含 131 个 eval_comb 子函数，
@@ -279,7 +279,7 @@ PGO 的效果：
 `-O3` 反而比 `-O2` 慢（-11%），因为激进内联增大了 I-cache 压力。
 `-Os` 减少 `__TEXT` 至 246 KB 即获得 31% 加速，证实瓶颈是 I-cache。
 
-### 5.5 优化因素分解
+### 优化因素分解
 
 | 因素 | 单独贡献 | 说明 |
 |---|---|---|
@@ -291,7 +291,7 @@ PGO 的效果：
 **结论**: 对大型生成代码（> L1 I-cache），PGO 和代码大小优化比
 SIMD 向量化更有效。SIMD 的价值体现在宽数据路径密集的设计中。
 
-### 5.6 信号变化检测 (Change Detection)
+### 信号变化检测 (Change Detection)
 
 **已实现。** 在 `pyc_change_detect.hpp` 中引入了混合 compiled/event 模型基础设施。
 
@@ -334,7 +334,7 @@ negedge 路径仅更新 clkPrev 标记，避免 256 次无效的 tick_compute �
 变化检测可提升 27%。对活动率 10% 的设计（外设/总线控制器），
 可提升 63%。100% 活动时无额外开销（fingerprint 检查被内联后极轻量）。
 
-### 5.7 自动化 PGO 构建 (pycircuit pgo-build)
+### 自动化 PGO 构建 (pycircuit pgo-build)
 
 **已实现。** PGO 流程已集成到 `pycircuit.cli` 工具链，一条命令完成全流程。
 
@@ -386,9 +386,9 @@ pycircuit pgo-build regfile_capi.cpp -o libregfile_sim.dylib -I include \
 | `--prof-dir` | 临时目录 | Profile 数据存放目录 |
 | `--keep-profiles` | false | 保留中间产物 |
 
-## 6. 多线程仿真可行性分析
+## 多线程仿真可行性分析
 
-### 6.1 当前架构的约束
+### 当前架构的约束
 
 当前仿真引擎是 **严格单线程** 的：
 
@@ -398,7 +398,7 @@ pycircuit pgo-build regfile_capi.cpp -o libregfile_sim.dylib -I include \
    后序函数依赖前序函数的输出
 3. **共享状态**: 所有 Wire 信号是同一结构体的成员变量，没有内存隔离
 
-### 6.2 可行的多线程改造方向
+### 可行的多线程改造方向
 
 #### 方向 A: eval() 内部并行化（周期内并行）
 
@@ -497,7 +497,7 @@ PGO 让编译器基于实际运行 profile 优化代码布局：
 
 **实测结果**: 单独贡献 **1.86x 加速**，是目前最有效的单一优化手段。
 
-### 6.3 总结与建议
+### 总结与建议
 
 | 方向 | 可行性 | 改造成本 | 实测/预期加速 | 适用规模 |
 |---|---|---|---|---|
