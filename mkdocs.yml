@@ -104,6 +104,7 @@ nav:
       - Historical Repository Record: acir/spec/refs/history.md
   - Development:
       - Overview: development/index.md
+      - Agent Frontend Guide: development/agent-frontend-guide.md
       - Implementation Guide: development/implementation-guide.md
       - Contributing Workflow: development/contributing-workflow.md
       - Testing and Gates: development/testing-and-gates.md

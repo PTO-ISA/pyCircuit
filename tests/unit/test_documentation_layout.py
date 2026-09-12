@@ -160,3 +160,73 @@ def test_current_product_docs_do_not_present_supported_surfaces_as_legacy() -> N
                 offenders.append(f"{path.relative_to(ROOT)}: {match.group(0)}")
 
     assert not offenders, "stale product language:\n" + "\n".join(offenders)
+
+
+def test_agent_frontend_guide_is_the_agent_authoring_entrypoint() -> None:
+    guide_path = ROOT / "docs/development/agent-frontend-guide.md"
+    guide = guide_path.read_text(encoding="utf-8")
+    agents = (ROOT / "AGENTS.md").read_text(encoding="utf-8")
+
+    assert "docs/development/agent-frontend-guide.md" in agents
+    for contract in (
+        "CycleAwareSignal",
+        "pycircuit.structural.mux()",
+        "@ac.rule",
+        "@ac.inline",
+        "domain.next()",
+        "Do not start by writing",
+        "Frontend: cycle-aware | structural | agentic",
+    ):
+        assert contract in guide
+
+    for example in (
+        "examples/pycircuit/features/issue_queue_2picker/",
+        "examples/pycircuit/features/struct_transform/",
+        "examples/agentic-circuit/pipelines/routed_dependency_pipeline.py",
+        "examples/agentic-circuit/state/table_rule.py",
+    ):
+        assert example in guide
+
+
+def test_cycle_aware_guide_recipe_has_aligned_data_and_valid_latency() -> None:
+    guide = (ROOT / "docs/development/agent-frontend-guide.md").read_text(
+        encoding="utf-8"
+    )
+    section = guide.split("## Write cycle-aware hardware", 1)[1].split(
+        "## Write structural libraries", 1
+    )[0]
+    source = re.search(r"```python\n(.*?)\n```", section, re.DOTALL)
+    assert source is not None
+
+    namespace = {"__name__": "agent_frontend_guide_recipe"}
+    exec(compile(source.group(1), "agent-frontend-guide.md", "exec"), namespace)
+
+    from pycircuit import build_cycle_aware
+
+    mlir = build_cycle_aware(
+        namespace["registered_increment"], name="registered_increment"
+    ).emit_mlir()
+    assert "_v6_bal" not in mlir
+    assert mlir.count("pyc.reg") == 2
+    assert 'result_names = ["data", "valid"]' in mlir
+
+
+def test_agentic_guide_recipe_uses_typed_system_boundaries() -> None:
+    from agentic_circuit._queue_frontend import lower_queue_source
+
+    guide = (ROOT / "docs/development/agent-frontend-guide.md").read_text(
+        encoding="utf-8"
+    )
+    section = guide.split("## Write transactional architecture hardware", 1)[1].split(
+        "## Decompose a complex design", 1
+    )[0]
+    source = re.search(r"```python\n(.*?)\n```", section, re.DOTALL)
+    assert source is not None
+    source_text = source.group(1)
+
+    assert "ac.source(" not in source_text
+    assert "ac.sink(" not in source_text
+    lowered = lower_queue_source(source_text, "transaction_pipeline")
+    assert "ac.rule " in lowered
+    assert "ac.table" in lowered
+    assert "func.func private @increment" in lowered

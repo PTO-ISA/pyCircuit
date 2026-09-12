@@ -11,6 +11,7 @@ matrix and keep the separate frontend and IR boundaries defined by Decision
 
 ## Core references
 
+- [Pythonic frontend guide for coding agents](agent-frontend-guide.md)
 - [V6 language specification](../reference/language.md)
 - [pyCircuit 6 decisions](../rfcs/pyc6-decisions.md)
 - [pyCircuit 6 evolution plan](../pyc6-plan.md)

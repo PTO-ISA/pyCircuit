@@ -6,6 +6,9 @@ published through the repository's release workflow.
 
 ## Unreleased
 
+- Add a Pythonic frontend guide for coding agents, covering Cycle-Aware Signal,
+  structural modules, Agentic rules, complex-design decomposition, maintained
+  examples, failure modes, validation, and handoff evidence.
 - Professionalize repository navigation and onboarding: separate pyCircuit
   tools from flow internals, retire completed migration pages and obsolete
   design docs, remove name-based ACIR-to-ACSim device inference, rename the
