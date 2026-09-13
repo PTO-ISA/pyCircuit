@@ -35,6 +35,8 @@ CAPTURE_ONLY_API = (
     "count_trailing_zeros",
     "priority_encode",
     "onehot_encode",
+    "onehot_enum",
+    "match_enum",
     "memory",
     "sink",
     "observe",
@@ -126,8 +128,10 @@ def saturate(value: object, value_type: object) -> Never:
     return _capture_time_only("saturate")
 
 
-def checked(value: object, value_type: object) -> Never:
-    _ = (value, value_type)
+def checked(
+    value: object, value_type: object, *, fallback: object | None = None
+) -> Never:
+    _ = (value, value_type, fallback)
     return _capture_time_only("checked")
 
 
@@ -183,6 +187,22 @@ def priority_encode(value: object, *, order: str = "low") -> Never:
 def onehot_encode(value: object, *, order: str = "low") -> Never:
     _ = (value, order)
     return _capture_time_only("onehot_encode")
+
+
+def onehot_enum(
+    value: object,
+    *,
+    members: object,
+    empty: object,
+    conflict: object,
+) -> Never:
+    _ = (value, members, empty, conflict)
+    return _capture_time_only("onehot_enum")
+
+
+def match_enum(value: object, cases: object, *, invalid: object) -> Never:
+    _ = (value, cases, invalid)
+    return _capture_time_only("match_enum")
 
 
 def memory(

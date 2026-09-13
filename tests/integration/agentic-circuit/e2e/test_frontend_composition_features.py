@@ -241,6 +241,11 @@ def pipeline(raw: ac.u8) -> bool:
                 {},
             ),
             (
+                ROOT / "examples/agentic-circuit/pipelines/enum_helpers.py",
+                "enum_helpers",
+                {},
+            ),
+            (
                 ROOT / "examples/agentic-circuit/blocks/bounded_integer_operations.py",
                 "bounded_integer_operations",
                 {},

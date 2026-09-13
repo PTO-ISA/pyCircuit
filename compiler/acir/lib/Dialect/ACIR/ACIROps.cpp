@@ -18,6 +18,7 @@
 #include "llvm/ADT/SmallSet.h"
 #include "llvm/ADT/StringExtras.h"
 #include "llvm/ADT/StringMap.h"
+#include "llvm/ADT/StringSet.h"
 #include "llvm/ADT/StringSwitch.h"
 #include "llvm/ADT/TypeSwitch.h"
 #include "llvm/Support/JSON.h"
@@ -1973,6 +1974,50 @@ LogicalResult VarEnumOp::verify() {
         return cast<StringAttr>(value).getValue() == getEnumerant();
       }))
     return emitOpError() << "unknown enumerant '" << getEnumerant() << "'";
+  return success();
+}
+
+LogicalResult VarEnumMatchOp::verify() {
+  ValueRange values = getValues();
+  if (values.size() < 3)
+    return emitOpError("requires one selector, at least one case value, and "
+                       "one invalid value");
+  auto selector = dyn_cast<EnumType>(
+      cast<VarType>(values.front().getType()).getElementType());
+  if (!selector)
+    return emitOpError("selector must carry a nominal enum type");
+  auto declaration =
+      dyn_cast_or_null<EnumOp>(lookup(*this, selector.getName()));
+  if (!declaration)
+    return emitOpError("selector enum declaration must resolve to ac.enum");
+  if (getEnumerants().size() + 2 != values.size())
+    return emitOpError(
+        "enumerant list must match the positional case value count");
+
+  llvm::StringSet<> declared;
+  for (Attribute attribute : declaration.getEnumerants())
+    declared.insert(cast<StringAttr>(attribute).getValue());
+  llvm::StringSet<> covered;
+  for (Attribute attribute : getEnumerants()) {
+    StringRef enumerant = cast<StringAttr>(attribute).getValue();
+    if (!declared.contains(enumerant))
+      return emitOpError() << "unknown or unreachable enum case '" << enumerant
+                           << "'";
+    if (!covered.insert(enumerant).second)
+      return emitOpError() << "duplicate enum case '" << enumerant << "'";
+  }
+  for (Attribute attribute : declaration.getEnumerants()) {
+    StringRef enumerant = cast<StringAttr>(attribute).getValue();
+    if (!covered.contains(enumerant))
+      return emitOpError() << "non-exhaustive enum cases; missing '"
+                           << enumerant << "'";
+  }
+
+  Type resultType = getResult().getType();
+  for (Value value : values.drop_front())
+    if (value.getType() != resultType)
+      return emitOpError(
+          "case and invalid operand types must exactly match the result type");
   return success();
 }
 

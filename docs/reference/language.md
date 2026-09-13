@@ -728,6 +728,16 @@ fingerprint。record 的 `**` spread
 `ac.onehot_encode(...)` 返回 `.index/.valid/.conflict`，并 lowering 为既有 scalar
 priority-encode、popcount 和比较操作。
 
+enum 的 Pythonic helper 保持所有协议歧义显式：`value.is_one_of(...)` 只接受同一
+nominal enum 的成员常量；`ac.checked(raw, EnumType, fallback=...)` 返回
+`.value/.valid` 并保留 sparse encoding；`ac.onehot_enum(...)` 强制声明
+`members=`、`empty=` 和 `conflict=`，返回 `.value/.present/.conflict`。
+`ac.match_enum(selector, {member: value, ...}, invalid=...)` 要求 dict literal 恰好
+覆盖每个已声明 member，所有结果递归类型完全一致。`invalid=` 不能省略，因为 raw
+enum 输入的物理 bits 仍可能不是任何声明 encoding。Raw ACIR 的
+`ac.var.enum_match` verifier 复核 coverage 后，统一 lowering 为 enum equality、
+balanced OR 和 select；Frozen ACIR/PYC 不保留高层 match 或 `scf.*`。
+
 ## Tier 分层标注（3D 堆叠扩展，Proposed）
 
 > **状态:Proposed**(尚未实现;完整提案与实现草图见 `docs/rfcs/tier_annotation.md`)。本节先行纳入规范,冻结语法形态与语义边界。

@@ -30,6 +30,8 @@ CAPTURE_ONLY = {
     "popcount",
     "priority_encode",
     "onehot_encode",
+    "onehot_enum",
+    "match_enum",
     "memory",
     "sink",
     "observe",

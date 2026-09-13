@@ -60,6 +60,65 @@ Value createNot(OpBuilder &builder, Location location, Value input) {
   return builder.create(state)->getResult(0);
 }
 
+Value createEnumConstant(OpBuilder &builder, Location location,
+                         ac::EnumType type, StringRef enumerant) {
+  OperationState state(location, ac::VarEnumOp::getOperationName());
+  state.addTypes(varType(builder.getContext(), type));
+  state.addAttribute("declaration", type.getName());
+  state.addAttribute("enumerant", builder.getStringAttr(enumerant));
+  return builder.create(state)->getResult(0);
+}
+
+Value createSelect(OpBuilder &builder, Location location, Value condition,
+                   Value trueValue, Value falseValue) {
+  OperationState state(location, ac::VarSelectOp::getOperationName());
+  state.addOperands({condition, trueValue, falseValue});
+  state.addTypes(trueValue.getType());
+  return builder.create(state)->getResult(0);
+}
+
+LogicalResult lowerEnumMatch(ac::VarEnumMatchOp match) {
+  ValueRange operands = match.getValues();
+  Value selector = operands.front();
+  auto selectorType = cast<ac::EnumType>(
+      cast<ac::VarType>(selector.getType()).getElementType());
+  ValueRange cases = operands.drop_front().drop_back();
+  Value invalid = operands.back();
+  OpBuilder builder(match);
+  SmallVector<std::pair<Value, Value>> candidates;
+  candidates.reserve(cases.size());
+  for (auto [enumerant, caseValue] :
+       llvm::zip_equal(match.getEnumerants(), cases)) {
+    Value constant = createEnumConstant(builder, match.getLoc(), selectorType,
+                                        cast<StringAttr>(enumerant).getValue());
+    candidates.emplace_back(
+        caseValue, createCmp(builder, match.getLoc(), selector, constant));
+  }
+  while (candidates.size() > 1) {
+    SmallVector<std::pair<Value, Value>> next;
+    for (size_t index = 0; index < candidates.size(); index += 2) {
+      if (index + 1 == candidates.size()) {
+        next.push_back(candidates[index]);
+        continue;
+      }
+      auto [leftValue, leftValid] = candidates[index];
+      auto [rightValue, rightValid] = candidates[index + 1];
+      next.emplace_back(createSelect(builder, match.getLoc(), leftValid,
+                                     leftValue, rightValue),
+                        createBoolBinary(builder, match.getLoc(),
+                                         ac::VarOrOp::getOperationName(),
+                                         leftValid, rightValid));
+    }
+    candidates = std::move(next);
+  }
+  auto [selected, valid] = candidates.front();
+  Value result =
+      createSelect(builder, match.getLoc(), valid, selected, invalid);
+  match.getResult().replaceAllUsesWith(result);
+  match.erase();
+  return success();
+}
+
 FailureOr<Operation *> resolveStruct(Operation *from, ac::StructType type) {
   Operation *declaration = SymbolTable::lookupNearestSymbolFrom(
       from, cast<SymbolRefAttr>(type.getName()));
@@ -192,6 +251,12 @@ struct LowerValueContractsPass
 } // namespace
 
 LogicalResult lowerValueContracts(ModuleOp model) {
+  SmallVector<ac::VarEnumMatchOp> enumMatches;
+  model.walk([&](ac::VarEnumMatchOp match) { enumMatches.push_back(match); });
+  for (ac::VarEnumMatchOp match : enumMatches)
+    if (failed(lowerEnumMatch(match)))
+      return failure();
+
   SmallVector<ac::VarCmpOp> comparisons;
   model.walk([&](ac::VarCmpOp comparison) {
     Type payload = cast<ac::VarType>(comparison.getLhs().getType())

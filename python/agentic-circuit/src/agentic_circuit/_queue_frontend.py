@@ -23,7 +23,6 @@ from _pycircuit_semantics import (
     Unknown,
     ValueType,
     constraint_for_type,
-    is_exhaustive,
     is_primitive_input_width,
     parse_bitmask_checked,
     primitive_count_width,
@@ -1860,16 +1859,16 @@ def _enums(tree: ast.Module) -> tuple[EnumBinding, ...]:
                 "ACPY-TYPE-005: explicit enum values must be unique, nonnegative, "
                 "and fit the declared width"
             )
+        if len(set(enumerants)) != len(enumerants):
+            raise QueueFrontendError(
+                "ACPY-TYPE-005: enum member names must be unique"
+            )
         descriptor = EnumType(
             node.name,
             tuple(enumerants),
             None if encoding_width is None else tuple(values),
             encoding_width,
         )
-        if not is_exhaustive(constraint_for_type(descriptor), set(enumerants)):
-            raise QueueFrontendError(
-                "ACPY-TYPE-005: enum declaration does not cover its finite domain"
-            )
         names.add(node.name)
         result.append(EnumBinding(node.name, descriptor))
     return tuple(result)
@@ -2507,6 +2506,7 @@ def _invariant_definitions(
     tree: ast.Module,
     payloads: dict[str, Payload],
     bitfields: Mapping[str, BitfieldLayout],
+    enum_types: Mapping[str, EnumType],
 ) -> tuple[InvariantDefinition, ...]:
     agentic_module_aliases = {
         alias.asname or alias.name
@@ -2554,7 +2554,7 @@ def _invariant_definitions(
                 f"ACPY-INVARIANT-001: invariant {node.name!r} requires an exact "
                 "nominal payload annotation"
             )
-        payload = _payload(parameter.annotation, payloads)
+        payload = _payload(parameter.annotation, payloads, enum_types)
         if not isinstance(payload, StructType):
             raise QueueFrontendError(
                 f"ACPY-INVARIANT-001: invariant {node.name!r} payload must be "
@@ -2682,6 +2682,7 @@ def _invariant_definitions(
             definition.argument,
             definition.payload,
             root_name="value",
+            enum_types=enum_types,
             bitfields=bitfields,
             invariants=by_name,
         )
@@ -2808,6 +2809,8 @@ def _pure_helper_definitions(
         "saturate",
         "checked",
         "refine",
+        "onehot_enum",
+        "match_enum",
     }
 
     class Rewrite(ast.NodeTransformer):
@@ -2885,6 +2888,7 @@ def _pure_helper_definitions(
                                 "any",
                                 "count",
                                 "fold",
+                                "is_one_of",
                                 "with_fields",
                                 "with_element",
                                 "view",
@@ -3824,7 +3828,9 @@ def parse_queue_program(
     payload_map = {item.name: item for item in payloads}
     bitfields = _bitfields(tree)
     bitfield_map = {binding.name: binding.layout for binding in bitfields}
-    invariant_definitions = _invariant_definitions(tree, payload_map, bitfield_map)
+    invariant_definitions = _invariant_definitions(
+        tree, payload_map, bitfield_map, enum_map
+    )
     helper_definitions = _pure_helper_definitions(tree, payload_map, enum_map)
     helper_map = {definition.name: definition for definition in helper_definitions}
 
@@ -3967,7 +3973,12 @@ def parse_queue_program(
                 "ACPY-RULE-014: multi-output return ordinals require unique locals"
             )
         output_types = tuple(
-            _payload(element, payload_map, static_values=type_static_values)
+            _payload(
+                element,
+                payload_map,
+                enum_map,
+                static_values=type_static_values,
+            )
             for element in annotation_elements
         )
         state_references: set[str] = set()
@@ -4359,6 +4370,7 @@ def parse_queue_program(
                 _payload(
                     node.returns,
                     payload_map,
+                    enum_map,
                     static_values=type_static_values,
                 ),
             )
@@ -5352,6 +5364,7 @@ def parse_queue_program(
             payload = _payload(
                 parameter.annotation,
                 payload_map,
+                enum_map,
                 static_values=type_static_values,
             )
             if entry_kind == "system" and _contains_declared_range(payload):
@@ -5418,10 +5431,22 @@ def parse_queue_program(
                     "ACPY-QUEUE-026: system result tuple cannot be empty"
                 )
             return tuple(
-                _payload(element, payload_map, static_values=type_static_values)
+                _payload(
+                    element,
+                    payload_map,
+                    enum_map,
+                    static_values=type_static_values,
+                )
                 for element in elements
             )
-        return (_payload(annotation, payload_map, static_values=type_static_values),)
+        return (
+            _payload(
+                annotation,
+                payload_map,
+                enum_map,
+                static_values=type_static_values,
+            ),
+        )
 
     result_payloads = system_result_payloads(function.returns)
     interface_owner = (
@@ -5970,7 +5995,10 @@ def parse_queue_program(
                 )
             entries *= extent
         entry_type = _payload(
-            parameters.elts[1], payload_map, static_values=type_static_values
+            parameters.elts[1],
+            payload_map,
+            enum_map,
+            static_values=type_static_values,
         )
         if call.args or any(
             keyword.arg is None or keyword.arg != "init" for keyword in call.keywords
@@ -6008,7 +6036,10 @@ def parse_queue_program(
                 "ACPY-TABLE-011: typed image version must be exactly 1"
             )
         image_entry = _payload(
-            image_fields["entry"], payload_map, static_values=type_static_values
+            image_fields["entry"],
+            payload_map,
+            enum_map,
+            static_values=type_static_values,
         )
         if image_entry != entry_type:
             raise QueueFrontendError(
@@ -6395,7 +6426,12 @@ def parse_queue_program(
             raise QueueFrontendError("ACPY-QUEUE-025: Queue rate must not exceed lanes")
         return QueueBinding(
             name,
-            _payload(call.args[0], payload_map, static_values=type_static_values),
+            _payload(
+                call.args[0],
+                payload_map,
+                enum_map,
+                static_values=type_static_values,
+            ),
             depth,
             _positive_int(call, "latency", 1, static_values),
             None,
@@ -6423,7 +6459,10 @@ def parse_queue_program(
                 "ACPY-QUEUE-015: memory instance has an unsupported keyword"
             )
         data_type = _payload(
-            call.args[0], payload_map, static_values=type_static_values
+            call.args[0],
+            payload_map,
+            enum_map,
+            static_values=type_static_values,
         )
         if _epoch_05_integer_width(data_type) is None:
             raise QueueFrontendError(
@@ -6682,6 +6721,7 @@ def parse_queue_program(
                     value_type = _payload(
                         annotation.slice,
                         payload_map,
+                        enum_map,
                         static_values=type_static_values,
                     )
                     initializer = statement.value
@@ -7672,6 +7712,7 @@ def parse_queue_program(
                     payload_map,
                     argument,
                     incoming.payload,
+                    enum_types=enum_map,
                     bitfields=bitfield_map,
                 ).emit(condition)
                 if not _is_epoch_05_bool_compatible(condition_type):
@@ -10479,6 +10520,7 @@ class _ExpressionEmitter:
         state_views: Mapping[str, tuple[str, ValueType, int]] | None = None,
         table_domains: Mapping[str, tuple[ValueType, int, tuple[int, ...]]]
         | None = None,
+        enum_types: Mapping[str, EnumType] | None = None,
         bitfields: Mapping[str, BitfieldLayout] | None = None,
         invariants: Mapping[str, InvariantDefinition] | None = None,
         helpers: Mapping[str, PureHelperDefinition] | None = None,
@@ -10486,7 +10528,7 @@ class _ExpressionEmitter:
         array_expansion: list[int] | None = None,
     ) -> None:
         self.payloads = payloads
-        self.enum_types: dict[str, EnumType] = {}
+        self.enum_types: dict[str, EnumType] = dict(enum_types or {})
 
         def collect_enums(descriptor: ValueType) -> None:
             if isinstance(descriptor, EnumType):
@@ -10551,6 +10593,20 @@ class _ExpressionEmitter:
         self.range_checked_values: dict[
             str, tuple[str, ValueType, str, ValueType]
         ] = {}
+        self.enum_checked_values: dict[
+            str, tuple[str, ValueType, str, ValueType]
+        ] = {}
+        self.onehot_enum_values: dict[
+            str,
+            tuple[
+                str,
+                ValueType,
+                str,
+                ValueType,
+                str,
+                ValueType,
+            ],
+        ] = {}
         self.selection_batch_values: dict[
             str, tuple[tuple[str, ValueType, str, ValueType], ...]
         ] = {}
@@ -10572,14 +10628,25 @@ class _ExpressionEmitter:
     ) -> tuple[str, ValueType]:
         self.expression_facts[name] = _ExpressionFact(
             value_type,
-            constraint_for_type(value_type) if constraint is None else constraint,
+            self._default_expression_constraint(value_type)
+            if constraint is None
+            else constraint,
         )
         return name, value_type
+
+    @staticmethod
+    def _default_expression_constraint(value_type: ValueType) -> Constraint:
+        # A nominal enum type defines its declared members, not a proof that
+        # arbitrary ingress bits encode one of those members.  Only explicit
+        # constructors and checked decoders install a stronger fact.
+        if isinstance(value_type, EnumType):
+            return Unknown()
+        return constraint_for_type(value_type)
 
     def constraint_for_result(self, name: str, value_type: ValueType) -> Constraint:
         fact = self.expression_facts.get(name)
         if fact is None:
-            return constraint_for_type(value_type)
+            return self._default_expression_constraint(value_type)
         if not self._types_match(fact.value_type, value_type):
             raise AssertionError("expression fact type does not match emitted result")
         return fact.constraint
@@ -10590,6 +10657,40 @@ class _ExpressionEmitter:
             if self.strict_descriptors
             else _types_equal_in_epoch_05(left, right)
         )
+
+    def _unshadowed_enum(self, name: str) -> EnumType | None:
+        runtime_names = {
+            self.argument,
+            *self.root_values,
+            *self.deferred_values,
+            *self.table_views,
+            *self.slot_views,
+            *self.candidates,
+            *self.selections,
+            *self.candidate_values,
+            *self.selection_values,
+            *self.find_values,
+            *self.state_views,
+            *self.table_domains,
+        }
+        return None if name in runtime_names else self.enum_types.get(name)
+
+    def _explicit_enum_member(
+        self, node: ast.expr, expected: EnumType | None = None
+    ) -> tuple[EnumType, str] | None:
+        if not (
+            isinstance(node, ast.Attribute)
+            and isinstance(node.value, ast.Name)
+        ):
+            return None
+        enumeration = self._unshadowed_enum(node.value.id)
+        if (
+            enumeration is None
+            or (expected is not None and enumeration != expected)
+            or node.attr not in enumeration.enumerants
+        ):
+            return None
+        return enumeration, node.attr
 
     def _reserve_array_expansion(self, count: int) -> None:
         if count <= 0 or self.array_expansion[0] > (
@@ -10865,6 +10966,405 @@ class _ExpressionEmitter:
         )
         self.range_checked_values[key] = result
         return result
+
+    def _emit_checked_enum(
+        self, node: ast.Call
+    ) -> tuple[str, ValueType, str, ValueType] | None:
+        if (
+            _decorator_name(node.func).rsplit(".", 1)[-1] != "checked"
+            or len(node.args) < 2
+        ):
+            return None
+        target_name = (
+            node.args[1].id if isinstance(node.args[1], ast.Name) else ""
+        )
+        if target_name in self.enum_types and self._unshadowed_enum(target_name) is None:
+            raise QueueFrontendError(
+                "ACPY-TYPE-005: checked enum target must be an unshadowed enum class"
+            )
+        target = self._unshadowed_enum(target_name)
+        if target is None:
+            return None
+        if (
+            len(node.args) != 2
+            or len(node.keywords) != 1
+            or node.keywords[0].arg != "fallback"
+        ):
+            raise QueueFrontendError(
+                "ACPY-TYPE-005: checked enum conversion requires fallback=Enum.MEMBER"
+            )
+        fallback_node = node.keywords[0].value
+        if self._explicit_enum_member(fallback_node, target) is None:
+            raise QueueFrontendError(
+                "ACPY-TYPE-005: checked enum fallback must be an explicit target member"
+            )
+        key = ast.dump(node, include_attributes=False)
+        cached = self.enum_checked_values.get(key)
+        if cached is not None:
+            return cached
+        raw, raw_type = self.emit(node.args[0])
+        if not isinstance(raw_type, BitsType) or raw_type.width != target.encoding_width:
+            raise QueueFrontendError(
+                "ACPY-TYPE-005: checked enum input width must exactly match the enum encoding"
+            )
+        fallback, fallback_type = self.emit(fallback_node)
+        if fallback_type != target:
+            raise QueueFrontendError(
+                "ACPY-TYPE-005: checked enum fallback must match the target enum"
+            )
+        candidates: list[tuple[str, str]] = []
+        rendered_bits = _render_type(raw_type)
+        for enumerant, encoding in zip(
+            target.enumerants, target.encoding_values, strict=True
+        ):
+            constant = self._new()
+            self.lines.append(
+                f"    %{constant} = ac.var.constant {encoding} : {rendered_bits} "
+                f"as !ac.var<{rendered_bits}>"
+            )
+            matched = self._new()
+            self.lines.append(
+                f'    %{matched} = ac.var.cmp "eq" %{raw}, %{constant} : '
+                f"!ac.var<{rendered_bits}> -> !ac.var<i1>"
+            )
+            value, value_type = self.emit(
+                ast.copy_location(
+                    ast.Attribute(
+                        value=ast.Name(id=target.name, ctx=ast.Load()),
+                        attr=enumerant,
+                        ctx=ast.Load(),
+                    ),
+                    node.args[1],
+                )
+            )
+            assert value_type == target
+            candidates.append((value, matched))
+        while len(candidates) > 1:
+            following: list[tuple[str, str]] = []
+            for index in range(0, len(candidates), 2):
+                if index + 1 == len(candidates):
+                    following.append(candidates[index])
+                    continue
+                left_value, left_valid = candidates[index]
+                right_value, right_valid = candidates[index + 1]
+                selected = self._emit_typed_select(
+                    left_valid, left_value, right_value, target
+                )
+                valid = self._emit_bool_binary("or", left_valid, right_valid)
+                following.append((selected, valid))
+            candidates = following
+        selected, valid = candidates[0]
+        selected = self._emit_typed_select(
+            valid, selected, fallback, target
+        )
+        result = (selected, target, valid, BoolType())
+        self.enum_checked_values[key] = result
+        return result
+
+    def _emit_onehot_enum(
+        self, node: ast.Call
+    ) -> tuple[str, ValueType, str, ValueType, str, ValueType] | None:
+        if _decorator_name(node.func).rsplit(".", 1)[-1] != "onehot_enum":
+            return None
+        key = ast.dump(node, include_attributes=False)
+        cached = self.onehot_enum_values.get(key)
+        if cached is not None:
+            return cached
+        if len(node.args) != 1 or any(
+            keyword.arg not in {"members", "empty", "conflict"}
+            for keyword in node.keywords
+        ):
+            raise QueueFrontendError(
+                "ACPY-TYPE-005: onehot_enum requires mask, members, empty, and conflict"
+            )
+        keywords = {
+            keyword.arg: keyword.value
+            for keyword in node.keywords
+            if keyword.arg is not None
+        }
+        if set(keywords) != {"members", "empty", "conflict"} or len(
+            keywords
+        ) != len(node.keywords):
+            raise QueueFrontendError(
+                "ACPY-TYPE-005: onehot_enum requires one members/empty/conflict each"
+            )
+        members_node = keywords["members"]
+        if not isinstance(members_node, (ast.Tuple, ast.List)) or not members_node.elts:
+            raise QueueFrontendError(
+                "ACPY-TYPE-005: onehot_enum members must be a non-empty static tuple"
+            )
+        mask, mask_type = self.emit(node.args[0])
+        if isinstance(mask_type, BitsType):
+            mask_width = mask_type.width
+            flags: list[str] = []
+            zero_bit = self._new()
+            self.lines.append(
+                f"    %{zero_bit} = ac.var.constant 0 : i1 as !ac.var<i1>"
+            )
+            for ordinal in range(mask_width):
+                bit = self._new()
+                self.lines.append(
+                    f"    %{bit} = ac.var.extract %{mask} from {ordinal} width 1 : "
+                    f"!ac.var<{_render_type(mask_type)}> -> !ac.var<i1>"
+                )
+                present = self._new()
+                self.lines.append(
+                    f'    %{present} = ac.var.cmp "ne" %{bit}, %{zero_bit} : '
+                    "!ac.var<i1> -> !ac.var<i1>"
+                )
+                flags.append(present)
+        elif isinstance(mask_type, ArrayType) and mask_type.element == BoolType():
+            mask_width = mask_type.length
+            self._reserve_array_expansion(mask_width)
+            flags = [
+                value
+                for value, value_type in (
+                    self._emit_static_array_element(mask, mask_type, ordinal)
+                    for ordinal in range(mask_width)
+                )
+                if value_type == BoolType()
+            ]
+            assert len(flags) == mask_width
+        else:
+            raise QueueFrontendError(
+                "ACPY-TYPE-005: onehot_enum mask must be unsigned bits[1..64] "
+                "or a fixed bool array"
+            )
+        if len(members_node.elts) != mask_width:
+            raise QueueFrontendError(
+                "ACPY-TYPE-005: onehot_enum member count must match mask width"
+            )
+        enum_type: EnumType | None = None
+        members: list[tuple[str, str]] = []
+        seen: set[str] = set()
+        for ordinal, member_node in enumerate(members_node.elts):
+            member = self._explicit_enum_member(member_node)
+            if member is None or member[1] in seen:
+                raise QueueFrontendError(
+                    "ACPY-TYPE-005: onehot_enum members must be unique enum constants"
+                )
+            value, value_type = self.emit(member_node)
+            if not isinstance(value_type, EnumType) or (
+                enum_type is not None and value_type != enum_type
+            ):
+                raise QueueFrontendError(
+                    "ACPY-TYPE-005: onehot_enum members must use one exact enum"
+                )
+            enum_type = value_type
+            seen.add(member[1])
+            members.append((value, flags[ordinal]))
+        assert enum_type is not None
+
+        def explicit_fallback(name: str) -> tuple[str, ValueType]:
+            fallback_node = keywords[name]
+            if self._explicit_enum_member(fallback_node, enum_type) is None:
+                raise QueueFrontendError(
+                    f"ACPY-TYPE-005: onehot_enum {name} must be an explicit target member"
+                )
+            return self.emit(fallback_node)
+
+        empty, empty_type = explicit_fallback("empty")
+        conflict_value, conflict_type = explicit_fallback("conflict")
+        assert empty_type == enum_type and conflict_type == enum_type
+
+        candidates = members
+        while len(candidates) > 1:
+            following: list[tuple[str, str]] = []
+            for index in range(0, len(candidates), 2):
+                if index + 1 == len(candidates):
+                    following.append(candidates[index])
+                    continue
+                left_value, left_present = candidates[index]
+                right_value, right_present = candidates[index + 1]
+                selected = self._emit_typed_select(
+                    left_present, left_value, right_value, enum_type
+                )
+                present = self._emit_bool_binary(
+                    "or", left_present, right_present
+                )
+                following.append((selected, present))
+            candidates = following
+        selected, present = candidates[0]
+        selected = self._emit_typed_select(
+            present, selected, empty, enum_type
+        )
+        if isinstance(mask_type, BitsType):
+            count_type: ValueType = BitsType(primitive_count_width(mask_width))
+            count = self._new()
+            self.lines.append(
+                f"    %{count} = ac.var.popcount %{mask} : "
+                f"!ac.var<{_render_type(mask_type)}> -> "
+                f"!ac.var<{_render_type(count_type)}>"
+            )
+            count_attribute_type = _render_type(count_type)
+        else:
+            contribution_type = RangeType(0, 2)
+            rendered_contribution = _render_type(contribution_type)
+            zero = self._new()
+            contribution_one = self._new()
+            self.lines.append(
+                f"    %{zero} = ac.var.constant 0 : i1 "
+                f"as !ac.var<{rendered_contribution}>"
+            )
+            self.lines.append(
+                f"    %{contribution_one} = ac.var.constant 1 : i1 "
+                f"as !ac.var<{rendered_contribution}>"
+            )
+            counts: list[tuple[str, RangeType]] = []
+            for flag in flags:
+                contribution = self._new()
+                self.lines.append(
+                    f"    %{contribution} = ac.var.select %{flag}, "
+                    f"%{contribution_one}, %{zero} : !ac.var<i1>, "
+                    f"!ac.var<{rendered_contribution}> -> "
+                    f"!ac.var<{rendered_contribution}>"
+                )
+                counts.append((contribution, contribution_type))
+            while len(counts) > 1:
+                following_counts: list[tuple[str, RangeType]] = []
+                for index in range(0, len(counts), 2):
+                    if index + 1 == len(counts):
+                        following_counts.append(counts[index])
+                        continue
+                    left, left_type = counts[index]
+                    right, right_type = counts[index + 1]
+                    result_type = RangeType(
+                        left_type.lower + right_type.lower,
+                        left_type.upper + right_type.upper - 1,
+                    )
+                    result = self._new()
+                    self.lines.append(
+                        f"    %{result} = ac.var.range_add %{left}, %{right} : "
+                        f"!ac.var<{_render_type(left_type)}>, "
+                        f"!ac.var<{_render_type(right_type)}> -> "
+                        f"!ac.var<{_render_type(result_type)}>"
+                    )
+                    following_counts.append((result, result_type))
+                counts = following_counts
+            count, count_type = counts[0]
+            count_attribute_type = f"i{count_type.bit_width()}"
+        one = self._new()
+        conflict = self._new()
+        self.lines.append(
+            f"    %{one} = ac.var.constant 1 : {count_attribute_type} "
+            f"as !ac.var<{_render_type(count_type)}>"
+        )
+        if isinstance(count_type, RangeType):
+            self.lines.append(
+                f'    %{conflict} = ac.var.range_cmp "ugt" %{count}, %{one} : '
+                f"!ac.var<{_render_type(count_type)}>, "
+                f"!ac.var<{_render_type(count_type)}> -> !ac.var<i1>"
+            )
+        else:
+            self.lines.append(
+                f'    %{conflict} = ac.var.cmp "ugt" %{count}, %{one} : '
+                f"!ac.var<{_render_type(count_type)}> -> !ac.var<i1>"
+            )
+        selected = self._emit_typed_select(
+            conflict, conflict_value, selected, enum_type
+        )
+        result = (
+            selected,
+            enum_type,
+            present,
+            BoolType(),
+            conflict,
+            BoolType(),
+        )
+        self.onehot_enum_values[key] = result
+        return result
+
+    def _emit_enum_match(
+        self, node: ast.Call, expected: ValueType | None
+    ) -> tuple[str, ValueType] | None:
+        if _decorator_name(node.func).rsplit(".", 1)[-1] != "match_enum":
+            return None
+        if (
+            len(node.args) != 2
+            or len(node.keywords) != 1
+            or node.keywords[0].arg != "invalid"
+        ):
+            raise QueueFrontendError(
+                "ACPY-TYPE-005: match_enum requires selector, case dictionary, "
+                "and invalid=..."
+            )
+        selector, selector_type = self.emit(node.args[0])
+        if not isinstance(selector_type, EnumType):
+            raise QueueFrontendError(
+                "ACPY-TYPE-005: match_enum selector must be an enum value"
+            )
+        cases_node = node.args[1]
+        if not isinstance(cases_node, ast.Dict) or any(
+            key is None for key in cases_node.keys
+        ):
+            raise QueueFrontendError(
+                "ACPY-TYPE-005: match_enum cases must be a static dictionary "
+                "without spread"
+            )
+        cases: dict[str, ast.expr] = {}
+        for key_node, value_node in zip(
+            cases_node.keys, cases_node.values, strict=True
+        ):
+            assert key_node is not None
+            case_member = self._explicit_enum_member(key_node, selector_type)
+            if case_member is None:
+                raise QueueFrontendError(
+                    "ACPY-TYPE-005: match_enum case keys must be reachable "
+                    "members of the selector enum"
+                )
+            if case_member[1] in cases:
+                raise QueueFrontendError(
+                    f"ACPY-TYPE-005: match_enum case {selector_type.name}."
+                    f"{case_member[1]} is repeated"
+                )
+            cases[case_member[1]] = value_node
+        missing = [
+            member for member in selector_type.enumerants if member not in cases
+        ]
+        if missing:
+            raise QueueFrontendError(
+                "ACPY-TYPE-005: match_enum cases are not exhaustive; missing "
+                + ", ".join(f"{selector_type.name}.{member}" for member in missing)
+            )
+        previous_strict = self.strict_descriptors
+        self.strict_descriptors = True
+        try:
+            invalid, result_type = self.emit(node.keywords[0].value, expected)
+            if expected is not None and result_type != expected:
+                raise QueueFrontendError(
+                    "ACPY-TYPE-005: match_enum cases and invalid value must "
+                    "have one exact recursive type"
+                )
+            values: list[str] = []
+            for member in selector_type.enumerants:
+                value, value_type = self.emit(cases[member], result_type)
+                if value_type != result_type:
+                    raise QueueFrontendError(
+                        "ACPY-TYPE-005: match_enum cases and invalid value must "
+                        "have one exact recursive type"
+                    )
+                values.append(value)
+        finally:
+            self.strict_descriptors = previous_strict
+        operands = [selector, *values, invalid]
+        operand_types = [selector_type, *((result_type,) * (len(values) + 1))]
+        result = self._new()
+        self.lines.append(
+            f"    %{result} = ac.var.enum_match "
+            + ", ".join(f"%{operand}" for operand in operands)
+            + " cases ["
+            + ", ".join(
+                canonical_mlir_string(member)
+                for member in selector_type.enumerants
+            )
+            + "] : "
+            + ", ".join(
+                f"!ac.var<{_render_type(value_type)}>"
+                for value_type in operand_types
+            )
+            + f" -> !ac.var<{_render_type(result_type)}>"
+        )
+        return self._remember(result, result_type)
 
     def _emit_exact_array_replacement(
         self,
@@ -11155,6 +11655,7 @@ class _ExpressionEmitter:
             root_name=value,
             root_values=callback_roots,
             prefix=f"{self.prefix}array_map_{self.index}_{lane}_",
+            enum_types=self.enum_types,
             bitfields=self.bitfields,
             invariants=self.invariants,
             helpers=self.helpers,
@@ -11814,6 +12315,49 @@ class _ExpressionEmitter:
             outputs, ArrayType(aggregate_type.length, accumulator_type)
         )
 
+    def _emit_enum_is_one_of(
+        self, node: ast.Call
+    ) -> tuple[str, ValueType] | None:
+        if not (
+            isinstance(node.func, ast.Attribute)
+            and node.func.attr == "is_one_of"
+        ):
+            return None
+        if node.keywords or not node.args:
+            raise QueueFrontendError(
+                "ACPY-TYPE-005: enum is_one_of requires one or more members"
+            )
+        value, value_type = self.emit(node.func.value)
+        if not isinstance(value_type, EnumType):
+            raise QueueFrontendError(
+                "ACPY-TYPE-005: is_one_of receiver must be an enum value"
+            )
+        seen: set[str] = set()
+        matches: list[tuple[str, ValueType]] = []
+        for member in node.args:
+            explicit_member = self._explicit_enum_member(member, value_type)
+            if explicit_member is None:
+                raise QueueFrontendError(
+                    "ACPY-TYPE-005: is_one_of members must be constants from the same enum"
+                )
+            if explicit_member[1] in seen:
+                raise QueueFrontendError(
+                    "ACPY-TYPE-005: is_one_of members must not repeat"
+                )
+            seen.add(explicit_member[1])
+            candidate, candidate_type = self.emit(member)
+            if candidate_type != value_type:
+                raise QueueFrontendError(
+                    "ACPY-TYPE-005: is_one_of members must match the receiver enum"
+                )
+            matched = self._new()
+            self.lines.append(
+                f'    %{matched} = ac.var.cmp "eq" %{value}, %{candidate} : '
+                f"!ac.var<{_render_type(value_type)}> -> !ac.var<i1>"
+            )
+            matches.append((matched, BoolType()))
+        return self._emit_balanced_array_combine(matches, "or")
+
     def _emit_array_update(
         self, node: ast.Call
     ) -> tuple[str, ValueType] | None:
@@ -12038,6 +12582,9 @@ class _ExpressionEmitter:
         self, node: ast.expr, expected: ValueType | None = None
     ) -> tuple[str, ValueType]:
         if isinstance(node, ast.Call):
+            enum_match = self._emit_enum_match(node, expected)
+            if enum_match is not None:
+                return enum_match
             array_selection = self._emit_array_selection(node)
             if array_selection is not None:
                 index, index_type, valid, valid_type = array_selection
@@ -12054,6 +12601,9 @@ class _ExpressionEmitter:
             scanned_array = self._emit_array_scan(node)
             if scanned_array is not None:
                 return scanned_array
+            enum_membership = self._emit_enum_is_one_of(node)
+            if enum_membership is not None:
+                return enum_membership
             mapped_array = self._emit_array_map(node)
             if mapped_array is not None:
                 return mapped_array
@@ -12077,7 +12627,12 @@ class _ExpressionEmitter:
                 return bounded
             if _decorator_name(node.func).rsplit(".", 1)[-1] == "checked":
                 raise QueueFrontendError(
-                    "ACPY-RANGE-001: checked result requires .value or .valid"
+                    "ACPY-TYPE-005: checked result requires .value or .valid"
+                )
+            if _decorator_name(node.func).rsplit(".", 1)[-1] == "onehot_enum":
+                raise QueueFrontendError(
+                    "ACPY-TYPE-005: onehot_enum result requires "
+                    ".value, .present, or .conflict"
                 )
             lexical_bindings = {
                 self.argument,
@@ -12150,6 +12705,7 @@ class _ExpressionEmitter:
                     invariant.payload,
                     root_name=predicate_argument,
                     prefix=predicate_prefix,
+                    enum_types=self.enum_types,
                     bitfields=self.bitfields,
                     invariants=self.invariants,
                     helpers=self.helpers,
@@ -12204,9 +12760,10 @@ class _ExpressionEmitter:
         if (
             isinstance(node, ast.Attribute)
             and isinstance(node.value, ast.Name)
-            and node.value.id in self.enum_types
+            and self._unshadowed_enum(node.value.id) is not None
         ):
-            enumeration = self.enum_types[node.value.id]
+            enumeration = self._unshadowed_enum(node.value.id)
+            assert enumeration is not None
             if node.attr not in enumeration.enumerants:
                 raise QueueFrontendError(
                     f"ACPY-TYPE-005: unknown enumerant {node.value.id}.{node.attr}"
@@ -12333,14 +12890,44 @@ class _ExpressionEmitter:
                 and _decorator_name(checked_call.func).rsplit(".", 1)[-1]
                 == "checked"
             ):
-                value, value_type, valid, valid_type = self._emit_checked_range(
-                    checked_call
-                )
+                enum_result = self._emit_checked_enum(checked_call)
+                if enum_result is None:
+                    value, value_type, valid, valid_type = self._emit_checked_range(
+                        checked_call
+                    )
+                else:
+                    value, value_type, valid, valid_type = enum_result
                 return (
                     (value, value_type)
                     if node.attr == "value"
                     else (valid, valid_type)
                 )
+        if (
+            isinstance(node, ast.Attribute)
+            and node.attr in {"value", "present", "conflict"}
+        ):
+            onehot_call = (
+                node.value
+                if isinstance(node.value, ast.Call)
+                else self.deferred_values.get(node.value.id)
+                if isinstance(node.value, ast.Name)
+                else None
+            )
+            if (
+                isinstance(onehot_call, ast.Call)
+                and _decorator_name(onehot_call.func).rsplit(".", 1)[-1]
+                == "onehot_enum"
+            ):
+                emitted = self._emit_onehot_enum(onehot_call)
+                assert emitted is not None
+                value, value_type, present, present_type, conflict, conflict_type = (
+                    emitted
+                )
+                if node.attr == "value":
+                    return value, value_type
+                if node.attr == "present":
+                    return present, present_type
+                return conflict, conflict_type
         if isinstance(node, ast.Attribute):
             view = self._bitfield_view(node.value)
             if view is not None:
@@ -12549,6 +13136,7 @@ class _ExpressionEmitter:
                 root_name="entry",
                 prefix=f"{self.prefix}m{self.index}_",
                 slot_views=self.slot_views,
+                enum_types=self.enum_types,
                 bitfields=self.bitfields,
                 invariants=self.invariants,
                 helpers=self.helpers,
@@ -12669,6 +13257,7 @@ class _ExpressionEmitter:
                 root_name="entry",
                 prefix=f"{self.prefix}m{self.index}_",
                 slot_views=self.slot_views,
+                enum_types=self.enum_types,
                 bitfields=self.bitfields,
                 invariants=self.invariants,
                 helpers=self.helpers,
@@ -12708,6 +13297,7 @@ class _ExpressionEmitter:
                     entry_type,
                     root_name="entry",
                     prefix=f"{self.prefix}k{self.index}_",
+                    enum_types=self.enum_types,
                     bitfields=self.bitfields,
                     invariants=self.invariants,
                 )
@@ -13741,6 +14331,7 @@ def lower_queue_program(
         }
         content_indent = "      "
     payloads = {item.name: item for item in program.payloads}
+    enum_types = {item.name: item.descriptor for item in program.enums}
     helpers = {item.name: item for item in program.helpers}
     invariants = {
         definition.function_name: definition for definition in program.invariants
@@ -13787,6 +14378,7 @@ def lower_queue_program(
             root_values={
                 name: (name, value_type) for name, value_type in helper.arguments
             },
+            enum_types=enum_types,
             bitfields=bitfields,
             invariants=invariants,
             helpers=helpers,
@@ -14150,6 +14742,7 @@ def lower_queue_program(
                     )
                     for owner in queue.rule_state_owners
                 },
+                enum_types=enum_types,
                 bitfields=bitfields,
                 invariants=invariants,
                 helpers=helpers,
@@ -14294,6 +14887,7 @@ def lower_queue_program(
                     root_values=emitter.root_values,
                     prefix=f"find{emitter.index}_predicate_",
                     state_views=emitter.state_views,
+                    enum_types=enum_types,
                     bitfields=bitfields,
                     invariants=invariants,
                     helpers=helpers,
@@ -14352,6 +14946,7 @@ def lower_queue_program(
                         root_values=emitter.root_values,
                         prefix=f"find{emitter.index}_key_",
                         state_views=emitter.state_views,
+                        enum_types=enum_types,
                         bitfields=bitfields,
                         invariants=invariants,
                         helpers=helpers,
@@ -14437,7 +15032,7 @@ def lower_queue_program(
                     local.guard is None
                     and isinstance(local.value, ast.Call)
                     and _decorator_name(local.value.func).rsplit(".", 1)[-1]
-                    == "checked"
+                    in {"checked", "onehot_enum"}
                 ):
                     emitter.root_values.pop(local.name, None)
                     emitter.deferred_values[local.name] = copy.deepcopy(local.value)
@@ -15135,6 +15730,7 @@ def lower_queue_program(
             payloads,
             queue.argument,
             queue.payload,
+            enum_types=enum_types,
             bitfields=bitfields,
             helpers=helpers,
         )
@@ -15337,6 +15933,7 @@ def lower_queue_program(
                     root_name="entry",
                     prefix=f"match_{candidate.order}_",
                     slot_views=slot_views,
+                    enum_types=enum_types,
                     bitfields=bitfields,
                     helpers=helpers,
                 )
@@ -15395,6 +15992,7 @@ def lower_queue_program(
                         table.entry_type,
                         root_name="entry",
                         prefix=f"choose_{selection.order}_",
+                        enum_types=enum_types,
                         bitfields=bitfields,
                         helpers=helpers,
                     )
@@ -15509,6 +16107,7 @@ def lower_queue_program(
                     payloads,
                     select.argument,
                     control.payload,
+                    enum_types=enum_types,
                     bitfields=bitfields,
                     helpers=helpers,
                 )
@@ -15551,6 +16150,7 @@ def lower_queue_program(
                     payloads,
                     route.argument,
                     incoming.payload,
+                    enum_types=enum_types,
                     bitfields=bitfields,
                     helpers=helpers,
                 )
@@ -15625,6 +16225,7 @@ def lower_queue_program(
                     payloads,
                     feedback.argument,
                     incoming.payload,
+                    enum_types=enum_types,
                     bitfields=bitfields,
                     helpers=helpers,
                 )
@@ -15669,6 +16270,7 @@ def lower_queue_program(
                     payloads,
                     reorder.argument,
                     incoming.payload,
+                    enum_types=enum_types,
                     bitfields=bitfields,
                     helpers=helpers,
                 )
@@ -15716,6 +16318,7 @@ def lower_queue_program(
                         payloads,
                         dependency.argument,
                         incoming.payload,
+                        enum_types=enum_types,
                         bitfields=bitfields,
                         helpers=helpers,
                     )
@@ -15790,6 +16393,7 @@ def lower_queue_program(
                     payloads,
                     credit.argument,
                     incoming.payload,
+                    enum_types=enum_types,
                     bitfields=bitfields,
                     helpers=helpers,
                 )
@@ -15840,6 +16444,7 @@ def lower_queue_program(
                         payloads,
                         memory.argument,
                         incoming.payload,
+                        enum_types=enum_types,
                         bitfields=bitfields,
                         helpers=helpers,
                     )
@@ -15921,6 +16526,7 @@ def lower_queue_program(
                     candidate_values=materialized_candidates,
                     selection_values=materialized_selections,
                     table_domains=table_domains,
+                    enum_types=enum_types,
                     bitfields=bitfields,
                     helpers=helpers,
                 )
@@ -15938,6 +16544,7 @@ def lower_queue_program(
                     candidate_values=materialized_candidates,
                     selection_values=materialized_selections,
                     table_domains=table_domains,
+                    enum_types=enum_types,
                     bitfields=bitfields,
                     helpers=helpers,
                 )
@@ -16003,6 +16610,7 @@ def lower_queue_program(
                     candidate_values=materialized_candidates,
                     selection_values=materialized_selections,
                     table_domains=table_domains,
+                    enum_types=enum_types,
                     bitfields=bitfields,
                     helpers=helpers,
                 )
@@ -16019,6 +16627,7 @@ def lower_queue_program(
                     candidate_values=materialized_candidates,
                     selection_values=materialized_selections,
                     table_domains=table_domains,
+                    enum_types=enum_types,
                     bitfields=bitfields,
                     helpers=helpers,
                 )
@@ -16036,6 +16645,7 @@ def lower_queue_program(
                     candidate_values=materialized_candidates,
                     selection_values=materialized_selections,
                     table_domains=table_domains,
+                    enum_types=enum_types,
                     bitfields=bitfields,
                     helpers=helpers,
                 )
@@ -16143,6 +16753,7 @@ def lower_queue_program(
                     candidate_values=materialized_candidates,
                     selection_values=materialized_selections,
                     table_domains=table_domains,
+                    enum_types=enum_types,
                     bitfields=bitfields,
                     helpers=helpers,
                 )
@@ -16160,6 +16771,7 @@ def lower_queue_program(
                     candidate_values=materialized_candidates,
                     selection_values=materialized_selections,
                     table_domains=table_domains,
+                    enum_types=enum_types,
                     bitfields=bitfields,
                     helpers=helpers,
                 )
@@ -16176,6 +16788,7 @@ def lower_queue_program(
                     candidate_values=materialized_candidates,
                     selection_values=materialized_selections,
                     table_domains=table_domains,
+                    enum_types=enum_types,
                     bitfields=bitfields,
                     helpers=helpers,
                 )
@@ -16271,6 +16884,7 @@ def lower_queue_program(
                     candidate_values=materialized_candidates,
                     selection_values=materialized_selections,
                     table_domains=table_domains,
+                    enum_types=enum_types,
                     bitfields=bitfields,
                     helpers=helpers,
                 )
@@ -16323,6 +16937,7 @@ def lower_queue_program(
                     payloads,
                     expectation.argument,
                     queue.payload,
+                    enum_types=enum_types,
                     bitfields=bitfields,
                     helpers=helpers,
                 )
@@ -16514,7 +17129,9 @@ def _lower_simple_module_source(
     bitfield_map = {binding.name: binding.layout for binding in bitfield_bindings}
     invariants = {
         definition.function_name: definition
-        for definition in _invariant_definitions(tree, payload_map, bitfield_map)
+        for definition in _invariant_definitions(
+            tree, payload_map, bitfield_map, enum_map
+        )
     }
     helper_definitions = _pure_helper_definitions(tree, payload_map, enum_map)
     helpers = {definition.name: definition for definition in helper_definitions}
@@ -16603,10 +17220,22 @@ def _lower_simple_module_source(
                 else (annotation.slice,)
             )
             return tuple(
-                _payload(element, payload_map, static_values=type_static_values)
+                _payload(
+                    element,
+                    payload_map,
+                    enum_map,
+                    static_values=type_static_values,
+                )
                 for element in elements
             )
-        return (_payload(annotation, payload_map, static_values=type_static_values),)
+        return (
+            _payload(
+                annotation,
+                payload_map,
+                enum_map,
+                static_values=type_static_values,
+            ),
+        )
 
     def result_annotations(annotation: ast.expr | None) -> tuple[ast.expr, ...]:
         if annotation is None:
@@ -16789,7 +17418,10 @@ def _lower_simple_module_source(
                 "ACPY-MODULE-001: first module slice requires one typed result"
             )
         input_type = _payload(
-            parameter.annotation, payload_map, static_values=type_static_values
+            parameter.annotation,
+            payload_map,
+            enum_map,
+            static_values=type_static_values,
         )
         if (
             len(body) == 1
@@ -16832,6 +17464,7 @@ def _lower_simple_module_source(
                 state_type = _payload(
                     declaration.annotation,
                     payload_map,
+                    enum_map,
                     static_values=type_static_values,
                 )
                 state_init = declaration.value.value
@@ -16983,6 +17616,7 @@ def _lower_simple_module_source(
                 _payload(
                     parameter.annotation,
                     payload_map,
+                    enum_map,
                     static_values=type_static_values,
                 ),
             )
@@ -17551,6 +18185,7 @@ def _lower_simple_module_source(
             root_values={
                 name: (name, value_type) for name, value_type in helper.arguments
             },
+            enum_types=enum_map,
             bitfields=bitfield_map,
             invariants=invariants,
             helpers=helpers,
@@ -17633,6 +18268,7 @@ def _lower_simple_module_source(
                 argument,
                 input_type,
                 root_values=root_values,
+                enum_types=enum_map,
                 bitfields=bitfield_map,
                 invariants=invariants,
                 helpers=helpers,
@@ -17720,6 +18356,7 @@ def _lower_simple_module_source(
             payload_map,
             argument,
             input_type,
+            enum_types=enum_map,
             bitfields=bitfield_map,
             invariants=invariants,
             helpers=helpers,

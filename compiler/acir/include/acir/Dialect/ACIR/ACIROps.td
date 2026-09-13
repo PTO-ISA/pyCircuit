@@ -87,6 +87,17 @@ def ACIR_VarEnumOp : ACIR_Op<"var.enum", [Pure]> {
   }];
 }
 
+def ACIR_VarEnumMatchOp : ACIR_Op<"var.enum_match", [Pure]> {
+  let arguments = (ins Variadic<ACIR_VarType>:$values,
+                       StrArrayAttr:$enumerants);
+  let results = (outs ACIR_VarType:$result);
+  let hasVerifier = 1;
+  let assemblyFormat = [{
+    $values `cases` $enumerants attr-dict `:` type($values) `->`
+    qualified(type($result))
+  }];
+}
+
 def ACIR_VarTupleOp : ACIR_Op<"var.tuple", [Pure]> {
   let arguments = (ins Variadic<ACIR_VarType>:$values);
   let results = (outs ACIR_VarType:$result);

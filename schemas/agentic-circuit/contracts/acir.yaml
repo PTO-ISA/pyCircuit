@@ -41,6 +41,7 @@ operations:
   - ac.process
   - ac.var.constant
   - ac.var.enum
+  - ac.var.enum_match
   - ac.var.tuple
   - ac.var.array
   - ac.var.element

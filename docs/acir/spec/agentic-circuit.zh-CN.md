@@ -492,7 +492,8 @@ class Mode(Enum):
 ```
 
 没有 encoding decorator 时，member 必须按声明顺序从零连续编码。nested struct 字段可以直接标注 `Mode`，
-`Mode.RUN` 降到 verifier 检查的 `ac.var.enum`。当前 enum 只支持 equality/inequality。
+`Mode.RUN` 降到 verifier 检查的 `ac.var.enum`。enum 的直接 operator 仍只有
+equality/inequality；分类和转换使用下述显式 helper。
 QueueGraph 保存 member list 与 encoding width；gfsim 生成一次紧凑 C++ enum，
 PYC/Verilog 使用同一精确位宽 ordinal。
 
@@ -510,6 +511,44 @@ class Opcode(Enum):
 独立复核并保留；gfsim C++ 与 PYC 使用完全相同的编码。QueueGraph JSON 以小写
 unsigned hexadecimal string 和 `value_format = "unsigned_hex"` 保存显式值，64 bit
 编码的 bit 63 不会被误解释为负数。普通 Enum 的既有编码不变。
+
+enum 分类和协议转换保持显式：
+
+```python
+selected = opcode.is_one_of(Opcode.READ, Opcode.WRITE)
+decoded = ac.checked(raw, Opcode, fallback=Opcode.NONE)
+onehot = ac.onehot_enum(
+    mask,
+    members=(Opcode.READ, Opcode.WRITE),
+    empty=Opcode.NONE,
+    conflict=Opcode.ERROR,
+)
+result = ac.match_enum(
+    opcode,
+    {
+        Opcode.NONE: idle_value,
+        Opcode.READ: read_value,
+        Opcode.WRITE: write_value,
+        Opcode.ERROR: error_value,
+    },
+    invalid=invalid_value,
+)
+```
+
+`is_one_of` 只接受 receiver 同一 nominal enum 的唯一成员常量，并展开为 equality
+和 balanced OR。enum 目标的 `checked` 要求 raw bits 位宽精确等于 encoding width，
+且必须显式指定 member fallback；`.valid` 区分已声明 sparse encoding 与其他物理
+编码。`onehot_enum` 把 bit 或 bool-array 的位置 `i` 映射到 `members[i]`，返回
+`.value/.present/.conflict`；全零和 multi-hot 分别选择显式 `empty` 与 `conflict`
+策略。
+
+`match_enum` 只接受恰好一次包含全部已声明 member 的 dict literal，并强制
+`invalid=`。所有 branch 都是 eager 的纯硬件值，递归 descriptor 必须完全一致。
+raw enum ingress 不会因为 nominal annotation 就被假定为合法 member：类型定义 layout
+和声明 encoding，但不能排除非法物理编码。Raw ACIR 保留 `ac.var.enum_match`，由
+verifier 独立检查 coverage、duplicate、unknown/unreachable 和结果类型；随后
+value-contract lowering 把它展开为 enum constant、equality、balanced OR 和 select，
+Frozen ACIR 中不再保留该 op，也不会生成 Python 控制流。
 
 ### 递归相等性与命名 payload invariant
 

@@ -9574,3 +9574,72 @@ user-written serial mux chains or an unverified associativity assertion.
 
 **Source**
 - PTO-ISA/pyCircuit issue #128.
+
+## Decision 0255: enum classification is exhaustive and protocol decoding is explicit
+
+**Status:** Accepted and implemented
+
+**Extends:** Decisions 0215, 0246, 0250, and 0254.
+
+**Context / Goal**
+Protocol-facing enums need Pythonic classification without unsafe casts,
+implicit invalid-code defaults, or Python control flow that hides hardware
+selection and exhaustiveness from the verifier.
+
+**Decision (strong constraint)**
+- `value.is_one_of(E.A, E.B, ...)` accepts one or more unique constants from
+  the receiver's exact nominal enum and returns logical `bool`. It expands to
+  one equality per member and an adjacent pairwise balanced OR tree. A dynamic
+  collection, another enum, bits value, duplicate, or empty member list is a
+  deterministic error.
+- `ac.checked(raw, E, fallback=E.MEMBER)` is the only bits-to-enum conversion
+  in this slice. Raw bits must exactly match the enum encoding width. `.valid`
+  is true only for a declared encoding; `.value` selects the matching declared
+  member or the explicit fallback. Sparse values and unsigned 64-bit encodings
+  are preserved. No reinterpret cast, `E(raw)`, first-member default, or rule
+  acceptance side effect is introduced.
+- `ac.onehot_enum(mask, members=(...), empty=..., conflict=...)` maps position
+  zero to `members[0]`, independently of numeric enum encodings. The mask is
+  unsigned bits up to 64 lanes or a fixed logical-bool value-array. `.present`
+  means at least one lane is asserted and `.conflict` means more than one.
+  Zero selects `empty`, exactly one selects its mapped member, and multi-hot
+  selects `conflict`. Both policies are explicit members of the same enum.
+  A bool array above 64 lanes expands through static elements and a balanced
+  bounded count; it does not invent a wider scalar primitive.
+- `ac.match_enum(selector, {E.A: a, ...}, invalid=x)` is the exhaustive value
+  dispatch form. Its case map must be a dictionary literal with every declared
+  member exactly once and no spread, dynamic key, duplicate, other-enum key,
+  guard, or wildcard. Every case and `invalid` has one exact recursive result
+  descriptor. Expressions are pure eager hardware values; this decision does
+  not parse Python `match/case` control flow or add effectful branches.
+- Raw enum ingress is not assumed to encode a declared member. Nominal enum
+  type describes encoding and layout, not a membership proof for arbitrary
+  physical bits. `match_enum` therefore requires `invalid=` even when all
+  declared members appear. Frontend expression facts use `Unknown` for
+  unproved enum ingress; explicit constants and checked construction remain
+  valid member-producing operations.
+- Raw ACIR retains one pure `ac.var.enum_match` checkpoint containing the
+  selector, declared-order keys, cases, and invalid value. Its verifier
+  independently resolves the nominal enum, rejects missing, duplicate,
+  unknown/unreachable, count, and exact-result-type errors, then
+  `ac-lower-value-contracts` replaces it with enum constants, equality,
+  balanced OR, and select operations. No enum-match operation survives Frozen
+  ACIR, QueueGraph, GFSim, or PYC.
+
+**Required verification**
+- Cover contiguous and sparse enums, enums without a zero member, exact and
+  invalid raw encodings, explicit fallback, zero/one/multi-hot masks, first
+  and last bit positions, fixed bool arrays above 64 lanes, and raw invalid
+  selector encodings.
+- Reject empty/repeated/cross-enum membership tests, width mismatches, dynamic
+  members or fallback, missing one-hot policies, `.valid` ambiguity, dynamic
+  or spread case maps, missing/repeated/unknown cases, and recursively unequal
+  result types including `bool` versus `ac.u1`.
+- ACIR lit tests independently forge every enum-match verifier failure and
+  prove balanced lowering. A design-neutral runtime fixture must agree across
+  GFSim, PYC C++, and Verilog under backpressure and preserve invalid selector
+  behavior. Frozen ACIR and PYC contain no residual high-level match, `scf.*`,
+  or vector value.
+
+**Source**
+- PTO-ISA/pyCircuit issue #128.

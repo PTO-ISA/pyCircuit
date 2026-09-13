@@ -1874,7 +1874,8 @@ class Mode(Enum):
 Without an encoding decorator, members must be contiguous from zero in
 declaration order. A nested struct
 field may use `Mode`; `Mode.RUN` lowers to a verified `ac.var.enum` value.
-Enums support equality and inequality only in the current slice. QueueGraph
+Direct enum operators remain equality and inequality; classification and
+conversion use the explicit helpers below. QueueGraph
 retains the member list and encoding width, gfsim emits one compact C++ enum,
 and PYC/Verilog use the same exact-width ordinal.
 
@@ -1896,6 +1897,47 @@ constant. QueueGraph JSON serializes explicit values as canonical lowercase
 unsigned hexadecimal strings and records `value_format = "unsigned_hex"`, so
 64-bit encodings with bit 63 set are never reinterpreted as negative numbers.
 Plain enum syntax and its existing encoding remain byte-compatible.
+
+Enum classification and protocol conversion are explicit:
+
+```python
+selected = opcode.is_one_of(Opcode.READ, Opcode.WRITE)
+decoded = ac.checked(raw, Opcode, fallback=Opcode.NONE)
+onehot = ac.onehot_enum(
+    mask,
+    members=(Opcode.READ, Opcode.WRITE),
+    empty=Opcode.NONE,
+    conflict=Opcode.ERROR,
+)
+result = ac.match_enum(
+    opcode,
+    {
+        Opcode.NONE: idle_value,
+        Opcode.READ: read_value,
+        Opcode.WRITE: write_value,
+        Opcode.ERROR: error_value,
+    },
+    invalid=invalid_value,
+)
+```
+
+`is_one_of` takes unique constants from the receiver's exact nominal enum and
+expands to equality plus balanced OR. Enum-targeted `checked` requires raw bits
+whose width exactly equals the encoding width and an explicit member fallback;
+its `.valid` distinguishes declared sparse encodings from every other physical
+code. `onehot_enum` maps bit or bool-array position `i` to `members[i]` and
+returns `.value/.present/.conflict`; zero and multi-hot inputs select the
+explicit `empty` and `conflict` policies respectively.
+
+`match_enum` accepts only a literal dictionary containing every declared member
+exactly once, plus mandatory `invalid=`. All branches are pure eager hardware
+values with one exact recursive descriptor. Raw enum ingress is not assumed to
+be a member: the nominal type defines layout and declared encodings but cannot
+exclude an invalid physical code. Raw ACIR therefore retains
+`ac.var.enum_match` long enough for independent coverage, duplicate,
+unknown/unreachable, and result-type verification. The value-contract lowering
+pass then expands it to enum constants, equality, balanced OR, and selects; it
+does not survive Frozen ACIR or create Python control flow.
 
 ### Recursive equality and named payload invariants
 

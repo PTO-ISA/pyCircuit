@@ -512,17 +512,16 @@ LogicalResult verifyQueueHelperLowerability(func::FuncOp function) {
       return WalkResult::advance();
     const bool allowed =
         isa<func::CallOp, func::ReturnOp, scf::IfOp, scf::YieldOp,
-            ac::VarConstantOp, ac::VarEnumOp, ac::VarTupleOp, ac::VarArrayOp,
-            ac::VarRecordOp, ac::VarElementOp, ac::VarAddOp, ac::VarSubOp,
-            ac::VarMulOp, ac::VarUDivOp, ac::VarURemOp, ac::VarAndOp,
-            ac::VarOrOp, ac::VarXorOp, ac::VarShlOp, ac::VarShrOp,
-            ac::VarMatchesOp, ac::VarNotOp,
+            ac::VarConstantOp, ac::VarEnumOp, ac::VarEnumMatchOp,
+            ac::VarTupleOp, ac::VarArrayOp, ac::VarRecordOp, ac::VarElementOp,
+            ac::VarAddOp, ac::VarSubOp, ac::VarMulOp, ac::VarUDivOp,
+            ac::VarURemOp, ac::VarAndOp, ac::VarOrOp, ac::VarXorOp,
+            ac::VarShlOp, ac::VarShrOp, ac::VarMatchesOp, ac::VarNotOp,
             ac::VarPriorityEncodeOp, ac::VarPopcountOp, ac::VarCountZerosOp,
             ac::VarCmpOp, ac::VarSelectOp, ac::VarExtractOp, ac::VarConcatOp,
             ac::VarInsertOp, ac::VarGetOp, ac::VarWithOp,
-            ac::VarDynamicElementOp, ac::VarWithElementOp,
-            ac::VarRangeWrapOp, ac::VarRangeSaturateOp,
-            ac::VarRangeCheckedOp, ac::VarRangeRefineOp,
+            ac::VarDynamicElementOp, ac::VarWithElementOp, ac::VarRangeWrapOp,
+            ac::VarRangeSaturateOp, ac::VarRangeCheckedOp, ac::VarRangeRefineOp,
             ac::VarRangeBitsOp, ac::VarRangeAddOp, ac::VarRangeSubOp,
             ac::VarRangeCmpOp>(operation);
     if (!allowed) {

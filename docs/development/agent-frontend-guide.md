@@ -216,7 +216,12 @@ Follow these rules:
   schema, root value, field path, and projected integer before backends run.
 - Use `bool` for logical facts, standard `Enum` for closed categories, and
   `@ac.encoding(width=N)` only when an external protocol requires fixed or
-  sparse values. Keep independent flags independent.
+  sparse values. Keep independent flags independent. Use `is_one_of` for
+  membership, enum-targeted `ac.checked(..., fallback=...)` for raw protocol
+  bits, `ac.onehot_enum(..., empty=..., conflict=...)` for positional masks,
+  and exhaustive `ac.match_enum(..., invalid=...)` for value dispatch. Raw enum
+  ingress may still carry an undeclared physical encoding, so never omit the
+  invalid policy or treat a nominal annotation as a membership proof.
 - Use `Packet(**left, **right, explicit=...)` and
   `value.with_fields(**patch)` only for exact name/type record composition.
   Construction is total; replacement preserves unmentioned fields.
@@ -315,6 +320,7 @@ consumer design.
 | Two module instances with distinct dependent state types | `examples/agentic-circuit/types/multi_specialization_types.py` |
 | Name-based record construction and replacement | `examples/agentic-circuit/pipelines/record_spread_pipeline.py` |
 | Fixed-width sparse enum encoding | `examples/agentic-circuit/pipelines/encoded_enum_pipeline.py` |
+| Exhaustive enum match and explicit checked/one-hot decoding | `examples/agentic-circuit/pipelines/enum_helpers.py` |
 | One-hot presence and conflict reporting | `examples/agentic-circuit/blocks/onehot_encode.py` |
 | Typed literals, explicit width conversion, and unsigned div/rem | `examples/agentic-circuit/blocks/typed_integer_operations.py` |
 | Bounded integer decoding and dynamic fixed-array read | `examples/agentic-circuit/blocks/bounded_integer_operations.py` |

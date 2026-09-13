@@ -4621,6 +4621,488 @@ def cycle(incoming: Left) -> Left:
         with self.assertRaisesRegex(QueueFrontendError, "only equality"):
             lower_queue_source(ordered, "enum_payload_pipeline")
 
+    def test_enum_is_one_of_is_exact_and_balanced(self) -> None:
+        from agentic_circuit._queue_frontend import (
+            QueueFrontendError,
+            lower_queue_source,
+        )
+
+        source = """from enum import Enum
+import agentic_circuit as ac
+@ac.encoding(width=4)
+class Opcode(Enum):
+    NONE = 0
+    READ = 3
+    WRITE = 9
+@ac.struct
+class Request:
+    opcode: Opcode
+@ac.rule
+def classify(request: Request) -> bool:
+    return request.opcode.is_one_of(Opcode.READ, Opcode.WRITE)
+@ac.system
+def pipeline(request: Request) -> bool:
+    result = classify(request)
+    return result
+"""
+        lowered = lower_queue_source(source, "pipeline")
+        self.assertEqual(2, lowered.count('ac.var.cmp "eq"'))
+        self.assertEqual(1, lowered.count("ac.var.or"))
+
+        repeated = source.replace(
+            "Opcode.READ, Opcode.WRITE", "Opcode.READ, Opcode.READ"
+        )
+        with self.assertRaisesRegex(QueueFrontendError, "must not repeat"):
+            lower_queue_source(repeated, "pipeline")
+
+        wrong = source.replace("Opcode.WRITE)", "request.opcode)")
+        with self.assertRaisesRegex(QueueFrontendError, "must be constants"):
+            lower_queue_source(wrong, "pipeline")
+
+        non_enum = source.replace(
+            "request.opcode.is_one_of(Opcode.READ, Opcode.WRITE)",
+            "ac.literal(3, ac.u4).is_one_of(Opcode.READ)",
+        )
+        with self.assertRaisesRegex(QueueFrontendError, "receiver must be"):
+            lower_queue_source(non_enum, "pipeline")
+
+    def test_checked_bits_to_enum_preserves_sparse_encoding(self) -> None:
+        from agentic_circuit._queue_frontend import (
+            QueueFrontendError,
+            lower_queue_source,
+        )
+
+        source = """from enum import Enum
+import agentic_circuit as ac
+@ac.encoding(width=4)
+class Opcode(Enum):
+    NONE = 1
+    READ = 3
+    WRITE = 9
+@ac.struct
+class Request:
+    raw: ac.u4
+@ac.struct
+class Result:
+    opcode: Opcode
+    valid: bool
+@ac.rule
+def decode(request: Request) -> Result:
+    checked = ac.checked(request.raw, Opcode, fallback=Opcode.NONE)
+    return Result(opcode=checked.value, valid=checked.valid)
+@ac.system
+def pipeline(request: Request) -> Result:
+    result = decode(request)
+    return result
+"""
+        lowered = lower_queue_source(source, "pipeline")
+        self.assertEqual(3, lowered.count('ac.var.cmp "eq"'))
+        self.assertIn('ac.var.enum @types::@Opcode "NONE"', lowered)
+        self.assertIn('ac.var.enum @types::@Opcode "WRITE"', lowered)
+
+        missing_fallback = source.replace(
+            ", fallback=Opcode.NONE", ""
+        )
+        with self.assertRaisesRegex(QueueFrontendError, "requires fallback"):
+            lower_queue_source(missing_fallback, "pipeline")
+
+        wrong_width = source.replace("raw: ac.u4", "raw: ac.u3")
+        with self.assertRaisesRegex(QueueFrontendError, "width must exactly"):
+            lower_queue_source(wrong_width, "pipeline")
+
+        dynamic_fallback = source.replace(
+            "class Request:\n    raw: ac.u4",
+            "class Request:\n    raw: ac.u4\n    fallback: Opcode",
+        ).replace("fallback=Opcode.NONE", "fallback=request.fallback")
+        with self.assertRaisesRegex(QueueFrontendError, "explicit target member"):
+            lower_queue_source(dynamic_fallback, "pipeline")
+
+        scalar_only = """from enum import Enum
+import agentic_circuit as ac
+@ac.encoding(width=2)
+class Mode(Enum):
+    IDLE = 0
+    RUN = 2
+@ac.rule
+def decode(raw: ac.u2) -> bool:
+    return ac.checked(raw, Mode, fallback=Mode.IDLE).valid
+@ac.system
+def scalar_checked(raw: ac.u2) -> bool:
+    result = decode(raw)
+    return result
+@ac.rule
+def decode_value(raw: ac.u2) -> Mode:
+    return ac.checked(raw, Mode, fallback=Mode.IDLE).value
+@ac.system
+def scalar_checked_value(raw: ac.u2) -> Mode:
+    result = decode_value(raw)
+    return result
+"""
+        scalar_lowered = lower_queue_source(scalar_only, "scalar_checked")
+        self.assertIn('ac.var.enum @types::@Mode "IDLE"', scalar_lowered)
+        self.assertEqual(2, scalar_lowered.count('ac.var.cmp "eq"'))
+        scalar_value_lowered = lower_queue_source(
+            scalar_only, "scalar_checked_value"
+        )
+        self.assertIn("!ac.queue<!ac.enum<@types::@Mode>>", scalar_value_lowered)
+
+        shadowed_target = """from enum import Enum
+import agentic_circuit as ac
+@ac.encoding(width=2)
+class Mode(Enum):
+    IDLE = 0
+    RUN = 2
+@ac.struct
+class Request:
+    values: ac.array[2, ac.u2]
+@ac.struct
+class Result:
+    flags: ac.array[2, bool]
+@ac.rule
+def decode(request: Request) -> Result:
+    return Result(
+        flags=request.values.map(
+            lambda Mode: ac.checked(
+                Mode, Mode, fallback=Mode.IDLE
+            ).valid
+        )
+    )
+@ac.system
+def pipeline(request: Request) -> Result:
+    result = decode(request)
+    return result
+"""
+        with self.assertRaisesRegex(QueueFrontendError, "unshadowed enum class"):
+            lower_queue_source(shadowed_target, "pipeline")
+
+    def test_onehot_enum_requires_explicit_empty_and_conflict_policy(self) -> None:
+        from agentic_circuit._queue_frontend import (
+            QueueFrontendError,
+            lower_queue_source,
+        )
+
+        source = """from enum import Enum
+import agentic_circuit as ac
+@ac.encoding(width=4)
+class Opcode(Enum):
+    NONE = 1
+    READ = 3
+    WRITE = 9
+    ERROR = 15
+@ac.struct
+class Request:
+    mask: ac.u2
+@ac.struct
+class Result:
+    opcode: Opcode
+    present: bool
+    conflict: bool
+@ac.rule
+def decode(request: Request) -> Result:
+    decoded = ac.onehot_enum(
+        request.mask,
+        members=(Opcode.READ, Opcode.WRITE),
+        empty=Opcode.NONE,
+        conflict=Opcode.ERROR,
+    )
+    return Result(
+        opcode=decoded.value,
+        present=decoded.present,
+        conflict=decoded.conflict,
+    )
+@ac.system
+def pipeline(request: Request) -> Result:
+    result = decode(request)
+    return result
+"""
+        lowered = lower_queue_source(source, "pipeline")
+        self.assertEqual(2, lowered.count("ac.var.extract"))
+        self.assertEqual(1, lowered.count("ac.var.popcount"))
+        self.assertIn('ac.var.enum @types::@Opcode "NONE"', lowered)
+        self.assertIn('ac.var.enum @types::@Opcode "ERROR"', lowered)
+
+        missing_policy = source.replace(",\n        conflict=Opcode.ERROR", "")
+        with self.assertRaisesRegex(QueueFrontendError, "requires one members"):
+            lower_queue_source(missing_policy, "pipeline")
+
+        wrong_width = source.replace("mask: ac.u2", "mask: ac.u3")
+        with self.assertRaisesRegex(QueueFrontendError, "count must match"):
+            lower_queue_source(wrong_width, "pipeline")
+
+        repeated = source.replace(
+            "Opcode.READ, Opcode.WRITE", "Opcode.READ, Opcode.READ"
+        )
+        with self.assertRaisesRegex(QueueFrontendError, "must be unique"):
+            lower_queue_source(repeated, "pipeline")
+
+        dynamic_member = source.replace(
+            "class Request:\n    mask: ac.u2",
+            "class Request:\n    mask: ac.u2\n    opcode: Opcode",
+        ).replace("Opcode.READ, Opcode.WRITE", "request.opcode, Opcode.WRITE")
+        with self.assertRaisesRegex(QueueFrontendError, "enum constants"):
+            lower_queue_source(dynamic_member, "pipeline")
+
+        dynamic_fallback = source.replace(
+            "class Request:\n    mask: ac.u2",
+            "class Request:\n    mask: ac.u2\n    opcode: Opcode",
+        ).replace("empty=Opcode.NONE", "empty=request.opcode")
+        with self.assertRaisesRegex(QueueFrontendError, "explicit target member"):
+            lower_queue_source(dynamic_fallback, "pipeline")
+
+        ambiguous_valid = source.replace("decoded.present", "decoded.valid")
+        with self.assertRaisesRegex(QueueFrontendError, "requires"):
+            lower_queue_source(ambiguous_valid, "pipeline")
+
+        enum_members = "\n".join(
+            f"    M{index} = {index}" for index in range(65)
+        )
+        mapped_members = ", ".join(f"Mode.M{index}" for index in range(65))
+        wide_source = f"""from enum import Enum
+import agentic_circuit as ac
+@ac.encoding(width=7)
+class Mode(Enum):
+{enum_members}
+    EMPTY = 65
+    ERROR = 66
+@ac.struct
+class Request:
+    mask: ac.array[65, bool]
+@ac.struct
+class Result:
+    mode: Mode
+    present: bool
+    conflict: bool
+@ac.rule
+def decode(request: Request) -> Result:
+    decoded = ac.onehot_enum(
+        request.mask,
+        members=({mapped_members}),
+        empty=Mode.EMPTY,
+        conflict=Mode.ERROR,
+    )
+    return Result(
+        mode=decoded.value,
+        present=decoded.present,
+        conflict=decoded.conflict,
+    )
+@ac.system
+def pipeline(request: Request) -> Result:
+    result = decode(request)
+    return result
+"""
+        wide_lowered = lower_queue_source(wide_source, "pipeline")
+        self.assertEqual(65, wide_lowered.count("ac.var.element"))
+        self.assertEqual(64, wide_lowered.count("ac.var.range_add"))
+        self.assertNotIn("ac.var.popcount", wide_lowered)
+
+        scalar_only = """from enum import Enum
+import agentic_circuit as ac
+@ac.encoding(width=2)
+class Mode(Enum):
+    EMPTY = 0
+    LEFT = 1
+    RIGHT = 2
+    ERROR = 3
+@ac.rule
+def decode(mask: ac.u2) -> Mode:
+    return ac.onehot_enum(
+        mask,
+        members=(Mode.LEFT, Mode.RIGHT),
+        empty=Mode.EMPTY,
+        conflict=Mode.ERROR,
+    ).value
+@ac.system
+def scalar_onehot(mask: ac.u2) -> Mode:
+    result = decode(mask)
+    return result
+"""
+        scalar_lowered = lower_queue_source(scalar_only, "scalar_onehot")
+        self.assertIn('ac.var.enum @types::@Mode "ERROR"', scalar_lowered)
+
+        helper_module = scalar_only.replace(
+            "@ac.rule\ndef decode(mask: ac.u2) -> Mode:",
+            "@ac.inline\ndef decode(mask: ac.u2) -> Mode:",
+        ).replace(
+            "@ac.system\ndef scalar_onehot(mask: ac.u2) -> Mode:\n"
+            "    result = decode(mask)",
+            "@ac.module\ndef stage(mask: ac.u2) -> Mode:\n"
+            "    return decode(mask)\n"
+            "@ac.system\ndef scalar_onehot(mask: ac.u2) -> Mode:\n"
+            "    result = stage(mask)",
+        )
+        helper_lowered = lower_queue_source(helper_module, "scalar_onehot")
+        self.assertIn("func.func private @decode", helper_lowered)
+
+    def test_match_enum_is_exhaustive_typed_and_verifier_visible(self) -> None:
+        from agentic_circuit._queue_frontend import (
+            QueueFrontendError,
+            lower_queue_source,
+        )
+
+        source = """from enum import Enum
+import agentic_circuit as ac
+@ac.encoding(width=4)
+class Opcode(Enum):
+    NONE = 1
+    READ = 3
+    WRITE = 9
+@ac.struct
+class Request:
+    opcode: Opcode
+@ac.rule
+def classify(request: Request) -> ac.u8:
+    return ac.match_enum(
+        request.opcode,
+        {
+            Opcode.WRITE: ac.literal(12, ac.u8),
+            Opcode.NONE: ac.literal(10, ac.u8),
+            Opcode.READ: ac.literal(11, ac.u8),
+        },
+        invalid=ac.literal(255, ac.u8),
+    )
+@ac.system
+def pipeline(request: Request) -> ac.u8:
+    result = classify(request)
+    return result
+"""
+        lowered = lower_queue_source(source, "pipeline")
+        self.assertEqual(1, lowered.count("ac.var.enum_match"))
+        self.assertIn('cases ["NONE", "READ", "WRITE"]', lowered)
+
+        missing = source.replace(
+            "            Opcode.READ: ac.literal(11, ac.u8),\n", ""
+        )
+        with self.assertRaisesRegex(QueueFrontendError, "not exhaustive.*READ"):
+            lower_queue_source(missing, "pipeline")
+
+        repeated = source.replace("Opcode.WRITE:", "Opcode.READ:")
+        with self.assertRaisesRegex(QueueFrontendError, "case Opcode.READ is repeated"):
+            lower_queue_source(repeated, "pipeline")
+
+        unknown = source.replace("Opcode.WRITE:", "Opcode.MISSING:")
+        with self.assertRaisesRegex(QueueFrontendError, "reachable members"):
+            lower_queue_source(unknown, "pipeline")
+
+        dynamic_cases = source.replace(
+            "        {\n            Opcode.WRITE: ac.literal(12, ac.u8),\n"
+            "            Opcode.NONE: ac.literal(10, ac.u8),\n"
+            "            Opcode.READ: ac.literal(11, ac.u8),\n        },",
+            "        cases,",
+        )
+        with self.assertRaisesRegex(QueueFrontendError, "static dictionary"):
+            lower_queue_source(dynamic_cases, "pipeline")
+
+        wrong_case_type = source.replace(
+            "Opcode.READ: ac.literal(11, ac.u8)", "Opcode.READ: True"
+        )
+        with self.assertRaisesRegex(QueueFrontendError, "exact recursive type"):
+            lower_queue_source(wrong_case_type, "pipeline")
+
+        wrong_invalid_type = source.replace(
+            "invalid=ac.literal(255, ac.u8)", "invalid=True"
+        )
+        with self.assertRaisesRegex(QueueFrontendError, "exact recursive type"):
+            lower_queue_source(wrong_invalid_type, "pipeline")
+
+        no_invalid = source.replace(",\n        invalid=ac.literal(255, ac.u8)", "")
+        with self.assertRaisesRegex(QueueFrontendError, "invalid"):
+            lower_queue_source(no_invalid, "pipeline")
+
+        aggregate_source = """from enum import Enum
+import agentic_circuit as ac
+class Mode(Enum):
+    IDLE = 0
+    RUN = 1
+@ac.struct
+class Request:
+    mode: Mode
+@ac.struct
+class Choice:
+    active: bool
+    code: ac.u1
+@ac.rule
+def classify(request: Request) -> Choice:
+    return ac.match_enum(
+        request.mode,
+        {
+            Mode.IDLE: Choice(active=False, code=ac.literal(0, ac.u1)),
+            Mode.RUN: Choice(active=True, code=ac.literal(1, ac.u1)),
+        },
+        invalid=Choice(active=False, code=ac.literal(1, ac.u1)),
+    )
+@ac.system
+def pipeline(request: Request) -> Choice:
+    result = classify(request)
+    return result
+"""
+        aggregate_lowered = lower_queue_source(aggregate_source, "pipeline")
+        self.assertIn("!ac.var<!ac.struct<@types::@Choice>>", aggregate_lowered)
+        recursive_mismatch = aggregate_source.replace(
+            "Mode.RUN: Choice(active=True, code=ac.literal(1, ac.u1))",
+            "Mode.RUN: Choice(active=ac.literal(1, ac.u1), "
+            "code=ac.literal(1, ac.u1))",
+        )
+        with self.assertRaisesRegex(QueueFrontendError, "type mismatch"):
+            lower_queue_source(recursive_mismatch, "pipeline")
+
+        scalar_only = """from enum import Enum
+import agentic_circuit as ac
+@ac.encoding(width=2)
+class Mode(Enum):
+    IDLE = 0
+    RUN = 2
+@ac.rule
+def classify(mode: Mode) -> ac.u2:
+    return ac.match_enum(
+        mode,
+        {
+            Mode.IDLE: ac.literal(0, ac.u2),
+            Mode.RUN: ac.literal(1, ac.u2),
+        },
+        invalid=ac.literal(3, ac.u2),
+    )
+@ac.system
+def scalar_match(mode: Mode) -> ac.u2:
+    result = classify(mode)
+    return result
+"""
+        scalar_lowered = lower_queue_source(scalar_only, "scalar_match")
+        self.assertIn("ac.var.enum_match", scalar_lowered)
+
+        helper_module = """from enum import Enum
+import agentic_circuit as ac
+class Mode(Enum):
+    IDLE = 0
+    RUN = 1
+@ac.struct
+class Result:
+    active: bool
+    classification: ac.u2
+def is_active(mode: Mode) -> bool:
+    return mode.is_one_of(Mode.RUN)
+@ac.inline
+def classify(mode: Mode) -> ac.u2:
+    return ac.match_enum(
+        mode,
+        {
+            Mode.IDLE: ac.literal(0, ac.u2),
+            Mode.RUN: ac.literal(1, ac.u2),
+        },
+        invalid=ac.literal(3, ac.u2),
+    )
+@ac.module
+def stage(mode: Mode) -> Result:
+    return Result(active=is_active(mode), classification=classify(mode))
+@ac.system
+def helper_match(mode: Mode) -> Result:
+    result = stage(mode)
+    return result
+"""
+        helper_lowered = lower_queue_source(helper_module, "helper_match")
+        self.assertIn("func.func private @is_active", helper_lowered)
+        self.assertIn("func.func private @classify", helper_lowered)
+        self.assertIn("ac.var.enum_match", helper_lowered)
+
     def test_nominal_enum_can_own_zero_initialized_persistent_state(self) -> None:
         from agentic_circuit._queue_frontend import lower_queue_source
 
