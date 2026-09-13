@@ -322,6 +322,7 @@ TEST(ACIROpsTest, RegistryContainsExactQueueVarOperations) {
       "ac.var.count_zeros",
       "ac.var.cmp",
       "ac.var.decl",
+      "ac.var.dynamic_element",
       "ac.var.element",
       "ac.var.enum",
       "ac.var.extract",
@@ -338,6 +339,14 @@ TEST(ACIROpsTest, RegistryContainsExactQueueVarOperations) {
       "ac.var.or",
       "ac.var.popcount",
       "ac.var.priority_encode",
+      "ac.var.range_add",
+      "ac.var.range_bits",
+      "ac.var.range_checked",
+      "ac.var.range_cmp",
+      "ac.var.range_refine",
+      "ac.var.range_saturate",
+      "ac.var.range_sub",
+      "ac.var.range_wrap",
       "ac.var.read",
       "ac.var.read_element",
       "ac.var.select",
@@ -348,6 +357,7 @@ TEST(ACIROpsTest, RegistryContainsExactQueueVarOperations) {
       "ac.var.tuple",
       "ac.var.xor",
       "ac.var.with",
+      "ac.var.with_element",
       "ac.require",
       "ac.return",
       "ac.resource",
@@ -706,7 +716,7 @@ TEST(ACIROpsTest, RuntimeAndQueueVarRegistryIsExact) {
         << name.str();
   EXPECT_FALSE(mlir::OperationName("ac.try_issue", &context).isRegistered());
   EXPECT_FALSE(mlir::OperationName("ac.connect", &context).isRegistered());
-  const std::array<llvm::StringLiteral, 97> queueVarNames = {
+  const std::array<llvm::StringLiteral, 107> queueVarNames = {
       "ac.transform",
       "ac.transform.yield",
       "ac.rule",
@@ -735,6 +745,7 @@ TEST(ACIROpsTest, RuntimeAndQueueVarRegistryIsExact) {
       "ac.var.choose.yield",
       "ac.var.concat",
       "ac.var.decl",
+      "ac.var.dynamic_element",
       "ac.var.element",
       "ac.var.enum",
       "ac.var.extract",
@@ -754,6 +765,14 @@ TEST(ACIROpsTest, RuntimeAndQueueVarRegistryIsExact) {
       "ac.var.or",
       "ac.var.popcount",
       "ac.var.priority_encode",
+      "ac.var.range_add",
+      "ac.var.range_bits",
+      "ac.var.range_checked",
+      "ac.var.range_cmp",
+      "ac.var.range_refine",
+      "ac.var.range_saturate",
+      "ac.var.range_sub",
+      "ac.var.range_wrap",
       "ac.var.shl",
       "ac.var.shr",
       "ac.var.matches",
@@ -761,6 +780,7 @@ TEST(ACIROpsTest, RuntimeAndQueueVarRegistryIsExact) {
       "ac.var.xor",
       "ac.var.get",
       "ac.var.with",
+      "ac.var.with_element",
       "ac.scope",
       "ac.scope.yield",
       "ac.broadcast",
@@ -808,7 +828,7 @@ TEST(ACIROpsTest, RuntimeAndQueueVarRegistryIsExact) {
   for (llvm::StringLiteral name : queueVarNames)
     EXPECT_TRUE(mlir::OperationName(name, &context).isRegistered())
         << name.str();
-  EXPECT_EQ(context.getRegisteredOperationsByDialect("ac").size(), 140u);
+  EXPECT_EQ(context.getRegisteredOperationsByDialect("ac").size(), 150u);
 }
 
 

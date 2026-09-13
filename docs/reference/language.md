@@ -627,7 +627,13 @@ annotation 获得范围证明，包含 nested bounded leaf 的输入同样必须
 再显式选择 wrap、saturate、checked 或 verifier 证明安全的 refine。`checked.value`
 在 invalid 时返回目标下界，`checked.valid` 不会隐式控制 rule firing。bounded 加减
 生成数学结果域且不环绕，跨域比较按 unsigned 数值语义执行。固定 value-array 支持
-verifier 证明安全的动态读取；动态更新仍不在此合同内。Frozen ACIR 使用 inclusive
+verifier 证明安全的动态读取，以及返回新数组的
+`values.with_element(index, replacement)` 函数式更新。动态读在 PYC 使用平衡选择树，
+更新对每个 lane 并行选择后 concat；GFSim 复制 packed words 后只覆盖目标元素区间。
+replacement 的 integer/tuple/list literal 由目标元素 descriptor 提供上下文，但递归
+leaf 仍执行精确类型检查，`bool` 与 `ac.u1` 不互换。QueueGraph cost metadata 分别记录
+PYC DCE 前节点数、选择树深度与 `pyc-check-logic-depth` 的 unit-cost depth，并计入窄
+index zero-extension。Frozen ACIR 使用 inclusive
 `!ac.range<lo, hi - 1>`，QueueGraph 独立复算转换、算术和索引证明后才在
 GFSim/PYC 中擦除 refinement。
 当前 persistent/module state 的 bounded scalar 必须包含零并以零初始化；非零下界

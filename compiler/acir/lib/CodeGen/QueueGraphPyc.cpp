@@ -1992,22 +1992,110 @@ emitTransform(const QueueGraphPlan &plan, const QueueBlockPlan &block,
             "i" + std::to_string(comparisonWidth);
         const std::string widenedIndex =
             widenUnsigned(*index, *indexWidth, comparisonWidth);
-        for (uint64_t element = expression.selectionCount; element-- > 0;) {
+        std::vector<std::pair<std::string, std::string>> candidates;
+        for (uint64_t element = 0; element < expression.selectionCount;
+             ++element) {
           const uint64_t lsb =
               expression.width * (expression.selectionCount - element - 1);
           std::string extracted = newValue();
           body << "    " << extracted << " = pyc.extract " << *aggregate
                << " {lsb = " << lsb << "} : " << *aggregateType << " -> "
                << *resultType << "\n";
-          if (result.empty()) {
-            result = std::move(extracted);
-            continue;
-          }
           std::string ordinal = emitPycConstant(element, comparisonType);
           std::string selected =
               emitPycBinary("eq", widenedIndex, ordinal, comparisonType);
-          result = emitPycSelect(selected, extracted, result, *resultType);
+          candidates.emplace_back(std::move(selected), std::move(extracted));
         }
+        while (candidates.size() > 1) {
+          std::vector<std::pair<std::string, std::string>> next;
+          next.reserve((candidates.size() + 1) / 2);
+          for (size_t index = 0; index < candidates.size(); index += 2) {
+            if (index + 1 == candidates.size()) {
+              next.push_back(std::move(candidates[index]));
+              continue;
+            }
+            std::string selected = emitPycSelect(
+                candidates[index].first, candidates[index].second,
+                candidates[index + 1].second, *resultType);
+            std::string valid = emitPycBinary(
+                "or", candidates[index].first, candidates[index + 1].first,
+                "i1");
+            next.emplace_back(std::move(valid), std::move(selected));
+          }
+          candidates = std::move(next);
+        }
+        result = std::move(candidates.front().second);
+      } else if (expression.kind == "array_update_dynamic") {
+        if (expression.operands.size() != 3 || expression.width == 0 ||
+            expression.selectionCount == 0)
+          return pycError("dynamic value_array update is malformed");
+        auto aggregate = value(expression.operands[0]);
+        auto index = value(expression.operands[1]);
+        auto replacement = value(expression.operands[2]);
+        auto aggregateLogicalType = valueType(expression.operands[0]);
+        auto indexLogicalType = valueType(expression.operands[1]);
+        if (!aggregate)
+          return aggregate.takeError();
+        if (!index)
+          return index.takeError();
+        if (!replacement)
+          return replacement.takeError();
+        auto aggregateType = aggregateLogicalType
+                                 ? pycType(plan, *aggregateLogicalType)
+                                 : llvm::Expected<std::string>(
+                                       aggregateLogicalType.takeError());
+        auto indexWidth = indexLogicalType
+                              ? typeWidth(plan, *indexLogicalType)
+                              : llvm::Expected<unsigned>(
+                                    indexLogicalType.takeError());
+        auto elementLogicalType = valueType(expression.operands[2]);
+        auto elementType = elementLogicalType
+                               ? pycType(plan, *elementLogicalType)
+                               : llvm::Expected<std::string>(
+                                     elementLogicalType.takeError());
+        if (!aggregateType)
+          return aggregateType.takeError();
+        if (!indexWidth)
+          return indexWidth.takeError();
+        if (!elementType)
+          return elementType.takeError();
+        const unsigned comparisonWidth = std::max<unsigned>(
+            *indexWidth,
+            std::max<uint64_t>(
+                1, llvm::Log2_64_Ceil(expression.selectionCount)));
+        const std::string comparisonType =
+            "i" + std::to_string(comparisonWidth);
+        const std::string widenedIndex =
+            widenUnsigned(*index, *indexWidth, comparisonWidth);
+        std::vector<std::string> elements;
+        for (uint64_t element = 0; element < expression.selectionCount;
+             ++element) {
+          const uint64_t lsb =
+              expression.width * (expression.selectionCount - element - 1);
+          std::string oldValue = newValue();
+          body << "    " << oldValue << " = pyc.extract " << *aggregate
+               << " {lsb = " << lsb << "} : " << *aggregateType << " -> "
+               << *elementType << "\n";
+          std::string ordinal = emitPycConstant(element, comparisonType);
+          std::string selected =
+              emitPycBinary("eq", widenedIndex, ordinal, comparisonType);
+          elements.push_back(emitPycSelect(
+              selected, *replacement, oldValue, *elementType));
+        }
+        result = newValue();
+        body << "    " << result << " = pyc.concat(";
+        for (auto [index, element] : llvm::enumerate(elements)) {
+          if (index)
+            body << ", ";
+          body << element;
+        }
+        body << ") : (";
+        for (size_t index = 0; index < elements.size(); ++index) {
+          if (index)
+            body << ", ";
+          body << *elementType;
+        }
+        body << ") -> " << *aggregateType << "\n";
       } else if (expression.kind == "bit_extract" ||
                  expression.kind == "aggregate_get") {
         if (expression.operands.size() != 1 || expression.width == 0)

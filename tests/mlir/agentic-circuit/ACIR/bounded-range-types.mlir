@@ -14,6 +14,10 @@
 // RUN: %not %acir_opt %t/bad-table-bound.mlir 2>&1 | %FileCheck %s --check-prefix=BAD-TABLE-BOUND
 // RUN: %not %acir_opt %t/bad-nested-zero.mlir 2>&1 | %FileCheck %s --check-prefix=BAD-NESTED-ZERO
 // RUN: %not %acir_opt %t/bad-table-zero.mlir 2>&1 | %FileCheck %s --check-prefix=BAD-TABLE-ZERO
+// RUN: %not %acir_opt %t/bad-array-update-type.mlir 2>&1 | %FileCheck %s --check-prefix=BAD-ARRAY-UPDATE-TYPE
+// RUN: %not %acir_opt %t/bad-array-update-result.mlir 2>&1 | %FileCheck %s --check-prefix=BAD-ARRAY-UPDATE-RESULT
+// RUN: %not %acir_opt %t/bad-array-update-receiver.mlir 2>&1 | %FileCheck %s --check-prefix=BAD-ARRAY-UPDATE-RECEIVER
+// RUN: %acir_opt %t/unproven-array-update.mlir -ac-verify-value-constraints -verify-diagnostics
 
 // VALID: !ac.range<0, 4>
 // VALID: !ac.range<4, 8>
@@ -29,6 +33,9 @@
 // BAD-TABLE-BOUND: bounded table index exceeds the Table domain
 // BAD-NESTED-ZERO: init must match value type or be the zero image for a struct or enum
 // BAD-TABLE-ZERO: zero-initialized Table entry type does not admit a zero image
+// BAD-ARRAY-UPDATE-TYPE: replacement must match the value_array element type
+// BAD-ARRAY-UPDATE-RESULT: result must preserve the value_array type
+// BAD-ARRAY-UPDATE-RECEIVER: aggregate must be a value_array
 
 //--- valid.mlir
 module attributes {ac.contract_epoch = "0.5", ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle", ac.system = "range_types"} {
@@ -48,6 +55,7 @@ module attributes {ac.contract_epoch = "0.5", ac.model_kind = "queue_graph", ac.
     %a = ac.var.constant 1 : i8 as !ac.var<i8>
     %array = ac.var.array %a, %a, %a, %a, %a : !ac.var<i8>, !ac.var<i8>, !ac.var<i8>, !ac.var<i8>, !ac.var<i8> -> !ac.var<!ac.value_array<5 x i8>>
     %selected = ac.var.dynamic_element %array at %checked : !ac.var<!ac.value_array<5 x i8>>, !ac.var<!ac.range<0, 4>> -> !ac.var<i8>
+    %updated = ac.var.with_element %array at %checked value %selected : !ac.var<!ac.value_array<5 x i8>>, !ac.var<!ac.range<0, 4>>, !ac.var<i8> -> !ac.var<!ac.value_array<5 x i8>>
     return %index, %window : !ac.var<!ac.range<0, 4>>, !ac.var<!ac.range<4, 8>>
   }
 }
@@ -177,4 +185,42 @@ module attributes {ac.contract_epoch = "0.5"} {
 //--- bad-table-zero.mlir
 module attributes {ac.contract_epoch = "0.5", ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle", ac.system = "bad_table_zero"} {
   ac.table @state entry !ac.range<4, 8> entries 5 init 0 owner "/" stable_id "table/state"
+}
+
+//--- bad-array-update-type.mlir
+module attributes {ac.contract_epoch = "0.5"} {
+  func.func private @bad(%array: !ac.var<!ac.value_array<5 x i8>>, %index: !ac.var<!ac.range<0, 4>>, %value: !ac.var<i7>) {
+    %updated = ac.var.with_element %array at %index value %value : !ac.var<!ac.value_array<5 x i8>>, !ac.var<!ac.range<0, 4>>, !ac.var<i7> -> !ac.var<!ac.value_array<5 x i8>>
+    return
+  }
+}
+
+//--- unproven-array-update.mlir
+module attributes {ac.contract_epoch = "0.5", ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle", ac.system = "unsafe_update"} {
+  %input = ac.source depth 1 latency 1 : !ac.queue<i3>
+  %output = ac.transform %input depths [1] latencies [1] {
+  ^body(%index: !ac.var<i3>):
+    %a = ac.var.constant 1 : i8 as !ac.var<i8>
+    %array = ac.var.array %a, %a, %a, %a, %a : !ac.var<i8>, !ac.var<i8>, !ac.var<i8>, !ac.var<i8>, !ac.var<i8> -> !ac.var<!ac.value_array<5 x i8>>
+    // expected-error @+1 {{cannot prove value_array update index is within [0, 4]; inferred interval[0,7]}}
+    %updated = ac.var.with_element %array at %index value %a : !ac.var<!ac.value_array<5 x i8>>, !ac.var<i3>, !ac.var<i8> -> !ac.var<!ac.value_array<5 x i8>>
+    ac.transform.yield %updated : !ac.var<!ac.value_array<5 x i8>>
+  } : (!ac.queue<i3>) -> !ac.queue<!ac.value_array<5 x i8>>
+  ac.sink %output : !ac.queue<!ac.value_array<5 x i8>>
+}
+
+//--- bad-array-update-result.mlir
+module attributes {ac.contract_epoch = "0.5"} {
+  func.func private @bad(%array: !ac.var<!ac.value_array<5 x i8>>, %index: !ac.var<!ac.range<0, 4>>, %value: !ac.var<i8>) {
+    %updated = ac.var.with_element %array at %index value %value : !ac.var<!ac.value_array<5 x i8>>, !ac.var<!ac.range<0, 4>>, !ac.var<i8> -> !ac.var<!ac.value_array<4 x i8>>
+    return
+  }
+}
+
+//--- bad-array-update-receiver.mlir
+module attributes {ac.contract_epoch = "0.5"} {
+  func.func private @bad(%scalar: !ac.var<i8>, %index: !ac.var<i2>, %value: !ac.var<i8>) {
+    %updated = ac.var.with_element %scalar at %index value %value : !ac.var<i8>, !ac.var<i2>, !ac.var<i8> -> !ac.var<i8>
+    return
+  }
 }

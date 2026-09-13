@@ -371,6 +371,8 @@ llvm::Expected<uint64_t> generatedTypeWidth(const QueueGraphPlan &plan,
     if (!type.drop_front().getAsInteger(10, width) && width > 0 && width <= 64)
       return width;
   }
+  if (auto bounds = rangeBounds(type))
+    return rangeStorageWidth(bounds->second);
   if (const QueueEnumPlan *enumeration = findEnumType(plan, type)) {
     if (enumeration->width > kMaximumPackedValueWidth)
       return generatorError("enum width exceeds the backend template domain");
@@ -405,7 +407,7 @@ llvm::Expected<std::string> emitPackedValueImpl(const QueueGraphPlan &plan,
                                                 llvm::StringRef type,
                                                 llvm::StringRef value,
                                                 llvm::StringSet<> &active) {
-  if (type.starts_with('i') || findAggregateType(plan, type))
+  if (type.starts_with('i') || rangeBounds(type) || findAggregateType(plan, type))
     return value.str();
   if (const QueueEnumPlan *enumeration = findEnumType(plan, type))
     return "gfsim::UInt<" + std::to_string(enumeration->width) +
@@ -453,7 +455,7 @@ llvm::Expected<std::string> emitUnpackedValueImpl(const QueueGraphPlan &plan,
                                                   llvm::StringRef type,
                                                   llvm::StringRef value,
                                                   llvm::StringSet<> &active) {
-  if (type.starts_with('i') || findAggregateType(plan, type))
+  if (type.starts_with('i') || rangeBounds(type) || findAggregateType(plan, type))
     return value.str();
   if (const QueueEnumPlan *enumeration = findEnumType(plan, type))
     return "static_cast<" + enumeration->name +
@@ -1485,6 +1487,31 @@ emitExpressionBody(const QueueGraphPlan &plan, const QueueBlockPlan &block,
       }
       output << padding << "  default: return " << *resultType << "{};\n"
              << padding << "  }\n" << padding << "}();\n";
+      continue;
+    }
+    if (expression.kind == "array_update_dynamic") {
+      auto array = operand(0);
+      auto index = operand(1);
+      auto replacement = operand(2);
+      if (!array)
+        return array.takeError();
+      if (!index)
+        return index.takeError();
+      if (!replacement)
+        return replacement.takeError();
+      const QueueAggregatePlan *aggregate =
+          findAggregateType(plan, expression.type);
+      if (!aggregate || aggregate->kind != "array" ||
+          aggregate->elements.size() != 1)
+        return generatorError("dynamic value_array update type is unresolved");
+      auto packed =
+          emitPackedValue(plan, aggregate->elements.front(), replacement->str());
+      if (!packed)
+        return packed.takeError();
+      output << padding << "auto " << expression.result
+             << " = gfsim::arrayUpdate<" << expression.selectionCount << ", "
+             << expression.width << ">(" << array->str() << ", "
+             << index->str() << ", " << *packed << ");\n";
       continue;
     }
     if (expression.kind == "aggregate_get") {

@@ -245,6 +245,17 @@ def pipeline(raw: ac.u8) -> bool:
                 "bounded_integer_operations",
                 {},
             ),
+            (
+                ROOT / "examples/agentic-circuit/blocks/bounded_integer_operations.py",
+                "recursive_array_updates",
+                {},
+            ),
+            (
+                ROOT
+                / "tests/integration/agentic-circuit/e2e/fixtures/array_update_state/architecture.py",
+                "array_update_state",
+                {},
+            ),
         )
 
         with tempfile.TemporaryDirectory() as temporary:
@@ -437,10 +448,26 @@ def pipeline(raw: ac.u8) -> bool:
                                 "range_checked_valid",
                                 "range_add",
                                 "array_get_dynamic",
+                                "array_update_dynamic",
                             }
                             <= kinds
                         )
                         self.assertNotRegex(pyc.read_text(encoding="utf-8"), r"\bscf\.")
+                    elif system == "array_update_state":
+                        plan = json.loads(self._run((self.plan, frozen), cwd=ROOT))
+                        writes = [
+                            write
+                            for block in plan["blocks"]
+                            for write in block["state_writes"]
+                        ]
+                        self.assertEqual(1, len(writes))
+                        self.assertEqual("entries", writes[0]["table"])
+                        kinds = {
+                            expression["kind"]
+                            for block in plan["blocks"]
+                            for expression in block["expressions"]
+                        }
+                        self.assertIn("array_update_dynamic", kinds)
                     elif system == "record_spread_pipeline":
                         self.assertIn("struct Packet", generated)
                         self.assertIn("auto v4 = Packet{v0, v1, v2, v3};", generated)

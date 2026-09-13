@@ -134,6 +134,18 @@ def ACIR_VarDynamicElementOp : ACIR_Op<"var.dynamic_element", [Pure]> {
   }];
 }
 
+def ACIR_VarWithElementOp : ACIR_Op<"var.with_element", [Pure]> {
+  let arguments = (ins ACIR_VarType:$aggregate, ACIR_VarType:$index,
+                       ACIR_VarType:$value);
+  let results = (outs ACIR_VarType:$result);
+  let hasVerifier = 1;
+  let assemblyFormat = [{
+    $aggregate `at` $index `value` $value attr-dict `:`
+    qualified(type($aggregate)) `,` qualified(type($index)) `,`
+    qualified(type($value)) `->` qualified(type($result))
+  }];
+}
+
 class ACIR_VarBinaryOp<string mnemonic> : ACIR_Op<mnemonic, [
     Pure, AllTypesMatch<["lhs", "rhs", "result"]>
   ]> {

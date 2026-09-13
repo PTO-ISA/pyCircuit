@@ -387,7 +387,14 @@ bits、nominal enum/struct、structural tuple 和固定 value array。每个 des
 元素都必须递归 immutable。当前可执行链已开放 acyclic nested struct、标准 Python
 enum value、structural tuple 构造、固定 value-array 构造、常量 aggregate 索引及
 有证明的固定 value-array 动态读取。动态读取降为 `ac.var.dynamic_element`，ACIR 与
-QueueGraph 独立证明 index domain 被 array length 包含；动态更新仍未开放。
+QueueGraph 独立证明 index domain 被 array length 包含。函数式
+`values.with_element(index, replacement)` 降为 pure `ac.var.with_element`，返回新数组
+且不修改 source；replacement 必须与元素 descriptor 精确一致。PYC 动态读使用稳定的
+相邻 pairwise 平衡选择树，动态更新并行选择每个 lane 后按 MSB-first concat。GFSim
+只复制一次 packed word array 并覆盖目标元素 bit 区间，不分配 container，也不逐 bit
+重建整个数组。QueueGraph JSON 从已验证 operand type 与 shape 推导 PYC 节点数、展开
+因子、index width、选择树深度和 PYC unit-cost logic depth；较窄但被包含的 index domain
+所需 zero-extension 也计入节点与深度成本。
 
 tuple 与固定 array payload 使用普通 Python annotation 和 value：
 
@@ -405,8 +412,11 @@ updated = item.with_fields(
 
 tuple/list literal 必须与静态 shape 完全等长；tuple index 仍为静态，value-array
 index 可以是静态值，也可以携带被 verifier 证明不越界的 declared/inferred domain。
-编译器用类型化的 `ac.var.tuple`、`ac.var.array`、`ac.var.element` 和
-`ac.var.dynamic_element` lowering，在 QueueGraph 保存 aggregate identity/width，并在
+integer、tuple 或 list replacement literal 使用目标元素 descriptor 作为上下文，并继续
+逐层执行 exact leaf 检查；这不会让 `bool` 与 `ac.u1` 可以互换。
+编译器用类型化的 `ac.var.tuple`、`ac.var.array`、`ac.var.element`、
+`ac.var.dynamic_element` 和 `ac.var.with_element` lowering，在 QueueGraph 保存
+aggregate identity/width，并在
 gfsim 与 PYC 中使用一个 packed value；Python 不增加硬件 container object。
 enum 和 nominal struct 元素会在 aggregate 构造前递归 pack、在选取后递归恢复，
 字段顺序与 PYC 的 MSB-first layout 相同。位宽加法/乘法采用溢出检查；超过 64 bit

@@ -2058,6 +2058,27 @@ LogicalResult VarDynamicElementOp::verify() {
   return success();
 }
 
+LogicalResult VarWithElementOp::verify() {
+  auto aggregateType = cast<VarType>(getAggregate().getType());
+  auto array = dyn_cast<ValueArrayType>(aggregateType.getElementType());
+  if (!array)
+    return emitOpError("aggregate must be a value_array");
+  Type indexElement = cast<VarType>(getIndex().getType()).getElementType();
+  auto index = dyn_cast<IntegerType>(indexElement);
+  auto range = dyn_cast<RangeType>(indexElement);
+  if ((!index || !index.isSignless() || index.getWidth() == 0 ||
+       index.getWidth() > 64) &&
+      !range)
+    return emitOpError("index must be an unsigned scalar");
+  if (range && range.getUpper() >= static_cast<uint64_t>(array.getLength()))
+    return emitOpError("bounded index exceeds the value_array length");
+  if (getValue().getType() != VarType::get(getContext(), array.getElementType()))
+    return emitOpError("replacement must match the value_array element type");
+  if (getResult().getType() != getAggregate().getType())
+    return emitOpError("result must preserve the value_array type");
+  return success();
+}
+
 static bool supportsZeroImage(Operation *operation, Type type,
                               llvm::SmallPtrSetImpl<Operation *> &seen) {
   if (isa<IntegerType, EnumType>(type))

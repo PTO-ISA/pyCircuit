@@ -45,6 +45,7 @@ operations:
   - ac.var.array
   - ac.var.element
   - ac.var.dynamic_element
+  - ac.var.with_element
   - ac.var.add
   - ac.var.sub
   - ac.var.mul

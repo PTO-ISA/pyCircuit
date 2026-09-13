@@ -1748,7 +1748,17 @@ standard Python enum values, structural tuple construction, fixed value-array
 construction, constant aggregate indexing, and bounded dynamic reads from
 fixed value arrays. A dynamic read lowers to `ac.var.dynamic_element`; both
 ACIR analysis and QueueGraph independently prove the index domain is contained
-in the array length. Dynamic fixed-array update remains unsupported.
+in the array length. `values.with_element(index, replacement)` lowers to the
+pure `ac.var.with_element` operation and returns a new array while preserving
+the source value. It uses the same proof, exact element type, and MSB-first
+layout. PYC dynamic reads use a stable adjacent pairwise selection tree with
+`ceil(log2(N))` modeled depth; updates select every lane in parallel and then
+concatenate the lanes. GFSim copies the packed word array once and overwrites
+only the selected element's bit interval; it does not allocate a container or
+rebuild every bit of the full array. QueueGraph JSON derives emitted PYC node
+count, expansion factor, index width, selection-tree depth, and unit-cost PYC
+logic depth from the verified operand types and shape. A narrower contained
+index domain includes its zero-extension operations in the node/depth cost.
 
 Tuple and fixed-array payloads use ordinary Python annotations and values:
 
@@ -1767,8 +1777,11 @@ updated = item.with_fields(
 Tuple/list literals must have the exact statically known arity. Tuple indices
 remain static. Fixed-array indices are either static and in range or dynamic
 with a declared/inferred proof contained in the array length. The compiler
+uses the destination element descriptor as context for an integer, tuple, or
+list replacement literal while retaining exact recursive leaf checks; in
+particular, this does not make `bool` and `ac.u1` interchangeable. The compiler
 lowers them through typed `ac.var.tuple`, `ac.var.array`, `ac.var.element`, and
-`ac.var.dynamic_element`, keeps
+`ac.var.dynamic_element`/`ac.var.with_element`, keeps
 aggregate identity and width in QueueGraph, and uses one packed value in gfsim
 and PYC rather than expanding a hardware container object in Python.
 Enum and nominal struct elements are recursively packed before construction and

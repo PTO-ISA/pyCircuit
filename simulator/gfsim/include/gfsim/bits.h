@@ -273,6 +273,22 @@ template <unsigned Width> struct RangeChecked {
   UInt<1> valid;
 };
 
+template <std::size_t Count, unsigned ElementWidth, unsigned TotalWidth,
+          unsigned IndexWidth>
+constexpr UInt<TotalWidth> arrayUpdate(UInt<TotalWidth> base,
+                                       UInt<IndexWidth> index,
+                                       UInt<ElementWidth> replacement)
+  requires(Count > 0 && TotalWidth == Count * ElementWidth &&
+           IndexWidth <= 64)
+{
+  const std::uint64_t selected = index.value();
+  if (selected >= Count)
+    return base;
+  const std::size_t replacementLsb =
+      ElementWidth * (Count - selected - 1);
+  return bitInsert(base, replacement, replacementLsb);
+}
+
 template <unsigned TargetWidth, std::uint64_t Lower,
           std::uint64_t UpperInclusive, unsigned SourceWidth>
 constexpr UInt<TargetWidth> rangeWrap(UInt<SourceWidth> source)

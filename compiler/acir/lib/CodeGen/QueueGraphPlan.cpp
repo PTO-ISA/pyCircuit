@@ -1069,7 +1069,40 @@ extractExpressions(mlir::Region &region, QueueBlockPlan &plan,
       auto width = mlirValueBitWidth(element, array.getElementType(), active);
       if (!width)
         return width.takeError();
+      active.clear();
+      auto indexWidth = mlirValueBitWidth(
+          element,
+          mlir::cast<ac::VarType>(element.getIndex().getType())
+              .getElementType(),
+          active);
+      if (!indexWidth)
+        return indexWidth.takeError();
       plan.expressions.back().width = *width;
+      plan.expressions.back().indexWidth = *indexWidth;
+      plan.expressions.back().selectionCount =
+          static_cast<uint64_t>(array.getLength());
+      continue;
+    }
+    if (auto update = mlir::dyn_cast<ac::VarWithElementOp>(operation)) {
+      if (auto error = append(operation, "array_update_dynamic"))
+        return error;
+      auto array = mlir::cast<ac::ValueArrayType>(
+          mlir::cast<ac::VarType>(update.getAggregate().getType())
+              .getElementType());
+      llvm::SmallVector<mlir::Type> active;
+      auto width = mlirValueBitWidth(update, array.getElementType(), active);
+      if (!width)
+        return width.takeError();
+      active.clear();
+      auto indexWidth = mlirValueBitWidth(
+          update,
+          mlir::cast<ac::VarType>(update.getIndex().getType())
+              .getElementType(),
+          active);
+      if (!indexWidth)
+        return indexWidth.takeError();
+      plan.expressions.back().width = *width;
+      plan.expressions.back().indexWidth = *indexWidth;
       plan.expressions.back().selectionCount =
           static_cast<uint64_t>(array.getLength());
       continue;
@@ -4295,6 +4328,7 @@ inlineTableChoiceContractKey(const QueueExpressionPlan &expression) {
     append(nested.slot);
     append(std::to_string(nested.lsb));
     append(std::to_string(nested.width));
+    append(std::to_string(nested.indexWidth));
     append(nested.mask);
     append(nested.value);
     append(nested.staticTypeTarget);
@@ -4359,7 +4393,7 @@ bool isEffectFreeTableMatchExpression(const QueueExpressionPlan &expression) {
               "range_add", "range_sub", "range_cmp"},
              true)
       .Cases({"range_checked_value", "range_checked_valid",
-              "array_get_dynamic"},
+              "array_get_dynamic", "array_update_dynamic"},
              true)
       .Default(false);
 }
@@ -5537,8 +5571,38 @@ llvm::Error verifyQueueGraphPlan(const QueueGraphPlan &plan) {
             aggregate->elements.size() != 1 ||
             aggregate->elements.front() != expression.type ||
             !elementWidth || expression.width != *elementWidth || !indexWidth ||
-            *indexWidth > 64)
+            *indexWidth > 64 || expression.indexWidth != *indexWidth)
           return planError("dynamic value_array access types are inconsistent");
+      } else if (expression.kind == "array_update_dynamic") {
+        if (expression.operands.size() != 3 || expression.selectionCount == 0 ||
+            expression.width == 0)
+          return planError("dynamic value_array update is malformed");
+        auto source = valueTypes.find(expression.operands[0]);
+        auto index = valueTypes.find(expression.operands[1]);
+        auto replacement = valueTypes.find(expression.operands[2]);
+        auto aggregate =
+            source == valueTypes.end()
+                ? plan.aggregates.end()
+                : llvm::find_if(plan.aggregates,
+                                [&](const QueueAggregatePlan &candidate) {
+                                  return candidate.type == source->getValue();
+                                });
+        auto elementWidth =
+            aggregate == plan.aggregates.end() || aggregate->elements.empty()
+                ? std::optional<uint64_t>()
+                : valueWidth(aggregate->elements.front());
+        auto indexWidth = index == valueTypes.end()
+                              ? std::optional<unsigned>()
+                              : integerWidth(index->getValue());
+        if (aggregate == plan.aggregates.end() || aggregate->kind != "array" ||
+            aggregate->length != expression.selectionCount ||
+            aggregate->elements.size() != 1 || source == valueTypes.end() ||
+            expression.type != source->getValue() ||
+            replacement == valueTypes.end() ||
+            replacement->getValue() != aggregate->elements.front() ||
+            !elementWidth || expression.width != *elementWidth || !indexWidth ||
+            *indexWidth > 64 || expression.indexWidth != *indexWidth)
+          return planError("dynamic value_array update types are inconsistent");
       } else if (expression.kind == "aggregate_get") {
         if (expression.operands.size() != 1 || expression.width == 0)
           return planError("aggregate get expression is malformed");
@@ -6065,6 +6129,15 @@ llvm::Error verifyQueueGraphPlan(const QueueGraphPlan &plan) {
                 0, expression.selectionCount - 1))
           return planError("value_array index is not statically safe");
       }
+      if (expression.kind == "array_update_dynamic") {
+        auto index = expression.operands.size() == 3
+                         ? constraints.find(expression.operands[1])
+                         : constraints.end();
+        if (index == constraints.end() || expression.selectionCount == 0 ||
+            !index->getValue().provesWithin(
+                0, expression.selectionCount - 1))
+          return planError("value_array update index is not statically safe");
+      }
       if (expression.kind == "range_refine") {
         auto target = rangeBounds(expression.type);
         auto input = expression.operands.size() == 1
@@ -6286,7 +6359,7 @@ llvm::Error verifyQueueGraphPlan(const QueueGraphPlan &plan) {
                     "range_bits", "range_add", "range_sub", "range_cmp"},
                    true)
             .Cases({"range_checked_value", "range_checked_valid",
-                    "array_get_dynamic"},
+                    "array_get_dynamic", "array_update_dynamic"},
                    true)
             .Default(false);
       };
@@ -6653,11 +6726,39 @@ llvm::Expected<std::string> QueueGraphPlan::canonicalJson() const {
     if (expression.kind == "bit_extract" ||
         expression.kind == "aggregate_get" ||
         expression.kind == "array_get_dynamic" ||
+        expression.kind == "array_update_dynamic" ||
         expression.kind == "tuple_create" ||
         expression.kind == "array_create" || expression.kind == "record_create")
       result["width"] = expression.width;
     if (!expression.staticTypeTarget.empty())
       result["static_type_target"] = expression.staticTypeTarget;
+    if (expression.kind == "array_get_dynamic" ||
+        expression.kind == "array_update_dynamic") {
+      const uint64_t count = expression.selectionCount;
+      const uint64_t ordinalWidth =
+          std::max<uint64_t>(1, llvm::Log2_64_Ceil(count));
+      const bool widensIndex = expression.indexWidth < ordinalWidth;
+      const uint64_t selectionDepth =
+          expression.kind == "array_get_dynamic"
+              ? static_cast<uint64_t>(llvm::Log2_64_Ceil(count))
+              : uint64_t{1};
+      result["cost_model"] = "queuegraph_array_expansion_v1";
+      result["node_accounting"] = "emitted_pyc_ops_before_dce";
+      result["expansion_factor"] = count;
+      result["index_width"] = expression.indexWidth;
+      result["selection_tree_depth"] = selectionDepth;
+      result["logic_depth_model"] = "pyc_check_logic_depth_unit_cost";
+      result["logic_depth"] = expression.kind == "array_get_dynamic"
+                                  ? (count == 1
+                                         ? uint64_t{1}
+                                         : selectionDepth +
+                                               (widensIndex ? 2 : 1))
+                                  : (widensIndex ? uint64_t{4} : uint64_t{3});
+      result["expanded_nodes"] =
+          (expression.kind == "array_get_dynamic" ? 5 * count - 2
+                                                    : 4 * count + 1) +
+          (widensIndex ? 2 : 0);
+    }
     if (expression.kind == "masked_match") {
       result["mask"] = expression.mask;
       result["value"] = expression.value;

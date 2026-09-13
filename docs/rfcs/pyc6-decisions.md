@@ -9394,3 +9394,62 @@ range evidence.
 
 **Source**
 - PTO-ISA/pyCircuit issue #128.
+
+## Decision 0252: immutable array update and dynamic selection use verified fixed expansion
+
+**Status:** Accepted and implemented
+
+**Extends:** Decisions 0215, 0217, 0220, 0246, 0250, and 0251.
+
+**Context / Goal**
+Fixed payload arrays need Pythonic functional update and predictable dynamic
+selection without becoming mutable runtime containers or producing a linear
+multiplexer chain.
+
+**Decision (strong constraint)**
+- `values.with_element(index, replacement)` returns a new fixed value-array.
+  The source value is unchanged. The replacement descriptor exactly matches
+  the element descriptor, and the result exactly preserves the array type.
+- Static and dynamic indices use the same bounded proof contract as dynamic
+  reads. ACIR whole-model analysis and QueueGraph independently prove the
+  index lies in `[0, N - 1]`; a bits width alone is not proof for a
+  non-power-of-two length.
+- `ac.var.with_element` is a pure immutable value operation. It has no Table,
+  persistent-var, scheduling, reservation, or commit effect. Assigning the
+  returned array to persistent state continues through the existing atomic
+  owner-write contract.
+- QueueGraph retains array length and element width. GFSim performs a bounded
+  packed update without heap allocation. PYC expands all lane comparisons and
+  replacements in parallel, then concatenates the selected lanes using the
+  existing MSB-first array layout.
+- Dynamic read uses stable ascending ordinals and an adjacent pairwise balanced
+  selection tree. Odd trailing candidates carry unchanged to the next level.
+  Its select dependency depth is `ceil(log2(N))`, not `N - 1`; semantics remain
+  the same verified total read because an out-of-range index cannot reach a
+  backend.
+- QueueGraph canonical JSON records `cost_model`, `expansion_factor`,
+  `expanded_nodes`, `node_accounting`, `index_width`,
+  `selection_tree_depth`, `logic_depth_model`, and modeled `logic_depth` for
+  dynamic read/update. Node counts cover emitted PYC operations before DCE,
+  including any index-widening constant and concat. `logic_depth` follows the
+  unit-cost model used by `pyc-check-logic-depth`; `selection_tree_depth`
+  separately exposes the selector topology. These are deterministic estimates
+  derived from verified shape and operand types, accept no input cost claims,
+  do not claim physical timing, and do not complete the broader combinator/L08
+  cost contract.
+
+**Required verification**
+- Cover lengths 1, 3, 5, 16, and 65; first/last lanes; smaller contained index
+  domains; unproven and out-of-range indices; wrong replacement/result types;
+  nested struct, enum, range, and wider-than-64-bit packed arrays.
+- Prove source immutability, chained updates, read-after-update, and unchanged
+  lanes. A persistent-state consumer must still commit through one existing
+  atomic state transaction.
+- ACIR and QueueGraph reject forged length, element/index width, replacement,
+  result, and proof metadata. QueueGraph cost fields are recomputed from those
+  verified facts rather than accepted as input. GFSim, PYC C++, and Verilog
+  agree on values; PYC C++ and Verilog agree on ready/valid cycles under
+  backpressure.
+
+**Source**
+- PTO-ISA/pyCircuit issue #128.

@@ -10747,6 +10747,104 @@ class _ExpressionEmitter:
         self.range_checked_values[key] = result
         return result
 
+    def _emit_exact_array_replacement(
+        self, node: ast.expr, expected: ValueType
+    ) -> tuple[str, ValueType]:
+        if isinstance(node, (ast.Tuple, ast.List)):
+            if not isinstance(expected, (TupleType, ArrayType)):
+                raise QueueFrontendError(
+                    "ACPY-TYPE-006: with_element replacement type must match"
+                )
+            if isinstance(expected, TupleType):
+                element_types = expected.elements
+                operation = "tuple"
+            else:
+                element_types = (expected.element,) * expected.length
+                operation = "array"
+            if len(node.elts) != len(element_types):
+                raise QueueFrontendError(
+                    "ACPY-TYPE-006: aggregate literal arity must match its type"
+                )
+            values: list[str] = []
+            value_types: list[ValueType] = []
+            for element, descriptor in zip(
+                node.elts, element_types, strict=True
+            ):
+                value, value_type = self._emit_exact_array_replacement(
+                    element, descriptor
+                )
+                values.append(value)
+                value_types.append(value_type)
+            name = self._new()
+            self.lines.append(
+                f"    %{name} = ac.var.{operation} "
+                + ", ".join(f"%{value}" for value in values)
+                + " : "
+                + ", ".join(
+                    f"!ac.var<{_render_type(value_type)}>"
+                    for value_type in value_types
+                )
+                + f" -> !ac.var<{_render_type(expected)}>"
+            )
+            return name, expected
+
+        from _pycircuit_semantics import RangeType
+
+        literal_context = (
+            expected
+            if isinstance(node, ast.Constant)
+            and type(node.value) is int
+            and isinstance(expected, (BitsType, RangeType))
+            else None
+        )
+        value, value_type = self.emit(node, literal_context)
+        if value_type != expected:
+            raise QueueFrontendError(
+                "ACPY-TYPE-006: with_element replacement type must match"
+            )
+        return value, value_type
+
+    def _emit_array_update(
+        self, node: ast.Call
+    ) -> tuple[str, ValueType] | None:
+        if not (
+            isinstance(node.func, ast.Attribute)
+            and node.func.attr == "with_element"
+        ):
+            return None
+        if node.keywords or len(node.args) != 2:
+            raise QueueFrontendError(
+                "ACPY-TYPE-006: with_element requires index and replacement"
+            )
+        aggregate, aggregate_type = self.emit(node.func.value)
+        if not isinstance(aggregate_type, ArrayType):
+            raise QueueFrontendError(
+                "ACPY-TYPE-006: with_element receiver must be a value-array"
+            )
+        index, index_type = self.emit(node.args[0])
+        if _epoch_05_integer_width(index_type) is None:
+            raise QueueFrontendError(
+                "ACPY-TYPE-006: with_element index must be unsigned"
+            )
+        self.reject_constant_index_outside(
+            index,
+            index_type,
+            aggregate_type.length,
+            "ACPY-TYPE-006: with_element index is out of range",
+        )
+        replacement, _ = self._emit_exact_array_replacement(
+            node.args[1], aggregate_type.element
+        )
+        result = self._new()
+        self.lines.append(
+            f"    %{result} = ac.var.with_element %{aggregate} at %{index} "
+            f"value %{replacement} : !ac.var<{_render_type(aggregate_type)}>, "
+            f"!ac.var<{_render_type(index_type)}>, "
+            f"!ac.var<{_render_type(aggregate_type.element)}> -> "
+            f"!ac.var<{_render_type(aggregate_type)}>"
+        )
+        return result, aggregate_type
+
     def emit_table_index(self, table: str, address: ast.expr) -> tuple[str, ValueType]:
         from _pycircuit_semantics import RangeType
 
@@ -10930,6 +11028,9 @@ class _ExpressionEmitter:
         self, node: ast.expr, expected: ValueType | None = None
     ) -> tuple[str, ValueType]:
         if isinstance(node, ast.Call):
+            updated_array = self._emit_array_update(node)
+            if updated_array is not None:
+                return updated_array
             typed_integer = self._emit_typed_integer_intrinsic(node)
             if typed_integer is not None:
                 return typed_integer

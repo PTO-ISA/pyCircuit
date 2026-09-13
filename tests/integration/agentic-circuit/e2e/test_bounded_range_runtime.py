@@ -13,9 +13,11 @@ from agentic_circuit._queue_frontend import lower_queue_source
 
 ROOT = Path(__file__).resolve().parents[4]
 EXAMPLE = ROOT / "examples/agentic-circuit/blocks/bounded_integer_operations.py"
-ACIR_BIN = Path(
-    os.environ.get("ACIR_BIN", ROOT / ".pycircuit_out/toolchain/build/bin")
+STATE_FIXTURE = (
+    ROOT
+    / "tests/integration/agentic-circuit/e2e/fixtures/array_update_state/architecture.py"
 )
+ACIR_BIN = Path(os.environ.get("ACIR_BIN", ROOT / ".pycircuit_out/toolchain/build/bin"))
 PYC_TOOLCHAIN = Path(
     os.environ.get("PYC_TOOLCHAIN_ROOT", ROOT / ".pycircuit_out/toolchain/install")
 )
@@ -26,6 +28,10 @@ def _expected(raw: int, values: tuple[int, ...]) -> tuple[int, ...]:
     saturated = min(max(raw, 4), 8)
     valid = int(raw < 5)
     checked = raw if valid else 0
+    updated = list(values)
+    updated[checked] = raw
+    chained = list(updated)
+    chained[0] = 99
     return (
         wrapped,
         saturated,
@@ -43,6 +49,44 @@ def _expected(raw: int, values: tuple[int, ...]) -> tuple[int, ...]:
         1,
         int(min(max(raw, 4), 8) > wrapped),
         wrapped,
+        raw,
+        updated[0],
+        updated[4],
+        values[checked],
+        chained[0],
+        chained[checked],
+        updated[checked],
+    )
+
+
+def _pack_fields(fields: tuple[tuple[int, int], ...]) -> int:
+    packed = 0
+    for width, value in fields:
+        packed = (packed << width) | value
+    return packed
+
+
+def _recursive_expected(raw: int, replacement: int) -> int:
+    wide_index = raw % 65
+    source_wide = raw & 0x7
+    replacement_wide = replacement & 0x7
+    return _pack_fields(
+        (
+            (8, raw),
+            (8, replacement),
+            (1, 0),
+            (1, 1),
+            (1, 0),
+            (1, 1),
+            (2, raw % 3),
+            (2, replacement % 3),
+            (3, source_wide),
+            (3, replacement_wide),
+            (3, replacement_wide if wide_index == 0 else source_wide),
+            (3, replacement_wide if wide_index == 64 else source_wide),
+            (3, 7 if wide_index == 0 else replacement_wide),
+            (3, replacement_wide),
+        )
     )
 
 
@@ -98,7 +142,7 @@ class BoundedRangeRuntimeTest(unittest.TestCase):
         )
         raw_initializers = ", ".join(str(value) for value in raw_values)
         packed_initializers = ", ".join(str(value) + "ULL" for value in packed_inputs)
-        output_count = 16
+        output_count = 23
         gfsim_size_checks = " ||\n                            ".join(
             f"model.sink_{index}_values().size() != before + 1"
             for index in range(output_count)
@@ -405,6 +449,515 @@ class BoundedRangeRuntimeTest(unittest.TestCase):
             line.split(" ", 1)[1] + "\n" for line in pyc_cpp.splitlines()
         )
         self.assertEqual(expected, pyc_values)
+
+    def test_recursive_and_wide_array_updates_match_all_backends(self) -> None:
+        cases = ((0, 9), (2, 14), (64, 5), (255, 131))
+        inputs = tuple((raw << 8) | replacement for raw, replacement in cases)
+        initializers = ", ".join(str(value) for value in inputs)
+        expected = "".join(
+            f"{_recursive_expected(raw, replacement)}\n" for raw, replacement in cases
+        )
+
+        with tempfile.TemporaryDirectory(
+            prefix="recursive-array-runtime-"
+        ) as temporary:
+            work = Path(temporary)
+            raw = lower_queue_source(
+                EXAMPLE.read_text(encoding="utf-8"),
+                "recursive_array_updates",
+                source_path=EXAMPLE.relative_to(ROOT).as_posix(),
+            )
+            frozen = work / "model.mlir"
+            frozen.write_text(
+                _lower_queue_acir(raw, optimizer=self.acir_opt),
+                encoding="utf-8",
+            )
+            frozen_text = frozen.read_text(encoding="utf-8")
+            self.assertEqual(5, frozen_text.count("ac.var.with_element"))
+            self.assertIn("!ac.value_array<65 x i3>", frozen_text)
+
+            gfsim_source = work / "gfsim.cpp"
+            gfsim_source.write_text(
+                self._run((self.cxxgen, frozen), cwd=ROOT), encoding="utf-8"
+            )
+            pyc = work / "model.pyc"
+            pyc.write_text(self._run((self.pycgen, frozen), cwd=ROOT), encoding="utf-8")
+            pyc_text = pyc.read_text(encoding="utf-8")
+            self.assertNotRegex(pyc_text, r"\bscf\.")
+            self.assertNotRegex(pyc_text, r"\bindex\b")
+
+            pyc_output = work / "pyc"
+            verilog_output = work / "verilog"
+            self._run(
+                (
+                    self.pycc,
+                    pyc,
+                    "--emit=cpp",
+                    "--out-dir",
+                    pyc_output,
+                    "--hierarchy-policy=strict",
+                    "--inline-policy=off",
+                ),
+                cwd=ROOT,
+            )
+            self._run(
+                (
+                    self.pycc,
+                    pyc,
+                    "--emit=verilog",
+                    "--out-dir",
+                    verilog_output,
+                    "--hierarchy-policy=strict",
+                    "--inline-policy=off",
+                    "--include-primitives",
+                ),
+                cwd=ROOT,
+            )
+
+            gfsim_harness = work / "gfsim_recursive.cpp"
+            gfsim_binary = work / "gfsim_recursive"
+            gfsim_harness.write_text(
+                textwrap.dedent(f"""
+                    #include "{gfsim_source.name}"
+                    #include <array>
+                    #include <cstdint>
+                    #include <iostream>
+
+                    static std::uint64_t pack(
+                        const ac_generated::RecursiveArrayResult &value) {{
+                      std::uint64_t result = 0;
+                      auto append = [&](unsigned width, std::uint64_t field) {{
+                        result = (result << width) |
+                                 (field & ((std::uint64_t{{1}} << width) - 1));
+                      }};
+                      append(8, static_cast<std::uint64_t>(value.source_struct_tag));
+                      append(8, static_cast<std::uint64_t>(value.updated_struct_tag));
+                      append(1, static_cast<std::uint64_t>(value.source_struct_mode));
+                      append(1, static_cast<std::uint64_t>(value.updated_struct_mode));
+                      append(1, static_cast<std::uint64_t>(value.source_enum));
+                      append(1, static_cast<std::uint64_t>(value.updated_enum));
+                      append(2, static_cast<std::uint64_t>(value.source_range));
+                      append(2, static_cast<std::uint64_t>(value.updated_range));
+                      append(3, static_cast<std::uint64_t>(value.source_wide));
+                      append(3, static_cast<std::uint64_t>(value.updated_wide));
+                      append(3, static_cast<std::uint64_t>(value.wide_first));
+                      append(3, static_cast<std::uint64_t>(value.wide_last));
+                      append(3, static_cast<std::uint64_t>(value.chained_selected));
+                      append(3, static_cast<std::uint64_t>(value.updated_after_chain));
+                      return result;
+                    }}
+
+                    int main() {{
+                      ac_generated::RecursiveArrayUpdates model;
+                      constexpr std::array<std::uint64_t, {len(inputs)}> inputs{{
+                          {initializers}}};
+                      auto rows = model.dispatch_rows();
+                      std::uint64_t epoch = 0;
+                      for (std::uint64_t input : inputs) {{
+                        ac_generated::RecursiveArrayRequest request{{
+                            gfsim::UInt<8>{{input >> 8}},
+                            gfsim::UInt<8>{{input & 0xff}}}};
+                        if (!model.request().proposePush(request)) return 1;
+                        model.request().doXfer({{epoch++, 0}});
+                        const std::size_t before = model.sink_0_values().size();
+                        for (unsigned step = 0; step != 8 &&
+                             model.sink_0_values().size() == before;
+                             ++step, ++epoch) {{
+                          const gfsim::Epoch current{{epoch, 0}};
+                          for (auto &row : rows) row.work(row.object, current);
+                          for (auto &row : rows)
+                            row.xfer(row.object, current, gfsim::XferPhase::Arbitrate);
+                          for (auto &row : rows)
+                            row.xfer(row.object, current, gfsim::XferPhase::Commit);
+                        }}
+                      }}
+                      if (model.sink_0_values().size() != inputs.size()) return 2;
+                      for (const auto &value : model.sink_0_values())
+                        std::cout << pack(value) << '\\n';
+                    }}
+                    """),
+                encoding="utf-8",
+            )
+            self._run(
+                (
+                    self.compiler,
+                    "-std=c++20",
+                    "-I",
+                    ROOT / "simulator/gfsim/include",
+                    gfsim_harness,
+                    "-o",
+                    gfsim_binary,
+                ),
+                cwd=work,
+            )
+
+            pyc_harness = work / "pyc_recursive.cpp"
+            pyc_binary = work / "pyc_recursive"
+            pyc_harness.write_text(
+                textwrap.dedent(f"""
+                    #include "recursive_array_updates.hpp"
+                    #include <array>
+                    #include <cstdint>
+                    #include <iostream>
+                    #include <cpp/pyc_tb.hpp>
+                    int main() {{
+                      pyc::gen::recursive_array_updates dut;
+                      pyc::cpp::Testbench<pyc::gen::recursive_array_updates> tb(dut);
+                      tb.addClock(dut.clk, 1, 0, false);
+                      dut.in_valid = pyc::cpp::Wire<1>(0);
+                      dut.out_ready = pyc::cpp::Wire<1>(1);
+                      tb.reset(dut.rst, 2, 1);
+                      constexpr std::array<std::uint64_t, {len(inputs)}> inputs{{
+                          {initializers}}};
+                      std::uint64_t cycle = 0;
+                      for (std::uint64_t input : inputs) {{
+                        bool accepted = false, observed = false;
+                        for (unsigned step = 0; step != 12 && !observed; ++step) {{
+                          dut.in_valid = pyc::cpp::Wire<1>(accepted ? 0 : 1);
+                          dut.in_data = pyc::cpp::Wire<16>(input);
+                          tb.runCycleAutoTrace(cycle++, nullptr);
+                          if (dut.in_valid.value() && dut.in_ready.value())
+                            accepted = true;
+                          if (dut.out_valid.value()) {{
+                            std::cout << dut.out_data.value() << '\\n';
+                            observed = true;
+                          }}
+                        }}
+                        if (!accepted || !observed) return 3;
+                      }}
+                    }}
+                    """),
+                encoding="utf-8",
+            )
+            self._run(
+                (
+                    self.compiler,
+                    "-std=c++20",
+                    "-I",
+                    pyc_output,
+                    "-I",
+                    self.include,
+                    pyc_output / "recursive_array_updates.cpp",
+                    pyc_harness,
+                    self.runtime,
+                    "-o",
+                    pyc_binary,
+                ),
+                cwd=work,
+            )
+
+            verilator_harness = work / "verilator_recursive.cpp"
+            verilator_harness.write_text(
+                textwrap.dedent(f"""
+                    #include "Vrecursive_array_updates.h"
+                    #include <array>
+                    #include <cstdint>
+                    #include <iostream>
+                    static void tick(Vrecursive_array_updates &dut) {{
+                      dut.clk = 0; dut.eval(); dut.clk = 1; dut.eval();
+                      dut.clk = 0; dut.eval();
+                    }}
+                    int main() {{
+                      Vrecursive_array_updates dut;
+                      dut.in_valid = 0; dut.out_ready = 1;
+                      dut.rst = 1; tick(dut); tick(dut); dut.rst = 0; tick(dut);
+                      constexpr std::array<std::uint64_t, {len(inputs)}> inputs{{
+                          {initializers}}};
+                      for (std::uint64_t input : inputs) {{
+                        bool accepted = false, observed = false;
+                        for (unsigned step = 0; step != 12 && !observed; ++step) {{
+                          dut.in_valid = accepted ? 0 : 1;
+                          dut.in_data = input;
+                          tick(dut);
+                          if (dut.in_valid && dut.in_ready) accepted = true;
+                          if (dut.out_valid) {{
+                            std::cout << static_cast<std::uint64_t>(dut.out_data)
+                                      << '\\n';
+                            observed = true;
+                          }}
+                        }}
+                        if (!accepted || !observed) return 4;
+                      }}
+                    }}
+                    """),
+                encoding="utf-8",
+            )
+            verilator_object = work / "verilator_recursive_obj"
+            self._run(
+                (
+                    self.verilator,
+                    "--cc",
+                    "--exe",
+                    "--build",
+                    "-Wno-fatal",
+                    "--top-module",
+                    "recursive_array_updates",
+                    "--Mdir",
+                    verilator_object,
+                    verilog_output / "pyc_primitives.v",
+                    verilog_output / "recursive_array_updates.v",
+                    verilator_harness,
+                ),
+                cwd=work,
+            )
+
+            gfsim = self._run((gfsim_binary,), cwd=work)
+            pyc_cpp = self._run((pyc_binary,), cwd=work)
+            verilator = self._run(
+                (verilator_object / "Vrecursive_array_updates",), cwd=work
+            )
+
+        self.assertEqual(expected, gfsim)
+        self.assertEqual(gfsim, pyc_cpp)
+        self.assertEqual(pyc_cpp, verilator)
+
+    def test_array_update_state_commits_once_on_all_backends(self) -> None:
+        cases = (
+            (0, 2, 11, 0),
+            (0, 2, 22, 11),
+            (1, 2, 33, 0),
+            (0, 2, 44, 22),
+        )
+        inputs = tuple(
+            (slot << 24) | (index << 16) | (replacement << 8)
+            for slot, index, replacement, _ in cases
+        )
+        initializers = ", ".join(str(value) for value in inputs)
+        expected = "".join(
+            f"{(slot << 24) | (index << 16) | (replacement << 8) | previous}\n"
+            for slot, index, replacement, previous in cases
+        )
+
+        with tempfile.TemporaryDirectory(prefix="array-update-state-") as temporary:
+            work = Path(temporary)
+            raw = lower_queue_source(
+                STATE_FIXTURE.read_text(encoding="utf-8"),
+                "array_update_state",
+                source_path=STATE_FIXTURE.relative_to(ROOT).as_posix(),
+            )
+            self.assertEqual(1, raw.count("ac.var.assign_element"))
+            frozen = work / "model.mlir"
+            frozen.write_text(
+                _lower_queue_acir(raw, optimizer=self.acir_opt),
+                encoding="utf-8",
+            )
+            frozen_text = frozen.read_text(encoding="utf-8")
+            self.assertNotIn("ac.var.assign_element", frozen_text)
+            self.assertEqual(1, frozen_text.count("ac.var.with_element"))
+
+            gfsim_source = work / "gfsim.cpp"
+            gfsim_source.write_text(
+                self._run((self.cxxgen, frozen), cwd=ROOT), encoding="utf-8"
+            )
+            pyc = work / "model.pyc"
+            pyc.write_text(self._run((self.pycgen, frozen), cwd=ROOT), encoding="utf-8")
+            pyc_output = work / "pyc"
+            verilog_output = work / "verilog"
+            self._run(
+                (
+                    self.pycc,
+                    pyc,
+                    "--emit=cpp",
+                    "--out-dir",
+                    pyc_output,
+                    "--hierarchy-policy=strict",
+                    "--inline-policy=off",
+                ),
+                cwd=ROOT,
+            )
+            self._run(
+                (
+                    self.pycc,
+                    pyc,
+                    "--emit=verilog",
+                    "--out-dir",
+                    verilog_output,
+                    "--hierarchy-policy=strict",
+                    "--inline-policy=off",
+                    "--include-primitives",
+                ),
+                cwd=ROOT,
+            )
+
+            gfsim_harness = work / "gfsim_state.cpp"
+            gfsim_binary = work / "gfsim_state"
+            gfsim_harness.write_text(
+                textwrap.dedent(f"""
+                    #include "{gfsim_source.name}"
+                    #include <array>
+                    #include <cstdint>
+                    #include <iostream>
+
+                    static std::uint64_t pack(const ac_generated::Request &value) {{
+                      return (static_cast<std::uint64_t>(value.slot) << 24) |
+                             (static_cast<std::uint64_t>(value.index) << 16) |
+                             (static_cast<std::uint64_t>(value.replacement) << 8) |
+                             static_cast<std::uint64_t>(value.previous);
+                    }}
+
+                    int main() {{
+                      ac_generated::ArrayUpdateState model;
+                      constexpr std::array<std::uint64_t, {len(inputs)}> inputs{{
+                          {initializers}}};
+                      auto rows = model.dispatch_rows();
+                      std::uint64_t epoch = 0;
+                      for (std::uint64_t input : inputs) {{
+                        ac_generated::Request request{{
+                            gfsim::UInt<1>{{input >> 24}},
+                            gfsim::UInt<8>{{(input >> 16) & 0xff}},
+                            gfsim::UInt<8>{{(input >> 8) & 0xff}},
+                            gfsim::UInt<8>{{0}}}};
+                        if (!model.request().proposePush(request)) return 1;
+                        model.request().doXfer({{epoch++, 0}});
+                        const std::size_t before = model.sink_0_values().size();
+                        for (unsigned step = 0; step != 16 &&
+                             model.sink_0_values().size() == before;
+                             ++step, ++epoch) {{
+                          const gfsim::Epoch current{{epoch, 0}};
+                          for (auto &row : rows) row.work(row.object, current);
+                          for (auto &row : rows)
+                            row.xfer(row.object, current, gfsim::XferPhase::Arbitrate);
+                          for (auto &row : rows)
+                            row.xfer(row.object, current, gfsim::XferPhase::Commit);
+                        }}
+                      }}
+                      if (model.sink_0_values().size() != inputs.size()) return 2;
+                      for (const auto &value : model.sink_0_values())
+                        std::cout << pack(value) << '\\n';
+                    }}
+                    """),
+                encoding="utf-8",
+            )
+            self._run(
+                (
+                    self.compiler,
+                    "-std=c++20",
+                    "-I",
+                    ROOT / "simulator/gfsim/include",
+                    gfsim_harness,
+                    "-o",
+                    gfsim_binary,
+                ),
+                cwd=work,
+            )
+
+            pyc_harness = work / "pyc_state.cpp"
+            pyc_binary = work / "pyc_state"
+            pyc_harness.write_text(
+                textwrap.dedent(f"""
+                    #include "array_update_state.hpp"
+                    #include <array>
+                    #include <cstdint>
+                    #include <iostream>
+                    #include <cpp/pyc_tb.hpp>
+                    int main() {{
+                      pyc::gen::array_update_state dut;
+                      pyc::cpp::Testbench<pyc::gen::array_update_state> tb(dut);
+                      tb.addClock(dut.clk, 1, 0, false);
+                      dut.in_valid = pyc::cpp::Wire<1>(0);
+                      dut.out_ready = pyc::cpp::Wire<1>(1);
+                      tb.reset(dut.rst, 2, 1);
+                      constexpr std::array<std::uint64_t, {len(inputs)}> inputs{{
+                          {initializers}}};
+                      std::uint64_t cycle = 0;
+                      for (std::uint64_t input : inputs) {{
+                        bool accepted = false, observed = false;
+                        for (unsigned step = 0; step != 20 && !observed; ++step) {{
+                          dut.in_valid = pyc::cpp::Wire<1>(accepted ? 0 : 1);
+                          dut.in_data = pyc::cpp::Wire<25>(input);
+                          tb.runCycleAutoTrace(cycle++, nullptr);
+                          if (dut.in_valid.value() && dut.in_ready.value())
+                            accepted = true;
+                          if (dut.out_valid.value()) {{
+                            std::cout << dut.out_data.value() << '\\n';
+                            observed = true;
+                          }}
+                        }}
+                        if (!accepted || !observed) return 3;
+                      }}
+                    }}
+                    """),
+                encoding="utf-8",
+            )
+            self._run(
+                (
+                    self.compiler,
+                    "-std=c++20",
+                    "-I",
+                    pyc_output,
+                    "-I",
+                    self.include,
+                    pyc_output / "array_update_state.cpp",
+                    pyc_harness,
+                    self.runtime,
+                    "-o",
+                    pyc_binary,
+                ),
+                cwd=work,
+            )
+
+            verilator_harness = work / "verilator_state.cpp"
+            verilator_harness.write_text(
+                textwrap.dedent(f"""
+                    #include "Varray_update_state.h"
+                    #include <array>
+                    #include <cstdint>
+                    #include <iostream>
+                    static void tick(Varray_update_state &dut) {{
+                      dut.clk = 0; dut.eval(); dut.clk = 1; dut.eval();
+                      dut.clk = 0; dut.eval();
+                    }}
+                    int main() {{
+                      Varray_update_state dut;
+                      dut.in_valid = 0; dut.out_ready = 1;
+                      dut.rst = 1; tick(dut); tick(dut); dut.rst = 0; tick(dut);
+                      constexpr std::array<std::uint64_t, {len(inputs)}> inputs{{
+                          {initializers}}};
+                      for (std::uint64_t input : inputs) {{
+                        bool accepted = false, observed = false;
+                        for (unsigned step = 0; step != 20 && !observed; ++step) {{
+                          dut.in_valid = accepted ? 0 : 1;
+                          dut.in_data = input;
+                          tick(dut);
+                          if (dut.in_valid && dut.in_ready) accepted = true;
+                          if (dut.out_valid) {{
+                            std::cout << static_cast<std::uint64_t>(dut.out_data)
+                                      << '\\n';
+                            observed = true;
+                          }}
+                        }}
+                        if (!accepted || !observed) return 4;
+                      }}
+                    }}
+                    """),
+                encoding="utf-8",
+            )
+            verilator_object = work / "verilator_state_obj"
+            self._run(
+                (
+                    self.verilator,
+                    "--cc",
+                    "--exe",
+                    "--build",
+                    "-Wno-fatal",
+                    "--top-module",
+                    "array_update_state",
+                    "--Mdir",
+                    verilator_object,
+                    verilog_output / "pyc_primitives.v",
+                    verilog_output / "array_update_state.v",
+                    verilator_harness,
+                ),
+                cwd=work,
+            )
+
+            gfsim = self._run((gfsim_binary,), cwd=work)
+            pyc_cpp = self._run((pyc_binary,), cwd=work)
+            verilator = self._run((verilator_object / "Varray_update_state",), cwd=work)
+
+        self.assertEqual(expected, gfsim)
+        self.assertEqual(gfsim, pyc_cpp)
+        self.assertEqual(pyc_cpp, verilator)
 
     def test_full_u64_range_preserves_maximum_value_on_all_backends(self) -> None:
         inputs = (0, 1, 0x8000000000000000, 0xFFFFFFFFFFFFFFFF)

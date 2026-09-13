@@ -5843,6 +5843,142 @@ def pipeline(request: Request) -> ac.u8:
         self.assertIn("ac.var.dynamic_element", lowered)
         self.assertIn("-> !ac.queue<i8>", lowered)
 
+    def test_value_array_with_element_is_a_pure_typed_update(self) -> None:
+        from agentic_circuit._queue_frontend import (
+            QueueFrontendError,
+            lower_queue_source,
+        )
+
+        source = """import agentic_circuit as ac
+@ac.struct
+class Request:
+    values: ac.array[5, ac.u8]
+    raw: ac.u8
+@ac.rule
+def update(request: Request) -> ac.u8:
+    index = ac.wrap(request.raw, ac.index[5])
+    updated = request.values.with_element(index, request.raw)
+    return updated[index]
+@ac.system
+def pipeline(request: Request) -> ac.u8:
+    result = update(request)
+    return result
+"""
+        lowered = lower_queue_source(source, "pipeline")
+        self.assertIn("ac.var.with_element", lowered)
+        self.assertEqual(1, lowered.count("ac.var.dynamic_element"))
+
+        wrong_replacement = source.replace(
+            "request.raw)", "ac.truncate(request.raw, ac.u7))", 1
+        )
+        with self.assertRaisesRegex(QueueFrontendError, "replacement type"):
+            lower_queue_source(wrong_replacement, "pipeline")
+
+        out_of_range = source.replace(
+            "with_element(index, request.raw)",
+            "with_element(5, request.raw)",
+        )
+        with self.assertRaisesRegex(QueueFrontendError, "index is out of range"):
+            lower_queue_source(out_of_range, "pipeline")
+
+        wrong_receiver = source.replace(
+            "request.values.with_element(index, request.raw)",
+            "request.raw.with_element(index, request.raw)",
+        )
+        with self.assertRaisesRegex(QueueFrontendError, "receiver must be"):
+            lower_queue_source(wrong_receiver, "pipeline")
+
+        for element, replacement in (("ac.u1", "bool"), ("bool", "ac.u1")):
+            mismatch = f"""import agentic_circuit as ac
+@ac.struct
+class Request:
+    values: ac.array[3, {element}]
+    replacement: {replacement}
+@ac.rule
+def update(request: Request) -> {element}:
+    changed = request.values.with_element(0, request.replacement)
+    return changed[0]
+@ac.system
+def pipeline(request: Request) -> {element}:
+    result = update(request)
+    return result
+"""
+            with self.subTest(element=element, replacement=replacement):
+                with self.assertRaisesRegex(
+                    QueueFrontendError, "replacement type must match"
+                ):
+                    lower_queue_source(mismatch, "pipeline")
+
+        aggregate_literals = """import agentic_circuit as ac
+@ac.struct
+class Request:
+    pairs: ac.array[3, tuple[ac.u8, ac.u8]]
+    lanes: ac.array[3, ac.array[2, ac.u8]]
+@ac.rule
+def update(request: Request) -> ac.u8:
+    pairs = request.pairs.with_element(0, (1, 2))
+    lanes = request.lanes.with_element(0, [3, 4])
+    return pairs[0][0] + lanes[0][0]
+@ac.system
+def pipeline(request: Request) -> ac.u8:
+    result = update(request)
+    return result
+"""
+        aggregate_lowered = lower_queue_source(aggregate_literals, "pipeline")
+        self.assertEqual(2, aggregate_lowered.count("ac.var.with_element"))
+
+        recursive_mismatches = (
+            (
+                "tuple[ac.u1, ac.u8]",
+                "bool",
+                "(request.replacement, 7)",
+                "ac.u1",
+            ),
+            (
+                "tuple[bool, ac.u8]",
+                "ac.u1",
+                "(request.replacement, 7)",
+                "bool",
+            ),
+            (
+                "ac.array[2, ac.u1]",
+                "bool",
+                "[request.replacement, request.replacement]",
+                "ac.u1",
+            ),
+        )
+        for element, replacement, expression, result_type in recursive_mismatches:
+            mismatch = f"""import agentic_circuit as ac
+@ac.struct
+class Request:
+    values: ac.array[3, {element}]
+    replacement: {replacement}
+@ac.rule
+def update(request: Request) -> {result_type}:
+    changed = request.values.with_element(0, {expression})
+    return changed[0][0]
+@ac.system
+def pipeline(request: Request) -> {result_type}:
+    result = update(request)
+    return result
+"""
+            with self.subTest(
+                element=element,
+                replacement=replacement,
+                recursive=True,
+            ):
+                with self.assertRaisesRegex(
+                    QueueFrontendError, "replacement type must match"
+                ):
+                    lower_queue_source(mismatch, "pipeline")
+
+        bool_literal = source.replace(
+            "request.values.with_element(index, request.raw)",
+            "request.values.with_element(index, True)",
+        )
+        with self.assertRaisesRegex(QueueFrontendError, "replacement type"):
+            lower_queue_source(bool_literal, "pipeline")
+
     def test_strict_range_refinement_remains_verifier_visible(self) -> None:
         from agentic_circuit._queue_frontend import lower_queue_source
 
@@ -5858,6 +5994,106 @@ def pipeline(raw: ac.u2) -> ac.index[5]:
         lowered = lower_queue_source(source, "pipeline")
         self.assertIn("ac.var.range_refine", lowered)
         self.assertIn("!ac.var<i2> -> !ac.var<!ac.range<0, 4>>", lowered)
+
+    def test_value_array_update_covers_boundary_and_recursive_types(self) -> None:
+        from agentic_circuit._queue_frontend import lower_queue_source
+
+        source = """from enum import Enum
+import agentic_circuit as ac
+class Mode(Enum):
+    IDLE = 0
+    RUN = 1
+@ac.struct
+class Inner:
+    tag: ac.u8
+    mode: Mode
+@ac.struct
+class RangeHolder:
+    lanes: ac.array[3, ac.index[3]]
+@ac.struct
+class Request:
+    one: ac.array[1, ac.u8]
+    three: ac.array[3, Inner]
+    five: ac.array[5, Mode]
+    sixteen: ac.array[16, ac.u3]
+    sixty_five: ac.array[65, ac.u3]
+    raw: ac.u8
+@ac.struct
+class Result:
+    one: ac.u8
+    three: Inner
+    five: Mode
+    sixteen: ac.u3
+    sixty_five: ac.u3
+    bounded: ac.index[3]
+@ac.rule
+def update(request: Request) -> Result:
+    one_index = ac.wrap(request.raw, ac.index[1])
+    three_index = ac.wrap(request.raw, ac.index[3])
+    five_index = ac.wrap(request.raw, ac.index[5])
+    sixteen_index = ac.wrap(request.raw, ac.index[16])
+    sixty_five_index = ac.wrap(request.raw, ac.index[65])
+    narrow = ac.truncate(request.raw, ac.u3)
+    inner = request.three[0].with_fields(tag=request.raw)
+    bounded = ac.wrap(request.raw, ac.index[3])
+    holder = RangeHolder(lanes=(bounded, bounded, bounded))
+    one = request.one.with_element(one_index, request.raw)
+    three = request.three.with_element(three_index, inner)
+    five = request.five.with_element(five_index, Mode.RUN)
+    sixteen = request.sixteen.with_element(sixteen_index, narrow)
+    sixty_five = request.sixty_five.with_element(sixty_five_index, narrow)
+    ranges = holder.lanes.with_element(three_index, bounded)
+    one_value = one[one_index]
+    three_value = three[three_index]
+    five_value = five[five_index]
+    sixteen_value = sixteen[sixteen_index]
+    sixty_five_value = sixty_five[sixty_five_index]
+    range_value = ranges[three_index]
+    return Result(one=one_value, three=three_value, five=five_value, sixteen=sixteen_value, sixty_five=sixty_five_value, bounded=range_value)
+@ac.system
+def pipeline(request: Request) -> Result:
+    result = update(request)
+    return result
+"""
+        lowered = lower_queue_source(source, "pipeline")
+        self.assertEqual(6, lowered.count("ac.var.with_element"))
+        self.assertIn("!ac.value_array<65 x i3>", lowered)
+        self.assertIn("!ac.value_array<3 x !ac.struct<@types::@Inner>>", lowered)
+        self.assertIn("!ac.value_array<5 x !ac.enum<@types::@Mode>>", lowered)
+        self.assertIn("!ac.value_array<3 x !ac.range<0, 2>>", lowered)
+
+    def test_value_array_update_flows_through_one_state_owner_write(self) -> None:
+        from agentic_circuit._queue_frontend import lower_queue_source
+
+        source = """import agentic_circuit as ac
+@ac.struct
+class Request:
+    slot: ac.u1
+    index: ac.u8
+    replacement: ac.u8
+    observed: ac.u8
+@ac.struct
+class State:
+    values: ac.array[5, ac.u8]
+@ac.rule
+def commit(storage, item):
+    old = storage[item.slot]
+    index = ac.wrap(item.index, ac.index[5])
+    updated = old.values.with_element(index, item.replacement)
+    next_state = old.with_fields(values=updated)
+    storage[item.slot] = next_state
+    return item.with_fields(observed=updated[index])
+@ac.system
+def pipeline() -> None:
+    storage: list[State] = [0] * 2
+    request = ac.source(Request, depth=2)
+    result = commit(storage, request)
+    ac.sink(result)
+"""
+        lowered = lower_queue_source(source, "pipeline")
+        self.assertEqual(1, lowered.count("ac.var.with_element"))
+        self.assertEqual(1, lowered.count("ac.var.assign_element"))
+        self.assertIn("ac.var.decl @storage", lowered)
 
     def test_dependent_bounded_bounds_have_verifier_visible_metadata(self) -> None:
         from agentic_circuit._queue_frontend import lower_queue_source

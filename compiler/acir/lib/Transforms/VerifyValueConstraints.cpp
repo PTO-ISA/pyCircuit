@@ -367,6 +367,13 @@ LogicalResult verifyValueConstraints(ModuleOp model) {
         result = verifyIndex(analysis, element, element.getIndex(),
                              static_cast<uint64_t>(array.getLength()),
                              "value_array");
+    } else if (auto update = dyn_cast<ac::VarWithElementOp>(operation)) {
+      auto array = dyn_cast<ac::ValueArrayType>(
+          cast<ac::VarType>(update.getAggregate().getType()).getElementType());
+      if (array)
+        result = verifyIndex(analysis, update, update.getIndex(),
+                             static_cast<uint64_t>(array.getLength()),
+                             "value_array update");
     } else if (auto assign = dyn_cast<ac::VarAssignElementOp>(operation)) {
       auto variable = resolveFlatDeclaration<ac::VarDeclOp>(
           assign, assign.getVariableAttr());

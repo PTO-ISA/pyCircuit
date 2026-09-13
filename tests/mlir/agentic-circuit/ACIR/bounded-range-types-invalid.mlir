@@ -11,6 +11,7 @@ module attributes {ac.contract_epoch = "0.5"} {
     %refined = ac.var.range_refine %raw : !ac.var<i8> -> !ac.var<i3>
     %bits = ac.var.range_bits %range : !ac.var<!ac.range<0, 4>> -> !ac.var<i2>
     %element = ac.var.dynamic_element %array at %array : !ac.var<!ac.value_array<5 x i8>>, !ac.var<!ac.value_array<5 x i8>> -> !ac.var<i8>
+    %updated = ac.var.with_element %array at %range value %range : !ac.var<!ac.value_array<5 x i8>>, !ac.var<!ac.range<0, 4>>, !ac.var<!ac.range<0, 4>> -> !ac.var<!ac.value_array<5 x i8>>
     return
   }
 

@@ -71,6 +71,56 @@ consteval bool allWidePrimitiveWidthsRejected(std::index_sequence<Index...>) {
 
 static_assert(allWidePrimitiveWidthsRejected(std::make_index_sequence<66>{}));
 
+consteval unsigned arrayIndexWidth(std::size_t count) {
+  unsigned width = 1;
+  for (std::size_t maximum = 2; maximum < count; maximum <<= 1)
+    ++width;
+  return width;
+}
+
+template <std::size_t Count, unsigned ElementWidth>
+consteval bool immutableArrayUpdatePreservesEveryOtherBit() {
+  constexpr unsigned TotalWidth = Count * ElementWidth;
+  constexpr unsigned IndexWidth = arrayIndexWidth(Count);
+  using Packed = UInt<TotalWidth>;
+  using Element = UInt<ElementWidth>;
+
+  typename Packed::word_array_type baseWords{};
+  for (std::size_t bit = 0; bit < TotalWidth; ++bit)
+    if ((bit * 13 + 5) % 17 < 8)
+      baseWords[bit / 64] |= std::uint64_t{1} << (bit % 64);
+  const Packed base{baseWords};
+
+  for (std::size_t selected = 0; selected < Count; ++selected) {
+    typename Element::word_array_type replacementWords{};
+    for (std::size_t bit = 0; bit < ElementWidth; ++bit)
+      if ((bit * 7 + selected * 3 + 1) % 11 < 5)
+        replacementWords[bit / 64] |= std::uint64_t{1} << (bit % 64);
+    const Element replacement{replacementWords};
+    const Packed original = base;
+    const Packed updated = arrayUpdate<Count, ElementWidth>(
+        base, UInt<IndexWidth>{selected}, replacement);
+    if (base != original)
+      return false;
+    for (std::size_t element = 0; element < Count; ++element) {
+      const std::size_t lsb = ElementWidth * (Count - element - 1);
+      const Element observed = bitExtract<ElementWidth>(updated, lsb);
+      const Element expected = element == selected
+                                   ? replacement
+                                   : bitExtract<ElementWidth>(base, lsb);
+      if (observed != expected)
+        return false;
+    }
+  }
+  return true;
+}
+
+static_assert(immutableArrayUpdatePreservesEveryOtherBit<1, 131>());
+static_assert(immutableArrayUpdatePreservesEveryOtherBit<3, 67>());
+static_assert(immutableArrayUpdatePreservesEveryOtherBit<5, 13>());
+static_assert(immutableArrayUpdatePreservesEveryOtherBit<16, 5>());
+static_assert(immutableArrayUpdatePreservesEveryOtherBit<65, 3>());
+
 TEST(PrimitiveWidthTest, AcceptsOnlySharedBackendRange) {
   for (unsigned width = 65; width <= 130; ++width)
     EXPECT_GT(width, PrimitiveMaximumInputWidth);

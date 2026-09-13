@@ -10,6 +10,7 @@
 #include "mlir/Parser/Parser.h"
 #include "mlir/Pass/PassManager.h"
 #include "llvm/ADT/SmallString.h"
+#include "llvm/ADT/StringMap.h"
 #include "llvm/Support/Error.h"
 #include "llvm/Support/FileSystem.h"
 #include "llvm/Support/JSON.h"
@@ -25,6 +26,50 @@
 
 namespace acir::codegen {
 namespace {
+
+struct SelectionTreeShape {
+  uint64_t selects = 0;
+  uint64_t depth = 0;
+};
+
+SelectionTreeShape selectionTreeShape(llvm::StringRef pyc,
+                                      llvm::StringRef extractType) {
+  llvm::StringMap<uint64_t> depths;
+  SelectionTreeShape result;
+  llvm::SmallVector<llvm::StringRef> lines;
+  pyc.split(lines, '\n');
+  for (llvm::StringRef line : lines) {
+    line = line.trim();
+    const size_t assignment = line.find(" = ");
+    if (assignment == llvm::StringRef::npos)
+      continue;
+    const std::string name = line.take_front(assignment).str();
+    if (line.contains(" = pyc.extract ") && line.contains(extractType)) {
+      depths[name] = 0;
+      continue;
+    }
+    const size_t select = line.find(" = pyc.select ");
+    if (select == llvm::StringRef::npos)
+      continue;
+    llvm::StringRef operands =
+        line.drop_front(select + llvm::StringRef(" = pyc.select ").size());
+    operands = operands.take_front(operands.find(" : "));
+    llvm::SmallVector<llvm::StringRef> items;
+    operands.split(items, ',');
+    if (items.size() != 3)
+      continue;
+    auto trueDepth = depths.find(items[1].trim());
+    auto falseDepth = depths.find(items[2].trim());
+    if (trueDepth == depths.end() || falseDepth == depths.end())
+      continue;
+    const uint64_t depth =
+        std::max(trueDepth->getValue(), falseDepth->getValue()) + 1;
+    depths[name] = depth;
+    ++result.selects;
+    result.depth = std::max(result.depth, depth);
+  }
+  return result;
+}
 
 bool freezeQueueGraph(mlir::ModuleOp module) {
   mlir::PassManager manager(module.getContext());
@@ -710,13 +755,20 @@ QueueGraphPlan boundedRangePlan() {
   return plan;
 }
 
-QueueGraphPlan boundedArrayPlan() {
+QueueGraphPlan boundedArrayPlan(uint64_t count = 5) {
+  unsigned indexWidth = 1;
+  while ((uint64_t{1} << indexWidth) < count)
+    ++indexWidth;
+  const std::string arrayType =
+      "!ac.value_array<" + std::to_string(count) + " x i8>";
+  const std::string indexType =
+      "!ac.range<0, " + std::to_string(count - 1) + ">";
   QueueGraphPlan plan;
   plan.system = "bounded_array";
   plan.aggregates = {
-      {"!ac.value_array<5 x i8>", "array", {"i8"}, 5, 40},
+      {arrayType, "array", {"i8"}, count, count * 8},
   };
-  plan.queues = {{"values", "!ac.value_array<5 x i8>", "/", 1, 1},
+  plan.queues = {{"values", arrayType, "/", 1, 1},
                  {"raw", "i8", "/", 1, 1},
                  {"selected", "i8", "/", 1, 1}};
   plan.blocks.push_back(
@@ -733,9 +785,9 @@ QueueGraphPlan boundedArrayPlan() {
   QueueExpressionPlan value;
   value.result = "checked_value";
   value.kind = "range_checked_value";
-  value.type = "!ac.range<0, 4>";
+  value.type = indexType;
   value.operands = {"item1"};
-  value.field = "!ac.range<0, 4>";
+  value.field = indexType;
   value.literal = "checked_0";
   QueueExpressionPlan valid = value;
   valid.result = "checked_valid";
@@ -747,7 +799,8 @@ QueueGraphPlan boundedArrayPlan() {
   selected.type = "i8";
   selected.operands = {"item", "checked_value"};
   selected.width = 8;
-  selected.selectionCount = 5;
+  selected.indexWidth = indexWidth;
+  selected.selectionCount = count;
   transform.expressions = {value, valid, selected};
   transform.yields = {"selected_value"};
   plan.blocks.push_back(std::move(transform));
@@ -1465,9 +1518,73 @@ TEST(QueueGraphPlanTest, RecomputesDynamicValueArrayBounds) {
   QueueGraphPlan plan = boundedArrayPlan();
   auto verification = verifyQueueGraphPlan(plan);
   ASSERT_FALSE(bool(verification)) << llvm::toString(std::move(verification));
+  auto readJson = plan.canonicalJson();
+  ASSERT_TRUE(bool(readJson)) << llvm::toString(readJson.takeError());
+  EXPECT_NE(readJson->find("\"expansion_factor\":5"), std::string::npos);
+  EXPECT_NE(readJson->find("\"expanded_nodes\":23"), std::string::npos);
+  EXPECT_NE(readJson->find("\"logic_depth\":4"), std::string::npos);
+  EXPECT_NE(readJson->find("\"selection_tree_depth\":3"),
+            std::string::npos);
+
+  for (const auto [count, treeDepth] :
+       std::array<std::pair<uint64_t, uint64_t>, 5>{
+           {{1, 0}, {3, 2}, {5, 3}, {16, 4}, {65, 7}}}) {
+    SCOPED_TRACE(count);
+    QueueGraphPlan boundary = boundedArrayPlan(count);
+    auto boundaryVerification = verifyQueueGraphPlan(boundary);
+    ASSERT_FALSE(bool(boundaryVerification))
+        << llvm::toString(std::move(boundaryVerification));
+    auto boundaryJson = boundary.canonicalJson();
+    ASSERT_TRUE(bool(boundaryJson))
+        << llvm::toString(boundaryJson.takeError());
+    EXPECT_NE(boundaryJson->find("\"expanded_nodes\":" +
+                                 std::to_string(5 * count - 2)),
+              std::string::npos);
+    EXPECT_NE(boundaryJson->find("\"logic_depth\":" +
+                                 std::to_string(treeDepth + 1)),
+              std::string::npos);
+    EXPECT_NE(boundaryJson->find("\"selection_tree_depth\":" +
+                                 std::to_string(treeDepth)),
+              std::string::npos);
+    auto boundaryPyc = generateQueueGraphPyc(boundary);
+    ASSERT_TRUE(bool(boundaryPyc))
+        << llvm::toString(boundaryPyc.takeError());
+    const std::string extractType =
+        ": i" + std::to_string(count * 8) + " -> i8";
+    EXPECT_EQ(llvm::StringRef(*boundaryPyc).count(extractType), count);
+    const SelectionTreeShape shape =
+        selectionTreeShape(*boundaryPyc, extractType);
+    EXPECT_EQ(shape.selects, count - 1);
+    EXPECT_EQ(shape.depth, treeDepth);
+  }
+
+  QueueGraphPlan narrowIndex = plan;
+  narrowIndex.blocks[2].expressions[0].type = "!ac.range<0, 2>";
+  narrowIndex.blocks[2].expressions[0].field = "!ac.range<0, 2>";
+  narrowIndex.blocks[2].expressions[1].field = "!ac.range<0, 2>";
+  narrowIndex.blocks[2].expressions.back().indexWidth = 2;
+  auto narrowVerification = verifyQueueGraphPlan(narrowIndex);
+  ASSERT_FALSE(bool(narrowVerification))
+      << llvm::toString(std::move(narrowVerification));
+  auto narrowJson = narrowIndex.canonicalJson();
+  ASSERT_TRUE(bool(narrowJson)) << llvm::toString(narrowJson.takeError());
+  EXPECT_NE(narrowJson->find("\"expanded_nodes\":25"), std::string::npos);
+  EXPECT_NE(narrowJson->find("\"logic_depth\":5"), std::string::npos);
+  auto narrowPyc = generateQueueGraphPyc(narrowIndex);
+  ASSERT_TRUE(bool(narrowPyc)) << llvm::toString(narrowPyc.takeError());
+  EXPECT_EQ(llvm::StringRef(*narrowPyc).count(" : (i1, i2) -> i3"), 1u);
+
+  QueueGraphPlan forgedIndexWidth = plan;
+  forgedIndexWidth.blocks[2].expressions.back().indexWidth = 2;
+  auto forgedIndexWidthError = verifyQueueGraphPlan(forgedIndexWidth);
+  ASSERT_TRUE(bool(forgedIndexWidthError));
+  EXPECT_NE(llvm::toString(std::move(forgedIndexWidthError))
+                .find("dynamic value_array access types are inconsistent"),
+            std::string::npos);
 
   QueueGraphPlan rawIndex = plan;
   rawIndex.blocks[2].expressions.back().operands[1] = "item1";
+  rawIndex.blocks[2].expressions.back().indexWidth = 8;
   auto rawError = verifyQueueGraphPlan(rawIndex);
   ASSERT_TRUE(bool(rawError));
   EXPECT_NE(llvm::toString(std::move(rawError))
@@ -1512,6 +1629,7 @@ TEST(QueueGraphPlanTest, RecomputesDynamicValueArrayBounds) {
   helperRead.type = "i8";
   helperRead.operands = {"values", "index"};
   helperRead.width = 8;
+  helperRead.indexWidth = 3;
   helperRead.selectionCount = 5;
   helper.expressions = {helperRead};
   helper.yields = {"result"};
@@ -1520,6 +1638,65 @@ TEST(QueueGraphPlanTest, RecomputesDynamicValueArrayBounds) {
   ASSERT_TRUE(bool(helperError));
   EXPECT_NE(llvm::toString(std::move(helperError))
                 .find("value_array index is not statically safe"),
+            std::string::npos);
+
+  QueueGraphPlan update = plan;
+  QueueExpressionPlan replacement;
+  replacement.result = "replacement";
+  replacement.kind = "constant";
+  replacement.type = "i8";
+  replacement.literal = "9 : i8";
+  QueueExpressionPlan updated;
+  updated.result = "updated";
+  updated.kind = "array_update_dynamic";
+  updated.type = "!ac.value_array<5 x i8>";
+  updated.operands = {"item", "checked_value", "replacement"};
+  updated.width = 8;
+  updated.indexWidth = 3;
+  updated.selectionCount = 5;
+  update.blocks[2].expressions.push_back(replacement);
+  update.blocks[2].expressions.push_back(updated);
+  auto updateVerification = verifyQueueGraphPlan(update);
+  ASSERT_FALSE(bool(updateVerification))
+      << llvm::toString(std::move(updateVerification));
+  auto updateJson = update.canonicalJson();
+  ASSERT_TRUE(bool(updateJson)) << llvm::toString(updateJson.takeError());
+  EXPECT_NE(updateJson->find("\"expanded_nodes\":21"), std::string::npos);
+  EXPECT_NE(updateJson->find("\"logic_depth\":3"), std::string::npos);
+
+  QueueGraphPlan narrowUpdate = update;
+  narrowUpdate.blocks[2].expressions[0].type = "!ac.range<0, 2>";
+  narrowUpdate.blocks[2].expressions[0].field = "!ac.range<0, 2>";
+  narrowUpdate.blocks[2].expressions[1].field = "!ac.range<0, 2>";
+  narrowUpdate.blocks[2].expressions[2].indexWidth = 2;
+  narrowUpdate.blocks[2].expressions.back().indexWidth = 2;
+  auto narrowUpdateVerification = verifyQueueGraphPlan(narrowUpdate);
+  ASSERT_FALSE(bool(narrowUpdateVerification))
+      << llvm::toString(std::move(narrowUpdateVerification));
+  auto narrowUpdateJson = narrowUpdate.canonicalJson();
+  ASSERT_TRUE(bool(narrowUpdateJson))
+      << llvm::toString(narrowUpdateJson.takeError());
+  EXPECT_NE(narrowUpdateJson->find("\"expanded_nodes\":23"),
+            std::string::npos);
+  EXPECT_NE(narrowUpdateJson->find("\"logic_depth\":4"),
+            std::string::npos);
+
+  QueueGraphPlan unsafeUpdate = update;
+  unsafeUpdate.blocks[2].expressions.back().operands[1] = "item1";
+  unsafeUpdate.blocks[2].expressions.back().indexWidth = 8;
+  auto unsafeUpdateError = verifyQueueGraphPlan(unsafeUpdate);
+  ASSERT_TRUE(bool(unsafeUpdateError));
+  EXPECT_NE(llvm::toString(std::move(unsafeUpdateError))
+                .find("value_array update index is not statically safe"),
+            std::string::npos);
+
+  QueueGraphPlan wrongUpdateType = update;
+  wrongUpdateType.blocks[2].expressions.back().type =
+      "!ac.value_array<4 x i8>";
+  auto wrongUpdateError = verifyQueueGraphPlan(wrongUpdateType);
+  ASSERT_TRUE(bool(wrongUpdateError));
+  EXPECT_NE(llvm::toString(std::move(wrongUpdateError))
+                .find("dynamic value_array update types are inconsistent"),
             std::string::npos);
 }
 
