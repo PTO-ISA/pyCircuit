@@ -41,6 +41,7 @@ from ._contract import CONTRACT_EPOCH
 from ._diagnostics import Diagnostic, DiagnosticError, SourceSpan
 from ._static_eval import (
     MAX_STATIC_EXPANSION,
+    FrozenMap,
     StaticEnvironment,
     StaticValue,
     evaluate_static,
@@ -162,9 +163,13 @@ def _render_static_mlir_value(value: StaticValue) -> str:
         return f"{value} : i64"
     if type(value) is str:
         return canonical_mlir_string(value)
+    if isinstance(value, FrozenMap):
+        return canonical_mlir_string(
+            canonical_json_bytes(static_json_value(value)).decode("utf-8")
+        )
     raise QueueFrontendError(
         "ACPY-MODULE-007: module ac.const arguments must lower to bool, int, "
-        "or str attributes"
+        "str, or canonical config attributes"
     )
 
 
@@ -266,7 +271,7 @@ def _constant_integer(
 
 def _dependent_static_type_expression(
     node: ast.expr,
-    parameter_aliases: Mapping[str, str],
+    parameter_aliases: Mapping[str, StaticParameterAlias],
     values: Mapping[str, StaticValue] | None,
     *,
     binding_namespace: str = "",
@@ -289,11 +294,52 @@ def _dependent_static_type_expression(
 
     static_values = values or {}
 
+    def config_path(item: ast.expr) -> tuple[str, tuple[str, ...]] | None:
+        fields: list[str] = []
+        current = item
+        while isinstance(current, ast.Attribute):
+            fields.append(current.attr)
+            current = current.value
+        if not isinstance(current, ast.Name) or current.id not in parameter_aliases:
+            return None
+        binding = parameter_aliases[current.id]
+        if binding.config_type is None:
+            return None
+        return current.id, tuple(reversed(fields))
+
     def parse(item: ast.expr) -> int | StaticIntExpression:
         if isinstance(item, ast.Constant) and type(item.value) is int:
             return item.value
+        projected = config_path(item)
+        if projected is not None:
+            alias, fields = projected
+            if not fields:
+                raise QueueFrontendError(
+                    "ACPY-TYPE-008: dependent type config references must select "
+                    "an integer field"
+                )
+            binding = parameter_aliases[alias]
+            value = _project_static_config_value(
+                static_values.get(alias),
+                fields,
+                binding.external_name,
+            )
+            if type(value) is not int:
+                raise QueueFrontendError(
+                    "ACPY-TYPE-008: config projection "
+                    f"{binding.external_name + '.' + '.'.join(fields)!r} "
+                    "must resolve to an integer"
+                )
+            parameter = binding.external_name + "." + ".".join(fields)
+            return StaticIntExpression.parameter(binding_namespace + parameter)
         if isinstance(item, ast.Name):
             if item.id in parameter_aliases:
+                binding = parameter_aliases[item.id]
+                if binding.config_type is not None:
+                    raise QueueFrontendError(
+                        "ACPY-TYPE-008: dependent type config references must "
+                        "select an integer field"
+                    )
                 return StaticIntExpression.parameter(binding_namespace + item.id)
             value = static_values.get(item.id)
             if type(value) is int:
@@ -331,9 +377,14 @@ def _dependent_static_type_expression(
                 "ACPY-TYPE-008: dependent type expression lost its parameter reference"
             )
         bindings = {
-            binding_namespace + alias: static_values[alias]
-            for alias in parameter_aliases
-            if alias in static_values and type(static_values[alias]) is int
+            token[6:]: _static_parameter_value(
+                token[6:],
+                parameter_aliases,
+                static_values,
+                binding_namespace=binding_namespace,
+            )
+            for token in expression.postfix()
+            if token[:6] == "param:"
         }
         result = expression.evaluate(bindings)
         return expression.postfix(), result
@@ -422,11 +473,62 @@ def _module_static_values(tree: ast.Module) -> dict[str, StaticValue]:
     return values
 
 
-def _static_parameter_aliases(tree: ast.Module) -> dict[str, str]:
-    """Collect ``NAME = ac.param[int]("argument")`` declarations."""
+@dataclass(frozen=True, slots=True)
+class StaticParameterAlias:
+    external_name: str
+    config_type: str | None = None
 
-    aliases: dict[str, str] = {}
+
+def _config_type_names(tree: ast.Module) -> set[str]:
+    return {
+        node.name
+        for node in tree.body
+        if isinstance(node, ast.ClassDef)
+        and any(
+            _decorator_name(decorator).rsplit(".", 1)[-1] == "config"
+            for decorator in node.decorator_list
+        )
+    }
+
+
+def _static_config_expression_type(
+    node: ast.expr,
+    root_types: Mapping[str, str],
+    tree: ast.Module,
+) -> str | None:
+    if isinstance(node, ast.Name):
+        return root_types.get(node.id)
+    if not isinstance(node, ast.Attribute):
+        return None
+    owner_type = _static_config_expression_type(node.value, root_types, tree)
+    if owner_type is None or owner_type not in _config_type_names(tree):
+        return None
+    declaration = next(
+        (
+            candidate
+            for candidate in tree.body
+            if isinstance(candidate, ast.ClassDef) and candidate.name == owner_type
+        ),
+        None,
+    )
+    if declaration is None:
+        return None
+    for statement in declaration.body:
+        if (
+            isinstance(statement, ast.AnnAssign)
+            and isinstance(statement.target, ast.Name)
+            and statement.target.id == node.attr
+        ):
+            return _decorator_name(statement.annotation).rsplit(".", 1)[-1]
+    return None
+
+
+def _static_parameter_aliases(tree: ast.Module) -> dict[str, StaticParameterAlias]:
+    """Collect typed ``NAME = ac.param[T]("argument")`` declarations."""
+
+    aliases: dict[str, StaticParameterAlias] = {}
     external_names: set[str] = set()
+    config_types = _config_type_names(tree)
     for statement in tree.body:
         if not (
             isinstance(statement, ast.Assign)
@@ -451,7 +553,7 @@ def _static_parameter_aliases(tree: ast.Module) -> dict[str, str]:
             continue
         if (
             not target.isupper()
-            or parameter_type != "int"
+            or (parameter_type != "int" and parameter_type not in config_types)
             or len(declaration.args) != 1
             or declaration.keywords
             or not isinstance(declaration.args[0], ast.Constant)
@@ -460,16 +562,261 @@ def _static_parameter_aliases(tree: ast.Module) -> dict[str, str]:
         ):
             raise QueueFrontendError(
                 "ACPY-TYPE-008: static type parameters require "
-                'UPPER_SNAKE = ac.param[int]("const_argument")'
+                'UPPER_SNAKE = ac.param[int | Config]("const_argument")'
             )
         external = declaration.args[0].value
         if target in aliases or external in external_names:
             raise QueueFrontendError(
                 "ACPY-TYPE-008: static type parameter names and bindings must be unique"
             )
-        aliases[target] = external
+        aliases[target] = StaticParameterAlias(
+            external,
+            None if parameter_type == "int" else parameter_type,
+        )
         external_names.add(external)
     return aliases
+
+
+def _validate_static_config_roots(
+    function: ast.FunctionDef,
+    aliases: Mapping[str, StaticParameterAlias],
+    used_roots: Collection[str],
+    *,
+    binding_namespace: str = "",
+) -> None:
+    parameters = {
+        parameter.arg: parameter
+        for parameter in (
+            *function.args.posonlyargs,
+            *function.args.args,
+            *function.args.kwonlyargs,
+        )
+    }
+    for binding in aliases.values():
+        if binding.config_type is None:
+            continue
+        if binding_namespace + binding.external_name not in used_roots:
+            continue
+        parameter = parameters.get(binding.external_name)
+        annotation = None if parameter is None else parameter.annotation
+        actual_type = (
+            _decorator_name(annotation.slice).rsplit(".", 1)[-1]
+            if isinstance(annotation, ast.Subscript)
+            and _decorator_name(annotation.value).rsplit(".", 1)[-1] == "const"
+            else ""
+        )
+        if actual_type != binding.config_type:
+            raise QueueFrontendError(
+                "ACPY-TYPE-008: typed config root "
+                f"{binding.external_name!r} requires matching "
+                f"ac.const[{binding.config_type}] entry parameter"
+            )
+
+
+def _project_static_config_value(
+    root: StaticValue | None,
+    fields: tuple[str, ...],
+    external_name: str,
+) -> StaticValue:
+    if root is None:
+        raise QueueFrontendError(
+            f"ACPY-TYPE-008: unbound static config parameter {external_name!r}"
+        )
+    value = root
+    traversed: list[str] = [external_name]
+    for field in fields:
+        if not isinstance(value, FrozenMap):
+            raise QueueFrontendError(
+                "ACPY-TYPE-008: config projection "
+                f"{'.'.join(traversed)!r} is not a nested config record"
+            )
+        try:
+            value = value[field]
+        except KeyError as error:
+            raise QueueFrontendError(
+                f"ACPY-TYPE-008: unknown config field {field!r} on "
+                f"{'.'.join(traversed)!r}"
+            ) from error
+        traversed.append(field)
+    return value
+
+
+def _static_parameter_value(
+    parameter: str,
+    aliases: Mapping[str, StaticParameterAlias],
+    values: Mapping[str, StaticValue],
+    *,
+    binding_namespace: str = "",
+) -> int:
+    canonical = (
+        parameter[len(binding_namespace) :]
+        if binding_namespace
+        and parameter[: len(binding_namespace)] == binding_namespace
+        else parameter
+    )
+    for alias, binding in aliases.items():
+        if binding.config_type is None:
+            if canonical != alias:
+                continue
+            value = values.get(alias)
+            if value is None:
+                raise QueueFrontendError(
+                    f"ACPY-TYPE-008: unbound static integer parameter {canonical!r}"
+                )
+        else:
+            prefix = binding.external_name + "."
+            if canonical[: len(prefix)] != prefix:
+                continue
+            value = _project_static_config_value(
+                values.get(alias),
+                tuple(canonical[len(prefix) :].split(".")),
+                binding.external_name,
+            )
+        if type(value) is not int:
+            raise QueueFrontendError(
+                f"ACPY-TYPE-008: static type parameter {canonical!r} "
+                "must resolve to an integer"
+            )
+        return value
+    raise QueueFrontendError(
+        f"ACPY-TYPE-008: unknown static type parameter {canonical!r}"
+    )
+
+
+def _static_type_bindings_for_checks(
+    checks: Collection[StaticTypeCheck],
+    aliases: Mapping[str, StaticParameterAlias],
+    values: Mapping[str, StaticValue],
+    *,
+    binding_namespace: str = "",
+) -> tuple[tuple[str, int], ...]:
+    parameters = {
+        token[6:]
+        for check in checks
+        for token in check.program
+        if token[:6] == "param:"
+    }
+    return tuple(
+        (
+            parameter,
+            _static_parameter_value(
+                parameter,
+                aliases,
+                values,
+                binding_namespace=binding_namespace,
+            ),
+        )
+        for parameter in sorted(parameters)
+    )
+
+
+def _config_schema_document(
+    tree: ast.Module,
+    type_name: str,
+    active: tuple[str, ...] = (),
+) -> dict[str, object]:
+    declarations = {
+        node.name: node
+        for node in tree.body
+        if isinstance(node, ast.ClassDef) and node.name in _config_type_names(tree)
+    }
+    node = declarations.get(type_name)
+    if node is None:
+        raise QueueFrontendError(
+            f"ACPY-TYPE-008: config type {type_name!r} is unavailable"
+        )
+    if type_name in active:
+        cycle = " -> ".join((*active, type_name))
+        raise QueueFrontendError(
+            f"ACPY-TYPE-008: recursive config schema is unsupported: {cycle}"
+        )
+    fields: list[dict[str, object]] = []
+    for statement in node.body:
+        if (
+            isinstance(statement, ast.Expr)
+            and isinstance(statement.value, ast.Constant)
+            and isinstance(statement.value.value, str)
+        ):
+            continue
+        if not isinstance(statement, ast.AnnAssign) or not isinstance(
+            statement.target, ast.Name
+        ):
+            raise QueueFrontendError(
+                "ACPY-TYPE-008: config schemas require annotated data fields"
+            )
+        annotation = _decorator_name(statement.annotation).rsplit(".", 1)[-1]
+        if annotation in declarations:
+            field_type: object = _config_schema_document(
+                tree,
+                annotation,
+                (*active, type_name),
+            )
+        else:
+            annotation_text = ast.unparse(statement.annotation)
+            if annotation_text not in {"int", "bool", "float", "str"}:
+                raise QueueFrontendError(
+                    "ACPY-TYPE-008: typed config roots support only int, bool, "
+                    "float, str, or nested @ac.config fields"
+                )
+            field_type = {
+                "kind": "scalar",
+                "name": annotation_text,
+                "version": 1,
+            }
+        fields.append({"name": statement.target.id, "type": field_type})
+    if not fields or len({field["name"] for field in fields}) != len(fields):
+        raise QueueFrontendError(
+            "ACPY-TYPE-008: config schemas require unique annotated fields"
+        )
+    return {
+        "fields": fields,
+        "kind": "config",
+        "name": type_name,
+        "version": 1,
+    }
+
+
+def _static_config_bindings_for_checks(
+    tree: ast.Module,
+    checks: Collection[StaticTypeCheck],
+    aliases: Mapping[str, StaticParameterAlias],
+    values: Mapping[str, StaticValue],
+    *,
+    binding_namespace: str = "",
+) -> tuple[StaticConfigBinding, ...]:
+    parameters = {
+        token[6:]
+        for check in checks
+        for token in check.program
+        if token[:6] == "param:"
+    }
+    result: list[StaticConfigBinding] = []
+    for alias, binding in aliases.items():
+        if binding.config_type is None:
+            continue
+        root = binding_namespace + binding.external_name
+        if not any(
+            parameter[: len(root) + 1] == root + "." for parameter in parameters
+        ):
+            continue
+        value = values.get(alias)
+        if not isinstance(value, FrozenMap):
+            raise QueueFrontendError(
+                f"ACPY-TYPE-008: unbound static config parameter {root!r}"
+            )
+        schema = canonical_json_bytes(
+            _config_schema_document(tree, binding.config_type)
+        ).decode("utf-8")
+        result.append(
+            StaticConfigBinding(
+                root=root,
+                type_name=binding.config_type,
+                schema=schema,
+                schema_sha256=sha256_bytes(schema.encode("utf-8")),
+                value=canonical_json_bytes(static_json_value(value)).decode("utf-8"),
+            )
+        )
+    return tuple(sorted(result, key=lambda binding: binding.root))
 
 
 def _type_static_values(
@@ -478,13 +825,19 @@ def _type_static_values(
 ) -> dict[str, StaticValue]:
     values = _module_static_values(tree)
     supplied = dict(static_arguments or {})
-    for alias, external in _static_parameter_aliases(tree).items():
-        if external not in supplied:
+    for alias, binding in _static_parameter_aliases(tree).items():
+        if binding.external_name not in supplied:
             continue
-        value = supplied[external]
-        if type(value) is not int:
+        value = supplied[binding.external_name]
+        if binding.config_type is None and type(value) is not int:
             raise QueueFrontendError(
-                f"ACPY-TYPE-008: static type parameter {external!r} must bind an integer"
+                "ACPY-TYPE-008: static type parameter "
+                f"{binding.external_name!r} must bind an integer"
+            )
+        if binding.config_type is not None and not isinstance(value, FrozenMap):
+            raise QueueFrontendError(
+                "ACPY-TYPE-008: static config parameter "
+                f"{binding.external_name!r} must bind an @ac.config record"
             )
         values[alias] = value
     return values
@@ -518,6 +871,15 @@ class StaticTypeCheck:
 
 
 @dataclass(frozen=True, slots=True)
+class StaticConfigBinding:
+    root: str
+    type_name: str
+    schema: str
+    schema_sha256: str
+    value: str
+
+
+@dataclass(frozen=True, slots=True)
 class Payload:
     descriptor: StructType
     static_type_checks: tuple[StaticTypeCheck, ...] = ()
@@ -545,7 +907,7 @@ class Payload:
 def _scalar_annotation_static_check(
     target: str,
     annotation: ast.expr,
-    parameter_aliases: Mapping[str, str],
+    parameter_aliases: Mapping[str, StaticParameterAlias],
     static_values: Mapping[str, StaticValue],
     *,
     binding_namespace: str = "",
@@ -1229,6 +1591,7 @@ class QueueProgram:
     sinks: tuple[SinkBinding, ...]
     static_type_bindings: tuple[tuple[str, int], ...] = ()
     static_type_checks: tuple[StaticTypeCheck, ...] = ()
+    static_config_bindings: tuple[StaticConfigBinding, ...] = ()
     specialization_fingerprint: str | None = None
     diagnostics: tuple[Diagnostic, ...] = ()
     source_path: str = _DEFAULT_QUEUE_SOURCE_PATH
@@ -1570,11 +1933,18 @@ def _payloads(
             raise QueueFrontendError(
                 "ACPY-QUEUE-002: struct requires unique compile-time fields"
             )
-        binding_values = {
-            static_type_namespace + alias: value
-            for alias, value in (static_values or {}).items()
-            if alias in parameter_aliases and type(value) is int
-        }
+        binding_values: dict[str, int] = {}
+        for check in static_checks:
+            for token in check.program:
+                if token[:6] != "param:":
+                    continue
+                parameter = token[6:]
+                binding_values[parameter] = _static_parameter_value(
+                    parameter,
+                    parameter_aliases,
+                    static_values or {},
+                    binding_namespace=static_type_namespace,
+                )
         bindings: dict[str, int] = {}
         for check in static_checks:
             for token in check.program:
@@ -1615,7 +1985,10 @@ def _payloads(
             descriptors.append(resolve(node.name))
         except QueueFrontendError as error:
             active.clear()
-            if allow_unbound and "unbound static integer parameter" in str(error):
+            if allow_unbound and (
+                "unbound static integer parameter" in str(error)
+                or "unbound static config parameter" in str(error)
+            ):
                 continue
             raise
     return tuple(
@@ -1753,6 +2126,7 @@ def _render_static_type_attributes(
     bindings: tuple[tuple[str, int], ...],
     payloads: tuple[Payload, ...],
     extra_checks: tuple[StaticTypeCheck, ...] = (),
+    config_bindings: tuple[StaticConfigBinding, ...] = (),
 ) -> str:
     checks = (
         tuple(check for payload in payloads for check in payload.static_type_checks)
@@ -1763,9 +2137,28 @@ def _render_static_type_attributes(
         for payload in payloads
         if payload.descriptor.symbol != payload.descriptor.name
     )
-    if not bindings and not checks and not identities:
+    if not bindings and not checks and not identities and not config_bindings:
         return ""
     attributes: list[str] = []
+    if config_bindings:
+        attributes.append(
+            "ac.static_config_bindings = ["
+            + ", ".join(
+                "{root = "
+                + canonical_mlir_string(binding.root)
+                + ", schema = "
+                + canonical_mlir_string(binding.schema)
+                + ", schema_sha256 = "
+                + canonical_mlir_string(binding.schema_sha256)
+                + ", type = "
+                + canonical_mlir_string(binding.type_name)
+                + ", value = "
+                + canonical_mlir_string(binding.value)
+                + "}"
+                for binding in config_bindings
+            )
+            + "]"
+        )
     if bindings:
         attributes.append(
             "ac.static_type_bindings = {"
@@ -2922,6 +3315,33 @@ def _strip_static_assertions(
             statement.col_offset + 1,
         )
 
+    def assertion_error(
+        statement: ast.stmt,
+        ordinal: int,
+        condition_node: ast.expr,
+        message: str,
+    ) -> QueueFrontendError:
+        path, line, column = location(statement, ordinal)
+        referenced = sorted(
+            {
+                item.id
+                for item in ast.walk(condition_node)
+                if isinstance(item, ast.Name) and item.id in values
+            }
+        )
+        bindings = {name: static_json_value(values[name]) for name in referenced}
+        rendered_bindings = canonical_json_bytes(bindings).decode("utf-8")
+        expression = ast.unparse(condition_node)
+        detail = (
+            f"{path}:{line}:{column}: {message}; "
+            f"expression={expression!r}; bindings={rendered_bindings}"
+        )
+        return QueueFrontendError(
+            "ACPY-STATIC-003",
+            detail,
+            SourceSpan(path, line, column, line, column),
+        )
+
     body: list[ast.stmt] = []
     assertion_ordinal = 0
     for statement in function.body:
@@ -2967,21 +3387,25 @@ def _strip_static_assertions(
         try:
             condition = evaluate_static(call.args[0], StaticEnvironment(values))
         except ValueError as error:
-            path, line, column = location(statement, current_ordinal)
-            raise QueueFrontendError(
-                f"ACPY-STATIC-003: {path}:{line}:{column}: "
-                "static_assert condition is not closed"
+            raise assertion_error(
+                statement,
+                current_ordinal,
+                call.args[0],
+                "static_assert condition is not closed",
             ) from error
         if type(condition) is not bool:
-            path, line, column = location(statement, current_ordinal)
-            raise QueueFrontendError(
-                f"ACPY-STATIC-003: {path}:{line}:{column}: "
-                "static_assert condition must be bool"
+            raise assertion_error(
+                statement,
+                current_ordinal,
+                call.args[0],
+                "static_assert condition must be bool",
             )
         if not condition:
-            path, line, column = location(statement, current_ordinal)
-            raise QueueFrontendError(
-                f"ACPY-STATIC-003: {path}:{line}:{column}: {message}"
+            raise assertion_error(
+                statement,
+                current_ordinal,
+                call.args[0],
+                message,
             )
     function.body = body
     if any(
@@ -9443,6 +9867,23 @@ def parse_queue_program(
             "ACPY-QUEUE-001: a queue system requires an external value and a "
             "consuming rule or result boundary"
         )
+    all_static_checks = (
+        *(check for payload in payloads for check in payload.static_type_checks),
+        *interface_type_checks,
+    )
+    static_config_bindings = _static_config_bindings_for_checks(
+        tree,
+        all_static_checks,
+        parameter_aliases,
+        type_static_values,
+        binding_namespace=static_type_namespace,
+    )
+    _validate_static_config_roots(
+        function,
+        parameter_aliases,
+        {binding.root for binding in static_config_bindings},
+        binding_namespace=static_type_namespace,
+    )
     return QueueProgram(
         system,
         payloads,
@@ -9478,15 +9919,14 @@ def parse_queue_program(
         tuple(observations),
         tuple(expectations),
         tuple(sinks),
-        static_type_bindings=tuple(
-            sorted(
-                (static_type_namespace + alias, type_static_values[alias])
-                for alias in _static_parameter_aliases(tree)
-                if alias in type_static_values
-                and type(type_static_values[alias]) is int
-            )
+        static_type_bindings=_static_type_bindings_for_checks(
+            all_static_checks,
+            parameter_aliases,
+            type_static_values,
+            binding_namespace=static_type_namespace,
         ),
         static_type_checks=tuple(interface_type_checks),
+        static_config_bindings=static_config_bindings,
         specialization_fingerprint=specialization_fingerprint,
         source_path=normalized_source_path,
     )
@@ -11258,6 +11698,7 @@ def lower_queue_program(
         program.static_type_bindings,
         program.payloads,
         program.static_type_checks,
+        program.static_config_bindings,
     )
     module_inputs = set() if module is None else {name for name, _ in module.inputs}
     module_outputs = set() if module is None else {name for name, _ in module.outputs}
@@ -11825,7 +12266,9 @@ def lower_queue_program(
                         + ", ".join(sorted(guarded_captures))
                     )
                 index_width = max(1, (find.entries - 1).bit_length())
-                domain_entries = find.shape[-1] if find.row is not None else find.entries
+                domain_entries = (
+                    find.shape[-1] if find.row is not None else find.entries
+                )
                 mask_type = _candidate_mask_type(domain_entries)
                 row_value: str | None = None
                 row_type: ValueType | None = None
@@ -14169,6 +14612,7 @@ def _lower_simple_module_source(
         output_annotations: tuple[ast.expr, ...]
         static_parameters: tuple[str, ...]
         static_defaults: tuple[tuple[str, ast.expr], ...]
+        static_parameter_types: tuple[tuple[str, str], ...]
 
     module_types: dict[str, ModuleDefinition] = {}
     rule_modules: dict[str, RuleModuleTemplate] = {}
@@ -14258,6 +14702,14 @@ def _lower_simple_module_source(
                         strict=True,
                     )
                     if default is not None
+                ),
+                tuple(
+                    (
+                        parameter.arg,
+                        _decorator_name(parameter.annotation.slice).rsplit(".", 1)[-1],
+                    )
+                    for parameter in function.args.kwonlyargs
+                    if isinstance(parameter.annotation, ast.Subscript)
                 ),
             )
             continue
@@ -14483,6 +14935,12 @@ def _lower_simple_module_source(
         **module_static_values,
         **supplied,
     }
+    system_static_types = {
+        parameter.arg: _decorator_name(parameter.annotation.slice).rsplit(".", 1)[-1]
+        for parameter in parameters
+        if isinstance(parameter.annotation, ast.Subscript)
+        and _decorator_name(parameter.annotation.value).rsplit(".", 1)[-1] == "const"
+    }
     _strip_static_assertions(
         function,
         system_static_values,
@@ -14600,12 +15058,43 @@ def _lower_simple_module_source(
                 f"ACPY-MODULE-007: unknown module static argument {unknown[0]!r}"
             )
         defaults = dict(template.static_defaults)
+        expected_types = dict(template.static_parameter_types)
         static_values: list[tuple[str, StaticValue]] = []
         for name in template.static_parameters:
             expression = supplied_keywords.get(name, defaults.get(name))
             if expression is None:
                 raise QueueFrontendError(
                     f"ACPY-MODULE-007: module requires static argument {name!r}"
+                )
+            expected_type = expected_types.get(name)
+            actual_type = _static_config_expression_type(
+                expression,
+                system_static_types,
+                tree,
+            )
+            if expected_type in _config_type_names(tree):
+                if actual_type is None:
+                    raise QueueFrontendError(
+                        "ACPY-MODULE-007: module static argument "
+                        f"{name!r} requires nominal ac.const[{expected_type}] "
+                        "provenance"
+                    )
+                if actual_type != expected_type:
+                    raise QueueFrontendError(
+                        "ACPY-MODULE-007: module static argument "
+                        f"{name!r} requires ac.const[{expected_type}], got "
+                        f"ac.const[{actual_type}]"
+                    )
+            elif (
+                isinstance(expression, ast.Name)
+                and actual_type is not None
+                and expected_type is not None
+                and actual_type != expected_type
+            ):
+                raise QueueFrontendError(
+                    "ACPY-MODULE-007: module static argument "
+                    f"{name!r} requires ac.const[{expected_type}], got "
+                    f"ac.const[{actual_type}]"
                 )
             try:
                 value = evaluate_static(
@@ -14860,11 +15349,29 @@ def _lower_simple_module_source(
     all_payloads_by_symbol: dict[str, Payload] = {
         payload.descriptor.symbol: payload for payload in payloads
     }
-    candidate_static_bindings = {
-        alias: type_static_values[alias]
-        for alias in _static_parameter_aliases(tree)
-        if alias in type_static_values and type(type_static_values[alias]) is int
-    }
+    top_static_checks = (
+        *(check for payload in payloads for check in payload.static_type_checks),
+        *system_interface_checks,
+    )
+    candidate_static_bindings = dict(
+        _static_type_bindings_for_checks(
+            top_static_checks,
+            parameter_aliases,
+            type_static_values,
+        )
+    )
+    top_static_configs = _static_config_bindings_for_checks(
+        tree,
+        top_static_checks,
+        parameter_aliases,
+        type_static_values,
+    )
+    _validate_static_config_roots(
+        function,
+        parameter_aliases,
+        {binding.root for binding in top_static_configs},
+    )
+    candidate_static_configs = {binding.root: binding for binding in top_static_configs}
     all_interface_checks = list(system_interface_checks)
     for _, program, _ in rule_module_specializations.values():
         for payload in program.payloads:
@@ -14884,6 +15391,13 @@ def _lower_simple_module_source(
                     "ACPY-TYPE-008: specialized static binding collision"
                 )
             candidate_static_bindings[name] = value
+        for binding in program.static_config_bindings:
+            existing_config = candidate_static_configs.get(binding.root)
+            if existing_config is not None and existing_config != binding:
+                raise QueueFrontendError(
+                    "ACPY-TYPE-008: specialized static config binding collision"
+                )
+            candidate_static_configs[binding.root] = binding
         all_interface_checks.extend(program.static_type_checks)
     all_payloads = tuple(all_payloads_by_symbol.values())
     all_checks = [
@@ -14910,6 +15424,10 @@ def _lower_simple_module_source(
             tuple(sorted(all_static_bindings.items())),
             all_payloads,
             tuple(all_interface_checks),
+            tuple(
+                candidate_static_configs[root]
+                for root in sorted(candidate_static_configs)
+            ),
         )
         + "} {"
     ]

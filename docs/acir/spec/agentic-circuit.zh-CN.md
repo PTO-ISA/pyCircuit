@@ -295,6 +295,40 @@ system/module typed interface 的 dependent scalar 也携带 exact concrete type
 specialized struct 额外记录 source name、语义参数名、具体 field layout、fingerprint
 和完整 check target 集合；缺失 target、过期 symbol hash 或伪造 layout 都会被拒绝。
 
+一个嵌套 `@ac.config` 也可以作为 dependent integer field 的 typed root：
+
+```python
+@ac.config
+class Geometry:
+    entries: int
+    lanes: int
+
+@ac.config
+class Config:
+    geometry: Geometry
+
+CFG = ac.param[Config] ("cfg")
+
+@ac.struct
+class Entry:
+    index: ac.bits[ac.index_width(CFG.geometry.entries)]
+
+@ac.struct
+class Group:
+    lanes: ac.array[CFG.geometry.lanes, Entry]
+```
+
+大写 root 只存在于 elaboration。每个 leaf 必须存在于声明的 config schema 且精确为
+`int`；选择整个 record、bool 或不存在的 field 都会失败。entry 参数仍写成
+`cfg: ac.const[Config]`。JIT 在冻结前要求 exact nominal config class，并递归验证
+嵌套 config 与 scalar field 类型。
+
+ACIR 保存语义 root（`cfg`）、完整嵌套 schema、schema SHA-256、canonical closed
+root value、投影 leaf binding 与已有 postfix type-check program。`verify-ac-file` 和
+QueueGraph 从 root value 沿 field path 重新取值，并独立核对 projected integer 与
+type binding。Python alias 拼写不进入语义 identity；config projection 与成功的
+`ac.static_assert` 都不会成为 runtime operation。
+
 module-local dependent type 在每个 module instance 的 `ac.const` 参数绑定后再具体化。
 即使两组绑定得到相同 storage width，不同绑定的实例也具有不同 nominal struct
 identity；相同 source type 和相同绑定跨 system/module interface 仍保持同一 identity，
@@ -304,7 +338,9 @@ verifier record namespace 不进入类型语义。完整例子见
 
 `ac.static_assert(condition, message=...)` 只能作为 entry body 的直接语句。
 它在 `ac.const` 绑定后求值，condition 必须是封闭 bool、message 必须是静态字符串，
-并在 Frozen ACIR 前消除。失败或依赖 runtime 值时，诊断保留规范化相对路径和行列。
+并在 Frozen ACIR 前消除。失败或依赖 runtime 值时，诊断保留规范化相对路径、行列、
+规范化表达式和引用到的闭合 binding。power-of-two、整除、容量与派生 width/length
+检查使用普通的封闭 Python integer expression。
 
 静态位掩码表达式遵守可移植 I-JSON 整数范围；负移位量及结果超出该范围的左移
 会在执行移位前被拒绝。运行时 `ac.uN` 移位仍遵守电路的精确位宽语义。

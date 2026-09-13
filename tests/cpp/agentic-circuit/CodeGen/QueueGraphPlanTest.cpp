@@ -901,6 +901,72 @@ TEST(QueueGraphPlanTest, RecomputesAggregateStaticTypeMetadata) {
             std::string::npos);
 }
 
+TEST(QueueGraphPlanTest, RecomputesNestedConfigProjectionMetadata) {
+  QueueGraphPlan plan = aggregateMetadataPlan();
+  plan.staticTypeBindings = {{"cfg.entries", 5}};
+  plan.staticTypeChecks = {
+      {"Packet.pair.tuple_1:bits", {"param:cfg.entries"}, 5},
+  };
+  constexpr llvm::StringLiteral kSchema =
+      R"({"fields":[{"name":"entries","type":{"kind":"scalar","name":"int","version":1}}],"kind":"config","name":"Config","version":1})";
+  plan.staticConfigBindings = {{
+      "cfg",
+      "Config",
+      kSchema.str(),
+      "sha256:8d50b171414319202ddc53539c063d17b2a5bb762254463f741967108429e99e",
+      R"({"entries":5})",
+  }};
+
+  auto verification = verifyQueueGraphPlan(plan);
+  EXPECT_FALSE(bool(verification)) << llvm::toString(std::move(verification));
+  auto json = plan.canonicalJson();
+  ASSERT_TRUE(bool(json)) << llvm::toString(json.takeError());
+  EXPECT_NE(json->find("static_config_bindings"), std::string::npos);
+
+  plan.staticConfigBindings.front().value = R"({"entries":4})";
+  auto forgedValue = verifyQueueGraphPlan(plan);
+  ASSERT_TRUE(bool(forgedValue));
+  EXPECT_NE(llvm::toString(std::move(forgedValue)).find("root binding"),
+            std::string::npos);
+
+  plan.staticConfigBindings.front().value = R"({"entries":5})";
+  plan.staticConfigBindings.front().schemaSha256 = "sha256:forged";
+  auto forgedSchema = verifyQueueGraphPlan(plan);
+  ASSERT_TRUE(bool(forgedSchema));
+  EXPECT_NE(llvm::toString(std::move(forgedSchema)).find("metadata is malformed"),
+            std::string::npos);
+
+  plan.staticConfigBindings.clear();
+  auto missingRoot = verifyQueueGraphPlan(plan);
+  ASSERT_TRUE(bool(missingRoot));
+  EXPECT_NE(llvm::toString(std::move(missingRoot)).find("exactly one"),
+            std::string::npos);
+}
+
+TEST(QueueGraphPlanTest, AcceptsCanonicalConfigFloatNumbers) {
+  QueueGraphPlan plan = aggregateMetadataPlan();
+  plan.staticTypeBindings = {{"cfg.entries", 5}};
+  plan.staticTypeChecks = {
+      {"Packet.pair.tuple_1:bits", {"param:cfg.entries"}, 5},
+  };
+  constexpr llvm::StringLiteral kSchema =
+      R"({"fields":[{"name":"entries","type":{"kind":"scalar","name":"int","version":1}},{"name":"ratio","type":{"kind":"scalar","name":"float","version":1}}],"kind":"config","name":"Config","version":1})";
+  for (llvm::StringRef value : {R"({"entries":5,"ratio":0})",
+                                R"({"entries":5,"ratio":1})",
+                                R"({"entries":5,"ratio":1.5})"}) {
+    plan.staticConfigBindings = {{
+        "cfg",
+        "Config",
+        kSchema.str(),
+        "sha256:82f1f38e2a02cf290f8627ded9a192489d6c2060e73347b64d3b604c8cbf18f2",
+        value.str(),
+    }};
+    auto verification = verifyQueueGraphPlan(plan);
+    EXPECT_FALSE(bool(verification))
+        << value.str() << ": " << llvm::toString(std::move(verification));
+  }
+}
+
 TEST(QueueGraphPlanTest, VerifiesScalarAndNominalStaticTypeIdentity) {
   QueueGraphPlan scalar = aggregateMetadataPlan();
   scalar.staticTypeBindings = {{"WIDTH", 8}};

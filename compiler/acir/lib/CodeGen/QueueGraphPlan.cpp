@@ -1891,7 +1891,11 @@ private:
         module->getAttrOfType<mlir::ArrayAttr>("ac.static_type_checks");
     auto identities =
         module->getAttrOfType<mlir::ArrayAttr>("ac.static_type_identities");
-    if (!bindings && !checks && !identities)
+    mlir::Attribute rawConfigs = module->getAttr("ac.static_config_bindings");
+    auto configs = mlir::dyn_cast_or_null<mlir::ArrayAttr>(rawConfigs);
+    if (rawConfigs && !configs)
+      return planError("static config bindings must be an array");
+    if (!bindings && !checks && !identities && !configs)
       return llvm::Error::success();
     if (!bindings || !checks)
       return planError(
@@ -1929,6 +1933,29 @@ private:
         item.program.push_back(token.getValue().str());
       }
       plan.staticTypeChecks.push_back(std::move(item));
+    }
+    if (configs) {
+      for (mlir::Attribute rawConfig : configs) {
+        auto config = mlir::dyn_cast<mlir::DictionaryAttr>(rawConfig);
+        auto root = config ? config.getAs<mlir::StringAttr>("root")
+                           : mlir::StringAttr();
+        auto type = config ? config.getAs<mlir::StringAttr>("type")
+                           : mlir::StringAttr();
+        auto schema = config ? config.getAs<mlir::StringAttr>("schema")
+                             : mlir::StringAttr();
+        auto schemaSha = config
+                             ? config.getAs<mlir::StringAttr>("schema_sha256")
+                             : mlir::StringAttr();
+        auto value = config ? config.getAs<mlir::StringAttr>("value")
+                            : mlir::StringAttr();
+        if (!config || config.size() != 5 || !root || !type || !schema ||
+            !schemaSha || !value)
+          return planError("static config binding metadata is malformed");
+        plan.staticConfigBindings.push_back(
+            {root.getValue().str(), type.getValue().str(),
+             schema.getValue().str(), schemaSha.getValue().str(),
+             value.getValue().str()});
+      }
     }
     if (identities) {
       for (mlir::Attribute rawIdentity : identities) {
@@ -1997,6 +2024,7 @@ private:
     nested.plan.staticTypeBindings = plan.staticTypeBindings;
     nested.plan.staticTypeChecks = plan.staticTypeChecks;
     nested.plan.staticTypeIdentities = plan.staticTypeIdentities;
+    nested.plan.staticConfigBindings = plan.staticConfigBindings;
     if (available)
       nested.availableSpecializations = *available;
 
@@ -3251,9 +3279,97 @@ staticStructFingerprint(const QueuePayloadPlan &payload,
   return "sha256:" + llvm::toHex(sha.final(), /*LowerCase=*/true);
 }
 
+std::string staticConfigSha256(llvm::StringRef value) {
+  llvm::SHA256 sha;
+  sha.update(value);
+  return "sha256:" + llvm::toHex(sha.final(), /*LowerCase=*/true);
+}
+
+bool verifyStaticConfigValue(const llvm::json::Value &schema,
+                             const llvm::json::Value &value) {
+  const llvm::json::Object *schemaObject = schema.getAsObject();
+  if (!schemaObject)
+    return false;
+  auto kind = schemaObject->getString("kind");
+  auto version = schemaObject->getInteger("version");
+  if (!kind || !version || *version != 1)
+    return false;
+  if (*kind == "scalar") {
+    auto name = schemaObject->getString("name");
+    if (!name)
+      return false;
+    if (*name == "int")
+      return value.getAsInteger().has_value();
+    if (*name == "bool")
+      return value.getAsBoolean().has_value();
+    if (*name == "float")
+      return value.getAsNumber().has_value();
+    if (*name == "str")
+      return value.getAsString().has_value();
+    return false;
+  }
+  if (*kind != "config" || !schemaObject->getString("name"))
+    return false;
+  const llvm::json::Array *fields = schemaObject->getArray("fields");
+  const llvm::json::Object *valueObject = value.getAsObject();
+  if (!fields || !valueObject || fields->size() != valueObject->size())
+    return false;
+  llvm::StringSet<> names;
+  for (const llvm::json::Value &rawField : *fields) {
+    const llvm::json::Object *field = rawField.getAsObject();
+    auto name = field ? field->getString("name") : std::nullopt;
+    const llvm::json::Value *fieldSchema = field ? field->get("type") : nullptr;
+    const llvm::json::Value *fieldValue =
+        name ? valueObject->get(*name) : nullptr;
+    if (!field || field->size() != 2 || !name || name->empty() ||
+        !names.insert(*name).second || !fieldSchema || !fieldValue ||
+        !verifyStaticConfigValue(*fieldSchema, *fieldValue))
+      return false;
+  }
+  return true;
+}
+
+std::optional<int64_t>
+projectStaticConfigInteger(const llvm::json::Value &schema,
+                           const llvm::json::Value &value,
+                           llvm::StringRef path) {
+  const llvm::json::Value *currentSchema = &schema;
+  const llvm::json::Value *currentValue = &value;
+  llvm::SmallVector<llvm::StringRef> fields;
+  path.split(fields, '.');
+  if (fields.empty())
+    return std::nullopt;
+  for (llvm::StringRef name : fields) {
+    const llvm::json::Object *schemaObject = currentSchema->getAsObject();
+    const llvm::json::Object *valueObject = currentValue->getAsObject();
+    const llvm::json::Array *schemaFields =
+        schemaObject ? schemaObject->getArray("fields") : nullptr;
+    if (!schemaFields || !valueObject)
+      return std::nullopt;
+    const llvm::json::Value *nextSchema = nullptr;
+    for (const llvm::json::Value &rawField : *schemaFields) {
+      const llvm::json::Object *field = rawField.getAsObject();
+      if (field && field->getString("name") == name) {
+        nextSchema = field->get("type");
+        break;
+      }
+    }
+    const llvm::json::Value *nextValue = valueObject->get(name);
+    if (!nextSchema || !nextValue)
+      return std::nullopt;
+    currentSchema = nextSchema;
+    currentValue = nextValue;
+  }
+  const llvm::json::Object *leafSchema = currentSchema->getAsObject();
+  if (!leafSchema || leafSchema->getString("kind") != "scalar" ||
+      leafSchema->getString("name") != "int")
+    return std::nullopt;
+  return currentValue->getAsInteger();
+}
+
 llvm::Error verifyStaticTypeMetadata(const QueueGraphPlan &plan) {
   if (plan.staticTypeBindings.empty() && plan.staticTypeChecks.empty() &&
-      plan.staticTypeIdentities.empty())
+      plan.staticTypeIdentities.empty() && plan.staticConfigBindings.empty())
     return llvm::Error::success();
   if (plan.staticTypeBindings.empty() || plan.staticTypeChecks.empty())
     return planError("static type bindings and checks must both be present");
@@ -3261,6 +3377,52 @@ llvm::Error verifyStaticTypeMetadata(const QueueGraphPlan &plan) {
   for (const auto &[name, value] : plan.staticTypeBindings)
     if (name.empty() || !bindings.try_emplace(name, value).second)
       return planError("static type bindings must be named and unique");
+
+  llvm::StringSet<> configRoots;
+  llvm::StringSet<> usedConfigRoots;
+  llvm::StringMap<unsigned> configProjectionMatches;
+  for (const QueueStaticConfigBindingPlan &config : plan.staticConfigBindings) {
+    if (config.root.empty() || config.type.empty() || config.schema.empty() ||
+        config.value.empty() || !configRoots.insert(config.root).second ||
+        config.schemaSha256 != staticConfigSha256(config.schema))
+      return planError("static config binding metadata is malformed");
+    auto canonicalSchema = bindings::canonicalizeJsonText(config.schema);
+    auto canonicalValue = bindings::canonicalizeJsonText(config.value);
+    if (!canonicalSchema || !canonicalValue) {
+      if (!canonicalSchema)
+        llvm::consumeError(canonicalSchema.takeError());
+      if (!canonicalValue)
+        llvm::consumeError(canonicalValue.takeError());
+      return planError("static config schema or value is invalid");
+    }
+    if (*canonicalSchema != config.schema || *canonicalValue != config.value)
+      return planError("static config schema and value must use canonical JSON");
+    auto schema = llvm::json::parse(*canonicalSchema);
+    auto value = llvm::json::parse(*canonicalValue);
+    if (!schema || !value || !verifyStaticConfigValue(*schema, *value))
+      return planError("static config schema or value is invalid");
+    const llvm::json::Object *schemaObject = schema->getAsObject();
+    if (!schemaObject || schemaObject->getString("name") != config.type)
+      return planError("static config type disagrees with its schema");
+    for (const auto &[name, bindingValue] : plan.staticTypeBindings) {
+      llvm::StringRef path = name;
+      if (!path.consume_front(config.root) || !path.consume_front("."))
+        continue;
+      ++configProjectionMatches[name];
+      auto projected = projectStaticConfigInteger(*schema, *value, path);
+      if (!projected || *projected != bindingValue)
+        return planError("static config projection disagrees with its root binding");
+      usedConfigRoots.insert(config.root);
+    }
+  }
+  for (const auto &[name, value] : plan.staticTypeBindings)
+    if (llvm::StringRef(name).contains('.') &&
+        configProjectionMatches.lookup(name) != 1)
+      return planError(
+          "static config projection must match exactly one config root");
+  for (llvm::StringRef root : configRoots.keys())
+    if (!usedConfigRoots.contains(root))
+      return planError("static config root has no dependent type projection");
 
   llvm::StringMap<const QueuePayloadPlan *> payloads;
   for (const QueuePayloadPlan &payload : plan.payloads)
@@ -6020,6 +6182,14 @@ llvm::Expected<std::string> QueueGraphPlan::canonicalJson() const {
                            {"symbol", identity.symbol},
                            {"targets", std::move(targets)}});
   }
+  llvm::json::Array staticConfigBindingValues;
+  for (const QueueStaticConfigBindingPlan &binding : staticConfigBindings)
+    staticConfigBindingValues.push_back(
+        llvm::json::Object{{"root", binding.root},
+                           {"schema", binding.schema},
+                           {"schema_sha256", binding.schemaSha256},
+                           {"type", binding.type},
+                           {"value", binding.value}});
   llvm::json::Object root{
       {"activation_edges", std::move(activationEdgeValues)},
       {"aggregates", std::move(aggregateValues)},
@@ -6062,6 +6232,8 @@ llvm::Expected<std::string> QueueGraphPlan::canonicalJson() const {
     root["static_type_checks"] = std::move(staticTypeCheckValues);
   if (!staticTypeIdentities.empty())
     root["static_type_identities"] = std::move(staticTypeIdentityValues);
+  if (!staticConfigBindings.empty())
+    root["static_config_bindings"] = std::move(staticConfigBindingValues);
   root["work_closure_edges"] = std::move(workClosureEdgeValues);
   return bindings::canonicalizeJson(llvm::json::Value(std::move(root)));
 }

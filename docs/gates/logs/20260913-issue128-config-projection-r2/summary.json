@@ -1,0 +1,34 @@
+{
+  "architect_review": {
+    "scope": "Decision 0249 nested typed config projections",
+    "verdict": "CLEAR"
+  },
+  "decision_ids": [
+    "0249"
+  ],
+  "focused_evidence": {
+    "acir_lit": {
+      "passed": 224,
+      "skipped": 0
+    },
+    "frontend_composition_features": {
+      "passed": 3,
+      "skipped": 0
+    },
+    "python_3_11_config_regressions": {
+      "passed": 5,
+      "skipped": 0
+    },
+    "native_ctest_targets": {
+      "passed": 18,
+      "skipped": 0
+    }
+  },
+  "full_gate": {
+    "path": "agentic_circuit_summary.json",
+    "status": "pass"
+  },
+  "issue": 128,
+  "run_id": "20260913-issue128-config-projection-r2",
+  "status": "pass"
+}

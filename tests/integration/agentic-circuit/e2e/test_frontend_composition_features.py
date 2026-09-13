@@ -10,6 +10,7 @@ from pathlib import Path
 
 from agentic_circuit._jit import _lower_queue_acir
 from agentic_circuit._queue_frontend import lower_queue_source
+from agentic_circuit._static_eval import FrozenMap
 
 ROOT = Path(__file__).resolve().parents[4]
 ACIR_BIN = Path(os.environ.get("ACIR_BIN", ROOT / ".pycircuit_out/acir/dev-llvm22/bin"))
@@ -62,6 +63,35 @@ class FrontendCompositionFeatureTest(unittest.TestCase):
                 {},
             ),
             (
+                ROOT / "examples/agentic-circuit/types/multi_config_specialization.py",
+                "multi_config_specialization",
+                {
+                    "first": FrozenMap((("entries", 5),)),
+                    "second": FrozenMap((("stage", FrozenMap((("entries", 6),))),)),
+                },
+            ),
+            (
+                ROOT / "examples/agentic-circuit/types/nested_config_types.py",
+                "nested_config_types",
+                {
+                    "cfg": FrozenMap(
+                        (
+                            (
+                                "cache",
+                                FrozenMap(
+                                    (
+                                        ("line_bytes", 64),
+                                        ("sets", 64),
+                                        ("ways", 4),
+                                    )
+                                ),
+                            ),
+                            ("lanes", 4),
+                        )
+                    )
+                },
+            ),
+            (
                 ROOT / "examples/agentic-circuit/pipelines/record_spread_pipeline.py",
                 "record_spread_pipeline",
                 {},
@@ -111,11 +141,31 @@ class FrontendCompositionFeatureTest(unittest.TestCase):
                     )
                     self.assertEqual(0, compiled.returncode, compiled.stderr)
 
-                    if system == "multi_specialization_types":
+                    if system in {
+                        "multi_specialization_types",
+                        "multi_config_specialization",
+                    }:
                         self.assertEqual(2, raw.count("ac.struct @Entry__p"))
                         self.assertEqual(2, raw.count("ac.module @stage__p"))
                         plan = json.loads(self._run((self.plan, frozen), cwd=ROOT))
                         self.assertEqual(2, len(plan["module_specializations"]))
+                        if system == "multi_config_specialization":
+                            self.assertEqual(2, len(plan["static_config_bindings"]))
+                            roots = [
+                                binding["root"]
+                                for binding in plan["static_config_bindings"]
+                            ]
+                            self.assertEqual(
+                                sorted(roots),
+                                roots,
+                            )
+                            self.assertTrue(
+                                all(
+                                    root.startswith("stage__p")
+                                    and root.endswith("__cfg")
+                                    for root in roots
+                                )
+                            )
                         # Module-preserving QueueGraph-to-PYC lowering is a
                         # separate accepted limitation; this case proves
                         # specialization identity plus frozen GFSim codegen.
@@ -207,6 +257,20 @@ class FrontendCompositionFeatureTest(unittest.TestCase):
                                 check["type"] == "i17"
                                 for check in plan["static_type_checks"]
                             )
+                        )
+                    elif system == "nested_config_types":
+                        plan = json.loads(self._run((self.plan, frozen), cwd=ROOT))
+                        self.assertEqual(
+                            {
+                                "cfg.cache.sets": 64,
+                                "cfg.cache.ways": 4,
+                                "cfg.lanes": 4,
+                            },
+                            plan["static_type_bindings"],
+                        )
+                        self.assertEqual(1, len(plan["static_config_bindings"]))
+                        self.assertEqual(
+                            "cfg", plan["static_config_bindings"][0]["root"]
                         )
                     elif system == "record_spread_pipeline":
                         self.assertIn("struct Packet", generated)

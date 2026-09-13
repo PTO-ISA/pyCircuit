@@ -1,6 +1,7 @@
 #include "acir/Transforms/Passes.h"
 
 #include "Dialect/ACIR/ProcessLowerability.h"
+#include "acir/Bindings/Binding.h"
 #include "acir/Dialect/ACIR/ACIROps.h"
 #include "acir/Dialect/ACIR/ACIRResources.h"
 #include "acir/Dialect/ACSim/ACSimOps.h"
@@ -11,6 +12,7 @@
 #include "llvm/ADT/StringExtras.h"
 #include "llvm/ADT/StringSet.h"
 #include "llvm/Support/MathExtras.h"
+#include "llvm/Support/JSON.h"
 #include "llvm/Support/SHA256.h"
 #include "llvm/Support/raw_ostream.h"
 
@@ -30,6 +32,100 @@ std::string printType(mlir::Type type) {
   llvm::raw_string_ostream stream(result);
   type.print(stream);
   return stream.str();
+}
+
+std::string sha256String(llvm::StringRef value) {
+  llvm::SHA256 sha;
+  sha.update(value);
+  return "sha256:" + llvm::toHex(sha.final(), /*LowerCase=*/true);
+}
+
+struct StaticConfigRoot {
+  std::string root;
+  llvm::json::Value schema;
+  llvm::json::Value value;
+};
+
+bool validateStaticConfigValue(const llvm::json::Value &schema,
+                               const llvm::json::Value &value) {
+  const llvm::json::Object *schemaObject = schema.getAsObject();
+  if (!schemaObject)
+    return false;
+  auto kind = schemaObject->getString("kind");
+  auto version = schemaObject->getInteger("version");
+  if (!kind || !version || *version != 1)
+    return false;
+  if (*kind == "scalar") {
+    auto name = schemaObject->getString("name");
+    if (!name)
+      return false;
+    if (*name == "int")
+      return value.getAsInteger().has_value();
+    if (*name == "bool")
+      return value.getAsBoolean().has_value();
+    if (*name == "float")
+      return value.getAsNumber().has_value();
+    if (*name == "str")
+      return value.getAsString().has_value();
+    return false;
+  }
+  if (*kind != "config" || !schemaObject->getString("name"))
+    return false;
+  const llvm::json::Array *fields = schemaObject->getArray("fields");
+  const llvm::json::Object *valueObject = value.getAsObject();
+  if (!fields || !valueObject || fields->size() != valueObject->size())
+    return false;
+  llvm::StringSet<> names;
+  for (const llvm::json::Value &rawField : *fields) {
+    const llvm::json::Object *field = rawField.getAsObject();
+    auto name = field ? field->getString("name") : std::nullopt;
+    const llvm::json::Value *fieldSchema =
+        field ? field->get("type") : nullptr;
+    const llvm::json::Value *fieldValue =
+        name ? valueObject->get(*name) : nullptr;
+    if (!field || field->size() != 2 || !name || name->empty() ||
+        !names.insert(*name).second || !fieldSchema || !fieldValue ||
+        !validateStaticConfigValue(*fieldSchema, *fieldValue))
+      return false;
+  }
+  return true;
+}
+
+std::optional<int64_t>
+projectStaticConfigInteger(const StaticConfigRoot &config,
+                           llvm::StringRef path) {
+  const llvm::json::Value *schema = &config.schema;
+  const llvm::json::Value *value = &config.value;
+  llvm::SmallVector<llvm::StringRef> fields;
+  path.split(fields, '.');
+  if (fields.empty())
+    return std::nullopt;
+  for (llvm::StringRef name : fields) {
+    const llvm::json::Object *schemaObject = schema->getAsObject();
+    const llvm::json::Object *valueObject = value->getAsObject();
+    const llvm::json::Array *schemaFields =
+        schemaObject ? schemaObject->getArray("fields") : nullptr;
+    if (!schemaFields || !valueObject)
+      return std::nullopt;
+    const llvm::json::Value *nextSchema = nullptr;
+    for (const llvm::json::Value &rawField : *schemaFields) {
+      const llvm::json::Object *field = rawField.getAsObject();
+      if (field && field->getString("name") == name) {
+        nextSchema = field->get("type");
+        break;
+      }
+    }
+    const llvm::json::Value *nextValue = valueObject->get(name);
+    if (!nextSchema || !nextValue)
+      return std::nullopt;
+    schema = nextSchema;
+    value = nextValue;
+  }
+  const llvm::json::Object *leafSchema = schema->getAsObject();
+  if (!leafSchema || leafSchema->getString("kind") != "scalar" ||
+      leafSchema->getString("name") != "int")
+    return std::nullopt;
+  return value->getAsInteger();
 }
 
 std::string staticStructFingerprint(ac::StructOp structure,
@@ -62,7 +158,13 @@ mlir::LogicalResult verifyStaticTypeMetadata(mlir::ModuleOp module) {
   auto checks = module->getAttrOfType<mlir::ArrayAttr>("ac.static_type_checks");
   auto identities =
       module->getAttrOfType<mlir::ArrayAttr>("ac.static_type_identities");
-  if (!rawBindings && !checks && !identities)
+  mlir::Attribute rawConfigBindings =
+      module->getAttr("ac.static_config_bindings");
+  auto configBindings =
+      mlir::dyn_cast_or_null<mlir::ArrayAttr>(rawConfigBindings);
+  if (rawConfigBindings && !configBindings)
+    return module.emitError("static config bindings must be an array");
+  if (!rawBindings && !checks && !identities && !configBindings)
     return mlir::success();
   if (!rawBindings || !checks)
     return module.emitError(
@@ -76,6 +178,80 @@ mlir::LogicalResult verifyStaticTypeMetadata(mlir::ModuleOp module) {
       return module.emitError(
           "static type bindings require unique i64 integer values");
   }
+
+  llvm::SmallVector<StaticConfigRoot> configs;
+  llvm::StringSet<> configRoots;
+  if (configBindings) {
+    for (mlir::Attribute rawConfig : configBindings) {
+      auto config = mlir::dyn_cast<mlir::DictionaryAttr>(rawConfig);
+      auto root = config ? config.getAs<mlir::StringAttr>("root")
+                         : mlir::StringAttr();
+      auto type = config ? config.getAs<mlir::StringAttr>("type")
+                         : mlir::StringAttr();
+      auto schema = config ? config.getAs<mlir::StringAttr>("schema")
+                           : mlir::StringAttr();
+      auto schemaSha = config
+                           ? config.getAs<mlir::StringAttr>("schema_sha256")
+                           : mlir::StringAttr();
+      auto value = config ? config.getAs<mlir::StringAttr>("value")
+                          : mlir::StringAttr();
+      if (!config || config.size() != 5 || !root || !type || !schema ||
+          !schemaSha || !value || root.getValue().empty() ||
+          type.getValue().empty() ||
+          !configRoots.insert(root.getValue()).second ||
+          schemaSha.getValue() != sha256String(schema.getValue()))
+        return module.emitError("static config binding metadata is malformed");
+      auto canonicalSchema =
+          bindings::canonicalizeJsonText(schema.getValue());
+      auto canonicalValue = bindings::canonicalizeJsonText(value.getValue());
+      if (!canonicalSchema || !canonicalValue) {
+        if (!canonicalSchema)
+          llvm::consumeError(canonicalSchema.takeError());
+        if (!canonicalValue)
+          llvm::consumeError(canonicalValue.takeError());
+        return module.emitError("static config schema or value is invalid");
+      }
+      if (*canonicalSchema != schema.getValue() ||
+          *canonicalValue != value.getValue())
+        return module.emitError(
+            "static config schema and value must use canonical JSON");
+      auto parsedSchema = llvm::json::parse(*canonicalSchema);
+      auto parsedValue = llvm::json::parse(*canonicalValue);
+      if (!parsedSchema || !parsedValue ||
+          !validateStaticConfigValue(*parsedSchema, *parsedValue))
+        return module.emitError("static config schema or value is invalid");
+      const llvm::json::Object *schemaObject = parsedSchema->getAsObject();
+      if (!schemaObject || schemaObject->getString("name") != type.getValue())
+        return module.emitError("static config type disagrees with its schema");
+      configs.push_back({root.getValue().str(), std::move(*parsedSchema),
+                         std::move(*parsedValue)});
+    }
+  }
+  llvm::StringSet<> usedConfigRoots;
+  for (const auto &binding : bindings) {
+    unsigned matchingRoots = 0;
+    for (const StaticConfigRoot &config : configs) {
+      llvm::StringRef parameter = binding.getKey();
+      llvm::StringRef prefix = config.root;
+      if (!parameter.consume_front(prefix) || !parameter.consume_front("."))
+        continue;
+      ++matchingRoots;
+      auto projected = projectStaticConfigInteger(config, parameter);
+      if (!projected || *projected != binding.getValue())
+        return module.emitError()
+               << "static config projection '" << binding.getKey()
+               << "' disagrees with its root binding";
+      usedConfigRoots.insert(config.root);
+    }
+    if (binding.getKey().contains('.') && matchingRoots != 1)
+      return module.emitError()
+             << "static config projection '" << binding.getKey()
+             << "' must match exactly one config root";
+  }
+  for (llvm::StringRef root : configRoots.keys())
+    if (!usedConfigRoots.contains(root))
+      return module.emitError() << "static config root '" << root
+                                << "' has no dependent type projection";
 
   ac::TypeScopeOp typeScope;
   for (ac::TypeScopeOp candidate : module.getBody()->getOps<ac::TypeScopeOp>())

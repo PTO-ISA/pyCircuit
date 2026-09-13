@@ -1,0 +1,20 @@
+PYC_GATE_RUN_ID=20260913-issue128-config-projection-r2 AC_GATE_RESUME_FROM=g0 bash flows/scripts/run_agentic_circuit.sh
+# reuse integrated native build: /Users/zhoubot/linx-isa/tools/pyCircuit/.pycircuit_out/toolchain/build
+python3 tools/agentic-circuit/check-contracts.py
+python3 -m unittest discover -s tests/python/agentic-circuit/contracts -p 'test_*.py'
+python3 -m unittest discover -s tests/python/agentic-circuit/python_frontend -p 'test_*.py'
+python3 -m unittest discover -s tests/python/agentic-circuit/cli -p 'test_*.py'
+cmake --build /Users/zhoubot/linx-isa/tools/pyCircuit/.pycircuit_out/toolchain/build --target check-acir
+ctest --test-dir /Users/zhoubot/linx-isa/tools/pyCircuit/.pycircuit_out/toolchain/build --output-on-failure
+# reuse installed toolchain: /Users/zhoubot/linx-isa/tools/pyCircuit/.pycircuit_out/toolchain/install
+/Users/zhoubot/linx-isa/tools/pyCircuit/.pycircuit_out/toolchain/install/bin/acir-opt --pass-pipeline='builtin.module(ac-freeze-topology)' <raw-queue-graph>
+compiler/acir/tools/ac-queue-pyc-build.py <ACIR> ...
+python3 tests/integration/agentic-circuit/e2e/test_pyc_backend.py <selected-cases> -v
+python3 tests/integration/agentic-circuit/e2e/test_bit_primitive_parity.py -v
+python3 tests/integration/agentic-circuit/e2e/test_typed_integer_runtime.py -v
+python3 tests/integration/agentic-circuit/e2e/test_typed_system_transactions.py -v
+python3 tests/integration/agentic-circuit/e2e/test_typed_record_pyc.py -v
+python3 tests/integration/agentic-circuit/e2e/test_multi_output_atomic.py -v
+python3 tests/integration/agentic-circuit/e2e/test_aggregate_equality_invariant.py -v
+python3 tests/integration/agentic-circuit/e2e/test_table_pyc_parity.py -v
+python3 tests/integration/agentic-circuit/e2e/test_table_backend.py -v

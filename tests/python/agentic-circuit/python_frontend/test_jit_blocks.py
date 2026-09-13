@@ -377,6 +377,106 @@ int main() {{
         )
         self.assertIn("core", repr(left))
 
+    def test_jit_rejects_wrong_nominal_or_nested_config_types(self) -> None:
+        import agentic_circuit as ac
+
+        @ac.config
+        class Geometry:
+            entries: int
+
+        @ac.config
+        class OtherGeometry:
+            entries: int
+
+        @ac.config
+        class Config:
+            geometry: Geometry
+
+        @ac.config
+        class OtherConfig:
+            geometry: Geometry
+
+        @ac.system
+        def core(*, cfg: ac.const[Config]) -> None:
+            pass
+
+        ac.jit(core, cfg=Config(geometry=Geometry(entries=8)))
+        with self.assertRaisesRegex(TypeError, "requires config type 'Config'"):
+            ac.jit(core, cfg=OtherConfig(geometry=Geometry(entries=8)))
+        with self.assertRaisesRegex(TypeError, "Config.geometry requires Geometry"):
+            ac.jit(core, cfg=Config(geometry=OtherGeometry(entries=8)))
+        with self.assertRaisesRegex(TypeError, "requires config type 'Config'"):
+            ac.jit(core, cfg={"geometry": {"entries": 8}})
+
+    def test_jit_binds_deferred_config_annotation_at_definition_time(self) -> None:
+        import agentic_circuit as ac
+
+        def factory():
+            @ac.config
+            class Config:
+                entries: int
+
+            @ac.system
+            def core(*, cfg: ac.const[Config]) -> None:
+                pass
+
+            return Config, core
+
+        first_config, first = factory()
+        second_config, second = factory()
+
+        ac.jit(first, cfg=first_config(entries=4))
+        ac.jit(second, cfg=second_config(entries=4))
+        with self.assertRaisesRegex(TypeError, "requires config type 'Config'"):
+            ac.jit(first, cfg=second_config(entries=4))
+        with self.assertRaisesRegex(TypeError, "requires config type 'Config'"):
+            ac.jit(second, cfg=first_config(entries=4))
+
+    def test_jit_normalizes_forward_config_refs_and_rejects_unresolved_types(
+        self,
+    ) -> None:
+        import agentic_circuit as ac
+
+        @ac.config
+        class Config:
+            entries: int
+
+        @ac.system
+        def quoted(*, cfg: ac.const["Config"]) -> None:
+            pass
+
+        @ac.system
+        def missing(*, cfg: ac.const[MissingConfig]) -> None:
+            pass
+
+        ac.jit(quoted, cfg=Config(entries=4))
+        with self.assertRaisesRegex(TypeError, "unresolved annotation 'MissingConfig'"):
+            ac.jit(missing, cfg={"entries": 4})
+        with self.assertRaisesRegex(TypeError, "requires config type 'Config'"):
+            ac.jit(quoted, cfg={"entries": 4})
+
+        namespace: dict[str, object] = {}
+        exec(
+            compile(
+                "import agentic_circuit as ac\n"
+                "@ac.config\n"
+                "class RuntimeConfig:\n"
+                "    entries: int\n"
+                "@ac.system\n"
+                "def runtime_forward(*, cfg: ac.const['RuntimeConfig']) -> None:\n"
+                "    pass\n",
+                "<runtime-forward-config>",
+                "exec",
+                dont_inherit=True,
+            ),
+            namespace,
+        )
+        runtime_config = namespace["RuntimeConfig"]
+        runtime_forward = namespace["runtime_forward"]
+        ac.jit(runtime_forward, cfg=runtime_config(entries=4))
+        with self.assertRaisesRegex(TypeError, "requires config type 'RuntimeConfig'"):
+            ac.jit(runtime_forward, cfg={"entries": 4})
+
     def test_jit_leaves_typed_runtime_parameters_unbound(self) -> None:
         import agentic_circuit as ac
 
@@ -502,8 +602,7 @@ int main() {{
         import agentic_circuit as ac
 
         fixture = (
-            REPOSITORY
-            / "tests/integration/agentic-circuit/e2e/fixtures/typed_system"
+            REPOSITORY / "tests/integration/agentic-circuit/e2e/fixtures/typed_system"
         )
         top = fixture / "top.py"
         sys.path.insert(0, str(fixture))
@@ -552,8 +651,7 @@ int main() {{
         import agentic_circuit as ac
 
         fixture = (
-            REPOSITORY
-            / "tests/integration/agentic-circuit/e2e/fixtures/typed_system"
+            REPOSITORY / "tests/integration/agentic-circuit/e2e/fixtures/typed_system"
         )
         top = fixture / "top.py"
         optimizer = Path(
@@ -728,9 +826,6 @@ int main() {{
             )
             with self.assertRaisesRegex(RuntimeError, "source closure changed"):
                 specialization.lower_acir()
-
-
-
 
 
 class JitQueueLoweringTest(unittest.TestCase):

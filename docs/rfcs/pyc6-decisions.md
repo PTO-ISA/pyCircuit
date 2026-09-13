@@ -9195,3 +9195,62 @@ GFSim, C++, and Verilog scale with `rows * ways` instead of `ways`.
 
 **Source**
 - PTO-ISA/pyCircuit issue #128.
+
+## Decision 0249: nested typed config projections bind dependent concrete types
+
+**Status:** Accepted and implemented
+
+**Extends:** Decisions 0160, 0221, 0242, 0246, and 0247.
+
+**Context / Goal**
+Large parameterized models group geometry in nested immutable configuration
+records. Repeating one flat `ac.param[int]` declaration per leaf is stringly,
+duplicates the configuration shape, and loses the nominal root that selected
+the value.
+
+**Decision (strong constraint)**
+- `CFG = ac.param[Config]("cfg")` declares one typed symbolic root for an
+  `@ac.config` argument. Dependent bit widths and fixed value-array lengths may
+  project an exact integer leaf such as `CFG.cache.sets`. The root and its
+  intermediate records are not integer expressions and never become circuit
+  values.
+- The entry binds the same semantic root as `cfg: ac.const[Config]`. JIT
+  requires the exact nominal config class and recursively validates nested
+  config and scalar field types before converting the value to its closed
+  representation. A same-shaped different class, mutable mapping, missing
+  field, boolean leaf, or unknown projection fails before ACIR publication.
+- Python alias spelling is display-only. The canonical verifier parameter is
+  the entry root plus field path, for example `cfg.cache.sets`. Module-local
+  paths retain the existing specialization namespace so distinct instance
+  bindings cannot collide.
+- Frozen ACIR records `ac.static_config_bindings`: the canonical root, nominal
+  type name, complete recursive schema as canonical JSON, schema SHA-256, and
+  complete canonical root value. Existing `ac.static_type_bindings`, postfix
+  programs, concrete checks, and struct identity manifests reference projected
+  leaf paths.
+- `verify-ac-file` parses the schema and root value, validates their recursive
+  shape and scalar types, traverses every projected path, and compares the leaf
+  integer with its static type binding. QueueGraph preserves the root metadata
+  in canonical JSON and independently repeats schema, hash, path, value,
+  concrete-type, and specialization-identity checks. Backends still receive
+  concrete widths and shapes only.
+- `ac.static_assert` remains an elaboration-only direct entry-body statement.
+  Failure diagnostics now retain a structured source span plus the normalized
+  expression and closed referenced bindings. Power-of-two, divisibility,
+  capacity, and derived width/length assertions use the existing closed static
+  evaluator and leave no Frozen ACIR operation.
+
+**Required verification**
+- Public and frontend tests cover a two-level config, dependent bits and array
+  length, exact nominal root validation, missing/non-integer fields, and
+  successful assertion erasure.
+- Failed nested configuration assertions report the original relative file,
+  line, column, normalized expression, and canonical referenced root value.
+- ACIR lit tests reject a forged schema hash, field path, and leaf value.
+  QueueGraph plan tests independently reject the same root/leaf disagreement
+  and serialize `static_config_bindings` canonically.
+- A public example covers positive capacity, power-of-two, divisibility,
+  `index_width`, `count_width`, and fixed-array shape from one nested root.
+
+**Source**
+- PTO-ISA/pyCircuit issue #128.

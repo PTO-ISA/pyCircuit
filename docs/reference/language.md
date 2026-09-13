@@ -612,6 +612,36 @@ runtime width、bool/enum 隐式混用和超范围 literal 均拒绝。
 `ac.static_assert(condition, message=...)` 在 JIT `ac.const` 参数绑定后求值，
 只允许直接出现在 entry body，并在 Frozen ACIR 前消失；失败诊断保留相对源码位置。
 
+嵌套 `@ac.config` 可以作为 dependent type 的 typed root：
+
+```python
+@ac.config
+class Geometry:
+    entries: int
+    lanes: int
+
+@ac.config
+class Config:
+    geometry: Geometry
+
+CFG = ac.param[Config]("cfg")
+
+@ac.struct
+class Entry:
+    index: ac.bits[ac.index_width(CFG.geometry.entries)]
+
+@ac.struct
+class Group:
+    lanes: ac.array[CFG.geometry.lanes, Entry]
+```
+
+`CFG` 只存在于 elaboration；叶子必须在 config schema 中存在且类型精确为
+`int`。system/module 仍以 `cfg: ac.const[Config]` 绑定实际值。JIT 先验证根对象及
+嵌套 config 的 nominal 类型，再把 canonical schema、schema SHA-256、完整根值和
+`cfg.geometry.entries` 形式的语义路径写入 ACIR。ACIR 与 QueueGraph verifier 从根值
+重新投影并核对 leaf binding，后端仍只看到 concrete type。失败的
+`ac.static_assert` 同时报告结构化 source span、规范化表达式和引用到的闭合绑定值。
+
 ### Aggregate lowering boundary
 
 ACIR `!ac.struct`、`!ac.enum`、builtin tuple 与 `!ac.value_array` 在

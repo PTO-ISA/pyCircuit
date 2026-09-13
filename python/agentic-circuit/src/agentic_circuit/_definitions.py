@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import inspect
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable, Literal, TypeAlias, TypeVar, overload
 
@@ -55,6 +55,9 @@ class Definition:
     module_name: str
     source_file: str | None
     source_line: int | None
+    annotation_types: tuple[tuple[str, type[object]], ...] = field(
+        default=(), compare=False, repr=False
+    )
 
     def __repr__(self) -> str:
         return f"Definition(kind={self.kind!r}, qualified_name={self.qualified_name!r})"
@@ -93,7 +96,11 @@ def _decorate(
 
 
 def _decorate(
-    definition_kind: DefinitionKind, function: F | None = None, **options: object
+    definition_kind: DefinitionKind,
+    function: F | None = None,
+    *,
+    _annotation_types: tuple[tuple[str, type[object]], ...] = (),
+    **options: object,
 ) -> Definition | Callable[[F], Definition]:
     def apply(target: F) -> Definition:
         module_name = getattr(target, "__module__", "")
@@ -117,13 +124,32 @@ def _decorate(
                 str(Path(source_file).resolve()) if source_file is not None else None
             ),
             source_line=source_line,
+            annotation_types=_annotation_types,
         )
 
     return apply(function) if function is not None else apply
 
 
 def system(function: F | None = None, **options: object):
-    return _decorate("system", function, **options)
+    frame = inspect.currentframe()
+    caller = None if frame is None else frame.f_back
+    visible: dict[str, object] = {}
+    if caller is not None:
+        visible.update(caller.f_globals)
+        visible.update(caller.f_locals)
+    annotation_types = tuple(
+        sorted(
+            (name, value) for name, value in visible.items() if isinstance(value, type)
+        )
+    )
+    del frame
+    del caller
+    return _decorate(
+        "system",
+        function,
+        _annotation_types=annotation_types,
+        **options,
+    )
 
 
 def module(function: F | None = None, **options: object):

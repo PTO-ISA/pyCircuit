@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 from collections.abc import Mapping
 from dataclasses import dataclass
 from enum import Enum
@@ -90,12 +91,56 @@ class ArrayAnnotation:
     element: object
 
 
+def _config_field_types(value_type: type[object]) -> Mapping[str, object]:
+    captured = getattr(value_type, "__ac_config_field_types__", None)
+    if isinstance(captured, Mapping):
+        return captured
+    return {field.name: field.type for field in dataclasses.fields(value_type)}
+
+
+@dataclass(frozen=True, slots=True)
+class _ConfigParameterReference:
+    _value_type: object
+    _path: str
+
+    def __getattr__(self, field_name: str) -> object:
+        value_type = self._value_type
+        if not isinstance(value_type, type) or not getattr(
+            value_type, "__ac_config__", False
+        ):
+            raise TypeError(
+                "ACPY-TYPE-008: config projection must select an integer config leaf"
+            )
+        fields = _config_field_types(value_type)
+        if field_name not in fields:
+            raise AttributeError(
+                f"ACPY-TYPE-008: unknown config field {field_name!r} on "
+                f"{value_type.__name__}"
+            )
+        field_type = fields[field_name]
+        path = f"{self._path}.{field_name}"
+        if field_type is int or field_type == "int":
+            from _pycircuit_semantics import StaticIntExpression
+
+            return StaticIntExpression.parameter(path)
+        return _ConfigParameterReference(field_type, path)
+
+
 class ParameterDeclaration:
     def __init__(self, value_type: object) -> None:
-        if value_type is not int:
-            raise TypeError("ACPY-TYPE-008: only integer static parameters are supported")
+        if value_type is not int and not (
+            isinstance(value_type, type) and getattr(value_type, "__ac_config__", False)
+        ):
+            raise TypeError(
+                "ACPY-TYPE-008: only integer or @ac.config static parameters are supported"
+            )
+        self._value_type = value_type
 
-    def __call__(self, name: str) -> StaticIntExpression:
+    def __call__(self, name: str) -> StaticIntExpression | _ConfigParameterReference:
+        if not isinstance(name, str) or not name:
+            raise TypeError("ACPY-TYPE-008: static parameter name must be non-empty")
+        if self._value_type is not int:
+            return _ConfigParameterReference(self._value_type, name)
         from _pycircuit_semantics import StaticIntExpression
 
         return StaticIntExpression.parameter(name)
@@ -112,12 +157,16 @@ param = ParameterFactory()
 
 
 def index_width(value: object):
+    if isinstance(value, _ConfigParameterReference):
+        raise TypeError("ACPY-TYPE-008: width helpers require an integer config leaf")
     from _pycircuit_semantics import index_width as resolve_index_width
 
     return resolve_index_width(value)
 
 
 def count_width(value: object):
+    if isinstance(value, _ConfigParameterReference):
+        raise TypeError("ACPY-TYPE-008: width helpers require an integer config leaf")
     from _pycircuit_semantics import count_width as resolve_count_width
 
     return resolve_count_width(value)

@@ -338,6 +338,44 @@ closed integer constants, `+`, `-`, `*`, `index_width`, and `count_width`.
 Other Python operators do not silently fall back to general static evaluation.
 Unbound, runtime-derived, nonpositive,
 overflowing, or wider-than-64-bit scalar results fail before ACIR publication.
+
+One nested `@ac.config` may also be the typed root of dependent integer fields:
+
+```python
+@ac.config
+class Geometry:
+    entries: int
+    lanes: int
+
+@ac.config
+class Config:
+    geometry: Geometry
+
+CFG = ac.param[Config] ("cfg")
+
+@ac.struct
+class Entry:
+    index: ac.bits[ac.index_width(CFG.geometry.entries)]
+
+@ac.struct
+class Group:
+    lanes: ac.array[CFG.geometry.lanes, Entry]
+```
+
+The uppercase root is a symbolic source-only object. Every selected leaf MUST
+exist in the declared config schema and MUST be exactly `int`; selecting the
+record itself, a boolean, or an unknown field is an error. The corresponding
+entry parameter remains `cfg: ac.const[Config]`. JIT requires the exact nominal
+config class and recursively validates nested config and scalar field types
+before freezing the value.
+
+ACIR records the canonical semantic root (`cfg`), complete nested schema,
+schema SHA-256, canonical closed root value, projected leaf bindings, and the
+existing postfix type-check programs. `verify-ac-file` and QueueGraph parse the
+root value, traverse every field path, and independently compare the projected
+integer with the type binding. Python alias spelling does not enter semantic
+identity. Config projections and successful `ac.static_assert` calls never
+become runtime operations.
 Frozen ACIR and every backend contain concrete types only; the specialization
 fingerprint includes the bound constants. Checks retain recursive paths through
 tuple elements and value-array elements, so nested widths and lengths are
@@ -352,7 +390,9 @@ stale symbol hash, or forged field layout.
 It is evaluated after the entry's `ac.const` values are bound, requires a
 closed boolean expression and static string message, and is erased before
 Frozen ACIR. A failed or runtime-dependent assertion reports its normalized
-source path and location.
+source path and location, normalized expression, and closed referenced
+bindings. Power-of-two, divisibility, capacity, and derived width/length checks
+use ordinary closed Python integer expressions.
 
 Module-local dependent types are concretized after that module instance binds
 its `ac.const` arguments. Two instances with different bindings receive

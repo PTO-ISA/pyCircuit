@@ -504,6 +504,40 @@ def parameterized_types(
     return value
 """
 
+NESTED_CONFIG_TYPE_SOURCE = """
+import agentic_circuit as ac
+
+@ac.config
+class Geometry:
+    entries: int
+    lanes: int
+
+@ac.config
+class Config:
+    geometry: Geometry
+    enabled: bool
+    ratio: float
+
+CFG = ac.param[Config]("cfg")
+
+@ac.struct
+class Entry:
+    index: ac.bits[ac.index_width(CFG.geometry.entries)]
+
+@ac.struct
+class Group:
+    lanes: ac.array[CFG.geometry.lanes, Entry]
+    count: ac.bits[ac.count_width(CFG.geometry.entries)]
+
+@ac.system
+def nested_config_types(value: Group, *, cfg: ac.const[Config]) -> Group:
+    ac.static_assert(
+        cfg.geometry.entries > 0 and cfg.geometry.entries % cfg.geometry.lanes == 0,
+        message="entries must be positive and divisible by lanes",
+    )
+    return value
+"""
+
 MULTI_SPECIALIZATION_TYPE_SOURCE = """
 import agentic_circuit as ac
 
@@ -533,6 +567,57 @@ def multi_specialization(value: Packet) -> Packet:
     first = stage(value, entry_count=5)
     second = stage(first, entry_count=6)
     return second
+"""
+
+MULTI_CONFIG_SPECIALIZATION_SOURCE = """
+import agentic_circuit as ac
+
+@ac.config
+class Config:
+    entries: int
+
+@ac.config
+class WrongConfig:
+    entries: int
+
+@ac.config
+class OuterConfig:
+    valid: Config
+    wrong: WrongConfig
+
+CFG = ac.param[Config]("cfg")
+
+@ac.struct
+class Entry:
+    index: ac.bits[ac.index_width(CFG.entries)]
+
+@ac.struct
+class Packet:
+    value: ac.u8
+
+@ac.rule
+def keep(entries, value: Packet) -> Packet:
+    entries[0] = Entry(index=0)
+    return value
+
+@ac.module
+def stage(value: Packet, *, cfg: ac.const[Config]) -> Packet:
+    entries: list[Entry] = [0] * cfg.entries
+    result = keep(entries, value)
+    return result
+
+@ac.system
+def multi_config_specialization(
+    value: Packet,
+    *,
+    first: ac.const[Config],
+    second: ac.const[Config],
+    wrong: ac.const[WrongConfig],
+    outer: ac.const[OuterConfig],
+) -> Packet:
+    first_result = stage(value, cfg=first)
+    second_result = stage(first_result, cfg=second)
+    return second_result
 """
 
 SAME_SPECIALIZATION_INTERFACE_SOURCE = """
@@ -3708,6 +3793,165 @@ def clear_system(value: ac.u16) -> ac.u16:
             r'fingerprint = "sha256:[0-9a-f]{64}".*source = "Entry"',
         )
 
+    def test_nested_config_fields_concretize_types_with_path_provenance(self) -> None:
+        from agentic_circuit._queue_frontend import lower_queue_source
+        from agentic_circuit._static_eval import FrozenMap
+
+        cfg = FrozenMap(
+            (
+                ("enabled", True),
+                ("ratio", 1.0),
+                (
+                    "geometry",
+                    FrozenMap((("entries", 128), ("lanes", 4))),
+                ),
+            )
+        )
+        lowered = lower_queue_source(
+            NESTED_CONFIG_TYPE_SOURCE,
+            "nested_config_types",
+            static_arguments={"cfg": cfg},
+        )
+
+        self.assertIn("cfg.geometry.entries = 128 : i64", lowered)
+        self.assertIn("cfg.geometry.lanes = 4 : i64", lowered)
+        self.assertIn('"param:cfg.geometry.entries"', lowered)
+        self.assertIn('"param:cfg.geometry.lanes"', lowered)
+        self.assertIn("ac.static_config_bindings", lowered)
+        self.assertIn('root = "cfg"', lowered)
+        self.assertIn('type = "Config"', lowered)
+        self.assertRegex(lowered, r'schema_sha256 = "sha256:[0-9a-f]{64}"')
+        self.assertIn(r"\22name\22:\22Geometry\22", lowered)
+        self.assertIn('{name = "index", type = i7}', lowered)
+        self.assertRegex(
+            lowered,
+            r"type = !ac\.value_array<4 x !ac\.struct<@types::@Entry__p[0-9a-f]{12}>>",
+        )
+        self.assertNotIn("static_assert", lowered)
+
+    def test_nested_config_type_and_assertion_failures_are_structured(self) -> None:
+        from agentic_circuit._queue_frontend import (
+            QueueFrontendError,
+            lower_queue_source,
+        )
+        from agentic_circuit._static_eval import FrozenMap
+
+        invalid = FrozenMap(
+            (
+                ("enabled", True),
+                ("ratio", 1.0),
+                (
+                    "geometry",
+                    FrozenMap((("entries", 10), ("lanes", 4))),
+                ),
+            )
+        )
+        with self.assertRaises(QueueFrontendError) as raised:
+            lower_queue_source(
+                NESTED_CONFIG_TYPE_SOURCE,
+                "nested_config_types",
+                static_arguments={"cfg": invalid},
+                source_path="design/nested_config.py",
+            )
+        self.assertEqual("ACPY-STATIC-003", raised.exception.code)
+        self.assertIsNotNone(raised.exception.source)
+        assert raised.exception.source is not None
+        self.assertEqual("design/nested_config.py", raised.exception.source.file)
+        self.assertIn(
+            "cfg.geometry.entries % cfg.geometry.lanes",
+            raised.exception.message,
+        )
+        self.assertIn('"entries":10', raised.exception.message)
+        self.assertIn('"lanes":4', raised.exception.message)
+
+        missing = NESTED_CONFIG_TYPE_SOURCE.replace(
+            "CFG.geometry.entries)]", "CFG.geometry.missing)]", 1
+        )
+        with self.assertRaisesRegex(
+            QueueFrontendError, "unknown config field 'missing'"
+        ):
+            lower_queue_source(
+                missing,
+                "nested_config_types",
+                static_arguments={"cfg": invalid},
+            )
+
+        non_integer = NESTED_CONFIG_TYPE_SOURCE.replace(
+            "CFG.geometry.entries)]", "CFG.enabled)]", 1
+        )
+        with self.assertRaisesRegex(QueueFrontendError, "must resolve to an integer"):
+            lower_queue_source(
+                non_integer,
+                "nested_config_types",
+                static_arguments={"cfg": invalid},
+            )
+
+        mismatched_root = NESTED_CONFIG_TYPE_SOURCE.replace(
+            "cfg: ac.const[Config]", "cfg: ac.const[Geometry]"
+        )
+        valid = FrozenMap(
+            (
+                ("enabled", True),
+                ("ratio", 1.0),
+                (
+                    "geometry",
+                    FrozenMap((("entries", 8), ("lanes", 4))),
+                ),
+            )
+        )
+        with self.assertRaisesRegex(
+            QueueFrontendError, r"requires matching ac\.const\[Config\]"
+        ):
+            lower_queue_source(
+                mismatched_root,
+                "nested_config_types",
+                static_arguments={"cfg": valid},
+            )
+
+    def test_nested_config_metadata_order_ignores_python_alias_spelling(self) -> None:
+        from agentic_circuit._queue_frontend import lower_queue_source
+        from agentic_circuit._static_eval import FrozenMap
+
+        source = """
+import agentic_circuit as ac
+
+@ac.config
+class Config:
+    entries: int
+
+A = ac.param[Config]("left")
+B = ac.param[Config]("right")
+
+@ac.struct
+class Pair:
+    left: ac.bits[A.entries]
+    right: ac.bits[B.entries]
+
+@ac.system
+def design(value: Pair, *, left: ac.const[Config], right: ac.const[Config]) -> Pair:
+    return value
+"""
+        values = {
+            "left": FrozenMap((("entries", 3),)),
+            "right": FrozenMap((("entries", 5),)),
+        }
+        original = lower_queue_source(source, "design", static_arguments=values)
+        renamed = lower_queue_source(
+            source.replace(
+                'A = ac.param[Config]("left")', 'Z = ac.param[Config]("left")'
+            )
+            .replace('B = ac.param[Config]("right")', 'A = ac.param[Config]("right")')
+            .replace("ac.bits[A.entries]", "ac.bits[Z.entries]", 1)
+            .replace("ac.bits[B.entries]", "ac.bits[A.entries]", 1),
+            "design",
+            static_arguments=values,
+        )
+
+        self.assertEqual(original, renamed)
+        self.assertLess(
+            original.index('root = "left"'), original.index('root = "right"')
+        )
+
     def test_dependent_types_fail_closed_before_concrete_acir(self) -> None:
         from agentic_circuit._queue_frontend import (
             QueueFrontendError,
@@ -3982,6 +4226,101 @@ def design(index: ac.u2, *, entries: ac.const[int]) -> ac.u2:
         self.assertEqual(2, len(entry_declarations))
         self.assertEqual(2, lowered.count("ac.module @stage__p"))
         self.assertEqual(2, lowered.count("ac.instance @"))
+
+    def test_module_instances_specialize_from_distinct_typed_configs(self) -> None:
+        from agentic_circuit._queue_frontend import (
+            QueueFrontendError,
+            lower_queue_source,
+        )
+        from agentic_circuit._static_eval import FrozenMap
+
+        static_arguments = {
+            "first": FrozenMap((("entries", 5),)),
+            "second": FrozenMap((("entries", 6),)),
+            "wrong": FrozenMap((("entries", 5),)),
+            "outer": FrozenMap(
+                (
+                    ("valid", FrozenMap((("entries", 6),))),
+                    ("wrong", FrozenMap((("entries", 5),))),
+                )
+            ),
+        }
+        lowered = lower_queue_source(
+            MULTI_CONFIG_SPECIALIZATION_SOURCE,
+            "multi_config_specialization",
+            static_arguments=static_arguments,
+        )
+
+        self.assertEqual(2, lowered.count("ac.module @stage__p"))
+        self.assertEqual(2, lowered.count('type = "Config"'))
+        self.assertEqual(2, lowered.count('root = "stage__p'))
+        self.assertIn('cfg = "{\\22entries\\22:5}"', lowered)
+        self.assertIn('cfg = "{\\22entries\\22:6}"', lowered)
+
+        mismatched = MULTI_CONFIG_SPECIALIZATION_SOURCE.replace(
+            "second_result = stage(first_result, cfg=second)",
+            "second_result = stage(first_result, cfg=wrong)",
+        )
+        with self.assertRaisesRegex(
+            QueueFrontendError,
+            r"requires ac\.const\[Config\], got ac\.const\[WrongConfig\]",
+        ):
+            lower_queue_source(
+                mismatched,
+                "multi_config_specialization",
+                static_arguments=static_arguments,
+            )
+
+        mismatched_attribute = MULTI_CONFIG_SPECIALIZATION_SOURCE.replace(
+            "second_result = stage(first_result, cfg=second)",
+            "second_result = stage(first_result, cfg=outer.wrong)",
+        )
+        with self.assertRaisesRegex(
+            QueueFrontendError,
+            r"requires ac\.const\[Config\], got ac\.const\[WrongConfig\]",
+        ):
+            lower_queue_source(
+                mismatched_attribute,
+                "multi_config_specialization",
+                static_arguments=static_arguments,
+            )
+
+        untyped_mapping = MULTI_CONFIG_SPECIALIZATION_SOURCE.replace(
+            "second_result = stage(first_result, cfg=second)",
+            "second_result = stage(first_result, cfg={'entries': 6})",
+        )
+        with self.assertRaisesRegex(
+            QueueFrontendError, r"requires nominal ac.const\[Config\] provenance"
+        ):
+            lower_queue_source(
+                untyped_mapping,
+                "multi_config_specialization",
+                static_arguments=static_arguments,
+            )
+
+        mismatched_top = (
+            MULTI_CONFIG_SPECIALIZATION_SOURCE.replace(
+                "    value: Packet,\n    *,",
+                "    value: Packet,\n    extra: Entry,\n    *,\n"
+                "    cfg: ac.const[WrongConfig],",
+            )
+            .replace(
+                "    outer: ac.const[OuterConfig],\n) -> Packet:",
+                "    outer: ac.const[OuterConfig],\n) -> tuple[Packet, Entry]:",
+            )
+            .replace("    return second_result\n", "    return second_result, extra\n")
+        )
+        with self.assertRaisesRegex(
+            QueueFrontendError, r"requires matching ac.const\[Config\]"
+        ):
+            lower_queue_source(
+                mismatched_top,
+                "multi_config_specialization",
+                static_arguments={
+                    **static_arguments,
+                    "cfg": FrozenMap((("entries", 5),)),
+                },
+            )
 
     def test_payload_parser_retains_recursive_type_descriptors_before_mlir(
         self,

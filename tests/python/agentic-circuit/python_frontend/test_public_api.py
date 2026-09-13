@@ -164,6 +164,35 @@ class PublicApiTest(unittest.TestCase):
         with self.assertRaisesRegex(TypeError, "only integer"):
             api.param[str]("name")
 
+    def test_nested_config_fields_are_dependent_integer_parameters(self) -> None:
+        api = importlib.import_module("agentic_circuit")
+
+        @api.config
+        class Geometry:
+            entries: int
+
+        @api.config
+        class Config:
+            geometry: Geometry
+            name: int
+            value_type: int
+
+        cfg = api.param[Config]("cfg")
+        entries = cfg.geometry.entries
+        index_type = api.bits[api.index_width(entries)]
+
+        self.assertEqual("cfg.geometry.entries", entries.name)
+        self.assertEqual(
+            7,
+            index_type.width.evaluate({"cfg.geometry.entries": 128}),
+        )
+        self.assertEqual("cfg.name", cfg.name.name)
+        self.assertEqual("cfg.value_type", cfg.value_type.name)
+        with self.assertRaisesRegex(AttributeError, "unknown config field"):
+            _ = cfg.geometry.missing
+        with self.assertRaisesRegex(TypeError, "integer config leaf"):
+            api.index_width(cfg.geometry)
+
     def test_enum_encoding_decorator_preserves_the_standard_enum_class(self) -> None:
         from enum import Enum
 

@@ -386,6 +386,85 @@ class JitSourceClosureTest(unittest.TestCase):
             ):
                 ac.jit(module.configured, workspace=root, entries=0).lower_acir()
 
+    def test_imported_nested_config_keeps_exact_nominal_binding(self) -> None:
+        import agentic_circuit as ac
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "config_contracts.py").write_text(
+                "from __future__ import annotations\n"
+                "import agentic_circuit as ac\n\n"
+                "@ac.config\n"
+                "class Geometry:\n"
+                "    entries: int\n\n"
+                "@ac.config\n"
+                "class Config:\n"
+                "    geometry: Geometry\n\n"
+                'CFG = ac.param[Config]("cfg")\n\n'
+                "@ac.struct\n"
+                "class Entry:\n"
+                "    index: ac.bits[ac.index_width(CFG.geometry.entries)]\n",
+                encoding="utf-8",
+            )
+            (root / "other_config.py").write_text(
+                "from __future__ import annotations\n"
+                "import agentic_circuit as ac\n\n"
+                "@ac.config\n"
+                "class Geometry:\n"
+                "    entries: int\n\n"
+                "@ac.config\n"
+                "class Config:\n"
+                "    geometry: Geometry\n",
+                encoding="utf-8",
+            )
+            top = root / "config_top.py"
+            top.write_text(
+                "from __future__ import annotations\n"
+                "import agentic_circuit as ac\n"
+                "from config_contracts import Config, Entry, Geometry\n\n"
+                "@ac.system\n"
+                "def design(value: Entry, *, cfg: ac.const[Config]) -> Entry:\n"
+                "    return value\n",
+                encoding="utf-8",
+            )
+
+            sys.path.insert(0, str(root))
+            self.addCleanup(sys.path.remove, str(root))
+            for name in ("config_contracts", "config_top", "other_config"):
+                sys.modules.pop(name, None)
+                self.addCleanup(sys.modules.pop, name, None)
+            top_spec = importlib.util.spec_from_file_location("config_top", top)
+            other_spec = importlib.util.spec_from_file_location(
+                "other_config", root / "other_config.py"
+            )
+            if (
+                top_spec is None
+                or top_spec.loader is None
+                or other_spec is None
+                or other_spec.loader is None
+            ):
+                raise RuntimeError("cannot load imported config fixture")
+            top_module = importlib.util.module_from_spec(top_spec)
+            other_module = importlib.util.module_from_spec(other_spec)
+            sys.modules[top_spec.name] = top_module
+            sys.modules[other_spec.name] = other_module
+            top_spec.loader.exec_module(top_module)
+            other_spec.loader.exec_module(other_module)
+
+            raw = ac.jit(
+                top_module.design,
+                workspace=root,
+                cfg=top_module.Config(geometry=top_module.Geometry(entries=8)),
+            ).lower_acir()
+            self.assertIn("ac.static_config_bindings", raw)
+            self.assertIn("cfg.geometry.entries = 8 : i64", raw)
+            with self.assertRaisesRegex(TypeError, "requires config type 'Config'"):
+                ac.jit(
+                    top_module.design,
+                    workspace=root,
+                    cfg=other_module.Config(geometry=other_module.Geometry(entries=8)),
+                )
+
 
 if __name__ == "__main__":
     unittest.main()

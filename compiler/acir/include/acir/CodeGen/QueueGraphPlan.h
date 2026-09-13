@@ -42,6 +42,14 @@ struct QueueStaticTypeCheckPlan {
   std::string concreteType;
 };
 
+struct QueueStaticConfigBindingPlan {
+  std::string root;
+  std::string type;
+  std::string schema;
+  std::string schemaSha256;
+  std::string value;
+};
+
 struct QueueStaticTypeIdentityBindingPlan {
   std::string name;
   std::string parameter;
@@ -379,6 +387,7 @@ struct QueueGraphPlan {
   std::vector<std::pair<std::string, int64_t>> staticTypeBindings;
   std::vector<QueueStaticTypeCheckPlan> staticTypeChecks;
   std::vector<QueueStaticTypeIdentityPlan> staticTypeIdentities;
+  std::vector<QueueStaticConfigBindingPlan> staticConfigBindings;
   std::vector<QueueAggregatePlan> aggregates;
   std::vector<QueueHelperPlan> helpers;
   std::vector<std::string> scopes;

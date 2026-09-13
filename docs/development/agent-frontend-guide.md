@@ -208,6 +208,12 @@ Follow these rules:
   The expression grammar is limited to literals, declared parameters, closed
   integer constants, `+`, `-`, `*`, `index_width`, and `count_width`.
   Module-local dependent types specialize per instance, not once per source file.
+- When several dependent leaves come from one nested configuration, declare one
+  typed `CoreConfig` root named `CFG` for the const parameter `cfg`, then project
+  exact integer fields (`CFG.cache.sets`). Do not encode dotted paths in stringly
+  `ac.param[int]` declarations. Keep the entry parameter typed as
+  `cfg: ac.const[CoreConfig]`; JIT and both metadata verifiers check the nominal
+  schema, root value, field path, and projected integer before backends run.
 - Use `bool` for logical facts, standard `Enum` for closed categories, and
   `@ac.encoding(width=N)` only when an external protocol requires fixed or
   sparse values. Keep independent flags independent.

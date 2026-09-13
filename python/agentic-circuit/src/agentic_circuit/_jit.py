@@ -13,7 +13,8 @@ import sys
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
-from typing import TYPE_CHECKING, get_origin
+from types import MappingProxyType
+from typing import TYPE_CHECKING, ForwardRef, get_args, get_origin, get_type_hints
 
 from ._canonical_json import canonical_json_bytes, sha256_bytes, validate_ijson_value
 from ._definitions import Definition
@@ -128,8 +129,25 @@ def config(cls: type[object]) -> type[object]:
         raise DiagnosticTypeError(
             "ACPY-JIT-001: config class must not already be a dataclass"
         )
+    frame = inspect.currentframe()
+    caller = None if frame is None else frame.f_back
+    module = sys.modules.get(cls.__module__)
+    try:
+        field_types = get_type_hints(
+            cls,
+            globalns={} if module is None else vars(module),
+            localns={} if caller is None else dict(caller.f_locals),
+        )
+    except (NameError, TypeError):
+        field_types = dict(getattr(cls, "__annotations__", {}))
+    finally:
+        del frame
+        del caller
     frozen = dataclasses.dataclass(frozen=True, slots=True)(cls)
-    setattr(frozen, "__ac_config__", True)
+    frozen.__ac_config__ = True  # type: ignore[attr-defined]
+    frozen.__ac_config_field_types__ = MappingProxyType(  # type: ignore[attr-defined]
+        dict(field_types)
+    )
     return frozen
 
 
@@ -140,6 +158,127 @@ def _is_const_annotation(annotation: object) -> bool:
         compact = annotation.replace(" ", "")
         return compact.startswith(("const[", "ac.const[", "Static[", "ac.Static["))
     return False
+
+
+def _const_annotation_target(annotation: object) -> object | str | None:
+    if get_origin(annotation) is Static:
+        arguments = get_args(annotation)
+        if len(arguments) != 1:
+            return None
+        target = arguments[0]
+        return target.__forward_arg__ if isinstance(target, ForwardRef) else target
+    if not isinstance(annotation, str):
+        return None
+    compact = annotation.replace(" ", "")
+    prefixes = ("const[", "ac.const[", "Static[", "ac.Static[")
+    prefix = next((item for item in prefixes if compact.startswith(item)), None)
+    if prefix is None or not compact.endswith("]"):
+        return None
+    target = compact[len(prefix) : -1]
+    try:
+        literal = ast.literal_eval(target)
+    except (SyntaxError, ValueError):
+        return target
+    return literal if isinstance(literal, str) and literal else target
+
+
+def _validate_config_instance(
+    value: object,
+    expected: type[object],
+    *,
+    path: str,
+    active: set[int] | None = None,
+) -> None:
+    if type(value) is not expected:
+        raise DiagnosticTypeError(f"ACPY-JIT-002: {path} requires {expected.__name__}")
+    active = set() if active is None else active
+    identity = id(value)
+    if identity in active:
+        raise DiagnosticTypeError(
+            f"ACPY-JIT-002: cyclic config value at {path} is unsupported"
+        )
+    active.add(identity)
+    from ._types import _config_field_types
+
+    for field_name, field_type in _config_field_types(expected).items():
+        field_value = getattr(value, field_name)
+        if isinstance(field_type, str):
+            primitive = {
+                "int": int,
+                "bool": bool,
+                "float": float,
+                "str": str,
+            }.get(field_type)
+            if primitive is None:
+                raise DiagnosticTypeError(
+                    "ACPY-JIT-002: unresolved config field annotation "
+                    f"{field_type!r} at {path}.{field_name}"
+                )
+            field_type = primitive
+        if isinstance(field_type, type) and getattr(field_type, "__ac_config__", False):
+            _validate_config_instance(
+                field_value,
+                field_type,
+                path=f"{path}.{field_name}",
+                active=active,
+            )
+            continue
+        if (
+            field_type in {int, bool, float, str}
+            and type(field_value) is not field_type
+        ):
+            raise DiagnosticTypeError(
+                f"ACPY-JIT-002: {path}.{field_name} requires {field_type.__name__}"
+            )
+    active.remove(identity)
+
+
+def _validate_const_argument(
+    parameter: inspect.Parameter,
+    value: object,
+    system: Definition,
+) -> None:
+    target = _const_annotation_target(parameter.annotation)
+    if isinstance(target, type) and getattr(target, "__ac_config__", False):
+        if type(value) is not target:
+            raise DiagnosticTypeError(
+                "ACPY-JIT-002: const argument "
+                f"{parameter.name!r} requires config type {target.__name__!r}"
+            )
+        _validate_config_instance(value, target, path=target.__name__)
+        return
+    if not isinstance(target, str):
+        return
+    expected_name = target.rsplit(".", 1)[-1]
+    annotation_types = dict(system.annotation_types)
+    expected_type = annotation_types.get(target) or annotation_types.get(expected_name)
+    if expected_type is None:
+        expected_type = {
+            "bool": bool,
+            "float": float,
+            "int": int,
+            "object": object,
+            "str": str,
+        }.get(target)
+    if expected_type is None:
+        raise DiagnosticTypeError(
+            "ACPY-JIT-002: const argument "
+            f"{parameter.name!r} has unresolved annotation {target!r}"
+        )
+    if getattr(expected_type, "__ac_config__", False):
+        expected_config = expected_type
+        if type(value) is not expected_config:
+            raise DiagnosticTypeError(
+                "ACPY-JIT-002: const argument "
+                f"{parameter.name!r} requires config type {expected_name!r}"
+            )
+        _validate_config_instance(value, expected_config, path=expected_name)
+        return
+    if getattr(type(value), "__ac_config__", False):
+        raise DiagnosticTypeError(
+            "ACPY-JIT-002: const argument "
+            f"{parameter.name!r} annotation {target!r} is not an @ac.config type"
+        )
 
 
 def _closed(value: object) -> StaticValue:
@@ -734,6 +873,7 @@ def jit(
             raise DiagnosticTypeError(
                 f"ACPY-JIT-001: missing required const argument {parameter.name!r}"
             )
+        _validate_const_argument(parameter, value, system)
         arguments.append((parameter.name, _closed(value)))
     frozen_arguments = tuple(arguments)
     source_hash: str | None = None
