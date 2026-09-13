@@ -225,6 +225,11 @@ Follow these rules:
   elaboration-time fixed expansions, evaluate every lane, retain exact
   recursive descriptors, and never create a runtime Python iterator. Keep the
   topology constructor `ac.map({...})` separate.
+- Use `all`/`any`/`count`, closed-kind `fold`, and `first`/`argmin` for balanced
+  fixed-array reductions. Use `scan(callback, initial=...)` only for an
+  inclusive ordered prefix chain. Check `.valid` before treating a
+  first/argmin index as a semantic match; no match deliberately carries index
+  zero as a total fallback.
 - Treat every `@ac.rule` as one schedulable atomic transition. Put all state
   writes and outputs that must commit together in the same rule.
 - Read committed state, compute proposals, and let the compiler publish them.

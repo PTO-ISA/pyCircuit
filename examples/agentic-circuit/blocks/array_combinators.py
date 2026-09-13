@@ -94,3 +94,142 @@ def combine(request: Request) -> Result:
 def array_combinators(request: Request) -> Result:
     result = combine(request)
     return result
+
+
+@ac.struct
+class Ranked:
+    age: ac.u8
+    valid: bool
+
+
+@ac.struct
+class ReductionResult:
+    complete: bool
+    present: bool
+    count: ac.range[0, 4]
+    helper_count: ac.range[0, 4]
+    total: ac.u8
+    product: ac.u8
+    minimum: ac.u8
+    maximum: ac.u8
+    parity: bool
+    first_index: ac.index[3]
+    first_valid: bool
+    best_index: ac.index[3]
+    best_valid: bool
+    range_best_index: ac.index[3]
+
+
+def count_flags(flags: ac.array[3, bool]) -> ac.range[0, 4]:
+    return flags.count()
+
+
+@ac.rule
+def reduce_arrays(request: Request) -> ReductionResult:
+    values = Arrays(
+        values=(request.first, request.second, request.third),
+        narrow=(
+            ac.truncate(request.first, ac.u4),
+            ac.truncate(request.second, ac.u4),
+            ac.truncate(request.third, ac.u4),
+        ),
+        nested=(
+            (request.first, request.second, request.third),
+            (request.third, request.second, request.first),
+        ),
+    ).values
+    flags = values.map(lambda value: value != 0)
+    ranked = values.zip(flags).map(lambda pair: Ranked(age=pair[0], valid=pair[1]))
+    first = ranked.first(where=lambda item: item.valid)
+    best = ranked.argmin(
+        key=lambda item: item.age,
+        where=lambda item: item.valid,
+    )
+    bounded = values.map(lambda value: ac.wrap(value, ac.index[5]))
+    range_best = bounded.argmin(key=lambda value: value)
+    return ReductionResult(
+        complete=flags.all(),
+        present=flags.any(),
+        count=flags.count(),
+        helper_count=count_flags(flags),
+        total=values.fold(kind="add"),
+        product=values.fold(kind="mul"),
+        minimum=values.fold(kind="min"),
+        maximum=values.fold(kind="max"),
+        parity=flags.fold(kind="xor"),
+        first_index=first.index,
+        first_valid=first.valid,
+        best_index=best.index,
+        best_valid=best.valid,
+        range_best_index=range_best.index,
+    )
+
+
+@ac.system
+def array_reductions(request: Request) -> ReductionResult:
+    result = reduce_arrays(request)
+    return result
+
+
+@ac.struct
+class ScanResult:
+    subtract_first: ac.u8
+    subtract_second: ac.u8
+    subtract_third: ac.u8
+    nonzero_last: ac.u8
+    reset_second: ac.u8
+    reset_third: ac.u8
+    tuple_first: ac.u8
+    tuple_third: ac.u8
+
+
+def subtract(accumulator: ac.u8, value: ac.u8) -> ac.u8:
+    return accumulator - value
+
+
+@ac.rule
+def scan_arrays(request: Request) -> ScanResult:
+    values = Arrays(
+        values=(request.first, request.second, request.third),
+        narrow=(
+            ac.truncate(request.first, ac.u4),
+            ac.truncate(request.second, ac.u4),
+            ac.truncate(request.third, ac.u4),
+        ),
+        nested=(
+            (request.first, request.second, request.third),
+            (request.third, request.second, request.first),
+        ),
+    ).values
+    subtracted = values.scan(subtract, initial=ac.zero(ac.u8))
+    nonzero = values.scan(
+        lambda accumulator, value: accumulator + value,
+        initial=ac.literal(10, ac.u8),
+    )
+    reset = values.scan(
+        lambda accumulator, value: (0 if value == 0 else accumulator + value),
+        initial=ac.literal(5, ac.u8),
+    )
+    tupled = values.scan(
+        lambda accumulator, value: (
+            0 if value == 0 else accumulator[0] + value,
+            accumulator[1],
+        ),
+        initial=values.zip(values)[0],
+    )
+    return ScanResult(
+        subtract_first=subtracted[0],
+        subtract_second=subtracted[1],
+        subtract_third=subtracted[2],
+        nonzero_last=nonzero[2],
+        reset_second=reset[1],
+        reset_third=reset[2],
+        tuple_first=tupled[0][0],
+        tuple_third=tupled[2][0],
+    )
+
+
+@ac.system
+def array_scans(request: Request) -> ScanResult:
+    result = scan_arrays(request)
+    return result

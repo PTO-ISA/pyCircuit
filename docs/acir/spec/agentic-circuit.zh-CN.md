@@ -431,6 +431,16 @@ array，不截断、填充、广播或转换。两者都在 Frozen ACIR 前展�
 tuple/record、callback 与 array operation；嵌套展开共享 4096-lane budget，不生成 runtime
 iterator、container 或 PYC vector type。
 
+logical array 提供 `all`、`any` 和 bounded `count`；固定 array 提供
+`fold(kind=...)`、`first(where=...)`、`argmin(key=..., where=...)` 以及
+inclusive `scan(callback, initial=...)`。reduction 使用稳定的相邻 pairwise tree 并
+携带奇数尾项；只有 scan 保留从左到右的 accumulator chain。fold 只接受 Decision
+0254 的封闭 associative kind/type 矩阵。first/argmin 返回显式 index/valid，无匹配
+时 index 为零，tie 选择较低 ordinal。count 用 bounded range_add 的平衡树证明结果
+范围，不依赖前端断言。所有形式都展开为已有 verifier-visible scalar/aggregate op。
+当前 65-lane argmin 需要高于默认值的显式 logic-depth budget；grouped cost attribution
+和自动 timing repair 仍为后续工作。
+
 QueueProgram 在 Queue payload、persistent value、Table entry、memory、slot、rule
 state effect 和 reusable module signature 中都保留 descriptor。expression lowering
 返回 `(SSA name, ValueType)`，所有 identity、width、enum、aggregate 和 field 检查

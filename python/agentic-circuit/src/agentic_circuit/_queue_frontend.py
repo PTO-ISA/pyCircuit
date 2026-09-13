@@ -2880,7 +2880,16 @@ def _pure_helper_definitions(
                         and not (
                             isinstance(item.func, ast.Attribute)
                             and item.func.attr
-                            in {"with_fields", "with_element", "view", "update"}
+                            in {
+                                "all",
+                                "any",
+                                "count",
+                                "fold",
+                                "with_fields",
+                                "with_element",
+                                "view",
+                                "update",
+                            }
                         )
                     ):
                         raise QueueFrontendError(
@@ -10520,6 +10529,9 @@ class _ExpressionEmitter:
         self.array_callback_captures: dict[
             tuple[int, str], tuple[str, str, ValueType]
         ] = {}
+        self.array_selection_values: dict[
+            str, tuple[str, ValueType, str, ValueType]
+        ] = {}
         self.lines: list[str] = []
         self.index = 0
         self.priority_values: dict[str, tuple[str, ValueType, str, ValueType]] = {}
@@ -10907,7 +10919,9 @@ class _ExpressionEmitter:
             and isinstance(expected, (BitsType, RangeType))
             else None
         )
-        value, value_type = self.emit(node, literal_context)
+        value, value_type = self.emit(
+            node, expected if self.strict_descriptors else literal_context
+        )
         if value_type != expected:
             raise QueueFrontendError(
                 f"ACPY-TYPE-006: {mismatch_message}"
@@ -10955,7 +10969,7 @@ class _ExpressionEmitter:
                     expected,
                     "array map callback result type must match",
                 )
-            result, result_type = self.emit(node)
+            result, result_type = self.emit(node, expected)
             if result_type != expected:
                 raise QueueFrontendError(
                     "ACPY-TYPE-006: array map callback result type must match"
@@ -11243,6 +11257,563 @@ class _ExpressionEmitter:
             pairs.append((result, tuple_type))
         return self._emit_fixed_array(pairs, ArrayType(extent, tuple_type))
 
+    def _emit_balanced_array_combine(
+        self,
+        values: list[tuple[str, ValueType]],
+        kind: str,
+    ) -> tuple[str, ValueType]:
+        current = list(values)
+        while len(current) > 1:
+            following: list[tuple[str, ValueType]] = []
+            for index in range(0, len(current), 2):
+                if index + 1 == len(current):
+                    following.append(current[index])
+                    continue
+                left, left_type = current[index]
+                right, right_type = current[index + 1]
+                if left_type != right_type:
+                    raise QueueFrontendError(
+                        "ACPY-TYPE-006: array reduction operands must match"
+                    )
+                if kind in {"min", "max"}:
+                    condition = self._new()
+                    predicate = "ule" if kind == "min" else "uge"
+                    from _pycircuit_semantics import RangeType
+
+                    rendered_type = _render_type(left_type)
+                    comparison_op = (
+                        "range_cmp" if isinstance(left_type, RangeType) else "cmp"
+                    )
+                    operand_types = (
+                        f"!ac.var<{rendered_type}>, !ac.var<{rendered_type}>"
+                        if comparison_op == "range_cmp"
+                        else f"!ac.var<{rendered_type}>"
+                    )
+                    self.lines.append(
+                        f'    %{condition} = ac.var.{comparison_op} "{predicate}" '
+                        f"%{left}, %{right} : {operand_types} -> !ac.var<i1>"
+                    )
+                    result = self._new()
+                    self.lines.append(
+                        f"    %{result} = ac.var.select %{condition}, %{left}, "
+                        f"%{right} : !ac.var<i1>, "
+                        f"!ac.var<{_render_type(left_type)}> -> "
+                        f"!ac.var<{_render_type(left_type)}>"
+                    )
+                else:
+                    result = self._new()
+                    self.lines.append(
+                        f"    %{result} = ac.var.{kind} %{left}, %{right} : "
+                        f"!ac.var<{_render_type(left_type)}>"
+                    )
+                following.append((result, left_type))
+            current = following
+        return current[0]
+
+    def _emit_array_fold(self, node: ast.Call) -> tuple[str, ValueType] | None:
+        if not (
+            isinstance(node.func, ast.Attribute) and node.func.attr == "fold"
+        ):
+            return None
+        if (
+            node.args
+            or len(node.keywords) != 1
+            or node.keywords[0].arg != "kind"
+            or not isinstance(node.keywords[0].value, ast.Constant)
+            or type(node.keywords[0].value.value) is not str
+        ):
+            raise QueueFrontendError(
+                "ACPY-TYPE-006: array fold requires kind='...'"
+            )
+        aggregate, aggregate_type = self.emit(node.func.value)
+        if not isinstance(aggregate_type, ArrayType):
+            raise QueueFrontendError(
+                "ACPY-TYPE-006: array fold receiver must be a value-array"
+            )
+        from _pycircuit_semantics import RangeType
+
+        kind = node.keywords[0].value.value
+        element_type = aggregate_type.element
+        allowed = (
+            {"and", "or", "xor"}
+            if isinstance(element_type, BoolType)
+            else {"min", "max"}
+            if isinstance(element_type, RangeType)
+            else {"add", "mul", "and", "or", "xor", "min", "max"}
+            if isinstance(element_type, BitsType)
+            else set()
+        )
+        if kind not in allowed:
+            raise QueueFrontendError(
+                "ACPY-TYPE-006: array fold kind is not associative for its element type"
+            )
+        self._reserve_array_expansion(aggregate_type.length)
+        values = [
+            self._emit_static_array_element(aggregate, aggregate_type, lane)
+            for lane in range(aggregate_type.length)
+        ]
+        return self._emit_balanced_array_combine(values, kind)
+
+    def _emit_array_bool_reduction(
+        self, node: ast.Call
+    ) -> tuple[str, ValueType] | None:
+        if not (
+            isinstance(node.func, ast.Attribute)
+            and node.func.attr in {"all", "any", "count"}
+        ):
+            return None
+        method = node.func.attr
+        if node.args or node.keywords:
+            raise QueueFrontendError(
+                f"ACPY-TYPE-006: array {method} takes no arguments"
+            )
+        aggregate, aggregate_type = self.emit(node.func.value)
+        if not isinstance(aggregate_type, ArrayType):
+            raise QueueFrontendError(
+                f"ACPY-TYPE-006: array {method} receiver must be a value-array"
+            )
+        if aggregate_type.element != BoolType():
+            raise QueueFrontendError(
+                f"ACPY-TYPE-006: array {method} requires bool elements"
+            )
+        self._reserve_array_expansion(aggregate_type.length)
+        flags = [
+            self._emit_static_array_element(aggregate, aggregate_type, lane)
+            for lane in range(aggregate_type.length)
+        ]
+        if method != "count":
+            return self._emit_balanced_array_combine(
+                flags, "and" if method == "all" else "or"
+            )
+
+        from _pycircuit_semantics import RangeType
+
+        contribution_type = RangeType(0, 2)
+        rendered_contribution = _render_type(contribution_type)
+        zero = self._new()
+        one = self._new()
+        self.lines.append(
+            f"    %{zero} = ac.var.constant 0 : i1 "
+            f"as !ac.var<{rendered_contribution}>"
+        )
+        self.lines.append(
+            f"    %{one} = ac.var.constant 1 : i1 "
+            f"as !ac.var<{rendered_contribution}>"
+        )
+        contributions: list[tuple[str, ValueType]] = []
+        for flag, _ in flags:
+            contribution = self._new()
+            self.lines.append(
+                f"    %{contribution} = ac.var.select %{flag}, %{one}, %{zero} "
+                f": !ac.var<i1>, !ac.var<{rendered_contribution}> -> "
+                f"!ac.var<{rendered_contribution}>"
+            )
+            contributions.append((contribution, contribution_type))
+        current = contributions
+        while len(current) > 1:
+            following: list[tuple[str, ValueType]] = []
+            for index in range(0, len(current), 2):
+                if index + 1 == len(current):
+                    following.append(current[index])
+                    continue
+                left, left_type = current[index]
+                right, right_type = current[index + 1]
+                assert isinstance(left_type, RangeType)
+                assert isinstance(right_type, RangeType)
+                result_type = RangeType(
+                    left_type.lower + right_type.lower,
+                    left_type.upper + right_type.upper - 1,
+                )
+                result = self._new()
+                self.lines.append(
+                    f"    %{result} = ac.var.range_add %{left}, %{right} : "
+                    f"!ac.var<{_render_type(left_type)}>, "
+                    f"!ac.var<{_render_type(right_type)}> -> "
+                    f"!ac.var<{_render_type(result_type)}>"
+                )
+                following.append((result, result_type))
+            current = following
+        result, result_type = current[0]
+        return self._remember(
+            result, result_type, ClosedInterval(0, aggregate_type.length)
+        )
+
+    def _emit_bool_not(self, value: str) -> str:
+        result = self._new()
+        self.lines.append(
+            f"    %{result} = ac.var.not %{value} : "
+            "!ac.var<i1> -> !ac.var<i1>"
+        )
+        return result
+
+    def _emit_bool_binary(self, kind: str, left: str, right: str) -> str:
+        result = self._new()
+        self.lines.append(
+            f"    %{result} = ac.var.{kind} %{left}, %{right} : !ac.var<i1>"
+        )
+        return result
+
+    def _emit_typed_select(
+        self,
+        condition: str,
+        true_value: str,
+        false_value: str,
+        value_type: ValueType,
+    ) -> str:
+        result = self._new()
+        rendered = _render_type(value_type)
+        self.lines.append(
+            f"    %{result} = ac.var.select %{condition}, %{true_value}, "
+            f"%{false_value} : !ac.var<i1>, !ac.var<{rendered}> -> "
+            f"!ac.var<{rendered}>"
+        )
+        return result
+
+    def _emit_array_selection(
+        self, node: ast.Call
+    ) -> tuple[str, ValueType, str, ValueType] | None:
+        if not isinstance(node.func, ast.Attribute) or node.func.attr not in {
+            "first",
+            "argmin",
+        }:
+            return None
+        method = node.func.attr
+        if node.args or any(keyword.arg is None for keyword in node.keywords):
+            raise QueueFrontendError(
+                f"ACPY-TYPE-006: array {method} requires named callbacks"
+            )
+        keywords = {
+            keyword.arg: keyword.value
+            for keyword in node.keywords
+            if keyword.arg is not None
+        }
+        if len(keywords) != len(node.keywords):
+            raise QueueFrontendError(
+                f"ACPY-TYPE-006: array {method} callback is repeated"
+            )
+        if method == "first":
+            if set(keywords) - {"where"}:
+                raise QueueFrontendError(
+                    "ACPY-TYPE-006: array first accepts only where=..."
+                )
+        elif "key" not in keywords or set(keywords) - {"key", "where"}:
+            raise QueueFrontendError(
+                "ACPY-TYPE-006: array argmin requires key=... and optional where=..."
+            )
+
+        aggregate, aggregate_type = self.emit(node.func.value)
+        if not isinstance(aggregate_type, ArrayType):
+            raise QueueFrontendError(
+                f"ACPY-TYPE-006: array {method} receiver must be a value-array"
+            )
+        callback_count = aggregate_type.length * (
+            int("where" in keywords) + int(method == "argmin")
+        )
+        self._reserve_array_expansion(
+            callback_count if callback_count else aggregate_type.length
+        )
+        true_value: str | None = None
+        if "where" not in keywords:
+            true_value = self._new()
+            self.lines.append(
+                f"    %{true_value} = ac.var.constant true as !ac.var<i1>"
+            )
+
+        from _pycircuit_semantics import RangeType
+
+        index_type = RangeType(0, aggregate_type.length)
+        rendered_index = _render_type(index_type)
+        index_width = index_type.bit_width()
+        candidates: list[
+            tuple[str, str, str | None, ValueType | None]
+        ] = []
+        key_type: ValueType | None = None
+        for lane in range(aggregate_type.length):
+            element, element_type = self._emit_static_array_element(
+                aggregate, aggregate_type, lane
+            )
+            if "where" in keywords:
+                valid, valid_type = self._emit_array_callback(
+                    keywords["where"],
+                    element,
+                    element_type,
+                    lane,
+                    BoolType(),
+                )
+                if valid_type != BoolType():
+                    raise QueueFrontendError(
+                        f"ACPY-TYPE-006: array {method} where callback must return bool"
+                    )
+            else:
+                assert true_value is not None
+                valid = true_value
+            key: str | None = None
+            if method == "argmin":
+                key, observed_key_type = self._emit_array_callback(
+                    keywords["key"],
+                    element,
+                    element_type,
+                    aggregate_type.length + lane,
+                    key_type,
+                )
+                if key_type is None:
+                    if not isinstance(observed_key_type, (BitsType, RangeType)):
+                        raise QueueFrontendError(
+                            "ACPY-TYPE-006: array argmin key must be unsigned bits or range"
+                        )
+                    key_type = observed_key_type
+                elif observed_key_type != key_type:
+                    raise QueueFrontendError(
+                        "ACPY-TYPE-006: array argmin key types must match"
+                    )
+            index = self._new()
+            self.lines.append(
+                f"    %{index} = ac.var.constant {lane} : i{index_width} "
+                f"as !ac.var<{rendered_index}>"
+            )
+            candidates.append((index, valid, key, key_type))
+
+        while len(candidates) > 1:
+            following: list[tuple[str, str, str | None, ValueType | None]] = []
+            for position in range(0, len(candidates), 2):
+                if position + 1 == len(candidates):
+                    following.append(candidates[position])
+                    continue
+                left_index, left_valid, left_key, left_key_type = candidates[position]
+                right_index, right_valid, right_key, right_key_type = candidates[
+                    position + 1
+                ]
+                choose_left = left_valid
+                selected_key: str | None = None
+                if method == "argmin":
+                    assert (
+                        left_key is not None
+                        and right_key is not None
+                        and left_key_type is not None
+                        and right_key_type == left_key_type
+                    )
+                    comparison = self._new()
+                    comparison_op = (
+                        "range_cmp"
+                        if isinstance(left_key_type, RangeType)
+                        else "cmp"
+                    )
+                    rendered_key = _render_type(left_key_type)
+                    operand_types = (
+                        f"!ac.var<{rendered_key}>, !ac.var<{rendered_key}>"
+                        if comparison_op == "range_cmp"
+                        else f"!ac.var<{rendered_key}>"
+                    )
+                    self.lines.append(
+                        f'    %{comparison} = ac.var.{comparison_op} "ule" '
+                        f"%{left_key}, %{right_key} : {operand_types} -> "
+                        "!ac.var<i1>"
+                    )
+                    right_invalid = self._emit_bool_not(right_valid)
+                    left_valid_and_lower = self._emit_bool_binary(
+                        "and", left_valid, comparison
+                    )
+                    choose_left = self._emit_bool_binary(
+                        "or", right_invalid, left_valid_and_lower
+                    )
+                    selected_key = self._emit_typed_select(
+                        choose_left, left_key, right_key, left_key_type
+                    )
+                selected_index = self._emit_typed_select(
+                    choose_left, left_index, right_index, index_type
+                )
+                selected_valid = self._emit_bool_binary(
+                    "or", left_valid, right_valid
+                )
+                following.append(
+                    (selected_index, selected_valid, selected_key, left_key_type)
+                )
+            candidates = following
+
+        selected_index, selected_valid, _, _ = candidates[0]
+        zero = self._new()
+        self.lines.append(
+            f"    %{zero} = ac.var.constant 0 : i{index_width} "
+            f"as !ac.var<{rendered_index}>"
+        )
+        selected_index = self._emit_typed_select(
+            selected_valid, selected_index, zero, index_type
+        )
+        return selected_index, index_type, selected_valid, BoolType()
+
+    def _emit_array_scan(self, node: ast.Call) -> tuple[str, ValueType] | None:
+        if not (
+            isinstance(node.func, ast.Attribute) and node.func.attr == "scan"
+        ):
+            return None
+        if (
+            len(node.args) != 1
+            or len(node.keywords) != 1
+            or node.keywords[0].arg != "initial"
+        ):
+            raise QueueFrontendError(
+                "ACPY-TYPE-006: array scan requires callback and initial=..."
+            )
+        aggregate, aggregate_type = self.emit(node.func.value)
+        if not isinstance(aggregate_type, ArrayType):
+            raise QueueFrontendError(
+                "ACPY-TYPE-006: array scan receiver must be a value-array"
+        )
+        accumulator, accumulator_type = self.emit(node.keywords[0].value)
+        callback = node.args[0]
+
+        def lambda_arguments(arguments: ast.arguments) -> tuple[str, str] | None:
+            plain = (*arguments.posonlyargs, *arguments.args)
+            if (
+                len(plain) != 2
+                or arguments.vararg is not None
+                or arguments.kwarg is not None
+                or arguments.kwonlyargs
+                or arguments.defaults
+                or arguments.kw_defaults
+            ):
+                return None
+            return plain[0].arg, plain[1].arg
+
+        callback_body: ast.expr
+        parameter_names: tuple[str, str]
+        if isinstance(callback, ast.Lambda):
+            parsed = lambda_arguments(callback.args)
+            if parsed is None:
+                raise QueueFrontendError(
+                    "ACPY-TYPE-006: array scan lambda requires two plain parameters"
+                )
+            parameter_names = parsed
+            callback_body = copy.deepcopy(callback.body)
+        elif isinstance(callback, ast.Name) and callback.id in self.helpers:
+            helper = self.helpers[callback.id]
+            if (
+                len(helper.arguments) != 2
+                or helper.arguments[0][1] != accumulator_type
+                or helper.arguments[1][1] != aggregate_type.element
+                or helper.result != accumulator_type
+            ):
+                raise QueueFrontendError(
+                    "ACPY-TYPE-006: array scan helper signature must be A, T -> A"
+                )
+            parameter_names = ("__ac_scan_accumulator", "__ac_scan_element")
+            callback_body = ast.copy_location(
+                ast.Call(
+                    func=copy.deepcopy(callback),
+                    args=[
+                        ast.Name(id=parameter_names[0], ctx=ast.Load()),
+                        ast.Name(id=parameter_names[1], ctx=ast.Load()),
+                    ],
+                    keywords=[],
+                ),
+                callback,
+            )
+        else:
+            raise QueueFrontendError(
+                "ACPY-TYPE-006: array scan callback must be a lambda or pure helper"
+            )
+
+        reserved = {
+            candidate.id
+            for candidate in ast.walk(callback_body)
+            if isinstance(candidate, ast.Name)
+        } | {
+            candidate.arg
+            for candidate in ast.walk(callback_body)
+            if isinstance(candidate, ast.arg)
+        }
+        reserved.update(self.root_values)
+        reserved.update(self.deferred_values)
+        reserved.update(parameter_names)
+        ordinal = self.index
+        pair_name = f"__ac_array_scan_pair_{ordinal}"
+        while pair_name in reserved:
+            ordinal += 1
+            pair_name = f"__ac_array_scan_pair_{ordinal}"
+
+        class BindScanParameters(ast.NodeTransformer):
+            def __init__(self) -> None:
+                self.shadowed: frozenset[str] = frozenset()
+
+            def visit_Lambda(self, candidate: ast.Lambda) -> ast.AST:
+                bound = frozenset(
+                    argument.arg
+                    for argument in (
+                        *candidate.args.posonlyargs,
+                        *candidate.args.args,
+                        *candidate.args.kwonlyargs,
+                    )
+                )
+                previous = self.shadowed
+                self.shadowed = previous | bound
+                candidate.body = self.visit(candidate.body)
+                self.shadowed = previous
+                return candidate
+
+            def visit_Name(self, candidate: ast.Name) -> ast.AST:
+                if (
+                    isinstance(candidate.ctx, ast.Load)
+                    and candidate.id in parameter_names
+                    and candidate.id not in self.shadowed
+                ):
+                    index = parameter_names.index(candidate.id)
+                    return ast.copy_location(
+                        ast.Subscript(
+                            value=ast.Name(id=pair_name, ctx=ast.Load()),
+                            slice=ast.Constant(index),
+                            ctx=ast.Load(),
+                        ),
+                        candidate,
+                    )
+                return candidate
+
+        callback_body = BindScanParameters().visit(callback_body)
+        assert isinstance(callback_body, ast.expr)
+        wrapper = ast.copy_location(
+            ast.Lambda(
+                args=ast.arguments(
+                    posonlyargs=[],
+                    args=[ast.arg(arg=pair_name)],
+                    kwonlyargs=[],
+                    kw_defaults=[],
+                    defaults=[],
+                ),
+                body=callback_body,
+            ),
+            callback,
+        )
+        wrapper = ast.fix_missing_locations(wrapper)
+
+        self._reserve_array_expansion(aggregate_type.length)
+        outputs: list[tuple[str, ValueType]] = []
+        pair_type = TupleType((accumulator_type, aggregate_type.element))
+        for lane in range(aggregate_type.length):
+            element, element_type = self._emit_static_array_element(
+                aggregate, aggregate_type, lane
+            )
+            pair = self._new()
+            self.lines.append(
+                f"    %{pair} = ac.var.tuple %{accumulator}, %{element} : "
+                f"!ac.var<{_render_type(accumulator_type)}>, "
+                f"!ac.var<{_render_type(element_type)}> -> "
+                f"!ac.var<{_render_type(pair_type)}>"
+            )
+            accumulator, observed_type = self._emit_array_callback(
+                wrapper,
+                pair,
+                pair_type,
+                lane,
+                accumulator_type,
+            )
+            if observed_type != accumulator_type:
+                raise QueueFrontendError(
+                    "ACPY-TYPE-006: array scan callback result must match initial"
+                )
+            outputs.append((accumulator, accumulator_type))
+        return self._emit_fixed_array(
+            outputs, ArrayType(aggregate_type.length, accumulator_type)
+        )
+
     def _emit_array_update(
         self, node: ast.Call
     ) -> tuple[str, ValueType] | None:
@@ -11467,12 +12038,34 @@ class _ExpressionEmitter:
         self, node: ast.expr, expected: ValueType | None = None
     ) -> tuple[str, ValueType]:
         if isinstance(node, ast.Call):
+            array_selection = self._emit_array_selection(node)
+            if array_selection is not None:
+                index, index_type, valid, valid_type = array_selection
+                key = ast.dump(node, include_attributes=False)
+                self.array_selection_values[key] = array_selection
+                result_type = TupleType((index_type, valid_type))
+                result = self._new()
+                self.lines.append(
+                    f"    %{result} = ac.var.tuple %{index}, %{valid} : "
+                    f"!ac.var<{_render_type(index_type)}>, !ac.var<i1> -> "
+                    f"!ac.var<{_render_type(result_type)}>"
+                )
+                return result, result_type
+            scanned_array = self._emit_array_scan(node)
+            if scanned_array is not None:
+                return scanned_array
             mapped_array = self._emit_array_map(node)
             if mapped_array is not None:
                 return mapped_array
             zipped_array = self._emit_array_zip(node)
             if zipped_array is not None:
                 return zipped_array
+            folded_array = self._emit_array_fold(node)
+            if folded_array is not None:
+                return folded_array
+            reduced_bool_array = self._emit_array_bool_reduction(node)
+            if reduced_bool_array is not None:
+                return reduced_bool_array
             updated_array = self._emit_array_update(node)
             if updated_array is not None:
                 return updated_array
@@ -12201,6 +12794,52 @@ class _ExpressionEmitter:
                 f"!ac.var<{_render_type(typ)}>"
             )
             return self._remember(name, typ, Constant(node.value))
+        if isinstance(node, ast.Attribute) and node.attr in {"index", "valid"}:
+            if isinstance(node.value, ast.Name):
+                captured = self.root_values.get(node.value.id)
+                if captured is not None:
+                    aggregate, aggregate_type = captured
+                    from _pycircuit_semantics import RangeType
+
+                    if (
+                        isinstance(aggregate_type, TupleType)
+                        and len(aggregate_type.elements) == 2
+                        and isinstance(aggregate_type.elements[0], RangeType)
+                        and aggregate_type.elements[1] == BoolType()
+                    ):
+                        index = 0 if node.attr == "index" else 1
+                        result_type = aggregate_type.elements[index]
+                        result = self._new()
+                        self.lines.append(
+                            f"    %{result} = ac.var.element %{aggregate} at {index} : "
+                            f"!ac.var<{_render_type(aggregate_type)}> -> "
+                            f"!ac.var<{_render_type(result_type)}>"
+                        )
+                        return result, result_type
+            selection_call = (
+                node.value
+                if isinstance(node.value, ast.Call)
+                else self.deferred_values.get(node.value.id)
+                if isinstance(node.value, ast.Name)
+                else None
+            )
+            if (
+                isinstance(selection_call, ast.Call)
+                and isinstance(selection_call.func, ast.Attribute)
+                and selection_call.func.attr in {"first", "argmin"}
+            ):
+                key = ast.dump(selection_call, include_attributes=False)
+                selection = self.array_selection_values.get(key)
+                if selection is None:
+                    selection = self._emit_array_selection(selection_call)
+                    assert selection is not None
+                    self.array_selection_values[key] = selection
+                index, index_type, valid, valid_type = selection
+                return (
+                    (index, index_type)
+                    if node.attr == "index"
+                    else (valid, valid_type)
+                )
         if (
             isinstance(node, ast.Attribute)
             and node.attr in {"index", "valid"}

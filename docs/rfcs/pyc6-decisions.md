@@ -9510,3 +9510,67 @@ shortest-length `zip` behavior.
 
 **Source**
 - PTO-ISA/pyCircuit issue #128.
+
+## Decision 0254: array reductions are balanced and scan is ordered
+
+**Status:** Accepted and implemented
+
+**Extends:** Decisions 0215, 0217, 0220, 0243, and 0251 through 0253.
+
+**Context / Goal**
+Fixed arrays need common reduction, selection, and prefix operations without
+user-written serial mux chains or an unverified associativity assertion.
+
+**Decision (strong constraint)**
+- `flags.all()`, `flags.any()`, and `flags.count()` accept exact logical bool
+  elements only. Count returns `ac.range[0, N + 1]`; it selects a
+  `ac.range[0, 2]` contribution for each flag and uses balanced `range_add`, so
+  ACIR and QueueGraph independently verify the mathematical `[0, N]` result.
+- `values.fold(kind=...)` accepts only a closed associative set. Unsigned bits
+  admit `add`, `mul`, `and`, `or`, `xor`, `min`, and `max`; bool admits
+  `and`, `or`, and `xor`; one exact bounded range admits `min` and `max`.
+  Fixed-width add/mul remain modular. Subtraction, division, remainder, shifts,
+  enum ordering, bounded addition, and user-provided associativity claims are
+  rejected.
+- All reductions use stable ascending leaves, adjacent pairwise balanced
+  combination, and odd-tail carry. `N == 1` returns the only leaf. All backends
+  consume the same explicit element/constant/arithmetic/compare/select graph.
+- `values.first(where=...)` and `values.argmin(key=..., where=...)` return a
+  selection with `.index: ac.index[N]` and `.valid: bool`. `where` defaults to
+  true. No match returns index zero and false. First chooses the lowest valid
+  ordinal. Argmin accepts one exact unsigned bits/range key descriptor, excludes
+  invalid lanes, and resolves equal keys to the lowest ordinal. Predicate and
+  key callbacks execute once per lane.
+- `values.scan(callback, initial=...)` is inclusive and strictly left-to-right:
+  output lane `i` is the accumulator after callback lane `i`. The callback is a
+  two-parameter exact lambda or typed pure helper with signature `A, T -> A`.
+  It may be non-associative. Its SSA accumulator dependency is never sent to the
+  balanced reduction builder or reassociated by a backend.
+- Callback lexical hygiene, exact bool/u1 separation, source provenance, and
+  the shared 4096-lane expansion budget follow Decision 0253. Synthetic
+  selection/capture/scan names must avoid user names and nested binders.
+- Pure-helper bodies may directly use the callback-free `all`, `any`, `count`,
+  and closed-kind `fold` methods. This decision does not admit arbitrary nested
+  map/zip/first/argmin/scan helper bodies that could hide multiplicative
+  expansion from the caller's budget.
+- These forms expand in the Python frontend to existing verifier-visible ACIR
+  primitives before Frozen ACIR. No runtime iterator, PYC vector, backend-only
+  reduction, or high-level operation remains. Grouped cost attribution and
+  automatic timing repair remain G04/L08 work. In particular, the current
+  65-lane argmin compiles with an explicit logic-depth budget of 64 but exceeds
+  the default budget 32; this decision does not claim that G04 is complete.
+
+**Required verification**
+- Cover extents 1, 3, 5, 16, and 65, odd tails, modulo overflow, full/empty
+  bool counts, highest-lane first selection, no match, equal-key tie breaking,
+  and bits/range argmin keys.
+- Prove actual balanced fold dependency depth from the emitted graph. Prove
+  scan's complete prefix sequence with a non-associative callback, nonzero
+  initial value, conditional reset, tuple accumulator, lambda/helper parity,
+  and nested-binder hygiene.
+- ACIR must accept safe static helper indices and reject an index equal to the
+  extent even when the helper is otherwise unreachable. GFSim, PYC C++, and
+  Verilog must agree on reduction, selection, and scan values.
+
+**Source**
+- PTO-ISA/pyCircuit issue #128.

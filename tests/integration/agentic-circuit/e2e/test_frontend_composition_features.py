@@ -256,6 +256,16 @@ def pipeline(raw: ac.u8) -> bool:
                 {},
             ),
             (
+                ROOT / "examples/agentic-circuit/blocks/array_combinators.py",
+                "array_reductions",
+                {},
+            ),
+            (
+                ROOT / "examples/agentic-circuit/blocks/array_combinators.py",
+                "array_scans",
+                {},
+            ),
+            (
                 ROOT
                 / "tests/integration/agentic-circuit/e2e/fixtures/array_update_state/architecture.py",
                 "array_update_state",

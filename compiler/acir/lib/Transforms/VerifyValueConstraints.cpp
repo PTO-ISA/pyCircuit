@@ -40,6 +40,13 @@ LogicalResult verifyIndex(ACDataFlowAnalyzer &analysis, Operation *operation,
                           Value index, uint64_t extent, StringRef resource) {
   if (extent == 0)
     return operation->emitOpError() << resource << " extent must be positive";
+  if (auto constant = index.getDefiningOp<ac::VarConstantOp>()) {
+    auto value = dyn_cast<IntegerAttr>(constant.getValue());
+    if (value && value.getValue().getZExtValue() < extent)
+      return success();
+    return operation->emitOpError()
+           << "constant " << resource << " index is out of range";
+  }
   if (analysis.provesWithin(index, 0, extent - 1))
     return success();
   ValueConstraint constraint = analysis.lookupConstraint(index);

@@ -18,6 +18,8 @@
 // RUN: %not %acir_opt %t/bad-array-update-result.mlir 2>&1 | %FileCheck %s --check-prefix=BAD-ARRAY-UPDATE-RESULT
 // RUN: %not %acir_opt %t/bad-array-update-receiver.mlir 2>&1 | %FileCheck %s --check-prefix=BAD-ARRAY-UPDATE-RECEIVER
 // RUN: %acir_opt %t/unproven-array-update.mlir -ac-verify-value-constraints -verify-diagnostics
+// RUN: %acir_opt %t/helper-static-array-update.mlir -ac-verify-value-constraints
+// RUN: %acir_opt %t/helper-static-array-update-oob.mlir -ac-verify-value-constraints -verify-diagnostics
 
 // VALID: !ac.range<0, 4>
 // VALID: !ac.range<4, 8>
@@ -222,5 +224,24 @@ module attributes {ac.contract_epoch = "0.5"} {
   func.func private @bad(%scalar: !ac.var<i8>, %index: !ac.var<i2>, %value: !ac.var<i8>) {
     %updated = ac.var.with_element %scalar at %index value %value : !ac.var<i8>, !ac.var<i2>, !ac.var<i8> -> !ac.var<i8>
     return
+  }
+}
+
+//--- helper-static-array-update.mlir
+module attributes {ac.contract_epoch = "0.5"} {
+  func.func private @replace_first(%array: !ac.var<!ac.value_array<3 x i8>>, %value: !ac.var<i8>) -> !ac.var<!ac.value_array<3 x i8>> {
+    %index = ac.var.constant 0 : i2 as !ac.var<i2>
+    %updated = ac.var.with_element %array at %index value %value : !ac.var<!ac.value_array<3 x i8>>, !ac.var<i2>, !ac.var<i8> -> !ac.var<!ac.value_array<3 x i8>>
+    return %updated : !ac.var<!ac.value_array<3 x i8>>
+  }
+}
+
+//--- helper-static-array-update-oob.mlir
+module attributes {ac.contract_epoch = "0.5"} {
+  func.func private @replace_oob(%array: !ac.var<!ac.value_array<3 x i8>>, %value: !ac.var<i8>) -> !ac.var<!ac.value_array<3 x i8>> {
+    %index = ac.var.constant 3 : i2 as !ac.var<i2>
+    // expected-error @+1 {{constant value_array update index is out of range}}
+    %updated = ac.var.with_element %array at %index value %value : !ac.var<!ac.value_array<3 x i8>>, !ac.var<i2>, !ac.var<i8> -> !ac.var<!ac.value_array<3 x i8>>
+    return %updated : !ac.var<!ac.value_array<3 x i8>>
   }
 }

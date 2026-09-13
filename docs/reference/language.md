@@ -644,6 +644,13 @@ GFSim/PYC 中擦除 refinement。
 保持 exact descriptor。zip 只接受完全等长的一个或多个 array，返回按 operand 顺序组成
 tuple 的 array，不采用 Python 内置 `zip` 的最短截断语义。两者在 Frozen ACIR 前展开为
 现有 element/callback/tuple/array op，嵌套展开共享 4096-lane 上限。
+
+bool array 支持 `all()`、`any()` 和返回 `ac.range[0, N + 1]` 的 `count()`。
+`fold(kind=...)` 只接受按元素类型封闭裁决的 associative kind，并使用相邻 pairwise
+平衡树。`first(where=...)` 与 `argmin(key=..., where=...)` 返回 `.index/.valid`；无
+匹配时为 `0/False`，相同 key 选择低 ordinal。`scan(callback, initial=...)` 是从左到右
+的 inclusive scan，输出每次 callback 后的 accumulator，不做平衡重排。count 的范围
+由 `range[0,2]` contribution 和 balanced `range_add` 证明；所有后端消费同一展开图。
 当前 persistent/module state 的 bounded scalar 必须包含零并以零初始化；非零下界
 state 在 typed reset image 扩展前 fail closed。
 

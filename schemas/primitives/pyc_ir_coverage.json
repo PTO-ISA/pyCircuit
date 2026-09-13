@@ -10,9 +10,12 @@
       ],
       "cpp_emitter": "compiler/mlir/lib/Emit/CppEmitter.cpp",
       "e2e": [
+        "tests/integration/agentic-circuit/e2e/test_array_combinator_runtime.py",
         "tests/integration/agentic-circuit/e2e/test_pyc_backend.py"
       ],
-      "examples": [],
+      "examples": [
+        "examples/agentic-circuit/blocks/array_combinators.py"
+      ],
       "folder": "compiler/mlir/lib/Dialect/PYC/PYCOps.cpp",
       "kind": "operation",
       "name": "pyc.add",
@@ -37,6 +40,7 @@
       "symbol": "PYC_AddOp",
       "tests": [
         "tests/cpp/agentic-circuit/CodeGen/QueueGraphPlanTest.cpp",
+        "tests/integration/agentic-circuit/e2e/test_array_combinator_runtime.py",
         "tests/integration/agentic-circuit/e2e/test_pyc_backend.py",
         "tests/mlir/agentic-circuit/ACIR/static-type-metadata.mlir",
         "tests/mlir/agentic-circuit/CodeGen/atomic-transform.mlir",
@@ -767,6 +771,7 @@
       "cpp_emitter": "compiler/mlir/lib/Emit/CppEmitter.cpp",
       "e2e": [],
       "examples": [
+        "examples/agentic-circuit/blocks/array_combinators.py",
         "examples/pycircuit/applications/bf16_fmac/primitive_standard_cells.py"
       ],
       "folder": "compiler/mlir/lib/Dialect/PYC/PYCOps.cpp",
@@ -786,6 +791,7 @@
       "symbol": "PYC_MulOp",
       "tests": [
         "tests/mlir/agentic-circuit/CodeGen/table-multidimensional-pyc.mlir",
+        "tests/python/agentic-circuit/python_frontend/test_queue_frontend.py",
         "tests/unit/test_semantic_core.py"
       ],
       "verifier": "compiler/mlir/lib/Dialect/PYC/PYCOps.cpp",
@@ -1341,6 +1347,7 @@
       "tests": [
         "tests/cpp/agentic-circuit/CodeGen/QueueGraphPlanTest.cpp",
         "tests/integration/agentic-circuit/e2e/test_pyc_backend.py",
+        "tests/python/agentic-circuit/python_frontend/test_queue_frontend.py",
         "tests/unit/test_pyc6_surface.py",
         "tests/unit/test_semantic_core.py"
       ],
@@ -1577,7 +1584,9 @@
       ],
       "cpp_emitter": "compiler/mlir/lib/Emit/CppEmitter.cpp",
       "e2e": [],
-      "examples": [],
+      "examples": [
+        "examples/agentic-circuit/blocks/array_combinators.py"
+      ],
       "folder": "compiler/mlir/lib/Dialect/PYC/PYCOps.cpp",
       "kind": "operation",
       "name": "pyc.xor",

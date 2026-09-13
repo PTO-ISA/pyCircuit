@@ -1804,6 +1804,18 @@ expand to existing static element, tuple/record, callback, and array operations
 before Frozen ACIR. Nested expansions share a 4096-lane budget and create no
 runtime iterator, container, or PYC vector type.
 
+Logical arrays provide `all`, `any`, and bounded `count`. Fixed arrays provide
+`fold(kind=...)`, `first(where=...)`, `argmin(key=..., where=...)`, and
+inclusive `scan(callback, initial=...)`. Reductions use stable adjacent
+pairwise trees with odd-tail carry; scan alone preserves a left-to-right
+accumulator chain. Fold accepts only the closed associative kind/type matrix in
+Decision 0254. First and argmin return explicit index/valid fields, use index
+zero for no match, and resolve ties toward the lower ordinal. Count builds a
+balanced tree of bounded range additions rather than asserting a result range.
+All forms expand to the existing verifier-visible scalar/aggregate operations.
+The current 65-lane argmin requires an explicit logic-depth budget above the
+default; grouped cost attribution and automatic timing repair remain open.
+
 QueueProgram retains these descriptors on Queue payloads, persistent values,
 Table entries, memories, slots, rule state effects, and reusable module
 signatures. Expression lowering returns `(SSA name, ValueType)` and performs

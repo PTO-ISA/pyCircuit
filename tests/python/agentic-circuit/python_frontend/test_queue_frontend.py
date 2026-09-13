@@ -6365,6 +6365,292 @@ def pipeline(request: Request) -> tuple[ac.u64, ac.u64]:
         )
         self.assertEqual(2, len(lane_values & add_inputs))
 
+    def test_value_array_balanced_fold_and_bool_reductions(self) -> None:
+        from agentic_circuit._queue_frontend import lower_queue_source
+
+        source = """import agentic_circuit as ac
+@ac.struct
+class Request:
+    flags: ac.array[5, bool]
+    values: ac.array[5, ac.u8]
+@ac.struct
+class RangeValues:
+    values: ac.array[3, ac.index[5]]
+@ac.struct
+class Result:
+    complete: bool
+    present: bool
+    count: ac.range[0, 6]
+    total: ac.u8
+    product: ac.u8
+    minimum: ac.u8
+    maximum: ac.u8
+    parity: bool
+    range_minimum: ac.index[5]
+@ac.rule
+def reduce(request: Request) -> Result:
+    bounded = ac.wrap(request.values[0], ac.index[5])
+    ranges = RangeValues(values=(bounded, bounded, bounded))
+    return Result(
+        complete=request.flags.all(),
+        present=request.flags.any(),
+        count=request.flags.count(),
+        total=request.values.fold(kind="add"),
+        product=request.values.fold(kind="mul"),
+        minimum=request.values.fold(kind="min"),
+        maximum=request.values.fold(kind="max"),
+        parity=request.flags.fold(kind="xor"),
+        range_minimum=ranges.values.fold(kind="min"),
+    )
+@ac.system
+def pipeline(request: Request) -> Result:
+    result = reduce(request)
+    return result
+"""
+        lowered = lower_queue_source(source, "pipeline")
+        self.assertIn("!ac.var<!ac.range<0, 5>>", lowered)
+        self.assertEqual(0, lowered.count("ac.var.range_refine"))
+        self.assertGreaterEqual(lowered.count("ac.var.range_add"), 4)
+        self.assertGreaterEqual(lowered.count("ac.var.add"), 4)
+        self.assertGreaterEqual(lowered.count("ac.var.select"), 9)
+        self.assertIn('ac.var.cmp "ule"', lowered)
+        self.assertIn('ac.var.cmp "uge"', lowered)
+
+    def test_value_array_reductions_reject_invalid_kinds_and_types(self) -> None:
+        from agentic_circuit._queue_frontend import (
+            QueueFrontendError,
+            lower_queue_source,
+        )
+
+        source = """import agentic_circuit as ac
+@ac.struct
+class Request:
+    flags: ac.array[3, ac.u1]
+    values: ac.array[3, ac.u8]
+@ac.rule
+def reduce(request: Request) -> Request:
+    result = request.flags.all()
+    return request
+@ac.system
+def pipeline(request: Request) -> Request:
+    result = reduce(request)
+    return result
+"""
+        with self.assertRaisesRegex(QueueFrontendError, "requires bool"):
+            lower_queue_source(source, "pipeline")
+
+        non_associative = source.replace(
+            "request.flags.all()", 'request.values.fold(kind="sub")'
+        )
+        with self.assertRaisesRegex(QueueFrontendError, "not associative"):
+            lower_queue_source(non_associative, "pipeline")
+
+        malformed = source.replace(
+            "request.flags.all()", 'request.values.fold("add")'
+        )
+        with self.assertRaisesRegex(QueueFrontendError, "requires kind"):
+            lower_queue_source(malformed, "pipeline")
+
+    def test_value_array_first_and_argmin_build_stable_balanced_trees(self) -> None:
+        from agentic_circuit._queue_frontend import lower_queue_source
+
+        source = """import agentic_circuit as ac
+@ac.struct
+class Item:
+    age: ac.u8
+    valid: bool
+@ac.struct
+class Request:
+    items: ac.array[5, Item]
+@ac.struct
+class Result:
+    first_index: ac.index[5]
+    first_valid: bool
+    best_index: ac.index[5]
+    best_valid: bool
+@ac.rule
+def select(request: Request) -> Result:
+    first = request.items.first(where=lambda item: item.valid)
+    best = request.items.argmin(
+        key=lambda item: item.age,
+        where=lambda item: item.valid,
+    )
+    return Result(
+        first_index=first.index,
+        first_valid=first.valid,
+        best_index=best.index,
+        best_valid=best.valid,
+    )
+@ac.system
+def pipeline(request: Request) -> Result:
+    result = select(request)
+    return result
+"""
+        lowered = lower_queue_source(source, "pipeline")
+        self.assertEqual(10, lowered.count('field "valid"'))
+        self.assertEqual(5, lowered.count('field "age"'))
+        self.assertGreaterEqual(lowered.count("ac.var.select"), 14)
+        self.assertGreaterEqual(lowered.count("ac.var.or"), 12)
+        self.assertEqual(4, lowered.count('ac.var.cmp "ule"'))
+
+    def test_value_array_first_and_argmin_reject_invalid_callbacks(self) -> None:
+        from agentic_circuit._queue_frontend import (
+            QueueFrontendError,
+            lower_queue_source,
+        )
+
+        source = """import agentic_circuit as ac
+@ac.struct
+class Item:
+    key: ac.u8
+    flag: ac.u1
+@ac.struct
+class Request:
+    items: ac.array[3, Item]
+@ac.rule
+def select(request: Request) -> Request:
+    first = request.items.first(where=lambda item: item.flag)
+    valid = first.valid
+    return request
+@ac.system
+def pipeline(request: Request) -> Request:
+    result = select(request)
+    return result
+"""
+        with self.assertRaisesRegex(QueueFrontendError, "callback result type"):
+            lower_queue_source(source, "pipeline")
+
+        bool_key = source.replace("flag: ac.u1", "flag: bool").replace(
+            "first = request.items.first(where=lambda item: item.flag)\n"
+            "    valid = first.valid",
+            "first = request.items.argmin(key=lambda item: item.flag)\n"
+            "    valid = first.valid",
+        )
+        with self.assertRaisesRegex(QueueFrontendError, "key must be unsigned"):
+            lower_queue_source(bool_key, "pipeline")
+
+        missing_key = source.replace(
+            "request.items.first(where=lambda item: item.flag)",
+            "request.items.argmin(where=lambda item: True)",
+        )
+        with self.assertRaisesRegex(QueueFrontendError, "requires key"):
+            lower_queue_source(missing_key, "pipeline")
+
+    def test_value_array_scan_is_inclusive_and_ordered(self) -> None:
+        from agentic_circuit._queue_frontend import lower_queue_source
+
+        source = """import agentic_circuit as ac
+def subtract(accumulator: ac.u8, value: ac.u8) -> ac.u8:
+    return accumulator - value
+@ac.struct
+class Request:
+    values: ac.array[3, ac.u8]
+    initial: tuple[ac.u8, ac.u8]
+@ac.struct
+class Result:
+    subtracted: ac.array[3, ac.u8]
+    added: ac.array[3, ac.u8]
+    reset: ac.array[3, ac.u8]
+    tupled: ac.array[3, tuple[ac.u8, ac.u8]]
+@ac.rule
+def scan(request: Request) -> Result:
+    subtracted = request.values.scan(subtract, initial=ac.zero(ac.u8))
+    added = request.values.scan(
+        lambda accumulator, value: accumulator + value,
+        initial=ac.zero(ac.u8),
+    )
+    reset = request.values.scan(
+        lambda accumulator, value: 0 if value == 0 else accumulator,
+        initial=ac.zero(ac.u8),
+    )
+    tupled = request.values.scan(
+        lambda accumulator, value: (
+            0 if value == 0 else accumulator[0],
+            accumulator[1],
+        ),
+        initial=request.initial,
+    )
+    return Result(subtracted=subtracted, added=added, reset=reset, tupled=tupled)
+@ac.system
+def pipeline(request: Request) -> Result:
+    result = scan(request)
+    return result
+"""
+        lowered = lower_queue_source(source, "pipeline")
+        self.assertEqual(3, lowered.count("func.call @subtract"))
+        self.assertEqual(3, lowered.count("ac.var.add"))
+        self.assertEqual(4, lowered.count("ac.var.array"))
+
+        nested_binder = """import agentic_circuit as ac
+@ac.struct
+class Request:
+    values: ac.array[1, ac.u8]
+    pairs: ac.array[1, tuple[ac.u8, ac.u8]]
+@ac.struct
+class Result:
+    values: ac.array[1, ac.u8]
+@ac.rule
+def scan(request: Request) -> Result:
+    values = request.values.scan(
+        lambda accumulator, item: request.pairs.map(
+            lambda __ac_array_scan_pair_2: accumulator + item
+        )[0],
+        initial=ac.literal(10, ac.u8),
+    )
+    return Result(values=values)
+@ac.system
+def pipeline(request: Request) -> Result:
+    result = scan(request)
+    return result
+"""
+        nested_lowered = lower_queue_source(nested_binder, "pipeline")
+        self.assertNotIn(
+            "ac.var.element %__ac_array_scan_pair_2",
+            nested_lowered,
+        )
+
+    def test_value_array_scan_rejects_malformed_or_open_callbacks(self) -> None:
+        from agentic_circuit._queue_frontend import (
+            QueueFrontendError,
+            lower_queue_source,
+        )
+
+        source = """import agentic_circuit as ac
+@ac.struct
+class Request:
+    values: ac.array[3, ac.u8]
+@ac.rule
+def scan(request: Request) -> Request:
+    values = request.values.scan(
+        lambda accumulator, value: accumulator + value,
+        initial=ac.zero(ac.u8),
+    )
+    return request.with_fields(values=values)
+@ac.system
+def pipeline(request: Request) -> Request:
+    result = scan(request)
+    return result
+"""
+        missing_initial = source.replace(
+            ",\n        initial=ac.zero(ac.u8)", ""
+        )
+        with self.assertRaisesRegex(QueueFrontendError, "requires callback"):
+            lower_queue_source(missing_initial, "pipeline")
+
+        wrong_arity = source.replace(
+            "lambda accumulator, value: accumulator + value",
+            "lambda value: value",
+        )
+        with self.assertRaisesRegex(QueueFrontendError, "two plain parameters"):
+            lower_queue_source(wrong_arity, "pipeline")
+
+        wrong_result = source.replace(
+            "lambda accumulator, value: accumulator + value",
+            "lambda accumulator, value: value != accumulator",
+        )
+        with self.assertRaisesRegex(QueueFrontendError, "callback result type"):
+            lower_queue_source(wrong_result, "pipeline")
+
     def test_dependent_bounded_bounds_have_verifier_visible_metadata(self) -> None:
         from agentic_circuit._queue_frontend import lower_queue_source
 
