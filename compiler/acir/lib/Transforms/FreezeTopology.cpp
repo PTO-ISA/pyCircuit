@@ -340,6 +340,8 @@ LogicalResult freezeStructuredQueueGraph(ModuleOp model) {
 }
 
 LogicalResult freezeTopology(ModuleOp model) {
+  if (failed(verifyStaticTypeMetadata(model)))
+    return failure();
   // Frozen models and direct hand-written ACIR take the same fail-closed
   // dynamic-index proof path as rule lowering.
   if (failed(verifyValueConstraints(model)))

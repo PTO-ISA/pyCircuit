@@ -8,6 +8,13 @@
 // RUN: %acir_opt --pass-pipeline='builtin.module(verify-ac-file)' %t/identity.mlir | %FileCheck %s --check-prefix=IDENTITY
 // RUN: %not %acir_opt --pass-pipeline='builtin.module(verify-ac-file)' %t/missing-identity-check.mlir 2>&1 | %FileCheck %s --check-prefix=MISSING-IDENTITY-CHECK
 // RUN: %not %acir_opt --pass-pipeline='builtin.module(verify-ac-file)' %t/forged-identity.mlir 2>&1 | %FileCheck %s --check-prefix=FORGED-IDENTITY
+// RUN: %acir_opt --pass-pipeline='builtin.module(verify-ac-file)' %t/bounded-interface.mlir | %FileCheck %s --check-prefix=BOUNDED-INTERFACE
+// RUN: %not %acir_opt --pass-pipeline='builtin.module(verify-ac-file)' %t/bounded-interface-forged.mlir 2>&1 | %FileCheck %s --check-prefix=BOUNDED-INTERFACE-FORGED
+// RUN: %acir_opt --pass-pipeline='builtin.module(verify-ac-file)' %t/bounded-expression.mlir | %FileCheck %s --check-prefix=BOUNDED-EXPRESSION
+// RUN: %not %acir_opt --pass-pipeline='builtin.module(verify-ac-file)' %t/bounded-expression-orphan.mlir 2>&1 | %FileCheck %s --check-prefix=BOUNDED-EXPRESSION-ORPHAN
+// RUN: %not %acir_opt --pass-pipeline='builtin.module(verify-ac-file)' %t/bounded-expression-stripped.mlir 2>&1 | %FileCheck %s --check-prefix=BOUNDED-EXPRESSION-STRIPPED
+// RUN: %not %acir_opt %t/bounded-expression-stripped.mlir -ac-freeze-topology 2>&1 | %FileCheck %s --check-prefix=BOUNDED-EXPRESSION-STRIPPED
+// RUN: %not %acir_opt %t/malformed-check.mlir -ac-freeze-topology 2>&1 | %FileCheck %s --check-prefix=MALFORMED-CHECK
 
 // VALID: ac.static_type_bindings = {ENTRIES = 128 : i64, LANES = 4 : i64, MAX = 9223372036854775807 : i64}
 // VALID: ac.static_type_checks
@@ -19,6 +26,12 @@
 // IDENTITY: symbol = "Entry__p435bcab52046"
 // MISSING-IDENTITY-CHECK: error: static type identity targets must exactly reference checks
 // FORGED-IDENTITY: error: static type identity fingerprint is inconsistent
+// BOUNDED-INTERFACE: target = "interface.system.scalar.output.0:range_upper", type = !ac.range<4, 8>
+// BOUNDED-INTERFACE-FORGED: error: static bounded range does not match resolved result
+// BOUNDED-EXPRESSION: ac.static_type_target = "expression.decode.0"
+// BOUNDED-EXPRESSION-ORPHAN: static expression type target has no matching type check
+// BOUNDED-EXPRESSION-STRIPPED: static expression type target requires type metadata
+// MALFORMED-CHECK: struct static type checks require ac.type_scope @types
 
 //--- valid.mlir
 builtin.module attributes {
@@ -152,4 +165,114 @@ builtin.module attributes {
   ac.type_scope @types {
     ac.struct @Entry__p435bcab52046 fields [{name = "a", type = i4}, {name = "b", type = i5}]
   } {dlti.dl_spec = #dlti.dl_spec<!ac.struct<@types::@Entry__p435bcab52046> = {abi_alignment = 1 : i64, endianness = "little", preferred_alignment = 1 : i64, size = 2 : i64}>}
+}
+
+//--- bounded-interface.mlir
+builtin.module attributes {
+  ac.contract_epoch = "0.5",
+  ac.model_kind = "queue_graph",
+  ac.queue_graph_domain = "cycle",
+  ac.system = "scalar",
+  ac.static_type_bindings = {HI = 9 : i64, LO = 4 : i64},
+  ac.static_type_checks = [
+    {program = ["param:LO"], result = 4 : i64, target = "interface.system.scalar.output.0:range_lower", type = !ac.range<4, 8>},
+    {program = ["param:HI"], result = 9 : i64, target = "interface.system.scalar.output.0:range_upper", type = !ac.range<4, 8>}
+  ]
+} {
+  %input = ac.source depth 1 latency 1 {ac.name = "input"} : !ac.queue<i8>
+  %output = ac.transform %input depths [1] latencies [1] {
+  ^body(%raw: !ac.var<i8>):
+    %value = ac.var.range_saturate %raw : !ac.var<i8> -> !ac.var<!ac.range<4, 8>>
+    ac.transform.yield %value : !ac.var<!ac.range<4, 8>>
+  } : (!ac.queue<i8>) -> !ac.queue<!ac.range<4, 8>>
+  ac.sink %output {ac.name = "sink_0"} : !ac.queue<!ac.range<4, 8>>
+}
+
+//--- bounded-interface-forged.mlir
+builtin.module attributes {
+  ac.contract_epoch = "0.5",
+  ac.model_kind = "queue_graph",
+  ac.queue_graph_domain = "cycle",
+  ac.system = "scalar",
+  ac.static_type_bindings = {HI = 8 : i64},
+  ac.static_type_checks = [
+    {program = ["param:HI"], result = 8 : i64, target = "interface.system.scalar.output.0:range_upper", type = !ac.range<4, 8>}
+  ]
+} {
+  %input = ac.source depth 1 latency 1 {ac.name = "input"} : !ac.queue<i8>
+  %output = ac.transform %input depths [1] latencies [1] {
+  ^body(%raw: !ac.var<i8>):
+    %value = ac.var.range_saturate %raw : !ac.var<i8> -> !ac.var<!ac.range<4, 8>>
+    ac.transform.yield %value : !ac.var<!ac.range<4, 8>>
+  } : (!ac.queue<i8>) -> !ac.queue<!ac.range<4, 8>>
+  ac.sink %output {ac.name = "sink_0"} : !ac.queue<!ac.range<4, 8>>
+}
+
+//--- bounded-expression.mlir
+builtin.module attributes {
+  ac.contract_epoch = "0.5",
+  ac.model_kind = "queue_graph",
+  ac.queue_graph_domain = "cycle",
+  ac.system = "expression_bound",
+  ac.static_type_bindings = {N = 5 : i64},
+  ac.static_type_checks = [
+    {program = ["param:N"], result = 5 : i64, target = "expression.decode.0:range_upper", type = !ac.range<0, 4>}
+  ]
+} {
+  %input = ac.source depth 1 latency 1 {ac.name = "input"} : !ac.queue<i8>
+  %output = ac.transform %input depths [1] latencies [1] {
+  ^body(%raw: !ac.var<i8>):
+    %value = ac.var.range_wrap %raw {ac.static_type_target = "expression.decode.0"} : !ac.var<i8> -> !ac.var<!ac.range<0, 4>>
+    ac.transform.yield %value : !ac.var<!ac.range<0, 4>>
+  } : (!ac.queue<i8>) -> !ac.queue<!ac.range<0, 4>>
+  ac.sink %output : !ac.queue<!ac.range<0, 4>>
+}
+
+//--- bounded-expression-orphan.mlir
+builtin.module attributes {
+  ac.contract_epoch = "0.5",
+  ac.model_kind = "queue_graph",
+  ac.queue_graph_domain = "cycle",
+  ac.system = "expression_bound",
+  ac.static_type_bindings = {N = 5 : i64},
+  ac.static_type_checks = [
+    {program = ["param:N"], result = 5 : i64, target = "interface.system.expression_bound.output.0:range_upper", type = !ac.range<0, 4>}
+  ]
+} {
+  %input = ac.source depth 1 latency 1 {ac.name = "input"} : !ac.queue<i8>
+  %output = ac.transform %input depths [1] latencies [1] {
+  ^body(%raw: !ac.var<i8>):
+    %value = ac.var.range_wrap %raw {ac.static_type_target = "expression.decode.0"} : !ac.var<i8> -> !ac.var<!ac.range<0, 4>>
+    ac.transform.yield %value : !ac.var<!ac.range<0, 4>>
+  } : (!ac.queue<i8>) -> !ac.queue<!ac.range<0, 4>>
+  ac.sink %output : !ac.queue<!ac.range<0, 4>>
+}
+
+//--- bounded-expression-stripped.mlir
+builtin.module attributes {
+  ac.contract_epoch = "0.5",
+  ac.model_kind = "queue_graph",
+  ac.queue_graph_domain = "cycle",
+  ac.system = "expression_bound"
+} {
+  %input = ac.source depth 1 latency 1 {ac.name = "input"} : !ac.queue<i8>
+  %output = ac.transform %input depths [1] latencies [1] {
+  ^body(%raw: !ac.var<i8>):
+    %value = ac.var.range_wrap %raw {ac.static_type_target = "expression.bad.0"} : !ac.var<i8> -> !ac.var<!ac.range<0, 4>>
+    ac.transform.yield %value : !ac.var<!ac.range<0, 4>>
+  } : (!ac.queue<i8>) -> !ac.queue<!ac.range<0, 4>>
+  ac.sink %output : !ac.queue<!ac.range<0, 4>>
+}
+
+//--- malformed-check.mlir
+builtin.module attributes {
+  ac.contract_epoch = "0.5",
+  ac.model_kind = "queue_graph",
+  ac.queue_graph_domain = "cycle",
+  ac.system = "malformed",
+  ac.static_type_bindings = {N = 5 : i64},
+  ac.static_type_checks = [0 : i64]
+} {
+  %input = ac.source depth 1 latency 1 : !ac.queue<i8>
+  ac.sink %input : !ac.queue<i8>
 }

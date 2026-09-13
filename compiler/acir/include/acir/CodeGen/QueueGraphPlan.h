@@ -117,6 +117,7 @@ struct QueueExpressionPlan {
   uint64_t laneOrdinal = 0;
   std::string keyOrdering;
   uint64_t initialCursor = 0;
+  std::string staticTypeTarget;
 };
 
 std::string inlineTableChoiceContractKey(const QueueExpressionPlan &expression);

@@ -8,6 +8,7 @@
 #include <concepts>
 #include <cstddef>
 #include <cstdint>
+#include <limits>
 #include <type_traits>
 
 namespace gfsim {
@@ -266,6 +267,47 @@ private:
 
   word_array_type words_{};
 };
+
+template <unsigned Width> struct RangeChecked {
+  UInt<Width> value;
+  UInt<1> valid;
+};
+
+template <unsigned TargetWidth, std::uint64_t Lower,
+          std::uint64_t UpperInclusive, unsigned SourceWidth>
+constexpr UInt<TargetWidth> rangeWrap(UInt<SourceWidth> source)
+  requires(TargetWidth <= 64 && SourceWidth <= 64 && Lower <= UpperInclusive)
+{
+  const std::uint64_t raw = source.value();
+  if constexpr (Lower == 0 &&
+                UpperInclusive == std::numeric_limits<std::uint64_t>::max())
+    return UInt<TargetWidth>{raw};
+  constexpr std::uint64_t span = UpperInclusive - Lower + 1;
+  if (raw >= Lower)
+    return UInt<TargetWidth>{Lower + (raw - Lower) % span};
+  return UInt<TargetWidth>{UpperInclusive - ((Lower - 1 - raw) % span)};
+}
+
+template <unsigned TargetWidth, std::uint64_t Lower,
+          std::uint64_t UpperInclusive, unsigned SourceWidth>
+constexpr UInt<TargetWidth> rangeSaturate(UInt<SourceWidth> source)
+  requires(TargetWidth <= 64 && SourceWidth <= 64 && Lower <= UpperInclusive)
+{
+  const std::uint64_t raw = source.value();
+  return UInt<TargetWidth>{raw < Lower         ? Lower
+                           : raw > UpperInclusive ? UpperInclusive
+                                                  : raw};
+}
+
+template <unsigned TargetWidth, std::uint64_t Lower,
+          std::uint64_t UpperInclusive, unsigned SourceWidth>
+constexpr RangeChecked<TargetWidth> rangeChecked(UInt<SourceWidth> source)
+  requires(TargetWidth <= 64 && SourceWidth <= 64 && Lower <= UpperInclusive)
+{
+  const std::uint64_t raw = source.value();
+  const bool valid = raw >= Lower && raw <= UpperInclusive;
+  return {UInt<TargetWidth>{valid ? raw : Lower}, UInt<1>{valid}};
+}
 
 template <typename T> struct IsUInt : std::false_type {};
 template <unsigned Width> struct IsUInt<UInt<Width>> : std::true_type {};

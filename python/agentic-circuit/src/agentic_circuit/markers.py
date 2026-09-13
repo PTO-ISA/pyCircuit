@@ -22,6 +22,10 @@ CAPTURE_ONLY_API = (
     "zext",
     "sext",
     "truncate",
+    "wrap",
+    "saturate",
+    "checked",
+    "refine",
     "static_assert",
     "insert",
     "matches",
@@ -110,6 +114,26 @@ def sext(value: object, value_type: object) -> Never:
 def truncate(value: object, value_type: object) -> Never:
     _ = (value, value_type)
     return _capture_time_only("truncate")
+
+
+def wrap(value: object, value_type: object) -> Never:
+    _ = (value, value_type)
+    return _capture_time_only("wrap")
+
+
+def saturate(value: object, value_type: object) -> Never:
+    _ = (value, value_type)
+    return _capture_time_only("saturate")
+
+
+def checked(value: object, value_type: object) -> Never:
+    _ = (value, value_type)
+    return _capture_time_only("checked")
+
+
+def refine(value: object, value_type: object) -> Never:
+    _ = (value, value_type)
+    return _capture_time_only("refine")
 
 
 def static_assert(condition: bool, message: str = "static assertion failed") -> None:

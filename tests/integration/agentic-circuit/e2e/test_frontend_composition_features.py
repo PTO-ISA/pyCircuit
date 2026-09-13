@@ -9,7 +9,7 @@ import unittest
 from pathlib import Path
 
 from agentic_circuit._jit import _lower_queue_acir
-from agentic_circuit._queue_frontend import lower_queue_source
+from agentic_circuit._queue_frontend import QueueFrontendError, lower_queue_source
 from agentic_circuit._static_eval import FrozenMap
 
 ROOT = Path(__file__).resolve().parents[4]
@@ -44,6 +44,140 @@ class FrontendCompositionFeatureTest(unittest.TestCase):
         )
         self.assertEqual(0, completed.returncode, completed.stderr)
         return completed.stdout
+
+    def test_dependent_range_metadata_tracks_live_expressions_after_dce(self) -> None:
+        duplicate = """import agentic_circuit as ac
+N = ac.param[int]("n")
+@ac.rule
+def decode(raw: ac.u8) -> tuple[ac.index[5], ac.index[5]]:
+    first = ac.checked(raw, ac.index[N]).value
+    second = ac.checked(raw, ac.index[N]).value
+    return first, second
+@ac.system
+def pipeline(raw: ac.u8, *, n: ac.const[int]) -> tuple[ac.index[5], ac.index[5]]:
+    first, second = decode(raw)
+    return first, second
+"""
+        dead = """import agentic_circuit as ac
+N = ac.param[int]("n")
+@ac.rule
+def decode(raw: ac.u8) -> ac.u8:
+    unused = ac.wrap(raw, ac.index[N])
+    also_unused = unused
+    return raw
+@ac.system
+def pipeline(raw: ac.u8, *, n: ac.const[int]) -> ac.u8:
+    result = decode(raw)
+    return result
+"""
+        overwritten = """import agentic_circuit as ac
+N = ac.param[int]("n")
+@ac.rule
+def decode(raw: ac.u8) -> ac.index[5]:
+    index = ac.wrap(raw, ac.index[N])
+    index = ac.saturate(raw, ac.index[N])
+    return index
+@ac.system
+def pipeline(raw: ac.u8, *, n: ac.const[int]) -> ac.index[5]:
+    result = decode(raw)
+    return result
+"""
+        with tempfile.TemporaryDirectory() as temporary:
+            work = Path(temporary)
+            duplicate_frozen = _lower_queue_acir(
+                lower_queue_source(
+                    duplicate, "pipeline", static_arguments={"n": 5}
+                ),
+                optimizer=self.acir_opt,
+            )
+            self.assertEqual(2, duplicate_frozen.count("ac.static_type_target ="))
+            self.assertEqual(
+                1, duplicate_frozen.count('target = "expression.decode.0:')
+            )
+            self.assertEqual(
+                1, duplicate_frozen.count('target = "expression.decode.1:')
+            )
+            duplicate_path = work / "duplicate.mlir"
+            duplicate_path.write_text(duplicate_frozen, encoding="utf-8")
+            self._run((self.plan, duplicate_path), cwd=ROOT)
+
+            dead_frozen = _lower_queue_acir(
+                lower_queue_source(dead, "pipeline", static_arguments={"n": 5}),
+                optimizer=self.acir_opt,
+            )
+            self.assertNotIn("ac.static_type_target", dead_frozen)
+            self.assertNotIn("ac.static_type_checks", dead_frozen)
+            dead_path = work / "dead.mlir"
+            dead_path.write_text(dead_frozen, encoding="utf-8")
+            self._run((self.plan, dead_path), cwd=ROOT)
+
+            overwritten_frozen = _lower_queue_acir(
+                lower_queue_source(
+                    overwritten, "pipeline", static_arguments={"n": 5}
+                ),
+                optimizer=self.acir_opt,
+            )
+            self.assertNotIn("ac.var.range_wrap", overwritten_frozen)
+            self.assertEqual(
+                1, overwritten_frozen.count("ac.static_type_target =")
+            )
+            overwritten_path = work / "overwritten.mlir"
+            overwritten_path.write_text(overwritten_frozen, encoding="utf-8")
+            self._run((self.plan, overwritten_path), cwd=ROOT)
+
+    def test_module_state_uses_bounded_storage_initializer_type(self) -> None:
+        source = """import agentic_circuit as ac
+@ac.module
+def store(raw: ac.u8) -> ac.index[5]:
+    saved: ac.index[5] = 0
+    saved = ac.wrap(raw, ac.index[5])
+    return saved
+@ac.system
+def pipeline(raw: ac.u8) -> ac.index[5]:
+    result = store(raw)
+    return result
+"""
+        raw = lower_queue_source(source, "pipeline")
+        self.assertIn("init 0 : i3", raw)
+        frozen = _lower_queue_acir(raw, optimizer=self.acir_opt)
+        self.assertIn("entry !ac.range<0, 4>", frozen)
+
+        unsupported = source.replace("ac.index[5]", "ac.range[4, 9]").replace(
+            "saved: ac.range[4, 9] = 0", "saved: ac.range[4, 9] = 4"
+        ).replace(
+            "ac.wrap(raw, ac.range[4, 9])",
+            "ac.saturate(raw, ac.range[4, 9])",
+        )
+        with self.assertRaisesRegex(
+            QueueFrontendError,
+            "bounded module state storage requires a zero initializer",
+        ):
+            lower_queue_source(unsupported, "pipeline")
+
+    def test_nested_bounded_equality_lowers_to_range_leaves(self) -> None:
+        source = """import agentic_circuit as ac
+@ac.struct
+class Item:
+    index: ac.index[5]
+@ac.rule
+def compare(raw: ac.u8) -> bool:
+    left = Item(index=ac.wrap(raw, ac.index[5]))
+    right = Item(index=ac.literal(4, ac.index[5]))
+    return left == right
+@ac.system
+def pipeline(raw: ac.u8) -> bool:
+    result = compare(raw)
+    return result
+"""
+        frozen = _lower_queue_acir(
+            lower_queue_source(source, "pipeline"), optimizer=self.acir_opt
+        )
+        self.assertIn('ac.var.range_cmp "eq"', frozen)
+        self.assertNotIn("ac.var.cmp \"eq\"", frozen)
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "range-equality.mlir"
+            path.write_text(frozen, encoding="utf-8")
+            self._run((self.plan, path), cwd=ROOT)
 
     def test_examples_freeze_plan_generate_and_compile(self) -> None:
         cases = (
@@ -104,6 +238,11 @@ class FrontendCompositionFeatureTest(unittest.TestCase):
             (
                 ROOT / "examples/agentic-circuit/pipelines/encoded_enum_pipeline.py",
                 "encoded_enum_pipeline",
+                {},
+            ),
+            (
+                ROOT / "examples/agentic-circuit/blocks/bounded_integer_operations.py",
+                "bounded_integer_operations",
                 {},
             ),
         )
@@ -283,6 +422,25 @@ class FrontendCompositionFeatureTest(unittest.TestCase):
                         self.assertEqual(
                             "cfg", plan["static_config_bindings"][0]["root"]
                         )
+                    elif system == "bounded_integer_operations":
+                        plan = json.loads(self._run((self.plan, frozen), cwd=ROOT))
+                        kinds = {
+                            expression["kind"]
+                            for block in plan["blocks"]
+                            for expression in block["expressions"]
+                        }
+                        self.assertTrue(
+                            {
+                                "range_wrap",
+                                "range_saturate",
+                                "range_checked_value",
+                                "range_checked_valid",
+                                "range_add",
+                                "array_get_dynamic",
+                            }
+                            <= kinds
+                        )
+                        self.assertNotRegex(pyc.read_text(encoding="utf-8"), r"\bscf\.")
                     elif system == "record_spread_pipeline":
                         self.assertIn("struct Packet", generated)
                         self.assertIn("auto v4 = Packet{v0, v1, v2, v3};", generated)

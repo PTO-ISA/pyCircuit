@@ -33,11 +33,13 @@ module attributes {ac.contract_epoch = "0.5", ac.model_kind = "queue_graph", ac.
   ^body(%request: !ac.var<!ac.struct<@types::@Request>>):
     %enabled = ac.var.constant true as !ac.var<i1>
     ac.rule.condition %enabled : !ac.var<i1>
-    %row = ac.var.get %request field "row"
+    %raw_row = ac.var.get %request field "row"
         : !ac.var<!ac.struct<@types::@Request>> -> !ac.var<i2>
+    %row = ac.var.range_refine %raw_row
+        : !ac.var<i2> -> !ac.var<!ac.range<0, 3>>
     %zero_way = ac.var.constant 0 : i2 as !ac.var<i2>
     %base = ac.table.index @state [%row, %zero_way]
-        : !ac.var<i2>, !ac.var<i2> -> !ac.var<i4>
+        : !ac.var<!ac.range<0, 3>>, !ac.var<i2> -> !ac.var<i4>
     %matches = ac.table.match @state base %base : !ac.var<i4> predicate {
     ^predicate(%entry: !ac.var<i8>):
       %tag = ac.var.get %request field "tag"

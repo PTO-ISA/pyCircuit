@@ -128,7 +128,7 @@ bool containsQueueOrVarType(Type type) {
 }
 
 bool isImmutablePayloadType(Type type) {
-  if (isa<IntegerType, FloatType, IndexType, StructType, PacketType,
+  if (isa<IntegerType, FloatType, IndexType, RangeType, StructType, PacketType,
           TransactionType, EnumType>(type))
     return true;
   if (auto array = dyn_cast<ValueArrayType>(type))
@@ -138,6 +138,13 @@ bool isImmutablePayloadType(Type type) {
   if (auto tuple = dyn_cast<mlir::TupleType>(type))
     return llvm::all_of(tuple.getTypes(), isImmutablePayloadType);
   return false;
+}
+
+LogicalResult RangeType::verify(function_ref<InFlightDiagnostic()> emitError,
+                                uint64_t lower, uint64_t upper) {
+  if (lower > upper)
+    return emitError() << "range lower bound must not exceed upper bound";
+  return success();
 }
 
 bool isNormativePayloadType(Type type) {

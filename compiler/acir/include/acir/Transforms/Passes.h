@@ -51,6 +51,10 @@ mlir::LogicalResult verifyRuleClosure(mlir::ModuleOp model);
 /// extent. Unknown constraints fail closed.
 mlir::LogicalResult verifyValueConstraints(mlir::ModuleOp model);
 
+/// Recompute dependent type metadata and expression-target closure before any
+/// transform may erase or merge verifier-visible evidence.
+mlir::LogicalResult verifyStaticTypeMetadata(mlir::ModuleOp model);
+
 /// Expand recursive value equality and inline pure value invariants before
 /// dataflow analysis or backend planning.
 mlir::LogicalResult lowerValueContracts(mlir::ModuleOp model);

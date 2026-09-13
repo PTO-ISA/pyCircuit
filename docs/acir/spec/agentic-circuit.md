@@ -303,6 +303,37 @@ signedness as a distinct type. The retained `ac.s8/s16/s32/s64` names therefore
 also use signless unsigned relational lowering for now; signed comparison
 semantics require a future type-system decision.
 
+Declared bounded unsigned values use Python half-open ranges:
+
+```python
+wrapped = ac.wrap(raw, ac.index[5])
+clamped = ac.saturate(raw, ac.range[4, 9])
+decoded = ac.checked(raw, ac.index[5])
+strict = ac.refine(proven_small_value, ac.index[5])
+selected = values[decoded.value]
+```
+
+Bounds satisfy `0 <= lower < upper <= 2**64`. Storage keeps the numeric
+value and uses `max(1, (upper - 1).bit_length())` bits; a nonzero lower bound
+does not offset the encoding. `checked.valid` reports whether the raw input
+was in range, and its total fallback value is the target lower bound. `refine`
+is accepted only when whole-model analysis proves the input domain is already
+contained in the target. None of these conversions implicitly guards a rule.
+Raw external inputs, including bounded leaves nested in records, tuples, or
+fixed arrays, MUST use ordinary bits and an explicit decoder.
+The current persistent/module-state storage profile admits a bounded scalar
+only when zero belongs to its domain and remains its initializer; nonzero-lower
+bounded state requires a future typed-reset-image extension and fails closed.
+
+Bounded addition and subtraction produce their mathematical result range
+rather than wrapping. Addition or subtraction that leaves the unsigned u64
+domain is rejected. Comparisons are unsigned numeric comparisons and may use
+different bounded domains. Frozen ACIR represents the Python range as the
+inclusive `!ac.range<lower, upper - 1>` type and retains `range_wrap`,
+`range_saturate`, `range_checked`, `range_refine`, bounded arithmetic, and
+bounded comparison operations until QueueGraph verification. GFSim and PYC
+erase the refinement only after those checks.
+
 ### Static bits and named bitfield views
 
 `ac.bits[N]` is the static-width spelling of the same exact unsigned value as
@@ -429,13 +460,15 @@ resolve every field-qualified operation back to that declaration before
 topology freeze. The Python frontend contains no ready/full/Queue transaction
 logic for these values.
 
-### Bounded value constraints
+### Declared ranges and inferred value constraints
 
 The compiler uses a small deterministic abstract domain with four facts:
 `Constant`, `FiniteSet`, `ClosedInterval`, and `Unknown`. Constraints are
 separate from `ValueType`: they do not change type identity or specialization
-fingerprints, and the frontend does not serialize range attributes or markers
-into ACIR. Widths, fixed shapes, aggregate indices, slice/insert bounds, and
+fingerprints. A declared `ac.index`/`ac.range` is instead a verifier-visible
+payload type with canonical bounds. Analysis may derive a narrower fact for
+that value, but losing the fact does not lose or weaken the declared type.
+Widths, bounds, fixed shapes, aggregate indices, slice/insert bounds, and
 topology loop counts must still become concrete before ACIR is emitted.
 
 Typed bit transfers follow the exact `ac.var` semantics: arithmetic wraps
@@ -1712,7 +1745,10 @@ arrays render as `!ac.value_array<N x T>`; `!ac.array` remains a static
 Queue/Var topology collection. Tuple and value-array elements must be
 recursively immutable. The executable frontend admits acyclic nested structs,
 standard Python enum values, structural tuple construction, fixed value-array
-construction, and constant aggregate indexing.
+construction, constant aggregate indexing, and bounded dynamic reads from
+fixed value arrays. A dynamic read lowers to `ac.var.dynamic_element`; both
+ACIR analysis and QueueGraph independently prove the index domain is contained
+in the array length. Dynamic fixed-array update remains unsupported.
 
 Tuple and fixed-array payloads use ordinary Python annotations and values:
 
@@ -1728,9 +1764,11 @@ updated = item.with_fields(
 )
 ```
 
-Tuple/list literals must have the exact statically known arity, and aggregate
-indices must be static and in range before Frozen ACIR. The compiler lowers
-them through typed `ac.var.tuple`, `ac.var.array`, and `ac.var.element`, keeps
+Tuple/list literals must have the exact statically known arity. Tuple indices
+remain static. Fixed-array indices are either static and in range or dynamic
+with a declared/inferred proof contained in the array length. The compiler
+lowers them through typed `ac.var.tuple`, `ac.var.array`, `ac.var.element`, and
+`ac.var.dynamic_element`, keeps
 aggregate identity and width in QueueGraph, and uses one packed value in gfsim
 and PYC rather than expanding a hardware container object in Python.
 Enum and nominal struct elements are recursively packed before construction and

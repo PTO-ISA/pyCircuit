@@ -806,6 +806,40 @@ LogicalResult SourceOp::verify() {
   if (cast<QueueType>(getOutput().getType()).getRate() > getDepth())
     return emitOpError(
         "Queue rate must not exceed its independently declared depth");
+  Type payload = cast<QueueType>(getOutput().getType()).getElementType();
+  llvm::SmallPtrSet<Operation *, 8> active;
+  std::function<bool(Type)> containsDeclaredRange = [&](Type type) -> bool {
+    if (isa<RangeType>(type))
+      return true;
+    if (auto array = dyn_cast<ValueArrayType>(type))
+      return containsDeclaredRange(array.getElementType());
+    if (auto tuple = dyn_cast<TupleType>(type))
+      return llvm::any_of(tuple.getTypes(), containsDeclaredRange);
+    SymbolRefAttr reference;
+    if (auto structure = dyn_cast<StructType>(type))
+      reference = structure.getName();
+    else if (auto packet = dyn_cast<PacketType>(type))
+      reference = packet.getName();
+    else if (auto transaction = dyn_cast<TransactionType>(type))
+      reference = transaction.getName();
+    if (!reference)
+      return false;
+    Operation *declaration =
+        SymbolTable::lookupNearestSymbolFrom(getOperation(), reference);
+    if (!declaration || !active.insert(declaration).second)
+      return false;
+    auto fields = declaration->getAttrOfType<ArrayAttr>("fields");
+    const bool found = fields && llvm::any_of(fields, [&](Attribute rawField) {
+      auto field = dyn_cast<DictionaryAttr>(rawField);
+      auto fieldType = field ? field.getAs<TypeAttr>("type") : TypeAttr();
+      return fieldType && containsDeclaredRange(fieldType.getValue());
+    });
+    active.erase(declaration);
+    return found;
+  };
+  if (containsDeclaredRange(payload))
+    return emitOpError(
+        "external source cannot carry an undecoded bounded range");
   return success();
 }
 
@@ -1496,7 +1530,7 @@ Type fieldType(DictionaryAttr field) {
 }
 
 bool isNormativeValueType(Type type) {
-  if (isa<IntegerType, FloatType, IndexType, StructType, PacketType,
+  if (isa<IntegerType, FloatType, IndexType, RangeType, StructType, PacketType,
           TransactionType, EnumType>(type))
     return true;
   if (auto vector = dyn_cast<mlir::VectorType>(type))
@@ -1908,6 +1942,20 @@ LogicalResult EnumOp::verify() {
 LogicalResult VarConstantOp::verify() {
   auto result = cast<VarType>(getResult().getType());
   auto value = dyn_cast<TypedAttr>(getValue());
+  if (auto range = dyn_cast<RangeType>(result.getElementType())) {
+    auto integer = dyn_cast_or_null<IntegerAttr>(value);
+    const uint64_t upper = range.getUpper();
+    const unsigned width =
+        upper == std::numeric_limits<uint64_t>::max()
+            ? 64
+            : std::max(1u, llvm::Log2_64_Ceil(upper + 1));
+    if (!integer || !integer.getType().isSignlessInteger(width) ||
+        integer.getValue().getZExtValue() < range.getLower() ||
+        integer.getValue().getZExtValue() > upper)
+      return emitOpError(
+          "range constant must use its storage width and lie within bounds");
+    return success();
+  }
   if (!value || value.getType() != result.getElementType())
     return emitOpError("attribute type must match Var element type");
   return success();
@@ -1990,6 +2038,50 @@ LogicalResult VarElementOp::verify() {
   return success();
 }
 
+LogicalResult VarDynamicElementOp::verify() {
+  auto array = dyn_cast<ValueArrayType>(
+      cast<VarType>(getAggregate().getType()).getElementType());
+  if (!array)
+    return emitOpError("dynamic aggregate must be a value_array");
+  Type indexElement = cast<VarType>(getIndex().getType()).getElementType();
+  auto index = dyn_cast<IntegerType>(indexElement);
+  auto range = dyn_cast<RangeType>(indexElement);
+  if ((!index || !index.isSignless() || index.getWidth() == 0 ||
+       index.getWidth() > 64) &&
+      !range)
+    return emitOpError("dynamic array index must be an unsigned scalar");
+  if (range && range.getUpper() >= static_cast<uint64_t>(array.getLength()))
+    return emitOpError("bounded index exceeds the value_array length");
+  if (getResult().getType() !=
+      VarType::get(getContext(), array.getElementType()))
+    return emitOpError("result must match the value_array element type");
+  return success();
+}
+
+static bool supportsZeroImage(Operation *operation, Type type,
+                              llvm::SmallPtrSetImpl<Operation *> &seen) {
+  if (isa<IntegerType, EnumType>(type))
+    return true;
+  if (auto range = dyn_cast<RangeType>(type))
+    return range.getLower() == 0;
+  if (auto tuple = dyn_cast<TupleType>(type))
+    return llvm::all_of(tuple.getTypes(), [&](Type element) {
+      return supportsZeroImage(operation, element, seen);
+    });
+  if (auto array = dyn_cast<ValueArrayType>(type))
+    return supportsZeroImage(operation, array.getElementType(), seen);
+  Operation *declaration = recordDecl(operation, type);
+  if (!declaration || !seen.insert(declaration).second)
+    return false;
+  const bool supported = llvm::all_of(
+      declarationFields(declaration), [&](Attribute rawField) {
+        return supportsZeroImage(
+            operation, fieldType(cast<DictionaryAttr>(rawField)), seen);
+      });
+  seen.erase(declaration);
+  return supported;
+}
+
 static VarDeclOp resolveVarDecl(Operation *operation,
                                 FlatSymbolRefAttr reference) {
   for (Operation *ancestor = operation->getParentOp(); ancestor;
@@ -2017,10 +2109,25 @@ LogicalResult VarDeclOp::verify() {
   auto init = dyn_cast<TypedAttr>(getInit());
   const auto zero = dyn_cast<IntegerAttr>(getInit());
   const bool zeroImage = zero && zero.getValue().isZero();
-  if ((!init || init.getType() != getValueType()) &&
-      !(isa<StructType, EnumType>(getValueType()) && zeroImage))
-    return emitOpError(
-        "init must match value type or be the zero image for a struct or enum");
+  if (auto range = dyn_cast<RangeType>(getValueType())) {
+    const uint64_t upper = range.getUpper();
+    const unsigned width =
+        upper == std::numeric_limits<uint64_t>::max()
+            ? 64
+            : std::max(1u, llvm::Log2_64_Ceil(upper + 1));
+    if (!zero || !zero.getType().isSignlessInteger(width) ||
+        zero.getValue().getZExtValue() < range.getLower() ||
+        zero.getValue().getZExtValue() > upper)
+      return emitOpError(
+          "range init must use its storage width and lie within bounds");
+  } else {
+    llvm::SmallPtrSet<Operation *, 8> seen;
+    if ((!init || init.getType() != getValueType()) &&
+        !(zeroImage && isa<StructType, EnumType>(getValueType()) &&
+          supportsZeroImage(*this, getValueType(), seen)))
+      return emitOpError(
+          "init must match value type or be the zero image for a struct or enum");
+  }
   if (getOwner().empty() || !getOwner().starts_with('/') ||
       (getOwner().size() > 1 && getOwner().ends_with('/')))
     return emitOpError("owner must be a canonical absolute scope path");
@@ -2058,10 +2165,11 @@ static LogicalResult verifyVarElementAccess(Operation *operation,
   if (!shape || shape.asArrayRef().empty())
     return operation->emitOpError("requires a shaped ac.var");
   auto indexVar = dyn_cast<VarType>(index.getType());
-  auto indexType = indexVar ? dyn_cast<IntegerType>(indexVar.getElementType())
-                            : IntegerType();
-  if (!indexType)
-    return operation->emitOpError("index must be an integer ac.var");
+  Type indexElement = indexVar ? indexVar.getElementType() : Type();
+  auto indexType = dyn_cast_or_null<IntegerType>(indexElement);
+  auto rangeType = dyn_cast_or_null<RangeType>(indexElement);
+  if (!indexType && !rangeType)
+    return operation->emitOpError("index must be an unsigned scalar ac.var");
   uint64_t entries = 1;
   for (int64_t extent : shape.asArrayRef()) {
     if (extent <= 0 ||
@@ -2070,7 +2178,10 @@ static LogicalResult verifyVarElementAccess(Operation *operation,
       return operation->emitOpError("ac.var shape product overflows");
     entries *= static_cast<uint64_t>(extent);
   }
-  if (shape.asArrayRef().size() > 1 &&
+  if (rangeType && rangeType.getUpper() >= entries)
+    return operation->emitOpError(
+        "bounded index exceeds the shaped ac.var domain");
+  if (!rangeType && shape.asArrayRef().size() > 1 &&
       indexType.getWidth() !=
           std::max<unsigned>(1, llvm::Log2_64_Ceil(entries)))
     return operation->emitOpError(
@@ -2496,7 +2607,7 @@ LogicalResult VarPriorityEncodeOp::verify() {
 static bool
 supportsRecursiveEquality(Operation *operation, Type type,
                           llvm::SmallPtrSetImpl<Operation *> &seen) {
-  if (isa<IntegerType, EnumType>(type))
+  if (isa<IntegerType, RangeType, EnumType>(type))
     return true;
   if (auto tuple = dyn_cast<TupleType>(type))
     return llvm::all_of(tuple.getTypes(), [&](Type element) {
@@ -2763,6 +2874,121 @@ LogicalResult VarConcatOp::verify() {
   return verifyConcatBitfieldProvenance(*this);
 }
 
+static unsigned rangeStorageWidth(RangeType range) {
+  const uint64_t upper = range.getUpper();
+  return upper == std::numeric_limits<uint64_t>::max()
+             ? 64
+             : std::max(1u, llvm::Log2_64_Ceil(upper + 1));
+}
+
+static bool isUnsignedScalar(Type type) {
+  if (auto integer = dyn_cast<IntegerType>(type))
+    return integer.isSignless() && integer.getWidth() > 0 &&
+           integer.getWidth() <= 64;
+  return isa<RangeType>(type);
+}
+
+static LogicalResult verifyRangeConversion(Operation *operation, Value input,
+                                           Value result) {
+  Type inputElement = cast<VarType>(input.getType()).getElementType();
+  auto resultRange = dyn_cast<RangeType>(
+      cast<VarType>(result.getType()).getElementType());
+  if (!isUnsignedScalar(inputElement) || !resultRange)
+    return operation->emitOpError(
+        "range conversion requires unsigned scalar input and range result");
+  return success();
+}
+
+LogicalResult VarRangeWrapOp::verify() {
+  return verifyRangeConversion(*this, getInput(), getResult());
+}
+
+LogicalResult VarRangeSaturateOp::verify() {
+  return verifyRangeConversion(*this, getInput(), getResult());
+}
+
+LogicalResult VarRangeCheckedOp::verify() {
+  if (failed(verifyRangeConversion(*this, getInput(), getValue())))
+    return failure();
+  if (getValid().getType() !=
+      VarType::get(getContext(), IntegerType::get(getContext(), 1)))
+    return emitOpError("checked range validity must be !ac.var<i1>");
+  return success();
+}
+
+LogicalResult VarRangeRefineOp::verify() {
+  return verifyRangeConversion(*this, getInput(), getResult());
+}
+
+LogicalResult VarRangeBitsOp::verify() {
+  auto inputRange = dyn_cast<RangeType>(
+      cast<VarType>(getInput().getType()).getElementType());
+  auto resultInteger = dyn_cast<IntegerType>(
+      cast<VarType>(getResult().getType()).getElementType());
+  if (!inputRange || !resultInteger || !resultInteger.isSignless() ||
+      resultInteger.getWidth() != rangeStorageWidth(inputRange))
+    return emitOpError(
+        "range_bits result must be the exact unsigned storage width");
+  return success();
+}
+
+static LogicalResult verifyRangeArithmetic(Operation *operation, Value lhs,
+                                           Value rhs, Value result,
+                                           bool subtract) {
+  auto left = dyn_cast<RangeType>(
+      cast<VarType>(lhs.getType()).getElementType());
+  auto right = dyn_cast<RangeType>(
+      cast<VarType>(rhs.getType()).getElementType());
+  auto actual = dyn_cast<RangeType>(
+      cast<VarType>(result.getType()).getElementType());
+  if (!left || !right || !actual)
+    return operation->emitOpError(
+        "bounded arithmetic requires range operands and result");
+  uint64_t lower = 0;
+  uint64_t upper = 0;
+  if (subtract) {
+    if (left.getLower() < right.getUpper())
+      return operation->emitOpError(
+          "bounded subtraction may produce a negative result");
+    lower = left.getLower() - right.getUpper();
+    upper = left.getUpper() - right.getLower();
+  } else if (right.getLower() >
+                 std::numeric_limits<uint64_t>::max() - left.getLower() ||
+             right.getUpper() >
+                 std::numeric_limits<uint64_t>::max() - left.getUpper()) {
+    return operation->emitOpError("bounded addition exceeds the u64 domain");
+  } else {
+    lower = left.getLower() + right.getLower();
+    upper = left.getUpper() + right.getUpper();
+  }
+  if (actual.getLower() != lower || actual.getUpper() != upper)
+    return operation->emitOpError(
+        "bounded arithmetic result range is inconsistent");
+  return success();
+}
+
+LogicalResult VarRangeAddOp::verify() {
+  return verifyRangeArithmetic(*this, getLhs(), getRhs(), getResult(), false);
+}
+
+LogicalResult VarRangeSubOp::verify() {
+  return verifyRangeArithmetic(*this, getLhs(), getRhs(), getResult(), true);
+}
+
+LogicalResult VarRangeCmpOp::verify() {
+  if (!isa<RangeType>(cast<VarType>(getLhs().getType()).getElementType()) ||
+      !isa<RangeType>(cast<VarType>(getRhs().getType()).getElementType()))
+    return emitOpError("bounded comparison requires range operands");
+  if (!llvm::is_contained(
+          ArrayRef<StringRef>{"eq", "ne", "ult", "ule", "ugt", "uge"},
+          getPredicate()))
+    return emitOpError("bounded comparison predicate is unsupported");
+  if (getResult().getType() !=
+      VarType::get(getContext(), IntegerType::get(getContext(), 1)))
+    return emitOpError("bounded comparison result must be !ac.var<i1>");
+  return success();
+}
+
 LogicalResult VarInsertOp::verify() {
   auto base = dyn_cast<IntegerType>(
       cast<VarType>(getBase().getType()).getElementType());
@@ -3016,7 +3242,7 @@ static bool isTableEntryType(Operation *anchor, Type type) {
   (void)anchor;
   if (auto integer = dyn_cast<IntegerType>(type))
     return integer.getWidth() > 0 && integer.getWidth() <= 64;
-  return isa<EnumType>(type) ||
+  return isa<RangeType, EnumType>(type) ||
          (isa<StructType>(type) && isImmutablePayloadType(type));
 }
 
@@ -3163,16 +3389,25 @@ static LogicalResult verifyCanonicalFlattenedTableIndex(Operation *operation,
 static LogicalResult verifyTableIndex(Operation *operation, TableOp table,
                                       Value index) {
   auto indexType = cast<VarType>(index.getType()).getElementType();
+  auto range = dyn_cast<RangeType>(indexType);
   auto integer = dyn_cast<IntegerType>(indexType);
-  if (!integer || integer.getWidth() == 0 || integer.getWidth() > 64)
+  if (!range &&
+      (!integer || integer.getWidth() == 0 || integer.getWidth() > 64))
     return operation->emitOpError(
         "table index must be an integer Var no wider than 64 bits");
+  if (range && range.getUpper() >= static_cast<uint64_t>(table.getEntries()))
+    return operation->emitOpError(
+        "bounded table index exceeds the Table domain");
   if (table.getShapeAttr()) {
     auto shape = canonicalTableShape(table);
     auto entries = succeeded(shape) ? flattenedTableEntries(*shape)
                                     : FailureOr<uint64_t>(failure());
-    if (failed(entries) ||
-        integer.getWidth() != canonicalTableIndexWidth(*entries))
+    if (failed(entries))
+      return operation->emitOpError("Table shape is malformed");
+    if (shape->size() == 1 && range) {
+      return success();
+    }
+    if (!integer || integer.getWidth() != canonicalTableIndexWidth(*entries))
       return operation->emitOpError(
           "table index must use the canonical flattened domain width");
     if (shape->size() > 1 &&
@@ -3347,6 +3582,12 @@ LogicalResult TableOp::verify() {
   }
   if (getInit() != 0)
     return emitOpError("table init must be zero");
+  if (!getInitImageAttr()) {
+    llvm::SmallPtrSet<Operation *, 8> seen;
+    if (!supportsZeroImage(*this, getEntryType(), seen))
+      return emitOpError(
+          "zero-initialized Table entry type does not admit a zero image");
+  }
   if (getInitVersionAttr() && !getInitImageAttr())
     return emitOpError("init_version requires a typed init_image");
   if (getInitImageAttr()) {
@@ -3488,12 +3729,16 @@ LogicalResult TableIndexOp::verify() {
   if (getCoordinates().size() != shape->size())
     return emitOpError("coordinate rank must match the Table shape rank");
   for (auto [coordinate, extent] : llvm::zip_equal(getCoordinates(), *shape)) {
-    auto type = dyn_cast<IntegerType>(
-        cast<VarType>(coordinate.getType()).getElementType());
-    if (!type || !type.isSignless() ||
-        type.getWidth() != canonicalTableIndexWidth(extent))
+    Type element = cast<VarType>(coordinate.getType()).getElementType();
+    auto type = dyn_cast<IntegerType>(element);
+    auto range = dyn_cast<RangeType>(element);
+    if ((!range &&
+         (!type || !type.isSignless() ||
+          type.getWidth() != canonicalTableIndexWidth(extent))) ||
+        (range && range.getUpper() >= static_cast<uint64_t>(extent)))
       return emitOpError(
-          "coordinate type must use the canonical unsigned axis width");
+          "coordinate type must use the canonical unsigned axis width or a "
+          "contained bounded range");
     auto constant = coordinate.getDefiningOp<VarConstantOp>();
     auto value = constant ? dyn_cast<IntegerAttr>(constant.getValueAttr())
                           : IntegerAttr();

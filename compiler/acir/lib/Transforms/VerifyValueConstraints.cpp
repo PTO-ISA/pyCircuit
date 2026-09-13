@@ -347,6 +347,26 @@ LogicalResult verifyValueConstraints(ModuleOp model) {
       result = failed(entries) ? failure()
                                : verifyIndex(analysis, read, read.getIndex(),
                                              *entries, "shaped ac.var");
+    } else if (auto refine = dyn_cast<ac::VarRangeRefineOp>(operation)) {
+      auto target = dyn_cast<ac::RangeType>(
+          cast<ac::VarType>(refine.getResult().getType()).getElementType());
+      if (target &&
+          !analysis.provesWithin(refine.getInput(), target.getLower(),
+                                 target.getUpper())) {
+        ValueConstraint constraint =
+            analysis.lookupConstraint(refine.getInput());
+        result = refine.emitOpError()
+                 << "cannot prove strict range refinement is within ["
+                 << target.getLower() << ", " << target.getUpper()
+                 << "]; inferred " << constraintText(constraint);
+      }
+    } else if (auto element = dyn_cast<ac::VarDynamicElementOp>(operation)) {
+      auto array = dyn_cast<ac::ValueArrayType>(
+          cast<ac::VarType>(element.getAggregate().getType()).getElementType());
+      if (array)
+        result = verifyIndex(analysis, element, element.getIndex(),
+                             static_cast<uint64_t>(array.getLength()),
+                             "value_array");
     } else if (auto assign = dyn_cast<ac::VarAssignElementOp>(operation)) {
       auto variable = resolveFlatDeclaration<ac::VarDeclOp>(
           assign, assign.getVariableAttr());

@@ -12,6 +12,7 @@ from _pycircuit_semantics import (
     ConstraintError,
     EnumType,
     FiniteSet,
+    RangeType,
     StaticIntExpression,
     StaticIntExpressionError,
     StructType,
@@ -336,6 +337,7 @@ def test_value_type_constraints_cover_bits_bool_and_enum_exhaustiveness() -> Non
     mode = EnumType("Mode", ("IDLE", "RUN", "WAIT"))
 
     assert constraint_for_type(BitsType(3)) == ClosedInterval(0, 7)
+    assert constraint_for_type(RangeType(4, 9)) == ClosedInterval(4, 8)
     assert constraint_for_type(BoolType()) == FiniteSet((False, True))
     assert constraint_for_type(mode) == FiniteSet(("IDLE", "RUN", "WAIT"))
     assert isinstance(constraint_for_type(TupleType((BitsType(1),))), Unknown)
@@ -351,5 +353,7 @@ def test_value_type_constraints_cover_bits_bool_and_enum_exhaustiveness() -> Non
     )
     with pytest.raises(ConstraintError, match="bits constraint"):
         ValueConstraint(BitsType(3), Constant(8))
+    with pytest.raises(ConstraintError, match="range constraint"):
+        ValueConstraint(RangeType(0, 5), Constant(5))
     with pytest.raises(ConstraintError, match="unknown member"):
         ValueConstraint(mode, Constant("INVALID"))

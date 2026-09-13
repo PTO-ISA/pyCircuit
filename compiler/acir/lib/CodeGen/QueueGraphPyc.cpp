@@ -9,6 +9,7 @@
 #include "llvm/ADT/StringMap.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/ADT/StringSet.h"
+#include "llvm/Support/MathExtras.h"
 
 #include <algorithm>
 #include <limits>
@@ -180,6 +181,20 @@ const QueueHelperPlan *findHelper(const QueueGraphPlan &plan,
   return found == plan.helpers.end() ? nullptr : &*found;
 }
 
+std::optional<std::pair<uint64_t, uint64_t>>
+rangeBounds(llvm::StringRef type) {
+  constexpr llvm::StringLiteral prefix = "!ac.range<";
+  if (!type.starts_with(prefix) || !type.ends_with('>'))
+    return std::nullopt;
+  auto [lower, upper] = type.drop_front(prefix.size()).drop_back().split(',');
+  uint64_t lowerValue = 0;
+  uint64_t upperValue = 0;
+  if (lower.trim().getAsInteger(10, lowerValue) ||
+      upper.trim().getAsInteger(10, upperValue) || lowerValue > upperValue)
+    return std::nullopt;
+  return std::pair{lowerValue, upperValue};
+}
+
 llvm::Expected<unsigned> typeWidth(const QueueGraphPlan &plan,
                                    llvm::StringRef type) {
   if (type.starts_with('i')) {
@@ -187,6 +202,10 @@ llvm::Expected<unsigned> typeWidth(const QueueGraphPlan &plan,
     if (!type.drop_front().getAsInteger(10, width) && width > 0)
       return width;
   }
+  if (auto bounds = rangeBounds(type))
+      return bounds->second == std::numeric_limits<uint64_t>::max()
+                 ? 64
+                 : std::max(1u, llvm::Log2_64_Ceil(bounds->second + 1));
   if (const QueueEnumPlan *enumeration = findEnum(plan, type))
     if (enumeration->width <= kMaximumPackedValueWidth)
       return static_cast<unsigned>(enumeration->width);
@@ -746,7 +765,12 @@ emitTransform(const QueueGraphPlan &plan, const QueueBlockPlan &block,
     std::vector<std::string> indices;
     std::vector<std::string> valids;
   };
+  struct CheckedRangeValues {
+    std::string value;
+    std::string valid;
+  };
   llvm::StringMap<ChoiceValues> choiceValues;
+  llvm::StringMap<CheckedRangeValues> checkedRangeValues;
   llvm::StringMap<std::vector<std::string>> helperCallValues;
   for (size_t index = 0; index < inputData.size(); ++index) {
     std::string name = index == 0 ? "item" : "item" + std::to_string(index);
@@ -770,6 +794,61 @@ emitTransform(const QueueGraphPlan &plan, const QueueBlockPlan &block,
     if (found == types.end())
       return pycError("transform value has no type: '" + name + "'");
     return found->getValue();
+  };
+  auto emitPycConstant = [&](uint64_t constant, llvm::StringRef type) {
+    std::string result = newValue();
+    body << "    " << result << " = pyc.constant " << constant << " : "
+         << type.str() << "\n";
+    return result;
+  };
+  auto emitPycBinary = [&](llvm::StringRef operation, llvm::StringRef lhs,
+                           llvm::StringRef rhs, llvm::StringRef type,
+                           llvm::StringRef resultType = {}) {
+    std::string result = newValue();
+    const bool compare = operation == "ult" || operation == "eq";
+    body << "    " << result << " = pyc."
+         << (compare ? "cmp" : operation.str()) << ' ' << lhs.str() << ", "
+         << rhs.str();
+    if (compare)
+      body << " {predicate = \"" << operation.str() << "\"}";
+    body << " : " << type.str() << ", " << type.str() << " -> "
+         << (resultType.empty() ? (compare ? "i1" : type.str())
+                                : resultType.str())
+         << "\n";
+    return result;
+  };
+  auto emitPycNot = [&](llvm::StringRef input) {
+    std::string result = newValue();
+    body << "    " << result << " = pyc.not " << input.str() << " : i1\n";
+    return result;
+  };
+  auto emitPycSelect = [&](llvm::StringRef condition, llvm::StringRef trueValue,
+                           llvm::StringRef falseValue, llvm::StringRef type) {
+    std::string result = newValue();
+    body << "    " << result << " = pyc.select " << condition.str() << ", "
+         << trueValue.str() << ", " << falseValue.str() << " : i1, "
+         << type.str() << ", " << type.str() << " -> " << type.str() << "\n";
+    return result;
+  };
+  auto widenUnsigned = [&](llvm::StringRef input, unsigned sourceWidth,
+                           unsigned targetWidth) {
+    if (sourceWidth == targetWidth)
+      return input.str();
+    std::string zero = emitPycConstant(0, "i" + std::to_string(targetWidth - sourceWidth));
+    std::string result = newValue();
+    body << "    " << result << " = pyc.concat(" << zero << ", " << input.str()
+         << ") : (i" << targetWidth - sourceWidth << ", i" << sourceWidth
+         << ") -> i" << targetWidth << "\n";
+    return result;
+  };
+  auto narrowUnsigned = [&](llvm::StringRef input, unsigned sourceWidth,
+                            unsigned targetWidth) {
+    if (sourceWidth == targetWidth)
+      return input.str();
+    std::string result = newValue();
+    body << "    " << result << " = pyc.extract " << input.str()
+         << " {lsb = 0} : i" << sourceWidth << " -> i" << targetWidth << "\n";
+    return result;
   };
   for (const QueueExpressionPlan &expression : block.expressions) {
     if (values.contains(expression.result))
@@ -849,7 +928,169 @@ emitTransform(const QueueGraphPlan &plan, const QueueBlockPlan &block,
                        : value(expression.operands[0]);
       if (!first)
         return first.takeError();
-      if (expression.kind == "table_selection_index_ref" ||
+      if (expression.kind == "range_wrap" ||
+          expression.kind == "range_saturate" ||
+          expression.kind == "range_checked_value" ||
+          expression.kind == "range_checked_valid") {
+        llvm::StringRef targetType =
+            expression.kind.starts_with("range_checked")
+                ? llvm::StringRef(expression.field)
+                : llvm::StringRef(expression.type);
+        auto bounds = rangeBounds(targetType);
+        auto sourceLogicalType = valueType(expression.operands.front());
+        auto sourceWidth = sourceLogicalType
+                               ? typeWidth(plan, *sourceLogicalType)
+                               : llvm::Expected<unsigned>(
+                                     sourceLogicalType.takeError());
+        auto targetWidth = typeWidth(plan, targetType);
+        if (!bounds || !sourceWidth)
+          return !sourceWidth ? sourceWidth.takeError()
+                              : pycError("range target is malformed");
+        if (!targetWidth)
+          return targetWidth.takeError();
+        const unsigned width = std::max(*sourceWidth, *targetWidth);
+        const std::string type = "i" + std::to_string(width);
+        const std::string raw = widenUnsigned(*first, *sourceWidth, width);
+        const std::string lower = emitPycConstant(bounds->first, type);
+        const std::string upper = emitPycConstant(bounds->second, type);
+        const std::string below = emitPycBinary("ult", raw, lower, type);
+        const std::string above = emitPycBinary("ult", upper, raw, type);
+        auto clamp = [&]() {
+          std::string lowOrRaw = emitPycSelect(below, lower, raw, type);
+          return emitPycSelect(above, upper, lowOrRaw, type);
+        };
+        if (expression.kind == "range_wrap") {
+          std::string normalized;
+          const uint64_t targetMask =
+              *targetWidth == 64
+                  ? std::numeric_limits<uint64_t>::max()
+                  : (uint64_t{1} << *targetWidth) - 1;
+          if (bounds->first == 0 && bounds->second == targetMask) {
+            normalized = raw;
+          } else {
+            const uint64_t span = bounds->second - bounds->first + 1;
+            const std::string spanValue = emitPycConstant(span, type);
+            if (bounds->first == 0) {
+              normalized = emitPycBinary("urem", raw, spanValue, type);
+            } else {
+              std::string forward = emitPycBinary("sub", raw, lower, type);
+              forward = emitPycBinary("urem", forward, spanValue, type);
+              forward = emitPycBinary("add", lower, forward, type);
+              const std::string lowerMinusOne =
+                  emitPycConstant(bounds->first - 1, type);
+              std::string backward =
+                  emitPycBinary("sub", lowerMinusOne, raw, type);
+              backward = emitPycBinary("urem", backward, spanValue, type);
+              backward = emitPycBinary("sub", upper, backward, type);
+              normalized = emitPycSelect(below, backward, forward, type);
+            }
+          }
+          result = narrowUnsigned(normalized, width, *targetWidth);
+        } else if (expression.kind == "range_saturate") {
+          result = narrowUnsigned(clamp(), width, *targetWidth);
+        } else {
+          auto cached = checkedRangeValues.find(expression.literal);
+          if (cached == checkedRangeValues.end()) {
+            const std::string valid = emitPycBinary(
+                "and", emitPycNot(below), emitPycNot(above), "i1");
+            const std::string checked =
+                emitPycSelect(valid, raw, lower, type);
+            checkedRangeValues[expression.literal] = {
+                narrowUnsigned(checked, width, *targetWidth), valid};
+            cached = checkedRangeValues.find(expression.literal);
+          }
+          result = expression.kind == "range_checked_value"
+                       ? cached->getValue().value
+                       : cached->getValue().valid;
+        }
+      } else if (expression.kind == "range_refine") {
+        auto sourceLogicalType = valueType(expression.operands.front());
+        auto sourceWidth = sourceLogicalType
+                               ? typeWidth(plan, *sourceLogicalType)
+                               : llvm::Expected<unsigned>(
+                                     sourceLogicalType.takeError());
+        auto targetWidth = typeWidth(plan, expression.type);
+        if (!sourceWidth)
+          return sourceWidth.takeError();
+        if (!targetWidth)
+          return targetWidth.takeError();
+        const unsigned width = std::max(*sourceWidth, *targetWidth);
+        result = narrowUnsigned(
+            widenUnsigned(*first, *sourceWidth, width), width, *targetWidth);
+      } else if (expression.kind == "range_bits") {
+        result = *first;
+      } else if (expression.kind == "range_add" ||
+                 expression.kind == "range_sub") {
+        auto right = value(expression.operands[1]);
+        auto leftLogicalType = valueType(expression.operands[0]);
+        auto rightLogicalType = valueType(expression.operands[1]);
+        auto leftWidth = leftLogicalType
+                             ? typeWidth(plan, *leftLogicalType)
+                             : llvm::Expected<unsigned>(
+                                   leftLogicalType.takeError());
+        auto rightWidth = rightLogicalType
+                              ? typeWidth(plan, *rightLogicalType)
+                              : llvm::Expected<unsigned>(
+                                    rightLogicalType.takeError());
+        auto resultWidth = typeWidth(plan, expression.type);
+        if (!right)
+          return right.takeError();
+        if (!leftWidth)
+          return leftWidth.takeError();
+        if (!rightWidth)
+          return rightWidth.takeError();
+        if (!resultWidth)
+          return resultWidth.takeError();
+        const unsigned width =
+            std::max({*leftWidth, *rightWidth, *resultWidth});
+        const std::string type = "i" + std::to_string(width);
+        std::string computed = emitPycBinary(
+            expression.kind == "range_add" ? "add" : "sub",
+            widenUnsigned(*first, *leftWidth, width),
+            widenUnsigned(*right, *rightWidth, width), type);
+        result = narrowUnsigned(computed, width, *resultWidth);
+      } else if (expression.kind == "range_cmp") {
+        auto right = value(expression.operands[1]);
+        auto leftLogicalType = valueType(expression.operands[0]);
+        auto rightLogicalType = valueType(expression.operands[1]);
+        auto leftWidth = leftLogicalType
+                             ? typeWidth(plan, *leftLogicalType)
+                             : llvm::Expected<unsigned>(
+                                   leftLogicalType.takeError());
+        auto rightWidth = rightLogicalType
+                              ? typeWidth(plan, *rightLogicalType)
+                              : llvm::Expected<unsigned>(
+                                    rightLogicalType.takeError());
+        if (!right)
+          return right.takeError();
+        if (!leftWidth)
+          return leftWidth.takeError();
+        if (!rightWidth)
+          return rightWidth.takeError();
+        const unsigned width = std::max(*leftWidth, *rightWidth);
+        const std::string type = "i" + std::to_string(width);
+        std::string lhs = widenUnsigned(*first, *leftWidth, width);
+        std::string rhs = widenUnsigned(*right, *rightWidth, width);
+        bool negate = false;
+        llvm::StringRef predicate = expression.predicate;
+        if (predicate == "ne") {
+          predicate = "eq";
+          negate = true;
+        } else if (predicate == "ule") {
+          std::swap(lhs, rhs);
+          predicate = "ult";
+          negate = true;
+        } else if (predicate == "ugt") {
+          std::swap(lhs, rhs);
+          predicate = "ult";
+        } else if (predicate == "uge") {
+          predicate = "ult";
+          negate = true;
+        }
+        result = emitPycBinary(predicate, lhs, rhs, type);
+        if (negate)
+          result = emitPycNot(result);
+      } else if (expression.kind == "table_selection_index_ref" ||
           expression.kind == "table_selection_valid_ref") {
         const std::string sharedKey =
             "selection:" + expression.table + ":" + expression.field + ":" +
@@ -1710,6 +1951,63 @@ emitTransform(const QueueGraphPlan &plan, const QueueBlockPlan &block,
         body << "    " << result << " = pyc.count_zeros " << *first
              << " {direction = \"" << expression.predicate
              << "\"} : " << *sourceType << " -> " << *resultType << "\n";
+      } else if (expression.kind == "array_get_dynamic") {
+        if (expression.operands.size() != 2 || expression.width == 0 ||
+            expression.selectionCount == 0)
+          return pycError("dynamic value_array access is malformed");
+        auto aggregate = value(expression.operands[0]);
+        auto index = value(expression.operands[1]);
+        auto aggregateLogicalType = valueType(expression.operands[0]);
+        auto indexLogicalType = valueType(expression.operands[1]);
+        if (!aggregate)
+          return aggregate.takeError();
+        if (!index)
+          return index.takeError();
+        auto aggregateType = aggregateLogicalType
+                                 ? pycType(plan, *aggregateLogicalType)
+                                 : llvm::Expected<std::string>(
+                                       aggregateLogicalType.takeError());
+        auto indexType = indexLogicalType
+                             ? pycType(plan, *indexLogicalType)
+                             : llvm::Expected<std::string>(
+                                   indexLogicalType.takeError());
+        auto indexWidth = indexLogicalType
+                              ? typeWidth(plan, *indexLogicalType)
+                              : llvm::Expected<unsigned>(
+                                    indexLogicalType.takeError());
+        auto resultType = pycType(plan, expression.type);
+        if (!aggregateType)
+          return aggregateType.takeError();
+        if (!indexType)
+          return indexType.takeError();
+        if (!indexWidth)
+          return indexWidth.takeError();
+        if (!resultType)
+          return resultType.takeError();
+        const unsigned comparisonWidth = std::max<unsigned>(
+            *indexWidth,
+            std::max<uint64_t>(
+                1, llvm::Log2_64_Ceil(expression.selectionCount)));
+        const std::string comparisonType =
+            "i" + std::to_string(comparisonWidth);
+        const std::string widenedIndex =
+            widenUnsigned(*index, *indexWidth, comparisonWidth);
+        for (uint64_t element = expression.selectionCount; element-- > 0;) {
+          const uint64_t lsb =
+              expression.width * (expression.selectionCount - element - 1);
+          std::string extracted = newValue();
+          body << "    " << extracted << " = pyc.extract " << *aggregate
+               << " {lsb = " << lsb << "} : " << *aggregateType << " -> "
+               << *resultType << "\n";
+          if (result.empty()) {
+            result = std::move(extracted);
+            continue;
+          }
+          std::string ordinal = emitPycConstant(element, comparisonType);
+          std::string selected =
+              emitPycBinary("eq", widenedIndex, ordinal, comparisonType);
+          result = emitPycSelect(selected, extracted, result, *resultType);
+        }
       } else if (expression.kind == "bit_extract" ||
                  expression.kind == "aggregate_get") {
         if (expression.operands.size() != 1 || expression.width == 0)

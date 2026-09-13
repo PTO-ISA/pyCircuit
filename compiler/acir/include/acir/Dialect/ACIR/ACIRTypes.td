@@ -34,6 +34,15 @@ def ACIR_EnumType : ACIR_LayoutNamedType<"Enum", "enum">;
 def ACIR_ResourceTokenType
     : ACIR_NamedType<"ResourceToken", "resource_token">;
 
+// A proof-carrying unsigned closed range.  The Python surface is half-open;
+// `ac.range[lo, hi]` lowers to `!ac.range<lo, hi - 1>` so the full u64 domain
+// remains representable without a 2**64 type parameter.
+def ACIR_RangeType : ACIR_Type<"Range", "range"> {
+  let parameters = (ins "uint64_t":$lower, "uint64_t":$upper);
+  let assemblyFormat = "`<` $lower `,` $upper `>`";
+  let genVerifyDecl = 1;
+}
+
 // An immutable fixed-length payload value. This is deliberately distinct from
 // ac.array, which is a static collection of Queue/Var topology objects.
 def ACIR_ValueArrayType : ACIR_Type<"ValueArray", "value_array"> {

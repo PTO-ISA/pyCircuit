@@ -612,6 +612,27 @@ runtime width、bool/enum 隐式混用和超范围 literal 均拒绝。
 `ac.static_assert(condition, message=...)` 在 JIT `ac.const` 参数绑定后求值，
 只允许直接出现在 entry body，并在 Frozen ACIR 前消失；失败诊断保留相对源码位置。
 
+Agentic Circuit 的声明式 bounded integer 使用 Python 半开区间：
+
+```python
+wrapped = ac.wrap(raw, ac.index[5])
+clamped = ac.saturate(raw, ac.range[4, 9])
+checked = ac.checked(raw, ac.index[5])
+strict = ac.refine(proven_small_value, ac.index[5])
+selected = values[checked.value]
+```
+
+存储保留原数值，位宽为 `max(1, (upper - 1).bit_length())`。外部输入不能仅靠
+annotation 获得范围证明，包含 nested bounded leaf 的输入同样必须先以 bits 进入，
+再显式选择 wrap、saturate、checked 或 verifier 证明安全的 refine。`checked.value`
+在 invalid 时返回目标下界，`checked.valid` 不会隐式控制 rule firing。bounded 加减
+生成数学结果域且不环绕，跨域比较按 unsigned 数值语义执行。固定 value-array 支持
+verifier 证明安全的动态读取；动态更新仍不在此合同内。Frozen ACIR 使用 inclusive
+`!ac.range<lo, hi - 1>`，QueueGraph 独立复算转换、算术和索引证明后才在
+GFSim/PYC 中擦除 refinement。
+当前 persistent/module state 的 bounded scalar 必须包含零并以零初始化；非零下界
+state 在 typed reset image 扩展前 fail closed。
+
 嵌套 `@ac.config` 可以作为 dependent type 的 typed root：
 
 ```python

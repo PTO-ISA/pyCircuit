@@ -124,6 +124,16 @@ def ACIR_VarElementOp : ACIR_Op<"var.element", [Pure]> {
   }];
 }
 
+def ACIR_VarDynamicElementOp : ACIR_Op<"var.dynamic_element", [Pure]> {
+  let arguments = (ins ACIR_VarType:$aggregate, ACIR_VarType:$index);
+  let results = (outs ACIR_VarType:$result);
+  let hasVerifier = 1;
+  let assemblyFormat = [{
+    $aggregate `at` $index attr-dict `:` qualified(type($aggregate)) `,`
+    qualified(type($index)) `->` qualified(type($result))
+  }];
+}
+
 class ACIR_VarBinaryOp<string mnemonic> : ACIR_Op<mnemonic, [
     Pure, AllTypesMatch<["lhs", "rhs", "result"]>
   ]> {
@@ -254,6 +264,63 @@ def ACIR_VarConcatOp : ACIR_Op<"var.concat", [Pure]> {
   let assemblyFormat = [{
     $inputs attr-dict `:` type($inputs) `->` qualified(type($result))
   }];
+}
+
+def ACIR_VarRangeWrapOp : ACIR_Op<"var.range_wrap", [Pure]> {
+  let arguments = (ins ACIR_VarType:$input);
+  let results = (outs ACIR_VarType:$result);
+  let hasVerifier = 1;
+  let assemblyFormat = "$input attr-dict `:` qualified(type($input)) `->` qualified(type($result))";
+}
+
+def ACIR_VarRangeSaturateOp : ACIR_Op<"var.range_saturate", [Pure]> {
+  let arguments = (ins ACIR_VarType:$input);
+  let results = (outs ACIR_VarType:$result);
+  let hasVerifier = 1;
+  let assemblyFormat = "$input attr-dict `:` qualified(type($input)) `->` qualified(type($result))";
+}
+
+def ACIR_VarRangeCheckedOp : ACIR_Op<"var.range_checked", [Pure]> {
+  let arguments = (ins ACIR_VarType:$input);
+  let results = (outs ACIR_VarType:$value, ACIR_VarType:$valid);
+  let hasVerifier = 1;
+  let assemblyFormat = "$input attr-dict `:` qualified(type($input)) `->` qualified(type($value)) `,` qualified(type($valid))";
+}
+
+def ACIR_VarRangeRefineOp : ACIR_Op<"var.range_refine", [Pure]> {
+  let arguments = (ins ACIR_VarType:$input);
+  let results = (outs ACIR_VarType:$result);
+  let hasVerifier = 1;
+  let assemblyFormat = "$input attr-dict `:` qualified(type($input)) `->` qualified(type($result))";
+}
+
+def ACIR_VarRangeBitsOp : ACIR_Op<"var.range_bits", [Pure]> {
+  let arguments = (ins ACIR_VarType:$input);
+  let results = (outs ACIR_VarType:$result);
+  let hasVerifier = 1;
+  let assemblyFormat = "$input attr-dict `:` qualified(type($input)) `->` qualified(type($result))";
+}
+
+def ACIR_VarRangeAddOp : ACIR_Op<"var.range_add", [Pure]> {
+  let arguments = (ins ACIR_VarType:$lhs, ACIR_VarType:$rhs);
+  let results = (outs ACIR_VarType:$result);
+  let hasVerifier = 1;
+  let assemblyFormat = "$lhs `,` $rhs attr-dict `:` qualified(type($lhs)) `,` qualified(type($rhs)) `->` qualified(type($result))";
+}
+
+def ACIR_VarRangeSubOp : ACIR_Op<"var.range_sub", [Pure]> {
+  let arguments = (ins ACIR_VarType:$lhs, ACIR_VarType:$rhs);
+  let results = (outs ACIR_VarType:$result);
+  let hasVerifier = 1;
+  let assemblyFormat = "$lhs `,` $rhs attr-dict `:` qualified(type($lhs)) `,` qualified(type($rhs)) `->` qualified(type($result))";
+}
+
+def ACIR_VarRangeCmpOp : ACIR_Op<"var.range_cmp", [Pure]> {
+  let arguments = (ins StrAttr:$predicate, ACIR_VarType:$lhs,
+                       ACIR_VarType:$rhs);
+  let results = (outs ACIR_VarType:$result);
+  let hasVerifier = 1;
+  let assemblyFormat = "$predicate $lhs `,` $rhs attr-dict `:` qualified(type($lhs)) `,` qualified(type($rhs)) `->` qualified(type($result))";
 }
 
 def ACIR_VarInsertOp : ACIR_Op<"var.insert", [Pure]> {

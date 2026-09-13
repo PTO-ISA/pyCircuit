@@ -9315,3 +9315,82 @@ equivalent expression that is replaced by an earlier value.
 
 **Source**
 - PTO-ISA/pyCircuit issue #128.
+
+## Decision 0251: declared bounded values are verifier-visible refinements
+
+**Status:** Accepted and implemented
+
+**Extends and partially supersedes:** Decision 0217's prohibition on range
+annotations. Inferred `Constraint` facts remain separate and unchanged. Also
+extends Decisions 0246 through 0250.
+
+**Context / Goal**
+Non-power-of-two arrays and Tables need a reusable value-level proof instead of
+relying on incidental bit width. A Python annotation alone cannot prove an
+external three-bit value is below five, and implicit truncation cannot become
+range evidence.
+
+**Decision (strong constraint)**
+- `ac.index[N]` is the canonical alias of `ac.range[0, N]`. Public ranges are
+  unsigned and half-open: `0 <= lower < upper <= 2**64`. Their storage uses the
+  unchanged numeric value with width `max(1, (upper - 1).bit_length())`; it is
+  not offset-encoded. Bounds are closed static expressions and participate in
+  recursive descriptor and specialization identity.
+- Declared bounded types are verifier-visible payload types. They are distinct
+  from same-width bits and from other bounds. Inferred `Constant`, `FiniteSet`,
+  `ClosedInterval`, and `Unknown` remain recomputable analysis facts that do
+  not enter type identity.
+- Raw external inputs recursively containing a bounded leaf are rejected. They
+  must enter as bits and use an explicit decoder; an annotation cannot exclude
+  physically representable invalid codes. Internal helpers, modules, Queues,
+  records, arrays, and state may carry a bounded type after exact construction.
+  The first persistent/module-state profile requires zero to belong to the
+  domain and uses zero initialization; a nonzero-lower typed reset image is not
+  inferred and remains fail closed.
+- `ac.wrap(value, T)` computes `lo + ((value - lo) mod (hi - lo))`;
+  `ac.saturate(value, T)` clamps to `[lo, hi - 1]`; and `ac.checked(value, T)`
+  returns `.value: T` plus `.valid: bool`, using `lo` as the total invalid
+  fallback. None of these operations implicitly controls rule acceptance.
+  `ac.refine(value, T)` is the strict proof conversion and succeeds only when
+  whole-model analysis independently proves the input domain is contained in
+  the target.
+- Bounded addition computes its mathematical result domain. `[a,b) + [c,d)`
+  yields `[a+c, b+d-1)`; subtraction is accepted only when the result remains
+  nonnegative and yields `[a-d+1, b-c)`. Results outside the unsigned 64-bit
+  domain are rejected. Plain bits retain modulo-`2**N` arithmetic. Wraparound
+  of a bounded index is always explicit.
+- Dynamic value-array and Table coordinates accept a declared or inferred
+  domain contained in the relevant extent. A bounded numeric proof never
+  replaces same-owner Table index/selection provenance. Unknown inputs use an
+  explicit checked result or fail closed.
+- Frozen ACIR retains bounded types and conversion operations. QueueGraph
+  independently validates bounds, conversion result types, analysis transfer,
+  array capacity, and Table owner/index provenance. Dependent bounds used only
+  in executable conversion targets retain a stable `ac.static_type_target`
+  and the same postfix metadata checks as interface and record types. PYC and
+  GFSim erase the refinement only after verification and implement the same
+  total arithmetic.
+- Bounds at `2**64` use an overflow-safe representation. The semantic
+  descriptor's canonical JSON spells public half-open bounds as unsigned
+  decimal strings; ACIR and QueueGraph use the inclusive
+  `!ac.range<lower, upper - 1>` spelling. No host shift by 64, zero divisor, or
+  unsigned subtraction may stand in for the mathematical contract.
+
+**Required verification**
+- Cover `index[1]`, non-power-of-two 3/5, nonzero lower bounds, equal-width
+  unequal domains, config-dependent bounds, invalid construction and ingress.
+- Test `lo-1`, `lo`, `hi-1`, `hi`, and max-u64 through wrap, saturate, checked,
+  strict conversion, add/sub, and constant folding with source provenance.
+- ACIR and QueueGraph reject forged bounds, sibling valid/value pairs, unsafe
+  truncation, wrong array capacity, cross-Table indices, and incorrect row or
+  flattened provenance.
+- Design-neutral runtime fixtures compare value and validity across GFSim,
+  PYC C++, and Verilog, compare accepted/output cycles between the two
+  ready/valid PYC backends under shared backpressure, and reuse the bounded
+  runtime-row fixture to prove identical final Table state. Direct GFSim uses
+  its transaction/epoch driver and therefore compares committed order rather
+  than wrapper reset-cycle numbering. Dynamic immutable-array read is required
+  before F02 closes; dynamic update remains G01.
+
+**Source**
+- PTO-ISA/pyCircuit issue #128.

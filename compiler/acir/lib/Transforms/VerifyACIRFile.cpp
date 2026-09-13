@@ -247,7 +247,7 @@ mlir::LogicalResult verifySourceProvenance(mlir::ModuleOp module) {
   return result.wasInterrupted() ? mlir::failure() : mlir::success();
 }
 
-mlir::LogicalResult verifyStaticTypeMetadata(mlir::ModuleOp module) {
+mlir::LogicalResult verifyStaticTypeMetadataImpl(mlir::ModuleOp module) {
   auto rawBindings =
       module->getAttrOfType<mlir::DictionaryAttr>("ac.static_type_bindings");
   auto checks = module->getAttrOfType<mlir::ArrayAttr>("ac.static_type_checks");
@@ -259,8 +259,17 @@ mlir::LogicalResult verifyStaticTypeMetadata(mlir::ModuleOp module) {
       mlir::dyn_cast_or_null<mlir::ArrayAttr>(rawConfigBindings);
   if (rawConfigBindings && !configBindings)
     return module.emitError("static config bindings must be an array");
-  if (!rawBindings && !checks && !identities && !configBindings)
-    return mlir::success();
+  if (!rawBindings && !checks && !identities && !configBindings) {
+    bool hasExpressionTarget = false;
+    module.walk([&](mlir::Operation *operation) {
+      hasExpressionTarget |=
+          operation->hasAttr("ac.static_type_target");
+    });
+    return hasExpressionTarget
+               ? module.emitError(
+                     "static expression type target requires type metadata")
+               : mlir::success();
+  }
   if (!rawBindings || !checks)
     return module.emitError(
         "static type bindings and checks must be provided together");
@@ -438,6 +447,30 @@ mlir::LogicalResult verifyStaticTypeMetadata(mlir::ModuleOp module) {
     });
     return ordinal < outputs.size() ? outputs[ordinal] : mlir::Type();
   };
+  auto resolveExpressionType = [&](llvm::StringRef path) -> mlir::Type {
+    mlir::Type resolved;
+    bool conflict = false;
+    module.walk([&](mlir::Operation *operation) {
+      auto target =
+          operation->getAttrOfType<mlir::StringAttr>("ac.static_type_target");
+      if (!target || target.getValue() != path)
+        return;
+      mlir::Type candidate;
+      for (mlir::Type resultType : operation->getResultTypes()) {
+        auto variable = mlir::dyn_cast<ac::VarType>(resultType);
+        if (variable && mlir::isa<ac::RangeType>(variable.getElementType())) {
+          candidate = variable.getElementType();
+          break;
+        }
+      }
+      if (!candidate || (resolved && resolved != candidate)) {
+        conflict = true;
+        return;
+      }
+      resolved = candidate;
+    });
+    return conflict ? mlir::Type() : resolved;
+  };
 
   llvm::StringSet<> referencedBindings;
   llvm::StringSet<> targets;
@@ -540,7 +573,9 @@ mlir::LogicalResult verifyStaticTypeMetadata(mlir::ModuleOp module) {
     mlir::Type fieldType;
     llvm::SmallVector<llvm::StringRef> segments;
     if (concreteType) {
-      fieldType = resolveInterfaceType(path);
+      fieldType = path.starts_with("expression.")
+                      ? resolveExpressionType(path)
+                      : resolveInterfaceType(path);
       if (!fieldType || fieldType != concreteType.getValue())
         return module.emitError(
             "static interface type check does not match the actual boundary");
@@ -597,6 +632,19 @@ mlir::LogicalResult verifyStaticTypeMetadata(mlir::ModuleOp module) {
       if (!array || array.getLength() != result.getInt())
         return module.emitError(
             "static value-array length does not match resolved result");
+    } else if (kind == "range_lower" || kind == "range_upper") {
+      auto range = mlir::dyn_cast<ac::RangeType>(fieldType);
+      const uint64_t expected =
+          kind == "range_lower"
+              ? (range ? range.getLower() : 0)
+              : (range ? range.getUpper() +
+                             (range.getUpper() !=
+                              std::numeric_limits<uint64_t>::max())
+                           : 0);
+      if (!range || result.getInt() < 0 ||
+          static_cast<uint64_t>(result.getInt()) != expected)
+        return module.emitError(
+            "static bounded range does not match resolved result");
     } else {
       return module.emitError("static type check target kind is unsupported");
     }
@@ -605,6 +653,25 @@ mlir::LogicalResult verifyStaticTypeMetadata(mlir::ModuleOp module) {
     if (!referencedBindings.contains(binding.getKey()))
       return module.emitError() << "static type parameter '" << binding.getKey()
                                 << "' is not referenced by any type check";
+
+  mlir::LogicalResult expressionTargetsValid = mlir::success();
+  module.walk([&](mlir::Operation *operation) {
+    auto target =
+        operation->getAttrOfType<mlir::StringAttr>("ac.static_type_target");
+    if (!target)
+      return;
+    const std::string prefix = target.getValue().str() + ":";
+    if (target.getValue().empty() ||
+        llvm::none_of(targets.keys(), [&](llvm::StringRef check) {
+          return check.starts_with(prefix);
+        })) {
+      operation->emitOpError(
+          "static expression type target has no matching type check");
+      expressionTargetsValid = mlir::failure();
+    }
+  });
+  if (mlir::failed(expressionTargetsValid))
+    return mlir::failure();
 
   llvm::StringSet<> identitySymbols;
   llvm::StringSet<> identityTargets;
@@ -729,7 +796,7 @@ public:
       signalPassFailure();
       return;
     }
-    if (mlir::failed(verifyStaticTypeMetadata(module))) {
+    if (mlir::failed(acir::verifyStaticTypeMetadata(module))) {
       signalPassFailure();
       return;
     }
@@ -796,6 +863,10 @@ public:
 };
 
 } // namespace
+
+mlir::LogicalResult verifyStaticTypeMetadata(mlir::ModuleOp module) {
+  return verifyStaticTypeMetadataImpl(module);
+}
 
 std::unique_ptr<mlir::Pass> createVerifyACIRFilePass() {
   return std::make_unique<VerifyACIRFilePass>();

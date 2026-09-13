@@ -17,6 +17,7 @@ from _pycircuit_semantics import (
     Constant,
     Constraint,
     EnumType,
+    RangeType,
     StructType,
     TupleType,
     Unknown,
@@ -471,7 +472,9 @@ def _types_equal_in_epoch_05(left: ValueType, right: ValueType) -> bool:
 def _epoch_05_integer_width(value_type: ValueType) -> int | None:
     """Return the width accepted by the current integer boundary."""
 
-    if isinstance(value_type, BitsType):
+    from _pycircuit_semantics import RangeType
+
+    if isinstance(value_type, BitsType | RangeType):
         return value_type.width
     if isinstance(value_type, BoolType):
         return 1
@@ -484,6 +487,20 @@ def _candidate_mask_type(entries: int) -> ValueType:
     if entries <= 64:
         return BitsType(entries)
     return ArrayType((entries + 63) // 64, BitsType(64))
+
+
+def _contains_declared_range(value_type: ValueType) -> bool:
+    from _pycircuit_semantics import RangeType
+
+    if isinstance(value_type, RangeType):
+        return True
+    if isinstance(value_type, StructType):
+        return any(_contains_declared_range(field.type) for field in value_type.fields)
+    if isinstance(value_type, TupleType):
+        return any(_contains_declared_range(element) for element in value_type.elements)
+    if isinstance(value_type, ArrayType):
+        return _contains_declared_range(value_type.element)
+    return False
 
 
 def _module_static_values(tree: ast.Module) -> dict[str, StaticValue]:
@@ -979,6 +996,45 @@ def _scalar_annotation_static_check(
     if not _proven_integer_in(width, 1, 64):
         raise QueueFrontendError("ACPY-TYPE-003: bits width must be in [1, 64]")
     return StaticTypeCheck(target + ":bits", program, width, BitsType(width))
+
+
+def _bounded_annotation_static_checks(
+    target: str,
+    annotation: ast.expr,
+    parameter_aliases: Mapping[str, StaticParameterAlias],
+    static_values: Mapping[str, StaticValue],
+    *,
+    binding_namespace: str = "",
+) -> tuple[StaticTypeCheck, ...]:
+    if not isinstance(annotation, ast.Subscript):
+        return ()
+    kind = _decorator_name(annotation.value).rsplit(".", 1)[-1]
+    if kind not in {"index", "range"}:
+        return ()
+    bounds = (
+        (ast.Constant(0), annotation.slice)
+        if kind == "index"
+        else tuple(annotation.slice.elts)
+        if isinstance(annotation.slice, ast.Tuple)
+        else ()
+    )
+    if len(bounds) != 2:
+        return ()
+    concrete = _scalar_type_descriptor(annotation, static_values)
+    checks: list[StaticTypeCheck] = []
+    for suffix, bound in zip(("range_lower", "range_upper"), bounds, strict=True):
+        dependent = _dependent_static_type_expression(
+            bound,
+            parameter_aliases,
+            static_values,
+            binding_namespace=binding_namespace,
+        )
+        if dependent is not None:
+            program, result = dependent
+            checks.append(
+                StaticTypeCheck(f"{target}:{suffix}", program, result, concrete)
+            )
+    return tuple(checks)
 
 
 @dataclass(frozen=True, slots=True)
@@ -1677,7 +1733,7 @@ def _scalar_type_descriptor(
     node: ast.expr,
     static_values: Mapping[str, StaticValue] | None = None,
 ) -> ValueType:
-    from _pycircuit_semantics import BitsType, BoolType
+    from _pycircuit_semantics import BitsType, BoolType, RangeType
 
     if (
         isinstance(node, ast.Subscript)
@@ -1692,6 +1748,32 @@ def _scalar_type_descriptor(
         if not _proven_integer_in(width, 1, 64):
             raise QueueFrontendError("ACPY-TYPE-003: bits width must be in [1, 64]")
         return BitsType(width)
+    if isinstance(node, ast.Subscript):
+        bounded_kind = _decorator_name(node.value).rsplit(".", 1)[-1]
+        if bounded_kind in {"index", "range"}:
+            bounds = (
+                (ast.Constant(0), node.slice)
+                if bounded_kind == "index"
+                else (
+                    tuple(node.slice.elts)
+                    if isinstance(node.slice, ast.Tuple)
+                    else ()
+                )
+            )
+            if len(bounds) != 2:
+                raise QueueFrontendError(
+                    "ACPY-TYPE-009: range requires two static bounds"
+                )
+            lower = _constant_integer(bounds[0], static_values)
+            upper = _constant_integer(bounds[1], static_values)
+            if lower is None or upper is None:
+                raise QueueFrontendError(
+                    "ACPY-TYPE-009: bounded type bounds must be static integers"
+                )
+            try:
+                return RangeType(lower, upper)
+            except ValueError as error:
+                raise QueueFrontendError(f"ACPY-TYPE-009: {error}") from error
     name = _decorator_name(node).rsplit(".", 1)[-1]
     if name == "int":
         return BitsType(64)
@@ -1846,6 +1928,37 @@ def _payloads(
                             result,
                         )
                     )
+                return
+            if kind in {"index", "range"}:
+                bounds = (
+                    (ast.Constant(0), annotation.slice)
+                    if kind == "index"
+                    else (
+                        tuple(annotation.slice.elts)
+                        if isinstance(annotation.slice, ast.Tuple)
+                        else ()
+                    )
+                )
+                if len(bounds) != 2:
+                    return
+                for bound_name, bound_node in zip(
+                    ("range_lower", "range_upper"), bounds, strict=True
+                ):
+                    dependent = _dependent_static_type_expression(
+                        bound_node,
+                        parameter_aliases,
+                        static_values,
+                        binding_namespace=static_type_namespace,
+                    )
+                    if dependent is not None:
+                        program, result = dependent
+                        checks.append(
+                            StaticTypeCheck(
+                                f"{struct_name}.{field_name}{path}:{bound_name}",
+                                program,
+                                result,
+                            )
+                        )
                 return
             if kind == "array":
                 if (
@@ -3501,6 +3614,163 @@ def parse_queue_program(
     tree = _desugar_nested_rule_captures(tree, system, entry_kind)
     module_static_values = _module_static_values(tree)
     type_static_values = _type_static_values(tree, static_arguments)
+    parameter_aliases = _static_parameter_aliases(tree)
+    expression_type_checks: list[StaticTypeCheck] = []
+
+    class ConcretizeBoundedIntrinsicTargets(ast.NodeTransformer):
+        """Resolve dependent range targets in executable expressions only."""
+
+        def __init__(self, owner: str, live_assignments: set[int]) -> None:
+            self.owner = owner
+            self.ordinal = 0
+            self.live_assignments = live_assignments
+            self.record_checks = True
+
+        def visit_Assign(self, node: ast.Assign) -> ast.Assign:
+            previous = self.record_checks
+            if (
+                len(node.targets) == 1
+                and isinstance(node.targets[0], ast.Name)
+                and id(node) not in self.live_assignments
+            ):
+                self.record_checks = False
+            transformed = self.generic_visit(node)
+            self.record_checks = previous
+            assert isinstance(transformed, ast.Assign)
+            return transformed
+
+        @staticmethod
+        def _target_index(call: ast.Call) -> int | None:
+            intrinsic = _decorator_name(call.func).rsplit(".", 1)[-1]
+            if intrinsic in {"wrap", "saturate", "checked", "refine"}:
+                return 1
+            if intrinsic == "zero":
+                return 0
+            if intrinsic == "literal":
+                return 1
+            return None
+
+        def visit_Call(self, node: ast.Call) -> ast.Call:
+            transformed = self.generic_visit(node)
+            assert isinstance(transformed, ast.Call)
+            target_index = self._target_index(transformed)
+            if target_index is None or target_index >= len(transformed.args):
+                return transformed
+            target = transformed.args[target_index]
+            if not isinstance(target, ast.Subscript):
+                return transformed
+            kind = _decorator_name(target.value).rsplit(".", 1)[-1]
+            bounds = (
+                (ast.Constant(0), target.slice)
+                if kind == "index"
+                else tuple(target.slice.elts)
+                if kind == "range" and isinstance(target.slice, ast.Tuple)
+                else ()
+            )
+            if len(bounds) != 2:
+                return transformed
+            lower = _constant_integer(bounds[0], type_static_values)
+            upper = _constant_integer(bounds[1], type_static_values)
+            if lower is None or upper is None:
+                return transformed
+            intrinsic = _decorator_name(transformed.func).rsplit(".", 1)[-1]
+            if self.record_checks and intrinsic in {
+                "wrap",
+                "saturate",
+                "checked",
+                "refine",
+            }:
+                target_name = (
+                    "expression."
+                    + static_type_namespace
+                    + self.owner
+                    + "."
+                    + str(self.ordinal)
+                )
+                self.ordinal += 1
+                target_checks: list[str] = []
+                concrete = RangeType(lower, upper)
+                for suffix, bound in zip(
+                    ("range_lower", "range_upper"), bounds, strict=True
+                ):
+                    dependent = _dependent_static_type_expression(
+                        bound,
+                        parameter_aliases,
+                        type_static_values,
+                        binding_namespace=static_type_namespace,
+                    )
+                    if dependent is None:
+                        continue
+                    program, result = dependent
+                    check_target = f"{target_name}:{suffix}"
+                    expression_type_checks.append(
+                        StaticTypeCheck(
+                            check_target, program, result, concrete
+                        )
+                    )
+                    target_checks.append(check_target)
+                if target_checks:
+                    setattr(target, "_ac_static_type_target", target_name)
+            concrete_bounds = ast.Tuple(
+                elts=[ast.Constant(lower), ast.Constant(upper)], ctx=ast.Load()
+            )
+            target.slice = (
+                ast.copy_location(ast.Constant(upper), target.slice)
+                if kind == "index"
+                else ast.copy_location(concrete_bounds, target.slice)
+            )
+            return transformed
+
+    for node in tree.body:
+        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        parameter_names = {argument.arg for argument in node.args.args}
+        live_assignments: set[int] = set()
+
+        def loaded_names(candidate: ast.AST | None) -> set[str]:
+            if candidate is None:
+                return set()
+            return {
+                item.id
+                for item in ast.walk(candidate)
+                if isinstance(item, ast.Name) and isinstance(item.ctx, ast.Load)
+            }
+
+        def analyze_liveness(
+            statements: list[ast.stmt], live_out: set[str]
+        ) -> set[str]:
+            live = set(live_out)
+            for statement in reversed(statements):
+                if isinstance(statement, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    analyze_liveness(statement.body, set())
+                    continue
+                if isinstance(statement, ast.If):
+                    true_live = analyze_liveness(statement.body, live)
+                    false_live = analyze_liveness(statement.orelse, live)
+                    live = true_live | false_live | loaded_names(statement.test)
+                    continue
+                if (
+                    isinstance(statement, ast.Assign)
+                    and len(statement.targets) == 1
+                    and isinstance(statement.targets[0], ast.Name)
+                ):
+                    target = statement.targets[0].id
+                    if target in live or target in parameter_names:
+                        live_assignments.add(id(statement))
+                        live.discard(target)
+                        live.update(loaded_names(statement.value))
+                    continue
+                live.update(loaded_names(statement))
+            return live
+
+        analyze_liveness(node.body, set())
+        target_concretizer = ConcretizeBoundedIntrinsicTargets(
+            node.name, live_assignments
+        )
+        node.body = [
+            ast.fix_missing_locations(target_concretizer.visit(statement))
+            for statement in node.body
+        ]
     for node in tree.body:
         decorators = getattr(node, "decorator_list", ())
         if any(
@@ -4015,6 +4285,19 @@ def parse_queue_program(
         if multi_output is not None:
             rule_definitions[node.name] = multi_output
             continue
+        annotated_single_outputs: tuple[ValueType, ...] = ()
+        if not (
+            node.returns is None
+            or (isinstance(node.returns, ast.Constant) and node.returns.value is None)
+            or (isinstance(node.returns, ast.Name) and node.returns.id == "None")
+        ):
+            annotated_single_outputs = (
+                _payload(
+                    node.returns,
+                    payload_map,
+                    static_values=type_static_values,
+                ),
+            )
         body = list(node.body)
         if (
             body
@@ -4098,6 +4381,7 @@ def parse_queue_program(
                 copy.deepcopy(body[0].value),
                 node.lineno,
                 node.col_offset + 1,
+                output_types=annotated_single_outputs,
             )
             continue
 
@@ -4765,6 +5049,7 @@ def parse_queue_program(
                 state_reads=tuple(state_reads),
                 locals=tuple(rule_locals),
                 finds=tuple(rule_finds),
+                output_types=annotated_single_outputs,
             )
             continue
 
@@ -4786,6 +5071,7 @@ def parse_queue_program(
                 node.col_offset + 1,
                 var_argument=node.args.args[0].arg,
                 var_value=copy.deepcopy(body[0].value),
+                output_types=annotated_single_outputs,
             )
             continue
 
@@ -4882,6 +5168,7 @@ def parse_queue_program(
             read_index,
             guard=guard_expression,
             effect_guard=effect_guard_expression,
+            output_types=annotated_single_outputs,
         )
     if definition_locations:
         rule_definitions = {
@@ -4972,16 +5259,17 @@ def parse_queue_program(
                 raise QueueFrontendError(
                     "ACPY-QUEUE-022: external system values cannot have defaults"
                 )
-            external_parameters.append(
-                (
-                    parameter.arg,
-                    _payload(
-                        parameter.annotation,
-                        payload_map,
-                        static_values=type_static_values,
-                    ),
-                )
+            payload = _payload(
+                parameter.annotation,
+                payload_map,
+                static_values=type_static_values,
             )
+            if entry_kind == "system" and _contains_declared_range(payload):
+                raise QueueFrontendError(
+                    "ACPY-TYPE-009: external bounded input requires an explicit "
+                    "checked, wrap, or saturate decoder from bits"
+                )
+            external_parameters.append((parameter.arg, payload))
             continue
         static_parameter_names.add(parameter.arg)
         if parameter.arg in supplied:
@@ -5046,7 +5334,6 @@ def parse_queue_program(
         return (_payload(annotation, payload_map, static_values=type_static_values),)
 
     result_payloads = system_result_payloads(function.returns)
-    parameter_aliases = _static_parameter_aliases(tree)
     interface_owner = (
         "module." + static_type_namespace[:-2]
         if static_type_namespace[-2:] == "__"
@@ -5069,6 +5356,15 @@ def parse_queue_program(
         )
         if check is not None:
             interface_type_checks.append(check)
+        interface_type_checks.extend(
+            _bounded_annotation_static_checks(
+                f"interface.{interface_owner}.input.{parameter.arg}",
+                parameter.annotation,
+                parameter_aliases,
+                type_static_values,
+                binding_namespace=static_type_namespace,
+            )
+        )
     result_annotations = (
         ()
         if function.returns is None
@@ -5091,6 +5387,15 @@ def parse_queue_program(
         )
         if check is not None:
             interface_type_checks.append(check)
+        interface_type_checks.extend(
+            _bounded_annotation_static_checks(
+                f"interface.{interface_owner}.output.{index}",
+                annotation,
+                parameter_aliases,
+                type_static_values,
+                binding_namespace=static_type_namespace,
+            )
+        )
     typed_result_payloads: dict[str, ValueType] = {}
     if entry_kind == "module" and result_payloads:
         returned = next(
@@ -6372,6 +6677,19 @@ def parse_queue_program(
                 if not isinstance(value_type, BoolType) and type(init) is not int:
                     raise QueueFrontendError(
                         "ACPY-VAR-001: integer variable requires integer init"
+                    )
+                from _pycircuit_semantics import RangeType
+
+                if isinstance(value_type, RangeType) and not (
+                    value_type.lower <= init < value_type.upper
+                ):
+                    raise QueueFrontendError(
+                        "ACPY-TYPE-009: range state init is outside declared bounds"
+                    )
+                if isinstance(value_type, RangeType) and init != 0:
+                    raise QueueFrontendError(
+                        "ACPY-TYPE-009: current bounded state storage requires "
+                        "a zero initializer"
                     )
                 binding = VarStateBinding(
                     name,
@@ -8840,7 +9158,7 @@ def parse_queue_program(
                     )
                 elif call_name(call) in rule_definitions:
                     definition = rule_definitions[call_name(call)]
-                    if definition.output_types:
+                    if definition.output_expressions:
                         if len(target_names) != len(definition.output_types):
                             raise QueueFrontendError(
                                 "ACPY-RULE-014: multi-output call unpacking arity "
@@ -8867,7 +9185,7 @@ def parse_queue_program(
                         definition, call, static_prefix
                     )
                     while (
-                        (definition.state_arguments or definition.output_types)
+                        (definition.state_arguments or definition.output_expressions)
                         and definition.arguments
                         and len(call.args) > len(definition.state_arguments)
                         and isinstance(
@@ -8884,7 +9202,10 @@ def parse_queue_program(
                             ),
                             arguments=definition.arguments[1:],
                         )
-                    if definition.output_types and len(definition.arguments) != 1:
+                    if (
+                        definition.output_expressions
+                        and len(definition.arguments) != 1
+                    ):
                         raise QueueFrontendError(
                             "ACPY-RULE-014: optional multi-output rules require "
                             "exactly one payload parameter after persistent state"
@@ -9217,9 +9538,13 @@ def parse_queue_program(
                         rule_finds=multi_state_finds,
                         rule_state_owners=multi_state_owners,
                         rule_output_names=(
-                            target_names if definition.output_types else ()
+                            target_names if definition.output_expressions else ()
                         ),
-                        rule_output_payloads=definition.output_types,
+                        rule_output_payloads=(
+                            definition.output_types
+                            if definition.output_expressions
+                            else ()
+                        ),
                         rule_output_expressions=tuple(
                             copy.deepcopy(item)
                             for item in definition.output_expressions
@@ -9966,6 +10291,7 @@ def parse_queue_program(
     all_static_checks = (
         *(check for payload in payloads for check in payload.static_type_checks),
         *interface_type_checks,
+        *expression_type_checks,
     )
     static_config_bindings = _static_config_bindings_for_checks(
         tree,
@@ -10021,7 +10347,7 @@ def parse_queue_program(
             type_static_values,
             binding_namespace=static_type_namespace,
         ),
-        static_type_checks=tuple(interface_type_checks),
+        static_type_checks=tuple((*interface_type_checks, *expression_type_checks)),
         static_config_bindings=static_config_bindings,
         specialization_fingerprint=specialization_fingerprint,
         source_path=normalized_source_path,
@@ -10119,6 +10445,9 @@ class _ExpressionEmitter:
                 ValueType,
             ],
         ] = {}
+        self.range_checked_values: dict[
+            str, tuple[str, ValueType, str, ValueType]
+        ] = {}
         self.selection_batch_values: dict[
             str, tuple[tuple[str, ValueType, str, ValueType], ...]
         ] = {}
@@ -10196,17 +10525,37 @@ class _ExpressionEmitter:
                 raise QueueFrontendError(
                     "ACPY-CAST-001: zero requires one concrete target type"
                 )
-            target = self._typed_integer_target(node.args[0], intrinsic)
+            target = _scalar_type_descriptor(node.args[0])
+            from _pycircuit_semantics import RangeType
+
+            if not isinstance(target, BitsType | RangeType):
+                raise QueueFrontendError(
+                    "ACPY-CAST-001: zero target must be bits or bounded range"
+                )
             value = 0
+            if isinstance(target, RangeType) and target.lower != 0:
+                raise QueueFrontendError(
+                    "ACPY-RANGE-001: zero is outside the bounded target"
+                )
         elif intrinsic == "literal":
             if len(node.args) != 2:
                 raise QueueFrontendError(
                     "ACPY-CAST-001: literal requires a value and concrete target type"
                 )
             value = _constant_integer(node.args[0])
-            target = self._typed_integer_target(node.args[1], intrinsic)
+            target = _scalar_type_descriptor(node.args[1])
+            from _pycircuit_semantics import RangeType
+
+            if not isinstance(target, BitsType | RangeType):
+                raise QueueFrontendError(
+                    "ACPY-CAST-001: literal target must be bits or bounded range"
+                )
             if value is None or not _proven_integer_in(
-                value, 0, (1 << target.width) - 1
+                value,
+                target.lower if isinstance(target, RangeType) else 0,
+                target.upper - 1
+                if isinstance(target, RangeType)
+                else (1 << target.width) - 1,
             ):
                 raise QueueFrontendError(
                     "ACPY-CAST-001: typed literal must be a nonnegative static integer that fits its target"
@@ -10282,13 +10631,125 @@ class _ExpressionEmitter:
             return self._remember(result, target, constraint)
 
         name = self._new()
+        from _pycircuit_semantics import RangeType
+
         rendered = _render_type(target)
+        attribute_type = (
+            f"i{target.width}" if isinstance(target, RangeType) else rendered
+        )
         self.lines.append(
-            f"    %{name} = ac.var.constant {value} : {rendered} as !ac.var<{rendered}>"
+            f"    %{name} = ac.var.constant {value} : {attribute_type} as "
+            f"!ac.var<{rendered}>"
         )
         return self._remember(name, target, Constant(value))
 
+    @staticmethod
+    def _typed_range_target(node: ast.expr):
+        from _pycircuit_semantics import RangeType
+
+        try:
+            target = _scalar_type_descriptor(node)
+        except QueueFrontendError as error:
+            raise QueueFrontendError(
+                "ACPY-RANGE-001: range conversion target must be ac.index[N] "
+                "or ac.range[lo, hi]"
+            ) from error
+        if not isinstance(target, RangeType):
+            raise QueueFrontendError(
+                "ACPY-RANGE-001: range conversion target must be bounded"
+            )
+        return target
+
+    def _emit_range_intrinsic(
+        self, node: ast.Call
+    ) -> tuple[str, ValueType] | None:
+        from _pycircuit_semantics import RangeType
+
+        intrinsic = _decorator_name(node.func).rsplit(".", 1)[-1]
+        if intrinsic not in {"wrap", "saturate", "refine"}:
+            return None
+        if node.keywords or len(node.args) != 2:
+            raise QueueFrontendError(
+                f"ACPY-RANGE-001: {intrinsic} requires value and bounded target"
+            )
+        source, source_type = self.emit(node.args[0])
+        if not isinstance(source_type, BitsType | RangeType):
+            raise QueueFrontendError(
+                "ACPY-RANGE-001: range conversion source must be unsigned scalar"
+            )
+        target = self._typed_range_target(node.args[1])
+        result = self._new()
+        static_target = getattr(node.args[1], "_ac_static_type_target", None)
+        attributes = (
+            " {ac.static_type_target = "
+            + canonical_mlir_string(static_target)
+            + "}"
+            if isinstance(static_target, str)
+            else ""
+        )
+        self.lines.append(
+            f"    %{result} = ac.var.range_{intrinsic} %{source}{attributes} : "
+            f"!ac.var<{_render_type(source_type)}> -> "
+            f"!ac.var<{_render_type(target)}>"
+        )
+        return self._remember(
+            result,
+            target,
+            ClosedInterval(target.lower, target.upper - 1),
+        )
+
+    def _emit_checked_range(
+        self, node: ast.Call
+    ) -> tuple[str, ValueType, str, ValueType]:
+        from _pycircuit_semantics import RangeType
+
+        static_target = getattr(node.args[1], "_ac_static_type_target", None)
+        key = ast.dump(node, include_attributes=False) + "|" + str(static_target)
+        if cached := self.range_checked_values.get(key):
+            return cached
+        if (
+            _decorator_name(node.func).rsplit(".", 1)[-1] != "checked"
+            or node.keywords
+            or len(node.args) != 2
+        ):
+            raise QueueFrontendError(
+                "ACPY-RANGE-001: checked requires value and bounded target"
+            )
+        source, source_type = self.emit(node.args[0])
+        if not isinstance(source_type, BitsType | RangeType):
+            raise QueueFrontendError(
+                "ACPY-RANGE-001: checked source must be unsigned scalar"
+            )
+        target = self._typed_range_target(node.args[1])
+        value = self._new()
+        valid = self._new()
+        static_target = getattr(node.args[1], "_ac_static_type_target", None)
+        attributes = (
+            " {ac.static_type_target = "
+            + canonical_mlir_string(static_target)
+            + "}"
+            if isinstance(static_target, str)
+            else ""
+        )
+        self.lines.append(
+            f"    %{value}, %{valid} = ac.var.range_checked %{source}"
+            f"{attributes} : "
+            f"!ac.var<{_render_type(source_type)}> -> "
+            f"!ac.var<{_render_type(target)}>, !ac.var<i1>"
+        )
+        result = (value, target, valid, BoolType())
+        self.expression_facts[value] = _ExpressionFact(
+            target, ClosedInterval(target.lower, target.upper - 1)
+        )
+        self.expression_facts[valid] = _ExpressionFact(
+            BoolType(), ClosedInterval(0, 1)
+        )
+        self.range_checked_values[key] = result
+        return result
+
     def emit_table_index(self, table: str, address: ast.expr) -> tuple[str, ValueType]:
+        from _pycircuit_semantics import RangeType
+
         domain = self.table_domains.get(table)
         if domain is None:
             raise QueueFrontendError("ACPY-TABLE-010: Table domain is unresolved")
@@ -10296,7 +10757,10 @@ class _ExpressionEmitter:
         flattened_type = BitsType(max(1, (entries - 1).bit_length()))
         if len(shape) == 1 or not isinstance(address, ast.Tuple):
             index, index_type = self.emit(address, flattened_type)
-            if not _types_equal_in_epoch_05(index_type, flattened_type):
+            bounded = isinstance(index_type, RangeType) and index_type.upper <= entries
+            if not bounded and not _types_equal_in_epoch_05(
+                index_type, flattened_type
+            ):
                 raise QueueFrontendError(
                     "ACPY-TABLE-010: Table index requires the canonical flattened "
                     f"type {_render_type(flattened_type)}"
@@ -10313,7 +10777,12 @@ class _ExpressionEmitter:
         ):
             expected_type = BitsType(_table_axis_width(extent))
             value, value_type = self.emit(coordinate, expected_type)
-            if not _types_equal_in_epoch_05(value_type, expected_type):
+            bounded = (
+                isinstance(value_type, RangeType) and value_type.upper <= extent
+            )
+            if not bounded and not _types_equal_in_epoch_05(
+                value_type, expected_type
+            ):
                 raise QueueFrontendError(
                     f"ACPY-TABLE-010: Table index axis {axis} requires "
                     f"{_render_type(expected_type)}"
@@ -10464,6 +10933,13 @@ class _ExpressionEmitter:
             typed_integer = self._emit_typed_integer_intrinsic(node)
             if typed_integer is not None:
                 return typed_integer
+            bounded = self._emit_range_intrinsic(node)
+            if bounded is not None:
+                return bounded
+            if _decorator_name(node.func).rsplit(".", 1)[-1] == "checked":
+                raise QueueFrontendError(
+                    "ACPY-RANGE-001: checked result requires .value or .valid"
+                )
             helper = (
                 self.helpers.get(node.func.id)
                 if isinstance(node.func, ast.Name)
@@ -10701,6 +11177,30 @@ class _ExpressionEmitter:
                     + f" -> !ac.var<i{result_width}>"
                 )
                 return name, BitsType(result_width)
+        if (
+            isinstance(node, ast.Attribute)
+            and node.attr in {"value", "valid"}
+        ):
+            checked_call = (
+                node.value
+                if isinstance(node.value, ast.Call)
+                else self.deferred_values.get(node.value.id)
+                if isinstance(node.value, ast.Name)
+                else None
+            )
+            if (
+                isinstance(checked_call, ast.Call)
+                and _decorator_name(checked_call.func).rsplit(".", 1)[-1]
+                == "checked"
+            ):
+                value, value_type, valid, valid_type = self._emit_checked_range(
+                    checked_call
+                )
+                return (
+                    (value, value_type)
+                    if node.attr == "value"
+                    else (valid, valid_type)
+                )
         if isinstance(node, ast.Attribute):
             view = self._bitfield_view(node.value)
             if view is not None:
@@ -10797,10 +11297,31 @@ class _ExpressionEmitter:
             if isinstance(value_type, (TupleType, ArrayType)):
                 aggregate = value_type
                 index = _constant_integer(node.slice)
-                if index is None:
+                if index is None and isinstance(aggregate, TupleType):
                     raise QueueFrontendError(
-                        "ACPY-TYPE-006: aggregate index must be a static integer"
+                        "ACPY-TYPE-006: tuple index must be a static integer"
                     )
+                if index is None and isinstance(aggregate, ArrayType):
+                    dynamic_index, dynamic_type = self.emit(node.slice)
+                    if _epoch_05_integer_width(dynamic_type) is None:
+                        raise QueueFrontendError(
+                            "ACPY-TYPE-006: value-array index must be unsigned"
+                        )
+                    self.reject_constant_index_outside(
+                        dynamic_index,
+                        dynamic_type,
+                        aggregate.length,
+                        "ACPY-TYPE-006: value-array index is out of range",
+                    )
+                    name = self._new()
+                    self.lines.append(
+                        f"    %{name} = ac.var.dynamic_element %{value} at "
+                        f"%{dynamic_index} : !ac.var<{_render_type(value_type)}>, "
+                        f"!ac.var<{_render_type(dynamic_type)}> -> "
+                        f"!ac.var<{_render_type(aggregate.element)}>"
+                    )
+                    return name, aggregate.element
+                assert index is not None
                 if isinstance(aggregate, TupleType):
                     if not _proven_integer_in(index, 0, len(aggregate.elements) - 1):
                         raise QueueFrontendError(
@@ -11095,6 +11616,15 @@ class _ExpressionEmitter:
             return (index, index_type) if node.attr == "index" else (valid, valid_type)
         if isinstance(node, ast.Constant) and type(node.value) in {int, bool}:
             typ = expected or (BoolType() if type(node.value) is bool else BitsType(64))
+            from _pycircuit_semantics import RangeType
+
+            if isinstance(typ, RangeType) and (
+                type(node.value) is not int
+                or not typ.lower <= node.value < typ.upper
+            ):
+                raise QueueFrontendError(
+                    "ACPY-TYPE-009: range constant is outside its declared bounds"
+                )
             name = self._new()
             value = (
                 "true"
@@ -11103,9 +11633,10 @@ class _ExpressionEmitter:
                 if node.value is False
                 else str(node.value)
             )
-            attribute = (
-                value if type(node.value) is bool else f"{value} : {_render_type(typ)}"
+            attribute_type = (
+                f"i{typ.width}" if isinstance(typ, RangeType) else _render_type(typ)
             )
+            attribute = value if type(node.value) is bool else f"{value} : {attribute_type}"
             self.lines.append(
                 f"    %{name} = ac.var.constant {attribute} as "
                 f"!ac.var<{_render_type(typ)}>"
@@ -11301,6 +11832,59 @@ class _ExpressionEmitter:
             left, left_type = self._coerce_bool_to_expected_bits(
                 left, left_type, expected
             )
+            from _pycircuit_semantics import RangeType
+
+            if isinstance(left_type, RangeType):
+                if not isinstance(node.op, (ast.Add, ast.Sub)):
+                    raise QueueFrontendError(
+                        "ACPY-RANGE-002: bounded values support only + and -; "
+                        "use an explicit bits view for modular arithmetic"
+                    )
+                right_expected = None
+                if (
+                    isinstance(node.right, ast.Constant)
+                    and type(node.right.value) is int
+                    and 0 <= node.right.value < (1 << 64)
+                ):
+                    right_expected = RangeType(
+                        node.right.value, node.right.value + 1
+                    )
+                right, right_type = self.emit(node.right, right_expected)
+                if not isinstance(right_type, RangeType):
+                    raise QueueFrontendError(
+                        "ACPY-RANGE-002: bounded arithmetic operands must be ranges"
+                    )
+                if isinstance(node.op, ast.Add):
+                    lower = left_type.lower + right_type.lower
+                    upper_inclusive = (
+                        left_type.upper - 1 + right_type.upper - 1
+                    )
+                    if upper_inclusive >= (1 << 64):
+                        raise QueueFrontendError(
+                            "ACPY-RANGE-002: bounded addition exceeds u64"
+                        )
+                    operation = "range_add"
+                else:
+                    if left_type.lower < right_type.upper - 1:
+                        raise QueueFrontendError(
+                            "ACPY-RANGE-002: bounded subtraction may be negative"
+                        )
+                    lower = left_type.lower - (right_type.upper - 1)
+                    upper_inclusive = left_type.upper - 1 - right_type.lower
+                    operation = "range_sub"
+                result_type = RangeType(lower, upper_inclusive + 1)
+                name = self._new()
+                self.lines.append(
+                    f"    %{name} = ac.var.{operation} %{left}, %{right} : "
+                    f"!ac.var<{_render_type(left_type)}>, "
+                    f"!ac.var<{_render_type(right_type)}> -> "
+                    f"!ac.var<{_render_type(result_type)}>"
+                )
+                return self._remember(
+                    name,
+                    result_type,
+                    ClosedInterval(result_type.lower, result_type.upper - 1),
+                )
             right, right_type = self.emit(node.right, left_type)
             right, right_type = self._coerce_bool_to_expected_bits(
                 right, right_type, left_type
@@ -11394,13 +11978,67 @@ class _ExpressionEmitter:
             isinstance(node, ast.Compare)
             and len(node.ops) == len(node.comparators) == 1
         ):
+            from _pycircuit_semantics import RangeType
+
             comparator = node.comparators[0]
-            if isinstance(node.left, ast.Name) and node.left.id in self.deferred_values:
+            if isinstance(node.left, ast.Constant) and type(node.left.value) is int:
+                right, right_type = self.emit(comparator)
+                expected_left = right_type
+                if isinstance(right_type, RangeType):
+                    if not 0 <= node.left.value < (1 << 64):
+                        raise QueueFrontendError(
+                            "ACPY-RANGE-002: bounded comparison literal must be "
+                            "in the unsigned u64 domain"
+                        )
+                    expected_left = RangeType(node.left.value, node.left.value + 1)
+                left, left_type = self.emit(node.left, expected_left)
+            elif (
+                isinstance(node.left, ast.Name)
+                and node.left.id in self.deferred_values
+            ):
                 right, right_type = self.emit(comparator)
                 left, left_type = self.emit(node.left, right_type)
             else:
                 left, left_type = self.emit(node.left)
-                right, right_type = self.emit(comparator, left_type)
+                expected_right = left_type
+                if (
+                    isinstance(left_type, RangeType)
+                    and isinstance(comparator, ast.Constant)
+                    and type(comparator.value) is int
+                ):
+                    if not 0 <= comparator.value < (1 << 64):
+                        raise QueueFrontendError(
+                            "ACPY-RANGE-002: bounded comparison literal must be "
+                            "in the unsigned u64 domain"
+                        )
+                    expected_right = RangeType(
+                        comparator.value, comparator.value + 1
+                    )
+                right, right_type = self.emit(comparator, expected_right)
+
+            if isinstance(left_type, RangeType) and isinstance(
+                right_type, RangeType
+            ):
+                predicates = {
+                    ast.Eq: "eq",
+                    ast.NotEq: "ne",
+                    ast.Lt: "ult",
+                    ast.LtE: "ule",
+                    ast.Gt: "ugt",
+                    ast.GtE: "uge",
+                }
+                predicate = predicates.get(type(node.ops[0]))
+                if predicate is None:
+                    raise QueueFrontendError(
+                        "ACPY-RANGE-002: unsupported bounded comparison"
+                    )
+                name = self._new()
+                self.lines.append(
+                    f'    %{name} = ac.var.range_cmp "{predicate}" '
+                    f"%{left}, %{right} : !ac.var<{_render_type(left_type)}>, "
+                    f"!ac.var<{_render_type(right_type)}> -> !ac.var<i1>"
+                )
+                return name, BoolType()
             if not _types_equal_in_epoch_05(left_type, right_type):
                 raise QueueFrontendError(
                     "ACPY-QUEUE-003: comparison operands must match for "
@@ -12011,7 +12649,11 @@ def lower_queue_program(
                     variable.value_type,
                     (StructType, TupleType, ArrayType, EnumType),
                 )
-                else _render_type(variable.value_type)
+                else (
+                    f"i{variable.value_type.width}"
+                    if type(variable.value_type).__name__ == "RangeType"
+                    else _render_type(variable.value_type)
+                )
             )
         )
         lines.append(
@@ -12591,6 +13233,15 @@ def lower_queue_program(
                     emitter.deferred_values[local.name] = ast.Constant(
                         value=local_static
                     )
+                    continue
+                if (
+                    local.guard is None
+                    and isinstance(local.value, ast.Call)
+                    and _decorator_name(local.value.func).rsplit(".", 1)[-1]
+                    == "checked"
+                ):
+                    emitter.root_values.pop(local.name, None)
+                    emitter.deferred_values[local.name] = copy.deepcopy(local.value)
                     continue
                 local_value, local_type = emitter.emit(local.value)
                 previous = (
@@ -14777,6 +15428,7 @@ def _lower_simple_module_source(
     class ModuleState:
         name: str
         value_type: ValueType
+        init: int
 
     @dataclass(frozen=True, slots=True)
     class ModuleAssignment:
@@ -14964,11 +15616,10 @@ def _lower_simple_module_source(
                     or declaration.value is None
                     or not isinstance(declaration.value, ast.Constant)
                     or type(declaration.value.value) is not int
-                    or declaration.value.value != 0
                 ):
                     raise QueueFrontendError(
-                        "ACPY-MODULE-004: module state requires a typed zero "
-                        "initializer"
+                        "ACPY-MODULE-004: module state requires a typed static "
+                        "integer initializer"
                     )
                 state_name = declaration.target.id
                 if state_name == parameter.arg:
@@ -14984,12 +15635,29 @@ def _lower_simple_module_source(
                     payload_map,
                     static_values=type_static_values,
                 )
+                state_init = declaration.value.value
+                if isinstance(state_type, RangeType):
+                    if not state_type.lower <= state_init < state_type.upper:
+                        raise QueueFrontendError(
+                            "ACPY-MODULE-004: bounded module state initializer "
+                            "is outside its declared range"
+                        )
+                    if state_init != 0:
+                        raise QueueFrontendError(
+                            "ACPY-MODULE-004: current bounded module state "
+                            "storage requires a zero initializer"
+                        )
+                elif state_init != 0:
+                    raise QueueFrontendError(
+                        "ACPY-MODULE-004: module bits state requires a typed zero "
+                        "initializer"
+                    )
                 if _epoch_05_integer_width(state_type) is None:
                     raise QueueFrontendError(
                         "ACPY-MODULE-004: first module state slice requires scalars"
                     )
                 state_names.add(state_name)
-                states.append(ModuleState(state_name, state_type))
+                states.append(ModuleState(state_name, state_type, state_init))
                 cursor += 1
             assignment_nodes = body[cursor:-1]
             if states and assignment_nodes:
@@ -15175,6 +15843,14 @@ def _lower_simple_module_source(
         )
         if check is not None:
             system_interface_checks.append(check)
+        system_interface_checks.extend(
+            _bounded_annotation_static_checks(
+                f"interface.system.{system}.input.{parameter.arg}",
+                parameter.annotation,
+                parameter_aliases,
+                type_static_values,
+            )
+        )
     for index, annotation in enumerate(result_annotations(function.returns)):
         check = _scalar_annotation_static_check(
             f"interface.system.{system}.output.{index}",
@@ -15184,6 +15860,14 @@ def _lower_simple_module_source(
         )
         if check is not None:
             system_interface_checks.append(check)
+        system_interface_checks.extend(
+            _bounded_annotation_static_checks(
+                f"interface.system.{system}.output.{index}",
+                annotation,
+                parameter_aliases,
+                type_static_values,
+            )
+        )
     values = dict(external)
     uses = {name: 0 for name, _ in external}
     instances: list[
@@ -15765,10 +16449,15 @@ def _lower_simple_module_source(
                 ]
             )
             for state in definition.states:
+                init_type = (
+                    f"i{state.value_type.width}"
+                    if isinstance(state.value_type, RangeType)
+                    else _render_type(state.value_type)
+                )
                 lines.append(
                     f"      ac.var.decl @{state.name} "
                     f"type {_render_type(state.value_type)} "
-                    f'init 0 : {_render_type(state.value_type)} owner "/body" '
+                    f'init {state.init} : {init_type} owner "/body" '
                     "stable_id "
                     f'"var/body/{state.name}"'
                 )

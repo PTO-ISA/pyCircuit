@@ -143,6 +143,7 @@ class ValueConstraint(_ConstraintBase):
             BitsType,
             BoolType,
             EnumType,
+            RangeType,
             StructType,
             TupleType,
             ValueType,
@@ -162,6 +163,18 @@ class ValueConstraint(_ConstraintBase):
             bounds = integer_bounds(self.domain)
             if bounds is not None and not (0 <= bounds[0] <= bounds[1] <= maximum):
                 raise ConstraintError("bits constraint interval exceeds its type")
+        elif isinstance(self.type, RangeType):
+            if values is not None and any(
+                type(value) is not int
+                or not self.type.lower <= value < self.type.upper
+                for value in values
+            ):
+                raise ConstraintError("range constraint contains an invalid value")
+            bounds = integer_bounds(self.domain)
+            if bounds is not None and not (
+                self.type.lower <= bounds[0] <= bounds[1] < self.type.upper
+            ):
+                raise ConstraintError("range constraint interval exceeds its type")
         elif isinstance(self.type, BoolType):
             if values is not None and any(type(value) is not bool for value in values):
                 raise ConstraintError("bool constraint contains a non-bool value")
@@ -506,12 +519,14 @@ def transfer_compare(operation: str, left: Constraint, right: Constraint) -> Con
 
 
 def constraint_for_type(value_type: ValueType) -> Constraint:
-    from .types import BitsType, BoolType, EnumType
+    from .types import BitsType, BoolType, EnumType, RangeType
 
     if isinstance(value_type, BoolType):
         return FiniteSet((False, True))
     if isinstance(value_type, BitsType):
         return ClosedInterval(0, (1 << value_type.width) - 1)
+    if isinstance(value_type, RangeType):
+        return ClosedInterval(value_type.lower, value_type.upper - 1)
     if isinstance(value_type, EnumType):
         return finite(list(value_type.enumerants))
     return Unknown()

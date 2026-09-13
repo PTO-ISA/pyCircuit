@@ -5643,6 +5643,310 @@ def topology(incoming: ac.u8) -> ac.u8:
         self.assertIn('ac.sink %transformed', lowered)
         self.assertIn('!ac.queue<i8> loc("src/model.py":6:5)', lowered)
 
+    def test_external_bounded_input_requires_an_explicit_decoder(self) -> None:
+        from agentic_circuit._queue_frontend import (
+            QueueFrontendError,
+            lower_queue_source,
+        )
+
+        source = """import agentic_circuit as ac
+@ac.system
+def pipeline(index: ac.index[5]) -> ac.index[5]:
+    return index
+"""
+        with self.assertRaisesRegex(
+            QueueFrontendError,
+            "external bounded input requires an explicit",
+        ):
+            lower_queue_source(source, "pipeline", source_path="src/range.py")
+
+    def test_external_bounded_input_rejection_is_recursive(self) -> None:
+        from agentic_circuit._queue_frontend import (
+            QueueFrontendError,
+            lower_queue_source,
+        )
+
+        sources = (
+            """import agentic_circuit as ac
+@ac.struct
+class Nested:
+    index: ac.index[5]
+@ac.system
+def pipeline(value: Nested) -> ac.u8:
+    return ac.literal(0, ac.u8)
+""",
+            """import agentic_circuit as ac
+@ac.struct
+class Nested:
+    fields: tuple[ac.u8, ac.range[4, 9]]
+@ac.system
+def pipeline(value: Nested) -> ac.u8:
+    return value.fields[0]
+""",
+            """import agentic_circuit as ac
+@ac.struct
+class Nested:
+    fields: ac.array[2, ac.index[3]]
+@ac.system
+def pipeline(value: Nested) -> ac.u8:
+    return ac.literal(0, ac.u8)
+""",
+        )
+        for source in sources:
+            with self.subTest(source=source):
+                with self.assertRaisesRegex(
+                    QueueFrontendError,
+                    "external bounded input requires an explicit",
+                ):
+                    lower_queue_source(source, "pipeline")
+
+    def test_bounded_conversions_arithmetic_and_dynamic_array_are_explicit(self) -> None:
+        from agentic_circuit._queue_frontend import lower_queue_source
+
+        source = """import agentic_circuit as ac
+@ac.struct
+class Request:
+    values: ac.array[5, ac.u8]
+    raw: ac.u8
+@ac.rule
+def decode(request: Request) -> tuple[ac.index[5], ac.range[4, 9], ac.index[5], bool, ac.range[1, 6], ac.u8, bool]:
+    wrapped = ac.wrap(request.raw, ac.index[5])
+    saturated = ac.saturate(request.raw, ac.range[4, 9])
+    checked = ac.checked(request.raw, ac.index[5])
+    advanced = wrapped + 1
+    selected = request.values[checked.value]
+    ordered = saturated > wrapped
+    checked_value = checked.value
+    checked_valid = checked.valid
+    return wrapped, saturated, checked_value, checked_valid, advanced, selected, ordered
+@ac.system
+def pipeline(request: Request) -> tuple[ac.index[5], ac.range[4, 9], ac.index[5], bool, ac.range[1, 6], ac.u8, bool]:
+    wrapped, saturated, checked_value, checked_valid, advanced, selected, ordered = decode(request)
+    return wrapped, saturated, checked_value, checked_valid, advanced, selected, ordered
+"""
+        lowered = lower_queue_source(source, "pipeline")
+
+        self.assertIn("ac.var.range_wrap", lowered)
+        self.assertIn("ac.var.range_saturate", lowered)
+        self.assertEqual(1, lowered.count("ac.var.range_checked"))
+        self.assertIn("ac.var.range_add", lowered)
+        self.assertIn('ac.var.range_cmp "ugt"', lowered)
+        self.assertIn("ac.var.dynamic_element", lowered)
+        self.assertIn("!ac.range<0, 4>", lowered)
+        self.assertIn("!ac.range<4, 8>", lowered)
+        self.assertIn("!ac.range<1, 5>", lowered)
+
+    def test_bounded_literals_zero_and_arithmetic_fail_closed(self) -> None:
+        from agentic_circuit._queue_frontend import (
+            QueueFrontendError,
+            lower_queue_source,
+        )
+
+        source = """import agentic_circuit as ac
+@ac.rule
+def constants(raw: ac.u8) -> tuple[ac.index[1], ac.range[4, 9]]:
+    zero = ac.zero(ac.index[1])
+    literal = ac.literal(8, ac.range[4, 9])
+    return zero, literal
+@ac.system
+def pipeline(raw: ac.u8) -> tuple[ac.index[1], ac.range[4, 9]]:
+    zero, literal = constants(raw)
+    return zero, literal
+"""
+        lowered = lower_queue_source(source, "pipeline")
+        self.assertRegex(
+            lowered,
+            r"ac\.var\.constant 0 : i1 .*as !ac\.var<!ac\.range<0, 0>>",
+        )
+        self.assertRegex(
+            lowered,
+            r"ac\.var\.constant 8 : i4 .*as !ac\.var<!ac\.range<4, 8>>",
+        )
+
+        invalid_zero = source.replace(
+            "ac.zero(ac.index[1])", "ac.zero(ac.range[4, 9])"
+        )
+        with self.assertRaisesRegex(QueueFrontendError, "zero is outside"):
+            lower_queue_source(invalid_zero, "pipeline")
+
+        invalid_literal = source.replace(
+            "ac.literal(8, ac.range[4, 9])",
+            "ac.literal(9, ac.range[4, 9])",
+        )
+        with self.assertRaisesRegex(QueueFrontendError, "fits its target"):
+            lower_queue_source(invalid_literal, "pipeline")
+
+        negative_subtraction = """import agentic_circuit as ac
+@ac.rule
+def subtract(raw: ac.u8) -> ac.index[5]:
+    return ac.wrap(raw, ac.index[5]) - 1
+@ac.system
+def pipeline(raw: ac.u8) -> ac.index[5]:
+    result = subtract(raw)
+    return result
+"""
+        with self.assertRaisesRegex(QueueFrontendError, "may be negative"):
+            lower_queue_source(negative_subtraction, "pipeline")
+
+        overflowing_addition = """import agentic_circuit as ac
+@ac.rule
+def add(raw: ac.u64) -> ac.range[18446744073709551614, 18446744073709551616]:
+    return ac.saturate(raw, ac.range[18446744073709551614, 18446744073709551616]) + 1
+@ac.system
+def pipeline(raw: ac.u64) -> ac.range[18446744073709551614, 18446744073709551616]:
+    result = add(raw)
+    return result
+"""
+        with self.assertRaisesRegex(QueueFrontendError, "exceeds u64"):
+            lower_queue_source(overflowing_addition, "pipeline")
+
+    def test_bounded_comparison_literals_use_singleton_domains(self) -> None:
+        from agentic_circuit._queue_frontend import lower_queue_source
+
+        source = """import agentic_circuit as ac
+@ac.rule
+def compare(raw: ac.u8) -> tuple[bool, bool, bool]:
+    index = ac.wrap(raw, ac.index[5])
+    below_upper = index < 5
+    equal_outside = index == 6
+    reverse = 5 > index
+    return below_upper, equal_outside, reverse
+@ac.system
+def pipeline(raw: ac.u8) -> tuple[bool, bool, bool]:
+    below_upper, equal_outside, reverse = compare(raw)
+    return below_upper, equal_outside, reverse
+"""
+        lowered = lower_queue_source(source, "pipeline")
+        self.assertIn("!ac.range<5, 5>", lowered)
+        self.assertIn("!ac.range<6, 6>", lowered)
+        self.assertEqual(3, lowered.count("ac.var.range_cmp"))
+
+    def test_bounded_scalar_rule_result_uses_its_annotation(self) -> None:
+        from agentic_circuit._queue_frontend import lower_queue_source
+
+        source = """import agentic_circuit as ac
+@ac.struct
+class Request:
+    values: ac.array[5, ac.u8]
+    raw: ac.u8
+@ac.rule
+def read(request: Request) -> ac.u8:
+    index = ac.wrap(request.raw, ac.index[5])
+    return request.values[index]
+@ac.system
+def pipeline(request: Request) -> ac.u8:
+    result = read(request)
+    return result
+"""
+        lowered = lower_queue_source(source, "pipeline")
+        self.assertIn("ac.var.range_wrap", lowered)
+        self.assertIn("ac.var.dynamic_element", lowered)
+        self.assertIn("-> !ac.queue<i8>", lowered)
+
+    def test_strict_range_refinement_remains_verifier_visible(self) -> None:
+        from agentic_circuit._queue_frontend import lower_queue_source
+
+        source = """import agentic_circuit as ac
+@ac.rule
+def decode(raw: ac.u2) -> ac.index[5]:
+    return ac.refine(raw, ac.index[5])
+@ac.system
+def pipeline(raw: ac.u2) -> ac.index[5]:
+    result = decode(raw)
+    return result
+"""
+        lowered = lower_queue_source(source, "pipeline")
+        self.assertIn("ac.var.range_refine", lowered)
+        self.assertIn("!ac.var<i2> -> !ac.var<!ac.range<0, 4>>", lowered)
+
+    def test_dependent_bounded_bounds_have_verifier_visible_metadata(self) -> None:
+        from agentic_circuit._queue_frontend import lower_queue_source
+
+        source = """import agentic_circuit as ac
+ENTRIES = ac.param[int]("entries")
+@ac.rule
+def decode(raw: ac.u8) -> ac.index[ENTRIES]:
+    return ac.wrap(raw, ac.index[ENTRIES])
+@ac.system
+def pipeline(raw: ac.u8, *, entries: ac.const[int]) -> ac.index[ENTRIES]:
+    result = decode(raw)
+    return result
+"""
+        lowered = lower_queue_source(
+            source, "pipeline", static_arguments={"entries": 5}
+        )
+
+        self.assertIn("!ac.range<0, 4>", lowered)
+        self.assertIn('"param:ENTRIES"', lowered)
+        self.assertIn('target = "interface.system.pipeline.output.0:range_upper"', lowered)
+        self.assertIn("result = 5 : i64", lowered)
+
+    def test_expression_only_dependent_bound_has_recomputable_metadata(self) -> None:
+        from agentic_circuit._queue_frontend import lower_queue_source
+
+        source = """import agentic_circuit as ac
+N = ac.param[int]("n")
+@ac.struct
+class Request:
+    values: ac.array[5, ac.u8]
+    raw: ac.u8
+@ac.rule
+def read(request: Request) -> ac.u8:
+    index = ac.wrap(request.raw, ac.index[N])
+    return request.values[index]
+@ac.system
+def pipeline(request: Request, *, n: ac.const[int]) -> ac.u8:
+    result = read(request)
+    return result
+"""
+        lowered = lower_queue_source(source, "pipeline", static_arguments={"n": 5})
+
+        self.assertIn("ac.static_type_target = \"expression.read.0\"", lowered)
+        self.assertIn(
+            'target = "expression.read.0:range_upper", type = !ac.range<0, 4>',
+            lowered,
+        )
+        self.assertIn("ac.static_type_bindings = {N = 5 : i64}", lowered)
+
+    def test_config_projected_expression_bound_retains_root_metadata(self) -> None:
+        from agentic_circuit._queue_frontend import lower_queue_source
+        from agentic_circuit._static_eval import FrozenMap
+
+        source = """import agentic_circuit as ac
+@ac.config
+class Geometry:
+    entries: int
+@ac.config
+class Config:
+    geometry: Geometry
+CFG = ac.param[Config]("cfg")
+@ac.struct
+class Request:
+    values: ac.array[5, ac.u8]
+    raw: ac.u8
+@ac.rule
+def read(request: Request) -> ac.u8:
+    index = ac.wrap(request.raw, ac.index[CFG.geometry.entries])
+    return request.values[index]
+@ac.system
+def pipeline(request: Request, *, cfg: ac.const[Config]) -> ac.u8:
+    result = read(request)
+    return result
+"""
+        lowered = lower_queue_source(
+            source,
+            "pipeline",
+            static_arguments={
+                "cfg": FrozenMap(
+                    (("geometry", FrozenMap((("entries", 5),))),)
+                )
+            },
+        )
+
+        self.assertIn('root = "cfg"', lowered)
+        self.assertIn('"param:cfg.geometry.entries"', lowered)
+        self.assertIn('target = "expression.read.0:range_upper"', lowered)
+
     def test_source_path_with_unsafe_cpp_line_characters_is_rejected(self) -> None:
         from agentic_circuit._queue_frontend import (
             QueueFrontendError,

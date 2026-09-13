@@ -35,7 +35,10 @@ Value createVarElement(OpBuilder &builder, Location location, Value input,
 }
 
 Value createCmp(OpBuilder &builder, Location location, Value lhs, Value rhs) {
-  OperationState state(location, ac::VarCmpOp::getOperationName());
+  Type element = cast<ac::VarType>(lhs.getType()).getElementType();
+  OperationState state(location, isa<ac::RangeType>(element)
+                                     ? ac::VarRangeCmpOp::getOperationName()
+                                     : ac::VarCmpOp::getOperationName());
   state.addOperands({lhs, rhs});
   state.addTypes(varType(builder.getContext(), builder.getI1Type()));
   state.addAttribute("predicate", builder.getStringAttr("eq"));
@@ -69,7 +72,7 @@ LogicalResult collectEqualLeaves(OpBuilder &builder, Location location,
                                  Operation *anchor, Value lhs, Value rhs,
                                  Type type, SmallVectorImpl<Value> &leaves,
                                  llvm::SmallPtrSetImpl<Operation *> &seen) {
-  if (isa<IntegerType, ac::EnumType>(type)) {
+  if (isa<IntegerType, ac::RangeType, ac::EnumType>(type)) {
     leaves.push_back(createCmp(builder, location, lhs, rhs));
     return success();
   }

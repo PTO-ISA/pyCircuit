@@ -63,13 +63,16 @@ class ArrayFactory:
         if not isinstance(parameters, tuple) or len(parameters) != 2:
             raise TypeError("ACPY-TYPE-006: array requires [length, element]")
         length, element = parameters
+        dependent_element = isinstance(element, RangeAnnotation)
         descriptor = element if isinstance(element, ValueType) else None
         descriptor = getattr(element, "descriptor", descriptor)
         if descriptor is None and isinstance(element, ScalarType):
             descriptor = BitsType(element.width)
-        if not isinstance(descriptor, ValueType):
+        if descriptor is None and dependent_element:
+            descriptor = element
+        if not isinstance(descriptor, ValueType) and not dependent_element:
             raise TypeError("ACPY-TYPE-006: array element must be an AC value type")
-        if isinstance(length, StaticIntExpression):
+        if isinstance(length, StaticIntExpression) or dependent_element:
             return ArrayAnnotation(length, descriptor)
         return ArrayType(length, descriptor)
 
@@ -87,7 +90,7 @@ array = ArrayFactory()
 class ArrayAnnotation:
     """Runtime metadata for a value array with a dependent static length."""
 
-    length: StaticIntExpression
+    length: int | StaticIntExpression
     element: object
 
 
@@ -254,6 +257,60 @@ s8 = ScalarType(8, True)
 s16 = ScalarType(16, True)
 s32 = ScalarType(32, True)
 s64 = ScalarType(64, True)
+
+
+@dataclass(frozen=True, slots=True)
+class RangeAnnotation:
+    """A dependent unsigned half-open range resolved during elaboration."""
+
+    lower: int | StaticIntExpression
+    upper: int | StaticIntExpression
+
+
+class RangeFactory:
+    """Proof-carrying unsigned range annotation used as ``ac.range[lo, hi]``."""
+
+    __slots__ = ()
+
+    def __getitem__(self, bounds: tuple[object, object]) -> object:
+        from _pycircuit_semantics import RangeType, StaticIntExpression
+
+        if not isinstance(bounds, tuple) or len(bounds) != 2:
+            raise TypeError("ACPY-TYPE-009: range requires [lower, upper]")
+        lower, upper = bounds
+        if type(lower) is int and type(upper) is int:
+            try:
+                return RangeType(lower, upper)
+            except ValueError as error:
+                raise ValueError(f"ACPY-TYPE-009: {error}") from error
+        if not (
+            (type(lower) is int or isinstance(lower, StaticIntExpression))
+            and (type(upper) is int or isinstance(upper, StaticIntExpression))
+        ):
+            raise TypeError("ACPY-TYPE-009: range bounds must be static integers")
+        return RangeAnnotation(lower, upper)
+
+
+class IndexFactory:
+    """Canonical zero-based range annotation used as ``ac.index[N]``."""
+
+    __slots__ = ()
+
+    def __getitem__(self, upper: object) -> object:
+        from _pycircuit_semantics import RangeType, StaticIntExpression
+
+        if type(upper) is int:
+            try:
+                return RangeType(0, upper)
+            except ValueError as error:
+                raise ValueError(f"ACPY-TYPE-009: {error}") from error
+        if not isinstance(upper, StaticIntExpression):
+            raise TypeError("ACPY-TYPE-009: index bound must be a static integer")
+        return RangeAnnotation(0, upper)
+
+
+index = IndexFactory()
+range = RangeFactory()
 
 
 class Static(Generic[T]):

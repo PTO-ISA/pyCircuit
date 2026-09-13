@@ -363,6 +363,21 @@ verifier record namespace 不进入类型语义。完整例子见
 宽度，但尚未把有符号性作为完全独立的类型语义；这些保留的 `sN` 名称目前也
 采用 signless 的无符号关系比较。真正的有符号比较需要后续类型系统 decision。
 
+声明式 bounded unsigned value 使用 Python 半开区间：`ac.index[5]` 等价于
+`ac.range[0, 5]`，`ac.range[4, 9]` 的合法值为 4 到 8。存储保留原数值，位宽为
+`max(1, (upper - 1).bit_length())`，非零下界不会引入 offset encoding。
+`ac.wrap`、`ac.saturate` 和 `ac.checked` 分别提供环绕、饱和及 value/valid 解码；
+invalid checked value 使用目标下界。`ac.refine` 只在 whole-model analysis 能独立证明
+输入域包含于目标域时成立。这些转换都不会隐式 guard rule。外部输入及其 nested
+record/tuple/value-array leaf 不能直接声明为 bounded，必须先以 bits 进入并显式解码。
+当前 persistent/module state 只接纳包含零并以零初始化的 bounded scalar；非零下界
+state 需要后续 typed reset image 扩展，现阶段 fail closed。
+
+bounded 加减产生数学结果域，不执行 bits 的模运算；负结果或超出 u64 时拒绝。
+不同 bounded domain 可以按 unsigned 数值比较。Python 的 `[lo, hi)` 在 Frozen ACIR
+中写成 inclusive `!ac.range<lo, hi - 1>`，QueueGraph 复算转换、算术与 proof 后，
+GFSim/PYC 才擦除 refinement。
+
 进入 MLIR printer 之前，前端使用不可变递归 descriptor 表示 logical bool、精确位宽
 bits、nominal enum/struct、structural tuple 和固定 value array。每个 descriptor 都有
 规范化身份、稳定 SHA-256 和递归 bit width。`BoolType()` 与 `BitsType(1)` 是两个
@@ -370,7 +385,9 @@ bits、nominal enum/struct、structural tuple 和固定 value array。每个 des
 不是 `ArrayType` value。固定 payload array 渲染为 `!ac.value_array<N x T>`；
 `!ac.array` 继续只表示静态 Queue/Var topology collection。tuple/value-array 的每个
 元素都必须递归 immutable。当前可执行链已开放 acyclic nested struct、标准 Python
-enum value、structural tuple 构造、固定 value-array 构造和常量 aggregate 索引。
+enum value、structural tuple 构造、固定 value-array 构造、常量 aggregate 索引及
+有证明的固定 value-array 动态读取。动态读取降为 `ac.var.dynamic_element`，ACIR 与
+QueueGraph 独立证明 index domain 被 array length 包含；动态更新仍未开放。
 
 tuple 与固定 array payload 使用普通 Python annotation 和 value：
 
@@ -386,10 +403,11 @@ updated = item.with_fields(
 )
 ```
 
-tuple/list literal 必须与静态 shape 完全等长；aggregate index 必须在 Frozen ACIR
-之前证明为静态且不越界。编译器用类型化的 `ac.var.tuple`、`ac.var.array` 和
-`ac.var.element` lowering，在 QueueGraph 保存 aggregate identity/width，并在 gfsim 与
-PYC 中使用一个 packed value；Python 不增加硬件 container object。
+tuple/list literal 必须与静态 shape 完全等长；tuple index 仍为静态，value-array
+index 可以是静态值，也可以携带被 verifier 证明不越界的 declared/inferred domain。
+编译器用类型化的 `ac.var.tuple`、`ac.var.array`、`ac.var.element` 和
+`ac.var.dynamic_element` lowering，在 QueueGraph 保存 aggregate identity/width，并在
+gfsim 与 PYC 中使用一个 packed value；Python 不增加硬件 container object。
 enum 和 nominal struct 元素会在 aggregate 构造前递归 pack、在选取后递归恢复，
 字段顺序与 PYC 的 MSB-first layout 相同。位宽加法/乘法采用溢出检查；超过 64 bit
 的字段或跨越元素边界的非法 layout 会在 backend 生成前拒绝。
@@ -547,13 +565,14 @@ updated = INSTRUCTION.update(word, rd=replacement)
 field-qualified operation 解析回声明并复核范围。Python 前端不需要表达任何
 ready/full/Queue transaction 逻辑。
 
-### 有界值约束
+### 声明式 range 与推导值约束
 
 编译器使用一个小型确定性抽象域：`Constant`、`FiniteSet`、`ClosedInterval` 和
 `Unknown`。Constraint 与 `ValueType` 分离，不参与 type identity 或 specialization
-fingerprint；前端也不会把 range attribute 或 constraint marker 序列化进 ACIR。
-位宽、固定 shape、aggregate index、slice/insert bound 和 topology loop count 在
-ACIR 发射前仍必须收敛为具体静态整数。
+fingerprint。声明的 `ac.index`/`ac.range` 则是 verifier-visible payload type；分析可以
+为它推导更窄的事实，但事实丢失不会改变声明类型。位宽、range bound、固定 shape、
+aggregate index、slice/insert bound 和 topology loop count 在 ACIR 发射前仍必须收敛
+为具体静态整数。
 
 typed bit transfer 严格遵循 `ac.var` 语义：算术按 (2^N) 取模，逻辑移位量大于等于
 (N) 时结果为零。FiniteSet 与 Cartesian propagation 最多保留 64 个值，topology

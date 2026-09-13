@@ -676,6 +676,85 @@ QueueGraphPlan aggregateExpressionPlan() {
   return plan;
 }
 
+QueueGraphPlan boundedRangePlan() {
+  QueueGraphPlan plan;
+  plan.system = "bounded_range";
+  plan.queues = {{"raw", "i8", "/", 1, 1},
+                 {"value", "!ac.range<0, 4>", "/", 1, 1},
+                 {"valid", "i1", "/", 1, 1}};
+  plan.blocks.push_back({"source", "raw", "/", {}, {"raw"}, {1}, {1}});
+
+  QueueBlockPlan transform{"transform",
+                           "checked",
+                           "/",
+                           {"raw"},
+                           {"value", "valid"},
+                           {1, 1},
+                           {1, 1}};
+  QueueExpressionPlan value;
+  value.result = "checked_value";
+  value.kind = "range_checked_value";
+  value.type = "!ac.range<0, 4>";
+  value.operands = {"item"};
+  value.field = "!ac.range<0, 4>";
+  value.literal = "checked_0";
+  QueueExpressionPlan valid = value;
+  valid.result = "checked_valid";
+  valid.kind = "range_checked_valid";
+  valid.type = "i1";
+  transform.expressions = {value, valid};
+  transform.yields = {"checked_value", "checked_valid"};
+  plan.blocks.push_back(std::move(transform));
+  plan.blocks.push_back({"sink", "sink_0", "/", {"value"}, {}});
+  plan.blocks.push_back({"sink", "sink_1", "/", {"valid"}, {}});
+  return plan;
+}
+
+QueueGraphPlan boundedArrayPlan() {
+  QueueGraphPlan plan;
+  plan.system = "bounded_array";
+  plan.aggregates = {
+      {"!ac.value_array<5 x i8>", "array", {"i8"}, 5, 40},
+  };
+  plan.queues = {{"values", "!ac.value_array<5 x i8>", "/", 1, 1},
+                 {"raw", "i8", "/", 1, 1},
+                 {"selected", "i8", "/", 1, 1}};
+  plan.blocks.push_back(
+      {"source", "values", "/", {}, {"values"}, {1}, {1}});
+  plan.blocks.push_back({"source", "raw", "/", {}, {"raw"}, {1}, {1}});
+
+  QueueBlockPlan transform{"transform",
+                           "selected",
+                           "/",
+                           {"values", "raw"},
+                           {"selected"},
+                           {1},
+                           {1}};
+  QueueExpressionPlan value;
+  value.result = "checked_value";
+  value.kind = "range_checked_value";
+  value.type = "!ac.range<0, 4>";
+  value.operands = {"item1"};
+  value.field = "!ac.range<0, 4>";
+  value.literal = "checked_0";
+  QueueExpressionPlan valid = value;
+  valid.result = "checked_valid";
+  valid.kind = "range_checked_valid";
+  valid.type = "i1";
+  QueueExpressionPlan selected;
+  selected.result = "selected_value";
+  selected.kind = "array_get_dynamic";
+  selected.type = "i8";
+  selected.operands = {"item", "checked_value"};
+  selected.width = 8;
+  selected.selectionCount = 5;
+  transform.expressions = {value, valid, selected};
+  transform.yields = {"selected_value"};
+  plan.blocks.push_back(std::move(transform));
+  plan.blocks.push_back({"sink", "sink_0", "/", {"selected"}, {}});
+  return plan;
+}
+
 TEST(QueueGraphPlanTest, ExtractsFrozenQueueIdentitiesAndTopology) {
   mlir::MLIRContext context;
   context.loadDialect<ac::ACIRDialect, mlir::DLTIDialect>();
@@ -1163,6 +1242,330 @@ TEST(QueueGraphPlanTest, AcceptsAggregateMetadataWiderThanSixtyFourBits) {
 
   auto error = verifyQueueGraphPlan(plan);
   EXPECT_FALSE(bool(error)) << llvm::toString(std::move(error));
+}
+
+TEST(QueueGraphPlanTest, VerifiesBoundedRangeConversionsAndCheckedPairing) {
+  QueueGraphPlan plan = boundedRangePlan();
+  auto verification = verifyQueueGraphPlan(plan);
+  ASSERT_FALSE(bool(verification)) << llvm::toString(std::move(verification));
+
+  QueueGraphPlan dependent = plan;
+  dependent.staticTypeBindings = {{"N", 5}};
+  dependent.staticTypeChecks = {QueueStaticTypeCheckPlan{
+      "interface.system.bounded_range.output.0:range_upper",
+      {"param:N"},
+      5,
+      "!ac.range<0, 4>"}};
+  auto dependentVerification = verifyQueueGraphPlan(dependent);
+  ASSERT_FALSE(bool(dependentVerification))
+      << llvm::toString(std::move(dependentVerification));
+  dependent.staticTypeBindings.front().second = 4;
+  dependent.staticTypeChecks.front().result = 4;
+  auto metadataError = verifyQueueGraphPlan(dependent);
+  ASSERT_TRUE(bool(metadataError));
+  EXPECT_NE(llvm::toString(std::move(metadataError))
+                .find("static bounded range is inconsistent"),
+            std::string::npos);
+
+  QueueGraphPlan expressionDependent = plan;
+  expressionDependent.blocks[1].expressions[0].staticTypeTarget =
+      "expression.decode.0";
+  expressionDependent.blocks[1].expressions[1].staticTypeTarget =
+      "expression.decode.0";
+  expressionDependent.staticTypeBindings = {{"N", 5}};
+  expressionDependent.staticTypeChecks = {QueueStaticTypeCheckPlan{
+      "expression.decode.0:range_upper",
+      {"param:N"},
+      5,
+      "!ac.range<0, 4>"}};
+  auto expressionVerification = verifyQueueGraphPlan(expressionDependent);
+  ASSERT_FALSE(bool(expressionVerification))
+      << llvm::toString(std::move(expressionVerification));
+  expressionDependent.blocks[1].expressions[1].staticTypeTarget =
+      "expression.decode.forged";
+  auto expressionTargetError = verifyQueueGraphPlan(expressionDependent);
+  ASSERT_TRUE(bool(expressionTargetError));
+  EXPECT_NE(llvm::toString(std::move(expressionTargetError))
+                .find("static expression type target has no matching type check"),
+            std::string::npos);
+
+  QueueGraphPlan strippedMetadata = plan;
+  strippedMetadata.blocks[1].expressions[0].staticTypeTarget =
+      "expression.decode.0";
+  strippedMetadata.blocks[1].expressions[1].staticTypeTarget =
+      "expression.decode.0";
+  auto strippedError = verifyQueueGraphPlan(strippedMetadata);
+  ASSERT_TRUE(bool(strippedError));
+  EXPECT_NE(llvm::toString(std::move(strippedError))
+                .find("static expression type target requires type metadata"),
+            std::string::npos);
+
+  QueueGraphPlan missingValid = plan;
+  missingValid.blocks[1].expressions.pop_back();
+  auto missingError = verifyQueueGraphPlan(missingValid);
+  ASSERT_TRUE(bool(missingError));
+  EXPECT_NE(llvm::toString(std::move(missingError))
+                .find("one value/valid pair"),
+            std::string::npos);
+
+  QueueGraphPlan mismatchedTarget = plan;
+  mismatchedTarget.blocks[1].expressions[1].field = "!ac.range<0, 3>";
+  auto targetError = verifyQueueGraphPlan(mismatchedTarget);
+  ASSERT_TRUE(bool(targetError));
+  EXPECT_NE(llvm::toString(std::move(targetError))
+                .find("one value/valid pair"),
+            std::string::npos);
+
+  QueueGraphPlan duplicateValue = plan;
+  QueueExpressionPlan duplicate = duplicateValue.blocks[1].expressions.front();
+  duplicate.result = "duplicate_checked_value";
+  duplicateValue.blocks[1].expressions.push_back(std::move(duplicate));
+  auto duplicateError = verifyQueueGraphPlan(duplicateValue);
+  ASSERT_TRUE(bool(duplicateError));
+  EXPECT_NE(llvm::toString(std::move(duplicateError))
+                .find("one value/valid pair"),
+            std::string::npos);
+
+  QueueGraphPlan wideSource = plan;
+  wideSource.queues[0].payloadType = "i65";
+  auto wideError = verifyQueueGraphPlan(wideSource);
+  ASSERT_TRUE(bool(wideError));
+  EXPECT_NE(llvm::toString(std::move(wideError))
+                .find("checked range conversion contract"),
+            std::string::npos);
+
+  QueueGraphPlan boundedIngress = plan;
+  boundedIngress.queues[0].payloadType = "!ac.range<0, 4>";
+  auto ingressError = verifyQueueGraphPlan(boundedIngress);
+  ASSERT_TRUE(bool(ingressError));
+  EXPECT_NE(llvm::toString(std::move(ingressError))
+                .find("external source cannot carry"),
+            std::string::npos);
+
+  QueueGraphPlan nestedIngress;
+  nestedIngress.system = "nested_bounded_ingress";
+  nestedIngress.aggregates = {
+      {"tuple<!ac.range<0, 4>, i5>",
+       "tuple",
+       {"!ac.range<0, 4>", "i5"},
+       2,
+       8},
+  };
+  nestedIngress.queues = {
+      {"input", "tuple<!ac.range<0, 4>, i5>", "/", 1, 1},
+  };
+  nestedIngress.blocks.push_back(
+      {"source", "input", "/", {}, {"input"}, {1}, {1}});
+  nestedIngress.blocks.push_back({"sink", "sink_0", "/", {"input"}, {}});
+  auto nestedIngressError = verifyQueueGraphPlan(nestedIngress);
+  ASSERT_TRUE(bool(nestedIngressError));
+  EXPECT_NE(llvm::toString(std::move(nestedIngressError))
+                .find("external source cannot carry"),
+            std::string::npos);
+
+  QueueGraphPlan badConstant = plan;
+  QueueExpressionPlan constant;
+  constant.result = "bad_constant";
+  constant.kind = "constant";
+  constant.type = "!ac.range<0, 4>";
+  constant.literal = "5 : i3";
+  badConstant.blocks[1].expressions.push_back(std::move(constant));
+  auto constantError = verifyQueueGraphPlan(badConstant);
+  ASSERT_TRUE(bool(constantError));
+  EXPECT_NE(llvm::toString(std::move(constantError))
+                .find("range constant is outside declared bounds"),
+            std::string::npos);
+
+  QueueGraphPlan badArithmetic = plan;
+  QueueExpressionPlan zero;
+  zero.result = "zero";
+  zero.kind = "constant";
+  zero.type = "!ac.range<0, 4>";
+  zero.literal = "0 : i3";
+  QueueExpressionPlan one;
+  one.result = "one";
+  one.kind = "constant";
+  one.type = "!ac.range<1, 1>";
+  one.literal = "1 : i1";
+  QueueExpressionPlan sum;
+  sum.result = "sum";
+  sum.kind = "range_add";
+  sum.type = "!ac.range<0, 4>";
+  sum.operands = {"zero", "one"};
+  badArithmetic.blocks[1].expressions.push_back(std::move(zero));
+  badArithmetic.blocks[1].expressions.push_back(std::move(one));
+  badArithmetic.blocks[1].expressions.push_back(std::move(sum));
+  auto arithmeticError = verifyQueueGraphPlan(badArithmetic);
+  ASSERT_TRUE(bool(arithmeticError));
+  EXPECT_NE(llvm::toString(std::move(arithmeticError))
+                .find("bounded arithmetic result range is inconsistent"),
+            std::string::npos);
+
+  QueueGraphPlan forgedRangeBits = plan;
+  QueueExpressionPlan rangeBits;
+  rangeBits.result = "forged_range_bits";
+  rangeBits.kind = "range_bits";
+  rangeBits.type = "!ac.range<0, 7>";
+  rangeBits.operands = {"checked_value"};
+  forgedRangeBits.blocks[1].expressions.push_back(std::move(rangeBits));
+  auto rangeBitsError = verifyQueueGraphPlan(forgedRangeBits);
+  ASSERT_TRUE(bool(rangeBitsError));
+  EXPECT_NE(llvm::toString(std::move(rangeBitsError))
+                .find("range_bits conversion contract is malformed"),
+            std::string::npos);
+
+  QueueGraphPlan forgedExtract = plan;
+  QueueExpressionPlan extract;
+  extract.result = "forged_extract";
+  extract.kind = "bit_extract";
+  extract.type = "!ac.range<0, 7>";
+  extract.operands = {"item"};
+  extract.width = 3;
+  forgedExtract.blocks[1].expressions.push_back(std::move(extract));
+  auto extractError = verifyQueueGraphPlan(forgedExtract);
+  ASSERT_TRUE(bool(extractError));
+  EXPECT_NE(llvm::toString(std::move(extractError))
+                .find("bit_extract expression widths are inconsistent"),
+            std::string::npos);
+
+  QueueGraphPlan forgedAdd = plan;
+  QueueExpressionPlan zeroBits;
+  zeroBits.result = "zero_bits";
+  zeroBits.kind = "constant";
+  zeroBits.type = "i8";
+  zeroBits.literal = "0 : i8";
+  QueueExpressionPlan add;
+  add.result = "forged_add";
+  add.kind = "add";
+  add.type = "!ac.range<0, 4>";
+  add.operands = {"item", "zero_bits"};
+  forgedAdd.blocks[1].expressions.push_back(std::move(zeroBits));
+  forgedAdd.blocks[1].expressions.push_back(std::move(add));
+  auto addError = verifyQueueGraphPlan(forgedAdd);
+  ASSERT_TRUE(bool(addError));
+  EXPECT_NE(llvm::toString(std::move(addError))
+                .find("bits arithmetic operands and result"),
+            std::string::npos);
+
+  QueueGraphPlan unknownKind = plan;
+  QueueExpressionPlan unknown;
+  unknown.result = "unknown";
+  unknown.kind = "range_magic";
+  unknown.type = "!ac.range<0, 4>";
+  unknown.operands = {"item"};
+  unknownKind.blocks[1].expressions.push_back(std::move(unknown));
+  auto unknownError = verifyQueueGraphPlan(unknownKind);
+  ASSERT_TRUE(bool(unknownError));
+  EXPECT_NE(llvm::toString(std::move(unknownError))
+                .find("unsupported QueueGraph expression kind"),
+            std::string::npos);
+}
+
+TEST(QueueGraphPlanTest, RecomputesDynamicValueArrayBounds) {
+  QueueGraphPlan plan = boundedArrayPlan();
+  auto verification = verifyQueueGraphPlan(plan);
+  ASSERT_FALSE(bool(verification)) << llvm::toString(std::move(verification));
+
+  QueueGraphPlan rawIndex = plan;
+  rawIndex.blocks[2].expressions.back().operands[1] = "item1";
+  auto rawError = verifyQueueGraphPlan(rawIndex);
+  ASSERT_TRUE(bool(rawError));
+  EXPECT_NE(llvm::toString(std::move(rawError))
+                .find("value_array index is not statically safe"),
+            std::string::npos);
+
+  QueueGraphPlan wrongLength = plan;
+  wrongLength.blocks[2].expressions.back().selectionCount = 4;
+  auto lengthError = verifyQueueGraphPlan(wrongLength);
+  ASSERT_TRUE(bool(lengthError));
+  EXPECT_NE(llvm::toString(std::move(lengthError))
+                .find("dynamic value_array access types are inconsistent"),
+            std::string::npos);
+
+  QueueGraphPlan wrongWidth = plan;
+  wrongWidth.blocks[2].expressions.back().width = 7;
+  auto widthError = verifyQueueGraphPlan(wrongWidth);
+  ASSERT_TRUE(bool(widthError));
+  EXPECT_NE(llvm::toString(std::move(widthError))
+                .find("dynamic value_array access types are inconsistent"),
+            std::string::npos);
+
+  QueueGraphPlan outOfRange = plan;
+  outOfRange.blocks[2].expressions[0].type = "!ac.range<0, 5>";
+  outOfRange.blocks[2].expressions[0].field = "!ac.range<0, 5>";
+  outOfRange.blocks[2].expressions[1].field = "!ac.range<0, 5>";
+  auto boundError = verifyQueueGraphPlan(outOfRange);
+  ASSERT_TRUE(bool(boundError));
+  EXPECT_NE(llvm::toString(std::move(boundError))
+                .find("value_array index is not statically safe"),
+            std::string::npos);
+
+  QueueGraphPlan helperBypass = plan;
+  QueueHelperPlan helper;
+  helper.name = "unsafe_read";
+  helper.inputNames = {"values", "index"};
+  helper.inputTypes = {"!ac.value_array<5 x i8>", "i3"};
+  helper.resultTypes = {"i8"};
+  QueueExpressionPlan helperRead;
+  helperRead.result = "result";
+  helperRead.kind = "array_get_dynamic";
+  helperRead.type = "i8";
+  helperRead.operands = {"values", "index"};
+  helperRead.width = 8;
+  helperRead.selectionCount = 5;
+  helper.expressions = {helperRead};
+  helper.yields = {"result"};
+  helperBypass.helpers = {helper};
+  auto helperError = verifyQueueGraphPlan(helperBypass);
+  ASSERT_TRUE(bool(helperError));
+  EXPECT_NE(llvm::toString(std::move(helperError))
+                .find("value_array index is not statically safe"),
+            std::string::npos);
+}
+
+TEST(QueueGraphPlanTest, VerifiesStrictRangeRefinementProof) {
+  QueueGraphPlan plan;
+  plan.system = "range_refine";
+  plan.queues = {{"raw", "i2", "/", 1, 1},
+                 {"value", "!ac.range<0, 4>", "/", 1, 1}};
+  plan.blocks.push_back({"source", "raw", "/", {}, {"raw"}, {1}, {1}});
+  QueueBlockPlan transform{"transform",
+                           "value",
+                           "/",
+                           {"raw"},
+                           {"value"},
+                           {1},
+                           {1}};
+  transform.expressions = {
+      {"refined", "range_refine", "!ac.range<0, 4>", {"item"}},
+  };
+  transform.yields = {"refined"};
+  plan.blocks.push_back(std::move(transform));
+  plan.blocks.push_back({"sink", "sink_0", "/", {"value"}, {}});
+
+  auto verification = verifyQueueGraphPlan(plan);
+  ASSERT_FALSE(bool(verification)) << llvm::toString(std::move(verification));
+
+  plan.queues.front().payloadType = "i3";
+  auto unsafe = verifyQueueGraphPlan(plan);
+  ASSERT_TRUE(bool(unsafe));
+  EXPECT_NE(llvm::toString(std::move(unsafe))
+                .find("strict range refinement is not statically safe"),
+            std::string::npos);
+
+  QueueGraphPlan invalidTable = boundedRangePlan();
+  TablePlan table;
+  table.name = "state";
+  table.entryType = "!ac.range<4, 8>";
+  table.entries = 5;
+  table.stableId = "table/state";
+  table.ownerPath = "/";
+  invalidTable.tables = {table};
+  auto tableError = verifyQueueGraphPlan(invalidTable);
+  ASSERT_TRUE(bool(tableError));
+  EXPECT_NE(llvm::toString(std::move(tableError))
+                .find("bounded Table initializer contract is unsupported"),
+            std::string::npos);
 }
 
 TEST(QueueGraphPlanTest, RejectsAggregateMetadataOutsideBackendStorageWidth) {
@@ -4639,7 +5042,8 @@ TEST(QueueGraphPlanTest, RejectsMalformedUnsignedDivRemExpressionPlan) {
     plan.blocks[1].expressions[1].type = "tuple<i8>";
     auto aggregateError = verifyQueueGraphPlan(plan);
     ASSERT_TRUE(bool(aggregateError));
-    EXPECT_NE(llvm::toString(std::move(aggregateError)).find("share one i1..i64"),
+    EXPECT_NE(llvm::toString(std::move(aggregateError))
+                  .find("constant expression contract is malformed"),
               std::string::npos);
   }
 }

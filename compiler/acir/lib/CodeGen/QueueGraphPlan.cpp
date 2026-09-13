@@ -243,6 +243,12 @@ mlirValueBitWidth(mlir::Operation *from, mlir::Type type,
                   llvm::SmallVectorImpl<mlir::Type> &active) {
   if (auto integer = mlir::dyn_cast<mlir::IntegerType>(type))
     return integer.getWidth();
+  if (auto range = mlir::dyn_cast<ac::RangeType>(type)) {
+    const uint64_t upper = range.getUpper();
+    return upper == std::numeric_limits<uint64_t>::max()
+               ? 64
+               : std::max<uint64_t>(1, llvm::Log2_64_Ceil(upper + 1));
+  }
   if (llvm::is_contained(active, type))
     return planError("recursive value type has no finite bit width");
   active.push_back(type);
@@ -307,7 +313,37 @@ mlirValueBitWidth(mlir::Operation *from, mlir::Type type,
   return finish(planError("QueueGraph value type has no bit-width model"));
 }
 
+std::optional<std::pair<uint64_t, uint64_t>>
+rangeBounds(llvm::StringRef type) {
+  constexpr llvm::StringLiteral prefix = "!ac.range<";
+  if (!type.starts_with(prefix) || !type.ends_with('>'))
+    return std::nullopt;
+  llvm::StringRef bounds = type.drop_front(prefix.size()).drop_back();
+  auto [lowerText, upperText] = bounds.split(',');
+  uint64_t lower = 0;
+  uint64_t upper = 0;
+  if (lowerText.trim().getAsInteger(10, lower) ||
+      upperText.trim().getAsInteger(10, upper) || lower > upper)
+    return std::nullopt;
+  return std::pair{lower, upper};
+}
+
 std::optional<unsigned> integerWidth(llvm::StringRef type) {
+  if (type.consume_front("i")) {
+    unsigned width = 0;
+    if (type.empty() || type.getAsInteger(10, width) || width == 0)
+      return std::nullopt;
+    return width;
+  }
+  auto bounds = rangeBounds(type);
+  if (!bounds)
+    return std::nullopt;
+  return bounds->second == std::numeric_limits<uint64_t>::max()
+             ? 64
+             : std::max(1u, llvm::Log2_64_Ceil(bounds->second + 1));
+}
+
+std::optional<unsigned> bitsWidth(llvm::StringRef type) {
   if (!type.consume_front("i"))
     return std::nullopt;
   unsigned width = 0;
@@ -317,7 +353,7 @@ std::optional<unsigned> integerWidth(llvm::StringRef type) {
 }
 
 std::optional<uint64_t> candidateMaskWords(llvm::StringRef type) {
-  if (auto width = integerWidth(type); width && *width <= 64)
+  if (auto width = bitsWidth(type); width && *width <= 64)
     return 1;
   constexpr llvm::StringLiteral prefix = "!ac.value_array<";
   constexpr llvm::StringLiteral suffix = " x i64>";
@@ -335,7 +371,7 @@ bool isCandidateMaskType(llvm::StringRef type, uint64_t entries) {
   if (entries == 0)
     return false;
   if (entries <= 64) {
-    auto width = integerWidth(type);
+    auto width = bitsWidth(type);
     return width && *width == entries;
   }
   auto words = candidateMaskWords(type);
@@ -361,12 +397,29 @@ std::optional<uint64_t> parseExactWidthHex(llvm::StringRef text,
 }
 
 ValueConstraint planTypeConstraint(llvm::StringRef type) {
+  if (auto bounds = rangeBounds(type))
+    return ValueConstraint::closedInterval(bounds->first, bounds->second);
   auto width = integerWidth(type);
   if (!width || *width > 64)
     return ValueConstraint::unknown();
   const uint64_t upper = *width == 64 ? std::numeric_limits<uint64_t>::max()
                                       : (uint64_t{1} << *width) - 1;
   return ValueConstraint::closedInterval(0, upper);
+}
+
+std::optional<std::pair<uint64_t, uint64_t>>
+constraintBounds(const ValueConstraint &constraint) {
+  if (constraint.kind == ValueConstraintKind::Constant)
+    return std::pair{constraint.values.front(), constraint.values.front()};
+  if (constraint.kind == ValueConstraintKind::FiniteSet &&
+      !constraint.values.empty()) {
+    auto [lower, upper] =
+        std::minmax_element(constraint.values.begin(), constraint.values.end());
+    return std::pair{*lower, *upper};
+  }
+  if (constraint.kind == ValueConstraintKind::ClosedInterval)
+    return std::pair{constraint.lower, constraint.upper};
+  return std::nullopt;
 }
 
 std::optional<uint64_t> planConstantValue(llvm::StringRef literal,
@@ -437,7 +490,8 @@ inferPlanConstraint(const QueueExpressionPlan &expression,
                                        *expected);
     return ValueConstraint::closedInterval(0, 1);
   }
-  if (expression.kind == "cmp" || expression.kind == "priority_valid" ||
+  if (expression.kind == "cmp" || expression.kind == "range_cmp" ||
+      expression.kind == "priority_valid" ||
       expression.kind == "table_choose_valid" ||
       expression.kind == "table_selection_valid_ref")
     return ValueConstraint::closedInterval(0, 1);
@@ -492,6 +546,45 @@ inferPlanConstraint(const QueueExpressionPlan &expression,
     if (expression.kind == "shr")
       return ValueConstraint::constant(
           !resultWidth || rhs >= *resultWidth ? 0 : lhs >> rhs);
+  }
+  if (expression.kind == "add" || expression.kind == "sub" ||
+      expression.kind == "mul") {
+    auto leftBounds = constraintBounds(left);
+    auto rightBounds = constraintBounds(right);
+    if (leftBounds && rightBounds) {
+      uint64_t lower = 0;
+      uint64_t upper = 0;
+      bool safe = true;
+      if (expression.kind == "add") {
+        safe = rightBounds->first <=
+                   std::numeric_limits<uint64_t>::max() - leftBounds->first &&
+               rightBounds->second <=
+                   std::numeric_limits<uint64_t>::max() - leftBounds->second;
+        if (safe) {
+          lower = leftBounds->first + rightBounds->first;
+          upper = leftBounds->second + rightBounds->second;
+        }
+      } else if (expression.kind == "sub") {
+        safe = leftBounds->first >= rightBounds->second;
+        if (safe) {
+          lower = leftBounds->first - rightBounds->second;
+          upper = leftBounds->second - rightBounds->first;
+        }
+      } else {
+        safe = (leftBounds->first == 0 ||
+                rightBounds->first <=
+                    std::numeric_limits<uint64_t>::max() / leftBounds->first) &&
+               (leftBounds->second == 0 ||
+                rightBounds->second <=
+                    std::numeric_limits<uint64_t>::max() / leftBounds->second);
+        if (safe) {
+          lower = leftBounds->first * rightBounds->first;
+          upper = leftBounds->second * rightBounds->second;
+        }
+      }
+      if (safe && upper <= mask)
+        return ValueConstraint::closedInterval(lower, upper);
+    }
   }
   if (expression.kind == "and") {
     if (left.kind == ValueConstraintKind::Constant)
@@ -805,6 +898,9 @@ extractExpressions(mlir::Region &region, QueueBlockPlan &plan,
     QueueExpressionPlan expression{
         std::move(result), kind.str(), printType(resultType.getElementType()),
         std::move(*operands), field.str(), predicate.str(), literal.str()};
+    if (auto target = operation.getAttrOfType<mlir::StringAttr>(
+            "ac.static_type_target"))
+      expression.staticTypeTarget = target.getValue().str();
     expression.sourceProvenance = currentExpressionProvenance;
     plan.expressions.push_back(std::move(expression));
     return llvm::Error::success();
@@ -963,6 +1059,21 @@ extractExpressions(mlir::Region &region, QueueBlockPlan &plan,
       plan.expressions.back().width = *width;
       continue;
     }
+    if (auto element = mlir::dyn_cast<ac::VarDynamicElementOp>(operation)) {
+      if (auto error = append(operation, "array_get_dynamic"))
+        return error;
+      auto array = mlir::cast<ac::ValueArrayType>(
+          mlir::cast<ac::VarType>(element.getAggregate().getType())
+              .getElementType());
+      llvm::SmallVector<mlir::Type> active;
+      auto width = mlirValueBitWidth(element, array.getElementType(), active);
+      if (!width)
+        return width.takeError();
+      plan.expressions.back().width = *width;
+      plan.expressions.back().selectionCount =
+          static_cast<uint64_t>(array.getLength());
+      continue;
+    }
     if (mlir::isa<ac::VarAddOp>(operation)) {
       if (auto error = append(operation, "add"))
         return error;
@@ -1083,6 +1194,73 @@ extractExpressions(mlir::Region &region, QueueBlockPlan &plan,
     }
     if (mlir::isa<ac::VarConcatOp>(operation)) {
       if (auto error = append(operation, "bit_concat"))
+        return error;
+      continue;
+    }
+    if (mlir::isa<ac::VarRangeWrapOp>(operation)) {
+      if (auto error = append(operation, "range_wrap"))
+        return error;
+      continue;
+    }
+    if (mlir::isa<ac::VarRangeSaturateOp>(operation)) {
+      if (auto error = append(operation, "range_saturate"))
+        return error;
+      continue;
+    }
+    if (auto checked = mlir::dyn_cast<ac::VarRangeCheckedOp>(operation)) {
+      auto operands = operandNames(checked->getOperands());
+      if (!operands)
+        return operands.takeError();
+      const std::string group =
+          prefix.str() + "range_checked_" +
+          std::to_string(plan.expressions.size());
+      const std::array<std::pair<mlir::Value, llvm::StringRef>, 2> results = {{
+          {checked.getValue(), "range_checked_value"},
+          {checked.getValid(), "range_checked_valid"},
+      }};
+      for (auto [resultValue, kind] : results) {
+        auto resultType = mlir::cast<ac::VarType>(resultValue.getType());
+        std::string result =
+            prefix.str() + std::to_string(plan.expressions.size());
+        values[resultValue] = result;
+        QueueExpressionPlan expression{
+            result, kind.str(), printType(resultType.getElementType()),
+            *operands};
+        expression.field =
+            printType(mlir::cast<ac::VarType>(checked.getValue().getType())
+                          .getElementType());
+        expression.literal = group;
+        if (auto target = operation.getAttrOfType<mlir::StringAttr>(
+                "ac.static_type_target"))
+          expression.staticTypeTarget = target.getValue().str();
+        expression.sourceProvenance = currentExpressionProvenance;
+        plan.expressions.push_back(std::move(expression));
+      }
+      continue;
+    }
+    if (mlir::isa<ac::VarRangeRefineOp>(operation)) {
+      if (auto error = append(operation, "range_refine"))
+        return error;
+      continue;
+    }
+    if (mlir::isa<ac::VarRangeBitsOp>(operation)) {
+      if (auto error = append(operation, "range_bits"))
+        return error;
+      continue;
+    }
+    if (mlir::isa<ac::VarRangeAddOp>(operation)) {
+      if (auto error = append(operation, "range_add"))
+        return error;
+      continue;
+    }
+    if (mlir::isa<ac::VarRangeSubOp>(operation)) {
+      if (auto error = append(operation, "range_sub"))
+        return error;
+      continue;
+    }
+    if (auto compare = mlir::dyn_cast<ac::VarRangeCmpOp>(operation)) {
+      if (auto error = append(operation, "range_cmp", {},
+                              compare.getPredicate()))
         return error;
       continue;
     }
@@ -3526,8 +3704,27 @@ projectStaticConfigInteger(const llvm::json::Value &schema,
 
 llvm::Error verifyStaticTypeMetadata(const QueueGraphPlan &plan) {
   if (plan.staticTypeBindings.empty() && plan.staticTypeChecks.empty() &&
-      plan.staticTypeIdentities.empty() && plan.staticConfigBindings.empty())
-    return llvm::Error::success();
+      plan.staticTypeIdentities.empty() && plan.staticConfigBindings.empty()) {
+    bool hasExpressionTarget = false;
+    auto scan = [&](auto &&self, const auto &expressions) -> void {
+      for (const QueueExpressionPlan &expression : expressions) {
+        hasExpressionTarget |= !expression.staticTypeTarget.empty();
+        self(self, expression.nestedExpressions);
+      }
+    };
+    for (const QueueBlockPlan &block : plan.blocks)
+      scan(scan, block.expressions);
+    for (const QueueHelperPlan &helper : plan.helpers)
+      scan(scan, helper.expressions);
+    for (const TableMatchPlan &match : plan.tableMatches)
+      scan(scan, match.expressions);
+    for (const TableSelectionPlan &selection : plan.tableSelections)
+      scan(scan, selection.keyExpressions);
+    return hasExpressionTarget
+               ? planError(
+                     "static expression type target requires type metadata")
+               : llvm::Error::success();
+  }
   if (plan.staticTypeBindings.empty() || plan.staticTypeChecks.empty())
     return planError("static type bindings and checks must both be present");
   llvm::StringMap<int64_t> bindings;
@@ -3666,6 +3863,35 @@ llvm::Error verifyStaticTypeMetadata(const QueueGraphPlan &plan) {
       return {true, std::nullopt};
     return {true, ports[ordinal].payloadType};
   };
+  auto resolveExpressionType = [&](llvm::StringRef path)
+      -> std::optional<std::string> {
+    std::optional<std::string> resolved;
+    bool conflict = false;
+    auto visit = [&](auto &&self, const auto &expressions) -> void {
+      for (const QueueExpressionPlan &expression : expressions) {
+        if (expression.staticTypeTarget == path) {
+          llvm::StringRef candidate = expression.type;
+          if (expression.kind == "range_checked_valid")
+            candidate = expression.field;
+          if (!rangeBounds(candidate) ||
+              (resolved && *resolved != candidate))
+            conflict = true;
+          else
+            resolved = candidate.str();
+        }
+        self(self, expression.nestedExpressions);
+      }
+    };
+    for (const QueueBlockPlan &block : plan.blocks)
+      visit(visit, block.expressions);
+    for (const QueueHelperPlan &helper : plan.helpers)
+      visit(visit, helper.expressions);
+    for (const TableMatchPlan &match : plan.tableMatches)
+      visit(visit, match.expressions);
+    for (const TableSelectionPlan &selection : plan.tableSelections)
+      visit(visit, selection.keyExpressions);
+    return conflict ? std::nullopt : resolved;
+  };
 
   llvm::StringSet<> referencedBindings;
   llvm::StringSet<> targets;
@@ -3725,7 +3951,10 @@ llvm::Error verifyStaticTypeMetadata(const QueueGraphPlan &plan) {
     std::string ownedResolvedType = check.concreteType;
     llvm::StringRef resolvedType = ownedResolvedType;
     if (!check.concreteType.empty()) {
-      auto [applicable, actual] = resolveInterfaceType(path);
+      auto [applicable, actual] = path.starts_with("expression.")
+                                      ? std::pair{true,
+                                                  resolveExpressionType(path)}
+                                      : resolveInterfaceType(path);
       if (applicable && (!actual || *actual != check.concreteType))
         return planError(
             "static interface type check disagrees with the actual endpoint '" +
@@ -3783,6 +4012,18 @@ llvm::Error verifyStaticTypeMetadata(const QueueGraphPlan &plan) {
       if (aggregate == plan.aggregates.end() || aggregate->kind != "array" ||
           aggregate->length != static_cast<uint64_t>(check.result))
         return planError("static value-array length is inconsistent");
+    } else if (kind == "range_lower" || kind == "range_upper") {
+      auto bounds = rangeBounds(resolvedType);
+      uint64_t expected = 0;
+      if (bounds)
+        expected = kind == "range_lower"
+                       ? bounds->first
+                       : bounds->second +
+                             (bounds->second !=
+                              std::numeric_limits<uint64_t>::max());
+      if (!bounds || check.result < 0 ||
+          static_cast<uint64_t>(check.result) != expected)
+        return planError("static bounded range is inconsistent");
     } else {
       return planError("static type check target kind is unsupported");
     }
@@ -3791,6 +4032,31 @@ llvm::Error verifyStaticTypeMetadata(const QueueGraphPlan &plan) {
     if (!referencedBindings.contains(binding.getKey()))
       return planError(
           "static type binding is not referenced by any type check");
+
+  auto verifyExpressionTargets = [&](auto &&self,
+                                     const auto &expressions) -> llvm::Error {
+    for (const QueueExpressionPlan &expression : expressions) {
+      if (!expression.staticTypeTarget.empty()) {
+        const std::string prefix = expression.staticTypeTarget + ":";
+        if (llvm::none_of(targets.keys(), [&](llvm::StringRef target) {
+              return target.starts_with(prefix);
+            }))
+          return planError(
+              "static expression type target has no matching type check");
+      }
+      if (auto error = self(self, expression.nestedExpressions))
+        return error;
+    }
+    return llvm::Error::success();
+  };
+  for (const QueueBlockPlan &block : plan.blocks)
+    if (auto error = verifyExpressionTargets(verifyExpressionTargets,
+                                             block.expressions))
+      return error;
+  for (const QueueHelperPlan &helper : plan.helpers)
+    if (auto error = verifyExpressionTargets(verifyExpressionTargets,
+                                             helper.expressions))
+      return error;
 
   llvm::StringSet<> identitySymbols;
   llvm::StringSet<> identityTargets;
@@ -4031,6 +4297,7 @@ inlineTableChoiceContractKey(const QueueExpressionPlan &expression) {
     append(std::to_string(nested.width));
     append(nested.mask);
     append(nested.value);
+    append(nested.staticTypeTarget);
     for (uint64_t value : nested.domainAxes)
       append(std::to_string(value));
     for (uint64_t value : nested.domainShape)
@@ -4071,6 +4338,7 @@ inlineTableChoiceContractKey(const QueueExpressionPlan &expression) {
   append(std::to_string(expression.selectionCount));
   append(expression.keyOrdering);
   append(std::to_string(expression.initialCursor));
+  append(expression.staticTypeTarget);
   return result;
 }
 
@@ -4087,6 +4355,12 @@ bool isEffectFreeTableMatchExpression(const QueueExpressionPlan &expression) {
       .Cases({"with", "add", "sub", "mul", "udiv", "urem"}, true)
       .Cases({"and", "or", "xor", "shl", "shr"}, true)
       .Cases({"priority_index", "priority_valid"}, true)
+      .Cases({"range_wrap", "range_saturate", "range_refine", "range_bits",
+              "range_add", "range_sub", "range_cmp"},
+             true)
+      .Cases({"range_checked_value", "range_checked_valid",
+              "array_get_dynamic"},
+             true)
       .Default(false);
 }
 
@@ -4292,12 +4566,85 @@ llvm::Error verifyQueueGraphPlan(const QueueGraphPlan &plan) {
       if (!entry.getValue().contains(ordinal))
         return planError("memory request endpoint ordinals must be contiguous "
                          "from zero");
+  auto tableTypeSupportsZero = [&](auto &&self, llvm::StringRef type,
+                                   llvm::StringSet<> &active) -> bool {
+    if (bitsWidth(type) || enumTypeName(type))
+      return true;
+    if (auto bounds = rangeBounds(type))
+      return bounds->first == 0;
+    if (!active.insert(type).second)
+      return false;
+    bool supported = false;
+    if (auto name = payloadTypeName(type)) {
+      auto payload = llvm::find_if(
+          plan.payloads, [&](const QueuePayloadPlan &candidate) {
+            return candidate.name == *name;
+          });
+      supported =
+          payload != plan.payloads.end() &&
+          llvm::all_of(payload->fields, [&](const QueuePayloadFieldPlan &field) {
+            return self(self, field.type, active);
+          });
+    } else {
+      auto aggregate = llvm::find_if(
+          plan.aggregates, [&](const QueueAggregatePlan &candidate) {
+            return candidate.type == type;
+          });
+      supported =
+          aggregate != plan.aggregates.end() &&
+          llvm::all_of(aggregate->elements, [&](llvm::StringRef element) {
+            return self(self, element, active);
+          });
+    }
+    active.erase(type);
+    return supported;
+  };
+  auto tableTypeContainsRange = [&](auto &&self, llvm::StringRef type,
+                                    llvm::StringSet<> &active) -> bool {
+    if (rangeBounds(type))
+      return true;
+    if (!active.insert(type).second)
+      return false;
+    bool found = false;
+    if (auto name = payloadTypeName(type)) {
+      auto payload = llvm::find_if(
+          plan.payloads, [&](const QueuePayloadPlan &candidate) {
+            return candidate.name == *name;
+          });
+      found = payload != plan.payloads.end() &&
+              llvm::any_of(payload->fields,
+                           [&](const QueuePayloadFieldPlan &field) {
+                             return self(self, field.type, active);
+                           });
+    } else {
+      auto aggregate = llvm::find_if(
+          plan.aggregates, [&](const QueueAggregatePlan &candidate) {
+            return candidate.type == type;
+          });
+      found = aggregate != plan.aggregates.end() &&
+              llvm::any_of(aggregate->elements,
+                           [&](llvm::StringRef element) {
+                             return self(self, element, active);
+                           });
+    }
+    active.erase(type);
+    return found;
+  };
   for (const TablePlan &table : plan.tables) {
     if (table.name.empty() || !tables.try_emplace(table.name, &table).second)
       return planError("table identities must be non-empty and unique");
     if (table.entryType.empty() || table.entries == 0 || table.init != 0 ||
         table.stableId.empty() || table.ownerPath.empty())
       return planError("table metadata is incomplete");
+    llvm::StringSet<> zeroActive;
+    llvm::StringSet<> rangeActive;
+    if ((table.initImage.empty() &&
+         !tableTypeSupportsZero(tableTypeSupportsZero, table.entryType,
+                                zeroActive)) ||
+        (!table.initImage.empty() &&
+         tableTypeContainsRange(tableTypeContainsRange, table.entryType,
+                                rangeActive)))
+      return planError("bounded Table initializer contract is unsupported");
     const bool legacyShape =
         !table.hasTypedSchema && table.schemaId.empty() &&
         table.initVersion == 0 && table.initImage.empty() &&
@@ -4396,7 +4743,7 @@ llvm::Error verifyQueueGraphPlan(const QueueGraphPlan &plan) {
     const TableMatchPlan *match = tableMatches.lookup(selection.match);
     std::optional<uint64_t> domainEntries =
         table && match ? projectionSize(*match, *table) : std::nullopt;
-    auto indexWidth = integerWidth(selection.indexType);
+    auto indexWidth = bitsWidth(selection.indexType);
     const unsigned expectedIndexWidth =
         table ? std::max<unsigned>(1, llvm::Log2_64_Ceil(table->entries)) : 0;
     if (selection.name.empty() || !table || !match || !indexWidth ||
@@ -4766,6 +5113,36 @@ llvm::Error verifyQueueGraphPlan(const QueueGraphPlan &plan) {
     ++consumers[output.name];
   }
 
+  auto containsDeclaredRange = [&](auto &&self, llvm::StringRef type,
+                                   llvm::StringSet<> &active) -> bool {
+    if (rangeBounds(type))
+      return true;
+    if (!active.insert(type).second)
+      return false;
+    bool found = false;
+    if (std::optional<llvm::StringRef> name = payloadTypeName(type)) {
+      auto payload = llvm::find_if(
+          plan.payloads, [&](const QueuePayloadPlan &candidate) {
+            return candidate.name == *name;
+          });
+      if (payload != plan.payloads.end())
+        found = llvm::any_of(payload->fields, [&](const auto &field) {
+          return self(self, field.type, active);
+        });
+    } else {
+      auto aggregate = llvm::find_if(
+          plan.aggregates, [&](const QueueAggregatePlan &candidate) {
+            return candidate.type == type;
+          });
+      if (aggregate != plan.aggregates.end())
+        found = llvm::any_of(aggregate->elements, [&](llvm::StringRef element) {
+          return self(self, element, active);
+        });
+    }
+    active.erase(type);
+    return found;
+  };
+
   llvm::StringSet<> instanceNames;
   for (const QueueModuleInstancePlan &instance : plan.moduleInstances) {
     const QueueGraphPlan *target =
@@ -4863,6 +5240,13 @@ llvm::Error verifyQueueGraphPlan(const QueueGraphPlan &plan) {
     llvm::StringMap<std::string> valueTypes;
     llvm::StringMap<const QueueExpressionPlan *> valueDefinitions;
     llvm::StringMap<std::pair<unsigned, unsigned>> inlineChoiceKinds;
+    struct RangeCheckedPair {
+      const QueueExpressionPlan *value = nullptr;
+      const QueueExpressionPlan *valid = nullptr;
+      unsigned valueCount = 0;
+      unsigned validCount = 0;
+    };
+    llvm::StringMap<RangeCheckedPair> rangeCheckedPairs;
     for (const auto &entry : inheritedTypes)
       valueTypes[entry.getKey()] = entry.getValue();
     for (auto [index, type] : llvm::enumerate(rootTypes))
@@ -4877,7 +5261,17 @@ llvm::Error verifyQueueGraphPlan(const QueueGraphPlan &plan) {
         return planError(
             "residual ac.var.invariant must be lowered before QueueGraph "
             "planning");
-      if (expression.kind == "helper_call") {
+      if (expression.kind == "constant") {
+        if (!expression.operands.empty() || expression.literal.empty() ||
+            !integerWidth(expression.type))
+          return planError("constant expression contract is malformed");
+        auto value = planConstantValue(expression.literal, expression.type);
+        if (!value)
+          return planError("constant expression value is malformed");
+        if (auto bounds = rangeBounds(expression.type);
+            bounds && (*value < bounds->first || *value > bounds->second))
+          return planError("range constant is outside declared bounds");
+      } else if (expression.kind == "helper_call") {
         const QueueHelperPlan *helper = helpers.lookup(expression.field);
         if (!helper || expression.literal.empty() ||
             expression.selectionCount != helper->resultTypes.size() ||
@@ -4906,8 +5300,13 @@ llvm::Error verifyQueueGraphPlan(const QueueGraphPlan &plan) {
               table->axisWidths.empty()
                   ? std::max<uint64_t>(1, llvm::Log2_64_Ceil(extent))
                   : table->axisWidths[axis];
+          const bool bounded =
+              operand != valueTypes.end() &&
+              rangeBounds(operand->getValue()).has_value() &&
+              rangeBounds(operand->getValue())->second < extent;
           if (operand == valueTypes.end() ||
-              operand->getValue() != "i" + std::to_string(expectedWidth))
+              (!bounded && operand->getValue() !=
+                               "i" + std::to_string(expectedWidth)))
             return planError("Table coordinate type is inconsistent");
         }
         const std::string expectedType =
@@ -5046,6 +5445,100 @@ llvm::Error verifyQueueGraphPlan(const QueueGraphPlan &plan) {
         if (!resultWidth || total != expression.width ||
             *resultWidth != expression.width)
           return planError("record create expression widths are inconsistent");
+      } else if (expression.kind == "get") {
+        auto source = expression.operands.size() == 1
+                          ? valueTypes.find(expression.operands.front())
+                          : valueTypes.end();
+        auto name = source == valueTypes.end()
+                        ? std::optional<llvm::StringRef>()
+                        : payloadTypeName(source->getValue());
+        auto payload = name ? llvm::find_if(
+                                  plan.payloads,
+                                  [&](const QueuePayloadPlan &candidate) {
+                                    return candidate.name == *name;
+                                  })
+                            : plan.payloads.end();
+        const QueuePayloadFieldPlan *field = nullptr;
+        if (payload != plan.payloads.end()) {
+          auto found = llvm::find_if(payload->fields, [&](const auto &item) {
+            return item.name == expression.field;
+          });
+          if (found != payload->fields.end())
+            field = &*found;
+        }
+        if (!field || expression.type != field->type)
+          return planError("record get expression type is inconsistent");
+      } else if (expression.kind == "with") {
+        auto base = expression.operands.size() == 2
+                        ? valueTypes.find(expression.operands[0])
+                        : valueTypes.end();
+        auto replacement = expression.operands.size() == 2
+                               ? valueTypes.find(expression.operands[1])
+                               : valueTypes.end();
+        auto name = base == valueTypes.end()
+                        ? std::optional<llvm::StringRef>()
+                        : payloadTypeName(base->getValue());
+        auto payload = name ? llvm::find_if(
+                                  plan.payloads,
+                                  [&](const QueuePayloadPlan &candidate) {
+                                    return candidate.name == *name;
+                                  })
+                            : plan.payloads.end();
+        const QueuePayloadFieldPlan *field = nullptr;
+        if (payload != plan.payloads.end()) {
+          auto found = llvm::find_if(payload->fields, [&](const auto &item) {
+            return item.name == expression.field;
+          });
+          if (found != payload->fields.end())
+            field = &*found;
+        }
+        if (!field || replacement == valueTypes.end() ||
+            replacement->getValue() != field->type ||
+            expression.type != base->getValue())
+          return planError("record with expression type is inconsistent");
+      } else if (expression.kind == "table_get") {
+        const TablePlan *table = tables.lookup(expression.table);
+        if (!table || expression.operands.size() != 1 ||
+            expression.type != table->entryType)
+          return planError("table get expression type is inconsistent");
+      } else if (expression.kind == "slot_get_valid" ||
+                 expression.kind == "slot_get_value") {
+        auto slot = llvm::find_if(plan.slots, [&](const SlotPlan &candidate) {
+          return candidate.name == expression.slot;
+        });
+        const llvm::StringRef expected =
+            expression.kind == "slot_get_valid"
+                ? llvm::StringRef("i1")
+                : slot == plan.slots.end()
+                      ? llvm::StringRef()
+                      : llvm::StringRef(slot->payloadType);
+        if (!expression.operands.empty() || slot == plan.slots.end() ||
+            expression.type != expected)
+          return planError("slot get expression type is inconsistent");
+      } else if (expression.kind == "array_get_dynamic") {
+        if (expression.operands.size() != 2 || expression.selectionCount == 0 ||
+            expression.width == 0)
+          return planError("dynamic value_array access is malformed");
+        auto source = valueTypes.find(expression.operands[0]);
+        auto index = valueTypes.find(expression.operands[1]);
+        auto aggregate =
+            source == valueTypes.end()
+                ? plan.aggregates.end()
+                : llvm::find_if(plan.aggregates,
+                                [&](const QueueAggregatePlan &candidate) {
+                                  return candidate.type == source->getValue();
+                                });
+        auto elementWidth = valueWidth(expression.type);
+        auto indexWidth = index == valueTypes.end()
+                              ? std::optional<unsigned>()
+                              : integerWidth(index->getValue());
+        if (aggregate == plan.aggregates.end() || aggregate->kind != "array" ||
+            aggregate->length != expression.selectionCount ||
+            aggregate->elements.size() != 1 ||
+            aggregate->elements.front() != expression.type ||
+            !elementWidth || expression.width != *elementWidth || !indexWidth ||
+            *indexWidth > 64)
+          return planError("dynamic value_array access types are inconsistent");
       } else if (expression.kind == "aggregate_get") {
         if (expression.operands.size() != 1 || expression.width == 0)
           return planError("aggregate get expression is malformed");
@@ -5087,6 +5580,31 @@ llvm::Error verifyQueueGraphPlan(const QueueGraphPlan &plan) {
         if (!exactElement)
           return planError(
               "aggregate get must select one exact declared element");
+      } else if (expression.kind == "add" || expression.kind == "sub" ||
+                 expression.kind == "mul" || expression.kind == "and" ||
+                 expression.kind == "or" || expression.kind == "xor" ||
+                 expression.kind == "shl" || expression.kind == "shr") {
+        auto left = expression.operands.size() == 2
+                        ? valueTypes.find(expression.operands[0])
+                        : valueTypes.end();
+        auto right = expression.operands.size() == 2
+                         ? valueTypes.find(expression.operands[1])
+                         : valueTypes.end();
+        auto width = bitsWidth(expression.type);
+        if (!width || *width > 64 || left == valueTypes.end() ||
+            right == valueTypes.end() || left->getValue() != expression.type ||
+            right->getValue() != expression.type)
+          return planError(
+              "bits arithmetic operands and result must share one i1..i64 type");
+      } else if (expression.kind == "not") {
+        auto operand = expression.operands.size() == 1
+                           ? valueTypes.find(expression.operands.front())
+                           : valueTypes.end();
+        auto width = bitsWidth(expression.type);
+        if (!width || *width > 64 || operand == valueTypes.end() ||
+            operand->getValue() != expression.type)
+          return planError(
+              "bits not operand and result must share one i1..i64 type");
       } else if (expression.kind == "cmp") {
         if (expression.operands.size() != 2 || expression.type != "i1")
           return planError("comparison expression contract is malformed");
@@ -5106,7 +5624,7 @@ llvm::Error verifyQueueGraphPlan(const QueueGraphPlan &plan) {
               expression.result + "': " + expression.operands[0] + " is " +
               left->getValue() + ", " + expression.operands[1] + " is " +
               right->getValue());
-        const bool integer = integerWidth(left->getValue()).has_value();
+        const bool integer = bitsWidth(left->getValue()).has_value();
         std::optional<llvm::StringRef> enumName =
             enumTypeName(left->getValue());
         const bool enumeration = enumName && enums.contains(*enumName);
@@ -5128,7 +5646,7 @@ llvm::Error verifyQueueGraphPlan(const QueueGraphPlan &plan) {
               "unsigned div/rem expression contract is malformed");
         auto left = valueTypes.find(expression.operands[0]);
         auto right = valueTypes.find(expression.operands[1]);
-        auto resultWidth = integerWidth(expression.type);
+        auto resultWidth = bitsWidth(expression.type);
         if (left == valueTypes.end() || right == valueTypes.end() ||
             left->getValue() != expression.type ||
             right->getValue() != expression.type || !resultWidth ||
@@ -5141,7 +5659,7 @@ llvm::Error verifyQueueGraphPlan(const QueueGraphPlan &plan) {
         auto operand = valueTypes.find(expression.operands.front());
         auto inputWidth = operand == valueTypes.end()
                               ? std::optional<unsigned>()
-                              : integerWidth(operand->getValue());
+                              : bitsWidth(operand->getValue());
         if (!inputWidth || *inputWidth > 64)
           return planError("masked_match input must be an i1..i64 value");
         auto mask = parseExactWidthHex(expression.mask, *inputWidth);
@@ -5156,7 +5674,7 @@ llvm::Error verifyQueueGraphPlan(const QueueGraphPlan &plan) {
         auto operand = valueTypes.find(expression.operands.front());
         auto inputWidth = operand == valueTypes.end()
                               ? std::optional<unsigned>()
-                              : integerWidth(operand->getValue());
+                              : bitsWidth(operand->getValue());
         if (!inputWidth || !acir::isPrimitiveInputWidth(*inputWidth))
           return planError(
               "priority expression input must be an i1..i64 value");
@@ -5254,7 +5772,7 @@ llvm::Error verifyQueueGraphPlan(const QueueGraphPlan &plan) {
         auto operand = valueTypes.find(expression.operands.front());
         auto inputWidth = operand == valueTypes.end()
                               ? std::optional<unsigned>()
-                              : integerWidth(operand->getValue());
+                              : bitsWidth(operand->getValue());
         if (!inputWidth || !acir::isPrimitiveInputWidth(*inputWidth))
           return planError("popcount input must be an i1..i64 value");
         const unsigned resultWidth = acir::primitiveCountWidth(*inputWidth);
@@ -5269,7 +5787,7 @@ llvm::Error verifyQueueGraphPlan(const QueueGraphPlan &plan) {
         auto operand = valueTypes.find(expression.operands.front());
         auto inputWidth = operand == valueTypes.end()
                               ? std::optional<unsigned>()
-                              : integerWidth(operand->getValue());
+                              : bitsWidth(operand->getValue());
         if (!inputWidth || !acir::isPrimitiveInputWidth(*inputWidth))
           return planError("count_zeros input must be an i1..i64 value");
         const unsigned resultWidth = acir::primitiveCountWidth(*inputWidth);
@@ -5287,14 +5805,127 @@ llvm::Error verifyQueueGraphPlan(const QueueGraphPlan &plan) {
             trueValue->getValue() != expression.type ||
             falseValue->getValue() != expression.type)
           return planError("value_select expression types are inconsistent");
+      } else if (expression.kind == "range_add" ||
+                 expression.kind == "range_sub") {
+        auto left = expression.operands.size() == 2
+                        ? valueTypes.find(expression.operands[0])
+                        : valueTypes.end();
+        auto right = expression.operands.size() == 2
+                         ? valueTypes.find(expression.operands[1])
+                         : valueTypes.end();
+        auto leftBounds = left == valueTypes.end()
+                              ? std::optional<std::pair<uint64_t, uint64_t>>()
+                              : rangeBounds(left->getValue());
+        auto rightBounds = right == valueTypes.end()
+                               ? std::optional<std::pair<uint64_t, uint64_t>>()
+                               : rangeBounds(right->getValue());
+        auto resultBounds = rangeBounds(expression.type);
+        uint64_t lower = 0;
+        uint64_t upper = 0;
+        bool valid = leftBounds && rightBounds && resultBounds;
+        if (valid && expression.kind == "range_add") {
+          valid = rightBounds->first <=
+                      std::numeric_limits<uint64_t>::max() -
+                          leftBounds->first &&
+                  rightBounds->second <=
+                      std::numeric_limits<uint64_t>::max() -
+                          leftBounds->second;
+          if (valid) {
+            lower = leftBounds->first + rightBounds->first;
+            upper = leftBounds->second + rightBounds->second;
+          }
+        }
+        else if (valid) {
+          valid = leftBounds->first >= rightBounds->second;
+          if (valid) {
+            lower = leftBounds->first - rightBounds->second;
+            upper = leftBounds->second - rightBounds->first;
+          }
+        }
+        if (!valid || *resultBounds != std::pair{lower, upper})
+          return planError("bounded arithmetic result range is inconsistent");
+      } else if (expression.kind == "range_cmp") {
+        auto left = expression.operands.size() == 2
+                        ? valueTypes.find(expression.operands[0])
+                        : valueTypes.end();
+        auto right = expression.operands.size() == 2
+                         ? valueTypes.find(expression.operands[1])
+                         : valueTypes.end();
+        if (left == valueTypes.end() || right == valueTypes.end() ||
+            !rangeBounds(left->getValue()) || !rangeBounds(right->getValue()) ||
+            expression.type != "i1" ||
+            !llvm::is_contained(
+                llvm::ArrayRef<llvm::StringRef>{"eq", "ne", "ult", "ule",
+                                                 "ugt", "uge"},
+                expression.predicate))
+          return planError("bounded comparison contract is malformed");
+      } else if (expression.kind == "range_wrap" ||
+                 expression.kind == "range_saturate") {
+        auto target = rangeBounds(expression.type);
+        auto input = expression.operands.size() == 1
+                         ? valueTypes.find(expression.operands.front())
+                         : valueTypes.end();
+        auto inputWidth = input == valueTypes.end()
+                              ? std::optional<unsigned>()
+                              : integerWidth(input->getValue());
+        if (!target || !inputWidth || *inputWidth > 64)
+          return planError("range conversion contract is malformed");
+      } else if (expression.kind == "range_checked_value" ||
+                 expression.kind == "range_checked_valid") {
+        auto target = rangeBounds(expression.field);
+        auto input = expression.operands.size() == 1
+                         ? valueTypes.find(expression.operands.front())
+                         : valueTypes.end();
+        auto inputWidth = input == valueTypes.end()
+                              ? std::optional<unsigned>()
+                              : integerWidth(input->getValue());
+        if (!target || !inputWidth || *inputWidth > 64 ||
+            expression.literal.empty() ||
+            (expression.kind == "range_checked_value" &&
+             expression.type != expression.field) ||
+            (expression.kind == "range_checked_valid" &&
+             expression.type != "i1"))
+          return planError("checked range conversion contract is malformed");
+        auto &pair = rangeCheckedPairs[expression.literal];
+        if (expression.kind == "range_checked_value") {
+          pair.value = &expression;
+          ++pair.valueCount;
+        } else {
+          pair.valid = &expression;
+          ++pair.validCount;
+        }
+      } else if (expression.kind == "range_refine") {
+        auto target = rangeBounds(expression.type);
+        auto input = expression.operands.size() == 1
+                         ? valueTypes.find(expression.operands.front())
+                         : valueTypes.end();
+        auto inputWidth = input == valueTypes.end()
+                              ? std::optional<unsigned>()
+                              : integerWidth(input->getValue());
+        if (!target || !inputWidth || *inputWidth > 64)
+          return planError("strict range refinement contract is malformed");
+      } else if (expression.kind == "range_bits") {
+        auto input = expression.operands.size() == 1
+                         ? valueTypes.find(expression.operands.front())
+                         : valueTypes.end();
+        auto bounds = input == valueTypes.end()
+                          ? std::optional<std::pair<uint64_t, uint64_t>>()
+                          : rangeBounds(input->getValue());
+        auto inputWidth = input == valueTypes.end()
+                              ? std::optional<unsigned>()
+                              : integerWidth(input->getValue());
+        auto resultWidth = bitsWidth(expression.type);
+        if (!bounds || !inputWidth || !resultWidth ||
+            *resultWidth != *inputWidth)
+          return planError("range_bits conversion contract is malformed");
       } else if (expression.kind == "bit_extract") {
         if (expression.operands.size() != 1 || expression.width == 0)
           return planError("bit_extract expression contract is malformed");
         auto input = valueTypes.find(expression.operands.front());
         auto inputWidth = input == valueTypes.end()
                               ? std::optional<unsigned>()
-                              : integerWidth(input->getValue());
-        auto resultWidth = integerWidth(expression.type);
+                              : bitsWidth(input->getValue());
+        auto resultWidth = bitsWidth(expression.type);
         if (!inputWidth || !resultWidth || *inputWidth > 64 ||
             expression.lsb + expression.width > *inputWidth ||
             expression.width != *resultWidth)
@@ -5307,12 +5938,12 @@ llvm::Error verifyQueueGraphPlan(const QueueGraphPlan &plan) {
           auto operand = valueTypes.find(operandName);
           auto width = operand == valueTypes.end()
                            ? std::optional<unsigned>()
-                           : integerWidth(operand->getValue());
+                           : bitsWidth(operand->getValue());
           if (!width || *width == 0 || *width > 64)
             return planError("bit_concat operand width is invalid");
           totalWidth += *width;
         }
-        auto resultWidth = integerWidth(expression.type);
+        auto resultWidth = bitsWidth(expression.type);
         if (!resultWidth || totalWidth == 0 || totalWidth > 64 ||
             totalWidth != *resultWidth)
           return planError("bit_concat result width is inconsistent");
@@ -5323,15 +5954,25 @@ llvm::Error verifyQueueGraphPlan(const QueueGraphPlan &plan) {
         auto value = valueTypes.find(expression.operands[1]);
         auto baseWidth = base == valueTypes.end()
                              ? std::optional<unsigned>()
-                             : integerWidth(base->getValue());
+                             : bitsWidth(base->getValue());
         auto valueWidth = value == valueTypes.end()
                               ? std::optional<unsigned>()
-                              : integerWidth(value->getValue());
-        auto resultWidth = integerWidth(expression.type);
+                              : bitsWidth(value->getValue());
+        auto resultWidth = bitsWidth(expression.type);
         if (!baseWidth || !valueWidth || !resultWidth || *baseWidth > 64 ||
             expression.lsb + *valueWidth > *baseWidth ||
             *resultWidth != *baseWidth)
           return planError("bit_insert expression widths are inconsistent");
+      } else if (expression.kind == "snapshot_set") {
+        if (!expression.operands.empty() || expression.type != "state_reservation" ||
+            expression.field.empty() || !tables.contains(expression.table) ||
+            (expression.predicate != "complete" &&
+             expression.predicate != "fields"))
+          return planError("snapshot-set expression contract is malformed");
+      } else if (expression.kind != "table_match_ref" &&
+                 expression.kind != "table_selection_index_ref" &&
+                 expression.kind != "table_selection_valid_ref") {
+        return planError("unsupported QueueGraph expression kind");
       }
       valueTypes[expression.result] = expression.type;
       valueDefinitions[expression.result] = &expression;
@@ -5354,6 +5995,17 @@ llvm::Error verifyQueueGraphPlan(const QueueGraphPlan &plan) {
           entry.getValue().first != entry.getValue().second)
         return planError(
             "inline table choose requires balanced index/valid result pairs");
+    for (const auto &entry : rangeCheckedPairs) {
+      const auto &pair = entry.getValue();
+      const auto *value = pair.value;
+      const auto *valid = pair.valid;
+      if (pair.valueCount != 1 || pair.validCount != 1 || !value || !valid ||
+          value->field != valid->field ||
+          value->operands != valid->operands ||
+          value->staticTypeTarget != valid->staticTypeTarget)
+        return planError(
+            "checked range conversion requires one value/valid pair");
+    }
     return llvm::Error::success();
   };
   for (const QueueHelperPlan &helper : plan.helpers) {
@@ -5377,9 +6029,14 @@ llvm::Error verifyQueueGraphPlan(const QueueGraphPlan &plan) {
   }
   auto verifyTableGetConstraints =
       [&](auto &&self, const std::vector<QueueExpressionPlan> &expressions,
-          llvm::ArrayRef<std::string> rootTypes) -> llvm::Error {
+          llvm::ArrayRef<std::string> rootTypes,
+          const llvm::StringMap<std::string> &inheritedTypes) -> llvm::Error {
     llvm::StringMap<std::string> types;
     llvm::StringMap<ValueConstraint> constraints;
+    for (const auto &entry : inheritedTypes) {
+      types[entry.getKey()] = entry.getValue();
+      constraints[entry.getKey()] = planTypeConstraint(entry.getValue());
+    }
     for (auto [index, rootType] : llvm::enumerate(rootTypes)) {
       std::string identity =
           index == 0 ? "item" : "item" + std::to_string(index);
@@ -5399,17 +6056,46 @@ llvm::Error verifyQueueGraphPlan(const QueueGraphPlan &plan) {
             !index->getValue().provesWithin(0, table->entries - 1))
           return planError("Table observation index is not statically safe");
       }
+      if (expression.kind == "array_get_dynamic") {
+        auto index = expression.operands.size() == 2
+                         ? constraints.find(expression.operands[1])
+                         : constraints.end();
+        if (index == constraints.end() || expression.selectionCount == 0 ||
+            !index->getValue().provesWithin(
+                0, expression.selectionCount - 1))
+          return planError("value_array index is not statically safe");
+      }
+      if (expression.kind == "range_refine") {
+        auto target = rangeBounds(expression.type);
+        auto input = expression.operands.size() == 1
+                         ? constraints.find(expression.operands.front())
+                         : constraints.end();
+        if (!target || input == constraints.end() ||
+            !input->getValue().provesWithin(target->first, target->second))
+          return planError("strict range refinement is not statically safe");
+      }
       if (!expression.nestedExpressions.empty()) {
         const TablePlan *table = tables.lookup(expression.table);
         llvm::SmallVector<std::string> nestedRoots;
         if (table)
           nestedRoots.push_back(table->entryType);
-        if (auto error = self(self, expression.nestedExpressions, nestedRoots))
+        llvm::StringMap<std::string> noInheritedTypes;
+        if (auto error = self(self, expression.nestedExpressions, nestedRoots,
+                              noInheritedTypes))
           return error;
       }
     }
     return llvm::Error::success();
   };
+  for (const QueueHelperPlan &helper : plan.helpers) {
+    llvm::StringMap<std::string> inputTypes;
+    for (auto [name, type] :
+         llvm::zip_equal(helper.inputNames, helper.inputTypes))
+      inputTypes[name] = type;
+    if (auto error = verifyTableGetConstraints(
+            verifyTableGetConstraints, helper.expressions, {}, inputTypes))
+      return error;
+  }
   for (const TableMatchPlan &match : plan.tableMatches) {
     const TablePlan *table = tables.lookup(match.table);
     llvm::SmallVector<std::string> roots;
@@ -5421,7 +6107,8 @@ llvm::Error verifyQueueGraphPlan(const QueueGraphPlan &plan) {
                                  "item", noInheritedTypes))
       return error;
     if (auto error = verifyTableGetConstraints(verifyTableGetConstraints,
-                                               match.expressions, roots))
+                                               match.expressions, roots,
+                                               noInheritedTypes))
       return error;
   }
   for (const TableSelectionPlan &selection : plan.tableSelections) {
@@ -5435,15 +6122,27 @@ llvm::Error verifyQueueGraphPlan(const QueueGraphPlan &plan) {
                                  roots, "item", noInheritedTypes))
       return error;
     if (auto error = verifyTableGetConstraints(verifyTableGetConstraints,
-                                               selection.keyExpressions, roots))
+                                               selection.keyExpressions, roots,
+                                               noInheritedTypes))
       return error;
   }
 
   for (const QueueBlockPlan &block : plan.blocks) {
+    if (block.kind == "source" &&
+        llvm::any_of(block.outputs, [&](llvm::StringRef output) {
+          llvm::StringSet<> active;
+          return containsDeclaredRange(
+              containsDeclaredRange, queueTypes.lookup(output), active);
+        }))
+      return planError(
+          "external source cannot carry an undecoded bounded range");
     llvm::SmallVector<std::string> roots;
     for (const std::string &input : block.inputs)
       if (auto found = queueTypes.find(input); found != queueTypes.end())
         roots.push_back(found->getValue());
+    if (block.kind == "table_masked_write")
+      if (const TablePlan *table = tables.lookup(block.table))
+        roots.push_back(table->entryType);
     llvm::StringMap<std::string> noInheritedTypes;
     if (auto error =
             verifyExpressionList(verifyExpressionList, block.expressions, roots,
@@ -5452,7 +6151,8 @@ llvm::Error verifyQueueGraphPlan(const QueueGraphPlan &plan) {
     if (auto error = verifySharedExpressions(block.expressions))
       return error;
     if (auto error = verifyTableGetConstraints(verifyTableGetConstraints,
-                                               block.expressions, roots))
+                                               block.expressions, roots,
+                                               noInheritedTypes))
       return error;
     llvm::StringMap<std::string> identities;
     llvm::StringMap<ValueConstraint> constraints;
@@ -5479,13 +6179,13 @@ llvm::Error verifyQueueGraphPlan(const QueueGraphPlan &plan) {
       auto cost = identities.find(block.yields[3]);
       std::optional<unsigned> keyWidth = key == identities.end()
                                              ? std::nullopt
-                                             : integerWidth(key->getValue());
+                                             : bitsWidth(key->getValue());
       std::optional<unsigned> resourceWidth =
           resource == identities.end() ? std::nullopt
-                                       : integerWidth(resource->getValue());
+                                       : bitsWidth(resource->getValue());
       std::optional<unsigned> costWidth = cost == identities.end()
                                               ? std::nullopt
-                                              : integerWidth(cost->getValue());
+                                              : bitsWidth(cost->getValue());
       if (!keyWidth || *keyWidth == 0 || *keyWidth > 16 ||
           predecessor == identities.end() ||
           predecessor->getValue() != key->getValue() || !resourceWidth ||
@@ -5582,6 +6282,12 @@ llvm::Error verifyQueueGraphPlan(const QueueGraphPlan &plan) {
                     "xor", "not"}, true)
             .Cases({"shl", "shr", "extract", "insert", "concat"}, true)
             .Cases({"popcount", "count_zeros", "cmp", "masked_match"}, true)
+            .Cases({"range_wrap", "range_saturate", "range_refine",
+                    "range_bits", "range_add", "range_sub", "range_cmp"},
+                   true)
+            .Cases({"range_checked_value", "range_checked_valid",
+                    "array_get_dynamic"},
+                   true)
             .Default(false);
       };
       std::function<uint64_t(llvm::StringRef)> canonicalExpression =
@@ -5946,9 +6652,12 @@ llvm::Expected<std::string> QueueGraphPlan::canonicalJson() const {
       result["lsb"] = expression.lsb;
     if (expression.kind == "bit_extract" ||
         expression.kind == "aggregate_get" ||
+        expression.kind == "array_get_dynamic" ||
         expression.kind == "tuple_create" ||
         expression.kind == "array_create" || expression.kind == "record_create")
       result["width"] = expression.width;
+    if (!expression.staticTypeTarget.empty())
+      result["static_type_target"] = expression.staticTypeTarget;
     if (expression.kind == "masked_match") {
       result["mask"] = expression.mask;
       result["value"] = expression.value;

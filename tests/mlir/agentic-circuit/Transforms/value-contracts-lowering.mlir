@@ -7,15 +7,20 @@ module attributes {ac.contract_epoch = "0.5"} {
     ac.enum @Mode enumerants ["idle", "run"]
     ac.struct @Inner fields [{name = "mode", type = !ac.enum<@types::@Mode>}, {name = "wide", type = i64}]
     ac.struct @Outer fields [{name = "inner", type = !ac.struct<@types::@Inner>}, {name = "pair", type = tuple<i8, i8>}, {name = "lanes", type = !ac.value_array<2 x i16>}, {name = "tail", type = i8}]
+    ac.struct @RangeRecord fields [{name = "index", type = !ac.range<0, 4>}]
   } {dlti.dl_spec = #dlti.dl_spec<
       !ac.enum<@types::@Mode> = {abi_alignment = 1 : i64, endianness = "little", preferred_alignment = 1 : i64, size = 1 : i64},
       !ac.struct<@types::@Inner> = {abi_alignment = 8 : i64, endianness = "little", preferred_alignment = 8 : i64, size = 16 : i64},
-      !ac.struct<@types::@Outer> = {abi_alignment = 8 : i64, endianness = "little", preferred_alignment = 8 : i64, size = 24 : i64}
+      !ac.struct<@types::@Outer> = {abi_alignment = 8 : i64, endianness = "little", preferred_alignment = 8 : i64, size = 24 : i64},
+      !ac.struct<@types::@RangeRecord> = {abi_alignment = 1 : i64, endianness = "little", preferred_alignment = 1 : i64, size = 1 : i64}
   >}
   %lhs = "builtin.unrealized_conversion_cast"() : () -> !ac.var<!ac.struct<@types::@Outer>>
   %rhs = "builtin.unrealized_conversion_cast"() : () -> !ac.var<!ac.struct<@types::@Outer>>
   %equal = ac.var.cmp "eq" %lhs, %rhs : !ac.var<!ac.struct<@types::@Outer>> -> !ac.var<i1>
   %different = ac.var.cmp "ne" %lhs, %rhs : !ac.var<!ac.struct<@types::@Outer>> -> !ac.var<i1>
+  %range_lhs = "builtin.unrealized_conversion_cast"() : () -> !ac.var<!ac.struct<@types::@RangeRecord>>
+  %range_rhs = "builtin.unrealized_conversion_cast"() : () -> !ac.var<!ac.struct<@types::@RangeRecord>>
+  %range_equal = ac.var.cmp "eq" %range_lhs, %range_rhs : !ac.var<!ac.struct<@types::@RangeRecord>> -> !ac.var<i1>
   %valid = ac.var.invariant %lhs name "Outer.valid" {
   ^bb0(%value: !ac.var<!ac.struct<@types::@Outer>>):
     %inner_value = ac.var.get %value field "inner" : !ac.var<!ac.struct<@types::@Outer>> -> !ac.var<!ac.struct<@types::@Inner>>
@@ -42,6 +47,7 @@ module attributes {ac.contract_epoch = "0.5"} {
 // CHECK: ac.var.cmp "eq"
 // CHECK: ac.var.and
 // CHECK: ac.var.not
+// CHECK: ac.var.range_cmp "eq"
 // CHECK: ac.var.get %{{.*}} field "tail"
 
 // RESIDUAL: unresolved aggregate comparison before Frozen ACIR

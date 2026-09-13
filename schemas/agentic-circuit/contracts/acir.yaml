@@ -44,6 +44,7 @@ operations:
   - ac.var.tuple
   - ac.var.array
   - ac.var.element
+  - ac.var.dynamic_element
   - ac.var.add
   - ac.var.sub
   - ac.var.mul
@@ -68,6 +69,14 @@ operations:
   - ac.var.select
   - ac.var.extract
   - ac.var.concat
+  - ac.var.range_wrap
+  - ac.var.range_saturate
+  - ac.var.range_checked
+  - ac.var.range_refine
+  - ac.var.range_bits
+  - ac.var.range_add
+  - ac.var.range_sub
+  - ac.var.range_cmp
   - ac.var.insert
   - ac.var.decl
   - ac.var.read
@@ -154,6 +163,7 @@ types:
   - packet
   - transaction
   - enum
+  - range
   - value_array
   - var
   - queue

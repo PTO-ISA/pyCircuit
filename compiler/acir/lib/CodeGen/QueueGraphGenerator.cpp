@@ -8,10 +8,12 @@
 #include "llvm/ADT/StringSet.h"
 #include "llvm/ADT/StringSwitch.h"
 #include "llvm/Support/FormatVariadic.h"
+#include "llvm/Support/MathExtras.h"
 #include "llvm/Support/raw_ostream.h"
 
 #include <algorithm>
 #include <cctype>
+#include <limits>
 #include <set>
 #include <sstream>
 #include <system_error>
@@ -199,6 +201,26 @@ std::optional<llvm::StringRef> enumTypeName(llvm::StringRef type) {
   return std::nullopt;
 }
 
+std::optional<std::pair<uint64_t, uint64_t>>
+rangeBounds(llvm::StringRef type) {
+  constexpr llvm::StringLiteral prefix = "!ac.range<";
+  if (!type.starts_with(prefix) || !type.ends_with('>'))
+    return std::nullopt;
+  auto [lower, upper] = type.drop_front(prefix.size()).drop_back().split(',');
+  uint64_t lowerValue = 0;
+  uint64_t upperValue = 0;
+  if (lower.trim().getAsInteger(10, lowerValue) ||
+      upper.trim().getAsInteger(10, upperValue) || lowerValue > upperValue)
+    return std::nullopt;
+  return std::pair{lowerValue, upperValue};
+}
+
+unsigned rangeStorageWidth(uint64_t upper) {
+  return upper == std::numeric_limits<uint64_t>::max()
+             ? 64
+             : std::max(1u, llvm::Log2_64_Ceil(upper + 1));
+}
+
 std::optional<uint64_t> candidateMaskWords(llvm::StringRef type) {
   if (type.starts_with('i')) {
     unsigned width = 0;
@@ -270,6 +292,9 @@ llvm::Expected<std::string> cppType(llvm::StringRef type) {
         return "gfsim::UInt<" + std::to_string(width) + ">";
     }
   }
+  if (auto bounds = rangeBounds(type))
+    return "gfsim::UInt<" +
+           std::to_string(rangeStorageWidth(bounds->second)) + ">";
   if (std::optional<llvm::StringRef> name = structTypeName(type))
     return name->str();
   if (std::optional<llvm::StringRef> name = enumTypeName(type))
@@ -660,6 +685,7 @@ emitExpressionBody(const QueueGraphPlan &plan, const QueueBlockPlan &block,
   llvm::StringMap<std::string> priorityEncodings;
   llvm::StringMap<std::string> helperCallValues;
   llvm::StringMap<std::pair<std::string, std::string>> tableChoices;
+  llvm::StringMap<std::string> rangeCheckedValues;
   llvm::StringMap<std::vector<std::string>> priorChoiceIndices;
   llvm::StringMap<std::pair<unsigned, unsigned>> tableChoicePairCounts;
   llvm::StringMap<unsigned> tableChoicePairOrdinals;
@@ -754,6 +780,104 @@ emitExpressionBody(const QueueGraphPlan &plan, const QueueBlockPlan &block,
         return type.takeError();
       output << padding << "auto " << expression.result << " = " << *type << "{"
              << literal.split(" : ").first.str() << "};\n";
+      continue;
+    }
+    if (expression.kind == "range_wrap" ||
+        expression.kind == "range_saturate") {
+      auto input = operand(0);
+      auto bounds = rangeBounds(expression.type);
+      if (!input)
+        return input.takeError();
+      if (!bounds)
+        return generatorError("range conversion target is malformed");
+      const unsigned width = rangeStorageWidth(bounds->second);
+      output << padding << "auto " << expression.result << " = gfsim::range"
+             << (expression.kind == "range_wrap" ? "Wrap" : "Saturate")
+             << '<' << width << ", " << bounds->first << "ULL, "
+             << bounds->second << "ULL>(" << input->str() << ");\n";
+      continue;
+    }
+    if (expression.kind == "range_checked_value" ||
+        expression.kind == "range_checked_valid") {
+      auto input = operand(0);
+      auto bounds = rangeBounds(expression.field);
+      if (!input)
+        return input.takeError();
+      if (!bounds || expression.literal.empty())
+        return generatorError("checked range conversion is malformed");
+      const unsigned width = rangeStorageWidth(bounds->second);
+      auto [entry, inserted] = rangeCheckedValues.try_emplace(
+          expression.literal, "checked_" + identifier(expression.literal));
+      if (inserted)
+        output << padding << "auto " << entry->getValue()
+               << " = gfsim::rangeChecked<" << width << ", "
+               << bounds->first << "ULL, " << bounds->second << "ULL>("
+               << input->str() << ");\n";
+      output << padding << "auto " << expression.result << " = "
+             << entry->getValue() << '.'
+             << (expression.kind == "range_checked_value" ? "value" : "valid")
+             << ";\n";
+      continue;
+    }
+    if (expression.kind == "range_refine") {
+      auto input = operand(0);
+      auto type = cppType(expression.type);
+      if (!input)
+        return input.takeError();
+      if (!type)
+        return type.takeError();
+      output << padding << "auto " << expression.result << " = " << *type
+             << "{" << input->str() << ".value()};\n";
+      continue;
+    }
+    if (expression.kind == "range_bits") {
+      auto input = operand(0);
+      if (!input)
+        return input.takeError();
+      auto type = cppType(expression.type);
+      if (!type)
+        return type.takeError();
+      output << padding << "auto " << expression.result << " = " << *type
+             << "{" << input->str() << ".value()};\n";
+      continue;
+    }
+    if (expression.kind == "range_add" || expression.kind == "range_sub") {
+      auto left = operand(0);
+      auto right = operand(1);
+      if (!left)
+        return left.takeError();
+      if (!right)
+        return right.takeError();
+      auto type = cppType(expression.type);
+      if (!type)
+        return type.takeError();
+      output << padding << "auto " << expression.result << " = " << *type
+             << "{" << left->str() << ".value() "
+             << (expression.kind == "range_add" ? '+' : '-') << ' '
+             << right->str() << ".value()};\n";
+      continue;
+    }
+    if (expression.kind == "range_cmp") {
+      auto left = operand(0);
+      auto right = operand(1);
+      if (!left)
+        return left.takeError();
+      if (!right)
+        return right.takeError();
+      llvm::StringRef comparison =
+          llvm::StringSwitch<llvm::StringRef>(expression.predicate)
+              .Case("eq", "==")
+              .Case("ne", "!=")
+              .Case("ult", "<")
+              .Case("ule", "<=")
+              .Case("ugt", ">")
+              .Case("uge", ">=")
+              .Default("");
+      if (comparison.empty())
+        return generatorError("bounded comparison predicate is malformed");
+      output << padding << "auto " << expression.result
+             << " = gfsim::UInt<1>{" << left->str() << ".value() "
+             << comparison.str() << ' ' << right->str() << ".value()};\n";
       continue;
     }
     if (expression.kind == "slot_get_valid") {
@@ -1330,6 +1454,37 @@ emitExpressionBody(const QueueGraphPlan &plan, const QueueBlockPlan &block,
       output << padding << "auto " << expression.result
              << " = gfsim::bitExtract<" << expression.width << ">("
              << first->str() << ", " << expression.lsb << ");\n";
+      continue;
+    }
+    if (expression.kind == "array_get_dynamic") {
+      auto array = operand(0);
+      auto index = operand(1);
+      if (!array)
+        return array.takeError();
+      if (!index)
+        return index.takeError();
+      auto resultType = cppType(expression.type);
+      if (!resultType)
+        return resultType.takeError();
+      output << padding << "auto " << expression.result << " = [&]() -> "
+             << *resultType << " {\n" << padding
+             << "  switch (static_cast<std::uint64_t>(" << index->str()
+             << ")) {\n";
+      for (uint64_t element = 0; element < expression.selectionCount;
+           ++element) {
+        const uint64_t lsb =
+            expression.width * (expression.selectionCount - element - 1);
+        const std::string extracted =
+            "gfsim::bitExtract<" + std::to_string(expression.width) + ">(" +
+            array->str() + ", " + std::to_string(lsb) + ")";
+        auto unpacked = emitUnpackedValue(plan, expression.type, extracted);
+        if (!unpacked)
+          return unpacked.takeError();
+        output << padding << "  case " << element << ": return " << *unpacked
+               << ";\n";
+      }
+      output << padding << "  default: return " << *resultType << "{};\n"
+             << padding << "  }\n" << padding << "}();\n";
       continue;
     }
     if (expression.kind == "aggregate_get") {

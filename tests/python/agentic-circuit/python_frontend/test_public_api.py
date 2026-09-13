@@ -17,6 +17,10 @@ CAPTURE_ONLY = {
     "zext",
     "sext",
     "truncate",
+    "wrap",
+    "saturate",
+    "checked",
+    "refine",
     "static_assert",
     "insert",
     "matches",
@@ -71,6 +75,8 @@ RUNTIME = {
     "const",
     "param",
     "index_width",
+    "index",
+    "range",
     "count_width",
     "encoding",
     "jit",
@@ -163,6 +169,31 @@ class PublicApiTest(unittest.TestCase):
         self.assertEqual(128, array_type.length.evaluate({"entries": 128}))
         with self.assertRaisesRegex(TypeError, "only integer"):
             api.param[str]("name")
+
+    def test_bounded_range_annotations_are_half_open_and_nominal(self) -> None:
+        api = importlib.import_module("agentic_circuit")
+
+        self.assertEqual(api.index[5], api.range[0, 5])
+        self.assertEqual(3, api.index[5].width)
+        self.assertEqual(4, api.range[4, 9].width)
+        self.assertNotEqual(api.index[5], api.u3)
+        self.assertNotEqual(api.index[5], api.index[6])
+        self.assertEqual("!ac.range<0, 4>", api.index[5].mlir())
+        full = api.range[0, 1 << 64]
+        self.assertEqual(64, full.width)
+        self.assertEqual("18446744073709551616", full.canonical()["upper"])
+        self.assertEqual(
+            "!ac.range<0, 18446744073709551615>", full.mlir()
+        )
+        entries = api.param[int]("entries")
+        nested = api.array[2, api.index[entries]]
+        self.assertEqual(2, nested.length)
+        self.assertEqual(0, nested.element.lower)
+        self.assertEqual(entries, nested.element.upper)
+        for bounds in ((0, 0), (-1, 4), (4, 3), (0, (1 << 64) + 1)):
+            with self.subTest(bounds=bounds):
+                with self.assertRaisesRegex(ValueError, "range bounds"):
+                    api.range[bounds]
 
     def test_nested_config_fields_are_dependent_integer_parameters(self) -> None:
         api = importlib.import_module("agentic_circuit")

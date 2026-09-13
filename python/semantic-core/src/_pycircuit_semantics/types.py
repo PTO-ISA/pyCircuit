@@ -80,6 +80,44 @@ class BitsType(ValueType):
 
 
 @dataclass(frozen=True, slots=True)
+class RangeType(ValueType):
+    """An unsigned proof-carrying half-open integer range ``[lower, upper)``."""
+
+    lower: int
+    upper: int
+
+    def __post_init__(self) -> None:
+        if (
+            type(self.lower) is not int
+            or type(self.upper) is not int
+            or not 0 <= self.lower < self.upper <= (1 << 64)
+        ):
+            raise ValueTypeError(
+                "range bounds must satisfy 0 <= lower < upper <= 2**64"
+            )
+
+    @property
+    def width(self) -> int:
+        return max(1, (self.upper - 1).bit_length())
+
+    def canonical(self) -> dict[str, object]:
+        return {
+            "kind": "range",
+            "version": 1,
+            "lower": str(self.lower),
+            "upper": str(self.upper),
+            "storage_width": self.width,
+        }
+
+    def mlir(self, *, scope: str = "types") -> str:
+        _ = scope
+        return f"!ac.range<{self.lower}, {self.upper - 1}>"
+
+    def bit_width(self) -> int:
+        return self.width
+
+
+@dataclass(frozen=True, slots=True)
 class EnumType(ValueType):
     """A nominal enum with stable declaration-order encoding."""
 
@@ -333,4 +371,6 @@ class ArrayType(ValueType):
         return self.length * self.element.bit_width()
 
 
-ACType: TypeAlias = BoolType | BitsType | EnumType | StructType | TupleType | ArrayType
+ACType: TypeAlias = (
+    BoolType | BitsType | RangeType | EnumType | StructType | TupleType | ArrayType
+)

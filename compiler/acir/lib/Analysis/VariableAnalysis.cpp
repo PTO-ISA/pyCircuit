@@ -54,8 +54,14 @@ using ValueConstraintLattice = dataflow::Lattice<ConstraintLatticeValue>;
 
 std::optional<unsigned> integerWidth(Type type) {
   auto variable = dyn_cast<ac::VarType>(type);
-  auto integer = variable ? dyn_cast<IntegerType>(variable.getElementType())
-                          : dyn_cast<IntegerType>(type);
+  Type element = variable ? variable.getElementType() : type;
+  if (auto range = dyn_cast<ac::RangeType>(element)) {
+    const uint64_t upper = range.getUpper();
+    return upper == std::numeric_limits<uint64_t>::max()
+               ? 64
+               : std::max(1u, llvm::Log2_64_Ceil(upper + 1));
+  }
+  auto integer = dyn_cast<IntegerType>(element);
   if (!integer || !integer.isSignless() || integer.getWidth() == 0 ||
       integer.getWidth() > 64)
     return std::nullopt;
@@ -68,6 +74,12 @@ uint64_t widthMask(unsigned width) {
 }
 
 ValueConstraint defaultConstraint(Type type) {
+  if (auto variable = dyn_cast<ac::VarType>(type))
+    if (auto range = dyn_cast<ac::RangeType>(variable.getElementType()))
+      return ValueConstraint::closedInterval(range.getLower(),
+                                             range.getUpper());
+  if (auto range = dyn_cast<ac::RangeType>(type))
+    return ValueConstraint::closedInterval(range.getLower(), range.getUpper());
   auto width = integerWidth(type);
   return width ? ValueConstraint::closedInterval(0, widthMask(*width))
                : ValueConstraint::unknown();
@@ -320,15 +332,55 @@ inferConstraint(Operation *operation, unsigned resultIndex,
                ? defaultConstraint(resultType)
                : result;
   };
+  auto noWrapInterval = [&](llvm::StringRef kind) {
+    ValueConstraint exact = binary([&](uint64_t lhs, uint64_t rhs) {
+      if (kind == "add")
+        return (lhs + rhs) & mask;
+      if (kind == "sub")
+        return (lhs - rhs) & mask;
+      return (lhs * rhs) & mask;
+    });
+    if (exact.kind != ValueConstraintKind::Unknown)
+      return exact;
+    auto left = constraintBounds(operandConstraint(operands, 0));
+    auto right = constraintBounds(operandConstraint(operands, 1));
+    if (!left || !right)
+      return defaultConstraint(resultType);
+    uint64_t lower = 0;
+    uint64_t upper = 0;
+    if (kind == "add") {
+      if (right->first >
+              std::numeric_limits<uint64_t>::max() - left->first ||
+          right->second >
+              std::numeric_limits<uint64_t>::max() - left->second)
+        return defaultConstraint(resultType);
+      lower = left->first + right->first;
+      upper = left->second + right->second;
+    } else if (kind == "sub") {
+      if (left->first < right->second)
+        return defaultConstraint(resultType);
+      lower = left->first - right->second;
+      upper = left->second - right->first;
+    } else {
+      if ((left->first != 0 &&
+           right->first >
+               std::numeric_limits<uint64_t>::max() / left->first) ||
+          (left->second != 0 &&
+           right->second >
+               std::numeric_limits<uint64_t>::max() / left->second))
+        return defaultConstraint(resultType);
+      lower = left->first * right->first;
+      upper = left->second * right->second;
+    }
+    return upper <= mask ? ValueConstraint::closedInterval(lower, upper)
+                         : defaultConstraint(resultType);
+  };
   if (isa<ac::VarAddOp>(operation))
-    return boundedBinary(
-        [&](uint64_t lhs, uint64_t rhs) { return (lhs + rhs) & mask; });
+    return noWrapInterval("add");
   if (isa<ac::VarSubOp>(operation))
-    return boundedBinary(
-        [&](uint64_t lhs, uint64_t rhs) { return (lhs - rhs) & mask; });
+    return noWrapInterval("sub");
   if (isa<ac::VarMulOp>(operation))
-    return boundedBinary(
-        [&](uint64_t lhs, uint64_t rhs) { return (lhs * rhs) & mask; });
+    return noWrapInterval("mul");
   if (isa<ac::VarUDivOp>(operation))
     return boundedBinary(
         [&](uint64_t lhs, uint64_t rhs) { return rhs == 0 ? 0 : lhs / rhs; });
