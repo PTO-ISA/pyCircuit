@@ -19,6 +19,7 @@ CAPTURE_ONLY = {
     "count_trailing_zeros",
     "popcount",
     "priority_encode",
+    "onehot_encode",
     "memory",
     "sink",
     "observe",
@@ -62,6 +63,10 @@ RUNTIME = {
     "Endpoint",
     "config",
     "const",
+    "param",
+    "index_width",
+    "count_width",
+    "encoding",
     "jit",
     "round_robin",
     "priority",
@@ -139,6 +144,34 @@ class PublicApiTest(unittest.TestCase):
         for width in (0, 65):
             with self.assertRaisesRegex(ValueError, r"\[1, 64\]"):
                 api.bits[width]
+
+    def test_dependent_width_annotations_are_runtime_metadata(self) -> None:
+        api = importlib.import_module("agentic_circuit")
+
+        entries = api.param[int]("entries")
+        index_type = api.bits[api.index_width(entries)]
+        array_type = api.array[entries, api.u8]
+
+        self.assertEqual("entries", entries.name)
+        self.assertEqual(7, index_type.width.evaluate({"entries": 128}))
+        self.assertEqual(128, array_type.length.evaluate({"entries": 128}))
+        with self.assertRaisesRegex(TypeError, "only integer"):
+            api.param[str]("name")
+
+    def test_enum_encoding_decorator_preserves_the_standard_enum_class(self) -> None:
+        from enum import Enum
+
+        api = importlib.import_module("agentic_circuit")
+
+        @api.encoding(width=4)
+        class Opcode(Enum):
+            NONE = 0
+            READ = 3
+
+        self.assertIsInstance(Opcode.READ, Opcode)
+        self.assertEqual(4, Opcode.__ac_encoding_width__)
+        with self.assertRaisesRegex(ValueError, r"\[1, 64\]"):
+            api.encoding(width=0)
 
     def test_bitfield_spec_is_immutable_and_has_stable_layout_metadata(self) -> None:
         api = importlib.import_module("agentic_circuit")

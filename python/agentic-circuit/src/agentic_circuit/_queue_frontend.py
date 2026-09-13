@@ -126,20 +126,32 @@ def _render_table_init_value(value: object, descriptor: ValueType) -> str:
     if isinstance(descriptor, EnumType) and type(value) is str:
         return canonical_mlir_string(value)
     if isinstance(descriptor, StructType) and isinstance(value, dict):
-        return "{" + ", ".join(
-            f"{field.name} = "
-            + _render_table_init_value(value[field.name], field.type)
-            for field in descriptor.fields
-        ) + "}"
+        return (
+            "{"
+            + ", ".join(
+                f"{field.name} = "
+                + _render_table_init_value(value[field.name], field.type)
+                for field in descriptor.fields
+            )
+            + "}"
+        )
     if isinstance(descriptor, TupleType) and isinstance(value, list):
-        return "[" + ", ".join(
-            _render_table_init_value(item, item_type)
-            for item, item_type in zip(value, descriptor.elements, strict=True)
-        ) + "]"
+        return (
+            "["
+            + ", ".join(
+                _render_table_init_value(item, item_type)
+                for item, item_type in zip(value, descriptor.elements, strict=True)
+            )
+            + "]"
+        )
     if isinstance(descriptor, ArrayType) and isinstance(value, list):
-        return "[" + ", ".join(
-            _render_table_init_value(item, descriptor.element) for item in value
-        ) + "]"
+        return (
+            "["
+            + ", ".join(
+                _render_table_init_value(item, descriptor.element) for item in value
+            )
+            + "]"
+        )
     raise AssertionError("validated Table initializer cannot be rendered")
 
 
@@ -159,10 +171,14 @@ def _render_static_mlir_value(value: StaticValue) -> str:
 def _render_static_mlir_dictionary(
     values: tuple[tuple[str, StaticValue], ...],
 ) -> str:
-    return "{" + ", ".join(
-        f"{name} = {_render_static_mlir_value(value)}"
-        for name, value in sorted(values)
-    ) + "}"
+    return (
+        "{"
+        + ", ".join(
+            f"{name} = {_render_static_mlir_value(value)}"
+            for name, value in sorted(values)
+        )
+        + "}"
+    )
 
 
 def _render_interface_display_attributes(
@@ -203,10 +219,126 @@ def _static_constraint(
 def _constant_integer(
     node: ast.expr, values: Mapping[str, StaticValue] | None = None
 ) -> int | None:
+    if isinstance(node, ast.BinOp) and isinstance(
+        node.op, (ast.Add, ast.Sub, ast.Mult)
+    ):
+        left = _constant_integer(node.left, values)
+        right = _constant_integer(node.right, values)
+        if left is None or right is None:
+            return None
+        result = (
+            left + right
+            if isinstance(node.op, ast.Add)
+            else left - right
+            if isinstance(node.op, ast.Sub)
+            else left * right
+        )
+        return result if -(1 << 63) <= result <= (1 << 63) - 1 else None
+    if isinstance(node, ast.Call) and len(node.args) == 1 and not node.keywords:
+        helper = (
+            node.func.attr
+            if isinstance(node.func, ast.Attribute)
+            else node.func.id
+            if isinstance(node.func, ast.Name)
+            else ""
+        )
+        if helper in {"index_width", "count_width"}:
+            operand = _constant_integer(node.args[0], values)
+            if operand is None:
+                return None
+            from _pycircuit_semantics import count_width, index_width
+
+            try:
+                result = (
+                    index_width(operand)
+                    if helper == "index_width"
+                    else count_width(operand)
+                )
+            except ValueError:
+                return None
+            assert isinstance(result, int)
+            return result
     fact = _static_constraint(node, values)
     if isinstance(fact, Constant) and type(fact.value) is int:
         return fact.value
     return None
+
+
+def _dependent_static_type_expression(
+    node: ast.expr,
+    parameter_aliases: Mapping[str, str],
+    values: Mapping[str, StaticValue] | None,
+    *,
+    binding_namespace: str = "",
+) -> tuple[tuple[str, ...], int] | None:
+    """Parse, evaluate, and serialize one dependent type expression.
+
+    Expressions without a declared ``ac.param`` reference return ``None`` so
+    ordinary compile-time constants keep using the established static evaluator.
+    Once a parameter is referenced, the closed Decision 0246 grammar is
+    authoritative and unsupported Python syntax fails closed.
+    """
+
+    if not any(
+        isinstance(item, ast.Name) and item.id in parameter_aliases
+        for item in ast.walk(node)
+    ):
+        return None
+
+    from _pycircuit_semantics import StaticIntExpression, StaticIntExpressionError
+
+    static_values = values or {}
+
+    def parse(item: ast.expr) -> int | StaticIntExpression:
+        if isinstance(item, ast.Constant) and type(item.value) is int:
+            return item.value
+        if isinstance(item, ast.Name):
+            if item.id in parameter_aliases:
+                return StaticIntExpression.parameter(binding_namespace + item.id)
+            value = static_values.get(item.id)
+            if type(value) is int:
+                return value
+            raise QueueFrontendError(
+                "ACPY-TYPE-008: dependent type expressions may reference only "
+                "declared integer parameters, integer literals, and closed integer constants"
+            )
+        if isinstance(item, ast.BinOp) and isinstance(
+            item.op, (ast.Add, ast.Sub, ast.Mult)
+        ):
+            left = parse(item.left)
+            right = parse(item.right)
+            if isinstance(item.op, ast.Add):
+                return StaticIntExpression("add", (left, right))
+            if isinstance(item.op, ast.Sub):
+                return StaticIntExpression("sub", (left, right))
+            return StaticIntExpression("mul", (left, right))
+        if isinstance(item, ast.Call) and len(item.args) == 1 and not item.keywords:
+            helper = _decorator_name(item.func).rsplit(".", 1)[-1]
+            operand = parse(item.args[0])
+            if helper == "index_width":
+                return StaticIntExpression("index_width", (operand,))
+            if helper == "count_width":
+                return StaticIntExpression("count_width", (operand,))
+        raise QueueFrontendError(
+            "ACPY-TYPE-008: dependent type expressions admit only literals, "
+            "declared parameters, +, -, *, index_width, and count_width"
+        )
+
+    try:
+        expression = parse(node)
+        if type(expression) is int:
+            raise QueueFrontendError(
+                "ACPY-TYPE-008: dependent type expression lost its parameter reference"
+            )
+        bindings = {
+            binding_namespace + alias: static_values[alias]
+            for alias in parameter_aliases
+            if alias in static_values and type(static_values[alias]) is int
+        }
+        result = expression.evaluate(bindings)
+        return expression.postfix(), result
+    except StaticIntExpressionError as error:
+        raise QueueFrontendError(f"ACPY-TYPE-008: {error}") from error
 
 
 def _proven_integer_in(value: int, lower: int, upper: int) -> bool:
@@ -290,6 +422,74 @@ def _module_static_values(tree: ast.Module) -> dict[str, StaticValue]:
     return values
 
 
+def _static_parameter_aliases(tree: ast.Module) -> dict[str, str]:
+    """Collect ``NAME = ac.param[int]("argument")`` declarations."""
+
+    aliases: dict[str, str] = {}
+    external_names: set[str] = set()
+    for statement in tree.body:
+        if not (
+            isinstance(statement, ast.Assign)
+            and len(statement.targets) == 1
+            and isinstance(statement.targets[0], ast.Name)
+            and isinstance(statement.value, ast.Call)
+            and isinstance(statement.value.func, ast.Subscript)
+        ):
+            continue
+        target = statement.targets[0].id
+        declaration = statement.value
+        family = declaration.func
+        family_name = (
+            family.value.attr
+            if isinstance(family.value, ast.Attribute)
+            else family.value.id
+            if isinstance(family.value, ast.Name)
+            else ""
+        )
+        parameter_type = family.slice.id if isinstance(family.slice, ast.Name) else ""
+        if family_name != "param":
+            continue
+        if (
+            not target.isupper()
+            or parameter_type != "int"
+            or len(declaration.args) != 1
+            or declaration.keywords
+            or not isinstance(declaration.args[0], ast.Constant)
+            or type(declaration.args[0].value) is not str
+            or not declaration.args[0].value
+        ):
+            raise QueueFrontendError(
+                "ACPY-TYPE-008: static type parameters require "
+                'UPPER_SNAKE = ac.param[int]("const_argument")'
+            )
+        external = declaration.args[0].value
+        if target in aliases or external in external_names:
+            raise QueueFrontendError(
+                "ACPY-TYPE-008: static type parameter names and bindings must be unique"
+            )
+        aliases[target] = external
+        external_names.add(external)
+    return aliases
+
+
+def _type_static_values(
+    tree: ast.Module,
+    static_arguments: Mapping[str, StaticValue] | None,
+) -> dict[str, StaticValue]:
+    values = _module_static_values(tree)
+    supplied = dict(static_arguments or {})
+    for alias, external in _static_parameter_aliases(tree).items():
+        if external not in supplied:
+            continue
+        value = supplied[external]
+        if type(value) is not int:
+            raise QueueFrontendError(
+                f"ACPY-TYPE-008: static type parameter {external!r} must bind an integer"
+            )
+        values[alias] = value
+    return values
+
+
 class QueueFrontendError(DiagnosticError):
     """A stable rejection from the queue frontend."""
 
@@ -310,8 +510,17 @@ def _primitive_integer_width(operation: str, value_type: ValueType) -> int:
 
 
 @dataclass(frozen=True, slots=True)
+class StaticTypeCheck:
+    target: str
+    program: tuple[str, ...]
+    result: int
+    concrete_type: ValueType | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class Payload:
     descriptor: StructType
+    static_type_checks: tuple[StaticTypeCheck, ...] = ()
 
     @property
     def name(self) -> str:
@@ -331,6 +540,33 @@ class Payload:
     @property
     def acir_type(self) -> str:
         return _render_type(self.descriptor)
+
+
+def _scalar_annotation_static_check(
+    target: str,
+    annotation: ast.expr,
+    parameter_aliases: Mapping[str, str],
+    static_values: Mapping[str, StaticValue],
+    *,
+    binding_namespace: str = "",
+) -> StaticTypeCheck | None:
+    if not (
+        isinstance(annotation, ast.Subscript)
+        and _decorator_name(annotation.value).rsplit(".", 1)[-1] == "bits"
+    ):
+        return None
+    dependent = _dependent_static_type_expression(
+        annotation.slice,
+        parameter_aliases,
+        static_values,
+        binding_namespace=binding_namespace,
+    )
+    if dependent is None:
+        return None
+    program, width = dependent
+    if not _proven_integer_in(width, 1, 64):
+        raise QueueFrontendError("ACPY-TYPE-003: bits width must be in [1, 64]")
+    return StaticTypeCheck(target + ":bits", program, width, BitsType(width))
 
 
 @dataclass(frozen=True, slots=True)
@@ -985,6 +1221,8 @@ class QueueProgram:
     observations: tuple[ObservationBinding, ...]
     expectations: tuple[ExpectBinding, ...]
     sinks: tuple[SinkBinding, ...]
+    static_type_bindings: tuple[tuple[str, int], ...] = ()
+    static_type_checks: tuple[StaticTypeCheck, ...] = ()
     specialization_fingerprint: str | None = None
     diagnostics: tuple[Diagnostic, ...] = ()
     source_path: str = _DEFAULT_QUEUE_SOURCE_PATH
@@ -1009,7 +1247,10 @@ def _decorator_name(node: ast.expr) -> str:
     return ""
 
 
-def _scalar_type_descriptor(node: ast.expr) -> ValueType:
+def _scalar_type_descriptor(
+    node: ast.expr,
+    static_values: Mapping[str, StaticValue] | None = None,
+) -> ValueType:
     from _pycircuit_semantics import BitsType, BoolType
 
     if (
@@ -1017,7 +1258,7 @@ def _scalar_type_descriptor(node: ast.expr) -> ValueType:
         and _decorator_name(node.value).rsplit(".", 1)[-1] == "bits"
     ):
         width_node = node.slice
-        width = _constant_integer(width_node)
+        width = _constant_integer(width_node, static_values)
         if width is None:
             raise QueueFrontendError(
                 "ACPY-TYPE-003: bits width must be a static integer"
@@ -1063,6 +1304,23 @@ def _enums(tree: ast.Module) -> tuple[EnumBinding, ...]:
             )
         enumerants: list[str] = []
         values: list[int] = []
+        encoding_width: int | None = None
+        for decorator in node.decorator_list:
+            if (
+                not isinstance(decorator, ast.Call)
+                or _decorator_name(decorator.func).rsplit(".", 1)[-1] != "encoding"
+                or decorator.args
+                or len(decorator.keywords) != 1
+                or decorator.keywords[0].arg != "width"
+            ):
+                raise QueueFrontendError(
+                    "ACPY-TYPE-005: enum decorators require @ac.encoding(width=N)"
+                )
+            encoding_width = _constant_integer(decorator.keywords[0].value)
+            if encoding_width is None or not 1 <= encoding_width <= 64:
+                raise QueueFrontendError(
+                    "ACPY-TYPE-005: enum encoding width must be in [1, 64]"
+                )
         for statement in node.body:
             if (
                 isinstance(statement, ast.Expr)
@@ -1082,11 +1340,24 @@ def _enums(tree: ast.Module) -> tuple[EnumBinding, ...]:
                 )
             enumerants.append(statement.targets[0].id)
             values.append(statement.value.value)
-        if values != list(range(len(values))):
+        if encoding_width is None and values != list(range(len(values))):
             raise QueueFrontendError(
                 "ACPY-TYPE-005: enum values must be contiguous from zero in declaration order"
             )
-        descriptor = EnumType(node.name, tuple(enumerants))
+        if encoding_width is not None and (
+            any(value < 0 or value >= (1 << encoding_width) for value in values)
+            or len(set(values)) != len(values)
+        ):
+            raise QueueFrontendError(
+                "ACPY-TYPE-005: explicit enum values must be unique, nonnegative, "
+                "and fit the declared width"
+            )
+        descriptor = EnumType(
+            node.name,
+            tuple(enumerants),
+            None if encoding_width is None else tuple(values),
+            encoding_width,
+        )
         if not is_exhaustive(constraint_for_type(descriptor), set(enumerants)):
             raise QueueFrontendError(
                 "ACPY-TYPE-005: enum declaration does not cover its finite domain"
@@ -1097,7 +1368,12 @@ def _enums(tree: ast.Module) -> tuple[EnumBinding, ...]:
 
 
 def _payloads(
-    tree: ast.Module, enums: tuple[EnumBinding, ...] = ()
+    tree: ast.Module,
+    enums: tuple[EnumBinding, ...] = (),
+    static_values: Mapping[str, StaticValue] | None = None,
+    *,
+    static_type_namespace: str = "",
+    allow_unbound: bool = False,
 ) -> tuple[Payload, ...]:
     from _pycircuit_semantics import ArrayType, StructType, TupleType, ValueField
 
@@ -1116,14 +1392,95 @@ def _payloads(
     resolved: dict[str, StructType] = {}
     active: list[str] = []
     enum_types = {binding.name: binding.descriptor for binding in enums}
+    parameter_aliases = _static_parameter_aliases(tree)
+    checks_by_name: dict[str, tuple[StaticTypeCheck, ...]] = {}
+
+    def annotation_checks(
+        struct_name: str, field_name: str, node: ast.expr
+    ) -> tuple[StaticTypeCheck, ...]:
+        checks: list[StaticTypeCheck] = []
+
+        def visit(annotation: ast.expr, path: str) -> None:
+            if not isinstance(annotation, ast.Subscript):
+                return
+            kind = _decorator_name(annotation.value).rsplit(".", 1)[-1]
+            if kind == "bits":
+                dependent = _dependent_static_type_expression(
+                    annotation.slice,
+                    parameter_aliases,
+                    static_values,
+                    binding_namespace=static_type_namespace,
+                )
+                if dependent is not None:
+                    program, result = dependent
+                    checks.append(
+                        StaticTypeCheck(
+                            f"{struct_name}.{field_name}{path}:bits",
+                            program,
+                            result,
+                        )
+                    )
+                return
+            if kind == "array":
+                if (
+                    not isinstance(annotation.slice, ast.Tuple)
+                    or len(annotation.slice.elts) != 2
+                ):
+                    return
+                length, element = annotation.slice.elts
+                dependent = _dependent_static_type_expression(
+                    length,
+                    parameter_aliases,
+                    static_values,
+                    binding_namespace=static_type_namespace,
+                )
+                if dependent is not None:
+                    program, result = dependent
+                    checks.append(
+                        StaticTypeCheck(
+                            f"{struct_name}.{field_name}{path}:array_length",
+                            program,
+                            result,
+                        )
+                    )
+                visit(element, path + ".array_element")
+                return
+            if kind in {"tuple", "Tuple"}:
+                elements = (
+                    tuple(annotation.slice.elts)
+                    if isinstance(annotation.slice, ast.Tuple)
+                    else (annotation.slice,)
+                )
+                for index, element in enumerate(elements):
+                    visit(element, path + f".tuple_{index}")
+
+        visit(node, "")
+        return tuple(checks)
 
     def annotation_type(node: ast.expr) -> ValueType:
+        node_kind = _decorator_name(
+            node.value if isinstance(node, ast.Subscript) else node
+        ).rsplit(".", 1)[-1]
+        if isinstance(node, ast.Subscript) and node_kind == "bits":
+            dependent = _dependent_static_type_expression(
+                node.slice,
+                parameter_aliases,
+                static_values,
+                binding_namespace=static_type_namespace,
+            )
+            if dependent is not None:
+                from _pycircuit_semantics import BitsType
+
+                width = dependent[1]
+                if not _proven_integer_in(width, 1, 64):
+                    raise QueueFrontendError(
+                        "ACPY-TYPE-003: bits width must be in [1, 64]"
+                    )
+                return BitsType(width)
         try:
-            return _scalar_type_descriptor(node)
+            return _scalar_type_descriptor(node, static_values)
         except QueueFrontendError as scalar_error:
-            name = _decorator_name(
-                node.value if isinstance(node, ast.Subscript) else node
-            ).rsplit(".", 1)[-1]
+            name = node_kind
             if isinstance(node, ast.Subscript) and name in {"tuple", "Tuple"}:
                 elements = (
                     tuple(node.slice.elts)
@@ -1138,7 +1495,17 @@ def _payloads(
                     raise QueueFrontendError(
                         "ACPY-TYPE-006: value array requires static [length, element]"
                     ) from scalar_error
-                length = _constant_integer(node.slice.elts[0])
+                dependent = _dependent_static_type_expression(
+                    node.slice.elts[0],
+                    parameter_aliases,
+                    static_values,
+                    binding_namespace=static_type_namespace,
+                )
+                length = (
+                    dependent[1]
+                    if dependent is not None
+                    else _constant_integer(node.slice.elts[0], static_values)
+                )
                 if length is None:
                     raise QueueFrontendError(
                         "ACPY-TYPE-006: value array requires static [length, element]"
@@ -1169,6 +1536,7 @@ def _payloads(
         active.append(name)
         node = by_name[name]
         fields: list[ValueField] = []
+        static_checks: list[StaticTypeCheck] = []
         for statement in node.body:
             if not isinstance(statement, ast.AnnAssign) or not isinstance(
                 statement.target, ast.Name
@@ -1189,20 +1557,65 @@ def _payloads(
                     "template domain"
                 )
             fields.append(ValueField(statement.target.id, field_type))
+            static_checks.extend(
+                annotation_checks(name, statement.target.id, statement.annotation)
+            )
         if not fields or len({field.name for field in fields}) != len(fields):
             raise QueueFrontendError(
                 "ACPY-QUEUE-002: struct requires unique compile-time fields"
             )
-        descriptor = StructType(node.name, tuple(fields))
+        binding_values = {
+            static_type_namespace + alias: value
+            for alias, value in (static_values or {}).items()
+            if alias in parameter_aliases and type(value) is int
+        }
+        bindings: dict[str, int] = {}
+        for check in static_checks:
+            for token in check.program:
+                if token[:6] != "param:":
+                    continue
+                parameter = token[6:]
+                if parameter not in binding_values:
+                    raise QueueFrontendError(
+                        f"ACPY-TYPE-008: unbound static integer parameter {parameter!r}"
+                    )
+                canonical_parameter = (
+                    parameter[len(static_type_namespace) :]
+                    if static_type_namespace
+                    and parameter[: len(static_type_namespace)] == static_type_namespace
+                    else parameter
+                )
+                bindings[canonical_parameter] = binding_values[parameter]
+        descriptor = StructType(node.name, tuple(fields), tuple(bindings.items()))
+        static_checks = [
+            replace(
+                check,
+                target=descriptor.symbol + check.target[len(node.name) :],
+            )
+            for check in static_checks
+        ]
         if descriptor.bit_width() > MAX_PACKED_VALUE_WIDTH:
             raise QueueFrontendError(
                 "ACPY-TYPE-006: payload width exceeds the backend template domain"
             )
         active.pop()
         resolved[name] = descriptor
+        checks_by_name[name] = tuple(static_checks)
         return descriptor
 
-    return tuple(Payload(resolve(node.name)) for node in declarations)
+    descriptors: list[StructType] = []
+    for node in declarations:
+        try:
+            descriptors.append(resolve(node.name))
+        except QueueFrontendError as error:
+            active.clear()
+            if allow_unbound and "unbound static integer parameter" in str(error):
+                continue
+            raise
+    return tuple(
+        Payload(descriptor, checks_by_name.get(descriptor.name, ()))
+        for descriptor in descriptors
+    )
 
 
 def _bitfields(tree: ast.Module) -> tuple[BitfieldBinding, ...]:
@@ -1330,6 +1743,104 @@ def _payload_layout_entry(payload: Payload) -> str:
     )
 
 
+def _render_static_type_attributes(
+    bindings: tuple[tuple[str, int], ...],
+    payloads: tuple[Payload, ...],
+    extra_checks: tuple[StaticTypeCheck, ...] = (),
+) -> str:
+    checks = (
+        tuple(check for payload in payloads for check in payload.static_type_checks)
+        + extra_checks
+    )
+    identities = tuple(
+        payload
+        for payload in payloads
+        if payload.descriptor.symbol != payload.descriptor.name
+    )
+    if not bindings and not checks and not identities:
+        return ""
+    attributes: list[str] = []
+    if bindings:
+        attributes.append(
+            "ac.static_type_bindings = {"
+            + ", ".join(f"{name} = {value} : i64" for name, value in bindings)
+            + "}"
+        )
+    if checks:
+        rendered_checks = []
+        for check in checks:
+            program = (
+                "["
+                + ", ".join(canonical_mlir_string(token) for token in check.program)
+                + "]"
+            )
+            rendered_checks.append(
+                "{program = "
+                + program
+                + f", result = {check.result} : i64, target = "
+                + canonical_mlir_string(check.target)
+                + (
+                    ""
+                    if check.concrete_type is None
+                    else ", type = " + _render_type(check.concrete_type)
+                )
+                + "}"
+            )
+        attributes.append(
+            "ac.static_type_checks = [" + ", ".join(rendered_checks) + "]"
+        )
+    if identities:
+        rendered_identities: list[str] = []
+        checks_by_target = {check.target: check for check in checks}
+        for payload in identities:
+            descriptor = payload.descriptor
+            targets = sorted(
+                target
+                for target in checks_by_target
+                if target[: len(descriptor.symbol) + 1] == descriptor.symbol + "."
+            )
+            parameters_by_name: dict[str, str] = {}
+            for target in targets:
+                for token in checks_by_target[target].program:
+                    if token[:6] != "param:":
+                        continue
+                    parameter = token[6:]
+                    for name, _ in descriptor.static_bindings:
+                        if parameter == name or parameter.endswith("__" + name):
+                            parameters_by_name[name] = parameter
+            rendered_bindings = []
+            for name, value in descriptor.static_bindings:
+                parameter = parameters_by_name.get(name)
+                if parameter is None:
+                    raise QueueFrontendError(
+                        "ACPY-TYPE-008: specialized struct binding lacks a verifier program"
+                    )
+                rendered_bindings.append(
+                    "{name = "
+                    + canonical_mlir_string(name)
+                    + ", parameter = "
+                    + canonical_mlir_string(parameter)
+                    + f", value = {value} : i64}}"
+                )
+            rendered_identities.append(
+                "{bindings = ["
+                + ", ".join(rendered_bindings)
+                + "], fingerprint = "
+                + canonical_mlir_string(descriptor.specialization_fingerprint)
+                + ", source = "
+                + canonical_mlir_string(descriptor.name)
+                + ", symbol = "
+                + canonical_mlir_string(descriptor.symbol)
+                + ", targets = ["
+                + ", ".join(canonical_mlir_string(target) for target in targets)
+                + "]}"
+            )
+        attributes.append(
+            "ac.static_type_identities = [" + ", ".join(rendered_identities) + "]"
+        )
+    return ", " + ", ".join(attributes)
+
+
 def _enum_layout_entry(binding: EnumBinding) -> str:
     size, alignment = _abi_layout(binding.descriptor)
     return (
@@ -1340,10 +1851,22 @@ def _enum_layout_entry(binding: EnumBinding) -> str:
 
 
 def _render_enum(binding: EnumBinding, indent: str) -> str:
-    enumerants = "[" + ", ".join(
-        canonical_mlir_string(item) for item in binding.descriptor.enumerants
-    ) + "]"
-    return f"{indent}ac.enum @{binding.name} enumerants {enumerants}"
+    enumerants = (
+        "["
+        + ", ".join(
+            canonical_mlir_string(item) for item in binding.descriptor.enumerants
+        )
+        + "]"
+    )
+    if binding.descriptor.values is None:
+        return f"{indent}ac.enum @{binding.name} enumerants {enumerants}"
+    values = (
+        "[" + ", ".join(f"{value} : i64" for value in binding.descriptor.values) + "]"
+    )
+    return (
+        f"{indent}ac.enum @{binding.name} enumerants {enumerants} "
+        f"values {values} width {binding.descriptor.encoding_width}"
+    )
 
 
 def _static_int_value(node: ast.expr, values: Mapping[str, StaticValue]) -> int | None:
@@ -1396,9 +1919,10 @@ def _payload(
     node: ast.expr,
     payloads: dict[str, Payload],
     enums: Mapping[str, ValueType] | None = None,
+    static_values: Mapping[str, StaticValue] | None = None,
 ) -> ValueType:
     try:
-        return _scalar_type_descriptor(node)
+        return _scalar_type_descriptor(node, static_values)
     except QueueFrontendError:
         pass
     if isinstance(node, ast.Name) and node.id in payloads:
@@ -1633,9 +2157,9 @@ def _pure_helper_definitions(
 
     architecture = {"system", "module", "extern_module", "process", "rule", "invariant"}
     nodes: dict[str, ast.FunctionDef] = {}
-    signatures: dict[str, tuple[tuple[tuple[str, ValueType], ...], ValueType, bool]] = (
-        {}
-    )
+    signatures: dict[
+        str, tuple[tuple[tuple[str, ValueType], ...], ValueType, bool]
+    ] = {}
     for node in tree.body:
         if not isinstance(node, ast.FunctionDef):
             continue
@@ -1897,6 +2421,16 @@ def _constantize_expression(
 
         def visit_Attribute(self, candidate: ast.Attribute) -> ast.expr:
             return self._constant(candidate) or self.generic_visit(candidate)
+
+        def visit_BinOp(self, candidate: ast.BinOp) -> ast.expr:
+            rewritten = self.generic_visit(candidate)
+            assert isinstance(rewritten, ast.expr)
+            return self._constant(rewritten) or rewritten
+
+        def visit_UnaryOp(self, candidate: ast.UnaryOp) -> ast.expr:
+            rewritten = self.generic_visit(candidate)
+            assert isinstance(rewritten, ast.expr)
+            return self._constant(rewritten) or rewritten
 
     result = Constantizer().visit(copy.deepcopy(node))
     assert isinstance(result, ast.expr)
@@ -2356,11 +2890,13 @@ def parse_queue_program(
     *,
     entry_kind: str = "system",
     source_path: str | None = None,
+    static_type_namespace: str = "",
 ) -> QueueProgram:
     normalized_source_path = _normalize_queue_source_path(source_path)
     tree = ast.parse(text, filename=normalized_source_path, type_comments=True)
     tree = _desugar_nested_rule_captures(tree, system, entry_kind)
     module_static_values = _module_static_values(tree)
+    type_static_values = _type_static_values(tree, static_arguments)
     for node in tree.body:
         decorators = getattr(node, "decorator_list", ())
         if any(
@@ -2373,7 +2909,13 @@ def parse_queue_program(
             )
     enums = _enums(tree)
     enum_map = {item.name: item.descriptor for item in enums}
-    payloads = _payloads(tree, enums)
+    payloads = _payloads(
+        tree,
+        enums,
+        type_static_values,
+        static_type_namespace=static_type_namespace,
+        allow_unbound=entry_kind == "module",
+    )
     payload_map = {item.name: item for item in payloads}
     bitfields = _bitfields(tree)
     bitfield_map = {binding.name: binding.layout for binding in bitfields}
@@ -2466,7 +3008,9 @@ def parse_queue_program(
             spelling = (
                 candidate.func.attr
                 if isinstance(candidate.func, ast.Attribute)
-                else candidate.func.id if isinstance(candidate.func, ast.Name) else None
+                else candidate.func.id
+                if isinstance(candidate.func, ast.Name)
+                else None
             )
             if spelling in forbidden_runtime_mechanics:
                 raise QueueFrontendError(
@@ -2518,7 +3062,8 @@ def parse_queue_program(
                 "ACPY-RULE-014: multi-output return ordinals require unique locals"
             )
         output_types = tuple(
-            _payload(element, payload_map) for element in annotation_elements
+            _payload(element, payload_map, static_values=type_static_values)
+            for element in annotation_elements
         )
         state_references: set[str] = set()
         eligible_state_parameters = frozenset(parameter_names[:-1])
@@ -2706,10 +3251,14 @@ def parse_queue_program(
                         if negated
                         else copy.deepcopy(condition)
                     )
-                presences[name] = assigned_presence if guard is None else ast.IfExp(
-                    test=copy.deepcopy(guard),
-                    body=assigned_presence,
-                    orelse=copy.deepcopy(previous_presence),
+                presences[name] = (
+                    assigned_presence
+                    if guard is None
+                    else ast.IfExp(
+                        test=copy.deepcopy(guard),
+                        body=assigned_presence,
+                        orelse=copy.deepcopy(previous_presence),
+                    )
                 )
                 presences[name] = ast.fix_missing_locations(presences[name])
                 if is_none:
@@ -2811,11 +3360,32 @@ def parse_queue_program(
             output_guards=tuple(presences[name] for name in output_names),
         )
 
+    selected_rule_names: set[str] | None = None
+    if entry_kind == "module":
+        selected_modules = [
+            node
+            for node in tree.body
+            if isinstance(node, ast.FunctionDef)
+            and node.name == system
+            and any(
+                _decorator_name(decorator).rsplit(".", 1)[-1] == "module"
+                for decorator in node.decorator_list
+            )
+        ]
+        if len(selected_modules) == 1:
+            selected_rule_names = {
+                call.func.id
+                for call in ast.walk(selected_modules[0])
+                if isinstance(call, ast.Call) and isinstance(call.func, ast.Name)
+            }
+
     for node in tree.body:
         if not isinstance(node, ast.FunctionDef) or not any(
             _decorator_name(decorator).rsplit(".", 1)[-1] == "rule"
             for decorator in node.decorator_list
         ):
+            continue
+        if selected_rule_names is not None and node.name not in selected_rule_names:
             continue
         if node.name in rule_definitions:
             raise QueueFrontendError(
@@ -2855,21 +3425,23 @@ def parse_queue_program(
             for candidate in ast.walk(statement)
             if isinstance(candidate, ast.Name)
         }
-        body = _normalize_rule_field_assignments(
-            body, reserved_names=reserved_names
-        )
+        body = _normalize_rule_field_assignments(body, reserved_names=reserved_names)
         if any(
             isinstance(candidate, ast.Name)
             and candidate.id[:18] == "__ac_helper_tuple_"
             for statement in body
             for candidate in ast.walk(statement)
         ):
+
             class SubstituteHelperLocals(ast.NodeTransformer):
                 def __init__(self, values: Mapping[str, ast.expr]) -> None:
                     self.values = values
 
                 def visit_Name(self, candidate: ast.Name) -> ast.expr:
-                    if isinstance(candidate.ctx, ast.Load) and candidate.id in self.values:
+                    if (
+                        isinstance(candidate.ctx, ast.Load)
+                        and candidate.id in self.values
+                    ):
                         return ast.copy_location(
                             copy.deepcopy(self.values[candidate.id]), candidate
                         )
@@ -3010,7 +3582,9 @@ def parse_queue_program(
                 else copy.deepcopy(condition)
                 for condition, negated in path
             ]
-            return ast.fix_missing_locations(ast.BoolOp(op=ast.And(), values=terms)), False
+            return ast.fix_missing_locations(
+                ast.BoolOp(op=ast.And(), values=terms)
+            ), False
 
         def flatten_branch(
             statement: ast.stmt,
@@ -3760,7 +4334,14 @@ def parse_queue_program(
                     "ACPY-QUEUE-022: external system values cannot have defaults"
                 )
             external_parameters.append(
-                (parameter.arg, _payload(parameter.annotation, payload_map))
+                (
+                    parameter.arg,
+                    _payload(
+                        parameter.annotation,
+                        payload_map,
+                        static_values=type_static_values,
+                    ),
+                )
             )
             continue
         static_parameter_names.add(parameter.arg)
@@ -3812,10 +4393,58 @@ def parse_queue_program(
                 raise QueueFrontendError(
                     "ACPY-QUEUE-026: system result tuple cannot be empty"
                 )
-            return tuple(_payload(element, payload_map) for element in elements)
-        return (_payload(annotation, payload_map),)
+            return tuple(
+                _payload(element, payload_map, static_values=type_static_values)
+                for element in elements
+            )
+        return (_payload(annotation, payload_map, static_values=type_static_values),)
 
     result_payloads = system_result_payloads(function.returns)
+    parameter_aliases = _static_parameter_aliases(tree)
+    interface_owner = (
+        "module." + static_type_namespace[:-2]
+        if static_type_namespace[-2:] == "__"
+        else f"{entry_kind}.{system}"
+    )
+    interface_type_checks: list[StaticTypeCheck] = []
+    for parameter in parameters:
+        if (
+            isinstance(parameter.annotation, ast.Subscript)
+            and _decorator_name(parameter.annotation.value).rsplit(".", 1)[-1]
+            == "const"
+        ):
+            continue
+        check = _scalar_annotation_static_check(
+            f"interface.{interface_owner}.input.{parameter.arg}",
+            parameter.annotation,
+            parameter_aliases,
+            type_static_values,
+            binding_namespace=static_type_namespace,
+        )
+        if check is not None:
+            interface_type_checks.append(check)
+    result_annotations = (
+        ()
+        if function.returns is None
+        else (
+            tuple(function.returns.slice.elts)
+            if isinstance(function.returns, ast.Subscript)
+            and _decorator_name(function.returns.value).rsplit(".", 1)[-1]
+            in {"tuple", "Tuple"}
+            and isinstance(function.returns.slice, ast.Tuple)
+            else (function.returns,)
+        )
+    )
+    for index, annotation in enumerate(result_annotations):
+        check = _scalar_annotation_static_check(
+            f"interface.{interface_owner}.output.{index}",
+            annotation,
+            parameter_aliases,
+            type_static_values,
+            binding_namespace=static_type_namespace,
+        )
+        if check is not None:
+            interface_type_checks.append(check)
     typed_result_payloads: dict[str, ValueType] = {}
     if entry_kind == "module" and result_payloads:
         returned = next(
@@ -3829,7 +4458,9 @@ def parse_queue_program(
         returned_values = (
             tuple(returned.elts)
             if isinstance(returned, (ast.Tuple, ast.List))
-            else (returned,) if returned is not None else ()
+            else (returned,)
+            if returned is not None
+            else ()
         )
         if len(returned_values) == len(result_payloads) and all(
             isinstance(value, ast.Name) for value in returned_values
@@ -4294,7 +4925,9 @@ def parse_queue_program(
                     "ACPY-TABLE-010: Table flattened size overflows signed i64"
                 )
             entries *= extent
-        entry_type = _payload(parameters.elts[1], payload_map)
+        entry_type = _payload(
+            parameters.elts[1], payload_map, static_values=type_static_values
+        )
         if call.args or any(
             keyword.arg is None or keyword.arg != "init" for keyword in call.keywords
         ):
@@ -4330,7 +4963,9 @@ def parse_queue_program(
             raise QueueFrontendError(
                 "ACPY-TABLE-011: typed image version must be exactly 1"
             )
-        image_entry = _payload(image_fields["entry"], payload_map)
+        image_entry = _payload(
+            image_fields["entry"], payload_map, static_values=type_static_values
+        )
         if image_entry != entry_type:
             raise QueueFrontendError(
                 "ACPY-TABLE-011: typed image Entry type must match the Table"
@@ -4716,7 +5351,7 @@ def parse_queue_program(
             raise QueueFrontendError("ACPY-QUEUE-025: Queue rate must not exceed lanes")
         return QueueBinding(
             name,
-            _payload(call.args[0], payload_map),
+            _payload(call.args[0], payload_map, static_values=type_static_values),
             depth,
             _positive_int(call, "latency", 1, static_values),
             None,
@@ -4742,7 +5377,9 @@ def parse_queue_program(
             raise QueueFrontendError(
                 "ACPY-QUEUE-015: memory instance has an unsupported keyword"
             )
-        data_type = _payload(call.args[0], payload_map)
+        data_type = _payload(
+            call.args[0], payload_map, static_values=type_static_values
+        )
         if _epoch_05_integer_width(data_type) is None:
             raise QueueFrontendError(
                 "ACPY-QUEUE-015: memory data type must be an integer"
@@ -4988,7 +5625,11 @@ def parse_queue_program(
                 if isinstance(annotation, ast.Subscript) and _decorator_name(
                     annotation.value
                 ).rsplit(".", 1)[-1] in {"list", "List"}:
-                    value_type = _payload(annotation.slice, payload_map)
+                    value_type = _payload(
+                        annotation.slice,
+                        payload_map,
+                        static_values=type_static_values,
+                    )
                     initializer = statement.value
                     repeated: ast.expr | None = None
                     count: int | None = None
@@ -5032,17 +5673,23 @@ def parse_queue_program(
                         )
                     init: int | bool = False if isinstance(value_type, BoolType) else 0
                 else:
-                    value_type = _payload(annotation, payload_map, enum_map)
+                    value_type = _payload(
+                        annotation,
+                        payload_map,
+                        enum_map,
+                        type_static_values,
+                    )
                     if isinstance(value_type, EnumType):
                         if (
                             not isinstance(statement.value, ast.Attribute)
                             or _decorator_name(statement.value.value).rsplit(".", 1)[-1]
                             != value_type.name
                             or statement.value.attr != value_type.enumerants[0]
+                            or value_type.encoding_values[0] != 0
                         ):
                             raise QueueFrontendError(
                                 "ACPY-VAR-001: persistent enum init must be its "
-                                "first declared member"
+                                "zero-encoded first declared member"
                             )
                         init = 0
                     else:
@@ -7178,12 +7825,9 @@ def parse_queue_program(
                         item.id for item in target.elts if isinstance(item, ast.Name)
                     )
                 )
-                if (
-                    not target_names
-                    or (
-                        not isinstance(target, ast.Name)
-                        and len(target_names) != len(target.elts)
-                    )
+                if not target_names or (
+                    not isinstance(target, ast.Name)
+                    and len(target_names) != len(target.elts)
                 ):
                     raise QueueFrontendError(
                         "ACPY-RULE-014: multi-output rule call requires fixed local unpacking"
@@ -8257,9 +8901,7 @@ def parse_queue_program(
                     or definition.table_argument is not None
                     else 0
                 )
-                definition, call = specialize_rule_call(
-                    definition, call, static_prefix
-                )
+                definition, call = specialize_rule_call(definition, call, static_prefix)
                 if definition.state_arguments:
                     state_count = len(definition.state_arguments)
                     if (
@@ -8656,6 +9298,15 @@ def parse_queue_program(
         tuple(observations),
         tuple(expectations),
         tuple(sinks),
+        static_type_bindings=tuple(
+            sorted(
+                (static_type_namespace + alias, type_static_values[alias])
+                for alias in _static_parameter_aliases(tree)
+                if alias in type_static_values
+                and type(type_static_values[alias]) is int
+            )
+        ),
+        static_type_checks=tuple(interface_type_checks),
         specialization_fingerprint=specialization_fingerprint,
         source_path=normalized_source_path,
     )
@@ -8738,6 +9389,19 @@ class _ExpressionEmitter:
         self.lines: list[str] = []
         self.index = 0
         self.priority_values: dict[str, tuple[str, ValueType, str, ValueType]] = {}
+        self.onehot_values: dict[
+            str,
+            tuple[
+                str,
+                ValueType,
+                str,
+                ValueType,
+                str | None,
+                ValueType | None,
+                str,
+                ValueType,
+            ],
+        ] = {}
         self.selection_batch_values: dict[
             str, tuple[tuple[str, ValueType, str, ValueType], ...]
         ] = {}
@@ -8845,10 +9509,10 @@ class _ExpressionEmitter:
         result = self._new()
         rendered = _render_type(expected)
         self.lines.append(
-            f"    %{zero} = ac.var.constant 0 : {rendered} " f"as !ac.var<{rendered}>"
+            f"    %{zero} = ac.var.constant 0 : {rendered} as !ac.var<{rendered}>"
         )
         self.lines.append(
-            f"    %{one} = ac.var.constant 1 : {rendered} " f"as !ac.var<{rendered}>"
+            f"    %{one} = ac.var.constant 1 : {rendered} as !ac.var<{rendered}>"
         )
         self.lines.append(
             f"    %{result} = ac.var.select %{value}, %{one}, %{zero} : "
@@ -9543,7 +10207,9 @@ class _ExpressionEmitter:
             value = (
                 "true"
                 if node.value is True
-                else "false" if node.value is False else str(node.value)
+                else "false"
+                if node.value is False
+                else str(node.value)
             )
             attribute = (
                 value if type(node.value) is bool else f"{value} : {_render_type(typ)}"
@@ -9606,6 +10272,105 @@ class _ExpressionEmitter:
                     valid_type,
                 )
             )
+        if (
+            isinstance(node, ast.Attribute)
+            and node.attr in {"index", "valid", "conflict"}
+            and isinstance(node.value, ast.Call)
+            and _decorator_name(node.value.func).rsplit(".", 1)[-1] == "onehot_encode"
+        ):
+            call = node.value
+            if len(call.args) != 1 or any(
+                keyword.arg != "order" for keyword in call.keywords
+            ):
+                raise QueueFrontendError(
+                    "ACPY-VAR-003",
+                    "onehot_encode requires one value and optional order",
+                )
+            order = "low"
+            if call.keywords:
+                raw_order = call.keywords[0].value
+                if (
+                    not isinstance(raw_order, ast.Constant)
+                    or type(raw_order.value) is not str
+                ):
+                    raise QueueFrontendError(
+                        "ACPY-VAR-003", "onehot_encode order must be static"
+                    )
+                order = raw_order.value.strip().lower()
+            if order not in {"low", "high"}:
+                raise QueueFrontendError(
+                    "ACPY-VAR-003", "onehot_encode order must be low or high"
+                )
+            key = ast.dump(call, include_attributes=False)
+            cached = self.onehot_values.get(key)
+            if cached is None:
+                value, value_type = self.emit(call.args[0])
+                width = _primitive_integer_width("onehot_encode", value_type)
+                index_type = BitsType(primitive_priority_index_width(width))
+                index = self._new()
+                valid = self._new()
+                self.lines.append(
+                    f"    %{index}, %{valid} = ac.var.priority_encode %{value} "
+                    f'order "{order}" : !ac.var<{_render_type(value_type)}> -> '
+                    f"!ac.var<{_render_type(index_type)}>, !ac.var<i1>"
+                )
+                cached = (
+                    index,
+                    index_type,
+                    valid,
+                    BoolType(),
+                    None,
+                    None,
+                    value,
+                    value_type,
+                )
+                self.onehot_values[key] = cached
+            (
+                index,
+                index_type,
+                valid,
+                valid_type,
+                conflict,
+                conflict_type,
+                value,
+                value_type,
+            ) = cached
+            if node.attr == "conflict" and conflict is None:
+                width = _primitive_integer_width("onehot_encode", value_type)
+                count_type = BitsType(primitive_count_width(width))
+                count = self._new()
+                one = self._new()
+                conflict = self._new()
+                self.lines.append(
+                    f"    %{count} = ac.var.popcount %{value} : "
+                    f"!ac.var<{_render_type(value_type)}> -> "
+                    f"!ac.var<{_render_type(count_type)}>"
+                )
+                self.lines.append(
+                    f"    %{one} = ac.var.constant 1 : {_render_type(count_type)} "
+                    f"as !ac.var<{_render_type(count_type)}>"
+                )
+                self.lines.append(
+                    f'    %{conflict} = ac.var.cmp "ugt" %{count}, %{one} : '
+                    f"!ac.var<{_render_type(count_type)}> -> !ac.var<i1>"
+                )
+                conflict_type = BoolType()
+                self.onehot_values[key] = (
+                    index,
+                    index_type,
+                    valid,
+                    valid_type,
+                    conflict,
+                    conflict_type,
+                    value,
+                    value_type,
+                )
+            if node.attr == "index":
+                return index, index_type
+            if node.attr == "valid":
+                return valid, valid_type
+            assert conflict is not None and conflict_type is not None
+            return conflict, conflict_type
         if isinstance(node, ast.Attribute):
             record, record_type = self.emit(node.value)
             if not isinstance(record_type, StructType):
@@ -9925,31 +10690,82 @@ class _ExpressionEmitter:
             and isinstance(node.func, ast.Name)
             and node.func.id in self.payloads
         ):
-            if node.args or any(keyword.arg is None for keyword in node.keywords):
+            if node.args:
                 raise QueueFrontendError(
                     "ACPY-TYPE-006: record construction requires named fields"
                 )
             record_type = self.payloads[node.func.id].descriptor
-            values = {
-                keyword.arg: keyword.value
-                for keyword in node.keywords
-                if keyword.arg is not None
-            }
             expected_names = tuple(field.name for field in record_type.fields)
-            if len(values) != len(node.keywords) or set(values) != set(expected_names):
+            expected_fields = {field.name: field.type for field in record_type.fields}
+            provided: dict[str, tuple[str, ValueType]] = {}
+
+            def add_field(
+                name: str,
+                value: str,
+                value_type: ValueType,
+                *,
+                spread: bool = False,
+            ) -> None:
+                expected_type = expected_fields.get(name)
+                if expected_type is None:
+                    raise QueueFrontendError(
+                        f"ACPY-TYPE-006: record spread provides unknown field {name!r}"
+                    )
+                if name in provided:
+                    raise QueueFrontendError(
+                        f"ACPY-TYPE-006: record field {name!r} is provided more than once"
+                    )
+                if (
+                    value_type != expected_type
+                    if spread
+                    else not _types_equal_in_epoch_05(value_type, expected_type)
+                ):
+                    raise QueueFrontendError(
+                        f"ACPY-TYPE-006: record field {name!r} type mismatch"
+                    )
+                provided[name] = (value, value_type)
+
+            for keyword in node.keywords:
+                if keyword.arg is not None:
+                    expected_type = expected_fields.get(keyword.arg)
+                    if expected_type is None:
+                        raise QueueFrontendError(
+                            "ACPY-TYPE-006: record construction provides unknown "
+                            f"field {keyword.arg!r}"
+                        )
+                    value, value_type = self.emit(keyword.value, expected_type)
+                    add_field(keyword.arg, value, value_type)
+                    continue
+                source, source_type = self.emit(keyword.value)
+                if not isinstance(source_type, StructType):
+                    raise QueueFrontendError(
+                        "ACPY-TYPE-006: record spread requires a struct value"
+                    )
+                for source_field in source_type.fields:
+                    field_value = self._new()
+                    self.lines.append(
+                        f"    %{field_value} = ac.var.get %{source} field "
+                        f'"{source_field.name}" : '
+                        f"!ac.var<{_render_type(source_type)}> -> "
+                        f"!ac.var<{_render_type(source_field.type)}>"
+                    )
+                    add_field(
+                        source_field.name,
+                        field_value,
+                        source_field.type,
+                        spread=True,
+                    )
+
+            if set(provided) != set(expected_names):
                 raise QueueFrontendError(
                     "ACPY-TYPE-006: record construction must initialize every "
                     f"declared field exactly once for {node.func.id!r}; "
-                    f"expected {expected_names!r}, got {tuple(values)!r}"
+                    f"expected {expected_names!r}, got {tuple(provided)!r}"
                 )
             operands: list[str] = []
             operand_types: list[ValueType] = []
             for field in record_type.fields:
-                value, value_type = self.emit(values[field.name], field.type)
-                if not _types_equal_in_epoch_05(value_type, field.type):
-                    raise QueueFrontendError(
-                        f"ACPY-TYPE-006: record field {field.name!r} type mismatch"
-                    )
+                value, value_type = provided[field.name]
                 operands.append(value)
                 operand_types.append(value_type)
             name = self._new()
@@ -9971,32 +10787,77 @@ class _ExpressionEmitter:
             and not node.args
         ):
             record, record_type = self.emit(node.func.value)
-            current = record
-            for keyword in node.keywords:
-                if keyword.arg is None:
+            if not isinstance(record_type, StructType):
+                raise QueueFrontendError(
+                    "ACPY-QUEUE-003: field update requires a struct value"
+                )
+            field_types = {field.name: field.type for field in record_type.fields}
+            updates: dict[str, tuple[str, ValueType]] = {}
+
+            def add_update(
+                name: str,
+                value: str,
+                value_type: ValueType,
+                *,
+                spread: bool = False,
+            ) -> None:
+                field_type = field_types.get(name)
+                if field_type is None:
+                    raise QueueFrontendError(f"ACPY-QUEUE-003: unknown field {name!r}")
+                if name in updates:
                     raise QueueFrontendError(
-                        "ACPY-QUEUE-003: field unpacking is forbidden"
+                        f"ACPY-QUEUE-003: field {name!r} is updated more than once"
                     )
-                if not isinstance(record_type, StructType):
-                    raise QueueFrontendError(
-                        f"ACPY-QUEUE-003: unknown field {keyword.arg!r}"
-                    )
-                try:
-                    field_type = record_type.field(keyword.arg).type
-                except KeyError as exc:
-                    raise QueueFrontendError(
-                        f"ACPY-QUEUE-003: unknown field {keyword.arg!r}"
-                    ) from exc
-                value, value_type = self.emit(keyword.value, field_type)
-                if not _types_equal_in_epoch_05(value_type, field_type):
+                if (
+                    value_type != field_type
+                    if spread
+                    else not _types_equal_in_epoch_05(value_type, field_type)
+                ):
                     raise QueueFrontendError(
                         "ACPY-QUEUE-003: field update type mismatch"
                     )
+                updates[name] = (value, value_type)
+
+            for keyword in node.keywords:
+                if keyword.arg is not None:
+                    field_type = field_types.get(keyword.arg)
+                    if field_type is None:
+                        raise QueueFrontendError(
+                            f"ACPY-QUEUE-003: unknown field {keyword.arg!r}"
+                        )
+                    value, value_type = self.emit(keyword.value, field_type)
+                    add_update(keyword.arg, value, value_type)
+                    continue
+                source, source_type = self.emit(keyword.value)
+                if not isinstance(source_type, StructType):
+                    raise QueueFrontendError(
+                        "ACPY-QUEUE-003: field spread requires a struct value"
+                    )
+                for source_field in source_type.fields:
+                    field_value = self._new()
+                    self.lines.append(
+                        f"    %{field_value} = ac.var.get %{source} field "
+                        f'"{source_field.name}" : '
+                        f"!ac.var<{_render_type(source_type)}> -> "
+                        f"!ac.var<{_render_type(source_field.type)}>"
+                    )
+                    add_update(
+                        source_field.name,
+                        field_value,
+                        source_field.type,
+                        spread=True,
+                    )
+
+            current = record
+            for field in record_type.fields:
+                if field.name not in updates:
+                    continue
+                value, value_type = updates[field.name]
                 name = self._new()
                 self.lines.append(
                     f"    %{name} = ac.var.with %{current}, %{value} field "
-                    f'"{keyword.arg}" : !ac.var<{_render_type(record_type)}>, '
-                    f"!ac.var<{_render_type(field_type)}> -> "
+                    f'"{field.name}" : !ac.var<{_render_type(record_type)}>, '
+                    f"!ac.var<{_render_type(field.type)}> -> "
                     f"!ac.var<{_render_type(record_type)}>"
                 )
                 current = name
@@ -10079,6 +10940,11 @@ def lower_queue_program(
         if program.specialization_fingerprint is None
         else f', ac.specialization = "{program.specialization_fingerprint}"'
     )
+    static_type_attributes = _render_static_type_attributes(
+        program.static_type_bindings,
+        program.payloads,
+        program.static_type_checks,
+    )
     module_inputs = set() if module is None else {name for name, _ in module.inputs}
     module_outputs = set() if module is None else {name for name, _ in module.outputs}
     initial_mapping: dict[str, str] = {}
@@ -10088,7 +10954,8 @@ def lower_queue_program(
             f"{canonical_mlir_string(CONTRACT_EPOCH)}, "
             f'ac.model_kind = "queue_graph", '
             f'ac.queue_graph_domain = "cycle", '
-            f'ac.system = "{program.system}"{specialization}}} {{'
+            f'ac.system = "{program.system}"{specialization}'
+            f"{static_type_attributes}}} {{"
         ]
         content_indent = "  "
     else:
@@ -10146,7 +11013,9 @@ def lower_queue_program(
             fields = ", ".join(
                 f'{{name = "{name}", type = {typ}}}' for name, typ in payload.fields
             )
-            lines.append(f"    ac.struct @{payload.name} fields [{fields}]")
+            lines.append(
+                f"    ac.struct @{payload.descriptor.symbol} fields [{fields}]"
+            )
         for bitfield in program.bitfields:
             lines.append(_render_bitfield(bitfield, "    "))
         layouts = [
@@ -10322,9 +11191,9 @@ def lower_queue_program(
         )
         for input_index, input_name in enumerate(input_names):
             consumers.setdefault(input_name, []).append((queue, input_index))
-    fanouts: dict[str, tuple[tuple[str, ...], tuple[tuple[QueueBinding, int], ...]]] = (
-        {}
-    )
+    fanouts: dict[
+        str, tuple[tuple[str, ...], tuple[tuple[QueueBinding, int], ...]]
+    ] = {}
 
     def common_scope(scopes: list[tuple[str, ...]]) -> tuple[str, ...]:
         common: list[str] = []
@@ -10941,15 +11810,16 @@ def lower_queue_program(
                         entries,
                         "ACPY-RULE-004: persistent list index is out of range",
                     )
+                variable_type, _ = variable_domains[queue.rule_var]
                 var_write_result, var_write_type = emitter.emit(queue.rule_var_value)
-                if not _types_equal_in_epoch_05(var_write_type, queue.payload):
+                if not _types_equal_in_epoch_05(var_write_type, variable_type):
                     raise QueueFrontendError(
                         "ACPY-RULE-004: persistent variable assignment must "
                         "preserve its declared type"
                     )
                 emitter.root_values[queue.rule_var_argument] = (
                     var_write_result,
-                    queue.payload,
+                    variable_type,
                 )
             multi_state_results: list[
                 tuple[
@@ -11245,6 +12115,11 @@ def lower_queue_program(
                 if queue.rule_output_names
                 else (() if output_ssa is None else (output_ssa,))
             )
+            stable_rule_path = (
+                (*queue.scope, queue.name)
+                if module is None
+                else (module.name, *queue.scope, queue.name)
+            )
             lines.append(
                 (
                     f"{indent}" + ", ".join(f"%{name}" for name in output_ssas) + " = "
@@ -11264,7 +12139,7 @@ def lower_queue_program(
                     else "depths [] latencies [] "
                 )
                 + f"name {canonical_mlir_string(queue.rule_name)} "
-                f"stable_id {canonical_mlir_string('/'.join((*queue.scope, queue.name)))} "
+                f"stable_id {canonical_mlir_string('/'.join(stable_rule_path))} "
                 f'domain "cycle" type exact {{'
             )
             block_arguments = ", ".join(
@@ -11288,11 +12163,12 @@ def lower_queue_program(
             )
             if queue.rule_var is not None:
                 assert var_write_result is not None
+                variable_type, _ = variable_domains[queue.rule_var]
                 if queue.rule_var_index is None:
                     lines.append(
                         f"{indent}  ac.var.assign @{queue.rule_var} = "
                         f"%{var_write_result}{effect_presence} : "
-                        f"!ac.var<{_render_type(queue.payload)}>"
+                        f"!ac.var<{_render_type(variable_type)}>"
                     )
                 else:
                     assert var_index_result is not None
@@ -11302,7 +12178,7 @@ def lower_queue_program(
                         f"[%{var_index_result}] = %{var_write_result}"
                         f"{effect_presence} : "
                         f"!ac.var<{_render_type(var_index_type)}>, "
-                        f"!ac.var<{_render_type(queue.payload)}>"
+                        f"!ac.var<{_render_type(variable_type)}>"
                     )
             for (
                 state_write,
@@ -11335,9 +12211,13 @@ def lower_queue_program(
                 assert index_result is not None
                 assert index_type is not None
                 assert write_result is not None
-                fields = "[" + ", ".join(
-                    canonical_mlir_string(item) for item in queue.rule_write_fields
-                ) + "]"
+                fields = (
+                    "["
+                    + ", ".join(
+                        canonical_mlir_string(item) for item in queue.rule_write_fields
+                    )
+                    + "]"
+                )
                 lines.append(
                     f"{indent}  ac.table.propose @{queue.rule_table} "
                     f"[%{index_result}] = %{write_result}{effect_presence} "
@@ -12743,7 +13623,9 @@ def lower_queue_program(
         output_signature = (
             "()"
             if not module.outputs
-            else output_types if len(module.outputs) == 1 else f"({output_types})"
+            else output_types
+            if len(module.outputs) == 1
+            else f"({output_types})"
         )
         lines.append(f"    }} : ({input_types}) -> {output_signature}")
         returned = ", ".join(
@@ -12780,9 +13662,15 @@ def _lower_simple_module_source(
     for module_name in module_names:
         tree = _desugar_nested_rule_captures(tree, module_name, "module")
     module_static_values = _module_static_values(tree)
+    type_static_values = _type_static_values(tree, static_arguments)
     enum_bindings = _enums(tree)
     enum_map = {item.name: item.descriptor for item in enum_bindings}
-    payloads = _payloads(tree, enum_bindings)
+    payloads = _payloads(
+        tree,
+        enum_bindings,
+        type_static_values,
+        allow_unbound=True,
+    )
     payload_map = {payload.name: payload for payload in payloads}
     bitfield_bindings = _bitfields(tree)
     bitfield_map = {binding.name: binding.layout for binding in bitfield_bindings}
@@ -12825,6 +13713,32 @@ def _lower_simple_module_source(
     ):
         return None
 
+    reachable_modules: set[str] = set()
+    pending_modules = [
+        node.func.id
+        for node in ast.walk(systems[0])
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id in modules
+    ]
+    while pending_modules:
+        module_name = pending_modules.pop()
+        if module_name in reachable_modules:
+            continue
+        reachable_modules.add(module_name)
+        pending_modules.extend(
+            node.func.id
+            for node in ast.walk(modules[module_name])
+            if isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name)
+            and node.func.id in modules
+        )
+    modules = {
+        name: function
+        for name, function in modules.items()
+        if name in reachable_modules
+    }
+
     if specialization_fingerprint is not None:
         prefix = "sha256:"
         digest = specialization_fingerprint.removeprefix(prefix)
@@ -12850,8 +13764,26 @@ def _lower_simple_module_source(
                 if isinstance(annotation.slice, ast.Tuple)
                 else (annotation.slice,)
             )
-            return tuple(_payload(element, payload_map) for element in elements)
-        return (_payload(annotation, payload_map),)
+            return tuple(
+                _payload(element, payload_map, static_values=type_static_values)
+                for element in elements
+            )
+        return (_payload(annotation, payload_map, static_values=type_static_values),)
+
+    def result_annotations(annotation: ast.expr | None) -> tuple[ast.expr, ...]:
+        if annotation is None:
+            raise QueueFrontendError(
+                "ACPY-MODULE-001: module systems require typed returns"
+            )
+        if isinstance(annotation, ast.Subscript) and _decorator_name(
+            annotation.value
+        ).rsplit(".", 1)[-1] in {"tuple", "Tuple"}:
+            return (
+                tuple(copy.deepcopy(annotation.slice.elts))
+                if isinstance(annotation.slice, ast.Tuple)
+                else (copy.deepcopy(annotation.slice),)
+            )
+        return (copy.deepcopy(annotation),)
 
     @dataclass(frozen=True, slots=True)
     class ModuleState:
@@ -12879,8 +13811,16 @@ def _lower_simple_module_source(
         static_parameters: tuple[str, ...]
         static_defaults: tuple[tuple[str, ast.expr], ...]
 
+    @dataclass(frozen=True, slots=True)
+    class RuleModuleTemplate:
+        input_annotations: tuple[tuple[str, ast.expr], ...]
+        output_names: tuple[str, ...]
+        output_annotations: tuple[ast.expr, ...]
+        static_parameters: tuple[str, ...]
+        static_defaults: tuple[tuple[str, ast.expr], ...]
+
     module_types: dict[str, ModuleDefinition] = {}
-    rule_modules: dict[str, RuleModuleDefinition] = {}
+    rule_modules: dict[str, RuleModuleTemplate] = {}
     rule_names = {
         node.name
         for node in tree.body
@@ -12923,11 +13863,11 @@ def _lower_simple_module_source(
                     "ACPY-MODULE-005: keyword-only rule module parameters must "
                     "use ac.const"
                 )
-            inputs = tuple(
-                (parameter.arg, _payload(parameter.annotation, payload_map))
+            input_annotations = tuple(
+                (parameter.arg, copy.deepcopy(parameter.annotation))
                 for parameter in function.args.args
             )
-            output_types = result_payloads(function.returns)
+            output_annotations = result_annotations(function.returns)
             body = list(function.body)
             if (
                 body
@@ -12946,20 +13886,18 @@ def _lower_simple_module_source(
                 if isinstance(returned.value, (ast.Tuple, ast.List))
                 else (returned.value,)
             )
-            if len(result_nodes) != len(output_types) or not all(
+            if len(result_nodes) != len(output_annotations) or not all(
                 isinstance(result, ast.Name) for result in result_nodes
             ):
                 raise QueueFrontendError(
                     "ACPY-MODULE-005: rule module return names must match its arity"
                 )
-            outputs = tuple(
-                (result.id, payload)
-                for result, payload in zip(result_nodes, output_types, strict=True)
-                if isinstance(result, ast.Name)
-            )
-            rule_modules[name] = RuleModuleDefinition(
-                inputs,
-                outputs,
+            rule_modules[name] = RuleModuleTemplate(
+                input_annotations,
+                tuple(
+                    result.id for result in result_nodes if isinstance(result, ast.Name)
+                ),
+                output_annotations,
                 tuple(parameter.arg for parameter in function.args.kwonlyargs),
                 tuple(
                     (parameter.arg, default)
@@ -13002,7 +13940,9 @@ def _lower_simple_module_source(
             raise QueueFrontendError(
                 "ACPY-MODULE-001: first module slice requires one typed result"
             )
-        input_type = _payload(parameter.annotation, payload_map)
+        input_type = _payload(
+            parameter.annotation, payload_map, static_values=type_static_values
+        )
         if (
             len(body) == 1
             and isinstance(body[0], ast.Return)
@@ -13042,7 +13982,11 @@ def _lower_simple_module_source(
                     raise QueueFrontendError(
                         "ACPY-MODULE-004: module state names must be unique"
                     )
-                state_type = _payload(declaration.annotation, payload_map)
+                state_type = _payload(
+                    declaration.annotation,
+                    payload_map,
+                    static_values=type_static_values,
+                )
                 if _epoch_05_integer_width(state_type) is None:
                     raise QueueFrontendError(
                         "ACPY-MODULE-004: first module state slice requires scalars"
@@ -13096,9 +14040,6 @@ def _lower_simple_module_source(
     def module_signature(
         name: str,
     ) -> tuple[tuple[tuple[str, ValueType], ...], tuple[tuple[str, ValueType], ...]]:
-        if name in rule_modules:
-            definition = rule_modules[name]
-            return definition.inputs, definition.outputs
         definition = module_types[name]
         return (
             ((definition.argument, definition.input_type),),
@@ -13153,8 +14094,7 @@ def _lower_simple_module_source(
             )
             if default is None:
                 raise QueueFrontendError(
-                    "ACPY-QUEUE-022: system requires static argument "
-                    f"{parameter.arg!r}"
+                    f"ACPY-QUEUE-022: system requires static argument {parameter.arg!r}"
                 )
             try:
                 supplied[parameter.arg] = evaluate_static(
@@ -13173,7 +14113,16 @@ def _lower_simple_module_source(
             raise QueueFrontendError(
                 "ACPY-QUEUE-022: external system values cannot have defaults"
             )
-        external.append((parameter.arg, _payload(parameter.annotation, payload_map)))
+        external.append(
+            (
+                parameter.arg,
+                _payload(
+                    parameter.annotation,
+                    payload_map,
+                    static_values=type_static_values,
+                ),
+            )
+        )
     extras = sorted(set(supplied) - static_parameter_names)
     if extras:
         raise QueueFrontendError(
@@ -13199,6 +14148,32 @@ def _lower_simple_module_source(
             )
         )
     expected_results = result_payloads(function.returns)
+    parameter_aliases = _static_parameter_aliases(tree)
+    system_interface_checks: list[StaticTypeCheck] = []
+    for parameter in parameters:
+        if (
+            isinstance(parameter.annotation, ast.Subscript)
+            and _decorator_name(parameter.annotation.value).rsplit(".", 1)[-1]
+            == "const"
+        ):
+            continue
+        check = _scalar_annotation_static_check(
+            f"interface.system.{system}.input.{parameter.arg}",
+            parameter.annotation,
+            parameter_aliases,
+            type_static_values,
+        )
+        if check is not None:
+            system_interface_checks.append(check)
+    for index, annotation in enumerate(result_annotations(function.returns)):
+        check = _scalar_annotation_static_check(
+            f"interface.system.{system}.output.{index}",
+            annotation,
+            parameter_aliases,
+            type_static_values,
+        )
+        if check is not None:
+            system_interface_checks.append(check)
     values = dict(external)
     uses = {name: 0 for name, _ in external}
     instances: list[
@@ -13247,8 +14222,13 @@ def _lower_simple_module_source(
 
     def specialize_rule_module(
         module_name: str, call: ast.Call
-    ) -> tuple[str, tuple[tuple[str, StaticValue], ...]]:
-        definition = rule_modules[module_name]
+    ) -> tuple[
+        str,
+        tuple[tuple[str, StaticValue], ...],
+        tuple[tuple[str, ValueType], ...],
+        tuple[tuple[str, ValueType], ...],
+    ]:
+        template = rule_modules[module_name]
         supplied_keywords: dict[str, ast.expr] = {}
         for keyword in call.keywords:
             if keyword.arg is None or keyword.arg in supplied_keywords:
@@ -13256,14 +14236,14 @@ def _lower_simple_module_source(
                     "ACPY-MODULE-007: module static arguments require unique names"
                 )
             supplied_keywords[keyword.arg] = keyword.value
-        unknown = sorted(set(supplied_keywords) - set(definition.static_parameters))
+        unknown = sorted(set(supplied_keywords) - set(template.static_parameters))
         if unknown:
             raise QueueFrontendError(
                 f"ACPY-MODULE-007: unknown module static argument {unknown[0]!r}"
             )
-        defaults = dict(definition.static_defaults)
+        defaults = dict(template.static_defaults)
         static_values: list[tuple[str, StaticValue]] = []
-        for name in definition.static_parameters:
+        for name in template.static_parameters:
             expression = supplied_keywords.get(name, defaults.get(name))
             if expression is None:
                 raise QueueFrontendError(
@@ -13280,39 +14260,75 @@ def _lower_simple_module_source(
             _render_static_mlir_value(value)
             static_values.append((name, value))
         frozen = tuple(static_values)
-        if not frozen:
-            if module_name not in rule_module_specializations:
-                rule_module_specializations[module_name] = (
-                    definition,
-                    parse_queue_program(
-                        text,
-                        module_name,
-                        entry_kind="module",
-                        source_path=normalized_source_path,
-                    ),
-                    frozen,
+        specialization_fingerprint = (
+            sha256_bytes(
+                canonical_json_bytes(
+                    {name: static_json_value(value) for name, value in frozen}
                 )
-            return module_name, frozen
-        specialization_fingerprint = sha256_bytes(
-            canonical_json_bytes(
-                {name: static_json_value(value) for name, value in frozen}
             )
+            if frozen
+            else None
         )
-        digest = specialization_fingerprint.removeprefix("sha256:")[:12]
-        symbol = f"{module_name}__p{digest}"
+        digest = (
+            specialization_fingerprint.removeprefix("sha256:")[:12]
+            if specialization_fingerprint is not None
+            else ""
+        )
+        symbol = module_name if not digest else f"{module_name}__p{digest}"
         if symbol not in rule_module_specializations:
+            namespace = "" if not digest else f"{module_name}__p{digest}__"
+            program = parse_queue_program(
+                text,
+                module_name,
+                static_arguments=dict(frozen),
+                specialization_fingerprint=specialization_fingerprint,
+                entry_kind="module",
+                source_path=normalized_source_path,
+                static_type_namespace=namespace,
+            )
+            specialized_payloads = {item.name: item for item in program.payloads}
+            specialized_values = _type_static_values(tree, dict(frozen))
+            inputs = tuple(
+                (
+                    name,
+                    _payload(
+                        annotation,
+                        specialized_payloads,
+                        enum_map,
+                        specialized_values,
+                    ),
+                )
+                for name, annotation in template.input_annotations
+            )
+            outputs = tuple(
+                (
+                    name,
+                    _payload(
+                        annotation,
+                        specialized_payloads,
+                        enum_map,
+                        specialized_values,
+                    ),
+                )
+                for name, annotation in zip(
+                    template.output_names,
+                    template.output_annotations,
+                    strict=True,
+                )
+            )
+            definition = RuleModuleDefinition(
+                inputs,
+                outputs,
+                template.static_parameters,
+                template.static_defaults,
+            )
             rule_module_specializations[symbol] = (
                 definition,
-                parse_queue_program(
-                    text,
-                    module_name,
-                    static_arguments=dict(frozen),
-                    entry_kind="module",
-                    source_path=normalized_source_path,
-                ),
+                program,
                 frozen,
             )
-        return symbol, frozen
+        definition, _, _ = rule_module_specializations[symbol]
+        return symbol, frozen, definition.inputs, definition.outputs
 
     specialized_statements = specialize_system_statements(function.body)
     normalized_statements: list[ast.stmt] = []
@@ -13323,7 +14339,12 @@ def _lower_simple_module_source(
             and isinstance(statement.value.func, ast.Name)
             and statement.value.func.id in modules
         ):
-            _, outputs = module_signature(statement.value.func.id)
+            if statement.value.func.id in rule_modules:
+                _, _, _, outputs = specialize_rule_module(
+                    statement.value.func.id, statement.value
+                )
+            else:
+                _, outputs = module_signature(statement.value.func.id)
             names = tuple(f"__return_{index}" for index in range(len(outputs)))
             target: ast.expr = (
                 ast.Name(id=names[0], ctx=ast.Store())
@@ -13381,7 +14402,17 @@ def _lower_simple_module_source(
                     "ACPY-MODULE-002: module results require fresh tuple names"
                 )
             module_name = statement.value.func.id
-            input_signature, output_signature = module_signature(module_name)
+            static_arguments: tuple[tuple[str, StaticValue], ...] = ()
+            instance_module_name = module_name
+            if module_name in rule_modules:
+                (
+                    instance_module_name,
+                    static_arguments,
+                    input_signature,
+                    output_signature,
+                ) = specialize_rule_module(module_name, statement.value)
+            else:
+                input_signature, output_signature = module_signature(module_name)
             sources = tuple(
                 argument.id
                 for argument in statement.value.args
@@ -13414,16 +14445,9 @@ def _lower_simple_module_source(
             for result, output_type in zip(results, output_types, strict=True):
                 values[result] = output_type
                 uses[result] = 0
-            static_arguments: tuple[tuple[str, StaticValue], ...] = ()
-            instance_module_name = module_name
-            if module_name in rule_modules:
-                instance_module_name, static_arguments = specialize_rule_module(
-                    module_name, statement.value
-                )
-            elif statement.value.keywords:
+            if module_name not in rule_modules and statement.value.keywords:
                 raise QueueFrontendError(
-                    "ACPY-MODULE-007: pure module static parameters are not "
-                    "implemented"
+                    "ACPY-MODULE-007: pure module static parameters are not implemented"
                 )
             instances.append(
                 (
@@ -13473,25 +14497,78 @@ def _lower_simple_module_source(
             "ACPY-MODULE-002: every module Queue value requires one consumer"
         )
 
+    all_payloads_by_symbol: dict[str, Payload] = {
+        payload.descriptor.symbol: payload for payload in payloads
+    }
+    candidate_static_bindings = {
+        alias: type_static_values[alias]
+        for alias in _static_parameter_aliases(tree)
+        if alias in type_static_values and type(type_static_values[alias]) is int
+    }
+    all_interface_checks = list(system_interface_checks)
+    for _, program, _ in rule_module_specializations.values():
+        for payload in program.payloads:
+            existing = all_payloads_by_symbol.get(payload.descriptor.symbol)
+            if existing is not None and existing.descriptor != payload.descriptor:
+                raise QueueFrontendError(
+                    "ACPY-TYPE-008: specialized struct symbol collision"
+                )
+            if existing is None:
+                all_payloads_by_symbol[payload.descriptor.symbol] = payload
+        for name, value in program.static_type_bindings:
+            if (
+                name in candidate_static_bindings
+                and candidate_static_bindings[name] != value
+            ):
+                raise QueueFrontendError(
+                    "ACPY-TYPE-008: specialized static binding collision"
+                )
+            candidate_static_bindings[name] = value
+        all_interface_checks.extend(program.static_type_checks)
+    all_payloads = tuple(all_payloads_by_symbol.values())
+    all_checks = [
+        *(check for payload in all_payloads for check in payload.static_type_checks),
+        *all_interface_checks,
+    ]
+    used_static_parameters = {
+        token[6:]
+        for check in all_checks
+        for token in check.program
+        if token[:6] == "param:"
+    }
+    all_static_bindings = {
+        name: value
+        for name, value in candidate_static_bindings.items()
+        if name in used_static_parameters
+    }
+
     lines = [
         "builtin.module attributes {ac.contract_epoch = "
         f"{canonical_mlir_string(CONTRACT_EPOCH)}, "
-        'ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle"} {'
+        'ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle"'
+        + _render_static_type_attributes(
+            tuple(sorted(all_static_bindings.items())),
+            all_payloads,
+            tuple(all_interface_checks),
+        )
+        + "} {"
     ]
-    if payloads or enum_bindings or bitfield_bindings:
+    if all_payloads or enum_bindings or bitfield_bindings:
         lines.append("  ac.type_scope @types {")
         for enumeration in enum_bindings:
             lines.append(_render_enum(enumeration, "    "))
-        for payload in payloads:
+        for payload in all_payloads:
             fields = ", ".join(
                 f'{{name = "{field}", type = {typ}}}' for field, typ in payload.fields
             )
-            lines.append(f"    ac.struct @{payload.name} fields [{fields}]")
+            lines.append(
+                f"    ac.struct @{payload.descriptor.symbol} fields [{fields}]"
+            )
         for bitfield in bitfield_bindings:
             lines.append(_render_bitfield(bitfield, "    "))
         layouts = [
             *(_enum_layout_entry(enumeration) for enumeration in enum_bindings),
-            *(_payload_layout_entry(payload) for payload in payloads),
+            *(_payload_layout_entry(payload) for payload in all_payloads),
         ]
         if layouts:
             lines.append(

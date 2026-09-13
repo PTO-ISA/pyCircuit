@@ -7,7 +7,9 @@ import agentic_circuit as ac
 class Item:
     value: ac.u8
     priority_index: ac.u3
+    high_index: ac.u3
     priority_valid: ac.u1
+    onehot_conflict: bool
     population: ac.u4
     leading: ac.u4
     trailing: ac.u4
@@ -19,7 +21,9 @@ def bit_primitive_pipeline() -> None:
     measured = incoming.apply(
         lambda item: item.with_fields(
             priority_index=ac.priority_encode(item.value).index,
+            high_index=ac.onehot_encode(item.value, order="high").index,
             priority_valid=ac.priority_encode(item.value).valid,
+            onehot_conflict=ac.onehot_encode(item.value).conflict,
             population=ac.popcount(item.value),
             leading=ac.count_leading_zeros(item.value),
             trailing=ac.count_trailing_zeros(item.value),

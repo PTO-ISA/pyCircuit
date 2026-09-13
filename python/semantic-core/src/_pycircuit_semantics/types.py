@@ -85,6 +85,8 @@ class EnumType(ValueType):
 
     name: str
     enumerants: tuple[str, ...]
+    values: tuple[int, ...] | None = None
+    declared_width: int | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "name", _name(self.name, "enum"))
@@ -94,19 +96,61 @@ class EnumType(ValueType):
         if len(set(values)) != len(values):
             raise ValueTypeError("enum enumerants must be unique")
         object.__setattr__(self, "enumerants", values)
+        if (self.values is None) != (self.declared_width is None):
+            raise ValueTypeError(
+                "explicit enum values and declared width must be provided together"
+            )
+        if self.values is not None:
+            encodings = tuple(self.values)
+            if (
+                len(encodings) != len(values)
+                or any(type(value) is not int or value < 0 for value in encodings)
+                or len(set(encodings)) != len(encodings)
+            ):
+                raise ValueTypeError(
+                    "explicit enum values must be unique nonnegative integers"
+                )
+            if (
+                type(self.declared_width) is not int
+                or not 1 <= self.declared_width <= 64
+                or any(value >= (1 << self.declared_width) for value in encodings)
+            ):
+                raise ValueTypeError(
+                    "explicit enum values must fit the declared width in [1, 64]"
+                )
+            object.__setattr__(self, "values", encodings)
 
     @property
     def encoding_width(self) -> int:
+        if self.declared_width is not None:
+            return self.declared_width
         return max(1, (len(self.enumerants) - 1).bit_length())
 
+    @property
+    def encoding_values(self) -> tuple[int, ...]:
+        return (
+            tuple(range(len(self.enumerants))) if self.values is None else self.values
+        )
+
+    def encoding(self, enumerant: str) -> int:
+        try:
+            index = self.enumerants.index(enumerant)
+        except ValueError as error:
+            raise KeyError(f"unknown enumerant {enumerant!r}") from error
+        return self.encoding_values[index]
+
     def canonical(self) -> dict[str, object]:
-        return {
+        result = {
             "kind": "enum",
             "version": 1,
             "name": self.name,
             "enumerants": list(self.enumerants),
             "encoding_width": self.encoding_width,
         }
+        if self.values is not None:
+            result["values"] = list(self.values)
+            result["declared_width"] = self.declared_width
+        return result
 
     def mlir(self, *, scope: str = "types") -> str:
         return f"!ac.enum<@{_name(scope, 'type scope')}::@{self.name}>"
@@ -135,6 +179,7 @@ class StructType(ValueType):
 
     name: str
     fields: tuple[ValueField, ...]
+    static_bindings: tuple[tuple[str, int], ...] = ()
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "name", _name(self.name, "struct"))
@@ -146,6 +191,18 @@ class StructType(ValueType):
         if len({field.name for field in fields}) != len(fields):
             raise ValueTypeError("struct field names must be unique")
         object.__setattr__(self, "fields", fields)
+        bindings = tuple(self.static_bindings)
+        if any(
+            type(name) is not str
+            or not name
+            or type(value) is not int
+            or not -(1 << 63) <= value <= (1 << 63) - 1
+            for name, value in bindings
+        ) or len({name for name, _ in bindings}) != len(bindings):
+            raise ValueTypeError(
+                "struct static bindings require unique names and signed i64 values"
+            )
+        object.__setattr__(self, "static_bindings", tuple(sorted(bindings)))
 
     def field(self, name: str) -> ValueField:
         for field in self.fields:
@@ -154,15 +211,63 @@ class StructType(ValueType):
         raise KeyError(f"unknown field {name!r} in struct {self.name!r}")
 
     def canonical(self) -> dict[str, object]:
-        return {
+        result = {
             "kind": "struct",
             "version": 1,
             "name": self.name,
             "fields": [field.canonical() for field in self.fields],
         }
+        if self.static_bindings:
+            result["static_bindings"] = [
+                {"name": name, "value": value} for name, value in self.static_bindings
+            ]
+        return result
+
+    @property
+    def specialization_fingerprint(self) -> str:
+        """Return a verifier-reproducible identity for the concrete layout."""
+
+        digest = hashlib.sha256()
+
+        def append(value: str) -> None:
+            digest.update(value.encode("utf-8"))
+            digest.update(b"\0")
+
+        append("ac.struct-specialization-v1")
+        append(self.name)
+        for field in self.fields:
+            append(field.name)
+            append(field.type.mlir())
+        for name, value in self.static_bindings:
+            append(name)
+            append(str(value))
+        return "sha256:" + digest.hexdigest()
+
+    @property
+    def symbol(self) -> str:
+        """Return the stable ACIR symbol for this nominal specialization."""
+
+        def contains_specialization(value_type: ValueType) -> bool:
+            if isinstance(value_type, StructType):
+                return bool(value_type.static_bindings) or any(
+                    contains_specialization(field.type) for field in value_type.fields
+                )
+            if isinstance(value_type, TupleType):
+                return any(
+                    contains_specialization(item) for item in value_type.elements
+                )
+            if isinstance(value_type, ArrayType):
+                return contains_specialization(value_type.element)
+            return False
+
+        if not self.static_bindings and not any(
+            contains_specialization(field.type) for field in self.fields
+        ):
+            return self.name
+        return f"{self.name}__p{self.specialization_fingerprint[7:19]}"
 
     def mlir(self, *, scope: str = "types") -> str:
-        return f"!ac.struct<@{_name(scope, 'type scope')}::@{self.name}>"
+        return f"!ac.struct<@{_name(scope, 'type scope')}::@{self.symbol}>"
 
     def bit_width(self) -> int:
         return sum(field.type.bit_width() for field in self.fields)

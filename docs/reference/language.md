@@ -609,6 +609,29 @@ ACIR `!ac.struct`、`!ac.enum`、builtin tuple 与 `!ac.value_array` 在
 QueueGraph-to-PYC 中按稳定 MSB-first layout 变成 scalar integer。
 canonical/backend PYC 中出现 builtin vector type 或 `pyc.v_*` 是硬错误。
 
+Agentic Circuit 的 JIT-dependent type 仍遵守这个边界：
+
+```python
+ENTRIES = ac.param[int]("entries")
+
+@ac.struct
+class Entry:
+    index: ac.bits[ac.index_width(ENTRIES)]
+```
+
+`ac.jit(..., entries=128)` 在 ACIR 生成前把该字段具体化为 `i7`。固定 array
+长度可使用同一参数机制。表达式仅允许整数 literal、参数、封闭整数常量、
+`+`、`-`、`*`、`index_width` 与 `count_width`；array/tuple 内部的 dependent
+leaf 同样保留 verifier provenance。module-local 类型按 instance 具体化，因此
+不同参数绑定即使得到相同位宽也不会共享 nominal identity；相同绑定跨 module
+interface 则保持同一 identity。直接作为 interface 的 dependent scalar 携带 concrete
+type check，specialized struct 的 identity manifest 还会验证完整 target 集合与 layout
+fingerprint。record 的 `**` spread
+只按精确字段名和递归类型完成
+构造或 immutable replacement；`@ac.encoding(width=N)` Enum 保留显式协议编码；
+`ac.onehot_encode(...)` 返回 `.index/.valid/.conflict`，并 lowering 为既有 scalar
+priority-encode、popcount 和比较操作。
+
 ## Tier 分层标注（3D 堆叠扩展，Proposed）
 
 > **状态:Proposed**(尚未实现;完整提案与实现草图见 `docs/rfcs/tier_annotation.md`)。本节先行纳入规范,冻结语法形态与语义边界。

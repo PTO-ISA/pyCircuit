@@ -382,6 +382,115 @@ def pipeline() -> None:
     ac.sink(output_queue)
 """
 
+ONEHOT_ENCODE_SOURCE = """
+import agentic_circuit as ac
+
+@ac.struct
+class OneHotResult:
+    mask: ac.u8
+    low_index: ac.u3
+    high_index: ac.u3
+    present: bool
+    conflict: bool
+
+@ac.rule
+def encode(item: OneHotResult) -> OneHotResult:
+    return item.with_fields(
+        low_index=ac.onehot_encode(item.mask, order="low").index,
+        high_index=ac.onehot_encode(item.mask, order="high").index,
+        present=ac.onehot_encode(item.mask, order="low").valid,
+        conflict=ac.onehot_encode(item.mask, order="low").conflict,
+    )
+
+@ac.system
+def onehot_pipeline(item: OneHotResult) -> OneHotResult:
+    result = encode(item)
+    return result
+"""
+
+PARAMETERIZED_TYPE_SOURCE = """
+import agentic_circuit as ac
+
+ROB_ENTRIES = ac.param[int]("rob_entries")
+FETCH_WIDTH = ac.param[int]("fetch_width")
+
+@ac.struct
+class Entry:
+    index: ac.bits[ac.index_width(ROB_ENTRIES)]
+    generation: ac.u16
+
+@ac.struct
+class Group:
+    lanes: ac.array[FETCH_WIDTH, Entry]
+    count: ac.bits[ac.count_width(ROB_ENTRIES)]
+
+@ac.system
+def parameterized_types(
+    value: Group,
+    *,
+    rob_entries: ac.const[int],
+    fetch_width: ac.const[int],
+) -> Group:
+    return value
+"""
+
+MULTI_SPECIALIZATION_TYPE_SOURCE = """
+import agentic_circuit as ac
+
+ENTRY_COUNT = ac.param[int]("entry_count")
+
+@ac.struct
+class Entry:
+    index: ac.bits[ac.index_width(ENTRY_COUNT)]
+
+@ac.struct
+class Packet:
+    value: ac.u8
+
+@ac.rule
+def keep(entries, value: Packet) -> Packet:
+    entries[0] = Entry(index=0)
+    return value
+
+@ac.module
+def stage(value: Packet, *, entry_count: ac.const[int]) -> Packet:
+    entries: list[Entry] = [0] * entry_count
+    result = keep(entries, value)
+    return result
+
+@ac.system
+def multi_specialization(value: Packet) -> Packet:
+    first = stage(value, entry_count=5)
+    second = stage(first, entry_count=6)
+    return second
+"""
+
+SAME_SPECIALIZATION_INTERFACE_SOURCE = """
+import agentic_circuit as ac
+
+WIDTH = ac.param[int]("width")
+
+@ac.struct
+class Entry:
+    data: ac.bits[WIDTH]
+
+@ac.rule
+def keep(value: Entry) -> Entry:
+    return value
+
+@ac.module
+def stage(value: Entry, *, width: ac.const[int]) -> Entry:
+    result = keep(value)
+    return result
+
+@ac.system
+def same_specialization(
+    value: Entry, *, width: ac.const[int]
+) -> Entry:
+    result = stage(value, width=width)
+    return result
+"""
+
 BIT_OPERATION_SOURCE = """
 import agentic_circuit as ac
 
@@ -491,6 +600,51 @@ def nested_struct_pipeline(incoming: Packet) -> Packet:
     return updated
 """
 
+RECORD_SPREAD_SOURCE = """
+import agentic_circuit as ac
+
+@ac.struct
+class Header:
+    opcode: ac.u4
+    tag: ac.u4
+
+@ac.struct
+class Payload:
+    data: ac.u8
+
+@ac.struct
+class Packet:
+    opcode: ac.u4
+    tag: ac.u4
+    data: ac.u8
+    valid: bool
+
+@ac.struct
+class Patch:
+    tag: ac.u4
+    valid: bool
+
+@ac.rule
+def compose(base: Packet, header: Header, payload: Payload) -> Packet:
+    return Packet(**header, **payload, valid=True)
+
+@ac.rule
+def apply_patch(packet: Packet, patch: Patch) -> Packet:
+    return packet.with_fields(**patch)
+
+@ac.system
+def record_spread_construct(
+    base: Packet, header: Header, payload: Payload
+) -> Packet:
+    result = compose(base, header, payload)
+    return result
+
+@ac.system
+def record_spread_update(packet: Packet, patch: Patch) -> Packet:
+    result = apply_patch(packet, patch)
+    return result
+"""
+
 ENUM_PAYLOAD_SOURCE = """
 from __future__ import annotations
 
@@ -524,6 +678,31 @@ def classify(item):
 def enum_payload_pipeline(incoming: Packet) -> Packet:
     updated = classify(incoming)
     return updated
+"""
+
+ENCODED_ENUM_SOURCE = """
+from enum import Enum
+import agentic_circuit as ac
+
+@ac.encoding(width=4)
+class Opcode(Enum):
+    NONE = 0
+    READ = 3
+    WRITE = 9
+
+@ac.struct
+class Command:
+    opcode: Opcode
+    matched: bool
+
+@ac.rule
+def classify(command: Command) -> Command:
+    return command.with_fields(matched=command.opcode == Opcode.WRITE)
+
+@ac.system
+def encoded_enum(command: Command) -> Command:
+    result = classify(command)
+    return result
 """
 
 ENUM_STATE_SOURCE = """
@@ -2147,9 +2326,7 @@ def pipeline() -> None:
                 f"!ac.var<i{width}> -> !ac.var<i{priority_width}>, !ac.var<i1>",
                 lowered,
             )
-            self.assertIn(
-                f"!ac.var<i{width}> -> !ac.var<i{count_width}>", lowered
-            )
+            self.assertIn(f"!ac.var<i{width}> -> !ac.var<i{count_width}>", lowered)
 
     def test_popcount_lowers_to_width_checked_var_operation(self) -> None:
         from agentic_circuit._queue_frontend import lower_queue_source
@@ -2414,9 +2591,7 @@ def pipeline() -> None:
             'ready, count=1, policy="first"',
         )
         first_lowered = lower_queue_source(first, "pipeline")
-        self.assertIn(
-            "count 1 policy #ac<table_selection_policy first>", first_lowered
-        )
+        self.assertIn("count 1 policy #ac<table_selection_policy first>", first_lowered)
         self.assertEqual(1, first_lowered.count("ac.table.choose @issue"))
         self.assertIn(
             "count 1 policy #ac<table_selection_policy max>",
@@ -3005,7 +3180,9 @@ def pipeline() -> None:
         static_extent = source.replace(
             "def pipeline() -> None:",
             "def pipeline(count: ac.const[int]) -> None:",
-        ).replace("outputs = ac.array(\n        2,", "outputs = ac.array(\n        count,")
+        ).replace(
+            "outputs = ac.array(\n        2,", "outputs = ac.array(\n        count,"
+        )
         self.assertEqual(
             lowered,
             lower_queue_source(
@@ -3055,9 +3232,7 @@ def pipeline() -> None:
             )
         with self.assertRaisesRegex(QueueFrontendError, "cannot be shadowed"):
             lower_queue_source(
-                source.replace(
-                    "lambda item: item + index", "lambda index: index + 1"
-                ),
+                source.replace("lambda item: item + index", "lambda index: index + 1"),
                 "pipeline",
             )
         dynamic_merge = source.replace(
@@ -3068,7 +3243,7 @@ def pipeline() -> None:
             lower_queue_source(dynamic_merge, "pipeline")
         dynamic_apply = source.replace(
             "    completed = outputs[0].merge(\n"
-            "        outputs[1], policy=\"round_robin\", depth=2, latency=1\n"
+            '        outputs[1], policy="round_robin", depth=2, latency=1\n'
             "    )",
             "    completed = outputs[runtime].apply(lambda item: item)",
         )
@@ -3254,6 +3429,335 @@ def pipeline() -> None:
         self.assertIn("ac.var.constant 1 : i3 as !ac.var<i3>", lowered)
         self.assertIn("size = 24 : i64", lowered)
 
+    def test_onehot_encode_exposes_index_presence_and_conflict(self) -> None:
+        from agentic_circuit._queue_frontend import lower_queue_source
+
+        lowered = lower_queue_source(ONEHOT_ENCODE_SOURCE, "onehot_pipeline")
+
+        self.assertEqual(2, lowered.count("ac.var.priority_encode"))
+        self.assertEqual(1, lowered.count("ac.var.popcount"))
+        self.assertEqual(1, lowered.count('ac.var.cmp "ugt"'))
+        self.assertIn('order "low"', lowered)
+        self.assertIn('order "high"', lowered)
+
+    def test_onehot_encode_rejects_invalid_order(self) -> None:
+        from agentic_circuit._queue_frontend import (
+            QueueFrontendError,
+            lower_queue_source,
+        )
+
+        invalid = ONEHOT_ENCODE_SOURCE.replace('order="high"', 'order="middle"')
+        with self.assertRaisesRegex(QueueFrontendError, "order must be low or high"):
+            lower_queue_source(invalid, "onehot_pipeline")
+
+    def test_jit_parameters_concretize_dependent_widths_and_array_shapes(self) -> None:
+        from agentic_circuit._queue_frontend import lower_queue_source
+
+        wide = lower_queue_source(
+            PARAMETERIZED_TYPE_SOURCE,
+            "parameterized_types",
+            static_arguments={"rob_entries": 128, "fetch_width": 4},
+        )
+        narrow = lower_queue_source(
+            PARAMETERIZED_TYPE_SOURCE,
+            "parameterized_types",
+            static_arguments={"rob_entries": 16, "fetch_width": 2},
+        )
+
+        self.assertIn('{name = "index", type = i7}', wide)
+        self.assertIn('{name = "count", type = i8}', wide)
+        self.assertRegex(
+            wide,
+            r"type = !ac\.value_array<4 x !ac\.struct<@types::@Entry__p[0-9a-f]{12}>>",
+        )
+        self.assertIn('{name = "index", type = i4}', narrow)
+        self.assertIn('{name = "count", type = i5}', narrow)
+        self.assertRegex(
+            narrow,
+            r"type = !ac\.value_array<2 x !ac\.struct<@types::@Entry__p[0-9a-f]{12}>>",
+        )
+        self.assertNotEqual(wide, narrow)
+        self.assertIn("ac.static_type_identities", wide)
+        self.assertRegex(
+            wide,
+            r'fingerprint = "sha256:[0-9a-f]{64}".*source = "Entry"',
+        )
+
+    def test_dependent_types_fail_closed_before_concrete_acir(self) -> None:
+        from agentic_circuit._queue_frontend import (
+            QueueFrontendError,
+            lower_queue_source,
+        )
+
+        with self.assertRaisesRegex(QueueFrontendError, "unbound static integer"):
+            lower_queue_source(PARAMETERIZED_TYPE_SOURCE, "parameterized_types")
+        with self.assertRaisesRegex(QueueFrontendError, r"width must be in \[1, 64\]"):
+            lower_queue_source(
+                PARAMETERIZED_TYPE_SOURCE.replace(
+                    "ac.index_width(ROB_ENTRIES)", "ROB_ENTRIES"
+                ),
+                "parameterized_types",
+                static_arguments={"rob_entries": 65, "fetch_width": 4},
+            )
+        with self.assertRaisesRegex(QueueFrontendError, "length must be positive"):
+            lower_queue_source(
+                PARAMETERIZED_TYPE_SOURCE,
+                "parameterized_types",
+                static_arguments={"rob_entries": 16, "fetch_width": 0},
+            )
+
+    def test_dependent_type_expression_grammar_and_recursive_provenance(self) -> None:
+        from agentic_circuit._queue_frontend import (
+            QueueFrontendError,
+            lower_queue_source,
+        )
+
+        source = PARAMETERIZED_TYPE_SOURCE.replace(
+            "lanes: ac.array[FETCH_WIDTH, Entry]",
+            "lanes: ac.array[FETCH_WIDTH, tuple[ac.bits[ROB_ENTRIES + 1], ac.array[2, ac.bits[ac.index_width(ROB_ENTRIES) + 1]]]]",
+        )
+        lowered = lower_queue_source(
+            source,
+            "parameterized_types",
+            static_arguments={"rob_entries": 7, "fetch_width": 4},
+        )
+
+        self.assertRegex(
+            lowered,
+            r'target = "Group__p[0-9a-f]{12}\.lanes:array_length"',
+        )
+        self.assertRegex(
+            lowered,
+            r'target = "Group__p[0-9a-f]{12}\.lanes\.array_element\.tuple_0:bits"',
+        )
+        self.assertRegex(
+            lowered,
+            r'target = "Group__p[0-9a-f]{12}\.lanes\.array_element\.tuple_1\.array_element:bits"',
+        )
+        self.assertIn(
+            '"param:ROB_ENTRIES", "index_width", "literal:1", "add"',
+            lowered,
+        )
+
+        unsupported = PARAMETERIZED_TYPE_SOURCE.replace(
+            "ac.index_width(ROB_ENTRIES)", "ROB_ENTRIES // 2"
+        )
+        with self.assertRaisesRegex(QueueFrontendError, "admit only"):
+            lower_queue_source(
+                unsupported,
+                "parameterized_types",
+                static_arguments={"rob_entries": 16, "fetch_width": 4},
+            )
+
+        intermediate_overflow = PARAMETERIZED_TYPE_SOURCE.replace(
+            "ac.index_width(ROB_ENTRIES)",
+            "ROB_ENTRIES + ((9223372036854775807 + 1) - 9223372036854775807)",
+        )
+        with self.assertRaisesRegex(QueueFrontendError, "i64"):
+            lower_queue_source(
+                intermediate_overflow,
+                "parameterized_types",
+                static_arguments={"rob_entries": 4, "fetch_width": 4},
+            )
+
+        helper_overflow = PARAMETERIZED_TYPE_SOURCE.replace(
+            "ac.index_width(ROB_ENTRIES)",
+            "ROB_ENTRIES + ac.index_width(18446744073709551616) - 64",
+        )
+        with self.assertRaisesRegex(QueueFrontendError, "i64"):
+            lower_queue_source(
+                helper_overflow,
+                "parameterized_types",
+                static_arguments={"rob_entries": 4, "fetch_width": 4},
+            )
+
+        maximum_count = PARAMETERIZED_TYPE_SOURCE.replace(
+            "ac.index_width(ROB_ENTRIES)", "ac.count_width(ROB_ENTRIES)"
+        )
+        maximum = lower_queue_source(
+            maximum_count,
+            "parameterized_types",
+            static_arguments={
+                "rob_entries": 9223372036854775807,
+                "fetch_width": 1,
+            },
+        )
+        self.assertIn('{name = "index", type = i63}', maximum)
+
+    def test_scalar_dependent_interface_has_verifier_visible_checks(self) -> None:
+        from agentic_circuit._queue_frontend import lower_queue_source
+
+        source = """
+import agentic_circuit as ac
+
+WIDTH = ac.param[int]("width")
+
+@ac.system
+def scalar(value: ac.bits[WIDTH], *, width: ac.const[int]) -> ac.bits[WIDTH]:
+    return value
+"""
+        lowered = lower_queue_source(source, "scalar", static_arguments={"width": 4})
+        self.assertEqual(2, lowered.count("type = i4"))
+        self.assertIn('target = "interface.system.scalar.input.value:bits"', lowered)
+        self.assertIn('target = "interface.system.scalar.output.0:bits"', lowered)
+
+    def test_same_dependent_specialization_crosses_module_interface(self) -> None:
+        from agentic_circuit._queue_frontend import lower_queue_source
+
+        lowered = lower_queue_source(
+            SAME_SPECIALIZATION_INTERFACE_SOURCE,
+            "same_specialization",
+            static_arguments={"width": 4},
+        )
+        symbols = {
+            match.group(0) for match in re.finditer(r"Entry__p[0-9a-f]{12}", lowered)
+        }
+        self.assertEqual(1, len(symbols))
+        self.assertIn("ac.module @stage__p", lowered)
+
+    def test_module_specialization_ignores_unrelated_dependent_payload(self) -> None:
+        from agentic_circuit._queue_frontend import lower_queue_source
+
+        source = """
+import agentic_circuit as ac
+
+WIDTH = ac.param[int]("width")
+
+@ac.struct
+class Unrelated:
+    value: ac.bits[WIDTH]
+
+@ac.rule
+def keep(value: ac.u8) -> ac.u8:
+    return value
+
+@ac.module
+def stage(value: ac.u8) -> ac.u8:
+    result = keep(value)
+    return result
+
+@ac.system
+def design(value: ac.u8, *, width: ac.const[int]) -> ac.u8:
+    result = stage(value)
+    return result
+"""
+        lowered = lower_queue_source(
+            source,
+            "design",
+            static_arguments={"width": 4},
+        )
+        self.assertIn("ac.module @stage", lowered)
+        self.assertIn("ac.instance @result of @stage", lowered)
+
+    def test_system_lowers_only_reachable_modules_and_their_rules(self) -> None:
+        from agentic_circuit._queue_frontend import lower_queue_source
+
+        source = """
+import agentic_circuit as ac
+
+@ac.rule
+def keep(value: ac.u8) -> ac.u8:
+    return value
+
+@ac.rule
+def unsupported_unused(left: ac.u8, right: ac.u8) -> ac.u8:
+    first = left + right
+    second = first + right
+    return second
+
+@ac.module
+def stage(value: ac.u8) -> ac.u8:
+    result = keep(value)
+    return result
+
+@ac.module
+def unused(left: ac.u8, right: ac.u8) -> ac.u8:
+    result = unsupported_unused(left, right)
+    return result
+
+@ac.system
+def design(value: ac.u8) -> ac.u8:
+    result = stage(value)
+    return result
+"""
+        lowered = lower_queue_source(source, "design")
+        self.assertIn("ac.module @stage", lowered)
+        self.assertNotIn("ac.module @unused", lowered)
+        self.assertNotIn('name "unsupported_unused"', lowered)
+
+    def test_static_rule_arithmetic_folds_before_narrow_constant_emission(self) -> None:
+        from agentic_circuit._queue_frontend import lower_queue_source
+
+        source = """
+import agentic_circuit as ac
+
+@ac.rule
+def wrap(index: ac.u2, entries: ac.const[int]) -> ac.u2:
+    next_index = index + 1
+    zero_index = index - index
+    return zero_index if index == entries - 1 else next_index
+
+@ac.module
+def stage(index: ac.u2, *, entries: ac.const[int]) -> ac.u2:
+    result = wrap(index, entries)
+    return result
+
+@ac.system
+def design(index: ac.u2, *, entries: ac.const[int]) -> ac.u2:
+    result = stage(index, entries=entries)
+    return result
+"""
+        lowered = lower_queue_source(
+            source,
+            "design",
+            static_arguments={"entries": 4},
+        )
+        self.assertIn("ac.var.constant 3 : i2", lowered)
+        self.assertNotIn("ac.var.constant 4 : i2", lowered)
+
+    def test_module_instances_keep_distinct_dependent_type_identity(self) -> None:
+        from _pycircuit_semantics import StructType
+        from agentic_circuit._queue_frontend import (
+            lower_queue_source,
+            parse_queue_program,
+        )
+
+        first = parse_queue_program(
+            MULTI_SPECIALIZATION_TYPE_SOURCE,
+            "stage",
+            {"entry_count": 5},
+            entry_kind="module",
+        )
+        second = parse_queue_program(
+            MULTI_SPECIALIZATION_TYPE_SOURCE,
+            "stage",
+            {"entry_count": 6},
+            entry_kind="module",
+        )
+        first_entry = next(
+            item.descriptor for item in first.payloads if item.name == "Entry"
+        )
+        second_entry = next(
+            item.descriptor for item in second.payloads if item.name == "Entry"
+        )
+        self.assertIsInstance(first_entry, StructType)
+        self.assertEqual(3, first_entry.field("index").type.bit_width())
+        self.assertEqual(3, second_entry.field("index").type.bit_width())
+        self.assertNotEqual(first_entry, second_entry)
+        self.assertNotEqual(first_entry.fingerprint, second_entry.fingerprint)
+
+        lowered = lower_queue_source(
+            MULTI_SPECIALIZATION_TYPE_SOURCE, "multi_specialization"
+        )
+        entry_declarations = [
+            line.strip()
+            for line in lowered.splitlines()
+            if line.strip().startswith("ac.struct @Entry__p")
+        ]
+        self.assertEqual(2, len(entry_declarations))
+        self.assertEqual(2, lowered.count("ac.module @stage__p"))
+        self.assertEqual(2, lowered.count("ac.instance @"))
+
     def test_payload_parser_retains_recursive_type_descriptors_before_mlir(
         self,
     ) -> None:
@@ -3404,6 +3908,74 @@ def cycle(incoming: Left) -> Left:
         with self.assertRaisesRegex(QueueFrontendError, "recursive struct cycle"):
             lower_queue_source(source, "cycle")
 
+    def test_record_spread_constructs_and_updates_by_destination_name(self) -> None:
+        from agentic_circuit._queue_frontend import lower_queue_source
+
+        constructed = lower_queue_source(
+            RECORD_SPREAD_SOURCE, "record_spread_construct"
+        )
+        updated = lower_queue_source(RECORD_SPREAD_SOURCE, "record_spread_update")
+
+        self.assertIn("ac.rule", constructed)
+        self.assertIn("ac.rule", updated)
+        self.assertEqual(3, constructed.count("ac.var.get"))
+        self.assertEqual(2, updated.count("ac.var.get"))
+        self.assertEqual(1, constructed.count("ac.var.record"))
+        self.assertEqual(2, updated.count("ac.var.with"))
+        self.assertLess(
+            constructed.index('field "opcode"'), constructed.index('field "tag"')
+        )
+
+    def test_record_spread_rejects_missing_duplicate_extra_and_mismatched_fields(
+        self,
+    ) -> None:
+        from agentic_circuit._queue_frontend import (
+            QueueFrontendError,
+            lower_queue_source,
+        )
+
+        missing = RECORD_SPREAD_SOURCE.replace(
+            "Packet(**header, **payload, valid=True)",
+            "Packet(**header, valid=True)",
+        )
+        with self.assertRaisesRegex(QueueFrontendError, "initialize every"):
+            lower_queue_source(missing, "record_spread_construct")
+
+        duplicate = RECORD_SPREAD_SOURCE.replace(
+            "Packet(**header, **payload, valid=True)",
+            "Packet(**header, **payload, opcode=header.opcode, valid=True)",
+        )
+        with self.assertRaisesRegex(QueueFrontendError, "provided more than once"):
+            lower_queue_source(duplicate, "record_spread_construct")
+
+        extra = RECORD_SPREAD_SOURCE.replace(
+            "class Header:\n    opcode: ac.u4\n    tag: ac.u4",
+            "class Header:\n    opcode: ac.u4\n    tag: ac.u4\n    extra: ac.u1",
+        )
+        with self.assertRaisesRegex(QueueFrontendError, "unknown field 'extra'"):
+            lower_queue_source(extra, "record_spread_construct")
+
+        mismatch = RECORD_SPREAD_SOURCE.replace(
+            "class Patch:\n    tag: ac.u4",
+            "class Patch:\n    tag: ac.u3",
+        )
+        with self.assertRaisesRegex(QueueFrontendError, "type mismatch"):
+            lower_queue_source(mismatch, "record_spread_update")
+
+        bool_bits = RECORD_SPREAD_SOURCE.replace(
+            "class Patch:\n    tag: ac.u4\n    valid: bool",
+            "class Patch:\n    tag: ac.u4\n    valid: ac.u1",
+        )
+        with self.assertRaisesRegex(QueueFrontendError, "type mismatch"):
+            lower_queue_source(bool_bits, "record_spread_update")
+
+        bits_bool = RECORD_SPREAD_SOURCE.replace(
+            "class Packet:\n    opcode: ac.u4\n    tag: ac.u4\n    data: ac.u8\n    valid: bool",
+            "class Packet:\n    opcode: ac.u4\n    tag: ac.u4\n    data: ac.u8\n    valid: ac.u1",
+        )
+        with self.assertRaisesRegex(QueueFrontendError, "type mismatch"):
+            lower_queue_source(bits_bool, "record_spread_update")
+
     def test_standard_python_enum_lowers_as_nominal_nested_value(self) -> None:
         from _pycircuit_semantics import EnumType
         from agentic_circuit._queue_frontend import (
@@ -3427,6 +3999,45 @@ def cycle(incoming: Left) -> Left:
         self.assertIn('ac.var.enum @types::@Mode "WAIT"', lowered)
         self.assertIn('ac.var.cmp "eq"', lowered)
         self.assertIn("!ac.var<!ac.enum<@types::@Mode>>", lowered)
+
+    def test_explicit_enum_encoding_is_sparse_fixed_width_and_nominal(self) -> None:
+        from agentic_circuit._queue_frontend import (
+            QueueFrontendError,
+            lower_queue_source,
+            parse_queue_program,
+        )
+
+        program = parse_queue_program(ENCODED_ENUM_SOURCE, "encoded_enum")
+        opcode = program.enums[0].descriptor
+        self.assertEqual(4, opcode.encoding_width)
+        self.assertEqual((0, 3, 9), opcode.encoding_values)
+
+        lowered = lower_queue_source(ENCODED_ENUM_SOURCE, "encoded_enum")
+        self.assertIn(
+            'ac.enum @Opcode enumerants ["NONE", "READ", "WRITE"] '
+            "values [0 : i64, 3 : i64, 9 : i64] width 4",
+            lowered,
+        )
+        duplicate = ENCODED_ENUM_SOURCE.replace("WRITE = 9", "WRITE = 3")
+        with self.assertRaisesRegex(QueueFrontendError, "unique, nonnegative"):
+            lower_queue_source(duplicate, "encoded_enum")
+        overflow = ENCODED_ENUM_SOURCE.replace("WRITE = 9", "WRITE = 16")
+        with self.assertRaisesRegex(QueueFrontendError, "fit the declared width"):
+            lower_queue_source(overflow, "encoded_enum")
+
+        wide = (
+            ENCODED_ENUM_SOURCE.replace("width=4", "width=64")
+            .replace("NONE = 0", "LOW = 9223372036854775807")
+            .replace("READ = 3", "HIGH = 9223372036854775808")
+            .replace("WRITE = 9", "MAX = 18446744073709551615")
+            .replace("Opcode.WRITE", "Opcode.MAX")
+        )
+        wide_lowered = lower_queue_source(wide, "encoded_enum")
+        self.assertIn(
+            "values [9223372036854775807 : i64, 9223372036854775808 : i64, "
+            "18446744073709551615 : i64] width 64",
+            wide_lowered,
+        )
 
     def test_enum_values_require_contiguous_encoding_and_equality_comparison(
         self,
@@ -3632,8 +4243,7 @@ def cycle(incoming: Left) -> Left:
             "import agentic_circuit as ac",
             "import agentic_circuit as ac\nfrom agentic_circuit import matches",
         ).replace(
-            "def valid_payload(value: Payload) -> bool:\n"
-            "    return value.value != 0",
+            "def valid_payload(value: Payload) -> bool:\n    return value.value != 0",
             "def valid_payload(matches: Payload) -> bool:\n"
             '    return matches(matches.value, "xxxxxxx1")',
         )
@@ -3646,17 +4256,14 @@ def cycle(incoming: Left) -> Left:
             "import agentic_circuit as ac",
             "import agentic_circuit as ac\n"
             "from agentic_circuit import matches as popcount",
-        ).replace(
-            "return value.value != 0", "return popcount(value.value) != 0"
-        )
+        ).replace("return value.value != 0", "return popcount(value.value) != 0")
         with self.assertRaisesRegex(
             QueueFrontendError, "unsupported call target 'popcount'"
         ):
             lower_queue_source(renamed_intrinsic_collision, "invariant_module")
 
         module_alias_shadow = INVARIANT_MODULE_SOURCE.replace(
-            "def valid_payload(value: Payload) -> bool:\n"
-            "    return value.value != 0",
+            "def valid_payload(value: Payload) -> bool:\n    return value.value != 0",
             "def valid_payload(ac: Payload) -> bool:\n"
             '    return ac.matches(ac.value, "xxxxxxx1")',
         )
@@ -4226,12 +4833,8 @@ def invariant_module(value: Payload) -> Payload:
         )
         wide_lowered = lower_queue_source(wide, "issue_queue")
         self.assertIn("shape [128]", wide_lowered)
-        self.assertIn(
-            "-> !ac.var<!ac.value_array<2 x i64>>", wide_lowered
-        )
-        self.assertIn(
-            "!ac.var<!ac.value_array<2 x i64>> count 1", wide_lowered
-        )
+        self.assertIn("-> !ac.var<!ac.value_array<2 x i64>>", wide_lowered)
+        self.assertIn("!ac.var<!ac.value_array<2 x i64>> count 1", wide_lowered)
 
     def test_persistent_list_find_rejects_non_list_state(self) -> None:
         from agentic_circuit._queue_frontend import (
@@ -4445,9 +5048,7 @@ def invariant_module(value: Payload) -> Payload:
     def test_serial_local_rebinding_preserves_source_order_as_ssa(self) -> None:
         from agentic_circuit._queue_frontend import lower_queue_source
 
-        lowered = lower_queue_source(
-            SERIAL_LOCAL_REBIND_SOURCE, "serial_local_rebind"
-        )
+        lowered = lower_queue_source(SERIAL_LOCAL_REBIND_SOURCE, "serial_local_rebind")
         select_offset = lowered.index("ac.var.select")
         increment_offset = lowered.index("ac.var.add", select_offset)
         assign_offset = lowered.index("ac.var.assign @total", increment_offset)
@@ -4459,9 +5060,7 @@ def invariant_module(value: Payload) -> Payload:
     def test_state_proposals_capture_the_local_version_at_source_position(self) -> None:
         from agentic_circuit._queue_frontend import lower_queue_source
 
-        lowered = lower_queue_source(
-            SERIAL_SOURCE_ORDER_SOURCE, "serial_source_order"
-        )
+        lowered = lower_queue_source(SERIAL_SOURCE_ORDER_SOURCE, "serial_source_order")
         field_values = {
             line.split('field "', 1)[1].split('"', 1)[0]: line.split("%", 1)[1].split(
                 " ", 1
@@ -4469,12 +5068,8 @@ def invariant_module(value: Payload) -> Payload:
             for line in lowered.splitlines()
             if "ac.var.get %item field" in line
         }
-        self.assertIn(
-            f"ac.var.assign @first = %{field_values['left']}", lowered
-        )
-        self.assertIn(
-            f"ac.var.assign @second = %{field_values['right']}", lowered
-        )
+        self.assertIn(f"ac.var.assign @first = %{field_values['left']}", lowered)
+        self.assertIn(f"ac.var.assign @second = %{field_values['right']}", lowered)
 
     def test_blocking_guard_reads_old_state_while_proposal_uses_new_value(self) -> None:
         from agentic_circuit._queue_frontend import lower_queue_source
@@ -4506,9 +5101,7 @@ def invariant_module(value: Payload) -> Payload:
     def test_branch_guards_capture_the_local_version_at_branch_entry(self) -> None:
         from agentic_circuit._queue_frontend import lower_queue_source
 
-        lowered = lower_queue_source(
-            SERIAL_GUARD_REBIND_SOURCE, "serial_guard_rebind"
-        )
+        lowered = lower_queue_source(SERIAL_GUARD_REBIND_SOURCE, "serial_guard_rebind")
         field_values = {
             line.split('field "', 1)[1].split('"', 1)[0]: line.split("%", 1)[1].split(
                 " ", 1
@@ -4557,9 +5150,7 @@ def invariant_module(value: Payload) -> Payload:
 
         self.assertIn("ac.var.mul", guard_definition)
         self.assertIn(f"%{merged_gate}", guard_definition)
-        self.assertNotIn(
-            f"ac.var.mul %{merged_gate}, %{merged_gate}", guard_definition
-        )
+        self.assertNotIn(f"ac.var.mul %{merged_gate}, %{merged_gate}", guard_definition)
 
     def test_nested_optional_absence_captures_pre_rebind_branch_path(self) -> None:
         from agentic_circuit._queue_frontend import lower_queue_source
@@ -4578,9 +5169,7 @@ def invariant_module(value: Payload) -> Payload:
             for line in lowered.splitlines()
             if "ac.var.mul" in line and f"%{merged_gate}" in line
         )
-        output = next(
-            line for line in lowered.splitlines() if "ac.rule.output" in line
-        )
+        output = next(line for line in lowered.splitlines() if "ac.rule.output" in line)
         presence = output.split(" when %", 1)[1].split(" ", 1)[0]
         presence_definition = next(
             line
@@ -4594,9 +5183,7 @@ def invariant_module(value: Payload) -> Payload:
     def test_scalar_state_rebind_is_visible_to_later_source_expressions(self) -> None:
         from agentic_circuit._queue_frontend import lower_queue_source
 
-        lowered = lower_queue_source(
-            SERIAL_STATE_REBIND_SOURCE, "serial_state_rebind"
-        )
+        lowered = lower_queue_source(SERIAL_STATE_REBIND_SOURCE, "serial_state_rebind")
         value = next(
             line.split("%", 1)[1].split(" ", 1)[0]
             for line in lowered.splitlines()
@@ -4621,8 +5208,7 @@ def invariant_module(value: Payload) -> Payload:
         }
 
         self.assertIn(
-            f"ac.var.mul %{field_values['first_gate']}, "
-            f"%{field_values['second_gate']}",
+            f"ac.var.mul %{field_values['first_gate']}, %{field_values['second_gate']}",
             lowered,
         )
 
@@ -4651,8 +5237,7 @@ def invariant_module(value: Payload) -> Payload:
             "    selected = command.left\n"
             "    if command.select_right:\n"
             "        selected = command.right",
-            "    if command.select_right:\n"
-            "        selected = command.right",
+            "    if command.select_right:\n        selected = command.right",
         )
         with self.assertRaisesRegex(
             QueueFrontendError, "branch-local value escapes its defining path"
@@ -4697,9 +5282,7 @@ def invariant_module(value: Payload) -> Payload:
     def test_one_branch_preserves_multiple_writes_to_one_owner(self) -> None:
         from agentic_circuit._queue_frontend import lower_queue_source
 
-        lowered = lower_queue_source(
-            MULTI_WRITE_BRANCH_SOURCE, "multi_write_branch"
-        )
+        lowered = lower_queue_source(MULTI_WRITE_BRANCH_SOURCE, "multi_write_branch")
         self.assertEqual(4, lowered.count("ac.var.assign_element @entries"))
         proposals = [
             line for line in lowered.splitlines() if "ac.var.assign_element" in line
@@ -4715,9 +5298,7 @@ def invariant_module(value: Payload) -> Payload:
             "            entries[index] = command.value",
         )
         looped_lowered = lower_queue_source(looped, "multi_write_branch")
-        self.assertEqual(
-            4, looped_lowered.count("ac.var.assign_element @entries")
-        )
+        self.assertEqual(4, looped_lowered.count("ac.var.assign_element @entries"))
 
     def test_optional_output_has_independent_ssa_presence(self) -> None:
         from agentic_circuit._queue_frontend import lower_queue_source
@@ -4736,9 +5317,7 @@ def invariant_module(value: Payload) -> Payload:
             OPTIONAL_MULTI_OUTPUT_SOURCE, "optional_multi_output"
         )
         self.assertEqual(1, lowered.count(" = ac.rule %command "))
-        outputs = [
-            line for line in lowered.splitlines() if "ac.rule.output" in line
-        ]
+        outputs = [line for line in lowered.splitlines() if "ac.rule.output" in line]
         self.assertEqual(3, len(outputs))
         for ordinal, output in enumerate(outputs):
             self.assertIn(f" ordinal {ordinal} ", output)
@@ -4751,23 +5330,19 @@ def invariant_module(value: Payload) -> Payload:
         self.assertIn("ac.sink %ack_next", lowered)
         ack_output = outputs[2]
         ack_presence = ack_output.split(" when %", 1)[1].split(" ", 1)[0]
-        self.assertIn(
-            f"%{ack_presence} = ac.var.constant true as !ac.var<i1>", lowered
-        )
+        self.assertIn(f"%{ack_presence} = ac.var.constant true as !ac.var<i1>", lowered)
         self.assertNotIn("ready_valid", lowered)
         self.assertNotIn("dummy", lowered)
 
         conditional_expression = OPTIONAL_MULTI_OUTPUT_SOURCE.replace(
-            "    left = None\n"
-            "    right = None\n",
+            "    left = None\n    right = None\n",
             "    left = LeftEffect(value=command.value) if command.left else None\n"
             "    right = None\n",
         ).replace(
             "    if command.left:\n"
             "        left = LeftEffect(value=command.value)\n"
             "        if command.nested:\n",
-            "    if command.left:\n"
-            "        if command.nested:\n",
+            "    if command.left:\n        if command.nested:\n",
         )
         conditional_lowered = lower_queue_source(
             conditional_expression, "optional_multi_output"
@@ -4787,9 +5362,7 @@ def invariant_module(value: Payload) -> Payload:
             "    if command.ready and not command.full:\n",
             1,
         )
-        business_lowered = lower_queue_source(
-            business_fields, "optional_multi_output"
-        )
+        business_lowered = lower_queue_source(business_fields, "optional_multi_output")
         self.assertEqual(3, business_lowered.count("ac.rule.output"))
 
     def test_typed_multi_output_fails_closed_on_contract_gaps(self) -> None:
@@ -4800,9 +5373,7 @@ def invariant_module(value: Payload) -> Payload:
 
         cases = (
             (
-                OPTIONAL_MULTI_OUTPUT_SOURCE.replace(
-                    "    left = None\n", "", 1
-                ),
+                OPTIONAL_MULTI_OUTPUT_SOURCE.replace("    left = None\n", "", 1),
                 "undefined",
             ),
             (
@@ -4835,8 +5406,7 @@ def invariant_module(value: Payload) -> Payload:
             (
                 OPTIONAL_MULTI_OUTPUT_SOURCE.replace(
                     "    ack = ApplyAck(value=command.value)",
-                    "    ready(command.left)\n"
-                    "    ack = ApplyAck(value=command.value)",
+                    "    ready(command.left)\n    ack = ApplyAck(value=command.value)",
                 ),
                 "compiler-owned",
             ),
@@ -4859,9 +5429,7 @@ def invariant_module(value: Payload) -> Payload:
 
         lowered = lower_queue_source(W2_EIGHT_OUTPUT_SOURCE, "w2")
         self.assertEqual(1, lowered.count(" = ac.rule %command "))
-        outputs = [
-            line for line in lowered.splitlines() if "ac.rule.output" in line
-        ]
+        outputs = [line for line in lowered.splitlines() if "ac.rule.output" in line]
         self.assertEqual(8, len(outputs))
         self.assertIn(
             'ac.output_names = ["gpr", "wakeup", "rob", "brob", '
@@ -4887,19 +5455,23 @@ def invariant_module(value: Payload) -> Payload:
     def test_multi_output_keeps_state_proposals_in_the_atomic_rule(self) -> None:
         from agentic_circuit._queue_frontend import lower_queue_source
 
-        stateful = OPTIONAL_MULTI_OUTPUT_SOURCE.replace(
-            "def dispatch(command)", "def dispatch(count, entries, command)"
-        ).replace(
-            "    left = None",
-            "    count = count + 1\n"
-            "    entries[command.value[0]] = command.value\n"
-            "    left = None",
-            1,
-        ).replace(
-            "    left, right, ack = dispatch(command)",
-            "    count: ac.u8 = 0\n"
-            "    entries: list[ac.u8] = [0] * 2\n"
-            "    left, right, ack = dispatch(count, entries, command)",
+        stateful = (
+            OPTIONAL_MULTI_OUTPUT_SOURCE.replace(
+                "def dispatch(command)", "def dispatch(count, entries, command)"
+            )
+            .replace(
+                "    left = None",
+                "    count = count + 1\n"
+                "    entries[command.value[0]] = command.value\n"
+                "    left = None",
+                1,
+            )
+            .replace(
+                "    left, right, ack = dispatch(command)",
+                "    count: ac.u8 = 0\n"
+                "    entries: list[ac.u8] = [0] * 2\n"
+                "    left, right, ack = dispatch(count, entries, command)",
+            )
         )
         lowered = lower_queue_source(stateful, "optional_multi_output")
         self.assertEqual(1, lowered.count(" = ac.rule %command "))
@@ -4914,25 +5486,26 @@ def invariant_module(value: Payload) -> Payload:
             "        count = command.value\n",
             1,
         )
-        override_lowered = lower_queue_source(
-            serial_override, "optional_multi_output"
-        )
+        override_lowered = lower_queue_source(serial_override, "optional_multi_output")
         self.assertEqual(1, override_lowered.count("ac.var.assign @count"))
         self.assertIn("ac.var.select", override_lowered)
 
     def test_multi_output_call_binding_infers_read_only_scalar_state(self) -> None:
         from agentic_circuit._queue_frontend import lower_queue_source
 
-        read_only = OPTIONAL_MULTI_OUTPUT_SOURCE.replace(
-            "def dispatch(command)", "def dispatch(seed, command)"
-        ).replace(
-            "ack = ApplyAck(value=command.value)",
-            "ack = ApplyAck(value=command.value + seed)",
-            1,
-        ).replace(
-            "    left, right, ack = dispatch(command)",
-            "    seed: ac.u8 = 0\n"
-            "    left, right, ack = dispatch(seed, command)",
+        read_only = (
+            OPTIONAL_MULTI_OUTPUT_SOURCE.replace(
+                "def dispatch(command)", "def dispatch(seed, command)"
+            )
+            .replace(
+                "ack = ApplyAck(value=command.value)",
+                "ack = ApplyAck(value=command.value + seed)",
+                1,
+            )
+            .replace(
+                "    left, right, ack = dispatch(command)",
+                "    seed: ac.u8 = 0\n    left, right, ack = dispatch(seed, command)",
+            )
         )
         lowered = lower_queue_source(read_only, "optional_multi_output")
         self.assertEqual(1, lowered.count(" = ac.rule %command "))
@@ -5078,7 +5651,9 @@ def nested_allocate(incoming: Entry) -> Entry:
         shadowed = inferred_source.replace(
             "def allocate(incoming):", "def allocate(tail, incoming):"
         )
-        with self.assertRaisesRegex(QueueFrontendError, "cannot shadow parameter 'tail'"):
+        with self.assertRaisesRegex(
+            QueueFrontendError, "cannot shadow parameter 'tail'"
+        ):
             lower_queue_source(shadowed, "nested_allocate")
         aliased = nested.replace(
             "    allocated = allocate(incoming)",
@@ -5350,7 +5925,7 @@ def two_accumulators(left: ac.u8, right: ac.u8) -> tuple[ac.u8, ac.u8]:
         lowered = lower_queue_source(INFERRED_MODULE_SOURCE, "pipeline")
         self.assertIn("ac.system @pipeline root @Top", lowered)
         self.assertIn(
-            'ac.module @increment(%input: !ac.queue<i8>) -> !ac.queue<i8> parameters {}'
+            "ac.module @increment(%input: !ac.queue<i8>) -> !ac.queue<i8> parameters {}"
             ' attributes {ac.input_display_names = ["value"], '
             'ac.output_display_names = ["result"]} graph {',
             lowered,
@@ -5381,7 +5956,7 @@ def two_accumulators(left: ac.u8, right: ac.u8) -> tuple[ac.u8, ac.u8]:
         lowered = lower_queue_source(INFERRED_NESTED_MODULE_SOURCE, "pipeline")
         self.assertIn("ac.module @increment", lowered)
         self.assertIn(
-            'ac.module @wrapper(%input: !ac.queue<i8>) -> !ac.queue<i8> parameters {}'
+            "ac.module @wrapper(%input: !ac.queue<i8>) -> !ac.queue<i8> parameters {}"
             ' attributes {ac.input_display_names = ["value"], '
             'ac.output_display_names = ["result"]} graph {',
             lowered,
@@ -5394,7 +5969,7 @@ def two_accumulators(left: ac.u8, right: ac.u8) -> tuple[ac.u8, ac.u8]:
 
         lowered = lower_queue_source(INFERRED_STATEFUL_MODULE_SOURCE, "pipeline")
         self.assertIn(
-            'ac.module @accumulator(%input: !ac.queue<i8>) -> !ac.queue<i8> '
+            "ac.module @accumulator(%input: !ac.queue<i8>) -> !ac.queue<i8> "
             'parameters {} attributes {ac.input_display_names = ["value"], '
             'ac.output_display_names = ["result"]} graph {',
             lowered,
@@ -5432,8 +6007,7 @@ def two_accumulators(left: ac.u8, right: ac.u8) -> tuple[ac.u8, ac.u8]:
         ).replace("return operand + 1", "return result + 1")
         colliding = lower_queue_source(colliding_source, "pipeline")
         self.assertIn(
-            'ac.input_display_names = ["result"], '
-            'ac.output_display_names = ["result"]',
+            'ac.input_display_names = ["result"], ac.output_display_names = ["result"]',
             colliding,
         )
         self.assertEqual(colliding, lower_queue_source(colliding_source, "pipeline"))

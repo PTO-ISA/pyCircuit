@@ -1,6 +1,7 @@
 #include "acir/Analysis/ModelAnalysis.h"
 #include "Analysis/ModelAnalysisInternal.h"
 #include "Analysis/ModelAnalysisTestHooks.h"
+#include "Analysis/VariableAnalysisTestHooks.h"
 #include "acir/Analysis/VariableAnalysis.h"
 #include "acir/Dialect/ACIR/ACIROps.h"
 #include "acir/Dialect/ACIR/GraphRegion.h"
@@ -1187,7 +1188,8 @@ TEST(ACDataFlowAnalyzerTest, ProvesDisjointIndicesAndStructuralPathExclusion) {
             .isInteger(2))
       integerConstants.push_back(operation);
   });
-  model->walk([&](ac::VarCmpOp operation) { comparisons.push_back(operation); });
+  model->walk(
+      [&](ac::VarCmpOp operation) { comparisons.push_back(operation); });
   model->walk([&](ac::VarMulOp operation) { rightPath = operation; });
   model->walk([&](ac::VarChooseOp operation) { choose = operation; });
   ASSERT_EQ(2u, integerConstants.size());
@@ -1340,8 +1342,7 @@ TEST(ACDataFlowAnalyzerTest, InfersBoundedUnsignedValueConstraints) {
   model->walk([&](ac::TransformOp operation) { transform = operation; });
   model->walk([&](ac::VarAndOp operation) { masked = operation; });
   model->walk([&](ac::VarSelectOp operation) { selected = operation; });
-  model->walk(
-      [&](ac::VarPriorityEncodeOp operation) { priority = operation; });
+  model->walk([&](ac::VarPriorityEncodeOp operation) { priority = operation; });
   model->walk([&](ac::VarAddOp operation) { additions.push_back(operation); });
   model->walk([&](ac::VarSubOp operation) { subtraction = operation; });
   model->walk([&](ac::VarShlOp operation) { overshift = operation; });
@@ -1351,7 +1352,8 @@ TEST(ACDataFlowAnalyzerTest, InfersBoundedUnsignedValueConstraints) {
             cast<ac::VarType>(operation.getLhs().getType()).getElementType()))
       enumCompare = operation;
   });
-  model->walk([&](ac::VarMatchesOp operation) { matches.push_back(operation); });
+  model->walk(
+      [&](ac::VarMatchesOp operation) { matches.push_back(operation); });
   ASSERT_TRUE(transform && masked && selected && priority);
   ASSERT_EQ(1u, additions.size());
 
@@ -1486,6 +1488,104 @@ TEST(ACDataFlowAnalyzerTest, InfersConditionalEffectSnapshotReadSet) {
   }
   EXPECT_TRUE(resources.contains("epoch"));
   EXPECT_TRUE(resources.contains("entries"));
+}
+
+TEST(ACDataFlowAnalyzerTest, SnapshotTraversalMemoizesSharedDiamondContexts) {
+  constexpr unsigned depth = 24;
+  std::string source = R"mlir(
+    builtin.module attributes {ac.contract_epoch = "0.5"} {
+      ac.table @state entry i32 entries 1 init 0 owner "/" stable_id "table/state"
+      %output = ac.rule depths [1] latencies [1] name "diamond"
+          stable_id "diamond" domain "cycle" type exact {
+      ^body:
+        %index = ac.var.constant false as !ac.var<i1>
+        %condition = ac.var.constant true as !ac.var<i1>
+        %v0 = ac.table.get @state[%index] : !ac.var<i1> -> !ac.var<i32>
+)mlir";
+  for (unsigned index = 1; index <= depth; ++index) {
+    source += "        %bit" + std::to_string(index) +
+              " = ac.var.constant 1 : i32 as !ac.var<i32>\n";
+    source += "        %or" + std::to_string(index) + " = ac.var.or %v" +
+              std::to_string(index - 1) + ", %bit" + std::to_string(index) +
+              " : !ac.var<i32>\n";
+    source += "        %v" + std::to_string(index) +
+              " = ac.var.select %condition, %or" + std::to_string(index) +
+              ", %v" + std::to_string(index - 1) +
+              " : !ac.var<i1>, !ac.var<i32> -> !ac.var<i32>\n";
+  }
+  source += "        ac.rule.condition %condition : !ac.var<i1>\n"
+            "        ac.rule.return %v" +
+            std::to_string(depth) +
+            " : !ac.var<i32>\n"
+            "      } : () -> !ac.queue<i32>\n"
+            "      ac.sink %output : !ac.queue<i32>\n"
+            "    }\n";
+
+  DialectRegistry registry;
+  registerAllDialects(registry);
+  MLIRContext context(registry);
+  OwningOpRef<mlir::ModuleOp> model =
+      parseSourceString<mlir::ModuleOp>(source, &context);
+  ASSERT_TRUE(model);
+
+  ACDataFlowAnalyzer analysis(model->getOperation());
+  ASSERT_TRUE(succeeded(analysis.run()));
+  ac::RuleOp rule;
+  model->walk([&](ac::RuleOp operation) { rule = operation; });
+  ASSERT_TRUE(rule);
+
+  acir::detail::SnapshotTraversalWork work;
+  acir::detail::ScopedSnapshotTraversalWorkRecorder recorder(work);
+  llvm::SmallVector<StateSnapshotFootprint> snapshots =
+      analysis.stateSnapshots(rule.getOperation());
+
+  ASSERT_EQ(1u, snapshots.size());
+  EXPECT_EQ("state", snapshots.front().resource);
+  EXPECT_EQ((std::vector<std::string>{"$entry"}), snapshots.front().fields);
+  EXPECT_LE(work.contexts, 3 * depth + 4);
+}
+
+TEST(ACDataFlowAnalyzerTest, SnapshotMemoPreservesDistinctFieldDemands) {
+  DialectRegistry registry;
+  registerAllDialects(registry);
+  MLIRContext context(registry);
+  OwningOpRef<mlir::ModuleOp> model =
+      parseSourceString<mlir::ModuleOp>(R"mlir(
+    builtin.module attributes {ac.contract_epoch = "0.5"} {
+      ac.type_scope @types {
+        ac.struct @Entry fields [{name = "left", type = i8}, {name = "right", type = i8}]
+      } {dlti.dl_spec = #dlti.dl_spec<!ac.struct<@types::@Entry> = {abi_alignment = 1 : i64, endianness = "little", preferred_alignment = 1 : i64, size = 2 : i64}>}
+      ac.table @state entry !ac.struct<@types::@Entry> entries 1 init 0 owner "/" stable_id "table/state"
+      %output = ac.rule depths [1] latencies [1] name "fields"
+          stable_id "fields" domain "cycle" type exact {
+      ^body:
+        %index = ac.var.constant false as !ac.var<i1>
+        %condition = ac.var.constant true as !ac.var<i1>
+        %entry = ac.table.get @state[%index] : !ac.var<i1> -> !ac.var<!ac.struct<@types::@Entry>>
+        %left = ac.var.get %entry field "left" : !ac.var<!ac.struct<@types::@Entry>> -> !ac.var<i8>
+        %right = ac.var.get %entry field "right" : !ac.var<!ac.struct<@types::@Entry>> -> !ac.var<i8>
+        %sum = ac.var.add %left, %right : !ac.var<i8>
+        ac.rule.condition %condition : !ac.var<i1>
+        ac.rule.return %sum : !ac.var<i8>
+      } : () -> !ac.queue<i8>
+      ac.sink %output : !ac.queue<i8>
+    }
+  )mlir",
+                                        &context);
+  ASSERT_TRUE(model);
+
+  ACDataFlowAnalyzer analysis(model->getOperation());
+  ASSERT_TRUE(succeeded(analysis.run()));
+  ac::RuleOp rule;
+  model->walk([&](ac::RuleOp operation) { rule = operation; });
+  ASSERT_TRUE(rule);
+
+  llvm::SmallVector<StateSnapshotFootprint> snapshots =
+      analysis.stateSnapshots(rule.getOperation());
+  ASSERT_EQ(1u, snapshots.size());
+  EXPECT_EQ("state", snapshots.front().resource);
+  EXPECT_EQ((std::vector<std::string>{"left", "right"}),
+            snapshots.front().fields);
 }
 
 TEST(ACDataFlowAnalyzerTest, InfersMatchAndChooseSnapshotSets) {

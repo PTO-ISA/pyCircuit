@@ -24,6 +24,7 @@ CAPTURE_ONLY_API = (
     "count_leading_zeros",
     "count_trailing_zeros",
     "priority_encode",
+    "onehot_encode",
     "memory",
     "sink",
     "observe",
@@ -117,6 +118,11 @@ def count_trailing_zeros(value: object) -> Never:
 def priority_encode(value: object, *, order: str = "low") -> Never:
     _ = (value, order)
     return _capture_time_only("priority_encode")
+
+
+def onehot_encode(value: object, *, order: str = "low") -> Never:
+    _ = (value, order)
+    return _capture_time_only("onehot_encode")
 
 
 def memory(

@@ -154,11 +154,11 @@ agentic-circuit schema opcode ac.transform
 Python 包明确区分可按普通 Python 语义使用的对象和只供 ACPy 源码捕获的语法
 marker。`agentic_circuit.RUNTIME_API` 是精确的运行时 authoring API 清单，也就是
 包的 `__all__`；因此 wildcard import 不再暗示 capture-only 语法会产生运行时值。
-`agentic_circuit.CAPTURE_ONLY_API` 是以下 29 个 marker 的精确清单：
+`agentic_circuit.CAPTURE_ONLY_API` 是以下 30 个 marker 的精确清单：
 
 ```text
 scope map set instances view find concat insert matches source popcount
-count_leading_zeros count_trailing_zeros priority_encode memory sink observe
+count_leading_zeros count_trailing_zeros priority_encode onehot_encode memory sink observe
 expect compute pipeline route merge schedule engine reorder fork barrier table
 slot
 ```
@@ -199,8 +199,10 @@ def pipeline() -> None:
 incoming Queue -> ac.transform(item + 1) -> outgoing Queue -> ac.sink
 ```
 
-系统函数必须无参数。`source`、`apply` 和 `sink` 是 AST marker，不能通过普通
-Python 调用系统体来模拟电路。
+显式 `source`/`sink` 形式的系统通常无参数；系统也可以使用普通 typed payload
+参数/返回以及 keyword-only `ac.const` 参数，由编译器推导 Queue 边界。未标注的
+Queue-handle 参数仍被拒绝。`source`、`apply` 和 `sink` 是 AST marker，不能通过
+普通 Python 调用系统体来模拟电路。
 
 ## 定义结构化 payload
 
@@ -264,6 +266,41 @@ ready/full/pop/push。可选 `workspace=` 会确定性捕获本地传递 import 
 动态 import、反射或 specialization 后源码变化也会 fail closed。closure 中导入的全大写
 immutable integer/bitmask constant 会在具体使用点按精确位宽折叠，共享 contract 不需要复制
 magic literal。
+
+类型位宽和固定 value-array 长度可以引用显式声明的 JIT 参数：
+
+```python
+ROB_ENTRIES = ac.param[int] ("rob_entries")
+ISSUE_WIDTH = ac.param[int] ("issue_width")
+
+@ac.struct
+class Entry:
+    index: ac.bits[ac.index_width(ROB_ENTRIES)]
+
+@ac.struct
+class Group:
+    entries: ac.array[ISSUE_WIDTH, Entry]
+    count: ac.bits[ac.count_width(ROB_ENTRIES)]
+```
+
+参数只属于 elaboration；匹配的 `ac.const[int]` 由 `ac.jit` 绑定。
+`index_width(N)` 等于 `max(1, ceil(log2(N)))`，`count_width(N)` 等于
+`max(1, ceil(log2(N + 1)))`。封闭语法只包含整数 literal、已声明参数、封闭整数
+常量、`+`、`-`、`*`、`index_width` 和 `count_width`；其他 Python 运算符不会
+回退到通用 static evaluator。未绑定、运行时派生、非正、溢出或产生超过
+64 bit 标量的表达式都在 ACIR 发布前失败。Frozen ACIR 和后端只保留具体类型，
+specialization fingerprint 包含绑定常量。tuple element 与 value-array element 的
+递归路径也会写入 provenance，由 ACIR 和 QueueGraph verifier 分别复算。直接作为
+system/module typed interface 的 dependent scalar 也携带 exact concrete type check。
+specialized struct 额外记录 source name、语义参数名、具体 field layout、fingerprint
+和完整 check target 集合；缺失 target、过期 symbol hash 或伪造 layout 都会被拒绝。
+
+module-local dependent type 在每个 module instance 的 `ac.const` 参数绑定后再具体化。
+即使两组绑定得到相同 storage width，不同绑定的实例也具有不同 nominal struct
+identity；相同 source type 和相同绑定跨 system/module interface 仍保持同一 identity，
+verifier record namespace 不进入类型语义。完整例子见
+`examples/agentic-circuit/types/scalar_parameterized_types.py` 和
+`examples/agentic-circuit/types/multi_specialization_types.py`。
 
 静态位掩码表达式遵守可移植 I-JSON 整数范围；负移位量及结果超出该范围的左移
 会在执行移位前被拒绝。运行时 `ac.uN` 移位仍遵守电路的精确位宽语义。
@@ -336,6 +373,18 @@ updated = item.with_fields(
 并在 PYC C++/Verilog 中递归使用同一 packing。Python struct 不会被摊平成大量字段，
 相同 nested type 也不会按实例重复生成。
 
+record 构造和 immutable replacement 支持捕获式 Python keyword spread：
+
+```python
+packet = Packet(**header, **payload, valid=True)
+updated = packet.with_fields(**patch, valid=True)
+```
+
+构造必须恰好一次覆盖全部目标字段；replacement 保留 patch 未涉及的字段。两种
+形式都按精确字段名匹配、按目标声明顺序重排，并要求递归类型完全相同。缺失、
+额外、重复、遮蔽或不兼容字段全部 fail closed。nested aggregate 仍作为一个字段，
+不会被递归摊平。
+
 nominal value 使用标准 Python enum，不增加 `ac.enum` 前端构造器：
 
 ```python
@@ -347,10 +396,25 @@ class Mode(Enum):
     WAIT = 2
 ```
 
-member 必须按声明顺序从零连续编码。nested struct 字段可以直接标注 `Mode`，
+没有 encoding decorator 时，member 必须按声明顺序从零连续编码。nested struct 字段可以直接标注 `Mode`，
 `Mode.RUN` 降到 verifier 检查的 `ac.var.enum`。当前 enum 只支持 equality/inequality。
 QueueGraph 保存 member list 与 encoding width；gfsim 生成一次紧凑 C++ enum，
 PYC/Verilog 使用同一精确位宽 ordinal。
+
+外部协议可以在保留标准 Python Enum 的同时显式声明固定稀疏编码：
+
+```python
+@ac.encoding(width=4)
+class Opcode(Enum):
+    NONE = 0
+    READ = 3
+    WRITE = 9
+```
+
+显式值必须唯一、非负并落在声明位宽内。ACIR 记录名称、编码值和位宽；QueueGraph
+独立复核并保留；gfsim C++ 与 PYC 使用完全相同的编码。QueueGraph JSON 以小写
+unsigned hexadecimal string 和 `value_format = "unsigned_hex"` 保存显式值，64 bit
+编码的 bit 63 不会被误解释为负数。普通 Enum 的既有编码不变。
 
 ### 递归相等性与命名 payload invariant
 
@@ -530,6 +594,12 @@ ACIR 中会直接被拒绝。
 参考模型，并把同一语义 lowering 为不含厂商名称的 `pyc.priority_encode`。
 gfsim reference 会按声明位宽 mask 输入，并使用 low/high C++20 bit scan，不逐 bit
 循环。
+
+`ac.onehot_encode(value, order="low")` 复用同一个 priority 结果并增加
+`.conflict`。`.index/.valid` 与 `priority_encode` 相同；当
+`popcount(value) > 1` 时 `.conflict` 为真。因此它能区分全零、合法 one-hot 和
+非法 multi-hot，且只 lowering 为已有的 priority-encode、population-count 和比较
+操作，不增加后端专用 primitive。
 
 可执行示例：
 `pyc_struct_pipeline.py`。
@@ -1492,8 +1562,11 @@ module；`ac.instance`、interface binding、specialization identity 和每实�
 
 `reusable_circular_rob.py` 用一份 3-input/2-output、五个 lexical state owner、四条 rule
 的 ROB 定义放置两个独立实例；specialization body 和生成 class 都只出现一次。当前已支持
-direct interface-to-rule graph，任意内部 Queue graph 与 module 内 repeated-input fanout
-仍是后续工作。
+direct interface-to-rule graph。无状态 rule-backed module 也可以具有多个 typed input/output；
+生成 GFSim 使用一个 `QueueAtomicTransform`，保证全部输入消费和全部输出发布属于同一事务。
+结构化 lowering 只包含从选定 system 递归可达的 module，并只解析每个 rule-backed module
+直接使用的 rule。不可达 sibling definition 仍参与 JIT source identity，但不会作为 active
+hardware 生成或验证。任意内部 Queue graph 与 module 内 repeated-input fanout 仍是后续工作。
 
 完整 specialization fingerprint 继续作为 canonical IR、manifest、provider 和 cache
 identity。日常生成 C++ 名称只暴露可读语义身份：ACSim thunk 使用

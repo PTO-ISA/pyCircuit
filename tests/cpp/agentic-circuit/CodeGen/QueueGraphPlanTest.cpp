@@ -116,8 +116,7 @@ void expectCppRuns(llvm::StringRef source) {
                                      : std::string{});
 }
 
-void expectModelBundleRuns(
-    const std::vector<QueueGraphGeneratedFile> &bundle) {
+void expectModelBundleRuns(const std::vector<QueueGraphGeneratedFile> &bundle) {
   llvm::SmallString<256> directory;
   ASSERT_FALSE(
       llvm::sys::fs::createUniqueDirectory("acir-model-bundle", directory));
@@ -395,31 +394,31 @@ QueueGraphPlan inlineFirstChoicePlan(unsigned width, unsigned indexWidth) {
   plan.system = "first_choice_" + std::to_string(width);
   plan.payloads = {
       {payloadName, {{"index", indexType, indexWidth}, {"valid", "i1", 1}}}};
-  plan.tables = {
-      {"entries", "i1", width, 0, "table/entries", "/"}};
+  plan.tables = {{"entries", "i1", width, 0, "table/entries", "/"}};
   plan.tableReads = {{"entries", "read", "/", "", "unused", 1, 1}};
   plan.queues = {{"input", maskType, "/", 1, 1},
                  {"output", payloadType, "/", 1, 1}};
   plan.blocks.push_back({"source", "input", "/", {}, {"input"}, {1}, {1}});
-  QueueBlockPlan transform{"firing", "choose", "/", {"input"},
-                           {"output"}, {1},        {1}};
+  QueueBlockPlan transform{"firing",   "choose", "/", {"input"},
+                           {"output"}, {1},      {1}};
   QueueExpressionPlan mask{"mask", "table_match", maskType, {}};
   mask.table = "entries";
-  mask.nestedExpressions = {
-      {"matched", "constant", "i1", {}, "", "", "true"}};
+  mask.nestedExpressions = {{"matched", "constant", "i1", {}, "", "", "true"}};
   mask.nestedYields = {"matched"};
   transform.expressions.push_back(std::move(mask));
-  QueueExpressionPlan index{"selected_index", "table_choose_index", indexType,
-                            {"mask"}};
+  QueueExpressionPlan index{
+      "selected_index", "table_choose_index", indexType, {"mask"}};
   index.table = "entries";
   index.predicate = "first";
   transform.expressions.push_back(index);
-  QueueExpressionPlan valid{"selected_valid", "table_choose_valid", "i1",
-                            {"mask"}};
+  QueueExpressionPlan valid{
+      "selected_valid", "table_choose_valid", "i1", {"mask"}};
   valid.table = "entries";
   valid.predicate = "first";
   transform.expressions.push_back(valid);
-  QueueExpressionPlan result{"result", "record_create", payloadType,
+  QueueExpressionPlan result{"result",
+                             "record_create",
+                             payloadType,
                              {"selected_index", "selected_valid"}};
   result.width = indexWidth + 1;
   transform.expressions.push_back(std::move(result));
@@ -453,17 +452,17 @@ QueueGraphPlan dualInlineMatchPlan() {
       {"matched", "and", "i1", {"same", "condition"}},
   };
   secondMask.nestedYields = {"matched"};
-  QueueExpressionPlan secondIndex{"second_index", "table_choose_index", "i2",
-                                  {"second_mask"}};
+  QueueExpressionPlan secondIndex{
+      "second_index", "table_choose_index", "i2", {"second_mask"}};
   secondIndex.table = "entries";
   secondIndex.predicate = "first";
-  QueueExpressionPlan secondValid{"second_valid", "table_choose_valid", "i1",
-                                  {"second_mask"}};
+  QueueExpressionPlan secondValid{
+      "second_valid", "table_choose_valid", "i1", {"second_mask"}};
   secondValid.table = "entries";
   secondValid.predicate = "first";
-  firing.expressions.insert(firing.expressions.end() - 1,
-                            {std::move(secondMask), std::move(secondIndex),
-                             std::move(secondValid)});
+  firing.expressions.insert(
+      firing.expressions.end() - 1,
+      {std::move(secondMask), std::move(secondIndex), std::move(secondValid)});
   QueueExpressionPlan &result = firing.expressions.back();
   result.operands.push_back("second_index");
   result.operands.push_back("second_valid");
@@ -476,8 +475,7 @@ QueueGraphPlan dualInlineMatchPlan() {
 QueueGraphPlan aggregateTableBorrowPlan(QueueGraphPlan plan) {
   constexpr llvm::StringLiteral nestedType =
       "!ac.struct<@types::@BorrowNested>";
-  constexpr llvm::StringLiteral entryType =
-      "!ac.struct<@types::@BorrowEntry>";
+  constexpr llvm::StringLiteral entryType = "!ac.struct<@types::@BorrowEntry>";
   plan.system = "aggregate_borrow";
   plan.payloads = {
       {"BorrowNested",
@@ -490,13 +488,13 @@ QueueGraphPlan aggregateTableBorrowPlan(QueueGraphPlan plan) {
   plan.tables.front().entryType = entryType.str();
   for (QueuePlan &queue : plan.queues)
     queue.payloadType = entryType.str();
-  QueueBlockPlan &firing = *llvm::find_if(
-      plan.blocks,
-      [](const QueueBlockPlan &block) { return block.kind == "firing"; });
+  QueueBlockPlan &firing =
+      *llvm::find_if(plan.blocks, [](const QueueBlockPlan &block) {
+        return block.kind == "firing";
+      });
   firing.expressions = {
       {"index", "constant", "i1", {}, "", "", "1 : i1"},
-      {"stored", "table_get", entryType.str(), {"index"}, "", "", "",
-       "table"},
+      {"stored", "table_get", entryType.str(), {"index"}, "", "", "", "table"},
       {"nested", "get", nestedType.str(), {"stored"}, "nested"},
       {"key", "get", "i16", {"nested"}, "key"},
       {"updated", "with", entryType.str(), {"stored", "key"}, "echo"},
@@ -504,13 +502,12 @@ QueueGraphPlan aggregateTableBorrowPlan(QueueGraphPlan plan) {
   };
   firing.yields = {"updated"};
   firing.guard = "enabled";
-  firing.stateWrites = {
-      {"table",
-       "index",
-       "item",
-       "enabled",
-       "replace",
-       {"valid", "nested", "echo"}}};
+  firing.stateWrites = {{"table",
+                         "index",
+                         "item",
+                         "enabled",
+                         "replace",
+                         {"valid", "nested", "echo"}}};
   firing.outputPresence = {{0, "updated", "enabled"}};
   return plan;
 }
@@ -534,13 +531,8 @@ QueueGraphPlan statelessOptionalMultiOutputPlan() {
                  {"narrow", "i8", "/", 1, 1},
                  {"wide", "i16", "/", 1, 1}};
   plan.blocks.push_back({"source", "input", "/", {}, {"input"}, {1}, {1}});
-  QueueBlockPlan firing{"firing",
-                        "publish",
-                        "/",
-                        {"input"},
-                        {"narrow", "wide"},
-                        {1, 1},
-                        {1, 1}};
+  QueueBlockPlan firing{"firing",           "publish", "/",   {"input"},
+                        {"narrow", "wide"}, {1, 1},    {1, 1}};
   firing.guard = "enabled";
   firing.expressions = {
       {"wide_value", "constant", "i16", {}, "", "", "42 : i16"},
@@ -823,7 +815,7 @@ TEST(QueueGraphPlanTest, RejectsMalformedNominalEnumMetadata) {
   ASSERT_TRUE(freezeQueueGraph(*module));
   auto plan = buildQueueGraphPlan(*module);
   ASSERT_TRUE(bool(plan)) << llvm::toString(plan.takeError());
-  plan->enums = {QueueEnumPlan{"Mode", {"IDLE", "RUN", "WAIT"}, 3}};
+  plan->enums = {QueueEnumPlan{"Mode", {"IDLE", "RUN", "WAIT"}, {}, 3}};
 
   auto widthError = verifyQueueGraphPlan(*plan);
   ASSERT_TRUE(bool(widthError));
@@ -836,6 +828,137 @@ TEST(QueueGraphPlanTest, RejectsMalformedNominalEnumMetadata) {
   ASSERT_TRUE(bool(memberError));
   EXPECT_NE(llvm::toString(std::move(memberError)).find("must be non-empty"),
             std::string::npos);
+
+  plan->enums = {QueueEnumPlan{"Mode", {"IDLE", "RUN", "WAIT"}, {0, 3}, 4}};
+  auto shapeError = verifyQueueGraphPlan(*plan);
+  ASSERT_TRUE(bool(shapeError));
+  EXPECT_NE(llvm::toString(std::move(shapeError)).find("shape is inconsistent"),
+            std::string::npos);
+
+  plan->enums.front().values = {0, 3, 9};
+  plan->enums.front().width = 3;
+  auto valueError = verifyQueueGraphPlan(*plan);
+  ASSERT_TRUE(bool(valueError));
+  EXPECT_NE(
+      llvm::toString(std::move(valueError)).find("values are inconsistent"),
+      std::string::npos);
+}
+
+TEST(QueueGraphPlanTest, RecomputesStaticTypeMetadataAndRejectsForgery) {
+  mlir::MLIRContext context;
+  context.loadDialect<ac::ACIRDialect, mlir::DLTIDialect>();
+  auto module =
+      mlir::parseSourceString<mlir::ModuleOp>(kStructuredTransform, &context);
+  ASSERT_TRUE(module);
+  ASSERT_TRUE(freezeQueueGraph(*module));
+  auto plan = buildQueueGraphPlan(*module);
+  ASSERT_TRUE(bool(plan)) << llvm::toString(plan.takeError());
+
+  plan->staticTypeBindings = {{"WIDTH", 64}};
+  plan->staticTypeChecks = {
+      QueueStaticTypeCheckPlan{"Item.value:bits", {"param:WIDTH"}, 64}};
+  EXPECT_FALSE(bool(verifyQueueGraphPlan(*plan)));
+  auto json = plan->canonicalJson();
+  ASSERT_TRUE(bool(json)) << llvm::toString(json.takeError());
+  EXPECT_NE(json->find("static_type_bindings"), std::string::npos);
+
+  plan->staticTypeChecks.front().result = 63;
+  auto error = verifyQueueGraphPlan(*plan);
+  ASSERT_TRUE(bool(error));
+  EXPECT_NE(llvm::toString(std::move(error)).find("result is inconsistent"),
+            std::string::npos);
+}
+
+TEST(QueueGraphPlanTest, RecomputesAggregateStaticTypeMetadata) {
+  QueueGraphPlan plan = aggregateMetadataPlan();
+  plan.staticTypeBindings = {{"PAIR_WIDTH", 5}, {"LANES", 4}};
+  plan.staticTypeChecks = {
+      {"Packet.pair.tuple_1:bits", {"param:PAIR_WIDTH"}, 5},
+      {"Packet.lanes:array_length", {"param:LANES"}, 4},
+  };
+  auto verification = verifyQueueGraphPlan(plan);
+  EXPECT_FALSE(bool(verification)) << llvm::toString(std::move(verification));
+
+  plan.staticTypeBindings.push_back({"UNUSED", 1});
+  auto unused = verifyQueueGraphPlan(plan);
+  ASSERT_TRUE(bool(unused));
+  EXPECT_NE(llvm::toString(std::move(unused)).find("not referenced"),
+            std::string::npos);
+  plan.staticTypeBindings.pop_back();
+
+  plan.staticTypeChecks.push_back(plan.staticTypeChecks.front());
+  auto duplicate = verifyQueueGraphPlan(plan);
+  ASSERT_TRUE(bool(duplicate));
+  EXPECT_NE(llvm::toString(std::move(duplicate)).find("must be complete"),
+            std::string::npos);
+  plan.staticTypeChecks.pop_back();
+
+  plan.staticTypeBindings[0].second = 4;
+  plan.staticTypeChecks[0].result = 4;
+  auto error = verifyQueueGraphPlan(plan);
+  ASSERT_TRUE(bool(error));
+  EXPECT_NE(llvm::toString(std::move(error)).find("bits width is inconsistent"),
+            std::string::npos);
+}
+
+TEST(QueueGraphPlanTest, VerifiesScalarAndNominalStaticTypeIdentity) {
+  QueueGraphPlan scalar = aggregateMetadataPlan();
+  scalar.staticTypeBindings = {{"WIDTH", 8}};
+  scalar.staticTypeChecks = {
+      {"interface.system.shared_reference.input.input:bits",
+       {"param:WIDTH"},
+       8,
+       "i8"}};
+  auto scalarError = verifyQueueGraphPlan(scalar);
+  EXPECT_FALSE(bool(scalarError)) << llvm::toString(std::move(scalarError));
+  scalar.queues.front().payloadType = "i7";
+  auto forgedScalar = verifyQueueGraphPlan(scalar);
+  ASSERT_TRUE(bool(forgedScalar));
+  EXPECT_NE(llvm::toString(std::move(forgedScalar)).find("actual endpoint"),
+            std::string::npos);
+
+  QueueGraphPlan nominal = aggregateMetadataPlan();
+  nominal.payloads = {
+      {"Entry__p435bcab52046", {{"a", "i4", 4}, {"b", "i4", 4}}}};
+  nominal.staticTypeBindings = {{"N", 4}};
+  nominal.staticTypeChecks = {
+      {"Entry__p435bcab52046.a:bits", {"param:N"}, 4},
+      {"Entry__p435bcab52046.b:bits", {"param:N"}, 4},
+  };
+  nominal.staticTypeIdentities = {{
+      "Entry",
+      "Entry__p435bcab52046",
+      "sha256:435bcab5204689d904ed5c8b819738da32e8f7399aa0d0b2c027b7da04417318",
+      {{"N", "N", 4}},
+      {"Entry__p435bcab52046.a:bits", "Entry__p435bcab52046.b:bits"},
+  }};
+  auto nominalError = verifyQueueGraphPlan(nominal);
+  EXPECT_FALSE(bool(nominalError)) << llvm::toString(std::move(nominalError));
+
+  nominal.staticTypeChecks.pop_back();
+  auto missing = verifyQueueGraphPlan(nominal);
+  ASSERT_TRUE(bool(missing));
+  EXPECT_NE(llvm::toString(std::move(missing)).find("targets are inconsistent"),
+            std::string::npos);
+}
+
+TEST(QueueGraphPlanTest, SerializesExplicitEnumValuesAsUnsignedHex) {
+  QueueGraphPlan plan = aggregateMetadataPlan();
+  plan.enums = {QueueEnumPlan{"Wide",
+                              {"LOW", "HIGH", "MAX"},
+                              {uint64_t{0x7fff'ffff'ffff'ffff},
+                               uint64_t{0x8000'0000'0000'0000},
+                               uint64_t{0xffff'ffff'ffff'ffff}},
+                              64}};
+  auto verification = verifyQueueGraphPlan(plan);
+  EXPECT_FALSE(bool(verification)) << llvm::toString(std::move(verification));
+
+  auto json = plan.canonicalJson();
+  ASSERT_TRUE(bool(json)) << llvm::toString(json.takeError());
+  EXPECT_NE(json->find("0x7fffffffffffffff"), std::string::npos);
+  EXPECT_NE(json->find("0x8000000000000000"), std::string::npos);
+  EXPECT_NE(json->find("0xffffffffffffffff"), std::string::npos);
+  EXPECT_NE(json->find("unsigned_hex"), std::string::npos);
 }
 
 TEST(QueueGraphPlanTest, RejectsTupleAggregateWidthMismatch) {
@@ -867,8 +990,7 @@ TEST(QueueGraphPlanTest, RejectsMalformedValueArrayMetadata) {
 
 TEST(QueueGraphPlanTest, AcceptsAggregateMetadataWiderThanSixtyFourBits) {
   QueueGraphPlan plan = aggregateExpressionPlan();
-  plan.aggregates[0] =
-      {"tuple<i64, i64>", "tuple", {"i64", "i64"}, 2, 128};
+  plan.aggregates[0] = {"tuple<i64, i64>", "tuple", {"i64", "i64"}, 2, 128};
   for (QueuePlan &queue : plan.queues)
     queue.payloadType = "tuple<i64, i64>";
   QueueBlockPlan &transform = plan.blocks[1];
@@ -897,16 +1019,15 @@ TEST(QueueGraphPlanTest, RejectsAggregateMetadataOutsideBackendStorageWidth) {
 TEST(QueueGraphPlanTest, AcceptsExactMaximumBackendStorageWidth) {
   QueueGraphPlan plan;
   plan.system = "maximum_width";
-  plan.payloads = {{"Packet",
-                    {{"bits", "!ac.value_array<65536 x i1>",
-                      kMaximumPackedValueWidth}}}};
+  plan.payloads = {
+      {"Packet",
+       {{"bits", "!ac.value_array<65536 x i1>", kMaximumPackedValueWidth}}}};
   plan.aggregates = {{"!ac.value_array<65536 x i1>",
                       "array",
                       {"i1"},
                       kMaximumPackedValueWidth,
                       kMaximumPackedValueWidth}};
-  plan.queues = {
-      {"input", "!ac.struct<@types::@Packet>", "/", 1, 1}};
+  plan.queues = {{"input", "!ac.struct<@types::@Packet>", "/", 1, 1}};
   plan.blocks = {{"source", "input", "/", {}, {"input"}, {1}, {1}},
                  {"sink", "sink", "/", {"input"}, {}}};
 
@@ -919,13 +1040,10 @@ TEST(QueueGraphPlanTest, RejectsRecursivePayloadWidthOutsideBackendDomain) {
   QueueGraphPlan plan;
   plan.system = "overflow";
   plan.payloads = {
-      {"Packet", {{"huge", "!ac.value_array<65536 x i1>", maximum},
-                   {"extra", "i1", 1}}}};
-  plan.aggregates = {{"!ac.value_array<65536 x i1>",
-                      "array",
-                      {"i1"},
-                      maximum,
-                      maximum}};
+      {"Packet",
+       {{"huge", "!ac.value_array<65536 x i1>", maximum}, {"extra", "i1", 1}}}};
+  plan.aggregates = {
+      {"!ac.value_array<65536 x i1>", "array", {"i1"}, maximum, maximum}};
   plan.queues = {{"input", "!ac.struct<@types::@Packet>", "/", 1, 1}};
   plan.blocks = {{"source", "input", "/", {}, {"input"}, {1}, {1}},
                  {"sink", "sink", "/", {"input"}, {}}};
@@ -1018,8 +1136,7 @@ TEST(QueueGraphPlanTest, RejectsResidualAggregateComparisonBeforeCodegen) {
 TEST(QueueGraphPlanTest, RejectsResidualInvariantBeforeCodegen) {
   QueueGraphPlan plan = aggregateExpressionPlan();
   QueueBlockPlan &transform = plan.blocks[1];
-  transform.expressions.push_back(
-      {"valid", "invariant", "i1", {"item"}});
+  transform.expressions.push_back({"valid", "invariant", "i1", {"item"}});
   transform.yields = {"valid"};
   plan.queues[1].payloadType = "i1";
   auto error = verifyQueueGraphPlan(plan);
@@ -1033,10 +1150,9 @@ TEST(QueueGraphPlanTest, VerifiesNestedTableMatchCaptureTypes) {
   QueueGraphPlan plan;
   plan.system = "captured_match";
   plan.tables = {{"entries", "i8", 1, 0, "table/entries", "/"}};
-  plan.queues = {{"input", "i8", "/", 1, 1},
-                 {"output", "i1", "/", 1, 1}};
+  plan.queues = {{"input", "i8", "/", 1, 1}, {"output", "i1", "/", 1, 1}};
   plan.blocks.push_back({"source", "input", "/", {}, {"input"}, {1}, {1}});
-  QueueBlockPlan transform{"firing", "output", "/", {"input"},
+  QueueBlockPlan transform{"firing",   "output", "/", {"input"},
                            {"output"}, {1},      {1}};
   transform.expressions.push_back(
       {"captured", "constant", "i8", {}, "", "", "7 : i8"});
@@ -1057,12 +1173,10 @@ TEST(QueueGraphPlanTest, VerifiesNestedTableMatchCaptureTypes) {
   ASSERT_FALSE(bool(error)) << llvm::toString(std::move(error));
 }
 
-TEST(QueueGraphPlanTest,
-     PreservesExactU64MaskedMatchAndRejectsForgedMetadata) {
+TEST(QueueGraphPlanTest, PreservesExactU64MaskedMatchAndRejectsForgedMetadata) {
   QueueGraphPlan plan;
   plan.system = "masked_match";
-  plan.queues = {{"input", "i64", "/", 1, 1},
-                 {"output", "i1", "/", 1, 1}};
+  plan.queues = {{"input", "i64", "/", 1, 1}, {"output", "i1", "/", 1, 1}};
   plan.blocks.push_back({"source", "input", "/", {}, {"input"}, {1}, {1}});
   QueueBlockPlan transform{"transform", "output", "/", {"input"},
                            {"output"},  {1},      {1}};
@@ -1082,10 +1196,8 @@ TEST(QueueGraphPlanTest,
   ASSERT_FALSE(bool(error)) << llvm::toString(std::move(error));
   auto json = plan.canonicalJson();
   ASSERT_TRUE(bool(json)) << llvm::toString(json.takeError());
-  EXPECT_NE(json->find("\"mask\":\"0x8000000000000001\""),
-            std::string::npos);
-  EXPECT_NE(json->find("\"value\":\"0x8000000000000001\""),
-            std::string::npos);
+  EXPECT_NE(json->find("\"mask\":\"0x8000000000000001\""), std::string::npos);
+  EXPECT_NE(json->find("\"value\":\"0x8000000000000001\""), std::string::npos);
   auto cpp = generateQueueGraphCpp(plan);
   ASSERT_TRUE(bool(cpp)) << llvm::toString(cpp.takeError());
   expectCppCompiles(*cpp);
@@ -1229,8 +1341,8 @@ TEST(QueueGraphPlanTest,
   ASSERT_EQ(plan->moduleSpecializations.size(), 1u);
 
   QueueGraphPlan colliding = *plan;
-  auto second =
-      std::make_shared<QueueGraphPlan>(*colliding.moduleSpecializations.front());
+  auto second = std::make_shared<QueueGraphPlan>(
+      *colliding.moduleSpecializations.front());
   second->specializationFingerprint =
       "sha256:1111111111111111111111111111111111111111111111111111111111111111";
   colliding.moduleSpecializations.push_back(second);
@@ -1467,10 +1579,8 @@ TEST(QueueGraphPlanTest, WriterPriorityCanonicalizesDeclarationOrder) {
     block.name = name.str();
     block.stableId = name.str();
     block.arbitrationMembership = {
-        {"z_state", name.str(), "priority", rank,
-         "winner_takes_transaction"},
-        {"a_state", name.str(), "priority", rank,
-         "winner_takes_transaction"}};
+        {"z_state", name.str(), "priority", rank, "winner_takes_transaction"},
+        {"a_state", name.str(), "priority", rank, "winner_takes_transaction"}};
     if (reverseMembership)
       std::reverse(block.arbitrationMembership.begin(),
                    block.arbitrationMembership.end());
@@ -1495,12 +1605,9 @@ TEST(QueueGraphPlanTest, WriterPriorityCanonicalizesDeclarationOrder) {
   ASSERT_TRUE(bool(firstJson)) << llvm::toString(firstJson.takeError());
   ASSERT_TRUE(bool(secondJson)) << llvm::toString(secondJson.takeError());
   EXPECT_EQ(*firstJson, *secondJson);
-  EXPECT_NE(firstJson->find("\"stable_id\":\"winner\""),
-            std::string::npos);
-  EXPECT_NE(firstJson->find("\"policy\":\"priority\""),
-            std::string::npos);
-  EXPECT_NE(firstJson->find(
-                "\"resolution\":\"winner_takes_transaction\""),
+  EXPECT_NE(firstJson->find("\"stable_id\":\"winner\""), std::string::npos);
+  EXPECT_NE(firstJson->find("\"policy\":\"priority\""), std::string::npos);
+  EXPECT_NE(firstJson->find("\"resolution\":\"winner_takes_transaction\""),
             std::string::npos);
 }
 
@@ -1521,8 +1628,9 @@ TEST(QueueGraphPlanTest, WriterPriorityRejectsCrossOwnerPrecedenceCycle) {
   plan.blocks = {std::move(first), std::move(second)};
   llvm::Error error = resolveQueueWriterPriorities(plan);
   ASSERT_TRUE(bool(error));
-  EXPECT_NE(llvm::toString(std::move(error)).find("precedence contains a cycle"),
-            std::string::npos);
+  EXPECT_NE(
+      llvm::toString(std::move(error)).find("precedence contains a cycle"),
+      std::string::npos);
 }
 
 TEST(QueueGraphPlanTest,
@@ -1713,6 +1821,114 @@ int main() {
              : 2;
 }
 )cpp");
+  expectCppRuns(executableSource);
+}
+
+TEST(QueueGraphPlanTest,
+     EmitsAtomicStatelessMultiOutputModuleWithoutPartialPublication) {
+  mlir::MLIRContext context;
+  context.loadDialect<ac::ACIRDialect, mlir::DLTIDialect>();
+  auto module = mlir::parseSourceFile<mlir::ModuleOp>(
+      ACIR_TEST_SOURCE_DIR "/tests/mlir/agentic-circuit/Transforms/"
+                           "queue-stateless-multi-output-module.mlir",
+      &context);
+  ASSERT_TRUE(module);
+  auto plan = buildQueueGraphPlan(*module);
+  ASSERT_TRUE(bool(plan)) << llvm::toString(plan.takeError());
+  ASSERT_EQ(plan->moduleSpecializations.size(), 1u);
+  const QueueGraphPlan &specialization = *plan->moduleSpecializations.front();
+  ASSERT_EQ(specialization.blocks.size(), 1u);
+  EXPECT_TRUE(specialization.tables.empty());
+  EXPECT_EQ(specialization.interfaceInputs.size(), 1u);
+  EXPECT_EQ(specialization.interfaceOutputs.size(), 4u);
+  EXPECT_EQ(specialization.blocks.front().outputs.size(), 4u);
+
+  auto generated = generateQueueGraphCpp(*plan);
+  ASSERT_TRUE(bool(generated)) << llvm::toString(generated.takeError());
+  llvm::StringRef source(*generated);
+  const size_t classBegin = source.find("class Module_Fanout");
+  ASSERT_NE(classBegin, llvm::StringRef::npos);
+  const size_t classEnd = source.find(" final", classBegin);
+  ASSERT_NE(classEnd, llvm::StringRef::npos);
+  const llvm::StringRef implementation =
+      source.slice(classBegin + std::string("class ").size(), classEnd);
+  EXPECT_EQ(source.count(("class " + implementation + " final").str()), 1u);
+  EXPECT_EQ(source.count(("  " + implementation + " instance_").str()), 1u);
+  EXPECT_NE(source.find("gfsim::QueueStateTransition<"), llvm::StringRef::npos);
+  EXPECT_NE(source.find("std::tuple<gfsim::UInt<8>, gfsim::UInt<8>, "
+                        "gfsim::UInt<8>, gfsim::UInt<8>>"),
+            llvm::StringRef::npos);
+
+  std::string executableSource = *generated;
+  llvm::raw_string_ostream harness(executableSource);
+  harness << R"cpp(
+int main() {
+  gfsim::Module root("root", gfsim::kRootObjectId);
+  gfsim::SimQueue<gfsim::UInt<8>> input("input", 0, &root, 1);
+  gfsim::SimQueue<gfsim::UInt<8>> first("first", 1, &root, 1);
+  gfsim::SimQueue<gfsim::UInt<8>> second("second", 2, &root, 1);
+  gfsim::SimQueue<gfsim::UInt<8>> third("third", 3, &root, 1);
+  gfsim::SimQueue<gfsim::UInt<8>> fourth("fourth", 4, &root, 1);
+  ac_generated::)cpp"
+          << implementation
+          << R"cpp( fanout("fanout", 5, &root, input, first, second, third,
+                 fourth);
+
+  if (!third.proposePush(gfsim::UInt<8>{99}) ||
+      !input.proposePush(gfsim::UInt<8>{7}))
+    return 1;
+  third.doXfer({0, 0});
+  input.doXfer({0, 0});
+
+  auto row = fanout.dispatch_row(0);
+  const gfsim::Epoch blocked{1, 0};
+  row.work(row.object, blocked);
+  row.xfer(row.object, blocked, gfsim::XferPhase::Arbitrate);
+  if (row.xfer(row.object, blocked, gfsim::XferPhase::Probe) ||
+      input.committedSize() != 1 || input.totalPops() != 0 ||
+      !first.isEmpty() || !second.isEmpty() || !fourth.isEmpty() ||
+      first.hasPendingCommit() || second.hasPendingCommit() ||
+      fourth.hasPendingCommit() || third.committedSize() != 1)
+    return 2;
+
+  if (!third.proposePop())
+    return 3;
+  third.doXfer(blocked);
+
+  const gfsim::Epoch accepted{2, 0};
+  row.work(row.object, accepted);
+  row.xfer(row.object, accepted, gfsim::XferPhase::Arbitrate);
+  if (!row.xfer(row.object, accepted, gfsim::XferPhase::Probe) ||
+      !input.hasPendingCommit() || !first.hasPendingCommit() ||
+      !second.hasPendingCommit() || !third.hasPendingCommit() ||
+      !fourth.hasPendingCommit())
+    return 4;
+
+  input.doXfer(accepted);
+  first.doXfer(accepted);
+  second.doXfer(accepted);
+  third.doXfer(accepted);
+  fourth.doXfer(accepted);
+  row.xfer(row.object, accepted, gfsim::XferPhase::Commit);
+  if (!input.isEmpty() || input.totalPops() != 1 ||
+      first.committedValues() != std::vector<gfsim::UInt<8>>{{7}} ||
+      second.committedValues() != std::vector<gfsim::UInt<8>>{{8}} ||
+      third.committedValues() != std::vector<gfsim::UInt<8>>{{9}} ||
+      fourth.committedValues() != std::vector<gfsim::UInt<8>>{{10}})
+    return 5;
+
+  const gfsim::Epoch idle{3, 0};
+  row.work(row.object, idle);
+  row.xfer(row.object, idle, gfsim::XferPhase::Arbitrate);
+  row.xfer(row.object, idle, gfsim::XferPhase::Commit);
+  return input.totalPops() == 1 && first.totalPushes() == 1 &&
+                 second.totalPushes() == 1 && third.totalPushes() == 2 &&
+                 fourth.totalPushes() == 1
+             ? 0
+             : 6;
+}
+)cpp";
+  harness.flush();
   expectCppRuns(executableSource);
 }
 
@@ -1938,8 +2154,7 @@ TEST(QueueGraphPlanTest, EmitsClosedOpaqueRuntimeAbiBundle) {
 
   auto bundle = generateQueueGraphModelBundle(
       *plan, {.sdkProductVersion = "6.0.0",
-              .sdkSourceRevision =
-                  "c053fe2a00000000000000000000000000000000"});
+              .sdkSourceRevision = "c053fe2a00000000000000000000000000000000"});
   ASSERT_TRUE(bool(bundle)) << llvm::toString(bundle.takeError());
   ASSERT_EQ(bundle->size(), 3u);
   EXPECT_EQ((*bundle)[0].relativePath, "include/generated/model.h");
@@ -1975,15 +2190,14 @@ TEST(QueueGraphPlanTest, EmitsClosedOpaqueRuntimeAbiBundle) {
 TEST(QueueGraphPlanTest, ModelBundleRequiresExplicitSdkIdentity) {
   QueueGraphPlan plan;
   auto missingProduct = generateQueueGraphModelBundle(
-      plan, {.sdkSourceRevision =
-                 "c053fe2a00000000000000000000000000000000"});
+      plan, {.sdkSourceRevision = "c053fe2a00000000000000000000000000000000"});
   ASSERT_FALSE(bool(missingProduct));
   EXPECT_NE(llvm::toString(missingProduct.takeError())
                 .find("SDK product version is required"),
             std::string::npos);
 
-  auto missingRevision = generateQueueGraphModelBundle(
-      plan, {.sdkProductVersion = "6.0.0"});
+  auto missingRevision =
+      generateQueueGraphModelBundle(plan, {.sdkProductVersion = "6.0.0"});
   ASSERT_FALSE(bool(missingRevision));
   EXPECT_NE(llvm::toString(missingRevision.takeError())
                 .find("SDK source revision is required"),
@@ -2116,8 +2330,8 @@ TEST(QueueGraphPlanTest, RejectsNoncanonicalOutputPresenceOrdinalOrder) {
   std::swap(firing.outputPresence[0], firing.outputPresence[1]);
   auto error = verifyQueueGraphPlan(plan);
   ASSERT_TRUE(bool(error));
-  EXPECT_NE(llvm::toString(std::move(error)).find(
-                "output presence ordinals must be sorted"),
+  EXPECT_NE(llvm::toString(std::move(error))
+                .find("output presence ordinals must be sorted"),
             std::string::npos);
 }
 
@@ -2126,9 +2340,9 @@ TEST(QueueGraphPlanTest, RejectsDuplicateOutputPresenceOrdinal) {
   plan.blocks[1].outputPresence[1].ordinal = 0;
   auto error = verifyQueueGraphPlan(plan);
   ASSERT_TRUE(bool(error));
-  EXPECT_NE(llvm::toString(std::move(error)).find(
-                "cover each output exactly once"),
-            std::string::npos);
+  EXPECT_NE(
+      llvm::toString(std::move(error)).find("cover each output exactly once"),
+      std::string::npos);
 }
 
 TEST(QueueGraphPlanTest, EmitsHeterogeneousBarrierForBothBackends) {
@@ -2254,8 +2468,7 @@ TEST(QueueGraphPlanTest, EmitsTypedDependencyForBothBackends) {
 TEST(QueueGraphPlanTest, ScheduleV2UsesPersistentGfsimAndRejectsPycUntilLanes) {
   QueueGraphPlan plan;
   plan.system = "schedule_v2";
-  plan.queues = {{"input", "i8", "/", 4, 1},
-                 {"output", "i8", "/", 4, 1}};
+  plan.queues = {{"input", "i8", "/", 4, 1}, {"output", "i8", "/", 4, 1}};
   plan.blocks.push_back({"source", "input", "/", {}, {"input"}, {4}, {1}});
   QueueBlockPlan schedule{"dependency", "output", "/", {"input"},
                           {"output"},   {4},      {1}};
@@ -2308,10 +2521,8 @@ TEST(QueueGraphPlanTest, ScheduleV2UsesPersistentGfsimAndRejectsPycUntilLanes) {
   auto directRoot = verifyQueueGraphPlan(plan);
   EXPECT_FALSE(bool(directRoot)) << llvm::toString(std::move(directRoot));
   auto directRootCpp = generateQueueGraphCpp(plan);
-  ASSERT_TRUE(bool(directRootCpp))
-      << llvm::toString(directRootCpp.takeError());
-  EXPECT_NE(directRootCpp->find(
-                "gfsim::Schedule<gfsim::UInt<8>, 4, 2, 255"),
+  ASSERT_TRUE(bool(directRootCpp)) << llvm::toString(directRootCpp.takeError());
+  EXPECT_NE(directRootCpp->find("gfsim::Schedule<gfsim::UInt<8>, 4, 2, 255"),
             std::string::npos);
 
   const QueueBlockPlan validProvider = plan.blocks[1];
@@ -2465,9 +2676,12 @@ TEST(QueueGraphPlanTest, EmitsQueuePredicateAsPycComparison) {
     bool negated;
   };
   constexpr Case cases[] = {
-      {"eq", "predicate = \"eq\"", false},   {"ne", "predicate = \"eq\"", true},
-      {"slt", "predicate = \"slt\"", false}, {"sle", "predicate = \"slt\"", true},
-      {"sgt", "predicate = \"slt\"", false}, {"sge", "predicate = \"slt\"", true},
+      {"eq", "predicate = \"eq\"", false},
+      {"ne", "predicate = \"eq\"", true},
+      {"slt", "predicate = \"slt\"", false},
+      {"sle", "predicate = \"slt\"", true},
+      {"sgt", "predicate = \"slt\"", false},
+      {"sge", "predicate = \"slt\"", true},
   };
   for (const Case &testCase : cases) {
     SCOPED_TRACE(testCase.predicate.str());
@@ -2544,9 +2758,10 @@ TEST(QueueGraphPlanTest, FlatGeneratorPreservesOrderedRepeatedWritesPerOwner) {
   ASSERT_TRUE(freezeQueueGraph(*module));
   auto plan = buildQueueGraphPlan(*module);
   ASSERT_TRUE(bool(plan)) << llvm::toString(plan.takeError());
-  QueueBlockPlan &firing = *llvm::find_if(
-      plan->blocks,
-      [](const QueueBlockPlan &block) { return block.kind == "firing"; });
+  QueueBlockPlan &firing =
+      *llvm::find_if(plan->blocks, [](const QueueBlockPlan &block) {
+        return block.kind == "firing";
+      });
   ASSERT_EQ(firing.stateWrites.size(), 1u);
   StateWritePlan secondOwner = firing.stateWrites.front();
   secondOwner.table = "shadow";
@@ -2593,10 +2808,10 @@ TEST(QueueGraphPlanTest,
   auto generated = generateQueueGraphCpp(plan);
   ASSERT_TRUE(bool(generated)) << llvm::toString(generated.takeError());
   llvm::StringRef source(*generated);
-  ASSERT_NE(source.find(
-                "const auto &stored = table_table->at(static_cast<size_t>("
-                "index))"),
-            llvm::StringRef::npos)
+  ASSERT_NE(
+      source.find("const auto &stored = table_table->at(static_cast<size_t>("
+                  "index))"),
+      llvm::StringRef::npos)
       << source.str();
   EXPECT_NE(source.find("const auto &nested = stored.nested"),
             llvm::StringRef::npos);
@@ -2656,13 +2871,12 @@ int main() {
 }
 
 TEST(QueueGraphPlanTest, BorrowsCheckedAggregateReadsWithoutDroppingChecks) {
-  constexpr llvm::StringLiteral entryType =
-      "!ac.struct<@types::@CheckedEntry>";
+  constexpr llvm::StringLiteral entryType = "!ac.struct<@types::@CheckedEntry>";
   mlir::MLIRContext context;
   context.loadDialect<ac::ACIRDialect, mlir::DLTIDialect>();
   auto module = mlir::parseSourceFile<mlir::ModuleOp>(
-      ACIR_TEST_SOURCE_DIR
-      "/tests/mlir/agentic-circuit/CodeGen/table-endpoint-value-constraints.mlir",
+      ACIR_TEST_SOURCE_DIR "/tests/mlir/agentic-circuit/CodeGen/"
+                           "table-endpoint-value-constraints.mlir",
       &context);
   ASSERT_TRUE(module);
   ASSERT_TRUE(freezeQueueGraph(*module));
@@ -2701,10 +2915,10 @@ TEST(QueueGraphPlanTest, BorrowsCheckedAggregateReadsWithoutDroppingChecks) {
   ASSERT_NE(read, nullptr);
   const std::string readResult = read->result;
   read->type = entryType.str();
-  auto position = llvm::find_if(
-      readBlock->expressions, [&](const QueueExpressionPlan &expression) {
-        return expression.result == readResult;
-      });
+  auto position = llvm::find_if(readBlock->expressions,
+                                [&](const QueueExpressionPlan &expression) {
+                                  return expression.result == readResult;
+                                });
   ASSERT_NE(position, readBlock->expressions.end());
   readBlock->expressions.insert(
       std::next(position),
@@ -2734,17 +2948,17 @@ TEST(QueueGraphPlanTest, OwnerWriteExclusionProofUsesBoundedSharedDagKeys) {
   ASSERT_TRUE(freezeQueueGraph(*module));
   auto plan = buildQueueGraphPlan(*module);
   ASSERT_TRUE(bool(plan)) << llvm::toString(plan.takeError());
-  QueueBlockPlan &firing = *llvm::find_if(
-      plan->blocks,
-      [](const QueueBlockPlan &block) { return block.kind == "firing"; });
+  QueueBlockPlan &firing =
+      *llvm::find_if(plan->blocks, [](const QueueBlockPlan &block) {
+        return block.kind == "firing";
+      });
 
   firing.expressions.push_back(
       {"same", "cmp", "i1", {"item", "item"}, "", "eq"});
   std::string previous = "same";
   for (unsigned index = 0; index < 64; ++index) {
     const std::string next = "shared" + std::to_string(index);
-    firing.expressions.push_back(
-        {next, "and", "i1", {previous, previous}});
+    firing.expressions.push_back({next, "and", "i1", {previous, previous}});
     previous = next;
   }
   firing.expressions.push_back(
@@ -2804,16 +3018,17 @@ TEST(QueueGraphPlanTest, RecomputesBoundedFiringIndexConstraints) {
     plan.tables.front().entries = 5;
     plan.tables.front().shape = {5};
     plan.tables.front().axisWidths = {3};
-    QueueBlockPlan &firing = *llvm::find_if(
-        plan.blocks,
-        [](const QueueBlockPlan &block) { return block.kind == "firing"; });
+    QueueBlockPlan &firing =
+        *llvm::find_if(plan.blocks, [](const QueueBlockPlan &block) {
+          return block.kind == "firing";
+        });
     firing.stateWrites.front().index = index.str();
     return plan;
   };
   auto firing = [](QueueGraphPlan &plan) -> QueueBlockPlan & {
-    return *llvm::find_if(
-        plan.blocks,
-        [](const QueueBlockPlan &block) { return block.kind == "firing"; });
+    return *llvm::find_if(plan.blocks, [](const QueueBlockPlan &block) {
+      return block.kind == "firing";
+    });
   };
   auto expectAccepted = [&](QueueGraphPlan plan) {
     auto error = verifyQueueGraphPlan(plan);
@@ -2837,12 +3052,12 @@ TEST(QueueGraphPlanTest, RecomputesBoundedFiringIndexConstraints) {
   expectRejected(configure(*extracted, "i3", "item"));
 
   QueueGraphPlan arithmetic = configure(*extracted, "i3", "sum");
-  firing(arithmetic).expressions.push_back(
-      {"two_a", "constant", "i3", {}, "", "", "2 : i3"});
-  firing(arithmetic).expressions.push_back(
-      {"two_b", "constant", "i3", {}, "", "", "2 : i3"});
-  firing(arithmetic).expressions.push_back(
-      {"sum", "add", "i3", {"two_a", "two_b"}});
+  firing(arithmetic)
+      .expressions.push_back({"two_a", "constant", "i3", {}, "", "", "2 : i3"});
+  firing(arithmetic)
+      .expressions.push_back({"two_b", "constant", "i3", {}, "", "", "2 : i3"});
+  firing(arithmetic)
+      .expressions.push_back({"sum", "add", "i3", {"two_a", "two_b"}});
   expectAccepted(arithmetic);
 
   QueueGraphPlan masked = configure(*extracted, "i3", "masked");
@@ -2873,8 +3088,8 @@ TEST(QueueGraphPlanTest, RecomputesTableEndpointAndObservationConstraints) {
   mlir::MLIRContext context;
   context.loadDialect<ac::ACIRDialect, mlir::DLTIDialect>();
   auto module = mlir::parseSourceFile<mlir::ModuleOp>(
-      ACIR_TEST_SOURCE_DIR
-      "/tests/mlir/agentic-circuit/CodeGen/table-endpoint-value-constraints.mlir",
+      ACIR_TEST_SOURCE_DIR "/tests/mlir/agentic-circuit/CodeGen/"
+                           "table-endpoint-value-constraints.mlir",
       &context);
   ASSERT_TRUE(module);
   ASSERT_TRUE(freezeQueueGraph(*module));
@@ -3018,14 +3233,12 @@ TEST(QueueGraphPlanTest,
     if (expression.kind == "table_selection_index_ref" ||
         expression.kind == "table_selection_valid_ref")
       expression.selectionCount = 2;
-  QueueExpressionPlan secondIndex{
-      "i1", "table_selection_index_ref", "i2", {}};
+  QueueExpressionPlan secondIndex{"i1", "table_selection_index_ref", "i2", {}};
   secondIndex.field = selection.name;
   secondIndex.table = selection.table;
   secondIndex.selectionCount = 2;
   secondIndex.laneOrdinal = 1;
-  QueueExpressionPlan secondValid{
-      "v1", "table_selection_valid_ref", "i1", {}};
+  QueueExpressionPlan secondValid{"v1", "table_selection_valid_ref", "i1", {}};
   secondValid.field = selection.name;
   secondValid.table = selection.table;
   secondValid.selectionCount = 2;
@@ -3049,24 +3262,27 @@ TEST(QueueGraphPlanTest,
 TEST(QueueGraphPlanTest, GeneratedRoundRobinSelectionAdvancesOnAcceptedFiring) {
   QueueGraphPlan plan = inlineFirstChoicePlan(4, 2);
   plan.system = "shared_round_robin";
-  plan.tableMatches = {{"match", "entries", "/", "i4",
+  plan.tableMatches = {{"match",
+                        "entries",
+                        "/",
+                        "i4",
                         {{"present", "constant", "i1", {}, "", "", "true"}},
                         "present"}};
-  TableSelectionPlan selection{"selection", "entries", "/", "match",
-                               "round_robin", "i2", {}, ""};
+  TableSelectionPlan selection{"selection",   "entries", "/", "match",
+                               "round_robin", "i2",      {},  ""};
   selection.count = 2;
   selection.stableId = "entries/rr";
   selection.initialCursor = 2;
   plan.tableSelections = {selection};
   QueueBlockPlan &firing = plan.blocks[1];
-  QueueExpressionPlan index{"selected_index", "table_selection_index_ref",
-                            "i2", {}};
+  QueueExpressionPlan index{
+      "selected_index", "table_selection_index_ref", "i2", {}};
   index.field = "selection";
   index.table = "entries";
   index.predicate = "round_robin";
   index.selectionCount = 2;
-  QueueExpressionPlan valid{"selected_valid", "table_selection_valid_ref",
-                            "i1", {}};
+  QueueExpressionPlan valid{
+      "selected_valid", "table_selection_valid_ref", "i1", {}};
   valid.field = "selection";
   valid.table = "entries";
   valid.predicate = "round_robin";
@@ -3085,7 +3301,8 @@ TEST(QueueGraphPlanTest, GeneratedRoundRobinSelectionAdvancesOnAcceptedFiring) {
   secondValid.predicate = "round_robin";
   secondValid.selectionCount = 2;
   secondValid.laneOrdinal = 1;
-  QueueExpressionPlan result{"result", "record_create",
+  QueueExpressionPlan result{"result",
+                             "record_create",
                              "!ac.struct<@types::@Choice4>",
                              {"selected_index", "selected_valid",
                               "second_selected_index",
@@ -3151,9 +3368,10 @@ module attributes {ac.contract_epoch = "0.5", ac.model_kind = "queue_graph", ac.
   ASSERT_NE(grouped, plan->blocks.end());
   EXPECT_EQ(grouped->selectionCount, 2u);
   EXPECT_EQ(grouped->outputs.size(), 2u);
-  EXPECT_EQ(llvm::count_if(plan->blocks, [](const QueueBlockPlan &block) {
-              return block.kind == "table_read";
-            }),
+  EXPECT_EQ(llvm::count_if(plan->blocks,
+                           [](const QueueBlockPlan &block) {
+                             return block.kind == "table_read";
+                           }),
             0u);
   auto generated = generateQueueGraphCpp(*plan);
   ASSERT_TRUE(bool(generated)) << llvm::toString(generated.takeError());
@@ -3195,10 +3413,10 @@ TEST(QueueGraphPlanTest, FirstTableChooseUsesSharedScalarPriorityEncoder) {
   };
   constexpr Case cases[] = {
       {1, 1, 1, 1, 0, 0},
-      {16, 4, uint64_t{1} << 15, (uint64_t{1} << 9) | (uint64_t{1} << 3),
-       15, 3},
-      {64, 6, uint64_t{1} << 63, (uint64_t{1} << 63) | (uint64_t{1} << 7),
-       63, 7},
+      {16, 4, uint64_t{1} << 15, (uint64_t{1} << 9) | (uint64_t{1} << 3), 15,
+       3},
+      {64, 6, uint64_t{1} << 63, (uint64_t{1} << 63) | (uint64_t{1} << 7), 63,
+       7},
   };
   for (const Case &testCase : cases) {
     SCOPED_TRACE(testCase.width);
@@ -3212,9 +3430,8 @@ TEST(QueueGraphPlanTest, FirstTableChooseUsesSharedScalarPriorityEncoder) {
     EXPECT_EQ(cpp->find("for (std::size_t index = 0; index < table"),
               cpp->rfind("for (std::size_t index = 0; index < table"));
     size_t encoders = 0;
-    for (size_t offset = 0;
-         (offset = cpp->find("gfsim::priorityEncode(", offset)) !=
-         std::string::npos;
+    for (size_t offset = 0; (offset = cpp->find("gfsim::priorityEncode(",
+                                                offset)) != std::string::npos;
          offset += 22)
       ++encoders;
     EXPECT_EQ(encoders, 1u);
@@ -3232,13 +3449,12 @@ TEST(QueueGraphPlanTest, FirstTableChooseUsesSharedScalarPriorityEncoder) {
     harness << "\nint main() {\n"
             << "  auto choose = [](auto mask) {\n    " << generatedStatement
             << "    return choice_selected_index;\n  };\n"
-            << "  auto zero = choose(gfsim::UInt<"
-            << testCase.width
+            << "  auto zero = choose(gfsim::UInt<" << testCase.width
             << ">{0});\n"
             << "  auto single = choose(gfsim::UInt<" << testCase.width << ">{"
             << testCase.single << "ULL});\n"
-            << "  auto multiple = choose(gfsim::UInt<" << testCase.width
-            << ">{" << testCase.multiple << "ULL});\n"
+            << "  auto multiple = choose(gfsim::UInt<" << testCase.width << ">{"
+            << testCase.multiple << "ULL});\n"
             << "  return !zero.valid && zero.index == 0 && single.valid && "
                "single.index == "
             << testCase.expectedSingle
@@ -3254,17 +3470,16 @@ TEST(QueueGraphPlanTest, FusesPureSameSnapshotMatchesAndSharesPredicateDag) {
       {"value", "get", "i1", {"entry"}, "valid"}));
   EXPECT_FALSE(isEffectFreeTableMatchExpression(
       {"value", "table_get", "i1", {"index"}, "", "", "", "entries"}));
-  EXPECT_FALSE(isEffectFreeTableMatchExpression(
-      {"value", "slot_get_value", "i1", {}}));
+  EXPECT_FALSE(
+      isEffectFreeTableMatchExpression({"value", "slot_get_value", "i1", {}}));
   QueueExpressionPlan nested{"value", "get", "i1", {"entry"}, "valid"};
-  nested.nestedExpressions = {
-      {"inner", "constant", "i1", {}, "", "", "true"}};
+  nested.nestedExpressions = {{"inner", "constant", "i1", {}, "", "", "true"}};
   EXPECT_FALSE(isEffectFreeTableMatchExpression(nested));
   auto loopCount = [](llvm::StringRef source) {
     size_t count = 0;
     for (size_t offset = 0;
-         (offset = source.find("for (std::size_t index = 0; index < ", offset)) !=
-         llvm::StringRef::npos;
+         (offset = source.find("for (std::size_t index = 0; index < ",
+                               offset)) != llvm::StringRef::npos;
          offset += 8)
       ++count;
     return count;
@@ -3285,13 +3500,12 @@ TEST(QueueGraphPlanTest, FusesPureSameSnapshotMatchesAndSharesPredicateDag) {
 
   QueueGraphPlan differentCapture = dualInlineMatchPlan();
   QueueBlockPlan &firing = differentCapture.blocks[1];
-  firing.expressions.insert(
-      firing.expressions.begin(),
-      {"other", "constant", "i1", {}, "", "", "false"});
-  auto secondMask = llvm::find_if(
-      firing.expressions, [](const QueueExpressionPlan &expression) {
-        return expression.result == "second_mask";
-      });
+  firing.expressions.insert(firing.expressions.begin(),
+                            {"other", "constant", "i1", {}, "", "", "false"});
+  auto secondMask = llvm::find_if(firing.expressions,
+                                  [](const QueueExpressionPlan &expression) {
+                                    return expression.result == "second_mask";
+                                  });
   ASSERT_NE(secondMask, firing.expressions.end());
   secondMask->operands = {"other"};
   for (QueueExpressionPlan &nested : secondMask->nestedExpressions)
@@ -3310,10 +3524,16 @@ TEST(QueueGraphPlanTest, FusesPureSameSnapshotMatchesAndSharesPredicateDag) {
   snapshotMask.nestedExpressions.insert(
       snapshotMask.nestedExpressions.begin(),
       {{"snapshot_index", "constant", "i2", {}, "", "", "0 : i2"},
-       {"snapshot_value", "table_get", "i1", {"snapshot_index"}, "", "",
-        "", "entries"}});
-  QueueExpressionPlan snapshotSet{"snapshot", "snapshot_set",
-                                  "state_reservation", {}};
+       {"snapshot_value",
+        "table_get",
+        "i1",
+        {"snapshot_index"},
+        "",
+        "",
+        "",
+        "entries"}});
+  QueueExpressionPlan snapshotSet{
+      "snapshot", "snapshot_set", "state_reservation", {}};
   snapshotSet.field = "mask";
   snapshotSet.table = "entries";
   snapshotSet.predicate = "complete";
@@ -3333,8 +3553,7 @@ TEST(QueueGraphPlanTest, FusesPureSameSnapshotMatchesAndSharesPredicateDag) {
       candidate.nestedYields = {"entry"};
     }
   auto rootYieldCpp = generateQueueGraphCpp(rootYield);
-  ASSERT_TRUE(bool(rootYieldCpp))
-      << llvm::toString(rootYieldCpp.takeError());
+  ASSERT_TRUE(bool(rootYieldCpp)) << llvm::toString(rootYieldCpp.takeError());
   EXPECT_EQ(loopCount(*rootYieldCpp), 1u);
   EXPECT_EQ(llvm::StringRef(*rootYieldCpp).count("fused_match_"), 4u);
   expectCppCompiles(*rootYieldCpp);
@@ -3359,10 +3578,10 @@ TEST(QueueGraphPlanTest, FusesPureSameSnapshotMatchesAndSharesPredicateDag) {
 
   QueueGraphPlan lateCapture = dualInlineMatchPlan();
   QueueBlockPlan &lateFiring = lateCapture.blocks[1];
-  auto lateSecond = llvm::find_if(
-      lateFiring.expressions, [](const QueueExpressionPlan &candidate) {
-        return candidate.result == "second_mask";
-      });
+  auto lateSecond = llvm::find_if(lateFiring.expressions,
+                                  [](const QueueExpressionPlan &candidate) {
+                                    return candidate.result == "second_mask";
+                                  });
   ASSERT_NE(lateSecond, lateFiring.expressions.end());
   lateFiring.expressions.insert(
       lateSecond, {"late", "constant", "i1", {}, "", "", "false"});
@@ -3379,8 +3598,7 @@ TEST(QueueGraphPlanTest, FusesPureSameSnapshotMatchesAndSharesPredicateDag) {
   llvm::consumeError(std::move(lateError));
 
   QueueGraphPlan differentTable = dualInlineMatchPlan();
-  differentTable.tables.push_back(
-      {"other", "i1", 4, 0, "table/other", "/"});
+  differentTable.tables.push_back({"other", "i1", 4, 0, "table/other", "/"});
   differentTable.tableReads.push_back(
       {"other", "other_read", "/", "", "other_unused", 1, 1});
   for (QueueExpressionPlan &candidate : differentTable.blocks[1].expressions)
@@ -3479,10 +3697,9 @@ TEST(QueueGraphPlanTest,
 
   auto generated = generateQueueGraphCpp(plan);
   ASSERT_TRUE(bool(generated)) << llvm::toString(generated.takeError());
-  EXPECT_NE(generated->find(
-                "std::vector<gfsim::UInt<1>>{gfsim::UInt<1>{0}, "
-                "gfsim::UInt<1>{1}, gfsim::UInt<1>{1}, "
-                "gfsim::UInt<1>{0}}"),
+  EXPECT_NE(generated->find("std::vector<gfsim::UInt<1>>{gfsim::UInt<1>{0}, "
+                            "gfsim::UInt<1>{1}, gfsim::UInt<1>{1}, "
+                            "gfsim::UInt<1>{0}}"),
             std::string::npos);
   EXPECT_NE(generated->find("TableDomainProjection(4, "), std::string::npos);
 
@@ -3555,8 +3772,7 @@ TEST(QueueGraphPlanTest,
   writer.expressions[1].table = "tiles";
   writer.yields = {"flat", "enabled", "value"};
   plan.blocks.push_back(std::move(writer));
-  plan.tableWrites = {{"tiles", "writer", "/", "input", "replace",
-                       {"$entry"}}};
+  plan.tableWrites = {{"tiles", "writer", "/", "input", "replace", {"$entry"}}};
 
   auto generated = generateQueueGraphCpp(plan);
   ASSERT_TRUE(bool(generated)) << llvm::toString(generated.takeError());
@@ -3606,20 +3822,17 @@ TEST(QueueGraphPlanTest, TypedAggregateTableImageEmitsAndResetRestoresIt) {
        table.entryType,
        "",
        {"value", "valid"},
-       {{"integer", "i8", "7", {}, {}},
-        {"integer", "i1", "1", {}, {}}}},
+       {{"integer", "i8", "7", {}, {}}, {"integer", "i1", "1", {}, {}}}},
       {"struct",
        table.entryType,
        "",
        {"value", "valid"},
-       {{"integer", "i8", "9", {}, {}},
-        {"integer", "i1", "0", {}, {}}}},
+       {{"integer", "i8", "9", {}, {}}, {"integer", "i1", "0", {}, {}}}},
   };
 
   auto generated = generateQueueGraphCpp(plan);
   ASSERT_TRUE(bool(generated)) << llvm::toString(generated.takeError());
-  EXPECT_NE(generated->find(
-                "InitEntry{gfsim::UInt<8>{7}, gfsim::UInt<1>{1}}"),
+  EXPECT_NE(generated->find("InitEntry{gfsim::UInt<8>{7}, gfsim::UInt<1>{1}}"),
             std::string::npos);
 
   std::string executable = *generated;
@@ -3661,8 +3874,8 @@ TEST(QueueGraphPlanTest, KeyedTableChooseRetainsSelectionLoop) {
   auto loopCount = [](llvm::StringRef source) {
     size_t count = 0;
     for (size_t offset = 0;
-         (offset = source.find("for (std::size_t index = 0; index < ", offset)) !=
-         llvm::StringRef::npos;
+         (offset = source.find("for (std::size_t index = 0; index < ",
+                               offset)) != llvm::StringRef::npos;
          offset += 8)
       ++count;
     return count;
@@ -3701,13 +3914,19 @@ TEST(QueueGraphPlanTest, KeyedTableChooseRetainsSelectionLoop) {
     expression.predicate = "min";
     expression.nestedExpressions = {
         {"snapshot_index", "constant", "i4", {}, "", "", "0 : i4"},
-        {"snapshot_value", "table_get", "i1", {"snapshot_index"}, "", "",
-         "", "entries"},
+        {"snapshot_value",
+         "table_get",
+         "i1",
+         {"snapshot_index"},
+         "",
+         "",
+         "",
+         "entries"},
     };
     expression.nestedYields = {"snapshot_value"};
   }
-  QueueExpressionPlan snapshot{"snapshot", "snapshot_set",
-                               "state_reservation", {}};
+  QueueExpressionPlan snapshot{
+      "snapshot", "snapshot_set", "state_reservation", {}};
   snapshot.field = "selected_index";
   snapshot.table = "entries";
   snapshot.predicate = "complete";
@@ -3725,26 +3944,27 @@ TEST(QueueGraphPlanTest, KeyedTableChooseRetainsSelectionLoop) {
   widePlan.queues[0].payloadType = "i1";
   widePlan.payloads[0].fields[0] = {"index", "i7", 7};
   widePlan.blocks[1].expressions.clear();
-  QueueExpressionPlan wideMask{"mask", "table_match",
-                               "!ac.value_array<2 x i64>", {}};
+  QueueExpressionPlan wideMask{
+      "mask", "table_match", "!ac.value_array<2 x i64>", {}};
   wideMask.table = "entries";
   wideMask.nestedExpressions = {
       {"matched", "constant", "i1", {}, "", "", "true"}};
   wideMask.nestedYields = {"matched"};
   widePlan.blocks[1].expressions.push_back(std::move(wideMask));
-  QueueExpressionPlan wideIndex{"selected_index", "table_choose_index", "i7",
-                                {"mask"}};
+  QueueExpressionPlan wideIndex{
+      "selected_index", "table_choose_index", "i7", {"mask"}};
   wideIndex.table = "entries";
   wideIndex.predicate = "first";
   widePlan.blocks[1].expressions.push_back(wideIndex);
-  QueueExpressionPlan wideValid{"selected_valid", "table_choose_valid", "i1",
-                                {"mask"}};
+  QueueExpressionPlan wideValid{
+      "selected_valid", "table_choose_valid", "i1", {"mask"}};
   wideValid.table = "entries";
   wideValid.predicate = "first";
   widePlan.blocks[1].expressions.push_back(wideValid);
-  QueueExpressionPlan wideResult{
-      "result", "record_create", widePlan.queues[1].payloadType,
-      {"selected_index", "selected_valid"}};
+  QueueExpressionPlan wideResult{"result",
+                                 "record_create",
+                                 widePlan.queues[1].payloadType,
+                                 {"selected_index", "selected_valid"}};
   wideResult.width = 8;
   widePlan.blocks[1].expressions.push_back(std::move(wideResult));
   auto wideCpp = generateQueueGraphCpp(widePlan);
@@ -3769,13 +3989,12 @@ TEST(QueueGraphPlanTest, VerifiesInlineTableChooseProvenanceAndPairs) {
   rejected(std::move(oversized), "mask width");
 
   QueueGraphPlan arbitraryMask = inlineFirstChoicePlan(4, 2);
-  arbitraryMask.blocks[1].expressions[0] =
-      {"mask", "or", "i4", {"item", "item"}};
+  arbitraryMask.blocks[1].expressions[0] = {
+      "mask", "or", "i4", {"item", "item"}};
   rejected(std::move(arbitraryMask), "same Table match");
 
   QueueGraphPlan wrongTable = inlineFirstChoicePlan(4, 2);
-  wrongTable.tables.push_back(
-      {"other", "i1", 4, 0, "table/other", "/"});
+  wrongTable.tables.push_back({"other", "i1", 4, 0, "table/other", "/"});
   wrongTable.tableReads.push_back(
       {"other", "other_read", "/", "", "other_unused", 1, 1});
   wrongTable.blocks[1].expressions[1].table = "other";
@@ -3814,15 +4033,20 @@ TEST(QueueGraphPlanTest, VerifiesInlineTableChooseProvenanceAndPairs) {
 
   auto appendKeyedPair = [](QueueGraphPlan &plan, llvm::StringRef suffix,
                             llvm::StringRef policy, llvm::StringRef literal) {
-    QueueExpressionPlan index{"index_" + suffix.str(),
-                              "table_choose_index", "i2", {"mask"}};
+    QueueExpressionPlan index{
+        "index_" + suffix.str(), "table_choose_index", "i2", {"mask"}};
     index.table = "entries";
     index.predicate = policy.str();
-    index.nestedExpressions = {{"key_" + suffix.str(), "constant", "i8", {},
-                                "", "", literal.str() + " : i8"}};
+    index.nestedExpressions = {{"key_" + suffix.str(),
+                                "constant",
+                                "i8",
+                                {},
+                                "",
+                                "",
+                                literal.str() + " : i8"}};
     index.nestedYields = {"key_" + suffix.str()};
-    QueueExpressionPlan valid{"valid_" + suffix.str(),
-                              "table_choose_valid", "i1", {"mask"}};
+    QueueExpressionPlan valid{
+        "valid_" + suffix.str(), "table_choose_valid", "i1", {"mask"}};
     valid.table = index.table;
     valid.predicate = index.predicate;
     valid.nestedExpressions = index.nestedExpressions;
@@ -3870,8 +4094,7 @@ TEST(QueueGraphPlanTest, InlineMultiSelectionPreservesSegmentedDistinctLanes) {
   ASSERT_FALSE(bool(error)) << llvm::toString(std::move(error));
   auto generated = generateQueueGraphCpp(plan);
   ASSERT_TRUE(bool(generated)) << llvm::toString(generated.takeError());
-  EXPECT_NE(generated->find("if (global_index == choice_"),
-            std::string::npos);
+  EXPECT_NE(generated->find("if (global_index == choice_"), std::string::npos);
   expectCppCompiles(*generated);
 }
 
@@ -3882,8 +4105,7 @@ TEST(QueueGraphPlanTest, DuplicateKeyedChoicesKeepIndependentSnapshotEffects) {
     expression.predicate = "min";
     expression.nestedExpressions = {
         {"key_index", "constant", "i4", {}, "", "", "0 : i4"},
-        {"key_value", "table_get", "i1", {"key_index"}, "", "", "",
-         "entries"},
+        {"key_value", "table_get", "i1", {"key_index"}, "", "", "", "entries"},
     };
     expression.nestedYields = {"key_value"};
   };
@@ -3932,8 +4154,7 @@ TEST(QueueGraphPlanTest, DistinctKeyMetadataGeneratesIndependentScans) {
     expression.predicate = "min";
     expression.nestedExpressions = {
         {"key_index", "constant", "i4", {}, "", "", "0 : i4"},
-        {"key_value", "table_get", "i8", {"key_index"}, "", "", "",
-         "entries"},
+        {"key_value", "table_get", "i8", {"key_index"}, "", "", "", "entries"},
         {"key_match", "masked_match", "i1", {"key_value"}},
     };
     expression.nestedExpressions.back().mask = mask.str();
@@ -4251,12 +4472,12 @@ TEST(QueueGraphPlanTest, DisplayNamesDoNotChangeStructuredFingerprints) {
   ASSERT_TRUE(displayedModule);
   displayedModule->setAttr(
       "ac.input_display_names",
-      mlir::ArrayAttr::get(
-          &context, {mlir::StringAttr::get(&context, "request")}));
+      mlir::ArrayAttr::get(&context,
+                           {mlir::StringAttr::get(&context, "request")}));
   displayedModule->setAttr(
       "ac.output_display_names",
-      mlir::ArrayAttr::get(
-          &context, {mlir::StringAttr::get(&context, "response")}));
+      mlir::ArrayAttr::get(&context,
+                           {mlir::StringAttr::get(&context, "response")}));
   bool labeled = false;
   displayed->walk([&](ac::VarAddOp operation) {
     if (labeled)
@@ -4265,12 +4486,12 @@ TEST(QueueGraphPlanTest, DisplayNamesDoNotChangeStructuredFingerprints) {
                        mlir::StringAttr::get(&context, "next_value"));
     operation->setAttr("ac.source_file",
                        mlir::StringAttr::get(&context, "src/readable.py"));
-    operation->setAttr("ac.source_line",
-                       mlir::IntegerAttr::get(
-                           mlir::IntegerType::get(&context, 64), 12));
-    operation->setAttr("ac.source_column",
-                       mlir::IntegerAttr::get(
-                           mlir::IntegerType::get(&context, 64), 3));
+    operation->setAttr(
+        "ac.source_line",
+        mlir::IntegerAttr::get(mlir::IntegerType::get(&context, 64), 12));
+    operation->setAttr(
+        "ac.source_column",
+        mlir::IntegerAttr::get(mlir::IntegerType::get(&context, 64), 3));
     labeled = true;
   });
   ASSERT_TRUE(labeled);
@@ -4323,8 +4544,7 @@ TEST(QueueGraphPlanTest, RejectsMalformedModuleInterfaceDisplayNames) {
           "must be an array of strings");
   rejects(mlir::ArrayAttr::get(&context, {}),
           "must match the module interface arity");
-  rejects(mlir::ArrayAttr::get(
-              &context, {mlir::StringAttr::get(&context, "")}),
+  rejects(mlir::ArrayAttr::get(&context, {mlir::StringAttr::get(&context, "")}),
           "must contain only non-empty strings");
 }
 

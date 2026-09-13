@@ -32,6 +32,12 @@ from .primitive_widths import (
     primitive_count_width,
     primitive_priority_index_width,
 )
+from .static_expr import (
+    StaticIntExpression,
+    StaticIntExpressionError,
+    count_width,
+    index_width,
+)
 from .types import (
     ACType,
     ArrayType,
@@ -64,6 +70,8 @@ __all__ = (
     "PRIMITIVE_MAXIMUM_INPUT_WIDTH",
     "PRIMITIVE_MINIMUM_INPUT_WIDTH",
     "StructType",
+    "StaticIntExpression",
+    "StaticIntExpressionError",
     "TupleType",
     "Unknown",
     "ValueConstraint",
@@ -74,6 +82,7 @@ __all__ = (
     "finite",
     "finite_values",
     "integer_bounds",
+    "index_width",
     "is_exhaustive",
     "is_primitive_input_width",
     "join",
@@ -84,6 +93,7 @@ __all__ = (
     "prove_within",
     "primitive_count_width",
     "primitive_priority_index_width",
+    "count_width",
     "transfer_bits",
     "transfer_compare",
     "transfer_static_binary",

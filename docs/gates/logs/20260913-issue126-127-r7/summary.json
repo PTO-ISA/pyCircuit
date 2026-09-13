@@ -1,0 +1,54 @@
+{
+  "run_id": "20260913-issue126-127-r7",
+  "status": "pass",
+  "issues": [126, 127],
+  "decisions": [245, 246],
+  "architect_review": "pass-clear",
+  "checkout_policy": "current checkout artifacts only",
+  "toolchain": {
+    "build": ".pycircuit_out/issue126-127/integrated/build",
+    "install": ".pycircuit_out/issue126-127/integrated/install",
+    "llvm": "22.1.8"
+  },
+  "evidence": [
+    {
+      "name": "agentic-circuit-g0-g1-g2",
+      "command": "PATH=.pycircuit_out/ac-venv/bin:$PATH PYC_GATE_RUN_ID=20260913-issue126-127-r7 AC_GATE_BUILD_ROOT=.pycircuit_out/issue126-127/integrated/build AC_GATE_TOOLCHAIN_ROOT=.pycircuit_out/issue126-127/integrated/install PYC_BUILD_JOBS=4 PYC_TEST_JOBS=4 bash flows/scripts/run_agentic_circuit.sh",
+      "result": "pass",
+      "details": "50 contract tests, 332 frontend tests with 1 conditional skip, 53 CLI tests with 3 conditional skips, 218 ACIR lit tests, 18 CTest targets, and every G2 backend/runtime lane passed"
+    },
+    {
+      "name": "unit",
+      "command": "pytest -q tests/unit -m unit",
+      "result": "147 passed"
+    },
+    {
+      "name": "feature-generation-and-interface-verification",
+      "command": "pytest -q tests/integration/agentic-circuit/e2e/test_frontend_composition_features.py",
+      "result": "3 passed",
+      "details": "recursive and scalar dependent types, equal scalar/struct identities across system-module boundaries, two distinct module specializations, record spread, one-hot lowering, sparse 4-bit enum, and unsigned 64-bit enum passed freeze, QueueGraph, and admitted codegen paths"
+    },
+    {
+      "name": "feature-runtime",
+      "command": "pytest -q tests/integration/agentic-circuit/e2e/test_frontend_composition_runtime.py tests/integration/agentic-circuit/e2e/test_parameterized_type_runtime.py tests/integration/agentic-circuit/e2e/test_bit_primitive_parity.py",
+      "result": "3 passed",
+      "details": "Distinct composition transactions preserve GFSim data and match PYC C++/Verilator accept and output cycles under stalls; a dependent aggregate executes in all three backends; low/high one-hot encoding covers zero, one-hot, and multi-hot inputs"
+    },
+    {
+      "name": "native",
+      "command": "CodeGenTests --gtest_brief=1 && ACIRModelAnalysisTests --gtest_brief=1 && ACIROpsTests --gtest_brief=1",
+      "result": "158 + 28 + 1842 tests passed"
+    },
+    {
+      "name": "documentation-and-contracts",
+      "command": "mkdocs build --strict; check-ir-coverage.py; check-pyc-inventory.py; check-contracts.py; check_decision_status.py",
+      "result": "pass",
+      "details": "The only MkDocs notice is for the pre-existing untracked docs/rfcs/block_inference_binding.md page"
+    },
+    {
+      "name": "agent-skill",
+      "command": "quick_validate.py ~/.codex/skills/agentic-circuit-authoring plus import/JIT smoke",
+      "result": "pass"
+    }
+  ]
+}

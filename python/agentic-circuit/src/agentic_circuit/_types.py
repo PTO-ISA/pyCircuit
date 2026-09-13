@@ -4,10 +4,11 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass
+from enum import Enum
 from typing import TYPE_CHECKING, Generic, Never, TypeVar
 
 if TYPE_CHECKING:
-    from _pycircuit_semantics import BitfieldLayout
+    from _pycircuit_semantics import BitfieldLayout, StaticIntExpression
 
 T = TypeVar("T")
 P = TypeVar("P")
@@ -17,12 +18,18 @@ R = TypeVar("R")
 
 @dataclass(frozen=True, slots=True)
 class ScalarType:
-    width: int
+    width: int | StaticIntExpression
     signed: bool = False
 
     def __post_init__(self) -> None:
-        if type(self.width) is not int or not 1 <= self.width <= 64:
-            raise ValueError("ACPY-TYPE-001: bit width must be in [1, 64]")
+        if type(self.width) is int:
+            if not 1 <= self.width <= 64:
+                raise ValueError("ACPY-TYPE-001: bit width must be in [1, 64]")
+        else:
+            from _pycircuit_semantics import StaticIntExpression
+
+            if not isinstance(self.width, StaticIntExpression):
+                raise ValueError("ACPY-TYPE-001: bit width must be in [1, 64]")
         if type(self.signed) is not bool:
             raise TypeError("ACPY-TYPE-001: signed must be bool")
 
@@ -32,7 +39,7 @@ class BitsFactory:
 
     __slots__ = ()
 
-    def __getitem__(self, width: int) -> ScalarType:
+    def __getitem__(self, width: int | StaticIntExpression) -> ScalarType:
         return ScalarType(width)
 
 
@@ -45,7 +52,12 @@ class ArrayFactory:
     __slots__ = ()
 
     def __getitem__(self, parameters: tuple[int, object]) -> object:
-        from _pycircuit_semantics import ArrayType, BitsType, ValueType
+        from _pycircuit_semantics import (
+            ArrayType,
+            BitsType,
+            StaticIntExpression,
+            ValueType,
+        )
 
         if not isinstance(parameters, tuple) or len(parameters) != 2:
             raise TypeError("ACPY-TYPE-006: array requires [length, element]")
@@ -56,6 +68,8 @@ class ArrayFactory:
             descriptor = BitsType(element.width)
         if not isinstance(descriptor, ValueType):
             raise TypeError("ACPY-TYPE-006: array element must be an AC value type")
+        if isinstance(length, StaticIntExpression):
+            return ArrayAnnotation(length, descriptor)
         return ArrayType(length, descriptor)
 
     def __call__(self, *values: object) -> Never:
@@ -66,6 +80,62 @@ class ArrayFactory:
 
 
 array = ArrayFactory()
+
+
+@dataclass(frozen=True, slots=True)
+class ArrayAnnotation:
+    """Runtime metadata for a value array with a dependent static length."""
+
+    length: StaticIntExpression
+    element: object
+
+
+class ParameterDeclaration:
+    def __init__(self, value_type: object) -> None:
+        if value_type is not int:
+            raise TypeError("ACPY-TYPE-008: only integer static parameters are supported")
+
+    def __call__(self, name: str) -> StaticIntExpression:
+        from _pycircuit_semantics import StaticIntExpression
+
+        return StaticIntExpression.parameter(name)
+
+
+class ParameterFactory:
+    """Declare an elaboration-time parameter referenced by dependent types."""
+
+    def __getitem__(self, value_type: object) -> ParameterDeclaration:
+        return ParameterDeclaration(value_type)
+
+
+param = ParameterFactory()
+
+
+def index_width(value: object):
+    from _pycircuit_semantics import index_width as resolve_index_width
+
+    return resolve_index_width(value)
+
+
+def count_width(value: object):
+    from _pycircuit_semantics import count_width as resolve_count_width
+
+    return resolve_count_width(value)
+
+
+def encoding(*, width: int):
+    """Attach an explicit fixed-width hardware encoding to a Python Enum."""
+
+    if type(width) is not int or not 1 <= width <= 64:
+        raise ValueError("ACPY-TYPE-005: enum encoding width must be in [1, 64]")
+
+    def decorate(enum_type: type[Enum]) -> type[Enum]:
+        if not isinstance(enum_type, type) or not issubclass(enum_type, Enum):
+            raise TypeError("ACPY-TYPE-005: encoding must decorate a Python Enum")
+        setattr(enum_type, "__ac_encoding_width__", width)
+        return enum_type
+
+    return decorate
 
 
 @dataclass(frozen=True, slots=True, init=False)

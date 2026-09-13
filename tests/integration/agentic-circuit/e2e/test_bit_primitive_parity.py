@@ -12,9 +12,7 @@ from agentic_circuit._queue_frontend import lower_queue_source
 
 ROOT = Path(__file__).resolve().parents[4]
 EXAMPLE = ROOT / "examples/agentic-circuit/blocks/bit_primitives.py"
-ACIR_BIN = Path(
-    os.environ.get("ACIR_BIN", ROOT / ".pycircuit_out/acir/dev-llvm22/bin")
-)
+ACIR_BIN = Path(os.environ.get("ACIR_BIN", ROOT / ".pycircuit_out/acir/dev-llvm22/bin"))
 PYC_TOOLCHAIN = Path(
     os.environ.get("PYC_TOOLCHAIN_ROOT", ROOT / ".pycircuit_out/toolchain/install")
 )
@@ -27,9 +25,7 @@ class BitPrimitiveParityTest(unittest.TestCase):
         cls.cxxgen = ACIR_BIN / "acir-queue-cxxgen"
         cls.pycgen = ACIR_BIN / "acir-queue-pycgen"
         cls.pycc = Path(
-            os.environ.get(
-                "PYCC", ROOT / ".pycircuit_out/toolchain/build/bin/pycc"
-            )
+            os.environ.get("PYCC", ROOT / ".pycircuit_out/toolchain/build/bin/pycc")
         )
         cls.compiler = shutil.which("c++")
         cls.runtime = PYC_TOOLCHAIN / "lib/libpyc6_runtime.a"
@@ -132,9 +128,11 @@ class BitPrimitiveParityTest(unittest.TestCase):
                       }}
                       for (const auto &value : model.sink_0_values()) {{
                         const std::uint32_t packed =
-                            (value.value.value() << 16) |
-                            (value.priority_index.value() << 13) |
-                            (value.priority_valid.value() << 12) |
+                            (value.value.value() << 20) |
+                            (value.priority_index.value() << 17) |
+                            (value.high_index.value() << 14) |
+                            (value.priority_valid.value() << 13) |
+                            (value.onehot_conflict.value() << 12) |
                             (value.population.value() << 8) |
                             (value.leading.value() << 4) |
                             value.trailing.value();
@@ -184,8 +182,8 @@ class BitPrimitiveParityTest(unittest.TestCase):
                         bool observed = false;
                         for (unsigned step = 0; step < 12 && !observed; ++step) {{
                           dut.in_valid = pyc::cpp::Wire<1>(accepted ? 0 : 1);
-                          dut.in_data = pyc::cpp::Wire<24>(
-                              static_cast<std::uint32_t>(input) << 16);
+                          dut.in_data = pyc::cpp::Wire<28>(
+                              static_cast<std::uint32_t>(input) << 20);
                           tb.runCycleAutoTrace(cycle++, nullptr);
                           if (dut.in_valid.value() && dut.in_ready.value())
                             accepted = true;
@@ -224,14 +222,18 @@ class BitPrimitiveParityTest(unittest.TestCase):
         expected: list[str] = []
         for value in inputs:
             valid = int(value != 0)
+            conflict = int(value.bit_count() > 1)
             index = (value & -value).bit_length() - 1 if value else 0
+            high_index = value.bit_length() - 1 if value else 0
             population = value.bit_count()
             leading = 8 - value.bit_length() if value else 8
             trailing = index if value else 8
             packed = (
-                (value << 16)
-                | (index << 13)
-                | (valid << 12)
+                (value << 20)
+                | (index << 17)
+                | (high_index << 14)
+                | (valid << 13)
+                | (conflict << 12)
                 | (population << 8)
                 | (leading << 4)
                 | trailing

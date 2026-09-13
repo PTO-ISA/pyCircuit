@@ -131,6 +131,29 @@ def wide_nested_aggregate(incoming: Packet) -> Packet:
     return updated
 """
 
+STATELESS_MULTI_INPUT_MODULE_SOURCE = """
+from __future__ import annotations
+
+import agentic_circuit as ac
+
+@ac.rule
+def add_values(left: ac.u8, right: ac.u8) -> ac.u8:
+    return left + right
+
+@ac.module
+def add_pair(left: ac.u8, right: ac.u8) -> ac.u8:
+    result = add_values(left, right)
+    return result
+
+@ac.system
+def stateless_multi_input_module(
+    left: ac.u8,
+    right: ac.u8,
+) -> ac.u8:
+    result = add_pair(left, right)
+    return result
+"""
+
 
 class QueueCodegenTest(unittest.TestCase):
     def test_wide_nested_fixed_array_payload_generates_and_runs(self) -> None:
@@ -484,7 +507,7 @@ int main() {{
             self.assertIn("gfsim::UInt<8> pair", source)
             self.assertIn("gfsim::UInt<16> lanes", source)
             self.assertIn("gfsim::bitExtract<3>(v0, 5)", source)
-            self.assertIn("gfsim::bitExtract<4>(v9, 8)", source)
+            self.assertIn("gfsim::bitExtract<4>(v8, 8)", source)
 
             harness = root / "harness.cpp"
             executable = root / "aggregate_payload"
@@ -5162,6 +5185,123 @@ int main() {{
             "InferredNestedModulePipeline",
             nested=True,
         )
+
+    def test_stateless_multi_input_module_generates_and_runs(self) -> None:
+        compiler = shutil.which("c++")
+        if compiler is None:
+            self.skipTest("C++ compiler is unavailable")
+        acir_bin = Path(
+            os.environ.get(
+                "ACIR_BIN",
+                ROOT / ".pycircuit_out/toolchain/build/bin",
+            )
+        )
+        tools = {
+            "opt": acir_bin / "acir-opt",
+            "plan": acir_bin / "acir-queue-plan",
+            "cxxgen": acir_bin / "acir-queue-cxxgen",
+        }
+        if any(not path.is_file() for path in tools.values()):
+            self.skipTest("native stateless-module tools are unavailable")
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            design = root / "stateless_multi_input_module.py"
+            model = root / "model.cpp"
+            frozen = root / "model.frozen.mlir"
+            plan = root / "model.plan.json"
+            design.write_text(STATELESS_MULTI_INPUT_MODULE_SOURCE, encoding="utf-8")
+            generated = subprocess.run(
+                (
+                    str(ROOT / "compiler/acir/tools/ac-queue-cxxgen.py"),
+                    str(design),
+                    "--system",
+                    "stateless_multi_input_module",
+                    "--acir-output",
+                    str(frozen),
+                    "--plan-output",
+                    str(plan),
+                    "--acir-opt",
+                    str(tools["opt"]),
+                    "--queue-plan-tool",
+                    str(tools["plan"]),
+                    "--queue-cxxgen-tool",
+                    str(tools["cxxgen"]),
+                    "--output",
+                    str(model),
+                ),
+                cwd=ROOT,
+                env={
+                    **os.environ,
+                    "PYTHONPATH": str(ROOT / "python/agentic-circuit/src"),
+                },
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(0, generated.returncode, generated.stderr)
+            parsed = json.loads(plan.read_text(encoding="utf-8"))
+            self.assertEqual(1, len(parsed["module_specializations"]))
+            specialization = parsed["module_specializations"][0]
+            self.assertEqual(2, len(specialization["interface_inputs"]))
+            self.assertEqual(0, len(specialization["tables"]))
+            self.assertEqual("transform", specialization["blocks"][0]["kind"])
+            generated_cpp = model.read_text(encoding="utf-8")
+            self.assertIn("class Module_AddPair final", generated_cpp)
+            self.assertIn("gfsim::QueueAtomicTransform<", generated_cpp)
+
+            harness = root / "harness.cpp"
+            executable = root / "stateless_multi_input_module"
+            harness.write_text(
+                f'''#include "{model.name}"
+
+int main() {{
+  ac_generated::StatelessMultiInputModule model;
+  if (!model.left().proposePush(gfsim::UInt<8>{{5}}) ||
+      !model.right().proposePush(gfsim::UInt<8>{{7}}))
+    return 1;
+  model.left().doXfer({{0, 0}});
+  model.right().doXfer({{0, 0}});
+  auto rows = model.dispatch_rows();
+  for (unsigned tick = 1; tick != 8; ++tick) {{
+    const gfsim::Epoch epoch{{tick, 0}};
+    for (auto &row : rows)
+      row.work(row.object, epoch);
+    for (auto &row : rows)
+      row.xfer(row.object, epoch, gfsim::XferPhase::Arbitrate);
+    for (auto &row : rows)
+      row.xfer(row.object, epoch, gfsim::XferPhase::Commit);
+  }}
+  const auto &values = model.sink_0_values();
+  return values.size() == 1 && values[0] == 12 ? 0 : 2;
+}}
+''',
+                encoding="utf-8",
+            )
+            linked = subprocess.run(
+                (
+                    compiler,
+                    "-std=c++20",
+                    "-I",
+                    str(ROOT / "simulator/gfsim/include"),
+                    str(harness),
+                    "-o",
+                    str(executable),
+                ),
+                cwd=root,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(0, linked.returncode, linked.stderr)
+            executed = subprocess.run(
+                (str(executable),),
+                cwd=root,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(0, executed.returncode, executed.stderr)
 
     def _assert_stateful_python_module(
         self,

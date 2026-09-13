@@ -251,6 +251,42 @@ class _CppExpression:
             )
         if (
             isinstance(node, ast.Attribute)
+            and node.attr in {"index", "valid", "conflict"}
+            and isinstance(node.value, ast.Call)
+            and _decorator_name(node.value.func).rsplit(".", 1)[-1]
+            == "onehot_encode"
+        ):
+            call = node.value
+            if len(call.args) != 1 or any(
+                keyword.arg != "order" for keyword in call.keywords
+            ):
+                raise QueueFrontendError(
+                    "ACLOWER-UNSUPPORTED-CONSTRUCT: malformed onehot_encode"
+                )
+            order = "low"
+            if call.keywords:
+                raw_order = call.keywords[0].value
+                if (
+                    not isinstance(raw_order, ast.Constant)
+                    or type(raw_order.value) is not str
+                ):
+                    raise QueueFrontendError(
+                        "ACLOWER-UNSUPPORTED-CONSTRUCT: onehot order must be static"
+                    )
+                order = raw_order.value.strip().lower()
+            if order not in {"low", "high"}:
+                raise QueueFrontendError(
+                    "ACLOWER-UNSUPPORTED-CONSTRUCT: onehot order must be low or high"
+                )
+            value = self.emit(call.args[0])
+            if node.attr == "conflict":
+                return f"(gfsim::populationCount({value}) > 1)"
+            return (
+                f"gfsim::priorityEncode({value}, "
+                f"{'true' if order == 'low' else 'false'}).{node.attr}"
+            )
+        if (
+            isinstance(node, ast.Attribute)
             and isinstance(node.value, ast.Name)
             and node.value.id in self.selection_refs
             and node.attr in {"index", "valid"}
@@ -409,14 +445,47 @@ def _expression_policy_body(
         and node.func.attr == "with_fields"
         and not node.args
     ):
+        if not isinstance(argument_type, StructType):
+            raise QueueFrontendError(
+                "ACLOWER-TYPE-MISMATCH: field update requires a struct payload"
+            )
+        field_types = {field.name: field.type for field in argument_type.fields}
+        updates: dict[str, str] = {}
         lines = ["    auto result = item;"]
         for keyword in node.keywords:
-            if keyword.arg is None:
+            if keyword.arg is not None:
+                if keyword.arg not in field_types:
+                    raise QueueFrontendError(
+                        f"ACLOWER-TYPE-MISMATCH: unknown field {keyword.arg!r}"
+                    )
+                if keyword.arg in updates:
+                    raise QueueFrontendError(
+                        "ACLOWER-UNSUPPORTED-CONSTRUCT: field update is duplicated"
+                    )
+                updates[keyword.arg] = expression.emit(keyword.value)
+                continue
+            source_type = expression.value_type(keyword.value)
+            if not isinstance(source_type, StructType):
                 raise QueueFrontendError(
-                    "ACLOWER-UNSUPPORTED-CONSTRUCT: field unpacking is forbidden"
+                    "ACLOWER-TYPE-MISMATCH: field spread requires a struct value"
                 )
+            source = expression.emit(keyword.value)
+            for field in source_type.fields:
+                expected = field_types.get(field.name)
+                if expected is None or expected != field.type:
+                    raise QueueFrontendError(
+                        "ACLOWER-TYPE-MISMATCH: spread field does not match destination"
+                    )
+                if field.name in updates:
+                    raise QueueFrontendError(
+                        "ACLOWER-UNSUPPORTED-CONSTRUCT: field update is duplicated"
+                    )
+                updates[field.name] = f"{source}.{field.name}"
+        for field in argument_type.fields:
+            if field.name not in updates:
+                continue
             lines.append(
-                f"    result.{keyword.arg} = {expression.emit(keyword.value)};"
+                f"    result.{field.name} = {updates[field.name]};"
             )
         lines.extend(("    return result;",))
         return lines

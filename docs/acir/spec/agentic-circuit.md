@@ -183,12 +183,12 @@ The package separates Python objects that have ordinary runtime behavior from
 names that exist only for ACPy source capture. `agentic_circuit.RUNTIME_API` is
 the exact runtime authoring inventory and is also the package's `__all__`.
 Consequently, wildcard imports do not claim that capture-only syntax produces
-runtime values. `agentic_circuit.CAPTURE_ONLY_API` is the exact 29-name marker
+runtime values. `agentic_circuit.CAPTURE_ONLY_API` is the exact 30-name marker
 inventory:
 
 ```text
 scope map set instances view find concat insert matches source popcount
-count_leading_zeros count_trailing_zeros priority_encode memory sink observe
+count_leading_zeros count_trailing_zeros priority_encode onehot_encode memory sink observe
 expect compute pipeline route merge schedule engine reorder fork barrier table
 slot
 ```
@@ -300,6 +300,50 @@ in `[1, 64]`. Raw Python slicing is half-open:
 `word[4:21]` extracts 17 bits starting at bit 4. `ac.concat(a, b)` places `a`
 above `b`, and `ac.insert(base, value, lsb=N)` returns a new value without
 mutating `base`.
+
+A dependent width or fixed value-array length may reference one declared JIT
+parameter. The parameter is elaboration metadata, not a runtime value:
+
+```python
+ROB_ENTRIES = ac.param[int] ("rob_entries")
+ISSUE_WIDTH = ac.param[int] ("issue_width")
+
+@ac.struct
+class Entry:
+    index: ac.bits[ac.index_width(ROB_ENTRIES)]
+
+@ac.struct
+class Group:
+    entries: ac.array[ISSUE_WIDTH, Entry]
+    count: ac.bits[ac.count_width(ROB_ENTRIES)]
+```
+
+`ac.jit(..., rob_entries=128, issue_width=4)` binds the matching
+`ac.const[int]` parameters before payload descriptors are finalized.
+`index_width(N)` is `max(1, ceil(log2(N)))`; `count_width(N)` is
+`max(1, ceil(log2(N + 1)))`. Only closed checked integer arithmetic and these
+admitted width helpers are accepted: integer literals, declared parameters,
+closed integer constants, `+`, `-`, `*`, `index_width`, and `count_width`.
+Other Python operators do not silently fall back to general static evaluation.
+Unbound, runtime-derived, nonpositive,
+overflowing, or wider-than-64-bit scalar results fail before ACIR publication.
+Frozen ACIR and every backend contain concrete types only; the specialization
+fingerprint includes the bound constants. Checks retain recursive paths through
+tuple elements and value-array elements, so nested widths and lengths are
+recomputed by both the ACIR and QueueGraph verifiers. A dependent scalar used
+directly at a typed system/module interface carries the same check with an exact
+concrete type. Specialized structs also carry a canonical identity manifest that
+binds their source name, semantic parameter names, concrete field layout,
+fingerprint, and complete check-target set. Verifiers reject a missing target,
+stale symbol hash, or forged field layout.
+
+Module-local dependent types are concretized after that module instance binds
+its `ac.const` arguments. Two instances with different bindings receive
+distinct nominal struct identities even when both bindings resolve to the same
+storage width. The same source type and same binding keep one identity across a
+system/module interface; verifier-record namespaces are not part of semantic
+type identity. See `examples/agentic-circuit/types/scalar_parameterized_types.py`
+and `examples/agentic-circuit/types/multi_specialization_types.py`.
 
 `ac.BitfieldSpec(width=N, fields={name: (msb, lsb)})` adds names to closed bit
 ranges. Different fields may overlap as alternate read views. A single update
@@ -448,6 +492,13 @@ returns `valid=0,index=0`. QueueGraph uses the gfsim reference model and lowers
 the same operation to vendor-neutral `pyc.priority_encode`.
 The gfsim reference masks the input to its declared width and uses low/high
 C++20 bit scans rather than a per-bit loop.
+
+`ac.onehot_encode(value, order="low")` reuses that priority result and adds
+`.conflict`. Its `.index` and `.valid` are identical to `priority_encode`;
+`.conflict` is true when `popcount(value) > 1`. The helper therefore
+distinguishes zero, valid one-hot, and malformed multi-hot inputs without
+adding a backend primitive. It lowers to the existing verified
+priority-encode, population-count, and comparison operations.
 
 `ac.popcount(value)` returns the number of asserted bits using exactly
 `max(1, ceil(log2(N+1)))` result bits. ACIR preserves it as
@@ -1621,6 +1672,20 @@ C++ declarations by dependency, and recursively packs the same value for PYC
 C++ and Verilog. It does not flatten the Python struct or duplicate nested
 types per instance.
 
+Record construction and immutable replacement also accept captured Python
+keyword spread. Spread is a compile-time field operation, not a runtime dict:
+
+```python
+packet = Packet(**header, **payload, valid=True)
+updated = packet.with_fields(**patch, valid=True)
+```
+
+Construction must supply every destination field exactly once. Replacement
+preserves fields not mentioned by the patch. Both forms match exact field
+names, reorder by destination declaration order, require exact recursive types,
+and reject missing, extra, duplicate, shadowed, or incompatible fields. Nested
+aggregate values remain one field and are not recursively flattened.
+
 Nominal values use the standard Python enum class:
 
 ```python
@@ -1632,11 +1697,31 @@ class Mode(Enum):
     WAIT = 2
 ```
 
-Members must be contiguous from zero in declaration order. A nested struct
+Without an encoding decorator, members must be contiguous from zero in
+declaration order. A nested struct
 field may use `Mode`; `Mode.RUN` lowers to a verified `ac.var.enum` value.
 Enums support equality and inequality only in the current slice. QueueGraph
 retains the member list and encoding width, gfsim emits one compact C++ enum,
 and PYC/Verilog use the same exact-width ordinal.
+
+An external protocol may opt into fixed-width sparse encoding while keeping a
+standard Python enum class:
+
+```python
+@ac.encoding(width=4)
+class Opcode(Enum):
+    NONE = 0
+    READ = 3
+    WRITE = 9
+```
+
+Explicit encodings must be unique, nonnegative, and fit the declared width.
+ACIR records names, values, and width; QueueGraph independently verifies and
+preserves them; gfsim emits the exact C++ enum values; PYC uses the same encoded
+constant. QueueGraph JSON serializes explicit values as canonical lowercase
+unsigned hexadecimal strings and records `value_format = "unsigned_hex"`, so
+64-bit encodings with bit 63 set are never reinterpreted as negative numbers.
+Plain enum syntax and its existing encoding remain byte-compatible.
 
 ### Recursive equality and named payload invariants
 
@@ -2045,8 +2130,14 @@ state.
 `reusable_circular_rob.py` exercises this path with one 3-input/2-output ROB,
 five lexical state owners, four rules, and two independent placements. Its
 specialization body and generated class occur once. Direct interface-to-rule
-graphs are supported; arbitrary internal Queue graphs and repeated-input
-fanout inside one module remain follow-up work.
+graphs are supported. A stateless rule-backed module may also use multiple
+typed inputs and outputs; generated GFSim uses one `QueueAtomicTransform` so
+all inputs are consumed and all outputs are published as one transaction.
+Structured lowering includes only modules recursively reachable from the
+selected system and only rules directly used by each selected rule-backed
+module. Unreachable sibling definitions remain in the JIT source identity but
+are not emitted or validated as active hardware. Arbitrary internal Queue
+graphs and repeated-input fanout inside one module remain follow-up work.
 
 For host-integrated simulation, compiler option `--host-results` preserves
 typed system returns as Top module Queue results instead of inserting automatic
@@ -2477,7 +2568,9 @@ def illegal(input_queue):
     ...
 ```
 
-Queue/Var system boundaries are inferred. A system with parameters is rejected.
+Queue/Var system boundaries are inferred. Untyped Queue-handle parameters are
+rejected; ordinary typed payload parameters and `ac.const` parameters are
+supported.
 
 ### Zero-latency Queue
 

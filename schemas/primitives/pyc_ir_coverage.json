@@ -18,6 +18,7 @@
       "name": "pyc.add",
       "negative_mlir": [],
       "positive_mlir": [
+        "tests/mlir/agentic-circuit/ACIR/static-type-metadata.mlir",
         "tests/mlir/agentic-circuit/CodeGen/atomic-transform.mlir",
         "tests/mlir/agentic-circuit/CodeGen/pure-helpers.mlir",
         "tests/mlir/agentic-circuit/CodeGen/queue-lanes-transform-pyc.mlir",
@@ -35,12 +36,14 @@
       "tests": [
         "tests/cpp/agentic-circuit/CodeGen/QueueGraphPlanTest.cpp",
         "tests/integration/agentic-circuit/e2e/test_pyc_backend.py",
+        "tests/mlir/agentic-circuit/ACIR/static-type-metadata.mlir",
         "tests/mlir/agentic-circuit/CodeGen/atomic-transform.mlir",
         "tests/mlir/agentic-circuit/CodeGen/pure-helpers.mlir",
         "tests/mlir/agentic-circuit/CodeGen/queue-lanes-transform-pyc.mlir",
         "tests/mlir/agentic-circuit/CodeGen/table-masked-write-pyc.mlir",
         "tests/mlir/agentic-circuit/Transforms/rule-multi-input-lowering.mlir",
         "tests/python/agentic-circuit/contracts/test_contracts.py",
+        "tests/python/agentic-circuit/python_frontend/test_queue_frontend.py",
         "tests/unit/test_pyc6_surface.py",
         "tests/unit/test_pyc_ir_inventory.py",
         "tests/unit/test_semantic_core.py"

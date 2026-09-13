@@ -26,6 +26,7 @@
 
 #include <limits>
 #include <optional>
+#include <set>
 
 using namespace mlir;
 
@@ -41,8 +42,9 @@ bool isPureExpressionOperation(Operation *operation) {
 
 } // namespace
 
-LogicalResult WriterPriorityAttr::verify(
-    llvm::function_ref<InFlightDiagnostic()> emitError, int64_t rank) {
+LogicalResult
+WriterPriorityAttr::verify(llvm::function_ref<InFlightDiagnostic()> emitError,
+                           int64_t rank) {
   if (rank < 0)
     return emitError() << "writer priority rank must be non-negative";
   return success();
@@ -94,21 +96,21 @@ static StringRef ruleEndpointStableId(Operation *operation) {
   return {};
 }
 
-static void addWriterArbitrationFields(NamedAttrList &fields,
-                                       Operation *scope, StringRef owner,
+static void addWriterArbitrationFields(NamedAttrList &fields, Operation *scope,
+                                       StringRef owner,
                                        WriterPriorityAttr request) {
   Builder builder(scope->getContext());
   fields.set("owner", FlatSymbolRefAttr::get(scope->getContext(), owner));
   fields.set("endpoint_stable_id",
              builder.getStringAttr(ruleEndpointStableId(scope)));
-  fields.set("policy", WriterArbitrationPolicyAttr::get(
-                           scope->getContext(),
-                           WriterArbitrationPolicy::Priority));
+  fields.set("policy",
+             WriterArbitrationPolicyAttr::get(
+                 scope->getContext(), WriterArbitrationPolicy::Priority));
   fields.set("declared_rank", builder.getI64IntegerAttr(request.getRank()));
-  fields.set("resolution", WriterArbitrationResolutionAttr::get(
-                               scope->getContext(),
-                               WriterArbitrationResolution::
-                                   WinnerTakesTransaction));
+  fields.set("resolution",
+             WriterArbitrationResolutionAttr::get(
+                 scope->getContext(),
+                 WriterArbitrationResolution::WinnerTakesTransaction));
 }
 
 static bool presenceImpliesCandidate(Value present, Value candidate) {
@@ -306,9 +308,10 @@ verifyTypedRuleSummary(Operation *operation, ValueRange inputs,
                RuleGuardKindAttr::get(operation->getContext(), stateGuard));
     if (!read) {
       auto proposal = dyn_cast<TableProposeOp>(stateOperation);
-      auto request = proposal ? proposal->getAttrOfType<WriterPriorityAttr>(
-                                    "ac.arbitration")
-                              : WriterPriorityAttr();
+      auto request =
+          proposal
+              ? proposal->getAttrOfType<WriterPriorityAttr>("ac.arbitration")
+              : WriterPriorityAttr();
       if (request)
         addWriterArbitrationFields(effect, operation, resource.getValue(),
                                    request);
@@ -364,18 +367,12 @@ verifyTypedRuleSummary(Operation *operation, ValueRange inputs,
 LogicalResult verifyLoweredRuleTransformContract(TransformOp transform) {
   constexpr llvm::StringLiteral kPrefix = "ac.rule_";
   llvm::StringSet<> allowed = {
-      "ac.rule_definition",
-      "ac.rule_stable_id",
-      "ac.rule_time_domain",
-      "ac.rule_priority",
-      "ac.rule_footprints",
-      "ac.rule_effects_typed",
-      "ac.rule_checks_typed",
-      "ac.rule_output_presence",
-      "ac.rule_state_accesses",
-      "ac.rule_guard_kind",
-      "ac.rule_schedule_kind",
-      "ac.rule_arbitration_membership",
+      "ac.rule_definition",     "ac.rule_stable_id",
+      "ac.rule_time_domain",    "ac.rule_priority",
+      "ac.rule_footprints",     "ac.rule_effects_typed",
+      "ac.rule_checks_typed",   "ac.rule_output_presence",
+      "ac.rule_state_accesses", "ac.rule_guard_kind",
+      "ac.rule_schedule_kind",  "ac.rule_arbitration_membership",
   };
   bool hasRuleProof = false;
   for (NamedAttribute attribute : transform->getAttrs()) {
@@ -404,8 +401,8 @@ LogicalResult verifyLoweredRuleTransformContract(TransformOp transform) {
   FailureOr<StringAttr> domain = requireString("ac.rule_time_domain");
   auto priority = transform->getAttrOfType<IntegerAttr>("ac.rule_priority");
   auto footprints = transform->getAttrOfType<ArrayAttr>("ac.rule_footprints");
-  if (failed(definition) || failed(stableId) || failed(domain) ||
-      !priority || priority.getInt() < 0 || !footprints)
+  if (failed(definition) || failed(stableId) || failed(domain) || !priority ||
+      priority.getInt() < 0 || !footprints)
     return failure();
   if (transform.getInputs().empty() || transform.getOutputs().size() != 1)
     return transform.emitOpError("lowered rule requires at least one input and "
@@ -532,9 +529,9 @@ LogicalResult RuleOp::verify() {
   }
   if (getTypeState() != TypeConstraintState::Exact)
     return emitOpError("frontend rule requires an exact Queue type");
-  for (StringRef name : {"ac.rule.effects", "ac.rule.checks",
-                         "ac.rule.handshake", "ac.rule.guard",
-                         "ac.rule.schedule"})
+  for (StringRef name :
+       {"ac.rule.effects", "ac.rule.checks", "ac.rule.handshake",
+        "ac.rule.guard", "ac.rule.schedule"})
     if ((*this)->hasAttr(name))
       return emitOpError() << "removed rule summary attribute '" << name
                            << "' is not part of canonical ACIR";
@@ -588,11 +585,11 @@ LogicalResult RuleOp::verify() {
     return emitOpError("permits at most one functional condition");
   SmallVector<RuleOutputOp> outputPaths;
   getBody().walk([&](RuleOutputOp output) { outputPaths.push_back(output); });
-  const bool hasPathEvidence =
-      getOutputs().size() > 1 || !outputPaths.empty() ||
-      llvm::any_of(proposals, [](TableProposeOp op) {
-        return static_cast<bool>(op.getWhen());
-      });
+  const bool hasPathEvidence = getOutputs().size() > 1 ||
+                               !outputPaths.empty() ||
+                               llvm::any_of(proposals, [](TableProposeOp op) {
+                                 return static_cast<bool>(op.getWhen());
+                               });
   if (hasPathEvidence) {
     if (conditions != 1)
       return emitOpError("SSA path evidence requires one rule condition");
@@ -675,8 +672,8 @@ LogicalResult RuleOutputOp::verify() {
     return emitOpError("value must match the selected rule output payload");
   auto returned =
       dyn_cast<RuleReturnOp>(rule.getBody().front().getTerminator());
-  if (!returned || static_cast<size_t>(getOrdinal()) >=
-                       returned.getValues().size())
+  if (!returned ||
+      static_cast<size_t>(getOrdinal()) >= returned.getValues().size())
     return emitOpError("requires a matching ac.rule.return operand");
   Value returnedValue = returned.getValues()[getOrdinal()];
   if (returnedValue != getValue()) {
@@ -700,8 +697,8 @@ LogicalResult FiringOutputOp::verify() {
     return emitOpError("value must match the selected firing output payload");
   auto yielded =
       dyn_cast<FiringYieldOp>(firing.getBody().front().getTerminator());
-  if (!yielded || static_cast<size_t>(getOrdinal()) >=
-                      yielded.getValues().size() ||
+  if (!yielded ||
+      static_cast<size_t>(getOrdinal()) >= yielded.getValues().size() ||
       yielded.getValues()[getOrdinal()] != getValue())
     return emitOpError("value must be the matching ac.firing.yield operand");
   return success();
@@ -761,7 +758,8 @@ LogicalResult StateSnapshotSetOp::verify() {
   } else if (auto choose = getSource().getDefiningOp<TableChooseOp>()) {
     const int64_t count = choose.getCountAttr().getInt();
     if (count <= 0 || choose.getResults().size() != 2 * count ||
-        !llvm::is_contained(choose.getResults().take_front(count), getSource()) ||
+        !llvm::is_contained(choose.getResults().take_front(count),
+                            getSource()) ||
         choose->getParentOp() != (*this)->getParentOp())
       return emitOpError(
           "source table.choose must use the owning rule/firing's index result");
@@ -1177,13 +1175,13 @@ LogicalResult FiringOp::verify() {
       llvm::any_of(getOutputLatenciesAttr().asArrayRef(),
                    [](int64_t value) { return value <= 0; }))
     return emitOpError("output depths and latencies must be positive");
-  if (failed(verifyQueueRatesAgainstDepths(
-          *this, getOutputs(), getOutputDepthsAttr().asArrayRef())))
+  if (failed(verifyQueueRatesAgainstDepths(*this, getOutputs(),
+                                           getOutputDepthsAttr().asArrayRef())))
     return failure();
   if (getStableId().empty())
     return emitOpError("requires explicit stable identity");
-  for (StringRef name : {"functional_guard", "checks", "handshake",
-                         "schedule", "effects"})
+  for (StringRef name :
+       {"functional_guard", "checks", "handshake", "schedule", "effects"})
     if ((*this)->hasAttr(name))
       return emitOpError() << "removed firing summary attribute '" << name
                            << "' is not part of canonical ACIR";
@@ -1225,11 +1223,11 @@ LogicalResult FiringOp::verify() {
     if (output.getOrdinal() < 0 ||
         static_cast<size_t>(output.getOrdinal()) >= getOutputs().size())
       return output.emitOpError("ordinal must name one firing output");
-  const bool hasPathEvidence =
-      getOutputs().size() > 1 || !outputPaths.empty() ||
-      llvm::any_of(proposals, [](TableProposeOp op) {
-        return static_cast<bool>(op.getWhen());
-      });
+  const bool hasPathEvidence = getOutputs().size() > 1 ||
+                               !outputPaths.empty() ||
+                               llvm::any_of(proposals, [](TableProposeOp op) {
+                                 return static_cast<bool>(op.getWhen());
+                               });
   if (hasPathEvidence) {
     if (conditions.size() != 1)
       return emitOpError("SSA path evidence requires one firing condition");
@@ -1242,8 +1240,7 @@ LogicalResult FiringOp::verify() {
         return output.emitOpError(
             "output presence must uniquely name one firing result");
       if (!presenceImpliesCandidate(output.getWhen(), condition) ||
-          (output.getWhen() != condition &&
-           constantVarBool(condition) != true))
+          (output.getWhen() != condition && constantVarBool(condition) != true))
         return output.emitOpError(
             "optional output presence requires a true candidate");
     }
@@ -1617,42 +1614,18 @@ LogicalResult verifyStringGuarantee(GuaranteeOp op,
 
 bool isAllowedGuardExpression(Operation *operation) {
   return llvm::StringSwitch<bool>(operation->getName().getStringRef())
-      .Cases({"arith.constant",
-              "arith.cmpi",
-              "arith.cmpf",
-              "arith.addi",
-              "arith.subi",
-              "arith.muli",
-              "arith.divui",
-              "arith.divsi",
-              "arith.remui",
-              "arith.remsi",
-              "arith.andi",
-              "arith.ori",
-              "arith.xori",
-              "arith.shli",
-              "arith.shrui",
-              "arith.shrsi",
-              "arith.select",
-              "arith.index_cast",
-              "arith.extui",
-              "arith.extsi",
-              "arith.trunci",
-              "arith.addf",
-              "arith.subf",
-              "arith.mulf",
-              "arith.divf",
-              "arith.negf",
-              "index.constant",
-              "index.add",
-              "index.sub",
-              "index.mul",
-              "index.divs",
-              "index.divu",
-              "index.rems",
-              "index.remu",
-              "index.cmp",
-              "index.casts",
+      .Cases({"arith.constant", "arith.cmpi",   "arith.cmpf",
+              "arith.addi",     "arith.subi",   "arith.muli",
+              "arith.divui",    "arith.divsi",  "arith.remui",
+              "arith.remsi",    "arith.andi",   "arith.ori",
+              "arith.xori",     "arith.shli",   "arith.shrui",
+              "arith.shrsi",    "arith.select", "arith.index_cast",
+              "arith.extui",    "arith.extsi",  "arith.trunci",
+              "arith.addf",     "arith.subf",   "arith.mulf",
+              "arith.divf",     "arith.negf",   "index.constant",
+              "index.add",      "index.sub",    "index.mul",
+              "index.divs",     "index.divu",   "index.rems",
+              "index.remu",     "index.cmp",    "index.casts",
               "index.castu"},
              true)
       .Default(false);
@@ -1822,8 +1795,8 @@ std::string bitfieldFingerprint(int64_t width, ArrayAttr fields) {
     DictionaryAttr field = cast<DictionaryAttr>(attribute);
     if (index)
       stream << ',';
-    stream << '[' << llvm::json::Value(cast<StringAttr>(field.get("name"))
-                                           .getValue())
+    stream << '['
+           << llvm::json::Value(cast<StringAttr>(field.get("name")).getValue())
            << ',' << cast<IntegerAttr>(field.get("msb")).getInt() << ','
            << cast<IntegerAttr>(field.get("lsb")).getInt() << ']';
   }
@@ -1870,8 +1843,7 @@ LogicalResult BitfieldOp::verify() {
   for (Attribute attribute : getFields()) {
     auto field = dyn_cast<DictionaryAttr>(attribute);
     if (!field || field.size() != 3)
-      return emitOpError(
-          "fields must contain exact {name, msb, lsb} records");
+      return emitOpError("fields must contain exact {name, msb, lsb} records");
     auto name = field.getAs<StringAttr>("name");
     auto msb = field.getAs<IntegerAttr>("msb");
     auto lsb = field.getAs<IntegerAttr>("lsb");
@@ -1906,6 +1878,30 @@ LogicalResult PacketOp::verify() {
 LogicalResult EnumOp::verify() {
   if (failed(verifyPlacement(*this)) || failed(verifyUniqueEnumerants(*this)))
     return failure();
+  const bool hasValues = static_cast<bool>(getValuesAttr());
+  const bool hasWidth = static_cast<bool>(getEncodingWidthAttr());
+  if (hasValues != hasWidth)
+    return emitOpError(
+        "explicit enum values and encoding width must be provided together");
+  if (hasValues) {
+    ArrayAttr values = getValuesAttr();
+    uint64_t width = *getEncodingWidth();
+    if (values.size() != getEnumerants().size())
+      return emitOpError("explicit enum value count must match enumerants");
+    if (width <= 0 || width > 64)
+      return emitOpError("encoding width must be in [1, 64]");
+    std::set<uint64_t> seen;
+    for (Attribute rawValue : values) {
+      auto value = dyn_cast<IntegerAttr>(rawValue);
+      if (!value || !value.getType().isSignlessInteger(64) ||
+          (width < 64 &&
+           value.getValue().getZExtValue() >= (uint64_t{1} << width)))
+        return emitOpError(
+            "explicit enum values must be nonnegative and fit encoding width");
+      if (!seen.insert(value.getValue().getZExtValue()).second)
+        return emitOpError("explicit enum values must be unique");
+    }
+  }
   return verifyDeclarationLayout(*this);
 }
 
@@ -1921,8 +1917,8 @@ LogicalResult VarEnumOp::verify() {
   auto declaration = dyn_cast_or_null<EnumOp>(lookup(*this, getDeclaration()));
   if (!declaration)
     return emitOpError("declaration must resolve to ac.enum");
-  auto result = dyn_cast<EnumType>(cast<VarType>(getResult().getType())
-                                       .getElementType());
+  auto result =
+      dyn_cast<EnumType>(cast<VarType>(getResult().getType()).getElementType());
   if (!result || result.getName() != getDeclaration())
     return emitOpError("result must carry the referenced nominal enum type");
   if (!llvm::any_of(declaration.getEnumerants(), [&](Attribute value) {
@@ -1964,8 +1960,8 @@ LogicalResult VarRecordOp::verify() {
   ArrayAttr fields = declarationFields(declaration);
   if (!fields || fields.empty() || fields.size() != getValues().size())
     return emitOpError("record fields must match the non-empty operand list");
-  for (auto [value, index] : llvm::zip_equal(
-           getValues(), llvm::seq<unsigned>(0, fields.size())))
+  for (auto [value, index] :
+       llvm::zip_equal(getValues(), llvm::seq<unsigned>(0, fields.size())))
     if (value.getType() !=
         VarType::get(getContext(), fieldType(declaration, index)))
       return emitOpError("record operand types must match declaration order");
@@ -2143,8 +2139,8 @@ static bool isCandidateMaskType(Type type, int64_t entries) {
     return integer && integer.getWidth() == static_cast<unsigned>(entries);
   }
   auto words = dyn_cast<ValueArrayType>(element);
-  auto word = words ? dyn_cast<IntegerType>(words.getElementType())
-                    : IntegerType();
+  auto word =
+      words ? dyn_cast<IntegerType>(words.getElementType()) : IntegerType();
   return words && word && word.getWidth() == 64 &&
          words.getLength() == (entries + 63) / 64;
 }
@@ -2306,10 +2302,9 @@ LogicalResult VarMatchesOp::verify() {
   if (getResult().getType() !=
       VarType::get(getContext(), IntegerType::get(getContext(), 1)))
     return emitOpError("result must be !ac.var<i1>");
-  const uint64_t widthMask =
-      input.getWidth() == 64
-          ? std::numeric_limits<uint64_t>::max()
-          : (uint64_t{1} << input.getWidth()) - 1;
+  const uint64_t widthMask = input.getWidth() == 64
+                                 ? std::numeric_limits<uint64_t>::max()
+                                 : (uint64_t{1} << input.getWidth()) - 1;
   if ((getMask() & ~widthMask) != 0 || (getValue() & ~widthMask) != 0)
     return emitOpError("mask and value must fit the input width");
   if ((getValue() & ~getMask()) != 0)
@@ -2390,8 +2385,9 @@ LogicalResult VarPriorityEncodeOp::verify() {
   return success();
 }
 
-static bool supportsRecursiveEquality(Operation *operation, Type type,
-                                      llvm::SmallPtrSetImpl<Operation *> &seen) {
+static bool
+supportsRecursiveEquality(Operation *operation, Type type,
+                          llvm::SmallPtrSetImpl<Operation *> &seen) {
   if (isa<IntegerType, EnumType>(type))
     return true;
   if (auto tuple = dyn_cast<TupleType>(type))
@@ -2405,11 +2401,11 @@ static bool supportsRecursiveEquality(Operation *operation, Type type,
   Operation *declaration = recordDecl(operation, type);
   if (!declaration || !seen.insert(declaration).second)
     return false;
-  bool supported = llvm::all_of(declarationFields(declaration),
-                                [&](Attribute attribute) {
-    return supportsRecursiveEquality(
-        operation, fieldType(cast<DictionaryAttr>(attribute)), seen);
-  });
+  bool supported =
+      llvm::all_of(declarationFields(declaration), [&](Attribute attribute) {
+        return supportsRecursiveEquality(
+            operation, fieldType(cast<DictionaryAttr>(attribute)), seen);
+      });
   seen.erase(declaration);
   return supported;
 }
@@ -2444,10 +2440,9 @@ LogicalResult VarCmpOp::verify() {
 static bool isInvariantIdentifier(StringRef value) {
   if (value.empty() || (!llvm::isAlpha(value.front()) && value.front() != '_'))
     return false;
-  return llvm::all_of(value.drop_front(),
-                      [](char character) {
-                        return llvm::isAlnum(character) || character == '_';
-                      });
+  return llvm::all_of(value.drop_front(), [](char character) {
+    return llvm::isAlnum(character) || character == '_';
+  });
 }
 
 LogicalResult VarInvariantOp::verify() {
@@ -2531,8 +2526,8 @@ LogicalResult VarSelectOp::verify() {
   return success();
 }
 
-static FailureOr<std::pair<int64_t, int64_t>>
-bitfieldRange(BitfieldOp schema, StringRef name) {
+static FailureOr<std::pair<int64_t, int64_t>> bitfieldRange(BitfieldOp schema,
+                                                            StringRef name) {
   for (Attribute attribute : schema.getFields()) {
     DictionaryAttr field = cast<DictionaryAttr>(attribute);
     if (cast<StringAttr>(field.get("name")).getValue() == name)
@@ -2542,8 +2537,8 @@ bitfieldRange(BitfieldOp schema, StringRef name) {
   return failure();
 }
 
-static FailureOr<BitfieldOp>
-bitfieldProvenance(Operation *operation, StringRef selectionAttribute) {
+static FailureOr<BitfieldOp> bitfieldProvenance(Operation *operation,
+                                                StringRef selectionAttribute) {
   Attribute schemaAttribute = operation->getAttr("ac.bitfield_schema");
   Attribute fingerprintAttribute =
       operation->getAttr("ac.bitfield_fingerprint");
@@ -2593,8 +2588,8 @@ static LogicalResult verifyNamedBitfieldProvenance(Operation *operation,
 }
 
 static LogicalResult verifyConcatBitfieldProvenance(VarConcatOp operation) {
-  FailureOr<BitfieldOp> resolved = bitfieldProvenance(
-      operation.getOperation(), "ac.bitfield_fields");
+  FailureOr<BitfieldOp> resolved =
+      bitfieldProvenance(operation.getOperation(), "ac.bitfield_fields");
   if (failed(resolved))
     return failure();
   if (!*resolved)
@@ -2673,8 +2668,8 @@ LogicalResult VarInsertOp::verify() {
   if (getLsb() < 0 ||
       static_cast<uint64_t>(getLsb()) + value.getWidth() > base.getWidth())
     return emitOpError("inserted range must be within the base width");
-  return verifyNamedBitfieldProvenance(getOperation(), base.getWidth(), getLsb(),
-                                       value.getWidth());
+  return verifyNamedBitfieldProvenance(getOperation(), base.getWidth(),
+                                       getLsb(), value.getWidth());
 }
 
 LogicalResult VarGetOp::verify() {
@@ -3050,8 +3045,7 @@ static LogicalResult verifyCanonicalFlattenedTableIndex(Operation *operation,
         llvm::is_contained(selection.getResults().take_front(count), index) &&
         resolveTable(selection, selection.getTableAttr()) == table)
       return success();
-    return operation->emitOpError(
-        "TableChoice index belongs to another Table");
+    return operation->emitOpError("TableChoice index belongs to another Table");
   }
   return operation->emitOpError(
       "multidimensional access requires same-Table ac.table.index or "
@@ -3101,9 +3095,8 @@ static FailureOr<SmallVector<int64_t>> canonicalTableShape(TableOp table) {
     return SmallVector<int64_t>{static_cast<int64_t>(table.getEntries())};
   ArrayRef<int64_t> rawShape = *table.getShape();
   SmallVector<int64_t> shape(rawShape.begin(), rawShape.end());
-  if (shape.empty() || llvm::any_of(shape, [](int64_t extent) {
-        return extent <= 0;
-      }))
+  if (shape.empty() ||
+      llvm::any_of(shape, [](int64_t extent) { return extent <= 0; }))
     return failure();
   return shape;
 }
@@ -3127,9 +3120,9 @@ static SmallVector<int64_t> canonicalTableStrides(ArrayRef<int64_t> shape) {
   return strides;
 }
 
-static std::string canonicalTableSchemaId(TableOp table,
-                                          ArrayRef<int64_t> shape,
-                                          std::string *canonicalBytes = nullptr) {
+static std::string
+canonicalTableSchemaId(TableOp table, ArrayRef<int64_t> shape,
+                       std::string *canonicalBytes = nullptr) {
   std::string entry;
   llvm::raw_string_ostream entryStream(entry);
   entryStream << table.getEntryType();
@@ -3157,16 +3150,17 @@ static LogicalResult verifyTableInitValue(Operation *anchor, Type type,
     auto enumerant = dyn_cast<StringAttr>(value);
     auto declaration =
         dyn_cast_or_null<EnumOp>(lookup(anchor, enumeration.getName()));
-    return success(enumerant && declaration &&
-                   llvm::any_of(declaration.getEnumerants(), [&](Attribute raw) {
-                     return cast<StringAttr>(raw).getValue() ==
-                            enumerant.getValue();
-                   }));
+    return success(
+        enumerant && declaration &&
+        llvm::any_of(declaration.getEnumerants(), [&](Attribute raw) {
+          return cast<StringAttr>(raw).getValue() == enumerant.getValue();
+        }));
   }
   if (auto structure = dyn_cast<StructType>(type)) {
     auto record = dyn_cast<DictionaryAttr>(value);
     Operation *declaration = recordDecl(anchor, structure);
-    ArrayAttr fields = declaration ? declarationFields(declaration) : ArrayAttr();
+    ArrayAttr fields =
+        declaration ? declarationFields(declaration) : ArrayAttr();
     if (!record || !fields || record.size() != fields.size())
       return failure();
     for (Attribute rawField : fields) {
@@ -3386,27 +3380,25 @@ LogicalResult TableIndexOp::verify() {
   if (getCoordinates().size() != shape->size())
     return emitOpError("coordinate rank must match the Table shape rank");
   for (auto [coordinate, extent] : llvm::zip_equal(getCoordinates(), *shape)) {
-    auto type = dyn_cast<IntegerType>(cast<VarType>(coordinate.getType())
-                                         .getElementType());
+    auto type = dyn_cast<IntegerType>(
+        cast<VarType>(coordinate.getType()).getElementType());
     if (!type || !type.isSignless() ||
         type.getWidth() != canonicalTableIndexWidth(extent))
       return emitOpError(
           "coordinate type must use the canonical unsigned axis width");
     auto constant = coordinate.getDefiningOp<VarConstantOp>();
-    auto value = constant
-                     ? dyn_cast<IntegerAttr>(constant.getValueAttr())
-                     : IntegerAttr();
-    if (value && value.getValue().getZExtValue() >=
-                     static_cast<uint64_t>(extent))
+    auto value = constant ? dyn_cast<IntegerAttr>(constant.getValueAttr())
+                          : IntegerAttr();
+    if (value &&
+        value.getValue().getZExtValue() >= static_cast<uint64_t>(extent))
       return emitOpError("static Table coordinate is out of range");
   }
   auto flattenedEntries = flattenedTableEntries(*shape);
   if (failed(flattenedEntries))
     return emitOpError("Table shape product overflows during flattening");
   Type expected = VarType::get(
-      getContext(), IntegerType::get(
-                        getContext(),
-                        canonicalTableIndexWidth(*flattenedEntries)));
+      getContext(), IntegerType::get(getContext(), canonicalTableIndexWidth(
+                                                       *flattenedEntries)));
   if (getIndex().getType() != expected)
     return emitOpError(
         "flattened index must use the canonical Table-domain width");
@@ -3647,10 +3639,9 @@ LogicalResult TableWriteOp::verify() {
 
 static FailureOr<uint64_t> tableMatchDomainEntries(TableMatchOp match,
                                                    TableOp table) {
-  const bool hasProjection = match.getDomainAxesAttr() ||
-                             match.getDomainShapeAttr() ||
-                             match.getDomainStridesAttr() ||
-                             match.getDomainOffsetAttr();
+  const bool hasProjection =
+      match.getDomainAxesAttr() || match.getDomainShapeAttr() ||
+      match.getDomainStridesAttr() || match.getDomainOffsetAttr();
   if (!hasProjection) {
     if (auto shape = table.getShape(); shape && shape->size() > 1) {
       match.emitOpError(
@@ -3716,14 +3707,12 @@ static FailureOr<uint64_t> tableMatchDomainEntries(TableMatchOp match,
     const uint64_t unsignedStride = static_cast<uint64_t>(stride);
     if (unsignedExtent - 1 >
             std::numeric_limits<uint64_t>::max() / unsignedStride ||
-        domainEntries >
-            std::numeric_limits<uint64_t>::max() / unsignedExtent) {
+        domainEntries > std::numeric_limits<uint64_t>::max() / unsignedExtent) {
       match.emitOpError("projected mask domain arithmetic overflows");
       return failure();
     }
     const uint64_t contribution = (unsignedExtent - 1) * unsignedStride;
-    if (maximumIndex >
-        std::numeric_limits<uint64_t>::max() - contribution) {
+    if (maximumIndex > std::numeric_limits<uint64_t>::max() - contribution) {
       match.emitOpError("projected mask domain arithmetic overflows");
       return failure();
     }
@@ -3837,8 +3826,8 @@ LogicalResult TableChooseOp::verify() {
   bool duplicateStableId = false;
   if (ModuleOp module = (*this)->getParentOfType<ModuleOp>())
     module.walk([&](TableChooseOp other) {
-      duplicateStableId |= other != *this &&
-                           other.getStableId() == getStableId();
+      duplicateStableId |=
+          other != *this && other.getStableId() == getStableId();
     });
   if (duplicateStableId)
     return emitOpError("stable_id must be unique within the module");
@@ -3861,7 +3850,8 @@ LogicalResult TableChooseOp::verify() {
       policy == TableSelectionPolicy::RoundRobin) {
     if (!getKey().empty() &&
         !(getKey().hasOneBlock() && getKey().front().empty()))
-      return emitOpError("first/round_robin policy does not accept a key region");
+      return emitOpError(
+          "first/round_robin policy does not accept a key region");
     if (getKeyOrderingAttr())
       return emitOpError(
           "first/round_robin policy does not accept key ordering");

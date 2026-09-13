@@ -3446,7 +3446,7 @@ create a second timing model that competes with pyCircuit 6.
   namespaces remain distinct public surfaces in the shared repository.
 - Agentic Circuit separates ordinary runtime authoring objects from ACPy
   capture-only syntax. The package `__all__` is the exact runtime inventory;
-  the 29 capture-only markers live canonically in `agentic_circuit.markers`.
+  the 30 capture-only markers live canonically in `agentic_circuit.markers`.
   Established root-qualified and explicit root imports remain valid capture
   spellings but are excluded from wildcard imports. Ordinary Python execution
   of a marker fails explicitly as capture-time only and never returns a fake
@@ -5461,7 +5461,8 @@ resource concepts into the frontend.
 
 ## Decision 0189: systems and reusable rule modules share one body lowering
 
-**Status:** Accepted and implemented for direct-interface rule graphs
+**Status:** Accepted and implemented for direct-interface rule graphs,
+including stateless multi-input transforms
 
 **Context / Goal**
 The existing circular ROB already exercised four rules and five state owners,
@@ -5479,8 +5480,13 @@ and MLIR semantics diverge before the ROB could become reusable.
   values and yields its typed returned Queues through `ac.return`.
 - A rule-backed module may have arbitrary typed input and output interface
   arity and multiple ordinary `@ac.rule` calls. Individual rules retain the
-  verified zero-or-one-output contract; module output arity is the union of
-  distinct internal rule results, not one multi-output firing.
+  verified fixed-arity output contract from Decision 0223; module output arity
+  may be the union of distinct internal rule results or one multi-output
+  firing.
+- A stateless multi-output firing inside a reusable module uses the same
+  compiler-owned prepare/publish/no-fail commit group as the flat form. One
+  input token is consumed only when every selected output Queue can publish;
+  hierarchy neither permits partial publication nor requires flattening.
 - Module-local lexical variables are rendered inside one body scope, then
   storage-selected and analyzed by the existing MLIR rule pipeline. Python
   still declares no Queue port, source/sink, ready/full test, pop/push, Table,
@@ -5499,6 +5505,10 @@ and MLIR semantics diverge before the ROB could become reusable.
 - Frozen ACIR contains one `rob` definition with four firings and two instance
   placements. Its canonical specialization plan records 3 inputs, 2 outputs,
   5 Tables, and 4 firing blocks.
+- A consumer-neutral one-input/four-output stateless module retains four
+  independent interface Queues. Filling any selected output stalls the whole
+  activation with no input consumption or partial publish; releasing capacity
+  commits all four values exactly once.
 - Generated C++ contains one `Rob_<fingerprint>` class, two instance members,
   and multi-owner `QueueStateTransition` objects; it compiles as C++20.
 - Both placements allocate index zero independently, complete and retire their
@@ -5507,6 +5517,12 @@ and MLIR semantics diverge before the ROB could become reusable.
 - The original single-instance circular ROB regression continues to cover
   output backpressure, full/empty distinction, wrap, stale generation,
   recovery epoch, out-of-order completion, and in-order retirement.
+- A stateless two-input rule-backed module lowers to one reusable structured
+  specialization, generates one `QueueAtomicTransform`, compiles as C++20,
+  and atomically consumes `5` and `7` to produce `12`.
+- Structured lowering walks the selected system's recursive module call graph.
+  An unreachable sibling module and its otherwise unsupported rule are not
+  parsed as active hardware and do not poison the selected specialization.
 
 **Source**
 - User objective (2026-09-06): continuously inspect and complete the flow until
@@ -8958,3 +8974,127 @@ outputs, reservations, and trigger without manually matching tuple ordinals.
 
 **Source**
 - PTO-ISA/pyCircuit issue #106.
+
+## Decision 0245: state-snapshot demand propagation memoizes exact traversal context
+
+**Status:** Accepted and implemented
+
+**Extends:** Decisions 0174, 0202, 0203, 0204, and 0205.
+
+**Context / Goal**
+`ACDataFlowAnalyzer::stateSnapshots()` followed every path through shared SSA
+subgraphs. A linear chain of diamond-shaped selects therefore repeated the
+same dependency walk exponentially before rule schedule resolution.
+
+**Decision (strong constraint)**
+- Snapshot discovery memoizes traversal by SSA value and set-source identity
+  for each root predicate. A context already visited for all fields subsumes
+  later field-specific requests.
+- Field-specific demands form a monotone set. A newly requested field is
+  propagated exactly once; a later all-fields request supersedes the set and is
+  propagated once.
+- Distinct predicates, match masks, choose indices, and other set sources remain
+  separate contexts. Memoization may remove repeated work but must not merge
+  semantically distinct snapshots.
+- Final snapshot coalescing and field order remain unchanged. This decision
+  changes analysis complexity, not rule scheduling, reservation, or commit
+  semantics.
+
+**Required verification**
+- A 24-level shared diamond has linear bounded traversal work and produces the
+  same single state snapshot.
+- Two field projections reaching one shared record retain both field demands.
+- Existing conditional-effect, match, choose, field-qualified, rule lowering,
+  QueueGraph, and generated runtime tests remain green.
+
+**Source**
+- PTO-ISA/pyCircuit issue #126.
+
+## Decision 0246: JIT-dependent concrete types and Pythonic record/enum composition
+
+**Status:** Accepted and implemented
+
+**Extends:** Decisions 0160, 0161, 0211 through 0217, 0221, 0235, 0236, and
+0243.
+
+**Context / Goal**
+Parameterized architecture models need exact index/count widths and repeated
+payload shapes without overprovisioning every field. Protocol contracts also
+need fixed sparse enum encodings, exact-name record composition, and a safe way
+to distinguish zero, one-hot, and malformed multi-hot flag bundles.
+
+**Decision (strong constraint)**
+- `NAME = ac.param[int]("argument")` declares an uppercase elaboration-time
+  integer parameter bound by the matching JIT `ac.const` argument. It is never
+  a runtime value.
+- `ac.bits[expression]` and `ac.array[expression, T]` admit closed checked
+  integer expressions using declared parameters, literals, addition,
+  subtraction, multiplication, `ac.index_width`, and `ac.count_width`.
+  Specialization resolves them before payload descriptors and ACIR types are
+  finalized. Scalar leaves remain in `[1, 64]`; aggregate storage retains the
+  existing bounded wide-value contract.
+- Dependent descriptors specialize after each module instance binds its static
+  arguments. Canonical struct identity includes every referenced binding and
+  the resolved recursive layout; equal storage widths do not collapse distinct
+  bindings. Specialized ACIR symbols and rule stable IDs are namespaced so two
+  specializations can coexist in one file.
+- Raw ACIR records canonical bindings and postfix type-expression checks.
+  `verify-ac-file` independently recomputes every result and compares it with
+  the concrete integer width or value-array length. QueueGraph preserves and
+  independently verifies the same metadata. Frozen ACIR and backend IR never
+  contain a runtime-variable width or shape.
+- Direct dependent scalar interfaces retain an exact concrete type in their
+  checks. Specialized structs retain a canonical identity manifest containing
+  the source name, semantic bindings, concrete field layout fingerprint, and
+  complete check-target set. ACIR and QueueGraph reject removed targets, stale
+  symbol hashes, and forged layouts. Verification namespaces do not participate
+  in semantic type identity.
+- Type-expression paths recurse through tuple and value-array elements. Parsing,
+  checked evaluation, and postfix serialization use the same closed expression
+  representation; unsupported Python operators fail before ACIR emission.
+- Plain standard Python enums retain contiguous declaration-order encoding.
+  `@ac.encoding(width=N)` is an additive opt-in for unique nonnegative explicit
+  values that fit `N` bits. ACIR, QueueGraph, generated GFSim enum classes, and
+  PYC constants preserve the exact value. Plain enum output remains
+  byte-compatible.
+  QueueGraph JSON represents explicit values as lowercase unsigned hexadecimal
+  strings with an explicit `unsigned_hex` format marker, including the upper
+  half of the 64-bit domain.
+- `Target(**left, **right, explicit=...)` constructs a record by exact field
+  name. Every destination field is provided exactly once.
+  `value.with_fields(**patch, explicit=...)` updates exact matching fields and
+  preserves the rest.
+  Missing, extra, duplicate, shadowed, or recursively incompatible fields fail
+  before ACIR. Spread lowers only to typed `ac.var.get`, `ac.var.record`, and
+  `ac.var.with`.
+- `ac.onehot_encode(value, order=...).index/.valid/.conflict` reuses the
+  existing priority encoder. `valid` reports any asserted bit and `conflict`
+  reports `popcount(value) > 1`. It adds no PYC or RTL primitive.
+- These features remain consumer neutral. DavinciOO payloads and migrations
+  stay in their owning repository.
+
+**Required verification**
+- Two JIT bindings produce different concrete descriptor layouts and
+  specialization fingerprints; imported dependent structs resolve from the
+  captured source closure.
+- Specializing a module resolves only the dependent payloads reachable from
+  that module interface/body; an unrelated payload whose parameter belongs to
+  another specialization cannot poison the selected module.
+- Closed static arithmetic used by a rule is folded before a constant is
+  emitted in the surrounding exact-width value domain, so `entries - 1` at
+  `entries=4` becomes representable `i2` value `3` rather than invalid `4`.
+- Frontend negatives cover missing bindings, illegal widths/shapes, malformed
+  enum encodings, and missing/extra/duplicate/type-mismatched record spreads.
+- ACIR rejects forged static type checks and enum metadata. QueueGraph
+  independently rejects inconsistent type and enum plans.
+- Public examples cover dependent types, record spread, sparse enums,
+  one-hot encoding, and their combined use.
+- Generated GFSim and PYC C++ execute the combined example with the same packed
+  result; generated PYC C++ compiles and Verilog passes Verilator lint for every
+  example.
+
+**Source**
+- PTO-ISA/pyCircuit issue #127.
+- Chisel Bundle/Vec/Enum/DataView, SpinalHDL Bundle/Vec/Enum, Amaranth
+  shape/data/enum, and CIRCT PyCDE parameterization references recorded on the
+  issue.

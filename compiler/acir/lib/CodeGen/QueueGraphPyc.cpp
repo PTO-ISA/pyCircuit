@@ -172,8 +172,11 @@ packTableInitValue(const QueueGraphPlan &plan,
     auto found = llvm::find(enumeration->enumerants, value.value);
     if (found == enumeration->enumerants.end())
       return pycError("typed Table enum initializer has unknown enumerant");
-    return llvm::APInt(*width,
-                       std::distance(enumeration->enumerants.begin(), found));
+    const size_t ordinal =
+        std::distance(enumeration->enumerants.begin(), found);
+    return llvm::APInt(*width, enumeration->values.empty()
+                                   ? ordinal
+                                   : enumeration->values[ordinal]);
   }
   if (value.kind != "struct" && value.kind != "tuple" && value.kind != "array")
     return pycError("typed Table initializer kind is unsupported");
@@ -1435,8 +1438,7 @@ emitTransform(const QueueGraphPlan &plan, const QueueBlockPlan &block,
           return sourceType.takeError();
         if (!inputWidth)
           return inputWidth.takeError();
-        unsigned indexWidth =
-            acir::primitivePriorityIndexWidth(*inputWidth);
+        unsigned indexWidth = acir::primitivePriorityIndexWidth(*inputWidth);
         std::string key = expression.operands[0] + "#" + expression.predicate;
         auto found = priorityValues.find(key);
         if (found == priorityValues.end()) {

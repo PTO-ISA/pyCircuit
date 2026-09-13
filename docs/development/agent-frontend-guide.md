@@ -202,7 +202,18 @@ Follow these rules:
 
 - Use exact types such as `ac.u1` through `ac.u64`, `@ac.struct`, enums, fixed
   tuples, and admitted fixed state shapes. Do not rely on implicit width
-  conversion or a runtime-computed width.
+  conversion or a runtime-computed width. A dependent `ac.bits[...]` width or
+  `ac.array[...]` length must use a declared `ac.param[int]` bound by a matching
+  JIT `ac.const`; Frozen ACIR still contains concrete types only.
+  The expression grammar is limited to literals, declared parameters, closed
+  integer constants, `+`, `-`, `*`, `index_width`, and `count_width`.
+  Module-local dependent types specialize per instance, not once per source file.
+- Use `bool` for logical facts, standard `Enum` for closed categories, and
+  `@ac.encoding(width=N)` only when an external protocol requires fixed or
+  sparse values. Keep independent flags independent.
+- Use `Packet(**left, **right, explicit=...)` and
+  `value.with_fields(**patch)` only for exact name/type record composition.
+  Construction is total; replacement preserves unmentioned fields.
 - Treat every `@ac.rule` as one schedulable atomic transition. Put all state
   writes and outputs that must commit together in the same rule.
 - Read committed state, compute proposals, and let the compiler publish them.
@@ -278,6 +289,13 @@ consumer design.
 | Structural specs and bundle state | `examples/pycircuit/features/struct_transform/` |
 | Queue scopes, dependency tracking, route and merge | `examples/agentic-circuit/pipelines/routed_dependency_pipeline.py` |
 | Typed pure helpers and mandatory inline | `tests/integration/agentic-circuit/e2e/fixtures/pure_helpers/` |
+| JIT-dependent widths and fixed shapes | `examples/agentic-circuit/types/parameterized_types.py` |
+| JIT-dependent scalar system boundary | `examples/agentic-circuit/types/scalar_parameterized_types.py` |
+| Two module instances with distinct dependent state types | `examples/agentic-circuit/types/multi_specialization_types.py` |
+| Name-based record construction and replacement | `examples/agentic-circuit/pipelines/record_spread_pipeline.py` |
+| Fixed-width sparse enum encoding | `examples/agentic-circuit/pipelines/encoded_enum_pipeline.py` |
+| One-hot presence and conflict reporting | `examples/agentic-circuit/blocks/onehot_encode.py` |
+| Combined cross-backend composition | `examples/agentic-circuit/pipelines/frontend_composition_pipeline.py` |
 | Atomic Table replacement | `examples/agentic-circuit/state/table_rule.py` |
 | Nested module state capture | `examples/agentic-circuit/state/inferred_nested_rule.py` |
 | Reusable stateful scheduling | `examples/agentic-circuit/state/reusable_oldest_ready_isq.py` |

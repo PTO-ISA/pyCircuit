@@ -14,13 +14,14 @@
 #include "mlir/IR/Verifier.h"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/DenseSet.h"
+#include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallString.h"
 #include "llvm/ADT/SmallVector.h"
-#include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/StringExtras.h"
 #include "llvm/ADT/StringMap.h"
 #include "llvm/ADT/StringSet.h"
 #include "llvm/Support/Format.h"
+#include "llvm/Support/FormatVariadic.h"
 #include "llvm/Support/JSON.h"
 #include "llvm/Support/MathExtras.h"
 #include "llvm/Support/Path.h"
@@ -51,29 +52,37 @@ std::string legalizeQueueGraphIdentifier(llvm::StringRef value) {
   if (result.empty() || (result.front() >= '0' && result.front() <= '9'))
     result.insert(result.begin(), '_');
   static constexpr llvm::StringLiteral keywords[] = {
-      "alignas",   "alignof",      "and",          "and_eq",
-      "asm",       "auto",         "bitand",       "bitor",
-      "bool",      "break",        "case",         "catch",
-      "char",      "char8_t",      "char16_t",     "char32_t",
-      "class",     "compl",        "concept",      "const",
-      "consteval", "constexpr",    "constinit",    "const_cast",
-      "continue",  "co_await",     "co_return",    "co_yield",
-      "decltype",  "default",      "delete",       "do",
-      "double",    "dynamic_cast", "else",         "enum",
-      "explicit",  "export",       "extern",       "false",
-      "float",     "for",          "friend",       "goto",
-      "if",        "inline",       "int",          "long",
-      "mutable",   "namespace",    "new",          "noexcept",
-      "not",       "not_eq",       "nullptr",      "operator",
-      "or",        "or_eq",        "private",      "protected",
-      "public",    "register",     "reinterpret_cast", "requires",
-      "return",    "short",        "signed",       "sizeof",
-      "static",    "static_assert", "static_cast", "struct",
-      "switch",    "template",     "this",         "thread_local",
-      "throw",     "true",         "try",          "typedef",
-      "typeid",    "typename",     "union",        "unsigned",
-      "using",     "virtual",      "void",         "volatile",
-      "wchar_t",   "while",        "xor",          "xor_eq"};
+      "alignas",       "alignof",     "and",
+      "and_eq",        "asm",         "auto",
+      "bitand",        "bitor",       "bool",
+      "break",         "case",        "catch",
+      "char",          "char8_t",     "char16_t",
+      "char32_t",      "class",       "compl",
+      "concept",       "const",       "consteval",
+      "constexpr",     "constinit",   "const_cast",
+      "continue",      "co_await",    "co_return",
+      "co_yield",      "decltype",    "default",
+      "delete",        "do",          "double",
+      "dynamic_cast",  "else",        "enum",
+      "explicit",      "export",      "extern",
+      "false",         "float",       "for",
+      "friend",        "goto",        "if",
+      "inline",        "int",         "long",
+      "mutable",       "namespace",   "new",
+      "noexcept",      "not",         "not_eq",
+      "nullptr",       "operator",    "or",
+      "or_eq",         "private",     "protected",
+      "public",        "register",    "reinterpret_cast",
+      "requires",      "return",      "short",
+      "signed",        "sizeof",      "static",
+      "static_assert", "static_cast", "struct",
+      "switch",        "template",    "this",
+      "thread_local",  "throw",       "true",
+      "try",           "typedef",     "typeid",
+      "typename",      "union",       "unsigned",
+      "using",         "virtual",     "void",
+      "volatile",      "wchar_t",     "while",
+      "xor",           "xor_eq"};
   if (llvm::is_contained(keywords, llvm::StringRef(result)))
     result.push_back('_');
   return result;
@@ -141,12 +150,12 @@ extractTableInitValue(mlir::Operation *anchor, mlir::Type type,
     result.kind = "struct";
     for (mlir::Attribute rawField : declaration.getFields()) {
       auto field = mlir::dyn_cast<mlir::DictionaryAttr>(rawField);
-      auto name = field ? field.getAs<mlir::StringAttr>("name")
-                        : mlir::StringAttr();
-      auto fieldType = field ? field.getAs<mlir::TypeAttr>("type")
-                             : mlir::TypeAttr();
-      mlir::Attribute member = name ? record.get(name.getValue())
-                                    : mlir::Attribute();
+      auto name =
+          field ? field.getAs<mlir::StringAttr>("name") : mlir::StringAttr();
+      auto fieldType =
+          field ? field.getAs<mlir::TypeAttr>("type") : mlir::TypeAttr();
+      mlir::Attribute member =
+          name ? record.get(name.getValue()) : mlir::Attribute();
       if (!name || !fieldType || !member)
         return planError("typed Table struct field initializer is malformed");
       auto element =
@@ -203,10 +212,9 @@ void extractTableDomain(Target &target, Match match) {
   target.domainStrides = copy(match.getDomainStrides());
   if (auto offset = match.getDomainOffset())
     target.domainOffset = static_cast<uint64_t>(*offset);
-  target.hasDomainProjection = match.getDomainAxesAttr() ||
-                               match.getDomainShapeAttr() ||
-                               match.getDomainStridesAttr() ||
-                               match.getDomainOffsetAttr();
+  target.hasDomainProjection =
+      match.getDomainAxesAttr() || match.getDomainShapeAttr() ||
+      match.getDomainStridesAttr() || match.getDomainOffsetAttr();
 }
 
 mlir::Operation *lookupTypeDeclaration(mlir::Operation *from,
@@ -248,8 +256,11 @@ mlirValueBitWidth(mlir::Operation *from, mlir::Type type,
         lookupTypeDeclaration(from, enumeration.getName()));
     if (!declaration)
       return finish(planError("enum type declaration is unresolved"));
-    return finish(std::max<uint64_t>(
-        1, llvm::Log2_64_Ceil(declaration.getEnumerants().size())));
+    return finish(
+        declaration.getEncodingWidthAttr()
+            ? *declaration.getEncodingWidth()
+            : std::max<uint64_t>(
+                  1, llvm::Log2_64_Ceil(declaration.getEnumerants().size())));
   }
   if (auto structure = mlir::dyn_cast<ac::StructType>(type)) {
     auto declaration = mlir::dyn_cast_or_null<ac::StructOp>(
@@ -730,10 +741,16 @@ extractExpressions(mlir::Region &region, QueueBlockPlan &plan,
           });
       if (enumerant == declaration.getEnumerants().end())
         return planError("enum value is absent from QueueGraph declaration");
-      if (auto error =
-              append(operation, "enum_constant", value.getEnumerant(), {},
-                     std::to_string(std::distance(
-                         declaration.getEnumerants().begin(), enumerant))))
+      const size_t ordinal =
+          std::distance(declaration.getEnumerants().begin(), enumerant);
+      const uint64_t encoded = declaration.getValuesAttr()
+                                   ? mlir::cast<mlir::IntegerAttr>(
+                                         declaration.getValuesAttr()[ordinal])
+                                         .getValue()
+                                         .getZExtValue()
+                                   : ordinal;
+      if (auto error = append(operation, "enum_constant", value.getEnumerant(),
+                              {}, std::to_string(encoded)))
         return error;
       continue;
     }
@@ -1031,8 +1048,8 @@ extractExpressions(mlir::Region &region, QueueBlockPlan &plan,
            llvm::enumerate(choose.getResults())) {
         const bool indexLane = resultIndex < count;
         const uint64_t lane = indexLane ? resultIndex : resultIndex - count;
-        const llvm::StringRef kind = indexLane ? "table_choose_index"
-                                                : "table_choose_valid";
+        const llvm::StringRef kind =
+            indexLane ? "table_choose_index" : "table_choose_valid";
         auto resultType = mlir::cast<ac::VarType>(resultValue.getType());
         std::string result =
             prefix.str() + std::to_string(plan.expressions.size());
@@ -1683,15 +1700,14 @@ llvm::Error groupMultiSelectionReads(QueueGraphPlan &plan) {
       if (used)
         consumers.push_back(blockIndex);
     }
-    const bool complete = llvm::all_of(uses, [](const LaneUse &use) {
-      return use.index && use.valid;
-    });
+    const bool complete = llvm::all_of(
+        uses, [](const LaneUse &use) { return use.index && use.valid; });
     if (!consumers.empty() &&
         (!complete || (consumers.size() != selection.count &&
                        !(consumers.size() == 1 &&
                          plan.blocks[consumers.front()].kind == "firing"))))
-      return planError(
-          "multi-selection consumers must form one complete prefix transaction");
+      return planError("multi-selection consumers must form one complete "
+                       "prefix transaction");
     if (consumers.size() == 1 &&
         plan.blocks[consumers.front()].kind == "firing")
       continue;
@@ -1779,6 +1795,8 @@ public:
       return planError("module requires ac.model_kind exactly 'queue_graph'");
     if (auto error = extractAggregateTypes())
       return std::move(error);
+    if (auto error = extractStaticTypeMetadata())
+      return std::move(error);
     if (!module.getOps<ac::SystemOp>().empty())
       return runStructured();
     for (mlir::Operation &operation : module.getBody()->getOperations()) {
@@ -1835,6 +1853,100 @@ public:
   }
 
 private:
+  llvm::Error extractStaticTypeMetadata() {
+    auto bindings =
+        module->getAttrOfType<mlir::DictionaryAttr>("ac.static_type_bindings");
+    auto checks =
+        module->getAttrOfType<mlir::ArrayAttr>("ac.static_type_checks");
+    auto identities =
+        module->getAttrOfType<mlir::ArrayAttr>("ac.static_type_identities");
+    if (!bindings && !checks && !identities)
+      return llvm::Error::success();
+    if (!bindings || !checks)
+      return planError(
+          "static type bindings and checks must be provided together");
+    for (mlir::NamedAttribute binding : bindings) {
+      auto value = mlir::dyn_cast<mlir::IntegerAttr>(binding.getValue());
+      if (!value || !value.getType().isSignlessInteger(64))
+        return planError("static type binding must be an i64 integer");
+      plan.staticTypeBindings.emplace_back(binding.getName().str(),
+                                           value.getInt());
+    }
+    for (mlir::Attribute rawCheck : checks) {
+      auto check = mlir::dyn_cast<mlir::DictionaryAttr>(rawCheck);
+      auto program =
+          check ? check.getAs<mlir::ArrayAttr>("program") : mlir::ArrayAttr();
+      auto result = check ? check.getAs<mlir::IntegerAttr>("result")
+                          : mlir::IntegerAttr();
+      auto target =
+          check ? check.getAs<mlir::StringAttr>("target") : mlir::StringAttr();
+      auto concreteType =
+          check ? check.getAs<mlir::TypeAttr>("type") : mlir::TypeAttr();
+      if (!check || (check.size() != 3 && check.size() != 4) || !program ||
+          !result || !target ||
+          (check.size() == 4) != static_cast<bool>(concreteType))
+        return planError("static type check metadata is malformed");
+      QueueStaticTypeCheckPlan item;
+      item.target = target.getValue().str();
+      item.result = result.getInt();
+      if (concreteType)
+        item.concreteType = printType(concreteType.getValue());
+      for (mlir::Attribute rawToken : program) {
+        auto token = mlir::dyn_cast<mlir::StringAttr>(rawToken);
+        if (!token)
+          return planError("static type check token must be a string");
+        item.program.push_back(token.getValue().str());
+      }
+      plan.staticTypeChecks.push_back(std::move(item));
+    }
+    if (identities) {
+      for (mlir::Attribute rawIdentity : identities) {
+        auto identity = mlir::dyn_cast<mlir::DictionaryAttr>(rawIdentity);
+        auto source = identity ? identity.getAs<mlir::StringAttr>("source")
+                               : mlir::StringAttr();
+        auto symbol = identity ? identity.getAs<mlir::StringAttr>("symbol")
+                               : mlir::StringAttr();
+        auto fingerprint = identity
+                               ? identity.getAs<mlir::StringAttr>("fingerprint")
+                               : mlir::StringAttr();
+        auto identityBindings =
+            identity ? identity.getAs<mlir::ArrayAttr>("bindings")
+                     : mlir::ArrayAttr();
+        auto targets = identity ? identity.getAs<mlir::ArrayAttr>("targets")
+                                : mlir::ArrayAttr();
+        if (!identity || identity.size() != 5 || !source || !symbol ||
+            !fingerprint || !identityBindings || !targets)
+          return planError("static type identity metadata is malformed");
+        QueueStaticTypeIdentityPlan item;
+        item.source = source.getValue().str();
+        item.symbol = symbol.getValue().str();
+        item.fingerprint = fingerprint.getValue().str();
+        for (mlir::Attribute rawBinding : identityBindings) {
+          auto binding = mlir::dyn_cast<mlir::DictionaryAttr>(rawBinding);
+          auto name = binding ? binding.getAs<mlir::StringAttr>("name")
+                              : mlir::StringAttr();
+          auto parameter = binding
+                               ? binding.getAs<mlir::StringAttr>("parameter")
+                               : mlir::StringAttr();
+          auto value = binding ? binding.getAs<mlir::IntegerAttr>("value")
+                               : mlir::IntegerAttr();
+          if (!binding || binding.size() != 3 || !name || !parameter || !value)
+            return planError("static type identity binding is malformed");
+          item.bindings.push_back({name.getValue().str(),
+                                   parameter.getValue().str(), value.getInt()});
+        }
+        for (mlir::Attribute rawTarget : targets) {
+          auto target = mlir::dyn_cast<mlir::StringAttr>(rawTarget);
+          if (!target)
+            return planError("static type identity target is malformed");
+          item.targets.push_back(target.getValue().str());
+        }
+        plan.staticTypeIdentities.push_back(std::move(item));
+      }
+    }
+    return llvm::Error::success();
+  }
+
   llvm::Expected<QueueGraphPlan> extractDefinition(
       ac::ModuleOp definition, llvm::StringRef specialization,
       llvm::StringRef system,
@@ -1851,6 +1963,9 @@ private:
     nested.plan.payloads = plan.payloads;
     nested.plan.enums = plan.enums;
     nested.plan.aggregates = plan.aggregates;
+    nested.plan.staticTypeBindings = plan.staticTypeBindings;
+    nested.plan.staticTypeChecks = plan.staticTypeChecks;
+    nested.plan.staticTypeIdentities = plan.staticTypeIdentities;
     if (available)
       nested.availableSpecializations = *available;
 
@@ -1864,8 +1979,7 @@ private:
         if (definition->hasAttr(attribute))
           return planError(attribute + " must be an array of strings");
         for (size_t index = 0; index < count; ++index)
-          result.push_back(fallbackPrefix.str() + "_" +
-                           std::to_string(index));
+          result.push_back(fallbackPrefix.str() + "_" + std::to_string(index));
         return result;
       }
       if (values.size() != count)
@@ -1873,14 +1987,13 @@ private:
       for (mlir::Attribute value : values) {
         auto name = mlir::dyn_cast<mlir::StringAttr>(value);
         if (!name || name.getValue().empty())
-          return planError(attribute +
-                           " must contain only non-empty strings");
+          return planError(attribute + " must contain only non-empty strings");
         result.push_back(name.getValue().str());
       }
       return result;
     };
-    auto inputDisplayNames = displayNames("ac.input_display_names",
-                                          body.getNumArguments(), "input");
+    auto inputDisplayNames =
+        displayNames("ac.input_display_names", body.getNumArguments(), "input");
     if (!inputDisplayNames)
       return inputDisplayNames.takeError();
     for (auto [index, argument] : llvm::enumerate(body.getArguments())) {
@@ -2141,12 +2254,19 @@ private:
       if (auto enumeration = mlir::dyn_cast<ac::EnumOp>(declaration)) {
         if (!enumIdentities.insert(enumeration.getSymName()).second)
           return planError("enum identities must be unique");
-        QueueEnumPlan planEnum{enumeration.getSymName().str(), {}, 0};
+        QueueEnumPlan planEnum{enumeration.getSymName().str(), {}, {}, 0};
         for (mlir::Attribute value : enumeration.getEnumerants())
           planEnum.enumerants.push_back(
               mlir::cast<mlir::StringAttr>(value).getValue().str());
-        planEnum.width = std::max<uint64_t>(
-            1, llvm::Log2_64_Ceil(planEnum.enumerants.size()));
+        if (enumeration.getValuesAttr())
+          for (mlir::Attribute value : enumeration.getValuesAttr())
+            planEnum.values.push_back(
+                mlir::cast<mlir::IntegerAttr>(value).getValue().getZExtValue());
+        planEnum.width =
+            enumeration.getEncodingWidthAttr()
+                ? *enumeration.getEncodingWidth()
+                : std::max<uint64_t>(
+                      1, llvm::Log2_64_Ceil(planEnum.enumerants.size()));
         plan.enums.push_back(std::move(planEnum));
         continue;
       }
@@ -2191,9 +2311,9 @@ private:
       return planError(
           "Queue plan requires typed lanes/rate matching endpoint metadata");
     names[value] = name.str();
-    plan.queues.push_back(
-        {name.str(), printType(queue.getElementType()), scopePath(scope), depth,
-         latency, static_cast<uint64_t>(queue.getRate())});
+    plan.queues.push_back({name.str(), printType(queue.getElementType()),
+                           scopePath(scope), depth, latency,
+                           static_cast<uint64_t>(queue.getRate())});
     QueuePlan &planned = plan.queues.back();
     planned.lanes = static_cast<uint64_t>(queue.getLanes());
     for (uint64_t lane = 0; lane < planned.lanes; ++lane)
@@ -2269,21 +2389,20 @@ private:
         else
           tablePlan.axisWidths.push_back(
               std::max<uint64_t>(1, llvm::Log2_64_Ceil(tablePlan.entries)));
-        tablePlan.layout = table.getLayout() ? table.getLayout()->str()
-                                             : "row_major";
-        tablePlan.layoutVersion = table.getLayoutVersion()
-                                      ? static_cast<uint64_t>(
-                                            *table.getLayoutVersion())
-                                      : uint64_t{1};
+        tablePlan.layout =
+            table.getLayout() ? table.getLayout()->str() : "row_major";
+        tablePlan.layoutVersion =
+            table.getLayoutVersion()
+                ? static_cast<uint64_t>(*table.getLayoutVersion())
+                : uint64_t{1};
         if (auto schemaId = table.getSchemaId())
           tablePlan.schemaId = schemaId->str();
         if (auto initVersion = table.getInitVersion())
           tablePlan.initVersion = static_cast<uint64_t>(*initVersion);
         if (auto initImage = table.getInitImage()) {
           for (mlir::Attribute value : *initImage) {
-            auto initial =
-                extractTableInitValue(table.getOperation(),
-                                      table.getEntryType(), value);
+            auto initial = extractTableInitValue(table.getOperation(),
+                                                 table.getEntryType(), value);
             if (!initial)
               return initial.takeError();
             tablePlan.initImage.push_back(std::move(*initial));
@@ -2316,10 +2435,12 @@ private:
         if (predicate.yields.size() != 1)
           return planError("table.match predicate must yield one value");
         auto resultType = mlir::cast<ac::VarType>(match.getMask().getType());
-        TableMatchPlan matchPlan{
-            name, match.getTable().str(), scopePath(scope),
-            printType(resultType.getElementType()),
-            std::move(predicate.expressions), predicate.yields.front()};
+        TableMatchPlan matchPlan{name,
+                                 match.getTable().str(),
+                                 scopePath(scope),
+                                 printType(resultType.getElementType()),
+                                 std::move(predicate.expressions),
+                                 predicate.yields.front()};
         extractTableDomain(matchPlan, match);
         plan.tableMatches.push_back(std::move(matchPlan));
         QueueExpressionPlan reference{
@@ -2353,17 +2474,17 @@ private:
         const uint64_t count = static_cast<uint64_t>(choose.getCount());
         const std::string policy =
             ac::stringifyTableSelectionPolicy(choose.getPolicy()).str();
-        auto indexType = mlir::cast<ac::VarType>(
-            choose.getResults().front().getType());
-        TableSelectionPlan selection{
-            name,
-            choose.getTable().str(),
-            scopePath(scope),
-            matchValue->second.field,
-            policy,
-            printType(indexType.getElementType()),
-            std::move(key.expressions),
-            key.yields.empty() ? std::string() : key.yields.front()};
+        auto indexType =
+            mlir::cast<ac::VarType>(choose.getResults().front().getType());
+        TableSelectionPlan selection{name,
+                                     choose.getTable().str(),
+                                     scopePath(scope),
+                                     matchValue->second.field,
+                                     policy,
+                                     printType(indexType.getElementType()),
+                                     std::move(key.expressions),
+                                     key.yields.empty() ? std::string()
+                                                        : key.yields.front()};
         selection.count = count;
         if (auto ordering = choose.getKeyOrdering())
           selection.keyOrdering =
@@ -2375,14 +2496,12 @@ private:
         for (auto [resultIndex, resultValue] :
              llvm::enumerate(choose.getResults())) {
           const bool indexLane = resultIndex < count;
-          const uint64_t lane =
-              indexLane ? resultIndex : resultIndex - count;
+          const uint64_t lane = indexLane ? resultIndex : resultIndex - count;
           auto resultType = mlir::cast<ac::VarType>(resultValue.getType());
           QueueExpressionPlan reference{
               "shared_selection_" +
                   std::to_string(plan.tableSelections.size() - 1) +
-                  (indexLane ? "_index_" : "_valid_") +
-                  std::to_string(lane),
+                  (indexLane ? "_index_" : "_valid_") + std::to_string(lane),
               indexLane ? "table_selection_index_ref"
                         : "table_selection_valid_ref",
               printType(resultType.getElementType()),
@@ -3075,7 +3194,304 @@ std::optional<llvm::StringRef> enumTypeName(llvm::StringRef type) {
   return std::nullopt;
 }
 
+void appendStaticTypeFingerprintPart(llvm::SHA256 &sha, llvm::StringRef value) {
+  sha.update(value);
+  const uint8_t zero = 0;
+  sha.update(llvm::ArrayRef<uint8_t>(&zero, 1));
+}
+
+std::string
+staticStructFingerprint(const QueuePayloadPlan &payload,
+                        const QueueStaticTypeIdentityPlan &identity) {
+  llvm::SHA256 sha;
+  appendStaticTypeFingerprintPart(sha, "ac.struct-specialization-v1");
+  appendStaticTypeFingerprintPart(sha, identity.source);
+  for (const QueuePayloadFieldPlan &field : payload.fields) {
+    appendStaticTypeFingerprintPart(sha, field.name);
+    appendStaticTypeFingerprintPart(sha, field.type);
+  }
+  for (const QueueStaticTypeIdentityBindingPlan &binding : identity.bindings) {
+    appendStaticTypeFingerprintPart(sha, binding.name);
+    appendStaticTypeFingerprintPart(sha, std::to_string(binding.value));
+  }
+  return "sha256:" + llvm::toHex(sha.final(), /*LowerCase=*/true);
+}
+
+llvm::Error verifyStaticTypeMetadata(const QueueGraphPlan &plan) {
+  if (plan.staticTypeBindings.empty() && plan.staticTypeChecks.empty() &&
+      plan.staticTypeIdentities.empty())
+    return llvm::Error::success();
+  if (plan.staticTypeBindings.empty() || plan.staticTypeChecks.empty())
+    return planError("static type bindings and checks must both be present");
+  llvm::StringMap<int64_t> bindings;
+  for (const auto &[name, value] : plan.staticTypeBindings)
+    if (name.empty() || !bindings.try_emplace(name, value).second)
+      return planError("static type bindings must be named and unique");
+
+  llvm::StringMap<const QueuePayloadPlan *> payloads;
+  for (const QueuePayloadPlan &payload : plan.payloads)
+    payloads[payload.name] = &payload;
+
+  auto queueType = [](const QueueGraphPlan &owner,
+                      llvm::StringRef queueName) -> std::optional<std::string> {
+    auto queue = llvm::find_if(owner.queues, [&](const QueuePlan &candidate) {
+      return candidate.name == queueName;
+    });
+    return queue == owner.queues.end()
+               ? std::nullopt
+               : std::optional<std::string>(queue->payloadType);
+  };
+  auto resolveInterfaceType =
+      [&](llvm::StringRef path) -> std::pair<bool, std::optional<std::string>> {
+    llvm::SmallVector<llvm::StringRef> segments;
+    path.split(segments, '.');
+    if (segments.size() != 5 || segments[0] != "interface")
+      return {true, std::nullopt};
+    llvm::StringRef ownerKind = segments[1];
+    llvm::StringRef ownerName = segments[2];
+    llvm::StringRef direction = segments[3];
+    llvm::StringRef endpoint = segments[4];
+    const bool rootPlan = plan.definition.empty() || plan.definition == "Top";
+    if (ownerKind == "system") {
+      if (!rootPlan)
+        return {false, std::nullopt};
+      if (ownerName != plan.system)
+        return {true, std::nullopt};
+      if (direction == "input")
+        return {true, queueType(plan, endpoint)};
+      unsigned ordinal = 0;
+      if (direction != "output" || endpoint.getAsInteger(10, ordinal))
+        return {true, std::nullopt};
+      if (!plan.interfaceOutputs.empty())
+        return ordinal < plan.interfaceOutputs.size()
+                   ? std::pair<bool, std::optional<std::string>>{
+                         true, plan.interfaceOutputs[ordinal].payloadType}
+                   : std::pair<bool, std::optional<std::string>>{
+                         true, std::nullopt};
+      llvm::SmallVector<std::string> outputs;
+      for (const QueueBlockPlan &block : plan.blocks)
+        if (block.kind == "sink" && block.inputs.size() == 1)
+          outputs.push_back(block.inputs.front());
+      return ordinal < outputs.size()
+                 ? std::pair<bool,
+                             std::optional<std::string>>{true,
+                                                         queueType(
+                                                             plan,
+                                                             outputs[ordinal])}
+                 : std::pair<bool, std::optional<std::string>>{true,
+                                                               std::nullopt};
+    }
+    if (ownerKind != "module")
+      return {true, std::nullopt};
+    const QueueGraphPlan *owner = nullptr;
+    if (plan.definition == ownerName)
+      owner = &plan;
+    else
+      for (const std::shared_ptr<QueueGraphPlan> &specialization :
+           plan.moduleSpecializations)
+        if (specialization && specialization->definition == ownerName) {
+          owner = specialization.get();
+          break;
+        }
+    if (!owner)
+      return {rootPlan, std::nullopt};
+    const auto &ports =
+        direction == "input" ? owner->interfaceInputs : owner->interfaceOutputs;
+    if (direction == "input") {
+      auto port = llvm::find_if(ports, [&](const QueueInterfacePlan &item) {
+        return item.displayName == endpoint;
+      });
+      return port == ports.end()
+                 ? std::pair<bool, std::optional<std::string>>{true,
+                                                               std::nullopt}
+                 : std::pair<bool, std::optional<std::string>>{
+                       true, port->payloadType};
+    }
+    unsigned ordinal = 0;
+    if (direction != "output" || endpoint.getAsInteger(10, ordinal) ||
+        ordinal >= ports.size())
+      return {true, std::nullopt};
+    return {true, ports[ordinal].payloadType};
+  };
+
+  llvm::StringSet<> referencedBindings;
+  llvm::StringSet<> targets;
+  for (const QueueStaticTypeCheckPlan &check : plan.staticTypeChecks) {
+    if (check.target.empty() || check.program.empty() ||
+        !targets.insert(check.target).second)
+      return planError("static type check must be complete");
+    llvm::SmallVector<int64_t> stack;
+    for (llvm::StringRef rawToken : check.program) {
+      llvm::StringRef token = rawToken;
+      if (token.consume_front("param:")) {
+        auto binding = bindings.find(token);
+        if (binding == bindings.end())
+          return planError("static type check references an unknown binding");
+        referencedBindings.insert(token);
+        stack.push_back(binding->getValue());
+        continue;
+      }
+      if (token.consume_front("literal:")) {
+        int64_t value = 0;
+        if (token.getAsInteger(10, value))
+          return planError("static type check literal is malformed");
+        stack.push_back(value);
+        continue;
+      }
+      if (rawToken == "index_width" || rawToken == "count_width") {
+        if (stack.empty())
+          return planError("static type check stack underflow");
+        int64_t value = stack.pop_back_val();
+        if (value <= 0)
+          return planError("static type width helper input is invalid");
+        stack.push_back(rawToken == "count_width"
+                            ? llvm::Log2_64(static_cast<uint64_t>(value)) + 1
+                            : std::max<int64_t>(1, llvm::Log2_64_Ceil(value)));
+        continue;
+      }
+      if (rawToken != "add" && rawToken != "sub" && rawToken != "mul")
+        return planError("static type check operation is unsupported");
+      if (stack.size() < 2)
+        return planError("static type check stack underflow");
+      int64_t right = stack.pop_back_val();
+      int64_t left = stack.pop_back_val();
+      int64_t result = 0;
+      bool overflow = rawToken == "add" ? llvm::AddOverflow(left, right, result)
+                      : rawToken == "sub"
+                          ? llvm::SubOverflow(left, right, result)
+                          : llvm::MulOverflow(left, right, result);
+      if (overflow)
+        return planError("static type check arithmetic overflow");
+      stack.push_back(result);
+    }
+    if (stack.size() != 1 || stack.front() != check.result)
+      return planError("static type check result is inconsistent");
+
+    auto [path, kind] = llvm::StringRef(check.target).rsplit(':');
+    llvm::SmallVector<llvm::StringRef> segments;
+    std::string ownedResolvedType = check.concreteType;
+    llvm::StringRef resolvedType = ownedResolvedType;
+    if (!check.concreteType.empty()) {
+      auto [applicable, actual] = resolveInterfaceType(path);
+      if (applicable && (!actual || *actual != check.concreteType))
+        return planError(
+            "static interface type check disagrees with the actual endpoint '" +
+            check.target + "': expected " + check.concreteType + ", got " +
+            (actual ? *actual : std::string("<unresolved>")));
+    } else {
+      path.split(segments, '.');
+      if (segments.size() < 2)
+        return planError("static type check target is unresolved");
+      llvm::StringRef payloadName = segments[0];
+      llvm::StringRef fieldName = segments[1];
+      auto payload = payloads.find(payloadName);
+      if (payload == payloads.end() || fieldName.empty())
+        return planError("static type check target is unresolved");
+      auto field =
+          llvm::find_if(payload->getValue()->fields, [&](const auto &item) {
+            return item.name == fieldName;
+          });
+      if (field == payload->getValue()->fields.end())
+        return planError("static type check field is unresolved");
+      resolvedType = field->type;
+    }
+    for (llvm::StringRef segment :
+         check.concreteType.empty()
+             ? llvm::ArrayRef<llvm::StringRef>(segments).drop_front(2)
+             : llvm::ArrayRef<llvm::StringRef>()) {
+      auto aggregate = llvm::find_if(plan.aggregates,
+                                     [&](const QueueAggregatePlan &candidate) {
+                                       return candidate.type == resolvedType;
+                                     });
+      if (aggregate == plan.aggregates.end())
+        return planError("static type check aggregate path is unresolved");
+      if (segment == "array_element") {
+        if (aggregate->kind != "array" || aggregate->elements.size() != 1)
+          return planError(
+              "static type check array-element path is unresolved");
+        resolvedType = aggregate->elements.front();
+        continue;
+      }
+      llvm::StringRef ordinal = segment;
+      unsigned index = 0;
+      if (!ordinal.consume_front("tuple_") || ordinal.getAsInteger(10, index) ||
+          aggregate->kind != "tuple" || index >= aggregate->elements.size())
+        return planError("static type check tuple-element path is unresolved");
+      resolvedType = aggregate->elements[index];
+    }
+    if (kind == "bits") {
+      if (resolvedType != "i" + std::to_string(check.result))
+        return planError("static bits width is inconsistent");
+    } else if (kind == "array_length") {
+      auto aggregate = llvm::find_if(plan.aggregates,
+                                     [&](const QueueAggregatePlan &candidate) {
+                                       return candidate.type == resolvedType;
+                                     });
+      if (aggregate == plan.aggregates.end() || aggregate->kind != "array" ||
+          aggregate->length != static_cast<uint64_t>(check.result))
+        return planError("static value-array length is inconsistent");
+    } else {
+      return planError("static type check target kind is unsupported");
+    }
+  }
+  for (const auto &binding : bindings)
+    if (!referencedBindings.contains(binding.getKey()))
+      return planError(
+          "static type binding is not referenced by any type check");
+
+  llvm::StringSet<> identitySymbols;
+  llvm::StringSet<> identityTargets;
+  for (const QueueStaticTypeIdentityPlan &identity :
+       plan.staticTypeIdentities) {
+    if (identity.source.empty() || identity.symbol.empty() ||
+        identity.fingerprint.empty() ||
+        !identitySymbols.insert(identity.symbol).second)
+      return planError("static type identity metadata is malformed");
+    auto payload = payloads.find(identity.symbol);
+    if (payload == payloads.end())
+      return planError("static type identity payload is unresolved");
+    llvm::StringSet<> names;
+    llvm::StringRef previous;
+    for (const QueueStaticTypeIdentityBindingPlan &binding :
+         identity.bindings) {
+      auto global = bindings.find(binding.parameter);
+      if (binding.name.empty() || binding.parameter.empty() ||
+          !names.insert(binding.name).second ||
+          (!previous.empty() && previous >= binding.name) ||
+          global == bindings.end() || global->getValue() != binding.value)
+        return planError("static type identity bindings are inconsistent");
+      previous = binding.name;
+    }
+    const std::string prefix = identity.symbol + ".";
+    for (const std::string &target : identity.targets)
+      if (!targets.contains(target) || !identityTargets.insert(target).second ||
+          !llvm::StringRef(target).starts_with(prefix))
+        return planError("static type identity targets are inconsistent");
+    const std::string expected =
+        staticStructFingerprint(*payload->getValue(), identity);
+    if (identity.fingerprint != expected ||
+        identity.symbol != identity.source + "__p" + expected.substr(7, 12))
+      return planError("static type identity fingerprint is inconsistent");
+  }
+  for (const QueuePayloadPlan &payload : plan.payloads)
+    if (llvm::StringRef(payload.name).contains("__p") &&
+        !identitySymbols.contains(payload.name))
+      return planError("specialized payload requires static type identity");
+  for (llvm::StringRef target : targets.keys()) {
+    auto [path, kind] = target.rsplit(':');
+    (void)kind;
+    auto [symbol, rest] = path.split('.');
+    if (!rest.empty() && payloads.contains(symbol) && symbol.contains("__p") &&
+        !identityTargets.contains(target))
+      return planError(
+          "specialized payload check is missing from static type identity");
+  }
+  return llvm::Error::success();
+}
+
 llvm::Error verifyPayloadGraph(const QueueGraphPlan &plan) {
+  if (auto error = verifyStaticTypeMetadata(plan))
+    return error;
   llvm::StringMap<const QueueEnumPlan *> enums;
   for (const QueueEnumPlan &enumeration : plan.enums) {
     if (enumeration.name.empty() || enumeration.enumerants.empty() ||
@@ -3087,8 +3503,19 @@ llvm::Error verifyPayloadGraph(const QueueGraphPlan &plan) {
         return planError("enum enumerants must be non-empty and unique");
     const uint64_t expectedWidth = std::max<uint64_t>(
         1, llvm::Log2_64_Ceil(enumeration.enumerants.size()));
-    if (enumeration.width != expectedWidth)
+    if (enumeration.values.empty() && enumeration.width != expectedWidth)
       return planError("enum encoding width is inconsistent");
+    if (!enumeration.values.empty()) {
+      if (enumeration.values.size() != enumeration.enumerants.size() ||
+          enumeration.width == 0 || enumeration.width > 64)
+        return planError("explicit enum encoding shape is inconsistent");
+      std::set<uint64_t> values;
+      for (uint64_t value : enumeration.values)
+        if (!values.insert(value).second ||
+            (enumeration.width < 64 &&
+             value >= (uint64_t{1} << enumeration.width)))
+          return planError("explicit enum encoding values are inconsistent");
+    }
   }
   llvm::StringMap<const QueuePayloadPlan *> payloads;
   for (const QueuePayloadPlan &payload : plan.payloads) {
@@ -3494,8 +3921,8 @@ llvm::Error verifyQueueGraphPlan(const QueueGraphPlan &plan) {
       const size_t rank = table.shape.empty() ? 1 : table.shape.size();
       if (axis >= rank)
         return std::nullopt;
-      const uint64_t tableExtent = table.shape.empty() ? table.entries
-                                                       : table.shape[axis];
+      const uint64_t tableExtent =
+          table.shape.empty() ? table.entries : table.shape[axis];
       if (!axes.insert(axis).second || extent != tableExtent || extent == 0 ||
           stride == 0 ||
           entries > std::numeric_limits<uint64_t>::max() / extent ||
@@ -3514,8 +3941,7 @@ llvm::Error verifyQueueGraphPlan(const QueueGraphPlan &plan) {
     const TablePlan *table = tables.lookup(match.table);
     std::optional<uint64_t> domainEntries =
         table ? projectionSize(match, *table) : std::nullopt;
-    if (match.name.empty() || !table ||
-        !domainEntries ||
+    if (match.name.empty() || !table || !domainEntries ||
         !isCandidateMaskType(match.resultType, *domainEntries) ||
         match.resultType.empty() || match.yield.empty() ||
         !tableMatches.try_emplace(match.name, &match).second)
@@ -3537,8 +3963,7 @@ llvm::Error verifyQueueGraphPlan(const QueueGraphPlan &plan) {
          selection.policy != "max" && selection.policy != "round_robin") ||
         !domainEntries || selection.count == 0 ||
         selection.count > *domainEntries ||
-        ((selection.policy == "first" ||
-          selection.policy == "round_robin") &&
+        ((selection.policy == "first" || selection.policy == "round_robin") &&
          (!selection.keyExpressions.empty() || !selection.keyYield.empty())) ||
         ((selection.policy == "min" || selection.policy == "max") &&
          (selection.keyYield.empty() ||
@@ -3627,9 +4052,8 @@ llvm::Error verifyQueueGraphPlan(const QueueGraphPlan &plan) {
     };
     for (const QueueBlockPlan &block : plan.blocks) {
       bool used = false;
-      if (auto error =
-              collectSelectionUses(collectSelectionUses, block.expressions,
-                                   used))
+      if (auto error = collectSelectionUses(collectSelectionUses,
+                                            block.expressions, used))
         return error;
       if (!used)
         continue;
@@ -3639,8 +4063,8 @@ llvm::Error verifyQueueGraphPlan(const QueueGraphPlan &plan) {
             "TableRead prefix group");
       ++firingConsumers;
     }
-    const size_t readGroups = llvm::count_if(
-        plan.blocks, [&](const QueueBlockPlan &block) {
+    const size_t readGroups =
+        llvm::count_if(plan.blocks, [&](const QueueBlockPlan &block) {
           return block.kind == "table_read_group" &&
                  block.selection == selection.name;
         });
@@ -3740,8 +4164,8 @@ llvm::Error verifyQueueGraphPlan(const QueueGraphPlan &plan) {
   for (const TableWritePlan &write : plan.tableWrites) {
     if (!tables.contains(write.table) || write.name.empty())
       return planError("table write endpoint metadata is incomplete");
-    const bool arbitrated = llvm::any_of(
-        plan.blocks, [&](const QueueBlockPlan &block) {
+    const bool arbitrated =
+        llvm::any_of(plan.blocks, [&](const QueueBlockPlan &block) {
           return block.kind == "table_write" && block.name == write.name &&
                  block.table == write.table &&
                  !block.arbitrationMembership.empty();
@@ -3754,8 +4178,8 @@ llvm::Error verifyQueueGraphPlan(const QueueGraphPlan &plan) {
   for (const TableMaskedWritePlan &write : plan.tableMaskedWrites) {
     if (!tables.contains(write.table) || write.name.empty())
       return planError("masked table write endpoint metadata is incomplete");
-    const bool arbitrated = llvm::any_of(
-        plan.blocks, [&](const QueueBlockPlan &block) {
+    const bool arbitrated =
+        llvm::any_of(plan.blocks, [&](const QueueBlockPlan &block) {
           return block.kind == "table_masked_write" &&
                  block.name == write.name && block.table == write.table &&
                  !block.arbitrationMembership.empty();
@@ -3861,8 +4285,8 @@ llvm::Error verifyQueueGraphPlan(const QueueGraphPlan &plan) {
   llvm::StringMap<std::string> queueTypes;
   llvm::StringMap<std::pair<uint64_t, uint64_t>> queueLanesAndRates;
   for (const QueueInterfacePlan &input : plan.interfaceInputs) {
-    if (input.name.empty() || input.payloadType.empty() ||
-        input.lanes == 0 || input.rate == 0 || input.rate > input.lanes ||
+    if (input.name.empty() || input.payloadType.empty() || input.lanes == 0 ||
+        input.rate == 0 || input.rate > input.lanes ||
         !queueNames.insert(input.name).second)
       return planError("module input identities must be typed and unique");
     indegree[input.name] = 0;
@@ -4035,11 +4459,10 @@ llvm::Error verifyQueueGraphPlan(const QueueGraphPlan &plan) {
           auto operand = valueTypes.find(operandName);
           const uint64_t extent =
               table->shape.empty() ? table->entries : table->shape[axis];
-          const uint64_t expectedWidth = table->axisWidths.empty()
-                                             ? std::max<uint64_t>(
-                                                   1,
-                                                   llvm::Log2_64_Ceil(extent))
-                                             : table->axisWidths[axis];
+          const uint64_t expectedWidth =
+              table->axisWidths.empty()
+                  ? std::max<uint64_t>(1, llvm::Log2_64_Ceil(extent))
+                  : table->axisWidths[axis];
           if (operand == valueTypes.end() ||
               operand->getValue() != "i" + std::to_string(expectedWidth))
             return planError("Table coordinate type is inconsistent");
@@ -4055,11 +4478,19 @@ llvm::Error verifyQueueGraphPlan(const QueueGraphPlan &plan) {
           return planError("enum constant expression contract is malformed");
         std::optional<llvm::StringRef> name = enumTypeName(expression.type);
         auto enumeration = name ? enums.find(*name) : enums.end();
-        uint64_t ordinal = 0;
+        uint64_t encoded = 0;
         if (!name || enumeration == enums.end() ||
-            llvm::StringRef(expression.literal).getAsInteger(10, ordinal) ||
-            ordinal >= enumeration->getValue()->enumerants.size() ||
-            enumeration->getValue()->enumerants[ordinal] != expression.field)
+            llvm::StringRef(expression.literal).getAsInteger(10, encoded))
+          return planError("enum constant expression is inconsistent");
+        const QueueEnumPlan &planEnum = *enumeration->getValue();
+        auto member = llvm::find(planEnum.enumerants, expression.field);
+        if (member == planEnum.enumerants.end())
+          return planError("enum constant expression is inconsistent");
+        const size_t ordinal =
+            std::distance(planEnum.enumerants.begin(), member);
+        const uint64_t expected =
+            planEnum.values.empty() ? ordinal : planEnum.values[ordinal];
+        if (encoded != expected)
           return planError("enum constant expression is inconsistent");
       } else if (expression.kind == "tuple_create" ||
                  expression.kind == "array_create") {
@@ -4242,9 +4673,8 @@ llvm::Error verifyQueueGraphPlan(const QueueGraphPlan &plan) {
         if (expression.operands.size() != 1)
           return planError("inline table choose requires one candidate mask");
         if (!expression.literal.empty() || !expression.slot.empty() ||
-            !expression.mask.empty() ||
-            !expression.value.empty() || expression.lsb != 0 ||
-            expression.width != 0)
+            !expression.mask.empty() || !expression.value.empty() ||
+            expression.lsb != 0 || expression.width != 0)
           return planError("inline table choose metadata is not canonical");
         const TablePlan *table = tables.lookup(expression.table);
         auto producer = valueDefinitions.find(expression.operands.front());
@@ -4304,8 +4734,7 @@ llvm::Error verifyQueueGraphPlan(const QueueGraphPlan &plan) {
             ++kinds.second;
           }
         } else if (expression.kind == "table_choose_index") {
-          if (kinds.second != 0 ||
-              expression.laneOrdinal != kinds.first)
+          if (kinds.second != 0 || expression.laneOrdinal != kinds.first)
             return planError(
                 "inline table choose indices must form the first segment");
           ++kinds.first;
@@ -4846,8 +5275,7 @@ llvm::Error verifyQueueGraphPlan(const QueueGraphPlan &plan) {
         !memoryInstances.contains(block.memoryInstance))
       return planError("memory request block references unknown instance");
     if ((block.kind == "table_read" || block.kind == "table_read_group" ||
-         block.kind == "table_write" ||
-         block.kind == "table_masked_write") &&
+         block.kind == "table_write" || block.kind == "table_masked_write") &&
         !tables.contains(block.table))
       return planError("table endpoint block references unknown table");
     if (block.kind == "table_read_group") {
@@ -5031,8 +5459,8 @@ llvm::Expected<std::string> QueueGraphPlan::canonicalJson() const {
     }
     return result;
   };
-  auto initValueJson = [&](auto &&self,
-                           const TableInitValuePlan &value) -> llvm::json::Object {
+  auto initValueJson =
+      [&](auto &&self, const TableInitValuePlan &value) -> llvm::json::Object {
     llvm::json::Array elements;
     for (const TableInitValuePlan &element : value.elements)
       elements.push_back(self(self, element));
@@ -5059,10 +5487,17 @@ llvm::Expected<std::string> QueueGraphPlan::canonicalJson() const {
     llvm::json::Array enumerants;
     for (const std::string &enumerant : enumeration.enumerants)
       enumerants.push_back(enumerant);
-    enumValues.push_back(
-        llvm::json::Object{{"enumerants", std::move(enumerants)},
-                           {"name", enumeration.name},
-                           {"width", enumeration.width}});
+    llvm::json::Object value{{"enumerants", std::move(enumerants)},
+                             {"name", enumeration.name},
+                             {"width", enumeration.width}};
+    if (!enumeration.values.empty()) {
+      llvm::json::Array values;
+      for (uint64_t encoded : enumeration.values)
+        values.push_back(llvm::formatv("{0:x}", encoded).str());
+      value["values"] = std::move(values);
+      value["value_format"] = "unsigned_hex";
+    }
+    enumValues.push_back(std::move(value));
   }
   llvm::json::Array aggregateValues;
   for (const QueueAggregatePlan &aggregate : aggregates) {
@@ -5105,12 +5540,11 @@ llvm::Expected<std::string> QueueGraphPlan::canonicalJson() const {
   for (const std::string &scope : scopes)
     scopeValues.push_back(scope);
   llvm::json::Array queueValues;
-  for (const QueuePlan &queue : queues)
-    {
-      llvm::json::Array laneOrdinals;
-      for (uint64_t lane : queue.laneOrdinals)
-        laneOrdinals.push_back(lane);
-      queueValues.push_back(
+  for (const QueuePlan &queue : queues) {
+    llvm::json::Array laneOrdinals;
+    for (uint64_t lane : queue.laneOrdinals)
+      laneOrdinals.push_back(lane);
+    queueValues.push_back(
         llvm::json::Object{{"depth", queue.depth},
                            {"lane_ordinals", std::move(laneOrdinals)},
                            {"lanes", queue.lanes},
@@ -5119,7 +5553,7 @@ llvm::Expected<std::string> QueueGraphPlan::canonicalJson() const {
                            {"payload_type", queue.payloadType},
                            {"rate", queue.rate},
                            {"scope", queue.scope}});
-    }
+  }
   llvm::json::Array blockValues;
   for (const QueueBlockPlan &block : blocks) {
     auto resourceJson = [](const QueueRuleResourcePlan &resource) {
@@ -5275,21 +5709,21 @@ llvm::Expected<std::string> QueueGraphPlan::canonicalJson() const {
       axisWidths.push_back(value);
     for (const TableInitValuePlan &value : table.initImage)
       initImage.push_back(initValueJson(initValueJson, value));
-    tableValues.push_back(llvm::json::Object{
-        {"axis_widths", std::move(axisWidths)},
-        {"entries", table.entries},
-        {"entry_type", table.entryType},
-        {"init", table.init},
-        {"init_image", std::move(initImage)},
-        {"init_version", table.initVersion},
-        {"has_typed_schema", table.hasTypedSchema},
-        {"layout", table.layout},
-        {"layout_version", table.layoutVersion},
-        {"name", table.name},
-        {"owner_path", table.ownerPath},
-        {"schema_id", table.schemaId},
-        {"shape", std::move(shape)},
-        {"stable_id", table.stableId}});
+    tableValues.push_back(
+        llvm::json::Object{{"axis_widths", std::move(axisWidths)},
+                           {"entries", table.entries},
+                           {"entry_type", table.entryType},
+                           {"init", table.init},
+                           {"init_image", std::move(initImage)},
+                           {"init_version", table.initVersion},
+                           {"has_typed_schema", table.hasTypedSchema},
+                           {"layout", table.layout},
+                           {"layout_version", table.layoutVersion},
+                           {"name", table.name},
+                           {"owner_path", table.ownerPath},
+                           {"schema_id", table.schemaId},
+                           {"shape", std::move(shape)},
+                           {"stable_id", table.stableId}});
   }
   llvm::json::Array tableMatchValues;
   for (const TableMatchPlan &match : tableMatches) {
@@ -5381,20 +5815,20 @@ llvm::Expected<std::string> QueueGraphPlan::canonicalJson() const {
                                             {"stable_id", slot.stableId}});
   llvm::json::Array interfaceInputValues;
   for (const QueueInterfacePlan &input : interfaceInputs)
-    interfaceInputValues.push_back(llvm::json::Object{
-        {"display_name", input.displayName},
-        {"lanes", input.lanes},
-        {"name", input.name},
-        {"payload_type", input.payloadType},
-        {"rate", input.rate}});
+    interfaceInputValues.push_back(
+        llvm::json::Object{{"display_name", input.displayName},
+                           {"lanes", input.lanes},
+                           {"name", input.name},
+                           {"payload_type", input.payloadType},
+                           {"rate", input.rate}});
   llvm::json::Array interfaceOutputValues;
   for (const QueueInterfacePlan &output : interfaceOutputs)
-    interfaceOutputValues.push_back(llvm::json::Object{
-        {"display_name", output.displayName},
-        {"lanes", output.lanes},
-        {"name", output.name},
-        {"payload_type", output.payloadType},
-        {"rate", output.rate}});
+    interfaceOutputValues.push_back(
+        llvm::json::Object{{"display_name", output.displayName},
+                           {"lanes", output.lanes},
+                           {"name", output.name},
+                           {"payload_type", output.payloadType},
+                           {"rate", output.rate}});
   llvm::json::Array moduleInstanceValues;
   for (const QueueModuleInstancePlan &instance : moduleInstances) {
     llvm::json::Array inputs;
@@ -5442,6 +5876,38 @@ llvm::Expected<std::string> QueueGraphPlan::canonicalJson() const {
   llvm::json::Array initialActivationValues;
   for (const QueueActivationNodePlan &node : initialActivation)
     initialActivationValues.push_back(activationNodeJson(node));
+  llvm::json::Object staticTypeBindingValues;
+  for (const auto &[name, value] : staticTypeBindings)
+    staticTypeBindingValues[name] = value;
+  llvm::json::Array staticTypeCheckValues;
+  for (const QueueStaticTypeCheckPlan &check : staticTypeChecks) {
+    llvm::json::Array program;
+    for (const std::string &token : check.program)
+      program.push_back(token);
+    llvm::json::Object value{{"program", std::move(program)},
+                             {"result", check.result},
+                             {"target", check.target}};
+    if (!check.concreteType.empty())
+      value["type"] = check.concreteType;
+    staticTypeCheckValues.push_back(std::move(value));
+  }
+  llvm::json::Array staticTypeIdentityValues;
+  for (const QueueStaticTypeIdentityPlan &identity : staticTypeIdentities) {
+    llvm::json::Array bindings;
+    for (const QueueStaticTypeIdentityBindingPlan &binding : identity.bindings)
+      bindings.push_back(llvm::json::Object{{"name", binding.name},
+                                            {"parameter", binding.parameter},
+                                            {"value", binding.value}});
+    llvm::json::Array targets;
+    for (const std::string &target : identity.targets)
+      targets.push_back(target);
+    staticTypeIdentityValues.push_back(
+        llvm::json::Object{{"bindings", std::move(bindings)},
+                           {"fingerprint", identity.fingerprint},
+                           {"source", identity.source},
+                           {"symbol", identity.symbol},
+                           {"targets", std::move(targets)}});
+  }
   llvm::json::Object root{
       {"activation_edges", std::move(activationEdgeValues)},
       {"aggregates", std::move(aggregateValues)},
@@ -5478,6 +5944,12 @@ llvm::Expected<std::string> QueueGraphPlan::canonicalJson() const {
       {"tables", std::move(tableValues)},
       {"system", system},
       {"version", "0.5"}};
+  if (!staticTypeBindings.empty())
+    root["static_type_bindings"] = std::move(staticTypeBindingValues);
+  if (!staticTypeChecks.empty())
+    root["static_type_checks"] = std::move(staticTypeCheckValues);
+  if (!staticTypeIdentities.empty())
+    root["static_type_identities"] = std::move(staticTypeIdentityValues);
   root["work_closure_edges"] = std::move(workClosureEdgeValues);
   return bindings::canonicalizeJson(llvm::json::Value(std::move(root)));
 }

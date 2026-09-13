@@ -52,9 +52,14 @@ def ACIR_BitfieldOp : ACIR_Op<"bitfield", [Symbol]> {
 }
 
 def ACIR_EnumOp : ACIR_Op<"enum", [Symbol]> {
-  let arguments = (ins SymbolNameAttr:$sym_name, StrArrayAttr:$enumerants);
+  let arguments = (ins SymbolNameAttr:$sym_name, StrArrayAttr:$enumerants,
+                       OptionalAttr<ArrayAttr>:$values,
+                       OptionalAttr<I64Attr>:$encoding_width);
   let hasVerifier = 1;
-  let assemblyFormat = "$sym_name `enumerants` $enumerants attr-dict";
+  let assemblyFormat = [{
+    $sym_name `enumerants` $enumerants (`values` $values^)?
+    (`width` $encoding_width^)? attr-dict
+  }];
 }
 
 

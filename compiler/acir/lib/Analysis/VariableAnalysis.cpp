@@ -1,12 +1,15 @@
 #include "acir/Analysis/VariableAnalysis.h"
 
+#include "VariableAnalysisTestHooks.h"
+
 #include "acir/Dialect/ACIR/ACIROps.h"
 #include "acir/Dialect/ACIR/ACIRTypes.h"
 #include "mlir/Analysis/DataFlow/SparseAnalysis.h"
 #include "mlir/Analysis/DataFlow/Utils.h"
 #include "mlir/IR/SymbolTable.h"
-#include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/APInt.h"
+#include "llvm/ADT/DenseMap.h"
+#include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/StringExtras.h"
 #include "llvm/ADT/StringSwitch.h"
@@ -51,9 +54,8 @@ using ValueConstraintLattice = dataflow::Lattice<ConstraintLatticeValue>;
 
 std::optional<unsigned> integerWidth(Type type) {
   auto variable = dyn_cast<ac::VarType>(type);
-  auto integer = variable
-                     ? dyn_cast<IntegerType>(variable.getElementType())
-                     : dyn_cast<IntegerType>(type);
+  auto integer = variable ? dyn_cast<IntegerType>(variable.getElementType())
+                          : dyn_cast<IntegerType>(type);
   if (!integer || !integer.isSignless() || integer.getWidth() == 0 ||
       integer.getWidth() > 64)
     return std::nullopt;
@@ -71,8 +73,8 @@ ValueConstraint defaultConstraint(Type type) {
                : ValueConstraint::unknown();
 }
 
-std::optional<SmallVector<uint64_t, 8>> exactValues(
-    const ValueConstraint &constraint) {
+std::optional<SmallVector<uint64_t, 8>>
+exactValues(const ValueConstraint &constraint) {
   if (constraint.kind == ValueConstraintKind::Constant)
     return SmallVector<uint64_t, 8>{constraint.values.front()};
   if (constraint.kind == ValueConstraintKind::FiniteSet)
@@ -96,8 +98,8 @@ constraintBounds(const ValueConstraint &constraint) {
     return std::pair{constraint.values.front(), constraint.values.front()};
   if (constraint.kind == ValueConstraintKind::FiniteSet &&
       !constraint.values.empty()) {
-    auto [lower, upper] = std::minmax_element(constraint.values.begin(),
-                                              constraint.values.end());
+    auto [lower, upper] =
+        std::minmax_element(constraint.values.begin(), constraint.values.end());
     return std::pair{*lower, *upper};
   }
   if (constraint.kind == ValueConstraintKind::ClosedInterval)
@@ -133,8 +135,8 @@ public:
     std::string key;
     llvm::raw_string_ostream stream(key);
     stream << operation->getName() << operation->getAttrDictionary() << ':'
-           << value.getType() << '#'
-           << cast<OpResult>(value).getResultNumber() << '(';
+           << value.getType() << '#' << cast<OpResult>(value).getResultNumber()
+           << '(';
     llvm::interleaveComma(operands, stream);
     stream << ')';
     auto position = interned.try_emplace(key, opaque).first;
@@ -161,8 +163,8 @@ struct BooleanLiteral {
 
 bool constantFalse(Value value) {
   auto constant = value.getDefiningOp<ac::VarConstantOp>();
-  auto integer = constant ? dyn_cast<IntegerAttr>(constant.getValue())
-                          : IntegerAttr();
+  auto integer =
+      constant ? dyn_cast<IntegerAttr>(constant.getValue()) : IntegerAttr();
   return integer && integer.getValue().isZero();
 }
 
@@ -173,8 +175,7 @@ void collectConjuncts(Value value, bool negated,
   if (!visited.insert({value, static_cast<uint8_t>(negated)}).second)
     return;
   Operation *operation = value.getDefiningOp();
-  if (!negated && operation &&
-      isa<ac::VarMulOp, ac::VarAndOp>(operation) &&
+  if (!negated && operation && isa<ac::VarMulOp, ac::VarAndOp>(operation) &&
       integerWidth(value.getType()) == 1) {
     literals.push_back({interner.identify(value), false});
     collectConjuncts(operation->getOperand(0), false, interner, visited,
@@ -228,16 +229,17 @@ ValueConstraint evaluateBinary(const ValueConstraint &left,
   return ValueConstraint::finiteSet(result);
 }
 
-ValueConstraint operandConstraint(
-    ArrayRef<const ValueConstraintLattice *> operands, unsigned index) {
+ValueConstraint
+operandConstraint(ArrayRef<const ValueConstraintLattice *> operands,
+                  unsigned index) {
   if (index >= operands.size() || !operands[index]->getValue().constraint)
     return ValueConstraint::unknown();
   return *operands[index]->getValue().constraint;
 }
 
-ValueConstraint inferConstraint(
-    Operation *operation, unsigned resultIndex,
-    ArrayRef<const ValueConstraintLattice *> operands) {
+ValueConstraint
+inferConstraint(Operation *operation, unsigned resultIndex,
+                ArrayRef<const ValueConstraintLattice *> operands) {
   Type resultType = operation->getResult(resultIndex).getType();
   if (auto constant = dyn_cast<ac::VarConstantOp>(operation)) {
     if (auto integer = dyn_cast<IntegerAttr>(constant.getValueAttr()))
@@ -250,9 +252,13 @@ ValueConstraint inferConstraint(
       return ValueConstraint::unknown();
     for (auto [ordinal, enumerant] :
          llvm::enumerate(declaration.getEnumerants()))
-      if (cast<StringAttr>(enumerant).getValue() ==
-          enumeration.getEnumerant())
-        return ValueConstraint::constant(ordinal);
+      if (cast<StringAttr>(enumerant).getValue() == enumeration.getEnumerant())
+        return ValueConstraint::constant(
+            declaration.getValuesAttr()
+                ? cast<IntegerAttr>(declaration.getValuesAttr()[ordinal])
+                      .getValue()
+                      .getZExtValue()
+                : ordinal);
     return ValueConstraint::unknown();
   }
   auto width = integerWidth(resultType);
@@ -271,8 +277,7 @@ ValueConstraint inferConstraint(
   if (auto select = dyn_cast<ac::VarSelectOp>(operation)) {
     ValueConstraint condition = operandConstraint(operands, 0);
     if (condition.kind == ValueConstraintKind::Constant)
-      return operandConstraint(operands,
-                               condition.values.front() == 0 ? 2 : 1);
+      return operandConstraint(operands, condition.values.front() == 0 ? 2 : 1);
     return ValueConstraint::join(operandConstraint(operands, 1),
                                  operandConstraint(operands, 2));
   }
@@ -316,24 +321,19 @@ ValueConstraint inferConstraint(
                : result;
   };
   if (isa<ac::VarAddOp>(operation))
-    return boundedBinary([&](uint64_t lhs, uint64_t rhs) {
-      return (lhs + rhs) & mask;
-    });
+    return boundedBinary(
+        [&](uint64_t lhs, uint64_t rhs) { return (lhs + rhs) & mask; });
   if (isa<ac::VarSubOp>(operation))
-    return boundedBinary([&](uint64_t lhs, uint64_t rhs) {
-      return (lhs - rhs) & mask;
-    });
+    return boundedBinary(
+        [&](uint64_t lhs, uint64_t rhs) { return (lhs - rhs) & mask; });
   if (isa<ac::VarMulOp>(operation))
-    return boundedBinary([&](uint64_t lhs, uint64_t rhs) {
-      return (lhs * rhs) & mask;
-    });
+    return boundedBinary(
+        [&](uint64_t lhs, uint64_t rhs) { return (lhs * rhs) & mask; });
   if (isa<ac::VarAndOp>(operation)) {
     ValueConstraint left = operandConstraint(operands, 0);
     ValueConstraint right = operandConstraint(operands, 1);
-    ValueConstraint exact = evaluateBinary(left, right,
-                                           [](uint64_t lhs, uint64_t rhs) {
-                                             return lhs & rhs;
-                                           });
+    ValueConstraint exact = evaluateBinary(
+        left, right, [](uint64_t lhs, uint64_t rhs) { return lhs & rhs; });
     if (exact.kind != ValueConstraintKind::Unknown)
       return exact;
     if (right.kind == ValueConstraintKind::Constant)
@@ -343,11 +343,9 @@ ValueConstraint inferConstraint(
     return defaultConstraint(resultType);
   }
   if (isa<ac::VarOrOp>(operation))
-    return boundedBinary(
-        [](uint64_t lhs, uint64_t rhs) { return lhs | rhs; });
+    return boundedBinary([](uint64_t lhs, uint64_t rhs) { return lhs | rhs; });
   if (isa<ac::VarXorOp>(operation))
-    return boundedBinary(
-        [](uint64_t lhs, uint64_t rhs) { return lhs ^ rhs; });
+    return boundedBinary([](uint64_t lhs, uint64_t rhs) { return lhs ^ rhs; });
   if (isa<ac::VarShlOp>(operation))
     return boundedBinary([&](uint64_t lhs, uint64_t rhs) {
       return rhs >= *width ? uint64_t{0} : (lhs << rhs) & mask;
@@ -357,18 +355,18 @@ ValueConstraint inferConstraint(
       return rhs >= *width ? uint64_t{0} : lhs >> rhs;
     });
   if (isa<ac::VarNotOp>(operation)) {
-    ValueConstraint result = evaluateUnary(
-        operandConstraint(operands, 0),
-        [&](uint64_t value) { return (~value) & mask; });
+    ValueConstraint result =
+        evaluateUnary(operandConstraint(operands, 0),
+                      [&](uint64_t value) { return (~value) & mask; });
     return result.kind == ValueConstraintKind::Unknown
                ? defaultConstraint(resultType)
                : result;
   }
   if (auto extract = dyn_cast<ac::VarExtractOp>(operation)) {
-    ValueConstraint result = evaluateUnary(
-        operandConstraint(operands, 0), [&](uint64_t value) {
-      return (value >> extract.getLsb()) & mask;
-    });
+    ValueConstraint result =
+        evaluateUnary(operandConstraint(operands, 0), [&](uint64_t value) {
+          return (value >> extract.getLsb()) & mask;
+        });
     return result.kind == ValueConstraintKind::Unknown
                ? defaultConstraint(resultType)
                : result;
@@ -378,8 +376,8 @@ ValueConstraint inferConstraint(
     for (auto [index, input] : llvm::enumerate(concat.getInputs())) {
       unsigned inputWidth = *integerWidth(input.getType());
       ValueConstraint next = operandConstraint(operands, index);
-      accumulated = evaluateBinary(
-          accumulated, next, [&](uint64_t lhs, uint64_t rhs) {
+      accumulated =
+          evaluateBinary(accumulated, next, [&](uint64_t lhs, uint64_t rhs) {
             return inputWidth == 64 ? rhs : (lhs << inputWidth) | rhs;
           });
     }
@@ -398,9 +396,10 @@ ValueConstraint inferConstraint(
   if (auto popcount = dyn_cast<ac::VarPopcountOp>(operation)) {
     const unsigned inputWidth = *integerWidth(popcount.getIn().getType());
     const uint64_t inputMask = widthMask(inputWidth);
-    ValueConstraint result = evaluateUnary(
-        operandConstraint(operands, 0),
-        [&](uint64_t value) { return llvm::popcount(value & inputMask); });
+    ValueConstraint result =
+        evaluateUnary(operandConstraint(operands, 0), [&](uint64_t value) {
+          return llvm::popcount(value & inputMask);
+        });
     return result.kind == ValueConstraintKind::Unknown
                ? ValueConstraint::closedInterval(0, inputWidth)
                : result;
@@ -408,15 +407,15 @@ ValueConstraint inferConstraint(
   if (auto zeros = dyn_cast<ac::VarCountZerosOp>(operation)) {
     unsigned inputWidth = *integerWidth(zeros.getIn().getType());
     const uint64_t inputMask = widthMask(inputWidth);
-    ValueConstraint result = evaluateUnary(
-        operandConstraint(operands, 0), [&](uint64_t value) {
-      value &= inputMask;
-      if (value == 0)
-        return static_cast<uint64_t>(inputWidth);
-      return zeros.getDirection() == "leading"
-                 ? static_cast<uint64_t>(llvm::countl_zero(value) -
-                                         (64 - inputWidth))
-                 : static_cast<uint64_t>(llvm::countr_zero(value));
+    ValueConstraint result =
+        evaluateUnary(operandConstraint(operands, 0), [&](uint64_t value) {
+          value &= inputMask;
+          if (value == 0)
+            return static_cast<uint64_t>(inputWidth);
+          return zeros.getDirection() == "leading"
+                     ? static_cast<uint64_t>(llvm::countl_zero(value) -
+                                             (64 - inputWidth))
+                     : static_cast<uint64_t>(llvm::countr_zero(value));
         });
     return result.kind == ValueConstraintKind::Unknown
                ? ValueConstraint::closedInterval(0, inputWidth)
@@ -464,10 +463,9 @@ public:
                  ArrayRef<const ValueConstraintLattice *> operands,
                  ArrayRef<ValueConstraintLattice *> results) override {
     for (auto [index, lattice] : llvm::enumerate(results))
-      propagateIfChanged(
-          lattice,
-          lattice->join(ConstraintLatticeValue{
-              inferConstraint(operation, index, operands)}));
+      propagateIfChanged(lattice,
+                         lattice->join(ConstraintLatticeValue{
+                             inferConstraint(operation, index, operands)}));
     return success();
   }
 
@@ -724,7 +722,7 @@ ValueConstraint ACDataFlowAnalyzer::lookupConstraint(Value value) const {
 }
 
 bool ACDataFlowAnalyzer::provesWithin(Value value, uint64_t lower,
-                                     uint64_t upper) const {
+                                      uint64_t upper) const {
   return lookupConstraint(value).provesWithin(lower, upper);
 }
 
@@ -899,6 +897,10 @@ ACDataFlowAnalyzer::stateSnapshots(Operation *scope) const {
   };
 
   for (auto [root, predicate] : roots) {
+    using TraversalKey = std::pair<Value, Value>;
+    llvm::DenseSet<TraversalKey> visitedAllFields;
+    llvm::DenseMap<TraversalKey, llvm::SmallVector<std::string, 2>>
+        visitedFields;
     std::function<void(Value, Value, llvm::SmallVector<std::string>)> collect =
         [&](Value value, Value setSource,
             llvm::SmallVector<std::string> requestedFields) {
@@ -908,6 +910,27 @@ ACDataFlowAnalyzer::stateSnapshots(Operation *scope) const {
           if (!definition || !insideScope(definition) ||
               isa<ac::StateSnapshotOp, ac::StateSnapshotSetOp>(definition))
             return;
+          TraversalKey key{value, setSource};
+          if (requestedFields.empty()) {
+            if (!visitedAllFields.insert(key).second)
+              return;
+            visitedFields.erase(key);
+          } else {
+            if (visitedAllFields.contains(key))
+              return;
+            auto &seen = visitedFields[key];
+            llvm::SmallVector<std::string> unseen;
+            for (const std::string &field : requestedFields) {
+              if (llvm::is_contained(seen, field))
+                continue;
+              seen.push_back(field);
+              unseen.push_back(field);
+            }
+            if (unseen.empty())
+              return;
+            requestedFields = std::move(unseen);
+          }
+          detail::accountSnapshotTraversalContext();
           if (auto read = dyn_cast<ac::TableGetOp>(definition)) {
             auto fields =
                 requestedFields.empty()

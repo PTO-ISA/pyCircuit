@@ -61,7 +61,9 @@ class JitSourceClosureTest(unittest.TestCase):
                 "from left import LEFT\nfrom right import RIGHT\n", encoding="utf-8"
             )
 
-            with self.assertRaisesRegex(SourceClosureError, "symbol 'helper'") as caught:
+            with self.assertRaisesRegex(
+                SourceClosureError, "symbol 'helper'"
+            ) as caught:
                 capture_source_closure(entry, root)
             self.assertEqual("ACPY-JIT-006", caught.exception.code)
             self.assertIn("left.py", str(caught.exception))
@@ -202,6 +204,69 @@ class JitSourceClosureTest(unittest.TestCase):
         self.assertIn('name "Payload.valid_payload"', lowered)
         self.assertIn('name "Inner.valid_inner"', lowered)
         self.assertIn("%invariant0_invariant1_value", lowered)
+
+    def test_imported_dependent_struct_types_resolve_from_jit_constants(self) -> None:
+        import agentic_circuit as ac
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "param_contracts.py").write_text(
+                "from __future__ import annotations\n"
+                "import agentic_circuit as ac\n\n"
+                'ENTRIES = ac.param[int]("entries")\n'
+                'LANES = ac.param[int]("lanes")\n\n'
+                "@ac.struct\n"
+                "class Entry:\n"
+                "    index: ac.bits[ac.index_width(ENTRIES)]\n"
+                "    valid: bool\n\n"
+                "@ac.struct\n"
+                "class Group:\n"
+                "    entries: ac.array[LANES, Entry]\n"
+                "    count: ac.bits[ac.count_width(ENTRIES)]\n",
+                encoding="utf-8",
+            )
+            top = root / "param_top.py"
+            top.write_text(
+                "from __future__ import annotations\n"
+                "import agentic_circuit as ac\n"
+                "from param_contracts import Group\n\n"
+                "@ac.rule\n"
+                "def keep(value: Group) -> Group:\n"
+                "    return value\n\n"
+                "@ac.system\n"
+                "def parameterized(value: Group, *, entries: ac.const[int], "
+                "lanes: ac.const[int]) -> Group:\n"
+                "    result = keep(value)\n"
+                "    return result\n",
+                encoding="utf-8",
+            )
+
+            sys.path.insert(0, str(root))
+            self.addCleanup(sys.path.remove, str(root))
+            for name in ("param_contracts", "param_top"):
+                sys.modules.pop(name, None)
+                self.addCleanup(sys.modules.pop, name, None)
+            spec = importlib.util.spec_from_file_location("param_top", top)
+            if spec is None or spec.loader is None:
+                raise RuntimeError("cannot load dependent-type fixture")
+            module = importlib.util.module_from_spec(spec)
+            sys.modules[spec.name] = module
+            spec.loader.exec_module(module)
+
+            specialization = ac.jit(
+                module.parameterized,
+                workspace=root,
+                entries=128,
+                lanes=4,
+            )
+            lowered = specialization.lower_acir()
+
+        self.assertIn('{name = "index", type = i7}', lowered)
+        self.assertIn('{name = "count", type = i8}', lowered)
+        self.assertRegex(
+            lowered,
+            r"!ac\.value_array<4 x !ac\.struct<@types::@Entry__p[0-9a-f]{12}>>",
+        )
 
 
 if __name__ == "__main__":

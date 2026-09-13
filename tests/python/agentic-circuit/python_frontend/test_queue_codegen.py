@@ -152,6 +152,7 @@ class Bits:
     result: ac.u3
     priority_index: ac.u2
     priority_valid: ac.u1
+    onehot_conflict: bool
     count: ac.u2
     leading: ac.u2
     trailing: ac.u2
@@ -164,6 +165,7 @@ def pipeline() -> None:
             result=((item.left & item.right) ^ (~item.left)) << 1,
             priority_index=ac.priority_encode(item.left).index,
             priority_valid=ac.priority_encode(item.left).valid,
+            onehot_conflict=ac.onehot_encode(item.left).conflict,
             count=ac.popcount(item.left),
             leading=ac.count_leading_zeros(item.left),
             trailing=ac.count_trailing_zeros(item.left),
@@ -191,8 +193,59 @@ def pipeline() -> None:
     ac.sink(decoded)
 """
 
+RECORD_UPDATE_SPREAD_SOURCE = """
+import agentic_circuit as ac
+
+@ac.struct
+class Patch:
+    tag: ac.u4
+    valid: bool
+
+@ac.struct
+class Item:
+    tag: ac.u4
+    valid: bool
+    patch: Patch
+
+@ac.system
+def pipeline() -> None:
+    incoming = ac.source(Item)
+    updated = incoming.apply(lambda item: item.with_fields(**item.patch))
+    ac.sink(updated)
+"""
+
 
 class QueueCodegenTest(unittest.TestCase):
+    def test_direct_cpp_record_update_spread_assigns_exact_named_fields(self) -> None:
+        from agentic_circuit._queue_codegen import lower_queue_source_to_cpp
+
+        generated = lower_queue_source_to_cpp(RECORD_UPDATE_SPREAD_SOURCE, "pipeline")
+
+        self.assertIn("result.tag = item.patch.tag;", generated)
+        self.assertIn("result.valid = item.patch.valid;", generated)
+        self.assertNotIn("result.patch =", generated)
+        compiler = shutil.which("c++")
+        if compiler is None:
+            self.skipTest("C++ compiler is unavailable")
+        completed = subprocess.run(
+            (
+                compiler,
+                "-std=c++20",
+                "-I",
+                str(ROOT / "simulator/gfsim/include"),
+                "-x",
+                "c++",
+                "-fsyntax-only",
+                "-",
+            ),
+            cwd=ROOT,
+            input=generated,
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        self.assertEqual(0, completed.returncode, completed.stderr)
+
     def test_rule_program_cannot_bypass_native_mlir_lowering(self) -> None:
         from agentic_circuit._queue_codegen import lower_queue_program_to_cpp
         from agentic_circuit._queue_frontend import (
@@ -288,6 +341,7 @@ class QueueCodegenTest(unittest.TestCase):
         self.assertIn("((item.left & item.right) ^ (~item.left))", generated)
         self.assertIn("gfsim::priorityEncode(item.left, true).index", generated)
         self.assertIn("gfsim::priorityEncode(item.left, true).valid", generated)
+        self.assertIn("gfsim::populationCount(item.left) > 1", generated)
         self.assertIn("gfsim::populationCount(item.left)", generated)
         self.assertIn("gfsim::countLeadingZeros(item.left)", generated)
         self.assertIn("gfsim::countTrailingZeros(item.left)", generated)

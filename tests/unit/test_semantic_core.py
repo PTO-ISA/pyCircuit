@@ -12,6 +12,8 @@ from _pycircuit_semantics import (
     ConstraintError,
     EnumType,
     FiniteSet,
+    StaticIntExpression,
+    StaticIntExpressionError,
     StructType,
     TupleType,
     Unknown,
@@ -19,8 +21,10 @@ from _pycircuit_semantics import (
     ValueField,
     ValueTypeError,
     constraint_for_type,
+    count_width,
     finite,
     finite_values,
+    index_width,
     is_exhaustive,
     join,
     meet,
@@ -33,6 +37,28 @@ from _pycircuit_semantics import (
 )
 
 pytestmark = pytest.mark.unit
+
+
+def test_static_integer_type_expressions_are_canonical_and_resolve_exactly() -> None:
+    entries = StaticIntExpression.parameter("entries")
+    expression = index_width(entries * 2)
+
+    assert isinstance(expression, StaticIntExpression)
+    assert expression.evaluate({"entries": 64}) == 7
+    assert count_width(entries).evaluate({"entries": 64}) == 7
+    assert expression.canonical() == index_width(entries * 2).canonical()
+    assert expression.postfix() == (
+        "param:entries",
+        "literal:2",
+        "mul",
+        "index_width",
+    )
+    with pytest.raises(StaticIntExpressionError, match="unbound"):
+        expression.evaluate({})
+    with pytest.raises(StaticIntExpressionError, match="positive"):
+        count_width(entries).evaluate({"entries": 0})
+    with pytest.raises(StaticIntExpressionError, match="i64"):
+        (entries * 2).evaluate({"entries": 1 << 62})
 
 
 @pytest.mark.parametrize(
@@ -139,6 +165,19 @@ def test_recursive_value_types_have_stable_nominal_and_structural_identity() -> 
     assert packet == StructType("Packet", packet.fields)
     assert packet.fingerprint == StructType("Packet", packet.fields).fingerprint
     assert packet.fingerprint != StructType("OtherPacket", packet.fields).fingerprint
+
+
+def test_explicit_enum_encoding_preserves_sparse_values_and_width() -> None:
+    opcode = EnumType("Opcode", ("NONE", "READ", "WRITE"), (0, 3, 9), 4)
+
+    assert opcode.encoding_width == 4
+    assert opcode.encoding_values == (0, 3, 9)
+    assert opcode.encoding("WRITE") == 9
+    assert opcode.canonical()["values"] == [0, 3, 9]
+    with pytest.raises(ValueTypeError, match="unique nonnegative"):
+        EnumType("Bad", ("A", "B"), (0, 0), 1)
+    with pytest.raises(ValueTypeError, match="fit the declared width"):
+        EnumType("Wide", ("A", "B"), (0, 4), 2)
 
 
 def test_bool_and_u1_are_distinct_descriptors_with_current_i1_lowering() -> None:

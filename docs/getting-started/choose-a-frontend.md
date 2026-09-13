@@ -43,8 +43,11 @@ Queue availability, reservations, backpressure, and atomic commit.
 The current frontend supports typed pure helpers, structured payloads,
 multi-input and optional multi-output rules, persistent scalar/list state,
 reusable modules, Table selection and arbitration, explicit memories, and the
-synthesizable ACIR subset. Unsupported behavior fails at a documented verifier
-boundary rather than receiving a silent default.
+synthesizable ACIR subset. JIT-dependent widths and fixed shapes, exact-name
+record spread, optional fixed/sparse standard-Python enum encoding, and
+one-hot conflict reporting remain concrete and verifier checked through ACIR,
+QueueGraph, GFSim, and PYC. Unsupported behavior fails at a documented
+verifier boundary rather than receiving a silent default.
 
 ```bash
 python -m pip install -e "python/agentic-circuit[test]"

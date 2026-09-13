@@ -8,6 +8,7 @@
 #include <cstdint>
 #include <memory>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace acir::codegen {
@@ -30,7 +31,29 @@ struct QueuePayloadPlan {
 struct QueueEnumPlan {
   std::string name;
   std::vector<std::string> enumerants;
+  std::vector<uint64_t> values;
   uint64_t width = 0;
+};
+
+struct QueueStaticTypeCheckPlan {
+  std::string target;
+  std::vector<std::string> program;
+  int64_t result = 0;
+  std::string concreteType;
+};
+
+struct QueueStaticTypeIdentityBindingPlan {
+  std::string name;
+  std::string parameter;
+  int64_t value = 0;
+};
+
+struct QueueStaticTypeIdentityPlan {
+  std::string source;
+  std::string symbol;
+  std::string fingerprint;
+  std::vector<QueueStaticTypeIdentityBindingPlan> bindings;
+  std::vector<std::string> targets;
 };
 
 struct QueueAggregatePlan {
@@ -351,6 +374,9 @@ struct QueueGraphPlan {
   std::vector<QueueActivationNodePlan> initialActivation;
   std::vector<QueuePayloadPlan> payloads;
   std::vector<QueueEnumPlan> enums;
+  std::vector<std::pair<std::string, int64_t>> staticTypeBindings;
+  std::vector<QueueStaticTypeCheckPlan> staticTypeChecks;
+  std::vector<QueueStaticTypeIdentityPlan> staticTypeIdentities;
   std::vector<QueueAggregatePlan> aggregates;
   std::vector<QueueHelperPlan> helpers;
   std::vector<std::string> scopes;
