@@ -11150,8 +11150,14 @@ def lower_queue_program(
                 continue
             if "= ac.var." not in line or " : " not in line:
                 return
-            prefix, type_separator, suffix = line.rpartition(" : ")
             attribute = "ac.display_name = " + canonical_mlir_string(display_name)
+            if "= ac.var.constant " in line:
+                prefix, separator, suffix = line.partition(" as ")
+                if not separator:
+                    return
+                emitted_lines[index] = prefix + f" {{{attribute}}}" + separator + suffix
+                return
+            prefix, type_separator, suffix = line.rpartition(" : ")
             existing = re.search(r" \{([^{}]*)\}$", prefix)
             if existing is None:
                 prefix += f" {{{attribute}}}"

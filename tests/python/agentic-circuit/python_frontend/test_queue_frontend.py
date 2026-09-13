@@ -3515,6 +3515,39 @@ def pipeline() -> None:
         self.assertGreaterEqual(lowered.count("ac.var.concat"), 2)
         self.assertNotIn("ac.var.cast", lowered)
 
+    def test_named_typed_constant_places_display_metadata_after_its_value_type(
+        self,
+    ) -> None:
+        from agentic_circuit._queue_frontend import lower_queue_source
+
+        source = """
+import agentic_circuit as ac
+
+@ac.rule
+def clear(value: ac.u16) -> ac.u16:
+    zero_count = ac.zero(ac.u16)
+    return value + zero_count
+
+@ac.module
+def clear_stage(value: ac.u16) -> ac.u16:
+    result = clear(value)
+    return result
+
+@ac.system
+def clear_system(value: ac.u16) -> ac.u16:
+    result = clear_stage(value)
+    return result
+"""
+        lowered = lower_queue_source(source, "clear_system")
+        self.assertIn(
+            'ac.var.constant 0 : i16 {ac.display_name = "zero_count"} as !ac.var<i16>',
+            lowered,
+        )
+        self.assertNotIn(
+            'ac.var.constant 0 {ac.display_name = "zero_count"} : i16',
+            lowered,
+        )
+
     def test_typed_conversion_rejects_wrong_direction_and_bool_sources(self) -> None:
         from agentic_circuit._queue_frontend import (
             QueueFrontendError,
