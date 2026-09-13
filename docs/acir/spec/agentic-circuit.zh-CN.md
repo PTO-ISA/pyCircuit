@@ -495,7 +495,16 @@ packet = packet.with_fields(**changed)
 赋值。projection 展开为 verifier 检查的 `ac.var.get` 与 `ac.var.record`；局部
 canonicalization 可以把后续字段读取穿透 record 构造、immutable update 和 select。
 select 穿透只用于 single-use aggregate result，避免在 CSE 前展开 shared diamond。
-通用的跨 Queue 自动 payload pruning 仍属于独立后续工作。
+超出下述私有限定 profile 的通用跨 Queue payload pruning 仍属于独立后续工作。
+
+编译器可在 `private_transform_tuple_v1` profile 下自动缩窄私有内部 Queue。首版只
+接受 flat system 内单生产者/单消费者、unit-lane 的纯 Transform edge，且 consumer
+只读取 nominal Struct 的非空真子集顶层字段。通过既有 rule proof 的无状态纯
+rule-origin Transform 也可参与。物理 tuple carrier 保留字段精确类型和 Queue 时序；
+配对 ACIR metadata 保存完整逻辑 descriptor 与映射。Freeze 和 QueueGraph 会独立
+重验 edge、fingerprint、字段顺序、tuple shape、element-only use 以及受保护边界排除。
+公开、观察、module、state、feedback、memory 和 whole-value edge 不改写。QueueGraph
+JSON 分别报告 logical/carrier width；位宽变小本身不代表吞吐提升。
 
 nominal value 使用标准 Python enum，不增加 `ac.enum` 前端构造器：
 

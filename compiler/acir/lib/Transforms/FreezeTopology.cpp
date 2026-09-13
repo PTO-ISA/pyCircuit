@@ -250,6 +250,8 @@ LogicalResult freezeFlatQueueGraph(ModuleOp model) {
         "\"cycle\"");
   if (failed(verifyRuleClosure(model)))
     return failure();
+  if (failed(verifyInternalPayloadProjections(model)))
+    return failure();
   if (detail::hasTopologyFreezeEvidence(model))
     return verifyFrozenFlatQueueGraph(model);
   Builder builder(model.getContext());

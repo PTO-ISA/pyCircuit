@@ -77,6 +77,13 @@ bool freezeQueueGraph(mlir::ModuleOp module) {
   return mlir::succeeded(manager.run(module));
 }
 
+bool pruneAndFreezeQueueGraph(mlir::ModuleOp module) {
+  mlir::PassManager manager(module.getContext());
+  manager.addPass(acir::createPruneInternalPayloadsPass());
+  manager.addPass(acir::createFreezeTopologyPass());
+  return mlir::succeeded(manager.run(module));
+}
+
 void expectCppCompiles(llvm::StringRef source) {
   llvm::SmallString<256> directory;
   ASSERT_FALSE(
@@ -5481,6 +5488,107 @@ TEST(QueueGraphPlanTest, RejectsMalformedModuleInterfaceDisplayNames) {
           "must match the module interface arity");
   rejects(mlir::ArrayAttr::get(&context, {mlir::StringAttr::get(&context, "")}),
           "must contain only non-empty strings");
+}
+
+TEST(QueueGraphPlanTest, RevalidatesPrivatePayloadProjectionPlans) {
+  mlir::MLIRContext context;
+  context.loadDialect<ac::ACIRDialect, mlir::DLTIDialect>();
+  auto module = mlir::parseSourceFile<mlir::ModuleOp>(
+      ACIR_TEST_SOURCE_DIR "/tests/mlir/agentic-circuit/Transforms/"
+                           "private-queue-payload-pruning.mlir",
+      &context);
+  ASSERT_TRUE(module);
+  ASSERT_TRUE(pruneAndFreezeQueueGraph(*module));
+  auto extracted = buildQueueGraphPlan(*module);
+  ASSERT_TRUE(bool(extracted)) << llvm::toString(extracted.takeError());
+  auto queue = llvm::find_if(extracted->queues, [](const QueuePlan &candidate) {
+    return candidate.payloadProjection.has_value();
+  });
+  ASSERT_NE(queue, extracted->queues.end());
+
+  QueueGraphPlan reordered = *extracted;
+  auto projected =
+      llvm::find_if(reordered.queues, [](const QueuePlan &candidate) {
+        return candidate.payloadProjection.has_value();
+      });
+  std::swap(projected->payloadProjection->keptFields[0],
+            projected->payloadProjection->keptFields[1]);
+  auto reorderedError = verifyQueueGraphPlan(reordered);
+  ASSERT_TRUE(bool(reorderedError));
+  EXPECT_NE(llvm::toString(std::move(reorderedError)).find("ordered subset"),
+            std::string::npos);
+
+  QueueGraphPlan forgedCarrier = *extracted;
+  auto forged =
+      llvm::find_if(forgedCarrier.queues, [](const QueuePlan &candidate) {
+        return candidate.payloadProjection.has_value();
+      });
+  forged->payloadProjection->carrierType = "tuple<i1, i8>";
+  auto carrierError = verifyQueueGraphPlan(forgedCarrier);
+  ASSERT_TRUE(bool(carrierError));
+  EXPECT_NE(llvm::toString(std::move(carrierError)).find("malformed"),
+            std::string::npos);
+
+  QueueGraphPlan forgedFingerprint = *extracted;
+  auto fingerprintQueue =
+      llvm::find_if(forgedFingerprint.queues, [](const QueuePlan &candidate) {
+        return candidate.payloadProjection.has_value();
+      });
+  fingerprintQueue->payloadProjection->fingerprint =
+      "sha256:0000000000000000000000000000000000000000000000000000000000000000";
+  auto fingerprintError = verifyQueueGraphPlan(forgedFingerprint);
+  ASSERT_TRUE(bool(fingerprintError));
+  EXPECT_NE(
+      llvm::toString(std::move(fingerprintError)).find("fingerprint mismatch"),
+      std::string::npos);
+
+  QueueGraphPlan escaped = *extracted;
+  for (QueueBlockPlan &block : escaped.blocks)
+    if (llvm::is_contained(block.inputs, queue->name)) {
+      block.kind = "observe";
+      break;
+    }
+  auto escapedError = verifyQueueGraphPlan(escaped);
+  ASSERT_TRUE(bool(escapedError));
+  EXPECT_NE(llvm::toString(std::move(escapedError)).find("Transform blocks"),
+            std::string::npos);
+
+  QueueGraphPlan widenedRate = *extracted;
+  auto rateQueue =
+      llvm::find_if(widenedRate.queues, [](const QueuePlan &candidate) {
+        return candidate.payloadProjection.has_value();
+      });
+  rateQueue->rate = 2;
+  auto rateError = verifyQueueGraphPlan(widenedRate);
+  ASSERT_TRUE(bool(rateError));
+  EXPECT_NE(llvm::toString(std::move(rateError)).find("scalar single-input"),
+            std::string::npos);
+
+  QueueGraphPlan wholeEscape = *extracted;
+  const std::string projectedQueue = queue->name;
+  for (QueueBlockPlan &block : wholeEscape.blocks) {
+    if (!llvm::is_contained(block.inputs, projectedQueue))
+      continue;
+    block.expressions.push_back(
+        {"forged", "helper_call", "i1", {"item"}, "forged"});
+    break;
+  }
+  auto escapeError = verifyQueueGraphPlan(wholeEscape);
+  ASSERT_TRUE(bool(escapeError));
+  EXPECT_NE(llvm::toString(std::move(escapeError)).find("whole-value escape"),
+            std::string::npos);
+
+  QueueGraphPlan yieldedCarrier = *extracted;
+  for (QueueBlockPlan &block : yieldedCarrier.blocks) {
+    if (!llvm::is_contained(block.inputs, projectedQueue))
+      continue;
+    block.yields = {"item"};
+    break;
+  }
+  auto yieldError = verifyQueueGraphPlan(yieldedCarrier);
+  ASSERT_TRUE(bool(yieldError));
+  EXPECT_NE(llvm::toString(std::move(yieldError)).find("whole-value escape"),
+            std::string::npos);
 }
 
 } // namespace

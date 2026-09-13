@@ -357,6 +357,30 @@ llvm::Expected<std::string> cppValueType(const QueueGraphPlan &plan,
   return cppType(type);
 }
 
+llvm::Expected<std::string> cppQueueType(const QueueGraphPlan &plan,
+                                         const QueuePlan &queue) {
+  if (!queue.payloadProjection)
+    return cppType(queue.payloadType);
+  if (queue.payloadProjection->profile != "private_transform_tuple_v1" ||
+      queue.payloadProjection->carrierType != queue.payloadType)
+    return generatorError(
+        "private Queue payload projection is malformed for '" + queue.name +
+        "' (profile='" + queue.payloadProjection->profile + "', carrier='" +
+        queue.payloadProjection->carrierType + "', payload='" +
+        queue.payloadType + "')");
+  const QueueAggregatePlan *aggregate =
+      findAggregateType(plan, queue.payloadType);
+  if (!aggregate || aggregate->width == 0)
+    return generatorError(
+        "private Queue payload projection has no aggregate storage layout");
+  return "gfsim::UInt<" + std::to_string(aggregate->width) + ">";
+}
+
+llvm::Expected<std::string> cppQueueType(const QueueGraphPlan &,
+                                         const QueueInterfacePlan &interface) {
+  return cppType(interface.payloadType);
+}
+
 const QueueHelperPlan *findHelper(const QueueGraphPlan &plan,
                                   llvm::StringRef name) {
   auto found = llvm::find_if(plan.helpers, [&](const QueueHelperPlan &helper) {
@@ -2583,13 +2607,13 @@ generateStructuredQueueGraphCpp(const QueueGraphPlan &plan) {
     llvm::StringMap<std::string> portParameters =
         interfaceParameterNames(specialization);
     for (const QueueInterfacePlan &input : specialization.interfaceInputs) {
-      auto type = cppType(input.payloadType);
+      auto type = cppQueueType(plan, input);
       if (!type)
         return type.takeError();
       portTypes[input.name] = *type;
     }
     for (const QueueInterfacePlan &result : specialization.interfaceOutputs) {
-      auto type = cppType(result.payloadType);
+      auto type = cppQueueType(plan, result);
       if (!type)
         return type.takeError();
       portTypes[result.name] = *type;
@@ -3040,13 +3064,13 @@ generateStructuredQueueGraphCpp(const QueueGraphPlan &plan) {
     llvm::StringMap<std::string> portParameters =
         interfaceParameterNames(specialization, objectCount);
     for (const QueueInterfacePlan &input : specialization.interfaceInputs) {
-      auto type = cppType(input.payloadType);
+      auto type = cppQueueType(plan, input);
       if (!type)
         return type.takeError();
       portTypes[input.name] = *type;
     }
     for (const QueueInterfacePlan &result : specialization.interfaceOutputs) {
-      auto type = cppType(result.payloadType);
+      auto type = cppQueueType(plan, result);
       if (!type)
         return type.takeError();
       portTypes[result.name] = *type;
@@ -3122,7 +3146,7 @@ generateStructuredQueueGraphCpp(const QueueGraphPlan &plan) {
     llvm::StringMap<std::string> queueExpressions;
     for (auto [index, input] :
          llvm::enumerate(specialization.interfaceInputs)) {
-      auto type = cppType(input.payloadType);
+      auto type = cppQueueType(plan, input);
       if (!type)
         return type.takeError();
       queueTypes[input.name] = *type;
@@ -3130,7 +3154,7 @@ generateStructuredQueueGraphCpp(const QueueGraphPlan &plan) {
     }
     for (auto [index, result] :
          llvm::enumerate(specialization.interfaceOutputs)) {
-      auto type = cppType(result.payloadType);
+      auto type = cppQueueType(plan, result);
       if (!type)
         return type.takeError();
       queueTypes[result.name] = *type;
@@ -3143,7 +3167,7 @@ generateStructuredQueueGraphCpp(const QueueGraphPlan &plan) {
     for (const QueuePlan &queue : specialization.queues) {
       if (exported.contains(queue.name))
         continue;
-      auto type = cppType(queue.payloadType);
+      auto type = cppQueueType(plan, queue);
       if (!type)
         return type.takeError();
       const size_t index = internalQueues.size();
@@ -3284,14 +3308,14 @@ generateStructuredQueueGraphCpp(const QueueGraphPlan &plan) {
       std::vector<std::string> outputTypes;
       llvm::StringMap<std::string> queueTypes;
       for (const QueueInterfacePlan &input : specialization->interfaceInputs) {
-        auto type = cppType(input.payloadType);
+        auto type = cppQueueType(plan, input);
         if (!type)
           return type.takeError();
         queueTypes[input.name] = *type;
       }
       for (const QueueInterfacePlan &result :
            specialization->interfaceOutputs) {
-        auto type = cppType(result.payloadType);
+        auto type = cppQueueType(plan, result);
         if (!type)
           return type.takeError();
         queueTypes[result.name] = *type;
@@ -3446,7 +3470,7 @@ generateStructuredQueueGraphCpp(const QueueGraphPlan &plan) {
                       *parentPointer, ")");
   }
   for (const QueuePlan &queue : plan.queues) {
-    auto type = cppType(queue.payloadType);
+    auto type = cppQueueType(plan, queue);
     auto parent = modulePointer(queueOwners[queue.name]);
     if (!type)
       return type.takeError();
@@ -3485,7 +3509,7 @@ generateStructuredQueueGraphCpp(const QueueGraphPlan &plan) {
     const std::string instanceName = block->kind + "_" + block->name;
     if (block->kind == "broadcast") {
       const QueuePlan *input = findQueue(plan, block->inputs.front());
-      auto type = input ? cppType(input->payloadType)
+      auto type = input ? cppQueueType(plan, *input)
                         : llvm::Expected<std::string>(generatorError(
                               "structured broadcast input is missing"));
       if (!type)
@@ -3543,7 +3567,7 @@ generateStructuredQueueGraphCpp(const QueueGraphPlan &plan) {
   for (const QueueBlockPlan &block : plan.blocks)
     if (block.kind == "source") {
       const QueuePlan *queue = findQueue(plan, block.outputs.front());
-      auto type = queue ? cppType(queue->payloadType)
+      auto type = queue ? cppQueueType(plan, *queue)
                         : llvm::Expected<std::string>(
                               generatorError("structured source is missing"));
       if (!type)
@@ -3561,7 +3585,7 @@ generateStructuredQueueGraphCpp(const QueueGraphPlan &plan) {
     }
   for (auto [index, result] : llvm::enumerate(plan.interfaceOutputs)) {
     const QueuePlan *queue = findQueue(plan, result.name);
-    auto type = queue ? cppType(queue->payloadType)
+    auto type = queue ? cppQueueType(plan, *queue)
                       : llvm::Expected<std::string>(
                             generatorError("structured result is missing"));
     if (!type)
@@ -3581,7 +3605,7 @@ generateStructuredQueueGraphCpp(const QueueGraphPlan &plan) {
   for (auto [index, block] : llvm::enumerate(runtimeBlocks))
     if (block->kind == "sink") {
       const QueuePlan *queue = findQueue(plan, block->inputs.front());
-      auto type = queue ? cppType(queue->payloadType)
+      auto type = queue ? cppQueueType(plan, *queue)
                         : llvm::Expected<std::string>(
                               generatorError("structured sink is missing"));
       if (!type)
@@ -3706,7 +3730,7 @@ generateStructuredQueueGraphCpp(const QueueGraphPlan &plan) {
   for (const std::string &scope : plan.scopes)
     output << "  gfsim::Module " << scopeMembers[scope] << ";\n";
   for (const QueuePlan &queue : plan.queues) {
-    auto type = cppType(queue.payloadType);
+    auto type = cppQueueType(plan, queue);
     if (!type)
       return type.takeError();
     output << "  gfsim::SimQueue<" << *type << "> " << queueMembers[queue.name]
@@ -3720,7 +3744,7 @@ generateStructuredQueueGraphCpp(const QueueGraphPlan &plan) {
   }
   for (auto [index, block] : llvm::enumerate(runtimeBlocks)) {
     const QueuePlan *input = findQueue(plan, block->inputs.front());
-    auto type = input ? cppType(input->payloadType)
+    auto type = input ? cppQueueType(plan, *input)
                       : llvm::Expected<std::string>(
                             generatorError("structured block input missing"));
     if (!type)
@@ -4102,7 +4126,7 @@ llvm::Expected<std::string> generateQueueGraphCpp(const QueueGraphPlan &plan) {
         std::vector<std::string> inputTypes;
         for (const std::string &inputName : block->inputs) {
           const QueuePlan *input = findQueue(plan, inputName);
-          auto type = input ? cppType(input->payloadType)
+          auto type = input ? cppQueueType(plan, *input)
                             : llvm::Expected<std::string>(
                                   generatorError("state firing input missing"));
           if (!type)
@@ -4112,7 +4136,7 @@ llvm::Expected<std::string> generateQueueGraphCpp(const QueueGraphPlan &plan) {
         std::vector<std::string> outputTypes;
         for (const std::string &outputName : block->outputs) {
           const QueuePlan *result = findQueue(plan, outputName);
-          auto type = result ? cppType(result->payloadType)
+          auto type = result ? cppQueueType(plan, *result)
                              : llvm::Expected<std::string>(generatorError(
                                    "state firing output missing"));
           if (!type)
@@ -4409,7 +4433,7 @@ llvm::Expected<std::string> generateQueueGraphCpp(const QueueGraphPlan &plan) {
       std::vector<std::string> inputTypes;
       for (const std::string &inputName : block->inputs) {
         const QueuePlan *input = findQueue(plan, inputName);
-        auto inputType = input ? cppType(input->payloadType)
+        auto inputType = input ? cppQueueType(plan, *input)
                                : llvm::Expected<std::string>(generatorError(
                                      "table firing input missing"));
         if (!inputType)
@@ -4419,7 +4443,7 @@ llvm::Expected<std::string> generateQueueGraphCpp(const QueueGraphPlan &plan) {
       std::vector<std::string> outputTypes;
       for (const std::string &outputName : block->outputs) {
         const QueuePlan *result = findQueue(plan, outputName);
-        auto outputType = result ? cppType(result->payloadType)
+        auto outputType = result ? cppQueueType(plan, *result)
                                  : llvm::Expected<std::string>(generatorError(
                                        "table firing output missing"));
         if (!outputType)
@@ -4669,7 +4693,7 @@ llvm::Expected<std::string> generateQueueGraphCpp(const QueueGraphPlan &plan) {
       std::string inputType;
       if (!block->inputs.empty()) {
         const QueuePlan *input = findQueue(plan, block->inputs.front());
-        auto type = input ? cppType(input->payloadType)
+        auto type = input ? cppQueueType(plan, *input)
                           : llvm::Expected<std::string>(
                                 generatorError("table input Queue missing"));
         if (!type)
@@ -4779,7 +4803,7 @@ llvm::Expected<std::string> generateQueueGraphCpp(const QueueGraphPlan &plan) {
       const QueuePlan *input = findQueue(plan, block->inputs.front());
       if (!input)
         return generatorError("dependency input Queue is missing");
-      auto inputType = cppType(input->payloadType);
+      auto inputType = cppQueueType(plan, *input);
       if (!inputType)
         return inputType.takeError();
       constexpr llvm::StringLiteral policyNames[] = {"key", "dependency",
@@ -4821,7 +4845,7 @@ llvm::Expected<std::string> generateQueueGraphCpp(const QueueGraphPlan &plan) {
         const QueuePlan *input = findQueue(plan, inputName);
         if (!input)
           return generatorError("atomic transform input Queue is missing");
-        auto type = cppType(input->payloadType);
+        auto type = cppQueueType(plan, *input);
         if (!type)
           return type.takeError();
         inputTypes.push_back(std::move(*type));
@@ -4830,7 +4854,7 @@ llvm::Expected<std::string> generateQueueGraphCpp(const QueueGraphPlan &plan) {
         const QueuePlan *result = findQueue(plan, outputName);
         if (!result)
           return generatorError("atomic transform output Queue is missing");
-        auto type = cppType(result->payloadType);
+        auto type = cppQueueType(plan, *result);
         if (!type)
           return type.takeError();
         outputTypes.push_back(std::move(*type));
@@ -4870,7 +4894,7 @@ llvm::Expected<std::string> generateQueueGraphCpp(const QueueGraphPlan &plan) {
     const QueuePlan *input = findQueue(plan, block->inputs.front());
     if (!input)
       return generatorError("policy input Queue is missing");
-    auto inputType = cppType(input->payloadType);
+    auto inputType = cppQueueType(plan, *input);
     if (!inputType)
       return inputType.takeError();
     std::string policy =
@@ -4901,7 +4925,7 @@ llvm::Expected<std::string> generateQueueGraphCpp(const QueueGraphPlan &plan) {
       const QueuePlan *result = findQueue(plan, block->outputs.front());
       if (!result)
         return generatorError("transform output Queue is missing");
-      auto resultType = cppType(result->payloadType);
+      auto resultType = cppQueueType(plan, *result);
       if (!resultType)
         return resultType.takeError();
       output << *resultType;
@@ -4935,7 +4959,7 @@ llvm::Expected<std::string> generateQueueGraphCpp(const QueueGraphPlan &plan) {
     const QueuePlan *input = findQueue(plan, endpoints.front()->inputs.front());
     if (!input)
       return generatorError("memory endpoint input Queue is missing");
-    auto inputType = cppType(input->payloadType);
+    auto inputType = cppQueueType(plan, *input);
     auto dataType = cppType(instance.dataType);
     if (!inputType)
       return inputType.takeError();
@@ -4994,7 +5018,7 @@ llvm::Expected<std::string> generateQueueGraphCpp(const QueueGraphPlan &plan) {
                       *parentPointer, ")");
   }
   for (const QueuePlan &queue : plan.queues) {
-    auto type = cppType(queue.payloadType);
+    auto type = cppQueueType(plan, queue);
     auto parent = modulePointer(queueOwners[queue.name]);
     if (!type)
       return type.takeError();
@@ -5072,7 +5096,7 @@ llvm::Expected<std::string> generateQueueGraphCpp(const QueueGraphPlan &plan) {
     if (state == feedbackStateIds.end())
       continue;
     const QueuePlan *input = findQueue(plan, block->inputs[0]);
-    auto type = input ? cppType(input->payloadType)
+    auto type = input ? cppQueueType(plan, *input)
                       : llvm::Expected<std::string>(
                             generatorError("feedback input Queue is missing"));
     auto parent = modulePointer(block->scope);
@@ -5202,7 +5226,7 @@ llvm::Expected<std::string> generateQueueGraphCpp(const QueueGraphPlan &plan) {
     } else if (block->kind == "broadcast" || block->kind == "fork" ||
                block->kind == "route") {
       const QueuePlan *input = findQueue(plan, block->inputs[0]);
-      auto type = input ? cppType(input->payloadType)
+      auto type = input ? cppQueueType(plan, *input)
                         : llvm::Expected<std::string>(generatorError(
                               "topology input Queue is missing"));
       if (!type)
@@ -5220,7 +5244,7 @@ llvm::Expected<std::string> generateQueueGraphCpp(const QueueGraphPlan &plan) {
                         block->outputs.size(), ">{", outputs, "})");
     } else if (block->kind == "select") {
       const QueuePlan *result = findQueue(plan, block->outputs[0]);
-      auto type = result ? cppType(result->payloadType)
+      auto type = result ? cppQueueType(plan, *result)
                          : llvm::Expected<std::string>(generatorError(
                                "select output Queue is missing"));
       if (!type)
@@ -5239,7 +5263,7 @@ llvm::Expected<std::string> generateQueueGraphCpp(const QueueGraphPlan &plan) {
                         queueMembers[block->outputs[0]], ")");
     } else if (block->kind == "merge") {
       const QueuePlan *result = findQueue(plan, block->outputs[0]);
-      auto type = result ? cppType(result->payloadType)
+      auto type = result ? cppQueueType(plan, *result)
                          : llvm::Expected<std::string>(
                                generatorError("merge output Queue is missing"));
       if (!type)
@@ -5432,7 +5456,7 @@ llvm::Expected<std::string> generateQueueGraphCpp(const QueueGraphPlan &plan) {
       return generatorError("memory instance has no endpoints");
     const auto &endpoints = found->getValue();
     const QueuePlan *input = findQueue(plan, endpoints.front()->inputs.front());
-    auto type = input ? cppType(input->payloadType)
+    auto type = input ? cppQueueType(plan, *input)
                       : llvm::Expected<std::string>(
                             generatorError("memory input missing"));
     auto parent = modulePointer(instance.ownerPath);
@@ -5514,7 +5538,7 @@ llvm::Expected<std::string> generateQueueGraphCpp(const QueueGraphPlan &plan) {
   for (const QueueBlockPlan &block : plan.blocks)
     if (block.kind == "source") {
       const QueuePlan *queue = findQueue(plan, block.outputs.front());
-      auto type = queue ? cppType(queue->payloadType)
+      auto type = queue ? cppQueueType(plan, *queue)
                         : llvm::Expected<std::string>(
                               generatorError("source Queue is missing"));
       if (!type)
@@ -5536,7 +5560,7 @@ llvm::Expected<std::string> generateQueueGraphCpp(const QueueGraphPlan &plan) {
   for (auto [index, block] : llvm::enumerate(runtimeBlocks))
     if (block->kind == "sink") {
       const QueuePlan *queue = findQueue(plan, block->inputs.front());
-      auto type = queue ? cppType(queue->payloadType)
+      auto type = queue ? cppQueueType(plan, *queue)
                         : llvm::Expected<std::string>(
                               generatorError("sink Queue is missing"));
       if (!type)
@@ -5549,7 +5573,7 @@ llvm::Expected<std::string> generateQueueGraphCpp(const QueueGraphPlan &plan) {
       ++sinkIndex;
     } else if (block->kind == "observe") {
       const QueuePlan *queue = findQueue(plan, block->inputs.front());
-      auto type = queue ? cppType(queue->payloadType)
+      auto type = queue ? cppQueueType(plan, *queue)
                         : llvm::Expected<std::string>(
                               generatorError("observation Queue is missing"));
       if (!type)
@@ -5610,7 +5634,7 @@ llvm::Expected<std::string> generateQueueGraphCpp(const QueueGraphPlan &plan) {
   for (const std::string &scope : plan.scopes)
     output << "  gfsim::Module " << scopeMembers[scope] << ";\n";
   for (const QueuePlan &queue : plan.queues) {
-    auto type = cppType(queue.payloadType);
+    auto type = cppQueueType(plan, queue);
     if (!type)
       return type.takeError();
     output << "  gfsim::SimQueue<" << *type << "> " << queueMembers[queue.name]
@@ -5640,7 +5664,7 @@ llvm::Expected<std::string> generateQueueGraphCpp(const QueueGraphPlan &plan) {
     if (!feedbackStateIds.contains(index))
       continue;
     const QueuePlan *input = findQueue(plan, block->inputs[0]);
-    auto type = input ? cppType(input->payloadType)
+    auto type = input ? cppQueueType(plan, *input)
                       : llvm::Expected<std::string>(
                             generatorError("feedback state type is missing"));
     if (!type)
@@ -5669,7 +5693,7 @@ llvm::Expected<std::string> generateQueueGraphCpp(const QueueGraphPlan &plan) {
         output << ">, std::tuple<";
         for (auto [inputIndex, inputName] : llvm::enumerate(block->inputs)) {
           const QueuePlan *input = findQueue(plan, inputName);
-          auto type = input ? cppType(input->payloadType)
+          auto type = input ? cppQueueType(plan, *input)
                             : llvm::Expected<std::string>(
                                   generatorError("state firing input missing"));
           if (!type)
@@ -5681,7 +5705,7 @@ llvm::Expected<std::string> generateQueueGraphCpp(const QueueGraphPlan &plan) {
         output << ">, std::tuple<";
         for (auto [outputIndex, outputName] : llvm::enumerate(block->outputs)) {
           const QueuePlan *result = findQueue(plan, outputName);
-          auto type = result ? cppType(result->payloadType)
+          auto type = result ? cppQueueType(plan, *result)
                              : llvm::Expected<std::string>(generatorError(
                                    "state firing output missing"));
           if (!type)
@@ -5710,7 +5734,7 @@ llvm::Expected<std::string> generateQueueGraphCpp(const QueueGraphPlan &plan) {
              << "_policy, " << *entryType << ", std::tuple<";
       for (auto [inputIndex, inputName] : llvm::enumerate(block->inputs)) {
         const QueuePlan *input = findQueue(plan, inputName);
-        auto inputType = input ? cppType(input->payloadType)
+        auto inputType = input ? cppQueueType(plan, *input)
                                : llvm::Expected<std::string>(generatorError(
                                      "table firing input missing"));
         if (!inputType)
@@ -5722,7 +5746,7 @@ llvm::Expected<std::string> generateQueueGraphCpp(const QueueGraphPlan &plan) {
       output << ">, std::tuple<";
       for (auto [outputIndex, outputName] : llvm::enumerate(block->outputs)) {
         const QueuePlan *result = findQueue(plan, outputName);
-        auto resultType = result ? cppType(result->payloadType)
+        auto resultType = result ? cppQueueType(plan, *result)
                                  : llvm::Expected<std::string>(generatorError(
                                        "table firing output missing"));
         if (!resultType)
@@ -5737,10 +5761,10 @@ llvm::Expected<std::string> generateQueueGraphCpp(const QueueGraphPlan &plan) {
       if (block->inputs.size() == 1 && block->outputs.size() == 1) {
         const QueuePlan *input = findQueue(plan, block->inputs[0]);
         const QueuePlan *result = findQueue(plan, block->outputs[0]);
-        auto inputType = input ? cppType(input->payloadType)
+        auto inputType = input ? cppQueueType(plan, *input)
                                : llvm::Expected<std::string>(
                                      generatorError("transform input missing"));
-        auto resultType = result ? cppType(result->payloadType)
+        auto resultType = result ? cppQueueType(plan, *result)
                                  : llvm::Expected<std::string>(generatorError(
                                        "transform output missing"));
         if (!inputType)
@@ -5760,7 +5784,7 @@ llvm::Expected<std::string> generateQueueGraphCpp(const QueueGraphPlan &plan) {
                << "_policy, std::tuple<";
         for (auto [inputIndex, inputName] : llvm::enumerate(block->inputs)) {
           const QueuePlan *input = findQueue(plan, inputName);
-          auto type = input ? cppType(input->payloadType)
+          auto type = input ? cppQueueType(plan, *input)
                             : llvm::Expected<std::string>(
                                   generatorError("atomic input missing"));
           if (!type)
@@ -5772,7 +5796,7 @@ llvm::Expected<std::string> generateQueueGraphCpp(const QueueGraphPlan &plan) {
         output << ">, std::tuple<";
         for (auto [outputIndex, outputName] : llvm::enumerate(block->outputs)) {
           const QueuePlan *result = findQueue(plan, outputName);
-          auto type = result ? cppType(result->payloadType)
+          auto type = result ? cppQueueType(plan, *result)
                              : llvm::Expected<std::string>(generatorError(
                                    "atomic transform output missing"));
           if (!type)
@@ -5786,7 +5810,7 @@ llvm::Expected<std::string> generateQueueGraphCpp(const QueueGraphPlan &plan) {
     } else if (block->kind == "broadcast" || block->kind == "fork" ||
                block->kind == "route") {
       const QueuePlan *input = findQueue(plan, block->inputs[0]);
-      auto type = input ? cppType(input->payloadType)
+      auto type = input ? cppQueueType(plan, *input)
                         : llvm::Expected<std::string>(
                               generatorError("route input missing"));
       if (!type)
@@ -5807,7 +5831,7 @@ llvm::Expected<std::string> generateQueueGraphCpp(const QueueGraphPlan &plan) {
       auto controlType = control ? cppType(control->payloadType)
                                  : llvm::Expected<std::string>(generatorError(
                                        "select control input missing"));
-      auto dataType = result ? cppType(result->payloadType)
+      auto dataType = result ? cppQueueType(plan, *result)
                              : llvm::Expected<std::string>(
                                    generatorError("select output missing"));
       if (!controlType)
@@ -5819,7 +5843,7 @@ llvm::Expected<std::string> generateQueueGraphCpp(const QueueGraphPlan &plan) {
              << "_policy> block_" << index << "_;\n";
     } else if (block->kind == "merge") {
       const QueuePlan *result = findQueue(plan, block->outputs[0]);
-      auto type = result ? cppType(result->payloadType)
+      auto type = result ? cppQueueType(plan, *result)
                          : llvm::Expected<std::string>(
                                generatorError("merge output missing"));
       if (!type)
@@ -5830,7 +5854,7 @@ llvm::Expected<std::string> generateQueueGraphCpp(const QueueGraphPlan &plan) {
       output << "  gfsim::QueueBarrier<std::tuple<";
       for (auto [inputIndex, inputName] : llvm::enumerate(block->inputs)) {
         const QueuePlan *input = findQueue(plan, inputName);
-        auto type = input ? cppType(input->payloadType)
+        auto type = input ? cppQueueType(plan, *input)
                           : llvm::Expected<std::string>(
                                 generatorError("barrier input missing"));
         if (!type)
@@ -5842,7 +5866,7 @@ llvm::Expected<std::string> generateQueueGraphCpp(const QueueGraphPlan &plan) {
       output << ">> block_" << index << "_;\n";
     } else if (block->kind == "reorder") {
       const QueuePlan *input = findQueue(plan, block->inputs[0]);
-      auto type = input ? cppType(input->payloadType)
+      auto type = input ? cppQueueType(plan, *input)
                         : llvm::Expected<std::string>(
                               generatorError("reorder input missing"));
       if (!type)
@@ -5851,7 +5875,7 @@ llvm::Expected<std::string> generateQueueGraphCpp(const QueueGraphPlan &plan) {
              << "_policy> block_" << index << "_;\n";
     } else if (block->kind == "dependency") {
       const QueuePlan *input = findQueue(plan, block->inputs[0]);
-      auto type = input ? cppType(input->payloadType)
+      auto type = input ? cppQueueType(plan, *input)
                         : llvm::Expected<std::string>(
                               generatorError("dependency input missing"));
       if (!type)
@@ -5870,7 +5894,7 @@ llvm::Expected<std::string> generateQueueGraphCpp(const QueueGraphPlan &plan) {
                << "_cost_policy> block_" << index << "_;\n";
     } else if (block->kind == "credit") {
       const QueuePlan *input = findQueue(plan, block->inputs[0]);
-      auto type = input ? cppType(input->payloadType)
+      auto type = input ? cppQueueType(plan, *input)
                         : llvm::Expected<std::string>(
                               generatorError("credit input missing"));
       if (!type)
@@ -5879,7 +5903,7 @@ llvm::Expected<std::string> generateQueueGraphCpp(const QueueGraphPlan &plan) {
              << "_policy> block_" << index << "_;\n";
     } else if (block->kind == "feedback") {
       const QueuePlan *input = findQueue(plan, block->inputs[0]);
-      auto type = input ? cppType(input->payloadType)
+      auto type = input ? cppQueueType(plan, *input)
                         : llvm::Expected<std::string>(
                               generatorError("feedback input missing"));
       if (!type)
@@ -5889,7 +5913,7 @@ llvm::Expected<std::string> generateQueueGraphCpp(const QueueGraphPlan &plan) {
              << index << "_;\n";
     } else if (block->kind == "expect") {
       const QueuePlan *input = findQueue(plan, block->inputs[0]);
-      auto type = input ? cppType(input->payloadType)
+      auto type = input ? cppQueueType(plan, *input)
                         : llvm::Expected<std::string>(
                               generatorError("expect input missing"));
       if (!type)
@@ -5919,7 +5943,7 @@ llvm::Expected<std::string> generateQueueGraphCpp(const QueueGraphPlan &plan) {
                << "_when_policy> block_" << index << "_;\n";
       } else {
         const QueuePlan *input = findQueue(plan, block->inputs.front());
-        auto inputType = input ? cppType(input->payloadType)
+        auto inputType = input ? cppQueueType(plan, *input)
                                : llvm::Expected<std::string>(generatorError(
                                      "table read input missing"));
         if (!inputType)
@@ -5942,7 +5966,7 @@ llvm::Expected<std::string> generateQueueGraphCpp(const QueueGraphPlan &plan) {
                << index << "_merge_policy> block_" << index << "_;\n";
       } else {
         const QueuePlan *input = findQueue(plan, block->inputs.front());
-        auto inputType = input ? cppType(input->payloadType)
+        auto inputType = input ? cppQueueType(plan, *input)
                                : llvm::Expected<std::string>(generatorError(
                                      "table write input missing"));
         if (!inputType)
@@ -5975,7 +5999,7 @@ llvm::Expected<std::string> generateQueueGraphCpp(const QueueGraphPlan &plan) {
              << "_release_policy> block_" << index << "_;\n";
     } else if (block->kind == "sink" || block->kind == "observe") {
       const QueuePlan *input = findQueue(plan, block->inputs[0]);
-      auto type = input ? cppType(input->payloadType)
+      auto type = input ? cppQueueType(plan, *input)
                         : llvm::Expected<std::string>(
                               generatorError("sink input missing"));
       if (!type)
@@ -5997,7 +6021,7 @@ llvm::Expected<std::string> generateQueueGraphCpp(const QueueGraphPlan &plan) {
       return generatorError("memory instance has no endpoints");
     const auto &endpoints = found->getValue();
     const QueuePlan *input = findQueue(plan, endpoints.front()->inputs.front());
-    auto type = input ? cppType(input->payloadType)
+    auto type = input ? cppQueueType(plan, *input)
                       : llvm::Expected<std::string>(
                             generatorError("memory input missing"));
     auto dataType = cppType(instance.dataType);

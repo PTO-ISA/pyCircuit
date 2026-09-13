@@ -18,12 +18,14 @@ std::unique_ptr<mlir::Pass> createVerifyACIRFilePass();
 std::unique_ptr<mlir::Pass> createLowerProcessStatePass();
 std::unique_ptr<mlir::Pass> createSourceAwareCSEPass();
 std::unique_ptr<mlir::Pass> createSourceAwareCanonicalizerPass();
+std::unique_ptr<mlir::Pass> createPruneInternalPayloadsPass();
 
 #define GEN_PASS_DECL_VERIFYMODELPASS
 #define GEN_PASS_DECL_VERIFYVALUECONSTRAINTSPASS
 #define GEN_PASS_DECL_LOWERPROCESSSTATEPASS
 #define GEN_PASS_DECL_LOWERVARIABLESTATEPASS
 #define GEN_PASS_DECL_LOWERVALUECONTRACTSPASS
+#define GEN_PASS_DECL_PRUNEINTERNALPAYLOADSPASS
 #define GEN_PASS_DECL_INLINEPUREHELPERSPASS
 #define GEN_PASS_DECL_CANONICALIZEMODELPASS
 #define GEN_PASS_DECL_FREEZETOPOLOGYPASS
@@ -58,6 +60,9 @@ mlir::LogicalResult verifyStaticTypeMetadata(mlir::ModuleOp model);
 /// Expand recursive value equality and inline pure value invariants before
 /// dataflow analysis or backend planning.
 mlir::LogicalResult lowerValueContracts(mlir::ModuleOp model);
+
+/// Verify compiler-private logical-to-physical Queue payload projections.
+mlir::LogicalResult verifyInternalPayloadProjections(mlir::ModuleOp model);
 
 /// Add the canonical staged rule-to-marker-free-IR pipeline. Topology freeze
 /// remains a separate stage so compiler drivers can preserve stage evidence.

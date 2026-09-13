@@ -9149,6 +9149,7 @@ call site.
 **Source**
 - PTO-ISA/pyCircuit issue #128.
 
+
 ## Decision 0248: runtime bounded Table row projection reuses canonical Table indices
 
 **Status:** Accepted and implemented
@@ -9700,6 +9701,82 @@ writable alias of its source owner.
   identical values plus ready/valid cycles across GFSim, PYC C++, and Verilog.
   Documentation must show explicit owner reconstruction for updates and must
   not describe the result as a borrow or mutable view.
+
+**Source**
+- PTO-ISA/pyCircuit issue #128.
+
+## Decision 0257: private Transform edges may use verified field-pruned carriers
+
+**Status:** Accepted and implemented
+
+**Extends:** Decisions 0245, 0250, and 0256.
+
+**Context / Goal**
+Large internal records should not be copied through a private Queue when the
+only consumer reads a strict subset of top-level fields. The optimization must
+not rewrite public schemas, observations, state ownership, or transaction
+semantics, and a narrower physical payload must remain explainable as a mapping
+from the original logical record.
+
+**Decision (strong constraint)**
+- `ac-prune-internal-payloads` admits the profile
+  `private_transform_tuple_v1`: one flat QueueGraph system, one private
+  single-producer/single-consumer Queue between single-input/single-output pure
+  Transforms, lanes and rate equal to one, a nominal Struct logical payload,
+  and a non-empty strict subset of direct live `ac.var.get` uses.
+- A consumer may be an ordinary Transform or a rule-origin Transform whose
+  existing verifier proves empty state footprints/accesses and the complete
+  input/output Queue transaction contract. Source/sink, observe/expect,
+  structured module/extern, feedback, memory, Table/Var owner, stateful rule,
+  whole-value, opaque helper, empty-demand, all-field, and unknown-use edges
+  remain unchanged.
+- The physical carrier is a builtin tuple whose elements use the retained
+  fields' exact recursive types in original declaration order. The pass creates
+  source field reads plus a tuple at the producer, changes the Queue and
+  consumer argument types atomically, and replaces direct consumer reads with
+  tuple elements. Queue name/ID, depth, latency, rate, lanes, scheduling and
+  token behavior do not change.
+- Producer and consumer carry ordinal-indexed
+  `ac.payload_projections_out/in` evidence with version, profile, original
+  logical type, kept fields, and a SHA-256 fingerprint over the complete
+  recursive logical descriptor, ordered fields, and carrier descriptor.
+  Unsigned enum encodings, including `2**63` and `2**64-1`, use canonical
+  unsigned spelling. Existing Python source provenance moves to replacement
+  projections; new operations retain source locations for freeze materialization.
+- Freeze independently verifies flat placement, paired endpoint evidence, the
+  actual SSA edge, ordinal, single producer/consumer, exact tuple kind/length/
+  types, ordered unique fields, recursive fingerprint, rule eligibility and
+  element-only consumption. Partial freeze evidence is rejected and a fully
+  frozen model is left unchanged.
+- QueueGraph independently reconstructs logical and carrier schemas, fingerprint,
+  retained width, single Transform endpoints, lanes/rate and every expression,
+  yield, guard, output/state root that could leak the whole carrier. JSON
+  reports logical/carrier types, kept fields, fingerprint, logical bits,
+  carrier bits and removed bits. GFSim permits packed `UInt<N>` Queue storage
+  only for this verified projection; arbitrary public tuple Queues remain
+  unadmitted. PYC consumes the same tuple descriptor through concat/extract.
+- The pass processes edges in reverse-use fixed point, permits an intermediate
+  Transform to carry independent input/output evidence, monotonically removes
+  fields, and is idempotent. Existing Queue event traces contain occupancy and
+  transaction events rather than payload bytes, so preserving Queue identity
+  and timing preserves that trace contract. This decision does not claim
+  cross-module/state/trace-visible pruning or a universal throughput gain.
+
+**Required verification**
+- Reject forged/orphan/mismatched metadata, reordered or wrong-type fields,
+  invalid fingerprints, non-tuple or wrong-width carriers, multiple endpoints,
+  non-unit lanes/rate, protected boundaries and whole-carrier escapes including
+  direct/nested yields and state/output roots.
+- Cover chained edges, repeated pass execution, source provenance, sparse
+  64-bit enum encodings, nested/array descriptors, a small record and an
+  approximately 1K-bit record. QueueGraph plan mutation must independently
+  reject invalid mapping, cost, topology and escape evidence.
+- For the 1K-bit Python fixture, report `1033 -> 9` logical bits and `1024`
+  removed bits. Baseline and optimized GFSim must have identical per-epoch
+  accept/output events and values; optimized PYC C++ and Verilator must have
+  identical ready/valid cycles under backpressure; all three backends must
+  match the independent value golden. Packed serialized size is reported
+  separately from `sizeof` and is not presented as a throughput result.
 
 **Source**
 - PTO-ISA/pyCircuit issue #128.

@@ -746,6 +746,14 @@ subtype、borrow 或 owner alias。更新必须通过 `source.with_fields(**proj
 canonicalization 可把字段需求穿透 record/with/select；通用跨 Queue payload pruning
 仍保留给 I03/L06。
 
+`private_transform_tuple_v1` 会在 freeze 前对可证明安全的私有
+Transform→Transform Queue 做 field-liveness：单 producer/consumer、unit lane/rate、
+纯逻辑、非空真子集 direct field use。物理 carrier 是 exact tuple，逻辑 Struct 与
+Queue 名称、depth、latency、token 语义保持不变。ACIR 与 QueueGraph 分别重算 paired
+metadata、递归 fingerprint、字段顺序/类型和 whole-value escape；公开/trace/module/
+owner/state/feedback/memory 边界一律不裁剪。JSON 同时报告 logical/carrier bits 和
+removed bits，不能把 storage 缩窄直接表述为性能提升。
+
 ## Tier 分层标注（3D 堆叠扩展，Proposed）
 
 > **状态:Proposed**(尚未实现;完整提案与实现草图见 `docs/rfcs/tier_annotation.md`)。本节先行纳入规范,冻结语法形态与语义边界。

@@ -1153,6 +1153,9 @@ void addRuleLoweringPipeline(mlir::OpPassManager &manager) {
   manager.addPass(std::make_unique<ResolveRuleSchedulePass>());
   manager.addPass(std::make_unique<LowerRulesToFiringPass>());
   manager.addPass(std::make_unique<CanonicalizePureFiringsPass>());
+  manager.addPass(createPruneInternalPayloadsPass());
+  manager.addPass(createSourceAwareCanonicalizerPass());
+  manager.addPass(createSourceAwareCSEPass());
   manager.addPass(std::make_unique<VerifyRuleClosurePass>());
 }
 

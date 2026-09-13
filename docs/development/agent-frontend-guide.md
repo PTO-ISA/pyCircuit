@@ -229,6 +229,11 @@ Follow these rules:
   target is a real nominal `@ac.struct`, not an implicit subtype or writable
   alias. Apply changes back with `value.with_fields(**projected_patch)` and an
   explicit owner assignment.
+- Keep large pass-through records on private single-consumer edges when the
+  next pure rule reads only a few top-level fields; the verified private
+  payload-pruning pass can choose a narrower internal carrier. Do not depend on
+  pruning across public, observed, module, state, feedback, memory, or
+  whole-record boundaries.
 - Use `values.map(lambda item: ...)` for pure fixed-lane value transforms and
   `values.zip(other)` for exact-length positional pairing. Both are
   elaboration-time fixed expansions, evaluate every lane, retain exact

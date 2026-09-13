@@ -1877,8 +1877,21 @@ Updating the source requires an explicit exact-name spread back into the source
 record and then an ordinary owner assignment. Projection expands to verified
 `ac.var.get` plus `ac.var.record`. Local canonicalization pushes a later field
 read through record construction, immutable update, and a single-use select;
-shared selects are not duplicated before CSE. General
-automatic cross-Queue payload pruning remains separate work.
+shared selects are not duplicated before CSE. General cross-Queue pruning
+beyond the limited private profile below remains separate work.
+
+The compiler may automatically narrow a private internal Queue under the
+`private_transform_tuple_v1` profile. It applies only to one flat,
+single-producer/single-consumer, unit-lane pure Transform edge whose consumer
+uses a non-empty strict subset of top-level Struct fields. A stateless pure
+rule-origin Transform is eligible after its existing rule proof is verified.
+The physical tuple carrier preserves exact field types and Queue timing while
+paired ACIR metadata records the complete logical descriptor and mapping.
+Freeze and QueueGraph independently revalidate the edge, fingerprint, ordered
+fields, tuple shape, element-only uses and protected-boundary exclusions.
+Public, observed, module, state, feedback, memory and whole-value edges are not
+rewritten. QueueGraph JSON reports logical/carrier widths; a narrower payload is
+not by itself a throughput claim.
 
 Nominal values use the standard Python enum class:
 

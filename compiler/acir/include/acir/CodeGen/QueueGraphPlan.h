@@ -7,6 +7,7 @@
 
 #include <cstdint>
 #include <memory>
+#include <optional>
 #include <string>
 #include <utility>
 #include <vector>
@@ -148,6 +149,20 @@ struct StateReservationPlan {
   std::vector<std::string> fields;
 };
 
+struct QueuePayloadProjectionPlan {
+  uint64_t version = 0;
+  std::string profile;
+  std::string logicalType;
+  std::vector<std::string> keptFields;
+  std::string carrierType;
+  std::string fingerprint;
+  uint64_t logicalBits = 0;
+  uint64_t carrierBits = 0;
+  uint64_t removedBits = 0;
+
+  bool operator==(const QueuePayloadProjectionPlan &) const = default;
+};
+
 struct QueuePlan {
   std::string name;
   std::string payloadType;
@@ -157,6 +172,7 @@ struct QueuePlan {
   uint64_t rate = 1;
   uint64_t lanes = 1;
   std::vector<uint64_t> laneOrdinals;
+  std::optional<QueuePayloadProjectionPlan> payloadProjection;
 };
 
 struct QueueRuleResourcePlan {

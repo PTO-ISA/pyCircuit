@@ -90,6 +90,8 @@ std::string legalizeQueueGraphIdentifier(llvm::StringRef value) {
 
 namespace {
 
+std::optional<llvm::StringRef> payloadTypeName(llvm::StringRef type);
+
 llvm::Error planError(const llvm::Twine &message) {
   return llvm::createStringError(
       std::make_error_code(std::errc::invalid_argument),
@@ -2742,6 +2744,63 @@ private:
                             latencies[index], rates[index], scope);
       if (error)
         return error;
+      if (auto projections = op->getAttrOfType<mlir::ArrayAttr>(
+              "ac.payload_projections_out")) {
+        for (mlir::Attribute raw : projections) {
+          auto record = mlir::dyn_cast<mlir::DictionaryAttr>(raw);
+          auto ordinal = record ? record.getAs<mlir::IntegerAttr>("ordinal")
+                                : mlir::IntegerAttr();
+          if (!ordinal || ordinal.getInt() != static_cast<int64_t>(index))
+            continue;
+          auto version = record.getAs<mlir::IntegerAttr>("version");
+          auto profile = record.getAs<mlir::StringAttr>("profile");
+          auto logical = record.getAs<mlir::TypeAttr>("logical_type");
+          auto fields = record.getAs<mlir::ArrayAttr>("kept_fields");
+          auto fingerprint = record.getAs<mlir::StringAttr>("fingerprint");
+          if (!version || !profile || !logical || !fields || !fingerprint)
+            return planError("payload projection evidence is malformed");
+          QueuePayloadProjectionPlan projection;
+          projection.version = version.getValue().getZExtValue();
+          projection.profile = profile.getValue().str();
+          projection.logicalType = printType(logical.getValue());
+          projection.carrierType =
+              printType(mlir::cast<ac::QueueType>(outputs[index].getType())
+                            .getElementType());
+          projection.fingerprint = fingerprint.getValue().str();
+          for (mlir::Attribute field : fields) {
+            auto name = mlir::dyn_cast<mlir::StringAttr>(field);
+            if (!name)
+              return planError("payload projection field is not a string");
+            projection.keptFields.push_back(name.getValue().str());
+          }
+          std::optional<llvm::StringRef> logicalName =
+              payloadTypeName(projection.logicalType);
+          auto logicalPayload = llvm::find_if(
+              plan.payloads, [&](const QueuePayloadPlan &candidate) {
+                return logicalName && candidate.name == *logicalName;
+              });
+          auto carrierAggregate = llvm::find_if(
+              plan.aggregates, [&](const QueueAggregatePlan &candidate) {
+                return candidate.type == projection.carrierType;
+              });
+          if (!logicalName || logicalPayload == plan.payloads.end() ||
+              carrierAggregate == plan.aggregates.end())
+            return planError("payload projection cost types are unresolved");
+          projection.logicalBits = llvm::accumulate(
+              logicalPayload->fields, uint64_t{0},
+              [](uint64_t total, const QueuePayloadFieldPlan &field) {
+                return total + field.width;
+              });
+          projection.carrierBits = carrierAggregate->width;
+          if (projection.carrierBits >= projection.logicalBits)
+            return planError(
+                "payload projection does not reduce logical width");
+          projection.removedBits =
+              projection.logicalBits - projection.carrierBits;
+          plan.queues.back().payloadProjection = std::move(projection);
+          break;
+        }
+      }
     }
     result = std::move(*frozen);
     return llvm::Error::success();
@@ -2766,7 +2825,7 @@ private:
       }
       if (auto instance = mlir::dyn_cast<ac::MemoryInstanceOp>(operation)) {
         MemoryInstancePlan instancePlan{
-            instance.getSymName().str(), printType(instance.getDataType()),
+            instance.getSymName().str(),     printType(instance.getDataType()),
             uint64_t(instance.getEntries()), uint64_t(instance.getInit()),
             uint64_t(instance.getLatency()), instance.getStableId().str(),
             instance.getOwner().str()};
@@ -4422,9 +4481,9 @@ verifySourceProvenancePlan(const QueueSourceProvenancePlan &provenance) {
     for (const QueueSourceFramePlan &frame : origin) {
       unsigned kindRank =
           frame.kind == "statement" || frame.kind == "definition" ? 0
-          : frame.kind == "inline_callsite"                         ? 1
-          : frame.kind == "instance"                                ? 2
-                                                                    : 3;
+          : frame.kind == "inline_callsite"                       ? 1
+          : frame.kind == "instance"                              ? 2
+                                                                  : 3;
       if ((frame.kind != "statement" && frame.kind != "definition" &&
            frame.kind != "inline_callsite" && frame.kind != "instance" &&
            frame.kind != "specialization") ||
@@ -4441,6 +4500,92 @@ verifySourceProvenancePlan(const QueueSourceProvenancePlan &provenance) {
     previous = std::move(key);
   }
   return llvm::Error::success();
+}
+
+bool appendProjectionDescriptor(const QueueGraphPlan &plan,
+                                llvm::raw_ostream &stream, llvm::StringRef type,
+                                llvm::StringSet<> &active) {
+  if (auto name = payloadTypeName(type)) {
+    auto payload =
+        llvm::find_if(plan.payloads, [&](const QueuePayloadPlan &candidate) {
+          return candidate.name == *name;
+        });
+    if (payload == plan.payloads.end() || !active.insert(*name).second)
+      return false;
+    stream << "struct(@types::@" << *name << "){";
+    for (const QueuePayloadFieldPlan &field : payload->fields) {
+      stream << field.name.size() << ':' << field.name << '=';
+      if (!appendProjectionDescriptor(plan, stream, field.type, active))
+        return false;
+      stream << ';';
+    }
+    stream << '}';
+    active.erase(*name);
+    return true;
+  }
+  if (auto name = enumTypeName(type)) {
+    auto enumeration =
+        llvm::find_if(plan.enums, [&](const QueueEnumPlan &candidate) {
+          return candidate.name == *name;
+        });
+    if (enumeration == plan.enums.end())
+      return false;
+    stream << "enum(@types::@" << *name << ')';
+    for (const std::string &member : enumeration->enumerants)
+      stream << member << ';';
+    for (uint64_t value : enumeration->values)
+      stream << value << ';';
+    stream << "width="
+           << (enumeration->values.empty()
+                   ? int64_t{-1}
+                   : static_cast<int64_t>(enumeration->width));
+    return true;
+  }
+  auto aggregate =
+      llvm::find_if(plan.aggregates, [&](const QueueAggregatePlan &candidate) {
+        return candidate.type == type;
+      });
+  if (aggregate != plan.aggregates.end()) {
+    if (aggregate->kind == "tuple") {
+      stream << "tuple(";
+      for (const std::string &element : aggregate->elements) {
+        if (!appendProjectionDescriptor(plan, stream, element, active))
+          return false;
+        stream << ';';
+      }
+      stream << ')';
+      return true;
+    }
+    if (aggregate->kind == "array" && aggregate->elements.size() == 1) {
+      stream << "array(" << aggregate->length << ',';
+      if (!appendProjectionDescriptor(plan, stream, aggregate->elements[0],
+                                      active))
+        return false;
+      stream << ')';
+      return true;
+    }
+    return false;
+  }
+  stream << type;
+  return true;
+}
+
+std::optional<std::string>
+projectionFingerprint(const QueueGraphPlan &plan,
+                      const QueuePayloadProjectionPlan &projection) {
+  std::string preimage;
+  llvm::raw_string_ostream stream(preimage);
+  stream << "version=1\nprofile=private_transform_tuple_v1\nlogical=";
+  llvm::StringSet<> active;
+  if (!appendProjectionDescriptor(plan, stream, projection.logicalType, active))
+    return std::nullopt;
+  stream << "\nfields=";
+  for (const std::string &field : projection.keptFields)
+    stream << field.size() << ':' << field << ';';
+  stream << "\ncarrier=" << projection.carrierType;
+  llvm::SHA256 sha;
+  sha.update(stream.str());
+  return "sha256:" + llvm::toHex(sha.final(), /*LowerCase=*/true);
 }
 
 llvm::Error verifyQueueGraphPlan(const QueueGraphPlan &plan) {
@@ -4488,7 +4633,7 @@ llvm::Error verifyQueueGraphPlan(const QueueGraphPlan &plan) {
     if (auto error = verifySourceProvenancePlan(selection.sourceProvenance))
       return error;
     else if (auto error =
-            verifyExpressions(verifyExpressions, selection.keyExpressions))
+                 verifyExpressions(verifyExpressions, selection.keyExpressions))
       return error;
   if (plan.system.empty() || plan.queues.empty() ||
       (plan.blocks.empty() && plan.moduleInstances.empty()))
@@ -4531,7 +4676,134 @@ llvm::Error verifyQueueGraphPlan(const QueueGraphPlan &plan) {
                ? std::nullopt
                : std::optional<uint64_t>(aggregate->width);
   };
+  for (const QueuePlan &queue : plan.queues) {
+    if (!queue.payloadProjection)
+      continue;
+    const QueuePayloadProjectionPlan &projection = *queue.payloadProjection;
+    if (projection.version != 1 ||
+        projection.profile != "private_transform_tuple_v1" ||
+        projection.carrierType != queue.payloadType ||
+        projection.keptFields.empty() ||
+        !isValidFingerprint(projection.fingerprint))
+      return planError("Queue payload projection metadata is malformed");
+    std::optional<llvm::StringRef> logicalName =
+        payloadTypeName(projection.logicalType);
+    auto logical =
+        llvm::find_if(plan.payloads, [&](const QueuePayloadPlan &candidate) {
+          return logicalName && candidate.name == *logicalName;
+        });
+    auto carrier = llvm::find_if(
+        plan.aggregates, [&](const QueueAggregatePlan &candidate) {
+          return candidate.type == projection.carrierType;
+        });
+    if (!logicalName || logical == plan.payloads.end() ||
+        carrier == plan.aggregates.end() || carrier->kind != "tuple" ||
+        carrier->length != projection.keptFields.size() ||
+        carrier->elements.size() != projection.keptFields.size() ||
+        projection.keptFields.size() >= logical->fields.size())
+      return planError("Queue payload projection types are inconsistent");
+    uint64_t logicalBits = llvm::accumulate(
+        logical->fields, uint64_t{0},
+        [](uint64_t total, const QueuePayloadFieldPlan &field) {
+          return total + field.width;
+        });
+    uint64_t retainedBits = 0;
+    if (projection.logicalBits != logicalBits ||
+        projection.carrierBits != carrier->width ||
+        projection.carrierBits >= projection.logicalBits ||
+        projection.removedBits !=
+            projection.logicalBits - projection.carrierBits)
+      return planError(
+          "Queue payload projection cost metadata is inconsistent");
+    size_t logicalCursor = 0;
+    for (auto [index, fieldName] : llvm::enumerate(projection.keptFields)) {
+      while (logicalCursor < logical->fields.size() &&
+             logical->fields[logicalCursor].name != fieldName)
+        ++logicalCursor;
+      if (logicalCursor == logical->fields.size() ||
+          logical->fields[logicalCursor].type != carrier->elements[index])
+        return planError(
+            "Queue payload projection fields are not an exact ordered subset");
+      retainedBits += logical->fields[logicalCursor].width;
+      ++logicalCursor;
+    }
+    if (retainedBits != carrier->width)
+      return planError("Queue payload projection tuple width is inconsistent");
+    std::optional<std::string> expectedFingerprint =
+        projectionFingerprint(plan, projection);
+    if (!expectedFingerprint || projection.fingerprint != *expectedFingerprint)
+      return planError("Queue payload projection fingerprint mismatch");
+    size_t producers = 0;
+    size_t consumers = 0;
+    const QueueBlockPlan *producerBlock = nullptr;
+    const QueueBlockPlan *consumerBlock = nullptr;
+    for (const QueueBlockPlan &block : plan.blocks) {
+      const size_t produced = llvm::count(block.outputs, queue.name);
+      const size_t consumed = llvm::count(block.inputs, queue.name);
+      producers += produced;
+      consumers += consumed;
+      if (produced)
+        producerBlock = &block;
+      if (consumed)
+        consumerBlock = &block;
+      if ((llvm::is_contained(block.outputs, queue.name) ||
+           llvm::is_contained(block.inputs, queue.name)) &&
+          block.kind != "transform")
+        return planError(
+            "projected private Queue may connect only Transform blocks");
+    }
+    if (producers != 1 || consumers != 1)
+      return planError(
+          "projected private Queue requires one producer and one consumer");
+    if (queue.lanes != 1 || queue.rate != 1 || !producerBlock ||
+        !consumerBlock || producerBlock->inputs.size() != 1 ||
+        producerBlock->outputs.size() != 1 ||
+        consumerBlock->inputs.size() != 1 || consumerBlock->outputs.size() != 1)
+      return planError("projected private Queue requires scalar "
+                       "single-input/output transforms");
+    auto verifyCarrierUses = [&](auto &&self, const auto &expressions) -> bool {
+      for (const QueueExpressionPlan &expression : expressions) {
+        if (llvm::is_contained(expression.operands, "item") &&
+            (expression.kind != "aggregate_get" ||
+             expression.operands.size() != 1))
+          return false;
+        if (!self(self, expression.nestedExpressions))
+          return false;
+        if (llvm::is_contained(expression.nestedYields, "item"))
+          return false;
+      }
+      return true;
+    };
+    const bool rootEscape =
+        llvm::is_contained(consumerBlock->yields, "item") ||
+        consumerBlock->guard == "item" ||
+        llvm::any_of(consumerBlock->outputPresence,
+                     [](const OutputPresencePlan &output) {
+                       return output.value == "item" ||
+                              output.present == "item";
+                     }) ||
+        llvm::any_of(consumerBlock->stateWrites,
+                     [](const StateWritePlan &write) {
+                       return write.index == "item" || write.value == "item" ||
+                              write.present == "item";
+                     }) ||
+        llvm::any_of(consumerBlock->stateReservations,
+                     [](const StateReservationPlan &reservation) {
+                       return reservation.index == "item" ||
+                              reservation.source == "item" ||
+                              reservation.predicate == "item";
+                     });
+    if (rootEscape ||
+        !verifyCarrierUses(verifyCarrierUses, consumerBlock->expressions))
+      return planError(
+          "projected private Queue carrier has a whole-value escape");
+  }
   const bool structured = !plan.definition.empty();
+  if (structured && llvm::any_of(plan.queues, [](const QueuePlan &queue) {
+        return queue.payloadProjection.has_value();
+      }))
+    return planError(
+        "private Queue payload projections are forbidden in structured plans");
   if (structured && (plan.definitionFingerprint.empty() ||
                      !isValidFingerprint(plan.definitionFingerprint) ||
                      plan.specializationFingerprint.empty()))
@@ -6748,15 +7020,14 @@ llvm::Expected<std::string> QueueGraphPlan::canonicalJson() const {
       result["index_width"] = expression.indexWidth;
       result["selection_tree_depth"] = selectionDepth;
       result["logic_depth_model"] = "pyc_check_logic_depth_unit_cost";
-      result["logic_depth"] = expression.kind == "array_get_dynamic"
-                                  ? (count == 1
-                                         ? uint64_t{1}
-                                         : selectionDepth +
-                                               (widensIndex ? 2 : 1))
-                                  : (widensIndex ? uint64_t{4} : uint64_t{3});
+      result["logic_depth"] =
+          expression.kind == "array_get_dynamic"
+              ? (count == 1 ? uint64_t{1}
+                            : selectionDepth + (widensIndex ? 2 : 1))
+              : (widensIndex ? uint64_t{4} : uint64_t{3});
       result["expanded_nodes"] =
           (expression.kind == "array_get_dynamic" ? 5 * count - 2
-                                                    : 4 * count + 1) +
+                                                  : 4 * count + 1) +
           (widensIndex ? 2 : 0);
     }
     if (expression.kind == "masked_match") {
@@ -6889,15 +7160,30 @@ llvm::Expected<std::string> QueueGraphPlan::canonicalJson() const {
     llvm::json::Array laneOrdinals;
     for (uint64_t lane : queue.laneOrdinals)
       laneOrdinals.push_back(lane);
-    queueValues.push_back(
-        llvm::json::Object{{"depth", queue.depth},
-                           {"lane_ordinals", std::move(laneOrdinals)},
-                           {"lanes", queue.lanes},
-                           {"latency", queue.latency},
-                           {"name", queue.name},
-                           {"payload_type", queue.payloadType},
-                           {"rate", queue.rate},
-                           {"scope", queue.scope}});
+    llvm::json::Object value{{"depth", queue.depth},
+                             {"lane_ordinals", std::move(laneOrdinals)},
+                             {"lanes", queue.lanes},
+                             {"latency", queue.latency},
+                             {"name", queue.name},
+                             {"payload_type", queue.payloadType},
+                             {"rate", queue.rate},
+                             {"scope", queue.scope}};
+    if (queue.payloadProjection) {
+      llvm::json::Array fields;
+      for (const std::string &field : queue.payloadProjection->keptFields)
+        fields.push_back(field);
+      value["payload_projection"] = llvm::json::Object{
+          {"carrier_bits", queue.payloadProjection->carrierBits},
+          {"carrier_type", queue.payloadProjection->carrierType},
+          {"fingerprint", queue.payloadProjection->fingerprint},
+          {"kept_fields", std::move(fields)},
+          {"logical_type", queue.payloadProjection->logicalType},
+          {"logical_bits", queue.payloadProjection->logicalBits},
+          {"profile", queue.payloadProjection->profile},
+          {"removed_bits", queue.payloadProjection->removedBits},
+          {"version", queue.payloadProjection->version}};
+    }
+    queueValues.push_back(std::move(value));
   }
   llvm::json::Array blockValues;
   for (const QueueBlockPlan &block : blocks) {

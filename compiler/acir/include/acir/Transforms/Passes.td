@@ -57,6 +57,17 @@ def LowerValueContractsPass
   let summary = "Lower recursive equality and reusable value invariants";
 }
 
+def PruneInternalPayloadsPass
+    : Pass<"ac-prune-internal-payloads", "::mlir::ModuleOp"> {
+  let summary = "Narrow verifier-proven private Transform payloads";
+  let description = [{
+    Rewrites eligible single-producer/single-consumer private struct Queue
+    edges to exact tuple carriers after proving every live consumer use is a
+    direct field projection. Public, observed, stateful, module, rule, and
+    control edges remain unchanged.
+  }];
+}
+
 def InlinePureHelpersPass
     : Pass<"ac-inline-pure-helpers", "::mlir::ModuleOp"> {
   let summary = "Inline explicitly annotated pure ACIR helper functions";
