@@ -7098,7 +7098,8 @@ def pipeline(request: Request) -> Result:
         self.assertEqual(10, lowered.count('field "valid"'))
         self.assertEqual(5, lowered.count('field "age"'))
         self.assertGreaterEqual(lowered.count("ac.var.select"), 14)
-        self.assertGreaterEqual(lowered.count("ac.var.or"), 12)
+        self.assertGreaterEqual(lowered.count("ac.var.or"), 8)
+        self.assertEqual(4, lowered.count("ac.var.xor"))
         self.assertEqual(4, lowered.count('ac.var.cmp "ule"'))
 
     def test_value_array_first_and_argmin_reject_invalid_callbacks(self) -> None:

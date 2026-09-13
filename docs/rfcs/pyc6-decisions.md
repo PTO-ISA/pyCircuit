@@ -9557,9 +9557,10 @@ user-written serial mux chains or an unverified associativity assertion.
 - These forms expand in the Python frontend to existing verifier-visible ACIR
   primitives before Frozen ACIR. No runtime iterator, PYC vector, backend-only
   reduction, or high-level operation remains. Grouped cost attribution and
-  automatic timing repair remain G04/L08 work. In particular, the current
-  65-lane argmin compiles with an explicit logic-depth budget of 64 but exceeds
-  the default budget 32; this decision does not claim that G04 is complete.
+  automatic timing repair remain G04/L08 work. Argmin combines the one-valid
+  cases and the both-valid comparison through one selector per balanced tree
+  level; the 65-lane boundary passes the default unit-cost logic-depth budget.
+  This decision still does not claim that G04 is complete.
 
 **Required verification**
 - Cover extents 1, 3, 5, 16, and 65, odd tails, modulo overflow, full/empty

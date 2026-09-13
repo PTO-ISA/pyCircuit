@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import re
 import shutil
@@ -159,7 +160,7 @@ def pipeline(request: Request) -> ac.u8:
                 self.assertEqual(extent - 1, additions)
                 self.assertEqual(expected_depth, depth)
 
-    def test_argmin_65_compiles_with_explicit_logic_depth_budget(self) -> None:
+    def test_argmin_65_compiles_with_default_logic_depth_budget(self) -> None:
         source = """import agentic_circuit as ac
 @ac.struct
 class Item:
@@ -190,6 +191,7 @@ def pipeline(request: Request) -> ac.index[65]:
             )
             pyc = work / "model.pyc"
             pyc.write_text(self._run((self.pycgen, frozen), cwd=ROOT), encoding="utf-8")
+            profile = work / "profile.json"
             self._run(
                 (
                     self.pycc,
@@ -199,10 +201,13 @@ def pipeline(request: Request) -> ac.index[65]:
                     work / "checked",
                     "--hierarchy-policy=strict",
                     "--inline-policy=off",
-                    "--logic-depth=64",
+                    f"--profile-json={profile}",
                 ),
                 cwd=ROOT,
             )
+            report = json.loads(profile.read_text(encoding="utf-8"))
+            self.assertEqual(32, report["compile_stats"]["logic_depth_limit"])
+            self.assertLessEqual(report["compile_stats"]["max_logic_depth"], 32)
 
     def test_map_zip_nested_and_checked_callbacks_match_all_backends(self) -> None:
         cases = ((0, 1, 4), (3, 5, 7), (255, 2, 254))

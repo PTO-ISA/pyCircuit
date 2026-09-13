@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import re
 import shutil
 import subprocess
 import tempfile
@@ -32,6 +33,8 @@ def _expected(value: int) -> int:
         | (narrow << 24)
         | ((sign_extended & 0xFF) << 32)
         | (17 << 40)
+        | (((value // 8) & 0xFF) << 48)
+        | ((value % 8) << 56)
     )
 
 
@@ -92,6 +95,7 @@ class TypedIntegerRuntimeTest(unittest.TestCase):
                 EXAMPLE.read_text(encoding="utf-8"),
                 "typed_integer_operations",
                 static_arguments={"lanes": 1},
+                source_path=EXAMPLE.relative_to(ROOT).as_posix(),
             )
             self.assertNotIn("static_assert", raw)
             frozen = work / "model.mlir"
@@ -100,8 +104,10 @@ class TypedIntegerRuntimeTest(unittest.TestCase):
                 encoding="utf-8",
             )
             frozen_text = frozen.read_text(encoding="utf-8")
-            self.assertIn("ac.var.udiv", frozen_text)
-            self.assertIn("ac.var.urem", frozen_text)
+            self.assertEqual(1, frozen_text.count("ac.var.udiv"))
+            self.assertEqual(1, frozen_text.count("ac.var.urem"))
+            self.assertIn("ac.var.shr", frozen_text)
+            self.assertIn("ac.var.and", frozen_text)
 
             gfsim_source = work / "gfsim.cpp"
             gfsim_source.write_text(
@@ -110,8 +116,26 @@ class TypedIntegerRuntimeTest(unittest.TestCase):
             pyc = work / "model.pyc"
             pyc.write_text(self._run((self.pycgen, frozen), cwd=ROOT), encoding="utf-8")
             pyc_text = pyc.read_text(encoding="utf-8")
-            self.assertIn("pyc.udiv", pyc_text)
-            self.assertIn("pyc.urem", pyc_text)
+            self.assertEqual(1, pyc_text.count("pyc.udiv"))
+            self.assertEqual(1, pyc_text.count("pyc.urem"))
+            self.assertRegex(
+                pyc_text,
+                re.compile(
+                    r'pyc\.lshr .* loc\(callsite\("examples/agentic-circuit/'
+                    r'blocks/typed_integer_operations\.py":13:30 at '
+                    r'"examples/agentic-circuit/blocks/'
+                    r'typed_integer_operations\.py":36:45\)\)'
+                ),
+            )
+            self.assertRegex(
+                pyc_text,
+                re.compile(
+                    r'pyc\.and .* loc\(callsite\("examples/agentic-circuit/'
+                    r'blocks/typed_integer_operations\.py":16:26 at '
+                    r'"examples/agentic-circuit/blocks/'
+                    r'typed_integer_operations\.py":36:45\)\)'
+                ),
+            )
 
             pyc_output = work / "pyc"
             verilog_output = work / "verilog"

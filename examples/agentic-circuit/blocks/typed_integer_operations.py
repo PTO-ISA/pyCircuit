@@ -10,6 +10,10 @@ def calculate(value: ac.u64) -> ac.u64:
     divisor = value & ac.literal(0xFF, ac.u64)
     quotient_low = ac.zext(ac.truncate(value // divisor, ac.u16), ac.u64)
     remainder_low = ac.zext(ac.truncate(value % divisor, ac.u8), ac.u64)
+    constant_quotient_low = (value // ac.literal(8, ac.u64)) & ac.literal(
+        0xFF, ac.u64
+    )
+    constant_remainder = value % ac.literal(8, ac.u64)
     narrow = ac.truncate(value, ac.u3)
     widened = ac.zext(narrow, ac.u64)
     sign_extended = ac.sext(narrow, ac.u64)
@@ -20,6 +24,8 @@ def calculate(value: ac.u64) -> ac.u64:
         | (widened << ac.literal(24, ac.u64))
         | ((sign_extended & ac.literal(0xFF, ac.u64)) << ac.literal(32, ac.u64))
         | (ac.literal(17, ac.u64) << ac.literal(40, ac.u64))
+        | (constant_quotient_low << ac.literal(48, ac.u64))
+        | (constant_remainder << ac.literal(56, ac.u64))
     )
 
 

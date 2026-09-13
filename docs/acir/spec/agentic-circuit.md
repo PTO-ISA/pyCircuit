@@ -1813,8 +1813,9 @@ Decision 0254. First and argmin return explicit index/valid fields, use index
 zero for no match, and resolve ties toward the lower ordinal. Count builds a
 balanced tree of bounded range additions rather than asserting a result range.
 All forms expand to the existing verifier-visible scalar/aggregate operations.
-The current 65-lane argmin requires an explicit logic-depth budget above the
-default; grouped cost attribution and automatic timing repair remain open.
+Argmin combines validity and key ordering with a balanced selector tree; the
+65-lane boundary now passes the default unit-cost logic-depth budget. Grouped
+cost attribution and automatic timing repair remain open.
 
 QueueProgram retains these descriptors on Queue payloads, persistent values,
 Table entries, memories, slots, rule state effects, and reusable module

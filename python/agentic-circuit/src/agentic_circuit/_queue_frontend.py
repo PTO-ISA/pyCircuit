@@ -12186,12 +12186,14 @@ class _ExpressionEmitter:
                         f"%{left_key}, %{right_key} : {operand_types} -> "
                         "!ac.var<i1>"
                     )
-                    right_invalid = self._emit_bool_not(right_valid)
-                    left_valid_and_lower = self._emit_bool_binary(
-                        "and", left_valid, comparison
+                    validity_differs = self._emit_bool_binary(
+                        "xor", left_valid, right_valid
                     )
-                    choose_left = self._emit_bool_binary(
-                        "or", right_invalid, left_valid_and_lower
+                    choose_left = self._emit_typed_select(
+                        validity_differs,
+                        left_valid,
+                        comparison,
+                        BoolType(),
                     )
                     selected_key = self._emit_typed_select(
                         choose_left, left_key, right_key, left_key_type

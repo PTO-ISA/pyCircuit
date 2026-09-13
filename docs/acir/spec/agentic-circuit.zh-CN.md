@@ -438,8 +438,9 @@ inclusive `scan(callback, initial=...)`。reduction 使用稳定的相邻 pairwi
 0254 的封闭 associative kind/type 矩阵。first/argmin 返回显式 index/valid，无匹配
 时 index 为零，tie 选择较低 ordinal。count 用 bounded range_add 的平衡树证明结果
 范围，不依赖前端断言。所有形式都展开为已有 verifier-visible scalar/aggregate op。
-当前 65-lane argmin 需要高于默认值的显式 logic-depth budget；grouped cost attribution
-和自动 timing repair 仍为后续工作。
+argmin 使用平衡 selector tree 组合 validity 与 key ordering；65-lane 边界现在可以通过
+默认 unit-cost logic-depth budget。grouped cost attribution 和自动 timing repair 仍为
+后续工作。
 
 QueueProgram 在 Queue payload、persistent value、Table entry、memory、slot、rule
 state effect 和 reusable module signature 中都保留 descriptor。expression lowering
