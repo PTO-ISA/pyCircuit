@@ -614,6 +614,7 @@ class RuleFindDefinition:
     predicate: ast.expr
     key_argument: str | None
     key: ast.expr | None
+    row: ast.expr | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -658,6 +659,8 @@ class RuleFindBinding:
     predicate: ast.expr
     key_argument: str | None
     key: ast.expr | None
+    shape: tuple[int, ...] = ()
+    row: ast.expr | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -939,6 +942,7 @@ class VarStateBinding:
     scope: tuple[str, ...]
     order: int
     entries: int = 1
+    shape: tuple[int, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -3910,17 +3914,31 @@ def parse_queue_program(
                 and _decorator_name(statement.value.func).rsplit(".", 1)[-1] == "find"
             ):
                 call = statement.value
+                find_argument: str | None = None
+                find_row: ast.expr | None = None
+                if len(call.args) == 1 and isinstance(call.args[0], ast.Name):
+                    find_argument = call.args[0].id
+                elif (
+                    len(call.args) == 1
+                    and isinstance(call.args[0], ast.Call)
+                    and isinstance(call.args[0].func, ast.Attribute)
+                    and call.args[0].func.attr == "view"
+                    and isinstance(call.args[0].func.value, ast.Name)
+                    and len(call.args[0].args) == 1
+                    and not call.args[0].keywords
+                ):
+                    find_argument = call.args[0].func.value.id
+                    find_row = call.args[0].args[0]
                 if (
                     len(call.args) != 1
-                    or not isinstance(call.args[0], ast.Name)
-                    or call.args[0].id not in parameter_names
+                    or find_argument not in parameter_names
                     or any(
                         keyword.arg not in {"where", "key"} for keyword in call.keywords
                     )
                 ):
                     raise QueueFrontendError(
-                        "ACPY-RULE-009: find requires one persistent list and "
-                        "where/key lambdas"
+                        "ACPY-RULE-009: find requires one persistent list or "
+                        "rank-two row view and where/key lambdas"
                     )
                 where = [
                     keyword.value for keyword in call.keywords if keyword.arg == "where"
@@ -3931,6 +3949,11 @@ def parse_queue_program(
                 if len(where) != 1 or len(keys) > 1:
                     raise QueueFrontendError(
                         "ACPY-RULE-009: find requires one where and at most one key"
+                    )
+                if find_row is not None and keys:
+                    raise QueueFrontendError(
+                        "ACPY-RULE-009: runtime row find currently supports "
+                        "first selection only"
                     )
                 predicate_argument, predicate = _lambda_value(where[0])
                 key_argument: str | None = None
@@ -3955,11 +3978,12 @@ def parse_queue_program(
                 rule_finds.append(
                     RuleFindDefinition(
                         version,
-                        call.args[0].id,
+                        find_argument,
                         predicate_argument,
                         rewritten_predicate,
                         key_argument,
                         rewritten_key,
+                        rewrite_local_loads(find_row),
                     )
                 )
                 continue
@@ -4711,6 +4735,7 @@ def parse_queue_program(
                     find,
                     predicate=constantize(find.predicate),
                     key=constantize(find.key),
+                    row=constantize(find.row),
                 )
                 for find in definition.finds
             ),
@@ -5846,7 +5871,13 @@ def parse_queue_program(
                         "ACPY-VAR-001: integer variable requires integer init"
                     )
                 binding = VarStateBinding(
-                    name, value_type, init, scope_path, current_order, entries
+                    name,
+                    value_type,
+                    init,
+                    scope_path,
+                    current_order,
+                    entries,
+                    (entries,) if entries != 1 else (),
                 )
                 variables.append(binding)
                 variable_by_name[name] = binding
@@ -5926,6 +5957,7 @@ def parse_queue_program(
                             scope_path,
                             current_order,
                             entries,
+                            shape,
                         )
                         variables.append(variable)
                         variable_by_name[name] = variable
@@ -8469,6 +8501,11 @@ def parse_queue_program(
                                     "ACPY-RULE-009: find requires a persistent "
                                     "list with at least 2 entries"
                                 )
+                            if find.row is not None and len(owner.shape) != 2:
+                                raise QueueFrontendError(
+                                    "ACPY-RULE-009: row view requires a rank-two "
+                                    "persistent Table"
+                                )
                             finds.append(
                                 RuleFindBinding(
                                     find.name,
@@ -8480,6 +8517,8 @@ def parse_queue_program(
                                     copy.deepcopy(find.predicate),
                                     find.key_argument,
                                     copy.deepcopy(find.key),
+                                    owner.shape,
+                                    copy.deepcopy(find.row),
                                 )
                             )
                         multi_state_finds = tuple(finds)
@@ -9109,6 +9148,11 @@ def parse_queue_program(
                                 "ACPY-RULE-009: find requires a persistent "
                                 "list with at least 2 entries"
                             )
+                        if find.row is not None and len(owner.shape) != 2:
+                            raise QueueFrontendError(
+                                "ACPY-RULE-009: row view requires a rank-two "
+                                "persistent Table"
+                            )
                         finds.append(
                             RuleFindBinding(
                                 find.name,
@@ -9120,6 +9164,8 @@ def parse_queue_program(
                                 copy.deepcopy(find.predicate),
                                 find.key_argument,
                                 copy.deepcopy(find.key),
+                                owner.shape,
+                                copy.deepcopy(find.row),
                             )
                         )
                     input_names = tuple(
@@ -11380,7 +11426,11 @@ def lower_queue_program(
             f"{content_indent}ac.var.decl @{variable.name} "
             f"type {_render_type(variable.value_type)} "
             f'init {init} owner "{owner}" stable_id "var/{stable_id}"'
-            + (f" shape [{variable.entries}]" if variable.entries != 1 else "")
+            + (
+                " shape [" + ", ".join(str(value) for value in variable.shape) + "]"
+                if variable.shape
+                else ""
+            )
         )
     for table in sorted(
         program.tables, key=lambda value: (value.scope, value.order, value.name)
@@ -11687,6 +11737,8 @@ def lower_queue_program(
                 rule_expressions.append(find.predicate)
                 if find.key is not None:
                     rule_expressions.append(find.key)
+                if find.row is not None:
+                    rule_expressions.append(find.row)
             rule_expressions.extend(
                 read.index for read in queue.rule_state_reads if read.index is not None
             )
@@ -11761,7 +11813,7 @@ def lower_queue_program(
             for find in queue.rule_finds:
                 captured_names = {
                     candidate.id
-                    for expression in (find.predicate, find.key)
+                    for expression in (find.predicate, find.key, find.row)
                     if expression is not None
                     for candidate in ast.walk(expression)
                     if isinstance(candidate, ast.Name)
@@ -11773,7 +11825,29 @@ def lower_queue_program(
                         + ", ".join(sorted(guarded_captures))
                     )
                 index_width = max(1, (find.entries - 1).bit_length())
-                mask_type = _candidate_mask_type(find.entries)
+                domain_entries = find.shape[-1] if find.row is not None else find.entries
+                mask_type = _candidate_mask_type(domain_entries)
+                row_value: str | None = None
+                row_type: ValueType | None = None
+                if find.row is not None:
+                    row_type = BitsType(_table_axis_width(find.shape[0]))
+                    previous_deferred = dict(emitter.deferred_values)
+                    emitter.deferred_values.update(find_local_values)
+                    try:
+                        row_value, actual_row_type = emitter.emit(find.row, row_type)
+                    finally:
+                        emitter.deferred_values = previous_deferred
+                    if not _types_equal_in_epoch_05(actual_row_type, row_type):
+                        raise QueueFrontendError(
+                            "ACPY-RULE-009: row view index requires the canonical "
+                            "first-axis width"
+                        )
+                    emitter.reject_constant_index_outside(
+                        row_value,
+                        actual_row_type,
+                        find.shape[0],
+                        "ACPY-RULE-009: row view index is out of range",
+                    )
                 predicate_emitter = _ExpressionEmitter(
                     payloads,
                     find.predicate_argument,
@@ -11796,7 +11870,13 @@ def lower_queue_program(
                     )
                 mask = emitter._new()
                 emitter.lines.append(
-                    f"    %{mask} = ac.var.match @{find.variable} predicate {{"
+                    f"    %{mask} = ac.var.match @{find.variable}"
+                    + (
+                        f" row %{row_value} : !ac.var<{_render_type(row_type)}>"
+                        if row_value is not None and row_type is not None
+                        else ""
+                    )
+                    + " predicate {"
                 )
                 emitter.lines.append(
                     f"    ^predicate(%entry: !ac.var<{_render_type(find.value_type)}>):"

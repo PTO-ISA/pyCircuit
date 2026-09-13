@@ -3221,6 +3221,14 @@ TEST(QueueGraphPlanTest, RejectsInvalidSharedTableWidths) {
   EXPECT_NE(llvm::toString(std::move(selectionError))
                 .find("table selection metadata"),
             std::string::npos);
+
+  plan = sharedReferencePlan();
+  plan.tableMatches[0].domainBase = "forged-runtime-base";
+  auto dynamicCacheError = verifyQueueGraphPlan(plan);
+  ASSERT_TRUE(bool(dynamicCacheError));
+  EXPECT_NE(
+      llvm::toString(std::move(dynamicCacheError)).find("table match metadata"),
+      std::string::npos);
 }
 
 TEST(QueueGraphPlanTest,
@@ -3742,6 +3750,101 @@ int main() {
 }
 )cpp");
   expectCppRuns(executable);
+}
+
+TEST(QueueGraphPlanTest,
+     RuntimeRowProjectionScansOnlyTheRowAndReturnsGlobalIndex) {
+  QueueGraphPlan plan = inlineFirstChoicePlan(16, 4);
+  plan.system = "runtime_row_choice";
+  plan.queues[0].payloadType = "i2";
+  TablePlan &table = plan.tables.front();
+  table.shape = {4, 4};
+  table.axisWidths = {2, 2};
+  table.layout = "row_major";
+  table.layoutVersion = 1;
+  table.schemaId =
+      "sha256:22bb8d275465bb30a9965bf37bbe078618fd2c44a53a157eb8634f1dd3b5181a";
+  table.initVersion = 1;
+  table.hasTypedSchema = true;
+  table.initImage.assign(16, {"integer", "i1", "1", {}, {}});
+
+  QueueBlockPlan &firing = plan.blocks[1];
+  QueueExpressionPlan zero{"zero", "constant", "i2", {}, "", "", "0 : i2"};
+  QueueExpressionPlan base{"base", "table_index", "i4", {"item", "zero"}};
+  base.table = "entries";
+  QueueExpressionPlan &mask = firing.expressions.front();
+  mask.type = "i4";
+  mask.operands = {"base"};
+  mask.domainAxes = {1};
+  mask.domainShape = {4};
+  mask.domainStrides = {1};
+  mask.domainOffset = 0;
+  mask.domainBase = "base";
+  mask.hasDomainProjection = true;
+  firing.expressions.insert(firing.expressions.begin(), std::move(base));
+  firing.expressions.insert(firing.expressions.begin(), std::move(zero));
+
+  llvm::Error verified = verifyQueueGraphPlan(plan);
+  ASSERT_FALSE(bool(verified)) << llvm::toString(std::move(verified));
+  auto json = plan.canonicalJson();
+  ASSERT_TRUE(bool(json)) << llvm::toString(json.takeError());
+  EXPECT_NE(json->find("\"domain_base\":\"base\""), std::string::npos);
+  EXPECT_NE(json->find("\"scan_bound\":4"), std::string::npos);
+
+  auto generated = generateQueueGraphCpp(plan);
+  ASSERT_TRUE(bool(generated)) << llvm::toString(generated.takeError());
+  EXPECT_NE(generated->find("TableDomainProjection(16, 4, "),
+            std::string::npos);
+  auto loopCount = [](llvm::StringRef source) {
+    size_t count = 0;
+    while (true) {
+      source = source.drop_until([](char value) { return value == 'f'; });
+      if (!source.starts_with("for (std::size_t index = 0;")) {
+        if (source.empty())
+          return count;
+        source = source.drop_front();
+        continue;
+      }
+      ++count;
+      source = source.drop_front();
+    }
+  };
+  EXPECT_EQ(loopCount(*generated), 2u);
+
+  std::string executable = *generated;
+  executable.append(R"cpp(
+int main() {
+  using gfsim::UInt;
+  ac_generated::RuntimeRowChoice model;
+  auto rows = model.dispatch_rows();
+  if (!model.input().proposePush(UInt<2>{2}))
+    return 1;
+  model.input().doXfer({0, 0});
+  for (unsigned tick = 1; tick != 3; ++tick) {
+    const gfsim::Epoch epoch{tick, 0};
+    for (auto &row : rows) row.work(row.object, epoch);
+    for (auto &row : rows)
+      row.xfer(row.object, epoch, gfsim::XferPhase::Arbitrate);
+    for (auto &row : rows)
+      row.xfer(row.object, epoch, gfsim::XferPhase::Commit);
+  }
+  const auto &values = model.sink_0_values();
+  return values.size() == 1 && values[0].valid == UInt<1>{1} &&
+                 values[0].index == UInt<4>{8}
+             ? 0
+             : 2;
+}
+)cpp");
+  expectCppRuns(executable);
+
+  QueueGraphPlan forged = plan;
+  QueueExpressionPlan &forgedMask = forged.blocks[1].expressions[2];
+  forgedMask.domainBase = "item";
+  forgedMask.operands = {"item"};
+  llvm::Error error = verifyQueueGraphPlan(forged);
+  ASSERT_TRUE(bool(error));
+  EXPECT_NE(llvm::toString(std::move(error)).find("same-Table index"),
+            std::string::npos);
 }
 
 TEST(QueueGraphPlanTest,

@@ -2009,9 +2009,10 @@ LogicalResult VarDeclOp::verify() {
     return emitOpError("value type must be an immutable ACIR payload type");
   if (auto shape = getShapeAttr()) {
     ArrayRef<int64_t> dimensions = shape.asArrayRef();
-    if (dimensions.size() != 1 || dimensions.front() <= 0)
+    if (dimensions.empty() ||
+        llvm::any_of(dimensions, [](int64_t extent) { return extent <= 0; }))
       return emitOpError(
-          "persistent ac.var shape must be one positive dimension");
+          "persistent ac.var shape must contain positive dimensions");
   }
   auto init = dyn_cast<TypedAttr>(getInit());
   const auto zero = dyn_cast<IntegerAttr>(getInit());
@@ -2054,18 +2055,29 @@ static LogicalResult verifyVarElementAccess(Operation *operation,
     return operation->emitOpError()
            << "unresolved ac.var " << variableRef.getValue();
   auto shape = variable.getShapeAttr();
-  if (!shape || shape.asArrayRef().size() != 1)
-    return operation->emitOpError("requires a one-dimensional shaped ac.var");
+  if (!shape || shape.asArrayRef().empty())
+    return operation->emitOpError("requires a shaped ac.var");
   auto indexVar = dyn_cast<VarType>(index.getType());
   auto indexType = indexVar ? dyn_cast<IntegerType>(indexVar.getElementType())
                             : IntegerType();
   if (!indexType)
     return operation->emitOpError("index must be an integer ac.var");
-  const int64_t entries = shape.asArrayRef().front();
+  uint64_t entries = 1;
+  for (int64_t extent : shape.asArrayRef()) {
+    if (extent <= 0 ||
+        entries > static_cast<uint64_t>(std::numeric_limits<int64_t>::max()) /
+                      static_cast<uint64_t>(extent))
+      return operation->emitOpError("ac.var shape product overflows");
+    entries *= static_cast<uint64_t>(extent);
+  }
+  if (shape.asArrayRef().size() > 1 &&
+      indexType.getWidth() !=
+          std::max<unsigned>(1, llvm::Log2_64_Ceil(entries)))
+    return operation->emitOpError(
+        "index must use the canonical flattened ac.var width");
   if (auto constant = index.getDefiningOp<VarConstantOp>()) {
     auto value = dyn_cast<IntegerAttr>(constant.getValue());
-    if (!value ||
-        value.getValue().getZExtValue() >= static_cast<uint64_t>(entries))
+    if (!value || value.getValue().getZExtValue() >= entries)
       return operation->emitOpError("constant element index is out of range");
     Type expected =
         VarType::get(operation->getContext(), variable.getValueType());
@@ -2122,11 +2134,21 @@ resolveVarCollection(Operation *operation, FlatSymbolRefAttr variableRef) {
     return failure();
   }
   auto shape = variable.getShapeAttr();
-  if (!shape || shape.asArrayRef().size() != 1) {
-    operation->emitOpError("requires a one-dimensional shaped ac.var");
+  if (!shape || shape.asArrayRef().empty()) {
+    operation->emitOpError("requires a shaped ac.var");
     return failure();
   }
-  return std::make_pair(variable, shape.asArrayRef().front());
+  uint64_t entries = 1;
+  for (int64_t extent : shape.asArrayRef()) {
+    if (extent <= 0 ||
+        entries > static_cast<uint64_t>(std::numeric_limits<int64_t>::max()) /
+                      static_cast<uint64_t>(extent)) {
+      operation->emitOpError("ac.var shape product overflows");
+      return failure();
+    }
+    entries *= static_cast<uint64_t>(extent);
+  }
+  return std::make_pair(variable, static_cast<int64_t>(entries));
 }
 
 static bool isCandidateMaskType(Type type, int64_t entries) {
@@ -2151,9 +2173,24 @@ LogicalResult VarMatchOp::verify() {
     return failure();
   VarDeclOp variable = collection->first;
   const int64_t entries = collection->second;
-  if (!isCandidateMaskType(getMask().getType(), entries))
+  int64_t domainEntries = entries;
+  if (getRow()) {
+    ArrayRef<int64_t> shape = variable.getShapeAttr().asArrayRef();
+    if (shape.size() != 2)
+      return emitOpError("row projection requires a rank-two shaped ac.var");
+    auto rowType = dyn_cast<IntegerType>(
+        cast<VarType>(getRow().getType()).getElementType());
+    if (!rowType || !rowType.isSignless() ||
+        rowType.getWidth() !=
+            std::max<unsigned>(1, llvm::Log2_64_Ceil(shape.front())))
+      return emitOpError(
+          "row projection requires the canonical first-axis width");
+    domainEntries = shape.back();
+  }
+  if (!isCandidateMaskType(getMask().getType(), domainEntries))
     return emitOpError(
-        "mask must exactly cover the ac.var domain in 64-bit words");
+        getRow() ? "mask must exactly cover the projected ac.var row"
+                 : "mask must exactly cover the ac.var domain in 64-bit words");
   if (!getPredicate().hasOneBlock())
     return emitOpError("predicate must contain exactly one block");
   Block &block = getPredicate().front();
@@ -2178,15 +2215,20 @@ LogicalResult VarChooseOp::verify() {
     return failure();
   VarDeclOp variable = collection->first;
   const int64_t entries = collection->second;
-  if (!isCandidateMaskType(getMask().getType(), entries))
-    return emitOpError(
-        "candidate mask must exactly cover the ac.var domain in 64-bit words");
   auto match = getMask().getDefiningOp<VarMatchOp>();
   if (!match)
     return emitOpError(
         "candidate mask must be produced directly by ac.var.match");
   if (resolveVarDecl(match, match.getVariableAttr()) != variable)
     return emitOpError("candidate mask must come from the same ac.var");
+  const int64_t domainEntries =
+      match.getRow() ? variable.getShapeAttr().asArrayRef().back() : entries;
+  if (!isCandidateMaskType(getMask().getType(), domainEntries))
+    return emitOpError(match.getRow()
+                           ? "candidate mask must exactly cover the projected "
+                             "ac.var row"
+                           : "candidate mask must exactly cover the ac.var "
+                             "domain in 64-bit words");
   if (getCount() != 1)
     return emitOpError("choose supports count=1 only");
   if (getPolicy() != "first" && getPolicy() != "min" && getPolicy() != "max")
@@ -3707,7 +3749,8 @@ static FailureOr<uint64_t> tableMatchDomainEntries(TableMatchOp match,
                                                    TableOp table) {
   const bool hasProjection =
       match.getDomainAxesAttr() || match.getDomainShapeAttr() ||
-      match.getDomainStridesAttr() || match.getDomainOffsetAttr();
+      match.getDomainStridesAttr() || match.getDomainOffsetAttr() ||
+      match.getDomainBase();
   if (!hasProjection) {
     if (auto shape = table.getShape(); shape && shape->size() > 1) {
       match.emitOpError(
@@ -3744,6 +3787,11 @@ static FailureOr<uint64_t> tableMatchDomainEntries(TableMatchOp match,
     return failure();
   }
   const uint64_t domainOffset = static_cast<uint64_t>(signedDomainOffset);
+  if (match.getDomainBase() && domainOffset != 0) {
+    match.emitOpError(
+        "dynamic projected mask domain requires zero static offset");
+    return failure();
+  }
   uint64_t maximumIndex = domainOffset;
   if (domainOffset >= static_cast<uint64_t>(table.getEntries())) {
     match.emitOpError("projected mask domain offset is out of range");
@@ -3788,6 +3836,40 @@ static FailureOr<uint64_t> tableMatchDomainEntries(TableMatchOp match,
   if (maximumIndex >= static_cast<uint64_t>(table.getEntries())) {
     match.emitOpError("projected mask domain exceeds the Table shape");
     return failure();
+  }
+  if (Value base = match.getDomainBase()) {
+    auto flattened = base.getDefiningOp<TableIndexOp>();
+    if (!flattened ||
+        resolveTable(flattened, flattened.getTableAttr()) != table) {
+      match.emitOpError("dynamic projected mask base must come from same-Table "
+                        "ac.table.index");
+      return failure();
+    }
+    auto tableShape = canonicalTableShape(table);
+    if (failed(tableShape) || tableShape->size() != 2 || axes.size() != 1 ||
+        axes.front() != 1 || flattened.getCoordinates().size() != 2) {
+      match.emitOpError(
+          "dynamic projected mask currently requires one rank-two Table row");
+      return failure();
+    }
+    auto zero =
+        flattened.getCoordinates().back().getDefiningOp<VarConstantOp>();
+    auto zeroValue =
+        zero ? dyn_cast<IntegerAttr>(zero.getValueAttr()) : IntegerAttr();
+    if (!zeroValue || !zeroValue.getValue().isZero()) {
+      match.emitOpError(
+          "dynamic projected mask base must fix the suffix coordinate to zero");
+      return failure();
+    }
+    if (base.getType() !=
+        VarType::get(
+            match.getContext(),
+            IntegerType::get(match.getContext(),
+                             canonicalTableIndexWidth(table.getEntries())))) {
+      match.emitOpError("dynamic projected mask base must use the canonical "
+                        "Table index type");
+      return failure();
+    }
   }
   return domainEntries;
 }
@@ -3884,6 +3966,10 @@ LogicalResult TableChooseOp::verify() {
   if (count <= 0 || static_cast<uint64_t>(count) > *domainEntries)
     return emitOpError(
         "count must be positive and not exceed the projected Table domain");
+  if (match.getDomainBase() &&
+      (count != 1 || getPolicy() != TableSelectionPolicy::First))
+    return emitOpError(
+        "dynamic row projection currently requires first/count=1");
   if (getResults().size() != static_cast<size_t>(2 * count))
     return emitOpError(
         "result count must be exactly 2*count with indices before valids");

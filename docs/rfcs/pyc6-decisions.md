@@ -9148,3 +9148,50 @@ call site.
 
 **Source**
 - PTO-ISA/pyCircuit issue #128.
+
+## Decision 0248: runtime bounded Table row projection reuses canonical Table indices
+
+**Status:** Accepted and implemented
+
+**Extends:** Decisions 0170, 0172, 0238, 0239, 0241, 0244, and 0247.
+
+**Context / Goal**
+Set-associative state must select one runtime row and scan only its fixed ways.
+A full-Table predicate expansion is semantically wasteful and can make generated
+GFSim, C++, and Verilog scale with `rows * ways` instead of `ways`.
+
+**Decision (strong constraint)**
+- In a stateful rule, `ac.find(table.view(row), where=...)` denotes a bounded
+  rank-two row projection. The first slice supports one runtime row,
+  `policy=first`, and `count=1`; arbitrary subviews, keyed selection, and
+  round-robin row-local cursor semantics remain unadmitted.
+- Module-local Table state retains its two-dimensional shape through shaped
+  `ac.var`. Storage selection lowers the row to the existing full-rank
+  `ac.table.index @table [row, 0]`, then passes that canonical flattened value
+  as the optional dynamic base of the existing `ac.table.match`.
+- Dynamic projection keeps the existing axes, shape, strides, and zero static
+  offset metadata. The base must come directly from the same Table, use the
+  canonical full-Table index type, and fix every projected suffix coordinate
+  to zero. `VerifyValueConstraints` proves the row coordinate is in range.
+- The mask uses row-local bit numbering and has exactly `ways` bits.
+  `TableChoice.index` remains the global flattened Table index; no row-local
+  index may escape as a Table address.
+- QueueGraph records the base as a typed SSA dependency and independently
+  verifies its defining Table index. Dynamic matches stay firing-local and are
+  never promoted to epoch-only `TableMatchCache` objects.
+- GFSim evaluates `base + [0, ways)` and PYC first selects one Entry per way
+  from the register bank, then evaluates exactly `ways` predicates. PYC must
+  not evaluate the predicate for all `rows * ways` entries and mask afterward.
+
+**Required verification**
+- Frontend positives and negatives cover rank, exact row width, mask width,
+  global choice index, and first/count restrictions.
+- ACIR rejects arbitrary, cross-Table, nonzero-suffix, nonzero-offset, and
+  unproven out-of-range bases. QueueGraph rejects forged base provenance.
+- Generated GFSim executes a nonzero row and returns its global flattened
+  index. PYC/Verilog generation proves predicate expansion is bounded by ways.
+- A consumer-neutral 4-way case and the pinned SuperScalarModel MBTB/ITAG
+  source checks retain scan bound 4.
+
+**Source**
+- PTO-ISA/pyCircuit issue #128.

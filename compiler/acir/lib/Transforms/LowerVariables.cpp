@@ -3,18 +3,55 @@
 #include "acir/Dialect/ACIR/ACIROps.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/SymbolTable.h"
+#include "llvm/ADT/StringExtras.h"
+#include "llvm/Support/SHA256.h"
+#include "llvm/Support/raw_ostream.h"
 
 using namespace mlir;
 
 namespace acir {
 namespace {
 
-ac::VarConstantOp createZeroIndex(OpBuilder &builder, Location location) {
-  Type indexType = IntegerType::get(builder.getContext(), 1);
+unsigned canonicalIndexWidth(uint64_t extent) {
+  return std::max<unsigned>(1, llvm::Log2_64_Ceil(extent));
+}
+
+ac::VarConstantOp createZeroIndex(OpBuilder &builder, Location location,
+                                  unsigned width = 1) {
+  Type indexType = IntegerType::get(builder.getContext(), width);
   OperationState state(location, ac::VarConstantOp::getOperationName());
   state.addTypes(ac::VarType::get(builder.getContext(), indexType));
   state.addAttribute("value", builder.getIntegerAttr(indexType, 0));
   return cast<ac::VarConstantOp>(builder.create(state));
+}
+
+FailureOr<uint64_t> flattenedEntries(ArrayRef<int64_t> shape) {
+  uint64_t result = 1;
+  for (int64_t extent : shape) {
+    if (extent <= 0 ||
+        result > static_cast<uint64_t>(std::numeric_limits<int64_t>::max()) /
+                     static_cast<uint64_t>(extent))
+      return failure();
+    result *= static_cast<uint64_t>(extent);
+  }
+  return result;
+}
+
+std::string canonicalTableSchemaId(Type entryType, ArrayRef<int64_t> shape) {
+  std::string printedType;
+  llvm::raw_string_ostream typeStream(printedType);
+  entryType.print(typeStream);
+  typeStream.flush();
+  std::string preimage;
+  llvm::raw_string_ostream stream(preimage);
+  stream << R"({"entry":")" << printedType
+         << R"(","layout":"row_major","layout_version":1,"shape":[)";
+  llvm::interleave(shape, stream, ",");
+  stream << "]}";
+  stream.flush();
+  llvm::SHA256 sha;
+  sha.update(preimage);
+  return "sha256:" + llvm::toHex(sha.final(), /*LowerCase=*/true);
 }
 
 ac::VarDeclOp resolveVariable(Operation *operation,
@@ -86,7 +123,36 @@ LogicalResult lowerVariableState(ModuleOp model) {
 
   for (ac::VarMatchOp match : matches) {
     OpBuilder builder(match);
+    ac::VarDeclOp variable = resolveVariable(match, match.getVariableAttr());
+    if (!variable)
+      return match.emitOpError("persistent ac.var declaration is missing");
     OperationState state(match.getLoc(), ac::TableMatchOp::getOperationName());
+    if (match.getRow()) {
+      ArrayRef<int64_t> shape = variable.getShapeAttr().asArrayRef();
+      if (shape.size() != 2)
+        return match.emitOpError(
+            "row projection requires a rank-two shaped ac.var");
+      FailureOr<uint64_t> entries = flattenedEntries(shape);
+      if (failed(entries))
+        return match.emitOpError("row projection shape product overflows");
+      ac::VarConstantOp zero = createZeroIndex(
+          builder, match.getLoc(), canonicalIndexWidth(shape.back()));
+      OperationState indexState(match.getLoc(),
+                                ac::TableIndexOp::getOperationName());
+      indexState.addOperands({match.getRow(), zero.getResult()});
+      indexState.addTypes(
+          ac::VarType::get(builder.getContext(),
+                           IntegerType::get(builder.getContext(),
+                                            canonicalIndexWidth(*entries))));
+      indexState.addAttribute("table", match.getVariableAttr());
+      Operation *base = builder.create(indexState);
+      state.addOperands(base->getResult(0));
+      state.addAttribute("domain_axes", builder.getDenseI64ArrayAttr({1}));
+      state.addAttribute("domain_shape",
+                         builder.getDenseI64ArrayAttr({shape.back()}));
+      state.addAttribute("domain_strides", builder.getDenseI64ArrayAttr({1}));
+      state.addAttribute("domain_offset", builder.getI64IntegerAttr(0));
+    }
     state.addTypes(match.getMask().getType());
     NamedAttrList attributes(match->getAttrs());
     attributes.erase("variable");
@@ -220,11 +286,15 @@ LogicalResult lowerVariableState(ModuleOp model) {
       return declaration.emitOpError("first ac.var storage-selection slice "
                                      "requires scalar, enum, or flat struct");
     int64_t entries = 1;
+    SmallVector<int64_t> typedShape;
     if (auto shape = declaration.getShapeAttr()) {
-      if (shape.asArrayRef().size() != 1)
+      FailureOr<uint64_t> product = flattenedEntries(shape.asArrayRef());
+      if (failed(product))
         return declaration.emitOpError(
-            "storage selection requires one-dimensional ac.var shape");
-      entries = shape.asArrayRef().front();
+            "storage selection ac.var shape product overflows");
+      entries = static_cast<int64_t>(*product);
+      if (shape.asArrayRef().size() > 1)
+        typedShape.append(shape.asArrayRef().begin(), shape.asArrayRef().end());
     }
     OpBuilder builder(declaration);
     OperationState state(declaration.getLoc(), ac::TableOp::getOperationName());
@@ -241,6 +311,19 @@ LogicalResult lowerVariableState(ModuleOp model) {
     }
     stableId.append(declaration.getSymName());
     state.addAttribute("stable_id", builder.getStringAttr(stableId));
+    if (!typedShape.empty()) {
+      SmallVector<int64_t> axisWidths;
+      for (int64_t extent : typedShape)
+        axisWidths.push_back(canonicalIndexWidth(extent));
+      state.addAttribute("shape", builder.getDenseI64ArrayAttr(typedShape));
+      state.addAttribute("axis_widths",
+                         builder.getDenseI64ArrayAttr(axisWidths));
+      state.addAttribute("layout", builder.getStringAttr("row_major"));
+      state.addAttribute("layout_version", builder.getI64IntegerAttr(1));
+      state.addAttribute("schema_id",
+                         builder.getStringAttr(canonicalTableSchemaId(
+                             declaration.getValueType(), typedShape)));
+    }
     builder.create(state);
     declaration.erase();
   }

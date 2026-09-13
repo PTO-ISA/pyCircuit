@@ -716,6 +716,17 @@ TEST(QueueBlocksTest,
   EXPECT_EQ(selected.index, 8u);
 }
 
+TEST(QueueBlocksTest, RuntimeContiguousTableProjectionKeepsGlobalIndices) {
+  TableDomainProjection projection(/*tableEntries=*/256,
+                                   /*domainEntries=*/4,
+                                   /*offset=*/252);
+  ASSERT_EQ(projection.size(), 4u);
+  EXPECT_EQ(projection.globalIndex(0), 252u);
+  EXPECT_EQ(projection.globalIndex(3), 255u);
+  EXPECT_FALSE(projection.globalIndex(4));
+  EXPECT_THROW(TableDomainProjection(256, 4, 253), std::invalid_argument);
+}
+
 TEST(QueueBlocksTest, DisabledTableWriteConsumesWithoutChangingState) {
   SimTable<uint16_t> table("table", 1, nullptr, 4);
   SimQueue<MemoryRequest> input("input", 2, nullptr, 1);

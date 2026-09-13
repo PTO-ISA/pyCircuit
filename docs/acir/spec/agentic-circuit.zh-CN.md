@@ -925,6 +925,23 @@ mask provenance，但返回值仍使用完整 flattened Table domain 的 index�
 `[index_0..index_N-1, valid_0..valid_N-1]`。invalid suffix 的 index 必须为零；runtime
 tuple indexing、存储或跨边界 escape 均拒绝。
 
+stateful rule 内的 rank-two Table 还支持一个 runtime row view：
+
+```python
+selected = ac.find(
+    tags.view(request.set_index),
+    where=lambda entry: entry.valid & (entry.tag == request.tag),
+)
+```
+
+首个支持切片要求 row 使用精确 axis width、能够被静态证明在界内，并采用
+`first/count=1`。它通过 `ac.table.index @tags [row, 0]` lowering；得到的 full-Table
+index 作为现有 projected `ac.table.match` 的 dynamic base。mask bit 仍按 row-local
+编号，`selected.index` 则始终是 global flattened Table index。base 必须直接来自同一
+Table，suffix coordinate 与 static offset 必须为零。GFSim 与 PYC 只执行固定 way 数量
+的 predicate。keyed、multi-result、round-robin、任意 gather 和 persistent cached
+dynamic projection 不属于此切片。
+
 `first`、有符号/无符号 `min`/`max` 与 `round_robin` 都产生连续 valid prefix，并以最低
 global index 解决相等 key。round-robin 仅在完整 prefix 接受后，将 committed cursor 推进到
 最后一个 accepted lane 的下一个 projected-local 位置；空选择与 stall 不推进，reset 恢复

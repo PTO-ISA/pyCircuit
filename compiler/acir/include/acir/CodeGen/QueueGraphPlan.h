@@ -84,6 +84,7 @@ struct QueueExpressionPlan {
   std::vector<uint64_t> domainShape;
   std::vector<uint64_t> domainStrides;
   uint64_t domainOffset = 0;
+  std::string domainBase;
   bool hasDomainProjection = false;
   uint64_t selectionCount = 1;
   uint64_t laneOrdinal = 0;
@@ -266,6 +267,7 @@ struct TableMatchPlan {
   std::vector<uint64_t> domainShape;
   std::vector<uint64_t> domainStrides;
   uint64_t domainOffset = 0;
+  std::string domainBase;
   bool hasDomainProjection = false;
 };
 

@@ -884,7 +884,13 @@ emitTransform(const QueueGraphPlan &plan, const QueueBlockPlan &block,
           if (!match)
             return pycError("table_choose candidate mask has no match plan");
           std::vector<uint64_t> tableIndices;
-          if (!match->hasDomainProjection) {
+          if (!match->domainBase.empty()) {
+            uint64_t domainEntries = 1;
+            for (uint64_t extent : match->domainShape)
+              domainEntries *= extent;
+            for (uint64_t ordinal = 0; ordinal < domainEntries; ++ordinal)
+              tableIndices.push_back(ordinal);
+          } else if (!match->hasDomainProjection) {
             for (uint64_t index = 0; index < tablePlan->entries; ++index)
               tableIndices.push_back(index);
           } else {
@@ -907,6 +913,35 @@ emitTransform(const QueueGraphPlan &plan, const QueueBlockPlan &block,
               std::max(1u, static_cast<unsigned>(std::bit_width(
                                static_cast<unsigned>(tablePlan->entries - 1))));
           const std::string indexType = "i" + std::to_string(indexWidth);
+          std::vector<std::string> tableIndexValues;
+          tableIndexValues.reserve(tableIndices.size());
+          if (!match->domainBase.empty()) {
+            auto base = value(match->domainBase);
+            if (!base)
+              return base.takeError();
+            for (uint64_t ordinal = 0; ordinal < tableIndices.size();
+                 ++ordinal) {
+              if (ordinal == 0) {
+                tableIndexValues.push_back(*base);
+                continue;
+              }
+              std::string offset = newValue();
+              body << "    " << offset << " = pyc.constant " << ordinal << " : "
+                   << indexType << "\n";
+              std::string candidate = newValue();
+              body << "    " << candidate << " = pyc.add " << *base << ", "
+                   << offset << " : " << indexType << ", " << indexType
+                   << " -> " << indexType << "\n";
+              tableIndexValues.push_back(std::move(candidate));
+            }
+          } else {
+            for (uint64_t tableIndex : tableIndices) {
+              std::string candidate = newValue();
+              body << "    " << candidate << " = pyc.constant " << tableIndex
+                   << " : " << indexType << "\n";
+              tableIndexValues.push_back(std::move(candidate));
+            }
+          }
           std::vector<std::string> remaining;
           remaining.reserve(tableIndices.size());
           for (uint64_t ordinal = 0; ordinal < tableIndices.size(); ++ordinal) {
@@ -991,9 +1026,8 @@ emitTransform(const QueueGraphPlan &plan, const QueueBlockPlan &block,
                   body << "    " << take << " = pyc.and "
                        << localRemaining[candidate] << ", " << noChoice
                        << " : i1, i1 -> i1\n";
-                  std::string candidateIndex = newValue();
-                  body << "    " << candidateIndex << " = pyc.constant "
-                       << tableIndices[candidate] << " : " << indexType << "\n";
+                  const std::string &candidateIndex =
+                      tableIndexValues[candidate];
                   std::string nextIndex = newValue();
                   body << "    " << nextIndex << " = pyc.select " << take
                        << ", " << candidateIndex << ", " << chosenIndex
@@ -1019,9 +1053,9 @@ emitTransform(const QueueGraphPlan &plan, const QueueBlockPlan &block,
                 choice.valids.push_back(chosenValid);
                 for (auto [candidate, tableIndex] :
                      llvm::enumerate(tableIndices)) {
-                  std::string candidateIndex = newValue();
-                  body << "    " << candidateIndex << " = pyc.constant "
-                       << tableIndex << " : " << indexType << "\n";
+                  (void)tableIndex;
+                  const std::string &candidateIndex =
+                      tableIndexValues[candidate];
                   std::string same = newValue();
                   body << "    " << same << " = pyc.cmp " << chosenIndex << ", "
                        << candidateIndex
@@ -1121,6 +1155,7 @@ emitTransform(const QueueGraphPlan &plan, const QueueBlockPlan &block,
               std::string keyType;
               for (auto [candidate, tableIndex] :
                    llvm::enumerate(tableIndices)) {
+                (void)tableIndex;
                 std::string take;
                 std::string key;
                 if (expression.predicate == "first") {
@@ -1170,9 +1205,7 @@ emitTransform(const QueueGraphPlan &plan, const QueueBlockPlan &block,
                        << ", " << keyType << " -> " << keyType << "\n";
                   chosenKey = std::move(nextKey);
                 }
-                std::string candidateIndex = newValue();
-                body << "    " << candidateIndex << " = pyc.constant "
-                     << tableIndex << " : " << indexType << "\n";
+                const std::string &candidateIndex = tableIndexValues[candidate];
                 std::string nextIndex = newValue();
                 body << "    " << nextIndex << " = pyc.select " << take << ", "
                      << candidateIndex << ", " << chosenIndex << " : i1, "
@@ -1188,9 +1221,8 @@ emitTransform(const QueueGraphPlan &plan, const QueueBlockPlan &block,
               selected.valids.push_back(chosenValid);
               for (auto [candidate, tableIndex] :
                    llvm::enumerate(tableIndices)) {
-                std::string candidateIndex = newValue();
-                body << "    " << candidateIndex << " = pyc.constant "
-                     << tableIndex << " : " << indexType << "\n";
+                (void)tableIndex;
+                const std::string &candidateIndex = tableIndexValues[candidate];
                 std::string same = newValue();
                 body << "    " << same << " = pyc.cmp " << chosenIndex << ", "
                      << candidateIndex
@@ -1238,7 +1270,13 @@ emitTransform(const QueueGraphPlan &plan, const QueueBlockPlan &block,
         if (!maskWidth)
           return maskWidth.takeError();
         std::vector<uint64_t> tableIndices;
-        if (!expression.hasDomainProjection) {
+        if (!expression.domainBase.empty()) {
+          uint64_t domainEntries = 1;
+          for (uint64_t extent : expression.domainShape)
+            domainEntries *= extent;
+          for (uint64_t ordinal = 0; ordinal < domainEntries; ++ordinal)
+            tableIndices.push_back(ordinal);
+        } else if (!expression.hasDomainProjection) {
           for (uint64_t index = 0; index < tablePlan->entries; ++index)
             tableIndices.push_back(index);
         } else {
@@ -1263,9 +1301,52 @@ emitTransform(const QueueGraphPlan &plan, const QueueBlockPlan &block,
         predicateBlock.expressions = expression.nestedExpressions;
         predicateBlock.yields = expression.nestedYields;
         for (auto [ordinal, tableIndex] : llvm::enumerate(tableIndices)) {
+          std::string entryValue;
+          if (expression.domainBase.empty()) {
+            entryValue = table->getValue()[tableIndex];
+          } else {
+            auto base = value(expression.domainBase);
+            auto baseType = valueType(expression.domainBase);
+            auto basePycType =
+                baseType ? pycType(plan, *baseType)
+                         : llvm::Expected<std::string>(baseType.takeError());
+            if (!base)
+              return base.takeError();
+            if (!basePycType)
+              return basePycType.takeError();
+            entryValue = table->getValue()[ordinal];
+            const uint64_t ways = tableIndices.size();
+            const uint64_t rows = tablePlan->entries / ways;
+            for (uint64_t row = 1; row < rows; ++row) {
+              std::string rowBase = newValue();
+              body << "    " << rowBase << " = pyc.constant " << row * ways
+                   << " : " << *basePycType << "\n";
+              std::string atRow = newValue();
+              body << "    " << atRow << " = pyc.cmp " << *base << ", "
+                   << rowBase << " {predicate = \"eq\"} : " << *basePycType
+                   << ", " << *basePycType << " -> i1\n";
+              std::string selectedEntry = newValue();
+              auto entryPycType = pycType(plan, tablePlan->entryType);
+              if (!entryPycType)
+                return entryPycType.takeError();
+              body << "    " << selectedEntry << " = pyc.select " << atRow
+                   << ", " << table->getValue()[row * ways + ordinal] << ", "
+                   << entryValue << " : i1, " << *entryPycType << ", "
+                   << *entryPycType << " -> " << *entryPycType << "\n";
+              entryValue = std::move(selectedEntry);
+            }
+          }
+          llvm::StringMap<std::string> predicateValues(values);
+          llvm::StringMap<std::string> predicateTypes(types);
+          predicateValues["entry"] = entryValue;
+          predicateTypes["entry"] = tablePlan->entryType;
+          if (!predicateValues.contains("item")) {
+            predicateValues["item"] = entryValue;
+            predicateTypes["item"] = tablePlan->entryType;
+          }
           auto predicate = emitTransform(
-              plan, predicateBlock, {table->getValue()[tableIndex]},
-              {tablePlan->entryType}, 0, nextValue, body, nullptr, tableValues);
+              plan, predicateBlock, {}, {}, 0, nextValue, body, nullptr,
+              tableValues, nullptr, {}, &predicateValues, &predicateTypes);
           if (!predicate)
             return predicate.takeError();
           llvm::APInt bit(*maskWidth, 1);

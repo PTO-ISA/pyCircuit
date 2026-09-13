@@ -218,6 +218,11 @@ Follow these rules:
   writes and outputs that must commit together in the same rule.
 - Read committed state, compute proposals, and let the compiler publish them.
   Do not expose reservation, check, or prepare/publish mechanics in Python.
+- For a set-associative rank-two Table, write
+  `ac.find(table.view(request.row), where=...)`. The row must use the exact
+  first-axis width and be statically bounded. The current contract scans only
+  the fixed ways, supports first/count-one selection, and returns a global
+  flattened Table index rather than a row-local way.
 - Use ordinary typed pure helpers for reusable zero-delay value logic. Add
   `@ac.inline` only when mandatory compiler expansion is part of the intended
   generated-code organization.

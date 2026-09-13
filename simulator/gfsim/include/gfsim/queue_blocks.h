@@ -1298,6 +1298,15 @@ public:
   explicit TableDomainProjection(size_t tableEntries = 0)
       : tableEntries_(tableEntries), domainEntries_(tableEntries) {}
 
+  TableDomainProjection(size_t tableEntries, size_t domainEntries,
+                        size_t offset)
+      : tableEntries_(tableEntries), domainEntries_(domainEntries),
+        offset_(offset) {
+    if (tableEntries_ == 0 || domainEntries_ == 0 || offset_ >= tableEntries_ ||
+        domainEntries_ > tableEntries_ - offset_)
+      throw std::invalid_argument("table projection exceeds Table bounds");
+  }
+
   TableDomainProjection(size_t tableEntries, std::span<const size_t> shape,
                         std::span<const size_t> strides, size_t offset)
       : tableEntries_(tableEntries), offset_(offset), shape_(shape.begin(),

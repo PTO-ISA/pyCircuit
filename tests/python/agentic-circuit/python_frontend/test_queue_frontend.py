@@ -1209,6 +1209,44 @@ def issue_queue() -> Entry:
     return issued
 """
 
+ROW_FIND_RULE_SOURCE = """
+import agentic_circuit as ac
+
+@ac.struct
+class Entry:
+    tag: ac.u8
+    valid: bool
+
+@ac.struct
+class Request:
+    row: ac.u2
+    tag: ac.u8
+
+@ac.struct
+class Result:
+    index: ac.u4
+    valid: bool
+
+@ac.rule
+def lookup(entries, request: Request) -> Result:
+    selected = ac.find(
+        entries.view(request.row),
+        where=lambda entry: entry.valid & (entry.tag == request.tag),
+    )
+    return Result(index=selected.index, valid=selected.valid)
+
+@ac.module
+def tag_array(request: Request) -> Result:
+    entries = ac.table[(4, 4), Entry](init=0)
+    result = lookup(entries, request)
+    return result
+
+@ac.system
+def row_find(request: Request) -> Result:
+    result = tag_array(request)
+    return result
+"""
+
 LIST_FIND_CAPTURE_SOURCE = """
 import agentic_circuit as ac
 
@@ -5022,6 +5060,42 @@ def invariant_module(value: Payload) -> Payload:
         self.assertIn("shape [128]", wide_lowered)
         self.assertIn("-> !ac.var<!ac.value_array<2 x i64>>", wide_lowered)
         self.assertIn("!ac.var<!ac.value_array<2 x i64>> count 1", wide_lowered)
+
+    def test_rank_two_table_find_preserves_runtime_row_projection(self) -> None:
+        from agentic_circuit._queue_frontend import lower_queue_source
+
+        lowered = lower_queue_source(ROW_FIND_RULE_SOURCE, "row_find")
+        self.assertIn('stable_id "var/body/entries" shape [4, 4]', lowered)
+        self.assertIn("ac.var.match @entries row %", lowered)
+        self.assertIn("-> !ac.var<i4>", lowered)
+        self.assertIn('count 1 policy "first"', lowered)
+
+    def test_runtime_row_find_rejects_non_table_and_wrong_axis_width(self) -> None:
+        from agentic_circuit._queue_frontend import (
+            QueueFrontendError,
+            lower_queue_source,
+        )
+
+        rank_one = ROW_FIND_RULE_SOURCE.replace(
+            "ac.table[(4, 4), Entry]", "ac.table[16, Entry]"
+        )
+        with self.assertRaisesRegex(QueueFrontendError, "rank-two"):
+            lower_queue_source(rank_one, "row_find")
+
+        wrong_width = ROW_FIND_RULE_SOURCE.replace("row: ac.u2", "row: ac.u3")
+        with self.assertRaisesRegex(QueueFrontendError, "first-axis width"):
+            lower_queue_source(wrong_width, "row_find")
+
+    def test_runtime_row_find_accepts_extent_one_way(self) -> None:
+        from agentic_circuit._queue_frontend import lower_queue_source
+
+        one_way = ROW_FIND_RULE_SOURCE.replace("(4, 4)", "(4, 1)").replace(
+            "index: ac.u4", "index: ac.u2"
+        )
+        lowered = lower_queue_source(one_way, "row_find")
+        self.assertIn("shape [4, 1]", lowered)
+        self.assertIn("ac.var.match @entries row %", lowered)
+        self.assertIn("-> !ac.var<i1>", lowered)
 
     def test_persistent_list_find_rejects_non_list_state(self) -> None:
         from agentic_circuit._queue_frontend import (

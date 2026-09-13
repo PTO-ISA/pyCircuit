@@ -65,9 +65,9 @@ module attributes {ac.contract_epoch = "0.5"} {
 
 //--- shape.mlir
 module attributes {ac.contract_epoch = "0.5"} {
-  ac.var.decl @state type i8 init 0 : i8 owner "/" stable_id "var/state" shape [2, 2]
+  ac.var.decl @state type i8 init 0 : i8 owner "/" stable_id "var/state" shape [2, 0]
 }
-// SHAPE: 'ac.var.decl' op persistent ac.var shape must be one positive dimension
+// SHAPE: 'ac.var.decl' op persistent ac.var shape must contain positive dimensions
 
 //--- scalar-shaped-read.mlir
 module attributes {ac.contract_epoch = "0.5"} {
@@ -95,7 +95,7 @@ module attributes {ac.contract_epoch = "0.5"} {
     ac.var.match.yield %true : !ac.var<i1>
   } -> !ac.var<i1>
 }
-// MATCH-SCALAR: 'ac.var.match' op requires a one-dimensional shaped ac.var
+// MATCH-SCALAR: 'ac.var.match' op requires a shaped ac.var
 
 //--- match-domain.mlir
 module attributes {ac.contract_epoch = "0.5"} {

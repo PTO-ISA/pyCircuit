@@ -1018,6 +1018,25 @@ Mask bit zero names the first element of that local row-major projection.
 Projection metadata must be complete, in increasing axis order, in bounds, and
 consistent with the Table shape. Empty projections contain the one fixed
 element; non-power-of-two and extent-one axes retain their exact domains.
+
+Within a stateful rule, a rank-two Table also admits one runtime row view:
+
+```python
+selected = ac.find(
+    tags.view(request.set_index),
+    where=lambda entry: entry.valid & (entry.tag == request.tag),
+)
+```
+
+The first admitted slice requires an exact-width, statically proven row
+coordinate and `first/count=1`. It lowers through `ac.table.index @tags
+[row, 0]`; the resulting full-Table index is the dynamic base of the existing
+projected `ac.table.match`. Mask bits remain row-local, while
+`selected.index` is always the global flattened Table index. The base must
+belong to the same Table, the suffix coordinate and static offset must be zero,
+and the verifier must prove the row is in range. GFSim and PYC evaluate exactly
+the fixed way count predicates. Keyed, multi-result, round-robin, arbitrary
+gather, and persistent cached dynamic projections are not part of this slice.
 `choose` validates same-Table mask provenance but still returns an index over
 the complete flattened Table domain. Omitting `count` or using `count=1`
 preserves scalar `TableChoice`. A static `count=N>1` returns an N-element Python

@@ -446,11 +446,21 @@ inferConstraint(Operation *operation, unsigned resultIndex,
       return ValueConstraint::closedInterval(0, 1);
     if (auto variable = SymbolTable::lookupNearestSymbolFrom<ac::VarDeclOp>(
             choose, choose.getVariableAttr()))
-      if (auto shape = variable.getShapeAttr();
-          shape && shape.asArrayRef().size() == 1 &&
-          shape.asArrayRef().front() > 0)
-        return ValueConstraint::closedInterval(
-            0, static_cast<uint64_t>(shape.asArrayRef().front() - 1));
+      if (auto shape = variable.getShapeAttr(); shape) {
+        uint64_t entries = 1;
+        bool valid = !shape.asArrayRef().empty();
+        for (int64_t extent : shape.asArrayRef()) {
+          if (extent <= 0 ||
+              entries > std::numeric_limits<uint64_t>::max() /
+                            static_cast<uint64_t>(extent)) {
+            valid = false;
+            break;
+          }
+          entries *= static_cast<uint64_t>(extent);
+        }
+        if (valid && entries > 0)
+          return ValueConstraint::closedInterval(0, entries - 1);
+      }
     if (auto maskWidth = integerWidth(choose.getMask().getType()))
       return ValueConstraint::closedInterval(0, *maskWidth - 1);
   }

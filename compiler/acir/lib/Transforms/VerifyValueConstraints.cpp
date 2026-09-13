@@ -8,6 +8,8 @@
 #include "llvm/ADT/StringSet.h"
 #include "llvm/ADT/StringMap.h"
 
+#include <limits>
+
 using namespace mlir;
 
 namespace acir {
@@ -44,6 +46,22 @@ LogicalResult verifyIndex(ACDataFlowAnalyzer &analysis, Operation *operation,
   return operation->emitOpError()
          << "cannot prove " << resource << " index is within [0, "
          << extent - 1 << "]; inferred " << constraintText(constraint);
+}
+
+FailureOr<uint64_t> shapedEntries(Operation *operation,
+                                  DenseI64ArrayAttr shape) {
+  uint64_t entries = 1;
+  if (!shape || shape.asArrayRef().empty())
+    return failure();
+  for (int64_t extent : shape.asArrayRef()) {
+    if (extent <= 0 || entries > std::numeric_limits<uint64_t>::max() /
+                                     static_cast<uint64_t>(extent)) {
+      operation->emitOpError("shaped ac.var extent product overflows");
+      return failure();
+    }
+    entries *= static_cast<uint64_t>(extent);
+  }
+  return entries;
 }
 
 LogicalResult verifyTableAccessIndex(ACDataFlowAnalyzer &analysis,
@@ -325,17 +343,20 @@ LogicalResult verifyValueConstraints(ModuleOp model) {
           read, read.getVariableAttr());
       if (!variable || !variable.getShapeAttr())
         return WalkResult::advance();
-      result = verifyIndex(analysis, read, read.getIndex(),
-                           variable.getShapeAttr().asArrayRef().front(),
-                           "shaped ac.var");
+      auto entries = shapedEntries(read, variable.getShapeAttr());
+      result = failed(entries) ? failure()
+                               : verifyIndex(analysis, read, read.getIndex(),
+                                             *entries, "shaped ac.var");
     } else if (auto assign = dyn_cast<ac::VarAssignElementOp>(operation)) {
       auto variable = resolveFlatDeclaration<ac::VarDeclOp>(
           assign, assign.getVariableAttr());
       if (!variable || !variable.getShapeAttr())
         return WalkResult::advance();
-      result = verifyIndex(analysis, assign, assign.getIndex(),
-                           variable.getShapeAttr().asArrayRef().front(),
-                           "shaped ac.var");
+      auto entries = shapedEntries(assign, variable.getShapeAttr());
+      result = failed(entries)
+                   ? failure()
+                   : verifyIndex(analysis, assign, assign.getIndex(), *entries,
+                                 "shaped ac.var");
     } else if (auto flattened = dyn_cast<ac::TableIndexOp>(operation)) {
       auto table = resolveFlatDeclaration<ac::TableOp>(
           flattened, flattened.getTableAttr());
@@ -357,6 +378,15 @@ LogicalResult verifyValueConstraints(ModuleOp model) {
         if (failed(result))
           break;
       }
+    } else if (auto match = dyn_cast<ac::VarMatchOp>(operation)) {
+      if (!match.getRow())
+        return WalkResult::advance();
+      auto variable =
+          resolveFlatDeclaration<ac::VarDeclOp>(match, match.getVariableAttr());
+      auto shape = variable ? variable.getShapeAttr() : DenseI64ArrayAttr();
+      if (shape && shape.asArrayRef().size() == 2)
+        result = verifyIndex(analysis, match, match.getRow(),
+                             shape.asArrayRef().front(), "ac.var row");
     } else if (auto read = dyn_cast<ac::TableGetOp>(operation)) {
       auto table = resolveFlatDeclaration<ac::TableOp>(read,
                                                        read.getTableAttr());

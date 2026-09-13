@@ -1032,6 +1032,13 @@ extractExpressions(mlir::Region &region, QueueBlockPlan &plan,
       QueueExpressionPlan expression{
           result, "table_match", printType(resultType.getElementType()), {}};
       expression.table = match.getTable().str();
+      if (match.getDomainBase()) {
+        auto found = values.find(match.getDomainBase());
+        if (found == values.end())
+          return planError("table.match dynamic base is not available");
+        expression.domainBase = found->second;
+        expression.operands.push_back(expression.domainBase);
+      }
       for (const auto &[value, identity] : captures) {
         (void)value;
         const bool used =
@@ -2451,6 +2458,9 @@ private:
         continue;
       }
       if (auto match = mlir::dyn_cast<ac::TableMatchOp>(operation)) {
+        if (match.getDomainBase())
+          return planError(
+              "dynamic table.match cannot become a shared match cache");
         const std::string name =
             "table_match_" + std::to_string(plan.tableMatches.size());
         QueueBlockPlan predicate;
@@ -3709,6 +3719,7 @@ inlineTableChoiceContractKey(const QueueExpressionPlan &expression) {
     for (uint64_t value : nested.domainStrides)
       append(std::to_string(value));
     append(std::to_string(nested.domainOffset));
+    append(nested.domainBase);
     append(nested.hasDomainProjection ? "1" : "0");
     append(std::to_string(nested.nestedYields.size()));
     for (const std::string &yield : nested.nestedYields)
@@ -3736,6 +3747,7 @@ inlineTableChoiceContractKey(const QueueExpressionPlan &expression) {
   for (uint64_t value : expression.domainStrides)
     append(std::to_string(value));
   append(std::to_string(expression.domainOffset));
+  append(expression.domainBase);
   append(expression.hasDomainProjection ? "1" : "0");
   append(std::to_string(expression.selectionCount));
   append(expression.keyOrdering);
@@ -3968,6 +3980,7 @@ llvm::Error verifyQueueGraphPlan(const QueueGraphPlan &plan) {
     if (match.name.empty() || !table || !domainEntries ||
         !isCandidateMaskType(match.resultType, *domainEntries) ||
         match.resultType.empty() || match.yield.empty() ||
+        !match.domainBase.empty() ||
         !tableMatches.try_emplace(match.name, &match).second)
       return planError("table match metadata is incomplete or duplicated");
   }
@@ -4496,6 +4509,49 @@ llvm::Error verifyQueueGraphPlan(const QueueGraphPlan &plan) {
                       1, llvm::Log2_64_Ceil(table->entries)));
         if (expression.type != expectedType)
           return planError("flattened Table index type is inconsistent");
+      } else if (expression.kind == "table_match") {
+        const TablePlan *table = tables.lookup(expression.table);
+        std::optional<uint64_t> domainEntries =
+            table ? projectionSize(expression, *table) : std::nullopt;
+        if (!table || !domainEntries ||
+            !isCandidateMaskType(expression.type, *domainEntries) ||
+            expression.nestedYields.size() != 1)
+          return planError(
+              "inline table match mask width or metadata is inconsistent");
+        if (!expression.domainBase.empty()) {
+          if (expression.domainOffset != 0 || table->shape.size() != 2 ||
+              expression.domainAxes != std::vector<uint64_t>{1} ||
+              expression.domainShape !=
+                  std::vector<uint64_t>{table->shape.back()} ||
+              expression.domainStrides != std::vector<uint64_t>{1} ||
+              !llvm::is_contained(expression.operands, expression.domainBase))
+            return planError(
+                "dynamic inline table match projection is not canonical");
+          auto base = valueDefinitions.find(expression.domainBase);
+          const std::string expectedType =
+              "i" + std::to_string(std::max<uint64_t>(
+                        1, llvm::Log2_64_Ceil(table->entries)));
+          if (base == valueDefinitions.end() ||
+              base->getValue()->kind != "table_index" ||
+              base->getValue()->table != expression.table ||
+              base->getValue()->type != expectedType ||
+              base->getValue()->operands.size() != 2)
+            return planError(
+                "dynamic inline table match base must be a same-Table index");
+          auto suffix =
+              valueDefinitions.find(base->getValue()->operands.back());
+          llvm::StringRef suffixLiteral =
+              suffix == valueDefinitions.end()
+                  ? llvm::StringRef()
+                  : llvm::StringRef(suffix->getValue()->literal)
+                        .split(':')
+                        .first.trim();
+          if (suffix == valueDefinitions.end() ||
+              suffix->getValue()->kind != "constant" ||
+              (suffixLiteral != "0" && suffixLiteral != "false"))
+            return planError(
+                "dynamic inline table match base suffix must be constant zero");
+        }
       } else if (expression.kind == "enum_constant") {
         if (!expression.operands.empty() || expression.field.empty() ||
             expression.literal.empty())
@@ -4726,6 +4782,10 @@ llvm::Error verifyQueueGraphPlan(const QueueGraphPlan &plan) {
             !isCandidateMaskType(producer->getValue()->type, *maskEntries))
           return planError(
               "inline table choose mask width must equal Table entries");
+        if (!producer->getValue()->domainBase.empty() &&
+            (expression.predicate != "first" || expression.selectionCount != 1))
+          return planError(
+              "dynamic row projection currently requires first/count=1");
         const unsigned expectedIndexWidth =
             std::max<unsigned>(1, llvm::Log2_64_Ceil(table->entries));
         const std::string expectedType =
@@ -5481,9 +5541,16 @@ llvm::Expected<std::string> QueueGraphPlan::canonicalJson() const {
         strides.push_back(value);
       result["domain_axes"] = std::move(axes);
       result["domain_offset"] = expression.domainOffset;
+      result["domain_base"] = expression.domainBase;
       result["domain_shape"] = std::move(shape);
       result["domain_strides"] = std::move(strides);
       result["has_domain_projection"] = expression.hasDomainProjection;
+      if (expression.hasDomainProjection) {
+        uint64_t scanBound = 1;
+        for (uint64_t extent : expression.domainShape)
+          scanBound *= extent;
+        result["scan_bound"] = scanBound;
+      }
     }
     if (expression.kind == "table_choose_index" ||
         expression.kind == "table_choose_valid" ||
@@ -5777,18 +5844,25 @@ llvm::Expected<std::string> QueueGraphPlan::canonicalJson() const {
       domainShape.push_back(value);
     for (uint64_t value : match.domainStrides)
       domainStrides.push_back(value);
-    tableMatchValues.push_back(
-        llvm::json::Object{{"domain_axes", std::move(domainAxes)},
-                           {"domain_offset", match.domainOffset},
-                           {"domain_shape", std::move(domainShape)},
-                           {"domain_strides", std::move(domainStrides)},
-                           {"has_domain_projection", match.hasDomainProjection},
-                           {"expressions", std::move(expressions)},
-                           {"name", match.name},
-                           {"result_type", match.resultType},
-                           {"scope", match.scope},
-                           {"table", match.table},
-                           {"yield", match.yield}});
+    llvm::json::Object matchValue{
+        {"domain_axes", std::move(domainAxes)},
+        {"domain_offset", match.domainOffset},
+        {"domain_shape", std::move(domainShape)},
+        {"domain_strides", std::move(domainStrides)},
+        {"has_domain_projection", match.hasDomainProjection},
+        {"expressions", std::move(expressions)},
+        {"name", match.name},
+        {"result_type", match.resultType},
+        {"scope", match.scope},
+        {"table", match.table},
+        {"yield", match.yield}};
+    if (match.hasDomainProjection) {
+      uint64_t scanBound = 1;
+      for (uint64_t extent : match.domainShape)
+        scanBound *= extent;
+      matchValue["scan_bound"] = scanBound;
+    }
+    tableMatchValues.push_back(std::move(matchValue));
   }
   llvm::json::Array tableSelectionValues;
   for (const TableSelectionPlan &selection : tableSelections) {

@@ -550,6 +550,14 @@ std::string tableProjectionArgument(const TablePlan &table,
     result.push_back('}');
     return result;
   };
+  if (!match.domainBase.empty()) {
+    uint64_t domainEntries = 1;
+    for (uint64_t extent : match.domainShape)
+      domainEntries *= extent;
+    return "gfsim::TableDomainProjection(" + std::to_string(table.entries) +
+           ", " + std::to_string(domainEntries) +
+           ", static_cast<std::size_t>(" + match.domainBase + "))";
+  }
   return "gfsim::TableDomainProjection(" + std::to_string(table.entries) +
          ", " + array(match.domainShape) + ", " + array(match.domainStrides) +
          ", " + std::to_string(match.domainOffset) + ")";
@@ -607,6 +615,7 @@ std::string matchExpressionValueKey(const QueueExpressionPlan &expression) {
   for (uint64_t value : expression.domainStrides)
     append(std::to_string(value));
   append(std::to_string(expression.domainOffset));
+  append(expression.domainBase);
   append(expression.hasDomainProjection ? "1" : "0");
   return result;
 }
@@ -780,6 +789,7 @@ emitExpressionBody(const QueueGraphPlan &plan, const QueueBlockPlan &block,
             candidate.domainShape != expression.domainShape ||
             candidate.domainStrides != expression.domainStrides ||
             candidate.domainOffset != expression.domainOffset ||
+            candidate.domainBase != expression.domainBase ||
             candidate.hasDomainProjection != expression.hasDomainProjection ||
             candidate.nestedYields.size() != 1 ||
             !needed.contains(candidate.result) ||

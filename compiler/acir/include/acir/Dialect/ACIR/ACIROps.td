@@ -344,12 +344,14 @@ def ACIR_VarAssignElementOp : ACIR_Op<"var.assign_element"> {
 // Collection queries over a lexical shaped ac.var. These remain independent
 // of the concrete committed-state storage selected by later passes.
 def ACIR_VarMatchOp : ACIR_Op<"var.match", [SingleBlock]> {
-  let arguments = (ins FlatSymbolRefAttr:$variable);
+  let arguments = (ins FlatSymbolRefAttr:$variable,
+                       Optional<ACIR_VarType>:$row);
   let results = (outs ACIR_VarType:$mask);
   let regions = (region SizedRegion<1>:$predicate);
   let hasVerifier = 1;
   let assemblyFormat = [{
-    $variable `predicate` $predicate attr-dict `->` qualified(type($mask))
+    $variable (`row` $row^ `:` qualified(type($row)))?
+    `predicate` $predicate attr-dict `->` qualified(type($mask))
   }];
 }
 
@@ -863,6 +865,7 @@ def ACIR_TableMatchOp : ACIR_Op<"table.match", [
     SingleBlock, DeclareOpInterfaceMethods<MemoryEffectsOpInterface>
   ]> {
   let arguments = (ins FlatSymbolRefAttr:$table,
+                       Optional<ACIR_VarType>:$domain_base,
                        OptionalAttr<DenseI64ArrayAttr>:$domain_axes,
                        OptionalAttr<DenseI64ArrayAttr>:$domain_shape,
                        OptionalAttr<DenseI64ArrayAttr>:$domain_strides,
@@ -870,7 +873,10 @@ def ACIR_TableMatchOp : ACIR_Op<"table.match", [
   let results = (outs ACIR_VarType:$mask);
   let regions = (region SizedRegion<1>:$predicate);
   let hasVerifier = 1;
-  let assemblyFormat = "$table `predicate` $predicate attr-dict `->` qualified(type($mask))";
+  let assemblyFormat = [{
+    $table (`base` $domain_base^ `:` qualified(type($domain_base)))?
+    `predicate` $predicate attr-dict `->` qualified(type($mask))
+  }];
 }
 
 def ACIR_TableMatchYieldOp : ACIR_Op<"table.match.yield", [Pure, Terminator]> {
