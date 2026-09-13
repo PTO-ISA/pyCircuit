@@ -225,6 +225,10 @@ Follow these rules:
 - Use `Packet(**left, **right, explicit=...)` and
   `value.with_fields(**patch)` only for exact name/type record composition.
   Construction is total; replacement preserves unmentioned fields.
+- Use `value.project(TargetStruct)` for an explicit exact-name subset. The
+  target is a real nominal `@ac.struct`, not an implicit subtype or writable
+  alias. Apply changes back with `value.with_fields(**projected_patch)` and an
+  explicit owner assignment.
 - Use `values.map(lambda item: ...)` for pure fixed-lane value transforms and
   `values.zip(other)` for exact-length positional pairing. Both are
   elaboration-time fixed expansions, evaluate every lane, retain exact
@@ -319,6 +323,7 @@ consumer design.
 | JIT-dependent scalar system boundary | `examples/agentic-circuit/types/scalar_parameterized_types.py` |
 | Two module instances with distinct dependent state types | `examples/agentic-circuit/types/multi_specialization_types.py` |
 | Name-based record construction and replacement | `examples/agentic-circuit/pipelines/record_spread_pipeline.py` |
+| Explicit nominal record projection and patch-back | `examples/agentic-circuit/pipelines/record_projection.py` |
 | Fixed-width sparse enum encoding | `examples/agentic-circuit/pipelines/encoded_enum_pipeline.py` |
 | Exhaustive enum match and explicit checked/one-hot decoding | `examples/agentic-circuit/pipelines/enum_helpers.py` |
 | One-hot presence and conflict reporting | `examples/agentic-circuit/blocks/onehot_encode.py` |

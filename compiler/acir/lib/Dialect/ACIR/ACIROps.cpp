@@ -3072,6 +3072,146 @@ LogicalResult VarInsertOp::verify() {
                                        getLsb(), value.getWidth());
 }
 
+namespace {
+
+Location projectionSourceLocation(Location location) {
+  if (auto file = dyn_cast<FileLineColLoc>(location))
+    return file.getFilename().getValue().ends_with(".py")
+               ? location
+               : UnknownLoc::get(location.getContext());
+  if (auto named = dyn_cast<NameLoc>(location)) {
+    Location child = projectionSourceLocation(named.getChildLoc());
+    return isa<UnknownLoc>(child)
+               ? child
+               : Location(NameLoc::get(named.getName(), child));
+  }
+  if (auto call = dyn_cast<CallSiteLoc>(location)) {
+    Location callee = projectionSourceLocation(call.getCallee());
+    Location caller = projectionSourceLocation(call.getCaller());
+    if (isa<UnknownLoc>(callee))
+      return caller;
+    if (isa<UnknownLoc>(caller))
+      return callee;
+    return CallSiteLoc::get(callee, caller);
+  }
+  if (auto fused = dyn_cast<FusedLoc>(location)) {
+    SmallVector<Location> children;
+    for (Location child : fused.getLocations()) {
+      child = projectionSourceLocation(child);
+      if (!isa<UnknownLoc>(child) && !llvm::is_contained(children, child))
+        children.push_back(child);
+    }
+    if (children.empty())
+      return UnknownLoc::get(location.getContext());
+    if (children.size() == 1)
+      return children.front();
+    return FusedLoc::get(location.getContext(), children);
+  }
+  return UnknownLoc::get(location.getContext());
+}
+
+Location mergeProjectionLocations(Location retained, Location removed) {
+  Location retainedSource = projectionSourceLocation(retained);
+  Location removedSource = projectionSourceLocation(removed);
+  if (isa<UnknownLoc>(removedSource))
+    return retained;
+  if (isa<UnknownLoc>(retainedSource))
+    return removedSource;
+  if (retainedSource == removedSource)
+    return retainedSource;
+  return FusedLoc::get(retained.getContext(), {retainedSource, removedSource});
+}
+
+void preserveProjectionLocation(Value replacement, Location removed) {
+  if (Operation *producer = replacement.getDefiningOp()) {
+    producer->setLoc(mergeProjectionLocations(producer->getLoc(), removed));
+    return;
+  }
+  if (auto argument = dyn_cast<BlockArgument>(replacement))
+    argument.setLoc(mergeProjectionLocations(argument.getLoc(), removed));
+}
+
+struct FoldGetFromRecord final : OpRewritePattern<VarGetOp> {
+  using OpRewritePattern::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(VarGetOp operation,
+                                PatternRewriter &rewriter) const override {
+    auto record = operation.getRecord().getDefiningOp<VarRecordOp>();
+    if (!record)
+      return failure();
+    auto recordType = cast<VarType>(record.getResult().getType());
+    Operation *declaration = recordDecl(operation, recordType.getElementType());
+    auto index = declaration ? findField(declaration, operation.getField())
+                             : std::nullopt;
+    if (!index || *index >= record.getValues().size())
+      return failure();
+    Value replacement = record.getValues()[*index];
+    preserveProjectionLocation(
+        replacement,
+        mergeProjectionLocations(record.getLoc(), operation.getLoc()));
+    rewriter.replaceOp(operation, replacement);
+    return success();
+  }
+};
+
+struct FoldGetThroughWith final : OpRewritePattern<VarGetOp> {
+  using OpRewritePattern::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(VarGetOp operation,
+                                PatternRewriter &rewriter) const override {
+    auto update = operation.getRecord().getDefiningOp<VarWithOp>();
+    if (!update)
+      return failure();
+    if (operation.getField() == update.getField()) {
+      Value replacement = update.getValue();
+      preserveProjectionLocation(
+          replacement,
+          mergeProjectionLocations(update.getLoc(), operation.getLoc()));
+      rewriter.replaceOp(operation, replacement);
+      return success();
+    }
+    rewriter.modifyOpInPlace(operation, [&] {
+      operation->setLoc(
+          mergeProjectionLocations(operation.getLoc(), update.getLoc()));
+      operation.getRecordMutable().assign(update.getRecord());
+    });
+    return success();
+  }
+};
+
+Value createProjectedGet(PatternRewriter &rewriter, VarGetOp operation,
+                         Value record) {
+  OperationState state(operation.getLoc(), VarGetOp::getOperationName());
+  state.addOperands(record);
+  state.addTypes(operation.getResult().getType());
+  state.addAttribute("field", operation.getFieldAttr());
+  return rewriter.create(state)->getResult(0);
+}
+
+struct PushGetThroughSelect final : OpRewritePattern<VarGetOp> {
+  using OpRewritePattern::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(VarGetOp operation,
+                                PatternRewriter &rewriter) const override {
+    auto select = operation.getRecord().getDefiningOp<VarSelectOp>();
+    if (!select || !select.getResult().hasOneUse())
+      return failure();
+    operation->setLoc(
+        mergeProjectionLocations(operation.getLoc(), select.getLoc()));
+    Value trueValue =
+        createProjectedGet(rewriter, operation, select.getTrueValue());
+    Value falseValue =
+        createProjectedGet(rewriter, operation, select.getFalseValue());
+    OperationState state(operation.getLoc(), VarSelectOp::getOperationName());
+    state.addOperands({select.getCondition(), trueValue, falseValue});
+    state.addTypes(operation.getResult().getType());
+    rewriter.replaceOp(operation, rewriter.create(state)->getResults());
+    return success();
+  }
+};
+
+} // namespace
+
 LogicalResult VarGetOp::verify() {
   auto record = cast<VarType>(getRecord().getType());
   Operation *decl = recordDecl(*this, record.getElementType());
@@ -3085,6 +3225,12 @@ LogicalResult VarGetOp::verify() {
     return emitOpError() << "field '" << getField() << "' result must be "
                          << expected;
   return success();
+}
+
+void VarGetOp::getCanonicalizationPatterns(RewritePatternSet &patterns,
+                                           MLIRContext *context) {
+  patterns.add<FoldGetFromRecord, FoldGetThroughWith, PushGetThroughSelect>(
+      context);
 }
 
 LogicalResult VarWithOp::verify() {

@@ -1860,6 +1860,26 @@ names, reorder by destination declaration order, require exact recursive types,
 and reject missing, extra, duplicate, shadowed, or incompatible fields. Nested
 aggregate values remain one field and are not recursively flattened.
 
+An explicit projection creates a smaller nominal record without defining a
+structural subtype:
+
+```python
+thin = packet.project(HeaderView)
+changed = thin.with_fields(valid=True)
+packet = packet.with_fields(**changed)
+```
+
+`HeaderView` must be an unshadowed explicit `@ac.struct`. Its declaration names
+the selected fields and their output order. Every field must exist in `packet`
+with the same exact recursive descriptor; extra source fields are omitted.
+The result is a new immutable `HeaderView`, not a borrow or writable alias.
+Updating the source requires an explicit exact-name spread back into the source
+record and then an ordinary owner assignment. Projection expands to verified
+`ac.var.get` plus `ac.var.record`. Local canonicalization pushes a later field
+read through record construction, immutable update, and a single-use select;
+shared selects are not duplicated before CSE. General
+automatic cross-Queue payload pruning remains separate work.
+
 Nominal values use the standard Python enum class:
 
 ```python

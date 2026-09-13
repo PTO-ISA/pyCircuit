@@ -9643,3 +9643,63 @@ selection and exhaustiveness from the verifier.
 
 **Source**
 - PTO-ISA/pyCircuit issue #128.
+
+## Decision 0256: record projection creates an explicit exact nominal value
+
+**Status:** Accepted and implemented
+
+**Extends:** Decisions 0215, 0245, 0246, and 0250 through 0255.
+
+**Context / Goal**
+Rules need to pass a named subset of a large record without repeating field
+assignments, inventing structural subtyping, or turning a projection into a
+writable alias of its source owner.
+
+**Decision (strong constraint)**
+- `thin = packet.project(HeaderView)` is the only record projection syntax in
+  this slice. The receiver is one nominal struct value and the argument is one
+  unshadowed explicit `@ac.struct` class. The target declaration defines the
+  selected field names, declaration order, and result nominal identity.
+- Every target field must exist in the source with the same exact recursive
+  descriptor. Logical `bool` and `ac.u1`, separately declared enums or nested
+  structs, unequal bounded ranges, tuples, and array shapes do not convert.
+  Extra source fields are intentionally omitted. Missing, shadowed, dynamic,
+  repeated, or incompatible targets fail before ACIR publication.
+- Projection creates a new immutable target value. It is not a borrow, view
+  interface, writable alias, implicit source subtype, or proof that the source
+  can be used where the target is expected. To update the original record,
+  author `packet.with_fields(**thin.with_fields(...))` and explicitly assign
+  that complete source-typed value back to its Var/Table owner.
+- The frontend expands projection in target declaration order to existing
+  verified `ac.var.get` operations and one `ac.var.record`. No new aggregate
+  cast, subtype relation, owner operation, QueueGraph opcode, runtime container,
+  or backend-only fixup is introduced. Source provenance records the projection
+  call while retaining nested helper/module call frames.
+- `ac.var.get` canonicalization propagates a field demand through a direct
+  `ac.var.record`, an immutable `ac.var.with`, and both arms of
+  `ac.var.select`. Direct and overwritten fields fold to their exact producers;
+  an unrelated update is skipped; selected records become a selected scalar
+  field only when the aggregate select has one use. The one-use guard prevents
+  shared-diamond expansion before CSE. This local propagation is pure,
+  type-preserving, and participates in source-aware canonicalization and CSE.
+- An explicit projection narrows its result Queue and generated payload to the
+  target descriptor, so omitted fields do not enter that internal payload.
+  General automatic cross-Queue field-liveness and public-schema-safe payload
+  rewriting remain I03/L06 work and are not claimed by this decision.
+
+**Required verification**
+- Cover reordered target fields, omitted large fields, nested struct identity,
+  pure helpers, immutable patch-back, and scalar/nested outputs. Reject missing
+  fields, exact `bool`/`u1` and nominal mismatches, dynamic or shadowed targets,
+  non-record receivers, and implicit structural-subtype returns.
+- ACIR verifier coverage for `get` and `record` remains authoritative. Lit
+  tests prove local demand folding through record/with/select without residual
+  aggregate construction for the selected field, and a deep shared-diamond
+  regression proves the rewrite remains bounded.
+- A design-neutral runtime example proves the smaller nominal output and
+  identical values plus ready/valid cycles across GFSim, PYC C++, and Verilog.
+  Documentation must show explicit owner reconstruction for updates and must
+  not describe the result as a borrow or mutable view.
+
+**Source**
+- PTO-ISA/pyCircuit issue #128.

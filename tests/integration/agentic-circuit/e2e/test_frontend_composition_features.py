@@ -231,6 +231,16 @@ def pipeline(raw: ac.u8) -> bool:
                 {},
             ),
             (
+                ROOT / "examples/agentic-circuit/pipelines/record_projection.py",
+                "record_projection",
+                {},
+            ),
+            (
+                ROOT / "examples/agentic-circuit/pipelines/record_projection.py",
+                "record_projection_update",
+                {},
+            ),
+            (
                 ROOT / "examples/agentic-circuit/blocks/onehot_encode.py",
                 "onehot_encode",
                 {},

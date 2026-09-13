@@ -4540,6 +4540,132 @@ def cycle(incoming: Left) -> Left:
         with self.assertRaisesRegex(QueueFrontendError, "type mismatch"):
             lower_queue_source(bits_bool, "record_spread_update")
 
+    def test_record_project_is_explicit_nominal_and_exact_name_typed(self) -> None:
+        from agentic_circuit._queue_frontend import lower_queue_source
+
+        source = """import agentic_circuit as ac
+@ac.struct
+class Header:
+    opcode: ac.u4
+@ac.struct
+class Packet:
+    header: Header
+    tag: ac.u8
+    data: ac.u16
+    valid: bool
+@ac.struct
+class HeaderView:
+    valid: bool
+    header: Header
+def project_header(packet: Packet) -> HeaderView:
+    return packet.project(HeaderView)
+@ac.rule
+def project(packet: Packet) -> HeaderView:
+    return project_header(packet)
+@ac.rule
+def update(packet: Packet) -> Packet:
+    thin = packet.project(HeaderView)
+    changed = thin.with_fields(valid=True)
+    return packet.with_fields(**changed)
+@ac.system
+def record_project(packet: Packet) -> HeaderView:
+    result = project(packet)
+    return result
+@ac.system
+def record_project_update(packet: Packet) -> Packet:
+    result = update(packet)
+    return result
+"""
+        lowered = lower_queue_source(source, "record_project")
+        self.assertEqual(2, lowered.count("ac.var.get"))
+        self.assertEqual(1, lowered.count("ac.var.record"))
+        self.assertNotIn('field "tag"', lowered)
+        self.assertNotIn('field "data"', lowered)
+        self.assertLess(lowered.index('field "valid"'), lowered.index('field "header"'))
+        self.assertIn("!ac.struct<@types::@HeaderView>", lowered)
+
+        updated = lower_queue_source(source, "record_project_update")
+        self.assertIn("ac.var.with", updated)
+        self.assertIn("!ac.struct<@types::@Packet>", updated)
+
+    def test_record_project_rejects_structural_subtyping_and_implicit_owners(
+        self,
+    ) -> None:
+        from agentic_circuit._queue_frontend import (
+            QueueFrontendError,
+            lower_queue_source,
+        )
+
+        source = """import agentic_circuit as ac
+@ac.struct
+class Header:
+    opcode: ac.u4
+@ac.struct
+class OtherHeader:
+    opcode: ac.u4
+@ac.struct
+class Packet:
+    header: Header
+    data: ac.u16
+    valid: bool
+@ac.struct
+class View:
+    header: Header
+    valid: bool
+@ac.rule
+def project(packet: Packet) -> View:
+    return packet.project(View)
+@ac.system
+def record_project(packet: Packet) -> View:
+    result = project(packet)
+    return result
+"""
+        missing = source.replace(
+            "class View:\n    header: Header\n    valid: bool",
+            "class View:\n    header: Header\n    missing: ac.u1\n    valid: bool",
+        )
+        with self.assertRaisesRegex(QueueFrontendError, "missing target field"):
+            lower_queue_source(missing, "record_project")
+
+        bool_u1 = source.replace("class View:\n    header: Header\n    valid: bool", "class View:\n    header: Header\n    valid: ac.u1")
+        with self.assertRaisesRegex(QueueFrontendError, "exact recursive type"):
+            lower_queue_source(bool_u1, "record_project")
+
+        nominal = source.replace(
+            "class View:\n    header: Header", "class View:\n    header: OtherHeader"
+        )
+        with self.assertRaisesRegex(QueueFrontendError, "exact recursive type"):
+            lower_queue_source(nominal, "record_project")
+
+        dynamic_target = source.replace(
+            "packet.project(View)", "packet.project(packet.header)"
+        )
+        with self.assertRaisesRegex(QueueFrontendError, "target must be"):
+            lower_queue_source(dynamic_target, "record_project")
+
+        shadowed_target = source.replace(
+            "@ac.rule\ndef project(packet: Packet) -> View:\n"
+            "    return packet.project(View)",
+            "def shadow(packet: Packet, View: bool) -> View:\n"
+            "    return packet.project(View)\n"
+            "@ac.rule\ndef project(packet: Packet) -> View:\n"
+            "    return shadow(packet, packet.valid)",
+        )
+        with self.assertRaisesRegex(QueueFrontendError, "unshadowed"):
+            lower_queue_source(shadowed_target, "record_project")
+
+        non_record = source.replace(
+            "packet.project(View)", "packet.data.project(View)"
+        )
+        with self.assertRaisesRegex(QueueFrontendError, "receiver must be"):
+            lower_queue_source(non_record, "record_project")
+
+        implicit_subtype = source.replace(
+            "return packet.project(View)", "return packet"
+        )
+        with self.assertRaisesRegex(QueueFrontendError, "result must preserve"):
+            lower_queue_source(implicit_subtype, "record_project")
+
     def test_standard_python_enum_lowers_as_nominal_nested_value(self) -> None:
         from _pycircuit_semantics import EnumType
         from agentic_circuit._queue_frontend import (

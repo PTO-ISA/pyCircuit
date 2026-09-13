@@ -738,6 +738,14 @@ enum 输入的物理 bits 仍可能不是任何声明 encoding。Raw ACIR 的
 `ac.var.enum_match` verifier 复核 coverage 后，统一 lowering 为 enum equality、
 balanced OR 和 select；Frozen ACIR/PYC 不保留高层 match 或 `scf.*`。
 
+record subset 使用 `value.project(TargetStruct)` 显式构造。TargetStruct 必须是
+nominal `@ac.struct`，它的声明决定 exact-name 字段集合和顺序；所有递归 descriptor
+必须一致，源中的其他字段被省略。projection 是新的 immutable value，不是 structural
+subtype、borrow 或 owner alias。更新必须通过 `source.with_fields(**projected_patch)`
+重建源类型并显式写回 owner。前端 lowering 只产生既有 `ac.var.get/record`，局部
+canonicalization 可把字段需求穿透 record/with/select；通用跨 Queue payload pruning
+仍保留给 I03/L06。
+
 ## Tier 分层标注（3D 堆叠扩展，Proposed）
 
 > **状态:Proposed**(尚未实现;完整提案与实现草图见 `docs/rfcs/tier_annotation.md`)。本节先行纳入规范,冻结语法形态与语义边界。

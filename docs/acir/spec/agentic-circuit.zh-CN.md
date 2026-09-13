@@ -480,6 +480,23 @@ updated = packet.with_fields(**patch, valid=True)
 额外、重复、遮蔽或不兼容字段全部 fail closed。nested aggregate 仍作为一个字段，
 不会被递归摊平。
 
+显式 projection 可以生成较小的 nominal record，但不会建立 structural subtype：
+
+```python
+thin = packet.project(HeaderView)
+changed = thin.with_fields(valid=True)
+packet = packet.with_fields(**changed)
+```
+
+`HeaderView` 必须是未被词法遮蔽的显式 `@ac.struct`。其声明决定选择的字段名与
+输出顺序；每个字段都必须在 `packet` 中存在且递归 descriptor 完全一致，源中其余
+字段被显式省略。结果是新的 immutable `HeaderView`，不是 borrow 或可写 alias。
+更新源 record 时必须把 view 通过 exact-name spread 显式写回源类型，再执行普通 owner
+赋值。projection 展开为 verifier 检查的 `ac.var.get` 与 `ac.var.record`；局部
+canonicalization 可以把后续字段读取穿透 record 构造、immutable update 和 select。
+select 穿透只用于 single-use aggregate result，避免在 CSE 前展开 shared diamond。
+通用的跨 Queue 自动 payload pruning 仍属于独立后续工作。
+
 nominal value 使用标准 Python enum，不增加 `ac.enum` 前端构造器：
 
 ```python

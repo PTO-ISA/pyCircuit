@@ -2889,6 +2889,7 @@ def _pure_helper_definitions(
                                 "count",
                                 "fold",
                                 "is_one_of",
+                                "project",
                                 "with_fields",
                                 "with_element",
                                 "view",
@@ -10658,8 +10659,8 @@ class _ExpressionEmitter:
             else _types_equal_in_epoch_05(left, right)
         )
 
-    def _unshadowed_enum(self, name: str) -> EnumType | None:
-        runtime_names = {
+    def _runtime_binding_names(self) -> set[str]:
+        return {
             self.argument,
             *self.root_values,
             *self.deferred_values,
@@ -10673,7 +10674,21 @@ class _ExpressionEmitter:
             *self.state_views,
             *self.table_domains,
         }
-        return None if name in runtime_names else self.enum_types.get(name)
+
+    def _unshadowed_enum(self, name: str) -> EnumType | None:
+        return (
+            None
+            if name in self._runtime_binding_names()
+            else self.enum_types.get(name)
+        )
+
+    def _unshadowed_record(self, name: str) -> StructType | None:
+        definition = (
+            None
+            if name in self._runtime_binding_names()
+            else self.payloads.get(name)
+        )
+        return None if definition is None else definition.descriptor
 
     def _explicit_enum_member(
         self, node: ast.expr, expected: EnumType | None = None
@@ -11365,6 +11380,67 @@ class _ExpressionEmitter:
             + f" -> !ac.var<{_render_type(result_type)}>"
         )
         return self._remember(result, result_type)
+
+    def _emit_record_projection(
+        self, node: ast.Call
+    ) -> tuple[str, ValueType] | None:
+        if not (
+            isinstance(node.func, ast.Attribute)
+            and node.func.attr == "project"
+        ):
+            return None
+        if len(node.args) != 1 or node.keywords:
+            raise QueueFrontendError(
+                "ACPY-TYPE-006: record project requires one explicit target struct"
+            )
+        source, source_type = self.emit(node.func.value)
+        if not isinstance(source_type, StructType):
+            raise QueueFrontendError(
+                "ACPY-TYPE-006: record project receiver must be a struct value"
+            )
+        target_name = node.args[0].id if isinstance(node.args[0], ast.Name) else ""
+        target_type = self._unshadowed_record(target_name)
+        if target_type is None:
+            raise QueueFrontendError(
+                "ACPY-TYPE-006: record project target must be an unshadowed "
+                "@ac.struct class"
+            )
+        values: list[str] = []
+        value_types: list[ValueType] = []
+        for target_field in target_type.fields:
+            try:
+                source_field = source_type.field(target_field.name)
+            except KeyError as error:
+                raise QueueFrontendError(
+                    "ACPY-TYPE-006: record project source is missing target field "
+                    f"{target_field.name!r}"
+                ) from error
+            if source_field.type != target_field.type:
+                raise QueueFrontendError(
+                    "ACPY-TYPE-006: record project field "
+                    f"{target_field.name!r} requires one exact recursive type"
+                )
+            value = self._new()
+            self.lines.append(
+                f"    %{value} = ac.var.get %{source} field "
+                f'"{target_field.name}" : '
+                f"!ac.var<{_render_type(source_type)}> -> "
+                f"!ac.var<{_render_type(target_field.type)}>"
+            )
+            values.append(value)
+            value_types.append(target_field.type)
+        result = self._new()
+        self.lines.append(
+            f"    %{result} = ac.var.record "
+            + ", ".join(f"%{value}" for value in values)
+            + " : "
+            + ", ".join(
+                f"!ac.var<{_render_type(value_type)}>"
+                for value_type in value_types
+            )
+            + f" -> !ac.var<{_render_type(target_type)}>"
+        )
+        return self._remember(result, target_type)
 
     def _emit_exact_array_replacement(
         self,
@@ -12582,6 +12658,9 @@ class _ExpressionEmitter:
         self, node: ast.expr, expected: ValueType | None = None
     ) -> tuple[str, ValueType]:
         if isinstance(node, ast.Call):
+            record_projection = self._emit_record_projection(node)
+            if record_projection is not None:
+                return record_projection
             enum_match = self._emit_enum_match(node, expected)
             if enum_match is not None:
                 return enum_match

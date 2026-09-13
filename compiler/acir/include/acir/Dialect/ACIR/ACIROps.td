@@ -360,6 +360,7 @@ def ACIR_VarGetOp : ACIR_Op<"var.get", [Pure]> {
   let arguments = (ins ACIR_VarType:$record, StrAttr:$field);
   let results = (outs ACIR_VarType:$result);
   let hasVerifier = 1;
+  let hasCanonicalizer = 1;
   let assemblyFormat = [{
     $record `field` $field attr-dict `:` qualified(type($record)) `->`
     qualified(type($result))
