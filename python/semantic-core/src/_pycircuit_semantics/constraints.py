@@ -321,6 +321,8 @@ _BINARY_OPERATORS = {
     "mul": operator.mul,
     "floordiv": operator.floordiv,
     "mod": operator.mod,
+    "udiv": operator.floordiv,
+    "urem": operator.mod,
     "and": operator.and_,
     "or": operator.or_,
     "xor": operator.xor,
@@ -376,7 +378,7 @@ def transfer_static_binary(
     if operation == "mul":
         products = (ll * rl, ll * ru, lu * rl, lu * ru)
         return ClosedInterval(min(products), max(products))
-    if operation == "mod" and rl == ru and rl > 0:
+    if operation in {"mod", "urem"} and rl == ru and rl > 0:
         return ClosedInterval(0, rl - 1)
     if operation == "shr" and ll >= 0 and rl >= 0:
         return ClosedInterval(ll >> ru, lu >> rl)
@@ -415,8 +417,8 @@ def transfer_bits(
                     result = 0 if rhs >= width else (lhs << rhs) & mask
                 elif operation == "shr":
                     result = 0 if rhs >= width else lhs >> rhs
-                elif operation in {"floordiv", "mod"} and rhs == 0:
-                    return Unknown()
+                elif operation in {"floordiv", "mod", "udiv", "urem"} and rhs == 0:
+                    result = 0
                 else:
                     result = _BINARY_OPERATORS[operation](lhs, rhs) & mask
                 results.append(result)
@@ -440,6 +442,9 @@ def transfer_bits(
     if operation == "mul" and lu * ru <= mask:
         products = (ll * rl, ll * ru, lu * rl, lu * ru)
         return ClosedInterval(min(products), max(products))
+    if operation in {"mod", "urem"} and isinstance(right, Constant):
+        if type(right.value) is int and right.value > 0:
+            return ClosedInterval(0, min(mask, right.value - 1))
     if operation == "and":
         if isinstance(left, Constant) and type(left.value) is int:
             return ClosedInterval(0, min(mask, left.value & mask, ru))

@@ -17,6 +17,12 @@ CAPTURE_ONLY_API = (
     "view",
     "find",
     "concat",
+    "literal",
+    "zero",
+    "zext",
+    "sext",
+    "truncate",
+    "static_assert",
     "insert",
     "matches",
     "source",
@@ -79,6 +85,36 @@ def find(values: object, *, where: object, key: object | None = None) -> Never:
 
 def concat(*values: object) -> Never:
     return _capture_time_only("concat")
+
+
+def literal(value: int, value_type: object) -> Never:
+    _ = (value, value_type)
+    return _capture_time_only("literal")
+
+
+def zero(value_type: object) -> Never:
+    _ = value_type
+    return _capture_time_only("zero")
+
+
+def zext(value: object, value_type: object) -> Never:
+    _ = (value, value_type)
+    return _capture_time_only("zext")
+
+
+def sext(value: object, value_type: object) -> Never:
+    _ = (value, value_type)
+    return _capture_time_only("sext")
+
+
+def truncate(value: object, value_type: object) -> Never:
+    _ = (value, value_type)
+    return _capture_time_only("truncate")
+
+
+def static_assert(condition: bool, message: str = "static assertion failed") -> None:
+    _ = (condition, message)
+    _capture_time_only("static_assert")
 
 
 def insert(value: object, field: object, *, lsb: int) -> Never:

@@ -476,6 +476,10 @@ inferPlanConstraint(const QueueExpressionPlan &expression,
       return ValueConstraint::constant((lhs - rhs) & mask);
     if (expression.kind == "mul")
       return ValueConstraint::constant((lhs * rhs) & mask);
+    if (expression.kind == "udiv")
+      return ValueConstraint::constant(rhs == 0 ? 0 : lhs / rhs);
+    if (expression.kind == "urem")
+      return ValueConstraint::constant(rhs == 0 ? 0 : lhs % rhs);
     if (expression.kind == "and")
       return ValueConstraint::constant(lhs & rhs);
     if (expression.kind == "or")
@@ -495,6 +499,10 @@ inferPlanConstraint(const QueueExpressionPlan &expression,
     if (right.kind == ValueConstraintKind::Constant)
       return ValueConstraint::closedInterval(0, right.values.front() & mask);
   }
+  if (expression.kind == "urem" &&
+      right.kind == ValueConstraintKind::Constant &&
+      right.values.front() != 0)
+    return ValueConstraint::closedInterval(0, right.values.front() - 1);
   if (expression.kind == "not" && left.kind == ValueConstraintKind::Constant)
     return ValueConstraint::constant((~left.values.front()) & mask);
   return fallback;
@@ -723,8 +731,14 @@ extractExpressions(mlir::Region &region, QueueBlockPlan &plan,
       continue;
     }
     if (auto constant = mlir::dyn_cast<ac::VarConstantOp>(operation)) {
-      if (auto error = append(operation, "constant", {}, {},
-                              printAttribute(constant.getValueAttr())))
+      std::string literal = printAttribute(constant.getValueAttr());
+      if (auto integer = mlir::dyn_cast<mlir::IntegerAttr>(constant.getValueAttr());
+          integer &&
+          mlir::cast<mlir::IntegerType>(integer.getType()).getWidth() > 1 &&
+          mlir::cast<mlir::IntegerType>(integer.getType()).getWidth() <= 64)
+        literal = std::to_string(integer.getValue().getZExtValue()) + " : " +
+                  printType(integer.getType());
+      if (auto error = append(operation, "constant", {}, {}, literal))
         return error;
       continue;
     }
@@ -842,6 +856,16 @@ extractExpressions(mlir::Region &region, QueueBlockPlan &plan,
     }
     if (mlir::isa<ac::VarMulOp>(operation)) {
       if (auto error = append(operation, "mul"))
+        return error;
+      continue;
+    }
+    if (mlir::isa<ac::VarUDivOp>(operation)) {
+      if (auto error = append(operation, "udiv"))
+        return error;
+      continue;
+    }
+    if (mlir::isa<ac::VarURemOp>(operation)) {
+      if (auto error = append(operation, "urem"))
         return error;
       continue;
     }
@@ -3729,7 +3753,7 @@ bool isEffectFreeTableMatchExpression(const QueueExpressionPlan &expression) {
              true)
       .Cases({"tuple_create", "array_create", "record_create", "bit_insert"},
              true)
-      .Cases({"with", "add", "sub", "mul"}, true)
+      .Cases({"with", "add", "sub", "mul", "udiv", "urem"}, true)
       .Cases({"and", "or", "xor", "shl", "shr"}, true)
       .Cases({"priority_index", "priority_valid"}, true)
       .Default(false);
@@ -4636,6 +4660,19 @@ llvm::Error verifyQueueGraphPlan(const QueueGraphPlan &plan) {
           return planError(
               "residual aggregate comparison must be lowered to scalar leaf "
               "comparisons before QueueGraph planning");
+      } else if (expression.kind == "udiv" || expression.kind == "urem") {
+        if (expression.operands.size() != 2)
+          return planError(
+              "unsigned div/rem expression contract is malformed");
+        auto left = valueTypes.find(expression.operands[0]);
+        auto right = valueTypes.find(expression.operands[1]);
+        auto resultWidth = integerWidth(expression.type);
+        if (left == valueTypes.end() || right == valueTypes.end() ||
+            left->getValue() != expression.type ||
+            right->getValue() != expression.type || !resultWidth ||
+            !acir::isPrimitiveInputWidth(*resultWidth))
+          return planError(
+              "unsigned div/rem operands and result must share one i1..i64 type");
       } else if (expression.kind == "masked_match") {
         if (expression.operands.size() != 1 || expression.type != "i1")
           return planError("masked_match expression contract is malformed");
@@ -5075,7 +5112,8 @@ llvm::Error verifyQueueGraphPlan(const QueueGraphPlan &plan) {
           return false;
         return llvm::StringSwitch<bool>(expression.kind)
             .Cases({"constant", "enum_constant", "get", "value_select"}, true)
-            .Cases({"add", "sub", "mul", "and", "or", "xor", "not"}, true)
+            .Cases({"add", "sub", "mul", "udiv", "urem", "and", "or",
+                    "xor", "not"}, true)
             .Cases({"shl", "shr", "extract", "insert", "concat"}, true)
             .Cases({"popcount", "count_zeros", "cmp", "masked_match"}, true)
             .Default(false);

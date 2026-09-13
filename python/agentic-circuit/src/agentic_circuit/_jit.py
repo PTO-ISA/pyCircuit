@@ -57,13 +57,13 @@ def _native_queue_tool(name: str, environment: str) -> Path:
     )
 
 
-def _lower_queue_acir(
-    acir: str, *, optimizer: str | Path | None = None
-) -> str:
+def _lower_queue_acir(acir: str, *, optimizer: str | Path | None = None) -> str:
     from ._queue_frontend import RULE_LOWERING_PIPELINE
 
-    selected = Path(optimizer) if optimizer is not None else _native_queue_tool(
-        "acir-opt", "ACIR_OPT"
+    selected = (
+        Path(optimizer)
+        if optimizer is not None
+        else _native_queue_tool("acir-opt", "ACIR_OPT")
     )
     if not selected.is_file():
         raise DiagnosticRuntimeError(
@@ -108,8 +108,7 @@ def _lower_acir_to_cpp(acir: str) -> str:
         )
         if emitted.returncode != 0:
             raise DiagnosticRuntimeError(
-                "ACPY-JIT-004: native rule C++ generation failed:\n"
-                + emitted.stderr
+                "ACPY-JIT-004: native rule C++ generation failed:\n" + emitted.stderr
             )
         return emitted.stdout
 
@@ -126,7 +125,9 @@ def config(cls: type[object]) -> type[object]:
     if not isinstance(cls, type):
         raise DiagnosticTypeError("ACPY-JIT-001: config must decorate a class")
     if dataclasses.is_dataclass(cls):
-        raise DiagnosticTypeError("ACPY-JIT-001: config class must not already be a dataclass")
+        raise DiagnosticTypeError(
+            "ACPY-JIT-001: config class must not already be a dataclass"
+        )
     frozen = dataclasses.dataclass(frozen=True, slots=True)(cls)
     setattr(frozen, "__ac_config__", True)
     return frozen
@@ -162,12 +163,16 @@ def _closed(value: object) -> StaticValue:
         result = tuple(_closed(item) for item in value)
     elif type(value) is dict:
         if any(type(key) is not str or not key for key in value):
-            raise DiagnosticTypeError("ACPY-JIT-002: const map keys must be non-empty strings")
+            raise DiagnosticTypeError(
+                "ACPY-JIT-002: const map keys must be non-empty strings"
+            )
         result = FrozenMap(
             tuple(sorted((key, _closed(item)) for key, item in value.items()))
         )
     else:
-        raise DiagnosticTypeError(f"ACPY-JIT-002: unsupported const value {type(value).__name__}")
+        raise DiagnosticTypeError(
+            f"ACPY-JIT-002: unsupported const value {type(value).__name__}"
+        )
     try:
         validate_ijson_value(static_json_value(result))
     except ValueError as error:
@@ -213,7 +218,9 @@ class JitSpecialization:
         if self.workspace is None:
             return None
         if self.definition.source_file is None:
-            raise DiagnosticRuntimeError("ACPY-JIT-003: system has no readable source file")
+            raise DiagnosticRuntimeError(
+                "ACPY-JIT-003: system has no readable source file"
+            )
         try:
             current = capture_source_closure(
                 Path(self.definition.source_file), Path(self.workspace)
@@ -261,10 +268,14 @@ class JitSpecialization:
                 )
             return ast.unparse(ast.fix_missing_locations(ast.Module(statements, [])))
         if self.definition.source_file is None:
-            raise DiagnosticRuntimeError("ACPY-JIT-003: system has no readable source file")
+            raise DiagnosticRuntimeError(
+                "ACPY-JIT-003: system has no readable source file"
+            )
         path = Path(self.definition.source_file)
         if not path.is_file():
-            raise DiagnosticRuntimeError("ACPY-JIT-003: system source file is unavailable")
+            raise DiagnosticRuntimeError(
+                "ACPY-JIT-003: system source file is unavailable"
+            )
         return path.read_text(encoding="utf-8")
 
     def _display_source_path(self) -> str | None:
@@ -288,6 +299,77 @@ class JitSpecialization:
                 continue
         return source.name
 
+    def _definition_locations(self) -> dict[str, tuple[str, int, int]]:
+        """Retain original definition locations across source-closure merging."""
+
+        closure = self._validated_closure()
+        if closure is None:
+            return {}
+        locations: dict[str, tuple[str, int, int]] = {}
+        for entry in closure.entries:
+            source = Path(entry.source_file)
+            raw = source.read_bytes()
+            if sha256_bytes(raw) != entry.sha256:
+                raise DiagnosticRuntimeError(
+                    "ACPY-JIT-003: source changed during source-map capture"
+                )
+            tree = ast.parse(
+                raw.decode("utf-8"), filename=entry.path, type_comments=True
+            )
+            for node in tree.body:
+                if isinstance(
+                    node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)
+                ):
+                    locations.setdefault(
+                        node.name, (entry.path, node.lineno, node.col_offset + 1)
+                    )
+        return locations
+
+    def _static_assert_locations(
+        self,
+    ) -> dict[str, tuple[tuple[str, int, int], ...]]:
+        """Capture direct assertion spans before source-closure normalization."""
+
+        closure = self._validated_closure()
+        if closure is None:
+            return {}
+        locations: dict[str, tuple[tuple[str, int, int], ...]] = {}
+        for entry in closure.entries:
+            source = Path(entry.source_file)
+            raw = source.read_bytes()
+            if sha256_bytes(raw) != entry.sha256:
+                raise DiagnosticRuntimeError(
+                    "ACPY-JIT-003: source changed during source-map capture"
+                )
+            tree = ast.parse(
+                raw.decode("utf-8"), filename=entry.path, type_comments=True
+            )
+            for node in tree.body:
+                if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    continue
+                assertions: list[tuple[str, int, int]] = []
+                for statement in node.body:
+                    call = (
+                        statement.value
+                        if isinstance(statement, ast.Expr)
+                        and isinstance(statement.value, ast.Call)
+                        else None
+                    )
+                    name = (
+                        call.func.id
+                        if call is not None and isinstance(call.func, ast.Name)
+                        else call.func.attr
+                        if call is not None and isinstance(call.func, ast.Attribute)
+                        else ""
+                    )
+                    if name == "static_assert":
+                        assertions.append(
+                            (entry.path, statement.lineno, statement.col_offset + 1)
+                        )
+                if assertions:
+                    locations[node.name] = tuple(assertions)
+        return locations
+
     def lower_acir(self) -> str:
         """Materialize the specialization as Queue/Var ACIR text."""
 
@@ -299,6 +381,8 @@ class JitSpecialization:
             static_arguments=dict(self.arguments),
             specialization_fingerprint=self.fingerprint,
             source_path=self._display_source_path(),
+            definition_locations=self._definition_locations(),
+            static_assert_locations=self._static_assert_locations(),
         )
 
     def lower_cpp(self) -> str:
@@ -316,6 +400,8 @@ class JitSpecialization:
             static_arguments=dict(self.arguments),
             specialization_fingerprint=self.fingerprint,
             source_path=self._display_source_path(),
+            definition_locations=self._definition_locations(),
+            static_assert_locations=self._static_assert_locations(),
         )
         if program.helpers or any(
             queue.rule_name is not None for queue in program.queues
@@ -441,9 +527,9 @@ class JitSpecialization:
                 raise DiagnosticRuntimeError(
                     f"ACPY-JIT-005: required {name} path is unavailable: {path}"
                 )
-        acir = _lower_queue_acir(
-            self.lower_acir(), optimizer=paths["acir_opt"]
-        ).encode("utf-8")
+        acir = _lower_queue_acir(self.lower_acir(), optimizer=paths["acir_opt"]).encode(
+            "utf-8"
+        )
         key = sha256_bytes(
             canonical_json_bytes(
                 {
@@ -634,7 +720,9 @@ def jit(
         )
     unknown = sorted(supplied_names - static_names)
     if unknown:
-        raise DiagnosticTypeError(f"ACPY-JIT-001: unexpected const argument {unknown[0]!r}")
+        raise DiagnosticTypeError(
+            f"ACPY-JIT-001: unexpected const argument {unknown[0]!r}"
+        )
 
     arguments: list[tuple[str, StaticValue]] = []
     for parameter in static_parameters:
@@ -644,8 +732,7 @@ def jit(
             value = parameter.default
         else:
             raise DiagnosticTypeError(
-                "ACPY-JIT-001: missing required const argument "
-                f"{parameter.name!r}"
+                f"ACPY-JIT-001: missing required const argument {parameter.name!r}"
             )
         arguments.append((parameter.name, _closed(value)))
     frozen_arguments = tuple(arguments)

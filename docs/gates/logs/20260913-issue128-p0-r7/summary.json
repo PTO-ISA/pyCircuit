@@ -1,0 +1,58 @@
+{
+  "run_id": "20260913-issue128-p0-r7",
+  "status": "pass",
+  "issue": 128,
+  "decision": 247,
+  "checkout_policy": "current checkout artifacts only",
+  "scope": [
+    "typed literal and zero",
+    "explicit zero/sign extension and truncation",
+    "elaboration-only static assertions",
+    "total unsigned division and remainder",
+    "power-of-two division/remainder canonicalization",
+    "imported rule and static-assert source-location preservation"
+  ],
+  "toolchain": {
+    "build": ".pycircuit_out/issue126-127/integrated/build",
+    "install": ".pycircuit_out/issue126-127/integrated/install",
+    "llvm": "22.1.8"
+  },
+  "evidence": [
+    {
+      "name": "agentic-circuit-g0-g1-g2",
+      "command": "PATH=.pycircuit_out/ac-venv/bin:$PATH PYTHONPATH=/Users/zhoubot/Library/Python/3.14/lib/python/site-packages PYC_GATE_RUN_ID=20260913-issue128-p0-r7 AC_GATE_BUILD_ROOT=$PWD/.pycircuit_out/issue126-127/integrated/build AC_GATE_TOOLCHAIN_ROOT=$PWD/.pycircuit_out/issue126-127/integrated/install PYC_BUILD_JOBS=4 PYC_TEST_JOBS=4 bash flows/scripts/run_agentic_circuit.sh",
+      "result": "pass",
+      "details": "50 contract tests, 341 frontend tests with 1 conditional skip, 53 CLI tests with 3 conditional skips, 220 ACIR lit tests, 18 CTest targets, and every G2 backend/runtime lane passed"
+    },
+    {
+      "name": "typed-integer-runtime",
+      "command": "tests/integration/agentic-circuit/e2e/test_typed_integer_runtime.py -v",
+      "result": "pass",
+      "details": "GFSim, PYC C++, and Verilator match an independent oracle for dynamic u64 divisors 0, 1, 3, and 8, bit 63 inputs, typed zero/literal, zext, sext, and truncate"
+    },
+    {
+      "name": "queuegraph-forgery",
+      "command": "CodeGenTests --gtest_filter=QueueGraphPlanTest.RejectsMalformedUnsignedDivRemExpressionPlan",
+      "result": "pass",
+      "details": "Rejects missing and unknown operands, mismatched width, i65, and aggregate udiv/urem plans"
+    },
+    {
+      "name": "unit",
+      "command": "pytest -q tests/unit -m unit",
+      "result": "147 passed",
+      "details": "Includes total zero-divisor constraints and constant-remainder range propagation"
+    },
+    {
+      "name": "source-map",
+      "command": "pytest -q tests/python/agentic-circuit/python_frontend/test_jit_source_closure.py",
+      "result": "pass",
+      "details": "Imported rules and direct static assertions retain their original file/line after multi-line signatures, comments, blank lines, and source-closure normalization"
+    },
+    {
+      "name": "documentation-and-contracts",
+      "command": "check-contracts.py; check_decision_status.py; mkdocs build --strict",
+      "result": "pass",
+      "details": "The only MkDocs notice is for the pre-existing untracked docs/rfcs/block_inference_binding.md page"
+    }
+  ]
+}

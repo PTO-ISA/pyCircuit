@@ -4309,6 +4309,66 @@ TEST(QueueGraphPlanTest, RejectsMalformedCountZerosExpressionPlan) {
             std::string::npos);
 }
 
+TEST(QueueGraphPlanTest, RejectsMalformedUnsignedDivRemExpressionPlan) {
+  auto makePlan = [](llvm::StringRef kind) {
+    QueueGraphPlan plan;
+    plan.system = "unsigned_div_rem";
+    plan.queues = {{"input", "i8", "/", 1, 1},
+                   {"output", "i8", "/", 1, 1}};
+    plan.blocks.push_back({"source", "input", "/", {}, {"input"}, {1}, {1}});
+    QueueBlockPlan transform{"transform", "output", "/", {"input"}, {"output"}};
+    transform.expressions = {
+        {"divisor", "constant", "i8", {}, "", "", "3 : i8"},
+        {"result", kind.str(), "i8", {"item", "divisor"}},
+    };
+    transform.yields = {"result"};
+    plan.blocks.push_back(std::move(transform));
+    plan.blocks.push_back({"sink", "sink", "/", {"output"}, {}});
+    return plan;
+  };
+
+  for (llvm::StringRef kind : {"udiv", "urem"}) {
+    QueueGraphPlan plan = makePlan(kind);
+    EXPECT_FALSE(bool(verifyQueueGraphPlan(plan)));
+
+    plan = makePlan(kind);
+    plan.blocks[1].expressions[1].operands.pop_back();
+    auto arityError = verifyQueueGraphPlan(plan);
+    ASSERT_TRUE(bool(arityError));
+    EXPECT_NE(llvm::toString(std::move(arityError)).find("contract is malformed"),
+              std::string::npos);
+
+    plan = makePlan(kind);
+    plan.blocks[1].expressions[1].operands[1] = "missing";
+    auto missingError = verifyQueueGraphPlan(plan);
+    ASSERT_TRUE(bool(missingError));
+    EXPECT_NE(llvm::toString(std::move(missingError)).find("share one i1..i64"),
+              std::string::npos);
+
+    plan = makePlan(kind);
+    plan.blocks[1].expressions[0].type = "i7";
+    auto mismatchError = verifyQueueGraphPlan(plan);
+    ASSERT_TRUE(bool(mismatchError));
+    EXPECT_NE(llvm::toString(std::move(mismatchError)).find("share one i1..i64"),
+              std::string::npos);
+
+    plan = makePlan(kind);
+    plan.blocks[1].expressions[1].type = "i65";
+    auto widthError = verifyQueueGraphPlan(plan);
+    ASSERT_TRUE(bool(widthError));
+    EXPECT_NE(llvm::toString(std::move(widthError)).find("share one i1..i64"),
+              std::string::npos);
+
+    plan = makePlan(kind);
+    plan.blocks[1].expressions[0].type = "tuple<i8>";
+    plan.blocks[1].expressions[1].type = "tuple<i8>";
+    auto aggregateError = verifyQueueGraphPlan(plan);
+    ASSERT_TRUE(bool(aggregateError));
+    EXPECT_NE(llvm::toString(std::move(aggregateError)).find("share one i1..i64"),
+              std::string::npos);
+  }
+}
+
 TEST(QueueGraphPlanTest, RejectsUnconsumedQueueAsStaticDeadlockRisk) {
   QueueGraphPlan plan;
   plan.system = "unconsumed";

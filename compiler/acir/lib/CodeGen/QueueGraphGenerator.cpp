@@ -1409,6 +1409,10 @@ emitExpressionBody(const QueueGraphPlan &plan, const QueueBlockPlan &block,
       operation = "-";
     else if (expression.kind == "mul")
       operation = "*";
+    else if (expression.kind == "udiv")
+      operation = "/";
+    else if (expression.kind == "urem")
+      operation = "%";
     else if (expression.kind == "and")
       operation = "&";
     else if (expression.kind == "or")

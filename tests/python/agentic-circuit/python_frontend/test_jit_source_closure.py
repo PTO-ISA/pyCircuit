@@ -268,6 +268,124 @@ class JitSourceClosureTest(unittest.TestCase):
             r"!ac\.value_array<4 x !ac\.struct<@types::@Entry__p[0-9a-f]{12}>>",
         )
 
+    def test_imported_rule_preserves_its_original_source_location(self) -> None:
+        import agentic_circuit as ac
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "location_contracts.py").write_text(
+                "import agentic_circuit as ac\n\n"
+                "@ac.struct\n"
+                "class Payload:\n"
+                "    value: ac.u8\n",
+                encoding="utf-8",
+            )
+            (root / "location_rules.py").write_text(
+                "import agentic_circuit as ac\n"
+                "from location_contracts import Payload\n\n"
+                "# Keep padding so the definition line is observable.\n"
+                "# second padding line\n"
+                "@ac.rule\n"
+                "def increment(value: Payload) -> Payload:\n"
+                "    return value.with_fields(value=value.value + 1)\n",
+                encoding="utf-8",
+            )
+            top = root / "location_top.py"
+            top.write_text(
+                "import agentic_circuit as ac\n"
+                "from location_contracts import Payload\n"
+                "from location_rules import increment\n\n"
+                "@ac.module\n"
+                "def stage(value: Payload) -> Payload:\n"
+                "    result = increment(value)\n"
+                "    return result\n\n"
+                "@ac.system\n"
+                "def located(value: Payload) -> Payload:\n"
+                "    result = stage(value)\n"
+                "    return result\n",
+                encoding="utf-8",
+            )
+
+            sys.path.insert(0, str(root))
+            self.addCleanup(sys.path.remove, str(root))
+            for name in ("location_contracts", "location_rules", "location_top"):
+                sys.modules.pop(name, None)
+                self.addCleanup(sys.modules.pop, name, None)
+            spec = importlib.util.spec_from_file_location("location_top", top)
+            if spec is None or spec.loader is None:
+                raise RuntimeError("cannot load source-location fixture")
+            module = importlib.util.module_from_spec(spec)
+            sys.modules[spec.name] = module
+            spec.loader.exec_module(module)
+
+            lowered = ac.jit(module.located, workspace=root).lower_acir()
+
+        self.assertIn('loc("location_rules.py":7:1)', lowered)
+        self.assertNotIn('loc("location_top.py":7:1)', lowered)
+
+    def test_imported_module_static_assert_preserves_its_original_location(
+        self,
+    ) -> None:
+        import agentic_circuit as ac
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "assert_contracts.py").write_text(
+                "import agentic_circuit as ac\n\n"
+                "@ac.struct\n"
+                "class Payload:\n"
+                "    value: ac.u8\n",
+                encoding="utf-8",
+            )
+            (root / "assert_stage.py").write_text(
+                "import agentic_circuit as ac\n"
+                "from assert_contracts import Payload\n\n"
+                "@ac.rule\n"
+                "def keep(value: Payload) -> Payload:\n"
+                "    return value\n\n"
+                "@ac.module\n"
+                "def checked(\n"
+                "    value: Payload,\n"
+                "    *,\n"
+                "    entries: ac.const[int],\n"
+                ") -> Payload:\n"
+                "    # This comment and blank line disappear under ast.unparse.\n"
+                "\n"
+                '    ac.static_assert(entries > 0, message="entries must be positive")\n'
+                "    result = keep(value)\n"
+                "    return result\n",
+                encoding="utf-8",
+            )
+            top = root / "assert_top.py"
+            top.write_text(
+                "import agentic_circuit as ac\n"
+                "from assert_contracts import Payload\n"
+                "from assert_stage import checked\n\n"
+                "@ac.system\n"
+                "def configured(value: Payload, *, entries: ac.const[int]) -> Payload:\n"
+                "    result = checked(value, entries=entries)\n"
+                "    return result\n",
+                encoding="utf-8",
+            )
+
+            sys.path.insert(0, str(root))
+            self.addCleanup(sys.path.remove, str(root))
+            for name in ("assert_contracts", "assert_stage", "assert_top"):
+                sys.modules.pop(name, None)
+                self.addCleanup(sys.modules.pop, name, None)
+            spec = importlib.util.spec_from_file_location("assert_top", top)
+            if spec is None or spec.loader is None:
+                raise RuntimeError("cannot load static-assert fixture")
+            module = importlib.util.module_from_spec(spec)
+            sys.modules[spec.name] = module
+            spec.loader.exec_module(module)
+
+            with self.assertRaisesRegex(
+                Exception,
+                r"ACPY-STATIC-003: assert_stage.py:16:5: entries must be positive",
+            ):
+                ac.jit(module.configured, workspace=root, entries=0).lower_acir()
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -2254,6 +2254,72 @@ LogicalResult VarMulOp::verify() {
   return verifyVarBinary(*this, getLhs(), getRhs(), getResult());
 }
 
+static LogicalResult verifyVarUnsignedBinary(Operation *operation, Value lhs,
+                                             Value rhs, Value result) {
+  if (lhs.getType() != rhs.getType() || lhs.getType() != result.getType())
+    return operation->emitOpError(
+        "operands and result must have one identical Var type");
+  auto element =
+      dyn_cast<IntegerType>(cast<VarType>(result.getType()).getElementType());
+  if (!element || !element.isSignless() || element.getWidth() == 0 ||
+      element.getWidth() > 64)
+    return operation->emitOpError(
+        "unsigned arithmetic Var element must be a signless integer with width "
+        "in [1, 64]");
+  return success();
+}
+
+LogicalResult VarUDivOp::verify() {
+  return verifyVarUnsignedBinary(*this, getLhs(), getRhs(), getResult());
+}
+
+LogicalResult VarURemOp::verify() {
+  return verifyVarUnsignedBinary(*this, getLhs(), getRhs(), getResult());
+}
+
+namespace {
+
+template <typename SourceOp, typename TargetOp, bool IsRemainder>
+struct CanonicalizeUnsignedPowerOfTwo final : OpRewritePattern<SourceOp> {
+  using OpRewritePattern<SourceOp>::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(SourceOp operation,
+                                PatternRewriter &rewriter) const override {
+    auto divisor = operation.getRhs().template getDefiningOp<VarConstantOp>();
+    auto value = divisor ? dyn_cast<IntegerAttr>(divisor.getValue()) : IntegerAttr();
+    if (!value || !value.getValue().isPowerOf2())
+      return failure();
+    auto resultType = cast<VarType>(operation.getResult().getType());
+    auto integerType = cast<IntegerType>(resultType.getElementType());
+    const uint64_t divisorValue = value.getValue().getZExtValue();
+    const uint64_t replacementValue =
+        IsRemainder ? divisorValue - 1 : llvm::Log2_64(divisorValue);
+    auto replacementConstant = VarConstantOp::create(
+        rewriter,
+        operation.getLoc(), resultType,
+        rewriter.getIntegerAttr(integerType, replacementValue));
+    auto replacement = TargetOp::create(rewriter, operation.getLoc(), resultType,
+                                        operation.getLhs(), replacementConstant);
+    replacement->setDiscardableAttrs(operation->getDiscardableAttrDictionary());
+    rewriter.replaceOp(operation, replacement.getResult());
+    return success();
+  }
+};
+
+} // namespace
+
+void VarUDivOp::getCanonicalizationPatterns(RewritePatternSet &patterns,
+                                            MLIRContext *context) {
+  patterns.add<CanonicalizeUnsignedPowerOfTwo<VarUDivOp, VarShrOp, false>>(
+      context);
+}
+
+void VarURemOp::getCanonicalizationPatterns(RewritePatternSet &patterns,
+                                            MLIRContext *context) {
+  patterns.add<CanonicalizeUnsignedPowerOfTwo<VarURemOp, VarAndOp, true>>(
+      context);
+}
+
 static LogicalResult verifyVarBitBinary(Operation *operation, Value lhs,
                                         Value rhs, Value result) {
   if (lhs.getType() != rhs.getType() || lhs.getType() != result.getType())

@@ -695,6 +695,7 @@ class QueueBinding:
     rule_name: str | None = None
     rule_source_line: int | None = None
     rule_source_column: int | None = None
+    rule_source_path: str | None = None
     rule_table: str | None = None
     rule_table_index: ast.expr | None = None
     rule_table_value: ast.expr | None = None
@@ -1145,6 +1146,7 @@ class RuleDefinition:
     output_types: tuple[ValueType, ...] = ()
     output_expressions: tuple[ast.expr, ...] = ()
     output_guards: tuple[ast.expr, ...] = ()
+    source_path: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -2207,6 +2209,11 @@ def _pure_helper_definitions(
     graph: dict[str, set[str]] = {name: set() for name in nodes}
     pure_intrinsics = {
         "concat",
+        "literal",
+        "zero",
+        "zext",
+        "sext",
+        "truncate",
         "insert",
         "matches",
         "popcount",
@@ -2882,6 +2889,108 @@ def _normalize_rule_field_assignments(
     return normalize(statements)
 
 
+def _strip_static_assertions(
+    function: ast.FunctionDef,
+    values: Mapping[str, StaticValue],
+    source_path: str,
+    definition_locations: Mapping[str, tuple[str, int, int]] | None = None,
+    static_assert_locations: Mapping[str, tuple[tuple[str, int, int], ...]]
+    | None = None,
+) -> None:
+    """Evaluate direct ``ac.static_assert`` statements and erase them.
+
+    The assertion is an elaboration contract: it is checked only after the
+    entry's ``ac.const`` bindings are closed and never reaches Frozen ACIR.
+    """
+
+    definition_location = (definition_locations or {}).get(function.name)
+    assertion_locations = (static_assert_locations or {}).get(function.name, ())
+
+    def location(statement: ast.stmt, ordinal: int) -> tuple[str, int, int]:
+        if ordinal < len(assertion_locations):
+            return assertion_locations[ordinal]
+        if definition_location is None:
+            return source_path, statement.lineno, statement.col_offset + 1
+        path, original_line, _ = definition_location
+        return (
+            path,
+            original_line + statement.lineno - function.lineno,
+            statement.col_offset + 1,
+        )
+
+    body: list[ast.stmt] = []
+    assertion_ordinal = 0
+    for statement in function.body:
+        call = (
+            statement.value
+            if isinstance(statement, ast.Expr) and isinstance(statement.value, ast.Call)
+            else None
+        )
+        if (
+            call is None
+            or _decorator_name(call.func).rsplit(".", 1)[-1] != "static_assert"
+        ):
+            body.append(statement)
+            continue
+        current_ordinal = assertion_ordinal
+        assertion_ordinal += 1
+        if (
+            not 1 <= len(call.args) <= 2
+            or any(keyword.arg != "message" for keyword in call.keywords)
+            or len(call.keywords) > 1
+            or (len(call.args) == 2 and call.keywords)
+        ):
+            raise QueueFrontendError(
+                "ACPY-STATIC-003: static_assert requires a condition and optional message"
+            )
+        message_node = (
+            call.args[1]
+            if len(call.args) == 2
+            else call.keywords[0].value
+            if call.keywords
+            else ast.Constant("static assertion failed")
+        )
+        try:
+            message = evaluate_static(message_node, StaticEnvironment(values))
+        except ValueError as error:
+            raise QueueFrontendError(
+                "ACPY-STATIC-003: static_assert message must be a static string"
+            ) from error
+        if type(message) is not str:
+            raise QueueFrontendError(
+                "ACPY-STATIC-003: static_assert message must be a static string"
+            )
+        try:
+            condition = evaluate_static(call.args[0], StaticEnvironment(values))
+        except ValueError as error:
+            path, line, column = location(statement, current_ordinal)
+            raise QueueFrontendError(
+                f"ACPY-STATIC-003: {path}:{line}:{column}: "
+                "static_assert condition is not closed"
+            ) from error
+        if type(condition) is not bool:
+            path, line, column = location(statement, current_ordinal)
+            raise QueueFrontendError(
+                f"ACPY-STATIC-003: {path}:{line}:{column}: "
+                "static_assert condition must be bool"
+            )
+        if not condition:
+            path, line, column = location(statement, current_ordinal)
+            raise QueueFrontendError(
+                f"ACPY-STATIC-003: {path}:{line}:{column}: {message}"
+            )
+    function.body = body
+    if any(
+        isinstance(candidate, ast.Call)
+        and _decorator_name(candidate.func).rsplit(".", 1)[-1] == "static_assert"
+        for statement in body
+        for candidate in ast.walk(statement)
+    ):
+        raise QueueFrontendError(
+            "ACPY-STATIC-003: static_assert must be a direct entry-body statement"
+        )
+
+
 def parse_queue_program(
     text: str,
     system: str,
@@ -2891,6 +3000,9 @@ def parse_queue_program(
     entry_kind: str = "system",
     source_path: str | None = None,
     static_type_namespace: str = "",
+    definition_locations: Mapping[str, tuple[str, int, int]] | None = None,
+    static_assert_locations: Mapping[str, tuple[tuple[str, int, int], ...]]
+    | None = None,
 ) -> QueueProgram:
     normalized_source_path = _normalize_queue_source_path(source_path)
     tree = ast.parse(text, filename=normalized_source_path, type_comments=True)
@@ -4259,6 +4371,18 @@ def parse_queue_program(
             guard=guard_expression,
             effect_guard=effect_guard_expression,
         )
+    if definition_locations:
+        rule_definitions = {
+            name: replace(
+                definition,
+                source_path=definition_locations[name][0],
+                source_line=definition_locations[name][1],
+                source_column=definition_locations[name][2],
+            )
+            if name in definition_locations
+            else definition
+            for name, definition in rule_definitions.items()
+        }
     candidates = [
         node
         for node in tree.body
@@ -4371,6 +4495,13 @@ def parse_queue_program(
         **module_static_values,
         **supplied,
     }
+    _strip_static_assertions(
+        function,
+        system_static_values,
+        normalized_source_path,
+        definition_locations,
+        static_assert_locations,
+    )
 
     def system_result_payloads(
         annotation: ast.expr | None,
@@ -8474,6 +8605,7 @@ def parse_queue_program(
                         rule_name=definition.name,
                         rule_source_line=definition.source_line,
                         rule_source_column=definition.source_column,
+                        rule_source_path=definition.source_path,
                         rule_table=None if table is None else table.name,
                         rule_table_index=(
                             copy.deepcopy(definition.table_index)
@@ -9013,6 +9145,7 @@ def parse_queue_program(
                             rule_name=definition.name,
                             rule_source_line=definition.source_line,
                             rule_source_column=definition.source_column,
+                            rule_source_path=definition.source_path,
                             rule_input_names=input_names,
                             rule_arguments=definition.arguments,
                             rule_payloads=tuple(
@@ -9103,6 +9236,7 @@ def parse_queue_program(
                         rule_name=definition.name,
                         rule_source_line=definition.source_line,
                         rule_source_column=definition.source_column,
+                        rule_source_path=definition.source_path,
                         rule_table=None if table is None else table.name,
                         rule_table_index=(
                             copy.deepcopy(definition.table_index)
@@ -9450,6 +9584,127 @@ class _ExpressionEmitter:
         if type(fact.value) is not int or not prove_within(fact, 0, entries - 1):
             raise QueueFrontendError(diagnostic)
 
+    @staticmethod
+    def _typed_integer_target(node: ast.expr, intrinsic: str) -> BitsType:
+        try:
+            target = _scalar_type_descriptor(node)
+        except QueueFrontendError as error:
+            raise QueueFrontendError(
+                f"ACPY-CAST-001: {intrinsic} target must be one concrete ac.uN/ac.bits[N] type"
+            ) from error
+        if not isinstance(target, BitsType):
+            raise QueueFrontendError(
+                f"ACPY-CAST-001: {intrinsic} target must be an unsigned bits type"
+            )
+        return target
+
+    def _emit_typed_integer_intrinsic(
+        self, node: ast.Call
+    ) -> tuple[str, ValueType] | None:
+        intrinsic = _decorator_name(node.func).rsplit(".", 1)[-1]
+        if intrinsic not in {"literal", "zero", "zext", "sext", "truncate"}:
+            return None
+        if node.keywords:
+            raise QueueFrontendError(
+                f"ACPY-CAST-001: {intrinsic} accepts positional arguments only"
+            )
+        if intrinsic == "zero":
+            if len(node.args) != 1:
+                raise QueueFrontendError(
+                    "ACPY-CAST-001: zero requires one concrete target type"
+                )
+            target = self._typed_integer_target(node.args[0], intrinsic)
+            value = 0
+        elif intrinsic == "literal":
+            if len(node.args) != 2:
+                raise QueueFrontendError(
+                    "ACPY-CAST-001: literal requires a value and concrete target type"
+                )
+            value = _constant_integer(node.args[0])
+            target = self._typed_integer_target(node.args[1], intrinsic)
+            if value is None or not _proven_integer_in(
+                value, 0, (1 << target.width) - 1
+            ):
+                raise QueueFrontendError(
+                    "ACPY-CAST-001: typed literal must be a nonnegative static integer that fits its target"
+                )
+        else:
+            if len(node.args) != 2:
+                raise QueueFrontendError(
+                    f"ACPY-CAST-001: {intrinsic} requires a value and concrete target type"
+                )
+            target = self._typed_integer_target(node.args[1], intrinsic)
+            source, source_type = self.emit(node.args[0])
+            if not isinstance(source_type, BitsType):
+                raise QueueFrontendError(
+                    f"ACPY-CAST-001: {intrinsic} source must be an unsigned bits value"
+                )
+            source_width = source_type.width
+            if intrinsic in {"zext", "sext"} and target.width <= source_width:
+                raise QueueFrontendError(
+                    f"ACPY-CAST-001: {intrinsic} target must be wider than its source"
+                )
+            if intrinsic == "truncate" and target.width >= source_width:
+                raise QueueFrontendError(
+                    "ACPY-CAST-001: truncate target must be narrower than its source"
+                )
+            result = self._new()
+            rendered_source = _render_type(source_type)
+            rendered_target = _render_type(target)
+            if intrinsic == "truncate":
+                self.lines.append(
+                    f"    %{result} = ac.var.extract %{source} from 0 width {target.width} : "
+                    f"!ac.var<{rendered_source}> -> !ac.var<{rendered_target}>"
+                )
+                constraint = transfer_bits(
+                    "and",
+                    self.constraint_for_result(source, source_type),
+                    Constant((1 << target.width) - 1),
+                    width=target.width,
+                )
+                return self._remember(result, target, constraint)
+            extension = target.width - source_width
+            if intrinsic == "zext":
+                fill = self._new()
+                fill_type = BitsType(extension)
+                rendered_fill = _render_type(fill_type)
+                self.lines.append(
+                    f"    %{fill} = ac.var.constant 0 : {rendered_fill} as !ac.var<{rendered_fill}>"
+                )
+                operands = (fill, source)
+                operand_types = (fill_type, source_type)
+            else:
+                sign = self._new()
+                self.lines.append(
+                    f"    %{sign} = ac.var.extract %{source} from {source_width - 1} width 1 : "
+                    f"!ac.var<{rendered_source}> -> !ac.var<i1>"
+                )
+                operands = (*((sign,) * extension), source)
+                operand_types = (*((BitsType(1),) * extension), source_type)
+            self.lines.append(
+                f"    %{result} = ac.var.concat "
+                + ", ".join(f"%{operand}" for operand in operands)
+                + " : "
+                + ", ".join(
+                    f"!ac.var<{_render_type(operand_type)}>"
+                    for operand_type in operand_types
+                )
+                + f" -> !ac.var<{rendered_target}>"
+            )
+            constraint = (
+                self.constraint_for_result(source, source_type)
+                if intrinsic == "zext"
+                else constraint_for_type(target)
+            )
+            return self._remember(result, target, constraint)
+
+        name = self._new()
+        rendered = _render_type(target)
+        self.lines.append(
+            f"    %{name} = ac.var.constant {value} : {rendered} as !ac.var<{rendered}>"
+        )
+        return self._remember(name, target, Constant(value))
+
     def emit_table_index(self, table: str, address: ast.expr) -> tuple[str, ValueType]:
         domain = self.table_domains.get(table)
         if domain is None:
@@ -9572,6 +9827,9 @@ class _ExpressionEmitter:
         self, node: ast.expr, expected: ValueType | None = None
     ) -> tuple[str, ValueType]:
         if isinstance(node, ast.Call):
+            typed_integer = self._emit_typed_integer_intrinsic(node)
+            if typed_integer is not None:
+                return typed_integer
             helper = (
                 self.helpers.get(node.func.id)
                 if isinstance(node.func, ast.Name)
@@ -10396,6 +10654,8 @@ class _ExpressionEmitter:
                 ast.Add,
                 ast.Sub,
                 ast.Mult,
+                ast.FloorDiv,
+                ast.Mod,
                 ast.BitAnd,
                 ast.BitOr,
                 ast.BitXor,
@@ -10421,6 +10681,8 @@ class _ExpressionEmitter:
                 ast.Add: "add",
                 ast.Sub: "sub",
                 ast.Mult: "mul",
+                ast.FloorDiv: "udiv",
+                ast.Mod: "urem",
                 ast.BitAnd: "and",
                 ast.BitOr: "or",
                 ast.BitXor: "xor",
@@ -12287,7 +12549,7 @@ def lower_queue_program(
                 lines.append(f"{indent}  ac.rule.return")
             lines.append(
                 f"{indent}}} "
-                f"{queue_attributes(queue.name, (queue.rate,), queue.rule_output_names, (program.source_path, queue.rule_source_line or 1, queue.rule_source_column or 1))} : "
+                f"{queue_attributes(queue.name, (queue.rate,), queue.rule_output_names, (queue.rule_source_path or program.source_path, queue.rule_source_line or 1, queue.rule_source_column or 1))} : "
                 f"("
                 + ", ".join(
                     f"!ac.queue<{_render_type(payload)}>" for payload in rule_payloads
@@ -12307,7 +12569,7 @@ def lower_queue_program(
                     if queue.rule_has_output
                     else "() "
                 )
-                + f"loc({canonical_mlir_string(program.source_path)}:"
+                + f"loc({canonical_mlir_string(queue.rule_source_path or program.source_path)}:"
                 f"{queue.rule_source_line}:"
                 f"{queue.rule_source_column})"
             )
@@ -13647,6 +13909,9 @@ def _lower_simple_module_source(
     specialization_fingerprint: str | None = None,
     host_results: bool = False,
     source_path: str | None = None,
+    definition_locations: Mapping[str, tuple[str, int, int]] | None = None,
+    static_assert_locations: Mapping[str, tuple[tuple[str, int, int], ...]]
+    | None = None,
 ) -> str | None:
     normalized_source_path = _normalize_queue_source_path(source_path)
     tree = ast.parse(text, filename=normalized_source_path, type_comments=True)
@@ -14132,6 +14397,13 @@ def _lower_simple_module_source(
         **module_static_values,
         **supplied,
     }
+    _strip_static_assertions(
+        function,
+        system_static_values,
+        normalized_source_path,
+        definition_locations,
+        static_assert_locations,
+    )
     if specialization_fingerprint is None and system_static_values:
         specialization_fingerprint = sha256_bytes(
             canonical_json_bytes(
@@ -14285,6 +14557,8 @@ def _lower_simple_module_source(
                 entry_kind="module",
                 source_path=normalized_source_path,
                 static_type_namespace=namespace,
+                definition_locations=definition_locations,
+                static_assert_locations=static_assert_locations,
             )
             specialized_payloads = {item.name: item for item in program.payloads}
             specialized_values = _type_static_values(tree, dict(frozen))
@@ -14927,6 +15201,9 @@ def lower_queue_source(
     *,
     host_results: bool = False,
     source_path: str | None = None,
+    definition_locations: Mapping[str, tuple[str, int, int]] | None = None,
+    static_assert_locations: Mapping[str, tuple[tuple[str, int, int], ...]]
+    | None = None,
 ) -> str:
     if lowered := _lower_simple_module_source(
         text,
@@ -14935,6 +15212,8 @@ def lower_queue_source(
         specialization_fingerprint=specialization_fingerprint,
         host_results=host_results,
         source_path=source_path,
+        definition_locations=definition_locations,
+        static_assert_locations=static_assert_locations,
     ):
         return lowered
     if host_results:
@@ -14948,6 +15227,8 @@ def lower_queue_source(
             static_arguments=static_arguments,
             specialization_fingerprint=specialization_fingerprint,
             source_path=source_path,
+            definition_locations=definition_locations,
+            static_assert_locations=static_assert_locations,
         )
     )
 

@@ -302,14 +302,26 @@ verifier record namespace 不进入类型语义。完整例子见
 `examples/agentic-circuit/types/scalar_parameterized_types.py` 和
 `examples/agentic-circuit/types/multi_specialization_types.py`。
 
+`ac.static_assert(condition, message=...)` 只能作为 entry body 的直接语句。
+它在 `ac.const` 绑定后求值，condition 必须是封闭 bool、message 必须是静态字符串，
+并在 Frozen ACIR 前消除。失败或依赖 runtime 值时，诊断保留规范化相对路径和行列。
+
 静态位掩码表达式遵守可移植 I-JSON 整数范围；负移位量及结果超出该范围的左移
 会在执行移位前被拒绝。运行时 `ac.uN` 移位仍遵守电路的精确位宽语义。
 
 无符号电路位型完整定义为 `ac.u1` 到 `ac.u64`。每个名称代表一个精确位宽，
-可直接作为 Queue payload 或 `@ac.struct` 字段。`+`、`-`、`*`、`&`、
-`|`、`^`、`~`、`<<` 和 `>>` 都保持声明位宽；二元位操作数必须同宽，
+可直接作为 Queue payload 或 `@ac.struct` 字段。`+`、`-`、`*`、`//`、`%`、
+`&`、`|`、`^`、`~`、`<<` 和 `>>` 都保持声明位宽；二元位操作数必须同宽，
 右侧整数常量从左侧操作数获得类型。结果按 (2^N) 取模，移位量大于或等于
-(N) 时结果为零。相等比较要求位宽一致，`ac.uN` 的关系比较采用无符号语义。
+(N) 时结果为零。无符号除法和取余在除数为零时返回零，与 PYC/GFSim 保持一致；
+2 的幂常量除数会 canonicalize 为 shift/mask。相等比较要求位宽一致，`ac.uN` 的
+关系比较采用无符号语义。
+
+位宽变化必须显式书写：`ac.zext(value, ac.uN)` 与 `ac.sext(value, ac.uN)`
+要求目标更宽，`ac.truncate(value, ac.uN)` 要求目标更窄。`ac.literal(value, ac.uN)`
+与 `ac.zero(ac.uN)` 生成精确位宽常量。bool、enum、runtime width、方向错误和
+超范围 literal 都会拒绝；这些 helper lowering 为已有的 constant/extract/concat，
+不引入后端私有 cast。
 
 此外保留 `bool`、`int` 和 `ac.s8/s16/s32/s64`。当前 ACIR 契约已冻结整数
 宽度，但尚未把有符号性作为完全独立的类型语义；这些保留的 `sN` 名称目前也

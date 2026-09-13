@@ -61,6 +61,7 @@ from .markers import (
     merge,
     observe,
     onehot_encode,
+    literal,
     pipeline,
     popcount,
     priority_encode,
@@ -68,12 +69,17 @@ from .markers import (
     route,
     schedule,
     scope,
+    sext,
     set,
     sink,
     slot,
     source,
     table,
+    static_assert,
+    truncate,
     view,
+    zero,
+    zext,
 )
 
 _UNSIGNED_NAMES = tuple(f"u{width}" for width in _types_module.UNSIGNED_WIDTHS)

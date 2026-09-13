@@ -382,6 +382,76 @@ def pipeline() -> None:
     ac.sink(output_queue)
 """
 
+TYPED_CONVERSION_SOURCE = """
+import agentic_circuit as ac
+
+@ac.struct
+class Converted:
+    narrow: ac.u3
+    wide: ac.u8
+    signed: ac.u8
+    literal: ac.u5
+    zero: ac.u5
+
+@ac.rule
+def convert(value: ac.u3) -> Converted:
+    wide = ac.zext(value, ac.u8)
+    return Converted(
+        narrow=ac.truncate(wide, ac.u3),
+        wide=wide,
+        signed=ac.sext(value, ac.u8),
+        literal=ac.literal(17, ac.u5),
+        zero=ac.zero(ac.u5),
+    )
+
+@ac.module
+def convert_stage(value: ac.u3) -> Converted:
+    result = convert(value)
+    return result
+
+@ac.system
+def conversions(value: ac.u3) -> Converted:
+    result = convert_stage(value)
+    return result
+"""
+
+STATIC_ASSERT_SOURCE = """
+import agentic_circuit as ac
+
+@ac.system
+def configured(*, entries: ac.const[int]) -> None:
+    ac.static_assert(entries > 0, message="entries must be positive")
+    ac.static_assert(entries % 2 == 0, "entries must be even")
+    values = ac.source(ac.u8)
+    ac.sink(values)
+"""
+
+UNSIGNED_DIV_REM_SOURCE = """
+import agentic_circuit as ac
+
+@ac.struct
+class DivResult:
+    quotient: ac.u8
+    remainder: ac.u8
+
+@ac.rule
+def divide(value: ac.u8, divisor: ac.u8) -> DivResult:
+    return DivResult(
+        quotient=value // divisor,
+        remainder=value % divisor,
+    )
+
+@ac.module
+def divide_stage(value: ac.u8, divisor: ac.u8) -> DivResult:
+    result = divide(value, divisor)
+    return result
+
+@ac.system
+def unsigned_div_rem(value: ac.u8, divisor: ac.u8) -> DivResult:
+    result = divide_stage(value, divisor)
+    return result
+"""
+
 ONEHOT_ENCODE_SOURCE = """
 import agentic_circuit as ac
 
@@ -3428,6 +3498,90 @@ def pipeline() -> None:
         self.assertIn('order "low"', lowered)
         self.assertIn("ac.var.constant 1 : i3 as !ac.var<i3>", lowered)
         self.assertIn("size = 24 : i64", lowered)
+
+    def test_typed_literals_and_explicit_width_conversions_use_verified_primitives(
+        self,
+    ) -> None:
+        from agentic_circuit._queue_frontend import lower_queue_source
+
+        lowered = lower_queue_source(TYPED_CONVERSION_SOURCE, "conversions")
+        self.assertIn("ac.var.constant 17 : i5 as !ac.var<i5>", lowered)
+        self.assertIn("ac.var.constant 0 : i5 as !ac.var<i5>", lowered)
+        self.assertIn("ac.var.constant 0 : i5 as !ac.var<i5>", lowered)
+        self.assertIn("ac.var.extract", lowered)
+        self.assertIn("from 2 width 1", lowered)
+        self.assertIn("from 0 width 3", lowered)
+        self.assertIn("-> !ac.var<i8>", lowered)
+        self.assertGreaterEqual(lowered.count("ac.var.concat"), 2)
+        self.assertNotIn("ac.var.cast", lowered)
+
+    def test_typed_conversion_rejects_wrong_direction_and_bool_sources(self) -> None:
+        from agentic_circuit._queue_frontend import (
+            QueueFrontendError,
+            lower_queue_source,
+        )
+
+        with self.assertRaisesRegex(QueueFrontendError, "target must be wider"):
+            lower_queue_source(
+                TYPED_CONVERSION_SOURCE.replace(
+                    "ac.zext(value, ac.u8)", "ac.zext(value, ac.u3)", 1
+                ),
+                "conversions",
+            )
+        with self.assertRaisesRegex(QueueFrontendError, "must be narrower"):
+            lower_queue_source(
+                TYPED_CONVERSION_SOURCE.replace(
+                    "ac.truncate(wide, ac.u3)", "ac.truncate(wide, ac.u8)", 1
+                ),
+                "conversions",
+            )
+        with self.assertRaisesRegex(
+            QueueFrontendError, "must be an unsigned bits value"
+        ):
+            lower_queue_source(
+                TYPED_CONVERSION_SOURCE.replace(
+                    "value: ac.u3", "value: bool", 2
+                ).replace("ac.u3) -> Converted", "bool) -> Converted"),
+                "conversions",
+            )
+
+    def test_static_assert_evaluates_after_const_binding_and_leaves_no_ir(self) -> None:
+        from agentic_circuit._queue_frontend import (
+            QueueFrontendError,
+            lower_queue_source,
+        )
+
+        lowered = lower_queue_source(
+            STATIC_ASSERT_SOURCE, "configured", static_arguments={"entries": 4}
+        )
+        self.assertNotIn("static_assert", lowered)
+        with self.assertRaisesRegex(QueueFrontendError, "entries must be positive"):
+            lower_queue_source(
+                STATIC_ASSERT_SOURCE,
+                "configured",
+                static_arguments={"entries": 0},
+                source_path="design/configured.py",
+            )
+        with self.assertRaisesRegex(
+            QueueFrontendError, r"design/configured.py:7:5: entries must be even"
+        ):
+            lower_queue_source(
+                STATIC_ASSERT_SOURCE,
+                "configured",
+                static_arguments={"entries": 3},
+                source_path="design/configured.py",
+            )
+
+    def test_runtime_unsigned_division_and_remainder_lower_to_explicit_acir(
+        self,
+    ) -> None:
+        from agentic_circuit._queue_frontend import lower_queue_source
+
+        lowered = lower_queue_source(UNSIGNED_DIV_REM_SOURCE, "unsigned_div_rem")
+        self.assertEqual(1, lowered.count("ac.var.udiv"))
+        self.assertEqual(1, lowered.count("ac.var.urem"))
+        self.assertNotIn("FloorDiv", lowered)
+        self.assertNotIn("operator.mod", lowered)
 
     def test_onehot_encode_exposes_index_presence_and_conflict(self) -> None:
         from agentic_circuit._queue_frontend import lower_queue_source

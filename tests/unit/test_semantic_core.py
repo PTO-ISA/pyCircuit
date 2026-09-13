@@ -319,6 +319,15 @@ def test_typed_bitvector_transfer_preserves_wrap_and_overshift_semantics() -> No
     assert transfer_bits(
         "add", ClosedInterval(0, 7), Constant(1), width=3, finite_limit=2
     ) == ClosedInterval(0, 7)
+    assert transfer_bits(
+        "urem", ClosedInterval(0, 255), Constant(3), width=8, finite_limit=2
+    ) == ClosedInterval(0, 2)
+    assert transfer_bits("udiv", Constant(255), Constant(0), width=8) == Constant(
+        0
+    )
+    assert transfer_bits("urem", Constant(255), Constant(0), width=8) == Constant(
+        0
+    )
     with pytest.raises(ConstraintError, match=r"\[1, 64\]"):
         transfer_bits("add", Constant(0), Constant(0), width=0)
 

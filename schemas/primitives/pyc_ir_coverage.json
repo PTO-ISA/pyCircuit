@@ -1215,6 +1215,7 @@
       "status": "normative",
       "symbol": "PYC_SextOp",
       "tests": [
+        "tests/python/agentic-circuit/python_frontend/test_public_api.py",
         "tests/unit/test_api_contract.py",
         "tests/unit/test_pyc6_surface.py",
         "tests/unit/test_v6_forward_signal.py"
@@ -1425,18 +1426,24 @@
       "verilog_emitter": "compiler/mlir/lib/Emit/VerilogEmitter.cpp"
     },
     {
-      "acir_producer": [],
+      "acir_producer": [
+        "compiler/acir/lib/CodeGen/QueueGraphPyc.cpp"
+      ],
       "canonicalization": [
         "compiler/mlir/lib/Transforms/FuseCombPass.cpp"
       ],
       "cpp_emitter": "compiler/mlir/lib/Emit/CppEmitter.cpp",
-      "e2e": [],
+      "e2e": [
+        "tests/integration/agentic-circuit/e2e/test_typed_integer_runtime.py"
+      ],
       "examples": [],
       "folder": "compiler/mlir/lib/Dialect/PYC/PYCOps.cpp",
       "kind": "operation",
       "name": "pyc.udiv",
       "negative_mlir": [],
-      "positive_mlir": [],
+      "positive_mlir": [
+        "tests/mlir/agentic-circuit/CodeGen/bit-widths.mlir"
+      ],
       "python_producer": [
         "python/pycircuit/src/pycircuit/dsl.py"
       ],
@@ -1445,23 +1452,34 @@
       "stage": "canonical-pyc",
       "status": "normative",
       "symbol": "PYC_UdivOp",
-      "tests": [],
+      "tests": [
+        "tests/cpp/agentic-circuit/CodeGen/QueueGraphPlanTest.cpp",
+        "tests/integration/agentic-circuit/e2e/test_typed_integer_runtime.py",
+        "tests/mlir/agentic-circuit/CodeGen/bit-widths.mlir",
+        "tests/unit/test_semantic_core.py"
+      ],
       "verifier": "compiler/mlir/lib/Dialect/PYC/PYCOps.cpp",
       "verilog_emitter": "compiler/mlir/lib/Emit/VerilogEmitter.cpp"
     },
     {
-      "acir_producer": [],
+      "acir_producer": [
+        "compiler/acir/lib/CodeGen/QueueGraphPyc.cpp"
+      ],
       "canonicalization": [
         "compiler/mlir/lib/Transforms/FuseCombPass.cpp"
       ],
       "cpp_emitter": "compiler/mlir/lib/Emit/CppEmitter.cpp",
-      "e2e": [],
+      "e2e": [
+        "tests/integration/agentic-circuit/e2e/test_typed_integer_runtime.py"
+      ],
       "examples": [],
       "folder": "compiler/mlir/lib/Dialect/PYC/PYCOps.cpp",
       "kind": "operation",
       "name": "pyc.urem",
       "negative_mlir": [],
-      "positive_mlir": [],
+      "positive_mlir": [
+        "tests/mlir/agentic-circuit/CodeGen/bit-widths.mlir"
+      ],
       "python_producer": [
         "python/pycircuit/src/pycircuit/dsl.py"
       ],
@@ -1470,7 +1488,12 @@
       "stage": "canonical-pyc",
       "status": "normative",
       "symbol": "PYC_UremOp",
-      "tests": [],
+      "tests": [
+        "tests/cpp/agentic-circuit/CodeGen/QueueGraphPlanTest.cpp",
+        "tests/integration/agentic-circuit/e2e/test_typed_integer_runtime.py",
+        "tests/mlir/agentic-circuit/CodeGen/bit-widths.mlir",
+        "tests/unit/test_semantic_core.py"
+      ],
       "verifier": "compiler/mlir/lib/Dialect/PYC/PYCOps.cpp",
       "verilog_emitter": "compiler/mlir/lib/Emit/VerilogEmitter.cpp"
     },
@@ -1603,6 +1626,7 @@
       "symbol": "PYC_ZextOp",
       "tests": [
         "tests/mlir/agentic-circuit/CodeGen/table-multidimensional-pyc.mlir",
+        "tests/python/agentic-circuit/python_frontend/test_public_api.py",
         "tests/unit/test_pyc6_surface.py",
         "tests/unit/test_v6_forward_signal.py"
       ],

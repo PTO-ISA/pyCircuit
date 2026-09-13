@@ -1,0 +1,79 @@
+[pyc] Agentic Circuit closure run-id=20260913-issue128-p0-r7
+[pyc] reusing Agentic Circuit gate environment /Users/zhoubot/linx-isa/tools/pyCircuit/.pycircuit_out/agentic-circuit/venv
+[pyc] AC G0/G1: reusing integrated native build /Users/zhoubot/linx-isa/tools/pyCircuit/.pycircuit_out/issue126-127/integrated/build
+repository contracts: OK (15 public schemas, 35 stdlib components, epoch 0.5, LLVM 22.1.8)
+[1/8] Linking CXX executable bin/acir-opcode-catalog
+[2/8] Linking CXX executable bin/acir-cxxgen
+[3/8] Linking CXX shared module compiler/acir/python/agentic_circuit/_native.so
+[4/8] Linking CXX executable bin/acir-build
+ld: warning: ignoring duplicate libraries: '/opt/homebrew/Cellar/llvm/22.1.8/lib/libLLVMSupport.a', '/opt/homebrew/Cellar/llvm/22.1.8/lib/libMLIRFuncDialect.a', '/opt/homebrew/Cellar/llvm/22.1.8/lib/libMLIRPass.a', '/opt/homebrew/Cellar/llvm/22.1.8/lib/libMLIRSCFDialect.a', 'compiler/acir/lib/Analysis/libACIRAnalysis.a', 'compiler/acir/lib/Dialect/ACIR/libACIRDialect.a', 'compiler/acir/lib/Transforms/libACIRTransforms.a'
+[5/8] Linking CXX executable bin/acir-queue-plan
+ld: warning: ignoring duplicate libraries: 'compiler/acir/lib/Dialect/ACIR/libACIRDialect.a'
+[6/8] Linking CXX executable bin/acir-opt
+ld: warning: ignoring duplicate libraries: '/opt/homebrew/Cellar/llvm/22.1.8/lib/libMLIRFuncDialect.a', '/opt/homebrew/Cellar/llvm/22.1.8/lib/libMLIRSCFDialect.a', '/opt/homebrew/Cellar/llvm/22.1.8/lib/libMLIRTransforms.a', 'compiler/acir/lib/Analysis/libACIRAnalysis.a', 'compiler/acir/lib/Dialect/ACIR/libACIRDialect.a', 'compiler/acir/lib/Transforms/libACIRTransforms.a'
+[7/8] Linking CXX executable bin/acir-opt-internal
+ld: warning: ignoring duplicate libraries: '/opt/homebrew/Cellar/llvm/22.1.8/lib/libMLIRFuncDialect.a', '/opt/homebrew/Cellar/llvm/22.1.8/lib/libMLIRSCFDialect.a', '/opt/homebrew/Cellar/llvm/22.1.8/lib/libMLIRTransforms.a', 'compiler/acir/lib/Analysis/libACIRAnalysis.a', 'compiler/acir/lib/Dialect/ACIR/libACIRDialect.a', 'compiler/acir/lib/Transforms/libACIRTransforms.a'
+[7/8] Running Agentic Circuit lit tests
+-- Testing: 220 tests, 10 workers --
+Testing:  0.. 10.. 20.. 30.. 40.. 50.. 60.. 70.. 80.. 90..
+
+Testing Time: 14.76s
+
+Total Discovered Tests: 220
+  Passed: 220 (100.00%)
+Test project /Users/zhoubot/linx-isa/tools/pyCircuit/.pycircuit_out/issue126-127/integrated/build
+      Start 17: CodeGenTests
+      Start 14: ACIRProcessStatePlanTests
+      Start 13: ACIRModelAnalysisTests
+      Start 10: ACIROpsTests
+ 1/18 Test #10: ACIROpsTests ........................   Passed    5.95 sec
+      Start  7: PycVerilogBackendTests
+ 2/18 Test #13: ACIRModelAnalysisTests ..............   Passed    6.10 sec
+      Start  1: RuleRetirementE2ETests
+ 3/18 Test  #1: RuleRetirementE2ETests ..............   Passed    1.78 sec
+      Start  2: BitfieldE2ETests
+ 4/18 Test #14: ACIRProcessStatePlanTests ...........   Passed    8.56 sec
+      Start  3: NestedPayloadE2ETests
+ 5/18 Test  #2: BitfieldE2ETests ....................   Passed    1.45 sec
+      Start  4: EnumPayloadE2ETests
+ 6/18 Test  #3: NestedPayloadE2ETests ...............   Passed    1.51 sec
+      Start  5: AggregatePayloadE2ETests
+ 7/18 Test  #7: PycVerilogBackendTests ..............   Passed    4.46 sec
+      Start  6: RecursiveAggregatePayloadE2ETests
+ 8/18 Test  #4: EnumPayloadE2ETests .................   Passed    1.51 sec
+      Start 12: ACSimOpsTests
+ 9/18 Test #12: ACSimOpsTests .......................   Passed    0.11 sec
+      Start 15: ACIRBindingTests
+10/18 Test #15: ACIRBindingTests ....................   Passed    0.03 sec
+      Start 11: ACSimTypesTests
+11/18 Test #11: ACSimTypesTests .....................   Passed    0.01 sec
+      Start 18: CompilerTests
+12/18 Test #18: CompilerTests .......................   Passed    0.03 sec
+      Start  9: ACIRTypesTests
+13/18 Test  #9: ACIRTypesTests ......................   Passed    0.02 sec
+      Start 16: ACIRToACSimTests
+14/18 Test #16: ACIRToACSimTests ....................   Passed    0.03 sec
+      Start  8: GfsimTests
+15/18 Test  #8: GfsimTests ..........................   Passed    0.01 sec
+16/18 Test  #5: AggregatePayloadE2ETests ............   Passed    1.43 sec
+17/18 Test  #6: RecursiveAggregatePayloadE2ETests ...   Passed    1.43 sec
+18/18 Test #17: CodeGenTests ........................   Passed   56.51 sec
+
+100% tests passed, 0 tests failed out of 18
+
+Label Time Summary:
+aggregate-payload    =   2.86 sec*proc (2 tests)
+bitfield             =   1.45 sec*proc (1 test)
+e2e                  =   9.11 sec*proc (6 tests)
+enum-payload         =   1.51 sec*proc (1 test)
+gfsim                =   9.11 sec*proc (6 tests)
+nested-payload       =   1.51 sec*proc (1 test)
+pyc                  =   4.46 sec*proc (1 test)
+recursive-payload    =   1.43 sec*proc (1 test)
+rule                 =   1.78 sec*proc (1 test)
+verilog              =   4.46 sec*proc (1 test)
+
+Total Test time (real) =  56.51 sec
+[pyc] AC G2: build and install the repo-local pyc6 + AC toolchain
+[pyc] AC G2: reusing integrated toolchain /Users/zhoubot/linx-isa/tools/pyCircuit/.pycircuit_out/issue126-127/integrated/install
+[pyc] Agentic Circuit G0/G1/G2 closure passed

@@ -603,6 +603,15 @@ pycircuit sidecar verify FILE
 | `mux(c, a, b)` | `pyc.select` |
 | cast/extract/shift/concat | 对应 scalar PYC primitive |
 
+Agentic Circuit 的无符号位向量支持 exact-width `//` 与 `%`；除数为零时结果为
+零，与 PYC/GFSim 保持一致。常量 2 的幂除法/取余在 canonicalization 中转为
+shift/mask。使用 `ac.zext`、`ac.sext`、`ac.truncate` 显式改变位宽，使用
+`ac.literal(value, ac.uN)` / `ac.zero(ac.uN)` 构造精确类型常量。错误方向、
+runtime width、bool/enum 隐式混用和超范围 literal 均拒绝。
+
+`ac.static_assert(condition, message=...)` 在 JIT `ac.const` 参数绑定后求值，
+只允许直接出现在 entry body，并在 Frozen ACIR 前消失；失败诊断保留相对源码位置。
+
 ### Aggregate lowering boundary
 
 ACIR `!ac.struct`、`!ac.enum`、builtin tuple 与 `!ac.value_array` 在

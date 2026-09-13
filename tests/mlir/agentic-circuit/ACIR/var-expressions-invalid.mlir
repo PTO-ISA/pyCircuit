@@ -20,6 +20,8 @@
 // RUN: %not %acir_opt %t/insert-range.mlir 2>&1 | %FileCheck %s --check-prefix=INSERT-RANGE
 // RUN: %not %acir_opt %t/sub-nonnumeric.mlir 2>&1 | %FileCheck %s --check-prefix=SUB-NONNUMERIC
 // RUN: %not %acir_opt %t/mul-nonnumeric.mlir 2>&1 | %FileCheck %s --check-prefix=MUL-NONNUMERIC
+// RUN: %not %acir_opt %t/udiv-nonnumeric.mlir 2>&1 | %FileCheck %s --check-prefix=UDIV-NONNUMERIC
+// RUN: %not %acir_opt %t/urem-width.mlir 2>&1 | %FileCheck %s --check-prefix=UREM-WIDTH
 // RUN: %not %acir_opt %t/or-width.mlir 2>&1 | %FileCheck %s --check-prefix=OR-WIDTH
 // RUN: %not %acir_opt %t/xor-width.mlir 2>&1 | %FileCheck %s --check-prefix=XOR-WIDTH
 // RUN: %not %acir_opt %t/not-width.mlir 2>&1 | %FileCheck %s --check-prefix=NOT-WIDTH
@@ -47,6 +49,8 @@
 // INSERT-RANGE: error: 'ac.var.insert' op inserted range must be within the base width
 // SUB-NONNUMERIC: error: 'ac.var.sub' op arithmetic Var element must be an integer or float
 // MUL-NONNUMERIC: error: 'ac.var.mul' op arithmetic Var element must be an integer or float
+// UDIV-NONNUMERIC: error: 'ac.var.udiv' op unsigned arithmetic Var element must be a signless integer with width in [1, 64]
+// UREM-WIDTH: error: 'ac.var.urem' op unsigned arithmetic Var element must be a signless integer with width in [1, 64]
 // OR-WIDTH: error: 'ac.var.or' op bit operation Var element must be a signless integer with width in [1, 64]
 // XOR-WIDTH: error: 'ac.var.xor' op bit operation Var element must be a signless integer with width in [1, 64]
 // NOT-WIDTH: error: 'ac.var.not' op bit operation Var element must be a signless integer with width in [1, 64]
@@ -164,6 +168,18 @@ builtin.module attributes {ac.contract_epoch = "0.5"} {
 builtin.module attributes {ac.contract_epoch = "0.5"} {
   %value = "builtin.unrealized_conversion_cast"() : () -> !ac.var<i128>
   %bad = ac.var.or %value, %value : !ac.var<i128>
+}
+
+//--- udiv-nonnumeric.mlir
+builtin.module attributes {ac.contract_epoch = "0.5"} {
+  %value = "builtin.unrealized_conversion_cast"() : () -> !ac.var<tuple<i8>>
+  %bad = ac.var.udiv %value, %value : !ac.var<tuple<i8>>
+}
+
+//--- urem-width.mlir
+builtin.module attributes {ac.contract_epoch = "0.5"} {
+  %value = "builtin.unrealized_conversion_cast"() : () -> !ac.var<i128>
+  %bad = ac.var.urem %value, %value : !ac.var<i128>
 }
 
 //--- xor-width.mlir

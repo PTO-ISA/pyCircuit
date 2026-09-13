@@ -68,6 +68,7 @@ recorded_toolchain="${AC_GATE_TOOLCHAIN_ROOT:-${gate_out_dir}/toolchain/install}
   echo "compiler/acir/tools/ac-queue-pyc-build.py <ACIR> ..."
   echo "python3 tests/integration/agentic-circuit/e2e/test_pyc_backend.py <selected-cases> -v"
   echo "python3 tests/integration/agentic-circuit/e2e/test_bit_primitive_parity.py -v"
+  echo "python3 tests/integration/agentic-circuit/e2e/test_typed_integer_runtime.py -v"
   echo "python3 tests/integration/agentic-circuit/e2e/test_typed_system_transactions.py -v"
   echo "python3 tests/integration/agentic-circuit/e2e/test_typed_record_pyc.py -v"
   echo "python3 tests/integration/agentic-circuit/e2e/test_multi_output_atomic.py -v"
@@ -274,6 +275,14 @@ PYTHONPATH="${PYC_ROOT_DIR}/python/semantic-core/src:${ac_python}/src:${ac_pytho
   -v
 
 PYC_TOOLCHAIN_ROOT="${toolchain}" \
+ACIR_BIN="$(dirname "${acir_opt}")" \
+PYCC="${pycc}" \
+PYTHONPATH="${PYC_ROOT_DIR}/python/semantic-core/src:${ac_python}/src:${ac_python_build}" \
+  "${venv}/bin/python" \
+  "${PYC_ROOT_DIR}/tests/integration/agentic-circuit/e2e/test_typed_integer_runtime.py" \
+  -v
+
+PYC_TOOLCHAIN_ROOT="${toolchain}" \
 ACIR_OPT="${acir_opt}" \
 ACIR_QUEUE_PLAN="${acir_plan}" \
 ACIR_QUEUE_CXXGEN="${acir_cxxgen}" \
@@ -346,7 +355,7 @@ cat > "${docs_gate_dir}/agentic_circuit_summary.json" <<EOF
   "resume_from": "${resume_from}",
   "contract_epoch": "0.5",
   "pyc_interface": "pyc6",
-  "cases": ["arbiter", "atomic-transform", "bit-widths", "masked-match", "popcount", "multi-output-atomic", "rule-retirement", "bitfield", "masked-decode", "nested-payload", "enum-payload", "aggregate-payload", "recursive-aggregate-payload", "typed-system-transactions", "typed-record-pyc", "multi-output-state-gfsim", "multi-output-pyc-parity", "aggregate-equality-invariant-gfsim", "aggregate-equality-invariant-pyc-parity", "table-round-robin-pyc-parity", "table-writer-arbitration-pyc-parity", "table-field-replace-order-pyc-parity", "table-direct-native-gfsim"]
+  "cases": ["arbiter", "atomic-transform", "bit-widths", "masked-match", "popcount", "typed-integer-runtime", "multi-output-atomic", "rule-retirement", "bitfield", "masked-decode", "nested-payload", "enum-payload", "aggregate-payload", "recursive-aggregate-payload", "typed-system-transactions", "typed-record-pyc", "multi-output-state-gfsim", "multi-output-pyc-parity", "aggregate-equality-invariant-gfsim", "aggregate-equality-invariant-pyc-parity", "table-round-robin-pyc-parity", "table-writer-arbitration-pyc-parity", "table-field-replace-order-pyc-parity", "table-direct-native-gfsim"]
 }
 EOF
 

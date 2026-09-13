@@ -513,8 +513,9 @@ LogicalResult verifyQueueHelperLowerability(func::FuncOp function) {
         isa<func::CallOp, func::ReturnOp, scf::IfOp, scf::YieldOp,
             ac::VarConstantOp, ac::VarEnumOp, ac::VarTupleOp, ac::VarArrayOp,
             ac::VarRecordOp, ac::VarElementOp, ac::VarAddOp, ac::VarSubOp,
-            ac::VarMulOp, ac::VarAndOp, ac::VarOrOp, ac::VarXorOp, ac::VarShlOp,
-            ac::VarShrOp, ac::VarMatchesOp, ac::VarNotOp,
+            ac::VarMulOp, ac::VarUDivOp, ac::VarURemOp, ac::VarAndOp,
+            ac::VarOrOp, ac::VarXorOp, ac::VarShlOp, ac::VarShrOp,
+            ac::VarMatchesOp, ac::VarNotOp,
             ac::VarPriorityEncodeOp, ac::VarPopcountOp, ac::VarCountZerosOp,
             ac::VarCmpOp, ac::VarSelectOp, ac::VarExtractOp, ac::VarConcatOp,
             ac::VarInsertOp, ac::VarGetOp, ac::VarWithOp>(operation);

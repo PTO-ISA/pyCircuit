@@ -9098,3 +9098,53 @@ to distinguish zero, one-hot, and malformed multi-hot flag bundles.
 - Chisel Bundle/Vec/Enum/DataView, SpinalHDL Bundle/Vec/Enum, Amaranth
   shape/data/enum, and CIRCT PyCDE parameterization references recorded on the
   issue.
+
+## Decision 0247: explicit width conversion, static assertions, total unsigned div/rem, and source locations
+
+**Status:** Accepted and implemented
+
+**Extends:** Decisions 0228, 0235, 0236, 0242, 0243, 0244, and 0246.
+
+**Context / Goal**
+Consumer models need configuration-checked geometry, exact width changes, and
+runtime set/line arithmetic without manufacturing typed zero through unrelated
+values or expanding division into hand-written mux trees. Multi-file JIT
+closures must also report the imported definition rather than the root assembly
+call site.
+
+**Decision (strong constraint)**
+- `ac.literal(value, ac.uN)` and `ac.zero(ac.uN)` create exact-width unsigned
+  constants. `ac.zext`, `ac.sext`, and `ac.truncate` require explicit concrete
+  target types and correct width direction. Bool and enum conversion remains
+  separate and explicit. These helpers lower to existing constant, extract,
+  and concat operations rather than backend-only casts.
+- `ac.static_assert` is a direct entry-body elaboration statement. It executes
+  after closed `ac.const` binding, accepts only a static boolean and static
+  message, reports normalized source provenance, and leaves no Frozen ACIR op.
+- Agentic `//` and `%` are exact-width unsigned `ac.var.udiv` and
+  `ac.var.urem`. Both are total and return zero for a zero divisor, matching
+  existing PYC and GFSim semantics. Nonzero configuration requirements use
+  `ac.static_assert`; a dynamic zero cannot be falsely claimed as a verifier
+  rejection.
+- Canonicalization changes division by a power-of-two constant to logical
+  shift and remainder to bit mask. Other constant and dynamic divisors remain
+  explicit PYC `udiv`/`urem`. Constraint analysis preserves the total zero
+  case and derives `[0, divisor-1]` for a known nonzero remainder divisor.
+- Source-closure merging retains each top-level definition's project-relative
+  path, one-based line, and column. Rule metadata and MLIR locations use the
+  imported definition location; the root source remains the specialization
+  identity and call-site context.
+
+**Required verification**
+- Frontend negative tests cover wrong conversion direction, non-bits sources,
+  out-of-range literals, runtime static assertions, and failed configuration
+  messages with stable source locations.
+- ACIR verifier/lit tests cover exact types, unsigned-only inputs, total zero
+  semantics, power-of-two canonicalization, and residual dynamic operations.
+- Generated GFSim and PYC contain the same unsigned operators; constant
+  strength reduction keeps source locations and produces identical results.
+- A two-file JIT fixture proves an imported rule location survives closure
+  flattening and does not become the root assembly file location.
+
+**Source**
+- PTO-ISA/pyCircuit issue #128.

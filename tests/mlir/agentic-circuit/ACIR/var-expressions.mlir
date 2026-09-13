@@ -19,7 +19,9 @@ builtin.module attributes {ac.contract_epoch = "0.5"} {
     %sum = ac.var.add %value, %one64 : !ac.var<i64>
     %difference = ac.var.sub %remaining, %one16 : !ac.var<i16>
     %product = ac.var.mul %sum, %one64 : !ac.var<i64>
-    %positive = ac.var.cmp "sgt" %product, %one64 : !ac.var<i64> -> !ac.var<i1>
+    %quotient = ac.var.udiv %product, %one64 : !ac.var<i64>
+    %remainder = ac.var.urem %quotient, %one64 : !ac.var<i64>
+    %positive = ac.var.cmp "sgt" %remainder, %one64 : !ac.var<i64> -> !ac.var<i1>
     %anded = ac.var.and %bits3, %shift3 : !ac.var<i3>
     %ored = ac.var.or %bits3, %shift3 : !ac.var<i3>
     %xored = ac.var.xor %bits3, %shift3 : !ac.var<i3>
@@ -45,6 +47,8 @@ builtin.module attributes {ac.contract_epoch = "0.5"} {
 // CHECK: ac.var.add
 // CHECK: ac.var.sub
 // CHECK: ac.var.mul
+// CHECK: ac.var.udiv
+// CHECK: ac.var.urem
 // CHECK: ac.var.cmp "sgt"
 // CHECK: ac.var.and
 // CHECK: ac.var.or

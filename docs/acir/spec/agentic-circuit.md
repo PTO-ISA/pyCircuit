@@ -183,11 +183,11 @@ The package separates Python objects that have ordinary runtime behavior from
 names that exist only for ACPy source capture. `agentic_circuit.RUNTIME_API` is
 the exact runtime authoring inventory and is also the package's `__all__`.
 Consequently, wildcard imports do not claim that capture-only syntax produces
-runtime values. `agentic_circuit.CAPTURE_ONLY_API` is the exact 30-name marker
+runtime values. `agentic_circuit.CAPTURE_ONLY_API` is the exact 37-name marker
 inventory:
 
 ```text
-scope map set instances view find concat insert matches source popcount
+scope map set instances view find concat literal zero zext sext truncate static_assert insert matches source popcount
 count_leading_zeros count_trailing_zeros priority_encode onehot_encode memory sink observe
 expect compute pipeline route merge schedule engine reorder fork barrier table
 slot
@@ -280,11 +280,22 @@ The current frontend accepts these scalar field spellings:
 | `ac.s8`, `ac.s16`, `ac.s32`, `ac.s64` | corresponding integer width |
 
 Field order is declaration order. Fields MUST be unique and annotated. The
-operators `+`, `-`, `*`, `&`, `|`, `^`, `~`, `<<`, and `>>`
+operators `+`, `-`, `*`, `//`, `%`, `&`, `|`, `^`, `~`, `<<`, and `>>`
 preserve the declared width. Binary bit operands MUST have the same width; a
 right-side integer literal is typed from the left operand. Results wrap modulo
 (2^N), and shifts by an amount greater than or equal to (N) produce zero.
+Unsigned division and remainder are total: a zero divisor produces zero, which
+matches PYC and GFSim. Division by a power-of-two constant canonicalizes to a
+logical shift; remainder by that constant canonicalizes to a mask.
 Equality is width-exact; relational comparisons on `ac.uN` are unsigned.
+
+Width changes are explicit. `ac.zext(value, ac.uN)` and
+`ac.sext(value, ac.uN)` require a wider target; `ac.truncate(value, ac.uN)`
+requires a narrower target. `sext` replicates the source most-significant bit
+and still returns the unsigned bit-pattern type. `ac.literal(value, ac.uN)` and
+`ac.zero(ac.uN)` create exact-width constants. These forms reject `bool`, enum,
+runtime widths, wrong-direction conversions, and out-of-range literals. They
+lower to the existing verifier-owned constant/extract/concat primitives.
 
 An `ac.uN` value may be used directly as a queue payload or as an
 `@ac.struct` field. The current ACIR integer type freezes width but not
@@ -336,6 +347,12 @@ concrete type. Specialized structs also carry a canonical identity manifest that
 binds their source name, semantic parameter names, concrete field layout,
 fingerprint, and complete check-target set. Verifiers reject a missing target,
 stale symbol hash, or forged field layout.
+
+`ac.static_assert(condition, message=...)` is a direct entry-body statement.
+It is evaluated after the entry's `ac.const` values are bound, requires a
+closed boolean expression and static string message, and is erased before
+Frozen ACIR. A failed or runtime-dependent assertion reports its normalized
+source path and location.
 
 Module-local dependent types are concretized after that module instance binds
 its `ac.const` arguments. Two instances with different bindings receive

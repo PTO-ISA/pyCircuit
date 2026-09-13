@@ -86,6 +86,11 @@ public:
   {
     return rhs.words_[0] == 0 ? UInt{} : UInt(lhs.words_[0] / rhs.words_[0]);
   }
+  friend constexpr UInt operator%(UInt lhs, UInt rhs)
+    requires(Width <= 64)
+  {
+    return rhs.words_[0] == 0 ? UInt{} : UInt(lhs.words_[0] % rhs.words_[0]);
+  }
   friend constexpr UInt operator&(UInt lhs, UInt rhs) {
     word_array_type words{};
     for (size_t index = 0; index < word_count; ++index)

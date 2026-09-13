@@ -138,6 +138,12 @@ class ACIR_VarBinaryOp<string mnemonic> : ACIR_Op<mnemonic, [
 def ACIR_VarAddOp : ACIR_VarBinaryOp<"var.add">;
 def ACIR_VarSubOp : ACIR_VarBinaryOp<"var.sub">;
 def ACIR_VarMulOp : ACIR_VarBinaryOp<"var.mul">;
+def ACIR_VarUDivOp : ACIR_VarBinaryOp<"var.udiv"> {
+  let hasCanonicalizer = 1;
+}
+def ACIR_VarURemOp : ACIR_VarBinaryOp<"var.urem"> {
+  let hasCanonicalizer = 1;
+}
 def ACIR_VarAndOp : ACIR_VarBinaryOp<"var.and">;
 def ACIR_VarOrOp : ACIR_VarBinaryOp<"var.or">;
 def ACIR_VarXorOp : ACIR_VarBinaryOp<"var.xor">;

@@ -295,6 +295,7 @@ consumer design.
 | Name-based record construction and replacement | `examples/agentic-circuit/pipelines/record_spread_pipeline.py` |
 | Fixed-width sparse enum encoding | `examples/agentic-circuit/pipelines/encoded_enum_pipeline.py` |
 | One-hot presence and conflict reporting | `examples/agentic-circuit/blocks/onehot_encode.py` |
+| Typed literals, explicit width conversion, and unsigned div/rem | `examples/agentic-circuit/blocks/typed_integer_operations.py` |
 | Combined cross-backend composition | `examples/agentic-circuit/pipelines/frontend_composition_pipeline.py` |
 | Atomic Table replacement | `examples/agentic-circuit/state/table_rule.py` |
 | Nested module state capture | `examples/agentic-circuit/state/inferred_nested_rule.py` |

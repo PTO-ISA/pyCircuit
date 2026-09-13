@@ -329,6 +329,20 @@ inferConstraint(Operation *operation, unsigned resultIndex,
   if (isa<ac::VarMulOp>(operation))
     return boundedBinary(
         [&](uint64_t lhs, uint64_t rhs) { return (lhs * rhs) & mask; });
+  if (isa<ac::VarUDivOp>(operation))
+    return boundedBinary(
+        [&](uint64_t lhs, uint64_t rhs) { return rhs == 0 ? 0 : lhs / rhs; });
+  if (isa<ac::VarURemOp>(operation)) {
+    ValueConstraint right = operandConstraint(operands, 1);
+    ValueConstraint exact = binary(
+        [&](uint64_t lhs, uint64_t rhs) { return rhs == 0 ? 0 : lhs % rhs; });
+    if (exact.kind != ValueConstraintKind::Unknown)
+      return exact;
+    if (right.kind == ValueConstraintKind::Constant &&
+        right.values.front() != 0)
+      return ValueConstraint::closedInterval(0, right.values.front() - 1);
+    return defaultConstraint(resultType);
+  }
   if (isa<ac::VarAndOp>(operation)) {
     ValueConstraint left = operandConstraint(operands, 0);
     ValueConstraint right = operandConstraint(operands, 1);

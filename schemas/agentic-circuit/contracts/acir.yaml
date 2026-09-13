@@ -47,6 +47,8 @@ operations:
   - ac.var.add
   - ac.var.sub
   - ac.var.mul
+  - ac.var.udiv
+  - ac.var.urem
   - ac.var.and
   - ac.var.or
   - ac.var.xor

@@ -1612,7 +1612,8 @@ emitTransform(const QueueGraphPlan &plan, const QueueBlockPlan &block,
         body << "    " << result << " = pyc.not " << *first << " : " << *type
              << "\n";
       } else if (expression.kind == "add" || expression.kind == "sub" ||
-                 expression.kind == "mul" || expression.kind == "and" ||
+                 expression.kind == "mul" || expression.kind == "udiv" ||
+                 expression.kind == "urem" || expression.kind == "and" ||
                  expression.kind == "or" || expression.kind == "xor") {
         result = newValue();
         if (expression.operands.size() != 2)
