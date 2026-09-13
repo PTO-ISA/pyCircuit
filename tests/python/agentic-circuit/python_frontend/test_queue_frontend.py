@@ -6095,6 +6095,276 @@ def pipeline() -> None:
         self.assertEqual(1, lowered.count("ac.var.assign_element"))
         self.assertIn("ac.var.decl @storage", lowered)
 
+    def test_value_array_map_and_zip_expand_exact_typed_lanes(self) -> None:
+        from agentic_circuit._queue_frontend import lower_queue_source
+
+        source = """import agentic_circuit as ac
+def bump(value: ac.u8) -> ac.u8:
+    return value + 1
+@ac.struct
+class Item:
+    value: ac.u8
+    valid: bool
+@ac.struct
+class Inner:
+    raw: ac.u8
+@ac.struct
+class Request:
+    values: ac.array[3, ac.u8]
+    other: ac.array[3, ac.u4]
+    nested: ac.array[2, ac.array[3, ac.u8]]
+    raw: ac.array[3, ac.u8]
+    offset: ac.u8
+    inners: ac.array[3, Inner]
+    outer_raw: ac.u8
+@ac.struct
+class Result:
+    mapped: ac.array[3, ac.u8]
+    pairs: ac.array[3, tuple[ac.u8, ac.u4]]
+    tuples: ac.array[3, tuple[ac.u8, ac.u8]]
+    records: ac.array[3, Item]
+    nested: ac.array[2, ac.array[3, ac.u8]]
+    alias_nested: ac.array[2, ac.array[3, ac.u8]]
+    checked: ac.array[3, ac.index[5]]
+    captured: ac.array[3, ac.u8]
+    shadowed: ac.array[3, ac.index[5]]
+@ac.rule
+def transform(request: Request) -> Result:
+    mapped = request.values.map(bump)
+    pairs = request.values.zip(request.other)
+    tuples = request.values.map(lambda value: (value, value + 1))
+    records = request.values.map(
+        lambda value: Item(value=value, valid=value != 0)
+    )
+    nested = request.nested.map(
+        lambda lane: lane.map(lambda value: value + 1)
+    )
+    alias_nested = request.nested.map(
+        lambda ac: ac.map(lambda value: value + 1)
+    )
+    checked = request.raw.map(
+        lambda value: ac.checked(value, ac.index[5]).value
+    )
+    captured = request.values.map(lambda value: value + request.offset)
+    outer_checked = ac.checked(request.outer_raw, ac.index[5])
+    shadowed = request.inners.map(lambda request: outer_checked.value)
+    return Result(
+        mapped=mapped,
+        pairs=pairs,
+        tuples=tuples,
+        records=records,
+        nested=nested,
+        alias_nested=alias_nested,
+        checked=checked,
+        captured=captured,
+        shadowed=shadowed,
+    )
+@ac.system
+def pipeline(request: Request) -> Result:
+    result = transform(request)
+    return result
+"""
+        lowered = lower_queue_source(source, "pipeline")
+        self.assertEqual(3, lowered.count("func.call @bump"))
+        self.assertEqual(4, lowered.count("ac.var.range_checked"))
+        self.assertIn("!ac.value_array<3 x tuple<i8, i4>>", lowered)
+        self.assertIn("!ac.value_array<3 x !ac.struct<@types::@Item>>", lowered)
+        self.assertIn("!ac.value_array<2 x !ac.value_array<3 x i8>>", lowered)
+
+        collision = """import agentic_circuit as ac
+@ac.struct
+class Request:
+    values: ac.array[1, ac.u64]
+@ac.rule
+def transform(request: Request) -> Request:
+    offset = 3
+    mapped = request.values.map(
+        lambda __ac_array_capture_0: __ac_array_capture_0 + offset
+    )
+    return request.with_fields(values=mapped)
+@ac.system
+def pipeline(request: Request) -> Request:
+    result = transform(request)
+    return result
+"""
+        collision_lowered = lower_queue_source(collision, "pipeline")
+        self.assertNotRegex(
+            collision_lowered,
+            r"ac\.var\.add %([^, ]+), %\1\b",
+        )
+
+    def test_value_array_map_and_zip_reject_ambiguous_shapes_and_types(self) -> None:
+        from agentic_circuit._queue_frontend import (
+            QueueFrontendError,
+            lower_queue_source,
+        )
+
+        unequal = """import agentic_circuit as ac
+@ac.struct
+class Request:
+    left: ac.array[3, ac.u8]
+    right: ac.array[2, ac.u8]
+@ac.rule
+def transform(request: Request) -> Request:
+    pairs = request.left.zip(request.right)
+    return request
+@ac.system
+def pipeline(request: Request) -> Request:
+    result = transform(request)
+    return result
+"""
+        with self.assertRaisesRegex(QueueFrontendError, "equal length"):
+            lower_queue_source(unequal, "pipeline")
+
+        bad_arity = unequal.replace(
+            "request.left.zip(request.right)",
+            "request.left.map(lambda left, right: left)",
+        )
+        with self.assertRaisesRegex(QueueFrontendError, "one plain parameter"):
+            lower_queue_source(bad_arity, "pipeline")
+
+        wrong_helper = """import agentic_circuit as ac
+def logical(value: bool) -> bool:
+    return value
+@ac.struct
+class Request:
+    values: ac.array[3, ac.u1]
+@ac.rule
+def transform(request: Request) -> Request:
+    mapped = request.values.map(logical)
+    return request
+@ac.system
+def pipeline(request: Request) -> Request:
+    result = transform(request)
+    return result
+"""
+        with self.assertRaisesRegex(QueueFrontendError, "exact element parameter"):
+            lower_queue_source(wrong_helper, "pipeline")
+
+        wrong_helper_result = wrong_helper.replace(
+            "def logical(value: bool) -> bool:\n    return value",
+            "def logical(value: ac.u1) -> ac.u1:\n    return True",
+        )
+        with self.assertRaisesRegex(QueueFrontendError, "helper.*result type"):
+            lower_queue_source(wrong_helper_result, "pipeline")
+
+        module_helper_result = """import agentic_circuit as ac
+def wrong(value: ac.u1) -> bool:
+    return value
+@ac.struct
+class Request:
+    values: ac.array[3, ac.u1]
+@ac.module
+def mapper(request: Request) -> bool:
+    return request.values.map(wrong)[0]
+@ac.system
+def pipeline(request: Request) -> bool:
+    result = mapper(request)
+    return result
+"""
+        with self.assertRaisesRegex(QueueFrontendError, "helper.*result type"):
+            lower_queue_source(module_helper_result, "pipeline")
+
+        ambiguous_result = """import agentic_circuit as ac
+@ac.struct
+class Request:
+    values: ac.array[3, ac.u1]
+    flag: bool
+@ac.rule
+def transform(request: Request) -> Request:
+    mapped = request.values.map(
+        lambda value: request.flag if value == 0 else value
+    )
+    return request
+@ac.system
+def pipeline(request: Request) -> Request:
+    result = transform(request)
+    return result
+"""
+        with self.assertRaisesRegex(QueueFrontendError, "branches must"):
+            lower_queue_source(ambiguous_result, "pipeline")
+
+        bool_arithmetic = """import agentic_circuit as ac
+@ac.struct
+class Request:
+    values: ac.array[3, ac.u8]
+    flag: bool
+@ac.rule
+def transform(request: Request) -> Request:
+    mapped = request.values.map(lambda value: value + request.flag)
+    return request.with_fields(values=mapped)
+@ac.system
+def pipeline(request: Request) -> Request:
+    result = transform(request)
+    return result
+"""
+        with self.assertRaisesRegex(QueueFrontendError, "operands must match"):
+            lower_queue_source(bool_arithmetic, "pipeline")
+
+        shadowed_helper = """import agentic_circuit as ac
+def bump(value: ac.u8) -> ac.u8:
+    return value + 1
+@ac.struct
+class Request:
+    values: ac.array[3, ac.u8]
+@ac.rule
+def transform(request: Request) -> Request:
+    mapped = request.values.map(lambda bump: bump(bump))
+    return request.with_fields(values=mapped)
+@ac.system
+def pipeline(request: Request) -> Request:
+    result = transform(request)
+    return result
+"""
+        with self.assertRaisesRegex(QueueFrontendError, "unsupported .*expression"):
+            lower_queue_source(shadowed_helper, "pipeline")
+
+        oversized = """import agentic_circuit as ac
+@ac.struct
+class Request:
+    values: ac.array[4097, ac.u1]
+@ac.rule
+def transform(request: Request) -> Request:
+    mapped = request.values.map(lambda value: value)
+    return request.with_fields(values=mapped)
+@ac.system
+def pipeline(request: Request) -> Request:
+    result = transform(request)
+    return result
+"""
+        with self.assertRaisesRegex(QueueFrontendError, "exceeds 4096"):
+            lower_queue_source(oversized, "pipeline")
+
+        multi_output_hygiene = """import agentic_circuit as ac
+@ac.struct
+class Request:
+    values: ac.array[2, ac.u64]
+@ac.rule
+def transform(request: Request) -> tuple[ac.u64, ac.u64]:
+    offset = 3
+    mapped = request.values.map(lambda offset: offset + 1)
+    first = mapped[0]
+    second = mapped[1]
+    return first, second
+@ac.system
+def pipeline(request: Request) -> tuple[ac.u64, ac.u64]:
+    first, second = transform(request)
+    return first, second
+"""
+        lowered_multi = lower_queue_source(multi_output_hygiene, "pipeline")
+        self.assertEqual(2, lowered_multi.count("ac.var.add"))
+        lane_values = set(
+            re.findall(
+                r"%([^ ]+) = ac\.var\.element .*"
+                r"!ac\.value_array<2 x i64>> -> !ac\.var<i64>",
+                lowered_multi,
+            )
+        )
+        add_inputs = set(
+            re.findall(r"ac\.var\.add %([^, ]+),", lowered_multi)
+        )
+        self.assertEqual(2, len(lane_values & add_inputs))
+
     def test_dependent_bounded_bounds_have_verifier_visible_metadata(self) -> None:
         from agentic_circuit._queue_frontend import lower_queue_source
 

@@ -220,6 +220,11 @@ Follow these rules:
 - Use `Packet(**left, **right, explicit=...)` and
   `value.with_fields(**patch)` only for exact name/type record composition.
   Construction is total; replacement preserves unmentioned fields.
+- Use `values.map(lambda item: ...)` for pure fixed-lane value transforms and
+  `values.zip(other)` for exact-length positional pairing. Both are
+  elaboration-time fixed expansions, evaluate every lane, retain exact
+  recursive descriptors, and never create a runtime Python iterator. Keep the
+  topology constructor `ac.map({...})` separate.
 - Treat every `@ac.rule` as one schedulable atomic transition. Put all state
   writes and outputs that must commit together in the same rule.
 - Read committed state, compute proposals, and let the compiler publish them.
@@ -308,6 +313,7 @@ consumer design.
 | One-hot presence and conflict reporting | `examples/agentic-circuit/blocks/onehot_encode.py` |
 | Typed literals, explicit width conversion, and unsigned div/rem | `examples/agentic-circuit/blocks/typed_integer_operations.py` |
 | Bounded integer decoding and dynamic fixed-array read | `examples/agentic-circuit/blocks/bounded_integer_operations.py` |
+| Fixed-array map/zip, nested callbacks, and exact captures | `examples/agentic-circuit/blocks/array_combinators.py` |
 | Combined cross-backend composition | `examples/agentic-circuit/pipelines/frontend_composition_pipeline.py` |
 | Atomic Table replacement | `examples/agentic-circuit/state/table_rule.py` |
 | Nested module state capture | `examples/agentic-circuit/state/inferred_nested_rule.py` |

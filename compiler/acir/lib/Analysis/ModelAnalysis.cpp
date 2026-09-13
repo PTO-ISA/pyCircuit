@@ -519,7 +519,12 @@ LogicalResult verifyQueueHelperLowerability(func::FuncOp function) {
             ac::VarMatchesOp, ac::VarNotOp,
             ac::VarPriorityEncodeOp, ac::VarPopcountOp, ac::VarCountZerosOp,
             ac::VarCmpOp, ac::VarSelectOp, ac::VarExtractOp, ac::VarConcatOp,
-            ac::VarInsertOp, ac::VarGetOp, ac::VarWithOp>(operation);
+            ac::VarInsertOp, ac::VarGetOp, ac::VarWithOp,
+            ac::VarDynamicElementOp, ac::VarWithElementOp,
+            ac::VarRangeWrapOp, ac::VarRangeSaturateOp,
+            ac::VarRangeCheckedOp, ac::VarRangeRefineOp,
+            ac::VarRangeBitsOp, ac::VarRangeAddOp, ac::VarRangeSubOp,
+            ac::VarRangeCmpOp>(operation);
     if (!allowed) {
       result = operation->emitOpError(
           "is not legal in a pure Queue/rule helper; loops, state, Queue, "

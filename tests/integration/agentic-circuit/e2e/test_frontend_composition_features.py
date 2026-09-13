@@ -251,6 +251,11 @@ def pipeline(raw: ac.u8) -> bool:
                 {},
             ),
             (
+                ROOT / "examples/agentic-circuit/blocks/array_combinators.py",
+                "array_combinators",
+                {},
+            ),
+            (
                 ROOT
                 / "tests/integration/agentic-circuit/e2e/fixtures/array_update_state/architecture.py",
                 "array_update_state",
@@ -468,6 +473,24 @@ def pipeline(raw: ac.u8) -> bool:
                             for expression in block["expressions"]
                         }
                         self.assertIn("array_update_dynamic", kinds)
+                    elif system == "array_combinators":
+                        plan = json.loads(self._run((self.plan, frozen), cwd=ROOT))
+                        kinds = [
+                            expression["kind"]
+                            for block in plan["blocks"]
+                            for expression in block["expressions"]
+                        ]
+                        self.assertGreaterEqual(kinds.count("array_create"), 8)
+                        self.assertGreaterEqual(kinds.count("tuple_create"), 6)
+                        self.assertEqual(8, kinds.count("helper_call"))
+                        helper_kinds = [
+                            expression["kind"]
+                            for helper in plan["helpers"]
+                            for expression in helper["expressions"]
+                        ]
+                        self.assertEqual(1, helper_kinds.count("range_checked_value"))
+                        self.assertEqual(1, helper_kinds.count("array_update_dynamic"))
+                        self.assertNotRegex(pyc.read_text(encoding="utf-8"), r"\bscf\.")
                     elif system == "record_spread_pipeline":
                         self.assertIn("struct Packet", generated)
                         self.assertIn("auto v4 = Packet{v0, v1, v2, v3};", generated)

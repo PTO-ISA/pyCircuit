@@ -17,10 +17,7 @@ configure_lit_site_cfg(
   MAIN_CONFIG "${CMAKE_CURRENT_SOURCE_DIR}/lit.cfg.py"
 )
 
-add_lit_testsuite(check-acir "Running Agentic Circuit lit tests"
-  "${CMAKE_CURRENT_BINARY_DIR}"
-  DEPENDS
-    pycc
+set(ACIR_LIT_DEPENDENCIES
     acir-build
     acir-cxxgen
     acir-opcode-catalog
@@ -30,4 +27,12 @@ add_lit_testsuite(check-acir "Running Agentic Circuit lit tests"
     acir-queue-plan
     acir-queue-pycgen
     agentic_circuit_native
+)
+if(TARGET pycc)
+  list(APPEND ACIR_LIT_DEPENDENCIES pycc)
+endif()
+
+add_lit_testsuite(check-acir "Running Agentic Circuit lit tests"
+  "${CMAKE_CURRENT_BINARY_DIR}"
+  DEPENDS ${ACIR_LIT_DEPENDENCIES}
 )

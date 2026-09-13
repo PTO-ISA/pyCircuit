@@ -636,6 +636,14 @@ PYC DCE 前节点数、选择树深度与 `pyc-check-logic-depth` 的 unit-cost 
 index zero-extension。Frozen ACIR 使用 inclusive
 `!ac.range<lo, hi - 1>`，QueueGraph 独立复算转换、算术和索引证明后才在
 GFSim/PYC 中擦除 refinement。
+
+固定 value-array 提供 method 形式的 `values.map(callback)` 与
+`values.zip(other, ...)`，不会与 topology `ac.map({...})` 混用。map 对每个静态 lane
+调用一个单参数 lambda 或 exact typed pure helper，并返回同长度同质 array；callback
+的 deferred capture 在外层词法作用域 materialize，所有参数、分支与 aggregate leaf
+保持 exact descriptor。zip 只接受完全等长的一个或多个 array，返回按 operand 顺序组成
+tuple 的 array，不采用 Python 内置 `zip` 的最短截断语义。两者在 Frozen ACIR 前展开为
+现有 element/callback/tuple/array op，嵌套展开共享 4096-lane 上限。
 当前 persistent/module state 的 bounded scalar 必须包含零并以零初始化；非零下界
 state 在 typed reset image 扩展前 fail closed。
 

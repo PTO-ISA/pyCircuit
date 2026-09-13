@@ -2703,9 +2703,12 @@ def _invariant_definitions(
 def _helper_type(
     node: ast.expr, payloads: dict[str, Payload], enums: Mapping[str, ValueType]
 ) -> ValueType:
-    if isinstance(node, ast.Subscript) and _decorator_name(node.value).rsplit(".", 1)[
-        -1
-    ] in {"tuple", "Tuple"}:
+    kind = (
+        _decorator_name(node.value).rsplit(".", 1)[-1]
+        if isinstance(node, ast.Subscript)
+        else ""
+    )
+    if isinstance(node, ast.Subscript) and kind in {"tuple", "Tuple"}:
         elements = (
             tuple(node.slice.elts)
             if isinstance(node.slice, ast.Tuple)
@@ -2715,6 +2718,20 @@ def _helper_type(
             raise QueueFrontendError("ACPY-HELPER-002: tuple result cannot be empty")
         return TupleType(
             tuple(_helper_type(item, payloads, enums) for item in elements)
+        )
+    if isinstance(node, ast.Subscript) and kind == "array":
+        if not isinstance(node.slice, ast.Tuple) or len(node.slice.elts) != 2:
+            raise QueueFrontendError(
+                "ACPY-HELPER-002: array type requires static [length, element]"
+            )
+        length = _constant_integer(node.slice.elts[0])
+        if length is None or length <= 0:
+            raise QueueFrontendError(
+                "ACPY-HELPER-002: array type length must be positive and static"
+            )
+        return ArrayType(
+            length,
+            _helper_type(node.slice.elts[1], payloads, enums),
         )
     return _payload(node, payloads, enums)
 
@@ -2787,6 +2804,10 @@ def _pure_helper_definitions(
         "count_leading_zeros",
         "count_trailing_zeros",
         "priority_encode",
+        "wrap",
+        "saturate",
+        "checked",
+        "refine",
     }
 
     class Rewrite(ast.NodeTransformer):
@@ -2858,7 +2879,8 @@ def _pure_helper_definitions(
                         and call not in payloads
                         and not (
                             isinstance(item.func, ast.Attribute)
-                            and item.func.attr in {"with_fields", "view", "update"}
+                            and item.func.attr
+                            in {"with_fields", "with_element", "view", "update"}
                         )
                     ):
                         raise QueueFrontendError(
@@ -3988,11 +4010,44 @@ def parse_queue_program(
         next_condition = 0
 
         class RewriteLoads(ast.NodeTransformer):
+            def __init__(self) -> None:
+                self.excluded: frozenset[str] = frozenset()
+
             def visit_Name(self, candidate: ast.Name) -> ast.expr:
-                if isinstance(candidate.ctx, ast.Load) and candidate.id in versions:
+                if (
+                    isinstance(candidate.ctx, ast.Load)
+                    and candidate.id not in self.excluded
+                    and candidate.id in versions
+                ):
                     return ast.copy_location(
                         ast.Name(id=versions[candidate.id], ctx=ast.Load()), candidate
                     )
+                return candidate
+
+            def visit_Lambda(self, candidate: ast.Lambda) -> ast.expr:
+                candidate.args.defaults = [
+                    self.visit(default) for default in candidate.args.defaults
+                ]
+                candidate.args.kw_defaults = [
+                    self.visit(default) if default is not None else None
+                    for default in candidate.args.kw_defaults
+                ]
+                bound = {
+                    argument.arg
+                    for argument in (
+                        *candidate.args.posonlyargs,
+                        *candidate.args.args,
+                        *candidate.args.kwonlyargs,
+                    )
+                }
+                if candidate.args.vararg is not None:
+                    bound.add(candidate.args.vararg.arg)
+                if candidate.args.kwarg is not None:
+                    bound.add(candidate.args.kwarg.arg)
+                previous = self.excluded
+                self.excluded = previous | frozenset(bound)
+                candidate.body = self.visit(candidate.body)
+                self.excluded = previous
                 return candidate
 
         def rewrite(expression: ast.expr) -> ast.expr:
@@ -4615,6 +4670,32 @@ def parse_queue_program(
                         ast.Name(id=local_versions[candidate.id], ctx=ast.Load()),
                         candidate,
                     )
+                return candidate
+
+            def visit_Lambda(self, candidate: ast.Lambda) -> ast.expr:
+                candidate.args.defaults = [
+                    self.visit(default) for default in candidate.args.defaults
+                ]
+                candidate.args.kw_defaults = [
+                    self.visit(default) if default is not None else None
+                    for default in candidate.args.kw_defaults
+                ]
+                bound = {
+                    argument.arg
+                    for argument in (
+                        *candidate.args.posonlyargs,
+                        *candidate.args.args,
+                        *candidate.args.kwonlyargs,
+                    )
+                }
+                if candidate.args.vararg is not None:
+                    bound.add(candidate.args.vararg.arg)
+                if candidate.args.kwarg is not None:
+                    bound.add(candidate.args.kwarg.arg)
+                previous = self.excluded
+                self.excluded = previous | frozenset(bound)
+                candidate.body = self.visit(candidate.body)
+                self.excluded = previous
                 return candidate
 
         def rewrite_local_loads(
@@ -10361,6 +10442,9 @@ class _ExpressionFact:
     constraint: Constraint
 
 
+_MAX_ARRAY_COMBINATOR_EXPANSION = 4096
+
+
 class _ExpressionEmitter:
     def __init__(
         self,
@@ -10389,6 +10473,8 @@ class _ExpressionEmitter:
         bitfields: Mapping[str, BitfieldLayout] | None = None,
         invariants: Mapping[str, InvariantDefinition] | None = None,
         helpers: Mapping[str, PureHelperDefinition] | None = None,
+        strict_descriptors: bool = False,
+        array_expansion: list[int] | None = None,
     ) -> None:
         self.payloads = payloads
         self.enum_types: dict[str, EnumType] = {}
@@ -10429,6 +10515,11 @@ class _ExpressionEmitter:
         self.bitfields = dict(bitfields or {})
         self.invariants = dict(invariants or {})
         self.helpers = dict(helpers or {})
+        self.strict_descriptors = strict_descriptors
+        self.array_expansion = array_expansion if array_expansion is not None else [0]
+        self.array_callback_captures: dict[
+            tuple[int, str], tuple[str, str, ValueType]
+        ] = {}
         self.lines: list[str] = []
         self.index = 0
         self.priority_values: dict[str, tuple[str, ValueType, str, ValueType]] = {}
@@ -10477,9 +10568,25 @@ class _ExpressionEmitter:
         fact = self.expression_facts.get(name)
         if fact is None:
             return constraint_for_type(value_type)
-        if not _types_equal_in_epoch_05(fact.value_type, value_type):
+        if not self._types_match(fact.value_type, value_type):
             raise AssertionError("expression fact type does not match emitted result")
         return fact.constraint
+
+    def _types_match(self, left: ValueType, right: ValueType) -> bool:
+        return (
+            left == right
+            if self.strict_descriptors
+            else _types_equal_in_epoch_05(left, right)
+        )
+
+    def _reserve_array_expansion(self, count: int) -> None:
+        if count <= 0 or self.array_expansion[0] > (
+            _MAX_ARRAY_COMBINATOR_EXPANSION - count
+        ):
+            raise QueueFrontendError(
+                "ACPY-TYPE-006: array combinator expansion exceeds 4096 lanes"
+            )
+        self.array_expansion[0] += count
 
     def reject_constant_index_outside(
         self,
@@ -10748,12 +10855,15 @@ class _ExpressionEmitter:
         return result
 
     def _emit_exact_array_replacement(
-        self, node: ast.expr, expected: ValueType
+        self,
+        node: ast.expr,
+        expected: ValueType,
+        mismatch_message: str = "with_element replacement type must match",
     ) -> tuple[str, ValueType]:
         if isinstance(node, (ast.Tuple, ast.List)):
             if not isinstance(expected, (TupleType, ArrayType)):
                 raise QueueFrontendError(
-                    "ACPY-TYPE-006: with_element replacement type must match"
+                    f"ACPY-TYPE-006: {mismatch_message}"
                 )
             if isinstance(expected, TupleType):
                 element_types = expected.elements
@@ -10771,7 +10881,7 @@ class _ExpressionEmitter:
                 node.elts, element_types, strict=True
             ):
                 value, value_type = self._emit_exact_array_replacement(
-                    element, descriptor
+                    element, descriptor, mismatch_message
                 )
                 values.append(value)
                 value_types.append(value_type)
@@ -10800,9 +10910,338 @@ class _ExpressionEmitter:
         value, value_type = self.emit(node, literal_context)
         if value_type != expected:
             raise QueueFrontendError(
-                "ACPY-TYPE-006: with_element replacement type must match"
+                f"ACPY-TYPE-006: {mismatch_message}"
             )
         return value, value_type
+
+    def _emit_static_array_element(
+        self, aggregate: str, aggregate_type: ArrayType, index: int
+    ) -> tuple[str, ValueType]:
+        result = self._new()
+        self.lines.append(
+            f"    %{result} = ac.var.element %{aggregate} at {index} : "
+            f"!ac.var<{_render_type(aggregate_type)}> -> "
+            f"!ac.var<{_render_type(aggregate_type.element)}>"
+        )
+        return result, aggregate_type.element
+
+    def _emit_fixed_array(
+        self,
+        values: list[tuple[str, ValueType]],
+        result_type: ArrayType,
+    ) -> tuple[str, ValueType]:
+        result = self._new()
+        self.lines.append(
+            f"    %{result} = ac.var.array "
+            + ", ".join(f"%{value}" for value, _ in values)
+            + " : "
+            + ", ".join(
+                f"!ac.var<{_render_type(value_type)}>"
+                for _, value_type in values
+            )
+            + f" -> !ac.var<{_render_type(result_type)}>"
+        )
+        return result, result_type
+
+    def _emit_callback_result(
+        self,
+        node: ast.expr,
+        expected: ValueType | None,
+    ) -> tuple[str, ValueType]:
+        if expected is not None:
+            if isinstance(node, (ast.Tuple, ast.List)):
+                return self._emit_exact_array_replacement(
+                    node,
+                    expected,
+                    "array map callback result type must match",
+                )
+            result, result_type = self.emit(node)
+            if result_type != expected:
+                raise QueueFrontendError(
+                    "ACPY-TYPE-006: array map callback result type must match"
+                )
+            return result, result_type
+        if isinstance(node, ast.Tuple):
+            elements = [self._emit_callback_result(item, None) for item in node.elts]
+            if not elements:
+                raise QueueFrontendError(
+                    "ACPY-TYPE-006: array map callback tuple cannot be empty"
+                )
+            result_type = TupleType(tuple(value_type for _, value_type in elements))
+            result = self._new()
+            self.lines.append(
+                f"    %{result} = ac.var.tuple "
+                + ", ".join(f"%{value}" for value, _ in elements)
+                + " : "
+                + ", ".join(
+                    f"!ac.var<{_render_type(value_type)}>"
+                    for _, value_type in elements
+                )
+                + f" -> !ac.var<{_render_type(result_type)}>"
+            )
+            return result, result_type
+        if isinstance(node, ast.List):
+            elements = [self._emit_callback_result(item, None) for item in node.elts]
+            if not elements:
+                raise QueueFrontendError(
+                    "ACPY-TYPE-006: array map callback array cannot be empty"
+                )
+            element_type = elements[0][1]
+            if any(value_type != element_type for _, value_type in elements[1:]):
+                raise QueueFrontendError(
+                    "ACPY-TYPE-006: array map callback array must be homogeneous"
+                )
+            return self._emit_fixed_array(
+                elements, ArrayType(len(elements), element_type)
+            )
+        return self.emit(node)
+
+    def _emit_array_callback(
+        self,
+        callback: ast.expr,
+        value: str,
+        value_type: ValueType,
+        lane: int,
+        expected: ValueType | None,
+    ) -> tuple[str, ValueType]:
+        callback_name: str
+        callback_body: ast.expr
+        if isinstance(callback, ast.Lambda):
+            arguments = callback.args
+            if (
+                len(arguments.posonlyargs) + len(arguments.args) != 1
+                or arguments.vararg is not None
+                or arguments.kwarg is not None
+                or arguments.kwonlyargs
+                or arguments.defaults
+                or arguments.kw_defaults
+            ):
+                raise QueueFrontendError(
+                    "ACPY-TYPE-006: array map lambda requires one plain parameter"
+                )
+            callback_name = (arguments.posonlyargs or arguments.args)[0].arg
+            callback_body = callback.body
+        elif isinstance(callback, ast.Name) and callback.id in self.helpers:
+            helper = self.helpers[callback.id]
+            if len(helper.arguments) != 1 or helper.arguments[0][1] != value_type:
+                raise QueueFrontendError(
+                    "ACPY-TYPE-006: array map helper requires one exact element parameter"
+                )
+            callback_name = f"__ac_array_map_item_{lane}"
+            callback_body = ast.copy_location(
+                ast.Call(
+                    func=copy.deepcopy(callback),
+                    args=[ast.Name(id=callback_name, ctx=ast.Load())],
+                    keywords=[],
+                ),
+                callback,
+            )
+        else:
+            raise QueueFrontendError(
+                "ACPY-TYPE-006: array map callback must be a lambda or pure helper"
+            )
+
+        callback_captures: dict[str, tuple[str, ValueType]] = {}
+        if isinstance(callback, ast.Lambda):
+            outer = self
+            capture_reserved = {
+                candidate.id
+                for candidate in ast.walk(callback_body)
+                if isinstance(candidate, ast.Name)
+            } | {
+                candidate.arg
+                for candidate in ast.walk(callback_body)
+                if isinstance(candidate, ast.arg)
+            }
+            capture_reserved.update(self.root_values)
+            capture_reserved.update(self.deferred_values)
+            capture_reserved.update({self.argument, callback_name})
+
+            class MaterializeDeferredCaptures(ast.NodeTransformer):
+                def __init__(self) -> None:
+                    self.shadowed = {callback_name}
+                    self.cache: dict[str, str] = {}
+
+                def materialize(self, node: ast.expr) -> ast.Name:
+                    key = ast.dump(node, include_attributes=False)
+                    name = self.cache.get(key)
+                    if name is None:
+                        capture_key = (id(callback), key)
+                        cached = outer.array_callback_captures.get(capture_key)
+                        if cached is None:
+                            value, captured_type = outer.emit(copy.deepcopy(node))
+                            ordinal = len(outer.array_callback_captures)
+                            name = f"__ac_array_capture_{ordinal}"
+                            while name in capture_reserved:
+                                ordinal += 1
+                                name = f"__ac_array_capture_{ordinal}"
+                            cached = (name, value, captured_type)
+                            outer.array_callback_captures[capture_key] = cached
+                        name, value, captured_type = cached
+                        capture_reserved.add(name)
+                        self.cache[key] = name
+                        callback_captures[name] = (value, captured_type)
+                    return ast.copy_location(
+                        ast.Name(id=name, ctx=ast.Load()), node
+                    )
+
+                def visit_Lambda(self, node: ast.Lambda) -> ast.AST:
+                    arguments = {
+                        argument.arg
+                        for argument in (
+                            *node.args.posonlyargs,
+                            *node.args.args,
+                            *node.args.kwonlyargs,
+                        )
+                    }
+                    if node.args.vararg is not None:
+                        arguments.add(node.args.vararg.arg)
+                    if node.args.kwarg is not None:
+                        arguments.add(node.args.kwarg.arg)
+                    previous = self.shadowed
+                    self.shadowed = previous | arguments
+                    node.body = self.visit(node.body)
+                    self.shadowed = previous
+                    return node
+
+                def visit_Attribute(self, node: ast.Attribute) -> ast.AST:
+                    if (
+                        isinstance(node.value, ast.Name)
+                        and node.value.id not in self.shadowed
+                        and node.value.id in outer.deferred_values
+                    ):
+                        return self.materialize(node)
+                    return self.generic_visit(node)
+
+                def visit_Name(self, node: ast.Name) -> ast.AST:
+                    if (
+                        isinstance(node.ctx, ast.Load)
+                        and node.id not in self.shadowed
+                        and node.id in outer.deferred_values
+                    ):
+                        return self.materialize(node)
+                    return node
+
+            transformed = MaterializeDeferredCaptures().visit(
+                copy.deepcopy(callback_body)
+            )
+            assert isinstance(transformed, ast.expr)
+            callback_body = transformed
+
+        callback_roots = dict(self.root_values)
+        callback_roots.setdefault(
+            self.argument, (self.root_name, self.payload)
+        )
+        callback_roots[callback_name] = (value, value_type)
+        callback_roots.update(callback_captures)
+        child = _ExpressionEmitter(
+            self.payloads,
+            callback_name,
+            value_type,
+            root_name=value,
+            root_values=callback_roots,
+            prefix=f"{self.prefix}array_map_{self.index}_{lane}_",
+            bitfields=self.bitfields,
+            invariants=self.invariants,
+            helpers=self.helpers,
+            strict_descriptors=True,
+            array_expansion=self.array_expansion,
+        )
+        result = child._emit_callback_result(callback_body, expected)
+        self.lines.extend(child.lines)
+        return result
+
+    def _emit_array_map(self, node: ast.Call) -> tuple[str, ValueType] | None:
+        if not (
+            isinstance(node.func, ast.Attribute) and node.func.attr == "map"
+        ):
+            return None
+        if isinstance(node.func.value, ast.Name) and node.func.value.id in {
+            "ac",
+            "agentic_circuit",
+        } and node.func.value.id not in {
+            self.argument,
+            *self.root_values,
+            *self.deferred_values,
+        }:
+            return None
+        if node.keywords or len(node.args) != 1:
+            raise QueueFrontendError(
+                "ACPY-TYPE-006: array map requires one callback"
+            )
+        aggregate, aggregate_type = self.emit(node.func.value)
+        if not isinstance(aggregate_type, ArrayType):
+            raise QueueFrontendError(
+                "ACPY-TYPE-006: array map receiver must be a value-array"
+            )
+        self._reserve_array_expansion(aggregate_type.length)
+        group = self.index
+        self.index += 1
+        mapped: list[tuple[str, ValueType]] = []
+        element_type: ValueType | None = None
+        for lane in range(aggregate_type.length):
+            element, source_type = self._emit_static_array_element(
+                aggregate, aggregate_type, lane
+            )
+            value, value_type = self._emit_array_callback(
+                node.args[0], element, source_type, group + lane, element_type
+            )
+            if element_type is None:
+                element_type = value_type
+            elif value_type != element_type:
+                raise QueueFrontendError(
+                    "ACPY-TYPE-006: array map callback result type must match"
+                )
+            mapped.append((value, value_type))
+        assert element_type is not None
+        return self._emit_fixed_array(
+            mapped, ArrayType(aggregate_type.length, element_type)
+        )
+
+    def _emit_array_zip(self, node: ast.Call) -> tuple[str, ValueType] | None:
+        if not (
+            isinstance(node.func, ast.Attribute) and node.func.attr == "zip"
+        ):
+            return None
+        if node.keywords or not node.args:
+            raise QueueFrontendError(
+                "ACPY-TYPE-006: array zip requires at least one other array"
+            )
+        arrays = [self.emit(node.func.value), *(self.emit(arg) for arg in node.args)]
+        if not all(isinstance(value_type, ArrayType) for _, value_type in arrays):
+            raise QueueFrontendError(
+                "ACPY-TYPE-006: array zip operands must be value-arrays"
+            )
+        array_types = [
+            value_type for _, value_type in arrays if isinstance(value_type, ArrayType)
+        ]
+        extent = array_types[0].length
+        if any(value_type.length != extent for value_type in array_types[1:]):
+            raise QueueFrontendError(
+                "ACPY-TYPE-006: array zip operands must have equal length"
+            )
+        self._reserve_array_expansion(extent * len(array_types))
+        tuple_type = TupleType(tuple(value_type.element for value_type in array_types))
+        pairs: list[tuple[str, ValueType]] = []
+        for lane in range(extent):
+            elements = [
+                self._emit_static_array_element(value, value_type, lane)
+                for value, value_type in arrays
+                if isinstance(value_type, ArrayType)
+            ]
+            result = self._new()
+            self.lines.append(
+                f"    %{result} = ac.var.tuple "
+                + ", ".join(f"%{value}" for value, _ in elements)
+                + " : "
+                + ", ".join(
+                    f"!ac.var<{_render_type(value_type)}>"
+                    for _, value_type in elements
+                )
+                + f" -> !ac.var<{_render_type(tuple_type)}>"
+            )
+            pairs.append((result, tuple_type))
+        return self._emit_fixed_array(pairs, ArrayType(extent, tuple_type))
 
     def _emit_array_update(
         self, node: ast.Call
@@ -10856,7 +11295,7 @@ class _ExpressionEmitter:
         if len(shape) == 1 or not isinstance(address, ast.Tuple):
             index, index_type = self.emit(address, flattened_type)
             bounded = isinstance(index_type, RangeType) and index_type.upper <= entries
-            if not bounded and not _types_equal_in_epoch_05(
+            if not bounded and not self._types_match(
                 index_type, flattened_type
             ):
                 raise QueueFrontendError(
@@ -10878,7 +11317,7 @@ class _ExpressionEmitter:
             bounded = (
                 isinstance(value_type, RangeType) and value_type.upper <= extent
             )
-            if not bounded and not _types_equal_in_epoch_05(
+            if not bounded and not self._types_match(
                 value_type, expected_type
             ):
                 raise QueueFrontendError(
@@ -10903,7 +11342,7 @@ class _ExpressionEmitter:
     def _coerce_bool_to_expected_bits(
         self, value: str, value_type: ValueType, expected: ValueType | None
     ) -> tuple[str, ValueType]:
-        if not (
+        if self.strict_descriptors or not (
             _is_epoch_05_bool_compatible(value_type)
             and isinstance(expected, BitsType)
             and expected.width > 1
@@ -10956,7 +11395,7 @@ class _ExpressionEmitter:
             msb, lsb = layout.field(field_name)
         except KeyError as exc:
             raise QueueFrontendError(f"ACPY-BITFIELD-002: {exc.args[0]}") from exc
-        if not _types_equal_in_epoch_05(base_type, BitsType(layout.width)):
+        if not self._types_match(base_type, BitsType(layout.width)):
             raise QueueFrontendError(
                 "ACPY-BITFIELD-002: bitfield value width does not match its schema"
             )
@@ -11028,6 +11467,12 @@ class _ExpressionEmitter:
         self, node: ast.expr, expected: ValueType | None = None
     ) -> tuple[str, ValueType]:
         if isinstance(node, ast.Call):
+            mapped_array = self._emit_array_map(node)
+            if mapped_array is not None:
+                return mapped_array
+            zipped_array = self._emit_array_zip(node)
+            if zipped_array is not None:
+                return zipped_array
             updated_array = self._emit_array_update(node)
             if updated_array is not None:
                 return updated_array
@@ -11041,9 +11486,24 @@ class _ExpressionEmitter:
                 raise QueueFrontendError(
                     "ACPY-RANGE-001: checked result requires .value or .valid"
                 )
+            lexical_bindings = {
+                self.argument,
+                *self.root_values,
+                *self.deferred_values,
+                *self.table_views,
+                *self.slot_views,
+                *self.candidates,
+                *self.selections,
+                *self.candidate_values,
+                *self.selection_values,
+                *self.find_values,
+                *self.state_views,
+                *self.table_domains,
+            }
             helper = (
                 self.helpers.get(node.func.id)
                 if isinstance(node.func, ast.Name)
+                and node.func.id not in lexical_bindings
                 else None
             )
             if helper is not None:
@@ -11057,7 +11517,7 @@ class _ExpressionEmitter:
                     node.args, helper.arguments, strict=True
                 ):
                     operand, operand_type = self.emit(argument, parameter_type)
-                    if not _types_equal_in_epoch_05(operand_type, parameter_type):
+                    if not self._types_match(operand_type, parameter_type):
                         raise QueueFrontendError(
                             f"ACPY-HELPER-002: helper {helper.name!r} argument type does not match"
                         )
@@ -11075,20 +11535,6 @@ class _ExpressionEmitter:
                     + f") -> !ac.var<{_render_type(helper.result)}>"
                 )
                 return self._remember(result, helper.result)
-            lexical_bindings = {
-                self.argument,
-                *self.root_values,
-                *self.deferred_values,
-                *self.table_views,
-                *self.slot_views,
-                *self.candidates,
-                *self.selections,
-                *self.candidate_values,
-                *self.selection_values,
-                *self.find_values,
-                *self.state_views,
-                *self.table_domains,
-            }
             invariant = _resolve_invariant_call(node, self.invariants, lexical_bindings)
             if invariant is not None:
                 if len(node.args) != 1 or node.keywords:
@@ -11097,7 +11543,7 @@ class _ExpressionEmitter:
                         f"{invariant.qualified_name} requires exactly one payload"
                     )
                 operand, operand_type = self.emit(node.args[0], invariant.payload)
-                if not _types_equal_in_epoch_05(operand_type, invariant.payload):
+                if not self._types_match(operand_type, invariant.payload):
                     raise QueueFrontendError(
                         f"ACPY-INVARIANT-003: invariant "
                         f"{invariant.qualified_name} requires payload "
@@ -11149,7 +11595,7 @@ class _ExpressionEmitter:
                 )
             true_value, true_type = self.emit(node.body, expected)
             false_value, false_type = self.emit(node.orelse, expected or true_type)
-            if not _types_equal_in_epoch_05(true_type, false_type):
+            if not self._types_match(true_type, false_type):
                 raise QueueFrontendError(
                     "ACPY-QUEUE-003: conditional expression branches must "
                     "have one exact type"
@@ -11205,7 +11651,7 @@ class _ExpressionEmitter:
             value_types: list[ValueType] = []
             for element, descriptor in zip(node.elts, element_types, strict=True):
                 value, value_type = self.emit(element, descriptor)
-                if not _types_equal_in_epoch_05(value_type, descriptor):
+                if not self._types_match(value_type, descriptor):
                     raise QueueFrontendError(
                         "ACPY-TYPE-006: aggregate element type mismatch"
                     )
@@ -11326,7 +11772,7 @@ class _ExpressionEmitter:
             schema_name = node.func.value.id
             layout = self.bitfields[schema_name]
             base, base_type = self.emit(node.args[0])
-            if not _types_equal_in_epoch_05(base_type, BitsType(layout.width)):
+            if not self._types_match(base_type, BitsType(layout.width)):
                 raise QueueFrontendError(
                     "ACPY-BITFIELD-003: bitfield value width does not match its schema"
                 )
@@ -11345,7 +11791,7 @@ class _ExpressionEmitter:
                 width = msb - lsb + 1
                 field_type = BitsType(width)
                 value, value_type = self.emit(values[field_name], field_type)
-                if not _types_equal_in_epoch_05(value_type, field_type):
+                if not self._types_match(value_type, field_type):
                     raise QueueFrontendError(
                         f"ACPY-BITFIELD-003: field {field_name!r} requires i{width}"
                     )
@@ -11716,9 +12162,21 @@ class _ExpressionEmitter:
             index, index_type, valid, valid_type = batch[lane]
             return (index, index_type) if node.attr == "index" else (valid, valid_type)
         if isinstance(node, ast.Constant) and type(node.value) in {int, bool}:
-            typ = expected or (BoolType() if type(node.value) is bool else BitsType(64))
             from _pycircuit_semantics import RangeType
 
+            typ = (
+                BoolType()
+                if self.strict_descriptors and type(node.value) is bool
+                else expected
+                if self.strict_descriptors
+                and type(node.value) is int
+                and isinstance(expected, (BitsType, RangeType))
+                else expected
+                if not self.strict_descriptors and expected is not None
+                else BoolType()
+                if type(node.value) is bool
+                else BitsType(64)
+            )
             if isinstance(typ, RangeType) and (
                 type(node.value) is not int
                 or not typ.lower <= node.value < typ.upper
@@ -11990,7 +12448,7 @@ class _ExpressionEmitter:
             right, right_type = self._coerce_bool_to_expected_bits(
                 right, right_type, left_type
             )
-            if not _types_equal_in_epoch_05(left_type, right_type):
+            if not self._types_match(left_type, right_type):
                 raise QueueFrontendError("ACPY-QUEUE-003: binary operands must match")
             if isinstance(left_type, EnumType):
                 raise QueueFrontendError(
@@ -12140,7 +12598,7 @@ class _ExpressionEmitter:
                     f"!ac.var<{_render_type(right_type)}> -> !ac.var<i1>"
                 )
                 return name, BoolType()
-            if not _types_equal_in_epoch_05(left_type, right_type):
+            if not self._types_match(left_type, right_type):
                 raise QueueFrontendError(
                     "ACPY-QUEUE-003: comparison operands must match for "
                     f"{ast.unparse(node)!r} "
@@ -12353,7 +12811,7 @@ class _ExpressionEmitter:
                 if (
                     value_type != expected_type
                     if spread
-                    else not _types_equal_in_epoch_05(value_type, expected_type)
+                    else not self._types_match(value_type, expected_type)
                 ):
                     raise QueueFrontendError(
                         f"ACPY-TYPE-006: record field {name!r} type mismatch"
@@ -12447,7 +12905,7 @@ class _ExpressionEmitter:
                 if (
                     value_type != field_type
                     if spread
-                    else not _types_equal_in_epoch_05(value_type, field_type)
+                    else not self._types_match(value_type, field_type)
                 ):
                     raise QueueFrontendError(
                         "ACPY-QUEUE-003: field update type mismatch"
@@ -12693,9 +13151,10 @@ def lower_queue_program(
             bitfields=bitfields,
             invariants=invariants,
             helpers=helpers,
+            strict_descriptors=True,
         )
         result, result_type = helper_emitter.emit(helper.expression, helper.result)
-        if not _types_equal_in_epoch_05(result_type, helper.result):
+        if result_type != helper.result:
             raise QueueFrontendError(
                 f"ACPY-HELPER-002: helper {helper.name!r} result type does not match"
             )
@@ -16456,9 +16915,10 @@ def _lower_simple_module_source(
             bitfields=bitfield_map,
             invariants=invariants,
             helpers=helpers,
+            strict_descriptors=True,
         )
         result, result_type = helper_emitter.emit(helper.expression, helper.result)
-        if not _types_equal_in_epoch_05(result_type, helper.result):
+        if result_type != helper.result:
             raise QueueFrontendError(
                 f"ACPY-HELPER-002: helper {helper.name!r} result type does not match"
             )

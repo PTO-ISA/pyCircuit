@@ -350,6 +350,13 @@ const QueueAggregatePlan *findAggregateType(const QueueGraphPlan &plan,
   return found == plan.aggregates.end() ? nullptr : &*found;
 }
 
+llvm::Expected<std::string> cppValueType(const QueueGraphPlan &plan,
+                                         llvm::StringRef type) {
+  if (const QueueAggregatePlan *aggregate = findAggregateType(plan, type))
+    return "gfsim::UInt<" + std::to_string(aggregate->width) + ">";
+  return cppType(type);
+}
+
 const QueueHelperPlan *findHelper(const QueueGraphPlan &plan,
                                   llvm::StringRef name) {
   auto found = llvm::find_if(plan.helpers, [&](const QueueHelperPlan &helper) {
@@ -1690,14 +1697,14 @@ llvm::Error emitHelperDefinitions(std::ostringstream &output,
                                   llvm::StringSet<> *emitted = nullptr) {
   auto emitResultType = [&](const QueueHelperPlan &helper) -> llvm::Error {
     if (helper.resultTypes.size() == 1) {
-      auto type = cppType(helper.resultTypes.front());
+      auto type = cppValueType(plan, helper.resultTypes.front());
       if (!type)
         return type.takeError();
       output << *type;
     } else {
       output << "std::tuple<";
       for (auto [index, resultType] : llvm::enumerate(helper.resultTypes)) {
-        auto type = cppType(resultType);
+        auto type = cppValueType(plan, resultType);
         if (!type)
           return type.takeError();
         if (index)
@@ -1710,7 +1717,7 @@ llvm::Error emitHelperDefinitions(std::ostringstream &output,
   };
   auto emitArguments = [&](const QueueHelperPlan &helper) -> llvm::Error {
     for (auto [index, inputType] : llvm::enumerate(helper.inputTypes)) {
-      auto type = cppType(inputType);
+      auto type = cppValueType(plan, inputType);
       if (!type)
         return type.takeError();
       if (index)

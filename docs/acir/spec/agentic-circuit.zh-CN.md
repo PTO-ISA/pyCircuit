@@ -422,6 +422,15 @@ enum 和 nominal struct 元素会在 aggregate 构造前递归 pack、在选取�
 字段顺序与 PYC 的 MSB-first layout 相同。位宽加法/乘法采用溢出检查；超过 64 bit
 的字段或跨越元素边界的非法 layout 会在 backend 生成前拒绝。
 
+固定 array 还支持 `values.map(callback)` 与 `values.zip(other, ...)`。map 只接受一个
+普通 lambda 参数或一个 exact typed pure-helper 参数，按升序求值每个 lane，并返回
+同质固定 array。每个 lane 使用独立的 exact-descriptor callback scope；free deferred
+capture 先在外层词法作用域 materialize，所以 callback 参数 shadow 不会重绑定已捕获的
+`checked` 结果或 struct。zip 要求所有正长度 array 完全等长，返回 structural tuple 的
+array，不截断、填充、广播或转换。两者都在 Frozen ACIR 前展开为现有 static element、
+tuple/record、callback 与 array operation；嵌套展开共享 4096-lane budget，不生成 runtime
+iterator、container 或 PYC vector type。
+
 QueueProgram 在 Queue payload、persistent value、Table entry、memory、slot、rule
 state effect 和 reusable module signature 中都保留 descriptor。expression lowering
 返回 `(SSA name, ValueType)`，所有 identity、width、enum、aggregate 和 field 检查

@@ -1792,6 +1792,18 @@ exact multiword storage up to the shared 65,536-bit generated-value bound.
 Malformed element boundaries and larger widths are rejected before code
 generation.
 
+Fixed arrays also support `values.map(callback)` and
+`values.zip(other, ...)`. Map accepts one plain lambda parameter or one exact
+typed pure-helper parameter, evaluates every ascending lane, and returns one
+homogeneous fixed array. Each lane has a separate exact-descriptor callback
+scope; free deferred captures are materialized in the outer lexical scope, so
+callback parameter shadowing cannot rebind a captured `checked` result or
+struct. Zip requires equal positive lengths and returns an array of structural
+tuples without truncation, padding, broadcasting, or conversion. Both forms
+expand to existing static element, tuple/record, callback, and array operations
+before Frozen ACIR. Nested expansions share a 4096-lane budget and create no
+runtime iterator, container, or PYC vector type.
+
 QueueProgram retains these descriptors on Queue payloads, persistent values,
 Table entries, memories, slots, rule state effects, and reusable module
 signatures. Expression lowering returns `(SSA name, ValueType)` and performs

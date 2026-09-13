@@ -9453,3 +9453,60 @@ multiplexer chain.
 
 **Source**
 - PTO-ISA/pyCircuit issue #128.
+
+## Decision 0253: fixed-array map and zip elaborate exact static lanes
+
+**Status:** Accepted and implemented
+
+**Extends:** Decisions 0215, 0243, 0250, 0251, and 0252.
+
+**Context / Goal**
+Fixed value-arrays need ordinary Python method composition without introducing
+runtime iterators, dynamic containers, a second topology `map`, or implicit
+shortest-length `zip` behavior.
+
+**Decision (strong constraint)**
+- `values.map(callback)` invokes one pure callback per ascending static lane and
+  returns `ac.array[N, U]`. The callback is a one-parameter lambda or an
+  already-validated one-parameter typed pure helper. Every lane is evaluated;
+  Python short-circuit, early return, Queue effects, Table access, persistent
+  state access, and runtime topology allocation are forbidden.
+- Each callback expansion uses an independent exact-descriptor emitter while
+  sharing one checked expansion budget. Free deferred values are materialized
+  once in their outer lexical scope and captured as SSA values. This prevents
+  `ac.checked(...)` and similar AST-result caches from reusing or rebinding a
+  different lane. Immutable outer SSA captures and closed static configuration
+  remain legal.
+- Callback parameters and results use exact recursive descriptors. `bool` and
+  `ac.u1` do not become interchangeable in arguments, conditional branches,
+  tuple/list leaves, struct construction, arithmetic, or helper results.
+  Integer literals may use an exact bits/range context; boolean literals remain
+  logical bool.
+- `values.zip(other, ...)` requires one or more fixed value-arrays of exactly
+  the same positive length. It returns an array of structural tuples in operand
+  order. It never truncates, pads, broadcasts, or converts element types.
+- Map lowers to static `ac.var.element` operations, one verified callback per
+  lane, and one `ac.var.array`. Zip lowers to static element reads, per-lane
+  `ac.var.tuple`, and one `ac.var.array`. No map/zip operation survives to
+  Frozen ACIR, QueueGraph, GFSim, or PYC, and no PYC vector type is introduced.
+- Nested combinators share a limit of 4096 expanded lane operands per rule
+  expression emitter. Overflow or a larger expansion fails before ACIR
+  publication. Source locations on callback operations retain the lambda/helper
+  definition and enclosing map/zip call provenance.
+- The pure-helper legality set includes the already verified bounded-range,
+  dynamic fixed-array read, and immutable fixed-array update operations. It
+  still rejects state, Queue, Table, I/O, loop, and runtime effects.
+
+**Required verification**
+- Cover lambda and named-helper map, tuple/list/struct and nested-array results,
+  multi-array zip, nested map, immutable captures, shadowed callback names, and
+  repeated checked callbacks whose lane SSA values remain distinct.
+- Reject non-array receivers, malformed callbacks, exact helper/result
+  mismatches, recursive bool/u1 ambiguity, implicit bool arithmetic, unequal
+  zip lengths, effects, and expansion-budget overflow.
+- Frozen ACIR and QueueGraph contain only existing exact operations. A
+  design-neutral runtime fixture must agree across GFSim, PYC C++, and Verilog
+  for mapped, zipped, nested, aggregate-result, and checked callback values.
+
+**Source**
+- PTO-ISA/pyCircuit issue #128.
