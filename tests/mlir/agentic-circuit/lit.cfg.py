@@ -37,6 +37,7 @@ config.substitutions.append(("%source_root", config.acir_source_root))
 
 config.substitutions.append(("%acir_opt_public", os.path.join(tools_dir, "acir-opt")))
 config.substitutions.append(("%pycc", os.path.join(tools_dir, "pycc")))
+config.substitutions.append(("%pyc_opt", os.path.join(tools_dir, "pyc-opt")))
 config.substitutions.append(("%acir_opt", os.path.join(tools_dir, "acir-opt-internal")))
 config.substitutions.append(("%acir_build", os.path.join(tools_dir, "acir-build")))
 config.substitutions.append(("%acir_cxxgen", os.path.join(tools_dir, "acir-cxxgen")))

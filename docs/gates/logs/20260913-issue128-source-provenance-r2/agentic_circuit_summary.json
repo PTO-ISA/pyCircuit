@@ -1,0 +1,10 @@
+{
+  "run_id": "20260913-issue128-source-provenance-r2",
+  "script": "run_agentic_circuit.sh",
+  "status": "pass",
+  "lanes": ["AC G0", "AC G1", "AC G2"],
+  "resume_from": "g0",
+  "contract_epoch": "0.5",
+  "pyc_interface": "pyc6",
+  "cases": ["arbiter", "atomic-transform", "bit-widths", "masked-match", "popcount", "typed-integer-runtime", "multi-output-atomic", "rule-retirement", "bitfield", "masked-decode", "nested-payload", "enum-payload", "aggregate-payload", "recursive-aggregate-payload", "typed-system-transactions", "typed-record-pyc", "multi-output-state-gfsim", "multi-output-pyc-parity", "aggregate-equality-invariant-gfsim", "aggregate-equality-invariant-pyc-parity", "table-round-robin-pyc-parity", "table-writer-arbitration-pyc-parity", "table-field-replace-order-pyc-parity", "table-direct-native-gfsim"]
+}

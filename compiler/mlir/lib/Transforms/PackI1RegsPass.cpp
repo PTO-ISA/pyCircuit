@@ -1,4 +1,5 @@
 #include "pyc/Transforms/Passes.h"
+#include "pyc/Transforms/SourceProvenance.h"
 
 #include "pyc/Dialect/PYC/PYCOps.h"
 
@@ -150,6 +151,8 @@ struct PackI1RegsPass : public PassWrapper<PackI1RegsPass, OperationPass<func::F
 
     pyc::RegOp first = regs.front();
     Location loc = first.getLoc();
+    for (pyc::RegOp reg : llvm::drop_begin(regs))
+      loc = mergeSourceLocations(loc, reg.getLoc());
     Value nextPacked = builder.create<pyc::ConcatOp>(loc, packedTy, nextInputs).getResult();
     Value initPacked = builder.create<pyc::ConcatOp>(loc, packedTy, initInputs).getResult();
     auto packedReg =
@@ -159,8 +162,10 @@ struct PackI1RegsPass : public PassWrapper<PackI1RegsPass, OperationPass<func::F
     bits.reserve(n);
     for (unsigned i = 0; i < n; ++i) {
       // Extract bit i (LSB = reg[0]). Width is 1, so msb == lsb == i.
+      pyc::RegOp sourceReg = regs[i];
       auto ext = builder.create<pyc::ExtractOp>(
-          loc, bitTy, packedReg.getQ(), builder.getI64IntegerAttr(i),
+          sourceReg.getLoc(), bitTy, packedReg.getQ(),
+          builder.getI64IntegerAttr(i),
           builder.getI64IntegerAttr(i));
       bits.push_back(ext.getResult());
     }

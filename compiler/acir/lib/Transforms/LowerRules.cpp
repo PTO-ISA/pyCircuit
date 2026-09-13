@@ -1143,8 +1143,8 @@ void addRuleLoweringPipeline(mlir::OpPassManager &manager) {
   // Rule summaries are derived evidence. Eliminate dead and duplicate state
   // reads before effect inference so footprints and typed summaries describe
   // the live IR that later canonicalization preserves.
-  manager.addPass(createCanonicalizerPass());
-  manager.addPass(createCSEPass());
+  manager.addPass(createSourceAwareCanonicalizerPass());
+  manager.addPass(createSourceAwareCSEPass());
   manager.addPass(std::make_unique<InferRuleEffectsPass>());
   manager.addPass(std::make_unique<InferRuleActivationPass>());
   manager.addPass(std::make_unique<MaterializeRuleChecksPass>());

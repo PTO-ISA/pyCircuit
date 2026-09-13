@@ -9254,3 +9254,64 @@ the value.
 
 **Source**
 - PTO-ISA/pyCircuit issue #128.
+
+## Decision 0250: Python source provenance survives lowering and optimization
+
+**Status:** Accepted and implemented
+
+**Extends:** Decisions 0228, 0242, 0243, 0244, 0247, 0248, and 0249.
+
+**Context / Goal**
+Multi-file Agentic Circuit models inline helpers, specialize modules, expand
+record construction and Table projections, and run canonicalization before
+backend generation. A single parser location or display-only file name cannot
+explain the resulting operation, and ordinary CSE loses the source of an
+equivalent expression that is replaced by an earlier value.
+
+**Decision (strong constraint)**
+- Python AST capture assigns project-relative `.py` file, one-based line, and
+  column coordinates before closure flattening. Generated `.pyc`/`.mlir`
+  locations, synthetic capture names, absolute paths, zero/negative
+  coordinates, and path traversal are not Python source provenance.
+- An operation has zero or more independent origins. Each origin is an ordered
+  stack whose frames are `statement`, `definition`, `inline_callsite`,
+  `instance`, or `specialization`. Mandatory helper expansion uses
+  `CallSiteLoc`; merged origins use `FusedLoc` and canonical deduplication.
+- Canonicalization and CSE merge locations at the actual MLIR replacement,
+  including replacements that become equivalent only after an earlier fold.
+  Location metadata does not participate in operation equivalence.
+- Frozen ACIR materializes canonical `ac.source_provenance`. QueueGraph
+  independently validates and preserves it on blocks, every outer and nested
+  expression result, helper definitions, shared Table match/selection
+  definitions, and module instances. Source metadata is excluded from topology
+  digest, definition fingerprint, and specialization identity.
+- Canonical PYC attaches the corresponding MLIR location to generated
+  operations. `pyc.source_map` is canonical JSON; the frontend-contract
+  verifier validates its schema root, frame paths/coordinates/order, and every
+  attached Python location against the map before optimization. PYC
+  canonicalization and CSE preserve all replacement origins.
+- Generated GFSim uses `#line` for the primary Python frame and readable source
+  comments for complete rule origins. The model bundle publishes
+  `share/generated/source-map.json`, and the model manifest binds its schema,
+  path, and SHA-256. The JSON map remains the authority for alternate origins
+  and complete inline stacks.
+
+**Required verification**
+- Multi-file frontend tests cover imported helpers, repeated helper calls,
+  nested modules, record spread, runtime Table projection, and nested
+  specialization without replacing Python locations with assembly call sites.
+- ACIR tests reject malformed or noncanonical provenance and prove that CSE
+  fuses expressions whose operands become equivalent only after constant CSE.
+- QueueGraph tests cover multi-result and shared Table-expression provenance,
+  independent raw-path/coordinate rejection, canonical source-map JSON, and
+  specialization recursion.
+- PYC tests prove definition/callsite stacks on generated operations, reject an
+  operation location absent from `pyc.source_map`, and preserve both locations
+  through canonicalization/CSE. Compiler diagnostics select the innermost
+  definition as primary and retain caller frames as related locations.
+- Model-plan tests validate the emitted source-map schema and manifest hash.
+  Full Agentic G0/G1/G2 gates and the pinned consumer source checks must pass
+  before this decision becomes implemented-verified.
+
+**Source**
+- PTO-ISA/pyCircuit issue #128.

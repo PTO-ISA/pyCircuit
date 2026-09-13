@@ -13,6 +13,19 @@ using namespace mlir;
 namespace acir {
 namespace {
 
+bool hasPythonSourceLocation(Location location) {
+  if (auto file = dyn_cast<FileLineColLoc>(location))
+    return file.getFilename().getValue().ends_with(".py");
+  if (auto named = dyn_cast<NameLoc>(location))
+    return hasPythonSourceLocation(named.getChildLoc());
+  if (auto call = dyn_cast<CallSiteLoc>(location))
+    return hasPythonSourceLocation(call.getCallee()) ||
+           hasPythonSourceLocation(call.getCaller());
+  if (auto fused = dyn_cast<FusedLoc>(location))
+    return llvm::any_of(fused.getLocations(), hasPythonSourceLocation);
+  return false;
+}
+
 std::string token(Attribute attribute) {
   std::string storage;
   llvm::raw_string_ostream stream(storage);
@@ -150,12 +163,15 @@ LogicalResult canonicalizeModel(ModuleOp model) {
 
   UnknownLoc unknown = UnknownLoc::get(model.getContext());
   model.walk([&](Operation *operation) {
-    operation->setLoc(unknown);
+    if (!hasPythonSourceLocation(operation->getLoc()))
+      operation->setLoc(unknown);
     for (Region &region : operation->getRegions())
       for (Block &block : region)
         for (BlockArgument argument : block.getArguments())
-          argument.setLoc(unknown);
+          if (!hasPythonSourceLocation(argument.getLoc()))
+            argument.setLoc(unknown);
   });
+
   return success();
 }
 

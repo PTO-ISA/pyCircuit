@@ -75,6 +75,7 @@ _SDK_CAPABILITIES = (
 _PLAN_CAPABILITIES = ("queuegraph-v2", "multi-tu-v1", "runtime-abi-v1")
 _PLAN_OUTPUTS = (
     "include/generated/model.h",
+    "share/generated/source-map.json",
     "src/generated/model.cpp",
     "src/generated/queuegraph.cpp",
 )
@@ -1061,6 +1062,11 @@ def _model_manifest(
             {"path": path, "sha256": sha256_bytes(generated[path])}
             for path in _PLAN_OUTPUTS
         ],
+        "source_map": {
+            "path": "share/generated/source-map.json",
+            "schema": "agentic-circuit-source-map",
+            "sha256": sha256_bytes(generated["share/generated/source-map.json"]),
+        },
         "cmake_sources": {
             "path": "model-sources.cmake",
             "sha256": sha256_bytes(plan.cmake_sources),

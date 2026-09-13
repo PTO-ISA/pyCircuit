@@ -24,6 +24,7 @@
         "tests/mlir/agentic-circuit/CodeGen/queue-lanes-transform-pyc.mlir",
         "tests/mlir/agentic-circuit/CodeGen/table-masked-write-pyc.mlir",
         "tests/mlir/agentic-circuit/CodeGen/table-runtime-row-pyc.mlir",
+        "tests/mlir/agentic-circuit/PYC/source-provenance-cse.mlir",
         "tests/mlir/agentic-circuit/Transforms/rule-multi-input-lowering.mlir"
       ],
       "python_producer": [
@@ -43,8 +44,10 @@
         "tests/mlir/agentic-circuit/CodeGen/queue-lanes-transform-pyc.mlir",
         "tests/mlir/agentic-circuit/CodeGen/table-masked-write-pyc.mlir",
         "tests/mlir/agentic-circuit/CodeGen/table-runtime-row-pyc.mlir",
+        "tests/mlir/agentic-circuit/PYC/source-provenance-cse.mlir",
         "tests/mlir/agentic-circuit/Transforms/rule-multi-input-lowering.mlir",
         "tests/python/agentic-circuit/contracts/test_contracts.py",
+        "tests/python/agentic-circuit/python_frontend/test_jit_source_closure.py",
         "tests/python/agentic-circuit/python_frontend/test_queue_frontend.py",
         "tests/unit/test_pyc6_surface.py",
         "tests/unit/test_pyc_ir_inventory.py",
@@ -224,7 +227,9 @@
       "negative_mlir": [],
       "positive_mlir": [
         "tests/mlir/agentic-circuit/CodeGen/atomic-transform.mlir",
-        "tests/mlir/agentic-circuit/CodeGen/table-multi-selection-pyc.mlir"
+        "tests/mlir/agentic-circuit/CodeGen/pure-helpers.mlir",
+        "tests/mlir/agentic-circuit/CodeGen/table-multi-selection-pyc.mlir",
+        "tests/mlir/agentic-circuit/PYC/source-provenance-eliminate-wire.mlir"
       ],
       "python_producer": [
         "python/pycircuit/src/pycircuit/dsl.py",
@@ -239,7 +244,9 @@
       "tests": [
         "tests/cpp/agentic-circuit/CodeGen/QueueGraphPlanTest.cpp",
         "tests/mlir/agentic-circuit/CodeGen/atomic-transform.mlir",
-        "tests/mlir/agentic-circuit/CodeGen/table-multi-selection-pyc.mlir"
+        "tests/mlir/agentic-circuit/CodeGen/pure-helpers.mlir",
+        "tests/mlir/agentic-circuit/CodeGen/table-multi-selection-pyc.mlir",
+        "tests/mlir/agentic-circuit/PYC/source-provenance-eliminate-wire.mlir"
       ],
       "verifier": "compiler/mlir/lib/Dialect/PYC/PYCOps.cpp",
       "verilog_emitter": "compiler/mlir/lib/Emit/VerilogEmitter.cpp"
@@ -437,7 +444,8 @@
         "tests/mlir/agentic-circuit/ACIR/collections-valid.mlir",
         "tests/mlir/agentic-circuit/ACIR/view-provenance.mlir",
         "tests/mlir/agentic-circuit/CodeGen/bit-operations.mlir",
-        "tests/mlir/agentic-circuit/CodeGen/table-field-replace-order-pyc.mlir"
+        "tests/mlir/agentic-circuit/CodeGen/table-field-replace-order-pyc.mlir",
+        "tests/mlir/agentic-circuit/PYC/source-provenance-pack-i1.mlir"
       ],
       "python_producer": [
         "python/pycircuit/src/pycircuit/dsl.py"
@@ -457,6 +465,7 @@
         "tests/mlir/agentic-circuit/ACIR/view-provenance.mlir",
         "tests/mlir/agentic-circuit/CodeGen/bit-operations.mlir",
         "tests/mlir/agentic-circuit/CodeGen/table-field-replace-order-pyc.mlir",
+        "tests/mlir/agentic-circuit/PYC/source-provenance-pack-i1.mlir",
         "tests/python/agentic-circuit/python_frontend/test_public_api.py"
       ],
       "verifier": "compiler/mlir/lib/Dialect/PYC/PYCOps.cpp",
@@ -487,7 +496,10 @@
         "tests/mlir/agentic-circuit/CodeGen/masked-match.mlir",
         "tests/mlir/agentic-circuit/CodeGen/table-masked-write-pyc.mlir",
         "tests/mlir/agentic-circuit/CodeGen/table-selection-write-pyc.mlir",
-        "tests/mlir/agentic-circuit/CodeGen/table-typed-init-pyc.mlir"
+        "tests/mlir/agentic-circuit/CodeGen/table-typed-init-pyc.mlir",
+        "tests/mlir/agentic-circuit/PYC/source-provenance-cse.mlir",
+        "tests/mlir/agentic-circuit/PYC/source-provenance-eliminate-wire.mlir",
+        "tests/mlir/agentic-circuit/PYC/source-provenance.mlir"
       ],
       "python_producer": [
         "python/pycircuit/src/pycircuit/dsl.py"
@@ -504,6 +516,9 @@
         "tests/mlir/agentic-circuit/CodeGen/table-masked-write-pyc.mlir",
         "tests/mlir/agentic-circuit/CodeGen/table-selection-write-pyc.mlir",
         "tests/mlir/agentic-circuit/CodeGen/table-typed-init-pyc.mlir",
+        "tests/mlir/agentic-circuit/PYC/source-provenance-cse.mlir",
+        "tests/mlir/agentic-circuit/PYC/source-provenance-eliminate-wire.mlir",
+        "tests/mlir/agentic-circuit/PYC/source-provenance.mlir",
         "tests/python/agentic-circuit/contracts/test_contracts.py",
         "tests/test_pyc_canonical_ops.py",
         "tests/test_pyc_enum.py"
@@ -579,7 +594,8 @@
       "negative_mlir": [],
       "positive_mlir": [
         "tests/mlir/agentic-circuit/CodeGen/bit-operations.mlir",
-        "tests/mlir/agentic-circuit/CodeGen/table-field-replace-order-pyc.mlir"
+        "tests/mlir/agentic-circuit/CodeGen/table-field-replace-order-pyc.mlir",
+        "tests/mlir/agentic-circuit/PYC/source-provenance-pack-i1.mlir"
       ],
       "python_producer": [
         "python/pycircuit/src/pycircuit/dsl.py"
@@ -594,6 +610,7 @@
         "tests/integration/agentic-circuit/e2e/test_typed_record_pyc.py",
         "tests/mlir/agentic-circuit/CodeGen/bit-operations.mlir",
         "tests/mlir/agentic-circuit/CodeGen/table-field-replace-order-pyc.mlir",
+        "tests/mlir/agentic-circuit/PYC/source-provenance-pack-i1.mlir",
         "tests/test_assert_fits.py",
         "tests/test_bitfield_view.py"
       ],
@@ -630,6 +647,7 @@
         "tests/mlir/agentic-circuit/ACIR/process-valid.mlir",
         "tests/mlir/agentic-circuit/ACIR/protocols-valid.mlir",
         "tests/mlir/agentic-circuit/ACIR/resources-valid.mlir",
+        "tests/mlir/agentic-circuit/CodeGen/pure-helpers.mlir",
         "tests/mlir/agentic-circuit/Transforms/zero-delay-cycles.mlir"
       ],
       "python_producer": [
@@ -657,6 +675,7 @@
         "tests/mlir/agentic-circuit/ACIR/resources-forward-malformed-invalid.mlir",
         "tests/mlir/agentic-circuit/ACIR/resources-invalid.mlir",
         "tests/mlir/agentic-circuit/ACIR/resources-valid.mlir",
+        "tests/mlir/agentic-circuit/CodeGen/pure-helpers.mlir",
         "tests/mlir/agentic-circuit/Transforms/zero-delay-cycles.mlir"
       ],
       "verifier": "compiler/mlir/lib/Dialect/PYC/PYCOps.cpp",
@@ -791,6 +810,7 @@
       "positive_mlir": [
         "tests/mlir/agentic-circuit/CodeGen/bit-widths.mlir",
         "tests/mlir/agentic-circuit/CodeGen/table-writer-arbitration-pyc.mlir",
+        "tests/mlir/agentic-circuit/PYC/source-provenance-eliminate-wire.mlir",
         "tests/mlir/agentic-circuit/lit.cfg.py"
       ],
       "python_producer": [
@@ -807,6 +827,7 @@
         "tests/integration/agentic-circuit/e2e/test_pyc_backend.py",
         "tests/mlir/agentic-circuit/CodeGen/bit-widths.mlir",
         "tests/mlir/agentic-circuit/CodeGen/table-writer-arbitration-pyc.mlir",
+        "tests/mlir/agentic-circuit/PYC/source-provenance-eliminate-wire.mlir",
         "tests/mlir/agentic-circuit/lit.cfg.py",
         "tests/python/agentic-circuit/python_frontend/test_queue_frontend.py"
       ],
@@ -993,6 +1014,7 @@
         "tests/mlir/agentic-circuit/CodeGen/table-selection-write-pyc.mlir",
         "tests/mlir/agentic-circuit/CodeGen/table-typed-init-pyc.mlir",
         "tests/mlir/agentic-circuit/CodeGen/table-writer-arbitration-pyc.mlir",
+        "tests/mlir/agentic-circuit/PYC/source-provenance-pack-i1.mlir",
         "tests/mlir/agentic-circuit/Transforms/rule-consume-only-lowering.mlir",
         "tests/mlir/agentic-circuit/Transforms/rule-owner-write-batch.mlir",
         "tests/mlir/agentic-circuit/Transforms/rule-table-lowering.mlir"
@@ -1025,6 +1047,7 @@
         "tests/mlir/agentic-circuit/CodeGen/table-selection-write-pyc.mlir",
         "tests/mlir/agentic-circuit/CodeGen/table-typed-init-pyc.mlir",
         "tests/mlir/agentic-circuit/CodeGen/table-writer-arbitration-pyc.mlir",
+        "tests/mlir/agentic-circuit/PYC/source-provenance-pack-i1.mlir",
         "tests/mlir/agentic-circuit/Transforms/rule-consume-only-lowering.mlir",
         "tests/mlir/agentic-circuit/Transforms/rule-owner-write-batch.mlir",
         "tests/mlir/agentic-circuit/Transforms/rule-table-lowering.mlir",
@@ -1521,7 +1544,8 @@
       "negative_mlir": [],
       "positive_mlir": [
         "tests/mlir/agentic-circuit/ACIR/interfaces-valid.mlir",
-        "tests/mlir/agentic-circuit/CodeGen/atomic-transform.mlir"
+        "tests/mlir/agentic-circuit/CodeGen/atomic-transform.mlir",
+        "tests/mlir/agentic-circuit/PYC/source-provenance-eliminate-wire.mlir"
       ],
       "python_producer": [
         "python/pycircuit/src/pycircuit/dsl.py",
@@ -1536,7 +1560,8 @@
       "tests": [
         "tests/cpp/agentic-circuit/CodeGen/QueueGraphPlanTest.cpp",
         "tests/mlir/agentic-circuit/ACIR/interfaces-valid.mlir",
-        "tests/mlir/agentic-circuit/CodeGen/atomic-transform.mlir"
+        "tests/mlir/agentic-circuit/CodeGen/atomic-transform.mlir",
+        "tests/mlir/agentic-circuit/PYC/source-provenance-eliminate-wire.mlir"
       ],
       "verifier": null,
       "verilog_emitter": "compiler/mlir/lib/Emit/VerilogEmitter.cpp"
@@ -1652,7 +1677,9 @@
       "kind": "type",
       "name": "!pyc.clock",
       "negative_mlir": [],
-      "positive_mlir": [],
+      "positive_mlir": [
+        "tests/mlir/agentic-circuit/PYC/source-provenance-pack-i1.mlir"
+      ],
       "python_producer": [
         "python/pycircuit/src/pycircuit/cli.py",
         "python/pycircuit/src/pycircuit/data.py",
@@ -1671,7 +1698,9 @@
       "stage": "canonical-pyc",
       "status": "normative",
       "symbol": "PYC_ClockType",
-      "tests": [],
+      "tests": [
+        "tests/mlir/agentic-circuit/PYC/source-provenance-pack-i1.mlir"
+      ],
       "verifier": null,
       "verilog_emitter": null
     },
@@ -1687,7 +1716,9 @@
       "kind": "type",
       "name": "!pyc.reset",
       "negative_mlir": [],
-      "positive_mlir": [],
+      "positive_mlir": [
+        "tests/mlir/agentic-circuit/PYC/source-provenance-pack-i1.mlir"
+      ],
       "python_producer": [
         "python/pycircuit/src/pycircuit/cli.py",
         "python/pycircuit/src/pycircuit/data.py",
@@ -1706,7 +1737,9 @@
       "stage": "canonical-pyc",
       "status": "normative",
       "symbol": "PYC_ResetType",
-      "tests": [],
+      "tests": [
+        "tests/mlir/agentic-circuit/PYC/source-provenance-pack-i1.mlir"
+      ],
       "verifier": null,
       "verilog_emitter": null
     }

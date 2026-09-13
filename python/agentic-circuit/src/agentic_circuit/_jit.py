@@ -21,6 +21,7 @@ from ._definitions import Definition
 from ._diagnostics import Diagnostic, DiagnosticRuntimeError, DiagnosticTypeError
 from ._package_data import repository_root
 from ._source_closure import SourceClosure, SourceClosureEntry, capture_source_closure
+from ._source_map import SourceNodeLocations, capture_source_node_locations
 from ._static_eval import FrozenMap, StaticValue, static_json_value
 from ._types import Static
 
@@ -509,6 +510,33 @@ class JitSpecialization:
                     locations[node.name] = tuple(assertions)
         return locations
 
+    def _source_node_locations(self) -> SourceNodeLocations:
+        """Capture every original AST node before closure flattening/unparse."""
+
+        closure = self._validated_closure()
+        if closure is None:
+            return {}
+        locations: dict[str, tuple[tuple[str, object], ...]] = {}
+        for entry in closure.entries:
+            source = Path(entry.source_file)
+            raw = source.read_bytes()
+            if sha256_bytes(raw) != entry.sha256:
+                raise DiagnosticRuntimeError(
+                    "ACPY-JIT-003: source changed during source-map capture"
+                )
+            tree = ast.parse(
+                raw.decode("utf-8"), filename=entry.path, type_comments=True
+            )
+            for name, records in capture_source_node_locations(
+                tree, entry.path
+            ).items():
+                if name in locations:
+                    raise DiagnosticRuntimeError(
+                        f"ACPY-JIT-003: source-map definition {name!r} is ambiguous"
+                    )
+                locations[name] = records
+        return locations  # type: ignore[return-value]
+
     def lower_acir(self) -> str:
         """Materialize the specialization as Queue/Var ACIR text."""
 
@@ -522,6 +550,7 @@ class JitSpecialization:
             source_path=self._display_source_path(),
             definition_locations=self._definition_locations(),
             static_assert_locations=self._static_assert_locations(),
+            source_node_locations=self._source_node_locations(),
         )
 
     def lower_cpp(self) -> str:
@@ -541,6 +570,7 @@ class JitSpecialization:
             source_path=self._display_source_path(),
             definition_locations=self._definition_locations(),
             static_assert_locations=self._static_assert_locations(),
+            source_node_locations=self._source_node_locations(),
         )
         if program.helpers or any(
             queue.rule_name is not None for queue in program.queues

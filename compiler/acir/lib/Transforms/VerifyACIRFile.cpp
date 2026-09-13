@@ -12,6 +12,7 @@
 #include "llvm/ADT/StringExtras.h"
 #include "llvm/ADT/StringSet.h"
 #include "llvm/Support/MathExtras.h"
+#include "llvm/Support/Path.h"
 #include "llvm/Support/JSON.h"
 #include "llvm/Support/SHA256.h"
 #include "llvm/Support/raw_ostream.h"
@@ -20,6 +21,24 @@
 
 namespace acir {
 namespace {
+
+bool isValidPythonSourcePath(llvm::StringRef path) {
+  if (path.empty() || llvm::sys::path::is_absolute(path) ||
+      !path.ends_with(".py") || path.contains('\\') || path.contains("//") ||
+      (path.size() >= 2 && llvm::isAlpha(path[0]) && path[1] == ':'))
+    return false;
+  llvm::SmallVector<llvm::StringRef> segments;
+  path.split(segments, '/', /*MaxSplit=*/-1, /*KeepEmpty=*/true);
+  for (llvm::StringRef segment : segments) {
+    if (segment.empty() || segment == "." || segment == "..")
+      return false;
+    for (char character : segment)
+      if (!llvm::isAlnum(character) && character != '.' && character != '_' &&
+          character != '+' && character != '@' && character != '-')
+        return false;
+  }
+  return true;
+}
 
 void appendFingerprintPart(llvm::SHA256 &sha, llvm::StringRef value) {
   sha.update(value);
@@ -150,6 +169,82 @@ std::string staticStructFingerprint(ac::StructOp structure,
         std::to_string(binding.getAs<mlir::IntegerAttr>("value").getInt()));
   }
   return "sha256:" + llvm::toHex(sha.final(), /*LowerCase=*/true);
+}
+
+mlir::LogicalResult verifySourceProvenance(mlir::ModuleOp module) {
+  mlir::WalkResult result = module.walk([&](mlir::Operation *operation) {
+    mlir::Attribute raw = operation->getAttr("ac.source_provenance");
+    if (!raw)
+      return mlir::WalkResult::advance();
+    auto origins = mlir::dyn_cast<mlir::ArrayAttr>(raw);
+    if (!origins || origins.empty()) {
+      operation->emitError("source provenance must be a non-empty origin array");
+      return mlir::WalkResult::interrupt();
+    }
+    std::string previous;
+    for (mlir::Attribute rawOrigin : origins) {
+      auto origin = mlir::dyn_cast<mlir::DictionaryAttr>(rawOrigin);
+      auto frames = origin ? origin.getAs<mlir::ArrayAttr>("frames")
+                           : mlir::ArrayAttr();
+      if (!origin || origin.size() != 1 || !frames || frames.empty()) {
+        operation->emitError("source provenance origin is malformed");
+        return mlir::WalkResult::interrupt();
+      }
+      std::string key;
+      llvm::raw_string_ostream keyStream(key);
+      unsigned previousKindRank = 0;
+      bool firstFrame = true;
+      for (mlir::Attribute rawFrame : frames) {
+        auto frame = mlir::dyn_cast<mlir::DictionaryAttr>(rawFrame);
+        auto file = frame ? frame.getAs<mlir::StringAttr>("file")
+                          : mlir::StringAttr();
+        auto kind = frame ? frame.getAs<mlir::StringAttr>("kind")
+                          : mlir::StringAttr();
+        auto line = frame ? frame.getAs<mlir::IntegerAttr>("line")
+                          : mlir::IntegerAttr();
+        auto column = frame ? frame.getAs<mlir::IntegerAttr>("column")
+                            : mlir::IntegerAttr();
+        auto symbol = frame ? frame.getAs<mlir::StringAttr>("symbol")
+                            : mlir::StringAttr();
+        unsigned kindRank =
+            !kind || kind.getValue() == "statement" ||
+                    kind.getValue() == "definition"
+                ? 0
+            : kind.getValue() == "inline_callsite" ? 1
+            : kind.getValue() == "instance"        ? 2
+                                                    : 3;
+        if (!frame || (frame.size() != 4 && frame.size() != 5) || !file ||
+            !kind || !line || !column ||
+            (frame.size() == 5) != static_cast<bool>(symbol) ||
+            !isValidPythonSourcePath(file.getValue()) ||
+            line.getInt() <= 0 || column.getInt() <= 0 ||
+            (kind.getValue() != "statement" &&
+             kind.getValue() != "definition" &&
+             kind.getValue() != "inline_callsite" &&
+             kind.getValue() != "instance" &&
+             kind.getValue() != "specialization") ||
+            (symbol && symbol.getValue().empty()) ||
+            (!firstFrame && kindRank < previousKindRank)) {
+          operation->emitError("source provenance frame is malformed");
+          return mlir::WalkResult::interrupt();
+        }
+        previousKindRank = kindRank;
+        firstFrame = false;
+        keyStream << kind.getValue() << '\0' << file.getValue() << '\0'
+                  << line.getInt() << '\0' << column.getInt() << '\0'
+                  << (symbol ? symbol.getValue() : llvm::StringRef()) << '\0';
+      }
+      keyStream.flush();
+      if (!previous.empty() && previous >= key) {
+        operation->emitError(
+            "source provenance origins must be unique and canonical");
+        return mlir::WalkResult::interrupt();
+      }
+      previous = std::move(key);
+    }
+    return mlir::WalkResult::advance();
+  });
+  return result.wasInterrupted() ? mlir::failure() : mlir::success();
 }
 
 mlir::LogicalResult verifyStaticTypeMetadata(mlir::ModuleOp module) {
@@ -635,6 +730,10 @@ public:
       return;
     }
     if (mlir::failed(verifyStaticTypeMetadata(module))) {
+      signalPassFailure();
+      return;
+    }
+    if (mlir::failed(verifySourceProvenance(module))) {
       signalPassFailure();
       return;
     }

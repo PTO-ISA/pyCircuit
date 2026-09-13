@@ -575,6 +575,28 @@ llvm::Expected<std::vector<std::string>> outputNames(mlir::Operation *op,
 using SharedExpression = std::pair<mlir::Value, QueueExpressionPlan>;
 using SharedValue = std::pair<mlir::Value, std::string>;
 
+std::string localSourceOriginKey(const QueueSourceOriginPlan &origin) {
+  std::string key;
+  llvm::raw_string_ostream stream(key);
+  for (const QueueSourceFramePlan &frame : origin)
+    stream << frame.kind << '\0' << frame.file << '\0' << frame.line << '\0'
+           << frame.column << '\0' << frame.symbol << '\0';
+  return key;
+}
+
+void mergeSourceProvenance(QueueSourceProvenancePlan &target,
+                           const QueueSourceProvenancePlan &additional) {
+  target.origins.insert(target.origins.end(), additional.origins.begin(),
+                        additional.origins.end());
+  llvm::sort(target.origins, [](const QueueSourceOriginPlan &left,
+                                const QueueSourceOriginPlan &right) {
+    return localSourceOriginKey(left) < localSourceOriginKey(right);
+  });
+  target.origins.erase(
+      std::unique(target.origins.begin(), target.origins.end()),
+      target.origins.end());
+}
+
 std::string legalDisplayIdentity(llvm::StringRef value) {
   return legalizeQueueGraphIdentifier(value);
 }
@@ -590,8 +612,78 @@ std::string normalizedRelativeSourcePath(llvm::StringRef filename) {
   return filename.str();
 }
 
-void extractDisplayProvenance(mlir::Operation *operation,
-                              QueueBlockPlan &plan) {
+bool isValidPythonSourcePath(llvm::StringRef path) {
+  if (path.empty() || llvm::sys::path::is_absolute(path) ||
+      !path.ends_with(".py") || path.contains('\\') || path.contains("//") ||
+      (path.size() >= 2 && llvm::isAlpha(path[0]) && path[1] == ':'))
+    return false;
+  llvm::SmallVector<llvm::StringRef> segments;
+  path.split(segments, '/', /*MaxSplit=*/-1, /*KeepEmpty=*/true);
+  for (llvm::StringRef segment : segments) {
+    if (segment.empty() || segment == "." || segment == "..")
+      return false;
+    for (char character : segment)
+      if (!llvm::isAlnum(character) && character != '.' && character != '_' &&
+          character != '+' && character != '@' && character != '-')
+        return false;
+  }
+  return true;
+}
+
+llvm::Expected<QueueSourceProvenancePlan>
+extractSourceProvenance(mlir::Operation *operation) {
+  QueueSourceProvenancePlan result;
+  mlir::Attribute raw = operation->getAttr("ac.source_provenance");
+  if (!raw)
+    return result;
+  auto origins = mlir::dyn_cast<mlir::ArrayAttr>(raw);
+  if (!origins || origins.empty())
+    return planError("source provenance must be a non-empty origin array");
+  for (mlir::Attribute rawOrigin : origins) {
+    auto origin = mlir::dyn_cast<mlir::DictionaryAttr>(rawOrigin);
+    auto frames = origin ? origin.getAs<mlir::ArrayAttr>("frames")
+                         : mlir::ArrayAttr();
+    if (!origin || origin.size() != 1 || !frames || frames.empty())
+      return planError("source provenance origin is malformed");
+    QueueSourceOriginPlan plannedOrigin;
+    for (mlir::Attribute rawFrame : frames) {
+      auto frame = mlir::dyn_cast<mlir::DictionaryAttr>(rawFrame);
+      auto file = frame ? frame.getAs<mlir::StringAttr>("file")
+                        : mlir::StringAttr();
+      auto kind = frame ? frame.getAs<mlir::StringAttr>("kind")
+                        : mlir::StringAttr();
+      auto line = frame ? frame.getAs<mlir::IntegerAttr>("line")
+                        : mlir::IntegerAttr();
+      auto column = frame ? frame.getAs<mlir::IntegerAttr>("column")
+                          : mlir::IntegerAttr();
+      auto symbol = frame ? frame.getAs<mlir::StringAttr>("symbol")
+                          : mlir::StringAttr();
+      if (!frame || (frame.size() != 4 && frame.size() != 5) || !file ||
+          !kind || !line || !column ||
+          (frame.size() == 5) != static_cast<bool>(symbol))
+        return planError("source provenance frame is malformed");
+      llvm::StringRef rawFile = file.getValue();
+      llvm::StringRef rawKind = kind.getValue();
+      const int64_t rawLine = line.getInt();
+      const int64_t rawColumn = column.getInt();
+      if ((rawKind != "statement" && rawKind != "definition" &&
+           rawKind != "inline_callsite" && rawKind != "instance" &&
+           rawKind != "specialization") ||
+          !isValidPythonSourcePath(rawFile) ||
+          rawLine <= 0 || rawColumn <= 0)
+        return planError("source provenance frame is malformed");
+      plannedOrigin.push_back(
+          {rawKind.str(), rawFile.str(), static_cast<uint64_t>(rawLine),
+           static_cast<uint64_t>(rawColumn),
+           symbol ? symbol.getValue().str() : std::string()});
+    }
+    result.origins.push_back(std::move(plannedOrigin));
+  }
+  return result;
+}
+
+llvm::Error extractDisplayProvenance(mlir::Operation *operation,
+                                     QueueBlockPlan &plan) {
   if (auto name =
           operation->getAttrOfType<mlir::StringAttr>("ac.rule_definition"))
     plan.displayRuleName = name.getValue().str();
@@ -602,17 +694,36 @@ void extractDisplayProvenance(mlir::Operation *operation,
   auto sourceColumn =
       operation->getAttrOfType<mlir::IntegerAttr>("ac.source_column");
   if (sourceFile && sourceLine && sourceColumn) {
-    plan.sourceFile = normalizedRelativeSourcePath(sourceFile.getValue());
-    plan.sourceLine = static_cast<uint64_t>(sourceLine.getInt());
-    plan.sourceColumn = static_cast<uint64_t>(sourceColumn.getInt());
-    return;
+    llvm::StringRef rawFile = sourceFile.getValue();
+    const int64_t rawLine = sourceLine.getInt();
+    const int64_t rawColumn = sourceColumn.getInt();
+    if (rawFile.ends_with(".py")) {
+      if (!isValidPythonSourcePath(rawFile) || rawLine <= 0 || rawColumn <= 0)
+        return planError("display source location is malformed");
+      plan.sourceFile = rawFile.str();
+      plan.sourceLine = static_cast<uint64_t>(rawLine);
+      plan.sourceColumn = static_cast<uint64_t>(rawColumn);
+    }
+  } else if (auto source =
+                 mlir::dyn_cast<mlir::FileLineColLoc>(operation->getLoc());
+             source && isValidPythonSourcePath(source.getFilename())) {
+    plan.sourceFile = source.getFilename().str();
+    plan.sourceLine = source.getLine();
+    plan.sourceColumn = source.getColumn();
   }
-  auto source = mlir::dyn_cast<mlir::FileLineColLoc>(operation->getLoc());
-  if (!source)
-    return;
-  plan.sourceFile = normalizedRelativeSourcePath(source.getFilename());
-  plan.sourceLine = source.getLine();
-  plan.sourceColumn = source.getColumn();
+  auto provenance = extractSourceProvenance(operation);
+  if (!provenance)
+    return provenance.takeError();
+  plan.sourceProvenance = std::move(*provenance);
+  if (plan.sourceFile.empty() && !plan.sourceProvenance.origins.empty() &&
+      !plan.sourceProvenance.origins.front().empty()) {
+    const QueueSourceFramePlan &frame =
+        plan.sourceProvenance.origins.front().front();
+    plan.sourceFile = frame.file;
+    plan.sourceLine = frame.line;
+    plan.sourceColumn = frame.column;
+  }
+  return llvm::Error::success();
 }
 
 llvm::Error
@@ -675,6 +786,7 @@ extractExpressions(mlir::Region &region, QueueBlockPlan &plan,
     }
     return result;
   };
+  QueueSourceProvenancePlan currentExpressionProvenance;
   auto append = [&](mlir::Operation &operation, llvm::StringRef kind,
                     llvm::StringRef field = {}, llvm::StringRef predicate = {},
                     llvm::StringRef literal = {}) -> llvm::Error {
@@ -690,15 +802,21 @@ extractExpressions(mlir::Region &region, QueueBlockPlan &plan,
     std::string result = resultIdentity(
         operation, prefix.str() + std::to_string(plan.expressions.size()));
     values[operation.getResult(0)] = result;
-    plan.expressions.push_back(
-        {std::move(result), kind.str(), printType(resultType.getElementType()),
-         std::move(*operands), field.str(), predicate.str(), literal.str()});
+    QueueExpressionPlan expression{
+        std::move(result), kind.str(), printType(resultType.getElementType()),
+        std::move(*operands), field.str(), predicate.str(), literal.str()};
+    expression.sourceProvenance = currentExpressionProvenance;
+    plan.expressions.push_back(std::move(expression));
     return llvm::Error::success();
   };
 
   bool sawStructuredYield = false;
 
   for (mlir::Operation &operation : block) {
+    auto provenance = extractSourceProvenance(&operation);
+    if (!provenance)
+      return provenance.takeError();
+    currentExpressionProvenance = std::move(*provenance);
     if (operation.getName().getStringRef() == "ac.var.invariant")
       return planError(
           "residual ac.var.invariant must be lowered before QueueGraph "
@@ -726,6 +844,7 @@ extractExpressions(mlir::Region &region, QueueBlockPlan &plan,
         expression.literal = callIdentity;
         expression.selectionCount = call.getNumResults();
         expression.laneOrdinal = resultIndex;
+        expression.sourceProvenance = currentExpressionProvenance;
         plan.expressions.push_back(std::move(expression));
       }
       continue;
@@ -925,13 +1044,12 @@ extractExpressions(mlir::Region &region, QueueBlockPlan &plan,
         std::string result =
             prefix.str() + std::to_string(plan.expressions.size());
         values[resultValue] = result;
-        plan.expressions.push_back({std::move(result),
-                                    kind.str(),
-                                    printType(resultType.getElementType()),
-                                    *operands,
-                                    {},
-                                    priority.getOrder().str(),
-                                    {}});
+        QueueExpressionPlan expression{
+            std::move(result), kind.str(),
+            printType(resultType.getElementType()), *operands, {},
+            priority.getOrder().str(), {}};
+        expression.sourceProvenance = currentExpressionProvenance;
+        plan.expressions.push_back(std::move(expression));
       }
       continue;
     }
@@ -1011,6 +1129,7 @@ extractExpressions(mlir::Region &region, QueueBlockPlan &plan,
         QueueExpressionPlan expression{
             result, kind.str(), printType(resultType.getElementType()), {}};
         expression.slot = get.getSlot().str();
+        expression.sourceProvenance = currentExpressionProvenance;
         plan.expressions.push_back(std::move(expression));
       }
       continue;
@@ -1054,6 +1173,7 @@ extractExpressions(mlir::Region &region, QueueBlockPlan &plan,
       expression.nestedExpressions = std::move(nested.expressions);
       expression.nestedYields = std::move(nested.yields);
       extractTableDomain(expression, match);
+      expression.sourceProvenance = currentExpressionProvenance;
       plan.expressions.push_back(std::move(expression));
       continue;
     }
@@ -1112,6 +1232,7 @@ extractExpressions(mlir::Region &region, QueueBlockPlan &plan,
             static_cast<uint64_t>(choose.getInitialCursor());
         expression.nestedExpressions = nested.expressions;
         expression.nestedYields = nested.yields;
+        expression.sourceProvenance = currentExpressionProvenance;
         plan.expressions.push_back(std::move(expression));
       }
       continue;
@@ -1292,6 +1413,10 @@ llvm::Error extractHelperPlans(mlir::ModuleOp module, QueueGraphPlan &plan) {
         return planError("residual ac.inline helper reached QueueGraph plan");
       QueueHelperPlan helper;
       helper.name = name;
+      auto helperProvenance = extractSourceProvenance(function);
+      if (!helperProvenance)
+        return helperProvenance.takeError();
+      helper.sourceProvenance = std::move(*helperProvenance);
       for (auto [index, type] : llvm::enumerate(function.getArgumentTypes())) {
         auto variable = mlir::dyn_cast<ac::VarType>(type);
         if (!variable)
@@ -2413,22 +2538,29 @@ private:
 
   void appendBlock(QueueBlockPlan block) {
     block.lexicalOrder = nextLexicalOrder++;
+    mergeSourceProvenance(block.sourceProvenance, currentSourceProvenance);
     plan.blocks.push_back(std::move(block));
   }
 
   llvm::Error extractBlock(mlir::Block &block, std::vector<std::string> scope) {
     for (mlir::Operation &operation : block) {
+      auto provenance = extractSourceProvenance(&operation);
+      if (!provenance)
+        return provenance.takeError();
+      currentSourceProvenance = std::move(*provenance);
       if (auto typeScope = mlir::dyn_cast<ac::TypeScopeOp>(operation)) {
         if (auto error = extractTypeScope(typeScope))
           return error;
         continue;
       }
       if (auto instance = mlir::dyn_cast<ac::MemoryInstanceOp>(operation)) {
-        plan.memoryInstances.push_back(
-            {instance.getSymName().str(), printType(instance.getDataType()),
-             uint64_t(instance.getEntries()), uint64_t(instance.getInit()),
-             uint64_t(instance.getLatency()), instance.getStableId().str(),
-             instance.getOwner().str()});
+        MemoryInstancePlan instancePlan{
+            instance.getSymName().str(), printType(instance.getDataType()),
+            uint64_t(instance.getEntries()), uint64_t(instance.getInit()),
+            uint64_t(instance.getLatency()), instance.getStableId().str(),
+            instance.getOwner().str()};
+        instancePlan.sourceProvenance = currentSourceProvenance;
+        plan.memoryInstances.push_back(std::move(instancePlan));
         continue;
       }
       if (auto table = mlir::dyn_cast<ac::TableOp>(operation)) {
@@ -2470,6 +2602,7 @@ private:
         tablePlan.hasTypedSchema = table.getShapeAttr() != nullptr;
         tablePlan.stableId = table.getStableId().str();
         tablePlan.ownerPath = table.getOwner().str();
+        tablePlan.sourceProvenance = currentSourceProvenance;
         plan.tables.push_back(std::move(tablePlan));
         continue;
       }
@@ -2477,12 +2610,14 @@ private:
         auto input = queueName(slot.getInput(), names);
         if (!input)
           return input.takeError();
-        plan.slots.push_back(
-            {slot.getSymName().str(),
-             printType(mlir::cast<ac::QueueType>(slot.getInput().getType())
-                           .getElementType()),
-             *input, scopePath(scope), slot.getStableId().str(),
-             slot.getOwner().str()});
+        SlotPlan slotPlan{
+            slot.getSymName().str(),
+            printType(mlir::cast<ac::QueueType>(slot.getInput().getType())
+                          .getElementType()),
+            *input, scopePath(scope), slot.getStableId().str(),
+            slot.getOwner().str()};
+        slotPlan.sourceProvenance = currentSourceProvenance;
+        plan.slots.push_back(std::move(slotPlan));
         continue;
       }
       if (auto match = mlir::dyn_cast<ac::TableMatchOp>(operation)) {
@@ -2504,6 +2639,7 @@ private:
                                  std::move(predicate.expressions),
                                  predicate.yields.front()};
         extractTableDomain(matchPlan, match);
+        matchPlan.sourceProvenance = currentSourceProvenance;
         plan.tableMatches.push_back(std::move(matchPlan));
         QueueExpressionPlan reference{
             "shared_match_" + std::to_string(plan.tableMatches.size() - 1),
@@ -2512,6 +2648,7 @@ private:
             {}};
         reference.field = name;
         reference.table = match.getTable().str();
+        reference.sourceProvenance = currentSourceProvenance;
         sharedExpressions.emplace_back(match.getMask(), std::move(reference));
         continue;
       }
@@ -2554,6 +2691,7 @@ private:
         selection.stableId = choose.getStableId().str();
         selection.initialCursor =
             static_cast<uint64_t>(choose.getInitialCursor());
+        selection.sourceProvenance = currentSourceProvenance;
         plan.tableSelections.push_back(std::move(selection));
         for (auto [resultIndex, resultValue] :
              llvm::enumerate(choose.getResults())) {
@@ -2573,6 +2711,7 @@ private:
           reference.predicate = policy;
           reference.selectionCount = count;
           reference.laneOrdinal = lane;
+          reference.sourceProvenance = currentSourceProvenance;
           sharedExpressions.emplace_back(resultValue, std::move(reference));
         }
         continue;
@@ -2612,7 +2751,8 @@ private:
         for (int64_t value : firing.getOutputLatencies())
           blockPlan.latencies.push_back(value);
         blockPlan.region = printRegion(firing.getBody());
-        extractDisplayProvenance(firing, blockPlan);
+        if (auto error = extractDisplayProvenance(firing, blockPlan))
+          return error;
         auto priority =
             firing->getAttrOfType<mlir::IntegerAttr>("ac.rule_priority");
         if (!priority || priority.getInt() < 0)
@@ -2620,6 +2760,11 @@ private:
         blockPlan.priority = static_cast<uint64_t>(priority.getInt());
         if (auto error = extractExpressions(firing.getBody(), blockPlan))
           return error;
+        auto yieldProvenance =
+            extractSourceProvenance(firing.getBody().front().getTerminator());
+        if (!yieldProvenance)
+          return yieldProvenance.takeError();
+        mergeSourceProvenance(blockPlan.sourceProvenance, *yieldProvenance);
         if (firing->hasAttr("ac.activation_sources"))
           if (auto error = extractRuleActivation(firing, blockPlan))
             return error;
@@ -2646,9 +2791,15 @@ private:
         for (int64_t value : transform.getOutputLatencies())
           blockPlan.latencies.push_back(value);
         blockPlan.region = printRegion(transform.getBody());
-        extractDisplayProvenance(transform, blockPlan);
+        if (auto error = extractDisplayProvenance(transform, blockPlan))
+          return error;
         if (auto error = extractExpressions(transform.getBody(), blockPlan))
           return error;
+        auto yieldProvenance = extractSourceProvenance(
+            transform.getBody().front().getTerminator());
+        if (!yieldProvenance)
+          return yieldProvenance.takeError();
+        mergeSourceProvenance(blockPlan.sourceProvenance, *yieldProvenance);
         if (transform->hasAttr("ac.activation_sources"))
           if (auto error = extractRuleActivation(transform, blockPlan))
             return error;
@@ -3143,10 +3294,15 @@ private:
             return error;
           outputs.push_back(std::move(name));
         }
-        plan.moduleInstances.push_back(
-            {instance.getSymName().str(), instance.getDefinition().str(),
-             fingerprint.getValue().str(), scopePath(scope), std::move(*inputs),
-             std::move(outputs), nextLexicalOrder++});
+        QueueModuleInstancePlan plannedInstance{
+            instance.getSymName().str(), instance.getDefinition().str(),
+            fingerprint.getValue().str(), scopePath(scope), std::move(*inputs),
+            std::move(outputs), nextLexicalOrder++};
+        auto provenance = extractSourceProvenance(instance);
+        if (!provenance)
+          return provenance.takeError();
+        plannedInstance.sourceProvenance = std::move(*provenance);
+        plan.moduleInstances.push_back(std::move(plannedInstance));
         continue;
       }
       if (auto nested = mlir::dyn_cast<ac::ScopeOp>(operation)) {
@@ -3239,6 +3395,7 @@ private:
   llvm::StringSet<> enumIdentities;
   llvm::StringSet<> aggregateIdentities;
   llvm::StringMap<const QueueGraphPlan *> availableSpecializations;
+  QueueSourceProvenancePlan currentSourceProvenance;
   uint64_t nextLexicalOrder = 0;
 };
 
@@ -3937,7 +4094,94 @@ llvm::Expected<QueueGraphPlan> buildQueueGraphPlan(mlir::ModuleOp module) {
   return Extractor(module).run();
 }
 
+std::string sourceOriginKey(const QueueSourceOriginPlan &origin) {
+  std::string key;
+  llvm::raw_string_ostream stream(key);
+  for (const QueueSourceFramePlan &frame : origin)
+    stream << frame.kind << '\0' << frame.file << '\0' << frame.line << '\0'
+           << frame.column << '\0' << frame.symbol << '\0';
+  return key;
+}
+
+llvm::Error
+verifySourceProvenancePlan(const QueueSourceProvenancePlan &provenance) {
+  std::string previous;
+  for (const QueueSourceOriginPlan &origin : provenance.origins) {
+    if (origin.empty())
+      return planError("source provenance origin must not be empty");
+    unsigned previousKindRank = 0;
+    bool firstFrame = true;
+    for (const QueueSourceFramePlan &frame : origin) {
+      unsigned kindRank =
+          frame.kind == "statement" || frame.kind == "definition" ? 0
+          : frame.kind == "inline_callsite"                         ? 1
+          : frame.kind == "instance"                                ? 2
+                                                                    : 3;
+      if ((frame.kind != "statement" && frame.kind != "definition" &&
+           frame.kind != "inline_callsite" && frame.kind != "instance" &&
+           frame.kind != "specialization") ||
+          !isValidPythonSourcePath(frame.file) || frame.line == 0 ||
+          frame.column == 0 || (!firstFrame && kindRank < previousKindRank))
+        return planError("source provenance frame is malformed");
+      previousKindRank = kindRank;
+      firstFrame = false;
+    }
+    std::string key = sourceOriginKey(origin);
+    if (!previous.empty() && previous >= key)
+      return planError(
+          "source provenance origins must be unique and canonical");
+    previous = std::move(key);
+  }
+  return llvm::Error::success();
+}
+
 llvm::Error verifyQueueGraphPlan(const QueueGraphPlan &plan) {
+  auto verifyExpressions = [&](auto &&self,
+                               const auto &expressions) -> llvm::Error {
+    for (const QueueExpressionPlan &expression : expressions) {
+      if (auto error = verifySourceProvenancePlan(expression.sourceProvenance))
+        return error;
+      if (auto error = self(self, expression.nestedExpressions))
+        return error;
+    }
+    return llvm::Error::success();
+  };
+  for (const QueueBlockPlan &block : plan.blocks) {
+    if (auto error = verifySourceProvenancePlan(block.sourceProvenance))
+      return error;
+    if (auto error = verifyExpressions(verifyExpressions, block.expressions))
+      return error;
+  }
+  for (const QueueHelperPlan &helper : plan.helpers) {
+    if (auto error = verifySourceProvenancePlan(helper.sourceProvenance))
+      return error;
+    if (auto error = verifyExpressions(verifyExpressions, helper.expressions))
+      return error;
+  }
+  for (const QueueModuleInstancePlan &instance : plan.moduleInstances)
+    if (auto error = verifySourceProvenancePlan(instance.sourceProvenance))
+      return error;
+  for (const MemoryInstancePlan &instance : plan.memoryInstances)
+    if (auto error = verifySourceProvenancePlan(instance.sourceProvenance))
+      return error;
+  for (const TablePlan &table : plan.tables)
+    if (auto error = verifySourceProvenancePlan(table.sourceProvenance))
+      return error;
+  for (const SlotPlan &slot : plan.slots)
+    if (auto error = verifySourceProvenancePlan(slot.sourceProvenance))
+      return error;
+  for (const TableMatchPlan &match : plan.tableMatches)
+    if (auto error = verifySourceProvenancePlan(match.sourceProvenance))
+      return error;
+    else if (auto error =
+                 verifyExpressions(verifyExpressions, match.expressions))
+      return error;
+  for (const TableSelectionPlan &selection : plan.tableSelections)
+    if (auto error = verifySourceProvenancePlan(selection.sourceProvenance))
+      return error;
+    else if (auto error =
+            verifyExpressions(verifyExpressions, selection.keyExpressions))
+      return error;
   if (plan.system.empty() || plan.queues.empty() ||
       (plan.blocks.empty() && plan.moduleInstances.empty()))
     return planError("QueueGraph plan is incomplete");
@@ -5656,6 +5900,24 @@ llvm::Error verifyQueueGraphPlan(const QueueGraphPlan &plan) {
 }
 
 llvm::Expected<std::string> QueueGraphPlan::canonicalJson() const {
+  auto provenanceJson = [](const QueueSourceProvenancePlan &provenance) {
+    llvm::json::Array origins;
+    for (const QueueSourceOriginPlan &origin : provenance.origins) {
+      llvm::json::Array frames;
+      for (const QueueSourceFramePlan &frame : origin) {
+        llvm::json::Object value{{"column", frame.column},
+                                 {"file", frame.file},
+                                 {"kind", frame.kind},
+                                 {"line", frame.line}};
+        if (!frame.symbol.empty())
+          value["symbol"] = frame.symbol;
+        frames.push_back(std::move(value));
+      }
+      origins.push_back(
+          llvm::json::Object{{"frames", std::move(frames)}});
+    }
+    return llvm::json::Object{{"origins", std::move(origins)}};
+  };
   auto expressionJson =
       [&](auto &&self,
           const QueueExpressionPlan &expression) -> llvm::json::Object {
@@ -5724,6 +5986,9 @@ llvm::Expected<std::string> QueueGraphPlan::canonicalJson() const {
       result["key_ordering"] = expression.keyOrdering;
       result["initial_cursor"] = expression.initialCursor;
     }
+    if (!expression.sourceProvenance.origins.empty())
+      result["source_provenance"] =
+          provenanceJson(expression.sourceProvenance);
     return result;
   };
   auto initValueJson =
@@ -5795,13 +6060,16 @@ llvm::Expected<std::string> QueueGraphPlan::canonicalJson() const {
       expressions.push_back(expressionJson(expressionJson, expression));
     for (const std::string &yield : helper.yields)
       yields.push_back(yield);
-    helperValues.push_back(
-        llvm::json::Object{{"expressions", std::move(expressions)},
-                           {"input_names", std::move(inputNames)},
-                           {"input_types", std::move(inputTypes)},
-                           {"name", helper.name},
-                           {"result_types", std::move(resultTypes)},
-                           {"yields", std::move(yields)}});
+    llvm::json::Object helperValue{{"expressions", std::move(expressions)},
+                                   {"input_names", std::move(inputNames)},
+                                   {"input_types", std::move(inputTypes)},
+                                   {"name", helper.name},
+                                   {"result_types", std::move(resultTypes)},
+                                   {"yields", std::move(yields)}};
+    if (!helper.sourceProvenance.origins.empty())
+      helperValue["source_provenance"] =
+          provenanceJson(helper.sourceProvenance);
+    helperValues.push_back(std::move(helperValue));
   }
   llvm::json::Array scopeValues;
   for (const std::string &scope : scopes)
@@ -5894,7 +6162,7 @@ llvm::Expected<std::string> QueueGraphPlan::canonicalJson() const {
       outputPresence.push_back(llvm::json::Object{{"ordinal", output.ordinal},
                                                   {"present", output.present},
                                                   {"value", output.value}});
-    blockValues.push_back(llvm::json::Object{
+    llvm::json::Object blockValue{
         {"activation_sources", std::move(activationSources)},
         {"arbitration_membership", std::move(arbitrationMembership)},
         {"capacity", block.capacity},
@@ -5942,18 +6210,26 @@ llvm::Expected<std::string> QueueGraphPlan::canonicalJson() const {
         {"transaction_resources", std::move(transactionResources)},
         {"init", block.init},
         {"write_fields", std::move(writeFields)},
-        {"yields", std::move(yields)}});
+        {"yields", std::move(yields)}};
+    if (!block.sourceProvenance.origins.empty())
+      blockValue["source_provenance"] =
+          provenanceJson(block.sourceProvenance);
+    blockValues.push_back(std::move(blockValue));
   }
   llvm::json::Array memoryInstanceValues;
-  for (const MemoryInstancePlan &instance : memoryInstances)
-    memoryInstanceValues.push_back(
-        llvm::json::Object{{"data_type", instance.dataType},
-                           {"entries", instance.entries},
-                           {"init", instance.init},
-                           {"latency", instance.latency},
-                           {"name", instance.name},
-                           {"owner_path", instance.ownerPath},
-                           {"stable_id", instance.stableId}});
+  for (const MemoryInstancePlan &instance : memoryInstances) {
+    llvm::json::Object value{{"data_type", instance.dataType},
+                             {"entries", instance.entries},
+                             {"init", instance.init},
+                             {"latency", instance.latency},
+                             {"name", instance.name},
+                             {"owner_path", instance.ownerPath},
+                             {"stable_id", instance.stableId}};
+    if (!instance.sourceProvenance.origins.empty())
+      value["source_provenance"] =
+          provenanceJson(instance.sourceProvenance);
+    memoryInstanceValues.push_back(std::move(value));
+  }
   llvm::json::Array memoryRequestValues;
   for (const MemoryRequestPlan &request : memoryRequests)
     memoryRequestValues.push_back(
@@ -5976,8 +6252,7 @@ llvm::Expected<std::string> QueueGraphPlan::canonicalJson() const {
       axisWidths.push_back(value);
     for (const TableInitValuePlan &value : table.initImage)
       initImage.push_back(initValueJson(initValueJson, value));
-    tableValues.push_back(
-        llvm::json::Object{{"axis_widths", std::move(axisWidths)},
+    llvm::json::Object value{{"axis_widths", std::move(axisWidths)},
                            {"entries", table.entries},
                            {"entry_type", table.entryType},
                            {"init", table.init},
@@ -5990,7 +6265,10 @@ llvm::Expected<std::string> QueueGraphPlan::canonicalJson() const {
                            {"owner_path", table.ownerPath},
                            {"schema_id", table.schemaId},
                            {"shape", std::move(shape)},
-                           {"stable_id", table.stableId}});
+                           {"stable_id", table.stableId}};
+    if (!table.sourceProvenance.origins.empty())
+      value["source_provenance"] = provenanceJson(table.sourceProvenance);
+    tableValues.push_back(std::move(value));
   }
   llvm::json::Array tableMatchValues;
   for (const TableMatchPlan &match : tableMatches) {
@@ -6024,6 +6302,9 @@ llvm::Expected<std::string> QueueGraphPlan::canonicalJson() const {
         scanBound *= extent;
       matchValue["scan_bound"] = scanBound;
     }
+    if (!match.sourceProvenance.origins.empty())
+      matchValue["source_provenance"] =
+          provenanceJson(match.sourceProvenance);
     tableMatchValues.push_back(std::move(matchValue));
   }
   llvm::json::Array tableSelectionValues;
@@ -6031,19 +6312,23 @@ llvm::Expected<std::string> QueueGraphPlan::canonicalJson() const {
     llvm::json::Array expressions;
     for (const QueueExpressionPlan &expression : selection.keyExpressions)
       expressions.push_back(expressionJson(expressionJson, expression));
-    tableSelectionValues.push_back(
-        llvm::json::Object{{"count", selection.count},
-                           {"index_type", selection.indexType},
-                           {"initial_cursor", selection.initialCursor},
-                           {"key_ordering", selection.keyOrdering},
-                           {"key_expressions", std::move(expressions)},
-                           {"key_yield", selection.keyYield},
-                           {"match", selection.match},
-                           {"name", selection.name},
-                           {"policy", selection.policy},
-                           {"scope", selection.scope},
-                           {"stable_id", selection.stableId},
-                           {"table", selection.table}});
+    llvm::json::Object selectionValue{
+        {"count", selection.count},
+        {"index_type", selection.indexType},
+        {"initial_cursor", selection.initialCursor},
+        {"key_ordering", selection.keyOrdering},
+        {"key_expressions", std::move(expressions)},
+        {"key_yield", selection.keyYield},
+        {"match", selection.match},
+        {"name", selection.name},
+        {"policy", selection.policy},
+        {"scope", selection.scope},
+        {"stable_id", selection.stableId},
+        {"table", selection.table}};
+    if (!selection.sourceProvenance.origins.empty())
+      selectionValue["source_provenance"] =
+          provenanceJson(selection.sourceProvenance);
+    tableSelectionValues.push_back(std::move(selectionValue));
   }
   llvm::json::Array tableReadValues;
   for (const TableReadPlan &read : tableReads)
@@ -6080,13 +6365,17 @@ llvm::Expected<std::string> QueueGraphPlan::canonicalJson() const {
                            {"write_fields", std::move(writeFields)}});
   }
   llvm::json::Array slotValues;
-  for (const SlotPlan &slot : slots)
-    slotValues.push_back(llvm::json::Object{{"input", slot.input},
+  for (const SlotPlan &slot : slots) {
+    llvm::json::Object value{{"input", slot.input},
                                             {"name", slot.name},
                                             {"owner_path", slot.ownerPath},
                                             {"payload_type", slot.payloadType},
                                             {"scope", slot.scope},
-                                            {"stable_id", slot.stableId}});
+                                            {"stable_id", slot.stableId}};
+    if (!slot.sourceProvenance.origins.empty())
+      value["source_provenance"] = provenanceJson(slot.sourceProvenance);
+    slotValues.push_back(std::move(value));
+  }
   llvm::json::Array interfaceInputValues;
   for (const QueueInterfacePlan &input : interfaceInputs)
     interfaceInputValues.push_back(
@@ -6111,14 +6400,18 @@ llvm::Expected<std::string> QueueGraphPlan::canonicalJson() const {
     llvm::json::Array outputs;
     for (const std::string &output : instance.outputs)
       outputs.push_back(output);
-    moduleInstanceValues.push_back(llvm::json::Object{
+    llvm::json::Object instanceValue{
         {"definition", instance.definition},
         {"inputs", std::move(inputs)},
         {"lexical_order", instance.lexicalOrder},
         {"name", instance.name},
         {"outputs", std::move(outputs)},
         {"scope", instance.scope},
-        {"specialization", instance.specializationFingerprint}});
+        {"specialization", instance.specializationFingerprint}};
+    if (!instance.sourceProvenance.origins.empty())
+      instanceValue["source_provenance"] =
+          provenanceJson(instance.sourceProvenance);
+    moduleInstanceValues.push_back(std::move(instanceValue));
   }
   llvm::json::Array moduleSpecializationValues;
   for (const std::shared_ptr<QueueGraphPlan> &specialization :
@@ -6235,6 +6528,151 @@ llvm::Expected<std::string> QueueGraphPlan::canonicalJson() const {
   if (!staticConfigBindings.empty())
     root["static_config_bindings"] = std::move(staticConfigBindingValues);
   root["work_closure_edges"] = std::move(workClosureEdgeValues);
+  return bindings::canonicalizeJson(llvm::json::Value(std::move(root)));
+}
+
+llvm::Expected<std::string> QueueGraphPlan::sourceMapJson() const {
+  auto provenanceJson = [](const QueueSourceProvenancePlan &provenance) {
+    llvm::json::Array origins;
+    for (const QueueSourceOriginPlan &origin : provenance.origins) {
+      llvm::json::Array frames;
+      for (const QueueSourceFramePlan &frame : origin) {
+        llvm::json::Object value{{"column", frame.column},
+                                 {"file", frame.file},
+                                 {"kind", frame.kind},
+                                 {"line", frame.line}};
+        if (!frame.symbol.empty())
+          value["symbol"] = frame.symbol;
+        frames.push_back(std::move(value));
+      }
+      origins.push_back(
+          llvm::json::Object{{"frames", std::move(frames)}});
+    }
+    return llvm::json::Object{{"origins", std::move(origins)}};
+  };
+  auto expressionJson = [&](auto &&self,
+                            const QueueExpressionPlan &expression)
+      -> llvm::json::Object {
+    llvm::json::Array nested;
+    for (const QueueExpressionPlan &child : expression.nestedExpressions)
+      nested.push_back(self(self, child));
+    return llvm::json::Object{
+        {"kind", expression.kind},
+        {"nested", std::move(nested)},
+        {"result", expression.result},
+        {"source_provenance", provenanceJson(expression.sourceProvenance)},
+    };
+  };
+
+  llvm::json::Array blockValues;
+  for (auto [index, block] : llvm::enumerate(blocks)) {
+    llvm::json::Array expressions;
+    for (const QueueExpressionPlan &expression : block.expressions)
+      expressions.push_back(expressionJson(expressionJson, expression));
+    blockValues.push_back(llvm::json::Object{
+        {"expressions", std::move(expressions)},
+        {"index", index},
+        {"kind", block.kind},
+        {"name", block.name},
+        {"source_provenance", provenanceJson(block.sourceProvenance)},
+        {"stable_id", block.stableId},
+    });
+  }
+  llvm::json::Array helperValues;
+  for (const QueueHelperPlan &helper : helpers) {
+    llvm::json::Array expressions;
+    for (const QueueExpressionPlan &expression : helper.expressions)
+      expressions.push_back(expressionJson(expressionJson, expression));
+    helperValues.push_back(llvm::json::Object{
+        {"expressions", std::move(expressions)},
+        {"name", helper.name},
+        {"source_provenance", provenanceJson(helper.sourceProvenance)},
+    });
+  }
+  llvm::json::Array instanceValues;
+  for (const QueueModuleInstancePlan &instance : moduleInstances)
+    instanceValues.push_back(llvm::json::Object{
+        {"definition", instance.definition},
+        {"name", instance.name},
+        {"scope", instance.scope},
+        {"source_provenance", provenanceJson(instance.sourceProvenance)},
+        {"specialization", instance.specializationFingerprint},
+    });
+  llvm::json::Array tableMatchValues;
+  for (const TableMatchPlan &match : tableMatches) {
+    llvm::json::Array expressions;
+    for (const QueueExpressionPlan &expression : match.expressions)
+      expressions.push_back(expressionJson(expressionJson, expression));
+    tableMatchValues.push_back(llvm::json::Object{
+        {"expressions", std::move(expressions)},
+        {"name", match.name},
+        {"source_provenance", provenanceJson(match.sourceProvenance)},
+        {"table", match.table},
+    });
+  }
+  llvm::json::Array tableSelectionValues;
+  for (const TableSelectionPlan &selection : tableSelections) {
+    llvm::json::Array expressions;
+    for (const QueueExpressionPlan &expression : selection.keyExpressions)
+      expressions.push_back(expressionJson(expressionJson, expression));
+    tableSelectionValues.push_back(llvm::json::Object{
+        {"key_expressions", std::move(expressions)},
+        {"name", selection.name},
+        {"source_provenance", provenanceJson(selection.sourceProvenance)},
+        {"table", selection.table},
+    });
+  }
+  llvm::json::Array stateOwnerValues;
+  for (const MemoryInstancePlan &instance : memoryInstances)
+    stateOwnerValues.push_back(llvm::json::Object{
+        {"kind", "memory"},
+        {"name", instance.name},
+        {"source_provenance", provenanceJson(instance.sourceProvenance)},
+    });
+  for (const TablePlan &table : tables)
+    stateOwnerValues.push_back(llvm::json::Object{
+        {"kind", "table"},
+        {"name", table.name},
+        {"source_provenance", provenanceJson(table.sourceProvenance)},
+    });
+  for (const SlotPlan &slot : slots)
+    stateOwnerValues.push_back(llvm::json::Object{
+        {"kind", "slot"},
+        {"name", slot.name},
+        {"source_provenance", provenanceJson(slot.sourceProvenance)},
+    });
+  llvm::json::Array specializationValues;
+  for (const std::shared_ptr<QueueGraphPlan> &specialization :
+       moduleSpecializations) {
+    if (!specialization)
+      return planError("source map module specialization is null");
+    auto serialized = specialization->sourceMapJson();
+    if (!serialized)
+      return serialized.takeError();
+    auto parsed = llvm::json::parse(*serialized);
+    if (!parsed)
+      return planError("module specialization source map is invalid");
+    specializationValues.push_back(std::move(*parsed));
+  }
+  llvm::json::Object root{
+      {"blocks", std::move(blockValues)},
+      {"contract_epoch", "0.5"},
+      {"definition", definition.empty() ? llvm::json::Value(nullptr)
+                                         : llvm::json::Value(definition)},
+      {"helpers", std::move(helperValues)},
+      {"module_instances", std::move(instanceValues)},
+      {"module_specializations", std::move(specializationValues)},
+      {"schema", "agentic-circuit-source-map"},
+      {"specialization",
+       specializationFingerprint.empty()
+           ? llvm::json::Value(nullptr)
+           : llvm::json::Value(specializationFingerprint)},
+      {"state_owners", std::move(stateOwnerValues)},
+      {"system", system},
+      {"table_matches", std::move(tableMatchValues)},
+      {"table_selections", std::move(tableSelectionValues)},
+      {"version", "0.1"},
+  };
   return bindings::canonicalizeJson(llvm::json::Value(std::move(root)));
 }
 

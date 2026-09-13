@@ -16,6 +16,8 @@ namespace acir {
 std::unique_ptr<mlir::Pass> createNormalizeACIRFilePass();
 std::unique_ptr<mlir::Pass> createVerifyACIRFilePass();
 std::unique_ptr<mlir::Pass> createLowerProcessStatePass();
+std::unique_ptr<mlir::Pass> createSourceAwareCSEPass();
+std::unique_ptr<mlir::Pass> createSourceAwareCanonicalizerPass();
 
 #define GEN_PASS_DECL_VERIFYMODELPASS
 #define GEN_PASS_DECL_VERIFYVALUECONSTRAINTSPASS

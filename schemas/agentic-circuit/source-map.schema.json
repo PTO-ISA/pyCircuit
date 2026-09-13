@@ -1,0 +1,171 @@
+{
+  "$defs": {
+    "expression": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {"minLength": 1, "type": "string"},
+        "nested": {
+          "items": {"$ref": "#/$defs/expression"},
+          "type": "array"
+        },
+        "result": {"minLength": 1, "type": "string"},
+        "source_provenance": {"$ref": "#/$defs/provenance"}
+      },
+      "required": ["kind", "nested", "result", "source_provenance"],
+      "type": "object"
+    },
+    "frame": {
+      "additionalProperties": false,
+      "properties": {
+        "column": {"minimum": 1, "type": "integer"},
+        "file": {
+          "pattern": "^(?!/)(?![A-Za-z]:)(?!.*\\\\)(?!.*(?:^|/)\\.\\.?(/|$))(?!.*//)[A-Za-z0-9._+@/-]+\\.py$",
+          "type": "string"
+        },
+        "kind": {
+          "enum": ["statement", "definition", "inline_callsite", "instance", "specialization"]
+        },
+        "line": {"minimum": 1, "type": "integer"},
+        "symbol": {"minLength": 1, "type": "string"}
+      },
+      "required": ["column", "file", "kind", "line"],
+      "type": "object"
+    },
+    "provenance": {
+      "additionalProperties": false,
+      "properties": {
+        "origins": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "frames": {
+                "items": {"$ref": "#/$defs/frame"},
+                "minItems": 1,
+                "type": "array"
+              }
+            },
+            "required": ["frames"],
+            "type": "object"
+          },
+          "type": "array"
+        }
+      },
+      "required": ["origins"],
+      "type": "object"
+    }
+  },
+  "$id": "https://pto-isa.org/schemas/agentic-circuit/source-map-v0.1.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "blocks": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "expressions": {
+            "items": {"$ref": "#/$defs/expression"},
+            "type": "array"
+          },
+          "index": {"minimum": 0, "type": "integer"},
+          "kind": {"minLength": 1, "type": "string"},
+          "name": {"minLength": 1, "type": "string"},
+          "source_provenance": {"$ref": "#/$defs/provenance"},
+          "stable_id": {"type": "string"}
+        },
+        "required": ["expressions", "index", "kind", "name", "source_provenance", "stable_id"],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "contract_epoch": {"const": "0.5"},
+    "definition": {"type": ["string", "null"]},
+    "helpers": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "expressions": {
+            "items": {"$ref": "#/$defs/expression"},
+            "type": "array"
+          },
+          "name": {"minLength": 1, "type": "string"},
+          "source_provenance": {"$ref": "#/$defs/provenance"}
+        },
+        "required": ["expressions", "name", "source_provenance"],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "module_instances": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "definition": {"minLength": 1, "type": "string"},
+          "name": {"minLength": 1, "type": "string"},
+          "scope": {"type": "string"},
+          "source_provenance": {"$ref": "#/$defs/provenance"},
+          "specialization": {"pattern": "^sha256:[0-9a-f]{64}$", "type": "string"}
+        },
+        "required": ["definition", "name", "scope", "source_provenance", "specialization"],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "module_specializations": {
+      "items": {"$ref": "#"},
+      "type": "array"
+    },
+    "schema": {"const": "agentic-circuit-source-map"},
+    "specialization": {"type": ["string", "null"]},
+    "state_owners": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "kind": {"enum": ["memory", "slot", "table"]},
+          "name": {"minLength": 1, "type": "string"},
+          "source_provenance": {"$ref": "#/$defs/provenance"}
+        },
+        "required": ["kind", "name", "source_provenance"],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "system": {"minLength": 1, "type": "string"},
+    "table_matches": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "expressions": {
+            "items": {"$ref": "#/$defs/expression"},
+            "type": "array"
+          },
+          "name": {"minLength": 1, "type": "string"},
+          "source_provenance": {"$ref": "#/$defs/provenance"},
+          "table": {"minLength": 1, "type": "string"}
+        },
+        "required": ["expressions", "name", "source_provenance", "table"],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "table_selections": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "key_expressions": {
+            "items": {"$ref": "#/$defs/expression"},
+            "type": "array"
+          },
+          "name": {"minLength": 1, "type": "string"},
+          "source_provenance": {"$ref": "#/$defs/provenance"},
+          "table": {"minLength": 1, "type": "string"}
+        },
+        "required": ["key_expressions", "name", "source_provenance", "table"],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "version": {"const": "0.1"}
+  },
+  "required": ["blocks", "contract_epoch", "definition", "helpers", "module_instances", "module_specializations", "schema", "specialization", "state_owners", "system", "table_matches", "table_selections", "version"],
+  "type": "object"
+}

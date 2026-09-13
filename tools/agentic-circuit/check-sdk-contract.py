@@ -193,6 +193,7 @@ def validate_exact(document: dict[str, Any], version_map: dict[str, Any]) -> Non
                 "include/generated/model.h",
                 "src/generated/model.cpp",
                 "src/generated/queuegraph.cpp",
+                "share/generated/source-map.json",
             ],
             f"{identity}.outputs",
         )
@@ -210,6 +211,7 @@ def validate_exact(document: dict[str, Any], version_map: dict[str, Any]) -> Non
                 "include/generated/model.h",
                 "src/generated/model.cpp",
                 "src/generated/queuegraph.cpp",
+                "share/generated/source-map.json",
             ],
             f"{identity}.generated_files",
         )

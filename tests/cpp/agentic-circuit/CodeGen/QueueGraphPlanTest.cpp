@@ -12,6 +12,7 @@
 #include "llvm/ADT/SmallString.h"
 #include "llvm/Support/Error.h"
 #include "llvm/Support/FileSystem.h"
+#include "llvm/Support/JSON.h"
 #include "llvm/Support/MemoryBuffer.h"
 #include "llvm/Support/Path.h"
 #include "llvm/Support/Program.h"
@@ -943,6 +944,98 @@ TEST(QueueGraphPlanTest, RecomputesNestedConfigProjectionMetadata) {
             std::string::npos);
 }
 
+TEST(QueueGraphPlanTest, VerifiesCanonicalSourceProvenance) {
+  QueueGraphPlan plan = aggregateMetadataPlan();
+  plan.blocks.front().sourceProvenance.origins = {{
+      {"statement", "src/model.py", 7, 5, ""},
+  }};
+  plan.tableMatches.front().sourceProvenance.origins = {{
+      {"statement", "src/model.py", 8, 5, ""},
+  }};
+  plan.tableSelections.front().sourceProvenance.origins = {{
+      {"statement", "src/model.py", 9, 5, ""},
+  }};
+  auto verification = verifyQueueGraphPlan(plan);
+  EXPECT_FALSE(bool(verification)) << llvm::toString(std::move(verification));
+  auto json = plan.canonicalJson();
+  ASSERT_TRUE(bool(json)) << llvm::toString(json.takeError());
+  EXPECT_NE(json->find("source_provenance"), std::string::npos);
+  auto sourceMap = plan.sourceMapJson();
+  ASSERT_TRUE(bool(sourceMap)) << llvm::toString(sourceMap.takeError());
+  auto parsedSourceMap = llvm::json::parse(*sourceMap);
+  ASSERT_TRUE(bool(parsedSourceMap));
+  EXPECT_EQ(parsedSourceMap->getAsObject()->getArray("table_matches")->size(),
+            1u);
+  EXPECT_EQ(
+      parsedSourceMap->getAsObject()->getArray("table_selections")->size(),
+      1u);
+
+  plan.blocks.front().sourceProvenance.origins.front().front().file =
+      "/tmp/model.py";
+  auto absolute = verifyQueueGraphPlan(plan);
+  ASSERT_TRUE(bool(absolute));
+  EXPECT_NE(llvm::toString(std::move(absolute)).find("frame is malformed"),
+            std::string::npos);
+
+  plan.blocks.front().sourceProvenance.origins = {
+      {{"statement", "src/model.py", 7, 5, ""}},
+      {{"statement", "src/model.py", 7, 5, ""}},
+  };
+  auto duplicate = verifyQueueGraphPlan(plan);
+  ASSERT_TRUE(bool(duplicate));
+  EXPECT_NE(llvm::toString(std::move(duplicate)).find("unique and canonical"),
+            std::string::npos);
+}
+
+TEST(QueueGraphPlanTest, RejectsRawMalformedSourceProvenanceBeforeNormalization) {
+  mlir::MLIRContext context;
+  context.loadDialect<ac::ACIRDialect, mlir::DLTIDialect>();
+  auto parse = [&]() {
+    auto module = mlir::parseSourceString<mlir::ModuleOp>(kStatefulFiring,
+                                                          &context);
+    EXPECT_TRUE(module);
+    EXPECT_TRUE(freezeQueueGraph(*module));
+    return module;
+  };
+  auto setProvenance = [&](ac::FiringOp firing, llvm::StringRef file,
+                           int64_t line) {
+    auto i64 = mlir::IntegerType::get(&context, 64);
+    auto frame = mlir::DictionaryAttr::get(
+        &context,
+        {mlir::NamedAttribute(mlir::StringAttr::get(&context, "column"),
+                              mlir::IntegerAttr::get(i64, 3)),
+         mlir::NamedAttribute(mlir::StringAttr::get(&context, "file"),
+                              mlir::StringAttr::get(&context, file)),
+         mlir::NamedAttribute(mlir::StringAttr::get(&context, "kind"),
+                              mlir::StringAttr::get(&context, "statement")),
+         mlir::NamedAttribute(mlir::StringAttr::get(&context, "line"),
+                              mlir::IntegerAttr::get(i64, line))});
+    auto origin = mlir::DictionaryAttr::get(
+        &context,
+        {mlir::NamedAttribute(
+            mlir::StringAttr::get(&context, "frames"),
+            mlir::ArrayAttr::get(&context, {frame}))});
+    firing->setAttr("ac.source_provenance",
+                    mlir::ArrayAttr::get(&context, {origin}));
+  };
+  for (auto [file, line] :
+       {std::pair<llvm::StringRef, int64_t>{"/tmp/model.py", 7},
+        {"./src/model.py", 7},
+        {"src/model\"quoted.py", 7},
+        {"src/model.py", -1}}) {
+    auto module = parse();
+    ac::FiringOp firing;
+    module->walk([&](ac::FiringOp candidate) { firing = candidate; });
+    ASSERT_TRUE(firing);
+    setProvenance(firing, file, line);
+    auto plan = buildQueueGraphPlan(*module);
+    ASSERT_FALSE(bool(plan));
+    EXPECT_NE(llvm::toString(plan.takeError())
+                  .find("source provenance frame is malformed"),
+              std::string::npos);
+  }
+}
+
 TEST(QueueGraphPlanTest, AcceptsCanonicalConfigFloatNumbers) {
   QueueGraphPlan plan = aggregateMetadataPlan();
   plan.staticTypeBindings = {{"cfg.entries", 5}};
@@ -1324,6 +1417,13 @@ TEST(QueueGraphPlanTest,
             plan->moduleSpecializations.front()->specializationFingerprint);
   EXPECT_EQ(plan->moduleInstances[0].lexicalOrder, 2u);
   EXPECT_EQ(plan->moduleInstances[1].lexicalOrder, 3u);
+  auto sourceMap = plan->sourceMapJson();
+  ASSERT_TRUE(bool(sourceMap)) << llvm::toString(sourceMap.takeError());
+  auto parsedSourceMap = llvm::json::parse(*sourceMap);
+  ASSERT_TRUE(bool(parsedSourceMap));
+  ASSERT_EQ(
+      parsedSourceMap->getAsObject()->getArray("module_specializations")->size(),
+      1u);
   QueueGraphPlan malformedOrder = *plan;
   malformedOrder.moduleInstances[1].lexicalOrder =
       malformedOrder.moduleInstances[0].lexicalOrder;
@@ -2222,17 +2322,23 @@ TEST(QueueGraphPlanTest, EmitsClosedOpaqueRuntimeAbiBundle) {
       *plan, {.sdkProductVersion = "6.0.0",
               .sdkSourceRevision = "c053fe2a00000000000000000000000000000000"});
   ASSERT_TRUE(bool(bundle)) << llvm::toString(bundle.takeError());
-  ASSERT_EQ(bundle->size(), 3u);
+  ASSERT_EQ(bundle->size(), 4u);
   EXPECT_EQ((*bundle)[0].relativePath, "include/generated/model.h");
-  EXPECT_EQ((*bundle)[1].relativePath, "src/generated/model.cpp");
-  EXPECT_EQ((*bundle)[2].relativePath, "src/generated/queuegraph.cpp");
+  EXPECT_EQ((*bundle)[1].relativePath, "share/generated/source-map.json");
+  EXPECT_EQ((*bundle)[2].relativePath, "src/generated/model.cpp");
+  EXPECT_EQ((*bundle)[3].relativePath, "src/generated/queuegraph.cpp");
 
   const llvm::StringRef header((*bundle)[0].content);
   EXPECT_NE(header.find("gfsim/model_api.h"), llvm::StringRef::npos);
   EXPECT_EQ(header.find("class "), llvm::StringRef::npos);
   EXPECT_EQ(header.find("SimSystem"), llvm::StringRef::npos);
 
-  const llvm::StringRef model((*bundle)[1].content);
+  auto sourceMap = llvm::json::parse((*bundle)[1].content);
+  ASSERT_TRUE(bool(sourceMap));
+  EXPECT_EQ(sourceMap->getAsObject()->getString("schema"),
+            "agentic-circuit-source-map");
+
+  const llvm::StringRef model((*bundle)[2].content);
   EXPECT_EQ(model.count("agentic_model_query_v1"), 1u);
   EXPECT_NE(model.find("AgenticModelApiV1 api"), llvm::StringRef::npos);
   EXPECT_NE(model.find("\"6.0.0\""), llvm::StringRef::npos);
@@ -2242,7 +2348,7 @@ TEST(QueueGraphPlanTest, EmitsClosedOpaqueRuntimeAbiBundle) {
   EXPECT_EQ(model.find("observations_json"), llvm::StringRef::npos);
   EXPECT_EQ(model.find("trace_position"), llvm::StringRef::npos);
 
-  const llvm::StringRef queueGraph((*bundle)[2].content);
+  const llvm::StringRef queueGraph((*bundle)[3].content);
   EXPECT_NE(queueGraph.find("gfsim::SimSystem system"), llvm::StringRef::npos);
   EXPECT_NE(queueGraph.find("system.statistics()"), llvm::StringRef::npos);
   EXPECT_EQ(queueGraph.find("loadPtoTraceText"), llvm::StringRef::npos);
@@ -4655,10 +4761,12 @@ TEST(QueueGraphPlanTest, PreservesReadableRuleSourceAndLocalNames) {
       return;
     operation->setAttr("ac.display_name",
                        mlir::StringAttr::get(&context, "old-value"));
+    operation->setLoc(mlir::FileLineColLoc::get(
+        &context, "examples/agentic/readable.py", 121 + named, 7));
     ++named;
   });
   firing->setLoc(mlir::FileLineColLoc::get(
-      &context, "/tmp/project/examples/agentic/readable.py", 120, 5));
+      &context, "examples/agentic/readable.py", 120, 5));
   ASSERT_TRUE(freezeQueueGraph(*module));
   auto plan = buildQueueGraphPlan(*module);
   ASSERT_TRUE(bool(plan)) << llvm::toString(plan.takeError());
@@ -4668,13 +4776,28 @@ TEST(QueueGraphPlanTest, PreservesReadableRuleSourceAndLocalNames) {
       });
   EXPECT_EQ(block.displayRuleName, "install");
   EXPECT_EQ(block.sourceFile, "examples/agentic/readable.py");
+  ASSERT_EQ(block.sourceProvenance.origins.size(), 1u);
+  ASSERT_EQ(block.sourceProvenance.origins.front().size(), 1u);
+  EXPECT_EQ(block.sourceProvenance.origins.front().front().file,
+            "examples/agentic/readable.py");
+  EXPECT_EQ(block.sourceProvenance.origins.front().front().line, 120u);
   EXPECT_EQ(block.expressions[0].result, "old_value");
   EXPECT_EQ(block.expressions[1].result, "old_value_2");
+  ASSERT_EQ(block.expressions[0].sourceProvenance.origins.size(), 1u);
+  EXPECT_EQ(block.expressions[0].sourceProvenance.origins.front().front().line,
+            121u);
+  auto json = plan->canonicalJson();
+  ASSERT_TRUE(bool(json)) << llvm::toString(json.takeError());
+  EXPECT_NE(json->find("source_provenance"), std::string::npos);
   auto cpp = generateQueueGraphCpp(*plan);
   ASSERT_TRUE(bool(cpp)) << llvm::toString(cpp.takeError());
   EXPECT_NE(cpp->find("struct rule_install_policy"), std::string::npos);
   EXPECT_NE(cpp->find("// source: examples/agentic/readable.py:120:5"),
             std::string::npos);
+  EXPECT_NE(
+      cpp->find("// source-origin[0]: statement "
+                "examples/agentic/readable.py:120:5"),
+      std::string::npos);
   EXPECT_NE(cpp->find("state_table_next"), std::string::npos);
   EXPECT_NE(cpp->find("output_output"), std::string::npos);
   EXPECT_NE(cpp->find("rule_condition"), std::string::npos);
@@ -4721,6 +4844,8 @@ TEST(QueueGraphPlanTest, DisplayNamesDoNotChangeStructuredFingerprints) {
     operation->setAttr(
         "ac.source_column",
         mlir::IntegerAttr::get(mlir::IntegerType::get(&context, 64), 3));
+    operation->setLoc(
+        mlir::FileLineColLoc::get(&context, "src/readable.py", 12, 3));
     labeled = true;
   });
   ASSERT_TRUE(labeled);

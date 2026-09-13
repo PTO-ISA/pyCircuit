@@ -5403,11 +5403,15 @@ def invariant_module(value: Payload) -> Payload:
     def test_rank_two_table_find_preserves_runtime_row_projection(self) -> None:
         from agentic_circuit._queue_frontend import lower_queue_source
 
-        lowered = lower_queue_source(ROW_FIND_RULE_SOURCE, "row_find")
+        lowered = lower_queue_source(
+            ROW_FIND_RULE_SOURCE, "row_find", source_path="src/runtime_row.py"
+        )
         self.assertIn('stable_id "var/body/entries" shape [4, 4]', lowered)
         self.assertIn("ac.var.match @entries row %", lowered)
         self.assertIn("-> !ac.var<i4>", lowered)
         self.assertIn('count 1 policy "first"', lowered)
+        self.assertIn('loc("src/runtime_row.py":22:22)', lowered)
+        self.assertIn('loc("src/runtime_row.py":23:29)', lowered)
 
     def test_runtime_row_find_rejects_non_table_and_wrong_axis_width(self) -> None:
         from agentic_circuit._queue_frontend import (
@@ -5598,7 +5602,15 @@ def invariant_module(value: Payload) -> Payload:
             source_path=source_path,
         )
 
-        self.assertIn(f'loc("{source_path}":10:1)', lowered)
+        self.assertIn(f'loc(callsite("{source_path}":10:1 at ', lowered)
+        self.assertRegex(
+            lowered,
+            rf'ac\.var\.decl @count .*loc\("{source_path}":[0-9]+:[0-9]+\)',
+        )
+        self.assertRegex(
+            lowered,
+            rf'ac\.var\.decl @entries .*loc\("{source_path}":[0-9]+:[0-9]+\)',
+        )
         self.assertEqual(1, lowered.count('ac.display_name = "old"'))
         self.assertEqual(2, lowered.count('ac.display_name = "ack"'))
         self.assertEqual(1, lowered.count('ac.display_name = "count_next"'))
@@ -5608,6 +5620,48 @@ def invariant_module(value: Payload) -> Payload:
         )
         self.assertIn('name "update" stable_id "result"', lowered)
         self.assertIn('ac.name = "result"', lowered)
+
+    def test_queue_topology_statements_preserve_python_locations(self) -> None:
+        from agentic_circuit._queue_frontend import lower_queue_source
+
+        source = """import agentic_circuit as ac
+
+@ac.system
+def topology(incoming: ac.u8) -> ac.u8:
+    transformed = incoming.apply(lambda item: item + 1)
+    return transformed
+"""
+        lowered = lower_queue_source(
+            source,
+            "topology",
+            source_path="src/model.py",
+        )
+
+        self.assertIn('ac.source depth 1 latency 1', lowered)
+        self.assertIn('!ac.queue<i8> loc("src/model.py":4:14)', lowered)
+        self.assertIn('!ac.queue<i8> loc("src/model.py":5:19)', lowered)
+        self.assertIn('ac.sink %transformed', lowered)
+        self.assertIn('!ac.queue<i8> loc("src/model.py":6:5)', lowered)
+
+    def test_source_path_with_unsafe_cpp_line_characters_is_rejected(self) -> None:
+        from agentic_circuit._queue_frontend import (
+            QueueFrontendError,
+            lower_queue_source,
+        )
+
+        with self.assertRaisesRegex(
+            QueueFrontendError,
+            "source path contains unsupported characters",
+        ):
+            lower_queue_source(
+                """import agentic_circuit as ac
+@ac.system
+def pipeline(incoming: ac.u8) -> ac.u8:
+    return incoming
+""",
+                "pipeline",
+                source_path='src/model"quoted.py',
+            )
 
     def test_absolute_rule_source_path_is_not_emitted(self) -> None:
         from agentic_circuit._queue_frontend import lower_queue_source
@@ -5619,7 +5673,7 @@ def invariant_module(value: Payload) -> Payload:
             source_path=absolute_path,
         )
 
-        self.assertIn('loc("readable_rule.py":10:1)', lowered)
+        self.assertIn('loc(callsite("readable_rule.py":10:1 at ', lowered)
         self.assertNotIn("/private/build/checkout", lowered)
 
     def test_if_else_infers_complementary_branch_local_state_presence(self) -> None:

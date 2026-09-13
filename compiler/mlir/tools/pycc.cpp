@@ -4,6 +4,7 @@
 #include "pyc/Emit/VerilogEmitter.h"
 #include "pyc/Support/Diagnostics.h"
 #include "pyc/Transforms/Passes.h"
+#include "pyc/Transforms/SourceProvenance.h"
 
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Func/Extensions/InlinerExtension.h"
@@ -2396,6 +2397,8 @@ int main(int argc, char **argv) {
     effectiveCanonicalizeBudget = 6;
 
   GreedyRewriteConfig canonicalizeCfg;
+  pyc::SourceLocationRewriteListener sourceLocationListener;
+  canonicalizeCfg.setListener(&sourceLocationListener);
   if (effectiveCanonicalizeBudget > 0) {
     configureGreedyRewriteBudget(
         canonicalizeCfg, static_cast<int64_t>(effectiveCanonicalizeBudget),
@@ -2420,7 +2423,7 @@ int main(int argc, char **argv) {
   if (inlineDecision.enableInline)
     pm.addPass(createInlinerPass());
   pm.addPass(createCanonicalizerPass(canonicalizeCfg));
-  pm.addPass(createCSEPass());
+  pm.addPass(pyc::createSourceAwareCSEPass());
   pm.addPass(createSCCPPass());
   addRemoveDeadValuesPassIfSupported(pm);
   pm.addNestedPass<func::FuncOp>(pyc::createEliminateDeadInstancesPass());
@@ -2437,7 +2440,7 @@ int main(int argc, char **argv) {
   if (enableFuseComb)
     pm.addNestedPass<func::FuncOp>(pyc::createFuseCombPass());
   pm.addPass(createCanonicalizerPass(canonicalizeCfg));
-  pm.addPass(createCSEPass());
+  pm.addPass(pyc::createSourceAwareCSEPass());
   addRemoveDeadValuesPassIfSupported(pm);
   pm.addNestedPass<func::FuncOp>(pyc::createEliminateDeadInstancesPass());
   pm.addPass(createSymbolDCEPass());

@@ -131,6 +131,7 @@ add_library(pyc_transforms OBJECT
   lib/Transforms/LowerSCFToPYCStaticPass.cpp
   lib/Transforms/PrunePortsPass.cpp
   lib/Transforms/SelectRtlPrimitivesPass.cpp
+  lib/Transforms/SourceAwareCSEPass.cpp
 )
 add_dependencies(pyc_transforms PYCSemanticPrimitiveRegistryGen)
 llvm_update_compile_flags(pyc_transforms)

@@ -1,4 +1,5 @@
 #include "pyc/Transforms/Passes.h"
+#include "pyc/Transforms/SourceProvenance.h"
 
 #include "pyc/Dialect/PYC/PYCOps.h"
 
@@ -107,14 +108,23 @@ struct EliminateWiresPass : public PassWrapper<EliminateWiresPass, OperationPass
     }
 
     Value replacement = src;
+    Location replacementLoc = mergeSourceLocations(
+        mergeSourceLocations(w.getLoc(), driver.getLoc()),
+        src.getLoc());
     if (auto nameAttr = w->getAttrOfType<StringAttr>("pyc.name")) {
       if (Operation *def = src.getDefiningOp())
         builder.setInsertionPointAfter(def);
       else
         builder.setInsertionPointToStart(src.getParentBlock());
-      auto alias = builder.create<pyc::AliasOp>(w.getLoc(), src.getType(), src);
+      auto alias =
+          builder.create<pyc::AliasOp>(replacementLoc, src.getType(), src);
       alias->setAttr("pyc.name", nameAttr);
       replacement = alias.getResult();
+    } else if (Operation *definition = src.getDefiningOp()) {
+      definition->setLoc(
+          mergeSourceLocations(definition->getLoc(), replacementLoc));
+    } else if (auto argument = dyn_cast<BlockArgument>(src)) {
+      argument.setLoc(mergeSourceLocations(argument.getLoc(), replacementLoc));
     }
 
     for (OpOperand *use : reads)

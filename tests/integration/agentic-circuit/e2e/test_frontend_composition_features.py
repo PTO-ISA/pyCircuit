@@ -151,6 +151,16 @@ class FrontendCompositionFeatureTest(unittest.TestCase):
                         self.assertEqual(2, len(plan["module_specializations"]))
                         if system == "multi_config_specialization":
                             self.assertEqual(2, len(plan["static_config_bindings"]))
+                            self.assertTrue(
+                                all(
+                                    instance["source_provenance"]["origins"][0][
+                                        "frames"
+                                    ][0]["file"].endswith(
+                                        "multi_config_specialization.py"
+                                    )
+                                    for instance in plan["module_instances"]
+                                )
+                            )
                             roots = [
                                 binding["root"]
                                 for binding in plan["static_config_bindings"]
@@ -176,6 +186,7 @@ class FrontendCompositionFeatureTest(unittest.TestCase):
                         self._run((self.pycgen, frozen), cwd=ROOT),
                         encoding="utf-8",
                     )
+                    self.assertIn("pyc.source_map", pyc.read_text(encoding="utf-8"))
                     cpp_output = work / f"{system}-cpp"
                     verilog_output = work / f"{system}-verilog"
                     self._run(
@@ -275,6 +286,18 @@ class FrontendCompositionFeatureTest(unittest.TestCase):
                     elif system == "record_spread_pipeline":
                         self.assertIn("struct Packet", generated)
                         self.assertIn("auto v4 = Packet{v0, v1, v2, v3};", generated)
+                        plan = json.loads(self._run((self.plan, frozen), cwd=ROOT))
+                        record = next(
+                            expression
+                            for block in plan["blocks"]
+                            for expression in block["expressions"]
+                            if expression["kind"] == "record_create"
+                        )
+                        self.assertTrue(
+                            record["source_provenance"]["origins"][0]["frames"][0][
+                                "file"
+                            ].endswith("record_spread_pipeline.py")
+                        )
                     elif system == "onehot_encode":
                         self.assertIn("gfsim::priorityEncode", generated)
                         self.assertIn("gfsim::populationCount", generated)

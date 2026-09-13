@@ -27,6 +27,7 @@
 #include "llvm/Support/raw_ostream.h"
 
 #include <algorithm>
+#include <iterator>
 #include <mutex>
 #include <set>
 #include <string>
@@ -60,11 +61,40 @@ std::string severityName(mlir::DiagnosticSeverity severity) {
   return "error";
 }
 
-std::optional<SourceLocation> sourceLocation(mlir::Location location) {
+struct DiagnosticSourceFrame {
+  std::string message;
+  SourceLocation source;
+};
+
+std::vector<DiagnosticSourceFrame>
+sourceLocations(mlir::Location location,
+                llvm::StringRef message = "source definition") {
   if (auto file = mlir::dyn_cast<mlir::FileLineColLoc>(location))
-    return SourceLocation{file.getFilename().str(), file.getLine(),
-                          file.getColumn()};
-  return std::nullopt;
+    return {{message.str(),
+             SourceLocation{file.getFilename().str(), file.getLine(),
+                            file.getColumn()}}};
+  if (auto named = mlir::dyn_cast<mlir::NameLoc>(location))
+    return sourceLocations(named.getChildLoc(), named.getName().getValue());
+  if (auto call = mlir::dyn_cast<mlir::CallSiteLoc>(location)) {
+    std::vector<DiagnosticSourceFrame> result =
+        sourceLocations(call.getCallee(), message);
+    std::vector<DiagnosticSourceFrame> callers =
+        sourceLocations(call.getCaller(), "inline callsite");
+    result.insert(result.end(), std::make_move_iterator(callers.begin()),
+                  std::make_move_iterator(callers.end()));
+    return result;
+  }
+  if (auto fused = mlir::dyn_cast<mlir::FusedLoc>(location)) {
+    std::vector<DiagnosticSourceFrame> result;
+    for (mlir::Location child : fused.getLocations()) {
+      std::vector<DiagnosticSourceFrame> origins =
+          sourceLocations(child, "alternate source origin");
+      result.insert(result.end(), std::make_move_iterator(origins.begin()),
+                    std::make_move_iterator(origins.end()));
+    }
+    return result;
+  }
+  return {};
 }
 
 std::string defaultDiagnosticCode(CompilerStage stage) {
@@ -120,13 +150,23 @@ public:
   explicit DiagnosticCapture(mlir::MLIRContext &context)
       : handler_(&context, [&](mlir::Diagnostic &diagnostic) {
           std::string message = diagnostic.str();
-          diagnostics_.push_back(CompilerDiagnostic{
+          std::vector<DiagnosticSourceFrame> sources =
+              sourceLocations(diagnostic.getLocation());
+          CompilerDiagnostic captured{
               .stage = compilerStageName(stage_).str(),
               .code = detail::diagnosticCodeFromMetadata(diagnostic).value_or(
                   defaultDiagnosticCode(stage_)),
               .severity = severityName(diagnostic.getSeverity()),
               .message = std::move(message),
-              .source = sourceLocation(diagnostic.getLocation())});
+              .source = sources.empty()
+                            ? std::nullopt
+                            : std::optional<SourceLocation>(sources.front().source)};
+          if (!sources.empty())
+            for (const DiagnosticSourceFrame &frame :
+                 llvm::ArrayRef(sources).drop_front())
+              captured.related.push_back(
+                  {.message = frame.message, .source = frame.source});
+          diagnostics_.push_back(std::move(captured));
           return mlir::success();
         }) {}
 

@@ -89,6 +89,27 @@
       "minItems": 3,
       "type": "array"
     },
+    "source_map": {
+      "additionalProperties": false,
+      "properties": {
+        "path": {
+          "const": "share/generated/source-map.json"
+        },
+        "schema": {
+          "const": "agentic-circuit-source-map"
+        },
+        "sha256": {
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "path",
+        "schema",
+        "sha256"
+      ],
+      "type": "object"
+    },
     "plan": {
       "additionalProperties": false,
       "properties": {
@@ -157,6 +178,7 @@
     "entry",
     "specialization",
     "generated_files",
+    "source_map",
     "cmake_sources",
     "depfile_path",
     "required_runtime",

@@ -39,7 +39,8 @@
   "outputs": [
     "include/generated/model.h",
     "src/generated/model.cpp",
-    "src/generated/queuegraph.cpp"
+    "src/generated/queuegraph.cpp",
+    "share/generated/source-map.json"
   ],
   "queuegraph": {
     "path": "queuegraph.json",

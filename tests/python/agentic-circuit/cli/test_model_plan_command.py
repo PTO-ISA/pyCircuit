@@ -13,6 +13,7 @@ import unittest
 from pathlib import Path
 
 from agentic_circuit._capture_worker import CaptureWorkerRequest, run_capture_worker
+from jsonschema import Draft202012Validator
 
 REPOSITORY = Path(__file__).resolve().parents[4]
 BUILD = REPOSITORY / ".pycircuit_out/acir/dev-llvm22"
@@ -20,6 +21,7 @@ MODEL_PLAN_SCHEMA = REPOSITORY / "schemas/agentic-circuit/model-plan.schema.json
 MODEL_MANIFEST_SCHEMA = (
     REPOSITORY / "schemas/agentic-circuit/model-manifest.schema.json"
 )
+SOURCE_MAP_SCHEMA = REPOSITORY / "schemas/agentic-circuit/source-map.schema.json"
 MODEL_CONSUMER = REPOSITORY / "tests/integration/agentic-circuit/model-install-consumer"
 FIXTURE_SOURCE_REVISION = "a" * 40
 PLAN_FILES = (
@@ -34,6 +36,7 @@ EMIT_FILES = (
     "model-manifest.json",
     "model-sources.cmake",
     "model.d",
+    "share/generated/source-map.json",
     "src/generated/model.cpp",
     "src/generated/queuegraph.cpp",
 )
@@ -120,12 +123,15 @@ def install_sdk(prefix: Path) -> None:
     wheelhouse.mkdir(parents=True, exist_ok=True)
     shutil.copyfile(MODEL_PLAN_SCHEMA, schema_root / "model-plan.schema.json")
     shutil.copyfile(MODEL_MANIFEST_SCHEMA, schema_root / "model-manifest.schema.json")
+    shutil.copyfile(SOURCE_MAP_SCHEMA, schema_root / "source-map.schema.json")
     shutil.copyfile(REPOSITORY / "LICENSE", license_root / "LICENSE")
     (wheelhouse / "agentic_circuit-0.1.0-py3-none-any.whl").write_bytes(b"wheel")
 
     files = []
     manifest_path = prefix / "share/pycircuit/sdk-manifest.json"
-    for path in sorted(prefix.rglob("*")):
+    for path in sorted(
+        prefix.rglob("*"), key=lambda item: item.relative_to(prefix).as_posix()
+    ):
         if not path.is_file() or path == manifest_path:
             continue
         data = path.read_bytes()
@@ -460,6 +466,7 @@ class ModelPlanCommandTest(unittest.TestCase):
         self.assertEqual(
             [
                 "include/generated/model.h",
+                "share/generated/source-map.json",
                 "src/generated/model.cpp",
                 "src/generated/queuegraph.cpp",
             ],
@@ -486,6 +493,18 @@ class ModelPlanCommandTest(unittest.TestCase):
         self.assertEqual(
             [item["path"] for item in manifest["generated_files"]],
             list(plan["outputs"]),
+        )
+        source_map_bytes = left_generated["share/generated/source-map.json"]
+        source_map = json.loads(source_map_bytes)
+        Draft202012Validator(json.loads(SOURCE_MAP_SCHEMA.read_text())).validate(
+            source_map
+        )
+        self.assertEqual("agentic-circuit-source-map", source_map["schema"])
+        self.assertIsInstance(source_map["module_specializations"], list)
+        self.assertIsInstance(source_map["state_owners"], list)
+        self.assertEqual(
+            sha256(source_map_bytes),
+            manifest["source_map"]["sha256"],
         )
 
     def test_emit_rejects_tamper_and_cleans_only_manifest_owned_files(self) -> None:

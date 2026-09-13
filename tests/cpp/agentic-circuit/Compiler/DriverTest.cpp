@@ -75,6 +75,29 @@ TEST(CompilerDriverTest, ParseFailureReturnsStableStructuredDiagnostic) {
   EXPECT_EQ(found.front().code, "ACIR-PARSE-001");
   EXPECT_EQ(found.front().severity, "error");
   EXPECT_FALSE(found.front().message.empty());
+  EXPECT_TRUE(found.front().related.empty());
+}
+
+TEST(CompilerDriverTest, CallsiteDiagnosticKeepsDefinitionAndCallerFrames) {
+  CompilerRequest request = validRequest();
+  request.acirBytes = R"mlir(
+#callee = loc("helpers.py":5:7)
+#caller = loc("top.py":10:3)
+#stack = loc(callsite(#callee at #caller))
+module attributes {ac.contract_epoch = "wrong"} {
+} loc(#stack)
+)mlir";
+
+  auto result = runCompiler(request);
+  ASSERT_FALSE(static_cast<bool>(result));
+  auto found = diagnostics(result.takeError());
+  ASSERT_FALSE(found.empty());
+  ASSERT_TRUE(found.front().source.has_value());
+  EXPECT_EQ(found.front().source->file, "helpers.py");
+  ASSERT_EQ(found.front().related.size(), 1u);
+  ASSERT_TRUE(found.front().related.front().source.has_value());
+  EXPECT_EQ(found.front().related.front().message, "inline callsite");
+  EXPECT_EQ(found.front().related.front().source->file, "top.py");
 }
 
 TEST(CompilerDriverTest, CustomProfileRequiresAnExplicitPipeline) {

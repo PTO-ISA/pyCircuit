@@ -8,12 +8,147 @@
 #include "mlir/IR/SymbolTable.h"
 #include "mlir/IR/Verifier.h"
 #include "llvm/ADT/SmallVector.h"
+#include "llvm/ADT/StringExtras.h"
 #include "llvm/ADT/StringMap.h"
+#include "llvm/Support/Path.h"
+
+#include <algorithm>
+#include <iterator>
 
 using namespace mlir;
 
 namespace acir {
 namespace {
+
+struct SourceFrameRecord {
+  std::string kind;
+  std::string file;
+  uint64_t line = 0;
+  uint64_t column = 0;
+  std::string symbol;
+};
+
+using SourceOriginRecord = SmallVector<SourceFrameRecord>;
+
+bool isValidPythonSourcePath(llvm::StringRef path) {
+  if (path.empty() || llvm::sys::path::is_absolute(path) ||
+      !path.ends_with(".py") || path.contains('\\') || path.contains("//") ||
+      (path.size() >= 2 && llvm::isAlpha(path[0]) && path[1] == ':'))
+    return false;
+  llvm::SmallVector<llvm::StringRef> segments;
+  path.split(segments, '/', /*MaxSplit=*/-1, /*KeepEmpty=*/true);
+  for (llvm::StringRef segment : segments) {
+    if (segment.empty() || segment == "." || segment == "..")
+      return false;
+    for (char character : segment)
+      if (!llvm::isAlnum(character) && character != '.' && character != '_' &&
+          character != '+' && character != '@' && character != '-')
+        return false;
+  }
+  return true;
+}
+
+std::string sourceOriginKey(const SourceOriginRecord &origin) {
+  std::string key;
+  llvm::raw_string_ostream stream(key);
+  for (const SourceFrameRecord &frame : origin)
+    stream << frame.kind << '\0' << frame.file << '\0' << frame.line << '\0'
+           << frame.column << '\0' << frame.symbol << '\0';
+  return key;
+}
+
+SmallVector<SourceOriginRecord> sourceOrigins(Location location) {
+  if (isa<UnknownLoc>(location))
+    return {};
+  if (auto file = dyn_cast<FileLineColLoc>(location)) {
+    StringRef filename = file.getFilename();
+    if (!isValidPythonSourcePath(filename))
+      return {};
+    return {{SourceFrameRecord{"statement", filename.str(), file.getLine(),
+                               file.getColumn(), {}}}};
+  }
+  if (auto named = dyn_cast<NameLoc>(location)) {
+    SmallVector<SourceOriginRecord> origins = sourceOrigins(named.getChildLoc());
+    for (SourceOriginRecord &origin : origins)
+      if (!origin.empty() && origin.front().symbol.empty())
+        origin.front().symbol = named.getName().str();
+    return origins;
+  }
+  if (auto call = dyn_cast<CallSiteLoc>(location)) {
+    SmallVector<SourceOriginRecord> callees = sourceOrigins(call.getCallee());
+    SmallVector<SourceOriginRecord> callers = sourceOrigins(call.getCaller());
+    if (callees.empty()) {
+      for (SourceOriginRecord &caller : callers)
+        for (SourceFrameRecord &frame : caller)
+          frame.kind = "inline_callsite";
+      return callers;
+    }
+    if (callers.empty())
+      return callees;
+    SmallVector<SourceOriginRecord> combined;
+    for (const SourceOriginRecord &callee : callees)
+      for (SourceOriginRecord caller : callers) {
+        for (SourceFrameRecord &frame : caller)
+          frame.kind = "inline_callsite";
+        SourceOriginRecord origin = callee;
+        origin.append(caller);
+        combined.push_back(std::move(origin));
+      }
+    return combined;
+  }
+  if (auto fused = dyn_cast<FusedLoc>(location)) {
+    SmallVector<SourceOriginRecord> origins;
+    for (Location child : fused.getLocations()) {
+      SmallVector<SourceOriginRecord> nested = sourceOrigins(child);
+      origins.append(std::make_move_iterator(nested.begin()),
+                     std::make_move_iterator(nested.end()));
+    }
+    return origins;
+  }
+  return {};
+}
+
+void materializeSourceProvenance(ModuleOp model) {
+  Builder builder(model.getContext());
+  model.walk([&](Operation *operation) {
+    if (operation->hasAttr("ac.source_provenance"))
+      return;
+    SmallVector<SourceOriginRecord> origins = sourceOrigins(operation->getLoc());
+    if (origins.empty())
+      return;
+    llvm::sort(origins, [](const SourceOriginRecord &left,
+                           const SourceOriginRecord &right) {
+      return sourceOriginKey(left) < sourceOriginKey(right);
+    });
+    origins.erase(
+        std::unique(origins.begin(), origins.end(),
+                    [](const SourceOriginRecord &left,
+                       const SourceOriginRecord &right) {
+                      return sourceOriginKey(left) == sourceOriginKey(right);
+                    }),
+        origins.end());
+    SmallVector<Attribute> originAttrs;
+    for (const SourceOriginRecord &origin : origins) {
+      SmallVector<Attribute> frameAttrs;
+      for (const SourceFrameRecord &frame : origin) {
+        SmallVector<NamedAttribute> fields{
+            builder.getNamedAttr("column", builder.getI64IntegerAttr(frame.column)),
+            builder.getNamedAttr("file", builder.getStringAttr(frame.file)),
+            builder.getNamedAttr("kind", builder.getStringAttr(frame.kind)),
+            builder.getNamedAttr("line", builder.getI64IntegerAttr(frame.line)),
+        };
+        if (!frame.symbol.empty())
+          fields.push_back(builder.getNamedAttr(
+              "symbol", builder.getStringAttr(frame.symbol)));
+        frameAttrs.push_back(builder.getDictionaryAttr(fields));
+      }
+      originAttrs.push_back(builder.getDictionaryAttr({builder.getNamedAttr(
+          "frames", builder.getArrayAttr(frameAttrs))}));
+    }
+    operation->setAttr("ac.source_provenance",
+                       builder.getArrayAttr(originAttrs));
+  });
+}
 
 std::string manifestKey(SymbolRefAttr owner, StringRef kind) {
   std::string key;
@@ -123,6 +258,7 @@ LogicalResult freezeFlatQueueGraph(ModuleOp model) {
   model->setAttr("ac.topology_frozen", builder.getBoolAttr(true));
   model->setAttr("ac.topology_digest",
                  builder.getStringAttr(detail::computeTopologyDigest(model)));
+  materializeSourceProvenance(model);
   return success();
 }
 
@@ -199,6 +335,7 @@ LogicalResult freezeStructuredQueueGraph(ModuleOp model) {
   model->setAttr("ac.topology_frozen", builder.getBoolAttr(true));
   model->setAttr("ac.topology_digest",
                  builder.getStringAttr(detail::computeTopologyDigest(model)));
+  materializeSourceProvenance(model);
   return verifyFrozenStructuredQueueGraph(model);
 }
 
@@ -360,6 +497,7 @@ LogicalResult freezeTopology(ModuleOp model) {
   model->setAttr("ac.topology_frozen", builder.getBoolAttr(true));
   model->setAttr("ac.topology_digest",
                  builder.getStringAttr(detail::computeTopologyDigest(model)));
+  materializeSourceProvenance(model);
   return verifyModel(model);
 }
 

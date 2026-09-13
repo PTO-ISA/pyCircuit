@@ -1293,6 +1293,29 @@ rule and stable ID, cites a normalized project-relative `file:line:column`, and
 names the functional condition, each owner write, each optional output, and
 each reservation before constructing `gfsim::StateTransitionPlan`.
 
+Python source provenance is carried independently from display names. Each
+operation may have multiple independent origins; an origin is an ordered stack
+of definition, inline-callsite, module-instance, and specialization frames.
+Files MUST be normalized project-relative `.py` paths with one-based line and
+column coordinates. Inline expansion uses MLIR call-site locations, and CSE or
+folding fuses every replaced origin into the retained value. A generated `.pyc`,
+`.mlir`, or absolute checkout path MUST NOT be presented as Python provenance.
+
+Frozen ACIR materializes canonical `ac.source_provenance`. QueueGraph preserves
+the same stacks on blocks, expressions, helpers, shared Table match/selection
+definitions, state owners, and module instances. Queue topology statements
+own their generated FIFO/backpressure logic; state declarations own initial
+register banks, while update logic combines the owner and writing-rule origins.
+Canonical PYC binds generated operations to
+those stacks with MLIR locations and carries a verified `pyc.source_map` JSON
+attribute. The model bundle publishes the same canonical map as
+`share/generated/source-map.json`; the model manifest records its schema, path,
+and SHA-256. Generated GFSim emits `#line` directives for the primary Python
+frame while the source map retains alternate origins and the complete inline
+stack. Source metadata is excluded from topology, definition, and
+specialization identity, but it remains content-addressed as a generated
+artifact so stale maps cannot be silently reused.
+
 Display metadata is not identity. `ac.name`, stable IDs, scheduler object IDs,
 specialization fingerprints, cache keys, and tuple ordering retain their
 existing semantic roles. The compiler removes `ac.display_name` from

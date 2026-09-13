@@ -885,7 +885,7 @@ def readable(incoming: Entry) -> Entry:
 
             lowered = ac.jit(module.readable, workspace=root).lower_acir()
 
-        self.assertIn('loc("src/readable.py":9:1)', lowered)
+        self.assertIn('loc(callsite("src/readable.py":9:1 at ', lowered)
         self.assertNotIn(str(root), lowered)
 
     def test_const_config_and_compute_lower_to_frozen_acir(self) -> None:

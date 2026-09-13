@@ -89,6 +89,19 @@ void emitRuleProvenance(std::ostringstream &output,
   if (!block.sourceFile.empty())
     output << "// source: " << block.sourceFile << ':' << block.sourceLine
            << ':' << block.sourceColumn << "\n";
+  for (auto [originIndex, origin] :
+       llvm::enumerate(block.sourceProvenance.origins)) {
+    output << "// source-origin[" << originIndex << "]: ";
+    for (auto [frameIndex, frame] : llvm::enumerate(origin)) {
+      if (frameIndex)
+        output << " <- ";
+      output << frame.kind << ' ' << frame.file << ':' << frame.line << ':'
+             << frame.column;
+      if (!frame.symbol.empty())
+        output << " (" << frame.symbol << ')';
+    }
+    output << "\n";
+  }
   output << "// nullopt means this rule performs no transition. A valid plan "
             "may have no state writes while consuming inputs or producing "
             "outputs; Queue backpressure, reservations, and atomic commit "
@@ -107,6 +120,22 @@ void emitRuleProvenance(std::ostringstream &output,
     output << "// reservation: " << reservation.table
            << " index_kind=" << reservation.indexKind
            << " (field masks name reserved owner fields)\n";
+}
+
+void emitExpressionSourceDirective(std::ostringstream &output,
+                                   const QueueExpressionPlan &expression) {
+  if (expression.sourceProvenance.origins.empty() ||
+      expression.sourceProvenance.origins.front().empty())
+    return;
+  const QueueSourceFramePlan &frame =
+      expression.sourceProvenance.origins.front().front();
+  std::string escapedFile;
+  for (char character : frame.file) {
+    if (character == '\\' || character == '"')
+      escapedFile.push_back('\\');
+    escapedFile.push_back(character);
+  }
+  output << "#line " << frame.line << " \"" << escapedFile << "\"\n";
 }
 
 std::string className(llvm::StringRef value) {
@@ -675,6 +704,7 @@ emitExpressionBody(const QueueGraphPlan &plan, const QueueBlockPlan &block,
        llvm::enumerate(block.expressions)) {
     if (!needed.contains(expression.result))
       continue;
+    emitExpressionSourceDirective(output, expression);
     auto operand = [&](size_t index) -> llvm::Expected<llvm::StringRef> {
       if (index >= expression.operands.size())
         return generatorError("expression operand arity mismatch");
@@ -1466,6 +1496,7 @@ emitExpressionBody(const QueueGraphPlan &plan, const QueueBlockPlan &block,
     }
     output << ";\n";
   }
+  output << "#line 1 \"generated/agentic-circuit.cpp\"\n";
   output << padding << "return "
          << (returnExpression.empty() ? yield : returnExpression).str()
          << ";\n";
@@ -6243,7 +6274,11 @@ agentic_model_query_v1(void) {
 )cpp";
 
   std::vector<QueueGraphGeneratedFile> result;
+  auto sourceMap = plan.sourceMapJson();
+  if (!sourceMap)
+    return sourceMap.takeError();
   result.push_back({"include/generated/model.h", modelHeader});
+  result.push_back({"share/generated/source-map.json", *sourceMap + "\n"});
   result.push_back({"src/generated/model.cpp", modelSource.str()});
   result.push_back({"src/generated/queuegraph.cpp", queueGraphSource.str()});
   return result;

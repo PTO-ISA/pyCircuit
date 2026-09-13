@@ -1,4 +1,5 @@
 #include "pyc/Transforms/Passes.h"
+#include "pyc/Transforms/SourceProvenance.h"
 
 #include "pyc/Dialect/PYC/PYCOps.h"
 
@@ -289,6 +290,8 @@ struct CombCanonicalizePass
                  OrBasicSimplify, OrAndXorFactor>(f.getContext());
 
     GreedyRewriteConfig cfg;
+    SourceLocationRewriteListener sourceLocationListener;
+    cfg.setListener(&sourceLocationListener);
     if (failed(applyPatternsAndFoldGreedily(f, std::move(patterns), cfg)))
       signalPassFailure();
   }

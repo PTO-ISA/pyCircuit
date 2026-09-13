@@ -29,10 +29,8 @@ using namespace mlir;
 namespace acir {
 namespace {
 
-bool isTopologyDigestAttribute(StringRef name) {
-  // Every other freeze attribute participates in the integrity digest. Only
-  // the digest itself must be omitted to avoid self-reference.
-  return name == "ac.topology_digest";
+bool isNonSemanticMetadataAttribute(StringRef name) {
+  return name == "ac.topology_digest" || name == "ac.source_provenance";
 }
 
 std::string attributeToken(Attribute attribute) {
@@ -71,7 +69,7 @@ std::string operationKey(Operation *operation) {
     return left.getName().getValue() < right.getName().getValue();
   });
   for (NamedAttribute attribute : attributes) {
-    if (isTopologyDigestAttribute(attribute.getName().getValue()))
+    if (isNonSemanticMetadataAttribute(attribute.getName().getValue()))
       continue;
     key.append(attribute.getName().getValue());
     key.push_back('=');
@@ -143,7 +141,7 @@ private:
       return left.getName().getValue() < right.getName().getValue();
     });
     for (NamedAttribute attribute : attributes) {
-      if (isTopologyDigestAttribute(attribute.getName().getValue()))
+      if (isNonSemanticMetadataAttribute(attribute.getName().getValue()))
         continue;
       stream << attribute.getName().getValue() << '=' << attribute.getValue()
              << ';';
@@ -374,9 +372,12 @@ private:
     llvm::sort(attributes, [](NamedAttribute left, NamedAttribute right) {
       return left.getName().getValue() < right.getName().getValue();
     });
-    for (NamedAttribute attribute : attributes)
+    for (NamedAttribute attribute : attributes) {
+      if (isNonSemanticMetadataAttribute(attribute.getName().getValue()))
+        continue;
       stream << attribute.getName().getValue() << '=' << attribute.getValue()
              << ';';
+    }
     stream << "}props=" << operation->getPropertiesAsAttribute()
            << " operands=";
     for (Value operand : operation->getOperands()) {
@@ -1067,6 +1068,7 @@ std::string printWithoutQueueGraphFingerprints(ac::ModuleOp definition) {
     operation->removeAttr("ac.source_file");
     operation->removeAttr("ac.source_line");
     operation->removeAttr("ac.source_column");
+    operation->removeAttr("ac.source_provenance");
   });
   std::string serialized;
   llvm::raw_string_ostream stream(serialized);

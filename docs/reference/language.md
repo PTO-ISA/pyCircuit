@@ -642,6 +642,21 @@ class Group:
 重新投影并核对 leaf binding，后端仍只看到 concrete type。失败的
 `ac.static_assert` 同时报告结构化 source span、规范化表达式和引用到的闭合绑定值。
 
+### Agentic source map
+
+Agentic frontend 在 closure flattening 前记录每个 Python AST 节点的工程相对 `.py`
+文件、从 1 开始的行列。helper inline、module instance、nested specialization、record
+spread 和 Table projection 会把来源组织成有序 stack；CSE 或 constant folding 合并
+等价值时保留多个独立 origin。生成 `.pyc`/`.mlir` 的 parser 位置和绝对 checkout
+路径不会进入这个来源合同。
+
+Frozen ACIR 的 `ac.source_provenance`、QueueGraph 的 `source_provenance`、PYC op 的
+MLIR location、module 上经过 verifier 检查的 `pyc.source_map`，以及 model bundle 的
+`share/generated/source-map.json` 表示同一组来源。manifest 同时记录 source map 的
+schema、路径与 SHA-256。生成 GFSim 对 primary frame 使用 `#line`，完整 inline stack
+和其他 origin 仍以 JSON source map 为准。来源元数据不参与 topology、definition 或
+specialization identity。
+
 ### Aggregate lowering boundary
 
 ACIR `!ac.struct`、`!ac.enum`、builtin tuple 与 `!ac.value_array` 在

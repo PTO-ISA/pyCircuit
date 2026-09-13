@@ -1267,6 +1267,24 @@ QueueGraph 和 GFSim 将源码中的 rule、状态、端口和显式局部变量
 `file:line:column`，并在构造 `gfsim::StateTransitionPlan` 前分别命名功能触发条件、
 每个 owner 写入、每个可选输出和每个 reservation。
 
+Python 源码 provenance 与展示名称彼此独立。一个操作可以保留多个互相独立的 origin；
+每个 origin 是 definition、inline callsite、module instance 与 specialization frame
+组成的有序栈。文件必须是规范化的工程相对 `.py` 路径，行列均从 1 开始。helper inline
+使用 MLIR call-site location；CSE 或 constant folding 替换操作时，必须把被替换值的全部
+origin 融合到保留值。生成的 `.pyc`、`.mlir` 或 checkout 绝对路径不能冒充 Python
+源码来源。
+
+Frozen ACIR 物化规范的 `ac.source_provenance`。QueueGraph 在 block、expression、helper、
+共享 Table match/selection 定义、state owner 和 module instance 上保留相同来源栈。
+Queue topology 语句拥有对应的 FIFO/backpressure 生成逻辑；state 声明拥有初始化 register
+bank，更新逻辑则融合 owner 与写入 rule 的来源。规范 PYC 用 MLIR
+location 把生成操作绑定到这些来源，并携带经过 verifier 校验的 `pyc.source_map` JSON
+属性。model bundle 同时发布 `share/generated/source-map.json`，model manifest 记录其
+schema、路径与 SHA-256。生成 GFSim 对 primary Python frame 发出 `#line`，完整 inline
+栈和其他 origin 继续保存在 source map 中。源码元数据不参与 topology、definition 或
+specialization identity，但作为生成 artifact 单独进行 content addressing，避免复用过期
+source map。
+
 展示元数据不承担身份语义。`ac.name`、stable ID、scheduler object ID、specialization
 fingerprint、cache key 和 tuple 顺序继续保持原有含义。编译器从 fingerprint 输入中删除
 `ac.display_name`，统一合法化 C++ 标识符，并只在真实冲突时添加确定性的短编号。没有

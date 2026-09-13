@@ -5,6 +5,7 @@
 #include "llvm/ADT/APInt.h"
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/SmallString.h"
+#include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/StringMap.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/ADT/StringSet.h"
@@ -22,6 +23,121 @@ llvm::Error pycError(const llvm::Twine &message) {
   return llvm::createStringError(
       std::make_error_code(std::errc::invalid_argument),
       "ACLOWER-PYC: " + message);
+}
+
+std::string mlirStringLiteral(llvm::StringRef value) {
+  std::string result = "\"";
+  for (unsigned char character : value.bytes()) {
+    if (character == '"')
+      result += "\\22";
+    else if (character == '\\')
+      result += "\\5C";
+    else if (character < 0x20 || character == 0x7f) {
+      constexpr char digits[] = "0123456789ABCDEF";
+      result.push_back('\\');
+      result.push_back(digits[character >> 4]);
+      result.push_back(digits[character & 0xf]);
+    } else
+      result.push_back(static_cast<char>(character));
+  }
+  result.push_back('"');
+  return result;
+}
+
+QueueSourceProvenancePlan
+inlineSourceProvenance(const QueueSourceProvenancePlan &definition,
+                       const QueueSourceProvenancePlan *callsite) {
+  if (!callsite || callsite->origins.empty())
+    return definition;
+  if (definition.origins.empty())
+    return *callsite;
+  QueueSourceProvenancePlan result;
+  for (const QueueSourceOriginPlan &definitionOrigin : definition.origins)
+    for (const QueueSourceOriginPlan &callOrigin : callsite->origins) {
+      QueueSourceOriginPlan origin = definitionOrigin;
+      for (auto [index, sourceFrame] : llvm::enumerate(callOrigin)) {
+        QueueSourceFramePlan frame = sourceFrame;
+        if (index == 0)
+          frame.kind = "inline_callsite";
+        origin.push_back(std::move(frame));
+      }
+      result.origins.push_back(std::move(origin));
+    }
+  return result;
+}
+
+std::string sourceLocationSuffix(
+    const QueueSourceProvenancePlan &provenance) {
+  std::vector<std::string> origins;
+  for (const QueueSourceOriginPlan &origin : provenance.origins) {
+    if (origin.empty())
+      continue;
+    std::string location = mlirStringLiteral(origin.front().file) + ":" +
+                           std::to_string(origin.front().line) + ":" +
+                           std::to_string(origin.front().column);
+    for (const QueueSourceFramePlan &frame : llvm::drop_begin(origin))
+      location = "callsite(" + location + " at " +
+                 mlirStringLiteral(frame.file) + ":" +
+                 std::to_string(frame.line) + ":" +
+                 std::to_string(frame.column) + ")";
+    origins.push_back(std::move(location));
+  }
+  if (origins.empty())
+    return {};
+  if (origins.size() == 1)
+    return " loc(" + origins.front() + ")";
+  std::string result = " loc(fused[";
+  for (auto [index, origin] : llvm::enumerate(origins)) {
+    if (index)
+      result += ", ";
+    result += origin;
+  }
+  result += "])";
+  return result;
+}
+
+std::string attachPycSourceLocations(
+    llvm::StringRef body,
+    const llvm::StringMap<std::string> &sourceLocations) {
+  std::string result;
+  llvm::SmallVector<llvm::StringRef> lines;
+  body.split(lines, '\n', /*MaxSplit=*/-1, /*KeepEmpty=*/true);
+  std::string currentLocation;
+  for (auto [index, line] : llvm::enumerate(lines)) {
+    llvm::StringRef trimmed = line.ltrim();
+    if (trimmed.consume_front("// pyc-source")) {
+      currentLocation = trimmed.str();
+    } else if (trimmed.starts_with('%')) {
+      llvm::StringRef value = trimmed.take_until([](char character) {
+        return character == ' ' || character == '=';
+      });
+      auto found = sourceLocations.find(value);
+      if (found != sourceLocations.end() && !line.contains(" loc("))
+        result.append(line).append(found->getValue());
+      else if (!currentLocation.empty() && !line.contains(" loc("))
+        result.append(line).append(currentLocation);
+      else
+        result.append(line);
+    } else if ((!currentLocation.empty() && trimmed.starts_with("pyc.")) ||
+               (!currentLocation.empty() &&
+                trimmed.starts_with("func.return"))) {
+      if (!line.contains(" loc("))
+        result.append(line).append(currentLocation);
+      else
+        result.append(line);
+    } else {
+      result.append(line);
+    }
+    if (index + 1 != lines.size())
+      result.push_back('\n');
+  }
+  return result;
+}
+
+void emitPycSourceMarker(std::ostringstream &output,
+                         const QueueSourceProvenancePlan &provenance) {
+  const std::string suffix = sourceLocationSuffix(provenance);
+  output << "    // pyc-source" << suffix << "\n";
 }
 
 const QueuePayloadPlan *findPayload(const QueueGraphPlan &plan,
@@ -290,7 +406,9 @@ llvm::Expected<std::string> emitTransform(
     llvm::StringRef choiceOwner = {},
     const llvm::StringMap<std::string> *inheritedValues = nullptr,
     const llvm::StringMap<std::string> *inheritedTypes = nullptr,
-    llvm::StringMap<std::string> *sharedTableValues = nullptr);
+    llvm::StringMap<std::string> *sharedTableValues = nullptr,
+    llvm::StringMap<std::string> *sourceLocations = nullptr,
+    const QueueSourceProvenancePlan *inlineCallsite = nullptr);
 
 constexpr llvm::StringLiteral kStructMetrics =
     "{\\\"ast_node_count\\\":0,\\\"collection_count\\\":0,"
@@ -348,6 +466,8 @@ generateLaneQueuePyc(const QueueGraphPlan &plan,
   unsigned nextValue = 0;
   auto newValue = [&]() { return "%v" + std::to_string(nextValue++); };
   std::ostringstream body;
+  llvm::StringMap<std::string> sourceLocations;
+  emitPycSourceMarker(body, sources.front()->sourceProvenance);
   auto emitConstant = [&](uint64_t value, llvm::StringRef type) {
     std::string result = newValue();
     body << "    " << result << " = pyc.constant " << value << " : "
@@ -404,6 +524,11 @@ generateLaneQueuePyc(const QueueGraphPlan &plan,
   llvm::StringMap<LaneQueueState> queueStates;
   std::string sourceReady;
   for (const QueuePlan &currentQueue : plan.queues) {
+    if (currentQueue.name == sources.front()->outputs.front())
+      emitPycSourceMarker(body, sources.front()->sourceProvenance);
+    else if (const QueueBlockPlan *owner =
+                 transformsByOutput.lookup(currentQueue.name))
+      emitPycSourceMarker(body, owner->sourceProvenance);
     std::vector<std::string> producerValids;
     std::vector<std::string> producerData;
     const QueueBlockPlan *transform = nullptr;
@@ -425,7 +550,8 @@ generateLaneQueuePyc(const QueueGraphPlan &plan,
             lane < currentQueue.rate ? input->getValue().valid[lane] : zeroI1);
         auto transformed = emitTransform(
             plan, *transform, {input->getValue().data[lane]},
-            {currentQueue.payloadType}, 0, nextValue, body, nullptr);
+            {currentQueue.payloadType}, 0, nextValue, body, nullptr, nullptr,
+            nullptr, {}, nullptr, nullptr, nullptr, &sourceLocations);
         if (!transformed)
           return transformed.takeError();
         producerData.push_back(std::move(*transformed));
@@ -520,6 +646,7 @@ generateLaneQueuePyc(const QueueGraphPlan &plan,
     (void)inserted;
   }
   LaneQueueState &outputState = queueStates[sinkQueue->name];
+  emitPycSourceMarker(body, sinks.front()->sourceProvenance);
   std::string outputDequeue =
       emitBinary("and", outputState.valid.front(), "%out_ready", "i1");
   body << "    pyc.assign " << outputState.dequeue << ", " << outputDequeue
@@ -562,8 +689,12 @@ generateLaneQueuePyc(const QueueGraphPlan &plan,
         }
       };
   std::ostringstream output;
+  auto sourceMap = plan.sourceMapJson();
+  if (!sourceMap)
+    return sourceMap.takeError();
   output << "module attributes {pyc.top = @" << plan.system
-         << ", pyc.frontend.contract = \"pycircuit\"} {\n  func.func @"
+         << ", pyc.frontend.contract = \"pycircuit\", pyc.source_map = "
+         << mlirStringLiteral(*sourceMap) << "} {\n  func.func @"
          << plan.system << '(';
   writeList(output, arguments);
   output << ") -> (";
@@ -577,7 +708,8 @@ generateLaneQueuePyc(const QueueGraphPlan &plan,
             "pyc.params = \"{}\", pyc.base = \""
          << plan.system << "\", pyc.struct.metrics = \"" << kStructMetrics.str()
          << "\", pyc.struct.collections = \"[]\"} {\n"
-         << body.str() << "    func.return ";
+         << attachPycSourceLocations(body.str(), sourceLocations)
+         << "    func.return ";
   writeList(output, returnValues);
   output << " : ";
   writeList(output, resultTypes);
@@ -596,7 +728,9 @@ emitTransform(const QueueGraphPlan &plan, const QueueBlockPlan &block,
               llvm::StringRef choiceOwner,
               const llvm::StringMap<std::string> *inheritedValues,
               const llvm::StringMap<std::string> *inheritedTypes,
-              llvm::StringMap<std::string> *sharedTableValues) {
+              llvm::StringMap<std::string> *sharedTableValues,
+              llvm::StringMap<std::string> *sourceLocations,
+              const QueueSourceProvenancePlan *inlineCallsite) {
   if (inputData.size() != inputTypes.size())
     return pycError("transform input data/type arity mismatch");
   llvm::StringMap<std::string> values;
@@ -640,6 +774,9 @@ emitTransform(const QueueGraphPlan &plan, const QueueBlockPlan &block,
   for (const QueueExpressionPlan &expression : block.expressions) {
     if (values.contains(expression.result))
       continue;
+    const unsigned firstGeneratedValue = nextValue;
+    QueueSourceProvenancePlan effectiveProvenance =
+        inlineSourceProvenance(expression.sourceProvenance, inlineCallsite);
     std::string result;
     if (expression.kind == "helper_call") {
       const QueueHelperPlan *helper = findHelper(plan, expression.field);
@@ -666,7 +803,8 @@ emitTransform(const QueueGraphPlan &plan, const QueueBlockPlan &block,
         auto lowered = emitTransform(
             plan, helperBody, {}, {}, helper->yields.size(), nextValue, body,
             &emitted, tableValues, roundRobinStates, choiceOwner, &arguments,
-            &argumentTypes, sharedTableValues);
+            &argumentTypes, sharedTableValues, sourceLocations,
+            &effectiveProvenance);
         if (!lowered)
           return lowered.takeError();
         std::vector<std::string> results;
@@ -782,7 +920,8 @@ emitTransform(const QueueGraphPlan &plan, const QueueBlockPlan &block,
           auto selected =
               emitTransform(plan, evaluation, {}, {}, 0, nextValue, body,
                             &emitted, tableValues, roundRobinStates,
-                            choiceOwner, &values, &types, sharedTableValues);
+                            choiceOwner, &values, &types, sharedTableValues,
+                            sourceLocations, inlineCallsite);
           if (!selected)
             return selected.takeError();
           for (const QueueExpressionPlan &reference : block.expressions) {
@@ -837,11 +976,14 @@ emitTransform(const QueueGraphPlan &plan, const QueueBlockPlan &block,
           materialized.domainStrides = match->domainStrides;
           materialized.domainOffset = match->domainOffset;
           materialized.hasDomainProjection = match->hasDomainProjection;
+          materialized.sourceProvenance = match->sourceProvenance;
           QueueBlockPlan matchBlock;
           matchBlock.expressions.push_back(std::move(materialized));
           matchBlock.yields.push_back(expression.result);
           auto emitted = emitTransform(plan, matchBlock, {}, {}, 0, nextValue,
-                                       body, nullptr, tableValues);
+                                       body, nullptr, tableValues, nullptr, {},
+                                       nullptr, nullptr, nullptr,
+                                       sourceLocations, inlineCallsite);
           if (!emitted)
             return emitted.takeError();
           result = std::move(*emitted);
@@ -969,7 +1111,9 @@ emitTransform(const QueueGraphPlan &plan, const QueueBlockPlan &block,
               auto key =
                   emitTransform(plan, keyBlock, {table->getValue()[tableIndex]},
                                 {tablePlan->entryType}, 0, nextValue, body,
-                                nullptr, tableValues);
+                                nullptr, tableValues, nullptr, {}, nullptr,
+                                nullptr, nullptr, sourceLocations,
+                                inlineCallsite);
               if (!key)
                 return key.takeError();
               candidateKeys.push_back(std::move(*key));
@@ -1346,7 +1490,8 @@ emitTransform(const QueueGraphPlan &plan, const QueueBlockPlan &block,
           }
           auto predicate = emitTransform(
               plan, predicateBlock, {}, {}, 0, nextValue, body, nullptr,
-              tableValues, nullptr, {}, &predicateValues, &predicateTypes);
+              tableValues, nullptr, {}, &predicateValues, &predicateTypes,
+              nullptr, sourceLocations, inlineCallsite);
           if (!predicate)
             return predicate.takeError();
           llvm::APInt bit(*maskWidth, 1);
@@ -1845,6 +1990,14 @@ emitTransform(const QueueGraphPlan &plan, const QueueBlockPlan &block,
     }
     values[expression.result] = result;
     types[expression.result] = expression.type;
+    if (sourceLocations) {
+      const std::string suffix = sourceLocationSuffix(effectiveProvenance);
+      if (!suffix.empty())
+        for (unsigned valueIndex = firstGeneratedValue;
+             valueIndex < nextValue; ++valueIndex)
+          sourceLocations->try_emplace(
+              "%v" + std::to_string(valueIndex), suffix);
+    }
   }
   if (yieldIndex >= block.yields.size()) {
     if (emittedValues) {
@@ -2035,7 +2188,10 @@ llvm::Expected<std::string> generateQueueGraphPyc(const QueueGraphPlan &plan) {
   llvm::StringMap<const QueueBlockPlan *> dependencyByOutput;
   llvm::StringMap<const QueueBlockPlan *> reorderByOutput;
   llvm::StringMap<const QueueBlockPlan *> feedbackByOutput;
+  llvm::StringMap<const QueueBlockPlan *> producerBlockByOutput;
   for (const QueueBlockPlan &block : plan.blocks) {
+    for (const std::string &output : block.outputs)
+      producerBlockByOutput[output] = &block;
     const QueueBlockContract *contract = findQueueBlockContract(block.kind);
     const bool admittedTableBlock =
         block.kind == "table_read" || block.kind == "table_write" ||
@@ -2244,6 +2400,7 @@ llvm::Expected<std::string> generateQueueGraphPyc(const QueueGraphPlan &plan) {
   llvm::StringMap<std::string> blockArbitrationAllowed;
   llvm::StringMap<std::string> sharedTableExpressionValues;
   std::ostringstream body;
+  llvm::StringMap<std::string> sourceLocations;
   unsigned nextValue = 0;
   auto newValue = [&]() { return "%v" + std::to_string(nextValue++); };
   auto emitConstant = [&](uint64_t value, llvm::StringRef type) {
@@ -2412,6 +2569,7 @@ llvm::Expected<std::string> generateQueueGraphPyc(const QueueGraphPlan &plan) {
     return merged;
   };
   for (const TablePlan &table : plan.tables) {
+    emitPycSourceMarker(body, table.sourceProvenance);
     auto type = pycType(plan, table.entryType);
     if (!type)
       return type.takeError();
@@ -2443,11 +2601,15 @@ llvm::Expected<std::string> generateQueueGraphPyc(const QueueGraphPlan &plan) {
     tableStates[table.name] = std::move(state);
   }
   for (const QueuePlan &queue : plan.queues) {
+    if (const QueueBlockPlan *owner = producerBlockByOutput.lookup(queue.name))
+      emitPycSourceMarker(body, owner->sourceProvenance);
     std::string ready = newValue();
     readyWires[queue.name] = ready;
     body << "    " << ready << " = pyc.wire : i1\n";
   }
   for (const QueuePlan &queue : plan.queues) {
+    if (const QueueBlockPlan *owner = producerBlockByOutput.lookup(queue.name))
+      emitPycSourceMarker(body, owner->sourceProvenance);
     std::string producerValid;
     std::string producerData;
     auto source = sourceBoundary.find(queue.name);
@@ -2498,7 +2660,9 @@ llvm::Expected<std::string> generateQueueGraphPyc(const QueueGraphPlan &plan) {
         }
         auto transformed =
             emitTransform(plan, transform, inputDataValues, inputTypes,
-                          producer.index, nextValue, body);
+                          producer.index, nextValue, body, nullptr, nullptr,
+                          nullptr, {}, nullptr, nullptr, nullptr,
+                          &sourceLocations);
         if (!transformed)
           return transformed.takeError();
         producerData = std::move(*transformed);
@@ -2527,7 +2691,8 @@ llvm::Expected<std::string> generateQueueGraphPyc(const QueueGraphPlan &plan) {
               emitTransform(plan, firing, inputDataValues, inputTypes,
                             producer.index, nextValue, body, values.get(),
                             &tableStateValues, &roundRobinStates, firing.name,
-                            nullptr, nullptr, &sharedTableExpressionValues);
+                            nullptr, nullptr, &sharedTableExpressionValues,
+                            &sourceLocations);
           if (!emitted)
             return emitted.takeError();
           for (const std::string &output : firing.outputs)
@@ -2584,7 +2749,8 @@ llvm::Expected<std::string> generateQueueGraphPyc(const QueueGraphPlan &plan) {
         auto index =
             emitTransform(plan, read, inputDataValues, inputTypes, 0, nextValue,
                           body, values.get(), &tableStateValues, nullptr, {},
-                          nullptr, nullptr, &sharedTableExpressionValues);
+                          nullptr, nullptr, &sharedTableExpressionValues,
+                          &sourceLocations);
         if (!index)
           return index.takeError();
         auto present = values->find(read.yields[1]);
@@ -2697,7 +2863,8 @@ llvm::Expected<std::string> generateQueueGraphPyc(const QueueGraphPlan &plan) {
           auto emitted = emitTransform(plan, evaluation, {}, {}, 0, nextValue,
                                        body, &emittedValues, &tableStateValues,
                                        &roundRobinStates, group.name, nullptr,
-                                       nullptr, &sharedTableExpressionValues);
+                                       nullptr, &sharedTableExpressionValues,
+                                       &sourceLocations);
           if (!emitted)
             return emitted.takeError();
           TableReadGroupState created;
@@ -2790,7 +2957,9 @@ llvm::Expected<std::string> generateQueueGraphPyc(const QueueGraphPlan &plan) {
         if (selector == routeSelector.end()) {
           auto selected =
               emitTransform(plan, route, {data->getValue()},
-                            {inputQueue->payloadType}, 0, nextValue, body);
+                            {inputQueue->payloadType}, 0, nextValue, body,
+                            nullptr, nullptr, nullptr, {}, nullptr, nullptr,
+                            nullptr, &sourceLocations);
           if (!selected)
             return selected.takeError();
           routeSelector[route.name] = *selected;
@@ -2820,7 +2989,9 @@ llvm::Expected<std::string> generateQueueGraphPyc(const QueueGraphPlan &plan) {
               "select control is not available in topological order");
         auto selector =
             emitTransform(plan, select, {controlData->getValue()},
-                          {controlQueue->payloadType}, 0, nextValue, body);
+                          {controlQueue->payloadType}, 0, nextValue, body,
+                          nullptr, nullptr, nullptr, {}, nullptr, nullptr,
+                          nullptr, &sourceLocations);
         if (!selector)
           return selector.takeError();
         auto selectorType = yieldedType(select, select.yields.front(),
@@ -2967,7 +3138,9 @@ llvm::Expected<std::string> generateQueueGraphPyc(const QueueGraphPlan &plan) {
           return dataWidth.takeError();
         auto costValue =
             emitTransform(plan, credit, {inputDataValue->getValue()},
-                          {inputQueue->payloadType}, 0, nextValue, body);
+                          {inputQueue->payloadType}, 0, nextValue, body,
+                          nullptr, nullptr, nullptr, {}, nullptr, nullptr,
+                          nullptr, &sourceLocations);
         if (!costValue)
           return costValue.takeError();
         auto costType =
@@ -3087,7 +3260,9 @@ llvm::Expected<std::string> generateQueueGraphPyc(const QueueGraphPlan &plan) {
         for (size_t index = 0; index < dependency.yields.size(); ++index) {
           auto value =
               emitTransform(plan, dependency, {inputDataValue->getValue()},
-                            {inputQueue->payloadType}, index, nextValue, body);
+                            {inputQueue->payloadType}, index, nextValue, body,
+                            nullptr, nullptr, nullptr, {}, nullptr, nullptr,
+                            nullptr, &sourceLocations);
           if (!value)
             return value.takeError();
           auto type = yieldedType(dependency, dependency.yields[index],
@@ -3237,7 +3412,9 @@ llvm::Expected<std::string> generateQueueGraphPyc(const QueueGraphPlan &plan) {
           return dataType.takeError();
         auto keyValue =
             emitTransform(plan, reorder, {inputDataValue->getValue()},
-                          {inputQueue->payloadType}, 0, nextValue, body);
+                          {inputQueue->payloadType}, 0, nextValue, body,
+                          nullptr, nullptr, nullptr, {}, nullptr, nullptr,
+                          nullptr, &sourceLocations);
         if (!keyValue)
           return keyValue.takeError();
         auto keyType = yieldedType(reorder, reorder.yields.front(),
@@ -3396,13 +3573,17 @@ llvm::Expected<std::string> generateQueueGraphPyc(const QueueGraphPlan &plan) {
             emitMux(state.valid, state.iteration, zeroIteration, iterationType);
         auto updated =
             emitTransform(plan, feedback, {selectedData},
-                          {inputQueue->payloadType}, 0, nextValue, body);
+                          {inputQueue->payloadType}, 0, nextValue, body,
+                          nullptr, nullptr, nullptr, {}, nullptr, nullptr,
+                          nullptr, &sourceLocations);
         if (!updated)
           return updated.takeError();
         state.updated = std::move(*updated);
         auto condition =
             emitTransform(plan, feedback, {selectedData},
-                          {inputQueue->payloadType}, 1, nextValue, body);
+                          {inputQueue->payloadType}, 1, nextValue, body,
+                          nullptr, nullptr, nullptr, {}, nullptr, nullptr,
+                          nullptr, &sourceLocations);
         if (!condition)
           return condition.takeError();
         auto conditionType =
@@ -3464,6 +3645,7 @@ llvm::Expected<std::string> generateQueueGraphPyc(const QueueGraphPlan &plan) {
     outputData[queue.name] = std::move(currentData);
   }
   for (const MemoryInstancePlan &instance : plan.memoryInstances) {
+    emitPycSourceMarker(body, instance.sourceProvenance);
     std::vector<const QueueBlockPlan *> endpoints;
     for (const QueueBlockPlan &block : plan.blocks)
       if (block.kind == "memory_request" &&
@@ -3507,7 +3689,9 @@ llvm::Expected<std::string> generateQueueGraphPyc(const QueueGraphPlan &plan) {
       for (size_t policy = 0; policy < 3; ++policy) {
         auto value =
             emitTransform(plan, *endpoint, {data->getValue()},
-                          {input->payloadType}, policy, nextValue, body);
+                          {input->payloadType}, policy, nextValue, body,
+                          nullptr, nullptr, nullptr, {}, nullptr, nullptr,
+                          nullptr, &sourceLocations);
         if (!value)
           return value.takeError();
         auto yielded = yieldedType(*endpoint, endpoint->yields[policy],
@@ -3715,7 +3899,7 @@ llvm::Expected<std::string> generateQueueGraphPyc(const QueueGraphPlan &plan) {
     auto emitted = emitTransform(
         plan, firing, inputDataValues, inputTypes, 0, nextValue, body,
         values.get(), &tableStateValues, &roundRobinStates, firing.name,
-        nullptr, nullptr, &sharedTableExpressionValues);
+        nullptr, nullptr, &sharedTableExpressionValues, &sourceLocations);
     if (!emitted)
       return emitted.takeError();
     auto guard = values->find(firing.guard);
@@ -3744,7 +3928,8 @@ llvm::Expected<std::string> generateQueueGraphPyc(const QueueGraphPlan &plan) {
       auto index =
           emitTransform(plan, block, inputDataValues, inputTypes, 0, nextValue,
                         body, values.get(), &tableStateValues, nullptr, {},
-                        nullptr, nullptr, &sharedTableExpressionValues);
+                        nullptr, nullptr, &sharedTableExpressionValues,
+                        &sourceLocations);
       if (!index)
         return index.takeError();
       auto present = values->find(block.yields[1]);
@@ -3759,11 +3944,12 @@ llvm::Expected<std::string> generateQueueGraphPyc(const QueueGraphPlan &plan) {
       QueueBlockPlan enableBlock = expressionSlice(block, block.yields[1]);
       auto mask = emitTransform(plan, maskBlock, {}, {}, 0, nextValue, body,
                                 nullptr, &tableStateValues, nullptr, {},
-                                nullptr, nullptr, &sharedTableExpressionValues);
+                                nullptr, nullptr, &sharedTableExpressionValues,
+                                &sourceLocations);
       auto enabled =
           emitTransform(plan, enableBlock, {}, {}, 0, nextValue, body, nullptr,
                         &tableStateValues, nullptr, {}, nullptr, nullptr,
-                        &sharedTableExpressionValues);
+                        &sharedTableExpressionValues, &sourceLocations);
       if (!mask)
         return mask.takeError();
       if (!enabled)
@@ -4543,6 +4729,19 @@ llvm::Expected<std::string> generateQueueGraphPyc(const QueueGraphPlan &plan) {
          << " : i1\n";
   }
   for (const TablePlan &table : plan.tables) {
+    QueueSourceProvenancePlan updateProvenance = table.sourceProvenance;
+    for (const QueueBlockPlan &block : plan.blocks) {
+      const bool writesTable =
+          block.table == table.name ||
+          llvm::any_of(block.stateWrites, [&](const StateWritePlan &write) {
+            return write.table == table.name;
+          });
+      if (writesTable)
+        updateProvenance.origins.insert(updateProvenance.origins.end(),
+                                        block.sourceProvenance.origins.begin(),
+                                        block.sourceProvenance.origins.end());
+    }
+    emitPycSourceMarker(body, updateProvenance);
     auto state = tableStates.find(table.name);
     if (state == tableStates.end())
       return pycError("Table register-bank state is missing");
@@ -4656,7 +4855,8 @@ llvm::Expected<std::string> generateQueueGraphPyc(const QueueGraphPlan &plan) {
         auto proposed = emitTransform(
             plan, valueBlock, {state->getValue().value[slot]},
             {table.entryType}, 0, nextValue, body, nullptr, &tableStateValues,
-            nullptr, {}, nullptr, nullptr, &sharedTableExpressionValues);
+            nullptr, {}, nullptr, nullptr, &sharedTableExpressionValues,
+            &sourceLocations);
         if (!proposed)
           return proposed.takeError();
         auto merged = emitTableFieldMerge(next, *proposed, table.entryType,
@@ -4738,9 +4938,11 @@ llvm::Expected<std::string> generateQueueGraphPyc(const QueueGraphPlan &plan) {
            << enabled << " : i1\n";
     }
   }
-  for (auto [index, sink] : llvm::enumerate(sinks))
+  for (auto [index, sink] : llvm::enumerate(sinks)) {
+    emitPycSourceMarker(body, sink->sourceProvenance);
     body << "    pyc.assign " << readyWires[sink->inputs.front()] << ", "
          << outputName(index, "ready") << " : i1\n";
+  }
   for (const QueueBlockPlan *observation : observations) {
     const QueuePlan *queue = findQueue(plan, observation->inputs.front());
     auto type = queue ? pycType(plan, queue->payloadType)
@@ -4794,8 +4996,12 @@ llvm::Expected<std::string> generateQueueGraphPyc(const QueueGraphPlan &plan) {
         }
       };
   std::ostringstream output;
+  auto sourceMap = plan.sourceMapJson();
+  if (!sourceMap)
+    return sourceMap.takeError();
   output << "module attributes {pyc.top = @" << top.str()
-         << ", pyc.frontend.contract = \"pycircuit\"} {\n  func.func @"
+         << ", pyc.frontend.contract = \"pycircuit\", pyc.source_map = "
+         << mlirStringLiteral(*sourceMap) << "} {\n  func.func @"
          << top.str() << '(';
   writeList(output, arguments);
   output << ") -> (";
@@ -4809,7 +5015,8 @@ llvm::Expected<std::string> generateQueueGraphPyc(const QueueGraphPlan &plan) {
             "pyc.params = \"{}\", pyc.base = \""
          << top.str() << "\", pyc.struct.metrics = \"" << kStructMetrics.str()
          << "\", pyc.struct.collections = \"[]\"} {\n"
-         << body.str() << "    func.return ";
+         << attachPycSourceLocations(body.str(), sourceLocations)
+         << "    func.return ";
   writeList(output, returnValues);
   output << " : ";
   writeList(output, resultTypes);

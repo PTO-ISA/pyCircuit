@@ -72,6 +72,24 @@ struct QueueAggregatePlan {
   uint64_t width = 0;
 };
 
+struct QueueSourceFramePlan {
+  std::string kind;
+  std::string file;
+  uint64_t line = 0;
+  uint64_t column = 0;
+  std::string symbol;
+
+  bool operator==(const QueueSourceFramePlan &) const = default;
+};
+
+using QueueSourceOriginPlan = std::vector<QueueSourceFramePlan>;
+
+struct QueueSourceProvenancePlan {
+  std::vector<QueueSourceOriginPlan> origins;
+
+  bool operator==(const QueueSourceProvenancePlan &) const = default;
+};
+
 struct QueueExpressionPlan {
   std::string result;
   std::string kind;
@@ -94,6 +112,7 @@ struct QueueExpressionPlan {
   uint64_t domainOffset = 0;
   std::string domainBase;
   bool hasDomainProjection = false;
+  QueueSourceProvenancePlan sourceProvenance;
   uint64_t selectionCount = 1;
   uint64_t laneOrdinal = 0;
   std::string keyOrdering;
@@ -205,6 +224,7 @@ struct QueueBlockPlan {
   std::string sourceFile;
   uint64_t sourceLine = 0;
   uint64_t sourceColumn = 0;
+  QueueSourceProvenancePlan sourceProvenance;
 };
 
 struct QueueHelperPlan {
@@ -214,6 +234,7 @@ struct QueueHelperPlan {
   std::vector<std::string> resultTypes;
   std::vector<QueueExpressionPlan> expressions;
   std::vector<std::string> yields;
+  QueueSourceProvenancePlan sourceProvenance;
 };
 
 struct MemoryInstancePlan {
@@ -224,6 +245,7 @@ struct MemoryInstancePlan {
   uint64_t latency = 1;
   std::string stableId;
   std::string ownerPath;
+  QueueSourceProvenancePlan sourceProvenance;
 };
 
 struct MemoryRequestPlan {
@@ -262,6 +284,7 @@ struct TablePlan {
   uint64_t initVersion = 0;
   std::vector<TableInitValuePlan> initImage;
   bool hasTypedSchema = false;
+  QueueSourceProvenancePlan sourceProvenance;
 };
 
 struct TableMatchPlan {
@@ -277,6 +300,7 @@ struct TableMatchPlan {
   uint64_t domainOffset = 0;
   std::string domainBase;
   bool hasDomainProjection = false;
+  QueueSourceProvenancePlan sourceProvenance;
 };
 
 struct TableSelectionPlan {
@@ -292,6 +316,7 @@ struct TableSelectionPlan {
   std::string keyOrdering;
   std::string stableId;
   uint64_t initialCursor = 0;
+  QueueSourceProvenancePlan sourceProvenance;
 };
 
 struct TableReadPlan {
@@ -328,6 +353,7 @@ struct SlotPlan {
   std::string scope;
   std::string stableId;
   std::string ownerPath;
+  QueueSourceProvenancePlan sourceProvenance;
 };
 
 struct QueueInterfacePlan {
@@ -346,6 +372,7 @@ struct QueueModuleInstancePlan {
   std::vector<std::string> inputs;
   std::vector<std::string> outputs;
   uint64_t lexicalOrder = 0;
+  QueueSourceProvenancePlan sourceProvenance;
 };
 
 enum class QueueActivationNodeKind {
@@ -404,6 +431,7 @@ struct QueueGraphPlan {
   std::vector<SlotPlan> slots;
 
   llvm::Expected<std::string> canonicalJson() const;
+  llvm::Expected<std::string> sourceMapJson() const;
 };
 
 llvm::Expected<QueueGraphPlan> buildQueueGraphPlan(mlir::ModuleOp module);

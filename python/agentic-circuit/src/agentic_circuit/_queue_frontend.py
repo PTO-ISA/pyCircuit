@@ -47,6 +47,12 @@ from ._static_eval import (
     evaluate_static,
     static_json_value,
 )
+from ._source_map import (
+    SourceFrame,
+    SourceNodeLocations,
+    apply_source_node_locations,
+    source_frame,
+)
 
 RULE_LOWERING_PIPELINE = (
     "builtin.module("
@@ -73,7 +79,51 @@ def _normalize_queue_source_path(source_path: str | None) -> str:
         or ".." in parts
     ):
         return parts[-1] if parts else _DEFAULT_QUEUE_SOURCE_PATH
-    return "/".join(parts) or _DEFAULT_QUEUE_SOURCE_PATH
+    result = "/".join(parts) or _DEFAULT_QUEUE_SOURCE_PATH
+    if result != _DEFAULT_QUEUE_SOURCE_PATH and re.fullmatch(
+        r"[A-Za-z0-9._+@/-]+\.py", result
+    ) is None:
+        raise QueueFrontendError(
+            "ACPY-QUEUE-027: source path contains unsupported characters"
+        )
+    return result
+
+
+def _render_source_frame_location(frame: SourceFrame | None) -> str:
+    if frame is None:
+        return ""
+    return (
+        " loc(" + canonical_mlir_string(frame.file) + f":{frame.line}:{frame.column})"
+    )
+
+
+def _render_callsite_location(
+    definition: SourceFrame | None,
+    callsite: SourceFrame | None,
+) -> str:
+    if definition is None:
+        return _render_source_frame_location(callsite)
+    if callsite is None or callsite == definition:
+        return _render_source_frame_location(definition)
+    return (
+        " loc(callsite("
+        + canonical_mlir_string(definition.file)
+        + f":{definition.line}:{definition.column} at "
+        + canonical_mlir_string(callsite.file)
+        + f":{callsite.line}:{callsite.column}))"
+    )
+
+
+def _render_fused_source_locations(frames: Collection[SourceFrame | None]) -> str:
+    unique = tuple(dict.fromkeys(frame for frame in frames if frame is not None))
+    if not unique:
+        return ""
+    if len(unique) == 1:
+        return _render_source_frame_location(unique[0])
+    return " loc(fused[" + ", ".join(
+        canonical_mlir_string(frame.file) + f":{frame.line}:{frame.column}"
+        for frame in unique
+    ) + "])"
 
 
 def _render_type(value_type: ValueType) -> str:
@@ -1089,6 +1139,7 @@ class QueueBinding:
     rule_output_payloads: tuple[ValueType, ...] = ()
     rule_output_expressions: tuple[ast.expr, ...] = ()
     rule_output_guards: tuple[ast.expr, ...] = ()
+    source: SourceFrame | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -1103,6 +1154,7 @@ class SinkBinding:
     queue: str
     scope: tuple[str, ...]
     order: int
+    source: SourceFrame | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -1250,6 +1302,7 @@ class MemoryInstanceBinding:
     latency: int
     scope: tuple[str, ...]
     order: int
+    source: SourceFrame | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -1294,6 +1347,7 @@ class TableBinding:
     init_image: tuple[object, ...] | None
     scope: tuple[str, ...]
     order: int
+    source: SourceFrame | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -1305,6 +1359,7 @@ class VarStateBinding:
     order: int
     entries: int = 1
     shape: tuple[int, ...] = ()
+    source: SourceFrame | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -1541,6 +1596,7 @@ class PureHelperDefinition:
     result: ValueType
     expression: ast.expr
     inline: bool
+    source: SourceFrame | None = None
 
 
 def _resolve_invariant_call(
@@ -1595,6 +1651,7 @@ class QueueProgram:
     specialization_fingerprint: str | None = None
     diagnostics: tuple[Diagnostic, ...] = ()
     source_path: str = _DEFAULT_QUEUE_SOURCE_PATH
+    statement_sources: tuple[tuple[int, SourceFrame], ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -2792,6 +2849,7 @@ def _pure_helper_definitions(
             signatures[name][1],
             expressions[name],
             signatures[name][2],
+            source_frame(nodes[name]),
         )
         for name in nodes
     )
@@ -3431,9 +3489,15 @@ def parse_queue_program(
     definition_locations: Mapping[str, tuple[str, int, int]] | None = None,
     static_assert_locations: Mapping[str, tuple[tuple[str, int, int], ...]]
     | None = None,
+    source_node_locations: SourceNodeLocations | None = None,
 ) -> QueueProgram:
     normalized_source_path = _normalize_queue_source_path(source_path)
     tree = ast.parse(text, filename=normalized_source_path, type_comments=True)
+    apply_source_node_locations(
+        tree,
+        source_node_locations,
+        normalized_source_path,
+    )
     tree = _desugar_nested_rule_captures(tree, system, entry_kind)
     module_static_values = _module_static_values(tree)
     type_static_values = _type_static_values(tree, static_arguments)
@@ -4866,6 +4930,9 @@ def parse_queue_program(
         *function.args.args,
         *function.args.kwonlyargs,
     ]
+    parameter_sources = {
+        parameter.arg: source_frame(parameter) for parameter in parameters
+    }
     supplied = dict(static_arguments or {})
     positional_defaults: dict[str, ast.expr] = {}
     positional = [*function.args.posonlyargs, *function.args.args]
@@ -5283,6 +5350,7 @@ def parse_queue_program(
     collections: dict[str, StaticQueueCollection] = {}
     collection_bindings: list[CollectionBinding] = []
     order = 0
+    statement_sources: dict[int, SourceFrame] = {}
 
     for name, payload in external_parameters:
         if name in by_name:
@@ -5298,6 +5366,7 @@ def parse_queue_program(
             scope=(),
             order=order,
             provider="boundary",
+            source=parameter_sources.get(name),
         )
         queues.append(binding)
         by_name[name] = binding
@@ -5939,6 +6008,7 @@ def parse_queue_program(
             order=current_order,
             rate=rate,
             lanes=lanes,
+            source=source_frame(call),
         )
 
     def memory_instance_binding(
@@ -5970,7 +6040,14 @@ def parse_queue_program(
         if init != 0:
             raise QueueFrontendError("ACPY-QUEUE-015: memory init must be zero")
         return MemoryInstanceBinding(
-            name, data_type, entries, init, latency, scope_path, current_order
+            name,
+            data_type,
+            entries,
+            init,
+            latency,
+            scope_path,
+            current_order,
+            source_frame(call),
         )
 
     def memory_request_parameters(
@@ -6173,6 +6250,8 @@ def parse_queue_program(
                 continue
             current_order = order
             order += 1
+            if (frame := source_frame(statement)) is not None:
+                statement_sources[current_order] = frame
             if (
                 isinstance(statement, ast.Assign)
                 and len(statement.targets) == 1
@@ -6302,6 +6381,7 @@ def parse_queue_program(
                     current_order,
                     entries,
                     (entries,) if entries != 1 else (),
+                    source_frame(statement),
                 )
                 variables.append(binding)
                 variable_by_name[name] = binding
@@ -6382,6 +6462,7 @@ def parse_queue_program(
                             current_order,
                             entries,
                             shape,
+                            source_frame(statement),
                         )
                         variables.append(variable)
                         variable_by_name[name] = variable
@@ -6394,6 +6475,7 @@ def parse_queue_program(
                         init_image,
                         scope_path,
                         current_order,
+                        source_frame(statement),
                     )
                     tables.append(binding)
                     table_by_name[name] = binding
@@ -9145,6 +9227,7 @@ def parse_queue_program(
                         rule_output_guards=tuple(
                             copy.deepcopy(item) for item in definition.output_guards
                         ),
+                        source=source_frame(call),
                     )
                 elif call_name(call) == "table":
                     raise QueueFrontendError(
@@ -9182,6 +9265,7 @@ def parse_queue_program(
                         expression,
                         scope_path,
                         current_order,
+                        source=source_frame(call),
                     )
                 else:
                     raise QueueFrontendError(
@@ -9783,7 +9867,14 @@ def parse_queue_program(
                 and len(statement.value.args) == 1
             ):
                 name = queue_reference(statement.value.args[0], aliases)
-                sinks.append(SinkBinding(name, scope_path, current_order))
+                sinks.append(
+                    SinkBinding(
+                        name,
+                        scope_path,
+                        current_order,
+                        source_frame(statement),
+                    )
+                )
                 continue
             if isinstance(statement, ast.Return):
                 if statement.value is None:
@@ -9816,7 +9907,12 @@ def parse_queue_program(
                             )
                 for index, queue_name in enumerate(returned):
                     sinks.append(
-                        SinkBinding(queue_name, scope_path, current_order + index)
+                        SinkBinding(
+                            queue_name,
+                            scope_path,
+                            current_order + index,
+                            source_frame(statement),
+                        )
                     )
                 order += len(returned) - 1
                 continue
@@ -9929,6 +10025,7 @@ def parse_queue_program(
         static_config_bindings=static_config_bindings,
         specialization_fingerprint=specialization_fingerprint,
         source_path=normalized_source_path,
+        statement_sources=tuple(sorted(statement_sources.items())),
     )
 
 
@@ -10310,6 +10407,57 @@ class _ExpressionEmitter:
         return name, result_type
 
     def emit(
+        self, node: ast.expr, expected: ValueType | None = None
+    ) -> tuple[str, ValueType]:
+        first_line = len(self.lines)
+        result = self._emit_node(node, expected)
+        self._attach_source_locations(first_line, node)
+        return result
+
+    @staticmethod
+    def _brace_delta(line: str) -> int:
+        opened = 0
+        quoted = False
+        escaped = False
+        for character in line:
+            if escaped:
+                escaped = False
+                continue
+            if character == "\\" and quoted:
+                escaped = True
+                continue
+            if character == '"':
+                quoted = not quoted
+                continue
+            if quoted:
+                continue
+            if character == "{":
+                opened += 1
+            elif character == "}":
+                opened -= 1
+        return opened
+
+    def _attach_source_locations(self, first_line: int, node: ast.AST) -> None:
+        frame = source_frame(node)
+        if frame is None or first_line >= len(self.lines):
+            return
+        location = _render_source_frame_location(frame)
+        cursor = first_line
+        while cursor < len(self.lines):
+            line = self.lines[cursor]
+            if re.match(r"^\s*(?:%[^=]+\s*=\s*)?(?:ac\.|func\.)", line) is None:
+                cursor += 1
+                continue
+            end = cursor
+            balance = self._brace_delta(line)
+            while balance > 0 and end + 1 < len(self.lines):
+                end += 1
+                balance += self._brace_delta(self.lines[end])
+            if " loc(" not in self.lines[end]:
+                self.lines[end] += location
+            cursor = end + 1
+
+    def _emit_node(
         self, node: ast.expr, expected: ValueType | None = None
     ) -> tuple[str, ValueType]:
         if isinstance(node, ast.Call):
@@ -11496,6 +11644,7 @@ class _ExpressionEmitter:
                         f'"{source_field.name}" : '
                         f"!ac.var<{_render_type(source_type)}> -> "
                         f"!ac.var<{_render_type(source_field.type)}>"
+                        + _render_source_frame_location(source_frame(keyword.value))
                     )
                     add_field(
                         source_field.name,
@@ -11588,6 +11737,7 @@ class _ExpressionEmitter:
                         f'"{source_field.name}" : '
                         f"!ac.var<{_render_type(source_type)}> -> "
                         f"!ac.var<{_render_type(source_field.type)}>"
+                        + _render_source_frame_location(source_frame(keyword.value))
                     )
                     add_update(
                         source_field.name,
@@ -11814,7 +11964,7 @@ def lower_queue_program(
         lines.append(
             f"    func.return %{result} : !ac.var<{_render_type(helper.result)}>"
         )
-        lines.append("  }")
+        lines.append("  }" + _render_source_frame_location(helper.source))
     if module is not None and len(lines) != helper_start:
         helper_lines = lines[helper_start:]
         del lines[helper_start:]
@@ -11839,6 +11989,7 @@ def lower_queue_program(
             f"entries {instance.entries} init {instance.init} "
             f'latency {instance.latency} owner "{owner}" '
             f'stable_id "memory/{stable_id}"'
+            + _render_source_frame_location(instance.source)
         )
     for variable in sorted(
         program.variables, key=lambda value: (value.scope, value.order, value.name)
@@ -11872,6 +12023,7 @@ def lower_queue_program(
                 if variable.shape
                 else ""
             )
+            + _render_source_frame_location(variable.source)
         )
     for table in sorted(
         program.tables, key=lambda value: (value.scope, value.order, value.name)
@@ -11912,6 +12064,7 @@ def lower_queue_program(
             f"entry {_render_type(table.entry_type)} "
             f'entries {table.entries} init 0 owner "{owner}" '
             f'stable_id "table/{stable_id}"' + attributes
+            + _render_source_frame_location(table.source)
         )
     by_name = {item.name: item for item in program.queues}
     for item in program.queues:
@@ -12104,6 +12257,7 @@ def lower_queue_program(
                 f"latency {queue.latency} "
                 f"{queue_attributes(queue.name, (queue.rate,))} : "
                 + _render_queue_type(queue.payload, lanes=queue.lanes, rate=queue.rate)
+                + _render_source_frame_location(queue.source)
             )
             mapping[queue.name] = output_ssa
             return
@@ -12327,8 +12481,14 @@ def lower_queue_program(
                 emitter.lines.extend(predicate_emitter.lines)
                 emitter.lines.append(
                     f"      ac.var.match.yield %{predicate} : !ac.var<i1>"
+                    + _render_source_frame_location(source_frame(find.predicate))
                 )
-                emitter.lines.append(f"    }} -> !ac.var<{_render_type(mask_type)}>")
+                emitter.lines.append(
+                    f"    }} -> !ac.var<{_render_type(mask_type)}>"
+                    + _render_source_frame_location(
+                        source_frame(find.row or find.predicate)
+                    )
+                )
                 selected_index = emitter._new()
                 selected_valid = emitter._new()
                 if find.key is None:
@@ -12339,6 +12499,7 @@ def lower_queue_program(
                         f'policy "first" '
                         f"key {{}} {{ac.query = {canonical_mlir_string(find.name)}}} -> "
                         f"!ac.var<i{index_width}>, !ac.var<i1>"
+                        + _render_source_frame_location(source_frame(find.predicate))
                     )
                 else:
                     assert find.key_argument is not None
@@ -12377,6 +12538,9 @@ def lower_queue_program(
                     emitter.lines.append(
                         f"    }} {{ac.query = {canonical_mlir_string(find.name)}}} -> "
                         f"!ac.var<i{index_width}>, !ac.var<i1>"
+                        + _render_source_frame_location(
+                            source_frame(find.key or find.predicate)
+                        )
                     )
                 emitter.find_values[find.name] = (
                     selected_index,
@@ -13076,6 +13240,13 @@ def lower_queue_program(
                     )
             else:
                 lines.append(f"{indent}  ac.rule.return")
+            definition_source = SourceFrame(
+                queue.rule_source_path or program.source_path,
+                queue.rule_source_line or 1,
+                queue.rule_source_column or 1,
+                queue.rule_source_line or 1,
+                queue.rule_source_column or 1,
+            )
             lines.append(
                 f"{indent}}} "
                 f"{queue_attributes(queue.name, (queue.rate,), queue.rule_output_names, (queue.rule_source_path or program.source_path, queue.rule_source_line or 1, queue.rule_source_column or 1))} : "
@@ -13098,9 +13269,7 @@ def lower_queue_program(
                     if queue.rule_has_output
                     else "() "
                 )
-                + f"loc({canonical_mlir_string(queue.rule_source_path or program.source_path)}:"
-                f"{queue.rule_source_line}:"
-                f"{queue.rule_source_column})"
+                + _render_callsite_location(definition_source, queue.source)
             )
             if output_ssas:
                 for name, ssa in zip(
@@ -13146,12 +13315,14 @@ def lower_queue_program(
             )
             + ") -> "
             + _render_queue_type(queue.payload, lanes=queue.lanes, rate=queue.rate)
+            + _render_source_frame_location(queue.source)
         )
         mapping[queue.name] = output_ssa
 
     def render_items(
         path: tuple[str, ...], mapping: dict[str, str], indent: str
     ) -> None:
+        source_by_order = dict(program.statement_sources)
         def visible_order(consumer: QueueBinding) -> int:
             if consumer.scope == path:
                 return consumer.order
@@ -13292,7 +13463,8 @@ def lower_queue_program(
             for sink_binding in program.sinks
             if sink_binding.scope == path and sink_binding.queue not in module_outputs
         )
-        for _, kind, item in sorted(events, key=lambda event: event[0]):
+        for event_order, kind, item in sorted(events, key=lambda event: event[0]):
+            first_line = len(lines)
             if kind in {"queue", "effect_rule"}:
                 queue = item
                 assert isinstance(queue, QueueBinding)
@@ -14346,7 +14518,23 @@ def lower_queue_program(
                     + _render_queue_type(
                         queue.payload, lanes=queue.lanes, rate=queue.rate
                     )
+                    + _render_source_frame_location(sink_binding.source)
                 )
+            if len(lines) > first_line and " loc(" not in lines[-1]:
+                if kind == "broadcast":
+                    _, group = fanouts[item]
+                    source_location = _render_fused_source_locations(
+                        (
+                            by_name[item].source,
+                            *(source_by_order.get(consumer.order)
+                              for consumer, _ in group),
+                        )
+                    )
+                else:
+                    source_location = _render_source_frame_location(
+                        source_by_order.get(getattr(item, "order", int(event_order)))
+                    )
+                lines[-1] += source_location
 
     def render_scope(
         scope: ScopeBinding, parent_mapping: dict[str, str], indent: str
@@ -14441,9 +14629,15 @@ def _lower_simple_module_source(
     definition_locations: Mapping[str, tuple[str, int, int]] | None = None,
     static_assert_locations: Mapping[str, tuple[tuple[str, int, int], ...]]
     | None = None,
+    source_node_locations: SourceNodeLocations | None = None,
 ) -> str | None:
     normalized_source_path = _normalize_queue_source_path(source_path)
     tree = ast.parse(text, filename=normalized_source_path, type_comments=True)
+    apply_source_node_locations(
+        tree,
+        source_node_locations,
+        normalized_source_path,
+    )
     module_names = [
         node.name
         for node in tree.body
@@ -14999,6 +15193,7 @@ def _lower_simple_module_source(
             tuple[str, ...],
             tuple[ValueType, ...],
             tuple[tuple[str, StaticValue], ...],
+            SourceFrame | None,
         ]
     ] = []
     rule_module_specializations: dict[
@@ -15134,6 +15329,7 @@ def _lower_simple_module_source(
                 static_type_namespace=namespace,
                 definition_locations=definition_locations,
                 static_assert_locations=static_assert_locations,
+                source_node_locations=source_node_locations,
             )
             specialized_payloads = {item.name: item for item in program.payloads}
             specialized_values = _type_static_values(tree, dict(frozen))
@@ -15305,6 +15501,7 @@ def _lower_simple_module_source(
                     sources,
                     output_types,
                     static_arguments,
+                    source_frame(statement.value),
                 )
             )
             continue
@@ -15484,7 +15681,7 @@ def _lower_simple_module_source(
         lines.append(
             f"    func.return %{result} : !ac.var<{_render_type(helper.result)}>"
         )
-        lines.append("  }")
+        lines.append("  }" + _render_source_frame_location(helper.source))
     lines.append(
         f'  ac.system @{system} root @Top as "root" tick 0 "cycle" '
         'seed {kind = "fixed", value = 0 : i64} instrumentation [] '
@@ -15531,7 +15728,8 @@ def _lower_simple_module_source(
                     f"    %output = ac.instance @result of @{child}(%input) "
                     'static {} id "result" path "result" '
                     f": (!ac.queue<{_render_type(input_type)}>) -> "
-                    f"!ac.queue<{_render_type(output_type)}>",
+                    f"!ac.queue<{_render_type(output_type)}>"
+                    + _render_source_frame_location(source_frame(expression)),
                     f"    ac.return %output : !ac.queue<{_render_type(output_type)}>",
                     "  }",
                 ]
@@ -15738,7 +15936,14 @@ def _lower_simple_module_source(
         )
         for index, (name, _) in enumerate(external):
             top_values[name] = f"%inputs#{index}" if len(external) > 1 else "%inputs"
-    for results, module_name, sources, output_types, static_arguments in instances:
+    for (
+        results,
+        module_name,
+        sources,
+        output_types,
+        static_arguments,
+        instance_source,
+    ) in instances:
         input_types = tuple(values[source] for source in sources)
         lhs = ", ".join(f"%{result}" for result in results)
         operands = ", ".join(top_values[source] for source in sources)
@@ -15758,6 +15963,7 @@ def _lower_simple_module_source(
             f"{_render_static_mlir_dictionary(static_arguments)} "
             f'id "{instance_name}" path "{instance_name}" '
             f": ({input_signature}) -> {result_type}"
+            + _render_source_frame_location(instance_source)
         )
         for result in results:
             top_values[result] = f"%{result}"
@@ -15808,6 +16014,7 @@ def lower_queue_source(
     definition_locations: Mapping[str, tuple[str, int, int]] | None = None,
     static_assert_locations: Mapping[str, tuple[tuple[str, int, int], ...]]
     | None = None,
+    source_node_locations: SourceNodeLocations | None = None,
 ) -> str:
     if lowered := _lower_simple_module_source(
         text,
@@ -15818,6 +16025,7 @@ def lower_queue_source(
         source_path=source_path,
         definition_locations=definition_locations,
         static_assert_locations=static_assert_locations,
+        source_node_locations=source_node_locations,
     ):
         return lowered
     if host_results:
@@ -15833,6 +16041,7 @@ def lower_queue_source(
             source_path=source_path,
             definition_locations=definition_locations,
             static_assert_locations=static_assert_locations,
+            source_node_locations=source_node_locations,
         )
     )
 

@@ -438,7 +438,7 @@ class RepositoryContractsTest(unittest.TestCase):
                 "contract-epoch"
             ]
 
-        self.assertEqual(15, len(schema_epochs))
+        self.assertEqual(16, len(schema_epochs))
         self.assertEqual({CONTRACT_EPOCH}, set(schema_epochs.values()), schema_epochs)
         self.assertEqual(CONTRACT_EPOCH, declared_epoch)
 
@@ -488,7 +488,7 @@ class RepositoryContractsTest(unittest.TestCase):
             )
             Draft202012Validator.check_schema(document)
             checked.append(path.name)
-        self.assertEqual(15, len(checked), checked)
+        self.assertEqual(16, len(checked), checked)
 
     def test_process_state_plan_schema_is_closed_and_accepts_exact_baseline(self):
         self.assertIsNotNone(importlib.util.find_spec("jsonschema"))
