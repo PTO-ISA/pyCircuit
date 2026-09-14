@@ -1,0 +1,35 @@
+{
+  "run_id": "20260915-issue126-iterative-proof",
+  "script": "focused ACIR analysis lane (manual, raw captures in evidence.txt)",
+  "status": "pass",
+  "issues": ["PTO-ISA/pyCircuit#126"],
+  "decisions": ["0154"],
+  "owner": "acir-table",
+  "baseline_commit": "db9ed625",
+  "contract_epoch": "0.5",
+  "change": "StructuralValueInterner::identify and collectConjuncts in VariableAnalysis.cpp are iterative instead of recursive, so the disjoint-field writer proof scales with the reachable SSA graph rather than with C++ stack depth",
+  "lanes": [
+    "ACIRModelAnalysisTests (gtest)",
+    "ctest (18 targets)"
+  ],
+  "cases": [
+    "ACDataFlowAnalyzerTest.ProvesMutuallyExclusiveSurvivesDeepSharedChains (depth 20000)",
+    "ACDataFlowAnalyzerTest.StructuralPathProofUsesBoundedKeysForSharedDags (depth 64, pre-existing)"
+  ],
+  "results": {
+    "ACIRModelAnalysisTests": "34/34 passed",
+    "ctest": "100% tests passed, 0 failed out of 18",
+    "deep_chain_20000": "pass (602 ms) with the change"
+  },
+  "without_change": {
+    "note": "VariableAnalysis.cpp reverted to HEAD (db9ed625) and rebuilt",
+    "ProvesMutuallyExclusiveSurvivesDeepSharedChains": "exit 139 (SIGSEGV)"
+  },
+  "known_environment_gaps": {
+    "lit": "7 of 240 lit tests need bin/pyc-opt or bin/pycc, which the standalone ACIR build does not produce; unaffected by this change and failing for the same reason before it.",
+    "not_run": "Verilator lanes and the integrated PYC toolchain."
+  },
+  "evidence_files": [
+    "docs/gates/logs/20260915-issue126-iterative-proof/evidence.txt"
+  ]
+}

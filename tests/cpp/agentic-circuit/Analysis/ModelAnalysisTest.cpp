@@ -1287,6 +1287,49 @@ TEST(ACDataFlowAnalyzerTest, StructuralPathProofUsesBoundedKeysForSharedDags) {
                                                opposite.getResult()));
 }
 
+// The mutual-exclusion proof interns pure SSA chains and collects conjuncts.
+// Both walks must stay iterative: a deep shared chain must not consume one C++
+// stack frame per level, so the same proof that works at 64 levels must also
+// complete at a depth far beyond any ambient stack budget.
+TEST(ACDataFlowAnalyzerTest, ProvesMutuallyExclusiveSurvivesDeepSharedChains) {
+  constexpr unsigned depth = 20000;
+  DialectRegistry registry;
+  registerAllDialects(registry);
+  MLIRContext context(registry);
+  std::string source = R"mlir(
+    builtin.module attributes {ac.contract_epoch = "0.5"} {
+      %input = "builtin.unrealized_conversion_cast"() : () -> !ac.queue<i1>
+      %output = ac.transform %input depths [1] latencies [1] {
+      ^body(%item: !ac.var<i1>):
+  )mlir";
+  std::string previous = "%item";
+  for (unsigned index = 0; index < depth; ++index) {
+    const std::string next = "%shared" + std::to_string(index);
+    source += "        " + next + " = ac.var.and " + previous + ", " +
+              previous + " : !ac.var<i1>\n";
+    previous = next;
+  }
+  source += "        %false = ac.var.constant false as !ac.var<i1>\n"
+            "        %opposite = ac.var.cmp \"eq\" " +
+            previous +
+            ", %false : !ac.var<i1> -> !ac.var<i1>\n"
+            "        ac.transform.yield %item : !ac.var<i1>\n"
+            "      } : (!ac.queue<i1>) -> !ac.queue<i1>\n"
+            "      ac.sink %output : !ac.queue<i1>\n"
+            "    }\n";
+  OwningOpRef<mlir::ModuleOp> model =
+      parseSourceString<mlir::ModuleOp>(source, &context);
+  ASSERT_TRUE(model);
+
+  ACDataFlowAnalyzer analysis(model->getOperation());
+  ASSERT_TRUE(succeeded(analysis.run()));
+  ac::VarCmpOp opposite;
+  model->walk([&](ac::VarCmpOp operation) { opposite = operation; });
+  ASSERT_TRUE(opposite);
+  EXPECT_TRUE(analysis.provesMutuallyExclusive(opposite.getLhs(),
+                                               opposite.getResult()));
+}
+
 TEST(ACDataFlowAnalyzerTest, InfersBoundedUnsignedValueConstraints) {
   DialectRegistry registry;
   registerAllDialects(registry);

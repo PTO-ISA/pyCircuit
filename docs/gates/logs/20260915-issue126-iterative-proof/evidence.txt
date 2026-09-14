@@ -1,0 +1,40 @@
+# issue 126 - iterative analysis traversals (Decision 0154 constraint)
+# repo HEAD: db9ed62597396d1bd4b09bdb33cfd0d90eff86a6
+# build: dev-llvm22 (Debug), standalone ACIR build
+# generated: 2026-09-14T17:50:28Z
+
+==============================================================
+SECTION 1 - WITH the change
+==============================================================
+### 1a. deep shared chain (depth 20000)
+
+[----------] Global test environment tear-down
+[==========] 1 test from 1 test suite ran. (632 ms total)
+[  PASSED  ] 1 test.
+exit=0
+
+### 1b. full analysis suite
+[----------] Global test environment tear-down
+[==========] 34 tests from 3 test suites ran. (21599 ms total)
+[  PASSED  ] 34 tests.
+exit=0
+
+### 1c. ctest
+100% tests passed, 0 tests failed out of 18
+
+==============================================================
+SECTION 2 - WITHOUT the change (recursive traversal)
+==============================================================
+# reverted; recursive collectConjuncts/identify restored
+### 2a. deep shared chain (depth 20000)
+Running main() from /private/tmp/googletest-20250910-5249-qce8ci/googletest-1.17.0/googletest/src/gtest_main.cc
+Note: Google Test filter = ACDataFlowAnalyzerTest.ProvesMutuallyExclusiveSurvivesDeepSharedChains
+[==========] Running 1 test from 1 test suite.
+[----------] Global test environment set-up.
+[----------] 1 test from ACDataFlowAnalyzerTest
+[ RUN      ] ACDataFlowAnalyzerTest.ProvesMutuallyExclusiveSurvivesDeepSharedChains
+/tmp/mk-evidence-iter.sh: line 58: 81001 Segmentation fault: 11  $DBG/bin/ACIRModelAnalysisTests --gtest_filter="$DEEP" 2>&1
+exit=139   (139 = SIGSEGV)
+
+### restore
+restored
