@@ -16,8 +16,8 @@
     "pre_commit": "passed",
     "agentic_contracts": "not_run_missing_jsonschema"
   },
-  "behavior": "Reachable child module specialization inherits root JIT dependent-type bindings without adding them to the child static-parameter identity.",
-  "trigger": "A consumer kept single-parent and dependent-width D2 helpers in one source file; specializing the reachable single-parent child lost the root frontend_width binding and rejected an unrelated helper payload.",
+  "behavior": "Child module specialization resolves only its reachable pure-helper closure, while root validation retains all typed helpers; unreachable private helper indices fall back to their exact scalar type interval when no lattice fact exists.",
+  "trigger": "A consumer kept single-parent and dependent-width D2 helpers in one source file; specializing the reachable single-parent child attempted to activate unrelated dependent helpers, then native validation lacked a type-derived bound for a safe private i1 index.",
   "release_scope": "Focused framework regression discovered by an external processor-model consumer.",
   "skill_evolve": "no-update"
 }

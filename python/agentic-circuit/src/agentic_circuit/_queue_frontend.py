@@ -2739,17 +2739,79 @@ def _helper_type(
 
 
 def _pure_helper_definitions(
-    tree: ast.Module, payloads: dict[str, Payload], enums: Mapping[str, ValueType]
+    tree: ast.Module,
+    payloads: dict[str, Payload],
+    enums: Mapping[str, ValueType],
+    *,
+    entry: str | None = None,
+    reachable_only: bool = False,
 ) -> tuple[PureHelperDefinition, ...]:
     """Capture typed, state-free helpers as closed SSA-like expressions."""
 
     architecture = {"system", "module", "extern_module", "process", "rule", "invariant"}
+    architecture_nodes = {
+        node.name: node
+        for node in tree.body
+        if isinstance(node, ast.FunctionDef)
+        and {
+            _decorator_name(item).rsplit(".", 1)[-1]
+            for item in node.decorator_list
+        }
+        & architecture
+    }
+    helper_nodes = {
+        node.name: node
+        for node in tree.body
+        if isinstance(node, ast.FunctionDef)
+        and not (
+            {
+                _decorator_name(item).rsplit(".", 1)[-1]
+                for item in node.decorator_list
+            }
+            & architecture
+        )
+    }
+    reachable_helpers: set[str] | None = None
+    if reachable_only:
+        if entry is None or entry not in architecture_nodes:
+            raise QueueFrontendError(
+                "ACPY-HELPER-001: reachable helper filtering requires an entry"
+            )
+        reachable_architecture: set[str] = set()
+        reachable_helpers = set()
+        pending_architecture = [entry]
+        while pending_architecture:
+            name = pending_architecture.pop()
+            if name in reachable_architecture:
+                continue
+            reachable_architecture.add(name)
+            for item in ast.walk(architecture_nodes[name]):
+                if not isinstance(item, ast.Name) or not isinstance(item.ctx, ast.Load):
+                    continue
+                if item.id in architecture_nodes:
+                    pending_architecture.append(item.id)
+                if item.id in helper_nodes:
+                    reachable_helpers.add(item.id)
+        pending_helpers = list(reachable_helpers)
+        while pending_helpers:
+            name = pending_helpers.pop()
+            for item in ast.walk(helper_nodes[name]):
+                if (
+                    isinstance(item, ast.Name)
+                    and isinstance(item.ctx, ast.Load)
+                    and item.id in helper_nodes
+                    and item.id not in reachable_helpers
+                ):
+                    reachable_helpers.add(item.id)
+                    pending_helpers.append(item.id)
     nodes: dict[str, ast.FunctionDef] = {}
     signatures: dict[
         str, tuple[tuple[tuple[str, ValueType], ...], ValueType, bool]
     ] = {}
     for node in tree.body:
         if not isinstance(node, ast.FunctionDef):
+            continue
+        if reachable_helpers is not None and node.name not in reachable_helpers:
             continue
         decorators = {
             _decorator_name(item).rsplit(".", 1)[-1] for item in node.decorator_list
@@ -3634,7 +3696,6 @@ def parse_queue_program(
     specialization_fingerprint: str | None = None,
     *,
     entry_kind: str = "system",
-    inherited_type_arguments: Mapping[str, StaticValue] | None = None,
     source_path: str | None = None,
     static_type_namespace: str = "",
     definition_locations: Mapping[str, tuple[str, int, int]] | None = None,
@@ -3651,9 +3712,7 @@ def parse_queue_program(
     )
     tree = _desugar_nested_rule_captures(tree, system, entry_kind)
     module_static_values = _module_static_values(tree)
-    type_arguments = dict(inherited_type_arguments or {})
-    type_arguments.update(dict(static_arguments or {}))
-    type_static_values = _type_static_values(tree, type_arguments)
+    type_static_values = _type_static_values(tree, static_arguments)
     parameter_aliases = _static_parameter_aliases(tree)
     expression_type_checks: list[StaticTypeCheck] = []
 
@@ -3836,7 +3895,13 @@ def parse_queue_program(
     invariant_definitions = _invariant_definitions(
         tree, payload_map, bitfield_map, enum_map
     )
-    helper_definitions = _pure_helper_definitions(tree, payload_map, enum_map)
+    helper_definitions = _pure_helper_definitions(
+        tree,
+        payload_map,
+        enum_map,
+        entry=system,
+        reachable_only=entry_kind == "module",
+    )
     helper_map = {definition.name: definition for definition in helper_definitions}
 
     class DesugarHelperUnpacking(ast.NodeTransformer):
@@ -18020,7 +18085,6 @@ def _lower_simple_module_source(
                 static_arguments=dict(frozen),
                 specialization_fingerprint=specialization_fingerprint,
                 entry_kind="module",
-                inherited_type_arguments=static_arguments,
                 source_path=normalized_source_path,
                 static_type_namespace=namespace,
                 definition_locations=definition_locations,
@@ -18028,13 +18092,7 @@ def _lower_simple_module_source(
                 source_node_locations=source_node_locations,
             )
             specialized_payloads = {item.name: item for item in program.payloads}
-            specialized_values = _type_static_values(
-                tree,
-                {
-                    **dict(static_arguments or {}),
-                    **dict(frozen),
-                },
-            )
+            specialized_values = _type_static_values(tree, dict(frozen))
             inputs = tuple(
                 (
                     name,

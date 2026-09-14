@@ -4211,6 +4211,7 @@ def design(value: ac.u8, *, width: ac.const[int]) -> ac.u8:
         )
         self.assertIn("ac.module @stage", lowered)
         self.assertIn("ac.instance @result of @stage", lowered)
+        self.assertEqual(1, lowered.count("@keep_unrelated"))
 
     def test_system_lowers_only_reachable_modules_and_their_rules(self) -> None:
         from agentic_circuit._queue_frontend import lower_queue_source
