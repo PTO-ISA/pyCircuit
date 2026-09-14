@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import shutil
@@ -131,7 +132,8 @@ class PrivateQueuePayloadRuntimeTest(unittest.TestCase):
             frozen.write_text(frozen_text, encoding="utf-8")
             baseline_frozen = work / "baseline.mlir"
             baseline_frozen.write_text(baseline_text, encoding="utf-8")
-            plan = json.loads(self._run((self.plan, frozen), cwd=ROOT))
+            plan_text = self._run((self.plan, frozen), cwd=ROOT)
+            plan = json.loads(plan_text)
             private = next(queue for queue in plan["queues"] if queue["name"] == "buffered")
             self.assertEqual(2, private["depth"])
             self.assertEqual(3, private["latency"])
@@ -162,6 +164,48 @@ class PrivateQueuePayloadRuntimeTest(unittest.TestCase):
                     ].endswith("private_queue_payload/architecture.py")
                     for expression in projected_reads
                 )
+            )
+            bundle = work / "bundle"
+            self._run(
+                (
+                    self.cxxgen,
+                    frozen,
+                    "--output-root",
+                    bundle,
+                    "--sdk-product-version",
+                    "6.0.0",
+                    "--sdk-source-revision",
+                    "a" * 40,
+                ),
+                cwd=ROOT,
+            )
+            cost_report = json.loads(
+                (bundle / "share/generated/cost-report.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+            cost_private = next(
+                queue
+                for queue in cost_report["modules"][0]["queues"]
+                if queue["name"] == "buffered"
+            )
+            self.assertEqual(1033, cost_private["logical_bits"])
+            self.assertEqual(9, cost_private["carrier_bits"])
+            self.assertEqual(2, cost_private["packed_bytes"])
+            self.assertEqual(
+                "private_transform_tuple_v1",
+                cost_private["projection_profile"],
+            )
+            self.assertEqual(
+                "sha256:" + hashlib.sha256(plan_text.encode()).hexdigest(),
+                cost_report["identity"]["queuegraph_sha256"],
+            )
+            source_map_bytes = (
+                bundle / "share/generated/source-map.json"
+            ).read_bytes()
+            self.assertEqual(
+                "sha256:" + hashlib.sha256(source_map_bytes).hexdigest(),
+                cost_report["identity"]["source_map_sha256"],
             )
             gfsim_source = work / "gfsim.cpp"
             generated = self._run((self.cxxgen, frozen), cwd=ROOT)

@@ -25,6 +25,27 @@
     "contract_epoch": {
       "const": "0.5"
     },
+    "cost_report": {
+      "additionalProperties": false,
+      "properties": {
+        "path": {
+          "const": "share/generated/cost-report.json"
+        },
+        "schema": {
+          "const": "agentic-circuit-emitted-cost"
+        },
+        "sha256": {
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "path",
+        "schema",
+        "sha256"
+      ],
+      "type": "object"
+    },
     "depfile_path": {
       "minLength": 1,
       "pattern": "^(?!/)(?![A-Za-z]:)(?!.*\\\\)(?!.*(?:^|/)\\.\\.?(/|$))(?!.*//)[A-Za-z0-9._+@/-]+$",
@@ -179,6 +200,7 @@
     "specialization",
     "generated_files",
     "source_map",
+    "cost_report",
     "cmake_sources",
     "depfile_path",
     "required_runtime",

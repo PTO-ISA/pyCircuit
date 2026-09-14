@@ -2707,6 +2707,29 @@ TEST(QueueGraphPlanTest,
   EXPECT_EQ(wrapper.moduleInstances.front().specializationFingerprint,
             wrapper.moduleSpecializations.front()->specializationFingerprint);
 
+  const std::string hash = "sha256:" + std::string(64, 'a');
+  auto costReport = generateQueueGraphCostReport(
+      *plan, "6.1.0", std::string(40, 'b'), hash, hash);
+  ASSERT_TRUE(bool(costReport)) << llvm::toString(costReport.takeError());
+  auto parsedCostReport = llvm::json::parse(*costReport);
+  ASSERT_TRUE(bool(parsedCostReport));
+  auto costModules = parsedCostReport->getAsObject()->getArray("modules");
+  ASSERT_TRUE(costModules);
+  ASSERT_EQ(costModules->size(), 5u);
+  std::vector<std::string> instancePaths;
+  for (const llvm::json::Value &value : *costModules) {
+    auto path = value.getAsObject()->getString("instance_path");
+    ASSERT_TRUE(path);
+    instancePaths.push_back(path->str());
+  }
+  EXPECT_EQ(instancePaths,
+            (std::vector<std::string>{"/", "/left", "/left/child",
+                                      "/right", "/right/child"}));
+  auto coverage = parsedCostReport->getAsObject()->getObject("coverage");
+  ASSERT_TRUE(coverage);
+  EXPECT_EQ(coverage->getInteger("rules"), 6);
+  EXPECT_EQ(coverage->getInteger("logic_depth_modeled_rules"), 6);
+
   auto generated = generateQueueGraphCpp(*plan);
   ASSERT_TRUE(bool(generated)) << llvm::toString(generated.takeError());
   llvm::StringRef source(*generated);
@@ -2909,23 +2932,33 @@ TEST(QueueGraphPlanTest, EmitsClosedOpaqueRuntimeAbiBundle) {
       *plan, {.sdkProductVersion = "6.0.0",
               .sdkSourceRevision = "c053fe2a00000000000000000000000000000000"});
   ASSERT_TRUE(bool(bundle)) << llvm::toString(bundle.takeError());
-  ASSERT_EQ(bundle->size(), 4u);
+  ASSERT_EQ(bundle->size(), 5u);
   EXPECT_EQ((*bundle)[0].relativePath, "include/generated/model.h");
-  EXPECT_EQ((*bundle)[1].relativePath, "share/generated/source-map.json");
-  EXPECT_EQ((*bundle)[2].relativePath, "src/generated/model.cpp");
-  EXPECT_EQ((*bundle)[3].relativePath, "src/generated/queuegraph.cpp");
+  EXPECT_EQ((*bundle)[1].relativePath, "share/generated/cost-report.json");
+  EXPECT_EQ((*bundle)[2].relativePath, "share/generated/source-map.json");
+  EXPECT_EQ((*bundle)[3].relativePath, "src/generated/model.cpp");
+  EXPECT_EQ((*bundle)[4].relativePath, "src/generated/queuegraph.cpp");
 
   const llvm::StringRef header((*bundle)[0].content);
   EXPECT_NE(header.find("gfsim/model_api.h"), llvm::StringRef::npos);
   EXPECT_EQ(header.find("class "), llvm::StringRef::npos);
   EXPECT_EQ(header.find("SimSystem"), llvm::StringRef::npos);
 
-  auto sourceMap = llvm::json::parse((*bundle)[1].content);
+  auto costReport = llvm::json::parse((*bundle)[1].content);
+  ASSERT_TRUE(bool(costReport));
+  EXPECT_EQ(costReport->getAsObject()->getString("schema"),
+            "agentic-circuit-emitted-cost");
+  EXPECT_EQ(costReport->getAsObject()->getString("version"), "1");
+  auto modules = costReport->getAsObject()->getArray("modules");
+  ASSERT_TRUE(modules);
+  ASSERT_EQ(modules->size(), 1u);
+
+  auto sourceMap = llvm::json::parse((*bundle)[2].content);
   ASSERT_TRUE(bool(sourceMap));
   EXPECT_EQ(sourceMap->getAsObject()->getString("schema"),
             "agentic-circuit-source-map");
 
-  const llvm::StringRef model((*bundle)[2].content);
+  const llvm::StringRef model((*bundle)[3].content);
   EXPECT_EQ(model.count("agentic_model_query_v1"), 1u);
   EXPECT_NE(model.find("AgenticModelApiV1 api"), llvm::StringRef::npos);
   EXPECT_NE(model.find("\"6.0.0\""), llvm::StringRef::npos);
@@ -2935,7 +2968,7 @@ TEST(QueueGraphPlanTest, EmitsClosedOpaqueRuntimeAbiBundle) {
   EXPECT_EQ(model.find("observations_json"), llvm::StringRef::npos);
   EXPECT_EQ(model.find("trace_position"), llvm::StringRef::npos);
 
-  const llvm::StringRef queueGraph((*bundle)[3].content);
+  const llvm::StringRef queueGraph((*bundle)[4].content);
   EXPECT_NE(queueGraph.find("gfsim::SimSystem system"), llvm::StringRef::npos);
   EXPECT_NE(queueGraph.find("system.statistics()"), llvm::StringRef::npos);
   EXPECT_EQ(queueGraph.find("loadPtoTraceText"), llvm::StringRef::npos);
@@ -2944,6 +2977,50 @@ TEST(QueueGraphPlanTest, EmitsClosedOpaqueRuntimeAbiBundle) {
             llvm::StringRef::npos);
   EXPECT_EQ(queueGraph.count("runtime->model.reset();"), 1u);
   expectModelBundleRuns(*bundle);
+}
+
+TEST(QueueGraphPlanTest, EmittedCostReportRecomputesArrayAndTableBounds) {
+  const std::string hash = "sha256:" + std::string(64, 'a');
+  QueueGraphPlan array = boundedArrayPlan(65);
+  auto arrayReport = generateQueueGraphCostReport(
+      array, "6.1.0", std::string(40, 'b'), hash, hash);
+  ASSERT_TRUE(bool(arrayReport)) << llvm::toString(arrayReport.takeError());
+  EXPECT_NE(arrayReport->find("\"dynamic_array_expansion_factor\":{"
+                              "\"stage\":\"verified_queuegraph\","
+                              "\"status\":\"exact\",\"unit\":\"lanes\","
+                              "\"value\":65}"),
+            std::string::npos);
+  EXPECT_NE(arrayReport->find("\"queuegraph_nodes\":{"
+                              "\"stage\":\"verified_queuegraph\","
+                              "\"status\":\"exact\",\"unit\":\"nodes\""),
+            std::string::npos);
+  EXPECT_NE(arrayReport->find("\"fixed_array_expansion_bound\":{"
+                              "\"stage\":\"verified_queuegraph\","
+                              "\"status\":\"static_upper_bound\","
+                              "\"unit\":\"lanes\",\"value\":65}"),
+            std::string::npos);
+
+  QueueGraphPlan table = inlineFirstChoicePlan(16, 4);
+  auto tableReport = generateQueueGraphCostReport(
+      table, "6.1.0", std::string(40, 'b'), hash, hash);
+  ASSERT_TRUE(bool(tableReport)) << llvm::toString(tableReport.takeError());
+  EXPECT_NE(tableReport->find("\"table_scan_bound\":{"
+                              "\"stage\":\"verified_queuegraph\","
+                              "\"status\":\"static_upper_bound\","
+                              "\"unit\":\"entries_per_attempt\","
+                              "\"value\":16}"),
+            std::string::npos);
+  auto repeated = generateQueueGraphCostReport(
+      table, "6.1.0", std::string(40, 'b'), hash, hash);
+  ASSERT_TRUE(bool(repeated)) << llvm::toString(repeated.takeError());
+  EXPECT_EQ(*tableReport, *repeated);
+
+  auto invalidHash = generateQueueGraphCostReport(
+      table, "6.1.0", std::string(40, 'b'), "sha256:bad", hash);
+  ASSERT_FALSE(bool(invalidHash));
+  EXPECT_NE(llvm::toString(invalidHash.takeError())
+                .find("canonical SHA-256 fingerprints"),
+            std::string::npos);
 }
 
 TEST(QueueGraphPlanTest, ModelBundleRequiresExplicitSdkIdentity) {

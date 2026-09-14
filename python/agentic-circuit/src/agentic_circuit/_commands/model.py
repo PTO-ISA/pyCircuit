@@ -75,6 +75,7 @@ _SDK_CAPABILITIES = (
 _PLAN_CAPABILITIES = ("queuegraph-v2", "multi-tu-v1", "runtime-abi-v1")
 _PLAN_OUTPUTS = (
     "include/generated/model.h",
+    "share/generated/cost-report.json",
     "share/generated/source-map.json",
     "src/generated/model.cpp",
     "src/generated/queuegraph.cpp",
@@ -1066,6 +1067,11 @@ def _model_manifest(
             "path": "share/generated/source-map.json",
             "schema": "agentic-circuit-source-map",
             "sha256": sha256_bytes(generated["share/generated/source-map.json"]),
+        },
+        "cost_report": {
+            "path": "share/generated/cost-report.json",
+            "schema": "agentic-circuit-emitted-cost",
+            "sha256": sha256_bytes(generated["share/generated/cost-report.json"]),
         },
         "cmake_sources": {
             "path": "model-sources.cmake",

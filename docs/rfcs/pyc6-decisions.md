@@ -9149,7 +9149,6 @@ call site.
 **Source**
 - PTO-ISA/pyCircuit issue #128.
 
-
 ## Decision 0248: runtime bounded Table row projection reuses canonical Table indices
 
 **Status:** Accepted and implemented
@@ -9778,6 +9777,69 @@ from the original logical record.
   identical ready/valid cycles under backpressure; all three backends must
   match the independent value golden. Packed serialized size is reported
   separately from `sizeof` and is not presented as a throughput result.
+
+**Source**
+- PTO-ISA/pyCircuit issue #128.
+
+## Decision 0258: emitted QueueGraph cost is versioned, instance-aware evidence
+
+**Status:** Accepted and implemented
+
+**Extends:** Decisions 0241, 0243, 0250, 0252, 0254, and 0257.
+
+**Context / Goal**
+Generated models need deterministic, reviewable cost evidence for payload
+storage, fixed expansion, Table scans, logic depth, and generated GFSim data
+movement. The report must distinguish verifier-derived facts from modeled or
+unmeasured values and must not present a QueueGraph estimate as physical timing
+or a runtime benchmark.
+
+**Decision (strong constraint)**
+- A successful QueueGraph model bundle contains
+  `share/generated/cost-report.json`, validated by the public
+  `agentic-circuit-emitted-cost` version 1 schema. The model manifest hashes the
+  report and the SDK plan predicts it as part of the closed generated file set.
+- Report generation starts from a verified QueueGraph and binds the canonical
+  QueueGraph bytes, canonical source-map bytes, SDK product version, exact
+  toolchain revision, root system, and root specialization. Output is canonical
+  I-JSON, so identical verified inputs produce identical report bytes.
+- Module accounting is by concrete instance path, not by unique specialization
+  definition. Reused and nested specializations therefore appear once per
+  instantiated occurrence, while definition and specialization fingerprints
+  retain their shared identity. Root and report totals sum concrete instances.
+- Each Queue reports logical bits, physical carrier bits, packed bytes, depth,
+  lanes, rate, scope, and the verified projection profile when one exists.
+  Module and report totals use packed storage bytes and never claim C++
+  `sizeof` or ABI allocation size.
+- Each rule reports exact QueueGraph node count, input/output payload references,
+  fixed-array expansion bound, dynamic-array expansion when retained by the
+  verified plan, Table scan bound, generated GFSim copy/materialization/move
+  sites for the admitted simple Transform profile, and Python source provenance.
+  Shared Table-match costs retain their own identity and provenance.
+- Logic depth uses the `pyc-check-logic-depth` unit-cost model before DCE. It
+  expands verified pure helpers, accounts for comparison canonicalization that
+  introduces a logical negation, and reports a conservative static upper bound.
+  Nested/Table-dependent or otherwise unsupported expression graphs report
+  `not_modeled` with a reason instead of emitting a fabricated number.
+- Runtime heap allocation and payload `sizeof` remain explicitly `not_modeled`.
+  Zero is emitted only for a verifier-derived applicable metric, such as the
+  admitted simple Transform's lack of per-firing resource-vector construction.
+  No emitted metric claims physical delay, throughput, host memory usage, or
+  allocation behavior outside its named stage and unit.
+
+**Required verification**
+- Validate canonical determinism, malformed hash/revision rejection, installed
+  schema delivery, plan/manifest file-set closure, report hash closure, and
+  QueueGraph/source-map identity binding.
+- Recompute a runtime Table projection scan bound and dynamic array expansion
+  from the verified plan. A 65-lane argmin regression locks 647 QueueGraph nodes,
+  fixed expansion 65, a conservative reported depth bound of 34, and an actual
+  `pyc-check-logic-depth` result of 31 under the default limit 32.
+- The private-payload fixture reports 1033 logical bits, 9 carrier bits, and 2
+  packed bytes while retaining backend value and accept/output-cycle parity.
+- Reused nested modules produce root, two wrapper-instance, and two leaf-instance
+  records in stable path order; totals and modeled-rule coverage count all five
+  concrete module occurrences.
 
 **Source**
 - PTO-ISA/pyCircuit issue #128.

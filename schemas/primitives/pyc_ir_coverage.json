@@ -1176,6 +1176,7 @@
       ],
       "cpp_emitter": "compiler/mlir/lib/Emit/CppEmitter.cpp",
       "e2e": [
+        "tests/integration/agentic-circuit/e2e/test_array_combinator_runtime.py",
         "tests/integration/agentic-circuit/e2e/test_pyc_backend.py",
         "tests/integration/agentic-circuit/e2e/test_queue_codegen.py"
       ],
@@ -1207,6 +1208,7 @@
       "tests": [
         "tests/cpp/agentic-circuit/CodeGen/QueueGraphPlanTest.cpp",
         "tests/cpp/agentic-circuit/gfsim/QueueBlocksTest.cpp",
+        "tests/integration/agentic-circuit/e2e/test_array_combinator_runtime.py",
         "tests/integration/agentic-circuit/e2e/test_pyc_backend.py",
         "tests/integration/agentic-circuit/e2e/test_queue_codegen.py",
         "tests/mlir/agentic-circuit/ACIR/collections-invalid.mlir",

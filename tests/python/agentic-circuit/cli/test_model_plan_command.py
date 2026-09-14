@@ -22,6 +22,7 @@ MODEL_MANIFEST_SCHEMA = (
     REPOSITORY / "schemas/agentic-circuit/model-manifest.schema.json"
 )
 SOURCE_MAP_SCHEMA = REPOSITORY / "schemas/agentic-circuit/source-map.schema.json"
+EMITTED_COST_SCHEMA = REPOSITORY / "schemas/agentic-circuit/emitted-cost.schema.json"
 MODEL_CONSUMER = REPOSITORY / "tests/integration/agentic-circuit/model-install-consumer"
 FIXTURE_SOURCE_REVISION = "a" * 40
 PLAN_FILES = (
@@ -36,6 +37,7 @@ EMIT_FILES = (
     "model-manifest.json",
     "model-sources.cmake",
     "model.d",
+    "share/generated/cost-report.json",
     "share/generated/source-map.json",
     "src/generated/model.cpp",
     "src/generated/queuegraph.cpp",
@@ -124,6 +126,7 @@ def install_sdk(prefix: Path) -> None:
     shutil.copyfile(MODEL_PLAN_SCHEMA, schema_root / "model-plan.schema.json")
     shutil.copyfile(MODEL_MANIFEST_SCHEMA, schema_root / "model-manifest.schema.json")
     shutil.copyfile(SOURCE_MAP_SCHEMA, schema_root / "source-map.schema.json")
+    shutil.copyfile(EMITTED_COST_SCHEMA, schema_root / "emitted-cost.schema.json")
     shutil.copyfile(REPOSITORY / "LICENSE", license_root / "LICENSE")
     (wheelhouse / "agentic_circuit-0.1.0-py3-none-any.whl").write_bytes(b"wheel")
 
@@ -466,6 +469,7 @@ class ModelPlanCommandTest(unittest.TestCase):
         self.assertEqual(
             [
                 "include/generated/model.h",
+                "share/generated/cost-report.json",
                 "share/generated/source-map.json",
                 "src/generated/model.cpp",
                 "src/generated/queuegraph.cpp",
@@ -505,6 +509,25 @@ class ModelPlanCommandTest(unittest.TestCase):
         self.assertEqual(
             sha256(source_map_bytes),
             manifest["source_map"]["sha256"],
+        )
+        cost_report_bytes = left_generated["share/generated/cost-report.json"]
+        cost_report = json.loads(cost_report_bytes)
+        Draft202012Validator(json.loads(EMITTED_COST_SCHEMA.read_text())).validate(
+            cost_report
+        )
+        self.assertEqual("agentic-circuit-emitted-cost", cost_report["schema"])
+        self.assertEqual(plan["specialization"], cost_report["identity"]["specialization"])
+        self.assertEqual(
+            sha256(left_files["queuegraph.json"]),
+            cost_report["identity"]["queuegraph_sha256"],
+        )
+        self.assertEqual(
+            sha256(source_map_bytes),
+            cost_report["identity"]["source_map_sha256"],
+        )
+        self.assertEqual(
+            sha256(cost_report_bytes),
+            manifest["cost_report"]["sha256"],
         )
 
     def test_emit_rejects_tamper_and_cleans_only_manifest_owned_files(self) -> None:

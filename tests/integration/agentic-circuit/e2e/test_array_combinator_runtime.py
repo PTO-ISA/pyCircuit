@@ -183,11 +183,49 @@ def pipeline(request: Request) -> ac.index[65]:
 """
         with tempfile.TemporaryDirectory(prefix="array-argmin-65-") as temporary:
             work = Path(temporary)
-            raw = lower_queue_source(source, "pipeline")
+            raw = lower_queue_source(
+                source, "pipeline", source_path="array_argmin_cost.py"
+            )
             frozen = work / "model.mlir"
             frozen.write_text(
                 _lower_queue_acir(raw, optimizer=self.acir_opt),
                 encoding="utf-8",
+            )
+            bundle = work / "bundle"
+            self._run(
+                (
+                    self.cxxgen,
+                    frozen,
+                    "--output-root",
+                    bundle,
+                    "--sdk-product-version",
+                    "6.1.0",
+                    "--sdk-source-revision",
+                    "a" * 40,
+                ),
+                cwd=ROOT,
+            )
+            cost_report = json.loads(
+                (bundle / "share/generated/cost-report.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+            select_cost = next(
+                rule
+                for rule in cost_report["modules"][0]["rules"]
+                if rule["display_rule_name"] == "select"
+            )
+            self.assertEqual(647, select_cost["metrics"]["queuegraph_nodes"]["value"])
+            self.assertEqual(
+                65,
+                select_cost["metrics"]["fixed_array_expansion_bound"]["value"],
+            )
+            self.assertEqual(34, select_cost["metrics"]["logic_depth"]["value"])
+            self.assertEqual(
+                "array_argmin_cost.py",
+                select_cost["source_provenance"]["origins"][0]["frames"][0][
+                    "file"
+                ],
             )
             pyc = work / "model.pyc"
             pyc.write_text(self._run((self.pycgen, frozen), cwd=ROOT), encoding="utf-8")
@@ -207,7 +245,7 @@ def pipeline(request: Request) -> ac.index[65]:
             )
             report = json.loads(profile.read_text(encoding="utf-8"))
             self.assertEqual(32, report["compile_stats"]["logic_depth_limit"])
-            self.assertLessEqual(report["compile_stats"]["max_logic_depth"], 32)
+            self.assertEqual(31, report["compile_stats"]["max_logic_depth"])
 
     def test_map_zip_nested_and_checked_callbacks_match_all_backends(self) -> None:
         cases = ((0, 1, 4), (3, 5, 7), (255, 2, 254))

@@ -23,6 +23,7 @@ SCHEMAS = {
     "pycircuit-sdk-release-index": "release-index.schema.json",
     "agentic-circuit-model-plan": "model-plan.schema.json",
     "agentic-circuit-model-manifest": "model-manifest.schema.json",
+    "agentic-circuit-emitted-cost": "emitted-cost.schema.json",
     "pycircuit-sdk-lock": "consumer-lock.schema.json",
 }
 
@@ -157,7 +158,7 @@ class SdkReleaseContractTest(unittest.TestCase):
             check=False,
         )
         self.assertEqual(0, result.returncode, result.stdout + result.stderr)
-        self.assertIn("6 schemas, 6 documents", result.stdout)
+        self.assertIn("7 schemas, 7 documents", result.stdout)
 
     def test_release_workflow_is_manual_sha_pinned_and_accepts_before_tagging(self) -> None:
         workflow = (ROOT / ".github/workflows/release.yml").read_text()
@@ -488,6 +489,7 @@ class SdkReleaseContractTest(unittest.TestCase):
             self.assertTrue(
                 {
                     "share/pycircuit/schemas/consumer-lock.schema.json",
+                    "share/pycircuit/schemas/emitted-cost.schema.json",
                     "share/pycircuit/schemas/model-manifest.schema.json",
                     "share/pycircuit/schemas/model-plan.schema.json",
                     "share/pycircuit/schemas/release-index.schema.json",

@@ -1,0 +1,48 @@
+{
+  "contract_epoch": "0.5",
+  "coverage": {
+    "logic_depth_modeled_rules": 0,
+    "rules": 0,
+    "runtime_heap_allocations": "not_modeled",
+    "sizeof_payload_types": "not_modeled"
+  },
+  "identity": {
+    "product_version": "6.0.0",
+    "queuegraph_sha256": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "source_map_sha256": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "specialization": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "system": "main",
+    "toolchain_revision": "e4485192727e27ac4d1de62bfdb6438fd878cdff"
+  },
+  "models": {
+    "logic_depth": "pyc_check_logic_depth_unit_cost",
+    "runtime": "gfsim_generated_static_v1"
+  },
+  "modules": [
+    {
+      "definition": null,
+      "instance_path": "/",
+      "queues": [],
+      "rules": [],
+      "shared_costs": [],
+      "specialization": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "system": "main",
+      "totals": {
+        "carrier_queue_bits": {"stage": "verified_queuegraph", "status": "exact", "unit": "bits", "value": 0},
+        "logical_queue_bits": {"stage": "verified_queuegraph", "status": "exact", "unit": "bits", "value": 0},
+        "logic_depth": {"stage": "queuegraph_to_pyc_pre_dce", "status": "static_upper_bound", "unit": "unit_cost_levels", "value": 0},
+        "queue_storage_packed_bytes": {"stage": "generated_gfsim", "status": "static_upper_bound", "unit": "bytes", "value": 0},
+        "queuegraph_nodes": {"stage": "verified_queuegraph", "status": "exact", "unit": "nodes", "value": 0}
+      }
+    }
+  ],
+  "schema": "agentic-circuit-emitted-cost",
+  "totals": {
+    "carrier_queue_bits": {"stage": "verified_queuegraph", "status": "exact", "unit": "bits", "value": 0},
+    "logical_queue_bits": {"stage": "verified_queuegraph", "status": "exact", "unit": "bits", "value": 0},
+    "logic_depth": {"stage": "queuegraph_to_pyc_pre_dce", "status": "static_upper_bound", "unit": "unit_cost_levels", "value": 0},
+    "queue_storage_packed_bytes": {"stage": "generated_gfsim", "status": "static_upper_bound", "unit": "bytes", "value": 0},
+    "queuegraph_nodes": {"stage": "verified_queuegraph", "status": "exact", "unit": "nodes", "value": 0}
+  },
+  "version": "1"
+}

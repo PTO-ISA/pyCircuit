@@ -1,4 +1,5 @@
 #include "acir/CodeGen/QueueGraphGenerator.h"
+#include "acir/Bindings/Binding.h"
 #include "acir/CodeGen/QueueBlockContract.h"
 
 #include "llvm/ADT/DenseMap.h"
@@ -6487,11 +6488,23 @@ agentic_model_query_v1(void) {
 )cpp";
 
   std::vector<QueueGraphGeneratedFile> result;
+  auto canonicalQueueGraph = plan.canonicalJson();
+  if (!canonicalQueueGraph)
+    return canonicalQueueGraph.takeError();
   auto sourceMap = plan.sourceMapJson();
   if (!sourceMap)
     return sourceMap.takeError();
+  const std::string queueGraphBytes = *canonicalQueueGraph + "\n";
+  const std::string sourceMapBytes = *sourceMap + "\n";
+  auto costReport = generateQueueGraphCostReport(
+      plan, options.sdkProductVersion, options.sdkSourceRevision,
+      bindings::sha256Fingerprint(queueGraphBytes),
+      bindings::sha256Fingerprint(sourceMapBytes));
+  if (!costReport)
+    return costReport.takeError();
   result.push_back({"include/generated/model.h", modelHeader});
-  result.push_back({"share/generated/source-map.json", *sourceMap + "\n"});
+  result.push_back({"share/generated/cost-report.json", *costReport + "\n"});
+  result.push_back({"share/generated/source-map.json", sourceMapBytes});
   result.push_back({"src/generated/model.cpp", modelSource.str()});
   result.push_back({"src/generated/queuegraph.cpp", queueGraphSource.str()});
   return result;

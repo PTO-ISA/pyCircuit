@@ -17,6 +17,7 @@ SCHEMA_BY_IDENTITY = {
     "pycircuit-sdk-release-index": "release-index.schema.json",
     "agentic-circuit-model-plan": "model-plan.schema.json",
     "agentic-circuit-model-manifest": "model-manifest.schema.json",
+    "agentic-circuit-emitted-cost": "emitted-cost.schema.json",
     "pycircuit-sdk-lock": "consumer-lock.schema.json",
 }
 EXAMPLE_BY_IDENTITY = {
@@ -24,6 +25,7 @@ EXAMPLE_BY_IDENTITY = {
     "pycircuit-sdk-release-index": "release-index.example.json",
     "agentic-circuit-model-plan": "model-plan.example.json",
     "agentic-circuit-model-manifest": "model-manifest.example.json",
+    "agentic-circuit-emitted-cost": "emitted-cost.example.json",
     "pycircuit-sdk-lock": "consumer-lock.example.json",
 }
 
@@ -191,9 +193,10 @@ def validate_exact(document: dict[str, Any], version_map: dict[str, Any]) -> Non
             document["outputs"],
             [
                 "include/generated/model.h",
+                "share/generated/cost-report.json",
+                "share/generated/source-map.json",
                 "src/generated/model.cpp",
                 "src/generated/queuegraph.cpp",
-                "share/generated/source-map.json",
             ],
             f"{identity}.outputs",
         )
@@ -209,9 +212,10 @@ def validate_exact(document: dict[str, Any], version_map: dict[str, Any]) -> Non
             [item["path"] for item in document["generated_files"]],
             [
                 "include/generated/model.h",
+                "share/generated/cost-report.json",
+                "share/generated/source-map.json",
                 "src/generated/model.cpp",
                 "src/generated/queuegraph.cpp",
-                "share/generated/source-map.json",
             ],
             f"{identity}.generated_files",
         )
@@ -525,7 +529,7 @@ def main() -> int:
         print(f"error: {error}", file=sys.stderr)
         return 1
     print(
-        "SDK contract: OK (6 schemas, 6 documents, exact version/platform/ABI "
+        "SDK contract: OK (7 schemas, 7 documents, exact version/platform/ABI "
         "tuple, path/set closure, adversarial negatives)"
     )
     return 0

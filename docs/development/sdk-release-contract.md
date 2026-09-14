@@ -215,13 +215,21 @@ identities and hashes, the exact SDK/source/ABI tuple, the selected entry and
 specialization, required capabilities, the complete deterministic output file
 list, the hashed CMake source fragment, and the depfile's logical path.
 
-Version 1 predicts exactly these P3 generated files:
+Version 1 predicts exactly these generated files:
 
 ```text
 include/generated/model.h
+share/generated/cost-report.json
+share/generated/source-map.json
 src/generated/model.cpp
 src/generated/queuegraph.cpp
 ```
+
+The cost report is deterministic static evidence, not a benchmark. It binds the
+canonical QueueGraph, source map, specialization, and toolchain revision; every
+metric names its stage, unit, and evidence status. Packed bytes do not claim a
+C++ `sizeof`, and unmeasured heap allocation or host-runtime cost is reported as
+`not_modeled`, never as zero.
 
 The plan's `model-sources.cmake` lists those relative paths and the fixed query
 symbol and Runtime target. `model.d` names the local absolute source and config
@@ -360,6 +368,9 @@ The public schemas are:
 - `model-manifest.schema.json`: plan identity, generated closed file set,
   CMake source fragment, depfile logical path, runtime target, and sole query
   symbol/function-table ABI;
+- `emitted-cost.schema.json`: verifier-derived QueueGraph/gfsim payload, node,
+  depth, scan, copy/move/materialization, allocation-site and source attribution
+  with explicit exact/upper-bound/not-modeled status;
 - `consumer-lock.schema.json`: exact release asset, wheels, hashes, ABI, and
   capabilities selected by a consumer repository.
 

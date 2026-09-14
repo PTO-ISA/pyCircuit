@@ -20,6 +20,7 @@ from typing import Any
 ROOT = Path(__file__).resolve().parents[2]
 SDK_SCHEMA_NAMES = (
     "consumer-lock.schema.json",
+    "emitted-cost.schema.json",
     "model-manifest.schema.json",
     "model-plan.schema.json",
     "release-index.schema.json",

@@ -11,6 +11,14 @@ namespace acir::codegen {
 
 llvm::Expected<std::string> generateQueueGraphCpp(const QueueGraphPlan &plan);
 
+/// Emit deterministic, verifier-derived static cost data for a generated
+/// QueueGraph model. Hashes bind the report to the canonical QueueGraph and
+/// source-map bytes that accompany the model plan/bundle.
+llvm::Expected<std::string> generateQueueGraphCostReport(
+    const QueueGraphPlan &plan, llvm::StringRef sdkProductVersion,
+    llvm::StringRef sdkSourceRevision, llvm::StringRef queueGraphSha256,
+    llvm::StringRef sourceMapSha256);
+
 struct QueueGraphBundleOptions {
   std::string sdkProductVersion;
   std::string sdkSourceRevision;
