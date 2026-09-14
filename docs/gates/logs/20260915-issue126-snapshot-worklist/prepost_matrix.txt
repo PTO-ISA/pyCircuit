@@ -1,0 +1,119 @@
+# issue 126 focused evidence - raw captures
+# repo HEAD: 60d71d9d636b9d640cce8668a349c41032d22bdf
+# host: Darwin arm64, default stack: 8176 KB
+# build configs: dev-llvm22 (CMAKE_BUILD_TYPE=Debug) and release-llvm22 (Release)
+# generated: 2026-09-14T16:39:10Z
+
+==============================================================
+SECTION 1 - FIXED code (HEAD 60d71d9d)
+==============================================================
+### 1a. full analysis suite, Debug
+$ .pycircuit_out/acir/dev-llvm22/bin/ACIRModelAnalysisTests
+[       OK ] ValueConstraintTest.JoinIsIdempotentAndAbsorbingAcrossRepresentations (0 ms)
+[----------] 1 test from ValueConstraintTest (0 ms total)
+
+[----------] Global test environment tear-down
+[==========] 32 tests from 3 test suites ran. (41193 ms total)
+[  PASSED  ] 32 tests.
+exit=0
+
+### 1b. deep diamond, ambient stack, Debug
+$ .pycircuit_out/acir/dev-llvm22/bin/ACIRModelAnalysisTests --gtest_filter=ACDataFlowAnalyzerTest.SnapshotTraversalHandlesDeepSharedDiamond
+[       OK ] ACDataFlowAnalyzerTest.SnapshotTraversalHandlesDeepSharedDiamond (271 ms)
+[----------] 1 test from ACDataFlowAnalyzerTest (271 ms total)
+
+[----------] Global test environment tear-down
+[==========] 1 test from 1 test suite ran. (271 ms total)
+[  PASSED  ] 1 test.
+exit=0
+
+### 1c. deep diamond, 1 MiB test-owned stack, Debug
+$ .pycircuit_out/acir/dev-llvm22/bin/ACIRModelAnalysisTests --gtest_filter=ACDataFlowAnalyzerTest.SnapshotTraversalHandlesDeepSharedDiamondOnBoundedStack
+[       OK ] ACDataFlowAnalyzerTest.SnapshotTraversalHandlesDeepSharedDiamondOnBoundedStack (256 ms)
+[----------] 1 test from ACDataFlowAnalyzerTest (256 ms total)
+
+[----------] Global test environment tear-down
+[==========] 1 test from 1 test suite ran. (256 ms total)
+[  PASSED  ] 1 test.
+exit=0
+
+### 1d. deep diamond, 1 MiB test-owned stack, Release
+$ .pycircuit_out/acir/release-llvm22/bin/ACIRModelAnalysisTests --gtest_filter=ACDataFlowAnalyzerTest.SnapshotTraversalHandlesDeepSharedDiamondOnBoundedStack
+[       OK ] ACDataFlowAnalyzerTest.SnapshotTraversalHandlesDeepSharedDiamondOnBoundedStack (65 ms)
+[----------] 1 test from ACDataFlowAnalyzerTest (65 ms total)
+
+[----------] Global test environment tear-down
+[==========] 1 test from 1 test suite ran. (65 ms total)
+[  PASSED  ] 1 test.
+exit=0
+
+### 1e. ac-resolve-rule-schedule after preprocessing, Release
+$ .pycircuit_out/acir/release-llvm22/bin/acir-opt --pass-pipeline=builtin.module(ac-resolve-rule-schedule) /Users/zhoubot/linx-isa/tools/pyCircuit/.pycircuit_out/issue126/perf/d2048.pre.mlir -o /dev/null
+exit=0
+
+$ .pycircuit_out/acir/release-llvm22/bin/acir-opt --pass-pipeline=builtin.module(ac-resolve-rule-schedule) /Users/zhoubot/linx-isa/tools/pyCircuit/.pycircuit_out/issue126/perf/d8192.pre.mlir -o /dev/null
+exit=0
+
+$ .pycircuit_out/acir/release-llvm22/bin/acir-opt --pass-pipeline=builtin.module(ac-resolve-rule-schedule) /Users/zhoubot/linx-isa/tools/pyCircuit/.pycircuit_out/issue126/perf/d16384.pre.mlir -o /dev/null
+exit=0
+
+
+==============================================================
+SECTION 2 - PRE-FIX code (fd2427a3, recursive traversal)
+==============================================================
+# source swapped to fd2427a3 (std::function occurrences: 1)
+
+### 2a. deep diamond, ambient stack, Debug  (crash expected)
+$ .pycircuit_out/acir/dev-llvm22/bin/ACIRModelAnalysisTests --gtest_filter=ACDataFlowAnalyzerTest.SnapshotTraversalHandlesDeepSharedDiamond
+Running main() from /private/tmp/googletest-20250910-5249-qce8ci/googletest-1.17.0/googletest/src/gtest_main.cc
+Note: Google Test filter = ACDataFlowAnalyzerTest.SnapshotTraversalHandlesDeepSharedDiamond
+[==========] Running 1 test from 1 test suite.
+[----------] Global test environment set-up.
+[----------] 1 test from ACDataFlowAnalyzerTest
+[ RUN      ] ACDataFlowAnalyzerTest.SnapshotTraversalHandlesDeepSharedDiamond
+exit=139
+
+### 2b. deep diamond, 1 MiB test-owned stack, Debug  (crash expected)
+$ .pycircuit_out/acir/dev-llvm22/bin/ACIRModelAnalysisTests --gtest_filter=ACDataFlowAnalyzerTest.SnapshotTraversalHandlesDeepSharedDiamondOnBoundedStack
+Running main() from /private/tmp/googletest-20250910-5249-qce8ci/googletest-1.17.0/googletest/src/gtest_main.cc
+Note: Google Test filter = ACDataFlowAnalyzerTest.SnapshotTraversalHandlesDeepSharedDiamondOnBoundedStack
+[==========] Running 1 test from 1 test suite.
+[----------] Global test environment set-up.
+[----------] 1 test from ACDataFlowAnalyzerTest
+[ RUN      ] ACDataFlowAnalyzerTest.SnapshotTraversalHandlesDeepSharedDiamondOnBoundedStack
+exit=138
+
+### 2c. deep diamond, ambient stack, Release  (PASSES - the regression only discriminates when the stack is bounded)
+$ .pycircuit_out/acir/release-llvm22/bin/ACIRModelAnalysisTests --gtest_filter=ACDataFlowAnalyzerTest.SnapshotTraversalHandlesDeepSharedDiamond
+[       OK ] ACDataFlowAnalyzerTest.SnapshotTraversalHandlesDeepSharedDiamond (112 ms)
+[----------] 1 test from ACDataFlowAnalyzerTest (112 ms total)
+
+[----------] Global test environment tear-down
+[==========] 1 test from 1 test suite ran. (112 ms total)
+[  PASSED  ] 1 test.
+exit=0
+
+### 2d. deep diamond, 1 MiB test-owned stack, Release  (crash expected)
+$ .pycircuit_out/acir/release-llvm22/bin/ACIRModelAnalysisTests --gtest_filter=ACDataFlowAnalyzerTest.SnapshotTraversalHandlesDeepSharedDiamondOnBoundedStack
+Running main() from /private/tmp/googletest-20250910-5249-qce8ci/googletest-1.17.0/googletest/src/gtest_main.cc
+Note: Google Test filter = ACDataFlowAnalyzerTest.SnapshotTraversalHandlesDeepSharedDiamondOnBoundedStack
+[==========] Running 1 test from 1 test suite.
+[----------] Global test environment set-up.
+[----------] 1 test from ACDataFlowAnalyzerTest
+[ RUN      ] ACDataFlowAnalyzerTest.SnapshotTraversalHandlesDeepSharedDiamondOnBoundedStack
+exit=138
+
+### 2e. ac-resolve-rule-schedule after preprocessing, Release
+$ .pycircuit_out/acir/release-llvm22/bin/acir-opt --pass-pipeline=builtin.module(ac-resolve-rule-schedule) /Users/zhoubot/linx-isa/tools/pyCircuit/.pycircuit_out/issue126/perf/d2048.pre.mlir -o /dev/null
+exit=0
+
+$ .pycircuit_out/acir/release-llvm22/bin/acir-opt --pass-pipeline=builtin.module(ac-resolve-rule-schedule) /Users/zhoubot/linx-isa/tools/pyCircuit/.pycircuit_out/issue126/perf/d8192.pre.mlir -o /dev/null
+exit=0
+
+$ .pycircuit_out/acir/release-llvm22/bin/acir-opt --pass-pipeline=builtin.module(ac-resolve-rule-schedule) /Users/zhoubot/linx-isa/tools/pyCircuit/.pycircuit_out/issue126/perf/d16384.pre.mlir -o /dev/null
+exit=132
+
+
+### restore fixed source
+std::function=0 worklist=4
+restored
