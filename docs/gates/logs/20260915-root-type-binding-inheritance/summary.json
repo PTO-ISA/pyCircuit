@@ -1,0 +1,18 @@
+{
+  "run_id": "20260915-root-type-binding-inheritance",
+  "status": "passed",
+  "base_revision": "fd2427a30e7b9fda9aab37953eb6b6d46b4e8bbb",
+  "decision_ids": ["0246"],
+  "results": {
+    "focused_frontend": {
+      "passed": 207,
+      "failed": 0
+    },
+    "pre_commit": "passed",
+    "agentic_contracts": "not_run_missing_jsonschema"
+  },
+  "behavior": "Reachable child module specialization inherits root JIT dependent-type bindings without adding them to the child static-parameter identity.",
+  "trigger": "A consumer kept single-parent and dependent-width D2 helpers in one source file; specializing the reachable single-parent child lost the root frontend_width binding and rejected an unrelated helper payload.",
+  "release_scope": "Focused framework regression discovered by an external processor-model consumer.",
+  "skill_evolve": "no-update"
+}
