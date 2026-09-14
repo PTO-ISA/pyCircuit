@@ -3507,7 +3507,7 @@ static LogicalResult verifyTableFields(Operation *endpoint, TableOp table,
       return endpoint->emitOpError()
              << "unknown " << kind << " field '" << field.getValue() << "'";
     unsigned ordinal = ordinals.lookup(field.getValue());
-    if (kind != "read" && previousOrdinal && ordinal <= *previousOrdinal)
+    if (previousOrdinal && ordinal <= *previousOrdinal)
       return endpoint->emitOpError()
              << listName << " must follow Table Entry declaration order";
     previousOrdinal = ordinal;

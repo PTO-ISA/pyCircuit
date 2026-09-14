@@ -1175,6 +1175,22 @@ write operations carry required, normalized, non-empty `write_fields` and a
 required `mode`. Ordinary writes use `mode "field"`; scalar allocation uses
 `mode "replace"`; masked writes accept only `field`.
 Struct full writes list every declared field; scalar Entries use `$entry`.
+
+`read_fields` and `write_fields` are **sets, not sequences**, and must be
+**normalized**:
+
+1. the list is non-empty;
+2. it contains no duplicate name;
+3. every name is a declared field of that Table's Entry, or `$entry` for a
+   scalar Entry;
+4. the listed names appear in Table Entry **declaration order** (ascending
+   declared ordinal).
+
+Declaration order is the canonical order. Two endpoints that demand the same
+fields therefore carry byte-identical metadata regardless of which traversal
+path discovered them, and every reader may treat the list as a set. Frozen
+ACIR rejects a list that violates 1-4, so a non-normalized field list can never
+reach QueueGraph, generated gfsim, or a PYC backend.
 Every value region still returns a complete Entry, but commit copies only the
 declared fields. All endpoints evaluate from one old committed image and their
 compatible proposals are merged once at the tick edge. QueueGraph preserves
@@ -1499,7 +1515,9 @@ lexical persistent state is inferred from the state-prefix call binding and
 lowered to `ac.var.read` even when it is read-only, so authors do not need a
 self-assignment to force serialization.
 
-Snapshot proof also carries ordered `read_fields`. A direct `ac.var.get` from a
+Snapshot proof also carries `read_fields`, normalized under the same rule as
+every other field list: declaration order is the canonical order, so the
+emitted fields do not depend on traversal order. A direct `ac.var.get` from a
 Table result narrows the reservation to that field; consuming the complete
 Entry records every declared field, and scalar entries use `$entry`.
 QueueGraph verifies the field names against the Entry declaration. Generated

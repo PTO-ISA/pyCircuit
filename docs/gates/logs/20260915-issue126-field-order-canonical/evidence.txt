@@ -1,0 +1,60 @@
+# issue 126 read-field canonicalization - raw captures
+# repo HEAD: f1bc7fe94da5c8a7bc9fb81a5c08606b9dcd2b88
+# build: dev-llvm22 (Debug), standalone ACIR build (ACIR-to-PYC toolchain disabled)
+# generated: 2026-09-14T17:18:34Z
+
+==============================================================
+SECTION 1 - WITH the change
+==============================================================
+### 1a. analysis suite
+$ .pycircuit_out/acir/dev-llvm22/bin/ACIRModelAnalysisTests
+[----------] Global test environment tear-down
+[==========] 33 tests from 3 test suites ran. (25273 ms total)
+[  PASSED  ] 33 tests.
+exit=0
+
+### 1b. dialect ops suite
+$ .pycircuit_out/acir/dev-llvm22/bin/ACIROpsTests
+[----------] Global test environment tear-down
+[==========] 1842 tests from 4 test suites ran. (7912 ms total)
+[  PASSED  ] 1842 tests.
+exit=0
+
+### 1c. order-independence regression (Entry declares right before left, read left first)
+$ .pycircuit_out/acir/dev-llvm22/bin/ACIRModelAnalysisTests --gtest_filter=*SnapshotFieldsFollowDeclarationOrder*
+[----------] 1 test from ACDataFlowAnalyzerTest (20 ms total)
+
+[----------] Global test environment tear-down
+[==========] 1 test from 1 test suite ran. (20 ms total)
+[  PASSED  ] 1 test.
+exit=0
+
+### 1d. non-normalized read_fields must be rejected
+$ acir-opt tests/mlir/agentic-circuit/ACIR/state-snapshot-field-order-invalid.mlir
+exit=1
+tests/mlir/agentic-circuit/ACIR/state-snapshot-field-order-invalid.mlir:25:5: error: 'ac.state.snapshot' op read_fields must follow Table Entry declaration order
+    ac.state.snapshot @state[%item : !ac.var<i2>] for %true : !ac.var<i1>
+
+### 1e. ctest
+100% tests passed, 0 tests failed out of 18
+
+==============================================================
+SECTION 2 - WITHOUT the change (both sources reverted to HEAD)
+==============================================================
+# canonicalStateFields present: 0  (0 = reverted)
+### 2a. order-independence regression (FAILS: traversal order leaks into read_fields)
+$ .pycircuit_out/acir/dev-llvm22/bin/ACIRModelAnalysisTests --gtest_filter=*SnapshotFieldsFollowDeclarationOrder*
+[  PASSED  ] 0 tests.
+[  FAILED  ] 1 test, listed below:
+[  FAILED  ] ACDataFlowAnalyzerTest.SnapshotFieldsFollowDeclarationOrder
+
+ 1 FAILED TEST
+exit=1
+
+### 2b. non-normalized read_fields (NOT rejected)
+$ acir-opt tests/mlir/agentic-circuit/ACIR/state-snapshot-field-order-invalid.mlir
+exit=0  (0 = accepted, i.e. no declaration-order constraint)
+
+### restore
+canonicalStateFields=3
+restored

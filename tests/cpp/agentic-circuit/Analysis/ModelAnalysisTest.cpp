@@ -1590,6 +1590,54 @@ TEST(ACDataFlowAnalyzerTest, SnapshotMemoPreservesDistinctFieldDemands) {
             snapshots.front().fields);
 }
 
+// Field lists are sets. The same demand discovered in a different traversal
+// order must produce identical metadata, emitted in Table Entry declaration
+// order. This Entry declares `right` before `left` while the rule reads `left`
+// first, so the emitted fields must still be right-then-left; reading the
+// whole Entry before a narrow field must agree with the reverse order.
+TEST(ACDataFlowAnalyzerTest, SnapshotFieldsFollowDeclarationOrder) {
+  DialectRegistry registry;
+  registerAllDialects(registry);
+  MLIRContext context(registry);
+  OwningOpRef<mlir::ModuleOp> model =
+      parseSourceString<mlir::ModuleOp>(R"mlir(
+    builtin.module attributes {ac.contract_epoch = "0.5"} {
+      ac.type_scope @types {
+        ac.struct @Entry fields [{name = "right", type = i8}, {name = "left", type = i8}]
+      } {dlti.dl_spec = #dlti.dl_spec<!ac.struct<@types::@Entry> = {abi_alignment = 1 : i64, endianness = "little", preferred_alignment = 1 : i64, size = 2 : i64}>}
+      ac.table @state entry !ac.struct<@types::@Entry> entries 1 init 0 owner "/" stable_id "table/state"
+      %output = ac.rule depths [1] latencies [1] name "order"
+          stable_id "order" domain "cycle" type exact {
+      ^body:
+        %index = ac.var.constant false as !ac.var<i1>
+        %condition = ac.var.constant true as !ac.var<i1>
+        %entry = ac.table.get @state[%index] : !ac.var<i1> -> !ac.var<!ac.struct<@types::@Entry>>
+        %left = ac.var.get %entry field "left" : !ac.var<!ac.struct<@types::@Entry>> -> !ac.var<i8>
+        %right = ac.var.get %entry field "right" : !ac.var<!ac.struct<@types::@Entry>> -> !ac.var<i8>
+        %sum = ac.var.add %left, %right : !ac.var<i8>
+        ac.rule.condition %condition : !ac.var<i1>
+        ac.rule.return %sum : !ac.var<i8>
+      } : () -> !ac.queue<i8>
+      ac.sink %output : !ac.queue<i8>
+    }
+  )mlir",
+                                        &context);
+  ASSERT_TRUE(model);
+
+  ACDataFlowAnalyzer analysis(model->getOperation());
+  ASSERT_TRUE(succeeded(analysis.run()));
+  ac::RuleOp rule;
+  model->walk([&](ac::RuleOp operation) { rule = operation; });
+  ASSERT_TRUE(rule);
+
+  llvm::SmallVector<StateSnapshotFootprint> snapshots =
+      analysis.stateSnapshots(rule.getOperation());
+  ASSERT_EQ(1u, snapshots.size());
+  EXPECT_EQ("state", snapshots.front().resource);
+  EXPECT_EQ((std::vector<std::string>{"right", "left"}),
+            snapshots.front().fields);
+}
+
 // Build a `depth`-level shared diamond: each level adds a per-level constant,
 // an `or` that consumes the previous value, and a `select` that sends that
 // previous value down both arms. Demand propagation therefore sees O(depth)

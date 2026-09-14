@@ -9971,3 +9971,47 @@ termination and statistics rather than result history.
 
 **Source**
 - PTO-ISA/pyCircuit issue #128.
+
+## Decision 0261: ACIR field lists are canonical sets in Table Entry declaration order
+
+**Status:** Accepted and implemented
+
+**Extends:** Decisions 0202, 0205, 0245, 0248, and 0257.
+
+**Context / Goal**
+`read_fields` and `write_fields` name Entry fields, but snapshot analysis
+emitted read fields in traversal order while write fields were already
+normalized. Two consequences followed: the same demand discovered along a
+different path produced different metadata, and the coalescing, closure
+verification, and plan comparisons keyed on field lists were order-sensitive
+rather than set-sensitive. The emitted order had no runtime meaning -
+generated gfsim encodes each `(entry, field)` pair by declared ordinal - so the
+ordering was cost without contract.
+
+**Decision (strong constraint)**
+- A field list denotes a set. It is normalized: non-empty, duplicate-free,
+  every name declared by that Table's Entry (`$entry` for a scalar Entry), and
+  ordered by ascending Table Entry declaration ordinal.
+- Declaration order is the canonical order. Metadata is a function of the field
+  set, not of the traversal, scheduling, or construction order that discovered
+  it.
+- Snapshot analysis normalizes each snapshot's fields before comparison, merge,
+  and emission, so coalescing is set-sound and the emitted list stays canonical
+  when several demands merge into one snapshot.
+- Frozen ACIR rejects a non-normalized list for read and write endpoints alike.
+  Hand-written IR cannot smuggle traversal order into the canonical form.
+- Snapshot list order, snapshot identity, and state semantics are unchanged.
+  This decision constrains field-set representation, not scheduling, reservation,
+  or commit behavior.
+
+**Required verification**
+- An Entry declaring `right` before `left`, read as `left` then `right`, emits
+  `["right", "left"]`; the reverse discovery order emits the same list.
+- A snapshot carrying `read_fields ["left", "right"]` against that Entry is
+  rejected with a declaration-order diagnostic, while the normalized list is
+  accepted.
+- Existing read/write-field, snapshot-set, rule-lowering, QueueGraph, and
+  generated runtime tests remain green.
+
+**Source**
+- PTO-ISA/pyCircuit issue #126.

@@ -1,0 +1,41 @@
+{
+  "run_id": "20260915-issue126-field-order-canonical",
+  "script": "focused ACIR analysis lane (manual, raw captures in evidence.txt)",
+  "status": "pass",
+  "issues": ["PTO-ISA/pyCircuit#126"],
+  "decisions": ["0261"],
+  "owner": "acir-analysis",
+  "baseline_commit": "f1bc7fe94da5c8a7bc9fb81a5c08606b9dcd2b88",
+  "contract_epoch": "0.5",
+  "change": "ACIR field lists are canonical sets normalized to Table Entry declaration order; snapshot analysis normalizes before comparison, merge, and emission; Frozen ACIR rejects non-normalized read and write field lists",
+  "lanes": [
+    "ACIRModelAnalysisTests (gtest)",
+    "ACIROpsTests (gtest)",
+    "ctest (18 targets)",
+    "acir-opt verifier on a non-normalized read_fields module"
+  ],
+  "cases": [
+    "ACDataFlowAnalyzerTest.SnapshotFieldsFollowDeclarationOrder",
+    "ACDataFlowAnalyzerTest.SnapshotMemoPreservesDistinctFieldDemands",
+    "tests/mlir/agentic-circuit/ACIR/state-snapshot-field-order-invalid.mlir"
+  ],
+  "results": {
+    "ACIRModelAnalysisTests": "33/33 passed",
+    "ACIROpsTests": "1842/1842 passed",
+    "ctest": "100% tests passed, 0 failed out of 18",
+    "order_independence": "Entry declaring right before left, read left first, emits [\"right\", \"left\"]",
+    "non_normalized_rejection": "exit 1 with 'read_fields must follow Table Entry declaration order'"
+  },
+  "without_change": {
+    "note": "Both sources reverted to HEAD (f1bc7fe9), rebuilt",
+    "SnapshotFieldsFollowDeclarationOrder": "FAILED - emitted [\"left\", \"right\"] (traversal order)",
+    "non_normalized_read_fields": "exit 0 - accepted, no declaration-order constraint"
+  },
+  "known_environment_gaps": {
+    "lit": "7 of 240 tests fail because this standalone ACIR build disables the ACIR-to-PYC toolchain, so bin/pyc-opt and bin/pycc do not exist (posix_spawn: No such file or directory). Pre-existing and unrelated to this change.",
+    "not_run": "Verilator lanes and the integrated pyc toolchain (PYC_BUILD_AGENTIC_CIRCUIT) were not built here."
+  },
+  "evidence_files": [
+    "docs/gates/logs/20260915-issue126-field-order-canonical/evidence.txt"
+  ]
+}
