@@ -18,7 +18,6 @@
 
 #include <algorithm>
 #include <cstdint>
-#include <functional>
 #include <limits>
 #include <optional>
 #include <utility>
@@ -972,107 +971,134 @@ ACDataFlowAnalyzer::stateSnapshots(Operation *scope) const {
     return index.getDefiningOp<ac::VarConstantOp>() ? "static" : "dynamic";
   };
 
+  struct SnapshotTraversalWorkItem {
+    Value value;
+    Value setSource;
+    llvm::SmallVector<std::string, 2> requestedFields;
+  };
+
   for (auto [root, predicate] : roots) {
     using TraversalKey = std::pair<Value, Value>;
     llvm::DenseSet<TraversalKey> visitedAllFields;
     llvm::DenseMap<TraversalKey, llvm::SmallVector<std::string, 2>>
         visitedFields;
-    std::function<void(Value, Value, llvm::SmallVector<std::string>)> collect =
-        [&](Value value, Value setSource,
-            llvm::SmallVector<std::string> requestedFields) {
-          if (!value)
-            return;
-          Operation *definition = value.getDefiningOp();
-          if (!definition || !insideScope(definition) ||
-              isa<ac::StateSnapshotOp, ac::StateSnapshotSetOp>(definition))
-            return;
-          TraversalKey key{value, setSource};
-          if (requestedFields.empty()) {
-            if (!visitedAllFields.insert(key).second)
-              return;
-            visitedFields.erase(key);
-          } else {
-            if (visitedAllFields.contains(key))
-              return;
-            auto &seen = visitedFields[key];
-            llvm::SmallVector<std::string> unseen;
-            for (const std::string &field : requestedFields) {
-              if (llvm::is_contained(seen, field))
-                continue;
-              seen.push_back(field);
-              unseen.push_back(field);
-            }
-            if (unseen.empty())
-              return;
-            requestedFields = std::move(unseen);
-          }
-          detail::accountSnapshotTraversalContext();
-          if (auto read = dyn_cast<ac::TableGetOp>(definition)) {
-            auto fields =
-                requestedFields.empty()
-                    ? completeStateFields(
-                          read, cast<ac::VarType>(read.getResult().getType())
-                                    .getElementType())
-                    : std::move(requestedFields);
-            if (read->getBlock() != &scope->getRegion(0).front()) {
-              if (setSource)
-                addSnapshot(read.getTable(), {}, setSource, "set", predicate,
-                            std::move(fields));
-              else
-                addSnapshot(read.getTable(), {}, {}, "all", predicate,
-                            std::move(fields));
-            } else {
-              addSnapshot(read.getTable(), read.getIndex(), {},
-                          classifyIndex(read.getIndex()), predicate,
-                          std::move(fields));
-            }
-            collect(read.getIndex(), setSource, {});
-            return;
-          }
-          if (auto get = dyn_cast<ac::VarGetOp>(definition)) {
-            collect(get.getRecord(), setSource, {get.getField().str()});
-            return;
-          }
-          if (auto match = dyn_cast<ac::TableMatchOp>(definition)) {
-            Type entryType =
-                cast<ac::VarType>(
-                    match.getPredicate().front().getArgument(0).getType())
-                    .getElementType();
-            addSnapshot(match.getTable(), {}, {}, "all", predicate,
-                        completeStateFields(match, entryType));
-            for (Value operand : match->getOperands())
-              collect(operand, {}, {});
-            for (Block &block : match.getPredicate())
-              for (Value operand : block.getTerminator()->getOperands())
-                collect(operand, match.getMask(), {});
-            return;
-          }
-          if (auto choose = dyn_cast<ac::TableChooseOp>(definition)) {
-            if (!choose.getKey().empty()) {
-              Type entryType =
-                  cast<ac::VarType>(
-                      choose.getKey().front().getArgument(0).getType())
-                      .getElementType();
-              addSnapshot(choose.getTable(), {}, {}, "all", predicate,
-                          completeStateFields(choose, entryType));
-            }
-            collect(choose.getMask(), {}, {});
-            Value firstIndex = choose.getResults().empty()
-                                   ? Value()
-                                   : choose.getResults().front();
-            for (Block &block : choose.getKey())
-              for (Value operand : block.getTerminator()->getOperands())
-                collect(operand, firstIndex, {});
-            return;
-          }
-          for (Value operand : definition->getOperands())
-            collect(operand, setSource, {});
-          for (Region &region : definition->getRegions())
-            for (Block &block : region)
-              for (Value operand : block.getTerminator()->getOperands())
-                collect(operand, setSource, {});
-        };
-    collect(root, {}, {});
+    // Demand propagation uses an explicit LIFO worklist so deep shared-DAG
+    // chains never recurse on the C++ call stack. Children are pushed in
+    // reverse order so shared subgraphs are still explored in depth-first
+    // pre-order, preserving the memoization and snapshot coalescing order of
+    // the previous recursive traversal.
+    llvm::SmallVector<SnapshotTraversalWorkItem, 16> pending;
+    llvm::SmallVector<SnapshotTraversalWorkItem, 4> children;
+    auto flushChildren = [&]() {
+      for (auto it = children.rbegin(); it != children.rend(); ++it)
+        pending.push_back(std::move(*it));
+      children.clear();
+    };
+    pending.push_back({root, {}, {}});
+    while (!pending.empty()) {
+      SnapshotTraversalWorkItem item = std::move(pending.back());
+      pending.pop_back();
+      Value value = item.value;
+      Value setSource = item.setSource;
+      llvm::SmallVector<std::string, 2> requestedFields =
+          std::move(item.requestedFields);
+      if (!value)
+        continue;
+      Operation *definition = value.getDefiningOp();
+      if (!definition || !insideScope(definition) ||
+          isa<ac::StateSnapshotOp, ac::StateSnapshotSetOp>(definition))
+        continue;
+      TraversalKey key{value, setSource};
+      if (requestedFields.empty()) {
+        if (!visitedAllFields.insert(key).second)
+          continue;
+        visitedFields.erase(key);
+      } else {
+        if (visitedAllFields.contains(key))
+          continue;
+        auto &seen = visitedFields[key];
+        llvm::SmallVector<std::string, 2> unseen;
+        for (const std::string &field : requestedFields) {
+          if (llvm::is_contained(seen, field))
+            continue;
+          seen.push_back(field);
+          unseen.push_back(field);
+        }
+        if (unseen.empty())
+          continue;
+        requestedFields = std::move(unseen);
+      }
+      detail::accountSnapshotTraversalContext();
+      if (auto read = dyn_cast<ac::TableGetOp>(definition)) {
+        auto fields =
+            requestedFields.empty()
+                ? completeStateFields(
+                      read, cast<ac::VarType>(read.getResult().getType())
+                                .getElementType())
+                : std::move(requestedFields);
+        if (read->getBlock() != &scope->getRegion(0).front()) {
+          if (setSource)
+            addSnapshot(read.getTable(), {}, setSource, "set", predicate,
+                        std::move(fields));
+          else
+            addSnapshot(read.getTable(), {}, {}, "all", predicate,
+                        std::move(fields));
+        } else {
+          addSnapshot(read.getTable(), read.getIndex(), {},
+                      classifyIndex(read.getIndex()), predicate,
+                      std::move(fields));
+        }
+        children.push_back({read.getIndex(), setSource, {}});
+        flushChildren();
+        continue;
+      }
+      if (auto get = dyn_cast<ac::VarGetOp>(definition)) {
+        children.push_back({get.getRecord(), setSource, {get.getField().str()}});
+        flushChildren();
+        continue;
+      }
+      if (auto match = dyn_cast<ac::TableMatchOp>(definition)) {
+        Type entryType =
+            cast<ac::VarType>(
+                match.getPredicate().front().getArgument(0).getType())
+                .getElementType();
+        addSnapshot(match.getTable(), {}, {}, "all", predicate,
+                    completeStateFields(match, entryType));
+        for (Value operand : match->getOperands())
+          children.push_back({operand, {}, {}});
+        for (Block &block : match.getPredicate())
+          for (Value operand : block.getTerminator()->getOperands())
+            children.push_back({operand, match.getMask(), {}});
+        flushChildren();
+        continue;
+      }
+      if (auto choose = dyn_cast<ac::TableChooseOp>(definition)) {
+        if (!choose.getKey().empty()) {
+          Type entryType =
+              cast<ac::VarType>(
+                  choose.getKey().front().getArgument(0).getType())
+                  .getElementType();
+          addSnapshot(choose.getTable(), {}, {}, "all", predicate,
+                      completeStateFields(choose, entryType));
+        }
+        children.push_back({choose.getMask(), {}, {}});
+        Value firstIndex = choose.getResults().empty()
+                               ? Value()
+                               : choose.getResults().front();
+        for (Block &block : choose.getKey())
+          for (Value operand : block.getTerminator()->getOperands())
+            children.push_back({operand, firstIndex, {}});
+        flushChildren();
+        continue;
+      }
+      for (Value operand : definition->getOperands())
+        children.push_back({operand, setSource, {}});
+      for (Region &region : definition->getRegions())
+        for (Block &block : region)
+          for (Value operand : block.getTerminator()->getOperands())
+            children.push_back({operand, setSource, {}});
+      flushChildren();
+    }
   }
   return snapshots;
 }

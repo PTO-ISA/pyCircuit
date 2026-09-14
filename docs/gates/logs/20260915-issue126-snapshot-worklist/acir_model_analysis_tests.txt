@@ -1,0 +1,15 @@
+# HEAD: 60d71d9d636b9d640cce8668a349c41032d22bdf  (worktree carries the PR change)
+# command: .pycircuit_out/acir/dev-llvm22/bin/ACIRModelAnalysisTests
+
+[ RUN      ] ACDataFlowAnalyzerTest.InfersMatchAndChooseSnapshotSets
+[       OK ] ACDataFlowAnalyzerTest.InfersMatchAndChooseSnapshotSets (2 ms)
+[----------] 14 tests from ACDataFlowAnalyzerTest (573 ms total)
+
+[----------] 1 test from ValueConstraintTest
+[ RUN      ] ValueConstraintTest.JoinIsIdempotentAndAbsorbingAcrossRepresentations
+[       OK ] ValueConstraintTest.JoinIsIdempotentAndAbsorbingAcrossRepresentations (0 ms)
+[----------] 1 test from ValueConstraintTest (0 ms total)
+
+[----------] Global test environment tear-down
+[==========] 32 tests from 3 test suites ran. (53397 ms total)
+[  PASSED  ] 32 tests.

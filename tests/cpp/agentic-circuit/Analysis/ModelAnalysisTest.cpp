@@ -18,6 +18,8 @@
 #include "llvm/ADT/StringSet.h"
 #include "gtest/gtest.h"
 
+#include <pthread.h>
+
 #include <functional>
 #include <string>
 
@@ -1586,6 +1588,244 @@ TEST(ACDataFlowAnalyzerTest, SnapshotMemoPreservesDistinctFieldDemands) {
   EXPECT_EQ("state", snapshots.front().resource);
   EXPECT_EQ((std::vector<std::string>{"left", "right"}),
             snapshots.front().fields);
+}
+
+// Build a `depth`-level shared diamond: each level adds a per-level constant,
+// an `or` that consumes the previous value, and a `select` that sends that
+// previous value down both arms. Demand propagation therefore sees O(depth)
+// nodes but O(2^depth) distinct paths without memoization.
+static std::string buildSharedDiamondSource(unsigned depth) {
+  std::string source = R"mlir(
+    builtin.module attributes {ac.contract_epoch = "0.5"} {
+      ac.table @state entry i32 entries 1 init 0 owner "/" stable_id "table/state"
+      %output = ac.rule depths [1] latencies [1] name "diamond"
+          stable_id "diamond" domain "cycle" type exact {
+      ^body:
+        %index = ac.var.constant false as !ac.var<i1>
+        %condition = ac.var.constant true as !ac.var<i1>
+        %v0 = ac.table.get @state[%index] : !ac.var<i1> -> !ac.var<i32>
+)mlir";
+  for (unsigned index = 1; index <= depth; ++index) {
+    source += "        %bit" + std::to_string(index) +
+              " = ac.var.constant 1 : i32 as !ac.var<i32>\n";
+    source += "        %or" + std::to_string(index) + " = ac.var.or %v" +
+              std::to_string(index - 1) + ", %bit" + std::to_string(index) +
+              " : !ac.var<i32>\n";
+    source += "        %v" + std::to_string(index) +
+              " = ac.var.select %condition, %or" + std::to_string(index) +
+              ", %v" + std::to_string(index - 1) +
+              " : !ac.var<i1>, !ac.var<i32> -> !ac.var<i32>\n";
+  }
+  source += "        ac.rule.condition %condition : !ac.var<i1>\n"
+            "        ac.rule.return %v" +
+            std::to_string(depth) +
+            " : !ac.var<i32>\n"
+            "      } : () -> !ac.queue<i32>\n"
+            "      ac.sink %output : !ac.queue<i32>\n"
+            "    }\n";
+  return source;
+}
+
+// Demand propagation must not consume one C++ stack frame per diamond level.
+// The removed recursion exhausted the default 8 MiB thread stack near 1472
+// levels in an unoptimized build; 2048 levels must complete on the ambient
+// stack. `SnapshotTraversalHandlesDeepSharedDiamondOnBoundedStack` below pins
+// the stack explicitly, because an optimized build leaves the old recursion
+// enough headroom to survive this depth.
+TEST(ACDataFlowAnalyzerTest, SnapshotTraversalHandlesDeepSharedDiamond) {
+  constexpr unsigned depth = 2048;
+  std::string source = buildSharedDiamondSource(depth);
+
+  DialectRegistry registry;
+  registerAllDialects(registry);
+  MLIRContext context(registry);
+  OwningOpRef<mlir::ModuleOp> model =
+      parseSourceString<mlir::ModuleOp>(source, &context);
+  ASSERT_TRUE(model);
+
+  ACDataFlowAnalyzer analysis(model->getOperation());
+  ASSERT_TRUE(succeeded(analysis.run()));
+  ac::RuleOp rule;
+  model->walk([&](ac::RuleOp operation) { rule = operation; });
+  ASSERT_TRUE(rule);
+
+  acir::detail::SnapshotTraversalWork work;
+  acir::detail::ScopedSnapshotTraversalWorkRecorder recorder(work);
+  llvm::SmallVector<StateSnapshotFootprint> snapshots =
+      analysis.stateSnapshots(rule.getOperation());
+
+  ASSERT_EQ(1u, snapshots.size());
+  EXPECT_EQ("state", snapshots.front().resource);
+  EXPECT_EQ((std::vector<std::string>{"$entry"}), snapshots.front().fields);
+  EXPECT_LE(work.contexts, 3 * depth + 4);
+}
+
+// The ambient-stack test above only discriminates while per-level frames are
+// large enough to exhaust the stack. Optimized builds shrink those frames, so
+// the removed recursion can survive 2048 levels there. Bind the stack size from
+// inside the test: the regression then holds at any optimization level and
+// cannot be satisfied by raising the process stack limit.
+TEST(ACDataFlowAnalyzerTest,
+     SnapshotTraversalHandlesDeepSharedDiamondOnBoundedStack) {
+  constexpr unsigned depth = 2048;
+  constexpr size_t kStackBytes = 1u << 20;
+  std::string source = buildSharedDiamondSource(depth);
+
+  DialectRegistry registry;
+  registerAllDialects(registry);
+  MLIRContext context(registry);
+  OwningOpRef<mlir::ModuleOp> model =
+      parseSourceString<mlir::ModuleOp>(source, &context);
+  ASSERT_TRUE(model);
+
+  ACDataFlowAnalyzer analysis(model->getOperation());
+  ASSERT_TRUE(succeeded(analysis.run()));
+  ac::RuleOp rule;
+  model->walk([&](ac::RuleOp operation) { rule = operation; });
+  ASSERT_TRUE(rule);
+
+  struct Outcome {
+    uint64_t contexts = 0;
+    size_t snapshots = 0;
+  } outcome;
+  auto traverse = [&]() {
+    acir::detail::SnapshotTraversalWork work;
+    acir::detail::ScopedSnapshotTraversalWorkRecorder recorder(work);
+    llvm::SmallVector<StateSnapshotFootprint> found =
+        analysis.stateSnapshots(rule.getOperation());
+    outcome.contexts = work.contexts;
+    outcome.snapshots = found.size();
+  };
+
+  pthread_attr_t attributes;
+  ASSERT_EQ(0, pthread_attr_init(&attributes));
+  ASSERT_EQ(0, pthread_attr_setstacksize(&attributes, kStackBytes));
+  pthread_t worker;
+  ASSERT_EQ(0,
+            pthread_create(
+                &worker, &attributes,
+                [](void *raw) -> void * {
+                  (*static_cast<decltype(traverse) *>(raw))();
+                  return nullptr;
+                },
+                &traverse));
+  ASSERT_EQ(0, pthread_join(worker, nullptr));
+  pthread_attr_destroy(&attributes);
+
+  EXPECT_EQ(1u, outcome.snapshots);
+  EXPECT_LE(outcome.contexts, 3 * depth + 4);
+}
+
+// A single shared state read reached by many independent consumers must be
+// memoized once instead of re-expanded per consumer path.
+TEST(ACDataFlowAnalyzerTest, SnapshotTraversalHandlesWideSharedFanout) {
+  constexpr unsigned width = 64;
+  std::string source = R"mlir(
+    builtin.module attributes {ac.contract_epoch = "0.5"} {
+      ac.table @state entry i32 entries 1 init 0 owner "/" stable_id "table/state"
+      %output = ac.rule depths [1] latencies [1] name "wide_fanout"
+          stable_id "wide_fanout" domain "cycle" type exact {
+      ^body:
+        %index = ac.var.constant false as !ac.var<i1>
+        %condition = ac.var.constant true as !ac.var<i1>
+        %v0 = ac.table.get @state[%index] : !ac.var<i1> -> !ac.var<i32>
+        %acc0 = ac.var.or %v0, %v0 : !ac.var<i32>
+)mlir";
+  for (unsigned index = 1; index <= width; ++index) {
+    source += "        %bit" + std::to_string(index) +
+              " = ac.var.constant 1 : i32 as !ac.var<i32>\n";
+    source += "        %w" + std::to_string(index) + " = ac.var.or %v0, %bit" +
+              std::to_string(index) + " : !ac.var<i32>\n";
+    source += "        %acc" + std::to_string(index) + " = ac.var.or %acc" +
+              std::to_string(index - 1) + ", %w" + std::to_string(index) +
+              " : !ac.var<i32>\n";
+  }
+  source += "        ac.rule.condition %condition : !ac.var<i1>\n"
+            "        ac.rule.return %acc" +
+            std::to_string(width) +
+            " : !ac.var<i32>\n"
+            "      } : () -> !ac.queue<i32>\n"
+            "      ac.sink %output : !ac.queue<i32>\n"
+            "    }\n";
+
+  DialectRegistry registry;
+  registerAllDialects(registry);
+  MLIRContext context(registry);
+  OwningOpRef<mlir::ModuleOp> model =
+      parseSourceString<mlir::ModuleOp>(source, &context);
+  ASSERT_TRUE(model);
+
+  ACDataFlowAnalyzer analysis(model->getOperation());
+  ASSERT_TRUE(succeeded(analysis.run()));
+  ac::RuleOp rule;
+  model->walk([&](ac::RuleOp operation) { rule = operation; });
+  ASSERT_TRUE(rule);
+
+  acir::detail::SnapshotTraversalWork work;
+  acir::detail::ScopedSnapshotTraversalWorkRecorder recorder(work);
+  llvm::SmallVector<StateSnapshotFootprint> snapshots =
+      analysis.stateSnapshots(rule.getOperation());
+
+  ASSERT_EQ(1u, snapshots.size());
+  EXPECT_EQ("state", snapshots.front().resource);
+  EXPECT_EQ((std::vector<std::string>{"$entry"}), snapshots.front().fields);
+  EXPECT_LE(work.contexts, 4 * width + 8);
+}
+
+// A shared diamond with no reachable state read must stay bounded and report
+// no snapshot at all.
+TEST(ACDataFlowAnalyzerTest, SnapshotTraversalSkipsStatelessSharedDag) {
+  constexpr unsigned depth = 64;
+  std::string source = R"mlir(
+    builtin.module attributes {ac.contract_epoch = "0.5"} {
+      %output = ac.rule depths [1] latencies [1] name "stateless_dag"
+          stable_id "stateless_dag" domain "cycle" type exact {
+      ^body:
+        %condition = ac.var.constant true as !ac.var<i1>
+        %v0 = ac.var.constant 0 : i32 as !ac.var<i32>
+)mlir";
+  for (unsigned index = 1; index <= depth; ++index) {
+    source += "        %bit" + std::to_string(index) +
+              " = ac.var.constant 1 : i32 as !ac.var<i32>\n";
+    source += "        %or" + std::to_string(index) + " = ac.var.or %v" +
+              std::to_string(index - 1) + ", %bit" + std::to_string(index) +
+              " : !ac.var<i32>\n";
+    source += "        %v" + std::to_string(index) +
+              " = ac.var.select %condition, %or" + std::to_string(index) +
+              ", %v" + std::to_string(index - 1) +
+              " : !ac.var<i1>, !ac.var<i32> -> !ac.var<i32>\n";
+  }
+  source += "        ac.rule.condition %condition : !ac.var<i1>\n"
+            "        ac.rule.return %v" +
+            std::to_string(depth) +
+            " : !ac.var<i32>\n"
+            "      } : () -> !ac.queue<i32>\n"
+            "      ac.sink %output : !ac.queue<i32>\n"
+            "    }\n";
+
+  DialectRegistry registry;
+  registerAllDialects(registry);
+  MLIRContext context(registry);
+  OwningOpRef<mlir::ModuleOp> model =
+      parseSourceString<mlir::ModuleOp>(source, &context);
+  ASSERT_TRUE(model);
+
+  ACDataFlowAnalyzer analysis(model->getOperation());
+  ASSERT_TRUE(succeeded(analysis.run()));
+  ac::RuleOp rule;
+  model->walk([&](ac::RuleOp operation) { rule = operation; });
+  ASSERT_TRUE(rule);
+
+  acir::detail::SnapshotTraversalWork work;
+  acir::detail::ScopedSnapshotTraversalWorkRecorder recorder(work);
+  llvm::SmallVector<StateSnapshotFootprint> snapshots =
+      analysis.stateSnapshots(rule.getOperation());
+
+  EXPECT_TRUE(snapshots.empty());
+  // The shared DAG must still be traversed; otherwise this case could pass
+  // without exercising anything.
+  EXPECT_GE(work.contexts, depth);
+  EXPECT_LE(work.contexts, 3 * depth + 4);
 }
 
 TEST(ACDataFlowAnalyzerTest, InfersMatchAndChooseSnapshotSets) {

@@ -1,0 +1,75 @@
+{
+  "run_id": "20260915-issue126-snapshot-worklist",
+  "script": "focused ACIR analysis lane (manual, raw captures in prepost_matrix.txt)",
+  "status": "pass",
+  "issue": "PTO-ISA/pyCircuit#126",
+  "decisions": [
+    "0245"
+  ],
+  "owner": "acir-analysis",
+  "baseline_commit": "fd2427a30e7b9fda9aab37953eb6b6d46b4e8bbb",
+  "contract_epoch": "0.5",
+  "change": "ACDataFlowAnalyzer::stateSnapshots() demand propagation replaces the recursive std::function traversal with an explicit LIFO worklist that preserves depth-first pre-order; the deep-diamond regression binds its own 1 MiB thread stack",
+  "lanes": [
+    "ACIRModelAnalysisTests (CMake target ACIRModelAnalysisTests), Debug and Release",
+    "acir-opt ac-resolve-rule-schedule on generated shared diamonds, Release"
+  ],
+  "cases": [
+    "ACDataFlowAnalyzerTest.SnapshotTraversalMemoizesSharedDiamondContexts (depth 24)",
+    "ACDataFlowAnalyzerTest.SnapshotTraversalHandlesDeepSharedDiamond (depth 2048, ambient stack)",
+    "ACDataFlowAnalyzerTest.SnapshotTraversalHandlesDeepSharedDiamondOnBoundedStack (depth 2048, 1 MiB test-owned stack)",
+    "ACDataFlowAnalyzerTest.SnapshotTraversalHandlesWideSharedFanout (width 64)",
+    "ACDataFlowAnalyzerTest.SnapshotTraversalSkipsStatelessSharedDag (depth 64)",
+    "acir-opt preprocessing pipeline + ac-resolve-rule-schedule at diamond depth 2048, 8192, 16384"
+  ],
+  "results": {
+    "ACIRModelAnalysisTests_debug": "32/32 passed",
+    "deep_diamond_ambient_debug": "pass; 1 snapshot; traversal contexts <= 3*depth+4",
+    "deep_diamond_bounded_stack_debug": "pass",
+    "deep_diamond_bounded_stack_release": "pass",
+    "schedule_pass_release_2048_8192_16384_exit_code": [
+      0,
+      0,
+      0
+    ],
+    "wide_fanout_64": "1 snapshot, traversal contexts <= 4*width+8",
+    "stateless_dag_64": "0 snapshots, traversal contexts >= depth and <= 3*depth+4"
+  },
+  "pre_fix_comparison": {
+    "note": "Same inputs against fd2427a3 (recursive traversal), both build configurations",
+    "deep_diamond_ambient_debug_exit_code": 139,
+    "deep_diamond_bounded_stack_debug_exit_code": 138,
+    "deep_diamond_ambient_release_exit_code": 0,
+    "deep_diamond_ambient_release_note": "PASSES on the unfixed code: an optimized build leaves the removed recursion enough headroom at 2048 levels. This is why the regression binds its own stack.",
+    "deep_diamond_bounded_stack_release_exit_code": 138,
+    "schedule_pass_release_2048_8192_16384_exit_code": [
+      0,
+      0,
+      132
+    ]
+  },
+  "measured_traversal_contexts": {
+    "formula": "3 * depth + 4 for the generated shared diamond",
+    "values": {
+      "12": 40,
+      "24": 76,
+      "48": 148,
+      "96": 292,
+      "192": 580,
+      "384": 1156,
+      "768": 2308,
+      "1536": 4612,
+      "2048": 6148,
+      "4096": 12292
+    },
+    "method": "temporary instrumented build using acir::detail::ScopedSnapshotTraversalWorkRecorder; not part of the committed tests, which assert bounds"
+  },
+  "evidence_files": [
+    "docs/gates/logs/20260915-issue126-snapshot-worklist/prepost_matrix.txt",
+    "docs/gates/logs/20260915-issue126-snapshot-worklist/acir_model_analysis_tests.txt"
+  ],
+  "out_of_scope": [
+    "StructuralValueInterner::identify and collectConjuncts in VariableAnalysis.cpp remain depth-proportional on the ac-lower-rules path; not touched by this change.",
+    "Table read-field declaration order is still exempted from the ordering check in compiler/acir/lib/Dialect/ACIR/ACIROps.cpp; reported separately under issue #126."
+  ]
+}
