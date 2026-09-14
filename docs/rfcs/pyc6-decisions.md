@@ -8934,6 +8934,13 @@ distinguishable in generated code while producing identical hardware behavior.
   produces no Queue token, owns no persistent state, creates no rule or commit
   group, adds no cycle, and cannot change candidate, backpressure, reservation,
   arbitration, or atomic-commit behavior.
+- A structured root still validates unreachable helpers when their complete
+  annotations and bodies are closed under the selected static bindings. If an
+  unreachable helper mentions a dependent payload whose parameters are not
+  bound by that root specialization, helper validation is deferred instead of
+  rejecting the selected module. Reachable helpers never receive this deferral,
+  and a later specialization that binds the payload validates the helper in
+  full.
 
 **Required verification**
 - Frontend tests cover ordinary and mandatory-inline helpers, exact argument and
@@ -8946,6 +8953,10 @@ distinguishable in generated code while producing identical hardware behavior.
   mandatory-inline calls. PYC C++ and Verilog contain no residual helper calls;
   ordinary and inline forms agree on values, accepted cycles, stalls, and
   reset behavior.
+- Cover a structured root that selects one independent module while an
+  unreachable helper refers to an unbound dependent payload. The selected root
+  must lower without emitting that helper, while closed unreachable helpers
+  and reachable dependent helpers retain all existing type/index negatives.
 
 **Source**
 - PTO-ISA/pyCircuit issue #104.

@@ -2745,6 +2745,7 @@ def _pure_helper_definitions(
     *,
     entry: str | None = None,
     reachable_only: bool = False,
+    defer_unbound_unreachable: bool = False,
 ) -> tuple[PureHelperDefinition, ...]:
     """Capture typed, state-free helpers as closed SSA-like expressions."""
 
@@ -2771,8 +2772,19 @@ def _pure_helper_definitions(
             & architecture
         )
     }
+    declared_payload_names = {
+        node.name
+        for node in tree.body
+        if isinstance(node, ast.ClassDef)
+        and any(
+            _decorator_name(item).rsplit(".", 1)[-1]
+            in {"struct", "packet", "transaction"}
+            for item in node.decorator_list
+        )
+    }
+    unavailable_payload_names = declared_payload_names - set(payloads)
     reachable_helpers: set[str] | None = None
-    if reachable_only:
+    if reachable_only or defer_unbound_unreachable:
         if entry is None or entry not in architecture_nodes:
             raise QueueFrontendError(
                 "ACPY-HELPER-001: reachable helper filtering requires an entry"
@@ -2811,12 +2823,28 @@ def _pure_helper_definitions(
     for node in tree.body:
         if not isinstance(node, ast.FunctionDef):
             continue
-        if reachable_helpers is not None and node.name not in reachable_helpers:
+        if (
+            reachable_only
+            and reachable_helpers is not None
+            and node.name not in reachable_helpers
+        ):
             continue
         decorators = {
             _decorator_name(item).rsplit(".", 1)[-1] for item in node.decorator_list
         }
         if decorators & architecture:
+            continue
+        if (
+            defer_unbound_unreachable
+            and reachable_helpers is not None
+            and node.name not in reachable_helpers
+            and any(
+                isinstance(item, ast.Name)
+                and isinstance(item.ctx, ast.Load)
+                and item.id in unavailable_payload_names
+                for item in ast.walk(node)
+            )
+        ):
             continue
         inline_requested = "inline" in decorators
         fully_typed = node.returns is not None and all(
@@ -2844,15 +2872,24 @@ def _pure_helper_definitions(
             raise QueueFrontendError(f"ACPY-HELPER-001: duplicate helper {node.name!r}")
         assert node.returns is not None
         nodes[node.name] = node
-        signatures[node.name] = (
-            tuple(
+        try:
+            arguments = tuple(
                 (argument.arg, _helper_type(argument.annotation, payloads, enums))
                 for argument in node.args.args
                 if argument.annotation is not None
-            ),
-            _helper_type(node.returns, payloads, enums),
-            inline_requested,
-        )
+            )
+            result = _helper_type(node.returns, payloads, enums)
+        except QueueFrontendError as error:
+            if (
+                defer_unbound_unreachable
+                and reachable_helpers is not None
+                and node.name not in reachable_helpers
+            ):
+                continue
+            raise QueueFrontendError(
+                f"{error}; helper {node.name!r} has an unavailable annotation"
+            ) from error
+        signatures[node.name] = (arguments, result, inline_requested)
 
     graph: dict[str, set[str]] = {name: set() for name in nodes}
     pure_intrinsics = {
@@ -17405,7 +17442,13 @@ def _lower_simple_module_source(
             tree, payload_map, bitfield_map, enum_map
         )
     }
-    helper_definitions = _pure_helper_definitions(tree, payload_map, enum_map)
+    helper_definitions = _pure_helper_definitions(
+        tree,
+        payload_map,
+        enum_map,
+        entry=system,
+        defer_unbound_unreachable=True,
+    )
     helpers = {definition.name: definition for definition in helper_definitions}
     modules = {
         node.name: node

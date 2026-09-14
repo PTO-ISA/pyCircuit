@@ -6968,6 +6968,31 @@ def pipeline(request: Request) -> bool:
         with self.assertRaisesRegex(QueueFrontendError, "helper.*result type"):
             lower_queue_source(module_helper_result, "pipeline")
 
+        unreachable_dependent_helper = """import agentic_circuit as ac
+WIDTH = ac.param[int]("width")
+@ac.struct
+class Unbound:
+    lanes: ac.array[WIDTH, ac.u8]
+def unreachable(value: Unbound) -> ac.u8:
+    return value.lanes[0]
+@ac.struct
+class Item:
+    value: ac.u8
+@ac.module
+def passthrough(item: Item) -> Item:
+    return item
+@ac.system
+def selected(item: Item) -> Item:
+    result = passthrough(item)
+    return result
+"""
+        selected = lower_queue_source(
+            unreachable_dependent_helper,
+            "selected",
+        )
+        self.assertIn("ac.instance @result of @passthrough", selected)
+        self.assertNotIn("@unreachable", selected)
+
         ambiguous_result = """import agentic_circuit as ac
 @ac.struct
 class Request:
