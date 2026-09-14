@@ -3715,15 +3715,41 @@ def parse_queue_program(
     type_static_values = _type_static_values(tree, static_arguments)
     parameter_aliases = _static_parameter_aliases(tree)
     expression_type_checks: list[StaticTypeCheck] = []
+    reachable_expression_owners: set[str] | None = None
+    if entry_kind == "module":
+        function_nodes = {
+            node.name: node
+            for node in tree.body
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+        }
+        reachable_expression_owners = set()
+        pending_expression_owners = [system]
+        while pending_expression_owners:
+            name = pending_expression_owners.pop()
+            if name in reachable_expression_owners or name not in function_nodes:
+                continue
+            reachable_expression_owners.add(name)
+            for item in ast.walk(function_nodes[name]):
+                if (
+                    isinstance(item, ast.Name)
+                    and isinstance(item.ctx, ast.Load)
+                    and item.id in function_nodes
+                ):
+                    pending_expression_owners.append(item.id)
 
     class ConcretizeBoundedIntrinsicTargets(ast.NodeTransformer):
         """Resolve dependent range targets in executable expressions only."""
 
-        def __init__(self, owner: str, live_assignments: set[int]) -> None:
+        def __init__(
+            self,
+            owner: str,
+            live_assignments: set[int],
+            record_checks: bool,
+        ) -> None:
             self.owner = owner
             self.ordinal = 0
             self.live_assignments = live_assignments
-            self.record_checks = True
+            self.record_checks = record_checks
 
         def visit_Assign(self, node: ast.Assign) -> ast.Assign:
             previous = self.record_checks
@@ -3864,7 +3890,10 @@ def parse_queue_program(
 
         analyze_liveness(node.body, set())
         target_concretizer = ConcretizeBoundedIntrinsicTargets(
-            node.name, live_assignments
+            node.name,
+            live_assignments,
+            reachable_expression_owners is None
+            or node.name in reachable_expression_owners,
         )
         node.body = [
             ast.fix_missing_locations(target_concretizer.visit(statement))
