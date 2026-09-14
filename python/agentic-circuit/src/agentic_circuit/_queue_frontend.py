@@ -3634,6 +3634,7 @@ def parse_queue_program(
     specialization_fingerprint: str | None = None,
     *,
     entry_kind: str = "system",
+    inherited_type_arguments: Mapping[str, StaticValue] | None = None,
     source_path: str | None = None,
     static_type_namespace: str = "",
     definition_locations: Mapping[str, tuple[str, int, int]] | None = None,
@@ -3650,7 +3651,9 @@ def parse_queue_program(
     )
     tree = _desugar_nested_rule_captures(tree, system, entry_kind)
     module_static_values = _module_static_values(tree)
-    type_static_values = _type_static_values(tree, static_arguments)
+    type_arguments = dict(inherited_type_arguments or {})
+    type_arguments.update(dict(static_arguments or {}))
+    type_static_values = _type_static_values(tree, type_arguments)
     parameter_aliases = _static_parameter_aliases(tree)
     expression_type_checks: list[StaticTypeCheck] = []
 
@@ -18017,6 +18020,7 @@ def _lower_simple_module_source(
                 static_arguments=dict(frozen),
                 specialization_fingerprint=specialization_fingerprint,
                 entry_kind="module",
+                inherited_type_arguments=static_arguments,
                 source_path=normalized_source_path,
                 static_type_namespace=namespace,
                 definition_locations=definition_locations,
@@ -18024,7 +18028,13 @@ def _lower_simple_module_source(
                 source_node_locations=source_node_locations,
             )
             specialized_payloads = {item.name: item for item in program.payloads}
-            specialized_values = _type_static_values(tree, dict(frozen))
+            specialized_values = _type_static_values(
+                tree,
+                {
+                    **dict(static_arguments or {}),
+                    **dict(frozen),
+                },
+            )
             inputs = tuple(
                 (
                     name,
@@ -18139,12 +18149,12 @@ def _lower_simple_module_source(
                     "ACPY-MODULE-002: module results require fresh tuple names"
                 )
             module_name = statement.value.func.id
-            static_arguments: tuple[tuple[str, StaticValue], ...] = ()
+            instance_static_arguments: tuple[tuple[str, StaticValue], ...] = ()
             instance_module_name = module_name
             if module_name in rule_modules:
                 (
                     instance_module_name,
-                    static_arguments,
+                    instance_static_arguments,
                     input_signature,
                     output_signature,
                 ) = specialize_rule_module(module_name, statement.value)
@@ -18192,7 +18202,7 @@ def _lower_simple_module_source(
                     instance_module_name,
                     sources,
                     output_types,
-                    static_arguments,
+                    instance_static_arguments,
                     source_frame(statement.value),
                 )
             )

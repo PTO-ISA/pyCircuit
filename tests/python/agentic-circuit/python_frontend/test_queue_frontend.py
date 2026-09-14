@@ -4187,6 +4187,9 @@ WIDTH = ac.param[int]("width")
 class Unrelated:
     value: ac.bits[WIDTH]
 
+def keep_unrelated(value: Unrelated) -> Unrelated:
+    return value
+
 @ac.rule
 def keep(value: ac.u8) -> ac.u8:
     return value

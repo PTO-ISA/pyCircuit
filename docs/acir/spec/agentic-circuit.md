@@ -2408,8 +2408,12 @@ all inputs are consumed and all outputs are published as one transaction.
 Structured lowering includes only modules recursively reachable from the
 selected system and only rules directly used by each selected rule-backed
 module. Unreachable sibling definitions remain in the JIT source identity but
-are not emitted or validated as active hardware. Arbitrary internal Queue
-graphs and repeated-input fanout inside one module remain follow-up work.
+are not emitted or validated as active hardware. Root JIT type bindings remain
+available while specializing reachable rule-backed children, so dependent
+payload and helper signatures keep the same concrete meaning throughout the
+captured source closure without becoming extra child static parameters.
+Arbitrary internal Queue graphs and repeated-input fanout inside one module
+remain follow-up work.
 
 For host-integrated simulation, compiler option `--host-results` preserves
 typed system returns as Top module Queue results instead of inserting automatic
