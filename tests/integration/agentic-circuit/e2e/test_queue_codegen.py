@@ -5028,10 +5028,15 @@ int main() {{
         compiler = shutil.which("c++")
         if compiler is None:
             self.skipTest("C++ compiler is unavailable")
+        native_bin = Path(
+            os.environ.get(
+                "ACIR_BIN", ROOT / ".pycircuit_out/toolchain/build/bin"
+            )
+        )
         tools = {
-            "opt": ROOT / ".pycircuit_out/acir/dev-llvm22/bin/acir-opt",
-            "plan": ROOT / ".pycircuit_out/acir/dev-llvm22/bin/acir-queue-plan",
-            "cxxgen": ROOT / ".pycircuit_out/acir/dev-llvm22/bin/acir-queue-cxxgen",
+            "opt": native_bin / "acir-opt",
+            "plan": native_bin / "acir-queue-plan",
+            "cxxgen": native_bin / "acir-queue-cxxgen",
         }
         if any(not path.is_file() for path in tools.values()):
             self.skipTest("native module tools are unavailable")
@@ -5118,25 +5123,18 @@ int main() {{
   ac_generated::{class_name} activated;
   static_assert(ac_generated::{class_name}::activation_complete());
   gfsim::SimSystem system("module_activation");
-  auto active_rows = activated.dispatch_rows();
-  constexpr auto offsets = ac_generated::{class_name}::activation_offsets();
-  constexpr auto targets = ac_generated::{class_name}::activation_targets();
-  constexpr auto closure_offsets =
-      ac_generated::{class_name}::work_closure_offsets();
-  constexpr auto closure_targets =
-      ac_generated::{class_name}::work_closure_targets();
-  if (!system.setDispatchTable(active_rows) ||
-      !system.setActivationPlan(offsets, targets) ||
-      !system.setWorkClosurePlan(closure_offsets, closure_targets) ||
-      !ac_generated::{class_name}::schedule_initial_work(system) ||
-      !activated.offer_left(system, gfsim::UInt<8>{{5}}) ||
-      !activated.offer_right(system, gfsim::UInt<8>{{10}}))
+  if (!activated.configure_activation_scheduler(system))
     return 3;
+  if (!activated.offer_left(system, gfsim::UInt<8>{{5}}) ||
+      !activated.offer_right(system, gfsim::UInt<8>{{10}}))
+    return 6;
   if (system.run().classification != gfsim::TerminationClass::Completed)
     return 4;
   const auto &active_left = activated.sink_0_values();
   const auto &active_right = activated.sink_1_values();
-  return active_left.size() == 1 && active_left[0] == 6 &&
+  return system.activationTraversalCount() != 0 &&
+                 system.workInvocationCount() < rows.size() * 2 &&
+                 active_left.size() == 1 && active_left[0] == 6 &&
                  active_right.size() == 1 && active_right[0] == 11
              ? 0
              : 5;
@@ -5151,7 +5149,10 @@ int main() {{
                     "-I",
                     str(ROOT / "simulator/gfsim/include"),
                     str(harness),
-                    str(ROOT / ".pycircuit_out/acir/dev-llvm22/gfsim/libgfsim.a"),
+                    str(
+                        native_bin.parent
+                        / "compiler/acir/gfsim/libgfsim.a"
+                    ),
                     "-o",
                     str(executable),
                 ),

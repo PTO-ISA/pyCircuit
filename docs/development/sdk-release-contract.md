@@ -320,6 +320,14 @@ fixed 24-byte result with running, quiescent, terminated, or failed state. The
 ABI does not expose a generated C++ class, STL container, MLIR/LLVM type,
 consumer ELF loader, ISA decoder, or product-specific state.
 
+The generated runner installs the model's owned dispatch, activation,
+work-closure, and arbitration plans through one generated scheduler method;
+consumers do not retain temporary row/adjacency arrays or scan every dispatch
+row per tick. Model-bundle sinks default to drain-only retention: they continue
+consuming accepted values and counting activity without accumulating an
+unbounded payload history. Direct C++ model users may select zero, bounded, or
+unbounded diagnostic retention explicitly.
+
 The handle lifecycle is `create -> configure -> reset -> step`.
 Calls in another order return `AGENTIC_MODEL_STATUS_V1_INVALID_STATE`; malformed
 or noncanonical JSON and bad pointers or structure sizes return

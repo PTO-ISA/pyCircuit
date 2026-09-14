@@ -88,8 +88,8 @@ template <DispatchObject T> DispatchRow makeDispatchRow(T *object) {
   };
 }
 
-/// Non-owning view of the generated static table. Generated storage has static
-/// lifetime; tests may provide an array whose lifetime encloses the system.
+/// Non-owning dispatch view. SimSystem owns the copied storage backing its
+/// installed table; standalone users must keep their backing span alive.
 class DispatchTable {
 public:
   DispatchTable() = default;

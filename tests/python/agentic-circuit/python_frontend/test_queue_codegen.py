@@ -325,6 +325,8 @@ class QueueCodegenTest(unittest.TestCase):
         self.assertIn("gfsim::QueueTransform<Item, Item, updated_policy>", generated)
         self.assertIn("result.value = (item.value + 1);", generated)
         self.assertIn("gfsim::QueueSink<Item> sink_0_;", generated)
+        self.assertIn("void set_sink_retention_limit(size_t limit)", generated)
+        self.assertIn("sink_0_.setRetentionLimit(limit);", generated)
         self.assertEqual(generated, lower_queue_source_to_cpp(SOURCE, "pipeline"))
 
     def test_bit_width_uses_exact_gfsim_storage(self) -> None:

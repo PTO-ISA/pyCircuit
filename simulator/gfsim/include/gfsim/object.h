@@ -241,14 +241,14 @@ public:
   /// Schedule an event for a future epoch.
   bool scheduleEvent(Event event);
 
-  /// Install the generated dense static dispatch table.
+  /// Install and own a copy of the generated dense static dispatch table.
   bool setDispatchTable(std::span<const DispatchRow> rows);
 
-  /// Install canonical compressed activation adjacency.
+  /// Install and own canonical compressed activation adjacency.
   bool setActivationPlan(std::span<const uint32_t> offsets,
                          std::span<const ObjectId> targets);
 
-  /// Install same-epoch Xfer resources indexed by scheduled Work object ID.
+  /// Install and own same-epoch Xfer resources indexed by Work object ID.
   bool setWorkClosurePlan(std::span<const uint32_t> offsets,
                           std::span<const ObjectId> targets);
 

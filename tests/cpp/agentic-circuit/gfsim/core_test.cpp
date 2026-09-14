@@ -1733,6 +1733,28 @@ TEST(GfsimSystemTest, StaticDispatchUsesDenseStableOrderAndBarrierPhases) {
   }
 }
 
+TEST(GfsimSystemTest, InstalledSchedulerPlanOwnsItsInputStorage) {
+  SimSystem system("test");
+  std::vector<ObjectId> workLog;
+  CommittingDispatchObject first(0, workLog, true);
+  CommittingDispatchObject second(1, workLog, true);
+  std::array rows = {makeDispatchRow(&first), makeDispatchRow(&second)};
+  std::array<uint32_t, 3> offsets = {0, 1, 1};
+  std::array<ObjectId, 1> targets = {1};
+  ASSERT_TRUE(system.setDispatchTable(rows));
+  ASSERT_TRUE(system.setActivationPlan(offsets, targets));
+
+  rows.front() = {};
+  offsets = {0, 0, 0};
+  targets.front() = 99;
+
+  ASSERT_TRUE(system.scheduleWork(0, {0, 0}));
+  EXPECT_TRUE(system.step());
+  EXPECT_FALSE(system.step());
+  EXPECT_EQ(workLog, (std::vector<ObjectId>{0, 1}));
+  EXPECT_EQ(system.activationTraversalCount(), 1u);
+}
+
 TEST(GfsimSystemTest, ExplicitArbitrationOrderOverridesWorkAndObjectOrder) {
   SimSystem system("test");
   std::vector<std::string> log;

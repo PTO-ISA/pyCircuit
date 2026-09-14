@@ -3575,9 +3575,10 @@ public:
   static constexpr ObjectKind componentKind = ObjectKind::Sink;
 
   QueueSink(std::string name, ObjectId id, SimObject *parent,
-            SimQueue<T> &input, ObservationSink *observations = nullptr)
+            SimQueue<T> &input, ObservationSink *observations = nullptr,
+            size_t retentionLimit = SIZE_MAX)
       : SimObject(componentKind, std::move(name), id, parent, observations),
-        input_(input) {}
+        input_(input), retentionLimit_(retentionLimit) {}
 
   void doWork(Epoch) override {
     if (pending_ || !input_.canProposePop())
@@ -3585,8 +3586,13 @@ public:
     pending_ = input_.proposePop();
   }
   void doXfer(Epoch) override {
-    if (pending_)
-      received_.push_back(std::move(*pending_));
+    if (pending_) {
+      ++consumedCount_;
+      if (received_.size() < retentionLimit_)
+        received_.push_back(std::move(*pending_));
+      else
+        ++discardedCount_;
+    }
     pending_.reset();
   }
   bool hasPendingCommit() const override { return pending_.has_value(); }
@@ -3594,9 +3600,22 @@ public:
     return !pending_ && input_.canProposePop();
   }
   const std::vector<T> &received() const { return received_; }
+  std::vector<T> takeReceived() { return std::exchange(received_, {}); }
+  size_t retentionLimit() const { return retentionLimit_; }
+  size_t consumedCount() const { return consumedCount_; }
+  size_t discardedCount() const { return discardedCount_; }
+  void setRetentionLimit(size_t limit) {
+    retentionLimit_ = limit;
+    if (received_.size() > limit) {
+      discardedCount_ += received_.size() - limit;
+      received_.resize(limit);
+    }
+  }
   void reset() override {
     pending_.reset();
     received_.clear();
+    consumedCount_ = 0;
+    discardedCount_ = 0;
     clearRuntimeFailureCode();
   }
 
@@ -3604,15 +3623,19 @@ private:
   SimQueue<T> &input_;
   std::optional<T> pending_;
   std::vector<T> received_;
+  size_t retentionLimit_ = SIZE_MAX;
+  size_t consumedCount_ = 0;
+  size_t discardedCount_ = 0;
 };
 
 template <typename T> class QueueLaneSink final : public SimObject {
 public:
   QueueLaneSink(std::string name, ObjectId id, SimObject *parent,
                 SimQueue<T> &input,
-                ObservationSink *observations = nullptr)
+                ObservationSink *observations = nullptr,
+                size_t retentionLimit = SIZE_MAX)
       : SimObject(ObjectKind::Sink, std::move(name), id, parent, observations),
-        input_(input) {}
+        input_(input), retentionLimit_(retentionLimit) {}
 
   void doWork(Epoch) override {
     if (!pending_.empty())
@@ -3633,8 +3656,13 @@ public:
     }
   }
   void doXfer(Epoch) override {
-    for (T &value : pending_)
-      received_.push_back(std::move(value));
+    for (T &value : pending_) {
+      ++consumedCount_;
+      if (received_.size() < retentionLimit_)
+        received_.push_back(std::move(value));
+      else
+        ++discardedCount_;
+    }
     pending_.clear();
   }
   bool hasPendingCommit() const override { return !pending_.empty(); }
@@ -3642,10 +3670,23 @@ public:
     return pending_.empty() && !input_.isEmpty();
   }
   const std::vector<T> &received() const { return received_; }
+  std::vector<T> takeReceived() { return std::exchange(received_, {}); }
+  size_t retentionLimit() const { return retentionLimit_; }
+  size_t consumedCount() const { return consumedCount_; }
+  size_t discardedCount() const { return discardedCount_; }
+  void setRetentionLimit(size_t limit) {
+    retentionLimit_ = limit;
+    if (received_.size() > limit) {
+      discardedCount_ += received_.size() - limit;
+      received_.resize(limit);
+    }
+  }
   void reset() override {
     input_.cancelPrepared(id());
     pending_.clear();
     received_.clear();
+    consumedCount_ = 0;
+    discardedCount_ = 0;
     clearRuntimeFailureCode();
   }
 
@@ -3653,6 +3694,9 @@ private:
   SimQueue<T> &input_;
   std::vector<T> pending_;
   std::vector<T> received_;
+  size_t retentionLimit_ = SIZE_MAX;
+  size_t consumedCount_ = 0;
+  size_t discardedCount_ = 0;
 };
 
 template <typename T>

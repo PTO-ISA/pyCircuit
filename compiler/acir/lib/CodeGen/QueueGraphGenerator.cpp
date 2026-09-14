@@ -3616,6 +3616,11 @@ generateStructuredQueueGraphCpp(const QueueGraphPlan &plan) {
              << "_.received(); }\n";
       ++sinkIndex;
     }
+  output << "  void set_sink_retention_limit(size_t limit) {\n";
+  for (auto [index, block] : llvm::enumerate(runtimeBlocks))
+    if (block->kind == "sink")
+      output << "    block_" << index << "_.setRetentionLimit(limit);\n";
+  output << "  }\n";
   using ArbitrationId = std::pair<uint64_t, uint64_t>;
   std::vector<ArbitrationId> arbitrationIds;
   for (const QueueBlockPlan *block : runtimeBlocks)
@@ -3723,6 +3728,21 @@ generateStructuredQueueGraphCpp(const QueueGraphPlan &plan) {
     output << target;
   }
   output << "};\n  }\n\n"
+         << "  bool configure_activation_scheduler("
+            "gfsim::SimSystem &system) {\n"
+         << "    const auto rows = dispatch_rows();\n"
+         << "    constexpr auto arbitration = arbitration_order();\n"
+         << "    constexpr auto activationOffsets = activation_offsets();\n"
+         << "    constexpr auto activationTargets = activation_targets();\n"
+         << "    constexpr auto closureOffsets = work_closure_offsets();\n"
+         << "    constexpr auto closureTargets = work_closure_targets();\n"
+         << "    return system.setDispatchTable(rows) &&\n"
+         << "           system.setArbitrationOrder(arbitration) &&\n"
+         << "           system.setActivationPlan(activationOffsets, "
+            "activationTargets) &&\n"
+         << "           system.setWorkClosurePlan(closureOffsets, "
+            "closureTargets) &&\n"
+         << "           schedule_initial_work(system);\n  }\n\n"
          << "  static bool schedule_initial_work(gfsim::SimSystem &system) {\n"
          << "    for (gfsim::ObjectId id : initial_work_ids())\n"
          << "      if (!system.scheduleWork(id, system.currentEpoch()))\n"
@@ -5584,6 +5604,12 @@ llvm::Expected<std::string> generateQueueGraphCpp(const QueueGraphPlan &plan) {
              << "_.observed(); }\n";
       ++observationIndex;
     }
+  output << "  void set_sink_retention_limit(size_t limit) {\n";
+  for (auto [index, block] : llvm::enumerate(runtimeBlocks))
+    if (block->kind == "sink")
+      output << "    " << blockSymbol(index)
+             << "_.setRetentionLimit(limit);\n";
+  output << "  }\n";
   size_t dependencyIndex = 0;
   size_t reorderIndex = 0;
   for (auto [index, block] : llvm::enumerate(runtimeBlocks)) {
@@ -6077,57 +6103,27 @@ struct Runtime {
   gfsim::SimSystem system{"agentic_model"};
   ac_generated::)cpp"
                    << modelClass << R"cpp( model;
-  std::vector<gfsim::DispatchRow> rows;
-  std::vector<std::uint32_t> activationOffsets;
-  std::vector<gfsim::ObjectId> activationTargets;
-  std::vector<std::uint32_t> workClosureOffsets;
-  std::vector<gfsim::ObjectId> workClosureTargets;
-  std::vector<gfsim::ObjectId> arbitrationOrder;
   std::array<gfsim::TimeDomainRuntime, 1> timeDomains{{
       {"cycle", 1, 0, 1},
   }};
 
   Runtime() {
+    model.set_sink_retention_limit(0);
     if (!system.root().attachChild(model))
       throw std::runtime_error("generated model attachment failed");
-    const auto generatedRows = model.dispatch_rows();
-    rows.assign(generatedRows.begin(), generatedRows.end());
-    constexpr auto generatedArbitrationOrder = ac_generated::)cpp"
-                   << modelClass << R"cpp(::arbitration_order();
-    arbitrationOrder.assign(generatedArbitrationOrder.begin(),
-                            generatedArbitrationOrder.end());
 )cpp";
   if (!plan.definition.empty()) {
-    queueGraphSource
-        << R"cpp(    constexpr auto generatedActivationOffsets = ac_generated::)cpp"
-        << modelClass << R"cpp(::activation_offsets();
-    constexpr auto generatedActivationTargets = ac_generated::)cpp"
-        << modelClass << R"cpp(::activation_targets();
-    constexpr auto generatedWorkClosureOffsets = ac_generated::)cpp"
-        << modelClass << R"cpp(::work_closure_offsets();
-    constexpr auto generatedWorkClosureTargets = ac_generated::)cpp"
-        << modelClass << R"cpp(::work_closure_targets();
-    activationOffsets.assign(generatedActivationOffsets.begin(),
-                             generatedActivationOffsets.end());
-    activationTargets.assign(generatedActivationTargets.begin(),
-                             generatedActivationTargets.end());
-    workClosureOffsets.assign(generatedWorkClosureOffsets.begin(),
-                              generatedWorkClosureOffsets.end());
-    workClosureTargets.assign(generatedWorkClosureTargets.begin(),
-                              generatedWorkClosureTargets.end());
-    if (!system.setTimeDomains(timeDomains) ||
-        !system.setDispatchTable(rows) ||
-        !system.setArbitrationOrder(arbitrationOrder) ||
-        !system.setActivationPlan(activationOffsets, activationTargets) ||
-        !system.setWorkClosurePlan(workClosureOffsets, workClosureTargets) ||
-        !ac_generated::)cpp"
-        << modelClass << R"cpp(::schedule_initial_work(system))
+    queueGraphSource << R"cpp(    if (!system.setTimeDomains(timeDomains) ||
+        !model.configure_activation_scheduler(system))
       throw std::runtime_error("generated model runtime initialization failed");
 )cpp";
   } else {
-    queueGraphSource << R"cpp(    if (!system.setTimeDomains(timeDomains) ||
+    queueGraphSource << R"cpp(    const auto rows = model.dispatch_rows();
+    constexpr auto arbitration = ac_generated::)cpp"
+                     << modelClass << R"cpp(::arbitration_order();
+    if (!system.setTimeDomains(timeDomains) ||
         !system.setDispatchTable(rows) ||
-        !system.setArbitrationOrder(arbitrationOrder))
+        !system.setArbitrationOrder(arbitration))
       throw std::runtime_error("generated model runtime initialization failed");
 )cpp";
   }

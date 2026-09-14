@@ -20,8 +20,13 @@ struct SimSystem::Impl {
   std::map<Epoch, std::set<ObjectId>> scheduledWork;
   std::map<Epoch, std::set<ObjectId>> scheduledExternalXfer;
   EventQueue eventQueue{"events", kInvalidObjectId, nullptr};
+  std::vector<DispatchRow> dispatchRows;
   DispatchTable dispatch;
+  std::vector<uint32_t> activationOffsets;
+  std::vector<ObjectId> activationTargets;
   ActivationPlan activation;
+  std::vector<uint32_t> workClosureOffsets;
+  std::vector<ObjectId> workClosureTargets;
   ActivationPlan workClosure;
   std::vector<ObjectId> arbitrationOrder;
   OpaqueDispatchTable opaqueDispatch;
@@ -208,8 +213,13 @@ bool SimSystem::setDispatchTable(std::span<const DispatchRow> rows) {
   if (!candidate.validate())
     return fail("invalid_dispatch_table",
                 "dispatch rows must be complete and densely indexed");
-  impl_->dispatch = candidate;
+  impl_->dispatchRows.assign(rows.begin(), rows.end());
+  impl_->dispatch = DispatchTable(impl_->dispatchRows);
+  impl_->activationOffsets.clear();
+  impl_->activationTargets.clear();
   impl_->activation = ActivationPlan{};
+  impl_->workClosureOffsets.clear();
+  impl_->workClosureTargets.clear();
   impl_->workClosure = ActivationPlan{};
   impl_->arbitrationOrder.clear();
   impl_->preflightValidated = false;
@@ -222,7 +232,10 @@ bool SimSystem::setActivationPlan(std::span<const uint32_t> offsets,
   if (!candidate.validate(impl_->dispatch.size()))
     return fail("invalid_activation_plan",
                 "activation offsets and targets must be canonical and dense");
-  impl_->activation = candidate;
+  impl_->activationOffsets.assign(offsets.begin(), offsets.end());
+  impl_->activationTargets.assign(targets.begin(), targets.end());
+  impl_->activation =
+      ActivationPlan(impl_->activationOffsets, impl_->activationTargets);
   return true;
 }
 
@@ -232,7 +245,10 @@ bool SimSystem::setWorkClosurePlan(std::span<const uint32_t> offsets,
   if (!candidate.validate(impl_->dispatch.size()))
     return fail("invalid_work_closure_plan",
                 "Work closure offsets and targets must be canonical and dense");
-  impl_->workClosure = candidate;
+  impl_->workClosureOffsets.assign(offsets.begin(), offsets.end());
+  impl_->workClosureTargets.assign(targets.begin(), targets.end());
+  impl_->workClosure =
+      ActivationPlan(impl_->workClosureOffsets, impl_->workClosureTargets);
   return true;
 }
 

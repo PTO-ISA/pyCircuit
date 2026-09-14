@@ -1826,6 +1826,10 @@ def lower_queue_program_to_cpp(program: QueueProgram) -> str:
             f"  const std::vector<{payload}> &sink_{index}_values() const {{ "
             f"return sink_{index}_.received(); }}"
         )
+    lines.append("  void set_sink_retention_limit(size_t limit) {")
+    for index, _ in enumerate(program.sinks):
+        lines.append(f"    sink_{index}_.setRetentionLimit(limit);")
+    lines.append("  }")
     object_count = (
         len(program.queues)
         + len(ids.fanout_queues)

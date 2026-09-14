@@ -2730,6 +2730,20 @@ TEST(QueueGraphPlanTest,
   EXPECT_EQ(coverage->getInteger("rules"), 6);
   EXPECT_EQ(coverage->getInteger("logic_depth_modeled_rules"), 6);
 
+  auto runtimeBundle = generateQueueGraphModelBundle(
+      *plan, {.sdkProductVersion = "6.1.0",
+              .sdkSourceRevision = std::string(40, 'b')});
+  ASSERT_TRUE(bool(runtimeBundle))
+      << llvm::toString(runtimeBundle.takeError());
+  ASSERT_EQ(runtimeBundle->size(), 5u);
+  const llvm::StringRef runtimeSource((*runtimeBundle)[4].content);
+  EXPECT_NE(runtimeSource.find("configure_activation_scheduler"),
+            llvm::StringRef::npos);
+  EXPECT_NE(runtimeSource.find("model.configure_activation_scheduler(system)"),
+            llvm::StringRef::npos);
+  EXPECT_EQ(runtimeSource.find("std::vector<gfsim::DispatchRow> rows"),
+            llvm::StringRef::npos);
+
   auto generated = generateQueueGraphCpp(*plan);
   ASSERT_TRUE(bool(generated)) << llvm::toString(generated.takeError());
   llvm::StringRef source(*generated);
@@ -2970,10 +2984,14 @@ TEST(QueueGraphPlanTest, EmitsClosedOpaqueRuntimeAbiBundle) {
 
   const llvm::StringRef queueGraph((*bundle)[4].content);
   EXPECT_NE(queueGraph.find("gfsim::SimSystem system"), llvm::StringRef::npos);
+  EXPECT_NE(queueGraph.find("model.set_sink_retention_limit(0);"),
+            llvm::StringRef::npos);
+  EXPECT_NE(queueGraph.find("void set_sink_retention_limit(size_t limit)"),
+            llvm::StringRef::npos);
   EXPECT_NE(queueGraph.find("system.statistics()"), llvm::StringRef::npos);
   EXPECT_EQ(queueGraph.find("loadPtoTraceText"), llvm::StringRef::npos);
   EXPECT_EQ(queueGraph.find("system.observations()"), llvm::StringRef::npos);
-  EXPECT_NE(queueGraph.find("std::vector<gfsim::DispatchRow> rows"),
+  EXPECT_EQ(queueGraph.find("std::vector<gfsim::DispatchRow> rows"),
             llvm::StringRef::npos);
   EXPECT_EQ(queueGraph.count("runtime->model.reset();"), 1u);
   expectModelBundleRuns(*bundle);

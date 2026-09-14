@@ -9901,3 +9901,61 @@ prepare/publish no-fail contract, backpressure, reset, and observation ordering.
 
 **Source**
 - PTO-ISA/pyCircuit issue #128.
+
+## Decision 0260: generated runners own activation plans and sinks use explicit retention
+
+**Status:** Accepted and implemented
+
+**Extends:** Decisions 0187, 0191, 0223, 0244, 0258, and 0259.
+
+**Context / Goal**
+Consumers should not reconstruct the activation scheduler by retaining local
+dispatch/adjacency arrays or scanning every object each tick. Smoke runners also
+must not retain every consumed sink payload indefinitely when their ABI exposes
+termination and statistics rather than result history.
+
+**Decision (strong constraint)**
+- `SimSystem` copies and owns installed dense dispatch rows, activation offsets
+  and targets, and Work-closure offsets and targets. Its internal dispatch and
+  adjacency views reference that owned storage. Mutating or destroying the
+  caller's installation arrays after a successful call cannot change runtime
+  scheduling.
+- A structured generated model exposes
+  `configure_activation_scheduler(system)`. It installs dispatch rows, explicit
+  arbitration order, activation adjacency, same-epoch Work closure, and initial
+  work as one fail-closed operation. Consumer runners use this method instead
+  of hand-installing arrays or performing a full dispatch-row scan per tick.
+- The opaque model-bundle runner attaches the model, installs time domains, and
+  invokes the generated scheduler configuration. It owns no duplicate
+  row/offset/target vectors. Reset preserves the installed immutable plan and
+  reschedules only the generated initial-work set.
+- `QueueSink` and `QueueLaneSink` accept an explicit retention limit. Zero is
+  drain-only, a finite value retains the first accepted values up to that bound,
+  and `SIZE_MAX` retains the previous unbounded diagnostic behavior. Reaching
+  the bound never backpressures or stops consumption; consumed and discarded
+  counts remain available, and `takeReceived()` transfers the retained batch.
+- Direct generated C++ models retain the existing diagnostic default. The
+  model-bundle/smoke runner explicitly selects zero retention because runtime
+  ABI v1 publishes lifecycle and statistics, not a sink-payload result list.
+  Reset clears pending/retained values and counters without changing the chosen
+  retention policy.
+- Activation scheduling and sink retention do not change Queue transfer,
+  accepted-work, state commit, reset/invalidate, or observation order. Bounded
+  retention is diagnostic storage policy, not architectural state.
+
+**Required verification**
+- Prove a System remains correct after the caller mutates the arrays passed to
+  dispatch and activation installation.
+- Cover scalar drain-only and lane-bounded sinks, continued Queue draining past
+  the retention limit, exact consumed/discarded counts, transfer of retained
+  values, and reset behavior.
+- Compile and run reusable and nested structured module consumers through the
+  generated scheduler entrypoint. Compare outputs with the full-scan baseline
+  and require nonzero activation traversal with fewer Work invocations than the
+  bounded scan threshold.
+- Verify model-bundle source has no retained dispatch-row vector, selects
+  drain-only sinks, and passes the full Agentic G0/G1/G2 value/cycle parity
+  matrix.
+
+**Source**
+- PTO-ISA/pyCircuit issue #128.

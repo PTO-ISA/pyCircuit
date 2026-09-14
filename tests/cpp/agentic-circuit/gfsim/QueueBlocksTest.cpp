@@ -2626,7 +2626,7 @@ TEST(QueueBlocksTest, QueueLaneTransformStallsWholePrefixUnderBackpressure) {
 TEST(QueueBlocksTest, QueueLaneSinkConsumesOneRateLimitedOrderedPrefix) {
   SimQueue<uint16_t> input("input", 1, nullptr, 4, SIZE_MAX, nullptr, 1, 2,
                            3);
-  QueueLaneSink<uint16_t> sink("sink", 2, nullptr, input);
+  QueueLaneSink<uint16_t> sink("sink", 2, nullptr, input, nullptr, 2);
   ASSERT_TRUE(input.proposePush(1));
   ASSERT_TRUE(input.proposePush(2));
   input.doXfer({0, 0});
@@ -2644,9 +2644,15 @@ TEST(QueueBlocksTest, QueueLaneSinkConsumesOneRateLimitedOrderedPrefix) {
   input.doXfer({2, 0});
   sink.doXfer({2, 0});
   EXPECT_TRUE(input.isEmpty());
-  EXPECT_EQ(sink.received(), (std::vector<uint16_t>{1, 2, 3}));
+  EXPECT_EQ(sink.received(), (std::vector<uint16_t>{1, 2}));
+  EXPECT_EQ(sink.consumedCount(), 3u);
+  EXPECT_EQ(sink.discardedCount(), 1u);
+  EXPECT_EQ(sink.takeReceived(), (std::vector<uint16_t>{1, 2}));
+  EXPECT_TRUE(sink.received().empty());
   sink.reset();
   EXPECT_TRUE(sink.received().empty());
+  EXPECT_EQ(sink.consumedCount(), 0u);
+  EXPECT_EQ(sink.discardedCount(), 0u);
 }
 
 TEST(QueueBlocksTest, SimQueueCancelledGroupLeavesCommittedStateUntouched) {
@@ -3340,6 +3346,26 @@ TEST(QueueBlocksTest, SinkConsumesAtWorkAndPublishesAtXfer) {
   sink.doXfer({1, 0});
   ASSERT_EQ(sink.received().size(), 1u);
   EXPECT_EQ(sink.received().front(), 13);
+}
+
+TEST(QueueBlocksTest, DrainOnlySinkConsumesWithoutRetainingHistory) {
+  SimQueue<int> input("input", 1, nullptr, 3);
+  QueueSink<int> sink("sink", 2, nullptr, input, nullptr, 0);
+  ASSERT_TRUE(input.proposePush(10));
+  ASSERT_TRUE(input.proposePush(20));
+  ASSERT_TRUE(input.proposePush(30));
+  input.doXfer({0, 0});
+
+  for (uint64_t time = 1; time != 4; ++time) {
+    sink.doWork({time, 0});
+    input.doXfer({time, 0});
+    sink.doXfer({time, 0});
+  }
+  EXPECT_TRUE(input.isEmpty());
+  EXPECT_TRUE(sink.received().empty());
+  EXPECT_EQ(sink.retentionLimit(), 0u);
+  EXPECT_EQ(sink.consumedCount(), 3u);
+  EXPECT_EQ(sink.discardedCount(), 3u);
 }
 
 TEST(QueueBlocksTest, ObserveCommitsWithoutConsumingOrBackpressure) {
