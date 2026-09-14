@@ -36,6 +36,22 @@ std::string constraintText(const ValueConstraint &constraint) {
   return text;
 }
 
+ValueConstraint typeConstraint(Type type) {
+  if (auto variable = dyn_cast<ac::VarType>(type))
+    type = variable.getElementType();
+  if (auto range = dyn_cast<ac::RangeType>(type))
+    return ValueConstraint::closedInterval(range.getLower(), range.getUpper());
+  auto integer = dyn_cast<IntegerType>(type);
+  if (!integer || !integer.isSignless() || integer.getWidth() == 0 ||
+      integer.getWidth() > 64)
+    return ValueConstraint::unknown();
+  const unsigned width = integer.getWidth();
+  const uint64_t upper =
+      width == 64 ? std::numeric_limits<uint64_t>::max()
+                  : (uint64_t{1} << width) - 1;
+  return ValueConstraint::closedInterval(0, upper);
+}
+
 LogicalResult verifyIndex(ACDataFlowAnalyzer &analysis, Operation *operation,
                           Value index, uint64_t extent, StringRef resource) {
   if (extent == 0)
@@ -47,9 +63,11 @@ LogicalResult verifyIndex(ACDataFlowAnalyzer &analysis, Operation *operation,
     return operation->emitOpError()
            << "constant " << resource << " index is out of range";
   }
-  if (analysis.provesWithin(index, 0, extent - 1))
-    return success();
   ValueConstraint constraint = analysis.lookupConstraint(index);
+  if (constraint.kind == ValueConstraintKind::Unknown)
+    constraint = typeConstraint(index.getType());
+  if (constraint.provesWithin(0, extent - 1))
+    return success();
   return operation->emitOpError()
          << "cannot prove " << resource << " index is within [0, "
          << extent - 1 << "]; inferred " << constraintText(constraint);

@@ -1770,7 +1770,10 @@ standard Python enum values, structural tuple construction, fixed value-array
 construction, constant aggregate indexing, and bounded dynamic reads from
 fixed value arrays. A dynamic read lowers to `ac.var.dynamic_element`; both
 ACIR analysis and QueueGraph independently prove the index domain is contained
-in the array length. `values.with_element(index, replacement)` lowers to the
+in the array length. If an unreachable private helper has no propagated lattice
+fact, ACIR uses the exact unsigned bits/range type interval as the conservative
+fallback; this accepts an `i1` index for two elements and still rejects an
+`i3` index for five elements. `values.with_element(index, replacement)` lowers to the
 pure `ac.var.with_element` operation and returns a new array while preserving
 the source value. It uses the same proof, exact element type, and MSB-first
 layout. PYC dynamic reads use a stable adjacent pairwise selection tree with

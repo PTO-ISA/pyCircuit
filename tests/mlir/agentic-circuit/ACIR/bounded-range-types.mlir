@@ -10,6 +10,7 @@
 // RUN: %not %acir_opt %t/bad-range-bits.mlir 2>&1 | %FileCheck %s --check-prefix=BAD-RANGE-BITS
 // RUN: %not %acir_opt %t/bad-dynamic-array-bound.mlir 2>&1 | %FileCheck %s --check-prefix=BAD-ARRAY-BOUND
 // RUN: %acir_opt %t/unproven-dynamic-array.mlir -ac-verify-value-constraints -verify-diagnostics
+// RUN: %acir_opt %t/private-safe-dynamic-array.mlir -ac-verify-value-constraints
 // RUN: %acir_opt %t/range-refine-proof.mlir -ac-verify-value-constraints -verify-diagnostics
 // RUN: %not %acir_opt %t/bad-table-bound.mlir 2>&1 | %FileCheck %s --check-prefix=BAD-TABLE-BOUND
 // RUN: %not %acir_opt %t/bad-nested-zero.mlir 2>&1 | %FileCheck %s --check-prefix=BAD-NESTED-ZERO
@@ -147,6 +148,14 @@ module attributes {ac.contract_epoch = "0.5", ac.model_kind = "queue_graph", ac.
     ac.transform.yield %value : !ac.var<i8>
   } : (!ac.queue<i3>) -> !ac.queue<i8>
   ac.sink %output : !ac.queue<i8>
+}
+
+//--- private-safe-dynamic-array.mlir
+module attributes {ac.contract_epoch = "0.5"} {
+  func.func private @safe(%array: !ac.var<!ac.value_array<2 x i8>>, %index: !ac.var<i1>) {
+    %value = ac.var.dynamic_element %array at %index : !ac.var<!ac.value_array<2 x i8>>, !ac.var<i1> -> !ac.var<i8>
+    return
+  }
 }
 
 //--- bad-table-bound.mlir

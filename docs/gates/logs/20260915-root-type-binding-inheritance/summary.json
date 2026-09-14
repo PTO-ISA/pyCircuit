@@ -8,6 +8,11 @@
       "passed": 207,
       "failed": 0
     },
+    "focused_acir_value_constraints": {
+      "safe_private_i1_index": "passed",
+      "unsafe_private_i3_index": "rejected_with_expected_diagnostic"
+    },
+    "integrated_toolchain_build": "passed",
     "pre_commit": "passed",
     "agentic_contracts": "not_run_missing_jsonschema"
   },
