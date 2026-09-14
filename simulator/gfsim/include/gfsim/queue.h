@@ -128,7 +128,7 @@ public:
   bool preparePop(CommitGroupId group) {
     if (group == kInvalidCommitGroupId || !canPrepareBatch(1, 0))
       return false;
-    preparedPop_ = PreparedPop{group, {committed_.front()}};
+    preparedPop_ = PreparedPop{group, 1};
     return true;
   }
 
@@ -138,24 +138,25 @@ public:
         !canPrepareBatch(popCount, pushCount))
       return false;
     if (popCount != 0)
-      preparedPop_ = PreparedPop{
-          group, std::vector<T>(committed_.begin(),
-                                committed_.begin() + popCount)};
+      preparedPop_ = PreparedPop{group, popCount};
     if (pushCount != 0)
       preparedPush_ = PreparedPush{group, pushCount};
     return true;
   }
 
   const T *preparedPopValue(CommitGroupId group) const {
+    // Prepared pops reserve an immutable prefix of committed_. No transfer may
+    // mutate that storage before the Xfer barrier, so transaction policies may
+    // borrow these values until publish/cancel without copying the payload.
     return preparedPop_ && preparedPop_->group == group &&
-                   !preparedPop_->values.empty()
-               ? &preparedPop_->values.front()
+                   preparedPop_->count == 1 && !committed_.empty()
+               ? &committed_.front()
                : nullptr;
   }
 
   std::span<const T> preparedPopValues(CommitGroupId group) const {
     return preparedPop_ && preparedPop_->group == group
-               ? std::span<const T>(preparedPop_->values)
+               ? std::span<const T>(committed_.data(), preparedPop_->count)
                : std::span<const T>();
   }
 
@@ -183,21 +184,40 @@ public:
   std::optional<T> publishPop(CommitGroupId group) {
     if (!preparedPop_ || preparedPop_->group != group)
       return std::nullopt;
-    if (preparedPop_->values.size() != 1)
+    if (preparedPop_->count != 1 || committed_.empty())
       return std::nullopt;
-    T value = preparedPop_->values.front();
+    T value = committed_.front();
     preparedPop_.reset();
     ++popProposalCount_;
     return value;
   }
 
+  bool publishPreparedPop(CommitGroupId group) {
+    if (!preparedPop_ || preparedPop_->group != group ||
+        preparedPop_->count != 1 || committed_.empty())
+      return false;
+    preparedPop_.reset();
+    ++popProposalCount_;
+    return true;
+  }
+
   std::optional<std::vector<T>> publishPopBatch(CommitGroupId group) {
     if (!preparedPop_ || preparedPop_->group != group)
       return std::nullopt;
-    std::vector<T> values = std::move(preparedPop_->values);
+    const size_t count = preparedPop_->count;
+    std::vector<T> values(committed_.begin(), committed_.begin() + count);
     preparedPop_.reset();
-    popProposalCount_ += values.size();
+    popProposalCount_ += count;
     return values;
+  }
+
+  bool publishPreparedPopBatch(CommitGroupId group) {
+    if (!preparedPop_ || preparedPop_->group != group)
+      return false;
+    const size_t count = preparedPop_->count;
+    preparedPop_.reset();
+    popProposalCount_ += count;
+    return true;
   }
 
   void cancelPrepared(CommitGroupId group) {
@@ -350,7 +370,9 @@ private:
   std::vector<T> pushProposals_;
   struct PreparedPop {
     CommitGroupId group = kInvalidCommitGroupId;
-    std::vector<T> values;
+    // The values remain owned by committed_ until Xfer; prepared state records
+    // only the reserved prefix length and never owns a payload copy.
+    size_t count = 0;
   };
   struct PreparedPush {
     CommitGroupId group = kInvalidCommitGroupId;

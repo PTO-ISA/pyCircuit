@@ -97,7 +97,7 @@ public:
     for (const Input &value : input_.preparedPopValues(id()))
       results.push_back(std::invoke(std::as_const(policy_), value));
     if (!output_.publishPushBatch(id(), std::move(results)) ||
-        !input_.publishPopBatch(id())) {
+        !input_.publishPreparedPopBatch(id())) {
       setRuntimeFailureCode("queue_lane_publish_failed");
       input_.cancelPrepared(id());
       output_.cancelPrepared(id());
@@ -211,8 +211,7 @@ public:
       cancelPrepared(group);
       return;
     }
-    auto values = inputValues(group, std::index_sequence_for<Inputs...>{});
-    auto results = std::apply(std::as_const(policy_), values);
+    auto results = invokePolicy(group, std::index_sequence_for<Inputs...>{});
     if (!publishOutputs(group, results,
                         std::index_sequence_for<Outputs...>{}) ||
         !publishInputs(group, std::index_sequence_for<Inputs...>{})) {
@@ -256,10 +255,10 @@ private:
     return (std::get<Indices>(inputs_)->preparePop(group) && ...);
   }
   template <size_t... Indices>
-  std::tuple<Inputs...> inputValues(CommitGroupId group,
-                                    std::index_sequence<Indices...>) const {
-    return std::tuple<Inputs...>{
-        *std::get<Indices>(inputs_)->preparedPopValue(group)...};
+  std::tuple<Outputs...> invokePolicy(
+      CommitGroupId group, std::index_sequence<Indices...>) const {
+    return std::invoke(std::as_const(policy_),
+                       *std::get<Indices>(inputs_)->preparedPopValue(group)...);
   }
   template <size_t... Indices>
   bool publishOutputs(CommitGroupId group, const std::tuple<Outputs...> &values,
@@ -270,7 +269,7 @@ private:
   }
   template <size_t... Indices>
   bool publishInputs(CommitGroupId group, std::index_sequence<Indices...>) {
-    return (std::get<Indices>(inputs_)->publishPop(group).has_value() && ...);
+    return (std::get<Indices>(inputs_)->publishPreparedPop(group) && ...);
   }
   void cancelPrepared(CommitGroupId group) {
     std::apply([&](auto *...queues) { (queues->cancelPrepared(group), ...); },
@@ -321,8 +320,7 @@ public:
       cancelPrepared(group);
       return;
     }
-    auto values = inputValues(group, std::index_sequence_for<Values...>{});
-    if (!publishOutputs(group, values, std::index_sequence_for<Values...>{}) ||
+    if (!publishOutputs(group, std::index_sequence_for<Values...>{}) ||
         !publishInputs(group, std::index_sequence_for<Values...>{})) {
       setRuntimeFailureCode("commit_group_publish_failed");
       cancelPrepared(group);
@@ -364,21 +362,16 @@ private:
     return (std::get<Indices>(inputs_)->preparePop(group) && ...);
   }
   template <size_t... Indices>
-  std::tuple<Values...> inputValues(CommitGroupId group,
-                                    std::index_sequence<Indices...>) const {
-    return std::tuple<Values...>{
-        *std::get<Indices>(inputs_)->preparedPopValue(group)...};
-  }
-  template <size_t... Indices>
-  bool publishOutputs(CommitGroupId group, const std::tuple<Values...> &values,
+  bool publishOutputs(CommitGroupId group,
                       std::index_sequence<Indices...>) {
     return (std::get<Indices>(outputs_)->publishPush(
-                group, std::get<Indices>(values)) &&
+                group,
+                *std::get<Indices>(inputs_)->preparedPopValue(group)) &&
             ...);
   }
   template <size_t... Indices>
   bool publishInputs(CommitGroupId group, std::index_sequence<Indices...>) {
-    return (std::get<Indices>(inputs_)->publishPop(group).has_value() && ...);
+    return (std::get<Indices>(inputs_)->publishPreparedPop(group) && ...);
   }
   void cancelPrepared(CommitGroupId group) {
     std::apply([&](auto *...queues) { (queues->cancelPrepared(group), ...); },
@@ -2230,17 +2223,40 @@ public:
             [](const auto *...queues) { return ((queues == nullptr) || ...); },
             outputs_))
       throw std::invalid_argument("transition Queue is null");
+    std::array<const SimObject *, 1 + sizeof...(Inputs) + sizeof...(Outputs)>
+        resources{};
+    size_t resourceCount = 0;
+    auto addResource = [&](const SimObject *resource) {
+      for (size_t index = 0; index < resourceCount; ++index)
+        if (resources[index] == resource)
+          return false;
+      resources[resourceCount++] = resource;
+      return true;
+    };
+    bool unique = addResource(&table_);
+    std::apply(
+        [&](const auto *...queues) {
+          ((unique = addResource(queues) && unique), ...);
+        },
+        inputs_);
+    std::apply(
+        [&](const auto *...queues) {
+          ((unique = addResource(queues) && unique), ...);
+        },
+        outputs_);
+    if (!unique)
+      throw std::invalid_argument("transition resources must be unique");
   }
 
   void doWork(Epoch epoch) override {
     if (fired_ || candidate_ || !allInputsReady())
       return;
     const auto inputValues =
-        peekInputValues(std::index_sequence_for<Inputs...>{});
+        peekInputPointers(std::index_sequence_for<Inputs...>{});
     auto plan = std::apply(
-        [&](const auto &...values) {
+        [&](const auto *...values) {
           return invokeTablePolicy(std::as_const(policy_), epoch,
-                                   std::as_const(table_), values...);
+                                   std::as_const(table_), *values...);
         },
         inputValues);
     if (!plan)
@@ -2256,18 +2272,12 @@ public:
     candidate_.reset();
 
     const CommitGroupId group = id();
-    std::array<size_t, 1> singleWrite{};
-    std::vector<size_t> multipleWrites;
-    std::span<const size_t> writeIndices;
-    if (plan.writes.size() == 1) {
-      singleWrite[0] = plan.writes.front().first;
-      writeIndices = singleWrite;
-    } else if (plan.writes.size() > 1) {
-      multipleWrites.reserve(plan.writes.size());
-      plan.writes.forEach(
-          [&](const auto &write) { multipleWrites.push_back(write.first); });
-      writeIndices = multipleWrites;
-    }
+    writeIndices_.clear();
+    if (writeIndices_.capacity() < plan.writes.size())
+      writeIndices_.reserve(plan.writes.size());
+    plan.writes.forEach(
+        [&](const auto &write) { writeIndices_.push_back(write.first); });
+    const std::span<const size_t> writeIndices = writeIndices_;
     const bool hasTableReservation =
         !plan.reservations.empty() || !writeIndices.empty();
     if (!preflightResources(group, plan, writeIndices, hasTableReservation))
@@ -2325,43 +2335,26 @@ private:
   }
 
   template <size_t... Indices>
-  std::tuple<Inputs...> peekInputValues(std::index_sequence<Indices...>) const {
-    return std::tuple<Inputs...>{
-        *std::get<Indices>(inputs_)->peekProposable()...};
-  }
-
-  static bool addResource(std::vector<const SimObject *> &resources,
-                          const SimObject *resource) {
-    if (resource == nullptr ||
-        std::ranges::find(resources, resource) != resources.end())
-      return false;
-    resources.push_back(resource);
-    return true;
+  std::tuple<const Inputs *...>
+  peekInputPointers(std::index_sequence<Indices...>) const {
+    return std::tuple<const Inputs *...>{
+        std::get<Indices>(inputs_)->peekProposable()...};
   }
 
   template <size_t... Indices>
-  bool preflightInputs(std::vector<const SimObject *> &resources,
-                       std::index_sequence<Indices...>) const {
-    bool ready = true;
-    auto check = [&](const auto *queue) {
-      ready = ready && queue != nullptr && queue->canProposePop() &&
-              addResource(resources, queue);
-    };
-    (check(std::get<Indices>(inputs_)), ...);
-    return ready;
+  bool preflightInputs(std::index_sequence<Indices...>) const {
+    return ((std::get<Indices>(inputs_)->canProposePop()) && ...);
   }
 
   template <size_t... Indices>
   bool preflightOutputs(const Plan &plan,
-                        std::vector<const SimObject *> &resources,
                         std::index_sequence<Indices...>) const {
     bool ready = true;
     auto check = [&]<size_t Index>() {
       if (!std::get<Index>(plan.outputs))
         return;
       const auto *queue = std::get<Index>(outputs_);
-      ready = ready && queue != nullptr && queue->canProposePush() &&
-              addResource(resources, queue);
+      ready = ready && queue->canProposePush();
     };
     (check.template operator()<Indices>(), ...);
     return ready;
@@ -2370,16 +2363,12 @@ private:
   bool preflightResources(CommitGroupId group, const Plan &plan,
                           std::span<const size_t> writeIndices,
                           bool hasTableReservation) const {
-    std::vector<const SimObject *> resources;
-    resources.reserve(sizeof...(Inputs) + sizeof...(Outputs) + 1);
-    if (!preflightInputs(resources, std::index_sequence_for<Inputs...>{}) ||
-        !preflightOutputs(plan, resources,
-                          std::index_sequence_for<Outputs...>{}))
+    if (!preflightInputs(std::index_sequence_for<Inputs...>{}) ||
+        !preflightOutputs(plan, std::index_sequence_for<Outputs...>{}))
       return false;
     if (!hasTableReservation)
       return true;
-    return addResource(resources, &table_) &&
-           table_.canPrepareTransaction(group, id(), plan.reservations,
+    return table_.canPrepareTransaction(group, id(), plan.reservations,
                                         writeIndices, Merge::fields, mode_);
   }
 
@@ -2419,7 +2408,7 @@ private:
 
   template <size_t... Indices>
   bool publishInputs(CommitGroupId group, std::index_sequence<Indices...>) {
-    return (std::get<Indices>(inputs_)->publishPop(group).has_value() && ...);
+    return (std::get<Indices>(inputs_)->publishPreparedPop(group) && ...);
   }
 
   template <size_t... InputIndices, size_t... OutputIndices>
@@ -2474,6 +2463,7 @@ private:
   [[no_unique_address]] Policy policy_;
   [[no_unique_address]] Merge merge_;
   TableWriteMode mode_;
+  std::vector<size_t> writeIndices_;
   std::optional<Plan> candidate_;
   bool proposed_ = false;
   bool fired_ = false;
@@ -2523,19 +2513,49 @@ public:
             [](const auto *...values) { return ((values == nullptr) || ...); },
             outputs_))
       throw std::invalid_argument("state transition endpoint is null");
+    std::array<const SimObject *, sizeof...(Entries) + sizeof...(Inputs) +
+                                      sizeof...(Outputs)>
+        resources{};
+    size_t resourceCount = 0;
+    auto addResource = [&](const SimObject *resource) {
+      for (size_t index = 0; index < resourceCount; ++index)
+        if (resources[index] == resource)
+          return false;
+      resources[resourceCount++] = resource;
+      return true;
+    };
+    bool unique = true;
+    std::apply(
+        [&](const auto *...values) {
+          ((unique = addResource(values) && unique), ...);
+        },
+        tables_);
+    std::apply(
+        [&](const auto *...values) {
+          ((unique = addResource(values) && unique), ...);
+        },
+        inputs_);
+    std::apply(
+        [&](const auto *...values) {
+          ((unique = addResource(values) && unique), ...);
+        },
+        outputs_);
+    if (!unique)
+      throw std::invalid_argument(
+          "state transition resources must be unique");
   }
 
   void doWork(Epoch epoch) override {
     if (fired_ || candidate_ || !allInputsReady())
       return;
     const auto inputValues =
-        peekInputValues(std::index_sequence_for<Inputs...>{});
+        peekInputPointers(std::index_sequence_for<Inputs...>{});
     const auto tableViews =
         constTableViews(std::index_sequence_for<Entries...>{});
     auto plan = std::apply(
-        [&](const auto &...values) {
+        [&](const auto *...values) {
           return std::invoke(std::as_const(policy_), epoch, tableViews,
-                             values...);
+                             *values...);
         },
         inputValues);
     static_assert(std::same_as<decltype(plan), std::optional<Plan>>);
@@ -2601,9 +2621,10 @@ private:
   }
 
   template <size_t... Indices>
-  std::tuple<Inputs...> peekInputValues(std::index_sequence<Indices...>) const {
-    return std::tuple<Inputs...>{
-        *std::get<Indices>(inputs_)->peekProposable()...};
+  std::tuple<const Inputs *...>
+  peekInputPointers(std::index_sequence<Indices...>) const {
+    return std::tuple<const Inputs *...>{
+        std::get<Indices>(inputs_)->peekProposable()...};
   }
 
   template <size_t... Indices>
@@ -2612,56 +2633,37 @@ private:
         std::get<Indices>(tables_)...};
   }
 
-  static bool addResource(std::vector<const SimObject *> &resources,
-                          const SimObject *resource) {
-    if (resource == nullptr ||
-        std::ranges::find(resources, resource) != resources.end())
-      return false;
-    resources.push_back(resource);
-    return true;
-  }
-
   template <size_t... Indices>
-  bool preflightInputs(std::vector<const SimObject *> &resources,
-                       std::index_sequence<Indices...>) const {
-    bool ready = true;
-    auto check = [&](const auto *queue) {
-      ready = ready && queue != nullptr && queue->canProposePop() &&
-              addResource(resources, queue);
-    };
-    (check(std::get<Indices>(inputs_)), ...);
-    return ready;
+  bool preflightInputs(std::index_sequence<Indices...>) const {
+    return ((std::get<Indices>(inputs_)->canProposePop()) && ...);
   }
 
   template <size_t... Indices>
   bool preflightOutputs(const Plan &plan,
-                        std::vector<const SimObject *> &resources,
                         std::index_sequence<Indices...>) const {
     bool ready = true;
     auto check = [&]<size_t Index>() {
       if (!std::get<Index>(plan.outputs))
         return;
       const auto *queue = std::get<Index>(outputs_);
-      ready = ready && queue != nullptr && queue->canProposePush() &&
-              addResource(resources, queue);
+      ready = ready && queue->canProposePush();
     };
     (check.template operator()<Indices>(), ...);
     return ready;
   }
 
   template <size_t Index>
-  bool preflightTable(CommitGroupId group, const Plan &plan,
-                      std::vector<const SimObject *> &resources) const {
+  bool preflightTable(CommitGroupId group, const Plan &plan) {
     const auto &writes = std::get<Index>(plan.writes);
     const StateReservation &reservation = std::get<Index>(plan.reservations);
     if (writes.empty() && reservation.empty())
       return true;
     const auto *table = std::get<Index>(tables_);
-    if (!addResource(resources, table))
-      return false;
     using Merge = std::tuple_element_t<Index, std::tuple<Merges...>>;
-    std::vector<size_t> indices;
-    indices.reserve(writes.size());
+    std::vector<size_t> &indices = writeIndices_[Index];
+    indices.clear();
+    if (indices.capacity() < writes.size())
+      indices.reserve(writes.size());
     writes.forEach([&](const auto &write) { indices.push_back(write.first); });
     return table->canPrepareTransaction(group, id(), reservation, indices,
                                         Merge::fields, modes_[Index]);
@@ -2669,19 +2671,14 @@ private:
 
   template <size_t... Indices>
   bool preflightTables(CommitGroupId group, const Plan &plan,
-                       std::vector<const SimObject *> &resources,
-                       std::index_sequence<Indices...>) const {
-    return (preflightTable<Indices>(group, plan, resources) && ...);
+                       std::index_sequence<Indices...>) {
+    return (preflightTable<Indices>(group, plan) && ...);
   }
 
-  bool preflightResources(CommitGroupId group, const Plan &plan) const {
-    std::vector<const SimObject *> resources;
-    resources.reserve(sizeof...(Inputs) + sizeof...(Outputs) +
-                      sizeof...(Entries));
-    return preflightInputs(resources, std::index_sequence_for<Inputs...>{}) &&
-           preflightOutputs(plan, resources,
-                            std::index_sequence_for<Outputs...>{}) &&
-           preflightTables(group, plan, resources,
+  bool preflightResources(CommitGroupId group, const Plan &plan) {
+    return preflightInputs(std::index_sequence_for<Inputs...>{}) &&
+           preflightOutputs(plan, std::index_sequence_for<Outputs...>{}) &&
+           preflightTables(group, plan,
                            std::index_sequence_for<Entries...>{});
   }
 
@@ -2715,16 +2712,9 @@ private:
     using Merge = std::tuple_element_t<Index, std::tuple<Merges...>>;
     if (writes.empty() && reservation.empty())
       return true;
-    if (writes.size() == 1) {
-      std::array<size_t, 1> index{writes.front().first};
-      return std::get<Index>(tables_)->prepareTransaction(
-          group, id(), reservation, index, Merge::fields, modes_[Index]);
-    }
-    std::vector<size_t> indices;
-    indices.reserve(writes.size());
-    writes.forEach([&](const auto &write) { indices.push_back(write.first); });
     return std::get<Index>(tables_)->prepareTransaction(
-        group, id(), reservation, indices, Merge::fields, modes_[Index]);
+        group, id(), reservation, writeIndices_[Index], Merge::fields,
+        modes_[Index]);
   }
 
   template <size_t... Indices>
@@ -2745,7 +2735,7 @@ private:
 
   template <size_t... Indices>
   bool publishInputs(CommitGroupId group, std::index_sequence<Indices...>) {
-    return (std::get<Indices>(inputs_)->publishPop(group).has_value() && ...);
+    return (std::get<Indices>(inputs_)->publishPreparedPop(group) && ...);
   }
 
   template <size_t Index> bool publishTable(CommitGroupId group, Plan &plan) {
@@ -2805,6 +2795,7 @@ private:
   std::array<TableWriteMode, sizeof...(Entries)> modes_;
   [[no_unique_address]] Policy policy_;
   std::tuple<Merges...> merges_;
+  std::array<std::vector<size_t>, sizeof...(Entries)> writeIndices_;
   std::optional<Plan> candidate_;
   bool fired_ = false;
 };
@@ -3060,7 +3051,7 @@ public:
       table_.cancelPreparedWrite(group);
       return;
     }
-    if (!input_.publishPop(group) ||
+    if (!input_.publishPreparedPop(group) ||
         (candidate_->write &&
          !table_.publishPreparedSingleWrite(group, std::move(candidate_->write),
                                             merge_))) {

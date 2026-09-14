@@ -60,6 +60,36 @@ struct RoutePairAtomically {
   }
 };
 
+struct EchoWithoutTableWrite {
+  using Plan = TableTransitionPlan<int, int>;
+
+  std::optional<Plan> operator()(Epoch, const SimTable<int> &,
+                                 const int &value) const {
+    Plan plan;
+    std::get<0>(plan.outputs) = value;
+    return plan;
+  }
+};
+
+struct CopyTrackedPayload {
+  static inline size_t copies = 0;
+
+  int value = 0;
+
+  CopyTrackedPayload() = default;
+  explicit CopyTrackedPayload(int value) : value(value) {}
+  CopyTrackedPayload(const CopyTrackedPayload &other) : value(other.value) {
+    ++copies;
+  }
+  CopyTrackedPayload(CopyTrackedPayload &&) noexcept = default;
+  CopyTrackedPayload &operator=(const CopyTrackedPayload &other) {
+    value = other.value;
+    ++copies;
+    return *this;
+  }
+  CopyTrackedPayload &operator=(CopyTrackedPayload &&) noexcept = default;
+};
+
 struct SequencedValue {
   uint64_t sequence = 0;
   int value = 0;
@@ -2490,6 +2520,38 @@ TEST(QueueBlocksTest, SimQueueCommitGroupPreparePublishIsNoFail) {
   EXPECT_TRUE(queue.isEmpty());
 }
 
+TEST(QueueBlocksTest, PreparedPopBorrowsCommittedPayloadUntilXfer) {
+  SimQueue<CopyTrackedPayload> queue("tracked", 1, nullptr, 2, SIZE_MAX,
+                                     nullptr, 1, 2, 2);
+  ASSERT_TRUE(queue.proposePush(CopyTrackedPayload{7}));
+  ASSERT_TRUE(queue.proposePush(CopyTrackedPayload{9}));
+  queue.doXfer({0, 0});
+
+  CopyTrackedPayload::copies = 0;
+  constexpr CommitGroupId group = 17;
+  ASSERT_TRUE(queue.prepareBatch(group, 2, 0));
+  EXPECT_EQ(CopyTrackedPayload::copies, 0u);
+  const std::span<const CopyTrackedPayload> prepared =
+      queue.preparedPopValues(group);
+  ASSERT_EQ(prepared.size(), 2u);
+  EXPECT_EQ(&prepared.front(), queue.peek());
+  EXPECT_EQ(prepared[0].value, 7);
+  EXPECT_EQ(prepared[1].value, 9);
+  EXPECT_TRUE(queue.publishPreparedPopBatch(group));
+  EXPECT_EQ(CopyTrackedPayload::copies, 0u);
+  queue.doXfer({1, 0});
+  EXPECT_TRUE(queue.isEmpty());
+
+  ASSERT_TRUE(queue.proposePush(CopyTrackedPayload{11}));
+  queue.doXfer({2, 0});
+  CopyTrackedPayload::copies = 0;
+  ASSERT_TRUE(queue.preparePop(group));
+  auto copied = queue.publishPop(group);
+  ASSERT_TRUE(copied);
+  EXPECT_EQ(copied->value, 11);
+  EXPECT_EQ(CopyTrackedPayload::copies, 1u);
+}
+
 TEST(QueueBlocksTest, SimQueueBatchTransfersOneOrderedAtomicPrefix) {
   SimQueue<uint16_t> queue("queue", 1, nullptr, 4, SIZE_MAX, nullptr, 1, 3,
                            3);
@@ -2795,6 +2857,27 @@ TEST(QueueBlocksTest, GroupedBlocksRejectNullQueueEndpoints) {
                             std::tuple<AllocateRequest>, std::tuple<size_t>>(
           "bad_transition_input", 9, nullptr, table, {nullptr}, {&indices},
           TableWriteMode::Replace)),
+      std::invalid_argument);
+
+  SimTable<int> integerTable("integer_table", 10, nullptr, 1);
+  SimQueue<int> shared("shared", 11, nullptr, 1);
+  EXPECT_THROW(
+      (QueueTableTransition<EchoWithoutTableWrite, int, std::tuple<int>,
+                            std::tuple<int>>(
+          "duplicate_transition", 12, nullptr, integerTable, {&shared},
+          {&shared}, TableWriteMode::Replace)),
+      std::invalid_argument);
+
+  SimQueue<uint8_t> route("route", 13, nullptr, 1);
+  SimQueue<uint16_t> payload("payload", 14, nullptr, 1);
+  SimQueue<uint16_t> wideOutput("wide_output", 15, nullptr, 1);
+  using DuplicateStateTransition =
+      QueueStateTransition<RoutePairAtomically, std::tuple<>,
+                           std::tuple<uint8_t, uint16_t>,
+                           std::tuple<uint16_t, uint8_t>, std::tuple<>>;
+  EXPECT_THROW(
+      (DuplicateStateTransition("duplicate_state_transition", 16, nullptr, {},
+                                {&route, &payload}, {&wideOutput, &route}, {})),
       std::invalid_argument);
 }
 

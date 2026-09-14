@@ -9843,3 +9843,61 @@ or a runtime benchmark.
 
 **Source**
 - PTO-ISA/pyCircuit issue #128.
+
+## Decision 0259: generated firing transactions borrow stable Queue payloads and reuse preflight scratch
+
+**Status:** Accepted and implemented
+
+**Extends:** Decisions 0191, 0223, 0241, 0243, 0257, and 0258.
+
+**Context / Goal**
+Generated GFSim firing paths should not allocate and populate a resource vector
+or copy every input payload merely to evaluate and publish one already-verified
+transaction. Removing those costs must preserve the immutable Work snapshot,
+prepare/publish no-fail contract, backpressure, reset, and observation ordering.
+
+**Decision (strong constraint)**
+- `QueueTableTransition` and `QueueStateTransition` validate their complete
+  static Queue/Table endpoint set once at construction. Null or duplicate
+  resources fail immediately. Runtime preflight therefore expands direct typed
+  readiness checks and no longer constructs or searches a resource vector for
+  each firing attempt.
+- Dynamic owner-write addresses remain plan values. Each transition owns
+  address scratch storage, clears and refills it for the next candidate, and
+  retains capacity across attempts. The same address span is used for
+  non-mutating preflight and prepare; no stack-local address vector is rebuilt
+  between those phases.
+- A prepared `SimQueue` pop stores only the commit group and reserved prefix
+  count. The reserved values remain owned by the committed Queue storage, which
+  is immutable until the Xfer barrier. Borrowed pointers/spans are valid only
+  through the current Work/Arbitrate transaction and must not escape into a
+  retained candidate, output, state owner, observation, or later epoch.
+- Atomic transforms, barriers, and Table/single-owner/multi-owner firing
+  policies consume borrowed prepared or proposable input references directly.
+  Outputs and state-write candidates remain owned values before publication.
+  Internal discard-only publication advances the reserved pop without creating
+  a return-value payload copy; the existing public value-returning pop APIs
+  retain their behavior for callers that request values.
+- Reset and cancellation discard only reservation metadata. Failed preflight or
+  prepare cannot mutate Queue contents, scratch addresses do not survive as
+  semantic state, and successful publication retains the existing accepted-work
+  and Xfer observation order.
+- The emitted-cost report records zero per-firing runtime resource-vector
+  construction sites for verified `firing` blocks. Heap allocation remains
+  separately `not_modeled`; reusable scratch capacity is not misreported as a
+  zero-allocation benchmark.
+
+**Required verification**
+- Reject duplicate Queue/Table resource identities at transition construction,
+  and retain null-endpoint rejection.
+- Run all GFSim unit tests, including multi-owner conflict, cancellation,
+  backpressure, batch, reset, and public value-returning pop behavior.
+- Compile generated single-owner, multi-owner, atomic, reusable-module, and
+  model-bundle paths. The emitted-cost regression must report zero runtime
+  vector-construction sites for a verified firing.
+- Re-run the approximately 1K-bit private payload and typed multi-owner runtime
+  cases, then complete Agentic G0/G1/G2 parity without value or accept/output
+  cycle changes.
+
+**Source**
+- PTO-ISA/pyCircuit issue #128.

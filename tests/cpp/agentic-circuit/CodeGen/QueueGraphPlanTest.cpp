@@ -3010,6 +3010,11 @@ TEST(QueueGraphPlanTest, EmittedCostReportRecomputesArrayAndTableBounds) {
                               "\"unit\":\"entries_per_attempt\","
                               "\"value\":16}"),
             std::string::npos);
+  EXPECT_NE(tableReport->find("\"runtime_vector_construction_sites\":{"
+                              "\"stage\":\"generated_gfsim_policy\","
+                              "\"status\":\"exact\",\"unit\":\"sites\","
+                              "\"value\":0}"),
+            std::string::npos);
   auto repeated = generateQueueGraphCostReport(
       table, "6.1.0", std::string(40, 'b'), hash, hash);
   ASSERT_TRUE(bool(repeated)) << llvm::toString(repeated.takeError());

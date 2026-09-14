@@ -453,6 +453,8 @@ moduleCost(const QueueGraphPlan &plan, llvm::StringRef instancePath,
     const bool simpleTransform = block.kind == "transform" &&
                                  block.inputs.size() == 1 &&
                                  block.outputs.size() == 1;
+    const bool reusesStaticTransitionScratch =
+        simpleTransform || block.kind == "firing";
     metrics["explicit_copy_sites"] =
         simpleTransform
             ? llvm::json::Value(
@@ -475,7 +477,7 @@ moduleCost(const QueueGraphPlan &plan, llvm::StringRef instancePath,
                   "generated_gfsim_policy", "sites",
                   "block-specific prepare/publish path is not modeled"));
     metrics["runtime_vector_construction_sites"] =
-        simpleTransform
+        reusesStaticTransitionScratch
             ? llvm::json::Value(
                   metric("exact", "generated_gfsim_policy", "sites", 0))
             : llvm::json::Value(unmodeled(
