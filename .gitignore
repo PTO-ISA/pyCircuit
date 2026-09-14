@@ -286,3 +286,5 @@ docs/gates/logs/*
 !docs/gates/logs/20260907-issue42-scalar-pyc/**
 !docs/gates/logs/20260915-issue126-snapshot-worklist/
 !docs/gates/logs/20260915-issue126-snapshot-worklist/**
+!docs/gates/logs/20260915-issue126-field-order-canonical/
+!docs/gates/logs/20260915-issue126-field-order-canonical/**

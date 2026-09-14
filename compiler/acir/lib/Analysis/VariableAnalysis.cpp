@@ -605,6 +605,30 @@ llvm::SmallVector<std::string> completeStateFields(Operation *anchor,
   return result;
 }
 
+/// Canonicalize a read-field demand to Table Entry declaration order.
+///
+/// Field lists in ACIR denote sets, not sequences. The Entry declaration order
+/// is the canonical order, so the same demand reached through different
+/// traversal paths produces byte-identical metadata. Names the Entry does not
+/// declare are kept after the declared ones in their original order so nothing
+/// is silently dropped; verification rejects them.
+llvm::SmallVector<std::string>
+canonicalStateFields(Operation *anchor, Type entryType,
+                     llvm::ArrayRef<std::string> requested) {
+  if (!isa<ac::StructType>(entryType) || requested.empty())
+    return llvm::SmallVector<std::string>(requested.begin(), requested.end());
+  llvm::SmallVector<std::string> declared =
+      completeStateFields(anchor, entryType);
+  llvm::SmallVector<std::string> ordered;
+  for (const std::string &name : declared)
+    if (llvm::is_contained(requested, name))
+      ordered.push_back(name);
+  for (const std::string &name : requested)
+    if (!llvm::is_contained(declared, name))
+      ordered.push_back(name);
+  return ordered;
+}
+
 class VariablePropertyPropagation final
     : public dataflow::SparseForwardDataFlowAnalysis<
           VariablePropertiesLattice> {
@@ -931,15 +955,30 @@ ACDataFlowAnalyzer::stateSnapshots(Operation *scope) const {
   auto addSnapshot = [&](StringRef resource, Value index, Value source,
                          StringRef indexKind, Value predicate,
                          llvm::SmallVector<std::string> fields) {
+    // Field lists denote sets. Normalize to Table Entry declaration order
+    // before every comparison, merge, and emission so both coalescing and the
+    // emitted metadata are independent of the order in which traversal
+    // discovered the demands.
+    auto table = SymbolTable::lookupNearestSymbolFrom<ac::TableOp>(
+        scope, StringAttr::get(scope->getContext(), resource));
+    auto normalize = [&](llvm::SmallVector<std::string> &list) {
+      if (table)
+        list = canonicalStateFields(scope, table.getEntryType(), list);
+    };
+    normalize(fields);
     auto existing = llvm::find_if(snapshots, [&](const auto &candidate) {
       return candidate.resource == resource && candidate.index == index &&
              candidate.source == source && candidate.indexKind == indexKind &&
              candidate.predicate == predicate;
     });
     if (existing != snapshots.end()) {
+      llvm::SmallVector<std::string> merged(existing->fields.begin(),
+                                            existing->fields.end());
       for (const std::string &field : fields)
-        if (!llvm::is_contained(existing->fields, field))
-          existing->fields.push_back(field);
+        if (!llvm::is_contained(merged, field))
+          merged.push_back(field);
+      normalize(merged);
+      existing->fields.assign(merged.begin(), merged.end());
       return;
     }
     if (indexKind == "all" && !fields.empty()) {
@@ -1030,12 +1069,12 @@ ACDataFlowAnalyzer::stateSnapshots(Operation *scope) const {
       }
       detail::accountSnapshotTraversalContext();
       if (auto read = dyn_cast<ac::TableGetOp>(definition)) {
+        Type entryType =
+            cast<ac::VarType>(read.getResult().getType()).getElementType();
         auto fields =
             requestedFields.empty()
-                ? completeStateFields(
-                      read, cast<ac::VarType>(read.getResult().getType())
-                                .getElementType())
-                : std::move(requestedFields);
+                ? completeStateFields(read, entryType)
+                : canonicalStateFields(read, entryType, requestedFields);
         if (read->getBlock() != &scope->getRegion(0).front()) {
           if (setSource)
             addSnapshot(read.getTable(), {}, setSource, "set", predicate,
