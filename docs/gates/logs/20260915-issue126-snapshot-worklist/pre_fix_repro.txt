@@ -1,0 +1,30 @@
+# issue 126 pre-fix reproduction (recursive traversal, HEAD fd2427a3)
+
+All commands below were run from the current checkout with the change reverted
+(`git checkout -- compiler/acir/lib/Analysis/VariableAnalysis.cpp`) and the
+tools rebuilt from that state.
+
+## 1. Deep shared diamond through the analysis test (depth 2048)
+
+$ bin/ACIRModelAnalysisTests --gtest_filter='*DeepSharedDiamond*'
+[==========] Running 1 test from 1 test suite.
+[----------] Global test environment set-up.
+[----------] 1 test from ACDataFlowAnalyzerTest
+[ RUN      ] ACDataFlowAnalyzerTest.SnapshotTraversalHandlesDeepSharedDiamond
+exit=139  (SIGSEGV)
+
+## 2. Full schedule pass chain (depth 2048)
+
+$ acir-opt --pass-pipeline='builtin.module(ac-resolve-rule-schedule)' diamond-pre.mlir -o /dev/null
+/bin/bash: line 1: <pid> Illegal instruction: 4  acir-opt ...
+exit=132  (illegal instruction / stack exhaustion)
+
+## 3. Same commands after the worklist change
+
+$ bin/ACIRModelAnalysisTests --gtest_filter='*DeepSharedDiamond*'
+[       OK ] ACDataFlowAnalyzerTest.SnapshotTraversalHandlesDeepSharedDiamond (228 ms)
+
+$ acir-opt --pass-pipeline='builtin.module(ac-resolve-rule-schedule)' diamond-pre.mlir -o /dev/null
+exit=0
+
+Default thread stack only. No `ulimit` change was applied for either run.

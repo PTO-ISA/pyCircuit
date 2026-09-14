@@ -1,0 +1,41 @@
+{
+  "run_id": "20260915-issue126-snapshot-worklist",
+  "script": "focused ACIR analysis lane (manual)",
+  "status": "pass",
+  "issue": "PTO-ISA/pyCircuit#126",
+  "decisions": ["0245"],
+  "owner": "acir-analysis",
+  "baseline_commit": "fd2427a30e7b9fda9aab37953eb6b6d46b4e8bbb",
+  "contract_epoch": "0.5",
+  "change": "ACDataFlowAnalyzer::stateSnapshots() demand propagation replaces the recursive std::function traversal with an explicit LIFO worklist that preserves depth-first pre-order",
+  "lanes": [
+    "ACIRModelAnalysisTests (gtest, CMake target ACIRModelAnalysisTests)",
+    "acir-opt ac-resolve-rule-schedule on a 2048-level shared diamond"
+  ],
+  "cases": [
+    "ACDataFlowAnalyzerTest.SnapshotTraversalMemoizesSharedDiamondContexts (depth 24)",
+    "ACDataFlowAnalyzerTest.SnapshotTraversalHandlesDeepSharedDiamond (depth 2048)",
+    "ACDataFlowAnalyzerTest.SnapshotTraversalHandlesWideSharedFanout (width 64)",
+    "ACDataFlowAnalyzerTest.SnapshotTraversalSkipsStatelessSharedDag (depth 64)",
+    "acir-opt preprocessing pipeline + ac-resolve-rule-schedule at diamond depth 2048"
+  ],
+  "results": {
+    "ACIRModelAnalysisTests": "31/31 passed",
+    "deep_diamond_2048": "1 snapshot, traversal contexts <= 3*depth+4",
+    "wide_fanout_64": "1 snapshot, traversal contexts <= 4*width+8",
+    "stateless_dag_64": "0 snapshots, bounded traversal",
+    "schedule_pass_2048_exit_code": 0,
+    "pre_pipeline_2048_exit_code": 0
+  },
+  "pre_fix_comparison": {
+    "note": "Same inputs against HEAD code (recursive traversal) before the change",
+    "deep_diamond_gtest_exit_code": 139,
+    "schedule_pass_2048_exit_code": 132,
+    "schedule_pass_signal": "illegal instruction / stack exhaustion"
+  },
+  "evidence_files": [
+    "docs/gates/logs/20260915-issue126-snapshot-worklist/acir_model_analysis_tests.txt",
+    "docs/gates/logs/20260915-issue126-snapshot-worklist/pass_chain_2048.txt",
+    "docs/gates/logs/20260915-issue126-snapshot-worklist/pre_fix_repro.txt"
+  ]
+}

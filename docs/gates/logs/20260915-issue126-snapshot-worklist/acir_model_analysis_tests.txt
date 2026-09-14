@@ -1,0 +1,77 @@
+Running main() from /private/tmp/googletest-20250910-5249-qce8ci/googletest-1.17.0/googletest/src/gtest_main.cc
+[==========] Running 31 tests from 3 test suites.
+[----------] Global test environment set-up.
+[----------] 17 tests from ModelAnalysisTest
+[ RUN      ] ModelAnalysisTest.FrozenProcessSkeletonRejectsEffectSemanticMutation
+[       OK ] ModelAnalysisTest.FrozenProcessSkeletonRejectsEffectSemanticMutation (87 ms)
+[ RUN      ] ModelAnalysisTest.FrozenProcessSkeletonPermitsPureContinuationSSARewrite
+[       OK ] ModelAnalysisTest.FrozenProcessSkeletonPermitsPureContinuationSSARewrite (10 ms)
+[ RUN      ] ModelAnalysisTest.FrozenMutationCannotBeResealedThroughPublicRoutes
+[       OK ] ModelAnalysisTest.FrozenMutationCannotBeResealedThroughPublicRoutes (21 ms)
+[ RUN      ] ModelAnalysisTest.CanonicalizationVerifiesEveryFreezeEvidenceFormBeforeWriting
+[       OK ] ModelAnalysisTest.CanonicalizationVerifiesEveryFreezeEvidenceFormBeforeWriting (50 ms)
+[ RUN      ] ModelAnalysisTest.UnfrozenCanonicalizationRemainsDeterministic
+[       OK ] ModelAnalysisTest.UnfrozenCanonicalizationRemainsDeterministic (5 ms)
+[ RUN      ] ModelAnalysisTest.FrozenDigestCommitsNestedGuardParentage
+[       OK ] ModelAnalysisTest.FrozenDigestCommitsNestedGuardParentage (3 ms)
+[ RUN      ] ModelAnalysisTest.AddressSpacesFreezeAsAbsoluteStateOwners
+[       OK ] ModelAnalysisTest.AddressSpacesFreezeAsAbsoluteStateOwners (5 ms)
+[ RUN      ] ModelAnalysisTest.AddressSpacesParticipateInSaturatedOwnerBudget
+[       OK ] ModelAnalysisTest.AddressSpacesParticipateInSaturatedOwnerBudget (1631 ms)
+[ RUN      ] ModelAnalysisTest.FullFreezePathHasExactLinearIndexedWork
+[       OK ] ModelAnalysisTest.FullFreezePathHasExactLinearIndexedWork (1269 ms)
+[ RUN      ] ModelAnalysisTest.DeepProcessDependencyChainsFreezeWithoutStackGrowth
+[       OK ] ModelAnalysisTest.DeepProcessDependencyChainsFreezeWithoutStackGrowth (35852 ms)
+[ RUN      ] ModelAnalysisTest.ModelEntryPathsAcceptExactRegionNestingLimit
+[       OK ] ModelAnalysisTest.ModelEntryPathsAcceptExactRegionNestingLimit (299 ms)
+[ RUN      ] ModelAnalysisTest.ModelEntryPathsRejectRegionNestingLimitPlusOneDeterministically
+[       OK ] ModelAnalysisTest.ModelEntryPathsRejectRegionNestingLimitPlusOneDeterministically (58 ms)
+[ RUN      ] ModelAnalysisTest.HostileRawRegionNestingRejectsWithoutStackGrowthOnEveryEntryPath
+[       OK ] ModelAnalysisTest.HostileRawRegionNestingRejectsWithoutStackGrowthOnEveryEntryPath (134 ms)
+[ RUN      ] ModelAnalysisTest.StructuralPreflightHandlesEmptyRegionsAndBlocks
+[       OK ] ModelAnalysisTest.StructuralPreflightHandlesEmptyRegionsAndBlocks (0 ms)
+[ RUN      ] ModelAnalysisTest.ProcessDependencyCapabilityIsCheckedBeforeGrowth
+[       OK ] ModelAnalysisTest.ProcessDependencyCapabilityIsCheckedBeforeGrowth (57 ms)
+[ RUN      ] ModelAnalysisTest.ProcessDependencyEdgeCapabilityIsCheckedBeforeGrowth
+[       OK ] ModelAnalysisTest.ProcessDependencyEdgeCapabilityIsCheckedBeforeGrowth (2 ms)
+[ RUN      ] ModelAnalysisTest.ProcessSkeletonIncludesNestedControlParents
+[       OK ] ModelAnalysisTest.ProcessSkeletonIncludesNestedControlParents (3 ms)
+[----------] 17 tests from ModelAnalysisTest (39493 ms total)
+
+[----------] 13 tests from ACDataFlowAnalyzerTest
+[ RUN      ] ACDataFlowAnalyzerTest.InfersValueLifetimeAndLexicalStateOwnership
+[       OK ] ACDataFlowAnalyzerTest.InfersValueLifetimeAndLexicalStateOwnership (1 ms)
+[ RUN      ] ACDataFlowAnalyzerTest.ProvesDisjointIndicesAndStructuralPathExclusion
+[       OK ] ACDataFlowAnalyzerTest.ProvesDisjointIndicesAndStructuralPathExclusion (1 ms)
+[ RUN      ] ACDataFlowAnalyzerTest.DoesNotEquateRegionBearingPredicatesWithDifferentBodies
+[       OK ] ACDataFlowAnalyzerTest.DoesNotEquateRegionBearingPredicatesWithDifferentBodies (0 ms)
+[ RUN      ] ACDataFlowAnalyzerTest.StructuralPathProofUsesBoundedKeysForSharedDags
+[       OK ] ACDataFlowAnalyzerTest.StructuralPathProofUsesBoundedKeysForSharedDags (2 ms)
+[ RUN      ] ACDataFlowAnalyzerTest.InfersBoundedUnsignedValueConstraints
+[       OK ] ACDataFlowAnalyzerTest.InfersBoundedUnsignedValueConstraints (1 ms)
+[ RUN      ] ACDataFlowAnalyzerTest.InfersOrderedStateAccessFootprints
+[       OK ] ACDataFlowAnalyzerTest.InfersOrderedStateAccessFootprints (0 ms)
+[ RUN      ] ACDataFlowAnalyzerTest.InfersConditionalEffectSnapshotReadSet
+[       OK ] ACDataFlowAnalyzerTest.InfersConditionalEffectSnapshotReadSet (0 ms)
+[ RUN      ] ACDataFlowAnalyzerTest.SnapshotTraversalMemoizesSharedDiamondContexts
+[       OK ] ACDataFlowAnalyzerTest.SnapshotTraversalMemoizesSharedDiamondContexts (2 ms)
+[ RUN      ] ACDataFlowAnalyzerTest.SnapshotMemoPreservesDistinctFieldDemands
+[       OK ] ACDataFlowAnalyzerTest.SnapshotMemoPreservesDistinctFieldDemands (0 ms)
+[ RUN      ] ACDataFlowAnalyzerTest.SnapshotTraversalHandlesDeepSharedDiamond
+[       OK ] ACDataFlowAnalyzerTest.SnapshotTraversalHandlesDeepSharedDiamond (217 ms)
+[ RUN      ] ACDataFlowAnalyzerTest.SnapshotTraversalHandlesWideSharedFanout
+[       OK ] ACDataFlowAnalyzerTest.SnapshotTraversalHandlesWideSharedFanout (6 ms)
+[ RUN      ] ACDataFlowAnalyzerTest.SnapshotTraversalSkipsStatelessSharedDag
+[       OK ] ACDataFlowAnalyzerTest.SnapshotTraversalSkipsStatelessSharedDag (6 ms)
+[ RUN      ] ACDataFlowAnalyzerTest.InfersMatchAndChooseSnapshotSets
+[       OK ] ACDataFlowAnalyzerTest.InfersMatchAndChooseSnapshotSets (1 ms)
+[----------] 13 tests from ACDataFlowAnalyzerTest (244 ms total)
+
+[----------] 1 test from ValueConstraintTest
+[ RUN      ] ValueConstraintTest.JoinIsIdempotentAndAbsorbingAcrossRepresentations
+[       OK ] ValueConstraintTest.JoinIsIdempotentAndAbsorbingAcrossRepresentations (0 ms)
+[----------] 1 test from ValueConstraintTest (0 ms total)
+
+[----------] Global test environment tear-down
+[==========] 31 tests from 3 test suites ran. (39737 ms total)
+[  PASSED  ] 31 tests.

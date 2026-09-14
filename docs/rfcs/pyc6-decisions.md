@@ -8996,6 +8996,9 @@ same dependency walk exponentially before rule schedule resolution.
 - Distinct predicates, match masks, choose indices, and other set sources remain
   separate contexts. Memoization may remove repeated work but must not merge
   semantically distinct snapshots.
+- Demand propagation is iterative. Traversal of a shared SSA graph uses an
+  explicit worklist and must not consume one C++ stack frame per graph level,
+  so deep chains cannot be admitted by raising the thread stack size.
 - Final snapshot coalescing and field order remain unchanged. This decision
   changes analysis complexity, not rule scheduling, reservation, or commit
   semantics.
@@ -9003,6 +9006,10 @@ same dependency walk exponentially before rule schedule resolution.
 **Required verification**
 - A 24-level shared diamond has linear bounded traversal work and produces the
   same single state snapshot.
+- A 2048-level shared diamond completes through both the analysis entry point
+  and the full `ac-resolve-rule-schedule` chain on the default thread stack.
+- A wide shared fan-out and a shared diamond with no reachable state read stay
+  linearly bounded; the stateless case reports no snapshot.
 - Two field projections reaching one shared record retain both field demands.
 - Existing conditional-effect, match, choose, field-qualified, rule lowering,
   QueueGraph, and generated runtime tests remain green.
