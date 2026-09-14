@@ -3731,6 +3731,11 @@ unrelated allocation priority, firing, or cross-object transaction semantics.
 - gfsim identifies pending proposals by stable writer object ID. Cancellation
   removes only that endpoint's proposal and cannot discard another writer's
   proposal.
+- The disjointness proof scales with the reachable SSA graph, not with stack
+  depth. In both the analysis and the QueueGraph codegen paths, structural
+  identity interning and conjunct collection over pure, regionless expressions
+  are iterative, so a deep pure chain must not consume one C++ stack frame per
+  level and cannot be bounded by the ambient thread stack.
 - Contract epoch remains `0.4`. PYC/RTL continues to reject every provisional
   Table with `unsupported provisional Table`.
 
@@ -3750,6 +3755,9 @@ unrelated allocation priority, firing, or cross-object transaction semantics.
 - The Issue Queue fixture compiles and runs through direct and native
   QueueGraph C++ generation, merging ready-field wakeup with `valid=false` on
   one Entry while preserving the provisional PYC rejection boundary.
+- A 20000-level shared pure chain completes the mutual-exclusion proof on the
+  default thread stack; the previous recursive implementation crashes on the
+  same input.
 
 **Source**
 - Agentic Circuit field-level multi-writer Table direction (2026-09-03).

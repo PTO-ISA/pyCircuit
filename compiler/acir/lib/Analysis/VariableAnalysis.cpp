@@ -123,37 +123,63 @@ public:
   uint64_t identify(Value value) {
     if (auto found = memo.find(value); found != memo.end())
       return found->second;
-    const uint64_t opaque = nextIdentity++;
-    memo[value] = opaque;
-    if (isa<BlockArgument>(value))
-      return opaque;
-    Operation *operation = value.getDefiningOp();
-    if (!operation || operation->getNumRegions() != 0 ||
-        !isMemoryEffectFree(operation))
-      return opaque;
 
-    SmallVector<uint64_t> operands;
-    for (Value operand : operation->getOperands())
-      operands.push_back(identify(operand));
-    const bool commutative =
-        isa<ac::VarMulOp, ac::VarAndOp, ac::VarOrOp, ac::VarXorOp>(operation) ||
-        (isa<ac::VarCmpOp>(operation) &&
-         (cast<ac::VarCmpOp>(operation).getPredicate() == "eq" ||
-          cast<ac::VarCmpOp>(operation).getPredicate() == "ne"));
-    if (commutative)
-      llvm::sort(operands);
+    // Structural identity is computed bottom-up over pure, regionless SSA
+    // chains. An explicit stack with a post-visit marker supplies every operand
+    // identity before a node's key is built, so a deep chain does not consume
+    // one C++ stack frame per level. Operands are pushed in reverse so the
+    // pre-order identity assignment and the interned keys are unchanged.
+    struct Frame {
+      Value value;
+      bool expanded;
+    };
+    SmallVector<Frame, 16> pending;
+    pending.push_back({value, false});
+    while (!pending.empty()) {
+      Frame frame = pending.back();
+      pending.pop_back();
+      if (!frame.expanded) {
+        if (memo.contains(frame.value))
+          continue;
+        Operation *operation = frame.value.getDefiningOp();
+        if (isa<BlockArgument>(frame.value) || !operation ||
+            operation->getNumRegions() != 0 || !isMemoryEffectFree(operation)) {
+          memo[frame.value] = nextIdentity++;
+          continue;
+        }
+        memo[frame.value] = nextIdentity++;
+        pending.push_back({frame.value, true});
+        // Push every operand, not only the ones missing from `memo`; the
+        // pop-time guard is the single place that decides whether a frame is
+        // still needed, so frame order carries no hidden invariant.
+        for (Value operand : llvm::reverse(operation->getOperands()))
+          pending.push_back({operand, false});
+        continue;
+      }
+      Operation *operation = frame.value.getDefiningOp();
+      SmallVector<uint64_t> operands;
+      for (Value operand : operation->getOperands())
+        operands.push_back(memo.lookup(operand));
+      const bool commutative =
+          isa<ac::VarMulOp, ac::VarAndOp, ac::VarOrOp, ac::VarXorOp>(operation) ||
+          (isa<ac::VarCmpOp>(operation) &&
+           (cast<ac::VarCmpOp>(operation).getPredicate() == "eq" ||
+            cast<ac::VarCmpOp>(operation).getPredicate() == "ne"));
+      if (commutative)
+        llvm::sort(operands);
 
-    std::string key;
-    llvm::raw_string_ostream stream(key);
-    stream << operation->getName() << operation->getAttrDictionary() << ':'
-           << value.getType() << '#' << cast<OpResult>(value).getResultNumber()
-           << '(';
-    llvm::interleaveComma(operands, stream);
-    stream << ')';
-    auto position = interned.try_emplace(key, opaque).first;
-    const uint64_t identity = position->getValue();
-    memo[value] = identity;
-    return identity;
+      std::string key;
+      llvm::raw_string_ostream stream(key);
+      stream << operation->getName() << operation->getAttrDictionary() << ':'
+             << frame.value.getType() << '#'
+             << cast<OpResult>(frame.value).getResultNumber() << '(';
+      llvm::interleaveComma(operands, stream);
+      stream << ')';
+      auto position =
+          interned.try_emplace(key, memo.lookup(frame.value)).first;
+      memo[frame.value] = position->getValue();
+    }
+    return memo.lookup(value);
   }
 
 private:
@@ -183,30 +209,39 @@ void collectConjuncts(Value value, bool negated,
                       StructuralValueInterner &interner,
                       DenseSet<std::pair<Value, uint8_t>> &visited,
                       SmallVectorImpl<BooleanLiteral> &literals) {
-  if (!visited.insert({value, static_cast<uint8_t>(negated)}).second)
-    return;
-  Operation *operation = value.getDefiningOp();
-  if (!negated && operation && isa<ac::VarMulOp, ac::VarAndOp>(operation) &&
-      integerWidth(value.getType()) == 1) {
-    literals.push_back({interner.identify(value), false});
-    collectConjuncts(operation->getOperand(0), false, interner, visited,
-                     literals);
-    collectConjuncts(operation->getOperand(1), false, interner, visited,
-                     literals);
-    return;
-  }
-  if (auto compare = dyn_cast_or_null<ac::VarCmpOp>(operation);
-      compare && compare.getPredicate() == "eq") {
-    if (constantFalse(compare.getLhs())) {
-      collectConjuncts(compare.getRhs(), !negated, interner, visited, literals);
-      return;
+  // Conjunct collection walks an `and`/`mul` chain and pushes one literal per
+  // visited node. Use an explicit LIFO worklist so a deep chain does not
+  // consume one C++ stack frame per level; operands are pushed in reverse so
+  // literals are still emitted in the original left-to-right order.
+  SmallVector<std::pair<Value, bool>> pending;
+  pending.push_back({value, negated});
+  while (!pending.empty()) {
+    auto [current, currentNegated] = pending.back();
+    pending.pop_back();
+    if (!visited.insert({current, static_cast<uint8_t>(currentNegated)}).second)
+      continue;
+    Operation *operation = current.getDefiningOp();
+    if (!currentNegated && operation &&
+        isa<ac::VarMulOp, ac::VarAndOp>(operation) &&
+        integerWidth(current.getType()) == 1) {
+      literals.push_back({interner.identify(current), false});
+      pending.push_back({operation->getOperand(1), false});
+      pending.push_back({operation->getOperand(0), false});
+      continue;
     }
-    if (constantFalse(compare.getRhs())) {
-      collectConjuncts(compare.getLhs(), !negated, interner, visited, literals);
-      return;
+    if (auto compare = dyn_cast_or_null<ac::VarCmpOp>(operation);
+        compare && compare.getPredicate() == "eq") {
+      if (constantFalse(compare.getLhs())) {
+        pending.push_back({compare.getRhs(), !currentNegated});
+        continue;
+      }
+      if (constantFalse(compare.getRhs())) {
+        pending.push_back({compare.getLhs(), !currentNegated});
+        continue;
+      }
     }
+    literals.push_back({interner.identify(current), currentNegated});
   }
-  literals.push_back({interner.identify(value), negated});
 }
 
 template <typename Fn>

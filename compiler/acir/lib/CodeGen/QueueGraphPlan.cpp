@@ -6635,50 +6635,79 @@ llvm::Error verifyQueueGraphPlan(const QueueGraphPlan &plan) {
                    true)
             .Default(false);
       };
-      std::function<uint64_t(llvm::StringRef)> canonicalExpression =
-          [&](llvm::StringRef identity) -> uint64_t {
-        if (auto found = canonicalMemo.find(identity);
-            found != canonicalMemo.end())
-          return found->getValue();
-        const uint64_t opaque = nextCanonicalIdentity++;
-        canonicalMemo[identity] = opaque;
-        auto expression = llvm::find_if(
-            block.expressions, [&](const QueueExpressionPlan &candidate) {
-              return candidate.result == identity;
-            });
-        if (expression == block.expressions.end() ||
-            !structurallyPure(*expression))
-          return opaque;
-        std::vector<uint64_t> operands;
-        for (const std::string &operand : expression->operands)
-          operands.push_back(canonicalExpression(operand));
-        if (expression->kind == "mul" || expression->kind == "and" ||
-            expression->kind == "or" || expression->kind == "xor" ||
-            (expression->kind == "cmp" &&
-             (expression->predicate == "eq" || expression->predicate == "ne")))
-          llvm::sort(operands);
-        std::string key;
-        llvm::raw_string_ostream stream(key);
-        auto writeString = [&](llvm::StringRef value) {
-          stream << value.size() << ':' << value;
+      // Canonical identity is computed bottom-up over structurally pure
+      // expressions. An explicit stack with a post-visit marker keeps deep
+      // chains off the C++ stack; operands are pushed in reverse so the
+      // pre-order identity assignment and the interned keys are unchanged.
+      auto canonicalExpression = [&](llvm::StringRef root) -> uint64_t {
+        struct Frame {
+          std::string identity;
+          size_t expressionIndex = 0;
+          bool expanded = false;
         };
-        for (llvm::StringRef value : {llvm::StringRef(expression->kind),
-                                      llvm::StringRef(expression->type),
-                                      llvm::StringRef(expression->field),
-                                      llvm::StringRef(expression->literal),
-                                      llvm::StringRef(expression->predicate),
-                                      llvm::StringRef(expression->table),
-                                      llvm::StringRef(expression->slot),
-                                      llvm::StringRef(expression->mask),
-                                      llvm::StringRef(expression->value)})
-          writeString(value);
-        stream << expression->lsb << ':' << expression->width << ':';
-        for (uint64_t operand : operands)
-          stream << operand << ',';
-        const uint64_t result =
-            canonicalExpressions.try_emplace(key, opaque).first->getValue();
-        canonicalMemo[identity] = result;
-        return result;
+        llvm::SmallVector<Frame, 16> pending;
+        pending.push_back({root.str(), 0, false});
+        while (!pending.empty()) {
+          Frame frame = std::move(pending.back());
+          pending.pop_back();
+          if (!frame.expanded) {
+            if (canonicalMemo.find(frame.identity) != canonicalMemo.end())
+              continue;
+            size_t index = block.expressions.size();
+            for (size_t candidate = 0; candidate < block.expressions.size();
+                 ++candidate)
+              if (block.expressions[candidate].result == frame.identity) {
+                index = candidate;
+                break;
+              }
+            canonicalMemo[frame.identity] = nextCanonicalIdentity++;
+            if (index == block.expressions.size() ||
+                !structurallyPure(block.expressions[index]))
+              continue;
+            pending.push_back({frame.identity, index, true});
+            const std::vector<std::string> &names =
+                block.expressions[index].operands;
+            for (auto it = names.rbegin(); it != names.rend(); ++it)
+              if (canonicalMemo.find(*it) == canonicalMemo.end())
+                pending.push_back({*it, 0, false});
+            continue;
+          }
+          const QueueExpressionPlan &expression =
+              block.expressions[frame.expressionIndex];
+          std::vector<uint64_t> operands;
+          for (const std::string &operand : expression.operands)
+            operands.push_back(canonicalMemo.lookup(operand));
+          if (expression.kind == "mul" || expression.kind == "and" ||
+              expression.kind == "or" || expression.kind == "xor" ||
+              (expression.kind == "cmp" &&
+               (expression.predicate == "eq" ||
+                expression.predicate == "ne")))
+            llvm::sort(operands);
+          std::string key;
+          llvm::raw_string_ostream stream(key);
+          auto writeString = [&](llvm::StringRef value) {
+            stream << value.size() << ':' << value;
+          };
+          for (llvm::StringRef value : {llvm::StringRef(expression.kind),
+                                        llvm::StringRef(expression.type),
+                                        llvm::StringRef(expression.field),
+                                        llvm::StringRef(expression.literal),
+                                        llvm::StringRef(expression.predicate),
+                                        llvm::StringRef(expression.table),
+                                        llvm::StringRef(expression.slot),
+                                        llvm::StringRef(expression.mask),
+                                        llvm::StringRef(expression.value)})
+            writeString(value);
+          stream << expression.lsb << ':' << expression.width << ':';
+          for (uint64_t operand : operands)
+            stream << operand << ',';
+          const uint64_t result =
+              canonicalExpressions
+                  .try_emplace(key, canonicalMemo.lookup(frame.identity))
+                  .first->getValue();
+          canonicalMemo[frame.identity] = result;
+        }
+        return canonicalMemo.lookup(root);
       };
       struct Literal {
         uint64_t atom = 0;
@@ -6692,46 +6721,55 @@ llvm::Error verifyQueueGraphPlan(const QueueGraphPlan &plan) {
         return expression != block.expressions.end() &&
                expression->kind == "constant" && expression->literal == "false";
       };
-      std::function<void(llvm::StringRef, bool,
-                         llvm::DenseSet<std::pair<uint64_t, uint8_t>> &,
-                         llvm::SmallVectorImpl<Literal> &)>
-          collectConjuncts = [&](llvm::StringRef identity, bool negated,
-                                 llvm::DenseSet<std::pair<uint64_t, uint8_t>>
-                                     &visited,
-                                 llvm::SmallVectorImpl<Literal> &literals) {
-            const uint64_t atom = canonicalExpression(identity);
-            if (!visited.insert({atom, static_cast<uint8_t>(negated)}).second)
-              return;
-            auto expression = llvm::find_if(
-                block.expressions, [&](const QueueExpressionPlan &candidate) {
-                  return candidate.result == identity;
-                });
-            if (expression != block.expressions.end() && !negated &&
-                expression->type == "i1" &&
-                (expression->kind == "mul" || expression->kind == "and") &&
-                expression->operands.size() == 2) {
-              literals.push_back({atom, false});
-              collectConjuncts(expression->operands[0], false, visited,
-                               literals);
-              collectConjuncts(expression->operands[1], false, visited,
-                               literals);
-              return;
-            }
-            if (expression != block.expressions.end() &&
-                expression->kind == "cmp" && expression->predicate == "eq" &&
-                expression->operands.size() == 2) {
-              if (isFalse(expression->operands[0])) {
-                collectConjuncts(expression->operands[1], !negated, visited,
-                                 literals);
-                return;
+      auto collectConjuncts =
+          [&](llvm::StringRef root, bool rootNegated,
+              llvm::DenseSet<std::pair<uint64_t, uint8_t>> &visited,
+              llvm::SmallVectorImpl<Literal> &literals) {
+            // Same walk as the analysis-side collector: an explicit LIFO
+            // worklist keeps deep `and`/`mul` chains off the C++ stack, with
+            // operands pushed in reverse so literals keep their order.
+            llvm::SmallVector<std::pair<std::string, bool>, 16> pending;
+            pending.push_back({root.str(), rootNegated});
+            while (!pending.empty()) {
+              auto [identity, negated] = std::move(pending.back());
+              pending.pop_back();
+              const uint64_t atom = canonicalExpression(identity);
+              if (!visited.insert({atom, static_cast<uint8_t>(negated)})
+                       .second)
+                continue;
+              size_t index = block.expressions.size();
+              for (size_t candidate = 0; candidate < block.expressions.size();
+                   ++candidate)
+                if (block.expressions[candidate].result == identity) {
+                  index = candidate;
+                  break;
+                }
+              const bool found = index < block.expressions.size();
+              if (found && !negated && block.expressions[index].type == "i1" &&
+                  (block.expressions[index].kind == "mul" ||
+                   block.expressions[index].kind == "and") &&
+                  block.expressions[index].operands.size() == 2) {
+                literals.push_back({atom, false});
+                pending.push_back({block.expressions[index].operands[1], false});
+                pending.push_back({block.expressions[index].operands[0], false});
+                continue;
               }
-              if (isFalse(expression->operands[1])) {
-                collectConjuncts(expression->operands[0], !negated, visited,
-                                 literals);
-                return;
+              if (found && block.expressions[index].kind == "cmp" &&
+                  block.expressions[index].predicate == "eq" &&
+                  block.expressions[index].operands.size() == 2) {
+                if (isFalse(block.expressions[index].operands[0])) {
+                  pending.push_back(
+                      {block.expressions[index].operands[1], !negated});
+                  continue;
+                }
+                if (isFalse(block.expressions[index].operands[1])) {
+                  pending.push_back(
+                      {block.expressions[index].operands[0], !negated});
+                  continue;
+                }
               }
+              literals.push_back({atom, negated});
             }
-            literals.push_back({atom, negated});
           };
       auto mutuallyExclusive = [&](llvm::StringRef left,
                                    llvm::StringRef right) {
