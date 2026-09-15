@@ -27,6 +27,6 @@ def commit(entries, item):
 
 @ac.system
 def array_update_state(request: Request) -> Request:
-    entries: list[State] = [0] * 2
+    entries = ac.table[2, State](init=0)
     result = commit(entries, request)
     return result

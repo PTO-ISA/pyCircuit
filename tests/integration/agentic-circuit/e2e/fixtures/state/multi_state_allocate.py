@@ -19,6 +19,6 @@ def allocate(tail, entries, incoming):
 @ac.system
 def multi_state_allocate(incoming: Entry) -> Entry:
     tail: ac.u2 = 0
-    entries: list[Entry] = [0] * 4
+    entries = ac.table[4, Entry](init=0)
     allocated = allocate(tail, entries, incoming)
     return allocated

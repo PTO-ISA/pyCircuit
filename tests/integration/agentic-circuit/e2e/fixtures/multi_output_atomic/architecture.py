@@ -45,6 +45,6 @@ def multi_output_atomic(
     command: Command,
 ) -> tuple[LeftEffect, RightEffect, ApplyAck]:
     count: ac.u8 = 0
-    entries: list[ac.u8] = [0] * 2
+    entries = ac.table[2, ac.u8](init=0)
     left, right, ack = dispatch(count, entries, command)
     return left, right, ack

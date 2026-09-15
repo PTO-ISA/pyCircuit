@@ -80,9 +80,10 @@ def _normalize_queue_source_path(source_path: str | None) -> str:
     ):
         return parts[-1] if parts else _DEFAULT_QUEUE_SOURCE_PATH
     result = "/".join(parts) or _DEFAULT_QUEUE_SOURCE_PATH
-    if result != _DEFAULT_QUEUE_SOURCE_PATH and re.fullmatch(
-        r"[A-Za-z0-9._+@/-]+\.py", result
-    ) is None:
+    if (
+        result != _DEFAULT_QUEUE_SOURCE_PATH
+        and re.fullmatch(r"[A-Za-z0-9._+@/-]+\.py", result) is None
+    ):
         raise QueueFrontendError(
             "ACPY-QUEUE-027: source path contains unsupported characters"
         )
@@ -120,10 +121,14 @@ def _render_fused_source_locations(frames: Collection[SourceFrame | None]) -> st
         return ""
     if len(unique) == 1:
         return _render_source_frame_location(unique[0])
-    return " loc(fused[" + ", ".join(
-        canonical_mlir_string(frame.file) + f":{frame.line}:{frame.column}"
-        for frame in unique
-    ) + "])"
+    return (
+        " loc(fused["
+        + ", ".join(
+            canonical_mlir_string(frame.file) + f":{frame.line}:{frame.column}"
+            for frame in unique
+        )
+        + "])"
+    )
 
 
 def _render_type(value_type: ValueType) -> str:
@@ -284,18 +289,14 @@ def _constant_integer(
         result = (
             left + right
             if isinstance(node.op, ast.Add)
-            else left - right
-            if isinstance(node.op, ast.Sub)
-            else left * right
+            else left - right if isinstance(node.op, ast.Sub) else left * right
         )
         return result if -(1 << 63) <= result <= (1 << 63) - 1 else None
     if isinstance(node, ast.Call) and len(node.args) == 1 and not node.keywords:
         helper = (
             node.func.attr
             if isinstance(node.func, ast.Attribute)
-            else node.func.id
-            if isinstance(node.func, ast.Name)
-            else ""
+            else node.func.id if isinstance(node.func, ast.Name) else ""
         )
         if helper in {"index_width", "count_width"}:
             operand = _constant_integer(node.args[0], values)
@@ -610,9 +611,7 @@ def _static_parameter_aliases(tree: ast.Module) -> dict[str, StaticParameterAlia
         family_name = (
             family.value.attr
             if isinstance(family.value, ast.Attribute)
-            else family.value.id
-            if isinstance(family.value, ast.Name)
-            else ""
+            else family.value.id if isinstance(family.value, ast.Name) else ""
         )
         parameter_type = family.slice.id if isinstance(family.slice, ast.Name) else ""
         if family_name != "param":
@@ -1013,9 +1012,11 @@ def _bounded_annotation_static_checks(
     bounds = (
         (ast.Constant(0), annotation.slice)
         if kind == "index"
-        else tuple(annotation.slice.elts)
-        if isinstance(annotation.slice, ast.Tuple)
-        else ()
+        else (
+            tuple(annotation.slice.elts)
+            if isinstance(annotation.slice, ast.Tuple)
+            else ()
+        )
     )
     if len(bounds) != 2:
         return ()
@@ -1094,6 +1095,9 @@ class RuleStateWriteBinding:
     value: ast.expr
     guard: ast.expr | None = None
     guard_negated: bool = False
+    owner_kind: str = "var"
+    shape: tuple[int, ...] = ()
+    write_fields: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -1104,6 +1108,8 @@ class RuleStateReadBinding:
     value_type: ValueType
     entries: int
     index: ast.expr | None
+    owner_kind: str = "var"
+    shape: tuple[int, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -1128,6 +1134,7 @@ class RuleFindBinding:
     key: ast.expr | None
     shape: tuple[int, ...] = ()
     row: ast.expr | None = None
+    owner_kind: str = "var"
 
 
 @dataclass(frozen=True, slots=True)
@@ -1136,6 +1143,8 @@ class RuleStateOwnerBinding:
     argument: str
     value_type: ValueType
     entries: int
+    owner_kind: str = "var"
+    shape: tuple[int, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -1780,9 +1789,7 @@ def _scalar_type_descriptor(
                 (ast.Constant(0), node.slice)
                 if bounded_kind == "index"
                 else (
-                    tuple(node.slice.elts)
-                    if isinstance(node.slice, ast.Tuple)
-                    else ()
+                    tuple(node.slice.elts) if isinstance(node.slice, ast.Tuple) else ()
                 )
             )
             if len(bounds) != 2:
@@ -1886,9 +1893,7 @@ def _enums(tree: ast.Module) -> tuple[EnumBinding, ...]:
                 "and fit the declared width"
             )
         if len(set(enumerants)) != len(enumerants):
-            raise QueueFrontendError(
-                "ACPY-TYPE-005: enum member names must be unique"
-            )
+            raise QueueFrontendError("ACPY-TYPE-005: enum member names must be unique")
         descriptor = EnumType(
             node.name,
             tuple(enumerants),
@@ -2779,10 +2784,7 @@ def _pure_helper_definitions(
         node.name: node
         for node in tree.body
         if isinstance(node, ast.FunctionDef)
-        and {
-            _decorator_name(item).rsplit(".", 1)[-1]
-            for item in node.decorator_list
-        }
+        and {_decorator_name(item).rsplit(".", 1)[-1] for item in node.decorator_list}
         & architecture
     }
     helper_nodes = {
@@ -2790,10 +2792,7 @@ def _pure_helper_definitions(
         for node in tree.body
         if isinstance(node, ast.FunctionDef)
         and not (
-            {
-                _decorator_name(item).rsplit(".", 1)[-1]
-                for item in node.decorator_list
-            }
+            {_decorator_name(item).rsplit(".", 1)[-1] for item in node.decorator_list}
             & architecture
         )
     }
@@ -2842,9 +2841,9 @@ def _pure_helper_definitions(
                     reachable_helpers.add(item.id)
                     pending_helpers.append(item.id)
     nodes: dict[str, ast.FunctionDef] = {}
-    signatures: dict[
-        str, tuple[tuple[tuple[str, ValueType], ...], ValueType, bool]
-    ] = {}
+    signatures: dict[str, tuple[tuple[tuple[str, ValueType], ...], ValueType, bool]] = (
+        {}
+    )
     for node in tree.body:
         if not isinstance(node, ast.FunctionDef):
             continue
@@ -3278,6 +3277,7 @@ def _desugar_nested_rule_captures(
     if len(candidates) != 1:
         return tree
     function = candidates[0]
+
     def declared_slot_name(statement: ast.stmt) -> str | None:
         if not (
             isinstance(statement, ast.Assign)
@@ -3285,6 +3285,19 @@ def _desugar_nested_rule_captures(
             and isinstance(statement.targets[0], ast.Name)
             and isinstance(statement.value, ast.Call)
             and _decorator_name(statement.value.func).rsplit(".", 1)[-1] == "slot"
+        ):
+            return None
+        return statement.targets[0].id
+
+    def declared_table_name(statement: ast.stmt) -> str | None:
+        if not (
+            isinstance(statement, ast.Assign)
+            and len(statement.targets) == 1
+            and isinstance(statement.targets[0], ast.Name)
+            and isinstance(statement.value, ast.Call)
+            and isinstance(statement.value.func, ast.Subscript)
+            and _decorator_name(statement.value.func.value).rsplit(".", 1)[-1]
+            == "table"
         ):
             return None
         return statement.targets[0].id
@@ -3297,7 +3310,7 @@ def _desugar_nested_rule_captures(
                 statement.target.id
                 if isinstance(statement, ast.AnnAssign)
                 and isinstance(statement.target, ast.Name)
-                else declared_slot_name(statement)
+                else declared_slot_name(statement) or declared_table_name(statement)
             ),
         )
         if name is not None
@@ -3311,7 +3324,7 @@ def _desugar_nested_rule_captures(
                 statement.target.id
                 if isinstance(statement, ast.AnnAssign)
                 and isinstance(statement.target, ast.Name)
-                else declared_slot_name(statement)
+                else declared_slot_name(statement) or declared_table_name(statement)
             ),
         )
         if name is not None
@@ -3648,8 +3661,9 @@ def _strip_static_assertions(
     values: Mapping[str, StaticValue],
     source_path: str,
     definition_locations: Mapping[str, tuple[str, int, int]] | None = None,
-    static_assert_locations: Mapping[str, tuple[tuple[str, int, int], ...]]
-    | None = None,
+    static_assert_locations: (
+        Mapping[str, tuple[tuple[str, int, int], ...]] | None
+    ) = None,
 ) -> None:
     """Evaluate direct ``ac.static_assert`` statements and erase them.
 
@@ -3727,9 +3741,11 @@ def _strip_static_assertions(
         message_node = (
             call.args[1]
             if len(call.args) == 2
-            else call.keywords[0].value
-            if call.keywords
-            else ast.Constant("static assertion failed")
+            else (
+                call.keywords[0].value
+                if call.keywords
+                else ast.Constant("static assertion failed")
+            )
         )
         try:
             message = evaluate_static(message_node, StaticEnvironment(values))
@@ -3786,8 +3802,9 @@ def parse_queue_program(
     source_path: str | None = None,
     static_type_namespace: str = "",
     definition_locations: Mapping[str, tuple[str, int, int]] | None = None,
-    static_assert_locations: Mapping[str, tuple[tuple[str, int, int], ...]]
-    | None = None,
+    static_assert_locations: (
+        Mapping[str, tuple[tuple[str, int, int], ...]] | None
+    ) = None,
     source_node_locations: SourceNodeLocations | None = None,
 ) -> QueueProgram:
     normalized_source_path = _normalize_queue_source_path(source_path)
@@ -3875,9 +3892,11 @@ def parse_queue_program(
             bounds = (
                 (ast.Constant(0), target.slice)
                 if kind == "index"
-                else tuple(target.slice.elts)
-                if kind == "range" and isinstance(target.slice, ast.Tuple)
-                else ()
+                else (
+                    tuple(target.slice.elts)
+                    if kind == "range" and isinstance(target.slice, ast.Tuple)
+                    else ()
+                )
             )
             if len(bounds) != 2:
                 return transformed
@@ -3916,9 +3935,7 @@ def parse_queue_program(
                     program, result = dependent
                     check_target = f"{target_name}:{suffix}"
                     expression_type_checks.append(
-                        StaticTypeCheck(
-                            check_target, program, result, concrete
-                        )
+                        StaticTypeCheck(check_target, program, result, concrete)
                     )
                     target_checks.append(check_target)
                 if target_checks:
@@ -4105,9 +4122,7 @@ def parse_queue_program(
             spelling = (
                 candidate.func.attr
                 if isinstance(candidate.func, ast.Attribute)
-                else candidate.func.id
-                if isinstance(candidate.func, ast.Name)
-                else None
+                else candidate.func.id if isinstance(candidate.func, ast.Name) else None
             )
             if spelling in forbidden_runtime_mechanics:
                 raise QueueFrontendError(
@@ -4705,8 +4720,7 @@ def parse_queue_program(
             and not (
                 slot_parameter_names
                 and any(
-                    isinstance(candidate, ast.Return)
-                    and not _is_none_return(candidate)
+                    isinstance(candidate, ast.Return) and not _is_none_return(candidate)
                     for candidate in multi_body[-1].body
                 )
             )
@@ -4753,14 +4767,17 @@ def parse_queue_program(
                 condition, negated = path[0]
                 return copy.deepcopy(condition), negated
             terms = [
-                ast.UnaryOp(op=ast.Not(), operand=copy.deepcopy(condition))
-                if negated
-                else copy.deepcopy(condition)
+                (
+                    ast.UnaryOp(op=ast.Not(), operand=copy.deepcopy(condition))
+                    if negated
+                    else copy.deepcopy(condition)
+                )
                 for condition, negated in path
             ]
-            return ast.fix_missing_locations(
-                ast.BoolOp(op=ast.And(), values=terms)
-            ), False
+            return (
+                ast.fix_missing_locations(ast.BoolOp(op=ast.And(), values=terms)),
+                False,
+            )
 
         def flatten_branch(
             statement: ast.stmt,
@@ -4782,9 +4799,7 @@ def parse_queue_program(
                         )
                     multi_return = copy.deepcopy(statement.value)
                     multi_output_guard = (
-                        ast.UnaryOp(op=ast.Not(), operand=guard)
-                        if negated
-                        else guard
+                        ast.UnaryOp(op=ast.Not(), operand=guard) if negated else guard
                     )
                     return
                 absent_output_paths.append(
@@ -4889,9 +4904,7 @@ def parse_queue_program(
                     )
                 guard, negated = branch_guard(path)
                 slot_releases.append(
-                    RuleSlotReleaseDefinition(
-                        call.func.value.id, guard, negated
-                    )
+                    RuleSlotReleaseDefinition(call.func.value.id, guard, negated)
                 )
                 has_branch_effects = True
                 return
@@ -4914,11 +4927,7 @@ def parse_queue_program(
                 if len(present_terms) == 1
                 else ast.BoolOp(op=ast.And(), values=present_terms)
             )
-        if (
-            slot_releases
-            and multi_guard is None
-            and multi_output_guard is not None
-        ):
+        if slot_releases and multi_guard is None and multi_output_guard is not None:
             multi_guard = copy.deepcopy(multi_output_guard)
         state_reads: list[RuleStateReadDefinition] = []
         state_writes: list[RuleStateWriteDefinition] = []
@@ -5043,29 +5052,39 @@ def parse_queue_program(
                 call = statement.value
                 find_argument: str | None = None
                 find_row: ast.expr | None = None
-                if len(call.args) == 1 and isinstance(call.args[0], ast.Name):
-                    find_argument = call.args[0].id
+                receiver = (
+                    call.func.value
+                    if isinstance(call.func, ast.Attribute) and call.func.attr == "find"
+                    else None
+                )
+                if isinstance(receiver, ast.Name) and receiver.id in parameter_names:
+                    find_argument = receiver.id
                 elif (
-                    len(call.args) == 1
-                    and isinstance(call.args[0], ast.Call)
-                    and isinstance(call.args[0].func, ast.Attribute)
-                    and call.args[0].func.attr == "view"
-                    and isinstance(call.args[0].func.value, ast.Name)
-                    and len(call.args[0].args) == 1
-                    and not call.args[0].keywords
+                    isinstance(receiver, ast.Call)
+                    and isinstance(receiver.func, ast.Attribute)
+                    and receiver.func.attr == "view"
+                    and isinstance(receiver.func.value, ast.Name)
+                    and receiver.func.value.id in parameter_names
+                    and len(receiver.args) == 1
+                    and not receiver.keywords
                 ):
-                    find_argument = call.args[0].func.value.id
-                    find_row = call.args[0].args[0]
+                    find_argument = receiver.func.value.id
+                    find_row = receiver.args[0]
+                elif _decorator_name(call.func) in {"find", "ac.find"}:
+                    raise QueueFrontendError(
+                        "ACPY-RULE-009: ac.find was removed; use "
+                        "table.find(where=..., key=...)"
+                    )
                 if (
-                    len(call.args) != 1
+                    call.args
                     or find_argument not in parameter_names
                     or any(
                         keyword.arg not in {"where", "key"} for keyword in call.keywords
                     )
                 ):
                     raise QueueFrontendError(
-                        "ACPY-RULE-009: find requires one persistent list or "
-                        "rank-two row view and where/key lambdas"
+                        "ACPY-RULE-009: table.find requires a Table receiver, "
+                        "no positional arguments, and where/key lambdas"
                     )
                 where = [
                     keyword.value for keyword in call.keywords if keyword.arg == "where"
@@ -5081,6 +5100,15 @@ def parse_queue_program(
                     raise QueueFrontendError(
                         "ACPY-RULE-009: runtime row find currently supports "
                         "first selection only"
+                    )
+                if any(
+                    not isinstance(callback, ast.Lambda)
+                    or len(callback.args.args) != 1
+                    for callback in (*where, *keys)
+                ):
+                    raise QueueFrontendError(
+                        "ACPY-RULE-009: table.find where/key must be "
+                        "one-argument lambdas"
                     )
                 predicate_argument, predicate = _lambda_value(where[0])
                 key_argument: str | None = None
@@ -5245,11 +5273,13 @@ def parse_queue_program(
                 and write.argument in unconditionally_written_scalars
             }
             state_writes = [
-                replace(write, guard=None, guard_negated=False)
-                if write.index is None
-                and write.argument in unconditionally_written_scalars
-                and last_scalar_write[write.argument] == index
-                else write
+                (
+                    replace(write, guard=None, guard_negated=False)
+                    if write.index is None
+                    and write.argument in unconditionally_written_scalars
+                    and last_scalar_write[write.argument] == index
+                    else write
+                )
                 for index, write in enumerate(state_writes)
                 if write.index is not None
                 or write.argument not in unconditionally_written_scalars
@@ -5574,14 +5604,16 @@ def parse_queue_program(
         )
     if definition_locations:
         rule_definitions = {
-            name: replace(
-                definition,
-                source_path=definition_locations[name][0],
-                source_line=definition_locations[name][1],
-                source_column=definition_locations[name][2],
+            name: (
+                replace(
+                    definition,
+                    source_path=definition_locations[name][0],
+                    source_line=definition_locations[name][1],
+                    source_column=definition_locations[name][2],
+                )
+                if name in definition_locations
+                else definition
             )
-            if name in definition_locations
-            else definition
             for name, definition in rule_definitions.items()
         }
     candidates = [
@@ -5824,9 +5856,7 @@ def parse_queue_program(
         returned_values = (
             tuple(returned.elts)
             if isinstance(returned, (ast.Tuple, ast.List))
-            else (returned,)
-            if returned is not None
-            else ()
+            else (returned,) if returned is not None else ()
         )
         if len(returned_values) == len(result_payloads) and all(
             isinstance(value, ast.Name) for value in returned_values
@@ -6147,6 +6177,17 @@ def parse_queue_program(
         if not isinstance(value_type, StructType):
             return ("$entry",)
         return tuple(field.name for field in value_type.fields)
+
+    def state_value_type(owner: VarStateBinding | TableBinding) -> ValueType:
+        return (
+            owner.value_type if isinstance(owner, VarStateBinding) else owner.entry_type
+        )
+
+    def state_owner_kind(owner: VarStateBinding | TableBinding) -> str:
+        return "var" if isinstance(owner, VarStateBinding) else "table"
+
+    def state_write_fields(owner: VarStateBinding | TableBinding) -> tuple[str, ...]:
+        return complete_value_fields(state_value_type(owner))
 
     def table_key_ordering(
         table: TableBinding, argument: str, expression: ast.expr
@@ -7018,54 +7059,38 @@ def parse_queue_program(
                 if isinstance(annotation, ast.Subscript) and _decorator_name(
                     annotation.value
                 ).rsplit(".", 1)[-1] in {"list", "List"}:
-                    value_type = _payload(
-                        annotation.slice,
-                        payload_map,
-                        enum_map,
-                        static_values=type_static_values,
-                    )
                     initializer = statement.value
-                    repeated: ast.expr | None = None
                     count: int | None = None
                     if isinstance(initializer, ast.BinOp) and isinstance(
                         initializer.op, ast.Mult
                     ):
                         if isinstance(initializer.left, ast.List):
-                            repeated = initializer.left
                             count = _static_int(initializer.right)
                         elif isinstance(initializer.right, ast.List):
-                            repeated = initializer.right
                             count = _static_int(initializer.left)
-                    if repeated is not None:
-                        if (
-                            not isinstance(repeated, ast.List)
-                            or len(repeated.elts) != 1
-                            or not isinstance(repeated.elts[0], ast.Constant)
-                            or repeated.elts[0].value != 0
-                            or count is None
-                            or count <= 0
-                        ):
-                            raise QueueFrontendError(
-                                "ACPY-VAR-002: persistent list requires [0] * N "
-                                "with positive static N"
-                            )
-                        entries = count
-                    elif isinstance(initializer, ast.List):
-                        if not initializer.elts or any(
-                            not isinstance(element, ast.Constant) or element.value != 0
-                            for element in initializer.elts
-                        ):
-                            raise QueueFrontendError(
-                                "ACPY-VAR-002: persistent list initializer must "
-                                "be a non-empty zero image"
-                            )
-                        entries = len(initializer.elts)
-                    else:
-                        raise QueueFrontendError(
-                            "ACPY-VAR-002: persistent list requires a static zero "
-                            "initializer"
+                    if count is None and isinstance(initializer, ast.List):
+                        count = len(initializer.elts)
+                    entry_spelling = ast.unparse(annotation.slice)
+                    extent_spelling = str(count) if count is not None else "N"
+                    frame = source_frame(statement)
+                    location = (
+                        None
+                        if frame is None
+                        else SourceSpan(
+                            frame.file,
+                            frame.line,
+                            frame.column,
+                            frame.end_line,
+                            frame.end_column,
                         )
-                    init: int | bool = False if isinstance(value_type, BoolType) else 0
+                    )
+                    raise QueueFrontendError(
+                        "ACPY-VAR-002",
+                        "persistent indexed state must be declared explicitly; "
+                        f"replace {name}: list[{entry_spelling}] with "
+                        f"{name} = ac.table[{extent_spelling}, {entry_spelling}](init=0)",
+                        location,
+                    )
                 else:
                     value_type = _payload(
                         annotation,
@@ -9607,10 +9632,12 @@ def parse_queue_program(
                     static_prefix = (
                         len(definition.state_arguments)
                         if definition.state_arguments
-                        else 1
-                        if definition.var_argument is not None
-                        or definition.table_argument is not None
-                        else 0
+                        else (
+                            1
+                            if definition.var_argument is not None
+                            or definition.table_argument is not None
+                            else 0
+                        )
                     )
                     definition, call = specialize_rule_call(
                         definition, call, static_prefix
@@ -9644,8 +9671,12 @@ def parse_queue_program(
                         and isinstance(
                             call.args[len(definition.state_arguments)], ast.Name
                         )
-                        and call.args[len(definition.state_arguments)].id
-                        in variable_by_name
+                        and (
+                            call.args[len(definition.state_arguments)].id
+                            in variable_by_name
+                            or call.args[len(definition.state_arguments)].id
+                            in table_by_name
+                        )
                     ):
                         definition = replace(
                             definition,
@@ -9655,10 +9686,7 @@ def parse_queue_program(
                             ),
                             arguments=definition.arguments[1:],
                         )
-                    if (
-                        definition.output_expressions
-                        and len(definition.arguments) != 1
-                    ):
+                    if definition.output_expressions and len(definition.arguments) != 1:
                         raise QueueFrontendError(
                             "ACPY-RULE-014: optional multi-output rules require "
                             "exactly one payload parameter after persistent state"
@@ -9693,7 +9721,7 @@ def parse_queue_program(
                                 "requires every persistent value followed by "
                                 "one Queue per payload parameter"
                             )
-                        owners: dict[str, VarStateBinding] = {}
+                        owners: dict[str, VarStateBinding | TableBinding] = {}
                         slot_owners: dict[str, SlotBinding] = {}
                         for argument, value in zip(
                             definition.state_arguments,
@@ -9714,13 +9742,16 @@ def parse_queue_program(
                                     )
                                 slot_owners[argument] = slot_by_name[value.id]
                             else:
-                                if value.id not in variable_by_name:
+                                owner = variable_by_name.get(
+                                    value.id
+                                ) or table_by_name.get(value.id)
+                                if owner is None:
                                     raise QueueFrontendError(
                                         "ACPY-RULE-008: persistent rule parameters "
                                         "must precede payload parameters and bind "
-                                        "persistent variables"
+                                        "persistent variables or Tables"
                                     )
-                                owners[argument] = variable_by_name[value.id]
+                                owners[argument] = owner
                         bound_slot_names = [
                             owner.name for owner in slot_owners.values()
                         ]
@@ -9739,8 +9770,10 @@ def parse_queue_program(
                             RuleStateOwnerBinding(
                                 owner.name,
                                 argument,
-                                owner.value_type,
+                                state_value_type(owner),
                                 owner.entries,
+                                state_owner_kind(owner),
+                                owner.shape,
                             )
                             for argument, owner in owners.items()
                         )
@@ -9776,12 +9809,15 @@ def parse_queue_program(
                                 RuleStateWriteBinding(
                                     owner.name,
                                     write.argument,
-                                    owner.value_type,
+                                    state_value_type(owner),
                                     owner.entries,
                                     copy.deepcopy(write.index),
                                     copy.deepcopy(write.value),
                                     copy.deepcopy(write.guard),
                                     write.guard_negated,
+                                    state_owner_kind(owner),
+                                    owner.shape,
+                                    state_write_fields(owner),
                                 )
                             )
                         multi_state_writes = tuple(writes)
@@ -9798,9 +9834,11 @@ def parse_queue_program(
                                     read.name,
                                     owner.name,
                                     read.argument,
-                                    owner.value_type,
+                                    state_value_type(owner),
                                     owner.entries,
                                     copy.deepcopy(read.index),
+                                    state_owner_kind(owner),
+                                    owner.shape,
                                 )
                             )
                         multi_state_reads = tuple(reads)
@@ -9832,7 +9870,7 @@ def parse_queue_program(
                                     find.name,
                                     owner.name,
                                     find.argument,
-                                    owner.value_type,
+                                    state_value_type(owner),
                                     owner.entries,
                                     find.predicate_argument,
                                     copy.deepcopy(find.predicate),
@@ -9840,6 +9878,7 @@ def parse_queue_program(
                                     copy.deepcopy(find.key),
                                     owner.shape,
                                     copy.deepcopy(find.row),
+                                    state_owner_kind(owner),
                                 )
                             )
                         multi_state_finds = tuple(finds)
@@ -9851,11 +9890,15 @@ def parse_queue_program(
                             multi_state_result_type = (
                                 multi_state_finds[0].value_type
                                 if multi_state_finds
-                                else multi_state_reads[0].value_type
-                                if multi_state_reads
-                                else multi_state_writes[0].value_type
-                                if multi_state_writes
-                                else rule_slot_owners[0].payload
+                                else (
+                                    multi_state_reads[0].value_type
+                                    if multi_state_reads
+                                    else (
+                                        multi_state_writes[0].value_type
+                                        if multi_state_writes
+                                        else rule_slot_owners[0].payload
+                                    )
+                                )
                             )
                     elif definition.var_argument is not None:
                         if (
@@ -10398,18 +10441,18 @@ def parse_queue_program(
                 static_prefix = (
                     len(definition.state_arguments)
                     if definition.state_arguments
-                    else 1
-                    if definition.var_argument is not None
-                    or definition.table_argument is not None
-                    else 0
+                    else (
+                        1
+                        if definition.var_argument is not None
+                        or definition.table_argument is not None
+                        else 0
+                    )
                 )
                 definition, call = specialize_rule_call(definition, call, static_prefix)
                 while (
                     definition.arguments
                     and len(call.args) > len(definition.state_arguments)
-                    and isinstance(
-                        call.args[len(definition.state_arguments)], ast.Name
-                    )
+                    and isinstance(call.args[len(definition.state_arguments)], ast.Name)
                     and call.args[len(definition.state_arguments)].id in slot_by_name
                 ):
                     slot_argument = definition.arguments[0]
@@ -10430,7 +10473,7 @@ def parse_queue_program(
                             "every persistent value followed by its payload "
                             "Queues"
                         )
-                    owners: dict[str, VarStateBinding] = {}
+                    owners: dict[str, VarStateBinding | TableBinding] = {}
                     slot_owners: dict[str, SlotBinding] = {}
                     for argument, value in zip(
                         definition.state_arguments,
@@ -10450,13 +10493,16 @@ def parse_queue_program(
                                     "bind a visible ac.slot resource"
                                 )
                             slot_owners[argument] = slot_by_name[value.id]
-                        elif value.id in variable_by_name:
-                            owners[argument] = variable_by_name[value.id]
                         else:
-                            raise QueueFrontendError(
-                                "ACPY-RULE-008: persistent rule parameters "
-                                "must bind persistent variables"
+                            owner = variable_by_name.get(value.id) or table_by_name.get(
+                                value.id
                             )
+                            if owner is None:
+                                raise QueueFrontendError(
+                                    "ACPY-RULE-008: persistent rule parameters "
+                                    "must bind persistent variables or Tables"
+                                )
+                            owners[argument] = owner
                     bound_slot_names = [owner.name for owner in slot_owners.values()]
                     if len(set(bound_slot_names)) != len(bound_slot_names):
                         raise QueueFrontendError(
@@ -10482,12 +10528,15 @@ def parse_queue_program(
                             RuleStateWriteBinding(
                                 owner.name,
                                 write.argument,
-                                owner.value_type,
+                                state_value_type(owner),
                                 owner.entries,
                                 copy.deepcopy(write.index),
                                 copy.deepcopy(write.value),
                                 copy.deepcopy(write.guard),
                                 write.guard_negated,
+                                state_owner_kind(owner),
+                                owner.shape,
+                                state_write_fields(owner),
                             )
                         )
                     reads: list[RuleStateReadBinding] = []
@@ -10498,9 +10547,11 @@ def parse_queue_program(
                                 read.name,
                                 owner.name,
                                 read.argument,
-                                owner.value_type,
+                                state_value_type(owner),
                                 owner.entries,
                                 copy.deepcopy(read.index),
+                                state_owner_kind(owner),
+                                owner.shape,
                             )
                         )
                     finds: list[RuleFindBinding] = []
@@ -10521,7 +10572,7 @@ def parse_queue_program(
                                 find.name,
                                 owner.name,
                                 find.argument,
-                                owner.value_type,
+                                state_value_type(owner),
                                 owner.entries,
                                 find.predicate_argument,
                                 copy.deepcopy(find.predicate),
@@ -10529,6 +10580,7 @@ def parse_queue_program(
                                 copy.deepcopy(find.key),
                                 owner.shape,
                                 copy.deepcopy(find.row),
+                                state_owner_kind(owner),
                             )
                         )
                     input_names = tuple(
@@ -10585,8 +10637,10 @@ def parse_queue_program(
                                 RuleStateOwnerBinding(
                                     owner.name,
                                     argument,
-                                    owner.value_type,
+                                    state_value_type(owner),
                                     owner.entries,
+                                    state_owner_kind(owner),
+                                    owner.shape,
                                 )
                                 for argument, owner in owners.items()
                             ),
@@ -10821,7 +10875,12 @@ def parse_queue_program(
             + sum(write.table == table.name for write in table_writes)
             + sum(write.table == table.name for write in masked_table_writes)
             + sum(candidate.table == table.name for candidate in candidates)
-            + sum(queue.rule_table == table.name for queue in queues)
+            + sum(queue.rule_table == table.name for queue in (*queues, *effect_rules))
+            + sum(
+                owner.variable == table.name and owner.owner_kind == "table"
+                for queue in (*queues, *effect_rules)
+                for owner in queue.rule_state_owners
+            )
         )
         if endpoint_count == 0:
             raise QueueFrontendError(
@@ -10939,16 +10998,31 @@ class _ExpressionEmitter:
         candidates: Mapping[str, CandidateSetBinding] | None = None,
         selections: Mapping[str, SelectionBinding] | None = None,
         candidate_values: Mapping[str, tuple[str, ValueType]] | None = None,
-        selection_values: Mapping[str, tuple[str, ValueType, str, ValueType]]
-        | None = None,
-        find_values: Mapping[
-            str,
-            tuple[str, ValueType, str, ValueType, str, ValueType, str | None],
-        ]
-        | None = None,
-        state_views: Mapping[str, tuple[str, ValueType, int]] | None = None,
-        table_domains: Mapping[str, tuple[ValueType, int, tuple[int, ...]]]
-        | None = None,
+        selection_values: (
+            Mapping[str, tuple[str, ValueType, str, ValueType]] | None
+        ) = None,
+        find_values: (
+            Mapping[
+                str,
+                tuple[
+                    str,
+                    ValueType,
+                    str,
+                    ValueType,
+                    str,
+                    ValueType,
+                    str | None,
+                    str,
+                ],
+            ]
+            | None
+        ) = None,
+        state_views: (
+            Mapping[str, tuple[str, str, ValueType, int, tuple[int, ...]]] | None
+        ) = None,
+        table_domains: (
+            Mapping[str, tuple[ValueType, int, tuple[int, ...]]] | None
+        ) = None,
         enum_types: Mapping[str, EnumType] | None = None,
         bitfields: Mapping[str, BitfieldLayout] | None = None,
         invariants: Mapping[str, InvariantDefinition] | None = None,
@@ -11019,12 +11093,8 @@ class _ExpressionEmitter:
                 ValueType,
             ],
         ] = {}
-        self.range_checked_values: dict[
-            str, tuple[str, ValueType, str, ValueType]
-        ] = {}
-        self.enum_checked_values: dict[
-            str, tuple[str, ValueType, str, ValueType]
-        ] = {}
+        self.range_checked_values: dict[str, tuple[str, ValueType, str, ValueType]] = {}
+        self.enum_checked_values: dict[str, tuple[str, ValueType, str, ValueType]] = {}
         self.onehot_enum_values: dict[
             str,
             tuple[
@@ -11057,9 +11127,11 @@ class _ExpressionEmitter:
     ) -> tuple[str, ValueType]:
         self.expression_facts[name] = _ExpressionFact(
             value_type,
-            self._default_expression_constraint(value_type)
-            if constraint is None
-            else constraint,
+            (
+                self._default_expression_constraint(value_type)
+                if constraint is None
+                else constraint
+            ),
         )
         return name, value_type
 
@@ -11105,26 +11177,19 @@ class _ExpressionEmitter:
 
     def _unshadowed_enum(self, name: str) -> EnumType | None:
         return (
-            None
-            if name in self._runtime_binding_names()
-            else self.enum_types.get(name)
+            None if name in self._runtime_binding_names() else self.enum_types.get(name)
         )
 
     def _unshadowed_record(self, name: str) -> StructType | None:
         definition = (
-            None
-            if name in self._runtime_binding_names()
-            else self.payloads.get(name)
+            None if name in self._runtime_binding_names() else self.payloads.get(name)
         )
         return None if definition is None else definition.descriptor
 
     def _explicit_enum_member(
         self, node: ast.expr, expected: EnumType | None = None
     ) -> tuple[EnumType, str] | None:
-        if not (
-            isinstance(node, ast.Attribute)
-            and isinstance(node.value, ast.Name)
-        ):
+        if not (isinstance(node, ast.Attribute) and isinstance(node.value, ast.Name)):
             return None
         enumeration = self._unshadowed_enum(node.value.id)
         if (
@@ -11216,9 +11281,11 @@ class _ExpressionEmitter:
             if value is None or not _proven_integer_in(
                 value,
                 target.lower if isinstance(target, RangeType) else 0,
-                target.upper - 1
-                if isinstance(target, RangeType)
-                else (1 << target.width) - 1,
+                (
+                    target.upper - 1
+                    if isinstance(target, RangeType)
+                    else (1 << target.width) - 1
+                ),
             ):
                 raise QueueFrontendError(
                     "ACPY-CAST-001: typed literal must be a nonnegative static integer that fits its target"
@@ -11323,9 +11390,7 @@ class _ExpressionEmitter:
             )
         return target
 
-    def _emit_range_intrinsic(
-        self, node: ast.Call
-    ) -> tuple[str, ValueType] | None:
+    def _emit_range_intrinsic(self, node: ast.Call) -> tuple[str, ValueType] | None:
         from _pycircuit_semantics import RangeType
 
         intrinsic = _decorator_name(node.func).rsplit(".", 1)[-1]
@@ -11344,9 +11409,7 @@ class _ExpressionEmitter:
         result = self._new()
         static_target = getattr(node.args[1], "_ac_static_type_target", None)
         attributes = (
-            " {ac.static_type_target = "
-            + canonical_mlir_string(static_target)
-            + "}"
+            " {ac.static_type_target = " + canonical_mlir_string(static_target) + "}"
             if isinstance(static_target, str)
             else ""
         )
@@ -11388,9 +11451,7 @@ class _ExpressionEmitter:
         valid = self._new()
         static_target = getattr(node.args[1], "_ac_static_type_target", None)
         attributes = (
-            " {ac.static_type_target = "
-            + canonical_mlir_string(static_target)
-            + "}"
+            " {ac.static_type_target = " + canonical_mlir_string(static_target) + "}"
             if isinstance(static_target, str)
             else ""
         )
@@ -11404,9 +11465,7 @@ class _ExpressionEmitter:
         self.expression_facts[value] = _ExpressionFact(
             target, ClosedInterval(target.lower, target.upper - 1)
         )
-        self.expression_facts[valid] = _ExpressionFact(
-            BoolType(), ClosedInterval(0, 1)
-        )
+        self.expression_facts[valid] = _ExpressionFact(BoolType(), ClosedInterval(0, 1))
         self.range_checked_values[key] = result
         return result
 
@@ -11418,10 +11477,11 @@ class _ExpressionEmitter:
             or len(node.args) < 2
         ):
             return None
-        target_name = (
-            node.args[1].id if isinstance(node.args[1], ast.Name) else ""
-        )
-        if target_name in self.enum_types and self._unshadowed_enum(target_name) is None:
+        target_name = node.args[1].id if isinstance(node.args[1], ast.Name) else ""
+        if (
+            target_name in self.enum_types
+            and self._unshadowed_enum(target_name) is None
+        ):
             raise QueueFrontendError(
                 "ACPY-TYPE-005: checked enum target must be an unshadowed enum class"
             )
@@ -11446,7 +11506,10 @@ class _ExpressionEmitter:
         if cached is not None:
             return cached
         raw, raw_type = self.emit(node.args[0])
-        if not isinstance(raw_type, BitsType) or raw_type.width != target.encoding_width:
+        if (
+            not isinstance(raw_type, BitsType)
+            or raw_type.width != target.encoding_width
+        ):
             raise QueueFrontendError(
                 "ACPY-TYPE-005: checked enum input width must exactly match the enum encoding"
             )
@@ -11497,9 +11560,7 @@ class _ExpressionEmitter:
                 following.append((selected, valid))
             candidates = following
         selected, valid = candidates[0]
-        selected = self._emit_typed_select(
-            valid, selected, fallback, target
-        )
+        selected = self._emit_typed_select(valid, selected, fallback, target)
         result = (selected, target, valid, BoolType())
         self.enum_checked_values[key] = result
         return result
@@ -11525,9 +11586,9 @@ class _ExpressionEmitter:
             for keyword in node.keywords
             if keyword.arg is not None
         }
-        if set(keywords) != {"members", "empty", "conflict"} or len(
-            keywords
-        ) != len(node.keywords):
+        if set(keywords) != {"members", "empty", "conflict"} or len(keywords) != len(
+            node.keywords
+        ):
             raise QueueFrontendError(
                 "ACPY-TYPE-005: onehot_enum requires one members/empty/conflict each"
             )
@@ -11622,15 +11683,11 @@ class _ExpressionEmitter:
                 selected = self._emit_typed_select(
                     left_present, left_value, right_value, enum_type
                 )
-                present = self._emit_bool_binary(
-                    "or", left_present, right_present
-                )
+                present = self._emit_bool_binary("or", left_present, right_present)
                 following.append((selected, present))
             candidates = following
         selected, present = candidates[0]
-        selected = self._emit_typed_select(
-            present, selected, empty, enum_type
-        )
+        selected = self._emit_typed_select(present, selected, empty, enum_type)
         if isinstance(mask_type, BitsType):
             count_type: ValueType = BitsType(primitive_count_width(mask_width))
             count = self._new()
@@ -11761,9 +11818,7 @@ class _ExpressionEmitter:
                     f"{case_member[1]} is repeated"
                 )
             cases[case_member[1]] = value_node
-        missing = [
-            member for member in selector_type.enumerants if member not in cases
-        ]
+        missing = [member for member in selector_type.enumerants if member not in cases]
         if missing:
             raise QueueFrontendError(
                 "ACPY-TYPE-005: match_enum cases are not exhaustive; missing "
@@ -11797,25 +11852,18 @@ class _ExpressionEmitter:
             + ", ".join(f"%{operand}" for operand in operands)
             + " cases ["
             + ", ".join(
-                canonical_mlir_string(member)
-                for member in selector_type.enumerants
+                canonical_mlir_string(member) for member in selector_type.enumerants
             )
             + "] : "
             + ", ".join(
-                f"!ac.var<{_render_type(value_type)}>"
-                for value_type in operand_types
+                f"!ac.var<{_render_type(value_type)}>" for value_type in operand_types
             )
             + f" -> !ac.var<{_render_type(result_type)}>"
         )
         return self._remember(result, result_type)
 
-    def _emit_record_projection(
-        self, node: ast.Call
-    ) -> tuple[str, ValueType] | None:
-        if not (
-            isinstance(node.func, ast.Attribute)
-            and node.func.attr == "project"
-        ):
+    def _emit_record_projection(self, node: ast.Call) -> tuple[str, ValueType] | None:
+        if not (isinstance(node.func, ast.Attribute) and node.func.attr == "project"):
             return None
         if len(node.args) != 1 or node.keywords:
             raise QueueFrontendError(
@@ -11863,8 +11911,7 @@ class _ExpressionEmitter:
             + ", ".join(f"%{value}" for value in values)
             + " : "
             + ", ".join(
-                f"!ac.var<{_render_type(value_type)}>"
-                for value_type in value_types
+                f"!ac.var<{_render_type(value_type)}>" for value_type in value_types
             )
             + f" -> !ac.var<{_render_type(target_type)}>"
         )
@@ -11878,9 +11925,7 @@ class _ExpressionEmitter:
     ) -> tuple[str, ValueType]:
         if isinstance(node, (ast.Tuple, ast.List)):
             if not isinstance(expected, (TupleType, ArrayType)):
-                raise QueueFrontendError(
-                    f"ACPY-TYPE-006: {mismatch_message}"
-                )
+                raise QueueFrontendError(f"ACPY-TYPE-006: {mismatch_message}")
             if isinstance(expected, TupleType):
                 element_types = expected.elements
                 operation = "tuple"
@@ -11893,9 +11938,7 @@ class _ExpressionEmitter:
                 )
             values: list[str] = []
             value_types: list[ValueType] = []
-            for element, descriptor in zip(
-                node.elts, element_types, strict=True
-            ):
+            for element, descriptor in zip(node.elts, element_types, strict=True):
                 value, value_type = self._emit_exact_array_replacement(
                     element, descriptor, mismatch_message
                 )
@@ -11907,8 +11950,7 @@ class _ExpressionEmitter:
                 + ", ".join(f"%{value}" for value in values)
                 + " : "
                 + ", ".join(
-                    f"!ac.var<{_render_type(value_type)}>"
-                    for value_type in value_types
+                    f"!ac.var<{_render_type(value_type)}>" for value_type in value_types
                 )
                 + f" -> !ac.var<{_render_type(expected)}>"
             )
@@ -11927,9 +11969,7 @@ class _ExpressionEmitter:
             node, expected if self.strict_descriptors else literal_context
         )
         if value_type != expected:
-            raise QueueFrontendError(
-                f"ACPY-TYPE-006: {mismatch_message}"
-            )
+            raise QueueFrontendError(f"ACPY-TYPE-006: {mismatch_message}")
         return value, value_type
 
     def _emit_static_array_element(
@@ -11954,8 +11994,7 @@ class _ExpressionEmitter:
             + ", ".join(f"%{value}" for value, _ in values)
             + " : "
             + ", ".join(
-                f"!ac.var<{_render_type(value_type)}>"
-                for _, value_type in values
+                f"!ac.var<{_render_type(value_type)}>" for _, value_type in values
             )
             + f" -> !ac.var<{_render_type(result_type)}>"
         )
@@ -11992,8 +12031,7 @@ class _ExpressionEmitter:
                 + ", ".join(f"%{value}" for value, _ in elements)
                 + " : "
                 + ", ".join(
-                    f"!ac.var<{_render_type(value_type)}>"
-                    for _, value_type in elements
+                    f"!ac.var<{_render_type(value_type)}>" for _, value_type in elements
                 )
                 + f" -> !ac.var<{_render_type(result_type)}>"
             )
@@ -12099,9 +12137,7 @@ class _ExpressionEmitter:
                         capture_reserved.add(name)
                         self.cache[key] = name
                         callback_captures[name] = (value, captured_type)
-                    return ast.copy_location(
-                        ast.Name(id=name, ctx=ast.Load()), node
-                    )
+                    return ast.copy_location(ast.Name(id=name, ctx=ast.Load()), node)
 
                 def visit_Lambda(self, node: ast.Lambda) -> ast.AST:
                     arguments = {
@@ -12147,9 +12183,7 @@ class _ExpressionEmitter:
             callback_body = transformed
 
         callback_roots = dict(self.root_values)
-        callback_roots.setdefault(
-            self.argument, (self.root_name, self.payload)
-        )
+        callback_roots.setdefault(self.argument, (self.root_name, self.payload))
         callback_roots[callback_name] = (value, value_type)
         callback_roots.update(callback_captures)
         child = _ExpressionEmitter(
@@ -12171,23 +12205,25 @@ class _ExpressionEmitter:
         return result
 
     def _emit_array_map(self, node: ast.Call) -> tuple[str, ValueType] | None:
-        if not (
-            isinstance(node.func, ast.Attribute) and node.func.attr == "map"
+        if not (isinstance(node.func, ast.Attribute) and node.func.attr == "map"):
+            return None
+        if (
+            isinstance(node.func.value, ast.Name)
+            and node.func.value.id
+            in {
+                "ac",
+                "agentic_circuit",
+            }
+            and node.func.value.id
+            not in {
+                self.argument,
+                *self.root_values,
+                *self.deferred_values,
+            }
         ):
             return None
-        if isinstance(node.func.value, ast.Name) and node.func.value.id in {
-            "ac",
-            "agentic_circuit",
-        } and node.func.value.id not in {
-            self.argument,
-            *self.root_values,
-            *self.deferred_values,
-        }:
-            return None
         if node.keywords or len(node.args) != 1:
-            raise QueueFrontendError(
-                "ACPY-TYPE-006: array map requires one callback"
-            )
+            raise QueueFrontendError("ACPY-TYPE-006: array map requires one callback")
         aggregate, aggregate_type = self.emit(node.func.value)
         if not isinstance(aggregate_type, ArrayType):
             raise QueueFrontendError(
@@ -12218,9 +12254,7 @@ class _ExpressionEmitter:
         )
 
     def _emit_array_zip(self, node: ast.Call) -> tuple[str, ValueType] | None:
-        if not (
-            isinstance(node.func, ast.Attribute) and node.func.attr == "zip"
-        ):
+        if not (isinstance(node.func, ast.Attribute) and node.func.attr == "zip"):
             return None
         if node.keywords or not node.args:
             raise QueueFrontendError(
@@ -12254,8 +12288,7 @@ class _ExpressionEmitter:
                 + ", ".join(f"%{value}" for value, _ in elements)
                 + " : "
                 + ", ".join(
-                    f"!ac.var<{_render_type(value_type)}>"
-                    for _, value_type in elements
+                    f"!ac.var<{_render_type(value_type)}>" for _, value_type in elements
                 )
                 + f" -> !ac.var<{_render_type(tuple_type)}>"
             )
@@ -12316,9 +12349,7 @@ class _ExpressionEmitter:
         return current[0]
 
     def _emit_array_fold(self, node: ast.Call) -> tuple[str, ValueType] | None:
-        if not (
-            isinstance(node.func, ast.Attribute) and node.func.attr == "fold"
-        ):
+        if not (isinstance(node.func, ast.Attribute) and node.func.attr == "fold"):
             return None
         if (
             node.args
@@ -12327,9 +12358,7 @@ class _ExpressionEmitter:
             or not isinstance(node.keywords[0].value, ast.Constant)
             or type(node.keywords[0].value.value) is not str
         ):
-            raise QueueFrontendError(
-                "ACPY-TYPE-006: array fold requires kind='...'"
-            )
+            raise QueueFrontendError("ACPY-TYPE-006: array fold requires kind='...'")
         aggregate, aggregate_type = self.emit(node.func.value)
         if not isinstance(aggregate_type, ArrayType):
             raise QueueFrontendError(
@@ -12342,11 +12371,15 @@ class _ExpressionEmitter:
         allowed = (
             {"and", "or", "xor"}
             if isinstance(element_type, BoolType)
-            else {"min", "max"}
-            if isinstance(element_type, RangeType)
-            else {"add", "mul", "and", "or", "xor", "min", "max"}
-            if isinstance(element_type, BitsType)
-            else set()
+            else (
+                {"min", "max"}
+                if isinstance(element_type, RangeType)
+                else (
+                    {"add", "mul", "and", "or", "xor", "min", "max"}
+                    if isinstance(element_type, BitsType)
+                    else set()
+                )
+            )
         )
         if kind not in allowed:
             raise QueueFrontendError(
@@ -12446,8 +12479,7 @@ class _ExpressionEmitter:
     def _emit_bool_not(self, value: str) -> str:
         result = self._new()
         self.lines.append(
-            f"    %{result} = ac.var.not %{value} : "
-            "!ac.var<i1> -> !ac.var<i1>"
+            f"    %{result} = ac.var.not %{value} : " "!ac.var<i1> -> !ac.var<i1>"
         )
         return result
 
@@ -12529,9 +12561,7 @@ class _ExpressionEmitter:
         index_type = RangeType(0, aggregate_type.length)
         rendered_index = _render_type(index_type)
         index_width = index_type.bit_width()
-        candidates: list[
-            tuple[str, str, str | None, ValueType | None]
-        ] = []
+        candidates: list[tuple[str, str, str | None, ValueType | None]] = []
         key_type: ValueType | None = None
         for lane in range(aggregate_type.length):
             element, element_type = self._emit_static_array_element(
@@ -12599,9 +12629,7 @@ class _ExpressionEmitter:
                     )
                     comparison = self._new()
                     comparison_op = (
-                        "range_cmp"
-                        if isinstance(left_key_type, RangeType)
-                        else "cmp"
+                        "range_cmp" if isinstance(left_key_type, RangeType) else "cmp"
                     )
                     rendered_key = _render_type(left_key_type)
                     operand_types = (
@@ -12629,9 +12657,7 @@ class _ExpressionEmitter:
                 selected_index = self._emit_typed_select(
                     choose_left, left_index, right_index, index_type
                 )
-                selected_valid = self._emit_bool_binary(
-                    "or", left_valid, right_valid
-                )
+                selected_valid = self._emit_bool_binary("or", left_valid, right_valid)
                 following.append(
                     (selected_index, selected_valid, selected_key, left_key_type)
                 )
@@ -12649,9 +12675,7 @@ class _ExpressionEmitter:
         return selected_index, index_type, selected_valid, BoolType()
 
     def _emit_array_scan(self, node: ast.Call) -> tuple[str, ValueType] | None:
-        if not (
-            isinstance(node.func, ast.Attribute) and node.func.attr == "scan"
-        ):
+        if not (isinstance(node.func, ast.Attribute) and node.func.attr == "scan"):
             return None
         if (
             len(node.args) != 1
@@ -12665,7 +12689,7 @@ class _ExpressionEmitter:
         if not isinstance(aggregate_type, ArrayType):
             raise QueueFrontendError(
                 "ACPY-TYPE-006: array scan receiver must be a value-array"
-        )
+            )
         accumulator, accumulator_type = self.emit(node.keywords[0].value)
         callback = node.args[0]
 
@@ -12821,13 +12845,8 @@ class _ExpressionEmitter:
             outputs, ArrayType(aggregate_type.length, accumulator_type)
         )
 
-    def _emit_enum_is_one_of(
-        self, node: ast.Call
-    ) -> tuple[str, ValueType] | None:
-        if not (
-            isinstance(node.func, ast.Attribute)
-            and node.func.attr == "is_one_of"
-        ):
+    def _emit_enum_is_one_of(self, node: ast.Call) -> tuple[str, ValueType] | None:
+        if not (isinstance(node.func, ast.Attribute) and node.func.attr == "is_one_of"):
             return None
         if node.keywords or not node.args:
             raise QueueFrontendError(
@@ -12864,12 +12883,9 @@ class _ExpressionEmitter:
             matches.append((matched, BoolType()))
         return self._emit_balanced_array_combine(matches, "or")
 
-    def _emit_array_update(
-        self, node: ast.Call
-    ) -> tuple[str, ValueType] | None:
+    def _emit_array_update(self, node: ast.Call) -> tuple[str, ValueType] | None:
         if not (
-            isinstance(node.func, ast.Attribute)
-            and node.func.attr == "with_element"
+            isinstance(node.func, ast.Attribute) and node.func.attr == "with_element"
         ):
             return None
         if node.keywords or len(node.args) != 2:
@@ -12916,9 +12932,7 @@ class _ExpressionEmitter:
         if len(shape) == 1 or not isinstance(address, ast.Tuple):
             index, index_type = self.emit(address, flattened_type)
             bounded = isinstance(index_type, RangeType) and index_type.upper <= entries
-            if not bounded and not self._types_match(
-                index_type, flattened_type
-            ):
+            if not bounded and not self._types_match(index_type, flattened_type):
                 raise QueueFrontendError(
                     "ACPY-TABLE-010: Table index requires the canonical flattened "
                     f"type {_render_type(flattened_type)}"
@@ -12935,12 +12949,8 @@ class _ExpressionEmitter:
         ):
             expected_type = BitsType(_table_axis_width(extent))
             value, value_type = self.emit(coordinate, expected_type)
-            bounded = (
-                isinstance(value_type, RangeType) and value_type.upper <= extent
-            )
-            if not bounded and not self._types_match(
-                value_type, expected_type
-            ):
+            bounded = isinstance(value_type, RangeType) and value_type.upper <= extent
+            if not bounded and not self._types_match(value_type, expected_type):
                 raise QueueFrontendError(
                     f"ACPY-TABLE-010: Table index axis {axis} requires "
                     f"{_render_type(expected_type)}"
@@ -13383,21 +13393,19 @@ class _ExpressionEmitter:
                     + f" -> !ac.var<i{result_width}>"
                 )
                 return name, BitsType(result_width)
-        if (
-            isinstance(node, ast.Attribute)
-            and node.attr in {"value", "valid"}
-        ):
+        if isinstance(node, ast.Attribute) and node.attr in {"value", "valid"}:
             checked_call = (
                 node.value
                 if isinstance(node.value, ast.Call)
-                else self.deferred_values.get(node.value.id)
-                if isinstance(node.value, ast.Name)
-                else None
+                else (
+                    self.deferred_values.get(node.value.id)
+                    if isinstance(node.value, ast.Name)
+                    else None
+                )
             )
             if (
                 isinstance(checked_call, ast.Call)
-                and _decorator_name(checked_call.func).rsplit(".", 1)[-1]
-                == "checked"
+                and _decorator_name(checked_call.func).rsplit(".", 1)[-1] == "checked"
             ):
                 enum_result = self._emit_checked_enum(checked_call)
                 if enum_result is None:
@@ -13407,20 +13415,21 @@ class _ExpressionEmitter:
                 else:
                     value, value_type, valid, valid_type = enum_result
                 return (
-                    (value, value_type)
-                    if node.attr == "value"
-                    else (valid, valid_type)
+                    (value, value_type) if node.attr == "value" else (valid, valid_type)
                 )
-        if (
-            isinstance(node, ast.Attribute)
-            and node.attr in {"value", "present", "conflict"}
-        ):
+        if isinstance(node, ast.Attribute) and node.attr in {
+            "value",
+            "present",
+            "conflict",
+        }:
             onehot_call = (
                 node.value
                 if isinstance(node.value, ast.Call)
-                else self.deferred_values.get(node.value.id)
-                if isinstance(node.value, ast.Name)
-                else None
+                else (
+                    self.deferred_values.get(node.value.id)
+                    if isinstance(node.value, ast.Name)
+                    else None
+                )
             )
             if (
                 isinstance(onehot_call, ast.Call)
@@ -13501,14 +13510,19 @@ class _ExpressionEmitter:
             and isinstance(node.value, ast.Name)
             and node.value.id in self.state_views
         ):
-            variable, value_type, entries = self.state_views[node.value.id]
+            owner_kind, variable, value_type, entries, _ = self.state_views[
+                node.value.id
+            ]
             cache_key = (
                 variable,
                 ast.dump(node.slice, include_attributes=False),
             )
             if cached := self.state_read_values.get(cache_key):
                 return cached
-            index, index_type = self.emit(node.slice)
+            if owner_kind == "table":
+                index, index_type = self.emit_table_index(variable, node.slice)
+            else:
+                index, index_type = self.emit(node.slice)
             index_width = _epoch_05_integer_width(index_type)
             if index_width is None:
                 raise QueueFrontendError(
@@ -13521,8 +13535,9 @@ class _ExpressionEmitter:
                 "ACPY-RULE-009: persistent find capture index is out of range",
             )
             name = self._new()
+            operation = "ac.var.read_element" if owner_kind == "var" else "ac.table.get"
             self.lines.append(
-                f"    %{name} = ac.var.read_element @{variable}[%{index}] : "
+                f"    %{name} = {operation} @{variable}[%{index}] : "
                 f"!ac.var<{_render_type(index_type)}> -> "
                 f"!ac.var<{_render_type(value_type)}>"
             )
@@ -13679,17 +13694,27 @@ class _ExpressionEmitter:
             and node.value.id in self.find_values
             and node.attr in {"index", "valid", "value"}
         ):
-            index, index_type, valid, valid_type, variable, value_type, value = (
-                self.find_values[node.value.id]
-            )
+            (
+                index,
+                index_type,
+                valid,
+                valid_type,
+                variable,
+                value_type,
+                value,
+                owner_kind,
+            ) = self.find_values[node.value.id]
             if node.attr == "index":
                 return index, index_type
             if node.attr == "valid":
                 return valid, valid_type
             if value is None:
                 value = self._new()
+                operation = (
+                    "ac.var.read_element" if owner_kind == "var" else "ac.table.get"
+                )
                 self.lines.append(
-                    f"    %{value} = ac.var.read_element @{variable}[%{index}] : "
+                    f"    %{value} = {operation} @{variable}[%{index}] : "
                     f"!ac.var<{_render_type(index_type)}> -> "
                     f"!ac.var<{_render_type(value_type)}>"
                 )
@@ -13701,6 +13726,7 @@ class _ExpressionEmitter:
                     variable,
                     value_type,
                     value,
+                    owner_kind,
                 )
             return value, value_type
         if isinstance(node, ast.Name) and node.id in self.table_views:
@@ -13859,19 +13885,20 @@ class _ExpressionEmitter:
             typ = (
                 BoolType()
                 if self.strict_descriptors and type(node.value) is bool
-                else expected
-                if self.strict_descriptors
-                and type(node.value) is int
-                and isinstance(expected, (BitsType, RangeType))
-                else expected
-                if not self.strict_descriptors and expected is not None
-                else BoolType()
-                if type(node.value) is bool
-                else BitsType(64)
+                else (
+                    expected
+                    if self.strict_descriptors
+                    and type(node.value) is int
+                    and isinstance(expected, (BitsType, RangeType))
+                    else (
+                        expected
+                        if not self.strict_descriptors and expected is not None
+                        else BoolType() if type(node.value) is bool else BitsType(64)
+                    )
+                )
             )
             if isinstance(typ, RangeType) and (
-                type(node.value) is not int
-                or not typ.lower <= node.value < typ.upper
+                type(node.value) is not int or not typ.lower <= node.value < typ.upper
             ):
                 raise QueueFrontendError(
                     "ACPY-TYPE-009: range constant is outside its declared bounds"
@@ -13880,14 +13907,14 @@ class _ExpressionEmitter:
             value = (
                 "true"
                 if node.value is True
-                else "false"
-                if node.value is False
-                else str(node.value)
+                else "false" if node.value is False else str(node.value)
             )
             attribute_type = (
                 f"i{typ.width}" if isinstance(typ, RangeType) else _render_type(typ)
             )
-            attribute = value if type(node.value) is bool else f"{value} : {attribute_type}"
+            attribute = (
+                value if type(node.value) is bool else f"{value} : {attribute_type}"
+            )
             self.lines.append(
                 f"    %{name} = ac.var.constant {attribute} as "
                 f"!ac.var<{_render_type(typ)}>"
@@ -13918,9 +13945,11 @@ class _ExpressionEmitter:
             selection_call = (
                 node.value
                 if isinstance(node.value, ast.Call)
-                else self.deferred_values.get(node.value.id)
-                if isinstance(node.value, ast.Name)
-                else None
+                else (
+                    self.deferred_values.get(node.value.id)
+                    if isinstance(node.value, ast.Name)
+                    else None
+                )
             )
             if (
                 isinstance(selection_call, ast.Call)
@@ -13935,9 +13964,7 @@ class _ExpressionEmitter:
                     self.array_selection_values[key] = selection
                 index, index_type, valid, valid_type = selection
                 return (
-                    (index, index_type)
-                    if node.attr == "index"
-                    else (valid, valid_type)
+                    (index, index_type) if node.attr == "index" else (valid, valid_type)
                 )
         if (
             isinstance(node, ast.Attribute)
@@ -14143,9 +14170,7 @@ class _ExpressionEmitter:
                     and type(node.right.value) is int
                     and 0 <= node.right.value < (1 << 64)
                 ):
-                    right_expected = RangeType(
-                        node.right.value, node.right.value + 1
-                    )
+                    right_expected = RangeType(node.right.value, node.right.value + 1)
                 right, right_type = self.emit(node.right, right_expected)
                 if not isinstance(right_type, RangeType):
                     raise QueueFrontendError(
@@ -14153,9 +14178,7 @@ class _ExpressionEmitter:
                     )
                 if isinstance(node.op, ast.Add):
                     lower = left_type.lower + right_type.lower
-                    upper_inclusive = (
-                        left_type.upper - 1 + right_type.upper - 1
-                    )
+                    upper_inclusive = left_type.upper - 1 + right_type.upper - 1
                     if upper_inclusive >= (1 << 64):
                         raise QueueFrontendError(
                             "ACPY-RANGE-002: bounded addition exceeds u64"
@@ -14290,8 +14313,7 @@ class _ExpressionEmitter:
                     expected_left = RangeType(node.left.value, node.left.value + 1)
                 left, left_type = self.emit(node.left, expected_left)
             elif (
-                isinstance(node.left, ast.Name)
-                and node.left.id in self.deferred_values
+                isinstance(node.left, ast.Name) and node.left.id in self.deferred_values
             ):
                 right, right_type = self.emit(comparator)
                 left, left_type = self.emit(node.left, right_type)
@@ -14308,14 +14330,10 @@ class _ExpressionEmitter:
                             "ACPY-RANGE-002: bounded comparison literal must be "
                             "in the unsigned u64 domain"
                         )
-                    expected_right = RangeType(
-                        comparator.value, comparator.value + 1
-                    )
+                    expected_right = RangeType(comparator.value, comparator.value + 1)
                 right, right_type = self.emit(comparator, expected_right)
 
-            if isinstance(left_type, RangeType) and isinstance(
-                right_type, RangeType
-            ):
+            if isinstance(left_type, RangeType) and isinstance(right_type, RangeType):
                 predicates = {
                     ast.Eq: "eq",
                     ast.NotEq: "ne",
@@ -14719,7 +14737,9 @@ def lower_queue_program(
             defined_results = re.findall(r"%([A-Za-z0-9_.$-]+)", operation)
             if not separator or result not in defined_results:
                 continue
-            if "= ac.var." not in line or " : " not in line:
+            if (
+                "= ac.var." not in line and "= ac.table.get " not in line
+            ) or " : " not in line:
                 return
             attribute = "ac.display_name = " + canonical_mlir_string(display_name)
             if "= ac.var.constant " in line:
@@ -14940,19 +14960,21 @@ def lower_queue_program(
         init = (
             "true"
             if variable.init is True
-            else "false"
-            if variable.init is False
-            else f"{variable.init} : "
-            + (
-                "i64"
-                if isinstance(
-                    variable.value_type,
-                    (StructType, TupleType, ArrayType, EnumType),
-                )
-                else (
-                    f"i{variable.value_type.width}"
-                    if type(variable.value_type).__name__ == "RangeType"
-                    else _render_type(variable.value_type)
+            else (
+                "false"
+                if variable.init is False
+                else f"{variable.init} : "
+                + (
+                    "i64"
+                    if isinstance(
+                        variable.value_type,
+                        (StructType, TupleType, ArrayType, EnumType),
+                    )
+                    else (
+                        f"i{variable.value_type.width}"
+                        if type(variable.value_type).__name__ == "RangeType"
+                        else _render_type(variable.value_type)
+                    )
                 )
             )
         )
@@ -15005,7 +15027,8 @@ def lower_queue_program(
             f"{content_indent}ac.table @{table.name} "
             f"entry {_render_type(table.entry_type)} "
             f'entries {table.entries} init 0 owner "{owner}" '
-            f'stable_id "table/{stable_id}"' + attributes
+            f'stable_id "table/{stable_id}"'
+            + attributes
             + _render_source_frame_location(table.source)
         )
     by_name = {item.name: item for item in program.queues}
@@ -15045,9 +15068,9 @@ def lower_queue_program(
         )
         for input_index, input_name in enumerate(input_names):
             consumers.setdefault(input_name, []).append((queue, input_index))
-    fanouts: dict[
-        str, tuple[tuple[str, ...], tuple[tuple[QueueBinding, int], ...]]
-    ] = {}
+    fanouts: dict[str, tuple[tuple[str, ...], tuple[tuple[QueueBinding, int], ...]]] = (
+        {}
+    )
 
     def common_scope(scopes: list[tuple[str, ...]]) -> tuple[str, ...]:
         common: list[str] = []
@@ -15076,6 +15099,25 @@ def lower_queue_program(
         variable.name: (variable.value_type, variable.entries)
         for variable in program.variables
     }
+    rule_writer_counts: dict[str, int] = {}
+    for rule in (*program.queues, *program.effect_rules):
+        owners = {
+            owner
+            for owner in (
+                rule.rule_table,
+                rule.rule_var,
+                *(write.variable for write in rule.rule_state_writes),
+            )
+            if owner is not None
+        }
+        for owner in owners:
+            rule_writer_counts[owner] = rule_writer_counts.get(owner, 0) + 1
+
+    def rule_writer_arbitration(rule: QueueBinding, owner: str) -> str:
+        if rule_writer_counts.get(owner, 0) < 2:
+            return ""
+        return f" {{ac.arbitration = #ac.writer_priority<{rule.order}>}}"
+
     materialized_candidates: dict[str, tuple[str, ValueType]] = {}
     materialized_selections: dict[str, tuple[str, ValueType, str, ValueType]] = {}
     queue_scope = {name: queue.scope for name, queue in by_name.items()}
@@ -15245,9 +15287,11 @@ def lower_queue_program(
                 table_domains=table_domains,
                 state_views={
                     owner.argument: (
+                        owner.owner_kind,
                         owner.variable,
                         owner.value_type,
                         owner.entries,
+                        owner.shape,
                     )
                     for owner in queue.rule_state_owners
                 },
@@ -15314,6 +15358,10 @@ def lower_queue_program(
                 ):
                     continue
                 state_read = emitter._new()
+                if state_owner.owner_kind != "var":
+                    raise QueueFrontendError(
+                        "ACPY-RULE-008: Table state requires an indexed access"
+                    )
                 emitter.lines.append(
                     f"    %{state_read} = ac.var.read @{state_owner.variable} : "
                     f"!ac.var<{_render_type(state_owner.value_type)}>"
@@ -15324,7 +15372,12 @@ def lower_queue_program(
                 )
             for state_read_binding in queue.rule_state_reads:
                 assert state_read_binding.index is not None
-                read_index, read_index_type = emitter.emit(state_read_binding.index)
+                if state_read_binding.owner_kind == "table":
+                    read_index, read_index_type = emitter.emit_table_index(
+                        state_read_binding.variable, state_read_binding.index
+                    )
+                else:
+                    read_index, read_index_type = emitter.emit(state_read_binding.index)
                 read_index_width = _epoch_05_integer_width(read_index_type)
                 if read_index_width is None:
                     raise QueueFrontendError(
@@ -15338,8 +15391,13 @@ def lower_queue_program(
                     "ACPY-RULE-008: persistent list read index is out of range",
                 )
                 state_read = emitter._new()
+                read_operation = (
+                    "ac.var.read_element"
+                    if state_read_binding.owner_kind == "var"
+                    else "ac.table.get"
+                )
                 emitter.lines.append(
-                    f"    %{state_read} = ac.var.read_element "
+                    f"    %{state_read} = {read_operation} "
                     f"@{state_read_binding.variable}[%{read_index}] : "
                     f"!ac.var<{_render_type(read_index_type)}> -> "
                     f"!ac.var<{_render_type(state_read_binding.value_type)}>"
@@ -15378,6 +15436,8 @@ def lower_queue_program(
                 mask_type = _candidate_mask_type(domain_entries)
                 row_value: str | None = None
                 row_type: ValueType | None = None
+                table_domain_base: str | None = None
+                table_domain_base_type: ValueType | None = None
                 if find.row is not None:
                     row_type = BitsType(_table_axis_width(find.shape[0]))
                     previous_deferred = dict(emitter.deferred_values)
@@ -15397,6 +15457,21 @@ def lower_queue_program(
                         find.shape[0],
                         "ACPY-RULE-009: row view index is out of range",
                     )
+                    if find.owner_kind == "table":
+                        zero_type = BitsType(_table_axis_width(find.shape[1]))
+                        zero_value, actual_zero_type = emitter.emit(
+                            ast.Constant(0), zero_type
+                        )
+                        table_domain_base_type = BitsType(index_width)
+                        table_domain_base = emitter._new()
+                        emitter.lines.append(
+                            f"    %{table_domain_base} = ac.table.index "
+                            f"@{find.variable} [%{row_value}, %{zero_value}] : "
+                            f"!ac.var<{_render_type(row_type)}>, "
+                            f"!ac.var<{_render_type(actual_zero_type)}> -> "
+                            f"!ac.var<{_render_type(table_domain_base_type)}>"
+                        )
+                        emitter._remember(table_domain_base, table_domain_base_type)
                 predicate_emitter = _ExpressionEmitter(
                     payloads,
                     find.predicate_argument,
@@ -15405,6 +15480,7 @@ def lower_queue_program(
                     root_values=emitter.root_values,
                     prefix=f"find{emitter.index}_predicate_",
                     state_views=emitter.state_views,
+                    table_domains=emitter.table_domains,
                     enum_types=enum_types,
                     bitfields=bitfields,
                     invariants=invariants,
@@ -15419,13 +15495,26 @@ def lower_queue_program(
                         "ACPY-RULE-009: find where predicate must lower to bool"
                     )
                 mask = emitter._new()
-                emitter.lines.append(
-                    f"    %{mask} = ac.var.match @{find.variable}"
-                    + (
+                match_operation = (
+                    "ac.var.match" if find.owner_kind == "var" else "ac.table.match"
+                )
+                if find.owner_kind == "var":
+                    domain_prefix = (
                         f" row %{row_value} : !ac.var<{_render_type(row_type)}>"
                         if row_value is not None and row_type is not None
                         else ""
                     )
+                else:
+                    domain_prefix = (
+                        f" base %{table_domain_base} : "
+                        f"!ac.var<{_render_type(table_domain_base_type)}>"
+                        if table_domain_base is not None
+                        and table_domain_base_type is not None
+                        else ""
+                    )
+                emitter.lines.append(
+                    f"    %{mask} = {match_operation} @{find.variable}"
+                    + domain_prefix
                     + " predicate {"
                 )
                 emitter.lines.append(
@@ -15433,11 +15522,43 @@ def lower_queue_program(
                 )
                 emitter.lines.extend(predicate_emitter.lines)
                 emitter.lines.append(
-                    f"      ac.var.match.yield %{predicate} : !ac.var<i1>"
+                    f"      {match_operation}.yield %{predicate} : !ac.var<i1>"
                     + _render_source_frame_location(source_frame(find.predicate))
                 )
+                if find.owner_kind == "table":
+                    domain_axes = (
+                        (1,) if find.row is not None else tuple(range(len(find.shape)))
+                    )
+                    domain_shape = (
+                        (find.shape[1],) if find.row is not None else find.shape
+                    )
+                    domain_strides = (
+                        (1,)
+                        if find.row is not None
+                        else tuple(
+                            _product(find.shape[axis + 1 :])
+                            for axis in range(len(find.shape))
+                        )
+                    )
+                    domain_attributes = " " + _render_table_domain_attributes(
+                        CandidateSetBinding(
+                            find.name,
+                            find.variable,
+                            domain_entries,
+                            domain_axes,
+                            domain_shape,
+                            domain_strides,
+                            0,
+                            find.predicate_argument,
+                            find.predicate,
+                            (),
+                            0,
+                        )
+                    )
+                else:
+                    domain_attributes = ""
                 emitter.lines.append(
-                    f"    }} -> !ac.var<{_render_type(mask_type)}>"
+                    f"    }}{domain_attributes} -> !ac.var<{_render_type(mask_type)}>"
                     + _render_source_frame_location(
                         source_frame(find.row or find.predicate)
                     )
@@ -15445,12 +15566,22 @@ def lower_queue_program(
                 selected_index = emitter._new()
                 selected_valid = emitter._new()
                 if find.key is None:
+                    if find.owner_kind == "var":
+                        choice_contract = (
+                            'policy "first" key {} '
+                            f"{{ac.query = {canonical_mlir_string(find.name)}}}"
+                        )
+                    else:
+                        choice_contract = (
+                            "policy #ac<table_selection_policy first> "
+                            f"stable_id {canonical_mlir_string(find.name)} key {{}}"
+                        )
                     emitter.lines.append(
                         f"    %{selected_index}, %{selected_valid} = "
-                        f"ac.var.choose @{find.variable} %{mask} : "
+                        f"{'ac.var.choose' if find.owner_kind == 'var' else 'ac.table.choose'} "
+                        f"@{find.variable} %{mask} : "
                         f"!ac.var<{_render_type(mask_type)}> count 1 "
-                        f'policy "first" '
-                        f"key {{}} {{ac.query = {canonical_mlir_string(find.name)}}} -> "
+                        f"{choice_contract} -> "
                         f"!ac.var<i{index_width}>, !ac.var<i1>"
                         + _render_source_frame_location(source_frame(find.predicate))
                     )
@@ -15464,6 +15595,7 @@ def lower_queue_program(
                         root_values=emitter.root_values,
                         prefix=f"find{emitter.index}_key_",
                         state_views=emitter.state_views,
+                        table_domains=emitter.table_domains,
                         enum_types=enum_types,
                         bitfields=bitfields,
                         invariants=invariants,
@@ -15475,22 +15607,39 @@ def lower_queue_program(
                         raise QueueFrontendError(
                             "ACPY-RULE-009: find key must lower to an integer"
                         )
+                    choice_operation = (
+                        "ac.var.choose"
+                        if find.owner_kind == "var"
+                        else "ac.table.choose"
+                    )
+                    choice_policy = (
+                        'policy "min"'
+                        if find.owner_kind == "var"
+                        else "policy #ac<table_selection_policy min> "
+                        "key_order #ac<table_key_ordering unsigned> "
+                        f"stable_id {canonical_mlir_string(find.name)}"
+                    )
                     emitter.lines.append(
                         f"    %{selected_index}, %{selected_valid} = "
-                        f"ac.var.choose @{find.variable} %{mask} : "
+                        f"{choice_operation} @{find.variable} %{mask} : "
                         f"!ac.var<{_render_type(mask_type)}> count 1 "
-                        f'policy "min" key {{'
+                        f"{choice_policy} key {{"
                     )
                     emitter.lines.append(
                         f"    ^key(%entry: !ac.var<{_render_type(find.value_type)}>):"
                     )
                     emitter.lines.extend(key_emitter.lines)
                     emitter.lines.append(
-                        f"      ac.var.choose.yield %{key} : "
+                        f"      {choice_operation}.yield %{key} : "
                         f"!ac.var<{_render_type(key_type)}>"
                     )
+                    suffix = (
+                        f" {{ac.query = {canonical_mlir_string(find.name)}}}"
+                        if find.owner_kind == "var"
+                        else ""
+                    )
                     emitter.lines.append(
-                        f"    }} {{ac.query = {canonical_mlir_string(find.name)}}} -> "
+                        f"    }}{suffix} -> "
                         f"!ac.var<i{index_width}>, !ac.var<i1>"
                         + _render_source_frame_location(
                             source_frame(find.key or find.predicate)
@@ -15504,6 +15653,7 @@ def lower_queue_program(
                     find.variable,
                     find.value_type,
                     None,
+                    find.owner_kind,
                 )
             for local in queue.rule_locals:
                 previous_deferred = (
@@ -15813,7 +15963,14 @@ def lower_queue_program(
                 expected_index_type = BitsType(
                     max(1, (state_write.entries - 1).bit_length())
                 )
-                index, index_type = emitter.emit(state_write.index, expected_index_type)
+                if state_write.owner_kind == "table":
+                    index, index_type = emitter.emit_table_index(
+                        state_write.variable, state_write.index
+                    )
+                else:
+                    index, index_type = emitter.emit(
+                        state_write.index, expected_index_type
+                    )
                 index_width = _epoch_05_integer_width(index_type)
                 if index_width is None:
                     raise QueueFrontendError(
@@ -16107,7 +16264,8 @@ def lower_queue_program(
                 if queue.rule_var_index is None:
                     lines.append(
                         f"{indent}  ac.var.assign @{queue.rule_var} = "
-                        f"%{var_write_result}{effect_presence} : "
+                        f"%{var_write_result}{effect_presence} "
+                        f"{rule_writer_arbitration(queue, queue.rule_var)} : "
                         f"!ac.var<{_render_type(variable_type)}>"
                     )
                 else:
@@ -16116,7 +16274,8 @@ def lower_queue_program(
                     lines.append(
                         f"{indent}  ac.var.assign_element @{queue.rule_var}"
                         f"[%{var_index_result}] = %{var_write_result}"
-                        f"{effect_presence} : "
+                        f"{effect_presence} "
+                        f"{rule_writer_arbitration(queue, queue.rule_var)} : "
                         f"!ac.var<{_render_type(var_index_type)}>, "
                         f"!ac.var<{_render_type(variable_type)}>"
                     )
@@ -16133,20 +16292,45 @@ def lower_queue_program(
                     else f" when %{state_guard_result} : !ac.var<i1>"
                 )
                 if state_index is None:
+                    if state_write.owner_kind != "var":
+                        raise QueueFrontendError(
+                            "ACPY-RULE-008: Table state requires an indexed proposal"
+                        )
                     lines.append(
                         f"{indent}  ac.var.assign @{state_write.variable} = "
-                        f"%{state_value}{state_effect_presence} : "
+                        f"%{state_value}{state_effect_presence} "
+                        f"{rule_writer_arbitration(queue, state_write.variable)} : "
                         f"!ac.var<{_render_type(state_write.value_type)}>"
                     )
                 else:
                     assert state_index_type is not None
-                    lines.append(
-                        f"{indent}  ac.var.assign_element "
-                        f"@{state_write.variable}[%{state_index}] = "
-                        f"%{state_value}{state_effect_presence} : "
-                        f"!ac.var<{_render_type(state_index_type)}>, "
-                        f"!ac.var<{_render_type(state_write.value_type)}>"
-                    )
+                    if state_write.owner_kind == "var":
+                        lines.append(
+                            f"{indent}  ac.var.assign_element "
+                            f"@{state_write.variable}[%{state_index}] = "
+                            f"%{state_value}{state_effect_presence} "
+                            f"{rule_writer_arbitration(queue, state_write.variable)} : "
+                            f"!ac.var<{_render_type(state_index_type)}>, "
+                            f"!ac.var<{_render_type(state_write.value_type)}>"
+                        )
+                    else:
+                        fields = (
+                            "["
+                            + ", ".join(
+                                canonical_mlir_string(item)
+                                for item in state_write.write_fields
+                            )
+                            + "]"
+                        )
+                        lines.append(
+                            f"{indent}  ac.table.propose "
+                            f"@{state_write.variable}[%{state_index}] = "
+                            f'%{state_value}{state_effect_presence} mode "replace" '
+                            f"write_fields {fields} "
+                            f"{rule_writer_arbitration(queue, state_write.variable)} : "
+                            f"!ac.var<{_render_type(state_index_type)}>, "
+                            f"!ac.var<{_render_type(state_write.value_type)}>"
+                        )
             if queue.rule_table is not None:
                 assert index_result is not None
                 assert index_type is not None
@@ -16162,7 +16346,8 @@ def lower_queue_program(
                     f"{indent}  ac.table.propose @{queue.rule_table} "
                     f"[%{index_result}] = %{write_result}{effect_presence} "
                     f'mode "replace" '
-                    f"write_fields {fields} : "
+                    f"write_fields {fields} "
+                    f"{rule_writer_arbitration(queue, queue.rule_table)} : "
                     f"!ac.var<{_render_type(index_type)}>, "
                     f"!ac.var<{_render_type(queue.payload)}>"
                 )
@@ -16314,6 +16499,7 @@ def lower_queue_program(
         path: tuple[str, ...], mapping: dict[str, str], indent: str
     ) -> None:
         source_by_order = dict(program.statement_sources)
+
         def visible_order(consumer: QueueBinding) -> int:
             if consumer.scope == path:
                 return consumer.order
@@ -17536,8 +17722,10 @@ def lower_queue_program(
                     source_location = _render_fused_source_locations(
                         (
                             by_name[item].source,
-                            *(source_by_order.get(consumer.order)
-                              for consumer, _ in group),
+                            *(
+                                source_by_order.get(consumer.order)
+                                for consumer, _ in group
+                            ),
                         )
                     )
                 else:
@@ -17612,9 +17800,7 @@ def lower_queue_program(
         output_signature = (
             "()"
             if not module.outputs
-            else output_types
-            if len(module.outputs) == 1
-            else f"({output_types})"
+            else output_types if len(module.outputs) == 1 else f"({output_types})"
         )
         lines.append(f"    }} : ({input_types}) -> {output_signature}")
         returned = ", ".join(
@@ -17637,8 +17823,9 @@ def _lower_simple_module_source(
     host_results: bool = False,
     source_path: str | None = None,
     definition_locations: Mapping[str, tuple[str, int, int]] | None = None,
-    static_assert_locations: Mapping[str, tuple[tuple[str, int, int], ...]]
-    | None = None,
+    static_assert_locations: (
+        Mapping[str, tuple[tuple[str, int, int], ...]] | None
+    ) = None,
     source_node_locations: SourceNodeLocations | None = None,
 ) -> str | None:
     normalized_source_path = _normalize_queue_source_path(source_path)
@@ -18299,9 +18486,7 @@ def _lower_simple_module_source(
             specialized.extend(specialize_system_statements(selected))
         return specialized
 
-    def specialize_rule_module(
-        module_name: str, call: ast.Call
-    ) -> tuple[
+    def specialize_rule_module(module_name: str, call: ast.Call) -> tuple[
         str,
         tuple[tuple[str, StaticValue], ...],
         tuple[tuple[str, ValueType], ...],
@@ -19089,8 +19274,9 @@ def lower_queue_source(
     host_results: bool = False,
     source_path: str | None = None,
     definition_locations: Mapping[str, tuple[str, int, int]] | None = None,
-    static_assert_locations: Mapping[str, tuple[tuple[str, int, int], ...]]
-    | None = None,
+    static_assert_locations: (
+        Mapping[str, tuple[tuple[str, int, int], ...]] | None
+    ) = None,
     source_node_locations: SourceNodeLocations | None = None,
 ) -> str:
     if lowered := _lower_simple_module_source(

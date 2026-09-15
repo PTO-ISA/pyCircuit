@@ -1,4 +1,4 @@
-"""Two lexical rules sharing one compiler-selected persistent list."""
+"""Two lexical rules sharing one explicit Table."""
 
 import agentic_circuit as ac
 
@@ -17,10 +17,8 @@ def replace(entries, incoming):
 
 
 @ac.system
-def shared_indexed_rules(
-    first: Entry, second: Entry
-) -> tuple[Entry, Entry]:
-    entries: list[Entry] = [0] * 4
+def shared_indexed_rules(first: Entry, second: Entry) -> tuple[Entry, Entry]:
+    entries = ac.table[4, Entry](init=0)
     first_old = replace(entries, first)
     second_old = replace(entries, second)
     return first_old, second_old

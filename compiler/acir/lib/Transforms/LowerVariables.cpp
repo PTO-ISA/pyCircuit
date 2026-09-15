@@ -257,6 +257,8 @@ LogicalResult lowerVariableState(ModuleOp model) {
     state.addAttribute("table", assignment.getVariableAttr());
     state.addAttribute("mode", builder.getStringAttr("replace"));
     state.addAttribute("write_fields", *writeFields);
+    if (Attribute arbitration = assignment->getAttr("ac.arbitration"))
+      state.addAttribute("ac.arbitration", arbitration);
     builder.create(state);
     assignment.erase();
   }
@@ -279,6 +281,8 @@ LogicalResult lowerVariableState(ModuleOp model) {
     state.addAttribute("table", assignment.getVariableAttr());
     state.addAttribute("mode", builder.getStringAttr("replace"));
     state.addAttribute("write_fields", *writeFields);
+    if (Attribute arbitration = assignment->getAttr("ac.arbitration"))
+      state.addAttribute("ac.arbitration", arbitration);
     builder.create(state);
     assignment.erase();
   }

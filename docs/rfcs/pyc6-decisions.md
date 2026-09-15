@@ -10109,3 +10109,61 @@ action across independent scheduler transactions.
 
 **Source**
 - PTO-ISA/pyCircuit issue #138.
+
+## Decision 0263: indexed persistent state is an explicit Table
+
+**Status:** Accepted and implemented
+
+**Extends:** Decisions 0172, 0197, 0221, 0241, 0248, and 0262.
+
+**Context / Goal**
+Ordinary Python lists serve two incompatible roles when annotation and initializer
+shape implicitly turn some of them into hardware state. That convention makes
+source intent ambiguous, gives collection queries a global namespace marker, and
+prevents resource binding from naming the storage owner directly.
+
+**Decision (strong constraint)**
+- Indexed persistent state is declared with `ac.table[shape, Entry](init=...)`.
+  Ordinary Python lists, list comprehensions, and Queue collections remain static
+  elaboration values and never infer a persistent owner. Scalar persistent-state
+  inference and fixed value `ac.array` semantics are unchanged.
+- `table.find(where=predicate, key=key)` replaces `ac.find(table, ...)`.
+  `where` is required and keyword-only; `key` is optional and keyword-only.
+  Without `key`, the lowest matching flattened index wins. With `key`, the
+  smallest unsigned key wins and the flattened index stably breaks ties. The
+  result retains lazy `.valid`, `.index`, and `.value` projections.
+- `table.view(row).find(where=...)` retains Decision 0248's bounded rank-two
+  projection: its mask is row-local, its returned index is globally flattened,
+  and keyed row selection remains outside the admitted slice. Candidate domains
+  above 64 entries retain the existing compiler-owned 64-bit word array.
+- Rule resource binding records owner kind, identity, Entry descriptor, shape,
+  and capacity. Inferred scalar/module state emits `ac.var.*`; explicit
+  system-level Tables emit `ac.table.get`, `ac.table.propose`, `ac.table.match`,
+  and `ac.table.choose`. Module-local explicit Tables may remain shaped `ac.var`
+  until storage selection lowers them to Table storage.
+- Predicate and key regions may read other explicit Tables. Read-only owners,
+  activation sources, snapshot sets, and transaction resources remain distinct.
+  Dynamic indices are evaluated once, same-owner proposals remain ordered, and
+  branch/early-return/output-presence effects retain one atomic rule transaction.
+- Annotated list declarations that previously inferred indexed state fail with
+  `ACPY-VAR-002`, source provenance, and an executable `ac.table[...]`
+  replacement. Removed `ac.find` calls fail with `ACPY-RULE-009` and point to
+  `table.find(...)`; the marker is absent from public exports, capture markers,
+  and API inventory. This locally supersedes Decision 0197's persistent-list
+  source convention while preserving Decisions 0221 and 0248.
+
+**Required verification**
+- Cover static/dynamic reads and writes, single-evaluation field updates,
+  first/min selection, 128-entry masks, runtime rows, cross-Table predicate/key
+  reads, read-only owners, early return, outputless rules, branch joins,
+  multi-owner rules, and ordered same-owner proposals.
+- Retain Queue backpressure, conflict cancellation, reset, and atomic commit
+  coverage through direct and generated GFSim. Run bounded Table parity through
+  PYC C++ and Verilog; reject wider scenarios at the documented PYC admission
+  boundary.
+- Prove the list and removed-function diagnostics, receiver/call-shape/index
+  negatives, unaffected static Python collections, public API hygiene, strict
+  decision status, and English/Chinese documentation alignment.
+
+**Source**
+- PTO-ISA/pyCircuit issue #136.

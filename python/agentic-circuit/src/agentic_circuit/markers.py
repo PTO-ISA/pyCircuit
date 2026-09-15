@@ -15,7 +15,6 @@ CAPTURE_ONLY_API = (
     "set",
     "instances",
     "view",
-    "find",
     "concat",
     "literal",
     "zero",
@@ -82,11 +81,6 @@ def instances(*values: object) -> Never:
 
 def view(value: object, *selectors: object) -> Never:
     return _capture_time_only("view")
-
-
-def find(values: object, *, where: object, key: object | None = None) -> Never:
-    _ = (values, where, key)
-    return _capture_time_only("find")
 
 
 def concat(*values: object) -> Never:

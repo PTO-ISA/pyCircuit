@@ -67,7 +67,7 @@ def rob(
     tail: ac.u2 = 0
     count: ac.u3 = 0
     epoch: ac.u16 = 0
-    entries: list[RobEvent] = [0] * 4
+    entries = ac.table[4, RobEvent](init=0)
 
     recover(head, tail, count, epoch, flush_request)
     allocated = allocate(tail, count, epoch, entries, allocate_request)
