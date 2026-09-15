@@ -36,7 +36,7 @@ def keep(entries, value: Packet) -> Packet:
 
 @ac.module
 def stage(value: Packet, *, cfg: ac.const[StageConfig]) -> Packet:
-    entries: list[Entry] = [0] * cfg.entries
+    entries = ac.table[cfg.entries, Entry](init=0)
     result = keep(entries, value)
     return result
 

@@ -253,8 +253,11 @@ Follow these rules:
   although other rules may read the same committed snapshot.
 - Read committed state, compute proposals, and let the compiler publish them.
   Do not expose reservation, check, or prepare/publish mechanics in Python.
+- Declare indexed persistent state with `ac.table[...]`; ordinary Python lists
+  are static elaboration collections and never infer a persistent owner. Query
+  a Table with `table.find(where=..., key=...)`.
 - For a set-associative rank-two Table, write
-  `ac.find(table.view(request.row), where=...)`. The row must use the exact
+  `table.view(request.row).find(where=...)`. The row must use the exact
   first-axis width and be statically bounded. The current contract scans only
   the fixed ways, supports first/count-one selection, and returns a global
   flattened Table index rather than a row-local way.

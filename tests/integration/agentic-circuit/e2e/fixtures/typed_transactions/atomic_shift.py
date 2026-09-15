@@ -24,6 +24,6 @@ def shift(entries, command):
 
 @ac.system
 def atomic_shift(command: Command) -> Command:
-    entries: list[ac.u8] = [0] * 4
+    entries = ac.table[4, ac.u8](init=0)
     snapshot = shift(entries, command)
     return snapshot

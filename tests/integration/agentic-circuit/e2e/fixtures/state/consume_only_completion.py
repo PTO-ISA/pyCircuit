@@ -20,5 +20,5 @@ def complete(entries, completion):
 
 @ac.system
 def consume_only_completion(completion: Entry) -> None:
-    entries: list[Entry] = [0] * 4
+    entries = ac.table[4, Entry](init=0)
     complete(entries, completion)

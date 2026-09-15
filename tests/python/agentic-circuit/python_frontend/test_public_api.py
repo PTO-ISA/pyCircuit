@@ -10,7 +10,6 @@ CAPTURE_ONLY = {
     "set",
     "instances",
     "view",
-    "find",
     "concat",
     "literal",
     "zero",
@@ -184,9 +183,7 @@ class PublicApiTest(unittest.TestCase):
         full = api.range[0, 1 << 64]
         self.assertEqual(64, full.width)
         self.assertEqual("18446744073709551616", full.canonical()["upper"])
-        self.assertEqual(
-            "!ac.range<0, 18446744073709551615>", full.mlir()
-        )
+        self.assertEqual("!ac.range<0, 18446744073709551615>", full.mlir())
         entries = api.param[int]("entries")
         nested = api.array[2, api.index[entries]]
         self.assertEqual(2, nested.length)

@@ -478,8 +478,8 @@ Cartesian propagation are capped at 64 values; topology expansion is capped at
 analysis widens conservatively and proof sites fail closed.
 
 `ACDataFlowAnalyzer` is the public compiler analysis. It recomputes constraints
-from ACIR SSA through MLIR dataflow and proves every dynamic persistent-list or
-Table index is within `[0, entries - 1]` before rule lowering, topology freeze,
+from ACIR SSA through MLIR dataflow and proves every dynamic Table index is
+within `[0, entries - 1]` before rule lowering, topology freeze,
 and QueueGraph planning. MLIR's generic `DataFlowSolver` remains private to the
 analyzer implementation. For example, a `u2` index is safe for five entries,
 while an unconstrained `u3` index is rejected unless preceding operations
@@ -540,27 +540,29 @@ or flat struct and selects a single-entry committed implementation. Enum state
 uses its first declared member as the zero image and keeps its nominal type
 through storage selection; the Python frontend does not expose that choice.
 
-A fixed persistent list uses ordinary Python syntax such as
-`entries: list[Entry] = [0] * 8`. The frontend emits a shaped `ac.var.decl`
-plus `ac.var.read_element`/`ac.var.assign_element`; storage selection maps that
-logical variable to touched-entry committed storage. Dynamic indices currently
-are accepted only when `ACDataFlowAnalyzer` proves their value domain is within
-the list shape; authors do not write a frontend range check or marker.
+Indexed persistent state is declared explicitly with
+`Table8 = ac.table[8, Entry]` and `entries = Table8(init=0)`. Ordinary Python lists remain static
+elaboration collections and never create a persistent owner. A module-local
+Table may use shaped `ac.var` internally until storage selection; a system-level
+Table emits `ac.table` operations directly. Dynamic indices are accepted only
+when their exact type and inferred value domain satisfy the Table shape.
+Former annotated zero-list declarations fail with `ACPY-VAR-002` and an
+executable Table replacement.
 
-`ac.find(values, where=predicate, key=key)` is the storage-neutral collection
-query for a persistent Python list. It returns an intrinsic value with
+`table.find(where=predicate, key=key)` is the Table collection query. It returns
+an intrinsic value with
 `.valid`, `.index`, and `.value`; omitting `key` selects the first matching
 index, while providing a fixed-width integer key selects the minimum key with
-stable index tie-breaking. Raw ACIR uses `ac.var.match` and `ac.var.choose`.
-Storage selection rewrites them to the existing committed Table query without
-changing the Python variable model. The selected index/value may affect state
+stable index tie-breaking. System Tables emit `ac.table.match` and
+`ac.table.choose`; module-local shaped state may emit the corresponding
+`ac.var` operations before storage selection. The selected index/value may affect state
 only under the corresponding `.valid` condition. Domains above 64 entries use
 a compiler-owned fixed array of 64-bit candidate words; this does not widen the
 public `ac.u1..ac.u64` payload family. Match and choose share the same committed
 scan, so deterministic selection and selected-value provenance do not require
 a second traversal.
 
-A predicate may read another persistent list. Such an owner is an activation
+A predicate or key may read another explicit Table. Such an owner is an activation
 source but not a transaction resource unless the rule writes it. Generated
 policies capture read-only committed storage through const references; only
 writable owners participate in prepare/publish/commit. This supports an ISQ
@@ -1127,8 +1129,7 @@ element; non-power-of-two and extent-one axes retain their exact domains.
 Within a stateful rule, a rank-two Table also admits one runtime row view:
 
 ```python
-selected = ac.find(
-    tags.view(request.set_index),
+selected = tags.view(request.set_index).find(
     where=lambda entry: entry.valid & (entry.tag == request.tag),
 )
 ```
@@ -1319,7 +1320,7 @@ def pipeline(incoming: Item) -> Item:
 Inside a rule, direct field assignment is shorthand for an immutable record
 replacement. `local.field = value` is normalized to
 `local = local.with_fields(field=value)`. When the base is a persistent scalar,
-that rebinding becomes the owner's next-state proposal. For a persistent list,
+that rebinding becomes the owner's next-state proposal. For an indexed Table,
 `entries[index].field = value` evaluates `index` exactly once and proposes the
 equivalent complete-entry replacement. Later serial local or scalar-state
 assignments read the latest SSA proposal, while committed state remains
@@ -1465,7 +1466,7 @@ effects; the input and every selected state owner still publish through one
 atomic group. If complementary arms assign the same scalar or the same indexed
 lexical target, the compiler joins the value and, when needed, the index with
 typed `ac.var.select`. If one selected path writes several distinct entries of
-the same persistent list, those proposals remain an ordered owner-local batch.
+the same Table, those proposals remain an ordered owner-local batch.
 `ACDataFlowAnalyzer` and QueueGraph require every same-owner pair to have
 disjoint index domains or structurally mutually exclusive predicates. Each
 authored index retains the existing exact-width/full-domain safety proof. A

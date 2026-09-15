@@ -12,7 +12,7 @@ and backend cases live under
 | `inferred_stateful_module.py` | A normal annotated Python variable becoming instance-local committed module state. |
 | `inferred_nested_rule.py` | A nested rule capturing lexical state while repeated module placements stay isolated. |
 | `reusable_circular_rob.py` | A reusable multi-rule ROB with heterogeneous atomic state, recovery, and stale-completion rejection. |
-| `reusable_oldest_ready_isq.py` | Persistent-list `ac.find`, read-only state dependencies, and reusable oldest-ready scheduling. |
+| `reusable_oldest_ready_isq.py` | Explicit Table `.find`, read-only state dependencies, and reusable oldest-ready scheduling. |
 | `slot_rule_mailbox.py` | Explicit-argument and nested-capture forms of transactional rule-owned slot release. |
 
 ## State and transaction model

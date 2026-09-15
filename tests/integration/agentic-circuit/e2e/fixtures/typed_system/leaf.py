@@ -12,10 +12,8 @@ from contracts import (
 
 @ac.rule
 def read_entry(entries, request, owner_generation):
-    selected = ac.find(
-        entries,
-        where=lambda entry: entry.valid
-        & (entry.generation == request.generation),
+    selected = entries.find(
+        where=lambda entry: entry.valid & (entry.generation == request.generation),
     )
     return ReadResult(
         request=request,

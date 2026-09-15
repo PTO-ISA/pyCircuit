@@ -24,8 +24,7 @@ def wake(ready_tags, wakeup):
 
 @ac.rule
 def issue(entries, ready_tags):
-    selected = ac.find(
-        entries,
+    selected = entries.find(
         where=lambda entry: (
             entry.valid and ready_tags[entry.src0_tag] and ready_tags[entry.src1_tag]
         ),
@@ -38,8 +37,8 @@ def issue(entries, ready_tags):
 
 @ac.module
 def find_module(wakeup: Wakeup) -> Entry:
-    entries: list[Entry] = [0] * 4
-    ready_tags: list[bool] = [False] * 64
+    entries = ac.table[4, Entry](init=0)
+    ready_tags = ac.table[64, bool](init=0)
     wake(ready_tags, wakeup)
     issued = issue(entries, ready_tags)
     return issued

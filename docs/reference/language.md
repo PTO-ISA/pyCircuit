@@ -96,7 +96,8 @@ Data (ABC)
 递归 struct/enum/tuple/fixed array 属于 semantic-core 与 ACIR 的高层
 aggregate contract。它们按 descriptor/source 顺序、MSB-first 打包成一个
 精确宽度 scalar integer 后才进入 canonical PYC。拓扑集合 `!ac.array` 与
-persistent Python list 也不构成 PYC 向量值。
+elaboration-time Python list 也不构成 PYC 向量值；Agentic Circuit 的 indexed
+persistent state 必须显式声明为 `ac.table`。
 
 ### Wire[DT] —— 标量信号句柄
 
