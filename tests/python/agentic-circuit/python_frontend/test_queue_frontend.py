@@ -558,7 +558,7 @@ def keep(entries, value: Packet) -> Packet:
 
 @ac.module
 def stage(value: Packet, *, entry_count: ac.const[int]) -> Packet:
-    entries: list[Entry] = [0] * entry_count
+    entries = ac.table[entry_count, Entry](init=0)
     result = keep(entries, value)
     return result
 
@@ -602,7 +602,7 @@ def keep(entries, value: Packet) -> Packet:
 
 @ac.module
 def stage(value: Packet, *, cfg: ac.const[Config]) -> Packet:
-    entries: list[Entry] = [0] * cfg.entries
+    entries = ac.table[cfg.entries, Entry](init=0)
     result = keep(entries, value)
     return result
 
@@ -1261,7 +1261,7 @@ def replace(entries, incoming):
 
 @ac.system
 def indexed_state(incoming: Entry) -> Entry:
-    entries: list[Entry] = [0] * 4
+    entries = ac.table[4, Entry](init=0)
     outgoing = replace(entries, incoming)
     return outgoing
 """
@@ -1278,9 +1278,8 @@ class Entry:
 
 @ac.rule
 def issue(entries):
-    selected = ac.find(
-        entries,
-        where=lambda entry: entry.valid,
+    selected = entries.find(
+                where=lambda entry: entry.valid,
         key=lambda entry: entry.age,
     )
     if selected.valid:
@@ -1289,7 +1288,7 @@ def issue(entries):
 
 @ac.system
 def issue_queue() -> Entry:
-    entries: list[Entry] = [0] * 4
+    entries = ac.table[4, Entry](init=0)
     issued = issue(entries)
     return issued
 """
@@ -1314,9 +1313,8 @@ class Result:
 
 @ac.rule
 def lookup(entries, request: Request) -> Result:
-    selected = ac.find(
-        entries.view(request.row),
-        where=lambda entry: entry.valid & (entry.tag == request.tag),
+    selected = entries.view(request.row).find(
+                where=lambda entry: entry.valid & (entry.tag == request.tag),
     )
     return Result(index=selected.index, valid=selected.valid)
 
@@ -1353,9 +1351,8 @@ def wake(ready_tags, wakeup):
 
 @ac.rule
 def issue(entries, ready_tags):
-    selected = ac.find(
-        entries,
-        where=lambda entry: (
+    selected = entries.find(
+                where=lambda entry: (
             entry.valid
             and ready_tags[entry.src0_tag]
             and ready_tags[entry.src1_tag]
@@ -1368,8 +1365,8 @@ def issue(entries, ready_tags):
 
 @ac.system
 def issue_queue(wakeup: Wakeup) -> Entry:
-    entries: list[Entry] = [0] * 4
-    ready_tags: list[bool] = [False] * 64
+    entries = ac.table[4, Entry](init=0)
+    ready_tags = ac.table[64, bool](init=0)
     wake(ready_tags, wakeup)
     issued = issue(entries, ready_tags)
     return issued
@@ -1395,16 +1392,15 @@ class Request:
 @ac.rule
 def remove(entries, request):
     key = request.key
-    selected = ac.find(
-        entries,
-        where=lambda row: row.valid & (row.key == key),
+    selected = entries.find(
+                where=lambda row: row.valid & (row.key == key),
     )
     if selected.valid:
         entries[selected.index] = selected.value.with_fields(valid=False)
 
 @ac.system
 def remove_entry(request: Request) -> None:
-    entries: list[Entry] = [0] * 4
+    entries = ac.table[4, Entry](init=0)
     remove(entries, request)
 """
 
@@ -1419,9 +1415,8 @@ class Entry:
 
 @ac.rule
 def issue(entries, priorities):
-    selected = ac.find(
-        entries,
-        where=lambda entry: entry.valid,
+    selected = entries.find(
+                where=lambda entry: entry.valid,
         key=lambda entry: priorities[entry.tag],
     )
     if selected.valid:
@@ -1430,8 +1425,8 @@ def issue(entries, priorities):
 
 @ac.system
 def issue_queue() -> Entry:
-    entries: list[Entry] = [0] * 4
-    priorities: list[ac.u2] = [0] * 4
+    entries = ac.table[4, Entry](init=0)
+    priorities = ac.table[4, ac.u2](init=0)
     issued = issue(entries, priorities)
     return issued
 """
@@ -1454,7 +1449,7 @@ def complete(entries, completion):
 
 @ac.system
 def completion_port(completion: Entry) -> None:
-    entries: list[Entry] = [0] * 4
+    entries = ac.table[4, Entry](init=0)
     complete(entries, completion)
 """
 
@@ -1478,7 +1473,7 @@ def complete(epoch, entries, completion):
 @ac.system
 def completion_port(completion: Entry) -> None:
     epoch: ac.u8 = 0
-    entries: list[Entry] = [0] * 2
+    entries = ac.table[2, Entry](init=0)
     complete(epoch, entries, completion)
 """
 
@@ -1500,7 +1495,7 @@ def retire(entries):
 
 @ac.system
 def retirement_port() -> Entry:
-    entries: list[Entry] = [0] * 2
+    entries = ac.table[2, Entry](init=0)
     retired = retire(entries)
     return retired
 """
@@ -1522,7 +1517,7 @@ def allocate(tail, entries, incoming):
 @ac.system
 def multi_state_allocate(incoming: Entry) -> Entry:
     tail: ac.u2 = 0
-    entries: list[Entry] = [0] * 4
+    entries = ac.table[4, Entry](init=0)
     allocated = allocate(tail, entries, incoming)
     return allocated
 """
@@ -1548,7 +1543,7 @@ def update(count, entries, incoming):
 @ac.system
 def readable_metadata(incoming: Entry) -> Entry:
     count: ac.u8 = 0
-    entries: list[Entry] = [0] * 4
+    entries = ac.table[4, Entry](init=0)
     result = update(count, entries, incoming)
     return result
 """
@@ -1774,7 +1769,7 @@ def update(entries, command):
 
 @ac.system
 def indexed_branch_join(command: Command) -> None:
-    entries: list[ac.u8] = [0] * 4
+    entries = ac.table[4, ac.u8](init=0)
     update(entries, command)
 """
 
@@ -1797,7 +1792,7 @@ def shift(entries, command):
 
 @ac.system
 def multi_write_branch(command: Command) -> Command:
-    entries: list[ac.u8] = [0] * 4
+    entries = ac.table[4, ac.u8](init=0)
     result = shift(entries, command)
     return result
 """
@@ -4733,7 +4728,10 @@ def record_project(packet: Packet) -> View:
         with self.assertRaisesRegex(QueueFrontendError, "missing target field"):
             lower_queue_source(missing, "record_project")
 
-        bool_u1 = source.replace("class View:\n    header: Header\n    valid: bool", "class View:\n    header: Header\n    valid: ac.u1")
+        bool_u1 = source.replace(
+            "class View:\n    header: Header\n    valid: bool",
+            "class View:\n    header: Header\n    valid: ac.u1",
+        )
         with self.assertRaisesRegex(QueueFrontendError, "exact recursive type"):
             lower_queue_source(bool_u1, "record_project")
 
@@ -4760,9 +4758,7 @@ def record_project(packet: Packet) -> View:
         with self.assertRaisesRegex(QueueFrontendError, "unshadowed"):
             lower_queue_source(shadowed_target, "record_project")
 
-        non_record = source.replace(
-            "packet.project(View)", "packet.data.project(View)"
-        )
+        non_record = source.replace("packet.project(View)", "packet.data.project(View)")
         with self.assertRaisesRegex(QueueFrontendError, "receiver must be"):
             lower_queue_source(non_record, "record_project")
 
@@ -4932,9 +4928,7 @@ def pipeline(request: Request) -> Result:
         self.assertIn('ac.var.enum @types::@Opcode "NONE"', lowered)
         self.assertIn('ac.var.enum @types::@Opcode "WRITE"', lowered)
 
-        missing_fallback = source.replace(
-            ", fallback=Opcode.NONE", ""
-        )
+        missing_fallback = source.replace(", fallback=Opcode.NONE", "")
         with self.assertRaisesRegex(QueueFrontendError, "requires fallback"):
             lower_queue_source(missing_fallback, "pipeline")
 
@@ -4973,9 +4967,7 @@ def scalar_checked_value(raw: ac.u2) -> Mode:
         scalar_lowered = lower_queue_source(scalar_only, "scalar_checked")
         self.assertIn('ac.var.enum @types::@Mode "IDLE"', scalar_lowered)
         self.assertEqual(2, scalar_lowered.count('ac.var.cmp "eq"'))
-        scalar_value_lowered = lower_queue_source(
-            scalar_only, "scalar_checked_value"
-        )
+        scalar_value_lowered = lower_queue_source(scalar_only, "scalar_checked_value")
         self.assertIn("!ac.queue<!ac.enum<@types::@Mode>>", scalar_value_lowered)
 
         shadowed_target = """from enum import Enum
@@ -5085,9 +5077,7 @@ def pipeline(request: Request) -> Result:
         with self.assertRaisesRegex(QueueFrontendError, "requires"):
             lower_queue_source(ambiguous_valid, "pipeline")
 
-        enum_members = "\n".join(
-            f"    M{index} = {index}" for index in range(65)
-        )
+        enum_members = "\n".join(f"    M{index} = {index}" for index in range(65))
         mapped_members = ", ".join(f"Mode.M{index}" for index in range(65))
         wide_source = f"""from enum import Enum
 import agentic_circuit as ac
@@ -6067,27 +6057,34 @@ def invariant_module(value: Payload) -> Payload:
         self.assertIn("ac.var.assign @state", lowered)
         self.assertNotIn("ac.table", lowered)
 
-    def test_persistent_list_uses_indexed_ac_var_operations(self) -> None:
+    def test_explicit_table_uses_table_operations(self) -> None:
         from agentic_circuit._queue_frontend import lower_queue_source
 
         lowered = lower_queue_source(INDEXED_VARIABLE_RULE_SOURCE, "indexed_state")
-        self.assertIn("ac.var.decl @entries type !ac.struct<@types::@Entry>", lowered)
-        self.assertIn('stable_id "var/entries" shape [4]', lowered)
-        self.assertIn("ac.var.read_element @entries", lowered)
-        self.assertIn("ac.var.assign_element @entries", lowered)
-        self.assertNotIn("ac.table @entries", lowered)
+        self.assertIn("ac.table @entries entry !ac.struct<@types::@Entry>", lowered)
+        self.assertIn('stable_id "table/entries"', lowered)
+        self.assertIn("ac.table.get @entries", lowered)
+        self.assertIn("ac.table.propose @entries", lowered)
 
-    def test_persistent_list_requires_static_zero_shape(self) -> None:
+    def test_persistent_list_requires_explicit_table(self) -> None:
         from agentic_circuit._queue_frontend import (
             QueueFrontendError,
             lower_queue_source,
         )
 
-        invalid = INDEXED_VARIABLE_RULE_SOURCE.replace("[0] * 4", "[1] * 4")
-        with self.assertRaisesRegex(QueueFrontendError, "persistent list"):
-            lower_queue_source(invalid, "indexed_state")
+        invalid = INDEXED_VARIABLE_RULE_SOURCE.replace(
+            "entries = ac.table[4, Entry](init=0)",
+            "entries: list[Entry] = [0] * 4",
+        )
+        with self.assertRaisesRegex(
+            QueueFrontendError,
+            r"ACPY-VAR-002:.*entries = ac\.table\[4, Entry\]\(init=0\)",
+        ) as raised:
+            lower_queue_source(invalid, "indexed_state", source_path="state.py")
+        self.assertIsNotNone(raised.exception.source)
+        self.assertEqual("state.py", raised.exception.source.file)
 
-    def test_persistent_list_find_lowers_to_generic_ac_var_selection(self) -> None:
+    def test_table_find_lowers_to_table_selection(self) -> None:
         from agentic_circuit._queue_frontend import (
             lower_queue_source,
             parse_queue_program,
@@ -6097,20 +6094,20 @@ def invariant_module(value: Payload) -> Payload:
         self.assertEqual(
             (), parse_queue_program(LIST_FIND_RULE_SOURCE, "issue_queue").diagnostics
         )
-        self.assertIn("ac.var.match @entries predicate", lowered)
-        self.assertIn("ac.var.match.yield", lowered)
-        self.assertIn('count 1 policy "min"', lowered)
-        self.assertIn("ac.var.choose.yield", lowered)
-        self.assertIn('ac.query = "__ac_rule_local_0_selected"', lowered)
-        self.assertIn("ac.var.read_element @entries", lowered)
-        self.assertIn("ac.var.assign_element @entries", lowered)
-        self.assertNotIn("ac.table", lowered)
+        self.assertIn("ac.table.match @entries predicate", lowered)
+        self.assertIn("ac.table.match.yield", lowered)
+        self.assertIn("policy #ac<table_selection_policy min>", lowered)
+        self.assertIn("key_order #ac<table_key_ordering unsigned>", lowered)
+        self.assertIn("ac.table.choose.yield", lowered)
+        self.assertIn('stable_id "__ac_rule_local_0_selected"', lowered)
+        self.assertIn("ac.table.get @entries", lowered)
+        self.assertIn("ac.table.propose @entries", lowered)
 
         wide = LIST_FIND_RULE_SOURCE.replace("index: ac.u2", "index: ac.u7").replace(
-            "[0] * 4", "[0] * 128"
+            "ac.table[4, Entry]", "ac.table[128, Entry]"
         )
         wide_lowered = lower_queue_source(wide, "issue_queue")
-        self.assertIn("shape [128]", wide_lowered)
+        self.assertIn("entries 128", wide_lowered)
         self.assertIn("-> !ac.var<!ac.value_array<2 x i64>>", wide_lowered)
         self.assertIn("!ac.var<!ac.value_array<2 x i64>> count 1", wide_lowered)
 
@@ -6124,8 +6121,8 @@ def invariant_module(value: Payload) -> Payload:
         self.assertIn("ac.var.match @entries row %", lowered)
         self.assertIn("-> !ac.var<i4>", lowered)
         self.assertIn('count 1 policy "first"', lowered)
-        self.assertIn('loc("src/runtime_row.py":22:22)', lowered)
-        self.assertIn('loc("src/runtime_row.py":23:29)', lowered)
+        self.assertIn('loc("src/runtime_row.py":21:29)', lowered)
+        self.assertIn('loc("src/runtime_row.py":22:37)', lowered)
 
     def test_runtime_row_find_rejects_non_table_and_wrong_axis_width(self) -> None:
         from agentic_circuit._queue_frontend import (
@@ -6154,28 +6151,76 @@ def invariant_module(value: Payload) -> Payload:
         self.assertIn("ac.var.match @entries row %", lowered)
         self.assertIn("-> !ac.var<i1>", lowered)
 
-    def test_persistent_list_find_rejects_non_list_state(self) -> None:
+    def test_table_find_rejects_non_table_state(self) -> None:
         from agentic_circuit._queue_frontend import (
             QueueFrontendError,
             lower_queue_source,
         )
 
         invalid = LIST_FIND_RULE_SOURCE.replace(
-            "entries: list[Entry] = [0] * 4", "entries: Entry = 0"
+            "entries = ac.table[4, Entry](init=0)", "entries: Entry = 0"
         )
         with self.assertRaisesRegex(QueueFrontendError, "find requires"):
             lower_queue_source(invalid, "issue_queue")
 
-    def test_find_predicate_captures_a_read_only_persistent_list(self) -> None:
+    def test_removed_ac_find_reports_table_migration(self) -> None:
+        from agentic_circuit._queue_frontend import (
+            QueueFrontendError,
+            lower_queue_source,
+        )
+
+        invalid = LIST_FIND_RULE_SOURCE.replace(
+            "selected = entries.find(", "selected = ac.find(entries,"
+        )
+        with self.assertRaisesRegex(
+            QueueFrontendError,
+            r"ACPY-RULE-009: ac\.find was removed; use table\.find",
+        ):
+            lower_queue_source(invalid, "issue_queue")
+
+    def test_table_find_requires_keyword_only_where(self) -> None:
+        from agentic_circuit._queue_frontend import (
+            QueueFrontendError,
+            lower_queue_source,
+        )
+
+        missing = LIST_FIND_RULE_SOURCE.replace(
+            "        where=lambda entry: entry.valid,\n", ""
+        )
+        with self.assertRaisesRegex(QueueFrontendError, "requires one where"):
+            lower_queue_source(missing, "issue_queue")
+
+        positional = LIST_FIND_RULE_SOURCE.replace(
+            "        where=lambda entry: entry.valid,",
+            "        lambda entry: entry.valid,",
+        )
+        with self.assertRaisesRegex(QueueFrontendError, "no positional arguments"):
+            lower_queue_source(positional, "issue_queue")
+
+        duplicate = LIST_FIND_RULE_SOURCE.replace(
+            "        where=lambda entry: entry.valid,",
+            "        where=lambda entry: entry.valid,\n"
+            "        where=lambda entry: entry.valid,",
+        )
+        with self.assertRaisesRegex(QueueFrontendError, "requires one where"):
+            lower_queue_source(duplicate, "issue_queue")
+
+        invalid_key = LIST_FIND_RULE_SOURCE.replace(
+            "        key=lambda entry: entry.age,",
+            "        key=incoming.index,",
+        )
+        with self.assertRaisesRegex(QueueFrontendError, "one-argument lambdas"):
+            lower_queue_source(invalid_key, "issue_queue")
+
+    def test_find_predicate_captures_a_read_only_table(self) -> None:
         from agentic_circuit._queue_frontend import lower_queue_source
 
         lowered = lower_queue_source(LIST_FIND_CAPTURE_SOURCE, "issue_queue")
-        self.assertIn("ac.var.decl @ready_tags type i1 init false", lowered)
-        self.assertIn("ac.var.match @entries predicate", lowered)
-        self.assertEqual(2, lowered.count("ac.var.read_element @ready_tags"))
-        self.assertIn("ac.var.assign_element @ready_tags", lowered)
-        self.assertIn("ac.var.assign_element @entries", lowered)
-        self.assertNotIn("ac.table", lowered)
+        self.assertIn("ac.table @ready_tags entry i1", lowered)
+        self.assertIn("ac.table.match @entries predicate", lowered)
+        self.assertEqual(2, lowered.count("ac.table.get @ready_tags"))
+        self.assertIn("ac.table.propose @ready_tags", lowered)
+        self.assertIn("ac.table.propose @entries", lowered)
 
     def test_find_predicate_captures_a_prior_aggregate_local(self) -> None:
         from agentic_circuit._queue_frontend import lower_queue_source
@@ -6183,30 +6228,29 @@ def invariant_module(value: Payload) -> Payload:
         lowered = lower_queue_source(
             LIST_FIND_LOCAL_AGGREGATE_CAPTURE_SOURCE, "remove_entry"
         )
-        self.assertIn("ac.var.match @entries predicate", lowered)
+        self.assertIn("ac.table.match @entries predicate", lowered)
         self.assertIn('ac.var.cmp "eq"', lowered)
         self.assertIn("!ac.var<!ac.struct<@types::@Key>>", lowered)
 
-    def test_find_key_captures_a_read_only_persistent_list(self) -> None:
+    def test_find_key_captures_a_read_only_table(self) -> None:
         from agentic_circuit._queue_frontend import lower_queue_source
 
         lowered = lower_queue_source(LIST_FIND_KEY_CAPTURE_SOURCE, "issue_queue")
-        self.assertIn("ac.var.decl @priorities type i2 init 0", lowered)
-        self.assertIn("ac.var.choose @entries", lowered)
-        self.assertIn('count 1 policy "min" key {', lowered)
-        self.assertEqual(1, lowered.count("ac.var.read_element @priorities"))
-        self.assertIn("ac.var.assign_element @entries", lowered)
-        self.assertNotIn("ac.table", lowered)
+        self.assertIn("ac.table @priorities entry i2", lowered)
+        self.assertIn("ac.table.choose @entries", lowered)
+        self.assertIn("policy #ac<table_selection_policy min>", lowered)
+        self.assertEqual(1, lowered.count("ac.table.get @priorities"))
+        self.assertIn("ac.table.propose @entries", lowered)
 
     def test_outputless_rule_infers_consume_only_state_transaction(self) -> None:
         from agentic_circuit._queue_frontend import lower_queue_source
 
         lowered = lower_queue_source(CONSUME_ONLY_RULE_SOURCE, "completion_port")
         self.assertIn("ac.rule %completion depths [] latencies []", lowered)
-        self.assertIn("ac.var.read_element @entries", lowered)
+        self.assertIn("ac.table.get @entries", lowered)
         self.assertIn("ac.var.constant true as !ac.var<i1>", lowered)
         self.assertIn("ac.rule.condition", lowered)
-        self.assertIn("ac.var.assign_element @entries", lowered)
+        self.assertIn("ac.table.propose @entries", lowered)
         self.assertIn(" when %", lowered)
         self.assertIn("ac.rule.return", lowered)
         self.assertNotIn("ac.marker.obligation", lowered)
@@ -6248,7 +6292,10 @@ def invariant_module(value: Payload) -> Payload:
         )
 
     def test_rule_local_slot_declaration_is_rejected(self) -> None:
-        from agentic_circuit._queue_frontend import QueueFrontendError, lower_queue_source
+        from agentic_circuit._queue_frontend import (
+            QueueFrontendError,
+            lower_queue_source,
+        )
 
         source = RULE_SLOT_SOURCE.replace(
             "def consume(mailbox) -> Event:\n",
@@ -6266,7 +6313,10 @@ def invariant_module(value: Payload) -> Payload:
         self.assertEqual(1, lowered.count("ac.slot.propose_release @mailbox"))
 
     def test_slot_rejects_multiple_rule_release_owners(self) -> None:
-        from agentic_circuit._queue_frontend import QueueFrontendError, lower_queue_source
+        from agentic_circuit._queue_frontend import (
+            QueueFrontendError,
+            lower_queue_source,
+        )
 
         source = READ_ONLY_RULE_SLOT_SOURCE.replace(
             "    observed = observe(mailbox)", "    observed = consume(mailbox)"
@@ -6386,7 +6436,7 @@ def pipeline(left_input: Event, right_input: Event) -> None:
         )
         self.assertIn("ac.var.read @epoch", lowered)
         self.assertNotIn("ac.var.assign @epoch", lowered)
-        self.assertIn("ac.var.assign_element @entries", lowered)
+        self.assertIn("ac.table.propose @entries", lowered)
         self.assertIn(" when %", lowered)
         self.assertIn("ac.var.mul", lowered)
         self.assertIn(
@@ -6402,7 +6452,7 @@ def pipeline(left_input: Event, right_input: Event) -> None:
             "    checkpoint = old.epoch\n    if old.epoch != epoch:\n",
         )
         lowered = lower_queue_source(invalid, "completion_port")
-        self.assertIn("ac.var.assign_element @entries", lowered)
+        self.assertIn("ac.table.propose @entries", lowered)
         self.assertIn(" when %", lowered)
 
     def test_early_return_chain_must_precede_state_effects(self) -> None:
@@ -6425,8 +6475,8 @@ def pipeline(left_input: Event, right_input: Event) -> None:
         lowered = lower_queue_source(STATE_DRIVEN_RULE_SOURCE, "retirement_port")
         self.assertIn("%retired = ac.rule  depths [1] latencies [1]", lowered)
         self.assertIn("ac.rule.condition", lowered)
-        self.assertIn("ac.var.read_element @entries", lowered)
-        self.assertIn("ac.var.assign_element @entries", lowered)
+        self.assertIn("ac.table.get @entries", lowered)
+        self.assertIn("ac.table.propose @entries", lowered)
         self.assertNotIn(" = ac.source depth", lowered)
 
     def test_guarded_rule_requires_boolean_condition(self) -> None:
@@ -6444,11 +6494,11 @@ def pipeline(left_input: Event, right_input: Event) -> None:
 
         lowered = lower_queue_source(MULTI_STATE_RULE_SOURCE, "multi_state_allocate")
         self.assertIn("ac.var.decl @tail type i2", lowered)
-        self.assertIn("ac.var.decl @entries type !ac.struct<@types::@Entry>", lowered)
+        self.assertIn("ac.table @entries entry !ac.struct<@types::@Entry>", lowered)
         self.assertIn("ac.var.read @tail", lowered)
-        self.assertIn("ac.var.assign_element @entries", lowered)
+        self.assertIn("ac.table.propose @entries", lowered)
         self.assertIn("ac.var.assign @tail", lowered)
-        self.assertEqual(2, lowered.count("ac.var.assign"))
+        self.assertEqual(1, lowered.count("ac.var.assign"))
 
     def test_rule_source_and_local_display_metadata_are_preserved(self) -> None:
         from agentic_circuit._queue_frontend import (
@@ -6476,7 +6526,7 @@ def pipeline(left_input: Event, right_input: Event) -> None:
         )
         self.assertRegex(
             lowered,
-            rf'ac\.var\.decl @entries .*loc\("{source_path}":[0-9]+:[0-9]+\)',
+            rf'ac\.table @entries .*loc\("{source_path}":[0-9]+:[0-9]+\)',
         )
         self.assertEqual(1, lowered.count('ac.display_name = "old"'))
         self.assertEqual(2, lowered.count('ac.display_name = "ack"'))
@@ -6504,10 +6554,10 @@ def topology(incoming: ac.u8) -> ac.u8:
             source_path="src/model.py",
         )
 
-        self.assertIn('ac.source depth 1 latency 1', lowered)
+        self.assertIn("ac.source depth 1 latency 1", lowered)
         self.assertIn('!ac.queue<i8> loc("src/model.py":4:14)', lowered)
         self.assertIn('!ac.queue<i8> loc("src/model.py":5:19)', lowered)
-        self.assertIn('ac.sink %transformed', lowered)
+        self.assertIn("ac.sink %transformed", lowered)
         self.assertIn('!ac.queue<i8> loc("src/model.py":6:5)', lowered)
 
     def test_external_bounded_input_requires_an_explicit_decoder(self) -> None:
@@ -6567,7 +6617,9 @@ def pipeline(value: Nested) -> ac.u8:
                 ):
                     lower_queue_source(source, "pipeline")
 
-    def test_bounded_conversions_arithmetic_and_dynamic_array_are_explicit(self) -> None:
+    def test_bounded_conversions_arithmetic_and_dynamic_array_are_explicit(
+        self,
+    ) -> None:
         from agentic_circuit._queue_frontend import lower_queue_source
 
         source = """import agentic_circuit as ac
@@ -6630,9 +6682,7 @@ def pipeline(raw: ac.u8) -> tuple[ac.index[1], ac.range[4, 9]]:
             r"ac\.var\.constant 8 : i4 .*as !ac\.var<!ac\.range<4, 8>>",
         )
 
-        invalid_zero = source.replace(
-            "ac.zero(ac.index[1])", "ac.zero(ac.range[4, 9])"
-        )
+        invalid_zero = source.replace("ac.zero(ac.index[1])", "ac.zero(ac.range[4, 9])")
         with self.assertRaisesRegex(QueueFrontendError, "zero is outside"):
             lower_queue_source(invalid_zero, "pipeline")
 
@@ -6952,15 +7002,15 @@ def commit(storage, item):
     return item.with_fields(observed=updated[index])
 @ac.system
 def pipeline() -> None:
-    storage: list[State] = [0] * 2
+    storage = ac.table[2, State](init=0)
     request = ac.source(Request, depth=2)
     result = commit(storage, request)
     ac.sink(result)
 """
         lowered = lower_queue_source(source, "pipeline")
         self.assertEqual(1, lowered.count("ac.var.with_element"))
-        self.assertEqual(1, lowered.count("ac.var.assign_element"))
-        self.assertIn("ac.var.decl @storage", lowered)
+        self.assertEqual(1, lowered.count("ac.table.propose"))
+        self.assertIn("ac.table @storage", lowered)
 
     def test_value_array_map_and_zip_expand_exact_typed_lanes(self) -> None:
         from agentic_circuit._queue_frontend import lower_queue_source
@@ -7252,9 +7302,7 @@ def pipeline(request: Request) -> tuple[ac.u64, ac.u64]:
                 lowered_multi,
             )
         )
-        add_inputs = set(
-            re.findall(r"ac\.var\.add %([^, ]+),", lowered_multi)
-        )
+        add_inputs = set(re.findall(r"ac\.var\.add %([^, ]+),", lowered_multi))
         self.assertEqual(2, len(lane_values & add_inputs))
 
     def test_value_array_balanced_fold_and_bool_reductions(self) -> None:
@@ -7337,9 +7385,7 @@ def pipeline(request: Request) -> Request:
         with self.assertRaisesRegex(QueueFrontendError, "not associative"):
             lower_queue_source(non_associative, "pipeline")
 
-        malformed = source.replace(
-            "request.flags.all()", 'request.values.fold("add")'
-        )
+        malformed = source.replace("request.flags.all()", 'request.values.fold("add")')
         with self.assertRaisesRegex(QueueFrontendError, "requires kind"):
             lower_queue_source(malformed, "pipeline")
 
@@ -7524,9 +7570,7 @@ def pipeline(request: Request) -> Request:
     result = scan(request)
     return result
 """
-        missing_initial = source.replace(
-            ",\n        initial=ac.zero(ac.u8)", ""
-        )
+        missing_initial = source.replace(",\n        initial=ac.zero(ac.u8)", "")
         with self.assertRaisesRegex(QueueFrontendError, "requires callback"):
             lower_queue_source(missing_initial, "pipeline")
 
@@ -7563,7 +7607,9 @@ def pipeline(raw: ac.u8, *, entries: ac.const[int]) -> ac.index[ENTRIES]:
 
         self.assertIn("!ac.range<0, 4>", lowered)
         self.assertIn('"param:ENTRIES"', lowered)
-        self.assertIn('target = "interface.system.pipeline.output.0:range_upper"', lowered)
+        self.assertIn(
+            'target = "interface.system.pipeline.output.0:range_upper"', lowered
+        )
         self.assertIn("result = 5 : i64", lowered)
 
     def test_expression_only_dependent_bound_has_recomputable_metadata(self) -> None:
@@ -7586,7 +7632,7 @@ def pipeline(request: Request, *, n: ac.const[int]) -> ac.u8:
 """
         lowered = lower_queue_source(source, "pipeline", static_arguments={"n": 5})
 
-        self.assertIn("ac.static_type_target = \"expression.read.0\"", lowered)
+        self.assertIn('ac.static_type_target = "expression.read.0"', lowered)
         self.assertIn(
             'target = "expression.read.0:range_upper", type = !ac.range<0, 4>',
             lowered,
@@ -7622,9 +7668,7 @@ def pipeline(request: Request, *, cfg: ac.const[Config]) -> ac.u8:
             source,
             "pipeline",
             static_arguments={
-                "cfg": FrozenMap(
-                    (("geometry", FrozenMap((("entries", 5),))),)
-                )
+                "cfg": FrozenMap((("geometry", FrozenMap((("entries", 5),))),))
             },
         )
 
@@ -7705,9 +7749,9 @@ def pipeline(incoming: ac.u8) -> ac.u8:
 
         lowered = lower_queue_source(SERIAL_SOURCE_ORDER_SOURCE, "serial_source_order")
         field_values = {
-            line.split('field "', 1)[1].split('"', 1)[0]: line.split("%", 1)[1].split(
-                " ", 1
-            )[0]
+            line.split('field "', 1)[1]
+            .split('"', 1)[0]: line.split("%", 1)[1]
+            .split(" ", 1)[0]
             for line in lowered.splitlines()
             if "ac.var.get %item field" in line
         }
@@ -7746,9 +7790,9 @@ def pipeline(incoming: ac.u8) -> ac.u8:
 
         lowered = lower_queue_source(SERIAL_GUARD_REBIND_SOURCE, "serial_guard_rebind")
         field_values = {
-            line.split('field "', 1)[1].split('"', 1)[0]: line.split("%", 1)[1].split(
-                " ", 1
-            )[0]
+            line.split('field "', 1)[1]
+            .split('"', 1)[0]: line.split("%", 1)[1]
+            .split(" ", 1)[0]
             for line in lowered.splitlines()
             if "ac.var.get %item field" in line
         }
@@ -7768,9 +7812,9 @@ def pipeline(incoming: ac.u8) -> ac.u8:
             NESTED_BRANCH_GUARD_REBIND_SOURCE, "nested_branch_guard_rebind"
         )
         field_values = {
-            line.split('field "', 1)[1].split('"', 1)[0]: line.split("%", 1)[1].split(
-                " ", 1
-            )[0]
+            line.split('field "', 1)[1]
+            .split('"', 1)[0]: line.split("%", 1)[1]
+            .split(" ", 1)[0]
             for line in lowered.splitlines()
             if "ac.var.get %item field" in line
         }
@@ -7843,9 +7887,9 @@ def pipeline(incoming: ac.u8) -> ac.u8:
             SERIAL_EARLY_GUARD_REBIND_SOURCE, "serial_early_guard_rebind"
         )
         field_values = {
-            line.split('field "', 1)[1].split('"', 1)[0]: line.split("%", 1)[1].split(
-                " ", 1
-            )[0]
+            line.split('field "', 1)[1]
+            .split('"', 1)[0]: line.split("%", 1)[1]
+            .split(" ", 1)[0]
             for line in lowered.splitlines()
             if "ac.var.get %item field" in line
         }
@@ -7919,16 +7963,16 @@ def pipeline(incoming: ac.u8) -> ac.u8:
 
         lowered = lower_queue_source(INDEXED_BRANCH_JOIN_SOURCE, "indexed_branch_join")
         self.assertEqual(2, lowered.count("ac.var.select"))
-        self.assertEqual(1, lowered.count("ac.var.assign_element @entries"))
+        self.assertEqual(1, lowered.count("ac.table.propose @entries"))
         self.assertNotIn(" when %", lowered)
 
     def test_one_branch_preserves_multiple_writes_to_one_owner(self) -> None:
         from agentic_circuit._queue_frontend import lower_queue_source
 
         lowered = lower_queue_source(MULTI_WRITE_BRANCH_SOURCE, "multi_write_branch")
-        self.assertEqual(4, lowered.count("ac.var.assign_element @entries"))
+        self.assertEqual(4, lowered.count("ac.table.propose @entries"))
         proposals = [
-            line for line in lowered.splitlines() if "ac.var.assign_element" in line
+            line for line in lowered.splitlines() if "ac.table.propose" in line
         ]
         self.assertTrue(all(" when %" in line for line in proposals))
 
@@ -7941,7 +7985,7 @@ def pipeline(incoming: ac.u8) -> ac.u8:
             "            entries[index] = command.value",
         )
         looped_lowered = lower_queue_source(looped, "multi_write_branch")
-        self.assertEqual(4, looped_lowered.count("ac.var.assign_element @entries"))
+        self.assertEqual(4, looped_lowered.count("ac.table.propose @entries"))
 
     def test_optional_output_has_independent_ssa_presence(self) -> None:
         from agentic_circuit._queue_frontend import lower_queue_source
@@ -8112,7 +8156,7 @@ def pipeline(incoming: ac.u8) -> ac.u8:
             .replace(
                 "    left, right, ack = dispatch(command)",
                 "    count: ac.u8 = 0\n"
-                "    entries: list[ac.u8] = [0] * 2\n"
+                "    entries = ac.table[2, ac.u8](init=0)\n"
                 "    left, right, ack = dispatch(count, entries, command)",
             )
         )
@@ -8120,7 +8164,7 @@ def pipeline(incoming: ac.u8) -> ac.u8:
         self.assertEqual(1, lowered.count(" = ac.rule %command "))
         self.assertEqual(3, lowered.count("ac.rule.output"))
         self.assertIn("ac.var.assign @count", lowered)
-        self.assertIn("ac.var.assign_element @entries", lowered)
+        self.assertIn("ac.table.propose @entries", lowered)
 
         serial_override = stateful.replace(
             "    count = count + 1\n",
@@ -8208,7 +8252,7 @@ class Entry:
 @ac.system
 def nested_allocate(incoming: Entry) -> Entry:
     tail: ac.u2 = 0
-    entries: list[Entry] = [0] * 4
+    entries = ac.table[4, Entry](init=0)
 
     @ac.rule
     def allocate(incoming):
@@ -8225,7 +8269,6 @@ def nested_allocate(incoming: Entry) -> Entry:
         inferred_source = nested.replace("        nonlocal tail, entries\n", "")
         inferred = lower_queue_source(inferred_source, "nested_allocate")
         self.assertEqual(lowered, inferred)
-        explicit = lower_queue_source(MULTI_STATE_RULE_SOURCE, "multi_state_allocate")
         for operation in (
             "ac.var.decl @tail",
             "ac.var.assign @tail",
@@ -8233,9 +8276,9 @@ def nested_allocate(incoming: Entry) -> Entry:
             "ac.var.assign_element @entries",
             "ac.rule.output",
         ):
-            self.assertEqual(explicit.count(operation), lowered.count(operation))
             self.assertEqual(lowered.count(operation), inferred.count(operation))
-        self.assertEqual(explicit.count("ac.rule "), lowered.count("ac.rule "))
+        self.assertIn('stable_id "table/entries"', lowered)
+        self.assertIn("ac.table.propose @entries", lowered)
 
         with self.assertRaisesRegex(QueueFrontendError, "unknown capture 'incoming'"):
             lower_queue_source(
@@ -8250,8 +8293,8 @@ def nested_allocate(incoming: Entry) -> Entry:
                 "nested_allocate",
             )
         stale_nonlocal = nested.replace(
-            "    entries: list[Entry] = [0] * 4",
-            "    entries: list[Entry] = [0] * 4\n    spare: ac.u2 = 0",
+            "    entries = ac.table[4, Entry](init=0)",
+            "    entries = ac.table[4, Entry](init=0)\n    spare: ac.u2 = 0",
         ).replace("nonlocal tail, entries", "nonlocal tail, entries, spare")
         with self.assertRaisesRegex(QueueFrontendError, "must match inferred.*spare"):
             lower_queue_source(stale_nonlocal, "nested_allocate")
@@ -8426,22 +8469,22 @@ def two_accumulators(left: ac.u8, right: ac.u8) -> tuple[ac.u8, ac.u8]:
         self.assertIn("ac.table.get @rob [%v1] : !ac.var<i3>", lowered)
         self.assertIn("ac.table.propose @rob [%v0] = %item", lowered)
 
-    def test_persistent_var_defers_nonconstant_index_proof_to_mlir(self) -> None:
-        from agentic_circuit._queue_frontend import lower_queue_source
+    def test_table_requires_canonical_nonconstant_index_width(self) -> None:
+        from agentic_circuit._queue_frontend import (
+            QueueFrontendError,
+            lower_queue_source,
+        )
 
-        five_entries = INDEXED_VARIABLE_RULE_SOURCE.replace("[0] * 4", "[0] * 5")
+        five_entries = INDEXED_VARIABLE_RULE_SOURCE.replace(
+            "ac.table[4, Entry]", "ac.table[5, Entry]"
+        )
         u3_into_five = five_entries.replace("index: ac.u2", "index: ac.u3")
-        for source, index_type in ((five_entries, "i2"), (u3_into_five, "i3")):
-            lowered = lower_queue_source(source, "indexed_state")
-            self.assertIn(
-                "ac.var.read_element @entries[%v0] "
-                f'{{ac.display_name = "old"}} : !ac.var<{index_type}>',
-                lowered,
-            )
-            self.assertIn(
-                f"ac.var.assign_element @entries[%v2] = %item : !ac.var<{index_type}>",
-                lowered,
-            )
+        with self.assertRaisesRegex(QueueFrontendError, "canonical flattened type i3"):
+            lower_queue_source(five_entries, "indexed_state")
+        lowered = lower_queue_source(u3_into_five, "indexed_state")
+        self.assertIn("ac.table.get @entries", lowered)
+        self.assertIn("!ac.var<i3>", lowered)
+        self.assertIn("ac.table.propose @entries", lowered)
 
     def test_stateful_rule_rejects_only_disproven_constant_expression_index(
         self,

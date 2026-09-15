@@ -567,7 +567,9 @@ LogicalResult resolveRuleSchedule(ModuleOp model) {
   model.walk([&](ac::RuleOp rule) {
     orderedStableIds.push_back(rule.getStableId());
   });
-  llvm::sort(orderedStableIds);
+  // The frontend emits rules in Python serial order.  Preserve that lexical
+  // order here: stable ids identify endpoints, but their spelling must not
+  // change transaction priority.
   llvm::StringMap<int64_t> canonicalPriorities;
   for (auto [ordinal, stableId] : llvm::enumerate(orderedStableIds))
     canonicalPriorities[stableId] = ordinal;

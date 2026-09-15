@@ -676,7 +676,7 @@ fail closed。
 
 编译器公开分析接口统一为 `ACDataFlowAnalyzer`。它基于 MLIR dataflow 从 ACIR SSA
 重新推导 constraint，并在 rule lowering、topology freeze 和 QueueGraph planning
-之前证明每个动态 persistent-list/Table index 都位于 `[0, entries - 1]`。MLIR 通用
+之前证明每个动态 Table index 都位于 `[0, entries - 1]`。MLIR 通用
 `DataFlowSolver` 只存在于 analyzer 的私有实现中。例如 `u2` index 对 5-entry state
 天然安全；未收窄的 `u3` index 会被拒绝。QueueGraph 还会独立重算同一 obligation，
 防止伪造 Frozen ACIR 绕过 verifier。
@@ -724,22 +724,22 @@ state，`ac.var.read` 产生不可变 committed snapshot，`ac.var.assign` 在�
 选择。持久 scalar state 也可以是 nominal enum，但必须用第一个声明的 member 作为
 zero image；storage selection 会保留 enum nominal type，不允许退化成裸整数。
 
-固定大小的持久 list 使用普通 Python 写法，例如
-`entries: list[Entry] = [0] * 8`。前端生成带 shape 的 `ac.var.decl` 以及
-`ac.var.read_element`/`ac.var.assign_element`，storage selection 再选择只更新 touched
-entry 的 committed storage。只有当 `ACDataFlowAnalyzer` 证明动态 index 的值域位于
-该 list shape 内时才接受；作者不需要在前端书写范围检查或 marker。
+indexed persistent state 必须显式写成
+`Table8 = ac.table[8, Entry]` 和 `entries = Table8(init=0)`。普通 Python list 只用于静态 elaboration，
+不会创建 persistent owner。module 内 Table 可在 storage selection 前保持 shaped
+`ac.var`；system 级 Table 直接发射 `ac.table` operations。旧的带注解零值 list 会以
+`ACPY-VAR-002` 拒绝，并给出可直接采用的 Table 替换写法。
 
-`ac.find(values, where=predicate, key=key)` 是 persistent Python list 上与存储无关的
-集合查询。返回的 intrinsic value 具有 `.valid`、`.index` 和 `.value`；省略 `key` 时
+`table.find(where=predicate, key=key)` 是 Table 集合查询。返回的 intrinsic value
+具有 `.valid`、`.index` 和 `.value`；省略 `key` 时
 选择第一个匹配 index，提供固定宽度整数 key 时选择最小 key，并以 index 稳定打破平局。
-Raw ACIR 使用 `ac.var.match` 与 `ac.var.choose`，storage selection 再把它们改写为已有的
-committed Table query，不改变 Python variable 模型。selection 的 index/value 只有在对应
+system Table 使用 `ac.table.match` 与 `ac.table.choose`；module-local shaped state
+可在 storage selection 前使用对应的 `ac.var` operations。selection 的 index/value 只有在对应
 `.valid` 条件下才能影响 state。超过 64 个 entry 的 domain 使用编译器内部固定长度的
 64-bit candidate word 数组，不扩展公共 `ac.u1..ac.u64` payload。match 与 choose 共享同一份
 committed scan，稳定选择及 selected-value provenance 不需要第二次遍历。
 
-predicate 可以读取另一个 persistent list。该 owner 是 activation source；只有 rule 实际
+predicate 或 key 可以读取另一个显式 Table。该 owner 是 activation source；只有 rule 实际
 写它时才是 transaction resource。生成 policy 通过 const reference 捕获只读 committed
 storage，prepare/publish/commit 只覆盖 writable owner。因此 ISQ 的 readiness Table 更新只需
 唤醒一次 oldest-ready query，不需要批量改写全部 resident entry。
@@ -1105,8 +1105,7 @@ tuple indexing、存储或跨边界 escape 均拒绝。
 stateful rule 内的 rank-two Table 还支持一个 runtime row view：
 
 ```python
-selected = ac.find(
-    tags.view(request.set_index),
+selected = tags.view(request.set_index).find(
     where=lambda entry: entry.valid & (entry.tag == request.tag),
 )
 ```
@@ -1363,7 +1362,7 @@ def pipeline(incoming: Item) -> Item:
 
 在 rule 内，字段直接赋值是不可变记录替换的简写。`local.field = value` 会规范化为
 `local = local.with_fields(field=value)`；若 base 是 persistent scalar，该 rebinding
-会成为此 owner 的 next-state proposal。对于 persistent list，
+会成为此 owner 的 next-state proposal。对于 indexed Table，
 `entries[index].field = value` 会将 `index` 恰好求值一次，并提出等价的完整 Entry
 替换 proposal。后续串行的 local 或 scalar-state 赋值读取最新 SSA proposal，但
 committed state 在整条 rule transaction 提交前保持不变。
@@ -1479,7 +1478,7 @@ outputless、单输入 rule 还可以使用普通的嵌套 `if/elif/else`。前�
 presence。生成的 gfsim 只计算一个 Work candidate，并只 prepare 被选择的 effect；input 与
 所有 selected state owner 仍在同一个 atomic group 中 publish。若互补 arm 赋值同一个
 scalar 或同一个 indexed lexical target，编译器用 typed `ac.var.select` join value，并在需要
-时 join index。若一条 selected path 同时写同一个 persistent list 的多个不同 entry，这些
+时 join index。若一条 selected path 同时写同一个 Table 的多个不同 entry，这些
 proposal 保留为有序 owner-local batch。`ACDataFlowAnalyzer` 与 QueueGraph 要求每对同 owner
 write 的 index domain 不相交，或它们的 path predicate 在结构上互斥。每个源码 index 仍必须
 满足已有的精确位宽/full-domain 安全证明。一个 branch value 依赖另一个 branch 写入的 owner，

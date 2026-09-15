@@ -75,6 +75,13 @@ FailureOr<ArrayAttr> completeWriteFields(OpBuilder &builder,
     return builder.getStrArrayAttr({"$entry"});
   Operation *declaration =
       SymbolTable::lookupNearestSymbolFrom(variable, structure.getName());
+  if (!declaration) {
+    Operation *root = variable;
+    while (root->getParentOp())
+      root = root->getParentOp();
+    if (root->hasTrait<OpTrait::SymbolTable>())
+      declaration = SymbolTable::lookupSymbolIn(root, structure.getName());
+  }
   auto fields = declaration ? declaration->getAttrOfType<ArrayAttr>("fields")
                             : ArrayAttr();
   if (!fields)
@@ -250,6 +257,8 @@ LogicalResult lowerVariableState(ModuleOp model) {
     state.addAttribute("table", assignment.getVariableAttr());
     state.addAttribute("mode", builder.getStringAttr("replace"));
     state.addAttribute("write_fields", *writeFields);
+    if (Attribute arbitration = assignment->getAttr("ac.arbitration"))
+      state.addAttribute("ac.arbitration", arbitration);
     builder.create(state);
     assignment.erase();
   }
@@ -272,6 +281,8 @@ LogicalResult lowerVariableState(ModuleOp model) {
     state.addAttribute("table", assignment.getVariableAttr());
     state.addAttribute("mode", builder.getStringAttr("replace"));
     state.addAttribute("write_fields", *writeFields);
+    if (Attribute arbitration = assignment->getAttr("ac.arbitration"))
+      state.addAttribute("ac.arbitration", arbitration);
     builder.create(state);
     assignment.erase();
   }

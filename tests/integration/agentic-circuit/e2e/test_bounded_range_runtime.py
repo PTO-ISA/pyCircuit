@@ -735,14 +735,14 @@ class BoundedRangeRuntimeTest(unittest.TestCase):
                 "array_update_state",
                 source_path=STATE_FIXTURE.relative_to(ROOT).as_posix(),
             )
-            self.assertEqual(1, raw.count("ac.var.assign_element"))
+            self.assertEqual(1, raw.count("ac.table.propose @entries"))
             frozen = work / "model.mlir"
             frozen.write_text(
                 _lower_queue_acir(raw, optimizer=self.acir_opt),
                 encoding="utf-8",
             )
             frozen_text = frozen.read_text(encoding="utf-8")
-            self.assertNotIn("ac.var.assign_element", frozen_text)
+            self.assertEqual(1, frozen_text.count("ac.table.propose @entries"))
             self.assertEqual(1, frozen_text.count("ac.var.with_element"))
 
             gfsim_source = work / "gfsim.cpp"

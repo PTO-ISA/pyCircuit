@@ -1,4 +1,4 @@
-"""Two reusable oldest-ready issue queues using ordinary persistent lists."""
+"""Two reusable oldest-ready issue queues using explicit Table state."""
 
 import agentic_circuit as ac
 
@@ -26,7 +26,7 @@ def update_ready(ready_tags, event):
 
 @ac.rule
 def dispatch(entries, request):
-    free = ac.find(entries, where=lambda entry: not entry.valid)
+    free = entries.find(where=lambda entry: not entry.valid)
     if free.valid:
         installed = request.with_fields(index=free.index, valid=True)
         entries[free.index] = installed
@@ -34,8 +34,7 @@ def dispatch(entries, request):
 
 @ac.rule
 def issue(entries, ready_tags):
-    selected = ac.find(
-        entries,
+    selected = entries.find(
         where=lambda entry: (
             entry.valid and ready_tags[entry.src0_tag] and ready_tags[entry.src1_tag]
         ),
@@ -48,8 +47,8 @@ def issue(entries, ready_tags):
 
 @ac.module
 def isq(request: IssueEntry, readiness: Readiness) -> IssueEntry:
-    entries: list[IssueEntry] = [0] * 4
-    ready_tags: list[bool] = [False] * 64
+    entries = ac.table[4, IssueEntry](init=0)
+    ready_tags = ac.table[64, bool](init=0)
 
     update_ready(ready_tags, readiness)
     dispatch(entries, request)

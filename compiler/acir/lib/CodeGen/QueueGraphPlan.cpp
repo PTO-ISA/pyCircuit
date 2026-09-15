@@ -961,8 +961,7 @@ extractExpressions(mlir::Region &region, QueueBlockPlan &plan,
     }
     if (auto value = mlir::dyn_cast<ac::VarEnumOp>(operation)) {
       auto declaration = mlir::dyn_cast_or_null<ac::EnumOp>(
-          mlir::SymbolTable::lookupNearestSymbolFrom(value,
-                                                     value.getDeclaration()));
+          lookupTypeDeclaration(value, value.getDeclaration()));
       if (!declaration)
         return planError("enum value declaration is unresolved");
       auto enumerant = llvm::find_if(
@@ -2035,6 +2034,12 @@ llvm::Error resolveWriterPriorities(QueueGraphPlan &plan) {
     return block.stableId.empty() ? llvm::StringRef(block.name)
                                   : llvm::StringRef(block.stableId);
   };
+  auto precedes = [&](size_t left, size_t right) {
+    const QueueBlockPlan &lhs = plan.blocks[nodes[left]];
+    const QueueBlockPlan &rhs = plan.blocks[nodes[right]];
+    return std::tuple{lhs.priority, identity(left)} <
+           std::tuple{rhs.priority, identity(right)};
+  };
   std::vector<bool> emitted(nodes.size(), false);
   std::vector<size_t> canonicalNodes;
   canonicalNodes.reserve(nodes.size());
@@ -2043,7 +2048,7 @@ llvm::Error resolveWriterPriorities(QueueGraphPlan &plan) {
     for (size_t node = 0; node < nodes.size(); ++node) {
       if (emitted[node] || indegree[node] != 0)
         continue;
-      if (!selected || identity(node) < identity(*selected))
+      if (!selected || precedes(node, *selected))
         selected = node;
     }
     if (!selected)

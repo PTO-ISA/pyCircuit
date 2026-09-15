@@ -182,7 +182,7 @@ class ConfigAndJitTest(unittest.TestCase):
             harness = Path(directory) / "count_leading_zeros_harness.cpp"
             executable = Path(directory) / "count_leading_zeros_pipeline"
             harness.write_text(
-                f'''#include "{source.name}"
+                f"""#include "{source.name}"
 #include <cstddef>
 
 int main() {{
@@ -205,7 +205,7 @@ int main() {{
              ? 0
              : 2;
 }}
-''',
+""",
                 encoding="utf-8",
             )
             completed = subprocess.run(
@@ -249,7 +249,7 @@ int main() {{
             harness = Path(directory) / "popcount_harness.cpp"
             executable = Path(directory) / "popcount_pipeline"
             harness.write_text(
-                f'''#include "{source.name}"
+                f"""#include "{source.name}"
 #include <cstddef>
 
 int main() {{
@@ -272,7 +272,7 @@ int main() {{
              ? 0
              : 2;
 }}
-''',
+""",
                 encoding="utf-8",
             )
             completed = subprocess.run(
@@ -705,7 +705,7 @@ int main() {{
             harness = Path(directory) / "harness.cpp"
             executable = Path(directory) / "typed_state"
             harness.write_text(
-                f'''#include "{source.name}"
+                f"""#include "{source.name}"
 
 int main() {{
   ac_generated::TypedSystem model;
@@ -752,7 +752,7 @@ int main() {{
     return 7;
   return 0;
 }}
-''',
+""",
                 encoding="utf-8",
             )
             completed = subprocess.run(
@@ -835,8 +835,7 @@ class JitQueueLoweringTest(unittest.TestCase):
     )
     def test_rule_specialization_uses_native_mlir_pipeline(self) -> None:
         path = (
-            REPOSITORY
-            / "tests/integration/agentic-circuit/e2e/fixtures/state/rob.py"
+            REPOSITORY / "tests/integration/agentic-circuit/e2e/fixtures/state/rob.py"
         )
         spec = importlib.util.spec_from_file_location("ac_rule_rob", path)
         if spec is None or spec.loader is None:
@@ -869,7 +868,7 @@ def replace(entries, incoming):
 
 @ac.system
 def readable(incoming: Entry) -> Entry:
-    entries: list[Entry] = [0] * 2
+    entries = ac.table[2, Entry](init=0)
     result = replace(entries, incoming)
     return result
 """

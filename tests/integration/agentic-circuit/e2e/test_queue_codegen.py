@@ -11,10 +11,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[4]
 STATE_FIXTURES = ROOT / "tests/integration/agentic-circuit/e2e/fixtures/state"
 ROUTED_DEPENDENCY_SOURCE = (
-    ROOT
-    / "examples/agentic-circuit"
-    / "pipelines"
-    / "routed_dependency_pipeline.py"
+    ROOT / "examples/agentic-circuit" / "pipelines" / "routed_dependency_pipeline.py"
 )
 CONDITIONAL_SOURCE = (
     ROOT / "examples/agentic-circuit" / "pipelines" / "pyc_conditional_pipeline.py"
@@ -60,12 +57,8 @@ RECURSIVE_AGGREGATE_PAYLOAD_SOURCE = (
 INFERRED_STATEFUL_MODULE_SOURCE = (
     ROOT / "examples/agentic-circuit" / "state" / "inferred_stateful_module.py"
 )
-INFERRED_MULTI_STATE_MODULE_SOURCE = (
-    STATE_FIXTURES / "inferred_multi_state_module.py"
-)
-STATEFUL_MULTI_INPUT_RULE_SOURCE = (
-    STATE_FIXTURES / "table_multi_input_rule.py"
-)
+INFERRED_MULTI_STATE_MODULE_SOURCE = STATE_FIXTURES / "inferred_multi_state_module.py"
+STATEFUL_MULTI_INPUT_RULE_SOURCE = STATE_FIXTURES / "table_multi_input_rule.py"
 VARIABLE_ACCUMULATOR_SOURCE = STATE_FIXTURES / "variable_accumulator.py"
 BRANCH_LOCAL_STATE_SOURCE = STATE_FIXTURES / "branch_local_state.py"
 BRANCH_JOIN_STATE_SOURCE = STATE_FIXTURES / "branch_join_state.py"
@@ -199,7 +192,7 @@ class QueueCodegenTest(unittest.TestCase):
             harness = root / "harness.cpp"
             executable = root / "wide_nested_aggregate"
             harness.write_text(
-                f'''#include "{model.name}"
+                f"""#include "{model.name}"
 
 int main() {{
   constexpr std::uint64_t first = 0x1111222233334444ULL;
@@ -234,7 +227,7 @@ int main() {{
              ? 0
              : 3;
 }}
-''',
+""",
                 encoding="utf-8",
             )
             linked = subprocess.run(
@@ -350,7 +343,7 @@ int main() {{
             harness = root / "harness.cpp"
             executable = root / "recursive_aggregate_payload"
             harness.write_text(
-                f'''#include "{model.name}"
+                f"""#include "{model.name}"
 
 int main() {{
   constexpr std::uint64_t input_packed = 2962u;
@@ -385,7 +378,7 @@ int main() {{
       (value.modes.value() << 1) | value.flag.value();
   return output_packed == expected_packed ? 0 : 3;
 }}
-''',
+""",
                 encoding="utf-8",
             )
             linked = subprocess.run(
@@ -493,7 +486,7 @@ int main() {{
             harness = root / "harness.cpp"
             executable = root / "aggregate_payload"
             harness.write_text(
-                f'''#include "{model.name}"
+                f"""#include "{model.name}"
 
 int main() {{
   constexpr std::uint64_t input_pair = (5u << 5) | 17u;
@@ -530,7 +523,7 @@ int main() {{
              ? 0
              : 3;
 }}
-''',
+""",
                 encoding="utf-8",
             )
             linked = subprocess.run(
@@ -622,7 +615,7 @@ int main() {{
             harness = root / "harness.cpp"
             executable = root / "enum_payload"
             harness.write_text(
-                f'''#include "{model.name}"
+                f"""#include "{model.name}"
 
 int main() {{
   ac_generated::Packet input;
@@ -652,7 +645,7 @@ int main() {{
              ? 0
              : 2;
 }}
-''',
+""",
                 encoding="utf-8",
             )
             linked = subprocess.run(
@@ -741,7 +734,7 @@ int main() {{
             harness = root / "harness.cpp"
             executable = root / "nested_payload"
             harness.write_text(
-                f'''#include "{model.name}"
+                f"""#include "{model.name}"
 
 int main() {{
   ac_generated::Packet input;
@@ -770,7 +763,7 @@ int main() {{
              ? 0
              : 2;
 }}
-''',
+""",
                 encoding="utf-8",
             )
             linked = subprocess.run(
@@ -864,7 +857,7 @@ int main() {{
             harness = root / "harness.cpp"
             executable = root / "bitfield_decode"
             harness.write_text(
-                f'''#include "{model.name}"
+                f"""#include "{model.name}"
 
 int main() {{
   constexpr std::uint32_t word = 0xd5a12345u;
@@ -906,7 +899,7 @@ int main() {{
              ? 0
              : 3;
 }}
-''',
+""",
                 encoding="utf-8",
             )
             linked = subprocess.run(
@@ -993,7 +986,7 @@ int main() {{
             harness = root / "harness.cpp"
             executable = root / "inferred_boundary"
             harness.write_text(
-                f'''#include "{model.name}"
+                f"""#include "{model.name}"
 
 int main() {{
   ac_generated::InferredBoundaryPipeline model;
@@ -1015,7 +1008,7 @@ int main() {{
   const auto &values = model.sink_0_values();
   return values.size() == 1 && values[0] == 42 ? 0 : 2;
 }}
-''',
+""",
                 encoding="utf-8",
             )
             linked = subprocess.run(
@@ -1105,7 +1098,7 @@ int main() {{
             harness = root / "harness.cpp"
             executable = root / "variable_accumulator"
             harness.write_text(
-                f'''#include "{model.name}"
+                f"""#include "{model.name}"
 
 int main() {{
   ac_generated::VariableAccumulator model;
@@ -1128,7 +1121,7 @@ int main() {{
     return 3;
   return 0;
 }}
-''',
+""",
                 encoding="utf-8",
             )
             linked = subprocess.run(
@@ -1206,7 +1199,6 @@ int main() {{
             for forbidden in (
                 "source(",
                 "sink(",
-                "ac.table",
                 "ac.queue",
                 ".pop(",
                 ".push(",
@@ -1230,7 +1222,7 @@ int main() {{
             harness = root / "harness.cpp"
             executable = root / "branch_local_state"
             harness.write_text(
-                f'''#include "{model.name}"
+                f"""#include "{model.name}"
 
 int main() {{
   ac_generated::BranchLocalState model;
@@ -1264,7 +1256,7 @@ int main() {{
     return 4;
   return 0;
 }}
-''',
+""",
                 encoding="utf-8",
             )
             linked = subprocess.run(
@@ -1358,7 +1350,7 @@ int main() {{
             harness = root / "harness.cpp"
             executable = root / "branch_join_state"
             harness.write_text(
-                f'''#include "{model.name}"
+                f"""#include "{model.name}"
 
 int main() {{
   ac_generated::BranchJoinState model;
@@ -1390,7 +1382,7 @@ int main() {{
   run(5, 8);
   return model.table_total().at(0) == 9 ? 0 : 4;
 }}
-''',
+""",
                 encoding="utf-8",
             )
             linked = subprocess.run(
@@ -1480,7 +1472,7 @@ int main() {{
             harness = root / "harness.cpp"
             executable = root / "indexed_branch_join"
             harness.write_text(
-                f'''#include "{model.name}"
+                f"""#include "{model.name}"
 
 int main() {{
   ac_generated::IndexedBranchJoin model;
@@ -1517,7 +1509,7 @@ int main() {{
              ? 0
              : 4;
 }}
-''',
+""",
                 encoding="utf-8",
             )
             linked = subprocess.run(
@@ -1603,7 +1595,7 @@ int main() {{
             harness = root / "harness.cpp"
             executable = root / "optional_output_state"
             harness.write_text(
-                f'''#include "{model.name}"
+                f"""#include "{model.name}"
 
 int main() {{
   using Event = ac_generated::Event;
@@ -1657,7 +1649,7 @@ int main() {{
     return 7;
   return 0;
 }}
-''',
+""",
                 encoding="utf-8",
             )
             linked = subprocess.run(
@@ -1685,7 +1677,7 @@ int main() {{
             )
             self.assertEqual(0, executed.returncode, executed.stderr)
 
-    def test_indexed_python_list_runs_through_storage_selection(self) -> None:
+    def test_indexed_table_runs_through_storage_selection(self) -> None:
         compiler = shutil.which("c++")
         if compiler is None:
             self.skipTest("C++ compiler is unavailable")
@@ -1741,7 +1733,7 @@ int main() {{
             harness = root / "harness.cpp"
             executable = root / "indexed_variable_array"
             harness.write_text(
-                f'''#include "{model.name}"
+                f"""#include "{model.name}"
 
 int main() {{
   ac_generated::IndexedVariableArray model;
@@ -1756,13 +1748,13 @@ int main() {{
       row.xfer(row.object, epoch, gfsim::XferPhase::Commit);
   }};
   if (!model.incoming().proposePush(
-          ac_generated::Entry{{gfsim::UInt<2>{{1}}, gfsim::UInt<8>{{9}}}}))
+          ac_generated::Entry{{gfsim::UInt<3>{{1}}, gfsim::UInt<8>{{9}}}}))
     return 1;
   model.incoming().doXfer({{0, 0}});
   run(1);
   run(2);
   if (!model.incoming().proposePush(
-          ac_generated::Entry{{gfsim::UInt<2>{{1}}, gfsim::UInt<8>{{11}}}}))
+          ac_generated::Entry{{gfsim::UInt<3>{{1}}, gfsim::UInt<8>{{11}}}}))
     return 2;
   model.incoming().doXfer({{3, 0}});
   run(4);
@@ -1776,7 +1768,7 @@ int main() {{
     return 4;
   return 0;
 }}
-''',
+""",
                 encoding="utf-8",
             )
             linked = subprocess.run(
@@ -1861,7 +1853,7 @@ int main() {{
             harness = root / "harness.cpp"
             executable = root / "shared_indexed_rules"
             harness.write_text(
-                f'''#include "{model.name}"
+                f"""#include "{model.name}"
 
 int main() {{
   ac_generated::SharedIndexedRules model;
@@ -1892,7 +1884,7 @@ int main() {{
     return 3;
   return 0;
 }}
-''',
+""",
                 encoding="utf-8",
             )
             linked = subprocess.run(
@@ -1978,12 +1970,12 @@ int main() {{
             self.assertEqual(["completion"], firing["inputs"])
             self.assertNotEqual(firing["guard"], firing["state_writes"][0]["present"])
             generated_source = model.read_text(encoding="utf-8")
-            self.assertIn("proposal_present", generated_source)
+            self.assertIn("state_entries_write_present", generated_source)
 
             harness = root / "harness.cpp"
             executable = root / "consume_only_completion"
             harness.write_text(
-                f'''#include "{model.name}"
+                f"""#include "{model.name}"
 
 int main() {{
   ac_generated::ConsumeOnlyCompletion model;
@@ -2024,7 +2016,7 @@ int main() {{
   const auto &fresh = model.table_entries().at(2);
   return static_cast<unsigned long long>(fresh.value) == 55 ? 0 : 8;
 }}
-''',
+""",
                 encoding="utf-8",
             )
             linked = subprocess.run(
@@ -2108,7 +2100,7 @@ int main() {{
             harness = root / "harness.cpp"
             executable = root / "state_driven_retire"
             harness.write_text(
-                f'''#include "{model.name}"
+                f"""#include "{model.name}"
 
 int main() {{
   ac_generated::StateDrivenRetire model;
@@ -2169,7 +2161,7 @@ int main() {{
     return 10;
   return 0;
 }}
-''',
+""",
                 encoding="utf-8",
             )
             linked = subprocess.run(
@@ -2255,7 +2247,7 @@ int main() {{
             harness = root / "harness.cpp"
             executable = root / "multi_state_allocate"
             harness.write_text(
-                f'''#include "{model.name}"
+                f"""#include "{model.name}"
 
 int main() {{
   ac_generated::MultiStateAllocate model;
@@ -2296,7 +2288,7 @@ int main() {{
     return 5;
   return 0;
 }}
-''',
+""",
                 encoding="utf-8",
             )
             linked = subprocess.run(
@@ -2374,7 +2366,6 @@ int main() {{
             for forbidden in (
                 "source(",
                 "sink(",
-                "ac.table",
                 "ac.queue",
                 ".pop(",
                 ".push(",
@@ -2395,7 +2386,7 @@ int main() {{
             harness = root / "harness.cpp"
             executable = root / "circular_rob"
             harness.write_text(
-                f'''#include "{model.name}"
+                f"""#include "{model.name}"
 
 #include <array>
 #include <cstdint>
@@ -2563,7 +2554,7 @@ int main() {{
     return 23;
   return 0;
 }}
-''',
+""",
                 encoding="utf-8",
             )
             linked = subprocess.run(
@@ -2642,7 +2633,6 @@ int main() {{
             for forbidden in (
                 "source(",
                 "sink(",
-                "ac.table",
                 "ac.queue",
                 ".pop(",
                 ".push(",
@@ -2667,7 +2657,7 @@ int main() {{
             completion = next(
                 block
                 for block in specialization["blocks"]
-                if block["name"].startswith("complete")
+                if block["name"].split("/")[-1].startswith("complete")
             )
             self.assertEqual(
                 {"entries", "epoch"},
@@ -2712,7 +2702,7 @@ int main() {{
             harness = root / "harness.cpp"
             executable = root / "reusable_circular_rob"
             harness.write_text(
-                f'''#include "{model.name}"
+                f"""#include "{model.name}"
 
 #include <cstdint>
 
@@ -2816,9 +2806,15 @@ int main() {{
       !incremental.offer_right_completion(activation_system,
                                           event(0, 1, 0, 0)))
     return 9;
-  const auto activation_result = activation_system.run();
-  if (activation_result.classification != gfsim::TerminationClass::Completed)
-    return 11;
+  for (unsigned step = 0;
+       step < 64 &&
+       (incremental.sink_0_values().empty() ||
+        incremental.sink_1_values().empty() ||
+        incremental.sink_2_values().empty() ||
+        incremental.sink_3_values().empty());
+       ++step)
+    if (!activation_system.step())
+      return 11;
   const auto &active_left_allocated = incremental.sink_0_values();
   const auto &active_left_retired = incremental.sink_1_values();
   const auto &active_right_allocated = incremental.sink_2_values();
@@ -2836,7 +2832,7 @@ int main() {{
     return 13;
   return 0;
 }}
-''',
+""",
                 encoding="utf-8",
             )
             linked = subprocess.run(
@@ -3307,7 +3303,9 @@ int main() {
             << incrementalSystem.workClosureTraversalCount() << std::endl;
   return 0;
 }
-""".replace("__MODEL__", model.name),
+""".replace(
+                    "__MODEL__", model.name
+                ),
                 encoding="utf-8",
             )
             linked = subprocess.run(
@@ -3393,7 +3391,6 @@ int main() {
             for forbidden in (
                 "source(",
                 "sink(",
-                "ac.table",
                 "ac.queue",
                 ".pop(",
                 ".push(",
@@ -3401,7 +3398,8 @@ int main() {
                 ".full(",
             ):
                 self.assertNotIn(forbidden, source)
-            self.assertIn("ac.find", source)
+            self.assertIn(".find(", source)
+            self.assertNotIn("ac.find", source)
             frozen = acir.read_text(encoding="utf-8")
             self.assertIn("ac.table.match @entries", frozen)
             self.assertIn("ac.table.choose @entries", frozen)
@@ -3451,9 +3449,7 @@ int main() {
             self.assertEqual(0, generated_source.count("snapshot_entry"))
             self.assertEqual(
                 2,
-                generated_source.count(
-                    "snapshot_set_1_0 = snapshot_set_1_0 | "
-                ),
+                generated_source.count("snapshot_set_1_0 = snapshot_set_1_0 | "),
             )
             self.assertIn("activation_complete() { return true; }", generated_source)
 
@@ -3867,7 +3863,9 @@ int main() {
             << incrementalSystem.workClosureTraversalCount() << std::endl;
   return 0;
 }
-""".replace("__MODEL__", model.name),
+""".replace(
+                    "__MODEL__", model.name
+                ),
                 encoding="utf-8",
             )
             linked = subprocess.run(
@@ -3962,7 +3960,7 @@ int main() {
             harness = root / "harness.cpp"
             executable = root / "host_result_rob"
             harness.write_text(
-                f'''#include "{model.name}"
+                f"""#include "{model.name}"
 
 int main() {{
   ac_generated::ReusableCircularRob model;
@@ -4022,7 +4020,7 @@ int main() {{
     return 12;
   return 0;
 }}
-''',
+""",
                 encoding="utf-8",
             )
             linked = subprocess.run(
@@ -4118,7 +4116,7 @@ int main() {{
             harness = root / "harness.cpp"
             executable = root / "stateful_multi_input"
             harness.write_text(
-                f'''#include "{model.name}"
+                f"""#include "{model.name}"
 
 int main() {{
   ac_generated::TableMultiInputRule model;
@@ -4177,7 +4175,7 @@ int main() {{
     return 8;
   return 0;
 }}
-''',
+""",
                 encoding="utf-8",
             )
             linked = subprocess.run(
@@ -4274,7 +4272,7 @@ int main() {{
             harness = root / "harness.cpp"
             executable = root / "multi_input"
             harness.write_text(
-                f'''#include "{model.name}"
+                f"""#include "{model.name}"
 
 int main() {{
   ac_generated::PycMultiInputRulePipeline model;
@@ -4313,7 +4311,7 @@ int main() {{
     return 4;
   return 0;
 }}
-''',
+""",
                 encoding="utf-8",
             )
             linked = subprocess.run(
@@ -4424,7 +4422,7 @@ int main() {{
             harness = root / "harness.cpp"
             executable = root / "table_rule"
             harness.write_text(
-                f'''#include "{model.name}"
+                f"""#include "{model.name}"
 #include <array>
 #include <cstddef>
 
@@ -4460,7 +4458,7 @@ int main() {{
     return 3;
   return 0;
 }}
-''',
+""",
                 encoding="utf-8",
             )
             linked = subprocess.run(
@@ -4568,7 +4566,7 @@ int main() {{
             harness = root / "harness.cpp"
             executable = root / "rob"
             harness.write_text(
-                f'''#include "{model.name}"
+                f"""#include "{model.name}"
 #include <array>
 #include <cstddef>
 
@@ -4601,7 +4599,7 @@ int main() {{
       return 3;
   return 0;
 }}
-''',
+""",
                 encoding="utf-8",
             )
             linked = subprocess.run(
@@ -4926,7 +4924,6 @@ int main() {{
                 )
                 self.assertEqual(0, compiled.returncode, compiled.stderr)
 
-
     def test_routed_dependency_topology_generates_deterministically(self) -> None:
         compiler = shutil.which("c++")
         tools = {
@@ -4941,7 +4938,9 @@ int main() {{
             root = Path(directory)
             outputs = []
             for index in range(2):
-                source = root / f"topology-{index}.py"
+                source_root = root / str(index)
+                source_root.mkdir()
+                source = source_root / "topology.py"
                 model = root / f"topology-{index}.cpp"
                 acir = root / f"topology-{index}.ac.mlir"
                 plan = root / f"topology-{index}.queue-plan.json"
@@ -4994,7 +4993,9 @@ int main() {{
                     check=False,
                 )
                 self.assertEqual(0, compiled.returncode, compiled.stderr)
-                outputs.append((model.read_bytes(), acir.read_bytes(), plan.read_bytes()))
+                outputs.append(
+                    (model.read_bytes(), acir.read_bytes(), plan.read_bytes())
+                )
 
             self.assertEqual(outputs[0], outputs[1])
 
@@ -5010,9 +5011,7 @@ int main() {{
         if compiler is None:
             self.skipTest("C++ compiler is unavailable")
         native_bin = Path(
-            os.environ.get(
-                "ACIR_BIN", ROOT / ".pycircuit_out/toolchain/build/bin"
-            )
+            os.environ.get("ACIR_BIN", ROOT / ".pycircuit_out/toolchain/build/bin")
         )
         tools = {
             "opt": native_bin / "acir-opt",
@@ -5077,7 +5076,7 @@ int main() {{
             harness = root / "harness.cpp"
             executable = root / "inferred_module"
             harness.write_text(
-                f'''#include "{model.name}"
+                f"""#include "{model.name}"
 
 int main() {{
   ac_generated::{class_name} model;
@@ -5120,7 +5119,7 @@ int main() {{
              ? 0
              : 5;
 }}
-''',
+""",
                 encoding="utf-8",
             )
             linked = subprocess.run(
@@ -5130,10 +5129,7 @@ int main() {{
                     "-I",
                     str(ROOT / "simulator/gfsim/include"),
                     str(harness),
-                    str(
-                        native_bin.parent
-                        / "compiler/acir/gfsim/libgfsim.a"
-                    ),
+                    str(native_bin.parent / "compiler/acir/gfsim/libgfsim.a"),
                     "-o",
                     str(executable),
                 ),
@@ -5235,7 +5231,7 @@ int main() {{
             harness = root / "harness.cpp"
             executable = root / "stateless_multi_input_module"
             harness.write_text(
-                f'''#include "{model.name}"
+                f"""#include "{model.name}"
 
 int main() {{
   ac_generated::StatelessMultiInputModule model;
@@ -5257,7 +5253,7 @@ int main() {{
   const auto &values = model.sink_0_values();
   return values.size() == 1 && values[0] == 12 ? 0 : 2;
 }}
-''',
+""",
                 encoding="utf-8",
             )
             linked = subprocess.run(
@@ -5361,9 +5357,7 @@ int main() {{
             implementation_prefix = definition[:1].upper() + definition[1:]
             self.assertEqual(
                 1,
-                generated_source.count(
-                    f"class Module_{implementation_prefix} final"
-                ),
+                generated_source.count(f"class Module_{implementation_prefix} final"),
             )
             if len(table_names) > 1:
                 self.assertIn("gfsim::QueueStateTransition<", generated_source)
@@ -5378,7 +5372,7 @@ int main() {{
                 for index, value in enumerate(right_expected)
             )
             harness.write_text(
-                f'''#include "{model.name}"
+                f"""#include "{model.name}"
 
 int main() {{
   ac_generated::{class_name} model;
@@ -5411,7 +5405,7 @@ int main() {{
              ? 0
              : 3;
 }}
-''',
+""",
                 encoding="utf-8",
             )
             linked = subprocess.run(

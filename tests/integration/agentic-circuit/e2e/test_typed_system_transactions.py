@@ -51,8 +51,8 @@ class TypedSystemTransactionTest(unittest.TestCase):
 
         specialization = ac.jit(module.atomic_shift, workspace=FIXTURE_ROOT)
         raw_acir = specialization.lower_acir()
-        self.assertEqual(4, raw_acir.count("ac.var.assign_element @entries"))
-        self.assertEqual(3, raw_acir.count("ac.var.read_element @entries"))
+        self.assertEqual(4, raw_acir.count("ac.table.propose @entries"))
+        self.assertEqual(3, raw_acir.count("ac.table.get @entries"))
 
         with tempfile.TemporaryDirectory() as directory:
             output = Path(directory)
