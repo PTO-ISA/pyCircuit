@@ -5183,8 +5183,19 @@ llvm::Expected<std::string> generateQueueGraphPyc(const QueueGraphPlan &plan) {
           std::string selected =
               emitBinary("and", accepted->getValue(), *present, "i1");
           selected = emitBinary("and", selected, atSlot, "i1");
+          std::string proposed = *value;
+          if (write.mode == "field") {
+            // A field-level firing write commits only its named fields, which is
+            // what lets independent rules update disjoint fields of one entry in
+            // one tick. Replace-mode writes keep publishing the whole value.
+            auto merged = emitTableFieldMerge(firingNext, proposed,
+                                              table.entryType, write.fields);
+            if (!merged)
+              return merged.takeError();
+            proposed = std::move(*merged);
+          }
           firingNext =
-              emitMux(selected, *value, firingNext, state->getValue().type);
+              emitMux(selected, proposed, firingNext, state->getValue().type);
           firingEnabled = emitBinary("or", firingEnabled, selected, "i1");
         }
       }

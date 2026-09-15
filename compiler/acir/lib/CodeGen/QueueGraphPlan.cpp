@@ -5337,7 +5337,7 @@ llvm::Error verifyQueueGraphPlan(const QueueGraphPlan &plan) {
     llvm::StringMap<const StateWritePlan *> ownerWrites;
     for (const StateWritePlan &write : block.stateWrites) {
       if (!tables.contains(write.table) || write.index.empty() ||
-          write.value.empty() || write.mode != "replace" ||
+          write.value.empty() ||
           llvm::any_of(plan.tableWrites,
                        [&](const TableWritePlan &endpoint) {
                          return endpoint.table == write.table;
