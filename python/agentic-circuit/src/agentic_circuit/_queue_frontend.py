@@ -1097,6 +1097,7 @@ class RuleStateWriteBinding:
     guard_negated: bool = False
     owner_kind: str = "var"
     shape: tuple[int, ...] = ()
+    mode: str = "replace"
     write_fields: tuple[str, ...] = ()
 
 
@@ -1200,6 +1201,7 @@ class QueueBinding:
     rule_table: str | None = None
     rule_table_index: ast.expr | None = None
     rule_table_value: ast.expr | None = None
+    rule_write_mode: str = "replace"
     rule_write_fields: tuple[str, ...] = ()
     rule_table_read_name: str | None = None
     rule_table_read_index: ast.expr | None = None
@@ -3556,19 +3558,58 @@ def _normalize_rule_field_assignments(
                 return name
 
     def normalize(items: list[ast.stmt]) -> list[ast.stmt]:
+        def indexed_field_key(statement: ast.stmt) -> tuple[str, str] | None:
+            if not (
+                isinstance(statement, ast.Assign)
+                and len(statement.targets) == 1
+                and isinstance(statement.targets[0], ast.Attribute)
+                and isinstance(statement.targets[0].value, ast.Subscript)
+                and isinstance(statement.targets[0].value.value, ast.Name)
+                and not isinstance(statement.targets[0].value.slice, ast.Slice)
+            ):
+                return None
+            target = statement.targets[0].value
+            return (
+                target.value.id,
+                ast.dump(target.slice, include_attributes=False),
+            )
+
+        direct_keys = {
+            key for statement in items if (key := indexed_field_key(statement))
+        }
+        branch_keys: set[tuple[str, str]] = set()
+        for statement in items:
+            if not isinstance(statement, ast.If):
+                continue
+            for candidate in ast.walk(statement):
+                key = indexed_field_key(candidate)
+                if key is not None:
+                    branch_keys.add(key)
+        if direct_keys & branch_keys:
+            raise QueueFrontendError(
+                "ACPY-RULE-011: field updates cannot cross a branch boundary "
+                "for the same indexed target"
+            )
+
         normalized: list[ast.stmt] = []
+        active_key: tuple[str, str] | None = None
+        active_assignment: ast.Assign | None = None
         for statement in items:
             if isinstance(statement, ast.If):
                 rewritten = copy.deepcopy(statement)
                 rewritten.body = normalize(rewritten.body)
                 rewritten.orelse = normalize(rewritten.orelse)
                 normalized.append(ast.fix_missing_locations(rewritten))
+                active_key = None
+                active_assignment = None
                 continue
             if isinstance(statement, ast.For):
                 rewritten = copy.deepcopy(statement)
                 rewritten.body = normalize(rewritten.body)
                 rewritten.orelse = normalize(rewritten.orelse)
                 normalized.append(ast.fix_missing_locations(rewritten))
+                active_key = None
+                active_assignment = None
                 continue
             if isinstance(statement, ast.AugAssign) and isinstance(
                 statement.target, (ast.Attribute, ast.Subscript)
@@ -3583,6 +3624,8 @@ def _normalize_rule_field_assignments(
                 and isinstance(statement.targets[0], ast.Attribute)
             ):
                 normalized.append(statement)
+                active_key = None
+                active_assignment = None
                 continue
             target = statement.targets[0]
             if isinstance(target.value, ast.Name):
@@ -3603,6 +3646,8 @@ def _normalize_rule_field_assignments(
                 normalized.append(
                     ast.fix_missing_locations(ast.copy_location(rewritten, statement))
                 )
+                active_key = None
+                active_assignment = None
                 continue
             if isinstance(target.value, ast.Subscript) and isinstance(
                 target.value.value, ast.Name
@@ -3613,6 +3658,31 @@ def _normalize_rule_field_assignments(
                         "slice target"
                     )
                 owner = target.value.value.id
+                key = (
+                    owner,
+                    ast.dump(target.value.slice, include_attributes=False),
+                )
+                if key == active_key and active_assignment is not None:
+                    active_assignment.value = ast.fix_missing_locations(
+                        ast.copy_location(
+                            ast.Call(
+                                func=ast.Attribute(
+                                    value=active_assignment.value,
+                                    attr="with_fields",
+                                    ctx=ast.Load(),
+                                ),
+                                args=[],
+                                keywords=[
+                                    ast.keyword(
+                                        arg=target.attr,
+                                        value=copy.deepcopy(statement.value),
+                                    )
+                                ],
+                            ),
+                            statement,
+                        )
+                    )
+                    continue
                 index_name = fresh_index_name()
                 index_assign = ast.Assign(
                     targets=[ast.Name(id=index_name, ctx=ast.Store())],
@@ -3646,6 +3716,8 @@ def _normalize_rule_field_assignments(
                     ast.fix_missing_locations(ast.copy_location(item, statement))
                     for item in (index_assign, state_assign)
                 )
+                active_key = key
+                active_assignment = state_assign
                 continue
             raise QueueFrontendError(
                 "ACPY-RULE-002: field assignment target must be one local/state "
@@ -6171,6 +6243,68 @@ def parse_queue_program(
         if value is not None:
             return declared
         requested = {name for name, _ in patch_fields}
+        return tuple(name for name in declared if name in requested)
+
+    def proven_field_write_fields(
+        table: TableBinding,
+        argument: str,
+        value: ast.expr | None,
+        write_index: ast.expr | None,
+        reads: tuple[RuleStateReadDefinition, ...] = (),
+        *,
+        legacy_read_name: str | None = None,
+        legacy_read_index: ast.expr | None = None,
+    ) -> tuple[str, ...] | None:
+        """Return the canonical footprint of a proven Table field update.
+
+        Recognition is deliberately syntactic and fail-closed.  A chain of
+        ``with_fields`` calls must be rooted in a read of this Table at the
+        AST-equivalent write index.  All other values remain complete Entry
+        replacements.
+        """
+        if not isinstance(table.entry_type, StructType) or write_index is None:
+            return None
+        requested: set[str] = set()
+        root = value
+        while (
+            isinstance(root, ast.Call)
+            and isinstance(root.func, ast.Attribute)
+            and root.func.attr == "with_fields"
+            and not root.args
+            and root.keywords
+            and all(keyword.arg is not None for keyword in root.keywords)
+        ):
+            requested.update(
+                keyword.arg for keyword in root.keywords if keyword.arg is not None
+            )
+            root = root.func.value
+        if not requested or root is value:
+            return None
+
+        def same_index(candidate: ast.expr | None) -> bool:
+            return candidate is not None and ast.dump(
+                candidate, include_attributes=False
+            ) == ast.dump(write_index, include_attributes=False)
+
+        proven_root = (
+            isinstance(root, ast.Subscript)
+            and isinstance(root.value, ast.Name)
+            and root.value.id == argument
+            and same_index(root.slice)
+        )
+        if isinstance(root, ast.Name):
+            proven_root = proven_root or any(
+                read.name == root.id
+                and read.argument == argument
+                and same_index(read.index)
+                for read in reads
+            )
+            proven_root = proven_root or (
+                legacy_read_name == root.id and same_index(legacy_read_index)
+            )
+        declared = tuple(field.name for field in table.entry_type.fields)
+        if not proven_root or not requested <= set(declared):
+            return None
         return tuple(name for name in declared if name in requested)
 
     def complete_value_fields(value_type: ValueType) -> tuple[str, ...]:
@@ -9805,6 +9939,17 @@ def parse_queue_program(
                                     "ACPY-RULE-008: scalar/list assignment does "
                                     "not match persistent variable shape"
                                 )
+                            field_fields = (
+                                proven_field_write_fields(
+                                    owner,
+                                    write.argument,
+                                    write.value,
+                                    write.index,
+                                    definition.state_reads,
+                                )
+                                if isinstance(owner, TableBinding)
+                                else None
+                            )
                             writes.append(
                                 RuleStateWriteBinding(
                                     owner.name,
@@ -9817,7 +9962,8 @@ def parse_queue_program(
                                     write.guard_negated,
                                     state_owner_kind(owner),
                                     owner.shape,
-                                    state_write_fields(owner),
+                                    "field" if field_fields is not None else "replace",
+                                    field_fields or state_write_fields(owner),
                                 )
                             )
                         multi_state_writes = tuple(writes)
@@ -10022,13 +10168,35 @@ def parse_queue_program(
                             if table is not None
                             else None
                         ),
+                        rule_write_mode=(
+                            "field"
+                            if table is not None
+                            and proven_field_write_fields(
+                                table,
+                                definition.table_argument or "",
+                                definition.table_value,
+                                definition.table_index,
+                                legacy_read_name=definition.table_read_name,
+                                legacy_read_index=definition.table_read_index,
+                            )
+                            is not None
+                            else "replace"
+                        ),
                         rule_write_fields=(
                             complete_value_fields(variable.value_type)
                             if indexed_variable
                             else (
                                 ()
                                 if table is None
-                                else normalized_write_fields(
+                                else proven_field_write_fields(
+                                    table,
+                                    definition.table_argument or "",
+                                    definition.table_value,
+                                    definition.table_index,
+                                    legacy_read_name=definition.table_read_name,
+                                    legacy_read_index=definition.table_read_index,
+                                )
+                                or normalized_write_fields(
                                     table, definition.table_value, ()
                                 )
                             )
@@ -10524,6 +10692,17 @@ def parse_queue_program(
                                 "ACPY-RULE-008: scalar/list assignment does not "
                                 "match persistent variable shape"
                             )
+                        field_fields = (
+                            proven_field_write_fields(
+                                owner,
+                                write.argument,
+                                write.value,
+                                write.index,
+                                definition.state_reads,
+                            )
+                            if isinstance(owner, TableBinding)
+                            else None
+                        )
                         writes.append(
                             RuleStateWriteBinding(
                                 owner.name,
@@ -10536,7 +10715,8 @@ def parse_queue_program(
                                 write.guard_negated,
                                 state_owner_kind(owner),
                                 owner.shape,
-                                state_write_fields(owner),
+                                "field" if field_fields is not None else "replace",
+                                field_fields or state_write_fields(owner),
                             )
                         )
                     reads: list[RuleStateReadBinding] = []
@@ -10730,8 +10910,32 @@ def parse_queue_program(
                             if table is not None
                             else None
                         ),
+                        rule_write_mode=(
+                            "field"
+                            if table is not None
+                            and proven_field_write_fields(
+                                table,
+                                definition.table_argument or "",
+                                definition.table_value,
+                                definition.table_index,
+                                legacy_read_name=definition.table_read_name,
+                                legacy_read_index=definition.table_read_index,
+                            )
+                            is not None
+                            else "replace"
+                        ),
                         rule_write_fields=(
-                            normalized_write_fields(table, definition.table_value, ())
+                            proven_field_write_fields(
+                                table,
+                                definition.table_argument or "",
+                                definition.table_value,
+                                definition.table_index,
+                                legacy_read_name=definition.table_read_name,
+                                legacy_read_index=definition.table_read_index,
+                            )
+                            or normalized_write_fields(
+                                table, definition.table_value, ()
+                            )
                             if table is not None
                             else complete_value_fields(value_type)
                         ),
@@ -15988,7 +16192,10 @@ def lower_queue_program(
             writes_by_owner: dict[str, list[RuleStateWriteBinding]] = {}
             for state_write in queue.rule_state_writes:
                 writes_by_owner.setdefault(state_write.variable, []).append(state_write)
-            writes_by_variable: dict[tuple[str, str], list[RuleStateWriteBinding]] = {}
+            writes_by_variable: dict[
+                tuple[str, str, str, tuple[str, ...]],
+                list[RuleStateWriteBinding],
+            ] = {}
             for variable, owner_writes in writes_by_owner.items():
                 complementary_pair = (
                     len(owner_writes) == 2
@@ -15996,9 +16203,19 @@ def lower_queue_program(
                     and {write.guard_negated for write in owner_writes} == {False, True}
                     and ast.dump(owner_writes[0].guard, include_attributes=False)
                     == ast.dump(owner_writes[1].guard, include_attributes=False)
+                    and owner_writes[0].mode == owner_writes[1].mode
+                    and owner_writes[0].write_fields
+                    == owner_writes[1].write_fields
                 )
                 if complementary_pair:
-                    writes_by_variable[(variable, "<complementary>")] = owner_writes
+                    writes_by_variable[
+                        (
+                            variable,
+                            "<complementary>",
+                            owner_writes[0].mode,
+                            owner_writes[0].write_fields,
+                        )
+                    ] = owner_writes
                     continue
                 for state_write in owner_writes:
                     index_identity = (
@@ -16007,7 +16224,13 @@ def lower_queue_program(
                         else ast.dump(state_write.index, include_attributes=False)
                     )
                     writes_by_variable.setdefault(
-                        (variable, index_identity), []
+                        (
+                            variable,
+                            index_identity,
+                            state_write.mode,
+                            state_write.write_fields,
+                        ),
+                        [],
                     ).append(state_write)
             for owner_writes in writes_by_variable.values():
                 complementary_pair = (
@@ -16325,7 +16548,8 @@ def lower_queue_program(
                         lines.append(
                             f"{indent}  ac.table.propose "
                             f"@{state_write.variable}[%{state_index}] = "
-                            f'%{state_value}{state_effect_presence} mode "replace" '
+                            f'%{state_value}{state_effect_presence} '
+                            f'mode "{state_write.mode}" '
                             f"write_fields {fields} "
                             f"{rule_writer_arbitration(queue, state_write.variable)} : "
                             f"!ac.var<{_render_type(state_index_type)}>, "
@@ -16345,7 +16569,7 @@ def lower_queue_program(
                 lines.append(
                     f"{indent}  ac.table.propose @{queue.rule_table} "
                     f"[%{index_result}] = %{write_result}{effect_presence} "
-                    f'mode "replace" '
+                    f'mode "{queue.rule_write_mode}" '
                     f"write_fields {fields} "
                     f"{rule_writer_arbitration(queue, queue.rule_table)} : "
                     f"!ac.var<{_render_type(index_type)}>, "
