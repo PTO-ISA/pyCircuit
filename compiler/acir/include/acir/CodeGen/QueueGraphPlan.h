@@ -193,6 +193,13 @@ struct QueueWriterArbitrationPlan {
   bool operator==(const QueueWriterArbitrationPlan &) const = default;
 };
 
+struct SlotReleaseEffectPlan {
+  std::string slot;
+  std::string when;
+
+  bool operator==(const SlotReleaseEffectPlan &) const = default;
+};
+
 struct QueueBlockPlan {
   std::string kind;
   std::string name;
@@ -227,6 +234,7 @@ struct QueueBlockPlan {
   std::string guard;
   std::vector<StateWritePlan> stateWrites;
   std::vector<StateReservationPlan> stateReservations;
+  std::vector<SlotReleaseEffectPlan> slotReleases;
   std::vector<OutputPresencePlan> outputPresence;
   std::vector<QueueRuleResourcePlan> activationSources;
   std::vector<QueueRuleResourcePlan> transactionResources;
@@ -399,6 +407,7 @@ enum class QueueActivationNodeKind {
   Queue,
   Block,
   Table,
+  Slot,
 };
 
 struct QueueActivationNodePlan {

@@ -4814,7 +4814,8 @@ would not prove that generated execution follows Python's serial order.
   temporary/static immutable index classification.
 - MLIR lowering tests prove structured footprints and priorities survive on
   Frozen firing IR.
-- The `shared_indexed_rules.py` generated-model test evaluates Work in reverse,
+- The `tests/integration/agentic-circuit/e2e/fixtures/state/shared_indexed_rules.py`
+  generated-model test evaluates Work in reverse,
   arbitrates in stable order, and proves the lower-priority same-entry input is
   retained until it observes and replaces the first committed value.
 
@@ -4855,9 +4856,11 @@ the model and its performance.
 **Verification**
 - ACIR lit proves `ready_valid_1x0_table`, zero-result firing/plan generation,
   typed condition retention, and C++20 compilation.
-- `consume_only_completion.py` consumes and updates one indexed persistent list
+- `tests/integration/agentic-circuit/e2e/fixtures/state/consume_only_completion.py`
+  consumes and updates one indexed persistent list
   entry without any sink.
-- `state_driven_retire.py` combines an outputless allocator with a zero-input
+- `tests/integration/agentic-circuit/e2e/fixtures/state/state_driven_retire.py`
+  combines an outputless allocator with a zero-input
   guarded retire and proves that a full output Queue preserves the committed
   entry until the result can be accepted.
 
@@ -4912,7 +4915,8 @@ footprints and encourages whole-structure copies.
 - MLIR lit proves four ordered writes to one owner survive rule lowering and
   generate compiling C++20 owner-local batch code; native analysis tests cover
   disjoint index domains and structurally equivalent complementary paths.
-- `multi_state_allocate.py` proves a scalar tail and persistent Python list are
+- `tests/integration/agentic-circuit/e2e/fixtures/state/multi_state_allocate.py`
+  proves a scalar tail and persistent Python list are
   updated together through the complete frontend-to-gfsim path.
 
 **Source**
@@ -4929,7 +4933,8 @@ than a FIFO or `reorder` wrapper. The acceptance model must expose the failure
 modes that motivated compiler-inferred Queue checks and atomic state effects.
 
 **Decision (strong constraint)**
-- `circular_rob.py` uses ordinary typed system parameters/returns, `@ac.rule`,
+- `tests/integration/agentic-circuit/e2e/fixtures/state/circular_rob.py` uses
+  ordinary typed system parameters/returns, `@ac.rule`,
   scalar variables, one fixed Python list, record field expressions, and a
   single guarded block. It contains no explicit source/sink, Queue/Table/Reg,
   ready/full, pop/push, reservation, publish, or commit spelling.
@@ -5452,7 +5457,8 @@ resource concepts into the frontend.
   follow-up work.
 
 **Verification**
-- `inferred_multi_state_module.py` declares `count` and `total`, updates both in
+- `tests/integration/agentic-circuit/e2e/fixtures/state/inferred_multi_state_module.py`
+  declares `count` and `total`, updates both in
   serial Python, and returns `total + count` without naming any hardware
   resource or transaction primitive.
 - Raw ACIR contains two declarations, reads, and assignments in one rule. The
@@ -6582,7 +6588,8 @@ compiler-proven path-local effects.
 - ACIR lit proves complementary proposals through Rule-to-Firing lowering,
   frozen QueueGraph JSON, gfsim generation, and C++20 compilation. Existing
   invalid lit continues to reject two unrelated effect predicates.
-- `branch_local_state.py` contains one input and two scalar lexical owners.
+- `tests/integration/agentic-circuit/e2e/fixtures/state/branch_local_state.py`
+  contains one input and two scalar lexical owners.
   End-to-end execution sends a left-selecting command followed by a
   right-selecting command and observes exactly `left=7,right=0`, then
   `left=7,right=9`.
@@ -6641,7 +6648,8 @@ branch values should join before storage and transaction selection.
   ternary code, and PYC `pyc.select` lowering.
 - Frontend coverage proves two same-owner arms generate one `ac.var.select`, one
   `ac.var.assign`, and no second owner proposal.
-- `branch_join_state.py` selects direct value 9 on the true arm and incremented
+- `tests/integration/agentic-circuit/e2e/fixtures/state/branch_join_state.py`
+  selects direct value 9 on the true arm and incremented
   value 8 on the false arm. End-to-end generated gfsim execution observes both
   results while the frozen plan retains exactly one `total` state write whose
   presence equals the rule candidate.
@@ -6693,7 +6701,8 @@ joining only the value could write the correct value to the wrong index.
   proposal presence.
 - ACIR/QueueGraph/gfsim lit preserves two typed `value_select` records, one
   dynamic state proposal, and C++20-compilable ternary code.
-- `indexed_branch_join.py` sends a false-arm command selecting entry 1 and
+- `tests/integration/agentic-circuit/e2e/fixtures/state/indexed_branch_join.py`
+  sends a false-arm command selecting entry 1 and
   observes value 8, then sends a true-arm command selecting entry 3 and observes
   value 9. Entry 3 remains zero after the first command and entry 1 remains 8
   after the second.
@@ -6754,7 +6763,8 @@ the functional rule has already discarded.
   presence preservation, QueueGraph JSON, optional gfsim output generation, and
   C++20 compilation. Invalid Firing coverage rejects optional output under a
   false candidate.
-- `optional_output_state.py` is executed with its output Queue deliberately
+- `tests/integration/agentic-circuit/e2e/fixtures/state/optional_output_state.py`
+  is executed with its output Queue deliberately
   held full. A false-presence input is consumed and increments count from 0 to
   1; a true-presence input remains queued with count unchanged, then consumes
   and increments to 2 only after capacity is released.
@@ -10034,3 +10044,68 @@ ordering was cost without contract.
 
 **Source**
 - PTO-ISA/pyCircuit issue #126.
+
+## Decision 0262: slot release may participate in one rule firing transaction
+
+**Status:** Accepted and implemented
+
+**Extends:** Decisions 0148, 0152, 0226, 0236, 0259, and 0260.
+
+**Context / Goal**
+An `ac.slot` is the committed one-entry mailbox used to decouple Queue arrival
+from later stateful work. A standalone release endpoint could observe Table
+selection, but a rule could not atomically combine Queue consumption, output
+production, Table or persistent-state updates, and release of the slot whose
+payload it used. Consumer designs consequently had to split one architectural
+action across independent scheduler transactions.
+
+**Decision (strong constraint)**
+- Slots remain topology resources declared in `@ac.module` or `@ac.system`.
+  Declaring `ac.slot(...)` inside `@ac.rule` is invalid. An external rule may
+  receive a slot as a leading resource parameter; a nested rule capture is
+  desugared to the same hidden explicit parameter.
+- A rule may observe `slot.valid` and `slot.value` and may call the no-argument
+  `slot.release()`. Python control flow supplies the release predicate. The
+  frontend lowers the effect to firing-local
+  `ac.slot.propose_release @slot when %condition`; the operation is legal only
+  directly in `ac.rule` or `ac.firing` and retains the slot's stable identity.
+- Table, persistent variable, and Slot resources form the leading resource
+  parameter region; Queue payload parameters follow. One rule may release
+  several distinct slots conditionally. A slot has exactly one release owner:
+  either one standalone `ac.slot.release` endpoint or one rule. Other rules may
+  read the same committed slot snapshot. Duplicate owners, aliases, unrelated
+  scope captures, and type mismatches fail closed.
+- Lowered firing evidence names every observed Slot as an activation source
+  and every proposed release as a transaction resource. A no-Queue-input rule
+  is attempted at most once per activation epoch; capture and committed-valid
+  activation make it eligible, while a false functional condition creates no
+  candidate transaction.
+- GFSim applies one preflight, prepare-all, publish-all protocol across Queue
+  inputs, selected Queue outputs, Table/persistent owners, and zero or more Slot
+  release reservations. Any backpressure, owner conflict, or invalid selected
+  Slot stalls the whole firing and cancels all prepared resources. Successful
+  release clears `valid` at Xfer while retaining the payload value.
+- Slot capture remains owned by `QueueSlot`. A newly captured value is visible
+  only after its Xfer edge. A Slot full at the start of an epoch cannot refill
+  in the epoch in which a rule releases it. Reset clears valid, candidate, and
+  release-reservation state. Existing standalone release behavior is unchanged.
+- QueueGraph and native GFSim generation support this transaction shape for
+  flat and hierarchy-preserving modules. PYC/RTL remain outside the provisional
+  Slot backend profile and continue to reject it explicitly rather than
+  partially lowering the effect.
+
+**Required verification**
+- Cover external parameters, nested capture, read-only sharing, outputless
+  release, multiple conditional Slot effects, owner/alias/scope/type failures,
+  deterministic raw/lowered ACIR and QueueGraph JSON, and the existing
+  standalone release path.
+- Exercise GFSim output backpressure, owner conflict, cancellation, reset,
+  retained payload, no-same-epoch refill, and slot-only activation without
+  repeated firing. Compile flat and structured generated C++ and compare their
+  accepted values and cycles.
+- Preserve the explicit ACIR-to-PYC provisional-Slot rejection and run the
+  Agentic Circuit semantic, documentation, changed-file, and strict
+  decision-status gates.
+
+**Source**
+- PTO-ISA/pyCircuit issue #138.

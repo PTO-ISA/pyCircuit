@@ -12,6 +12,7 @@ from pathlib import Path
 from agentic_circuit._queue_frontend import RULE_LOWERING_PIPELINE, lower_queue_source
 
 ROOT = Path(__file__).resolve().parents[4]
+STATE_FIXTURES = ROOT / "tests/integration/agentic-circuit/e2e/fixtures/state"
 EXAMPLE = ROOT / "examples/agentic-circuit" / "pipelines" / "pyc_queue_pipeline.py"
 ROUTED_DEPENDENCY_EXAMPLE = (
     ROOT
@@ -25,7 +26,7 @@ STRUCT_EXAMPLE = (
 ROUTE_EXAMPLE = (
     ROOT / "examples/agentic-circuit" / "pipelines" / "pyc_route_merge_pipeline.py"
 )
-RULE_ROB_EXAMPLE = ROOT / "examples/agentic-circuit" / "state" / "rob.py"
+RULE_ROB_EXAMPLE = STATE_FIXTURES / "rob.py"
 REORDER_EXAMPLE = (
     ROOT / "examples/agentic-circuit" / "pipelines" / "pyc_reorder_pipeline.py"
 )

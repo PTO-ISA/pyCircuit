@@ -946,6 +946,16 @@ TEST(QueueGraphPlanTest, BackendsRejectRecursivePayloadsWithoutRecursing) {
             std::string::npos);
 }
 
+TEST(QueueGraphPlanTest, PycBackendRejectsProvisionalSlotWithoutLowering) {
+  QueueGraphPlan plan = sharedReferencePlan();
+
+  auto pyc = generateQueueGraphPyc(plan);
+  ASSERT_FALSE(bool(pyc));
+  EXPECT_NE(llvm::toString(pyc.takeError())
+                .find("Slot PYC lowering is not implemented"),
+            std::string::npos);
+}
+
 TEST(QueueGraphPlanTest, RejectsMalformedNominalEnumMetadata) {
   mlir::MLIRContext context;
   context.loadDialect<ac::ACIRDialect, mlir::DLTIDialect>();

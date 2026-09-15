@@ -2117,6 +2117,16 @@ template <typename Entry, typename... Outputs> struct TableTransitionPlan {
   StateReservation reservations;
 };
 
+class SlotReleaseResource {
+public:
+  virtual ~SlotReleaseResource() = default;
+  virtual bool canPrepareRelease(CommitGroupId group) const = 0;
+  virtual bool prepareRelease(CommitGroupId group) = 0;
+  virtual bool hasPreparedRelease(CommitGroupId group) const = 0;
+  virtual bool publishPreparedRelease(CommitGroupId group) = 0;
+  virtual void cancelPreparedRelease(CommitGroupId group) = 0;
+};
+
 template <typename TableTypes, typename OutputTypes> struct StateTransitionPlan;
 
 template <typename> using TypedStateReservation = StateReservation;
@@ -2177,6 +2187,7 @@ struct StateTransitionPlan<std::tuple<Entries...>, std::tuple<Outputs...>> {
   std::tuple<OwnerWriteBatch<Entries>...> writes;
   std::tuple<std::optional<Outputs>...> outputs;
   std::tuple<TypedStateReservation<Entries>...> reservations;
+  std::vector<bool> slotReleases;
 };
 
 /// One inferred transaction spanning a Table and zero or more Queue endpoints.
@@ -2496,10 +2507,12 @@ public:
                        Tables tables, InputsTuple inputs, OutputsTuple outputs,
                        std::array<TableWriteMode, sizeof...(Entries)> modes,
                        Policy policy = {}, std::tuple<Merges...> merges = {},
-                       ObservationSink *observations = nullptr)
+                       ObservationSink *observations = nullptr,
+                       std::vector<SlotReleaseResource *> slots = {})
       : SimObject(componentKind, std::move(name), id, parent, observations),
         tables_(tables), inputs_(inputs), outputs_(outputs), modes_(modes),
-        policy_(std::move(policy)), merges_(std::move(merges)) {
+        policy_(std::move(policy)), merges_(std::move(merges)),
+        slots_(std::move(slots)) {
     if (id == kInvalidObjectId)
       throw std::invalid_argument(
           "state transition requires a stable object ID");
@@ -2561,6 +2574,10 @@ public:
     static_assert(std::same_as<decltype(plan), std::optional<Plan>>);
     if (!plan)
       return;
+    if (plan->slotReleases.size() != slots_.size()) {
+      setRuntimeFailureCode("state_slot_release_shape_mismatch");
+      return;
+    }
     candidate_ = std::move(*plan);
   }
 
@@ -2574,17 +2591,20 @@ public:
       return;
     if (!prepareOutputs(group, plan, std::index_sequence_for<Outputs...>{}) ||
         !prepareInputs(group, std::index_sequence_for<Inputs...>{}) ||
-        !prepareTables(group, plan, std::index_sequence_for<Entries...>{})) {
+        !prepareTables(group, plan, std::index_sequence_for<Entries...>{}) ||
+        !prepareSlots(group, plan)) {
       cancelPrepared(group);
       return;
     }
     if (!allPrepared(group, plan, std::index_sequence_for<Entries...>{},
                      std::index_sequence_for<Inputs...>{},
                      std::index_sequence_for<Outputs...>{}) ||
+        !allSlotsPrepared(group, plan) ||
         !publishOutputs(group, plan, std::index_sequence_for<Outputs...>{}) ||
         !publishInputs(group, std::index_sequence_for<Inputs...>{}) ||
-        !publishTables(group, std::move(plan),
-                       std::index_sequence_for<Entries...>{})) {
+        !publishTables(group, plan,
+                       std::index_sequence_for<Entries...>{}) ||
+        !publishSlots(group, plan)) {
       setRuntimeFailureCode("state_commit_group_publish_failed");
       cancelPrepared(group);
       return;
@@ -2600,8 +2620,6 @@ public:
   }
   bool hasPendingCommit() const override { return fired_; }
   bool isRunnable(Epoch) const override {
-    if constexpr (sizeof...(Inputs) == 0)
-      return false;
     return !fired_ && !candidate_ && allInputsReady();
   }
   void reset() override {
@@ -2679,7 +2697,39 @@ private:
     return preflightInputs(std::index_sequence_for<Inputs...>{}) &&
            preflightOutputs(plan, std::index_sequence_for<Outputs...>{}) &&
            preflightTables(group, plan,
-                           std::index_sequence_for<Entries...>{});
+                           std::index_sequence_for<Entries...>{}) &&
+           preflightSlots(group, plan);
+  }
+
+  bool preflightSlots(CommitGroupId group, const Plan &plan) const {
+    for (size_t index = 0; index < slots_.size(); ++index)
+      if (plan.slotReleases[index] &&
+          !slots_[index]->canPrepareRelease(group))
+        return false;
+    return true;
+  }
+
+  bool prepareSlots(CommitGroupId group, const Plan &plan) {
+    for (size_t index = 0; index < slots_.size(); ++index)
+      if (plan.slotReleases[index] && !slots_[index]->prepareRelease(group))
+        return false;
+    return true;
+  }
+
+  bool allSlotsPrepared(CommitGroupId group, const Plan &plan) const {
+    for (size_t index = 0; index < slots_.size(); ++index)
+      if (plan.slotReleases[index] &&
+          !slots_[index]->hasPreparedRelease(group))
+        return false;
+    return true;
+  }
+
+  bool publishSlots(CommitGroupId group, const Plan &plan) {
+    for (size_t index = 0; index < slots_.size(); ++index)
+      if (plan.slotReleases[index] &&
+          !slots_[index]->publishPreparedRelease(group))
+        return false;
+    return true;
   }
 
   template <size_t... Indices>
@@ -2757,7 +2807,7 @@ private:
   }
 
   template <size_t... Indices>
-  bool publishTables(CommitGroupId group, Plan plan,
+  bool publishTables(CommitGroupId group, Plan &plan,
                      std::index_sequence<Indices...>) {
     return (publishTable<Indices>(group, plan) && ...);
   }
@@ -2787,6 +2837,8 @@ private:
     std::apply(
         [&](auto *...tables) { (tables->cancelPreparedWrite(group), ...); },
         tables_);
+    for (SlotReleaseResource *slot : slots_)
+      slot->cancelPreparedRelease(group);
   }
 
   Tables tables_;
@@ -2797,6 +2849,7 @@ private:
   std::tuple<Merges...> merges_;
   std::array<std::vector<size_t>, sizeof...(Entries)> writeIndices_;
   std::optional<Plan> candidate_;
+  std::vector<SlotReleaseResource *> slots_;
   bool fired_ = false;
 };
 
@@ -3295,9 +3348,50 @@ private:
 /// A committed one-entry Queue capture.  Empty slots capture one input token;
 /// full slots apply only the release decision and deliberately do not refill
 /// until a later tick.  Releasing retains the old payload for observability.
-template <typename T> struct SlotState {
+template <typename T> struct SlotState final : SlotReleaseResource {
+  SlotState() = default;
+  SlotState(bool initialValid, T initialValue)
+      : valid(initialValid), value(std::move(initialValue)) {}
+
   bool valid = false;
   T value{};
+  std::optional<CommitGroupId> preparedRelease;
+  bool pendingRelease = false;
+
+  bool canPrepareRelease(CommitGroupId group) const override {
+    return valid && (!preparedRelease || *preparedRelease == group);
+  }
+  bool prepareRelease(CommitGroupId group) override {
+    if (!canPrepareRelease(group))
+      return false;
+    preparedRelease = group;
+    return true;
+  }
+  bool hasPreparedRelease(CommitGroupId group) const override {
+    return preparedRelease && *preparedRelease == group;
+  }
+  bool publishPreparedRelease(CommitGroupId group) override {
+    if (!hasPreparedRelease(group))
+      return false;
+    preparedRelease.reset();
+    pendingRelease = true;
+    return true;
+  }
+  void cancelPreparedRelease(CommitGroupId group) override {
+    if (preparedRelease && *preparedRelease == group)
+      preparedRelease.reset();
+  }
+  void commitRelease() {
+    if (pendingRelease)
+      valid = false;
+    pendingRelease = false;
+  }
+  void reset() {
+    valid = false;
+    value = T{};
+    preparedRelease.reset();
+    pendingRelease = false;
+  }
 };
 
 template <typename T, typename Release>
@@ -3349,6 +3443,7 @@ public:
       state_.value = std::move(pendingPayload_);
       state_.valid = true;
     }
+    state_.commitRelease();
     pendingRelease_ = false;
     pendingCapture_ = false;
     fired_ = false;
@@ -3360,8 +3455,7 @@ public:
     return state_.valid ? releaseEnabled(epoch) : input_.canProposePop();
   }
   void reset() override {
-    state_.valid = false;
-    state_.value = T{};
+    state_.reset();
     pendingPayload_ = T{};
     pendingRelease_ = false;
     pendingCapture_ = false;

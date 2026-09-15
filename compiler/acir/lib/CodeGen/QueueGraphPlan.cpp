@@ -1347,6 +1347,15 @@ extractExpressions(mlir::Region &region, QueueBlockPlan &plan,
       }
       continue;
     }
+    if (auto release =
+            mlir::dyn_cast<ac::SlotProposeReleaseOp>(operation)) {
+      auto when = values.find(release.getWhen());
+      if (when == values.end())
+        return planError("slot release guard is not a known firing value");
+      plan.slotReleases.push_back(
+          {release.getSlot().str(), when->second});
+      continue;
+    }
     if (auto match = mlir::dyn_cast<ac::TableMatchOp>(operation)) {
       QueueBlockPlan nested;
       llvm::SmallVector<SharedValue> captures;
@@ -1682,6 +1691,8 @@ llvm::StringRef activationKindName(QueueActivationNodeKind kind) {
     return "block";
   case QueueActivationNodeKind::Table:
     return "table";
+  case QueueActivationNodeKind::Slot:
+    return "slot";
   }
   llvm_unreachable("unknown Queue activation node kind");
 }
@@ -1714,6 +1725,14 @@ std::optional<ActivationNode> tableActivationNode(const QueueGraphPlan &plan,
   for (auto [index, table] : llvm::enumerate(plan.tables))
     if (table.name == name)
       return ActivationNode{QueueActivationNodeKind::Table, index};
+  return std::nullopt;
+}
+
+std::optional<ActivationNode> slotActivationNode(const QueueGraphPlan &plan,
+                                                 llvm::StringRef name) {
+  for (auto [index, slot] : llvm::enumerate(plan.slots))
+    if (slot.name == name)
+      return ActivationNode{QueueActivationNodeKind::Slot, index};
   return std::nullopt;
 }
 
@@ -1760,6 +1779,12 @@ llvm::Expected<InferredActivation> inferActivation(const QueueGraphPlan &plan) {
         auto node = tableActivationNode(plan, resource.resource);
         if (!node)
           return planError("activation Table is unresolved");
+        return *node;
+      }
+      if (resource.kind == "slot") {
+        auto node = slotActivationNode(plan, resource.resource);
+        if (!node)
+          return planError("activation slot is unresolved");
         return *node;
       }
       return planError("activation resource kind is unsupported");
@@ -1885,8 +1910,12 @@ extractRuleResources(mlir::Operation *operation, llvm::StringRef name) {
     case ac::ActivationResourceKind::State:
       resource.kind = "state";
       break;
+    case ac::ActivationResourceKind::Slot:
+      resource.kind = "slot";
+      break;
     }
-    if (kind.getValue() == ac::ActivationResourceKind::State) {
+    if (kind.getValue() == ac::ActivationResourceKind::State ||
+        kind.getValue() == ac::ActivationResourceKind::Slot) {
       auto symbol = record.getAs<mlir::FlatSymbolRefAttr>("resource");
       if (!symbol)
         return planError("state activation resource is missing");
@@ -2149,6 +2178,25 @@ llvm::Error groupMultiSelectionReads(QueueGraphPlan &plan) {
   return llvm::Error::success();
 }
 
+void materializeCaptureOnlySlots(QueueGraphPlan &plan) {
+  for (const SlotPlan &slot : plan.slots) {
+    if (llvm::any_of(plan.blocks, [&](const QueueBlockPlan &block) {
+          return block.kind == "slot" && block.slot == slot.name;
+        }))
+      continue;
+    QueueBlockPlan capture{"slot", slot.name + "__capture", slot.scope,
+                           {slot.input}, {}};
+    capture.lexicalOrder = plan.blocks.size() + plan.moduleInstances.size();
+    capture.slot = slot.name;
+    capture.yields = {"release_disabled"};
+    QueueExpressionPlan disabled{"release_disabled", "constant", "i1", {}};
+    disabled.literal = "false";
+    capture.expressions.push_back(std::move(disabled));
+    capture.sourceProvenance = slot.sourceProvenance;
+    plan.blocks.push_back(std::move(capture));
+  }
+}
+
 class Extractor {
 public:
   explicit Extractor(mlir::ModuleOp module) : module(module) {}
@@ -2212,6 +2260,7 @@ public:
       return std::move(error);
     if (auto error = groupMultiSelectionReads(plan))
       return std::move(error);
+    materializeCaptureOnlySlots(plan);
     if (auto error = resolveWriterPriorities(plan))
       return std::move(error);
     if (auto error = materializeActivation(plan))
@@ -2411,6 +2460,7 @@ private:
       return std::move(error);
     if (auto error = groupMultiSelectionReads(nested.plan))
       return std::move(error);
+    materializeCaptureOnlySlots(nested.plan);
     if (auto error = resolveWriterPriorities(nested.plan))
       return std::move(error);
     auto returned = mlir::dyn_cast<ac::ReturnOp>(body.getTerminator());
@@ -5291,12 +5341,14 @@ llvm::Error verifyQueueGraphPlan(const QueueGraphPlan &plan) {
       continue;
     if (!firingPriorities.insert(block.priority).second)
       return planError("firing arbitration priorities must be unique");
-    if (block.stateWrites.empty() && block.outputs.empty())
+    if (block.stateWrites.empty() && block.slotReleases.empty() &&
+        block.outputs.empty())
       return planError("outputless firing must update state");
     if (block.guard.empty() || block.yields.size() != block.outputs.size() ||
         block.depths.size() != block.outputs.size() ||
         block.latencies.size() != block.outputs.size() ||
-        (block.inputs.empty() && block.outputs.empty()))
+        (block.inputs.empty() && block.outputs.empty() &&
+         block.slotReleases.empty()))
       return planError(
           "table firing metadata is incomplete or conflicting for '" +
           block.name + "' (writes=" + std::to_string(block.stateWrites.size()) +
@@ -6914,6 +6966,9 @@ llvm::Error verifyQueueGraphPlan(const QueueGraphPlan &plan) {
     }
     if (block.kind == "slot" && !slotNames.contains(block.slot))
       return planError("slot block references unknown slot");
+    for (const SlotReleaseEffectPlan &release : block.slotReleases)
+      if (!slotNames.contains(release.slot) || release.when.empty())
+        return planError("firing slot release metadata is invalid");
     for (const QueueExpressionPlan &expression : block.expressions)
       if (expression.kind == "table_get" && !tables.contains(expression.table))
         return planError("table.get expression references unknown table");
@@ -7291,6 +7346,10 @@ llvm::Expected<std::string> QueueGraphPlan::canonicalJson() const {
                              {"source", reservation.source},
                              {"table", reservation.table}});
     }
+    llvm::json::Array slotReleases;
+    for (const SlotReleaseEffectPlan &release : block.slotReleases)
+      slotReleases.push_back(llvm::json::Object{{"slot", release.slot},
+                                                {"when", release.when}});
     llvm::json::Array outputPresence;
     for (const OutputPresencePlan &output : block.outputPresence)
       outputPresence.push_back(llvm::json::Object{{"ordinal", output.ordinal},
@@ -7317,6 +7376,7 @@ llvm::Expected<std::string> QueueGraphPlan::canonicalJson() const {
         {"table_index", block.tableIndex},
         {"table_value", block.tableValue},
         {"slot", block.slot},
+        {"slot_releases", std::move(slotReleases)},
         {"name", block.name},
         {"no_dependency", block.noDependency},
         {"endpoint_ordinal", block.endpointOrdinal},

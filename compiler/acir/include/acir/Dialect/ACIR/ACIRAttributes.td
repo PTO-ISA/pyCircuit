@@ -82,12 +82,14 @@ def ACIR_ActivationResourceKind_InputQueue
 def ACIR_ActivationResourceKind_OutputQueue
     : I32EnumAttrCase<"OutputQueue", 1, "output_queue">;
 def ACIR_ActivationResourceKind_State : I32EnumAttrCase<"State", 2, "state">;
+def ACIR_ActivationResourceKind_Slot : I32EnumAttrCase<"Slot", 3, "slot">;
 def ACIR_ActivationResourceKind
     : I32EnumAttr<"ActivationResourceKind",
                   "typed rule activation/transaction resource kind",
                   [ACIR_ActivationResourceKind_InputQueue,
                    ACIR_ActivationResourceKind_OutputQueue,
-                   ACIR_ActivationResourceKind_State]> {
+                   ACIR_ActivationResourceKind_State,
+                   ACIR_ActivationResourceKind_Slot]> {
   let genSpecializedAttr = 0;
   let cppNamespace = "::acir::ac";
 }

@@ -71,6 +71,16 @@ static DictionaryAttr activationStateResource(MLIRContext *context,
   return builder.getDictionaryAttr(fields);
 }
 
+static DictionaryAttr activationSlotResource(MLIRContext *context,
+                                             StringRef resource) {
+  Builder builder(context);
+  NamedAttrList fields;
+  fields.set("kind", ActivationResourceKindAttr::get(
+                         context, ActivationResourceKind::Slot));
+  fields.set("resource", FlatSymbolRefAttr::get(context, resource));
+  return builder.getDictionaryAttr(fields);
+}
+
 static std::optional<bool> constantVarBool(Value value) {
   auto constant = value.getDefiningOp<VarConstantOp>();
   auto integer =
@@ -152,6 +162,8 @@ static LogicalResult verifyActivationEvidence(Operation *operation,
   }
   llvm::StringSet<> sourceState;
   llvm::StringSet<> transactionState;
+  llvm::StringSet<> sourceSlots;
+  llvm::StringSet<> transactionSlots;
   body.walk([&](Operation *nested) {
     FlatSymbolRefAttr resource;
     if (auto read = dyn_cast<TableGetOp>(nested))
@@ -169,6 +181,16 @@ static LogicalResult verifyActivationEvidence(Operation *operation,
     if (resource && sourceState.insert(resource.getValue()).second)
       expectedSources.push_back(activationStateResource(operation->getContext(),
                                                         resource.getValue()));
+  });
+  body.walk([&](SlotGetOp get) {
+    if (sourceSlots.insert(get.getSlot()).second)
+      expectedSources.push_back(
+          activationSlotResource(operation->getContext(), get.getSlot()));
+  });
+  body.walk([&](SlotProposeReleaseOp release) {
+    if (transactionSlots.insert(release.getSlot()).second)
+      expectedTransaction.push_back(
+          activationSlotResource(operation->getContext(), release.getSlot()));
   });
   if (sources != builder.getArrayAttr(expectedSources) ||
       transaction != builder.getArrayAttr(expectedTransaction) ||
@@ -271,6 +293,29 @@ verifyTypedRuleSummary(Operation *operation, ValueRange inputs,
                                         : RuleOutputPresenceKind::Predicate));
     expectedPresence.push_back(builder.getDictionaryAttr(output));
   }
+
+  llvm::StringSet<> readSlots;
+  body.walk([&](SlotGetOp get) {
+    if (!readSlots.insert(get.getSlot()).second)
+      return;
+    NamedAttrList effect;
+    effect.set("kind", RuleEffectKindAttr::get(operation->getContext(),
+                                               RuleEffectKind::StateRead));
+    effect.set("resource", get.getSlotAttr());
+    effect.set("guard_kind", RuleGuardKindAttr::get(
+                                 operation->getContext(), RuleGuardKind::Always));
+    expectedEffects.push_back(builder.getDictionaryAttr(effect));
+  });
+  body.walk([&](SlotProposeReleaseOp release) {
+    NamedAttrList effect;
+    effect.set("kind", RuleEffectKindAttr::get(operation->getContext(),
+                                               RuleEffectKind::StateWrite));
+    effect.set("resource", release.getSlotAttr());
+    effect.set("guard_kind", RuleGuardKindAttr::get(
+                                 operation->getContext(),
+                                 guardKindFor(release.getWhen())));
+    expectedEffects.push_back(builder.getDictionaryAttr(effect));
+  });
 
   SmallVector<Attribute> expectedConflicts;
   SmallVector<Operation *> summaryStateOperations;
@@ -558,6 +603,7 @@ LogicalResult RuleOp::verify() {
       return emitOpError("body arguments must match input Queue payloads");
   }
   SmallVector<TableProposeOp> proposals;
+  SmallVector<SlotProposeReleaseOp> slotReleases;
   SmallVector<TableGetOp> tableReads;
   bool hasVariableWrite = false;
   unsigned conditions = 0;
@@ -565,6 +611,8 @@ LogicalResult RuleOp::verify() {
   for (Operation &operation : block.without_terminator())
     if (auto proposal = dyn_cast<TableProposeOp>(operation)) {
       proposals.push_back(proposal);
+    } else if (auto release = dyn_cast<SlotProposeReleaseOp>(operation)) {
+      slotReleases.push_back(release);
     } else if (auto get = dyn_cast<TableGetOp>(operation)) {
       tableReads.push_back(get);
     } else if (isa<VarAssignOp, VarAssignElementOp>(operation)) {
@@ -579,7 +627,8 @@ LogicalResult RuleOp::verify() {
                !isa<VarMatchOp, VarChooseOp, TableMatchOp, TableChooseOp>(
                    operation) &&
                !isa<RuleOutputOp, StateSnapshotOp, StateSnapshotSetOp>(
-                   operation))
+                   operation) &&
+               !isa<SlotGetOp, SlotProposeReleaseOp>(operation))
       return emitOpError() << "body operation '" << operation.getName()
                            << "' must be pure in the supported rule subset";
   if (conditions > 1)
@@ -590,7 +639,7 @@ LogicalResult RuleOp::verify() {
                                !outputPaths.empty() ||
                                llvm::any_of(proposals, [](TableProposeOp op) {
                                  return static_cast<bool>(op.getWhen());
-                               });
+                               }) || !slotReleases.empty();
   if (hasPathEvidence) {
     if (conditions != 1)
       return emitOpError("SSA path evidence requires one rule condition");
@@ -618,6 +667,10 @@ LogicalResult RuleOp::verify() {
               "conditional-effect presence requires a true candidate");
       }
     }
+    for (SlotProposeReleaseOp release : slotReleases)
+      if (!presenceImpliesCandidate(release.getWhen(), conditionValue))
+        return release.emitOpError(
+            "slot release presence must imply the rule condition");
   }
   for (TableGetOp read : tableReads)
     if (TableOp table = resolveTable(read, read.getTableAttr());
@@ -626,9 +679,10 @@ LogicalResult RuleOp::verify() {
       return failure();
     }
   if (getInputs().empty() && getOutputs().empty() && proposals.empty() &&
-      !hasVariableWrite)
+      slotReleases.empty() && !hasVariableWrite)
     return emitOpError("rule without Queue endpoints must update state");
-  if (getOutputs().empty() && proposals.empty() && !hasVariableWrite)
+  if (getOutputs().empty() && proposals.empty() && slotReleases.empty() &&
+      !hasVariableWrite)
     return emitOpError("outputless rule must update state");
   auto yield = dyn_cast<RuleReturnOp>(block.getTerminator());
   if (!yield || yield.getValues().size() != getOutputs().size())
@@ -1233,10 +1287,14 @@ LogicalResult FiringOp::verify() {
           "firing domain must match the exact QueueGraph domain");
   }
   SmallVector<TableProposeOp> proposals;
+  SmallVector<SlotProposeReleaseOp> slotReleases;
   SmallVector<TableGetOp> tableReads;
   SmallVector<FiringConditionOp> conditions;
   getBody().walk(
       [&](TableProposeOp proposal) { proposals.push_back(proposal); });
+  getBody().walk([&](SlotProposeReleaseOp release) {
+    slotReleases.push_back(release);
+  });
   getBody().walk([&](TableGetOp read) { tableReads.push_back(read); });
   getBody().walk(
       [&](FiringConditionOp condition) { conditions.push_back(condition); });
@@ -1246,9 +1304,10 @@ LogicalResult FiringOp::verify() {
                                                             read.getIndex()))) {
       return failure();
     }
-  if (getInputs().empty() && getOutputs().empty() && proposals.empty())
+  if (getInputs().empty() && getOutputs().empty() && proposals.empty() &&
+      slotReleases.empty())
     return emitOpError("firing without Queue endpoints must update state");
-  if (getOutputs().empty() && proposals.empty())
+  if (getOutputs().empty() && proposals.empty() && slotReleases.empty())
     return emitOpError("outputless firing must update state");
   if (conditions.size() > 1)
     return emitOpError("permits at most one functional condition");
@@ -1262,7 +1321,7 @@ LogicalResult FiringOp::verify() {
                                !outputPaths.empty() ||
                                llvm::any_of(proposals, [](TableProposeOp op) {
                                  return static_cast<bool>(op.getWhen());
-                               });
+                               }) || !slotReleases.empty();
   if (hasPathEvidence) {
     if (conditions.size() != 1)
       return emitOpError("SSA path evidence requires one firing condition");
@@ -1290,6 +1349,10 @@ LogicalResult FiringOp::verify() {
               "conditional-effect presence requires a true candidate");
       }
     }
+    for (SlotProposeReleaseOp release : slotReleases)
+      if (!presenceImpliesCandidate(release.getWhen(), condition))
+        return release.emitOpError(
+            "slot release presence must imply the firing condition");
   }
   auto priority = (*this)->getAttrOfType<IntegerAttr>("ac.rule_priority");
   auto footprints = (*this)->getAttrOfType<ArrayAttr>("ac.rule_footprints");
@@ -1370,7 +1433,8 @@ LogicalResult FiringOp::verify() {
     }
   }
   const bool validArity =
-      !getInputs().empty() || !getOutputs().empty() || !proposals.empty();
+      !getInputs().empty() || !getOutputs().empty() || !proposals.empty() ||
+      !slotReleases.empty();
   if (conditions.empty() && requiresInferredSchedule) {
     return emitOpError("requires one typed functional condition");
   }
@@ -1391,7 +1455,7 @@ LogicalResult FiringOp::verify() {
     if (!isPureExpressionOperation(&operation) &&
         !isa<TableGetOp, TableProposeOp, TableMatchOp, TableChooseOp,
              VarAssignOp, FiringConditionOp, FiringOutputOp, StateSnapshotOp,
-             StateSnapshotSetOp>(operation))
+             StateSnapshotSetOp, SlotGetOp, SlotProposeReleaseOp>(operation))
       return emitOpError() << "body operation '" << operation.getName()
                            << "' must be pure after marker elimination";
   auto yield = dyn_cast<FiringYieldOp>(block.getTerminator());
@@ -4542,6 +4606,10 @@ LogicalResult SlotOp::verify() {
     if (resolveSlot(release, release.getSlotAttr()) == *this)
       ++releases;
   });
+  root->walk([&](SlotProposeReleaseOp release) {
+    if (resolveSlot(release, release.getSlotAttr()) == *this)
+      ++releases;
+  });
   if (releases != 1)
     return emitOpError("slot requires exactly one release endpoint");
   return success();
@@ -4591,6 +4659,20 @@ LogicalResult SlotReleaseOp::verify() {
   if (!yield ||
       !cast<VarType>(yield.getValue().getType()).getElementType().isInteger(1))
     return emitOpError("when must terminate with ac.slot.yield !ac.var<i1>");
+  return success();
+}
+
+LogicalResult SlotProposeReleaseOp::verify() {
+  SlotOp slot = resolveSlot(*this, getSlotAttr());
+  if (!slot)
+    return emitOpError() << "unresolved slot " << getSlot();
+  if (!slotVisibleFrom(*this, slot))
+    return emitOpError("slot is outside the release scope ancestry");
+  if (!isa_and_nonnull<RuleOp, FiringOp>((*this)->getParentOp()))
+    return emitOpError("requires direct ac.rule or ac.firing ownership");
+  auto when = dyn_cast<VarType>(getWhen().getType());
+  if (!when || !when.getElementType().isInteger(1))
+    return emitOpError("when must be !ac.var<i1>");
   return success();
 }
 

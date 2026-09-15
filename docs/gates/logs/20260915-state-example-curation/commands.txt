@@ -1,0 +1,8 @@
+/home/lc/.codex/skills/pyc6/scripts/run.sh python -c '<lower every public state example and state fixture>'
+/home/lc/.codex/skills/pyc6/scripts/run.sh env ACIR_OPT=<local-build>/acir-opt ACIR_QUEUE_PLAN=<local-build>/acir-queue-plan ACIR_QUEUE_CXXGEN=<local-build>/acir-queue-cxxgen python -m unittest tests.integration.agentic-circuit.e2e.test_slot_rule_transaction
+/home/lc/.codex/skills/pyc6/scripts/run.sh python -m unittest discover -s tests/python/agentic-circuit/python_frontend -p 'test_*.py'
+/home/lc/.codex/skills/pyc6/scripts/run.sh env ACIR_OPT=<local-build>/acir-opt ACIR_QUEUE_PLAN=<local-build>/acir-queue-plan ACIR_QUEUE_CXXGEN=<local-build>/acir-queue-cxxgen python tests/integration/agentic-circuit/e2e/test_queue_codegen.py -v
+/home/lc/.codex/skills/pyc6/scripts/run.sh env ACIR_QUEUE_PYCGEN=<local-build>/acir-queue-pycgen python -m unittest tests.integration.agentic-circuit.e2e.test_pyc_backend.PycBackendTest.test_rule_retirement_builds_pyc_and_verilog
+/home/lc/.codex/skills/pyc6/scripts/run.sh python -m pytest -q tests/unit/test_documentation_layout.py tests/unit/test_agentic_circuit_component.py
+/home/lc/.codex/skills/pyc6/scripts/run.sh python flows/tools/check_decision_status.py --rfc docs/rfcs/pyc6-decisions.md --status docs/gates/decision_status_v6.md --out /tmp/state-example-decision-status.json --require-no-deferred --require-all-verified --require-concrete-evidence --require-existing-evidence
+git diff --check

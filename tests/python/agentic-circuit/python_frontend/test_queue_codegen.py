@@ -253,7 +253,10 @@ class QueueCodegenTest(unittest.TestCase):
             parse_queue_program,
         )
 
-        source = ROOT / "examples/agentic-circuit/state/rob.py"
+        source = (
+            ROOT
+            / "tests/integration/agentic-circuit/e2e/fixtures/state/rob.py"
+        )
         program = parse_queue_program(source.read_text(encoding="utf-8"), "rob")
         with self.assertRaisesRegex(QueueFrontendError, "native MLIR"):
             lower_queue_program_to_cpp(program)

@@ -834,7 +834,10 @@ class JitQueueLoweringTest(unittest.TestCase):
         "native MLIR tools are release/targeted-test dependencies",
     )
     def test_rule_specialization_uses_native_mlir_pipeline(self) -> None:
-        path = REPOSITORY / "examples/agentic-circuit/state/rob.py"
+        path = (
+            REPOSITORY
+            / "tests/integration/agentic-circuit/e2e/fixtures/state/rob.py"
+        )
         spec = importlib.util.spec_from_file_location("ac_rule_rob", path)
         if spec is None or spec.loader is None:
             raise RuntimeError("cannot load rule retirement example")

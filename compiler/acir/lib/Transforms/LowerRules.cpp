@@ -236,6 +236,18 @@ LogicalResult inferRuleEffects(ModuleOp model) {
                                       ac::RuleEffectKind::OutputProduce),
           index, outputGuard));
     }
+    llvm::StringSet<> readSlots;
+    rule.getBody().walk([&](ac::SlotGetOp get) {
+      if (readSlots.insert(get.getSlot()).second)
+        typedEffects.push_back(stateRuleEffect(
+            builder, ac::RuleEffectKind::StateRead, get.getSlot(),
+            ac::RuleGuardKind::Always));
+    });
+    rule.getBody().walk([&](ac::SlotProposeReleaseOp release) {
+      typedEffects.push_back(stateRuleEffect(
+          builder, ac::RuleEffectKind::StateWrite, release.getSlot(),
+          guardKind(release.getWhen())));
+    });
     SmallVector<Attribute> footprintAttrs;
     SmallVector<Attribute> conflictAttrs;
     for (const StateAccessFootprint &footprint :
@@ -321,6 +333,15 @@ DictionaryAttr stateActivationResource(Builder &builder, StringRef resource) {
   return builder.getDictionaryAttr(fields);
 }
 
+DictionaryAttr slotActivationResource(Builder &builder, StringRef resource) {
+  NamedAttrList fields;
+  fields.set("kind", ac::ActivationResourceKindAttr::get(
+                         builder.getContext(), ac::ActivationResourceKind::Slot));
+  fields.set("resource",
+             FlatSymbolRefAttr::get(builder.getContext(), resource));
+  return builder.getDictionaryAttr(fields);
+}
+
 LogicalResult inferRuleActivation(ModuleOp model) {
   Builder builder(model.getContext());
   LogicalResult result = success();
@@ -361,11 +382,22 @@ LogicalResult inferRuleActivation(ModuleOp model) {
         sources.push_back(
             stateActivationResource(builder, resource.getValue()));
     }
+    llvm::StringSet<> sourceSlots;
+    rule.getBody().walk([&](ac::SlotGetOp get) {
+      if (sourceSlots.insert(get.getSlot()).second)
+        sources.push_back(slotActivationResource(builder, get.getSlot()));
+    });
     llvm::StringSet<> transactionState;
     rule.getBody().walk([&](ac::TableProposeOp proposal) {
       if (transactionState.insert(proposal.getTable()).second)
         transaction.push_back(
             stateActivationResource(builder, proposal.getTable()));
+    });
+    llvm::StringSet<> transactionSlots;
+    rule.getBody().walk([&](ac::SlotProposeReleaseOp release) {
+      if (transactionSlots.insert(release.getSlot()).second)
+        transaction.push_back(
+            slotActivationResource(builder, release.getSlot()));
     });
     rule->setAttr("ac.rule.activation_sources", builder.getArrayAttr(sources));
     rule->setAttr("ac.rule.transaction_resources",
@@ -859,7 +891,8 @@ LogicalResult canonicalizePureFirings(ModuleOp model) {
     firing.getBody().walk([&](Operation *operation) {
       hasStateAccess |=
           isa<ac::TableGetOp, ac::TableProposeOp, ac::StateSnapshotOp,
-              ac::StateSnapshotSetOp>(operation);
+              ac::StateSnapshotSetOp, ac::SlotGetOp,
+              ac::SlotProposeReleaseOp>(operation);
     });
     if (hasStateAccess)
       continue;
