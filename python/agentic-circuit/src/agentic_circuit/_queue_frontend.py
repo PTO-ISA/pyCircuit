@@ -1170,7 +1170,6 @@ class QueueBinding:
     rule_table_index: ast.expr | None = None
     rule_table_value: ast.expr | None = None
     rule_write_fields: tuple[str, ...] = ()
-    rule_write_mode: str = "replace"
     rule_table_read_name: str | None = None
     rule_table_read_index: ast.expr | None = None
     rule_input_names: tuple[str, ...] = ()
@@ -5979,52 +5978,6 @@ def parse_queue_program(
         requested = {name for name, _ in patch_fields}
         return tuple(name for name in declared if name in requested)
 
-    def proven_field_write_fields(
-        table: TableBinding,
-        value: ast.expr | None,
-        read_name: str | None,
-        write_index: ast.expr | None,
-        read_index: ast.expr | None,
-    ) -> tuple[str, ...] | None:
-        """Canonical field set for a proven same-owner same-index field write.
-
-        Returns ``None`` unless the write is provably equivalent to a field
-        write, in which case the caller must keep the complete ``replace``
-        write. Recognition requires all of:
-
-        * a struct Entry;
-        * the write index and the recorded read index are the same expression;
-        * the assigned value is ``<read_name>.with_fields(**fields)`` with only
-          plain keyword arguments naming declared top-level fields.
-
-        Copying only the named fields is equivalent to replacing the whole
-        Entry exactly when the assigned value stems from the same committed
-        read, because ``with_fields`` preserves the other fields from that
-        read. Any other producer makes the two writes observable.
-        """
-        if not isinstance(table.entry_type, StructType):
-            return None
-        if read_name is None or write_index is None or read_index is None:
-            return None
-        if ast.dump(write_index) != ast.dump(read_index):
-            return None
-        if not isinstance(value, ast.Call):
-            return None
-        function = value.func
-        if not isinstance(function, ast.Attribute) or function.attr != "with_fields":
-            return None
-        if not isinstance(function.value, ast.Name) or function.value.id != read_name:
-            return None
-        if value.args or not value.keywords:
-            return None
-        if any(keyword.arg is None for keyword in value.keywords):
-            return None
-        requested = {keyword.arg for keyword in value.keywords}
-        declared = tuple(field.name for field in table.entry_type.fields)
-        if not requested <= set(declared):
-            return None
-        return tuple(name for name in declared if name in requested)
-
     def complete_value_fields(value_type: ValueType) -> tuple[str, ...]:
         if not isinstance(value_type, StructType):
             return ("$entry",)
@@ -9802,33 +9755,10 @@ def parse_queue_program(
                             else (
                                 ()
                                 if table is None
-                                else (
-                                    proven_field_write_fields(
-                                        table,
-                                        definition.table_value,
-                                        definition.table_read_name,
-                                        definition.table_index,
-                                        definition.table_read_index,
-                                    )
-                                    or normalized_write_fields(
-                                        table, definition.table_value, ()
-                                    )
+                                else normalized_write_fields(
+                                    table, definition.table_value, ()
                                 )
                             )
-                        ),
-                        rule_write_mode=(
-                            "field"
-                            if not indexed_variable
-                            and table is not None
-                            and proven_field_write_fields(
-                                table,
-                                definition.table_value,
-                                definition.table_read_name,
-                                definition.table_index,
-                                definition.table_read_index,
-                            )
-                            is not None
-                            else "replace"
                         ),
                         rule_table_read_name=(
                             definition.table_read_name if table is not None else None
@@ -10464,33 +10394,9 @@ def parse_queue_program(
                             else None
                         ),
                         rule_write_fields=(
-                            (
-                                proven_field_write_fields(
-                                    table,
-                                    definition.table_value,
-                                    definition.table_read_name,
-                                    definition.table_index,
-                                    definition.table_read_index,
-                                )
-                                or normalized_write_fields(
-                                    table, definition.table_value, ()
-                                )
-                            )
+                            normalized_write_fields(table, definition.table_value, ())
                             if table is not None
                             else complete_value_fields(value_type)
-                        ),
-                        rule_write_mode=(
-                            "field"
-                            if table is not None
-                            and proven_field_write_fields(
-                                table,
-                                definition.table_value,
-                                definition.table_read_name,
-                                definition.table_index,
-                                definition.table_read_index,
-                            )
-                            is not None
-                            else "replace"
                         ),
                         rule_table_read_name=(
                             definition.table_read_name if table is not None else None
@@ -15930,7 +15836,7 @@ def lower_queue_program(
                 lines.append(
                     f"{indent}  ac.table.propose @{queue.rule_table} "
                     f"[%{index_result}] = %{write_result}{effect_presence} "
-                    f'mode "{queue.rule_write_mode}" '
+                    f'mode "replace" '
                     f"write_fields {fields} : "
                     f"!ac.var<{_render_type(index_type)}>, "
                     f"!ac.var<{_render_type(queue.payload)}>"
