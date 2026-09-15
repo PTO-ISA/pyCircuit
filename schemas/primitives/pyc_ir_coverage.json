@@ -233,7 +233,9 @@
         "tests/mlir/agentic-circuit/CodeGen/atomic-transform.mlir",
         "tests/mlir/agentic-circuit/CodeGen/pure-helpers.mlir",
         "tests/mlir/agentic-circuit/CodeGen/table-multi-selection-pyc.mlir",
-        "tests/mlir/agentic-circuit/PYC/source-provenance-eliminate-wire.mlir"
+        "tests/mlir/agentic-circuit/PYC/source-provenance-eliminate-wire.mlir",
+        "tests/mlir/agentic-circuit/Transforms/firing-field-replace-order.mlir",
+        "tests/mlir/agentic-circuit/Transforms/firing-field-write.mlir"
       ],
       "python_producer": [
         "python/pycircuit/src/pycircuit/dsl.py",
@@ -250,7 +252,9 @@
         "tests/mlir/agentic-circuit/CodeGen/atomic-transform.mlir",
         "tests/mlir/agentic-circuit/CodeGen/pure-helpers.mlir",
         "tests/mlir/agentic-circuit/CodeGen/table-multi-selection-pyc.mlir",
-        "tests/mlir/agentic-circuit/PYC/source-provenance-eliminate-wire.mlir"
+        "tests/mlir/agentic-circuit/PYC/source-provenance-eliminate-wire.mlir",
+        "tests/mlir/agentic-circuit/Transforms/firing-field-replace-order.mlir",
+        "tests/mlir/agentic-circuit/Transforms/firing-field-write.mlir"
       ],
       "verifier": "compiler/mlir/lib/Dialect/PYC/PYCOps.cpp",
       "verilog_emitter": "compiler/mlir/lib/Emit/VerilogEmitter.cpp"
@@ -449,7 +453,9 @@
         "tests/mlir/agentic-circuit/ACIR/view-provenance.mlir",
         "tests/mlir/agentic-circuit/CodeGen/bit-operations.mlir",
         "tests/mlir/agentic-circuit/CodeGen/table-field-replace-order-pyc.mlir",
-        "tests/mlir/agentic-circuit/PYC/source-provenance-pack-i1.mlir"
+        "tests/mlir/agentic-circuit/PYC/source-provenance-pack-i1.mlir",
+        "tests/mlir/agentic-circuit/Transforms/firing-field-replace-order.mlir",
+        "tests/mlir/agentic-circuit/Transforms/firing-field-write.mlir"
       ],
       "python_producer": [
         "python/pycircuit/src/pycircuit/dsl.py"
@@ -470,6 +476,8 @@
         "tests/mlir/agentic-circuit/CodeGen/bit-operations.mlir",
         "tests/mlir/agentic-circuit/CodeGen/table-field-replace-order-pyc.mlir",
         "tests/mlir/agentic-circuit/PYC/source-provenance-pack-i1.mlir",
+        "tests/mlir/agentic-circuit/Transforms/firing-field-replace-order.mlir",
+        "tests/mlir/agentic-circuit/Transforms/firing-field-write.mlir",
         "tests/python/agentic-circuit/python_frontend/test_public_api.py"
       ],
       "verifier": "compiler/mlir/lib/Dialect/PYC/PYCOps.cpp",
@@ -599,7 +607,9 @@
       "positive_mlir": [
         "tests/mlir/agentic-circuit/CodeGen/bit-operations.mlir",
         "tests/mlir/agentic-circuit/CodeGen/table-field-replace-order-pyc.mlir",
-        "tests/mlir/agentic-circuit/PYC/source-provenance-pack-i1.mlir"
+        "tests/mlir/agentic-circuit/PYC/source-provenance-pack-i1.mlir",
+        "tests/mlir/agentic-circuit/Transforms/firing-field-replace-order.mlir",
+        "tests/mlir/agentic-circuit/Transforms/firing-field-write.mlir"
       ],
       "python_producer": [
         "python/pycircuit/src/pycircuit/dsl.py"
@@ -616,6 +626,8 @@
         "tests/mlir/agentic-circuit/CodeGen/bit-operations.mlir",
         "tests/mlir/agentic-circuit/CodeGen/table-field-replace-order-pyc.mlir",
         "tests/mlir/agentic-circuit/PYC/source-provenance-pack-i1.mlir",
+        "tests/mlir/agentic-circuit/Transforms/firing-field-replace-order.mlir",
+        "tests/mlir/agentic-circuit/Transforms/firing-field-write.mlir",
         "tests/test_assert_fits.py",
         "tests/test_bitfield_view.py"
       ],
@@ -1022,6 +1034,8 @@
         "tests/mlir/agentic-circuit/CodeGen/table-typed-init-pyc.mlir",
         "tests/mlir/agentic-circuit/CodeGen/table-writer-arbitration-pyc.mlir",
         "tests/mlir/agentic-circuit/PYC/source-provenance-pack-i1.mlir",
+        "tests/mlir/agentic-circuit/Transforms/firing-field-replace-order.mlir",
+        "tests/mlir/agentic-circuit/Transforms/firing-field-write.mlir",
         "tests/mlir/agentic-circuit/Transforms/rule-consume-only-lowering.mlir",
         "tests/mlir/agentic-circuit/Transforms/rule-owner-write-batch.mlir",
         "tests/mlir/agentic-circuit/Transforms/rule-table-lowering.mlir"
@@ -1055,6 +1069,8 @@
         "tests/mlir/agentic-circuit/CodeGen/table-typed-init-pyc.mlir",
         "tests/mlir/agentic-circuit/CodeGen/table-writer-arbitration-pyc.mlir",
         "tests/mlir/agentic-circuit/PYC/source-provenance-pack-i1.mlir",
+        "tests/mlir/agentic-circuit/Transforms/firing-field-replace-order.mlir",
+        "tests/mlir/agentic-circuit/Transforms/firing-field-write.mlir",
         "tests/mlir/agentic-circuit/Transforms/rule-consume-only-lowering.mlir",
         "tests/mlir/agentic-circuit/Transforms/rule-owner-write-batch.mlir",
         "tests/mlir/agentic-circuit/Transforms/rule-table-lowering.mlir",
@@ -1192,6 +1208,8 @@
         "tests/mlir/agentic-circuit/ACIR/collections-valid.mlir",
         "tests/mlir/agentic-circuit/CodeGen/table-read-pyc.mlir",
         "tests/mlir/agentic-circuit/CodeGen/value-select.mlir",
+        "tests/mlir/agentic-circuit/Transforms/firing-field-replace-order.mlir",
+        "tests/mlir/agentic-circuit/Transforms/firing-field-write.mlir",
         "tests/mlir/agentic-circuit/Transforms/rule-multi-input-branch-lowering.mlir",
         "tests/mlir/agentic-circuit/Transforms/rule-table-lowering.mlir",
         "tests/mlir/pyc/canonical-ops-valid.mlir"
@@ -1215,6 +1233,8 @@
         "tests/mlir/agentic-circuit/ACIR/collections-valid.mlir",
         "tests/mlir/agentic-circuit/CodeGen/table-read-pyc.mlir",
         "tests/mlir/agentic-circuit/CodeGen/value-select.mlir",
+        "tests/mlir/agentic-circuit/Transforms/firing-field-replace-order.mlir",
+        "tests/mlir/agentic-circuit/Transforms/firing-field-write.mlir",
         "tests/mlir/agentic-circuit/Transforms/rule-multi-input-branch-lowering.mlir",
         "tests/mlir/agentic-circuit/Transforms/rule-table-lowering.mlir",
         "tests/mlir/pyc/canonical-ops-valid.mlir",
