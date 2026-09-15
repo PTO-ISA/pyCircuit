@@ -3856,8 +3856,7 @@ llvm::Expected<std::string> generateQueueGraphCpp(const QueueGraphPlan &plan) {
       if (block.yields.size() != block.outputs.size() || block.guard.empty() ||
           (hasState &&
            (block.table.empty() || block.tableIndex.empty() ||
-            block.tableValue.empty() || block.writeMode != "replace" ||
-            block.writeFields.empty())))
+            block.tableValue.empty() || block.writeFields.empty())))
         return generatorError("table firing contract is unsupported");
     }
     if (block.kind == "slot" &&

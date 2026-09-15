@@ -5131,11 +5131,44 @@ llvm::Expected<std::string> generateQueueGraphPyc(const QueueGraphPlan &plan) {
     auto state = tableStates.find(table.name);
     if (state == tableStates.end())
       return pycError("Table register-bank state is missing");
+    // A Table may carry field-mode and replace-mode firing writes together, but
+    // only when every conflicting endpoint declares explicit writer arbitration
+    // (see VerifyValueConstraints).  Both passes are emitted in gfsim's order --
+    // every FieldMerge against the committed image first, then every Replace on
+    // top of that -- so the commit order never depends on plan block order.
+    bool hasFiringFieldWrite = false;
+    bool hasFiringReplaceWrite = false;
+    for (const QueueBlockPlan &block : plan.blocks) {
+      if (block.kind != "firing")
+        continue;
+      for (const StateWritePlan &write : block.stateWrites) {
+        if (write.table != table.name)
+          continue;
+        if (write.mode == "field")
+          hasFiringFieldWrite = true;
+        else
+          hasFiringReplaceWrite = true;
+      }
+    }
+    const bool replacePass = hasFiringReplaceWrite || !hasFiringFieldWrite;
     for (uint64_t slot = 0; slot < table.entries; ++slot) {
       std::string next = state->getValue().value[slot];
       std::string enabled = emitConstant(0, "i1");
-      std::string firingNext = state->getValue().value[slot];
-      std::string firingEnabled = emitConstant(0, "i1");
+      // Firing writes commit in two ordered passes, exactly like gfsim: every
+      // FieldMerge lands on the committed image first, then every Replace
+      // overwrites it.  A single block-order accumulator would let a later
+      // field write outrank an earlier replace, which gfsim does not do.
+      // An accumulator and its enable are emitted only when a writer needs
+      // them, so a Table whose firing writes share one mode keeps the emission
+      // it had before the split.
+      std::string firingFieldNext = state->getValue().value[slot];
+      std::string firingFieldEnabled;
+      if (hasFiringFieldWrite)
+        firingFieldEnabled = emitConstant(0, "i1");
+      std::string firingReplaceNext = state->getValue().value[slot];
+      std::string firingReplaceEnabled;
+      if (replacePass)
+        firingReplaceEnabled = emitConstant(0, "i1");
       for (const QueueBlockPlan &block : plan.blocks) {
         if (block.kind != "firing" || block.stateWrites.empty())
           continue;
@@ -5183,9 +5216,24 @@ llvm::Expected<std::string> generateQueueGraphPyc(const QueueGraphPlan &plan) {
           std::string selected =
               emitBinary("and", accepted->getValue(), *present, "i1");
           selected = emitBinary("and", selected, atSlot, "i1");
-          firingNext =
-              emitMux(selected, *value, firingNext, state->getValue().type);
-          firingEnabled = emitBinary("or", firingEnabled, selected, "i1");
+          if (write.mode == "field") {
+            // A field-level firing write commits only its named fields, which
+            // is what lets independent rules update disjoint fields of one
+            // entry in one tick.
+            auto merged = emitTableFieldMerge(firingFieldNext, *value,
+                                              table.entryType, write.fields);
+            if (!merged)
+              return merged.takeError();
+            firingFieldNext = emitMux(selected, *merged, firingFieldNext,
+                                      state->getValue().type);
+            firingFieldEnabled =
+                emitBinary("or", firingFieldEnabled, selected, "i1");
+          } else {
+            firingReplaceNext = emitMux(selected, *value, firingReplaceNext,
+                                        state->getValue().type);
+            firingReplaceEnabled =
+                emitBinary("or", firingReplaceEnabled, selected, "i1");
+          }
         }
       }
       for (const QueueBlockPlan &block : plan.blocks) {
@@ -5253,10 +5301,16 @@ llvm::Expected<std::string> generateQueueGraphPyc(const QueueGraphPlan &plan) {
         enabled = emitBinary("or", enabled, selected, "i1");
       }
       for (const char *mode : {"field", "replace"}) {
-        if (llvm::StringRef(mode) == "replace") {
-          next =
-              emitMux(firingEnabled, firingNext, next, state->getValue().type);
-          enabled = emitBinary("or", enabled, firingEnabled, "i1");
+        if (llvm::StringRef(mode) == "field") {
+          if (hasFiringFieldWrite) {
+            next = emitMux(firingFieldEnabled, firingFieldNext, next,
+                           state->getValue().type);
+            enabled = emitBinary("or", enabled, firingFieldEnabled, "i1");
+          }
+        } else if (replacePass) {
+          next = emitMux(firingReplaceEnabled, firingReplaceNext, next,
+                         state->getValue().type);
+          enabled = emitBinary("or", enabled, firingReplaceEnabled, "i1");
         }
         for (const QueueBlockPlan &block : plan.blocks) {
           if (block.kind != "table_write" || block.table != table.name ||
