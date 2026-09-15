@@ -2218,6 +2218,80 @@ def pipeline() -> None:
     ac.sink(snapshots)
 """
 
+RULE_SLOT_SOURCE = """
+import agentic_circuit as ac
+
+@ac.struct
+class Event:
+    value: ac.u8
+
+@ac.rule
+def consume(mailbox) -> Event:
+    if mailbox.valid:
+        event = mailbox.value
+        mailbox.release()
+        return event
+
+@ac.system
+def pipeline(incoming: Event) -> Event:
+    mailbox = ac.slot(incoming)
+    outgoing = consume(mailbox)
+    return outgoing
+"""
+
+NESTED_RULE_SLOT_SOURCE = """
+import agentic_circuit as ac
+
+@ac.struct
+class Event:
+    value: ac.u8
+
+@ac.module
+def mailbox_module(incoming: Event) -> Event:
+    mailbox = ac.slot(incoming)
+
+    @ac.rule
+    def consume() -> Event:
+        if mailbox.valid:
+            event = mailbox.value
+            mailbox.release()
+            return event
+
+    outgoing = consume()
+    return outgoing
+
+@ac.system
+def pipeline(incoming: Event) -> Event:
+    return mailbox_module(incoming)
+"""
+
+READ_ONLY_RULE_SLOT_SOURCE = """
+import agentic_circuit as ac
+
+@ac.struct
+class Event:
+    value: ac.u8
+
+@ac.rule
+def observe(mailbox) -> Event:
+    if mailbox.valid:
+        return mailbox.value
+
+@ac.rule
+def consume(mailbox) -> Event:
+    if mailbox.valid:
+        value = mailbox.value
+        mailbox.release()
+        return value
+
+@ac.system
+def pipeline(incoming: Event) -> tuple[Event, Event]:
+    mailbox = ac.slot(incoming)
+    observed = observe(mailbox)
+    consumed = consume(mailbox)
+    return observed, consumed
+"""
+
 MASKED_TABLE_WRITE_SOURCE = """
 import agentic_circuit as ac
 
@@ -6109,6 +6183,70 @@ def invariant_module(value: Payload) -> Payload:
         self.assertIn("ac.rule.return", lowered)
         self.assertNotIn("ac.marker.obligation", lowered)
         self.assertNotIn("ac.sink", lowered)
+
+    def test_rule_slot_release_lowers_as_a_guarded_transaction_effect(self) -> None:
+        from agentic_circuit._queue_frontend import lower_queue_source
+
+        explicit = lower_queue_source(RULE_SLOT_SOURCE, "pipeline")
+        nested = lower_queue_source(NESTED_RULE_SLOT_SOURCE, "pipeline")
+        for lowered in (explicit, nested):
+            self.assertIn("ac.slot @mailbox", lowered)
+            self.assertIn("ac.slot.get @mailbox", lowered)
+            self.assertIn("ac.slot.propose_release @mailbox when", lowered)
+            self.assertNotIn("ac.slot.release @mailbox", lowered)
+        self.assertEqual(explicit, lower_queue_source(RULE_SLOT_SOURCE, "pipeline"))
+
+    def test_rule_local_slot_declaration_is_rejected(self) -> None:
+        from agentic_circuit._queue_frontend import QueueFrontendError, lower_queue_source
+
+        source = RULE_SLOT_SOURCE.replace(
+            "def consume(mailbox) -> Event:\n",
+            "def consume(mailbox) -> Event:\n    local = ac.slot(mailbox)\n",
+        )
+        with self.assertRaisesRegex(QueueFrontendError, "module/system topology"):
+            lower_queue_source(source, "pipeline")
+
+    def test_slot_may_have_read_only_rule_and_one_release_owner(self) -> None:
+        from agentic_circuit._queue_frontend import lower_queue_source
+
+        lowered = lower_queue_source(READ_ONLY_RULE_SLOT_SOURCE, "pipeline")
+        self.assertEqual(2, lowered.count("ac.rule "))
+        self.assertEqual(4, lowered.count("ac.slot.get @mailbox"))
+        self.assertEqual(1, lowered.count("ac.slot.propose_release @mailbox"))
+
+    def test_slot_rejects_multiple_rule_release_owners(self) -> None:
+        from agentic_circuit._queue_frontend import QueueFrontendError, lower_queue_source
+
+        source = READ_ONLY_RULE_SLOT_SOURCE.replace(
+            "    observed = observe(mailbox)", "    observed = consume(mailbox)"
+        )
+        with self.assertRaisesRegex(QueueFrontendError, "transactional rule owner"):
+            lower_queue_source(source, "pipeline")
+
+    def test_outputless_rule_may_release_a_slot(self) -> None:
+        from agentic_circuit._queue_frontend import lower_queue_source
+
+        source = RULE_SLOT_SOURCE.replace(
+            "def consume(mailbox) -> Event:\n"
+            "    if mailbox.valid:\n"
+            "        event = mailbox.value\n"
+            "        mailbox.release()\n"
+            "        return event\n",
+            "def consume(mailbox) -> None:\n"
+            "    if mailbox.valid:\n"
+            "        mailbox.release()\n",
+        ).replace(
+            "def pipeline(incoming: Event) -> Event:\n"
+            "    mailbox = ac.slot(incoming)\n"
+            "    outgoing = consume(mailbox)\n"
+            "    return outgoing\n",
+            "def pipeline(incoming: Event) -> None:\n"
+            "    mailbox = ac.slot(incoming)\n"
+            "    consume(mailbox)\n",
+        )
+        lowered = lower_queue_source(source, "pipeline")
+        self.assertIn("ac.rule  depths [] latencies []", lowered)
+        self.assertIn("ac.slot.propose_release @mailbox", lowered)
 
     def test_outputless_rule_cannot_be_assigned(self) -> None:
         from agentic_circuit._queue_frontend import (

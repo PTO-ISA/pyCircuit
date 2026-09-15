@@ -1,0 +1,18 @@
+/home/lc/.codex/skills/pyc6/scripts/run.sh cmake --build /home/lc/pyCircuit/.pycircuit_out/local-clang22/build --target acir-opt acir-queue-plan acir-queue-cxxgen acir-queue-pycgen GfsimTests CodeGenTests -j 24
+/home/lc/.codex/skills/pyc6/scripts/run.sh ctest --test-dir /home/lc/pyCircuit/.pycircuit_out/local-clang22/build --output-on-failure -R '^(GfsimTests|CodeGenTests|ACIROpsTests)$'
+/home/lc/.codex/skills/pyc6/scripts/run.sh lit -sv --filter='rule-slot-release-lowering|firing-field-write|firing-field-replace-order' /home/lc/pyCircuit/.pycircuit_out/local-clang22/build/compiler/acir/tests/mlir
+/home/lc/.codex/skills/pyc6/scripts/run.sh python tests/python/agentic-circuit/python_frontend/test_queue_frontend.py QueueFrontendTest.test_rule_slot_release_lowers_as_a_guarded_transaction_effect QueueFrontendTest.test_rule_local_slot_declaration_is_rejected QueueFrontendTest.test_slot_may_have_read_only_rule_and_one_release_owner QueueFrontendTest.test_slot_rejects_multiple_rule_release_owners QueueFrontendTest.test_outputless_rule_may_release_a_slot
+/home/lc/.codex/skills/pyc6/scripts/run.sh python -m unittest tests.integration.agentic-circuit.e2e.test_slot_rule_transaction -v
+/home/lc/.codex/skills/pyc6/scripts/run.sh python tools/agentic-circuit/generate-diagnostic-catalog.py --check
+/home/lc/.codex/skills/pyc6/scripts/run.sh python tools/agentic-circuit/check-ir-coverage.py
+/home/lc/.codex/skills/pyc6/scripts/run.sh python tests/python/agentic-circuit/contracts/test_ir_coverage.py IRCoverageTest.test_read_only_checker_accepts_the_repository
+/home/lc/.codex/skills/pyc6/scripts/run.sh python tests/python/agentic-circuit/contracts/test_contracts.py RepositoryContractsTest.test_diagnostic_explanation_catalog_is_closed_and_versioned
+/home/lc/.codex/skills/pyc6/scripts/run.sh python -m unittest discover -s tests/python/agentic-circuit/contracts -p 'test_*.py'
+/home/lc/.codex/skills/pyc6/scripts/run.sh python -m unittest discover -s tests/python/agentic-circuit/python_frontend -p 'test_*.py' -v
+/home/lc/.codex/skills/pyc6/scripts/run.sh cmake --build /home/lc/pyCircuit/.pycircuit_out/local-clang22/build --target check-acir -j 24
+/home/lc/.codex/skills/pyc6/scripts/run.sh python tests/integration/agentic-circuit/e2e/test_queue_codegen.py -v
+/home/lc/.codex/skills/pyc6/scripts/run.sh python -m pytest -q tests/unit/test_documentation_layout.py tests/unit/test_agentic_circuit_component.py
+/home/lc/.codex/skills/pyc6/scripts/run.sh mkdocs build --strict
+/home/lc/.codex/skills/pyc6/scripts/run.sh python flows/tools/check_decision_status.py --rfc docs/rfcs/pyc6-decisions.md --status docs/gates/decision_status_v6.md --out /tmp/issue138-decision-status.json --require-no-deferred --require-all-verified --require-concrete-evidence --require-existing-evidence
+git diff --name-only --diff-filter=ACMR origin/main | rg -v '^examples/agentic-circuit/state/reusable_circular_rob.py$' | xargs /home/lc/.codex/skills/pyc6/scripts/run.sh pre-commit run --files
+git diff --check

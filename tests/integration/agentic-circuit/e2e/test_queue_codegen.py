@@ -9,6 +9,7 @@ import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[4]
+STATE_FIXTURES = ROOT / "tests/integration/agentic-circuit/e2e/fixtures/state"
 ROUTED_DEPENDENCY_SOURCE = (
     ROOT
     / "examples/agentic-circuit"
@@ -21,7 +22,7 @@ CONDITIONAL_SOURCE = (
 REORDER_SOURCE = (
     ROOT / "examples/agentic-circuit" / "pipelines" / "pyc_reorder_pipeline.py"
 )
-RULE_ROB_SOURCE = ROOT / "examples/agentic-circuit" / "state" / "rob.py"
+RULE_ROB_SOURCE = STATE_FIXTURES / "rob.py"
 STATEFUL_RULE_SOURCE = ROOT / "examples/agentic-circuit" / "state" / "table_rule.py"
 MULTI_INPUT_RULE_SOURCE = (
     ROOT / "examples/agentic-circuit" / "pipelines" / "pyc_multi_input_rule_pipeline.py"
@@ -60,42 +61,22 @@ INFERRED_STATEFUL_MODULE_SOURCE = (
     ROOT / "examples/agentic-circuit" / "state" / "inferred_stateful_module.py"
 )
 INFERRED_MULTI_STATE_MODULE_SOURCE = (
-    ROOT / "examples/agentic-circuit" / "state" / "inferred_multi_state_module.py"
+    STATE_FIXTURES / "inferred_multi_state_module.py"
 )
 STATEFUL_MULTI_INPUT_RULE_SOURCE = (
-    ROOT / "examples/agentic-circuit" / "state" / "table_multi_input_rule.py"
+    STATE_FIXTURES / "table_multi_input_rule.py"
 )
-VARIABLE_ACCUMULATOR_SOURCE = (
-    ROOT / "examples/agentic-circuit" / "state" / "variable_accumulator.py"
-)
-BRANCH_LOCAL_STATE_SOURCE = (
-    ROOT / "examples/agentic-circuit" / "state" / "branch_local_state.py"
-)
-BRANCH_JOIN_STATE_SOURCE = (
-    ROOT / "examples/agentic-circuit" / "state" / "branch_join_state.py"
-)
-INDEXED_BRANCH_JOIN_SOURCE = (
-    ROOT / "examples/agentic-circuit" / "state" / "indexed_branch_join.py"
-)
-OPTIONAL_OUTPUT_STATE_SOURCE = (
-    ROOT / "examples/agentic-circuit" / "state" / "optional_output_state.py"
-)
-INDEXED_VARIABLE_ARRAY_SOURCE = (
-    ROOT / "examples/agentic-circuit" / "state" / "indexed_variable_array.py"
-)
-SHARED_INDEXED_RULES_SOURCE = (
-    ROOT / "examples/agentic-circuit" / "state" / "shared_indexed_rules.py"
-)
-CONSUME_ONLY_COMPLETION_SOURCE = (
-    ROOT / "examples/agentic-circuit" / "state" / "consume_only_completion.py"
-)
-STATE_DRIVEN_RETIRE_SOURCE = (
-    ROOT / "examples/agentic-circuit" / "state" / "state_driven_retire.py"
-)
-MULTI_STATE_ALLOCATE_SOURCE = (
-    ROOT / "examples/agentic-circuit" / "state" / "multi_state_allocate.py"
-)
-CIRCULAR_ROB_SOURCE = ROOT / "examples/agentic-circuit" / "state" / "circular_rob.py"
+VARIABLE_ACCUMULATOR_SOURCE = STATE_FIXTURES / "variable_accumulator.py"
+BRANCH_LOCAL_STATE_SOURCE = STATE_FIXTURES / "branch_local_state.py"
+BRANCH_JOIN_STATE_SOURCE = STATE_FIXTURES / "branch_join_state.py"
+INDEXED_BRANCH_JOIN_SOURCE = STATE_FIXTURES / "indexed_branch_join.py"
+OPTIONAL_OUTPUT_STATE_SOURCE = STATE_FIXTURES / "optional_output_state.py"
+INDEXED_VARIABLE_ARRAY_SOURCE = STATE_FIXTURES / "indexed_variable_array.py"
+SHARED_INDEXED_RULES_SOURCE = STATE_FIXTURES / "shared_indexed_rules.py"
+CONSUME_ONLY_COMPLETION_SOURCE = STATE_FIXTURES / "consume_only_completion.py"
+STATE_DRIVEN_RETIRE_SOURCE = STATE_FIXTURES / "state_driven_retire.py"
+MULTI_STATE_ALLOCATE_SOURCE = STATE_FIXTURES / "multi_state_allocate.py"
+CIRCULAR_ROB_SOURCE = STATE_FIXTURES / "circular_rob.py"
 REUSABLE_CIRCULAR_ROB_SOURCE = (
     ROOT / "examples/agentic-circuit" / "state" / "reusable_circular_rob.py"
 )

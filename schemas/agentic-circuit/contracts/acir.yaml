@@ -135,6 +135,7 @@ operations:
   - ac.slot
   - ac.slot.get
   - ac.slot.release
+  - ac.slot.propose_release
   - ac.slot.yield
   - ac.reorder
   - ac.reorder.yield
