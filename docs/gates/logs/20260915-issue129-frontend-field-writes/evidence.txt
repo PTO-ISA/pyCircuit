@@ -1,0 +1,21 @@
+=== A. explicit ac.table, with_fields form (issue #129 motivating case) ===
+ac.table.propose @entries [%v0] = %v4 mode "field" write_fields ["admitted"] : !ac.var<i2>, !ac.var<!ac.struct<@types::@Entry>>
+ac.table.propose @entries [%v0] = %v4 mode "field" write_fields ["src_ready"] : !ac.var<i2>, !ac.var<!ac.struct<@types::@Entry>>
+
+--- freeze -> plan -> pycgen ---
+freeze: OK
+plan write_fields: []
+cxxgen FieldMerge count: 2
+pycgen: OK
+
+=== B. indexed persistent list[Struct], direct field spelling ===
+ac.var.assign_element @entries[%v0] = %v3 : !ac.var<i2>, !ac.var<!ac.struct<@types::@Entry>>
+ac.var.assign_element @entries[%v0] = %v3 : !ac.var<i2>, !ac.var<!ac.struct<@types::@Entry>>
+ac.table.propose @entries[%5] = %7 when %4 : !ac.var<i1> mode "field" write_fields ["admitted"] : !ac.var<i2>, !ac.var<!ac.struct<@types::@Entry>>
+ac.table.propose @entries[%5] = %7 when %4 : !ac.var<i1> mode "field" write_fields ["src_ready"] : !ac.var<i2>, !ac.var<!ac.struct<@types::@Entry>>
+plan: OK
+cxxgen FieldMerge count: 2
+pycgen: OK
+
+=== C. ac.table direct field spelling (mixed form: recorded read + direct write) ===
+ac.table.propose @entries [%v0] = %v4 mode "field" write_fields ["admitted"] : !ac.var<i2>, !ac.var<!ac.struct<@types::@Entry>>

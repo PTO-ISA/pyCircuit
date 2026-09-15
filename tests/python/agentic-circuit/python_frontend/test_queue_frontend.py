@@ -1850,6 +1850,97 @@ def optional_output(event: Event) -> Event:
     return filtered
 """
 
+FIELD_WRITE_SOURCE = """
+import agentic_circuit as ac
+
+@ac.struct
+class Entry:
+    admitted: ac.u1
+    src_ready: ac.u1
+    tag: ac.u4
+
+@ac.struct
+class Update:
+    index: ac.u2
+    other: ac.u2
+
+@ac.rule
+def admit(entries, update):
+    old = entries[update.index]
+    entries[update.index] = old.with_fields(admitted=True)
+    return old
+
+@ac.system
+def field_write() -> None:
+    entries = ac.table[4, Entry](init=0)
+    updates = ac.source(Update, depth=2)
+    outgoing = admit(entries, updates)
+    ac.sink(outgoing)
+"""
+
+TWO_RULE_FIELD_WRITE_SOURCE = """
+import agentic_circuit as ac
+
+@ac.struct
+class Entry:
+    admitted: ac.u1
+    src_ready: ac.u1
+    tag: ac.u4
+
+@ac.struct
+class Update:
+    index: ac.u2
+
+@ac.rule
+def admit(entries, update):
+    old = entries[update.index]
+    entries[update.index] = old.with_fields(admitted=True)
+    return old
+
+@ac.rule
+def wake(entries, update):
+    old = entries[update.index]
+    entries[update.index] = old.with_fields(src_ready=True)
+    return old
+
+@ac.system
+def field_merge() -> None:
+    entries = ac.table[4, Entry](init=0)
+    updates = ac.source(Update, depth=2)
+    first = admit(entries, updates)
+    second = wake(entries, updates)
+    ac.sink(first)
+    ac.sink(second)
+"""
+
+UNPROVEN_FIELD_WRITE_SOURCE = """
+import agentic_circuit as ac
+
+@ac.struct
+class Entry:
+    admitted: ac.u1
+    src_ready: ac.u1
+    tag: ac.u4
+
+@ac.struct
+class Update:
+    index: ac.u2
+
+@ac.rule
+def admit(entries, update, incoming):
+    old = entries[update.index]
+    entries[update.index] = incoming.with_fields(admitted=True)
+    return old
+
+@ac.system
+def unproven_field_write() -> None:
+    entries = ac.table[4, Entry](init=0)
+    updates = ac.source(Update, depth=2)
+    incoming = ac.source(Entry, depth=2)
+    outgoing = admit(entries, updates, incoming)
+    ac.sink(outgoing)
+"""
+
 STATEFUL_RULE_SOURCE = """
 import agentic_circuit as ac
 
@@ -8137,6 +8228,122 @@ def two_accumulators(left: ac.u8, right: ac.u8) -> tuple[ac.u8, ac.u8]:
         )
         reused_lowered = lower_queue_source(reused, "table_rule")
         self.assertEqual(1, reused_lowered.count("ac.table.get @rob"))
+
+    def test_proven_same_index_with_fields_lowers_to_a_field_write(self) -> None:
+        from agentic_circuit._queue_frontend import lower_queue_source
+
+        lowered = lower_queue_source(FIELD_WRITE_SOURCE, "field_write")
+        self.assertIn('mode "field" write_fields ["admitted"]', lowered)
+        self.assertNotIn('mode "replace"', lowered)
+
+    def test_unproven_with_fields_stays_a_complete_replacement(self) -> None:
+        from agentic_circuit._queue_frontend import lower_queue_source
+
+        # Same call shape, but the root is an unrelated input rather than the
+        # recorded read. Copying only the named field would leave the other
+        # fields at their committed value instead of the input's, so "proven"
+        # recognition must reject it and keep the complete replacement.
+        lowered = lower_queue_source(UNPROVEN_FIELD_WRITE_SOURCE, "unproven_field_write")
+        self.assertIn(
+            'mode "replace" write_fields ["admitted", "src_ready", "tag"]',
+            lowered,
+        )
+        self.assertNotIn('mode "field"', lowered)
+
+    def test_field_write_requires_the_recorded_read_index(self) -> None:
+        from agentic_circuit._queue_frontend import lower_queue_source
+
+        # The write targets a different index than the recorded read, so the
+        # assignment is not equivalent to a field write on that entry.
+        source = FIELD_WRITE_SOURCE.replace(
+            "entries[update.index] = old.with_fields(admitted=True)",
+            "entries[update.other] = old.with_fields(admitted=True)",
+        )
+        lowered = lower_queue_source(source, "field_write")
+        self.assertIn('mode "replace"', lowered)
+        self.assertNotIn('mode "field"', lowered)
+
+    def test_two_rules_may_write_disjoint_fields_of_one_entry(self) -> None:
+        from agentic_circuit._queue_frontend import lower_queue_source
+
+        # The motivating case: independent behaviours update different fields
+        # of one logical entry. Both proposals must narrow to field writes so
+        # the disjointness proof can accept them.
+        lowered = lower_queue_source(TWO_RULE_FIELD_WRITE_SOURCE, "field_merge")
+        self.assertIn('mode "field" write_fields ["admitted"]', lowered)
+        self.assertIn('mode "field" write_fields ["src_ready"]', lowered)
+        self.assertNotIn('mode "replace"', lowered)
+
+    def test_direct_field_assignment_on_table_matches_explicit_form(self) -> None:
+        from agentic_circuit._queue_frontend import lower_queue_source
+
+        # The direct spelling `entries[i].field = value` is the same field
+        # write as the explicit `with_fields` form: the normalization binds the
+        # index once, reuses the recorded read, and narrows identically.
+        direct = FIELD_WRITE_SOURCE.replace(
+            "    old = entries[update.index]\n"
+            "    entries[update.index] = old.with_fields(admitted=True)\n",
+            "    old = entries[update.index]\n"
+            "    entries[update.index].admitted = True\n",
+        )
+        self.assertNotEqual(direct, FIELD_WRITE_SOURCE)
+        lowered_direct = lower_queue_source(direct, "field_write")
+        lowered_explicit = lower_queue_source(FIELD_WRITE_SOURCE, "field_write")
+        self.assertIn('mode "field" write_fields ["admitted"]', lowered_direct)
+        self.assertEqual(
+            lowered_explicit.replace("__ac_field_read_0", "old")
+            if "__ac_field_read_0" in lowered_explicit
+            else lowered_explicit,
+            lowered_direct.replace("__ac_field_read_0", "old")
+            if "__ac_field_read_0" in lowered_direct
+            else lowered_direct,
+        )
+
+    def test_direct_field_assignment_on_table_without_recorded_read(self) -> None:
+        from agentic_circuit._queue_frontend import (
+            QueueFrontendError,
+            lower_queue_source,
+        )
+
+        # A rule result must preserve the Table Entry payload, which requires
+        # the recorded read; without one the direct spelling fails closed on an
+        # explicit ac.table owner instead of silently degrading.
+        source = FIELD_WRITE_SOURCE.replace(
+            "    old = entries[update.index]\n"
+            "    entries[update.index] = old.with_fields(admitted=True)\n"
+            "    return old\n",
+            "    entries[update.index].admitted = True\n"
+            "    return Entry(admitted=True, src_ready=False, tag=0)\n",
+        )
+        with self.assertRaisesRegex(QueueFrontendError, "ACPY-RULE-008"):
+            lower_queue_source(source, "field_write")
+
+    def test_direct_field_assignment_matches_explicit_with_complex_index(self) -> None:
+        from agentic_circuit._queue_frontend import lower_queue_source
+
+        # A complex index is bound once by the normalization and reused by the
+        # committed read and the proposal; the direct spelling lowers
+        # identically to the explicit recorded-read spelling (which emits one
+        # pure index expression per use and lets canonicalize/cse fold them).
+        direct = FIELD_WRITE_SOURCE.replace(
+            "    old = entries[update.index]\n"
+            "    entries[update.index] = old.with_fields(admitted=True)\n",
+            "    old = entries[update.index + update.other]\n"
+            "    entries[update.index + update.other].admitted = True\n",
+        )
+        explicit = FIELD_WRITE_SOURCE.replace(
+            "    old = entries[update.index]\n"
+            "    entries[update.index] = old.with_fields(admitted=True)\n",
+            "    old = entries[update.index + update.other]\n"
+            "    entries[update.index + update.other] = "
+            "old.with_fields(admitted=True)\n",
+        )
+        self.assertEqual(
+            lower_queue_source(explicit, "field_write"),
+            lower_queue_source(direct, "field_write").replace(
+                "__ac_field_read_0", "old"
+            ),
+        )
 
     def test_stateful_multi_input_rule_emits_one_atomic_firing_intent(self) -> None:
         from agentic_circuit._queue_frontend import lower_queue_source

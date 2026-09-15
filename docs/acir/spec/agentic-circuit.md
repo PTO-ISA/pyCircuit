@@ -1173,7 +1173,14 @@ effects retain independent scans.
 `ac.table.masked_write`; there is no `ac.table.patch` operation. Both Frozen
 write operations carry required, normalized, non-empty `write_fields` and a
 required `mode`. Ordinary writes use `mode "field"`; scalar allocation uses
-`mode "replace"`; masked writes accept only `field`.
+`mode "replace"`; masked writes accept only `field`. An indexed `@ac.rule`
+write uses `mode "field"` when the assigned value is provably the recorded read
+of that same target updated by `with_fields(...)` over declared top-level
+fields, and `mode "replace"` otherwise, so independent rules may update
+disjoint fields of one Entry in one tick. The direct spelling
+`entries[i].field = value` reaches the same recognition through the field
+assignment normalization, on an explicit `ac.table` and on an indexed
+persistent `list[Struct]` alike.
 Struct full writes list every declared field; scalar Entries use `$entry`.
 
 `read_fields` and `write_fields` are **sets, not sequences**, and must be
