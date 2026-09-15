@@ -4,6 +4,7 @@
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/SymbolTable.h"
 #include "llvm/ADT/StringExtras.h"
+#include "llvm/ADT/StringSet.h"
 #include "llvm/Support/SHA256.h"
 #include "llvm/Support/raw_ostream.h"
 
@@ -104,6 +105,34 @@ void replaceYield(Operation *yield, StringRef operationName) {
   state.addAttributes(yield->getAttrs());
   builder.create(state);
   yield->erase();
+}
+
+// Return the updated field set when an element assignment is rooted at a read
+// of the same module-local Table representation and the exact same SSA index.
+// Shaped persistent variables are the storage-selection form of explicit
+// module-local Tables under Decision 0263; ordinary Python lists never reach
+// this pass as persistent owners.
+FailureOr<SmallVector<StringRef>>
+provenFieldWriteFields(ac::VarAssignElementOp assignment) {
+  SmallVector<StringRef> fields;
+  llvm::StringSet<> seen;
+  mlir::Value current = assignment.getValue();
+  while (auto with = current.getDefiningOp<ac::VarWithOp>()) {
+    if (seen.insert(with.getField()).second)
+      fields.push_back(with.getField());
+    current = with.getRecord();
+  }
+  if (fields.empty())
+    return failure();
+  if (auto read = current.getDefiningOp<ac::VarReadElementOp>())
+    if (read.getVariableAttr() == assignment.getVariableAttr() &&
+        read.getIndex() == assignment.getIndex())
+      return fields;
+  if (auto get = current.getDefiningOp<ac::TableGetOp>())
+    if (get.getTableAttr() == assignment.getVariableAttr() &&
+        get.getIndex() == assignment.getIndex())
+      return fields;
+  return failure();
 }
 
 LogicalResult lowerVariableState(ModuleOp model) {
@@ -269,18 +298,36 @@ LogicalResult lowerVariableState(ModuleOp model) {
         resolveVariable(assignment, assignment.getVariableAttr());
     if (!variable)
       return assignment.emitOpError("persistent ac.var declaration is missing");
-    FailureOr<ArrayAttr> writeFields = completeWriteFields(builder, variable);
-    if (failed(writeFields))
+    FailureOr<ArrayAttr> completeFields = completeWriteFields(builder, variable);
+    if (failed(completeFields))
       return assignment.emitOpError(
           "persistent struct field schema is unresolved");
+    StringRef mode = "replace";
+    ArrayAttr writeFields = *completeFields;
+    if (FailureOr<SmallVector<StringRef>> proven =
+            provenFieldWriteFields(assignment);
+        succeeded(proven)) {
+      llvm::StringSet<> provenSet;
+      provenSet.insert(proven->begin(), proven->end());
+      SmallVector<StringRef> ordered;
+      for (Attribute field : *completeFields) {
+        StringRef name = cast<StringAttr>(field).getValue();
+        if (provenSet.contains(name))
+          ordered.push_back(name);
+      }
+      if (!ordered.empty()) {
+        mode = "field";
+        writeFields = builder.getStrArrayAttr(ordered);
+      }
+    }
     OperationState state(assignment.getLoc(),
                          ac::TableProposeOp::getOperationName());
     state.addOperands({assignment.getIndex(), assignment.getValue()});
     if (assignment.getWhen())
       state.addOperands(assignment.getWhen());
     state.addAttribute("table", assignment.getVariableAttr());
-    state.addAttribute("mode", builder.getStringAttr("replace"));
-    state.addAttribute("write_fields", *writeFields);
+    state.addAttribute("mode", builder.getStringAttr(mode));
+    state.addAttribute("write_fields", writeFields);
     if (Attribute arbitration = assignment->getAttr("ac.arbitration"))
       state.addAttribute("ac.arbitration", arbitration);
     builder.create(state);
