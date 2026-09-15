@@ -2239,6 +2239,34 @@ def pipeline(incoming: Event) -> Event:
     return outgoing
 """
 
+RULE_SLOT_STATE_INPUT_SOURCE = """
+import agentic_circuit as ac
+
+@ac.struct
+class Event:
+    value: ac.u8
+
+@ac.struct
+class Request:
+    increment: ac.u8
+
+@ac.rule
+def apply(count, mailbox, request) -> Event:
+    if mailbox.valid:
+        event = mailbox.value
+        next_count = count + request.increment
+        count = next_count
+        mailbox.release()
+        return event.with_fields(value=event.value + next_count)
+
+@ac.system
+def pipeline(incoming: Event, request: Request) -> Event:
+    count: ac.u8 = 0
+    mailbox = ac.slot(incoming)
+    outgoing = apply(count, mailbox, request)
+    return outgoing
+"""
+
 NESTED_RULE_SLOT_SOURCE = """
 import agentic_circuit as ac
 
@@ -6196,6 +6224,29 @@ def invariant_module(value: Payload) -> Payload:
             self.assertNotIn("ac.slot.release @mailbox", lowered)
         self.assertEqual(explicit, lower_queue_source(RULE_SLOT_SOURCE, "pipeline"))
 
+    def test_rule_slot_guards_queue_state_output_and_release_together(self) -> None:
+        from agentic_circuit._queue_frontend import lower_queue_source
+
+        lowered = lower_queue_source(RULE_SLOT_STATE_INPUT_SOURCE, "pipeline")
+        condition = re.search(r"ac\.rule\.condition %(\w+)", lowered)
+        self.assertIsNotNone(condition)
+        assert condition is not None
+        guard = condition.group(1)
+        self.assertIn("ac.rule %request", lowered)
+        self.assertRegex(
+            lowered,
+            rf"ac\.var\.assign @count = %\w+ when %{guard}",
+        )
+        self.assertIn(f"ac.slot.propose_release @mailbox when %{guard}", lowered)
+        self.assertRegex(
+            lowered,
+            rf"ac\.rule\.output %\w+ when %{guard} ordinal 0",
+        )
+        self.assertEqual(
+            lowered,
+            lower_queue_source(RULE_SLOT_STATE_INPUT_SOURCE, "pipeline"),
+        )
+
     def test_rule_local_slot_declaration_is_rejected(self) -> None:
         from agentic_circuit._queue_frontend import QueueFrontendError, lower_queue_source
 
@@ -6222,6 +6273,72 @@ def invariant_module(value: Payload) -> Payload:
         )
         with self.assertRaisesRegex(QueueFrontendError, "transactional rule owner"):
             lower_queue_source(source, "pipeline")
+
+    def test_rule_slot_rejects_alias_scope_and_non_slot_bindings(self) -> None:
+        from agentic_circuit._queue_frontend import (
+            QueueFrontendError,
+            lower_queue_source,
+        )
+
+        two_slots = """
+import agentic_circuit as ac
+
+@ac.struct
+class Event:
+    value: ac.u8
+
+@ac.rule
+def release_both(left, right) -> None:
+    if left.valid:
+        left.release()
+    if right.valid:
+        right.release()
+
+@ac.system
+def pipeline(left_input: Event, right_input: Event) -> None:
+    left = ac.slot(left_input)
+    right = ac.slot(right_input)
+    release_both(left, right)
+"""
+        lowered = lower_queue_source(two_slots, "pipeline")
+        self.assertEqual(2, lowered.count("ac.slot.propose_release"))
+
+        one_slot = two_slots.replace(
+            "def pipeline(left_input: Event, right_input: Event) -> None:\n"
+            "    left = ac.slot(left_input)\n"
+            "    right = ac.slot(right_input)\n"
+            "    release_both(left, right)\n",
+            "def pipeline(incoming: Event) -> None:\n"
+            "    mailbox = ac.slot(incoming)\n"
+            "    release_both(mailbox, mailbox)\n",
+        )
+        with self.assertRaisesRegex(
+            QueueFrontendError,
+            "ACPY-SLOT-004: one rule cannot alias the same slot",
+        ):
+            lower_queue_source(one_slot, "pipeline")
+
+        non_slot = one_slot.replace(
+            "release_both(mailbox, mailbox)", "release_both(mailbox, incoming)"
+        )
+        with self.assertRaisesRegex(
+            QueueFrontendError,
+            "ACPY-SLOT-004: rule slot parameter must bind a visible ac.slot",
+        ):
+            lower_queue_source(non_slot, "pipeline")
+
+        unrelated_scope = RULE_SLOT_SOURCE.replace(
+            "    mailbox = ac.slot(incoming)\n" "    outgoing = consume(mailbox)\n",
+            '    with ac.scope("owner"):\n'
+            "        mailbox = ac.slot(incoming)\n"
+            '    with ac.scope("consumer"):\n'
+            "        outgoing = consume(mailbox)\n",
+        )
+        with self.assertRaisesRegex(
+            QueueFrontendError,
+            "ACPY-SLOT-004: rule slot parameter crosses an unrelated topology scope",
+        ):
+            lower_queue_source(unrelated_scope, "pipeline")
 
     def test_outputless_rule_may_release_a_slot(self) -> None:
         from agentic_circuit._queue_frontend import lower_queue_source

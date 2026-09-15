@@ -645,6 +645,41 @@ struct UpdateTableAndReleaseSlot {
   }
 };
 
+struct ObserveSlotToOutput {
+  SlotState<uint16_t> *slot = nullptr;
+  using Plan = StateTransitionPlan<std::tuple<>, std::tuple<uint16_t>>;
+
+  std::optional<Plan> operator()(Epoch, std::tuple<>) const {
+    if (!slot->valid)
+      return std::nullopt;
+    Plan plan;
+    std::get<0>(plan.outputs) = slot->value;
+    return plan;
+  }
+};
+
+struct ConsumeInputUpdateTableReleaseSlotToTwoOutputs {
+  SlotState<uint16_t> *slot = nullptr;
+  using Plan =
+      StateTransitionPlan<std::tuple<uint8_t>, std::tuple<uint16_t, uint16_t>>;
+
+  std::optional<Plan> operator()(Epoch,
+                                 std::tuple<const SimTable<uint8_t> *> tables,
+                                 const uint8_t &increment) const {
+    if (!slot->valid)
+      return std::nullopt;
+    Plan plan;
+    std::get<0>(plan.writes)
+        .emplace_back(
+            0, static_cast<uint8_t>(std::get<0>(tables)->at(0) + increment));
+    std::get<0>(plan.outputs) = slot->value;
+    std::get<1>(plan.outputs) = static_cast<uint16_t>(slot->value + increment);
+    std::get<0>(plan.reservations) = StateReservation::all();
+    plan.slotReleases = {true};
+    return plan;
+  }
+};
+
 TEST(QueueBlocksTest, HighLevelProvidersFreezeStructuralTemplateParameters) {
   using Schedule4 =
       Schedule<DependencyValue, 16, 4, 255, DependencyKey,
@@ -2532,6 +2567,111 @@ TEST(QueueBlocksTest, SlotReleaseCancelsWithConflictingTableTransaction) {
   EXPECT_EQ(table.at(0), 1);
   ASSERT_NE(output.peek(), nullptr);
   EXPECT_EQ(*output.peek(), 9);
+}
+
+TEST(QueueBlocksTest,
+     SlotReleaseCommitsInputTwoOutputsAndTableAsOneTransaction) {
+  SimTable<uint8_t> table("table", 1, nullptr, 1);
+  SimQueue<uint8_t> request("request", 2, nullptr, 1);
+  SimQueue<uint16_t> leftOutput("left", 3, nullptr, 1);
+  SimQueue<uint16_t> rightOutput("right", 4, nullptr, 1);
+  SimQueue<uint16_t> captureInput("capture", 5, nullptr, 1);
+  SlotState<uint16_t> state{true, 9};
+  bool standaloneRelease = false;
+  QueueSlot<uint16_t, SlotReleaseFlag> slot("slot", 6, nullptr, captureInput,
+                                            state, {&standaloneRelease});
+  using Merge = TableFullEntryMerge<uint8_t>;
+  QueueStateTransition<ConsumeInputUpdateTableReleaseSlotToTwoOutputs,
+                       std::tuple<uint8_t>, std::tuple<uint8_t>,
+                       std::tuple<uint16_t, uint16_t>, std::tuple<Merge>>
+      transition("release", 7, nullptr, {&table}, {&request},
+                 {&leftOutput, &rightOutput}, {TableWriteMode::Replace},
+                 {&state}, {}, nullptr, {&state});
+
+  ASSERT_TRUE(request.proposePush(3));
+  request.doXfer({0, 0});
+  ASSERT_TRUE(rightOutput.proposePush(99));
+  rightOutput.doXfer({0, 0});
+
+  transition.doWork({1, 0});
+  transition.doArbitrate({1, 0});
+  EXPECT_FALSE(transition.hasPendingCommit());
+  EXPECT_EQ(request.committedSize(), 1u);
+  EXPECT_TRUE(leftOutput.isEmpty());
+  ASSERT_NE(rightOutput.peek(), nullptr);
+  EXPECT_EQ(*rightOutput.peek(), 99);
+  EXPECT_EQ(table.at(0), 0);
+  EXPECT_TRUE(state.valid);
+  EXPECT_EQ(state.value, 9);
+  EXPECT_FALSE(state.preparedRelease.has_value());
+  EXPECT_FALSE(state.pendingRelease);
+
+  ASSERT_TRUE(rightOutput.proposePop());
+  rightOutput.doXfer({1, 0});
+  transition.doWork({2, 0});
+  transition.doArbitrate({2, 0});
+  ASSERT_TRUE(transition.hasPendingCommit());
+  EXPECT_EQ(request.committedSize(), 1u);
+  EXPECT_TRUE(leftOutput.isEmpty());
+  EXPECT_TRUE(rightOutput.isEmpty());
+  EXPECT_EQ(table.at(0), 0);
+  EXPECT_TRUE(state.valid);
+  EXPECT_TRUE(state.pendingRelease);
+
+  request.doXfer({2, 0});
+  leftOutput.doXfer({2, 0});
+  rightOutput.doXfer({2, 0});
+  table.doXfer({2, 0});
+  slot.doXfer({2, 0});
+  transition.doXfer({2, 0});
+
+  EXPECT_TRUE(request.isEmpty());
+  EXPECT_EQ(table.at(0), 3);
+  EXPECT_FALSE(state.valid);
+  EXPECT_EQ(state.value, 9);
+  ASSERT_NE(leftOutput.peek(), nullptr);
+  ASSERT_NE(rightOutput.peek(), nullptr);
+  EXPECT_EQ(*leftOutput.peek(), 9);
+  EXPECT_EQ(*rightOutput.peek(), 12);
+}
+
+TEST(QueueBlocksTest,
+     ReadOnlyAndReleasingSlotTransitionsObserveTheSameCommittedSnapshot) {
+  SimQueue<uint16_t> captureInput("capture", 1, nullptr, 1);
+  SimQueue<uint16_t> observedOutput("observed", 2, nullptr, 1);
+  SimQueue<uint16_t> consumedOutput("consumed", 3, nullptr, 1);
+  SlotState<uint16_t> state{true, 7};
+  bool standaloneRelease = false;
+  QueueSlot<uint16_t, SlotReleaseFlag> slot("slot", 4, nullptr, captureInput,
+                                            state, {&standaloneRelease});
+  QueueStateTransition<ObserveSlotToOutput, std::tuple<>, std::tuple<>,
+                       std::tuple<uint16_t>, std::tuple<>>
+      observe("observe", 5, nullptr, {}, {}, {&observedOutput}, {}, {&state});
+  QueueStateTransition<ReleaseSlotToOutput, std::tuple<>, std::tuple<>,
+                       std::tuple<uint16_t>, std::tuple<>>
+      consume("consume", 6, nullptr, {}, {}, {&consumedOutput}, {}, {&state},
+              {}, nullptr, {&state});
+
+  observe.doWork({1, 0});
+  consume.doWork({1, 0});
+  consume.doArbitrate({1, 0});
+  observe.doArbitrate({1, 0});
+  ASSERT_TRUE(consume.hasPendingCommit());
+  ASSERT_TRUE(observe.hasPendingCommit());
+  EXPECT_TRUE(state.valid);
+  EXPECT_TRUE(state.pendingRelease);
+
+  observedOutput.doXfer({1, 0});
+  consumedOutput.doXfer({1, 0});
+  slot.doXfer({1, 0});
+  observe.doXfer({1, 0});
+  consume.doXfer({1, 0});
+
+  EXPECT_FALSE(state.valid);
+  ASSERT_NE(observedOutput.peek(), nullptr);
+  ASSERT_NE(consumedOutput.peek(), nullptr);
+  EXPECT_EQ(*observedOutput.peek(), 7);
+  EXPECT_EQ(*consumedOutput.peek(), 7);
 }
 
 struct SharedMemoryAddress {

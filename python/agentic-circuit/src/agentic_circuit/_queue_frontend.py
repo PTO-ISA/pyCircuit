@@ -4703,7 +4703,7 @@ def parse_queue_program(
             and not multi_body[-1].orelse
             and multi_return is None
             and not (
-                slot_parameter_names == set(parameter_names)
+                slot_parameter_names
                 and any(
                     isinstance(candidate, ast.Return)
                     and not _is_none_return(candidate)
@@ -4914,6 +4914,12 @@ def parse_queue_program(
                 if len(present_terms) == 1
                 else ast.BoolOp(op=ast.And(), values=present_terms)
             )
+        if (
+            slot_releases
+            and multi_guard is None
+            and multi_output_guard is not None
+        ):
+            multi_guard = copy.deepcopy(multi_output_guard)
         state_reads: list[RuleStateReadDefinition] = []
         state_writes: list[RuleStateWriteDefinition] = []
         rule_locals: list[RuleLocalDefinition] = []
@@ -5322,7 +5328,12 @@ def parse_queue_program(
                     "ACPY-RULE-011: branch-local value escapes its defining path"
                 )
         if rewritten_multi_guard is not None and any(
-            write.guard is not None for write in state_writes
+            write.guard is not None
+            and not (
+                guard_literals(rewritten_multi_guard, False)
+                <= guard_literals(write.guard, write.guard_negated)
+            )
+            for write in state_writes
         ):
             raise QueueFrontendError(
                 "ACPY-RULE-011: nested conditional state effects inside a "
@@ -15657,7 +15668,7 @@ def lower_queue_program(
                 emitter.lines.append(
                     f"    %{condition_result} = ac.var.constant true as !ac.var<i1>"
                 )
-            elif (
+            elif condition_result is None and (
                 output_guard_result is not None
                 or any(write.guard is not None for write in queue.rule_state_writes)
                 or multi_output_guard_results
