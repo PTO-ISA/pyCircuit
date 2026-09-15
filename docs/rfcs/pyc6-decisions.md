@@ -3731,6 +3731,11 @@ unrelated allocation priority, firing, or cross-object transaction semantics.
 - gfsim identifies pending proposals by stable writer object ID. Cancellation
   removes only that endpoint's proposal and cannot discard another writer's
   proposal.
+- A complete-entry allocation and field writes on one owner coexist without
+  arbitration only as one owner-local declarative batch, where the batch fixes
+  their relative order. A field proposal raised by another rule is not ordered
+  against that allocation, so a declarative allocation paired with a rule field
+  write on the same Entry still requires explicit priority.
 - The disjointness proof scales with the reachable SSA graph, not with stack
   depth. In both the analysis and the QueueGraph codegen paths, structural
   identity interning and conjunct collection over pure, regionless expressions
@@ -3758,6 +3763,9 @@ unrelated allocation priority, firing, or cross-object transaction semantics.
 - A 20000-level shared pure chain completes the mutual-exclusion proof on the
   default thread stack; the previous recursive implementation crashes on the
   same input.
+- Two rules writing disjoint fields of one Entry are accepted, while a
+  declarative allocation plus a rule field write on the same Entry is rejected
+  with the writer-overlap diagnostic.
 
 **Source**
 - Agentic Circuit field-level multi-writer Table direction (2026-09-03).
@@ -8539,6 +8547,15 @@ couple authoring to a particular runtime protocol.
   alias, implicit local-copy writeback, Queue-token mutation, or new scheduling
   boundary. Nested or sliced targets, augmented assignment, and invalid field,
   type, or index contracts fail closed before transaction lowering.
+- An indexed persistent target narrows to a field-level proposal exactly when
+  the assigned value is provably the recorded read of that same target updated
+  by `with_fields(...)`, and the proposal index is the recorded read index. The
+  proposal then carries `mode "field"` and the canonical declaration-ordered
+  field set, so independent rules may update disjoint fields of one entry in
+  one tick without split banks. Any other producer, a different index, a
+  non-declared field, or positional and unpacked keywords keeps the
+  complete-entry replacement. Recognition is syntactic and fail-closed: an
+  unproven value is never downgraded to a field write.
 - The compiler lowers ordinary rule CFG internally to transition and branch
   ownership metadata and then to marker-free `ac.firing`. Each firing owns its
   complete selected Queue, Table, Reg, and Slot effect set.
@@ -8567,6 +8584,11 @@ couple authoring to a particular runtime protocol.
 - Frontend tests prove that field-assignment shorthand matches explicit
   immutable updates in raw ACIR, preserves serial SSA ordering, evaluates an
   indexed target once, and retains the existing field/type/index diagnostics.
+- Frontend tests prove that a proven same-index `with_fields` write narrows to
+  `mode "field"` with the exact canonical field set, that an input-rooted
+  `with_fields` and a mismatched index stay complete replacements, and that two
+  rules writing disjoint fields of one entry both lower and pass
+  `ac-lower-rules`.
 - Direct and native gfsim agree for no-fire, full-fire, selected-branch stall,
   conflict, reset, and output-backpressure cases with no partial commit.
 

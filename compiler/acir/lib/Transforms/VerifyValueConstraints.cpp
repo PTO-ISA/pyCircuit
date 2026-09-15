@@ -305,8 +305,24 @@ static LogicalResult verifyWriterArbitration(
                                   left.mode == "replace";
       const bool rightAllocation = isa<ac::TableWriteOp>(right.operation) &&
                                    right.mode == "replace";
-      if ((leftAllocation && right.mode == "field") ||
-          (rightAllocation && left.mode == "field"))
+      // One owner-local declarative batch may pair an allocation with field
+      // writers because Decision 0156 fixes their order: commit applies every
+      // field writer to the next image first, then applies the replace writer.
+      // Both declarative field writers qualify (`ac.table.write` in field mode
+      // and `ac.table.masked_write`, which is always field mode). A field
+      // proposal raised by a rule is not ordered against that allocation, so it
+      // must keep competing for arbitration instead of inheriting the
+      // exemption.
+      const bool leftDeclarativeField =
+          (isa<ac::TableWriteOp>(left.operation) ||
+           isa<ac::TableMaskedWriteOp>(left.operation)) &&
+          left.mode == "field";
+      const bool rightDeclarativeField =
+          (isa<ac::TableWriteOp>(right.operation) ||
+           isa<ac::TableMaskedWriteOp>(right.operation)) &&
+          right.mode == "field";
+      if ((leftAllocation && rightDeclarativeField) ||
+          (rightAllocation && leftDeclarativeField))
         continue;
       if (left.scope == right.scope)
         return right.operation->emitOpError(
