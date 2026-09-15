@@ -1770,7 +1770,10 @@ standard Python enum values, structural tuple construction, fixed value-array
 construction, constant aggregate indexing, and bounded dynamic reads from
 fixed value arrays. A dynamic read lowers to `ac.var.dynamic_element`; both
 ACIR analysis and QueueGraph independently prove the index domain is contained
-in the array length. `values.with_element(index, replacement)` lowers to the
+in the array length. If an unreachable private helper has no propagated lattice
+fact, ACIR uses the exact unsigned bits/range type interval as the conservative
+fallback; this accepts an `i1` index for two elements and still rejects an
+`i3` index for five elements. `values.with_element(index, replacement)` lowers to the
 pure `ac.var.with_element` operation and returns a new array while preserving
 the source value. It uses the same proof, exact element type, and MSB-first
 layout. PYC dynamic reads use a stable adjacent pairwise selection tree with
@@ -2408,8 +2411,12 @@ all inputs are consumed and all outputs are published as one transaction.
 Structured lowering includes only modules recursively reachable from the
 selected system and only rules directly used by each selected rule-backed
 module. Unreachable sibling definitions remain in the JIT source identity but
-are not emitted or validated as active hardware. Arbitrary internal Queue
-graphs and repeated-input fanout inside one module remain follow-up work.
+are not emitted or validated as active hardware. Child specialization resolves
+only pure helpers referenced by that child and its reachable rules; the root
+source pass still validates the complete typed helper set with root JIT
+bindings, including the static index checks required by Decision 0254.
+Arbitrary internal Queue graphs and repeated-input fanout inside one module
+remain follow-up work.
 
 For host-integrated simulation, compiler option `--host-results` preserves
 typed system returns as Top module Queue results instead of inserting automatic

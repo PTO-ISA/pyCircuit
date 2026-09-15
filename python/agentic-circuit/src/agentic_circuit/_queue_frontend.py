@@ -2739,11 +2739,83 @@ def _helper_type(
 
 
 def _pure_helper_definitions(
-    tree: ast.Module, payloads: dict[str, Payload], enums: Mapping[str, ValueType]
+    tree: ast.Module,
+    payloads: dict[str, Payload],
+    enums: Mapping[str, ValueType],
+    *,
+    entry: str | None = None,
+    reachable_only: bool = False,
+    defer_unbound_unreachable: bool = False,
 ) -> tuple[PureHelperDefinition, ...]:
     """Capture typed, state-free helpers as closed SSA-like expressions."""
 
     architecture = {"system", "module", "extern_module", "process", "rule", "invariant"}
+    architecture_nodes = {
+        node.name: node
+        for node in tree.body
+        if isinstance(node, ast.FunctionDef)
+        and {
+            _decorator_name(item).rsplit(".", 1)[-1]
+            for item in node.decorator_list
+        }
+        & architecture
+    }
+    helper_nodes = {
+        node.name: node
+        for node in tree.body
+        if isinstance(node, ast.FunctionDef)
+        and not (
+            {
+                _decorator_name(item).rsplit(".", 1)[-1]
+                for item in node.decorator_list
+            }
+            & architecture
+        )
+    }
+    declared_payload_names = {
+        node.name
+        for node in tree.body
+        if isinstance(node, ast.ClassDef)
+        and any(
+            _decorator_name(item).rsplit(".", 1)[-1]
+            in {"struct", "packet", "transaction"}
+            for item in node.decorator_list
+        )
+    }
+    unavailable_payload_names = declared_payload_names - set(payloads)
+    reachable_helpers: set[str] | None = None
+    if reachable_only or defer_unbound_unreachable:
+        if entry is None or entry not in architecture_nodes:
+            raise QueueFrontendError(
+                "ACPY-HELPER-001: reachable helper filtering requires an entry"
+            )
+        reachable_architecture: set[str] = set()
+        reachable_helpers = set()
+        pending_architecture = [entry]
+        while pending_architecture:
+            name = pending_architecture.pop()
+            if name in reachable_architecture:
+                continue
+            reachable_architecture.add(name)
+            for item in ast.walk(architecture_nodes[name]):
+                if not isinstance(item, ast.Name) or not isinstance(item.ctx, ast.Load):
+                    continue
+                if item.id in architecture_nodes:
+                    pending_architecture.append(item.id)
+                if item.id in helper_nodes:
+                    reachable_helpers.add(item.id)
+        pending_helpers = list(reachable_helpers)
+        while pending_helpers:
+            name = pending_helpers.pop()
+            for item in ast.walk(helper_nodes[name]):
+                if (
+                    isinstance(item, ast.Name)
+                    and isinstance(item.ctx, ast.Load)
+                    and item.id in helper_nodes
+                    and item.id not in reachable_helpers
+                ):
+                    reachable_helpers.add(item.id)
+                    pending_helpers.append(item.id)
     nodes: dict[str, ast.FunctionDef] = {}
     signatures: dict[
         str, tuple[tuple[tuple[str, ValueType], ...], ValueType, bool]
@@ -2751,10 +2823,28 @@ def _pure_helper_definitions(
     for node in tree.body:
         if not isinstance(node, ast.FunctionDef):
             continue
+        if (
+            reachable_only
+            and reachable_helpers is not None
+            and node.name not in reachable_helpers
+        ):
+            continue
         decorators = {
             _decorator_name(item).rsplit(".", 1)[-1] for item in node.decorator_list
         }
         if decorators & architecture:
+            continue
+        if (
+            defer_unbound_unreachable
+            and reachable_helpers is not None
+            and node.name not in reachable_helpers
+            and any(
+                isinstance(item, ast.Name)
+                and isinstance(item.ctx, ast.Load)
+                and item.id in unavailable_payload_names
+                for item in ast.walk(node)
+            )
+        ):
             continue
         inline_requested = "inline" in decorators
         fully_typed = node.returns is not None and all(
@@ -2782,15 +2872,24 @@ def _pure_helper_definitions(
             raise QueueFrontendError(f"ACPY-HELPER-001: duplicate helper {node.name!r}")
         assert node.returns is not None
         nodes[node.name] = node
-        signatures[node.name] = (
-            tuple(
+        try:
+            arguments = tuple(
                 (argument.arg, _helper_type(argument.annotation, payloads, enums))
                 for argument in node.args.args
                 if argument.annotation is not None
-            ),
-            _helper_type(node.returns, payloads, enums),
-            inline_requested,
-        )
+            )
+            result = _helper_type(node.returns, payloads, enums)
+        except QueueFrontendError as error:
+            if (
+                defer_unbound_unreachable
+                and reachable_helpers is not None
+                and node.name not in reachable_helpers
+            ):
+                continue
+            raise QueueFrontendError(
+                f"{error}; helper {node.name!r} has an unavailable annotation"
+            ) from error
+        signatures[node.name] = (arguments, result, inline_requested)
 
     graph: dict[str, set[str]] = {name: set() for name in nodes}
     pure_intrinsics = {
@@ -3653,15 +3752,41 @@ def parse_queue_program(
     type_static_values = _type_static_values(tree, static_arguments)
     parameter_aliases = _static_parameter_aliases(tree)
     expression_type_checks: list[StaticTypeCheck] = []
+    reachable_expression_owners: set[str] | None = None
+    if entry_kind == "module":
+        function_nodes = {
+            node.name: node
+            for node in tree.body
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+        }
+        reachable_expression_owners = set()
+        pending_expression_owners = [system]
+        while pending_expression_owners:
+            name = pending_expression_owners.pop()
+            if name in reachable_expression_owners or name not in function_nodes:
+                continue
+            reachable_expression_owners.add(name)
+            for item in ast.walk(function_nodes[name]):
+                if (
+                    isinstance(item, ast.Name)
+                    and isinstance(item.ctx, ast.Load)
+                    and item.id in function_nodes
+                ):
+                    pending_expression_owners.append(item.id)
 
     class ConcretizeBoundedIntrinsicTargets(ast.NodeTransformer):
         """Resolve dependent range targets in executable expressions only."""
 
-        def __init__(self, owner: str, live_assignments: set[int]) -> None:
+        def __init__(
+            self,
+            owner: str,
+            live_assignments: set[int],
+            record_checks: bool,
+        ) -> None:
             self.owner = owner
             self.ordinal = 0
             self.live_assignments = live_assignments
-            self.record_checks = True
+            self.record_checks = record_checks
 
         def visit_Assign(self, node: ast.Assign) -> ast.Assign:
             previous = self.record_checks
@@ -3802,7 +3927,10 @@ def parse_queue_program(
 
         analyze_liveness(node.body, set())
         target_concretizer = ConcretizeBoundedIntrinsicTargets(
-            node.name, live_assignments
+            node.name,
+            live_assignments,
+            reachable_expression_owners is None
+            or node.name in reachable_expression_owners,
         )
         node.body = [
             ast.fix_missing_locations(target_concretizer.visit(statement))
@@ -3833,7 +3961,13 @@ def parse_queue_program(
     invariant_definitions = _invariant_definitions(
         tree, payload_map, bitfield_map, enum_map
     )
-    helper_definitions = _pure_helper_definitions(tree, payload_map, enum_map)
+    helper_definitions = _pure_helper_definitions(
+        tree,
+        payload_map,
+        enum_map,
+        entry=system,
+        reachable_only=entry_kind == "module",
+    )
     helper_map = {definition.name: definition for definition in helper_definitions}
 
     class DesugarHelperUnpacking(ast.NodeTransformer):
@@ -17308,7 +17442,13 @@ def _lower_simple_module_source(
             tree, payload_map, bitfield_map, enum_map
         )
     }
-    helper_definitions = _pure_helper_definitions(tree, payload_map, enum_map)
+    helper_definitions = _pure_helper_definitions(
+        tree,
+        payload_map,
+        enum_map,
+        entry=system,
+        defer_unbound_unreachable=True,
+    )
     helpers = {definition.name: definition for definition in helper_definitions}
     modules = {
         node.name: node
@@ -18139,12 +18279,12 @@ def _lower_simple_module_source(
                     "ACPY-MODULE-002: module results require fresh tuple names"
                 )
             module_name = statement.value.func.id
-            static_arguments: tuple[tuple[str, StaticValue], ...] = ()
+            instance_static_arguments: tuple[tuple[str, StaticValue], ...] = ()
             instance_module_name = module_name
             if module_name in rule_modules:
                 (
                     instance_module_name,
-                    static_arguments,
+                    instance_static_arguments,
                     input_signature,
                     output_signature,
                 ) = specialize_rule_module(module_name, statement.value)
@@ -18192,7 +18332,7 @@ def _lower_simple_module_source(
                     instance_module_name,
                     sources,
                     output_types,
-                    static_arguments,
+                    instance_static_arguments,
                     source_frame(statement.value),
                 )
             )

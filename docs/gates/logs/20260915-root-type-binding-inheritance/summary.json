@@ -1,0 +1,23 @@
+{
+  "run_id": "20260915-root-type-binding-inheritance",
+  "status": "passed",
+  "base_revision": "fd2427a30e7b9fda9aab37953eb6b6d46b4e8bbb",
+  "decision_ids": ["0246"],
+  "results": {
+    "focused_frontend": {
+      "passed": 207,
+      "failed": 0
+    },
+    "focused_acir_value_constraints": {
+      "safe_private_i1_index": "passed",
+      "unsafe_private_i3_index": "rejected_with_expected_diagnostic"
+    },
+    "integrated_toolchain_build": "passed",
+    "pre_commit": "passed",
+    "agentic_contracts": "not_run_missing_jsonschema"
+  },
+  "behavior": "Child module specialization resolves only its reachable pure-helper closure, while root validation retains all typed helpers; unreachable private helper indices fall back to their exact scalar type interval when no lattice fact exists.",
+  "trigger": "A consumer kept single-parent and dependent-width D2 helpers in one source file; specializing the reachable single-parent child attempted to activate unrelated dependent helpers, then native validation lacked a type-derived bound for a safe private i1 index.",
+  "release_scope": "Focused framework regression discovered by an external processor-model consumer.",
+  "skill_evolve": "no-update"
+}

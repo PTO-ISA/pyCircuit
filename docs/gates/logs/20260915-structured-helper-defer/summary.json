@@ -1,0 +1,22 @@
+{
+  "schema": "pycircuit-gate-summary",
+  "version": 1,
+  "decision": "0243",
+  "scope": "structured-root helper specialization",
+  "result": "pass",
+  "evidence": [
+    {
+      "command": "PYTHONPATH=python/semantic-core/src:python/agentic-circuit/src python3 -m unittest discover -s tests/python/agentic-circuit/python_frontend -p test_queue_frontend.py",
+      "result": "207 passed"
+    },
+    {
+      "command": "git diff --check",
+      "result": "pass"
+    }
+  ],
+  "verified_behavior": [
+    "A structured root defers an unreachable helper whose dependent payload is unbound by the selected specialization.",
+    "Reachable helpers and closed unreachable helpers retain existing validation.",
+    "The unavailable-annotation diagnostic names the affected helper."
+  ]
+}

@@ -4187,6 +4187,9 @@ WIDTH = ac.param[int]("width")
 class Unrelated:
     value: ac.bits[WIDTH]
 
+def keep_unrelated(value: Unrelated) -> Unrelated:
+    return value
+
 @ac.rule
 def keep(value: ac.u8) -> ac.u8:
     return value
@@ -4208,6 +4211,7 @@ def design(value: ac.u8, *, width: ac.const[int]) -> ac.u8:
         )
         self.assertIn("ac.module @stage", lowered)
         self.assertIn("ac.instance @result of @stage", lowered)
+        self.assertEqual(1, lowered.count("@keep_unrelated"))
 
     def test_system_lowers_only_reachable_modules_and_their_rules(self) -> None:
         from agentic_circuit._queue_frontend import lower_queue_source
@@ -6963,6 +6967,31 @@ def pipeline(request: Request) -> bool:
 """
         with self.assertRaisesRegex(QueueFrontendError, "helper.*result type"):
             lower_queue_source(module_helper_result, "pipeline")
+
+        unreachable_dependent_helper = """import agentic_circuit as ac
+WIDTH = ac.param[int]("width")
+@ac.struct
+class Unbound:
+    lanes: ac.array[WIDTH, ac.u8]
+def unreachable(value: Unbound) -> ac.u8:
+    return value.lanes[0]
+@ac.struct
+class Item:
+    value: ac.u8
+@ac.module
+def passthrough(item: Item) -> Item:
+    return item
+@ac.system
+def selected(item: Item) -> Item:
+    result = passthrough(item)
+    return result
+"""
+        selected = lower_queue_source(
+            unreachable_dependent_helper,
+            "selected",
+        )
+        self.assertIn("ac.instance @result of @passthrough", selected)
+        self.assertNotIn("@unreachable", selected)
 
         ambiguous_result = """import agentic_circuit as ac
 @ac.struct
