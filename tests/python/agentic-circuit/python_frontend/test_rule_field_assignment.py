@@ -380,7 +380,10 @@ class RuleFieldAssignmentTest(unittest.TestCase):
         self.assertIn('mode "field" write_fields ["value"]', different)
 
     def test_field_updates_cannot_cross_a_branch_boundary(self) -> None:
-        from agentic_circuit._queue_frontend import QueueFrontendError, lower_queue_source
+        from agentic_circuit._queue_frontend import (
+            QueueFrontendError,
+            lower_queue_source,
+        )
 
         with self.assertRaisesRegex(QueueFrontendError, "ACPY-RULE-011"):
             lower_queue_source(CROSS_BRANCH_SOURCE, "state_update")
