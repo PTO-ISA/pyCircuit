@@ -1,0 +1,52 @@
+{
+  "run_id": "20260915-issue129-frontend-field-writes",
+  "script": "focused Agentic Circuit frontend lane (manual, raw captures in evidence.txt)",
+  "status": "pass",
+  "issues": ["PTO-ISA/pyCircuit#129"],
+  "decisions": ["0154", "0236", "0261"],
+  "owner": "acir-rules",
+  "baseline_commit": "982da52c",
+  "contract_epoch": "0.5",
+  "change": "Rule-level field writes now reach the field-merging backend landed in #141. (1) The Python frontend narrows an ac.table rule write to mode \"field\" exactly when the assigned value is provably the recorded read of the same target updated by with_fields(...) at the same index (revives and extends the reverted #134). (2) The direct spelling entries[i].field = value reaches the same recognition: the normalization's index binding is folded back into the recorded read for explicit ac.table owners, and ac-lower-variable-state recognizes the ac.var.with chain rooted at the same-variable same-index element read for indexed persistent list[Struct] owners. (3) VerifyValueConstraints keeps the allocation-versus-field exemption scoped to declarative writers so a rule field proposal still arbitrates against a declarative allocation.",
+  "lanes": [
+    "python_frontend unittest",
+    "contracts unittest",
+    "cli unittest",
+    "check-acir (lit)",
+    "ctest",
+    "check-contracts.py",
+    "check_decision_status.py",
+    "check-ir-coverage.py / check-pyc-inventory.py (ledgers regenerated)",
+    "e2e tests.integration.agentic-circuit.e2e.test_table_backend"
+  ],
+  "cases": [
+    "frontend: proven same-index with_fields narrows to mode \"field\" (ac.table)",
+    "frontend: direct spelling entries[i].field = value lowers identically to the explicit recorded-read form (ac.table)",
+    "frontend: direct spelling with a complex index lowers identically to the explicit form (ac.table)",
+    "frontend: input-rooted with_fields and mismatched index stay complete mode \"replace\"",
+    "frontend: direct spelling without a recorded read fails closed on ac.table (ACPY-RULE-008)",
+    "lit: rule-field-write-merge.mlir (ac-lower-rules acceptance, allocator-conflict rejection, masked-declarative acceptance, plus freeze -> acir-queue-plan -> acir-queue-cxxgen -> acir-queue-pycgen with FieldMerge and PYC merge-order pins)",
+    "lit: variable-element-field-write-lowering.mlir (list[Struct] narrowing, declaration-order multi-field set, duplicate-field collapse, input-rooted/other-index/whole-value stay replace)",
+    "e2e native gfsim: two rule field writers commit disjoint fields of one Entry in simulation; unwritten tag field preserved; other entries untouched"
+  ],
+  "results": {
+    "python_frontend": "393 run, OK (1 skipped)",
+    "contracts": "50 run, OK",
+    "cli": "53 run, 4 errors (pre-existing environmental test_native_api failures, reproduced identically on baseline 982da52c)",
+    "check-acir": "244/244 passed (100%), including the 7 PYC/CodeGen lanes that fail in a standalone ACIR build; pycc and pyc-opt were taken from this checkout's integrated toolchain install",
+    "ctest": "18/18 passed",
+    "check-contracts.py": "OK",
+    "check_decision_status.py": "ok (rows=261, deferred=0)",
+    "e2e test_table_backend": "8/8 OK including the new test_rule_field_writers_merge_same_entry_in_native_cpp"
+  },
+  "without_change": {
+    "note": "field-mode firing writes are rejected by ac-lower-rules on baseline + #134 alone (\"same-field overlap ... requires explicit priority\"); baseline without #141 rejects the same shape at acir-queue-plan (\"state firing write metadata is invalid\")"
+  },
+  "known_environment_gaps": {
+    "cli_native_api": "4 test_native_api errors reproduce on clean baseline; environmental.",
+    "not_run": "full AC G0/G1/G2 closure (flows/scripts/run_agentic_circuit.sh) and Verilator parity for this fixture; PYC emission parity is pinned structurally by the lit PYC checks and runtime behavior by the native gfsim e2e."
+  },
+  "evidence_files": [
+    "docs/gates/logs/20260915-issue129-frontend-field-writes/evidence.txt"
+  ]
+}

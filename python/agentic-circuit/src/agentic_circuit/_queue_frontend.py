@@ -1170,6 +1170,7 @@ class QueueBinding:
     rule_table_index: ast.expr | None = None
     rule_table_value: ast.expr | None = None
     rule_write_fields: tuple[str, ...] = ()
+    rule_write_mode: str = "replace"
     rule_table_read_name: str | None = None
     rule_table_read_index: ast.expr | None = None
     rule_input_names: tuple[str, ...] = ()
@@ -5230,8 +5231,48 @@ def parse_queue_program(
         if state_names:
             last_state = max(parameter_names.index(name) for name in state_names)
             ordered_state = parameter_names[: last_state + 1]
+
+        def is_field_index_temp(local: RuleLocalDefinition) -> bool:
+            # `_normalize_rule_field_assignments` materializes the index of a
+            # direct field write `entries[i].field = value` as a pure binding;
+            # the versioned name keeps the `__ac_field_index_` infix.
+            return (
+                re.fullmatch(r"__ac_rule_local_\d+___ac_field_index_\d+", local.name)
+                is not None
+            )
+
+        # A rule whose only general-path markers are those generated index
+        # bindings, whose recorded read feeds the return, and that carries no
+        # user locals, reads beyond that one, branches, guards, finds, or
+        # several state writes keeps the single indexed write grammar below,
+        # so an explicit `ac.table` owner accepts the direct field spelling
+        # exactly like the recorded-read `with_fields` form. The recorded-read
+        # return keeps the entry-locked result contract both owner kinds
+        # already require on this path, so indexed `list[Struct]` rules keep
+        # their flexible-return general path unless every condition holds.
+        returned_read = (
+            rewritten_multi_return is not None
+            and len(state_reads) == 1
+            and any(
+                isinstance(candidate, ast.Name)
+                and candidate.id == state_reads[0].name
+                for candidate in ast.walk(rewritten_multi_return)
+            )
+        )
+        single_field_write_shape = (
+            returned_read
+            and len(state_writes) == 1
+            and state_writes[0].index is not None
+            and not rule_finds
+            and not has_branch_effects
+            and multi_guard is None
+            and multi_effect_guard is None
+            and multi_output_guard is None
+            and all(is_field_index_temp(local) for local in rule_locals)
+        )
         if (
             valid_multi_state
+            and not single_field_write_shape
             and (
                 state_writes
                 or state_reads
@@ -5348,6 +5389,79 @@ def parse_queue_program(
                 guarded_body = guarded_body[:-1]
             guard_expression = copy.deepcopy(guarded.test)
             body = [*body[:-1], *guarded_body]
+        # The direct field spelling `entries[i].field = value` is normalized
+        # to a pure index binding plus one
+        # `entries[__ac_field_index_N] = entries[__ac_field_index_N].with_fields(...)`
+        # write before parsing. Peel single-assignment pure local bindings (a
+        # Name stored exactly once, bound to an expression that does not read
+        # the Table) wherever they precede the write, and substitute them, so
+        # the indexed write grammar below also accepts the normalized form and
+        # the mixed `old = entries[i]; entries[i].field = value` form. Each
+        # use keeps one pure emission of the index expression, and the
+        # canonicalize/cse pipeline folds the duplicated gets, exactly like
+        # the explicit `old = entries[i]; entries[i] = old.with_fields(...)`
+        # spelling.
+        def reads_table_argument(expression: ast.expr) -> bool:
+            return any(
+                isinstance(candidate, ast.Subscript)
+                and isinstance(candidate.value, ast.Name)
+                and candidate.value.id == table_argument
+                for candidate in ast.walk(expression)
+            )
+
+        store_counts: dict[str, int] = {}
+        for candidate_statement in body:
+            for candidate_node in ast.walk(candidate_statement):
+                if isinstance(candidate_node, ast.Name) and isinstance(
+                    candidate_node.ctx, ast.Store
+                ):
+                    store_counts[candidate_node.id] = (
+                        store_counts.get(candidate_node.id, 0) + 1
+                    )
+        index_bindings: dict[str, ast.expr] = {}
+        kept_statements: list[ast.stmt] = []
+        for candidate_statement in body:
+            if (
+                isinstance(candidate_statement, ast.Assign)
+                and len(candidate_statement.targets) == 1
+                and isinstance(candidate_statement.targets[0], ast.Name)
+                and candidate_statement.targets[0].id
+                not in ({table_argument, payload_argument} - {None})
+                and store_counts[candidate_statement.targets[0].id] == 1
+                and not reads_table_argument(candidate_statement.value)
+            ):
+                index_bindings[candidate_statement.targets[0].id] = (
+                    candidate_statement.value
+                )
+                continue
+            kept_statements.append(candidate_statement)
+        body = kept_statements
+        if index_bindings:
+
+            class SubstituteIndexBindings(ast.NodeTransformer):
+                def visit_Name(self, candidate: ast.Name) -> ast.expr:
+                    if (
+                        isinstance(candidate.ctx, ast.Load)
+                        and candidate.id in index_bindings
+                    ):
+                        return ast.copy_location(
+                            copy.deepcopy(index_bindings[candidate.id]), candidate
+                        )
+                    return candidate
+
+            index_bindings = {
+                binding_name: ast.fix_missing_locations(
+                    SubstituteIndexBindings().visit(copy.deepcopy(binding_value))
+                )
+                for binding_name, binding_value in index_bindings.items()
+                if binding_name
+            }
+            body = [
+                ast.fix_missing_locations(
+                    SubstituteIndexBindings().visit(statement)
+                )
+                for statement in body
+            ]
         read_statement: ast.Assign | None = None
         if len(body) == 2 and isinstance(body[0], ast.Assign):
             read_statement = body[0]
@@ -5387,6 +5501,52 @@ def parse_queue_program(
             assert isinstance(read_statement.value, ast.Subscript)
             read_name = read_statement.targets[0].id
             read_index = copy.deepcopy(read_statement.value.slice)
+        write_slice = assignment.targets[0].slice
+        write_value: ast.expr = assignment.value
+        if (
+            isinstance(write_value, ast.Call)
+            and isinstance(write_value.func, ast.Attribute)
+            and write_value.func.attr == "with_fields"
+            and not write_value.args
+            and isinstance(write_value.func.value, ast.Subscript)
+            and isinstance(write_value.func.value.value, ast.Name)
+            and write_value.func.value.value.id == table_argument
+        ):
+            # The normalized direct field spelling reads the committed Entry
+            # inline. Rebind that read to the recorded read name (or a
+            # synthetic one) so recognition and emission share the explicit
+            # `old = entries[i]` path; any other index stays an unreadable
+            # inline Subscript and fails closed in emission.
+            receiver_index = write_value.func.value.slice
+            receiver_name: str | None = None
+            if read_index is not None and ast.dump(
+                receiver_index, include_attributes=False
+            ) == ast.dump(read_index, include_attributes=False):
+                receiver_name = read_name
+            elif read_name is None and ast.dump(
+                receiver_index, include_attributes=False
+            ) == ast.dump(write_slice, include_attributes=False):
+                taken = {
+                    candidate.id
+                    for candidate_statement in body
+                    for candidate in ast.walk(candidate_statement)
+                    if isinstance(candidate, ast.Name)
+                } | {table_argument, payload_argument} - {None}
+                read_ordinal = 0
+                while f"__ac_field_read_{read_ordinal}" in taken:
+                    read_ordinal += 1
+                read_name = f"__ac_field_read_{read_ordinal}"
+                read_index = copy.deepcopy(receiver_index)
+                receiver_name = read_name
+            if receiver_name is not None:
+                rewritten_value = copy.deepcopy(write_value)
+                assert isinstance(rewritten_value, ast.Call)
+                assert isinstance(rewritten_value.func, ast.Attribute)
+                rewritten_value.func.value = ast.copy_location(
+                    ast.Name(id=receiver_name, ctx=ast.Load()),
+                    write_value.func.value,
+                )
+                write_value = ast.fix_missing_locations(rewritten_value)
         if effect_guard_expression is not None and len(payload_arguments) != 1:
             raise QueueFrontendError(
                 "ACPY-RULE-010: conditional-effect early return requires "
@@ -5400,7 +5560,7 @@ def parse_queue_program(
             node.col_offset + 1,
             table_argument,
             copy.deepcopy(assignment.targets[0].slice),
-            copy.deepcopy(assignment.value),
+            copy.deepcopy(write_value),
             read_name,
             read_index,
             guard=guard_expression,
@@ -5976,6 +6136,52 @@ def parse_queue_program(
         if value is not None:
             return declared
         requested = {name for name, _ in patch_fields}
+        return tuple(name for name in declared if name in requested)
+
+    def proven_field_write_fields(
+        table: TableBinding,
+        value: ast.expr | None,
+        read_name: str | None,
+        write_index: ast.expr | None,
+        read_index: ast.expr | None,
+    ) -> tuple[str, ...] | None:
+        """Canonical field set for a proven same-owner same-index field write.
+
+        Returns ``None`` unless the write is provably equivalent to a field
+        write, in which case the caller must keep the complete ``replace``
+        write. Recognition requires all of:
+
+        * a struct Entry;
+        * the write index and the recorded read index are the same expression;
+        * the assigned value is ``<read_name>.with_fields(**fields)`` with only
+          plain keyword arguments naming declared top-level fields.
+
+        Copying only the named fields is equivalent to replacing the whole
+        Entry exactly when the assigned value stems from the same committed
+        read, because ``with_fields`` preserves the other fields from that
+        read. Any other producer makes the two writes observable.
+        """
+        if not isinstance(table.entry_type, StructType):
+            return None
+        if read_name is None or write_index is None or read_index is None:
+            return None
+        if ast.dump(write_index) != ast.dump(read_index):
+            return None
+        if not isinstance(value, ast.Call):
+            return None
+        function = value.func
+        if not isinstance(function, ast.Attribute) or function.attr != "with_fields":
+            return None
+        if not isinstance(function.value, ast.Name) or function.value.id != read_name:
+            return None
+        if value.args or not value.keywords:
+            return None
+        if any(keyword.arg is None for keyword in value.keywords):
+            return None
+        requested = {keyword.arg for keyword in value.keywords}
+        declared = tuple(field.name for field in table.entry_type.fields)
+        if not requested <= set(declared):
+            return None
         return tuple(name for name in declared if name in requested)
 
     def complete_value_fields(value_type: ValueType) -> tuple[str, ...]:
@@ -9755,10 +9961,33 @@ def parse_queue_program(
                             else (
                                 ()
                                 if table is None
-                                else normalized_write_fields(
-                                    table, definition.table_value, ()
+                                else (
+                                    proven_field_write_fields(
+                                        table,
+                                        definition.table_value,
+                                        definition.table_read_name,
+                                        definition.table_index,
+                                        definition.table_read_index,
+                                    )
+                                    or normalized_write_fields(
+                                        table, definition.table_value, ()
+                                    )
                                 )
                             )
+                        ),
+                        rule_write_mode=(
+                            "field"
+                            if not indexed_variable
+                            and table is not None
+                            and proven_field_write_fields(
+                                table,
+                                definition.table_value,
+                                definition.table_read_name,
+                                definition.table_index,
+                                definition.table_read_index,
+                            )
+                            is not None
+                            else "replace"
                         ),
                         rule_table_read_name=(
                             definition.table_read_name if table is not None else None
@@ -10394,9 +10623,33 @@ def parse_queue_program(
                             else None
                         ),
                         rule_write_fields=(
-                            normalized_write_fields(table, definition.table_value, ())
+                            (
+                                proven_field_write_fields(
+                                    table,
+                                    definition.table_value,
+                                    definition.table_read_name,
+                                    definition.table_index,
+                                    definition.table_read_index,
+                                )
+                                or normalized_write_fields(
+                                    table, definition.table_value, ()
+                                )
+                            )
                             if table is not None
                             else complete_value_fields(value_type)
+                        ),
+                        rule_write_mode=(
+                            "field"
+                            if table is not None
+                            and proven_field_write_fields(
+                                table,
+                                definition.table_value,
+                                definition.table_read_name,
+                                definition.table_index,
+                                definition.table_read_index,
+                            )
+                            is not None
+                            else "replace"
                         ),
                         rule_table_read_name=(
                             definition.table_read_name if table is not None else None
@@ -15836,7 +16089,7 @@ def lower_queue_program(
                 lines.append(
                     f"{indent}  ac.table.propose @{queue.rule_table} "
                     f"[%{index_result}] = %{write_result}{effect_presence} "
-                    f'mode "replace" '
+                    f'mode "{queue.rule_write_mode}" '
                     f"write_fields {fields} : "
                     f"!ac.var<{_render_type(index_type)}>, "
                     f"!ac.var<{_render_type(queue.payload)}>"

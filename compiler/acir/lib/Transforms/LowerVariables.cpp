@@ -4,6 +4,7 @@
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/SymbolTable.h"
 #include "llvm/ADT/StringExtras.h"
+#include "llvm/ADT/StringSet.h"
 #include "llvm/Support/SHA256.h"
 #include "llvm/Support/raw_ostream.h"
 
@@ -97,6 +98,42 @@ void replaceYield(Operation *yield, StringRef operationName) {
   state.addAttributes(yield->getAttrs());
   builder.create(state);
   yield->erase();
+}
+
+// Returns the declaration-ordered set of updated fields when the assigned
+// value is a chain of ac.var.with updates rooted at a same-variable,
+// same-index element read, and failure otherwise. Reads lower before
+// assignments in this pass, so the chain root is already an ac.table.get.
+//
+// Copying only the named fields is equivalent to replacing the whole entry
+// exactly when the value stems from the same committed read, because every
+// ac.var.with preserves the other fields of that read. The VarWithOp verifier
+// already guarantees each field is a declared top-level field, and the
+// frontend normalizes `entries[i].field = value` so the read and the write
+// share one index evaluation. Any other producer keeps the complete
+// replacement: recognition is syntactic and fail-closed, so an unproven value
+// is never downgraded to a field write.
+FailureOr<SmallVector<StringRef>>
+provenFieldWriteFields(ac::VarAssignElementOp assignment) {
+  SmallVector<StringRef> fields;
+  llvm::StringSet<> seen;
+  mlir::Value current = assignment.getValue();
+  while (auto with = current.getDefiningOp<ac::VarWithOp>()) {
+    if (seen.insert(with.getField()).second)
+      fields.push_back(with.getField());
+    current = with.getRecord();
+  }
+  if (fields.empty())
+    return failure();
+  if (auto read = current.getDefiningOp<ac::VarReadElementOp>())
+    if (read.getVariableAttr() == assignment.getVariableAttr() &&
+        read.getIndex() == assignment.getIndex())
+      return fields;
+  if (auto get = current.getDefiningOp<ac::TableGetOp>())
+    if (get.getTableAttr() == assignment.getVariableAttr() &&
+        get.getIndex() == assignment.getIndex())
+      return fields;
+  return failure();
 }
 
 LogicalResult lowerVariableState(ModuleOp model) {
@@ -260,18 +297,40 @@ LogicalResult lowerVariableState(ModuleOp model) {
         resolveVariable(assignment, assignment.getVariableAttr());
     if (!variable)
       return assignment.emitOpError("persistent ac.var declaration is missing");
-    FailureOr<ArrayAttr> writeFields = completeWriteFields(builder, variable);
-    if (failed(writeFields))
+    FailureOr<ArrayAttr> completeFields = completeWriteFields(builder, variable);
+    if (failed(completeFields))
       return assignment.emitOpError(
           "persistent struct field schema is unresolved");
+    // A field-wise update of the committed read commits only its named fields,
+    // so independent rules may update disjoint fields of one entry in one
+    // tick. Field lists are canonical sets in Entry declaration order
+    // (Decision 0261): filter the complete schema by the proven set.
+    StringRef mode = "replace";
+    ArrayAttr writeFields = *completeFields;
+    if (FailureOr<SmallVector<StringRef>> proven =
+            provenFieldWriteFields(assignment);
+        succeeded(proven)) {
+      llvm::StringSet<> provenSet;
+      provenSet.insert(proven->begin(), proven->end());
+      SmallVector<StringRef> ordered;
+      for (Attribute field : *completeFields) {
+        StringRef name = cast<StringAttr>(field).getValue();
+        if (provenSet.contains(name))
+          ordered.push_back(name);
+      }
+      if (!ordered.empty()) {
+        mode = "field";
+        writeFields = builder.getStrArrayAttr(ordered);
+      }
+    }
     OperationState state(assignment.getLoc(),
                          ac::TableProposeOp::getOperationName());
     state.addOperands({assignment.getIndex(), assignment.getValue()});
     if (assignment.getWhen())
       state.addOperands(assignment.getWhen());
     state.addAttribute("table", assignment.getVariableAttr());
-    state.addAttribute("mode", builder.getStringAttr("replace"));
-    state.addAttribute("write_fields", *writeFields);
+    state.addAttribute("mode", builder.getStringAttr(mode));
+    state.addAttribute("write_fields", writeFields);
     builder.create(state);
     assignment.erase();
   }
