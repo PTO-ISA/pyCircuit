@@ -6,7 +6,7 @@ import re
 from collections.abc import Collection
 
 from .._canonical_json import canonical_mlir_string
-from .._source_map import SourceFrame
+from .._source_map import SourceFrame, source_frame
 from .errors import QueueFrontendError
 
 

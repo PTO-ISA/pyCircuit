@@ -9,6 +9,9 @@ FRONTEND = ROOT / "python/agentic-circuit/src/agentic_circuit/_queue_frontend.py
 ACIR_TEXT = (
     ROOT / "python/agentic-circuit/src/agentic_circuit/_queue_compiler/acir_text.py"
 )
+EXPRESSIONS = (
+    ROOT / "python/agentic-circuit/src/agentic_circuit/_queue_compiler/expressions.py"
+)
 MODEL = ROOT / "python/agentic-circuit/src/agentic_circuit/_queue_compiler/model.py"
 CODEGEN = ROOT / "python/agentic-circuit/src/agentic_circuit/_queue_codegen.py"
 
@@ -44,6 +47,9 @@ class QueueTypeHygieneTest(unittest.TestCase):
         )
         cls.acir_text_tree = ast.parse(
             ACIR_TEXT.read_text(encoding="utf-8"), filename=str(ACIR_TEXT)
+        )
+        cls.expressions_tree = ast.parse(
+            EXPRESSIONS.read_text(encoding="utf-8"), filename=str(EXPRESSIONS)
         )
         cls.model_tree = ast.parse(
             MODEL.read_text(encoding="utf-8"), filename=str(MODEL)
@@ -114,7 +120,7 @@ class QueueTypeHygieneTest(unittest.TestCase):
             ("specialization_fingerprint", "removeprefix"),
         }
         found: set[tuple[str, str]] = set()
-        for tree in (self.tree, self.codegen_tree):
+        for tree in (self.tree, self.expressions_tree, self.codegen_tree):
             for node in ast.walk(tree):
                 if (
                     isinstance(node, ast.Call)
@@ -132,7 +138,7 @@ class QueueTypeHygieneTest(unittest.TestCase):
     def test_expression_emitter_carries_descriptor_types(self) -> None:
         emitter = next(
             node
-            for node in ast.walk(self.tree)
+            for node in ast.walk(self.expressions_tree)
             if isinstance(node, ast.ClassDef) and node.name == "_ExpressionEmitter"
         )
         methods = {
