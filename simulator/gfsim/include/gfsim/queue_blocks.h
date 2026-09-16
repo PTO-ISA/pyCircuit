@@ -2183,13 +2183,21 @@ private:
 
   bool conflictsWithPending(const WriteFootprint &footprint) const {
     return std::ranges::any_of(pending_, [&](const auto &item) {
-      return footprintsConflict(footprint, item.second.footprint);
+      return footprintsConflict(footprint, item.second.footprint) ||
+             std::ranges::any_of(
+                 item.second.footprints, [&](const WriteFootprint &candidate) {
+                   return strictFootprintsConflict(footprint, candidate);
+                 });
     });
   }
 
   bool conflictsWithPendingEndpoint(const WriteFootprint &footprint) const {
     return std::ranges::any_of(pending_, [&](const auto &item) {
-      return endpointContractsConflict(footprint, item.second.footprint);
+      return endpointContractsConflict(footprint, item.second.footprint) ||
+             std::ranges::any_of(
+                 item.second.footprints, [&](const WriteFootprint &candidate) {
+                   return strictFootprintsConflict(footprint, candidate);
+                 });
     });
   }
 

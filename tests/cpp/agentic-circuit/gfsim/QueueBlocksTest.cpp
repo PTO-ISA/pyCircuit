@@ -2225,6 +2225,81 @@ TEST(QueueBlocksTest, MixedFieldBatchRejectsInvalidAndOverlappingMasks) {
   EXPECT_FALSE(table.at(0).ready);
 }
 
+TEST(QueueBlocksTest,
+     PublishedBatchFootprintsBlockLaterOverlappingSingleTransactions) {
+  SimTable<FieldEntry> table("table", 1, nullptr, 2);
+  MergeFieldEntryMask batchMerge;
+  const std::vector<TableWriteRecord<FieldEntry>> batch{
+      {0, FieldEntry{true, false}, TableWriteMode::FieldMerge, uint64_t{1}}};
+  ASSERT_TRUE(table.prepareTransactionBatch(
+      17, 9, {}, std::span<const TableWriteRecord<FieldEntry>>(batch), 2));
+  ASSERT_TRUE(table.publishPreparedBatch(17, batch, batchMerge));
+
+  constexpr std::array<size_t, 1> indexZero{0};
+  EXPECT_FALSE(table.prepareTransaction(
+      18, 10, {}, indexZero, MergeValid::fields, TableWriteMode::FieldMerge));
+  EXPECT_FALSE(table.hasPreparedWrite(18));
+
+  table.doXfer({1, 0});
+  EXPECT_TRUE(table.at(0).valid);
+  EXPECT_FALSE(table.at(0).ready);
+}
+
+TEST(QueueBlocksTest,
+     PublishedBatchFootprintsApplyStrictDynamicEndpointConflicts) {
+  SimTable<FieldEntry> table("table", 1, nullptr, 2);
+  MergeFieldEntryMask batchMerge;
+  const std::vector<TableWriteRecord<FieldEntry>> batch{
+      {0, FieldEntry{true, false}, TableWriteMode::FieldMerge, uint64_t{1}}};
+  ASSERT_TRUE(table.prepareTransactionBatch(
+      17, 9, {}, std::span<const TableWriteRecord<FieldEntry>>(batch), 2));
+  ASSERT_TRUE(table.publishPreparedBatch(17, batch, batchMerge));
+
+  EXPECT_FALSE(table.proposeWrite(10, 0, FieldEntry{false, false},
+                                  MergeValid::fields, MergeValid{}));
+  EXPECT_TRUE(table.proposeWrite(11, 0, FieldEntry{false, true},
+                                 MergeReady::fields, MergeReady{}));
+  EXPECT_TRUE(table.proposeWrite(12, 1, FieldEntry{true, false},
+                                 MergeValid::fields, MergeValid{}));
+  EXPECT_FALSE(table.proposeWrite(
+      13, 0, FieldEntry{false, false}, TableFullEntryMerge<FieldEntry>::fields,
+      TableFullEntryMerge<FieldEntry>{}, TableWriteMode::Replace));
+
+  table.doXfer({1, 0});
+  EXPECT_TRUE(table.at(0).valid);
+  EXPECT_TRUE(table.at(0).ready);
+  EXPECT_TRUE(table.at(1).valid);
+}
+
+TEST(QueueBlocksTest,
+     ExistingSingleWriterBlocksBatchWithoutConsumingTransitionInput) {
+  SimTable<FieldEntry> table("table", 1, nullptr, 1);
+  SimQueue<DynamicFieldWrite> input("input", 2, nullptr, 1);
+  QueueTableTransition<WriteMixedFieldsAtOneIndex, FieldEntry,
+                       std::tuple<DynamicFieldWrite>, std::tuple<>,
+                       MergeFieldEntryMask>
+      transition("mixed_fields", 3, nullptr, table, {&input}, {},
+                 TableWriteMode::FieldMerge);
+  ASSERT_TRUE(input.proposePush({0, true}));
+  input.doXfer({0, 0});
+  ASSERT_TRUE(table.proposeWrite(4, 0, FieldEntry{true, false},
+                                 MergeValid::fields, MergeValid{}));
+
+  transition.doWork({1, 0});
+  transition.doArbitrate({1, 0});
+
+  EXPECT_FALSE(transition.hasPendingCommit());
+  EXPECT_FALSE(table.hasPreparedWrite(transition.id()));
+  EXPECT_FALSE(input.hasPrepared(transition.id()));
+  EXPECT_EQ(input.committedSize(), 1u);
+  input.doXfer({1, 0});
+  transition.doXfer({1, 0});
+  table.doXfer({1, 0});
+  EXPECT_FALSE(input.isEmpty());
+  EXPECT_TRUE(table.at(0).valid);
+  EXPECT_FALSE(table.at(0).ready);
+}
+
 TEST(QueueBlocksTest, MixedFieldBatchStallsAtomicallyUnderOutputBackpressure) {
   SimTable<FieldEntry> table("table", 1, nullptr, 1);
   SimQueue<DynamicFieldWrite> input("input", 2, nullptr, 1);
