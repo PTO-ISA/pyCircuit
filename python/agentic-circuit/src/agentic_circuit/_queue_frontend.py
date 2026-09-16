@@ -1139,6 +1139,28 @@ class RuleStateOwnerBinding:
 
 
 @dataclass(frozen=True, slots=True)
+class RuleSlotReleaseDefinition:
+    argument: str
+    guard: ast.expr | None = None
+    guard_negated: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class RuleSlotOwnerBinding:
+    slot: str
+    argument: str
+    payload: ValueType
+
+
+@dataclass(frozen=True, slots=True)
+class RuleSlotReleaseBinding:
+    slot: str
+    argument: str
+    guard: ast.expr | None = None
+    guard_negated: bool = False
+
+
+@dataclass(frozen=True, slots=True)
 class QueueBinding:
     name: str
     payload: ValueType
@@ -1190,6 +1212,8 @@ class QueueBinding:
     rule_locals: tuple[RuleLocalBinding, ...] = ()
     rule_finds: tuple[RuleFindBinding, ...] = ()
     rule_state_owners: tuple[RuleStateOwnerBinding, ...] = ()
+    rule_slot_owners: tuple[RuleSlotOwnerBinding, ...] = ()
+    rule_slot_releases: tuple[RuleSlotReleaseBinding, ...] = ()
     rule_output_names: tuple[str, ...] = ()
     rule_output_payloads: tuple[ValueType, ...] = ()
     rule_output_expressions: tuple[ast.expr, ...] = ()
@@ -1615,6 +1639,8 @@ class RuleDefinition:
     effect_guard: ast.expr | None = None
     output_guard: ast.expr | None = None
     state_arguments: tuple[str, ...] = ()
+    slot_arguments: tuple[str, ...] = ()
+    slot_releases: tuple[RuleSlotReleaseDefinition, ...] = ()
     state_writes: tuple[RuleStateWriteDefinition, ...] = ()
     state_reads: tuple[RuleStateReadDefinition, ...] = ()
     locals: tuple[RuleLocalDefinition, ...] = ()
@@ -3252,18 +3278,43 @@ def _desugar_nested_rule_captures(
     if len(candidates) != 1:
         return tree
     function = candidates[0]
+    def declared_slot_name(statement: ast.stmt) -> str | None:
+        if not (
+            isinstance(statement, ast.Assign)
+            and len(statement.targets) == 1
+            and isinstance(statement.targets[0], ast.Name)
+            and isinstance(statement.value, ast.Call)
+            and _decorator_name(statement.value.func).rsplit(".", 1)[-1] == "slot"
+        ):
+            return None
+        return statement.targets[0].id
+
     state_order = tuple(
-        statement.target.id
+        name
         for statement in function.body
-        if isinstance(statement, ast.AnnAssign)
-        and isinstance(statement.target, ast.Name)
+        for name in (
+            (
+                statement.target.id
+                if isinstance(statement, ast.AnnAssign)
+                and isinstance(statement.target, ast.Name)
+                else declared_slot_name(statement)
+            ),
+        )
+        if name is not None
     )
     state_names = set(state_order)
     state_lines = {
-        statement.target.id: statement.lineno
+        name: statement.lineno
         for statement in function.body
-        if isinstance(statement, ast.AnnAssign)
-        and isinstance(statement.target, ast.Name)
+        for name in (
+            (
+                statement.target.id
+                if isinstance(statement, ast.AnnAssign)
+                and isinstance(statement.target, ast.Name)
+                else declared_slot_name(statement)
+            ),
+        )
+        if name is not None
     }
     untyped_module_names = {
         target.id
@@ -4479,6 +4530,15 @@ def parse_queue_program(
             raise QueueFrontendError(
                 "ACPY-RULE-001: rule decorators do not accept options"
             )
+        for candidate in ast.walk(node):
+            if (
+                isinstance(candidate, ast.Call)
+                and _decorator_name(candidate.func).rsplit(".", 1)[-1] == "slot"
+            ):
+                raise QueueFrontendError(
+                    "ACPY-SLOT-003: ac.slot must be declared in module/system "
+                    "topology, not inside an @ac.rule"
+                )
         if (
             not node.args.args
             or node.args.posonlyargs
@@ -4597,6 +4657,14 @@ def parse_queue_program(
             continue
 
         parameter_names = tuple(argument.arg for argument in node.args.args)
+        slot_parameter_names = {
+            candidate.value.id
+            for candidate in ast.walk(node)
+            if isinstance(candidate, ast.Attribute)
+            and candidate.attr == "release"
+            and isinstance(candidate.value, ast.Name)
+            and candidate.value.id in parameter_names
+        }
         multi_body = list(body)
         multi_guard: ast.expr | None = None
         multi_effect_guard: ast.expr | None = None
@@ -4634,6 +4702,14 @@ def parse_queue_program(
             and isinstance(multi_body[-1], ast.If)
             and not multi_body[-1].orelse
             and multi_return is None
+            and not (
+                slot_parameter_names
+                and any(
+                    isinstance(candidate, ast.Return)
+                    and not _is_none_return(candidate)
+                    for candidate in multi_body[-1].body
+                )
+            )
         ):
             if multi_effect_guard is not None:
                 raise QueueFrontendError(
@@ -4657,6 +4733,7 @@ def parse_queue_program(
             multi_guard = copy.deepcopy(guarded.test)
             multi_body.extend(guarded_body)
         guarded_statements: list[tuple[ast.stmt, ast.expr | None, bool]] = []
+        slot_releases: list[RuleSlotReleaseDefinition] = []
         absent_output_paths: list[ast.expr] = []
         has_branch_effects = False
         branch_condition_index = 0
@@ -4689,14 +4766,27 @@ def parse_queue_program(
             statement: ast.stmt,
             path: tuple[tuple[ast.expr, bool], ...] = (),
         ) -> None:
-            nonlocal branch_condition_index, has_branch_effects
+            nonlocal branch_condition_index, has_branch_effects, multi_return
+            nonlocal multi_output_guard
             if isinstance(statement, ast.Return):
-                if not _is_none_return(statement) or not path:
+                if not path:
                     raise QueueFrontendError(
                         "ACPY-RULE-012: branch returns may only omit one output"
                     )
                 guard, negated = branch_guard(path)
                 assert guard is not None
+                if not _is_none_return(statement):
+                    if multi_return is not None:
+                        raise QueueFrontendError(
+                            "ACPY-RULE-012: rule permits one value-returning branch"
+                        )
+                    multi_return = copy.deepcopy(statement.value)
+                    multi_output_guard = (
+                        ast.UnaryOp(op=ast.Not(), operand=guard)
+                        if negated
+                        else guard
+                    )
+                    return
                 absent_output_paths.append(
                     ast.UnaryOp(op=ast.Not(), operand=guard) if negated else guard
                 )
@@ -4783,6 +4873,28 @@ def parse_queue_program(
                 for candidate in statement.orelse:
                     flatten_branch(candidate, (*path, (condition, True)))
                 return
+            if (
+                isinstance(statement, ast.Expr)
+                and isinstance(statement.value, ast.Call)
+                and isinstance(statement.value.func, ast.Attribute)
+                and statement.value.func.attr == "release"
+                and isinstance(statement.value.func.value, ast.Name)
+                and statement.value.func.value.id in slot_parameter_names
+            ):
+                call = statement.value
+                if call.args or call.keywords:
+                    raise QueueFrontendError(
+                        "ACPY-SLOT-004: rule slot.release() takes no arguments; "
+                        "use rule control flow for its condition"
+                    )
+                guard, negated = branch_guard(path)
+                slot_releases.append(
+                    RuleSlotReleaseDefinition(
+                        call.func.value.id, guard, negated
+                    )
+                )
+                has_branch_effects = True
+                return
             guard, negated = branch_guard(path)
             guarded_statements.append((statement, guard, negated))
 
@@ -4802,6 +4914,12 @@ def parse_queue_program(
                 if len(present_terms) == 1
                 else ast.BoolOp(op=ast.And(), values=present_terms)
             )
+        if (
+            slot_releases
+            and multi_guard is None
+            and multi_output_guard is not None
+        ):
+            multi_guard = copy.deepcopy(multi_output_guard)
         state_reads: list[RuleStateReadDefinition] = []
         state_writes: list[RuleStateWriteDefinition] = []
         rule_locals: list[RuleLocalDefinition] = []
@@ -5142,6 +5260,7 @@ def parse_queue_program(
             *(read.argument for read in state_reads),
             *(find.argument for find in rule_finds),
         }
+        state_names.update(slot_parameter_names)
         state_reference_arguments = {
             candidate.value.id
             for local in rule_locals
@@ -5209,7 +5328,12 @@ def parse_queue_program(
                     "ACPY-RULE-011: branch-local value escapes its defining path"
                 )
         if rewritten_multi_guard is not None and any(
-            write.guard is not None for write in state_writes
+            write.guard is not None
+            and not (
+                guard_literals(rewritten_multi_guard, False)
+                <= guard_literals(write.guard, write.guard_negated)
+            )
+            for write in state_writes
         ):
             raise QueueFrontendError(
                 "ACPY-RULE-011: nested conditional state effects inside a "
@@ -5226,16 +5350,44 @@ def parse_queue_program(
                         and candidate.value.id in parameter_names
                     ):
                         state_names.add(candidate.value.id)
+        if (
+            rewritten_multi_return is not None
+            and rewritten_multi_output_guard is not None
+            and not guarded_statements
+            and not slot_releases
+            and set(parameter_names)
+            == {
+                candidate.value.id
+                for candidate in ast.walk(node)
+                if isinstance(candidate, ast.Attribute)
+                and candidate.attr in {"valid", "value"}
+                and isinstance(candidate.value, ast.Name)
+                and candidate.value.id in parameter_names
+            }
+        ):
+            rule_definitions[node.name] = RuleDefinition(
+                node.name,
+                (),
+                rewritten_multi_return,
+                node.lineno,
+                node.col_offset + 1,
+                output_guard=rewritten_multi_output_guard,
+                state_arguments=parameter_names,
+                slot_arguments=parameter_names,
+                output_types=annotated_single_outputs,
+            )
+            continue
         ordered_state: tuple[str, ...] = ()
         if state_names:
             last_state = max(parameter_names.index(name) for name in state_names)
             ordered_state = parameter_names[: last_state + 1]
         if (
-            valid_multi_state
+            (valid_multi_state or bool(slot_releases))
             and (
                 state_writes
                 or state_reads
                 or rule_finds
+                or slot_releases
                 or (multi_return is not None and rule_locals)
             )
             and (
@@ -5259,6 +5411,11 @@ def parse_queue_program(
             if (
                 rewritten_multi_output_guard is not None
                 and len(payload_parameters) != 1
+                and not (
+                    not payload_parameters
+                    and bool(slot_parameter_names)
+                    and set(ordered_state) == slot_parameter_names
+                )
             ):
                 raise QueueFrontendError(
                     "ACPY-RULE-012: optional output requires exactly one "
@@ -5272,6 +5429,10 @@ def parse_queue_program(
                     "ACPY-RULE-010: conditional-effect early return requires "
                     "exactly one payload parameter"
                 )
+            rewritten_slot_releases = tuple(
+                replace(release, guard=rewrite_local_loads(release.guard))
+                for release in slot_releases
+            )
             rule_definitions[node.name] = RuleDefinition(
                 node.name,
                 payload_parameters,
@@ -5282,6 +5443,10 @@ def parse_queue_program(
                 effect_guard=rewritten_multi_effect_guard,
                 output_guard=rewritten_multi_output_guard,
                 state_arguments=ordered_state,
+                slot_arguments=tuple(
+                    name for name in ordered_state if name in slot_parameter_names
+                ),
+                slot_releases=rewritten_slot_releases,
                 state_writes=tuple(state_writes),
                 state_reads=tuple(state_reads),
                 locals=tuple(rule_locals),
@@ -9451,6 +9616,28 @@ def parse_queue_program(
                         definition, call, static_prefix
                     )
                     while (
+                        definition.arguments
+                        and len(call.args) > len(definition.state_arguments)
+                        and isinstance(
+                            call.args[len(definition.state_arguments)], ast.Name
+                        )
+                        and call.args[len(definition.state_arguments)].id
+                        in slot_by_name
+                    ):
+                        slot_argument = definition.arguments[0]
+                        definition = replace(
+                            definition,
+                            state_arguments=(
+                                *definition.state_arguments,
+                                slot_argument,
+                            ),
+                            slot_arguments=(
+                                *definition.slot_arguments,
+                                slot_argument,
+                            ),
+                            arguments=definition.arguments[1:],
+                        )
+                    while (
                         (definition.state_arguments or definition.output_expressions)
                         and definition.arguments
                         and len(call.args) > len(definition.state_arguments)
@@ -9492,6 +9679,8 @@ def parse_queue_program(
                     )
                     multi_state_finds: tuple[RuleFindBinding, ...] = ()
                     multi_state_owners: tuple[RuleStateOwnerBinding, ...] = ()
+                    rule_slot_owners: tuple[RuleSlotOwnerBinding, ...] = ()
+                    rule_slot_releases: tuple[RuleSlotReleaseBinding, ...] = ()
                     multi_state_result_type: ValueType | None = None
                     if definition.state_arguments:
                         state_count = len(definition.state_arguments)
@@ -9505,21 +9694,47 @@ def parse_queue_program(
                                 "one Queue per payload parameter"
                             )
                         owners: dict[str, VarStateBinding] = {}
+                        slot_owners: dict[str, SlotBinding] = {}
                         for argument, value in zip(
                             definition.state_arguments,
                             call.args[:state_count],
                             strict=True,
                         ):
-                            if (
-                                not isinstance(value, ast.Name)
-                                or value.id not in variable_by_name
-                            ):
+                            if not isinstance(value, ast.Name):
                                 raise QueueFrontendError(
                                     "ACPY-RULE-008: persistent rule parameters "
                                     "must precede payload parameters and bind "
-                                    "persistent variables"
+                                    "persistent variables or slots"
                                 )
-                            owners[argument] = variable_by_name[value.id]
+                            if argument in definition.slot_arguments:
+                                if value.id not in slot_by_name:
+                                    raise QueueFrontendError(
+                                        "ACPY-SLOT-004: rule slot parameter must "
+                                        "bind a visible ac.slot resource"
+                                    )
+                                slot_owners[argument] = slot_by_name[value.id]
+                            else:
+                                if value.id not in variable_by_name:
+                                    raise QueueFrontendError(
+                                        "ACPY-RULE-008: persistent rule parameters "
+                                        "must precede payload parameters and bind "
+                                        "persistent variables"
+                                    )
+                                owners[argument] = variable_by_name[value.id]
+                        bound_slot_names = [
+                            owner.name for owner in slot_owners.values()
+                        ]
+                        if len(set(bound_slot_names)) != len(bound_slot_names):
+                            raise QueueFrontendError(
+                                "ACPY-SLOT-004: one rule cannot alias the same "
+                                "slot through multiple resource parameters"
+                            )
+                        for owner in slot_owners.values():
+                            if owner.scope != scope_path[: len(owner.scope)]:
+                                raise QueueFrontendError(
+                                    "ACPY-SLOT-004: rule slot parameter crosses "
+                                    "an unrelated topology scope"
+                                )
                         multi_state_owners = tuple(
                             RuleStateOwnerBinding(
                                 owner.name,
@@ -9528,6 +9743,19 @@ def parse_queue_program(
                                 owner.entries,
                             )
                             for argument, owner in owners.items()
+                        )
+                        rule_slot_owners = tuple(
+                            RuleSlotOwnerBinding(owner.name, argument, owner.payload)
+                            for argument, owner in slot_owners.items()
+                        )
+                        rule_slot_releases = tuple(
+                            RuleSlotReleaseBinding(
+                                slot_owners[release.argument].name,
+                                release.argument,
+                                copy.deepcopy(release.guard),
+                                release.guard_negated,
+                            )
+                            for release in definition.slot_releases
                         )
                         for find in definition.finds:
                             owner = owners[find.argument]
@@ -9626,6 +9854,8 @@ def parse_queue_program(
                                 else multi_state_reads[0].value_type
                                 if multi_state_reads
                                 else multi_state_writes[0].value_type
+                                if multi_state_writes
+                                else rule_slot_owners[0].payload
                             )
                     elif definition.var_argument is not None:
                         if (
@@ -9803,6 +10033,8 @@ def parse_queue_program(
                         rule_locals=multi_state_locals,
                         rule_finds=multi_state_finds,
                         rule_state_owners=multi_state_owners,
+                        rule_slot_owners=rule_slot_owners,
+                        rule_slot_releases=rule_slot_releases,
                         rule_output_names=(
                             target_names if definition.output_expressions else ()
                         ),
@@ -10172,6 +10404,21 @@ def parse_queue_program(
                     else 0
                 )
                 definition, call = specialize_rule_call(definition, call, static_prefix)
+                while (
+                    definition.arguments
+                    and len(call.args) > len(definition.state_arguments)
+                    and isinstance(
+                        call.args[len(definition.state_arguments)], ast.Name
+                    )
+                    and call.args[len(definition.state_arguments)].id in slot_by_name
+                ):
+                    slot_argument = definition.arguments[0]
+                    definition = replace(
+                        definition,
+                        state_arguments=(*definition.state_arguments, slot_argument),
+                        slot_arguments=(*definition.slot_arguments, slot_argument),
+                        arguments=definition.arguments[1:],
+                    )
                 if definition.state_arguments:
                     state_count = len(definition.state_arguments)
                     if (
@@ -10184,21 +10431,38 @@ def parse_queue_program(
                             "Queues"
                         )
                     owners: dict[str, VarStateBinding] = {}
+                    slot_owners: dict[str, SlotBinding] = {}
                     for argument, value in zip(
                         definition.state_arguments,
                         call.args[:state_count],
                         strict=True,
                     ):
-                        if (
-                            not isinstance(value, ast.Name)
-                            or value.id not in variable_by_name
-                        ):
+                        if not isinstance(value, ast.Name):
                             raise QueueFrontendError(
                                 "ACPY-RULE-008: persistent rule parameters "
                                 "must precede payload parameters and bind "
-                                "persistent variables"
+                                "persistent variables or slots"
                             )
-                        owners[argument] = variable_by_name[value.id]
+                        if argument in definition.slot_arguments:
+                            if value.id not in slot_by_name:
+                                raise QueueFrontendError(
+                                    "ACPY-SLOT-004: rule slot parameter must "
+                                    "bind a visible ac.slot resource"
+                                )
+                            slot_owners[argument] = slot_by_name[value.id]
+                        elif value.id in variable_by_name:
+                            owners[argument] = variable_by_name[value.id]
+                        else:
+                            raise QueueFrontendError(
+                                "ACPY-RULE-008: persistent rule parameters "
+                                "must bind persistent variables"
+                            )
+                    bound_slot_names = [owner.name for owner in slot_owners.values()]
+                    if len(set(bound_slot_names)) != len(bound_slot_names):
+                        raise QueueFrontendError(
+                            "ACPY-SLOT-004: one rule cannot alias the same slot "
+                            "through multiple resource parameters"
+                        )
                     for find in definition.finds:
                         owner = owners[find.argument]
                         if owner.entries == 1:
@@ -10275,7 +10539,11 @@ def parse_queue_program(
                     effect_rules.append(
                         QueueBinding(
                             f"{definition.name}__effect_{current_order}",
-                            writes[0].value_type,
+                            (
+                                writes[0].value_type
+                                if writes
+                                else next(iter(slot_owners.values())).payload
+                            ),
                             1,
                             1,
                             None if not incoming_queues else incoming_queues[0].name,
@@ -10321,6 +10589,21 @@ def parse_queue_program(
                                     owner.entries,
                                 )
                                 for argument, owner in owners.items()
+                            ),
+                            rule_slot_owners=tuple(
+                                RuleSlotOwnerBinding(
+                                    owner.name, argument, owner.payload
+                                )
+                                for argument, owner in slot_owners.items()
+                            ),
+                            rule_slot_releases=tuple(
+                                RuleSlotReleaseBinding(
+                                    slot_owners[release.argument].name,
+                                    release.argument,
+                                    copy.deepcopy(release.guard),
+                                    release.guard_negated,
+                                )
+                                for release in definition.slot_releases
                             ),
                         )
                     )
@@ -10545,9 +10828,20 @@ def parse_queue_program(
                 f"ACPY-TABLE-005: table {table.name!r} requires a read/write endpoint"
             )
     for slot in slots:
-        if not any(release.slot == slot.name for release in slot_releases):
+        standalone = sum(release.slot == slot.name for release in slot_releases)
+        transactional = sum(
+            release.slot == slot.name
+            for rule_binding in (*queues, *effect_rules)
+            for release in rule_binding.rule_slot_releases
+        )
+        if standalone + transactional == 0:
             raise QueueFrontendError(
                 f"ACPY-SLOT-002: slot {slot.name!r} requires one release endpoint"
+            )
+        if standalone + transactional != 1:
+            raise QueueFrontendError(
+                f"ACPY-SLOT-002: slot {slot.name!r} permits exactly one release "
+                "endpoint or transactional rule owner"
             )
     if not queues or (not sinks and not effect_rules):
         raise QueueFrontendError(
@@ -14957,6 +15251,10 @@ def lower_queue_program(
                     )
                     for owner in queue.rule_state_owners
                 },
+                slot_views={
+                    owner.argument: (owner.slot, owner.payload)
+                    for owner in queue.rule_slot_owners
+                },
                 enum_types=enum_types,
                 bitfields=bitfields,
                 invariants=invariants,
@@ -14992,6 +15290,11 @@ def lower_queue_program(
                 if write.index is not None:
                     rule_expressions.append(write.index)
                 rule_expressions.append(write.value)
+            rule_expressions.extend(
+                release.guard
+                for release in queue.rule_slot_releases
+                if release.guard is not None
+            )
             referenced_names = {
                 node.id
                 for expression in rule_expressions
@@ -15365,15 +15668,23 @@ def lower_queue_program(
                 emitter.lines.append(
                     f"    %{condition_result} = ac.var.constant true as !ac.var<i1>"
                 )
-            elif (
+            elif condition_result is None and (
                 output_guard_result is not None
                 or any(write.guard is not None for write in queue.rule_state_writes)
                 or multi_output_guard_results
             ):
-                condition_result = emitter._new()
-                emitter.lines.append(
-                    f"    %{condition_result} = ac.var.constant true as !ac.var<i1>"
-                )
+                if (
+                    output_guard_result is not None
+                    and not queue.rule_input_names
+                    and queue.rule_slot_owners
+                    and not queue.rule_state_writes
+                ):
+                    condition_result = output_guard_result
+                else:
+                    condition_result = emitter._new()
+                    emitter.lines.append(
+                        f"    %{condition_result} = ac.var.constant true as !ac.var<i1>"
+                    )
             index_result: str | None = None
             index_type: ValueType | None = None
             write_result: str | None = None
@@ -15447,24 +15758,26 @@ def lower_queue_program(
             ] = []
             branch_guard_results: dict[tuple[str, bool], str] = {}
 
-            def emit_state_guard(state_write: RuleStateWriteBinding) -> str | None:
-                if state_write.guard is None:
+            def emit_effect_guard(
+                guarded: RuleStateWriteBinding | RuleSlotReleaseBinding,
+            ) -> str | None:
+                if guarded.guard is None:
                     return None
-                guard_key = ast.dump(state_write.guard, include_attributes=False)
-                cache_key = (guard_key, state_write.guard_negated)
+                guard_key = ast.dump(guarded.guard, include_attributes=False)
+                cache_key = (guard_key, guarded.guard_negated)
                 cached = branch_guard_results.get(cache_key)
                 if cached is not None:
                     return cached
                 base_key = (guard_key, False)
                 base_result = branch_guard_results.get(base_key)
                 if base_result is None:
-                    base_result, base_type = emitter.emit(state_write.guard, BoolType())
+                    base_result, base_type = emitter.emit(guarded.guard, BoolType())
                     if not _is_epoch_05_bool_compatible(base_type):
                         raise QueueFrontendError(
                             "ACPY-RULE-011: branch condition must lower to bool"
                         )
                     branch_guard_results[base_key] = base_result
-                if not state_write.guard_negated:
+                if not guarded.guard_negated:
                     return base_result
                 false_value = emitter._new()
                 emitter.lines.append(
@@ -15477,6 +15790,9 @@ def lower_queue_program(
                 )
                 branch_guard_results[cache_key] = result
                 return result
+
+            def emit_state_guard(state_write: RuleStateWriteBinding) -> str | None:
+                return emit_effect_guard(state_write)
 
             def emit_state_value(state_write: RuleStateWriteBinding) -> str:
                 value, value_type = emitter.emit(
@@ -15695,6 +16011,15 @@ def lower_queue_program(
                         state_value,
                         state_write.value_type,
                     )
+            slot_release_results: list[tuple[RuleSlotReleaseBinding, str]] = []
+            for release in queue.rule_slot_releases:
+                release_guard = emit_effect_guard(release)
+                if release_guard is None:
+                    release_guard = emitter._new()
+                    emitter.lines.append(
+                        f"    %{release_guard} = ac.var.constant true as !ac.var<i1>"
+                    )
+                slot_release_results.append((release, release_guard))
             result: str | None = None
             multi_output_results: list[str] = []
             if queue.rule_has_output:
@@ -15840,6 +16165,11 @@ def lower_queue_program(
                     f"write_fields {fields} : "
                     f"!ac.var<{_render_type(index_type)}>, "
                     f"!ac.var<{_render_type(queue.payload)}>"
+                )
+            for release, release_guard in slot_release_results:
+                lines.append(
+                    f"{indent}  ac.slot.propose_release @{release.slot} when "
+                    f"%{release_guard} : !ac.var<i1>"
                 )
             if queue.rule_has_output:
                 assert result is not None

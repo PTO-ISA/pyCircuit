@@ -246,6 +246,11 @@ Follow these rules:
   zero as a total fallback.
 - Treat every `@ac.rule` as one schedulable atomic transition. Put all state
   writes and outputs that must commit together in the same rule.
+- Declare `ac.slot(queue)` only in `@ac.module` or `@ac.system` topology. Pass
+  it as a leading rule resource or capture it from a nested rule; read
+  `.valid`/`.value` and use no-argument `.release()` so Queue, state, output,
+  and Slot effects share one transaction. One Slot has one release owner,
+  although other rules may read the same committed snapshot.
 - Read committed state, compute proposals, and let the compiler publish them.
   Do not expose reservation, check, or prepare/publish mechanics in Python.
 - For a set-associative rank-two Table, write
@@ -339,6 +344,7 @@ consumer design.
 | Atomic Table replacement | `examples/agentic-circuit/state/table_rule.py` |
 | Nested module state capture | `examples/agentic-circuit/state/inferred_nested_rule.py` |
 | Reusable stateful scheduling | `examples/agentic-circuit/state/reusable_oldest_ready_isq.py` |
+| Transactional slot release from rules | `examples/agentic-circuit/state/slot_rule_mailbox.py` |
 
 Examples are product surface. Add a new public example only when it teaches a
 distinct supported pattern; use an integration fixture for broad or expensive

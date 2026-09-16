@@ -2118,6 +2118,9 @@ generateStructuredQueueGraphCpp(const QueueGraphPlan &plan) {
     const bool firingModule =
         specialization && !specialization->blocks.empty() &&
         llvm::all_of(specialization->blocks, [&](const QueueBlockPlan &block) {
+          if (block.kind == "slot")
+            return block.inputs.size() == 1 && block.outputs.empty() &&
+                   block.yields.size() == 1 && !block.slot.empty();
           return block.kind == "firing" &&
                  llvm::all_of(block.stateWrites,
                               [&](const StateWritePlan &write) {
@@ -2165,7 +2168,7 @@ generateStructuredQueueGraphCpp(const QueueGraphPlan &plan) {
     if (!specialization ||
         (!pureTransform && !conditionalTransform && !firingModule &&
          !nestedWrapper && !mixedNested) ||
-        !localShape || !specialization->slots.empty() ||
+        !localShape ||
         !specialization->memoryInstances.empty())
       return generatorError(
           "structured QueueGraph specialization requires a pure transform, "
@@ -2343,6 +2346,20 @@ generateStructuredQueueGraphCpp(const QueueGraphPlan &plan) {
         return generatorError("root activation block has no runtime object");
       return found->second;
     }
+    if (node.kind == QueueActivationNodeKind::Slot) {
+      if (node.index >= plan.slots.size())
+        return generatorError("root activation slot index is out of range");
+      const std::string &name = plan.slots[node.index].name;
+      auto block = llvm::find_if(plan.blocks, [&](const QueueBlockPlan &candidate) {
+        return candidate.kind == "slot" && candidate.slot == name;
+      });
+      if (block == plan.blocks.end())
+        return generatorError("root activation slot has no runtime object");
+      auto found = blockIds.find(&*block);
+      if (found == blockIds.end())
+        return generatorError("root activation slot block is not dispatched");
+      return found->second;
+    }
     return generatorError(
         "structured root activation contains an unsupported node kind");
   };
@@ -2436,6 +2453,23 @@ generateStructuredQueueGraphCpp(const QueueGraphPlan &plan) {
         if (node.index >= specialization.tables.size() ||
             local >= objectIds.size())
           return generatorError("activation Table index is out of range");
+        return objectIds[local];
+      }
+      if (node.kind == QueueActivationNodeKind::Slot) {
+        if (node.index >= specialization.slots.size())
+          return generatorError("activation slot index is out of range");
+        const std::string &name = specialization.slots[node.index].name;
+        auto block = llvm::find_if(
+            specialization.blocks, [&](const QueueBlockPlan &candidate) {
+              return candidate.kind == "slot" && candidate.slot == name;
+            });
+        if (block == specialization.blocks.end())
+          return generatorError("activation slot block is unresolved");
+        const uint64_t ordinal =
+            static_cast<uint64_t>(block - specialization.blocks.begin());
+        const uint64_t local = blockOffset + ordinal;
+        if (local >= objectIds.size())
+          return generatorError("activation slot object is out of range");
         return objectIds[local];
       }
       return generatorError("activation node kind is unsupported");
@@ -2604,6 +2638,15 @@ generateStructuredQueueGraphCpp(const QueueGraphPlan &plan) {
       tableMembers.push_back(
           uniqueIdentifier("state_" + table.name, usedTableMembers) + "_");
     }
+    std::vector<std::string> slotTypes;
+    llvm::StringMap<size_t> slotIndices;
+    for (auto [index, slot] : llvm::enumerate(specialization.slots)) {
+      auto type = cppType(slot.payloadType);
+      if (!type)
+        return type.takeError();
+      slotIndices[slot.name] = index;
+      slotTypes.push_back(std::move(*type));
+    }
     llvm::StringMap<std::string> portTypes;
     llvm::StringMap<std::string> portParameters =
         interfaceParameterNames(specialization);
@@ -2665,6 +2708,22 @@ generateStructuredQueueGraphCpp(const QueueGraphPlan &plan) {
     };
 
     for (auto [blockIndex, firing] : llvm::enumerate(specialization.blocks)) {
+      if (firing.kind == "slot") {
+        if (firing.yields.size() != 1)
+          return generatorError("structured slot release policy is malformed");
+        output << "struct " << policyName(blockIndex) << " {\n";
+        for (auto [slotIndex, slot] :
+             llvm::enumerate(specialization.slots))
+          output << "  const gfsim::SlotState<" << slotTypes[slotIndex]
+                 << "> *slot_" << identifier(slot.name) << "{};\n";
+        output << "  bool operator()(gfsim::Epoch epoch) const {\n";
+        auto body = emitExpressionBody(specialization, firing,
+                                       firing.yields.front(), 4, true);
+        if (!body)
+          return body.takeError();
+        output << *body << "  }\n};\n\n";
+        continue;
+      }
       const std::vector<size_t> tables = tableBindings(firing);
       const std::vector<size_t> readOnlyTables = readOnlyTableBindings(firing);
       std::vector<std::string> writeTypes;
@@ -2672,7 +2731,7 @@ generateStructuredQueueGraphCpp(const QueueGraphPlan &plan) {
         writeTypes.push_back(tableTypes[table]);
       const std::vector<std::string> inputTypes = queueTypes(firing.inputs);
       const std::vector<std::string> outputTypes = queueTypes(firing.outputs);
-      const bool oneOwner = tables.size() == 1;
+      const bool oneOwner = tables.size() == 1 && firing.slotReleases.empty();
 
       QueueBlockPlan evaluation = firing;
       std::vector<std::string> additional{firing.guard};
@@ -2737,6 +2796,13 @@ generateStructuredQueueGraphCpp(const QueueGraphPlan &plan) {
           additional.push_back(reservation->index);
         }
       }
+      for (const SlotReleaseEffectPlan &release : firing.slotReleases) {
+        if (tupleHasValue)
+          tupleResult.append(", ");
+        tupleResult.append(release.when);
+        tupleHasValue = true;
+        additional.push_back(release.when);
+      }
       tupleResult.append(", ").append(firing.guard).push_back('}');
       const std::string &primaryValue =
           !firing.stateWrites.empty() ? firing.stateWrites.front().index
@@ -2763,6 +2829,9 @@ generateStructuredQueueGraphCpp(const QueueGraphPlan &plan) {
         output << "  const gfsim::SimTable<" << tableTypes[table]
                << "> *read_table_"
                << identifier(specialization.tables[table].name) << "{};\n";
+      for (auto [slotIndex, slot] : llvm::enumerate(specialization.slots))
+        output << "  const gfsim::SlotState<" << slotTypes[slotIndex]
+               << "> *slot_" << identifier(slot.name) << "{};\n";
       output << "  std::optional<" << planType
              << "> operator()(gfsim::Epoch epoch, ";
       if (oneOwner) {
@@ -2832,6 +2901,13 @@ generateStructuredQueueGraphCpp(const QueueGraphPlan &plan) {
               reservationIndex++);
           bindingHasValue = true;
         }
+      }
+      for (size_t releaseIndex = 0; releaseIndex < firing.slotReleases.size();
+           ++releaseIndex) {
+        if (bindingHasValue)
+          output << ", ";
+        output << "slot_release_" << releaseIndex;
+        bindingHasValue = true;
       }
       output << ", rule_condition] = [&]() {\n"
              << *body << "    }();\n"
@@ -2910,6 +2986,15 @@ generateStructuredQueueGraphCpp(const QueueGraphPlan &plan) {
           }
         }
       }
+      if (!oneOwner) {
+        output << "}, {";
+        for (size_t releaseIndex = 0;
+             releaseIndex < firing.slotReleases.size(); ++releaseIndex) {
+          if (releaseIndex)
+            output << ", ";
+          output << "slot_release_" << releaseIndex;
+        }
+      }
       output << "}};\n  }\n};\n\n";
       for (auto [ownerIndex, tableIndex] : llvm::enumerate(tables)) {
         const TablePlan &table = specialization.tables[tableIndex];
@@ -2956,18 +3041,49 @@ generateStructuredQueueGraphCpp(const QueueGraphPlan &plan) {
              << "\", table_" << index << "_id, &scope_, " << *storage << ")";
     }
     for (auto [blockIndex, firing] : llvm::enumerate(specialization.blocks)) {
+      if (firing.kind == "slot") {
+        auto slotIndex = slotIndices.find(firing.slot);
+        if (slotIndex == slotIndices.end() || firing.inputs.size() != 1)
+          return generatorError("structured slot declaration is missing");
+        std::string policy = policyName(blockIndex) + "{";
+        for (size_t index = 0; index < specialization.slots.size(); ++index) {
+          if (index)
+            policy.append(", ");
+          policy.append("&slot_state_")
+              .append(std::to_string(index))
+              .append("_");
+        }
+        policy.push_back('}');
+        output << ",\n        " << firingSymbols[blockIndex] << "_(\"slot_"
+               << firing.name << "\", block_" << blockIndex
+               << "_id, &scope_, " << portParameters.lookup(firing.inputs.front())
+               << ", slot_state_" << slotIndex->getValue() << "_, " << policy
+               << ")";
+        continue;
+      }
       const std::vector<size_t> tables = tableBindings(firing);
       const std::vector<size_t> readOnlyTables = readOnlyTableBindings(firing);
       std::string policy = policyName(blockIndex) + "{";
+      bool hasPolicyMember = false;
       for (auto [index, table] : llvm::enumerate(readOnlyTables)) {
-        if (index)
+        if (hasPolicyMember)
           policy.append(", ");
         policy.append("&").append(tableMembers[table]);
+        hasPolicyMember = true;
+      }
+      for (size_t slotIndex = 0; slotIndex < specialization.slots.size();
+           ++slotIndex) {
+        if (hasPolicyMember)
+          policy.append(", ");
+        policy.append("&slot_state_")
+            .append(std::to_string(slotIndex))
+            .append("_");
+        hasPolicyMember = true;
       }
       policy.push_back('}');
       output << ",\n        " << firingSymbols[blockIndex] << "_(\"firing_"
              << firing.name << "\", block_" << blockIndex << "_id, &scope_, ";
-      if (tables.size() == 1) {
+      if (tables.size() == 1 && firing.slotReleases.empty()) {
         output << tableMembers[tables.front()] << ", ";
       } else {
         output << "std::tuple{";
@@ -3006,6 +3122,16 @@ generateStructuredQueueGraphCpp(const QueueGraphPlan &plan) {
             output << ", ";
           output << mergeName(blockIndex, index) << "{}";
         }
+        output << "}, nullptr, std::vector<gfsim::SlotReleaseResource *>{";
+        for (auto [releaseIndex, release] :
+             llvm::enumerate(firing.slotReleases)) {
+          auto slotIndex = slotIndices.find(release.slot);
+          if (slotIndex == slotIndices.end())
+            return generatorError("structured slot release is missing");
+          if (releaseIndex)
+            output << ", ";
+          output << "&slot_state_" << slotIndex->getValue() << "_";
+        }
         output << "})";
       }
     }
@@ -3028,11 +3154,23 @@ generateStructuredQueueGraphCpp(const QueueGraphPlan &plan) {
     for (auto [index, type] : llvm::enumerate(tableTypes))
       output << "  gfsim::SimTable<" << type << "> " << tableMembers[index]
              << ";\n";
+    for (auto [index, type] : llvm::enumerate(slotTypes))
+      output << "  gfsim::SlotState<" << type << "> slot_state_" << index
+             << "_;\n";
     for (auto [blockIndex, firing] : llvm::enumerate(specialization.blocks)) {
+      if (firing.kind == "slot") {
+        auto slotIndex = slotIndices.find(firing.slot);
+        if (slotIndex == slotIndices.end())
+          return generatorError("structured slot member is missing");
+        output << "  gfsim::QueueSlot<" << slotTypes[slotIndex->getValue()]
+               << ", " << policyName(blockIndex) << "> "
+               << firingSymbols[blockIndex] << "_;\n";
+        continue;
+      }
       const std::vector<size_t> tables = tableBindings(firing);
       const std::vector<std::string> inputTypes = queueTypes(firing.inputs);
       const std::vector<std::string> outputTypes = queueTypes(firing.outputs);
-      if (tables.size() == 1) {
+      if (tables.size() == 1 && firing.slotReleases.empty()) {
         output << "  gfsim::QueueTableTransition<" << policyName(blockIndex)
                << ", " << tableTypes[tables.front()] << ", "
                << tupleType(inputTypes) << ", " << tupleType(outputTypes)
@@ -4131,7 +4269,7 @@ llvm::Expected<std::string> generateQueueGraphCpp(const QueueGraphPlan &plan) {
     if (block->kind == "firing") {
       const std::vector<const TablePlan *> ownerTables =
           stateOwnerTables(plan, *block);
-      if (ownerTables.size() != 1) {
+      if (ownerTables.size() != 1 || !block->slotReleases.empty()) {
         const std::vector<const TablePlan *> readTables =
             readOnlyTables(plan, *block);
         std::vector<std::string> tableTypes;
@@ -4224,6 +4362,10 @@ llvm::Expected<std::string> generateQueueGraphCpp(const QueueGraphPlan &plan) {
             additional.push_back(reservation->index);
           }
         }
+        for (const SlotReleaseEffectPlan &release : block->slotReleases) {
+          appendTupleValue(release.when);
+          additional.push_back(release.when);
+        }
         appendTupleValue(block->guard);
         tupleResult.push_back('}');
         const std::string &primaryValue =
@@ -4260,6 +4402,13 @@ llvm::Expected<std::string> generateQueueGraphCpp(const QueueGraphPlan &plan) {
             return readType.takeError();
           output << "  const gfsim::SimTable<" << *readType << "> *read_table_"
                  << identifier(readTable->name) << "{};\n";
+        }
+        for (const SlotPlan &slot : plan.slots) {
+          auto type = cppType(slot.payloadType);
+          if (!type)
+            return type.takeError();
+          output << "  const gfsim::SlotState<" << *type << "> *slot_"
+                 << identifier(slot.name) << "{};\n";
         }
         for (const TableMatchPlan &match : plan.tableMatches)
           output << "  " << identifier(match.name) << "_cache *"
@@ -4320,6 +4469,13 @@ llvm::Expected<std::string> generateQueueGraphCpp(const QueueGraphPlan &plan) {
                                              reservationIndex++);
             bindingHasValue = true;
           }
+        }
+        for (size_t releaseIndex = 0;
+             releaseIndex < block->slotReleases.size(); ++releaseIndex) {
+          if (bindingHasValue)
+            output << ", ";
+          output << "slot_release_" << releaseIndex;
+          bindingHasValue = true;
         }
         if (bindingHasValue)
           output << ", ";
@@ -4390,6 +4546,13 @@ llvm::Expected<std::string> generateQueueGraphCpp(const QueueGraphPlan &plan) {
                        << fieldMask->count << ")";
             }
           }
+        }
+        output << "}, {";
+        for (size_t releaseIndex = 0;
+             releaseIndex < block->slotReleases.size(); ++releaseIndex) {
+          if (releaseIndex)
+            output << ", ";
+          output << "slot_release_" << releaseIndex;
         }
         output << "}};\n  }\n";
         output << "  void accepted(gfsim::Epoch epoch) {\n";
@@ -5163,6 +5326,15 @@ llvm::Expected<std::string> generateQueueGraphCpp(const QueueGraphPlan &plan) {
         policy.append("&").append(table->getValue());
         hasPolicyMember = true;
       }
+      for (auto [slotIndex, slot] : llvm::enumerate(plan.slots)) {
+        (void)slot;
+        if (hasPolicyMember)
+          policy.append(", ");
+        policy.append("&slot_")
+            .append(std::to_string(slotIndex))
+            .append("_state_");
+        hasPolicyMember = true;
+      }
       for (const TableMatchPlan &match : plan.tableMatches) {
         if (hasPolicyMember)
           policy.append(", ");
@@ -5178,7 +5350,7 @@ llvm::Expected<std::string> generateQueueGraphCpp(const QueueGraphPlan &plan) {
       policy.push_back('}');
       const std::vector<const TablePlan *> ownerTables =
           stateOwnerTables(plan, *block);
-      if (ownerTables.size() != 1) {
+      if (ownerTables.size() != 1 || !block->slotReleases.empty()) {
         std::string tables;
         std::string modes;
         std::string merges;
@@ -5201,13 +5373,28 @@ llvm::Expected<std::string> generateQueueGraphCpp(const QueueGraphPlan &plan) {
               .append(std::to_string(ownerIndex))
               .append("{}");
         }
+        std::string releaseResources;
+        for (const SlotReleaseEffectPlan &release : block->slotReleases) {
+          auto slot = llvm::find_if(plan.slots, [&](const SlotPlan &candidate) {
+            return candidate.name == release.slot;
+          });
+          if (slot == plan.slots.end())
+            return generatorError("state firing slot release is missing");
+          if (!releaseResources.empty())
+            releaseResources.append(", ");
+          releaseResources.append("&slot_")
+              .append(std::to_string(std::distance(plan.slots.begin(), slot)))
+              .append("_state_");
+        }
         appendInitializer(
             initializers, member, "(\"", instanceName, "\", ", blockIds[key],
             ", ", *parent, ", std::tuple{", tables, "}, std::tuple{", inputs,
             "}, std::tuple{", outputs, "}, ",
             ownerTables.empty() ? "std::array<gfsim::TableWriteMode, 0>{"
                                 : "std::array{",
-            modes, "}, ", policy, ", std::tuple{", merges, "})");
+            modes, "}, ", policy, ", std::tuple{", merges,
+            "}, nullptr, std::vector<gfsim::SlotReleaseResource *>{",
+            releaseResources, "})");
       } else {
         auto table = tableMembers.find(block->table);
         if (table == tableMembers.end())
@@ -5703,7 +5890,7 @@ llvm::Expected<std::string> generateQueueGraphCpp(const QueueGraphPlan &plan) {
     if (block->kind == "firing") {
       const std::vector<const TablePlan *> ownerTables =
           stateOwnerTables(plan, *block);
-      if (ownerTables.size() != 1) {
+      if (ownerTables.size() != 1 || !block->slotReleases.empty()) {
         output << "  gfsim::QueueStateTransition<" << blockSymbol(index)
                << "_policy, std::tuple<";
         for (auto [ownerIndex, table] : llvm::enumerate(ownerTables)) {

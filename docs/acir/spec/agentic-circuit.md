@@ -971,6 +971,38 @@ pre-transfer memory value. A
 write commits at Xfer. Therefore a read and write to the same address in one
 request returns old data and makes the new data visible to a later request.
 
+### Committed Slot and rule transactions
+
+`ac.slot(queue)` declares a committed one-entry mailbox in module or system
+topology. It is not a rule-local value. A rule receives a Slot as a leading
+resource parameter, or captures a module-local Slot from a nested rule; both
+forms lower to the same explicit resource binding.
+
+Within a rule, `slot.valid` and `slot.value` observe the committed snapshot and
+the no-argument `slot.release()` proposes a release on the current control-flow
+path. The canonical firing-local form is:
+
+```mlir
+ac.slot.propose_release @mailbox when %condition : !ac.var<i1>
+```
+
+The proposal is legal only directly inside `ac.rule` or `ac.firing`. Its symbol
+must resolve to a visible `ac.slot`, its predicate is exactly `!ac.var<i1>`, and
+the slot declaration must have exactly one release owner: one standalone
+`ac.slot.release` endpoint or one rule. Several rules may read the same Slot;
+one rule may conditionally release several distinct Slots.
+
+Rule lowering records every Slot read as a named activation source and every
+proposal as a named transaction resource. QueueGraph/GFSim commits selected
+Queue pops and pushes, Table or persistent-state writes, and Slot releases with
+one preflight/prepare-all/publish-all protocol. A failed output-capacity check,
+state reservation, or selected Slot reservation changes none of them.
+Successful release clears `valid` at Xfer and retains the payload. Capture is a
+separate `QueueSlot` action: a value captured in one epoch becomes visible only
+after that edge, and a Slot full at epoch start cannot release and refill on the
+same edge. Reset clears validity and all pending release state. PYC and RTL keep
+their explicit provisional-Slot rejection.
+
 ### Stateful Table
 
 Epoch `0.5` separates locally owned state from request/response memory. A
@@ -1537,7 +1569,7 @@ selection; the resulting heterogeneous state owners are carried by one
 all owner writes. Arbitrate either reserves and publishes every owner and
 selected Queue, or publishes none.
 
-`examples/agentic-circuit/state/circular_rob.py` exercises this path as a real
+`examples/agentic-circuit/state/reusable_circular_rob.py` exercises this path as a real
 four-entry circular ROB. Ordinary scalar variables hold head, tail, occupancy,
 and recovery epoch; a normal `list[RobEvent]` holds entries. Its four rules
 implement recovery, allocation, completion, and state-driven retirement. The

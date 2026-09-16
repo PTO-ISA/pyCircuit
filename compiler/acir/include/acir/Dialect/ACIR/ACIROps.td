@@ -1032,6 +1032,14 @@ def ACIR_SlotReleaseOp : ACIR_Op<"slot.release", [
   let assemblyFormat = "$slot `when` $when attr-dict";
 }
 
+def ACIR_SlotProposeReleaseOp : ACIR_Op<"slot.propose_release", [
+    DeclareOpInterfaceMethods<MemoryEffectsOpInterface>
+  ]> {
+  let arguments = (ins FlatSymbolRefAttr:$slot, ACIR_VarType:$when);
+  let hasVerifier = 1;
+  let assemblyFormat = "$slot `when` $when attr-dict `:` qualified(type($when))";
+}
+
 def ACIR_SlotYieldOp : ACIR_Op<"slot.yield", [Pure, Terminator]> {
   let arguments = (ins ACIR_VarType:$value);
   let assemblyFormat = "$value attr-dict `:` qualified(type($value))";
@@ -1060,7 +1068,9 @@ def ACIR_FeedbackYieldOp : ACIR_Op<"feedback.yield", [
   }];
 }
 
-def ACIR_ScopeOp : ACIR_Op<"scope", [SingleBlock, RecursiveMemoryEffects]> {
+def ACIR_ScopeOp : ACIR_Op<"scope", [
+    SymbolTable, SingleBlock, RecursiveMemoryEffects
+  ]> {
   let arguments = (ins SymbolNameAttr:$sym_name,
                        Variadic<ACIR_QueueType>:$inputs);
   let results = (outs Variadic<ACIR_QueueType>:$outputs);
@@ -1227,7 +1237,7 @@ def ACIR_SystemOp : ACIR_Op<"system", [Symbol]> {
 }
 
 def ACIR_ModuleOp : ACIR_Op<"module", [
-    Symbol, FunctionOpInterface, IsolatedFromAbove, SingleBlock,
+    Symbol, SymbolTable, FunctionOpInterface, IsolatedFromAbove, SingleBlock,
     RegionKindInterface, HasOnlyGraphRegion
   ]> {
   let arguments = (ins SymbolNameAttr:$sym_name,

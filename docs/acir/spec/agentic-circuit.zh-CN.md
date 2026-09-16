@@ -972,6 +972,33 @@ array。
 可执行示例：
 `pyc_memory_pipeline.py`。
 
+### Committed Slot 与 rule 事务
+
+`ac.slot(queue)` 在 module 或 system 拓扑层声明一个已提交的单 entry mailbox，不能
+在 `@ac.rule` 内声明。外部 rule 将 Slot 作为前置资源参数接收；nested rule 对
+module-local Slot 的 capture 会脱糖为相同的隐藏显式参数。
+
+rule 内的 `slot.valid` 与 `slot.value` 读取同一份 committed snapshot；无参数
+`slot.release()` 按当前控制流路径生成：
+
+```mlir
+ac.slot.propose_release @mailbox when %condition : !ac.var<i1>
+```
+
+该操作只能直接位于 `ac.rule` 或 `ac.firing`，必须引用可见 Slot，条件类型必须精确为
+`!ac.var<i1>`。每个 Slot 只能有一个 release owner：一个 standalone
+`ac.slot.release` endpoint，或一个 rule；其他 rule 可以只读同一 Slot，一个 rule
+也可以按条件释放多个不同 Slot。
+
+rule lowering 将 Slot read 记录为具名 activation source，将 proposal 记录为具名
+transaction resource。QueueGraph/GFSim 对 Queue pop/push、Table/持久状态写入和
+Slot release 执行统一的 preflight、prepare-all、publish-all；任一输出反压、状态冲突
+或选中的 Slot reservation 失败时均不改变任何资源。成功 release 在 Xfer 清除
+`valid` 并保留 payload。capture 仍由独立 `QueueSlot` 完成：本周期捕获的数据下一周期
+才可见，周期开始时为 full 的 Slot 不能在同一 edge release 并 refill。reset 清除
+valid、candidate 与 release reservation。PYC/RTL 继续明确拒绝 provisional Slot，
+不做部分 lowering。
+
 ### Stateful Table 原型
 
 epoch `0.5` 将本地状态 Table 与 request/response memory 分离。Table shape 可以是
@@ -1531,7 +1558,7 @@ assignment 在 storage selection 前仍是通用 `ac.var`；选出的异构 stat
 candidate；Arbitrate 要么一起 reserve/publish 全部 owner 与所选 Queue，要么一个也不
 publish。
 
-`examples/agentic-circuit/state/circular_rob.py` 使用这条链实现真实的四 entry circular
+`examples/agentic-circuit/state/reusable_circular_rob.py` 使用这条链实现真实的四 entry circular
 ROB。普通 scalar 保存 head、tail、occupancy 和 recovery epoch，普通
 `list[RobEvent]` 保存 entry；四个 rule 分别实现 recovery、allocation、completion 与
 state-driven retirement。生成式测试覆盖 full/empty、固定宽度 head/tail wrap、per-slot
@@ -1561,7 +1588,8 @@ def install(rob, entry, delta):
 MLIR 推导 `ready_valid_Nx1_table`，并将全部 Queue 消费、单个 Table replace 和输出
 生产闭合为一个 `ac.firing`。QueueGraph/gfsim 生成 variadic
 `QueueTableTransition`；任一输入缺失、输出反压或 Table reservation 冲突时，全部输入
-和 Table 都保持不变。可执行示例：`table_multi_input_rule.py`。
+和 Table 都保持不变。对应的可执行回归 fixture 位于
+`tests/integration/agentic-circuit/e2e/fixtures/state/table_multi_input_rule.py`。
 
 ## Observation 与 Verification
 

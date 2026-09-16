@@ -8,6 +8,8 @@
 // RUN: %not %acir_opt %t/choose-arbitrary-mask.mlir 2>&1 | %FileCheck %s --check-prefix=CHOOSE-MASK
 // RUN: %not %acir_opt %t/choose-other-table.mlir 2>&1 | %FileCheck %s --check-prefix=CHOOSE-TABLE
 // RUN: %not %acir_opt %t/two-releases.mlir 2>&1 | %FileCheck %s --check-prefix=RELEASE
+// RUN: %not %acir_opt %t/propose-release-owner.mlir 2>&1 | %FileCheck %s --check-prefix=PROPOSE-OWNER
+// RUN: %not %acir_opt %t/slot-payload-type.mlir 2>&1 | %FileCheck %s --check-prefix=SLOT-PAYLOAD
 // RUN: %not %acir_opt %t/masked-owner.mlir 2>&1 | %FileCheck %s --check-prefix=MASKED-OWNER
 // RUN: %not %acir_opt %t/write-fields-missing.mlir 2>&1 | %FileCheck %s --check-prefix=FIELDS-MISSING
 // RUN: %not %acir_opt %t/write-fields-empty.mlir 2>&1 | %FileCheck %s --check-prefix=FIELDS-EMPTY
@@ -29,6 +31,8 @@
 // CHOOSE-MASK: error: 'ac.table.choose' op candidate mask must be produced directly by ac.table.match
 // CHOOSE-TABLE: error: 'ac.table.choose' op candidate mask must come from the same Table
 // RELEASE: error: 'ac.slot' op slot requires exactly one release endpoint
+// PROPOSE-OWNER: error: 'ac.slot.propose_release' op requires direct ac.rule or ac.firing ownership
+// SLOT-PAYLOAD: error: 'ac.slot.get' op value result must match slot Queue payload
 // MASKED-OWNER: error: 'ac.table.masked_write' op mask must be produced by match on the same Table
 // FIELDS-MISSING: error: custom op 'ac.table.write' expected 'write_fields'
 // FIELDS-EMPTY: error: 'ac.table.write' op write_fields must be non-empty
@@ -174,6 +178,14 @@ builtin.module attributes {ac.contract_epoch = "0.5"} {
   ac.sink %right_output {ac.name = "right_sink"} : !ac.queue<i16>
 }
 
+//--- propose-release-owner.mlir
+builtin.module attributes {ac.contract_epoch = "0.5"} {
+  %input = ac.source depth 1 latency 1 {ac.name = "input"} : !ac.queue<i8>
+  ac.slot @bad, %input owner "/" stable_id "slot/bad" : !ac.queue<i8>
+  %true = ac.var.constant true as !ac.var<i1>
+  ac.slot.propose_release @bad when %true : !ac.var<i1>
+}
+
 //--- two-releases.mlir
 builtin.module attributes {ac.contract_epoch = "0.5"} {
   %input = ac.source depth 1 latency 1 {ac.name = "input"} : !ac.queue<i8>
@@ -186,6 +198,16 @@ builtin.module attributes {ac.contract_epoch = "0.5"} {
     %valid, %value = ac.slot.get @bad : !ac.var<i1>, !ac.var<i8>
     ac.slot.yield %valid : !ac.var<i1>
   } {ac.endpoint_path = "/release_1", ac.name = "release_1"}
+}
+
+//--- slot-payload-type.mlir
+builtin.module attributes {ac.contract_epoch = "0.5"} {
+  %input = ac.source depth 1 latency 1 {ac.name = "input"} : !ac.queue<i8>
+  ac.slot @bad, %input owner "/" stable_id "slot/bad" : !ac.queue<i8>
+  ac.slot.release @bad when {
+    %valid, %value = ac.slot.get @bad : !ac.var<i1>, !ac.var<i16>
+    ac.slot.yield %valid : !ac.var<i1>
+  } {ac.endpoint_path = "/release", ac.name = "release"}
 }
 
 //--- masked-owner.mlir

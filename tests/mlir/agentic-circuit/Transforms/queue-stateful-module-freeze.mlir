@@ -22,6 +22,10 @@ builtin.module attributes {
     selected = true
   }> : () -> ()
 
+  ac.type_scope @types {
+    ac.enum @Mode enumerants ["IDLE", "RUN"]
+  } {dlti.dl_spec = #dlti.dl_spec<!ac.enum<@types::@Mode> = {abi_alignment = 1 : i64, endianness = "little", preferred_alignment = 1 : i64, size = 1 : i64}>}
+
   ac.module @Accumulator(%input: !ac.queue<i8>) -> (!ac.queue<i8>)
       parameters {} graph {
     %output = ac.scope @logic(%input) {
@@ -33,6 +37,7 @@ builtin.module attributes {
       ^bb0(%item: !ac.var<i8>):
         %index = ac.var.constant 0 : i1 as !ac.var<i1>
         %old = ac.table.get @sum[%index] : !ac.var<i1> -> !ac.var<i8>
+        %run = ac.var.enum @types::@Mode "RUN" : !ac.var<!ac.enum<@types::@Mode>>
         %value = ac.var.add %old, %item : !ac.var<i8>
         %enabled = ac.var.constant true as !ac.var<i1>
         ac.firing.condition %enabled : !ac.var<i1>
@@ -102,6 +107,7 @@ builtin.module attributes {
 // PLAN-SAME: "specialization":"[[PLAN_SPECIALIZATION]]"
 // PLAN-SAME: "module_specializations":[{
 // PLAN-SAME: "activation_edges":[
+// PLAN-SAME: "kind":"enum_constant"
 // PLAN-SAME: "kind":"firing"
 // PLAN-SAME: "definition":"Accumulator"
 // PLAN-SAME: "tables":[{"axis_widths":[1],"entries":1

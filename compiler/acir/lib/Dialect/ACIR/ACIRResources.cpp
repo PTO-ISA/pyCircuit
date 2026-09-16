@@ -362,6 +362,12 @@ void SlotReleaseOp::getEffects(
                        StorageStateResource::get());
 }
 
+void SlotProposeReleaseOp::getEffects(
+    SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
+  effects.emplace_back(MemoryEffects::Write::get(),
+                       StorageStateResource::get());
+}
+
 void EventQueueOp::getEffects(
     SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
   effects.emplace_back(
