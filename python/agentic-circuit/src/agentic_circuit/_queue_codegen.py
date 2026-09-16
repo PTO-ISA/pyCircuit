@@ -14,16 +14,16 @@ from _pycircuit_semantics import (
 )
 
 from ._queue_compiler.errors import QueueFrontendError
-from ._queue_compiler.syntax import _decorator_name
-from ._queue_frontend import (
+from ._queue_compiler.model import (
     CollectionBinding,
     Payload,
     QueueBinding,
     QueueProgram,
     StaticQueueCollection,
     TableBinding,
-    parse_queue_program,
 )
+from ._queue_compiler.syntax import _decorator_name
+from ._queue_frontend import parse_queue_program
 
 
 def _cpp_type(value_type: ValueType) -> str:

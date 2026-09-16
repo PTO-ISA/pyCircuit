@@ -26,7 +26,7 @@ from ._static_eval import FrozenMap, StaticValue, static_json_value
 from ._types import Static
 
 if TYPE_CHECKING:
-    from ._queue_frontend import QueueProgram
+    from ._queue_compiler.model import QueueProgram
 
 
 def _native_queue_tool(name: str, environment: str) -> Path:
