@@ -1322,9 +1322,18 @@ replacement. `local.field = value` is normalized to
 `local = local.with_fields(field=value)`. When the base is a persistent scalar,
 that rebinding becomes the owner's next-state proposal. For an indexed Table,
 `entries[index].field = value` evaluates `index` exactly once and proposes the
-equivalent complete-entry replacement. Later serial local or scalar-state
-assignments read the latest SSA proposal, while committed state remains
-unchanged until the complete rule transaction commits.
+equivalent field update. A direct update, or an explicit
+`entries[index] = old.with_fields(...)`, emits `mode "field"` only when the
+`with_fields` chain is provably rooted in a read of the same Table at the
+AST-equivalent index. Otherwise it remains a complete `replace`. Field names
+are canonicalized in Entry declaration order. Consecutive updates of the same
+target in one basic block form one proposal; repeated fields keep the last
+value. Explicit serial indexed assignments remain ordered proposals and may
+carry different field schemas. Each branch is combined independently. Updates that mix the enclosing
+block with a branch for the same target fail with `ACPY-RULE-011` in this
+slice. Later serial local or scalar-state assignments read the latest SSA
+proposal, while every Table read observes tick-start committed state until the
+complete rule transaction commits.
 
 This syntax never mutates an object in place. Updating a local copied from
 persistent state does not implicitly write the owner back, and Queue payloads
@@ -1465,11 +1474,14 @@ Generated gfsim evaluates one Work candidate and prepares only the selected
 effects; the input and every selected state owner still publish through one
 atomic group. If complementary arms assign the same scalar or the same indexed
 lexical target, the compiler joins the value and, when needed, the index with
-typed `ac.var.select`. If one selected path writes several distinct entries of
-the same Table, those proposals remain an ordered owner-local batch.
-`ACDataFlowAnalyzer` and QueueGraph require every same-owner pair to have
-disjoint index domains or structurally mutually exclusive predicates. Each
-authored index retains the existing exact-width/full-domain safety proof. A
+typed `ac.var.select`. If one selected path writes several entries of the same
+Table, those proposals remain an ordered owner-local batch. `ACDataFlowAnalyzer`
+and QueueGraph require every same-owner pair to have disjoint index domains,
+structurally mutually exclusive predicates, or two field-mode footprints with
+disjoint field sets. Each proposal independently retains its index, value,
+presence, mode, and canonical fields. A possible same-field overlap, or a
+replace with another possible same-index write, remains rejected. Each authored
+index retains the existing exact-width/full-domain safety proof. A
 branch value that depends on another branch-written owner remains rejected
 until general state joins are available.
 
@@ -1605,8 +1617,14 @@ multiple persistent owners and may return zero, one, optional, or several typed
 payloads. Dynamic indices require compiler proof for the complete accessed
 domain; constant and multidimensional coordinates must be in range.
 
-The frontend emits firing-local `ac.table.propose`. Separate MLIR passes infer
-every input consume, the output produce, and the Table replace effect;
+The frontend emits firing-local `ac.table.propose`. Proven same-owner,
+same-index immutable patches carry `mode "field"` and their exact canonical
+`write_fields`; unproven values carry `mode "replace"` and the complete Entry
+field set. Local aliases, safe value selection, and closed pure-helper return
+summaries participate in the same proof; ordinary and `@ac.inline` helpers,
+system Tables, and module-local Tables therefore produce the same footprint
+when their provenance is equivalent. Separate MLIR passes infer every input consume, the output produce,
+and the Table effect;
 materialize `ready_valid_Nx1_table`; infer lexical priority and typed state
 footprints; discharge every marker; and retain the result as stateful
 `ac.firing`. QueueGraph lowers the closed firing to the typed gfsim transition

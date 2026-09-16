@@ -2500,19 +2500,59 @@ TEST(QueueGraphPlanTest,
   ASSERT_TRUE(bool(generated)) << llvm::toString(generated.takeError());
   llvm::StringRef source(*generated);
   const size_t first =
-      source.find("state_cursor_writes.emplace_back(static_cast<size_t>("
-                  "state_cursor_index), state_cursor_next)");
+      source.find("state_cursor_writes.emplace_back(gfsim::TableWriteRecord<"
+                  "gfsim::UInt<8>>{static_cast<size_t>("
+                  "state_cursor_index), state_cursor_next,");
   const size_t second =
-      source.find("state_cursor_writes.emplace_back(static_cast<size_t>("
-                  "state_cursor_2_index), state_cursor_2_next)");
+      source.find("state_cursor_writes.emplace_back(gfsim::TableWriteRecord<"
+                  "gfsim::UInt<8>>{static_cast<size_t>("
+                  "state_cursor_2_index), state_cursor_2_next,");
   ASSERT_NE(first, llvm::StringRef::npos);
   ASSERT_NE(second, llvm::StringRef::npos);
   EXPECT_LT(first, second);
-  EXPECT_NE(source.find("state_total_writes.emplace_back(static_cast<size_t>("
-                        "state_total_index), state_total_next)"),
+  EXPECT_NE(source.find("state_total_writes.emplace_back("
+                        "gfsim::TableWriteRecord<gfsim::UInt<8>>{"
+                        "static_cast<size_t>("
+                        "state_total_index), state_total_next,"),
             llvm::StringRef::npos);
   EXPECT_NE(source.find("std::move(state_cursor_writes), "
                         "std::move(state_total_writes)"),
+            llvm::StringRef::npos);
+  expectCppCompiles(*generated);
+}
+
+TEST(QueueGraphPlanTest,
+     AcceptsAndGeneratesOneOwnerBatchWithMixedFieldSchemas) {
+  mlir::MLIRContext context;
+  context.loadDialect<ac::ACIRDialect, mlir::DLTIDialect>();
+  auto module = mlir::parseSourceFile<mlir::ModuleOp>(
+      ACIR_TEST_SOURCE_DIR "/tests/mlir/agentic-circuit/Transforms/"
+                           "firing-field-write.mlir",
+      &context);
+  ASSERT_TRUE(module);
+  auto plan = buildQueueGraphPlan(*module);
+  ASSERT_TRUE(bool(plan)) << llvm::toString(plan.takeError());
+  std::vector<QueueBlockPlan *> firings;
+  for (QueueBlockPlan &block : plan->blocks)
+    if (block.kind == "firing")
+      firings.push_back(&block);
+  ASSERT_EQ(firings.size(), 2u);
+  ASSERT_EQ(firings[0]->stateWrites.size(), 1u);
+  ASSERT_EQ(firings[1]->stateWrites.size(), 1u);
+
+  StateWritePlan ready = firings[1]->stateWrites.front();
+  firings[0]->stateWrites.push_back(ready);
+  firings[1]->stateWrites.front().fields = {"tag"};
+  EXPECT_FALSE(bool(verifyQueueGraphPlan(*plan)));
+
+  auto generated = generateQueueGraphCpp(*plan);
+  ASSERT_TRUE(bool(generated)) << llvm::toString(generated.takeError());
+  llvm::StringRef source(*generated);
+  EXPECT_NE(source.find("gfsim::TableWriteMode::FieldMerge, std::uint64_t{1}"),
+            llvm::StringRef::npos);
+  EXPECT_NE(source.find("gfsim::TableWriteMode::FieldMerge, std::uint64_t{2}"),
+            llvm::StringRef::npos);
+  EXPECT_NE(source.find("static constexpr size_t fieldCount = 3"),
             llvm::StringRef::npos);
   expectCppCompiles(*generated);
 }
@@ -3645,17 +3685,21 @@ TEST(QueueGraphPlanTest, FlatGeneratorPreservesOrderedRepeatedWritesPerOwner) {
   auto generated = generateQueueGraphCpp(*plan);
   ASSERT_TRUE(bool(generated)) << llvm::toString(generated.takeError());
   llvm::StringRef source(*generated);
-  const size_t first = source.find(
-      "state_table_writes.emplace_back(static_cast<size_t>(state_table_index), "
-      "state_table_next)");
+  const size_t first =
+      source.find("state_table_writes.emplace_back(gfsim::TableWriteRecord<"
+                  "gfsim::UInt<8>>{static_cast<size_t>(state_table_index), "
+                  "state_table_next,");
   const size_t second =
-      source.find("state_table_writes.emplace_back(static_cast<size_t>("
-                  "state_table_2_index), state_table_2_next)");
+      source.find("state_table_writes.emplace_back(gfsim::TableWriteRecord<"
+                  "gfsim::UInt<8>>{static_cast<size_t>("
+                  "state_table_2_index), state_table_2_next,");
   ASSERT_NE(first, llvm::StringRef::npos);
   ASSERT_NE(second, llvm::StringRef::npos);
   EXPECT_LT(first, second);
-  EXPECT_NE(source.find("state_shadow_writes.emplace_back(static_cast<size_t>("
-                        "state_shadow_index), state_shadow_next)"),
+  EXPECT_NE(source.find("state_shadow_writes.emplace_back("
+                        "gfsim::TableWriteRecord<gfsim::UInt<8>>{"
+                        "static_cast<size_t>(state_shadow_index), "
+                        "state_shadow_next,"),
             llvm::StringRef::npos);
   EXPECT_NE(source.find("std::move(state_table_writes), "
                         "std::move(state_shadow_writes)"),

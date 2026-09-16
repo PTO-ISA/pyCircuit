@@ -1,0 +1,14 @@
+/home/lc/.codex/skills/pyc6/scripts/run.sh python -m unittest tests/python/agentic-circuit/python_frontend/test_rule_field_assignment.py
+/home/lc/.codex/skills/pyc6/scripts/run.sh python -m unittest discover -s tests/python/agentic-circuit/python_frontend -p 'test_*.py'
+/home/lc/.codex/skills/pyc6/scripts/run.sh python -m unittest discover -s tests/python/agentic-circuit/contracts -p 'test_*.py'
+/home/lc/.codex/skills/pyc6/scripts/run.sh cmake --build /home/lc/pyCircuit/.pycircuit_out/local-clang22/build --target acir-opt-internal
+/home/lc/.codex/skills/pyc6/scripts/run.sh python /home/lc/opt/agentic-circuit-toolchain/python-env/bin/lit -sv /home/lc/pyCircuit/.pycircuit_out/local-clang22/build/compiler/acir/tests/mlir/ACIR/writer-arbitration.mlir
+/home/lc/.codex/skills/pyc6/scripts/run.sh python /home/lc/opt/agentic-circuit-toolchain/python-env/bin/lit -sv /home/lc/pyCircuit/.pycircuit_out/local-clang22/build/compiler/acir/tests/mlir/Transforms/variable-module-field-state-lowering.mlir
+/home/lc/.codex/skills/pyc6/scripts/run.sh lit -sv --filter='writer-arbitration|variable-module-field-state-lowering' /home/lc/pyCircuit/.pycircuit_out/local-clang22/build/compiler/acir/tests/mlir
+/home/lc/.codex/skills/pyc6/scripts/run.sh cmake --build /home/lc/pyCircuit/.pycircuit_out/local-clang22/build --target check-acir
+/home/lc/.codex/skills/pyc6/scripts/run.sh python -m unittest discover -s tests/integration/agentic-circuit/e2e -p 'test_table_backend.py'
+/home/lc/.codex/skills/pyc6/scripts/run.sh python -m unittest discover -s tests/integration/agentic-circuit/e2e -p 'test_table_pyc_parity.py'
+/home/lc/.codex/skills/pyc6/scripts/run.sh bash flows/scripts/run_agentic_circuit.sh
+/home/lc/.codex/skills/pyc6/scripts/run.sh pre-commit run --files <changed-files>
+/home/lc/.codex/skills/pyc6/scripts/run.sh mkdocs build --strict
+/home/lc/.codex/skills/pyc6/scripts/run.sh python flows/tools/check_decision_status.py --rfc docs/rfcs/pyc6-decisions.md --status docs/gates/decision_status_v6.md --out docs/gates/logs/20260915-issue129-static-field-writes/decision_status_report.json --require-no-deferred --require-all-verified --require-concrete-evidence --require-existing-evidence

@@ -223,7 +223,9 @@
         "compiler/mlir/lib/Transforms/EliminateWiresPass.cpp"
       ],
       "cpp_emitter": "compiler/mlir/lib/Emit/CppEmitter.cpp",
-      "e2e": [],
+      "e2e": [
+        "tests/integration/agentic-circuit/e2e/test_table_backend.py"
+      ],
       "examples": [],
       "folder": null,
       "kind": "operation",
@@ -249,6 +251,7 @@
       "symbol": "PYC_AssignOp",
       "tests": [
         "tests/cpp/agentic-circuit/CodeGen/QueueGraphPlanTest.cpp",
+        "tests/integration/agentic-circuit/e2e/test_table_backend.py",
         "tests/mlir/agentic-circuit/CodeGen/atomic-transform.mlir",
         "tests/mlir/agentic-circuit/CodeGen/pure-helpers.mlir",
         "tests/mlir/agentic-circuit/CodeGen/table-multi-selection-pyc.mlir",

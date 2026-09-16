@@ -99,6 +99,19 @@ aggregate contract。它们按 descriptor/source 顺序、MSB-first 打包成一
 elaboration-time Python list 也不构成 PYC 向量值；Agentic Circuit 的 indexed
 persistent state 必须显式声明为 `ac.table`。
 
+Rule 对显式 Table 的顶层字段赋值使用静态 footprint：
+`entries[index].field = value`，以及可证明由同一 Table、同一 AST 等价 index 的 committed
+read 生成的 `old.with_fields(...)`，会降低为 `ac.table.propose mode "field"`。字段集合按
+Entry 声明顺序规范化；同一基本块的连续更新合并并对重复字段采用最后一次值。不能证明
+来源、不同 owner/index、input-rooted 值和完整 Entry 赋值保持 `mode "replace"`。每条
+proposal 独立保留 index、presence、mode 与字段集合；同一 firing 可按源码顺序包含不同字段
+schema。索引可证不同、presence 可证互斥，或同为 field mode 且字段集合不相交时可共存；
+潜在同字段重叠以及 replace 与其他潜在同 index 写入继续 fail closed。普通 helper、
+`@ac.inline` helper、system Table 与 module-local Table 使用相同的来源证明。每条 rule 读取
+tick-start state，提交时同一 Entry 的不相交字段原子合并。普通 Python
+list 始终只是静态 elaboration collection，不参与该状态语义。动态 disjoint assertion 和
+运行时 conflict obligation 不属于当前切片。
+
 ### Wire[DT] —— 标量信号句柄
 
 `Wire` 只承载一个标量 `Bits`、`Clock` 或 `Reset`。算术、逻辑、比较、

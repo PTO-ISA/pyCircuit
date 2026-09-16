@@ -40,6 +40,6 @@ module attributes {ac.contract_epoch = "0.5", ac.model_kind = "queue_graph", ac.
 
 // GFSIM: gfsim::OwnerWriteBatch<gfsim::UInt<8>> state_left_writes;
 // GFSIM: if (state_left_write_present)
-// GFSIM: state_left_writes.emplace_back(static_cast<size_t>(state_left_index), state_left_next);
+// GFSIM: state_left_writes.emplace_back(gfsim::TableWriteRecord<gfsim::UInt<8>>{static_cast<size_t>(state_left_index), state_left_next, gfsim::TableWriteMode::Replace, std::uint64_t{1}});
 // GFSIM: gfsim::OwnerWriteBatch<gfsim::UInt<8>> state_right_writes;
 // GFSIM: if (state_right_write_present)

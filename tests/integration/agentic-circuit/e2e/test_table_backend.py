@@ -128,7 +128,9 @@ class TableBackendTest(unittest.TestCase):
                         check=False,
                     )
                     self.assertNotEqual(0, rejected.returncode)
-                    self.assertIn("Slot PYC lowering is not implemented", rejected.stderr)
+                    self.assertIn(
+                        "Slot PYC lowering is not implemented", rejected.stderr
+                    )
             for variant, model_text in generated:
                 self.assertEqual(1, model_text.count("gfsim::TableWriteMode::Replace"))
                 with tempfile.TemporaryDirectory() as directory:
@@ -466,6 +468,144 @@ int main() {{
                     (str(executable),), cwd=root, capture_output=True, check=False
                 )
                 self.assertEqual(0, executed.returncode, executed.stderr)
+
+    def test_one_firing_mixed_field_writes_merge_same_entry_in_native_cpp(
+        self,
+    ) -> None:
+        compiler = shutil.which("c++")
+        if compiler is None:
+            self.skipTest("C++ compiler is unavailable")
+
+        from agentic_circuit._queue_frontend import lower_queue_source
+
+        source_path = FIXTURE_ROOT / "table_rule_field_merge.py"
+        text = source_path.read_text(encoding="utf-8")
+        acir = lower_queue_source(text, "table_rule_field_merge")
+        self.assertIn('mode "field" write_fields ["admitted"]', acir)
+        self.assertIn('mode "field" write_fields ["src_ready"]', acir)
+        self.assertNotIn('mode "replace"', acir)
+
+        cxxgen = Path(
+            os.environ.get(
+                "ACIR_QUEUE_CXXGEN",
+                ROOT / ".pycircuit_out/acir/dev-llvm22/bin/acir-queue-cxxgen",
+            )
+        )
+        plan_tool = Path(
+            os.environ.get(
+                "ACIR_QUEUE_PLAN",
+                ROOT / ".pycircuit_out/acir/dev-llvm22/bin/acir-queue-plan",
+            )
+        )
+        pycgen = Path(
+            os.environ.get(
+                "ACIR_QUEUE_PYCGEN",
+                ROOT / ".pycircuit_out/acir/dev-llvm22/bin/acir-queue-pycgen",
+            )
+        )
+        if not cxxgen.is_file() or not plan_tool.is_file() or not pycgen.is_file():
+            self.skipTest("QueueGraph native tools are unavailable")
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            frozen = self.freeze_acir(root, "rule_field_merge", acir)
+            planned = subprocess.run(
+                (str(plan_tool), str(frozen)),
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(0, planned.returncode, planned.stderr)
+            document = json.loads(planned.stdout)
+            writes = [
+                write for block in document["blocks"] for write in block["state_writes"]
+            ]
+            self.assertEqual(["field", "field"], [item["mode"] for item in writes])
+            self.assertEqual(
+                [["admitted"], ["src_ready"]],
+                [item["fields"] for item in writes],
+            )
+            native = subprocess.run(
+                (str(cxxgen), str(frozen)),
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(0, native.returncode, native.stderr)
+            self.assertEqual(2, native.stdout.count("gfsim::TableWriteRecord<Entry>"))
+            self.assertIn("std::uint64_t{1}", native.stdout)
+            self.assertIn("std::uint64_t{2}", native.stdout)
+            pyc = subprocess.run(
+                (str(pycgen), str(frozen)),
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(0, pyc.returncode, pyc.stderr)
+            self.assertIn("pyc.assign", pyc.stdout)
+            self.assertNotIn("ac.table", pyc.stdout)
+
+            model = root / "table_rule_field_merge.cpp"
+            harness = root / "harness.cpp"
+            executable = root / "rule_field_merge"
+            model.write_text(native.stdout, encoding="utf-8")
+            harness.write_text(
+                f"""#include "{model.name}"
+#include <cstddef>
+
+int main() {{
+  ac_generated::TableRuleFieldMerge model;
+  auto *entries = dynamic_cast<gfsim::SimTable<ac_generated::Entry> *>(
+      model.findChild("entries"));
+  if (!entries || !entries->initializeEntry(
+          2, ac_generated::Entry{{false, false, 7}}))
+    return 1;
+  if (!model.updates().proposePush(ac_generated::Update{{2}}))
+    return 2;
+  auto rows = model.dispatch_rows();
+  for (std::size_t tick = 0; tick < 16; ++tick) {{
+    const gfsim::Epoch epoch{{tick, 0}};
+    for (auto &row : rows)
+      row.work(row.object, epoch);
+    for (auto &row : rows)
+      row.xfer(row.object, epoch, gfsim::XferPhase::Arbitrate);
+    for (auto &row : rows)
+      row.xfer(row.object, epoch, gfsim::XferPhase::Commit);
+  }}
+  const auto &merged = entries->at(2);
+  if (!merged.admitted || !merged.src_ready || merged.tag != 7)
+    return 3;
+  for (std::size_t index = 0; index < entries->size(); ++index) {{
+    if (index == 2)
+      continue;
+    const auto &entry = entries->at(index);
+    if (entry.admitted || entry.src_ready || entry.tag != 0)
+      return 4;
+  }}
+  return 0;
+}}
+""",
+                encoding="utf-8",
+            )
+            compiled = subprocess.run(
+                (
+                    compiler,
+                    "-std=c++20",
+                    "-I",
+                    str(ROOT / "simulator/gfsim/include"),
+                    str(harness),
+                    "-o",
+                    str(executable),
+                ),
+                cwd=root,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(0, compiled.returncode, compiled.stderr)
+            executed = subprocess.run(
+                (str(executable),), cwd=root, capture_output=True, check=False
+            )
+            self.assertEqual(0, executed.returncode, executed.stderr)
 
     def test_batch_wakeup_example_generates_both_cpp_paths(self) -> None:
         compiler = shutil.which("c++")

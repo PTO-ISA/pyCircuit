@@ -1019,6 +1019,13 @@ template <typename Entry> struct TableFullEntryMerge {
 
 enum class TableWriteMode : uint8_t { FieldMerge, Replace };
 
+template <typename Entry> struct TableWriteRecord {
+  size_t index = 0;
+  Entry value{};
+  TableWriteMode mode = TableWriteMode::FieldMerge;
+  uint64_t fieldMask = 0;
+};
+
 struct StateReservation {
   static constexpr size_t sparseCapacity = 8;
   uint64_t wholeEntries = 0;
@@ -1771,6 +1778,81 @@ public:
     return true;
   }
 
+  template <typename Record>
+  bool canPrepareTransactionBatch(CommitGroupId group, ObjectId writerId,
+                                  StateReservation snapshot,
+                                  std::span<const Record> writes,
+                                  size_t fieldCount) const {
+    if (group == kInvalidCommitGroupId || prepared_.contains(group) ||
+        writerHasProposal(writerId) || !snapshot.within(size()) ||
+        fieldCount == 0 || fieldCount > 64)
+      return false;
+    auto footprints = makeBatchFootprints(writes, fieldCount);
+    if (!footprints)
+      return false;
+    return !snapshotConflictsWithPending(snapshot) &&
+           !snapshotConflictsWithPrepared(snapshot) &&
+           !batchConflictsWithPending(*footprints) &&
+           !batchConflictsWithPrepared(*footprints);
+  }
+
+  template <typename Record>
+  bool prepareTransactionBatch(CommitGroupId group, ObjectId writerId,
+                               StateReservation snapshot,
+                               std::span<const Record> writes,
+                               size_t fieldCount) {
+    if (!canPrepareTransactionBatch(group, writerId, snapshot, writes,
+                                    fieldCount))
+      return false;
+    PreparedProposal proposal;
+    proposal.writerId = writerId;
+    proposal.snapshot = snapshot;
+    proposal.footprints = *makeBatchFootprints(writes, fieldCount);
+    proposal.hasWrite = !proposal.footprints.empty();
+    prepared_.emplace(group, std::move(proposal));
+    return true;
+  }
+
+  template <typename Merge>
+  bool publishPreparedBatch(CommitGroupId group,
+                            std::vector<TableWriteRecord<Entry>> writes,
+                            const Merge &merge) {
+    auto prepared = prepared_.find(group);
+    if (prepared == prepared_.end() ||
+        prepared->second.footprints.size() != writes.size())
+      return false;
+    for (size_t index = 0; index < writes.size(); ++index) {
+      const WriteFootprint &footprint = prepared->second.footprints[index];
+      if (footprint.indices.size() != 1 ||
+          footprint.indices.front() != writes[index].index ||
+          footprint.mode != writes[index].mode)
+        return false;
+      uint64_t mask = 0;
+      for (size_t field : footprint.fields)
+        mask |= uint64_t{1} << field;
+      if (mask != writes[index].fieldMask)
+        return false;
+    }
+    PendingProposal proposal;
+    proposal.batchValues = std::move(writes);
+    proposal.footprints = std::move(prepared->second.footprints);
+    proposal.group = group;
+    proposal.batchMergeContext = &merge;
+    proposal.batchMerge = [](const void *context, Entry &target,
+                             const Entry &value, uint64_t mask) {
+      const Merge &policy = *static_cast<const Merge *>(context);
+      if constexpr (std::invocable<const Merge &, Entry &, const Entry &,
+                                   uint64_t>)
+        std::invoke(policy, target, value, mask);
+      else
+        std::invoke(policy, target, value);
+    };
+    const ObjectId writerId = prepared->second.writerId;
+    prepared_.erase(prepared);
+    pending_.emplace(writerId, std::move(proposal));
+    return true;
+  }
+
   template <typename Merge>
   bool publishPreparedWrite(CommitGroupId group,
                             std::vector<std::pair<size_t, Entry>> values,
@@ -1839,6 +1921,10 @@ public:
         touchedIndices.insert(touchedIndices.end(),
                               proposal.footprint.indices.begin(),
                               proposal.footprint.indices.end());
+        for (const WriteFootprint &footprint : proposal.footprints)
+          touchedIndices.insert(touchedIndices.end(),
+                                footprint.indices.begin(),
+                                footprint.indices.end());
       }
       std::sort(touchedIndices.begin(), touchedIndices.end());
       touchedIndices.erase(
@@ -1851,7 +1937,11 @@ public:
       // A Table without semantic equality remains correct and conservative.
       // Any published value is treated as a change for activation purposes.
       lastCommitChanged_ = std::ranges::any_of(pending_, [](const auto &item) {
-        return !item.second.footprint.indices.empty();
+        return !item.second.footprint.indices.empty() ||
+               std::ranges::any_of(item.second.footprints,
+                                   [](const WriteFootprint &footprint) {
+                                     return !footprint.indices.empty();
+                                   });
       });
     }
     // Every proposal was computed from the same committed snapshot during
@@ -1862,6 +1952,19 @@ public:
          {TableWriteMode::FieldMerge, TableWriteMode::Replace})
       for (const auto &[writerId, proposal] : pending_) {
         (void)writerId;
+        if (!proposal.batchValues.empty()) {
+          for (const TableWriteRecord<Entry> &write : proposal.batchValues) {
+            if (write.mode != mode)
+              continue;
+            if (mode == TableWriteMode::Replace)
+              committed_[write.index] = write.value;
+            else
+              proposal.batchMerge(proposal.batchMergeContext,
+                                  committed_[write.index], write.value,
+                                  write.fieldMask);
+          }
+          continue;
+        }
         if (proposal.footprint.mode != mode)
           continue;
         auto commitValue = [&](size_t index, const Entry &value) {
@@ -1923,15 +2026,49 @@ private:
     std::vector<std::pair<size_t, Entry>> values;
     std::optional<std::pair<size_t, Entry>> singleValue;
     WriteFootprint footprint;
+    std::vector<TableWriteRecord<Entry>> batchValues;
+    std::vector<WriteFootprint> footprints;
     std::optional<CommitGroupId> group;
     std::function<void(Entry &, const Entry &)> merge;
+    const void *batchMergeContext = nullptr;
+    void (*batchMerge)(const void *, Entry &, const Entry &, uint64_t) =
+        nullptr;
   };
   struct PreparedProposal {
     ObjectId writerId = kInvalidObjectId;
     StateReservation snapshot;
     WriteFootprint footprint;
+    std::vector<WriteFootprint> footprints;
     bool hasWrite = false;
   };
+
+  template <typename Record>
+  std::optional<std::vector<WriteFootprint>>
+  makeBatchFootprints(std::span<const Record> writes,
+                      size_t fieldCount) const {
+    std::vector<WriteFootprint> footprints;
+    footprints.reserve(writes.size());
+    const uint64_t validMask =
+        fieldCount == 64 ? ~uint64_t{0} : (uint64_t{1} << fieldCount) - 1;
+    for (const Record &write : writes) {
+      if (write.index >= committed_.size() || write.fieldMask == 0 ||
+          (write.fieldMask & ~validMask) != 0)
+        return std::nullopt;
+      std::vector<size_t> fields;
+      for (size_t field = 0; field < fieldCount; ++field)
+        if ((write.fieldMask & (uint64_t{1} << field)) != 0)
+          fields.push_back(field);
+      if (write.mode == TableWriteMode::Replace && write.fieldMask != validMask)
+        return std::nullopt;
+      footprints.push_back(
+          WriteFootprint{{write.index}, std::move(fields), write.mode});
+    }
+    for (size_t right = 1; right < footprints.size(); ++right)
+      for (size_t left = 0; left < right; ++left)
+        if (strictFootprintsConflict(footprints[left], footprints[right]))
+          return std::nullopt;
+    return footprints;
+  }
 
   template <typename Values>
   std::optional<WriteFootprint> makeFootprint(const Values &values,
@@ -1992,6 +2129,47 @@ private:
     return false;
   }
 
+  static bool strictFootprintsConflict(const WriteFootprint &left,
+                                       const WriteFootprint &right) {
+    if (!intersects(left.indices, right.indices))
+      return false;
+    if (left.mode == TableWriteMode::Replace ||
+        right.mode == TableWriteMode::Replace)
+      return true;
+    return intersects(left.fields, right.fields);
+  }
+
+  bool batchConflictsWithPending(
+      const std::vector<WriteFootprint> &footprints) const {
+    return std::ranges::any_of(footprints, [&](const WriteFootprint &left) {
+      return std::ranges::any_of(pending_, [&](const auto &item) {
+        if (footprintsConflict(left, item.second.footprint))
+          return true;
+        return std::ranges::any_of(
+            item.second.footprints, [&](const WriteFootprint &right) {
+              return strictFootprintsConflict(left, right);
+            });
+      });
+    });
+  }
+
+  bool batchConflictsWithPrepared(
+      const std::vector<WriteFootprint> &footprints) const {
+    return std::ranges::any_of(footprints, [&](const WriteFootprint &left) {
+      return std::ranges::any_of(prepared_, [&](const auto &item) {
+        if (item.second.hasWrite &&
+            footprintsConflict(left, item.second.footprint))
+          return true;
+        if (std::ranges::any_of(
+                item.second.footprints, [&](const WriteFootprint &right) {
+                  return strictFootprintsConflict(left, right);
+                }))
+          return true;
+        return snapshotConflicts(item.second.snapshot, left);
+      });
+    });
+  }
+
   static bool endpointContractsConflict(const WriteFootprint &left,
                                         const WriteFootprint &right) {
     if (left.mode == TableWriteMode::Replace &&
@@ -2005,13 +2183,21 @@ private:
 
   bool conflictsWithPending(const WriteFootprint &footprint) const {
     return std::ranges::any_of(pending_, [&](const auto &item) {
-      return footprintsConflict(footprint, item.second.footprint);
+      return footprintsConflict(footprint, item.second.footprint) ||
+             std::ranges::any_of(
+                 item.second.footprints, [&](const WriteFootprint &candidate) {
+                   return strictFootprintsConflict(footprint, candidate);
+                 });
     });
   }
 
   bool conflictsWithPendingEndpoint(const WriteFootprint &footprint) const {
     return std::ranges::any_of(pending_, [&](const auto &item) {
-      return endpointContractsConflict(footprint, item.second.footprint);
+      return endpointContractsConflict(footprint, item.second.footprint) ||
+             std::ranges::any_of(
+                 item.second.footprints, [&](const WriteFootprint &candidate) {
+                   return strictFootprintsConflict(footprint, candidate);
+                 });
     });
   }
 
@@ -2019,6 +2205,10 @@ private:
     return std::ranges::any_of(prepared_, [&](const auto &item) {
       return (item.second.hasWrite &&
               footprintsConflict(footprint, item.second.footprint)) ||
+             std::ranges::any_of(
+                 item.second.footprints, [&](const WriteFootprint &candidate) {
+                   return strictFootprintsConflict(footprint, candidate);
+                 }) ||
              snapshotConflicts(item.second.snapshot, footprint);
     });
   }
@@ -2054,14 +2244,23 @@ private:
 
   bool snapshotConflictsWithPending(const StateReservation &snapshot) const {
     return std::ranges::any_of(pending_, [&](const auto &item) {
-      return snapshotConflicts(snapshot, item.second.footprint);
+      return snapshotConflicts(snapshot, item.second.footprint) ||
+             std::ranges::any_of(
+                 item.second.footprints, [&](const WriteFootprint &footprint) {
+                   return snapshotConflicts(snapshot, footprint);
+                 });
     });
   }
 
   bool snapshotConflictsWithPrepared(const StateReservation &snapshot) const {
     return std::ranges::any_of(prepared_, [&](const auto &item) {
       return item.second.hasWrite &&
-             snapshotConflicts(snapshot, item.second.footprint);
+             (snapshotConflicts(snapshot, item.second.footprint) ||
+              std::ranges::any_of(
+                  item.second.footprints,
+                  [&](const WriteFootprint &footprint) {
+                    return snapshotConflicts(snapshot, footprint);
+                  }));
     });
   }
 
@@ -2133,12 +2332,12 @@ template <typename> using TypedStateReservation = StateReservation;
 
 template <typename Entry> class OwnerWriteBatch {
 public:
-  using Value = std::pair<size_t, Entry>;
+  using Value = TableWriteRecord<Entry>;
 
   OwnerWriteBatch() = default;
-  OwnerWriteBatch(std::initializer_list<Value> values) {
-    for (const Value &value : values)
-      emplace_back(value);
+  OwnerWriteBatch(std::initializer_list<std::pair<size_t, Entry>> values) {
+    for (const auto &value : values)
+      emplace_back(value.first, value.second);
   }
   OwnerWriteBatch(std::vector<Value> values) {
     if (values.empty())
@@ -2147,6 +2346,10 @@ public:
     for (size_t index = 1; index < values.size(); ++index)
       overflow_.push_back(std::move(values[index]));
   }
+  OwnerWriteBatch(std::vector<std::pair<size_t, Entry>> values) {
+    for (auto &value : values)
+      emplace_back(value.first, std::move(value.second));
+  }
 
   template <typename... Args> void emplace_back(Args &&...args) {
     if (!first_) {
@@ -2154,6 +2357,9 @@ public:
       return;
     }
     overflow_.emplace_back(std::forward<Args>(args)...);
+  }
+  void emplace_back(size_t index, Entry value) {
+    emplace_back(Value{index, std::move(value)});
   }
   bool empty() const { return !first_; }
   size_t size() const { return first_ ? 1 + overflow_.size() : 0; }
@@ -2164,6 +2370,13 @@ public:
     if (first_)
       std::invoke(function, *first_);
     for (const Value &value : overflow_)
+      std::invoke(function, value);
+  }
+
+  template <typename Function> void forEach(Function &&function) {
+    if (first_)
+      std::invoke(function, *first_);
+    for (Value &value : overflow_)
       std::invoke(function, value);
   }
 
@@ -2282,22 +2495,24 @@ public:
     Plan plan = std::move(*candidate_);
     candidate_.reset();
 
+    normalizeWrites(plan.writes);
+
     const CommitGroupId group = id();
-    writeIndices_.clear();
-    if (writeIndices_.capacity() < plan.writes.size())
-      writeIndices_.reserve(plan.writes.size());
+    writeRecords_.clear();
+    writeRecords_.reserve(plan.writes.size());
     plan.writes.forEach(
-        [&](const auto &write) { writeIndices_.push_back(write.first); });
-    const std::span<const size_t> writeIndices = writeIndices_;
+        [&](const auto &write) { writeRecords_.push_back(write); });
+    const std::span<const typename OwnerWriteBatch<Entry>::Value> writes =
+        writeRecords_;
     const bool hasTableReservation =
-        !plan.reservations.empty() || !writeIndices.empty();
-    if (!preflightResources(group, plan, writeIndices, hasTableReservation))
+        !plan.reservations.empty() || !writes.empty();
+    if (!preflightResources(group, plan, writes, hasTableReservation))
       return;
     if (!prepareOutputs(group, plan, std::index_sequence_for<Outputs...>{}) ||
         !prepareInputs(group, std::index_sequence_for<Inputs...>{}) ||
         (hasTableReservation &&
-         !table_.prepareTransaction(group, id(), plan.reservations,
-                                    writeIndices, Merge::fields, mode_))) {
+         !table_.prepareTransactionBatch(group, id(), plan.reservations,
+                                         writes, mergeFieldCount()))) {
       cancelPrepared(group);
       return;
     }
@@ -2371,16 +2586,17 @@ private:
     return ready;
   }
 
-  bool preflightResources(CommitGroupId group, const Plan &plan,
-                          std::span<const size_t> writeIndices,
-                          bool hasTableReservation) const {
+  bool preflightResources(
+      CommitGroupId group, const Plan &plan,
+      std::span<const typename OwnerWriteBatch<Entry>::Value> writes,
+      bool hasTableReservation) const {
     if (!preflightInputs(std::index_sequence_for<Inputs...>{}) ||
         !preflightOutputs(plan, std::index_sequence_for<Outputs...>{}))
       return false;
     if (!hasTableReservation)
       return true;
-    return table_.canPrepareTransaction(group, id(), plan.reservations,
-                                        writeIndices, Merge::fields, mode_);
+    return table_.canPrepareTransactionBatch(group, id(), plan.reservations,
+                                             writes, mergeFieldCount());
   }
 
   template <size_t... Indices>
@@ -2442,14 +2658,29 @@ private:
         table_.cancelPreparedWrite(group);
       return true;
     }
-    if (plan.writes.size() == 1)
-      return table_.publishPreparedSingleWrite(
-          group,
-          std::optional<typename OwnerWriteBatch<Entry>::Value>{
-              std::move(plan.writes.front())},
-          merge_);
-    return table_.publishPreparedWrite(
+    return table_.publishPreparedBatch(
         group, std::move(plan.writes).intoVector(), merge_);
+  }
+
+  static constexpr size_t mergeFieldCount() {
+    if constexpr (requires { Merge::fieldCount; })
+      return Merge::fieldCount;
+    size_t count = 0;
+    for (size_t field : Merge::fields)
+      count = std::max(count, field + 1);
+    return count;
+  }
+
+  void normalizeWrites(OwnerWriteBatch<Entry> &writes) const {
+    uint64_t legacyMask = 0;
+    for (size_t field : Merge::fields)
+      legacyMask |= uint64_t{1} << field;
+    writes.forEach([&](auto &write) {
+      if (write.fieldMask == 0) {
+        write.fieldMask = legacyMask;
+        write.mode = mode_;
+      }
+    });
   }
 
   void cancelPrepared(CommitGroupId group) {
@@ -2474,7 +2705,7 @@ private:
   [[no_unique_address]] Policy policy_;
   [[no_unique_address]] Merge merge_;
   TableWriteMode mode_;
-  std::vector<size_t> writeIndices_;
+  std::vector<typename OwnerWriteBatch<Entry>::Value> writeRecords_;
   std::optional<Plan> candidate_;
   bool proposed_ = false;
   bool fired_ = false;
@@ -2587,6 +2818,7 @@ public:
     Plan plan = std::move(*candidate_);
     candidate_.reset();
     const CommitGroupId group = id();
+    normalizeWrites(plan, std::index_sequence_for<Entries...>{});
     if (!preflightResources(group, plan))
       return;
     if (!prepareOutputs(group, plan, std::index_sequence_for<Outputs...>{}) ||
@@ -2678,13 +2910,15 @@ private:
       return true;
     const auto *table = std::get<Index>(tables_);
     using Merge = std::tuple_element_t<Index, std::tuple<Merges...>>;
-    std::vector<size_t> &indices = writeIndices_[Index];
-    indices.clear();
-    if (indices.capacity() < writes.size())
-      indices.reserve(writes.size());
-    writes.forEach([&](const auto &write) { indices.push_back(write.first); });
-    return table->canPrepareTransaction(group, id(), reservation, indices,
-                                        Merge::fields, modes_[Index]);
+    std::vector<typename std::remove_reference_t<decltype(writes)>::Value>
+        records;
+    records.reserve(writes.size());
+    writes.forEach([&](const auto &write) { records.push_back(write); });
+    return table->canPrepareTransactionBatch(
+        group, id(), reservation,
+        std::span<const typename std::remove_reference_t<decltype(writes)>::Value>(
+            records),
+        mergeFieldCount<Merge>());
   }
 
   template <size_t... Indices>
@@ -2762,9 +2996,15 @@ private:
     using Merge = std::tuple_element_t<Index, std::tuple<Merges...>>;
     if (writes.empty() && reservation.empty())
       return true;
-    return std::get<Index>(tables_)->prepareTransaction(
-        group, id(), reservation, writeIndices_[Index], Merge::fields,
-        modes_[Index]);
+    std::vector<typename std::remove_reference_t<decltype(writes)>::Value>
+        records;
+    records.reserve(writes.size());
+    writes.forEach([&](const auto &write) { records.push_back(write); });
+    return std::get<Index>(tables_)->prepareTransactionBatch(
+        group, id(), reservation,
+        std::span<const typename std::remove_reference_t<decltype(writes)>::Value>(
+            records),
+        mergeFieldCount<Merge>());
   }
 
   template <size_t... Indices>
@@ -2795,15 +3035,36 @@ private:
         std::get<Index>(tables_)->cancelPreparedWrite(group);
       return true;
     }
-    if (writes.size() == 1)
-      return std::get<Index>(tables_)->publishPreparedSingleWrite(
-          group,
-          std::optional<
-              typename std::remove_reference_t<decltype(writes)>::Value>{
-              std::move(writes.front())},
-          std::get<Index>(merges_));
-    return std::get<Index>(tables_)->publishPreparedWrite(
+    return std::get<Index>(tables_)->publishPreparedBatch(
         group, std::move(writes).intoVector(), std::get<Index>(merges_));
+  }
+
+  template <typename Merge> static constexpr size_t mergeFieldCount() {
+    if constexpr (requires { Merge::fieldCount; })
+      return Merge::fieldCount;
+    size_t count = 0;
+    for (size_t field : Merge::fields)
+      count = std::max(count, field + 1);
+    return count;
+  }
+
+  template <size_t Index> void normalizeOwnerWrites(Plan &plan) {
+    using Merge = std::tuple_element_t<Index, std::tuple<Merges...>>;
+    auto &writes = std::get<Index>(plan.writes);
+    uint64_t legacyMask = 0;
+    for (size_t field : Merge::fields)
+      legacyMask |= uint64_t{1} << field;
+    writes.forEach([&](auto &write) {
+      if (write.fieldMask == 0) {
+        write.fieldMask = legacyMask;
+        write.mode = modes_[Index];
+      }
+    });
+  }
+
+  template <size_t... Indices>
+  void normalizeWrites(Plan &plan, std::index_sequence<Indices...>) {
+    (normalizeOwnerWrites<Indices>(plan), ...);
   }
 
   template <size_t... Indices>
@@ -2847,7 +3108,6 @@ private:
   std::array<TableWriteMode, sizeof...(Entries)> modes_;
   [[no_unique_address]] Policy policy_;
   std::tuple<Merges...> merges_;
-  std::array<std::vector<size_t>, sizeof...(Entries)> writeIndices_;
   std::optional<Plan> candidate_;
   std::vector<SlotReleaseResource *> slots_;
   bool fired_ = false;

@@ -1,0 +1,118 @@
+Traceback (most recent call last):
+  File "/home/lc/pyCircuit/compiler/acir/tools/ac-queue-pyc-build.py", line 272, in <module>
+    raise SystemExit(main())
+                     ^^^^^^
+  File "/home/lc/pyCircuit/compiler/acir/tools/ac-queue-pyc-build.py", line 264, in main
+    os.replace(cpp, arguments.cpp_output_dir)
+OSError: [Errno 18] Invalid cross-device link: '/tmp/tmpkzat4v8o/cpp' -> '/home/lc/pyCircuit/.pycircuit_out/gates/20260916-issue129-mixed-field-writes/agentic-circuit/arbiter/cpp'
+[pyc][error] AC G2 output already exists: /home/lc/pyCircuit/.pycircuit_out/gates/20260916-issue129-mixed-field-writes/agentic-circuit/arbiter
+test_rule_retirement_builds_pyc_and_verilog (__main__.PycBackendTest.test_rule_retirement_builds_pyc_and_verilog) ... ok
+test_bitfield_scalar_is_cycle_equivalent_in_pyc_cpp_and_verilog (__main__.PycBackendTest.test_bitfield_scalar_is_cycle_equivalent_in_pyc_cpp_and_verilog) ... ok
+test_masked_decode_is_cycle_equivalent_in_pyc_cpp_and_verilog (__main__.PycBackendTest.test_masked_decode_is_cycle_equivalent_in_pyc_cpp_and_verilog) ... ok
+test_nested_payload_is_cycle_equivalent_in_pyc_cpp_and_verilog (__main__.PycBackendTest.test_nested_payload_is_cycle_equivalent_in_pyc_cpp_and_verilog) ... ok
+test_nominal_enum_is_cycle_equivalent_in_pyc_cpp_and_verilog (__main__.PycBackendTest.test_nominal_enum_is_cycle_equivalent_in_pyc_cpp_and_verilog) ... ok
+test_aggregate_payload_is_cycle_equivalent_in_pyc_cpp_and_verilog (__main__.PycBackendTest.test_aggregate_payload_is_cycle_equivalent_in_pyc_cpp_and_verilog) ... ok
+test_recursive_aggregate_payload_is_cycle_equivalent_in_pyc_cpp_and_verilog (__main__.PycBackendTest.test_recursive_aggregate_payload_is_cycle_equivalent_in_pyc_cpp_and_verilog) ... ok
+
+----------------------------------------------------------------------
+Ran 7 tests in 125.455s
+
+OK
+test_acpy_gfsim_and_pyc_cpp_agree_on_boundary_values (__main__.BitPrimitiveParityTest.test_acpy_gfsim_and_pyc_cpp_agree_on_boundary_values) ... ok
+
+----------------------------------------------------------------------
+Ran 1 test in 5.558s
+
+OK
+test_u64_casts_and_dynamic_div_rem_match_all_backends (__main__.TypedIntegerRuntimeTest.test_u64_casts_and_dynamic_div_rem_match_all_backends) ... ok
+
+----------------------------------------------------------------------
+Ran 1 test in 21.766s
+
+OK
+test_array_update_state_commits_once_on_all_backends (__main__.BoundedRangeRuntimeTest.test_array_update_state_commits_once_on_all_backends) ... ok
+test_conversions_and_dynamic_array_match_all_backends (__main__.BoundedRangeRuntimeTest.test_conversions_and_dynamic_array_match_all_backends) ... ok
+test_full_u64_range_preserves_maximum_value_on_all_backends (__main__.BoundedRangeRuntimeTest.test_full_u64_range_preserves_maximum_value_on_all_backends) ... ok
+test_recursive_and_wide_array_updates_match_all_backends (__main__.BoundedRangeRuntimeTest.test_recursive_and_wide_array_updates_match_all_backends) ... ok
+
+----------------------------------------------------------------------
+Ran 4 tests in 91.088s
+
+OK
+test_argmin_65_compiles_with_default_logic_depth_budget (__main__.ArrayCombinatorRuntimeTest.test_argmin_65_compiles_with_default_logic_depth_budget) ... ok
+test_balanced_reductions_and_stable_selection_match_all_backends (__main__.ArrayCombinatorRuntimeTest.test_balanced_reductions_and_stable_selection_match_all_backends) ... ok
+test_count_and_last_selection_at_extent_65_match_all_backends (__main__.ArrayCombinatorRuntimeTest.test_count_and_last_selection_at_extent_65_match_all_backends) ... ok
+test_fold_tree_is_balanced_at_boundary_extents (__main__.ArrayCombinatorRuntimeTest.test_fold_tree_is_balanced_at_boundary_extents) ... ok
+test_map_zip_nested_and_checked_callbacks_match_all_backends (__main__.ArrayCombinatorRuntimeTest.test_map_zip_nested_and_checked_callbacks_match_all_backends) ... ok
+test_ordered_scan_prefixes_match_all_backends (__main__.ArrayCombinatorRuntimeTest.test_ordered_scan_prefixes_match_all_backends) ... ok
+
+----------------------------------------------------------------------
+Ran 6 tests in 90.620s
+
+OK
+test_enum_helpers_match_all_backends_with_invalid_ingress (__main__.EnumHelperRuntimeTest.test_enum_helpers_match_all_backends_with_invalid_ingress) ... ok
+test_wide_checked_and_sixty_five_lane_onehot_match_all_backends (__main__.EnumHelperRuntimeTest.test_wide_checked_and_sixty_five_lane_onehot_match_all_backends) ... ok
+
+----------------------------------------------------------------------
+Ran 2 tests in 44.984s
+
+OK
+test_projection_prunes_fields_and_matches_all_backends (__main__.RecordProjectionRuntimeTest.test_projection_prunes_fields_and_matches_all_backends) ... ok
+
+----------------------------------------------------------------------
+Ran 1 test in 20.934s
+
+OK
+test_one_kib_private_payload_is_pruned_and_backend_equivalent (__main__.PrivateQueuePayloadRuntimeTest.test_one_kib_private_payload_is_pruned_and_backend_equivalent) ... ok
+
+----------------------------------------------------------------------
+Ran 1 test in 22.928s
+
+OK
+test_owner_write_batch_executes_atomically_under_backpressure (__main__.TypedSystemTransactionTest.test_owner_write_batch_executes_atomically_under_backpressure) ... ok
+
+----------------------------------------------------------------------
+Ran 1 test in 3.633s
+
+OK
+test_stateless_record_is_scalar_packed_and_backend_equivalent (__main__.TypedRecordPycTest.test_stateless_record_is_scalar_packed_and_backend_equivalent) ... ok
+
+----------------------------------------------------------------------
+Ran 1 test in 17.763s
+
+OK
+test_public_python_state_and_outputs_commit_as_one_gfsim_transaction (__main__.MultiOutputAtomicTest.test_public_python_state_and_outputs_commit_as_one_gfsim_transaction) ... ok
+test_stateless_packed_outputs_match_pyc_cpp_and_verilog (__main__.MultiOutputAtomicTest.test_stateless_packed_outputs_match_pyc_cpp_and_verilog) ... ok
+
+----------------------------------------------------------------------
+Ran 2 tests in 22.917s
+
+OK
+test_packed_equality_and_invariant_match_pyc_cpp_and_verilog (__main__.AggregateEqualityInvariantTest.test_packed_equality_and_invariant_match_pyc_cpp_and_verilog) ... ok
+test_recursive_equality_and_invariant_execute_through_gfsim (__main__.AggregateEqualityInvariantTest.test_recursive_equality_and_invariant_execute_through_gfsim) ... ok
+
+----------------------------------------------------------------------
+Ran 2 tests in 21.852s
+
+OK
+test_priority_writer_wins_before_lower_rank (__main__.TablePycParityTest.test_priority_writer_wins_before_lower_rank) ... ok
+test_replace_is_applied_after_field_merge (__main__.TablePycParityTest.test_replace_is_applied_after_field_merge) ... ok
+test_round_robin_prefix_is_cycle_equivalent (__main__.TablePycParityTest.test_round_robin_prefix_is_cycle_equivalent) ... ok
+
+----------------------------------------------------------------------
+Ran 3 tests in 60.546s
+
+OK
+test_allocation_examples_execute_replace_contract_in_both_cpp_paths (__main__.TableBackendTest.test_allocation_examples_execute_replace_contract_in_both_cpp_paths) ... ok
+test_batch_wakeup_example_generates_both_cpp_paths (__main__.TableBackendTest.test_batch_wakeup_example_generates_both_cpp_paths) ... ok
+test_disjoint_writers_merge_same_entry_in_both_cpp_paths (__main__.TableBackendTest.test_disjoint_writers_merge_same_entry_in_both_cpp_paths) ... ok
+test_masked_update_direct_and_native_generators_compile_and_run (__main__.TableBackendTest.test_masked_update_direct_and_native_generators_compile_and_run) ... ok
+test_native_queuegraph_and_pyc_boundary_when_tools_are_available (__main__.TableBackendTest.test_native_queuegraph_and_pyc_boundary_when_tools_are_available) ... ok
+test_one_firing_mixed_field_writes_merge_same_entry_in_native_cpp (__main__.TableBackendTest.test_one_firing_mixed_field_writes_merge_same_entry_in_native_cpp) ... ok
+test_python_codegen_checks_queue_driven_entry_expressions (__main__.TableBackendTest.test_python_codegen_checks_queue_driven_entry_expressions) ... ok
+test_scoreboard_generates_compiles_and_runs_old_data_contract (__main__.TableBackendTest.test_scoreboard_generates_compiles_and_runs_old_data_contract) ... ok
+
+----------------------------------------------------------------------
+Ran 8 tests in 37.018s
+
+OK

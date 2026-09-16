@@ -3731,6 +3731,14 @@ unrelated allocation priority, firing, or cross-object transaction semantics.
 - gfsim identifies pending proposals by stable writer object ID. Cancellation
   removes only that endpoint's proposal and cannot discard another writer's
   proposal.
+- In epoch 0.5 rule IR, a firing-local proposal participates in the same
+  normalized field-footprint relation. The Python frontend may emit a field
+  proposal only for a same-owner, same-index committed-read `with_fields`
+  chain; disjoint rule proposals merge atomically from one tick-start image.
+  One firing may retain an ordered batch whose proposals have different field
+  schemas. Each proposal keeps its own index, presence, mode, and canonical
+  field set; pairwise-disjoint field-mode proposals may target the same dynamic
+  index, while possible same-field and replace overlap remain rejected.
 - The disjointness proof scales with the reachable SSA graph, not with stack
   depth. In both the analysis and the QueueGraph codegen paths, structural
   identity interning and conjunct collection over pure, regionless expressions
@@ -8545,7 +8553,17 @@ couple authoring to a particular runtime protocol.
 - A rule may spell an immutable record replacement as direct field assignment.
   The frontend normalizes a local or persistent-scalar target to an SSA
   `with_fields(...)` rebind and an indexed persistent target to one
-  index-evaluated-once complete-entry proposal. This syntax creates no mutable
+  index-evaluated-once proposal. For an explicit Table, a same-owner,
+  AST-equivalent-index committed-read `with_fields` chain carries the exact
+  declaration-ordered field footprint; every unproven producer remains a
+  complete-entry replacement. Consecutive updates in one basic block coalesce,
+  repeated fields keep the last value, while explicit serial indexed
+  assignments remain ordered proposals and may carry different field schemas.
+  Same-owner proposals coexist when indices are provably distinct, presences
+  are structurally exclusive, or both are field mode with disjoint fields;
+  possible same-field overlap and replace/other same-index overlap fail closed.
+  Mixed enclosing/branch updates of
+  one target fail with `ACPY-RULE-011`. This syntax creates no mutable
   alias, implicit local-copy writeback, Queue-token mutation, or new scheduling
   boundary. Nested or sliced targets, augmented assignment, and invalid field,
   type, or index contracts fail closed before transaction lowering.
@@ -8906,6 +8924,10 @@ distinguishable in generated code while producing identical hardware behavior.
   `ac.inline` attribute. The pure-call verifier closes the complete call graph,
   rejects unresolved/external/effectful callees and recursion, and applies
   bounded function, edge, depth, and region analysis before code generation.
+  A helper used inside an isolated module graph is compiler-expanded during
+  module rendering because that graph cannot legally reference an outer
+  symbol; this legalization is not an author-requested mandatory-inline marker
+  and preserves the same typed zero-delay value semantics.
 - The first source subset admits positional parameters, local assignment and
   rebinding, bounded conditional control, one final return, fixed tuple results
   with direct unpacking, and nested pure calls. It rejects defaults, variadics,
@@ -10141,6 +10163,14 @@ prevents resource binding from naming the storage owner directly.
   system-level Tables emit `ac.table.get`, `ac.table.propose`, `ac.table.match`,
   and `ac.table.choose`. Module-local explicit Tables may remain shaped `ac.var`
   until storage selection lowers them to Table storage.
+- Storage selection preserves proven field intent for a module-local Table when
+  an `ac.var.with` chain is rooted at a same-owner, same-SSA-index element read;
+  it emits canonical `mode "field"`/`write_fields`. Different owners or
+  indices, input-rooted values, and whole Entry assignments remain `replace`.
+  The proof follows local aliases, safe value selection, and closed pure-helper
+  returns. Ordinary and mandatory-inline helpers use the same provenance rule;
+  isolated module helper calls are legalized by compiler expansion before
+  storage selection.
 - Predicate and key regions may read other explicit Tables. Read-only owners,
   activation sources, snapshot sets, and transaction resources remain distinct.
   Dynamic indices are evaluated once, same-owner proposals remain ordered, and

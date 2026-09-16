@@ -323,8 +323,20 @@ static LogicalResult verifyWriterArbitration(
                                   left.mode == "replace";
       const bool rightAllocation = isa<ac::TableWriteOp>(right.operation) &&
                                    right.mode == "replace";
-      if ((leftAllocation && right.mode == "field") ||
-          (rightAllocation && left.mode == "field"))
+      // Decision 0156 orders only one owner-local declarative batch: field
+      // writers update the next image before its allocation replaces an Entry.
+      // A firing-local proposal is a transaction endpoint and is not covered by
+      // that ordering exemption, even when its mode is "field".
+      const bool leftDeclarativeField =
+          (isa<ac::TableWriteOp>(left.operation) ||
+           isa<ac::TableMaskedWriteOp>(left.operation)) &&
+          left.mode == "field";
+      const bool rightDeclarativeField =
+          (isa<ac::TableWriteOp>(right.operation) ||
+           isa<ac::TableMaskedWriteOp>(right.operation)) &&
+          right.mode == "field";
+      if ((leftAllocation && rightDeclarativeField) ||
+          (rightAllocation && leftDeclarativeField))
         continue;
       if (left.scope == right.scope)
         return right.operation->emitOpError(
