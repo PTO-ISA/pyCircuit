@@ -13,15 +13,15 @@ from _pycircuit_semantics import (
     parse_bitmask_checked,
 )
 
+from ._queue_compiler.errors import QueueFrontendError
+from ._queue_compiler.syntax import _decorator_name
 from ._queue_frontend import (
     CollectionBinding,
     Payload,
     QueueBinding,
-    QueueFrontendError,
     QueueProgram,
     StaticQueueCollection,
     TableBinding,
-    _decorator_name,
     parse_queue_program,
 )
 
