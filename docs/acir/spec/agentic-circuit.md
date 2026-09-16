@@ -1322,9 +1322,17 @@ replacement. `local.field = value` is normalized to
 `local = local.with_fields(field=value)`. When the base is a persistent scalar,
 that rebinding becomes the owner's next-state proposal. For an indexed Table,
 `entries[index].field = value` evaluates `index` exactly once and proposes the
-equivalent complete-entry replacement. Later serial local or scalar-state
-assignments read the latest SSA proposal, while committed state remains
-unchanged until the complete rule transaction commits.
+equivalent field update. A direct update, or an explicit
+`entries[index] = old.with_fields(...)`, emits `mode "field"` only when the
+`with_fields` chain is provably rooted in a read of the same Table at the
+AST-equivalent index. Otherwise it remains a complete `replace`. Field names
+are canonicalized in Entry declaration order. Consecutive updates of the same
+target in one basic block form one proposal; repeated fields keep the last
+value. Each branch is combined independently. Updates that mix the enclosing
+block with a branch for the same target fail with `ACPY-RULE-011` in this
+slice. Later serial local or scalar-state assignments read the latest SSA
+proposal, while every Table read observes tick-start committed state until the
+complete rule transaction commits.
 
 This syntax never mutates an object in place. Updating a local copied from
 persistent state does not implicitly write the owner back, and Queue payloads
@@ -1605,8 +1613,11 @@ multiple persistent owners and may return zero, one, optional, or several typed
 payloads. Dynamic indices require compiler proof for the complete accessed
 domain; constant and multidimensional coordinates must be in range.
 
-The frontend emits firing-local `ac.table.propose`. Separate MLIR passes infer
-every input consume, the output produce, and the Table replace effect;
+The frontend emits firing-local `ac.table.propose`. Proven same-owner,
+same-index immutable patches carry `mode "field"` and their exact canonical
+`write_fields`; unproven values carry `mode "replace"` and the complete Entry
+field set. Separate MLIR passes infer every input consume, the output produce,
+and the Table effect;
 materialize `ready_valid_Nx1_table`; infer lexical priority and typed state
 footprints; discharge every marker; and retain the result as stateful
 `ac.firing`. QueueGraph lowers the closed firing to the typed gfsim transition

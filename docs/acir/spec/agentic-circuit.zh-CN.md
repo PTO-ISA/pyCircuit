@@ -1363,9 +1363,14 @@ def pipeline(incoming: Item) -> Item:
 在 rule 内，字段直接赋值是不可变记录替换的简写。`local.field = value` 会规范化为
 `local = local.with_fields(field=value)`；若 base 是 persistent scalar，该 rebinding
 会成为此 owner 的 next-state proposal。对于 indexed Table，
-`entries[index].field = value` 会将 `index` 恰好求值一次，并提出等价的完整 Entry
-替换 proposal。后续串行的 local 或 scalar-state 赋值读取最新 SSA proposal，但
-committed state 在整条 rule transaction 提交前保持不变。
+`entries[index].field = value` 会将 `index` 恰好求值一次，并提出等价的字段更新。
+直接更新或显式的 `entries[index] = old.with_fields(...)` 只有在 `with_fields` 链可证明
+根植于同一 Table、AST 等价 index 的读取时，才生成 `mode "field"`；其他来源继续生成
+完整 `replace`。字段名按 Entry 声明顺序规范化。同一基本块内对相同 target 的连续更新
+合并为一个 proposal，重复字段保留最后一次值；每个分支独立合并。首版不允许同一 target
+的更新跨越外层基本块与分支，违反时以 `ACPY-RULE-011` fail closed。后续串行的 local 或
+scalar-state 赋值读取最新 SSA proposal；所有 Table 读取仍观察 tick 开始时的 committed
+state，直到整条 rule transaction 原子提交。
 
 该语法不会原地修改 Python 对象。从 persistent state 复制出的 local 被更新时，不会
 隐式写回 owner；已经存入 Queue 的 payload 仍是不可变值。需要把更新后的记录直接用于
@@ -1584,7 +1589,9 @@ def install(rob, entry, delta):
     return old
 ```
 
-MLIR 推导 `ready_valid_Nx1_table`，并将全部 Queue 消费、单个 Table replace 和输出
+MLIR 推导 `ready_valid_Nx1_table`。可证明来自同 owner、同 index committed read 的
+不可变 patch 携带 `mode "field"` 和精确、规范化的 `write_fields`；无法证明来源的值仍
+携带 `mode "replace"` 和完整 Entry 字段集。编译器将全部 Queue 消费、Table effect 和输出
 生产闭合为一个 `ac.firing`。QueueGraph/gfsim 生成 variadic
 `QueueTableTransition`；任一输入缺失、输出反压或 Table reservation 冲突时，全部输入
 和 Table 都保持不变。对应的可执行回归 fixture 位于
