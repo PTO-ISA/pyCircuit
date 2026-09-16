@@ -4,6 +4,17 @@
 // RUN: %acir_queue_cxxgen %t.frozen.mlir > %t.cpp
 // RUN: %FileCheck %s --check-prefix=CXX < %t.cpp
 // RUN: %cxx -std=c++20 -I%source_root/simulator/gfsim/include -fsyntax-only %t.cpp
+// RUN: rm -rf %t.bundle
+// RUN: %acir_queue_cxxgen %t.frozen.mlir --output-root=%t.bundle --sdk-product-version=6.0.0 --sdk-source-revision=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+// RUN: %FileCheck %s --check-prefix=BUNDLE-H < %t.bundle/include/generated/modules/Module_Accumulator.h
+// RUN: %FileCheck %s --check-prefix=BUNDLE-CPP < %t.bundle/src/generated/modules/Module_Accumulator.cpp
+// RUN: %FileCheck %s --check-prefix=BUNDLE-ROOT < %t.bundle/src/generated/queuegraph.cpp
+// RUN: %FileCheck %s --check-prefix=BUNDLE-TYPE < %t.bundle/include/generated/types/Mode.h
+// RUN: %FileCheck %s --check-prefix=BUNDLE-HELPER < %t.bundle/src/generated/helpers/queuegraph_helpers.cpp
+// RUN: %cxx -std=c++20 -I%source_root/simulator/gfsim/include -I%t.bundle/include -c %t.bundle/src/generated/modules/Module_Accumulator.cpp -o %t.module.o
+// RUN: %cxx -std=c++20 -I%source_root/simulator/gfsim/include -I%t.bundle/include -c %t.bundle/src/generated/helpers/queuegraph_helpers.cpp -o %t.helper.o
+// RUN: %cxx -std=c++20 -I%source_root/simulator/gfsim/include -I%t.bundle/include -c %t.bundle/src/generated/queuegraph.cpp -o %t.queuegraph.o
+// RUN: %cxx -std=c++20 -I%source_root/simulator/gfsim/include -I%t.bundle/include -c %t.bundle/src/generated/model.cpp -o %t.model.o
 
 builtin.module attributes {
   ac.contract_epoch = "0.5",
@@ -13,6 +24,10 @@ builtin.module attributes {
   ac.system @stateful_python root @Top as "root" tick 0 "cycle"
       seed {kind = "fixed", value = 0 : i64} instrumentation []
       results {id = "default", format = "json"} selected true
+
+  ac.type_scope @types {
+    ac.enum @Mode enumerants ["IDLE", "RUN"]
+  } {dlti.dl_spec = #dlti.dl_spec<!ac.enum<@types::@Mode> = {abi_alignment = 1 : i64, endianness = "little", preferred_alignment = 1 : i64, size = 1 : i64}>}
 
   ac.module @Accumulator(%input: !ac.queue<i8>) -> !ac.queue<i8>
       parameters {} graph {
@@ -72,3 +87,20 @@ builtin.module attributes {
 // CXX-COUNT-1: class [[IMPLEMENTATION:Module_Accumulator]] final : public gfsim::Module
 // CXX: gfsim::SimTable<gfsim::UInt<8>> state_total_;
 // CXX-COUNT-2: [[IMPLEMENTATION]] instance_
+
+// BUNDLE-H: #include "generated/modules/queuegraph_types.h"
+// BUNDLE-H: class Module_Accumulator final : public gfsim::Module
+// BUNDLE-H: gfsim::SimTable<gfsim::UInt<8>> state_total_;
+
+// BUNDLE-CPP: #include "generated/modules/Module_Accumulator.h"
+// BUNDLE-CPP: Module_Accumulator::Module_Accumulator(
+// BUNDLE-CPP: Module_Accumulator::dispatch_row(
+
+// BUNDLE-ROOT: #include "generated/modules/queuegraph_types.h"
+// BUNDLE-ROOT: #include "generated/modules/Module_Accumulator.h"
+// BUNDLE-ROOT: Module_Accumulator instance_
+
+// BUNDLE-TYPE: enum class Mode
+
+// BUNDLE-HELPER: #include "generated/modules/queuegraph_helpers.h"
+// BUNDLE-HELPER: namespace ac_generated

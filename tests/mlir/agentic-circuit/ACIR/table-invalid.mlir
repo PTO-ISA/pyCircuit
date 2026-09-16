@@ -22,7 +22,7 @@
 // RUN: %not %acir_opt %t/masked-replace.mlir 2>&1 | %FileCheck %s --check-prefix=MASKED-MODE
 // RUN: %not %acir_opt %t/two-replaces.mlir -ac-verify-value-constraints 2>&1 | %FileCheck %s --check-prefix=REPLACES
 
-// INIT: error: 'ac.table' op table init must be zero
+// INIT: error: 'ac.table' op scalar init does not fit the Table entry type
 // ENDPOINT: error: 'ac.table' op must have at least one table read/write endpoint
 // INDEX: error: 'ac.table.read' op static table index is out of range
 // WRITER: same-field overlap on owner @bad requires explicit priority
@@ -47,7 +47,7 @@
 
 //--- init.mlir
 builtin.module attributes {ac.contract_epoch = "0.5"} {
-  ac.table @bad entry i16 entries 4 init 1 owner "/" stable_id "table/bad"
+  ac.table @bad entry i16 entries 4 init 65536 owner "/" stable_id "table/bad"
 }
 
 //--- no-endpoint.mlir

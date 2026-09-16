@@ -5261,8 +5261,7 @@ def pipeline(request: Request) -> Choice:
         self.assertIn("!ac.var<!ac.struct<@types::@Choice>>", aggregate_lowered)
         recursive_mismatch = aggregate_source.replace(
             "Mode.RUN: Choice(active=True, code=ac.literal(1, ac.u1))",
-            "Mode.RUN: Choice(active=ac.literal(1, ac.u1), "
-            "code=ac.literal(1, ac.u1))",
+            "Mode.RUN: Choice(active=ac.literal(1, ac.u1), code=ac.literal(1, ac.u1))",
         )
         with self.assertRaisesRegex(QueueFrontendError, "type mismatch"):
             lower_queue_source(recursive_mismatch, "pipeline")
@@ -6378,7 +6377,7 @@ def pipeline(left_input: Event, right_input: Event) -> None:
             lower_queue_source(non_slot, "pipeline")
 
         unrelated_scope = RULE_SLOT_SOURCE.replace(
-            "    mailbox = ac.slot(incoming)\n" "    outgoing = consume(mailbox)\n",
+            "    mailbox = ac.slot(incoming)\n    outgoing = consume(mailbox)\n",
             '    with ac.scope("owner"):\n'
             "        mailbox = ac.slot(incoming)\n"
             '    with ac.scope("consumer"):\n'
@@ -7749,9 +7748,9 @@ def pipeline(incoming: ac.u8) -> ac.u8:
 
         lowered = lower_queue_source(SERIAL_SOURCE_ORDER_SOURCE, "serial_source_order")
         field_values = {
-            line.split('field "', 1)[1]
-            .split('"', 1)[0]: line.split("%", 1)[1]
-            .split(" ", 1)[0]
+            line.split('field "', 1)[1].split('"', 1)[0]: line.split("%", 1)[1].split(
+                " ", 1
+            )[0]
             for line in lowered.splitlines()
             if "ac.var.get %item field" in line
         }
@@ -7790,9 +7789,9 @@ def pipeline(incoming: ac.u8) -> ac.u8:
 
         lowered = lower_queue_source(SERIAL_GUARD_REBIND_SOURCE, "serial_guard_rebind")
         field_values = {
-            line.split('field "', 1)[1]
-            .split('"', 1)[0]: line.split("%", 1)[1]
-            .split(" ", 1)[0]
+            line.split('field "', 1)[1].split('"', 1)[0]: line.split("%", 1)[1].split(
+                " ", 1
+            )[0]
             for line in lowered.splitlines()
             if "ac.var.get %item field" in line
         }
@@ -7812,9 +7811,9 @@ def pipeline(incoming: ac.u8) -> ac.u8:
             NESTED_BRANCH_GUARD_REBIND_SOURCE, "nested_branch_guard_rebind"
         )
         field_values = {
-            line.split('field "', 1)[1]
-            .split('"', 1)[0]: line.split("%", 1)[1]
-            .split(" ", 1)[0]
+            line.split('field "', 1)[1].split('"', 1)[0]: line.split("%", 1)[1].split(
+                " ", 1
+            )[0]
             for line in lowered.splitlines()
             if "ac.var.get %item field" in line
         }
@@ -7887,9 +7886,9 @@ def pipeline(incoming: ac.u8) -> ac.u8:
             SERIAL_EARLY_GUARD_REBIND_SOURCE, "serial_early_guard_rebind"
         )
         field_values = {
-            line.split('field "', 1)[1]
-            .split('"', 1)[0]: line.split("%", 1)[1]
-            .split(" ", 1)[0]
+            line.split('field "', 1)[1].split('"', 1)[0]: line.split("%", 1)[1].split(
+                " ", 1
+            )[0]
             for line in lowered.splitlines()
             if "ac.var.get %item field" in line
         }
@@ -8666,6 +8665,71 @@ def two_accumulators(left: ac.u8, right: ac.u8) -> tuple[ac.u8, ac.u8]:
         self.assertIn('owner "/body" stable_id "var/body/total"', lowered)
         self.assertEqual(2, lowered.count(" of @accumulator"))
         self.assertNotIn("ac.table", lowered)
+
+    def test_module_scalar_reset_init_is_the_ac_var_image(self) -> None:
+        from agentic_circuit._queue_frontend import (
+            QueueFrontendError,
+            lower_queue_source,
+        )
+
+        lowered = lower_queue_source(
+            INFERRED_STATEFUL_MODULE_SOURCE.replace(
+                "total: ac.u8 = 0", "total: ac.u8 = 5"
+            ),
+            "pipeline",
+        )
+        self.assertIn(
+            'ac.var.decl @total type i8 init 5 : i8 owner "/body"',
+            lowered,
+        )
+        wide = lower_queue_source(
+            INFERRED_STATEFUL_MODULE_SOURCE.replace("ac.u8", "ac.u64").replace(
+                "total: ac.u64 = 0",
+                "total: ac.u64 = 18446744073709551615",
+            ),
+            "pipeline",
+        )
+        self.assertIn(
+            "ac.var.decl @total type i64 init 18446744073709551615 : i64",
+            wide,
+        )
+        with self.assertRaisesRegex(QueueFrontendError, "does not fit 8-bit state"):
+            lower_queue_source(
+                INFERRED_STATEFUL_MODULE_SOURCE.replace(
+                    "total: ac.u8 = 0", "total: ac.u8 = 300"
+                ),
+                "pipeline",
+            )
+
+    def test_rule_if_is_the_register_write_enable(self) -> None:
+        from agentic_circuit._queue_frontend import lower_queue_source
+
+        source = """
+import agentic_circuit as ac
+
+@ac.module
+def gated(incoming: ac.u8) -> ac.u8:
+    total: ac.u8 = 5
+
+    @ac.rule
+    def add(value):
+        if value != 0:
+            total = total + value
+        return total
+
+    result = add(incoming)
+    return result
+
+@ac.system
+def pipeline(left: ac.u8, right: ac.u8) -> tuple[ac.u8, ac.u8]:
+    left_result = gated(left)
+    right_result = gated(right)
+    return left_result, right_result
+"""
+        lowered = lower_queue_source(source, "pipeline")
+        self.assertIn("ac.var.decl @total type i8 init 5 : i8", lowered)
+        self.assertIn("ac.var.assign @total =", lowered)
+        self.assertIn(" when ", lowered)
 
     def test_module_interface_display_names_are_stable_and_display_only(self) -> None:
         from agentic_circuit._queue_frontend import lower_queue_source

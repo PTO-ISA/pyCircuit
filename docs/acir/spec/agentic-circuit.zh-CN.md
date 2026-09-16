@@ -720,9 +720,13 @@ def-use、调度和 NDF/target 限制选择实际存储与传输结构。`ac.var
 持久 module/class 字段仍降到同一个 `ac.var` 家族。内部 `ac.var.decl` 命名 lexical
 state，`ac.var.read` 产生不可变 committed snapshot，`ac.var.assign` 在一个 rule 内
 提出 next value。storage-selection pass 在 rule closure 前消除这些操作。第一条可执行
-链支持零初始化 scalar integer，并选择单 entry committed 实现；Python 前端不暴露该
-选择。持久 scalar state 也可以是 nominal enum，但必须用第一个声明的 member 作为
-zero image；storage selection 会保留 enum nominal type，不允许退化成裸整数。
+链支持 scalar integer、nominal enum 或 flat struct，并选择单 entry committed 实现。
+Scalar integer 和 range 的复位初值可以非零：`total: ac.u8 = 5` 对应
+`ac.var.decl init 5`，storage selection 把它拷到 `ac.table init`，`Module::reset`
+通过 `SimTable` 恢复。Python `if` 包住的赋值（或 `ac.var.assign ... when`）是写使能。
+Python 前端不暴露存储选择。持久 scalar state 也可以是 nominal enum，但必须用第一个
+声明的 member 作为 zero image；storage selection 会保留 enum nominal type，不允许
+退化成裸整数。
 
 indexed persistent state 必须显式写成
 `Table8 = ac.table[8, Entry]` 和 `entries = Table8(init=0)`。普通 Python list 只用于静态 elaboration，

@@ -290,6 +290,13 @@ Use this order regardless of frontend:
 1. Define exact-width payloads, ports, and static configuration.
 2. Isolate pure combinational transforms in small typed helpers.
 3. Name each persistent state owner and document its reset or initial value.
+   For Agentic lexical state, `total: ac.u8 = 5` is the reset image on
+   `ac.var.decl`; a Python `if` around the assignment is the write enable.
+   Each `@ac.module` dumps to `modules/<Name>.ac.mlir`; these are inspectable
+   units while `frozen.ac.mlir` remains the verified whole-program authority.
+   Gfsim emits nominal type headers and one declaration/out-of-line `.h`/`.cpp`
+   pair per concrete module specialization. The sources compile separately to
+   objects and link through the root `queuegraph.cpp` composition unit.
 4. Mark timing boundaries with `domain.next()` or transaction boundaries with
    `@ac.rule`; do not mix the two mental models.
 5. Add hierarchy only where it improves reuse, review, or independent testing.

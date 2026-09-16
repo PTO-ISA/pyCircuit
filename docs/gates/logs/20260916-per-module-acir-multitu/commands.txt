@@ -1,0 +1,12 @@
+cmake --build .pycircuit_out/acir/dev-llvm22 -j4
+.pycircuit_out/build-llvm22/bin/CodeGenTests
+.pycircuit_out/build-llvm22/bin/CompilerTests
+.pycircuit_out/per-module-py/bin/lit -sv .pycircuit_out/build-llvm22/compiler/acir/tests/mlir --filter='(variable-nonzero-init-lowering|table-invalid|variable-module-state-lowering|cli-compile)'
+PYTHONPATH="$PWD/python/semantic-core/src:$PWD/python/agentic-circuit/src:$PWD/tests/python/agentic-circuit:$PWD/.pycircuit_out/acir/dev-llvm22/python" .pycircuit_out/per-module-py/bin/python -m pytest tests/python/agentic-circuit/python_frontend/test_queue_frontend.py tests/python/agentic-circuit/python_frontend/test_rule_field_assignment.py -q
+PYTHONPATH="$PWD/python/semantic-core/src:$PWD/python/agentic-circuit/src:$PWD/tests/python/agentic-circuit:$PWD/.pycircuit_out/acir/dev-llvm22/python" .pycircuit_out/per-module-py/bin/python -m pytest tests/python/agentic-circuit/cli/test_model_plan_command.py::ModelArtifactInventoryTest tests/python/agentic-circuit/cli/test_model_plan_command.py::ModelPlanCommandTest::test_structured_plan_and_emit_publish_exact_multi_tu_inventory tests/python/agentic-circuit/cli/test_model_plan_command.py::ModelPlanCommandTest::test_installed_plan_is_schema_valid_and_root_independent -q
+PYTHONPATH="$PWD/python/semantic-core/src:$PWD/python/agentic-circuit/src:$PWD/tests/python/agentic-circuit:$PWD" .pycircuit_out/per-module-py/bin/python -m pytest tests/unit -m unit -q
+PYTHONPATH="$PWD/python/semantic-core/src:$PWD/python/agentic-circuit/src:$PWD/tests/python/agentic-circuit:$PWD" .pycircuit_out/per-module-py/bin/python tools/agentic-circuit/check-contracts.py
+python3 tools/agentic-circuit/generate-diagnostic-catalog.py --check
+python3 flows/tools/check_api_hygiene.py python/pycircuit/src/pycircuit examples/pycircuit docs README.md
+python3 -m mkdocs build --strict --site-dir .pycircuit_out/per-module-docs
+git diff --check

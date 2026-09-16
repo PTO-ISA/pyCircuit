@@ -26,8 +26,8 @@ from .._canonical_json import (
 )
 from .._capture_worker import CaptureWorkerRequest, run_capture_worker
 from .._contract import CONTRACT_EPOCH
-from .._exit_codes import ExitCode
 from .._diagnostics import Diagnostic
+from .._exit_codes import ExitCode
 from .._native_api import NativeRequest, native_extension_path, run_native_compiler
 from .._output import OutputSink
 from .._source_closure import (
@@ -46,6 +46,24 @@ _REVISION = re.compile(r"^[0-9a-f]{40}$")
 _SHA256 = re.compile(r"^sha256:[0-9a-f]{64}$")
 _LOGICAL_PATH = re.compile(
     r"^(?!/)(?![A-Za-z]:)(?!.*\\\\)(?!.*(?:^|/)\.\.?(/|$))(?!.*//)[A-Za-z0-9._+@/-]+$"
+)
+_MODULE_ACIR_PATH = re.compile(r"^modules/[A-Za-z_][A-Za-z0-9_]*\.ac\.mlir$")
+_GENERATED_UNIT_NAME = r"[A-Za-z_][A-Za-z0-9_]*"
+_MODULE_HEADER_PATH = re.compile(
+    rf"^include/generated/modules/(?P<name>{_GENERATED_UNIT_NAME})\.h$"
+)
+_MODULE_SOURCE_PATH = re.compile(
+    rf"^src/generated/modules/(?P<name>{_GENERATED_UNIT_NAME})\.cpp$"
+)
+_HELPER_SOURCE_PATH = re.compile(
+    rf"^src/generated/helpers/(?P<name>{_GENERATED_UNIT_NAME})\.cpp$"
+)
+_TYPE_HEADER_PATH = re.compile(rf"^include/generated/types/{_GENERATED_UNIT_NAME}\.h$")
+_MODULE_SUPPORT_HEADERS = frozenset(
+    {
+        "include/generated/modules/queuegraph_helpers.h",
+        "include/generated/modules/queuegraph_types.h",
+    }
 )
 _PRODUCT_VERSION = "6.0.0"
 _DISTRIBUTIONS = {
@@ -539,7 +557,7 @@ def _capture_model_acir(
     return result.acir
 
 
-def _freeze(acir: bytes, sdk: SdkIdentity) -> bytes:
+def _freeze(acir: bytes, sdk: SdkIdentity) -> tuple[bytes, dict[str, bytes]]:
     try:
         native_bytes = sdk.native_extension.read_bytes()
     except OSError as error:
@@ -565,12 +583,18 @@ def _freeze(acir: bytes, sdk: SdkIdentity) -> bytes:
     errors = tuple(item for item in result.diagnostics if item.severity == "error")
     if errors:
         _fail(errors[0].code, errors[0].message)
-    artifacts = tuple(
+    frozen = tuple(
         item.data for item in result.artifacts if item.path == "frozen.ac.mlir"
     )
-    if len(artifacts) != 1:
+    module_units = {
+        item.path: item.data
+        for item in result.artifacts
+        if _MODULE_ACIR_PATH.fullmatch(item.path) is not None
+    }
+    expected_paths = {"frozen.ac.mlir", *module_units}
+    if len(frozen) != 1 or {item.path for item in result.artifacts} != expected_paths:
         _fail("ACSDK-PLAN-FREEZE-001", "compiler produced no canonical Frozen ACIR")
-    return artifacts[0]
+    return frozen[0], module_units
 
 
 def _queuegraph(tool: Path, frozen: bytes) -> bytes:
@@ -606,28 +630,84 @@ def _queuegraph(tool: Path, frozen: bytes) -> bytes:
         _fail("ACSDK-PLAN-QUEUEGRAPH-001", f"QueueGraph output is invalid: {error}")
 
 
-def _cmake_sources() -> bytes:
-    return (
-        b"set(AGENTIC_MODEL_GENERATED_SOURCES\n"
-        b'  "src/generated/model.cpp"\n'
-        b'  "src/generated/queuegraph.cpp"\n'
-        b")\n"
-        b"set(AGENTIC_MODEL_GENERATED_HEADERS\n"
-        b'  "include/generated/model.h"\n'
-        b")\n"
-        b'set(AGENTIC_MODEL_QUERY_SYMBOL "agentic_model_query_v1")\n'
-        b'set(AGENTIC_MODEL_RUNTIME_TARGET "AgenticCircuit::Gfsim")\n'
+def _cmake_sources_for(paths: tuple[str, ...]) -> bytes:
+    sources = tuple(
+        sorted(
+            path
+            for path in paths
+            if path.endswith(".cpp") and path.startswith("src/generated/")
+        )
     )
+    headers = tuple(
+        sorted(
+            path
+            for path in paths
+            if path.endswith(".h") and path.startswith("include/generated/")
+        )
+    )
+    lines = ["set(AGENTIC_MODEL_GENERATED_SOURCES\n"]
+    for path in sources:
+        lines.append(f'  "{path}"\n')
+    lines.append(")\nset(AGENTIC_MODEL_GENERATED_HEADERS\n")
+    for path in headers:
+        lines.append(f'  "{path}"\n')
+    lines.append(
+        ")\n"
+        'set(AGENTIC_MODEL_QUERY_SYMBOL "agentic_model_query_v1")\n'
+        'set(AGENTIC_MODEL_RUNTIME_TARGET "AgenticCircuit::Gfsim")\n'
+    )
+    return "".join(lines).encode()
 
 
-def _depfile(output: Path, inputs: tuple[Path, ...]) -> bytes:
+def _validate_generated_inventory(paths: tuple[str, ...]) -> None:
+    if paths != tuple(sorted(set(paths))) or not set(_PLAN_OUTPUTS).issubset(paths):
+        raise ValueError(
+            "generated file inventory is not canonical or lacks core files"
+        )
+    module_headers: set[str] = set()
+    module_sources: set[str] = set()
+    helper_sources: set[str] = set()
+    for path in paths:
+        if (
+            path in _PLAN_OUTPUTS
+            or path in _MODULE_SUPPORT_HEADERS
+            or _TYPE_HEADER_PATH.fullmatch(path) is not None
+        ):
+            continue
+        header = _MODULE_HEADER_PATH.fullmatch(path)
+        if header is not None:
+            module_headers.add(header.group("name"))
+            continue
+        source = _MODULE_SOURCE_PATH.fullmatch(path)
+        if source is not None:
+            module_sources.add(source.group("name"))
+            continue
+        helper = _HELPER_SOURCE_PATH.fullmatch(path)
+        if helper is not None:
+            helper_sources.add(helper.group("name"))
+            continue
+        raise ValueError(f"unexpected generated file path: {path}")
+    if module_headers != module_sources:
+        raise ValueError("generated module headers and sources do not match")
+    support_headers = _MODULE_SUPPORT_HEADERS.intersection(paths)
+    if bool(support_headers) != bool(module_headers) or (
+        module_headers and support_headers != _MODULE_SUPPORT_HEADERS
+    ):
+        raise ValueError("generated module inventory has inconsistent support headers")
+    expected_helpers = {"queuegraph_helpers"} if module_headers else set()
+    if helper_sources != expected_helpers:
+        raise ValueError("generated module inventory has inconsistent helper sources")
+
+
+def _depfile(output: Path, targets: tuple[str, ...], inputs: tuple[Path, ...]) -> bytes:
     def escape(path: Path) -> str:
         return (
             path.as_posix().replace("$", "$$").replace("#", "\\#").replace(" ", "\\ ")
         )
 
     dependencies = " ".join(escape(path) for path in inputs)
-    return f"{escape(output / 'model-plan.json')}: {dependencies}\n".encode()
+    outputs = " ".join(escape(output / path) for path in targets)
+    return f"{outputs}: {dependencies}\n".encode()
 
 
 def _publish(output: Path, artifacts: dict[str, bytes]) -> tuple[str, ...]:
@@ -685,18 +765,25 @@ def _plan(arguments: object, sink: OutputSink) -> int:
     )
     if sha256_bytes(config_path.read_bytes()) != config_hash:
         _fail("ACSDK-PLAN-CONFIG-002", "model config changed during capture")
-    frozen = _freeze(raw_acir, sdk)
+    frozen, module_acir = _freeze(raw_acir, sdk)
     queuegraph = _queuegraph(sdk.queue_plan_tool, frozen)
     queuegraph_document = json.loads(queuegraph)
     specialization = queuegraph_document.get("specialization")
     if type(specialization) is not str or not _SHA256.fullmatch(specialization):
         _fail("ACSDK-PLAN-QUEUEGRAPH-002", "QueueGraph specialization is invalid")
 
-    cmake = _cmake_sources()
     output_candidate = Path(arguments.out_dir).expanduser()
     if output_candidate.is_symlink():
         _fail("ACSDK-PLAN-OUTPUT-001", "model plan output must not be a symlink")
     output = output_candidate.resolve()
+    generated = _invoke_model_generator(
+        sdk,
+        frozen,
+        forbidden=(sdk.root, source_root, output),
+        emit=False,
+    )
+    generated_outputs = tuple(generated)
+    cmake = _cmake_sources_for(generated_outputs)
     entry_logical = entry_path.relative_to(source_root).as_posix()
     inputs: list[dict[str, JsonValue]] = [
         {
@@ -727,7 +814,7 @@ def _plan(arguments: object, sink: OutputSink) -> int:
         "inputs": inputs,
         "frozen_acir": {"path": "frozen.ac.mlir", "sha256": sha256_bytes(frozen)},
         "queuegraph": {"path": "queuegraph.json", "sha256": sha256_bytes(queuegraph)},
-        "outputs": list(_PLAN_OUTPUTS),
+        "outputs": list(generated_outputs),
         "cmake_sources": {
             "path": "model-sources.cmake",
             "sha256": sha256_bytes(cmake),
@@ -741,12 +828,15 @@ def _plan(arguments: object, sink: OutputSink) -> int:
         Path(item.source_file).resolve() for item in closure.entries
     ) + (config_path,)
     artifacts = {
+        **module_acir,
         "frozen.ac.mlir": frozen,
         "model-sources.cmake": cmake,
-        "model.d": _depfile(output, dependency_paths),
         "model-plan.json": plan_bytes,
         "queuegraph.json": queuegraph,
     }
+    artifacts["model.d"] = _depfile(
+        output, tuple(sorted((*artifacts, "model.d"))), dependency_paths
+    )
     published = _publish(output, artifacts)
     sink.result(
         {
@@ -834,10 +924,18 @@ def _verify_plan(value: object, sdk: SdkIdentity) -> VerifiedPlan:
         or document["contract_epoch"] != CONTRACT_EPOCH
         or document["required_runtime"] != "AgenticCircuit::Gfsim"
         or document["depfile_path"] != "model.d"
-        or document["outputs"] != list(_PLAN_OUTPUTS)
         or document["capabilities"] != list(_PLAN_CAPABILITIES)
     ):
-        _emit_fail("PLAN-001", "model plan identity or fixed outputs are invalid")
+        _emit_fail("PLAN-001", "model plan identity is invalid")
+    outputs = document["outputs"]
+    if type(outputs) is not list or any(type(path) is not str for path in outputs):
+        _emit_fail("PLAN-001", "model plan generated file inventory is invalid")
+    try:
+        _validate_generated_inventory(tuple(outputs))
+    except ValueError as error:
+        _emit_fail(
+            "PLAN-001", f"model plan generated file inventory is invalid: {error}"
+        )
     entry = document["entry"]
     specialization = document["specialization"]
     if type(entry) is not str or _ENTRY.fullmatch(entry) is None:
@@ -921,8 +1019,7 @@ def _verify_plan(value: object, sdk: SdkIdentity) -> VerifiedPlan:
         "source_manifest": source_manifest,
         "arguments": static_config,
     }
-    if sha256_bytes(canonical_json_bytes(specialization_preimage)) != specialization:
-        _emit_fail("PLAN-001", "model specialization provenance is inconsistent")
+    source_specialization = sha256_bytes(canonical_json_bytes(specialization_preimage))
 
     plan_root = path.parent.resolve()
     frozen_path, frozen = _plan_artifact(
@@ -931,18 +1028,23 @@ def _verify_plan(value: object, sdk: SdkIdentity) -> VerifiedPlan:
     queuegraph_path, queuegraph = _plan_artifact(
         plan_root, document["queuegraph"], "QueueGraph"
     )
-    cmake_path, cmake = _plan_artifact(
-        plan_root, document["cmake_sources"], "CMake source fragment"
-    )
-    if cmake != _cmake_sources():
-        _emit_fail("PLAN-001", "CMake source fragment is not the fixed v1 contract")
-    rebuilt_queuegraph = _queuegraph(sdk.queue_plan_tool, frozen)
-    if rebuilt_queuegraph != queuegraph:
-        _emit_fail("HASH-001", "QueueGraph does not match Frozen ACIR")
     try:
         queuegraph_document = json.loads(queuegraph)
     except (UnicodeError, json.JSONDecodeError) as error:
-        _emit_fail("PLAN-001", f"QueueGraph is invalid JSON: {error}")
+        _emit_fail("PLAN-001", f"QueueGraph is invalid: {error}")
+    observed_source_specialization = queuegraph_document.get(
+        "jit_specialization"
+    ) or queuegraph_document.get("specialization")
+    if observed_source_specialization != source_specialization:
+        _emit_fail("PLAN-001", "model specialization provenance is inconsistent")
+    cmake_path, cmake = _plan_artifact(
+        plan_root, document["cmake_sources"], "CMake source fragment"
+    )
+    if cmake != _cmake_sources_for(tuple(outputs)):
+        _emit_fail("PLAN-001", "CMake source fragment disagrees with model outputs")
+    rebuilt_queuegraph = _queuegraph(sdk.queue_plan_tool, frozen)
+    if rebuilt_queuegraph != queuegraph:
+        _emit_fail("HASH-001", "QueueGraph does not match Frozen ACIR")
     if queuegraph_document.get("specialization") != specialization:
         _emit_fail("PLAN-001", "QueueGraph specialization does not match the plan")
     return VerifiedPlan(
@@ -958,23 +1060,32 @@ def _verify_plan(value: object, sdk: SdkIdentity) -> VerifiedPlan:
     )
 
 
-def _generate_model_sources(sdk: SdkIdentity, plan: VerifiedPlan) -> dict[str, bytes]:
+def _invoke_model_generator(
+    sdk: SdkIdentity,
+    frozen_bytes: bytes,
+    *,
+    forbidden: tuple[Path, ...],
+    emit: bool,
+) -> dict[str, bytes]:
+    def fail(message: str) -> NoReturn:
+        if emit:
+            _emit_fail("GENERATOR-001", message)
+        _fail("ACSDK-PLAN-GENERATOR-001", message)
+
     with tempfile.TemporaryDirectory(prefix="agentic-model-emit-") as temporary:
         temporary_root = Path(temporary)
         output = temporary_root / "bundle"
         frozen = temporary_root / "verified.frozen.ac.mlir"
-        frozen.write_bytes(plan.frozen)
+        frozen.write_bytes(frozen_bytes)
         try:
             generator_bytes = sdk.queue_cxxgen_tool.read_bytes()
         except OSError as error:
-            _emit_fail("GENERATOR-001", f"model generator is unavailable: {error}")
+            fail(f"model generator is unavailable: {error}")
         if (
             len(generator_bytes) != sdk.queue_cxxgen_size
             or sha256_bytes(generator_bytes) != sdk.queue_cxxgen_sha256
         ):
-            _emit_fail(
-                "GENERATOR-001", "model generator identity changed after preflight"
-            )
+            fail("model generator identity changed after preflight")
         try:
             completed = subprocess.run(
                 [
@@ -994,32 +1105,46 @@ def _generate_model_sources(sdk: SdkIdentity, plan: VerifiedPlan) -> dict[str, b
                 timeout=60,
             )
         except (OSError, subprocess.TimeoutExpired) as error:
-            _emit_fail("GENERATOR-001", f"model generator failed: {error}")
+            fail(f"model generator failed: {error}")
         if completed.returncode != 0:
             detail, _ = OutputSink.bounded_capture(completed.stderr or completed.stdout)
-            _emit_fail("GENERATOR-001", f"model generator failed: {detail}")
+            fail(f"model generator failed: {detail}")
         if not output.is_dir():
-            _emit_fail("GENERATOR-001", "model generator produced no bundle")
+            fail("model generator produced no bundle")
         found = tuple(
             item.relative_to(output).as_posix()
             for item in sorted(output.rglob("*"))
             if item.is_file()
         )
-        if found != _PLAN_OUTPUTS:
-            _emit_fail(
-                "GENERATOR-001", "model generator produced an unexpected file set"
-            )
+        try:
+            _validate_generated_inventory(found)
+        except ValueError as error:
+            fail(f"model generator produced an unexpected file set: {error}")
         artifacts = {path: (output / path).read_bytes() for path in found}
-    forbidden = (os.fspath(sdk.root).encode(), os.fspath(plan.path.parent).encode())
+    forbidden_bytes = tuple(os.fspath(path).encode() for path in forbidden)
     for path, raw in artifacts.items():
-        if any(value in raw for value in forbidden):
-            _emit_fail(
-                "GENERATOR-001", f"generated source leaks a producer path: {path}"
-            )
+        if any(value in raw for value in forbidden_bytes):
+            fail(f"generated source leaks a producer path: {path}")
     return artifacts
 
 
-def _emit_depfile(output: Path, plan: VerifiedPlan) -> bytes:
+def _generate_model_sources(sdk: SdkIdentity, plan: VerifiedPlan) -> dict[str, bytes]:
+    artifacts = _invoke_model_generator(
+        sdk,
+        plan.frozen,
+        forbidden=(sdk.root, plan.path.parent),
+        emit=True,
+    )
+    planned = plan.document["outputs"]
+    assert type(planned) is list
+    if tuple(artifacts) != tuple(planned):
+        _emit_fail("GENERATOR-001", "model generator output disagrees with the plan")
+    return artifacts
+
+
+def _emit_depfile(
+    output: Path, plan: VerifiedPlan, generated: dict[str, bytes]
+) -> bytes:
     def escape(path: Path) -> str:
         return (
             path.as_posix().replace("$", "$$").replace("#", "\\#").replace(" ", "\\ ")
@@ -1027,7 +1152,11 @@ def _emit_depfile(output: Path, plan: VerifiedPlan) -> bytes:
 
     targets = tuple(
         output / path
-        for path in (*_PLAN_OUTPUTS, "model-manifest.json", "model-sources.cmake")
+        for path in (
+            *sorted(generated),
+            "model-manifest.json",
+            "model-sources.cmake",
+        )
     )
     dependencies = (
         plan.path,
@@ -1044,7 +1173,10 @@ def _emit_depfile(output: Path, plan: VerifiedPlan) -> bytes:
 
 
 def _model_manifest(
-    sdk: SdkIdentity, plan: VerifiedPlan, generated: dict[str, bytes]
+    sdk: SdkIdentity,
+    plan: VerifiedPlan,
+    generated: dict[str, bytes],
+    cmake: bytes,
 ) -> bytes:
     document = plan.document
     manifest: dict[str, JsonValue] = {
@@ -1061,7 +1193,7 @@ def _model_manifest(
         "specialization": document["specialization"],
         "generated_files": [
             {"path": path, "sha256": sha256_bytes(generated[path])}
-            for path in _PLAN_OUTPUTS
+            for path in sorted(generated)
         ],
         "source_map": {
             "path": "share/generated/source-map.json",
@@ -1075,7 +1207,7 @@ def _model_manifest(
         },
         "cmake_sources": {
             "path": "model-sources.cmake",
-            "sha256": sha256_bytes(plan.cmake_sources),
+            "sha256": sha256_bytes(cmake),
         },
         "depfile_path": "model.d",
         "required_runtime": "AgenticCircuit::Gfsim",
@@ -1172,7 +1304,20 @@ def _publish_model(output: Path, artifacts: dict[str, bytes]) -> tuple[str, ...]
     lock_path = output.parent / f".{output.name}.lock"
     with lock_path.open("a+b") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
-        _existing_model_files(output)
+        existing = _existing_model_files(output)
+        if existing == frozenset(expected):
+            try:
+                unchanged = all(
+                    output.joinpath(*PurePosixPath(path).parts).read_bytes()
+                    == artifacts[path]
+                    for path in expected
+                )
+            except OSError as error:
+                _emit_fail(
+                    "OUTPUT-001", f"existing model output is unreadable: {error}"
+                )
+            if unchanged:
+                return expected
         with ArtifactStage(output, expected=expected) as stage:
             for path in expected:
                 stage.write_bytes(path, artifacts[path])
@@ -1195,11 +1340,12 @@ def _emit(arguments: object, sink: OutputSink) -> int:
         _emit_fail("OUTPUT-001", "--depfile must name <out-dir>/model.d")
 
     generated = _generate_model_sources(sdk, plan)
+    cmake = _cmake_sources_for(tuple(generated))
     artifacts = {
         **generated,
-        "model-sources.cmake": plan.cmake_sources,
-        "model.d": _emit_depfile(output, plan),
-        "model-manifest.json": _model_manifest(sdk, plan, generated),
+        "model-sources.cmake": cmake,
+        "model.d": _emit_depfile(output, plan, generated),
+        "model-manifest.json": _model_manifest(sdk, plan, generated, cmake),
     }
     published = _publish_model(output, artifacts)
     manifest_bytes = artifacts["model-manifest.json"]

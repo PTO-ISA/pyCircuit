@@ -2624,6 +2624,12 @@ private:
                                            selected.getSymName(), &available);
     if (!extractedRoot)
       return extractedRoot.takeError();
+    if (auto jit = root.getStaticParams().getAs<mlir::StringAttr>(
+            "jit_specialization")) {
+      if (!isValidFingerprint(jit.getValue()))
+        return planError("root JIT specialization fingerprint is invalid");
+      extractedRoot->jitSpecializationFingerprint = jit.getValue().str();
+    }
     extractedRoot->moduleSpecializations = std::move(specializations);
     if (auto error = materializeActivation(*extractedRoot))
       return std::move(error);
@@ -4696,6 +4702,9 @@ llvm::Error verifyQueueGraphPlan(const QueueGraphPlan &plan) {
   if (!plan.specializationFingerprint.empty() &&
       !isValidFingerprint(plan.specializationFingerprint))
     return planError("QueueGraph specialization fingerprint is invalid");
+  if (!plan.jitSpecializationFingerprint.empty() &&
+      !isValidFingerprint(plan.jitSpecializationFingerprint))
+    return planError("QueueGraph JIT specialization fingerprint is invalid");
   if (auto error = verifyPayloadGraph(plan))
     return error;
   llvm::StringMap<const QueueEnumPlan *> enums;
@@ -4994,14 +5003,19 @@ llvm::Error verifyQueueGraphPlan(const QueueGraphPlan &plan) {
   for (const TablePlan &table : plan.tables) {
     if (table.name.empty() || !tables.try_emplace(table.name, &table).second)
       return planError("table identities must be non-empty and unique");
-    if (table.entryType.empty() || table.entries == 0 || table.init != 0 ||
+    if (table.entryType.empty() || table.entries == 0 ||
         table.stableId.empty() || table.ownerPath.empty())
       return planError("table metadata is incomplete");
     llvm::StringSet<> zeroActive;
     llvm::StringSet<> rangeActive;
-    if ((table.initImage.empty() &&
+    const auto scalarBounds =
+        constraintBounds(planTypeConstraint(table.entryType));
+    if ((table.initImage.empty() && table.init == 0 &&
          !tableTypeSupportsZero(tableTypeSupportsZero, table.entryType,
                                 zeroActive)) ||
+        (table.initImage.empty() && table.init != 0 &&
+         (!scalarBounds || table.init < scalarBounds->first ||
+          table.init > scalarBounds->second)) ||
         (!table.initImage.empty() &&
          tableTypeContainsRange(tableTypeContainsRange, table.entryType,
                                 rangeActive)))
@@ -7700,6 +7714,10 @@ llvm::Expected<std::string> QueueGraphPlan::canonicalJson() const {
       {"enums", std::move(enumValues)},
       {"interface_inputs", std::move(interfaceInputValues)},
       {"interface_outputs", std::move(interfaceOutputValues)},
+      {"jit_specialization",
+       jitSpecializationFingerprint.empty()
+           ? llvm::json::Value(nullptr)
+           : llvm::json::Value(jitSpecializationFingerprint)},
       {"helpers", std::move(helperValues)},
       {"initial_activation", std::move(initialActivationValues)},
       {"memory_instances", std::move(memoryInstanceValues)},

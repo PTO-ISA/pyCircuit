@@ -485,6 +485,33 @@ def _epoch_05_integer_width(value_type: ValueType) -> int | None:
     return None
 
 
+def _scalar_reset_init(value_type: ValueType, init: object, *, code: str) -> int | bool:
+    """Accept a constant register reset image for scalar persistent state."""
+
+    from _pycircuit_semantics import RangeType
+
+    if isinstance(value_type, BoolType):
+        if type(init) is not bool:
+            raise QueueFrontendError(f"{code}: bool variable requires bool init")
+        return init
+    if type(init) is not int:
+        raise QueueFrontendError(f"{code}: integer variable requires integer init")
+    if isinstance(value_type, RangeType):
+        if not value_type.lower <= init < value_type.upper:
+            raise QueueFrontendError(
+                f"{code}: range state init is outside declared bounds"
+            )
+        return init
+    width = _epoch_05_integer_width(value_type)
+    if width is None:
+        raise QueueFrontendError(f"{code}: persistent scalar init requires bits")
+    if init < 0 or init >= (1 << width):
+        raise QueueFrontendError(
+            f"{code}: reset init {init} does not fit {width}-bit state"
+        )
+    return init
+
+
 def _candidate_mask_type(entries: int) -> ValueType:
     """Represent compiler-owned candidate sets without widening public bits."""
 
@@ -7336,27 +7363,10 @@ def parse_queue_program(
                     raise QueueFrontendError(
                         "ACPY-VAR-001: persistent struct init must be zero"
                     )
-                if isinstance(value_type, BoolType) and type(init) is not bool:
-                    raise QueueFrontendError(
-                        "ACPY-VAR-001: bool variable requires bool init"
-                    )
-                if not isinstance(value_type, BoolType) and type(init) is not int:
-                    raise QueueFrontendError(
-                        "ACPY-VAR-001: integer variable requires integer init"
-                    )
-                from _pycircuit_semantics import RangeType
-
-                if isinstance(value_type, RangeType) and not (
-                    value_type.lower <= init < value_type.upper
+                if not isinstance(
+                    value_type, (StructType, TupleType, ArrayType, EnumType)
                 ):
-                    raise QueueFrontendError(
-                        "ACPY-TYPE-009: range state init is outside declared bounds"
-                    )
-                if isinstance(value_type, RangeType) and init != 0:
-                    raise QueueFrontendError(
-                        "ACPY-TYPE-009: current bounded state storage requires "
-                        "a zero initializer"
-                    )
+                    init = _scalar_reset_init(value_type, init, code="ACPY-VAR-001")
                 binding = VarStateBinding(
                     name,
                     value_type,
@@ -18561,22 +18571,14 @@ def _lower_simple_module_source(
                     enum_map,
                     static_values=type_static_values,
                 )
-                state_init = declaration.value.value
-                if isinstance(state_type, RangeType):
-                    if not state_type.lower <= state_init < state_type.upper:
-                        raise QueueFrontendError(
-                            "ACPY-MODULE-004: bounded module state initializer "
-                            "is outside its declared range"
-                        )
-                    if state_init != 0:
-                        raise QueueFrontendError(
-                            "ACPY-MODULE-004: current bounded module state "
-                            "storage requires a zero initializer"
-                        )
-                elif state_init != 0:
+                state_init = _scalar_reset_init(
+                    state_type,
+                    declaration.value.value,
+                    code="ACPY-MODULE-004",
+                )
+                if type(state_init) is not int:
                     raise QueueFrontendError(
-                        "ACPY-MODULE-004: module bits state requires a typed zero "
-                        "initializer"
+                        "ACPY-MODULE-004: module bits state requires integer init"
                     )
                 if _epoch_05_integer_width(state_type) is None:
                     raise QueueFrontendError(

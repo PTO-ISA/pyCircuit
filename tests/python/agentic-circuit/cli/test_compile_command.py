@@ -23,6 +23,7 @@ EXPECTED_COMPILE_TREE = (
     "input/model.ac.mlir",
     "input/model.acpy.json",
     "model.acsim.mlir",
+    "modules/top.ac.mlir",
     "src/generated/main.cpp",
     "src/generated/model.cpp",
     "src/generated/modules/Module_top.cpp",
@@ -169,6 +170,7 @@ class CompileCommandTest(unittest.TestCase):
                 "dumps/topology-freeze-after.mlir",
                 "dumps/topology-freeze-before.mlir",
                 "frozen.ac.mlir",
+                "modules/top.ac.mlir",
             ),
             tree,
         )

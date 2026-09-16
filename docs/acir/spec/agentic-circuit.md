@@ -535,10 +535,14 @@ Persistent class/module fields lower to the same `ac.var` family. Internal
 `ac.var.decl` names the lexical state, `ac.var.read` produces an immutable
 committed snapshot, and `ac.var.assign` proposes the next value within one
 rule. Storage selection eliminates these operations before rule closure. The
-first executable slice accepts a zero-initialized scalar integer, nominal enum,
-or flat struct and selects a single-entry committed implementation. Enum state
-uses its first declared member as the zero image and keeps its nominal type
-through storage selection; the Python frontend does not expose that choice.
+first executable slice accepts a scalar integer, nominal enum, or flat struct
+and selects a single-entry committed implementation. Scalar integer and range
+reset images may be non-zero: `total: ac.u8 = 5` is `ac.var.decl init 5`,
+storage selection copies that image onto `ac.table init`, and `Module::reset`
+restores it through `SimTable`. A Python `if` around the assignment (or
+`ac.var.assign ... when`) is the write enable. Enum state uses its first
+declared member as the zero image and keeps its nominal type through storage
+selection; the Python frontend does not expose that choice.
 
 Indexed persistent state is declared explicitly with
 `Table8 = ac.table[8, Entry]` and `entries = Table8(init=0)`. Ordinary Python lists remain static
