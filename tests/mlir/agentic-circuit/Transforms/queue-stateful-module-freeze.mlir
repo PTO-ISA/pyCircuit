@@ -107,8 +107,8 @@ builtin.module attributes {
 // PLAN-SAME: "specialization":"[[PLAN_SPECIALIZATION]]"
 // PLAN-SAME: "module_specializations":[{
 // PLAN-SAME: "activation_edges":[
+// PLAN-SAME: "kind":"enum_constant"
 // PLAN-SAME: "kind":"firing"
-// PLAN-DAG: "kind":"enum_constant"
 // PLAN-SAME: "definition":"Accumulator"
 // PLAN-SAME: "tables":[{"axis_widths":[1],"entries":1
 // PLAN-SAME: "name":"sum"
