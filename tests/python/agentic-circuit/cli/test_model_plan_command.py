@@ -11,8 +11,16 @@ import tempfile
 import time
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
+from unittest import mock
 
 from agentic_circuit._capture_worker import CaptureWorkerRequest, run_capture_worker
+from agentic_circuit._commands.model import (
+    SdkIdentity,
+    _cmake_sources_for,
+    _freeze,
+    _validate_generated_inventory,
+)
 from jsonschema import Draft202012Validator
 
 REPOSITORY = Path(__file__).resolve().parents[4]
@@ -25,18 +33,15 @@ SOURCE_MAP_SCHEMA = REPOSITORY / "schemas/agentic-circuit/source-map.schema.json
 EMITTED_COST_SCHEMA = REPOSITORY / "schemas/agentic-circuit/emitted-cost.schema.json"
 MODEL_CONSUMER = REPOSITORY / "tests/integration/agentic-circuit/model-install-consumer"
 FIXTURE_SOURCE_REVISION = "a" * 40
-PLAN_FILES = (
+PLAN_CORE_FILES = (
     "frozen.ac.mlir",
     "model-plan.json",
     "model-sources.cmake",
     "model.d",
     "queuegraph.json",
 )
-EMIT_FILES = (
+CORE_GENERATED_FILES = (
     "include/generated/model.h",
-    "model-manifest.json",
-    "model-sources.cmake",
-    "model.d",
     "share/generated/cost-report.json",
     "share/generated/source-map.json",
     "src/generated/model.cpp",
@@ -224,6 +229,22 @@ def write_source(root: Path, *, delay_marker: Path | None = None) -> None:
     (root / "model.toml").write_text('version = "1"\n\n[static]\nentries = 8\n')
 
 
+def write_structured_source(root: Path) -> None:
+    write_source(root)
+    (root / "model/top.py").write_text(
+        "import agentic_circuit as ac\n"
+        "from .contracts import Entry\n\n"
+        "@ac.module\n"
+        "def complete(entry: Entry) -> Entry:\n"
+        "    return entry.with_fields(done=True)\n\n"
+        "@ac.system\n"
+        "def rob(entry: Entry, *, entries: ac.const[int]) -> Entry:\n"
+        "    ac.static_assert(entries > 0)\n"
+        "    completed = complete(entry)\n"
+        "    return completed\n"
+    )
+
+
 def plan_command(
     prefix: Path,
     source: Path,
@@ -398,10 +419,136 @@ def compile_emitted_model(
     )
 
 
+class ModelArtifactInventoryTest(unittest.TestCase):
+    def test_dynamic_inventory_is_closed_and_drives_cmake(self) -> None:
+        inventory = tuple(
+            sorted(
+                (
+                    *CORE_GENERATED_FILES,
+                    "include/generated/modules/Module_Child.h",
+                    "include/generated/modules/queuegraph_helpers.h",
+                    "include/generated/modules/queuegraph_types.h",
+                    "include/generated/types/Entry.h",
+                    "src/generated/helpers/queuegraph_helpers.cpp",
+                    "src/generated/modules/Module_Child.cpp",
+                )
+            )
+        )
+
+        _validate_generated_inventory(inventory)
+        cmake = _cmake_sources_for(inventory).decode()
+        for path in inventory:
+            if path.endswith((".cpp", ".h")):
+                self.assertIn(f'  "{path}"', cmake)
+
+    def test_dynamic_inventory_rejects_unplanned_shapes(self) -> None:
+        with self.assertRaisesRegex(ValueError, "unexpected generated file path"):
+            _validate_generated_inventory(
+                tuple(sorted((*CORE_GENERATED_FILES, "src/generated/extra.txt")))
+            )
+        with self.assertRaisesRegex(ValueError, "headers and sources do not match"):
+            _validate_generated_inventory(
+                tuple(
+                    sorted(
+                        (
+                            *CORE_GENERATED_FILES,
+                            "include/generated/modules/Module_Child.h",
+                            "include/generated/modules/queuegraph_types.h",
+                        )
+                    )
+                )
+            )
+
+    def test_freeze_preserves_per_module_acir_diagnostics(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            native = Path(temporary) / "_native.so"
+            native.write_bytes(b"native")
+            sdk = SdkIdentity(
+                root=Path(temporary),
+                manifest_sha256=sha256(b"manifest"),
+                source_revision=FIXTURE_SOURCE_REVISION,
+                queue_plan_tool=Path(temporary) / "acir-queue-plan",
+                queue_cxxgen_tool=Path(temporary) / "acir-queue-cxxgen",
+                queue_cxxgen_sha256=sha256(b"generator"),
+                queue_cxxgen_size=len(b"generator"),
+                native_extension=native,
+                native_sha256=sha256(b"native"),
+                native_size=len(b"native"),
+            )
+            result = SimpleNamespace(
+                diagnostics=(),
+                artifacts=(
+                    SimpleNamespace(path="frozen.ac.mlir", data=b"frozen"),
+                    SimpleNamespace(path="modules/Child.ac.mlir", data=b"child"),
+                ),
+            )
+            with (
+                mock.patch(
+                    "agentic_circuit._commands.model.run_native_compiler",
+                    return_value=result,
+                ),
+                mock.patch(
+                    "agentic_circuit._commands.model.native_extension_path",
+                    return_value=native,
+                ),
+            ):
+                frozen, modules = _freeze(b"input", sdk)
+
+        self.assertEqual(b"frozen", frozen)
+        self.assertEqual({"modules/Child.ac.mlir": b"child"}, modules)
+
+
 @unittest.skipUnless(
     sys.version_info[:2] == (3, 11), "SDK model-plan profile requires Python 3.11"
 )
 class ModelPlanCommandTest(unittest.TestCase):
+    def test_structured_plan_and_emit_publish_exact_multi_tu_inventory(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            prefix = root / "sdk"
+            source = root / "source"
+            plan_root = root / "plan"
+            output = root / "generated"
+            install_sdk(prefix)
+            write_structured_source(source)
+
+            planned = run_plan(prefix, source, plan_root)
+            emitted = run_emit(prefix, plan_root, output)
+
+            self.assertEqual(0, planned.returncode, planned.stdout)
+            self.assertEqual(0, emitted.returncode, emitted.stdout)
+            plan = json.loads((plan_root / "model-plan.json").read_bytes())
+            outputs = plan["outputs"]
+            self.assertTrue(
+                any(path.startswith("include/generated/types/") for path in outputs)
+            )
+            self.assertTrue(
+                any(path.startswith("include/generated/modules/") for path in outputs)
+            )
+            self.assertTrue(
+                any(path.startswith("src/generated/modules/") for path in outputs)
+            )
+            self.assertTrue(
+                any(path.startswith("src/generated/helpers/") for path in outputs)
+            )
+            self.assertEqual(
+                ("modules/Top.ac.mlir", "modules/complete.ac.mlir"),
+                tuple(
+                    path.relative_to(plan_root).as_posix()
+                    for path in sorted((plan_root / "modules").glob("*.ac.mlir"))
+                ),
+            )
+            manifest = json.loads((output / "model-manifest.json").read_bytes())
+            self.assertEqual(
+                outputs, [item["path"] for item in manifest["generated_files"]]
+            )
+            cmake = (output / "model-sources.cmake").read_text()
+            depfile = (output / "model.d").read_text()
+            for path in outputs:
+                if path.endswith((".h", ".cpp")):
+                    self.assertIn(f'  "{path}"', cmake)
+                self.assertIn(str(output / path), depfile)
+
     def test_installed_plan_is_schema_valid_and_root_independent(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -414,16 +561,22 @@ class ModelPlanCommandTest(unittest.TestCase):
             left_result = run_plan(prefix, left, root / "left-plan", hash_seed=1)
             right_result = run_plan(prefix, right, root / "right-plan", hash_seed=777)
             left_files = {
-                path.name: path.read_bytes() for path in (root / "left-plan").iterdir()
+                path.relative_to(root / "left-plan").as_posix(): path.read_bytes()
+                for path in (root / "left-plan").rglob("*")
+                if path.is_file()
             }
             right_files = {
-                path.name: path.read_bytes() for path in (root / "right-plan").iterdir()
+                path.relative_to(root / "right-plan").as_posix(): path.read_bytes()
+                for path in (root / "right-plan").rglob("*")
+                if path.is_file()
             }
             first_directory_inode = (root / "left-plan").stat().st_ino
             repeated = run_plan(prefix, left, root / "left-plan")
             repeated_directory_inode = (root / "left-plan").stat().st_ino
             repeated_files = {
-                path.name: path.read_bytes() for path in (root / "left-plan").iterdir()
+                path.relative_to(root / "left-plan").as_posix(): path.read_bytes()
+                for path in (root / "left-plan").rglob("*")
+                if path.is_file()
             }
             (left / "model/top.py").write_text(
                 "raise RuntimeError('must not import')\n"
@@ -433,6 +586,24 @@ class ModelPlanCommandTest(unittest.TestCase):
             )
             left_emit = run_emit(prefix, root / "left-plan", root / "left-generated")
             right_emit = run_emit(prefix, root / "right-plan", root / "right-generated")
+            emitted_mtimes = {
+                path.relative_to(
+                    root / "left-generated"
+                ).as_posix(): path.stat().st_mtime_ns
+                for path in (root / "left-generated").rglob("*")
+                if path.is_file()
+            }
+            time.sleep(0.01)
+            repeated_emit = run_emit(
+                prefix, root / "left-plan", root / "left-generated"
+            )
+            repeated_emit_mtimes = {
+                path.relative_to(
+                    root / "left-generated"
+                ).as_posix(): path.stat().st_mtime_ns
+                for path in (root / "left-generated").rglob("*")
+                if path.is_file()
+            }
             left_generated = {
                 path.relative_to(root / "left-generated").as_posix(): path.read_bytes()
                 for path in (root / "left-generated").rglob("*")
@@ -450,12 +621,14 @@ class ModelPlanCommandTest(unittest.TestCase):
         self.assertEqual(0, repeated.returncode, repeated.stdout)
         self.assertEqual(0, left_emit.returncode, left_emit.stdout)
         self.assertEqual(0, right_emit.returncode, right_emit.stdout)
+        self.assertEqual(0, repeated_emit.returncode, repeated_emit.stdout)
+        self.assertEqual(emitted_mtimes, repeated_emit_mtimes)
         self.assertEqual(0, runtime.returncode, runtime.stderr)
         self.assertNotEqual(first_directory_inode, repeated_directory_inode)
         self.assertEqual(left_files, repeated_files)
-        self.assertEqual(PLAN_FILES, tuple(sorted(left_files)))
-        self.assertEqual(PLAN_FILES, tuple(sorted(right_files)))
-        for name in set(PLAN_FILES) - {"model.d"}:
+        self.assertEqual(tuple(sorted(left_files)), tuple(sorted(right_files)))
+        self.assertTrue(set(PLAN_CORE_FILES).issubset(left_files))
+        for name in set(left_files) - {"model.d"}:
             self.assertEqual(left_files[name], right_files[name], name)
         self.assertNotEqual(left_files["model.d"], right_files["model.d"])
         plan = json.loads(left_files["model-plan.json"])
@@ -466,28 +639,30 @@ class ModelPlanCommandTest(unittest.TestCase):
             ("config", "import", "contract", "entry"),
             tuple(item["role"] for item in plan["inputs"]),
         )
-        self.assertEqual(
-            [
-                "include/generated/model.h",
-                "share/generated/cost-report.json",
-                "share/generated/source-map.json",
-                "src/generated/model.cpp",
-                "src/generated/queuegraph.cpp",
-            ],
-            plan["outputs"],
-        )
+        self.assertEqual(sorted(plan["outputs"]), plan["outputs"])
+        self.assertTrue(set(CORE_GENERATED_FILES).issubset(plan["outputs"]))
         self.assertEqual(
             plan["specialization"],
             json.loads(left_files["queuegraph.json"])["specialization"],
         )
         self.assertNotIn(str(left), left_files["model-plan.json"].decode())
         self.assertNotIn(str(prefix), left_files["model-plan.json"].decode())
-        for name in set(PLAN_FILES) - {"model.d"}:
+        for name in set(left_files) - {"model.d"}:
             self.assertNotIn(str(left).encode(), left_files[name], name)
             self.assertNotIn(str(prefix).encode(), left_files[name], name)
-        self.assertEqual(EMIT_FILES, tuple(sorted(left_generated)))
-        self.assertEqual(EMIT_FILES, tuple(sorted(right_generated)))
-        for name in set(EMIT_FILES) - {"model.d"}:
+        expected_emit_files = tuple(
+            sorted(
+                (
+                    *plan["outputs"],
+                    "model-manifest.json",
+                    "model-sources.cmake",
+                    "model.d",
+                )
+            )
+        )
+        self.assertEqual(expected_emit_files, tuple(sorted(left_generated)))
+        self.assertEqual(expected_emit_files, tuple(sorted(right_generated)))
+        for name in set(expected_emit_files) - {"model.d"}:
             self.assertEqual(left_generated[name], right_generated[name], name)
         manifest = json.loads(left_generated["model-manifest.json"])
         self.assertEqual(
@@ -498,6 +673,13 @@ class ModelPlanCommandTest(unittest.TestCase):
             [item["path"] for item in manifest["generated_files"]],
             list(plan["outputs"]),
         )
+        cmake_sources = left_generated["model-sources.cmake"].decode()
+        for path in plan["outputs"]:
+            if path.endswith((".cpp", ".h")):
+                self.assertIn(f'  "{path}"', cmake_sources)
+        depfile = left_generated["model.d"].decode()
+        for path in plan["outputs"]:
+            self.assertIn(str(root / "left-generated" / path), depfile)
         source_map_bytes = left_generated["share/generated/source-map.json"]
         source_map = json.loads(source_map_bytes)
         Draft202012Validator(json.loads(SOURCE_MAP_SCHEMA.read_text())).validate(
@@ -516,7 +698,9 @@ class ModelPlanCommandTest(unittest.TestCase):
             cost_report
         )
         self.assertEqual("agentic-circuit-emitted-cost", cost_report["schema"])
-        self.assertEqual(plan["specialization"], cost_report["identity"]["specialization"])
+        self.assertEqual(
+            plan["specialization"], cost_report["identity"]["specialization"]
+        )
         self.assertEqual(
             sha256(left_files["queuegraph.json"]),
             cost_report["identity"]["queuegraph_sha256"],
@@ -666,8 +850,15 @@ class ModelPlanCommandTest(unittest.TestCase):
             second_stdout, second_stderr = second.communicate(timeout=30)
             self.assertEqual(0, first.returncode, first_stderr or first_stdout)
             self.assertEqual(0, second.returncode, second_stderr or second_stdout)
+            manifest = json.loads((output / "model-manifest.json").read_bytes())
+            expected = tuple(
+                sorted(
+                    [item["path"] for item in manifest["generated_files"]]
+                    + ["model-manifest.json", "model-sources.cmake", "model.d"]
+                )
+            )
             self.assertEqual(
-                EMIT_FILES,
+                expected,
                 tuple(
                     sorted(
                         path.relative_to(output).as_posix()

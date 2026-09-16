@@ -429,6 +429,7 @@ struct QueueGraphPlan {
   std::string definition;
   std::string definitionFingerprint;
   std::string specializationFingerprint;
+  std::string jitSpecializationFingerprint;
   std::vector<QueueInterfacePlan> interfaceInputs;
   std::vector<QueueInterfacePlan> interfaceOutputs;
   std::vector<QueueModuleInstancePlan> moduleInstances;

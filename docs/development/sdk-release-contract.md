@@ -215,7 +215,7 @@ identities and hashes, the exact SDK/source/ABI tuple, the selected entry and
 specialization, required capabilities, the complete deterministic output file
 list, the hashed CMake source fragment, and the depfile's logical path.
 
-Version 1 predicts exactly these generated files:
+Version 1 always contains these generated core files:
 
 ```text
 include/generated/model.h
@@ -224,6 +224,18 @@ share/generated/source-map.json
 src/generated/model.cpp
 src/generated/queuegraph.cpp
 ```
+
+Under `multi-tu-v1`, plan invokes the manifest-bound generator and records the
+complete exact inventory in `outputs`. Structured models additionally emit
+`include/generated/types/*.h`, declaration/support headers under
+`include/generated/modules/`, out-of-line sources under
+`src/generated/modules/`, and an optional shared helper source under
+`src/generated/helpers/`. Emit must reproduce the sorted inventory exactly;
+`model-sources.cmake`, the depfile, and `model-manifest.json` use that same
+inventory. Each listed `.cpp` is compiled as a separate object before the final
+runtime link. A byte-identical repeat emit leaves the published directory and
+mtimes unchanged. The concatenated QueueGraph translation unit used by
+FileCheck remains a diagnostic/reference form, not the installed build shape.
 
 The cost report is deterministic static evidence, not a benchmark. It binds the
 canonical QueueGraph, source map, specialization, and toolchain revision; every

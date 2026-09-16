@@ -12,6 +12,7 @@
 #include "llvm/Support/raw_ostream.h"
 
 #include <functional>
+#include <limits>
 
 using namespace mlir;
 
@@ -397,13 +398,20 @@ LogicalResult lowerVariableState(ModuleOp model) {
 
   for (ac::VarDeclOp declaration : declarations) {
     auto integer = dyn_cast<IntegerAttr>(declaration.getInit());
-    if (!integer || !integer.getValue().isZero())
+    if (!integer)
       return declaration.emitOpError(
-          "first ac.var storage-selection slice requires integer zero init");
+          "ac.var storage selection requires an integer reset image");
+    if (!integer.getValue().isZero() &&
+        !isa<IntegerType, ac::RangeType>(declaration.getValueType()))
+      return declaration.emitOpError(
+          "non-zero ac.var reset image requires a scalar integer or range");
     if (!isa<IntegerType, ac::RangeType, ac::EnumType, ac::StructType>(
             declaration.getValueType()))
       return declaration.emitOpError("first ac.var storage-selection slice "
                                      "requires scalar, enum, or flat struct");
+    if (integer.getValue().getBitWidth() > 64)
+      return declaration.emitOpError("ac.var reset image must fit in 64 bits");
+    const uint64_t initValue = integer.getValue().getZExtValue();
     int64_t entries = 1;
     SmallVector<int64_t> typedShape;
     if (auto shape = declaration.getShapeAttr()) {
@@ -421,7 +429,8 @@ LogicalResult lowerVariableState(ModuleOp model) {
                        declaration.getSymNameAttr());
     state.addAttribute("entry_type", TypeAttr::get(declaration.getValueType()));
     state.addAttribute("entries", builder.getI64IntegerAttr(entries));
-    state.addAttribute("init", builder.getI64IntegerAttr(0));
+    state.addAttribute(
+        "init", builder.getI64IntegerAttr(static_cast<int64_t>(initValue)));
     state.addAttribute("owner", declaration.getOwnerAttr());
     std::string stableId = "table/";
     if (declaration.getOwner() != "/") {

@@ -34,7 +34,7 @@ class NativeApiTest(unittest.TestCase):
 
         self.assertEqual((), result.diagnostics)
         self.assertEqual(
-            ("frozen.ac.mlir", "model.acsim.mlir"),
+            ("frozen.ac.mlir", "model.acsim.mlir", "modules/top.ac.mlir"),
             tuple(item.path for item in result.artifacts),
         )
         self.assertTrue(

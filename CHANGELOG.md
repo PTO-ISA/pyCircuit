@@ -6,6 +6,12 @@ published through the repository's release workflow.
 
 ## Unreleased
 
+- Map Agentic lexical register reset onto `ac.var.decl init` and write enable
+  onto `ac.var.assign when`, copy non-zero scalar images through storage
+  selection and `SimTable` restore, dump one `.ac.mlir` per `ac.module`, and
+  emit nominal type headers plus one out-of-line gfsim class `.h`/`.cpp` per
+  specialization. Generated sources compile to separate objects and link with
+  the root runtime unit (Decision 0264).
 - Add a Pythonic frontend guide for coding agents, covering Cycle-Aware Signal,
   structural modules, Agentic rules, complex-design decomposition, maintained
   examples, failure modes, validation, and handoff evidence.

@@ -3856,9 +3856,24 @@ LogicalResult TableOp::verify() {
              << "schema_id does not match canonical Table schema; expected "
              << expectedSchemaId << " for " << schemaBytes;
   }
-  if (getInit() != 0)
-    return emitOpError("table init must be zero");
-  if (!getInitImageAttr()) {
+  const uint64_t scalarInit = static_cast<uint64_t>(getInit());
+  if (scalarInit != 0) {
+    if (getInitImageAttr())
+      return emitOpError(
+          "scalar init and typed init_image are mutually exclusive");
+    if (auto integer = dyn_cast<IntegerType>(getEntryType())) {
+      if (integer.getWidth() < 64 &&
+          scalarInit >= (uint64_t{1} << integer.getWidth()))
+        return emitOpError("scalar init does not fit the Table entry type");
+    } else if (auto range = dyn_cast<RangeType>(getEntryType())) {
+      if (scalarInit < range.getLower() || scalarInit > range.getUpper())
+        return emitOpError("scalar init lies outside the Table entry range");
+    } else {
+      return emitOpError(
+          "non-zero scalar init requires an integer or range Table entry");
+    }
+  }
+  if (!getInitImageAttr() && scalarInit == 0) {
     llvm::SmallPtrSet<Operation *, 8> seen;
     if (!supportsZeroImage(*this, getEntryType(), seen))
       return emitOpError(

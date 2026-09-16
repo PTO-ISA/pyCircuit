@@ -1,6 +1,7 @@
 #include "CompilerInternal.h"
 
 #include "acir/Bindings/Registry.h"
+#include "acir/Dialect/ACIR/ACIROps.h"
 #include "acir/Dialect/ACIR/GraphRegion.h"
 #include "acir/Transforms/ResolveBindings.h"
 
@@ -12,6 +13,7 @@
 #include "acir/InitAllPasses.h"
 #include "acir/Transforms/Passes.h"
 
+#include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/Diagnostics.h"
@@ -21,6 +23,7 @@
 #include "mlir/Pass/PassManager.h"
 #include "mlir/Pass/PassRegistry.h"
 #include "llvm/ADT/STLExtras.h"
+#include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/StringSwitch.h"
 #include "llvm/Support/Errc.h"
 #include "llvm/Support/MemoryBuffer.h"
@@ -215,6 +218,28 @@ void addArtifact(CompilerResult &result, std::string path,
   artifact.sha256 = codegen::computeFingerprint(artifact.bytes);
 }
 
+void addPerModuleAcirArtifacts(mlir::ModuleOp model, CompilerResult &result) {
+  llvm::SmallVector<ac::ModuleOp> definitions(
+      llvm::to_vector(model.getOps<ac::ModuleOp>()));
+  llvm::sort(definitions, [](ac::ModuleOp lhs, ac::ModuleOp rhs) {
+    return lhs.getSymName().compare(rhs.getSymName()) < 0;
+  });
+  for (ac::ModuleOp definition : definitions) {
+    mlir::OwningOpRef<mlir::ModuleOp> unit =
+        mlir::ModuleOp::create(definition.getLoc());
+    unit.get()->setAttrs(model->getAttrs());
+    unit.get()->setAttr(
+        "ac.module_unit",
+        mlir::StringAttr::get(model.getContext(), definition.getSymName()));
+    mlir::OpBuilder builder(unit->getBody(), unit->getBody()->begin());
+    for (ac::TypeScopeOp scope : model.getOps<ac::TypeScopeOp>())
+      builder.clone(*scope.getOperation());
+    builder.clone(*definition.getOperation());
+    addArtifact(result, "modules/" + definition.getSymName().str() + ".ac.mlir",
+                codegen::ArtifactKind::Acir, printModule(*unit));
+  }
+}
+
 unsigned stageOrdinal(CompilerStage stage) {
   return static_cast<unsigned>(stage);
 }
@@ -336,9 +361,11 @@ llvm::Error runStage(CompilerStage stage, const CompilerRequest &request,
     if (mlir::failed(runPass(state, createFreezeTopologyPass())))
       return capture.takeFailure(stage);
     state.frozenAcir = printModule(*state.module);
-    if (requested(request, codegen::ArtifactKind::Acir))
+    if (requested(request, codegen::ArtifactKind::Acir)) {
       addArtifact(result, "frozen.ac.mlir", codegen::ArtifactKind::Acir,
                   state.frozenAcir);
+      addPerModuleAcirArtifacts(*state.module, result);
+    }
     return llvm::Error::success();
   case CompilerStage::AcsimLower: {
     bindings::BindingRegistryDocument registry;

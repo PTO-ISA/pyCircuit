@@ -127,6 +127,6 @@ int main(int argc, char **argv) {
                  << '\n';
     return EXIT_FAILURE;
   }
-  llvm::outs() << "emitted model bundle v1 (5 files)\n";
+  llvm::outs() << "emitted model bundle v1 (" << bundle->size() << " files)\n";
   return EXIT_SUCCESS;
 }

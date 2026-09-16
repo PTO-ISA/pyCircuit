@@ -15,6 +15,7 @@
 #include <algorithm>
 #include <cctype>
 #include <limits>
+#include <optional>
 #include <set>
 #include <sstream>
 #include <system_error>
@@ -202,8 +203,7 @@ std::optional<llvm::StringRef> enumTypeName(llvm::StringRef type) {
   return std::nullopt;
 }
 
-std::optional<std::pair<uint64_t, uint64_t>>
-rangeBounds(llvm::StringRef type) {
+std::optional<std::pair<uint64_t, uint64_t>> rangeBounds(llvm::StringRef type) {
   constexpr llvm::StringLiteral prefix = "!ac.range<";
   if (!type.starts_with(prefix) || !type.ends_with('>'))
     return std::nullopt;
@@ -294,8 +294,8 @@ llvm::Expected<std::string> cppType(llvm::StringRef type) {
     }
   }
   if (auto bounds = rangeBounds(type))
-    return "gfsim::UInt<" +
-           std::to_string(rangeStorageWidth(bounds->second)) + ">";
+    return "gfsim::UInt<" + std::to_string(rangeStorageWidth(bounds->second)) +
+           ">";
   if (std::optional<llvm::StringRef> name = structTypeName(type))
     return name->str();
   if (std::optional<llvm::StringRef> name = enumTypeName(type))
@@ -439,7 +439,8 @@ llvm::Expected<std::string> emitPackedValueImpl(const QueueGraphPlan &plan,
                                                 llvm::StringRef type,
                                                 llvm::StringRef value,
                                                 llvm::StringSet<> &active) {
-  if (type.starts_with('i') || rangeBounds(type) || findAggregateType(plan, type))
+  if (type.starts_with('i') || rangeBounds(type) ||
+      findAggregateType(plan, type))
     return value.str();
   if (const QueueEnumPlan *enumeration = findEnumType(plan, type))
     return "gfsim::UInt<" + std::to_string(enumeration->width) +
@@ -487,7 +488,8 @@ llvm::Expected<std::string> emitUnpackedValueImpl(const QueueGraphPlan &plan,
                                                   llvm::StringRef type,
                                                   llvm::StringRef value,
                                                   llvm::StringSet<> &active) {
-  if (type.starts_with('i') || rangeBounds(type) || findAggregateType(plan, type))
+  if (type.starts_with('i') || rangeBounds(type) ||
+      findAggregateType(plan, type))
     return value.str();
   if (const QueueEnumPlan *enumeration = findEnumType(plan, type))
     return "static_cast<" + enumeration->name +
@@ -603,22 +605,26 @@ emitTableInitValue(const QueueGraphPlan &plan,
 
 llvm::Expected<std::string> tableStorageArgument(const QueueGraphPlan &plan,
                                                  const TablePlan &table) {
-  if (table.initImage.empty())
-    return std::to_string(table.entries);
   auto type = cppType(table.entryType);
   if (!type)
     return type.takeError();
-  std::string result = "std::vector<" + *type + ">{";
-  for (auto [index, value] : llvm::enumerate(table.initImage)) {
-    auto emitted = emitTableInitValue(plan, value);
-    if (!emitted)
-      return emitted.takeError();
-    if (index)
-      result.append(", ");
-    result.append(*emitted);
+  if (!table.initImage.empty()) {
+    std::string result = "std::vector<" + *type + ">{";
+    for (auto [index, value] : llvm::enumerate(table.initImage)) {
+      auto emitted = emitTableInitValue(plan, value);
+      if (!emitted)
+        return emitted.takeError();
+      if (index)
+        result.append(", ");
+      result.append(*emitted);
+    }
+    result.push_back('}');
+    return result;
   }
-  result.push_back('}');
-  return result;
+  if (table.init == 0)
+    return std::to_string(table.entries);
+  return "std::vector<" + *type + ">(" + std::to_string(table.entries) + ", " +
+         *type + "{std::uint64_t{" + std::to_string(table.init) + "ULL}})";
 }
 
 template <typename Domain>
@@ -826,9 +832,9 @@ emitExpressionBody(const QueueGraphPlan &plan, const QueueBlockPlan &block,
         return generatorError("range conversion target is malformed");
       const unsigned width = rangeStorageWidth(bounds->second);
       output << padding << "auto " << expression.result << " = gfsim::range"
-             << (expression.kind == "range_wrap" ? "Wrap" : "Saturate")
-             << '<' << width << ", " << bounds->first << "ULL, "
-             << bounds->second << "ULL>(" << input->str() << ");\n";
+             << (expression.kind == "range_wrap" ? "Wrap" : "Saturate") << '<'
+             << width << ", " << bounds->first << "ULL, " << bounds->second
+             << "ULL>(" << input->str() << ");\n";
       continue;
     }
     if (expression.kind == "range_checked_value" ||
@@ -844,9 +850,9 @@ emitExpressionBody(const QueueGraphPlan &plan, const QueueBlockPlan &block,
           expression.literal, "checked_" + identifier(expression.literal));
       if (inserted)
         output << padding << "auto " << entry->getValue()
-               << " = gfsim::rangeChecked<" << width << ", "
-               << bounds->first << "ULL, " << bounds->second << "ULL>("
-               << input->str() << ");\n";
+               << " = gfsim::rangeChecked<" << width << ", " << bounds->first
+               << "ULL, " << bounds->second << "ULL>(" << input->str()
+               << ");\n";
       output << padding << "auto " << expression.result << " = "
              << entry->getValue() << '.'
              << (expression.kind == "range_checked_value" ? "value" : "valid")
@@ -860,8 +866,8 @@ emitExpressionBody(const QueueGraphPlan &plan, const QueueBlockPlan &block,
         return input.takeError();
       if (!type)
         return type.takeError();
-      output << padding << "auto " << expression.result << " = " << *type
-             << "{" << input->str() << ".value()};\n";
+      output << padding << "auto " << expression.result << " = " << *type << "{"
+             << input->str() << ".value()};\n";
       continue;
     }
     if (expression.kind == "range_bits") {
@@ -871,8 +877,8 @@ emitExpressionBody(const QueueGraphPlan &plan, const QueueBlockPlan &block,
       auto type = cppType(expression.type);
       if (!type)
         return type.takeError();
-      output << padding << "auto " << expression.result << " = " << *type
-             << "{" << input->str() << ".value()};\n";
+      output << padding << "auto " << expression.result << " = " << *type << "{"
+             << input->str() << ".value()};\n";
       continue;
     }
     if (expression.kind == "range_add" || expression.kind == "range_sub") {
@@ -885,8 +891,8 @@ emitExpressionBody(const QueueGraphPlan &plan, const QueueBlockPlan &block,
       auto type = cppType(expression.type);
       if (!type)
         return type.takeError();
-      output << padding << "auto " << expression.result << " = " << *type
-             << "{" << left->str() << ".value() "
+      output << padding << "auto " << expression.result << " = " << *type << "{"
+             << left->str() << ".value() "
              << (expression.kind == "range_add" ? '+' : '-') << ' '
              << right->str() << ".value()};\n";
       continue;
@@ -909,9 +915,9 @@ emitExpressionBody(const QueueGraphPlan &plan, const QueueBlockPlan &block,
               .Default("");
       if (comparison.empty())
         return generatorError("bounded comparison predicate is malformed");
-      output << padding << "auto " << expression.result
-             << " = gfsim::UInt<1>{" << left->str() << ".value() "
-             << comparison.str() << ' ' << right->str() << ".value()};\n";
+      output << padding << "auto " << expression.result << " = gfsim::UInt<1>{"
+             << left->str() << ".value() " << comparison.str() << ' '
+             << right->str() << ".value()};\n";
       continue;
     }
     if (expression.kind == "slot_get_valid") {
@@ -1501,9 +1507,9 @@ emitExpressionBody(const QueueGraphPlan &plan, const QueueBlockPlan &block,
       if (!resultType)
         return resultType.takeError();
       output << padding << "auto " << expression.result << " = [&]() -> "
-             << *resultType << " {\n" << padding
-             << "  switch (static_cast<std::uint64_t>(" << index->str()
-             << ")) {\n";
+             << *resultType << " {\n"
+             << padding << "  switch (static_cast<std::uint64_t>("
+             << index->str() << ")) {\n";
       for (uint64_t element = 0; element < expression.selectionCount;
            ++element) {
         const uint64_t lsb =
@@ -1518,7 +1524,8 @@ emitExpressionBody(const QueueGraphPlan &plan, const QueueBlockPlan &block,
                << ";\n";
       }
       output << padding << "  default: return " << *resultType << "{};\n"
-             << padding << "  }\n" << padding << "}();\n";
+             << padding << "  }\n"
+             << padding << "}();\n";
       continue;
     }
     if (expression.kind == "array_update_dynamic") {
@@ -1536,14 +1543,14 @@ emitExpressionBody(const QueueGraphPlan &plan, const QueueBlockPlan &block,
       if (!aggregate || aggregate->kind != "array" ||
           aggregate->elements.size() != 1)
         return generatorError("dynamic value_array update type is unresolved");
-      auto packed =
-          emitPackedValue(plan, aggregate->elements.front(), replacement->str());
+      auto packed = emitPackedValue(plan, aggregate->elements.front(),
+                                    replacement->str());
       if (!packed)
         return packed.takeError();
       output << padding << "auto " << expression.result
              << " = gfsim::arrayUpdate<" << expression.selectionCount << ", "
-             << expression.width << ">(" << array->str() << ", "
-             << index->str() << ", " << *packed << ");\n";
+             << expression.width << ">(" << array->str() << ", " << index->str()
+             << ", " << *packed << ");\n";
       continue;
     }
     if (expression.kind == "aggregate_get") {
@@ -1717,9 +1724,12 @@ emitExpressionBody(const QueueGraphPlan &plan, const QueueBlockPlan &block,
   return output.str();
 }
 
-llvm::Error emitHelperDefinitions(std::ostringstream &output,
-                                  const QueueGraphPlan &plan,
-                                  llvm::StringSet<> *emitted = nullptr) {
+enum class HelperEmission { CombinedStatic, Declarations, Definitions };
+
+llvm::Error emitHelperDefinitions(
+    std::ostringstream &output, const QueueGraphPlan &plan,
+    llvm::StringSet<> *emitted = nullptr,
+    HelperEmission emission = HelperEmission::CombinedStatic) {
   auto emitResultType = [&](const QueueHelperPlan &helper) -> llvm::Error {
     if (helper.resultTypes.size() == 1) {
       auto type = cppValueType(plan, helper.resultTypes.front());
@@ -1751,23 +1761,33 @@ llvm::Error emitHelperDefinitions(std::ostringstream &output,
     }
     return llvm::Error::success();
   };
-  for (const QueueHelperPlan &helper : plan.helpers) {
-    if (emitted && emitted->contains(helper.name))
-      continue;
-    output << "static ";
-    if (auto error = emitResultType(helper))
-      return error;
-    output << " helper_" << identifier(helper.name) << '(';
-    if (auto error = emitArguments(helper))
-      return error;
-    output << ");\n";
+  if (emission != HelperEmission::Definitions) {
+    for (const QueueHelperPlan &helper : plan.helpers) {
+      if (emitted && emitted->contains(helper.name))
+        continue;
+      if (emission == HelperEmission::CombinedStatic)
+        output << "static ";
+      if (auto error = emitResultType(helper))
+        return error;
+      output << " helper_" << identifier(helper.name) << '(';
+      if (auto error = emitArguments(helper))
+        return error;
+      output << ");\n";
+    }
+    if (!plan.helpers.empty())
+      output << '\n';
+    if (emission == HelperEmission::Declarations) {
+      if (emitted)
+        for (const QueueHelperPlan &helper : plan.helpers)
+          emitted->insert(helper.name);
+      return llvm::Error::success();
+    }
   }
-  if (!plan.helpers.empty())
-    output << '\n';
   for (const QueueHelperPlan &helper : plan.helpers) {
     if (emitted && !emitted->insert(helper.name).second)
       continue;
-    output << "static ";
+    if (emission == HelperEmission::CombinedStatic)
+      output << "static ";
     if (auto error = emitResultType(helper))
       return error;
     output << " helper_" << identifier(helper.name) << '(';
@@ -1946,14 +1966,13 @@ std::string reservationBindingName(llvm::StringRef table,
 void emitStateWriteBatch(std::ostringstream &output,
                          const QueueBlockPlan &block, llvm::StringRef table,
                          const QueueGraphPlan &plan, llvm::StringRef entryType,
-                         size_t ownerIndex,
-                         llvm::StringRef padding) {
+                         size_t ownerIndex, llvm::StringRef padding) {
   (void)ownerIndex;
   const std::string batch = stateWriteBatchName(table);
   output << padding.str() << "gfsim::OwnerWriteBatch<" << entryType.str()
          << "> " << batch << ";\n";
-  auto payload = llvm::find_if(
-      plan.payloads, [&](const QueuePayloadPlan &candidate) {
+  auto payload =
+      llvm::find_if(plan.payloads, [&](const QueuePayloadPlan &candidate) {
         return candidate.name == entryType;
       });
   for (size_t writeIndex : findStateWriteOrdinals(block, table)) {
@@ -1976,9 +1995,8 @@ void emitStateWriteBatch(std::ostringstream &output,
            << stateWritePresentName(block, writeIndex) << ")\n"
            << padding.str() << "  " << batch
            << ".emplace_back(gfsim::TableWriteRecord<" << entryType.str()
-           << ">{static_cast<size_t>("
-           << stateWriteIndexName(block, writeIndex) << "), "
-           << stateWriteValueName(block, writeIndex) << ", "
+           << ">{static_cast<size_t>(" << stateWriteIndexName(block, writeIndex)
+           << "), " << stateWriteValueName(block, writeIndex) << ", "
            << (write.mode == "replace" ? "gfsim::TableWriteMode::Replace"
                                        : "gfsim::TableWriteMode::FieldMerge")
            << ", std::uint64_t{" << fieldMask << "}});\n";
@@ -2062,10 +2080,10 @@ llvm::Error emitStructuredMergePolicy(std::ostringstream &output,
                                  return candidate.name == entryType;
                                });
   const bool scalar = fields.size() == 1 && fields.front() == "$entry";
-  const size_t fieldCount =
-      scalar ? 1 : (payload == specialization.payloads.end()
-                        ? 0
-                        : payload->fields.size());
+  const size_t fieldCount = scalar ? 1
+                                   : (payload == specialization.payloads.end()
+                                          ? 0
+                                          : payload->fields.size());
   if (fieldCount == 0 || fieldCount > 64)
     return generatorError("structured specialization Entry fields missing");
   output << "struct " << policyName.str()
@@ -2111,7 +2129,270 @@ llvm::Error emitStructuredMergePolicy(std::ostringstream &output,
   return llvm::Error::success();
 }
 
-llvm::Expected<std::string>
+struct StructuredQueueGraphCpp {
+  std::string concatenated;
+  struct TypeUnit {
+    std::string name;
+    std::string definition;
+    std::vector<std::string> dependencies;
+  };
+  std::vector<TypeUnit> types;
+  std::string helperDeclarations;
+  std::string helperDefinitions;
+  struct ModuleUnit {
+    std::string className;
+    std::vector<std::string> childClassNames;
+    std::string header;
+    std::string source;
+  };
+  std::vector<ModuleUnit> modules;
+  std::string rootClass;
+};
+
+struct LexicalState {
+  bool lineComment = false;
+  bool blockComment = false;
+  bool stringLiteral = false;
+  bool characterLiteral = false;
+  bool escaped = false;
+};
+
+void advanceLexicalState(llvm::StringRef text, size_t index,
+                         LexicalState &state) {
+  const char current = text[index];
+  const char next = index + 1 < text.size() ? text[index + 1] : '\0';
+  if (state.lineComment) {
+    if (current == '\n')
+      state.lineComment = false;
+    return;
+  }
+  if (state.blockComment) {
+    if (current == '*' && next == '/')
+      state.blockComment = false;
+    return;
+  }
+  if (state.stringLiteral || state.characterLiteral) {
+    if (state.escaped) {
+      state.escaped = false;
+      return;
+    }
+    if (current == '\\') {
+      state.escaped = true;
+      return;
+    }
+    if ((state.stringLiteral && current == '"') ||
+        (state.characterLiteral && current == '\'')) {
+      state.stringLiteral = false;
+      state.characterLiteral = false;
+    }
+    return;
+  }
+  if (current == '/' && next == '/') {
+    state.lineComment = true;
+    return;
+  }
+  if (current == '/' && next == '*') {
+    state.blockComment = true;
+    return;
+  }
+  if (current == '"')
+    state.stringLiteral = true;
+  else if (current == '\'')
+    state.characterLiteral = true;
+}
+
+bool isLexicallyActive(const LexicalState &state) {
+  return !state.lineComment && !state.blockComment && !state.stringLiteral &&
+         !state.characterLiteral;
+}
+
+llvm::Expected<size_t> matchingBrace(llvm::StringRef text, size_t opening) {
+  if (opening >= text.size() || text[opening] != '{')
+    return generatorError("generated C++ brace scan started out of range");
+  LexicalState state;
+  unsigned depth = 0;
+  for (size_t index = opening; index < text.size(); ++index) {
+    const bool active = isLexicallyActive(state);
+    if (active && text[index] == '{')
+      ++depth;
+    else if (active && text[index] == '}' && --depth == 0)
+      return index;
+    advanceLexicalState(text, index, state);
+    if (state.blockComment && text[index] == '*' && index + 1 < text.size() &&
+        text[index + 1] == '/') {
+      ++index;
+      state.blockComment = false;
+    } else if (state.lineComment && text[index] == '/' &&
+               index + 1 < text.size() && text[index + 1] == '/') {
+      ++index;
+    }
+  }
+  return generatorError("generated C++ contains an unbalanced class body");
+}
+
+size_t methodSignatureStart(llvm::StringRef prefix) {
+  size_t result = 0;
+  for (llvm::StringLiteral access :
+       {llvm::StringLiteral("public:"), llvm::StringLiteral("private:"),
+        llvm::StringLiteral("protected:")}) {
+    const size_t found = prefix.rfind(access);
+    if (found != llvm::StringRef::npos)
+      result = std::max(result, found + access.size());
+  }
+  return result;
+}
+
+std::string qualifyMethodSignature(llvm::StringRef signature,
+                                   llvm::StringRef className) {
+  std::string result = signature.trim().str();
+  const size_t constructor = result.find(className.str() + "(");
+  if (constructor != std::string::npos &&
+      result.substr(0, constructor).find_first_not_of(" \t\n") ==
+          std::string::npos) {
+    result.insert(constructor + className.size(), "::" + className.str());
+    return result;
+  }
+  size_t method = result.find("operator");
+  if (method == std::string::npos) {
+    const size_t open = result.find('(');
+    if (open == std::string::npos)
+      return result;
+    method = open;
+    while (method > 0 &&
+           std::isspace(static_cast<unsigned char>(result[method - 1])))
+      --method;
+    while (method > 0 &&
+           (std::isalnum(static_cast<unsigned char>(result[method - 1])) ||
+            result[method - 1] == '_'))
+      --method;
+  }
+  result.insert(method, className.str() + "::");
+  return result;
+}
+
+std::string declarationSignature(llvm::StringRef signature,
+                                 llvm::StringRef className) {
+  llvm::StringRef trimmed = signature.trim();
+  if (!trimmed.starts_with(className))
+    return trimmed.str();
+  const size_t open = trimmed.find('(');
+  if (open == llvm::StringRef::npos)
+    return trimmed.str();
+  unsigned depth = 0;
+  for (size_t index = open; index < trimmed.size(); ++index) {
+    if (trimmed[index] == '(')
+      ++depth;
+    else if (trimmed[index] == ')' && --depth == 0)
+      return trimmed.take_front(index + 1).str();
+  }
+  return trimmed.str();
+}
+
+llvm::Expected<std::pair<std::string, std::string>>
+outlineClass(llvm::StringRef declaration, llvm::StringRef className) {
+  const size_t opening = declaration.find('{');
+  auto closing = matchingBrace(declaration, opening);
+  if (!closing)
+    return closing.takeError();
+  llvm::StringRef body = declaration.slice(opening + 1, *closing);
+  std::string header = declaration.take_front(opening + 1).str();
+  std::string source;
+  size_t copied = 0;
+  size_t memberStart = 0;
+  LexicalState state;
+  for (size_t index = 0; index < body.size(); ++index) {
+    const bool active = isLexicallyActive(state);
+    if (active && body[index] == ';') {
+      memberStart = index + 1;
+    } else if (active && body[index] == '{') {
+      llvm::StringRef prefix = body.slice(memberStart, index);
+      const size_t signatureOffset = methodSignatureStart(prefix);
+      llvm::StringRef signature = prefix.drop_front(signatureOffset);
+      auto methodEnd = matchingBrace(body, index);
+      if (!methodEnd)
+        return methodEnd.takeError();
+      size_t following = *methodEnd + 1;
+      while (following < body.size() &&
+             std::isspace(static_cast<unsigned char>(body[following])))
+        ++following;
+      const bool initializerBrace =
+          following < body.size() &&
+          (body[following] == ',' || body[following] == ')' ||
+           body[following] == ';');
+      if (signature.contains('(') && !initializerBrace) {
+        header.append(body.slice(copied, memberStart + signatureOffset).str());
+        header.append(declarationSignature(signature, className));
+        header.append(";");
+        source.append(qualifyMethodSignature(signature, className));
+        source.push_back(' ');
+        source.append(body.slice(index, *methodEnd + 1).str());
+        source.append("\n\n");
+        copied = *methodEnd + 1;
+        memberStart = copied;
+        index = *methodEnd;
+        state = {};
+        continue;
+      }
+      index = *methodEnd;
+      state = {};
+      continue;
+    }
+    advanceLexicalState(body, index, state);
+    if (state.blockComment && body[index] == '*' && index + 1 < body.size() &&
+        body[index + 1] == '/') {
+      ++index;
+      state.blockComment = false;
+    } else if (state.lineComment && body[index] == '/' &&
+               index + 1 < body.size() && body[index + 1] == '/') {
+      ++index;
+    }
+  }
+  header.append(body.drop_front(copied).str());
+  header.append(declaration.drop_front(*closing).str());
+  return std::pair{std::move(header), std::move(source)};
+}
+
+llvm::Expected<std::pair<std::string, std::string>>
+outlineModuleBody(llvm::StringRef body) {
+  std::string header;
+  std::string source;
+  size_t cursor = 0;
+  while (cursor < body.size()) {
+    size_t classPos = body.find("class ", cursor);
+    size_t structPos = body.find("struct ", cursor);
+    size_t declarationPos = std::min(classPos, structPos);
+    if (declarationPos == llvm::StringRef::npos)
+      break;
+    const size_t nameStart =
+        declarationPos + (declarationPos == classPos ? 6 : 7);
+    size_t nameEnd = nameStart;
+    while (nameEnd < body.size() &&
+           (std::isalnum(static_cast<unsigned char>(body[nameEnd])) ||
+            body[nameEnd] == '_'))
+      ++nameEnd;
+    const size_t opening = body.find('{', nameEnd);
+    if (opening == llvm::StringRef::npos)
+      return generatorError("generated module declaration has no body");
+    auto closing = matchingBrace(body, opening);
+    if (!closing)
+      return closing.takeError();
+    size_t declarationEnd = *closing + 1;
+    if (declarationEnd < body.size() && body[declarationEnd] == ';')
+      ++declarationEnd;
+    header.append(body.slice(cursor, declarationPos).str());
+    auto outlined = outlineClass(body.slice(declarationPos, declarationEnd),
+                                 body.slice(nameStart, nameEnd));
+    if (!outlined)
+      return outlined.takeError();
+    header.append(outlined->first);
+    source.append(outlined->second);
+    cursor = declarationEnd;
+  }
+  header.append(body.drop_front(cursor).str());
+  return std::pair{std::move(header), std::move(source)};
+}
+
+llvm::Expected<StructuredQueueGraphCpp>
 generateStructuredQueueGraphCpp(const QueueGraphPlan &plan) {
   if (auto error = verifyQueueGraphPlan(plan))
     return std::move(error);
@@ -2211,8 +2492,7 @@ generateStructuredQueueGraphCpp(const QueueGraphPlan &plan) {
     if (!specialization ||
         (!pureTransform && !conditionalTransform && !firingModule &&
          !nestedWrapper && !mixedNested) ||
-        !localShape ||
-        !specialization->memoryInstances.empty())
+        !localShape || !specialization->memoryInstances.empty())
       return generatorError(
           "structured QueueGraph specialization requires a pure transform, "
           "direct-interface firing module, or "
@@ -2393,9 +2673,10 @@ generateStructuredQueueGraphCpp(const QueueGraphPlan &plan) {
       if (node.index >= plan.slots.size())
         return generatorError("root activation slot index is out of range");
       const std::string &name = plan.slots[node.index].name;
-      auto block = llvm::find_if(plan.blocks, [&](const QueueBlockPlan &candidate) {
-        return candidate.kind == "slot" && candidate.slot == name;
-      });
+      auto block =
+          llvm::find_if(plan.blocks, [&](const QueueBlockPlan &candidate) {
+            return candidate.kind == "slot" && candidate.slot == name;
+          });
       if (block == plan.blocks.end())
         return generatorError("root activation slot has no runtime object");
       auto found = blockIds.find(&*block);
@@ -2628,37 +2909,105 @@ generateStructuredQueueGraphCpp(const QueueGraphPlan &plan) {
             "#include <optional>\n#include <string>\n#include <tuple>\n"
             "#include <utility>\n#include <vector>\n\n"
             "namespace ac_generated {\n\n";
+  std::vector<StructuredQueueGraphCpp::TypeUnit> typeUnits;
+  llvm::StringSet<> typePaths;
+  llvm::StringMap<std::string> typeHeaderNames;
+  auto registerType = [&](llvm::StringRef name) -> llvm::Error {
+    const std::string path = identifier(name);
+    if (!typePaths.insert(path).second)
+      return generatorError("nominal type header paths collide after "
+                            "identifier sanitization");
+    typeHeaderNames[name] = path;
+    return llvm::Error::success();
+  };
+  for (const QueueEnumPlan &enumeration : plan.enums)
+    if (auto error = registerType(enumeration.name))
+      return std::move(error);
+  for (const QueuePayloadPlan &payload : plan.payloads)
+    if (auto error = registerType(payload.name))
+      return std::move(error);
   for (const QueueEnumPlan &enumeration : plan.enums) {
-    output << "enum class " << enumeration.name << " : "
-           << enumStorage(enumeration.width).str() << " {\n";
+    const std::string typeName = typeHeaderNames.lookup(enumeration.name);
+    std::ostringstream definition;
+    definition << "enum class " << enumeration.name << " : "
+               << enumStorage(enumeration.width).str() << " {\n";
     for (auto [index, enumerant] : llvm::enumerate(enumeration.enumerants))
-      output << "  " << enumerant << " = "
-             << (enumeration.values.empty() ? index : enumeration.values[index])
-             << ",\n";
-    output << "};\n\n";
+      definition << "  " << enumerant << " = "
+                 << (enumeration.values.empty() ? index
+                                                : enumeration.values[index])
+                 << ",\n";
+    definition << "};\n\n";
+    output << definition.str();
+    typeUnits.push_back({typeName, definition.str(), {}});
   }
   auto payloadOrder = payloadEmissionOrder(plan);
   if (!payloadOrder)
     return payloadOrder.takeError();
   for (const QueuePayloadPlan *payload : *payloadOrder) {
-    output << "struct " << payload->name << " {\n";
+    const std::string typeName = typeHeaderNames.lookup(payload->name);
+    std::ostringstream definition;
+    std::vector<std::string> dependencies;
+    llvm::StringSet<> seenDependencies;
+    definition << "struct " << payload->name << " {\n";
     for (const QueuePayloadFieldPlan &field : payload->fields) {
       auto type = cppPayloadFieldType(plan, field);
       if (!type)
         return type.takeError();
-      output << "  " << *type << ' ' << identifier(field.name) << "{};\n";
+      std::optional<llvm::StringRef> dependency = structTypeName(field.type);
+      if (!dependency)
+        dependency = enumTypeName(field.type);
+      if (dependency) {
+        const std::string header = typeHeaderNames.lookup(*dependency);
+        if (header.empty())
+          return generatorError("nominal payload field type has no generated "
+                                "header");
+        if (seenDependencies.insert(header).second)
+          dependencies.push_back(header);
+      }
+      definition << "  " << *type << ' ' << identifier(field.name) << "{};\n";
     }
-    output << "  bool operator==(const " << payload->name
-           << " &) const = default;\n};\n\n";
+    definition << "  bool operator==(const " << payload->name
+               << " &) const = default;\n};\n\n";
+    output << definition.str();
+    typeUnits.push_back({typeName, definition.str(), std::move(dependencies)});
   }
 
+  std::ostringstream helperOutput;
+  std::ostringstream helperDeclarations;
+  std::ostringstream helperDefinitions;
   llvm::StringSet<> emittedHelpers;
+  llvm::StringSet<> declaredHelpers;
+  llvm::StringSet<> definedHelpers;
   for (const QueueGraphPlan *specialization : emissionOrder)
-    if (auto error =
-            emitHelperDefinitions(output, *specialization, &emittedHelpers))
+    if (auto error = emitHelperDefinitions(helperOutput, *specialization,
+                                           &emittedHelpers))
       return std::move(error);
-  if (auto error = emitHelperDefinitions(output, plan, &emittedHelpers))
+    else if (auto error = emitHelperDefinitions(
+                 helperDeclarations, *specialization, &declaredHelpers,
+                 HelperEmission::Declarations))
+      return std::move(error);
+    else if (auto error = emitHelperDefinitions(
+                 helperDefinitions, *specialization, &definedHelpers,
+                 HelperEmission::Definitions))
+      return std::move(error);
+  if (auto error = emitHelperDefinitions(helperOutput, plan, &emittedHelpers))
     return std::move(error);
+  if (auto error =
+          emitHelperDefinitions(helperDeclarations, plan, &declaredHelpers,
+                                HelperEmission::Declarations))
+    return std::move(error);
+  if (auto error =
+          emitHelperDefinitions(helperDefinitions, plan, &definedHelpers,
+                                HelperEmission::Definitions))
+    return std::move(error);
+  output << helperOutput.str();
+  struct ModuleSpan {
+    std::string className;
+    std::vector<std::string> childClassNames;
+    std::size_t begin = 0;
+    std::size_t end = 0;
+  };
+  std::vector<ModuleSpan> moduleSpans;
 
   auto emitStatefulSpecialization =
       [&](const QueueGraphPlan &specialization,
@@ -2755,8 +3104,7 @@ generateStructuredQueueGraphCpp(const QueueGraphPlan &plan) {
         if (firing.yields.size() != 1)
           return generatorError("structured slot release policy is malformed");
         output << "struct " << policyName(blockIndex) << " {\n";
-        for (auto [slotIndex, slot] :
-             llvm::enumerate(specialization.slots))
+        for (auto [slotIndex, slot] : llvm::enumerate(specialization.slots))
           output << "  const gfsim::SlotState<" << slotTypes[slotIndex]
                  << "> *slot_" << identifier(slot.name) << "{};\n";
         output << "  bool operator()(gfsim::Epoch epoch) const {\n";
@@ -2956,10 +3304,9 @@ generateStructuredQueueGraphCpp(const QueueGraphPlan &plan) {
              << *body << "    }();\n"
              << "    if (!rule_condition)\n      return std::nullopt;\n";
       for (auto [ownerIndex, tableIndex] : llvm::enumerate(tables))
-        emitStateWriteBatch(output, firing,
-                            specialization.tables[tableIndex].name,
-                            specialization, writeTypes[ownerIndex], ownerIndex,
-                            "    ");
+        emitStateWriteBatch(
+            output, firing, specialization.tables[tableIndex].name,
+            specialization, writeTypes[ownerIndex], ownerIndex, "    ");
       output << "    return " << planType;
       if (oneOwner) {
         output << "{std::move("
@@ -3032,8 +3379,8 @@ generateStructuredQueueGraphCpp(const QueueGraphPlan &plan) {
       }
       if (!oneOwner) {
         output << "}, {";
-        for (size_t releaseIndex = 0;
-             releaseIndex < firing.slotReleases.size(); ++releaseIndex) {
+        for (size_t releaseIndex = 0; releaseIndex < firing.slotReleases.size();
+             ++releaseIndex) {
           if (releaseIndex)
             output << ", ";
           output << "slot_release_" << releaseIndex;
@@ -3099,8 +3446,8 @@ generateStructuredQueueGraphCpp(const QueueGraphPlan &plan) {
         }
         policy.push_back('}');
         output << ",\n        " << firingSymbols[blockIndex] << "_(\"slot_"
-               << firing.name << "\", block_" << blockIndex
-               << "_id, &scope_, " << portParameters.lookup(firing.inputs.front())
+               << firing.name << "\", block_" << blockIndex << "_id, &scope_, "
+               << portParameters.lookup(firing.inputs.front())
                << ", slot_state_" << slotIndex->getValue() << "_, " << policy
                << ")";
         continue;
@@ -3470,11 +3817,28 @@ generateStructuredQueueGraphCpp(const QueueGraphPlan &plan) {
 
   for (const QueueGraphPlan *specialization : emissionOrder) {
     const std::string implementation = specializationClassName(*specialization);
+    std::vector<std::string> childClassNames;
+    for (const QueueModuleInstancePlan &instance :
+         specialization->moduleInstances) {
+      const QueueGraphPlan *child =
+          specializations.lookup(instance.specializationFingerprint);
+      if (!child)
+        return generatorError("specialization child is missing");
+      childClassNames.push_back(specializationClassName(*child));
+    }
+    const std::size_t begin = static_cast<std::size_t>(output.tellp());
+    auto recordModule = [&]() -> llvm::Error {
+      moduleSpans.push_back({implementation, childClassNames, begin,
+                             static_cast<std::size_t>(output.tellp())});
+      return llvm::Error::success();
+    };
     if (!specialization->moduleInstances.empty()) {
       auto error = specialization->blocks.empty()
                        ? emitNestedWrapper(*specialization, implementation)
                        : emitMixedNested(*specialization, implementation);
       if (error)
+        return std::move(error);
+      if (auto error = recordModule())
         return std::move(error);
       continue;
     }
@@ -3483,6 +3847,8 @@ generateStructuredQueueGraphCpp(const QueueGraphPlan &plan) {
     if (block.kind == "firing") {
       if (auto error =
               emitStatefulSpecialization(*specialization, implementation))
+        return std::move(error);
+      if (auto error = recordModule())
         return std::move(error);
       continue;
     }
@@ -3628,6 +3994,8 @@ generateStructuredQueueGraphCpp(const QueueGraphPlan &plan) {
         output << ">> block_;\n";
       }
       output << "};\n\n";
+      if (auto error = recordModule())
+        return std::move(error);
       continue;
     }
 
@@ -3635,6 +4003,7 @@ generateStructuredQueueGraphCpp(const QueueGraphPlan &plan) {
         "structured specialization contains an unsupported block");
   }
 
+  const std::size_t rootBegin = static_cast<std::size_t>(output.tellp());
   const std::string modelClass = className(plan.system);
   output << "class " << modelClass
          << " final : public gfsim::Module {\npublic:\n  " << modelClass
@@ -3964,14 +4333,36 @@ generateStructuredQueueGraphCpp(const QueueGraphPlan &plan) {
              << "_;\n";
   }
   output << "};\n\n} // namespace ac_generated\n";
-  return output.str();
+  StructuredQueueGraphCpp result;
+  result.concatenated = output.str();
+  result.types = std::move(typeUnits);
+  result.helperDeclarations = helperDeclarations.str();
+  result.helperDefinitions = helperDefinitions.str();
+  for (const ModuleSpan &span : moduleSpans) {
+    auto outlined = outlineModuleBody(
+        llvm::StringRef(result.concatenated).slice(span.begin, span.end));
+    if (!outlined)
+      return outlined.takeError();
+    result.modules.push_back({span.className, span.childClassNames,
+                              std::move(outlined->first),
+                              std::move(outlined->second)});
+  }
+  llvm::StringRef root(result.concatenated);
+  root = root.drop_front(rootBegin);
+  root.consume_back("} // namespace ac_generated\n");
+  result.rootClass = root.str();
+  return result;
 }
 
 } // namespace
 
 llvm::Expected<std::string> generateQueueGraphCpp(const QueueGraphPlan &plan) {
-  if (!plan.definition.empty())
-    return generateStructuredQueueGraphCpp(plan);
+  if (!plan.definition.empty()) {
+    auto structured = generateStructuredQueueGraphCpp(plan);
+    if (!structured)
+      return structured.takeError();
+    return structured->concatenated;
+  }
   if (plan.system.empty() || plan.queues.empty() || plan.blocks.empty())
     return generatorError("QueueGraph plan is incomplete");
   if (!plan.scopes.empty()) {
@@ -4036,9 +4427,8 @@ llvm::Expected<std::string> generateQueueGraphCpp(const QueueGraphPlan &plan) {
       const bool hasState =
           !block.stateWrites.empty() || !block.stateReservations.empty();
       if (block.yields.size() != block.outputs.size() || block.guard.empty() ||
-          (hasState &&
-           (block.table.empty() || block.tableIndex.empty() ||
-            block.tableValue.empty() || block.writeFields.empty())))
+          (hasState && (block.table.empty() || block.tableIndex.empty() ||
+                        block.tableValue.empty() || block.writeFields.empty())))
         return generatorError("table firing contract is unsupported");
     }
     if (block.kind == "slot" &&
@@ -4514,8 +4904,8 @@ llvm::Expected<std::string> generateQueueGraphCpp(const QueueGraphPlan &plan) {
             bindingHasValue = true;
           }
         }
-        for (size_t releaseIndex = 0;
-             releaseIndex < block->slotReleases.size(); ++releaseIndex) {
+        for (size_t releaseIndex = 0; releaseIndex < block->slotReleases.size();
+             ++releaseIndex) {
           if (bindingHasValue)
             output << ", ";
           output << "slot_release_" << releaseIndex;
@@ -4528,8 +4918,8 @@ llvm::Expected<std::string> generateQueueGraphCpp(const QueueGraphPlan &plan) {
                << "    if (!rule_condition)\n"
                << "      return std::nullopt;\n";
         for (auto [ownerIndex, table] : llvm::enumerate(ownerTables))
-          emitStateWriteBatch(output, *block, table->name,
-                              plan, tableTypes[ownerIndex], ownerIndex, "    ");
+          emitStateWriteBatch(output, *block, table->name, plan,
+                              tableTypes[ownerIndex], ownerIndex, "    ");
         output << "    return " << planType << "{{";
         for (size_t ownerIndex = 0; ownerIndex < tableTypes.size();
              ++ownerIndex) {
@@ -4592,8 +4982,8 @@ llvm::Expected<std::string> generateQueueGraphCpp(const QueueGraphPlan &plan) {
           }
         }
         output << "}, {";
-        for (size_t releaseIndex = 0;
-             releaseIndex < block->slotReleases.size(); ++releaseIndex) {
+        for (size_t releaseIndex = 0; releaseIndex < block->slotReleases.size();
+             ++releaseIndex) {
           if (releaseIndex)
             output << ", ";
           output << "slot_release_" << releaseIndex;
@@ -5781,8 +6171,7 @@ llvm::Expected<std::string> generateQueueGraphCpp(const QueueGraphPlan &plan) {
   output << "  void set_sink_retention_limit(size_t limit) {\n";
   for (auto [index, block] : llvm::enumerate(runtimeBlocks))
     if (block->kind == "sink")
-      output << "    " << blockSymbol(index)
-             << "_.setRetentionLimit(limit);\n";
+      output << "    " << blockSymbol(index) << "_.setRetentionLimit(limit);\n";
   output << "  }\n";
   size_t dependencyIndex = 0;
   size_t reorderIndex = 0;
@@ -6249,13 +6638,37 @@ generateQueueGraphModelBundle(const QueueGraphPlan &plan,
   if (options.sdkSourceRevision.empty())
     return generatorError("SDK source revision is required");
 
-  auto queueGraph = generateQueueGraphCpp(plan);
-  if (!queueGraph)
-    return queueGraph.takeError();
+  std::optional<StructuredQueueGraphCpp> structured;
+  std::string concatenated;
+  if (!plan.definition.empty()) {
+    auto units = generateStructuredQueueGraphCpp(plan);
+    if (!units)
+      return units.takeError();
+    structured = std::move(*units);
+    concatenated = structured->concatenated;
+  } else {
+    auto queueGraph = generateQueueGraphCpp(plan);
+    if (!queueGraph)
+      return queueGraph.takeError();
+    concatenated = std::move(*queueGraph);
+  }
 
   const std::string modelClass = className(plan.system);
   std::ostringstream queueGraphSource;
-  queueGraphSource << *queueGraph << R"cpp(
+  if (structured && !structured->modules.empty()) {
+    queueGraphSource << "#include \"generated/modules/queuegraph_types.h\"\n";
+    llvm::StringSet<> included;
+    for (const auto &unit : structured->modules)
+      if (included.insert(unit.className).second)
+        queueGraphSource << "#include \"generated/modules/" << unit.className
+                         << ".h\"\n";
+    queueGraphSource << "\nnamespace ac_generated {\n\n"
+                     << structured->rootClass
+                     << "} // namespace ac_generated\n";
+  } else {
+    queueGraphSource << concatenated;
+  }
+  queueGraphSource << R"cpp(
 
 #include "gfsim/model_input.h"
 
@@ -6673,6 +7086,75 @@ agentic_model_query_v1(void) {
   if (!costReport)
     return costReport.takeError();
   result.push_back({"include/generated/model.h", modelHeader});
+  if (structured && !structured->modules.empty()) {
+    std::ostringstream typesHeader;
+    typesHeader << "#pragma once\n";
+    for (const auto &type : structured->types)
+      typesHeader << "#include \"generated/types/" << type.name << ".h\"\n";
+    result.push_back(
+        {"include/generated/modules/queuegraph_types.h", typesHeader.str()});
+    for (const auto &type : structured->types) {
+      std::ostringstream header;
+      header << "#pragma once\n\n"
+                "#include \"gfsim/bits.h\"\n\n"
+                "#include <array>\n#include <cstdint>\n#include <tuple>\n\n";
+      for (const std::string &dependency : type.dependencies)
+        header << "#include \"generated/types/" << dependency << ".h\"\n";
+      if (!type.dependencies.empty())
+        header << '\n';
+      header << "namespace ac_generated {\n\n"
+             << type.definition << "} // namespace ac_generated\n";
+      result.push_back(
+          {"include/generated/types/" + type.name + ".h", header.str()});
+    }
+    std::ostringstream helpersHeader;
+    helpersHeader
+        << "#pragma once\n\n"
+           "#include \"generated/modules/queuegraph_types.h\"\n"
+           "#include \"gfsim/bits.h\"\n"
+           "#include \"gfsim/dispatch.h\"\n"
+           "#include \"gfsim/object.h\"\n"
+           "#include \"gfsim/priority_encode.h\"\n"
+           "#include \"gfsim/queue.h\"\n"
+           "#include \"gfsim/queue_blocks.h\"\n\n"
+           "#include <array>\n#include <cstdint>\n#include <limits>\n"
+           "#include <optional>\n#include <string>\n#include <tuple>\n"
+           "#include <utility>\n#include <vector>\n\n"
+           "namespace ac_generated {\n\n"
+        << structured->helperDeclarations << "} // namespace ac_generated\n";
+    result.push_back({"include/generated/modules/queuegraph_helpers.h",
+                      helpersHeader.str()});
+    std::ostringstream helpersSource;
+    helpersSource << "#include \"generated/modules/queuegraph_helpers.h\"\n\n"
+                     "namespace ac_generated {\n\n"
+                  << structured->helperDefinitions
+                  << "} // namespace ac_generated\n";
+    result.push_back(
+        {"src/generated/helpers/queuegraph_helpers.cpp", helpersSource.str()});
+    llvm::StringSet<> emittedHeaders;
+    for (const auto &unit : structured->modules) {
+      if (!emittedHeaders.insert(unit.className).second)
+        continue;
+      std::ostringstream header;
+      header << "#pragma once\n\n"
+                "#include \"generated/modules/queuegraph_types.h\"\n"
+                "#include \"generated/modules/queuegraph_helpers.h\"\n";
+      llvm::StringSet<> childIncludes;
+      for (const std::string &child : unit.childClassNames)
+        if (childIncludes.insert(child).second)
+          header << "#include \"generated/modules/" << child << ".h\"\n";
+      header << "\nnamespace ac_generated {\n\n"
+             << unit.header << "} // namespace ac_generated\n";
+      result.push_back(
+          {"include/generated/modules/" + unit.className + ".h", header.str()});
+      std::ostringstream source;
+      source << "#include \"generated/modules/" << unit.className
+             << ".h\"\n\nnamespace ac_generated {\n\n"
+             << unit.source << "} // namespace ac_generated\n";
+      result.push_back(
+          {"src/generated/modules/" + unit.className + ".cpp", source.str()});
+    }
+  }
   result.push_back({"share/generated/cost-report.json", *costReport + "\n"});
   result.push_back({"share/generated/source-map.json", sourceMapBytes});
   result.push_back({"src/generated/model.cpp", modelSource.str()});

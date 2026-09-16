@@ -4649,15 +4649,17 @@ must remain one `ac.var` family so storage selection does not leak into Python.
   selection lowers the generic variable operations to a concrete committed
   implementation, after which the ordinary rule, transaction, QueueGraph, and
   gfsim pipeline remains unchanged.
-- The first storage-selection slice supports zero-initialized scalar integers
-  and flat structs and selects a one-entry committed state array. Reads lower
-  to index-zero committed observation and assignments lower to complete
-  index-zero replacement in the owning firing. Struct replacement preserves
-  declaration-order field footprints.
-- Non-zero initialization, nested struct/array/map fields, multiple assignments,
-  field footprints, conflict arbitration, and direct scalar runtime storage
-  remain follow-up selections. They must extend the generic ac.var semantics,
-  not add hardware-named frontend types.
+- The first storage-selection slice supports scalar integers, nominal enums,
+  and flat structs and selects a one-entry committed state array. Scalar
+  integer and range reset images may be non-zero; they copy onto `ac.table init`
+  and `SimTable` restore (Decision 0264). Reads lower to index-zero committed
+  observation and assignments lower to complete index-zero replacement in the
+  owning firing. Struct replacement preserves declaration-order field
+  footprints.
+- Nested struct/array/map fields, multiple assignments, field footprints,
+  conflict arbitration, and direct scalar runtime storage remain follow-up
+  selections. They must extend the generic ac.var semantics, not add
+  hardware-named frontend types.
 
 **Verification**
 - Verifier tests reject mismatched initialization, mismatched reads, and
@@ -10197,3 +10199,71 @@ prevents resource binding from naming the storage owner directly.
 
 **Source**
 - PTO-ISA/pyCircuit issue #136.
+
+## Decision 0264: scalar register reset images and per-module ACIR/gfsim units
+
+**Status:** Accepted and implemented
+
+**Extends:** Decisions 0169, 0170, 0178, 0179, 0258, 0260, and 0263.
+
+**Context / Goal**
+Persistent lexical state is a register: it has a reset image, a write enable,
+and a restore-on-reset path. Authors already write that as ordinary Python
+(`total: ac.u8 = 5` and `if enable: total = ...`) without a `Reg` constructor.
+The compiler must keep that mapping through `ac.var`, storage selection, and
+gfsim `SimTable` restore. Independently, each `ac.module` should be a reviewable
+compilation unit: one `.ac.mlir` file and one gfsim class `.h`/`.cpp`, then a
+root that includes those headers and owns the instances.
+
+**Decision (strong constraint)**
+- The Python initializer of persistent scalar integer or range state is the
+  register reset image. The frontend emits it as `ac.var.decl init`. Storage
+  selection copies a non-zero scalar image onto `ac.table init`. `Module::reset`
+  restores `SimTable` `initial_`. The full unsigned 64-bit bit pattern is
+  preserved even when the internal signless `i64` attribute prints as a signed
+  value. Enum, struct, tuple, and list state remain the zero image.
+- Write enable is not a new Python API. A Python `if` around a state assignment
+  (or an explicit `when` on `ac.var.assign`) is the enable. Unconditional
+  assignment writes every firing.
+- Frozen ACIR remains the verified whole-program input. Emitting `frozen-acir`
+  also dumps `modules/<Name>.ac.mlir` for each `ac.module`, cloning the shared
+  `ac.type_scope`. Those files are inspectable module units; they are not
+  independently runnable or linkable ACIR until a future import/signature and
+  module-link contract is accepted.
+- QueueGraph `generateQueueGraphCpp` stays concatenated for FileCheck. The
+  model-bundle `multi-tu-v1` path emits one header per nominal enum/payload,
+  a declaration-only helper header with an optional helper implementation TU,
+  one declaration header and out-of-line implementation source per concrete
+  module specialization, and root `src/generated/queuegraph.cpp` composition.
+  Concatenated semantics remain unchanged.
+- Every generated `.cpp` is a separate translation unit. The compile plan and
+  CMake fragment compile each source to its own object and link the complete
+  object set with the gfsim runtime. Module instances remain independent while
+  equal concrete specializations reuse one generated class/object definition.
+- Model plan runs the manifest-bound generator to freeze the exact sorted
+  generated inventory. Emit must reproduce that inventory exactly; the CMake
+  fragment, depfile, and model manifest derive from the same list. A byte-for-
+  byte unchanged emit preserves the published directory and file mtimes.
+- Source/JIT specialization identity and structural QueueGraph specialization
+  identity remain separate structured fingerprints. Emit validates the former
+  from the selected root plan and the latter from rebuilt QueueGraph JSON; raw
+  ACIR text search is not provenance evidence.
+
+**Required verification**
+- `total: ac.u8 = 5` emits `ac.var.decl init 5`; out-of-range init is rejected.
+- A Python `if` around a state assignment emits `ac.var.assign ... when`.
+- Storage selection copies non-zero scalar init onto `ac.table init` and gfsim
+  `std::vector<T>(N, T{init})`.
+- `frozen-acir` emission includes `modules/<Name>.ac.mlir` alongside
+  `frozen.ac.mlir`.
+- Structured model bundles include per-type headers, real out-of-line
+  per-class sources, helper implementation when required, and the root glue.
+- Compile every generated `.cpp` separately, link the resulting objects, and
+  execute nested, reused, and stateful module models with results matching the
+  concatenated QueueGraph C++ baseline.
+- Plan/emit inventories, CMake sources, depfile targets, and manifest file
+  hashes agree exactly; a no-op repeat emit preserves mtimes.
+
+**Source**
+- User direction (2026-09-16): register reset enable/init on `ac.var`, then
+  per-module `.ac` and gfsim class files wired together.

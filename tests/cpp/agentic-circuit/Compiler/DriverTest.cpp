@@ -1,5 +1,6 @@
 #include "acir/Compiler/Driver.h"
 
+#include "llvm/ADT/STLExtras.h"
 #include "llvm/Support/Error.h"
 #include "gtest/gtest.h"
 
@@ -15,6 +16,29 @@ module attributes {ac.contract_epoch = "0.5"} {
   ac.system @main root @top as "root" tick 0 "cycle"
       workload @top::@workload seed {kind = "fixed", value = 0 : i64}
       instrumentation [] results {id = "default", format = "json"} selected true
+  ac.module @top() parameters {} graph {
+    ac.process @workload kind "workload" {
+      ac.yield_sim
+    }
+    ac.return
+  }
+}
+)mlir";
+
+constexpr llvm::StringLiteral kMultipleModuleAcir = R"mlir(
+module attributes {ac.contract_epoch = "0.5"} {
+  ac.type_scope @types {
+    ac.enum @Mode enumerants ["IDLE", "RUN"]
+  } {dlti.dl_spec = #dlti.dl_spec<!ac.enum<@types::@Mode> = {abi_alignment = 1 : i64, endianness = "little", preferred_alignment = 1 : i64, size = 1 : i64}>}
+  ac.system @main root @top as "root" tick 0 "cycle"
+      workload @top::@workload seed {kind = "fixed", value = 0 : i64}
+      instrumentation [] results {id = "default", format = "json"} selected true
+  ac.module @zeta() parameters {} graph {
+    ac.return
+  }
+  ac.module @alpha() parameters {} graph {
+    ac.return
+  }
   ac.module @top() parameters {} graph {
     ac.process @workload kind "workload" {
       ac.yield_sim
@@ -40,6 +64,14 @@ std::vector<std::string> paths(const CompilerResult &result) {
   return found;
 }
 
+const CompilerArtifact *findArtifact(const CompilerResult &result,
+                                     llvm::StringRef logicalPath) {
+  auto found = llvm::find_if(result.artifacts, [&](const auto &artifact) {
+    return artifact.logicalPath == logicalPath;
+  });
+  return found == result.artifacts.end() ? nullptr : &*found;
+}
+
 std::vector<CompilerDiagnostic> diagnostics(llvm::Error error) {
   std::vector<CompilerDiagnostic> found;
   llvm::handleAllErrors(std::move(error), [&](const CompilerError &failure) {
@@ -55,11 +87,43 @@ TEST(CompilerDriverTest, StandardPipelineProducesVerifiedStageArtifacts) {
     return;
   }
   EXPECT_EQ(paths(*result),
-            (std::vector<std::string>{"frozen.ac.mlir", "model.acsim.mlir"}));
+            (std::vector<std::string>{"frozen.ac.mlir", "modules/top.ac.mlir",
+                                      "model.acsim.mlir"}));
   EXPECT_TRUE(result->diagnostics.empty());
   for (const CompilerArtifact &artifact : result->artifacts) {
     EXPECT_FALSE(artifact.bytes.empty());
     EXPECT_TRUE(codegen::isValidFingerprint(artifact.sha256));
+  }
+}
+
+TEST(CompilerDriverTest,
+     PerModuleAcirArtifactsHaveOneDefinitionAndSharedTypeScope) {
+  CompilerRequest request = validRequest();
+  request.acirBytes = kMultipleModuleAcir.str();
+  request.stopAfter = CompilerStage::AcirFreeze;
+  request.emits = {codegen::ArtifactKind::Acir};
+
+  auto result = runCompiler(request);
+  if (!result) {
+    ADD_FAILURE() << llvm::toString(result.takeError());
+    return;
+  }
+  EXPECT_EQ(paths(*result),
+            (std::vector<std::string>{"frozen.ac.mlir", "modules/alpha.ac.mlir",
+                                      "modules/top.ac.mlir",
+                                      "modules/zeta.ac.mlir"}));
+  for (llvm::StringRef name : {"alpha", "top", "zeta"}) {
+    const std::string path = "modules/" + name.str() + ".ac.mlir";
+    const std::string module = "ac.module @" + name.str();
+    const std::string unit = "ac.module_unit = \"" + name.str() + "\"";
+    const CompilerArtifact *artifact = findArtifact(*result, path);
+    ASSERT_NE(artifact, nullptr) << path;
+    const llvm::StringRef contents(artifact->bytes);
+    EXPECT_EQ(contents.count("ac.type_scope @types"), 1u) << path;
+    EXPECT_EQ(contents.count("ac.module @"), 1u) << path;
+    EXPECT_NE(contents.find(module), llvm::StringRef::npos) << path;
+    EXPECT_NE(contents.find(unit), llvm::StringRef::npos) << path;
+    EXPECT_EQ(contents.find("ac.system @"), llvm::StringRef::npos) << path;
   }
 }
 
@@ -137,8 +201,8 @@ TEST(CompilerDriverTest, StageDumpsAreDeterministicAndContentAddressed) {
   auto second = runCompiler(request);
   ASSERT_TRUE(static_cast<bool>(first));
   ASSERT_TRUE(static_cast<bool>(second));
-  ASSERT_EQ(first->artifacts.size(), 3u);
-  ASSERT_EQ(second->artifacts.size(), 3u);
+  ASSERT_EQ(first->artifacts.size(), 4u);
+  ASSERT_EQ(second->artifacts.size(), 4u);
   for (size_t index = 0; index < first->artifacts.size(); ++index) {
     EXPECT_EQ(first->artifacts[index].logicalPath,
               second->artifacts[index].logicalPath);
