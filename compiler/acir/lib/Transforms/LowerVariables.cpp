@@ -75,6 +75,13 @@ FailureOr<ArrayAttr> completeWriteFields(OpBuilder &builder,
     return builder.getStrArrayAttr({"$entry"});
   Operation *declaration =
       SymbolTable::lookupNearestSymbolFrom(variable, structure.getName());
+  if (!declaration) {
+    Operation *root = variable;
+    while (root->getParentOp())
+      root = root->getParentOp();
+    if (root->hasTrait<OpTrait::SymbolTable>())
+      declaration = SymbolTable::lookupSymbolIn(root, structure.getName());
+  }
   auto fields = declaration ? declaration->getAttrOfType<ArrayAttr>("fields")
                             : ArrayAttr();
   if (!fields)

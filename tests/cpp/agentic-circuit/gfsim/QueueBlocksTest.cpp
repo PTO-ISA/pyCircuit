@@ -2534,6 +2534,42 @@ TEST(QueueBlocksTest, SlotReleaseAndOutputCommitAtomicallyUnderBackpressure) {
   EXPECT_EQ(state.value, 0);
 }
 
+TEST(QueueBlocksTest, RuleOwnedSlotReleaseWakesActivationDependents) {
+  SimSystem system("slot_release_activation");
+  SimQueue<uint16_t> captureInput("capture", 0, nullptr, 1);
+  SimQueue<uint16_t> output("output", 1, nullptr, 1);
+  SlotState<uint16_t> state{true, 7};
+  bool standaloneRelease = false;
+  QueueSlot<uint16_t, SlotReleaseFlag> slot(
+      "slot", 2, nullptr, captureInput, state, {&standaloneRelease});
+  QueueStateTransition<ReleaseSlotToOutput, std::tuple<>, std::tuple<>,
+                       std::tuple<uint16_t>, std::tuple<>>
+      transition("release", 3, nullptr, {}, {}, {&output}, {}, {&state}, {},
+                 nullptr, {&state});
+  WakeCounter wake(4);
+
+  std::array rows = {makeDispatchRow(&captureInput), makeDispatchRow(&output),
+                     makeDispatchRow(&slot), makeDispatchRow(&transition),
+                     makeDispatchRow(&wake)};
+  constexpr std::array<uint32_t, 6> activationOffsets{0, 0, 0, 1, 1, 1};
+  constexpr std::array<ObjectId, 1> activationTargets{4};
+  constexpr std::array<uint32_t, 6> closureOffsets{0, 0, 0, 0, 2, 2};
+  constexpr std::array<ObjectId, 2> closureTargets{1, 2};
+  ASSERT_TRUE(system.setDispatchTable(rows));
+  ASSERT_TRUE(system.setActivationPlan(activationOffsets, activationTargets));
+  ASSERT_TRUE(system.setWorkClosurePlan(closureOffsets, closureTargets));
+  ASSERT_TRUE(system.scheduleWork(transition.id(), {0, 0}));
+
+  EXPECT_TRUE(system.step());
+  EXPECT_FALSE(state.valid);
+  ASSERT_NE(output.peek(), nullptr);
+  EXPECT_EQ(*output.peek(), 7);
+  EXPECT_EQ(system.activationTraversalCount(), 1u);
+
+  EXPECT_FALSE(system.step());
+  EXPECT_EQ(wake.workCount, 1u);
+}
+
 TEST(QueueBlocksTest, SlotReleaseCancelsWithConflictingTableTransaction) {
   SimTable<uint8_t> table("table", 1, nullptr, 1);
   SimQueue<uint16_t> output("output", 2, nullptr, 1);

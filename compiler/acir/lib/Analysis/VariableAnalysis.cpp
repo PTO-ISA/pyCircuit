@@ -625,6 +625,13 @@ llvm::SmallVector<std::string> completeStateFields(Operation *anchor,
     return {"$entry"};
   Operation *declaration =
       SymbolTable::lookupNearestSymbolFrom(anchor, structure.getName());
+  if (!declaration) {
+    Operation *root = anchor;
+    while (root->getParentOp())
+      root = root->getParentOp();
+    if (root->hasTrait<OpTrait::SymbolTable>())
+      declaration = SymbolTable::lookupSymbolIn(root, structure.getName());
+  }
   auto fields = declaration ? declaration->getAttrOfType<ArrayAttr>("fields")
                             : ArrayAttr();
   llvm::SmallVector<std::string> result;

@@ -3448,7 +3448,9 @@ public:
     pendingCapture_ = false;
     fired_ = false;
   }
-  bool hasPendingCommit() const override { return fired_; }
+  bool hasPendingCommit() const override {
+    return fired_ || state_.pendingRelease;
+  }
   bool isRunnable(Epoch epoch) const override {
     if (fired_)
       return false;

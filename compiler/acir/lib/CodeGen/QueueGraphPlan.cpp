@@ -961,8 +961,7 @@ extractExpressions(mlir::Region &region, QueueBlockPlan &plan,
     }
     if (auto value = mlir::dyn_cast<ac::VarEnumOp>(operation)) {
       auto declaration = mlir::dyn_cast_or_null<ac::EnumOp>(
-          mlir::SymbolTable::lookupNearestSymbolFrom(value,
-                                                     value.getDeclaration()));
+          lookupTypeDeclaration(value, value.getDeclaration()));
       if (!declaration)
         return planError("enum value declaration is unresolved");
       auto enumerant = llvm::find_if(
