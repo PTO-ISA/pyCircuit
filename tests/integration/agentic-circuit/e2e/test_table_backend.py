@@ -128,7 +128,9 @@ class TableBackendTest(unittest.TestCase):
                         check=False,
                     )
                     self.assertNotEqual(0, rejected.returncode)
-                    self.assertIn("Slot PYC lowering is not implemented", rejected.stderr)
+                    self.assertIn(
+                        "Slot PYC lowering is not implemented", rejected.stderr
+                    )
             for variant, model_text in generated:
                 self.assertEqual(1, model_text.count("gfsim::TableWriteMode::Replace"))
                 with tempfile.TemporaryDirectory() as directory:
@@ -467,7 +469,9 @@ int main() {{
                 )
                 self.assertEqual(0, executed.returncode, executed.stderr)
 
-    def test_rule_field_writers_merge_same_entry_in_native_cpp(self) -> None:
+    def test_one_firing_mixed_field_writes_merge_same_entry_in_native_cpp(
+        self,
+    ) -> None:
         compiler = shutil.which("c++")
         if compiler is None:
             self.skipTest("C++ compiler is unavailable")
@@ -513,9 +517,7 @@ int main() {{
             self.assertEqual(0, planned.returncode, planned.stderr)
             document = json.loads(planned.stdout)
             writes = [
-                write
-                for block in document["blocks"]
-                for write in block["state_writes"]
+                write for block in document["blocks"] for write in block["state_writes"]
             ]
             self.assertEqual(["field", "field"], [item["mode"] for item in writes])
             self.assertEqual(
@@ -529,9 +531,9 @@ int main() {{
                 check=False,
             )
             self.assertEqual(0, native.returncode, native.stderr)
-            self.assertEqual(
-                2, native.stdout.count("gfsim::TableWriteMode::FieldMerge")
-            )
+            self.assertEqual(2, native.stdout.count("gfsim::TableWriteRecord<Entry>"))
+            self.assertIn("std::uint64_t{1}", native.stdout)
+            self.assertIn("std::uint64_t{2}", native.stdout)
             pyc = subprocess.run(
                 (str(pycgen), str(frozen)),
                 text=True,

@@ -289,14 +289,18 @@ def _constant_integer(
         result = (
             left + right
             if isinstance(node.op, ast.Add)
-            else left - right if isinstance(node.op, ast.Sub) else left * right
+            else left - right
+            if isinstance(node.op, ast.Sub)
+            else left * right
         )
         return result if -(1 << 63) <= result <= (1 << 63) - 1 else None
     if isinstance(node, ast.Call) and len(node.args) == 1 and not node.keywords:
         helper = (
             node.func.attr
             if isinstance(node.func, ast.Attribute)
-            else node.func.id if isinstance(node.func, ast.Name) else ""
+            else node.func.id
+            if isinstance(node.func, ast.Name)
+            else ""
         )
         if helper in {"index_width", "count_width"}:
             operand = _constant_integer(node.args[0], values)
@@ -611,7 +615,9 @@ def _static_parameter_aliases(tree: ast.Module) -> dict[str, StaticParameterAlia
         family_name = (
             family.value.attr
             if isinstance(family.value, ast.Attribute)
-            else family.value.id if isinstance(family.value, ast.Name) else ""
+            else family.value.id
+            if isinstance(family.value, ast.Name)
+            else ""
         )
         parameter_type = family.slice.id if isinstance(family.slice, ast.Name) else ""
         if family_name != "param":
@@ -2843,9 +2849,9 @@ def _pure_helper_definitions(
                     reachable_helpers.add(item.id)
                     pending_helpers.append(item.id)
     nodes: dict[str, ast.FunctionDef] = {}
-    signatures: dict[str, tuple[tuple[tuple[str, ValueType], ...], ValueType, bool]] = (
-        {}
-    )
+    signatures: dict[
+        str, tuple[tuple[tuple[str, ValueType], ...], ValueType, bool]
+    ] = {}
     for node in tree.body:
         if not isinstance(node, ast.FunctionDef):
             continue
@@ -4194,7 +4200,9 @@ def parse_queue_program(
             spelling = (
                 candidate.func.attr
                 if isinstance(candidate.func, ast.Attribute)
-                else candidate.func.id if isinstance(candidate.func, ast.Name) else None
+                else candidate.func.id
+                if isinstance(candidate.func, ast.Name)
+                else None
             )
             if spelling in forbidden_runtime_mechanics:
                 raise QueueFrontendError(
@@ -5174,8 +5182,7 @@ def parse_queue_program(
                         "first selection only"
                     )
                 if any(
-                    not isinstance(callback, ast.Lambda)
-                    or len(callback.args.args) != 1
+                    not isinstance(callback, ast.Lambda) or len(callback.args.args) != 1
                     for callback in (*where, *keys)
                 ):
                     raise QueueFrontendError(
@@ -5928,7 +5935,9 @@ def parse_queue_program(
         returned_values = (
             tuple(returned.elts)
             if isinstance(returned, (ast.Tuple, ast.List))
-            else (returned,) if returned is not None else ()
+            else (returned,)
+            if returned is not None
+            else ()
         )
         if len(returned_values) == len(result_payloads) and all(
             isinstance(value, ast.Name) for value in returned_values
@@ -6251,59 +6260,127 @@ def parse_queue_program(
         value: ast.expr | None,
         write_index: ast.expr | None,
         reads: tuple[RuleStateReadDefinition, ...] = (),
+        locals: tuple[RuleLocalDefinition, ...] = (),
         *,
         legacy_read_name: str | None = None,
         legacy_read_index: ast.expr | None = None,
     ) -> tuple[str, ...] | None:
         """Return the canonical footprint of a proven Table field update.
 
-        Recognition is deliberately syntactic and fail-closed.  A chain of
-        ``with_fields`` calls must be rooted in a read of this Table at the
-        AST-equivalent write index.  All other values remain complete Entry
-        replacements.
+        The proof follows the rule's immutable SSA expressions, including
+        local aliases, value selects, and closed pure-helper summaries.  It is
+        fail-closed: unrelated or mixed roots remain complete replacements.
         """
         if not isinstance(table.entry_type, StructType) or write_index is None:
             return None
-        requested: set[str] = set()
-        root = value
-        while (
-            isinstance(root, ast.Call)
-            and isinstance(root.func, ast.Attribute)
-            and root.func.attr == "with_fields"
-            and not root.args
-            and root.keywords
-            and all(keyword.arg is not None for keyword in root.keywords)
-        ):
-            requested.update(
-                keyword.arg for keyword in root.keywords if keyword.arg is not None
-            )
-            root = root.func.value
-        if not requested or root is value:
-            return None
+        local_values = {
+            local.name: local.value
+            for local in locals
+            if local.guard is None and not local.guard_negated
+        }
+
+        class Substitute(ast.NodeTransformer):
+            def __init__(self, replacements: Mapping[str, ast.expr]) -> None:
+                self.replacements = replacements
+
+            def visit_Name(self, node: ast.Name) -> ast.expr:
+                if isinstance(node.ctx, ast.Load) and node.id in self.replacements:
+                    return ast.copy_location(
+                        copy.deepcopy(self.replacements[node.id]), node
+                    )
+                return node
+
+        def substitute(
+            expression: ast.expr, replacements: Mapping[str, ast.expr]
+        ) -> ast.expr:
+            result = Substitute(replacements).visit(copy.deepcopy(expression))
+            assert isinstance(result, ast.expr)
+            return ast.fix_missing_locations(result)
+
+        def resolve_alias(expression: ast.expr, seen: set[str]) -> ast.expr:
+            current = expression
+            while (
+                isinstance(current, ast.Name)
+                and current.id in local_values
+                and current.id not in seen
+            ):
+                seen.add(current.id)
+                current = local_values[current.id]
+            return current
 
         def same_index(candidate: ast.expr | None) -> bool:
-            return candidate is not None and ast.dump(
-                candidate, include_attributes=False
-            ) == ast.dump(write_index, include_attributes=False)
+            if candidate is None:
+                return False
+            left = resolve_alias(candidate, set())
+            right = resolve_alias(write_index, set())
+            return ast.dump(left, include_attributes=False) == ast.dump(
+                right, include_attributes=False
+            )
 
-        proven_root = (
-            isinstance(root, ast.Subscript)
-            and isinstance(root.value, ast.Name)
-            and root.value.id == argument
-            and same_index(root.slice)
-        )
-        if isinstance(root, ast.Name):
-            proven_root = proven_root or any(
-                read.name == root.id
-                and read.argument == argument
-                and same_index(read.index)
-                for read in reads
-            )
-            proven_root = proven_root or (
-                legacy_read_name == root.id and same_index(legacy_read_index)
-            )
+        def analyze(
+            expression: ast.expr, active_helpers: frozenset[str] = frozenset()
+        ) -> set[str] | None:
+            root = resolve_alias(expression, set())
+            if (
+                isinstance(root, ast.Subscript)
+                and isinstance(root.value, ast.Name)
+                and root.value.id == argument
+                and same_index(root.slice)
+            ):
+                return set()
+            if isinstance(root, ast.Name):
+                if any(
+                    read.name == root.id
+                    and read.argument == argument
+                    and same_index(read.index)
+                    for read in reads
+                ) or (legacy_read_name == root.id and same_index(legacy_read_index)):
+                    return set()
+                return None
+            if (
+                isinstance(root, ast.Call)
+                and isinstance(root.func, ast.Attribute)
+                and root.func.attr == "with_fields"
+                and not root.args
+                and root.keywords
+                and all(keyword.arg is not None for keyword in root.keywords)
+            ):
+                fields = analyze(root.func.value, active_helpers)
+                if fields is None:
+                    return None
+                return fields | {
+                    keyword.arg for keyword in root.keywords if keyword.arg is not None
+                }
+            if isinstance(root, ast.IfExp):
+                left = analyze(root.body, active_helpers)
+                right = analyze(root.orelse, active_helpers)
+                if left is None or right is None:
+                    return None
+                return left | right
+            if isinstance(root, ast.Call) and isinstance(root.func, ast.Name):
+                helper = helper_map.get(root.func.id)
+                if (
+                    helper is None
+                    or helper.name in active_helpers
+                    or root.keywords
+                    or len(root.args) != len(helper.arguments)
+                ):
+                    return None
+                replacements = {
+                    name: actual
+                    for (name, _), actual in zip(
+                        helper.arguments, root.args, strict=True
+                    )
+                }
+                return analyze(
+                    substitute(helper.expression, replacements),
+                    active_helpers | {helper.name},
+                )
+            return None
+
+        requested = analyze(value)
         declared = tuple(field.name for field in table.entry_type.fields)
-        if not proven_root or not requested <= set(declared):
+        if not requested or not requested <= set(declared):
             return None
         return tuple(name for name in declared if name in requested)
 
@@ -9946,6 +10023,7 @@ def parse_queue_program(
                                     write.value,
                                     write.index,
                                     definition.state_reads,
+                                    definition.locals,
                                 )
                                 if isinstance(owner, TableBinding)
                                 else None
@@ -10176,6 +10254,8 @@ def parse_queue_program(
                                 definition.table_argument or "",
                                 definition.table_value,
                                 definition.table_index,
+                                definition.state_reads,
+                                definition.locals,
                                 legacy_read_name=definition.table_read_name,
                                 legacy_read_index=definition.table_read_index,
                             )
@@ -10193,6 +10273,8 @@ def parse_queue_program(
                                     definition.table_argument or "",
                                     definition.table_value,
                                     definition.table_index,
+                                    definition.state_reads,
+                                    definition.locals,
                                     legacy_read_name=definition.table_read_name,
                                     legacy_read_index=definition.table_read_index,
                                 )
@@ -10699,6 +10781,7 @@ def parse_queue_program(
                                 write.value,
                                 write.index,
                                 definition.state_reads,
+                                definition.locals,
                             )
                             if isinstance(owner, TableBinding)
                             else None
@@ -10918,6 +11001,8 @@ def parse_queue_program(
                                 definition.table_argument or "",
                                 definition.table_value,
                                 definition.table_index,
+                                definition.state_reads,
+                                definition.locals,
                                 legacy_read_name=definition.table_read_name,
                                 legacy_read_index=definition.table_read_index,
                             )
@@ -10930,6 +11015,8 @@ def parse_queue_program(
                                 definition.table_argument or "",
                                 definition.table_value,
                                 definition.table_index,
+                                definition.state_reads,
+                                definition.locals,
                                 legacy_read_name=definition.table_read_name,
                                 legacy_read_index=definition.table_read_index,
                             )
@@ -11231,6 +11318,7 @@ class _ExpressionEmitter:
         bitfields: Mapping[str, BitfieldLayout] | None = None,
         invariants: Mapping[str, InvariantDefinition] | None = None,
         helpers: Mapping[str, PureHelperDefinition] | None = None,
+        inline_pure_helpers: bool = False,
         strict_descriptors: bool = False,
         array_expansion: list[int] | None = None,
     ) -> None:
@@ -11273,6 +11361,8 @@ class _ExpressionEmitter:
         self.bitfields = dict(bitfields or {})
         self.invariants = dict(invariants or {})
         self.helpers = dict(helpers or {})
+        self.inline_pure_helpers = inline_pure_helpers
+        self.active_inline_helpers: set[str] = set()
         self.strict_descriptors = strict_descriptors
         self.array_expansion = array_expansion if array_expansion is not None else [0]
         self.array_callback_captures: dict[
@@ -12635,12 +12725,10 @@ class _ExpressionEmitter:
         zero = self._new()
         one = self._new()
         self.lines.append(
-            f"    %{zero} = ac.var.constant 0 : i1 "
-            f"as !ac.var<{rendered_contribution}>"
+            f"    %{zero} = ac.var.constant 0 : i1 as !ac.var<{rendered_contribution}>"
         )
         self.lines.append(
-            f"    %{one} = ac.var.constant 1 : i1 "
-            f"as !ac.var<{rendered_contribution}>"
+            f"    %{one} = ac.var.constant 1 : i1 as !ac.var<{rendered_contribution}>"
         )
         contributions: list[tuple[str, ValueType]] = []
         for flag, _ in flags:
@@ -12683,7 +12771,7 @@ class _ExpressionEmitter:
     def _emit_bool_not(self, value: str) -> str:
         result = self._new()
         self.lines.append(
-            f"    %{result} = ac.var.not %{value} : " "!ac.var<i1> -> !ac.var<i1>"
+            f"    %{result} = ac.var.not %{value} : !ac.var<i1> -> !ac.var<i1>"
         )
         return result
 
@@ -13394,6 +13482,43 @@ class _ExpressionEmitter:
                         )
                     operands.append(operand)
                     operand_types.append(operand_type)
+                if self.inline_pure_helpers:
+                    if helper.name in self.active_inline_helpers:
+                        raise QueueFrontendError(
+                            f"ACPY-HELPER-002: helper {helper.name!r} is recursive"
+                        )
+                    saved_roots = {
+                        name: self.root_values.get(name) for name, _ in helper.arguments
+                    }
+                    self.root_values.update(
+                        {
+                            name: (operand, operand_type)
+                            for (name, _), operand, operand_type in zip(
+                                helper.arguments,
+                                operands,
+                                operand_types,
+                                strict=True,
+                            )
+                        }
+                    )
+                    self.active_inline_helpers.add(helper.name)
+                    try:
+                        result, result_type = self.emit(
+                            helper.expression, helper.result
+                        )
+                    finally:
+                        self.active_inline_helpers.remove(helper.name)
+                        for name, previous in saved_roots.items():
+                            if previous is None:
+                                self.root_values.pop(name, None)
+                            else:
+                                self.root_values[name] = previous
+                    if not self._types_match(result_type, helper.result):
+                        raise QueueFrontendError(
+                            f"ACPY-HELPER-002: helper {helper.name!r} "
+                            "result type does not match"
+                        )
+                    return self._remember(result, helper.result)
                 result = self._new()
                 self.lines.append(
                     f"    %{result} = func.call @{helper.name}("
@@ -14097,7 +14222,9 @@ class _ExpressionEmitter:
                     else (
                         expected
                         if not self.strict_descriptors and expected is not None
-                        else BoolType() if type(node.value) is bool else BitsType(64)
+                        else BoolType()
+                        if type(node.value) is bool
+                        else BitsType(64)
                     )
                 )
             )
@@ -14111,7 +14238,9 @@ class _ExpressionEmitter:
             value = (
                 "true"
                 if node.value is True
-                else "false" if node.value is False else str(node.value)
+                else "false"
+                if node.value is False
+                else str(node.value)
             )
             attribute_type = (
                 f"i{typ.width}" if isinstance(typ, RangeType) else _render_type(typ)
@@ -15272,9 +15401,9 @@ def lower_queue_program(
         )
         for input_index, input_name in enumerate(input_names):
             consumers.setdefault(input_name, []).append((queue, input_index))
-    fanouts: dict[str, tuple[tuple[str, ...], tuple[tuple[QueueBinding, int], ...]]] = (
-        {}
-    )
+    fanouts: dict[
+        str, tuple[tuple[str, ...], tuple[tuple[QueueBinding, int], ...]]
+    ] = {}
 
     def common_scope(scopes: list[tuple[str, ...]]) -> tuple[str, ...]:
         common: list[str] = []
@@ -15507,6 +15636,7 @@ def lower_queue_program(
                 bitfields=bitfields,
                 invariants=invariants,
                 helpers=helpers,
+                inline_pure_helpers=module is not None,
             )
             rule_expressions: list[ast.expr] = []
             if queue.expression is not None:
@@ -16204,8 +16334,7 @@ def lower_queue_program(
                     and ast.dump(owner_writes[0].guard, include_attributes=False)
                     == ast.dump(owner_writes[1].guard, include_attributes=False)
                     and owner_writes[0].mode == owner_writes[1].mode
-                    and owner_writes[0].write_fields
-                    == owner_writes[1].write_fields
+                    and owner_writes[0].write_fields == owner_writes[1].write_fields
                 )
                 if complementary_pair:
                     writes_by_variable[
@@ -16548,7 +16677,7 @@ def lower_queue_program(
                         lines.append(
                             f"{indent}  ac.table.propose "
                             f"@{state_write.variable}[%{state_index}] = "
-                            f'%{state_value}{state_effect_presence} '
+                            f"%{state_value}{state_effect_presence} "
                             f'mode "{state_write.mode}" '
                             f"write_fields {fields} "
                             f"{rule_writer_arbitration(queue, state_write.variable)} : "
@@ -16687,6 +16816,7 @@ def lower_queue_program(
             enum_types=enum_types,
             bitfields=bitfields,
             helpers=helpers,
+            inline_pure_helpers=module is not None,
         )
         result, result_type = emitter.emit(queue.expression)
         if not _types_equal_in_epoch_05(result_type, queue.payload):
@@ -18024,7 +18154,9 @@ def lower_queue_program(
         output_signature = (
             "()"
             if not module.outputs
-            else output_types if len(module.outputs) == 1 else f"({output_types})"
+            else output_types
+            if len(module.outputs) == 1
+            else f"({output_types})"
         )
         lines.append(f"    }} : ({input_types}) -> {output_signature}")
         returned = ", ".join(
@@ -18710,7 +18842,9 @@ def _lower_simple_module_source(
             specialized.extend(specialize_system_statements(selected))
         return specialized
 
-    def specialize_rule_module(module_name: str, call: ast.Call) -> tuple[
+    def specialize_rule_module(
+        module_name: str, call: ast.Call
+    ) -> tuple[
         str,
         tuple[tuple[str, StaticValue], ...],
         tuple[tuple[str, ValueType], ...],

@@ -5391,7 +5391,7 @@ llvm::Error verifyQueueGraphPlan(const QueueGraphPlan &plan) {
             "state firing output presence ordinals must cover each output "
             "exactly once");
     }
-    llvm::StringMap<const StateWritePlan *> ownerWrites;
+    llvm::StringSet<> ownerWrites;
     for (const StateWritePlan &write : block.stateWrites) {
       if (!tables.contains(write.table) || write.index.empty() ||
           write.value.empty() ||
@@ -5405,12 +5405,7 @@ llvm::Error verifyQueueGraphPlan(const QueueGraphPlan &plan) {
                        }) ||
           !verifyWriteFields(write.table, write.mode, write.fields, false))
         return planError("state firing write metadata is invalid");
-      auto [position, inserted] = ownerWrites.try_emplace(write.table, &write);
-      if (!inserted && (position->getValue()->mode != write.mode ||
-                        position->getValue()->fields != write.fields))
-        return planError(
-            "one owner-local write batch requires one mode and field schema");
-      if (inserted)
+      if (ownerWrites.insert(write.table).second)
         ++tableFirings[write.table];
     }
     llvm::StringSet<> reservationOwners;
@@ -6856,9 +6851,18 @@ llvm::Error verifyQueueGraphPlan(const QueueGraphPlan &plan) {
                                    !writes[right]->present.empty() &&
                                    mutuallyExclusive(writes[left]->present,
                                                      writes[right]->present);
-            if (!disjoint && !exclusive)
+            const bool disjointFields =
+                writes[left]->mode == "field" &&
+                writes[right]->mode == "field" &&
+                llvm::none_of(writes[left]->fields,
+                              [&](const std::string &field) {
+                                return llvm::is_contained(
+                                    writes[right]->fields, field);
+                              });
+            if (!disjoint && !exclusive && !disjointFields)
               return planError(
-                  "same-owner firing writes may select one index concurrently");
+                  "same-owner firing writes have an unresolved index/field "
+                  "overlap");
           }
       }
       for (const OutputPresencePlan &output : block.outputPresence)

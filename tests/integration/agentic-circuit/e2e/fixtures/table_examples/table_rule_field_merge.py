@@ -1,4 +1,4 @@
-"""Design-neutral fixture for atomic disjoint-field Table rule writes."""
+"""Design-neutral fixture for one firing's mixed-field Table write batch."""
 
 import agentic_circuit as ac
 
@@ -16,18 +16,15 @@ class Update:
 
 
 @ac.rule
-def admit(entries, update):
-    entries[update.index].admitted = True
-
-
-@ac.rule
-def wake(entries, update):
-    entries[update.index].src_ready = True
+def patch(entries, update):
+    admitted = entries[update.index]
+    entries[update.index] = admitted.with_fields(admitted=True)
+    ready = entries[update.index]
+    entries[update.index] = ready.with_fields(src_ready=True)
 
 
 @ac.system
 def table_rule_field_merge() -> None:
     entries = ac.table[4, Entry](init=0)
     updates = ac.source(Update, depth=2, latency=1)
-    admit(entries, updates)
-    wake(entries, updates)
+    patch(entries, updates)

@@ -1,12 +1,17 @@
 #include "acir/Transforms/Passes.h"
 
 #include "acir/Dialect/ACIR/ACIROps.h"
+#include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/SymbolTable.h"
+#include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/StringExtras.h"
+#include "llvm/ADT/SmallPtrSet.h"
 #include "llvm/ADT/StringSet.h"
 #include "llvm/Support/SHA256.h"
 #include "llvm/Support/raw_ostream.h"
+
+#include <functional>
 
 using namespace mlir;
 
@@ -112,27 +117,83 @@ void replaceYield(Operation *yield, StringRef operationName) {
 // Shaped persistent variables are the storage-selection form of explicit
 // module-local Tables under Decision 0263; ordinary Python lists never reach
 // this pass as persistent owners.
-FailureOr<SmallVector<StringRef>>
+FailureOr<SmallVector<std::string>>
 provenFieldWriteFields(ac::VarAssignElementOp assignment) {
-  SmallVector<StringRef> fields;
-  llvm::StringSet<> seen;
-  mlir::Value current = assignment.getValue();
-  while (auto with = current.getDefiningOp<ac::VarWithOp>()) {
-    if (seen.insert(with.getField()).second)
-      fields.push_back(with.getField());
-    current = with.getRecord();
-  }
-  if (fields.empty())
+  llvm::SmallPtrSet<Operation *, 8> activeCalls;
+  using Environment = llvm::DenseMap<Value, Value>;
+  std::function<std::optional<llvm::StringSet<>>(Value, const Environment &)>
+      trace = [&](Value current,
+                  const Environment &environment)
+      -> std::optional<llvm::StringSet<>> {
+    if (auto mapped = environment.find(current); mapped != environment.end())
+      return trace(mapped->second, environment);
+    if (auto with = current.getDefiningOp<ac::VarWithOp>()) {
+      auto fields = trace(with.getRecord(), environment);
+      if (!fields)
+        return std::nullopt;
+      fields->insert(with.getField());
+      return fields;
+    }
+    if (auto select = current.getDefiningOp<ac::VarSelectOp>()) {
+      auto trueFields = trace(select.getTrueValue(), environment);
+      auto falseFields = trace(select.getFalseValue(), environment);
+      if (!trueFields || !falseFields)
+        return std::nullopt;
+      for (const auto &field : *falseFields)
+        trueFields->insert(field.getKey());
+      return trueFields;
+    }
+    if (auto call = current.getDefiningOp<func::CallOp>()) {
+      auto callee = SymbolTable::lookupNearestSymbolFrom<func::FuncOp>(
+          call, call.getCalleeAttr());
+      if (!callee) {
+        Operation *root = call;
+        while (root->getParentOp())
+          root = root->getParentOp();
+        if (root->hasTrait<OpTrait::SymbolTable>())
+          callee = dyn_cast_or_null<func::FuncOp>(
+              SymbolTable::lookupSymbolIn(root, call.getCalleeAttr()));
+      }
+      if (!callee || callee.isExternal() || !callee.getBody().hasOneBlock() ||
+          !activeCalls.insert(callee).second)
+        return std::nullopt;
+      auto returned = dyn_cast<func::ReturnOp>(
+          callee.getBody().front().getTerminator());
+      auto result = llvm::find(call.getResults(), current);
+      size_t ordinal = std::distance(call.getResults().begin(), result);
+      if (!returned || ordinal >= returned.getNumOperands()) {
+        activeCalls.erase(callee);
+        return std::nullopt;
+      }
+      Environment nested = environment;
+      for (auto [argument, operand] :
+           llvm::zip_equal(callee.getBody().front().getArguments(),
+                           call.getOperands()))
+        nested[argument] = operand;
+      // Pure helper bodies are single-block SSA. The accumulated environment
+      // substitutes parameters through arbitrarily nested closed calls.
+      auto fields = trace(returned.getOperand(ordinal), nested);
+      activeCalls.erase(callee);
+      return fields;
+    }
+    if (auto read = current.getDefiningOp<ac::VarReadElementOp>())
+      if (read.getVariableAttr() == assignment.getVariableAttr() &&
+          read.getIndex() == assignment.getIndex())
+        return llvm::StringSet<>();
+    if (auto get = current.getDefiningOp<ac::TableGetOp>())
+      if (get.getTableAttr() == assignment.getVariableAttr() &&
+          get.getIndex() == assignment.getIndex())
+        return llvm::StringSet<>();
+    return std::nullopt;
+  };
+
+  auto proven = trace(assignment.getValue(), Environment{});
+  if (!proven || proven->empty())
     return failure();
-  if (auto read = current.getDefiningOp<ac::VarReadElementOp>())
-    if (read.getVariableAttr() == assignment.getVariableAttr() &&
-        read.getIndex() == assignment.getIndex())
-      return fields;
-  if (auto get = current.getDefiningOp<ac::TableGetOp>())
-    if (get.getTableAttr() == assignment.getVariableAttr() &&
-        get.getIndex() == assignment.getIndex())
-      return fields;
-  return failure();
+  SmallVector<std::string> fields;
+  for (const auto &field : *proven)
+    fields.push_back(field.getKey().str());
+  return fields;
 }
 
 LogicalResult lowerVariableState(ModuleOp model) {
@@ -304,7 +365,7 @@ LogicalResult lowerVariableState(ModuleOp model) {
           "persistent struct field schema is unresolved");
     StringRef mode = "replace";
     ArrayAttr writeFields = *completeFields;
-    if (FailureOr<SmallVector<StringRef>> proven =
+    if (FailureOr<SmallVector<std::string>> proven =
             provenFieldWriteFields(assignment);
         succeeded(proven)) {
       llvm::StringSet<> provenSet;

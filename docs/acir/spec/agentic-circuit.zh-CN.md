@@ -1367,7 +1367,9 @@ def pipeline(incoming: Item) -> Item:
 直接更新或显式的 `entries[index] = old.with_fields(...)` 只有在 `with_fields` 链可证明
 根植于同一 Table、AST 等价 index 的读取时，才生成 `mode "field"`；其他来源继续生成
 完整 `replace`。字段名按 Entry 声明顺序规范化。同一基本块内对相同 target 的连续更新
-合并为一个 proposal，重复字段保留最后一次值；每个分支独立合并。首版不允许同一 target
+合并为一个 proposal，重复字段保留最后一次值；显式的连续 indexed assignment 保留为有序
+proposal，并可携带不同字段 schema。每个 proposal 独立保存 index、value、presence、mode
+和规范化字段集合。每个分支独立合并。首版不允许同一 target
 的更新跨越外层基本块与分支，违反时以 `ACPY-RULE-011` fail closed。后续串行的 local 或
 scalar-state 赋值读取最新 SSA proposal；所有 Table 读取仍观察 tick 开始时的 committed
 state，直到整条 rule transaction 原子提交。
@@ -1485,7 +1487,9 @@ presence。生成的 gfsim 只计算一个 Work candidate，并只 prepare 被�
 scalar 或同一个 indexed lexical target，编译器用 typed `ac.var.select` join value，并在需要
 时 join index。若一条 selected path 同时写同一个 Table 的多个不同 entry，这些
 proposal 保留为有序 owner-local batch。`ACDataFlowAnalyzer` 与 QueueGraph 要求每对同 owner
-write 的 index domain 不相交，或它们的 path predicate 在结构上互斥。每个源码 index 仍必须
+write 的 index domain 不相交、path predicate 在结构上互斥，或两者都是 field mode 且字段
+集合不相交。潜在同字段重叠，以及 replace 与另一个潜在同 index 写入继续 fail closed。
+每个源码 index 仍必须
 满足已有的精确位宽/full-domain 安全证明。一个 branch value 依赖另一个 branch 写入的 owner，
 仍需等待通用 state join。
 
@@ -1591,7 +1595,9 @@ def install(rob, entry, delta):
 
 MLIR 推导 `ready_valid_Nx1_table`。可证明来自同 owner、同 index committed read 的
 不可变 patch 携带 `mode "field"` 和精确、规范化的 `write_fields`；无法证明来源的值仍
-携带 `mode "replace"` 和完整 Entry 字段集。编译器将全部 Queue 消费、Table effect 和输出
+携带 `mode "replace"` 和完整 Entry 字段集。相同证明会穿过局部 alias、安全的值选择和闭合
+纯 helper 返回摘要；普通 helper、`@ac.inline` helper、system Table 与 module-local Table 在
+来源等价时得到相同 footprint。编译器将全部 Queue 消费、Table effect 和输出
 生产闭合为一个 `ac.firing`。QueueGraph/gfsim 生成 variadic
 `QueueTableTransition`；任一输入缺失、输出反压或 Table reservation 冲突时，全部输入
 和 Table 都保持不变。对应的可执行回归 fixture 位于

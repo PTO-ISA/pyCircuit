@@ -1945,19 +1945,44 @@ std::string reservationBindingName(llvm::StringRef table,
 
 void emitStateWriteBatch(std::ostringstream &output,
                          const QueueBlockPlan &block, llvm::StringRef table,
-                         llvm::StringRef entryType, size_t ownerIndex,
+                         const QueueGraphPlan &plan, llvm::StringRef entryType,
+                         size_t ownerIndex,
                          llvm::StringRef padding) {
   (void)ownerIndex;
   const std::string batch = stateWriteBatchName(table);
   output << padding.str() << "gfsim::OwnerWriteBatch<" << entryType.str()
          << "> " << batch << ";\n";
-  for (size_t writeIndex : findStateWriteOrdinals(block, table))
+  auto payload = llvm::find_if(
+      plan.payloads, [&](const QueuePayloadPlan &candidate) {
+        return candidate.name == entryType;
+      });
+  for (size_t writeIndex : findStateWriteOrdinals(block, table)) {
+    const StateWritePlan &write = block.stateWrites[writeIndex];
+    uint64_t fieldMask = 0;
+    if (write.fields == std::vector<std::string>{"$entry"}) {
+      fieldMask = 1;
+    } else if (payload != plan.payloads.end()) {
+      for (const std::string &field : write.fields) {
+        auto declared = llvm::find_if(
+            payload->fields, [&](const QueuePayloadFieldPlan &candidate) {
+              return candidate.name == field;
+            });
+        if (declared != payload->fields.end())
+          fieldMask |= uint64_t{1} << static_cast<unsigned>(
+                           std::distance(payload->fields.begin(), declared));
+      }
+    }
     output << padding.str() << "if ("
            << stateWritePresentName(block, writeIndex) << ")\n"
            << padding.str() << "  " << batch
-           << ".emplace_back(static_cast<size_t>("
+           << ".emplace_back(gfsim::TableWriteRecord<" << entryType.str()
+           << ">{static_cast<size_t>("
            << stateWriteIndexName(block, writeIndex) << "), "
-           << stateWriteValueName(block, writeIndex) << ");\n";
+           << stateWriteValueName(block, writeIndex) << ", "
+           << (write.mode == "replace" ? "gfsim::TableWriteMode::Replace"
+                                       : "gfsim::TableWriteMode::FieldMerge")
+           << ", std::uint64_t{" << fieldMask << "}});\n";
+  }
 }
 
 std::vector<const StateReservationPlan *>
@@ -2032,8 +2057,20 @@ llvm::Error emitStructuredMergePolicy(std::ostringstream &output,
                                       llvm::StringRef policyName,
                                       llvm::StringRef entryType,
                                       llvm::ArrayRef<std::string> fields) {
+  auto payload = llvm::find_if(specialization.payloads,
+                               [&](const QueuePayloadPlan &candidate) {
+                                 return candidate.name == entryType;
+                               });
+  const bool scalar = fields.size() == 1 && fields.front() == "$entry";
+  const size_t fieldCount =
+      scalar ? 1 : (payload == specialization.payloads.end()
+                        ? 0
+                        : payload->fields.size());
+  if (fieldCount == 0 || fieldCount > 64)
+    return generatorError("structured specialization Entry fields missing");
   output << "struct " << policyName.str()
-         << " {\n  static constexpr std::array<size_t, " << fields.size()
+         << " {\n  static constexpr size_t fieldCount = " << fieldCount
+         << ";\n  static constexpr std::array<size_t, " << fields.size()
          << "> fields{";
   for (auto [fieldIndex, field] : llvm::enumerate(fields)) {
     if (fieldIndex)
@@ -2042,10 +2079,6 @@ llvm::Error emitStructuredMergePolicy(std::ostringstream &output,
       output << 0;
       continue;
     }
-    auto payload = llvm::find_if(specialization.payloads,
-                                 [&](const QueuePayloadPlan &candidate) {
-                                   return candidate.name == entryType;
-                                 });
     if (payload == specialization.payloads.end())
       return generatorError("structured specialization Entry payload missing");
     auto declared = llvm::find_if(payload->fields,
@@ -2064,6 +2097,16 @@ llvm::Error emitStructuredMergePolicy(std::ostringstream &output,
     else
       output << "    target." << identifier(field) << " = value."
              << identifier(field) << ";\n";
+  output << "  }\n  void operator()(" << entryType.str() << " &target, const "
+         << entryType.str() << " &value, std::uint64_t mask) const {\n";
+  if (scalar) {
+    output << "    if (mask & std::uint64_t{1}) target = value;\n";
+  } else {
+    for (auto [fieldIndex, field] : llvm::enumerate(payload->fields))
+      output << "    if (mask & (std::uint64_t{1} << " << fieldIndex
+             << ")) target." << identifier(field.name) << " = value."
+             << identifier(field.name) << ";\n";
+  }
   output << "  }\n};\n\n";
   return llvm::Error::success();
 }
@@ -2915,7 +2958,8 @@ generateStructuredQueueGraphCpp(const QueueGraphPlan &plan) {
       for (auto [ownerIndex, tableIndex] : llvm::enumerate(tables))
         emitStateWriteBatch(output, firing,
                             specialization.tables[tableIndex].name,
-                            writeTypes[ownerIndex], ownerIndex, "    ");
+                            specialization, writeTypes[ownerIndex], ownerIndex,
+                            "    ");
       output << "    return " << planType;
       if (oneOwner) {
         output << "{std::move("
@@ -4485,7 +4529,7 @@ llvm::Expected<std::string> generateQueueGraphCpp(const QueueGraphPlan &plan) {
                << "      return std::nullopt;\n";
         for (auto [ownerIndex, table] : llvm::enumerate(ownerTables))
           emitStateWriteBatch(output, *block, table->name,
-                              tableTypes[ownerIndex], ownerIndex, "    ");
+                              plan, tableTypes[ownerIndex], ownerIndex, "    ");
         output << "    return " << planType << "{{";
         for (size_t ownerIndex = 0; ownerIndex < tableTypes.size();
              ++ownerIndex) {
@@ -4568,39 +4612,12 @@ llvm::Expected<std::string> generateQueueGraphCpp(const QueueGraphPlan &plan) {
           const StateWritePlan *write = findStateWrite(*block, table->name);
           const std::vector<std::string> fields =
               write ? write->fields : std::vector<std::string>{"$entry"};
-          output << "struct " << blockSymbol(index) << "_merge_policy_"
-                 << ownerIndex << " {\n  static constexpr std::array<size_t, "
-                 << fields.size() << "> fields{";
-          for (auto [fieldIndex, field] : llvm::enumerate(fields)) {
-            if (fieldIndex)
-              output << ", ";
-            if (field == "$entry") {
-              output << 0;
-              continue;
-            }
-            auto payload = llvm::find_if(
-                plan.payloads, [&](const QueuePayloadPlan &candidate) {
-                  return candidate.name == entryType;
-                });
-            if (payload == plan.payloads.end())
-              return generatorError("state firing Entry payload is missing");
-            auto declared = llvm::find_if(
-                payload->fields, [&](const QueuePayloadFieldPlan &candidate) {
-                  return candidate.name == field;
-                });
-            if (declared == payload->fields.end())
-              return generatorError("state firing write field is missing");
-            output << std::distance(payload->fields.begin(), declared);
-          }
-          output << "};\n  void operator()(" << entryType << " &target, const "
-                 << entryType << " &value) const {\n";
-          for (const std::string &field : fields)
-            if (field == "$entry")
-              output << "    target = value;\n";
-            else
-              output << "    target." << identifier(field) << " = value."
-                     << identifier(field) << ";\n";
-          output << "  }\n};\n\n";
+          if (auto error = emitStructuredMergePolicy(
+                  output, plan,
+                  blockSymbol(index) + "_merge_policy_" +
+                      std::to_string(ownerIndex),
+                  entryType, fields))
+            return std::move(error);
         }
         continue;
       }
@@ -4774,7 +4791,8 @@ llvm::Expected<std::string> generateQueueGraphCpp(const QueueGraphPlan &plan) {
              << *evaluationBody << "    }();\n"
              << "    if (!rule_condition)\n"
              << "      return std::nullopt;\n";
-      emitStateWriteBatch(output, *block, table->name, *entryType, 0, "    ");
+      emitStateWriteBatch(output, *block, table->name, plan, *entryType, 0,
+                          "    ");
       output << "    return " << planType << "{std::move("
              << stateWriteBatchName(table->name) << "), {";
       for (auto [outputIndex, outputType] : llvm::enumerate(outputTypes)) {
@@ -4829,40 +4847,10 @@ llvm::Expected<std::string> generateQueueGraphCpp(const QueueGraphPlan &plan) {
           output << "    " << identifier(selection.name)
                  << "->accept(epoch);\n";
       output << "  }\n};\n\n";
-      output << "struct " << blockSymbol(index)
-             << "_merge_policy {\n  static constexpr std::array<size_t, "
-             << ownerWriteFields.size() << "> fields{";
-      for (auto [fieldIndex, field] : llvm::enumerate(ownerWriteFields)) {
-        if (fieldIndex)
-          output << ", ";
-        if (field == "$entry") {
-          output << 0;
-          continue;
-        }
-        auto payload = llvm::find_if(plan.payloads,
-                                     [&](const QueuePayloadPlan &candidate) {
-                                       return candidate.name == *entryType;
-                                     });
-        if (payload == plan.payloads.end())
-          return generatorError("table firing Entry payload is missing");
-        auto declared = llvm::find_if(
-            payload->fields, [&](const QueuePayloadFieldPlan &candidate) {
-              return candidate.name == field;
-            });
-        if (declared == payload->fields.end())
-          return generatorError("table firing write field is missing");
-        output << std::distance(payload->fields.begin(), declared);
-      }
-      output << "};\n  void operator()(" << *entryType << " &target, const "
-             << *entryType << " &value) const {\n";
-      for (const std::string &field : ownerWriteFields) {
-        if (field == "$entry")
-          output << "    target = value;\n";
-        else
-          output << "    target." << identifier(field) << " = value."
-                 << identifier(field) << ";\n";
-      }
-      output << "  }\n};\n\n";
+      if (auto error = emitStructuredMergePolicy(
+              output, plan, blockSymbol(index) + "_merge_policy", *entryType,
+              ownerWriteFields))
+        return std::move(error);
       continue;
     }
     if (block->kind == "table_read" || block->kind == "table_write" ||

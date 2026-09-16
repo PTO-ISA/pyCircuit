@@ -1328,7 +1328,8 @@ equivalent field update. A direct update, or an explicit
 AST-equivalent index. Otherwise it remains a complete `replace`. Field names
 are canonicalized in Entry declaration order. Consecutive updates of the same
 target in one basic block form one proposal; repeated fields keep the last
-value. Each branch is combined independently. Updates that mix the enclosing
+value. Explicit serial indexed assignments remain ordered proposals and may
+carry different field schemas. Each branch is combined independently. Updates that mix the enclosing
 block with a branch for the same target fail with `ACPY-RULE-011` in this
 slice. Later serial local or scalar-state assignments read the latest SSA
 proposal, while every Table read observes tick-start committed state until the
@@ -1473,11 +1474,14 @@ Generated gfsim evaluates one Work candidate and prepares only the selected
 effects; the input and every selected state owner still publish through one
 atomic group. If complementary arms assign the same scalar or the same indexed
 lexical target, the compiler joins the value and, when needed, the index with
-typed `ac.var.select`. If one selected path writes several distinct entries of
-the same Table, those proposals remain an ordered owner-local batch.
-`ACDataFlowAnalyzer` and QueueGraph require every same-owner pair to have
-disjoint index domains or structurally mutually exclusive predicates. Each
-authored index retains the existing exact-width/full-domain safety proof. A
+typed `ac.var.select`. If one selected path writes several entries of the same
+Table, those proposals remain an ordered owner-local batch. `ACDataFlowAnalyzer`
+and QueueGraph require every same-owner pair to have disjoint index domains,
+structurally mutually exclusive predicates, or two field-mode footprints with
+disjoint field sets. Each proposal independently retains its index, value,
+presence, mode, and canonical fields. A possible same-field overlap, or a
+replace with another possible same-index write, remains rejected. Each authored
+index retains the existing exact-width/full-domain safety proof. A
 branch value that depends on another branch-written owner remains rejected
 until general state joins are available.
 
@@ -1616,7 +1620,10 @@ domain; constant and multidimensional coordinates must be in range.
 The frontend emits firing-local `ac.table.propose`. Proven same-owner,
 same-index immutable patches carry `mode "field"` and their exact canonical
 `write_fields`; unproven values carry `mode "replace"` and the complete Entry
-field set. Separate MLIR passes infer every input consume, the output produce,
+field set. Local aliases, safe value selection, and closed pure-helper return
+summaries participate in the same proof; ordinary and `@ac.inline` helpers,
+system Tables, and module-local Tables therefore produce the same footprint
+when their provenance is equivalent. Separate MLIR passes infer every input consume, the output produce,
 and the Table effect;
 materialize `ready_valid_Nx1_table`; infer lexical priority and typed state
 footprints; discharge every marker; and retain the result as stateful
