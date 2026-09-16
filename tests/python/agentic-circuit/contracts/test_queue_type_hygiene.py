@@ -6,6 +6,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[4]
 FRONTEND = ROOT / "python/agentic-circuit/src/agentic_circuit/_queue_frontend.py"
+MODEL = ROOT / "python/agentic-circuit/src/agentic_circuit/_queue_compiler/model.py"
 CODEGEN = ROOT / "python/agentic-circuit/src/agentic_circuit/_queue_codegen.py"
 
 
@@ -37,6 +38,9 @@ class QueueTypeHygieneTest(unittest.TestCase):
     def setUpClass(cls) -> None:
         cls.tree = ast.parse(
             FRONTEND.read_text(encoding="utf-8"), filename=str(FRONTEND)
+        )
+        cls.model_tree = ast.parse(
+            MODEL.read_text(encoding="utf-8"), filename=str(MODEL)
         )
         cls.codegen_tree = ast.parse(
             CODEGEN.read_text(encoding="utf-8"), filename=str(CODEGEN)
@@ -81,7 +85,8 @@ class QueueTypeHygieneTest(unittest.TestCase):
         }
         classes = {
             node.name: node
-            for node in ast.walk(self.tree)
+            for tree in (self.tree, self.model_tree)
+            for node in ast.walk(tree)
             if isinstance(node, ast.ClassDef)
         }
         for class_name, fields in expected.items():
