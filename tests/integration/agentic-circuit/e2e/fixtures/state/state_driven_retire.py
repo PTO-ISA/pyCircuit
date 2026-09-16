@@ -25,7 +25,7 @@ def retire(entries):
 
 @ac.system
 def state_driven_retire(incoming: Entry) -> Entry:
-    entries: list[Entry] = [0] * 2
+    entries = ac.table[2, Entry](init=0)
     allocate(entries, incoming)
     retired = retire(entries)
     return retired

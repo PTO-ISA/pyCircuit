@@ -23,7 +23,7 @@ def keep(entries, value: Packet) -> Packet:
 
 @ac.module
 def stage(value: Packet, *, entry_count: ac.const[int]) -> Packet:
-    entries: list[Entry] = [0] * entry_count
+    entries = ac.table[entry_count, Entry](init=0)
     result = keep(entries, value)
     return result
 

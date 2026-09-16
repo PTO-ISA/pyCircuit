@@ -41,7 +41,7 @@ def write(entries, command):
 
 @ac.system
 def state_update(command: Entry) -> Entry:
-    entries: list[Entry] = [0] * 4
+    entries = ac.table[4, Entry](init=0)
     result = write(entries, command)
     return result
 """
@@ -109,8 +109,7 @@ LOCAL_COPY_SOURCE = STATE_SOURCE.replace(
 
 BRANCH_STATE_SOURCE = STATE_SOURCE.replace(
     "    entries[command.index].valid = True\n",
-    "    if command.valid:\n"
-    "        entries[command.index].value = command.value\n",
+    "    if command.valid:\n" "        entries[command.index].value = command.value\n",
 )
 
 BRANCH_STATE_EXPLICIT_SOURCE = BRANCH_STATE_SOURCE.replace(
@@ -165,7 +164,7 @@ class RuleFieldAssignmentTest(unittest.TestCase):
 
         lowered = lower_queue_source(LOCAL_COPY_SOURCE, "state_update")
 
-        self.assertIn("ac.var.read_element @entries", lowered)
+        self.assertIn("ac.table.get @entries", lowered)
         self.assertIn("ac.var.with", lowered)
         self.assertNotIn("ac.var.assign_element @entries", lowered)
 
@@ -174,7 +173,7 @@ class RuleFieldAssignmentTest(unittest.TestCase):
 
         lowered = lower_queue_source(STATE_SOURCE, "state_update")
 
-        self.assertEqual(1, lowered.count("ac.var.assign_element @entries"))
+        self.assertEqual(1, lowered.count("ac.table.propose @entries"))
         self.assertIn("ac.var.with", lowered)
 
     def test_field_assignment_matches_explicit_immutable_update_acir(self) -> None:
@@ -233,8 +232,9 @@ class RuleFieldAssignmentTest(unittest.TestCase):
             "local.valid += 1",
             "entries[0:2].valid = True",
         ):
-            with self.subTest(source=source), self.assertRaisesRegex(
-                QueueFrontendError, "ACPY-RULE-002"
+            with (
+                self.subTest(source=source),
+                self.assertRaisesRegex(QueueFrontendError, "ACPY-RULE-002"),
             ):
                 _normalize_rule_field_assignments(
                     ast.parse(source).body, reserved_names={"entries", "local"}
@@ -249,20 +249,17 @@ class RuleFieldAssignmentTest(unittest.TestCase):
         cases = (
             (LOCAL_SOURCE.replace("local.valid", "local.missing"), "unknown field"),
             (
-                LOCAL_SOURCE.replace(
-                    "local.valid = True", "local.value = local.valid"
-                ),
+                LOCAL_SOURCE.replace("local.valid = True", "local.value = local.valid"),
                 "field update type mismatch",
             ),
             (STATE_SOURCE.replace("command.index", "4"), "index is out of range"),
         )
         for source, message in cases:
-            with self.subTest(message=message), self.assertRaisesRegex(
-                QueueFrontendError, message
+            with (
+                self.subTest(message=message),
+                self.assertRaisesRegex(QueueFrontendError, message),
             ):
                 lower_queue_source(
                     source,
-                    "local_update"
-                    if "def local_update" in source
-                    else "state_update",
+                    "local_update" if "def local_update" in source else "state_update",
                 )

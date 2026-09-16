@@ -1,4 +1,4 @@
-"""Two Python branches join both index and value for one persistent list."""
+"""Two Python branches join both index and value for one explicit Table."""
 
 import agentic_circuit as ac
 
@@ -21,5 +21,5 @@ def update(entries, command):
 
 @ac.system
 def indexed_branch_join(command: Command) -> None:
-    entries: list[ac.u8] = [0] * 4
+    entries = ac.table[4, ac.u8](init=0)
     update(entries, command)

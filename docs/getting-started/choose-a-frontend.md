@@ -41,7 +41,7 @@ state. `@ac.rule` describes schedulable typed behavior while the compiler owns
 Queue availability, reservations, backpressure, and atomic commit.
 
 The current frontend supports typed pure helpers, structured payloads,
-multi-input and optional multi-output rules, persistent scalar/list state,
+multi-input and optional multi-output rules, persistent scalar/Table state,
 reusable modules, Table selection and arbitration, explicit memories, and the
 synthesizable ACIR subset. JIT-dependent widths and fixed shapes, exact-name
 record spread, optional fixed/sparse standard-Python enum encoding, and

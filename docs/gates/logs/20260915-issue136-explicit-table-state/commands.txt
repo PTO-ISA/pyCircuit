@@ -1,0 +1,14 @@
+cmake --build /home/lc/pyCircuit/.pycircuit_out/local-clang22/build --target install -j 16
+python -m unittest discover -s tests/python/agentic-circuit/python_frontend -p 'test_*.py'
+pytest -q tests/integration/agentic-circuit/e2e/test_queue_codegen.py
+python tests/integration/agentic-circuit/e2e/test_bounded_range_runtime.py BoundedRangeRuntimeTest.test_array_update_state_commits_once_on_all_backends -v
+python tests/integration/agentic-circuit/e2e/test_typed_system_transactions.py -v
+cmake --build /home/lc/pyCircuit/.pycircuit_out/local-clang22/build --target check-acir -j 16
+ctest --test-dir /home/lc/pyCircuit/.pycircuit_out/local-clang22/build --output-on-failure -j 16
+PYC_GATE_RUN_ID=20260915-issue136-explicit-table-state AC_GATE_RESUME_FROM=g2 AC_GATE_BUILD_ROOT=/home/lc/pyCircuit/.pycircuit_out/local-clang22/build AC_GATE_TOOLCHAIN_ROOT=/home/lc/pyCircuit/.pycircuit_out/local-clang22/install PYC_BUILD_JOBS=16 PYC_TEST_JOBS=16 bash flows/scripts/run_agentic_circuit.sh
+python tools/agentic-circuit/check-ir-coverage.py
+python tools/agentic-circuit/generate-diagnostic-catalog.py --check
+python flows/tools/check_api_hygiene.py python/pycircuit/src/pycircuit examples/pycircuit docs README.md
+SKIP=pyc-api-hygiene pre-commit run --files <changed-files>
+mkdocs build --strict
+python flows/tools/check_decision_status.py --rfc docs/rfcs/pyc6-decisions.md --status docs/gates/decision_status_v6.md --out docs/gates/logs/20260915-issue136-explicit-table-state/decision_status_report.json --require-no-deferred --require-all-verified --require-concrete-evidence --require-existing-evidence
