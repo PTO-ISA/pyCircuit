@@ -42,6 +42,17 @@ from .syntax import _decorator_name
 MAX_PACKED_VALUE_WIDTH = 1 << 16
 
 
+def _table_axis_width(extent: int) -> int:
+    return max(1, (extent - 1).bit_length())
+
+
+def _product(values: tuple[int, ...]) -> int:
+    result = 1
+    for value in values:
+        result *= value
+    return result
+
+
 def _static_constraint(
     node: ast.expr, values: Mapping[str, StaticValue] | None = None
 ) -> Constraint:

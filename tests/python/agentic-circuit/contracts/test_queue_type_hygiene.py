@@ -6,6 +6,9 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[4]
 FRONTEND = ROOT / "python/agentic-circuit/src/agentic_circuit/_queue_frontend.py"
+ACIR_TEXT = (
+    ROOT / "python/agentic-circuit/src/agentic_circuit/_queue_compiler/acir_text.py"
+)
 MODEL = ROOT / "python/agentic-circuit/src/agentic_circuit/_queue_compiler/model.py"
 CODEGEN = ROOT / "python/agentic-circuit/src/agentic_circuit/_queue_codegen.py"
 
@@ -39,6 +42,9 @@ class QueueTypeHygieneTest(unittest.TestCase):
         cls.tree = ast.parse(
             FRONTEND.read_text(encoding="utf-8"), filename=str(FRONTEND)
         )
+        cls.acir_text_tree = ast.parse(
+            ACIR_TEXT.read_text(encoding="utf-8"), filename=str(ACIR_TEXT)
+        )
         cls.model_tree = ast.parse(
             MODEL.read_text(encoding="utf-8"), filename=str(MODEL)
         )
@@ -48,7 +54,7 @@ class QueueTypeHygieneTest(unittest.TestCase):
 
     def test_only_acir_type_renderer_calls_value_type_mlir(self) -> None:
         visitor = _MlirCallVisitor()
-        visitor.visit(self.tree)
+        visitor.visit(self.acir_text_tree)
         self.assertEqual([], visitor.violations)
 
     def test_type_bearing_records_store_descriptors(self) -> None:
