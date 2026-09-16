@@ -125,6 +125,59 @@ def pipeline(raw: ac.u8, *, n: ac.const[int]) -> ac.index[5]:
             overwritten_path.write_text(overwritten_frozen, encoding="utf-8")
             self._run((self.plan, overwritten_path), cwd=ROOT)
 
+    def test_parent_specialized_config_interface_generates_cpp(self) -> None:
+        source = """import agentic_circuit as ac
+@ac.config
+class Config:
+    entries: int
+CFG = ac.param[Config]("cfg")
+@ac.struct
+class Entry:
+    index: ac.bits[ac.index_width(CFG.entries)]
+@ac.rule
+def keep(value: Entry, cfg: ac.const[Config]) -> Entry:
+    result = value
+    return result
+@ac.module
+def stage(value: Entry, *, cfg: ac.const[Config]) -> Entry:
+    result = keep(value, cfg)
+    return result
+@ac.system
+def pipeline(value: Entry, *, cfg: ac.const[Config]) -> Entry:
+    result = stage(value, cfg=cfg)
+    return result
+"""
+        raw = lower_queue_source(
+            source,
+            "pipeline",
+            static_arguments={"cfg": FrozenMap((("entries", 5),))},
+        )
+        self.assertEqual(1, raw.count('root = "cfg"'))
+        self.assertNotIn('root = "stage__p', raw)
+        frozen = _lower_queue_acir(raw, optimizer=self.acir_opt)
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "shared-config-interface.mlir"
+            path.write_text(frozen, encoding="utf-8")
+            generated = self._run((self.cxxgen, path), cwd=ROOT)
+            compiled = subprocess.run(
+                (
+                    self.compiler,
+                    "-std=c++20",
+                    "-I",
+                    ROOT / "simulator/gfsim/include",
+                    "-x",
+                    "c++",
+                    "-fsyntax-only",
+                    "-",
+                ),
+                cwd=ROOT,
+                input=generated,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(0, compiled.returncode, compiled.stderr)
+
     def test_module_state_uses_bounded_storage_initializer_type(self) -> None:
         source = """import agentic_circuit as ac
 @ac.module

@@ -1186,6 +1186,23 @@ TEST(QueueGraphPlanTest, RecomputesNestedConfigProjectionMetadata) {
       llvm::toString(std::move(forgedSchema)).find("metadata is malformed"),
       std::string::npos);
 
+  plan.staticConfigBindings.front().schemaSha256 =
+      "sha256:8d50b171414319202ddc53539c063d17b2a5bb762254463f741967108429e99e";
+  plan.staticTypeBindings = {{"PAIR_WIDTH", 5}};
+  plan.staticTypeChecks = {
+      {"Packet.pair.tuple_1:bits", {"param:PAIR_WIDTH"}, 5},
+  };
+  auto orphanRoot = verifyQueueGraphPlan(plan);
+  ASSERT_TRUE(bool(orphanRoot));
+  EXPECT_NE(
+      llvm::toString(std::move(orphanRoot))
+          .find("static config root has no dependent type projection"),
+      std::string::npos);
+
+  plan.staticTypeBindings = {{"cfg.entries", 5}};
+  plan.staticTypeChecks = {
+      {"Packet.pair.tuple_1:bits", {"param:cfg.entries"}, 5},
+  };
   plan.staticConfigBindings.clear();
   auto missingRoot = verifyQueueGraphPlan(plan);
   ASSERT_TRUE(bool(missingRoot));

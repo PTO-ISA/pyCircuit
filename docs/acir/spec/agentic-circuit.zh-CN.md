@@ -329,6 +329,12 @@ QueueGraph 从 root value 沿 field path 重新取值，并独立核对 projecte
 type binding。Python alias 拼写不进入语义 identity；config projection 与成功的
 `ac.static_assert` 都不会成为 runtime operation。
 
+当 child module 在相同 closed config binding 下接收同一 source type 时，whole-program
+composition 保留共享的 nominal type identity。payload 去重可能因此移除所有 child-local
+projection；frontend 必须同步删除已经无用的 child config binding，不能生成 orphan root。
+ACIR 与 QueueGraph verifier 仍必须拒绝任何没有 surviving dependent-type target 的 config
+binding。
+
 module-local dependent type 在每个 module instance 的 `ac.const` 参数绑定后再具体化。
 即使两组绑定得到相同 storage width，不同绑定的实例也具有不同 nominal struct
 identity；相同 source type 和相同绑定跨 system/module interface 仍保持同一 identity，

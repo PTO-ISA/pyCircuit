@@ -620,6 +620,39 @@ def multi_config_specialization(
     return second_result
 """
 
+SHARED_CONFIG_INTERFACE_SOURCE = """
+import agentic_circuit as ac
+
+@ac.config
+class Config:
+    entries: int
+
+CFG = ac.param[Config]("cfg")
+
+@ac.struct
+class Entry:
+    index: ac.bits[ac.index_width(CFG.entries)]
+
+@ac.rule
+def keep(value: Entry, cfg: ac.const[Config]) -> Entry:
+    result = value
+    return result
+
+@ac.module
+def stage(value: Entry, *, cfg: ac.const[Config]) -> Entry:
+    result = keep(value, cfg)
+    return result
+
+@ac.system
+def shared_config_interface(
+    value: Entry,
+    *,
+    cfg: ac.const[Config],
+) -> Entry:
+    result = stage(value, cfg=cfg)
+    return result
+"""
+
 SAME_SPECIALIZATION_INTERFACE_SOURCE = """
 import agentic_circuit as ac
 
@@ -4422,6 +4455,21 @@ def design(index: ac.u2, *, entries: ac.const[int]) -> ac.u2:
                     "cfg": FrozenMap((("entries", 5),)),
                 },
             )
+
+    def test_module_reuses_parent_specialized_config_interface(self) -> None:
+        from agentic_circuit._queue_frontend import lower_queue_source
+        from agentic_circuit._static_eval import FrozenMap
+
+        lowered = lower_queue_source(
+            SHARED_CONFIG_INTERFACE_SOURCE,
+            "shared_config_interface",
+            static_arguments={"cfg": FrozenMap((("entries", 5),))},
+        )
+
+        self.assertEqual(1, lowered.count('type = "Config"'))
+        self.assertEqual(1, lowered.count('root = "cfg"'))
+        self.assertNotIn('root = "stage__p', lowered)
+        self.assertIn("ac.module @stage__p", lowered)
 
     def test_payload_parser_retains_recursive_type_descriptors_before_mlir(
         self,

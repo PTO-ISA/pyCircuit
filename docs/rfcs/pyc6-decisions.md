@@ -9288,6 +9288,12 @@ the value.
   the entry root plus field path, for example `cfg.cache.sets`. Module-local
   paths retain the existing specialization namespace so distinct instance
   bindings cannot collide.
+- Whole-program composition deduplicates the same source type specialized by
+  the same closed binding across a system/module interface. If that removes
+  every projection using a module-local config namespace, the frontend prunes
+  the corresponding config binding with the unused static leaf bindings. It
+  must not publish an orphan config root or weaken verifier rejection of forged
+  roots.
 - Frozen ACIR records `ac.static_config_bindings`: the canonical root, nominal
   type name, complete recursive schema as canonical JSON, schema SHA-256, and
   complete canonical root value. Existing `ac.static_type_bindings`, postfix
@@ -9316,6 +9322,9 @@ the value.
   and serialize `static_config_bindings` canonically.
 - A public example covers positive capacity, power-of-two, divisibility,
   `index_width`, `count_width`, and fixed-array shape from one nested root.
+- A module receiving a parent-specialized dependent payload under the same
+  config value generates verified C++ without an orphan module-local root,
+  while a module with its own dependent projection retains its namespaced root.
 
 **Source**
 - PTO-ISA/pyCircuit issue #128.

@@ -1,0 +1,10 @@
+PYTHONPATH="python/semantic-core/src:python/agentic-circuit/src" pytest -q tests/python/agentic-circuit/python_frontend/test_queue_frontend.py
+pytest -q tests/unit -m unit
+PYTHONPATH="python/semantic-core/src:python/agentic-circuit/src" ACIR_BIN="$PWD/.pycircuit_out/toolchain/install/bin" pytest -q tests/integration/agentic-circuit/e2e/test_frontend_composition_features.py -k parent_specialized_config_interface_generates_cpp
+cmake --build .pycircuit_out/acir/dev-llvm22 --target CodeGenTests -j8
+.pycircuit_out/acir/dev-llvm22/bin/CodeGenTests --gtest_filter=QueueGraphPlanTest.RecomputesNestedConfigProjectionMetadata
+.pycircuit_out/merge-venv/bin/python .pycircuit_out/merge-venv/bin/lit -v .pycircuit_out/acir/dev-llvm22/tests/mlir/ACIR/static-config-metadata.mlir
+.pycircuit_out/merge-venv/bin/python tools/agentic-circuit/check-contracts.py
+python3 flows/tools/check_api_hygiene.py python/pycircuit/src/pycircuit examples/pycircuit docs README.md
+mkdocs build --strict
+.pycircuit_out/merge-venv/bin/python flows/tools/check_decision_status.py --rfc docs/rfcs/pyc6-decisions.md --status docs/gates/decision_status_v6.md --out docs/gates/logs/20260917-module-config-metadata-prune/decision_status_report.json --require-no-deferred --require-all-verified --require-concrete-evidence --require-existing-evidence

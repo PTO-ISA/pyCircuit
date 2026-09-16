@@ -407,6 +407,12 @@ root value, traverse every field path, and independently compare the projected
 integer with the type binding. Python alias spelling does not enter semantic
 identity. Config projections and successful `ac.static_assert` calls never
 become runtime operations.
+When a child module receives the same source type under the same closed config
+binding, whole-program composition keeps the shared nominal type identity.
+Payload deduplication may therefore remove every child-local projection; the
+frontend MUST also prune that now-unused child config binding rather than emit
+an orphan root. A config binding without a surviving dependent-type target is
+invalid and MUST still be rejected by the ACIR and QueueGraph verifiers.
 Frozen ACIR and every backend contain concrete types only; the specialization
 fingerprint includes the bound constants. Checks retain recursive paths through
 tuple elements and value-array elements, so nested widths and lengths are

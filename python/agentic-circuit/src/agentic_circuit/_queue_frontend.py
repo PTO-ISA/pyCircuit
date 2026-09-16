@@ -19225,6 +19225,14 @@ def _lower_simple_module_source(
         for name, value in candidate_static_bindings.items()
         if name in used_static_parameters
     }
+    all_static_configs = {
+        root: binding
+        for root, binding in candidate_static_configs.items()
+        if any(
+            parameter.startswith(root + ".")
+            for parameter in used_static_parameters
+        )
+    }
 
     lines = [
         "builtin.module attributes {ac.contract_epoch = "
@@ -19235,8 +19243,8 @@ def _lower_simple_module_source(
             all_payloads,
             tuple(all_interface_checks),
             tuple(
-                candidate_static_configs[root]
-                for root in sorted(candidate_static_configs)
+                all_static_configs[root]
+                for root in sorted(all_static_configs)
             ),
         )
         + "} {"

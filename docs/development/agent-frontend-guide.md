@@ -214,6 +214,10 @@ Follow these rules:
   `ac.param[int]` declarations. Keep the entry parameter typed as
   `cfg: ac.const[CoreConfig]`; JIT and both metadata verifiers check the nominal
   schema, root value, field path, and projected integer before backends run.
+  When a child module receives an already-specialized parent payload under the
+  same config value, whole-program payload deduplication keeps that one nominal
+  identity and prunes the child config metadata if no child-local dependent
+  projection survives. Do not add dummy fields merely to retain a config root.
 - Use `bool` for logical facts, standard `Enum` for closed categories, and
   `@ac.encoding(width=N)` only when an external protocol requires fixed or
   sparse values. Keep independent flags independent. Use `is_one_of` for
