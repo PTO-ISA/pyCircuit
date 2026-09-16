@@ -12,6 +12,9 @@ ACIR_TEXT = (
 EXPRESSIONS = (
     ROOT / "python/agentic-circuit/src/agentic_circuit/_queue_compiler/expressions.py"
 )
+LOWER_ACIR = (
+    ROOT / "python/agentic-circuit/src/agentic_circuit/_queue_compiler/lower_acir.py"
+)
 MODEL = ROOT / "python/agentic-circuit/src/agentic_circuit/_queue_compiler/model.py"
 CODEGEN = ROOT / "python/agentic-circuit/src/agentic_circuit/_queue_codegen.py"
 
@@ -50,6 +53,9 @@ class QueueTypeHygieneTest(unittest.TestCase):
         )
         cls.expressions_tree = ast.parse(
             EXPRESSIONS.read_text(encoding="utf-8"), filename=str(EXPRESSIONS)
+        )
+        cls.lower_acir_tree = ast.parse(
+            LOWER_ACIR.read_text(encoding="utf-8"), filename=str(LOWER_ACIR)
         )
         cls.model_tree = ast.parse(
             MODEL.read_text(encoding="utf-8"), filename=str(MODEL)
@@ -97,7 +103,7 @@ class QueueTypeHygieneTest(unittest.TestCase):
         }
         classes = {
             node.name: node
-            for tree in (self.tree, self.model_tree)
+            for tree in (self.tree, self.model_tree, self.lower_acir_tree)
             for node in ast.walk(tree)
             if isinstance(node, ast.ClassDef)
         }
@@ -120,7 +126,12 @@ class QueueTypeHygieneTest(unittest.TestCase):
             ("specialization_fingerprint", "removeprefix"),
         }
         found: set[tuple[str, str]] = set()
-        for tree in (self.tree, self.expressions_tree, self.codegen_tree):
+        for tree in (
+            self.tree,
+            self.expressions_tree,
+            self.lower_acir_tree,
+            self.codegen_tree,
+        ):
             for node in ast.walk(tree):
                 if (
                     isinstance(node, ast.Call)
