@@ -18,6 +18,10 @@ ROOT = Path(__file__).resolve().parents[4]
 FIXTURE = (
     ROOT / "tests/integration/agentic-circuit/e2e/fixtures/pure_helpers/architecture.py"
 )
+TABLE_FIND_FIXTURE = (
+    ROOT
+    / "tests/integration/agentic-circuit/e2e/fixtures/pure_helpers/table_find_architecture.py"
+)
 ACIR_BIN = Path(os.environ.get("ACIR_BIN", ROOT / ".pycircuit_out/toolchain/build/bin"))
 PYC_TOOLCHAIN = Path(
     os.environ.get("PYC_TOOLCHAIN_ROOT", ROOT / ".pycircuit_out/toolchain/install")
@@ -80,6 +84,29 @@ class PureHelperParityTest(unittest.TestCase):
             sys.modules.pop(spec.name, None)
         self.assertIn("helper_add_one", generated)
         self.assertNotIn("choose_increment", generated)
+
+    def test_inline_helper_in_table_predicate_reaches_native_codegen(self) -> None:
+        spec = spec_from_file_location("table_find_helper_fixture", TABLE_FIND_FIXTURE)
+        self.assertIsNotNone(spec)
+        assert spec is not None and spec.loader is not None
+        module = module_from_spec(spec)
+        sys.modules[spec.name] = module
+        try:
+            spec.loader.exec_module(module)
+            raw = ac.jit(module.helper_table_find).lower_acir()
+            self.assertNotIn("func.call @matches", raw)
+            with patch.dict(
+                os.environ,
+                {
+                    "ACIR_OPT": str(self.acir_opt),
+                    "ACIR_QUEUE_CXXGEN": str(self.cxxgen),
+                },
+            ):
+                generated = ac.jit(module.helper_table_find).lower_cpp()
+        finally:
+            sys.modules.pop(spec.name, None)
+        self.assertIn("Module_TagArray", generated)
+        self.assertNotIn("matches", generated)
 
     def test_ordinary_and_forced_inline_helpers_match_gfsim_and_pyc(self) -> None:
         inputs = (0, 1, 127, 254, 255)

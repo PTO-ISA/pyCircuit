@@ -1363,6 +1363,43 @@ def row_find(request: Request) -> Result:
     return result
 """
 
+INLINE_HELPER_TABLE_FIND_SOURCE = """
+import agentic_circuit as ac
+
+@ac.struct
+class Entry:
+    tag: ac.u8
+    valid: bool
+
+@ac.struct
+class Request:
+    tag: ac.u8
+
+@ac.struct
+class Result:
+    index: ac.u2
+    valid: bool
+
+@ac.inline
+def matches(entry: Entry, request: Request) -> bool:
+    return entry.valid & (entry.tag == request.tag)
+
+@ac.rule
+def lookup(entries, request: Request) -> Result:
+    selected = entries.find(where=lambda entry: matches(entry, request))
+    return Result(index=selected.index, valid=selected.valid)
+
+@ac.module
+def tag_array(request: Request) -> Result:
+    entries = ac.table[4, Entry](init=0)
+    result = lookup(entries, request)
+    return result
+
+@ac.system
+def helper_find(request: Request) -> Result:
+    return tag_array(request)
+"""
+
 LIST_FIND_CAPTURE_SOURCE = """
 import agentic_circuit as ac
 
@@ -6157,6 +6194,18 @@ def invariant_module(value: Payload) -> Payload:
         self.assertIn("entries 128", wide_lowered)
         self.assertIn("-> !ac.var<!ac.value_array<2 x i64>>", wide_lowered)
         self.assertIn("!ac.var<!ac.value_array<2 x i64>> count 1", wide_lowered)
+
+    def test_inline_helper_expands_inside_module_table_find_predicate(self) -> None:
+        from agentic_circuit._queue_frontend import lower_queue_source
+
+        lowered = lower_queue_source(
+            INLINE_HELPER_TABLE_FIND_SOURCE,
+            "helper_find",
+            source_path="src/helper_find.py",
+        )
+        self.assertIn("ac.var.match @entries predicate", lowered)
+        self.assertNotIn("func.call @matches", lowered)
+        self.assertIn('ac.var.get %entry field "tag"', lowered)
 
     def test_rank_two_table_find_preserves_runtime_row_projection(self) -> None:
         from agentic_circuit._queue_frontend import lower_queue_source

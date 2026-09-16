@@ -13567,6 +13567,7 @@ class _ExpressionEmitter:
                     bitfields=self.bitfields,
                     invariants=self.invariants,
                     helpers=self.helpers,
+                    inline_pure_helpers=self.inline_pure_helpers,
                 )
                 predicate, predicate_type = predicate_emitter.emit(
                     invariant.expression, BoolType()
@@ -15829,6 +15830,7 @@ def lower_queue_program(
                     bitfields=bitfields,
                     invariants=invariants,
                     helpers=helpers,
+                    inline_pure_helpers=module is not None,
                 )
                 predicate_emitter.deferred_values.update(find_local_values)
                 predicate, predicate_type = predicate_emitter.emit(
@@ -15944,6 +15946,7 @@ def lower_queue_program(
                         bitfields=bitfields,
                         invariants=invariants,
                         helpers=helpers,
+                        inline_pure_helpers=module is not None,
                     )
                     key_emitter.deferred_values.update(find_local_values)
                     key, key_type = key_emitter.emit(find.key)
@@ -17031,6 +17034,7 @@ def lower_queue_program(
                     enum_types=enum_types,
                     bitfields=bitfields,
                     helpers=helpers,
+                    inline_pure_helpers=module is not None,
                 )
                 predicate, predicate_type = emitter.emit(
                     candidate.predicate, BoolType()
@@ -17090,6 +17094,7 @@ def lower_queue_program(
                         enum_types=enum_types,
                         bitfields=bitfields,
                         helpers=helpers,
+                        inline_pure_helpers=module is not None,
                     )
                     key, key_type = emitter.emit(selection.key)
                     if _epoch_05_integer_width(key_type) is None:
