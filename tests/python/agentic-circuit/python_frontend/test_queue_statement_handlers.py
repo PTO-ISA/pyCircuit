@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import unittest
 
-
 STATEMENT_HANDLER_SOURCE = """
 import agentic_circuit as ac
 
@@ -49,6 +48,30 @@ def pipeline() -> Token:
     ac.observe(credited)
     ac.sink(credited)
     return retired
+"""
+
+STATE_HANDLER_SOURCE = """
+import agentic_circuit as ac
+
+@ac.struct
+class Entry:
+    valid: bool
+    tag: ac.u8
+
+@ac.system
+def state_pipeline(incoming: Entry) -> Entry:
+    pending = ac.slot(incoming)
+    entries = ac.table[4, Entry](init=0)
+    candidates = entries.match(lambda entry: not entry.valid)
+    first, second = entries.choose(candidates, count=2, policy="first")
+    entries.view(first.index).patch(
+        enable=pending.valid and first.valid,
+        valid=True,
+        tag=pending.value.tag,
+    )
+    pending.release(when=pending.valid and first.valid)
+    outgoing = entries.view(second.index).read(when=second.valid)
+    return outgoing
 """
 
 
@@ -111,6 +134,34 @@ class QueueStatementHandlerTest(unittest.TestCase):
             with self.subTest(operation=operation):
                 self.assertIn(operation, first)
         self.assertEqual(2, first.count("ac.sink"))
+
+    def test_state_handlers_preserve_choice_aliases_and_binding_order(self) -> None:
+        from agentic_circuit._queue_frontend import parse_queue_program
+
+        program = parse_queue_program(STATE_HANDLER_SOURCE, "state_pipeline")
+
+        self.assertEqual(["entries"], [table.name for table in program.tables])
+        self.assertEqual(["pending"], [slot.name for slot in program.slots])
+        self.assertEqual(("first", "second"), program.selections[0].aliases)
+        self.assertEqual("entries", program.table_writes[0].table)
+        self.assertEqual("entries", program.table_reads[0].table)
+        self.assertLess(program.selections[0].order, program.table_writes[0].order)
+        self.assertLess(program.table_writes[0].order, program.table_reads[0].order)
+
+    def test_state_binding_rebind_keeps_legacy_diagnostic_priority(self) -> None:
+        from agentic_circuit._queue_frontend import (
+            QueueFrontendError,
+            parse_queue_program,
+        )
+
+        source = STATE_HANDLER_SOURCE.replace(
+            "    candidates = entries.match",
+            "    entries = ac.source(Entry)\n    candidates = entries.match",
+        )
+        with self.assertRaisesRegex(
+            QueueFrontendError, "state binding cannot be rebound"
+        ):
+            parse_queue_program(source, "state_pipeline")
 
 
 if __name__ == "__main__":
