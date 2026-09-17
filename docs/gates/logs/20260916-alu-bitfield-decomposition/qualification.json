@@ -1,0 +1,99 @@
+{
+  "schema": "pyc-rtl-qualification-report-v1",
+  "run": "20260916-alu-bitfield-decomposition",
+  "status": "validated",
+  "scope": "DavinciOO IEX ALU constant-mode wrapping-bitfield decomposition",
+  "source": "designs/davincioo/spe/iex/alu.py",
+  "source_digests": {
+    "bitfield_primitives/pyc_wrapping_field_normalize.sv": "sha256:05216c60237a96a3bbd2f0b2920a10808fb84d4d6a9574f906692d034d8867d8",
+    "bitfield_primitives/pyc_bitfield_clear.sv": "sha256:faa64d52b0250eda3f2e6b7706f50ecda7607700f25867a89b06ebc1a8551d8e",
+    "bitfield_primitives/pyc_bitfield_set.sv": "sha256:4f9799028e14ec88692c1fe95239c537a81cadab39093edd5e7cb7220fdd2326",
+    "bitfield_primitives/pyc_bitfield_insert.sv": "sha256:44bdce1cd509eb20863d192ffc7794098644f340c235663fc211ae7c9ff294d6",
+    "bitfield_primitives/pyc_reverse_bytes.sv": "sha256:04ac0fe466de318b1b4c6af4c9a5fb8e202b4679497999acfe7e7afed1f6eb37",
+    "bitfield_primitives/pyc_dynamic_sign_extend.sv": "sha256:64a96ed7859f7c453cd1fb30600ce674d985ace0c46ee0669f4b1156a3571fc1",
+    "bitfield_primitives/pyc_popcount_primitive.sv": "sha256:019567028940095d7aa39d095078112ed15a45829dc3de792919426f8e46ef02",
+    "bitfield_primitives/pyc_runtime_zero_count.sv": "sha256:666bbc8290fe87b505eaa1604e1579186c5c9e830083069a25041e40d0c5eec8"
+  },
+  "checks": {
+    "gfsim_e2e": {
+      "status": "passed",
+      "returncode": 0,
+      "command": "CXX=/usr/bin/clang++-22 /root/.pyenv/versions/3.11.15/bin/python3.11 -m pytest -q designs/davincioo/tests/spe/iex/test_alu.py",
+      "result": "2 passed",
+      "path": "alu.py -> ACIR -> QueueGraph -> generated gfsim C++ -> clang++-22/C++20 -> existing expected-result harness"
+    },
+    "rtl_generation_e2e": {
+      "status": "passed",
+      "returncode": 0,
+      "commands": [
+        "PYTHONPATH=python/semantic-core/src:python/pycircuit/src:python/agentic-circuit/src:. /root/.pyenv/versions/3.11.15/bin/python3.11 -c 'from pathlib import Path; import agentic_circuit as ac; from designs.davincioo.spe.iex.alu import alu_system; root=Path.cwd(); Path(\".pycircuit_out/davincioo-iex/alu-bitfield-20260916/raw.mlir\").write_text(ac.jit(alu_system, workspace=root).lower_acir(), encoding=\"utf-8\")'",
+        ".pycircuit_out/acir/dev-llvm22/bin/acir-opt --pass-pipeline='builtin.module(ac-lower-rules,canonicalize,cse,ac-verify-rule-closure,ac-freeze-topology)' .pycircuit_out/davincioo-iex/alu-bitfield-20260916/raw.mlir -o .pycircuit_out/davincioo-iex/alu-bitfield-20260916/frozen.mlir",
+        ".pycircuit_out/acir/dev-llvm22/bin/acir-queue-plan .pycircuit_out/davincioo-iex/alu-bitfield-20260916/frozen.mlir > .pycircuit_out/davincioo-iex/alu-bitfield-20260916/queuegraph.json",
+        ".pycircuit_out/acir/dev-llvm22/bin/acir-queue-pycgen .pycircuit_out/davincioo-iex/alu-bitfield-20260916/frozen.mlir > .pycircuit_out/davincioo-iex/alu-bitfield-20260916/alu.pyc",
+        "PYC_RTL_CATALOG=library/verilog/rtl_catalog.json PYC_PRIMITIVES_DIR=library/verilog .pycircuit_out/toolchain/build/bin/pycc .pycircuit_out/davincioo-iex/alu-bitfield-20260916/alu.pyc --emit=verilog --out-dir .pycircuit_out/davincioo-iex/alu-bitfield-20260916/rtl --hierarchy-policy=strict --inline-policy=off"
+      ],
+      "result": "regs=0, mems=0, max_depth=22/32, WNS=10, TNS=0"
+    },
+    "verilator_functional": {
+      "status": "passed",
+      "returncode": 0,
+      "build_command": "CXX=clang++-22 /opt/oss-cad/oss-cad-suite/bin/verilator --binary --timing -Wall -Wno-fatal --compiler clang -CFLAGS '-std=gnu++20' -MAKEFLAGS 'CXX=clang++-22' --top-module alu_rtl_tb --Mdir .pycircuit_out/davincioo-iex/alu-bitfield-20260916/verilator-final2 .pycircuit_out/davincioo-iex/alu-bitfield-20260916/rtl/pyc_primitives.v .pycircuit_out/davincioo-iex/alu-bitfield-20260916/rtl/alu_system.v designs/davincioo/tests/spe/iex/alu_rtl_tb.sv",
+      "run_command": ".pycircuit_out/davincioo-iex/alu-bitfield-20260916/verilator-final2/Valu_rtl_tb",
+      "result": "ALU_BITFIELD_RTL_PASS"
+    },
+    "yosys_synthesis": {
+      "status": "passed",
+      "returncode": 0,
+      "command": "/opt/oss-cad/oss-cad-suite/bin/yosys -p 'read_verilog -sv pyc_primitives.v; read_verilog -sv alu_system.v; hierarchy -top alu_system; proc; opt; memory; opt; synth -noabc -top alu_system; check; stat'",
+      "working_directory": ".pycircuit_out/davincioo-iex/alu-bitfield-20260916/rtl",
+      "log": ".pycircuit_out/davincioo-iex/alu-bitfield-20260916/yosys-noabc-final3.log",
+      "result": "End of script; Found and reported 0 problems"
+    },
+    "catalog_unit": {
+      "status": "passed",
+      "command": "/root/.pyenv/versions/3.11.15/bin/python3.11 -m pytest -q tests/unit/test_primitive_catalog.py",
+      "result": "4 passed"
+    },
+    "primitive_selection_system": {
+      "status": "passed",
+      "command": "PATH=/opt/oss-cad/oss-cad-suite/bin:/usr/lib/llvm-22/bin:/usr/bin:/bin CXX=/usr/bin/clang++-22 VERILATOR=/opt/oss-cad/oss-cad-suite/bin/verilator /root/.pyenv/versions/3.11.15/bin/python3.11 -m pytest -q tests/system/test_primitive_selection.py",
+      "result": "13 passed, 3 skipped"
+    }
+  },
+  "directed_cases": {
+    "BXU": "passed, including wrapping bit_offset",
+    "BXS": "passed, sign bit 0 and 1",
+    "BCNT": "passed",
+    "BIC": "passed",
+    "BIS": "passed",
+    "BFI": "passed, including wrapping destination",
+    "REV": "passed for 8/16/32/64-bit fields and invalid width",
+    "CLZ": "passed for zero width, dynamic width below WIDTH, all-zero, and non-zero field",
+    "CTZ": "passed for zero width, dynamic width below WIDTH, all-zero, and non-zero field"
+  },
+  "generated_hierarchy": {
+    "pyc_wrapping_field_normalize": 2,
+    "pyc_bitfield_clear": 1,
+    "pyc_bitfield_set": 1,
+    "pyc_bitfield_insert": 1,
+    "pyc_reverse_bytes": 1,
+    "pyc_dynamic_sign_extend": 2,
+    "pyc_popcount_primitive": 1,
+    "pyc_runtime_zero_count": 2,
+    "pyc_runtime_wrapping_bitfield": 0,
+    "pyc_count_zeros_primitive": 0,
+    "note": "CSE shares identical normalize results across constant-mode branches; each semantic WrappingBitfieldOp creates at most one normalize before optimization. CLZ and CTZ share the same physical zero-count module type with direction_low 0 and 1 respectively."
+  },
+  "artifacts": [
+    ".pycircuit_out/davincioo-iex/alu-bitfield-20260916/raw.mlir",
+    ".pycircuit_out/davincioo-iex/alu-bitfield-20260916/frozen.mlir",
+    ".pycircuit_out/davincioo-iex/alu-bitfield-20260916/queuegraph.json",
+    ".pycircuit_out/davincioo-iex/alu-bitfield-20260916/alu.pyc",
+    ".pycircuit_out/davincioo-iex/alu-bitfield-20260916/rtl/manifest.json",
+    ".pycircuit_out/davincioo-iex/alu-bitfield-20260916/rtl/pyc_primitives.v",
+    ".pycircuit_out/davincioo-iex/alu-bitfield-20260916/rtl/alu_system.v",
+    "designs/davincioo/tests/spe/iex/alu_rtl_tb.sv",
+    ".pycircuit_out/davincioo-iex/alu-bitfield-20260916/yosys-noabc-final3.log"
+  ]
+}
+

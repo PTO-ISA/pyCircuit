@@ -4,8 +4,8 @@
 
 #include "llvm/ADT/APInt.h"
 #include "llvm/ADT/ArrayRef.h"
-#include "llvm/ADT/SmallString.h"
 #include "llvm/ADT/STLExtras.h"
+#include "llvm/ADT/SmallString.h"
 #include "llvm/ADT/StringMap.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/ADT/StringSet.h"
@@ -67,8 +67,7 @@ inlineSourceProvenance(const QueueSourceProvenancePlan &definition,
   return result;
 }
 
-std::string sourceLocationSuffix(
-    const QueueSourceProvenancePlan &provenance) {
+std::string sourceLocationSuffix(const QueueSourceProvenancePlan &provenance) {
   std::vector<std::string> origins;
   for (const QueueSourceOriginPlan &origin : provenance.origins) {
     if (origin.empty())
@@ -97,9 +96,9 @@ std::string sourceLocationSuffix(
   return result;
 }
 
-std::string attachPycSourceLocations(
-    llvm::StringRef body,
-    const llvm::StringMap<std::string> &sourceLocations) {
+std::string
+attachPycSourceLocations(llvm::StringRef body,
+                         const llvm::StringMap<std::string> &sourceLocations) {
   std::string result;
   llvm::SmallVector<llvm::StringRef> lines;
   body.split(lines, '\n', /*MaxSplit=*/-1, /*KeepEmpty=*/true);
@@ -109,9 +108,8 @@ std::string attachPycSourceLocations(
     if (trimmed.consume_front("// pyc-source")) {
       currentLocation = trimmed.str();
     } else if (trimmed.starts_with('%')) {
-      llvm::StringRef value = trimmed.take_until([](char character) {
-        return character == ' ' || character == '=';
-      });
+      llvm::StringRef value = trimmed.take_until(
+          [](char character) { return character == ' ' || character == '='; });
       auto found = sourceLocations.find(value);
       if (found != sourceLocations.end() && !line.contains(" loc("))
         result.append(line).append(found->getValue());
@@ -181,8 +179,7 @@ const QueueHelperPlan *findHelper(const QueueGraphPlan &plan,
   return found == plan.helpers.end() ? nullptr : &*found;
 }
 
-std::optional<std::pair<uint64_t, uint64_t>>
-rangeBounds(llvm::StringRef type) {
+std::optional<std::pair<uint64_t, uint64_t>> rangeBounds(llvm::StringRef type) {
   constexpr llvm::StringLiteral prefix = "!ac.range<";
   if (!type.starts_with(prefix) || !type.ends_with('>'))
     return std::nullopt;
@@ -203,9 +200,9 @@ llvm::Expected<unsigned> typeWidth(const QueueGraphPlan &plan,
       return width;
   }
   if (auto bounds = rangeBounds(type))
-      return bounds->second == std::numeric_limits<uint64_t>::max()
-                 ? 64
-                 : std::max(1u, llvm::Log2_64_Ceil(bounds->second + 1));
+    return bounds->second == std::numeric_limits<uint64_t>::max()
+               ? 64
+               : std::max(1u, llvm::Log2_64_Ceil(bounds->second + 1));
   if (const QueueEnumPlan *enumeration = findEnum(plan, type))
     if (enumeration->width <= kMaximumPackedValueWidth)
       return static_cast<unsigned>(enumeration->width);
@@ -713,8 +710,8 @@ generateLaneQueuePyc(const QueueGraphPlan &plan,
     return sourceMap.takeError();
   output << "module attributes {pyc.top = @" << plan.system
          << ", pyc.frontend.contract = \"pycircuit\", pyc.source_map = "
-         << mlirStringLiteral(*sourceMap) << "} {\n  func.func @"
-         << plan.system << '(';
+         << mlirStringLiteral(*sourceMap) << "} {\n  func.func @" << plan.system
+         << '(';
   writeList(output, arguments);
   output << ") -> (";
   writeList(output, resultTypes);
@@ -761,6 +758,7 @@ emitTransform(const QueueGraphPlan &plan, const QueueBlockPlan &block,
     for (const auto &entry : *inheritedTypes)
       types[entry.getKey()] = entry.getValue();
   llvm::StringMap<std::pair<std::string, std::string>> priorityValues;
+  llvm::StringMap<std::pair<std::string, std::string>> divremResults;
   struct ChoiceValues {
     std::vector<std::string> indices;
     std::vector<std::string> valids;
@@ -806,9 +804,8 @@ emitTransform(const QueueGraphPlan &plan, const QueueBlockPlan &block,
                            llvm::StringRef resultType = {}) {
     std::string result = newValue();
     const bool compare = operation == "ult" || operation == "eq";
-    body << "    " << result << " = pyc."
-         << (compare ? "cmp" : operation.str()) << ' ' << lhs.str() << ", "
-         << rhs.str();
+    body << "    " << result << " = pyc." << (compare ? "cmp" : operation.str())
+         << ' ' << lhs.str() << ", " << rhs.str();
     if (compare)
       body << " {predicate = \"" << operation.str() << "\"}";
     body << " : " << type.str() << ", " << type.str() << " -> "
@@ -834,7 +831,8 @@ emitTransform(const QueueGraphPlan &plan, const QueueBlockPlan &block,
                            unsigned targetWidth) {
     if (sourceWidth == targetWidth)
       return input.str();
-    std::string zero = emitPycConstant(0, "i" + std::to_string(targetWidth - sourceWidth));
+    std::string zero =
+        emitPycConstant(0, "i" + std::to_string(targetWidth - sourceWidth));
     std::string result = newValue();
     body << "    " << result << " = pyc.concat(" << zero << ", " << input.str()
          << ") : (i" << targetWidth - sourceWidth << ", i" << sourceWidth
@@ -938,10 +936,10 @@ emitTransform(const QueueGraphPlan &plan, const QueueBlockPlan &block,
                 : llvm::StringRef(expression.type);
         auto bounds = rangeBounds(targetType);
         auto sourceLogicalType = valueType(expression.operands.front());
-        auto sourceWidth = sourceLogicalType
-                               ? typeWidth(plan, *sourceLogicalType)
-                               : llvm::Expected<unsigned>(
-                                     sourceLogicalType.takeError());
+        auto sourceWidth =
+            sourceLogicalType
+                ? typeWidth(plan, *sourceLogicalType)
+                : llvm::Expected<unsigned>(sourceLogicalType.takeError());
         auto targetWidth = typeWidth(plan, targetType);
         if (!bounds || !sourceWidth)
           return !sourceWidth ? sourceWidth.takeError()
@@ -961,10 +959,9 @@ emitTransform(const QueueGraphPlan &plan, const QueueBlockPlan &block,
         };
         if (expression.kind == "range_wrap") {
           std::string normalized;
-          const uint64_t targetMask =
-              *targetWidth == 64
-                  ? std::numeric_limits<uint64_t>::max()
-                  : (uint64_t{1} << *targetWidth) - 1;
+          const uint64_t targetMask = *targetWidth == 64
+                                          ? std::numeric_limits<uint64_t>::max()
+                                          : (uint64_t{1} << *targetWidth) - 1;
           if (bounds->first == 0 && bounds->second == targetMask) {
             normalized = raw;
           } else {
@@ -991,10 +988,9 @@ emitTransform(const QueueGraphPlan &plan, const QueueBlockPlan &block,
         } else {
           auto cached = checkedRangeValues.find(expression.literal);
           if (cached == checkedRangeValues.end()) {
-            const std::string valid = emitPycBinary(
-                "and", emitPycNot(below), emitPycNot(above), "i1");
-            const std::string checked =
-                emitPycSelect(valid, raw, lower, type);
+            const std::string valid = emitPycBinary("and", emitPycNot(below),
+                                                    emitPycNot(above), "i1");
+            const std::string checked = emitPycSelect(valid, raw, lower, type);
             checkedRangeValues[expression.literal] = {
                 narrowUnsigned(checked, width, *targetWidth), valid};
             cached = checkedRangeValues.find(expression.literal);
@@ -1005,18 +1001,18 @@ emitTransform(const QueueGraphPlan &plan, const QueueBlockPlan &block,
         }
       } else if (expression.kind == "range_refine") {
         auto sourceLogicalType = valueType(expression.operands.front());
-        auto sourceWidth = sourceLogicalType
-                               ? typeWidth(plan, *sourceLogicalType)
-                               : llvm::Expected<unsigned>(
-                                     sourceLogicalType.takeError());
+        auto sourceWidth =
+            sourceLogicalType
+                ? typeWidth(plan, *sourceLogicalType)
+                : llvm::Expected<unsigned>(sourceLogicalType.takeError());
         auto targetWidth = typeWidth(plan, expression.type);
         if (!sourceWidth)
           return sourceWidth.takeError();
         if (!targetWidth)
           return targetWidth.takeError();
         const unsigned width = std::max(*sourceWidth, *targetWidth);
-        result = narrowUnsigned(
-            widenUnsigned(*first, *sourceWidth, width), width, *targetWidth);
+        result = narrowUnsigned(widenUnsigned(*first, *sourceWidth, width),
+                                width, *targetWidth);
       } else if (expression.kind == "range_bits") {
         result = *first;
       } else if (expression.kind == "range_add" ||
@@ -1024,14 +1020,14 @@ emitTransform(const QueueGraphPlan &plan, const QueueBlockPlan &block,
         auto right = value(expression.operands[1]);
         auto leftLogicalType = valueType(expression.operands[0]);
         auto rightLogicalType = valueType(expression.operands[1]);
-        auto leftWidth = leftLogicalType
-                             ? typeWidth(plan, *leftLogicalType)
-                             : llvm::Expected<unsigned>(
-                                   leftLogicalType.takeError());
-        auto rightWidth = rightLogicalType
-                              ? typeWidth(plan, *rightLogicalType)
-                              : llvm::Expected<unsigned>(
-                                    rightLogicalType.takeError());
+        auto leftWidth =
+            leftLogicalType
+                ? typeWidth(plan, *leftLogicalType)
+                : llvm::Expected<unsigned>(leftLogicalType.takeError());
+        auto rightWidth =
+            rightLogicalType
+                ? typeWidth(plan, *rightLogicalType)
+                : llvm::Expected<unsigned>(rightLogicalType.takeError());
         auto resultWidth = typeWidth(plan, expression.type);
         if (!right)
           return right.takeError();
@@ -1044,23 +1040,23 @@ emitTransform(const QueueGraphPlan &plan, const QueueBlockPlan &block,
         const unsigned width =
             std::max({*leftWidth, *rightWidth, *resultWidth});
         const std::string type = "i" + std::to_string(width);
-        std::string computed = emitPycBinary(
-            expression.kind == "range_add" ? "add" : "sub",
-            widenUnsigned(*first, *leftWidth, width),
-            widenUnsigned(*right, *rightWidth, width), type);
+        std::string computed =
+            emitPycBinary(expression.kind == "range_add" ? "add" : "sub",
+                          widenUnsigned(*first, *leftWidth, width),
+                          widenUnsigned(*right, *rightWidth, width), type);
         result = narrowUnsigned(computed, width, *resultWidth);
       } else if (expression.kind == "range_cmp") {
         auto right = value(expression.operands[1]);
         auto leftLogicalType = valueType(expression.operands[0]);
         auto rightLogicalType = valueType(expression.operands[1]);
-        auto leftWidth = leftLogicalType
-                             ? typeWidth(plan, *leftLogicalType)
-                             : llvm::Expected<unsigned>(
-                                   leftLogicalType.takeError());
-        auto rightWidth = rightLogicalType
-                              ? typeWidth(plan, *rightLogicalType)
-                              : llvm::Expected<unsigned>(
-                                    rightLogicalType.takeError());
+        auto leftWidth =
+            leftLogicalType
+                ? typeWidth(plan, *leftLogicalType)
+                : llvm::Expected<unsigned>(leftLogicalType.takeError());
+        auto rightWidth =
+            rightLogicalType
+                ? typeWidth(plan, *rightLogicalType)
+                : llvm::Expected<unsigned>(rightLogicalType.takeError());
         if (!right)
           return right.takeError();
         if (!leftWidth)
@@ -1091,7 +1087,7 @@ emitTransform(const QueueGraphPlan &plan, const QueueBlockPlan &block,
         if (negate)
           result = emitPycNot(result);
       } else if (expression.kind == "table_selection_index_ref" ||
-          expression.kind == "table_selection_valid_ref") {
+                 expression.kind == "table_selection_valid_ref") {
         const std::string sharedKey =
             "selection:" + expression.table + ":" + expression.field + ":" +
             expression.kind + ":" + std::to_string(expression.laneOrdinal);
@@ -1158,11 +1154,10 @@ emitTransform(const QueueGraphPlan &plan, const QueueBlockPlan &block,
             evaluation.expressions.push_back(std::move(choice));
           }
           llvm::StringMap<std::string> emitted;
-          auto selected =
-              emitTransform(plan, evaluation, {}, {}, 0, nextValue, body,
-                            &emitted, tableValues, roundRobinStates,
-                            choiceOwner, &values, &types, sharedTableValues,
-                            sourceLocations, inlineCallsite);
+          auto selected = emitTransform(
+              plan, evaluation, {}, {}, 0, nextValue, body, &emitted,
+              tableValues, roundRobinStates, choiceOwner, &values, &types,
+              sharedTableValues, sourceLocations, inlineCallsite);
           if (!selected)
             return selected.takeError();
           for (const QueueExpressionPlan &reference : block.expressions) {
@@ -1221,10 +1216,10 @@ emitTransform(const QueueGraphPlan &plan, const QueueBlockPlan &block,
           QueueBlockPlan matchBlock;
           matchBlock.expressions.push_back(std::move(materialized));
           matchBlock.yields.push_back(expression.result);
-          auto emitted = emitTransform(plan, matchBlock, {}, {}, 0, nextValue,
-                                       body, nullptr, tableValues, nullptr, {},
-                                       nullptr, nullptr, nullptr,
-                                       sourceLocations, inlineCallsite);
+          auto emitted =
+              emitTransform(plan, matchBlock, {}, {}, 0, nextValue, body,
+                            nullptr, tableValues, nullptr, {}, nullptr, nullptr,
+                            nullptr, sourceLocations, inlineCallsite);
           if (!emitted)
             return emitted.takeError();
           result = std::move(*emitted);
@@ -1349,12 +1344,11 @@ emitTransform(const QueueGraphPlan &plan, const QueueBlockPlan &block,
               return pyc.takeError();
             selectionKeyType = std::move(*pyc);
             for (uint64_t tableIndex : tableIndices) {
-              auto key =
-                  emitTransform(plan, keyBlock, {table->getValue()[tableIndex]},
-                                {tablePlan->entryType}, 0, nextValue, body,
-                                nullptr, tableValues, nullptr, {}, nullptr,
-                                nullptr, nullptr, sourceLocations,
-                                inlineCallsite);
+              auto key = emitTransform(
+                  plan, keyBlock, {table->getValue()[tableIndex]},
+                  {tablePlan->entryType}, 0, nextValue, body, nullptr,
+                  tableValues, nullptr, {}, nullptr, nullptr, nullptr,
+                  sourceLocations, inlineCallsite);
               if (!key)
                 return key.takeError();
               candidateKeys.push_back(std::move(*key));
@@ -1951,6 +1945,33 @@ emitTransform(const QueueGraphPlan &plan, const QueueBlockPlan &block,
         body << "    " << result << " = pyc.count_zeros " << *first
              << " {direction = \"" << expression.predicate
              << "\"} : " << *sourceType << " -> " << *resultType << "\n";
+      } else if (expression.kind == "divrem_quotient" ||
+                 expression.kind == "divrem_remainder") {
+        if (expression.operands.size() != 4 || expression.type != "i64")
+          return pycError("divrem expression arity or result type mismatch");
+        auto second = value(expression.operands[1]);
+        auto signedMode = value(expression.operands[2]);
+        auto wordMode = value(expression.operands[3]);
+        if (!second || !signedMode || !wordMode)
+          return pycError("divrem expression references unknown value");
+        const std::string key =
+            expression.operands[0] + ":" + expression.operands[1] + ":" +
+            expression.operands[2] + ":" + expression.operands[3];
+        auto found = divremResults.find(key);
+        if (found == divremResults.end()) {
+          std::string quotient = newValue();
+          std::string remainder = newValue();
+          body << "    " << quotient << ", " << remainder << " = pyc.divrem "
+               << *first << ", " << *second << ", " << *signedMode << ", "
+               << *wordMode << " : (i64, i64, i1, i1) -> (i64, i64)\n";
+          found = divremResults.try_emplace(key, quotient, remainder).first;
+        }
+        result = expression.kind == "divrem_quotient"
+                     ? found->getValue().first
+                     : found->getValue().second;
+        values[expression.result] = result;
+        types[expression.result] = expression.type;
+        continue;
       } else if (expression.kind == "array_get_dynamic") {
         if (expression.operands.size() != 2 || expression.width == 0 ||
             expression.selectionCount == 0)
@@ -1963,18 +1984,18 @@ emitTransform(const QueueGraphPlan &plan, const QueueBlockPlan &block,
           return aggregate.takeError();
         if (!index)
           return index.takeError();
-        auto aggregateType = aggregateLogicalType
-                                 ? pycType(plan, *aggregateLogicalType)
-                                 : llvm::Expected<std::string>(
-                                       aggregateLogicalType.takeError());
-        auto indexType = indexLogicalType
-                             ? pycType(plan, *indexLogicalType)
-                             : llvm::Expected<std::string>(
-                                   indexLogicalType.takeError());
-        auto indexWidth = indexLogicalType
-                              ? typeWidth(plan, *indexLogicalType)
-                              : llvm::Expected<unsigned>(
-                                    indexLogicalType.takeError());
+        auto aggregateType =
+            aggregateLogicalType
+                ? pycType(plan, *aggregateLogicalType)
+                : llvm::Expected<std::string>(aggregateLogicalType.takeError());
+        auto indexType =
+            indexLogicalType
+                ? pycType(plan, *indexLogicalType)
+                : llvm::Expected<std::string>(indexLogicalType.takeError());
+        auto indexWidth =
+            indexLogicalType
+                ? typeWidth(plan, *indexLogicalType)
+                : llvm::Expected<unsigned>(indexLogicalType.takeError());
         auto resultType = pycType(plan, expression.type);
         if (!aggregateType)
           return aggregateType.takeError();
@@ -1985,9 +2006,8 @@ emitTransform(const QueueGraphPlan &plan, const QueueBlockPlan &block,
         if (!resultType)
           return resultType.takeError();
         const unsigned comparisonWidth = std::max<unsigned>(
-            *indexWidth,
-            std::max<uint64_t>(
-                1, llvm::Log2_64_Ceil(expression.selectionCount)));
+            *indexWidth, std::max<uint64_t>(
+                             1, llvm::Log2_64_Ceil(expression.selectionCount)));
         const std::string comparisonType =
             "i" + std::to_string(comparisonWidth);
         const std::string widenedIndex =
@@ -2014,12 +2034,12 @@ emitTransform(const QueueGraphPlan &plan, const QueueBlockPlan &block,
               next.push_back(std::move(candidates[index]));
               continue;
             }
-            std::string selected = emitPycSelect(
-                candidates[index].first, candidates[index].second,
-                candidates[index + 1].second, *resultType);
-            std::string valid = emitPycBinary(
-                "or", candidates[index].first, candidates[index + 1].first,
-                "i1");
+            std::string selected =
+                emitPycSelect(candidates[index].first, candidates[index].second,
+                              candidates[index + 1].second, *resultType);
+            std::string valid =
+                emitPycBinary("or", candidates[index].first,
+                              candidates[index + 1].first, "i1");
             next.emplace_back(std::move(valid), std::move(selected));
           }
           candidates = std::move(next);
@@ -2040,19 +2060,19 @@ emitTransform(const QueueGraphPlan &plan, const QueueBlockPlan &block,
           return index.takeError();
         if (!replacement)
           return replacement.takeError();
-        auto aggregateType = aggregateLogicalType
-                                 ? pycType(plan, *aggregateLogicalType)
-                                 : llvm::Expected<std::string>(
-                                       aggregateLogicalType.takeError());
-        auto indexWidth = indexLogicalType
-                              ? typeWidth(plan, *indexLogicalType)
-                              : llvm::Expected<unsigned>(
-                                    indexLogicalType.takeError());
+        auto aggregateType =
+            aggregateLogicalType
+                ? pycType(plan, *aggregateLogicalType)
+                : llvm::Expected<std::string>(aggregateLogicalType.takeError());
+        auto indexWidth =
+            indexLogicalType
+                ? typeWidth(plan, *indexLogicalType)
+                : llvm::Expected<unsigned>(indexLogicalType.takeError());
         auto elementLogicalType = valueType(expression.operands[2]);
-        auto elementType = elementLogicalType
-                               ? pycType(plan, *elementLogicalType)
-                               : llvm::Expected<std::string>(
-                                     elementLogicalType.takeError());
+        auto elementType =
+            elementLogicalType
+                ? pycType(plan, *elementLogicalType)
+                : llvm::Expected<std::string>(elementLogicalType.takeError());
         if (!aggregateType)
           return aggregateType.takeError();
         if (!indexWidth)
@@ -2060,9 +2080,8 @@ emitTransform(const QueueGraphPlan &plan, const QueueBlockPlan &block,
         if (!elementType)
           return elementType.takeError();
         const unsigned comparisonWidth = std::max<unsigned>(
-            *indexWidth,
-            std::max<uint64_t>(
-                1, llvm::Log2_64_Ceil(expression.selectionCount)));
+            *indexWidth, std::max<uint64_t>(
+                             1, llvm::Log2_64_Ceil(expression.selectionCount)));
         const std::string comparisonType =
             "i" + std::to_string(comparisonWidth);
         const std::string widenedIndex =
@@ -2079,8 +2098,8 @@ emitTransform(const QueueGraphPlan &plan, const QueueBlockPlan &block,
           std::string ordinal = emitPycConstant(element, comparisonType);
           std::string selected =
               emitPycBinary("eq", widenedIndex, ordinal, comparisonType);
-          elements.push_back(emitPycSelect(
-              selected, *replacement, oldValue, *elementType));
+          elements.push_back(
+              emitPycSelect(selected, *replacement, oldValue, *elementType));
         }
         result = newValue();
         body << "    " << result << " = pyc.concat(";
@@ -2096,6 +2115,220 @@ emitTransform(const QueueGraphPlan &plan, const QueueBlockPlan &block,
           body << *elementType;
         }
         body << ") -> " << *aggregateType << "\n";
+      } else if (expression.kind == "addw" || expression.kind == "subw" ||
+                 expression.kind == "andw" || expression.kind == "orw" ||
+                 expression.kind == "xorw" || expression.kind == "sll" ||
+                 expression.kind == "srl" || expression.kind == "sra" ||
+                 expression.kind == "sllw" || expression.kind == "srlw" ||
+                 expression.kind == "sraw" || expression.kind == "smin" ||
+                 expression.kind == "umin" || expression.kind == "smax" ||
+                 expression.kind == "umax" || expression.kind == "mulw" ||
+                 expression.kind == "madd" || expression.kind == "maddw" ||
+                 expression.kind == "msub" || expression.kind == "csel") {
+        auto emitBinary = [&](llvm::StringRef operation, llvm::StringRef lhs,
+                              llvm::StringRef rhs, llvm::StringRef type) {
+          std::string lowered = newValue();
+          body << "    " << lowered << " = pyc." << operation.str() << ' '
+               << lhs.str() << ", " << rhs.str() << " : " << type.str() << ", "
+               << type.str() << " -> " << type.str() << "\n";
+          return lowered;
+        };
+        auto emitExtractLow = [&](llvm::StringRef input,
+                                  llvm::StringRef sourceType,
+                                  llvm::StringRef resultType) {
+          std::string lowered = newValue();
+          body << "    " << lowered << " = pyc.extract " << input.str()
+               << " {lsb = 0} : " << sourceType.str() << " -> "
+               << resultType.str() << "\n";
+          return lowered;
+        };
+        auto emitCast = [&](llvm::StringRef operation, llvm::StringRef input,
+                            llvm::StringRef sourceType,
+                            llvm::StringRef resultType) {
+          std::string lowered = newValue();
+          body << "    " << lowered << " = pyc." << operation.str() << ' '
+               << input.str() << " : " << sourceType.str() << " -> "
+               << resultType.str() << "\n";
+          return lowered;
+        };
+        auto emitShift = [&](llvm::StringRef operation, llvm::StringRef lhs,
+                             llvm::StringRef amount, llvm::StringRef type) {
+          std::string lowered = newValue();
+          body << "    " << lowered << " = pyc." << operation.str() << ' '
+               << lhs.str() << ", " << amount.str() << " : " << type.str()
+               << ", " << type.str() << "\n";
+          return lowered;
+        };
+        if (expression.operands.size() < 2 || expression.type != "i64")
+          return pycError(
+              "ALU expression has malformed operands or result type");
+        auto second = value(expression.operands[1]);
+        if (!second)
+          return second.takeError();
+        auto emitWordBinary = [&](llvm::StringRef operation) {
+          std::string lhs = emitExtractLow(*first, "i64", "i32");
+          std::string rhs = emitExtractLow(*second, "i64", "i32");
+          std::string low = emitBinary(operation, lhs, rhs, "i32");
+          return emitCast("sext", low, "i32", "i64");
+        };
+        if (expression.kind == "addw")
+          result = emitWordBinary("add");
+        else if (expression.kind == "subw")
+          result = emitWordBinary("sub");
+        else if (expression.kind == "andw")
+          result = emitWordBinary("and");
+        else if (expression.kind == "orw")
+          result = emitWordBinary("or");
+        else if (expression.kind == "xorw")
+          result = emitWordBinary("xor");
+        else if (expression.kind == "mulw")
+          result = emitWordBinary("mul");
+        else if (expression.kind == "sll" || expression.kind == "srl" ||
+                 expression.kind == "sra") {
+          std::string amount =
+              emitBinary("and", *second, emitPycConstant(63, "i64"), "i64");
+          result = emitShift(expression.kind == "sll"
+                                 ? "shl"
+                                 : expression.kind == "srl" ? "lshr" : "ashr",
+                             *first, amount, "i64");
+        } else if (expression.kind == "sllw" || expression.kind == "srlw" ||
+                   expression.kind == "sraw") {
+          std::string lhs = emitExtractLow(*first, "i64", "i32");
+          std::string amount64 =
+              emitBinary("and", *second, emitPycConstant(31, "i64"), "i64");
+          std::string amount = emitCast("trunc", amount64, "i64", "i32");
+          std::string low =
+              emitShift(expression.kind == "sllw"
+                            ? "shl"
+                            : expression.kind == "srlw" ? "lshr" : "ashr",
+                        lhs, amount, "i32");
+          result = emitCast("sext", low, "i32", "i64");
+        } else if (expression.kind == "smin" || expression.kind == "smax" ||
+                   expression.kind == "umin" || expression.kind == "umax") {
+          std::string comparison = newValue();
+          body << "    " << comparison << " = pyc.cmp " << *first << ", "
+               << *second << " {predicate = \""
+               << (expression.kind.front() == 's' ? "slt" : "ult")
+               << "\"} : i64, i64 -> i1\n";
+          if (expression.kind.ends_with("max"))
+            comparison = emitPycNot(comparison);
+          result = emitPycSelect(comparison, *first, *second, "i64");
+        } else if (expression.kind == "madd" || expression.kind == "maddw" ||
+                   expression.kind == "msub") {
+          if (expression.operands.size() != 3)
+            return pycError("ALU ternary expression arity mismatch");
+          auto third = value(expression.operands[2]);
+          if (!third)
+            return third.takeError();
+          if (expression.kind == "maddw") {
+            std::string lhs = emitExtractLow(*first, "i64", "i32");
+            std::string rhs = emitExtractLow(*second, "i64", "i32");
+            std::string addend = emitExtractLow(*third, "i64", "i32");
+            std::string product = emitBinary("mul", lhs, rhs, "i32");
+            result = emitCast("sext", emitBinary("add", product, addend, "i32"),
+                              "i32", "i64");
+          } else {
+            std::string product = emitBinary("mul", *first, *second, "i64");
+            result = expression.kind == "madd"
+                         ? emitBinary("add", product, *third, "i64")
+                         : emitBinary("sub", *third, product, "i64");
+          }
+        } else {
+          if (expression.operands.size() != 4)
+            return pycError("ALU select expression arity mismatch");
+          auto lhs = value(expression.operands[1]);
+          auto rhs = value(expression.operands[2]);
+          auto negate = value(expression.operands[3]);
+          if (!lhs || !rhs || !negate)
+            return pycError("ALU select expression references unknown value");
+          std::string negated =
+              emitBinary("sub", emitPycConstant(0, "i64"), *rhs, "i64");
+          std::string choice = emitPycSelect(*negate, negated, *rhs, "i64");
+          result = emitPycSelect(*first, *lhs, choice, "i64");
+        }
+      } else if (expression.kind == "bitfield_extract" ||
+                 expression.kind == "bitfield_popcount" ||
+                 expression.kind == "bitfield_clz" ||
+                 expression.kind == "bitfield_ctz" ||
+                 expression.kind == "bitfield_clear" ||
+                 expression.kind == "bitfield_set" ||
+                 expression.kind == "bitfield_reverse_bytes" ||
+                 expression.kind == "bitfield_insert" ||
+                 expression.kind == "sext_low" ||
+                 expression.kind == "zext_low") {
+        auto emitCast = [&](llvm::StringRef operation, llvm::StringRef input,
+                            llvm::StringRef sourceType,
+                            llvm::StringRef resultType) {
+          std::string lowered = newValue();
+          body << "    " << lowered << " = pyc." << operation.str() << ' '
+               << input.str() << " : " << sourceType.str() << " -> "
+               << resultType.str() << "\n";
+          return lowered;
+        };
+        auto emitOffset = [&](llvm::StringRef input) {
+          return emitCast("zext", input, "i6", "i7");
+        };
+        auto emitWrappingBitfield = [&](llvm::StringRef source,
+                                        llvm::StringRef width,
+                                        llvm::StringRef offset, uint64_t mode) {
+          std::string modeValue = emitPycConstant(mode, "i4");
+          std::string lowered = newValue();
+          body << "    " << lowered << " = pyc.wrapping_bitfield " << *first
+               << ", " << source.str() << ", " << width.str() << ", "
+               << offset.str() << ", " << modeValue
+               << " {semantic_id = \"pyc.wrapping_bitfield.v1\"} : "
+                  "(i64, i64, i7, i7, i4) -> i64\n";
+          return lowered;
+        };
+        if (expression.kind == "sext_low" || expression.kind == "zext_low") {
+          if (expression.operands.size() != 2)
+            return pycError("ALU extension expression arity mismatch");
+          auto width = value(expression.operands[1]);
+          if (!width)
+            return width.takeError();
+          result = emitWrappingBitfield(emitPycConstant(0, "i64"), *width,
+                                        emitPycConstant(0, "i7"),
+                                        expression.kind == "sext_low" ? 5 : 0);
+        } else {
+          if (expression.operands.size() < 3)
+            return pycError("ALU bitfield expression arity mismatch");
+          auto width = value(expression.operands[1]);
+          auto offsetRaw = value(expression.operands[2]);
+          if (!width || !offsetRaw)
+            return pycError("ALU bitfield expression references unknown value");
+          std::string source = emitPycConstant(0, "i64");
+          std::string offset;
+          uint64_t mode = 0;
+          if (expression.kind == "bitfield_extract")
+            mode = expression.predicate == "signed" ? 5 : 0;
+          else if (expression.kind == "bitfield_popcount")
+            mode = 6;
+          else if (expression.kind == "bitfield_clz")
+            mode = 7;
+          else if (expression.kind == "bitfield_ctz")
+            mode = 8;
+          else if (expression.kind == "bitfield_clear")
+            mode = 1;
+          else if (expression.kind == "bitfield_set")
+            mode = 2;
+          else if (expression.kind == "bitfield_reverse_bytes")
+            mode = 4;
+          else {
+            if (expression.operands.size() != 4)
+              return pycError("ALU bitfield insert arity mismatch");
+            auto inserted = value(expression.operands[1]);
+            width = value(expression.operands[2]);
+            auto insertOffset = value(expression.operands[3]);
+            if (!inserted || !width || !insertOffset)
+              return pycError("ALU bitfield insert references unknown value");
+            source = *inserted;
+            offset = emitOffset(*insertOffset);
+            mode = 3;
+          }
+          if (expression.kind != "bitfield_insert")
+            offset = emitOffset(*offsetRaw);
+          result = emitWrappingBitfield(source, *width, offset, mode);
+        }
       } else if (expression.kind == "bit_extract" ||
                  expression.kind == "aggregate_get") {
         if (expression.operands.size() != 1 || expression.width == 0)
@@ -2225,7 +2458,8 @@ emitTransform(const QueueGraphPlan &plan, const QueueBlockPlan &block,
              << "\n";
       } else if (expression.kind == "add" || expression.kind == "sub" ||
                  expression.kind == "mul" || expression.kind == "udiv" ||
-                 expression.kind == "urem" || expression.kind == "and" ||
+                 expression.kind == "sdiv" || expression.kind == "urem" ||
+                 expression.kind == "srem" || expression.kind == "and" ||
                  expression.kind == "or" || expression.kind == "xor") {
         result = newValue();
         if (expression.operands.size() != 2)
@@ -2379,10 +2613,10 @@ emitTransform(const QueueGraphPlan &plan, const QueueBlockPlan &block,
     if (sourceLocations) {
       const std::string suffix = sourceLocationSuffix(effectiveProvenance);
       if (!suffix.empty())
-        for (unsigned valueIndex = firstGeneratedValue;
-             valueIndex < nextValue; ++valueIndex)
-          sourceLocations->try_emplace(
-              "%v" + std::to_string(valueIndex), suffix);
+        for (unsigned valueIndex = firstGeneratedValue; valueIndex < nextValue;
+             ++valueIndex)
+          sourceLocations->try_emplace("%v" + std::to_string(valueIndex),
+                                       suffix);
     }
   }
   if (yieldIndex >= block.yields.size()) {
@@ -2750,6 +2984,8 @@ llvm::Expected<std::string> generateQueueGraphPyc(const QueueGraphPlan &plan) {
   llvm::StringMap<std::string> routeCondition;
   llvm::StringMap<SelectState> selectStates;
   llvm::StringMap<std::string> atomicTransformValid;
+  llvm::StringMap<std::shared_ptr<llvm::StringMap<std::string>>>
+      transformExpressionValues;
   llvm::StringMap<std::string> firingPresence;
   llvm::StringMap<std::string> firingGuard;
   llvm::StringMap<std::string> firingAccepted;
@@ -3044,14 +3280,24 @@ llvm::Expected<std::string> generateQueueGraphPyc(const QueueGraphPlan &plan) {
           body << "    " << producerValid << " = pyc.wire : i1\n";
           atomicTransformValid[queue.name] = producerValid;
         }
+        auto cached = transformExpressionValues.find(queue.name);
+        if (cached == transformExpressionValues.end()) {
+          auto values = std::make_shared<llvm::StringMap<std::string>>();
+          auto emitted = emitTransform(
+              plan, transform, inputDataValues, inputTypes, producer.index,
+              nextValue, body, values.get(), nullptr, nullptr, {}, nullptr,
+              nullptr, nullptr, &sourceLocations);
+          if (!emitted)
+            return emitted.takeError();
+          for (const std::string &output : transform.outputs)
+            transformExpressionValues[output] = values;
+          cached = transformExpressionValues.find(queue.name);
+        }
         auto transformed =
-            emitTransform(plan, transform, inputDataValues, inputTypes,
-                          producer.index, nextValue, body, nullptr, nullptr,
-                          nullptr, {}, nullptr, nullptr, nullptr,
-                          &sourceLocations);
-        if (!transformed)
-          return transformed.takeError();
-        producerData = std::move(*transformed);
+            cached->getValue()->find(transform.yields[producer.index]);
+        if (transformed == cached->getValue()->end())
+          return pycError("transform expression identity is missing");
+        producerData = transformed->getValue();
       } else if (firingProducer != firingByOutput.end()) {
         const TransformProducer &producer = firingProducer->getValue();
         const QueueBlockPlan &firing = *producer.block;
@@ -3073,12 +3319,11 @@ llvm::Expected<std::string> generateQueueGraphPyc(const QueueGraphPlan &plan) {
         auto cached = firingExpressionValues.find(queue.name);
         if (cached == firingExpressionValues.end()) {
           auto values = std::make_shared<llvm::StringMap<std::string>>();
-          auto emitted =
-              emitTransform(plan, firing, inputDataValues, inputTypes,
-                            producer.index, nextValue, body, values.get(),
-                            &tableStateValues, &roundRobinStates, firing.name,
-                            nullptr, nullptr, &sharedTableExpressionValues,
-                            &sourceLocations);
+          auto emitted = emitTransform(
+              plan, firing, inputDataValues, inputTypes, producer.index,
+              nextValue, body, values.get(), &tableStateValues,
+              &roundRobinStates, firing.name, nullptr, nullptr,
+              &sharedTableExpressionValues, &sourceLocations);
           if (!emitted)
             return emitted.takeError();
           for (const std::string &output : firing.outputs)
@@ -3132,11 +3377,10 @@ llvm::Expected<std::string> generateQueueGraphPyc(const QueueGraphPlan &plan) {
           inputTypes.push_back(inputQueue->payloadType);
         }
         auto values = std::make_shared<llvm::StringMap<std::string>>();
-        auto index =
-            emitTransform(plan, read, inputDataValues, inputTypes, 0, nextValue,
-                          body, values.get(), &tableStateValues, nullptr, {},
-                          nullptr, nullptr, &sharedTableExpressionValues,
-                          &sourceLocations);
+        auto index = emitTransform(
+            plan, read, inputDataValues, inputTypes, 0, nextValue, body,
+            values.get(), &tableStateValues, nullptr, {}, nullptr, nullptr,
+            &sharedTableExpressionValues, &sourceLocations);
         if (!index)
           return index.takeError();
         auto present = values->find(read.yields[1]);
@@ -3246,11 +3490,10 @@ llvm::Expected<std::string> generateQueueGraphPyc(const QueueGraphPlan &plan) {
           evaluation.yields.insert(evaluation.yields.end(), validNames.begin(),
                                    validNames.end());
           llvm::StringMap<std::string> emittedValues;
-          auto emitted = emitTransform(plan, evaluation, {}, {}, 0, nextValue,
-                                       body, &emittedValues, &tableStateValues,
-                                       &roundRobinStates, group.name, nullptr,
-                                       nullptr, &sharedTableExpressionValues,
-                                       &sourceLocations);
+          auto emitted = emitTransform(
+              plan, evaluation, {}, {}, 0, nextValue, body, &emittedValues,
+              &tableStateValues, &roundRobinStates, group.name, nullptr,
+              nullptr, &sharedTableExpressionValues, &sourceLocations);
           if (!emitted)
             return emitted.takeError();
           TableReadGroupState created;
@@ -3341,11 +3584,10 @@ llvm::Expected<std::string> generateQueueGraphPyc(const QueueGraphPlan &plan) {
           return pycError("route input is not available in topological order");
         auto selector = routeSelector.find(route.name);
         if (selector == routeSelector.end()) {
-          auto selected =
-              emitTransform(plan, route, {data->getValue()},
-                            {inputQueue->payloadType}, 0, nextValue, body,
-                            nullptr, nullptr, nullptr, {}, nullptr, nullptr,
-                            nullptr, &sourceLocations);
+          auto selected = emitTransform(
+              plan, route, {data->getValue()}, {inputQueue->payloadType}, 0,
+              nextValue, body, nullptr, nullptr, nullptr, {}, nullptr, nullptr,
+              nullptr, &sourceLocations);
           if (!selected)
             return selected.takeError();
           routeSelector[route.name] = *selected;
@@ -3373,11 +3615,10 @@ llvm::Expected<std::string> generateQueueGraphPyc(const QueueGraphPlan &plan) {
             controlData == outputData.end() || !controlQueue)
           return pycError(
               "select control is not available in topological order");
-        auto selector =
-            emitTransform(plan, select, {controlData->getValue()},
-                          {controlQueue->payloadType}, 0, nextValue, body,
-                          nullptr, nullptr, nullptr, {}, nullptr, nullptr,
-                          nullptr, &sourceLocations);
+        auto selector = emitTransform(
+            plan, select, {controlData->getValue()},
+            {controlQueue->payloadType}, 0, nextValue, body, nullptr, nullptr,
+            nullptr, {}, nullptr, nullptr, nullptr, &sourceLocations);
         if (!selector)
           return selector.takeError();
         auto selectorType = yieldedType(select, select.yields.front(),
@@ -3522,11 +3763,10 @@ llvm::Expected<std::string> generateQueueGraphPyc(const QueueGraphPlan &plan) {
           return dataType.takeError();
         if (!dataWidth)
           return dataWidth.takeError();
-        auto costValue =
-            emitTransform(plan, credit, {inputDataValue->getValue()},
-                          {inputQueue->payloadType}, 0, nextValue, body,
-                          nullptr, nullptr, nullptr, {}, nullptr, nullptr,
-                          nullptr, &sourceLocations);
+        auto costValue = emitTransform(
+            plan, credit, {inputDataValue->getValue()},
+            {inputQueue->payloadType}, 0, nextValue, body, nullptr, nullptr,
+            nullptr, {}, nullptr, nullptr, nullptr, &sourceLocations);
         if (!costValue)
           return costValue.takeError();
         auto costType =
@@ -3796,11 +4036,10 @@ llvm::Expected<std::string> generateQueueGraphPyc(const QueueGraphPlan &plan) {
         auto dataType = pycType(plan, inputQueue->payloadType);
         if (!dataType)
           return dataType.takeError();
-        auto keyValue =
-            emitTransform(plan, reorder, {inputDataValue->getValue()},
-                          {inputQueue->payloadType}, 0, nextValue, body,
-                          nullptr, nullptr, nullptr, {}, nullptr, nullptr,
-                          nullptr, &sourceLocations);
+        auto keyValue = emitTransform(
+            plan, reorder, {inputDataValue->getValue()},
+            {inputQueue->payloadType}, 0, nextValue, body, nullptr, nullptr,
+            nullptr, {}, nullptr, nullptr, nullptr, &sourceLocations);
         if (!keyValue)
           return keyValue.takeError();
         auto keyType = yieldedType(reorder, reorder.yields.front(),
@@ -3957,19 +4196,17 @@ llvm::Expected<std::string> generateQueueGraphPyc(const QueueGraphPlan &plan) {
             emitBinary("or", state.valid, inputValidValue->getValue(), "i1");
         state.selectedIteration =
             emitMux(state.valid, state.iteration, zeroIteration, iterationType);
-        auto updated =
-            emitTransform(plan, feedback, {selectedData},
-                          {inputQueue->payloadType}, 0, nextValue, body,
-                          nullptr, nullptr, nullptr, {}, nullptr, nullptr,
-                          nullptr, &sourceLocations);
+        auto updated = emitTransform(
+            plan, feedback, {selectedData}, {inputQueue->payloadType}, 0,
+            nextValue, body, nullptr, nullptr, nullptr, {}, nullptr, nullptr,
+            nullptr, &sourceLocations);
         if (!updated)
           return updated.takeError();
         state.updated = std::move(*updated);
-        auto condition =
-            emitTransform(plan, feedback, {selectedData},
-                          {inputQueue->payloadType}, 1, nextValue, body,
-                          nullptr, nullptr, nullptr, {}, nullptr, nullptr,
-                          nullptr, &sourceLocations);
+        auto condition = emitTransform(
+            plan, feedback, {selectedData}, {inputQueue->payloadType}, 1,
+            nextValue, body, nullptr, nullptr, nullptr, {}, nullptr, nullptr,
+            nullptr, &sourceLocations);
         if (!condition)
           return condition.takeError();
         auto conditionType =
@@ -4073,11 +4310,10 @@ llvm::Expected<std::string> generateQueueGraphPyc(const QueueGraphPlan &plan) {
       endpointValids.push_back(valid->getValue());
       endpointData.push_back(data->getValue());
       for (size_t policy = 0; policy < 3; ++policy) {
-        auto value =
-            emitTransform(plan, *endpoint, {data->getValue()},
-                          {input->payloadType}, policy, nextValue, body,
-                          nullptr, nullptr, nullptr, {}, nullptr, nullptr,
-                          nullptr, &sourceLocations);
+        auto value = emitTransform(plan, *endpoint, {data->getValue()},
+                                   {input->payloadType}, policy, nextValue,
+                                   body, nullptr, nullptr, nullptr, {}, nullptr,
+                                   nullptr, nullptr, &sourceLocations);
         if (!value)
           return value.takeError();
         auto yielded = yieldedType(*endpoint, endpoint->yields[policy],
@@ -4311,11 +4547,10 @@ llvm::Expected<std::string> generateQueueGraphPyc(const QueueGraphPlan &plan) {
         inputTypes.push_back(inputQueue->payloadType);
       }
       auto values = std::make_shared<llvm::StringMap<std::string>>();
-      auto index =
-          emitTransform(plan, block, inputDataValues, inputTypes, 0, nextValue,
-                        body, values.get(), &tableStateValues, nullptr, {},
-                        nullptr, nullptr, &sharedTableExpressionValues,
-                        &sourceLocations);
+      auto index = emitTransform(
+          plan, block, inputDataValues, inputTypes, 0, nextValue, body,
+          values.get(), &tableStateValues, nullptr, {}, nullptr, nullptr,
+          &sharedTableExpressionValues, &sourceLocations);
       if (!index)
         return index.takeError();
       auto present = values->find(block.yields[1]);
@@ -4328,10 +4563,10 @@ llvm::Expected<std::string> generateQueueGraphPyc(const QueueGraphPlan &plan) {
     } else if (block.kind == "table_masked_write") {
       QueueBlockPlan maskBlock = expressionSlice(block, block.yields[0]);
       QueueBlockPlan enableBlock = expressionSlice(block, block.yields[1]);
-      auto mask = emitTransform(plan, maskBlock, {}, {}, 0, nextValue, body,
-                                nullptr, &tableStateValues, nullptr, {},
-                                nullptr, nullptr, &sharedTableExpressionValues,
-                                &sourceLocations);
+      auto mask =
+          emitTransform(plan, maskBlock, {}, {}, 0, nextValue, body, nullptr,
+                        &tableStateValues, nullptr, {}, nullptr, nullptr,
+                        &sharedTableExpressionValues, &sourceLocations);
       auto enabled =
           emitTransform(plan, enableBlock, {}, {}, 0, nextValue, body, nullptr,
                         &tableStateValues, nullptr, {}, nullptr, nullptr,
@@ -5133,9 +5368,9 @@ llvm::Expected<std::string> generateQueueGraphPyc(const QueueGraphPlan &plan) {
       return pycError("Table register-bank state is missing");
     // A Table may carry field-mode and replace-mode firing writes together, but
     // only when every conflicting endpoint declares explicit writer arbitration
-    // (see VerifyValueConstraints).  Both passes are emitted in gfsim's order --
-    // every FieldMerge against the committed image first, then every Replace on
-    // top of that -- so the commit order never depends on plan block order.
+    // (see VerifyValueConstraints).  Both passes are emitted in gfsim's order
+    // -- every FieldMerge against the committed image first, then every Replace
+    // on top of that -- so the commit order never depends on plan block order.
     bool hasFiringFieldWrite = false;
     bool hasFiringReplaceWrite = false;
     for (const QueueBlockPlan &block : plan.blocks) {
@@ -5286,11 +5521,11 @@ llvm::Expected<std::string> generateQueueGraphPyc(const QueueGraphPlan &plan) {
             arbitration != blockArbitrationAllowed.end())
           selected = emitBinary("and", selected, arbitration->getValue(), "i1");
         QueueBlockPlan valueBlock = expressionSlice(block, block.yields[2]);
-        auto proposed = emitTransform(
-            plan, valueBlock, {state->getValue().value[slot]},
-            {table.entryType}, 0, nextValue, body, nullptr, &tableStateValues,
-            nullptr, {}, nullptr, nullptr, &sharedTableExpressionValues,
-            &sourceLocations);
+        auto proposed =
+            emitTransform(plan, valueBlock, {state->getValue().value[slot]},
+                          {table.entryType}, 0, nextValue, body, nullptr,
+                          &tableStateValues, nullptr, {}, nullptr, nullptr,
+                          &sharedTableExpressionValues, &sourceLocations);
         if (!proposed)
           return proposed.takeError();
         auto merged = emitTableFieldMerge(next, *proposed, table.entryType,
@@ -5441,8 +5676,8 @@ llvm::Expected<std::string> generateQueueGraphPyc(const QueueGraphPlan &plan) {
     return sourceMap.takeError();
   output << "module attributes {pyc.top = @" << top.str()
          << ", pyc.frontend.contract = \"pycircuit\", pyc.source_map = "
-         << mlirStringLiteral(*sourceMap) << "} {\n  func.func @"
-         << top.str() << '(';
+         << mlirStringLiteral(*sourceMap) << "} {\n  func.func @" << top.str()
+         << '(';
   writeList(output, arguments);
   output << ") -> (";
   writeList(output, resultTypes);

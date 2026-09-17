@@ -36,6 +36,27 @@ func.func @compare(%left: i8, %right: i8) -> (i1) attributes {result_names = ["e
 }
 """
 
+PYC_DIVREM_PACKET = """
+module attributes {pyc.top = @div_hold} {
+  func.func @div_hold(%clk: !pyc.clock, %rst: !pyc.reset, %in_valid: i1, %in_data: i129, %out_ready: i1) -> (i1, i64, i1) attributes {arg_names = ["clk", "rst", "in_valid", "in_data", "out_ready"], result_names = ["out_valid", "out_data", "in_ready"]} {
+    %input_pop = pyc.wire : i1
+    %output_ready = pyc.wire : i1
+    %in_ready, %queued_valid, %packet = pyc.fifo %clk, %rst, %in_valid, %in_data, %input_pop {depth = 1} : i129
+    %is_remainder = pyc.extract %packet {lsb = 128} : i129 -> i1
+    %lhs = pyc.extract %packet {lsb = 64} : i129 -> i64
+    %rhs = pyc.extract %packet {lsb = 0} : i129 -> i64
+    %signed = pyc.constant true : i1
+    %word = pyc.constant false : i1
+    %quotient, %remainder = pyc.divrem %lhs, %rhs, %signed, %word : (i64, i64, i1, i1) -> (i64, i64)
+    %selected = pyc.select %is_remainder, %remainder, %quotient : i1, i64, i64 -> i64
+    %result_ready, %result_valid, %result = pyc.fifo %clk, %rst, %queued_valid, %selected, %output_ready {depth = 1} : i64
+    pyc.assign %input_pop, %result_ready : i1
+    pyc.assign %output_ready, %out_ready : i1
+    func.return %result_valid, %result, %in_ready : i1, i64, i1
+  }
+}
+"""
+
 PYC_SEMANTIC_PRIMITIVES = {
     "priority_encode": """
 func.func @priority(%value: i8) -> (i3, i1) attributes {result_names = ["index", "valid"]} {
@@ -118,6 +139,19 @@ class PycVerilogBackendTest(unittest.TestCase):
         self.assertIn("wire same;", verilog)
         self.assertNotIn("wire [7:0] same;", verilog)
         self.assertIn("assign same = left == right;", verilog)
+
+    def test_divrem_predecode_uses_retained_packet_until_response(self) -> None:
+        tool = load_tool()
+        verilog = tool.emit_verilog(
+            tool.parse_pyc_module(PYC_DIVREM_PACKET),
+            ROOT / "library/verilog",
+        )
+        self.assertIn("assign is_remainder = divrem_held_packet[128];", verilog)
+        self.assertIn("assign lhs = divrem_held_packet[127:64];", verilog)
+        self.assertIn("assign rhs = divrem_held_packet[63:0];", verilog)
+        self.assertNotIn("assign is_remainder = packet[128];", verilog)
+        self.assertEqual(1, verilog.count("\n  bsg_idiv_iterative #("))
+        self.assertNotIn("pyc_runtime_div_comb", verilog)
 
     def test_cli_rejects_invalid_timeout_and_path_aliases(self) -> None:
         tool = load_tool()

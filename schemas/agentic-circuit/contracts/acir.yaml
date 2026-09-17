@@ -51,7 +51,10 @@ operations:
   - ac.var.sub
   - ac.var.mul
   - ac.var.udiv
+  - ac.var.sdiv
   - ac.var.urem
+  - ac.var.srem
+  - ac.var.divrem
   - ac.var.and
   - ac.var.or
   - ac.var.xor
@@ -80,6 +83,36 @@ operations:
   - ac.var.range_sub
   - ac.var.range_cmp
   - ac.var.insert
+  - ac.var.addw
+  - ac.var.subw
+  - ac.var.andw
+  - ac.var.orw
+  - ac.var.xorw
+  - ac.var.sll
+  - ac.var.srl
+  - ac.var.sra
+  - ac.var.sllw
+  - ac.var.srlw
+  - ac.var.sraw
+  - ac.var.smin
+  - ac.var.umin
+  - ac.var.smax
+  - ac.var.umax
+  - ac.var.mulw
+  - ac.var.madd
+  - ac.var.maddw
+  - ac.var.msub
+  - ac.var.bitfield_extract
+  - ac.var.bitfield_popcount
+  - ac.var.bitfield_clz
+  - ac.var.bitfield_ctz
+  - ac.var.bitfield_clear
+  - ac.var.bitfield_set
+  - ac.var.bitfield_reverse_bytes
+  - ac.var.bitfield_insert
+  - ac.var.sext_low
+  - ac.var.zext_low
+  - ac.var.csel
   - ac.var.decl
   - ac.var.read
   - ac.var.read_element

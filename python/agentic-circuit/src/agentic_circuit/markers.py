@@ -8,7 +8,6 @@ from __future__ import annotations
 
 from typing import Never
 
-
 CAPTURE_ONLY_API = (
     "scope",
     "map",
@@ -30,6 +29,41 @@ CAPTURE_ONLY_API = (
     "matches",
     "source",
     "popcount",
+    "udiv",
+    "sdiv",
+    "urem",
+    "srem",
+    "divrem",
+    "addw",
+    "subw",
+    "andw",
+    "orw",
+    "xorw",
+    "sll",
+    "srl",
+    "sra",
+    "sllw",
+    "srlw",
+    "sraw",
+    "smin",
+    "umin",
+    "smax",
+    "umax",
+    "mulw",
+    "madd",
+    "maddw",
+    "msub",
+    "bitfield_extract",
+    "bitfield_popcount",
+    "bitfield_clz",
+    "bitfield_ctz",
+    "bitfield_clear",
+    "bitfield_set",
+    "bitfield_reverse_bytes",
+    "bitfield_insert",
+    "sext_low",
+    "zext_low",
+    "csel",
     "count_leading_zeros",
     "count_trailing_zeros",
     "priority_encode",
@@ -163,6 +197,177 @@ def source(
 
 def popcount(value: object) -> Never:
     return _capture_time_only("popcount")
+
+
+def _binary_alu(marker: str, left: object, right: object) -> Never:
+    _ = (left, right)
+    return _capture_time_only(marker)
+
+
+def udiv(left: object, right: object) -> Never:
+    return _binary_alu("udiv", left, right)
+
+
+def sdiv(left: object, right: object) -> Never:
+    return _binary_alu("sdiv", left, right)
+
+
+def urem(left: object, right: object) -> Never:
+    return _binary_alu("urem", left, right)
+
+
+def srem(left: object, right: object) -> Never:
+    return _binary_alu("srem", left, right)
+
+
+def divrem(left: object, right: object, *, signed: object, word: object) -> Never:
+    _ = (left, right, signed, word)
+    return _capture_time_only("divrem")
+
+
+def addw(left: object, right: object) -> Never:
+    return _binary_alu("addw", left, right)
+
+
+def subw(left: object, right: object) -> Never:
+    return _binary_alu("subw", left, right)
+
+
+def andw(left: object, right: object) -> Never:
+    return _binary_alu("andw", left, right)
+
+
+def orw(left: object, right: object) -> Never:
+    return _binary_alu("orw", left, right)
+
+
+def xorw(left: object, right: object) -> Never:
+    return _binary_alu("xorw", left, right)
+
+
+def sll(left: object, right: object) -> Never:
+    return _binary_alu("sll", left, right)
+
+
+def srl(left: object, right: object) -> Never:
+    return _binary_alu("srl", left, right)
+
+
+def sra(left: object, right: object) -> Never:
+    return _binary_alu("sra", left, right)
+
+
+def sllw(left: object, right: object) -> Never:
+    return _binary_alu("sllw", left, right)
+
+
+def srlw(left: object, right: object) -> Never:
+    return _binary_alu("srlw", left, right)
+
+
+def sraw(left: object, right: object) -> Never:
+    return _binary_alu("sraw", left, right)
+
+
+def smin(left: object, right: object) -> Never:
+    return _binary_alu("smin", left, right)
+
+
+def umin(left: object, right: object) -> Never:
+    return _binary_alu("umin", left, right)
+
+
+def smax(left: object, right: object) -> Never:
+    return _binary_alu("smax", left, right)
+
+
+def umax(left: object, right: object) -> Never:
+    return _binary_alu("umax", left, right)
+
+
+def mulw(left: object, right: object) -> Never:
+    return _binary_alu("mulw", left, right)
+
+
+def _ternary_alu(marker: str, left: object, right: object, auxiliary: object) -> Never:
+    _ = (left, right, auxiliary)
+    return _capture_time_only(marker)
+
+
+def madd(left: object, right: object, auxiliary: object) -> Never:
+    return _ternary_alu("madd", left, right, auxiliary)
+
+
+def maddw(left: object, right: object, auxiliary: object) -> Never:
+    return _ternary_alu("maddw", left, right, auxiliary)
+
+
+def msub(left: object, right: object, auxiliary: object) -> Never:
+    return _ternary_alu("msub", left, right, auxiliary)
+
+
+def bitfield_extract(
+    value: object, width: object, offset: object, *, signed: bool = False
+) -> Never:
+    _ = (value, width, offset, signed)
+    return _capture_time_only("bitfield_extract")
+
+
+def _bitfield_alu(marker: str, value: object, width: object, offset: object) -> Never:
+    _ = (value, width, offset)
+    return _capture_time_only(marker)
+
+
+def bitfield_popcount(value: object, width: object, offset: object) -> Never:
+    return _bitfield_alu("bitfield_popcount", value, width, offset)
+
+
+def bitfield_clz(value: object, width: object, offset: object) -> Never:
+    return _bitfield_alu("bitfield_clz", value, width, offset)
+
+
+def bitfield_ctz(value: object, width: object, offset: object) -> Never:
+    return _bitfield_alu("bitfield_ctz", value, width, offset)
+
+
+def bitfield_clear(value: object, width: object, offset: object) -> Never:
+    return _bitfield_alu("bitfield_clear", value, width, offset)
+
+
+def bitfield_set(value: object, width: object, offset: object) -> Never:
+    return _bitfield_alu("bitfield_set", value, width, offset)
+
+
+def bitfield_reverse_bytes(value: object, width: object, offset: object) -> Never:
+    return _bitfield_alu("bitfield_reverse_bytes", value, width, offset)
+
+
+def bitfield_insert(
+    value: object, source: object, width: object, offset: object
+) -> Never:
+    _ = (value, source, width, offset)
+    return _capture_time_only("bitfield_insert")
+
+
+def sext_low(value: object, width: object) -> Never:
+    _ = (value, width)
+    return _capture_time_only("sext_low")
+
+
+def zext_low(value: object, width: object) -> Never:
+    _ = (value, width)
+    return _capture_time_only("zext_low")
+
+
+def csel(
+    predicate: object,
+    lhs: object,
+    rhs: object,
+    *,
+    negate_false: bool = False,
+) -> Never:
+    _ = (predicate, lhs, rhs, negate_false)
+    return _capture_time_only("csel")
 
 
 def count_leading_zeros(value: object) -> Never:

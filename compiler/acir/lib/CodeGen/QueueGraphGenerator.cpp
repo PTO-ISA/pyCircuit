@@ -33,7 +33,7 @@ llvm::Error generatorError(const llvm::Twine &message) {
 
 template <typename... Values>
 void appendInitializer(std::vector<std::string> &initializers,
-                       const Values &...values) {
+                       const Values &... values) {
   std::string initializer;
   llvm::raw_string_ostream output(initializer);
   (output << ... << values);
@@ -724,6 +724,7 @@ emitExpressionBody(const QueueGraphPlan &plan, const QueueBlockPlan &block,
   std::string padding(indent, ' ');
   llvm::StringMap<std::string> priorityEncodings;
   llvm::StringMap<std::string> helperCallValues;
+  llvm::StringMap<std::string> divremResults;
   llvm::StringMap<std::pair<std::string, std::string>> tableChoices;
   llvm::StringMap<std::string> rangeCheckedValues;
   llvm::StringMap<std::vector<std::string>> priorChoiceIndices;
@@ -1288,6 +1289,40 @@ emitExpressionBody(const QueueGraphPlan &plan, const QueueBlockPlan &block,
              << first->str() << ");\n";
       continue;
     }
+    if (expression.kind == "divrem_quotient" ||
+        expression.kind == "divrem_remainder") {
+      if (expression.operands.size() != 4)
+        return generatorError("divrem expression arity mismatch");
+      const std::string key =
+          expression.operands[0] + ":" + expression.operands[1] + ":" +
+          expression.operands[2] + ":" + expression.operands[3];
+      auto [found, inserted] = divremResults.try_emplace(
+          key, "divrem_" + identifier(expression.operands[0]) + "_" +
+                   identifier(expression.operands[1]) + "_" +
+                   identifier(expression.operands[2]) + "_" +
+                   identifier(expression.operands[3]));
+      if (inserted) {
+        output << padding << "auto " << found->getValue() << " = gfsim::divrem("
+               << first->str() << ", ";
+        auto second = operand(1);
+        if (!second)
+          return second.takeError();
+        auto signedMode = operand(2);
+        if (!signedMode)
+          return signedMode.takeError();
+        auto wordMode = operand(3);
+        if (!wordMode)
+          return wordMode.takeError();
+        output << second->str() << ", static_cast<bool>(" << signedMode->str()
+               << "), static_cast<bool>(" << wordMode->str() << "));\n";
+      }
+      output << padding << "auto " << expression.result << " = "
+             << found->getValue() << "."
+             << (expression.kind == "divrem_quotient" ? "quotient"
+                                                      : "remainder")
+             << ";\n";
+      continue;
+    }
     if (expression.kind == "table_choose_index" ||
         expression.kind == "table_choose_valid") {
       QueueBlockPlan nested;
@@ -1644,6 +1679,107 @@ emitExpressionBody(const QueueGraphPlan &plan, const QueueBlockPlan &block,
              << ";\n";
       continue;
     }
+    if (llvm::StringSwitch<bool>(expression.kind)
+            .Cases({"addw", "subw", "andw", "orw", "xorw", "sll", "srl", "sra",
+                    "sllw", "srlw", "sraw", "smin", "umin", "smax", "umax",
+                    "mulw"},
+                   true)
+            .Default(false)) {
+      auto second = operand(1);
+      if (!second)
+        return second.takeError();
+      output << padding << "auto " << expression.result
+             << " = gfsim::" << expression.kind << "(" << first->str() << ", "
+             << second->str() << ");\n";
+      continue;
+    }
+    if (llvm::StringSwitch<bool>(expression.kind)
+            .Cases({"madd", "maddw", "msub"}, true)
+            .Default(false)) {
+      auto second = operand(1);
+      auto third = operand(2);
+      if (!second)
+        return second.takeError();
+      if (!third)
+        return third.takeError();
+      output << padding << "auto " << expression.result
+             << " = gfsim::" << expression.kind << "(" << first->str() << ", "
+             << second->str() << ", " << third->str() << ");\n";
+      continue;
+    }
+    if (expression.kind == "bitfield_extract" ||
+        expression.kind == "bitfield_popcount" ||
+        expression.kind == "bitfield_clz" ||
+        expression.kind == "bitfield_ctz" ||
+        expression.kind == "bitfield_clear" ||
+        expression.kind == "bitfield_set" ||
+        expression.kind == "bitfield_reverse_bytes") {
+      auto width = operand(1);
+      auto offset = operand(2);
+      if (!width)
+        return width.takeError();
+      if (!offset)
+        return offset.takeError();
+      const llvm::StringRef function =
+          llvm::StringSwitch<llvm::StringRef>(expression.kind)
+              .Case("bitfield_extract", "bitfieldExtract")
+              .Case("bitfield_popcount", "bitfieldPopcount")
+              .Case("bitfield_clz", "bitfieldClz")
+              .Case("bitfield_ctz", "bitfieldCtz")
+              .Case("bitfield_clear", "bitfieldClear")
+              .Case("bitfield_set", "bitfieldSet")
+              .Case("bitfield_reverse_bytes", "bitfieldReverseBytes")
+              .Default("");
+      if (function.empty())
+        return generatorError("unknown ALU bitfield expression kind");
+      output << padding << "auto " << expression.result
+             << " = gfsim::" << function.str() << "(" << first->str() << ", "
+             << width->str() << ", " << offset->str();
+      if (expression.kind == "bitfield_extract")
+        output << ", " << (expression.predicate == "signed" ? "true" : "false");
+      output << ");\n";
+      continue;
+    }
+    if (expression.kind == "bitfield_insert") {
+      auto source = operand(1);
+      auto width = operand(2);
+      auto offset = operand(3);
+      if (!source)
+        return source.takeError();
+      if (!width)
+        return width.takeError();
+      if (!offset)
+        return offset.takeError();
+      output << padding << "auto " << expression.result
+             << " = gfsim::bitfieldInsert(" << first->str() << ", "
+             << source->str() << ", " << width->str() << ", " << offset->str()
+             << ");\n";
+      continue;
+    }
+    if (expression.kind == "sext_low" || expression.kind == "zext_low") {
+      auto width = operand(1);
+      if (!width)
+        return width.takeError();
+      output << padding << "auto " << expression.result << " = gfsim::"
+             << (expression.kind == "sext_low" ? "sextLow" : "zextLow") << "("
+             << first->str() << ", " << width->str() << ");\n";
+      continue;
+    }
+    if (expression.kind == "csel") {
+      auto lhs = operand(1);
+      auto rhs = operand(2);
+      auto negate = operand(3);
+      if (!lhs)
+        return lhs.takeError();
+      if (!rhs)
+        return rhs.takeError();
+      if (!negate)
+        return negate.takeError();
+      output << padding << "auto " << expression.result << " = gfsim::csel("
+             << first->str() << ", " << lhs->str() << ", " << rhs->str() << ", "
+             << negate->str() << ");\n";
+      continue;
+    }
     auto second = operand(1);
     if (!second)
       return second.takeError();
@@ -1670,9 +1806,9 @@ emitExpressionBody(const QueueGraphPlan &plan, const QueueBlockPlan &block,
       operation = "-";
     else if (expression.kind == "mul")
       operation = "*";
-    else if (expression.kind == "udiv")
+    else if (expression.kind == "udiv" || expression.kind == "sdiv")
       operation = "/";
-    else if (expression.kind == "urem")
+    else if (expression.kind == "urem" || expression.kind == "srem")
       operation = "%";
     else if (expression.kind == "and")
       operation = "&";
@@ -1712,6 +1848,12 @@ emitExpressionBody(const QueueGraphPlan &plan, const QueueBlockPlan &block,
         output << first->str() << ' ' << operation.str() << ' '
                << second->str();
       output << "}";
+    } else if (expression.kind == "sdiv") {
+      output << "gfsim::signedDiv(" << first->str() << ", " << second->str()
+             << ")";
+    } else if (expression.kind == "srem") {
+      output << "gfsim::signedRem(" << first->str() << ", " << second->str()
+             << ")";
     } else {
       output << first->str() << ' ' << operation.str() << ' ' << second->str();
     }
@@ -2900,8 +3042,11 @@ generateStructuredQueueGraphCpp(const QueueGraphPlan &plan) {
   output << "// Generated from hierarchy-preserving frozen ACIR QueueGraph "
             "plan; do not edit.\n"
             "#include \"gfsim/bits.h\"\n"
+            "#include \"gfsim/alu.h\"\n"
+            "#include \"gfsim/bitfield.h\"\n"
             "#include \"gfsim/dispatch.h\"\n"
             "#include \"gfsim/object.h\"\n"
+            "#include \"gfsim/divrem.h\"\n"
             "#include \"gfsim/priority_encode.h\"\n"
             "#include \"gfsim/queue.h\"\n"
             "#include \"gfsim/queue_blocks.h\"\n\n"
@@ -3196,9 +3341,9 @@ generateStructuredQueueGraphCpp(const QueueGraphPlan &plan) {
       }
       tupleResult.append(", ").append(firing.guard).push_back('}');
       const std::string &primaryValue =
-          !firing.stateWrites.empty() ? firing.stateWrites.front().index
-          : !firing.yields.empty()    ? firing.yields.front()
-                                      : firing.guard;
+          !firing.stateWrites.empty()
+              ? firing.stateWrites.front().index
+              : !firing.yields.empty() ? firing.yields.front() : firing.guard;
       auto body = emitExpressionBody(specialization, evaluation, primaryValue,
                                      6, true, false, additional, tupleResult);
       if (!body)
@@ -4537,9 +4682,12 @@ llvm::Expected<std::string> generateQueueGraphCpp(const QueueGraphPlan &plan) {
   if (!plan.specializationFingerprint.empty())
     output << "// Specialization: " << plan.specializationFingerprint << "\n";
   output << "#include \"gfsim/bits.h\"\n"
+            "#include \"gfsim/alu.h\"\n"
+            "#include \"gfsim/bitfield.h\"\n"
             "#include \"gfsim/dispatch.h\"\n"
             "#include \"gfsim/object.h\"\n"
             "#include \"gfsim/count_zeros.h\"\n"
+            "#include \"gfsim/divrem.h\"\n"
             "#include \"gfsim/popcount.h\"\n"
             "#include \"gfsim/priority_encode.h\"\n"
             "#include \"gfsim/queue.h\"\n"
@@ -4642,10 +4790,11 @@ llvm::Expected<std::string> generateQueueGraphCpp(const QueueGraphPlan &plan) {
     output << ">;\n"
            << "inline constexpr auto " << identifier(selection.name)
            << "_choose_policy = gfsim::TableChoosePolicy::"
-           << (selection.policy == "first" ? "First"
-               : selection.policy == "min" ? "Min"
-               : selection.policy == "max" ? "Max"
-                                           : "RoundRobin")
+           << (selection.policy == "first"
+                   ? "First"
+                   : selection.policy == "min"
+                         ? "Min"
+                         : selection.policy == "max" ? "Max" : "RoundRobin")
            << ";\n"
            << "inline constexpr auto " << identifier(selection.name)
            << "_key_ordering = gfsim::TableKeyOrdering::"
@@ -4803,9 +4952,9 @@ llvm::Expected<std::string> generateQueueGraphCpp(const QueueGraphPlan &plan) {
         appendTupleValue(block->guard);
         tupleResult.push_back('}');
         const std::string &primaryValue =
-            !block->stateWrites.empty() ? block->stateWrites.front().index
-            : !block->yields.empty()    ? block->yields.front()
-                                        : block->guard;
+            !block->stateWrites.empty()
+                ? block->stateWrites.front().index
+                : !block->yields.empty() ? block->yields.front() : block->guard;
         auto evaluationBody =
             emitExpressionBody(plan, evaluation, primaryValue, 6, true, false,
                                additional, tupleResult);
@@ -5106,9 +5255,9 @@ llvm::Expected<std::string> generateQueueGraphCpp(const QueueGraphPlan &plan) {
       tupleResult.push_back('}');
       auto evaluationBody = emitExpressionBody(
           plan, evaluation,
-          !block->stateWrites.empty() ? block->stateWrites.front().index
-          : !block->yields.empty()    ? block->yields.front()
-                                      : block->guard,
+          !block->stateWrites.empty()
+              ? block->stateWrites.front().index
+              : !block->yields.empty() ? block->yields.front() : block->guard,
           6, true, false, additional, tupleResult);
       if (!evaluationBody)
         return evaluationBody.takeError();
@@ -5264,9 +5413,10 @@ llvm::Expected<std::string> generateQueueGraphCpp(const QueueGraphPlan &plan) {
       const std::vector<llvm::StringRef> policyNames =
           block->kind == "table_read"
               ? std::vector<llvm::StringRef>{"address", "when"}
-          : block->kind == "table_masked_write"
-              ? std::vector<llvm::StringRef>{"mask", "enable", "value"}
-              : std::vector<llvm::StringRef>{"address", "enable", "value"};
+              : block->kind == "table_masked_write"
+                    ? std::vector<llvm::StringRef>{"mask", "enable", "value"}
+                    : std::vector<llvm::StringRef>{"address", "enable",
+                                                   "value"};
       for (auto [policyIndex, policyName] : llvm::enumerate(policyNames)) {
         llvm::StringRef resultType = table->entryType;
         if (block->yields[policyIndex] != "item") {

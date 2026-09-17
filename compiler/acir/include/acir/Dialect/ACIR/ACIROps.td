@@ -174,8 +174,26 @@ def ACIR_VarMulOp : ACIR_VarBinaryOp<"var.mul">;
 def ACIR_VarUDivOp : ACIR_VarBinaryOp<"var.udiv"> {
   let hasCanonicalizer = 1;
 }
+def ACIR_VarSDivOp : ACIR_VarBinaryOp<"var.sdiv">;
 def ACIR_VarURemOp : ACIR_VarBinaryOp<"var.urem"> {
   let hasCanonicalizer = 1;
+}
+def ACIR_VarSRemOp : ACIR_VarBinaryOp<"var.srem">;
+
+// One physical divider produces quotient and remainder together. The
+// signed/word controls select PTO architectural semantics while both results
+// remain tied to one shared operation through QueueGraph and PYC lowering.
+def ACIR_VarDivRemOp : ACIR_Op<"var.divrem", [Pure]> {
+  let arguments = (ins ACIR_VarType:$lhs, ACIR_VarType:$rhs,
+                       ACIR_VarType:$signed_mode, ACIR_VarType:$word_mode);
+  let results = (outs ACIR_VarType:$quotient, ACIR_VarType:$remainder);
+  let hasVerifier = 1;
+  let assemblyFormat = [{
+    $lhs `,` $rhs `,` $signed_mode `,` $word_mode attr-dict `:`
+    qualified(type($lhs)) `,` qualified(type($rhs)) `,`
+    qualified(type($signed_mode)) `,` qualified(type($word_mode)) `->`
+    qualified(type($quotient)) `,` qualified(type($remainder))
+  }];
 }
 def ACIR_VarAndOp : ACIR_VarBinaryOp<"var.and">;
 def ACIR_VarOrOp : ACIR_VarBinaryOp<"var.or">;
@@ -353,6 +371,134 @@ def ACIR_VarInsertOp : ACIR_Op<"var.insert", [Pure]> {
   let assemblyFormat = [{
     $base `,` $value `at` $lsb attr-dict `:` qualified(type($base)) `,`
     qualified(type($value)) `->` qualified(type($result))
+  }];
+}
+
+// Architectural scalar ALU primitives.  These remain first-class ACIR
+// operations so Python designs do not encode word truncation, wrapping
+// bitfield rotation, or signedness in expression trees.
+class ACIR_VarAluBinaryOp<string mnemonic> : ACIR_Op<mnemonic, [
+    Pure, AllTypesMatch<["lhs", "rhs", "result"]>
+  ]> {
+  let arguments = (ins ACIR_VarType:$lhs, ACIR_VarType:$rhs);
+  let results = (outs ACIR_VarType:$result);
+  let hasVerifier = 1;
+  let assemblyFormat = [{
+    $lhs `,` $rhs attr-dict `:` qualified(type($lhs)) `->`
+    qualified(type($result))
+  }];
+}
+
+def ACIR_VarAddwOp : ACIR_VarAluBinaryOp<"var.addw">;
+def ACIR_VarSubwOp : ACIR_VarAluBinaryOp<"var.subw">;
+def ACIR_VarAndwOp : ACIR_VarAluBinaryOp<"var.andw">;
+def ACIR_VarOrwOp : ACIR_VarAluBinaryOp<"var.orw">;
+def ACIR_VarXorwOp : ACIR_VarAluBinaryOp<"var.xorw">;
+def ACIR_VarSllOp : ACIR_VarAluBinaryOp<"var.sll">;
+def ACIR_VarSrlOp : ACIR_VarAluBinaryOp<"var.srl">;
+def ACIR_VarSraOp : ACIR_VarAluBinaryOp<"var.sra">;
+def ACIR_VarSllwOp : ACIR_VarAluBinaryOp<"var.sllw">;
+def ACIR_VarSrlwOp : ACIR_VarAluBinaryOp<"var.srlw">;
+def ACIR_VarSrawOp : ACIR_VarAluBinaryOp<"var.sraw">;
+def ACIR_VarSminOp : ACIR_VarAluBinaryOp<"var.smin">;
+def ACIR_VarUminOp : ACIR_VarAluBinaryOp<"var.umin">;
+def ACIR_VarSmaxOp : ACIR_VarAluBinaryOp<"var.smax">;
+def ACIR_VarUmaxOp : ACIR_VarAluBinaryOp<"var.umax">;
+def ACIR_VarMulwOp : ACIR_VarAluBinaryOp<"var.mulw">;
+
+class ACIR_VarAluTernaryOp<string mnemonic> : ACIR_Op<mnemonic, [
+    Pure, AllTypesMatch<["lhs", "rhs", "aux", "result"]>
+  ]> {
+  let arguments = (ins ACIR_VarType:$lhs, ACIR_VarType:$rhs,
+                       ACIR_VarType:$aux);
+  let results = (outs ACIR_VarType:$result);
+  let hasVerifier = 1;
+  let assemblyFormat = [{
+    $lhs `,` $rhs `,` $aux attr-dict `:` qualified(type($lhs)) `->`
+    qualified(type($result))
+  }];
+}
+
+def ACIR_VarMaddOp : ACIR_VarAluTernaryOp<"var.madd">;
+def ACIR_VarMaddwOp : ACIR_VarAluTernaryOp<"var.maddw">;
+def ACIR_VarMsubOp : ACIR_VarAluTernaryOp<"var.msub">;
+
+class ACIR_VarBitfieldOp<string mnemonic> : ACIR_Op<mnemonic, [Pure]> {
+  let arguments = (ins ACIR_VarType:$value, ACIR_VarType:$width,
+                       ACIR_VarType:$offset);
+  let results = (outs ACIR_VarType:$result);
+  let hasVerifier = 1;
+  let assemblyFormat = [{
+    $value `,` $width `,` $offset attr-dict `:`
+    qualified(type($value)) `,` qualified(type($width)) `,`
+    qualified(type($offset)) `->` qualified(type($result))
+  }];
+}
+
+def ACIR_VarBitfieldExtractOp : ACIR_Op<"var.bitfield_extract", [Pure]> {
+  let arguments = (ins ACIR_VarType:$value, ACIR_VarType:$width,
+                       ACIR_VarType:$offset, BoolAttr:$signed_mode);
+  let results = (outs ACIR_VarType:$result);
+  let hasVerifier = 1;
+  let assemblyFormat = [{
+    $value `,` $width `,` $offset `signed_mode` $signed_mode attr-dict `:`
+    qualified(type($value)) `,` qualified(type($width)) `,`
+    qualified(type($offset)) `->` qualified(type($result))
+  }];
+}
+
+def ACIR_VarBitfieldPopcountOp : ACIR_VarBitfieldOp<"var.bitfield_popcount">;
+def ACIR_VarBitfieldClzOp : ACIR_VarBitfieldOp<"var.bitfield_clz">;
+def ACIR_VarBitfieldCtzOp : ACIR_VarBitfieldOp<"var.bitfield_ctz">;
+def ACIR_VarBitfieldClearOp : ACIR_VarBitfieldOp<"var.bitfield_clear">;
+def ACIR_VarBitfieldSetOp : ACIR_VarBitfieldOp<"var.bitfield_set">;
+def ACIR_VarBitfieldReverseBytesOp : ACIR_VarBitfieldOp<"var.bitfield_reverse_bytes">;
+
+def ACIR_VarBitfieldInsertOp : ACIR_Op<"var.bitfield_insert", [Pure]> {
+  let arguments = (ins ACIR_VarType:$value, ACIR_VarType:$source,
+                       ACIR_VarType:$width, ACIR_VarType:$offset);
+  let results = (outs ACIR_VarType:$result);
+  let hasVerifier = 1;
+  let assemblyFormat = [{
+    $value `,` $source `,` $width `,` $offset attr-dict `:`
+    qualified(type($value)) `,` qualified(type($source)) `,`
+    qualified(type($width)) `,` qualified(type($offset)) `->`
+    qualified(type($result))
+  }];
+}
+
+def ACIR_VarSextLowOp : ACIR_Op<"var.sext_low", [Pure]> {
+  let arguments = (ins ACIR_VarType:$value, ACIR_VarType:$width);
+  let results = (outs ACIR_VarType:$result);
+  let hasVerifier = 1;
+  let assemblyFormat = [{
+    $value `,` $width attr-dict `:` qualified(type($value)) `,`
+    qualified(type($width)) `->`
+    qualified(type($result))
+  }];
+}
+
+def ACIR_VarZextLowOp : ACIR_Op<"var.zext_low", [Pure]> {
+  let arguments = (ins ACIR_VarType:$value, ACIR_VarType:$width);
+  let results = (outs ACIR_VarType:$result);
+  let hasVerifier = 1;
+  let assemblyFormat = [{
+    $value `,` $width attr-dict `:` qualified(type($value)) `,`
+    qualified(type($width)) `->`
+    qualified(type($result))
+  }];
+}
+
+def ACIR_VarCselOp : ACIR_Op<"var.csel", [Pure]> {
+  let arguments = (ins ACIR_VarType:$predicate, ACIR_VarType:$lhs,
+                       ACIR_VarType:$rhs, ACIR_VarType:$negate_false);
+  let results = (outs ACIR_VarType:$result);
+  let hasVerifier = 1;
+  let assemblyFormat = [{
+    $predicate `,` $lhs `,` $rhs `,` $negate_false attr-dict `:`
+    qualified(type($predicate)) `,` qualified(type($lhs)) `,`
+    qualified(type($rhs)) `,` qualified(type($negate_false)) `->`
+    qualified(type($result))
   }];
 }
 

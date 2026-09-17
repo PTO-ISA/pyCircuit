@@ -289,18 +289,14 @@ def _constant_integer(
         result = (
             left + right
             if isinstance(node.op, ast.Add)
-            else left - right
-            if isinstance(node.op, ast.Sub)
-            else left * right
+            else left - right if isinstance(node.op, ast.Sub) else left * right
         )
         return result if -(1 << 63) <= result <= (1 << 63) - 1 else None
     if isinstance(node, ast.Call) and len(node.args) == 1 and not node.keywords:
         helper = (
             node.func.attr
             if isinstance(node.func, ast.Attribute)
-            else node.func.id
-            if isinstance(node.func, ast.Name)
-            else ""
+            else node.func.id if isinstance(node.func, ast.Name) else ""
         )
         if helper in {"index_width", "count_width"}:
             operand = _constant_integer(node.args[0], values)
@@ -642,9 +638,7 @@ def _static_parameter_aliases(tree: ast.Module) -> dict[str, StaticParameterAlia
         family_name = (
             family.value.attr
             if isinstance(family.value, ast.Attribute)
-            else family.value.id
-            if isinstance(family.value, ast.Name)
-            else ""
+            else family.value.id if isinstance(family.value, ast.Name) else ""
         )
         parameter_type = family.slice.id if isinstance(family.slice, ast.Name) else ""
         if family_name != "param":
@@ -2876,9 +2870,9 @@ def _pure_helper_definitions(
                     reachable_helpers.add(item.id)
                     pending_helpers.append(item.id)
     nodes: dict[str, ast.FunctionDef] = {}
-    signatures: dict[
-        str, tuple[tuple[tuple[str, ValueType], ...], ValueType, bool]
-    ] = {}
+    signatures: dict[str, tuple[tuple[tuple[str, ValueType], ...], ValueType, bool]] = (
+        {}
+    )
     for node in tree.body:
         if not isinstance(node, ast.FunctionDef):
             continue
@@ -4227,9 +4221,7 @@ def parse_queue_program(
             spelling = (
                 candidate.func.attr
                 if isinstance(candidate.func, ast.Attribute)
-                else candidate.func.id
-                if isinstance(candidate.func, ast.Name)
-                else None
+                else candidate.func.id if isinstance(candidate.func, ast.Name) else None
             )
             if spelling in forbidden_runtime_mechanics:
                 raise QueueFrontendError(
@@ -5962,9 +5954,7 @@ def parse_queue_program(
         returned_values = (
             tuple(returned.elts)
             if isinstance(returned, (ast.Tuple, ast.List))
-            else (returned,)
-            if returned is not None
-            else ()
+            else (returned,) if returned is not None else ()
         )
         if len(returned_values) == len(result_payloads) and all(
             isinstance(value, ast.Name) for value in returned_values
@@ -11384,6 +11374,7 @@ class _ExpressionEmitter:
         self.lines: list[str] = []
         self.index = 0
         self.priority_values: dict[str, tuple[str, ValueType, str, ValueType]] = {}
+        self.divrem_values: dict[str, tuple[tuple[str, str], TupleType]] = {}
         self.onehot_values: dict[
             str,
             tuple[
@@ -13677,6 +13668,25 @@ class _ExpressionEmitter:
             )
             return name, aggregate
         if isinstance(node, ast.Subscript):
+            if (
+                isinstance(node.value, ast.Call)
+                and _decorator_name(node.value.func).rsplit(".", 1)[-1] == "divrem"
+            ):
+                index = _constant_integer(node.slice)
+                if index not in (0, 1):
+                    raise QueueFrontendError(
+                        "ACPY-DIV-002: divrem result index must be 0 or 1"
+                    )
+                key = ast.dump(node.value, include_attributes=False)
+                pair = self.divrem_values.get(key)
+                if pair is None:
+                    self.emit(node.value)
+                    pair = self.divrem_values.get(key)
+                if pair is None:
+                    raise QueueFrontendError(
+                        "ACPY-DIV-002: divrem result is unavailable"
+                    )
+                return self._remember(pair[0][index], BitsType(64))
             view = self._bitfield_view(node.value)
             if view is not None:
                 schema_name, layout, base_node = view
@@ -14232,9 +14242,7 @@ class _ExpressionEmitter:
                     else (
                         expected
                         if not self.strict_descriptors and expected is not None
-                        else BoolType()
-                        if type(node.value) is bool
-                        else BitsType(64)
+                        else BoolType() if type(node.value) is bool else BitsType(64)
                     )
                 )
             )
@@ -14248,9 +14256,7 @@ class _ExpressionEmitter:
             value = (
                 "true"
                 if node.value is True
-                else "false"
-                if node.value is False
-                else str(node.value)
+                else "false" if node.value is False else str(node.value)
             )
             attribute_type = (
                 f"i{typ.width}" if isinstance(typ, RangeType) else _render_type(typ)
@@ -14733,6 +14739,309 @@ class _ExpressionEmitter:
                 f"!ac.var<{_render_type(left_type)}> -> !ac.var<i1>"
             )
             return name, BoolType()
+        if isinstance(node, ast.Call):
+            operation = _decorator_name(node.func).rsplit(".", 1)[-1]
+            if operation in {"udiv", "sdiv", "urem", "srem"}:
+                if len(node.args) != 2 or node.keywords:
+                    raise QueueFrontendError(
+                        f"ACPY-QUEUE-003: {operation} requires two positional operands"
+                    )
+                left, left_type = self.emit(node.args[0])
+                right, right_type = self.emit(node.args[1], left_type)
+                if not self._types_match(left_type, right_type):
+                    raise QueueFrontendError(
+                        f"ACPY-QUEUE-003: {operation} operands must match"
+                    )
+                if _epoch_05_integer_width(left_type) is None:
+                    raise QueueFrontendError(
+                        f"ACPY-QUEUE-003: {operation} operands must be integer payloads"
+                    )
+                name = self._new()
+                self.lines.append(
+                    f"    %{name} = ac.var.{operation} %{left}, %{right} : "
+                    f"!ac.var<{_render_type(left_type)}>"
+                )
+                return self._remember(name, left_type, Unknown())
+            if operation == "divrem":
+                if len(node.args) != 2 or len(node.keywords) != 2:
+                    raise QueueFrontendError(
+                        "ACPY-DIV-001: divrem requires lhs, rhs, signed, and word"
+                    )
+                keyword_values = {
+                    keyword.arg: keyword.value
+                    for keyword in node.keywords
+                    if keyword.arg is not None
+                }
+                if set(keyword_values) != {"signed", "word"}:
+                    raise QueueFrontendError(
+                        "ACPY-DIV-001: divrem requires signed and word keywords"
+                    )
+                left, left_type = self.emit(node.args[0])
+                right, right_type = self.emit(node.args[1], left_type)
+                if not self._types_match(left_type, right_type):
+                    raise QueueFrontendError("ACPY-DIV-001: divrem operands must match")
+                if _epoch_05_integer_width(left_type) != 64:
+                    raise QueueFrontendError(
+                        "ACPY-DIV-001: divrem operands must be i64 integers"
+                    )
+                signed, signed_type = self.emit(keyword_values["signed"], BoolType())
+                word, word_type = self.emit(keyword_values["word"], BoolType())
+                if not self._types_match(
+                    signed_type, BoolType()
+                ) or not self._types_match(word_type, BoolType()):
+                    raise QueueFrontendError(
+                        "ACPY-DIV-001: divrem signed/word must be bool values"
+                    )
+                key = ast.dump(node, include_attributes=False)
+                cached = self.divrem_values.get(key)
+                if cached is not None:
+                    return f"__divrem_{key}", cached[1]
+                quotient = self._new()
+                remainder = self._new()
+                self.lines.append(
+                    f"    %{quotient}, %{remainder} = ac.var.divrem %{left}, %{right}, "
+                    f"%{signed}, %{word} : "
+                    f"!ac.var<{_render_type(left_type)}>, "
+                    f"!ac.var<{_render_type(right_type)}>, "
+                    f"!ac.var<{_render_type(signed_type)}>, "
+                    f"!ac.var<{_render_type(word_type)}> -> "
+                    "!ac.var<i64>, !ac.var<i64>"
+                )
+                pair_type = TupleType((BitsType(64), BitsType(64)))
+                self.divrem_values[key] = ((quotient, remainder), pair_type)
+                return f"__divrem_{key}", pair_type
+
+            binary_operations = {
+                "addw",
+                "subw",
+                "andw",
+                "orw",
+                "xorw",
+                "sll",
+                "srl",
+                "sra",
+                "sllw",
+                "srlw",
+                "sraw",
+                "smin",
+                "umin",
+                "smax",
+                "umax",
+                "mulw",
+            }
+            if operation in binary_operations:
+                if len(node.args) != 2 or node.keywords:
+                    raise QueueFrontendError(
+                        f"ACPY-ALU-001: {operation} requires two positional operands"
+                    )
+                left, left_type = self.emit(node.args[0])
+                right, right_type = self.emit(node.args[1], left_type)
+                if not self._types_match(left_type, right_type):
+                    raise QueueFrontendError(
+                        f"ACPY-ALU-001: {operation} operands must match"
+                    )
+                if _epoch_05_integer_width(left_type) is None:
+                    raise QueueFrontendError(
+                        f"ACPY-ALU-001: {operation} operands must be integer payloads"
+                    )
+                name = self._new()
+                rendered = _render_type(left_type)
+                self.lines.append(
+                    f"    %{name} = ac.var.{operation} %{left}, %{right} : "
+                    f"!ac.var<{rendered}> -> !ac.var<{rendered}>"
+                )
+                return self._remember(name, left_type, Unknown())
+
+            if operation in {"madd", "maddw", "msub"}:
+                if len(node.args) != 3 or node.keywords:
+                    raise QueueFrontendError(
+                        f"ACPY-ALU-001: {operation} requires three positional operands"
+                    )
+                left, left_type = self.emit(node.args[0])
+                right, right_type = self.emit(node.args[1], left_type)
+                auxiliary, auxiliary_type = self.emit(node.args[2], left_type)
+                if not (
+                    self._types_match(left_type, right_type)
+                    and self._types_match(left_type, auxiliary_type)
+                ):
+                    raise QueueFrontendError(
+                        f"ACPY-ALU-001: {operation} operands must match"
+                    )
+                if _epoch_05_integer_width(left_type) is None:
+                    raise QueueFrontendError(
+                        f"ACPY-ALU-001: {operation} operands must be integer payloads"
+                    )
+                name = self._new()
+                rendered = _render_type(left_type)
+                self.lines.append(
+                    f"    %{name} = ac.var.{operation} %{left}, %{right}, "
+                    f"%{auxiliary} : !ac.var<{rendered}> -> !ac.var<{rendered}>"
+                )
+                return self._remember(name, left_type, Unknown())
+
+            if operation == "bitfield_extract":
+                signed_keywords = [
+                    keyword.value
+                    for keyword in node.keywords
+                    if keyword.arg == "signed"
+                ]
+                if (
+                    len(node.args) != 3
+                    or len(node.keywords) != 1
+                    or len(signed_keywords) != 1
+                    or not isinstance(signed_keywords[0], ast.Constant)
+                    or type(signed_keywords[0].value) is not bool
+                ):
+                    raise QueueFrontendError(
+                        "ACPY-ALU-001: bitfield_extract signed must be static bool"
+                    )
+                value, value_type = self.emit(node.args[0])
+                width, width_type = self.emit(node.args[1])
+                offset, offset_type = self.emit(node.args[2])
+                if _epoch_05_integer_width(value_type) is None or any(
+                    _epoch_05_integer_width(descriptor) is None
+                    for descriptor in (width_type, offset_type)
+                ):
+                    raise QueueFrontendError(
+                        "ACPY-ALU-001: bitfield_extract operands must be integers"
+                    )
+                name = self._new()
+                rendered = _render_type(value_type)
+                self.lines.append(
+                    f"    %{name} = ac.var.bitfield_extract %{value}, %{width}, "
+                    f"%{offset} signed_mode "
+                    f"{'true' if signed_keywords[0].value else 'false'} : "
+                    f"!ac.var<{rendered}>, !ac.var<{_render_type(width_type)}>, "
+                    f"!ac.var<{_render_type(offset_type)}> -> !ac.var<{rendered}>"
+                )
+                return self._remember(name, value_type, Unknown())
+
+            bitfield_operations = {
+                "bitfield_popcount",
+                "bitfield_clz",
+                "bitfield_ctz",
+                "bitfield_clear",
+                "bitfield_set",
+                "bitfield_reverse_bytes",
+            }
+            if operation in bitfield_operations:
+                if len(node.args) != 3 or node.keywords:
+                    raise QueueFrontendError(
+                        f"ACPY-ALU-001: {operation} requires value, width, and offset"
+                    )
+                value, value_type = self.emit(node.args[0])
+                width, width_type = self.emit(node.args[1])
+                offset, offset_type = self.emit(node.args[2])
+                if _epoch_05_integer_width(value_type) is None or any(
+                    _epoch_05_integer_width(descriptor) is None
+                    for descriptor in (width_type, offset_type)
+                ):
+                    raise QueueFrontendError(
+                        f"ACPY-ALU-001: {operation} operands must be integers"
+                    )
+                name = self._new()
+                rendered = _render_type(value_type)
+                self.lines.append(
+                    f"    %{name} = ac.var.{operation} %{value}, %{width}, "
+                    f"%{offset} : !ac.var<{rendered}>, "
+                    f"!ac.var<{_render_type(width_type)}>, "
+                    f"!ac.var<{_render_type(offset_type)}> -> !ac.var<{rendered}>"
+                )
+                return self._remember(name, value_type, Unknown())
+
+            if operation == "bitfield_insert":
+                if len(node.args) != 4 or node.keywords:
+                    raise QueueFrontendError(
+                        "ACPY-ALU-001: bitfield_insert requires four positional operands"
+                    )
+                value, value_type = self.emit(node.args[0])
+                source, source_type = self.emit(node.args[1], value_type)
+                width, width_type = self.emit(node.args[2])
+                offset, offset_type = self.emit(node.args[3])
+                if not self._types_match(value_type, source_type):
+                    raise QueueFrontendError(
+                        "ACPY-ALU-001: bitfield_insert value/source operands must match"
+                    )
+                if _epoch_05_integer_width(value_type) is None or any(
+                    _epoch_05_integer_width(descriptor) is None
+                    for descriptor in (width_type, offset_type)
+                ):
+                    raise QueueFrontendError(
+                        "ACPY-ALU-001: bitfield_insert operands must be integers"
+                    )
+                name = self._new()
+                rendered = _render_type(value_type)
+                self.lines.append(
+                    f"    %{name} = ac.var.bitfield_insert %{value}, %{source}, "
+                    f"%{width}, %{offset} : !ac.var<{rendered}>, "
+                    f"!ac.var<{rendered}>, !ac.var<{_render_type(width_type)}>, "
+                    f"!ac.var<{_render_type(offset_type)}> -> !ac.var<{rendered}>"
+                )
+                return self._remember(name, value_type, Unknown())
+
+            if operation in {"sext_low", "zext_low"}:
+                if len(node.args) != 2 or node.keywords:
+                    raise QueueFrontendError(
+                        f"ACPY-ALU-001: {operation} requires value and width"
+                    )
+                value, value_type = self.emit(node.args[0])
+                width, width_type = self.emit(node.args[1])
+                if (
+                    _epoch_05_integer_width(value_type) is None
+                    or _epoch_05_integer_width(width_type) is None
+                ):
+                    raise QueueFrontendError(
+                        f"ACPY-ALU-001: {operation} operands must be integers"
+                    )
+                name = self._new()
+                rendered = _render_type(value_type)
+                self.lines.append(
+                    f"    %{name} = ac.var.{operation} %{value}, %{width} : "
+                    f"!ac.var<{rendered}>, !ac.var<{_render_type(width_type)}> "
+                    f"-> !ac.var<{rendered}>"
+                )
+                return self._remember(name, value_type, Unknown())
+
+            if operation == "csel":
+                if (
+                    len(node.args) != 3
+                    or len(node.keywords) > 1
+                    or any(keyword.arg != "negate_false" for keyword in node.keywords)
+                ):
+                    raise QueueFrontendError(
+                        "ACPY-ALU-001: csel requires predicate, lhs, rhs, and "
+                        "optional negate_false"
+                    )
+                predicate, predicate_type = self.emit(node.args[0], BoolType())
+                lhs, lhs_type = self.emit(node.args[1])
+                rhs, rhs_type = self.emit(node.args[2], lhs_type)
+                negate_node = (
+                    node.keywords[0].value
+                    if node.keywords
+                    else ast.Constant(value=False)
+                )
+                negate, negate_type = self.emit(negate_node, BoolType())
+                if not self._types_match(
+                    predicate_type, BoolType()
+                ) or not self._types_match(negate_type, BoolType()):
+                    raise QueueFrontendError("ACPY-ALU-001: csel controls must be bool")
+                if (
+                    not self._types_match(lhs_type, rhs_type)
+                    or _epoch_05_integer_width(lhs_type) is None
+                ):
+                    raise QueueFrontendError(
+                        "ACPY-ALU-001: csel selected values must match integer type"
+                    )
+                name = self._new()
+                self.lines.append(
+                    f"    %{name} = ac.var.csel %{predicate}, %{lhs}, %{rhs}, "
+                    f"%{negate} : !ac.var<{_render_type(predicate_type)}>, "
+                    f"!ac.var<{_render_type(lhs_type)}>, "
+                    f"!ac.var<{_render_type(rhs_type)}>, "
+                    f"!ac.var<{_render_type(negate_type)}> -> "
+                    f"!ac.var<{_render_type(lhs_type)}>"
+                )
+                return self._remember(name, lhs_type, Unknown())
         if (
             isinstance(node, ast.Call)
             and _decorator_name(node.func).rsplit(".", 1)[-1] == "matches"
@@ -15411,9 +15720,9 @@ def lower_queue_program(
         )
         for input_index, input_name in enumerate(input_names):
             consumers.setdefault(input_name, []).append((queue, input_index))
-    fanouts: dict[
-        str, tuple[tuple[str, ...], tuple[tuple[QueueBinding, int], ...]]
-    ] = {}
+    fanouts: dict[str, tuple[tuple[str, ...], tuple[tuple[QueueBinding, int], ...]]] = (
+        {}
+    )
 
     def common_scope(scopes: list[tuple[str, ...]]) -> tuple[str, ...]:
         common: list[str] = []
@@ -18164,9 +18473,7 @@ def lower_queue_program(
         output_signature = (
             "()"
             if not module.outputs
-            else output_types
-            if len(module.outputs) == 1
-            else f"({output_types})"
+            else output_types if len(module.outputs) == 1 else f"({output_types})"
         )
         lines.append(f"    }} : ({input_types}) -> {output_signature}")
         returned = ", ".join(
@@ -18364,7 +18671,7 @@ def _lower_simple_module_source(
 
     @dataclass(frozen=True, slots=True)
     class ModuleAssignment:
-        state: str
+        state: str | tuple[str, ...]
         expression: ast.expr
 
     @dataclass(frozen=True, slots=True)
@@ -18625,6 +18932,67 @@ def _lower_simple_module_source(
                     tuple(assignments),
                 )
                 continue
+            if not states:
+                assignments: list[ModuleAssignment] = []
+                bound_names: set[str] = set()
+                for statement in body[:-1]:
+                    if (
+                        not isinstance(statement, ast.Assign)
+                        or len(statement.targets) != 1
+                    ):
+                        raise QueueFrontendError(
+                            "ACPY-MODULE-001: combinational module statements must "
+                            "assign local names"
+                        )
+                    target = statement.targets[0]
+                    if isinstance(target, ast.Name):
+                        local_names = (target.id,)
+                    elif isinstance(target, (ast.Tuple, ast.List)) and all(
+                        isinstance(element, ast.Name) for element in target.elts
+                    ):
+                        local_names = tuple(
+                            element.id
+                            for element in target.elts
+                            if isinstance(element, ast.Name)
+                        )
+                    else:
+                        raise QueueFrontendError(
+                            "ACPY-MODULE-001: combinational assignments require "
+                            "one local name or a result tuple"
+                        )
+                    if not local_names or any(
+                        local in bound_names or local == parameter.arg
+                        for local in local_names
+                    ):
+                        raise QueueFrontendError(
+                            "ACPY-MODULE-001: combinational module local names "
+                            "must be unique"
+                        )
+                    if len(local_names) > 1 and not (
+                        isinstance(statement.value, ast.Call)
+                        and _decorator_name(statement.value.func).rsplit(".", 1)[-1]
+                        == "divrem"
+                        and len(local_names) == 2
+                    ):
+                        raise QueueFrontendError(
+                            "ACPY-MODULE-001: tuple assignment requires a two-result "
+                            "divrem call"
+                        )
+                    bound_names.update(local_names)
+                    assignments.append(
+                        ModuleAssignment(
+                            local_names[0] if len(local_names) == 1 else local_names,
+                            copy.deepcopy(statement.value),
+                        )
+                    )
+                module_types[name] = ModuleDefinition(
+                    parameter.arg,
+                    input_type,
+                    outputs[0],
+                    copy.deepcopy(body[-1].value),
+                    assignments=tuple(assignments),
+                )
+                continue
         raise QueueFrontendError(
             "ACPY-MODULE-001: module body requires one expression return or "
             "zero-initialized typed state assignments followed by return"
@@ -18844,9 +19212,7 @@ def _lower_simple_module_source(
             specialized.extend(specialize_system_statements(selected))
         return specialized
 
-    def specialize_rule_module(
-        module_name: str, call: ast.Call
-    ) -> tuple[
+    def specialize_rule_module(module_name: str, call: ast.Call) -> tuple[
         str,
         tuple[tuple[str, StaticValue], ...],
         tuple[tuple[str, ValueType], ...],
@@ -19309,6 +19675,7 @@ def _lower_simple_module_source(
         expression = definition.expression
         if (
             not definition.states
+            and not definition.assignments
             and isinstance(expression, ast.Call)
             and isinstance(expression.func, ast.Name)
             and expression.func.id in module_types
@@ -19457,6 +19824,19 @@ def _lower_simple_module_source(
             invariants=invariants,
             helpers=helpers,
         )
+        for assignment in definition.assignments:
+            if isinstance(assignment.state, tuple):
+                for index, local_name in enumerate(assignment.state):
+                    local_value, local_type = emitter.emit(
+                        ast.Subscript(
+                            value=copy.deepcopy(assignment.expression),
+                            slice=ast.Constant(index),
+                        )
+                    )
+                    emitter.root_values[local_name] = (local_value, local_type)
+            else:
+                local_value, local_type = emitter.emit(assignment.expression)
+                emitter.root_values[assignment.state] = (local_value, local_type)
         value, value_type = emitter.emit(expression, output_type)
         if not _types_equal_in_epoch_05(value_type, output_type):
             raise QueueFrontendError(

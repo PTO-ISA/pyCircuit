@@ -1,0 +1,16 @@
++incdir+basejump
+basejump/bsg_defines.sv
+basejump/bsg_dff_en.sv
+basejump/bsg_mux_one_hot.sv
+basejump/bsg_xnor.sv
+basejump/bsg_nor2.sv
+basejump/bsg_xor.sv
+basejump/bsg_adder_cin.sv
+basejump/bsg_counter_clear_up.sv
+basejump/bsg_idiv_iterative_controller.sv
+basejump/bsg_idiv_iterative.sv
+pyc_word_operand_normalize.sv
+pyc_word_result_normalize.sv
+pyc_div_special_cases.sv
+pyc_runtime_div.sv
+pyc_runtime_div_packet.sv

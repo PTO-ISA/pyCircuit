@@ -20,9 +20,9 @@ import shutil
 import subprocess
 import sys
 import tempfile
-from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Iterable
 
 
 class PYCVerilogError(ValueError):
@@ -182,11 +182,15 @@ def _port_decl(direction: str, value: Value) -> str:
 
 
 def _literal(value: str, width: int) -> str:
+    if value == "true":
+        return f"{width}'d1"
+    if value == "false":
+        return f"{width}'d0"
     try:
         number = int(value, 0)
     except ValueError as exc:
         raise PYCVerilogError(f"unsupported PYC constant {value}") from exc
-    return f"{width}'d{number}"
+    return f"{width}'d{number % (1 << width)}"
 
 
 def _parse_attr_int(attrs: str, key: str) -> int:
@@ -196,12 +200,81 @@ def _parse_attr_int(attrs: str, key: str) -> int:
     return int(match.group(1))
 
 
-def _runtime_sources(runtime_dir: Path) -> Iterable[str]:
-    for name in ("pyc_reg.v", "pyc_fifo.v"):
+def _runtime_sources(
+    runtime_dir: Path,
+    *,
+    include_fifo: bool = False,
+    include_reg: bool = False,
+    include_popcount: bool = False,
+    include_rr_arbiter: bool = False,
+    include_wrapping_bitfield: bool = False,
+    include_divrem: bool = False,
+    include_priority: bool = False,
+) -> Iterable[str]:
+    names: list[str] = []
+    if include_reg:
+        names.append("pyc_reg.v")
+    if include_fifo:
+        names.append("pyc_fifo.v")
+    if include_popcount:
+        names.append("pyc_popcount.v")
+    if include_rr_arbiter:
+        names.append("pyc_rr_arbiter.v")
+    if include_wrapping_bitfield:
+        names.append("pyc_runtime_wrapping_bitfield.sv")
+    if include_divrem:
+        # Inline the qualified PTO wrapper and its small BaseJump dependency
+        # closure.  The generated design therefore consumes one physical
+        # iterative divider instead of synthesizing a hidden / or % operator.
+        names.extend(
+            [
+                "div_pto_v2/div_pto_v2/basejump/bsg_defines.sv",
+                "div_pto_v2/div_pto_v2/basejump/bsg_dff_en.sv",
+                "div_pto_v2/div_pto_v2/basejump/bsg_mux_one_hot.sv",
+                "div_pto_v2/div_pto_v2/basejump/bsg_xnor.sv",
+                "div_pto_v2/div_pto_v2/basejump/bsg_nor2.sv",
+                "div_pto_v2/div_pto_v2/basejump/bsg_xor.sv",
+                "div_pto_v2/div_pto_v2/basejump/bsg_adder_cin.sv",
+                "div_pto_v2/div_pto_v2/basejump/bsg_counter_clear_up.sv",
+                "div_pto_v2/div_pto_v2/basejump/bsg_idiv_iterative_controller.sv",
+                "div_pto_v2/div_pto_v2/basejump/bsg_idiv_iterative.sv",
+                "div_pto_v2/div_pto_v2/pyc_word_operand_normalize.sv",
+                "div_pto_v2/div_pto_v2/pyc_word_result_normalize.sv",
+                "div_pto_v2/div_pto_v2/pyc_div_special_cases.sv",
+                "div_pto_v2/div_pto_v2/pyc_runtime_div.sv",
+                "div_pto_v2/div_pto_v2/pyc_runtime_div_packet.sv",
+            ]
+        )
+    if include_priority:
+        # Inline the small BaseJump dependency closure so the generated file
+        # remains directly consumable without an extra -I search path.
+        names.extend(
+            [
+                "basejump/bsg_defines.sv",
+                "basejump/bsg_scan.sv",
+                "basejump/bsg_encode_one_hot.sv",
+                "basejump/bsg_priority_encode_one_hot_out.sv",
+                "basejump/bsg_priority_encode.sv",
+                "pyc_runtime_basejump_priority_encode.v",
+            ]
+        )
+    for name in names:
         path = runtime_dir / name
         if not path.is_file():
             raise PYCVerilogError(f"missing in-tree PYC runtime module: {path}")
-        yield f"// --- PYC runtime: {path.name}\n{path.read_text(encoding='utf-8')}"
+        content = path.read_text(encoding="utf-8")
+        if (
+            (include_priority or include_divrem)
+            and path.suffix in {".sv", ".v"}
+            and "basejump/" in name
+        ):
+            # Dependencies are concatenated in topological order above; their
+            # relative include directives would otherwise refer to files that
+            # are no longer adjacent to the generated artifact.
+            content = re.sub(
+                r'^\s*`include\s+"[^"]+"\s*$', "", content, flags=re.MULTILINE
+            )
+        yield f"// --- PYC runtime: {name}\n{content}"
 
 
 def emit_verilog(module: Module, runtime_dir: Path) -> str:
@@ -212,6 +285,12 @@ def emit_verilog(module: Module, runtime_dir: Path) -> str:
     assertions: list[str] = []
     returns: list[str] | None = None
     seen_outputs: set[str] = set()
+    # Queue FIFOs provide the transaction boundary around pure PYC values.
+    # A variable-latency divider must retain the packet while its iterative
+    # result is in flight, so remember the FIFO control nets and patch the
+    # corresponding ready/valid connections when the divrem op is parsed.
+    fifo_payloads: list[dict[str, str]] = []
+    divrem_adapter: dict[str, str] | None = None
 
     def add_value(name: str, type_: str) -> Value:
         value = Value(name, type_)
@@ -307,13 +386,34 @@ def emit_verilog(module: Module, runtime_dir: Path) -> str:
                 _value(values, inputs[4]),
             )
             clk, rst = _value(values, inputs[0]), _value(values, inputs[1])
+            fifo_response_path = (
+                divrem_adapter and divrem_adapter["input_valid_name"] == in_valid.name
+            )
+            fifo_in_valid_net = (
+                divrem_adapter["response_valid"] if fifo_response_path else in_valid.net
+            )
             instances.append(
                 f"  pyc_fifo #(.WIDTH({out_values[2].width}), .DEPTH({depth})) fifo_{out_values[0].net} (\n"
                 f"    .clk({clk.net}), .rst({rst.net}),\n"
-                f"    .in_valid({in_valid.net}), .in_ready({out_values[0].net}), .in_data({in_data.net}),\n"
-                f"    .out_valid({out_values[1].net}), .out_ready({out_ready.net}), .out_data({out_values[2].net})\n"
+                f"    .in_valid({fifo_in_valid_net}), .in_ready({out_values[0].net}), .in_data({in_data.net}),\n"
+                f"    .out_valid({out_values[1].net}), .out_ready({(divrem_adapter['request_ready'] if divrem_adapter and divrem_adapter['input_ready_name'] == out_ready.name else out_ready.net)}), .out_data({out_values[2].net})\n"
                 f"  );"
             )
+            fifo_payloads.append(
+                {
+                    "payload_name": out_values[2].name,
+                    "out_valid_name": out_values[1].name,
+                    "out_ready_name": out_ready.name,
+                }
+            )
+            # The output FIFO is parsed after divrem.  Its input-valid is the
+            # response side of the adapter, and its in-ready feeds the
+            # adapter's response-ready wire.
+            if fifo_response_path:
+                divrem_adapter["response_ready_source"] = out_values[0].net
+                assigns.append(
+                    f"  assign {divrem_adapter['response_ready']} = {out_values[0].net};"
+                )
             continue
 
         if rhs.startswith("pyc.reg "):
@@ -359,6 +459,151 @@ def emit_verilog(module: Module, runtime_dir: Path) -> str:
                 f"  pyc_rr_arbiter #(.NUM_INPUTS({num_inputs}), .POINTER_WIDTH({cursor.width})) rr_arbiter_{out.net} (\n"
                 f"    .req({req.net}), .cursor({cursor.net}), .grant({out.net})\n"
                 f"  );"
+            )
+            continue
+
+        if rhs.startswith("pyc.priority_encode "):
+            match = re.fullmatch(
+                r"pyc\.priority_encode\s+(.*?)\s*\{(.*?)\}\s*:\s*(\S+)\s*->\s*(\S+)",
+                rhs,
+            )
+            if not match or len(lhs) != 1:
+                raise PYCVerilogError(f"cannot parse priority encoder: {line}")
+            inputs = _ssa_names(match.group(1))
+            if len(inputs) != 1:
+                raise PYCVerilogError(f"priority encoder expects one operand: {line}")
+            src = _value(values, inputs[0])
+            out = add_value(lhs[0], match.group(4))
+            width = _parse_attr_int(match.group(2), "width")
+            lo_to_hi = _parse_attr_int(match.group(2), "lo_to_hi")
+            if width != src.width or width <= 0:
+                raise PYCVerilogError("priority encoder width must match input type")
+            index_width = max(1, (width - 1).bit_length())
+            if out.width != index_width + 1:
+                raise PYCVerilogError("priority encoder result must be {valid,index}")
+            index_net = f"priority_index_{out.net}"
+            valid_net = f"priority_valid_{out.net}"
+            declarations.append(f"  wire [{index_width - 1}:0] {index_net};")
+            declarations.append(f"  wire {valid_net};")
+            instances.append(
+                f"  pyc_runtime_basejump_priority_encode #(.WIDTH({width}), .LO_TO_HI({1 if lo_to_hi else 0})) priority_encode_{out.net} (\n"
+                f"    .in_value({src.net}), .index({index_net}), .valid({valid_net})\n"
+                f"  );"
+            )
+            assigns.append(f"  assign {out.net} = {{{valid_net}, {index_net}}};")
+            continue
+
+        if rhs.startswith("pyc.popcount "):
+            match = re.fullmatch(
+                r"pyc\.popcount\s+(.*?)\s*\{.*?\}\s*:\s*(\S+)\s*->\s*(\S+)", rhs
+            )
+            if not match or len(lhs) != 1:
+                raise PYCVerilogError(f"cannot parse popcount: {line}")
+            inputs = _ssa_names(match.group(1))
+            if len(inputs) != 1:
+                raise PYCVerilogError(f"popcount expects one operand: {line}")
+            src = _value(values, inputs[0])
+            out = add_value(lhs[0], match.group(3))
+            if out.width < src.width.bit_length():
+                raise PYCVerilogError("popcount result width is too small")
+            instances.append(
+                f"  pyc_popcount #(.IN_WIDTH({src.width}), .OUT_WIDTH({out.width})) popcount_{out.net} (\n"
+                f"    .in({src.net}), .out({out.net})\n"
+                f"  );"
+            )
+            continue
+
+        if rhs.startswith("pyc.divrem "):
+            match = re.fullmatch(
+                r"pyc\.divrem\s+(.*?)\s*:\s*\((.*?)\)\s*->\s*\((.*?)\)",
+                rhs,
+            )
+            if not match or len(lhs) != 2:
+                raise PYCVerilogError(f"cannot parse divrem: {line}")
+            inputs = _ssa_names(match.group(1))
+            annotated_inputs = _parse_types(match.group(2))
+            annotated_outputs = _parse_types(match.group(3))
+            if (
+                len(inputs) != 4
+                or annotated_inputs != ["i64", "i64", "i1", "i1"]
+                or annotated_outputs != ["i64", "i64"]
+            ):
+                raise PYCVerilogError(
+                    "divrem expects i64 lhs/rhs, i1 signed/word, and two i64 results"
+                )
+            lhs_value, rhs_value, signed_value, word_value = (
+                _value(values, item) for item in inputs
+            )
+            outputs = [add_value(lhs[0], "i64"), add_value(lhs[1], "i64")]
+            if [
+                value.type for value in (lhs_value, rhs_value, signed_value, word_value)
+            ] != annotated_inputs:
+                raise PYCVerilogError("divrem operand types are inconsistent")
+            if divrem_adapter is not None:
+                raise PYCVerilogError(
+                    "only one divrem transaction is supported per PYC module"
+                )
+            if not fifo_payloads:
+                raise PYCVerilogError("divrem requires a surrounding queue FIFO")
+
+            packet = fifo_payloads[-1]
+            packet_value = _value(values, packet["payload_name"])
+            fifo_valid_value = _value(values, packet["out_valid_name"])
+            fifo_ready_value = _value(values, packet["out_ready_name"])
+            held_net = f"divrem_held_{packet_value.net}"
+            request_ready_net = f"divrem_request_ready_{outputs[0].net}"
+            response_valid_net = f"divrem_response_valid_{outputs[0].net}"
+            response_ready_net = f"divrem_response_ready_{outputs[0].net}"
+            declarations.extend(
+                [
+                    f"  wire [{packet_value.width - 1}:0] {held_net};",
+                    f"  wire {request_ready_net};",
+                    f"  wire {response_valid_net};",
+                    f"  wire {response_ready_net};",
+                ]
+            )
+            # Combinational values decoded from the input packet before the
+            # divrem op (opcode flags, operands, modes, and later selectors)
+            # must see the adapter's retained packet for the whole iterative
+            # transaction.  packet_out is a pass-through before acceptance,
+            # so redirecting the direct packet reads is valid both at launch
+            # and while the response is pending.
+            packet_net_pattern = re.compile(
+                rf"(?<![A-Za-z0-9_$]){re.escape(packet_value.net)}(?![A-Za-z0-9_$])"
+            )
+            assigns[:] = [
+                packet_net_pattern.sub(held_net, assignment) for assignment in assigns
+            ]
+            clk = _value(values, "%clk")
+            rst = _value(values, "%rst")
+            instances.append(
+                "  pyc_runtime_div_packet #(.WIDTH(64), .WORD_WIDTH(32), "
+                f".PACKET_WIDTH({packet_value.width})) divrem_{outputs[0].net} (\n"
+                f"    .clk({clk.net}), .reset({rst.net}),\n"
+                f"    .request_valid({fifo_valid_value.net}), .request_ready({request_ready_net}),\n"
+                f"    .packet_in({packet_value.net}),\n"
+                f"    .dividend({lhs_value.net}), .divisor({rhs_value.net}),\n"
+                f"    .is_signed({signed_value.net}), .word_mode({word_value.net}),\n"
+                f"    .response_valid({response_valid_net}), .response_ready({response_ready_net}),\n"
+                f"    .packet_out({held_net}),\n"
+                f"    .quotient({outputs[0].net}), .remainder({outputs[1].net})\n"
+                "  );"
+            )
+            # The input FIFO must stay full until the divider has accepted its
+            # request.  Its original ready wire is assigned near the end of
+            # the PYC body, so pyc.assign handling below redirects it.
+            divrem_adapter = {
+                "input_valid_name": fifo_valid_value.name,
+                "input_ready_name": fifo_ready_value.name,
+                "request_ready": request_ready_net,
+                "response_valid": response_valid_net,
+                "response_ready": response_ready_net,
+            }
+            # Subsequent extracts/concats that refer to the FIFO payload must
+            # observe the retained packet while the iterative divider runs.
+            values[packet_value.name] = Value(f"%{held_net}", packet_value.type)
+            instances.append(
+                f"  // FIFO ready/valid are redirected to divrem_{outputs[0].net}."
             )
             continue
 
@@ -410,13 +655,55 @@ def emit_verilog(module: Module, runtime_dir: Path) -> str:
                 )
             continue
 
-        if rhs.startswith("pyc.select "):
-            match = re.fullmatch(r"pyc\.select\s+(.*?)\s*:\s*(.*?)\s*->\s*(\S+)", rhs)
+        if rhs.startswith("pyc.wrapping_bitfield "):
+            match = re.fullmatch(
+                r"pyc\.wrapping_bitfield\s+(.*?)\s*\{(.*?)\}\s*:\s*"
+                r"\((.*?)\)\s*->\s*(\S+)",
+                rhs,
+            )
             if not match or len(lhs) != 1:
-                raise PYCVerilogError(f"cannot parse select: {line}")
+                raise PYCVerilogError(f"cannot parse wrapping bitfield: {line}")
+            inputs = _ssa_names(match.group(1))
+            if len(inputs) != 5:
+                raise PYCVerilogError(
+                    f"wrapping bitfield expects value, source, width, offset, mode: {line}"
+                )
+            values_in = [_value(values, item) for item in inputs]
+            annotated_types = _parse_types(match.group(3))
+            out = add_value(lhs[0], match.group(4))
+            if (
+                len(annotated_types) != 5
+                or [value.type for value in values_in] != annotated_types
+                or [value.type for value in values_in]
+                != ["i64", "i64", "i7", "i7", "i4"]
+                or out.type != "i64"
+            ):
+                raise PYCVerilogError(
+                    "wrapping bitfield operand/result types are inconsistent"
+                )
+            semantic = re.search(r'\bsemantic_id\s*=\s*"([^"]+)"', match.group(2))
+            if not semantic or semantic.group(1) != "pyc.wrapping_bitfield.v1":
+                raise PYCVerilogError("wrapping bitfield semantic_id is invalid")
+            instances.append(
+                "  pyc_runtime_wrapping_bitfield #(.WIDTH(64), .CONTROL_WIDTH(7), .MODE_WIDTH(4)) "
+                f"wrapping_bitfield_{out.net} (\n"
+                f"    .value({values_in[0].net}), .source({values_in[1].net}),\n"
+                f"    .bit_width({values_in[2].net}), .bit_offset({values_in[3].net}),\n"
+                f"    .mode({values_in[4].net}), .result({out.net})\n"
+                "  );"
+            )
+            continue
+
+        if rhs.startswith("pyc.select ") or rhs.startswith("pyc.mux "):
+            op_name = "pyc.select" if rhs.startswith("pyc.select ") else "pyc.mux"
+            match = re.fullmatch(
+                rf"{re.escape(op_name)}\s+(.*?)\s*:\s*(.*?)\s*->\s*(\S+)", rhs
+            )
+            if not match or len(lhs) != 1:
+                raise PYCVerilogError(f"cannot parse mux: {line}")
             inputs = _ssa_names(match.group(1))
             if len(inputs) != 3:
-                raise PYCVerilogError(f"select expects condition, true, false: {line}")
+                raise PYCVerilogError(f"mux expects select, true, false: {line}")
             select, true_value, false_value = (_value(values, item) for item in inputs)
             annotated_types = _parse_types(match.group(2))
             out = add_value(lhs[0], match.group(3))
@@ -426,7 +713,7 @@ def emit_verilog(module: Module, runtime_dir: Path) -> str:
                 or true_value.type != out.type
                 or false_value.type != out.type
             ):
-                raise PYCVerilogError("select condition/data types are inconsistent")
+                raise PYCVerilogError("mux select/data types are inconsistent")
             assigns.append(
                 f"  assign {out.net} = {select.net} ? {true_value.net} : {false_value.net};"
             )
@@ -442,7 +729,10 @@ def emit_verilog(module: Module, runtime_dir: Path) -> str:
             annotated_source = cast.group(3)
             out = add_value(lhs[0], cast.group(4))
             if annotated_source is not None and source.type != annotated_source:
-                raise PYCVerilogError("cast source annotation does not match operand")
+                raise PYCVerilogError(
+                    f"cast source annotation does not match operand: {line} "
+                    f"(actual {source.type})"
+                )
             if cast.group(1) == "alias" and source.type != out.type:
                 raise PYCVerilogError("alias source/result types must match")
             if cast.group(1) == "trunc" and source.width < out.width:
@@ -471,11 +761,65 @@ def emit_verilog(module: Module, runtime_dir: Path) -> str:
             source = _value(values, match.group(2))
             if target.type != match.group(3) or source.type != target.type:
                 raise PYCVerilogError("assign source/target types are inconsistent")
-            assigns.append(f"  assign {target.net} = {source.net};")
+            if divrem_adapter and target.name == divrem_adapter["input_ready_name"]:
+                assigns.append(
+                    f"  assign {target.net} = {divrem_adapter['request_ready']};"
+                )
+            else:
+                assigns.append(f"  assign {target.net} = {source.net};")
+            continue
+
+        shift_op = re.fullmatch(
+            r"pyc\.(shl|lshr|ashr)\s+(.*?)\s*:\s*(\S+)\s*,\s*(\S+)",
+            rhs,
+        )
+        if shift_op and len(lhs) == 1:
+            inputs = _ssa_names(shift_op.group(2))
+            if len(inputs) != 2:
+                raise PYCVerilogError(f"shift expects two operands: {line}")
+            left, right = (_value(values, item) for item in inputs)
+            if [left.type, right.type] != [shift_op.group(3), shift_op.group(4)]:
+                raise PYCVerilogError("shift operand annotations are inconsistent")
+            if left.type != right.type:
+                raise PYCVerilogError("shift amount type must match shifted value")
+            out = add_value(lhs[0], left.type)
+            operator = {"shl": "<<", "lshr": ">>", "ashr": ">>>"}[shift_op.group(1)]
+            expression = (
+                f"$signed({left.net}) >>> {right.net}"
+                if shift_op.group(1) == "ashr"
+                else f"{left.net} {operator} {right.net}"
+            )
+            assigns.append(f"  assign {out.net} = {expression};")
+            continue
+
+        comparison_op = re.fullmatch(
+            r'pyc\.cmp\s+(.*?)\s*\{\s*predicate\s*=\s*"(eq|ult|slt)"\s*\}'
+            r"\s*:\s*(.*?)\s*->\s*(\S+)",
+            rhs,
+        )
+        if comparison_op and len(lhs) == 1:
+            inputs = _ssa_names(comparison_op.group(1))
+            if len(inputs) != 2:
+                raise PYCVerilogError(f"cmp expects two operands: {line}")
+            left, right = (_value(values, item) for item in inputs)
+            operand_types = _parse_types(comparison_op.group(3))
+            out = add_value(lhs[0], comparison_op.group(4))
+            if operand_types != [left.type, right.type] or out.type != "i1":
+                raise PYCVerilogError("cmp operand/result types are inconsistent")
+            predicate = comparison_op.group(2)
+            if predicate == "slt":
+                expression = f"$signed({left.net}) < $signed({right.net})"
+            else:
+                expression = (
+                    f"{left.net} == {right.net}"
+                    if predicate == "eq"
+                    else f"{left.net} < {right.net}"
+                )
+            assigns.append(f"  assign {out.net} = {expression};")
             continue
 
         binary = re.fullmatch(
-            r"pyc\.(and|or|xor|add|sub|mul)\s+"
+            r"pyc\.(and|or|xor|add|sub|mul|shl|lshr|ashr|eq|ne|ult|slt|ule|ugt|uge)\s+"
             r"(.*?)\s*:\s*(.*?)\s*->\s*(\S+)",
             rhs,
         )
@@ -487,8 +831,19 @@ def emit_verilog(module: Module, runtime_dir: Path) -> str:
             operand_types = _parse_types(binary.group(3))
             if operand_types != [left.type, right.type]:
                 raise PYCVerilogError("binary operand annotations are inconsistent")
+            comparison = binary.group(1) in {
+                "eq",
+                "ne",
+                "ult",
+                "slt",
+                "ule",
+                "ugt",
+                "uge",
+            }
             out = add_value(lhs[0], binary.group(4))
-            if out.type != left.type:
+            if comparison and out.type != "i1":
+                raise PYCVerilogError("comparison result must be i1")
+            if not comparison and out.type != left.type:
                 raise PYCVerilogError("binary result type must match operands")
             operator = {
                 "and": "&",
@@ -497,33 +852,23 @@ def emit_verilog(module: Module, runtime_dir: Path) -> str:
                 "add": "+",
                 "sub": "-",
                 "mul": "*",
+                "shl": "<<",
+                "lshr": ">>",
+                "ashr": ">>>",
+                "eq": "==",
+                "ne": "!=",
+                "ult": "<",
+                "slt": "<",
+                "ule": "<=",
+                "ugt": ">",
+                "uge": ">=",
             }[binary.group(1)]
-            expression = f"{left.net} {operator} {right.net}"
-            assigns.append(f"  assign {out.net} = {expression};")
-            continue
-
-        compare = re.fullmatch(
-            r'pyc\.cmp\s+(.*?)\s*\{\s*predicate\s*=\s*"(eq|ult|slt)"\s*\}'
-            r"\s*:\s*(.*?)\s*->\s*(\S+)",
-            rhs,
-        )
-        if compare and len(lhs) == 1:
-            inputs = _ssa_names(compare.group(1))
-            if len(inputs) != 2:
-                raise PYCVerilogError(f"cmp expects two operands: {line}")
-            left, right = (_value(values, item) for item in inputs)
-            if _parse_types(compare.group(3)) != [left.type, right.type]:
-                raise PYCVerilogError("cmp operand annotations are inconsistent")
-            out = add_value(lhs[0], compare.group(4))
-            if out.type != "i1":
-                raise PYCVerilogError("cmp result must be i1")
-            predicate = compare.group(2)
-            if predicate == "eq":
-                expression = f"{left.net} == {right.net}"
-            elif predicate == "ult":
-                expression = f"{left.net} < {right.net}"
-            else:
+            if binary.group(1) == "slt":
                 expression = f"$signed({left.net}) < $signed({right.net})"
+            elif binary.group(1) == "ashr":
+                expression = f"$signed({left.net}) >>> {right.net}"
+            else:
+                expression = f"{left.net} {operator} {right.net}"
             assigns.append(f"  assign {out.net} = {expression};")
             continue
 
@@ -571,7 +916,19 @@ def emit_verilog(module: Module, runtime_dir: Path) -> str:
     text.append("")
     text.extend(instances)
     text.extend(["", "endmodule", ""])
-    text.extend(_runtime_sources(runtime_dir))
+    body_text = "\n".join(module.body)
+    text.extend(
+        _runtime_sources(
+            runtime_dir,
+            include_fifo="pyc.fifo " in body_text,
+            include_reg="pyc.reg " in body_text,
+            include_popcount="pyc.popcount " in body_text,
+            include_rr_arbiter="pyc.rr_arbiter " in body_text,
+            include_wrapping_bitfield="pyc.wrapping_bitfield " in body_text,
+            include_divrem="pyc.divrem " in body_text,
+            include_priority="pyc.priority_encode " in body_text,
+        )
+    )
     text.extend(["", "/* verilator lint_on DECLFILENAME */", ""])
     return "\n".join(text)
 

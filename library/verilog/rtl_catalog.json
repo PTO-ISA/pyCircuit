@@ -20,8 +20,13 @@
         "WIDTH": "input_width"
       },
       "ports": {
-        "inputs": ["in_value"],
-        "outputs": ["index", "valid"]
+        "inputs": [
+          "in_value"
+        ],
+        "outputs": [
+          "index",
+          "valid"
+        ]
       },
       "sources": [
         {
@@ -56,15 +61,19 @@
         "WIDTH": "input_width"
       },
       "ports": {
-        "inputs": ["in_value"],
-        "outputs": ["count"]
+        "inputs": [
+          "in_value"
+        ],
+        "outputs": [
+          "count"
+        ]
       },
       "sources": [
         {
-          "path": "pyc_popcount_primitive.v",
-          "sha256": "sha256:e5ab6d5c1f5657d4b43f121ee05738f42160c66c7d997059fd2893fdb75ebce4",
+          "path": "bitfield_primitives/pyc_popcount_primitive.sv",
+          "sha256": "sha256:019567028940095d7aa39d095078112ed15a45829dc3de792919426f8e46ef02",
           "license": "BSD-3-Clause",
-          "modified": false
+          "modified": true
         }
       ],
       "license_file": "licenses/BSD-3-Clause.txt",
@@ -76,7 +85,7 @@
       },
       "qualification": {
         "status": "validated",
-        "report": "docs/gates/logs/20260905-pyc-popcount-rtl-r1/summary.md"
+        "report": "docs/gates/logs/20260916-alu-bitfield-decomposition/qualification.json"
       }
     },
     {
@@ -99,8 +108,12 @@
         "WIDTH": "input_width"
       },
       "ports": {
-        "inputs": ["in_value"],
-        "outputs": ["count"]
+        "inputs": [
+          "in_value"
+        ],
+        "outputs": [
+          "count"
+        ]
       },
       "sources": [
         {
@@ -120,6 +133,296 @@
       "qualification": {
         "status": "validated",
         "report": "docs/gates/logs/20260905-pyc-zero-count-family-r1/summary.md"
+      }
+    },
+    {
+      "semantic_id": "pyc.wrapping_field_normalize.v1",
+      "implementation_id": "pyc.bsd.wrapping_field_normalize.v1",
+      "effect_class": "comb",
+      "module": "pyc_wrapping_field_normalize",
+      "min_width": 1,
+      "max_width": 64,
+      "selection_priority": 100,
+      "parameter_bindings": {
+        "CONTROL_WIDTH": "width_control",
+        "WIDTH": "input_width"
+      },
+      "ports": {
+        "inputs": [
+          "value",
+          "bit_width",
+          "bit_offset"
+        ],
+        "outputs": [
+          "field",
+          "mask"
+        ]
+      },
+      "sources": [
+        {
+          "path": "bitfield_primitives/pyc_wrapping_field_normalize.sv",
+          "sha256": "sha256:05216c60237a96a3bbd2f0b2920a10808fb84d4d6a9574f906692d034d8867d8",
+          "license": "BSD-3-Clause",
+          "modified": true
+        }
+      ],
+      "license_file": "licenses/BSD-3-Clause.txt",
+      "license_sha256": "sha256:321940059773d631ad73832bfa870431aa6cba545b38d4055641ce21275bb22c",
+      "provenance": {
+        "origin": "PTO-ISA/pyCircuit",
+        "design_input": "ALU wrapping-bitfield decomposition",
+        "license": "BSD-3-Clause"
+      },
+      "qualification": {
+        "status": "validated",
+        "report": "docs/gates/logs/20260916-alu-bitfield-decomposition/qualification.json"
+      }
+    },
+    {
+      "semantic_id": "pyc.bitfield_clear.v1",
+      "implementation_id": "pyc.bsd.bitfield_clear.v1",
+      "effect_class": "comb",
+      "module": "pyc_bitfield_clear",
+      "min_width": 1,
+      "max_width": 64,
+      "selection_priority": 100,
+      "parameter_bindings": {
+        "WIDTH": "input_width"
+      },
+      "ports": {
+        "inputs": [
+          "value",
+          "mask"
+        ],
+        "outputs": [
+          "result"
+        ]
+      },
+      "sources": [
+        {
+          "path": "bitfield_primitives/pyc_bitfield_clear.sv",
+          "sha256": "sha256:faa64d52b0250eda3f2e6b7706f50ecda7607700f25867a89b06ebc1a8551d8e",
+          "license": "BSD-3-Clause",
+          "modified": true
+        }
+      ],
+      "license_file": "licenses/BSD-3-Clause.txt",
+      "license_sha256": "sha256:321940059773d631ad73832bfa870431aa6cba545b38d4055641ce21275bb22c",
+      "provenance": {
+        "origin": "PTO-ISA/pyCircuit",
+        "design_input": "ALU wrapping-bitfield decomposition",
+        "license": "BSD-3-Clause"
+      },
+      "qualification": {
+        "status": "validated",
+        "report": "docs/gates/logs/20260916-alu-bitfield-decomposition/qualification.json"
+      }
+    },
+    {
+      "semantic_id": "pyc.bitfield_set.v1",
+      "implementation_id": "pyc.bsd.bitfield_set.v1",
+      "effect_class": "comb",
+      "module": "pyc_bitfield_set",
+      "min_width": 1,
+      "max_width": 64,
+      "selection_priority": 100,
+      "parameter_bindings": {
+        "WIDTH": "input_width"
+      },
+      "ports": {
+        "inputs": [
+          "value",
+          "mask"
+        ],
+        "outputs": [
+          "result"
+        ]
+      },
+      "sources": [
+        {
+          "path": "bitfield_primitives/pyc_bitfield_set.sv",
+          "sha256": "sha256:4f9799028e14ec88692c1fe95239c537a81cadab39093edd5e7cb7220fdd2326",
+          "license": "BSD-3-Clause",
+          "modified": true
+        }
+      ],
+      "license_file": "licenses/BSD-3-Clause.txt",
+      "license_sha256": "sha256:321940059773d631ad73832bfa870431aa6cba545b38d4055641ce21275bb22c",
+      "provenance": {
+        "origin": "PTO-ISA/pyCircuit",
+        "design_input": "ALU wrapping-bitfield decomposition",
+        "license": "BSD-3-Clause"
+      },
+      "qualification": {
+        "status": "validated",
+        "report": "docs/gates/logs/20260916-alu-bitfield-decomposition/qualification.json"
+      }
+    },
+    {
+      "semantic_id": "pyc.bitfield_insert.v1",
+      "implementation_id": "pyc.bsd.bitfield_insert.v1",
+      "effect_class": "comb",
+      "module": "pyc_bitfield_insert",
+      "min_width": 1,
+      "max_width": 64,
+      "selection_priority": 100,
+      "parameter_bindings": {
+        "CONTROL_WIDTH": "width_control",
+        "WIDTH": "input_width"
+      },
+      "ports": {
+        "inputs": [
+          "value",
+          "source",
+          "mask",
+          "bit_width",
+          "bit_offset"
+        ],
+        "outputs": [
+          "result"
+        ]
+      },
+      "sources": [
+        {
+          "path": "bitfield_primitives/pyc_bitfield_insert.sv",
+          "sha256": "sha256:44bdce1cd509eb20863d192ffc7794098644f340c235663fc211ae7c9ff294d6",
+          "license": "BSD-3-Clause",
+          "modified": true
+        }
+      ],
+      "license_file": "licenses/BSD-3-Clause.txt",
+      "license_sha256": "sha256:321940059773d631ad73832bfa870431aa6cba545b38d4055641ce21275bb22c",
+      "provenance": {
+        "origin": "PTO-ISA/pyCircuit",
+        "design_input": "ALU wrapping-bitfield decomposition",
+        "license": "BSD-3-Clause"
+      },
+      "qualification": {
+        "status": "validated",
+        "report": "docs/gates/logs/20260916-alu-bitfield-decomposition/qualification.json"
+      }
+    },
+    {
+      "semantic_id": "pyc.reverse_bytes.v1",
+      "implementation_id": "pyc.bsd.reverse_bytes.v1",
+      "effect_class": "comb",
+      "module": "pyc_reverse_bytes",
+      "min_width": 1,
+      "max_width": 64,
+      "selection_priority": 100,
+      "parameter_bindings": {
+        "CONTROL_WIDTH": "width_control",
+        "WIDTH": "input_width"
+      },
+      "ports": {
+        "inputs": [
+          "field",
+          "bit_width"
+        ],
+        "outputs": [
+          "result"
+        ]
+      },
+      "sources": [
+        {
+          "path": "bitfield_primitives/pyc_reverse_bytes.sv",
+          "sha256": "sha256:04ac0fe466de318b1b4c6af4c9a5fb8e202b4679497999acfe7e7afed1f6eb37",
+          "license": "BSD-3-Clause",
+          "modified": true
+        }
+      ],
+      "license_file": "licenses/BSD-3-Clause.txt",
+      "license_sha256": "sha256:321940059773d631ad73832bfa870431aa6cba545b38d4055641ce21275bb22c",
+      "provenance": {
+        "origin": "PTO-ISA/pyCircuit",
+        "design_input": "ALU wrapping-bitfield decomposition",
+        "license": "BSD-3-Clause"
+      },
+      "qualification": {
+        "status": "validated",
+        "report": "docs/gates/logs/20260916-alu-bitfield-decomposition/qualification.json"
+      }
+    },
+    {
+      "semantic_id": "pyc.dynamic_sign_extend.v1",
+      "implementation_id": "pyc.bsd.dynamic_sign_extend.v1",
+      "effect_class": "comb",
+      "module": "pyc_dynamic_sign_extend",
+      "min_width": 1,
+      "max_width": 64,
+      "selection_priority": 100,
+      "parameter_bindings": {
+        "CONTROL_WIDTH": "width_control",
+        "WIDTH": "input_width"
+      },
+      "ports": {
+        "inputs": [
+          "field",
+          "bit_width"
+        ],
+        "outputs": [
+          "result"
+        ]
+      },
+      "sources": [
+        {
+          "path": "bitfield_primitives/pyc_dynamic_sign_extend.sv",
+          "sha256": "sha256:64a96ed7859f7c453cd1fb30600ce674d985ace0c46ee0669f4b1156a3571fc1",
+          "license": "BSD-3-Clause",
+          "modified": true
+        }
+      ],
+      "license_file": "licenses/BSD-3-Clause.txt",
+      "license_sha256": "sha256:321940059773d631ad73832bfa870431aa6cba545b38d4055641ce21275bb22c",
+      "provenance": {
+        "origin": "PTO-ISA/pyCircuit",
+        "design_input": "ALU wrapping-bitfield decomposition",
+        "license": "BSD-3-Clause"
+      },
+      "qualification": {
+        "status": "validated",
+        "report": "docs/gates/logs/20260916-alu-bitfield-decomposition/qualification.json"
+      }
+    },
+    {
+      "semantic_id": "pyc.runtime_zero_count.v1",
+      "implementation_id": "pyc.bsd.runtime_zero_count.v1",
+      "effect_class": "comb",
+      "module": "pyc_runtime_zero_count",
+      "min_width": 1,
+      "max_width": 64,
+      "selection_priority": 100,
+      "parameter_bindings": {
+        "COUNT_WIDTH": "output_width",
+        "WIDTH": "input_width"
+      },
+      "ports": {
+        "inputs": [
+          "value",
+          "direction_low"
+        ],
+        "outputs": [
+          "count"
+        ]
+      },
+      "sources": [
+        {
+          "path": "bitfield_primitives/pyc_runtime_zero_count.sv",
+          "sha256": "sha256:666bbc8290fe87b505eaa1604e1579186c5c9e830083069a25041e40d0c5eec8",
+          "license": "BSD-3-Clause",
+          "modified": true
+        }
+      ],
+      "license_file": "licenses/BSD-3-Clause.txt",
+      "license_sha256": "sha256:321940059773d631ad73832bfa870431aa6cba545b38d4055641ce21275bb22c",
+      "provenance": {
+        "origin": "PTO-ISA/pyCircuit",
+        "design_input": "ALU wrapping-bitfield decomposition",
+        "license": "BSD-3-Clause"
+      },
+      "qualification": {
+        "status": "validated",
+        "report": "docs/gates/logs/20260916-alu-bitfield-decomposition/qualification.json"
       }
     }
   ]
