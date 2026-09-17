@@ -131,6 +131,7 @@ from .static_types import (
     _validate_static_config_roots,
 )
 from .syntax import _decorator_name
+from .statements import _ParserEnvironment, _ParserState
 
 RULE_LOWERING_PIPELINE = (
     "builtin.module("
@@ -2404,55 +2405,57 @@ def parse_queue_program(
             expression,
             apply_call,
         )
-    queues: list[QueueBinding] = []
-    effect_rules: list[QueueBinding] = []
-    scopes: list[ScopeBinding] = []
-    routes: list[RouteBinding] = []
-    forks: list[ForkBinding] = []
-    feedbacks: list[FeedbackBinding] = []
-    merges: list[MergeBinding] = []
-    reorders: list[ReorderBinding] = []
-    dependencies: list[DependencyBinding] = []
-    credits: list[CreditBinding] = []
-    barriers: list[BarrierBinding] = []
-    selects: list[SelectBinding] = []
-    memory_instances: list[MemoryInstanceBinding] = []
-    memory_requests: list[MemoryRequestBinding] = []
-    memories: list[MemoryBinding] = []
-    variables: list[VarStateBinding] = []
-    tables: list[TableBinding] = []
-    table_reads: list[TableReadBinding] = []
-    table_writes: list[TableWriteBinding] = []
-    masked_table_writes: list[MaskedTableWriteBinding] = []
-    arbitration_descriptors: dict[str, int] = {}
-    arbitration_owners: dict[str, str] = {}
-    slots: list[SlotBinding] = []
-    slot_releases: list[SlotReleaseBinding] = []
-    candidates: list[CandidateSetBinding] = []
-    selections: list[SelectionBinding] = []
-    table_by_name: dict[str, TableBinding] = {}
-    variable_by_name: dict[str, VarStateBinding] = {}
-    entry_views: dict[
-        str,
-        EntryViewBinding | MaskedEntryViewBinding | ProjectedTableViewBinding,
-    ] = {}
-    slot_by_name: dict[str, SlotBinding] = {}
-    candidate_by_name: dict[str, CandidateSetBinding] = {}
-    selection_by_name: dict[str, SelectionBinding] = {}
-    selection_tuple_aliases: dict[str, tuple[str, ...]] = {}
-    selection_lane_ordinals: dict[str, int] = {}
-    memory_by_name: dict[str, MemoryInstanceBinding] = {}
-    memory_arrays: dict[str, StaticMemoryArrayBinding] = {}
-    selected_memories: dict[str, SelectedMemoryBinding] = {}
-    consumed_selected_memories: set[str] = set()
-    sinks: list[SinkBinding] = []
-    observations: list[ObservationBinding] = []
-    expectations: list[ExpectBinding] = []
-    by_name: dict[str, QueueBinding] = {}
-    collections: dict[str, StaticQueueCollection] = {}
-    collection_bindings: list[CollectionBinding] = []
-    order = 0
-    statement_sources: dict[int, SourceFrame] = {}
+    parser_environment = _ParserEnvironment(
+        system_static_values,
+        tuple(payloads),
+        result_payloads,
+    )
+    parser_state = _ParserState()
+    queues = parser_state.queues
+    effect_rules = parser_state.effect_rules
+    scopes = parser_state.scopes
+    routes = parser_state.routes
+    forks = parser_state.forks
+    feedbacks = parser_state.feedbacks
+    merges = parser_state.merges
+    reorders = parser_state.reorders
+    dependencies = parser_state.dependencies
+    credits = parser_state.credits
+    barriers = parser_state.barriers
+    selects = parser_state.selects
+    memory_instances = parser_state.memory_instances
+    memory_requests = parser_state.memory_requests
+    memories = parser_state.memories
+    variables = parser_state.variables
+    tables = parser_state.tables
+    table_reads = parser_state.table_reads
+    table_writes = parser_state.table_writes
+    masked_table_writes = parser_state.masked_table_writes
+    arbitration_descriptors = parser_state.arbitration_descriptors
+    arbitration_owners = parser_state.arbitration_owners
+    slots = parser_state.slots
+    slot_releases = parser_state.slot_releases
+    candidates = parser_state.candidates
+    selections = parser_state.selections
+    table_by_name = parser_state.table_by_name
+    variable_by_name = parser_state.variable_by_name
+    entry_views = parser_state.entry_views
+    slot_by_name = parser_state.slot_by_name
+    candidate_by_name = parser_state.candidate_by_name
+    selection_by_name = parser_state.selection_by_name
+    selection_tuple_aliases = parser_state.selection_tuple_aliases
+    selection_lane_ordinals = parser_state.selection_lane_ordinals
+    memory_by_name = parser_state.memory_by_name
+    memory_arrays = parser_state.memory_arrays
+    selected_memories = parser_state.selected_memories
+    consumed_selected_memories = parser_state.consumed_selected_memories
+    sinks = parser_state.sinks
+    observations = parser_state.observations
+    expectations = parser_state.expectations
+    by_name = parser_state.by_name
+    collections = parser_state.collections
+    collection_bindings = parser_state.collection_bindings
+    statement_sources = parser_state.statement_sources
 
     for name, payload in external_parameters:
         if name in by_name:
@@ -2466,13 +2469,13 @@ def parse_queue_program(
             1,
             None,
             scope=(),
-            order=order,
+            order=parser_state.order,
             provider="boundary",
             source=parameter_sources.get(name),
         )
         queues.append(binding)
         by_name[name] = binding
-        order += 1
+        parser_state.order += 1
 
     def call_name(call: ast.Call) -> str:
         return _decorator_name(call.func).rsplit(".", 1)[-1]
@@ -3495,7 +3498,6 @@ def parse_queue_program(
         scope_path: tuple[str, ...],
         aliases: dict[str, str | StaticQueueCollection] | None = None,
     ) -> None:
-        nonlocal order
         aliases = {} if aliases is None else aliases
         for statement in statements:
             statement = rewrite_selection_tuple_refs(statement)
@@ -3505,8 +3507,8 @@ def parse_queue_program(
                 and isinstance(statement.value.value, str)
             ):
                 continue
-            current_order = order
-            order += 1
+            current_order = parser_state.order
+            parser_state.order += 1
             if (frame := source_frame(statement)) is not None:
                 statement_sources[current_order] = frame
             if (
@@ -4545,8 +4547,8 @@ def parse_queue_program(
                     (false_arm, false_input, false_output),
                     (true_arm, true_input, true_output),
                 ):
-                    branch_order = order
-                    order += 1
+                    branch_order = parser_state.order
+                    parser_state.order += 1
                     binding = QueueBinding(
                         arm_output,
                         incoming.payload,
@@ -4561,8 +4563,8 @@ def parse_queue_program(
                     queues.append(binding)
                     by_name[arm_output] = binding
 
-                merge_order = order
-                order += 1
+                merge_order = parser_state.order
+                parser_state.order += 1
                 output = QueueBinding(
                     name,
                     incoming.payload,
@@ -5626,7 +5628,7 @@ def parse_queue_program(
                     )
                 )
                 consumed_selected_memories.add(selected_name)
-                order += 1
+                parser_state.order += 1
                 continue
             if (
                 isinstance(statement, ast.Assign)
@@ -7387,7 +7389,7 @@ def parse_queue_program(
                             source_frame(statement),
                         )
                     )
-                order += len(returned) - 1
+                parser_state.order += len(returned) - 1
                 continue
             raise QueueFrontendError(
                 f"ACPY-QUEUE-001: unsupported statement {type(statement).__name__}"
