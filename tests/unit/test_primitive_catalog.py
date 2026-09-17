@@ -22,9 +22,16 @@ def test_implementation_catalog_is_bsd_and_digest_closed() -> None:
     assert catalog["schema"] == "pyc-rtl-catalog-v1"
     implementations = catalog["implementations"]
     assert {item["semantic_id"] for item in implementations} == {
+        "pyc.bitfield_clear.v1",
+        "pyc.bitfield_insert.v1",
+        "pyc.bitfield_set.v1",
         "pyc.count_zeros.v1",
+        "pyc.dynamic_sign_extend.v1",
         "pyc.popcount.v1",
         "pyc.priority_encode.v1",
+        "pyc.reverse_bytes.v1",
+        "pyc.runtime_zero_count.v1",
+        "pyc.wrapping_field_normalize.v1",
     }
     for implementation in implementations:
         assert implementation["effect_class"] == "comb"
@@ -32,14 +39,16 @@ def test_implementation_catalog_is_bsd_and_digest_closed() -> None:
         assert implementation["license_file"] == "licenses/BSD-3-Clause.txt"
         license_path = catalog_path.parent / implementation["license_file"]
         assert license_path.is_file()
+        license_bytes = license_path.read_bytes().replace(b"\r\n", b"\n")
         assert implementation["license_sha256"] == (
-            "sha256:" + hashlib.sha256(license_path.read_bytes()).hexdigest()
+            "sha256:" + hashlib.sha256(license_bytes).hexdigest()
         )
         assert "basejump" not in implementation["implementation_id"].lower()
         for source in implementation["sources"]:
             assert source["license"] == "BSD-3-Clause"
             path = catalog_path.parent / source["path"]
-            digest = "sha256:" + hashlib.sha256(path.read_bytes()).hexdigest()
+            source_bytes = path.read_bytes().replace(b"\r\n", b"\n")
+            digest = "sha256:" + hashlib.sha256(source_bytes).hexdigest()
             assert source["sha256"] == digest
 
 
@@ -74,6 +83,21 @@ def test_semantic_registry_contains_no_implementation_names() -> None:
     assert leading["parameters"]["direction"]["values"] == [
         "leading",
         "trailing",
+    ]
+
+
+def test_popcount_catalog_uses_the_single_bitfield_primitive_definition() -> None:
+    root = Path(__file__).resolve().parents[2]
+    catalog = json.loads(
+        (root / "library/verilog/rtl_catalog.json").read_text(encoding="utf-8")
+    )
+    popcount = next(
+        item
+        for item in catalog["implementations"]
+        if item["semantic_id"] == "pyc.popcount.v1"
+    )
+    assert [source["path"] for source in popcount["sources"]] == [
+        "bitfield_primitives/pyc_popcount_primitive.sv"
     ]
 
 

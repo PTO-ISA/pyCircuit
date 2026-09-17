@@ -88,6 +88,15 @@ def PYC_SremOp : PYC_Op<"srem", [Pure]> {
   let hasFolder = 1;
 }
 
+def PYC_DivRemOp : PYC_Op<"divrem", [Pure]> {
+  let summary = "Shared signed/unsigned XLEN/word divide and remainder";
+  let arguments = (ins AnyInteger:$lhs, AnyInteger:$rhs, I1:$signed_mode,
+                       I1:$word_mode);
+  let results = (outs AnyInteger:$quotient, AnyInteger:$remainder);
+  let hasVerifier = 1;
+  let assemblyFormat = "$lhs `,` $rhs `,` $signed_mode `,` $word_mode attr-dict `:` `(` type($lhs) `,` type($rhs) `,` type($signed_mode) `,` type($word_mode) `)` `->` `(` type($quotient) `,` type($remainder) `)`";
+}
+
 def PYC_SelectOp : PYC_Op<"select", [Pure]> {
   let summary = "Select one of two values (combinational)";
   let arguments = (ins I1:$sel, AnyInteger:$a, AnyInteger:$b);
@@ -239,6 +248,13 @@ def PYC_CountZerosOp : PYC_Op<"count_zeros", [Pure]> {
   let assemblyFormat = "$in attr-dict `:` type($in) `->` type($count)";
 }
 
+def PYC_WrappingBitfieldOp : PYC_Op<"wrapping_bitfield", [Pure]> {
+  let summary = "Dynamic wrapping bitfield semantic primitive";
+  let arguments = (ins Variadic<AnyInteger>:$inputs, StrAttr:$semantic_id);
+  let results = (outs AnyInteger:$result);
+  let hasVerifier = 1;
+  let assemblyFormat = "$inputs attr-dict `:` `(` type($inputs) `)` `->` type($result)";
+}
 def PYC_RtlCombOp : PYC_Op<"rtl.comb", [Pure]> {
   let summary = "Selected qualified combinational RTL implementation";
   let arguments = (ins Variadic<AnyInteger>:$inputs,

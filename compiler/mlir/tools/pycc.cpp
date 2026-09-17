@@ -1057,6 +1057,20 @@ static std::string sha256Fingerprint(llvm::StringRef bytes) {
   return "sha256:" + llvm::toHex(hasher.final(), true);
 }
 
+static std::string repositoryTextFingerprint(llvm::StringRef bytes) {
+  if (!bytes.contains("\r\n"))
+    return sha256Fingerprint(bytes);
+  std::string normalized;
+  normalized.reserve(bytes.size());
+  for (size_t index = 0; index < bytes.size(); ++index) {
+    if (bytes[index] == '\r' && index + 1 < bytes.size() &&
+        bytes[index + 1] == '\n')
+      continue;
+    normalized.push_back(bytes[index]);
+  }
+  return sha256Fingerprint(normalized);
+}
+
 static FailureOr<std::vector<SelectedRtlSource>>
 collectSelectedRtlSources(ModuleOp module) {
   std::vector<SelectedRtlSource> result;
@@ -1155,7 +1169,7 @@ static LogicalResult emitPrimitivesFile(llvm::StringRef outPath,
       return failure();
     }
     llvm::StringRef content = fileOrErr->get()->getBuffer();
-    if (sha256Fingerprint(content) != source.sha256) {
+    if (repositoryTextFingerprint(content) != source.sha256) {
       llvm::errs() << "error: selected RTL source digest mismatch: "
                    << source.path << "\n";
       return failure();
@@ -2436,6 +2450,15 @@ int main(int argc, char **argv) {
   pm.addPass(pyc::createCheckCombCyclesPass());
   pm.addPass(pyc::createCheckClockDomainsPass());
   pm.addNestedPass<func::FuncOp>(pyc::createPackI1RegsPass());
+  if (emitKind == "verilog") {
+    std::string catalogPath;
+    if (auto primitiveDir = findPrimitivesDir(argv[0])) {
+      llvm::SmallString<256> candidate(*primitiveDir);
+      llvm::sys::path::append(candidate, "rtl_catalog.json");
+      catalogPath = candidate.str().str();
+    }
+    pm.addPass(pyc::createSelectRtlPrimitivesPass(std::move(catalogPath)));
+  }
   const bool enableFuseComb = (!cppOnly) || !cppOnlyPreserveOps;
   if (enableFuseComb)
     pm.addNestedPass<func::FuncOp>(pyc::createFuseCombPass());
@@ -2447,15 +2470,6 @@ int main(int argc, char **argv) {
   pm.addNestedPass<func::FuncOp>(pyc::createCheckFlatTypesPass());
   pm.addNestedPass<func::FuncOp>(pyc::createCheckNoDynamicPass());
   pm.addPass(pyc::createCheckLogicDepthPass(logicDepthLimit));
-  if (emitKind == "verilog") {
-    std::string catalogPath;
-    if (auto primitiveDir = findPrimitivesDir(argv[0])) {
-      llvm::SmallString<256> candidate(*primitiveDir);
-      llvm::sys::path::append(candidate, "rtl_catalog.json");
-      catalogPath = candidate.str().str();
-    }
-    pm.addPass(pyc::createSelectRtlPrimitivesPass(std::move(catalogPath)));
-  }
   pm.addNestedPass<func::FuncOp>(pyc::createCollectCompileStatsPass());
   const auto tPassStart = Clock::now();
   if (failed(pm.run(*module))) {

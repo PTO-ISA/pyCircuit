@@ -410,6 +410,28 @@ template <unsigned Width> struct PacketTraits<UInt<Width>> {
       std::nullopt;
 };
 
+template <unsigned Width>
+constexpr UInt<Width> signedDiv(UInt<Width> lhs, UInt<Width> rhs) {
+  const std::int64_t dividend = lhs.signedValue();
+  const std::int64_t divisor = rhs.signedValue();
+  if (divisor == 0)
+    return UInt<Width>{};
+  if (dividend == std::numeric_limits<std::int64_t>::min() && divisor == -1)
+    return lhs;
+  return UInt<Width>{dividend / divisor};
+}
+
+template <unsigned Width>
+constexpr UInt<Width> signedRem(UInt<Width> lhs, UInt<Width> rhs) {
+  const std::int64_t dividend = lhs.signedValue();
+  const std::int64_t divisor = rhs.signedValue();
+  if (divisor == 0)
+    return lhs;
+  if (dividend == std::numeric_limits<std::int64_t>::min() && divisor == -1)
+    return UInt<Width>{};
+  return UInt<Width>{dividend % divisor};
+}
+
 } // namespace gfsim
 
 #endif // GFSIM_BITS_H

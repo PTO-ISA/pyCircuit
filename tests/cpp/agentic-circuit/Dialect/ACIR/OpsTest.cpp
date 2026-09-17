@@ -40,17 +40,18 @@ TEST(ACIROpsTest, SemanticPrimitiveWidthsAcceptOneTo64AndReject65To130) {
     const unsigned countWidth = acir::primitiveCountWidth(width);
     std::string source;
     llvm::raw_string_ostream stream(source);
-    stream << "builtin.module attributes {ac.contract_epoch = \"0.5\"} {\n"
-           << "  %value = \"builtin.unrealized_conversion_cast\"() : () -> "
-           << "!ac.var<i" << width << ">\n"
-           << "  %index, %valid = ac.var.priority_encode %value order \"low\" : "
-           << "!ac.var<i" << width << "> -> !ac.var<i" << priorityWidth
-           << ">, !ac.var<i1>\n"
-           << "  %count = ac.var.popcount %value : !ac.var<i" << width
-           << "> -> !ac.var<i" << countWidth << ">\n"
-           << "  %zeros = ac.var.count_zeros %value direction \"leading\" : "
-           << "!ac.var<i" << width << "> -> !ac.var<i" << countWidth << ">\n"
-           << "}\n";
+    stream
+        << "builtin.module attributes {ac.contract_epoch = \"0.5\"} {\n"
+        << "  %value = \"builtin.unrealized_conversion_cast\"() : () -> "
+        << "!ac.var<i" << width << ">\n"
+        << "  %index, %valid = ac.var.priority_encode %value order \"low\" : "
+        << "!ac.var<i" << width << "> -> !ac.var<i" << priorityWidth
+        << ">, !ac.var<i1>\n"
+        << "  %count = ac.var.popcount %value : !ac.var<i" << width
+        << "> -> !ac.var<i" << countWidth << ">\n"
+        << "  %zeros = ac.var.count_zeros %value direction \"leading\" : "
+        << "!ac.var<i" << width << "> -> !ac.var<i" << countWidth << ">\n"
+        << "}\n";
     auto module = mlir::parseSourceString<mlir::ModuleOp>(source, &context);
     EXPECT_EQ(static_cast<bool>(module), width <= 64) << "width " << width;
   }
@@ -298,6 +299,7 @@ TEST(ACIROpsTest, RegistryContainsExactQueueVarOperations) {
       "ac.table.yield",
       "ac.slot",
       "ac.slot.get",
+      "ac.slot.propose_release",
       "ac.slot.release",
       "ac.slot.yield",
       "ac.reorder",
@@ -310,17 +312,28 @@ TEST(ACIROpsTest, RegistryContainsExactQueueVarOperations) {
       "ac.protocol",
       "ac.queue",
       "ac.var.add",
+      "ac.var.addw",
       "ac.var.and",
+      "ac.var.andw",
       "ac.var.array",
       "ac.var.record",
       "ac.var.assign",
       "ac.var.assign_element",
+      "ac.var.bitfield_clear",
+      "ac.var.bitfield_clz",
+      "ac.var.bitfield_ctz",
+      "ac.var.bitfield_extract",
+      "ac.var.bitfield_insert",
+      "ac.var.bitfield_popcount",
+      "ac.var.bitfield_reverse_bytes",
+      "ac.var.bitfield_set",
       "ac.var.choose",
       "ac.var.choose.yield",
       "ac.var.concat",
       "ac.var.constant",
       "ac.var.count_zeros",
       "ac.var.cmp",
+      "ac.var.csel",
       "ac.var.decl",
       "ac.var.dynamic_element",
       "ac.var.element",
@@ -333,11 +346,19 @@ TEST(ACIROpsTest, RegistryContainsExactQueueVarOperations) {
       "ac.var.invariant.yield",
       "ac.var.match",
       "ac.var.match.yield",
+      "ac.var.madd",
+      "ac.var.maddw",
       "ac.var.mul",
+      "ac.var.mulw",
+      "ac.var.msub",
       "ac.var.udiv",
+      "ac.var.sdiv",
       "ac.var.urem",
+      "ac.var.srem",
+      "ac.var.divrem",
       "ac.var.not",
       "ac.var.or",
+      "ac.var.orw",
       "ac.var.popcount",
       "ac.var.priority_encode",
       "ac.var.range_add",
@@ -351,14 +372,28 @@ TEST(ACIROpsTest, RegistryContainsExactQueueVarOperations) {
       "ac.var.read",
       "ac.var.read_element",
       "ac.var.select",
+      "ac.var.sext_low",
       "ac.var.shl",
       "ac.var.shr",
+      "ac.var.sll",
+      "ac.var.sllw",
+      "ac.var.smax",
+      "ac.var.smin",
+      "ac.var.sra",
+      "ac.var.sraw",
+      "ac.var.srl",
+      "ac.var.srlw",
       "ac.var.matches",
       "ac.var.sub",
+      "ac.var.subw",
       "ac.var.tuple",
       "ac.var.xor",
+      "ac.var.xorw",
       "ac.var.with",
       "ac.var.with_element",
+      "ac.var.umax",
+      "ac.var.umin",
+      "ac.var.zext_low",
       "ac.require",
       "ac.return",
       "ac.resource",
@@ -479,8 +514,8 @@ TEST(ACIROpsTest, TaskSixRegistryDeltaIsExactlyEightGraphOperations) {
   mlir::MLIRContext context;
   context.loadDialect<ACIRDialect>();
   const std::array<llvm::StringLiteral, 8> names = {
-      "ac.system",    "ac.module",    "ac.module.extern", "ac.instance",
-      "ac.array",     "ac.instances", "ac.view",          "ac.return",
+      "ac.system", "ac.module",    "ac.module.extern", "ac.instance",
+      "ac.array",  "ac.instances", "ac.view",          "ac.return",
   };
   for (llvm::StringLiteral name : names)
     EXPECT_TRUE(mlir::OperationName(name, &context).isRegistered())
@@ -706,11 +741,10 @@ TEST(ACIROpsTest, RuntimeAndQueueVarRegistryIsExact) {
   mlir::MLIRContext context;
   context.loadDialect<ACIRDialect>();
   const std::array<llvm::StringLiteral, 15> names = {
-      "ac.process",        "ac.try_send",        "ac.try_recv",
-      "ac.schedule",       "ac.wait_until",      "ac.wait_for",
-      "ac.await_event", "ac.yield_sim", "ac.require", "ac.ensure",
-      "ac.assert",      "ac.probe",     "ac.stat",    "ac.stat.add",
-      "ac.instrumentation",
+      "ac.process",    "ac.try_send", "ac.try_recv",        "ac.schedule",
+      "ac.wait_until", "ac.wait_for", "ac.await_event",     "ac.yield_sim",
+      "ac.require",    "ac.ensure",   "ac.assert",          "ac.probe",
+      "ac.stat",       "ac.stat.add", "ac.instrumentation",
   };
   for (llvm::StringLiteral name : names)
     EXPECT_TRUE(mlir::OperationName(name, &context).isRegistered())
@@ -830,9 +864,8 @@ TEST(ACIROpsTest, RuntimeAndQueueVarRegistryIsExact) {
   for (llvm::StringLiteral name : queueVarNames)
     EXPECT_TRUE(mlir::OperationName(name, &context).isRegistered())
         << name.str();
-  EXPECT_EQ(context.getRegisteredOperationsByDialect("ac").size(), 151u);
+  EXPECT_EQ(context.getRegisteredOperationsByDialect("ac").size(), 185u);
 }
-
 
 TEST(ACIROpsTest, LargeArrayVerificationIsDeterministic) {
   mlir::MLIRContext context;
@@ -1293,7 +1326,6 @@ TEST(ACIROpsTest, TaskEightOwnersParticipateInSaturatedArrayBudget) {
   EXPECT_NE(diagnostic.find("owner count exceeds bound 1048576"),
             std::string::npos);
 }
-
 
 TEST(ACIROpsTest, StaticContractsUseFreezePhaseModuleEffects) {
   mlir::MLIRContext context;

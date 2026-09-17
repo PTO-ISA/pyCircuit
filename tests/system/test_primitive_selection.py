@@ -16,6 +16,11 @@ def _root() -> Path:
     return Path(__file__).resolve().parents[2]
 
 
+def _repository_text_digest(path: Path) -> str:
+    content = path.read_bytes().replace(b"\r\n", b"\n")
+    return "sha256:" + hashlib.sha256(content).hexdigest()
+
+
 def _tool(name: str) -> str:
     configured = os.environ.get(name.upper().replace("-", "_"))
     if configured and Path(configured).is_file():
@@ -45,8 +50,7 @@ def _primitive_width_module(widths: range) -> str:
     for width in widths:
         priority_width = max(1, (width - 1).bit_length())
         count_width = max(1, width.bit_length())
-        functions.append(
-            f"""  func.func @width_{width}(%value: i{width})
+        functions.append(f"""  func.func @width_{width}(%value: i{width})
       -> (i{priority_width}, i1, i{count_width}, i{count_width}) {{
     %index, %valid = pyc.priority_encode %value {{order = \"low\"}} :
         i{width} -> i{priority_width}, i1 loc(\"width_{width}\":1:1)
@@ -56,8 +60,7 @@ def _primitive_width_module(widths: range) -> str:
         i{width} -> i{count_width} loc(\"width_{width}\":3:1)
     func.return %index, %valid, %population, %zeros :
         i{priority_width}, i1, i{count_width}, i{count_width}
-  }}"""
-        )
+  }}""")
     return "module {\n" + "\n".join(functions) + "\n}\n"
 
 
@@ -155,7 +158,9 @@ def test_selector_is_catalog_owned_and_fail_closed(tmp_path: Path) -> None:
     catalog_document = json.loads(catalog.read_text(encoding="utf-8"))
     for implementation in catalog_document["implementations"]:
         for source in implementation["sources"]:
-            shutil.copy2(root / "library" / "verilog" / source["path"], isolated)
+            destination = isolated / source["path"]
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(root / "library" / "verilog" / source["path"], destination)
     (isolated / "licenses").mkdir()
     shutil.copy2(
         root / "library" / "verilog" / "licenses" / "BSD-3-Clause.txt",
@@ -334,9 +339,9 @@ def test_popcount_selector_and_semantic_verifier(tmp_path: Path) -> None:
 
 
 def test_popcount_candidate_is_a_balanced_tree() -> None:
-    source = (_root() / "library/verilog/pyc_popcount_primitive.v").read_text(
-        encoding="utf-8"
-    )
+    source = (
+        _root() / "library/verilog/bitfield_primitives/pyc_popcount_primitive.sv"
+    ).read_text(encoding="utf-8")
     assert "always @*" not in source
     assert "count = count +" not in source
     assert "PAD_WIDTH = 1 << TREE_LEVELS" in source
@@ -524,14 +529,14 @@ def test_popcount_pyc_cpp_and_selected_rtl_agree(tmp_path: Path) -> None:
     selection = manifest["rtl_selection"]
     assert selection["implementations"][0]["semantic_id"] == "pyc.popcount.v1"
     assert selection["implementations"][0]["sources"][0]["path"] == (
-        "pyc_popcount_primitive.v"
+        "bitfield_primitives/pyc_popcount_primitive.sv"
     )
     assert selection["bindings"][0]["parameters"] == {
         "COUNT_WIDTH": 4,
         "WIDTH": 13,
     }
 
-    cxx = shutil.which("c++")
+    cxx = os.environ.get("CXX") or shutil.which("c++")
     if cxx:
         harness = tmp_path / "popcount_harness.cpp"
         harness.write_text(
@@ -574,7 +579,7 @@ int main() {{
         )
         assert executed.returncode == 0, executed.stderr
 
-    verilator = shutil.which("verilator")
+    verilator = os.environ.get("VERILATOR") or shutil.which("verilator")
     if verilator:
         linted = subprocess.run(
             [
@@ -677,7 +682,7 @@ def test_zero_count_pyc_cpp_and_selected_rtl_agree(
         for binding in selection["bindings"]
     )
 
-    cxx = shutil.which("c++")
+    cxx = os.environ.get("CXX") or shutil.which("c++")
     if cxx:
         harness = tmp_path / "count_zeros_harness.cpp"
         harness.write_text(
@@ -806,7 +811,7 @@ endmodule
             "popcount_widths_tb",
             "-o",
             str(executable),
-            str(root / "library/verilog/pyc_popcount_primitive.v"),
+            str(root / "library/verilog/bitfield_primitives/pyc_popcount_primitive.sv"),
             str(testbench),
         ],
         text=True,
@@ -916,7 +921,7 @@ def test_agentic_semantic_primitive_verilog_output_is_closed_and_lints(
     primitive_module: str,
     top: str,
 ) -> None:
-    verilator = shutil.which("verilator")
+    verilator = os.environ.get("VERILATOR") or shutil.which("verilator")
     if not verilator:
         pytest.skip("Verilator is unavailable")
     root = _root()
@@ -1021,9 +1026,7 @@ def test_pyc_cpp_and_selected_rtl_agree(tmp_path: Path) -> None:
     source = implementations[0]["sources"][0]
     bundled_source = verilog / source["bundle_path"]
     assert bundled_source.is_file()
-    assert source["sha256"] == (
-        "sha256:" + hashlib.sha256(bundled_source.read_bytes()).hexdigest()
-    )
+    assert source["sha256"] == _repository_text_digest(bundled_source)
     bindings = selection["bindings"]
     assert len(bindings) == 2
     assert {item["parameters"]["ORDER_LOW"] for item in bindings} == {0, 1}
@@ -1031,7 +1034,7 @@ def test_pyc_cpp_and_selected_rtl_agree(tmp_path: Path) -> None:
     assert primitives.count("module pyc_priority_encode") == 1
     assert "basejump" not in primitives.lower()
 
-    cxx = shutil.which("c++")
+    cxx = os.environ.get("CXX") or shutil.which("c++")
     if cxx:
         harness = tmp_path / "cpp_harness.cpp"
         harness.write_text(
@@ -1066,7 +1069,7 @@ int main() {{
         )
         subprocess.run([str(executable)], cwd=root, check=True)
 
-    verilator = shutil.which("verilator")
+    verilator = os.environ.get("VERILATOR") or shutil.which("verilator")
     if verilator:
         subprocess.run(
             [
@@ -1122,5 +1125,5 @@ def test_installed_catalog_keeps_license_evidence() -> None:
     for implementation in catalog["implementations"]:
         license_path = catalog_path.parent / implementation["license_file"]
         assert license_path.is_file()
-        digest = "sha256:" + hashlib.sha256(license_path.read_bytes()).hexdigest()
+        digest = _repository_text_digest(license_path)
         assert digest == implementation["license_sha256"]

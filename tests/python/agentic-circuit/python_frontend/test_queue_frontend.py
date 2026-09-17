@@ -139,6 +139,70 @@ def pipeline() -> None:
     sink(output_queue)
 """
 
+ALU_PRIMITIVE_SOURCE = """
+import agentic_circuit as ac
+
+@ac.struct
+class Item:
+    lhs: ac.u64
+    rhs: ac.u64
+    aux: ac.u64
+    width: ac.u7
+    offset: ac.u6
+    predicate: ac.u1
+    addw_result: ac.u64
+    sraw_result: ac.u64
+    maddw_result: ac.u64
+    extract_result: ac.u64
+    insert_result: ac.u64
+    csel_result: ac.u64
+
+@ac.system
+def pipeline() -> None:
+    incoming = ac.source(Item)
+    outgoing = incoming.apply(
+        lambda item: item.with_fields(
+            addw_result=ac.addw(item.lhs, item.rhs),
+            sraw_result=ac.sraw(item.lhs, item.rhs),
+            maddw_result=ac.maddw(item.lhs, item.rhs, item.aux),
+            extract_result=ac.bitfield_extract(
+                item.lhs, item.width, item.offset, signed=True
+            ),
+            insert_result=ac.bitfield_insert(
+                item.lhs, item.rhs, item.width, item.offset
+            ),
+            csel_result=ac.csel(
+                item.predicate, item.lhs, item.rhs, negate_false=True
+            ),
+        )
+    )
+    ac.sink(outgoing)
+"""
+
+DIVREM_SOURCE = """
+import agentic_circuit as ac
+
+@ac.struct
+class DivPacket:
+    lhs: ac.u64
+    rhs: ac.u64
+    signed: ac.u1
+    word: ac.u1
+    quotient: ac.u64
+    remainder: ac.u64
+
+@ac.module
+def divide(item: DivPacket) -> DivPacket:
+    quotient, remainder = ac.divrem(
+        item.lhs, item.rhs, signed=item.signed, word=item.word
+    )
+    return item.with_fields(quotient=quotient, remainder=remainder)
+
+@ac.system
+def pipeline(item: DivPacket) -> DivPacket:
+    return divide(item)
+"""
+
 STRUCT_SOURCE = """
 from agentic_circuit import sink, source, struct, system
 
@@ -2659,6 +2723,53 @@ def pipeline() -> None:
         )
         self.assertIn('direction "trailing" : !ac.var<i13> -> !ac.var<i4>', lowered)
         self.assertEqual(lowered.count("ac.var.count_zeros"), 2)
+
+    def test_alu_semantic_primitives_lower_to_typed_var_operations(self) -> None:
+        from agentic_circuit._queue_frontend import lower_queue_source
+
+        lowered = lower_queue_source(ALU_PRIMITIVE_SOURCE, "pipeline")
+        for operation in (
+            "addw",
+            "sraw",
+            "maddw",
+            "bitfield_extract",
+            "bitfield_insert",
+            "csel",
+        ):
+            with self.subTest(operation=operation):
+                self.assertIn(f"ac.var.{operation}", lowered)
+        self.assertIn("signed_mode true", lowered)
+        self.assertIn("ac.var.csel", lowered)
+        self.assertIn("ac.var.constant true as !ac.var<i1>", lowered)
+
+    def test_alu_semantic_primitives_reject_invalid_operands_and_modes(self) -> None:
+        from agentic_circuit._queue_frontend import (
+            QueueFrontendError,
+            lower_queue_source,
+        )
+
+        with self.assertRaisesRegex(QueueFrontendError, "addw operands must match"):
+            lower_queue_source(
+                ALU_PRIMITIVE_SOURCE.replace(
+                    "ac.addw(item.lhs, item.rhs)",
+                    "ac.addw(item.lhs, item.width)",
+                ),
+                "pipeline",
+            )
+        with self.assertRaisesRegex(
+            QueueFrontendError, "bitfield_extract signed must be static bool"
+        ):
+            lower_queue_source(
+                ALU_PRIMITIVE_SOURCE.replace("signed=True", "signed=item.predicate"),
+                "pipeline",
+            )
+
+    def test_divrem_lowers_once_with_two_reused_results(self) -> None:
+        from agentic_circuit._queue_frontend import lower_queue_source
+
+        lowered = lower_queue_source(DIVREM_SOURCE, "pipeline")
+        self.assertEqual(lowered.count("ac.var.divrem"), 1)
+        self.assertRegex(lowered, r"%v\d+, %v\d+ = ac\.var\.divrem")
 
     def test_verification_expect_is_non_consuming_and_role_explicit(self) -> None:
         from agentic_circuit._queue_frontend import (
@@ -7748,9 +7859,9 @@ def pipeline(incoming: ac.u8) -> ac.u8:
 
         lowered = lower_queue_source(SERIAL_SOURCE_ORDER_SOURCE, "serial_source_order")
         field_values = {
-            line.split('field "', 1)[1].split('"', 1)[0]: line.split("%", 1)[1].split(
-                " ", 1
-            )[0]
+            line.split('field "', 1)[1]
+            .split('"', 1)[0]: line.split("%", 1)[1]
+            .split(" ", 1)[0]
             for line in lowered.splitlines()
             if "ac.var.get %item field" in line
         }
@@ -7789,9 +7900,9 @@ def pipeline(incoming: ac.u8) -> ac.u8:
 
         lowered = lower_queue_source(SERIAL_GUARD_REBIND_SOURCE, "serial_guard_rebind")
         field_values = {
-            line.split('field "', 1)[1].split('"', 1)[0]: line.split("%", 1)[1].split(
-                " ", 1
-            )[0]
+            line.split('field "', 1)[1]
+            .split('"', 1)[0]: line.split("%", 1)[1]
+            .split(" ", 1)[0]
             for line in lowered.splitlines()
             if "ac.var.get %item field" in line
         }
@@ -7811,9 +7922,9 @@ def pipeline(incoming: ac.u8) -> ac.u8:
             NESTED_BRANCH_GUARD_REBIND_SOURCE, "nested_branch_guard_rebind"
         )
         field_values = {
-            line.split('field "', 1)[1].split('"', 1)[0]: line.split("%", 1)[1].split(
-                " ", 1
-            )[0]
+            line.split('field "', 1)[1]
+            .split('"', 1)[0]: line.split("%", 1)[1]
+            .split(" ", 1)[0]
             for line in lowered.splitlines()
             if "ac.var.get %item field" in line
         }
@@ -7886,9 +7997,9 @@ def pipeline(incoming: ac.u8) -> ac.u8:
             SERIAL_EARLY_GUARD_REBIND_SOURCE, "serial_early_guard_rebind"
         )
         field_values = {
-            line.split('field "', 1)[1].split('"', 1)[0]: line.split("%", 1)[1].split(
-                " ", 1
-            )[0]
+            line.split('field "', 1)[1]
+            .split('"', 1)[0]: line.split("%", 1)[1]
+            .split(" ", 1)[0]
             for line in lowered.splitlines()
             if "ac.var.get %item field" in line
         }

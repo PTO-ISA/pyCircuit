@@ -302,8 +302,8 @@ verifyTypedRuleSummary(Operation *operation, ValueRange inputs,
     effect.set("kind", RuleEffectKindAttr::get(operation->getContext(),
                                                RuleEffectKind::StateRead));
     effect.set("resource", get.getSlotAttr());
-    effect.set("guard_kind", RuleGuardKindAttr::get(
-                                 operation->getContext(), RuleGuardKind::Always));
+    effect.set("guard_kind", RuleGuardKindAttr::get(operation->getContext(),
+                                                    RuleGuardKind::Always));
     expectedEffects.push_back(builder.getDictionaryAttr(effect));
   });
   body.walk([&](SlotProposeReleaseOp release) {
@@ -311,9 +311,9 @@ verifyTypedRuleSummary(Operation *operation, ValueRange inputs,
     effect.set("kind", RuleEffectKindAttr::get(operation->getContext(),
                                                RuleEffectKind::StateWrite));
     effect.set("resource", release.getSlotAttr());
-    effect.set("guard_kind", RuleGuardKindAttr::get(
-                                 operation->getContext(),
-                                 guardKindFor(release.getWhen())));
+    effect.set("guard_kind",
+               RuleGuardKindAttr::get(operation->getContext(),
+                                      guardKindFor(release.getWhen())));
     expectedEffects.push_back(builder.getDictionaryAttr(effect));
   });
 
@@ -635,11 +635,12 @@ LogicalResult RuleOp::verify() {
     return emitOpError("permits at most one functional condition");
   SmallVector<RuleOutputOp> outputPaths;
   getBody().walk([&](RuleOutputOp output) { outputPaths.push_back(output); });
-  const bool hasPathEvidence = getOutputs().size() > 1 ||
-                               !outputPaths.empty() ||
-                               llvm::any_of(proposals, [](TableProposeOp op) {
-                                 return static_cast<bool>(op.getWhen());
-                               }) || !slotReleases.empty();
+  const bool hasPathEvidence =
+      getOutputs().size() > 1 || !outputPaths.empty() ||
+      llvm::any_of(
+          proposals,
+          [](TableProposeOp op) { return static_cast<bool>(op.getWhen()); }) ||
+      !slotReleases.empty();
   if (hasPathEvidence) {
     if (conditions != 1)
       return emitOpError("SSA path evidence requires one rule condition");
@@ -884,11 +885,12 @@ LogicalResult SourceOp::verify() {
     if (!declaration || !active.insert(declaration).second)
       return false;
     auto fields = declaration->getAttrOfType<ArrayAttr>("fields");
-    const bool found = fields && llvm::any_of(fields, [&](Attribute rawField) {
-      auto field = dyn_cast<DictionaryAttr>(rawField);
-      auto fieldType = field ? field.getAs<TypeAttr>("type") : TypeAttr();
-      return fieldType && containsDeclaredRange(fieldType.getValue());
-    });
+    const bool found =
+        fields && llvm::any_of(fields, [&](Attribute rawField) {
+          auto field = dyn_cast<DictionaryAttr>(rawField);
+          auto fieldType = field ? field.getAs<TypeAttr>("type") : TypeAttr();
+          return fieldType && containsDeclaredRange(fieldType.getValue());
+        });
     active.erase(declaration);
     return found;
   };
@@ -1292,9 +1294,8 @@ LogicalResult FiringOp::verify() {
   SmallVector<FiringConditionOp> conditions;
   getBody().walk(
       [&](TableProposeOp proposal) { proposals.push_back(proposal); });
-  getBody().walk([&](SlotProposeReleaseOp release) {
-    slotReleases.push_back(release);
-  });
+  getBody().walk(
+      [&](SlotProposeReleaseOp release) { slotReleases.push_back(release); });
   getBody().walk([&](TableGetOp read) { tableReads.push_back(read); });
   getBody().walk(
       [&](FiringConditionOp condition) { conditions.push_back(condition); });
@@ -1317,11 +1318,12 @@ LogicalResult FiringOp::verify() {
     if (output.getOrdinal() < 0 ||
         static_cast<size_t>(output.getOrdinal()) >= getOutputs().size())
       return output.emitOpError("ordinal must name one firing output");
-  const bool hasPathEvidence = getOutputs().size() > 1 ||
-                               !outputPaths.empty() ||
-                               llvm::any_of(proposals, [](TableProposeOp op) {
-                                 return static_cast<bool>(op.getWhen());
-                               }) || !slotReleases.empty();
+  const bool hasPathEvidence =
+      getOutputs().size() > 1 || !outputPaths.empty() ||
+      llvm::any_of(
+          proposals,
+          [](TableProposeOp op) { return static_cast<bool>(op.getWhen()); }) ||
+      !slotReleases.empty();
   if (hasPathEvidence) {
     if (conditions.size() != 1)
       return emitOpError("SSA path evidence requires one firing condition");
@@ -1432,9 +1434,8 @@ LogicalResult FiringOp::verify() {
             "inferred footprint must exactly match its state operation");
     }
   }
-  const bool validArity =
-      !getInputs().empty() || !getOutputs().empty() || !proposals.empty() ||
-      !slotReleases.empty();
+  const bool validArity = !getInputs().empty() || !getOutputs().empty() ||
+                          !proposals.empty() || !slotReleases.empty();
   if (conditions.empty() && requiresInferredSchedule) {
     return emitOpError("requires one typed functional condition");
   }
@@ -2010,10 +2011,9 @@ LogicalResult VarConstantOp::verify() {
   if (auto range = dyn_cast<RangeType>(result.getElementType())) {
     auto integer = dyn_cast_or_null<IntegerAttr>(value);
     const uint64_t upper = range.getUpper();
-    const unsigned width =
-        upper == std::numeric_limits<uint64_t>::max()
-            ? 64
-            : std::max(1u, llvm::Log2_64_Ceil(upper + 1));
+    const unsigned width = upper == std::numeric_limits<uint64_t>::max()
+                               ? 64
+                               : std::max(1u, llvm::Log2_64_Ceil(upper + 1));
     if (!integer || !integer.getType().isSignlessInteger(width) ||
         integer.getValue().getZExtValue() < range.getLower() ||
         integer.getValue().getZExtValue() > upper)
@@ -2181,7 +2181,8 @@ LogicalResult VarWithElementOp::verify() {
     return emitOpError("index must be an unsigned scalar");
   if (range && range.getUpper() >= static_cast<uint64_t>(array.getLength()))
     return emitOpError("bounded index exceeds the value_array length");
-  if (getValue().getType() != VarType::get(getContext(), array.getElementType()))
+  if (getValue().getType() !=
+      VarType::get(getContext(), array.getElementType()))
     return emitOpError("replacement must match the value_array element type");
   if (getResult().getType() != getAggregate().getType())
     return emitOpError("result must preserve the value_array type");
@@ -2203,8 +2204,8 @@ static bool supportsZeroImage(Operation *operation, Type type,
   Operation *declaration = recordDecl(operation, type);
   if (!declaration || !seen.insert(declaration).second)
     return false;
-  const bool supported = llvm::all_of(
-      declarationFields(declaration), [&](Attribute rawField) {
+  const bool supported =
+      llvm::all_of(declarationFields(declaration), [&](Attribute rawField) {
         return supportsZeroImage(
             operation, fieldType(cast<DictionaryAttr>(rawField)), seen);
       });
@@ -2241,10 +2242,9 @@ LogicalResult VarDeclOp::verify() {
   const bool zeroImage = zero && zero.getValue().isZero();
   if (auto range = dyn_cast<RangeType>(getValueType())) {
     const uint64_t upper = range.getUpper();
-    const unsigned width =
-        upper == std::numeric_limits<uint64_t>::max()
-            ? 64
-            : std::max(1u, llvm::Log2_64_Ceil(upper + 1));
+    const unsigned width = upper == std::numeric_limits<uint64_t>::max()
+                               ? 64
+                               : std::max(1u, llvm::Log2_64_Ceil(upper + 1));
     if (!zero || !zero.getType().isSignlessInteger(width) ||
         zero.getValue().getZExtValue() < range.getLower() ||
         zero.getValue().getZExtValue() > upper)
@@ -2255,8 +2255,8 @@ LogicalResult VarDeclOp::verify() {
     if ((!init || init.getType() != getValueType()) &&
         !(zeroImage && isa<StructType, EnumType>(getValueType()) &&
           supportsZeroImage(*this, getValueType(), seen)))
-      return emitOpError(
-          "init must match value type or be the zero image for a struct or enum");
+      return emitOpError("init must match value type or be the zero image for "
+                         "a struct or enum");
   }
   if (getOwner().empty() || !getOwner().starts_with('/') ||
       (getOwner().size() > 1 && getOwner().ends_with('/')))
@@ -2556,8 +2556,42 @@ LogicalResult VarUDivOp::verify() {
   return verifyVarUnsignedBinary(*this, getLhs(), getRhs(), getResult());
 }
 
+LogicalResult VarSDivOp::verify() {
+  return verifyVarUnsignedBinary(*this, getLhs(), getRhs(), getResult());
+}
+
 LogicalResult VarURemOp::verify() {
   return verifyVarUnsignedBinary(*this, getLhs(), getRhs(), getResult());
+}
+
+LogicalResult VarSRemOp::verify() {
+  return verifyVarUnsignedBinary(*this, getLhs(), getRhs(), getResult());
+}
+
+LogicalResult VarDivRemOp::verify() {
+  auto lhs = dyn_cast<VarType>(getLhs().getType());
+  auto rhs = dyn_cast<VarType>(getRhs().getType());
+  auto signedMode = dyn_cast<VarType>(getSignedMode().getType());
+  auto wordMode = dyn_cast<VarType>(getWordMode().getType());
+  auto quotient = dyn_cast<VarType>(getQuotient().getType());
+  auto remainder = dyn_cast<VarType>(getRemainder().getType());
+  if (!lhs || !rhs || !signedMode || !wordMode || !quotient || !remainder ||
+      lhs != rhs)
+    return emitOpError("divrem operands and results must be ac.var values");
+  auto lhsInt = dyn_cast<IntegerType>(lhs.getElementType());
+  auto rhsInt = dyn_cast<IntegerType>(rhs.getElementType());
+  auto quotientInt = dyn_cast<IntegerType>(quotient.getElementType());
+  auto remainderInt = dyn_cast<IntegerType>(remainder.getElementType());
+  auto signedModeInt = dyn_cast<IntegerType>(signedMode.getElementType());
+  auto wordModeInt = dyn_cast<IntegerType>(wordMode.getElementType());
+  if (!lhsInt || !rhsInt || !quotientInt || !remainderInt || !signedModeInt ||
+      !wordModeInt || !lhsInt.isSignless() || !rhsInt.isSignless() ||
+      !signedModeInt.isSignless() || !wordModeInt.isSignless() ||
+      signedModeInt.getWidth() != 1 || wordModeInt.getWidth() != 1 ||
+      lhsInt.getWidth() != 64 || rhsInt.getWidth() != 64 ||
+      quotientInt.getWidth() != 64 || remainderInt.getWidth() != 64)
+    return emitOpError("divrem currently requires i64 operands and results");
+  return success();
 }
 
 namespace {
@@ -2569,7 +2603,8 @@ struct CanonicalizeUnsignedPowerOfTwo final : OpRewritePattern<SourceOp> {
   LogicalResult matchAndRewrite(SourceOp operation,
                                 PatternRewriter &rewriter) const override {
     auto divisor = operation.getRhs().template getDefiningOp<VarConstantOp>();
-    auto value = divisor ? dyn_cast<IntegerAttr>(divisor.getValue()) : IntegerAttr();
+    auto value =
+        divisor ? dyn_cast<IntegerAttr>(divisor.getValue()) : IntegerAttr();
     if (!value || !value.getValue().isPowerOf2())
       return failure();
     auto resultType = cast<VarType>(operation.getResult().getType());
@@ -2578,11 +2613,11 @@ struct CanonicalizeUnsignedPowerOfTwo final : OpRewritePattern<SourceOp> {
     const uint64_t replacementValue =
         IsRemainder ? divisorValue - 1 : llvm::Log2_64(divisorValue);
     auto replacementConstant = VarConstantOp::create(
-        rewriter,
-        operation.getLoc(), resultType,
+        rewriter, operation.getLoc(), resultType,
         rewriter.getIntegerAttr(integerType, replacementValue));
-    auto replacement = TargetOp::create(rewriter, operation.getLoc(), resultType,
-                                        operation.getLhs(), replacementConstant);
+    auto replacement =
+        TargetOp::create(rewriter, operation.getLoc(), resultType,
+                         operation.getLhs(), replacementConstant);
     replacement->setDiscardableAttrs(operation->getDiscardableAttrDictionary());
     rewriter.replaceOp(operation, replacement.getResult());
     return success();
@@ -3021,8 +3056,8 @@ static bool isUnsignedScalar(Type type) {
 static LogicalResult verifyRangeConversion(Operation *operation, Value input,
                                            Value result) {
   Type inputElement = cast<VarType>(input.getType()).getElementType();
-  auto resultRange = dyn_cast<RangeType>(
-      cast<VarType>(result.getType()).getElementType());
+  auto resultRange =
+      dyn_cast<RangeType>(cast<VarType>(result.getType()).getElementType());
   if (!isUnsignedScalar(inputElement) || !resultRange)
     return operation->emitOpError(
         "range conversion requires unsigned scalar input and range result");
@@ -3051,8 +3086,8 @@ LogicalResult VarRangeRefineOp::verify() {
 }
 
 LogicalResult VarRangeBitsOp::verify() {
-  auto inputRange = dyn_cast<RangeType>(
-      cast<VarType>(getInput().getType()).getElementType());
+  auto inputRange =
+      dyn_cast<RangeType>(cast<VarType>(getInput().getType()).getElementType());
   auto resultInteger = dyn_cast<IntegerType>(
       cast<VarType>(getResult().getType()).getElementType());
   if (!inputRange || !resultInteger || !resultInteger.isSignless() ||
@@ -3065,12 +3100,12 @@ LogicalResult VarRangeBitsOp::verify() {
 static LogicalResult verifyRangeArithmetic(Operation *operation, Value lhs,
                                            Value rhs, Value result,
                                            bool subtract) {
-  auto left = dyn_cast<RangeType>(
-      cast<VarType>(lhs.getType()).getElementType());
-  auto right = dyn_cast<RangeType>(
-      cast<VarType>(rhs.getType()).getElementType());
-  auto actual = dyn_cast<RangeType>(
-      cast<VarType>(result.getType()).getElementType());
+  auto left =
+      dyn_cast<RangeType>(cast<VarType>(lhs.getType()).getElementType());
+  auto right =
+      dyn_cast<RangeType>(cast<VarType>(rhs.getType()).getElementType());
+  auto actual =
+      dyn_cast<RangeType>(cast<VarType>(result.getType()).getElementType());
   if (!left || !right || !actual)
     return operation->emitOpError(
         "bounded arithmetic requires range operands and result");
@@ -3134,6 +3169,144 @@ LogicalResult VarInsertOp::verify() {
     return emitOpError("inserted range must be within the base width");
   return verifyNamedBitfieldProvenance(getOperation(), base.getWidth(),
                                        getLsb(), value.getWidth());
+}
+
+static LogicalResult verifyAluInteger(Operation *operation, Value value,
+                                      unsigned expectedWidth = 0) {
+  auto type =
+      dyn_cast<IntegerType>(cast<VarType>(value.getType()).getElementType());
+  if (!type || !type.isSignless() || type.getWidth() == 0 ||
+      type.getWidth() > 64)
+    return operation->emitOpError("operand must be a signless i1..i64 Var");
+  if (expectedWidth != 0 && type.getWidth() != expectedWidth)
+    return operation->emitOpError()
+           << "operand width must be " << expectedWidth;
+  return success();
+}
+
+static LogicalResult verifyAluBinary(Operation *operation, Value lhs, Value rhs,
+                                     Value result, unsigned expectedWidth = 0) {
+  if (lhs.getType() != rhs.getType() || lhs.getType() != result.getType())
+    return operation->emitOpError(
+        "operands and result must have one identical Var type");
+  return verifyAluInteger(operation, lhs, expectedWidth);
+}
+
+static LogicalResult verifyAluTernary(Operation *operation, Value lhs,
+                                      Value rhs, Value aux, Value result,
+                                      unsigned expectedWidth = 0) {
+  if (lhs.getType() != rhs.getType() || lhs.getType() != aux.getType() ||
+      lhs.getType() != result.getType())
+    return operation->emitOpError(
+        "operands and result must have one identical Var type");
+  return verifyAluInteger(operation, lhs, expectedWidth);
+}
+
+static LogicalResult verifyBitfieldControls(Operation *operation, Value value,
+                                            Value width, Value offset,
+                                            Value result) {
+  if (value.getType() != result.getType())
+    return operation->emitOpError(
+        "value and result must have one identical Var type");
+  if (failed(verifyAluInteger(operation, value, 64)) ||
+      failed(verifyAluInteger(operation, width, 7)) ||
+      failed(verifyAluInteger(operation, offset, 6)))
+    return failure();
+  return success();
+}
+
+#define DEFINE_ALU_BINARY_VERIFY(CLASS, WIDTH)                                 \
+  LogicalResult CLASS::verify() {                                              \
+    return verifyAluBinary(*this, getLhs(), getRhs(), getResult(), WIDTH);     \
+  }
+
+DEFINE_ALU_BINARY_VERIFY(VarAddwOp, 64)
+DEFINE_ALU_BINARY_VERIFY(VarSubwOp, 64)
+DEFINE_ALU_BINARY_VERIFY(VarAndwOp, 64)
+DEFINE_ALU_BINARY_VERIFY(VarOrwOp, 64)
+DEFINE_ALU_BINARY_VERIFY(VarXorwOp, 64)
+DEFINE_ALU_BINARY_VERIFY(VarSllOp, 64)
+DEFINE_ALU_BINARY_VERIFY(VarSrlOp, 64)
+DEFINE_ALU_BINARY_VERIFY(VarSraOp, 64)
+DEFINE_ALU_BINARY_VERIFY(VarSllwOp, 64)
+DEFINE_ALU_BINARY_VERIFY(VarSrlwOp, 64)
+DEFINE_ALU_BINARY_VERIFY(VarSrawOp, 64)
+DEFINE_ALU_BINARY_VERIFY(VarSminOp, 64)
+DEFINE_ALU_BINARY_VERIFY(VarUminOp, 64)
+DEFINE_ALU_BINARY_VERIFY(VarSmaxOp, 64)
+DEFINE_ALU_BINARY_VERIFY(VarUmaxOp, 64)
+DEFINE_ALU_BINARY_VERIFY(VarMulwOp, 64)
+
+#undef DEFINE_ALU_BINARY_VERIFY
+
+LogicalResult VarMaddOp::verify() {
+  return verifyAluTernary(*this, getLhs(), getRhs(), getAux(), getResult(), 64);
+}
+
+LogicalResult VarMaddwOp::verify() {
+  return verifyAluTernary(*this, getLhs(), getRhs(), getAux(), getResult(), 64);
+}
+
+LogicalResult VarMsubOp::verify() {
+  return verifyAluTernary(*this, getLhs(), getRhs(), getAux(), getResult(), 64);
+}
+
+LogicalResult VarBitfieldExtractOp::verify() {
+  return verifyBitfieldControls(*this, getValue(), getWidth(), getOffset(),
+                                getResult());
+}
+
+#define DEFINE_BITFIELD_VERIFY(CLASS)                                          \
+  LogicalResult CLASS::verify() {                                              \
+    return verifyBitfieldControls(*this, getValue(), getWidth(), getOffset(),  \
+                                  getResult());                                \
+  }
+
+DEFINE_BITFIELD_VERIFY(VarBitfieldPopcountOp)
+DEFINE_BITFIELD_VERIFY(VarBitfieldClzOp)
+DEFINE_BITFIELD_VERIFY(VarBitfieldCtzOp)
+DEFINE_BITFIELD_VERIFY(VarBitfieldClearOp)
+DEFINE_BITFIELD_VERIFY(VarBitfieldSetOp)
+DEFINE_BITFIELD_VERIFY(VarBitfieldReverseBytesOp)
+
+#undef DEFINE_BITFIELD_VERIFY
+
+LogicalResult VarBitfieldInsertOp::verify() {
+  if (getValue().getType() != getSource().getType() ||
+      getValue().getType() != getResult().getType())
+    return emitOpError(
+        "value, source, and result must have one identical Var type");
+  return verifyBitfieldControls(*this, getValue(), getWidth(), getOffset(),
+                                getResult());
+}
+
+LogicalResult VarSextLowOp::verify() {
+  if (getValue().getType() != getResult().getType())
+    return emitOpError("value and result must have one identical Var type");
+  if (failed(verifyAluInteger(*this, getValue(), 64)))
+    return failure();
+  return verifyAluInteger(*this, getWidth(), 7);
+}
+
+LogicalResult VarZextLowOp::verify() {
+  if (getValue().getType() != getResult().getType())
+    return emitOpError("value and result must have one identical Var type");
+  if (failed(verifyAluInteger(*this, getValue(), 64)))
+    return failure();
+  return verifyAluInteger(*this, getWidth(), 7);
+}
+
+LogicalResult VarCselOp::verify() {
+  if (getLhs().getType() != getRhs().getType() ||
+      getLhs().getType() != getResult().getType())
+    return emitOpError(
+        "selected values and result must have one identical Var type");
+  if (failed(verifyAluInteger(*this, getLhs(), 64)))
+    return failure();
+  if (failed(verifyAluInteger(*this, getPredicate(), 1)) ||
+      failed(verifyAluInteger(*this, getNegateFalse(), 1)))
+    return emitOpError("predicate and negate_false must be !ac.var<i1>");
+  return success();
 }
 
 namespace {
@@ -4023,9 +4196,8 @@ LogicalResult TableIndexOp::verify() {
     Type element = cast<VarType>(coordinate.getType()).getElementType();
     auto type = dyn_cast<IntegerType>(element);
     auto range = dyn_cast<RangeType>(element);
-    if ((!range &&
-         (!type || !type.isSignless() ||
-          type.getWidth() != canonicalTableIndexWidth(extent))) ||
+    if ((!range && (!type || !type.isSignless() ||
+                    type.getWidth() != canonicalTableIndexWidth(extent))) ||
         (range && range.getUpper() >= static_cast<uint64_t>(extent)))
       return emitOpError(
           "coordinate type must use the canonical unsigned axis width or a "

@@ -161,7 +161,10 @@ public:
       for (Value operand : operation->getOperands())
         operands.push_back(memo.lookup(operand));
       const bool commutative =
-          isa<ac::VarMulOp, ac::VarAndOp, ac::VarOrOp, ac::VarXorOp>(operation) ||
+          isa<ac::VarMulOp, ac::VarAndOp, ac::VarOrOp, ac::VarXorOp,
+              ac::VarAndwOp, ac::VarOrwOp, ac::VarXorwOp, ac::VarSminOp,
+              ac::VarUminOp, ac::VarSmaxOp, ac::VarUmaxOp, ac::VarMulwOp>(
+              operation) ||
           (isa<ac::VarCmpOp>(operation) &&
            (cast<ac::VarCmpOp>(operation).getPredicate() == "eq" ||
             cast<ac::VarCmpOp>(operation).getPredicate() == "ne"));
@@ -175,8 +178,7 @@ public:
              << cast<OpResult>(frame.value).getResultNumber() << '(';
       llvm::interleaveComma(operands, stream);
       stream << ')';
-      auto position =
-          interned.try_emplace(key, memo.lookup(frame.value)).first;
+      auto position = interned.try_emplace(key, memo.lookup(frame.value)).first;
       memo[frame.value] = position->getValue();
     }
     return memo.lookup(value);
@@ -272,6 +274,28 @@ ValueConstraint evaluateBinary(const ValueConstraint &left,
         result.push_back(value);
       }
     }
+  return ValueConstraint::finiteSet(result);
+}
+
+template <typename Fn>
+ValueConstraint evaluateTernary(const ValueConstraint &first,
+                                const ValueConstraint &second,
+                                const ValueConstraint &third, Fn &&evaluate) {
+  auto firstValues = exactValues(first);
+  auto secondValues = exactValues(second);
+  auto thirdValues = exactValues(third);
+  if (!firstValues || !secondValues || !thirdValues ||
+      firstValues->size() * secondValues->size() * thirdValues->size() > 64)
+    return ValueConstraint::unknown();
+  SmallVector<uint64_t, 8> result;
+  llvm::DenseSet<uint64_t> unique;
+  for (uint64_t a : *firstValues)
+    for (uint64_t b : *secondValues)
+      for (uint64_t c : *thirdValues) {
+        uint64_t value = evaluate(a, b, c);
+        if (unique.insert(value).second)
+          result.push_back(value);
+      }
   return ValueConstraint::finiteSet(result);
 }
 
@@ -383,10 +407,8 @@ inferConstraint(Operation *operation, unsigned resultIndex,
     uint64_t lower = 0;
     uint64_t upper = 0;
     if (kind == "add") {
-      if (right->first >
-              std::numeric_limits<uint64_t>::max() - left->first ||
-          right->second >
-              std::numeric_limits<uint64_t>::max() - left->second)
+      if (right->first > std::numeric_limits<uint64_t>::max() - left->first ||
+          right->second > std::numeric_limits<uint64_t>::max() - left->second)
         return defaultConstraint(resultType);
       lower = left->first + right->first;
       upper = left->second + right->second;
@@ -397,11 +419,9 @@ inferConstraint(Operation *operation, unsigned resultIndex,
       upper = left->second - right->first;
     } else {
       if ((left->first != 0 &&
-           right->first >
-               std::numeric_limits<uint64_t>::max() / left->first) ||
+           right->first > std::numeric_limits<uint64_t>::max() / left->first) ||
           (left->second != 0 &&
-           right->second >
-               std::numeric_limits<uint64_t>::max() / left->second))
+           right->second > std::numeric_limits<uint64_t>::max() / left->second))
         return defaultConstraint(resultType);
       lower = left->first * right->first;
       upper = left->second * right->second;
@@ -409,12 +429,74 @@ inferConstraint(Operation *operation, unsigned resultIndex,
     return upper <= mask ? ValueConstraint::closedInterval(lower, upper)
                          : defaultConstraint(resultType);
   };
+  auto sext32 = [](uint64_t value) -> uint64_t {
+    uint64_t low = value & 0xffffffffULL;
+    return (low & 0x80000000ULL) ? low | 0xffffffff00000000ULL : low;
+  };
+  auto aluBinary = [&](auto &&fn) {
+    ValueConstraint result = binary(std::forward<decltype(fn)>(fn));
+    return result.kind == ValueConstraintKind::Unknown
+               ? defaultConstraint(resultType)
+               : result;
+  };
+  auto aluWordBinary = [&](auto &&fn) {
+    return aluBinary([&](uint64_t lhs, uint64_t rhs) {
+      return sext32(fn(lhs & 0xffffffffULL, rhs & 0xffffffffULL));
+    });
+  };
+  auto aluShift = [&](bool arithmetic, bool word, bool left) {
+    return aluBinary([&](uint64_t lhs, uint64_t rhs) {
+      unsigned amount = static_cast<unsigned>(rhs & (word ? 31 : 63));
+      if (word) {
+        uint32_t value = static_cast<uint32_t>(lhs);
+        uint32_t shifted =
+            left ? static_cast<uint32_t>(value << amount)
+                 : arithmetic ? static_cast<uint32_t>(
+                                    static_cast<int32_t>(value) >> amount)
+                              : static_cast<uint32_t>(value >> amount);
+        return sext32(shifted);
+      }
+      if (left)
+        return (lhs << amount) & mask;
+      if (!arithmetic)
+        return (lhs >> amount) & mask;
+      return llvm::APInt(64, lhs).ashr(amount).getZExtValue();
+    });
+  };
+  auto bitfieldExtractValue = [&](uint64_t value, uint64_t fieldWidth,
+                                  uint64_t offset, bool signedResult) {
+    if (fieldWidth == 0 || fieldWidth > 64)
+      return uint64_t{0};
+    offset &= 63;
+    uint64_t rotated =
+        offset == 0 ? value : ((value >> offset) | (value << (64 - offset)));
+    uint64_t fieldMask =
+        fieldWidth == 64 ? ~uint64_t{0} : ((uint64_t{1} << fieldWidth) - 1);
+    uint64_t resultValue = rotated & fieldMask;
+    if (signedResult && fieldWidth < 64 &&
+        (resultValue & (uint64_t{1} << (fieldWidth - 1))))
+      resultValue |= ~fieldMask;
+    return resultValue;
+  };
+  auto bitfieldUnary = [&](auto &&fn) {
+    ValueConstraint result = evaluateTernary(
+        operandConstraint(operands, 0), operandConstraint(operands, 1),
+        operandConstraint(operands, 2),
+        [&](uint64_t value, uint64_t fieldWidth, uint64_t offset) {
+          return fn(value, fieldWidth, offset);
+        });
+    return result.kind == ValueConstraintKind::Unknown
+               ? defaultConstraint(resultType)
+               : result;
+  };
   if (isa<ac::VarAddOp>(operation))
     return noWrapInterval("add");
   if (isa<ac::VarSubOp>(operation))
     return noWrapInterval("sub");
   if (isa<ac::VarMulOp>(operation))
     return noWrapInterval("mul");
+  if (isa<ac::VarDivRemOp>(operation))
+    return defaultConstraint(resultType);
   if (isa<ac::VarUDivOp>(operation))
     return boundedBinary(
         [&](uint64_t lhs, uint64_t rhs) { return rhs == 0 ? 0 : lhs / rhs; });
@@ -454,6 +536,203 @@ inferConstraint(Operation *operation, unsigned resultIndex,
     return boundedBinary([&](uint64_t lhs, uint64_t rhs) {
       return rhs >= *width ? uint64_t{0} : lhs >> rhs;
     });
+  if (isa<ac::VarAddwOp>(operation))
+    return aluWordBinary([](uint64_t lhs, uint64_t rhs) { return lhs + rhs; });
+  if (isa<ac::VarSubwOp>(operation))
+    return aluWordBinary([](uint64_t lhs, uint64_t rhs) { return lhs - rhs; });
+  if (isa<ac::VarAndwOp>(operation))
+    return aluWordBinary([](uint64_t lhs, uint64_t rhs) { return lhs & rhs; });
+  if (isa<ac::VarOrwOp>(operation))
+    return aluWordBinary([](uint64_t lhs, uint64_t rhs) { return lhs | rhs; });
+  if (isa<ac::VarXorwOp>(operation))
+    return aluWordBinary([](uint64_t lhs, uint64_t rhs) { return lhs ^ rhs; });
+  if (isa<ac::VarSllOp>(operation))
+    return aluShift(false, false, true);
+  if (isa<ac::VarSrlOp>(operation))
+    return aluShift(false, false, false);
+  if (isa<ac::VarSraOp>(operation))
+    return aluShift(true, false, false);
+  if (isa<ac::VarSllwOp>(operation))
+    return aluShift(false, true, true);
+  if (isa<ac::VarSrlwOp>(operation))
+    return aluShift(false, true, false);
+  if (isa<ac::VarSrawOp>(operation))
+    return aluShift(true, true, false);
+  if (isa<ac::VarSminOp>(operation))
+    return aluBinary([](uint64_t lhs, uint64_t rhs) {
+      return llvm::APInt(64, lhs).slt(llvm::APInt(64, rhs)) ? lhs : rhs;
+    });
+  if (isa<ac::VarUminOp>(operation))
+    return aluBinary(
+        [](uint64_t lhs, uint64_t rhs) { return std::min(lhs, rhs); });
+  if (isa<ac::VarSmaxOp>(operation))
+    return aluBinary([](uint64_t lhs, uint64_t rhs) {
+      return llvm::APInt(64, lhs).sgt(llvm::APInt(64, rhs)) ? lhs : rhs;
+    });
+  if (isa<ac::VarUmaxOp>(operation))
+    return aluBinary(
+        [](uint64_t lhs, uint64_t rhs) { return std::max(lhs, rhs); });
+  if (isa<ac::VarMulwOp>(operation))
+    return aluWordBinary([](uint64_t lhs, uint64_t rhs) { return lhs * rhs; });
+  if (isa<ac::VarMaddOp>(operation)) {
+    ValueConstraint result = evaluateTernary(
+        operandConstraint(operands, 0), operandConstraint(operands, 1),
+        operandConstraint(operands, 2),
+        [](uint64_t lhs, uint64_t rhs, uint64_t aux) {
+          return lhs * rhs + aux;
+        });
+    return result.kind == ValueConstraintKind::Unknown
+               ? defaultConstraint(resultType)
+               : result;
+  }
+  if (isa<ac::VarMaddwOp>(operation)) {
+    ValueConstraint result = evaluateTernary(
+        operandConstraint(operands, 0), operandConstraint(operands, 1),
+        operandConstraint(operands, 2),
+        [&](uint64_t lhs, uint64_t rhs, uint64_t aux) {
+          return sext32((lhs * rhs + aux) & 0xffffffffULL);
+        });
+    return result.kind == ValueConstraintKind::Unknown
+               ? defaultConstraint(resultType)
+               : result;
+  }
+  if (isa<ac::VarMsubOp>(operation)) {
+    ValueConstraint result = evaluateTernary(
+        operandConstraint(operands, 0), operandConstraint(operands, 1),
+        operandConstraint(operands, 2),
+        [](uint64_t lhs, uint64_t rhs, uint64_t aux) {
+          return aux - lhs * rhs;
+        });
+    return result.kind == ValueConstraintKind::Unknown
+               ? defaultConstraint(resultType)
+               : result;
+  }
+  if (auto extract = dyn_cast<ac::VarBitfieldExtractOp>(operation)) {
+    ValueConstraint result = evaluateTernary(
+        operandConstraint(operands, 0), operandConstraint(operands, 1),
+        operandConstraint(operands, 2),
+        [&](uint64_t value, uint64_t fieldWidth, uint64_t offset) {
+          return bitfieldExtractValue(value, fieldWidth, offset,
+                                      extract.getSignedMode());
+        });
+    return result.kind == ValueConstraintKind::Unknown
+               ? defaultConstraint(resultType)
+               : result;
+  }
+  if (isa<ac::VarBitfieldPopcountOp>(operation))
+    return bitfieldUnary(
+        [&](uint64_t value, uint64_t fieldWidth, uint64_t offset) {
+          return llvm::popcount(
+              bitfieldExtractValue(value, fieldWidth, offset, false));
+        });
+  if (isa<ac::VarBitfieldClzOp>(operation))
+    return bitfieldUnary([&](uint64_t value, uint64_t fieldWidth,
+                             uint64_t offset) {
+      uint64_t field = bitfieldExtractValue(value, fieldWidth, offset, false);
+      if (fieldWidth == 0 || fieldWidth > 64)
+        return uint64_t{0};
+      if (field == 0)
+        return fieldWidth;
+      uint64_t count = 0;
+      for (uint64_t bit = fieldWidth;
+           bit != 0 && ((field >> (bit - 1)) & 1) == 0; --bit)
+        ++count;
+      return count;
+    });
+  if (isa<ac::VarBitfieldCtzOp>(operation))
+    return bitfieldUnary([&](uint64_t value, uint64_t fieldWidth,
+                             uint64_t offset) {
+      uint64_t field = bitfieldExtractValue(value, fieldWidth, offset, false);
+      if (fieldWidth == 0 || fieldWidth > 64)
+        return uint64_t{0};
+      if (field == 0)
+        return fieldWidth;
+      uint64_t count = 0;
+      while (((field >> count) & 1) == 0)
+        ++count;
+      return count;
+    });
+  if (isa<ac::VarBitfieldClearOp, ac::VarBitfieldSetOp>(operation))
+    return bitfieldUnary([&](uint64_t value, uint64_t fieldWidth,
+                             uint64_t offset) {
+      if (fieldWidth == 0 || fieldWidth > 64)
+        return value;
+      unsigned amount = static_cast<unsigned>(offset & 63);
+      uint64_t rotated =
+          amount == 0 ? value : ((value >> amount) | (value << (64 - amount)));
+      uint64_t fieldMask =
+          fieldWidth == 64 ? ~uint64_t{0} : ((uint64_t{1} << fieldWidth) - 1);
+      if (isa<ac::VarBitfieldSetOp>(operation))
+        rotated |= fieldMask;
+      else
+        rotated &= ~fieldMask;
+      return amount == 0 ? rotated
+                         : ((rotated << amount) | (rotated >> (64 - amount)));
+    });
+  if (isa<ac::VarBitfieldReverseBytesOp>(operation))
+    return bitfieldUnary([&](uint64_t value, uint64_t fieldWidth,
+                             uint64_t offset) {
+      if (fieldWidth == 0 || fieldWidth > 64 || (fieldWidth % 8) != 0)
+        return uint64_t{0};
+      uint64_t field = bitfieldExtractValue(value, fieldWidth, offset, false);
+      uint64_t resultValue = 0;
+      for (uint64_t index = 0; index < fieldWidth / 8; ++index)
+        resultValue |= ((field >> (index * 8)) & 0xffULL)
+                       << ((fieldWidth / 8 - index - 1) * 8);
+      return resultValue;
+    });
+  if (isa<ac::VarBitfieldInsertOp>(operation)) {
+    auto sourceValues = exactValues(operandConstraint(operands, 1));
+    if (!sourceValues || sourceValues->size() != 1)
+      return defaultConstraint(resultType);
+    ValueConstraint result = evaluateTernary(
+        operandConstraint(operands, 0), operandConstraint(operands, 2),
+        operandConstraint(operands, 3),
+        [&](uint64_t base, uint64_t fieldWidth, uint64_t offset) {
+          if (fieldWidth == 0 || fieldWidth > 64)
+            return uint64_t{0};
+          uint64_t resultValue = base;
+          for (uint64_t bit = 0; bit < fieldWidth; ++bit) {
+            uint64_t destination = (offset + bit) & 63;
+            uint64_t bitMask = uint64_t{1} << destination;
+            resultValue = (resultValue & ~bitMask) |
+                          (((sourceValues->front() >> bit) & 1) ? bitMask : 0);
+          }
+          return resultValue;
+        });
+    return result.kind == ValueConstraintKind::Unknown
+               ? defaultConstraint(resultType)
+               : result;
+  }
+  if (isa<ac::VarSextLowOp, ac::VarZextLowOp>(operation)) {
+    auto values = exactValues(operandConstraint(operands, 0));
+    auto widths = exactValues(operandConstraint(operands, 1));
+    if (values && widths && values->size() == 1 && widths->size() == 1 &&
+        widths->front() > 0 && widths->front() <= 64) {
+      uint64_t fieldWidth = widths->front();
+      uint64_t fieldMask =
+          fieldWidth == 64 ? ~uint64_t{0} : ((uint64_t{1} << fieldWidth) - 1);
+      uint64_t resultValue = values->front() & fieldMask;
+      if (isa<ac::VarSextLowOp>(operation) && fieldWidth < 64 &&
+          (resultValue & (uint64_t{1} << (fieldWidth - 1))))
+        resultValue |= ~fieldMask;
+      return ValueConstraint::constant(resultValue);
+    }
+    return defaultConstraint(resultType);
+  }
+  if (isa<ac::VarCselOp>(operation)) {
+    auto predicate = exactValues(operandConstraint(operands, 0));
+    auto lhs = exactValues(operandConstraint(operands, 1));
+    auto rhs = exactValues(operandConstraint(operands, 2));
+    auto negate = exactValues(operandConstraint(operands, 3));
+    if (predicate && lhs && rhs && negate && predicate->size() == 1 &&
+        lhs->size() == 1 && rhs->size() == 1 && negate->size() == 1)
+      return ValueConstraint::constant(
+          predicate->front()
+              ? lhs->front()
+              : (negate->front() ? uint64_t{0} - rhs->front() : rhs->front()));
+    return defaultConstraint(resultType);
+  }
   if (isa<ac::VarNotOp>(operation)) {
     ValueConstraint result =
         evaluateUnary(operandConstraint(operands, 0),
@@ -536,9 +815,8 @@ inferConstraint(Operation *operation, unsigned resultIndex,
         uint64_t entries = 1;
         bool valid = !shape.asArrayRef().empty();
         for (int64_t extent : shape.asArrayRef()) {
-          if (extent <= 0 ||
-              entries > std::numeric_limits<uint64_t>::max() /
-                            static_cast<uint64_t>(extent)) {
+          if (extent <= 0 || entries > std::numeric_limits<uint64_t>::max() /
+                                           static_cast<uint64_t>(extent)) {
             valid = false;
             break;
           }
@@ -1134,7 +1412,8 @@ ACDataFlowAnalyzer::stateSnapshots(Operation *scope) const {
         continue;
       }
       if (auto get = dyn_cast<ac::VarGetOp>(definition)) {
-        children.push_back({get.getRecord(), setSource, {get.getField().str()}});
+        children.push_back(
+            {get.getRecord(), setSource, {get.getField().str()}});
         flushChildren();
         continue;
       }
@@ -1155,17 +1434,15 @@ ACDataFlowAnalyzer::stateSnapshots(Operation *scope) const {
       }
       if (auto choose = dyn_cast<ac::TableChooseOp>(definition)) {
         if (!choose.getKey().empty()) {
-          Type entryType =
-              cast<ac::VarType>(
-                  choose.getKey().front().getArgument(0).getType())
-                  .getElementType();
+          Type entryType = cast<ac::VarType>(
+                               choose.getKey().front().getArgument(0).getType())
+                               .getElementType();
           addSnapshot(choose.getTable(), {}, {}, "all", predicate,
                       completeStateFields(choose, entryType));
         }
         children.push_back({choose.getMask(), {}, {}});
-        Value firstIndex = choose.getResults().empty()
-                               ? Value()
-                               : choose.getResults().front();
+        Value firstIndex =
+            choose.getResults().empty() ? Value() : choose.getResults().front();
         for (Block &block : choose.getKey())
           for (Value operand : block.getTerminator()->getOperands())
             children.push_back({operand, firstIndex, {}});

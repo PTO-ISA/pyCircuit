@@ -3175,6 +3175,99 @@ TEST(QueueGraphPlanTest, NativeGeneratorConsumesOnlyExtractedPlan) {
             std::string::npos);
 }
 
+TEST(QueueGraphPlanTest, EmitsAluSemanticExpressionsToGfsimPrimitives) {
+  QueueGraphPlan plan;
+  plan.system = "alu_semantics";
+  plan.queues = {
+      {"input", "i64", "/", 1, 1},       {"addw_out", "i64", "/", 1, 1},
+      {"sraw_out", "i64", "/", 1, 1},    {"maddw_out", "i64", "/", 1, 1},
+      {"extract_out", "i64", "/", 1, 1}, {"insert_out", "i64", "/", 1, 1},
+      {"selected_out", "i64", "/", 1, 1}};
+  plan.blocks.push_back({"source", "input", "/", {}, {"input"}, {1}, {1}});
+  QueueBlockPlan transform{"transform",
+                           "alu_outputs",
+                           "/",
+                           {"input"},
+                           {"addw_out", "sraw_out", "maddw_out", "extract_out",
+                            "insert_out", "selected_out"},
+                           {1, 1, 1, 1, 1, 1},
+                           {1, 1, 1, 1, 1, 1}};
+  transform.expressions = {
+      {"one", "constant", "i64", {}, "", "", "1 : i64"},
+      {"two", "constant", "i64", {}, "", "", "2 : i64"},
+      {"width", "constant", "i7", {}, "", "", "8 : i7"},
+      {"offset", "constant", "i6", {}, "", "", "4 : i6"},
+      {"predicate", "constant", "i1", {}, "", "", "true"},
+      {"negate", "constant", "i1", {}, "", "", "false"},
+      {"addw", "addw", "i64", {"item", "one"}},
+      {"sraw", "sraw", "i64", {"item", "one"}},
+      {"maddw", "maddw", "i64", {"item", "one", "two"}},
+      {"extract",
+       "bitfield_extract",
+       "i64",
+       {"item", "width", "offset"},
+       "",
+       "signed"},
+      {"insert", "bitfield_insert", "i64", {"item", "two", "width", "offset"}},
+      {"selected", "csel", "i64", {"predicate", "item", "two", "negate"}},
+  };
+  transform.yields = {"addw", "sraw", "maddw", "extract", "insert", "selected"};
+  plan.blocks.push_back(std::move(transform));
+  plan.blocks.push_back({"sink", "sink_0", "/", {"addw_out"}, {}});
+  plan.blocks.push_back({"sink", "sink_1", "/", {"sraw_out"}, {}});
+  plan.blocks.push_back({"sink", "sink_2", "/", {"maddw_out"}, {}});
+  plan.blocks.push_back({"sink", "sink_3", "/", {"extract_out"}, {}});
+  plan.blocks.push_back({"sink", "sink_4", "/", {"insert_out"}, {}});
+  plan.blocks.push_back({"sink", "sink_5", "/", {"selected_out"}, {}});
+
+  auto generated = generateQueueGraphCpp(plan);
+  ASSERT_TRUE(bool(generated)) << llvm::toString(generated.takeError());
+  llvm::StringRef source(*generated);
+  EXPECT_NE(source.find("gfsim::addw("), std::string::npos);
+  EXPECT_NE(source.find("gfsim::sraw("), std::string::npos);
+  EXPECT_NE(source.find("gfsim::maddw("), std::string::npos);
+  EXPECT_NE(source.find("gfsim::bitfieldExtract("), std::string::npos);
+  EXPECT_NE(source.find("gfsim::bitfieldInsert("), std::string::npos);
+  EXPECT_NE(source.find("gfsim::csel("), std::string::npos);
+  expectCppCompiles(*generated);
+}
+
+TEST(QueueGraphPlanTest, EmitsOneSharedPycDividerForQuotientAndRemainder) {
+  QueueGraphPlan plan;
+  plan.system = "shared_divrem";
+  plan.queues = {{"input", "i64", "/", 1, 1},
+                 {"quotient", "i64", "/", 1, 1},
+                 {"remainder", "i64", "/", 1, 1}};
+  plan.blocks.push_back({"source", "input", "/", {}, {"input"}, {1}, {1}});
+  QueueBlockPlan transform{
+      "transform", "divide", "/", {"input"}, {"quotient", "remainder"},
+      {1, 1},      {1, 1}};
+  transform.expressions = {
+      {"rhs", "constant", "i64", {}, "", "", "3 : i64"},
+      {"signed", "constant", "i1", {}, "", "", "true"},
+      {"word", "constant", "i1", {}, "", "", "false"},
+      {"quotient_value",
+       "divrem_quotient",
+       "i64",
+       {"item", "rhs", "signed", "word"}},
+      {"remainder_value",
+       "divrem_remainder",
+       "i64",
+       {"item", "rhs", "signed", "word"}},
+  };
+  transform.yields = {"quotient_value", "remainder_value"};
+  plan.blocks.push_back(std::move(transform));
+  plan.blocks.push_back({"sink", "quotient_sink", "/", {"quotient"}, {}});
+  plan.blocks.push_back({"sink", "remainder_sink", "/", {"remainder"}, {}});
+
+  auto generated = generateQueueGraphPyc(plan);
+  ASSERT_TRUE(bool(generated)) << llvm::toString(generated.takeError());
+  llvm::StringRef source(*generated);
+  EXPECT_EQ(source.count("pyc.divrem"), 1u);
+  EXPECT_NE(source.find(" : (i64, i64, i1, i1) -> (i64, i64)"),
+            std::string::npos);
+}
+
 TEST(QueueGraphPlanTest, EmitsClosedOpaqueRuntimeAbiBundle) {
   mlir::MLIRContext context;
   context.loadDialect<ac::ACIRDialect, mlir::DLTIDialect>();

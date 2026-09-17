@@ -393,9 +393,9 @@ OpFoldResult CmpOp::fold(FoldAdaptor adaptor) {
   auto a = asIntAttr(adaptor.getLhs());
   auto b = asIntAttr(adaptor.getRhs());
   if (a && b) {
-    bool value = predicate == "eq"    ? (*a == *b)
-                 : predicate == "ult" ? a->ult(*b)
-                                      : a->slt(*b);
+    bool value = predicate == "eq"
+                     ? (*a == *b)
+                     : predicate == "ult" ? a->ult(*b) : a->slt(*b);
     return IntegerAttr::get(IntegerType::get(getContext(), 1), value ? 1 : 0);
   }
   return {};
@@ -500,9 +500,9 @@ static OpFoldResult foldShift(Value input, Attribute inputAttr,
   }
   if (!value)
     return {};
-  llvm::APInt result = kind == "shl"    ? (*value << shift)
-                       : kind == "lshr" ? value->lshr(shift)
-                                        : value->ashr(shift);
+  llvm::APInt result =
+      kind == "shl" ? (*value << shift)
+                    : kind == "lshr" ? value->lshr(shift) : value->ashr(shift);
   return intAttrFor(resultType, result.trunc(outTy.getWidth()));
 }
 
@@ -721,8 +721,7 @@ LogicalResult CountZerosOp::verify() {
   auto countType = dyn_cast<IntegerType>(getCount().getType());
   if (!inputType || !countType)
     return emitOpError("input and count result must be integer types");
-  const auto *contract =
-      generated::findSemanticPrimitive("pyc.count_zeros.v1");
+  const auto *contract = generated::findSemanticPrimitive("pyc.count_zeros.v1");
   if (!contract)
     return emitOpError("semantic primitive is missing from the registry");
   if (!generated::supportsInputWidth(*contract, inputType.getWidth()))
@@ -753,6 +752,28 @@ static bool isSha256Fingerprint(llvm::StringRef value) {
       value, [](char c) { return llvm::isDigit(c) || (c >= 'a' && c <= 'f'); });
 }
 
+LogicalResult WrappingBitfieldOp::verify() {
+  auto semantic = (*this)->getAttrOfType<StringAttr>("semantic_id");
+  if (!semantic || semantic.getValue() != "pyc.wrapping_bitfield.v1")
+    return emitOpError("semantic_id must be pyc.wrapping_bitfield.v1");
+  if (getInputs().size() != 5)
+    return emitOpError(
+        "requires value, source, width, offset, and mode inputs");
+  auto valueTy = dyn_cast<IntegerType>(getInputs()[0].getType());
+  auto sourceTy = dyn_cast<IntegerType>(getInputs()[1].getType());
+  auto widthTy = dyn_cast<IntegerType>(getInputs()[2].getType());
+  auto offsetTy = dyn_cast<IntegerType>(getInputs()[3].getType());
+  auto modeTy = dyn_cast<IntegerType>(getInputs()[4].getType());
+  auto resultTy = dyn_cast<IntegerType>(getResult().getType());
+  if (!valueTy || !sourceTy || !widthTy || !offsetTy || !modeTy || !resultTy)
+    return emitOpError("all operands and result must be integer types");
+  if (valueTy.getWidth() != 64 || sourceTy.getWidth() != 64 ||
+      widthTy.getWidth() != 7 || offsetTy.getWidth() != 7 ||
+      modeTy.getWidth() != 4 || resultTy.getWidth() != 64)
+    return emitOpError(
+        "requires i64 value/source/result, i7 width/offset, and i4 mode");
+  return success();
+}
 LogicalResult RtlCombOp::verify() {
   if (getInputs().empty() || getOutputs().empty())
     return emitOpError(
@@ -1151,6 +1172,23 @@ DEFINE_VALUE_BINARY_VERIFY(OrOp)
 DEFINE_VALUE_BINARY_VERIFY(XorOp)
 
 #undef DEFINE_VALUE_BINARY_VERIFY
+
+LogicalResult DivRemOp::verify() {
+  auto lhs = dyn_cast<IntegerType>(getLhs().getType());
+  auto rhs = dyn_cast<IntegerType>(getRhs().getType());
+  auto quotient = dyn_cast<IntegerType>(getQuotient().getType());
+  auto remainder = dyn_cast<IntegerType>(getRemainder().getType());
+  auto signedMode = dyn_cast<IntegerType>(getSignedMode().getType());
+  auto wordMode = dyn_cast<IntegerType>(getWordMode().getType());
+  if (!lhs || !rhs || !quotient || !remainder || !signedMode || !wordMode)
+    return emitOpError("divrem operands and results must be integers");
+  if (lhs != rhs || lhs.getWidth() != 64 || rhs.getWidth() != 64 ||
+      quotient.getWidth() != 64 || remainder.getWidth() != 64 ||
+      !signedMode.isSignless() || !wordMode.isSignless() ||
+      signedMode.getWidth() != 1 || wordMode.getWidth() != 1)
+    return emitOpError("divrem requires i64 data and i1 mode operands");
+  return success();
+}
 
 LogicalResult CmpOp::verify() {
   StringRef predicate = getPredicate();
