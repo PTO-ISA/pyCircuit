@@ -137,3 +137,36 @@ The consumer Core then advanced past every direct module record-projection
 operand. Its next error is independently reduced to a nested-rule payload in
 the consumer's `memory_ingress_join`; that issue is outside this fanout and
 projection evidence slice.
+
+## Module-local Table selection identity follow-up
+
+Commit `e7bfacba` fixes a verifier scope error exposed after the consumer added
+more specialized stateful modules. Table, variable, and slot stable IDs remain
+definition-local inside a reusable specialization. Concrete ownership is
+already namespaced by each structural instance's stable ID and path; rewriting
+the shared definition would destroy specialization-class reuse.
+
+The actual bug was in `TableOp::verify()`. Its diagnostic promised that
+`TableChoose` stable IDs were unique “within the module,” but its implementation
+walked the outer builtin module and compared selections from every unrelated
+`ac.module`. Two legal specializations using the same local
+`table-selection/selected` identity therefore caused every Table verifier to
+report a collision. The verifier now collects selection IDs only from the
+owning `ac.module`. Duplicates inside one module remain rejected.
+
+Focused evidence:
+
+- A new MLIR positive case defines two modules with identical local Table and
+  selection stable IDs; rebuilt `acir-opt` accepts it.
+- The existing same-module duplicate fixture still fails with
+  `Table selection stable_id must be unique within the module`.
+- Agentic frontend: 222 tests passed.
+- The stateful fanout cases freeze, plan, generate, compile, and execute with
+  one `Module_Counter` class and two independent stateful instance members.
+- The record-projection case retains one strict `QueueBroadcast<Packet, 2>`,
+  two typed projection transforms, one shared stateful class, and two stateful
+  instances.
+- The current consumer whole-Core generated-C++ test passes the complete raw
+  ACIR, native rule lowering, Frozen ACIR verifier, QueueGraph planning, and C++
+  generation path. Its legacy runtime harness remains intentionally skipped
+  because it targets the retired S1 sequencer port map.
