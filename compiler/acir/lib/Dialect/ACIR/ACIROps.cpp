@@ -302,8 +302,8 @@ verifyTypedRuleSummary(Operation *operation, ValueRange inputs,
     effect.set("kind", RuleEffectKindAttr::get(operation->getContext(),
                                                RuleEffectKind::StateRead));
     effect.set("resource", get.getSlotAttr());
-    effect.set("guard_kind", RuleGuardKindAttr::get(
-                                 operation->getContext(), RuleGuardKind::Always));
+    effect.set("guard_kind", RuleGuardKindAttr::get(operation->getContext(),
+                                                    RuleGuardKind::Always));
     expectedEffects.push_back(builder.getDictionaryAttr(effect));
   });
   body.walk([&](SlotProposeReleaseOp release) {
@@ -311,9 +311,9 @@ verifyTypedRuleSummary(Operation *operation, ValueRange inputs,
     effect.set("kind", RuleEffectKindAttr::get(operation->getContext(),
                                                RuleEffectKind::StateWrite));
     effect.set("resource", release.getSlotAttr());
-    effect.set("guard_kind", RuleGuardKindAttr::get(
-                                 operation->getContext(),
-                                 guardKindFor(release.getWhen())));
+    effect.set("guard_kind",
+               RuleGuardKindAttr::get(operation->getContext(),
+                                      guardKindFor(release.getWhen())));
     expectedEffects.push_back(builder.getDictionaryAttr(effect));
   });
 
@@ -635,11 +635,12 @@ LogicalResult RuleOp::verify() {
     return emitOpError("permits at most one functional condition");
   SmallVector<RuleOutputOp> outputPaths;
   getBody().walk([&](RuleOutputOp output) { outputPaths.push_back(output); });
-  const bool hasPathEvidence = getOutputs().size() > 1 ||
-                               !outputPaths.empty() ||
-                               llvm::any_of(proposals, [](TableProposeOp op) {
-                                 return static_cast<bool>(op.getWhen());
-                               }) || !slotReleases.empty();
+  const bool hasPathEvidence =
+      getOutputs().size() > 1 || !outputPaths.empty() ||
+      llvm::any_of(
+          proposals,
+          [](TableProposeOp op) { return static_cast<bool>(op.getWhen()); }) ||
+      !slotReleases.empty();
   if (hasPathEvidence) {
     if (conditions != 1)
       return emitOpError("SSA path evidence requires one rule condition");
@@ -884,11 +885,12 @@ LogicalResult SourceOp::verify() {
     if (!declaration || !active.insert(declaration).second)
       return false;
     auto fields = declaration->getAttrOfType<ArrayAttr>("fields");
-    const bool found = fields && llvm::any_of(fields, [&](Attribute rawField) {
-      auto field = dyn_cast<DictionaryAttr>(rawField);
-      auto fieldType = field ? field.getAs<TypeAttr>("type") : TypeAttr();
-      return fieldType && containsDeclaredRange(fieldType.getValue());
-    });
+    const bool found =
+        fields && llvm::any_of(fields, [&](Attribute rawField) {
+          auto field = dyn_cast<DictionaryAttr>(rawField);
+          auto fieldType = field ? field.getAs<TypeAttr>("type") : TypeAttr();
+          return fieldType && containsDeclaredRange(fieldType.getValue());
+        });
     active.erase(declaration);
     return found;
   };
@@ -1292,9 +1294,8 @@ LogicalResult FiringOp::verify() {
   SmallVector<FiringConditionOp> conditions;
   getBody().walk(
       [&](TableProposeOp proposal) { proposals.push_back(proposal); });
-  getBody().walk([&](SlotProposeReleaseOp release) {
-    slotReleases.push_back(release);
-  });
+  getBody().walk(
+      [&](SlotProposeReleaseOp release) { slotReleases.push_back(release); });
   getBody().walk([&](TableGetOp read) { tableReads.push_back(read); });
   getBody().walk(
       [&](FiringConditionOp condition) { conditions.push_back(condition); });
@@ -1317,11 +1318,12 @@ LogicalResult FiringOp::verify() {
     if (output.getOrdinal() < 0 ||
         static_cast<size_t>(output.getOrdinal()) >= getOutputs().size())
       return output.emitOpError("ordinal must name one firing output");
-  const bool hasPathEvidence = getOutputs().size() > 1 ||
-                               !outputPaths.empty() ||
-                               llvm::any_of(proposals, [](TableProposeOp op) {
-                                 return static_cast<bool>(op.getWhen());
-                               }) || !slotReleases.empty();
+  const bool hasPathEvidence =
+      getOutputs().size() > 1 || !outputPaths.empty() ||
+      llvm::any_of(
+          proposals,
+          [](TableProposeOp op) { return static_cast<bool>(op.getWhen()); }) ||
+      !slotReleases.empty();
   if (hasPathEvidence) {
     if (conditions.size() != 1)
       return emitOpError("SSA path evidence requires one firing condition");
@@ -1432,9 +1434,8 @@ LogicalResult FiringOp::verify() {
             "inferred footprint must exactly match its state operation");
     }
   }
-  const bool validArity =
-      !getInputs().empty() || !getOutputs().empty() || !proposals.empty() ||
-      !slotReleases.empty();
+  const bool validArity = !getInputs().empty() || !getOutputs().empty() ||
+                          !proposals.empty() || !slotReleases.empty();
   if (conditions.empty() && requiresInferredSchedule) {
     return emitOpError("requires one typed functional condition");
   }
@@ -2010,10 +2011,9 @@ LogicalResult VarConstantOp::verify() {
   if (auto range = dyn_cast<RangeType>(result.getElementType())) {
     auto integer = dyn_cast_or_null<IntegerAttr>(value);
     const uint64_t upper = range.getUpper();
-    const unsigned width =
-        upper == std::numeric_limits<uint64_t>::max()
-            ? 64
-            : std::max(1u, llvm::Log2_64_Ceil(upper + 1));
+    const unsigned width = upper == std::numeric_limits<uint64_t>::max()
+                               ? 64
+                               : std::max(1u, llvm::Log2_64_Ceil(upper + 1));
     if (!integer || !integer.getType().isSignlessInteger(width) ||
         integer.getValue().getZExtValue() < range.getLower() ||
         integer.getValue().getZExtValue() > upper)
@@ -2181,7 +2181,8 @@ LogicalResult VarWithElementOp::verify() {
     return emitOpError("index must be an unsigned scalar");
   if (range && range.getUpper() >= static_cast<uint64_t>(array.getLength()))
     return emitOpError("bounded index exceeds the value_array length");
-  if (getValue().getType() != VarType::get(getContext(), array.getElementType()))
+  if (getValue().getType() !=
+      VarType::get(getContext(), array.getElementType()))
     return emitOpError("replacement must match the value_array element type");
   if (getResult().getType() != getAggregate().getType())
     return emitOpError("result must preserve the value_array type");
@@ -2203,8 +2204,8 @@ static bool supportsZeroImage(Operation *operation, Type type,
   Operation *declaration = recordDecl(operation, type);
   if (!declaration || !seen.insert(declaration).second)
     return false;
-  const bool supported = llvm::all_of(
-      declarationFields(declaration), [&](Attribute rawField) {
+  const bool supported =
+      llvm::all_of(declarationFields(declaration), [&](Attribute rawField) {
         return supportsZeroImage(
             operation, fieldType(cast<DictionaryAttr>(rawField)), seen);
       });
@@ -2241,10 +2242,9 @@ LogicalResult VarDeclOp::verify() {
   const bool zeroImage = zero && zero.getValue().isZero();
   if (auto range = dyn_cast<RangeType>(getValueType())) {
     const uint64_t upper = range.getUpper();
-    const unsigned width =
-        upper == std::numeric_limits<uint64_t>::max()
-            ? 64
-            : std::max(1u, llvm::Log2_64_Ceil(upper + 1));
+    const unsigned width = upper == std::numeric_limits<uint64_t>::max()
+                               ? 64
+                               : std::max(1u, llvm::Log2_64_Ceil(upper + 1));
     if (!zero || !zero.getType().isSignlessInteger(width) ||
         zero.getValue().getZExtValue() < range.getLower() ||
         zero.getValue().getZExtValue() > upper)
@@ -2255,8 +2255,8 @@ LogicalResult VarDeclOp::verify() {
     if ((!init || init.getType() != getValueType()) &&
         !(zeroImage && isa<StructType, EnumType>(getValueType()) &&
           supportsZeroImage(*this, getValueType(), seen)))
-      return emitOpError(
-          "init must match value type or be the zero image for a struct or enum");
+      return emitOpError("init must match value type or be the zero image for "
+                         "a struct or enum");
   }
   if (getOwner().empty() || !getOwner().starts_with('/') ||
       (getOwner().size() > 1 && getOwner().ends_with('/')))
@@ -2569,7 +2569,8 @@ struct CanonicalizeUnsignedPowerOfTwo final : OpRewritePattern<SourceOp> {
   LogicalResult matchAndRewrite(SourceOp operation,
                                 PatternRewriter &rewriter) const override {
     auto divisor = operation.getRhs().template getDefiningOp<VarConstantOp>();
-    auto value = divisor ? dyn_cast<IntegerAttr>(divisor.getValue()) : IntegerAttr();
+    auto value =
+        divisor ? dyn_cast<IntegerAttr>(divisor.getValue()) : IntegerAttr();
     if (!value || !value.getValue().isPowerOf2())
       return failure();
     auto resultType = cast<VarType>(operation.getResult().getType());
@@ -2578,11 +2579,11 @@ struct CanonicalizeUnsignedPowerOfTwo final : OpRewritePattern<SourceOp> {
     const uint64_t replacementValue =
         IsRemainder ? divisorValue - 1 : llvm::Log2_64(divisorValue);
     auto replacementConstant = VarConstantOp::create(
-        rewriter,
-        operation.getLoc(), resultType,
+        rewriter, operation.getLoc(), resultType,
         rewriter.getIntegerAttr(integerType, replacementValue));
-    auto replacement = TargetOp::create(rewriter, operation.getLoc(), resultType,
-                                        operation.getLhs(), replacementConstant);
+    auto replacement =
+        TargetOp::create(rewriter, operation.getLoc(), resultType,
+                         operation.getLhs(), replacementConstant);
     replacement->setDiscardableAttrs(operation->getDiscardableAttrDictionary());
     rewriter.replaceOp(operation, replacement.getResult());
     return success();
@@ -3021,8 +3022,8 @@ static bool isUnsignedScalar(Type type) {
 static LogicalResult verifyRangeConversion(Operation *operation, Value input,
                                            Value result) {
   Type inputElement = cast<VarType>(input.getType()).getElementType();
-  auto resultRange = dyn_cast<RangeType>(
-      cast<VarType>(result.getType()).getElementType());
+  auto resultRange =
+      dyn_cast<RangeType>(cast<VarType>(result.getType()).getElementType());
   if (!isUnsignedScalar(inputElement) || !resultRange)
     return operation->emitOpError(
         "range conversion requires unsigned scalar input and range result");
@@ -3051,8 +3052,8 @@ LogicalResult VarRangeRefineOp::verify() {
 }
 
 LogicalResult VarRangeBitsOp::verify() {
-  auto inputRange = dyn_cast<RangeType>(
-      cast<VarType>(getInput().getType()).getElementType());
+  auto inputRange =
+      dyn_cast<RangeType>(cast<VarType>(getInput().getType()).getElementType());
   auto resultInteger = dyn_cast<IntegerType>(
       cast<VarType>(getResult().getType()).getElementType());
   if (!inputRange || !resultInteger || !resultInteger.isSignless() ||
@@ -3065,12 +3066,12 @@ LogicalResult VarRangeBitsOp::verify() {
 static LogicalResult verifyRangeArithmetic(Operation *operation, Value lhs,
                                            Value rhs, Value result,
                                            bool subtract) {
-  auto left = dyn_cast<RangeType>(
-      cast<VarType>(lhs.getType()).getElementType());
-  auto right = dyn_cast<RangeType>(
-      cast<VarType>(rhs.getType()).getElementType());
-  auto actual = dyn_cast<RangeType>(
-      cast<VarType>(result.getType()).getElementType());
+  auto left =
+      dyn_cast<RangeType>(cast<VarType>(lhs.getType()).getElementType());
+  auto right =
+      dyn_cast<RangeType>(cast<VarType>(rhs.getType()).getElementType());
+  auto actual =
+      dyn_cast<RangeType>(cast<VarType>(result.getType()).getElementType());
   if (!left || !right || !actual)
     return operation->emitOpError(
         "bounded arithmetic requires range operands and result");
@@ -3943,7 +3944,8 @@ LogicalResult TableOp::verify() {
         ++endpoints;
     }
     if (auto choose = dyn_cast<TableChooseOp>(operation)) {
-      if (!choose.getStableId().empty() &&
+      if (choose->getParentOfType<ModuleOp>() == owningModule &&
+          !choose.getStableId().empty() &&
           !selectionStableIds.insert(choose.getStableId()).second)
         duplicateSelectionStableId = true;
       if (resolveTable(choose, choose.getTableAttr()) == *this)
@@ -4023,9 +4025,8 @@ LogicalResult TableIndexOp::verify() {
     Type element = cast<VarType>(coordinate.getType()).getElementType();
     auto type = dyn_cast<IntegerType>(element);
     auto range = dyn_cast<RangeType>(element);
-    if ((!range &&
-         (!type || !type.isSignless() ||
-          type.getWidth() != canonicalTableIndexWidth(extent))) ||
+    if ((!range && (!type || !type.isSignless() ||
+                    type.getWidth() != canonicalTableIndexWidth(extent))) ||
         (range && range.getUpper() >= static_cast<uint64_t>(extent)))
       return emitOpError(
           "coordinate type must use the canonical unsigned axis width or a "

@@ -50,15 +50,11 @@ def counter(value: ac.u8) -> ac.u8:
     result = accumulate(total, value)
     return result
 
-@ac.module
-def identity(value: ac.u8) -> ac.u8:
-    return value
-
 @ac.system
 def direct_module_fanout(value: ac.u8) -> tuple[ac.u8, ac.u8]:
-    counted = counter(value)
-    copied = identity(value)
-    return counted, copied
+    left = counter(value)
+    right = counter(value)
+    return left, right
 """
 STATEFUL_MODULE_PROJECTION_FANOUT_SOURCE = """
 import agentic_circuit as ac
@@ -79,15 +75,11 @@ def counter(value: ac.u8) -> ac.u8:
     result = accumulate(total, value)
     return result
 
-@ac.module
-def identity(value: ac.u8) -> ac.u8:
-    return value
-
 @ac.system
 def stateful_projection_fanout(packet: Packet) -> tuple[ac.u8, ac.u8]:
-    counted = counter(packet.value)
-    copied = identity(packet.value)
-    return counted, copied
+    left = counter(packet.value)
+    right = counter(packet.value)
+    return left, right
 """
 BITFIELD_DECODE_SOURCE = (
     ROOT / "examples/agentic-circuit" / "pipelines" / "bitfield_decode_pipeline.py"
@@ -5272,6 +5264,7 @@ int main() {{
             self.assertIn("ac.table @total", frozen.read_text(encoding="utf-8"))
             generated_source = model.read_text(encoding="utf-8")
             self.assertIn("gfsim::QueueBroadcast<gfsim::UInt<8>, 2>", generated_source)
+            self.assertEqual(1, generated_source.count("class Module_Counter final"))
 
             harness = root / "harness.cpp"
             executable = root / "direct_module_fanout"
@@ -5293,10 +5286,10 @@ int main() {{
     for (auto &row : rows)
       row.xfer(row.object, epoch, gfsim::XferPhase::Commit);
   }}
-  const auto &counted = model.sink_0_values();
-  const auto &copied = model.sink_1_values();
-  return counted.size() == 1 && counted[0] == 5 &&
-                 copied.size() == 1 && copied[0] == 5
+  const auto &left = model.sink_0_values();
+  const auto &right = model.sink_1_values();
+  return left.size() == 1 && left[0] == 5 &&
+                 right.size() == 1 && right[0] == 5
              ? 0
              : 2;
 }}
@@ -5392,11 +5385,12 @@ int main() {{
                 item["definition"] for item in parsed_plan["module_specializations"]
             }
             self.assertTrue(
-                {"counter", "identity", "__ac_project_0", "__ac_project_1"}
-                <= definitions
+                {"counter", "__ac_project_0", "__ac_project_1"} <= definitions
             )
             generated_source = model.read_text(encoding="utf-8")
             self.assertIn("gfsim::QueueBroadcast<Packet, 2>", generated_source)
+            self.assertEqual(1, generated_source.count("class Module_Counter final"))
+            self.assertEqual(2, generated_source.count("Module_Counter instance_"))
             compiled = subprocess.run(
                 (
                     compiler,

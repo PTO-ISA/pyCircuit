@@ -64,15 +64,11 @@ def counter(value: ac.u8) -> ac.u8:
     result = accumulate(total, value)
     return result
 
-@ac.module
-def identity(value: ac.u8) -> ac.u8:
-    return value
-
 @ac.system
 def pipeline(packet: Packet) -> tuple[ac.u8, ac.u8]:
-    counted = counter(packet.value)
-    copied = identity(packet.value)
-    return counted, copied
+    left = counter(packet.value)
+    right = counter(packet.value)
+    return left, right
 """
 
 INFERRED_NESTED_MODULE_SOURCE = """
@@ -8808,8 +8804,8 @@ def two_accumulators(left: ac.u8, right: ac.u8) -> tuple[ac.u8, ac.u8]:
         self.assertEqual(2, lowered.count('ac.var.get %item field "value"'))
         self.assertIn("ac.module @counter", lowered)
         self.assertIn("ac.var.decl @total", lowered)
-        self.assertIn("of @counter(%__ac_projection_0)", lowered)
-        self.assertIn("of @identity(%__ac_projection_1)", lowered)
+        self.assertIn("@left of @counter(%__ac_projection_0)", lowered)
+        self.assertIn("@right of @counter(%__ac_projection_1)", lowered)
 
     def test_host_result_mode_preserves_root_queue_returns(self) -> None:
         from agentic_circuit._queue_frontend import lower_queue_source
