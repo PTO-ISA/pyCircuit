@@ -6,6 +6,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[4]
 FRONTEND = ROOT / "python/agentic-circuit/src/agentic_circuit/_queue_frontend.py"
+PARSER = ROOT / "python/agentic-circuit/src/agentic_circuit/_queue_compiler/parser.py"
+MODULES = ROOT / "python/agentic-circuit/src/agentic_circuit/_queue_compiler/modules.py"
 ACIR_TEXT = (
     ROOT / "python/agentic-circuit/src/agentic_circuit/_queue_compiler/acir_text.py"
 )
@@ -47,6 +49,12 @@ class QueueTypeHygieneTest(unittest.TestCase):
     def setUpClass(cls) -> None:
         cls.tree = ast.parse(
             FRONTEND.read_text(encoding="utf-8"), filename=str(FRONTEND)
+        )
+        cls.parser_tree = ast.parse(
+            PARSER.read_text(encoding="utf-8"), filename=str(PARSER)
+        )
+        cls.modules_tree = ast.parse(
+            MODULES.read_text(encoding="utf-8"), filename=str(MODULES)
         )
         cls.acir_text_tree = ast.parse(
             ACIR_TEXT.read_text(encoding="utf-8"), filename=str(ACIR_TEXT)
@@ -103,7 +111,13 @@ class QueueTypeHygieneTest(unittest.TestCase):
         }
         classes = {
             node.name: node
-            for tree in (self.tree, self.model_tree, self.lower_acir_tree)
+            for tree in (
+                self.tree,
+                self.parser_tree,
+                self.modules_tree,
+                self.model_tree,
+                self.lower_acir_tree,
+            )
             for node in ast.walk(tree)
             if isinstance(node, ast.ClassDef)
         }
@@ -128,6 +142,8 @@ class QueueTypeHygieneTest(unittest.TestCase):
         found: set[tuple[str, str]] = set()
         for tree in (
             self.tree,
+            self.parser_tree,
+            self.modules_tree,
             self.expressions_tree,
             self.lower_acir_tree,
             self.codegen_tree,

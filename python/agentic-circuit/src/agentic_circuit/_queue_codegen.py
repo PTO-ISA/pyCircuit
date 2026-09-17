@@ -22,8 +22,8 @@ from ._queue_compiler.model import (
     StaticQueueCollection,
     TableBinding,
 )
+from ._queue_compiler.parser import parse_queue_program
 from ._queue_compiler.syntax import _decorator_name
-from ._queue_frontend import parse_queue_program
 
 
 def _cpp_type(value_type: ValueType) -> str:
