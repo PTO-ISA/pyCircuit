@@ -37,6 +37,7 @@ consumer-specific fanout state or partial-progress path.
 
 - Previous branch head: `f69a0861b8ecdd74732a4014385c08526f2dbcfc`.
 - Implementation commit: `af623bc78cb52fa64f7ac55c2d34492e24b35866`.
+- Exact record-projection follow-up: `75ad4584`.
 - Branch: `codex/fix-module-config-metadata`.
 - Consumer-neutral reproducer: `/tmp/ssm_memory_fanout_repro.py`.
 
@@ -91,3 +92,48 @@ generated source contains `gfsim::QueueBroadcast<gfsim::UInt<1>, 2>` and passes
 `c++ -std=c++20 -fsyntax-only`.
 
 Formatting hooks and `git diff --check` passed for the implementation diff.
+
+## Exact record-projection follow-up
+
+The complex consumer exposed a separate operand-normalization gap after the
+original fanout fix: direct module placement accepted only bare Queue names, so
+an ordinary typed call such as `consume(packet.header.valid)` fell through to
+the generic unsupported-`Assign` diagnostic. This did not reclassify or damage
+stateful rule modules; a reduced stateful module with one duplicated bare input
+already passed at `90a70d46`.
+
+The frontend now materializes an exact attribute chain rooted in a named Queue
+as a compiler-owned pure projection specialization. Each projection remains a
+real destructive consuming use of its root Queue, so the same lexical-LCA
+fanout analysis inserts one strict broadcast before two or more projections or
+direct consumers. Unsupported arbitrary expressions still fail closed.
+
+Focused evidence after commit `75ad4584`:
+
+```text
+PYTHONPATH=python/semantic-core/src:python/agentic-circuit/src \
+  python3 -m unittest \
+  tests.python.agentic-circuit.python_frontend.test_queue_frontend -q
+```
+
+Result: 222 tests passed.
+
+```text
+PYTHONPATH=python/semantic-core/src:python/agentic-circuit/src \
+  python3 -m unittest \
+  tests.integration.agentic-circuit.e2e.test_queue_codegen.QueueCodegenTest.test_direct_module_fanout_freezes_generates_and_runs_atomically \
+  tests.integration.agentic-circuit.e2e.test_queue_codegen.QueueCodegenTest.test_record_projection_operands_freeze_plan_and_generate_cpp \
+  tests.integration.agentic-circuit.e2e.test_queue_codegen.QueueCodegenTest.test_typed_module_calls_generate_one_reusable_class_and_run \
+  tests.integration.agentic-circuit.e2e.test_queue_codegen.QueueCodegenTest.test_nested_python_module_calls_preserve_reuse_and_run -q
+```
+
+Result: 4 tests passed. The new stateful case preserves its inferred Table
+owner behind the broadcast and executes generated C++. The projection case
+freezes two typed `ac.var.get` transforms, records five structural instances in
+QueueGraph, emits `QueueBroadcast<Packet, 2>`, and passes C++20 syntax
+compilation.
+
+The consumer Core then advanced past every direct module record-projection
+operand. Its next error is independently reduced to a nested-rule payload in
+the consumer's `memory_ingress_join`; that issue is outside this fanout and
+projection evidence slice.
