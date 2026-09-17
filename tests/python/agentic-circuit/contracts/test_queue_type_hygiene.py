@@ -11,6 +11,10 @@ MODULES = ROOT / "python/agentic-circuit/src/agentic_circuit/_queue_compiler/mod
 ACIR_TEXT = (
     ROOT / "python/agentic-circuit/src/agentic_circuit/_queue_compiler/acir_text.py"
 )
+TYPE_RENDERING = (
+    ROOT
+    / "python/agentic-circuit/src/agentic_circuit/_queue_compiler/type_rendering.py"
+)
 EXPRESSIONS = (
     ROOT / "python/agentic-circuit/src/agentic_circuit/_queue_compiler/expressions.py"
 )
@@ -73,9 +77,32 @@ class QueueTypeHygieneTest(unittest.TestCase):
         )
 
     def test_only_acir_type_renderer_calls_value_type_mlir(self) -> None:
-        visitor = _MlirCallVisitor()
-        visitor.visit(self.acir_text_tree)
-        self.assertEqual([], visitor.violations)
+        compiler = ROOT / "python/agentic-circuit/src/agentic_circuit/_queue_compiler"
+        for path in sorted(compiler.glob("*.py")):
+            with self.subTest(path=path.name):
+                tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+                visitor = _MlirCallVisitor()
+                visitor.visit(tree)
+                if path == TYPE_RENDERING:
+                    self.assertEqual([], visitor.violations)
+                    self.assertIn(
+                        "_render_type",
+                        {
+                            node.name
+                            for node in tree.body
+                            if isinstance(node, ast.FunctionDef)
+                        },
+                    )
+                else:
+                    self.assertEqual([], visitor.violations)
+                    self.assertNotIn(
+                        "_render_type",
+                        {
+                            node.name
+                            for node in tree.body
+                            if isinstance(node, ast.FunctionDef)
+                        },
+                    )
 
     def test_type_bearing_records_store_descriptors(self) -> None:
         expected = {

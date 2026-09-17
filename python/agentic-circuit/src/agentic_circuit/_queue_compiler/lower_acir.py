@@ -2436,7 +2436,7 @@ def lower_queue_program(
                     ("cost", dependency.cost),
                 )
                 emitted: list[tuple[str, ValueType, list[str]]] = []
-                for policy_name, expression in policies:
+                for _policy_name, expression in policies:
                     emitter = _ExpressionEmitter(
                         payloads,
                         dependency.argument,
@@ -2562,7 +2562,7 @@ def lower_queue_program(
                     ("data", memory.data),
                 )
                 emitted: list[tuple[str, ValueType, list[str]]] = []
-                for policy_name, expression in policies:
+                for _policy_name, expression in policies:
                     emitter = _ExpressionEmitter(
                         payloads,
                         memory.argument,

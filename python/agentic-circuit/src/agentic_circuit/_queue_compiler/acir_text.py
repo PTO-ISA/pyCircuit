@@ -23,12 +23,7 @@ from .model import (
     StaticConfigBinding,
     StaticTypeCheck,
 )
-
-
-def _render_type(value_type: ValueType) -> str:
-    """Render one semantic value type only at the ACIR text boundary."""
-
-    return value_type.mlir()
+from .type_rendering import _render_type
 
 
 def _render_queue_type(payload: ValueType, *, lanes: int = 1, rate: int = 1) -> str:

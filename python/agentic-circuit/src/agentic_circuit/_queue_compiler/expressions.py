@@ -31,9 +31,9 @@ from _pycircuit_semantics import (
 )
 
 from .acir_text import (
-    canonical_mlir_string,
     _render_table_domain_attributes,
     _render_type,
+    canonical_mlir_string,
 )
 from .errors import QueueFrontendError
 from .model import (

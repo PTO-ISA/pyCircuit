@@ -6,9 +6,11 @@ import re
 from collections.abc import Collection
 
 from .._canonical_json import canonical_mlir_string
-from .._source_map import SourceFrame, source_frame
+from .._source_map import (  # noqa: F401 - compatibility re-export
+    SourceFrame,
+    source_frame,
+)
 from .errors import QueueFrontendError
-
 
 _DEFAULT_QUEUE_SOURCE_PATH = "<queue-model>"
 

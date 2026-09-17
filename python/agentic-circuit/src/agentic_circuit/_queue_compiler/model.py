@@ -10,6 +10,7 @@ from _pycircuit_semantics import BitfieldLayout, StructType, ValueType
 from .._diagnostics import Diagnostic
 from .._source_map import SourceFrame
 from .source import _DEFAULT_QUEUE_SOURCE_PATH
+from .type_rendering import _render_type
 
 
 @dataclass(frozen=True, slots=True)
@@ -45,13 +46,13 @@ class Payload:
     @property
     def fields(self) -> tuple[tuple[str, str], ...]:
         return tuple(
-            (name, descriptor.mlir())
+            (name, _render_type(descriptor))
             for name, descriptor in self.field_descriptors
         )
 
     @property
     def acir_type(self) -> str:
-        return self.descriptor.mlir()
+        return _render_type(self.descriptor)
 
 
 @dataclass(frozen=True, slots=True)
