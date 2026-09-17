@@ -6,6 +6,22 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[4]
 FRONTEND = ROOT / "python/agentic-circuit/src/agentic_circuit/_queue_frontend.py"
+PARSER = ROOT / "python/agentic-circuit/src/agentic_circuit/_queue_compiler/parser.py"
+MODULES = ROOT / "python/agentic-circuit/src/agentic_circuit/_queue_compiler/modules.py"
+ACIR_TEXT = (
+    ROOT / "python/agentic-circuit/src/agentic_circuit/_queue_compiler/acir_text.py"
+)
+TYPE_RENDERING = (
+    ROOT
+    / "python/agentic-circuit/src/agentic_circuit/_queue_compiler/type_rendering.py"
+)
+EXPRESSIONS = (
+    ROOT / "python/agentic-circuit/src/agentic_circuit/_queue_compiler/expressions.py"
+)
+LOWER_ACIR = (
+    ROOT / "python/agentic-circuit/src/agentic_circuit/_queue_compiler/lower_acir.py"
+)
+MODEL = ROOT / "python/agentic-circuit/src/agentic_circuit/_queue_compiler/model.py"
 CODEGEN = ROOT / "python/agentic-circuit/src/agentic_circuit/_queue_codegen.py"
 
 
@@ -38,14 +54,55 @@ class QueueTypeHygieneTest(unittest.TestCase):
         cls.tree = ast.parse(
             FRONTEND.read_text(encoding="utf-8"), filename=str(FRONTEND)
         )
+        cls.parser_tree = ast.parse(
+            PARSER.read_text(encoding="utf-8"), filename=str(PARSER)
+        )
+        cls.modules_tree = ast.parse(
+            MODULES.read_text(encoding="utf-8"), filename=str(MODULES)
+        )
+        cls.acir_text_tree = ast.parse(
+            ACIR_TEXT.read_text(encoding="utf-8"), filename=str(ACIR_TEXT)
+        )
+        cls.expressions_tree = ast.parse(
+            EXPRESSIONS.read_text(encoding="utf-8"), filename=str(EXPRESSIONS)
+        )
+        cls.lower_acir_tree = ast.parse(
+            LOWER_ACIR.read_text(encoding="utf-8"), filename=str(LOWER_ACIR)
+        )
+        cls.model_tree = ast.parse(
+            MODEL.read_text(encoding="utf-8"), filename=str(MODEL)
+        )
         cls.codegen_tree = ast.parse(
             CODEGEN.read_text(encoding="utf-8"), filename=str(CODEGEN)
         )
 
     def test_only_acir_type_renderer_calls_value_type_mlir(self) -> None:
-        visitor = _MlirCallVisitor()
-        visitor.visit(self.tree)
-        self.assertEqual([], visitor.violations)
+        compiler = ROOT / "python/agentic-circuit/src/agentic_circuit/_queue_compiler"
+        for path in sorted(compiler.glob("*.py")):
+            with self.subTest(path=path.name):
+                tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+                visitor = _MlirCallVisitor()
+                visitor.visit(tree)
+                if path == TYPE_RENDERING:
+                    self.assertEqual([], visitor.violations)
+                    self.assertIn(
+                        "_render_type",
+                        {
+                            node.name
+                            for node in tree.body
+                            if isinstance(node, ast.FunctionDef)
+                        },
+                    )
+                else:
+                    self.assertEqual([], visitor.violations)
+                    self.assertNotIn(
+                        "_render_type",
+                        {
+                            node.name
+                            for node in tree.body
+                            if isinstance(node, ast.FunctionDef)
+                        },
+                    )
 
     def test_type_bearing_records_store_descriptors(self) -> None:
         expected = {
@@ -81,7 +138,14 @@ class QueueTypeHygieneTest(unittest.TestCase):
         }
         classes = {
             node.name: node
-            for node in ast.walk(self.tree)
+            for tree in (
+                self.tree,
+                self.parser_tree,
+                self.modules_tree,
+                self.model_tree,
+                self.lower_acir_tree,
+            )
+            for node in ast.walk(tree)
             if isinstance(node, ast.ClassDef)
         }
         for class_name, fields in expected.items():
@@ -103,7 +167,14 @@ class QueueTypeHygieneTest(unittest.TestCase):
             ("specialization_fingerprint", "removeprefix"),
         }
         found: set[tuple[str, str]] = set()
-        for tree in (self.tree, self.codegen_tree):
+        for tree in (
+            self.tree,
+            self.parser_tree,
+            self.modules_tree,
+            self.expressions_tree,
+            self.lower_acir_tree,
+            self.codegen_tree,
+        ):
             for node in ast.walk(tree):
                 if (
                     isinstance(node, ast.Call)
@@ -121,7 +192,7 @@ class QueueTypeHygieneTest(unittest.TestCase):
     def test_expression_emitter_carries_descriptor_types(self) -> None:
         emitter = next(
             node
-            for node in ast.walk(self.tree)
+            for node in ast.walk(self.expressions_tree)
             if isinstance(node, ast.ClassDef) and node.name == "_ExpressionEmitter"
         )
         methods = {

@@ -454,14 +454,19 @@ class RepositoryContractsTest(unittest.TestCase):
                 self.assertNotIn('["contract_epoch"] != "0.5"', source, path)
                 self.assertNotIn('"contract_epoch": "0.5"', source, path)
 
-        for name in ("_lower_acir.py", "_queue_frontend.py"):
+        for name in (
+            "_lower_acir.py",
+            "_queue_frontend.py",
+            "_queue_compiler/modules.py",
+            "_queue_compiler/parser.py",
+        ):
             source = (source_root / name).read_text()
             self.assertNotIn("json.dumps", source, name)
 
         allowed_format_versions = {
             "_commands/model.py": 2,
             "_jit.py": 5,
-            "_queue_frontend.py": 1,
+            "_queue_compiler/modules.py": 1,
             "_contract.py": 1,
         }
         actual_literals = {
