@@ -9,7 +9,13 @@ PACKAGE = ROOT / "python/agentic-circuit/src/agentic_circuit"
 FACADE = PACKAGE / "_queue_frontend.py"
 COMPILER = PACKAGE / "_queue_compiler"
 PARSER = COMPILER / "parser.py"
-STATEMENTS = COMPILER / "statements.py"
+STATEMENT_MODULES = (
+    COMPILER / "graph_statements.py",
+    COMPILER / "memory_statements.py",
+    COMPILER / "endpoint_statements.py",
+    COMPILER / "state_statements.py",
+    COMPILER / "state_semantics.py",
+)
 
 
 class QueueFrontendStructureTest(unittest.TestCase):
@@ -41,8 +47,7 @@ class QueueFrontendStructureTest(unittest.TestCase):
         parse = next(
             node
             for node in tree.body
-            if isinstance(node, ast.FunctionDef)
-            and node.name == "parse_queue_program"
+            if isinstance(node, ast.FunctionDef) and node.name == "parse_queue_program"
         )
         visit = next(
             node
@@ -58,7 +63,11 @@ class QueueFrontendStructureTest(unittest.TestCase):
         ]
         self.assertEqual(
             [
+                "handle_state_statement",
+                "handle_memory_declaration",
+                "handle_memory_array_declaration",
                 "handle_memory_array_select",
+                "handle_memory_request",
                 "handle_queue_graph_operation",
                 "handle_multi_output_operation",
                 "handle_expect",
@@ -68,12 +77,26 @@ class QueueFrontendStructureTest(unittest.TestCase):
             ],
             handlers,
         )
-        self.assertLessEqual(visit.end_lineno - visit.lineno + 1, 3000)
+        self.assertLessEqual(visit.end_lineno - visit.lineno + 1, 2200)
 
     def test_statement_handlers_do_not_depend_on_parser_or_facade(self) -> None:
-        source = STATEMENTS.read_text(encoding="utf-8")
-        self.assertNotIn("_queue_frontend", source)
-        self.assertNotIn(".parser", source)
+        for path in STATEMENT_MODULES:
+            with self.subTest(path=path.name):
+                source = path.read_text(encoding="utf-8")
+                self.assertNotIn("_queue_frontend", source)
+                imports = {
+                    node.module
+                    for node in ast.walk(ast.parse(source, filename=str(path)))
+                    if isinstance(node, ast.ImportFrom)
+                }
+                self.assertNotIn("parser", imports)
+
+    def test_statement_dependencies_flow_toward_parser(self) -> None:
+        context = (COMPILER / "parser_context.py").read_text(encoding="utf-8")
+        common = (COMPILER / "statement_common.py").read_text(encoding="utf-8")
+        self.assertNotIn("_statements", context)
+        self.assertNotIn("_statements", common)
+        self.assertFalse((COMPILER / "statements.py").exists())
 
 
 if __name__ == "__main__":

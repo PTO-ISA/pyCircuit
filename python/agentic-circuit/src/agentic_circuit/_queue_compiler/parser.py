@@ -8,20 +8,14 @@ from collections.abc import Mapping
 from dataclasses import replace
 
 from _pycircuit_semantics import (
-    ArrayType,
-    BitsType,
-    BoolType,
     Constant,
-    EnumType,
     RangeType,
-    StructType,
     TupleType,
     ValueType,
     prove_within,
 )
 
 from .._contract import CONTRACT_EPOCH
-from .._diagnostics import SourceSpan
 from .._source_map import (
     SourceNodeLocations,
     apply_source_node_locations,
@@ -40,23 +34,33 @@ from .definitions import (
     _lambda_value,
     _pure_helper_definitions,
 )
+from .endpoint_statements import (
+    handle_expect,
+    handle_observe,
+    handle_return,
+    handle_sink,
+)
 from .errors import QueueFrontendError
 from .expressions import (
     _ExpressionEmitter,
 )
+from .graph_statements import (
+    handle_multi_output_operation,
+    handle_queue_graph_operation,
+)
+from .memory_statements import (
+    handle_memory_array_declaration,
+    handle_memory_array_select,
+    handle_memory_declaration,
+    handle_memory_request,
+)
 from .model import (
-    CandidateSetBinding,
     CollectionBinding,
     CreditBinding,
     DependencyBinding,
-    EntryViewBinding,
     FeedbackBinding,
-    MaskedEntryViewBinding,
-    MaskedTableWriteBinding,
-    MemoryInstanceBinding,
     MemoryRequestBinding,
     MergeBinding,
-    ProjectedTableViewBinding,
     QueueBinding,
     QueueProgram,
     RecursiveQueueHelper,
@@ -76,15 +80,10 @@ from .model import (
     RuleStateWriteBinding,
     RuleStateWriteDefinition,
     ScopeBinding,
-    SelectionBinding,
     SlotBinding,
-    SlotReleaseBinding,
-    StaticMemoryArrayBinding,
     StaticQueueCollection,
     StaticTypeCheck,
     TableBinding,
-    TableReadBinding,
-    TableWriteBinding,
     VarStateBinding,
 )
 from .normalize import (
@@ -93,21 +92,17 @@ from .normalize import (
     _normalize_rule_field_assignments,
     _strip_static_assertions,
 )
-from .source import (
-    _normalize_queue_source_path,
-)
-from .statements import (
+from .parser_context import (
     HANDLED,
     _ParserEnvironment,
     _ParserState,
-    handle_expect,
-    handle_memory_array_select,
-    handle_multi_output_operation,
-    handle_observe,
-    handle_queue_graph_operation,
-    handle_return,
-    handle_sink,
+    _StatementContext,
 )
+from .source import (
+    _normalize_queue_source_path,
+)
+from .state_semantics import _StateSemantics
+from .state_statements import handle_state_statement
 from .static_types import (
     _bitfields,
     _bounded_annotation_static_checks,
@@ -115,22 +110,18 @@ from .static_types import (
     _contains_declared_range,
     _dependent_static_type_expression,
     _enums,
-    _epoch_05_integer_width,
     _is_epoch_05_bool_compatible,
     _module_static_values,
     _nonnegative_int_value,
     _payload,
     _payloads,
     _positive_int_value,
-    _product,
     _scalar_annotation_static_check,
-    _scalar_reset_init,
     _static_config_bindings_for_checks,
     _static_int_value,
     _static_parameter_aliases,
     _static_type_bindings_for_checks,
     _type_static_values,
-    _types_equal_in_epoch_05,
     _validate_static_config_roots,
 )
 from .syntax import _decorator_name
@@ -2409,8 +2400,15 @@ def parse_queue_program(
         tuple(payloads),
         result_payloads,
         rule_definitions,
+        payload_map,
+        enum_map,
+        type_static_values,
+        entry_kind,
+        tree,
+        helper_map,
     )
     parser_state = _ParserState()
+    state_semantics = _StateSemantics(parser_environment, parser_state)
     queues = parser_state.queues
     effect_rules = parser_state.effect_rules
     scopes = parser_state.scopes
@@ -2515,593 +2513,19 @@ def parse_queue_program(
 
         return ast.fix_missing_locations(StaticSelectionTupleRefs().visit(statement))
 
-    def normalized_write_fields(
-        table: TableBinding,
-        value: ast.expr | None,
-        patch_fields: tuple[tuple[str, ast.expr], ...],
-    ) -> tuple[str, ...]:
-        if not isinstance(table.entry_type, StructType):
-            return ("$entry",)
-        declared = tuple(field.name for field in table.entry_type.fields)
-        if value is not None:
-            return declared
-        requested = {name for name, _ in patch_fields}
-        return tuple(name for name in declared if name in requested)
 
-    def proven_field_write_fields(
-        table: TableBinding,
-        argument: str,
-        value: ast.expr | None,
-        write_index: ast.expr | None,
-        reads: tuple[RuleStateReadDefinition, ...] = (),
-        locals: tuple[RuleLocalDefinition, ...] = (),
-        *,
-        legacy_read_name: str | None = None,
-        legacy_read_index: ast.expr | None = None,
-    ) -> tuple[str, ...] | None:
-        """Return the canonical footprint of a proven Table field update.
 
-        The proof follows the rule's immutable SSA expressions, including
-        local aliases, value selects, and closed pure-helper summaries.  It is
-        fail-closed: unrelated or mixed roots remain complete replacements.
-        """
-        if not isinstance(table.entry_type, StructType) or write_index is None:
-            return None
-        local_values = {
-            local.name: local.value
-            for local in locals
-            if local.guard is None and not local.guard_negated
-        }
 
-        class Substitute(ast.NodeTransformer):
-            def __init__(self, replacements: Mapping[str, ast.expr]) -> None:
-                self.replacements = replacements
 
-            def visit_Name(self, node: ast.Name) -> ast.expr:
-                if isinstance(node.ctx, ast.Load) and node.id in self.replacements:
-                    return ast.copy_location(
-                        copy.deepcopy(self.replacements[node.id]), node
-                    )
-                return node
 
-        def substitute(
-            expression: ast.expr, replacements: Mapping[str, ast.expr]
-        ) -> ast.expr:
-            result = Substitute(replacements).visit(copy.deepcopy(expression))
-            assert isinstance(result, ast.expr)
-            return ast.fix_missing_locations(result)
 
-        def resolve_alias(expression: ast.expr, seen: set[str]) -> ast.expr:
-            current = expression
-            while (
-                isinstance(current, ast.Name)
-                and current.id in local_values
-                and current.id not in seen
-            ):
-                seen.add(current.id)
-                current = local_values[current.id]
-            return current
 
-        def same_index(candidate: ast.expr | None) -> bool:
-            if candidate is None:
-                return False
-            left = resolve_alias(candidate, set())
-            right = resolve_alias(write_index, set())
-            return ast.dump(left, include_attributes=False) == ast.dump(
-                right, include_attributes=False
-            )
 
-        def analyze(
-            expression: ast.expr, active_helpers: frozenset[str] = frozenset()
-        ) -> set[str] | None:
-            root = resolve_alias(expression, set())
-            if (
-                isinstance(root, ast.Subscript)
-                and isinstance(root.value, ast.Name)
-                and root.value.id == argument
-                and same_index(root.slice)
-            ):
-                return set()
-            if isinstance(root, ast.Name):
-                if any(
-                    read.name == root.id
-                    and read.argument == argument
-                    and same_index(read.index)
-                    for read in reads
-                ) or (legacy_read_name == root.id and same_index(legacy_read_index)):
-                    return set()
-                return None
-            if (
-                isinstance(root, ast.Call)
-                and isinstance(root.func, ast.Attribute)
-                and root.func.attr == "with_fields"
-                and not root.args
-                and root.keywords
-                and all(keyword.arg is not None for keyword in root.keywords)
-            ):
-                fields = analyze(root.func.value, active_helpers)
-                if fields is None:
-                    return None
-                return fields | {
-                    keyword.arg for keyword in root.keywords if keyword.arg is not None
-                }
-            if isinstance(root, ast.IfExp):
-                left = analyze(root.body, active_helpers)
-                right = analyze(root.orelse, active_helpers)
-                if left is None or right is None:
-                    return None
-                return left | right
-            if isinstance(root, ast.Call) and isinstance(root.func, ast.Name):
-                helper = helper_map.get(root.func.id)
-                if (
-                    helper is None
-                    or helper.name in active_helpers
-                    or root.keywords
-                    or len(root.args) != len(helper.arguments)
-                ):
-                    return None
-                replacements = {
-                    name: actual
-                    for (name, _), actual in zip(
-                        helper.arguments, root.args, strict=True
-                    )
-                }
-                return analyze(
-                    substitute(helper.expression, replacements),
-                    active_helpers | {helper.name},
-                )
-            return None
 
-        requested = analyze(value)
-        declared = tuple(field.name for field in table.entry_type.fields)
-        if not requested or not requested <= set(declared):
-            return None
-        return tuple(name for name in declared if name in requested)
 
-    def complete_value_fields(value_type: ValueType) -> tuple[str, ...]:
-        if not isinstance(value_type, StructType):
-            return ("$entry",)
-        return tuple(field.name for field in value_type.fields)
 
-    def state_value_type(owner: VarStateBinding | TableBinding) -> ValueType:
-        return (
-            owner.value_type if isinstance(owner, VarStateBinding) else owner.entry_type
-        )
 
-    def state_owner_kind(owner: VarStateBinding | TableBinding) -> str:
-        return "var" if isinstance(owner, VarStateBinding) else "table"
 
-    def state_write_fields(owner: VarStateBinding | TableBinding) -> tuple[str, ...]:
-        return complete_value_fields(state_value_type(owner))
-
-    def table_key_ordering(
-        table: TableBinding, argument: str, expression: ast.expr
-    ) -> str:
-        if not (
-            isinstance(table.entry_type, StructType)
-            and isinstance(expression, ast.Attribute)
-            and isinstance(expression.value, ast.Name)
-            and expression.value.id == argument
-        ):
-            return "unsigned"
-        for declaration in tree.body:
-            if not isinstance(declaration, ast.ClassDef) or (
-                declaration.name != table.entry_type.name
-            ):
-                continue
-            for field in declaration.body:
-                if (
-                    isinstance(field, ast.AnnAssign)
-                    and isinstance(field.target, ast.Name)
-                    and field.target.id == expression.attr
-                ):
-                    annotation = _decorator_name(field.annotation).rsplit(".", 1)[-1]
-                    return (
-                        "signed"
-                        if annotation in {"s8", "s16", "s32", "s64"}
-                        else "unsigned"
-                    )
-        return "unsigned"
-
-    def writer_priority_rank(policy: ast.expr, diagnostic: str) -> int:
-        if (
-            not isinstance(policy, ast.Call)
-            or _decorator_name(policy.func).rsplit(".", 1)[-1] != "writer_priority"
-            or len(policy.args) != 1
-            or policy.keywords
-        ):
-            raise QueueFrontendError(
-                f"{diagnostic}: arbitration requires ac.writer_priority(rank)"
-            )
-        rank = _constant_integer(policy.args[0], system_static_values)
-        if rank is None or rank < 0:
-            raise QueueFrontendError(
-                f"{diagnostic}: writer priority rank must be a non-negative "
-                "static integer"
-            )
-        return rank
-
-    def table_writer_arbitration(
-        call: ast.Call, diagnostic: str, table: str
-    ) -> int | None:
-        policies = [
-            keyword.value for keyword in call.keywords if keyword.arg == "arbitration"
-        ]
-        if len(policies) > 1:
-            raise QueueFrontendError(f"{diagnostic}: repeated arbitration policy")
-        if not policies:
-            return None
-        policy = policies[0]
-        if isinstance(policy, ast.Name) and policy.id in arbitration_descriptors:
-            owner = arbitration_owners.setdefault(policy.id, table)
-            if owner != table:
-                raise QueueFrontendError(
-                    f"{diagnostic}: arbitration descriptor {policy.id!r} cannot "
-                    "cross Table owners"
-                )
-            return arbitration_descriptors[policy.id]
-        return writer_priority_rank(policy, diagnostic)
-
-    def reject_overlapping_table_writer(
-        table: str,
-        write_fields: tuple[str, ...],
-        write_mode: str,
-        arbitration_rank: int | None,
-    ) -> None:
-        requested = set(write_fields)
-        for write in (*table_writes, *masked_table_writes):
-            if write.table != table:
-                continue
-            if write_mode == "replace" or write.write_mode == "replace":
-                if write_mode == write.write_mode == "replace":
-                    if arbitration_rank is None or write.arbitration_rank is None:
-                        raise QueueFrontendError(
-                            "ACPY-TABLE-009: table permits one allocation endpoint "
-                            "unless multiple endpoints declare explicit writer "
-                            "arbitration"
-                        )
-                    if arbitration_rank == write.arbitration_rank:
-                        raise QueueFrontendError(
-                            "ACPY-TABLE-011: writer priority ranks must be unique "
-                            "for conflicting endpoints"
-                        )
-                continue
-            overlap = requested.intersection(write.write_fields)
-            if overlap:
-                if arbitration_rank is not None and write.arbitration_rank is not None:
-                    if arbitration_rank == write.arbitration_rank:
-                        raise QueueFrontendError(
-                            "ACPY-TABLE-011: writer priority ranks must be unique "
-                            "for conflicting endpoints"
-                        )
-                    continue
-                field = min(overlap)
-                raise QueueFrontendError(
-                    "ACPY-TABLE-004: table write field "
-                    f"'{field}' has multiple endpoints without explicit arbitration"
-                )
-
-    def table_declaration(
-        call: ast.Call,
-    ) -> tuple[int, tuple[int, ...], ValueType, tuple[object, ...] | None] | None:
-        if not isinstance(call.func, ast.Subscript):
-            return None
-        if _decorator_name(call.func.value).rsplit(".", 1)[-1] != "table":
-            return None
-        parameters = call.func.slice
-        if not isinstance(parameters, ast.Tuple) or len(parameters.elts) != 2:
-            raise QueueFrontendError(
-                "ACPY-TABLE-001: table requires ac.table[entries, Entry]"
-            )
-        shape_node = parameters.elts[0]
-        extent_nodes = (
-            tuple(shape_node.elts)
-            if isinstance(shape_node, ast.Tuple)
-            else (shape_node,)
-        )
-        if not extent_nodes:
-            raise QueueFrontendError("ACPY-TABLE-010: Table shape must be non-empty")
-        shape_values = tuple(
-            _constant_integer(extent, system_static_values) for extent in extent_nodes
-        )
-        if any(extent is None for extent in shape_values):
-            raise QueueFrontendError(
-                "ACPY-TABLE-010: every Table extent must be a positive static integer"
-            )
-        shape = tuple(int(extent) for extent in shape_values if extent is not None)
-        if any(extent <= 0 for extent in shape):
-            raise QueueFrontendError(
-                "ACPY-TABLE-010: every Table extent must be positive"
-            )
-        entries = 1
-        for extent in shape:
-            if entries > ((1 << 63) - 1) // extent:
-                raise QueueFrontendError(
-                    "ACPY-TABLE-010: Table flattened size overflows signed i64"
-                )
-            entries *= extent
-        entry_type = _payload(
-            parameters.elts[1],
-            payload_map,
-            enum_map,
-            static_values=type_static_values,
-        )
-        if call.args or any(
-            keyword.arg is None or keyword.arg != "init" for keyword in call.keywords
-        ):
-            raise QueueFrontendError("ACPY-TABLE-001: table accepts only keyword init")
-        init_values = [keyword.value for keyword in call.keywords]
-        if len(init_values) > 1:
-            raise QueueFrontendError("ACPY-TABLE-011: Table init is repeated")
-        init_node = init_values[0] if init_values else ast.Constant(0)
-        if _constant_integer(init_node, system_static_values) == 0:
-            return entries, shape, entry_type, None
-
-        if not isinstance(init_node, ast.Dict):
-            raise QueueFrontendError(
-                "ACPY-TABLE-011: table init must be exactly zero or a "
-                "versioned typed image"
-            )
-        image_fields: dict[str, ast.expr] = {}
-        for key, value in zip(init_node.keys, init_node.values, strict=True):
-            if not isinstance(key, ast.Constant) or type(key.value) is not str:
-                raise QueueFrontendError(
-                    "ACPY-TABLE-011: typed image keys must be static strings"
-                )
-            if key.value in image_fields:
-                raise QueueFrontendError(
-                    "ACPY-TABLE-011: typed image field is repeated"
-                )
-            image_fields[key.value] = value
-        if set(image_fields) != {"version", "entry", "values"}:
-            raise QueueFrontendError(
-                "ACPY-TABLE-011: typed image requires version, entry, and values"
-            )
-        if _constant_integer(image_fields["version"], system_static_values) != 1:
-            raise QueueFrontendError(
-                "ACPY-TABLE-011: typed image version must be exactly 1"
-            )
-        image_entry = _payload(
-            image_fields["entry"],
-            payload_map,
-            enum_map,
-            static_values=type_static_values,
-        )
-        if image_entry != entry_type:
-            raise QueueFrontendError(
-                "ACPY-TABLE-011: typed image Entry type must match the Table"
-            )
-        values_node = image_fields["values"]
-        if not isinstance(values_node, (ast.List, ast.Tuple)):
-            raise QueueFrontendError(
-                "ACPY-TABLE-011: typed image values must be a static sequence"
-            )
-        if len(values_node.elts) != entries:
-            raise QueueFrontendError(
-                f"ACPY-TABLE-011: typed image requires exactly {entries} entries"
-            )
-
-        def canonical_image_value(node: ast.expr, descriptor: ValueType) -> object:
-            if isinstance(descriptor, BoolType):
-                if isinstance(node, ast.Constant) and type(node.value) is bool:
-                    return node.value
-            elif isinstance(descriptor, BitsType):
-                value = _constant_integer(node, system_static_values)
-                if value is not None and 0 <= value < (1 << descriptor.width):
-                    return value
-                if value is not None:
-                    raise QueueFrontendError(
-                        f"ACPY-TABLE-011: typed image value does not fit i{descriptor.width}"
-                    )
-            elif isinstance(descriptor, EnumType):
-                if (
-                    isinstance(node, ast.Attribute)
-                    and _decorator_name(node.value).rsplit(".", 1)[-1]
-                    == descriptor.name
-                    and node.attr in descriptor.enumerants
-                ):
-                    return node.attr
-            elif isinstance(descriptor, StructType):
-                if (
-                    isinstance(node, ast.Call)
-                    and not node.args
-                    and _decorator_name(node.func).rsplit(".", 1)[-1] == descriptor.name
-                    and all(keyword.arg is not None for keyword in node.keywords)
-                ):
-                    fields = {keyword.arg: keyword.value for keyword in node.keywords}
-                    if len(fields) == len(node.keywords) and set(fields) == {
-                        field.name for field in descriptor.fields
-                    }:
-                        return {
-                            field.name: canonical_image_value(
-                                fields[field.name], field.type
-                            )
-                            for field in descriptor.fields
-                        }
-            elif isinstance(descriptor, TupleType) and isinstance(
-                node, (ast.List, ast.Tuple)
-            ):
-                if len(node.elts) == len(descriptor.elements):
-                    return [
-                        canonical_image_value(value, value_type)
-                        for value, value_type in zip(
-                            node.elts, descriptor.elements, strict=True
-                        )
-                    ]
-            elif isinstance(descriptor, ArrayType) and isinstance(
-                node, (ast.List, ast.Tuple)
-            ):
-                if len(node.elts) == descriptor.length:
-                    return [
-                        canonical_image_value(value, descriptor.element)
-                        for value in node.elts
-                    ]
-            raise QueueFrontendError(
-                "ACPY-TABLE-011: typed image values must be closed literals "
-                "matching the Entry descriptor"
-            )
-
-        canonical_values = [
-            canonical_image_value(value, entry_type) for value in values_node.elts
-        ]
-        return entries, shape, entry_type, tuple(canonical_values)
-
-    def parse_view(
-        node: ast.expr,
-        alias: str,
-        scope_path: tuple[str, ...],
-        current_order: int,
-    ) -> EntryViewBinding | MaskedEntryViewBinding | ProjectedTableViewBinding | None:
-        if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Attribute):
-            return None
-        if node.func.attr != "view" or not isinstance(node.func.value, ast.Name):
-            return None
-        source_name = node.func.value.id
-        projected_source = entry_views.get(source_name)
-        if source_name in table_by_name:
-            table_name = source_name
-            prefix: tuple[ast.expr, ...] = ()
-        elif isinstance(projected_source, ProjectedTableViewBinding):
-            table_name = projected_source.table
-            prefix = projected_source.prefix
-        else:
-            return None
-        if len(node.args) != 1 or node.keywords:
-            raise QueueFrontendError(
-                "ACPY-TABLE-002: table.view requires one index or selector lambda"
-            )
-        selector = node.args[0]
-        if isinstance(selector, ast.Name) and selector.id in candidate_by_name:
-            candidate = candidate_by_name[selector.id]
-            if candidate.table != table_name:
-                raise QueueFrontendError(
-                    "ACPY-TABLE-008: CandidateSet belongs to a different Table"
-                )
-            if isinstance(projected_source, ProjectedTableViewBinding) and (
-                candidate.domain_axes != projected_source.domain_axes
-                or candidate.domain_shape != projected_source.domain_shape
-                or candidate.domain_strides != projected_source.domain_strides
-                or candidate.domain_offset != projected_source.domain_offset
-            ):
-                raise QueueFrontendError(
-                    "ACPY-TABLE-008: CandidateSet belongs to a different Table view"
-                )
-            return MaskedEntryViewBinding(
-                alias, table_name, candidate.name, scope_path, current_order
-            )
-        if (
-            isinstance(selector, ast.Attribute)
-            and isinstance(selector.value, ast.Name)
-            and selector.value.id in selection_by_name
-            and selection_by_name[selector.value.id].table != table_name
-        ):
-            raise QueueFrontendError(
-                "ACPY-TABLE-007: Selection belongs to a different Table"
-            )
-        if isinstance(selector, ast.Lambda):
-            argument, address = _lambda(selector)
-        else:
-            argument, address = (
-                None,
-                _constantize_expression(selector, "", system_static_values),
-            )
-        table = table_by_name[table_name]
-        flattened_choice_index = (
-            isinstance(address, ast.Attribute)
-            and isinstance(address.value, ast.Name)
-            and address.attr == "index"
-            and address.value.id in selection_by_name
-            and selection_by_name[address.value.id].table == table_name
-        )
-        if flattened_choice_index:
-            return EntryViewBinding(
-                alias, table_name, argument, address, scope_path, current_order
-            )
-        local_coordinates = (
-            tuple(address.elts) if isinstance(address, ast.Tuple) else (address,)
-        )
-        coordinates = (*prefix, *local_coordinates)
-        if len(coordinates) > len(table.shape):
-            raise QueueFrontendError(
-                "ACPY-TABLE-010: Table index rank must match shape"
-            )
-        static_coordinates = tuple(
-            _constant_integer(coordinate, system_static_values)
-            for coordinate in coordinates
-        )
-        for axis, (coordinate, extent) in enumerate(
-            zip(
-                static_coordinates,
-                table.shape[: len(static_coordinates)],
-                strict=True,
-            )
-        ):
-            if coordinate is not None and not 0 <= coordinate < extent:
-                raise QueueFrontendError(
-                    f"ACPY-TABLE-010: Table index axis {axis} is out of range"
-                )
-        if len(coordinates) < len(table.shape):
-            if argument is not None or any(
-                coordinate is None for coordinate in static_coordinates
-            ):
-                raise QueueFrontendError(
-                    "ACPY-TABLE-010: projected Table view requires static prefix "
-                    "coordinates"
-                )
-            strides = tuple(
-                _product(table.shape[axis + 1 :]) for axis in range(len(table.shape))
-            )
-            prefix_values = tuple(
-                int(coordinate)
-                for coordinate in static_coordinates
-                if coordinate is not None
-            )
-            fixed = len(prefix_values)
-            return ProjectedTableViewBinding(
-                alias,
-                table_name,
-                tuple(coordinates),
-                tuple(range(fixed, len(table.shape))),
-                table.shape[fixed:],
-                strides[fixed:],
-                sum(
-                    coordinate * stride
-                    for coordinate, stride in zip(
-                        prefix_values, strides[:fixed], strict=True
-                    )
-                ),
-                scope_path,
-                current_order,
-            )
-        if len(table.shape) == 1:
-            address = coordinates[0]
-        else:
-            address = ast.copy_location(
-                ast.Tuple(elts=list(coordinates), ctx=ast.Load()), address
-            )
-        return EntryViewBinding(
-            alias, table_name, argument, address, scope_path, current_order
-        )
-
-    def resolve_view(
-        node: ast.expr,
-        scope_path: tuple[str, ...],
-        current_order: int,
-    ) -> EntryViewBinding | MaskedEntryViewBinding | ProjectedTableViewBinding | None:
-        if isinstance(node, ast.Name):
-            view = entry_views.get(node.id)
-            if view and view.scope == scope_path:
-                return view
-            return None
-        return parse_view(node, "", scope_path, current_order)
-
-    def lambda_or_constant(node: ast.expr, argument: str, diagnostic: str) -> ast.expr:
-        if isinstance(node, ast.Lambda):
-            candidate_argument, expression = _lambda(node)
-            if candidate_argument != argument:
-                raise QueueFrontendError(diagnostic)
-            return expression
-        return _constantize_expression(node, argument, system_static_values)
 
     def keyword_value(call: ast.Call, name: str) -> ast.expr:
         matches = [keyword.value for keyword in call.keywords if keyword.arg == name]
@@ -3268,120 +2692,7 @@ def parse_queue_program(
             source=source_frame(call),
         )
 
-    def memory_instance_binding(
-        name: str,
-        call: ast.Call,
-        scope_path: tuple[str, ...],
-        current_order: int,
-        static_values: dict[str, int] | None = None,
-    ) -> MemoryInstanceBinding:
-        if call_name(call) != "memory" or len(call.args) != 1:
-            raise QueueFrontendError("ACPY-QUEUE-015: memory requires one data type")
-        if any(
-            keyword.arg is None or keyword.arg not in {"entries", "init", "latency"}
-            for keyword in call.keywords
-        ):
-            raise QueueFrontendError(
-                "ACPY-QUEUE-015: memory instance has an unsupported keyword"
-            )
-        data_type = _payload(
-            call.args[0],
-            payload_map,
-            enum_map,
-            static_values=type_static_values,
-        )
-        if _epoch_05_integer_width(data_type) is None:
-            raise QueueFrontendError(
-                "ACPY-QUEUE-015: memory data type must be an integer"
-            )
-        entries = _positive_int(call, "entries", 16, static_values)
-        init = _nonnegative_int(call, "init", 0, static_values)
-        latency = _positive_int(call, "latency", 1, static_values)
-        if init != 0:
-            raise QueueFrontendError("ACPY-QUEUE-015: memory init must be zero")
-        return MemoryInstanceBinding(
-            name,
-            data_type,
-            entries,
-            init,
-            latency,
-            scope_path,
-            current_order,
-            source_frame(call),
-        )
 
-    def memory_request_parameters(
-        call: ast.Call,
-        incoming: QueueBinding,
-        data_type: ValueType,
-        extra_keywords: set[str] | None = None,
-    ) -> tuple[str, ast.expr, ast.expr, ast.expr, str, int]:
-        allowed_keywords = {
-            "address",
-            "write",
-            "data",
-            "result_field",
-            "depth",
-            *(extra_keywords or set()),
-        }
-        if any(
-            keyword.arg is None or keyword.arg not in allowed_keywords
-            for keyword in call.keywords
-        ):
-            raise QueueFrontendError(
-                "ACPY-QUEUE-015: memory request has an unsupported keyword"
-            )
-        policies: dict[str, ast.expr] = {}
-        for policy in ("address", "write", "data"):
-            values = [
-                keyword.value for keyword in call.keywords if keyword.arg == policy
-            ]
-            if len(values) != 1:
-                raise QueueFrontendError(
-                    f"ACPY-QUEUE-015: memory request requires one {policy} lambda"
-                )
-            policies[policy] = values[0]
-        arguments_and_values = [_lambda(policies[item]) for item in policies]
-        if len({argument for argument, _ in arguments_and_values}) != 1:
-            raise QueueFrontendError(
-                "ACPY-QUEUE-015: memory request lambdas require one argument name"
-            )
-        result_fields = [
-            keyword.value for keyword in call.keywords if keyword.arg == "result_field"
-        ]
-        if (
-            len(result_fields) != 1
-            or not isinstance(result_fields[0], ast.Constant)
-            or type(result_fields[0].value) is not str
-            or not result_fields[0].value
-        ):
-            raise QueueFrontendError(
-                "ACPY-QUEUE-015: memory request requires one static result_field"
-            )
-        payload = next(
-            (
-                declaration
-                for declaration in payloads
-                if declaration.descriptor == incoming.payload
-            ),
-            None,
-        )
-        result_field = result_fields[0].value
-        field_types = dict(payload.field_descriptors) if payload is not None else {}
-        if result_field not in field_types:
-            raise QueueFrontendError("ACPY-QUEUE-015: memory result_field is unknown")
-        if not _types_equal_in_epoch_05(field_types[result_field], data_type):
-            raise QueueFrontendError(
-                "ACPY-QUEUE-015: memory result_field must match instance data type"
-            )
-        return (
-            arguments_and_values[0][0],
-            arguments_and_values[0][1],
-            arguments_and_values[1][1],
-            arguments_and_values[2][1],
-            result_field,
-            _positive_int(call, "depth", 1),
-        )
 
     def collection_binding(
         name: str,
@@ -3511,912 +2822,30 @@ def parse_queue_program(
             parser_state.order += 1
             if (frame := source_frame(statement)) is not None:
                 statement_sources[current_order] = frame
+            statement_context = _StatementContext(
+                statement, scope_path, aliases, current_order
+            )
             if (
-                isinstance(statement, ast.Assign)
-                and len(statement.targets) == 1
-                and isinstance(statement.targets[0], ast.Name)
-                and isinstance(statement.value, ast.Call)
-                and _decorator_name(statement.value.func).rsplit(".", 1)[-1]
-                == "writer_priority"
-            ):
-                name = statement.targets[0].id
-                if name in arbitration_descriptors:
-                    raise QueueFrontendError(
-                        "ACPY-TABLE-011: arbitration descriptor requires a fresh name"
-                    )
-                arbitration_descriptors[name] = writer_priority_rank(
-                    statement.value, "ACPY-TABLE-011"
+                handle_state_statement(
+                    parser_environment, parser_state, statement_context
                 )
+                is HANDLED
+            ):
+                aliases = statement_context.aliases
                 continue
             if (
-                isinstance(statement, ast.AnnAssign)
-                and isinstance(statement.target, ast.Name)
-                and statement.value is not None
+                handle_memory_declaration(
+                    parser_environment, parser_state, statement_context
+                )
+                is HANDLED
             ):
-                name = statement.target.id
-                if name in variable_by_name or name in by_name:
-                    raise QueueFrontendError(
-                        "ACPY-VAR-001: persistent variable requires a fresh name"
-                    )
-                entries = 1
-                annotation = statement.annotation
-                if isinstance(annotation, ast.Subscript) and _decorator_name(
-                    annotation.value
-                ).rsplit(".", 1)[-1] in {"list", "List"}:
-                    initializer = statement.value
-                    count: int | None = None
-                    if isinstance(initializer, ast.BinOp) and isinstance(
-                        initializer.op, ast.Mult
-                    ):
-                        if isinstance(initializer.left, ast.List):
-                            count = _static_int(initializer.right)
-                        elif isinstance(initializer.right, ast.List):
-                            count = _static_int(initializer.left)
-                    if count is None and isinstance(initializer, ast.List):
-                        count = len(initializer.elts)
-                    entry_spelling = ast.unparse(annotation.slice)
-                    extent_spelling = str(count) if count is not None else "N"
-                    frame = source_frame(statement)
-                    location = (
-                        None
-                        if frame is None
-                        else SourceSpan(
-                            frame.file,
-                            frame.line,
-                            frame.column,
-                            frame.end_line,
-                            frame.end_column,
-                        )
-                    )
-                    raise QueueFrontendError(
-                        "ACPY-VAR-002",
-                        "persistent indexed state must be declared explicitly; "
-                        f"replace {name}: list[{entry_spelling}] with "
-                        f"{name} = ac.table[{extent_spelling}, {entry_spelling}](init=0)",
-                        location,
-                    )
-                else:
-                    value_type = _payload(
-                        annotation,
-                        payload_map,
-                        enum_map,
-                        type_static_values,
-                    )
-                    if isinstance(value_type, EnumType):
-                        if (
-                            not isinstance(statement.value, ast.Attribute)
-                            or _decorator_name(statement.value.value).rsplit(".", 1)[-1]
-                            != value_type.name
-                            or statement.value.attr != value_type.enumerants[0]
-                            or value_type.encoding_values[0] != 0
-                        ):
-                            raise QueueFrontendError(
-                                "ACPY-VAR-001: persistent enum init must be its "
-                                "zero-encoded first declared member"
-                            )
-                        init = 0
-                    else:
-                        if not isinstance(statement.value, ast.Constant) or type(
-                            statement.value.value
-                        ) not in {bool, int}:
-                            raise QueueFrontendError(
-                                "ACPY-VAR-001: persistent scalar init must be constant"
-                            )
-                        init = statement.value.value
-                if isinstance(
-                    value_type, (StructType, TupleType, ArrayType, EnumType)
-                ) and (type(init) is not int or init != 0):
-                    raise QueueFrontendError(
-                        "ACPY-VAR-001: persistent struct init must be zero"
-                    )
-                if not isinstance(
-                    value_type, (StructType, TupleType, ArrayType, EnumType)
-                ):
-                    init = _scalar_reset_init(value_type, init, code="ACPY-VAR-001")
-                binding = VarStateBinding(
-                    name,
-                    value_type,
-                    init,
-                    scope_path,
-                    current_order,
-                    entries,
-                    (entries,) if entries != 1 else (),
-                    source_frame(statement),
-                )
-                variables.append(binding)
-                variable_by_name[name] = binding
-                continue
-            assigned_names: tuple[str, ...] = ()
-            if isinstance(statement, ast.Assign) and len(statement.targets) == 1:
-                target = statement.targets[0]
-                if isinstance(target, ast.Name):
-                    assigned_names = (target.id,)
-                elif isinstance(target, (ast.Tuple, ast.List)) and all(
-                    isinstance(item, ast.Name) for item in target.elts
-                ):
-                    assigned_names = tuple(item.id for item in target.elts)
-            if any(
-                name in memory_by_name
-                or name in memory_arrays
-                or name in selected_memories
-                or name in table_by_name
-                or name in entry_views
-                or name in slot_by_name
-                or name in candidate_by_name
-                or name in selection_by_name
-                for name in assigned_names
-            ):
-                raise QueueFrontendError(
-                    "ACPY-QUEUE-015: state binding cannot be rebound"
-                )
-            selection_unpack: tuple[str, ...] = ()
-            if (
-                isinstance(statement, ast.Assign)
-                and len(statement.targets) == 1
-                and isinstance(statement.targets[0], (ast.Tuple, ast.List))
-                and isinstance(statement.value, ast.Call)
-                and isinstance(statement.value.func, ast.Attribute)
-                and statement.value.func.attr == "choose"
-            ):
-                if not all(
-                    isinstance(item, ast.Name) for item in statement.targets[0].elts
-                ):
-                    raise QueueFrontendError(
-                        "ACPY-TABLE-012: TableChoice tuple unpack requires names"
-                    )
-                selection_unpack = tuple(
-                    item.id
-                    for item in statement.targets[0].elts
-                    if isinstance(item, ast.Name)
-                )
-                statement.targets[0] = ast.copy_location(
-                    ast.Name(id=f"__table_selection_{current_order}", ctx=ast.Store()),
-                    statement.targets[0],
-                )
-            if (
-                isinstance(statement, ast.Assign)
-                and len(statement.targets) == 1
-                and isinstance(statement.targets[0], ast.Name)
-                and isinstance(statement.value, ast.Call)
-            ):
-                call = statement.value
-                declaration = table_declaration(statement.value)
-                if declaration is not None:
-                    name = statement.targets[0].id
-                    if (
-                        name in by_name
-                        or name in collections
-                        or name in table_by_name
-                        or name in variable_by_name
-                    ):
-                        raise QueueFrontendError(
-                            "ACPY-TABLE-001: table declaration requires a fresh name"
-                        )
-                    entries, shape, entry_type, init_image = declaration
-                    if entry_kind == "module":
-                        variable = VarStateBinding(
-                            name,
-                            entry_type,
-                            0,
-                            scope_path,
-                            current_order,
-                            entries,
-                            shape,
-                            source_frame(statement),
-                        )
-                        variables.append(variable)
-                        variable_by_name[name] = variable
-                        continue
-                    binding = TableBinding(
-                        name,
-                        entry_type,
-                        entries,
-                        shape,
-                        init_image,
-                        scope_path,
-                        current_order,
-                        source_frame(statement),
-                    )
-                    tables.append(binding)
-                    table_by_name[name] = binding
-                    continue
-                if call_name(call) == "slot":
-                    if len(call.args) != 1 or call.keywords:
-                        raise QueueFrontendError(
-                            "ACPY-SLOT-001: ac.slot requires exactly one Queue"
-                        )
-                    name = statement.targets[0].id
-                    if name in by_name or name in collections or name in slot_by_name:
-                        raise QueueFrontendError(
-                            "ACPY-SLOT-001: slot declaration requires a fresh name"
-                        )
-                    input_name = queue_reference(call.args[0], aliases)
-                    binding = SlotBinding(
-                        name,
-                        input_name,
-                        by_name[input_name].payload,
-                        scope_path,
-                        current_order,
-                    )
-                    slots.append(binding)
-                    slot_by_name[name] = binding
-                    continue
-                if (
-                    isinstance(call.func, ast.Attribute)
-                    and call.func.attr == "match"
-                    and isinstance(call.func.value, ast.Name)
-                    and (
-                        call.func.value.id in table_by_name
-                        or isinstance(
-                            entry_views.get(call.func.value.id),
-                            ProjectedTableViewBinding,
-                        )
-                    )
-                ):
-                    name = statement.targets[0].id
-                    projected = entry_views.get(call.func.value.id)
-                    table_name = (
-                        projected.table
-                        if isinstance(projected, ProjectedTableViewBinding)
-                        else call.func.value.id
-                    )
-                    table = table_by_name[table_name]
-                    domain_axes = (
-                        projected.domain_axes
-                        if isinstance(projected, ProjectedTableViewBinding)
-                        else tuple(range(len(table.shape)))
-                    )
-                    domain_shape = (
-                        projected.domain_shape
-                        if isinstance(projected, ProjectedTableViewBinding)
-                        else table.shape
-                    )
-                    domain_strides = (
-                        projected.domain_strides
-                        if isinstance(projected, ProjectedTableViewBinding)
-                        else tuple(
-                            _product(table.shape[axis + 1 :])
-                            for axis in range(len(table.shape))
-                        )
-                    )
-                    domain_offset = (
-                        projected.domain_offset
-                        if isinstance(projected, ProjectedTableViewBinding)
-                        else 0
-                    )
-                    domain_entries = _product(domain_shape)
-                    if domain_entries > 64:
-                        raise QueueFrontendError(
-                            "ACPY-TABLE-006: table.match domain must contain 1..64 entries"
-                        )
-                    if len(call.args) != 1 or call.keywords:
-                        raise QueueFrontendError(
-                            "ACPY-TABLE-006: table.match requires one predicate lambda"
-                        )
-                    argument, predicate = _lambda(call.args[0])
-                    binding = CandidateSetBinding(
-                        name,
-                        table_name,
-                        domain_entries,
-                        domain_axes,
-                        domain_shape,
-                        domain_strides,
-                        domain_offset,
-                        argument,
-                        predicate,
-                        scope_path,
-                        current_order,
-                    )
-                    candidates.append(binding)
-                    candidate_by_name[name] = binding
-                    continue
-                if (
-                    isinstance(call.func, ast.Attribute)
-                    and call.func.attr == "choose"
-                    and isinstance(call.func.value, ast.Name)
-                    and (
-                        call.func.value.id in table_by_name
-                        or isinstance(
-                            entry_views.get(call.func.value.id),
-                            ProjectedTableViewBinding,
-                        )
-                    )
-                ):
-                    name = statement.targets[0].id
-                    projected = entry_views.get(call.func.value.id)
-                    table_name = (
-                        projected.table
-                        if isinstance(projected, ProjectedTableViewBinding)
-                        else call.func.value.id
-                    )
-                    if len(call.args) != 1 or not isinstance(call.args[0], ast.Name):
-                        raise QueueFrontendError(
-                            "ACPY-TABLE-007: table.choose requires one CandidateSet"
-                        )
-                    candidate = candidate_by_name.get(call.args[0].id)
-                    if candidate is None or candidate.table != table_name:
-                        raise QueueFrontendError(
-                            "ACPY-TABLE-007: CandidateSet belongs to a different Table"
-                        )
-                    if isinstance(projected, ProjectedTableViewBinding) and (
-                        candidate.domain_axes != projected.domain_axes
-                        or candidate.domain_shape != projected.domain_shape
-                        or candidate.domain_strides != projected.domain_strides
-                        or candidate.domain_offset != projected.domain_offset
-                    ):
-                        raise QueueFrontendError(
-                            "ACPY-TABLE-007: CandidateSet belongs to a different "
-                            "Table view"
-                        )
-                    keywords = {keyword.arg: keyword.value for keyword in call.keywords}
-                    if None in keywords or set(keywords) - {
-                        "count",
-                        "policy",
-                        "key",
-                        "initial_cursor",
-                    }:
-                        raise QueueFrontendError(
-                            "ACPY-TABLE-007: table.choose parameters are invalid"
-                        )
-                    count = _static_int(keywords.get("count", ast.Constant(1)))
-                    if count is None or not 1 <= count <= candidate.entries:
-                        raise QueueFrontendError(
-                            "ACPY-TABLE-012: table.choose count must be a static "
-                            "integer within the candidate domain"
-                        )
-                    policy_node = keywords.get("policy", ast.Constant("first"))
-                    policy = (
-                        policy_node.value
-                        if isinstance(policy_node, ast.Constant)
-                        and isinstance(policy_node.value, str)
-                        else None
-                    )
-                    if policy not in {"first", "min", "max", "round_robin"}:
-                        raise QueueFrontendError(
-                            "ACPY-TABLE-007: choose policy must be first, min, max, "
-                            "or round_robin"
-                        )
-                    key_node = keywords.get("key")
-                    key_argument: str | None = None
-                    key: ast.expr | None = None
-                    key_ordering: str | None = None
-                    if policy in {"first", "round_robin"}:
-                        if key_node is not None:
-                            raise QueueFrontendError(
-                                "ACPY-TABLE-007: first/round_robin policy does not "
-                                "accept key"
-                            )
-                    else:
-                        if key_node is None:
-                            raise QueueFrontendError(
-                                "ACPY-TABLE-007: min/max policy requires key lambda"
-                            )
-                        key_argument, key = _lambda(key_node)
-                        key_ordering = table_key_ordering(
-                            table_by_name[table_name], key_argument, key
-                        )
-                    initial_cursor = _nonnegative_int(call, "initial_cursor", 0)
-                    if initial_cursor >= candidate.entries:
-                        raise QueueFrontendError(
-                            "ACPY-TABLE-012: initial cursor is outside the "
-                            "candidate domain"
-                        )
-                    if policy != "round_robin" and initial_cursor != 0:
-                        raise QueueFrontendError(
-                            "ACPY-TABLE-012: initial cursor requires round_robin"
-                        )
-                    if selection_unpack:
-                        if len(selection_unpack) != count:
-                            raise QueueFrontendError(
-                                "ACPY-TABLE-012: TableChoice tuple unpack arity "
-                                "must equal count"
-                            )
-                        aliases = selection_unpack
-                    elif count == 1:
-                        aliases = (name,)
-                    else:
-                        aliases = tuple(f"{name}__lane{lane}" for lane in range(count))
-                        selection_tuple_aliases[name] = aliases
-                    stable_path = "/".join((*scope_path, name)) if scope_path else name
-                    binding = SelectionBinding(
-                        name,
-                        aliases,
-                        table_name,
-                        candidate.name,
-                        count,
-                        str(policy),
-                        key_ordering,
-                        f"table-selection/{stable_path}",
-                        initial_cursor,
-                        key_argument,
-                        key,
-                        scope_path,
-                        current_order,
-                    )
-                    selections.append(binding)
-                    for lane, alias in enumerate(aliases):
-                        selection_by_name[alias] = binding
-                        selection_lane_ordinals[alias] = lane
-                    continue
-                view = parse_view(
-                    statement.value,
-                    statement.targets[0].id,
-                    scope_path,
-                    current_order,
-                )
-                if view is not None:
-                    if view.name in by_name or view.name in collections:
-                        raise QueueFrontendError(
-                            "ACPY-TABLE-002: EntryView alias requires a fresh name"
-                        )
-                    entry_views[view.name] = view
-                    continue
-            if (
-                isinstance(statement, ast.Expr)
-                and isinstance(statement.value, ast.Call)
-                and isinstance(statement.value.func, ast.Attribute)
-                and statement.value.func.attr == "release"
-                and isinstance(statement.value.func.value, ast.Name)
-                and statement.value.func.value.id in slot_by_name
-            ):
-                call = statement.value
-                slot_name = call.func.value.id
-                if call.args or any(
-                    keyword.arg is None or keyword.arg != "when"
-                    for keyword in call.keywords
-                ):
-                    raise QueueFrontendError(
-                        "ACPY-SLOT-002: slot.release accepts only when=expression"
-                    )
-                values = [
-                    keyword.value for keyword in call.keywords if keyword.arg == "when"
-                ]
-                if len(values) != 1 or isinstance(values[0], ast.Lambda):
-                    raise QueueFrontendError(
-                        "ACPY-SLOT-002: slot.release requires one state expression"
-                    )
-                if any(release.slot == slot_name for release in slot_releases):
-                    raise QueueFrontendError(
-                        "ACPY-SLOT-002: slot permits exactly one release endpoint"
-                    )
-                slot_releases.append(
-                    SlotReleaseBinding(
-                        slot_name,
-                        _constantize_expression(values[0], "", system_static_values),
-                        scope_path,
-                        current_order,
-                    )
-                )
                 continue
             if (
-                isinstance(statement, ast.Assign)
-                and len(statement.targets) == 1
-                and isinstance(statement.targets[0], ast.Name)
-                and isinstance(statement.value, ast.Call)
-                and isinstance(statement.value.func, ast.Attribute)
-                and statement.value.func.attr == "read"
-            ):
-                call = statement.value
-                view = resolve_view(call.func.value, scope_path, current_order)
-                if view is not None:
-                    if isinstance(view, ProjectedTableViewBinding):
-                        raise QueueFrontendError(
-                            "ACPY-TABLE-003: projected Table view requires a "
-                            "complete index before read"
-                        )
-                    if isinstance(view, MaskedEntryViewBinding):
-                        raise QueueFrontendError(
-                            "ACPY-TABLE-008: masked Table view does not support read"
-                        )
-                    name = statement.targets[0].id
-                    if name in by_name or name in collections or name in table_by_name:
-                        raise QueueFrontendError(
-                            "ACPY-TABLE-003: table read output requires a fresh name"
-                        )
-                    if len(call.args) > 1 or any(
-                        keyword.arg is None
-                        or keyword.arg not in {"when", "depth", "latency"}
-                        for keyword in call.keywords
-                    ):
-                        raise QueueFrontendError(
-                            "ACPY-TABLE-003: table read parameters are invalid"
-                        )
-                    input_name: str | None = None
-                    argument = view.argument
-                    if call.args:
-                        if argument is None:
-                            raise QueueFrontendError(
-                                "ACPY-TABLE-003: Queue-driven read requires a "
-                                "selector lambda"
-                            )
-                        input_name = queue_reference(call.args[0], aliases)
-                    elif argument is not None:
-                        raise QueueFrontendError(
-                            "ACPY-TABLE-003: state-driven read requires a bound index"
-                        )
-                    when_values = [
-                        keyword.value
-                        for keyword in call.keywords
-                        if keyword.arg == "when"
-                    ]
-                    if len(when_values) > 1:
-                        raise QueueFrontendError(
-                            "ACPY-TABLE-003: table read has repeated when"
-                        )
-                    when_node = when_values[0] if when_values else ast.Constant(True)
-                    if argument is not None:
-                        when = lambda_or_constant(
-                            when_node,
-                            argument,
-                            "ACPY-TABLE-003: selector and when lambdas require "
-                            "one argument name",
-                        )
-                    else:
-                        if isinstance(when_node, ast.Lambda):
-                            raise QueueFrontendError(
-                                "ACPY-TABLE-003: state-driven when is an "
-                                "EntryView expression"
-                            )
-                        when = _constantize_expression(
-                            when_node, "", system_static_values
-                        )
-                    depth = _positive_int(call, "depth", 1)
-                    latency = _positive_int(call, "latency", 1)
-                    table = table_by_name[view.table]
-                    queue = QueueBinding(
-                        name,
-                        table.entry_type,
-                        depth,
-                        latency,
-                        None,
-                        scope=scope_path,
-                        order=current_order,
-                        table_read_output=True,
-                    )
-                    queues.append(queue)
-                    by_name[name] = queue
-                    table_reads.append(
-                        TableReadBinding(
-                            view.table,
-                            input_name,
-                            name,
-                            argument,
-                            view.address,
-                            when,
-                            view.name or None,
-                            depth,
-                            latency,
-                            scope_path,
-                            current_order,
-                        )
-                    )
-                    continue
-            if (
-                isinstance(statement, ast.Expr)
-                and isinstance(statement.value, ast.Call)
-                and isinstance(statement.value.func, ast.Attribute)
-                and statement.value.func.attr in {"write", "patch", "allocate"}
-            ):
-                call = statement.value
-                view = resolve_view(call.func.value, scope_path, current_order)
-                if view is not None:
-                    method = call.func.attr
-                    if isinstance(view, ProjectedTableViewBinding):
-                        raise QueueFrontendError(
-                            "ACPY-TABLE-004: projected Table view requires a "
-                            "complete index before write"
-                        )
-                    arbitration_rank = table_writer_arbitration(
-                        call, "ACPY-TABLE-011", view.table
-                    )
-                    if isinstance(view, MaskedEntryViewBinding):
-                        if method == "allocate":
-                            raise QueueFrontendError(
-                                "ACPY-TABLE-009: allocation requires a scalar view"
-                            )
-                        if call.args:
-                            raise QueueFrontendError(
-                                "ACPY-TABLE-008: masked write/patch is state-driven "
-                                "and takes no Queue"
-                            )
-                        enable_values = [
-                            keyword.value
-                            for keyword in call.keywords
-                            if keyword.arg == "enable"
-                        ]
-                        if len(enable_values) > 1:
-                            raise QueueFrontendError(
-                                "ACPY-TABLE-008: repeated masked write enable"
-                            )
-                        enable_node = (
-                            enable_values[0] if enable_values else ast.Constant(True)
-                        )
-                        if isinstance(enable_node, ast.Lambda):
-                            raise QueueFrontendError(
-                                "ACPY-TABLE-008: masked enable must be an expression"
-                            )
-                        enable = _constantize_expression(
-                            enable_node, "", system_static_values
-                        )
-                        table = table_by_name[view.table]
-                        value: ast.expr | None = None
-                        patch_fields: tuple[tuple[str, ast.expr], ...] = ()
-                        if method == "write":
-                            if any(
-                                keyword.arg is None
-                                or keyword.arg not in {"value", "enable", "arbitration"}
-                                for keyword in call.keywords
-                            ):
-                                raise QueueFrontendError(
-                                    "ACPY-TABLE-008: masked write accepts only "
-                                    "value and enable"
-                                )
-                            values = [
-                                keyword.value
-                                for keyword in call.keywords
-                                if keyword.arg == "value"
-                            ]
-                            if len(values) != 1:
-                                raise QueueFrontendError(
-                                    "ACPY-TABLE-008: masked write requires one value"
-                                )
-                            if isinstance(values[0], ast.Lambda):
-                                raise QueueFrontendError(
-                                    "ACPY-TABLE-008: masked write value must be a "
-                                    "uniform expression, not a lambda"
-                                )
-                            value = _constantize_expression(
-                                values[0], "", system_static_values
-                            )
-                        else:
-                            if not isinstance(table.entry_type, StructType):
-                                raise QueueFrontendError(
-                                    "ACPY-TABLE-008: masked patch requires a struct "
-                                    "Table Entry"
-                                )
-                            field_types = {
-                                field.name: field.type
-                                for field in table.entry_type.fields
-                            }
-                            patches: list[tuple[str, ast.expr]] = []
-                            for keyword in call.keywords:
-                                if keyword.arg in {"enable", "arbitration"}:
-                                    continue
-                                if (
-                                    keyword.arg is None
-                                    or keyword.arg not in field_types
-                                ):
-                                    raise QueueFrontendError(
-                                        "ACPY-TABLE-008: masked patch field is unknown"
-                                    )
-                                expression = keyword.value
-                                if isinstance(expression, ast.Lambda):
-                                    old_name, expression = _lambda(expression)
-
-                                    class OldEntryName(ast.NodeTransformer):
-                                        def visit_Name(
-                                            self, node: ast.Name
-                                        ) -> ast.expr:
-                                            if node.id == old_name:
-                                                return ast.copy_location(
-                                                    ast.Name(
-                                                        id="__old",
-                                                        ctx=node.ctx,
-                                                    ),
-                                                    node,
-                                                )
-                                            return node
-
-                                    expression = OldEntryName().visit(
-                                        copy.deepcopy(expression)
-                                    )
-                                else:
-                                    expression = _constantize_expression(
-                                        expression, "", system_static_values
-                                    )
-                                patches.append((keyword.arg, expression))
-                            if not patches:
-                                raise QueueFrontendError(
-                                    "ACPY-TABLE-008: masked patch requires at least "
-                                    "one field"
-                                )
-                            if len({name for name, _ in patches}) != len(patches):
-                                raise QueueFrontendError(
-                                    "ACPY-TABLE-008: masked patch field is repeated"
-                                )
-                            patch_fields = tuple(patches)
-                        write_fields = normalized_write_fields(
-                            table, value, patch_fields
-                        )
-                        reject_overlapping_table_writer(
-                            view.table, write_fields, "field", arbitration_rank
-                        )
-                        masked_table_writes.append(
-                            MaskedTableWriteBinding(
-                                view.table,
-                                view.candidates,
-                                enable,
-                                value,
-                                patch_fields,
-                                write_fields,
-                                "field",
-                                arbitration_rank,
-                                scope_path,
-                                current_order,
-                            )
-                        )
-                        continue
-                    queue_driven = view.argument is not None
-                    if method == "allocate" and queue_driven:
-                        raise QueueFrontendError(
-                            "ACPY-TABLE-009: allocation must be state-driven"
-                        )
-                    if len(call.args) != (1 if queue_driven else 0):
-                        raise QueueFrontendError(
-                            "ACPY-TABLE-004: Queue-driven table write/patch requires "
-                            "one Queue; state-driven write/patch takes no Queue"
-                        )
-                    input_name = (
-                        queue_reference(call.args[0], aliases) if queue_driven else None
-                    )
-                    argument = view.argument
-                    enable_values = [
-                        keyword.value
-                        for keyword in call.keywords
-                        if keyword.arg == "enable"
-                    ]
-                    if len(enable_values) > 1:
-                        raise QueueFrontendError(
-                            "ACPY-TABLE-004: repeated write enable"
-                        )
-                    enable_node = (
-                        enable_values[0] if enable_values else ast.Constant(True)
-                    )
-                    if queue_driven:
-                        assert argument is not None
-                        enable = lambda_or_constant(
-                            enable_node,
-                            argument,
-                            "ACPY-TABLE-004: selector and enable lambdas require "
-                            "one argument name",
-                        )
-                    else:
-                        if isinstance(enable_node, ast.Lambda):
-                            raise QueueFrontendError(
-                                "ACPY-TABLE-004: state-driven enable must be an "
-                                "expression, not a lambda"
-                            )
-                        enable = _constantize_expression(
-                            enable_node, "", system_static_values
-                        )
-                    value: ast.expr | None = None
-                    patch_fields: tuple[tuple[str, ast.expr], ...] = ()
-                    table = table_by_name[view.table]
-                    if method in {"write", "allocate"}:
-                        if any(
-                            keyword.arg is None
-                            or keyword.arg not in {"value", "enable", "arbitration"}
-                            for keyword in call.keywords
-                        ):
-                            raise QueueFrontendError(
-                                "ACPY-TABLE-004: write/allocation accepts only "
-                                "value and enable"
-                            )
-                        values = [
-                            keyword.value
-                            for keyword in call.keywords
-                            if keyword.arg == "value"
-                        ]
-                        if len(values) != 1:
-                            raise QueueFrontendError(
-                                "ACPY-TABLE-004: write/allocation requires one value"
-                            )
-                        if queue_driven:
-                            assert argument is not None
-                            value = lambda_or_constant(
-                                values[0],
-                                argument,
-                                "ACPY-TABLE-004: selector and value lambdas require "
-                                "one argument name",
-                            )
-                        else:
-                            if isinstance(values[0], ast.Lambda):
-                                raise QueueFrontendError(
-                                    "ACPY-TABLE-004: state-driven value must be an "
-                                    "expression, not a lambda"
-                                )
-                            value = _constantize_expression(
-                                values[0], "", system_static_values
-                            )
-                    else:
-                        if not isinstance(table.entry_type, StructType):
-                            raise QueueFrontendError(
-                                "ACPY-TABLE-004: patch requires a struct Table Entry"
-                            )
-                        field_types = {
-                            field.name: field.type for field in table.entry_type.fields
-                        }
-                        patches: list[tuple[str, ast.expr]] = []
-                        for keyword in call.keywords:
-                            if keyword.arg in {"enable", "arbitration"}:
-                                continue
-                            if keyword.arg is None or keyword.arg not in field_types:
-                                raise QueueFrontendError(
-                                    "ACPY-TABLE-004: patch field is unknown"
-                                )
-                            patches.append(
-                                (
-                                    keyword.arg,
-                                    (
-                                        lambda_or_constant(
-                                            keyword.value,
-                                            argument or "",
-                                            "ACPY-TABLE-004: patch lambdas require "
-                                            "one argument name",
-                                        )
-                                        if queue_driven
-                                        else _constantize_expression(
-                                            keyword.value, "", system_static_values
-                                        )
-                                    ),
-                                )
-                            )
-                        if not patches:
-                            raise QueueFrontendError(
-                                "ACPY-TABLE-004: patch requires at least one field"
-                            )
-                        if len({name for name, _ in patches}) != len(patches):
-                            raise QueueFrontendError(
-                                "ACPY-TABLE-004: patch field is repeated"
-                            )
-                        patch_fields = tuple(patches)
-                    write_fields = normalized_write_fields(table, value, patch_fields)
-                    write_mode = "replace" if method == "allocate" else "field"
-                    reject_overlapping_table_writer(
-                        view.table, write_fields, write_mode, arbitration_rank
-                    )
-                    table_writes.append(
-                        TableWriteBinding(
-                            view.table,
-                            input_name,
-                            argument,
-                            view.address,
-                            enable,
-                            value,
-                            patch_fields,
-                            write_fields,
-                            write_mode,
-                            arbitration_rank,
-                            scope_path,
-                            current_order,
-                        )
-                    )
-                    continue
-            if (
-                isinstance(statement, ast.Assign)
-                and len(statement.targets) == 1
-                and isinstance(statement.targets[0], ast.Name)
-                and isinstance(statement.value, ast.Call)
-                and call_name(statement.value) == "memory"
-                and len(statement.value.args) == 1
-            ):
-                name = statement.targets[0].id
-                call = statement.value
-                if (
-                    name in by_name
-                    or name in collections
-                    or name in memory_by_name
-                    or name in memory_arrays
-                    or name in selected_memories
-                ):
-                    raise QueueFrontendError(
-                        "ACPY-QUEUE-015: memory instance requires one fresh name"
-                    )
-                instance = memory_instance_binding(
-                    name, call, scope_path, current_order
+                handle_memory_array_declaration(
+                    parser_environment, parser_state, statement_context
                 )
-                memory_instances.append(instance)
-                memory_by_name[name] = instance
+                is HANDLED
+            ):
                 continue
             if isinstance(statement, ast.If):
                 if (
@@ -4640,68 +3069,6 @@ def parse_queue_program(
                         "ACPY-QUEUE-005: collection assignment requires one fresh name"
                     )
                 call = statement.value
-                is_memory_array = False
-                if call_name(call) == "array" and len(call.args) == 2:
-                    _, generator = _lambda(call.args[1])
-                    is_memory_array = (
-                        isinstance(generator, ast.Call)
-                        and call_name(generator) == "memory"
-                    )
-                if is_memory_array:
-                    extent = _static_int(call.args[0], {})
-                    if extent is None or extent <= 0:
-                        raise QueueFrontendError(
-                            "ACPY-QUEUE-015: memory array requires a positive "
-                            "compile-time extent"
-                        )
-                    argument, generator = _lambda(call.args[1])
-                    assert isinstance(generator, ast.Call)
-                    pending: list[MemoryInstanceBinding] = []
-                    for index in range(extent):
-                        member_name = f"{name}__{index}"
-                        if (
-                            member_name in by_name
-                            or member_name in collections
-                            or member_name in memory_by_name
-                            or member_name in memory_arrays
-                            or member_name in selected_memories
-                        ):
-                            raise QueueFrontendError(
-                                "ACPY-QUEUE-015: memory array element name "
-                                "collides with an existing binding"
-                            )
-                        pending.append(
-                            memory_instance_binding(
-                                member_name,
-                                generator,
-                                scope_path,
-                                current_order,
-                                {argument: index},
-                            )
-                        )
-                    configurations = {
-                        (item.data_type, item.entries, item.init, item.latency)
-                        for item in pending
-                    }
-                    if len(configurations) != 1:
-                        raise QueueFrontendError(
-                            "ACPY-QUEUE-015: memory array elements must be homogeneous"
-                        )
-                    for instance in pending:
-                        memory_instances.append(instance)
-                        memory_by_name[instance.name] = instance
-                    first = pending[0]
-                    memory_arrays[name] = StaticMemoryArrayBinding(
-                        name,
-                        tuple(instance.name for instance in pending),
-                        first.data_type,
-                        first.entries,
-                        first.init,
-                        first.latency,
-                        scope_path,
-                        current_order,
-                    )
-                    continue
                 if call_name(call) == "array" and len(call.args) == 2:
                     extent = _static_int(call.args[0])
                     argument, generator = _lambda(call.args[1])
@@ -4843,12 +3210,7 @@ def parse_queue_program(
                 continue
             if (
                 handle_memory_array_select(
-                    parser_environment,
-                    parser_state,
-                    statement,
-                    scope_path,
-                    aliases,
-                    current_order,
+                    parser_environment, parser_state, statement_context
                 )
                 is HANDLED
             ):
@@ -5020,13 +3382,15 @@ def parse_queue_program(
                 )
                 continue
             if (
+                handle_memory_request(
+                    parser_environment, parser_state, statement_context
+                )
+                is HANDLED
+            ):
+                continue
+            if (
                 handle_queue_graph_operation(
-                    parser_environment,
-                    parser_state,
-                    statement,
-                    scope_path,
-                    aliases,
-                    current_order,
+                    parser_environment, parser_state, statement_context
                 )
                 is HANDLED
             ):
@@ -5557,9 +3921,9 @@ def parse_queue_program(
                             RuleStateOwnerBinding(
                                 owner.name,
                                 argument,
-                                state_value_type(owner),
+                                state_semantics.state_value_type(owner),
                                 owner.entries,
-                                state_owner_kind(owner),
+                                state_semantics.state_owner_kind(owner),
                                 owner.shape,
                             )
                             for argument, owner in owners.items()
@@ -5593,7 +3957,7 @@ def parse_queue_program(
                                     "not match persistent variable shape"
                                 )
                             field_fields = (
-                                proven_field_write_fields(
+                                state_semantics.proven_field_write_fields(
                                     owner,
                                     write.argument,
                                     write.value,
@@ -5608,16 +3972,16 @@ def parse_queue_program(
                                 RuleStateWriteBinding(
                                     owner.name,
                                     write.argument,
-                                    state_value_type(owner),
+                                    state_semantics.state_value_type(owner),
                                     owner.entries,
                                     copy.deepcopy(write.index),
                                     copy.deepcopy(write.value),
                                     copy.deepcopy(write.guard),
                                     write.guard_negated,
-                                    state_owner_kind(owner),
+                                    state_semantics.state_owner_kind(owner),
                                     owner.shape,
                                     "field" if field_fields is not None else "replace",
-                                    field_fields or state_write_fields(owner),
+                                    field_fields or state_semantics.state_write_fields(owner),
                                 )
                             )
                         multi_state_writes = tuple(writes)
@@ -5634,10 +3998,10 @@ def parse_queue_program(
                                     read.name,
                                     owner.name,
                                     read.argument,
-                                    state_value_type(owner),
+                                    state_semantics.state_value_type(owner),
                                     owner.entries,
                                     copy.deepcopy(read.index),
-                                    state_owner_kind(owner),
+                                    state_semantics.state_owner_kind(owner),
                                     owner.shape,
                                 )
                             )
@@ -5670,7 +4034,7 @@ def parse_queue_program(
                                     find.name,
                                     owner.name,
                                     find.argument,
-                                    state_value_type(owner),
+                                    state_semantics.state_value_type(owner),
                                     owner.entries,
                                     find.predicate_argument,
                                     copy.deepcopy(find.predicate),
@@ -5678,7 +4042,7 @@ def parse_queue_program(
                                     copy.deepcopy(find.key),
                                     owner.shape,
                                     copy.deepcopy(find.row),
-                                    state_owner_kind(owner),
+                                    state_semantics.state_owner_kind(owner),
                                 )
                             )
                         multi_state_finds = tuple(finds)
@@ -5825,7 +4189,7 @@ def parse_queue_program(
                         rule_write_mode=(
                             "field"
                             if table is not None
-                            and proven_field_write_fields(
+                            and state_semantics.proven_field_write_fields(
                                 table,
                                 definition.table_argument or "",
                                 definition.table_value,
@@ -5839,12 +4203,12 @@ def parse_queue_program(
                             else "replace"
                         ),
                         rule_write_fields=(
-                            complete_value_fields(variable.value_type)
+                            state_semantics.complete_value_fields(variable.value_type)
                             if indexed_variable
                             else (
                                 ()
                                 if table is None
-                                else proven_field_write_fields(
+                                else state_semantics.proven_field_write_fields(
                                     table,
                                     definition.table_argument or "",
                                     definition.table_value,
@@ -5854,7 +4218,7 @@ def parse_queue_program(
                                     legacy_read_name=definition.table_read_name,
                                     legacy_read_index=definition.table_read_index,
                                 )
-                                or normalized_write_fields(
+                                or state_semantics.normalized_write_fields(
                                     table, definition.table_value, ()
                                 )
                             )
@@ -5979,24 +4343,14 @@ def parse_queue_program(
                 continue
             if (
                 handle_multi_output_operation(
-                    parser_environment,
-                    parser_state,
-                    statement,
-                    scope_path,
-                    aliases,
-                    current_order,
+                    parser_environment, parser_state, statement_context
                 )
                 is HANDLED
             ):
                 continue
             if (
                 handle_expect(
-                    parser_environment,
-                    parser_state,
-                    statement,
-                    scope_path,
-                    aliases,
-                    current_order,
+                    parser_environment, parser_state, statement_context
                 )
                 is HANDLED
             ):
@@ -6099,7 +4453,7 @@ def parse_queue_program(
                                 "match persistent variable shape"
                             )
                         field_fields = (
-                            proven_field_write_fields(
+                            state_semantics.proven_field_write_fields(
                                 owner,
                                 write.argument,
                                 write.value,
@@ -6114,16 +4468,16 @@ def parse_queue_program(
                             RuleStateWriteBinding(
                                 owner.name,
                                 write.argument,
-                                state_value_type(owner),
+                                state_semantics.state_value_type(owner),
                                 owner.entries,
                                 copy.deepcopy(write.index),
                                 copy.deepcopy(write.value),
                                 copy.deepcopy(write.guard),
                                 write.guard_negated,
-                                state_owner_kind(owner),
+                                state_semantics.state_owner_kind(owner),
                                 owner.shape,
                                 "field" if field_fields is not None else "replace",
-                                field_fields or state_write_fields(owner),
+                                field_fields or state_semantics.state_write_fields(owner),
                             )
                         )
                     reads: list[RuleStateReadBinding] = []
@@ -6134,10 +4488,10 @@ def parse_queue_program(
                                 read.name,
                                 owner.name,
                                 read.argument,
-                                state_value_type(owner),
+                                state_semantics.state_value_type(owner),
                                 owner.entries,
                                 copy.deepcopy(read.index),
-                                state_owner_kind(owner),
+                                state_semantics.state_owner_kind(owner),
                                 owner.shape,
                             )
                         )
@@ -6159,7 +4513,7 @@ def parse_queue_program(
                                 find.name,
                                 owner.name,
                                 find.argument,
-                                state_value_type(owner),
+                                state_semantics.state_value_type(owner),
                                 owner.entries,
                                 find.predicate_argument,
                                 copy.deepcopy(find.predicate),
@@ -6167,7 +4521,7 @@ def parse_queue_program(
                                 copy.deepcopy(find.key),
                                 owner.shape,
                                 copy.deepcopy(find.row),
-                                state_owner_kind(owner),
+                                state_semantics.state_owner_kind(owner),
                             )
                         )
                     input_names = tuple(
@@ -6224,9 +4578,9 @@ def parse_queue_program(
                                 RuleStateOwnerBinding(
                                     owner.name,
                                     argument,
-                                    state_value_type(owner),
+                                    state_semantics.state_value_type(owner),
                                     owner.entries,
-                                    state_owner_kind(owner),
+                                    state_semantics.state_owner_kind(owner),
                                     owner.shape,
                                 )
                                 for argument, owner in owners.items()
@@ -6320,7 +4674,7 @@ def parse_queue_program(
                         rule_write_mode=(
                             "field"
                             if table is not None
-                            and proven_field_write_fields(
+                            and state_semantics.proven_field_write_fields(
                                 table,
                                 definition.table_argument or "",
                                 definition.table_value,
@@ -6334,7 +4688,7 @@ def parse_queue_program(
                             else "replace"
                         ),
                         rule_write_fields=(
-                            proven_field_write_fields(
+                            state_semantics.proven_field_write_fields(
                                 table,
                                 definition.table_argument or "",
                                 definition.table_value,
@@ -6344,11 +4698,11 @@ def parse_queue_program(
                                 legacy_read_name=definition.table_read_name,
                                 legacy_read_index=definition.table_read_index,
                             )
-                            or normalized_write_fields(
+                            or state_semantics.normalized_write_fields(
                                 table, definition.table_value, ()
                             )
                             if table is not None
-                            else complete_value_fields(value_type)
+                            else state_semantics.complete_value_fields(value_type)
                         ),
                         rule_table_read_name=(
                             definition.table_read_name if table is not None else None
@@ -6392,36 +4746,21 @@ def parse_queue_program(
                 continue
             if (
                 handle_observe(
-                    parser_environment,
-                    parser_state,
-                    statement,
-                    scope_path,
-                    aliases,
-                    current_order,
+                    parser_environment, parser_state, statement_context
                 )
                 is HANDLED
             ):
                 continue
             if (
                 handle_sink(
-                    parser_environment,
-                    parser_state,
-                    statement,
-                    scope_path,
-                    aliases,
-                    current_order,
+                    parser_environment, parser_state, statement_context
                 )
                 is HANDLED
             ):
                 continue
             if (
                 handle_return(
-                    parser_environment,
-                    parser_state,
-                    statement,
-                    scope_path,
-                    aliases,
-                    current_order,
+                    parser_environment, parser_state, statement_context
                 )
                 is HANDLED
             ):
