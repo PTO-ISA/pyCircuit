@@ -36,6 +36,23 @@ INFERRED_NESTED_MODULE_SOURCE = (
     / "pipelines"
     / "inferred_nested_module_pipeline.py"
 )
+DIRECT_MODULE_FANOUT_SOURCE = """
+import agentic_circuit as ac
+
+@ac.module
+def increment(value: ac.u8) -> ac.u8:
+    return value + 1
+
+@ac.module
+def double(value: ac.u8) -> ac.u8:
+    return value + value
+
+@ac.system
+def direct_module_fanout(value: ac.u8) -> tuple[ac.u8, ac.u8]:
+    incremented = increment(value)
+    doubled = double(value)
+    return incremented, doubled
+"""
 BITFIELD_DECODE_SOURCE = (
     ROOT / "examples/agentic-circuit" / "pipelines" / "bitfield_decode_pipeline.py"
 )
@@ -3303,9 +3320,7 @@ int main() {
             << incrementalSystem.workClosureTraversalCount() << std::endl;
   return 0;
 }
-""".replace(
-                    "__MODEL__", model.name
-                ),
+""".replace("__MODEL__", model.name),
                 encoding="utf-8",
             )
             linked = subprocess.run(
@@ -3863,9 +3878,7 @@ int main() {
             << incrementalSystem.workClosureTraversalCount() << std::endl;
   return 0;
 }
-""".replace(
-                    "__MODEL__", model.name
-                ),
+""".replace("__MODEL__", model.name),
                 encoding="utf-8",
             )
             linked = subprocess.run(
@@ -5163,6 +5176,121 @@ int main() {{
             "InferredNestedModulePipeline",
             nested=True,
         )
+
+    def test_direct_module_fanout_freezes_generates_and_runs_atomically(self) -> None:
+        compiler = shutil.which("c++")
+        if compiler is None:
+            self.skipTest("C++ compiler is unavailable")
+        native_bin = Path(
+            os.environ.get("ACIR_BIN", ROOT / ".pycircuit_out/toolchain/build/bin")
+        )
+        tools = {
+            "opt": native_bin / "acir-opt",
+            "plan": native_bin / "acir-queue-plan",
+            "cxxgen": native_bin / "acir-queue-cxxgen",
+        }
+        if any(not path.is_file() for path in tools.values()):
+            self.skipTest("native module tools are unavailable")
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            design = root / "direct_module_fanout.py"
+            model = root / "direct_module_fanout.cpp"
+            frozen = root / "direct_module_fanout.frozen.mlir"
+            plan = root / "direct_module_fanout.plan.json"
+            design.write_text(DIRECT_MODULE_FANOUT_SOURCE, encoding="utf-8")
+            generated = subprocess.run(
+                (
+                    str(ROOT / "compiler/acir/tools/ac-queue-cxxgen.py"),
+                    str(design),
+                    "--system",
+                    "direct_module_fanout",
+                    "--acir-output",
+                    str(frozen),
+                    "--plan-output",
+                    str(plan),
+                    "--acir-opt",
+                    str(tools["opt"]),
+                    "--queue-plan-tool",
+                    str(tools["plan"]),
+                    "--queue-cxxgen-tool",
+                    str(tools["cxxgen"]),
+                    "--output",
+                    str(model),
+                ),
+                cwd=ROOT,
+                env={
+                    **os.environ,
+                    "PYTHONPATH": str(ROOT / "python/agentic-circuit/src"),
+                },
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(0, generated.returncode, generated.stderr)
+            self.assertEqual(
+                1, frozen.read_text(encoding="utf-8").count("ac.broadcast")
+            )
+            parsed_plan = json.loads(plan.read_text(encoding="utf-8"))
+            self.assertEqual(3, len(parsed_plan["module_instances"]))
+            generated_source = model.read_text(encoding="utf-8")
+            self.assertIn("gfsim::QueueBroadcast<gfsim::UInt<8>, 2>", generated_source)
+
+            harness = root / "harness.cpp"
+            executable = root / "direct_module_fanout"
+            harness.write_text(
+                f"""#include "{model.name}"
+
+int main() {{
+  ac_generated::DirectModuleFanout model;
+  if (!model.value().proposePush(gfsim::UInt<8>{{5}}))
+    return 1;
+  model.value().doXfer({{0, 0}});
+  auto rows = model.dispatch_rows();
+  for (unsigned tick = 1; tick != 8; ++tick) {{
+    const gfsim::Epoch epoch{{tick, 0}};
+    for (auto &row : rows)
+      row.work(row.object, epoch);
+    for (auto &row : rows)
+      row.xfer(row.object, epoch, gfsim::XferPhase::Arbitrate);
+    for (auto &row : rows)
+      row.xfer(row.object, epoch, gfsim::XferPhase::Commit);
+  }}
+  const auto &incremented = model.sink_0_values();
+  const auto &doubled = model.sink_1_values();
+  return incremented.size() == 1 && incremented[0] == 6 &&
+                 doubled.size() == 1 && doubled[0] == 10
+             ? 0
+             : 2;
+}}
+""",
+                encoding="utf-8",
+            )
+            linked = subprocess.run(
+                (
+                    compiler,
+                    "-std=c++20",
+                    "-I",
+                    str(ROOT / "simulator/gfsim/include"),
+                    str(harness),
+                    str(native_bin.parent / "compiler/acir/gfsim/libgfsim.a"),
+                    "-o",
+                    str(executable),
+                ),
+                cwd=root,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(0, linked.returncode, linked.stderr)
+            executed = subprocess.run(
+                (str(executable),),
+                cwd=root,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(0, executed.returncode, executed.stderr)
 
     def test_stateless_multi_input_module_generates_and_runs(self) -> None:
         compiler = shutil.which("c++")

@@ -2469,6 +2469,15 @@ generateStructuredQueueGraphCpp(const QueueGraphPlan &plan) {
         specialization->blocks.front().stateWrites.empty() &&
         specialization->blocks.front().stateReservations.empty() &&
         specialization->blocks.front().yields.size() == 1;
+    const bool broadcastModule =
+        specialization && specialization->blocks.size() == 1 &&
+        specialization->blocks.front().kind == "broadcast" &&
+        specialization->tables.empty() &&
+        specialization->interfaceInputs.size() == 1 &&
+        specialization->interfaceOutputs.size() >= 2 &&
+        specialization->blocks.front().inputs.size() == 1 &&
+        specialization->blocks.front().outputs.size() ==
+            specialization->interfaceOutputs.size();
     const bool nestedWrapper = specialization &&
                                specialization->blocks.empty() &&
                                specialization->tables.empty() &&
@@ -2490,12 +2499,12 @@ generateStructuredQueueGraphCpp(const QueueGraphPlan &plan) {
                          return block.scope != specialization->scopes.front();
                        }));
     if (!specialization ||
-        (!pureTransform && !conditionalTransform && !firingModule &&
-         !nestedWrapper && !mixedNested) ||
+        (!pureTransform && !conditionalTransform && !broadcastModule &&
+         !firingModule && !nestedWrapper && !mixedNested) ||
         !localShape || !specialization->memoryInstances.empty())
       return generatorError(
           "structured QueueGraph specialization requires a pure transform, "
-          "direct-interface firing module, or "
+          "direct-interface firing or broadcast module, or "
           "direct nested wrapper");
     llvm::StringSet<> interfaceQueues;
     for (const QueueInterfacePlan &input : specialization->interfaceInputs)
@@ -3848,6 +3857,71 @@ generateStructuredQueueGraphCpp(const QueueGraphPlan &plan) {
       if (auto error =
               emitStatefulSpecialization(*specialization, implementation))
         return std::move(error);
+      if (auto error = recordModule())
+        return std::move(error);
+      continue;
+    }
+    if (block.kind == "broadcast") {
+      if (block.inputs.size() != 1 || block.outputs.size() < 2)
+        return generatorError(
+            "structured broadcast specialization requires one input and at "
+            "least two outputs");
+      llvm::StringMap<std::string> portTypes;
+      for (const QueueInterfacePlan &input : specialization->interfaceInputs) {
+        auto type = cppQueueType(plan, input);
+        if (!type)
+          return type.takeError();
+        portTypes[input.name] = *type;
+      }
+      for (const QueueInterfacePlan &result :
+           specialization->interfaceOutputs) {
+        auto type = cppQueueType(plan, result);
+        if (!type)
+          return type.takeError();
+        portTypes[result.name] = *type;
+      }
+      const std::string payloadType = portTypes.lookup(block.inputs.front());
+      if (payloadType.empty())
+        return generatorError(
+            "structured broadcast specialization input is missing");
+      for (const std::string &outputName : block.outputs)
+        if (portTypes.lookup(outputName) != payloadType)
+          return generatorError(
+              "structured broadcast specialization payload types differ");
+      llvm::StringMap<std::string> portParameters =
+          interfaceParameterNames(*specialization);
+      output << "class " << implementation
+             << " final : public gfsim::Module {\npublic:\n  " << implementation
+             << "(std::string name, gfsim::ObjectId block_id, "
+                "gfsim::SimObject *parent";
+      for (const QueueInterfacePlan &input : specialization->interfaceInputs)
+        output << ", gfsim::SimQueue<" << portTypes.lookup(input.name) << "> &"
+               << portParameters.lookup(input.name);
+      for (const QueueInterfacePlan &result : specialization->interfaceOutputs)
+        output << ", gfsim::SimQueue<" << portTypes.lookup(result.name) << "> &"
+               << portParameters.lookup(result.name);
+      output
+          << ")\n      : gfsim::Module(std::move(name), "
+             "gfsim::kInvalidObjectId, parent),\n        scope_(\""
+          << localScope
+          << "\", gfsim::kInvalidObjectId, this),\n        block_(\"broadcast_"
+          << block.name << "\", block_id, &scope_, "
+          << portParameters.lookup(block.inputs.front())
+          << ", std::array<gfsim::SimQueue<" << payloadType << "> *, "
+          << block.outputs.size() << ">{";
+      for (auto [index, outputName] : llvm::enumerate(block.outputs)) {
+        if (index)
+          output << ", ";
+        output << '&' << portParameters.lookup(outputName);
+      }
+      output << "}) {\n    attachChild(scope_);\n    "
+                "scope_.attachChild(block_);\n  }\n\n"
+             << "  gfsim::DispatchRow dispatch_row(size_t index) {\n"
+             << "    return index == 0 ? gfsim::makeDispatchRow(&block_) : "
+                "gfsim::DispatchRow{};\n  }\n\nprivate:\n"
+             << "  gfsim::Module scope_;\n  gfsim::QueueBroadcast<"
+             << payloadType << ", " << block.outputs.size() << "> block_;\n"
+             << "};\n\n";
       if (auto error = recordModule())
         return std::move(error);
       continue;

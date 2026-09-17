@@ -18804,6 +18804,11 @@ def _lower_simple_module_source(
         )
     values = dict(external)
     uses = {name: 0 for name, _ in external}
+    value_sources = {
+        parameter.arg: source_frame(parameter)
+        for parameter in parameters
+        if parameter.arg in values
+    }
     instances: list[
         tuple[
             tuple[str, ...],
@@ -18814,6 +18819,7 @@ def _lower_simple_module_source(
             SourceFrame | None,
         ]
     ] = []
+    instance_input_sources: dict[tuple[int, int], SourceFrame | None] = {}
     rule_module_specializations: dict[
         str,
         tuple[
@@ -18823,6 +18829,7 @@ def _lower_simple_module_source(
         ],
     ] = {}
     returned_names: tuple[str, ...] | None = None
+    returned_sources: tuple[SourceFrame | None, ...] | None = None
 
     def specialize_system_statements(
         statements: list[ast.stmt],
@@ -19108,9 +19115,15 @@ def _lower_simple_module_source(
             for result, output_type in zip(results, output_types, strict=True):
                 values[result] = output_type
                 uses[result] = 0
+                value_sources[result] = source_frame(statement.value)
             if module_name not in rule_modules and statement.value.keywords:
                 raise QueueFrontendError(
                     "ACPY-MODULE-007: pure module static parameters are not implemented"
+                )
+            instance_index = len(instances)
+            for input_index, argument in enumerate(statement.value.args):
+                instance_input_sources[(instance_index, input_index)] = source_frame(
+                    argument
                 )
             instances.append(
                 (
@@ -19134,6 +19147,7 @@ def _lower_simple_module_source(
                     "ACPY-MODULE-002: module system returns require named values"
                 )
             returned_names = tuple(value.id for value in returned)
+            returned_sources = tuple(source_frame(value) for value in returned)
             for name in returned_names:
                 if name not in values:
                     raise QueueFrontendError(
@@ -19156,10 +19170,80 @@ def _lower_simple_module_source(
         raise QueueFrontendError(
             "ACPY-MODULE-002: module system return type or arity mismatch"
         )
-    if any(count != 1 for count in uses.values()):
+    if any(count == 0 for count in uses.values()):
         raise QueueFrontendError(
-            "ACPY-MODULE-002: every module Queue value requires one consumer"
+            "ACPY-MODULE-002: every module Queue value requires a consumer"
         )
+
+    assert returned_names is not None
+    consumers_by_value: dict[str, list[tuple[str, int, int | None]]] = {
+        name: [] for name in values
+    }
+    consumer_sources: dict[tuple[str, int, int | None], SourceFrame | None] = {}
+    for instance_index, instance in enumerate(instances):
+        sources = instance[2]
+        for input_index, source in enumerate(sources):
+            consumer = ("instance", instance_index, input_index)
+            consumers_by_value[source].append(consumer)
+            consumer_sources[consumer] = instance_input_sources.get(
+                (instance_index, input_index)
+            )
+    assert returned_sources is not None
+    for return_index, (name, location) in enumerate(
+        zip(returned_names, returned_sources, strict=True)
+    ):
+        consumer = ("return", return_index, None)
+        consumers_by_value[name].append(consumer)
+        consumer_sources[consumer] = location
+
+    reserved_names = set(values)
+    fanout_outputs: dict[str, tuple[str, ...]] = {}
+    fanout_instance_names: dict[str, str] = {}
+    effective_instance_inputs: dict[tuple[int, int], str] = {}
+    effective_return_names: dict[int, str] = {}
+    fanout_locations: dict[str, tuple[SourceFrame | None, ...]] = {}
+
+    def fresh_fanout_name(source: str, index: int) -> str:
+        base = f"{source}__fanout{index}"
+        candidate = base
+        suffix = 0
+        while candidate in reserved_names:
+            suffix += 1
+            candidate = f"{base}_{suffix}"
+        reserved_names.add(candidate)
+        return candidate
+
+    reserved_instance_names = {"__".join(instance[0]) for instance in instances}
+
+    def fresh_fanout_instance_name(source: str) -> str:
+        base = f"{source}__broadcast"
+        candidate = base
+        suffix = 0
+        while candidate in reserved_instance_names:
+            suffix += 1
+            candidate = f"{base}_{suffix}"
+        reserved_instance_names.add(candidate)
+        return candidate
+
+    for source, consumers in consumers_by_value.items():
+        if len(consumers) < 2:
+            continue
+        outputs = tuple(
+            fresh_fanout_name(source, index) for index in range(len(consumers))
+        )
+        fanout_outputs[source] = outputs
+        fanout_instance_names[source] = fresh_fanout_instance_name(source)
+        fanout_locations[source] = (
+            value_sources.get(source),
+            *(consumer_sources[consumer] for consumer in consumers),
+        )
+        for consumer, output in zip(consumers, outputs, strict=True):
+            kind, first, second = consumer
+            if kind == "instance":
+                assert second is not None
+                effective_instance_inputs[(first, second)] = output
+            else:
+                effective_return_names[first] = output
 
     all_payloads_by_symbol: dict[str, Payload] = {
         payload.descriptor.symbol: payload for payload in payloads
@@ -19233,10 +19317,7 @@ def _lower_simple_module_source(
     all_static_configs = {
         root: binding
         for root, binding in candidate_static_configs.items()
-        if any(
-            parameter.startswith(root + ".")
-            for parameter in used_static_parameters
-        )
+        if any(parameter.startswith(root + ".") for parameter in used_static_parameters)
     }
 
     lines = [
@@ -19247,10 +19328,7 @@ def _lower_simple_module_source(
             tuple(sorted(all_static_bindings.items())),
             all_payloads,
             tuple(all_interface_checks),
-            tuple(
-                all_static_configs[root]
-                for root in sorted(all_static_configs)
-            ),
+            tuple(all_static_configs[root] for root in sorted(all_static_configs)),
         )
         + "} {"
     ]
@@ -19524,6 +19602,44 @@ def _lower_simple_module_source(
             .rstrip()
             .splitlines()
         )
+    reserved_module_symbols = set(modules) | set(rule_module_specializations)
+    fanout_module_symbols: dict[str, str] = {}
+    for source, outputs in fanout_outputs.items():
+        base = f"__ac_broadcast_{source}"
+        symbol = base
+        suffix = 0
+        while symbol in reserved_module_symbols:
+            suffix += 1
+            symbol = f"{base}_{suffix}"
+        reserved_module_symbols.add(symbol)
+        fanout_module_symbols[source] = symbol
+        payload = values[source]
+        result_types = ", ".join(f"!ac.queue<{_render_type(payload)}>" for _ in outputs)
+        result_signature = result_types if len(outputs) == 1 else f"({result_types})"
+        output_ssa = ", ".join(f"%output_{index}" for index in range(len(outputs)))
+        fanout_ssa = ", ".join(f"%fanout_{index}" for index in range(len(outputs)))
+        output_names = (
+            "[" + ", ".join(f'"output_{index}"' for index in range(len(outputs))) + "]"
+        )
+        depths = ", ".join("1" for _ in outputs)
+        lines.extend(
+            [
+                f"  ac.module @{symbol}(%input: "
+                f"!ac.queue<{_render_type(payload)}>) -> {result_signature} "
+                'parameters {} attributes {ac.input_display_names = ["value"], '
+                f"ac.output_display_names = {output_names}}} graph {{",
+                f"    {output_ssa} = ac.scope @body(%input) {{",
+                f"    ^bb0(%borrowed: !ac.queue<{_render_type(payload)}>):",
+                f"      {fanout_ssa} = ac.broadcast %borrowed depths [{depths}] "
+                f"latencies [{depths}] {{ac.output_names = {output_names}}} : "
+                f"!ac.queue<{_render_type(payload)}> -> ({result_types})"
+                + _render_fused_source_locations(fanout_locations[source]),
+                f"      ac.scope.yield {fanout_ssa} : {result_types}",
+                f"    }} : (!ac.queue<{_render_type(payload)}>) -> ({result_types})",
+                f"    ac.return {output_ssa} : {result_types}",
+                "  }",
+            ]
+        )
     root_result_types = ", ".join(
         f"!ac.queue<{_render_type(payload)}>" for payload in expected_results
     )
@@ -19569,19 +19685,45 @@ def _lower_simple_module_source(
             )
             + ")"
         )
-        for index, (name, _) in enumerate(external):
-            top_values[name] = f"%inputs#{index}" if len(external) > 1 else "%inputs"
-    for (
+    for index, (name, _) in enumerate(external):
+        top_values[name] = f"%inputs#{index}" if len(external) > 1 else "%inputs"
+
+    def emit_direct_module_fanout(source: str) -> None:
+        outputs = fanout_outputs.get(source)
+        if outputs is None:
+            return
+        payload = values[source]
+        lhs = ", ".join(f"%{name}" for name in outputs)
+        output_types = ", ".join(f"!ac.queue<{_render_type(payload)}>" for _ in outputs)
+        instance_name = fanout_instance_names[source]
+        lines.append(
+            f"    {lhs} = ac.instance @{instance_name} of "
+            f"@{fanout_module_symbols[source]}({top_values[source]}) static {{}} "
+            f'id "{instance_name}" path "{instance_name}" : '
+            f"(!ac.queue<{_render_type(payload)}>) -> ({output_types})"
+            + _render_fused_source_locations(fanout_locations[source])
+        )
+        for output in outputs:
+            top_values[output] = f"%{output}"
+
+    for name, _ in external:
+        emit_direct_module_fanout(name)
+
+    for instance_index, (
         results,
         module_name,
         sources,
         output_types,
         static_arguments,
         instance_source,
-    ) in instances:
+    ) in enumerate(instances):
+        selected_sources = tuple(
+            effective_instance_inputs.get((instance_index, input_index), source)
+            for input_index, source in enumerate(sources)
+        )
         input_types = tuple(values[source] for source in sources)
         lhs = ", ".join(f"%{result}" for result in results)
-        operands = ", ".join(top_values[source] for source in sources)
+        operands = ", ".join(top_values[source] for source in selected_sources)
         input_signature = ", ".join(
             f"!ac.queue<{_render_type(payload)}>" for payload in input_types
         )
@@ -19602,7 +19744,11 @@ def _lower_simple_module_source(
         )
         for result in results:
             top_values[result] = f"%{result}"
-    returned_operands = [top_values[name] for name in returned_names]
+            emit_direct_module_fanout(result)
+    returned_operands = [
+        top_values[effective_return_names.get(index, name)]
+        for index, name in enumerate(returned_names)
+    ]
     if host_results:
         lines.append(
             "    ac.return " + ", ".join(returned_operands) + " : " + root_result_types

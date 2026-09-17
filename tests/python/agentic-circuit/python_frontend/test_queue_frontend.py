@@ -27,6 +27,24 @@ def pipeline(left: ac.u8, right: ac.u8) -> tuple[ac.u8, ac.u8]:
     return left_result, right_result
 """
 
+INFERRED_MODULE_FANOUT_SOURCE = """
+import agentic_circuit as ac
+
+@ac.module
+def increment(value: ac.u8) -> ac.u8:
+    return value + 1
+
+@ac.module
+def double(value: ac.u8) -> ac.u8:
+    return value + value
+
+@ac.system
+def pipeline(value: ac.u8) -> tuple[ac.u8, ac.u8]:
+    incremented = increment(value)
+    doubled = double(value)
+    return incremented, doubled
+"""
+
 INFERRED_NESTED_MODULE_SOURCE = """
 import agentic_circuit as ac
 
@@ -8718,6 +8736,32 @@ def two_accumulators(left: ac.u8, right: ac.u8) -> tuple[ac.u8, ac.u8]:
         self.assertNotIn("ac.system =", lowered)
         self.assertNotIn("source(", lowered)
         self.assertNotIn("sink(", lowered)
+
+    def test_repeated_direct_module_input_inserts_strict_atomic_broadcast(
+        self,
+    ) -> None:
+        from agentic_circuit._queue_frontend import lower_queue_source
+
+        lowered = lower_queue_source(
+            INFERRED_MODULE_FANOUT_SOURCE,
+            "pipeline",
+            source_path="design/module_fanout.py",
+        )
+        broadcast = (
+            "%fanout_0, %fanout_1 = ac.broadcast %borrowed "
+            "depths [1, 1] latencies [1, 1]"
+        )
+        self.assertEqual(1, lowered.count(broadcast))
+        self.assertIn(
+            "%value__fanout0, %value__fanout1 = ac.instance "
+            "@value__broadcast of @__ac_broadcast_value(%inputs)",
+            lowered,
+        )
+        self.assertIn(
+            "ac.instance @incremented of @increment(%value__fanout0)", lowered
+        )
+        self.assertIn("ac.instance @doubled of @double(%value__fanout1)", lowered)
+        self.assertIn('loc(fused["design/module_fanout.py":', lowered)
 
     def test_host_result_mode_preserves_root_queue_returns(self) -> None:
         from agentic_circuit._queue_frontend import lower_queue_source
