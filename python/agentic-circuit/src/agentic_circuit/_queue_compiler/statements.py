@@ -9,7 +9,7 @@ from enum import Enum, auto
 
 from _pycircuit_semantics import ValueType
 
-from .._source_map import SourceFrame
+from .._source_map import SourceFrame, source_frame
 from .._static_eval import StaticValue
 from .definitions import _lambda_value
 from .errors import QueueFrontendError
@@ -35,6 +35,7 @@ from .model import (
     QueueBinding,
     ReorderBinding,
     RouteBinding,
+    RuleDefinition,
     ScopeBinding,
     SelectBinding,
     SelectedMemoryBinding,
@@ -55,6 +56,7 @@ from .static_types import (
     _positive_int_value,
     _types_equal_in_epoch_05,
 )
+from .syntax import _decorator_name
 
 
 class _StatementResult(Enum):
@@ -75,6 +77,7 @@ class _ParserEnvironment:
     static_values: Mapping[str, StaticValue]
     payloads: tuple[Payload, ...]
     result_payloads: tuple[ValueType, ...] | None
+    rule_definitions: Mapping[str, RuleDefinition]
 
 
 @dataclass(slots=True)
@@ -135,9 +138,7 @@ class _ParserState:
 _Aliases = Mapping[str, str | StaticQueueCollection]
 
 
-def _lambda(
-    environment: _ParserEnvironment, node: ast.expr
-) -> tuple[str, ast.expr]:
+def _lambda(environment: _ParserEnvironment, node: ast.expr) -> tuple[str, ast.expr]:
     argument, expression = _lambda_value(node)
     return argument, _constantize_expression(
         expression, argument, environment.static_values
@@ -187,15 +188,11 @@ def _static_reference(
     )
 
 
-def _queue_reference(
-    state: _ParserState, node: ast.expr, aliases: _Aliases
-) -> str:
+def _queue_reference(state: _ParserState, node: ast.expr, aliases: _Aliases) -> str:
     value = _static_reference(state, node, aliases)
     if isinstance(value, str):
         return value
-    raise QueueFrontendError(
-        "ACPY-QUEUE-005: a collection cannot be used as one Queue"
-    )
+    raise QueueFrontendError("ACPY-QUEUE-005: a collection cannot be used as one Queue")
 
 
 def _is_queue_reference_syntax(
@@ -208,6 +205,49 @@ def _is_queue_reference_syntax(
             or node.id in state.collections
             or node.id in aliases
         )
+    )
+
+
+def _call_name(call: ast.Call) -> str:
+    return _decorator_name(call.func).rsplit(".", 1)[-1]
+
+
+def _keyword_value(call: ast.Call, name: str) -> ast.expr:
+    matches = [keyword.value for keyword in call.keywords if keyword.arg == name]
+    if len(matches) != 1:
+        raise QueueFrontendError(
+            f"ACPY-QUEUE-024: high-level block requires one {name!r} parameter"
+        )
+    return matches[0]
+
+
+def _field_expression(
+    environment: _ParserEnvironment,
+    node: ast.expr,
+    queue: QueueBinding,
+    argument: str = "item",
+) -> ast.expr:
+    if not isinstance(node, ast.Attribute) or not isinstance(node.value, ast.Name):
+        raise QueueFrontendError(
+            "ACPY-QUEUE-024: high-level block requires a typed field descriptor"
+        )
+    payload = next(
+        (item for item in environment.payloads if item.descriptor == queue.payload),
+        None,
+    )
+    if payload is None or node.value.id != payload.name:
+        raise QueueFrontendError(
+            "ACPY-QUEUE-024: field descriptor payload does not match Queue"
+        )
+    if node.attr not in {field.name for field in payload.descriptor.fields}:
+        raise QueueFrontendError(f"ACPY-QUEUE-024: payload has no field {node.attr!r}")
+    return ast.copy_location(
+        ast.Attribute(
+            value=ast.Name(id=argument, ctx=ast.Load()),
+            attr=node.attr,
+            ctx=ast.Load(),
+        ),
+        node,
     )
 
 
@@ -235,17 +275,13 @@ def _memory_request_parameters(
         )
     policies: dict[str, ast.expr] = {}
     for policy in ("address", "write", "data"):
-        values = [
-            keyword.value for keyword in call.keywords if keyword.arg == policy
-        ]
+        values = [keyword.value for keyword in call.keywords if keyword.arg == policy]
         if len(values) != 1:
             raise QueueFrontendError(
                 f"ACPY-QUEUE-015: memory request requires one {policy} lambda"
             )
         policies[policy] = values[0]
-    arguments_and_values = [
-        _lambda(environment, policies[item]) for item in policies
-    ]
+    arguments_and_values = [_lambda(environment, policies[item]) for item in policies]
     if len({argument for argument, _ in arguments_and_values}) != 1:
         raise QueueFrontendError(
             "ACPY-QUEUE-015: memory request lambdas require one argument name"
@@ -420,9 +456,7 @@ def handle_queue_graph_operation(
     receiver = call.func.value
     operation = call.func.attr
 
-    if operation == "merge" and _is_queue_reference_syntax(
-        state, receiver, aliases
-    ):
+    if operation == "merge" and _is_queue_reference_syntax(state, receiver, aliases):
         if name in state.by_name or name in state.collections:
             raise QueueFrontendError(
                 "ACPY-QUEUE-008: merge output requires one fresh name"
@@ -437,14 +471,10 @@ def handle_queue_graph_operation(
             )
         payload = state.by_name[inputs[0]].payload
         if any(
-            not _types_equal_in_epoch_05(
-                state.by_name[input_name].payload, payload
-            )
+            not _types_equal_in_epoch_05(state.by_name[input_name].payload, payload)
             for input_name in inputs
         ):
-            raise QueueFrontendError(
-                "ACPY-QUEUE-008: merge Queue payloads must match"
-            )
+            raise QueueFrontendError("ACPY-QUEUE-008: merge Queue payloads must match")
         policies = [
             keyword.value for keyword in call.keywords if keyword.arg == "policy"
         ]
@@ -486,11 +516,7 @@ def handle_queue_graph_operation(
         )
         return HANDLED
 
-    if (
-        operation == "reorder"
-        and isinstance(receiver, ast.Name)
-        and not call.args
-    ):
+    if operation == "reorder" and isinstance(receiver, ast.Name) and not call.args:
         if name in state.by_name or name in state.collections:
             raise QueueFrontendError(
                 "ACPY-QUEUE-013: reorder output requires one fresh name"
@@ -505,9 +531,7 @@ def handle_queue_graph_operation(
             )
         keys = [k.value for k in call.keywords if k.arg == "key"]
         if len(keys) != 1:
-            raise QueueFrontendError(
-                "ACPY-QUEUE-013: reorder requires one key lambda"
-            )
+            raise QueueFrontendError("ACPY-QUEUE-013: reorder requires one key lambda")
         argument, key = _lambda(environment, keys[0])
         capacity = _positive_int(environment, call, "capacity", 16)
         start = _nonnegative_int(environment, call, "start", 0)
@@ -548,9 +572,7 @@ def handle_queue_graph_operation(
             )
         incoming = state.by_name.get(receiver.id)
         if incoming is None:
-            raise QueueFrontendError(
-                "ACPY-QUEUE-014: dependency input is unbound"
-            )
+            raise QueueFrontendError("ACPY-QUEUE-014: dependency input is unbound")
         allowed = {
             "key",
             "waits_for",
@@ -578,17 +600,13 @@ def handle_queue_graph_operation(
         waits_argument, waits_for = _lambda(environment, policies["waits_for"])
         resource_argument, resource = _lambda(environment, policies["resource"])
         cost_argument, cost = _lambda(environment, policies["cost"])
-        if len(
-            {key_argument, waits_argument, resource_argument, cost_argument}
-        ) != 1:
+        if len({key_argument, waits_argument, resource_argument, cost_argument}) != 1:
             raise QueueFrontendError(
                 "ACPY-QUEUE-014: dependency lambdas require one argument name"
             )
         capacity = _positive_int(environment, call, "capacity", 16)
         resources = _positive_int(environment, call, "resources", 1)
-        no_dependency = _nonnegative_int(
-            environment, call, "no_dependency", 255
-        )
+        no_dependency = _nonnegative_int(environment, call, "no_dependency", 255)
         depth = _positive_int(environment, call, "depth", 1)
         latency = _positive_int(environment, call, "latency", 1)
         output = QueueBinding(
@@ -654,9 +672,7 @@ def handle_queue_graph_operation(
             )
         payload = state.by_name[inputs[0]].payload
         if any(
-            not _types_equal_in_epoch_05(
-                state.by_name[input_name].payload, payload
-            )
+            not _types_equal_in_epoch_05(state.by_name[input_name].payload, payload)
             for input_name in inputs
         ):
             raise QueueFrontendError(
@@ -664,9 +680,7 @@ def handle_queue_graph_operation(
             )
         keys = [k.value for k in call.keywords if k.arg == "key"]
         if len(keys) != 1:
-            raise QueueFrontendError(
-                "ACPY-QUEUE-018: select requires one key lambda"
-            )
+            raise QueueFrontendError("ACPY-QUEUE-018: select requires one key lambda")
         argument, selector = _lambda(environment, keys[0])
         depth = _positive_int(environment, call, "depth", 1)
         latency = _positive_int(environment, call, "latency", 1)
@@ -712,9 +726,7 @@ def handle_queue_graph_operation(
             )
         costs = [k.value for k in call.keywords if k.arg == "cost"]
         if len(costs) != 1:
-            raise QueueFrontendError(
-                "ACPY-QUEUE-016: credit requires one cost lambda"
-            )
+            raise QueueFrontendError("ACPY-QUEUE-016: credit requires one cost lambda")
         argument, cost = _lambda(environment, costs[0])
         credit_count = _positive_int(environment, call, "credits", 16)
         depth = _positive_int(environment, call, "depth", 1)
@@ -784,9 +796,7 @@ def handle_queue_graph_operation(
                 {"merge_policy", "merge_depth", "merge_latency"},
             )
         )
-        merge_policies = [
-            k.value for k in call.keywords if k.arg == "merge_policy"
-        ]
+        merge_policies = [k.value for k in call.keywords if k.arg == "merge_policy"]
         if len(merge_policies) > 1 or (
             merge_policies
             and (
@@ -797,9 +807,7 @@ def handle_queue_graph_operation(
             raise QueueFrontendError(
                 "ACPY-QUEUE-015: merge_policy must be priority or round_robin"
             )
-        merge_policy = (
-            merge_policies[0].value if merge_policies else "priority"
-        )
+        merge_policy = merge_policies[0].value if merge_policies else "priority"
         merge_depth = _positive_int(environment, call, "merge_depth", 1)
         merge_latency = _positive_int(environment, call, "merge_latency", 1)
         response_names = tuple(
@@ -868,7 +876,11 @@ def handle_queue_graph_operation(
         state.order += 1
         return HANDLED
 
-    if operation == "request" and isinstance(receiver, ast.Name) and len(call.args) == 1:
+    if (
+        operation == "request"
+        and isinstance(receiver, ast.Name)
+        and len(call.args) == 1
+    ):
         if name in state.by_name or name in state.collections:
             raise QueueFrontendError(
                 "ACPY-QUEUE-015: memory request output requires one fresh name"
@@ -878,7 +890,10 @@ def handle_queue_graph_operation(
             raise QueueFrontendError(
                 "ACPY-QUEUE-015: memory request instance is unbound"
             )
-        if len(scope) < len(instance.scope) or scope[: len(instance.scope)] != instance.scope:
+        if (
+            len(scope) < len(instance.scope)
+            or scope[: len(instance.scope)] != instance.scope
+        ):
             raise QueueFrontendError(
                 "ACPY-QUEUE-015: memory instance is only visible in its "
                 "declaration scope and descendants"
@@ -886,13 +901,9 @@ def handle_queue_graph_operation(
         incoming_name = _queue_reference(state, call.args[0], aliases)
         incoming = state.by_name.get(incoming_name)
         if incoming is None:
-            raise QueueFrontendError(
-                "ACPY-QUEUE-015: memory request input is unbound"
-            )
+            raise QueueFrontendError("ACPY-QUEUE-015: memory request input is unbound")
         argument, address, write, data, result_field, depth = (
-            _memory_request_parameters(
-                environment, call, incoming, instance.data_type
-            )
+            _memory_request_parameters(environment, call, incoming, instance.data_type)
         )
         output = QueueBinding(
             name,
@@ -929,3 +940,318 @@ def handle_queue_graph_operation(
             "connect it with instance.request(...)"
         )
     return UNHANDLED
+
+
+def handle_multi_output_operation(
+    environment: _ParserEnvironment,
+    state: _ParserState,
+    statement: ast.stmt,
+    scope: tuple[str, ...],
+    aliases: _Aliases,
+    current_order: int,
+) -> _StatementResult:
+    """Handle barrier, route, and fork at their shared priority point."""
+    if not (
+        isinstance(statement, ast.Assign)
+        and len(statement.targets) == 1
+        and isinstance(statement.targets[0], (ast.Tuple, ast.List))
+        and all(isinstance(item, ast.Name) for item in statement.targets[0].elts)
+        and isinstance(statement.value, ast.Call)
+    ):
+        return UNHANDLED
+    call = statement.value
+    operation = _call_name(call)
+    if operation not in {"barrier", "route", "fork"}:
+        return UNHANDLED
+    names = tuple(
+        item.id for item in statement.targets[0].elts if isinstance(item, ast.Name)
+    )
+
+    if operation == "barrier":
+        if any(
+            keyword.arg is None or keyword.arg not in {"depth", "latency"}
+            for keyword in call.keywords
+        ):
+            raise QueueFrontendError(
+                "ACPY-QUEUE-017: barrier has an unsupported keyword"
+            )
+        method_style = (
+            isinstance(call.func, ast.Attribute)
+            and isinstance(call.func.value, ast.Name)
+            and call.func.value.id in state.by_name
+        )
+        operands = [call.func.value, *call.args] if method_style else list(call.args)
+        inputs = tuple(
+            _queue_reference(state, operand, aliases) for operand in operands
+        )
+        if len(inputs) < 2 or len(names) != len(inputs):
+            raise QueueFrontendError(
+                "ACPY-QUEUE-017: barrier requires matching input/output arity"
+            )
+        if len(set(inputs)) != len(inputs):
+            raise QueueFrontendError(
+                "ACPY-QUEUE-017: barrier inputs must be unique Queues"
+            )
+        if len(set(names)) != len(names) or any(
+            output in state.by_name or output in state.collections for output in names
+        ):
+            raise QueueFrontendError(
+                "ACPY-QUEUE-017: barrier outputs require fresh tuple names"
+            )
+        depth = _positive_int(environment, call, "depth", 1)
+        latency = _positive_int(environment, call, "latency", 1)
+        for input_name, output_name in zip(inputs, names, strict=True):
+            output = QueueBinding(
+                output_name,
+                state.by_name[input_name].payload,
+                depth,
+                latency,
+                None,
+                scope=scope,
+                order=current_order,
+                barrier_output=True,
+            )
+            state.queues.append(output)
+            state.by_name[output_name] = output
+        state.barriers.append(
+            BarrierBinding(inputs, names, depth, latency, scope, current_order)
+        )
+        return HANDLED
+
+    method_style = (
+        isinstance(call.func, ast.Attribute)
+        and isinstance(call.func.value, ast.Name)
+        and call.func.value.id in state.by_name
+    )
+    if method_style:
+        assert isinstance(call.func, ast.Attribute)
+        assert isinstance(call.func.value, ast.Name)
+        if call.args:
+            if operation == "route":
+                raise QueueFrontendError(
+                    "ACPY-QUEUE-006: method route takes no positional arguments"
+                )
+            raise QueueFrontendError(
+                "ACPY-QUEUE-012: method fork takes no positional arguments"
+            )
+        input_name = call.func.value.id
+    else:
+        if len(call.args) != 1:
+            raise QueueFrontendError(
+                f"ACPY-QUEUE-024: {operation} requires one input Queue"
+            )
+        input_name = _queue_reference(state, call.args[0], aliases)
+    incoming = state.by_name.get(input_name)
+    if incoming is None:
+        if operation == "route":
+            raise QueueFrontendError(
+                f"ACPY-QUEUE-001: input queue {input_name!r} is unbound"
+            )
+        raise QueueFrontendError("ACPY-QUEUE-012: fork input is unbound")
+    output_count = _positive_int(environment, call, "outputs", 0)
+    if operation == "route":
+        if output_count != len(names) or len(set(names)) != len(names):
+            raise QueueFrontendError(
+                "ACPY-QUEUE-006: route outputs must match fresh tuple names"
+            )
+        if method_style:
+            keys = [k.value for k in call.keywords if k.arg == "key"]
+            if len(keys) != 1:
+                raise QueueFrontendError(
+                    "ACPY-QUEUE-006: route requires one key lambda"
+                )
+            argument, selector = _lambda(environment, keys[0])
+        else:
+            argument = "item"
+            selector = _field_expression(
+                environment,
+                _keyword_value(call, "by"),
+                incoming,
+                argument,
+            )
+    elif output_count != len(names) or len(names) < 2:
+        raise QueueFrontendError("ACPY-QUEUE-012: fork outputs must match tuple arity")
+    depth = _positive_int(environment, call, "depth", 1)
+    latency = _positive_int(environment, call, "latency", 1)
+    for name in names:
+        if name in state.by_name:
+            if operation == "route":
+                raise QueueFrontendError(
+                    "ACPY-QUEUE-006: route output name is already bound"
+                )
+            raise QueueFrontendError(
+                "ACPY-QUEUE-012: fork output name is already bound"
+            )
+        output = QueueBinding(
+            name,
+            incoming.payload,
+            depth,
+            latency,
+            None,
+            scope=scope,
+            order=current_order,
+            route_output=True,
+        )
+        state.queues.append(output)
+        state.by_name[name] = output
+    if operation == "route":
+        state.routes.append(
+            RouteBinding(
+                incoming.name,
+                names,
+                argument,
+                selector,
+                depth,
+                latency,
+                scope,
+                current_order,
+            )
+        )
+    else:
+        state.forks.append(
+            ForkBinding(incoming.name, names, depth, latency, scope, current_order)
+        )
+    return HANDLED
+
+
+def handle_expect(
+    environment: _ParserEnvironment,
+    state: _ParserState,
+    statement: ast.stmt,
+    scope: tuple[str, ...],
+    aliases: _Aliases,
+    current_order: int,
+) -> _StatementResult:
+    if not (
+        isinstance(statement, ast.Expr)
+        and isinstance(statement.value, ast.Call)
+        and _call_name(statement.value) == "expect"
+        and len(statement.value.args) == 1
+    ):
+        return UNHANDLED
+    call = statement.value
+    if any(
+        keyword.arg is None or keyword.arg not in {"predicate", "message"}
+        for keyword in call.keywords
+    ):
+        raise QueueFrontendError("ACPY-QUEUE-021: expect has an unsupported keyword")
+    predicates = [k.value for k in call.keywords if k.arg == "predicate"]
+    messages = [k.value for k in call.keywords if k.arg == "message"]
+    if len(predicates) != 1 or len(messages) != 1:
+        raise QueueFrontendError(
+            "ACPY-QUEUE-021: expect requires predicate and message"
+        )
+    if (
+        not isinstance(messages[0], ast.Constant)
+        or type(messages[0].value) is not str
+        or not messages[0].value
+    ):
+        raise QueueFrontendError(
+            "ACPY-QUEUE-021: expect message must be a static string"
+        )
+    argument, predicate = _lambda(environment, predicates[0])
+    state.expectations.append(
+        ExpectBinding(
+            _queue_reference(state, call.args[0], aliases),
+            argument,
+            predicate,
+            messages[0].value,
+            scope,
+            current_order,
+        )
+    )
+    return HANDLED
+
+
+def handle_observe(
+    environment: _ParserEnvironment,
+    state: _ParserState,
+    statement: ast.stmt,
+    scope: tuple[str, ...],
+    aliases: _Aliases,
+    current_order: int,
+) -> _StatementResult:
+    del environment
+    if not (
+        isinstance(statement, ast.Expr)
+        and isinstance(statement.value, ast.Call)
+        and _call_name(statement.value) == "observe"
+        and len(statement.value.args) == 1
+    ):
+        return UNHANDLED
+    name = _queue_reference(state, statement.value.args[0], aliases)
+    state.observations.append(
+        ObservationBinding(name, f"observe_{current_order}", scope, current_order)
+    )
+    return HANDLED
+
+
+def handle_sink(
+    environment: _ParserEnvironment,
+    state: _ParserState,
+    statement: ast.stmt,
+    scope: tuple[str, ...],
+    aliases: _Aliases,
+    current_order: int,
+) -> _StatementResult:
+    del environment
+    if not (
+        isinstance(statement, ast.Expr)
+        and isinstance(statement.value, ast.Call)
+        and _call_name(statement.value) == "sink"
+        and len(statement.value.args) == 1
+    ):
+        return UNHANDLED
+    name = _queue_reference(state, statement.value.args[0], aliases)
+    state.sinks.append(SinkBinding(name, scope, current_order, source_frame(statement)))
+    return HANDLED
+
+
+def handle_return(
+    environment: _ParserEnvironment,
+    state: _ParserState,
+    statement: ast.stmt,
+    scope: tuple[str, ...],
+    aliases: _Aliases,
+    current_order: int,
+) -> _StatementResult:
+    if not isinstance(statement, ast.Return):
+        return UNHANDLED
+    if statement.value is None:
+        if environment.result_payloads not in {None, ()}:
+            raise QueueFrontendError(
+                "ACPY-QUEUE-026: typed system results must be returned"
+            )
+        return HANDLED
+    values = (
+        tuple(statement.value.elts)
+        if isinstance(statement.value, (ast.Tuple, ast.List))
+        else (statement.value,)
+    )
+    returned = tuple(_queue_reference(state, value, aliases) for value in values)
+    if environment.result_payloads is not None:
+        if len(returned) != len(environment.result_payloads):
+            raise QueueFrontendError(
+                "ACPY-QUEUE-026: system return arity does not match its annotation"
+            )
+        for index, (queue_name, expected_payload) in enumerate(
+            zip(returned, environment.result_payloads, strict=True)
+        ):
+            if not _types_equal_in_epoch_05(
+                state.by_name[queue_name].payload, expected_payload
+            ):
+                raise QueueFrontendError(
+                    "ACPY-QUEUE-026: system return "
+                    f"{index} payload does not match its annotation"
+                )
+    for index, queue_name in enumerate(returned):
+        state.sinks.append(
+            SinkBinding(
+                queue_name,
+                scope,
+                current_order + index,
+                source_frame(statement),
+            )
+        )
+    state.order += len(returned) - 1
+    return HANDLED
