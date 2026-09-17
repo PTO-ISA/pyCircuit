@@ -39,19 +39,55 @@ INFERRED_NESTED_MODULE_SOURCE = (
 DIRECT_MODULE_FANOUT_SOURCE = """
 import agentic_circuit as ac
 
-@ac.module
-def increment(value: ac.u8) -> ac.u8:
-    return value + 1
+@ac.rule
+def accumulate(total, value: ac.u8) -> ac.u8:
+    total = total + value
+    return total
 
 @ac.module
-def double(value: ac.u8) -> ac.u8:
-    return value + value
+def counter(value: ac.u8) -> ac.u8:
+    total: ac.u8 = 0
+    result = accumulate(total, value)
+    return result
+
+@ac.module
+def identity(value: ac.u8) -> ac.u8:
+    return value
 
 @ac.system
 def direct_module_fanout(value: ac.u8) -> tuple[ac.u8, ac.u8]:
-    incremented = increment(value)
-    doubled = double(value)
-    return incremented, doubled
+    counted = counter(value)
+    copied = identity(value)
+    return counted, copied
+"""
+STATEFUL_MODULE_PROJECTION_FANOUT_SOURCE = """
+import agentic_circuit as ac
+
+@ac.struct
+class Packet:
+    value: ac.u8
+    tag: ac.u2
+
+@ac.rule
+def accumulate(total, value: ac.u8) -> ac.u8:
+    total = total + value
+    return total
+
+@ac.module
+def counter(value: ac.u8) -> ac.u8:
+    total: ac.u8 = 0
+    result = accumulate(total, value)
+    return result
+
+@ac.module
+def identity(value: ac.u8) -> ac.u8:
+    return value
+
+@ac.system
+def stateful_projection_fanout(packet: Packet) -> tuple[ac.u8, ac.u8]:
+    counted = counter(packet.value)
+    copied = identity(packet.value)
+    return counted, copied
 """
 BITFIELD_DECODE_SOURCE = (
     ROOT / "examples/agentic-circuit" / "pipelines" / "bitfield_decode_pipeline.py"
@@ -5233,6 +5269,7 @@ int main() {{
             )
             parsed_plan = json.loads(plan.read_text(encoding="utf-8"))
             self.assertEqual(3, len(parsed_plan["module_instances"]))
+            self.assertIn("ac.table @total", frozen.read_text(encoding="utf-8"))
             generated_source = model.read_text(encoding="utf-8")
             self.assertIn("gfsim::QueueBroadcast<gfsim::UInt<8>, 2>", generated_source)
 
@@ -5256,10 +5293,10 @@ int main() {{
     for (auto &row : rows)
       row.xfer(row.object, epoch, gfsim::XferPhase::Commit);
   }}
-  const auto &incremented = model.sink_0_values();
-  const auto &doubled = model.sink_1_values();
-  return incremented.size() == 1 && incremented[0] == 6 &&
-                 doubled.size() == 1 && doubled[0] == 10
+  const auto &counted = model.sink_0_values();
+  const auto &copied = model.sink_1_values();
+  return counted.size() == 1 && counted[0] == 5 &&
+                 copied.size() == 1 && copied[0] == 5
              ? 0
              : 2;
 }}
@@ -5291,6 +5328,90 @@ int main() {{
                 check=False,
             )
             self.assertEqual(0, executed.returncode, executed.stderr)
+
+    def test_record_projection_operands_freeze_plan_and_generate_cpp(self) -> None:
+        compiler = shutil.which("c++")
+        if compiler is None:
+            self.skipTest("C++ compiler is unavailable")
+        native_bin = Path(
+            os.environ.get("ACIR_BIN", ROOT / ".pycircuit_out/toolchain/build/bin")
+        )
+        tools = {
+            "opt": native_bin / "acir-opt",
+            "plan": native_bin / "acir-queue-plan",
+            "cxxgen": native_bin / "acir-queue-cxxgen",
+        }
+        if any(not path.is_file() for path in tools.values()):
+            self.skipTest("native module tools are unavailable")
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            design = root / "stateful_projection_fanout.py"
+            model = root / "stateful_projection_fanout.cpp"
+            frozen = root / "stateful_projection_fanout.frozen.mlir"
+            plan = root / "stateful_projection_fanout.plan.json"
+            design.write_text(
+                STATEFUL_MODULE_PROJECTION_FANOUT_SOURCE,
+                encoding="utf-8",
+            )
+            generated = subprocess.run(
+                (
+                    str(ROOT / "compiler/acir/tools/ac-queue-cxxgen.py"),
+                    str(design),
+                    "--system",
+                    "stateful_projection_fanout",
+                    "--acir-output",
+                    str(frozen),
+                    "--plan-output",
+                    str(plan),
+                    "--acir-opt",
+                    str(tools["opt"]),
+                    "--queue-plan-tool",
+                    str(tools["plan"]),
+                    "--queue-cxxgen-tool",
+                    str(tools["cxxgen"]),
+                    "--output",
+                    str(model),
+                ),
+                cwd=ROOT,
+                env={
+                    **os.environ,
+                    "PYTHONPATH": str(ROOT / "python/agentic-circuit/src"),
+                },
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(0, generated.returncode, generated.stderr)
+            frozen_source = frozen.read_text(encoding="utf-8")
+            self.assertEqual(1, frozen_source.count("ac.broadcast"))
+            self.assertEqual(2, frozen_source.count('ac.var.get %arg2 field "value"'))
+            parsed_plan = json.loads(plan.read_text(encoding="utf-8"))
+            self.assertEqual(5, len(parsed_plan["module_instances"]))
+            definitions = {
+                item["definition"] for item in parsed_plan["module_specializations"]
+            }
+            self.assertTrue(
+                {"counter", "identity", "__ac_project_0", "__ac_project_1"}
+                <= definitions
+            )
+            generated_source = model.read_text(encoding="utf-8")
+            self.assertIn("gfsim::QueueBroadcast<Packet, 2>", generated_source)
+            compiled = subprocess.run(
+                (
+                    compiler,
+                    "-std=c++20",
+                    "-I",
+                    str(ROOT / "simulator/gfsim/include"),
+                    "-fsyntax-only",
+                    str(model),
+                ),
+                cwd=root,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(0, compiled.returncode, compiled.stderr)
 
     def test_stateless_multi_input_module_generates_and_runs(self) -> None:
         compiler = shutil.which("c++")

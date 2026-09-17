@@ -45,6 +45,36 @@ def pipeline(value: ac.u8) -> tuple[ac.u8, ac.u8]:
     return incremented, doubled
 """
 
+STATEFUL_MODULE_PROJECTION_FANOUT_SOURCE = """
+import agentic_circuit as ac
+
+@ac.struct
+class Packet:
+    value: ac.u8
+    tag: ac.u2
+
+@ac.rule
+def accumulate(total, value: ac.u8) -> ac.u8:
+    total = total + value
+    return total
+
+@ac.module
+def counter(value: ac.u8) -> ac.u8:
+    total: ac.u8 = 0
+    result = accumulate(total, value)
+    return result
+
+@ac.module
+def identity(value: ac.u8) -> ac.u8:
+    return value
+
+@ac.system
+def pipeline(packet: Packet) -> tuple[ac.u8, ac.u8]:
+    counted = counter(packet.value)
+    copied = identity(packet.value)
+    return counted, copied
+"""
+
 INFERRED_NESTED_MODULE_SOURCE = """
 import agentic_circuit as ac
 
@@ -8762,6 +8792,24 @@ def two_accumulators(left: ac.u8, right: ac.u8) -> tuple[ac.u8, ac.u8]:
         )
         self.assertIn("ac.instance @doubled of @double(%value__fanout1)", lowered)
         self.assertIn('loc(fused["design/module_fanout.py":', lowered)
+
+    def test_stateful_module_and_record_projections_share_inferred_fanout(
+        self,
+    ) -> None:
+        from agentic_circuit._queue_frontend import lower_queue_source
+
+        lowered = lower_queue_source(
+            STATEFUL_MODULE_PROJECTION_FANOUT_SOURCE,
+            "pipeline",
+            source_path="design/stateful_projection_fanout.py",
+        )
+        self.assertEqual(1, lowered.count(" = ac.broadcast %borrowed"))
+        self.assertEqual(2, lowered.count("ac.module @__ac_project_"))
+        self.assertEqual(2, lowered.count('ac.var.get %item field "value"'))
+        self.assertIn("ac.module @counter", lowered)
+        self.assertIn("ac.var.decl @total", lowered)
+        self.assertIn("of @counter(%__ac_projection_0)", lowered)
+        self.assertIn("of @identity(%__ac_projection_1)", lowered)
 
     def test_host_result_mode_preserves_root_queue_returns(self) -> None:
         from agentic_circuit._queue_frontend import lower_queue_source

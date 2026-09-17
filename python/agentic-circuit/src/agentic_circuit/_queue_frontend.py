@@ -18830,6 +18830,75 @@ def _lower_simple_module_source(
     ] = {}
     returned_names: tuple[str, ...] | None = None
     returned_sources: tuple[SourceFrame | None, ...] | None = None
+    projection_index = 0
+
+    def projection_root(expression: ast.expr) -> str | None:
+        current = expression
+        while isinstance(current, ast.Attribute):
+            current = current.value
+        return current.id if isinstance(current, ast.Name) else None
+
+    def materialize_module_operand(
+        expression: ast.expr,
+        expected_type: ValueType,
+    ) -> str:
+        nonlocal projection_index
+        if isinstance(expression, ast.Name):
+            return expression.id
+        root = projection_root(expression)
+        if root is None or root not in values:
+            raise QueueFrontendError(
+                "ACPY-MODULE-002: module runtime arguments require named Queue "
+                "values or exact record-field projections"
+            )
+        emitter = _ExpressionEmitter(
+            payload_map,
+            root,
+            values[root],
+            enum_types=enum_map,
+            bitfields=bitfield_map,
+            invariants=invariants,
+            helpers=helpers,
+        )
+        _, projected_type = emitter.emit(copy.deepcopy(expression), expected_type)
+        if not _types_equal_in_epoch_05(projected_type, expected_type):
+            raise QueueFrontendError(
+                "ACPY-MODULE-002: module input payload type mismatch"
+            )
+        while True:
+            symbol = f"__ac_project_{projection_index}"
+            result = f"__ac_projection_{projection_index}"
+            projection_index += 1
+            if (
+                symbol not in modules
+                and symbol not in module_types
+                and result not in values
+            ):
+                break
+        module_types[symbol] = ModuleDefinition(
+            root,
+            values[root],
+            projected_type,
+            copy.deepcopy(expression),
+        )
+        instance_index = len(instances)
+        location = source_frame(expression)
+        instance_input_sources[(instance_index, 0)] = location
+        instances.append(
+            (
+                (result,),
+                symbol,
+                (root,),
+                (projected_type,),
+                (),
+                location,
+            )
+        )
+        uses[root] = uses.get(root, 0) + 1
+        values[result] = projected_type
+        uses[result] = 0
+        value_sources[result] = location
+        return result
 
     def specialize_system_statements(
         statements: list[ast.stmt],
@@ -19055,7 +19124,6 @@ def _lower_simple_module_source(
             and isinstance(statement.value, ast.Call)
             and isinstance(statement.value.func, ast.Name)
             and statement.value.func.id in modules
-            and all(isinstance(argument, ast.Name) for argument in statement.value.args)
         ):
             target = statement.targets[0]
             results = (
@@ -19083,17 +19151,18 @@ def _lower_simple_module_source(
                 ) = specialize_rule_module(module_name, statement.value)
             else:
                 input_signature, output_signature = module_signature(module_name)
-            sources = tuple(
-                argument.id
-                for argument in statement.value.args
-                if isinstance(argument, ast.Name)
-            )
-            if len(sources) != len(input_signature) or len(results) != len(
+            if len(statement.value.args) != len(input_signature) or len(results) != len(
                 output_signature
             ):
                 raise QueueFrontendError(
                     "ACPY-MODULE-002: module call arity does not match its signature"
                 )
+            sources = tuple(
+                materialize_module_operand(argument, expected_type)
+                for argument, (_, expected_type) in zip(
+                    statement.value.args, input_signature, strict=True
+                )
+            )
             if any(result in values for result in results) or any(
                 source not in values for source in sources
             ):
