@@ -63,6 +63,10 @@ else:
         fcntl.flock(handle, fcntl.LOCK_EX)
 
 
+# The compiled tools carry a platform suffix, exactly as the packaged toolchain
+# resolver in pycircuit does; the Agentic Circuit launcher stays extensionless.
+_TOOL_SUFFIX = ".exe" if os.name == "nt" else ""
+
 _ENTRY = re.compile(
     r"^(?P<module>[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*):"
     r"(?P<symbol>[A-Za-z_][A-Za-z0-9_]*)$"
@@ -424,9 +428,13 @@ def _sdk_identity(value: object) -> SdkIdentity:
         )
     if launcher != running_launcher:
         _fail("ACSDK-PLAN-ROOT-002", "--sdk-root does not own the running CLI")
-    queue_plan = _manifest_file(root, entries, "bin/acir-queue-plan", kind="tool")
-    queue_cxxgen = _manifest_file(root, entries, "bin/acir-queue-cxxgen", kind="tool")
-    queue_cxxgen_entry = entries["bin/acir-queue-cxxgen"]
+    queue_plan = _manifest_file(
+        root, entries, f"bin/acir-queue-plan{_TOOL_SUFFIX}", kind="tool"
+    )
+    queue_cxxgen = _manifest_file(
+        root, entries, f"bin/acir-queue-cxxgen{_TOOL_SUFFIX}", kind="tool"
+    )
+    queue_cxxgen_entry = entries[f"bin/acir-queue-cxxgen{_TOOL_SUFFIX}"]
     model_plan_schema = _manifest_file(
         root,
         entries,
