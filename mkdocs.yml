@@ -124,7 +124,6 @@ nav:
       - pyCircuit 6 Decisions: rfcs/pyc6-decisions.md
       - Evolution Plan: pyc6-plan.md
       - Tier Annotation RFC: rfcs/tier_annotation.md
-      - Architecture Rule Compiler Extension: rfcs/architecture-rule-compiler-extension.md
       - ACIR Block Model: rfcs/acir/D-BLOCK-MODEL-001.md
       - ACIR Release Layout: rfcs/acir/D-RELEASE-LAYOUT-001.md
       - ACIR Rule Lowering: rfcs/acir/D-RULE-LOWERING-001.md
