@@ -521,9 +521,7 @@ def main() -> int:
             rf"^pycircuit_hisi-{re.escape(product)}-py3-none-win_amd64\.whl$"
         )
     else:
-        hisi_wheel_pattern = (
-            rf"^pycircuit_hisi-{re.escape(product)}-py3-none-macosx_[0-9]+_[0-9]+_arm64\.whl$"
-        )
+        hisi_wheel_pattern = rf"^pycircuit_hisi-{re.escape(product)}-py3-none-macosx_[0-9]+_[0-9]+_arm64\.whl$"
     wheel_patterns = {
         "pycircuit-hisi": hisi_wheel_pattern,
         "pycircuit-semantic-core": rf"^pycircuit_semantic_core-{re.escape(product)}-py3-none-any\.whl$",
