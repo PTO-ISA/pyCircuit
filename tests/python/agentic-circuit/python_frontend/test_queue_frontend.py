@@ -3789,7 +3789,7 @@ def clear_system(value: ac.u16) -> ac.u16:
                 "conversions",
             )
         with self.assertRaisesRegex(
-            QueueFrontendError, "must be an unsigned bits value"
+            QueueFrontendError, "must be a bits value"
         ):
             lower_queue_source(
                 TYPED_CONVERSION_SOURCE.replace(
