@@ -12,6 +12,7 @@
 #include "llvm/Support/MathExtras.h"
 
 #include <algorithm>
+#include <bit>
 #include <limits>
 #include <memory>
 #include <sstream>

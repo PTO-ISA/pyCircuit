@@ -405,13 +405,17 @@ jobs:
           if ($hostTarget -notmatch "x86_64-pc-windows-msvc") {
             throw "the provisioned LLVM/MLIR targets $hostTarget, not x86_64-pc-windows-msvc"
           }
-          # Map both separator spellings: CMake emits Windows source paths
-          # with backslashes while clang may normalise some to forward
-          # slashes, and the verification lane rejects any retained producer
-          # path under the workspace.
+          # clang-cl has no -ffile-prefix-map spelling of its own: it treats
+          # the flag as an unknown argument and ignores it, so the mapping
+          # goes through the /clang: escape to the clang driver. Both separator
+          # spellings are mapped because CMake emits Windows source paths with
+          # backslashes while clang may normalise some to forward slashes, and
+          # the verification lane rejects any retained producer path under the
+          # workspace.
           $workspace = $env:GITHUB_WORKSPACE
-          $env:CFLAGS = "-ffile-prefix-map=$workspace=. -ffile-prefix-map=$($workspace.Replace('\', '/'))=."
-          $env:CXXFLAGS = $env:CFLAGS
+          $prefixMaps = "/clang:-ffile-prefix-map=$workspace=. /clang:-ffile-prefix-map=$($workspace.Replace('\', '/'))=."
+          $env:CFLAGS = $prefixMaps
+          $env:CXXFLAGS = $prefixMaps
           $env:PYC_PYTHON_EXECUTABLE = (Get-Command python3).Source
           pwsh -NoProfile -File flows/scripts/pyc.ps1 build --llvm-config "$llvmConfig" --build-dir "$PWD/.pycircuit_out/toolchain/build" --install-prefix "$PWD/.pycircuit_out/toolchain/install"
           if ($LASTEXITCODE -ne 0) { throw "the platform SDK build failed with exit code $LASTEXITCODE" }
