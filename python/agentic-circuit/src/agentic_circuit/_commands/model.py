@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import ast
-import fcntl
 import json
 import os
 import platform
@@ -37,6 +36,32 @@ from .._source_closure import (
 )
 from .._staging import ArtifactStage
 from .._workspace import UserInputError
+
+if os.name == "nt":  # pragma: no cover - exercised by the Windows evidence lane
+    import msvcrt
+
+    def _lock_exclusive(handle: object) -> None:
+        """Take an exclusive lock on ``handle``, blocking until it is free.
+
+        ``msvcrt.locking`` locks a byte range starting at the current position
+        and gives up after about ten seconds, so retry until the lock is held.
+        Closing the handle releases it, exactly as ``flock`` does.
+        """
+        handle.seek(0)
+        while True:
+            try:
+                msvcrt.locking(handle.fileno(), msvcrt.LK_LOCK, 1)
+            except OSError:
+                continue
+            return
+
+else:
+    import fcntl
+
+    def _lock_exclusive(handle: object) -> None:
+        """Take an exclusive ``flock`` on ``handle``."""
+        fcntl.flock(handle, fcntl.LOCK_EX)
+
 
 _ENTRY = re.compile(
     r"^(?P<module>[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*):"
@@ -731,7 +756,7 @@ def _publish(output: Path, artifacts: dict[str, bytes]) -> tuple[str, ...]:
     output.parent.mkdir(parents=True, exist_ok=True)
     lock_path = output.parent / f".{output.name}.lock"
     with lock_path.open("a+b") as lock:
-        fcntl.flock(lock, fcntl.LOCK_EX)
+        _lock_exclusive(lock)
         if output.is_symlink() or (output.exists() and not output.is_dir()):
             _fail(
                 "ACSDK-PLAN-OUTPUT-001",
@@ -1319,7 +1344,7 @@ def _publish_model(output: Path, artifacts: dict[str, bytes]) -> tuple[str, ...]
     output.parent.mkdir(parents=True, exist_ok=True)
     lock_path = output.parent / f".{output.name}.lock"
     with lock_path.open("a+b") as lock:
-        fcntl.flock(lock, fcntl.LOCK_EX)
+        _lock_exclusive(lock)
         existing = _existing_model_files(output)
         if existing == frozenset(expected):
             try:
