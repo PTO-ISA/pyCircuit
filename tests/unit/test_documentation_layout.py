@@ -14,6 +14,7 @@ DOC_SECTIONS = {
     "acir",
     "architecture",
     "development",
+    "figures",
     "gates",
     "getting-started",
     "legal",
@@ -135,7 +136,8 @@ def test_onboarding_uses_current_paths_and_product_language() -> None:
             assert token not in content, f"{path.relative_to(ROOT)}: {token}"
 
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
-    assert readme.count("<img src=") == 6
+    # Six status badges plus the repository logo.
+    assert readme.count("<img src=") == 7
     assert "agentic_circuit frontend -> ACPy 0.5 -> ACIR" in readme
     assert "docs/development/repository-layout.md" in readme
 
