@@ -2099,12 +2099,15 @@ static int64_t getI64Attr(Operation *op, llvm::StringRef name, int64_t fallback 
 }
 
 static int64_t satAdd(int64_t a, int64_t b) {
-  __int128 v = static_cast<__int128>(a) + static_cast<__int128>(b);
-  if (v > std::numeric_limits<int64_t>::max())
-    return std::numeric_limits<int64_t>::max();
-  if (v < std::numeric_limits<int64_t>::min())
-    return std::numeric_limits<int64_t>::min();
-  return static_cast<int64_t>(v);
+  // 64-bit overflow detection instead of __int128, which MSVC does not
+  // implement. Bit-identical to the previous 128-bit computation.
+  const int64_t kMax = std::numeric_limits<int64_t>::max();
+  const int64_t kMin = std::numeric_limits<int64_t>::min();
+  if (b > 0 && a > kMax - b)
+    return kMax;
+  if (b < 0 && a < kMin - b)
+    return kMin;
+  return a + b;
 }
 
 static CompileStatsSummary collectCompileStats(ModuleOp module, int64_t depthLimit) {
