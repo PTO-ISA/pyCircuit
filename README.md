@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="docs/figures/pycircuit-logo.png" alt="pyCircuit" width="380">
+</p>
+
 # pyCircuit 6
 
 <p align="center">
@@ -13,6 +17,8 @@
   <a href="toolchains/agentic-circuit/llvm.lock.json"><img src="https://img.shields.io/badge/LLVM%2FMLIR-22.1.8-5C2D91" alt="LLVM and MLIR 22.1.8"></a>
 </p>
 
+---
+
 pyCircuit provides two complementary Python frontends in one versioned
 toolchain:
 
@@ -22,17 +28,24 @@ toolchain:
   scheduling, and committed state through ACPy and ACIR.
 
 Both paths converge on verified PYC MLIR when generating hardware. C++ and
-Verilog therefore share one semantic contract rather than separate handwritten
+Verilog therefore share one semantic contract, rather than separate handwritten
 implementations.
 
 ## Highlights
 
-- Cycle-aware signals with automatic pipeline balancing
-- Structural and cycle-aware authoring on one verified PYC representation
-- Preserved module hierarchy and deterministic generated artifacts
-- Exact-width values, typed structures, queues, tables, and memories
-- C++ cycle simulation, gfsim architecture simulation, and Verilog generation
-- Focused pull-request gates plus reproducible release closure
+- **Cycle-aware by construction.** Signal provenance tracks logical cycles, and
+  automatic pipeline balancing lowers to explicit PYC MLIR (Decision 0148).
+- **One verified contract.** Structural and cycle-aware authoring reach the same
+  verified PYC representation; semantics live in the dialect, passes, and
+  verifiers rather than in one backend.
+- **Deterministic output.** Preserved module hierarchy and deterministic
+  generated artifacts.
+- **Rich data model.** Exact-width values, typed structures, queues, tables, and
+  memories.
+- **Multiple backends.** C++ cycle simulation, gfsim architecture simulation,
+  and Verilog generation from one design.
+- **Reviewable change control.** Focused pull-request gates plus a reproducible
+  release closure.
 
 ## Choose a frontend
 
@@ -83,6 +96,45 @@ agentic-circuit --help
 Continue with the [Quickstart](docs/getting-started/quickstart.md) or the
 [complete installation guide](docs/getting-started/installation.md).
 
+## Write your first circuit
+
+`CycleAwareSignal` is the primary authoring model. Compute the next value in the
+current logical cycle, call `domain.next()`, then commit the assignment; the
+frontend inserts delay registers wherever cycles must be balanced.
+
+```python
+from pycircuit import (
+    CycleAwareCircuit,
+    CycleAwareDomain,
+    build_cycle_aware,
+    cas,
+    mux,
+    wire_of,
+)
+
+
+def build(m: CycleAwareCircuit, domain: CycleAwareDomain, width: int = 8) -> None:
+    enable = cas(domain, m.input("enable", width=1), cycle=0)
+    count = domain.signal(width=width, reset_value=0, name="count")
+
+    m.output("count", wire_of(count))
+
+    # Compute next at cycle 0, then commit after domain.next().
+    count_next = mux(enable, count + 1, count)
+    domain.next()
+    count <<= count_next
+
+
+build.__pycircuit_name__ = "counter"
+
+print(build_cycle_aware(build, name="counter", width=8).emit_mlir())
+```
+
+The full design, testbench, and parameters live in
+[`examples/pycircuit/basics/counter`](examples/pycircuit/basics/counter), and the
+[pyCircuit 6 Tutorial](docs/getting-started/tutorial.md) covers testbenches,
+hierarchy, memories, and multi-cycle pipelines.
+
 ## How the toolchain fits together
 
 ```text
@@ -102,6 +154,7 @@ and are not compatibility aliases.
 | Start here | Purpose |
 | --- | --- |
 | [Getting Started](docs/getting-started/index.md) | Install the toolchain and run the first design |
+| [Choose a Frontend](docs/getting-started/choose-a-frontend.md) | Select between `pycircuit` and `agentic_circuit` |
 | [pyCircuit 6 Tutorial](docs/getting-started/tutorial.md) | Learn cycle-aware authoring and testbenches |
 | [Language and API Reference](docs/reference/index.md) | Look up syntax, APIs, diagnostics, primitives, and PYC IR |
 | [Architecture](docs/architecture/overview.md) | Understand frontends, compiler stages, runtimes, and backends |
