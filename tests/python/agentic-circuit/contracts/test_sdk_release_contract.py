@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ast
 import copy
 import importlib.util
 import io
@@ -586,6 +587,66 @@ class SdkReleaseContractTest(unittest.TestCase):
         )
         for runtime_dll in ("python3.dll", "python311.dll"):
             self.assertIn(runtime_dll, generator.WINDOWS_SYSTEM_DLLS)
+
+
+    def test_platform_manifest_files_use_posix_string_order(self) -> None:
+        """Consumers require ``files`` in plain POSIX-string order.
+
+        pathlib compares path components, so on POSIX ``a/b`` precedes
+        ``a.b`` even though ``.`` precedes ``/``, and on Windows it folds case
+        and uses backslash separators. Emitting anything but the string order
+        makes the installed CLI reject its own manifest with
+        ACSDK-PLAN-MANIFEST-001, which is what happened on Windows.
+        """
+        generator_path = ROOT / "packaging/sdk/create_platform_manifest.py"
+        spec = importlib.util.spec_from_file_location("platform_order", generator_path)
+        if spec is None or spec.loader is None:
+            self.fail("cannot load platform SDK generator")
+        generator = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(generator)
+
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            for relative in ("aB", "a/b", "a.b", "a-c", "a/c/d"):
+                target = root / relative
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_text("x", encoding="utf-8")
+            files = [path for path in root.rglob("*") if path.is_file()]
+            names = [path.relative_to(root).as_posix() for path in files]
+
+            ordered = [
+                path.relative_to(root).as_posix()
+                for path in generator.posix_sorted(root, files)
+            ]
+            self.assertEqual(ordered, sorted(names))
+            # The guard is not vacuous: a bare Path sort disagrees here.
+            self.assertNotEqual(
+                [path.relative_to(root).as_posix() for path in sorted(files)],
+                sorted(names),
+            )
+
+    def test_packaging_path_sorts_pass_an_explicit_key(self) -> None:
+        """Every path listing must state its order explicitly.
+
+        A bare sorted() over rglob/iterdir/glob silently follows pathlib's
+        comparison, which is exactly the platform-dependent order the manifest
+        contract cannot use.
+        """
+        offenders: list[str] = []
+        for path in sorted((ROOT / "packaging").rglob("*.py")):
+            tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+            for node in ast.walk(tree):
+                if not (
+                    isinstance(node, ast.Call)
+                    and isinstance(node.func, ast.Name)
+                    and node.func.id == "sorted"
+                ):
+                    continue
+                dumped = ast.dump(node)
+                if any(token in dumped for token in ("rglob", "iterdir", "glob")):
+                    if not any(keyword.arg == "key" for keyword in node.keywords):
+                        offenders.append(f"{path.relative_to(ROOT)}:{node.lineno}")
+        self.assertEqual(offenders, [])
 
 
 if __name__ == "__main__":
