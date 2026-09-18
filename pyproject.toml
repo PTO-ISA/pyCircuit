@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "pycircuit-hisi"
-version = "6.0.0"
+version = "6.1.0"
 description = "A Python-based hardware description framework that compiles Python to RTL through MLIR"
 readme = "README.md"
 license = { file = "LICENSE" }
@@ -17,6 +17,9 @@ classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
     "License :: OSI Approved :: BSD License",
+    "Operating System :: MacOS",
+    "Operating System :: Microsoft :: Windows",
+    "Operating System :: POSIX :: Linux",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3 :: Only",
     "Programming Language :: Python :: 3.10",
@@ -30,7 +33,7 @@ classifiers = [
 dependencies = [
     "click>=8.0.0",
     "pyyaml>=6.0",
-    "pycircuit-semantic-core==6.0.0",
+    "pycircuit-semantic-core==6.1.0",
 ]
 
 [project.urls]

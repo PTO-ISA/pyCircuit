@@ -71,6 +71,9 @@ def _expected_assets(
         "pycircuit-hisi-macos-arm64": re.compile(
             rf"^pycircuit_hisi-{re.escape(product)}-py3-none-macosx_[0-9]+_[0-9]+_arm64\.whl$"
         ),
+        "pycircuit-hisi-windows-x86_64": re.compile(
+            rf"^pycircuit_hisi-{re.escape(product)}-py3-none-win_amd64\.whl$"
+        ),
         "pycircuit-semantic-core": re.compile(
             rf"^pycircuit_semantic_core-{re.escape(product)}-py3-none-any\.whl$"
         ),

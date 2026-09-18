@@ -17,7 +17,7 @@ demands it.
 - **Release closure** is the only automatic full matrix. It builds one
   integrated toolchain, reuses that build for AC G0/G1/G2, executes each
   repository, example, simulation, and semantic gate once, validates packages
-  on Linux and macOS, and blocks publication on failure.
+  on Linux, macOS, and Windows, and blocks publication on failure.
 - **Nightly/manual diagnostics** run the heavy simulation tier to find costly
   failures earlier without replaying the normal simulation or fixture lanes.
   They are diagnostic signals, not PR merge or release authority.
@@ -98,7 +98,7 @@ Every release runs all of the following once before package jobs may start:
   simulation partition, and dedicated V6 semantic regressions;
 - strict decision status, API hygiene, unit tests, pre-commit, repository
   policy, and documentation checks; and
-- Linux and macOS archive/wheel builds plus installed-wheel smoke tests.
+- Linux, macOS, and Windows archive/wheel builds plus installed-wheel smoke tests.
 
 ## Agentic Circuit gates
 

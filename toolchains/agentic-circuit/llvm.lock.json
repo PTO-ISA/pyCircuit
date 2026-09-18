@@ -8,7 +8,8 @@
     "local_prefix": "/opt/homebrew/opt/llvm",
     "supported_host_triples": [
       "arm64-apple-darwin",
-      "x86_64-linux-gnu"
+      "x86_64-linux-gnu",
+      "x86_64-pc-windows-msvc"
     ],
     "package_version_policy": "exact"
   }

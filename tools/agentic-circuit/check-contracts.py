@@ -31,7 +31,11 @@ EXPECTED_LLVM = {
     ),
     "source_sha256": "922f1817a0df7b1489272d18134ee0087a8b068828f87ac63b9861b1a9965888",
     "local_prefix": "/opt/homebrew/opt/llvm",
-    "supported_host_triples": ["arm64-apple-darwin", "x86_64-linux-gnu"],
+    "supported_host_triples": [
+        "arm64-apple-darwin",
+        "x86_64-linux-gnu",
+        "x86_64-pc-windows-msvc",
+    ],
     "package_version_policy": "exact",
 }
 

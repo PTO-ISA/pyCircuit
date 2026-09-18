@@ -17,6 +17,9 @@ import tomllib
 ROOT = Path(__file__).resolve().parents[4]
 VERSION_MAP = ROOT / "packaging/sdk/version-map.json"
 CONTRACT = ROOT / "docs/development/sdk-release-contract.md"
+VERSION_MAP_DOCUMENT = json.loads(VERSION_MAP.read_text(encoding="utf-8"))
+PRODUCT_VERSION = VERSION_MAP_DOCUMENT["product_version"]
+CANDIDATE_TAG = VERSION_MAP_DOCUMENT["candidate_tag"]
 SCHEMAS = {
     "pycircuit-sdk-version-map": "sdk-version-map.schema.json",
     "pycircuit-sdk-platform-manifest": "sdk-manifest.schema.json",
@@ -90,7 +93,7 @@ class SdkReleaseContractTest(unittest.TestCase):
         version_map = json.loads(VERSION_MAP.read_text())
         self.assertEqual("pycircuit-sdk-version-map", version_map["schema"])
         self.assertEqual("1", version_map["version"])
-        self.assertEqual("v6.0.0", version_map["candidate_tag"])
+        self.assertEqual("v6.1.0", version_map["candidate_tag"])
         self.assertEqual("exact_identity_tuple", version_map["compatibility"])
         self.assertEqual(
             {
@@ -105,7 +108,7 @@ class SdkReleaseContractTest(unittest.TestCase):
             version_map["distributions"],
         )
         self.assertEqual(
-            ["linux-x86_64", "macos-arm64"],
+            ["linux-x86_64", "macos-arm64", "windows-x86_64"],
             [platform["id"] for platform in version_map["platforms"]],
         )
         self.assertTrue(
@@ -246,24 +249,43 @@ class SdkReleaseContractTest(unittest.TestCase):
             candidates = root / "candidates"
             candidates.mkdir()
             source = "a" * 40
-            version = "6.0.0"
+            version = PRODUCT_VERSION
             artifacts = (
                 f"pycircuit_hisi-{version}-py3-none-linux_x86_64.whl",
                 f"pycircuit_hisi-{version}-py3-none-macosx_15_0_arm64.whl",
+                f"pycircuit_hisi-{version}-py3-none-win_amd64.whl",
                 f"pycircuit_semantic_core-{version}-py3-none-any.whl",
                 "agentic_circuit-0.1.0-py3-none-any.whl",
                 f"pycircuit-sdk-{version}-linux-x86_64.tar.gz",
                 f"pycircuit-sdk-{version}-macos-arm64.tar.gz",
+                f"pycircuit-sdk-{version}-windows-x86_64.tar.gz",
                 f"pycircuit-sdk-{version}-linux-x86_64.manifest.json",
                 f"pycircuit-sdk-{version}-macos-arm64.manifest.json",
+                f"pycircuit-sdk-{version}-windows-x86_64.manifest.json",
                 "LICENSES.tar.gz",
                 "RELEASE_NOTES.md",
             )
             for index, name in enumerate(reversed(artifacts)):
                 path = candidates / name
                 if name.endswith(".manifest.json"):
-                    platform = "linux-x86_64" if "linux" in name else "macos-arm64"
-                    path.write_text(json.dumps({"source_revision": source, "platform": {"id": platform}}))
+                    path.write_text(
+                        json.dumps(
+                            {
+                                "source_revision": source,
+                                "platform": {
+                                    "id": next(
+                                        platform_id
+                                        for platform_id in (
+                                            "linux-x86_64",
+                                            "macos-arm64",
+                                            "windows-x86_64",
+                                        )
+                                        if platform_id in name
+                                    )
+                                },
+                            }
+                        )
+                    )
                 else:
                     path.write_bytes(f"artifact-{index}".encode())
 
@@ -296,6 +318,7 @@ class SdkReleaseContractTest(unittest.TestCase):
                     "agentic-circuit",
                     "pycircuit-hisi-linux-x86_64",
                     "pycircuit-hisi-macos-arm64",
+                    "pycircuit-hisi-windows-x86_64",
                     "pycircuit-semantic-core",
                 ],
                 list(index["wheels"]),
@@ -311,7 +334,7 @@ class SdkReleaseContractTest(unittest.TestCase):
                 all("size" not in wheel for wheel in lock["wheels"].values())
             )
             self.assertNotIn("size", lock["release_index"])
-            for platform in ("linux-x86_64", "macos-arm64"):
+            for platform in ("linux-x86_64", "macos-arm64", "windows-x86_64"):
                 checked_lock = subprocess.run(
                     [
                         sys.executable,
@@ -413,8 +436,8 @@ class SdkReleaseContractTest(unittest.TestCase):
             cached.parent.mkdir(parents=True)
             cached.write_bytes(str(ROOT).encode())
             wheels = (
-                root / "pycircuit_hisi-6.0.0-py3-none-linux_x86_64.whl",
-                root / "pycircuit_semantic_core-6.0.0-py3-none-any.whl",
+                root / f"pycircuit_hisi-{PRODUCT_VERSION}-py3-none-linux_x86_64.whl",
+                root / f"pycircuit_semantic_core-{PRODUCT_VERSION}-py3-none-any.whl",
                 root / "agentic_circuit-0.1.0-py3-none-any.whl",
             )
             for wheel in wheels:
@@ -436,7 +459,7 @@ class SdkReleaseContractTest(unittest.TestCase):
                 command.extend(("--wheel", wheel))
             generated = subprocess.run(command, cwd=ROOT, text=True, capture_output=True)
             self.assertEqual(0, generated.returncode, generated.stdout + generated.stderr)
-            manifest = out / "pycircuit-sdk-6.0.0-linux-x86_64.manifest.json"
+            manifest = out / f"pycircuit-sdk-{PRODUCT_VERSION}-linux-x86_64.manifest.json"
             manifest_value = json.loads(manifest.read_text())
             actual_compiler = subprocess.run(
                 ["c++", "--version"], text=True, capture_output=True, check=True
@@ -449,7 +472,7 @@ class SdkReleaseContractTest(unittest.TestCase):
                 capture_output=True,
             )
             self.assertEqual(0, checked.returncode, checked.stdout + checked.stderr)
-            archive = out / "pycircuit-sdk-6.0.0-linux-x86_64.tar.gz"
+            archive = out / f"pycircuit-sdk-{PRODUCT_VERSION}-linux-x86_64.tar.gz"
             attestation = out / "platform-attestation.json"
             verified = subprocess.run(
                 [
@@ -462,9 +485,9 @@ class SdkReleaseContractTest(unittest.TestCase):
                     "--attestation",
                     attestation,
                     "--candidate-tag",
-                    "v6.0.0",
+                    CANDIDATE_TAG,
                     "--release-url",
-                    "https://github.com/PTO-ISA/pyCircuit/releases/tag/v6.0.0",
+                    f"https://github.com/PTO-ISA/pyCircuit/releases/tag/{CANDIDATE_TAG}",
                     "--skip-install",
                 ],
                 cwd=ROOT,
@@ -473,7 +496,7 @@ class SdkReleaseContractTest(unittest.TestCase):
             )
             self.assertEqual(0, verified.returncode, verified.stdout + verified.stderr)
             attested = json.loads(attestation.read_text())
-            self.assertEqual("v6.0.0", attested["candidate_tag"])
+            self.assertEqual(CANDIDATE_TAG, attested["candidate_tag"])
             self.assertFalse(attested["verified"])
             self.assertFalse(attested["relocated_model_consumer"])
             self.assertFalse(attested["incremental_determinism"])

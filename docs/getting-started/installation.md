@@ -6,7 +6,7 @@ Choose the smallest installation profile that matches the work you need to do.
 
 | Component | Frontend only | Full toolchain |
 | --- | --- | --- |
-| Operating system | Linux or macOS | Linux or macOS |
+| Operating system | Linux, macOS, or Windows | Linux, macOS, or Windows |
 | Python | 3.10+ | 3.11+ recommended |
 | CMake and Ninja | Not required | Required |
 | LLVM/MLIR 22.1.8 | Not required | Required |
@@ -18,6 +18,24 @@ On macOS, install the native dependencies with Homebrew:
 brew install cmake ninja python@3 llvm@22 verilator
 export PATH="$(brew --prefix llvm@22)/bin:$PATH"
 ```
+
+On Windows, use the Visual Studio 2022 C++ toolchain together with the official
+LLVM 22.1.8 Windows release archive. Verilator is not generally available on
+Windows, so Verilog simulation belongs to the Linux or macOS hosts:
+
+```powershell
+winget install --id Kitware.CMake
+winget install --id Ninja-build.Ninja
+winget install --id Python.Python.3.11
+# Install Visual Studio 2022 with the "Desktop development with C++" workload,
+# then extract clang+llvm-22.1.8-x86_64-pc-windows-msvc.tar.xz and run the build
+# from a Developer Command Prompt so cl.exe is on PATH.
+pwsh -NoProfile -File flows/scripts/pyc.ps1 build --llvm-config "$env:LLVM_ROOT\bin\llvm-config.exe" --build-dir "$PWD\.pycircuit_out\toolchain\build" --install-prefix "$PWD\.pycircuit_out\toolchain\install"
+```
+
+Windows consumption is limited to the `windows-x86_64` SDK profile; the exact
+supported tuple is recorded in
+[the SDK release contract](../development/sdk-release-contract.md).
 
 On Ubuntu or Debian, install CMake, Ninja, Python, a C++ compiler, and the LLVM
 22 development packages from the
@@ -106,7 +124,7 @@ Download the wheel for your platform from
 install the local file:
 
 ```bash
-python3 -m pip install /path/to/pycircuit_hisi-6.0.0-*.whl
+python3 -m pip install /path/to/pycircuit_hisi-6.1.0-*.whl
 pycc --version
 python3 -m pycircuit.cli --help
 ```

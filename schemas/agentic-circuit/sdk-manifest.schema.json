@@ -89,7 +89,10 @@
           "contains": {
             "properties": {
               "path": {
-                "const": "bin/agentic-circuit"
+                "enum": [
+                  "bin/agentic-circuit",
+                  "bin/agentic-circuit.exe"
+                ]
               }
             },
             "required": [
@@ -102,7 +105,10 @@
           "contains": {
             "properties": {
               "path": {
-                "const": "bin/acir-opt"
+                "enum": [
+                  "bin/acir-opt",
+                  "bin/acir-opt.exe"
+                ]
               }
             },
             "required": [
@@ -115,7 +121,10 @@
           "contains": {
             "properties": {
               "path": {
-                "const": "bin/acir-queue-plan"
+                "enum": [
+                  "bin/acir-queue-plan",
+                  "bin/acir-queue-plan.exe"
+                ]
               }
             },
             "required": [
@@ -128,7 +137,10 @@
           "contains": {
             "properties": {
               "path": {
-                "const": "bin/acir-queue-cxxgen"
+                "enum": [
+                  "bin/acir-queue-cxxgen",
+                  "bin/acir-queue-cxxgen.exe"
+                ]
               }
             },
             "required": [
@@ -360,6 +372,59 @@
             },
             "runner": {
               "const": "macos-15"
+            }
+          },
+          "required": [
+            "cxx_compiler",
+            "cxx_standard",
+            "python",
+            "id",
+            "os",
+            "architecture",
+            "runner",
+            "host_triple",
+            "minimum_os",
+            "minimum_libc",
+            "cxx_abi"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "architecture": {
+              "const": "x86_64"
+            },
+            "cxx_abi": {
+              "const": "MSVC v143"
+            },
+            "cxx_compiler": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "cxx_standard": {
+              "const": "20"
+            },
+            "host_triple": {
+              "const": "x86_64-pc-windows-msvc"
+            },
+            "id": {
+              "const": "windows-x86_64"
+            },
+            "minimum_libc": {
+              "type": "null"
+            },
+            "minimum_os": {
+              "const": "Windows Server 2022"
+            },
+            "os": {
+              "const": "windows"
+            },
+            "python": {
+              "const": "3.11"
+            },
+            "runner": {
+              "const": "windows-2022"
             }
           },
           "required": [

@@ -4,7 +4,7 @@ This document defines the first installable pyCircuit SDK contract for generic
 external model consumers. It is the source of truth for issue #61.
 
 The contract is accepted before implementation so each implementation PR has a
-fixed boundary. A `v6.0.0` release remains blocked until every required command,
+fixed boundary. A `v6.1.0` release remains blocked until every required command,
 artifact, ABI, relocation check, and post-publish check in this document passes.
 
 ## Identity and compatibility
@@ -14,10 +14,10 @@ The candidate release tuple is stored in
 
 | Identity | Required value |
 | --- | --- |
-| Product and SDK | `6.0.0` |
-| Candidate tag | `v6.0.0` |
-| `pycircuit-hisi` | `6.0.0` |
-| `pycircuit-semantic-core` | `6.0.0` |
+| Product and SDK | `6.1.0` |
+| Candidate tag | `v6.1.0` |
+| `pycircuit-hisi` | `6.1.0` |
+| `pycircuit-semantic-core` | `6.1.0` |
 | `agentic-circuit` | `0.1.0` |
 | ACPy and ACIR contract epoch | `0.5` |
 | SDK manifest schema | `1` |
@@ -47,11 +47,13 @@ The first release supports exactly these build and consumption profiles:
 | --- | --- | --- | --- | --- |
 | `linux-x86_64` | `ubuntu-24.04`, x86_64 | Ubuntu 24.04, glibc 2.39 | 3.11 | C++20, libstdc++ CXX11 ABI |
 | `macos-arm64` | `macos-15`, arm64 | macOS 15 | 3.11 | C++20, Apple libc++ |
+| `windows-x86_64` | `windows-2022`, x86_64 | Windows Server 2022 | 3.11 | C++20, MSVC v143 |
 
 The release job MUST fail when the runner OS or architecture differs from its
 profile. The manifest records the actual compiler identity. A package built on
 one profile does not claim support for another Linux distribution, older libc,
-macOS x86_64, Windows, or another Python minor.
+macOS x86_64, Windows on another architecture or an older Windows release, or
+another Python minor.
 
 RTTI and exceptions are build properties of each exported target. The SDK MUST
 record them and MUST compile the external consumer with compatible settings.
@@ -63,16 +65,16 @@ other native dependency is bundled and resolved relative to the installed SDK.
 Each platform publishes one archive named:
 
 ```text
-pycircuit-sdk-6.0.0-<platform-id>.tar.gz
+pycircuit-sdk-6.1.0-<platform-id>.tar.gz
 ```
 
 Each archive embeds one platform manifest at
 `share/pycircuit/sdk-manifest.json`. The same bytes are attached with the unique
-name `pycircuit-sdk-6.0.0-<platform-id>.manifest.json`. A separate
-`pycircuit-sdk-6.0.0-release-index.json` names both archives, both platform
-manifests, the exact four-wheel set, license material, and release notes. The
-set contains one `pycircuit-hisi` wheel for each supported platform plus the
-universal `pycircuit-semantic-core` and `agentic-circuit` wheels.
+name `pycircuit-sdk-6.1.0-<platform-id>.manifest.json`. A separate
+`pycircuit-sdk-6.1.0-release-index.json` names every platform archive, every
+platform manifest, the exact platform wheel set, license material, and release
+notes. The set contains one `pycircuit-hisi` wheel for each supported platform
+plus the universal `pycircuit-semantic-core` and `agentic-circuit` wheels.
 
 `SHA256SUMS` covers every attached file including the release index, but does
 not contain a checksum for itself. A platform manifest lists and hashes the
@@ -377,12 +379,12 @@ consumer MUST reject a missing symbol or ABI mismatch before creating a model.
 The public schemas are:
 
 - `sdk-version-map.schema.json`: candidate product/distribution mapping,
-  contract versions, and the two exact platform profiles;
+  contract versions, and the exact platform profiles;
 - `sdk-manifest.schema.json`: one installed platform, source, ABI,
   capabilities, dependencies, and installed file inventory without an
   enclosing-archive or self hash;
-- `release-index.schema.json`: both archive/manifests, exact four-wheel map,
-  supporting artifacts, hashes, sizes, and final URLs;
+- `release-index.schema.json`: every archive/manifest, the exact platform
+  wheel map, supporting artifacts, hashes, sizes, and final URLs;
 - `model-plan.schema.json`: verified source closure, config, IR identities,
   deterministic output plan, and required runtime;
 - `model-manifest.schema.json`: plan identity, generated closed file set,

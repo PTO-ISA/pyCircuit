@@ -53,7 +53,7 @@
     "generator_abi": "1",
     "model_plan_abi": "1",
     "platform_manifest_sha256": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-    "product_version": "6.0.0",
+    "product_version": "6.1.0",
     "runtime_abi": "1",
     "source_revision": "e4485192727e27ac4d1de62bfdb6438fd878cdff"
   },

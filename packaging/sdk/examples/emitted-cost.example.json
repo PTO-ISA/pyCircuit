@@ -7,7 +7,7 @@
     "sizeof_payload_types": "not_modeled"
   },
   "identity": {
-    "product_version": "6.0.0",
+    "product_version": "6.1.0",
     "queuegraph_sha256": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
     "source_map_sha256": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
     "specialization": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",

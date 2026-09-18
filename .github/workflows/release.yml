@@ -18,6 +18,11 @@ permissions:
 env:
   LLVM_VERSION: "22"
   LLVM_INSTALL_SCRIPT_SHA256: "03878e08f47b66cc95bc4b544b0db3c6d9ce8d60e6cf2492ae357984330a9eae"
+  # Exact LLVM release pinned by toolchains/agentic-circuit/llvm.lock.json. The
+  # Windows lane has no apt.llvm.org equivalent and must consume the official
+  # LLVM GitHub release asset for this exact version.
+  LLVM_PACKAGE_VERSION: "22.1.8"
+  LLVM_WINDOWS_ARCHIVE_SHA256: "d96c2cc1736f4eb7fa43cb9bbdf56d93551a9ae0a9aadb9c99c3c3b2b712a234"
   VERILATOR_VERSION: "5.048"
   PYC_GATE_RUN_ID: release-${{ github.run_id }}-${{ github.run_attempt }}
 
@@ -108,8 +113,13 @@ jobs:
         include:
           - os: ubuntu-24.04
             platform: linux-x86_64
+            runner_os: Linux
           - os: macos-15
             platform: macos-arm64
+            runner_os: macOS
+          - os: windows-2022
+            platform: windows-x86_64
+            runner_os: Windows
     runs-on: ${{ matrix.os }}
     steps:
       - name: Checkout exact candidate SHA
@@ -120,12 +130,23 @@ jobs:
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
         with:
           python-version: "3.11"
+      - name: Enforce runner OS and architecture match the platform profile
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $expectedOs = "${{ matrix.runner_os }}"
+          if ($env:RUNNER_OS -ne $expectedOs) {
+            throw "platform ${{ matrix.platform }} requires a $expectedOs runner, observed $env:RUNNER_OS"
+          }
+          Write-Host "runner profile verified: $env:RUNNER_OS $env:RUNNER_ARCH"
       - name: Download retained universal wheels
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           name: release-shard-universal
           path: universal
       - name: Install platform dependencies
+        # Unix-only lane: the Windows dependency step below owns windows-2022.
+        if: matrix.runner_os != 'Windows'
         run: |
           set -euxo pipefail
           if [[ "${RUNNER_OS}" == "Linux" ]]; then
@@ -142,7 +163,43 @@ jobs:
             echo "$(brew --prefix "llvm@${LLVM_VERSION}")/bin" >> "$GITHUB_PATH"
           fi
           python3 -m pip install setuptools wheel twine
+      - name: Configure MSVC developer environment
+        if: matrix.runner_os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@0b201ec74fa43914dc39ae48a89fd1d8cb592756 # v1.13.0
+        with:
+          arch: x64
+          toolset: "14.4"
+      - name: Install platform dependencies (Windows)
+        # Windows has no apt.llvm.org script: use the official LLVM GitHub
+        # release archive for the version pinned in
+        # toolchains/agentic-circuit/llvm.lock.json.
+        if: matrix.runner_os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $version = $env:LLVM_PACKAGE_VERSION
+          $archive = "clang+llvm-$version-x86_64-pc-windows-msvc.tar.xz"
+          $url = "https://github.com/llvm/llvm-project/releases/download/llvmorg-$version/$archive"
+          New-Item -ItemType Directory -Force -Path "$env:RUNNER_TEMP\llvm" | Out-Null
+          $download = Join-Path "$env:RUNNER_TEMP\llvm" $archive
+          Invoke-WebRequest -Uri $url -OutFile $download
+          $actual = (Get-FileHash -Algorithm SHA256 -Path $download).Hash.ToLowerInvariant()
+          if ($actual -ne $env:LLVM_WINDOWS_ARCHIVE_SHA256) {
+            throw "LLVM $version Windows archive SHA256 mismatch: $actual"
+          }
+          tar -xf $download -C "$env:RUNNER_TEMP\llvm"
+          $llvmRoot = "$env:RUNNER_TEMP\llvm\clang+llvm-$version-x86_64-pc-windows-msvc"
+          if (-not (Test-Path "$llvmRoot\lib\cmake\llvm") -or -not (Test-Path "$llvmRoot\lib\cmake\mlir")) {
+            throw "LLVM $version Windows archive layout is unexpected: $llvmRoot"
+          }
+          "LLVM_ROOT=$llvmRoot" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "LLVM_DIR=$llvmRoot\lib\cmake\llvm" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "MLIR_DIR=$llvmRoot\lib\cmake\mlir" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "$llvmRoot\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          python3 -m pip install --upgrade cmake ninja setuptools wheel twine
       - name: Build retained platform bytes
+        # Unix-only lane: the Windows build step below owns windows-2022.
+        if: matrix.runner_os != 'Windows'
         run: |
           set -euxo pipefail
           if [[ "${RUNNER_OS}" == "Linux" ]]; then
@@ -175,6 +232,39 @@ jobs:
             --cxx-compiler "${CXX}" \
             --out-dir candidate
           python3 -m twine check candidate/*.whl
+      - name: Build retained platform bytes (Windows)
+        if: matrix.runner_os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          # MSVC records the producer workspace in debug info and __FILE__
+          # strings; /pathmap keeps those producer absolute paths out of the
+          # retained bytes. cl.exe has no -ffile-prefix-map equivalent.
+          $llvmConfig = "$env:LLVM_ROOT\bin\llvm-config.exe"
+          $env:CC = "cl.exe"
+          $env:CXX = "cl.exe"
+          $hostTriple = "$(& cl.exe 2>&1)"
+          if (-not ($hostTriple -match "x86_64-pc-windows-msvc")) {
+            throw "windows-x86_64 requires the x86_64-pc-windows-msvc host toolchain"
+          }
+          $env:CFLAGS = "/pathmap:$env:GITHUB_WORKSPACE=."
+          $env:CXXFLAGS = $env:CFLAGS
+          $env:PYC_PYTHON_EXECUTABLE = (Get-Command python3).Source
+          pwsh -NoProfile -File flows/scripts/pyc.ps1 build --llvm-config "$llvmConfig" --build-dir "$PWD/.pycircuit_out/toolchain/build" --install-prefix "$PWD/.pycircuit_out/toolchain/install"
+          New-Item -ItemType Directory -Force -Path candidate | Out-Null
+          python3 packaging/wheel/create_wheel.py --install-dir "$PWD/.pycircuit_out/toolchain/install" --out-dir candidate --wheel-version "${{ inputs.version }}"
+          $wheel = (Get-ChildItem candidate -Filter "pycircuit_hisi-*.whl" | Select-Object -First 1).FullName
+          $semanticWheel = (Get-ChildItem universal -Filter "pycircuit_semantic_core-*.whl" | Select-Object -First 1).FullName
+          $agenticWheel = (Get-ChildItem universal -Filter "agentic_circuit-*.whl" | Select-Object -First 1).FullName
+          if (-not $wheel -or -not $semanticWheel -or -not $agenticWheel) {
+            throw "the platform wheel or a universal wheel is missing from the retained shards"
+          }
+          python3 packaging/sdk/create_platform_manifest.py --install-dir "$PWD/.pycircuit_out/toolchain/install" --wheel "$wheel" --wheel "$semanticWheel" --wheel "$agenticWheel" --platform "${{ matrix.platform }}" --source-revision "${{ inputs.commit_sha }}" --cxx-compiler "$env:CXX" --out-dir candidate
+          $wheels = @(Get-ChildItem candidate -Filter "*.whl")
+          if ($wheels.Count -eq 0) {
+            throw "no candidate wheels were produced"
+          }
+          python3 -m twine check @($wheels | ForEach-Object { $_.FullName })
       - name: Upload retained platform bytes
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
@@ -247,8 +337,10 @@ jobs:
             --document candidate/pycircuit-sdk-${{ inputs.version }}-release-index.json \
             --document candidate/pycircuit-sdk-${{ inputs.version }}-linux-x86_64.manifest.json \
             --document candidate/pycircuit-sdk-${{ inputs.version }}-macos-arm64.manifest.json \
+            --document candidate/pycircuit-sdk-${{ inputs.version }}-windows-x86_64.manifest.json \
             --document candidate/pycircuit-sdk-${{ inputs.version }}-linux-x86_64.lock.json \
-            --document candidate/pycircuit-sdk-${{ inputs.version }}-macos-arm64.lock.json
+            --document candidate/pycircuit-sdk-${{ inputs.version }}-macos-arm64.lock.json \
+            --document candidate/pycircuit-sdk-${{ inputs.version }}-windows-x86_64.lock.json
       - name: Upload immutable candidate
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
@@ -266,8 +358,13 @@ jobs:
         include:
           - os: ubuntu-24.04
             platform: linux-x86_64
+            runner_os: Linux
           - os: macos-15
             platform: macos-arm64
+            runner_os: macOS
+          - os: windows-2022
+            platform: windows-x86_64
+            runner_os: Windows
     runs-on: ${{ matrix.os }}
     steps:
       - name: Checkout exact candidate SHA
@@ -278,12 +375,31 @@ jobs:
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
         with:
           python-version: "3.11"
+      - name: Enforce runner OS and architecture match the platform profile
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $expectedOs = "${{ matrix.runner_os }}"
+          if ($env:RUNNER_OS -ne $expectedOs) {
+            throw "platform ${{ matrix.platform }} requires a $expectedOs runner, observed $env:RUNNER_OS"
+          }
+          Write-Host "runner profile verified: $env:RUNNER_OS $env:RUNNER_ARCH"
+      - name: Configure MSVC developer environment
+        # verify_platform_candidate.py needs dumpbin to check the Windows PE
+        # closure; vcvars64 must be loaded before that step.
+        if: matrix.runner_os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@0b201ec74fa43914dc39ae48a89fd1d8cb592756 # v1.13.0
+        with:
+          arch: x64
+          toolset: "14.4"
       - name: Download immutable candidate
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           name: release-candidate-${{ inputs.commit_sha }}
           path: candidate
       - name: Verify candidate relocation, manifest, wheels, and installed smoke
+        # Unix-only lane: the Windows verification step below owns windows-2022.
+        if: matrix.runner_os != 'Windows'
         run: |
           python3 -m pip install jsonschema
           python3 tools/agentic-circuit/check-sdk-contract.py --document "candidate/pycircuit-sdk-${{ inputs.version }}-${{ matrix.platform }}.manifest.json"
@@ -292,6 +408,14 @@ jobs:
             --manifest "candidate/pycircuit-sdk-${{ inputs.version }}-${{ matrix.platform }}.manifest.json" \
             --forbidden-path "$GITHUB_WORKSPACE" \
             --attestation "candidate-verification-${{ matrix.platform }}.json"
+      - name: Verify candidate relocation, manifest, wheels, and installed smoke (Windows)
+        if: matrix.runner_os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          python3 -m pip install jsonschema
+          python3 tools/agentic-circuit/check-sdk-contract.py --document "candidate/pycircuit-sdk-${{ inputs.version }}-${{ matrix.platform }}.manifest.json"
+          python3 packaging/sdk/verify_platform_candidate.py --archive "candidate/pycircuit-sdk-${{ inputs.version }}-${{ matrix.platform }}.tar.gz" --manifest "candidate/pycircuit-sdk-${{ inputs.version }}-${{ matrix.platform }}.manifest.json" --forbidden-path "$env:GITHUB_WORKSPACE" --attestation "candidate-verification-${{ matrix.platform }}.json"
       - name: Retain platform candidate verification
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
@@ -401,7 +525,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           echo "${GH_TOKEN}" | oras login ghcr.io -u "${{ github.actor }}" --password-stdin
-          for platform in linux-x86_64 macos-arm64; do
+          for platform in linux-x86_64 macos-arm64 windows-x86_64; do
             archive="candidate/pycircuit-sdk-${{ inputs.version }}-${platform}.tar.gz"
             oras push "ghcr.io/pto-isa/pyc-tools-${platform}:v${{ inputs.version }}" "${archive}:application/gzip"
           done
@@ -415,8 +539,13 @@ jobs:
         include:
           - os: ubuntu-24.04
             platform: linux-x86_64
+            runner_os: Linux
           - os: macos-15
             platform: macos-arm64
+            runner_os: macOS
+          - os: windows-2022
+            platform: windows-x86_64
+            runner_os: Windows
     runs-on: ${{ matrix.os }}
     steps:
       - name: Checkout exact candidate SHA
@@ -427,7 +556,26 @@ jobs:
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
         with:
           python-version: "3.11"
+      - name: Enforce runner OS and architecture match the platform profile
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $expectedOs = "${{ matrix.runner_os }}"
+          if ($env:RUNNER_OS -ne $expectedOs) {
+            throw "platform ${{ matrix.platform }} requires a $expectedOs runner, observed $env:RUNNER_OS"
+          }
+          Write-Host "runner profile verified: $env:RUNNER_OS $env:RUNNER_ARCH"
+      - name: Configure MSVC developer environment
+        # The Windows lane needs dumpbin and nm from the MSVC dev environment.
+        if: matrix.runner_os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@0b201ec74fa43914dc39ae48a89fd1d8cb592756 # v1.13.0
+        with:
+          arch: x64
+          toolset: "14.4"
       - name: Redownload stable assets and verify exact bytes before execution
+        # flows/scripts and this step are POSIX shell; Git Bash ships with the
+        # windows-2022 image, so the same script runs on all three lanes.
+        shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -544,8 +692,9 @@ jobs:
           if {item["platform"] for item in platforms} != {
               "linux-x86_64",
               "macos-arm64",
+              "windows-x86_64",
           }:
-              raise SystemExit("both stable platform attestations are required")
+              raise SystemExit("every stable platform attestation is required")
           for item in platforms:
               if (
                   item.get("schema") != "pycircuit-platform-verification"

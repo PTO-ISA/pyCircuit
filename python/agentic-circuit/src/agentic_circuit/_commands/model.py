@@ -65,11 +65,11 @@ _MODULE_SUPPORT_HEADERS = frozenset(
         "include/generated/modules/queuegraph_types.h",
     }
 )
-_PRODUCT_VERSION = "6.0.0"
+_PRODUCT_VERSION = "6.1.0"
 _DISTRIBUTIONS = {
     "agentic-circuit": "0.1.0",
-    "pycircuit-hisi": "6.0.0",
-    "pycircuit-semantic-core": "6.0.0",
+    "pycircuit-hisi": "6.1.0",
+    "pycircuit-semantic-core": "6.1.0",
 }
 _ABI = {
     "acpy_epoch": CONTRACT_EPOCH,
@@ -206,6 +206,8 @@ def _host_platform_id() -> str:
         return "macos-arm64"
     if system == "linux" and machine in {"x86_64", "amd64"}:
         return "linux-x86_64"
+    if system == "windows" and machine in {"x86_64", "amd64"}:
+        return "windows-x86_64"
     _fail(
         "ACSDK-PLAN-PLATFORM-001", f"unsupported SDK host platform: {system}-{machine}"
     )
@@ -227,8 +229,9 @@ def _validate_platform(value: object) -> None:
     }
     if type(value) is not dict or set(value) != common:
         _fail("ACSDK-PLAN-MANIFEST-001", "SDK platform record is not closed")
+    platform_id = _host_platform_id()
     expected: dict[str, object]
-    if _host_platform_id() == "macos-arm64":
+    if platform_id == "macos-arm64":
         expected = {
             "cxx_standard": "20",
             "python": "3.11",
@@ -241,7 +244,7 @@ def _validate_platform(value: object) -> None:
             "minimum_libc": None,
             "cxx_abi": "Apple libc++",
         }
-    else:
+    elif platform_id == "linux-x86_64":
         expected = {
             "cxx_standard": "20",
             "python": "3.11",
@@ -253,6 +256,19 @@ def _validate_platform(value: object) -> None:
             "minimum_os": "Ubuntu 24.04",
             "minimum_libc": "glibc 2.39",
             "cxx_abi": "libstdc++ CXX11 ABI",
+        }
+    else:
+        expected = {
+            "cxx_standard": "20",
+            "python": "3.11",
+            "id": "windows-x86_64",
+            "os": "windows",
+            "architecture": "x86_64",
+            "runner": "windows-2022",
+            "host_triple": "x86_64-pc-windows-msvc",
+            "minimum_os": "Windows Server 2022",
+            "minimum_libc": None,
+            "cxx_abi": "MSVC v143",
         }
     compiler = value.get("cxx_compiler")
     if (

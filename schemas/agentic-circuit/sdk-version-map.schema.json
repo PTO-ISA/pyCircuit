@@ -72,6 +72,17 @@
           "minimum_os": "macOS 15",
           "python": "3.11",
           "runner": "macos-15"
+        },
+        {
+          "architecture": "x86_64",
+          "cxx_abi": "MSVC v143",
+          "cxx_standard": "20",
+          "host_triple": "x86_64-pc-windows-msvc",
+          "id": "windows-x86_64",
+          "minimum_libc": null,
+          "minimum_os": "Windows Server 2022",
+          "python": "3.11",
+          "runner": "windows-2022"
         }
       ]
     },

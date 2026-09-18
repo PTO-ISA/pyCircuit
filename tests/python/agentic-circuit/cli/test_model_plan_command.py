@@ -157,13 +157,13 @@ def install_sdk(prefix: Path) -> None:
         "schema": "pycircuit-sdk-platform-manifest",
         "version": "1",
         "contract_epoch": "0.5",
-        "product_version": "6.0.0",
+        "product_version": "6.1.0",
         "source_revision": FIXTURE_SOURCE_REVISION,
         "platform": platform_value,
         "distributions": {
             "agentic-circuit": "0.1.0",
-            "pycircuit-hisi": "6.0.0",
-            "pycircuit-semantic-core": "6.0.0",
+            "pycircuit-hisi": "6.1.0",
+            "pycircuit-semantic-core": "6.1.0",
         },
         "abi": {
             "acpy_epoch": "0.5",
