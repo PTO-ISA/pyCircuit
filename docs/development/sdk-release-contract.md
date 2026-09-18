@@ -331,6 +331,13 @@ version script plus `--exclude-libs,ALL` on Linux, or `-exported_symbol` on
 macOS. Static Gfsim implementation symbols do not enter the plugin's public
 dynamic symbol table.
 
+On Windows the bundle carries the export itself: it defines
+`AGENTIC_MODEL_BUILD` before including `gfsim/model_api.h`, so the header
+attaches `__declspec(dllexport)` to the entry point declaration and the
+definition matches it. A `dllexport` definition whose earlier declaration lacks
+the attribute is rejected by MSVC with C2375 "redefinition; different linkage".
+The same macro attaches the default-visibility attribute on GCC and Clang.
+
 One process holds an exclusive lock for an output root. Emission stages a closed
 file set, validates it, then atomically publishes it. A failure keeps the prior
 complete output. After success, files that were owned by the previous manifest

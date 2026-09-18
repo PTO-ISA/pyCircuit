@@ -6891,7 +6891,8 @@ AGENTIC_GENERATED_HIDDEN std::string statisticsJson(Runtime *runtime) {
 )cpp";
 
   std::ostringstream modelSource;
-  modelSource << R"cpp(#include "generated/model.h"
+  modelSource << R"cpp(#define AGENTIC_MODEL_BUILD 1
+#include "generated/model.h"
 
 #include <cstdint>
 #include <new>
@@ -7055,14 +7056,6 @@ const AgenticModelApiV1 api = {
     lastError};
 
 } // namespace
-
-#if defined(_WIN32)
-#define AGENTIC_MODEL_EXPORT __declspec(dllexport)
-#elif defined(__GNUC__) || defined(__clang__)
-#define AGENTIC_MODEL_EXPORT __attribute__((visibility("default")))
-#else
-#define AGENTIC_MODEL_EXPORT
-#endif
 
 extern "C" AGENTIC_MODEL_EXPORT const AgenticModelApiV1 *
 agentic_model_query_v1(void) {
