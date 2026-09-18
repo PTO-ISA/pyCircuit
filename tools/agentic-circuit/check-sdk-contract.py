@@ -131,16 +131,21 @@ def validate_exact(document: dict[str, Any], version_map: dict[str, Any]) -> Non
 
     wheels = document.get("wheels")
     if isinstance(wheels, dict):
-        expected_wheels = (
-            {
+        if identity == "pycircuit-sdk-release-index":
+            # One pycircuit-hisi wheel per version-map platform plus the two
+            # universal wheels. Deriving the identity set keeps a new platform
+            # profile from silently falling out of this closure check.
+            expected_wheels = {
                 "agentic-circuit": versions["agentic-circuit"],
-                "pycircuit-hisi-linux-x86_64": versions["pycircuit-hisi"],
-                "pycircuit-hisi-macos-arm64": versions["pycircuit-hisi"],
                 "pycircuit-semantic-core": versions["pycircuit-semantic-core"],
             }
-            if identity == "pycircuit-sdk-release-index"
-            else versions
-        )
+            for platform in version_map["platforms"]:
+                expected_wheels[f"pycircuit-hisi-{platform['id']}"] = versions[
+                    "pycircuit-hisi"
+                ]
+            expected_wheels = dict(sorted(expected_wheels.items()))
+        else:
+            expected_wheels = versions
         if identity == "pycircuit-sdk-release-index":
             require_equal(list(wheels), list(expected_wheels), f"{identity}.wheels keys")
         else:
@@ -173,15 +178,26 @@ def validate_exact(document: dict[str, Any], version_map: dict[str, Any]) -> Non
                 True,
                 f"{identity}.wheels.pycircuit-semantic-core universal tag",
             )
-            if not wheels["pycircuit-hisi-linux-x86_64"]["name"].endswith(
-                "-py3-none-linux_x86_64.whl"
-            ):
-                fail(f"{identity}: Linux pycircuit-hisi wheel has the wrong platform tag")
-            if re.search(
-                r"-py3-none-macosx_[0-9]+_[0-9]+_arm64\.whl$",
-                wheels["pycircuit-hisi-macos-arm64"]["name"],
-            ) is None:
-                fail(f"{identity}: macOS pycircuit-hisi wheel has the wrong platform tag")
+            platform_tags = {
+                "linux-x86_64": r"-py3-none-linux_x86_64\.whl$",
+                "macos-arm64": r"-py3-none-macosx_[0-9]+_[0-9]+_arm64\.whl$",
+                "windows-x86_64": r"-py3-none-win_amd64\.whl$",
+            }
+            for platform in version_map["platforms"]:
+                platform_id = platform["id"]
+                pattern = platform_tags.get(platform_id)
+                if pattern is None:
+                    continue
+                if (
+                    re.search(
+                        pattern, wheels[f"pycircuit-hisi-{platform_id}"]["name"]
+                    )
+                    is None
+                ):
+                    fail(
+                        f"{identity}: {platform_id} pycircuit-hisi wheel has "
+                        "the wrong platform tag"
+                    )
 
     if identity == "pycircuit-sdk-platform-manifest":
         require_unique_paths(document["files"], f"{identity}.files")
@@ -325,6 +341,17 @@ def validate_version_map(version_map: dict[str, Any]) -> None:
             "python": "3.11",
             "cxx_standard": "20",
             "cxx_abi": "Apple libc++",
+        },
+        {
+            "id": "windows-x86_64",
+            "runner": "windows-2022",
+            "architecture": "x86_64",
+            "host_triple": "x86_64-pc-windows-msvc",
+            "minimum_os": "Windows Server 2022",
+            "minimum_libc": None,
+            "python": "3.11",
+            "cxx_standard": "20",
+            "cxx_abi": "MSVC v143",
         },
     ]
     require_equal(version_map["platforms"], expected_platforms, "platforms")

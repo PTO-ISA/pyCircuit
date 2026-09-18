@@ -108,7 +108,7 @@ class SdkReleaseContractTest(unittest.TestCase):
             version_map["distributions"],
         )
         self.assertEqual(
-            ["linux-x86_64", "macos-arm64"],
+            ["linux-x86_64", "macos-arm64", "windows-x86_64"],
             [platform["id"] for platform in version_map["platforms"]],
         )
         self.assertTrue(
@@ -253,20 +253,39 @@ class SdkReleaseContractTest(unittest.TestCase):
             artifacts = (
                 f"pycircuit_hisi-{version}-py3-none-linux_x86_64.whl",
                 f"pycircuit_hisi-{version}-py3-none-macosx_15_0_arm64.whl",
+                f"pycircuit_hisi-{version}-py3-none-win_amd64.whl",
                 f"pycircuit_semantic_core-{version}-py3-none-any.whl",
                 "agentic_circuit-0.1.0-py3-none-any.whl",
                 f"pycircuit-sdk-{version}-linux-x86_64.tar.gz",
                 f"pycircuit-sdk-{version}-macos-arm64.tar.gz",
+                f"pycircuit-sdk-{version}-windows-x86_64.tar.gz",
                 f"pycircuit-sdk-{version}-linux-x86_64.manifest.json",
                 f"pycircuit-sdk-{version}-macos-arm64.manifest.json",
+                f"pycircuit-sdk-{version}-windows-x86_64.manifest.json",
                 "LICENSES.tar.gz",
                 "RELEASE_NOTES.md",
             )
             for index, name in enumerate(reversed(artifacts)):
                 path = candidates / name
                 if name.endswith(".manifest.json"):
-                    platform = "linux-x86_64" if "linux" in name else "macos-arm64"
-                    path.write_text(json.dumps({"source_revision": source, "platform": {"id": platform}}))
+                    path.write_text(
+                        json.dumps(
+                            {
+                                "source_revision": source,
+                                "platform": {
+                                    "id": next(
+                                        platform_id
+                                        for platform_id in (
+                                            "linux-x86_64",
+                                            "macos-arm64",
+                                            "windows-x86_64",
+                                        )
+                                        if platform_id in name
+                                    )
+                                },
+                            }
+                        )
+                    )
                 else:
                     path.write_bytes(f"artifact-{index}".encode())
 
@@ -299,6 +318,7 @@ class SdkReleaseContractTest(unittest.TestCase):
                     "agentic-circuit",
                     "pycircuit-hisi-linux-x86_64",
                     "pycircuit-hisi-macos-arm64",
+                    "pycircuit-hisi-windows-x86_64",
                     "pycircuit-semantic-core",
                 ],
                 list(index["wheels"]),
@@ -314,7 +334,7 @@ class SdkReleaseContractTest(unittest.TestCase):
                 all("size" not in wheel for wheel in lock["wheels"].values())
             )
             self.assertNotIn("size", lock["release_index"])
-            for platform in ("linux-x86_64", "macos-arm64"):
+            for platform in ("linux-x86_64", "macos-arm64", "windows-x86_64"):
                 checked_lock = subprocess.run(
                     [
                         sys.executable,

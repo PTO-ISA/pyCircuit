@@ -281,6 +281,116 @@
             "manifest"
           ],
           "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "archive": {
+              "allOf": [
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "name": {
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "sha256": {
+                      "pattern": "^sha256:[0-9a-f]{64}$",
+                      "type": "string"
+                    },
+                    "size": {
+                      "minimum": 1,
+                      "type": "integer"
+                    },
+                    "url": {
+                      "oneOf": [
+                        {
+                          "format": "uri",
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "name",
+                    "sha256",
+                    "size",
+                    "url"
+                  ],
+                  "type": "object"
+                },
+                {
+                  "properties": {
+                    "name": {
+                      "pattern": "^pycircuit-sdk-[0-9]+\\.[0-9]+\\.[0-9]+-windows\\-x86_64\\.tar\\.gz$",
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              ]
+            },
+            "id": {
+              "const": "windows-x86_64"
+            },
+            "manifest": {
+              "allOf": [
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "name": {
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "sha256": {
+                      "pattern": "^sha256:[0-9a-f]{64}$",
+                      "type": "string"
+                    },
+                    "size": {
+                      "minimum": 1,
+                      "type": "integer"
+                    },
+                    "url": {
+                      "oneOf": [
+                        {
+                          "format": "uri",
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "name",
+                    "sha256",
+                    "size",
+                    "url"
+                  ],
+                  "type": "object"
+                },
+                {
+                  "properties": {
+                    "name": {
+                      "pattern": "^pycircuit-sdk-[0-9]+\\.[0-9]+\\.[0-9]+-windows\\-x86_64\\.manifest\\.json$",
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              ]
+            }
+          },
+          "required": [
+            "id",
+            "archive",
+            "manifest"
+          ],
+          "type": "object"
         }
       ]
     },

@@ -10267,3 +10267,57 @@ root that includes those headers and owns the instances.
 **Source**
 - User direction (2026-09-16): register reset enable/init on `ac.var`, then
   per-module `.ac` and gfsim class files wired together.
+
+## Decision 0265: windows-x86_64 is a third SDK platform profile with a five-wheel release map
+
+**Status:** Accepted; implementation tracked by issue #61
+
+**Context / Goal**
+Decision 0232 fixed the first SDK release to two platforms and an exact
+four-wheel asset set, with "other systems unsupported until separately
+verified". Consuming projects now also run on Windows, so the supported
+platform set and the wheel topology must grow without rewriting 0232's accepted
+clauses: the exact identity tuple, the CMake component split, the relocation and
+attestation contract, and the "unsupported until separately verified" rule all
+stay in force.
+
+**Decision (strong constraint)**
+- This decision refines Decision 0232 for the platform set and the wheel
+  topology only. Every other clause of 0232 remains as written.
+- A third profile `windows-x86_64` joins `linux-x86_64` and `macos-arm64`:
+  builder `windows-2022`, x86_64, host triple `x86_64-pc-windows-msvc`,
+  minimum runtime Windows Server 2022, Python 3.11, declared C++20 identity,
+  host C++ ABI `MSVC v143`.
+- Windows native tools are PE images named `bin/<tool>.exe`. The MSVC v143
+  C/C++ runtime is the documented system dependency, the Windows analogue of
+  glibc/libstdc++ and libc++. Every other DLL import must be bundled inside the
+  archive. Windows has no RPATH and no codesign/patchelf step; relocation and
+  verification use `dumpbin /dependents` and `dumpbin /exports` and fail closed
+  when the MSVC developer environment is absent.
+- The release has exactly five wheel assets. `pycircuit-hisi` contributes one
+  platform wheel per supported profile (`linux_x86_64`,
+  `macosx_*_arm64`, `win_amd64`); `pycircuit-semantic-core` and
+  `agentic-circuit` each contribute one universal wheel. Release-index and
+  consumer-lock schemas keep platform-keyed wheels distinct from universal
+  wheels and reject a legacy unkeyed map.
+- A release index names three archives and three attached platform manifests,
+  and the final release attestation requires all three platform attestations.
+- Windows consumption stays unsupported until the platform job produces the
+  verification below. Building or publishing bytes is not verification.
+
+**Required verification**
+- The `windows-2022` candidate lane builds the SDK with MSVC v143 and the
+  LLVM/MLIR 22.1.8 Windows release archive, and its verification lane proves PE
+  dependency closure through `dumpbin`, bundled-versus-system classification,
+  producer-absolute-path-free retained bytes, `agentic_model_query_v1` as the
+  only export, installed-wheel smoke, and the incremental determinism, topology
+  change, parallel same root, mismatch rejection, and unsupported-boundary
+  rejection gates on a real Windows runner.
+- The stable lane re-downloads the published Windows bytes and binds them to the
+  same source revision and candidate tag before any Windows consumer claims
+  support.
+- Every other requirement of Decision 0232's required verification is unchanged.
+
+**Source**
+- User direction (2026-09-18): ship a Windows version of the pyCircuit tool and
+  publish it together with the 6.1.0 release.

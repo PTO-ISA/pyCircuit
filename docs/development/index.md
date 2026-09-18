@@ -36,6 +36,9 @@ bash flows/scripts/run_sims.sh
 bash flows/scripts/run_sims_nightly.sh
 bash flows/scripts/run_agentic_circuit.sh
 python3 flows/tools/summarize_gate_run.py --run-id <run-id>
+
+On Windows, use the PowerShell entry point for the same build:
+`pwsh -NoProfile -File flows/scripts/pyc.ps1 build --llvm-config "$env:LLVM_ROOT\bin\llvm-config.exe"`.
 ```
 
 GitHub Actions runs the configured pull request lanes. The nightly workflow
