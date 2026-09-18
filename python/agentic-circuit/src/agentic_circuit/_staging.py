@@ -132,7 +132,14 @@ class ArtifactStage:
         self.committed = True
 
     def commit_directory(self) -> None:
-        """Publish the closed stage with one atomic directory-name operation."""
+        """Publish the closed stage with one atomic directory-name operation.
+
+        Windows has neither an atomic directory exchange nor a rename that
+        replaces an existing directory, so the replacement there moves the
+        existing tree aside, moves the new one in, and parks the old tree where
+        :meth:`__exit__` already removes it. Callers hold the publish lock that
+        serialises writers, so the result matches the POSIX exchange.
+        """
 
         self._verify()
         assert self.path is not None
@@ -146,6 +153,23 @@ class ArtifactStage:
                     raise
         if not self.destination.is_dir() or self.destination.is_symlink():
             raise ValueError("directory publication destination is not a directory")
+
+        if sys.platform == "win32":
+            replaced = self.path.with_name(f"{self.path.name}.replaced")
+            os.replace(self.destination, replaced)
+            try:
+                os.replace(self.path, self.destination)
+            except BaseException:
+                os.replace(replaced, self.destination)
+                raise
+            try:
+                os.replace(replaced, self.path)
+            except OSError:
+                # The new tree is already published; only the discarded tree
+                # could not be parked for __exit__ to remove.
+                shutil.rmtree(replaced, ignore_errors=True)
+            self.committed = True
+            return
 
         libc = CDLL(None, use_errno=True)
         source = os.fsencode(self.path)
