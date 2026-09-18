@@ -10288,6 +10288,14 @@ stay in force.
   builder `windows-2022`, x86_64, host triple `x86_64-pc-windows-msvc`,
   minimum runtime Windows Server 2022, Python 3.11, declared C++20 identity,
   host C++ ABI `MSVC v143`.
+- The Windows profile is compiled by the pinned clang-cl 22.1.8 driver from the
+  official LLVM Windows release binary, over the MSVC v143 ABI, runtime, and
+  system headers. The MSVC front end (`cl.exe`) aborts with an internal
+  compiler error (C1001) on the ACIR codegen's recursive generic lambdas, while
+  the same sources build under clang; the driver therefore changes and the ABI
+  identity above does not. clang-cl also matches the clang/clang++ drivers the
+  Linux and macOS lanes use, and the MSVC developer environment remains
+  mandatory because clang-cl reads `INCLUDE`/`LIB` and `link.exe` from it.
 - Windows native tools are PE images named `bin/<tool>.exe`. The MSVC v143
   C/C++ runtime is the documented system dependency, the Windows analogue of
   glibc/libstdc++ and libc++. Every other DLL import must be bundled inside the
@@ -10306,13 +10314,16 @@ stay in force.
   verification below. Building or publishing bytes is not verification.
 
 **Required verification**
-- The `windows-2022` candidate lane builds the SDK with MSVC v143 and the
-  LLVM/MLIR 22.1.8 Windows release archive, and its verification lane proves PE
-  dependency closure through `dumpbin`, bundled-versus-system classification,
+- The `windows-2022` candidate lane builds the SDK with the pinned clang-cl
+  22.1.8 driver over the MSVC v143 ABI and MLIR built from the pinned
+  LLVM 22.1.8 source, and its verification lane proves PE dependency closure
+  through `dumpbin`, bundled-versus-system classification,
   producer-absolute-path-free retained bytes, `agentic_model_query_v1` as the
   only export, installed-wheel smoke, and the incremental determinism, topology
   change, parallel same root, mismatch rejection, and unsupported-boundary
-  rejection gates on a real Windows runner.
+  rejection gates on a real Windows runner. The official LLVM Windows release
+  archive ships no MLIR at all, so MLIR is built from the pinned source and
+  cached; the compiler driver is taken from that same release tag.
 - The stable lane re-downloads the published Windows bytes and binds them to the
   same source revision and candidate tag before any Windows consumer claims
   support.
@@ -10321,3 +10332,9 @@ stay in force.
 **Source**
 - User direction (2026-09-18): ship a Windows version of the pyCircuit tool and
   publish it together with the 6.1.0 release.
+- User direction (2026-09-18): compile the Windows profile with clang-cl. The
+  Windows lane was implemented with the MSVC front end first; that front end
+  aborts with C1001 on the ACIR codegen's recursive generic lambdas, and the
+  user chose the clang-cl driver over rewriting those lambdas. The same
+  direction corrected the MLIR provisioning clause above, which described the
+  published LLVM Windows archive that carries no MLIR.
