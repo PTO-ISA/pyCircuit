@@ -3,6 +3,16 @@
 #include "pyc_bits.hpp"
 #include "pyc_clock.hpp"
 
+// MSVC has no __builtin_expect; the hint is a pure optimization, so the
+// portable definition collapses to the plain expression there.
+#if defined(_MSC_VER)
+#define PYC_LIKELY(expression) (expression)
+#define PYC_UNLIKELY(expression) (expression)
+#else
+#define PYC_LIKELY(expression) __builtin_expect(!!(expression), 1)
+#define PYC_UNLIKELY(expression) __builtin_expect(!!(expression), 0)
+#endif
+
 namespace pyc::cpp {
 
 template <unsigned InputWidth, unsigned IndexWidth>
@@ -114,7 +124,7 @@ public:
     bool clkNow = clk.toBool();
     bool posedge = (!clkPrev) & clkNow;
     clkPrev = clkNow;
-    if (__builtin_expect(!posedge, 1)) {
+    if (PYC_LIKELY(!posedge)) {
       pending = false;
       return;
     }
@@ -136,7 +146,7 @@ public:
   }
 
   inline void tick_commit() {
-    if (__builtin_expect(pending, 0)) {
+    if (PYC_UNLIKELY(pending)) {
       q = qNext;
       pending = false;
     }
