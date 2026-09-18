@@ -315,9 +315,19 @@ jobs:
           $llvmConfig = "$env:LLVM_ROOT\bin\llvm-config.exe"
           $env:CC = "cl.exe"
           $env:CXX = "cl.exe"
-          $hostTriple = "$(& cl.exe 2>&1)"
-          if (-not ($hostTriple -match "x86_64-pc-windows-msvc")) {
-            throw "windows-x86_64 requires the x86_64-pc-windows-msvc host toolchain"
+          # cl.exe never prints a target triple: its banner only says "for
+          # x64", so the old banner match could never pass. Assert the target
+          # through the Visual Studio developer environment and through the
+          # provisioned LLVM, which does report its own host triple.
+          if (-not (Get-Command cl.exe -ErrorAction SilentlyContinue)) {
+            throw "cl.exe is not on PATH; the MSVC developer environment is not loaded"
+          }
+          if ($env:VSCMD_ARG_HOST_ARCH -ne "x64" -or $env:VSCMD_ARG_TGT_ARCH -ne "x64") {
+            throw "windows-x86_64 requires an x64 host and target; observed host=$env:VSCMD_ARG_HOST_ARCH target=$env:VSCMD_ARG_TGT_ARCH"
+          }
+          $hostTarget = "$(& $llvmConfig --host-target)"
+          if ($hostTarget -notmatch "x86_64-pc-windows-msvc") {
+            throw "the provisioned LLVM/MLIR targets $hostTarget, not x86_64-pc-windows-msvc"
           }
           $env:CFLAGS = "/pathmap:$env:GITHUB_WORKSPACE=."
           $env:CXXFLAGS = $env:CFLAGS
