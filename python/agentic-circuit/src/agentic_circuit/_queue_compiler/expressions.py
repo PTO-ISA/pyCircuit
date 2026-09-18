@@ -326,11 +326,13 @@ class _ExpressionEmitter:
             target = _scalar_type_descriptor(node)
         except QueueFrontendError as error:
             raise QueueFrontendError(
-                f"ACPY-CAST-001: {intrinsic} target must be one concrete ac.uN/ac.bits[N] type"
+                f"ACPY-CAST-001: {intrinsic} target must be one concrete "
+                "ac.uN/ac.sN/ac.bits[N] type"
             ) from error
         if not isinstance(target, BitsType):
             raise QueueFrontendError(
-                f"ACPY-CAST-001: {intrinsic} target must be an unsigned bits type"
+                f"ACPY-CAST-001: {intrinsic} target must be a concrete "
+                "ac.uN/ac.sN/ac.bits[N] type"
             )
         return target
 
@@ -395,7 +397,7 @@ class _ExpressionEmitter:
             source, source_type = self.emit(node.args[0])
             if not isinstance(source_type, BitsType):
                 raise QueueFrontendError(
-                    f"ACPY-CAST-001: {intrinsic} source must be an unsigned bits value"
+                    f"ACPY-CAST-001: {intrinsic} source must be a bits value"
                 )
             source_width = source_type.width
             if intrinsic in {"zext", "sext"} and target.width <= source_width:
