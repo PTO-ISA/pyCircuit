@@ -24,6 +24,16 @@ except ModuleNotFoundError:  # pragma: no cover - Python 3.11+ in CI; 3.10 needs
         ) from exc
 
 
+# Helper scripts staged into the wheel's `_tools` directory, as paths relative
+# to the repository root. `tests/unit/test_repository_layout.py` asserts that
+# every entry still exists, so a relocation cannot leave the wheel build
+# referencing a moved file.
+WHEEL_TOOL_SOURCES = (
+    Path("flows") / "tools" / "gen_cmake_from_manifest.py",
+    Path("tools") / "pycircuit" / "pyc_module_graph.py",
+)
+
+
 def _repo_root() -> Path:
     return Path(__file__).resolve().parents[2]
 
@@ -101,8 +111,8 @@ def main(argv: list[str] | None = None) -> int:
         if bundled_python.is_dir():
             shutil.rmtree(bundled_python)
         tools_dir = package_dir / "_tools"
-        for tool_name in ("gen_cmake_from_manifest.py", "pyc_module_graph.py"):
-            _copy_file(repo_root / "flows" / "tools" / tool_name, tools_dir / tool_name)
+        for tool_source in WHEEL_TOOL_SOURCES:
+            _copy_file(repo_root / tool_source, tools_dir / tool_source.name)
         _copy_file(repo_root / "LICENSE", stage / "LICENSE")
         _copy_file(repo_root / "README.md", stage / "README.md")
         _copy_file(repo_root / "packaging" / "wheel" / "setup.py", stage / "setup.py")

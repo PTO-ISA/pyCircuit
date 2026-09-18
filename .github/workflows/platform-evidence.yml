@@ -333,6 +333,7 @@ jobs:
           $env:CXXFLAGS = $env:CFLAGS
           $env:PYC_PYTHON_EXECUTABLE = (Get-Command python3).Source
           pwsh -NoProfile -File flows/scripts/pyc.ps1 build --llvm-config "$llvmConfig" --build-dir "$PWD/.pycircuit_out/toolchain/build" --install-prefix "$PWD/.pycircuit_out/toolchain/install"
+          if ($LASTEXITCODE -ne 0) { throw "the platform SDK build failed with exit code $LASTEXITCODE" }
           New-Item -ItemType Directory -Force -Path candidate | Out-Null
           python3 packaging/wheel/create_wheel.py --install-dir "$PWD/.pycircuit_out/toolchain/install" --out-dir candidate --wheel-version "${{ inputs.version }}"
           $wheel = (Get-ChildItem candidate -Filter "pycircuit_hisi-*.whl" | Select-Object -First 1).FullName

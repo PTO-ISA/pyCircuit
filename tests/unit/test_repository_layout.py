@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ast
 import subprocess
 from pathlib import Path
 
@@ -118,3 +119,34 @@ def test_acsim_device_kind_never_depends_on_queue_symbol_names() -> None:
         assert implicit_name not in lowering
     assert 'kind.getValue() == "register"' in lowering
     assert 'kind.getValue() == "regfile"' in lowering
+
+
+def test_wheel_staging_tool_sources_exist() -> None:
+    tree = ast.parse(
+        (ROOT / "packaging/wheel/create_wheel.py").read_text(encoding="utf-8")
+    )
+    assignment = next(
+        node
+        for node in tree.body
+        if isinstance(node, ast.Assign)
+        and any(
+            getattr(target, "id", None) == "WHEEL_TOOL_SOURCES"
+            for target in node.targets
+        )
+    )
+    relative_paths = [
+        "/".join(
+            node.value
+            for node in sorted(
+                (node for node in ast.walk(element) if isinstance(node, ast.Constant)),
+                key=lambda node: (node.lineno, node.col_offset),
+            )
+        )
+        for element in assignment.value.elts
+    ]
+    assert relative_paths == [
+        "flows/tools/gen_cmake_from_manifest.py",
+        "tools/pycircuit/pyc_module_graph.py",
+    ]
+    for relative in relative_paths:
+        assert (ROOT / relative).is_file(), relative
