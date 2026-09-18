@@ -445,7 +445,13 @@ def installed_smoke(sdk_root: Path, wheels: list[Path], workspace: Path) -> None
         cwd=workspace,
     )
     run([commands / f"pycircuit{suffix}", "--help"], cwd=workspace)
-    cli = sdk_root / f"bin/agentic-circuit{suffix}"
+    # The Agentic Circuit CLI is a relocatable Python launcher script rather
+    # than a native tool, so it keeps the extensionless name the install layout
+    # documents on every platform; only the compiled tools gain the .exe
+    # suffix. Windows cannot execute a file without a known extension, so the
+    # launcher is invoked through the interpreter there.
+    cli = sdk_root / "bin/agentic-circuit"
+    launcher = [os.fspath(python), os.fspath(cli)] if windows else [os.fspath(cli)]
     for required in (
         cli,
         sdk_root / f"bin/acir-opt{suffix}",
@@ -478,7 +484,7 @@ def installed_smoke(sdk_root: Path, wheels: list[Path], workspace: Path) -> None
         ]
     )
     plan_command = [
-        cli,
+        *launcher,
         "model",
         "plan",
         "--sdk-root",
@@ -494,7 +500,7 @@ def installed_smoke(sdk_root: Path, wheels: list[Path], workspace: Path) -> None
         "--json",
     ]
     emit_command = [
-        cli,
+        *launcher,
         "model",
         "emit-cpp",
         "--sdk-root",

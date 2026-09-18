@@ -136,6 +136,11 @@ Additional files are allowed only when the SDK manifest classifies them. The
 archive MUST NOT contain an absolute producer source path, build path, Homebrew
 path, runner tool-cache path, or unresolved symlink outside the archive.
 
+`bin/agentic-circuit` is a relocatable Python launcher script, not a compiled
+tool, so it keeps that extensionless name on every platform; Windows gives the
+`.exe` suffix only to the native tools, and the launcher is invoked through the
+interpreter there.
+
 ## CMake components
 
 The installed package exposes two explicit components.
