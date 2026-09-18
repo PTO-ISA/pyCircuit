@@ -207,3 +207,68 @@ def test_python_binding_links_the_windows_import_library_by_name() -> None:
     assert '"${_acir_python_abi_dir}/python3.lib" COPYONLY)' in cmake
     # A missing import library must fail at configure time, not at link time.
     assert "Python import library for ${Python3_VERSION} is missing" in cmake
+
+
+POSIX_ONLY_MODULES = frozenset(
+    {
+        "crypt",
+        "fcntl",
+        "grp",
+        "nis",
+        "posix",
+        "pty",
+        "pwd",
+        "resource",
+        "spwd",
+        "syslog",
+        "termios",
+        "tty",
+    }
+)
+
+PRODUCT_PYTHON_ROOTS = (
+    "python/pycircuit/src",
+    "python/agentic-circuit/src",
+    "python/semantic-core/src",
+)
+
+
+def _platform_guarded(node: object, parents: dict[object, object]) -> bool:
+    while node is not None:
+        node = parents.get(node)
+        if isinstance(node, ast.If):
+            test = ast.dump(node.test)
+            if "os" in test and "name" in test:
+                return True
+            if "sys" in test and "platform" in test:
+                return True
+    return False
+
+
+def test_product_python_imports_posix_only_modules_conditionally() -> None:
+    """The product Python has to import on Windows.
+
+    ``fcntl`` is POSIX-only and used to be a bare top-level import in the
+    model-plan command, which made the relocated Windows CLI fail its smoke
+    test with ModuleNotFoundError. A POSIX-only import is allowed only inside
+    a platform check, which is how the publish lock selects ``msvcrt`` on
+    Windows.
+    """
+    offenders: list[str] = []
+    for root in PRODUCT_PYTHON_ROOTS:
+        for path in sorted((ROOT / root).rglob("*.py")):
+            tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+            parents: dict[object, object] = {}
+            for parent in ast.walk(tree):
+                for child in ast.iter_child_nodes(parent):
+                    parents[child] = parent
+            for node in ast.walk(tree):
+                names: list[str] = []
+                if isinstance(node, ast.Import):
+                    names = [alias.name.split(".")[0] for alias in node.names]
+                elif isinstance(node, ast.ImportFrom) and node.module:
+                    names = [node.module.split(".")[0]]
+                if any(name in POSIX_ONLY_MODULES for name in names):
+                    if not _platform_guarded(node, parents):
+                        offenders.append(f"{path.relative_to(ROOT)}:{node.lineno}")
+    assert offenders == []
