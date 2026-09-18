@@ -78,6 +78,17 @@ public:
     multiplyWords(a.low_, b, high, low);
     return WideAddress(a.high_ * b + high, low);
   }
+  /// Truncated 128x128 product: the low 128 bits, matching what the previous
+  /// `unsigned __int128` spelling produced. Address verification multiplies a
+  /// quotient by a whole interleave cycle, so the discarded high bits were
+  /// already unreachable there.
+  friend constexpr WideAddress operator*(WideAddress a, WideAddress b) {
+    uint64_t lowHigh = 0;
+    uint64_t low = 0;
+    multiplyWords(a.low_, b.low_, lowHigh, low);
+    const uint64_t cross = a.low_ * b.high_ + a.high_ * b.low_;
+    return WideAddress(lowHigh + cross, low);
+  }
   friend WideAddress operator/(WideAddress a, WideAddress b) {
     uint64_t remainder = 0;
     return divideByWord(a, divisorWord(b), remainder);
@@ -86,6 +97,23 @@ public:
     uint64_t remainder = 0;
     (void)divideByWord(a, divisorWord(b), remainder);
     return WideAddress(remainder);
+  }
+
+  constexpr WideAddress &operator+=(WideAddress b) {
+    *this = *this + b;
+    return *this;
+  }
+  constexpr WideAddress &operator-=(WideAddress b) {
+    *this = *this - b;
+    return *this;
+  }
+  constexpr WideAddress &operator*=(WideAddress b) {
+    *this = *this * b;
+    return *this;
+  }
+  constexpr WideAddress &operator*=(uint64_t b) {
+    *this = *this * b;
+    return *this;
   }
 
 private:
