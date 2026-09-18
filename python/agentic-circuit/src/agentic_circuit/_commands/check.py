@@ -48,6 +48,7 @@ def capture(arguments: object, workspace: WorkspaceConfig) -> CaptureWorkerResul
                 ),
                 component_roots=workspace.component_roots,
                 private_output=Path(temporary) / "capture",
+                timeout=float(getattr(arguments, "timeout", 30.0)),
             )
         )
 

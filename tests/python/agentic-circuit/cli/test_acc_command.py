@@ -213,6 +213,19 @@ class AccCommandTest(unittest.TestCase):
                     ]
                 )
 
+    def test_timeout_must_be_positive(self) -> None:
+        with self.assertRaises(SystemExit):
+            _acc_py.main(
+                [
+                    "-c",
+                    "architecture.py",
+                    "-o",
+                    "model.ac",
+                    "--timeout",
+                    "0",
+                ]
+            )
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -40,6 +40,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--quiet", action="store_true")
     parser.add_argument("--json", action="store_true")
+    parser.add_argument("--timeout", type=float, default=30.0, metavar="SECONDS")
     return parser
 
 
@@ -90,6 +91,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         parser.error("-c requires a .py architecture")
     if arguments.output.suffix != ".ac":
         parser.error("-o requires a .ac output")
+    if arguments.timeout <= 0:
+        parser.error("--timeout must be positive")
     static_arguments: tuple[tuple[str, object], ...] = ()
     if arguments.static_json is not None:
         try:
