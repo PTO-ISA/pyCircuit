@@ -1043,7 +1043,8 @@ def _lower_simple_module_source(
             continue
         raise QueueFrontendError(
             f"ACPY-MODULE-002: unsupported module system statement "
-            f"{type(statement).__name__}"
+            f"{type(statement).__name__} at line "
+            f"{getattr(statement, 'lineno', 0)}: {ast.unparse(statement)}"
         )
     if (
         returned_names is None
