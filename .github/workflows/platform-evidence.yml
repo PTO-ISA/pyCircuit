@@ -168,6 +168,10 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
+          # Windows PowerShell renders a progress bar for Invoke-WebRequest,
+          # which throttles the ~1 GB LLVM archive download by an order of
+          # magnitude on a hosted runner.
+          $ProgressPreference = "SilentlyContinue"
           $version = $env:LLVM_PACKAGE_VERSION
           $archive = "clang+llvm-$version-x86_64-pc-windows-msvc.tar.xz"
           $url = "https://github.com/llvm/llvm-project/releases/download/llvmorg-$version/$archive"
