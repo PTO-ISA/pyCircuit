@@ -319,7 +319,11 @@ before invoking the installed C++ generator.
 
 The fragment contains no command, target, generator expression, absolute path,
 SDK lookup, or consumer-specific option. The consumer prepends its generated
-root and owns the target definition.
+root and owns the target definition. A consumer MUST normalize that root before
+prepending it: a native Windows root keeps its backslashes through variable
+expansion, and CMake then reads the joined path's `\U` or `\d` as an escape
+sequence and fails with `Invalid character escape`. `file(TO_CMAKE_PATH ...)`
+yields the forward-slash form on every platform.
 
 The consumer builds those sources as a hidden-visibility shared library. Its
 dynamic export list contains only `AGENTIC_MODEL_QUERY_SYMBOL`: use a GNU-style
