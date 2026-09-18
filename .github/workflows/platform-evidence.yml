@@ -50,7 +50,17 @@ env:
   LLVM_VERSION: "22"
   LLVM_PACKAGE_VERSION: "22.1.8"
   LLVM_INSTALL_SCRIPT_SHA256: "03878e08f47b66cc95bc4b544b0db3c6d9ce8d60e6cf2492ae357984330a9eae"
-  LLVM_WINDOWS_ARCHIVE_SHA256: "d96c2cc1736f4eb7fa43cb9bbdf56d93551a9ae0a9aadb9c99c3c3b2b712a234"
+  # The official LLVM Windows release archive ships llvm/clang/lld CMake
+  # packages but no MLIR at all (verified against the published 22.1.8 asset),
+  # and pyCircuit needs MLIR_DIR for pyc-opt/pycc. Windows therefore builds the
+  # pinned LLVM+MLIR source once and caches the install prefix. The option set
+  # mirrors the RTTI/EH configuration of the known-good macOS lane, and
+  # LLVM_WINDOWS_BUILD_ID salts the cache key so an option change starts a
+  # fresh build instead of reusing an incompatible prefix.
+  LLVM_SOURCE_URL: "https://github.com/llvm/llvm-project/releases/download/llvmorg-22.1.8/llvm-project-22.1.8.src.tar.xz"
+  LLVM_SOURCE_SHA256: "922f1817a0df7b1489272d18134ee0087a8b068828f87ac63b9861b1a9965888"
+  LLVM_WINDOWS_BUILD_ID: "source-v1"
+  LLVM_WINDOWS_CMAKE_OPTIONS: "-DLLVM_ENABLE_PROJECTS=mlir -DLLVM_TARGETS_TO_BUILD=X86 -DLLVM_ENABLE_ASSERTIONS=OFF -DLLVM_INCLUDE_TESTS=OFF -DLLVM_INCLUDE_EXAMPLES=OFF -DLLVM_INCLUDE_BENCHMARKS=OFF -DLLVM_INCLUDE_DOCS=OFF -DLLVM_BUILD_LLVM_DYLIB=OFF -DLLVM_LINK_LLVM_DYLIB=OFF -DLLVM_ENABLE_RTTI=ON -DLLVM_ENABLE_EH=OFF -DLLVM_ENABLE_TERMINFO=OFF -DLLVM_ENABLE_LIBXML2=OFF -DLLVM_ENABLE_ZLIB=OFF -DLLVM_ENABLE_ZSTD=OFF -DMLIR_ENABLE_BINDINGS_PYTHON=OFF"
 
 jobs:
   plan:
@@ -115,7 +125,7 @@ jobs:
       fail-fast: false
       matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 180
+    timeout-minutes: 360
     steps:
       - name: Checkout exact candidate SHA
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -163,68 +173,85 @@ jobs:
         with:
           arch: x64
           toolset: "14.4"
-      - name: Install platform dependencies (Windows)
+      - name: Restore the Windows LLVM/MLIR build
         if: matrix.runner_os == 'Windows'
+        id: llvm-cache
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: ${{ runner.temp }}\llvm-mlir
+          key: llvm-mlir-${{ env.LLVM_PACKAGE_VERSION }}-${{ env.LLVM_WINDOWS_BUILD_ID }}-${{ env.LLVM_SOURCE_SHA256 }}
+      - name: Build LLVM/MLIR from the pinned source (Windows)
+        if: matrix.runner_os == 'Windows' && steps.llvm-cache.outputs.cache-hit != 'true'
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
           $ProgressPreference = "SilentlyContinue"
-          $version = $env:LLVM_PACKAGE_VERSION
-          $archive = "clang+llvm-$version-x86_64-pc-windows-msvc.tar.xz"
-          $url = "https://github.com/llvm/llvm-project/releases/download/llvmorg-$version/$archive"
-          $root = "$env:RUNNER_TEMP\llvm"
-          New-Item -ItemType Directory -Force -Path $root | Out-Null
-          $download = Join-Path $root $archive
-          $llvmRoot = "$root\clang+llvm-$version-x86_64-pc-windows-msvc"
-          if (-not (Test-Path "$llvmRoot\lib\cmake\llvm")) {
-            Write-Host "free space before fetch: $([math]::Round((Get-PSDrive C).Free / 1GB, 1)) GiB"
+          $prefix = "$env:RUNNER_TEMP\llvm-mlir"
+          $source = "$env:RUNNER_TEMP\llvm-source"
+          New-Item -ItemType Directory -Force -Path $source | Out-Null
+          $archive = "$source\llvm-project-$env:LLVM_PACKAGE_VERSION.src.tar.xz"
+          Write-Host "free space before fetch: $([math]::Round((Get-PSDrive C).Free / 1GB, 1)) GiB"
+          if (-not (Test-Path $archive)) {
             $started = Get-Date
-            # curl.exe is present on the runner images and surfaces transport
-            # failures instead of stalling; Invoke-WebRequest can hang on this
-            # ~822 MB asset with no diagnosable output.
-            curl.exe --fail --location --retry 3 --retry-delay 5 --max-time 3600 --output "$download" "$url"
-            if ($LASTEXITCODE -ne 0) { throw "LLVM archive download failed with exit code $LASTEXITCODE" }
+            # curl.exe is present on the runner images and fails loudly instead
+            # of stalling the way Invoke-WebRequest can.
+            curl.exe --fail --location --retry 3 --retry-delay 5 --max-time 3600 --output "$archive" "$env:LLVM_SOURCE_URL"
+            if ($LASTEXITCODE -ne 0) { throw "LLVM source download failed with exit code $LASTEXITCODE" }
             Write-Host "downloaded in $([int]((Get-Date) - $started).TotalSeconds)s"
-            $actual = (Get-FileHash -Algorithm SHA256 -Path $download).Hash.ToLowerInvariant()
-            if ($actual -ne $env:LLVM_WINDOWS_ARCHIVE_SHA256) {
-              throw "LLVM $version Windows archive SHA256 mismatch: $actual"
-            }
-            $started = Get-Date
+          }
+          $actual = (Get-FileHash -Algorithm SHA256 -Path $archive).Hash.ToLowerInvariant()
+          if ($actual -ne $env:LLVM_SOURCE_SHA256) {
+            throw "LLVM source SHA256 mismatch: $actual"
+          }
+          $srcRoot = "$source\llvm-project-$env:LLVM_PACKAGE_VERSION.src"
+          if (-not (Test-Path "$srcRoot\llvm\CMakeLists.txt")) {
             $sevenZip = (Get-Command 7z.exe -ErrorAction SilentlyContinue).Source
             if (-not $sevenZip -and (Test-Path "C:\Program Files\7-Zip\7z.exe")) {
               $sevenZip = "C:\Program Files\7-Zip\7z.exe"
             }
             if ($sevenZip) {
-              # 7-Zip decodes xz considerably faster than the bundled bsdtar.
-              & $sevenZip x -y "-o$root" "$download" | Out-Null
-              if ($LASTEXITCODE -ne 0) { throw "7z failed on $archive with exit code $LASTEXITCODE" }
-              $inner = Join-Path $root ([IO.Path]::GetFileNameWithoutExtension($archive))
+              & $sevenZip x -y "-o$source" "$archive" | Out-Null
+              if ($LASTEXITCODE -ne 0) { throw "7z failed on the LLVM source archive with exit code $LASTEXITCODE" }
+              $inner = "$source\llvm-project-$env:LLVM_PACKAGE_VERSION.src.tar"
               if (Test-Path $inner) {
-                & $sevenZip x -y "-o$root" "$inner" | Out-Null
-                if ($LASTEXITCODE -ne 0) { throw "7z failed on $inner with exit code $LASTEXITCODE" }
+                & $sevenZip x -y "-o$source" "$inner" | Out-Null
+                if ($LASTEXITCODE -ne 0) { throw "7z failed on the LLVM source tar with exit code $LASTEXITCODE" }
                 Remove-Item $inner -Force
               }
             } else {
-              # The bundled bsdtar does not decode .tar.xz reliably on the
-              # Windows images, and a silent failure used to surface only as a
-              # misleading layout error. Python's tarfile owns the xz support.
-              python3 -c "import sys, tarfile; tarfile.open(sys.argv[1]).extractall(sys.argv[2])" "$download" "$root"
+              # The bundled bsdtar does not decode .tar.xz reliably here.
+              python3 -c "import sys, tarfile; tarfile.open(sys.argv[1]).extractall(sys.argv[2])" "$archive" "$source"
               if ($LASTEXITCODE -ne 0) { throw "python tarfile extraction failed with exit code $LASTEXITCODE" }
             }
-            if (-not (Test-Path "$llvmRoot\lib\cmake\llvm") -or -not (Test-Path "$llvmRoot\lib\cmake\mlir")) {
-              Write-Host "extracted top level:"
-              Get-ChildItem $root | Select-Object -First 10 | ForEach-Object { Write-Host "  $($_.Name)" }
-              throw "LLVM $version Windows archive layout is unexpected: $llvmRoot"
-            }
-            Write-Host "extracted in $([int]((Get-Date) - $started).TotalSeconds)s"
-            Remove-Item $download -Force
-          } else {
-            Write-Host "reusing extracted LLVM at $llvmRoot"
           }
-          "LLVM_ROOT=$llvmRoot" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-          "LLVM_DIR=$llvmRoot\lib\cmake\llvm" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-          "MLIR_DIR=$llvmRoot\lib\cmake\mlir" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-          "$llvmRoot\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          if (-not (Test-Path "$srcRoot\llvm\CMakeLists.txt")) {
+            Write-Host "extracted top level:"
+            Get-ChildItem $source | Select-Object -First 5 | ForEach-Object { Write-Host "  $($_.Name)" }
+            throw "LLVM source layout is unexpected: $srcRoot"
+          }
+          $started = Get-Date
+          cmake -G Ninja -S "$srcRoot\llvm" -B "$source\build" -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX="$prefix" $env:LLVM_WINDOWS_CMAKE_OPTIONS.Split(" ")
+          if ($LASTEXITCODE -ne 0) { throw "LLVM/MLIR configure failed with exit code $LASTEXITCODE" }
+          cmake --build "$source\build" --target install --parallel
+          if ($LASTEXITCODE -ne 0) { throw "LLVM/MLIR build failed with exit code $LASTEXITCODE" }
+          Write-Host "LLVM/MLIR installed in $([int]((Get-Date) - $started).TotalSeconds)s"
+      - name: Expose the Windows LLVM/MLIR install
+        if: matrix.runner_os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $prefix = "$env:RUNNER_TEMP\llvm-mlir"
+          foreach ($needed in @("$prefix\lib\cmake\llvm", "$prefix\lib\cmake\mlir", "$prefix\bin\llvm-config.exe")) {
+            if (-not (Test-Path $needed)) {
+              Write-Host "install top level:"
+              Get-ChildItem $prefix | Select-Object -First 10 | ForEach-Object { Write-Host "  $($_.Name)" }
+              throw "Windows LLVM/MLIR provisioning is incomplete: missing $needed"
+            }
+          }
+          "LLVM_ROOT=$prefix" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "LLVM_DIR=$prefix\lib\cmake\llvm" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "MLIR_DIR=$prefix\lib\cmake\mlir" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "$prefix\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
           python3 -m pip install --upgrade cmake ninja setuptools wheel twine
       - name: Build platform bytes
         if: matrix.runner_os != 'Windows'
