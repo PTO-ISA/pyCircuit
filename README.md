@@ -98,6 +98,11 @@ Continue with the [Quickstart](docs/getting-started/quickstart.md) or the
 
 ## Write your first circuit
 
+Each frontend has one authoring entry point, and both lower to verified PYC
+before any backend runs.
+
+### Cycle-aware hardware with `pycircuit`
+
 `CycleAwareSignal` is the primary authoring model. Compute the next value in the
 current logical cycle, call `domain.next()`, then commit the assignment; the
 frontend inserts delay registers wherever cycles must be balanced.
@@ -134,6 +139,55 @@ The full design, testbench, and parameters live in
 [`examples/pycircuit/basics/counter`](examples/pycircuit/basics/counter), and the
 [pyCircuit 6 Tutorial](docs/getting-started/tutorial.md) covers testbenches,
 hierarchy, memories, and multi-cycle pipelines.
+
+### Transactional architecture with `agentic_circuit`
+
+Use Agentic Circuit when a design is better described as typed data moving
+through queues and atomic rules. Availability, backpressure, reservations,
+arbitration, and commit are compiler responsibilities, so the Python describes
+intent rather than hand-built handshakes.
+
+```python
+import agentic_circuit as ac
+
+
+@ac.struct
+class Entry:
+    index: ac.u2
+    value: ac.u8
+
+
+def increment(entry: Entry) -> Entry:
+    return entry.with_fields(value=entry.value + 1)
+
+
+@ac.rule
+def install(entries, incoming):
+    old = entries[incoming.index]
+    entries[incoming.index] = increment(incoming)
+    return old
+
+
+@ac.system
+def transaction_pipeline(incoming: Entry) -> Entry:
+    entries = ac.table[4, Entry](init=0)
+    outgoing = install(entries, incoming)
+    return outgoing
+```
+
+Every `@ac.rule` is one schedulable atomic transition. Here the Table
+replacement and the Queue transfers in `install` prepare together and publish at
+the same tick edge, so backpressure or a state conflict leaves the committed
+image unchanged; no reservation, check, or prepare/publish step appears in the
+Python.
+
+Runnable state examples, including explicit `ac.source()` and `ac.sink()`
+capture forms, multi-rule ROB scheduling, and slot ownership, live in
+[`examples/agentic-circuit/state`](examples/agentic-circuit/state). The
+[Agentic Circuit and ACIR](docs/acir/index.md) documentation covers ACPy,
+ACIR/ACSim, QueueGraph, and gfsim, and the
+[Agent Frontend Guide](docs/development/agent-frontend-guide.md) states the
+authoring rules this example follows.
 
 ## How the toolchain fits together
 

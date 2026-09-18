@@ -1041,6 +1041,7 @@ class RepositoryContractsTest(unittest.TestCase):
                 validator.validate(mutation)
 
     def test_markdown_local_links_resolve(self):
+        checker = load_contract_checker()
         broken = []
         link_pattern = re.compile(r"(?<!!)\[[^\]]+\]\(([^)]+)\)")
         markdown_files = [
@@ -1048,7 +1049,11 @@ class RepositoryContractsTest(unittest.TestCase):
             *sorted((ROOT / "docs/acir/spec").glob("*.md")),
         ]
         for path in markdown_files:
-            for target in link_pattern.findall(path.read_text()):
+            # Scan prose only, matching check_contracts.check_links. Published
+            # Python examples contain code such as `ac.table[4, Entry](init=0)`
+            # whose subscript and call are not a Markdown link.
+            prose = "\n".join(checker.markdown_prose_lines(path))
+            for target in link_pattern.findall(prose):
                 destination = target.split("#", 1)[0]
                 if not destination or re.match(r"^[a-z][a-z0-9+.-]*:", destination):
                     continue
