@@ -64,6 +64,8 @@ WINDOWS_SYSTEM_DLLS = frozenset(
         "opengl32.dll",
         "powrprof.dll",
         "psapi.dll",
+        "python3.dll",
+        "python311.dll",
         "rpcrt4.dll",
         "sechost.dll",
         "secur32.dll",

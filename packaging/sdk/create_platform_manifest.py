@@ -32,10 +32,16 @@ SDK_SCHEMA_NAMES = (
 # Windows dependencies whose DLL name ends in one of these prefixes are shipped
 # with the operating system (API sets) and are never bundled in the SDK.
 WINDOWS_SYSTEM_DLL_PREFIXES = ("api-ms-win-", "ext-ms-win-")
-# Windows operating-system DLLs plus the MSVC v143 C/C++ runtime, which the
-# platform profile declares as the system C++ ABI (the Windows analogue of
-# glibc/libstdc++ on Linux and libc++ on macOS).  Any other DLL import must be
-# present inside the SDK or relocation fails closed.
+# Windows operating-system DLLs plus the runtimes the platform profile declares
+# as system dependencies: the MSVC v143 C/C++ runtime (the Windows analogue of
+# glibc/libstdc++ on Linux and libc++ on macOS) and the Python 3.11 runtime that
+# loads the extension modules.  A Windows Python extension has to link an import
+# library, so _native.pyd imports the interpreter DLL, just as an extension on
+# any platform expects its host interpreter to be present.  The stable-ABI
+# import library is named python3.lib and imports python3.dll, while the
+# version-specific one imports python311.dll; which appears depends on the
+# interpreter layout.  Any other DLL import must be present inside the SDK or
+# relocation fails closed.
 WINDOWS_SYSTEM_DLLS = frozenset(
     {
         "advapi32.dll",
@@ -76,6 +82,8 @@ WINDOWS_SYSTEM_DLLS = frozenset(
         "opengl32.dll",
         "powrprof.dll",
         "psapi.dll",
+        "python3.dll",
+        "python311.dll",
         "rpcrt4.dll",
         "sechost.dll",
         "secur32.dll",

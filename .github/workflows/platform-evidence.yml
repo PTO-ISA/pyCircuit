@@ -421,6 +421,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "the platform SDK build failed with exit code $LASTEXITCODE" }
           New-Item -ItemType Directory -Force -Path candidate | Out-Null
           python3 packaging/wheel/create_wheel.py --install-dir "$PWD/.pycircuit_out/toolchain/install" --out-dir candidate --wheel-version "${{ inputs.version }}"
+          if ($LASTEXITCODE -ne 0) { throw "wheel creation failed with exit code $LASTEXITCODE" }
           $wheel = (Get-ChildItem candidate -Filter "pycircuit_hisi-*.whl" | Select-Object -First 1).FullName
           $semanticWheel = (Get-ChildItem universal -Filter "pycircuit_semantic_core-*.whl" | Select-Object -First 1).FullName
           $agenticWheel = (Get-ChildItem universal -Filter "agentic_circuit-*.whl" | Select-Object -First 1).FullName
@@ -428,11 +429,17 @@ jobs:
             throw "the platform wheel or a universal wheel is missing"
           }
           python3 packaging/sdk/create_platform_manifest.py --install-dir "$PWD/.pycircuit_out/toolchain/install" --wheel "$wheel" --wheel "$semanticWheel" --wheel "$agenticWheel" --platform "${{ matrix.platform }}" --source-revision "${{ inputs.commit_sha }}" --cxx-compiler "$env:CXX" --out-dir candidate
+          # $ErrorActionPreference does not make a failing native command fatal,
+          # so this exit code must be checked explicitly. Without it a failed
+          # manifest or archive step is masked and the lane uploads a partial
+          # candidate, which only surfaces later as a missing file in verify.
+          if ($LASTEXITCODE -ne 0) { throw "platform manifest and archive creation failed with exit code $LASTEXITCODE" }
           $wheels = @(Get-ChildItem candidate -Filter "*.whl")
           if ($wheels.Count -eq 0) {
             throw "no candidate wheels were produced"
           }
           python3 -m twine check @($wheels | ForEach-Object { $_.FullName })
+          if ($LASTEXITCODE -ne 0) { throw "twine check failed with exit code $LASTEXITCODE" }
       - name: Upload platform bytes
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:

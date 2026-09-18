@@ -10297,8 +10297,12 @@ stay in force.
   Linux and macOS lanes use, and the MSVC developer environment remains
   mandatory because clang-cl reads `INCLUDE`/`LIB` and `link.exe` from it.
 - Windows native tools are PE images named `bin/<tool>.exe`. The MSVC v143
-  C/C++ runtime is the documented system dependency, the Windows analogue of
-  glibc/libstdc++ and libc++. Every other DLL import must be bundled inside the
+  C/C++ runtime and the Python 3.11 runtime are the documented system
+  dependencies: the first is the Windows analogue of glibc/libstdc++ and
+  libc++, and the second is the host interpreter that loads the extension
+  modules, which a Windows extension has to import because the platform
+  requires an import library where ELF and Mach-O extensions resolve the
+  interpreter at load time. Every other DLL import must be bundled inside the
   archive. Windows has no RPATH and no codesign/patchelf step; relocation and
   verification use `dumpbin /dependents` and `dumpbin /exports` and fail closed
   when the MSVC developer environment is absent.
